@@ -93,8 +93,13 @@ describe('ADR-0427 Provisional Shadow Ledger 영속', () => {
     expect(r2.recorded).toBe(false);
     if (!r2.recorded) {
       expect(r2.reason).toBe('DUPLICATE');
+      expect('updated' in r2 ? r2.updated : false).toBe(true);
+      expect('entry' in r2 ? r2.entry.duplicateSeenCount : undefined).toBe(1);
+      expect('entry' in r2 ? r2.entry.lastSeenAt : undefined).toBeDefined();
     }
-    expect(loadProvisionalShadowLedger()).toHaveLength(1);
+    const entries = loadProvisionalShadowLedger();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].duplicateSeenCount).toBe(1);
   });
 
   // ────────────────────────────────────────────────────────
@@ -295,6 +300,7 @@ describe('ADR-0427 Provisional Shadow Ledger 영속', () => {
     const section = formatProvisionalShadowSection({
       eligible: 5,
       created: 3,
+      updated: 1,
       skipped: 2,
       skipReasons: { DUPLICATE: 1, ENV_DISABLED: 1 },
       dominantLabel: 'R3_PROVISIONAL_LEADER_DATA_DEGRADED',

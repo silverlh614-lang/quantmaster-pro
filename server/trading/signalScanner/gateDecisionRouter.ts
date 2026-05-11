@@ -206,7 +206,7 @@ export function deriveGateDecisionRouterResult(
     };
   }
 
-  // SIZING_BLOCKED 우세도 HARD_BLOCK (사용자 §C — order/execution risk)
+  // SIZING_BLOCKED 우세는 Live 주문만 차단하고 Shadow/Watch 관측은 보존한다.
   const blockReasons = input.blockReasons ?? {};
   const gate1Pass = input.gate1Pass ?? 0;
   if ((blockReasons.sizingBlocked ?? 0) > 0 && gate1Pass > 0 &&
@@ -215,20 +215,20 @@ export function deriveGateDecisionRouterResult(
     const learningAllowed =
       process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED !== 'true';
     return {
-      severity: 'HARD_BLOCK',
+      severity: 'WATCH_ONLY',
       reasons,
       liveAllowed: false,
       paperAllowed: false,
-      shadowAllowed: false,
-      watchAllowed: false,
+      shadowAllowed: true,
+      watchAllowed: true,
       counterfactualLearningAllowed: learningAllowed,
       learningShadowAllowed: learningAllowed,
-      label: 'BLOCK_RISK',
-      lanes: { live: false, paper: false, shadow: false, watch: false, learning: learningAllowed, counterfactual: learningAllowed },
+      label: 'WATCH_PRE_BREAKOUT',
+      lanes: { live: false, paper: false, shadow: true, watch: true, learning: true, counterfactual: learningAllowed },
       executionImpact: 'NONE',
       operatorMessage:
-        'Sizing 불가 — Kelly/계좌 한도 초과로 주문 자체 차단. ' +
-        'ADR-0430 counterfactual learning 만 별도 ledger 보존 가능.',
+        'Sizing 불가 — Kelly/계좌 한도 초과로 Live 주문만 차단. ' +
+        'SIZING_BLOCKED_SHADOW 라벨로 Shadow/Watch 학습 후보 보존 가능.',
     };
   }
 

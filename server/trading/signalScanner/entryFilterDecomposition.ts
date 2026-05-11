@@ -1047,7 +1047,10 @@ function buildGate1CandidateTrace(input: {
     conditions.find((c) => !c.passed);
   const wouldPassIfProviderIssueSoftened = canPassIgnoring(
     { conditions } as Gate1CandidateTrace,
-    (c) => c.providerIssue || c.code === "TRADING_SESSION_PASS",
+    (c) =>
+      c.providerIssue ||
+      c.code === "TRADING_SESSION_PASS" ||
+      c.code === "MIN_SIGNAL_SCORE_PASS",
   );
   const wouldPassIfSupplySampleIgnored = canPassIgnoring(
     { conditions } as Gate1CandidateTrace,
@@ -2087,8 +2090,12 @@ export function formatEntryFilterDecompositionSection(
   const cf = d.gate1CounterfactualSurvivorReport;
   lines.push("");
   lines.push("🧩 <b>Gate1 Survivor Decomposition (ADR-0465)</b>");
+  const gate1HardSurvivors = d.gate1CandidateTraces.filter((t) => t.gate1Passed && t.hardFailCount === 0 && t.softFailCount === 0).length;
+  const gate1SoftSurvivors = d.gate1CandidateTraces.filter((t) => t.gate1Passed && t.softFailCount > 0).length;
   lines.push(`• candidates: ${g1.totalCandidates}`);
   lines.push(`• gate1Passed: ${g1.gate1Passed}`);
+  lines.push(`• gate1HardSurvivors: ${gate1HardSurvivors}`);
+  lines.push(`• gate1SoftSurvivors: ${gate1SoftSurvivors}`);
   lines.push(`• gate1Failed: ${g1.gate1Failed}`);
   lines.push(
     `• hardFailCandidates: ${d.gate1CandidateTraces.filter((t) => t.hardFailCount > 0).length}`,
@@ -2154,7 +2161,13 @@ export function formatEntryFilterDecompositionSection(
   lines.push("");
   lines.push("📐 <b>Min Signal Score Decomposition (ADR-0466)</b>");
   lines.push(`• candidates: ${min.totalCandidates}`);
+  const minSignalLivePass = Math.max(0, min.totalCandidates - min.minSignalFailed);
+  const minSignalShadowEligible = d.gate1CandidateTraces.filter((t) => t.hardFailCount === 0).length;
   lines.push(`• minSignalFailed: ${min.minSignalFailed}`);
+  lines.push(`• minSignalLivePass: ${minSignalLivePass}`);
+  lines.push(`• minSignalShadowEligible: ${minSignalShadowEligible}`);
+  lines.push("• note: Gate1 survivor는 Live pass가 아니라 Shadow/Watch 생존 후보입니다.");
+  lines.push("• note: MinSignalScore failed는 live score threshold 미달이며, hard fail과 다릅니다.");
   lines.push(`• requiredScoreAvg: ${min.requiredScoreAvg.toFixed(1)}`);
   lines.push(`• actualScoreAvg: ${min.actualScoreAvg.toFixed(1)}`);
   lines.push(

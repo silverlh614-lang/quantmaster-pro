@@ -428,6 +428,7 @@ describe('ADR-0449 — Group J — summarizePreBreakoutWaitDecisions', () => {
     expect(s.shadowOnly).toBe(0);
     expect(s.rejected).toBe(0);
     expect(s.failCountProtected).toBe(0);
+    expect(s.preservedCount).toBe(0);
     expect(s.topReasons).toEqual([]);
   });
 
@@ -451,6 +452,7 @@ describe('ADR-0449 — Group J — summarizePreBreakoutWaitDecisions', () => {
     expect(s.volumeWeak).toBe(1);
     expect(s.gateRecheckFailed).toBe(1);
     expect(s.failCountProtected).toBe(8); // 모든 decision 이 ADR-0115 보호
+    expect(s.preservedCount).toBe(8);
   });
 
   it('topReasons — count 내림차순 + Top 3 절삭', () => {
@@ -493,6 +495,7 @@ describe('ADR-0449 — Group K — formatPreBreakoutWaitSummarySection /scan_blo
     expect(out!).toContain('shadowOnly 12');
     expect(out!).toContain('rejected 3');
     expect(out!).toContain('failCountProtected: 27');
+    expect(out!).toContain('preserved: 27');
     expect(out!).toContain('topReason:');
   });
 
