@@ -110,6 +110,14 @@ function readDisabled(): boolean {
   return process.env.KRX_OPENAPI_DISABLED === 'true' || process.env.KRX_API_DISABLED === 'true';
 }
 
+function isKrxAutoFetchDisabled(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
+}
+
+export function isKrxOpenApiAutoFetchDisabled(): boolean {
+  return isKrxAutoFetchDisabled();
+}
+
 const EP = {
   kospiDailyTrade: process.env.KRX_OPENAPI_EP_STK_BYDD ?? 'sto/stk_bydd_trd',
   kosdaqDailyTrade: process.env.KRX_OPENAPI_EP_KSQ_BYDD ?? 'sto/ksq_bydd_trd',
@@ -250,6 +258,10 @@ async function krxGetFromBase(
 }
 
 export async function krxGet(endpoint: string, params: Record<string, string>): Promise<KrxOpenApiResponse | null> {
+  if (isKrxAutoFetchDisabled()) {
+    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${endpoint}`);
+    return null;
+  }
   if (readDisabled()) return null;
   const authKey = readAuthKey();
   if (!authKey) return null;
@@ -432,6 +444,7 @@ export function fetchDerivativesIndexDaily(date?: string): Promise<KrxIndexDaily
 }
 
 export function isKrxOpenApiHealthy(): boolean {
+  if (isKrxAutoFetchDisabled()) return false;
   if (readDisabled()) return false;
   if (!readAuthKey()) return false;
   return breaker.state !== 'OPEN';
@@ -447,7 +460,7 @@ export function getKrxOpenApiStatus(): {
 } {
   const stats = breaker.getStats();
   return {
-    enabled: !readDisabled(),
+    enabled: !readDisabled() && !isKrxAutoFetchDisabled(),
     authKeyConfigured: readAuthKey().length > 0,
     circuitState: stats.state,
     failures: stats.failures,

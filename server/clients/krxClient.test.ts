@@ -17,6 +17,8 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
   beforeEach(async () => {
     // 각 테스트 시작 전 환경변수·캐시 초기화.
     delete process.env.KRX_API_DISABLED;
+    delete process.env.KIS_FIRST_REBUILD_MODE;
+    delete process.env.KRX_AUTO_FETCH_DISABLED;
     const mod = await import('./krxClient.js');
     mod.resetKrxCache();
   });
@@ -24,6 +26,50 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+
+  it('KIS_FIRST_REBUILD_MODE=true 이면 KRX HTTP client를 호출하지 않고 disabled 진단을 반환한다', async () => {
+    process.env.KIS_FIRST_REBUILD_MODE = 'true';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508', { symbol: '005930' });
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+
+    expect(rows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(diagnostic?.status).toBe('DISABLED_BY_KIS_FIRST_MODE');
+    expect(diagnostic?.parserStatus).toBe('DISABLED_BY_KIS_FIRST_MODE');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.marketSignal).toBe(false);
+    expect(diagnostic?.useForRouter).toBe(false);
+    expect(diagnostic?.useForGate).toBe(false);
+    expect(diagnostic?.useForLive).toBe(false);
+    expect(diagnostic?.useForShadow).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
+  });
+
+  it('KRX_AUTO_FETCH_DISABLED=true 이면 KRX HTTP client를 호출하지 않고 manual diagnostic bypass는 허용한다', async () => {
+    process.env.KRX_AUTO_FETCH_DISABLED = 'true';
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ OutBlock_1: [] }),
+      headers: { get: () => 'application/json' },
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    await expect(fetchInvestorTrading('20260508')).resolves.toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(getLastKrxInvestorTradingDiagnostic('20260508')?.providerIssue).toBe(false);
+
+    await expect(fetchInvestorTrading('20260509', { allowDisabledAutoFetch: true })).resolves.toEqual([]);
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   it('KRX_API_DISABLED=true 일 때 fetch를 호출하지 않고 빈 배열을 반환한다', async () => {
@@ -421,12 +467,16 @@ describe('krxClient — 블루프린트 파사드', () => {
     KRX_OPENAPI_AUTH_KEY: process.env.KRX_OPENAPI_AUTH_KEY,
     KRX_API_DISABLED: process.env.KRX_API_DISABLED,
     KRX_OPENAPI_DISABLED: process.env.KRX_OPENAPI_DISABLED,
+    KIS_FIRST_REBUILD_MODE: process.env.KIS_FIRST_REBUILD_MODE,
+    KRX_AUTO_FETCH_DISABLED: process.env.KRX_AUTO_FETCH_DISABLED,
   };
 
   beforeEach(() => {
     process.env.KRX_API_KEY = 'blueprint-key';
     delete process.env.KRX_OPENAPI_AUTH_KEY;
     delete process.env.KRX_API_DISABLED;
+    delete process.env.KIS_FIRST_REBUILD_MODE;
+    delete process.env.KRX_AUTO_FETCH_DISABLED;
     delete process.env.KRX_OPENAPI_DISABLED;
   });
 
@@ -436,6 +486,8 @@ describe('krxClient — 블루프린트 파사드', () => {
     process.env.KRX_OPENAPI_AUTH_KEY = ORIG_ENV.KRX_OPENAPI_AUTH_KEY;
     process.env.KRX_API_DISABLED = ORIG_ENV.KRX_API_DISABLED;
     process.env.KRX_OPENAPI_DISABLED = ORIG_ENV.KRX_OPENAPI_DISABLED;
+    process.env.KIS_FIRST_REBUILD_MODE = ORIG_ENV.KIS_FIRST_REBUILD_MODE;
+    process.env.KRX_AUTO_FETCH_DISABLED = ORIG_ENV.KRX_AUTO_FETCH_DISABLED;
     vi.restoreAllMocks();
     vi.resetModules();
   });
@@ -503,6 +555,21 @@ describe('krxClient — 블루프린트 파사드', () => {
     const rows = await fetchKrxSectorIndices('20260417');
     expect(rows).toHaveLength(1);
     expect(rows[0].indexName).toBe('KRX 에너지');
+  });
+
+
+  it('KIS_FIRST_REBUILD_MODE=true 이면 KRX sector OpenAPI HTTP client를 호출하지 않는다', async () => {
+    process.env.KIS_FIRST_REBUILD_MODE = 'true';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const openApi = await import('./krxOpenApi.js');
+    openApi._resetKrxOpenApiBreaker();
+    openApi.resetKrxOpenApiCache();
+    const { fetchKrxSectorIndices } = await import('./krxClient.js');
+    await expect(fetchKrxSectorIndices('20260417')).resolves.toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('fetchKrxMarketCap()은 marketCap 이 0 인 행을 제거하고 원 단위 정수로 반환한다', async () => {

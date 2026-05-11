@@ -63,6 +63,7 @@ export type InvestorFlowAttemptStatus =
   | 'NO_OUTPUT'
   | 'OFF_HOURS'
   | 'DATA_UNAVAILABLE'
+  | 'DISABLED_BY_KIS_FIRST_MODE'
   | 'ERROR';
 
 export interface InvestorFlowAttempt {
@@ -105,6 +106,11 @@ function hasKisInvestorFields(value: unknown): value is { foreignNetBuy: number;
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy);
+}
+
+
+function isKrxAutoFetchDisabled(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
 }
 
 function normalizeCode(code: string): string {
@@ -173,6 +179,29 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
       cacheFallback: true,
     });
     return { data: null, diagnostic: `invalid_code:${code}`, unavailable: true, offHours: false, health };
+  }
+
+  if (isKrxAutoFetchDisabled()) {
+    const health = makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: 'DISABLED_BY_KIS_FIRST_MODE',
+      reason: 'KIS-first mode; KRX retained for manual validation only',
+      now,
+      sourceDateKst,
+      endpoint: 'MDCSTAT02201',
+      retryable: false,
+      cacheFallback: false,
+      dataAvailable: false,
+      semanticAvailable: false,
+    });
+    console.info('[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=MDCSTAT02201');
+    return {
+      data: null,
+      diagnostic: 'status=DISABLED_BY_KIS_FIRST_MODE;provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=KIS-first mode; KRX retained for manual validation only',
+      unavailable: false,
+      offHours: false,
+      health,
+    };
   }
 
   const suppressed = shouldSuppressInvestorFlowFetch(now);

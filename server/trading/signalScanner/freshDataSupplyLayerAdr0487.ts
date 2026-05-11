@@ -34,6 +34,7 @@ export type FreshDataLineStatus =
   | 'STALE'
   | 'MISSING'
   | 'DATA_UNAVAILABLE'
+  | 'DISABLED_BY_KIS_FIRST_MODE'
   | 'PROVIDER_ERROR'
   | 'CACHE_ONLY'
   | 'READY_FOR_SHADOW'
@@ -45,6 +46,7 @@ export type FreshDataSourceState =
   | 'MISSING'
   | 'EMPTY'
   | 'DATA_UNAVAILABLE'
+  | 'DISABLED_BY_KIS_FIRST_MODE'
   | 'PROVIDER_ERROR'
   | 'NON_TRADING_DAY'
   | 'UNKNOWN';
@@ -299,6 +301,7 @@ function materializationRecord(input: unknown): Record<string, unknown> | null {
 }
 
 function statusForSnapshot(input: Required<Pick<BuildFreshDataSnapshotInputAdr0487, 'cacheState' | 'sourceState' | 'normalized' | 'stage'>> & { coverageRatio: number; sampleMaterialized: boolean; usableForRouter: boolean }): FreshDataLineStatus {
+  if (input.sourceState === 'DISABLED_BY_KIS_FIRST_MODE') return 'DISABLED_BY_KIS_FIRST_MODE';
   if (input.sourceState === 'PROVIDER_ERROR') return 'PROVIDER_ERROR';
   if (input.sourceState === 'STALE') return 'STALE';
   if (input.sourceState === 'NON_TRADING_DAY') return 'DATA_UNAVAILABLE';
@@ -313,6 +316,7 @@ function statusForSnapshot(input: Required<Pick<BuildFreshDataSnapshotInputAdr04
 }
 
 function isProviderIssue(status: FreshDataLineStatus): boolean {
+  if (status === 'DISABLED_BY_KIS_FIRST_MODE') return false;
   return ['PARTIAL', 'STALE', 'MISSING', 'DATA_UNAVAILABLE', 'PROVIDER_ERROR', 'CACHE_ONLY', 'UNKNOWN'].includes(status);
 }
 
@@ -418,6 +422,11 @@ function snapshotFromFreshness(
   });
 }
 
+
+function isKrxAutoFetchDisabledAdr0487(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
+}
+
 function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registrations: FreshDataSourceRegistrationAdr0487[], generatedAt: string): FreshDataSnapshotAdr0487[] {
   const diag = input.sectorEnergyDiagnosticAdr0474 ?? {};
   const coverage = clampCoverage(diag.indexCodeCoverage ?? diag.coverageRatio ?? diag.afterCoverage);
@@ -427,21 +436,43 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
   const kisBasketRows = asNumber(input.kisSectorBasketAdr0503?.basketRows) ?? 0;
   const kisBasketCoverage = clampCoverage(input.kisSectorBasketAdr0503?.coverageRatio ?? (kisBasketRows > 0 ? 1 : 0));
   const sourceState: FreshDataSourceState = coverage >= 0.8 ? 'FRESH' : coverage > 0 ? 'STALE' : 'MISSING';
+  const krxSectorSnapshot = isKrxAutoFetchDisabledAdr0487()
+    ? buildFreshDataSnapshotAdr0487({
+        registration: registrationById(registrations, 'KRX_SECTOR_INDEX_MASTER'),
+        collectedAt: generatedAt,
+        cacheState: 'UNKNOWN',
+        sourceState: 'DISABLED_BY_KIS_FIRST_MODE',
+        coverageRatio: 0,
+        normalized: false,
+        sampleMaterialized: false,
+        usableForRouter: false,
+        usableForShadow: false,
+        readinessKind: 'REGISTRY_READY',
+        sourceOfTruth: 'REGISTRY',
+        confidence: 'NONE',
+        diagnostics: [
+          'status=DISABLED_BY_KIS_FIRST_MODE',
+          'providerIssue=false',
+          'marketSignal=false',
+          'reason=KIS sector basket / KIS price foundation active',
+        ],
+      })
+    : buildFreshDataSnapshotAdr0487({
+        registration: registrationById(registrations, 'KRX_SECTOR_INDEX_MASTER'),
+        collectedAt: generatedAt,
+        cacheState: coverage > 0 ? 'FRESH' : 'MISSING',
+        sourceState,
+        coverageRatio: coverage,
+        normalized: coverage >= 0.8 && missingIndexCode === 0,
+        sampleMaterialized: coverage >= 0.8 && missingIndexCode === 0,
+        usableForRouter: false,
+        usableForShadow: coverage > 0,
+        readinessKind: coverage >= 0.8 && missingIndexCode === 0 ? 'MATERIALIZED_SAMPLE' : coverage > 0 ? 'PLACEHOLDER_READY' : 'NO_SAMPLE',
+        sourceOfTruth: 'REGISTRY',
+        diagnostics: [`indexCodeCoverage=${coverage}`, `missingIndexCode=${missingIndexCode}`],
+      });
   return [
-    buildFreshDataSnapshotAdr0487({
-      registration: registrationById(registrations, 'KRX_SECTOR_INDEX_MASTER'),
-      collectedAt: generatedAt,
-      cacheState: coverage > 0 ? 'FRESH' : 'MISSING',
-      sourceState,
-      coverageRatio: coverage,
-      normalized: coverage >= 0.8 && missingIndexCode === 0,
-      sampleMaterialized: coverage >= 0.8 && missingIndexCode === 0,
-      usableForRouter: false,
-      usableForShadow: coverage > 0,
-      readinessKind: coverage >= 0.8 && missingIndexCode === 0 ? 'MATERIALIZED_SAMPLE' : coverage > 0 ? 'PLACEHOLDER_READY' : 'NO_SAMPLE',
-      sourceOfTruth: 'REGISTRY',
-      diagnostics: [`indexCodeCoverage=${coverage}`, `missingIndexCode=${missingIndexCode}`],
-    }),
+    krxSectorSnapshot,
     buildFreshDataSnapshotAdr0487({
       registration: registrationById(registrations, 'KIS_SECTOR_BASKET'),
       collectedAt: generatedAt,
@@ -607,6 +638,29 @@ function routerSupplySnapshot(
   provider: 'KRX_INVESTOR_FLOW' | 'CACHE',
 ): FreshDataSnapshotAdr0487 {
   const status = routerProviderStatus(input, provider);
+  if (provider === 'KRX_INVESTOR_FLOW' && (status === 'DISABLED_BY_KIS_FIRST_MODE' || isKrxAutoFetchDisabledAdr0487())) {
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      cacheState: 'UNKNOWN',
+      sourceState: 'DISABLED_BY_KIS_FIRST_MODE',
+      coverageRatio: 0,
+      normalized: false,
+      sampleMaterialized: false,
+      usableForRouter: false,
+      usableForShadow: false,
+      readinessKind: 'REGISTRY_READY',
+      sourceOfTruth: 'REGISTRY',
+      confidence: 'NONE',
+      diagnostics: [
+        'status=DISABLED_BY_KIS_FIRST_MODE',
+        'providerIssue=false',
+        'marketSignal=false',
+        'selectedProvider=NONE',
+        'reason=KIS-first mode; KRX retained for manual validation only',
+      ],
+    });
+  }
   const materialization = routerMaterialization(input, provider);
   const selectedProvider = upper(input.investorFlowProviderRouterAdr0477?.selectedProvider);
   const selected = selectedProvider === provider || (provider === 'CACHE' && selectedProvider === 'SUPPLY_SNAPSHOT_CACHE');

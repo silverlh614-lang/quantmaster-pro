@@ -66,7 +66,7 @@ router.get('/trend', async (req: Request, res: Response) => {
   try {
     for (let i = 0; i < days; i += 1) {
       const date = previousBusinessDay(now, i);
-      const rows = await fetchInvestorTrading(date);
+      const rows = await fetchInvestorTrading(date, { allowDisabledAutoFetch: true });
       const row = rows.find((r) => r.code === baseCode);
       if (!row) continue;
       foreignNet5d += row.foreignNetBuy ?? 0;

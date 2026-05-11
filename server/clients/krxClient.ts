@@ -54,12 +54,18 @@ export interface KrxInvestorRow {
 
 export type KrxInvestorParserStatus =
   | 'OK'
+  | 'DISABLED_BY_KIS_FIRST_MODE'
   | 'PROVIDER_EMPTY_RESPONSE'
   | 'PARSER_KEY_MISMATCH'
   | 'PARSER_FIELD_MISMATCH'
   | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
 
 export interface KrxInvestorTradingDiagnostic {
+  status?: 'DISABLED_BY_KIS_FIRST_MODE';
+  provider?: 'KRX';
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  executionImpact?: 'NONE';
   endpoint: string;
   bld: string;
   tradeDate: string;
@@ -153,6 +159,21 @@ const KRX_JSON_PATH = '/comm/bldAttendant/getJsonData.cmd';
 const KRX_OTP_PATH = '/comm/fileDn/GenerateOTP/generate.cmd';
 const KRX_DOWNLOAD_CSV_PATH = '/comm/fileDn/download_csv/download.cmd';
 const KRX_DISABLED = process.env.KRX_API_DISABLED === 'true';
+
+function isKrxAutoFetchDisabled(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
+}
+
+function krxAutoFetchDisabledReason(): string {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true'
+    ? 'KIS_FIRST_REBUILD_MODE'
+    : 'KRX_AUTO_FETCH_DISABLED';
+}
+
+export function isKrxAutomaticFetchDisabled(): boolean {
+  return isKrxAutoFetchDisabled();
+}
+
 const REQUEST_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -495,6 +516,8 @@ interface KrxInvestorEndpointVariant {
 export interface FetchInvestorTradingOptions {
   symbol?: string | null;
   isuCd?: string | null;
+  /** Allows explicit manual diagnostics or after-close validation jobs to bypass KIS-first KRX auto-fetch suppression. */
+  allowDisabledAutoFetch?: boolean;
 }
 
 const _lastKrxPostMeta = new Map<string, KrxPostMeta>();
@@ -631,8 +654,96 @@ function buildKrxOtpPayload(variant: KrxInvestorEndpointVariant): {
   };
 }
 
+function buildKrxAutoDisabledDiagnostic(input: {
+  tradeDate: string;
+  endpoint?: string;
+  bld?: string;
+  attemptedVariants?: string[];
+  routePurpose?: 'MARKET_LEVEL' | 'SYMBOL_LEVEL';
+  symbolCode?: string | null;
+}): KrxInvestorTradingDiagnostic {
+  const endpoint = input.endpoint ?? 'MDCSTAT02201';
+  const bld = input.bld ?? 'dbms/MDC/STAT/standard/MDCSTAT02201';
+  const reason = krxAutoFetchDisabledReason();
+  return {
+    status: 'DISABLED_BY_KIS_FIRST_MODE',
+    provider: 'KRX',
+    providerIssue: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    endpoint,
+    bld,
+    tradeDate: input.tradeDate,
+    selectedKrxFlowMode: 'DIRECT_JSON',
+    payloadMode: 'MINIMAL_STRICT',
+    routePurpose: input.routePurpose ?? 'MARKET_LEVEL',
+    selectedBld: bld,
+    requiredParamMissing: null,
+    shortCodeToIsuCdResolved: false,
+    isuCd: null,
+    inqTpCd: null,
+    inqVal: null,
+    detailView: null,
+    endpointVariant: `${endpoint}:AUTO_FETCH_DISABLED`,
+    routeKind: input.routePurpose === 'SYMBOL_LEVEL' ? 'SYMBOL_INVESTOR_FLOW' : 'MARKET_INVESTOR_FLOW',
+    dateParam: 'trdDd',
+    marketCode: 'ALL',
+    symbolCode: input.symbolCode ?? null,
+    symbolRequired: input.routePurpose === 'SYMBOL_LEVEL',
+    otpRequired: false,
+    otpGenerated: false,
+    otpLength: 0,
+    csvDownloaded: false,
+    csvRowCount: 0,
+    csvColumnKeys: [],
+    csvFailureReason: 'KIS-first mode; KRX retained for manual validation only',
+    csvHeaderDetected: false,
+    csvNoDataReason: 'KIS-first mode; KRX retained for manual validation only',
+    omittedKeys: [],
+    forbiddenKeysPresent: [],
+    requiredKeysPresent: [],
+    requiredKeysMissing: [],
+    sentPayloadKeys: [],
+    parameterKeys: [],
+    attemptedVariants: input.attemptedVariants ?? [],
+    selectedVariant: null,
+    contentType: 'empty',
+    httpStatus: null,
+    responseKind: 'DISABLED',
+    consecutiveFailures: 0,
+    cooldownActive: false,
+    cooldownRemainingMs: 0,
+    offHoursSuppressed: false,
+    diagnosticOnly: true,
+    useForRouter: false,
+    useForGate: false,
+    useForLive: false,
+    useForShadow: false,
+    rawTopLevelKeys: [],
+    detectedCandidatePaths: [],
+    selectedRowPath: null,
+    selectedRowCount: 0,
+    firstRowKeys: [],
+    normalizedRows: 0,
+    parserStatus: 'DISABLED_BY_KIS_FIRST_MODE',
+    fieldMappings: {
+      symbol: null,
+      date: null,
+      investorType: null,
+      foreignNetBuy: null,
+      institutionNetBuy: null,
+      individualNetBuy: null,
+      netBuyAmount: null,
+      netBuyVolume: null,
+    },
+    endpointIssueHint: 'NONE',
+    summary: `status=DISABLED_BY_KIS_FIRST_MODE;provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=${reason};message=KIS-first mode; KRX retained for manual validation only`,
+  };
+}
+
 export const __krxClientTestOnly = {
   sanitizeKrxPayload,
+  buildKrxAutoDisabledDiagnostic,
 };
 
 const KRX_USER_AGENT =
@@ -736,8 +847,15 @@ function parseKrxCsv(text: string): ParsedKrxCsv {
 async function krxPost(
   bld: string,
   params: Record<string, string>,
-  options: { bypassTimeWindow?: boolean } = {},
+  options: { bypassTimeWindow?: boolean; allowDisabledAutoFetch?: boolean } = {},
 ): Promise<KrxRawResponse | null> {
+  if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
+    const endpoint = bld.split('/').at(-1) ?? bld;
+    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${endpoint}`);
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED', diagnosticOnly: true, useForRouter: false, useForGate: false, useForLive: false, useForShadow: false });
+    return null;
+  }
+
   if (KRX_DISABLED) {
     setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED' });
     return null;
@@ -846,8 +964,35 @@ async function krxPost(
 
 async function krxInvestorOtpCsv(
   variant: KrxInvestorEndpointVariant,
+  options: { allowDisabledAutoFetch?: boolean } = {},
 ): Promise<KrxRawResponse | null> {
   const { body: otpBody, meta: payloadMeta } = buildKrxOtpPayload(variant);
+  if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
+    const endpoint = variant.endpoint;
+    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${endpoint}`);
+    setKrxPostMeta(variant.bld, {
+      ...payloadMeta,
+      contentType: 'empty',
+      httpStatus: null,
+      responseKind: 'DISABLED',
+      selectedKrxFlowMode: 'OTP_CSV',
+      otpGenerated: false,
+      otpLength: 0,
+      csvDownloaded: false,
+      csvRowCount: 0,
+      csvColumnKeys: [],
+      csvFailureReason: 'KIS-first mode; KRX retained for manual validation only',
+      csvHeaderDetected: false,
+      csvNoDataReason: 'KIS-first mode; KRX retained for manual validation only',
+      diagnosticOnly: true,
+      useForRouter: false,
+      useForGate: false,
+      useForLive: false,
+      useForShadow: false,
+    });
+    return null;
+  }
+
   if (KRX_DISABLED) {
     setKrxPostMeta(variant.bld, {
       ...payloadMeta,
@@ -1586,9 +1731,19 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
   const explicitIsuCd = normalizeIsuCd(options.isuCd);
   const cacheKey = `investor:${tradeDate}:${symbolCode || 'ALL'}:${explicitIsuCd || 'AUTO_ISU'}`;
   const cached = getCached<KrxInvestorRow[]>(cacheKey);
-  if (cached) return cached;
+  if (cached && !options.allowDisabledAutoFetch) return cached;
 
   const compactDate = compactTradeDate(tradeDate);
+  if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
+    const diagnostic = buildKrxAutoDisabledDiagnostic({
+      tradeDate: compactDate,
+      routePurpose: symbolCode ? 'SYMBOL_LEVEL' : 'MARKET_LEVEL',
+      symbolCode: symbolCode || null,
+    });
+    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${diagnostic.endpoint}`);
+    setInvestorTradingDiagnostic(compactDate, diagnostic);
+    return [];
+  }
   const isuCdResolution = resolveKrxIsuCdForSymbol(symbolCode, explicitIsuCd);
   const variants = buildInvestorTradingVariants(compactDate, symbolCode, isuCdResolution);
   const attemptedDiagnostics: KrxInvestorTradingDiagnostic[] = [];
@@ -1596,8 +1751,8 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
   for (const variant of variants) {
     attemptedVariantIds.push(variant.id);
     const raw = variant.mode === 'OTP_CSV'
-      ? await krxInvestorOtpCsv(variant)
-      : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true });
+      ? await krxInvestorOtpCsv(variant, { allowDisabledAutoFetch: options.allowDisabledAutoFetch })
+      : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true, allowDisabledAutoFetch: options.allowDisabledAutoFetch });
     const extracted = extractRowsDetailed(raw);
     const normalized = normalizeKrxInvestorRows(extracted.rows);
     const rows = symbolCode
