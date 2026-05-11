@@ -333,6 +333,9 @@ export function formatEmptyScanRootCauseCompactAdr0500(
   dashboard.buckets.slice(0, maxBuckets).forEach((bucket, index) => {
     lines.push(`${index + 1}) ${bucket.cause} ${bucket.count} (${bucket.pct.toFixed(1)}%)`);
   });
+  if (dashboard.topCause === 'SELL_ONLY_BLOCK') {
+    lines.push('note=SELL_ONLY dominant; order-blocked diagnostic, not GATE_TIGHT');
+  }
   return lines.join('\n');
 }
 

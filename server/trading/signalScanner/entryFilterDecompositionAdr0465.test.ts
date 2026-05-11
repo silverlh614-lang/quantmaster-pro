@@ -208,6 +208,8 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
     const section = formatEntryFilterDecompositionSection(d);
     expect(section).toContain('Gate1 Survivor Decomposition (ADR-0465)');
     expect(section).toContain('provider-softened survivor');
+    expect(section).toContain('order-blocked diagnostic');
+    expect(section).toContain('liveExecutionAllowed=false, executionImpact=NONE');
   });
 });
 

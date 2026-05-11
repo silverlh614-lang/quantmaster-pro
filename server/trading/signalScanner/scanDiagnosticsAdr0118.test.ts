@@ -233,6 +233,25 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
     expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
+  it('SELL_ONLY marketSession note separates order-blocked diagnostics from BUY_ALLOWED scans', () => {
+    const sellOnlyMsg = formatScanBlockersMessage({
+      ...SUMMARY_BASE,
+      macroGateState: { ...SUMMARY_BASE.macroGateState!, sellOnlyMode: true },
+      emptyScanReason: 'ORDER_BLOCKED',
+    });
+    const buyAllowedMsg = formatScanBlockersMessage({
+      ...SUMMARY_BASE,
+      macroGateState: { ...SUMMARY_BASE.macroGateState!, sellOnlyMode: false },
+      emptyScanReason: 'TOO_STRICT',
+    });
+
+    expect(sellOnlyMsg).toContain('SELL_ONLY/장외 구간의 Gate1 zero survivor는 live-entry evaluation이 아니라 order-blocked diagnostic입니다');
+    expect(sellOnlyMsg).toContain('BUY_ALLOWED 정규장 fresh scan과 분리해 해석하십시오');
+    expect(sellOnlyMsg).toContain('Shadow/Counterfactual snapshot preserved');
+    expect(sellOnlyMsg).toContain('liveExecutionAllowed=false, executionImpact=NONE');
+    expect(buyAllowedMsg).not.toContain('order-blocked diagnostic');
+  });
+
   it('워치리스트 0건 → ADR-0119 ORDER_BLOCKED', () => {
     const summary: ScanSummary = {
       ...SUMMARY_BASE,

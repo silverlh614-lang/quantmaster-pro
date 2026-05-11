@@ -27,6 +27,11 @@ import { fetchKrxShortSelling } from '../../../trading/marketDataRefresh.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import type { SourceHealth, SupplyHealthSnapshot } from '../../../learning/supplyHealthLearning.js';
+import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
+import type {
+  InvestorFlowProviderRouteResult,
+  InvestorFlowProviderStatus as RouterInvestorFlowProviderStatus,
+} from '../../../trading/signalScanner/investorFlowProviderRouterAdr0477.js';
 
 export const SUPPLY_HEALTH_CACHE_TTL_MS = 30_000;
 const TOP_N = 10;
@@ -38,6 +43,7 @@ const SHORT_STALE_DAYS = 2;
 const INVESTOR_FLOW_CACHE_STALE_DAYS = 2;
 const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
+const ATTEMPT_REASON_MAX_LEN = 220;
 
 // ADR-0421 — DATA_UNAVAILABLE 추가 (NEUTRAL 은 real-data + weak-direction 영역만 보존).
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
@@ -140,16 +146,122 @@ function cacheDate(sample: InvestorFlowSample): string {
   return sample.tradingDate ?? (Number.isFinite(Date.parse(sample.fetchedAt)) ? new Date(sample.fetchedAt).toISOString().slice(0, 10) : 'N/A');
 }
 
+function compactReason(reason: string): string {
+  const oneLine = reason.replace(/\s+/g, ' ').trim();
+  return oneLine.length > ATTEMPT_REASON_MAX_LEN ? `${oneLine.slice(0, ATTEMPT_REASON_MAX_LEN)}...` : oneLine;
+}
+
+type SupplyHealthRouterView = {
+  status: string;
+  selectedProvider: string;
+  selectedReason?: string | null;
+  providerTried: string[];
+  providerStatuses?: Record<string, string>;
+  signal: string;
+  coverage: {
+    available: number;
+    total: number;
+  };
+  executionImpact: 'NONE';
+  liveExecutionAllowed: false;
+};
+
+function routerViewForSupplyHealth(router: InvestorFlowProviderRouteResult | null | undefined): SupplyHealthRouterView | null {
+  if (!router) return null;
+  return {
+    status: router.status,
+    selectedProvider: router.selectedProvider,
+    selectedReason: router.selectedReason,
+    providerTried: [...router.providerTried],
+    providerStatuses: { ...router.providerStatuses },
+    signal: router.signal,
+    coverage: {
+      available: router.coverage.available,
+      total: router.coverage.total,
+    },
+    executionImpact: router.executionImpact,
+    liveExecutionAllowed: router.liveExecutionAllowed,
+  };
+}
+
+function firstRouterDiagnosticValue(router: InvestorFlowProviderRouteResult, key: string): string | null {
+  for (const diagnostic of router.diagnostics) {
+    const match = new RegExp(`${key}=([^;\\s]+)`).exec(diagnostic);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function compactRouterReason(reason: string | undefined): string {
+  if (!reason) return '';
+  return compactReason(reason.replace(/\.$/, ''));
+}
+
+function normalizeRouterProviderStatus(
+  status: RouterInvestorFlowProviderStatus | string | undefined,
+): string | null {
+  if (!status || status === 'UNKNOWN') return null;
+  return status;
+}
+
+function providerStatusWithReason(provider: string, status: string, reason?: string): string {
+  const compact = compactRouterReason(reason);
+  return `${provider}:${status}${compact ? `(${compact})` : ''}`;
+}
+
+export function formatRouterAwareInvestorFlowAttemptSummary(router: InvestorFlowProviderRouteResult | null | undefined): string | null {
+  if (!router) return null;
+  const statuses = router.providerStatuses;
+  const parts: string[] = [];
+  const krxStatus = normalizeRouterProviderStatus(statuses.KRX ?? statuses.KRX_INVESTOR_FLOW);
+  if (krxStatus) {
+    parts.push(providerStatusWithReason('KRX_INVESTOR_FLOW', krxStatus, router.providerReasons.KRX ?? router.providerReasons.KRX_INVESTOR_FLOW));
+  }
+  const naverStatus = normalizeRouterProviderStatus(statuses.NAVER_INVESTOR_TREND ?? statuses.NAVER);
+  if (naverStatus) {
+    parts.push(providerStatusWithReason('NAVER_INVESTOR_TREND', naverStatus, router.providerReasons.NAVER_INVESTOR_TREND ?? router.providerReasons.NAVER));
+  }
+  const semanticStatus = normalizeRouterProviderStatus(statuses.SEMANTIC_NETBUY);
+  if (semanticStatus) {
+    const semanticDisplay = semanticStatus === 'DATA_UNAVAILABLE'
+      ? 'DATA_UNAVAILABLE(NO_INPUT_SAMPLE)'
+      : semanticStatus;
+    parts.push(providerStatusWithReason('SEMANTIC_NETBUY', semanticDisplay, router.providerReasons.SEMANTIC_NETBUY));
+  }
+  const cacheLookupResult = firstRouterDiagnosticValue(router, 'cacheLookupResult');
+  const cacheStatus = normalizeRouterProviderStatus(statuses.CACHE) ?? cacheLookupResult;
+  if (cacheStatus) {
+    parts.push(providerStatusWithReason('CACHE', cacheStatus, router.providerReasons.CACHE));
+  }
+  const kisStatus = normalizeRouterProviderStatus(statuses.KIS ?? statuses.KIS_API);
+  if (kisStatus) {
+    parts.push(providerStatusWithReason('KIS_API', kisStatus, router.providerReasons.KIS ?? router.providerReasons.KIS_API));
+  }
+  if (parts.length === 0) return null;
+  parts.push(`selectedProvider=${router.selectedProvider}`);
+  if (router.selectedProvider === 'CACHE' && cacheStatus && cacheStatus !== 'CACHE_EMPTY') {
+    parts.push('CACHE selected');
+  }
+  if (router.selectedReason) parts.push(`selectedReason=${compactReason(router.selectedReason)}`);
+  return parts.join(' / ');
+}
+
 async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs: number): Promise<ChannelStatus> {
   let success = 0, zero = 0;
   const attemptSummaries: string[] = [];
   let providerHealthSummary: string | null = null;
+  const router = getLastScanSummary()?.investorFlowProviderRouter ?? null;
+  const routerSummary = formatRouterAwareInvestorFlowAttemptSummary(router);
+  const routerView = routerViewForSupplyHealth(router);
+  if (routerSummary) {
+    attemptSummaries.push(`${router?.code ?? firstTargetCode(targets) ?? 'UNKNOWN'}:${routerSummary}`);
+  }
   const sourceCounts = new Map<SupplyProvider, number>();
   const cacheSamples: InvestorFlowSample[] = [];
   for (const stock of targets) {
     const routed = await fetchInvestorFlowWithPolicy(stock.code, now);
-    if (attemptSummaries.length < 3) attemptSummaries.push(`${stock.code}:${summarizeInvestorFlowAttempts(routed.attempts)}`);
-    if (!providerHealthSummary) providerHealthSummary = summarizeInvestorFlowProviderHealth(routed.health);
+    if (attemptSummaries.length < 3 && !routerSummary) attemptSummaries.push(`${stock.code}:${summarizeInvestorFlowAttempts(routed.attempts)}`);
+    if (!providerHealthSummary) providerHealthSummary = summarizeInvestorFlowProviderHealth(routed.health, routerView);
     if (!routed.data) continue;
     success++;
     bumpProviderCount(sourceCounts, routed.source);

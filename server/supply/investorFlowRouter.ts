@@ -530,13 +530,13 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',
       status: 'NOT_WIRED',
-      reason: 'semantic net-buy collector not implemented',
+      reason: 'NAVER investor trend collector not implemented',
       now,
       sourceDateKst: resolveInvestorFlowSourceDateKst(now),
       retryable: false,
       cacheFallback: true,
     }));
-    pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'NOT_WIRED', 'semantic net-buy collector not implemented');
+    pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'NOT_WIRED', 'NAVER investor trend collector not implemented');
   } catch (err) {
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',

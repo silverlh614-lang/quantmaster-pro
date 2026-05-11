@@ -108,6 +108,87 @@ describe('/supply_health command', () => {
     expect(reply.mock.calls[0][0]).toContain('Supply Health');
   });
 
+  it('providerTried formatter prefers ADR-0477 router CACHE_STALE_HIT over legacy CACHE_EMPTY/NOT_WIRED', async () => {
+    const { mod } = await importCommand();
+    const text = mod.formatRouterAwareInvestorFlowAttemptSummary({
+      code: '067370',
+      route: 'investor_flow',
+      selectedProvider: 'CACHE',
+      providerTried: ['NAVER', 'SEMANTIC_NETBUY', 'CACHE', 'KIS'],
+      providerReasons: {
+        NAVER: 'ADR-0481 market session closed.',
+        SEMANTIC_NETBUY: 'ADR-0482 stale normalized cache input.',
+        CACHE: 'ADR-0491 cacheLookupResult=CACHE_STALE_HIT reason=STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY',
+      },
+      providerStatuses: {
+        KRX: 'NON_TRADING_DAY',
+        NAVER: 'NON_TRADING_DAY',
+        SEMANTIC_NETBUY: 'STALE',
+        CACHE: 'CACHE_STALE_HIT',
+        KIS: 'PROVIDER_MISMATCH',
+      },
+      semanticNetBuy: null,
+      status: 'STALE',
+      signal: 'UNKNOWN',
+      coverage: { available: 1, total: 7, missing: 5, stale: 1, acceptedEmpty: 0, providerMismatch: 1, notWired: 0 },
+      freshness: { cacheState: 'STALE', sourceState: 'STALE', sourceAgeTradingDays: 5, oldestSourceAgeTradingDays: 5, lastSourceDate: null },
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+      policyPromotionMode: 'SHADOW_ONLY',
+      operatorApprovalRequired: true,
+      selectedReason: 'ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT',
+      rawPayloadPersistenceAllowed: false,
+      diagnostics: ['cacheLookupResult=CACHE_STALE_HIT; rawPayloadPersistenceAllowed=false; liveExecutionAllowed=false'],
+    });
+
+    expect(text).toContain('NAVER_INVESTOR_TREND:NON_TRADING_DAY');
+    expect(text).toContain('SEMANTIC_NETBUY:STALE');
+    expect(text).toContain('CACHE:CACHE_STALE_HIT');
+    expect(text).toContain('selectedProvider=CACHE');
+    expect(text).toContain('CACHE selected');
+    expect(text).not.toContain('CACHE:CACHE_EMPTY');
+    expect(text).not.toContain('NAVER_INVESTOR_TREND:NOT_WIRED');
+    expect(text).not.toContain('semantic net-buy collector not implemented');
+    expect(text).not.toContain('BEARISH');
+  });
+
+  it('providerTried formatter separates SemanticNetBuy NO_INPUT_SAMPLE from NAVER reason', async () => {
+    const { mod } = await importCommand();
+    const text = mod.formatRouterAwareInvestorFlowAttemptSummary({
+      code: '005930',
+      route: 'investor_flow',
+      selectedProvider: 'NONE',
+      providerTried: ['NAVER', 'SEMANTIC_NETBUY', 'CACHE'],
+      providerReasons: {
+        NAVER_INVESTOR_TREND: 'FreshData registry bridge READY_FOR_SHADOW normalized NAVER_INVESTOR_TREND sample.',
+        SEMANTIC_NETBUY: 'ADR-0482 normalizer input not supplied and no FreshData registry bridge sample.',
+      },
+      providerStatuses: {
+        NAVER_INVESTOR_TREND: 'READY_FOR_SHADOW',
+        SEMANTIC_NETBUY: 'DATA_UNAVAILABLE',
+        CACHE: 'CACHE_EMPTY',
+      },
+      semanticNetBuy: null,
+      status: 'DATA_UNAVAILABLE',
+      signal: 'UNKNOWN',
+      coverage: { available: 1, total: 3, missing: 2, stale: 0, acceptedEmpty: 0, providerMismatch: 0, notWired: 0 },
+      freshness: { cacheState: 'EMPTY', sourceState: 'UNKNOWN', sourceAgeTradingDays: null, oldestSourceAgeTradingDays: null, lastSourceDate: null },
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+      policyPromotionMode: 'SHADOW_ONLY',
+      operatorApprovalRequired: true,
+      selectedReason: null,
+      rawPayloadPersistenceAllowed: false,
+      diagnostics: ['UNKNOWN/provider issue is not bearish'],
+    });
+
+    expect(text).toContain('NAVER_INVESTOR_TREND:READY_FOR_SHADOW');
+    expect(text).toContain('SEMANTIC_NETBUY:DATA_UNAVAILABLE(NO_INPUT_SAMPLE)');
+    expect(text).not.toContain('NAVER_INVESTOR_TREND:NOT_WIRED');
+    expect(text).not.toContain('NAVER_INVESTOR_TREND:DATA_UNAVAILABLE(NO_INPUT_SAMPLE)');
+    expect(text).not.toContain('BEARISH');
+  });
+
   it('watchlist 10개 초과 시 stage2Score 상위 10개만 사용', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(12));
     investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });

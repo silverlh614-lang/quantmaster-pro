@@ -2075,6 +2075,10 @@ export function formatEntryFilterDecompositionSection(
   const sample = d.candidateTraces[0];
   lines.push(`• regime: ${sample?.regime ?? "UNKNOWN"}`);
   lines.push(`• marketSession: ${sample?.marketSession ?? "UNKNOWN"}`);
+  if (sample?.marketSession === "SELL_ONLY") {
+    lines.push("• marketSession note: SELL_ONLY/장외 Gate1 zero survivor는 live-entry evaluation이 아니라 order-blocked diagnostic입니다.");
+    lines.push("• shadow/counterfactual snapshot preserved; liveExecutionAllowed=false, executionImpact=NONE.");
+  }
   lines.push(`• universeCandidates: ${d.universeCandidates}`);
   lines.push(`• watchlistCandidates: ${d.watchlistCandidates}`);
   lines.push(`• tracedCandidates: ${d.tracedCandidates}`);
