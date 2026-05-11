@@ -33,6 +33,20 @@ export interface KisSectorEnergyCoverageBreakdown {
   yahooGlobalProxyCoverage: number;
 }
 
+export interface KisSectorBasketRow {
+  sectorKey: string;
+  displayName: string;
+  representativeCodes: string[];
+  validPriceCount: number;
+  return1d?: number;
+  return5d?: number;
+  return20d?: number;
+  turnoverAcceleration?: number;
+  breadthAbove20ma?: number;
+  source: 'KIS_PRICE' | 'KIS_DAILY_CHART';
+  confidence: 'PARTIAL' | 'VERIFIED';
+}
+
 export interface KisSectorEnergyIndexRow {
   sectorKey: SectorKey;
   sectorReturn5d: number;
@@ -75,20 +89,37 @@ export interface KisSectorEnergyProviderResult {
 
 const TOTAL_SECTOR_COUNT = SECTOR_INDEX_MASTER.length;
 
-export const KIS_REPRESENTATIVE_SECTOR_BASKET: Readonly<Record<SectorKey, readonly string[]>> = Object.freeze({
+export const KIS_REPRESENTATIVE_SECTOR_BASKET: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  SHIPBUILDING: ['329180', '042660', '010140', '009540'],
+  DEFENSE: ['012450', '064350', '079550', '047810'],
+  NUCLEAR: ['034020', '010120', '051600', '052690'],
   SEMICONDUCTOR: ['005930', '000660', '042700', '039030'],
+  AUTOMOTIVE: ['005380', '000270', '012330', '161390'],
   BATTERY: ['373220', '051910', '006400', '247540'],
   BIO_HEALTHCARE: ['207940', '068270', '326030', '128940'],
   FINANCE: ['105560', '055550', '086790', '316140'],
-  SHIPBUILDING: ['329180', '042660', '010140', '009540'],
-  STEEL: ['005490', '004020', '010130', '016380'],
   CHEMICAL: ['096770', '010950', '051910', '011170'],
+  STEEL: ['005490', '004020', '010130', '016380'],
   CONSTRUCTION: ['000720', '028050', '047040', '006360'],
   CONSUMER_RETAIL: ['023530', '004170', '097950', '271560'],
   IT_INTERNET: ['035420', '035720', '036570', '259960'],
-  AUTOMOTIVE: ['005380', '000270', '012330', '161390'],
   OTHER: ['003550', '034730', '012750', '010120'],
 });
+
+const KIS_SECTOR_BASKET_DEFINITIONS: ReadonlyArray<{ sectorKey: string; displayName: string; representativeCodes: readonly string[] }> = Object.freeze([
+  { sectorKey: 'SHIPBUILDING', displayName: '조선', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.SHIPBUILDING },
+  { sectorKey: 'DEFENSE', displayName: '방산', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.DEFENSE },
+  { sectorKey: 'NUCLEAR', displayName: '원자력', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.NUCLEAR },
+  { sectorKey: 'SEMICONDUCTOR', displayName: '반도체', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.SEMICONDUCTOR },
+  { sectorKey: 'AUTOMOTIVE', displayName: '자동차', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.AUTOMOTIVE },
+  { sectorKey: 'BATTERY', displayName: '2차전지', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.BATTERY },
+  { sectorKey: 'BIO_HEALTHCARE', displayName: '바이오', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.BIO_HEALTHCARE },
+  { sectorKey: 'FINANCE', displayName: '금융', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.FINANCE },
+  { sectorKey: 'CHEMICAL', displayName: '화학', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.CHEMICAL },
+  { sectorKey: 'STEEL', displayName: '철강', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.STEEL },
+  { sectorKey: 'CONSTRUCTION', displayName: '건설', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.CONSTRUCTION },
+  { sectorKey: 'CONSUMER_RETAIL', displayName: '유통', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.CONSUMER_RETAIL },
+]);
 
 let overridesForTests: KisSectorEnergyProviderOverrides = {};
 
@@ -125,7 +156,7 @@ function safeCode(code: string): string {
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
 }
 
-function sectorName(sectorKey: SectorKey): string {
+function sectorName(sectorKey: string): string {
   return SECTOR_INDEX_MASTER.find((entry) => entry.sectorKey === sectorKey)?.displayName ?? sectorKey;
 }
 
@@ -216,7 +247,8 @@ function flowAlignment(flows: Array<KisInvestorTradeByStockDaily | null | undefi
 }
 
 function inputFromMetrics(
-  sectorKey: SectorKey,
+  sectorKey: string,
+  displayName: string,
   metrics: Array<ReturnType<typeof stockMetrics>>,
   codes: string[],
   flowScore: number,
@@ -230,7 +262,7 @@ function inputFromMetrics(
   const topConstituentMomentum = Math.max(...valid.map((item) => item.return5d));
   const leadingStockCount = valid.filter((item) => item.return5d > 0 && item.above20ma).length;
   return {
-    name: sectorName(sectorKey),
+    name: displayName,
     return4w: sectorReturn20d,
     volumeChangePct: turnoverAcceleration,
     foreignConcentration: flowScore,
@@ -255,11 +287,11 @@ export function buildKisSectorEnergyBasketFromSeries(
   flowByCode: Record<string, KisInvestorTradeByStockDaily | null | undefined> = {},
 ): SectorEnergyInput[] {
   const inputs: SectorEnergyInput[] = [];
-  for (const entry of SECTOR_INDEX_MASTER) {
-    const codes = KIS_REPRESENTATIVE_SECTOR_BASKET[entry.sectorKey].map(safeCode);
+  for (const entry of KIS_SECTOR_BASKET_DEFINITIONS) {
+    const codes = entry.representativeCodes.map(safeCode);
     const metrics = codes.map((code) => stockMetrics(seriesByCode[code] ?? []));
     const flowScore = flowAlignment(codes.map((code) => flowByCode[code]));
-    const input = inputFromMetrics(entry.sectorKey, metrics, codes, flowScore);
+    const input = inputFromMetrics(entry.sectorKey, entry.displayName, metrics, codes, flowScore);
     if (input) inputs.push(input);
   }
 
@@ -351,7 +383,7 @@ function resultFromInputs(
     sourceTier === 'KIS_OFFICIAL_INDEX' || sourceTier === 'KIS_OFFICIAL_DAILY'
       ? 'WEIGHTED'
       : sourceTier === 'KIS_STOCK_BASKET_DERIVED' && validSectorCount > 0
-        ? 'PARTIAL'
+        ? 'READY_FOR_SHADOW'
         : 'BLOCKED';
   const breakdown = coverageBreakdown({
     verifiedIndexCodeCount: 0,
@@ -378,6 +410,10 @@ function resultFromInputs(
       `validSectorCount=${validSectorCount}/${TOTAL_SECTOR_COUNT}`,
       `leadershipConfidence=${leadershipConfidence}`,
       'officialSource=KIS_API',
+      'officialIndex=false',
+      'sectorBoostAllowed=false',
+      'strongBuyAllowed=false',
+      'sourcePolicy=KIS_STOCK_BASKET_DERIVED',
       'liveExecutionAllowed=false',
       'executionImpact=NONE',
     ],
@@ -412,8 +448,8 @@ export async function buildKisSectorEnergyInputsWithMeta(
 
   const allCodes = Array.from(
     new Set(
-      Object.values(KIS_REPRESENTATIVE_SECTOR_BASKET)
-        .flat()
+      KIS_SECTOR_BASKET_DEFINITIONS
+        .flatMap((entry) => entry.representativeCodes)
         .map(safeCode),
     ),
   );

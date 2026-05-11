@@ -37,6 +37,7 @@ describe('KIS official investor-flow evidence adapter', () => {
     expect(result.officialSource).toBe(true);
     expect(result.promotionStage).toBe('WEIGHTED');
     expect(result.selectableForRouter).toBe(true);
+    expect(result.sample).toBeNull();
     expect(result.executionImpact).toBe('NONE');
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.health.provider).toBe('KIS');
@@ -71,6 +72,7 @@ describe('KIS official investor-flow evidence adapter', () => {
       individualNetBuy: -300,
       provider: 'KIS_API',
     });
+    expect(result.sample).toMatchObject({ sourceKind: 'INQUIRE_INVESTOR', confidence: 'VERIFIED', hasRealFields: true, executionImpact: 'NONE' });
     expect(result.promotionStage).toBe('WEIGHTED');
     expect(result.selectableForRouter).toBe(true);
     expect(result.health.provider).toBe('KIS');
@@ -108,6 +110,7 @@ describe('KIS official investor-flow evidence adapter', () => {
       individualNetBuy: -30,
       tradingDate: '2026-05-08',
     });
+    expect(result.sample).toMatchObject({ sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY', confidence: 'VERIFIED', usableForShadow: true });
     expect(result.health.status).toBe('OK');
     expect(result.health.reason).toContain('endpoint=KIS_INVESTOR_TRADE_BY_STOCK_DAILY');
     expect(result.health.reason).toContain('KIS=OK');
@@ -134,8 +137,36 @@ describe('KIS official investor-flow evidence adapter', () => {
     expect(result.data?.foreignNetBuy).toBe(10);
     expect(result.data?.institutionalNetBuy).toBe(20);
     expect(result.data).not.toHaveProperty('individualNetBuy');
+    expect(result.sample?.confidence).toBe('DEGRADED');
+    expect(result.sample?.usableForShadow).toBe(true);
+    expect(result.sample).not.toHaveProperty('individualNetBuy');
     expect(result.health.reason).toContain('confidence=DEGRADED');
     expect(result.health.reason).toContain('KIS=PARTIAL');
     expect(result.health.reason).toContain('marketSignal=false');
   }, 15_000);
+
+  it('tries investor_trade_by_stock_daily before strict inquire_investor when both are available', async () => {
+    const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
+    setKisClientOverrides({
+      fetchKisInvestorFlow: async () => ({ foreignNetBuy: 999, institutionalNetBuy: 999, individualNetBuy: -1998, source: 'KIS_API' }),
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-08',
+        foreignNetBuy: 10,
+        institutionalNetBuy: 20,
+        individualNetBuy: -30,
+        source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
+      }),
+    });
+    const { fetchKisInvestorFlowEvidence } = await import('./kisInvestorFlowEvidence.js');
+
+    const result = await fetchKisInvestorFlowEvidence('005930', new Date('2026-05-11T09:30:00.000Z'));
+
+    expect(result.data?.foreignNetBuy).toBe(10);
+    expect(result.sample?.sourceKind).toBe('INVESTOR_TRADE_BY_STOCK_DAILY');
+    expect(result.health.reason).toContain('KIS=OK');
+    expect(result.executionImpact).toBe('NONE');
+  }, 15_000);
+
 });

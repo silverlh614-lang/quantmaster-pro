@@ -78,6 +78,33 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
     expect(result).toBeNull();
   });
 
+
+  it('parses comp-program-trade-today output[0] amount fields without FIELD_MISSING semantics', async () => {
+    _realDataKisGet.mockResolvedValue({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      output: [{
+        arbt_smtn_seln_tr_pbmn: '100',
+        arbt_smtn_shnu_tr_pbmn: '250',
+        nabt_smtn_seln_tr_pbmn: '300',
+        nabt_smtn_shnu_tr_pbmn: '450',
+        arbt_smtn_ntby_tr_pbmn: '150',
+        nabt_smtn_ntby_tr_pbmn: '150',
+        whol_smtn_ntby_tr_pbmn: '300',
+      }],
+    });
+
+    const result = await fetchKisMarketProgramTrade();
+
+    expect(result).not.toBeNull();
+    expect(result?.programNetBuyQty).toBeNull();
+    expect(result?.programNetBuyAmount).toBe(300);
+    expect(result?.programArbitrageNetBuy).toBe(150);
+    expect(result?.programNonArbitrageNetBuy).toBe(150);
+    expect(result?.programSellAmount).toBe(400);
+    expect(result?.programBuyAmount).toBe(700);
+  });
+
   it('정상 응답 — output 단일 객체 (한글 약어)', async () => {
     _realDataKisGet.mockResolvedValue({
       output: {

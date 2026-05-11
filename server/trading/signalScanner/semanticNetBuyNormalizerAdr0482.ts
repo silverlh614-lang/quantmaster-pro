@@ -131,7 +131,7 @@ const ADR_0482_POLICY = {
 } as const;
 
 const STALE_TRADING_DAYS = 4;
-const PROVIDER_ORDER: SemanticNetBuyProvider[] = ['NAVER', 'KRX', 'FSS', 'CACHE', 'MANUAL', 'KIS', 'UNKNOWN'];
+const PROVIDER_ORDER: SemanticNetBuyProvider[] = ['KIS', 'KRX', 'NAVER', 'FSS', 'CACHE', 'MANUAL', 'UNKNOWN'];
 const ERROR_STATUSES: SemanticNetBuyStatus[] = ['PROVIDER_MISMATCH', 'PARSE_ERROR', 'PROVIDER_ERROR', 'NON_TRADING_DAY', 'DISABLED'];
 
 function finiteNumber(value: unknown): value is number {

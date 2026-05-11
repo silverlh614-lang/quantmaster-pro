@@ -49,8 +49,8 @@ export interface KisInvestorFlow {
  */
 export interface KisStockProgramTrade {
   stockCode: string;
-  programNetBuyQty: number;
-  programNetBuyAmount: number;
+  programNetBuyQty?: number;
+  programNetBuyAmount?: number;
   programBuyRatio: number | null;
   fetchedAt: string;
   source: 'KIS_API';

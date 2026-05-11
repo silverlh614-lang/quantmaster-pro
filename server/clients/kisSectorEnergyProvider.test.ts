@@ -33,9 +33,9 @@ function candles(start: number, end: number): KisChartCandle[] {
 
 function allBasketSeries(strongSector?: SectorKey): Record<string, KisChartCandle[]> {
   const series: Record<string, KisChartCandle[]> = {};
-  for (const entry of SECTOR_INDEX_MASTER) {
-    const isStrong = entry.sectorKey === strongSector;
-    for (const code of KIS_REPRESENTATIVE_SECTOR_BASKET[entry.sectorKey]) {
+  for (const [sectorKey, codes] of Object.entries(KIS_REPRESENTATIVE_SECTOR_BASKET)) {
+    const isStrong = sectorKey === strongSector;
+    for (const code of codes) {
       series[code] = isStrong ? candles(100, 150) : candles(100, 101);
     }
   }
@@ -106,7 +106,7 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.validSectorCount).toBe(12);
     expect(result.coverageBreakdown.verifiedIndexCodeCoverage).toBe(0);
     expect(result.coverageBreakdown.kisBasketCoverage).toBe(1);
-    expect(result.leadershipConfidence).toBe('PARTIAL');
+    expect(result.leadershipConfidence).toBe('READY_FOR_SHADOW');
     expect(result.providerIssue).toBe(false);
     expect(result.marketSignal).toBe(false);
   });
