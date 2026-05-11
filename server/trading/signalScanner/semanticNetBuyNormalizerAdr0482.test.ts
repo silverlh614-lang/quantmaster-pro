@@ -135,6 +135,14 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     expect(report.rawPayloadPersistenceAllowed).toBe(false);
     expect(report.status).toBe('STALE');
     expect(report.selectedSample).toBeNull();
+    expect(report.inputSources).toContain('CACHE');
+    expect(report.materializationDiagnostics).toMatchObject({
+      sampleMaterialized: true,
+      usableForRouter: true,
+      materializedCount: 1,
+      blockedReason: 'NONE',
+      inputSources: ['CACHE'],
+    });
     expect(JSON.stringify(report)).not.toMatch(/SECRET|providerPayload|rawPoints/i);
   });
 

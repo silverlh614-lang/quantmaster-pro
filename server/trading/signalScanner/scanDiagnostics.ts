@@ -182,6 +182,7 @@ import {
 } from './investorFlowProviderRouterAdr0477.js';
 import {
   buildNaverInvestorTrendCollectorResultAdr0481,
+  collectNaverInvestorTrendCollectorResultAdr0481,
   type NaverInvestorTrendRawPoint,
   type NaverInvestorTrendCollectorResult,
 } from './naverInvestorTrendCollectorAdr0481.js';
@@ -224,6 +225,7 @@ import {
   readLatestSupplySnapshotBySymbolSourceDomainAdr0491,
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
+import { previousTradingDateCandidateAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -2106,6 +2108,7 @@ export async function persistScanResults(
     const firstSnapshot = observationSnapshots[0];
     const firstSymbol = firstSnapshot?.symbol ?? 'UNIVERSE';
     const todayKst = kstNow.toISOString().slice(0, 10);
+    const previousTradingDateCandidate = previousTradingDateCandidateAdr0491(todayKst);
     const sellOnlyOrClosed = options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false;
     const supplySnapshotCacheLookupAdr0491 = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
       symbol: firstSymbol,
@@ -2115,13 +2118,25 @@ export async function persistScanResults(
     });
     const cacheRaw = supplySnapshotCacheLookupAdr0491.cacheRaw;
     const cachedNaverPoint = cacheRawToNaverInvestorTrendPointAdr0481(cacheRaw);
-    const naverInvestorTrendAdr0481 = buildNaverInvestorTrendCollectorResultAdr0481({
+    let naverInvestorTrendAdr0481 = await collectNaverInvestorTrendCollectorResultAdr0481({
       code: firstSymbol,
       requestedDays: 5,
-      rawPoints: cachedNaverPoint ? [cachedNaverPoint] : [],
+      rawPoints: null,
       nonTradingDay: sellOnlyOrClosed,
-      sourceAgeTradingDays: cachedNaverPoint ? (supplySnapshotCacheLookupAdr0491.stale || sellOnlyOrClosed ? 4 : 0) : null,
+      sourceAgeTradingDays: sellOnlyOrClosed ? 1 : 0,
+      tradingDateCandidates: sellOnlyOrClosed
+        ? [previousTradingDateCandidate, todayKst]
+        : [todayKst, previousTradingDateCandidate],
     });
+    if (!naverInvestorTrendAdr0481.materializationDiagnostics.sampleMaterialized && cachedNaverPoint) {
+      naverInvestorTrendAdr0481 = buildNaverInvestorTrendCollectorResultAdr0481({
+        code: firstSymbol,
+        requestedDays: 5,
+        rawPoints: [cachedNaverPoint],
+        nonTradingDay: sellOnlyOrClosed,
+        sourceAgeTradingDays: supplySnapshotCacheLookupAdr0491.stale || sellOnlyOrClosed ? 4 : 0,
+      });
+    }
     summaryDraft.naverInvestorTrendAdr0481 = naverInvestorTrendAdr0481;
     const semanticInputs = [
       naverCollectorToSemanticInputAdr0482(naverInvestorTrendAdr0481),

@@ -4,11 +4,14 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildNaverInvestorTrendCollectorResultAdr0481,
+  collectNaverInvestorTrendCollectorResultAdr0481,
   formatNaverInvestorTrendCompactAdr0481,
   getNaverInvestorTrendDetailRegistryEntryAdr0481,
+  parseNaverInvestorTrendHtmlAdr0481,
   safeBuildNaverInvestorTrendCollectorResultAdr0481,
 } from './naverInvestorTrendCollectorAdr0481.js';
 import { buildInvestorFlowProviderCapabilities, buildInvestorFlowProviderRouteResultAdr0477 } from './investorFlowProviderRouterAdr0477.js';
+import { buildSemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
 import { buildSupplyProviderWarmupReport, formatSupplyProviderWarmupCompactLine } from '../../supply/investorFlowProviderHealth.js';
 import { buildGate1PositiveSourceWiringReport } from './gate1PositiveSourceWiringAdr0475.js';
 import { buildGate1DryRunObservationRows } from './gate1DryRunObservationLedgerAdr0476.js';
@@ -67,6 +70,90 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
     });
     expect(noRows.signal).toBe('UNKNOWN');
     expect(empty.signal).toBe('UNKNOWN');
+  });
+
+  it('parses real NAVER investor trend table rows into raw foreign/institution samples', () => {
+    const html = `
+      <table>
+        <tr>
+          <td class="date">2026.05.08</td>
+          <td class="num">55,000</td>
+          <td class="num">100</td>
+          <td class="num">0.18%</td>
+          <td class="num">1,234,000</td>
+          <td class="num">20,000</td>
+          <td class="num">10,000</td>
+          <td class="num">1,000,000</td>
+          <td class="num">51.2%</td>
+        </tr>
+      </table>`;
+
+    expect(parseNaverInvestorTrendHtmlAdr0481(html)).toEqual([{
+      date: '2026-05-08',
+      foreignNetBuy: 10000,
+      institutionNetBuy: 20000,
+      individualNetBuy: null,
+      programNetBuy: null,
+    }]);
+  });
+
+  it('forces previousTradingDate NAVER fetch on non-trading days and materializes router-usable samples', async () => {
+    const html = `
+      <table>
+        <tr><td>2026.05.07</td><td>54,000</td><td>0</td><td>0%</td><td>900,000</td><td>-1,000</td><td>-2,000</td><td>0</td><td>0%</td></tr>
+        <tr><td>2026.05.08</td><td>55,000</td><td>100</td><td>0.18%</td><td>1,234,000</td><td>20,000</td><td>10,000</td><td>0</td><td>0%</td></tr>
+      </table>`;
+    const fetchImpl = async () => ({
+      ok: true,
+      text: async () => html,
+    } as Response);
+
+    const result = await collectNaverInvestorTrendCollectorResultAdr0481({
+      code: '005930',
+      requestedDays: 5,
+      nonTradingDay: true,
+      tradingDateCandidates: ['2026-05-08', '2026-05-11'],
+      fetchImpl,
+    });
+    const semantic = buildSemanticNetBuyNormalizationReportAdr0482({
+      code: '005930',
+      inputs: result.semanticNetBuyCandidate ? [{
+        code: '005930',
+        provider: 'NAVER',
+        sourceDate: result.semanticNetBuyCandidate.sourceDate,
+        rawForeignNetBuy: result.semanticNetBuyCandidate.foreignNetBuy,
+        rawInstitutionNetBuy: result.semanticNetBuyCandidate.institutionNetBuy,
+        rawProgramNetBuy: result.semanticNetBuyCandidate.programNetBuy,
+        unit: 'KRW',
+        status: result.semanticNetBuyCandidate.status,
+        sourceAgeTradingDays: result.freshness.sourceAgeTradingDays,
+      }] : [],
+    });
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorResultAdr0481: result,
+      semanticNetBuyNormalizationAdr0482: semantic,
+      cacheRaw: { foreignNetBuy: 1, institutionNetBuy: 1, sourceDate: '2026-05-04', status: 'STALE' },
+      cacheAgeTradingDays: 4,
+    });
+
+    expect(result.status).toBe('STALE');
+    expect(result.materializationDiagnostics).toMatchObject({
+      rawCount: 1,
+      normalizedCount: 1,
+      materializedCount: 1,
+      sampleMaterialized: true,
+      usableForRouter: true,
+      blockedReason: 'NONE',
+    });
+    expect(result.semanticNetBuyCandidate?.sourceDate).toBe('2026-05-08');
+    expect(result.rawPayloadPersistenceAllowed).toBe(false);
+    expect(semantic.inputSources).toContain('NAVER');
+    expect(semantic.materializationDiagnostics.usableForRouter).toBe(true);
+    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(route.coverage.available).toBeGreaterThan(1);
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.executionImpact).toBe('NONE');
   });
 
   it('parse error, provider error, and non-trading day return UNKNOWN', () => {
