@@ -176,7 +176,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.rejectedProviders).toContain('NAVER_INVESTOR_TREND');
     expect(route.rejectedReasonByProvider?.NAVER_INVESTOR_TREND).toContain('PLACEHOLDER');
     expect(route.cacheFallbackReason).toContain('CACHE selected');
-    expect(route.fallbackChain).toEqual(['NAVER_INVESTOR_TREND', 'SEMANTIC_NETBUY', 'CACHE']);
+    expect(route.fallbackChain).toEqual(['KIS_API', 'KRX_INVESTOR_FLOW', 'NAVER_INVESTOR_TREND', 'FSS_PASSIVE_ACTIVE', 'CACHE', 'SEMANTIC_NETBUY']);
     expect(route.coverageAfter).toBe(1);
     expect(route.liveExecutionAllowed).toBe(false);
   });
@@ -343,6 +343,114 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.cacheFallbackReason).toContain('CACHE selected');
     expect(formatInvestorFlowProviderRouterAdr0477(route)).toContain('rejectedReasonByProvider');
     expect(route.signal).toBe('UNKNOWN');
+    expect(route.liveExecutionAllowed).toBe(false);
+  });
+
+  it('recovers selectedProvider from CACHE_HIT valid sanitized rows when NAVER and Semantic are missing', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      semanticNetBuyNormalizationAdr0482: buildSemanticNetBuyNormalizationReportAdr0482({ code: '005930', inputs: [] }),
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_HIT',
+        snapshot: null,
+        cacheRaw: {
+          code: '005930',
+          sourceDate: '2026-05-08',
+          foreignNetBuy: 100,
+          institutionNetBuy: 200,
+          programNetBuy: 10,
+          status: 'CACHE_HIT',
+        },
+        retained: 1,
+        reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+        stale: false,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
+      },
+      kisTriedForInvestorFlow: true,
+      nonTradingDay: true,
+    });
+
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.status).toBe('CACHE_HIT');
+    expect(route.coverage.available).toBeGreaterThanOrEqual(1);
+    expect(route.materializationDiagnostics?.CACHE).toMatchObject({
+      sampleMaterialized: true,
+      usableForRouter: true,
+      materializedCount: 1,
+      placeholderDetected: false,
+      blockedReason: 'NONE',
+    });
+    expect(route.rejectedProviders).not.toContain('CACHE');
+    expect(route.noMaterializedCandidateReason).toBeNull();
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.executionImpact).toBe('NONE');
+  });
+
+  it('ranks multi-source materialized candidates KIS, KRX, NAVER, FSS, CACHE, then SEMANTIC', () => {
+    const cacheLookup = {
+      status: 'CACHE_HIT' as const,
+      snapshot: null,
+      cacheRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 1, institutionNetBuy: 1, status: 'CACHE_HIT' },
+      retained: 1,
+      reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+      stale: false,
+      executionImpact: 'NONE' as const,
+      liveExecutionAllowed: false as const,
+      policyPromotionMode: 'SHADOW_ONLY' as const,
+      rawPayloadPersistenceAllowed: false as const,
+    };
+
+    const krx = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      previousTradingDayKrxRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 10, institutionalNetBuy: 20, status: 'STALE' },
+      supplySnapshotCacheLookupAdr0491: cacheLookup,
+      nonTradingDay: true,
+    });
+    expect(krx.selectedProvider).toBe('KRX_INVESTOR_FLOW');
+    expect(krx.materializationDiagnostics?.KRX_INVESTOR_FLOW?.usableForRouter).toBe(true);
+    expect(krx.coverage.available).toBeGreaterThanOrEqual(2);
+
+    const kis = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 30, institutionalNetBuy: 40 },
+      previousTradingDayKrxRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 10, institutionalNetBuy: 20, status: 'STALE' },
+      supplySnapshotCacheLookupAdr0491: cacheLookup,
+      kisTriedForInvestorFlow: true,
+    });
+    expect(kis.selectedProvider).toBe('KIS_API');
+    expect(kis.providerStatuses.KIS_API).toBe('VERIFIED');
+    expect(kis.providerReasons.KIS_API).toContain('route separated');
+
+    const fss = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      fssPassiveActiveRaw: { code: '005930', sourceDate: '2026-05-01', foreignNetBuy: 5, institutionNetBuy: 6, status: 'STALE' },
+      fssSourceAgeTradingDays: 7,
+    });
+    expect(fss.selectedProvider).toBe('FSS_PASSIVE_ACTIVE');
+    expect(fss.status).toBe('STALE');
+    expect(fss.materializationDiagnostics?.FSS_PASSIVE_ACTIVE?.usableForRouter).toBe(true);
+  });
+
+  it('allows selectedProvider NONE only when every source has no materialized candidate', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      semanticNetBuyNormalizationAdr0482: buildSemanticNetBuyNormalizationReportAdr0482({ code: '005930', inputs: [] }),
+      cacheRaw: null,
+      kisTriedForInvestorFlow: true,
+      nonTradingDay: true,
+    });
+
+    expect(route.selectedProvider).toBe('NONE');
+    expect(route.coverage.available).toBe(0);
+    expect(route.noMaterializedCandidateReason).toContain('NO_INPUT_SAMPLE');
+    expect(route.rejectedReasonByProvider).toBeTruthy();
     expect(route.liveExecutionAllowed).toBe(false);
   });
 

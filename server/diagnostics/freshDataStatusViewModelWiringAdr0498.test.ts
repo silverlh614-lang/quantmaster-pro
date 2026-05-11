@@ -135,6 +135,30 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(section.lines.join('\n')).toContain('impact=NONE');
   });
 
+  it('keeps multi-source selected providers visible instead of provider=EMPTY', () => {
+    for (const [selectedProvider, providerDisplay] of [
+      ['KIS_API', 'KIS'],
+      ['KRX_INVESTOR_FLOW', 'KRX'],
+      ['FSS_PASSIVE_ACTIVE', 'FSS'],
+      ['CACHE', 'CACHE'],
+    ] as const) {
+      const input = mapInvestorFlowRouterToStatusInputAdr0498({
+        selectedProvider,
+        status: selectedProvider === 'CACHE' ? 'CACHE_HIT' : 'STALE',
+        signal: 'UNKNOWN',
+        providerStatuses: { [selectedProvider]: selectedProvider === 'CACHE' ? 'CACHE_HIT' : 'STALE' },
+        coverage: { available: 1, total: 8 },
+        rawPayloadPersistenceAllowed: false,
+        liveExecutionAllowed: false,
+        executionImpact: 'NONE',
+      });
+      const line = safeBuildFreshDataStatusSectionAdr0498([input!]).lines.join('\n');
+      expect(line).toContain(`provider=${providerDisplay}`);
+      expect(line).not.toContain('provider=EMPTY');
+      expect(line).not.toContain('confidence=MISSING');
+    }
+  });
+
   it('keeps selectedProvider=NONE as provider=EMPTY/BLOCKED', () => {
     const input = mapInvestorFlowRouterToStatusInputAdr0498({ selectedProvider: 'NONE', status: 'DATA_UNAVAILABLE', signal: 'UNKNOWN', providerStatuses: { CACHE: 'CACHE_EMPTY' } });
     const section = safeBuildFreshDataStatusSectionAdr0498([input!]);
