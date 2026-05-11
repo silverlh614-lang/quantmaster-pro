@@ -294,6 +294,7 @@ function snapshotFromFreshness(
             : state.includes('MISSING') ? 'MISSING'
               : 'DATA_UNAVAILABLE';
   const cache = upper(row?.cacheState);
+  const sourceAgeTradingDays = asNumber(row?.sourceAgeTradingDays);
   return buildFreshDataSnapshotAdr0487({
     registration,
     collectedAt: generatedAt,
@@ -301,10 +302,20 @@ function snapshotFromFreshness(
     cacheState: cache.includes('FRESH') ? 'FRESH' : cache.includes('STALE') ? 'STALE' : cache.includes('EMPTY') ? 'EMPTY' : 'UNKNOWN',
     sourceState,
     cacheAgeMinutes: asNumber(row?.cacheAgeMinutes),
-    sourceAgeTradingDays: asNumber(row?.sourceAgeTradingDays),
+    sourceAgeTradingDays,
     coverageRatio: sourceState === 'FRESH' ? 1 : 0,
     normalized: sourceState === 'FRESH',
-    diagnostics: [`freshness source=${registration.id}`],
+    diagnostics: [
+      `freshness source=${registration.id}`,
+      ...(registration.id === 'FSS_PASSIVE_ACTIVE' ? [
+        `lastUpdated=${typeof row?.sourceDate === 'string' ? row.sourceDate : 'none'}`,
+        `staleDays=${sourceAgeTradingDays ?? 'unknown'}`,
+        'expectedFreshnessDays=2',
+        `usableForSemantic=${sourceAgeTradingDays !== null && sourceAgeTradingDays <= 7 ? 'true' : 'false'}`,
+        'usableForLive=false',
+        'nextAction=REFRESH_FSS_PASSIVE_ACTIVE',
+      ] : []),
+    ],
   });
 }
 
@@ -348,9 +359,13 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
 
 function naverSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
   const adr0496 = input.supplyCoverageReportAdr0496;
+  const naverCoverage = typeof input.naverInvestorTrendAdr0481?.coverage === 'object' && input.naverInvestorTrendAdr0481.coverage !== null
+    ? input.naverInvestorTrendAdr0481.coverage as Record<string, unknown>
+    : null;
+  const hasNaverSample = Boolean(input.naverInvestorTrendAdr0481?.semanticNetBuyCandidate);
   const status = upper(input.naverInvestorTrendAdr0481?.status ?? input.investorFlowProviderRouterAdr0477?.providerStatuses?.NAVER);
-  const available = asNumber(input.naverInvestorTrendAdr0481?.availableDays) ?? adr0496?.sampleCount ?? 0;
-  const requested = asNumber(input.naverInvestorTrendAdr0481?.requestedDays) ?? Math.max(1, adr0496?.sampleCount ?? 1);
+  const available = asNumber(input.naverInvestorTrendAdr0481?.availableDays) ?? asNumber(naverCoverage?.availableDays) ?? adr0496?.sampleCount ?? 0;
+  const requested = asNumber(input.naverInvestorTrendAdr0481?.requestedDays) ?? asNumber(naverCoverage?.requestedDays) ?? Math.max(1, adr0496?.sampleCount ?? 1);
   const coverage = adr0496 && adr0496.sampleCount > 0 ? adr0496.coverageAfter : requested > 0 ? available / requested : 0;
   const sourceState: FreshDataSourceState = adr0496 && adr0496.sampleCount > 0
     ? (adr0496.providerErrorCount > 0 ? 'PROVIDER_ERROR' : adr0496.staleCount > 0 ? 'STALE' : 'FRESH')
@@ -359,20 +374,25 @@ function naverSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: F
         : status.includes('PROVIDER_ERROR') ? 'PROVIDER_ERROR'
           : status.includes('EMPTY') ? 'EMPTY'
             : 'DATA_UNAVAILABLE';
-  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: sourceState === 'FRESH' ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: coverage || (sourceState === 'FRESH' ? 1 : 0), normalized: Boolean(adr0496?.normalizedSampleCount && adr0496.normalizedSampleCount > 0) || sourceState === 'FRESH', diagnostics: [`ADR-0481 status=${status || 'missing'}`, `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`] });
+  const naverFreshness = typeof input.naverInvestorTrendAdr0481?.freshness === 'object' && input.naverInvestorTrendAdr0481.freshness !== null
+    ? input.naverInvestorTrendAdr0481.freshness as Record<string, unknown>
+    : null;
+  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, sourceDate: typeof naverFreshness?.lastSourceDate === 'string' ? naverFreshness.lastSourceDate : null, sourceAgeTradingDays: asNumber(naverFreshness?.sourceAgeTradingDays), cacheState: sourceState === 'FRESH' ? 'FRESH' : hasNaverSample ? 'STALE' : 'UNKNOWN', sourceState, coverageRatio: coverage || (hasNaverSample ? 1 : sourceState === 'FRESH' ? 1 : 0), normalized: Boolean(adr0496?.normalizedSampleCount && adr0496.normalizedSampleCount > 0) || hasNaverSample || sourceState === 'FRESH', diagnostics: [`ADR-0481 status=${status || 'missing'}`, `ADR-0481 sample=${hasNaverSample ? 'NORMALIZED_SAMPLE' : 'NO_SAMPLE'}`, `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`] });
 }
 
 function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
   const adr0496 = input.supplyCoverageReportAdr0496;
   const status = upper(input.semanticNetBuyNormalizationAdr0482?.status);
   const hasAdr0496Sample = Boolean(adr0496 && adr0496.semanticNetBuyCount > 0);
-  const hasSample = hasAdr0496Sample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample) || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
+  const semanticSamples = input.semanticNetBuyNormalizationAdr0482?.samples;
+  const hasAnySemanticSample = Array.isArray(semanticSamples) && semanticSamples.length > 0;
+  const hasSample = hasAdr0496Sample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample) || hasAnySemanticSample || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
   const sourceState: FreshDataSourceState =
-    hasSample || status.includes('NORMALIZER_READY') ? 'FRESH'
-      : status.includes('STALE') ? 'STALE'
+    status.includes('STALE') ? 'STALE'
+      : hasSample ? 'FRESH'
         : status.includes('PARSE_ERROR') || status.includes('PROVIDER_ERROR') ? 'PROVIDER_ERROR'
           : 'DATA_UNAVAILABLE';
-  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: hasSample ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: hasAdr0496Sample ? (adr0496?.coverageAfter ?? 0) : hasSample ? 1 : 0, normalized: hasSample, diagnostics: [`ADR-0482 status=${status || 'missing'}`, `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`] });
+  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: hasSample ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: hasAdr0496Sample ? (adr0496?.coverageAfter ?? 0) : hasSample ? 1 : 0, normalized: hasSample, diagnostics: [`ADR-0482 status=${status || 'missing'}`, `ADR-0482 sampleCount=${Array.isArray(semanticSamples) ? semanticSamples.length : 0}`, `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`] });
 }
 
 function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
@@ -558,7 +578,7 @@ export function formatFreshDataSupplyDetailAdr0487(report: FreshDataSupplyReport
     'domainSummaries:',
     ...report.domainSummaries.map((summary) => `- ${summary.domain}: status=${summary.status} fresh=${summary.sourcesFresh}/${summary.sourcesTotal} stale=${summary.sourcesStale} missing=${summary.sourcesMissing} providerError=${summary.sourcesProviderError} coverage=${percent(summary.averageCoverageRatio)} gaps=${summary.topGaps.join(',') || 'none'}`),
     'snapshots:',
-    ...report.snapshots.map((snapshot) => `- ${snapshot.sourceId}: status=${snapshot.status} cacheState=${snapshot.cacheState} sourceState=${snapshot.sourceState} coverage=${percent(snapshot.coverageRatio)} normalized=${snapshot.normalized} isProviderIssue=${snapshot.isProviderIssue} isMarketSignal=${snapshot.isMarketSignal}`),
+    ...report.snapshots.map((snapshot) => `- ${snapshot.sourceId}: status=${snapshot.status} cacheState=${snapshot.cacheState} sourceState=${snapshot.sourceState} sourceDate=${snapshot.sourceDate ?? 'none'} staleDays=${snapshot.sourceAgeTradingDays ?? 'unknown'} coverage=${percent(snapshot.coverageRatio)} normalized=${snapshot.normalized} isProviderIssue=${snapshot.isProviderIssue} isMarketSignal=${snapshot.isMarketSignal} diagnostics=${snapshot.diagnostics.join(' | ')}`),
     ...(report.diagnostics.filter((line) => line.startsWith('ADR-0496 SupplyCoverage')).map((line) => `supplyCoverageSummary: ${line}`)),
     `topGaps=${report.topGaps.join(',') || 'none'}`,
     `recommendedNextActions=${report.recommendedNextActions.join(' | ') || 'continue observation'}`,

@@ -68,6 +68,7 @@ export interface NaverInvestorTrendCollectorResult {
   } | null;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
+  rawPayloadPersistenceAllowed: false;
   policyPromotionMode: 'SHADOW_ONLY';
   operatorApprovalRequired: true;
   diagnostics: string[];
@@ -87,6 +88,7 @@ export interface NaverInvestorTrendCollectorInput {
 const ADR_0481_POLICY = {
   executionImpact: 'NONE',
   liveExecutionAllowed: false,
+  rawPayloadPersistenceAllowed: false,
   policyPromotionMode: 'SHADOW_ONLY',
   operatorApprovalRequired: true,
 } as const;
@@ -142,7 +144,8 @@ function emptyResult(input: NaverInvestorTrendCollectorInput, status: NaverInves
 export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvestorTrendCollectorInput): NaverInvestorTrendCollectorResult {
   const requestedDays = input.requestedDays ?? 5;
   if (input.disabled === true) return emptyResult(input, 'DISABLED', 'collector disabled by input; no live execution impact.');
-  if (input.nonTradingDay === true) return emptyResult(input, 'NON_TRADING_DAY', 'non-trading day; missing NAVER data is not bearish.');
+  const suppliedRawPoints = input.rawPoints?.some((point) => typeof point.date === 'string' && point.date.length > 0) === true;
+  if (input.nonTradingDay === true && !suppliedRawPoints) return emptyResult(input, 'NON_TRADING_DAY', 'non-trading day; missing NAVER data is not bearish.');
   if (input.parseError === true) return emptyResult(input, 'PARSE_ERROR', 'parse error isolated by ADR-0481 collector.');
   if (input.providerError === true) return emptyResult(input, 'PROVIDER_ERROR', 'provider error isolated by ADR-0481 collector.');
 
@@ -165,8 +168,12 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
     rawProgramNetBuy: latestPoint?.programNetBuy ?? null,
     rawIndividualNetBuy: latestPoint?.individualNetBuy ?? null,
     unit: 'KRW',
-    sourceAgeTradingDays: input.sourceAgeTradingDays ?? 0,
-    diagnostics: ['normalized via ADR-0482 semantic net-buy normalizer'],
+    status: input.nonTradingDay === true ? 'STALE' : undefined,
+    sourceAgeTradingDays: input.nonTradingDay === true ? (input.sourceAgeTradingDays ?? 1) : (input.sourceAgeTradingDays ?? 0),
+    diagnostics: [
+      'normalized via ADR-0482 semantic net-buy normalizer',
+      ...(input.nonTradingDay === true ? ['previousTradingDate/off-hours NAVER sample is shadow-only stale diagnostic.'] : []),
+    ],
   });
   const status: NaverInvestorTrendCollectorStatus = normalized.status === 'VERIFIED'
     ? 'DATA_AVAILABLE'
@@ -224,7 +231,9 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
       'ADR-0481 NAVER collector wired as SHADOW_ONLY candidate.',
       `status=${status}`,
       `signal=${signal}`,
+      input.nonTradingDay === true ? 'nonTradingDay previousTradingDate fallback consumed as STALE/SHADOW_ONLY.' : 'BUY_ALLOWED fresh NAVER sample path.',
       'executionImpact=NONE liveExecutionAllowed=false policyPromotionMode=SHADOW_ONLY',
+      'rawPayloadPersistenceAllowed=false',
     ],
   };
 }

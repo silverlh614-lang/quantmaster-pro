@@ -18,6 +18,8 @@ describe('supplySourceFreshnessAdr0483', () => {
     expect(report.status).toBe('REFRESH_RECOMMENDED');
     expect(report.rows[0]?.cacheState).toBe('FRESH');
     expect(report.rows[0]?.sourceState).toBe('STALE');
+    expect(report.rows[0]?.expectedFreshnessDays).toBe(2);
+    expect(report.rows[0]?.usableForLive).toBe(false);
     expect(report.executionImpact).toBe('NONE');
     expect(report.liveExecutionAllowed).toBe(false);
   });

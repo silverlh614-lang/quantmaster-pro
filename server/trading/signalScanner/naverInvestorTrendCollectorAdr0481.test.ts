@@ -101,11 +101,25 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
   it('ADR-0477 can select NAVER only in SHADOW_ONLY diagnostics', () => {
     const result = positive();
     const route = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorResultAdr0481: result, kisTriedForInvestorFlow: true });
-    expect(route.selectedProvider).toBe('NAVER');
+    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
     expect(route.signal).toBe('BULLISH');
     expect(route.policyPromotionMode).toBe('SHADOW_ONLY');
     expect(route.executionImpact).toBe('NONE');
     expect(route.liveExecutionAllowed).toBe(false);
+  });
+
+  it('SELL_ONLY previousTradingDate NAVER sample returns STALE shadow-only without raw payload persistence', () => {
+    const result = buildNaverInvestorTrendCollectorResultAdr0481({
+      code: '005930',
+      nonTradingDay: true,
+      rawPoints: [{ date: '2026-05-08', foreignNetBuy: 10, institutionNetBuy: 20 }],
+    });
+
+    expect(result.status).toBe('STALE');
+    expect(result.semanticNetBuyCandidate?.status).toBe('STALE');
+    expect(result.signal).toBe('UNKNOWN');
+    expect(result.rawPayloadPersistenceAllowed).toBe(false);
+    expect(result.liveExecutionAllowed).toBe(false);
   });
 
   it('ADR-0473 warmup no longer reports NAVER as NOT_WIRED when ADR-0481 is wired', () => {

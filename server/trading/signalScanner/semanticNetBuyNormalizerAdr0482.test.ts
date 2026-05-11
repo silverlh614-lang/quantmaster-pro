@@ -131,9 +131,11 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     });
 
     expect(report.samples[0]).toMatchObject({ provider: 'CACHE', status: 'STALE', signal: 'UNKNOWN', confidence: 'LOW', liveExecutionAllowed: false, executionImpact: 'NONE' });
+    expect(report.samples[0]?.rawPayloadPersistenceAllowed).toBe(false);
+    expect(report.rawPayloadPersistenceAllowed).toBe(false);
     expect(report.status).toBe('STALE');
     expect(report.selectedSample).toBeNull();
-    expect(JSON.stringify(report)).not.toMatch(/rawPayload|SECRET|providerPayload/i);
+    expect(JSON.stringify(report)).not.toMatch(/SECRET|providerPayload|rawPoints/i);
   });
 
   it('stale and missing/provider issue data never become bullish or bearish incorrectly', () => {

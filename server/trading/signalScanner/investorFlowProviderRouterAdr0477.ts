@@ -115,6 +115,10 @@ export interface InvestorFlowProviderRouteResult {
   operatorApprovalRequired: true;
   selectedReason: string | null;
   rawPayloadPersistenceAllowed: false;
+  inputSources?: InvestorFlowProviderId[];
+  cacheFallbackUsed?: boolean;
+  semanticInputStatus?: InvestorFlowProviderStatus;
+  naverSampleStatus?: InvestorFlowProviderStatus;
   diagnostics: string[];
 }
 
@@ -404,6 +408,12 @@ function semanticNetBuyDiagnosticCandidate(report: SemanticNetBuyNormalizationRe
     })[0] ?? null;
 }
 
+function semanticNetBuyFreshCandidate(report: SemanticNetBuyNormalizationReportAdr0482): SemanticNetBuySampleAdr0482 | null {
+  const selected = report.selectedSample;
+  if (!selected) return null;
+  return selected.status === 'VERIFIED' || selected.status === 'PARTIAL' ? selected : null;
+}
+
 function sampleFromSemanticAdr0482(sample: SemanticNetBuySampleAdr0482): SemanticNetBuySample {
   return {
     code: sample.code,
@@ -494,7 +504,7 @@ function freshDataSnapshotSampleAdr0477(
   const status = statusFromFreshDataSnapshot(snapshot);
   const usableForShadow = snapshot.normalized === true
     && (snapshot.stage === 'SHADOW_ONLY' || snapshot.stage === 'OBSERVE')
-    && (status === 'READY_FOR_SHADOW' || status === 'OBSERVING');
+    && (status === 'READY_FOR_SHADOW' || status === 'OBSERVING' || status === 'STALE' || status === 'CACHE_STALE_HIT');
   if (!usableForShadow) return null;
   return {
     code,
@@ -573,6 +583,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   let selectedReason: string | null = null;
   let semanticNetBuy: SemanticNetBuySample | null = null;
   let routeStatus: InvestorFlowProviderStatus = input.nonTradingDay === true ? 'NON_TRADING_DAY' : 'DATA_UNAVAILABLE';
+  let pendingSemanticFresh: SemanticNetBuySampleAdr0482 | null = null;
+  let pendingSemanticDiagnostic: SemanticNetBuySampleAdr0482 | null = null;
+  let pendingNaverStale: SemanticNetBuySample | null = null;
   const selectShadow = (provider: InvestorFlowProviderId, sample: SemanticNetBuySample, reason: string): void => {
     if (semanticNetBuy) return;
     selectedProvider = provider;
@@ -608,14 +621,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     for (const sample of input.semanticNetBuyNormalizationAdr0482.samples) {
       providerStatuses[providerFromSemanticAdr0482(sample.provider)] = mapSemanticNetBuyStatusAdr0482ToAdr0477(sample.status);
     }
-    const selected = input.semanticNetBuyNormalizationAdr0482.selectedSample ?? semanticNetBuyDiagnosticCandidate(input.semanticNetBuyNormalizationAdr0482);
-    if (selected) {
-      const selectedSample = sampleFromSemanticAdr0482(selected);
-      const reason = input.semanticNetBuyNormalizationAdr0482.selectedSample
-        ? 'ADR-0482 semantic net-buy selected sample consumed by ADR-0477.'
-        : 'ADR-0482 semantic net-buy diagnostic sample consumed for OBSERVE/SHADOW_ONLY only.';
-      selectShadow('SEMANTIC_NETBUY', selectedSample, reason);
-    } else {
+    pendingSemanticFresh = semanticNetBuyFreshCandidate(input.semanticNetBuyNormalizationAdr0482);
+    pendingSemanticDiagnostic = semanticNetBuyDiagnosticCandidate(input.semanticNetBuyNormalizationAdr0482);
+    if (!pendingSemanticFresh && !pendingSemanticDiagnostic) {
       routeStatus = mapSemanticNetBuyStatusAdr0482ToAdr0477(input.semanticNetBuyNormalizationAdr0482.status);
       diagnostics.push(`ADR-0482 semantic net-buy report has no selectable sample; reason=${input.semanticNetBuyNormalizationAdr0482.diagnostics.join('; ') || 'INPUT_SAMPLE_UNAVAILABLE'}. UNKNOWN is not bearish.`);
     }
@@ -635,16 +643,18 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       programNetBuy: adr0481.semanticNetBuyCandidate.programNetBuy,
       status: adr0481.semanticNetBuyCandidate.status === 'VERIFIED' ? 'VERIFIED' : adr0481.semanticNetBuyCandidate.status,
     } : input.naverRaw;
-    const naverSample = normalizeSemanticNetBuySampleAdr0477(naverRaw, 'NAVER', {
+    const naverSample = normalizeSemanticNetBuySampleAdr0477(naverRaw, 'NAVER_INVESTOR_TREND', {
       code: input.code,
       collectedAt,
       sourceAgeTradingDays: adr0481?.freshness.sourceAgeTradingDays ?? input.sourceAgeTradingDays,
       fallbackStatus: naverRaw ? undefined : adr0481 ? mapNaverAdr0481StatusToAdr0477(adr0481.status) : 'DATA_UNAVAILABLE',
     });
     providerStatuses.NAVER = adr0481 ? mapNaverAdr0481StatusToAdr0477(adr0481.status) : naverSample.status;
+    providerStatuses.NAVER_INVESTOR_TREND = providerStatuses.NAVER;
     if ((naverSample.status === 'VERIFIED' || naverSample.status === 'PARTIAL') && !semanticNetBuy) {
-      selectShadow('NAVER', naverSample, 'ADR-0481 NAVER investor trend collector selected for SHADOW_ONLY.');
-    } else if (!semanticNetBuy && (naverSample.status === 'STALE' || naverSample.status === 'DEGRADED')) {
+      selectShadow('NAVER_INVESTOR_TREND', naverSample, 'ADR-0481 NAVER investor trend collector selected for SHADOW_ONLY.');
+    } else if (naverSample.status === 'STALE' || naverSample.status === 'DEGRADED') {
+      pendingNaverStale = naverSample;
       routeStatus = naverSample.status;
       diagnostics.push('NAVER source is stale/degraded; positive source blocked, not bearish.');
     }
@@ -652,6 +662,18 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses.NAVER = 'NOT_WIRED';
     providerReasons.NAVER = 'NAVER collector implementation not wired and no FreshData registry bridge sample.';
     diagnostics.push('NAVER investor trend collector NOT_WIRED; provider issue only.');
+  }
+
+  if (!semanticNetBuy && pendingSemanticFresh) {
+    selectShadow('SEMANTIC_NETBUY', sampleFromSemanticAdr0482(pendingSemanticFresh), 'ADR-0482 semantic net-buy fresh selected sample consumed by ADR-0477.');
+  }
+
+  if (!semanticNetBuy && pendingNaverStale) {
+    selectShadow('NAVER_INVESTOR_TREND', pendingNaverStale, 'ADR-0481 NAVER previousTradingDate/off-hours sample selected as STALE SHADOW_ONLY diagnostic.');
+  }
+
+  if (!semanticNetBuy && pendingSemanticDiagnostic) {
+    selectShadow('SEMANTIC_NETBUY', sampleFromSemanticAdr0482(pendingSemanticDiagnostic), 'ADR-0482 semantic net-buy diagnostic sample consumed for OBSERVE/SHADOW_ONLY only.');
   }
 
   const cacheLookup = input.supplySnapshotCacheLookupAdr0491;
@@ -709,6 +731,11 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     .filter((item): item is number => finiteNumber(item))
     .sort((a, b) => b - a)[0] ?? null;
   const status = signal === 'UNKNOWN' && routeStatus === 'VERIFIED' ? 'DEGRADED' : routeStatus;
+  const inputSources = Array.from(new Set([
+    ...(input.naverCollectorResultAdr0481?.semanticNetBuyCandidate ? ['NAVER_INVESTOR_TREND' as const] : []),
+    ...(input.semanticNetBuyNormalizationAdr0482?.samples.map((sample) => providerFromSemanticAdr0482(sample.provider)) ?? []),
+    ...(cacheLookupSample || input.cacheRaw || input.previousTradingDayCacheRaw ? ['CACHE' as const] : []),
+  ]));
 
   return {
     code: input.code,
@@ -730,6 +757,10 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     },
     ...ROUTER_POLICY,
     selectedReason,
+    inputSources,
+    cacheFallbackUsed: selectedSemanticNetBuy?.source === 'CACHE',
+    semanticInputStatus: providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE',
+    naverSampleStatus: providerStatuses.NAVER_INVESTOR_TREND ?? providerStatuses.NAVER ?? 'DATA_UNAVAILABLE',
     diagnostics,
   };
 }
@@ -752,6 +783,10 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- coverage: ${result.coverage.available}/${result.coverage.total}`,
     `- freshness: cache=${result.freshness.cacheState}, source=${result.freshness.sourceState}, oldest=${result.freshness.oldestSourceAgeTradingDays ?? 'unknown'} trading days`,
     `- selectedReason: ${result.selectedReason ?? 'NONE'}`,
+    `- inputSources: ${result.inputSources?.join(',') || 'NONE'}`,
+    `- cacheFallbackUsed: ${result.cacheFallbackUsed ?? false}`,
+    `- semanticInputStatus: ${result.semanticInputStatus ?? result.providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE'}`,
+    `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
     `- providerTried: ${result.providerTried.join(' -> ') || 'NONE'}`,
     `- providerTriedDetail: ${Object.entries(result.providerReasons).map(([provider, reason]) => `${provider}=${reason}`).join(' | ') || 'NONE'}`,
     `- rawPayloadPersistenceAllowed: false`,
