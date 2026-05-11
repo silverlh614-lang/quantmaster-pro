@@ -163,8 +163,17 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
   });
 
   it('tries endpoint/date/market variants after MDCSTAT02203 HTTP 400 and selects first valid KRX row', async () => {
-    const fetchSpy = vi.fn().mockImplementation(async (_url, init) => {
+    const fetchSpy = vi.fn().mockImplementation(async (url, init) => {
+      const urlText = String(url);
       const body = String(init?.body ?? '');
+      if (urlText.includes('/GenerateOTP/generate.cmd')) {
+        return {
+          ok: false,
+          status: 400,
+          headers: { get: () => 'text/plain' },
+          text: async () => 'bad request',
+        };
+      }
       if (body.includes('MDCSTAT02201') && body.includes('trdDd=20260508') && body.includes('mktId=STK')) {
         return {
           ok: true,
@@ -215,12 +224,16 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
         expect(body).toContain('name=fileDown');
         expect(body).toContain('bld=dbms%2FMDC%2FSTAT%2Fstandard%2FMDCSTAT02401');
         expect(body).toContain('MDCSTAT02401');
-        expect(body).toContain('locale=ko_KR');
         expect(body).toContain('strtDd=20260508');
         expect(body).toContain('endDd=20260508');
         expect(body).toContain('isuCd=KR7005930003');
         expect(body).toContain('inqVal=2');
+        expect(body).not.toContain('url=');
+        expect(body).not.toContain('csvxls_isNo=');
+        expect(body).not.toContain('locale=');
         expect(body).not.toContain('trdVolVal=');
+        expect(body).not.toContain('isuCd2=');
+        expect(body).not.toContain('codeNmisuCd_finder_stkisu0_0=');
         return new Response('otp-token-123', {
           status: 200,
           headers: { 'Content-Type': 'text/plain' },
@@ -249,6 +262,7 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(rows).toEqual([{ code: '005930', name: 'Samsung', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 }]);
     const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
     expect(diagnostic?.selectedKrxFlowMode).toBe('OTP_CSV');
+    expect(diagnostic?.payloadMode).toBe('MINIMAL_STRICT');
     expect(diagnostic?.endpoint).toBe('MDCSTAT02401');
     expect(diagnostic?.routePurpose).toBe('SYMBOL_LEVEL');
     expect(diagnostic?.isuCd).toBe('KR7005930003');
@@ -259,12 +273,15 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(diagnostic?.csvRowCount).toBe(3);
     expect(diagnostic?.csvHeaderDetected).toBe(true);
     expect(diagnostic?.csvColumnKeys).toContain('투자자구분');
+    expect(diagnostic?.sentPayloadKeys).toEqual(['bld', 'endDd', 'inqVal', 'isuCd', 'name', 'strtDd']);
+    expect(diagnostic?.forbiddenKeysPresent).toEqual([]);
+    expect(diagnostic?.requiredKeysMissing).toEqual([]);
     expect(diagnostic?.selectedVariant).toContain('OTP_CSV');
     expect(diagnostic?.selectedVariant).toContain('MDCSTAT02401');
     expect(diagnostic?.parserStatus).toBe('OK');
   });
 
-  it('uses KRX market-level OTP CSV params with inqTpCd, inqVal, and detailView when no symbol is requested', async () => {
+  it('uses KRX market-level minimal OTP CSV params without symbol or extended keys when no symbol is requested', async () => {
     const fetchSpy = vi.fn().mockImplementation(async (url, init) => {
       const urlText = String(url);
       const body = String(init?.body ?? '');
@@ -272,10 +289,16 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
         expect(body).toContain('MDCSTAT02201');
         expect(body).toContain('inqTpCd=1');
         expect(body).toContain('inqVal=2');
-        expect(body).toContain('detailView=1');
         expect(body).toContain('trdDd=20260508');
         expect(body).toContain('mktId=STK');
+        expect(body).not.toContain('detailView=');
         expect(body).not.toContain('trdVolVal=');
+        expect(body).not.toContain('share=');
+        expect(body).not.toContain('money=');
+        expect(body).not.toContain('isuCd=');
+        expect(body).not.toContain('symbolCode=');
+        expect(body).not.toContain('csvxls_isNo=');
+        expect(body).not.toContain('locale=');
         return new Response('market-otp-token', {
           status: 200,
           headers: { 'Content-Type': 'text/plain' },
@@ -301,14 +324,40 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(rows[0]).toMatchObject({ code: '005930', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 });
     const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
     expect(diagnostic?.endpoint).toBe('MDCSTAT02201');
+    expect(diagnostic?.payloadMode).toBe('MINIMAL_STRICT');
     expect(diagnostic?.routePurpose).toBe('MARKET_LEVEL');
     expect(diagnostic?.inqTpCd).toBe('1');
     expect(diagnostic?.inqVal).toBe('2');
-    expect(diagnostic?.detailView).toBe('1');
+    expect(diagnostic?.detailView).toBeNull();
     expect(diagnostic?.parameterKeys).toContain('inqTpCd');
     expect(diagnostic?.parameterKeys).toContain('inqVal');
-    expect(diagnostic?.parameterKeys).toContain('detailView');
+    expect(diagnostic?.parameterKeys).not.toContain('detailView');
+    expect(diagnostic?.sentPayloadKeys).toEqual(['bld', 'inqTpCd', 'inqVal', 'mktId', 'name', 'trdDd']);
+    expect(diagnostic?.forbiddenKeysPresent).toEqual([]);
+    expect(diagnostic?.requiredKeysMissing).toEqual([]);
     expect(diagnostic?.parserStatus).toBe('OK');
+  });
+
+  it('omits empty and sentinel KRX payload values while preserving numeric zero', async () => {
+    vi.resetModules();
+    const { __krxClientTestOnly } = await import('./krxClient.js');
+    const result = __krxClientTestOnly.sanitizeKrxPayload({
+      bld: 'dbms/MDC/STAT/standard/MDCSTAT02201',
+      isuCd: 'NONE',
+      symbolCode: '',
+      unknown: 'UNKNOWN',
+      na: 'N/A',
+      nil: null,
+      undef: undefined,
+      zero: 0,
+      inqVal: '2',
+    });
+    expect(result.payload).toEqual({
+      bld: 'dbms/MDC/STAT/standard/MDCSTAT02201',
+      zero: '0',
+      inqVal: '2',
+    });
+    expect(result.omittedKeys.sort()).toEqual(['isuCd', 'na', 'nil', 'symbolCode', 'undef', 'unknown']);
   });
 
   it('records safe variant diagnostics when every KRX investor-flow variant returns HTTP 400', async () => {

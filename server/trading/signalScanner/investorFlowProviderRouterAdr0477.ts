@@ -156,6 +156,7 @@ export interface InvestorFlowProviderRouteResult {
     parserStatus?: string;
     endpointIssueHint?: string;
     selectedKrxFlowMode?: string;
+    payloadMode?: string;
     routePurpose?: string;
     selectedBld?: string;
     requiredParamMissing?: string | null;
@@ -172,6 +173,11 @@ export interface InvestorFlowProviderRouteResult {
     csvRowCount?: number;
     csvHeaderDetected?: boolean;
     csvNoDataReason?: string | null;
+    omittedKeys?: readonly string[];
+    forbiddenKeysPresent?: readonly string[];
+    requiredKeysPresent?: readonly string[];
+    requiredKeysMissing?: readonly string[];
+    sentPayloadKeys?: readonly string[];
     contentType?: string;
     responseKind?: string;
     selectedRowCount?: number;
@@ -211,6 +217,7 @@ export interface InvestorFlowProviderRouterInput {
     tradeDate?: string;
     previousTradingDateCandidate?: string;
     selectedKrxFlowMode?: string;
+    payloadMode?: string;
     routePurpose?: string;
     selectedBld?: string;
     requiredParamMissing?: string | null;
@@ -234,6 +241,11 @@ export interface InvestorFlowProviderRouterInput {
     csvFailureReason?: string | null;
     csvHeaderDetected?: boolean;
     csvNoDataReason?: string | null;
+    omittedKeys?: readonly string[];
+    forbiddenKeysPresent?: readonly string[];
+    requiredKeysPresent?: readonly string[];
+    requiredKeysMissing?: readonly string[];
+    sentPayloadKeys?: readonly string[];
     contentType?: string;
     httpStatus?: number | null;
     responseKind?: string;
@@ -750,6 +762,7 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `tradeDate=${input.tradeDate ?? 'UNKNOWN'}`,
     `previousTradingDateCandidate=${input.previousTradingDateCandidate ?? 'UNKNOWN'}`,
     `selectedKrxFlowMode=${input.selectedKrxFlowMode ?? 'UNKNOWN'}`,
+    `payloadMode=${input.payloadMode ?? 'UNKNOWN'}`,
     `routePurpose=${input.routePurpose ?? 'UNKNOWN'}`,
     `selectedBld=${input.selectedBld ?? input.bld ?? 'UNKNOWN'}`,
     `requiredParamMissing=${input.requiredParamMissing ?? 'NONE'}`,
@@ -774,6 +787,11 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `csvFailureReason=${input.csvFailureReason ?? 'NONE'}`,
     `csvHeaderDetected=${String(input.csvHeaderDetected ?? false)}`,
     `csvNoDataReason=${input.csvNoDataReason ?? 'NONE'}`,
+    `omittedKeys=${input.omittedKeys?.join(',') || 'NONE'}`,
+    `forbiddenKeysPresent=${input.forbiddenKeysPresent?.join(',') || 'NONE'}`,
+    `requiredKeysPresent=${input.requiredKeysPresent?.join(',') || 'NONE'}`,
+    `requiredKeysMissing=${input.requiredKeysMissing?.join(',') || 'NONE'}`,
+    `sentPayloadKeys=${input.sentPayloadKeys?.join(',') || 'NONE'}`,
     `contentType=${input.contentType ?? 'unknown'}`,
     `responseKind=${input.responseKind ?? 'UNKNOWN'}`,
     `httpStatus=${input.httpStatus ?? 'NONE'}`,
@@ -1461,6 +1479,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
           parserStatus: input.krxInvestorDiagnosticAdr0505.parserStatus,
           endpointIssueHint: input.krxInvestorDiagnosticAdr0505.endpointIssueHint,
           selectedKrxFlowMode: input.krxInvestorDiagnosticAdr0505.selectedKrxFlowMode,
+          payloadMode: input.krxInvestorDiagnosticAdr0505.payloadMode,
           routePurpose: input.krxInvestorDiagnosticAdr0505.routePurpose,
           selectedBld: input.krxInvestorDiagnosticAdr0505.selectedBld,
           requiredParamMissing: input.krxInvestorDiagnosticAdr0505.requiredParamMissing,
@@ -1477,6 +1496,11 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
           csvRowCount: input.krxInvestorDiagnosticAdr0505.csvRowCount,
           csvHeaderDetected: input.krxInvestorDiagnosticAdr0505.csvHeaderDetected,
           csvNoDataReason: input.krxInvestorDiagnosticAdr0505.csvNoDataReason,
+          omittedKeys: input.krxInvestorDiagnosticAdr0505.omittedKeys,
+          forbiddenKeysPresent: input.krxInvestorDiagnosticAdr0505.forbiddenKeysPresent,
+          requiredKeysPresent: input.krxInvestorDiagnosticAdr0505.requiredKeysPresent,
+          requiredKeysMissing: input.krxInvestorDiagnosticAdr0505.requiredKeysMissing,
+          sentPayloadKeys: input.krxInvestorDiagnosticAdr0505.sentPayloadKeys,
           contentType: input.krxInvestorDiagnosticAdr0505.contentType,
           responseKind: input.krxInvestorDiagnosticAdr0505.responseKind,
           selectedRowCount: input.krxInvestorDiagnosticAdr0505.selectedRowCount,
