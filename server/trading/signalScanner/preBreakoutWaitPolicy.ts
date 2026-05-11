@@ -116,6 +116,9 @@ export interface PreBreakoutWaitDecision {
   shadowLearningAllowed: boolean;
   counterfactualLearningAllowed: boolean;
   operatorMessage: string;
+  /** ADR-P0-8 — concrete diagnostic context so REPEATED_WAIT is not opaque UNKNOWN. */
+  originalConditionGap?: string;
+  allReasons?: PreBreakoutWaitReason[];
 }
 
 /* ───────── 정책 임계값 SSOT (사용자 §"권장 상수" 정합) ───────── */
@@ -248,7 +251,10 @@ export function evaluatePreBreakoutWait(
       counterfactualLearningAllowed: true,
       operatorMessage:
         `${input.symbol} wait cooldown — waitCount=${waitCount} ≥ ` +
-        `${PRE_BREAKOUT_WAIT_POLICY.MAX_WAIT_COUNT_BEFORE_COOLDOWN}.`,
+        `${PRE_BREAKOUT_WAIT_POLICY.MAX_WAIT_COUNT_BEFORE_COOLDOWN}; ` +
+        `distance=${priceDistance.toFixed(2)}%, volume=${volumeRatio.toFixed(2)}.`,
+      originalConditionGap: `distance=${priceDistance.toFixed(2)}%, volume=${volumeRatio.toFixed(2)}`,
+      allReasons: ['REPEATED_WAIT', priceDistance > PRE_BREAKOUT_WAIT_POLICY.NEAR_ENTRY_DISTANCE_PCT ? 'ENTRY_PRICE_NOT_REACHED' : 'ENTRY_PRICE_NOT_REACHED'],
     };
   }
 
@@ -410,6 +416,9 @@ export function summarizePreBreakoutWaitDecisions(
     else if (d.state === 'WAIT_VOLUME_WEAK') volumeWeak++;
     else if (d.state === 'WAIT_GATE_RECHECK_FAILED') gateRecheckFailed++;
     reasonCounts.set(d.reason, (reasonCounts.get(d.reason) ?? 0) + 1);
+    for (const reason of d.allReasons ?? []) {
+      if (reason !== d.reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+    }
   }
   const topReasons = Array.from(reasonCounts.entries())
     .map(([reason, count]) => ({ reason, count }))

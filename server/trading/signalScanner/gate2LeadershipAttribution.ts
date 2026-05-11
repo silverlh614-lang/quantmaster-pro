@@ -50,6 +50,28 @@ import { inferStatusFromLegacyResult } from '../../persistence/gateAuditRepo.js'
  *   - output null + context.hadRequiredData=false → unavailable++
  *   - output null + 그 외 → failed++ (legacy fallback)
  */
+export type Gate2ConditionStatus = 'PASSED' | 'FAILED' | 'UNAVAILABLE' | 'WAIT' | 'STALE' | 'ERROR';
+
+export type Gate2NearMissBucket =
+  | 'PROBING'
+  | 'WATCH_ONLY'
+  | 'SHADOW_ONLY'
+  | 'DATA_BLOCKED_NEAR_MISS';
+
+export interface Gate2ConditionGapTrace {
+  code: string;
+  status: Gate2ConditionStatus;
+  rawValue?: number | string | boolean;
+  threshold?: number;
+  gap?: number;
+  gapPct?: number;
+  nearMiss?: boolean;
+  nearMissBucket?: Gate2NearMissBucket;
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  reason?: string;
+}
+
 export interface Gate2BlockerBucket {
   conditionKey: string;
   passed: number;
@@ -67,6 +89,8 @@ export interface Gate2BlockerBucket {
   errorRate: number;
   staleRate: number;
   waitRate: number;
+  /** ADR-P0-8 — condition-level conservative near-miss/gap traces for diagnostics only. */
+  conditionGaps?: Gate2ConditionGapTrace[];
 }
 
 /**
@@ -130,6 +154,9 @@ export interface Gate2FreshAttribution {
   lastTriggerPass: number;
   /** Gate2 조건별 buckets (failed+unavailable+error+stale+wait 합 내림차순 정렬). */
   buckets: Gate2BlockerBucket[];
+  /** ADR-P0-8 — true fail/unavailable/wait/near-miss condition traces. Diagnostic only. */
+  conditionGaps: Gate2ConditionGapTrace[];
+  nearMissConditions: string[];
   topFailedCondition?: Gate2BlockerBucket;
   topUnavailableCondition?: Gate2BlockerBucket;
   topErrorCondition?: Gate2BlockerBucket;
@@ -164,6 +191,10 @@ export type Gate2AttributionOutputItem = {
   context?: { evaluatorKey?: string; hadRequiredData?: boolean; skippedByPolicy?: boolean };
   /** 호출자가 wait 분류 신호 전달 — pre-breakout WAIT 등 (output.status 와 별개). */
   waitMarker?: boolean;
+  /** ADR-P0-8 — optional metric attribution; ignored by live decisions. */
+  rawValue?: number | string | boolean;
+  threshold?: number;
+  reason?: string;
 };
 
 /**
@@ -214,6 +245,96 @@ function emptyBucket(key: string): Gate2BlockerBucket {
  * sectorEnergy / PROVIDER_DEGRADED 등 일부 evaluator 가 detail 에 'STALE' /
  * 'dataQuality=STALE' 명시. 본 헬퍼는 그런 케이스를 stale 카운터로 분리.
  */
+
+function finiteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function readNumericField(source: Record<string, unknown>, names: readonly string[]): number | undefined {
+  for (const name of names) {
+    const value = source[name];
+    if (finiteNumber(value)) return value;
+  }
+  return undefined;
+}
+
+function parseDetailNumber(detail: string | undefined, names: readonly string[]): number | undefined {
+  if (!detail) return undefined;
+  for (const name of names) {
+    const re = new RegExp(`${name}\\s*[:=]\\s*(-?\\d+(?:\\.\\d+)?)`, 'i');
+    const m = detail.match(re);
+    if (m) {
+      const parsed = Number(m[1]);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function inferGapTrace(input: {
+  key: string;
+  output: Gate2AttributionOutputItem['output'];
+  context?: Gate2AttributionOutputItem['context'];
+  status: Gate2ConditionStatus;
+  waitMarker?: boolean;
+  rawValue?: number | string | boolean;
+  threshold?: number;
+  reason?: string;
+}): Gate2ConditionGapTrace {
+  const outputRecord = (input.output && typeof input.output === 'object')
+    ? input.output as Record<string, unknown>
+    : {};
+  const detail = input.output?.detail;
+  const rawValue = input.rawValue ?? readNumericField(outputRecord, ['rawValue', 'value', 'ratio', 'score', 'currentValue']);
+  const threshold = input.threshold ?? readNumericField(outputRecord, ['threshold', 'required', 'requiredValue', 'min']);
+  const numericRaw = finiteNumber(rawValue) ? rawValue : undefined;
+  const numericThreshold = threshold ?? parseDetailNumber(detail, ['threshold', 'required', 'min']);
+  const gap = finiteNumber(numericRaw) && finiteNumber(numericThreshold)
+    ? Number((numericRaw - numericThreshold).toFixed(4))
+    : undefined;
+  const gapPct = finiteNumber(numericRaw) && finiteNumber(numericThreshold) && numericThreshold !== 0
+    ? Number((((numericRaw - numericThreshold) / Math.abs(numericThreshold)) * 100).toFixed(2))
+    : undefined;
+
+  let nearMiss = false;
+  let nearMissBucket: Gate2NearMissBucket | undefined;
+  if (input.status === 'UNAVAILABLE' || input.status === 'STALE') {
+    nearMiss = true;
+    nearMissBucket = 'DATA_BLOCKED_NEAR_MISS';
+  } else if (input.status === 'WAIT') {
+    nearMiss = true;
+    nearMissBucket = 'WATCH_ONLY';
+  } else if (input.status === 'FAILED' && finiteNumber(numericRaw) && finiteNumber(numericThreshold) && numericThreshold > 0) {
+    const ratio = numericRaw / numericThreshold;
+    if (input.key === 'breakout_momentum' && ratio >= 0.8) {
+      nearMiss = true;
+      nearMissBucket = 'PROBING';
+    } else if ((input.key === 'volume_surge' || input.key === 'volume_breakout') && ratio >= 0.7) {
+      nearMiss = true;
+      nearMissBucket = 'WATCH_ONLY';
+    } else if (input.key === 'trend_acceleration' && numericRaw > 0) {
+      nearMiss = true;
+      nearMissBucket = 'PROBING';
+    } else if ((input.key === 'turtle_high' || input.key === 'pullback' || input.key === 'vcp') && ratio >= 0.97) {
+      nearMiss = true;
+      nearMissBucket = 'WATCH_ONLY';
+    }
+  }
+
+  return {
+    code: input.key,
+    status: input.status,
+    ...(rawValue !== undefined ? { rawValue } : {}),
+    ...(finiteNumber(numericThreshold) ? { threshold: numericThreshold } : {}),
+    ...(gap !== undefined ? { gap } : {}),
+    ...(gapPct !== undefined ? { gapPct } : {}),
+    ...(nearMiss ? { nearMiss, nearMissBucket } : {}),
+    providerIssue: input.status === 'UNAVAILABLE' || input.status === 'STALE' || input.status === 'ERROR',
+    marketSignal: input.status === 'FAILED',
+    reason: input.reason ?? detail ?? (input.waitMarker ? 'PRE_BREAKOUT_WAIT' : input.status),
+  };
+}
+
 export function detailIndicatesStale(detail: string | undefined): boolean {
   if (!detail || typeof detail !== 'string') return false;
   return /\bSTALE\b|dataQuality\s*[:=]\s*STALE/i.test(detail);
@@ -240,7 +361,7 @@ export function accumulateGate2Attribution(
   acc: Map<string, Gate2BlockerBucket>,
   outputs: Gate2AttributionOutputItem[],
 ): void {
-  for (const { key, output, context, waitMarker } of outputs) {
+  for (const { key, output, context, waitMarker, rawValue, threshold, reason } of outputs) {
     let bucket = acc.get(key);
     if (!bucket) {
       bucket = emptyBucket(key);
@@ -252,35 +373,50 @@ export function accumulateGate2Attribution(
     // 1. wait marker 우선 — 호출자 명시 신호.
     if (waitMarker) {
       bucket.wait += 1;
+      bucket.conditionGaps = bucket.conditionGaps ?? [];
+      bucket.conditionGaps.push(inferGapTrace({ key, output, context, status: 'WAIT', waitMarker, rawValue, threshold, reason }));
       continue;
     }
 
     const status = inferStatusFromLegacyResult(output, context);
     const detailIsStale = detailIndicatesStale(output?.detail ?? undefined);
 
+    let traceStatus: Gate2ConditionStatus = 'FAILED';
     switch (status) {
       case 'FIRED':
         bucket.passed += 1;
+        traceStatus = 'PASSED';
         break;
       case 'THRESHOLD_NOT_MET':
         bucket.failed += 1;
+        traceStatus = 'FAILED';
         break;
       case 'DATA_UNAVAILABLE':
         bucket.unavailable += 1;
+        traceStatus = 'UNAVAILABLE';
         break;
       case 'PROVIDER_DEGRADED':
         // PROVIDER_DEGRADED + detail STALE → stale 분리. 그 외 unavailable.
-        if (detailIsStale) bucket.stale += 1;
-        else bucket.unavailable += 1;
+        if (detailIsStale) {
+          bucket.stale += 1;
+          traceStatus = 'STALE';
+        } else {
+          bucket.unavailable += 1;
+          traceStatus = 'UNAVAILABLE';
+        }
         break;
       case 'SKIPPED_BY_POLICY':
       case 'SANITY_REJECTED':
         bucket.skipped += 1;
+        traceStatus = 'UNAVAILABLE';
         break;
       case 'ERROR':
         bucket.error += 1;
+        traceStatus = 'ERROR';
         break;
     }
+    bucket.conditionGaps = bucket.conditionGaps ?? [];
+    bucket.conditionGaps.push(inferGapTrace({ key, output, context, status: traceStatus, rawValue, threshold, reason }));
   }
 }
 
@@ -444,6 +580,9 @@ export function buildGate2FreshAttribution(input: {
     return a.conditionKey.localeCompare(b.conditionKey);
   });
 
+  const conditionGaps = sorted.flatMap((b) => b.conditionGaps ?? []);
+  const nearMissConditions = Array.from(new Set(conditionGaps.filter((g) => g.nearMiss).map((g) => g.code))).sort();
+
   const recommendedDiagnosis = computeGate2LeadershipDiagnosis({
     buckets: sorted,
     gate1Pass: input.gate1Pass,
@@ -454,8 +593,13 @@ export function buildGate2FreshAttribution(input: {
   const gate2UnavailableCount = sorted.reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
   const waitPreserved = input.blockReasons?.preBreakoutWait ?? sorted.reduce((sum, b) => sum + b.wait, 0);
   const sizingPreserved = input.blockReasons?.sizingBlocked ?? 0;
+  const nearMissPreserved = nearMissConditions.length;
   const softPreserved = input.gate1Pass > 0 && input.gate2Pass === 0
-    ? Math.max(waitPreserved + sizingPreserved, gate2UnavailableCount > 0 ? Math.min(input.gate1Pass, gate2UnavailableCount) : 0)
+    ? Math.max(
+        waitPreserved + sizingPreserved,
+        gate2UnavailableCount > 0 ? Math.min(input.gate1Pass, gate2UnavailableCount) : 0,
+        nearMissPreserved > 0 ? Math.min(input.gate1Pass, nearMissPreserved) : 0,
+      )
     : 0;
 
   return {
@@ -468,6 +612,8 @@ export function buildGate2FreshAttribution(input: {
     entries: input.entries,
     lastTriggerPass: input.lastTriggerPass,
     buckets: sorted,
+    conditionGaps,
+    nearMissConditions,
     topFailedCondition: pickTopBucket(sorted, 'failed'),
     topUnavailableCondition: pickTopBucket(sorted, 'unavailable'),
     topErrorCondition: pickTopBucket(sorted, 'error'),
@@ -583,6 +729,9 @@ export function formatGate2AttributionSection(
     `gate2ShadowPreservedCount=${attribution.gate2ShadowPreservedCount}`,
   );
 
+  if (attribution.nearMissConditions.length > 0) {
+    lines.push(`  • nearMissConditions: ${attribution.nearMissConditions.slice(0, 8).join(', ')}`);
+  }
   if (topBuckets.length > 0) {
     lines.push('  • Top condition blockers:');
     for (const b of topBuckets) {

@@ -218,6 +218,18 @@ describe('ADR-0436 — EmptyScanPostmortem 신규 액션', () => {
       expect(stripped).toMatch(/getLastScanSummary/);
     });
 
+
+
+    it('fresh snapshot observation lanes prevent PATHOLOGICAL_BLOCK gate-tight shortcut', () => {
+      const stripped = stripComments(src);
+      expect(stripped).toMatch(/hasFreshObservationLane/);
+      expect(stripped).toMatch(/gate2WatchPreservedCount/);
+      expect(stripped).toMatch(/gate2ShadowPreservedCount/);
+      expect(stripped).toMatch(/preBreakoutWaitPreserved/);
+      expect(stripped).toMatch(/Gate1 survivor\/Shadow\/Watch 후보가 있어 PATHOLOGICAL_BLOCK 단정 대신 정상 대기\/관측/);
+      expect(stripped).toMatch(/summary\.gateFailRatio > 0\.95 && !hasFreshObservationLane/);
+    });
+
     it('LOOSEN_GATE 신규 출력 부재 (legacy alias 만 union 보존, 결정 트리 발화 0)', () => {
       const stripped = stripComments(src);
       // 결정 트리에서 'LOOSEN_GATE' 발화 부재 — primaryAction = 'LOOSEN_GATE' 같은 패턴

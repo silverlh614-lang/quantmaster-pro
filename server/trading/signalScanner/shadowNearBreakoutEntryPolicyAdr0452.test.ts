@@ -282,12 +282,12 @@ describe('ADR-0452 — Group G — preBreakoutState 분기', () => {
     expect(d.blockReason).toBe('VOLUME_TOO_WEAK');
   });
 
-  it('WAIT_COOLDOWN + 임계 미달 → UNKNOWN 차단', () => {
+  it('WAIT_COOLDOWN + 임계 미달 → REPEATED_WAIT_COOLDOWN 차단', () => {
     const d = evaluateShadowNearBreakoutEntry(
       baseInput({ preBreakoutState: 'WAIT_COOLDOWN', recheckPassed: true }),
     );
     expect(d.allowed).toBe(false);
-    expect(d.blockReason).toBe('UNKNOWN');
+    expect(d.blockReason).toBe('REPEATED_WAIT_COOLDOWN');
   });
 
   it('WAIT_GATE_RECHECK_FAILED + soft distance + recheckPassed=false → GATE_RECHECK_SOFT_FAIL allowed', () => {
@@ -336,12 +336,24 @@ describe('ADR-0452 — Group G — preBreakoutState 분기', () => {
     expect(d.createShadowTrade).toBe(true);
   });
 
-  it('preBreakoutState 미상 (undefined) → UNKNOWN 차단', () => {
+  it('preBreakoutState 미상 (undefined) → concrete fallback 차단', () => {
     const d = evaluateShadowNearBreakoutEntry(
       baseInput({ preBreakoutState: undefined }),
     );
     expect(d.allowed).toBe(false);
-    expect(d.blockReason).toBe('UNKNOWN');
+    expect(d.blockReason).toBe('ENTRY_PRICE_NOT_REACHED');
+  });
+
+  it('thresholdNotMetConditions maps UNKNOWN fallback to concrete Gate2 gap reason', () => {
+    const d = evaluateShadowNearBreakoutEntry(
+      baseInput({
+        preBreakoutState: undefined,
+        thresholdNotMetConditions: ['breakout_momentum', 'volume_surge'],
+      }),
+    );
+    expect(d.allowed).toBe(false);
+    expect(d.blockReason).toBe('BREAKOUT_MOMENTUM_GAP');
+    expect(d.allBlockReasons).toContain('VOLUME_SURGE_GAP');
   });
 });
 
