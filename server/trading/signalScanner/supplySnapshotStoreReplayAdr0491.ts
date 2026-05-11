@@ -12,7 +12,56 @@ import { normalizeInvestorFlowCodeAdr0491, normalizeInvestorFlowSnapshotKeyAdr04
 export type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
 export type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
 export type SupplySnapshotCacheLookupStatusAdr0491 = 'CACHE_HIT' | 'CACHE_STALE_HIT' | 'STALE_HIT' | 'CACHE_KEY_MISMATCH' | 'CACHE_EMPTY' | 'CORRUPT_RECOVERED';
-export type SupplySnapshotDomainAdr0491 = 'SUPPLY' | 'SECTOR' | 'PROGRAM';
+export type SupplySnapshotDomainAdr0491 = 'SUPPLY' | 'SECTOR' | 'PROGRAM' | 'PROGRAM_TRADING';
+export type SupplySnapshotMismatchHintAdr0491 =
+  | 'NO_SUPPLY_ROWS'
+  | 'SOURCE_ALIAS_MISMATCH'
+  | 'PROVIDER_ALIAS_MISMATCH'
+  | 'CODE_FORMAT_MISMATCH'
+  | 'DATE_MISMATCH'
+  | 'NORMALIZED_FLAG_MISMATCH'
+  | 'DOMAIN_ROUTE_MISMATCH'
+  | 'ONLY_SECTOR_ROWS_FOUND'
+  | 'STALE_ONLY_AVAILABLE'
+  | 'EMPTY_FOR_SYMBOL'
+  | 'UNKNOWN_MISMATCH';
+
+export interface SupplySnapshotRetainedKeySummaryAdr0491 {
+  total: number;
+  byDomain: Record<string, number>;
+  bySource: Record<string, number>;
+  byProvider: Record<string, number>;
+  normalized: { true: number; false: number; missing: number };
+  byTradingDate: Record<string, number>;
+  sampleKeys: string[];
+}
+
+export interface SupplySnapshotRouterLookupDiagnosticAdr0491 {
+  requestedCode: string;
+  requestedSymbol?: string;
+  normalizedCode: string;
+  route: 'investor_flow';
+  domainCandidates: SupplySnapshotDomainAdr0491[];
+  sourceCandidates: InvestorFlowSnapshotSourceAdr0491[];
+  providerCandidates: string[];
+  tradingDateCandidates: string[];
+  requireNormalized: boolean;
+  allowStale: boolean;
+  rawPayloadPersistenceAllowed: false;
+  liveExecutionAllowed: false;
+}
+
+export interface SupplySnapshotClosestMatchAdr0491 {
+  code: string;
+  symbol: string | null;
+  source: string;
+  provider: string;
+  tradingDate: string;
+  sourceDate: string | null;
+  normalized: boolean;
+  reason: SupplySnapshotMismatchHintAdr0491;
+}
+
 
 export interface SanitizedSupplySnapshotAdr0491 {
   scanId: string;
@@ -45,8 +94,10 @@ export interface SupplySnapshotCacheLookupAdr0491 {
   debug?: {
     lookupKey: string;
     triedKeys: string[];
-    retainedSummary: Record<string, unknown>;
-    mismatchHints: string[];
+    retainedSummary: SupplySnapshotRetainedKeySummaryAdr0491;
+    routerLookup: SupplySnapshotRouterLookupDiagnosticAdr0491;
+    mismatchHints: SupplySnapshotMismatchHintAdr0491[];
+    closestMatches: SupplySnapshotClosestMatchAdr0491[];
   };
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
@@ -285,29 +336,183 @@ function snapshotCode(snapshot: SanitizedSupplySnapshotAdr0491): string {
   return normalizeInvestorFlowCodeAdr0491(snapshot.latestInvestorFlowSample?.symbol);
 }
 
-function buildRetainedSummaryAdr0491(snapshots: SanitizedSupplySnapshotAdr0491[]): Record<string, unknown> {
+function snapshotProvider(snapshot: SanitizedSupplySnapshotAdr0491): string {
+  return snapshot.latestInvestorFlowSample?.provider ?? 'UNKNOWN';
+}
+
+function snapshotNormalized(snapshot: SanitizedSupplySnapshotAdr0491): boolean | null {
+  if (!snapshot.latestInvestorFlowSample) return null;
+  return snapshot.latestInvestorFlowSample.status === 'MISSING' ? false : true;
+}
+
+function sampleKeyAdr0491(snapshot: SanitizedSupplySnapshotAdr0491): string {
+  const normalized = snapshotNormalized(snapshot);
+  return [
+    `domain=${snapshot.domains.join('/')}`,
+    `source=${snapshotSource(snapshot)}`,
+    `provider=${snapshotProvider(snapshot)}`,
+    `code=${snapshotCode(snapshot)}`,
+    `symbol=${snapshot.latestInvestorFlowSample?.symbol ?? 'NONE'}`,
+    `tradingDate=${snapshot.tradingDate}`,
+    `sourceDate=${snapshot.latestInvestorFlowSample?.dataDate ?? 'NONE'}`,
+    `normalized=${normalized === null ? 'missing' : String(normalized)}`,
+  ].join(' ');
+}
+
+export function buildRetainedSummaryAdr0491(
+  snapshots: SanitizedSupplySnapshotAdr0491[],
+): SupplySnapshotRetainedKeySummaryAdr0491 {
   const byDomain = new Map<string, number>();
   const bySource = new Map<string, number>();
+  const byProvider = new Map<string, number>();
   const byDate = new Map<string, number>();
-  let normalizedTrue = 0;
+  const normalized = { true: 0, false: 0, missing: 0 };
   for (const snapshot of snapshots) {
     for (const domain of snapshot.domains) byDomain.set(domain, (byDomain.get(domain) ?? 0) + 1);
     const source = snapshotSource(snapshot);
     bySource.set(source, (bySource.get(source) ?? 0) + 1);
+    const provider = snapshotProvider(snapshot);
+    byProvider.set(provider, (byProvider.get(provider) ?? 0) + 1);
     byDate.set(snapshot.tradingDate, (byDate.get(snapshot.tradingDate) ?? 0) + 1);
-    if (snapshot.latestInvestorFlowSample) normalizedTrue += 1;
+    const normalizedValue = snapshotNormalized(snapshot);
+    if (normalizedValue === true) normalized.true += 1;
+    else if (normalizedValue === false) normalized.false += 1;
+    else normalized.missing += 1;
   }
   return {
-    retained: snapshots.length,
-    domains: Object.fromEntries(byDomain),
-    sources: Object.fromEntries(bySource),
-    normalizedTrue,
-    recentTradingDates: Object.fromEntries([...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 5)),
+    total: snapshots.length,
+    byDomain: Object.fromEntries([...byDomain.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
+    bySource: Object.fromEntries([...bySource.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
+    byProvider: Object.fromEntries([...byProvider.entries()].sort((a, b) => a[0].localeCompare(b[0]))),
+    normalized,
+    byTradingDate: Object.fromEntries([...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 10)),
+    sampleKeys: snapshots.slice(0, 5).map(sampleKeyAdr0491),
   };
 }
 
 function snapshotKeyAdr0491(snapshot: SanitizedSupplySnapshotAdr0491): string {
-  return `domain=${snapshot.domains.join('/')}|code=${snapshotCode(snapshot)}|source=${snapshotSource(snapshot)}|tradingDate=${snapshot.tradingDate}|sourceDate=${snapshot.latestInvestorFlowSample?.dataDate ?? 'NONE'}|normalized=${String(Boolean(snapshot.latestInvestorFlowSample))}`;
+  return sampleKeyAdr0491(snapshot);
+}
+
+function normalizeProviderCandidateAdr0491(source: InvestorFlowSnapshotSourceAdr0491): string {
+  if (source === 'NAVER_INVESTOR_TREND') return 'NAVER';
+  if (source === 'KRX_INVESTOR_FLOW') return 'KRX';
+  if (source === 'SEMANTIC_NETBUY') return 'INTERNAL';
+  if (source === 'KIS_API') return 'KIS';
+  return source;
+}
+
+function buildRouterLookupDiagnosticAdr0491(input: {
+  requestedCode: string;
+  requestedSymbol?: string;
+  normalizedCode: string;
+  sourceCandidates: InvestorFlowSnapshotSourceAdr0491[];
+  tradingDateCandidates: string[];
+  requireNormalized?: boolean;
+  allowStale?: boolean;
+}): SupplySnapshotRouterLookupDiagnosticAdr0491 {
+  return {
+    requestedCode: input.requestedCode,
+    requestedSymbol: input.requestedSymbol,
+    normalizedCode: input.normalizedCode,
+    route: 'investor_flow',
+    domainCandidates: ['SUPPLY'],
+    sourceCandidates: input.sourceCandidates,
+    providerCandidates: [...new Set(input.sourceCandidates.map(normalizeProviderCandidateAdr0491).concat('CACHE'))],
+    tradingDateCandidates: input.tradingDateCandidates,
+    requireNormalized: input.requireNormalized ?? true,
+    allowStale: input.allowStale ?? false,
+    rawPayloadPersistenceAllowed: false,
+    liveExecutionAllowed: false,
+  };
+}
+
+function classifySnapshotMismatchAdr0491(input: {
+  snapshot: SanitizedSupplySnapshotAdr0491;
+  normalizedCode: string;
+  sourceCandidates: InvestorFlowSnapshotSourceAdr0491[];
+  tradingDateCandidates: string[];
+  requireNormalized?: boolean;
+  allowStale?: boolean;
+}): SupplySnapshotMismatchHintAdr0491 {
+  const { snapshot, normalizedCode, sourceCandidates, tradingDateCandidates } = input;
+  if (!snapshot.domains.includes('SUPPLY')) return snapshot.domains.includes('SECTOR') ? 'ONLY_SECTOR_ROWS_FOUND' : 'NO_SUPPLY_ROWS';
+  const rawSymbol = snapshot.latestInvestorFlowSample?.symbol ?? '';
+  const rowCode = snapshotCode(snapshot);
+  if (rowCode !== normalizedCode) {
+    const rowDigits = String(rawSymbol).replace(/[^0-9]/g, '');
+    if (rowDigits.endsWith(normalizedCode) || rawSymbol.includes('.')) return 'CODE_FORMAT_MISMATCH';
+    return 'EMPTY_FOR_SYMBOL';
+  }
+  const source = snapshotSource(snapshot);
+  if (!sourceCandidates.includes(source as InvestorFlowSnapshotSourceAdr0491)) return 'SOURCE_ALIAS_MISMATCH';
+  const provider = normalizeInvestorFlowSourceKeyAdr0491(snapshotProvider(snapshot));
+  if (provider !== source && provider !== 'UNKNOWN') return 'PROVIDER_ALIAS_MISMATCH';
+  if (!tradingDateCandidates.includes(snapshot.tradingDate)) {
+    if (input.allowStale === true) return 'STALE_ONLY_AVAILABLE';
+    return 'DATE_MISMATCH';
+  }
+  if (input.requireNormalized === true && snapshotNormalized(snapshot) !== true) return 'NORMALIZED_FLAG_MISMATCH';
+  return 'UNKNOWN_MISMATCH';
+}
+
+function classifyLookupMismatchAdr0491(input: {
+  snapshots: SanitizedSupplySnapshotAdr0491[];
+  supplyRows: SanitizedSupplySnapshotAdr0491[];
+  normalizedCode: string;
+  sourceCandidates: InvestorFlowSnapshotSourceAdr0491[];
+  tradingDateCandidates: string[];
+  requireNormalized?: boolean;
+  allowStale?: boolean;
+}): SupplySnapshotMismatchHintAdr0491[] {
+  if (input.snapshots.length === 0) return [];
+  const supplyDomainRows = input.snapshots.filter((snapshot) => snapshot.domains.includes('SUPPLY'));
+  if (supplyDomainRows.length === 0) {
+    const sectorRows = input.snapshots.filter((snapshot) => snapshot.domains.includes('SECTOR'));
+    return [sectorRows.length > 0 ? 'ONLY_SECTOR_ROWS_FOUND' : 'NO_SUPPLY_ROWS'];
+  }
+  const sameCode = supplyDomainRows.filter((snapshot) => snapshotCode(snapshot) === input.normalizedCode);
+  if (sameCode.length === 0) return ['EMPTY_FOR_SYMBOL'];
+  const sameSource = sameCode.filter((snapshot) => input.sourceCandidates.includes(snapshotSource(snapshot) as InvestorFlowSnapshotSourceAdr0491));
+  if (sameSource.length === 0) return ['SOURCE_ALIAS_MISMATCH'];
+  const staleCandidate = sameSource.some((snapshot) => !input.tradingDateCandidates.includes(snapshot.tradingDate));
+  const sameDate = sameSource.filter((snapshot) => input.tradingDateCandidates.includes(snapshot.tradingDate));
+  if (sameDate.length === 0) return [input.allowStale === true && staleCandidate ? 'STALE_ONLY_AVAILABLE' : 'DATE_MISMATCH'];
+  if (input.requireNormalized === true && sameDate.every((snapshot) => snapshotNormalized(snapshot) !== true)) return ['NORMALIZED_FLAG_MISMATCH'];
+  return ['UNKNOWN_MISMATCH'];
+}
+
+function buildClosestMatchesAdr0491(input: {
+  snapshots: SanitizedSupplySnapshotAdr0491[];
+  normalizedCode: string;
+  sourceCandidates: InvestorFlowSnapshotSourceAdr0491[];
+  tradingDateCandidates: string[];
+  requireNormalized?: boolean;
+  allowStale?: boolean;
+}): SupplySnapshotClosestMatchAdr0491[] {
+  const scored = input.snapshots.map((snapshot) => {
+    const reason = classifySnapshotMismatchAdr0491({ snapshot, ...input });
+    let score = 0;
+    if (snapshot.domains.includes('SUPPLY')) score += 10;
+    if (snapshotCode(snapshot) === input.normalizedCode) score += 8;
+    if (input.sourceCandidates.includes(snapshotSource(snapshot) as InvestorFlowSnapshotSourceAdr0491)) score += 4;
+    if (input.tradingDateCandidates.includes(snapshot.tradingDate)) score += 2;
+    if (snapshot.latestInvestorFlowSample) score += 1;
+    return { snapshot, reason, score };
+  });
+  return scored
+    .sort((a, b) => b.score - a.score || b.snapshot.recordedAt.localeCompare(a.snapshot.recordedAt))
+    .slice(0, 3)
+    .map(({ snapshot, reason }) => ({
+      code: snapshotCode(snapshot),
+      symbol: snapshot.latestInvestorFlowSample?.symbol ?? null,
+      source: snapshotSource(snapshot),
+      provider: snapshotProvider(snapshot),
+      tradingDate: snapshot.tradingDate,
+      sourceDate: snapshot.latestInvestorFlowSample?.dataDate ?? null,
+      normalized: snapshotNormalized(snapshot) === true,
+      reason,
+    }));
 }
 
 function cacheRawFromSnapshotAdr0491(snapshot: SanitizedSupplySnapshotAdr0491, status: SupplySnapshotCacheLookupStatusAdr0491): Record<string, unknown> | null {
@@ -345,14 +550,22 @@ export function findLatestInvestorFlowSnapshotAdr0491(input: {
   const tradingDateCandidates = input.tradingDateCandidates ?? normalized.tradingDateCandidates;
   const retainedSummary = buildRetainedSummaryAdr0491(store.snapshots);
   const triedKeys = sourceCandidates.flatMap((source) => tradingDateCandidates.map((date) => `domain=SUPPLY|code=${normalized.normalizedCode}|source=${source}|tradingDate=${date}|normalized=${String(input.requireNormalized ?? true)}`));
-  const debugBase = { lookupKey: normalized.lookupKey, triedKeys, retainedSummary, mismatchHints: [] as string[] };
+  const routerLookup = buildRouterLookupDiagnosticAdr0491({
+    requestedCode: input.code,
+    normalizedCode: normalized.normalizedCode,
+    sourceCandidates,
+    tradingDateCandidates,
+    requireNormalized: input.requireNormalized,
+    allowStale: input.allowStale,
+  });
+  const debugBase = { lookupKey: normalized.lookupKey, triedKeys, retainedSummary, routerLookup, mismatchHints: [] as SupplySnapshotMismatchHintAdr0491[], closestMatches: [] as SupplySnapshotClosestMatchAdr0491[] };
   if (recovered) {
     return { status: 'CORRUPT_RECOVERED', snapshot: null, cacheRaw: null, retained: 0, reason: 'CORRUPT_RECOVERED', stale: false, debug: debugBase, executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', rawPayloadPersistenceAllowed: false };
   }
   const supplyRows = store.snapshots
     .filter((snapshot) => snapshot.domains.includes('SUPPLY'))
     .filter((snapshot) => snapshot.latestInvestorFlowSample)
-    .filter((snapshot) => input.requireNormalized !== true || snapshot.latestInvestorFlowSample !== null)
+    .filter((snapshot) => input.requireNormalized !== true || snapshotNormalized(snapshot) === true)
     .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
   const direct = supplyRows.find((snapshot) =>
     snapshotCode(snapshot) === normalized.normalizedCode &&
@@ -372,24 +585,39 @@ export function findLatestInvestorFlowSnapshotAdr0491(input: {
       retained: store.snapshots.length,
       reason: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY' : 'SANITIZED_SNAPSHOT_CACHE_HIT',
       stale: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT',
-      debug: { ...debugBase, mismatchHints: [`closest=${snapshotKeyAdr0491(hit)}`] },
+      debug: { ...debugBase, mismatchHints: [], closestMatches: buildClosestMatchesAdr0491({ snapshots: [hit], normalizedCode: normalized.normalizedCode, sourceCandidates, tradingDateCandidates, requireNormalized: input.requireNormalized, allowStale: input.allowStale }) },
       executionImpact: 'NONE',
       liveExecutionAllowed: false,
       policyPromotionMode: 'SHADOW_ONLY',
       rawPayloadPersistenceAllowed: false,
     };
   }
-  const closest = supplyRows[0] ?? store.snapshots.sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0] ?? null;
-  const mismatchHints = closest ? [`closest=${snapshotKeyAdr0491(closest)}`] : [];
   const hasRetainedRows = store.snapshots.length > 0;
+  const mismatchHints = classifyLookupMismatchAdr0491({
+    snapshots: store.snapshots,
+    supplyRows,
+    normalizedCode: normalized.normalizedCode,
+    sourceCandidates,
+    tradingDateCandidates,
+    requireNormalized: input.requireNormalized,
+    allowStale: input.allowStale,
+  });
+  const closestMatches = buildClosestMatchesAdr0491({
+    snapshots: store.snapshots,
+    normalizedCode: normalized.normalizedCode,
+    sourceCandidates,
+    tradingDateCandidates,
+    requireNormalized: input.requireNormalized,
+    allowStale: input.allowStale,
+  });
   return {
     status: hasRetainedRows ? 'CACHE_KEY_MISMATCH' : 'CACHE_EMPTY',
     snapshot: null,
     cacheRaw: null,
     retained: store.snapshots.length,
-    reason: hasRetainedRows ? 'KEY_MISMATCH_OR_SYMBOL_SOURCE_DATE_DOMAIN_NOT_FOUND' : 'SNAPSHOT_STORE_EMPTY',
+    reason: hasRetainedRows ? mismatchHints.join('|') || 'KEY_MISMATCH_OR_SYMBOL_SOURCE_DATE_DOMAIN_NOT_FOUND' : 'SNAPSHOT_STORE_EMPTY',
     stale: false,
-    debug: { ...debugBase, mismatchHints },
+    debug: { ...debugBase, mismatchHints, closestMatches },
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: 'SHADOW_ONLY',

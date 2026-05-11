@@ -259,7 +259,17 @@ const scanBlockers: TelegramCommand = {
     let supplyProviderWarmupSection: string | null = null;
     try {
       const investorFlowHealth = getLastInvestorFlowProviderHealth();
-      supplyProviderSection = summarizeInvestorFlowProviderHealth(investorFlowHealth);
+      supplyProviderSection = summarizeInvestorFlowProviderHealth(investorFlowHealth, summary?.investorFlowProviderRouter ? {
+        status: summary.investorFlowProviderRouter.status,
+        selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
+        selectedReason: summary.investorFlowProviderRouter.selectedReason,
+        providerTried: [...summary.investorFlowProviderRouter.providerTried],
+        providerStatuses: { ...summary.investorFlowProviderRouter.providerStatuses },
+        signal: summary.investorFlowProviderRouter.signal,
+        coverage: summary.investorFlowProviderRouter.coverage,
+        executionImpact: summary.investorFlowProviderRouter.executionImpact,
+        liveExecutionAllowed: summary.investorFlowProviderRouter.liveExecutionAllowed,
+      } : null);
       supplyProviderWarmupSection = formatSupplyProviderWarmupCompactLine(
         buildSupplyProviderWarmupReport({
           health: investorFlowHealth,
@@ -267,6 +277,8 @@ const scanBlockers: TelegramCommand = {
             status: summary.investorFlowProviderRouter.status,
             selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
             providerTried: [...summary.investorFlowProviderRouter.providerTried],
+            providerStatuses: { ...summary.investorFlowProviderRouter.providerStatuses },
+            selectedReason: summary.investorFlowProviderRouter.selectedReason,
             signal: summary.investorFlowProviderRouter.signal,
             coverage: summary.investorFlowProviderRouter.coverage,
             executionImpact: summary.investorFlowProviderRouter.executionImpact,

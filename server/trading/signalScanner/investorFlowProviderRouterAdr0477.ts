@@ -517,6 +517,27 @@ function freshDataSnapshotSampleAdr0477(
   };
 }
 
+
+function compactRecordAdr0477(record: Record<string, unknown> | undefined): string {
+  if (!record) return 'NONE';
+  return Object.entries(record).map(([key, value]) => `${key}:${String(value)}`).join(',');
+}
+
+function compactRetainedSummaryAdr0477(summary: NonNullable<SupplySnapshotCacheLookupAdr0491['debug']>['retainedSummary'] | undefined): string {
+  if (!summary) return 'NONE';
+  return `total=${summary.total};byDomain=${compactRecordAdr0477(summary.byDomain)};bySource=${compactRecordAdr0477(summary.bySource)};byProvider=${compactRecordAdr0477(summary.byProvider)};normalized=true:${summary.normalized.true},false:${summary.normalized.false},missing:${summary.normalized.missing};byTradingDate=${compactRecordAdr0477(summary.byTradingDate)};sampleKeys=${summary.sampleKeys.slice(0, 3).join(' || ')}`;
+}
+
+function compactRouterLookupAdr0477(lookup: NonNullable<SupplySnapshotCacheLookupAdr0491['debug']>['routerLookup'] | undefined): string {
+  if (!lookup) return 'NONE';
+  return `requestedCode=${lookup.requestedCode};normalizedCode=${lookup.normalizedCode};route=${lookup.route};domainCandidates=${lookup.domainCandidates.join(',')};sourceCandidates=${lookup.sourceCandidates.join(',')};providerCandidates=${lookup.providerCandidates.join(',')};dateCandidates=${lookup.tradingDateCandidates.join(',')};requireNormalized=${String(lookup.requireNormalized)};allowStale=${String(lookup.allowStale)};rawPayloadPersistenceAllowed=false;liveExecutionAllowed=false`;
+}
+
+function compactClosestMatchesAdr0477(matches: NonNullable<SupplySnapshotCacheLookupAdr0491['debug']>['closestMatches'] | undefined): string {
+  if (!matches || matches.length === 0) return 'NONE';
+  return matches.slice(0, 3).map((match, index) => `${index + 1}.code=${match.code} symbol=${match.symbol ?? 'NONE'} source=${match.source} provider=${match.provider} tradingDate=${match.tradingDate} sourceDate=${match.sourceDate ?? 'NONE'} normalized=${String(match.normalized)} reason=${match.reason}`).join(' || ');
+}
+
 function cacheLookupStatusAdr0477(status: SupplySnapshotCacheLookupAdr0491['status']): InvestorFlowProviderStatus {
   if (status === 'CACHE_HIT') return 'CACHE_HIT';
   if (status === 'STALE_HIT' || status === 'CACHE_STALE_HIT') return 'CACHE_STALE_HIT';
@@ -637,10 +658,14 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const cacheLookupSample = sampleFromCacheLookupAdr0491(cacheLookup, input.code, collectedAt);
   if (cacheLookup) {
     providerStatuses.CACHE = cacheLookupStatusAdr0477(cacheLookup.status);
-    providerReasons.CACHE = `ADR-0491 cacheLookupResult=${cacheLookup.status} reason=${cacheLookup.reason}`;
+    const mismatchHints = cacheLookup.debug?.mismatchHints?.join(',') || 'NONE';
+    const dateCandidates = cacheLookup.debug?.routerLookup?.tradingDateCandidates?.join(',') ?? 'NONE';
+    providerReasons.CACHE = `ADR-0491 cacheLookupResult=${cacheLookup.status} reason=${cacheLookup.reason} mismatchHints=${mismatchHints} dateCandidates=${dateCandidates}`;
     const normalizedCacheKey = normalizeInvestorFlowSnapshotKeyAdr0491({ code: input.code, route: 'investor_flow', domain: 'SUPPLY' });
-    diagnostics.push(`cacheLookupResult=${cacheLookup.status}; cacheLookupKey=${cacheLookup.debug?.lookupKey ?? normalizedCacheKey.lookupKey}; triedKeys=${cacheLookup.debug?.triedKeys?.join(',') ?? 'NONE'}; retained=${cacheLookup.retained}; sourceKeyNormalized=${normalizedCacheKey.sourceCandidates.join(',')}; rawPayloadPersistenceAllowed=false`);
-    for (const hint of cacheLookup.debug?.mismatchHints ?? []) diagnostics.push(`cacheLookupMismatchHint=${hint}`);
+    diagnostics.push(`cacheLookupResult=${cacheLookup.status}; cacheLookupKey=${cacheLookup.debug?.lookupKey ?? normalizedCacheKey.lookupKey}; triedKeys=${cacheLookup.debug?.triedKeys?.join(',') ?? 'NONE'}; retained=${cacheLookup.retained}; sourceKeyNormalized=${normalizedCacheKey.sourceCandidates.join(',')}; dateCandidates=${dateCandidates}; mismatchHints=${mismatchHints}; rawPayloadPersistenceAllowed=false; liveExecutionAllowed=false`);
+    diagnostics.push(`retainedSummary=${compactRetainedSummaryAdr0477(cacheLookup.debug?.retainedSummary)}`);
+    diagnostics.push(`routerLookup=${compactRouterLookupAdr0477(cacheLookup.debug?.routerLookup)}`);
+    diagnostics.push(`closestMatches=${compactClosestMatchesAdr0477(cacheLookup.debug?.closestMatches)}`);
   }
   if (!semanticNetBuy) {
     const cacheRaw = cacheLookupSample ? null : input.cacheRaw ?? input.previousTradingDayCacheRaw;

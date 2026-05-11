@@ -5,6 +5,8 @@ import {
   buildFreshDataStatusSectionAdr0498,
   buildFreshDataStatusViewModelFromInputAdr0498,
   formatFreshDataStatusLineAdr0498,
+  mapInvestorFlowRouterToStatusInputAdr0498,
+  mapRuntimeFreshDataSummaryToStatusInputsAdr0498,
   mapStatusFromCoverageAdr0498,
   safeBuildFreshDataStatusSectionAdr0498,
 } from './freshDataStatusViewModelWiringAdr0498.js';
@@ -101,6 +103,55 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(section.executionImpact).toBe('NONE');
     expect(section.lines.join('\n')).toContain('formatter_error');
     expect(section.lines.join('\n')).toContain('impact=NONE');
+  });
+
+
+
+  it('aligns InvestorFlow selectedProvider=CACHE with FreshDataStatus instead of provider=EMPTY', () => {
+    const input = mapInvestorFlowRouterToStatusInputAdr0498({
+      selectedProvider: 'CACHE',
+      status: 'STALE',
+      signal: 'UNKNOWN',
+      selectedReason: 'ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT',
+      providerStatuses: { CACHE: 'CACHE_STALE_HIT' },
+      coverage: { available: 1, total: 7 },
+      rawPayloadPersistenceAllowed: false,
+      liveExecutionAllowed: false,
+      executionImpact: 'NONE',
+    });
+    expect(input).toMatchObject({
+      providerDisplay: 'CACHE',
+      dataConfidence: 'STALE',
+      dataLineStatus: 'OBSERVING',
+      marketSignal: 'UNKNOWN',
+      promotionReadiness: 'NOT_EVALUATED',
+    });
+    const section = safeBuildFreshDataStatusSectionAdr0498([input!]);
+    expect(section.lines.join('\n')).toContain('provider=CACHE');
+    expect(section.lines.join('\n')).not.toContain('provider=EMPTY');
+    expect(section.lines.join('\n')).toContain('status=OBSERVING');
+    expect(section.lines.join('\n')).toContain('confidence=STALE');
+    expect(section.lines.join('\n')).toContain('impact=NONE');
+  });
+
+  it('keeps selectedProvider=NONE as provider=EMPTY/BLOCKED', () => {
+    const input = mapInvestorFlowRouterToStatusInputAdr0498({ selectedProvider: 'NONE', status: 'DATA_UNAVAILABLE', signal: 'UNKNOWN', providerStatuses: { CACHE: 'CACHE_EMPTY' } });
+    const section = safeBuildFreshDataStatusSectionAdr0498([input!]);
+    expect(section.lines.join('\n')).toContain('provider=EMPTY');
+    expect(section.lines.join('\n')).toContain('confidence=MISSING');
+    expect(section.lines.join('\n')).toContain('status=BLOCKED');
+    expect(section.lines.join('\n')).not.toContain('signal=BEARISH');
+  });
+
+  it('runtime summary prioritizes router selectedProvider over empty investorFlow samples', () => {
+    const inputs = mapRuntimeFreshDataSummaryToStatusInputsAdr0498({
+      investorFlowProviderRouter: { selectedProvider: 'CACHE', status: 'STALE', signal: 'UNKNOWN', providerStatuses: { CACHE: 'CACHE_STALE_HIT' }, coverage: { available: 1, total: 7 }, liveExecutionAllowed: false, executionImpact: 'NONE' },
+      investorFlowSampleAdr0489: { status: 'DATA_UNAVAILABLE', adr0496SupplyCoverage: { coverageAfter: 0, sampleCount: 0 } },
+    });
+    expect(inputs[0]).toMatchObject({ dataLineId: 'investorFlow', providerDisplay: 'CACHE' });
+    const section = safeBuildFreshDataStatusSectionAdr0498(inputs, { maxLines: 1 });
+    expect(section.lines[0]).toContain('provider=CACHE');
+    expect(section.lines[0]).not.toContain('provider=EMPTY');
   });
 
   it('contains no forbidden live order, Gate/Kelly mutation, persistence, or provider fetch patterns', () => {
