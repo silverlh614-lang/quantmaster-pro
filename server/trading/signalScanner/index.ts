@@ -47,6 +47,7 @@ export async function runAutoSignalScan(
             sectorEnergyValidSectorCount?: number;
             sectorEnergyReasons?: string[];
             sectorEnergyQualityDiagnostic?: import('../../clients/sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+            kospi20dReturn?: number;
           }
         | undefined;
       await persistScanResults(counters, {
@@ -92,6 +93,7 @@ export async function runAutoSignalScan(
         sectorEnergyValidSectorCount?: number;
         sectorEnergyReasons?: string[];
         sectorEnergyQualityDiagnostic?: import('../../clients/sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+        kospi20dReturn?: number;
       }
     | undefined;
   await persistScanResults(counters, {
@@ -107,8 +109,30 @@ export async function runAutoSignalScan(
       ? { sectorEnergyQualityDiagnostic: macro.sectorEnergyQualityDiagnostic }
       : {}),
     candidateSnapshots: [
-      ...candidates.buyList.map((w: any) => ({ symbol: w.code, name: w.name, stageReached: 'WATCHLIST' as const, gateScore: w.gateScore })),
-      ...candidates.intradayList.map((w: any) => ({ symbol: w.code, name: w.name, stageReached: 'WATCHLIST' as const, gateScore: w.gateScore })),
+      ...candidates.buyList.map((w: any) => ({
+        symbol: w.code,
+        name: w.name,
+        stageReached: 'WATCHLIST' as const,
+        gateScore: w.gateScore,
+        return20d: w.return20d ?? w.quote?.return20d,
+        return5d: w.return5d ?? w.quote?.return5d,
+        kospi20dReturn: macro?.kospi20dReturn,
+        quote: w.quote,
+        conditionResults: w.conditionResults,
+        breakoutSignals: w.breakoutSignals,
+      })),
+      ...candidates.intradayList.map((w: any) => ({
+        symbol: w.code,
+        name: w.name,
+        stageReached: 'WATCHLIST' as const,
+        gateScore: w.gateScore,
+        return20d: w.return20d ?? w.quote?.return20d,
+        return5d: w.return5d ?? w.quote?.return5d,
+        kospi20dReturn: macro?.kospi20dReturn,
+        quote: w.quote,
+        conditionResults: w.conditionResults,
+        breakoutSignals: w.breakoutSignals,
+      })),
     ],
     watchlistSource: 'signalScanner.selectCandidates',
   });

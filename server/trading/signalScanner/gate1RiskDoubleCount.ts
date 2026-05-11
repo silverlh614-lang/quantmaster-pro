@@ -293,12 +293,13 @@ function signalRiskPenaltyFrom(input: {
   positive?: PositiveScoreStarvationReport | null;
   penalty?: PenaltyDeduplicationReport | null;
 }): number {
-  if (input.penalty?.riskPenaltyAudit.signalRiskPenalty !== undefined) {
-    return input.penalty.riskPenaltyAudit.signalRiskPenalty;
-  }
+  const rawPenalty = input.penalty?.riskPenaltyAudit.signalRiskPenalty ?? 6.3;
   const fromPenalty = input.positive?.topPositiveContributors ? undefined : undefined;
   void fromPenalty;
-  return 6.3;
+  // P0-4: REGIME_RISK is already expressed through Kelly sizing. Keep the sizing
+  // multiplier intact, but cap diagnostic signal-score risk impact to avoid a
+  // second large score subtraction in Gate1 current diagnostics.
+  return Math.min(3, Math.max(0, rawPenalty));
 }
 
 export function buildRiskMultiplierBreakdown(input: {

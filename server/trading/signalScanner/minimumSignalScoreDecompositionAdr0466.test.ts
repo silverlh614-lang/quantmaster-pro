@@ -156,6 +156,25 @@ describe('ADR-0466 minimum signal score decomposition', () => {
     expect(high?.weightedScore).toBeGreaterThan(low?.weightedScore ?? 0);
     expect(missing?.weightedScore).toBe(0);
     expect(missing?.confidence).toBe('MISSING');
+    expect(missing?.providerIssue).toBe(false);
+  });
+
+  it('computes RELATIVE_STRENGTH from candidate return20d minus KOSPI 20-day return', () => {
+    const a = minTrace({ return20d: 20, kospi20dReturn: 5 }).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    const b = minTrace({ return20d: 0, kospi20dReturn: 5 }).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    expect(a?.weightedScore).toBe(10);
+    expect(b?.weightedScore).toBe(2.5);
+    expect(a?.weightedScore).toBeGreaterThan(b?.weightedScore ?? 0);
+    expect(a?.rawValue).toMatchObject({ return20d: 20, kospi20dReturn: 5, relativeReturn20d: 15 });
+  });
+
+  it('falls back from return20d to return5d and keeps missing data neutral at zero', () => {
+    const fallback = minTrace({ return5d: 4 }).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    const missing = minTrace({}).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    expect(fallback?.weightedScore).toBeGreaterThan(0);
+    expect(fallback?.confidence).toBe('DEGRADED');
+    expect(missing?.weightedScore).toBe(0);
+    expect(missing?.confidence).toBe('MISSING');
   });
 
   it('scores passed breakout signals above no passed signals and ignores unavailable/error positives', () => {

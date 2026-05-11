@@ -278,6 +278,9 @@ export interface CandidateEntryTrace {
   marketRelativeReturn?: number;
   kospiRelativeReturn?: number;
   relativeReturn20d?: number;
+  kospi20dReturn?: number;
+  quote?: { return20d?: number; return5d?: number } | Record<string, unknown>;
+  macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   breakout_momentum?: unknown;
@@ -483,6 +486,9 @@ export interface CandidateSnapshot {
   marketRelativeReturn?: number;
   kospiRelativeReturn?: number;
   relativeReturn20d?: number;
+  kospi20dReturn?: number;
+  quote?: { return20d?: number; return5d?: number } | Record<string, unknown>;
+  macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   breakout_momentum?: unknown;
@@ -1021,6 +1027,9 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       marketRelativeReturn: c.marketRelativeReturn,
       kospiRelativeReturn: c.kospiRelativeReturn,
       relativeReturn20d: c.relativeReturn20d,
+      kospi20dReturn: c.kospi20dReturn,
+      quote: c.quote,
+      macroState: c.macroState,
       breakoutSignals: c.breakoutSignals,
       conditionResults: c.conditionResults,
       breakout_momentum: c.breakout_momentum,
