@@ -62,6 +62,7 @@ export interface KrxInvestorTradingDiagnostic {
   endpoint: string;
   bld: string;
   tradeDate: string;
+  selectedKrxFlowMode?: 'OTP_CSV' | 'DIRECT_JSON' | 'CACHE_FALLBACK';
   endpointVariant?: string;
   routeKind?: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
   dateParam?: 'trdDd' | 'strtDd/endDd' | 'basDd' | 'searchDate';
@@ -69,6 +70,12 @@ export interface KrxInvestorTradingDiagnostic {
   symbolCode?: string | null;
   symbolRequired?: boolean;
   otpRequired?: boolean;
+  otpGenerated?: boolean;
+  otpLength?: number;
+  csvDownloaded?: boolean;
+  csvRowCount?: number;
+  csvColumnKeys?: string[];
+  csvFailureReason?: string | null;
   parameterKeys?: string[];
   attemptedVariants?: string[];
   selectedVariant?: string | null;
@@ -117,6 +124,8 @@ const _legacyPublic =
 const KRX_BASE =
   (process.env.KRX_PUBLIC_API_BASE ?? _legacyPublic) || 'http://data.krx.co.kr';
 const KRX_JSON_PATH = '/comm/bldAttendant/getJsonData.cmd';
+const KRX_OTP_PATH = '/comm/fileDn/GenerateOTP/generate.cmd';
+const KRX_DOWNLOAD_CSV_PATH = '/comm/fileDn/download_csv/download.cmd';
 const KRX_DISABLED = process.env.KRX_API_DISABLED === 'true';
 const REQUEST_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -396,10 +405,18 @@ interface KrxPostMeta {
   contentType: KrxInvestorTradingDiagnostic['contentType'];
   httpStatus: number | null;
   responseKind: KrxInvestorTradingDiagnostic['responseKind'];
+  selectedKrxFlowMode?: NonNullable<KrxInvestorTradingDiagnostic['selectedKrxFlowMode']>;
+  otpGenerated?: boolean;
+  otpLength?: number;
+  csvDownloaded?: boolean;
+  csvRowCount?: number;
+  csvColumnKeys?: string[];
+  csvFailureReason?: string | null;
 }
 
 interface KrxInvestorEndpointVariant {
   id: string;
+  mode: 'OTP_CSV' | 'DIRECT_JSON';
   endpoint: string;
   bld: string;
   routeKind: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
@@ -408,6 +425,7 @@ interface KrxInvestorEndpointVariant {
   symbolCode: string | null;
   symbolRequired: boolean;
   otpRequired: boolean;
+  trdVolVal: '1' | '2';
   params: Record<string, string>;
 }
 
@@ -439,6 +457,76 @@ function makeKrxResponseKind(contentType: KrxInvestorTradingDiagnostic['contentT
   if (contentType === 'csv') return 'CSV';
   if (contentType === 'empty') return 'EMPTY';
   return 'TEXT';
+}
+
+const KRX_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function decodeKrxCsv(buffer: ArrayBuffer, contentType: string | null): string {
+  const lower = (contentType ?? '').toLowerCase();
+  if (lower.includes('utf-8')) return new TextDecoder('utf-8').decode(buffer);
+  try {
+    return new TextDecoder('euc-kr').decode(buffer);
+  } catch {
+    return new TextDecoder('utf-8').decode(buffer);
+  }
+}
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"' && quoted && line[i + 1] === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (ch === ',' && !quoted) {
+      out.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  out.push(current.trim());
+  return out;
+}
+
+function parseKrxCsvRows(text: string): Record<string, unknown>[] {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map((header) => header.trim());
+  const aliasKey = (header: string): string | null => {
+    const compact = header.replace(/\s+/g, '');
+    if (/종목코드|단축코드/i.test(compact)) return 'ISU_SRT_CD';
+    if (/종목명|종목약명/i.test(compact)) return 'ISU_ABBRV';
+    if (/일자|기준일/i.test(compact)) return 'TRD_DD';
+    if (/투자자구분|투자자/i.test(compact)) return 'INVST_TP_NM';
+    if (/외국인/i.test(compact)) return 'FORN_INVSTR_NETBY_QTY';
+    if (/기관합계|기관/i.test(compact)) return 'ORGN_INVSTR_NETBY_QTY';
+    if (/개인/i.test(compact)) return 'INDIV_INVSTR_NETBY_QTY';
+    if (/순매수.*대금|순매수거래대금/i.test(compact)) return 'NETBY_TRDVAL';
+    if (/순매수.*수량|순매수.*거래량/i.test(compact)) return 'NETBY_QTY';
+    return null;
+  };
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    const row: Record<string, unknown> = {};
+    headers.forEach((header, index) => {
+      const value = values[index] ?? '';
+      row[header] = value;
+      const alias = aliasKey(header);
+      if (alias && row[alias] == null) row[alias] = value;
+    });
+    return row;
+  });
 }
 
 /**
@@ -497,9 +585,7 @@ async function krxPost(
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json, text/plain, */*',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-          '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': KRX_USER_AGENT,
         'Referer': `${KRX_BASE}/contents/MDC/STAT/standard/MDCSTAT0201.cmd`,
         'Origin':  KRX_BASE,
       },
@@ -556,7 +642,142 @@ async function krxPost(
   }
 }
 
-const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'list', 'rows', 'result', 'block1'] as const;
+async function krxInvestorOtpCsv(
+  variant: KrxInvestorEndpointVariant,
+): Promise<KrxRawResponse | null> {
+  if (KRX_DISABLED) {
+    setKrxPostMeta(variant.bld, {
+      contentType: 'empty',
+      httpStatus: null,
+      responseKind: 'DISABLED',
+      selectedKrxFlowMode: 'OTP_CSV',
+      otpGenerated: false,
+      otpLength: 0,
+      csvDownloaded: false,
+      csvRowCount: 0,
+      csvColumnKeys: [],
+      csvFailureReason: 'KRX_API_DISABLED',
+    });
+    return null;
+  }
+
+  const otpBody = new URLSearchParams({
+    name: 'fileDown',
+    bld: variant.bld,
+    url: variant.bld,
+    csvxls_isNo: 'false',
+    locale: 'ko_KR',
+    ...variant.params,
+  }).toString();
+  try {
+    const otpRes = await fetch(`${KRX_BASE}${KRX_OTP_PATH}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'text/plain, */*',
+        'User-Agent': KRX_USER_AGENT,
+        'Referer': `${KRX_BASE}/contents/MDC/MDI/mdiLoader`,
+        'Origin': KRX_BASE,
+      },
+      body: otpBody,
+    });
+    if (!otpRes.ok) {
+      setKrxPostMeta(variant.bld, {
+        contentType: 'text',
+        httpStatus: otpRes.status,
+        responseKind: 'HTTP_ERROR',
+        selectedKrxFlowMode: 'OTP_CSV',
+        otpGenerated: false,
+        otpLength: 0,
+        csvDownloaded: false,
+        csvRowCount: 0,
+        csvColumnKeys: [],
+        csvFailureReason: `OTP_HTTP_${otpRes.status}`,
+      });
+      return null;
+    }
+    const otp = (await otpRes.text()).trim();
+    const otpGenerated = otp.length > 0 && !/^<!doctype html|<html[\s>]/i.test(otp);
+    if (!otpGenerated) {
+      setKrxPostMeta(variant.bld, {
+        contentType: otp.length > 0 ? 'html' : 'empty',
+        httpStatus: otpRes.status,
+        responseKind: otp.length > 0 ? 'HTML' : 'EMPTY',
+        selectedKrxFlowMode: 'OTP_CSV',
+        otpGenerated: false,
+        otpLength: otp.length,
+        csvDownloaded: false,
+        csvRowCount: 0,
+        csvColumnKeys: [],
+        csvFailureReason: otp.length > 0 ? 'OTP_HTML_OR_SESSION_REQUIRED' : 'OTP_EMPTY',
+      });
+      return null;
+    }
+
+    const csvRes = await fetch(`${KRX_BASE}${KRX_DOWNLOAD_CSV_PATH}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'text/csv, application/octet-stream, text/plain, */*',
+        'User-Agent': KRX_USER_AGENT,
+        'Referer': `${KRX_BASE}/contents/MDC/MDI/mdiLoader`,
+        'Origin': KRX_BASE,
+      },
+      body: new URLSearchParams({ code: otp }).toString(),
+    });
+    if (!csvRes.ok) {
+      setKrxPostMeta(variant.bld, {
+        contentType: 'text',
+        httpStatus: csvRes.status,
+        responseKind: 'HTTP_ERROR',
+        selectedKrxFlowMode: 'OTP_CSV',
+        otpGenerated: true,
+        otpLength: otp.length,
+        csvDownloaded: false,
+        csvRowCount: 0,
+        csvColumnKeys: [],
+        csvFailureReason: `CSV_HTTP_${csvRes.status}`,
+      });
+      return null;
+    }
+    const arrayBuffer = await csvRes.arrayBuffer();
+    const contentType = csvRes.headers?.get?.('content-type') ?? null;
+    const text = decodeKrxCsv(arrayBuffer, contentType);
+    const rows = parseKrxCsvRows(text);
+    const columnKeys = rows[0] ? Object.keys(rows[0]).slice(0, 40) : [];
+    const responseKind = makeKrxResponseKind(classifyContentType(contentType, text));
+    setKrxPostMeta(variant.bld, {
+      contentType: classifyContentType(contentType, text),
+      httpStatus: csvRes.status,
+      responseKind,
+      selectedKrxFlowMode: 'OTP_CSV',
+      otpGenerated: true,
+      otpLength: otp.length,
+      csvDownloaded: true,
+      csvRowCount: rows.length,
+      csvColumnKeys: columnKeys,
+      csvFailureReason: rows.length > 0 ? null : 'CSV_EMPTY_ROWS',
+    });
+    if (rows.length > 0) recordBldSuccess(variant.bld);
+    return { csv: rows };
+  } catch (error) {
+    setKrxPostMeta(variant.bld, {
+      contentType: 'unknown',
+      httpStatus: null,
+      responseKind: 'NETWORK_ERROR',
+      selectedKrxFlowMode: 'OTP_CSV',
+      otpGenerated: false,
+      otpLength: 0,
+      csvDownloaded: false,
+      csvRowCount: 0,
+      csvColumnKeys: [],
+      csvFailureReason: error instanceof Error ? error.message.slice(0, 80) : String(error).slice(0, 80),
+    });
+    return null;
+  }
+}
+
+const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'csv', 'list', 'rows', 'result', 'block1'] as const;
 
 interface ExtractRowsResult {
   rows: Record<string, unknown>[];
@@ -733,6 +954,7 @@ function endpointIssueHintForInvestorParser(input: {
 }): KrxInvestorTradingDiagnostic['endpointIssueHint'] {
   if (input.status === 'OK') return 'NONE';
   if (input.meta?.responseKind === 'GATED') return 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+  if (input.meta?.selectedKrxFlowMode === 'OTP_CSV' && input.meta.csvDownloaded !== true) return 'OTP_OR_HEADER_ERROR';
   if (input.meta?.responseKind === 'HTTP_ERROR') return input.meta.httpStatus === 400 ? 'ENDPOINT_PARAMETER_ERROR' : 'OTP_OR_HEADER_ERROR';
   if (input.status === 'PARSER_KEY_MISMATCH') return input.rawTopLevelKeys.length === 0 ? 'OTP_OR_HEADER_ERROR' : 'SCHEMA_KEY_CHANGED';
   if (input.status === 'PARSER_FIELD_MISMATCH') return !input.fieldMappings.symbol ? 'SYMBOL_CODE_FORMAT_ERROR' : 'FIELD_ALIAS_CHANGED';
@@ -769,11 +991,18 @@ function buildInvestorTradingDiagnostic(input: {
   const responseKind = meta?.responseKind ?? (input.raw ? 'JSON' : 'EMPTY');
   const summary = [
     variant?.endpoint ?? endpointCodeFromBld(bld),
+    `selectedKrxFlowMode=${meta?.selectedKrxFlowMode ?? variant?.mode ?? 'DIRECT_JSON'}`,
     `variant=${variant?.id ?? 'LEGACY_SINGLE'}`,
     `routeKind=${variant?.routeKind ?? 'UNKNOWN'}`,
     `dateParam=${variant?.dateParam ?? 'UNKNOWN'}`,
     `marketCode=${variant?.marketCode ?? 'UNKNOWN'}`,
     `symbolCode=${variant?.symbolCode ?? 'NONE'}`,
+    `otpGenerated=${String(meta?.otpGenerated ?? false)}`,
+    `otpLength=${meta?.otpLength ?? 0}`,
+    `csvDownloaded=${String(meta?.csvDownloaded ?? false)}`,
+    `csvRowCount=${meta?.csvRowCount ?? 0}`,
+    `csvColumnKeys=${meta?.csvColumnKeys?.join(',') || 'NONE'}`,
+    `csvFailureReason=${meta?.csvFailureReason ?? 'NONE'}`,
     `paramKeys=${variant ? Object.keys(variant.params).join(',') : 'UNKNOWN'}`,
     `attemptedVariants=${input.attemptedVariants?.join('|') || variant?.id || 'LEGACY_SINGLE'}`,
     `contentType=${contentType}`,
@@ -792,6 +1021,7 @@ function buildInvestorTradingDiagnostic(input: {
     endpoint: variant?.endpoint ?? endpointCodeFromBld(bld),
     bld,
     tradeDate: input.tradeDate,
+    selectedKrxFlowMode: meta?.selectedKrxFlowMode ?? variant?.mode ?? 'DIRECT_JSON',
     endpointVariant: variant?.id,
     routeKind: variant?.routeKind,
     dateParam: variant?.dateParam,
@@ -799,6 +1029,12 @@ function buildInvestorTradingDiagnostic(input: {
     symbolCode: variant?.symbolCode ?? null,
     symbolRequired: variant?.symbolRequired,
     otpRequired: variant?.otpRequired,
+    otpGenerated: meta?.otpGenerated ?? false,
+    otpLength: meta?.otpLength ?? 0,
+    csvDownloaded: meta?.csvDownloaded ?? false,
+    csvRowCount: meta?.csvRowCount ?? 0,
+    csvColumnKeys: meta?.csvColumnKeys,
+    csvFailureReason: meta?.csvFailureReason,
     parameterKeys: variant ? Object.keys(variant.params) : undefined,
     attemptedVariants: input.attemptedVariants,
     selectedVariant: parserStatus === 'OK' ? variant?.id ?? null : null,
@@ -851,15 +1087,18 @@ function investorTradingParams(input: {
   dateParam: NonNullable<KrxInvestorTradingDiagnostic['dateParam']>;
   tradeDate: string;
   symbolCode?: string | null;
+  trdVolVal?: '1' | '2';
+  locale?: boolean;
 }): Record<string, string> {
   const params: Record<string, string> = {
     searchType: input.symbolCode ? '2' : '1',
     mktId: input.marketCode,
-    trdVolVal: '1',
+    trdVolVal: input.trdVolVal ?? '1',
     share: '1',
     money: '1',
     csvxls_isNo: 'false',
   };
+  if (input.locale) params.locale = 'ko_KR';
   if (input.dateParam === 'trdDd') params.trdDd = input.tradeDate;
   if (input.dateParam === 'strtDd/endDd') {
     params.strtDd = input.tradeDate;
@@ -879,18 +1118,21 @@ function buildInvestorTradingVariants(tradeDate: string, symbol?: string | null)
   const symbolCode = normalizeCode(symbol);
   const out: KrxInvestorEndpointVariant[] = [];
   const push = (input: {
+    mode: KrxInvestorEndpointVariant['mode'];
     endpoint: string;
     routeKind: KrxInvestorEndpointVariant['routeKind'];
     dateParam: KrxInvestorEndpointVariant['dateParam'];
     marketCode: KrxInvestorEndpointVariant['marketCode'];
     symbolCode?: string | null;
+    trdVolVal?: '1' | '2';
   }): void => {
     const normalizedSymbol = input.symbolCode ? normalizeCode(input.symbolCode) : '';
     const symbolRequired = input.routeKind === 'SYMBOL_INVESTOR_FLOW';
     if (symbolRequired && !normalizedSymbol) return;
     const bld = investorTradingBld(input.endpoint);
     out.push({
-      id: `${input.endpoint}:${input.routeKind}:${input.marketCode}:${input.dateParam}${normalizedSymbol ? ':symbol' : ''}`,
+      id: `${input.mode}:${input.endpoint}:${input.routeKind}:${input.marketCode}:${input.dateParam}:trdVolVal=${input.trdVolVal ?? '1'}${normalizedSymbol ? ':symbol' : ''}`,
+      mode: input.mode,
       endpoint: input.endpoint,
       bld,
       routeKind: input.routeKind,
@@ -898,39 +1140,57 @@ function buildInvestorTradingVariants(tradeDate: string, symbol?: string | null)
       marketCode: input.marketCode,
       symbolCode: normalizedSymbol || null,
       symbolRequired,
-      otpRequired: false,
+      otpRequired: input.mode === 'OTP_CSV',
+      trdVolVal: input.trdVolVal ?? '1',
       params: investorTradingParams({
         marketCode: input.marketCode,
         dateParam: input.dateParam,
         tradeDate,
         symbolCode: normalizedSymbol || null,
+        trdVolVal: input.trdVolVal ?? '1',
+        locale: input.mode === 'OTP_CSV',
       }),
     });
   };
 
+  for (const marketCode of ['STK', 'KSQ', 'ALL'] as const) {
+    push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'trdDd', marketCode, trdVolVal: '2' });
+    push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'basDd', marketCode, trdVolVal: '2' });
+  }
+  for (const marketCode of ['STK', 'KSQ'] as const) {
+    push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'trdDd', marketCode, trdVolVal: '1' });
+  }
+
   if (symbolCode) {
     for (const marketCode of ['STK', 'KSQ'] as const) {
-      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'trdDd', marketCode, symbolCode });
-      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'strtDd/endDd', marketCode, symbolCode });
-      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'basDd', marketCode, symbolCode });
-      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'searchDate', marketCode, symbolCode });
+      push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'trdDd', marketCode, symbolCode, trdVolVal: '2' });
+      push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'basDd', marketCode, symbolCode, trdVolVal: '2' });
     }
   }
 
+  if (symbolCode) {
+    for (const marketCode of ['STK', 'KSQ'] as const) {
+      push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'trdDd', marketCode, symbolCode });
+      push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'strtDd/endDd', marketCode, symbolCode });
+      push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'basDd', marketCode, symbolCode });
+      push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'searchDate', marketCode, symbolCode });
+    }
+  }
   for (const marketCode of ['STK', 'KSQ', 'ALL'] as const) {
-    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'trdDd', marketCode });
-    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'strtDd/endDd', marketCode });
+    push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'trdDd', marketCode });
+    push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'strtDd/endDd', marketCode });
   }
   for (const marketCode of ['STK', 'KSQ'] as const) {
-    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'basDd', marketCode });
-    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'searchDate', marketCode });
+    push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'basDd', marketCode });
+    push({ mode: 'DIRECT_JSON', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'searchDate', marketCode });
   }
 
   const envBld = BLD_INVESTOR_TRADING;
   const envEndpoint = endpointCodeFromBld(envBld);
   if (!out.some((variant) => variant.bld === envBld)) {
     out.push({
-      id: `${envEndpoint}:ENV_FALLBACK:ALL:strtDd/endDd`,
+      id: `DIRECT_JSON:${envEndpoint}:ENV_FALLBACK:ALL:strtDd/endDd`,
+      mode: 'DIRECT_JSON',
       endpoint: envEndpoint,
       bld: envBld,
       routeKind: symbolCode ? 'SYMBOL_INVESTOR_FLOW' : 'MARKET_INVESTOR_FLOW',
@@ -939,6 +1199,7 @@ function buildInvestorTradingVariants(tradeDate: string, symbol?: string | null)
       symbolCode: symbolCode || null,
       symbolRequired: Boolean(symbolCode),
       otpRequired: false,
+      trdVolVal: '1',
       params: investorTradingParams({
         marketCode: 'ALL',
         dateParam: 'strtDd/endDd',
@@ -970,7 +1231,9 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
   const attemptedVariantIds: string[] = [];
   for (const variant of variants) {
     attemptedVariantIds.push(variant.id);
-    const raw = await krxPost(variant.bld, variant.params, { bypassTimeWindow: true });
+    const raw = variant.mode === 'OTP_CSV'
+      ? await krxInvestorOtpCsv(variant)
+      : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true });
     const extracted = extractRowsDetailed(raw);
     const normalized = normalizeKrxInvestorRows(extracted.rows);
     const rows = symbolCode

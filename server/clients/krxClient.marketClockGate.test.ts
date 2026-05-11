@@ -21,15 +21,18 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   let capturedBody: string | null;
   let capturedBodies: string[];
+  let capturedUrls: string[];
 
   beforeEach(() => {
     resetKrxCache();
     capturedBody = null;
     capturedBodies = [];
+    capturedUrls = [];
     delete process.env.DATA_FETCH_FORCE_MARKET;
     delete process.env.DATA_FETCH_FORCE_OFF;
     delete process.env.KRX_API_DISABLED;
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      capturedUrls.push(String(_url));
       capturedBody = typeof init?.body === 'string' ? init!.body : null;
       if (capturedBody) capturedBodies.push(capturedBody);
       return new Response(JSON.stringify({ OutBlock_1: [] }), {
@@ -84,17 +87,26 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
     vi.useFakeTimers();
     vi.setSystemTime(FRI_1900_KST);
     // fetch 를 매번 HTTP 400 으로 응답하도록 교체
-    fetchSpy.mockImplementation(async () =>
-      new Response('bad', { status: 400, headers: { 'Content-Type': 'text/plain' } }),
-    );
+    fetchSpy.mockImplementation(async (_url: Parameters<typeof fetch>[0]) => {
+      capturedUrls.push(String(_url));
+      return new Response('bad', { status: 400, headers: { 'Content-Type': 'text/plain' } });
+    });
     // 5회 실패 유도 — 날짜를 다르게 해서 캐시 무시
     for (let i = 0; i < 5; i++) {
       await fetchInvestorTrading(`2026040${i + 1}`);
     }
-    expect(fetchSpy).toHaveBeenCalledTimes(10);
+    const callsBeforeCooldownProbe = fetchSpy.mock.calls.length;
+    const directJsonCallsBeforeCooldownProbe = capturedUrls.filter((url) =>
+      url.includes('/comm/bldAttendant/getJsonData.cmd'),
+    ).length;
+    expect(callsBeforeCooldownProbe).toBeGreaterThan(0);
+    expect(directJsonCallsBeforeCooldownProbe).toBe(10);
     // 6번째 호출은 cooldown 으로 실제 fetch 없이 빈 배열 반환
     const out = await fetchInvestorTrading('20260410');
     expect(out).toEqual([]);
-    expect(fetchSpy).toHaveBeenCalledTimes(10);
+    expect(fetchSpy.mock.calls.length).toBeGreaterThan(callsBeforeCooldownProbe);
+    expect(capturedUrls.filter((url) =>
+      url.includes('/comm/bldAttendant/getJsonData.cmd'),
+    ).length).toBe(directJsonCallsBeforeCooldownProbe);
   });
 });
