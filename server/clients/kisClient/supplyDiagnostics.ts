@@ -311,14 +311,15 @@ export async function diagnoseKisMarketProgramRaw(
 }
 
 export type KisEndpointBlockedReason =
+  | 'OK'
   | 'SESSION_UNAVAILABLE'
   | 'HTTP_OK_BUT_EMPTY'
   | 'NOT_IN_TOP_LIST'
   | 'NO_ROW_FOR_SYMBOL'
-  | 'FIELD_MISSING'
-  | 'PARAM_ERROR'
-  | 'PROVIDER_ERROR'
   | 'DATE_NOT_AVAILABLE'
+  | 'PARAM_ERROR'
+  | 'FIELD_MISSING'
+  | 'PROVIDER_ERROR'
   | 'UNKNOWN';
 
 export interface KisEndpointTrace {
@@ -354,6 +355,19 @@ function rowsWithPath(data: unknown): { path: string; rows: Record<string, strin
 function rootString(data: unknown, key: string): string | undefined {
   const value = data && typeof data === 'object' ? (data as Record<string, unknown>)[key] : undefined;
   return value === undefined || value === null ? undefined : String(value);
+}
+
+function classifyEndpointRootIssue(data: unknown, sourceKind: string): KisEndpointBlockedReason | null {
+  const rtCd = rootString(data, 'rt_cd') ?? '';
+  const msgCd = rootString(data, 'msg_cd') ?? '';
+  const msg1 = rootString(data, 'msg1') ?? '';
+  const message = `${msgCd} ${msg1}`.toUpperCase();
+  if (message.includes('SESSION') || message.includes('TOKEN') || message.includes('AUTH') || message.includes('AUTHORIZATION')) return 'SESSION_UNAVAILABLE';
+  if (message.includes('DATE') || message.includes('일자') || message.includes('영업일')) return 'DATE_NOT_AVAILABLE';
+  if (message.includes('INPUT FIELD') || message.includes('INVALID') || message.includes('PARAM') || message.includes('FID_')) return 'PARAM_ERROR';
+  if (rtCd && rtCd !== '0') return 'PROVIDER_ERROR';
+  if (sourceKind === 'SHORT' && message.includes('조회할 자료가 없습니다')) return 'DATE_NOT_AVAILABLE';
+  return null;
 }
 
 function rowCode(row: Record<string, string>): string {
@@ -400,8 +414,9 @@ async function endpointTrace(input: {
     const materialized = parsedFields.length > 0;
     let blockedReason: KisEndpointBlockedReason = 'UNKNOWN';
     const msgCd = rootString(data, 'msg_cd');
-    if (materialized) blockedReason = 'UNKNOWN';
-    else if (msgCd && /ERROR|INVALID|INPUT FIELD/i.test(`${msgCd} ${rootString(data, 'msg1') ?? ''}`)) blockedReason = 'PARAM_ERROR';
+    const rootIssue = classifyEndpointRootIssue(data, input.sourceKind);
+    if (materialized) blockedReason = 'OK';
+    else if (rootIssue) blockedReason = rootIssue;
     else if (rows.length === 0) blockedReason = 'HTTP_OK_BUT_EMPTY';
     else if (input.sourceKind === 'FOREIGN_INSTITUTION_TOTAL' && !targetFound) blockedReason = 'NOT_IN_TOP_LIST';
     else if (!targetFound) blockedReason = 'NO_ROW_FOR_SYMBOL';
