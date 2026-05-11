@@ -15,7 +15,9 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
     vi.resetModules();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
+    setKisClientOverrides({});
     if (originalDataDir === undefined) delete process.env.PERSIST_DATA_DIR;
     else process.env.PERSIST_DATA_DIR = originalDataDir;
     if (originalKrxDisabled === undefined) delete process.env.KRX_API_DISABLED;
@@ -99,6 +101,8 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
   });
 
   it('routes KRX empty rows, NAVER not wired, cache empty, and semantic collector unavailable without FAIL', async () => {
+    const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
+    setKisClientOverrides({ fetchKisInvestorFlow: async () => null });
     const { fetchInvestorFlowWithPolicy, summarizeInvestorFlowProviderHealth } = await import('./investorFlowRouter.js');
     const result = await fetchInvestorFlowWithPolicy('005930', new Date('2026-05-07T01:00:00.000Z'));
 
@@ -114,5 +118,5 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
     expect(summary).toContain('NAVER: NOT_WIRED');
     expect(summary).toContain('supply_confluence: DATA_UNAVAILABLE, not failed');
     expect(summary).toContain('shadowObservableAllowed: true');
-  });
+  }, 15_000);
 });

@@ -42,13 +42,14 @@ import {
   summarizeKrxInvestorFlowParserHistory,
   toKrxParserKstIso,
 } from './krxInvestorFlowParserDiagnostic.js';
+import { fetchKisInvestorFlowEvidence } from './kisInvestorFlowEvidence.js';
 
 export interface InvestorFlowSample {
   stockCode: string;
   foreignNetBuy: number;
   institutionalNetBuy: number;
   individualNetBuy: number;
-  provider: Extract<SupplyProvider, 'KRX_INVESTOR_FLOW' | 'NAVER_INVESTOR_TREND' | 'CACHE'>;
+  provider: Extract<SupplyProvider, 'KRX_INVESTOR_FLOW' | 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'CACHE'>;
   fetchedAt: string;
   tradingDate?: string;
 }
@@ -478,6 +479,73 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
   }
 
   try {
+    const kis = await fetchKisInvestorFlowEvidence(code, now);
+    health.push(kis.health);
+    if (kis.data && hasRealInvestorFields(kis.data)) {
+      pushAttempt(attempts, 'KIS_API', 'OK', kis.diagnostic);
+
+      if (kis.selectableForRouter) {
+        const composite = makeInvestorFlowProviderHealth({
+          provider: 'COMPOSITE',
+          status: 'OK',
+          reason: [
+            'KIS official investor-flow semantic net-buy available',
+            'source=KIS_OFFICIAL_STANDARD_API',
+            `promotionStage=${kis.promotionStage}`,
+            'liveExecutionAllowed=false',
+            'executionImpact=NONE',
+          ].join(';'),
+          now,
+          sourceDateKst: kis.data.tradingDate,
+          semantic: {
+            foreignNetBuy: kis.data.foreignNetBuy,
+            institutionNetBuy: kis.data.institutionalNetBuy,
+            individualNetBuy: kis.data.individualNetBuy,
+          },
+        });
+        health.push(composite);
+        rememberInvestorFlowProviderHealth(health);
+        return {
+          stockCode: code,
+          data: kis.data,
+          attempts,
+          health,
+          status: 'OK',
+          source: 'KIS_API',
+        };
+      }
+    } else {
+      pushAttempt(
+        attempts,
+        'KIS_API',
+        kis.health.status === 'UNKNOWN_ERROR' ? 'ERROR' : 'DATA_UNAVAILABLE',
+        kis.diagnostic,
+      );
+    }
+  } catch (err) {
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'KIS',
+      status: 'UNKNOWN_ERROR',
+      reason: [
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+        'source=KIS_OFFICIAL_STANDARD_API',
+        'providerIssue=true',
+        'marketSignal=false',
+        'liveExecutionAllowed=false',
+        'executionImpact=NONE',
+      ].join(';'),
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      endpoint: 'KIS_INQUIRE_INVESTOR_STRICT',
+      semanticAvailable: false,
+      dataAvailable: false,
+      retryable: true,
+      cacheFallback: true,
+    }));
+    pushAttempt(attempts, 'KIS_API', 'ERROR', err instanceof Error ? err.message : String(err));
+  }
+
+  try {
     const naver = await fetchNaverInvestorTrend(code);
     if (naver && hasRealInvestorFields(naver)) {
       pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'OK');
@@ -585,17 +653,6 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
     }));
     pushAttempt(attempts, 'CACHE', 'ERROR', err instanceof Error ? err.message : String(err));
   }
-
-  health.push(makeInvestorFlowProviderHealth({
-    provider: 'KIS',
-    status: 'PROVIDER_UNAVAILABLE',
-    reason: 'KIS investor flow is diagnostic-only and not queried in ADR-0435 provider recovery path',
-    now,
-    sourceDateKst: resolveInvestorFlowSourceDateKst(now),
-    retryable: false,
-    cacheFallback: true,
-  }));
-  pushAttempt(attempts, 'KIS_API', 'PROVIDER_MISMATCH', 'KIS diagnostic call suppressed; not a semantic investor-flow provider');
 
   const hasHardProviderError = attempts.some((a) => a.provider !== 'KIS_API' && a.status === 'ERROR');
   health.push(makeInvestorFlowProviderHealth({
