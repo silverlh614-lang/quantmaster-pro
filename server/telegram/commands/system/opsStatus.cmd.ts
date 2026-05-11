@@ -95,7 +95,7 @@ function deriveDataFreshnessForMatrix(snapshot: ReturnType<typeof collectHealthS
 }
 
 function deriveMarketSessionAllowsEntry(snapshot: ReturnType<typeof collectHealthSnapshot>): boolean {
-  const reason = snapshot.lastScanSummary?.emptyScanReason;
+  const reason = snapshot.lastScanSummary?.emptyScanReason as string | undefined;
   return reason !== 'MARKET_SESSION_BLOCK' && reason !== 'SELL_ONLY_BLOCK';
 }
 

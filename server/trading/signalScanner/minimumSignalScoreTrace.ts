@@ -195,6 +195,10 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -267,6 +271,146 @@ function isBreakoutUnavailable(value: unknown): boolean {
   return false;
 }
 
+
+function normalizePercentReturnTo100(value: number): number {
+  const percentValue = Math.abs(value) <= 1 ? value * 100 : value;
+  return clamp(((percentValue + 10) / 30) * 100, 0, 100);
+}
+
+function normalizedRelativeStrength(trace: CandidateEntryTrace): {
+  rawValue?: unknown;
+  normalizedScore: number;
+  confidence: SignalScoreComponentConfidence;
+  providerIssue: boolean;
+  message: string;
+} {
+  const explicitRelativeStrength = numericTraceValue(trace, ['relativeStrengthScore', 'relativeStrength', 'rsRankPct']);
+  if (explicitRelativeStrength !== undefined) {
+    return {
+      rawValue: explicitRelativeStrength,
+      normalizedScore: normalizeSignalScoreTo100(explicitRelativeStrength),
+      confidence: 'VERIFIED',
+      providerIssue: false,
+      message: 'Relative strength component imported from explicit candidate ranking/source.',
+    };
+  }
+  const marketRelative = numericTraceValue(trace, ['marketRelativeReturn', 'kospiRelativeReturn', 'relativeReturn20d']);
+  if (marketRelative !== undefined) {
+    return {
+      rawValue: { marketRelativeReturn: marketRelative },
+      normalizedScore: normalizePercentReturnTo100(marketRelative),
+      confidence: 'VERIFIED',
+      providerIssue: false,
+      message: 'Relative strength component computed from market-relative return.',
+    };
+  }
+  const return20d = numericTraceValue(trace, ['return20d']);
+  if (return20d !== undefined) {
+    return {
+      rawValue: { return20d },
+      normalizedScore: normalizePercentReturnTo100(return20d),
+      confidence: 'VERIFIED',
+      providerIssue: false,
+      message: 'Relative strength component computed from 20-day return.',
+    };
+  }
+  const return5d = numericTraceValue(trace, ['return5d']);
+  if (return5d !== undefined) {
+    return {
+      rawValue: { return5d },
+      normalizedScore: clamp((((Math.abs(return5d) <= 1 ? return5d * 100 : return5d) + 5) / 15) * 100, 0, 100),
+      confidence: 'DEGRADED',
+      providerIssue: false,
+      message: 'Relative strength component computed from short-horizon 5-day return proxy.',
+    };
+  }
+  const relativeProxyReasons = stringArrayTraceValue(trace, 'watchlistReason');
+  if (positiveReasonProxy(relativeProxyReasons)) {
+    return {
+      rawValue: relativeProxyReasons,
+      normalizedScore: 35,
+      confidence: 'DEGRADED',
+      providerIssue: false,
+      message: 'Relative strength uses a low-confidence watchlist reason proxy only; unavailable data is not promoted.',
+    };
+  }
+  return {
+    normalizedScore: 0,
+    confidence: 'MISSING',
+    providerIssue: true,
+    message: 'Relative strength source missing; contribution is 0 and is not treated as bearish.',
+  };
+}
+
+function volumeLiquidityScore(trace: CandidateEntryTrace): {
+  rawValue?: unknown;
+  normalizedScore: number;
+  weightedScore: number;
+  confidence: SignalScoreComponentConfidence;
+  marketSignal: boolean;
+  penaltyApplied: boolean;
+  penaltyReason?: string;
+  message: string;
+} {
+  const avgVolume = numericTraceValue(trace, ['avgVolume']);
+  const currentVolume = numericTraceValue(trace, ['projectedVolume', 'volume']);
+  if (avgVolume !== undefined && avgVolume > 0 && currentVolume !== undefined) {
+    const ratio = currentVolume / avgVolume;
+    const normalizedScore = clamp((ratio / 2) * 100, 0, 100);
+    return {
+      rawValue: { volume: currentVolume, avgVolume, ratio: round2(ratio) },
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 12),
+      confidence: 'VERIFIED',
+      marketSignal: ratio < 0.5,
+      penaltyApplied: ratio < 0.5,
+      penaltyReason: ratio < 0.5 ? 'LIQUIDITY_LOW' : undefined,
+      message: 'Liquidity contribution computed from candidate volume/average-volume ratio.',
+    };
+  }
+  const passed = trace.volumeLiquidityPassed;
+  return {
+    rawValue: passed,
+    normalizedScore: passed === false ? 33.3 : passed === true ? 66.7 : 0,
+    weightedScore: passed === false ? 4 : passed === true ? 8 : 0,
+    confidence: passed === undefined ? 'MISSING' : passed === false ? 'DEGRADED' : 'VERIFIED',
+    marketSignal: passed === false,
+    penaltyApplied: passed === false,
+    penaltyReason: passed === false ? 'LIQUIDITY_LOW' : undefined,
+    message: passed === undefined
+      ? 'Liquidity source missing; contribution is 0 and is not filled with a uniform default.'
+      : 'Liquidity contribution uses pass/fail fallback because volume ratio source is unavailable.',
+  };
+}
+
+function breakoutScore(trace: CandidateEntryTrace): {
+  rawValue: Record<string, unknown>;
+  normalizedScore: number;
+  weightedScore: number;
+  confidence: SignalScoreComponentConfidence;
+  providerIssue: boolean;
+  message: string;
+} {
+  const breakoutStates = BREAKOUT_SOURCE_KEYS.map((key) => ({ key, value: breakoutSignalState(trace, key) }));
+  const available = breakoutStates.filter((item) => item.value !== undefined && !isBreakoutUnavailable(item.value));
+  const breakoutFired = available.filter((item) => isBreakoutFired(item.value));
+  const breakoutUnavailable = breakoutStates.filter((item) => isBreakoutUnavailable(item.value));
+  const normalizedScore = available.length > 0 ? (breakoutFired.length / available.length) * 100 : 0;
+  const rawValue = Object.fromEntries(breakoutStates.filter((item) => item.value !== undefined).map((item) => [item.key, item.value]));
+  return {
+    rawValue,
+    normalizedScore,
+    weightedScore: weightedFromNormalized(normalizedScore, 10),
+    confidence: available.length > 0 ? 'VERIFIED' : breakoutUnavailable.length > 0 ? 'UNKNOWN' : 'MISSING',
+    providerIssue: available.length === 0 && breakoutUnavailable.length > 0,
+    message: available.length > 0
+      ? `Breakout structure scored ${breakoutFired.length}/${available.length} available signals: ${breakoutFired.map((item) => item.key).join(', ') || 'none'}.`
+      : breakoutUnavailable.length > 0
+        ? `Breakout structure source unavailable/error for ${breakoutUnavailable.map((item) => item.key).join(', ')}; not promoted to positive.`
+        : 'Breakout structure condition result missing; contribution is 0.',
+  };
+}
+
 function component(input: Omit<SignalScoreComponentTrace, 'contributionPct'>): SignalScoreComponentTrace {
   return {
     ...input,
@@ -288,37 +432,34 @@ export function buildMinimumSignalScoreTrace(input: {
   const riskMultiplier = input.macroGateState?.finalKellyMultiplier !== undefined
     ? input.macroGateState.finalKellyMultiplier / Math.max(0.000001, (input.macroGateState.kellyMultiplierFromRegime || 1) * (input.macroGateState.fomcKellyMultiplier || 1))
     : 1;
-  const riskPenalty = riskMultiplier < 0.8 ? -round1((0.8 - riskMultiplier) * 15) : 0;
+  const uncappedRiskPenalty = riskMultiplier < 0.8 ? -round1((0.8 - riskMultiplier) * 15) : 0;
+  const riskPenalty = Math.max(-3, uncappedRiskPenalty);
   const supplyUnknown = input.supplyConfluenceState === 'UNKNOWN' || input.supplyConfluenceState === 'UNAVAILABLE';
   const supplyBearish = input.supplyConfluenceState === 'BEARISH';
   const investorUnknown = input.supplyProviderHealth.status !== 'VERIFIED';
-  const softFailPenalty = input.hasGate1Blocker ? -5 : 0;
+  const supplyProviderUnknownRootSeen = supplyUnknown || investorUnknown;
+  const investorUnknownPenalty = investorUnknown && supplyUnknown ? 0 : investorUnknown ? -8 : 8;
+  const softFailPenalty = input.hasGate1Blocker && !supplyProviderUnknownRootSeen ? -5 : 0;
   const watchlistScoreSource = numericTraceValue(input.trace, [
     'watchlistUpstreamScore',
     'upstreamScore',
     'stage2Score',
+    'stage1Score',
+    'priorityScore',
     'totalGateScore',
     'watchlistScore',
     'gateScore',
   ]);
   const watchlistScoreSourceName = watchlistScoreSource === undefined
     ? undefined
-    : ['watchlistUpstreamScore', 'upstreamScore', 'stage2Score', 'totalGateScore', 'watchlistScore', 'gateScore']
+    : ['watchlistUpstreamScore', 'upstreamScore', 'stage2Score', 'stage1Score', 'priorityScore', 'totalGateScore', 'watchlistScore', 'gateScore']
         .find((key) => finite((input.trace as unknown as Record<string, unknown>)[key]));
   const watchlistNormalizedScore = normalizeSignalScoreTo100(watchlistScoreSource);
   const watchlistWeightedScore = weightedFromNormalized(watchlistNormalizedScore, 10);
-  const explicitRelativeStrength = numericTraceValue(input.trace, ['relativeStrengthScore', 'relativeStrength', 'rsRankPct']);
-  const relativeProxyReasons = stringArrayTraceValue(input.trace, 'watchlistReason');
-  const relativeNormalizedScore = explicitRelativeStrength !== undefined
-    ? normalizeSignalScoreTo100(explicitRelativeStrength)
-    : positiveReasonProxy(relativeProxyReasons)
-      ? 60
-      : 0;
-  const relativeWeightedScore = weightedFromNormalized(relativeNormalizedScore, 10);
-  const breakoutStates = BREAKOUT_SOURCE_KEYS.map((key) => ({ key, value: breakoutSignalState(input.trace, key) }));
-  const breakoutFired = breakoutStates.filter((item) => isBreakoutFired(item.value));
-  const breakoutUnavailable = breakoutStates.filter((item) => isBreakoutUnavailable(item.value));
-  const breakoutWeightedScore = Math.min(10, breakoutFired.length * 5);
+  const relativeStrength = normalizedRelativeStrength(input.trace);
+  const relativeWeightedScore = weightedFromNormalized(relativeStrength.normalizedScore, 10);
+  const breakout = breakoutScore(input.trace);
+  const volumeLiquidity = volumeLiquidityScore(input.trace);
   const components: SignalScoreComponentTrace[] = [
     component({
       code: 'PRICE_MOMENTUM',
@@ -336,35 +477,31 @@ export function buildMinimumSignalScoreTrace(input: {
     }),
     component({
       code: 'VOLUME_LIQUIDITY',
-      rawValue: input.trace.volumeLiquidityPassed,
-      normalizedScore: input.trace.volumeLiquidityPassed === false ? 4 : 12,
+      rawValue: volumeLiquidity.rawValue,
+      normalizedScore: volumeLiquidity.normalizedScore,
       weight: 1,
-      weightedScore: input.trace.volumeLiquidityPassed === false ? 4 : 12,
+      weightedScore: volumeLiquidity.weightedScore,
       maxScore: 12,
-      confidence: input.trace.volumeLiquidityPassed === false ? 'DEGRADED' : 'VERIFIED',
+      confidence: volumeLiquidity.confidence,
       providerIssue: false,
-      marketSignal: input.trace.volumeLiquidityPassed === false,
-      penaltyApplied: input.trace.volumeLiquidityPassed === false,
-      penaltyReason: input.trace.volumeLiquidityPassed === false ? 'LIQUIDITY_LOW' : undefined,
-      message: 'Liquidity contribution is a market-signal component only when actual liquidity is low.',
+      marketSignal: volumeLiquidity.marketSignal,
+      penaltyApplied: volumeLiquidity.penaltyApplied,
+      penaltyReason: volumeLiquidity.penaltyReason,
+      message: volumeLiquidity.message,
     }),
     component({ code: 'TECHNICAL_TREND', normalizedScore: input.hasGate1Blocker ? 8 : 14, weight: 1, weightedScore: input.hasGate1Blocker ? 8 : 14, maxScore: 14, confidence: 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: false, message: 'Technical trend proxy from legacy Gate1 path.' }),
     component({
       code: 'RELATIVE_STRENGTH',
-      rawValue: explicitRelativeStrength ?? relativeProxyReasons,
-      normalizedScore: relativeNormalizedScore,
+      rawValue: relativeStrength.rawValue,
+      normalizedScore: relativeStrength.normalizedScore,
       weight: 1,
       weightedScore: relativeWeightedScore,
       maxScore: 10,
-      confidence: explicitRelativeStrength !== undefined ? 'VERIFIED' : positiveReasonProxy(relativeProxyReasons) ? 'DEGRADED' : 'MISSING',
-      providerIssue: explicitRelativeStrength === undefined && !positiveReasonProxy(relativeProxyReasons),
+      confidence: relativeStrength.confidence,
+      providerIssue: relativeStrength.providerIssue,
       marketSignal: false,
       penaltyApplied: false,
-      message: explicitRelativeStrength !== undefined
-        ? 'Relative strength component imported from explicit candidate ranking/source.'
-        : positiveReasonProxy(relativeProxyReasons)
-          ? 'Relative strength component uses watchlist reason proxy; no marketSignal penalty applied.'
-          : 'Relative strength source missing; contribution is 0 and is not treated as bearish.',
+      message: relativeStrength.message,
     }),
     component({
       code: 'WATCHLIST_UPSTREAM_SCORE',
@@ -383,20 +520,16 @@ export function buildMinimumSignalScoreTrace(input: {
     }),
     component({
       code: 'BREAKOUT_STRUCTURE',
-      rawValue: Object.fromEntries(breakoutStates.filter((item) => item.value !== undefined).map((item) => [item.key, item.value])),
-      normalizedScore: breakoutWeightedScore * 10,
+      rawValue: breakout.rawValue,
+      normalizedScore: breakout.normalizedScore,
       weight: 1,
-      weightedScore: breakoutWeightedScore,
+      weightedScore: breakout.weightedScore,
       maxScore: 10,
-      confidence: breakoutFired.length > 0 ? 'VERIFIED' : breakoutUnavailable.length > 0 ? 'UNKNOWN' : 'MISSING',
-      providerIssue: breakoutFired.length === 0 && breakoutUnavailable.length > 0,
+      confidence: breakout.confidence,
+      providerIssue: breakout.providerIssue,
       marketSignal: false,
       penaltyApplied: false,
-      message: breakoutFired.length > 0
-        ? `Breakout structure positive component fired from ${breakoutFired.map((item) => item.key).join(', ')}.`
-        : breakoutUnavailable.length > 0
-          ? `Breakout structure source unavailable/error for ${breakoutUnavailable.map((item) => item.key).join(', ')}; not promoted to positive.`
-          : 'Breakout structure condition result missing; contribution is 0.',
+      message: breakout.message,
     }),
     component({ code: 'WATCHLIST_PRIORITY', normalizedScore: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 0 : 8, weight: 1, weightedScore: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 0 : 8, maxScore: 8, confidence: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 'MISSING' : 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: input.trace.symbol === 'UNIVERSE_SUMMARY', penaltyReason: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 'WATCHLIST_MISSING' : undefined, message: 'Watchlist row priority contribution.' }),
     component({
@@ -404,7 +537,7 @@ export function buildMinimumSignalScoreTrace(input: {
       rawValue: input.supplyConfluenceState,
       normalizedScore: input.supplyConfluenceState === 'BULLISH' ? 8 : input.supplyConfluenceState === 'NEUTRAL' ? 4 : 0,
       weight: 1,
-      weightedScore: input.supplyConfluenceState === 'BULLISH' ? 8 : input.supplyConfluenceState === 'NEUTRAL' ? 4 : supplyBearish ? -10 : -10,
+      weightedScore: input.supplyConfluenceState === 'BULLISH' ? 8 : input.supplyConfluenceState === 'NEUTRAL' ? 4 : supplyBearish ? -10 : supplyUnknown ? -10 : 0,
       maxScore: 8,
       confidence: supplyUnknown ? 'UNKNOWN' : 'VERIFIED',
       providerIssue: supplyUnknown,
@@ -418,14 +551,16 @@ export function buildMinimumSignalScoreTrace(input: {
       rawValue: input.supplyProviderHealth.status,
       normalizedScore: investorUnknown ? 0 : 8,
       weight: 1,
-      weightedScore: investorUnknown ? -8 : 8,
+      weightedScore: investorUnknownPenalty,
       maxScore: 8,
       confidence: investorUnknown ? (input.supplyProviderHealth.status === 'NO_RECENT_SAMPLE' ? 'STALE' : 'UNKNOWN') : 'VERIFIED',
       providerIssue: investorUnknown,
       marketSignal: false,
-      penaltyApplied: investorUnknown,
-      penaltyReason: investorUnknown ? 'PROVIDER_ISSUE_INVESTOR_FLOW_UNKNOWN_NOT_MARKET_WEAKNESS' : undefined,
-      message: investorUnknown ? 'Investor-flow UNKNOWN/STALE is provider issue, not market bearishness.' : 'Investor-flow sample verified.',
+      penaltyApplied: investorUnknownPenalty < 0,
+      penaltyReason: investorUnknownPenalty < 0 ? 'PROVIDER_ISSUE_INVESTOR_FLOW_UNKNOWN_NOT_MARKET_WEAKNESS' : undefined,
+      message: investorUnknown && supplyUnknown
+        ? 'Investor-flow UNKNOWN shares SUPPLY_PROVIDER_UNKNOWN root cause with supply confluence; diagnostic-only to avoid duplicate signal-score penalty.'
+        : investorUnknown ? 'Investor-flow UNKNOWN/STALE is provider issue, not market bearishness.' : 'Investor-flow sample verified.',
     }),
     component({
       code: 'SECTOR_ENERGY',
@@ -443,8 +578,8 @@ export function buildMinimumSignalScoreTrace(input: {
     }),
     component({ code: 'MARKET_REGIME', rawValue: input.regime, normalizedScore: input.macroGateState?.emergencyStop ? 0 : 6, weight: 1, weightedScore: input.macroGateState?.emergencyStop ? -6 : 6, maxScore: 6, confidence: 'VERIFIED', providerIssue: false, marketSignal: Boolean(input.macroGateState?.emergencyStop), penaltyApplied: Boolean(input.macroGateState?.emergencyStop), penaltyReason: input.macroGateState?.emergencyStop ? 'EMERGENCY_STOP' : undefined, message: 'Market regime contribution; emergency stop is the hard risk signal.' }),
     component({ code: 'SESSION_STATUS', rawValue: input.marketSession, normalizedScore: 0, weight: 0, weightedScore: 0, maxScore: 0, confidence: input.marketSession === 'SELL_ONLY' ? 'DIAGNOSTIC_ONLY' : 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: false, message: 'Session status is execution eligibility only; SELL_ONLY must not reduce signal score.' }),
-    component({ code: 'RISK_PENALTY', rawValue: { riskMultiplier }, normalizedScore: riskPenalty, weight: 1, weightedScore: riskPenalty, maxScore: 0, confidence: riskPenalty < 0 ? 'DEGRADED' : 'VERIFIED', providerIssue: false, marketSignal: riskPenalty < 0, penaltyApplied: riskPenalty < 0, penaltyReason: riskPenalty < 0 ? 'LOW_RISK_MULTIPLIER_SIGNAL_CALIBRATION_CHECK' : undefined, message: 'Risk multiplier impact is traced to detect double-counting with Kelly sizing.' }),
-    component({ code: 'SOFT_FAIL_PENALTY', rawValue: input.hasGate1Blocker, normalizedScore: softFailPenalty, weight: 1, weightedScore: softFailPenalty, maxScore: 0, confidence: softFailPenalty < 0 ? 'DEGRADED' : 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: softFailPenalty < 0, penaltyReason: softFailPenalty < 0 ? 'LEGACY_GATE1_SOFT_FAIL_ACCUMULATION' : undefined, message: 'Legacy Gate1 aggregate soft fail penalty is separated from hard risk.' }),
+    component({ code: 'RISK_PENALTY', rawValue: { riskMultiplier, uncappedRiskPenalty }, normalizedScore: riskPenalty, weight: 1, weightedScore: riskPenalty, maxScore: 0, confidence: riskPenalty < 0 ? 'DIAGNOSTIC_ONLY' : 'VERIFIED', providerIssue: false, marketSignal: riskPenalty < 0, penaltyApplied: riskPenalty < 0, penaltyReason: riskPenalty < 0 ? 'REGIME_RISK_SIGNAL_SCORE_CAPPED_SIZING_PRIMARY' : undefined, message: 'Regime risk remains primarily in Kelly sizing; signal-score impact is capped to avoid double-counting.' }),
+    component({ code: 'SOFT_FAIL_PENALTY', rawValue: { hasGate1Blocker: input.hasGate1Blocker, supplyProviderUnknownRootSeen }, normalizedScore: softFailPenalty, weight: 1, weightedScore: softFailPenalty, maxScore: 0, confidence: input.hasGate1Blocker && supplyProviderUnknownRootSeen ? 'DIAGNOSTIC_ONLY' : softFailPenalty < 0 ? 'DEGRADED' : 'VERIFIED', providerIssue: input.hasGate1Blocker && supplyProviderUnknownRootSeen, marketSignal: false, penaltyApplied: softFailPenalty < 0, penaltyReason: softFailPenalty < 0 ? 'LEGACY_GATE1_SOFT_FAIL_ACCUMULATION' : undefined, message: input.hasGate1Blocker && supplyProviderUnknownRootSeen ? 'Soft-fail aggregate shares SUPPLY_PROVIDER_UNKNOWN root cause and is diagnostic-only to avoid duplicate signal-score penalty.' : 'Legacy Gate1 aggregate soft fail penalty is separated from hard risk.' }),
   ];
   const computedScore = round1(components.reduce((sum, c) => sum + c.weightedScore, 0));
   const gateScoreIsLegacySmallScale = input.trace.gateScore !== undefined && input.trace.gateScore <= 27;

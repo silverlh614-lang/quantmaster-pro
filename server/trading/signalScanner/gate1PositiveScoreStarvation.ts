@@ -1141,14 +1141,14 @@ export function formatPositiveScoreStarvationReport(
         .join(', ')}`,
     );
   }
-  if (report.zeroContributionComponents.length > 0) {
-    lines.push(
-      `  zeroContributionComponents: ${report.zeroContributionComponents
+  lines.push(
+    `  zeroContributionComponents: ${report.zeroContributionComponents.length > 0
+      ? report.zeroContributionComponents
         .slice(0, 5)
         .map((item) => `${item.code} ${item.count}`)
-        .join(', ')}`,
-    );
-  }
+        .join(', ')
+      : 'none'}`,
+  );
   lines.push(
     `  scoreCeilingAudit: configured ${ceiling.configuredPositiveMaxScore.toFixed(1)}, ` +
       `observedPositiveMax ${ceiling.observedPositiveMaxScore.toFixed(1)}, ` +

@@ -108,7 +108,7 @@ function deriveSupplyItem(summary: ReturnType<typeof getLastScanSummary>): DataC
   const hasFreshDataSupply = scanSummaryHas(summary, 'freshDataSupplyAdr0487');
   const hasSupplyFreshness = scanSummaryHas(summary, 'supplySourceFreshnessAdr0483');
 
-  if (providerStatus === 'OK') return { name: 'Supply', status: 'OK', detail: 'investor flow provider OK', impact: 'NONE' };
+  if (providerStatus === 'VERIFIED' || providerStatus === 'DATA_AVAILABLE') return { name: 'Supply', status: 'OK', detail: 'investor flow provider OK', impact: 'NONE' };
   if (providerStatus === 'PROVIDER_ERROR') return { name: 'Supply', status: 'PARTIAL', detail: 'provider error isolated from market signal', impact: 'SHADOW_OK' };
   if (hasFreshDataSupply || hasSupplyFreshness) return { name: 'Supply', status: 'PARTIAL', detail: 'fresh data supply diagnostics available', impact: 'SHADOW_OK' };
   return { name: 'Supply', status: 'WAIT', detail: 'supply diagnostics not observed in last scan', impact: 'SHADOW_OK' };

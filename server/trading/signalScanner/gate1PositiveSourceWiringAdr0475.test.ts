@@ -334,6 +334,6 @@ describe('ADR-0475 Gate1 Positive Source Wiring', () => {
     const index = readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8');
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Dry-run');
-    expect(index).toMatch(/다음 ADR 번호: `04(?:7[8-9]|8[0-9])`/);
+    expect(index).toMatch(/다음 ADR 번호: `05\d{2}`/);
   });
 });
