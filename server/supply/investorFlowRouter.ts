@@ -12,7 +12,7 @@
  * PR-597: MARKET_CLOSED/NON_TRADING_DAY/SELL_ONLY 에도 KRX previous trading day 는 source-of-truth 후보로 조회한다.
  */
 
-import { fetchInvestorTrading } from '../clients/krxClient.js';
+import { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } from '../clients/krxClient.js';
 import {
   loadInvestorFlowCache as loadInvestorFlowCacheFromRepo,
   upsertInvestorFlowCache,
@@ -191,11 +191,14 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
   const datesTried: string[] = [];
   const sampleCodeSet = new Set<string>();
   const emptyDates: string[] = [];
+  const endpointSummaries: string[] = [];
   const previousTradingDayOffset = forcePreviousTradingDay ? 1 : 0;
   for (let i = 0; i < KRX_INVESTOR_FLOW_DAYS; i += 1) {
     const ymd = previousBusinessDayYmd(now, i + previousTradingDayOffset);
     datesTried.push(ymd);
     const rows = await fetchInvestorTrading(ymd);
+    const krxDiagnostic = getLastKrxInvestorTradingDiagnostic(ymd);
+    endpointSummaries.push(`date=${ymd}|${krxDiagnostic?.summary ?? 'diagnostic=NONE'}`);
     totalRows += rows.length;
     if (rows.length === 0) {
       emptyDates.push(ymd);
@@ -212,7 +215,18 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
   }
 
   const allDatesEmpty = datesTried.length > 0 && totalRows === 0 && emptyDates.length === datesTried.length;
-  const upstream = allDatesEmpty ? 'KRX_PUBLIC_EMPTY_ROWS_OR_HTTP400' : 'OK';
+  const issueHints = endpointSummaries.map((line) => line.match(/endpointIssueHint=([^;]+)/)?.[1]).filter(Boolean);
+  const parserStatuses = endpointSummaries.map((line) => line.match(/parserStatus=([^;]+)/)?.[1]).filter(Boolean);
+  const allProviderEmpty = parserStatuses.length > 0 && parserStatuses.every((status) => status === 'PROVIDER_EMPTY_RESPONSE');
+  const anyKeyMismatch = parserStatuses.includes('PARSER_KEY_MISMATCH');
+  const anyFieldMismatch = parserStatuses.includes('PARSER_FIELD_MISMATCH');
+  const upstream = allDatesEmpty
+    ? allProviderEmpty ? 'PROVIDER_EMPTY_RESPONSE'
+      : anyKeyMismatch ? 'PARSER_KEY_MISMATCH'
+        : anyFieldMismatch ? 'PARSER_FIELD_MISMATCH'
+          : issueHints.includes('MARKET_CLOSED_NO_PREVIOUS_SAMPLE') ? 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
+            : 'KRX_PUBLIC_EMPTY_ROWS_OR_HTTP400'
+    : 'OK';
   const diagnostic = [
     `code=${safeCode}`,
     `sample=${sampleSize}`,
@@ -223,14 +237,19 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     `previousTradingDateCandidate=${datesTried[0] ?? 'NONE'}`,
     `sessionFallback=${forcePreviousTradingDay ? (suppressed.status ?? 'MARKET_CLOSED') : 'NONE'}`,
     `upstream=${upstream}`,
+    `endpointSummary=${endpointSummaries.join('||') || 'NONE'}`,
   ].join(';');
 
   if (sampleSize < KRX_INVESTOR_FLOW_MIN_SAMPLE || !latestDate) {
     // ADR-0445 — parser empty rows 시 sanitized metadata + last-good cache 진단 layer.
     //   외부 API 호출 0 (영속 ledger read 만, 기존 KRX 호출 결과만 분석).
     //   try/catch 격리 — 진단 빌더 throw 가 router 본체 흐름 차단 0.
-    const parserStatus: 'PARSER_EMPTY_ROWS' | 'CACHE_EMPTY' = allDatesEmpty
-      ? 'PARSER_EMPTY_ROWS'
+    const parserStatus: 'PARSER_EMPTY_ROWS' | 'PROVIDER_EMPTY_RESPONSE' | 'PARSER_KEY_MISMATCH' | 'PARSER_FIELD_MISMATCH' | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE' | 'CACHE_EMPTY' = allDatesEmpty
+      ? upstream === 'PROVIDER_EMPTY_RESPONSE' ? 'PROVIDER_EMPTY_RESPONSE'
+        : upstream === 'PARSER_KEY_MISMATCH' ? 'PARSER_KEY_MISMATCH'
+          : upstream === 'PARSER_FIELD_MISMATCH' ? 'PARSER_FIELD_MISMATCH'
+            : upstream === 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE' ? 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
+              : 'PARSER_EMPTY_ROWS'
       : 'CACHE_EMPTY';
     const adr0445 = buildKrxParserHealthExtras({
       now,
@@ -319,7 +338,7 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
 
 interface BuildKrxParserHealthExtrasInput {
   now: Date;
-  parserStatus: 'OK' | 'PARSER_EMPTY_ROWS' | 'CACHE_EMPTY';
+  parserStatus: 'OK' | 'PARSER_EMPTY_ROWS' | 'PROVIDER_EMPTY_RESPONSE' | 'PARSER_KEY_MISMATCH' | 'PARSER_FIELD_MISMATCH' | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE' | 'CACHE_EMPTY';
   sampleSize: number;
   datesTried: string[];
   emptyDates: string[];
@@ -493,13 +512,13 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',
       status: 'NOT_WIRED',
-      reason: 'NAVER investor trend collector not implemented',
+      reason: 'NAVER investor trend collector not implemented; modulePath=server/supply/investorFlowRouter.ts#fetchNaverInvestorTrend; wiring=local_stub; runtimeMount=missing; buildArtifactCheck=ensure ADR-0481 collector import is registered',
       now,
       sourceDateKst: resolveInvestorFlowSourceDateKst(now),
       retryable: false,
       cacheFallback: true,
     }));
-    pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'NOT_WIRED', 'NAVER investor trend collector not implemented');
+    pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'NOT_WIRED', 'NAVER investor trend collector not implemented; modulePath=server/supply/investorFlowRouter.ts#fetchNaverInvestorTrend; wiring=local_stub; runtimeMount=missing; buildArtifactCheck=ensure ADR-0481 collector import is registered');
   } catch (err) {
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',

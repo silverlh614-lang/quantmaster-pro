@@ -51,6 +51,32 @@ export interface KrxInvestorRow {
   individualNetBuy: number;  // 개인 순매수 수량(주)
 }
 
+export type KrxInvestorParserStatus =
+  | 'OK'
+  | 'PROVIDER_EMPTY_RESPONSE'
+  | 'PARSER_KEY_MISMATCH'
+  | 'PARSER_FIELD_MISMATCH'
+  | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+
+export interface KrxInvestorTradingDiagnostic {
+  endpoint: 'MDCSTAT02203';
+  bld: string;
+  tradeDate: string;
+  contentType: 'json' | 'html' | 'csv' | 'text' | 'empty' | 'unknown';
+  httpStatus: number | null;
+  responseKind: 'JSON' | 'HTML' | 'CSV' | 'TEXT' | 'EMPTY' | 'DISABLED' | 'GATED' | 'COOLDOWN' | 'HTTP_ERROR' | 'NETWORK_ERROR';
+  rawTopLevelKeys: string[];
+  detectedCandidatePaths: string[];
+  selectedRowPath: string | null;
+  selectedRowCount: number;
+  firstRowKeys: string[];
+  normalizedRows: number;
+  parserStatus: KrxInvestorParserStatus;
+  fieldMappings: Record<'symbol' | 'date' | 'investorType' | 'foreignNetBuy' | 'institutionNetBuy' | 'individualNetBuy' | 'netBuyAmount' | 'netBuyVolume', string | null>;
+  endpointIssueHint: 'NONE' | 'ENDPOINT_PARAMETER_ERROR' | 'MARKET_CODE_ERROR' | 'SYMBOL_CODE_FORMAT_ERROR' | 'OTP_OR_HEADER_ERROR' | 'SCHEMA_KEY_CHANGED' | 'FIELD_ALIAS_CHANGED' | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+  summary: string;
+}
+
 export interface KrxPerPbrRow {
   code: string;
   name: string;
@@ -106,6 +132,18 @@ const BLD_INVESTOR_DETAIL =
 
 interface CacheEntry<T> { data: T; expiresAt: number }
 const _cache = new Map<string, CacheEntry<unknown>>();
+const _lastInvestorTradingDiagnostics = new Map<string, KrxInvestorTradingDiagnostic>();
+
+function setInvestorTradingDiagnostic(tradeDate: string, diagnostic: KrxInvestorTradingDiagnostic): void {
+  _lastInvestorTradingDiagnostics.set(tradeDate, diagnostic);
+}
+
+export function getLastKrxInvestorTradingDiagnostic(date?: string): KrxInvestorTradingDiagnostic | null {
+  const tradeDate = date && isValidYyyymmdd(date) ? date : null;
+  if (tradeDate) return _lastInvestorTradingDiagnostics.get(tradeDate) ?? null;
+  return Array.from(_lastInvestorTradingDiagnostics.values()).at(-1) ?? null;
+}
+
 
 function getCached<T>(key: string): T | null {
   const hit = _cache.get(key);
@@ -120,6 +158,8 @@ function setCached<T>(key: string, data: T): void {
 export function resetKrxCache(): void {
   _cache.clear();
   _bldFailureState.clear();
+  _lastInvestorTradingDiagnostics.clear();
+  _lastKrxPostMeta.clear();
 }
 
 // ── ADR-0009: bld 연속 실패 soft cooldown ────────────────────────────────────
@@ -342,6 +382,38 @@ interface KrxRawResponse {
   [key: string]: unknown;
 }
 
+interface KrxPostMeta {
+  contentType: KrxInvestorTradingDiagnostic['contentType'];
+  httpStatus: number | null;
+  responseKind: KrxInvestorTradingDiagnostic['responseKind'];
+}
+
+const _lastKrxPostMeta = new Map<string, KrxPostMeta>();
+
+function setKrxPostMeta(bld: string, meta: KrxPostMeta): void {
+  _lastKrxPostMeta.set(bld, meta);
+}
+
+function classifyContentType(header: string | null, text?: string): KrxInvestorTradingDiagnostic['contentType'] {
+  const lower = (header ?? '').toLowerCase();
+  const trimmed = (text ?? '').trimStart();
+  if (!text && !header) return 'unknown';
+  if (text !== undefined && trimmed.length === 0) return 'empty';
+  if (lower.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')) return 'json';
+  if (lower.includes('html') || /^<!doctype html|<html[\s>]/i.test(trimmed)) return 'html';
+  if (lower.includes('csv') || lower.includes('excel') || trimmed.includes('\n') && trimmed.includes(',')) return 'csv';
+  if (lower.includes('text')) return 'text';
+  return 'unknown';
+}
+
+function makeKrxResponseKind(contentType: KrxInvestorTradingDiagnostic['contentType']): KrxPostMeta['responseKind'] {
+  if (contentType === 'json') return 'JSON';
+  if (contentType === 'html') return 'HTML';
+  if (contentType === 'csv') return 'CSV';
+  if (contentType === 'empty') return 'EMPTY';
+  return 'TEXT';
+}
+
 /**
  * KRX POST 요청 1회. 실패 시 null 반환 (호출자가 빈 배열로 변환).
  * - AbortSignal timeout 으로 응답이 없어도 프로세스가 멈추지 않는다.
@@ -352,18 +424,23 @@ async function krxPost(
   bld: string,
   params: Record<string, string>,
 ): Promise<KrxRawResponse | null> {
-  if (KRX_DISABLED) return null;
+  if (KRX_DISABLED) {
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED' });
+    return null;
+  }
 
   // ADR-0256: 시간대 게이팅 — 통계 무의미 / 미확정 시간대 호출 차단.
   // 카운터 미누적 (ADR-0251 정합).
   const gating = shouldSkipKrxCallByTimeWindow();
   if (gating.skip) {
     console.debug(`[KRX] ${bld} 시간대 게이팅 스킵 (${gating.reason}, ADR-0256)`);
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'GATED' });
     return null;
   }
 
   if (isBldCooldown(bld)) {
     // ADR-0009 soft cooldown — 이미 실패가 누적된 bld 는 쿨다운 동안 skip.
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN' });
     return null;
   }
 
@@ -373,6 +450,7 @@ async function krxPost(
   // 다음 30분 윈도우 안 호출은 skip (또 실패해서 cooldown 재발 방지).
   if (shouldSkipForRecoveryProbe(bld)) {
     console.debug(`[KRX] ${bld} probe 윈도우 안 추가 호출 skip (ADR-0259)`);
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN' });
     return null;
   }
 
@@ -403,6 +481,7 @@ async function krxPost(
       // 주말 KRX 400 — resolveTradeDate 가 직전 영업일로 후퇴해도 bld 별 간헐 400.
       // 정보 가치 0 + cooldown 오염 방지를 위해 silent return (recordBldFailure 도 생략).
       if (res.status === 400 && isKstWeekend()) {
+        setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
         return null;
       }
       // ADR-0251: 평일 off-hours (장 시작 전 / 점심 / 마감 후 통계 미확정 창)
@@ -410,24 +489,30 @@ async function krxPost(
       // 보고: 점심시간 KRX 400 누적이 cooldown 트리거하던 결함 차단.
       if (res.status === 400 && !isMarketDataPublished()) {
         console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251)`);
+        setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
         return null;
       }
       console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
       recordBldFailure(bld);
       return null;
     }
     const text = await res.text();
+    const contentType = classifyContentType(res.headers?.get?.('content-type') ?? null, text);
     if (!text.trim()) {
+      setKrxPostMeta(bld, { contentType, httpStatus: res.status, responseKind: 'EMPTY' });
       recordBldFailure(bld);
       return null;
     }
     try {
       const parsed = JSON.parse(text);
+      setKrxPostMeta(bld, { contentType, httpStatus: res.status, responseKind: 'JSON' });
       recordBldSuccess(bld);
       return parsed;
     }
     catch {
       console.warn(`[KRX] ${bld} JSON 파싱 실패 (앞 120자: ${text.slice(0, 120)})`);
+      setKrxPostMeta(bld, { contentType, httpStatus: res.status, responseKind: makeKrxResponseKind(contentType) });
       recordBldFailure(bld);
       return null;
     }
@@ -435,6 +520,7 @@ async function krxPost(
     // AbortError 포함 — 네트워크/타임아웃 모두 빈 응답 처리.
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[KRX] ${bld} 네트워크 실패: ${msg}`);
+    setKrxPostMeta(bld, { contentType: 'unknown', httpStatus: null, responseKind: 'NETWORK_ERROR' });
     recordBldFailure(bld);
     return null;
   } finally {
@@ -442,25 +528,249 @@ async function krxPost(
   }
 }
 
-/** KRX 응답에서 가장 그럴듯한 row 배열을 추출한다. 스키마 불명 시 첫 배열 사용. */
-function extractRows(raw: KrxRawResponse | null): Record<string, string>[] {
+const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'list', 'rows', 'result', 'block1'] as const;
+
+interface ExtractRowsResult {
+  rows: Record<string, unknown>[];
+  detectedCandidatePaths: string[];
+  selectedRowPath: string | null;
+  firstRowKeys: string[];
+}
+
+function isRecordArray(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.every((row) => row && typeof row === 'object' && !Array.isArray(row));
+}
+
+function collectArrayCandidates(raw: KrxRawResponse | null): Array<{ path: string; rows: Record<string, unknown>[] }> {
   if (!raw || typeof raw !== 'object') return [];
-  // 알려진 후보 키를 먼저 시도.
-  const known = ['OutBlock_1', 'output', 'block1', 'list'];
-  for (const k of known) {
-    const v = (raw as Record<string, unknown>)[k];
-    if (Array.isArray(v)) return v as Record<string, string>[];
+  const out: Array<{ path: string; rows: Record<string, unknown>[] }> = [];
+  const root = raw as Record<string, unknown>;
+  const visitKey = (path: string, value: unknown): void => {
+    if (isRecordArray(value)) out.push({ path, rows: value });
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const nested = value as Record<string, unknown>;
+      for (const key of INVESTOR_ROW_CANDIDATE_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(nested, key) && isRecordArray(nested[key])) {
+          out.push({ path: `${path}.${key}`, rows: nested[key] as Record<string, unknown>[] });
+        }
+      }
+    }
+  };
+  for (const key of INVESTOR_ROW_CANDIDATE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(root, key)) visitKey(key, root[key]);
   }
-  // 그 외엔 첫 배열 값을 사용.
-  for (const k of Object.keys(raw)) {
-    const v = (raw as Record<string, unknown>)[k];
-    if (Array.isArray(v)) return v as Record<string, string>[];
+  for (const [key, value] of Object.entries(root)) visitKey(key, value);
+  return out.filter((candidate, index, arr) => arr.findIndex((other) => other.path === candidate.path) === index);
+}
+
+/** KRX 응답에서 가장 그럴듯한 row 배열을 추출한다. 스키마 불명 시 첫 배열 사용. */
+function extractRowsDetailed(raw: KrxRawResponse | null): ExtractRowsResult {
+  const candidates = collectArrayCandidates(raw);
+  const preferred = candidates.find((candidate) => INVESTOR_ROW_CANDIDATE_KEYS.some((key) => candidate.path === key && candidate.rows.length > 0))
+    ?? candidates.find((candidate) => candidate.rows.length > 0)
+    ?? candidates[0]
+    ?? null;
+  return {
+    rows: preferred?.rows ?? [],
+    detectedCandidatePaths: candidates.map((candidate) => `${candidate.path}:len=${candidate.rows.length}`),
+    selectedRowPath: preferred?.path ?? null,
+    firstRowKeys: preferred?.rows[0] ? Object.keys(preferred.rows[0]).slice(0, 40) : [],
+  };
+}
+
+function extractRows(raw: KrxRawResponse | null): Record<string, unknown>[] {
+  return extractRowsDetailed(raw).rows;
+}
+
+function rawValueByAliases(row: Record<string, unknown>, aliases: readonly string[]): { key: string | null; value: unknown } {
+  for (const key of aliases) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) return { key, value: row[key] };
   }
-  return [];
+  const lowerEntries = new Map(Object.keys(row).map((key) => [key.toLowerCase(), key]));
+  for (const alias of aliases) {
+    const actual = lowerEntries.get(alias.toLowerCase());
+    if (actual) return { key: actual, value: row[actual] };
+  }
+  return { key: null, value: undefined };
+}
+
+function strByAliases(row: Record<string, unknown>, aliases: readonly string[]): { key: string | null; value: string } {
+  const hit = rawValueByAliases(row, aliases);
+  return { key: hit.key, value: hit.value == null ? '' : String(hit.value).trim() };
+}
+
+function numByAliases(row: Record<string, unknown>, aliases: readonly string[]): { key: string | null; value: number } {
+  const hit = rawValueByAliases(row, aliases);
+  return { key: hit.key, value: toNum(hit.value) };
+}
+
+const KRX_INVESTOR_ALIASES = {
+  symbol: ['ISU_SRT_CD', 'ISU_CD', 'isuSrtCd', 'isuCd', 'symbol', 'code', 'shortCode', '종목코드'],
+  name: ['ISU_ABBRV', 'ISU_NM', 'isuAbrv', 'isuNm', 'name', 'symbolName', '종목명'],
+  date: ['TRD_DD', 'BAS_DD', 'trdDd', 'baseDate', 'date', 'sourceDate', '일자', '기준일'],
+  investorType: ['INVST_TP_NM', 'INVSTR_TP_NM', 'INVESTOR_TP_NM', 'invstTpNm', 'investorType', 'investor', 'INVST_TP', '투자자구분', '투자자'],
+  foreignNetBuy: ['FORN_INVSTR_NETBY_QTY', 'FORN_NETBY_QTY', 'FORN_BUY_SELL_NET_QTY', 'FRGN_NETBY_QTY', 'foreignNetBuy', 'frgnNetBuy', '외국인순매수'],
+  institutionNetBuy: ['ORGN_INVSTR_NETBY_QTY', 'ORGN_NETBY_QTY', 'ORG_NETBY_QTY', 'INST_NETBY_QTY', 'institutionNetBuy', 'institutionalNetBuy', 'orgNetBuy', '기관순매수'],
+  individualNetBuy: ['INDIV_INVSTR_NETBY_QTY', 'PRVT_NETBY_QTY', 'IDV_NETBY_QTY', 'retailNetBuy', 'individualNetBuy', '개인순매수'],
+  netBuyAmount: ['NETBY_TRDVAL', 'NET_BUY_AMT', 'NETBID_TRDVAL', 'netBuyAmount', '순매수거래대금'],
+  netBuyVolume: ['NETBY_QTY', 'NET_BUY_QTY', 'NETBID_TRDVOL', 'netBuyVolume', 'netBuyQty', '순매수수량'],
+} as const;
+
+function investorBucket(value: string): 'foreign' | 'institution' | 'individual' | null {
+  const normalized = value.replace(/\s+/g, '');
+  if (/외국인|foreign|foreigner|frgn|forn/i.test(normalized)) return 'foreign';
+  if (/기관|institution|orgn|inst/i.test(normalized)) return 'institution';
+  if (/개인|individual|retail|prvt|idv/i.test(normalized)) return 'individual';
+  return null;
+}
+
+interface NormalizedInvestorRowsResult {
+  rows: KrxInvestorRow[];
+  fieldMappings: KrxInvestorTradingDiagnostic['fieldMappings'];
+}
+
+function normalizeKrxInvestorRows(rows: Record<string, unknown>[]): NormalizedInvestorRowsResult {
+  const byCode = new Map<string, KrxInvestorRow>();
+  const fieldMappings: KrxInvestorTradingDiagnostic['fieldMappings'] = {
+    symbol: null,
+    date: null,
+    investorType: null,
+    foreignNetBuy: null,
+    institutionNetBuy: null,
+    individualNetBuy: null,
+    netBuyAmount: null,
+    netBuyVolume: null,
+  };
+  const remember = (field: keyof typeof fieldMappings, key: string | null): void => {
+    if (!fieldMappings[field] && key) fieldMappings[field] = key;
+  };
+  for (const r of rows) {
+    const symbol = strByAliases(r, KRX_INVESTOR_ALIASES.symbol);
+    remember('symbol', symbol.key);
+    const code = normalizeCode(symbol.value);
+    if (!code) continue;
+    const name = strByAliases(r, KRX_INVESTOR_ALIASES.name).value;
+    const existing = byCode.get(code) ?? { code, name, foreignNetBuy: 0, institutionNetBuy: 0, individualNetBuy: 0 };
+    if (!existing.name && name) existing.name = name;
+
+    const foreign = numByAliases(r, KRX_INVESTOR_ALIASES.foreignNetBuy);
+    const institution = numByAliases(r, KRX_INVESTOR_ALIASES.institutionNetBuy);
+    const individual = numByAliases(r, KRX_INVESTOR_ALIASES.individualNetBuy);
+    remember('foreignNetBuy', foreign.key);
+    remember('institutionNetBuy', institution.key);
+    remember('individualNetBuy', individual.key);
+    const hasWideField = Boolean(foreign.key || institution.key || individual.key);
+    if (hasWideField) {
+      existing.foreignNetBuy += foreign.value;
+      existing.institutionNetBuy += institution.value;
+      existing.individualNetBuy += individual.value;
+      byCode.set(code, existing);
+      continue;
+    }
+
+    const investorType = strByAliases(r, KRX_INVESTOR_ALIASES.investorType);
+    remember('investorType', investorType.key);
+    const netBuyVolume = numByAliases(r, KRX_INVESTOR_ALIASES.netBuyVolume);
+    const netBuyAmount = numByAliases(r, KRX_INVESTOR_ALIASES.netBuyAmount);
+    remember('netBuyVolume', netBuyVolume.key);
+    remember('netBuyAmount', netBuyAmount.key);
+    const netBuy = netBuyVolume.key ? netBuyVolume.value : netBuyAmount.value;
+    const bucket = investorBucket(investorType.value);
+    if (bucket === 'foreign') existing.foreignNetBuy += netBuy;
+    if (bucket === 'institution') existing.institutionNetBuy += netBuy;
+    if (bucket === 'individual') existing.individualNetBuy += netBuy;
+    if (bucket && (netBuyVolume.key || netBuyAmount.key)) byCode.set(code, existing);
+  }
+  return { rows: [...byCode.values()], fieldMappings };
+}
+
+function classifyInvestorParserStatus(input: {
+  raw: KrxRawResponse | null;
+  extractedRows: number;
+  normalizedRows: number;
+  meta: KrxPostMeta | undefined;
+  fieldMappings: KrxInvestorTradingDiagnostic['fieldMappings'];
+}): KrxInvestorParserStatus {
+  if (!input.raw || input.meta?.responseKind === 'EMPTY' || input.meta?.responseKind === 'GATED' || input.meta?.responseKind === 'COOLDOWN' || input.meta?.responseKind === 'HTTP_ERROR') return 'PROVIDER_EMPTY_RESPONSE';
+  if (input.extractedRows <= 0) return 'PARSER_KEY_MISMATCH';
+  if (input.normalizedRows <= 0 || !input.fieldMappings.symbol || (!input.fieldMappings.foreignNetBuy && !input.fieldMappings.investorType)) return 'PARSER_FIELD_MISMATCH';
+  return 'OK';
+}
+
+function endpointIssueHintForInvestorParser(input: {
+  status: KrxInvestorParserStatus;
+  meta: KrxPostMeta | undefined;
+  fieldMappings: KrxInvestorTradingDiagnostic['fieldMappings'];
+  rawTopLevelKeys: string[];
+}): KrxInvestorTradingDiagnostic['endpointIssueHint'] {
+  if (input.status === 'OK') return 'NONE';
+  if (input.meta?.responseKind === 'GATED') return 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+  if (input.meta?.responseKind === 'HTTP_ERROR') return input.meta.httpStatus === 400 ? 'ENDPOINT_PARAMETER_ERROR' : 'OTP_OR_HEADER_ERROR';
+  if (input.status === 'PARSER_KEY_MISMATCH') return input.rawTopLevelKeys.length === 0 ? 'OTP_OR_HEADER_ERROR' : 'SCHEMA_KEY_CHANGED';
+  if (input.status === 'PARSER_FIELD_MISMATCH') return !input.fieldMappings.symbol ? 'SYMBOL_CODE_FORMAT_ERROR' : 'FIELD_ALIAS_CHANGED';
+  return 'ENDPOINT_PARAMETER_ERROR';
+}
+
+function buildInvestorTradingDiagnostic(input: {
+  raw: KrxRawResponse | null;
+  tradeDate: string;
+  extract: ExtractRowsResult;
+  normalized: NormalizedInvestorRowsResult;
+}): KrxInvestorTradingDiagnostic {
+  const meta = _lastKrxPostMeta.get(BLD_INVESTOR_TRADING);
+  const rawTopLevelKeys = input.raw && typeof input.raw === 'object' ? Object.keys(input.raw).slice(0, 40) : [];
+  const parserStatus = classifyInvestorParserStatus({
+    raw: input.raw,
+    extractedRows: input.extract.rows.length,
+    normalizedRows: input.normalized.rows.length,
+    meta,
+    fieldMappings: input.normalized.fieldMappings,
+  });
+  const endpointIssueHint = endpointIssueHintForInvestorParser({
+    status: parserStatus,
+    meta,
+    fieldMappings: input.normalized.fieldMappings,
+    rawTopLevelKeys,
+  });
+  const contentType = meta?.contentType ?? 'unknown';
+  const httpStatus = meta?.httpStatus ?? null;
+  const responseKind = meta?.responseKind ?? (input.raw ? 'JSON' : 'EMPTY');
+  const summary = [
+    'MDCSTAT02203',
+    `contentType=${contentType}`,
+    `responseKind=${responseKind}`,
+    `httpStatus=${httpStatus ?? 'NONE'}`,
+    `rawKeys=${rawTopLevelKeys.join(',') || 'NONE'}`,
+    `candidatePaths=${input.extract.detectedCandidatePaths.join(',') || 'NONE'}`,
+    `selectedRowPath=${input.extract.selectedRowPath ?? 'NONE'}`,
+    `rows=${input.extract.rows.length}`,
+    `normalizedRows=${input.normalized.rows.length}`,
+    `firstRowKeys=${input.extract.firstRowKeys.join(',') || 'NONE'}`,
+    `parserStatus=${parserStatus}`,
+    `endpointIssueHint=${endpointIssueHint}`,
+  ].join(';');
+  return {
+    endpoint: 'MDCSTAT02203',
+    bld: BLD_INVESTOR_TRADING,
+    tradeDate: input.tradeDate,
+    contentType,
+    httpStatus,
+    responseKind,
+    rawTopLevelKeys,
+    detectedCandidatePaths: input.extract.detectedCandidatePaths,
+    selectedRowPath: input.extract.selectedRowPath,
+    selectedRowCount: input.extract.rows.length,
+    firstRowKeys: input.extract.firstRowKeys,
+    normalizedRows: input.normalized.rows.length,
+    parserStatus,
+    fieldMappings: input.normalized.fieldMappings,
+    endpointIssueHint,
+    summary,
+  };
 }
 
 /** "1,234,567" · "-1,234" · "" → number. 실패 시 0. */
-function toNum(s: string | undefined | null): number {
+function toNum(s: unknown): number {
   if (s == null) return 0;
   const trimmed = String(s).trim();
   if (!trimmed || trimmed === '-') return 0;
@@ -469,7 +779,7 @@ function toNum(s: string | undefined | null): number {
 }
 
 /** KRX 종목코드는 때때로 'A005930' 처럼 A 접두어가 붙는다. 제거 + 6자리 보장. */
-function normalizeCode(s: string | undefined | null): string {
+function normalizeCode(s: unknown): string {
   if (!s) return '';
   const stripped = String(s).trim().replace(/^[A-Z]/, '');
   return stripped.length === 6 && /^\d{6}$/.test(stripped) ? stripped : '';
@@ -497,29 +807,17 @@ export async function fetchInvestorTrading(date?: string): Promise<KrxInvestorRo
     money:        '1',
     csvxls_isNo:  'false',
   });
-  const rows = extractRows(raw);
-
-  const out: KrxInvestorRow[] = [];
-  for (const r of rows) {
-    const code = normalizeCode(r.ISU_SRT_CD ?? r.ISU_CD);
-    if (!code) continue;
-    out.push({
-      code,
-      name: String(r.ISU_ABBRV ?? r.ISU_NM ?? '').trim(),
-      // FORN_*/ORGN_*/INVSTR_* 키는 보고서 버전에 따라 다소 다르다 — 우선순위별 시도.
-      foreignNetBuy: toNum(
-        r.FORN_INVSTR_NETBY_QTY ?? r.FORN_NETBY_QTY ?? r.FORN_BUY_SELL_NET_QTY,
-      ),
-      institutionNetBuy: toNum(
-        r.ORGN_INVSTR_NETBY_QTY ?? r.ORGN_NETBY_QTY ?? r.ORG_NETBY_QTY,
-      ),
-      individualNetBuy: toNum(
-        r.INDIV_INVSTR_NETBY_QTY ?? r.PRVT_NETBY_QTY ?? r.IDV_NETBY_QTY,
-      ),
-    });
-  }
-  setCached(cacheKey, out);
-  return out;
+  const extracted = extractRowsDetailed(raw);
+  const normalized = normalizeKrxInvestorRows(extracted.rows);
+  const diagnostic = buildInvestorTradingDiagnostic({
+    raw,
+    tradeDate,
+    extract: extracted,
+    normalized,
+  });
+  setInvestorTradingDiagnostic(tradeDate, diagnostic);
+  setCached(cacheKey, normalized.rows);
+  return normalized.rows;
 }
 
 /**

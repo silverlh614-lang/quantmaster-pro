@@ -103,7 +103,7 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
     const result = await fetchInvestorFlowWithPolicy('005930', new Date('2026-05-07T01:00:00.000Z'));
 
     expect(result.data).toBeNull();
-    expect(result.health.some((h) => h.provider === 'KRX' && h.status === 'PARSER_EMPTY_ROWS')).toBe(true);
+    expect(result.health.some((h) => h.provider === 'KRX' && ['PARSER_EMPTY_ROWS', 'PROVIDER_EMPTY_RESPONSE', 'PARSER_KEY_MISMATCH', 'PARSER_FIELD_MISMATCH'].includes(h.status))).toBe(true);
     expect(result.health.some((h) => h.provider === 'NAVER' && h.status === 'NOT_WIRED')).toBe(true);
     expect(result.health.some((h) => h.provider === 'CACHE' && h.status === 'CACHE_EMPTY')).toBe(true);
     const composite = result.health.find((h) => h.provider === 'COMPOSITE');

@@ -50,6 +50,10 @@ import { KRX_INVESTOR_FLOW_PARSER_DIAGNOSTICS_FILE } from '../persistence/paths.
 export type KrxInvestorFlowParserStatus =
   | 'OK'
   | 'PARSER_EMPTY_ROWS'
+  | 'PROVIDER_EMPTY_RESPONSE'
+  | 'PARSER_KEY_MISMATCH'
+  | 'PARSER_FIELD_MISMATCH'
+  | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
   | 'PARSER_SHAPE_MISMATCH'
   | 'HTTP_400'
   | 'HTTP_403'
@@ -75,7 +79,9 @@ export const KRX_INVESTOR_FLOW_EXPECTED_PATHS: readonly string[] = [
   'output1',
   'output2',
   'data',
+  'list',
   'rows',
+  'result',
   'response.body.items.item',
   'OutBlock_1',
   'block1',
