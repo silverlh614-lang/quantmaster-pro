@@ -501,19 +501,36 @@ export async function buildKisOnlyHealthReport(input: {
 }
 
 
-function formatReasonCounts(counts: Record<string, number> | undefined, denominator: number): string {
-  const entries = Object.entries(counts ?? {});
-  return entries.length > 0
-    ? entries.map(([reason, count]) => `${reason} ${count}/${denominator}`).join(', ')
-    : `UNKNOWN 0/${denominator}`;
+const KIS_TRACE_BLOCKED_REASONS: KisEndpointBlockedReason[] = [
+  'SESSION_UNAVAILABLE',
+  'EXPECTED_EMPTY_OFF_SESSION',
+  'HTTP_OK_BUT_EMPTY',
+  'NOT_IN_TOP_LIST',
+  'NO_ROW_FOR_SYMBOL',
+  'DATE_NOT_AVAILABLE',
+  'FIELD_MISSING',
+  'PARAM_ERROR',
+  'PROVIDER_ERROR',
+  'MATERIALIZED',
+];
+
+function formatReasonCountLines(counts: Record<string, number> | undefined, indent = '    '): string[] {
+  return KIS_TRACE_BLOCKED_REASONS.map((reason) => `${indent}${reason}=${counts?.[reason] ?? 0}`);
+}
+
+function isFormatterTraceEnabled(report: KisOnlyHealthReport): boolean {
+  return process.env.KIS_ONLY_TRACE === 'true' && Boolean(report.investorFlow.reasonSummary || report.shortCredit.shortTrace);
 }
 
 function formatInvestorFlowDetail(report: KisOnlyHealthReport): string[] {
-  if (!report.investorFlow.reasonSummary) return [];
+  if (!isFormatterTraceEnabled(report) || !report.investorFlow.reasonSummary) return [];
   const lines = ['INVESTOR_FLOW_DETAIL:'];
   for (const source of report.investorFlow.sourceTried) {
-    lines.push(`  ${source}: ${formatReasonCounts(report.investorFlow.reasonSummary[source], report.targetCodes.length)}`);
+    lines.push(`  ${source}:`);
+    lines.push(...formatReasonCountLines(report.investorFlow.reasonSummary[source]));
+    lines.push('');
   }
+  while (lines[lines.length - 1] === '') lines.pop();
 
   const traces = report.investorFlow.endpointTraces ?? [];
   const exampleStockCodes = [...new Set(traces.map((trace) => trace.stockCode))].slice(0, 3);
@@ -533,13 +550,11 @@ function formatInvestorFlowDetail(report: KisOnlyHealthReport): string[] {
 function formatEndpointTraceExample(trace: KisEndpointTrace, indent = '  '): string[] {
   const outputKeys = (trace.outputKeys ?? []).slice(0, 12);
   return [
-    `${indent}- ${trace.stockCode} / ${trace.sourceKind}:`,
-    `${indent}    trId=${trace.trId}`,
+    `${indent}- code=${trace.stockCode} source=${trace.sourceKind} trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} blockedReason=${trace.blockedReason}`,
     `${indent}    path=${trace.apiPath}`,
     `${indent}    params=${JSON.stringify(trace.params)}`,
     `${indent}    rt_cd=${trace.rtCd ?? 'n/a'} msg_cd=${trace.msgCd ?? 'n/a'}`,
-    `${indent}    outputPath=${trace.outputPath ?? 'n/a'} rowCount=${trace.rowCount}`,
-    `${indent}    targetFound=${trace.targetFound ?? 'n/a'}`,
+    `${indent}    outputPath=${trace.outputPath ?? 'n/a'}`,
     `${indent}    outputKeys=${outputKeys.join(',') || 'NONE'}`,
     `${indent}    parsedFields=${trace.parsedFields.join(',') || 'NONE'}`,
     `${indent}    materialized=${trace.materialized} blockedReason=${trace.blockedReason}`,
@@ -548,7 +563,7 @@ function formatEndpointTraceExample(trace: KisEndpointTrace, indent = '  '): str
 
 function formatShortDetail(report: KisOnlyHealthReport): string[] {
   const shortTrace = report.shortCredit.shortTrace;
-  if (!shortTrace) return [];
+  if (!isFormatterTraceEnabled(report) || !shortTrace) return [];
   const lines = [
     'SHORT_DETAIL:',
     '  datePolicy=PREVIOUS_TRADING_DAY_THEN_T_MINUS_2_T_MINUS_3',
@@ -565,7 +580,8 @@ function formatShortDetail(report: KisOnlyHealthReport): string[] {
       rowCount += trace.rowCount;
       if (trace.targetFound) targetFound++;
     }
-    lines.push(`    ${date}: ${formatReasonCounts(reasonCounts, Math.max(traces.length, 1))} rowCount=${rowCount} targetFound=${targetFound}/${traces.length}`);
+    const status = traces.some((trace) => trace.materialized) ? 'FETCH_OK' : (Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'UNKNOWN');
+    lines.push(`    ${date}: status=${status} rowCount=${rowCount} targetFound=${targetFound}/${traces.length}`);
   }
   lines.push(`  finalStatus=${report.shortCredit.short}`);
   lines.push(`  providerIssue=${report.providerIssue}`);
@@ -593,6 +609,7 @@ export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
   const sample = report.investorFlow.sampleRows.length > 0
     ? report.investorFlow.sampleRows.map((row) => `${row.stockCode}:${row.sourceKind}:${row.confidence}${row.blockedReason ? `(${row.blockedReason})` : ''}`).join(' | ')
     : 'NONE';
+  const traceEnabledForOutput = process.env.KIS_ONLY_TRACE === 'true';
   const investorDetailLines = formatInvestorFlowDetail(report);
   const stockProgram = report.program.stockProgram;
   const stockSession = stockProgram.currentSession ? ` currentSession=${stockProgram.currentSession} nextValidSession=${stockProgram.nextValidSession} providerIssue=${stockProgram.providerIssue}` : '';
@@ -601,6 +618,7 @@ export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
   return [
     'KIS Only Health',
     `Current Data Mode: ${report.mode}`,
+    ...(traceEnabledForOutput ? ['traceEnabled=true', 'traceSink=telegram'] : []),
     'Active Sources: KIS only',
     'Legacy Providers: disabled for current decision',
     `targets=${report.targetCodes.join(',')}`,

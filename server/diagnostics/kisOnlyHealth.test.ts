@@ -104,10 +104,15 @@ describe('kisOnlyHealth endpoint-level trace', () => {
     expect(report.investorFlow.reasonSummary?.INVESTOR_TRADE_BY_STOCK_DAILY.HTTP_OK_BUT_EMPTY).toBe(1);
     expect(report.investorFlow.reasonSummary?.FOREIGN_INSTITUTION_TOTAL.NOT_IN_TOP_LIST).toBe(1);
     const formatted = formatKisOnlyHealthReport(report);
+    expect(formatted).toContain('traceEnabled=true');
+    expect(formatted).toContain('traceSink=telegram');
     expect(formatted).toContain('INVESTOR_FLOW_DETAIL:');
-    expect(formatted).toContain('INVESTOR_TRADE_BY_STOCK_DAILY: HTTP_OK_BUT_EMPTY 1/1');
-    expect(formatted).toContain('FOREIGN_INSTITUTION_TOTAL: NOT_IN_TOP_LIST 1/1');
+    expect(formatted).toContain('  INVESTOR_TRADE_BY_STOCK_DAILY:');
+    expect(formatted).toContain('    HTTP_OK_BUT_EMPTY=1');
+    expect(formatted).toContain('  FOREIGN_INSTITUTION_TOTAL:');
+    expect(formatted).toContain('    NOT_IN_TOP_LIST=1');
     expect(formatted).toContain('outputKeys=mksc_shrn_iscd');
+    expect(formatted).not.toContain('rawPayload');
     expect(formatted).not.toContain('endpointTrace:');
     expect(report.providerIssue).toBe(false);
     expect(report.executionImpact).toBe('NONE');
@@ -127,6 +132,8 @@ describe('kisOnlyHealth endpoint-level trace', () => {
 
     expect(formatted).toContain('INVESTOR_FLOW:');
     expect(formatted).toContain('SHORT: MISSING');
+    expect(formatted).not.toContain('traceEnabled=true');
+    expect(formatted).not.toContain('traceSink=telegram');
     expect(formatted).not.toContain('INVESTOR_FLOW_DETAIL:');
     expect(formatted).not.toContain('SHORT_DETAIL:');
     process.env.KIS_ONLY_TRACE = old;
@@ -167,6 +174,7 @@ describe('kisOnlyHealth endpoint-level trace', () => {
     expect(report.shortCredit.short).toBe('MISSING_CONFIRMED');
     expect(formatted).toContain('SHORT_DETAIL:');
     expect(formatted).toContain('datePolicy=PREVIOUS_TRADING_DAY_THEN_T_MINUS_2_T_MINUS_3');
+    expect(formatted).toContain('2026-05-08: status=HTTP_OK_BUT_EMPTY rowCount=0 targetFound=0/1');
     expect(formatted).toContain('finalStatus=MISSING_CONFIRMED');
     expect(formatted).toContain('providerIssue=false');
     process.env.KIS_ONLY_TRACE = old;

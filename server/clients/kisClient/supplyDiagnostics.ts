@@ -311,8 +311,9 @@ export async function diagnoseKisMarketProgramRaw(
 }
 
 export type KisEndpointBlockedReason =
-  | 'OK'
+  | 'MATERIALIZED'
   | 'SESSION_UNAVAILABLE'
+  | 'EXPECTED_EMPTY_OFF_SESSION'
   | 'HTTP_OK_BUT_EMPTY'
   | 'NOT_IN_TOP_LIST'
   | 'NO_ROW_FOR_SYMBOL'
@@ -415,7 +416,7 @@ async function endpointTrace(input: {
     let blockedReason: KisEndpointBlockedReason = 'UNKNOWN';
     const msgCd = rootString(data, 'msg_cd');
     const rootIssue = classifyEndpointRootIssue(data, input.sourceKind);
-    if (materialized) blockedReason = 'OK';
+    if (materialized) blockedReason = 'MATERIALIZED';
     else if (rootIssue) blockedReason = rootIssue;
     else if (rows.length === 0) blockedReason = 'HTTP_OK_BUT_EMPTY';
     else if (input.sourceKind === 'FOREIGN_INSTITUTION_TOTAL' && !targetFound) blockedReason = 'NOT_IN_TOP_LIST';
