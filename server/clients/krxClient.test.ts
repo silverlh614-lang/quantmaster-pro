@@ -207,6 +207,54 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(diagnostic?.httpStatus).toBe(200);
   });
 
+  it('prefers KRX OTP CSV download flow and normalizes CSV investor-flow rows', async () => {
+    const fetchSpy = vi.fn().mockImplementation(async (url, init) => {
+      const urlText = String(url);
+      const body = String(init?.body ?? '');
+      if (urlText.includes('/GenerateOTP/generate.cmd')) {
+        expect(body).toContain('name=fileDown');
+        expect(body).toContain('bld=dbms%2FMDC%2FSTAT%2Fstandard%2FMDCSTAT02201');
+        expect(body).toContain('MDCSTAT02201');
+        expect(body).toContain('locale=ko_KR');
+        expect(body).toContain('trdDd=20260508');
+        expect(body).toContain('mktId=STK');
+        expect(body).toContain('trdVolVal=2');
+        return new Response('otp-token-123', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' },
+        });
+      }
+      if (urlText.includes('/download_csv/download.cmd')) {
+        expect(body).toContain('code=otp-token-123');
+        const csv = [
+          '종목코드,종목명,외국인,기관합계,개인',
+          '005930,Samsung,100,200,-300',
+        ].join('\n');
+        return new Response(csv, {
+          status: 200,
+          headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+        });
+      }
+      return new Response('bad request', { status: 400, headers: { 'Content-Type': 'text/plain' } });
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508', { symbol: '005930' });
+    expect(rows).toEqual([{ code: '005930', name: 'Samsung', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 }]);
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+    expect(diagnostic?.selectedKrxFlowMode).toBe('OTP_CSV');
+    expect(diagnostic?.endpoint).toBe('MDCSTAT02201');
+    expect(diagnostic?.otpGenerated).toBe(true);
+    expect(diagnostic?.otpLength).toBeGreaterThan(0);
+    expect(diagnostic?.csvDownloaded).toBe(true);
+    expect(diagnostic?.csvRowCount).toBe(1);
+    expect(diagnostic?.csvColumnKeys).toContain('종목코드');
+    expect(diagnostic?.selectedVariant).toContain('OTP_CSV');
+    expect(diagnostic?.parserStatus).toBe('OK');
+  });
+
   it('records safe variant diagnostics when every KRX investor-flow variant returns HTTP 400', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -220,11 +268,12 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     await expect(fetchInvestorTrading('20260508', { symbol: '005930' })).resolves.toEqual([]);
     const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
     expect(diagnostic?.parserStatus).toBe('PROVIDER_EMPTY_RESPONSE');
-    expect(diagnostic?.endpointIssueHint).toBe('ENDPOINT_PARAMETER_ERROR');
+    expect(diagnostic?.endpointIssueHint).toBe('OTP_OR_HEADER_ERROR');
     expect(diagnostic?.responseKind).toBe('HTTP_ERROR');
     expect(diagnostic?.httpStatus).toBe(400);
     expect((diagnostic?.attemptedVariants?.length ?? 0)).toBeGreaterThan(1);
     expect(diagnostic?.summary).toContain('selectedVariant=NONE');
+    expect(diagnostic?.summary).toContain('selectedKrxFlowMode=OTP_CSV');
     expect(JSON.stringify(diagnostic)).not.toContain('bad request');
   });
 

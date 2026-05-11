@@ -153,8 +153,13 @@ export interface InvestorFlowProviderRouteResult {
   krxSourceRepairDiagnostic?: {
     parserStatus?: string;
     endpointIssueHint?: string;
+    selectedKrxFlowMode?: string;
     tradeDate?: string;
     previousTradingDateCandidate?: string;
+    selectedVariant?: string | null;
+    otpGenerated?: boolean;
+    csvDownloaded?: boolean;
+    csvRowCount?: number;
     contentType?: string;
     responseKind?: string;
     selectedRowCount?: number;
@@ -193,6 +198,7 @@ export interface InvestorFlowProviderRouterInput {
     bld?: string;
     tradeDate?: string;
     previousTradingDateCandidate?: string;
+    selectedKrxFlowMode?: string;
     endpointVariant?: string;
     dateParam?: string;
     marketCode?: string | null;
@@ -200,6 +206,12 @@ export interface InvestorFlowProviderRouterInput {
     parameterKeys?: readonly string[];
     attemptedVariants?: readonly string[];
     selectedVariant?: string | null;
+    otpGenerated?: boolean;
+    otpLength?: number;
+    csvDownloaded?: boolean;
+    csvRowCount?: number;
+    csvColumnKeys?: readonly string[];
+    csvFailureReason?: string | null;
     contentType?: string;
     httpStatus?: number | null;
     responseKind?: string;
@@ -711,6 +723,7 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `bld=${input.bld ?? 'UNKNOWN'}`,
     `tradeDate=${input.tradeDate ?? 'UNKNOWN'}`,
     `previousTradingDateCandidate=${input.previousTradingDateCandidate ?? 'UNKNOWN'}`,
+    `selectedKrxFlowMode=${input.selectedKrxFlowMode ?? 'UNKNOWN'}`,
     `endpointVariant=${input.endpointVariant ?? 'UNKNOWN'}`,
     `dateParam=${input.dateParam ?? 'UNKNOWN'}`,
     `marketCode=${input.marketCode ?? 'UNKNOWN'}`,
@@ -719,6 +732,12 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `parameterKeys=${input.parameterKeys?.join(',') || 'UNKNOWN'}`,
     `attemptedVariants=${input.attemptedVariants?.join('|') || 'UNKNOWN'}`,
     `selectedVariant=${input.selectedVariant ?? 'NONE'}`,
+    `otpGenerated=${String(input.otpGenerated ?? false)}`,
+    `otpLength=${input.otpLength ?? 0}`,
+    `csvDownloaded=${String(input.csvDownloaded ?? false)}`,
+    `csvRowCount=${input.csvRowCount ?? 0}`,
+    `csvColumnKeys=${input.csvColumnKeys?.join(',') || 'NONE'}`,
+    `csvFailureReason=${input.csvFailureReason ?? 'NONE'}`,
     `contentType=${input.contentType ?? 'unknown'}`,
     `responseKind=${input.responseKind ?? 'UNKNOWN'}`,
     `httpStatus=${input.httpStatus ?? 'NONE'}`,
@@ -1380,8 +1399,13 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       ? {
           parserStatus: input.krxInvestorDiagnosticAdr0505.parserStatus,
           endpointIssueHint: input.krxInvestorDiagnosticAdr0505.endpointIssueHint,
+          selectedKrxFlowMode: input.krxInvestorDiagnosticAdr0505.selectedKrxFlowMode,
           tradeDate: input.krxInvestorDiagnosticAdr0505.tradeDate,
           previousTradingDateCandidate: input.krxInvestorDiagnosticAdr0505.previousTradingDateCandidate,
+          selectedVariant: input.krxInvestorDiagnosticAdr0505.selectedVariant,
+          otpGenerated: input.krxInvestorDiagnosticAdr0505.otpGenerated,
+          csvDownloaded: input.krxInvestorDiagnosticAdr0505.csvDownloaded,
+          csvRowCount: input.krxInvestorDiagnosticAdr0505.csvRowCount,
           contentType: input.krxInvestorDiagnosticAdr0505.contentType,
           responseKind: input.krxInvestorDiagnosticAdr0505.responseKind,
           selectedRowCount: input.krxInvestorDiagnosticAdr0505.selectedRowCount,
