@@ -1,9 +1,9 @@
 // @responsibility watchlistRepo 영속화 저장소 모듈
-import fs from 'fs';
-import { WATCHLIST_FILE, ensureDataDir } from './paths.js';
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { isEmergencyWatchlistCodeGuardEnabled } from '../dataQuality/emergencyDataQualityGuards.js';
-import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
+import fs from "fs";
+import { WATCHLIST_FILE, ensureDataDir } from "./paths.js";
+import { sendTelegramAlert } from "../alerts/telegramClient.js";
+import { isEmergencyWatchlistCodeGuardEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
+import { normalizeKrxCode } from "../utils/symbolNormalizer.js";
 
 /**
  * 워치리스트 섹션 — 신호 품질에 따라 매매 파라미터를 차등 적용
@@ -15,7 +15,7 @@ import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
  *   MOMENTUM  — 모멘텀 관찰 (autoPopulateWatchlist AUTO, 거래량 상위)
  *              최대 20개 · 매매 안 함 · SWING 승격 시만 매수 · 만료 2영업일
  */
-export type WatchlistSection = 'SWING' | 'CATALYST' | 'MOMENTUM';
+export type WatchlistSection = "SWING" | "CATALYST" | "MOMENTUM";
 
 /** 알림 임계 (HIGH priority 텔레그램 발송 기준). soft cap 보다 클 수 있음. */
 const MOMENTUM_ALERT_THRESHOLD = 30;
@@ -27,8 +27,8 @@ const MOMENTUM_ALERT_THRESHOLD = 30;
 // 시점에 addToWatchlist 가 연속 호출되면 MOMENTUM 이 50 → 91 까지 방치되는 사례가
 // 발생했다 (2026-04-23 Telegram 경보 이력). saveWatchlist 시점에 즉시 trim.
 const DEFAULT_SECTION_HARD_MAX: Record<WatchlistSection, number> = {
-  SWING:     8,
-  CATALYST:  5,
+  SWING: 8,
+  CATALYST: 5,
   MOMENTUM: 50,
 };
 
@@ -46,14 +46,14 @@ const DEFAULT_SECTION_HARD_MAX: Record<WatchlistSection, number> = {
  * `WATCHLIST_SOFT_CAP_DISABLED=true` → soft cap 능동 정리 비활성 (기존 동작 복원).
  */
 const DEFAULT_SECTION_SOFT_CAP: Record<WatchlistSection, number> = {
-  SWING:     6,
-  CATALYST:  4,
+  SWING: 6,
+  CATALYST: 4,
   MOMENTUM: 30,
 };
 
 function envInt(key: string, fallback: number): number {
   const raw = process.env[key];
-  if (raw === undefined || raw === '') return fallback;
+  if (raw === undefined || raw === "") return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
@@ -68,31 +68,46 @@ export function resolveSectionCaps(): {
   softDisabled: boolean;
 } {
   const hard: Record<WatchlistSection, number> = {
-    SWING:    envInt('WATCHLIST_HARD_CAP_SWING',    DEFAULT_SECTION_HARD_MAX.SWING),
-    CATALYST: envInt('WATCHLIST_HARD_CAP_CATALYST', DEFAULT_SECTION_HARD_MAX.CATALYST),
-    MOMENTUM: envInt('WATCHLIST_HARD_CAP_MOMENTUM', DEFAULT_SECTION_HARD_MAX.MOMENTUM),
+    SWING: envInt("WATCHLIST_HARD_CAP_SWING", DEFAULT_SECTION_HARD_MAX.SWING),
+    CATALYST: envInt(
+      "WATCHLIST_HARD_CAP_CATALYST",
+      DEFAULT_SECTION_HARD_MAX.CATALYST,
+    ),
+    MOMENTUM: envInt(
+      "WATCHLIST_HARD_CAP_MOMENTUM",
+      DEFAULT_SECTION_HARD_MAX.MOMENTUM,
+    ),
   };
   const softRaw: Record<WatchlistSection, number> = {
-    SWING:    envInt('WATCHLIST_SOFT_CAP_SWING',    DEFAULT_SECTION_SOFT_CAP.SWING),
-    CATALYST: envInt('WATCHLIST_SOFT_CAP_CATALYST', DEFAULT_SECTION_SOFT_CAP.CATALYST),
-    MOMENTUM: envInt('WATCHLIST_SOFT_CAP_MOMENTUM', DEFAULT_SECTION_SOFT_CAP.MOMENTUM),
+    SWING: envInt("WATCHLIST_SOFT_CAP_SWING", DEFAULT_SECTION_SOFT_CAP.SWING),
+    CATALYST: envInt(
+      "WATCHLIST_SOFT_CAP_CATALYST",
+      DEFAULT_SECTION_SOFT_CAP.CATALYST,
+    ),
+    MOMENTUM: envInt(
+      "WATCHLIST_SOFT_CAP_MOMENTUM",
+      DEFAULT_SECTION_SOFT_CAP.MOMENTUM,
+    ),
   };
   // soft 가 hard 를 초과하면 능동 정리가 무의미해지므로 hard 로 클램핑.
   const soft: Record<WatchlistSection, number> = {
-    SWING:    Math.min(softRaw.SWING,    hard.SWING),
+    SWING: Math.min(softRaw.SWING, hard.SWING),
     CATALYST: Math.min(softRaw.CATALYST, hard.CATALYST),
     MOMENTUM: Math.min(softRaw.MOMENTUM, hard.MOMENTUM),
   };
-  return { hard, soft, softDisabled: process.env.WATCHLIST_SOFT_CAP_DISABLED === 'true' };
+  return {
+    hard,
+    soft,
+    softDisabled: process.env.WATCHLIST_SOFT_CAP_DISABLED === "true",
+  };
 }
-
 
 function sectionOf(entry: WatchlistEntry): WatchlistSection {
   if (entry.section) return entry.section;
   // 레거시 track 필드 fallback (track='A' = MOMENTUM, 'B' = SWING)
-  if (entry.track === 'A') return 'MOMENTUM';
-  if (entry.track === 'B') return 'SWING';
-  return 'MOMENTUM';
+  if (entry.track === "A") return "MOMENTUM";
+  if (entry.track === "B") return "SWING";
+  return "MOMENTUM";
 }
 
 /**
@@ -114,15 +129,23 @@ function sectionOf(entry: WatchlistEntry): WatchlistSection {
  */
 export const TTL_NEAR_EXPIRY_MS = 12 * 60 * 60 * 1000;
 
-export function computeTrimScore(entry: WatchlistEntry, now: Date = new Date()): number {
-  const gateScore = Number.isFinite(entry.gateScore) ? Number(entry.gateScore) : 0;
+export function computeTrimScore(
+  entry: WatchlistEntry,
+  now: Date = new Date(),
+): number {
+  const gateScore = Number.isFinite(entry.gateScore)
+    ? Number(entry.gateScore)
+    : 0;
   const leadershipPenalty = entry.leadershipBridge ? 0.5 : 0;
 
   let stalenessDays = 0;
   if (entry.addedAt) {
     const addedTs = Date.parse(entry.addedAt);
     if (Number.isFinite(addedTs)) {
-      stalenessDays = Math.max(0, (now.getTime() - addedTs) / (24 * 60 * 60 * 1000));
+      stalenessDays = Math.max(
+        0,
+        (now.getTime() - addedTs) / (24 * 60 * 60 * 1000),
+      );
     }
   }
 
@@ -139,7 +162,9 @@ export function computeTrimScore(entry: WatchlistEntry, now: Date = new Date()):
     }
   }
 
-  return gateScore - stalenessDays - failCount * 2 - ttlPenalty - leadershipPenalty;
+  return (
+    gateScore - stalenessDays - failCount * 2 - ttlPenalty - leadershipPenalty
+  );
 }
 
 export interface EnforceCapsResult {
@@ -150,7 +175,7 @@ export interface EnforceCapsResult {
   /** hard 단계에서 강제 정리된 카운트 (기존 동작). */
   hardDropped: Record<WatchlistSection, number>;
   /** ADR-0028 §모순9: 알림 빌더용 메타 — 정리된 entry 의 출처 분포. */
-  removedBySource: Record<'AUTO' | 'MANUAL' | 'DART', number>;
+  removedBySource: Record<"AUTO" | "MANUAL" | "DART", number>;
 }
 
 /**
@@ -167,28 +192,43 @@ export function enforceSectionCaps(
   now: Date = new Date(),
 ): EnforceCapsResult {
   const { hard, soft, softDisabled } = resolveSectionCaps();
-  const softDropped: Record<WatchlistSection, number> = { SWING: 0, CATALYST: 0, MOMENTUM: 0 };
-  const hardDropped: Record<WatchlistSection, number> = { SWING: 0, CATALYST: 0, MOMENTUM: 0 };
-  const removedBySource: Record<'AUTO' | 'MANUAL' | 'DART', number> = { AUTO: 0, MANUAL: 0, DART: 0 };
+  const softDropped: Record<WatchlistSection, number> = {
+    SWING: 0,
+    CATALYST: 0,
+    MOMENTUM: 0,
+  };
+  const hardDropped: Record<WatchlistSection, number> = {
+    SWING: 0,
+    CATALYST: 0,
+    MOMENTUM: 0,
+  };
+  const removedBySource: Record<"AUTO" | "MANUAL" | "DART", number> = {
+    AUTO: 0,
+    MANUAL: 0,
+    DART: 0,
+  };
 
   const bySection: Record<WatchlistSection, WatchlistEntry[]> = {
-    SWING: [], CATALYST: [], MOMENTUM: [],
+    SWING: [],
+    CATALYST: [],
+    MOMENTUM: [],
   };
   for (const entry of list) bySection[sectionOf(entry)].push(entry);
 
   // 점수 함수 — soft 비활성 시 *기존 동작* 정확 보존 (gateScore - bridge×0.5).
   const scoreFn = softDisabled
-    ? (e: WatchlistEntry): number => (e.gateScore ?? 0) - (e.leadershipBridge ? 0.5 : 0)
+    ? (e: WatchlistEntry): number =>
+        (e.gateScore ?? 0) - (e.leadershipBridge ? 0.5 : 0)
     : (e: WatchlistEntry): number => computeTrimScore(e, now);
 
   const trackRemoved = (entries: WatchlistEntry[]): void => {
     for (const e of entries) {
-      const src = (e.addedBy ?? 'AUTO') as 'AUTO' | 'MANUAL' | 'DART';
+      const src = (e.addedBy ?? "AUTO") as "AUTO" | "MANUAL" | "DART";
       removedBySource[src] = (removedBySource[src] ?? 0) + 1;
     }
   };
 
-  for (const section of ['SWING', 'CATALYST', 'MOMENTUM'] as const) {
+  for (const section of ["SWING", "CATALYST", "MOMENTUM"] as const) {
     const arr = bySection[section];
     const hardMax = hard[section];
     const softMax = soft[section];
@@ -216,7 +256,7 @@ export function enforceSectionCaps(
   }
 
   const dropped: Record<WatchlistSection, number> = {
-    SWING:    softDropped.SWING + hardDropped.SWING,
+    SWING: softDropped.SWING + hardDropped.SWING,
     CATALYST: softDropped.CATALYST + hardDropped.CATALYST,
     MOMENTUM: softDropped.MOMENTUM + hardDropped.MOMENTUM,
   };
@@ -231,30 +271,54 @@ export function enforceSectionCaps(
 }
 
 export interface WatchlistEntry {
-  code: string;          // 종목코드 6자리
+  code: string; // 종목코드 6자리
   name: string;
-  entryPrice: number;    // 관심 진입가
-  stopLoss: number;      // 절대가 손절선
-  targetPrice: number;   // 목표가
-  addedAt: string;       // ISO
-  gateScore?: number;    // 스크리닝 신뢰도 점수 (0~27)
-  addedBy: 'AUTO' | 'MANUAL' | 'DART';  // 자동 발굴 vs 수동 추가 vs DART 공시
-  memo?: string;                   // 진입 근거 ("외국인 5일 연속 순매수, 52주 신고가 돌파")
-  sector?: string;                 // 섹터 정보 (섹터별 성과 분석용)
-  rrr?: number;                    // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
-  conditionKeys?: string[];        // 진입 당시 통과한 Gate 조건 키 목록
-  profileType?: 'A' | 'B' | 'C' | 'D'; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
-  entryRegime?: string;   // 진입 시 레짐 (AI 파이프라인 메타)
-  expiresAt?: string;     // 자동 만료 시각 ISO — 섹션별 차등 (SWING 7일 / CATALYST 3일 / MOMENTUM 2일)
+  entryPrice: number; // 관심 진입가
+  stopLoss: number; // 절대가 손절선
+  targetPrice: number; // 목표가
+  addedAt: string; // ISO
+  gateScore?: number; // 스크리닝 신뢰도 점수 (0~27)
+  stage1Score?: number; // Gate1 diagnostics: upstream Stage1 score snapshot.
+  stage2Score?: number; // Gate1 diagnostics: upstream Stage2 score snapshot.
+  totalGateScore?: number; // Gate1 diagnostics: final discovery total score snapshot.
+  watchlistPriorityScore?: number; // Gate1 diagnostics: watchlist priority snapshot.
+  symbolFeatures?: {
+    price?: number;
+    ma20?: number;
+    ma60?: number;
+    return5d?: number;
+    return20d?: number;
+    volume?: number;
+    avgVolume?: number;
+    projectedVolume?: number;
+    rsi14?: number;
+    atr?: number;
+    atr20avg?: number;
+    kospi20dReturn?: number;
+    sector?: string;
+    gateScore?: number;
+    stage1Score?: number;
+    stage2Score?: number;
+    totalGateScore?: number;
+    watchlistPriorityScore?: number;
+  };
+  addedBy: "AUTO" | "MANUAL" | "DART"; // 자동 발굴 vs 수동 추가 vs DART 공시
+  memo?: string; // 진입 근거 ("외국인 5일 연속 순매수, 52주 신고가 돌파")
+  sector?: string; // 섹터 정보 (섹터별 성과 분석용)
+  rrr?: number; // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
+  conditionKeys?: string[]; // 진입 당시 통과한 Gate 조건 키 목록
+  profileType?: "A" | "B" | "C" | "D"; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
+  entryRegime?: string; // 진입 시 레짐 (AI 파이프라인 메타)
+  expiresAt?: string; // 자동 만료 시각 ISO — 섹션별 차등 (SWING 7일 / CATALYST 3일 / MOMENTUM 2일)
   entryFailCount?: number; // 진입 시도 실패 횟수 (임계값 초과 시 자동 제거)
-  isFocus?: boolean;      // Focus Watchlist 포함 여부 (SWING 섹션 = true)
+  isFocus?: boolean; // Focus Watchlist 포함 여부 (SWING 섹션 = true)
   // Regret Asymmetry Filter
   cooldownUntil?: string; // 쿨다운 종료 시각 ISO — 직전 5일 +15% 초과 급등 시 설정
-  recentHigh?: number;    // 쿨다운 진입 시점의 현재가 — 되돌림(-5~-8%) 판단 기준
+  recentHigh?: number; // 쿨다운 진입 시점의 현재가 — 되돌림(-5~-8%) 판단 기준
   // 3-섹션 구조 — Track A/B 대체
-  section?: WatchlistSection;  // SWING=매수대상 / CATALYST=촉매단기 / MOMENTUM=관찰전용
+  section?: WatchlistSection; // SWING=매수대상 / CATALYST=촉매단기 / MOMENTUM=관찰전용
   /** @deprecated section 필드로 대체. 하위 호환용. */
-  track?: 'A' | 'B';
+  track?: "A" | "B";
   /**
    * Phase 4-④: LeadershipBridge 로 자동 편입된 다이내믹 MOMENTUM 종목 표시.
    * 기본 MOMENTUM(base layer) 과 구분해 4h TTL 로 자동 만료시킨다.
@@ -301,7 +365,7 @@ export interface WatchlistEntry {
    * (shouldBlockTradingByDataQuality SSOT 사용). 본 PR 단계에서는 호출자가 영속만,
    * 후속 PR 에서 진단 UI / 텔레그램 리포트에 노출.
    */
-  dataQuality?: import('../types/dataQuality.js').DataQualityInfo;
+  dataQuality?: import("../types/dataQuality.js").DataQualityInfo;
   /**
    * ADR-0411 — Yahoo 시계열 신뢰성 손상 (`KIS_PRIMARY_YAHOO_STALE_DETECTED`) 마커.
    * 사용자 micro-correction: WATCHLIST_HOLD 정책 (STRONG → BUY 강등 대신 신규 진입 자동 보류).
@@ -328,7 +392,7 @@ export function loadWatchlist(): WatchlistEntry[] {
   ensureDataDir();
   if (!fs.existsSync(WATCHLIST_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(WATCHLIST_FILE, 'utf-8'));
+    return JSON.parse(fs.readFileSync(WATCHLIST_FILE, "utf-8"));
   } catch {
     return [];
   }
@@ -346,8 +410,14 @@ export function buildWatchlistAutoTrimAlert(input: {
   softDisabled: boolean;
 }): string {
   const { result, hard, soft, softDisabled } = input;
-  const totalSoft = result.softDropped.SWING + result.softDropped.CATALYST + result.softDropped.MOMENTUM;
-  const totalHard = result.hardDropped.SWING + result.hardDropped.CATALYST + result.hardDropped.MOMENTUM;
+  const totalSoft =
+    result.softDropped.SWING +
+    result.softDropped.CATALYST +
+    result.softDropped.MOMENTUM;
+  const totalHard =
+    result.hardDropped.SWING +
+    result.hardDropped.CATALYST +
+    result.hardDropped.MOMENTUM;
   const total = totalSoft + totalHard;
 
   const lines: string[] = [
@@ -355,21 +425,21 @@ export function buildWatchlistAutoTrimAlert(input: {
     `섹션 상한 자동 정리 — 총 ${total}개 (soft ${totalSoft} / hard ${totalHard})`,
   ];
 
-  for (const sec of ['SWING', 'CATALYST', 'MOMENTUM'] as const) {
+  for (const sec of ["SWING", "CATALYST", "MOMENTUM"] as const) {
     const sd = result.softDropped[sec];
     const hd = result.hardDropped[sec];
     if (sd === 0 && hd === 0) continue;
     const parts: string[] = [];
     if (sd > 0) parts.push(`soft -${sd}/${soft[sec]}`);
     if (hd > 0) parts.push(`hard -${hd}/${hard[sec]}`);
-    lines.push(`  ${sec}: ${parts.join(', ')}`);
+    lines.push(`  ${sec}: ${parts.join(", ")}`);
   }
 
   // 출처 분포 — 어느 출처(AUTO/MANUAL/DART) 가 정리됐는지
-  const sources = (['AUTO', 'MANUAL', 'DART'] as const)
-    .filter(s => result.removedBySource[s] > 0)
-    .map(s => `${s} ${result.removedBySource[s]}`)
-    .join(' · ');
+  const sources = (["AUTO", "MANUAL", "DART"] as const)
+    .filter((s) => result.removedBySource[s] > 0)
+    .map((s) => `${s} ${result.removedBySource[s]}`)
+    .join(" · ");
   if (sources) lines.push(`출처 분포: ${sources}`);
 
   // 정책 안내 — 운영자가 "왜 이게 빠졌나" 즉시 인지
@@ -379,7 +449,7 @@ export function buildWatchlistAutoTrimAlert(input: {
       : `기준: composite score = gateScore - staleness/일 - failCount×2 - TTL 임박 - bridge`,
   );
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -393,26 +463,33 @@ export function buildWatchlistOverflowAlert(input: {
   alertThreshold: number;
   softCap: number;
   hardCap: number;
-  sourceDistribution: Record<'AUTO' | 'MANUAL' | 'DART', number>;
+  sourceDistribution: Record<"AUTO" | "MANUAL" | "DART", number>;
 }): string {
-  const { section, count, alertThreshold, softCap, hardCap, sourceDistribution } = input;
+  const {
+    section,
+    count,
+    alertThreshold,
+    softCap,
+    hardCap,
+    sourceDistribution,
+  } = input;
   const remainingSlots = Math.max(0, hardCap - count);
-  const sources = (['AUTO', 'MANUAL', 'DART'] as const)
-    .filter(s => sourceDistribution[s] > 0)
-    .map(s => `${s} ${sourceDistribution[s]}`)
-    .join(' · ');
+  const sources = (["AUTO", "MANUAL", "DART"] as const)
+    .filter((s) => sourceDistribution[s] > 0)
+    .map((s) => `${s} ${sourceDistribution[s]}`)
+    .join(" · ");
 
   const lines: string[] = [
     `🚨 <b>[Watchlist 포화]</b>`,
     `${section} 섹션: ${count}개 (alert ${alertThreshold} / soft ${softCap} / hard ${hardCap})`,
   ];
-  if (sources) lines.push(`출처 분포: ${sources || '메타 부재'}`);
+  if (sources) lines.push(`출처 분포: ${sources || "메타 부재"}`);
   lines.push(
     count >= hardCap
       ? `⚡ 자동 액션: 다음 saveWatchlist 사이클에서 hard cap 강제 정리 발동`
       : count > softCap
-      ? `⚡ 자동 액션: soft cap 능동 정리 진행 중 — composite score 하위 우선 드롭`
-      : `ℹ️ alert 임계 초과지만 soft cap 미달 — 능동 정리 미발동`,
+        ? `⚡ 자동 액션: soft cap 능동 정리 진행 중 — composite score 하위 우선 드롭`
+        : `ℹ️ alert 임계 초과지만 soft cap 미달 — 능동 정리 미발동`,
   );
   lines.push(`잔여 슬롯: ${remainingSlots}개 (hard cap 까지)`);
   lines.push(
@@ -420,7 +497,7 @@ export function buildWatchlistOverflowAlert(input: {
       ? `ℹ️ AUTO 비중 높음 — autoPopulate 빈도/Gate 임계 검토 권고`
       : `ℹ️ 분포 안정 — TTL 만료 자연 감소 또는 수동 정리 권고`,
   );
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export function saveWatchlist(list: WatchlistEntry[]): void {
@@ -440,7 +517,7 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
       } else {
         droppedInvalidCodes++;
         console.warn(
-          `[Watchlist/CodeGuard] invalid KRX code 자동 필터링 — code="${entry.code}" name="${entry.name ?? 'N/A'}" (ADR-0184)`,
+          `[Watchlist/CodeGuard] invalid KRX code 자동 필터링 — code="${entry.code}" name="${entry.name ?? "N/A"}" (ADR-0184)`,
         );
       }
     }
@@ -457,8 +534,9 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
 
   fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(trimmed, null, 2));
 
-  const momentumCount = trimmed.filter((entry) =>
-    entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A'),
+  const momentumCount = trimmed.filter(
+    (entry) =>
+      entry.section === "MOMENTUM" || (!entry.section && entry.track === "A"),
   ).length;
 
   const { hard, soft, softDisabled } = resolveSectionCaps();
@@ -468,34 +546,42 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
   //   - 발송 임계 강화: totalDropped >= 3 (단순 1~2개 trim 은 무음)
   //   - 포화 cooldown 30분 → 12시간 + soft cap 90% 임박 시에만 발송 (단순 alert 임계 통과 발송 차단)
   //   - ENV 우회: WATCHLIST_TRIM_ALERT_DISABLED=true / WATCHLIST_OVERFLOW_ALERT_DISABLED=true
-  const trimAlertEnabled = process.env.WATCHLIST_TRIM_ALERT_DISABLED !== 'true';
+  const trimAlertEnabled = process.env.WATCHLIST_TRIM_ALERT_DISABLED !== "true";
   if (trimAlertEnabled && totalDropped >= 3) {
     void sendTelegramAlert(
       buildWatchlistAutoTrimAlert({ result, hard, soft, softDisabled }),
       {
-        priority: 'NORMAL',
-        dedupeKey: 'watchlist-autotrim',
-        cooldownMs: 8 * 60 * 60 * 1000,  // 8시간
+        priority: "NORMAL",
+        dedupeKey: "watchlist-autotrim",
+        cooldownMs: 8 * 60 * 60 * 1000, // 8시간
       },
     ).catch(console.error);
   }
 
   // 자동 trim 이후에도 MOMENTUM 이 soft cap 90% 임박이면 포화 경보.
   // 단순 alert 임계 통과는 발송 차단 — 운영자 행동 불필요한 정보 노이즈 제거.
-  const overflowAlertEnabled = process.env.WATCHLIST_OVERFLOW_ALERT_DISABLED !== 'true';
+  const overflowAlertEnabled =
+    process.env.WATCHLIST_OVERFLOW_ALERT_DISABLED !== "true";
   // soft 비활성 시 hard cap 90% 임박 사용
-  const overflowThreshold = softDisabled ? hard.MOMENTUM * 0.9 : soft.MOMENTUM * 0.9;
+  const overflowThreshold = softDisabled
+    ? hard.MOMENTUM * 0.9
+    : soft.MOMENTUM * 0.9;
   if (overflowAlertEnabled && momentumCount >= overflowThreshold) {
-    const sourceDistribution: Record<'AUTO' | 'MANUAL' | 'DART', number> = { AUTO: 0, MANUAL: 0, DART: 0 };
+    const sourceDistribution: Record<"AUTO" | "MANUAL" | "DART", number> = {
+      AUTO: 0,
+      MANUAL: 0,
+      DART: 0,
+    };
     for (const entry of trimmed) {
-      const isMomentum = entry.section === 'MOMENTUM' || (!entry.section && entry.track === 'A');
+      const isMomentum =
+        entry.section === "MOMENTUM" || (!entry.section && entry.track === "A");
       if (!isMomentum) continue;
-      const src = (entry.addedBy ?? 'AUTO') as 'AUTO' | 'MANUAL' | 'DART';
+      const src = (entry.addedBy ?? "AUTO") as "AUTO" | "MANUAL" | "DART";
       sourceDistribution[src] = (sourceDistribution[src] ?? 0) + 1;
     }
     void sendTelegramAlert(
       buildWatchlistOverflowAlert({
-        section: 'MOMENTUM',
+        section: "MOMENTUM",
         count: momentumCount,
         alertThreshold: MOMENTUM_ALERT_THRESHOLD,
         softCap: soft.MOMENTUM,
@@ -503,9 +589,9 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
         sourceDistribution,
       }),
       {
-        priority: 'HIGH',
-        dedupeKey: 'watchlist-momentum-overflow',
-        cooldownMs: 12 * 60 * 60 * 1000,  // 12시간
+        priority: "HIGH",
+        dedupeKey: "watchlist-momentum-overflow",
+        cooldownMs: 12 * 60 * 60 * 1000, // 12시간
       },
     ).catch(console.error);
   }
@@ -520,7 +606,7 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
  */
 export function markDataQuarantine(
   stockCode: string,
-  dataQuality: import('../types/dataQuality.js').DataQualityInfo,
+  dataQuality: import("../types/dataQuality.js").DataQualityInfo,
 ): boolean {
   const list = loadWatchlist();
   const idx = list.findIndex((e) => e.code === stockCode);
