@@ -91,6 +91,11 @@ export interface SemanticNetBuyAdr0496 {
 export interface SupplyCoverageReportAdr0496 {
   status: 'PARTIAL' | 'OBSERVING' | 'DATA_UNAVAILABLE';
   sampleCount: number;
+  rawCount?: number;
+  rawSampleCount?: number;
+  normalizedCount?: number;
+  materializedCount?: number;
+  routerUsableCount?: number;
   normalizedSampleCount: number;
   semanticNetBuyCount: number;
   materializedSampleCount: number;
@@ -309,6 +314,11 @@ export function buildSupplyCoverageReportAdr0496(
   return {
     status: sampleCount === 0 ? 'DATA_UNAVAILABLE' : semanticNetBuyCount > 0 || normalizedSampleCount > 0 ? 'PARTIAL' : 'OBSERVING',
     sampleCount,
+    rawCount: sampleCount,
+    rawSampleCount: sampleCount,
+    normalizedCount: normalizedSampleCount,
+    materializedCount: materializedSampleCount,
+    routerUsableCount: routerUsableSampleCount,
     normalizedSampleCount,
     semanticNetBuyCount,
     materializedSampleCount,
@@ -342,6 +352,10 @@ export function formatSupplyCoverageSummaryAdr0496(report: SupplyCoverageReportA
     `supplyCoverageBefore=${report.coverageBefore}`,
     `supplyCoverageAfter=${report.coverageAfter}`,
     `sampleCount=${report.sampleCount}`,
+    `rawCount=${report.rawCount ?? report.sampleCount}`,
+    `normalizedCount=${report.normalizedCount ?? report.normalizedSampleCount}`,
+    `materializedCount=${report.materializedCount ?? report.materializedSampleCount}`,
+    `routerUsableCount=${report.routerUsableCount ?? report.routerUsableSampleCount}`,
     `normalizedSampleCount=${report.normalizedSampleCount}`,
     `semanticNetBuyCount=${report.semanticNetBuyCount}`,
     `materializedSampleCount=${report.materializedSampleCount}`,

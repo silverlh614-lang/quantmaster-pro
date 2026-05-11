@@ -1,4 +1,10 @@
 // @responsibility ADR-0482 provider-agnostic semantic net-buy normalizer; SHADOW_ONLY diagnostics only.
+import {
+  buildInvestorSampleDiagnosticsAdr0502,
+  formatInvestorSampleDiagnosticsAdr0502,
+  type InvestorSampleDiagnosticsAdr0502,
+  type InvestorSampleInputSourceKindAdr0502,
+} from './investorSampleMaterializationAdr0502.js';
 
 export type SemanticNetBuyProvider =
   | 'NAVER'
@@ -96,6 +102,8 @@ export interface SemanticNetBuyNormalizationReportAdr0482 {
   code: string;
   samples: SemanticNetBuySampleAdr0482[];
   selectedSample: SemanticNetBuySampleAdr0482 | null;
+  inputSources: SemanticNetBuyProvider[];
+  materializationDiagnostics: InvestorSampleDiagnosticsAdr0502;
   providerRanking: SemanticNetBuyProvider[];
   status: SemanticNetBuyStatus;
   signal: SemanticNetBuySignal;
@@ -330,6 +338,60 @@ function scoreSample(sample: SemanticNetBuySampleAdr0482): number {
   return statusScore + confidenceScore + providerScore + sample.coverage.availableFields;
 }
 
+function semanticInputSourceKind(samples: readonly SemanticNetBuySampleAdr0482[], inputsCount: number): InvestorSampleInputSourceKindAdr0502 {
+  if (inputsCount === 0) return 'NONE';
+  if (samples.some((sample) => sample.provider === 'CACHE')) return 'CACHE_FALLBACK';
+  if (samples.some((sample) => sample.provider === 'MANUAL' || sample.provider === 'UNKNOWN')) return 'SEMANTIC_DERIVED';
+  return 'NORMALIZED_PROVIDER';
+}
+
+function buildSemanticMaterializationDiagnostics(input: {
+  code: string;
+  inputsCount: number;
+  samples: readonly SemanticNetBuySampleAdr0482[];
+  selectedSample: SemanticNetBuySampleAdr0482 | null;
+}): InvestorSampleDiagnosticsAdr0502 {
+  const materializedSamples = input.samples.filter((sample) => sample.coverage.availableFields > 0 && sample.status !== 'PROVIDER_ERROR' && sample.status !== 'PARSE_ERROR' && sample.status !== 'PROVIDER_MISMATCH' && sample.status !== 'DATA_UNAVAILABLE' && sample.status !== 'EMPTY');
+  const latest = input.selectedSample ?? materializedSamples[0] ?? null;
+  const realInputSources = Array.from(new Set(input.samples.map((sample) => sample.provider)));
+  const inputSourceKind = semanticInputSourceKind(input.samples, input.inputsCount);
+  const placeholderDetected = input.inputsCount === 0 || input.samples.length === 0 || realInputSources.length === 0;
+  const avgFieldCoverage = input.samples.length === 0
+    ? 0
+    : input.samples.reduce((sum, sample) => sum + (sample.coverage.availableFields / sample.coverage.totalFields), 0) / input.samples.length;
+  return buildInvestorSampleDiagnosticsAdr0502({
+    providerName: 'SEMANTIC_NETBUY',
+    rawFetched: input.inputsCount > 0,
+    rawCount: input.inputsCount,
+    normalizedCount: input.samples.length,
+    materializedCount: materializedSamples.length,
+    symbolCoverage: input.code ? 1 : 0,
+    dateCoverage: latest?.sourceDate ?? null,
+    fieldCoverage: avgFieldCoverage,
+    placeholderDetected,
+    inputSourceKind,
+    inputSources: realInputSources,
+    lastSuccessfulSampleAt: latest?.sourceDate ?? null,
+    confidenceLevel: input.selectedSample?.confidence === 'HIGH' ? 'VERIFIED'
+      : input.selectedSample?.confidence === 'MEDIUM' ? 'PARTIAL'
+        : materializedSamples.some((sample) => sample.status === 'STALE') ? 'DEGRADED'
+          : materializedSamples.length > 0 ? 'LOW' : 'MISSING',
+    blockedReason: input.inputsCount === 0 ? 'NO_INPUT_SAMPLE'
+      : placeholderDetected ? 'PLACEHOLDER_ONLY'
+        : inputSourceKind === 'SEMANTIC_DERIVED' || inputSourceKind === 'AI_ESTIMATED' ? 'NO_REAL_INPUT_SOURCE'
+          : undefined,
+    staleReason: materializedSamples.some((sample) => sample.status === 'STALE') ? 'STALE_INPUT_ONLY' : null,
+    safePreview: materializedSamples.slice(0, 3).map((sample) => ({
+      code: sample.code,
+      provider: sample.provider,
+      sourceDate: sample.sourceDate,
+      foreignNetBuy: sample.foreignNetBuy,
+      institutionNetBuy: sample.institutionNetBuy,
+      status: sample.status,
+    })),
+  });
+}
+
 export function buildSemanticNetBuyNormalizationReportAdr0482(
   input: BuildSemanticNetBuyNormalizationReportInputAdr0482,
 ): SemanticNetBuyNormalizationReportAdr0482 {
@@ -337,19 +399,28 @@ export function buildSemanticNetBuyNormalizationReportAdr0482(
   const selectedSample = samples
     .filter(selectable)
     .sort((a, b) => scoreSample(b) - scoreSample(a))[0] ?? null;
+  const inputSources = Array.from(new Set(samples.map((sample) => sample.provider)));
+  const materializationDiagnostics = buildSemanticMaterializationDiagnostics({
+    code: input.code,
+    inputsCount: input.inputs?.length ?? 0,
+    samples,
+    selectedSample,
+  });
   return {
     generatedAt: input.generatedAt ?? new Date().toISOString(),
     code: input.code,
     samples,
     selectedSample,
+    inputSources,
+    materializationDiagnostics,
     providerRanking: [...PROVIDER_ORDER],
     status: selectedSample?.status ?? (samples[0]?.status ?? 'DATA_UNAVAILABLE'),
     signal: selectedSample?.signal ?? 'UNKNOWN',
     confidence: selectedSample?.confidence ?? 'NONE',
     ...ADR_0482_POLICY,
     diagnostics: selectedSample
-      ? [`ADR-0482 selected ${selectedSample.provider} semantic sample.`, `status=${selectedSample.status}`, `signal=${selectedSample.signal}`]
-      : [input.inputs?.length ? 'ADR-0482 normalizer found no usable semantic sample.' : 'INPUT_SAMPLE_UNAVAILABLE', 'UNKNOWN/provider issue is not bearish.'],
+      ? [`ADR-0482 selected ${selectedSample.provider} semantic sample.`, `status=${selectedSample.status}`, `signal=${selectedSample.signal}`, formatInvestorSampleDiagnosticsAdr0502(materializationDiagnostics)]
+      : [input.inputs?.length ? 'ADR-0482 normalizer found no usable semantic sample.' : 'INPUT_SAMPLE_UNAVAILABLE', formatInvestorSampleDiagnosticsAdr0502(materializationDiagnostics), 'UNKNOWN/provider issue is not bearish.'],
   };
 }
 
@@ -364,6 +435,18 @@ export function safeBuildSemanticNetBuyNormalizationReportAdr0482(
       code: input.code,
       samples: [],
       selectedSample: null,
+      inputSources: [],
+      materializationDiagnostics: buildInvestorSampleDiagnosticsAdr0502({
+        providerName: 'SEMANTIC_NETBUY',
+        rawFetched: false,
+        rawCount: 0,
+        normalizedCount: 0,
+        materializedCount: 0,
+        placeholderDetected: true,
+        inputSourceKind: 'NONE',
+        blockedReason: 'PROVIDER_ERROR',
+        hardBlocked: true,
+      }),
       providerRanking: [...PROVIDER_ORDER],
       status: 'PROVIDER_ERROR',
       signal: 'UNKNOWN',
@@ -390,7 +473,9 @@ export function formatSemanticNetBuyDetailAdr0482(report?: SemanticNetBuyNormali
     `- signal: ${report.signal}`,
     `- confidence: ${report.confidence}`,
     `- sampleCount: ${report.samples.length}`,
+    `- inputSources: ${report.inputSources.join(',') || 'NONE'}`,
     `- selectedSample: ${selected ? `provider=${selected.provider}, status=${selected.status}, signal=${selected.signal}, unit=${selected.unit}, sourceDate=${selected.sourceDate ?? 'none'}, totalSmartMoneyNetBuy=${selected.totalSmartMoneyNetBuy ?? 'null'}` : 'none'}`,
+    `- materialization: ${formatInvestorSampleDiagnosticsAdr0502(report.materializationDiagnostics)}`,
     `- executionImpact: ${report.executionImpact}`,
     `- liveExecutionAllowed: ${report.liveExecutionAllowed}`,
     `- policyPromotionMode: ${report.policyPromotionMode}`,

@@ -173,6 +173,11 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.naverReadinessKind).toBe('REGISTRY_READY');
     expect(route.selectedReason).toContain('CACHE_STALE_HIT');
     expect(route.selectedReason).toContain('readinessKind=REGISTRY_READY');
+    expect(route.rejectedProviders).toContain('NAVER_INVESTOR_TREND');
+    expect(route.rejectedReasonByProvider?.NAVER_INVESTOR_TREND).toContain('PLACEHOLDER');
+    expect(route.cacheFallbackReason).toContain('CACHE selected');
+    expect(route.fallbackChain).toEqual(['NAVER_INVESTOR_TREND', 'SEMANTIC_NETBUY', 'CACHE']);
+    expect(route.coverageAfter).toBe(1);
     expect(route.liveExecutionAllowed).toBe(false);
   });
 
@@ -279,6 +284,8 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
     expect(route.providerTried).toEqual(['NAVER', 'SEMANTIC_NETBUY', 'CACHE']);
     expect(route.coverage.available).toBeGreaterThanOrEqual(1);
+    expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.sampleMaterialized).toBe(true);
+    expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.usableForRouter).toBe(true);
     expect(route.liveExecutionAllowed).toBe(false);
     expect(route.executionImpact).toBe('NONE');
   });
@@ -318,6 +325,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(unavailableRoute.selectedProvider).toBe('NONE');
     expect(unavailableRoute.signal).toBe('UNKNOWN');
     expect(unavailableRoute.diagnostics.join(' ')).toContain('INPUT_SAMPLE_UNAVAILABLE');
+    expect(unavailableRoute.rejectedReasonByProvider?.SEMANTIC_NETBUY).toContain('NO_INPUT_SAMPLE');
     expect(unavailableRoute.liveExecutionAllowed).toBe(false);
   });
 
@@ -332,6 +340,8 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.selectedProvider).toBe('CACHE');
     expect(route.providerStatuses.CACHE).toBe('STALE');
     expect(route.freshness.cacheState).toBe('STALE');
+    expect(route.cacheFallbackReason).toContain('CACHE selected');
+    expect(formatInvestorFlowProviderRouterAdr0477(route)).toContain('rejectedReasonByProvider');
     expect(route.signal).toBe('UNKNOWN');
     expect(route.liveExecutionAllowed).toBe(false);
   });

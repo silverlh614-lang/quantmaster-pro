@@ -74,6 +74,10 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
     expect(report.coverageAfter).toBeGreaterThan(0);
     expect(report.normalizedSampleCount).toBe(1);
     expect(report.semanticNetBuyCount).toBe(1);
+    expect(report.rawCount).toBe(1);
+    expect(report.normalizedCount).toBe(1);
+    expect(report.materializedCount).toBe(1);
+    expect(report.routerUsableCount).toBe(2);
     expect(report.liveExecutionAllowed).toBe(false);
     expect(report.executionImpact).toBe('NONE');
     expect(report.marketSignalCount).toBe(0);
@@ -90,6 +94,7 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
     expect(report.semanticPlaceholderCount).toBe(1);
     expect(report.semanticNetBuyCount).toBe(0);
     expect(report.normalizedSampleCount).toBe(0);
+    expect(report.routerUsableCount).toBe(0);
     expect(report.providerIssueCount).toBe(0);
     expect(report.marketSignalCount).toBe(0);
   });

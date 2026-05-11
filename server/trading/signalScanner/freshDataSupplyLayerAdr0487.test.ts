@@ -293,6 +293,33 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(naver?.status).not.toBe('READY_FOR_SHADOW');
   });
 
+  it('38b. NAVER materialization diagnostics flow into FreshData snapshot diagnostics', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      naverInvestorTrendAdr0481: {
+        status: 'DATA_AVAILABLE',
+        semanticNetBuyCandidate: { sourceDate: '2026-05-11' },
+        materializationDiagnostics: {
+          sampleMaterialized: true,
+          usableForRouter: true,
+          rawCount: 2,
+          normalizedCount: 2,
+          materializedCount: 2,
+          symbolCoverage: 100,
+          blockedReason: 'NONE',
+          placeholderDetected: false,
+          inputSourceKind: 'RAW_PROVIDER',
+        },
+      },
+    });
+    const naver = report.snapshots.find((item) => item.sourceId === 'NAVER_INVESTOR_TREND');
+
+    expect(naver?.sampleMaterialized).toBe(true);
+    expect(naver?.usableForRouter).toBe(true);
+    expect(naver?.diagnostics.join(' ')).toContain('materializedCount=2');
+    expect(naver?.diagnostics.join(' ')).toContain('inputSourceKind=RAW_PROVIDER');
+  });
+
   it('39. FSS Passive/Active stale diagnostics expose lastUpdated, staleDays, and live=false', () => {
     const detail = formatFreshDataSupplyDetailAdr0487(buildFreshDataSupplyReportAdr0487({
       generatedAt: '2026-05-11T00:00:00.000Z',

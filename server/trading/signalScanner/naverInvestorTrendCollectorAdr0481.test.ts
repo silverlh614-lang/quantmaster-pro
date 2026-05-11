@@ -57,6 +57,14 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
     const empty = buildNaverInvestorTrendCollectorResultAdr0481({ code: '005930', rawPoints: [{ date: '2026-05-08' }] });
     expect(['DATA_UNAVAILABLE', 'EMPTY']).toContain(noRows.status);
     expect(empty.status).toBe('EMPTY');
+    expect(empty.materializationDiagnostics).toMatchObject({
+      rawFetched: true,
+      rawCount: 1,
+      normalizedCount: 1,
+      materializedCount: 0,
+      sampleMaterialized: false,
+      usableForRouter: false,
+    });
     expect(noRows.signal).toBe('UNKNOWN');
     expect(empty.signal).toBe('UNKNOWN');
   });
@@ -96,6 +104,13 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
   it('semanticNetBuyCandidate is produced from normalized NAVER data', () => {
     const result = positive();
     expect(result.semanticNetBuyCandidate).toMatchObject({ foreignNetBuy: 10, institutionNetBuy: 20, programNetBuy: 5, sourceDate: '2026-05-08', status: 'VERIFIED' });
+    expect(result.materializationDiagnostics).toMatchObject({
+      sampleMaterialized: true,
+      usableForRouter: true,
+      materializedCount: 2,
+      blockedReason: 'NONE',
+    });
+    expect(result.materializationDiagnostics.safePreview.length).toBeGreaterThan(0);
   });
 
   it('ADR-0477 can select NAVER only in SHADOW_ONLY diagnostics', () => {

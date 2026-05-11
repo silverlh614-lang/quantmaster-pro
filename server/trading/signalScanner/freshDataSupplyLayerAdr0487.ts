@@ -241,6 +241,15 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function recordValue(input: unknown, key: string): unknown {
+  return typeof input === 'object' && input !== null ? (input as Record<string, unknown>)[key] : undefined;
+}
+
+function materializationRecord(input: unknown): Record<string, unknown> | null {
+  const value = recordValue(input, 'materializationDiagnostics');
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+}
+
 function statusForSnapshot(input: Required<Pick<BuildFreshDataSnapshotInputAdr0487, 'cacheState' | 'sourceState' | 'normalized' | 'stage'>> & { coverageRatio: number; sampleMaterialized: boolean; usableForRouter: boolean }): FreshDataLineStatus {
   if (input.sourceState === 'PROVIDER_ERROR') return 'PROVIDER_ERROR';
   if (input.sourceState === 'STALE') return 'STALE';
@@ -416,10 +425,11 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
 
 function naverSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
   const adr0496 = input.supplyCoverageReportAdr0496;
+  const materialization = materializationRecord(input.naverInvestorTrendAdr0481);
   const naverCoverage = typeof input.naverInvestorTrendAdr0481?.coverage === 'object' && input.naverInvestorTrendAdr0481.coverage !== null
     ? input.naverInvestorTrendAdr0481.coverage as Record<string, unknown>
     : null;
-  const hasNaverSample = Boolean(input.naverInvestorTrendAdr0481?.semanticNetBuyCandidate);
+  const hasNaverSample = Boolean(input.naverInvestorTrendAdr0481?.semanticNetBuyCandidate) || materialization?.sampleMaterialized === true;
   const status = upper(input.naverInvestorTrendAdr0481?.status ?? input.investorFlowProviderRouterAdr0477?.providerStatuses?.NAVER);
   const available = asNumber(input.naverInvestorTrendAdr0481?.availableDays) ?? asNumber(naverCoverage?.availableDays) ?? adr0496?.sampleCount ?? 0;
   const requested = asNumber(input.naverInvestorTrendAdr0481?.requestedDays) ?? asNumber(naverCoverage?.requestedDays) ?? Math.max(1, adr0496?.sampleCount ?? 1);
@@ -443,23 +453,35 @@ function naverSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: F
     sourceAgeTradingDays: asNumber(naverFreshness?.sourceAgeTradingDays),
     cacheState: hasNaverSample ? (sourceState === 'FRESH' ? 'FRESH' : 'STALE') : 'UNKNOWN',
     sourceState: naverSourceState,
-    coverageRatio: hasNaverSample ? 1 : 0,
+    coverageRatio: hasNaverSample ? Math.max(0.01, (asNumber(materialization?.symbolCoverage) ?? 100) / 100) : 0,
     normalized,
-    sampleMaterialized: hasNaverSample,
-    usableForRouter: hasNaverSample && naverSourceState === 'FRESH',
+    sampleMaterialized: materialization?.sampleMaterialized === true || hasNaverSample,
+    usableForRouter: materialization?.usableForRouter === true || (hasNaverSample && naverSourceState === 'FRESH'),
     usableForShadow: hasNaverSample,
     readinessKind: hasNaverSample ? 'MATERIALIZED_SAMPLE' : (status ? 'REGISTRY_READY' : 'NO_SAMPLE'),
     sourceOfTruth: hasNaverSample ? 'ROUTER_INPUT' : 'REGISTRY',
-    diagnostics: [`ADR-0481 status=${status || 'missing'}`, `ADR-0481 sample=${hasNaverSample ? 'NORMALIZED_SAMPLE' : 'NO_SAMPLE'}`, `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`, `fallbackUsed=${hasNaverSample && naverSourceState === 'STALE'}`],
+    diagnostics: [
+      `ADR-0481 status=${status || 'missing'}`,
+      `ADR-0481 sample=${hasNaverSample ? 'NORMALIZED_SAMPLE' : 'NO_SAMPLE'}`,
+      `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`,
+      `fallbackUsed=${hasNaverSample && naverSourceState === 'STALE'}`,
+      `rawCount=${materialization?.rawCount ?? 'UNKNOWN'}`,
+      `normalizedCount=${materialization?.normalizedCount ?? 'UNKNOWN'}`,
+      `materializedCount=${materialization?.materializedCount ?? 'UNKNOWN'}`,
+      `blockedReason=${materialization?.blockedReason ?? 'UNKNOWN'}`,
+      `placeholderDetected=${materialization?.placeholderDetected ?? 'UNKNOWN'}`,
+      `inputSourceKind=${materialization?.inputSourceKind ?? 'UNKNOWN'}`,
+    ],
   });
 }
 
 function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
   const adr0496 = input.supplyCoverageReportAdr0496;
+  const materialization = materializationRecord(input.semanticNetBuyNormalizationAdr0482);
   const status = upper(input.semanticNetBuyNormalizationAdr0482?.status);
   const semanticSamples = input.semanticNetBuyNormalizationAdr0482?.samples;
   const hasAnySemanticSample = Array.isArray(semanticSamples) && semanticSamples.length > 0;
-  const hasMaterializedSemantic = hasAnySemanticSample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample);
+  const hasMaterializedSemantic = materialization?.sampleMaterialized === true || hasAnySemanticSample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample);
   const hasSample = hasMaterializedSemantic || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
   const sourceState: FreshDataSourceState =
     status.includes('STALE') ? 'STALE'
@@ -471,14 +493,25 @@ function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration
     collectedAt: generatedAt,
     cacheState: hasMaterializedSemantic ? 'FRESH' : 'UNKNOWN',
     sourceState: hasMaterializedSemantic ? sourceState : 'DATA_UNAVAILABLE',
-    coverageRatio: hasMaterializedSemantic ? 1 : 0,
+    coverageRatio: hasMaterializedSemantic ? Math.max(0.01, (asNumber(materialization?.symbolCoverage) ?? 100) / 100) : 0,
     normalized: hasMaterializedSemantic,
-    sampleMaterialized: hasMaterializedSemantic,
-    usableForRouter: hasMaterializedSemantic && sourceState === 'FRESH',
+    sampleMaterialized: materialization?.sampleMaterialized === true || hasMaterializedSemantic,
+    usableForRouter: materialization?.usableForRouter === true || (hasMaterializedSemantic && sourceState === 'FRESH'),
     usableForShadow: hasMaterializedSemantic,
     readinessKind: hasMaterializedSemantic ? 'MATERIALIZED_SAMPLE' : (status ? 'REGISTRY_READY' : 'NO_SAMPLE'),
     sourceOfTruth: hasMaterializedSemantic ? 'ROUTER_INPUT' : 'REGISTRY',
-    diagnostics: [`ADR-0482 status=${status || 'missing'}`, `ADR-0482 sampleCount=${Array.isArray(semanticSamples) ? semanticSamples.length : 0}`, `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`, `semanticPlaceholder=${!hasMaterializedSemantic && status ? 'true' : 'false'}`],
+    diagnostics: [
+      `ADR-0482 status=${status || 'missing'}`,
+      `ADR-0482 sampleCount=${Array.isArray(semanticSamples) ? semanticSamples.length : 0}`,
+      `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`,
+      `semanticPlaceholder=${materialization?.placeholderDetected ?? (!hasMaterializedSemantic && status ? 'true' : 'false')}`,
+      `inputSources=${Array.isArray(recordValue(input.semanticNetBuyNormalizationAdr0482, 'inputSources')) ? (recordValue(input.semanticNetBuyNormalizationAdr0482, 'inputSources') as string[]).join(',') : 'NONE'}`,
+      `rawCount=${materialization?.rawCount ?? 'UNKNOWN'}`,
+      `normalizedCount=${materialization?.normalizedCount ?? 'UNKNOWN'}`,
+      `materializedCount=${materialization?.materializedCount ?? 'UNKNOWN'}`,
+      `blockedReason=${materialization?.blockedReason ?? 'UNKNOWN'}`,
+      `inputSourceKind=${materialization?.inputSourceKind ?? 'UNKNOWN'}`,
+    ],
   });
 }
 
