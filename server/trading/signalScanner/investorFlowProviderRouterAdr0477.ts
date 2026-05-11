@@ -10,6 +10,7 @@ export type InvestorFlowProviderId =
   | 'FSS'
   | 'CACHE'
   | 'MANUAL'
+  | 'SEMANTIC_NETBUY'
   | 'UNKNOWN'
   | 'NONE';
 
@@ -252,6 +253,17 @@ export function buildInvestorFlowProviderCapabilities(input: {
       notes: ['FSS is freshness diagnostic for passive/active, short, and credit data.'],
     },
     {
+      provider: 'SEMANTIC_NETBUY',
+      supportsInvestorFlow: true,
+      supportsProgramTrading: false,
+      supportsMarketProgram: false,
+      supportsForeignTrend: true,
+      supportsShortBalance: true,
+      supportsCreditBalance: false,
+      isSemanticNetBuyProvider: true,
+      notes: ['SemanticNetBuy normalizer can route NAVER/KRX/FSS/CACHE normalized samples for SHADOW_ONLY observation.'],
+    },
+    {
       provider: 'CACHE',
       supportsInvestorFlow: true,
       supportsProgramTrading: false,
@@ -337,6 +349,16 @@ function providerFromSemanticAdr0482(provider: SemanticNetBuyProvider): Investor
   return 'UNKNOWN';
 }
 
+function semanticNetBuyDiagnosticCandidate(report: SemanticNetBuyNormalizationReportAdr0482): SemanticNetBuySampleAdr0482 | null {
+  return [...report.samples]
+    .filter((sample) => (sample.status === 'VERIFIED' || sample.status === 'PARTIAL' || sample.status === 'STALE') && sample.confidence !== 'NONE')
+    .sort((a, b) => {
+      const confidenceScore = (value: SemanticNetBuySampleAdr0482['confidence']) => value === 'HIGH' ? 4 : value === 'MEDIUM' ? 3 : value === 'LOW' ? 2 : 0;
+      const statusScore = (value: SemanticNetBuySampleAdr0482['status']) => value === 'VERIFIED' ? 4 : value === 'PARTIAL' ? 3 : value === 'STALE' ? 1 : 0;
+      return (statusScore(b.status) + confidenceScore(b.confidence)) - (statusScore(a.status) + confidenceScore(a.confidence));
+    })[0] ?? null;
+}
+
 function sampleFromSemanticAdr0482(sample: SemanticNetBuySampleAdr0482): SemanticNetBuySample {
   return {
     code: sample.code,
@@ -408,7 +430,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   input: InvestorFlowProviderRouterInput,
 ): InvestorFlowProviderRouteResult {
   const collectedAt = input.collectedAt ?? new Date().toISOString();
-  const providerTried: InvestorFlowProviderId[] = ['NAVER', 'CACHE'];
+  const providerTried: InvestorFlowProviderId[] = ['NAVER', 'SEMANTIC_NETBUY', 'CACHE'];
   const providerStatuses: Record<string, InvestorFlowProviderStatus> = {};
   const diagnostics: string[] = [];
   let selectedProvider: InvestorFlowProviderId = 'NONE';
@@ -421,22 +443,28 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   if (input.semanticNetBuyNormalizationAdr0482) {
+    providerStatuses.SEMANTIC_NETBUY = mapSemanticNetBuyStatusAdr0482ToAdr0477(input.semanticNetBuyNormalizationAdr0482.status);
     for (const sample of input.semanticNetBuyNormalizationAdr0482.samples) {
       providerStatuses[providerFromSemanticAdr0482(sample.provider)] = mapSemanticNetBuyStatusAdr0482ToAdr0477(sample.status);
     }
-    if (input.semanticNetBuyNormalizationAdr0482.selectedSample) {
-      const selected = input.semanticNetBuyNormalizationAdr0482.selectedSample;
-      selectedProvider = providerFromSemanticAdr0482(selected.provider);
+    const selected = input.semanticNetBuyNormalizationAdr0482.selectedSample ?? semanticNetBuyDiagnosticCandidate(input.semanticNetBuyNormalizationAdr0482);
+    if (selected) {
+      selectedProvider = 'SEMANTIC_NETBUY';
       semanticNetBuy = sampleFromSemanticAdr0482(selected);
       routeStatus = mapSemanticNetBuyStatusAdr0482ToAdr0477(selected.status);
-      diagnostics.push('ADR-0482 semantic net-buy selected sample consumed by ADR-0477.');
+      diagnostics.push(input.semanticNetBuyNormalizationAdr0482.selectedSample
+        ? 'ADR-0482 semantic net-buy selected sample consumed by ADR-0477.'
+        : 'ADR-0482 semantic net-buy diagnostic sample consumed for OBSERVE/SHADOW_ONLY only.');
     } else {
       routeStatus = mapSemanticNetBuyStatusAdr0482ToAdr0477(input.semanticNetBuyNormalizationAdr0482.status);
-      diagnostics.push('ADR-0482 semantic net-buy report has no selectable sample; UNKNOWN is not bearish.');
+      diagnostics.push(`ADR-0482 semantic net-buy report has no selectable sample; reason=${input.semanticNetBuyNormalizationAdr0482.diagnostics.join('; ') || 'INPUT_SAMPLE_UNAVAILABLE'}. UNKNOWN is not bearish.`);
     }
+  } else {
+    providerStatuses.SEMANTIC_NETBUY = 'DATA_UNAVAILABLE';
+    diagnostics.push('ADR-0482 semantic net-buy normalizer input not supplied; reason=INPUT_SAMPLE_UNAVAILABLE.');
   }
 
-  if (!semanticNetBuy && (input.naverCollectorWired === true || input.naverCollectorResultAdr0481)) {
+  if (input.naverCollectorWired === true || input.naverCollectorResultAdr0481) {
     const adr0481 = input.naverCollectorResultAdr0481;
     const naverRaw = adr0481?.semanticNetBuyCandidate ? {
       code: input.code,
@@ -457,7 +485,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       selectedProvider = 'NAVER';
       semanticNetBuy = naverSample;
       routeStatus = naverSample.status;
-    } else if (naverSample.status === 'STALE' || naverSample.status === 'DEGRADED') {
+    } else if (!semanticNetBuy && (naverSample.status === 'STALE' || naverSample.status === 'DEGRADED')) {
       routeStatus = naverSample.status;
       diagnostics.push('NAVER source is stale/degraded; positive source blocked, not bearish.');
     }
@@ -491,10 +519,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     diagnostics.push('KIS skipped/mismatch for semantic investor_flow route.');
   }
   if (input.marketProgramStatus === 'ACCEPTED_EMPTY') {
+    providerTried.push('KRX');
     providerStatuses.MARKET_PROGRAM = 'ACCEPTED_EMPTY';
     diagnostics.push('ACCEPTED_EMPTY market/program data excluded from scoring, not bearish.');
   }
   if ((input.fssSourceAgeTradingDays ?? 0) >= 4) {
+    providerTried.push('FSS');
     providerStatuses.FSS = 'STALE';
     diagnostics.push(`FSS source stale ${input.fssSourceAgeTradingDays} trading days; diagnostic only.`);
   }
@@ -536,7 +566,7 @@ export function formatInvestorFlowProviderRouterAdr0477(
 ): string | null {
   if (!result) return null;
   const nextAction = result.status === 'DATA_UNAVAILABLE' || result.coverage.notWired > 0
-    ? 'wire NAVER investor trend collector / implement semantic net-buy normalizer / keep UNKNOWN out of bearish scoring'
+    ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY / feed SemanticNetBuy normalized input / keep UNKNOWN out of bearish scoring'
     : result.freshness.oldestSourceAgeTradingDays !== null && result.freshness.oldestSourceAgeTradingDays >= 4
       ? 'refresh stale FSS source / keep UNKNOWN out of bearish scoring'
       : 'store ADR-0476 observation row and keep provider issue out of bearish scoring';
@@ -549,6 +579,7 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- coverage: ${result.coverage.available}/${result.coverage.total}`,
     `- freshness: cache=${result.freshness.cacheState}, source=${result.freshness.sourceState}, oldest=${result.freshness.oldestSourceAgeTradingDays ?? 'unknown'} trading days`,
     `- providerTried: ${result.providerTried.join(' -> ') || 'NONE'}`,
+    `- rawPayloadPersistenceAllowed: false`,
     `- executionImpact: ${result.executionImpact}`,
     `- liveExecutionAllowed: ${result.liveExecutionAllowed}`,
     '- 수급 악화가 아니라 수급 데이터 라우팅/커버리지 문제입니다.',

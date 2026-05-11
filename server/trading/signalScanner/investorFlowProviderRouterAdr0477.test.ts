@@ -8,6 +8,8 @@ import {
   formatInvestorFlowProviderRouterAdr0477,
   normalizeSemanticNetBuySampleAdr0477,
 } from './investorFlowProviderRouterAdr0477.js';
+import { buildSemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
+import { buildNaverInvestorTrendCollectorResultAdr0481 } from './naverInvestorTrendCollectorAdr0481.js';
 import {
   buildGate1DryRunObservationRows,
 } from './gate1DryRunObservationLedgerAdr0476.js';
@@ -106,6 +108,82 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(staleNegative.signal).toBe('UNKNOWN');
   });
 
+
+
+  it('routes ADR-0481 NAVER investor trend collector samples before cache while staying SHADOW_ONLY', () => {
+    const collector = buildNaverInvestorTrendCollectorResultAdr0481({
+      code: '005930',
+      requestedDays: 5,
+      sourceAgeTradingDays: 0,
+      rawPoints: [{ date: '2026-05-08', foreignNetBuy: 1000, institutionNetBuy: 2000, individualNetBuy: -3000 }],
+    });
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorResultAdr0481: collector,
+      cacheRaw: { foreignNetBuy: -1, institutionNetBuy: -1, sourceDate: '2026-05-07' },
+      cacheAgeTradingDays: 1,
+    });
+
+    expect(route.selectedProvider).toBe('NAVER');
+    expect(route.providerTried).toEqual(['NAVER', 'SEMANTIC_NETBUY', 'CACHE']);
+    expect(route.coverage.available).toBeGreaterThanOrEqual(1);
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.executionImpact).toBe('NONE');
+  });
+
+  it('routes SemanticNetBuy normalized samples as selectedProvider=SEMANTIC_NETBUY and keeps NONE confidence shadow-only', () => {
+    const report = buildSemanticNetBuyNormalizationReportAdr0482({
+      code: '005930',
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      inputs: [{
+        code: '005930',
+        provider: 'KRX',
+        sourceDate: '2026-05-08',
+        rawForeignNetBuy: 100,
+        rawInstitutionNetBuy: 50,
+        unit: 'KRW',
+        sourceAgeTradingDays: 1,
+      }],
+    });
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      semanticNetBuyNormalizationAdr0482: report,
+    });
+
+    expect(route.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(route.providerStatuses.SEMANTIC_NETBUY).toBe('VERIFIED');
+    expect(route.semanticNetBuy?.source).toBe('KRX');
+    expect(route.signal).toBe('BULLISH');
+    expect(route.liveExecutionAllowed).toBe(false);
+
+    const unavailable = buildSemanticNetBuyNormalizationReportAdr0482({ code: '000660', inputs: [] });
+    const unavailableRoute = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '000660',
+      naverCollectorWired: false,
+      semanticNetBuyNormalizationAdr0482: unavailable,
+    });
+    expect(unavailableRoute.selectedProvider).toBe('NONE');
+    expect(unavailableRoute.signal).toBe('UNKNOWN');
+    expect(unavailableRoute.diagnostics.join(' ')).toContain('INPUT_SAMPLE_UNAVAILABLE');
+    expect(unavailableRoute.liveExecutionAllowed).toBe(false);
+  });
+
+  it('uses stale cache snapshot samples as OBSERVE diagnostics without live promotion', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      cacheRaw: { foreignNetBuy: 100, institutionNetBuy: 100, sourceDate: '2026-05-08', status: 'STALE' },
+      cacheAgeTradingDays: 4,
+    });
+
+    expect(route.selectedProvider).toBe('NONE');
+    expect(route.providerStatuses.CACHE).toBe('STALE');
+    expect(route.freshness.cacheState).toBe('STALE');
+    expect(route.signal).toBe('UNKNOWN');
+    expect(route.liveExecutionAllowed).toBe(false);
+  });
+
   it('semantic normalizer excludes ACCEPTED_EMPTY from score and does not persist raw payloads', () => {
     const sample = normalizeSemanticNetBuySampleAdr0477(
       { status: 'ACCEPTED_EMPTY', foreignNetBuy: 0, institutionNetBuy: 0 },
@@ -115,7 +193,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
 
     expect(sample.status).toBe('ACCEPTED_EMPTY');
     expect(sample.signal).toBe('UNKNOWN');
-    expect(routerSource()).not.toContain('rawPayload');
+    expect(formatInvestorFlowProviderRouterAdr0477(notWiredRoute())).toContain('rawPayloadPersistenceAllowed: false');
     expect(routerSource()).not.toContain('JSON.stringify(raw');
   });
 
