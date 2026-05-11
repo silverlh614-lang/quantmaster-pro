@@ -3,6 +3,7 @@ import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendColl
 import type { SemanticNetBuyNormalizationReportAdr0482, SemanticNetBuyProvider, SemanticNetBuySampleAdr0482, SemanticNetBuyStatus } from './semanticNetBuyNormalizerAdr0482.js';
 import type { FreshDataSupplyReportAdr0487, FreshDataSnapshotAdr0487 } from './freshDataSupplyLayerAdr0487.js';
 import type { SupplySnapshotCacheLookupAdr0491 } from './supplySnapshotStoreReplayAdr0491.js';
+import { normalizeInvestorFlowSnapshotKeyAdr0491, normalizeInvestorFlowSourceKeyAdr0491 as normalizeInvestorFlowSourceKeySharedAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 
 
 export type InvestorFlowProviderId =
@@ -383,8 +384,7 @@ const INVESTOR_FLOW_SOURCE_ALIASES: Record<string, InvestorFlowSource> = {
 };
 
 export function normalizeInvestorFlowSourceKey(input: string): InvestorFlowSource | 'UNKNOWN' {
-  const key = input.trim().replace(/[\s-]+/g, '_').toUpperCase();
-  return INVESTOR_FLOW_SOURCE_ALIASES[key] ?? INVESTOR_FLOW_SOURCE_ALIASES[input.trim().toUpperCase()] ?? 'UNKNOWN';
+  return normalizeInvestorFlowSourceKeySharedAdr0491(input) as InvestorFlowSource | 'UNKNOWN';
 }
 
 function providerFromSemanticAdr0482(provider: SemanticNetBuyProvider): InvestorFlowProviderId {
@@ -536,7 +536,7 @@ function sampleFromCacheLookupAdr0491(
   return normalizeSemanticNetBuySampleAdr0477(lookup.cacheRaw, 'CACHE', {
     code,
     collectedAt,
-    fallbackStatus: status === 'CACHE_STALE_HIT' ? 'STALE' : 'VERIFIED',
+    fallbackStatus: status === 'CACHE_STALE_HIT' ? 'CACHE_STALE_HIT' : 'CACHE_HIT',
   });
 }
 
@@ -638,7 +638,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   if (cacheLookup) {
     providerStatuses.CACHE = cacheLookupStatusAdr0477(cacheLookup.status);
     providerReasons.CACHE = `ADR-0491 cacheLookupResult=${cacheLookup.status} reason=${cacheLookup.reason}`;
-    diagnostics.push(`cacheLookupResult=${cacheLookup.status}; cacheLookupKey=symbol:${input.code}:domain:SUPPLY:source:normalized-investor-flow; retained=${cacheLookup.retained}; rawPayloadPersistenceAllowed=false`);
+    const normalizedCacheKey = normalizeInvestorFlowSnapshotKeyAdr0491({ code: input.code, route: 'investor_flow', domain: 'SUPPLY' });
+    diagnostics.push(`cacheLookupResult=${cacheLookup.status}; cacheLookupKey=${cacheLookup.debug?.lookupKey ?? normalizedCacheKey.lookupKey}; triedKeys=${cacheLookup.debug?.triedKeys?.join(',') ?? 'NONE'}; retained=${cacheLookup.retained}; sourceKeyNormalized=${normalizedCacheKey.sourceCandidates.join(',')}; rawPayloadPersistenceAllowed=false`);
+    for (const hint of cacheLookup.debug?.mismatchHints ?? []) diagnostics.push(`cacheLookupMismatchHint=${hint}`);
   }
   if (!semanticNetBuy) {
     const cacheRaw = cacheLookupSample ? null : input.cacheRaw ?? input.previousTradingDayCacheRaw;
@@ -649,7 +651,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       fallbackStatus: cacheRaw ? undefined : 'CACHE_EMPTY',
     });
     if (!cacheLookup || cacheLookupSample) providerStatuses.CACHE = cacheLookupSample && cacheLookup ? cacheLookupStatusAdr0477(cacheLookup.status) : cacheSample.status;
-    if (cacheSample.status === 'VERIFIED' || cacheSample.status === 'PARTIAL' || cacheSample.status === 'STALE') {
+    if (cacheSample.status === 'VERIFIED' || cacheSample.status === 'PARTIAL' || cacheSample.status === 'STALE' || cacheSample.status === 'CACHE_HIT' || cacheSample.status === 'CACHE_STALE_HIT') {
       selectShadow('CACHE', cacheSample, cacheLookup ? `ADR-0491 sanitized snapshot cache selected: ${cacheLookup.status}.` : 'CACHE fallback used; fallback only, not primary truth.');
     }
   } else if (!providerStatuses.CACHE) {
