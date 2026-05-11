@@ -5,6 +5,8 @@ export type InvestorSampleProviderNameAdr0502 =
   | 'SEMANTIC_NETBUY'
   | 'KIS_INVESTOR'
   | 'KRX_INVESTOR_FLOW'
+  | 'KRX_SYMBOL_INVESTOR_FLOW'
+  | 'KRX_MARKET_INVESTOR_FLOW'
   | 'FSS_PASSIVE_ACTIVE'
   | 'CACHE'
   | 'PLACEHOLDER'

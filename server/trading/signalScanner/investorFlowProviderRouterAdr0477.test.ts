@@ -177,7 +177,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.rejectedProviders).toContain('NAVER_INVESTOR_TREND');
     expect(route.rejectedReasonByProvider?.NAVER_INVESTOR_TREND).toContain('PLACEHOLDER');
     expect(route.cacheFallbackReason).toContain('CACHE selected');
-    expect(route.fallbackChain).toEqual(['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
+    expect(route.fallbackChain).toEqual(['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
     expect(route.coverageAfter).toBe(1);
     expect(route.liveExecutionAllowed).toBe(false);
   });
@@ -439,7 +439,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     });
 
     expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
-    expect(route.providerTried).toEqual(['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
+    expect(route.providerTried).toEqual(['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
     expect(route.coverage.available).toBeGreaterThanOrEqual(1);
     expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.sampleMaterialized).toBe(true);
     expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.usableForRouter).toBe(true);
@@ -659,6 +659,45 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(fss.selectedProvider).toBe('FSS_PASSIVE_ACTIVE');
     expect(fss.status).toBe('STALE');
     expect(fss.materializationDiagnostics?.FSS_PASSIVE_ACTIVE?.usableForRouter).toBe(true);
+  });
+
+  it('selects KRX_SYMBOL_INVESTOR_FLOW when KRX diagnostics identify a symbol-level materialized row', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      previousTradingDayKrxRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 10, institutionalNetBuy: 20, status: 'VERIFIED' },
+      krxInvestorDiagnosticAdr0505: {
+        parserStatus: 'OK',
+        endpointIssueHint: 'NONE',
+        endpoint: 'MDCSTAT02401',
+        bld: 'dbms/MDC/STAT/standard/MDCSTAT02401',
+        tradeDate: '20260508',
+        previousTradingDateCandidate: '2026-05-08',
+        selectedKrxFlowMode: 'OTP_CSV',
+        routePurpose: 'SYMBOL_LEVEL',
+        selectedBld: 'dbms/MDC/STAT/standard/MDCSTAT02401',
+        shortCodeToIsuCdResolved: true,
+        isuCd: 'KR7005930003',
+        inqVal: '2',
+        selectedVariant: 'OTP_CSV:MDCSTAT02401:SYMBOL_INVESTOR_FLOW:ALL:strtDd/endDd:isuCd=resolved:inqVal=2:symbol',
+        csvDownloaded: true,
+        csvRowCount: 3,
+        csvHeaderDetected: true,
+        csvNoDataReason: null,
+        contentType: 'csv',
+        responseKind: 'CSV',
+        selectedRowCount: 3,
+        normalizedRows: 1,
+        summary: 'MDCSTAT02401;routePurpose=SYMBOL_LEVEL;selectedKrxFlowMode=OTP_CSV;csvRowCount=3',
+      },
+    });
+
+    expect(route.selectedProvider).toBe('KRX_SYMBOL_INVESTOR_FLOW');
+    expect(route.materializationDiagnostics?.KRX_SYMBOL_INVESTOR_FLOW?.usableForRouter).toBe(true);
+    expect(route.krxSourceRepairDiagnostic?.routePurpose).toBe('SYMBOL_LEVEL');
+    expect(route.krxSourceRepairDiagnostic?.isuCd).toBe('KR7005930003');
+    expect(route.diagnostics.join(' ')).toContain('sourceOfTruth=KRX');
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.executionImpact).toBe('NONE');
   });
 
   it('keeps KRX source-of-truth ahead of NAVER and falls back to KIS when KRX has no row', () => {
