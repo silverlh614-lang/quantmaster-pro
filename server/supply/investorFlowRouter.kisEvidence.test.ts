@@ -127,6 +127,33 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
     expect(composite?.reason).toContain('executionImpact=NONE');
   }, 15_000);
 
+
+  it('records degraded KIS foreign+institution evidence as KIS_API:PARTIAL before cache can override', async () => {
+    const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
+    setKisClientOverrides({
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-11',
+        foreignNetBuy: 100,
+        institutionalNetBuy: 200,
+        source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
+      }),
+    });
+    await seedCache();
+    const { fetchInvestorFlowWithPolicy } = await import('./investorFlowRouter.js');
+
+    const result = await fetchInvestorFlowWithPolicy('005930', new Date('2026-05-11T09:30:00.000Z'));
+
+    expect(result.source).toBe('KIS_API');
+    expect(result.attempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'KIS_API', status: 'PARTIAL' }),
+    ]));
+    expect(result.data).not.toHaveProperty('individualNetBuy');
+    expect(result.data?.foreignNetBuy).toBe(100);
+    expect(result.data?.institutionalNetBuy).toBe(200);
+  }, 15_000);
+
   it('records KIS errors as provider issues and continues CACHE fallback', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({

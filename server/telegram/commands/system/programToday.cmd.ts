@@ -68,17 +68,21 @@ export async function buildProgramTodayMessage(args: string[]): Promise<string> 
     ].join('\n');
   }
 
-  const qtyEmoji  = data.programNetBuyQty > 0 ? '🟢' : data.programNetBuyQty < 0 ? '🔴' : '⚪';
-  const qtyLabel  = data.programNetBuyQty > 0
-    ? '프로그램 순매수'
-    : data.programNetBuyQty < 0 ? '프로그램 순매도' : '중립';
+  const programNetBuyQty = data.programNetBuyQty ?? null;
+  const programNetBuyAmount = data.programNetBuyAmount ?? null;
+  const qtyEmoji  = programNetBuyQty === null ? '⚪' : programNetBuyQty > 0 ? '🟢' : programNetBuyQty < 0 ? '🔴' : '⚪';
+  const qtyLabel  = programNetBuyQty === null
+    ? '프로그램 순매수 수량 미수집'
+    : programNetBuyQty > 0
+      ? '프로그램 순매수'
+      : programNetBuyQty < 0 ? '프로그램 순매도' : '중립';
 
   const lines: string[] = [];
   lines.push('📊 <b>[종목별 프로그램 매매]</b>');
   lines.push(`🎯 종목코드: <code>${data.stockCode}</code>`);
   lines.push('');
-  lines.push(`${qtyEmoji} ${qtyLabel}: ${formatQty(data.programNetBuyQty)}`);
-  lines.push(`💰 프로그램 거래대금: ${formatKrwInEokwon(data.programNetBuyAmount)}`);
+  lines.push(`${qtyEmoji} ${qtyLabel}: ${programNetBuyQty === null ? '<i>미수집</i>' : formatQty(programNetBuyQty)}`);
+  lines.push(`💰 프로그램 거래대금: ${programNetBuyAmount === null ? '<i>미수집</i>' : formatKrwInEokwon(programNetBuyAmount)}`);
 
   if (data.programBuyRatio !== null) {
     lines.push(`📈 프로그램 매수 비중: ${data.programBuyRatio.toFixed(2)}%`);

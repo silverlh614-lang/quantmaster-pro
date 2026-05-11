@@ -219,7 +219,7 @@ function nonEmptyProgram(value: KisStockProgramTrade | KisMarketProgramTrade | n
   if (!value) return false;
   const record = value as unknown as Record<string, unknown>;
   return [record.programNetBuyQty, record.programNetBuyAmount, record.programBuyRatio, record.programArbitrageNetBuy, record.programNonArbitrageNetBuy, record.programSellAmount, record.programBuyAmount]
-    .some((item) => finite(item) && item !== 0);
+    .some((item) => finite(item));
 }
 
 function nonEmptyMarketSupply(value: { foreignNetBuy: number; institutionNetBuy: number; individualNetBuy: number } | null): boolean {

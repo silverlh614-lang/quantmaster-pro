@@ -56,6 +56,7 @@ export interface InvestorFlowSample {
 
 export type InvestorFlowAttemptStatus =
   | 'OK'
+  | 'PARTIAL'
   | 'NOT_WIRED'
   | 'CACHE_EMPTY'
   | 'PROVIDER_MISMATCH'
@@ -452,7 +453,8 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
     const kis = await fetchKisInvestorFlowEvidence(code, now);
     health.push(kis.health);
     if (kis.data && hasKisInvestorFields(kis.data)) {
-      pushAttempt(attempts, 'KIS_API', 'OK', kis.diagnostic);
+      const kisAttemptStatus: InvestorFlowAttemptStatus = kis.sample?.confidence === 'DEGRADED' ? 'PARTIAL' : 'OK';
+      pushAttempt(attempts, 'KIS_API', kisAttemptStatus, kis.diagnostic);
 
       if (kis.selectableForRouter) {
         const composite = makeInvestorFlowProviderHealth({

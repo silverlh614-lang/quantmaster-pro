@@ -102,6 +102,49 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     expect(sample.signal).not.toBe('BEARISH');
   });
 
+
+  it('materializes KIS verified symbol investor fields into SEMANTIC_NETBUY and outranks stale cache', () => {
+    const report = buildSemanticNetBuyNormalizationReportAdr0482({ code: '005930', inputs: [
+      verifiedInput({ provider: 'CACHE', status: 'STALE', sourceAgeTradingDays: 4, rawForeignNetBuy: 999, rawInstitutionNetBuy: 999 }),
+      verifiedInput({ provider: 'KIS', providerSemanticCapable: true, status: 'VERIFIED', rawForeignNetBuy: 10, rawInstitutionNetBuy: 20, rawIndividualNetBuy: -30, unit: 'SHARES' }),
+    ] });
+
+    expect(report.status).toBe('VERIFIED');
+    expect(report.selectedSample?.provider).toBe('KIS');
+    expect(report.inputSources).toContain('KIS');
+    expect(report.materializationDiagnostics.usableForRouter).toBe(true);
+    expect(report.executionImpact).toBe('NONE');
+    expect(report.liveExecutionAllowed).toBe(false);
+  });
+
+  it('keeps KIS foreign+institution-only sample DEGRADED/PARTIAL and shadow usable without fake individual zero', () => {
+    const report = buildSemanticNetBuyNormalizationReportAdr0482({ code: '005930', inputs: [
+      verifiedInput({ provider: 'KIS', providerSemanticCapable: true, status: 'PARTIAL', rawForeignNetBuy: 10, rawInstitutionNetBuy: 20, rawIndividualNetBuy: null, unit: 'SHARES' }),
+    ] });
+
+    expect(report.selectedSample?.provider).toBe('KIS');
+    expect(report.selectedSample?.status).toBe('VERIFIED');
+    expect(report.selectedSample?.individualNetBuy).toBeNull();
+    expect(report.materializationDiagnostics.sampleMaterialized).toBe(true);
+    expect(report.materializationDiagnostics.usableForRouter).toBe(true);
+  });
+
+  it('rejects KIS marketSupply-shaped input unless it is marked symbol semantic capable', () => {
+    const sample = normalizeSemanticNetBuySampleAdr0482(verifiedInput({
+      provider: 'KIS',
+      status: undefined,
+      rawForeignNetBuy: 10,
+      rawInstitutionNetBuy: 20,
+      rawIndividualNetBuy: -30,
+      diagnostics: ['marketSupply is market context only; not symbol-level investorFlow.'],
+    }));
+
+    expect(sample.status).toBe('PROVIDER_MISMATCH');
+    expect(sample.quality.isProviderIssue).toBe(true);
+    expect(sample.quality.isMarketSignal).toBe(false);
+    expect(sample.executionImpact).toBe('NONE');
+  });
+
   it('verified positive, negative, and near-zero samples derive BULLISH, BEARISH, and NEUTRAL safely', () => {
     expect(normalizeSemanticNetBuySampleAdr0482(verifiedInput({ rawForeignNetBuy: 10, rawInstitutionNetBuy: 20 })).signal).toBe('BULLISH');
     const bearish = normalizeSemanticNetBuySampleAdr0482(verifiedInput({ rawForeignNetBuy: -10, rawInstitutionNetBuy: -20 }));

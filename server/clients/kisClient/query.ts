@@ -229,14 +229,15 @@ export async function fetchKisStockProgramTrade(
 
     // ADR-0144: KIS 공식 chk_program_trade_by_stock.py COLUMN_MAPPING 정합 — `whol_smtn_*`
     // (전체 합계 순매수) 가 1차 키. 구 endpoint(`prgm_ntby_*`) 는 fallback 으로 보존.
-    const programNetBuyQty = extractKisNumber(
+    const programNetBuyQty = extractKisNumberOptional(
       out,
       ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'PRGM_NTBY_QTY'],
     );
-    const programNetBuyAmount = extractKisNumber(
+    const programNetBuyAmount = extractKisNumberOptional(
       out,
       ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'PRGM_NTBY_TR_PBMN'],
     );
+    if (programNetBuyQty === undefined && programNetBuyAmount === undefined) return null;
     // 비중 필드는 부재 가능 — 강제 0 fallback 금지 (ADR-0136 의미 단절 차단).
     const ratioRaw = out.prgm_byov_rate ?? out.PRGM_BYOV_RATE ?? '';
     const ratioNum = ratioRaw === '' ? Number.NaN : Number(String(ratioRaw).replace(/,/g, ''));
@@ -244,8 +245,8 @@ export async function fetchKisStockProgramTrade(
 
     return {
       stockCode: code.padStart(6, '0'),
-      programNetBuyQty,
-      programNetBuyAmount,
+      ...(programNetBuyQty !== undefined ? { programNetBuyQty } : {}),
+      ...(programNetBuyAmount !== undefined ? { programNetBuyAmount } : {}),
       programBuyRatio,
       fetchedAt: new Date().toISOString(),
       source: 'KIS_API',
