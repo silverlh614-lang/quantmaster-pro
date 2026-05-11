@@ -23,6 +23,7 @@ import {
 } from '../../../trading/signalScanner/freshDataPromotionAuditWiringAdr0494.js';
 import {
   mapFreshDataSupplyReportToStatusInputsAdr0498,
+  mapInvestorFlowRouterToStatusInputAdr0498,
   mapPromotionAuditEvaluationToStatusInputAdr0498,
   safeBuildFreshDataStatusSectionAdr0498,
 } from '../../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
@@ -81,7 +82,9 @@ const freshDataStatus: TelegramCommand = {
     const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
     const promotionSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
     const promotionLines = promotionAudits.map(formatPromotionAuditCompactAdr0494).join('\n');
+    const routerStatusInput = mapInvestorFlowRouterToStatusInputAdr0498(summary?.investorFlowProviderRouter ?? null);
     const adr0498Section = safeBuildFreshDataStatusSectionAdr0498([
+      ...(routerStatusInput ? [routerStatusInput] : []),
       ...mapFreshDataSupplyReportToStatusInputsAdr0498(report),
       ...promotionAudits.map(mapPromotionAuditEvaluationToStatusInputAdr0498),
     ], { maxLines: 6 });

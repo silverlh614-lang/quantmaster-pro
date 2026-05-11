@@ -355,7 +355,7 @@ const ACTION_DEFINITIONS: Record<OperatorActionRootCause, OperatorActionDefiniti
     category: 'FRESH_DATA_SUPPLY',
     title: 'Supply data line missing',
     summary: 'ADR-0487 found Supply or program-trading data supply lines missing, stale, or unavailable.',
-    recommendedAction: 'Collect sanitized supply samples in OBSERVE/SHADOW_ONLY mode; do not promote to advisory without a future ADR.',
+    recommendedAction: 'If CACHE_STALE_HIT is present, treat it as shadow-observable stale cache only; refresh NAVER/FSS samples before advisory promotion; otherwise collect sanitized supply samples in OBSERVE/SHADOW_ONLY mode.',
     relatedAdrs: ['0477', '0478', '0479', '0480', '0481', '0482', '0483', '0487'],
     basePriority: 'P1',
     expectedImpact: { scanBlockerReduction: 'HIGH', gate1SurvivorPotential: 'UNKNOWN', liveExecutionImpact: 'NONE' },

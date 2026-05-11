@@ -33,6 +33,7 @@ export interface FreshDataStatusViewModelInputAdr0498 {
   dataLineId: string;
   domain?: FreshDataStatusViewModelAdr0497['domain'];
   providerHealth?: ProviderHealthStatusAdr0497;
+  providerDisplay?: string;
   dataConfidence?: DataConfidenceAdr0497;
   marketSignal?: MarketSignalDirectionAdr0497;
   dataLineStatus?: DataLineStatusAdr0497;
@@ -92,6 +93,7 @@ export function buildFreshDataStatusViewModelFromInputAdr0498(
       dataLineId: input.dataLineId || 'UNKNOWN',
       domain: input.domain ?? 'UNKNOWN',
       providerHealth,
+      ...(input.providerDisplay === undefined ? {} : { providerDisplay: input.providerDisplay }),
       dataConfidence: input.dataConfidence ?? 'UNKNOWN',
       marketSignal: separation.marketSignal,
       dataLineStatus: input.dataLineStatus ?? 'OBSERVING',
@@ -156,7 +158,7 @@ export function mapStatusFromCoverageAdr0498(input: {
 
 export function formatFreshDataStatusLineAdr0498(viewModel: FreshDataStatusViewModelAdr0497): string {
   void formatFreshDataStatusCompactAdr0497(viewModel);
-  return compactLine(`[ADR-0498] FreshDataStatus ${viewModel.domain}/${viewModel.dataLineId} provider=${viewModel.providerHealth} confidence=${viewModel.dataConfidence} signal=${viewModel.marketSignal} status=${viewModel.dataLineStatus} promo=${viewModel.promotionReadiness} impact=${viewModel.executionImpact}`);
+  return compactLine(`[ADR-0498] FreshDataStatus ${viewModel.domain}/${viewModel.dataLineId} provider=${viewModel.providerDisplay ?? viewModel.providerHealth} confidence=${viewModel.dataConfidence} signal=${viewModel.marketSignal} status=${viewModel.dataLineStatus} promo=${viewModel.promotionReadiness} impact=${viewModel.executionImpact}`);
 }
 
 export function buildFreshDataStatusSectionAdr0498(
@@ -207,12 +209,86 @@ export function safeBuildFreshDataStatusSectionAdr0498(
   }
 }
 
+
+function routerProviderDisplayAdr0498(selectedProvider: string | undefined): string {
+  if (selectedProvider === 'CACHE') return 'CACHE';
+  if (selectedProvider === 'NAVER' || selectedProvider === 'NAVER_INVESTOR_TREND') return 'NAVER';
+  if (selectedProvider === 'SEMANTIC_NETBUY') return 'SEMANTIC_NETBUY';
+  if (selectedProvider === 'KRX' || selectedProvider === 'KRX_INVESTOR_FLOW') return 'KRX';
+  if (selectedProvider === 'KIS' || selectedProvider === 'KIS_API') return 'KIS';
+  return selectedProvider && selectedProvider !== 'NONE' ? selectedProvider : 'EMPTY';
+}
+
+function routerProviderHealthAdr0498(status: string | undefined, selectedProvider: string | undefined): ProviderHealthStatusAdr0497 {
+  if (!selectedProvider || selectedProvider === 'NONE') return 'EMPTY';
+  if (status === 'CACHE_STALE_HIT' || status === 'STALE') return 'STALE';
+  if (status === 'CACHE_HIT' || status === 'VERIFIED' || status === 'READY_FOR_SHADOW' || status === 'PARTIAL') return 'UP';
+  if (status === 'CACHE_KEY_MISMATCH' || status === 'CACHE_EMPTY' || status === 'DATA_UNAVAILABLE' || status === 'EMPTY') return 'EMPTY';
+  if (status === 'PROVIDER_ERROR' || status === 'ERROR') return 'DOWN';
+  return coerceProviderHealth(status);
+}
+
+export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
+  selectedProvider?: string;
+  status?: string;
+  signal?: string;
+  selectedReason?: string | null;
+  providerStatuses?: Record<string, string>;
+  coverage?: { available?: number; total?: number };
+  rawPayloadPersistenceAllowed?: false;
+  liveExecutionAllowed?: false;
+  executionImpact?: 'NONE';
+} | null | undefined): FreshDataStatusViewModelInputAdr0498 | null {
+  if (!router) return null;
+  const selectedProvider = router.selectedProvider ?? 'NONE';
+  const cacheStatus = router.providerStatuses?.CACHE;
+  const effectiveStatus = selectedProvider === 'CACHE' && cacheStatus ? cacheStatus : router.status;
+  if (selectedProvider === 'NONE') {
+    return {
+      sourceAdr: 'ADR_0489_INVESTOR_FLOW_SAMPLE',
+      dataLineId: 'investorFlow',
+      domain: 'INVESTOR_FLOW',
+      providerHealth: 'EMPTY',
+      providerDisplay: 'EMPTY',
+      dataConfidence: 'MISSING',
+      marketSignal: 'UNKNOWN',
+      dataLineStatus: 'BLOCKED',
+      promotionReadiness: 'NOT_EVALUATED',
+      blockers: ['selectedProvider=NONE'],
+      warnings: ['InvestorFlow router selectedProvider=NONE; UNKNOWN is not bearish'],
+    };
+  }
+  const providerHealth = routerProviderHealthAdr0498(effectiveStatus, selectedProvider);
+  const stale = effectiveStatus === 'CACHE_STALE_HIT' || router.status === 'STALE' || providerHealth === 'STALE';
+  return {
+    sourceAdr: 'ADR_0489_INVESTOR_FLOW_SAMPLE',
+    dataLineId: 'investorFlow',
+    domain: 'INVESTOR_FLOW',
+    providerHealth,
+    providerDisplay: routerProviderDisplayAdr0498(selectedProvider),
+    dataConfidence: stale ? 'STALE' : selectedProvider === 'CACHE' ? 'PARTIAL' : 'PARTIAL',
+    marketSignal: router.signal === 'BULLISH' || router.signal === 'BEARISH' || router.signal === 'NEUTRAL' ? router.signal : 'UNKNOWN',
+    dataLineStatus: stale ? 'OBSERVING' : 'READY_FOR_SHADOW',
+    promotionReadiness: 'NOT_EVALUATED',
+    warnings: [
+      `selectedProvider=${selectedProvider}`,
+      effectiveStatus ? `routerStatus=${effectiveStatus}` : 'routerStatus=UNKNOWN',
+      'rawPayloadPersistenceAllowed=false',
+      'liveExecutionAllowed=false',
+      router.selectedReason ?? 'UNKNOWN/provider issue is not bearish',
+    ],
+  };
+}
+
 export function mapFreshDataSupplyReportToStatusInputsAdr0498(report: {
-  snapshots?: Array<{ registration?: { id?: string; domain?: string; provider?: string }; status?: string; confidence?: string; coverageRatio?: number; isProviderIssue?: boolean; diagnostics?: string[] }>;
+  snapshots?: Array<{ registration?: { id?: string; domain?: string; provider?: string }; sourceId?: string; domain?: string; provider?: string; status?: string; confidence?: string; coverageRatio?: number; isProviderIssue?: boolean; diagnostics?: string[] }>;
   domainSummaries?: Array<{ domain?: string; status?: string; averageCoverageRatio?: number; topGaps?: string[] }>;
 } | null | undefined): FreshDataStatusViewModelInputAdr0498[] {
   if (!report) return [];
   const fromSnapshots = (report.snapshots ?? []).slice(0, 4).map((snapshot): FreshDataStatusViewModelInputAdr0498 => {
+    const sourceId = snapshot.registration?.id ?? snapshot.sourceId ?? 'freshDataSupply';
+    const sourceDomain = snapshot.registration?.domain ?? snapshot.domain;
+    const sourceProvider = snapshot.registration?.provider ?? snapshot.provider;
     const coverage = mapStatusFromCoverageAdr0498({
       coveragePct: typeof snapshot.coverageRatio === 'number' ? snapshot.coverageRatio * 100 : undefined,
       sampleCount: snapshot.coverageRatio && snapshot.coverageRatio > 0 ? 1 : 0,
@@ -220,15 +296,16 @@ export function mapFreshDataSupplyReportToStatusInputsAdr0498(report: {
     });
     return {
       sourceAdr: 'ADR_0487_FRESH_DATA',
-      dataLineId: snapshot.registration?.id ?? 'freshDataSupply',
-      domain: snapshot.registration?.domain === 'SECTOR_ENERGY' || snapshot.registration?.domain === 'SUPPLY' ? (snapshot.registration.domain === 'SUPPLY' ? 'INVESTOR_FLOW' : 'SECTOR_ENERGY') : 'UNKNOWN',
+      dataLineId: sourceId,
+      domain: sourceDomain === 'SECTOR_ENERGY' || sourceDomain === 'SUPPLY' ? (sourceDomain === 'SUPPLY' ? 'INVESTOR_FLOW' : 'SECTOR_ENERGY') : 'UNKNOWN',
       providerHealth: snapshot.isProviderIssue ? coerceProviderHealth(snapshot.status) : 'UP',
       dataConfidence: snapshot.confidence === 'HIGH' ? 'VERIFIED' : snapshot.confidence === 'MEDIUM' || snapshot.confidence === 'LOW' ? 'PARTIAL' : coverage.dataConfidence,
       marketSignal: 'UNKNOWN',
       dataLineStatus: coverage.dataLineStatus,
       blockers: coverage.blockers,
       warnings: [...coverage.warnings, ...(snapshot.diagnostics ?? []).slice(0, 1)],
-      evidence: { sourceAdr: 'ADR_0487_FRESH_DATA', provider: snapshot.registration?.provider },
+      providerDisplay: sourceProvider,
+      evidence: { sourceAdr: 'ADR_0487_FRESH_DATA', provider: sourceProvider },
     };
   });
   const fromDomains = fromSnapshots.length > 0 ? [] : (report.domainSummaries ?? []).map((domain): FreshDataStatusViewModelInputAdr0498 => {
@@ -269,8 +346,10 @@ export function mapPromotionAuditEvaluationToStatusInputAdr0498(audit: {
 
 export function mapRuntimeFreshDataSummaryToStatusInputsAdr0498(summary: Record<string, unknown> | null | undefined): FreshDataStatusViewModelInputAdr0498[] {
   const inputs: FreshDataStatusViewModelInputAdr0498[] = [];
+  const routerInput = mapInvestorFlowRouterToStatusInputAdr0498(summary?.investorFlowProviderRouter as Parameters<typeof mapInvestorFlowRouterToStatusInputAdr0498>[0]);
+  if (routerInput) inputs.push(routerInput);
   const investorFlow = summary?.investorFlowSampleAdr0489 as { status?: string; adr0496SupplyCoverage?: { coverageAfter?: number; sampleCount?: number } } | undefined;
-  if (investorFlow) {
+  if (investorFlow && !routerInput) {
     const providerHealth = coerceProviderHealth(investorFlow.status);
     const coverage = mapStatusFromCoverageAdr0498({ coveragePct: investorFlow.adr0496SupplyCoverage?.coverageAfter, sampleCount: investorFlow.adr0496SupplyCoverage?.sampleCount, providerHealth });
     inputs.push({
@@ -278,6 +357,7 @@ export function mapRuntimeFreshDataSummaryToStatusInputsAdr0498(summary: Record<
       dataLineId: 'investorFlow',
       domain: 'INVESTOR_FLOW',
       providerHealth,
+      providerDisplay: providerHealth === 'EMPTY' ? 'EMPTY' : undefined,
       dataConfidence: coverage.dataConfidence,
       marketSignal: 'UNKNOWN',
       dataLineStatus: coverage.dataLineStatus,
@@ -296,6 +376,7 @@ export function mapRuntimeFreshDataSummaryToStatusInputsAdr0498(summary: Record<
       dataLineId: 'sectorEnergy',
       domain: 'SECTOR_ENERGY',
       providerHealth,
+      providerDisplay: providerHealth === 'EMPTY' ? 'EMPTY' : undefined,
       dataConfidence: coverage.dataConfidence,
       marketSignal: sector.supplyUnknownPolicy?.providerIssue ? 'UNKNOWN' : coerceMarketSignal(sector.supplyUnknownPolicy?.marketSignal ? 'MIXED' : 'UNKNOWN'),
       dataLineStatus: coverage.dataLineStatus,

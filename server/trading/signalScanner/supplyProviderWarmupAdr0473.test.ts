@@ -173,6 +173,40 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(report.shadowObservableAllowed).toBe(true);
   });
 
+
+
+  it('aligns SupplyHealth warmup display with router CACHE_STALE_HIT selection', () => {
+    const report = buildSupplyProviderWarmupReport({
+      investorFlowRouter: {
+        status: 'STALE',
+        selectedProvider: 'CACHE',
+        selectedReason: 'ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT',
+        providerTried: ['NAVER', 'SEMANTIC_NETBUY', 'CACHE', 'KIS', 'KRX', 'FSS'],
+        providerStatuses: { NAVER: 'NOT_WIRED', SEMANTIC_NETBUY: 'DATA_UNAVAILABLE', CACHE: 'CACHE_STALE_HIT', KIS: 'PROVIDER_MISMATCH' },
+        signal: 'UNKNOWN',
+        coverage: { available: 1, total: 7 },
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+      },
+    });
+    const text = formatSupplyProviderWarmupCompactLine(report);
+
+    expect(report.cacheStatus).toBe('CACHE_STALE_HIT');
+    expect(report.naverStatus).toBe('DATA_UNAVAILABLE');
+    expect(report.semanticNetBuyCollectorStatus).toBe('WIRED');
+    expect(text).toContain('CACHE: CACHE_STALE_HIT');
+    expect(text).toContain('selectedProvider: CACHE');
+    expect(text).toContain('selectedReason: ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT');
+    expect(text).toContain('Semantic NetBuy: DATA_UNAVAILABLE / NO_INPUT_SAMPLE');
+    expect(text).toContain('NAVER: DATA_UNAVAILABLE');
+    expect(text).toContain('supply_confluence: UNKNOWN / STALE_DIAGNOSTIC, not bearish');
+    expect(text).toContain('liveStrongBuyAllowed=false');
+    expect(text).not.toContain('CACHE: CACHE_EMPTY');
+    expect(text).not.toContain('NAVER: NOT_WIRED');
+    expect(report.liveExecutionAllowed).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
+  });
+
   it('/scan_blockers appends the ADR-0473 warmup section without raw Telegram HTML', () => {
     const text = scanBlockersSource();
 

@@ -254,6 +254,7 @@ export interface FreshDataStatusViewModelAdr0497 {
     | 'PROMOTION_AUDIT'
     | 'UNKNOWN';
   providerHealth: ProviderHealthStatusAdr0497;
+  providerDisplay?: string;
   dataConfidence: DataConfidenceAdr0497;
   marketSignal: MarketSignalDirectionAdr0497;
   dataLineStatus: DataLineStatusAdr0497;
@@ -279,6 +280,7 @@ export function buildFreshDataStatusViewModelAdr0497(input: Partial<FreshDataSta
     dataLineId: input.dataLineId,
     domain: input.domain ?? 'UNKNOWN',
     providerHealth,
+    ...(input.providerDisplay === undefined ? {} : { providerDisplay: input.providerDisplay }),
     dataConfidence: input.dataConfidence ?? 'UNKNOWN',
     marketSignal,
     dataLineStatus,
@@ -291,7 +293,7 @@ export function buildFreshDataStatusViewModelAdr0497(input: Partial<FreshDataSta
 }
 
 export function formatFreshDataStatusCompactAdr0497(viewModel: FreshDataStatusViewModelAdr0497): string {
-  return `ADR-0497 Taxonomy: ${viewModel.domain}/${viewModel.dataLineId} provider=${viewModel.providerHealth} confidence=${viewModel.dataConfidence} signal=${viewModel.marketSignal} impact=${viewModel.executionImpact}`;
+  return `ADR-0497 Taxonomy: ${viewModel.domain}/${viewModel.dataLineId} provider=${viewModel.providerDisplay ?? viewModel.providerHealth} confidence=${viewModel.dataConfidence} signal=${viewModel.marketSignal} impact=${viewModel.executionImpact}`;
 }
 
 export function formatGateFailureAttributionCompactAdr0497(entry: GateFailureAttributionEntryAdr0497): string {
