@@ -232,4 +232,38 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(report.overallStatus).toBe('UNKNOWN');
     expect(report.executionImpact).toBe('NONE');
   });
+
+  it('38. SemanticNetBuy stale input sample remains normalized shadow evidence, not NO_INPUT_SAMPLE', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      semanticNetBuyNormalizationAdr0482: {
+        status: 'STALE',
+        selectedSample: null,
+        samples: [{ provider: 'CACHE', sourceDate: '2026-05-04', status: 'STALE', confidence: 'LOW' }],
+      },
+    });
+    const semantic = report.snapshots.find((item) => item.sourceId === 'SEMANTIC_NETBUY');
+
+    expect(semantic?.status).toBe('STALE');
+    expect(semantic?.normalized).toBe(true);
+    expect(semantic?.confidence).toBe('LOW');
+    expect(semantic?.liveExecutionAllowed).toBe(false);
+  });
+
+  it('39. FSS Passive/Active stale diagnostics expose lastUpdated, staleDays, and live=false', () => {
+    const detail = formatFreshDataSupplyDetailAdr0487(buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      supplySourceFreshnessAdr0483: {
+        status: 'STALE',
+        rows: [{ source: 'FSS', sourceId: 'FSS_PASSIVE_ACTIVE', sourceState: 'STALE', cacheState: 'FRESH', sourceAgeTradingDays: 7, sourceDate: '2026-04-29' }],
+      },
+    }));
+
+    expect(detail).toContain('FSS_PASSIVE_ACTIVE');
+    expect(detail).toContain('status=STALE');
+    expect(detail).toContain('lastUpdated=2026-04-29');
+    expect(detail).toContain('staleDays=7');
+    expect(detail).toContain('usableForLive=false');
+    expect(detail).toContain('normalized=false');
+  });
 });

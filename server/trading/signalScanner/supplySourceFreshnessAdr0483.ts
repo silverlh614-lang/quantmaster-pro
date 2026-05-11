@@ -23,6 +23,10 @@ export interface SupplySourceFreshnessRowAdr0483 {
   sourceDate: string | null;
   refreshStatus: SupplyFreshnessRefreshStatusAdr0483;
   providerIssue: boolean;
+  expectedFreshnessDays: number;
+  usableForSemantic: boolean;
+  usableForLive: false;
+  nextAction: string;
 }
 
 export interface SupplySourceFreshnessReportAdr0483 {
@@ -106,6 +110,14 @@ function buildRow(point: SupplySourceFreshnessPointAdr0483, now: Date, staleSour
     sourceDate: sourceDate ? ymd(sourceDate) : null,
     refreshStatus,
     providerIssue,
+    expectedFreshnessDays: staleSourceTradingDays,
+    usableForSemantic: sourceAgeTradingDays !== null && sourceAgeTradingDays <= 7 && point.providerStatus !== 'ERROR',
+    usableForLive: false,
+    nextAction: point.source === 'FSS' && (sourceState === 'STALE' || sourceState === 'MISSING')
+      ? 'REFRESH_FSS_PASSIVE_ACTIVE'
+      : refreshStatus === 'RECOMMENDED'
+        ? `REFRESH_${point.source}`
+        : 'NOT_NEEDED',
   };
 }
 
@@ -191,7 +203,7 @@ export function formatSupplySourceFreshnessDetailAdr0483(report?: SupplySourceFr
   return [
     '🕒 ADR-0483 Supply Source Freshness',
     `status=${report.status} refresh=${report.refreshStatus} oldest=${report.oldestSourceAgeTradingDays ?? 'NA'}d`,
-    ...report.rows.map((row) => `- ${row.source}: cache=${row.cacheState}(${row.cacheAgeMinutes ?? 'NA'}m) source=${row.sourceState}(${row.sourceAgeTradingDays ?? 'NA'}d) refresh=${row.refreshStatus}`),
+    ...report.rows.map((row) => `- ${row.source}: cache=${row.cacheState}(${row.cacheAgeMinutes ?? 'NA'}m) source=${row.sourceState}(${row.sourceAgeTradingDays ?? 'NA'}d) lastUpdated=${row.sourceDate ?? 'none'} expectedFreshnessDays=${row.expectedFreshnessDays} usableForSemantic=${row.usableForSemantic} usableForLive=${row.usableForLive} nextAction=${row.nextAction} refresh=${row.refreshStatus}`),
     `guardrails: executionImpact=${report.executionImpact}, liveExecutionAllowed=${report.liveExecutionAllowed}, policyPromotionMode=${report.policyPromotionMode}, operatorApprovalRequired=${report.operatorApprovalRequired}`,
   ].join('\n');
 }

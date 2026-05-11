@@ -85,6 +85,7 @@ export interface SemanticNetBuySampleAdr0482 {
   };
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
+  rawPayloadPersistenceAllowed: false;
   policyPromotionMode: 'SHADOW_ONLY';
   operatorApprovalRequired: true;
   diagnostics: string[];
@@ -101,6 +102,7 @@ export interface SemanticNetBuyNormalizationReportAdr0482 {
   confidence: SemanticNetBuyConfidence;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
+  rawPayloadPersistenceAllowed: false;
   policyPromotionMode: 'SHADOW_ONLY';
   operatorApprovalRequired: true;
   diagnostics: string[];
@@ -115,12 +117,13 @@ export interface BuildSemanticNetBuyNormalizationReportInputAdr0482 {
 const ADR_0482_POLICY = {
   executionImpact: 'NONE',
   liveExecutionAllowed: false,
+  rawPayloadPersistenceAllowed: false,
   policyPromotionMode: 'SHADOW_ONLY',
   operatorApprovalRequired: true,
 } as const;
 
 const STALE_TRADING_DAYS = 4;
-const PROVIDER_ORDER: SemanticNetBuyProvider[] = ['NAVER', 'CACHE', 'MANUAL', 'KIS', 'KRX', 'FSS', 'UNKNOWN'];
+const PROVIDER_ORDER: SemanticNetBuyProvider[] = ['NAVER', 'KRX', 'FSS', 'CACHE', 'MANUAL', 'KIS', 'UNKNOWN'];
 const ERROR_STATUSES: SemanticNetBuyStatus[] = ['PROVIDER_MISMATCH', 'PARSE_ERROR', 'PROVIDER_ERROR', 'NON_TRADING_DAY', 'DISABLED'];
 
 function finiteNumber(value: unknown): value is number {

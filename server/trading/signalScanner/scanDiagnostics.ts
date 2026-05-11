@@ -182,10 +182,12 @@ import {
 } from './investorFlowProviderRouterAdr0477.js';
 import {
   buildNaverInvestorTrendCollectorResultAdr0481,
+  type NaverInvestorTrendRawPoint,
   type NaverInvestorTrendCollectorResult,
 } from './naverInvestorTrendCollectorAdr0481.js';
 import {
   buildSemanticNetBuyNormalizationReportAdr0482,
+  type SemanticNetBuyInputPoint,
   type SemanticNetBuyNormalizationReportAdr0482,
 } from './semanticNetBuyNormalizerAdr0482.js';
 import {
@@ -1128,6 +1130,65 @@ export function buildMacroGateState(input: {
   };
 }
 
+function scanDiagnosticNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function scanDiagnosticString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function cacheRawToNaverInvestorTrendPointAdr0481(cacheRaw: Record<string, unknown> | null | undefined): NaverInvestorTrendRawPoint | null {
+  const sourceDate = scanDiagnosticString(cacheRaw?.sourceDate);
+  if (!sourceDate) return null;
+  return {
+    date: sourceDate,
+    foreignNetBuy: scanDiagnosticNumber(cacheRaw?.foreignNetBuy),
+    institutionNetBuy: scanDiagnosticNumber(cacheRaw?.institutionNetBuy),
+    individualNetBuy: scanDiagnosticNumber(cacheRaw?.retailNetBuy),
+    programNetBuy: scanDiagnosticNumber(cacheRaw?.programNetBuy),
+  };
+}
+
+function cacheRawToSemanticInputAdr0482(input: {
+  code: string;
+  cacheRaw: Record<string, unknown> | null | undefined;
+  stale: boolean;
+}): SemanticNetBuyInputPoint | null {
+  const sourceDate = scanDiagnosticString(input.cacheRaw?.sourceDate);
+  if (!sourceDate) return null;
+  return {
+    code: input.code,
+    provider: 'CACHE',
+    sourceDate,
+    rawForeignNetBuy: scanDiagnosticNumber(input.cacheRaw?.foreignNetBuy),
+    rawInstitutionNetBuy: scanDiagnosticNumber(input.cacheRaw?.institutionNetBuy),
+    rawProgramNetBuy: scanDiagnosticNumber(input.cacheRaw?.programNetBuy),
+    rawIndividualNetBuy: scanDiagnosticNumber(input.cacheRaw?.retailNetBuy),
+    unit: 'KRW',
+    status: input.stale ? 'STALE' : 'VERIFIED',
+    sourceAgeTradingDays: input.stale ? 4 : 0,
+    diagnostics: ['ADR-0491 sanitized CACHE snapshot consumed by ADR-0482 as SHADOW_ONLY input; raw payload not persisted.'],
+  };
+}
+
+function naverCollectorToSemanticInputAdr0482(result: NaverInvestorTrendCollectorResult): SemanticNetBuyInputPoint | null {
+  const candidate = result.semanticNetBuyCandidate;
+  if (!candidate) return null;
+  return {
+    code: result.code,
+    provider: 'NAVER',
+    sourceDate: candidate.sourceDate,
+    rawForeignNetBuy: candidate.foreignNetBuy,
+    rawInstitutionNetBuy: candidate.institutionNetBuy,
+    rawProgramNetBuy: candidate.programNetBuy,
+    unit: 'KRW',
+    status: candidate.status,
+    sourceAgeTradingDays: result.freshness.sourceAgeTradingDays,
+    diagnostics: ['ADR-0481 NAVER collector candidate consumed by ADR-0482.'],
+  };
+}
+
 export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (!summary) {
     return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
@@ -2043,56 +2104,37 @@ export async function persistScanResults(
   try {
     const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
     const firstSnapshot = observationSnapshots[0];
-    const naverInvestorTrendAdr0481 = buildNaverInvestorTrendCollectorResultAdr0481({
-      code: firstSnapshot?.symbol ?? 'UNIVERSE',
-      requestedDays: 5,
-      rawPoints: [],
-      nonTradingDay: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
-      sourceAgeTradingDays: null,
-    });
-    summaryDraft.naverInvestorTrendAdr0481 = naverInvestorTrendAdr0481;
+    const firstSymbol = firstSnapshot?.symbol ?? 'UNIVERSE';
+    const todayKst = new Date(kstNow.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10);
+    const sellOnlyOrClosed = options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false;
     const supplySnapshotCacheLookupAdr0491 = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
-      symbol: firstSnapshot?.symbol ?? 'UNIVERSE',
+      symbol: firstSymbol,
       source: 'NAVER_INVESTOR_TREND',
       domain: 'SUPPLY',
-      tradingDate: new Date(kstNow.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10),
+      tradingDate: todayKst,
     });
     const cacheRaw = supplySnapshotCacheLookupAdr0491.cacheRaw;
-    const semanticInputs = naverInvestorTrendAdr0481.semanticNetBuyCandidate
-      ? [{
-          code: naverInvestorTrendAdr0481.code,
-          provider: 'NAVER' as const,
-          sourceDate: naverInvestorTrendAdr0481.semanticNetBuyCandidate.sourceDate,
-          rawForeignNetBuy: naverInvestorTrendAdr0481.semanticNetBuyCandidate.foreignNetBuy,
-          rawInstitutionNetBuy: naverInvestorTrendAdr0481.semanticNetBuyCandidate.institutionNetBuy,
-          rawProgramNetBuy: naverInvestorTrendAdr0481.semanticNetBuyCandidate.programNetBuy,
-          unit: 'KRW' as const,
-          status: naverInvestorTrendAdr0481.semanticNetBuyCandidate.status,
-          sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
-          diagnostics: ['ADR-0481 NAVER collector candidate consumed by ADR-0482.'],
-        }]
-      : cacheRaw
-        ? [{
-            code: firstSnapshot?.symbol ?? 'UNIVERSE',
-            provider: 'CACHE' as const,
-            sourceDate: typeof cacheRaw.sourceDate === 'string' ? cacheRaw.sourceDate : null,
-            rawForeignNetBuy: typeof cacheRaw.foreignNetBuy === 'number' ? cacheRaw.foreignNetBuy : null,
-            rawInstitutionNetBuy: typeof cacheRaw.institutionNetBuy === 'number' ? cacheRaw.institutionNetBuy : null,
-            rawProgramNetBuy: typeof cacheRaw.programNetBuy === 'number' ? cacheRaw.programNetBuy : null,
-            unit: 'KRW' as const,
-            status: supplySnapshotCacheLookupAdr0491.stale ? 'STALE' : supplySnapshotCacheLookupAdr0491.status === 'CACHE_HIT' ? 'VERIFIED' : 'DATA_UNAVAILABLE',
-            sourceAgeTradingDays: supplySnapshotCacheLookupAdr0491.stale ? 4 : 0,
-            diagnostics: ['ADR-0491 sanitized CACHE snapshot consumed by ADR-0482 as SHADOW_ONLY input; raw payload not persisted.'],
-          }]
-        : [];
+    const cachedNaverPoint = cacheRawToNaverInvestorTrendPointAdr0481(cacheRaw);
+    const naverInvestorTrendAdr0481 = buildNaverInvestorTrendCollectorResultAdr0481({
+      code: firstSymbol,
+      requestedDays: 5,
+      rawPoints: cachedNaverPoint ? [cachedNaverPoint] : [],
+      nonTradingDay: sellOnlyOrClosed,
+      sourceAgeTradingDays: cachedNaverPoint ? (supplySnapshotCacheLookupAdr0491.stale || sellOnlyOrClosed ? 4 : 0) : null,
+    });
+    summaryDraft.naverInvestorTrendAdr0481 = naverInvestorTrendAdr0481;
+    const semanticInputs = [
+      naverCollectorToSemanticInputAdr0482(naverInvestorTrendAdr0481),
+      cacheRawToSemanticInputAdr0482({ code: firstSymbol, cacheRaw, stale: supplySnapshotCacheLookupAdr0491.stale }),
+    ].filter((item): item is SemanticNetBuyInputPoint => Boolean(item));
     const semanticNetBuyNormalizationAdr0482 = buildSemanticNetBuyNormalizationReportAdr0482({
-      code: firstSnapshot?.symbol ?? 'UNIVERSE',
+      code: firstSymbol,
       generatedAt: kstNow.toISOString(),
       inputs: semanticInputs,
     });
     summaryDraft.semanticNetBuyNormalizationAdr0482 = semanticNetBuyNormalizationAdr0482;
     const investorFlowProviderRouter = buildInvestorFlowProviderRouteResultAdr0477({
-      code: firstSnapshot?.symbol ?? 'UNIVERSE',
+      code: firstSymbol,
       collectedAt: kstNow.toISOString(),
       naverCollectorWired: true,
       naverCollectorResultAdr0481: naverInvestorTrendAdr0481,
@@ -2100,8 +2142,8 @@ export async function persistScanResults(
       cacheRaw: null,
       previousTradingDayCacheRaw: null,
       kisTriedForInvestorFlow: true,
-      nonTradingDay: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
-      sourceAgeTradingDays: null,
+      nonTradingDay: sellOnlyOrClosed,
+      sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
       cacheAgeTradingDays: null,
       marketProgramStatus: 'ACCEPTED_EMPTY',
       fssSourceAgeTradingDays: 5,
@@ -2120,8 +2162,14 @@ export async function persistScanResults(
         {
           source: 'SEMANTIC_NETBUY',
           cacheUpdatedAt: null,
-          sourceDate: semanticNetBuyNormalizationAdr0482.selectedSample?.sourceDate ?? null,
-          providerStatus: semanticNetBuyNormalizationAdr0482.selectedSample ? 'OK' : 'EMPTY',
+          sourceDate: semanticNetBuyNormalizationAdr0482.selectedSample?.sourceDate ?? semanticNetBuyNormalizationAdr0482.samples[0]?.sourceDate ?? null,
+          providerStatus: semanticNetBuyNormalizationAdr0482.selectedSample
+            ? 'OK'
+            : semanticNetBuyNormalizationAdr0482.status === 'STALE'
+              ? 'STALE'
+              : semanticNetBuyNormalizationAdr0482.samples.length > 0
+                ? 'STALE'
+                : 'EMPTY',
         },
         {
           source: 'FSS',

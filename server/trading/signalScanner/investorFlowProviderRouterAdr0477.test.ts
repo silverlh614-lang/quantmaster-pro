@@ -180,7 +180,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     });
 
     expect(positive.signal).toBe('BULLISH');
-    expect(positive.selectedProvider).toBe('NAVER');
+    expect(positive.selectedProvider).toBe('NAVER_INVESTOR_TREND');
     expect(positive.liveExecutionAllowed).toBe(false);
     expect(negative.signal).toBe('BEARISH');
     expect(staleNegative.signal).toBe('UNKNOWN');
@@ -202,7 +202,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       cacheAgeTradingDays: 1,
     });
 
-    expect(route.selectedProvider).toBe('NAVER');
+    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
     expect(route.providerTried).toEqual(['NAVER', 'SEMANTIC_NETBUY', 'CACHE']);
     expect(route.coverage.available).toBeGreaterThanOrEqual(1);
     expect(route.liveExecutionAllowed).toBe(false);
@@ -260,6 +260,71 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.freshness.cacheState).toBe('STALE');
     expect(route.signal).toBe('UNKNOWN');
     expect(route.liveExecutionAllowed).toBe(false);
+  });
+
+  it('prefers fresh NAVER, fresh SemanticNetBuy, stale NAVER, stale SemanticNetBuy, then CACHE fallback', () => {
+    const naverFresh = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorResultAdr0481: buildNaverInvestorTrendCollectorResultAdr0481({
+        code: '005930',
+        rawPoints: [{ date: '2026-05-11', foreignNetBuy: 10, institutionNetBuy: 20 }],
+      }),
+      semanticNetBuyNormalizationAdr0482: buildSemanticNetBuyNormalizationReportAdr0482({
+        code: '005930',
+        inputs: [{ code: '005930', provider: 'CACHE', sourceDate: '2026-05-04', rawForeignNetBuy: 1, rawInstitutionNetBuy: 1, unit: 'KRW', status: 'STALE', sourceAgeTradingDays: 4 }],
+      }),
+      cacheRaw: { foreignNetBuy: 1, institutionNetBuy: 1, sourceDate: '2026-05-04', status: 'STALE' },
+    });
+    expect(naverFresh.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(naverFresh.cacheFallbackUsed).toBe(false);
+
+    const semanticFresh = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      semanticNetBuyNormalizationAdr0482: buildSemanticNetBuyNormalizationReportAdr0482({
+        code: '005930',
+        inputs: [{ code: '005930', provider: 'NAVER', sourceDate: '2026-05-11', rawForeignNetBuy: 10, rawInstitutionNetBuy: 20, unit: 'KRW' }],
+      }),
+      cacheRaw: { foreignNetBuy: 1, institutionNetBuy: 1, sourceDate: '2026-05-04', status: 'STALE' },
+    });
+    expect(semanticFresh.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(semanticFresh.liveExecutionAllowed).toBe(false);
+
+    const naverStale = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorResultAdr0481: buildNaverInvestorTrendCollectorResultAdr0481({
+        code: '005930',
+        nonTradingDay: true,
+        rawPoints: [{ date: '2026-05-08', foreignNetBuy: 10, institutionNetBuy: 20 }],
+      }),
+      semanticNetBuyNormalizationAdr0482: buildSemanticNetBuyNormalizationReportAdr0482({
+        code: '005930',
+        inputs: [{ code: '005930', provider: 'CACHE', sourceDate: '2026-05-04', rawForeignNetBuy: 1, rawInstitutionNetBuy: 1, unit: 'KRW', status: 'STALE', sourceAgeTradingDays: 4 }],
+      }),
+    });
+    expect(naverStale.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(naverStale.status).toBe('STALE');
+    expect(naverStale.signal).toBe('UNKNOWN');
+
+    const semanticStale = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      semanticNetBuyNormalizationAdr0482: buildSemanticNetBuyNormalizationReportAdr0482({
+        code: '005930',
+        inputs: [{ code: '005930', provider: 'CACHE', sourceDate: '2026-05-04', rawForeignNetBuy: 1, rawInstitutionNetBuy: 1, unit: 'KRW', status: 'STALE', sourceAgeTradingDays: 4 }],
+      }),
+    });
+    expect(semanticStale.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(semanticStale.semanticInputStatus).toBe('STALE');
+
+    const cacheOnly = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      cacheRaw: { foreignNetBuy: 1, institutionNetBuy: 1, sourceDate: '2026-05-04', status: 'STALE' },
+      cacheAgeTradingDays: 4,
+    });
+    expect(cacheOnly.selectedProvider).toBe('CACHE');
+    expect(cacheOnly.cacheFallbackUsed).toBe(true);
   });
 
   it('semantic normalizer excludes ACCEPTED_EMPTY from score and does not persist raw payloads', () => {
