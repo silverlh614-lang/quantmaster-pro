@@ -356,6 +356,10 @@ function buildSemanticMaterializationDiagnostics(input: {
   const realInputSources = Array.from(new Set(input.samples.map((sample) => sample.provider)));
   const inputSourceKind = semanticInputSourceKind(input.samples, input.inputsCount);
   const placeholderDetected = input.inputsCount === 0 || input.samples.length === 0 || realInputSources.length === 0;
+  const realMaterializedInput = materializedSamples.length > 0
+    && !placeholderDetected
+    && inputSourceKind !== 'SEMANTIC_DERIVED'
+    && inputSourceKind !== 'AI_ESTIMATED';
   const avgFieldCoverage = input.samples.length === 0
     ? 0
     : input.samples.reduce((sum, sample) => sum + (sample.coverage.availableFields / sample.coverage.totalFields), 0) / input.samples.length;
@@ -378,6 +382,7 @@ function buildSemanticMaterializationDiagnostics(input: {
           : materializedSamples.length > 0 ? 'LOW' : 'MISSING',
     blockedReason: input.inputsCount === 0 ? 'NO_INPUT_SAMPLE'
       : placeholderDetected ? 'PLACEHOLDER_ONLY'
+        : realMaterializedInput ? 'NONE'
         : inputSourceKind === 'SEMANTIC_DERIVED' || inputSourceKind === 'AI_ESTIMATED' ? 'NO_REAL_INPUT_SOURCE'
           : undefined,
     staleReason: materializedSamples.some((sample) => sample.status === 'STALE') ? 'STALE_INPUT_ONLY' : null,

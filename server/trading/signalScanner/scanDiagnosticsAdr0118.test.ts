@@ -16,6 +16,14 @@ describe('ADR-0491 supply snapshot cache lookup date', () => {
     expect(source).toContain("const todayKst = kstNow.toISOString().slice(0, 10);");
     expect(source).not.toContain('kstNow.getTime() + 9 * 60 * 60_000');
   });
+
+  it('forces NAVER investor trend collection before falling back to sanitized cache', () => {
+    const source = readFileSync(new URL('./scanDiagnostics.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain('await collectNaverInvestorTrendCollectorResultAdr0481');
+    expect(source).toContain('previousTradingDateCandidateAdr0491(todayKst)');
+    expect(source).toContain('if (!naverInvestorTrendAdr0481.materializationDiagnostics.sampleMaterialized && cachedNaverPoint)');
+  });
 });
 
 describe('createScanCounters — ADR-0118 신규 카운터 초기화', () => {

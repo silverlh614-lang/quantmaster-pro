@@ -91,6 +91,12 @@ export interface NaverInvestorTrendCollectorInput {
   sourceAgeTradingDays?: number | null;
 }
 
+export interface NaverInvestorTrendFetchOptionsAdr0481 {
+  requestedDays?: number;
+  tradingDateCandidates?: readonly string[];
+  fetchImpl?: typeof fetch;
+}
+
 const ADR_0481_POLICY = {
   executionImpact: 'NONE',
   liveExecutionAllowed: false,
@@ -99,8 +105,133 @@ const ADR_0481_POLICY = {
   operatorApprovalRequired: true,
 } as const;
 
+const NAVER_INVESTOR_TREND_URL = 'https://finance.naver.com/item/frgn.naver';
+const NAVER_INVESTOR_TREND_TIMEOUT_MS = 6000;
+const NAVER_INVESTOR_TREND_HEADERS = {
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+  'Referer': 'https://finance.naver.com/',
+} as const;
+
 function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function normalizeCode(input: string): string {
+  const digits = input.replace(/[^0-9]/g, '');
+  if (digits.length === 0) return '';
+  return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
+}
+
+function normalizeDate(input: string): string | null {
+  const matched = /(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})/.exec(input);
+  if (!matched) return null;
+  const [, year, month, day] = matched;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function stripTags(input: string): string {
+  return input
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&minus;/gi, '-')
+    .replace(/&plus;/gi, '+')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseNaverNumber(input: string): number | null {
+  const cleaned = input
+    .replace(/,/g, '')
+    .replace(/%/g, '')
+    .replace(/[^\d+\-.()]/g, '')
+    .trim();
+  if (!cleaned) return null;
+  const parenthesized = /^\((.*)\)$/.exec(cleaned);
+  const normalized = parenthesized ? `-${parenthesized[1]}` : cleaned;
+  if (!/^[+-]?\d+(\.\d+)?$/.test(normalized)) return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
+function uniquePoints(points: readonly NaverInvestorTrendRawPoint[]): NaverInvestorTrendRawPoint[] {
+  const byDate = new Map<string, NaverInvestorTrendRawPoint>();
+  for (const point of points) {
+    if (!point.date) continue;
+    byDate.set(point.date, point);
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function parseNaverInvestorTrendHtmlAdr0481(html: string): NaverInvestorTrendRawPoint[] {
+  const rows = [...html.matchAll(/<tr\b[\s\S]*?<\/tr>/gi)].map((match) => match[0]);
+  const points: NaverInvestorTrendRawPoint[] = [];
+  for (const row of rows) {
+    const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => stripTags(match[1] ?? ''));
+    const dateCell = cells.find((cell) => normalizeDate(cell));
+    const date = dateCell ? normalizeDate(dateCell) : null;
+    if (!date) continue;
+    const values = cells
+      .filter((cell) => !normalizeDate(cell))
+      .map(parseNaverNumber)
+      .filter((value): value is number => finiteNumber(value));
+    // finance.naver.com/item/frgn.naver columns are date, close, diff, rate,
+    // volume, institution net buy, foreign net buy, then ownership fields.
+    const institutionNetBuy = values[4] ?? null;
+    const foreignNetBuy = values[5] ?? null;
+    if (!finiteNumber(institutionNetBuy) && !finiteNumber(foreignNetBuy)) continue;
+    points.push({
+      date,
+      foreignNetBuy,
+      institutionNetBuy,
+      individualNetBuy: null,
+      programNetBuy: null,
+    });
+  }
+  return uniquePoints(points);
+}
+
+function selectTradingDateWindowAdr0481(
+  points: readonly NaverInvestorTrendRawPoint[],
+  tradingDateCandidates: readonly string[] | undefined,
+  requestedDays: number,
+): NaverInvestorTrendRawPoint[] {
+  const rowsByDate = uniquePoints(points);
+  if (rowsByDate.length === 0) return [];
+  const candidates = (tradingDateCandidates ?? []).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
+  const exact = candidates.length > 0
+    ? rowsByDate.filter((point) => candidates.includes(point.date))
+    : [];
+  if (exact.length > 0) return exact.slice(-requestedDays);
+  const anchor = candidates[0];
+  const bounded = anchor ? rowsByDate.filter((point) => point.date <= anchor) : rowsByDate;
+  return (bounded.length > 0 ? bounded : rowsByDate).slice(-requestedDays);
+}
+
+export async function fetchNaverInvestorTrendRawPointsAdr0481(
+  code: string,
+  options: NaverInvestorTrendFetchOptionsAdr0481 = {},
+): Promise<NaverInvestorTrendRawPoint[]> {
+  const safeCode = normalizeCode(code);
+  if (!/^\d{6}$/.test(safeCode)) return [];
+  const requestedDays = options.requestedDays ?? 5;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const pages = [1, 2];
+  const rawPoints: NaverInvestorTrendRawPoint[] = [];
+  for (const page of pages) {
+    const url = `${NAVER_INVESTOR_TREND_URL}?code=${safeCode}&page=${page}`;
+    const response = await fetchImpl(url, {
+      headers: NAVER_INVESTOR_TREND_HEADERS,
+      signal: AbortSignal.timeout(NAVER_INVESTOR_TREND_TIMEOUT_MS),
+    });
+    if (!response.ok) continue;
+    rawPoints.push(...parseNaverInvestorTrendHtmlAdr0481(await response.text()));
+    if (rawPoints.length >= requestedDays) break;
+  }
+  return selectTradingDateWindowAdr0481(rawPoints, options.tradingDateCandidates, requestedDays);
 }
 
 function normalizePoint(point: NaverInvestorTrendRawPoint): NaverInvestorTrendNormalizedPoint {
@@ -163,6 +294,7 @@ function buildNaverMaterializationDiagnostics(
     lastSuccessfulSampleAt: latest?.date ?? null,
     confidenceLevel: status === 'DATA_AVAILABLE' ? 'VERIFIED' : status === 'PARTIAL' ? 'PARTIAL' : status === 'STALE' ? 'DEGRADED' : 'MISSING',
     staleReason: status === 'STALE' ? `sourceAgeTradingDays=${input.sourceAgeTradingDays ?? 'UNKNOWN'}` : null,
+    blockedReason: materializedPoints.length > 0 ? 'NONE' : undefined,
     hardBlocked: status === 'DISABLED' || status === 'PROVIDER_ERROR' || status === 'PARSE_ERROR',
     safePreview: materializedPoints.slice(-3).map((point) => ({
       code: input.code,
@@ -295,6 +427,38 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
       'rawPayloadPersistenceAllowed=false',
     ],
   };
+}
+
+export async function collectNaverInvestorTrendCollectorResultAdr0481(
+  input: NaverInvestorTrendCollectorInput & NaverInvestorTrendFetchOptionsAdr0481,
+): Promise<NaverInvestorTrendCollectorResult> {
+  const suppliedRawPoints = input.rawPoints?.some((point) => typeof point.date === 'string' && point.date.length > 0) === true;
+  if (suppliedRawPoints || input.disabled === true || input.parseError === true || input.providerError === true) {
+    return buildNaverInvestorTrendCollectorResultAdr0481(input);
+  }
+  try {
+    const rawPoints = await fetchNaverInvestorTrendRawPointsAdr0481(input.code, {
+      requestedDays: input.requestedDays,
+      tradingDateCandidates: input.tradingDateCandidates,
+      fetchImpl: input.fetchImpl,
+    });
+    return buildNaverInvestorTrendCollectorResultAdr0481({
+      ...input,
+      rawPoints,
+      sourceAgeTradingDays: input.sourceAgeTradingDays ?? (input.nonTradingDay === true ? 1 : 0),
+    });
+  } catch (error) {
+    return {
+      ...emptyResult(input, input.nonTradingDay === true ? 'NON_TRADING_DAY' : 'PROVIDER_ERROR', input.nonTradingDay === true
+        ? `previousTradingDate fallback fetch failed; ${error instanceof Error ? error.message : String(error)}`
+        : `NAVER investor trend fetch failed; ${error instanceof Error ? error.message : String(error)}`),
+      diagnostics: [
+        'ADR-0481 NAVER collector fetch isolated.',
+        error instanceof Error ? error.message : String(error),
+        'UNKNOWN/provider issue is not bearish.',
+      ],
+    };
+  }
 }
 
 export function safeBuildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvestorTrendCollectorInput): NaverInvestorTrendCollectorResult {
