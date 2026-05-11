@@ -1269,6 +1269,13 @@ function krxDiagnosticToRouterInputAdr0505(
     bld: diagnostic.bld,
     tradeDate: diagnostic.tradeDate,
     previousTradingDateCandidate,
+    endpointVariant: diagnostic.endpointVariant,
+    dateParam: diagnostic.dateParam,
+    marketCode: diagnostic.marketCode,
+    symbolCode: diagnostic.symbolCode,
+    parameterKeys: diagnostic.parameterKeys,
+    attemptedVariants: diagnostic.attemptedVariants,
+    selectedVariant: diagnostic.selectedVariant,
     contentType: diagnostic.contentType,
     httpStatus: diagnostic.httpStatus,
     responseKind: diagnostic.responseKind,
@@ -2231,7 +2238,7 @@ export async function persistScanResults(
     let krxSemanticInputAdr0482: SemanticNetBuyInputPoint | null = null;
     let krxInvestorDiagnosticAdr0505: InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505'] = null;
     try {
-      const krxInvestorRows = await fetchInvestorTrading(krxTradeDate);
+      const krxInvestorRows = await fetchInvestorTrading(krxTradeDate, { symbol: firstSymbol });
       krxInvestorDiagnosticAdr0505 = krxDiagnosticToRouterInputAdr0505(
         getLastKrxInvestorTradingDiagnostic(krxTradeDate),
         previousTradingDateCandidate,
@@ -2265,6 +2272,13 @@ export async function persistScanResults(
         bld: 'dbms/MDC/STAT/standard/MDCSTAT02203',
         tradeDate: krxTradeDate,
         previousTradingDateCandidate,
+        endpointVariant: 'MDCSTAT02203:SYMBOL_INVESTOR_FLOW:UNKNOWN:UNKNOWN',
+        dateParam: 'UNKNOWN',
+        marketCode: 'UNKNOWN',
+        symbolCode: normalizeSymbolCodeAdr0505(firstSymbol),
+        parameterKeys: [],
+        attemptedVariants: [],
+        selectedVariant: null,
         contentType: 'unknown',
         httpStatus: null,
         responseKind: 'NETWORK_ERROR',

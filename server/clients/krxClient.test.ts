@@ -162,6 +162,72 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(getLastKrxInvestorTradingDiagnostic('20250420')?.selectedRowPath).toBe('result.rows');
   });
 
+  it('tries endpoint/date/market variants after MDCSTAT02203 HTTP 400 and selects first valid KRX row', async () => {
+    const fetchSpy = vi.fn().mockImplementation(async (_url, init) => {
+      const body = String(init?.body ?? '');
+      if (body.includes('MDCSTAT02201') && body.includes('trdDd=20260508') && body.includes('mktId=STK')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          text: async () => JSON.stringify({
+            output: [{
+              ISU_SRT_CD: '005930',
+              ISU_ABBRV: 'Samsung',
+              FORN_INVSTR_NETBY_QTY: '100',
+              ORGN_INVSTR_NETBY_QTY: '200',
+              INDIV_INVSTR_NETBY_QTY: '-300',
+            }],
+          }),
+        };
+      }
+      return {
+        ok: false,
+        status: 400,
+        headers: { get: () => 'text/plain' },
+        text: async () => 'bad request',
+      };
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508', { symbol: '005930' });
+    expect(rows).toEqual([{ code: '005930', name: 'Samsung', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 }]);
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+    expect(diagnostic?.endpoint).toBe('MDCSTAT02201');
+    expect(diagnostic?.selectedVariant).toContain('MDCSTAT02201');
+    expect(diagnostic?.attemptedVariants?.some((variant) => variant.includes('MDCSTAT02203'))).toBe(true);
+    expect(diagnostic?.routeKind).toBe('MARKET_INVESTOR_FLOW');
+    expect(diagnostic?.dateParam).toBe('trdDd');
+    expect(diagnostic?.marketCode).toBe('STK');
+    expect(diagnostic?.symbolCode).toBeNull();
+    expect(diagnostic?.parameterKeys).toContain('trdDd');
+    expect(diagnostic?.responseKind).toBe('JSON');
+    expect(diagnostic?.httpStatus).toBe(200);
+  });
+
+  it('records safe variant diagnostics when every KRX investor-flow variant returns HTTP 400', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: { get: () => 'text/plain' },
+      text: async () => 'bad request',
+    }) as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    await expect(fetchInvestorTrading('20260508', { symbol: '005930' })).resolves.toEqual([]);
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+    expect(diagnostic?.parserStatus).toBe('PROVIDER_EMPTY_RESPONSE');
+    expect(diagnostic?.endpointIssueHint).toBe('ENDPOINT_PARAMETER_ERROR');
+    expect(diagnostic?.responseKind).toBe('HTTP_ERROR');
+    expect(diagnostic?.httpStatus).toBe(400);
+    expect((diagnostic?.attemptedVariants?.length ?? 0)).toBeGreaterThan(1);
+    expect(diagnostic?.summary).toContain('selectedVariant=NONE');
+    expect(JSON.stringify(diagnostic)).not.toContain('bad request');
+  });
+
   it('동일 날짜 재호출은 캐시 히트로 fetch 를 한 번만 사용한다', async () => {
     const body = { OutBlock_1: [] };
     const fetchSpy = vi.fn().mockResolvedValue({
