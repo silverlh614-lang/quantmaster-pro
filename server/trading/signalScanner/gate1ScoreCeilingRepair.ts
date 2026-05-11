@@ -5,6 +5,7 @@ import type {
   PositiveSignalComponentCode,
   ScoreConfidence,
 } from './gate1PositiveScoreStarvation.js';
+import { resolveWatchlistUpstreamScore, summarizeWatchlistScoreSources } from './watchlistUpstreamScoreResolver.js';
 
 export const ADR_0468_SCORE_CEILING_REPAIR_ENABLED = false;
 export const ADR_0468_SCORE_CEILING_REPAIR_DRY_RUN = true;
@@ -76,6 +77,10 @@ export interface WatchlistScoreImportResult {
   importApplied: boolean;
   importMode: WatchlistScoreImportMode;
   zeroReason?: string;
+  sourceField?: string;
+  rawScore?: number;
+  normalized100?: number;
+  currentPathConfidence?: 'VERIFIED' | 'MISSING' | 'UNKNOWN';
   executionImpact: 'NONE';
 }
 
@@ -222,6 +227,9 @@ export interface Gate1ScoreCeilingRepairReport {
   scoreCeilingRepairAudit: Gate1ScoreCeilingRepairAudit;
   weightMapAudit: Gate1PositiveWeightMapAudit;
   watchlistScoreImports: WatchlistScoreImportResult[];
+  watchlistScoreVerified: number;
+  watchlistScoreMissing: number;
+  watchlistScoreSourceFieldDistribution: Record<string, number>;
   relativeStrengthTraces: RelativeStrengthScoreTrace[];
   breakoutStructureTraces: BreakoutStructureScoreTrace[];
   otherPositiveDecompositions: OtherPositiveDecomposition[];
@@ -369,9 +377,12 @@ export function buildWatchlistScoreImportResult(input: {
   const maxImportScore = input.maxImportScore ?? 15;
   let importedScore = 0;
   let importMode: WatchlistScoreImportMode = 'NONE';
-  if (finite(input.upstreamCandidateScore) || finite(input.watchlistScore)) {
-    const rawScore = input.upstreamCandidateScore ?? input.watchlistScore ?? 0;
-    importedScore = clamp((rawScore / 100) * maxImportScore, 0, maxImportScore);
+  const resolvedWatchlistScore = resolveWatchlistUpstreamScore({
+    totalGateScore: input.upstreamCandidateScore,
+    watchlistScore: input.watchlistScore,
+  });
+  if (resolvedWatchlistScore.confidence === 'VERIFIED') {
+    importedScore = clamp((resolvedWatchlistScore.normalized100 / 100) * maxImportScore, 0, maxImportScore);
     importMode = 'SCORE_BASED';
   } else if (finite(input.watchlistRank) && (input.totalCandidates ?? 0) > 0) {
     const pct = input.watchlistRank / Math.max(1, input.totalCandidates ?? 1);
@@ -392,7 +403,11 @@ export function buildWatchlistScoreImportResult(input: {
     maxImportScore,
     importApplied: importedScore > 0,
     importMode,
-    zeroReason: importedScore > 0 ? undefined : 'WATCHLIST_UPSTREAM_SCORE_NOT_AVAILABLE',
+    zeroReason: importedScore > 0 ? undefined : 'WATCHLIST_SCORE_MISSING',
+    sourceField: resolvedWatchlistScore.sourceField,
+    rawScore: resolvedWatchlistScore.rawScore,
+    normalized100: resolvedWatchlistScore.normalized100,
+    currentPathConfidence: resolvedWatchlistScore.confidence,
     executionImpact: 'NONE',
   };
 }
@@ -795,6 +810,14 @@ export function buildGate1ScoreCeilingRepairReport(
         totalCandidates: traces.length,
       }))
     : [];
+  const watchlistSourceSummary = summarizeWatchlistScoreSources(watchlistScoreImports.map((item) => ({
+    sourceField: item.sourceField as never,
+    rawScore: item.rawScore,
+    normalized100: item.normalized100 ?? 0,
+    confidence: item.currentPathConfidence ?? (item.importApplied ? 'VERIFIED' : 'MISSING'),
+    reason: item.zeroReason === 'WATCHLIST_SCORE_MISSING' ? 'WATCHLIST_SCORE_MISSING' : undefined,
+    message: item.zeroReason ?? item.importMode,
+  })));
   const watchlistImportAvg = watchlistScoreImports.length > 0
     ? avg(watchlistScoreImports.map((item) => item.importedScore))
     : zeroCount(report, 'WATCHLIST_UPSTREAM_SCORE') >= report.totalCandidates ? 5 : 0;
@@ -853,6 +876,9 @@ export function buildGate1ScoreCeilingRepairReport(
     scoreCeilingRepairAudit: repairAudit,
     weightMapAudit,
     watchlistScoreImports,
+    watchlistScoreVerified: watchlistSourceSummary.verified,
+    watchlistScoreMissing: watchlistSourceSummary.missing,
+    watchlistScoreSourceFieldDistribution: watchlistSourceSummary.sourceFieldDistribution,
     relativeStrengthTraces,
     breakoutStructureTraces,
     otherPositiveDecompositions,
@@ -885,7 +911,8 @@ export function formatGate1ScoreCeilingRepairReport(
     `  scoreCeilingWarning: ${audit.requiredReachableBefore ? 'NONE' : 'SCORE_CEILING_BELOW_THRESHOLD'}`,
     '  Positive component wiring:',
     `  OTHER_POSITIVE share: ${weights.otherPositiveSharePct.toFixed(1)}%`,
-    `  WATCHLIST_UPSTREAM_SCORE: zero ${zeroCountFor('WATCHLIST_UPSTREAM_SCORE')} / imported dry-run avg +${round1(watchlistAvg).toFixed(1)}`,
+    `  WATCHLIST_UPSTREAM_SCORE: verified ${report.watchlistScoreVerified} / missing ${report.watchlistScoreMissing} / current avg +${round1(watchlistAvg).toFixed(1)}`,
+    `  sourceField distribution: ${Object.entries(report.watchlistScoreSourceFieldDistribution).map(([field, count]) => `${field}=${count}`).join(', ') || 'none=0'}`,
     `  RELATIVE_STRENGTH: zero ${zeroCountFor('RELATIVE_STRENGTH')} / restored dry-run avg +${zeroCountFor('RELATIVE_STRENGTH') > 0 ? '9.0' : '0.0'}`,
     `  BREAKOUT_STRUCTURE: zero ${zeroCountFor('BREAKOUT_STRUCTURE')} / restored dry-run avg +${zeroCountFor('BREAKOUT_STRUCTURE') > 0 ? '5.0' : '0.0'}`,
     '  Score repair dry-run:',
