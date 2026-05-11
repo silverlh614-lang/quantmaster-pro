@@ -229,6 +229,18 @@ function numericTraceValue(trace: CandidateEntryTrace, keys: readonly string[]):
   return undefined;
 }
 
+function nestedNumericTraceValue(trace: CandidateEntryTrace, paths: readonly string[]): number | undefined {
+  const root = trace as unknown as Record<string, unknown>;
+  for (const path of paths) {
+    const value = path.split('.').reduce<unknown>((current, part) => {
+      if (current && typeof current === 'object') return (current as Record<string, unknown>)[part];
+      return undefined;
+    }, root);
+    if (finite(value)) return value;
+  }
+  return undefined;
+}
+
 function stringArrayTraceValue(trace: CandidateEntryTrace, key: string): string[] | undefined {
   const value = (trace as unknown as Record<string, unknown>)[key];
   return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined;
@@ -274,72 +286,127 @@ function isBreakoutUnavailable(value: unknown): boolean {
 
 function normalizePercentReturnTo100(value: number): number {
   const percentValue = Math.abs(value) <= 1 ? value * 100 : value;
-  return clamp(((percentValue + 10) / 30) * 100, 0, 100);
+  return clamp(((percentValue + 10) / 20) * 100, 0, 100);
 }
 
-function normalizedRelativeStrength(trace: CandidateEntryTrace): {
+function percentReturn(value: number): number {
+  return Math.abs(value) <= 1 ? value * 100 : value;
+}
+
+export function scoreRelativeStrength(input: {
+  return20d?: number;
+  return5d?: number;
+  kospi20dReturn?: number;
+  explicitRelativeStrength?: number;
+  marketRelativeReturn?: number;
+}): {
   rawValue?: unknown;
   normalizedScore: number;
+  weightedScore: number;
+  maxScore: 10;
   confidence: SignalScoreComponentConfidence;
   providerIssue: boolean;
+  marketSignal: boolean;
   message: string;
 } {
-  const explicitRelativeStrength = numericTraceValue(trace, ['relativeStrengthScore', 'relativeStrength', 'rsRankPct']);
-  if (explicitRelativeStrength !== undefined) {
+  if (finite(input.explicitRelativeStrength)) {
+    const normalizedScore = normalizeSignalScoreTo100(input.explicitRelativeStrength);
     return {
-      rawValue: explicitRelativeStrength,
-      normalizedScore: normalizeSignalScoreTo100(explicitRelativeStrength),
+      rawValue: input.explicitRelativeStrength,
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 10),
+      maxScore: 10,
       confidence: 'VERIFIED',
       providerIssue: false,
+      marketSignal: false,
       message: 'Relative strength component imported from explicit candidate ranking/source.',
     };
   }
-  const marketRelative = numericTraceValue(trace, ['marketRelativeReturn', 'kospiRelativeReturn', 'relativeReturn20d']);
-  if (marketRelative !== undefined) {
+
+  if (finite(input.marketRelativeReturn)) {
+    const relativeReturn20d = percentReturn(input.marketRelativeReturn);
+    const normalizedScore = normalizePercentReturnTo100(relativeReturn20d);
     return {
-      rawValue: { marketRelativeReturn: marketRelative },
-      normalizedScore: normalizePercentReturnTo100(marketRelative),
+      rawValue: { relativeReturn20d },
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 10),
+      maxScore: 10,
       confidence: 'VERIFIED',
       providerIssue: false,
-      message: 'Relative strength component computed from market-relative return.',
+      marketSignal: false,
+      message: 'Relative strength component computed from explicit market-relative return.',
     };
   }
-  const return20d = numericTraceValue(trace, ['return20d']);
-  if (return20d !== undefined) {
+
+  if (finite(input.return20d)) {
+    const return20d = percentReturn(input.return20d);
+    const kospi20dReturn = finite(input.kospi20dReturn) ? percentReturn(input.kospi20dReturn) : undefined;
+    const relativeReturn20d = kospi20dReturn === undefined ? return20d : return20d - kospi20dReturn;
+    const normalizedScore = normalizePercentReturnTo100(relativeReturn20d);
     return {
-      rawValue: { return20d },
-      normalizedScore: normalizePercentReturnTo100(return20d),
+      rawValue: { return20d, kospi20dReturn, relativeReturn20d },
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 10),
+      maxScore: 10,
       confidence: 'VERIFIED',
       providerIssue: false,
-      message: 'Relative strength component computed from 20-day return.',
+      marketSignal: false,
+      message: kospi20dReturn === undefined
+        ? 'Relative strength component computed from candidate 20-day return because KOSPI 20-day return is unavailable.'
+        : 'Relative strength component computed from candidate 20-day return minus KOSPI 20-day return.',
     };
   }
-  const return5d = numericTraceValue(trace, ['return5d']);
-  if (return5d !== undefined) {
+
+  if (finite(input.return5d)) {
+    const return5d = percentReturn(input.return5d);
+    const normalizedScore = clamp(((return5d + 5) / 15) * 100, 0, 100);
     return {
       rawValue: { return5d },
-      normalizedScore: clamp((((Math.abs(return5d) <= 1 ? return5d * 100 : return5d) + 5) / 15) * 100, 0, 100),
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 10),
+      maxScore: 10,
       confidence: 'DEGRADED',
       providerIssue: false,
-      message: 'Relative strength component computed from short-horizon 5-day return proxy.',
+      marketSignal: false,
+      message: 'Relative strength component computed from short-horizon 5-day return fallback.',
     };
   }
+
+  return {
+    normalizedScore: 0,
+    weightedScore: 0,
+    maxScore: 10,
+    confidence: 'MISSING',
+    providerIssue: false,
+    marketSignal: false,
+    message: 'Relative strength source missing; contribution is 0 and is not treated as provider or bearish penalty.',
+  };
+}
+
+function normalizedRelativeStrength(trace: CandidateEntryTrace, macroGateState?: MacroGateState): ReturnType<typeof scoreRelativeStrength> {
+  const explicitRelativeStrength = nestedNumericTraceValue(trace, ['relativeStrengthScore', 'relativeStrength', 'rsRankPct', 'conditionResults.relative_strength.score', 'conditionResults.relative_strength.normalizedScore']);
+  const marketRelativeReturn = nestedNumericTraceValue(trace, ['marketRelativeReturn', 'kospiRelativeReturn', 'relativeReturn20d', 'conditionResults.relative_strength.relativeReturn20d']);
+  const return20d = nestedNumericTraceValue(trace, ['return20d', 'quote.return20d']);
+  const return5d = nestedNumericTraceValue(trace, ['return5d', 'quote.return5d']);
+  const kospi20dReturn = nestedNumericTraceValue(trace, ['kospi20dReturn', 'macroState.kospi20dReturn'])
+    ?? ((macroGateState as unknown as Record<string, unknown> | undefined)?.kospi20dReturn as number | undefined);
+  const scored = scoreRelativeStrength({ explicitRelativeStrength, marketRelativeReturn, return20d, return5d, kospi20dReturn });
+  if (scored.confidence !== 'MISSING') return scored;
   const relativeProxyReasons = stringArrayTraceValue(trace, 'watchlistReason');
   if (positiveReasonProxy(relativeProxyReasons)) {
+    const normalizedScore = 35;
     return {
       rawValue: relativeProxyReasons,
-      normalizedScore: 35,
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 10),
+      maxScore: 10,
       confidence: 'DEGRADED',
       providerIssue: false,
+      marketSignal: false,
       message: 'Relative strength uses a low-confidence watchlist reason proxy only; unavailable data is not promoted.',
     };
   }
-  return {
-    normalizedScore: 0,
-    confidence: 'MISSING',
-    providerIssue: true,
-    message: 'Relative strength source missing; contribution is 0 and is not treated as bearish.',
-  };
+  return scored;
 }
 
 function volumeLiquidityScore(trace: CandidateEntryTrace): {
@@ -456,8 +523,8 @@ export function buildMinimumSignalScoreTrace(input: {
         .find((key) => finite((input.trace as unknown as Record<string, unknown>)[key]));
   const watchlistNormalizedScore = normalizeSignalScoreTo100(watchlistScoreSource);
   const watchlistWeightedScore = weightedFromNormalized(watchlistNormalizedScore, 10);
-  const relativeStrength = normalizedRelativeStrength(input.trace);
-  const relativeWeightedScore = weightedFromNormalized(relativeStrength.normalizedScore, 10);
+  const relativeStrength = normalizedRelativeStrength(input.trace, input.macroGateState);
+  const relativeWeightedScore = relativeStrength.weightedScore;
   const breakout = breakoutScore(input.trace);
   const volumeLiquidity = volumeLiquidityScore(input.trace);
   const components: SignalScoreComponentTrace[] = [

@@ -280,6 +280,7 @@ export interface MacroGateState {
   mhsBelow30: boolean;
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
+  kospi20dReturn?: number;
 }
 
 export interface ScanSummary {
@@ -1107,6 +1108,7 @@ export function buildMacroGateState(input: {
   mhsBelow30: boolean;
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
+  kospi20dReturn?: number;
 }): MacroGateState {
   return {
     emergencyStop: input.emergencyStop,
@@ -1121,6 +1123,7 @@ export function buildMacroGateState(input: {
     mhsBelow30: input.mhsBelow30,
     watchlistEmpty: input.watchlistEmpty,
     sellOnlyMode: input.sellOnlyMode,
+    kospi20dReturn: input.kospi20dReturn,
   };
 }
 
