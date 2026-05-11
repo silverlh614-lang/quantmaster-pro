@@ -107,6 +107,109 @@ describe('ADR-0466 minimum signal score decomposition', () => {
     expect(breakout?.marketSignal).toBe(false);
   });
 
+
+  it('differentiates actual scores from watchlist, relative strength, breakout, and volume features', () => {
+    const weak = minTrace({
+      symbol: 'WEAK',
+      gateScore: 6.4,
+      return20d: -5,
+      breakoutSignals: { breakout_momentum: false, turtle_high: false, volume_breakout: false },
+      volume: 500_000,
+      avgVolume: 1_000_000,
+    });
+    const mid = minTrace({
+      symbol: 'MID',
+      gateScore: 7.2,
+      return20d: 4,
+      breakoutSignals: { breakout_momentum: true, turtle_high: false, volume_breakout: false },
+      projectedVolume: 1_200_000,
+      avgVolume: 1_000_000,
+    });
+    const strong = minTrace({
+      symbol: 'STRONG',
+      gateScore: 8.2,
+      return20d: 18,
+      breakoutSignals: { breakout_momentum: true, turtle_high: true, volume_breakout: true },
+      projectedVolume: 2_400_000,
+      avgVolume: 1_000_000,
+    });
+    const scores = [weak.actualScore, mid.actualScore, strong.actualScore];
+    expect(new Set(scores).size).toBe(3);
+    expect(strong.actualScore).toBeGreaterThan(mid.actualScore);
+    expect(mid.actualScore).toBeGreaterThan(weak.actualScore);
+    expect(Math.max(...scores) - Math.min(...scores)).toBeGreaterThan(4);
+  });
+
+  it('gives different WATCHLIST_UPSTREAM_SCORE components for 6.4 and 8.2 gate scores and MISSING for absent source', () => {
+    const low = minTrace({ gateScore: 6.4 }).components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE');
+    const high = minTrace({ gateScore: 8.2 }).components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE');
+    const missing = minTrace({}).components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE');
+    expect(high?.weightedScore).toBeGreaterThan(low?.weightedScore ?? 0);
+    expect(missing?.confidence).toBe('MISSING');
+    expect(missing?.weightedScore).toBe(0);
+  });
+
+  it('scores higher return20d above lower return20d without promoting missing relative strength', () => {
+    const low = minTrace({ return20d: -8 }).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    const high = minTrace({ return20d: 14 }).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    const missing = minTrace({}).components.find((c) => c.code === 'RELATIVE_STRENGTH');
+    expect(high?.weightedScore).toBeGreaterThan(low?.weightedScore ?? 0);
+    expect(missing?.weightedScore).toBe(0);
+    expect(missing?.confidence).toBe('MISSING');
+  });
+
+  it('scores passed breakout signals above no passed signals and ignores unavailable/error positives', () => {
+    const none = minTrace({ breakoutSignals: { breakout_momentum: false, turtle_high: false, volume_breakout: false } }).components.find((c) => c.code === 'BREAKOUT_STRUCTURE');
+    const two = minTrace({ breakoutSignals: { breakout_momentum: true, turtle_high: true, volume_breakout: false } }).components.find((c) => c.code === 'BREAKOUT_STRUCTURE');
+    const unavailable = minTrace({ breakoutSignals: { breakout_momentum: 'ERROR', turtle_high: 'UNAVAILABLE' } }).components.find((c) => c.code === 'BREAKOUT_STRUCTURE');
+    expect(two?.weightedScore).toBeGreaterThan(none?.weightedScore ?? 0);
+    expect(unavailable?.weightedScore).toBe(0);
+    expect(unavailable?.confidence).toBe('UNKNOWN');
+  });
+
+  it('dedupes SUPPLY_PROVIDER_UNKNOWN across supply, investor flow, and soft-fail signal penalties', () => {
+    const trace = buildMinimumSignalScoreTrace({
+      trace: {
+        symbol: 'SUPPLY_UNKNOWN_DEDUP',
+        stageReached: 'WATCHLIST',
+        blockers: [],
+        executionImpact: 'NONE',
+      },
+      hasGate1Blocker: true,
+      regime: 'R3_EARLY',
+      marketSession: 'NORMAL',
+      macroGateState: macro(),
+      supplyProviderHealth: noRecentSample,
+      supplyConfluenceState: 'UNKNOWN',
+      hasSectorEnergyDiagnostic: false,
+    });
+    expect(trace.components.find((c) => c.code === 'SUPPLY_CONFLUENCE')?.weightedScore).toBe(-10);
+    expect(trace.components.find((c) => c.code === 'INVESTOR_FLOW')?.weightedScore).toBe(0);
+    expect(trace.components.find((c) => c.code === 'SOFT_FAIL_PENALTY')?.weightedScore).toBe(0);
+    expect(trace.providerIssuePenaltyTotal).toBe(-10);
+  });
+
+  it('keeps bearish supply penalty while capping REGIME_RISK signal-score double-count', () => {
+    const trace = buildMinimumSignalScoreTrace({
+      trace: {
+        symbol: 'RISK_CAP',
+        stageReached: 'WATCHLIST',
+        blockers: [],
+        executionImpact: 'NONE',
+      },
+      hasGate1Blocker: true,
+      regime: 'R3_EARLY',
+      marketSession: 'NORMAL',
+      macroGateState: macro({ finalKellyMultiplier: 0.1 }),
+      supplyProviderHealth: verifiedSupply,
+      supplyConfluenceState: 'BEARISH',
+      hasSectorEnergyDiagnostic: false,
+    });
+    expect(trace.components.find((c) => c.code === 'SUPPLY_CONFLUENCE')?.weightedScore).toBe(-10);
+    expect(trace.components.find((c) => c.code === 'RISK_PENALTY')?.weightedScore).toBeGreaterThanOrEqual(-3);
+    expect(trace.riskPenaltyTotal).toBe(-3);
+  });
+
   it('fallback score ceiling is reachable and OTHER_POSITIVE is decomposed', () => {
     const report = buildPositiveScoreStarvationFallbackReport({
       minSignalScoreReport: {

@@ -86,10 +86,10 @@ describe('ADR-0468 Gate1 score ceiling repair dry-run', () => {
     expect(audit.requiredReachableAfter).toBe(true);
   });
 
-  it('watchlist upstream score zero for all candidates creates warning', () => {
+  it('watchlist upstream score is no longer reported missing after ADR-0475 wiring', () => {
     const audit = buildGate1PositiveWeightMapAudit({ report: makeAdr0467Report() });
 
-    expect(audit.missingCoreComponents).toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(audit.missingCoreComponents).not.toContain('WATCHLIST_UPSTREAM_SCORE');
   });
 
   it('watchlist score import dry-run produces nonzero contribution when upstream score exists', () => {
@@ -104,29 +104,29 @@ describe('ADR-0468 Gate1 score ceiling repair dry-run', () => {
     expect(result.executionImpact).toBe('NONE');
   });
 
-  it('relative strength zero for all candidates creates warning', () => {
+  it('relative strength source helper still reports missing without data while aggregate wiring is present', () => {
     const audit = buildGate1PositiveWeightMapAudit({ report: makeAdr0467Report() });
     const rs = buildRelativeStrengthScoreTrace({ symbol: '005930' });
 
-    expect(audit.missingCoreComponents).toContain('RELATIVE_STRENGTH');
+    expect(audit.missingCoreComponents).not.toContain('RELATIVE_STRENGTH');
     expect(rs.normalizedRSScore).toBe(0);
     expect(rs.confidence).toBe('MISSING');
   });
 
-  it('breakout structure zero for all candidates creates warning', () => {
+  it('breakout structure source helper still reports missing without data while aggregate wiring is present', () => {
     const audit = buildGate1PositiveWeightMapAudit({ report: makeAdr0467Report() });
     const breakout = buildBreakoutStructureScoreTrace({ symbol: '005930' });
 
-    expect(audit.missingCoreComponents).toContain('BREAKOUT_STRUCTURE');
+    expect(audit.missingCoreComponents).not.toContain('BREAKOUT_STRUCTURE');
     expect(breakout.normalizedBreakoutScore).toBe(0);
     expect(breakout.confidence).toBe('MISSING');
   });
 
-  it('OTHER_POSITIVE share > 50% creates warning', () => {
+  it('OTHER_POSITIVE share remains decomposed after source wiring repair', () => {
     const audit = buildGate1PositiveWeightMapAudit({ report: makeAdr0467Report() });
 
-    expect(audit.otherPositiveSharePct).toBeGreaterThan(50);
-    expect(audit.otherPositiveTooLarge).toBe(true);
+    expect(audit.otherPositiveSharePct).toBe(0);
+    expect(audit.otherPositiveTooLarge).toBe(false);
   });
 
   it('OTHER_POSITIVE decomposition reduces remainingOtherPositive', () => {
@@ -143,7 +143,7 @@ describe('ADR-0468 Gate1 score ceiling repair dry-run', () => {
     const audit = buildScoreDifferentiationAudit({ report: makeAdr0467Report() });
 
     expect(audit.beforeActualScoreRange).toBe(4);
-    expect(audit.compressionCause).toBe('WATCHLIST_SCORE_NOT_IMPORTED');
+    expect(audit.compressionCause).toBe('DEFAULT_SCORE_DOMINATES');
   });
 
   it('score repair dry-run never changes live execution', () => {
@@ -192,11 +192,11 @@ describe('ADR-0468 Gate1 score ceiling repair dry-run', () => {
     const summary = buildEntryDecisionLedgerScoreCeilingRepairSummary({ report });
 
     expect(summary.executionImpact).toBe('NONE');
-    expect(summary.tags).toContain('CASE_SCORE_CEILING_BELOW_THRESHOLD');
-    expect(summary.tags).toContain('CASE_WATCHLIST_SCORE_NOT_IMPORTED');
-    expect(summary.tags).toContain('CASE_RELATIVE_STRENGTH_ZERO_CONTRIBUTION');
-    expect(summary.tags).toContain('CASE_BREAKOUT_STRUCTURE_ZERO_CONTRIBUTION');
-    expect(summary.tags).toContain('CASE_OTHER_POSITIVE_TOO_LARGE');
+    expect(summary.tags).not.toContain('CASE_SCORE_CEILING_BELOW_THRESHOLD');
+    expect(summary.tags).not.toContain('CASE_WATCHLIST_SCORE_NOT_IMPORTED');
+    expect(summary.tags).not.toContain('CASE_RELATIVE_STRENGTH_ZERO_CONTRIBUTION');
+    expect(summary.tags).not.toContain('CASE_BREAKOUT_STRUCTURE_ZERO_CONTRIBUTION');
+    expect(summary.tags).not.toContain('CASE_OTHER_POSITIVE_TOO_LARGE');
     expect(summary.tags).toContain('CASE_GATE1_SCORE_REPAIR_DRY_RUN');
   });
 

@@ -244,7 +244,7 @@ export function buildScanReadinessSummary(now = new Date()): ScanReadinessSummar
     {
       name: 'VolumeClock',
       status: health.volume.ok ? 'OK' : 'WAIT',
-      detail: volumeClockDetail(health.volume.ok, health.volume.detail),
+      detail: volumeClockDetail(health.volume.ok, health.volume.error),
     },
   ];
 

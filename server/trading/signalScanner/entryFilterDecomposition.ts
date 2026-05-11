@@ -267,10 +267,17 @@ export interface CandidateEntryTrace {
   upstreamScore?: number;
   stage2Score?: number;
   watchlistScore?: number;
+  stage1Score?: number;
+  priorityScore?: number;
   watchlistReason?: string[];
   relativeStrengthScore?: number;
   relativeStrength?: number;
   rsRankPct?: number;
+  return20d?: number;
+  return5d?: number;
+  marketRelativeReturn?: number;
+  kospiRelativeReturn?: number;
+  relativeReturn20d?: number;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   breakout_momentum?: unknown;
@@ -281,6 +288,9 @@ export interface CandidateEntryTrace {
   trend_acceleration?: unknown;
   priceDataFresh?: boolean;
   volumeLiquidityPassed?: boolean;
+  volume?: number;
+  avgVolume?: number;
+  projectedVolume?: number;
   blockers: EntryBlocker[];
   wouldEnterIfNoTimeBlock?: boolean;
   wouldEnterIfNoOrderBlock?: boolean;
@@ -454,15 +464,25 @@ export interface CandidateSnapshot {
   minSignalScorePassed?: boolean;
   priceDataFresh?: boolean;
   volumeLiquidityPassed?: boolean;
+  volume?: number;
+  avgVolume?: number;
+  projectedVolume?: number;
   totalGateScore?: number;
   watchlistUpstreamScore?: number;
   upstreamScore?: number;
   stage2Score?: number;
   watchlistScore?: number;
+  stage1Score?: number;
+  priorityScore?: number;
   watchlistReason?: string[];
   relativeStrengthScore?: number;
   relativeStrength?: number;
   rsRankPct?: number;
+  return20d?: number;
+  return5d?: number;
+  marketRelativeReturn?: number;
+  kospiRelativeReturn?: number;
+  relativeReturn20d?: number;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   breakout_momentum?: unknown;
@@ -820,6 +840,13 @@ function buildGate1CandidateTrace(input: {
     { conditions } as Gate1CandidateTrace,
     (c) => c.code === 'TRADING_SESSION_PASS',
   );
+  const softFailAccumulationTrace = buildSoftFailAccumulationTrace({
+    symbol: trace.symbol,
+    conditions,
+    minSignalScoreTrace,
+    threshold: input.gate1SoftFailThreshold,
+  });
+  const riskPenaltyTrace = buildRiskPenaltyTrace({ symbol: trace.symbol, macroGateState, minSignalScoreTrace });
   return {
     symbol: trace.symbol,
     name: trace.name,
@@ -837,18 +864,13 @@ function buildGate1CandidateTrace(input: {
     wouldPassIfTimeWindowIgnored,
     minSignalScoreTrace,
     unknownDataTreatmentAudit: buildUnknownDataTreatmentAudit(minSignalScoreTrace),
-    softFailAccumulationTrace: buildSoftFailAccumulationTrace({
-      symbol: trace.symbol,
-      conditions,
-      minSignalScoreTrace,
-      threshold: input.gate1SoftFailThreshold,
-    }),
-    riskPenaltyTrace: buildRiskPenaltyTrace({ symbol: trace.symbol, macroGateState, minSignalScoreTrace }),
+    softFailAccumulationTrace,
+    riskPenaltyTrace,
     calibrationTags: [
       ...(minSignalScoreTrace.scoreGap < 0 ? ['CASE_MIN_SIGNAL_SCORE_GAP'] : []),
       ...(minSignalScoreTrace.unknownPenaltyTotal < 0 ? ['CASE_UNKNOWN_DATA_PENALTY'] : []),
-      ...(minSignalScoreTrace.softFailPenaltyTotal < 0 ? ['CASE_SOFT_FAIL_ACCUMULATION'] : []),
-      ...(buildRiskPenaltyTrace({ symbol: trace.symbol, macroGateState, minSignalScoreTrace }).doubleCountWarning ? ['CASE_RISK_PENALTY_DOUBLE_COUNT_WARNING'] : []),
+      ...(softFailAccumulationTrace.failedBySoftAccumulation ? ['CASE_SOFT_FAIL_ACCUMULATION'] : []),
+      ...(riskPenaltyTrace.doubleCountWarning ? ['CASE_RISK_PENALTY_DOUBLE_COUNT_WARNING'] : []),
       ...(regime === 'R3_EARLY' && minSignalScoreTrace.scoreGap < 0 && minSignalScoreTrace.scoreGap >= -10 ? ['CASE_R3_EARLY_ADAPTIVE_THRESHOLD_CANDIDATE'] : []),
     ],
     executionImpact: 'NONE',
@@ -987,11 +1009,18 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       watchlistUpstreamScore: c.watchlistUpstreamScore,
       upstreamScore: c.upstreamScore,
       stage2Score: c.stage2Score,
+      stage1Score: c.stage1Score,
+      priorityScore: c.priorityScore,
       watchlistScore: c.watchlistScore,
       watchlistReason: c.watchlistReason,
       relativeStrengthScore: c.relativeStrengthScore,
       relativeStrength: c.relativeStrength,
       rsRankPct: c.rsRankPct,
+      return20d: c.return20d,
+      return5d: c.return5d,
+      marketRelativeReturn: c.marketRelativeReturn,
+      kospiRelativeReturn: c.kospiRelativeReturn,
+      relativeReturn20d: c.relativeReturn20d,
       breakoutSignals: c.breakoutSignals,
       conditionResults: c.conditionResults,
       breakout_momentum: c.breakout_momentum,
@@ -1002,6 +1031,9 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       trend_acceleration: c.trend_acceleration,
       priceDataFresh: c.priceDataFresh,
       volumeLiquidityPassed: c.volumeLiquidityPassed,
+      volume: c.volume,
+      avgVolume: c.avgVolume,
+      projectedVolume: c.projectedVolume,
       blockers: [],
       executionImpact: 'NONE',
     }));
