@@ -64,6 +64,7 @@ export interface KrxInvestorTradingDiagnostic {
   bld: string;
   tradeDate: string;
   selectedKrxFlowMode?: 'OTP_CSV' | 'DIRECT_JSON' | 'CACHE_FALLBACK';
+  payloadMode?: 'MINIMAL_STRICT' | 'EXTENDED_VARIANT';
   routePurpose?: 'MARKET_LEVEL' | 'SYMBOL_LEVEL';
   selectedBld?: string;
   requiredParamMissing?: string | null;
@@ -87,6 +88,11 @@ export interface KrxInvestorTradingDiagnostic {
   csvFailureReason?: string | null;
   csvHeaderDetected?: boolean;
   csvNoDataReason?: string | null;
+  omittedKeys?: string[];
+  forbiddenKeysPresent?: string[];
+  requiredKeysPresent?: string[];
+  requiredKeysMissing?: string[];
+  sentPayloadKeys?: string[];
   parameterKeys?: string[];
   attemptedVariants?: string[];
   selectedVariant?: string | null;
@@ -417,6 +423,7 @@ interface KrxPostMeta {
   httpStatus: number | null;
   responseKind: KrxInvestorTradingDiagnostic['responseKind'];
   selectedKrxFlowMode?: NonNullable<KrxInvestorTradingDiagnostic['selectedKrxFlowMode']>;
+  payloadMode?: NonNullable<KrxInvestorTradingDiagnostic['payloadMode']>;
   otpGenerated?: boolean;
   otpLength?: number;
   csvDownloaded?: boolean;
@@ -425,11 +432,17 @@ interface KrxPostMeta {
   csvFailureReason?: string | null;
   csvHeaderDetected?: boolean;
   csvNoDataReason?: string | null;
+  omittedKeys?: string[];
+  forbiddenKeysPresent?: string[];
+  requiredKeysPresent?: string[];
+  requiredKeysMissing?: string[];
+  sentPayloadKeys?: string[];
 }
 
 interface KrxInvestorEndpointVariant {
   id: string;
   mode: 'OTP_CSV' | 'DIRECT_JSON';
+  payloadMode: NonNullable<KrxInvestorTradingDiagnostic['payloadMode']>;
   endpoint: string;
   bld: string;
   routeKind: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
@@ -479,6 +492,109 @@ function makeKrxResponseKind(contentType: KrxInvestorTradingDiagnostic['contentT
   if (contentType === 'empty') return 'EMPTY';
   return 'TEXT';
 }
+
+const KRX_OMITTED_PAYLOAD_VALUES = new Set(['', 'NONE', 'UNKNOWN', 'N/A']);
+
+function sanitizeKrxPayload(input: Record<string, unknown>): { payload: Record<string, string>; omittedKeys: string[] } {
+  const payload: Record<string, string> = {};
+  const omittedKeys: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (value == null) {
+      omittedKeys.push(key);
+      continue;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (KRX_OMITTED_PAYLOAD_VALUES.has(trimmed)) {
+        omittedKeys.push(key);
+        continue;
+      }
+      payload[key] = trimmed;
+      continue;
+    }
+    payload[key] = String(value);
+  }
+  return { payload, omittedKeys };
+}
+
+function requiredKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
+  if (variant.routePurpose === 'SYMBOL_LEVEL') {
+    const dateKeys = variant.dateParam === 'strtDd/endDd' ? ['strtDd', 'endDd'] : [variant.dateParam];
+    return ['bld', 'isuCd', ...dateKeys, 'inqVal'];
+  }
+  const dateKey = variant.dateParam === 'trdDd' ? 'trdDd' : variant.dateParam;
+  return ['bld', 'inqTpCd', dateKey, 'mktId', 'inqVal'];
+}
+
+function forbiddenKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
+  const common = ['symbolCode', 'isuCd2', 'codeNmisuCd_finder_stkisu0_0'];
+  if (variant.payloadMode !== 'MINIMAL_STRICT') return common;
+  if (variant.routePurpose === 'MARKET_LEVEL') {
+    return [
+      ...common,
+      'isuCd',
+      'trdVolVal',
+      'share',
+      'money',
+      'detailView',
+      'csvxls_isNo',
+      'locale',
+    ];
+  }
+  return [
+    ...common,
+    'mktId',
+    'inqTpCd',
+    'trdVolVal',
+    'share',
+    'money',
+    'detailView',
+    'csvxls_isNo',
+    'locale',
+  ];
+}
+
+function buildKrxOtpPayload(variant: KrxInvestorEndpointVariant): {
+  body: string;
+  meta: Pick<KrxPostMeta, 'payloadMode' | 'omittedKeys' | 'forbiddenKeysPresent' | 'requiredKeysPresent' | 'requiredKeysMissing' | 'sentPayloadKeys'>;
+} {
+  const basePayload = variant.payloadMode === 'MINIMAL_STRICT'
+    ? {
+        name: 'fileDown',
+        bld: variant.bld,
+        ...variant.params,
+      }
+    : {
+        name: 'fileDown',
+        bld: variant.bld,
+        url: variant.bld,
+        csvxls_isNo: 'false',
+        locale: 'ko_KR',
+        ...variant.params,
+      };
+  const { payload, omittedKeys } = sanitizeKrxPayload(basePayload);
+  const sentPayloadKeys = Object.keys(payload).sort();
+  const requiredKeys = requiredKrxPayloadKeys(variant);
+  const forbiddenKeys = forbiddenKrxPayloadKeys(variant);
+  const requiredKeysPresent = requiredKeys.filter((key) => payload[key] != null);
+  const requiredKeysMissing = requiredKeys.filter((key) => payload[key] == null);
+  const forbiddenKeysPresent = forbiddenKeys.filter((key) => payload[key] != null);
+  return {
+    body: new URLSearchParams(payload).toString(),
+    meta: {
+      payloadMode: variant.payloadMode,
+      omittedKeys: omittedKeys.sort(),
+      forbiddenKeysPresent,
+      requiredKeysPresent,
+      requiredKeysMissing,
+      sentPayloadKeys,
+    },
+  };
+}
+
+export const __krxClientTestOnly = {
+  sanitizeKrxPayload,
+};
 
 const KRX_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -688,8 +804,10 @@ async function krxPost(
 async function krxInvestorOtpCsv(
   variant: KrxInvestorEndpointVariant,
 ): Promise<KrxRawResponse | null> {
+  const { body: otpBody, meta: payloadMeta } = buildKrxOtpPayload(variant);
   if (KRX_DISABLED) {
     setKrxPostMeta(variant.bld, {
+      ...payloadMeta,
       contentType: 'empty',
       httpStatus: null,
       responseKind: 'DISABLED',
@@ -706,14 +824,6 @@ async function krxInvestorOtpCsv(
     return null;
   }
 
-  const otpBody = new URLSearchParams({
-    name: 'fileDown',
-    bld: variant.bld,
-    url: variant.bld,
-    csvxls_isNo: 'false',
-    locale: 'ko_KR',
-    ...variant.params,
-  }).toString();
   try {
     const otpRes = await fetch(`${KRX_BASE}${KRX_OTP_PATH}`, {
       method: 'POST',
@@ -728,6 +838,7 @@ async function krxInvestorOtpCsv(
     });
     if (!otpRes.ok) {
       setKrxPostMeta(variant.bld, {
+        ...payloadMeta,
         contentType: 'text',
         httpStatus: otpRes.status,
         responseKind: 'HTTP_ERROR',
@@ -747,6 +858,7 @@ async function krxInvestorOtpCsv(
     const otpGenerated = otp.length > 0 && !/^<!doctype html|<html[\s>]/i.test(otp);
     if (!otpGenerated) {
       setKrxPostMeta(variant.bld, {
+        ...payloadMeta,
         contentType: otp.length > 0 ? 'html' : 'empty',
         httpStatus: otpRes.status,
         responseKind: otp.length > 0 ? 'HTML' : 'EMPTY',
@@ -776,6 +888,7 @@ async function krxInvestorOtpCsv(
     });
     if (!csvRes.ok) {
       setKrxPostMeta(variant.bld, {
+        ...payloadMeta,
         contentType: 'text',
         httpStatus: csvRes.status,
         responseKind: 'HTTP_ERROR',
@@ -805,7 +918,11 @@ async function krxInvestorOtpCsv(
     });
     const columnKeys = rows[0] ? Object.keys(rows[0]).slice(0, 40) : parsed.headers.slice(0, 40);
     const responseKind = makeKrxResponseKind(classifyContentType(contentType, text));
+    const csvNoDataReason = rows.length > 0
+      ? null
+      : parsed.headerDetected ? 'CSV_NO_DATA_FOR_DATE' : 'PARAMETER_MISMATCH';
     setKrxPostMeta(variant.bld, {
+      ...payloadMeta,
       contentType: classifyContentType(contentType, text),
       httpStatus: csvRes.status,
       responseKind,
@@ -815,14 +932,15 @@ async function krxInvestorOtpCsv(
       csvDownloaded: true,
       csvRowCount: rows.length,
       csvColumnKeys: columnKeys,
-      csvFailureReason: rows.length > 0 ? null : parsed.noDataReason ?? 'CSV_EMPTY_ROWS',
+      csvFailureReason: csvNoDataReason,
       csvHeaderDetected: parsed.headerDetected,
-      csvNoDataReason: parsed.noDataReason,
+      csvNoDataReason,
     });
     if (rows.length > 0) recordBldSuccess(variant.bld);
     return { csv: rows };
   } catch (error) {
     setKrxPostMeta(variant.bld, {
+      ...payloadMeta,
       contentType: 'unknown',
       httpStatus: null,
       responseKind: 'NETWORK_ERROR',
@@ -1056,6 +1174,7 @@ function buildInvestorTradingDiagnostic(input: {
   const summary = [
     variant?.endpoint ?? endpointCodeFromBld(bld),
     `selectedKrxFlowMode=${meta?.selectedKrxFlowMode ?? variant?.mode ?? 'DIRECT_JSON'}`,
+    `payloadMode=${meta?.payloadMode ?? variant?.payloadMode ?? 'EXTENDED_VARIANT'}`,
     `routePurpose=${variant?.routePurpose ?? 'UNKNOWN'}`,
     `selectedBld=${bld}`,
     `requiredParamMissing=${variant?.requiredParamMissing ?? 'NONE'}`,
@@ -1077,6 +1196,11 @@ function buildInvestorTradingDiagnostic(input: {
     `csvFailureReason=${meta?.csvFailureReason ?? 'NONE'}`,
     `csvHeaderDetected=${String(meta?.csvHeaderDetected ?? false)}`,
     `csvNoDataReason=${meta?.csvNoDataReason ?? 'NONE'}`,
+    `omittedKeys=${meta?.omittedKeys?.join(',') || 'NONE'}`,
+    `forbiddenKeysPresent=${meta?.forbiddenKeysPresent?.join(',') || 'NONE'}`,
+    `requiredKeysPresent=${meta?.requiredKeysPresent?.join(',') || 'NONE'}`,
+    `requiredKeysMissing=${meta?.requiredKeysMissing?.join(',') || 'NONE'}`,
+    `sentPayloadKeys=${meta?.sentPayloadKeys?.join(',') || 'NONE'}`,
     `paramKeys=${variant ? Object.keys(variant.params).join(',') : 'UNKNOWN'}`,
     `attemptedVariants=${input.attemptedVariants?.join('|') || variant?.id || 'LEGACY_SINGLE'}`,
     `contentType=${contentType}`,
@@ -1096,6 +1220,7 @@ function buildInvestorTradingDiagnostic(input: {
     bld,
     tradeDate: input.tradeDate,
     selectedKrxFlowMode: meta?.selectedKrxFlowMode ?? variant?.mode ?? 'DIRECT_JSON',
+    payloadMode: meta?.payloadMode ?? variant?.payloadMode,
     routePurpose: variant?.routePurpose,
     selectedBld: bld,
     requiredParamMissing: variant?.requiredParamMissing ?? null,
@@ -1119,6 +1244,11 @@ function buildInvestorTradingDiagnostic(input: {
     csvFailureReason: meta?.csvFailureReason,
     csvHeaderDetected: meta?.csvHeaderDetected ?? false,
     csvNoDataReason: meta?.csvNoDataReason,
+    omittedKeys: meta?.omittedKeys,
+    forbiddenKeysPresent: meta?.forbiddenKeysPresent,
+    requiredKeysPresent: meta?.requiredKeysPresent,
+    requiredKeysMissing: meta?.requiredKeysMissing,
+    sentPayloadKeys: meta?.sentPayloadKeys,
     parameterKeys: variant ? Object.keys(variant.params) : undefined,
     attemptedVariants: input.attemptedVariants,
     selectedVariant: parserStatus === 'OK' ? variant?.id ?? null : null,
@@ -1204,16 +1334,14 @@ function investorTradingParams(input: {
   inqTpCd?: string | null;
   inqVal?: string | null;
   detailView?: string | null;
-  locale?: boolean;
 }): Record<string, string> {
   const profile = input.profile ?? 'LEGACY_TRDVOL';
-  const params: Record<string, string> = { csvxls_isNo: 'false' };
-  if (input.locale) params.locale = 'ko_KR';
+  const params: Record<string, string> = {};
   if (profile === 'MARKET_INQ') {
     params.inqTpCd = input.inqTpCd ?? '1';
     params.mktId = input.marketCode;
     params.inqVal = input.inqVal ?? '2';
-    params.detailView = input.detailView ?? '1';
+    if (input.detailView != null) params.detailView = input.detailView;
   } else if (profile === 'SYMBOL_ISU') {
     if (input.isuCd) params.isuCd = input.isuCd;
     params.inqVal = input.inqVal ?? '2';
@@ -1231,8 +1359,8 @@ function investorTradingParams(input: {
   }
   if (input.dateParam === 'basDd') params.basDd = input.tradeDate;
   if (input.dateParam === 'searchDate') params.searchDate = input.tradeDate;
-  if (input.symbolCode) {
-    if (profile !== 'SYMBOL_ISU') params.isuCd = input.symbolCode;
+  if (input.symbolCode && profile === 'LEGACY_TRDVOL') {
+    params.isuCd = input.symbolCode;
     params.isuCd2 = input.isuCd ?? input.symbolCode;
     params.codeNmisuCd_finder_stkisu0_0 = input.isuCd ?? input.symbolCode;
   }
@@ -1248,6 +1376,7 @@ function buildInvestorTradingVariants(
   const out: KrxInvestorEndpointVariant[] = [];
   const push = (input: {
     mode: KrxInvestorEndpointVariant['mode'];
+    payloadMode?: KrxInvestorEndpointVariant['payloadMode'];
     endpoint: string;
     routeKind: KrxInvestorEndpointVariant['routeKind'];
     profile?: 'MARKET_INQ' | 'SYMBOL_ISU' | 'LEGACY_TRDVOL';
@@ -1268,14 +1397,16 @@ function buildInvestorTradingVariants(
     const bld = investorTradingBld(input.endpoint);
     const profile = input.profile ?? 'LEGACY_TRDVOL';
     const routePurpose = input.routeKind === 'SYMBOL_INVESTOR_FLOW' ? 'SYMBOL_LEVEL' : 'MARKET_LEVEL';
+    const payloadMode = input.payloadMode ?? 'EXTENDED_VARIANT';
     const paramMode = profile === 'SYMBOL_ISU'
       ? `isuCd=${normalizedIsuCd ? 'resolved' : 'missing'}:inqVal=${input.inqVal ?? '2'}`
       : profile === 'MARKET_INQ'
-        ? `inqTpCd=${input.inqTpCd ?? '1'}:inqVal=${input.inqVal ?? '2'}:detailView=${input.detailView ?? '1'}`
+        ? `inqTpCd=${input.inqTpCd ?? '1'}:inqVal=${input.inqVal ?? '2'}:detailView=${input.detailView ?? 'NONE'}`
         : `trdVolVal=${input.trdVolVal ?? '1'}`;
     out.push({
-      id: `${input.mode}:${input.endpoint}:${input.routeKind}:${input.marketCode}:${input.dateParam}:${paramMode}${normalizedSymbol ? ':symbol' : ''}`,
+      id: `${input.mode}:${payloadMode}:${input.endpoint}:${input.routeKind}:${input.marketCode}:${input.dateParam}:${paramMode}${normalizedSymbol ? ':symbol' : ''}`,
       mode: input.mode,
+      payloadMode,
       endpoint: input.endpoint,
       bld,
       routeKind: input.routeKind,
@@ -1287,7 +1418,7 @@ function buildInvestorTradingVariants(
       shortCodeToIsuCdResolved: normalizedIsuCd ? true : (symbolCode ? isuCdResolution.shortCodeToIsuCdResolved : false),
       requiredParamMissing: input.profile === 'SYMBOL_ISU' && !normalizedIsuCd
         ? 'isuCd'
-        : symbolCode && !isuCdResolution.isuCd ? 'isuCd' : null,
+        : symbolRequired && normalizedSymbol && !isuCdResolution.isuCd ? 'isuCd' : null,
       symbolRequired,
       otpRequired: input.mode === 'OTP_CSV',
       trdVolVal: input.trdVolVal,
@@ -1305,24 +1436,31 @@ function buildInvestorTradingVariants(
         inqTpCd: input.inqTpCd,
         inqVal: input.inqVal,
         detailView: input.detailView,
-        locale: input.mode === 'OTP_CSV',
       }),
     });
   };
 
-  if (symbolCode) {
+  if (symbolCode && isuCdResolution.isuCd) {
+    push({ mode: 'OTP_CSV', payloadMode: 'MINIMAL_STRICT', endpoint: 'MDCSTAT02401', routeKind: 'SYMBOL_INVESTOR_FLOW', profile: 'SYMBOL_ISU', dateParam: 'strtDd/endDd', marketCode: 'ALL', symbolCode, isuCd: isuCdResolution.isuCd, inqVal: '2' });
+  }
+
+  for (const marketCode of ['STK', 'KSQ'] as const) {
+    push({ mode: 'OTP_CSV', payloadMode: 'MINIMAL_STRICT', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'MARKET_INQ', dateParam: 'trdDd', marketCode, inqTpCd: '1', inqVal: '2' });
+  }
+
+  if (symbolCode && isuCdResolution.isuCd) {
     for (const inqVal of ['2', '1'] as const) {
-      push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02401', routeKind: 'SYMBOL_INVESTOR_FLOW', profile: 'SYMBOL_ISU', dateParam: 'strtDd/endDd', marketCode: 'ALL', symbolCode, isuCd: isuCdResolution.isuCd, inqVal });
-      push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02401', routeKind: 'SYMBOL_INVESTOR_FLOW', profile: 'SYMBOL_ISU', dateParam: 'trdDd', marketCode: 'ALL', symbolCode, isuCd: isuCdResolution.isuCd, inqVal });
+      push({ mode: 'OTP_CSV', payloadMode: 'EXTENDED_VARIANT', endpoint: 'MDCSTAT02401', routeKind: 'SYMBOL_INVESTOR_FLOW', profile: 'SYMBOL_ISU', dateParam: 'strtDd/endDd', marketCode: 'ALL', symbolCode, isuCd: isuCdResolution.isuCd, inqVal });
+      push({ mode: 'OTP_CSV', payloadMode: 'EXTENDED_VARIANT', endpoint: 'MDCSTAT02401', routeKind: 'SYMBOL_INVESTOR_FLOW', profile: 'SYMBOL_ISU', dateParam: 'trdDd', marketCode: 'ALL', symbolCode, isuCd: isuCdResolution.isuCd, inqVal });
     }
   }
 
   for (const marketCode of ['STK', 'KSQ', 'ALL'] as const) {
-    push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'MARKET_INQ', dateParam: 'trdDd', marketCode, inqTpCd: '1', inqVal: '2', detailView: '1' });
+    push({ mode: 'OTP_CSV', payloadMode: 'EXTENDED_VARIANT', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'MARKET_INQ', dateParam: 'trdDd', marketCode, inqTpCd: '1', inqVal: '2', detailView: '1' });
   }
   for (const marketCode of ['STK', 'KSQ'] as const) {
-    push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'MARKET_INQ', dateParam: 'basDd', marketCode, inqTpCd: '1', inqVal: '2', detailView: '1' });
-    push({ mode: 'OTP_CSV', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'LEGACY_TRDVOL', dateParam: 'trdDd', marketCode, trdVolVal: '2' });
+    push({ mode: 'OTP_CSV', payloadMode: 'EXTENDED_VARIANT', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'MARKET_INQ', dateParam: 'basDd', marketCode, inqTpCd: '1', inqVal: '2', detailView: '1' });
+    push({ mode: 'OTP_CSV', payloadMode: 'EXTENDED_VARIANT', endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', profile: 'LEGACY_TRDVOL', dateParam: 'trdDd', marketCode, trdVolVal: '2' });
   }
 
   if (symbolCode) {
@@ -1349,6 +1487,7 @@ function buildInvestorTradingVariants(
     out.push({
       id: `DIRECT_JSON:${envEndpoint}:ENV_FALLBACK:ALL:strtDd/endDd`,
       mode: 'DIRECT_JSON',
+      payloadMode: 'EXTENDED_VARIANT',
       endpoint: envEndpoint,
       bld: envBld,
       routeKind: symbolCode ? 'SYMBOL_INVESTOR_FLOW' : 'MARKET_INVESTOR_FLOW',
