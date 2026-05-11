@@ -10,7 +10,7 @@ import type { InvestorFlowSanitizedSampleAdr0496, SupplyCoverageReportAdr0496 } 
 
 export type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
 export type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
-export type SupplySnapshotCacheLookupStatusAdr0491 = 'CACHE_HIT' | 'STALE_HIT' | 'CACHE_EMPTY' | 'CORRUPT_RECOVERED';
+export type SupplySnapshotCacheLookupStatusAdr0491 = 'CACHE_HIT' | 'CACHE_STALE_HIT' | 'STALE_HIT' | 'CACHE_KEY_MISMATCH' | 'CACHE_EMPTY' | 'CORRUPT_RECOVERED';
 export type SupplySnapshotDomainAdr0491 = 'SUPPLY' | 'SECTOR' | 'PROGRAM';
 
 export interface SanitizedSupplySnapshotAdr0491 {
@@ -106,8 +106,14 @@ export interface SupplySnapshotComparisonAdr0491 {
 export const SUPPLY_SNAPSHOT_STORE_FILE_ADR0491 = path.join(DATA_DIR, 'supply-snapshot-store-adr0491.json');
 const DEFAULT_MAX_SNAPSHOTS = 120;
 
+function kstDateFromIso(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso.slice(0, 10);
+  return new Date(ms + 9 * 60 * 60_000).toISOString().slice(0, 10);
+}
+
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return kstDateFromIso(new Date().toISOString());
 }
 
 function readStore(filePath = SUPPLY_SNAPSHOT_STORE_FILE_ADR0491): { store: SupplySnapshotStoreAdr0491; recovered: boolean } {
@@ -153,7 +159,7 @@ export function buildSanitizedSupplySnapshotAdr0491(
   return {
     scanId: input.scanId ?? `scan-${recordedAt}`,
     recordedAt,
-    tradingDate: input.tradingDate ?? recordedAt.slice(0, 10),
+    tradingDate: input.tradingDate ?? kstDateFromIso(recordedAt),
     domains,
     supplyStatus,
     sectorStatus,
@@ -258,8 +264,8 @@ export function replaySupplySnapshotsAdr0491(
 
 
 function statusForCacheRaw(snapshot: SanitizedSupplySnapshotAdr0491, tradingDate?: string): SupplySnapshotCacheLookupStatusAdr0491 {
-  if (tradingDate && snapshot.tradingDate !== tradingDate) return 'STALE_HIT';
-  if (snapshot.latestInvestorFlowSample?.status === 'STALE') return 'STALE_HIT';
+  if (tradingDate && snapshot.tradingDate !== tradingDate) return 'CACHE_STALE_HIT';
+  if (snapshot.latestInvestorFlowSample?.status === 'STALE') return 'CACHE_STALE_HIT';
   return 'CACHE_HIT';
 }
 
@@ -295,7 +301,7 @@ export function readLatestSupplySnapshotBySymbolSourceDomainAdr0491(input: {
   const snapshot = candidates[0] ?? null;
   if (!snapshot?.latestInvestorFlowSample) {
     return {
-      status: 'CACHE_EMPTY',
+      status: store.snapshots.length > 0 ? 'CACHE_KEY_MISMATCH' : 'CACHE_EMPTY',
       snapshot: null,
       cacheRaw: null,
       retained: store.snapshots.length,
@@ -318,11 +324,11 @@ export function readLatestSupplySnapshotBySymbolSourceDomainAdr0491(input: {
       foreignNetBuy: latest.foreignNetBuy,
       institutionNetBuy: latest.institutionNetBuy,
       retailNetBuy: latest.retailNetBuy,
-      status: status === 'STALE_HIT' ? 'STALE' : latest.status === 'PARTIAL' || latest.status === 'FRESH' ? 'PARTIAL' : latest.status,
+      status: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE' : latest.status === 'PARTIAL' || latest.status === 'FRESH' ? 'PARTIAL' : latest.status,
     },
     retained: store.snapshots.length,
-    reason: status === 'STALE_HIT' ? 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY' : 'SANITIZED_SNAPSHOT_CACHE_HIT',
-    stale: status === 'STALE_HIT',
+    reason: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY' : 'SANITIZED_SNAPSHOT_CACHE_HIT',
+    stale: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT',
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: 'SHADOW_ONLY',

@@ -6,6 +6,7 @@ import {
   buildInvestorFlowProviderCapabilities,
   buildInvestorFlowProviderRouteResultAdr0477,
   formatInvestorFlowProviderRouterAdr0477,
+  normalizeInvestorFlowSourceKey,
   normalizeSemanticNetBuySampleAdr0477,
 } from './investorFlowProviderRouterAdr0477.js';
 import { buildSemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
@@ -37,6 +38,83 @@ function notWiredRoute() {
 }
 
 describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
+
+
+  it('normalizes investor-flow source keys for FreshData, health, and cache bridges', () => {
+    expect(normalizeInvestorFlowSourceKey('NAVER')).toBe('NAVER_INVESTOR_TREND');
+    expect(normalizeInvestorFlowSourceKey('NAVER_INVESTOR_TREND')).toBe('NAVER_INVESTOR_TREND');
+    expect(normalizeInvestorFlowSourceKey('Semantic NetBuy')).toBe('SEMANTIC_NETBUY');
+    expect(normalizeInvestorFlowSourceKey('semantic_netbuy')).toBe('SEMANTIC_NETBUY');
+    expect(normalizeInvestorFlowSourceKey('KRX')).toBe('KRX_INVESTOR_FLOW');
+    expect(normalizeInvestorFlowSourceKey('KIS')).toBe('KIS_API');
+  });
+
+  it('bridges ADR-0487 FreshData READY_FOR_SHADOW NAVER and Semantic samples into router selection', () => {
+    const baseSnapshot = {
+      domain: 'SUPPLY' as const,
+      provider: 'NAVER' as const,
+      stage: 'SHADOW_ONLY' as const,
+      collectedAt: '2026-05-11T00:00:00.000Z',
+      sourceDate: '2026-05-11',
+      cacheState: 'FRESH' as const,
+      sourceState: 'FRESH' as const,
+      cacheAgeMinutes: 1,
+      sourceAgeTradingDays: 0,
+      coverageRatio: 1,
+      normalized: true,
+      status: 'READY_FOR_SHADOW' as const,
+      confidence: 'LOW' as const,
+      isProviderIssue: false,
+      isMarketSignal: false as const,
+      executionImpact: 'NONE' as const,
+      liveExecutionAllowed: false as const,
+      operatorApprovalRequired: true as const,
+      diagnostics: [],
+    };
+    const report = {
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      registrations: [],
+      snapshots: [
+        { ...baseSnapshot, sourceId: 'NAVER_INVESTOR_TREND' },
+        { ...baseSnapshot, sourceId: 'SEMANTIC_NETBUY', provider: 'INTERNAL' as const },
+      ],
+      domainSummaries: [],
+      overallStatus: 'PARTIAL' as const,
+      topGaps: [],
+      recommendedNextActions: [],
+      executionImpact: 'NONE' as const,
+      liveExecutionAllowed: false as const,
+      policyPromotionMode: 'SHADOW_ONLY' as const,
+      operatorApprovalRequired: true as const,
+      diagnostics: [],
+    };
+
+    const naverRoute = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorWired: false, freshDataSupplyAdr0487: report });
+    expect(naverRoute.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(naverRoute.providerStatuses.NAVER).toBe('READY_FOR_SHADOW');
+    expect(naverRoute.signal).toBe('UNKNOWN');
+    expect(naverRoute.liveExecutionAllowed).toBe(false);
+    expect(naverRoute.rawPayloadPersistenceAllowed).toBe(false);
+
+    const semanticOnly = { ...report, snapshots: [report.snapshots[1]!] };
+    const semanticRoute = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorWired: false, freshDataSupplyAdr0487: semanticOnly });
+    expect(semanticRoute.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(semanticRoute.coverage.available).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not select FreshData samples that are not normalized', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      freshDataSupplyAdr0487: {
+        generatedAt: '2026-05-11T00:00:00.000Z', registrations: [], domainSummaries: [], overallStatus: 'PARTIAL', topGaps: [], recommendedNextActions: [], executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', operatorApprovalRequired: true, diagnostics: [],
+        snapshots: [{ sourceId: 'NAVER_INVESTOR_TREND', domain: 'SUPPLY', provider: 'NAVER', stage: 'SHADOW_ONLY', collectedAt: '2026-05-11T00:00:00.000Z', sourceDate: '2026-05-11', cacheState: 'FRESH', sourceState: 'FRESH', cacheAgeMinutes: 1, sourceAgeTradingDays: 0, coverageRatio: 1, normalized: false, status: 'READY_FOR_SHADOW', confidence: 'LOW', isProviderIssue: false, isMarketSignal: false, executionImpact: 'NONE', liveExecutionAllowed: false, operatorApprovalRequired: true, diagnostics: [] }],
+      },
+    });
+    expect(route.selectedProvider).toBe('NONE');
+    expect(route.signal).toBe('UNKNOWN');
+  });
+
   it('NAVER NOT_WIRED, KIS PROVIDER_MISMATCH, and CACHE_EMPTY stay UNKNOWN with executionImpact NONE', () => {
     const route = notWiredRoute();
 
@@ -153,7 +231,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
 
     expect(route.selectedProvider).toBe('SEMANTIC_NETBUY');
     expect(route.providerStatuses.SEMANTIC_NETBUY).toBe('VERIFIED');
-    expect(route.semanticNetBuy?.source).toBe('KRX');
+    expect(route.semanticNetBuy?.source).toBe('KRX_INVESTOR_FLOW');
     expect(route.signal).toBe('BULLISH');
     expect(route.liveExecutionAllowed).toBe(false);
 
@@ -177,7 +255,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       cacheAgeTradingDays: 4,
     });
 
-    expect(route.selectedProvider).toBe('NONE');
+    expect(route.selectedProvider).toBe('CACHE');
     expect(route.providerStatuses.CACHE).toBe('STALE');
     expect(route.freshness.cacheState).toBe('STALE');
     expect(route.signal).toBe('UNKNOWN');
@@ -272,6 +350,67 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(formatted).not.toContain('<b>');
     expect(scanDiagnosticsSource()).toContain('formatInvestorFlowProviderRouterAdr0477');
     expect(scanDiagnosticsSource()).toContain('[ADR-0477] InvestorFlowProviderRouter build failed');
+  });
+
+
+
+
+
+  it('selects ADR-0491 sanitized cache lookup hits and keeps key mismatches diagnostic', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_STALE_HIT',
+        snapshot: null,
+        cacheRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 100, institutionNetBuy: 100, status: 'STALE' },
+        retained: 3,
+        reason: 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY',
+        stale: true,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
+      },
+    });
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.providerStatuses.CACHE).toBe('CACHE_STALE_HIT');
+    expect(route.signal).toBe('UNKNOWN');
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.diagnostics.join(' ')).toContain('cacheLookupResult=CACHE_STALE_HIT');
+
+    const mismatch = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_KEY_MISMATCH', snapshot: null, cacheRaw: null, retained: 3, reason: 'KEY_MISMATCH_OR_SYMBOL_SOURCE_NOT_FOUND', stale: false, executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', rawPayloadPersistenceAllowed: false,
+      },
+    });
+    expect(mismatch.selectedProvider).toBe('NONE');
+    expect(mismatch.providerStatuses.CACHE).toBe('CACHE_KEY_MISMATCH');
+    expect(mismatch.diagnostics.join(' ')).toContain('cacheLookupResult=CACHE_KEY_MISMATCH');
+  });
+
+  it('Supply Health formatter does not show READY_FOR_SHADOW registry providers as NOT_WIRED', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      freshDataSupplyAdr0487: {
+        generatedAt: '2026-05-11T00:00:00.000Z', registrations: [], domainSummaries: [], overallStatus: 'PARTIAL', topGaps: [], recommendedNextActions: [], executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', operatorApprovalRequired: true, diagnostics: [],
+        snapshots: [
+          { sourceId: 'NAVER_INVESTOR_TREND', domain: 'SUPPLY', provider: 'NAVER', stage: 'SHADOW_ONLY', collectedAt: '2026-05-11T00:00:00.000Z', sourceDate: '2026-05-11', cacheState: 'FRESH', sourceState: 'FRESH', cacheAgeMinutes: 1, sourceAgeTradingDays: 0, coverageRatio: 1, normalized: true, status: 'READY_FOR_SHADOW', confidence: 'LOW', isProviderIssue: false, isMarketSignal: false, executionImpact: 'NONE', liveExecutionAllowed: false, operatorApprovalRequired: true, diagnostics: [] },
+          { sourceId: 'SEMANTIC_NETBUY', domain: 'SUPPLY', provider: 'INTERNAL', stage: 'SHADOW_ONLY', collectedAt: '2026-05-11T00:00:00.000Z', sourceDate: '2026-05-11', cacheState: 'FRESH', sourceState: 'FRESH', cacheAgeMinutes: 1, sourceAgeTradingDays: 0, coverageRatio: 1, normalized: true, status: 'READY_FOR_SHADOW', confidence: 'LOW', isProviderIssue: false, isMarketSignal: false, executionImpact: 'NONE', liveExecutionAllowed: false, operatorApprovalRequired: true, diagnostics: [] },
+        ],
+      },
+    });
+    const warmup = buildSupplyProviderWarmupReport({
+      investorFlowRouter: { status: route.status, selectedProvider: route.selectedProvider, providerTried: route.providerTried, providerStatuses: route.providerStatuses, signal: route.signal, coverage: route.coverage, executionImpact: 'NONE', liveExecutionAllowed: false },
+    });
+    const formatted = formatSupplyProviderWarmupCompactLine(warmup);
+
+    expect(formatted).toContain('NAVER: READY_FOR_SHADOW / NORMALIZED_SAMPLE');
+    expect(formatted).toContain('Semantic NetBuy: READY_FOR_SHADOW / NORMALIZED_SAMPLE');
+    expect(formatted).not.toContain('NAVER: NOT_WIRED');
   });
 
   it('static guardrails keep live execution, thresholds, Kelly, and external IO unchanged', () => {
