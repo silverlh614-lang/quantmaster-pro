@@ -437,7 +437,7 @@ export async function buildKisOnlyHealthReport(input: {
   if (currentSession !== 'REGULAR' && marketProgramStatus === 'EMPTY') {
     marketProgramStatus = 'EXPECTED_EMPTY_OFF_SESSION';
   }
-  if (traceEnabled && shortStatus !== 'OK' && shortDateTraces.length > 0 && shortDateTraces.every((trace) => !trace.materialized)) {
+  if (traceEnabled && shortStatus === 'MISSING' && shortDateTraces.length > 0 && shortDateTraces.every((trace) => !trace.materialized)) {
     shortStatus = 'MISSING_CONFIRMED';
   }
   const providerIssue = priceStatus === 'ERROR'
@@ -500,19 +500,85 @@ export async function buildKisOnlyHealthReport(input: {
   };
 }
 
-function formatReasonSummary(report: KisOnlyHealthReport): string[] {
+
+function formatReasonCounts(counts: Record<string, number> | undefined, denominator: number): string {
+  const entries = Object.entries(counts ?? {});
+  return entries.length > 0
+    ? entries.map(([reason, count]) => `${reason} ${count}/${denominator}`).join(', ')
+    : `UNKNOWN 0/${denominator}`;
+}
+
+function formatInvestorFlowDetail(report: KisOnlyHealthReport): string[] {
   if (!report.investorFlow.reasonSummary) return [];
-  const lines = ['  reasonSummary:'];
+  const lines = ['INVESTOR_FLOW_DETAIL:'];
   for (const source of report.investorFlow.sourceTried) {
-    const counts = report.investorFlow.reasonSummary[source] ?? {};
-    const summary = Object.entries(counts).map(([reason, count]) => `${reason} ${count}/${report.targetCodes.length}`).join(', ') || `UNKNOWN 0/${report.targetCodes.length}`;
-    lines.push(`    ${source}: ${summary}`);
+    lines.push(`  ${source}: ${formatReasonCounts(report.investorFlow.reasonSummary[source], report.targetCodes.length)}`);
+  }
+
+  const traces = report.investorFlow.endpointTraces ?? [];
+  const exampleStockCodes = [...new Set(traces.map((trace) => trace.stockCode))].slice(0, 3);
+  const examples = exampleStockCodes.flatMap((stockCode) => {
+    const byCode = traces.filter((trace) => trace.stockCode === stockCode);
+    const preferred = byCode.filter((trace) => !trace.materialized).slice(0, 2);
+    return (preferred.length > 0 ? preferred : byCode.slice(0, 2));
+  }).slice(0, 6);
+
+  if (examples.length > 0) {
+    lines.push('  examples:');
+    for (const trace of examples) lines.push(...formatEndpointTraceExample(trace, '    '));
   }
   return lines;
 }
 
-function formatEndpointTrace(trace: KisEndpointTrace): string {
-  return `  - ${trace.stockCode}/${trace.sourceKind}: httpCalled=${trace.httpCalled} trId=${trace.trId} apiPath=${trace.apiPath} params=${JSON.stringify(trace.params)} rt_cd=${trace.rtCd ?? 'n/a'} msg_cd=${trace.msgCd ?? 'n/a'} msg1=${trace.msg1 ?? 'n/a'} outputPath=${trace.outputPath ?? 'n/a'} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} parsedFieldCount=${trace.parsedFields.length} parsedFields=${trace.parsedFields.join(',') || 'NONE'} materialized=${trace.materialized} blockedReason=${trace.blockedReason}`;
+function formatEndpointTraceExample(trace: KisEndpointTrace, indent = '  '): string[] {
+  const outputKeys = (trace.outputKeys ?? []).slice(0, 12);
+  return [
+    `${indent}- ${trace.stockCode} / ${trace.sourceKind}:`,
+    `${indent}    trId=${trace.trId}`,
+    `${indent}    path=${trace.apiPath}`,
+    `${indent}    params=${JSON.stringify(trace.params)}`,
+    `${indent}    rt_cd=${trace.rtCd ?? 'n/a'} msg_cd=${trace.msgCd ?? 'n/a'}`,
+    `${indent}    outputPath=${trace.outputPath ?? 'n/a'} rowCount=${trace.rowCount}`,
+    `${indent}    targetFound=${trace.targetFound ?? 'n/a'}`,
+    `${indent}    outputKeys=${outputKeys.join(',') || 'NONE'}`,
+    `${indent}    parsedFields=${trace.parsedFields.join(',') || 'NONE'}`,
+    `${indent}    materialized=${trace.materialized} blockedReason=${trace.blockedReason}`,
+  ];
+}
+
+function formatShortDetail(report: KisOnlyHealthReport): string[] {
+  const shortTrace = report.shortCredit.shortTrace;
+  if (!shortTrace) return [];
+  const lines = [
+    'SHORT_DETAIL:',
+    '  datePolicy=PREVIOUS_TRADING_DAY_THEN_T_MINUS_2_T_MINUS_3',
+    `  triedDates=${shortTrace.triedDates.join(',')}`,
+    '  results:',
+  ];
+  for (const date of shortTrace.triedDates) {
+    const traces = shortTrace.traces.filter((trace) => trace.tradingDate === date);
+    const reasonCounts: Record<string, number> = {};
+    let rowCount = 0;
+    let targetFound = 0;
+    for (const trace of traces) {
+      reasonCounts[trace.blockedReason] = (reasonCounts[trace.blockedReason] ?? 0) + 1;
+      rowCount += trace.rowCount;
+      if (trace.targetFound) targetFound++;
+    }
+    lines.push(`    ${date}: ${formatReasonCounts(reasonCounts, Math.max(traces.length, 1))} rowCount=${rowCount} targetFound=${targetFound}/${traces.length}`);
+  }
+  lines.push(`  finalStatus=${report.shortCredit.short}`);
+  lines.push(`  providerIssue=${report.providerIssue}`);
+  lines.push(`  marketSignal=${report.marketSignal}`);
+
+  const examples = shortTrace.traces.filter((trace) => !trace.materialized).slice(0, 3);
+  if (examples.length > 0) {
+    lines.push('  examples:');
+    for (const trace of examples) {
+      lines.push(`    - ${trace.stockCode} / ${trace.tradingDate}: trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} blockedReason=${trace.blockedReason}`);
+    }
+  }
+  return lines;
 }
 
 export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
@@ -527,11 +593,11 @@ export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
   const sample = report.investorFlow.sampleRows.length > 0
     ? report.investorFlow.sampleRows.map((row) => `${row.stockCode}:${row.sourceKind}:${row.confidence}${row.blockedReason ? `(${row.blockedReason})` : ''}`).join(' | ')
     : 'NONE';
-  const traceLines = report.investorFlow.endpointTraces?.map(formatEndpointTrace) ?? [];
+  const investorDetailLines = formatInvestorFlowDetail(report);
   const stockProgram = report.program.stockProgram;
   const stockSession = stockProgram.currentSession ? ` currentSession=${stockProgram.currentSession} nextValidSession=${stockProgram.nextValidSession} providerIssue=${stockProgram.providerIssue}` : '';
   const shortTrace = report.shortCredit.shortTrace ? ` triedDates=${report.shortCredit.shortTrace.triedDates.join(',')}` : '';
-  const shortTraceLines = report.shortCredit.shortTrace?.traces.map(formatEndpointTrace) ?? [];
+  const shortDetailLines = formatShortDetail(report);
   return [
     'KIS Only Health',
     `Current Data Mode: ${report.mode}`,
@@ -540,13 +606,12 @@ export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
     `targets=${report.targetCodes.join(',')}`,
     `PRICE: ${report.price.status} current=${report.price.currentPriceCount}/${stockTotal} prevClose=${report.price.prevCloseCount}/${stockTotal} chart=${report.price.dailyChartCount}/${stockTotal}`,
     `INVESTOR_FLOW: ${report.investorFlow.status} materialized=${report.investorFlow.materializedCount} missing=${report.investorFlow.missingCount} fieldMismatch=${report.investorFlow.fieldMismatchCount} tried=${tried}`,
-    ...formatReasonSummary(report),
-    ...(traceLines.length > 0 ? ['  endpointTrace:', ...traceLines] : []),
+    ...(investorDetailLines.length > 0 ? investorDetailLines : []),
     `INVESTOR_FLOW_SAMPLE: ${sample}`,
     `PROGRAM_STOCK: ${stockProgram.status}${stockSession} ${stockProgram.materializedCount}/${stockTotal} empty=${stockProgram.emptyCount} fieldMismatch=${stockProgram.fieldMismatchCount}`,
     `PROGRAM_MARKET: ${marketProgram.status}${marketProgramValue} parserSource=${marketProgram.parserSource ?? 'unknown'}`,
     `SHORT: ${report.shortCredit.short}${shortTrace}`,
-    ...(shortTraceLines.length > 0 ? ['  shortTrace:', ...shortTraceLines] : []),
+    ...(shortDetailLines.length > 0 ? shortDetailLines : []),
     `LOAN: ${report.shortCredit.loan}`,
     `CREDIT: ${report.shortCredit.credit}`,
     `SECTOR_BASKET: ${report.sectorBasket.status} rows=${report.sectorBasket.basketRows} validPrice=${report.sectorBasket.validPriceCount}`,
