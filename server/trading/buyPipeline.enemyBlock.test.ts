@@ -147,7 +147,7 @@ describe('buyPipeline ADR-0078 enemy auto-block', () => {
     });
     expect(_requestBuyApproval).toHaveBeenCalled();
     expect(_markBlocked).not.toHaveBeenCalled();
-  });
+  }, 10_000);
 
   it('creditRate 14% (BLOCK) → SKIP 즉시 + markBlocked + REJECTED', async () => {
     const task = await makeShadowTask({

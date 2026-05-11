@@ -17,6 +17,9 @@ const ENV_KEYS = [
   'ENEMY_CREDIT_RATE_WARN',
   'ENEMY_INDIVIDUAL_BLOCK',
   'ENEMY_INDIVIDUAL_WARN',
+  'ENEMY_SHORT_SALE_INCREASE_WARN',
+  'ENEMY_LOAN_INCREASE_WARN',
+  'ENEMY_CREDIT_INCREASE_WARN',
 ];
 
 beforeEach(() => {
@@ -45,6 +48,9 @@ describe('상수 SSOT 정합성', () => {
     expect(ENEMY_AUTO_BLOCK_DEFAULTS.creditRateWarn).toBe(8.0);
     expect(ENEMY_AUTO_BLOCK_DEFAULTS.individualBlock).toBe(88.0);
     expect(ENEMY_AUTO_BLOCK_DEFAULTS.individualWarn).toBe(80.0);
+    expect(ENEMY_AUTO_BLOCK_DEFAULTS.shortSaleIncreaseWarn).toBe(30.0);
+    expect(ENEMY_AUTO_BLOCK_DEFAULTS.loanIncreaseWarn).toBe(30.0);
+    expect(ENEMY_AUTO_BLOCK_DEFAULTS.creditIncreaseWarn).toBe(30.0);
   });
 
   it('BLOCK > WARN 단조 증가 (false-positive 방지)', () => {
@@ -54,6 +60,67 @@ describe('상수 SSOT 정합성', () => {
     expect(ENEMY_AUTO_BLOCK_DEFAULTS.individualBlock).toBeGreaterThan(
       ENEMY_AUTO_BLOCK_DEFAULTS.individualWarn,
     );
+  });
+});
+
+describe('KIS official supply pack risk signals', () => {
+  it('공매도 단일 30% 증가 → warning only, no new-buy block', () => {
+    const r = evaluateEnemyAutoBlock({
+      creditRate: null,
+      individualDominance: null,
+      shortSaleIncreaseRate: 35,
+      loanIncreaseRate: null,
+      creditIncreaseRate: null,
+      source: 'KIS_PARTIAL',
+    });
+    expect(r.shouldBlock).toBe(false);
+    expect(r.riskSignalCount).toBe(1);
+    expect(r.strongBuyAllowed).toBe(true);
+    expect(r.warnings).toContain('공매도 35.0% 증가');
+  });
+
+  it('공매도+대차 위험 2개 → STRONG_BUY 금지 후보지만 신규매수 hard block 아님', () => {
+    const r = evaluateEnemyAutoBlock({
+      creditRate: null,
+      individualDominance: null,
+      shortSaleIncreaseRate: 35,
+      loanIncreaseRate: 40,
+      creditIncreaseRate: null,
+      source: 'KIS_FULL',
+    });
+    expect(r.shouldBlock).toBe(false);
+    expect(r.riskSignalCount).toBe(2);
+    expect(r.strongBuyAllowed).toBe(false);
+    expect(r.shadowOnlyRecommended).toBe(false);
+  });
+
+  it('공매도+대차+신용 위험 3개 → 신규매수 차단 및 Shadow only 권고', () => {
+    const r = evaluateEnemyAutoBlock({
+      creditRate: null,
+      individualDominance: null,
+      shortSaleIncreaseRate: 35,
+      loanIncreaseRate: 40,
+      creditIncreaseRate: 50,
+      source: 'KIS_FULL',
+    });
+    expect(r.shouldBlock).toBe(true);
+    expect(r.reason).toContain('공매도/대차/신용 3개 위험 신호');
+    expect(r.shadowOnlyRecommended).toBe(true);
+    expect(r.strongBuyAllowed).toBe(false);
+  });
+
+  it('공매도/대차/신용 데이터 부재는 bearish나 block으로 변환하지 않음', () => {
+    const r = evaluateEnemyAutoBlock({
+      creditRate: null,
+      individualDominance: null,
+      shortSaleIncreaseRate: null,
+      loanIncreaseRate: null,
+      creditIncreaseRate: null,
+      source: 'KIS_FULL',
+    });
+    expect(r.shouldBlock).toBe(false);
+    expect(r.riskSignalCount).toBe(0);
+    expect(r.warnings).toEqual([]);
   });
 });
 
@@ -251,7 +318,15 @@ describe('source 분기', () => {
     process.env.ENEMY_CREDIT_RATE_BLOCK = '20'; // ENV 가 있어도
     const r = evaluateEnemyAutoBlock(
       fullData(13, 50),
-      { creditRateBlock: 10, creditRateWarn: 5, individualBlock: 88, individualWarn: 80 },
+      {
+        creditRateBlock: 10,
+        creditRateWarn: 5,
+        individualBlock: 88,
+        individualWarn: 80,
+        shortSaleIncreaseWarn: 30,
+        loanIncreaseWarn: 30,
+        creditIncreaseWarn: 30,
+      },
     );
     expect(r.shouldBlock).toBe(true); // override 10 적용
     expect(r.thresholds.creditRateBlock).toBe(10);

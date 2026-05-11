@@ -8,7 +8,22 @@
 import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
 import { getKisOverrides } from './overrides.js';
-import type { KisInvestorFlow, KisMarketProgramTrade, KisStockProgramTrade, PrevClose } from './types.js';
+import type {
+  KisCreditBalanceRankingRow,
+  KisDailyCreditBalance,
+  KisDailyLoanTransaction,
+  KisDailyShortSale,
+  KisForeignInstitutionTotal,
+  KisInvestorDailyByMarket,
+  KisInvestorTimeByMarket,
+  KisInvestorTradeByStockDaily,
+  KisInvestorTrendEstimate,
+  KisInvestorFlow,
+  KisMarketProgramTrade,
+  KisShortSaleRankingRow,
+  KisStockProgramTrade,
+  PrevClose,
+} from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
 
 // ─── ADR-0137 (정정 ADR-0144): 종목별 프로그램 매매 (체결) ────────────────────
@@ -75,6 +90,20 @@ function pickKisOutput(data: unknown): KisOutput | undefined {
   return undefined;
 }
 
+function pickKisRows(data: unknown): KisOutput[] {
+  const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
+  const buckets = [root?.output, root?.output1, root?.output2];
+  const rows: KisOutput[] = [];
+  for (const bucket of buckets) {
+    if (Array.isArray(bucket)) {
+      rows.push(...bucket.filter((item): item is KisOutput => !!item && typeof item === 'object' && !Array.isArray(item)));
+    } else if (bucket && typeof bucket === 'object') {
+      rows.push(bucket as KisOutput);
+    }
+  }
+  return rows;
+}
+
 function isAcceptedEmptyKisResponse(data: unknown): boolean {
   const root = data as { rt_cd?: unknown; msg_cd?: unknown; output?: unknown; output1?: unknown; output2?: unknown } | null;
   if (!root || typeof root !== 'object') return false;
@@ -101,6 +130,52 @@ function extractKisNumber(out: Record<string, string> | undefined, keys: string[
     if (Number.isFinite(n)) return n;
   }
   return fallback;
+}
+
+function extractKisNumberOptional(out: Record<string, string> | undefined, keys: string[]): number | undefined {
+  if (!out) return undefined;
+  for (const k of keys) {
+    const raw = out[k];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const cleaned = String(raw).replace(/,/g, '').trim();
+    if (cleaned === '') continue;
+    const n = Number(cleaned);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function extractKisString(out: Record<string, string> | undefined, keys: string[]): string | undefined {
+  if (!out) return undefined;
+  for (const k of keys) {
+    const raw = out[k];
+    if (raw === undefined || raw === null) continue;
+    const value = String(raw).trim();
+    if (value.length > 0) return value;
+  }
+  return undefined;
+}
+
+function formatKisYmd(ymd: string | undefined): string | undefined {
+  if (!ymd || !/^\d{8}$/.test(ymd)) return undefined;
+  return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+}
+
+function trendFromChange(change: number | undefined): 'INCREASING' | 'DECREASING' | 'FLAT' | 'UNKNOWN' {
+  if (change === undefined || !Number.isFinite(change)) return 'UNKNOWN';
+  if (change > 0) return 'INCREASING';
+  if (change < 0) return 'DECREASING';
+  return 'FLAT';
+}
+
+function percentChange(latest: number | undefined, previous: number | undefined): number | undefined {
+  if (latest === undefined || previous === undefined || previous === 0) return undefined;
+  if (!Number.isFinite(latest) || !Number.isFinite(previous)) return undefined;
+  return ((latest - previous) / Math.abs(previous)) * 100;
+}
+
+function hasAnyFinite(...values: Array<number | undefined | null>): boolean {
+  return values.some((value) => typeof value === 'number' && Number.isFinite(value));
 }
 
 /**
@@ -322,6 +397,424 @@ export async function fetchKisMarketSupply(): Promise<{
     };
   } catch (e) {
     console.error('[KIS] 코스피 전체 수급 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+// ─── KIS official supply pack sources: short sale, loan, credit, daily investor flow ───
+
+export async function fetchKisDailyShortSale(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisDailyShortSale | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisDailyShortSale) return overrides.fetchKisDailyShortSale(code);
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const safeCode = code.padStart(6, '0');
+  try {
+    const data = await realDataKisGet(
+      'FHPST04830000',
+      '/uapi/domestic-stock/v1/quotations/daily-short-sale',
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: safeCode,
+        FID_INPUT_DATE_1: _kstDateStrOffset(-21).replace(/-/g, ''),
+        FID_INPUT_DATE_2: _kstDateStr().replace(/-/g, ''),
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const rows = pickKisRows(data);
+    const latest = rows[0];
+    if (!latest) return null;
+    const previous = rows[1];
+    const shortSaleQty = extractKisNumberOptional(latest, ['ssts_cntg_qty', 'SSTS_CNTG_QTY']);
+    const shortSaleAmount = extractKisNumberOptional(latest, ['ssts_tr_pbmn', 'SSTS_TR_PBMN']);
+    const shortSaleRatio = extractKisNumberOptional(latest, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim', 'SSTS_TR_PBMN_RLIM']);
+    const previousAmount = extractKisNumberOptional(previous, ['ssts_tr_pbmn', 'SSTS_TR_PBMN']);
+    const previousQty = extractKisNumberOptional(previous, ['ssts_cntg_qty', 'SSTS_CNTG_QTY']);
+    const shortSaleIncreaseRate = percentChange(shortSaleAmount ?? shortSaleQty, previousAmount ?? previousQty);
+    if (!hasAnyFinite(shortSaleQty, shortSaleAmount, shortSaleRatio, shortSaleIncreaseRate)) return null;
+    return {
+      stockCode: safeCode,
+      tradingDate: formatKisYmd(extractKisString(latest, ['stck_bsop_date', 'STCK_BSOP_DATE'])),
+      ...(shortSaleQty !== undefined ? { shortSaleQty } : {}),
+      ...(shortSaleAmount !== undefined ? { shortSaleAmount } : {}),
+      ...(shortSaleRatio !== undefined ? { shortSaleRatio } : {}),
+      ...(shortSaleIncreaseRate !== undefined ? { shortSaleIncreaseRate } : {}),
+      trend: trendFromChange(shortSaleIncreaseRate),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 공매도 일별 추이 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisShortSaleRanking(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisShortSaleRankingRow[] | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisShortSaleRanking) return overrides.fetchKisShortSaleRanking();
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      'FHPST04820000',
+      '/uapi/domestic-stock/v1/ranking/short-sale',
+      {
+        FID_APLY_RANG_VOL: '1000',
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_COND_SCR_DIV_CODE: '20482',
+        FID_INPUT_ISCD: '0000',
+        FID_PERIOD_DIV_CODE: 'D',
+        FID_INPUT_CNT_1: '9',
+        FID_TRGT_EXLS_CLS_CODE: '',
+        FID_TRGT_CLS_CODE: '',
+        FID_APLY_RANG_PRC_1: '',
+        FID_APLY_RANG_PRC_2: '',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const rows = pickKisRows(data).map((row, idx): KisShortSaleRankingRow => ({
+      stockCode: extractKisString(row, ['mksc_shrn_iscd', 'stck_shrn_iscd', 'pdno']),
+      stockName: extractKisString(row, ['hts_kor_isnm', 'prdt_name', 'stck_kor_isnm']),
+      shortSaleQty: extractKisNumberOptional(row, ['ssts_cntg_qty', 'stnd_shrt_wght', 'ssts_cntg_qty_2']),
+      shortSaleAmount: extractKisNumberOptional(row, ['ssts_tr_pbmn', 'ssts_tr_pbmn_2']),
+      shortSaleRatio: extractKisNumberOptional(row, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim']),
+      rank: extractKisNumberOptional(row, ['data_rank', 'rank']) ?? idx + 1,
+      source: 'KIS_API',
+    }));
+    return rows.length > 0 ? rows : null;
+  } catch (e) {
+    console.error('[KIS] 공매도 상위 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisDailyLoanTransaction(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisDailyLoanTransaction | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisDailyLoanTransaction) return overrides.fetchKisDailyLoanTransaction(code);
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const safeCode = code.padStart(6, '0');
+  try {
+    const data = await realDataKisGet(
+      'HHPST074500C0',
+      '/uapi/domestic-stock/v1/quotations/daily-loan-trans',
+      {
+        MRKT_DIV_CLS_CODE: '3',
+        MKSC_SHRN_ISCD: safeCode,
+        START_DATE: _kstDateStrOffset(-21).replace(/-/g, ''),
+        END_DATE: _kstDateStr().replace(/-/g, ''),
+        CTS: '',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const rows = pickKisRows(data);
+    const latest = rows[0];
+    if (!latest) return null;
+    const previous = rows[1];
+    const loanBalanceQty = extractKisNumberOptional(latest, ['rmnd_stcn', 'RMND_STCN']);
+    const loanBalanceAmount = extractKisNumberOptional(latest, ['rmnd_amt', 'RMND_AMT']);
+    const dailyChange = extractKisNumberOptional(latest, ['prdy_rmnd_vrss', 'PRDY_RMND_VRSS']);
+    const previousQty = extractKisNumberOptional(previous, ['rmnd_stcn', 'RMND_STCN']);
+    const loanIncreaseRate = percentChange(loanBalanceQty, previousQty)
+      ?? (dailyChange !== undefined && loanBalanceQty !== undefined && loanBalanceQty !== dailyChange
+        ? percentChange(loanBalanceQty, loanBalanceQty - dailyChange)
+        : undefined);
+    if (!hasAnyFinite(loanBalanceQty, loanBalanceAmount, loanIncreaseRate)) return null;
+    return {
+      stockCode: safeCode,
+      tradingDate: formatKisYmd(extractKisString(latest, ['bsop_date', 'BSOP_DATE'])),
+      ...(loanBalanceQty !== undefined ? { loanBalanceQty } : {}),
+      ...(loanBalanceAmount !== undefined ? { loanBalanceAmount } : {}),
+      ...(loanIncreaseRate !== undefined ? { loanIncreaseRate } : {}),
+      trend: trendFromChange(loanIncreaseRate ?? dailyChange),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 대차거래 일별 추이 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisDailyCreditBalance(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisDailyCreditBalance | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisDailyCreditBalance) return overrides.fetchKisDailyCreditBalance(code);
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const safeCode = code.padStart(6, '0');
+  try {
+    const data = await realDataKisGet(
+      'FHPST04760000',
+      '/uapi/domestic-stock/v1/quotations/daily-credit-balance',
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_COND_SCR_DIV_CODE: '20476',
+        FID_INPUT_ISCD: safeCode,
+        FID_INPUT_DATE_1: _kstDateStr().replace(/-/g, ''),
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const rows = pickKisRows(data);
+    const latest = rows[0];
+    if (!latest) return null;
+    const previous = rows[1];
+    const creditBalanceQty = extractKisNumberOptional(latest, ['whol_loan_rmnd_stcn', 'WHOL_LOAN_RMND_STCN']);
+    const creditBalanceAmount = extractKisNumberOptional(latest, ['whol_loan_rmnd_amt', 'WHOL_LOAN_RMND_AMT']);
+    const creditBalanceRatio = extractKisNumberOptional(latest, ['whol_loan_rmnd_rate', 'WHOL_LOAN_RMND_RATE']);
+    const previousQty = extractKisNumberOptional(previous, ['whol_loan_rmnd_stcn', 'WHOL_LOAN_RMND_STCN']);
+    const creditIncreaseRate = percentChange(creditBalanceQty, previousQty);
+    if (!hasAnyFinite(creditBalanceQty, creditBalanceAmount, creditBalanceRatio, creditIncreaseRate)) return null;
+    return {
+      stockCode: safeCode,
+      tradingDate: formatKisYmd(extractKisString(latest, ['deal_date', 'stlm_date', 'DEAL_DATE'])),
+      ...(creditBalanceQty !== undefined ? { creditBalanceQty } : {}),
+      ...(creditBalanceAmount !== undefined ? { creditBalanceAmount } : {}),
+      ...(creditBalanceRatio !== undefined ? { creditBalanceRatio } : {}),
+      ...(creditIncreaseRate !== undefined ? { creditIncreaseRate } : {}),
+      trend: trendFromChange(creditIncreaseRate),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 신용잔고 일별 추이 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisCreditBalanceRanking(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisCreditBalanceRankingRow[] | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisCreditBalanceRanking) return overrides.fetchKisCreditBalanceRanking();
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      'FHKST17010000',
+      '/uapi/domestic-stock/v1/ranking/credit-balance',
+      {
+        FID_COND_SCR_DIV_CODE: '11701',
+        FID_INPUT_ISCD: '0000',
+        FID_OPTION: '30',
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_RANK_SORT_CLS_CODE: '3',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const rows = pickKisRows(data).map((row, idx): KisCreditBalanceRankingRow => ({
+      stockCode: extractKisString(row, ['mksc_shrn_iscd', 'stck_shrn_iscd', 'pdno']),
+      stockName: extractKisString(row, ['hts_kor_isnm', 'prdt_name', 'stck_kor_isnm']),
+      creditBalanceQty: extractKisNumberOptional(row, ['whol_loan_rmnd_stcn', 'loan_rmnd_stcn']),
+      creditBalanceAmount: extractKisNumberOptional(row, ['whol_loan_rmnd_amt', 'loan_rmnd_amt']),
+      creditIncreaseRate: extractKisNumberOptional(row, ['whol_loan_rmnd_rate', 'loan_rmnd_rate', 'prdy_vrss_sign_rate']),
+      rank: extractKisNumberOptional(row, ['data_rank', 'rank']) ?? idx + 1,
+      source: 'KIS_API',
+    }));
+    return rows.length > 0 ? rows : null;
+  } catch (e) {
+    console.error('[KIS] 신용잔고 상위 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisInvestorTradeByStockDaily(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisInvestorTradeByStockDaily | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisInvestorTradeByStockDaily) return overrides.fetchKisInvestorTradeByStockDaily(code);
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const safeCode = code.padStart(6, '0');
+  try {
+    const data = await realDataKisGet(
+      'FHPTJ04160001',
+      '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: safeCode,
+        FID_INPUT_DATE_1: _kstDateStr().replace(/-/g, ''),
+        FID_ORG_ADJ_PRC: '',
+        FID_ETC_CLS_CODE: '',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const row = pickKisRows(data)[0];
+    if (!row) return null;
+    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'FRGN_NTBY_QTY']);
+    const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'ORGN_NTBY_QTY']);
+    const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'PRSN_NTBY_QTY']);
+    if (!hasAnyFinite(foreignNetBuy, institutionalNetBuy, individualNetBuy)) return null;
+    return {
+      stockCode: safeCode,
+      tradingDate: formatKisYmd(extractKisString(row, ['stck_bsop_date', 'STCK_BSOP_DATE'])),
+      ...(foreignNetBuy !== undefined ? { foreignNetBuy } : {}),
+      ...(institutionalNetBuy !== undefined ? { institutionalNetBuy } : {}),
+      ...(individualNetBuy !== undefined ? { individualNetBuy } : {}),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 종목별 투자자매매동향 일별 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisForeignInstitutionTotal(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisForeignInstitutionTotal | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisForeignInstitutionTotal) return overrides.fetchKisForeignInstitutionTotal();
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      'FHPTJ04400000',
+      '/uapi/domestic-stock/v1/quotations/foreign-institution-total',
+      {
+        FID_COND_MRKT_DIV_CODE: 'V',
+        FID_COND_SCR_DIV_CODE: '16449',
+        FID_INPUT_ISCD: '0000',
+        FID_DIV_CLS_CODE: '1',
+        FID_RANK_SORT_CLS_CODE: '0',
+        FID_ETC_CLS_CODE: '0',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const row = pickKisRows(data)[0];
+    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_tr_pbmn', 'frgn_ntby_qty', 'FRGN_NTBY_QTY']);
+    const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_tr_pbmn', 'orgn_ntby_qty', 'ORGN_NTBY_QTY']);
+    if (!hasAnyFinite(foreignNetBuy, institutionalNetBuy)) return null;
+    return {
+      ...(foreignNetBuy !== undefined ? { foreignNetBuy } : {}),
+      ...(institutionalNetBuy !== undefined ? { institutionalNetBuy } : {}),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 외국인/기관 매매종목 가집계 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisInvestorTrendEstimate(
+  code: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisInvestorTrendEstimate | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisInvestorTrendEstimate) return overrides.fetchKisInvestorTrendEstimate(code);
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const safeCode = code.padStart(6, '0');
+  try {
+    const data = await realDataKisGet(
+      'HHPTJ04160200',
+      '/uapi/domestic-stock/v1/quotations/investor-trend-estimate',
+      { MKSC_SHRN_ISCD: safeCode },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const row = pickKisRows(data)[0];
+    const foreignNetBuyEstimate = extractKisNumberOptional(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn']);
+    const institutionalNetBuyEstimate = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn']);
+    const individualNetBuyEstimate = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn']);
+    if (!hasAnyFinite(foreignNetBuyEstimate, institutionalNetBuyEstimate, individualNetBuyEstimate)) return null;
+    return {
+      stockCode: safeCode,
+      ...(foreignNetBuyEstimate !== undefined ? { foreignNetBuyEstimate } : {}),
+      ...(institutionalNetBuyEstimate !== undefined ? { institutionalNetBuyEstimate } : {}),
+      ...(individualNetBuyEstimate !== undefined ? { individualNetBuyEstimate } : {}),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 외인기관 추정 가집계 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisInvestorDailyByMarket(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisInvestorDailyByMarket | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisInvestorDailyByMarket) return overrides.fetchKisInvestorDailyByMarket();
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const ymd = _kstDateStr().replace(/-/g, '');
+  try {
+    const data = await realDataKisGet(
+      'FHPTJ04040000',
+      '/uapi/domestic-stock/v1/quotations/inquire-investor-daily-by-market',
+      {
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: '0001',
+        FID_INPUT_DATE_1: ymd,
+        FID_INPUT_ISCD_1: 'KSP',
+        FID_INPUT_DATE_2: ymd,
+        FID_INPUT_ISCD_2: '0001',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const row = pickKisRows(data)[0];
+    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn']);
+    const institutionNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn']);
+    const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn']);
+    if (!hasAnyFinite(foreignNetBuy, institutionNetBuy, individualNetBuy)) return null;
+    return {
+      tradingDate: formatKisYmd(extractKisString(row, ['stck_bsop_date', 'bsop_date'])) ?? _kstDateStr(),
+      ...(foreignNetBuy !== undefined ? { foreignNetBuy } : {}),
+      ...(institutionNetBuy !== undefined ? { institutionNetBuy } : {}),
+      ...(individualNetBuy !== undefined ? { individualNetBuy } : {}),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 시장별 투자자매매동향 일별 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisInvestorTimeByMarket(
+  priority: KisApiPriority = 'LOW',
+): Promise<KisInvestorTimeByMarket | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisInvestorTimeByMarket) return overrides.fetchKisInvestorTimeByMarket();
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      'FHPTJ04030000',
+      '/uapi/domestic-stock/v1/quotations/inquire-investor-time-by-market',
+      {
+        FID_INPUT_ISCD: '999',
+        FID_INPUT_ISCD_2: 'S001',
+      },
+      priority,
+    );
+    if (isAcceptedEmptyKisResponse(data)) return null;
+    const row = pickKisRows(data)[0];
+    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn']);
+    const institutionNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn']);
+    const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn']);
+    if (!hasAnyFinite(foreignNetBuy, institutionNetBuy, individualNetBuy)) return null;
+    return {
+      ...(foreignNetBuy !== undefined ? { foreignNetBuy } : {}),
+      ...(institutionNetBuy !== undefined ? { institutionNetBuy } : {}),
+      ...(individualNetBuy !== undefined ? { individualNetBuy } : {}),
+      source: 'KIS_API',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('[KIS] 시장별 투자자매매동향 시세 조회 실패:', e instanceof Error ? e.message : e);
     return null;
   }
 }

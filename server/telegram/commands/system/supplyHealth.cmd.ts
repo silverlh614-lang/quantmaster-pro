@@ -43,7 +43,7 @@ const SHORT_STALE_DAYS = 2;
 const INVESTOR_FLOW_CACHE_STALE_DAYS = 2;
 const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
-const ATTEMPT_REASON_MAX_LEN = 220;
+const ATTEMPT_REASON_MAX_LEN = 110;
 
 // ADR-0421 — DATA_UNAVAILABLE 추가 (NEUTRAL 은 real-data + weak-direction 영역만 보존).
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
@@ -308,7 +308,6 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
       `cache: ${cacheSamples.length}/${total}${oldestCacheAge !== null ? `, oldest=${formatAgo(oldestCacheAge)}` : ''}${cacheDates.length > 0 ? `, dates=${cacheDates.join(',')}` : ''}`,
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
-      ...(attemptSummaries.length > 1 ? [`providerTried2: ${attemptSummaries[1]}`] : []),
       ...(providerHealthSummary ? providerHealthSummary.split('\n').map((line) => `providerHealth: ${line}`) : []),
       renderInvestorFlowDecision(marker),
       '대체: KRX / NAVER / CACHE',
@@ -399,6 +398,69 @@ function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus 
   const age = elapsedMs(macro.marginBalanceFetchedAt, nowMs);
   const stale = age !== null && age > TWO_DAYS * DAY_MS;
   return { key: 'marginBalance', title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: [`source: ${macro.marginBalanceSource}`, `change5d: ${macro.marginBalance5dChange.toFixed(2)}%`, `updated: ${formatAgo(age)}`, 'via: macroState', '상세: /margin_balance'] };
+}
+
+async function diagnoseKisOfficialSupplyPack(targets: WatchlistEntry[]): Promise<ChannelStatus> {
+  const code = firstTargetCode(targets);
+  if (!code) {
+    return {
+      key: 'marketSupply',
+      title: 'KIS Official Supply Pack',
+      marker: 'N/A',
+      lines: ['source: KIS_API', 'status: NO_TARGET', 'executionImpact=NONE'],
+    };
+  }
+  try {
+    const { evaluateKisSupplyEnemyChecklist, fetchKisOfficialSupplyPack } = await import('../../../supply/kisOfficialSupplyPack.js');
+    const pack = await fetchKisOfficialSupplyPack(code);
+    const enemy = evaluateKisSupplyEnemyChecklist(pack);
+    const okCount = [
+      pack.price?.confidence === 'VERIFIED',
+      pack.investorFlowDaily?.hasRealFields === true,
+      !!pack.shortSelling,
+      !!pack.loanTransaction,
+      !!pack.creditBalance,
+      !!pack.stockProgram,
+      !!pack.marketProgram,
+      !!pack.marketSupply,
+    ].filter(Boolean).length;
+    const marker: Marker = pack.providerIssue ? 'MISSING' : okCount >= 4 ? 'OK' : 'DEGRADED';
+    return {
+      key: 'marketSupply',
+      title: 'KIS Official Supply Pack',
+      marker,
+      riskReason: enemy.warningCount > 0 ? enemy.reason : undefined,
+      lines: [
+        'source: KIS_API',
+        'officialSource=true',
+        `target: ${code}`,
+        `price=${pack.price?.confidence ?? 'MISSING'}; investorFlowDaily=${pack.investorFlowDaily?.hasRealFields ? 'OK' : 'DATA_UNAVAILABLE'}; estimate=${pack.investorFlowEstimate?.confidence ?? 'MISSING'}`,
+        `short=${pack.shortSelling ? pack.shortSelling.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; loan=${pack.loanTransaction ? pack.loanTransaction.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; credit=${pack.creditBalance ? pack.creditBalance.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}`,
+        `program=${pack.stockProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketProgram=${pack.marketProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketSupply=${pack.marketSupply ? 'OK' : 'DATA_UNAVAILABLE'}`,
+        `enemyWarnings=${enemy.warningCount}; strongBuyAllowed=${String(enemy.strongBuyAllowed)}; newBuyAllowed=${String(enemy.newBuyAllowed)}`,
+        'marketSignal=false',
+        'executionImpact=NONE',
+      ],
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message.split('\n')[0] : String(err);
+    return {
+      key: 'marketSupply',
+      title: 'KIS Official Supply Pack',
+      marker: 'NEUTRAL',
+      riskReason: 'KIS supply pack unavailable',
+      lines: [
+        'source: KIS_API',
+        'officialSource=true',
+        `target: ${code}`,
+        'status: PROVIDER_UNAVAILABLE',
+        `reason: ${reason}`,
+        'providerIssue=true',
+        'marketSignal=false',
+        'executionImpact=NONE',
+      ],
+    };
+  }
 }
 
 function buildRiskTop3(channels: ChannelStatus[]): string[] {
@@ -530,7 +592,7 @@ async function collectSupplyHealthChannels(now: Date): Promise<{ channels: Chann
   const targets = selectTopWatchlist(TOP_N);
   const macro = loadMacroStateReadOnly();
   return {
-    channels: [await diagnoseInvestorFlow(targets, now, nowMs), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)],
+    channels: [await diagnoseInvestorFlow(targets, now, nowMs), await diagnoseKisOfficialSupplyPack(targets), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)],
     targetLine: formatTargetLine(watchlist.length, targets.length),
   };
 }
