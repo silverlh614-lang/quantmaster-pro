@@ -57,7 +57,7 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
 
   it('2. Registry includes supply data sources.', () => {
     const ids = buildFreshDataSourceRegistryAdr0487().map((item) => item.id);
-    expect(ids).toEqual(expect.arrayContaining(['NAVER_INVESTOR_TREND', 'SEMANTIC_NETBUY', 'FSS_PASSIVE_ACTIVE', 'SHORT_BALANCE', 'CREDIT_BALANCE']));
+    expect(ids).toEqual(expect.arrayContaining(['NAVER_INVESTOR_TREND', 'SEMANTIC_NETBUY', 'KRX_INVESTOR_FLOW', 'SUPPLY_SNAPSHOT_CACHE', 'FSS_PASSIVE_ACTIVE', 'SHORT_BALANCE', 'CREDIT_BALANCE']));
   });
 
   it('3. Registry entries all have liveExecutionAllowed=false.', () => {
@@ -335,5 +335,50 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(detail).toContain('staleDays=7');
     expect(detail).toContain('usableForLive=false');
     expect(detail).toContain('normalized=false');
+  });
+
+  it('40. mounts router KRX and sanitized cache fallback sources into FreshData supply snapshots', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      investorFlowProviderRouterAdr0477: {
+        selectedProvider: 'CACHE',
+        status: 'CACHE_HIT',
+        selectedReason: 'ADR-0491 sanitized snapshot cache selected',
+        providerStatuses: {
+          KRX_INVESTOR_FLOW: 'NON_TRADING_DAY',
+          CACHE: 'CACHE_HIT',
+        },
+        coverage: { available: 1, total: 8 },
+        coverageAfter: 1,
+        diagnosticUsableCount: 1,
+        materializationDiagnostics: {
+          CACHE: {
+            sampleMaterialized: true,
+            usableForRouter: true,
+            rawCount: 1,
+            normalizedCount: 1,
+            materializedCount: 1,
+            blockedReason: 'NONE',
+            placeholderDetected: false,
+            inputSourceKind: 'CACHE_FALLBACK',
+          },
+        },
+      },
+    });
+
+    const ids = report.snapshots.map((item) => item.sourceId);
+    const cache = report.snapshots.find((item) => item.sourceId === 'SUPPLY_SNAPSHOT_CACHE');
+    const krx = report.snapshots.find((item) => item.sourceId === 'KRX_INVESTOR_FLOW');
+
+    expect(ids).toEqual(expect.arrayContaining(['KRX_INVESTOR_FLOW', 'SUPPLY_SNAPSHOT_CACHE']));
+    expect(cache?.provider).toBe('CACHE');
+    expect(cache?.sampleMaterialized).toBe(true);
+    expect(cache?.usableForRouter).toBe(true);
+    expect(cache?.status).toBe('READY_FOR_SHADOW');
+    expect(cache?.diagnostics.join(' ')).toContain('routerStatus=CACHE_HIT');
+    expect(cache?.diagnostics.join(' ')).toContain('diagnosticUsableCount=1');
+    expect(krx?.diagnostics.join(' ')).toContain('routerProvider=KRX_INVESTOR_FLOW');
+    expect(report.liveExecutionAllowed).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
   });
 });

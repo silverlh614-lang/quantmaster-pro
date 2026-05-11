@@ -248,6 +248,23 @@ function routerProviderHealthAdr0498(status: string | undefined, selectedProvide
   return coerceProviderHealth(status);
 }
 
+function routerFallbackProviderAdr0498(router: {
+  providerStatuses?: Record<string, string>;
+  coverage?: { available?: number; total?: number };
+  diagnosticUsableCount?: number;
+  coverageAfter?: number;
+}): string | null {
+  const statuses = router.providerStatuses ?? {};
+  const ranked = ['KIS_API', 'KRX_INVESTOR_FLOW', 'FSS_PASSIVE_ACTIVE', 'CACHE', 'SEMANTIC_NETBUY', 'NAVER_INVESTOR_TREND'];
+  const usableStatuses = new Set(['CACHE_HIT', 'CACHE_STALE_HIT', 'VERIFIED', 'READY_FOR_SHADOW', 'OBSERVING', 'PARTIAL', 'STALE', 'DEGRADED']);
+  for (const provider of ranked) {
+    const status = statuses[provider] ?? (provider === 'KRX_INVESTOR_FLOW' ? statuses.KRX : undefined) ?? (provider === 'KIS_API' ? statuses.KIS : undefined) ?? (provider === 'FSS_PASSIVE_ACTIVE' ? statuses.FSS : undefined);
+    if (status && usableStatuses.has(status)) return provider;
+  }
+  if ((router.diagnosticUsableCount ?? 0) > 0 || (router.coverageAfter ?? 0) > 0 || (router.coverage?.available ?? 0) > 0) return 'CACHE';
+  return null;
+}
+
 export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
   selectedProvider?: string;
   status?: string;
@@ -255,15 +272,20 @@ export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
   selectedReason?: string | null;
   providerStatuses?: Record<string, string>;
   coverage?: { available?: number; total?: number };
+  diagnosticUsableCount?: number;
+  coverageAfter?: number;
   rawPayloadPersistenceAllowed?: false;
   liveExecutionAllowed?: false;
   executionImpact?: 'NONE';
 } | null | undefined): FreshDataStatusViewModelInputAdr0498 | null {
   if (!router) return null;
-  const selectedProvider = router.selectedProvider ?? 'NONE';
+  const rawSelectedProvider = router.selectedProvider ?? 'NONE';
+  const fallbackProvider = rawSelectedProvider === 'NONE' ? routerFallbackProviderAdr0498(router) : null;
+  const selectedProvider = rawSelectedProvider === 'NONE' && fallbackProvider ? fallbackProvider : rawSelectedProvider;
   const cacheStatus = router.providerStatuses?.CACHE;
-  const effectiveStatus = selectedProvider === 'CACHE' && cacheStatus ? cacheStatus : router.status;
-  if (selectedProvider === 'NONE') {
+  const providerStatus = router.providerStatuses?.[selectedProvider] ?? (selectedProvider === 'KRX_INVESTOR_FLOW' ? router.providerStatuses?.KRX : undefined) ?? (selectedProvider === 'KIS_API' ? router.providerStatuses?.KIS : undefined) ?? (selectedProvider === 'FSS_PASSIVE_ACTIVE' ? router.providerStatuses?.FSS : undefined);
+  const effectiveStatus = selectedProvider === 'CACHE' && cacheStatus ? cacheStatus : providerStatus ?? router.status;
+  if (rawSelectedProvider === 'NONE' && !fallbackProvider) {
     return {
       sourceAdr: 'ADR_0489_INVESTOR_FLOW_SAMPLE',
       dataLineId: 'investorFlow',
@@ -291,9 +313,11 @@ export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
     dataLineStatus: stale ? 'OBSERVING' : 'READY_FOR_SHADOW',
     promotionReadiness: 'NOT_EVALUATED',
     warnings: [
-      `selectedProvider=${selectedProvider}`,
+      `selectedProvider=${rawSelectedProvider}`,
+      ...(fallbackProvider ? [`fallbackProvider=${fallbackProvider}`, 'provider=EMPTY suppressed because diagnostic fallback exists'] : []),
       ...routerRoleWarningsAdr0498(selectedProvider),
       effectiveStatus ? `routerStatus=${effectiveStatus}` : 'routerStatus=UNKNOWN',
+      `diagnosticUsableCount=${router.diagnosticUsableCount ?? 0}`,
       'rawPayloadPersistenceAllowed=false',
       'liveExecutionAllowed=false',
       router.selectedReason ?? 'UNKNOWN/provider issue is not bearish',

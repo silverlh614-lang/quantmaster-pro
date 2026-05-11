@@ -185,6 +185,11 @@ export interface FreshDataSupplyReportInputAdr0487 {
     selectedProvider?: string;
     providerStatuses?: Record<string, string>;
     status?: string;
+    coverage?: { available?: number; total?: number };
+    selectedReason?: string | null;
+    materializationDiagnostics?: Record<string, unknown>;
+    diagnosticUsableCount?: number;
+    coverageAfter?: number;
   } | null;
   diagnostics?: readonly string[];
   throwForTest?: boolean;
@@ -202,6 +207,8 @@ const SOURCE_IDS = [
   'SECTOR_ENERGY_STOCK_DAILY_FALLBACK',
   'NAVER_INVESTOR_TREND',
   'SEMANTIC_NETBUY',
+  'KRX_INVESTOR_FLOW',
+  'SUPPLY_SNAPSHOT_CACHE',
   'KIS_PROGRAM_TRADING',
   'MARKET_PROGRAM_TRADING',
   'FSS_PASSIVE_ACTIVE',
@@ -217,6 +224,8 @@ export function buildFreshDataSourceRegistryAdr0487(): FreshDataSourceRegistrati
     { id: 'SECTOR_ENERGY_STOCK_DAILY_FALLBACK', domain: 'SECTOR_ENERGY', provider: 'CACHE', priority: 3, stage: 'OBSERVE', fetchAllowed: false, normalizeRequired: false, freshnessRequired: true, description: 'Fallback support data only; never leadership confidence.', relatedAdrs: ['0474', '0487'] },
     { id: 'NAVER_INVESTOR_TREND', domain: 'SUPPLY', provider: 'NAVER', priority: 1, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'NAVER investor trend sample line.', relatedAdrs: ['0481', '0487'] },
     { id: 'SEMANTIC_NETBUY', domain: 'SUPPLY', provider: 'INTERNAL', priority: 2, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Semantic net-buy normalized sample line.', relatedAdrs: ['0482', '0487'] },
+    { id: 'KRX_INVESTOR_FLOW', domain: 'SUPPLY', provider: 'KRX', priority: 3, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KRX investor-flow previous trading date fallback line.', relatedAdrs: ['0477', '0487', '0503'] },
+    { id: 'SUPPLY_SNAPSHOT_CACHE', domain: 'SUPPLY', provider: 'CACHE', priority: 4, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: false, description: 'ADR-0491 sanitized supply snapshot cache fallback line.', relatedAdrs: ['0491', '0503'] },
     { id: 'KIS_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 3, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS program trading sample line.', relatedAdrs: ['0477', '0487'] },
     { id: 'MARKET_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KRX', priority: 4, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Market program trading sample line.', relatedAdrs: ['0477', '0487'] },
     { id: 'FSS_PASSIVE_ACTIVE', domain: 'SUPPLY', provider: 'FSS', priority: 5, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'FSS passive/active supply freshness line.', relatedAdrs: ['0483', '0487'] },
@@ -515,6 +524,70 @@ function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration
   });
 }
 
+function routerMaterialization(input: FreshDataSupplyReportInputAdr0487, provider: string): Record<string, unknown> | null {
+  const diagnostics = input.investorFlowProviderRouterAdr0477?.materializationDiagnostics;
+  const value = diagnostics?.[provider];
+  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+}
+
+function routerProviderStatus(input: FreshDataSupplyReportInputAdr0487, provider: string): string {
+  const statuses = input.investorFlowProviderRouterAdr0477?.providerStatuses ?? {};
+  if (provider === 'KRX_INVESTOR_FLOW') return upper(statuses.KRX_INVESTOR_FLOW ?? statuses.KRX ?? input.investorFlowProviderRouterAdr0477?.status);
+  if (provider === 'CACHE') return upper(statuses.CACHE ?? input.investorFlowProviderRouterAdr0477?.status);
+  return upper(statuses[provider] ?? input.investorFlowProviderRouterAdr0477?.status);
+}
+
+function routerSupplySnapshot(
+  input: FreshDataSupplyReportInputAdr0487,
+  registration: FreshDataSourceRegistrationAdr0487,
+  generatedAt: string,
+  provider: 'KRX_INVESTOR_FLOW' | 'CACHE',
+): FreshDataSnapshotAdr0487 {
+  const status = routerProviderStatus(input, provider);
+  const materialization = routerMaterialization(input, provider);
+  const selectedProvider = upper(input.investorFlowProviderRouterAdr0477?.selectedProvider);
+  const selected = selectedProvider === provider || (provider === 'CACHE' && selectedProvider === 'SUPPLY_SNAPSHOT_CACHE');
+  const materializedCount = asNumber(materialization?.materializedCount) ?? 0;
+  const sampleMaterialized = materialization?.sampleMaterialized === true || materializedCount > 0 || selected;
+  const usableForRouter = materialization?.usableForRouter === true || selected || (provider === 'CACHE' && (status === 'CACHE_HIT' || status === 'CACHE_STALE_HIT') && sampleMaterialized);
+  const stale = status === 'CACHE_STALE_HIT' || status === 'STALE' || status === 'STALE_SAMPLE';
+  const fresh = status === 'CACHE_HIT' || status === 'VERIFIED' || status === 'READY_FOR_SHADOW' || status === 'PARTIAL' || status === 'OBSERVING';
+  const empty = status === 'CACHE_EMPTY' || status === 'EMPTY';
+  const sourceState: FreshDataSourceState = stale ? 'STALE' : fresh ? 'FRESH' : empty ? 'EMPTY' : status.includes('PROVIDER_ERROR') || status === 'ERROR' ? 'PROVIDER_ERROR' : 'DATA_UNAVAILABLE';
+  const cacheState: FreshDataCacheState = provider === 'CACHE'
+    ? status === 'CACHE_HIT' ? 'FRESH' : status === 'CACHE_STALE_HIT' || stale ? 'STALE' : empty ? 'EMPTY' : 'UNKNOWN'
+    : fresh ? 'FRESH' : stale ? 'STALE' : 'UNKNOWN';
+  return buildFreshDataSnapshotAdr0487({
+    registration,
+    collectedAt: generatedAt,
+    sourceDate: typeof materialization?.dateCoverage === 'string' ? materialization.dateCoverage : null,
+    cacheState,
+    sourceState,
+    coverageRatio: sampleMaterialized ? 1 : 0,
+    normalized: sampleMaterialized,
+    sampleMaterialized,
+    usableForRouter,
+    usableForShadow: sampleMaterialized || (provider === 'CACHE' && (status === 'CACHE_HIT' || status === 'CACHE_STALE_HIT')),
+    readinessKind: sampleMaterialized ? 'MATERIALIZED_SAMPLE' : provider === 'CACHE' && (status === 'CACHE_HIT' || status === 'CACHE_STALE_HIT') ? 'CACHE_FALLBACK' : status ? 'REGISTRY_READY' : 'NO_SAMPLE',
+    sourceOfTruth: provider === 'CACHE' ? 'SUPPLY_SNAPSHOT' : 'ROUTER_INPUT',
+    confidence: stale ? 'LOW' : fresh ? 'MEDIUM' : 'NONE',
+    diagnostics: [
+      `routerProvider=${provider}`,
+      `routerStatus=${status || 'missing'}`,
+      `selectedProvider=${input.investorFlowProviderRouterAdr0477?.selectedProvider ?? 'NONE'}`,
+      `selectedReason=${input.investorFlowProviderRouterAdr0477?.selectedReason ?? 'NONE'}`,
+      `diagnosticUsableCount=${input.investorFlowProviderRouterAdr0477?.diagnosticUsableCount ?? 'UNKNOWN'}`,
+      `coverageAfter=${input.investorFlowProviderRouterAdr0477?.coverageAfter ?? input.investorFlowProviderRouterAdr0477?.coverage?.available ?? 'UNKNOWN'}`,
+      `rawCount=${materialization?.rawCount ?? 'UNKNOWN'}`,
+      `normalizedCount=${materialization?.normalizedCount ?? 'UNKNOWN'}`,
+      `materializedCount=${materialization?.materializedCount ?? 'UNKNOWN'}`,
+      `blockedReason=${materialization?.blockedReason ?? (status || 'UNKNOWN')}`,
+      `placeholderDetected=${materialization?.placeholderDetected ?? 'UNKNOWN'}`,
+      `inputSourceKind=${materialization?.inputSourceKind ?? (provider === 'CACHE' ? 'CACHE_FALLBACK' : 'RAW_PROVIDER')}`,
+    ],
+  });
+}
+
 function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
   const status = upper(input.investorFlowProviderRouterAdr0477?.providerStatuses?.[registration.id] ?? input.investorFlowProviderRouterAdr0477?.status);
   const fresh = status.includes('DATA_AVAILABLE') || status.includes('WIRED') || status.includes('OK');
@@ -541,6 +614,8 @@ function buildSupplySnapshots(input: FreshDataSupplyReportInputAdr0487, registra
   return [
     naverSnapshot(input, registrationById(registrations, 'NAVER_INVESTOR_TREND'), generatedAt),
     semanticSnapshot(input, registrationById(registrations, 'SEMANTIC_NETBUY'), generatedAt),
+    routerSupplySnapshot(input, registrationById(registrations, 'KRX_INVESTOR_FLOW'), generatedAt, 'KRX_INVESTOR_FLOW'),
+    routerSupplySnapshot(input, registrationById(registrations, 'SUPPLY_SNAPSHOT_CACHE'), generatedAt, 'CACHE'),
     programSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING'), generatedAt),
     programSnapshot(input, registrationById(registrations, 'MARKET_PROGRAM_TRADING'), generatedAt),
     fssPassiveActiveSnapshot(input, registrationById(registrations, 'FSS_PASSIVE_ACTIVE'), generatedAt),
@@ -556,6 +631,8 @@ function gapForSnapshot(snapshot: FreshDataSnapshotAdr0487): string | null {
   if (snapshot.sourceId === 'SECTOR_ENERGY_STOCK_DAILY_FALLBACK' && snapshot.coverageRatio > 0) return 'DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE';
   if (snapshot.sourceId === 'NAVER_INVESTOR_TREND') return 'COLLECT_NAVER_INVESTOR_SAMPLE';
   if (snapshot.sourceId === 'SEMANTIC_NETBUY') return 'BUILD_SEMANTIC_NETBUY_SAMPLE';
+  if (snapshot.sourceId === 'KRX_INVESTOR_FLOW') return 'COLLECT_KRX_INVESTOR_FLOW_SAMPLE';
+  if (snapshot.sourceId === 'SUPPLY_SNAPSHOT_CACHE') return 'VERIFY_SUPPLY_SNAPSHOT_CACHE';
   if (snapshot.sourceId === 'FSS_PASSIVE_ACTIVE') return 'REFRESH_FSS_PASSIVE_ACTIVE';
   if (snapshot.sourceId === 'SHORT_BALANCE' || snapshot.sourceId === 'CREDIT_BALANCE') return 'REFRESH_SHORT_CREDIT_SOURCES';
   if (snapshot.domain === 'PROGRAM_TRADING') return 'VERIFY_KIS_PROGRAM_TRADING_SESSION';
@@ -570,6 +647,8 @@ function actionForGap(gap: string): string {
     DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE: 'Keep stock-daily fallback as support-only, not leadership confidence.',
     COLLECT_NAVER_INVESTOR_SAMPLE: 'Collect sanitized NAVER investor trend samples.',
     BUILD_SEMANTIC_NETBUY_SAMPLE: 'Build normalized semantic net-buy samples.',
+    COLLECT_KRX_INVESTOR_FLOW_SAMPLE: 'Collect KRX investor-flow previous trading date samples.',
+    VERIFY_SUPPLY_SNAPSHOT_CACHE: 'Verify sanitized supply snapshot cache fallback rows.',
     REFRESH_FSS_PASSIVE_ACTIVE: 'Refresh FSS passive/active supply freshness.',
     REFRESH_SHORT_CREDIT_SOURCES: 'Refresh short and credit balance freshness.',
     VERIFY_KIS_PROGRAM_TRADING_SESSION: 'Verify KIS/KRX program trading session sample availability.',
@@ -648,7 +727,7 @@ export function buildFreshDataSupplyReportAdr0487(input: FreshDataSupplyReportIn
       'ADR-0487 creates OBSERVE/SHADOW_ONLY data supply foundation only.',
       'UNKNOWN remains UNKNOWN; provider issue is not bearish; fresh data is not a live Gate input.',
       'No raw provider payloads are persisted by ADR-0487.',
-      ...(input.supplyCoverageReportAdr0496 ? [`ADR-0496 SupplyCoverage before=${input.supplyCoverageReportAdr0496.coverageBefore} after=${input.supplyCoverageReportAdr0496.coverageAfter} sampleCount=${input.supplyCoverageReportAdr0496.sampleCount} normalizedSampleCount=${input.supplyCoverageReportAdr0496.normalizedSampleCount} semanticNetBuyCount=${input.supplyCoverageReportAdr0496.semanticNetBuyCount} nullCount=${input.supplyCoverageReportAdr0496.nullCount} zeroCount=${input.supplyCoverageReportAdr0496.zeroCount} missingCount=${input.supplyCoverageReportAdr0496.missingCount} providerIssueCount=${input.supplyCoverageReportAdr0496.providerIssueCount} marketSignalCount=${input.supplyCoverageReportAdr0496.marketSignalCount}`] : []),
+      ...(input.supplyCoverageReportAdr0496 ? [`ADR-0496 SupplyCoverage before=${input.supplyCoverageReportAdr0496.coverageBefore} after=${input.supplyCoverageReportAdr0496.coverageAfter} sampleCount=${input.supplyCoverageReportAdr0496.sampleCount} normalizedSampleCount=${input.supplyCoverageReportAdr0496.normalizedSampleCount} semanticNetBuyCount=${input.supplyCoverageReportAdr0496.semanticNetBuyCount} routerUsableCount=${input.supplyCoverageReportAdr0496.routerUsableCount ?? input.supplyCoverageReportAdr0496.routerUsableSampleCount} diagnosticUsableCount=${input.supplyCoverageReportAdr0496.diagnosticUsableCount ?? input.supplyCoverageReportAdr0496.diagnosticUsableSampleCount} nullCount=${input.supplyCoverageReportAdr0496.nullCount} zeroCount=${input.supplyCoverageReportAdr0496.zeroCount} missingCount=${input.supplyCoverageReportAdr0496.missingCount} providerIssueCount=${input.supplyCoverageReportAdr0496.providerIssueCount} marketSignalCount=${input.supplyCoverageReportAdr0496.marketSignalCount}`] : []),
     ],
   };
 }
@@ -739,6 +818,8 @@ function sourceForGap(gap: string): OperatorActionSource {
     DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE: 'SECTOR_DATA_SUPPLY_LINE_MISSING',
     COLLECT_NAVER_INVESTOR_SAMPLE: 'NAVER_SAMPLE_ACQUISITION_NEEDED',
     BUILD_SEMANTIC_NETBUY_SAMPLE: 'SEMANTIC_NETBUY_SAMPLE_NEEDED',
+    COLLECT_KRX_INVESTOR_FLOW_SAMPLE: 'SUPPLY_DATA_SUPPLY_LINE_MISSING',
+    VERIFY_SUPPLY_SNAPSHOT_CACHE: 'SUPPLY_DATA_SUPPLY_LINE_MISSING',
     REFRESH_FSS_PASSIVE_ACTIVE: 'FSS_REFRESH_NEEDED',
     REFRESH_SHORT_CREDIT_SOURCES: 'SUPPLY_DATA_SUPPLY_LINE_MISSING',
     VERIFY_KIS_PROGRAM_TRADING_SESSION: 'SUPPLY_DATA_SUPPLY_LINE_MISSING',

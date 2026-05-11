@@ -46,6 +46,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(normalizeInvestorFlowSourceKey('semantic_netbuy')).toBe('SEMANTIC_NETBUY');
     expect(normalizeInvestorFlowSourceKey('KRX')).toBe('KRX_INVESTOR_FLOW');
     expect(normalizeInvestorFlowSourceKey('KIS')).toBe('KIS_API');
+    expect(normalizeInvestorFlowSourceKey('SUPPLY_SNAPSHOT_CACHE')).toBe('CACHE');
   });
 
   it('bridges ADR-0487 FreshData READY_FOR_SHADOW NAVER and Semantic samples into router selection', () => {
@@ -413,7 +414,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
             foreignNetBuy: 123,
             institutionNetBuy: 456,
             retailNetBuy: -579,
-            confidence: 'HIGH',
+            confidence: 'VERIFIED',
             status: 'FRESH',
             isProviderIssue: false,
             isMarketSignal: false,

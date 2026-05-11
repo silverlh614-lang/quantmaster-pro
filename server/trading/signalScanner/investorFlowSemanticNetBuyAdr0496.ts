@@ -96,11 +96,13 @@ export interface SupplyCoverageReportAdr0496 {
   normalizedCount?: number;
   materializedCount?: number;
   routerUsableCount?: number;
+  diagnosticUsableCount?: number;
   normalizedSampleCount: number;
   semanticNetBuyCount: number;
   materializedSampleCount: number;
   semanticPlaceholderCount: number;
   routerUsableSampleCount: number;
+  diagnosticUsableSampleCount: number;
   registryReadyCount: number;
 
   coverageBefore: number;
@@ -294,7 +296,8 @@ export function buildSupplyCoverageReportAdr0496(
   const semanticNetBuyCount = semanticSamples.filter((sample) => sample.normalized).length;
   const semanticPlaceholderCount = semanticSamples.filter((sample) => !sample.normalized).length;
   const normalizedSampleCount = Math.max(materializedSampleCount, semanticNetBuyCount);
-  const routerUsableSampleCount = samples.filter((sample) => countKnownAmounts(sample) > 0 && (sample.status === 'FRESH' || sample.status === 'PARTIAL')).length + semanticNetBuyCount;
+  const routerUsableSampleCount = samples.filter((sample) => countKnownAmounts(sample) > 0 && (sample.status === 'FRESH' || sample.status === 'PARTIAL')).length;
+  const diagnosticUsableSampleCount = samples.filter((sample) => countKnownAmounts(sample) > 0 && (sample.status === 'FRESH' || sample.status === 'PARTIAL' || sample.status === 'STALE')).length + semanticNetBuyCount;
   const registryReadyCount = Math.max(0, sampleCount - materializedSampleCount);
   const nullCount = samples.reduce((sum, sample) => sum + [sample.foreignNetBuy, sample.institutionNetBuy, sample.retailNetBuy].filter((value) => value === null).length, 0);
   const zeroCount = samples.reduce((sum, sample) => sum + [sample.foreignNetBuy, sample.institutionNetBuy, sample.retailNetBuy].filter((value) => value === 0).length, 0);
@@ -319,11 +322,13 @@ export function buildSupplyCoverageReportAdr0496(
     normalizedCount: normalizedSampleCount,
     materializedCount: materializedSampleCount,
     routerUsableCount: routerUsableSampleCount,
+    diagnosticUsableCount: diagnosticUsableSampleCount,
     normalizedSampleCount,
     semanticNetBuyCount,
     materializedSampleCount,
     semanticPlaceholderCount,
     routerUsableSampleCount,
+    diagnosticUsableSampleCount,
     registryReadyCount,
     coverageBefore,
     coverageAfter,
@@ -356,11 +361,13 @@ export function formatSupplyCoverageSummaryAdr0496(report: SupplyCoverageReportA
     `normalizedCount=${report.normalizedCount ?? report.normalizedSampleCount}`,
     `materializedCount=${report.materializedCount ?? report.materializedSampleCount}`,
     `routerUsableCount=${report.routerUsableCount ?? report.routerUsableSampleCount}`,
+    `diagnosticUsableCount=${report.diagnosticUsableCount ?? report.diagnosticUsableSampleCount}`,
     `normalizedSampleCount=${report.normalizedSampleCount}`,
     `semanticNetBuyCount=${report.semanticNetBuyCount}`,
     `materializedSampleCount=${report.materializedSampleCount}`,
     `semanticPlaceholderCount=${report.semanticPlaceholderCount}`,
     `routerUsableSampleCount=${report.routerUsableSampleCount}`,
+    `diagnosticUsableSampleCount=${report.diagnosticUsableSampleCount}`,
     `registryReadyCount=${report.registryReadyCount}`,
     `nullCount=${report.nullCount}`,
     `zeroCount=${report.zeroCount}`,

@@ -189,6 +189,35 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(section.lines.join('\n')).not.toContain('signal=BEARISH');
   });
 
+  it('does not collapse to provider=EMPTY when selectedProvider=NONE but cache fallback evidence exists', () => {
+    const input = mapInvestorFlowRouterToStatusInputAdr0498({
+      selectedProvider: 'NONE',
+      status: 'DATA_UNAVAILABLE',
+      signal: 'UNKNOWN',
+      providerStatuses: { CACHE: 'CACHE_HIT' },
+      coverage: { available: 1, total: 8 },
+      diagnosticUsableCount: 1,
+      coverageAfter: 1,
+      rawPayloadPersistenceAllowed: false,
+      liveExecutionAllowed: false,
+      executionImpact: 'NONE',
+    });
+    const section = safeBuildFreshDataStatusSectionAdr0498([input!]);
+    const text = section.lines.join('\n');
+
+    expect(input).toMatchObject({
+      providerDisplay: 'CACHE',
+      providerHealth: 'UP',
+      dataConfidence: 'PARTIAL',
+      dataLineStatus: 'READY_FOR_SHADOW',
+    });
+    expect(text).toContain('provider=CACHE');
+    expect(text).not.toContain('provider=EMPTY');
+    expect(text).not.toContain('confidence=MISSING');
+    expect(input?.warnings?.join(' ')).toContain('fallbackProvider=CACHE');
+    expect(input?.warnings?.join(' ')).toContain('diagnosticUsableCount=1');
+  });
+
   it('keeps registry-ready FreshData placeholders OBSERVING until a router-usable sample is materialized', () => {
     const [placeholder] = mapFreshDataSupplyReportToStatusInputsAdr0498({
       snapshots: [{

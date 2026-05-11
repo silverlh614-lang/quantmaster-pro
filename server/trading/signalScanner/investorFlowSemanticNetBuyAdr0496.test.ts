@@ -77,7 +77,8 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
     expect(report.rawCount).toBe(1);
     expect(report.normalizedCount).toBe(1);
     expect(report.materializedCount).toBe(1);
-    expect(report.routerUsableCount).toBe(2);
+    expect(report.routerUsableCount).toBe(1);
+    expect(report.diagnosticUsableCount).toBe(2);
     expect(report.liveExecutionAllowed).toBe(false);
     expect(report.executionImpact).toBe('NONE');
     expect(report.marketSignalCount).toBe(0);
@@ -95,6 +96,7 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
     expect(report.semanticNetBuyCount).toBe(0);
     expect(report.normalizedSampleCount).toBe(0);
     expect(report.routerUsableCount).toBe(0);
+    expect(report.diagnosticUsableCount).toBe(0);
     expect(report.providerIssueCount).toBe(0);
     expect(report.marketSignalCount).toBe(0);
   });
@@ -106,8 +108,22 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
 
     expect(report.semanticNetBuyCount).toBe(1);
     expect(report.normalizedSampleCount).toBeGreaterThanOrEqual(report.semanticNetBuyCount);
-    expect(report.routerUsableSampleCount).toBeGreaterThanOrEqual(1);
+    expect(report.routerUsableSampleCount).toBe(0);
+    expect(report.diagnosticUsableSampleCount).toBe(1);
     expect(report.providerIssueCount).toBe(0);
+  });
+
+  it('separates router usable count from semantic diagnostic-only count', () => {
+    const sample = buildInvestorFlowSanitizedSampleAdr0496({ provider: 'CACHE', status: 'UNKNOWN' });
+    const semantic = normalizeSemanticNetBuyAdr0496(sample);
+    const report = buildSupplyCoverageReportAdr0496({ samples: [sample], semanticSamples: [semantic] });
+
+    expect(report.materializedCount).toBe(0);
+    expect(report.routerUsableCount).toBe(0);
+    expect(report.semanticNetBuyCount).toBe(1);
+    expect(report.normalizedSampleCount).toBe(1);
+    expect(report.diagnosticUsableCount).toBe(1);
+    expect(formatSummaryForTest(report)).toContain('diagnosticUsableCount=1');
   });
 
   it('raw_payload_not_persisted', () => {
@@ -161,3 +177,10 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
     expect(report.executionImpact).toBe('NONE');
   });
 });
+
+function formatSummaryForTest(report: ReturnType<typeof buildSupplyCoverageReportAdr0496>): string {
+  return [
+    `routerUsableCount=${report.routerUsableCount}`,
+    `diagnosticUsableCount=${report.diagnosticUsableCount}`,
+  ].join(' ');
+}
