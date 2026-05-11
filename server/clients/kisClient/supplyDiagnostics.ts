@@ -21,7 +21,7 @@ export interface KisRawSupplyDiagnostic {
   outputPath: string;
   outputKeys: string[];
   parsed: Record<string, number | null>;
-  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'NO_OUTPUT' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO';
+  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'NO_OUTPUT' | 'OUTPUT_EMPTY' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO' | 'SESSION_UNAVAILABLE' | 'PARAM_ERROR' | 'PROVIDER_ERROR';
   sample: Record<string, string | number | null>;
   rootSample: Record<string, string | number | boolean | null>;
   error?: string;
@@ -120,6 +120,21 @@ function classifyZero(parsed: Record<string, number | null>): KisRawSupplyDiagno
   if (values.every((v) => v === null)) return 'FIELD_MISSING';
   if (values.some((v) => typeof v === 'number' && v !== 0)) return 'NON_ZERO';
   return 'RAW_ZERO';
+}
+
+function classifyKisRootIssue(data: unknown): KisRawSupplyDiagnostic['zeroReason'] | null {
+  const root = data as { rt_cd?: unknown; msg_cd?: unknown; msg1?: unknown; output?: unknown; output1?: unknown; output2?: unknown } | null;
+  if (!root || typeof root !== 'object') return null;
+  const rtCd = String(root.rt_cd ?? '');
+  const msgCd = String(root.msg_cd ?? '');
+  const msg = `${msgCd} ${String(root.msg1 ?? '')}`.toUpperCase();
+  const emptyOutput = [root.output, root.output1, root.output2].some((bucket) => Array.isArray(bucket) && bucket.length === 0);
+  if (rtCd === '0' && msgCd === 'MCA00000' && emptyOutput) return 'ACCEPTED_EMPTY';
+  if (msg.includes('SESSION') || msg.includes('TOKEN') || msg.includes('AUTH') || msg.includes('AUTHORIZATION')) return 'SESSION_UNAVAILABLE';
+  if (msg.includes('INPUT FIELD') || msg.includes('INVALID') || msg.includes('PARAM') || msg.includes('FID_')) return 'PARAM_ERROR';
+  if (rtCd && rtCd !== '0') return 'PROVIDER_ERROR';
+  if (emptyOutput) return 'OUTPUT_EMPTY';
+  return null;
 }
 
 function fmtSample(sample: Record<string, string | number | boolean | null>): string {
@@ -248,7 +263,7 @@ export async function diagnoseKisStockProgramRaw(
       outputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: out ? classifyZero(parsed) : 'NO_OUTPUT',
+      zeroReason: classifyKisRootIssue(data) ?? (out ? classifyZero(parsed) : 'NO_OUTPUT'),
       sample: pickSample(out, ['whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_byov_rate']),
       rootSample: pickRootSample(data),
     };
@@ -289,8 +304,8 @@ export async function diagnoseKisMarketProgramRaw(
       parsed.programSellAmount,
       parsed.programBuyAmount,
     ].every((value) => value === null);
-    const root = data as { rt_cd?: string; msg_cd?: string } | null;
-    const acceptedEmpty = root?.rt_cd === '0' && root?.msg_cd === 'MCA00000' && !out;
+    const rootIssue = classifyKisRootIssue(data);
+    const acceptedEmpty = rootIssue === 'ACCEPTED_EMPTY' && !out;
     return {
       kind: 'MARKET_PROGRAM',
       code: MARKET_PROGRAM_INDEX_CODE,
@@ -301,7 +316,7 @@ export async function diagnoseKisMarketProgramRaw(
       outputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: acceptedEmpty ? 'ACCEPTED_EMPTY' : (out ? amountFieldsMissing ? 'FIELD_MISSING' : classifyZero(parsed) : 'NO_OUTPUT'),
+      zeroReason: rootIssue ?? (out ? amountFieldsMissing ? 'FIELD_MISSING' : classifyZero(parsed) : 'NO_OUTPUT'),
       sample: pickSample(out, ['whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'arbt_smtn_ntby_tr_pbmn', 'nabt_smtn_ntby_tr_pbmn', 'arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn', 'arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
       rootSample: pickRootSample(data),
     };

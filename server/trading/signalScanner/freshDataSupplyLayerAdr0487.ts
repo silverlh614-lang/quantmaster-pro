@@ -584,7 +584,8 @@ function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration
   const status = upper(input.semanticNetBuyNormalizationAdr0482?.status);
   const semanticSamples = input.semanticNetBuyNormalizationAdr0482?.samples;
   const hasAnySemanticSample = Array.isArray(semanticSamples) && semanticSamples.length > 0;
-  const hasMaterializedSemantic = materialization?.sampleMaterialized === true || hasAnySemanticSample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample);
+  const hasAdr0496Semantic = (adr0496?.semanticNetBuyCount ?? 0) > 0;
+  const hasMaterializedSemantic = materialization?.sampleMaterialized === true || hasAnySemanticSample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample) || hasAdr0496Semantic;
   const hasSample = hasMaterializedSemantic || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
   const sourceState: FreshDataSourceState =
     status.includes('STALE') ? 'STALE'
@@ -608,7 +609,7 @@ function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration
       `ADR-0482 sampleCount=${Array.isArray(semanticSamples) ? semanticSamples.length : 0}`,
       `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`,
       `semanticPlaceholder=${materialization?.placeholderDetected ?? (!hasMaterializedSemantic && status ? 'true' : 'false')}`,
-      `inputSources=${Array.isArray(recordValue(input.semanticNetBuyNormalizationAdr0482, 'inputSources')) ? (recordValue(input.semanticNetBuyNormalizationAdr0482, 'inputSources') as string[]).join(',') : 'NONE'}`,
+      `inputSources=${Array.isArray(recordValue(input.semanticNetBuyNormalizationAdr0482, 'inputSources')) ? (recordValue(input.semanticNetBuyNormalizationAdr0482, 'inputSources') as string[]).join(',') : hasAdr0496Semantic ? 'KIS_API' : 'NONE'}`,
       `rawCount=${materialization?.rawCount ?? 'UNKNOWN'}`,
       `normalizedCount=${materialization?.normalizedCount ?? 'UNKNOWN'}`,
       `materializedCount=${materialization?.materializedCount ?? 'UNKNOWN'}`,

@@ -468,4 +468,46 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(basket?.diagnostics.join(' ')).toContain('sectorBoostAllowed=false');
     expect(basket?.diagnostics.join(' ')).toContain('strongBuyAllowed=false');
   });
+
+  it('43. materializes SEMANTIC_NETBUY from KIS ADR-0496 samples without cache fallback override', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      supplyCoverageReportAdr0496: {
+        status: 'PARTIAL',
+        sampleCount: 1,
+        normalizedSampleCount: 1,
+        semanticNetBuyCount: 1,
+        materializedSampleCount: 1,
+        semanticPlaceholderCount: 0,
+        routerUsableSampleCount: 0,
+        diagnosticUsableSampleCount: 1,
+        registryReadyCount: 0,
+        coverageBefore: 0,
+        coverageAfter: 0.5,
+        nullCount: 0,
+        zeroCount: 0,
+        missingCount: 0,
+        staleCount: 0,
+        providerErrorCount: 0,
+        providerIssueCount: 0,
+        marketSignalCount: 0,
+        normalized: true,
+        confidence: 'PARTIAL',
+        topGaps: [],
+        recommendedNextActions: [],
+        liveExecutionAllowed: false,
+        executionImpact: 'NONE',
+      },
+      investorFlowProviderRouterAdr0477: {
+        selectedProvider: 'KIS_API',
+        providerStatuses: { CACHE: 'CACHE_STALE_HIT', KIS_API: 'PARTIAL' },
+      },
+    });
+
+    const semantic = report.snapshots.find((item) => item.sourceId === 'SEMANTIC_NETBUY');
+    expect(semantic?.status).toBe('READY_FOR_SHADOW');
+    expect(semantic?.coverageRatio).toBeGreaterThan(0);
+    expect(semantic?.diagnostics.join(' ')).toContain('inputSources=KIS_API');
+    expect(semantic?.executionImpact).toBe('NONE');
+  });
 });

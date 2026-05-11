@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SECTOR_INDEX_MASTER, type SectorKey } from './sectorEnergyMaster.js';
 import {
   KIS_REPRESENTATIVE_SECTOR_BASKET,
+  buildKisSectorBasketRowsFromSeries,
   buildKisSectorEnergyBasketFromSeries,
   buildKisSectorEnergyInputsWithMeta,
   rankKisSectorEnergyInputs,
@@ -109,6 +110,23 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.leadershipConfidence).toBe('READY_FOR_SHADOW');
     expect(result.providerIssue).toBe(false);
     expect(result.marketSignal).toBe(false);
+  });
+
+  it('generates KIS sector basket rows from representative daily chart prices only as PARTIAL shadow data', () => {
+    const rows = buildKisSectorBasketRowsFromSeries(allBasketSeries('SHIPBUILDING'));
+
+    expect(rows).toHaveLength(12);
+    expect(rows[0]).toMatchObject({
+      sectorKey: 'SHIPBUILDING',
+      displayName: '조선',
+      validPriceCount: 4,
+      source: 'KIS_DAILY_CHART',
+      confidence: 'PARTIAL',
+    });
+    expect(rows[0]?.return1d).toBeGreaterThan(0);
+    expect(rows[0]?.return5d).toBeGreaterThan(0);
+    expect(rows[0]?.return20d).toBeGreaterThan(0);
+    expect(rows[0]?.representativeCodes).toEqual(['329180', '042660', '010140', '009540']);
   });
 
   it('ranks top sectors from KIS basket returns', () => {
