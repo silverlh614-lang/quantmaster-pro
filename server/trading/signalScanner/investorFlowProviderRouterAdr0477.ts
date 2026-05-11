@@ -17,6 +17,8 @@ export type InvestorFlowProviderId =
   | 'KIS_API'
   | 'KRX'
   | 'KRX_INVESTOR_FLOW'
+  | 'KRX_SYMBOL_INVESTOR_FLOW'
+  | 'KRX_MARKET_INVESTOR_FLOW'
   | 'NAVER'
   | 'NAVER_INVESTOR_TREND'
   | 'FSS'
@@ -154,12 +156,22 @@ export interface InvestorFlowProviderRouteResult {
     parserStatus?: string;
     endpointIssueHint?: string;
     selectedKrxFlowMode?: string;
+    routePurpose?: string;
+    selectedBld?: string;
+    requiredParamMissing?: string | null;
+    shortCodeToIsuCdResolved?: boolean;
+    isuCd?: string | null;
+    inqTpCd?: string | null;
+    inqVal?: string | null;
+    detailView?: string | null;
     tradeDate?: string;
     previousTradingDateCandidate?: string;
     selectedVariant?: string | null;
     otpGenerated?: boolean;
     csvDownloaded?: boolean;
     csvRowCount?: number;
+    csvHeaderDetected?: boolean;
+    csvNoDataReason?: string | null;
     contentType?: string;
     responseKind?: string;
     selectedRowCount?: number;
@@ -199,6 +211,14 @@ export interface InvestorFlowProviderRouterInput {
     tradeDate?: string;
     previousTradingDateCandidate?: string;
     selectedKrxFlowMode?: string;
+    routePurpose?: string;
+    selectedBld?: string;
+    requiredParamMissing?: string | null;
+    shortCodeToIsuCdResolved?: boolean;
+    isuCd?: string | null;
+    inqTpCd?: string | null;
+    inqVal?: string | null;
+    detailView?: string | null;
     endpointVariant?: string;
     dateParam?: string;
     marketCode?: string | null;
@@ -212,6 +232,8 @@ export interface InvestorFlowProviderRouterInput {
     csvRowCount?: number;
     csvColumnKeys?: readonly string[];
     csvFailureReason?: string | null;
+    csvHeaderDetected?: boolean;
+    csvNoDataReason?: string | null;
     contentType?: string;
     httpStatus?: number | null;
     responseKind?: string;
@@ -264,6 +286,8 @@ function providerIdFromMaterializationAdr0477(providerName: InvestorSampleProvid
   if (providerName === 'SEMANTIC_NETBUY') return 'SEMANTIC_NETBUY';
   if (providerName === 'CACHE') return 'CACHE';
   if (providerName === 'KIS_INVESTOR') return 'KIS_API';
+  if (providerName === 'KRX_SYMBOL_INVESTOR_FLOW') return 'KRX_SYMBOL_INVESTOR_FLOW';
+  if (providerName === 'KRX_MARKET_INVESTOR_FLOW') return 'KRX_MARKET_INVESTOR_FLOW';
   if (providerName === 'KRX_INVESTOR_FLOW') return 'KRX_INVESTOR_FLOW';
   if (providerName === 'FSS_PASSIVE_ACTIVE') return 'FSS_PASSIVE_ACTIVE';
   return 'UNKNOWN';
@@ -481,7 +505,7 @@ function mapSemanticNetBuyStatusAdr0482ToAdr0477(status: SemanticNetBuyStatus): 
   }
 }
 
-export type InvestorFlowSource = 'NAVER_INVESTOR_TREND' | 'SEMANTIC_NETBUY' | 'CACHE' | 'KRX_INVESTOR_FLOW' | 'KIS_API';
+export type InvestorFlowSource = 'NAVER_INVESTOR_TREND' | 'SEMANTIC_NETBUY' | 'CACHE' | 'KRX_INVESTOR_FLOW' | 'KRX_SYMBOL_INVESTOR_FLOW' | 'KRX_MARKET_INVESTOR_FLOW' | 'KIS_API';
 
 const INVESTOR_FLOW_SOURCE_ALIASES: Record<string, InvestorFlowSource> = {
   NAVER: 'NAVER_INVESTOR_TREND',
@@ -492,6 +516,8 @@ const INVESTOR_FLOW_SOURCE_ALIASES: Record<string, InvestorFlowSource> = {
   CACHE: 'CACHE',
   KRX: 'KRX_INVESTOR_FLOW',
   KRX_INVESTOR_FLOW: 'KRX_INVESTOR_FLOW',
+  KRX_SYMBOL_INVESTOR_FLOW: 'KRX_SYMBOL_INVESTOR_FLOW',
+  KRX_MARKET_INVESTOR_FLOW: 'KRX_MARKET_INVESTOR_FLOW',
   KIS: 'KIS_API',
   KIS_API: 'KIS_API',
 };
@@ -724,6 +750,14 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `tradeDate=${input.tradeDate ?? 'UNKNOWN'}`,
     `previousTradingDateCandidate=${input.previousTradingDateCandidate ?? 'UNKNOWN'}`,
     `selectedKrxFlowMode=${input.selectedKrxFlowMode ?? 'UNKNOWN'}`,
+    `routePurpose=${input.routePurpose ?? 'UNKNOWN'}`,
+    `selectedBld=${input.selectedBld ?? input.bld ?? 'UNKNOWN'}`,
+    `requiredParamMissing=${input.requiredParamMissing ?? 'NONE'}`,
+    `shortCodeToIsuCdResolved=${String(input.shortCodeToIsuCdResolved ?? false)}`,
+    `isuCd=${input.isuCd ?? 'NONE'}`,
+    `inqTpCd=${input.inqTpCd ?? 'NONE'}`,
+    `inqVal=${input.inqVal ?? 'NONE'}`,
+    `detailView=${input.detailView ?? 'NONE'}`,
     `endpointVariant=${input.endpointVariant ?? 'UNKNOWN'}`,
     `dateParam=${input.dateParam ?? 'UNKNOWN'}`,
     `marketCode=${input.marketCode ?? 'UNKNOWN'}`,
@@ -738,6 +772,8 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `csvRowCount=${input.csvRowCount ?? 0}`,
     `csvColumnKeys=${input.csvColumnKeys?.join(',') || 'NONE'}`,
     `csvFailureReason=${input.csvFailureReason ?? 'NONE'}`,
+    `csvHeaderDetected=${String(input.csvHeaderDetected ?? false)}`,
+    `csvNoDataReason=${input.csvNoDataReason ?? 'NONE'}`,
     `contentType=${input.contentType ?? 'unknown'}`,
     `responseKind=${input.responseKind ?? 'UNKNOWN'}`,
     `httpStatus=${input.httpStatus ?? 'NONE'}`,
@@ -816,6 +852,8 @@ function materializationFromSemanticSampleAdr0477(
 
 export type InvestorFlowMaterializedSourceKindAdr0503 =
   | 'KIS_SYMBOL_INVESTOR_FLOW'
+  | 'KRX_SYMBOL_INVESTOR_FLOW'
+  | 'KRX_MARKET_INVESTOR_FLOW'
   | 'KRX_PREVIOUS_TRADING_DATE'
   | 'NAVER_PREVIOUS_TRADING_DATE'
   | 'FSS_STALE_DIAGNOSTIC'
@@ -853,15 +891,19 @@ export function collectInvestorFlowMaterializedCandidates(
   samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>>,
 ): InvestorFlowMaterializedCandidateAdr0503[] {
   const priority: Record<string, number> = {
-    KRX_INVESTOR_FLOW: 1,
-    KIS_API: 2,
-    FSS_PASSIVE_ACTIVE: 3,
-    NAVER_INVESTOR_TREND: 4,
-    CACHE: 5,
-    SEMANTIC_NETBUY: 6,
+    KRX_SYMBOL_INVESTOR_FLOW: 1,
+    KRX_INVESTOR_FLOW: 2,
+    KIS_API: 3,
+    KRX_MARKET_INVESTOR_FLOW: 4,
+    FSS_PASSIVE_ACTIVE: 5,
+    NAVER_INVESTOR_TREND: 6,
+    CACHE: 7,
+    SEMANTIC_NETBUY: 8,
   };
   const sourceKind: Record<string, InvestorFlowMaterializedSourceKindAdr0503> = {
     KIS_API: 'KIS_SYMBOL_INVESTOR_FLOW',
+    KRX_SYMBOL_INVESTOR_FLOW: 'KRX_SYMBOL_INVESTOR_FLOW',
+    KRX_MARKET_INVESTOR_FLOW: 'KRX_MARKET_INVESTOR_FLOW',
     KRX_INVESTOR_FLOW: 'KRX_PREVIOUS_TRADING_DATE',
     NAVER_INVESTOR_TREND: 'NAVER_PREVIOUS_TRADING_DATE',
     FSS_PASSIVE_ACTIVE: 'FSS_STALE_DIAGNOSTIC',
@@ -938,7 +980,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   input: InvestorFlowProviderRouterInput,
 ): InvestorFlowProviderRouteResult {
   const collectedAt = input.collectedAt ?? new Date().toISOString();
-  const providerTried: InvestorFlowProviderId[] = ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
+  const providerTried: InvestorFlowProviderId[] = ['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
   const providerStatuses: Record<string, InvestorFlowProviderStatus> = {};
   const providerReasons: Record<string, string> = {};
   const diagnostics: string[] = [];
@@ -1150,24 +1192,43 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
 
   const krxRaw = input.krxInvestorRaw ?? input.previousTradingDayKrxRaw ?? null;
   if (krxRaw) {
-    const krxSample = normalizeSemanticNetBuySampleAdr0477(krxRaw, 'KRX_INVESTOR_FLOW', {
+    const krxProvider: InvestorFlowProviderId = input.krxInvestorDiagnosticAdr0505?.routePurpose === 'SYMBOL_LEVEL'
+      ? 'KRX_SYMBOL_INVESTOR_FLOW'
+      : input.krxInvestorDiagnosticAdr0505?.routePurpose === 'MARKET_LEVEL'
+        ? 'KRX_MARKET_INVESTOR_FLOW'
+        : 'KRX_INVESTOR_FLOW';
+    const krxMaterializationProvider: InvestorSampleProviderNameAdr0502 = krxProvider === 'KRX_MARKET_INVESTOR_FLOW'
+      ? 'KRX_MARKET_INVESTOR_FLOW'
+      : krxProvider === 'KRX_SYMBOL_INVESTOR_FLOW'
+        ? 'KRX_SYMBOL_INVESTOR_FLOW'
+        : 'KRX_INVESTOR_FLOW';
+    const krxSample = normalizeSemanticNetBuySampleAdr0477(krxRaw, krxProvider, {
       code: input.code,
       collectedAt,
       sourceAgeTradingDays: input.sourceAgeTradingDays ?? (input.nonTradingDay === true ? 1 : 0),
       fallbackStatus: input.nonTradingDay === true ? 'STALE' : undefined,
     });
-    materializationDiagnostics.KRX_INVESTOR_FLOW = materializationFromSemanticSampleAdr0477('KRX_INVESTOR_FLOW', krxSample, 'RAW_PROVIDER');
-    if (materializationDiagnostics.KRX_INVESTOR_FLOW.sampleMaterialized) samplesByProvider.KRX_INVESTOR_FLOW = krxSample;
+    materializationDiagnostics[krxMaterializationProvider] = materializationFromSemanticSampleAdr0477(krxMaterializationProvider, krxSample, 'RAW_PROVIDER');
+    if (materializationDiagnostics[krxMaterializationProvider]?.sampleMaterialized) samplesByProvider[krxProvider] = krxSample;
+    providerStatuses[krxProvider] = krxSample.status;
     providerStatuses.KRX_INVESTOR_FLOW = krxSample.status;
     providerStatuses.KRX = krxSample.status;
-    providerReasons.KRX_INVESTOR_FLOW = input.previousTradingDayKrxRaw
-      ? 'KRX previousTradingDate materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.'
-      : 'KRX materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.';
+    providerReasons[krxProvider] = input.previousTradingDayKrxRaw
+      ? `${krxProvider} previousTradingDate materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.`
+      : `${krxProvider} materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.`;
+    providerReasons.KRX_INVESTOR_FLOW = providerReasons[krxProvider];
   } else if (input.krxInvestorDiagnosticAdr0505) {
     const krxStatus = krxDiagnosticStatusAdr0477(input.krxInvestorDiagnosticAdr0505.parserStatus);
     const krxReason = formatKrxRepairDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505);
+    const krxDiagnosticProvider: InvestorFlowProviderId = input.krxInvestorDiagnosticAdr0505.routePurpose === 'SYMBOL_LEVEL'
+      ? 'KRX_SYMBOL_INVESTOR_FLOW'
+      : input.krxInvestorDiagnosticAdr0505.routePurpose === 'MARKET_LEVEL'
+        ? 'KRX_MARKET_INVESTOR_FLOW'
+        : 'KRX_INVESTOR_FLOW';
+    providerStatuses[krxDiagnosticProvider] = krxStatus;
     providerStatuses.KRX_INVESTOR_FLOW = krxStatus;
     providerStatuses.KRX = krxStatus;
+    providerReasons[krxDiagnosticProvider] = krxReason;
     providerReasons.KRX_INVESTOR_FLOW = krxReason;
     providerReasons.KRX = krxReason;
     diagnostics.push(krxReason);
@@ -1306,7 +1367,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     ...(selectedDiagnosticProvider ? [selectedDiagnosticProvider] : []),
   ]));
   const statusCoverage = coverageFromStatuses(providerStatuses);
-  const fallbackChain: InvestorFlowProviderId[] = ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
+  const fallbackChain: InvestorFlowProviderId[] = ['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
   const selectedProviderForDiagnostics = selectedProvider as InvestorFlowProviderId;
   const rejectedReasonByProvider: Record<string, string> = {};
   for (const [providerName, materialization] of Object.entries(materializationDiagnostics)) {
@@ -1317,7 +1378,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       ? `blockedReason=${materialization.blockedReason}; sampleMaterialized=${materialization.sampleMaterialized}; usableForRouter=${materialization.usableForRouter}; rawCount=${materialization.rawCount}; normalizedCount=${materialization.normalizedCount}; materializedCount=${materialization.materializedCount}; placeholderDetected=${materialization.placeholderDetected}; inputSourceKind=${materialization.inputSourceKind}`
       : providerReasons[provider] ?? providerStatuses[provider] ?? 'NO_DIAGNOSTIC';
   }
-  for (const provider of ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'] as const) {
+  for (const provider of ['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'] as const) {
     if (provider === selectedProviderForDiagnostics || rejectedReasonByProvider[provider]) continue;
     if (providerStatuses[provider]) rejectedReasonByProvider[provider] = providerReasons[provider] ?? `status=${providerStatuses[provider]}`;
   }
@@ -1346,7 +1407,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     ? `stale selected for SHADOW_ONLY diagnostic only; provider=${selectedProviderForDiagnostics}; status=${selectedSemanticNetBuy.status}; liveExecutionAllowed=false`
     : null;
   diagnostics.push(`fallbackChain=${fallbackChain.join('>')}; selectedProvider=${selectedProviderForDiagnostics}; rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; cacheFallbackReason=${cacheFallbackReason ?? 'NONE'}; staleButSelectedReason=${staleButSelectedReason ?? 'NONE'}; coverageBefore=${statusCoverage.available}; coverageAfter=${coverageAfter}; routerUsableCoverage=${routerUsableCoverage.available}/${routerUsableCoverage.total}; diagnosticUsableCoverage=${diagnosticUsableCoverage.available}/${diagnosticUsableCoverage.total}; diagnosticUsableCount=${diagnosticUsableCount}; selectedDiagnosticProvider=${selectedDiagnosticProvider ?? 'NONE'}; coverageBasis=routerUsableSampleCount plus selected SHADOW fallback.`);
-  diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'FSS_PASSIVE_ACTIVE' ? 'FSS_OFFICIAL_DIAGNOSTIC' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
+  diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' || selectedProvider === 'KRX_SYMBOL_INVESTOR_FLOW' || selectedProvider === 'KRX_MARKET_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'FSS_PASSIVE_ACTIVE' ? 'FSS_OFFICIAL_DIAGNOSTIC' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
     diagnostics.push(formatInvestorSampleDiagnosticsAdr0502(materialization));
@@ -1400,12 +1461,22 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
           parserStatus: input.krxInvestorDiagnosticAdr0505.parserStatus,
           endpointIssueHint: input.krxInvestorDiagnosticAdr0505.endpointIssueHint,
           selectedKrxFlowMode: input.krxInvestorDiagnosticAdr0505.selectedKrxFlowMode,
+          routePurpose: input.krxInvestorDiagnosticAdr0505.routePurpose,
+          selectedBld: input.krxInvestorDiagnosticAdr0505.selectedBld,
+          requiredParamMissing: input.krxInvestorDiagnosticAdr0505.requiredParamMissing,
+          shortCodeToIsuCdResolved: input.krxInvestorDiagnosticAdr0505.shortCodeToIsuCdResolved,
+          isuCd: input.krxInvestorDiagnosticAdr0505.isuCd,
+          inqTpCd: input.krxInvestorDiagnosticAdr0505.inqTpCd,
+          inqVal: input.krxInvestorDiagnosticAdr0505.inqVal,
+          detailView: input.krxInvestorDiagnosticAdr0505.detailView,
           tradeDate: input.krxInvestorDiagnosticAdr0505.tradeDate,
           previousTradingDateCandidate: input.krxInvestorDiagnosticAdr0505.previousTradingDateCandidate,
           selectedVariant: input.krxInvestorDiagnosticAdr0505.selectedVariant,
           otpGenerated: input.krxInvestorDiagnosticAdr0505.otpGenerated,
           csvDownloaded: input.krxInvestorDiagnosticAdr0505.csvDownloaded,
           csvRowCount: input.krxInvestorDiagnosticAdr0505.csvRowCount,
+          csvHeaderDetected: input.krxInvestorDiagnosticAdr0505.csvHeaderDetected,
+          csvNoDataReason: input.krxInvestorDiagnosticAdr0505.csvNoDataReason,
           contentType: input.krxInvestorDiagnosticAdr0505.contentType,
           responseKind: input.krxInvestorDiagnosticAdr0505.responseKind,
           selectedRowCount: input.krxInvestorDiagnosticAdr0505.selectedRowCount,

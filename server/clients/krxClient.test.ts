@@ -207,18 +207,20 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(diagnostic?.httpStatus).toBe(200);
   });
 
-  it('prefers KRX OTP CSV download flow and normalizes CSV investor-flow rows', async () => {
+  it('prefers KRX symbol-level OTP CSV download flow and normalizes individual-issue rows', async () => {
     const fetchSpy = vi.fn().mockImplementation(async (url, init) => {
       const urlText = String(url);
       const body = String(init?.body ?? '');
       if (urlText.includes('/GenerateOTP/generate.cmd')) {
         expect(body).toContain('name=fileDown');
-        expect(body).toContain('bld=dbms%2FMDC%2FSTAT%2Fstandard%2FMDCSTAT02201');
-        expect(body).toContain('MDCSTAT02201');
+        expect(body).toContain('bld=dbms%2FMDC%2FSTAT%2Fstandard%2FMDCSTAT02401');
+        expect(body).toContain('MDCSTAT02401');
         expect(body).toContain('locale=ko_KR');
-        expect(body).toContain('trdDd=20260508');
-        expect(body).toContain('mktId=STK');
-        expect(body).toContain('trdVolVal=2');
+        expect(body).toContain('strtDd=20260508');
+        expect(body).toContain('endDd=20260508');
+        expect(body).toContain('isuCd=KR7005930003');
+        expect(body).toContain('inqVal=2');
+        expect(body).not.toContain('trdVolVal=');
         return new Response('otp-token-123', {
           status: 200,
           headers: { 'Content-Type': 'text/plain' },
@@ -227,8 +229,10 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
       if (urlText.includes('/download_csv/download.cmd')) {
         expect(body).toContain('code=otp-token-123');
         const csv = [
-          '종목코드,종목명,외국인,기관합계,개인',
-          '005930,Samsung,100,200,-300',
+          '종목명,투자자구분,순매수수량',
+          'Samsung,외국인,100',
+          'Samsung,기관,200',
+          'Samsung,개인,-300',
         ].join('\n');
         return new Response(csv, {
           status: 200,
@@ -241,17 +245,69 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
 
     vi.resetModules();
     const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
-    const rows = await fetchInvestorTrading('20260508', { symbol: '005930' });
+    const rows = await fetchInvestorTrading('20260508', { symbol: '005930', isuCd: 'KR7005930003' });
     expect(rows).toEqual([{ code: '005930', name: 'Samsung', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 }]);
     const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
     expect(diagnostic?.selectedKrxFlowMode).toBe('OTP_CSV');
-    expect(diagnostic?.endpoint).toBe('MDCSTAT02201');
+    expect(diagnostic?.endpoint).toBe('MDCSTAT02401');
+    expect(diagnostic?.routePurpose).toBe('SYMBOL_LEVEL');
+    expect(diagnostic?.isuCd).toBe('KR7005930003');
+    expect(diagnostic?.shortCodeToIsuCdResolved).toBe(true);
     expect(diagnostic?.otpGenerated).toBe(true);
     expect(diagnostic?.otpLength).toBeGreaterThan(0);
     expect(diagnostic?.csvDownloaded).toBe(true);
-    expect(diagnostic?.csvRowCount).toBe(1);
-    expect(diagnostic?.csvColumnKeys).toContain('종목코드');
+    expect(diagnostic?.csvRowCount).toBe(3);
+    expect(diagnostic?.csvHeaderDetected).toBe(true);
+    expect(diagnostic?.csvColumnKeys).toContain('투자자구분');
     expect(diagnostic?.selectedVariant).toContain('OTP_CSV');
+    expect(diagnostic?.selectedVariant).toContain('MDCSTAT02401');
+    expect(diagnostic?.parserStatus).toBe('OK');
+  });
+
+  it('uses KRX market-level OTP CSV params with inqTpCd, inqVal, and detailView when no symbol is requested', async () => {
+    const fetchSpy = vi.fn().mockImplementation(async (url, init) => {
+      const urlText = String(url);
+      const body = String(init?.body ?? '');
+      if (urlText.includes('/GenerateOTP/generate.cmd')) {
+        expect(body).toContain('MDCSTAT02201');
+        expect(body).toContain('inqTpCd=1');
+        expect(body).toContain('inqVal=2');
+        expect(body).toContain('detailView=1');
+        expect(body).toContain('trdDd=20260508');
+        expect(body).toContain('mktId=STK');
+        expect(body).not.toContain('trdVolVal=');
+        return new Response('market-otp-token', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' },
+        });
+      }
+      if (urlText.includes('/download_csv/download.cmd')) {
+        expect(body).toContain('code=market-otp-token');
+        return new Response([
+          '종목코드,종목명,외국인,기관합계,개인',
+          '005930,Samsung,100,200,-300',
+        ].join('\n'), {
+          status: 200,
+          headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+        });
+      }
+      return new Response('bad request', { status: 400, headers: { 'Content-Type': 'text/plain' } });
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508');
+    expect(rows[0]).toMatchObject({ code: '005930', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 });
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+    expect(diagnostic?.endpoint).toBe('MDCSTAT02201');
+    expect(diagnostic?.routePurpose).toBe('MARKET_LEVEL');
+    expect(diagnostic?.inqTpCd).toBe('1');
+    expect(diagnostic?.inqVal).toBe('2');
+    expect(diagnostic?.detailView).toBe('1');
+    expect(diagnostic?.parameterKeys).toContain('inqTpCd');
+    expect(diagnostic?.parameterKeys).toContain('inqVal');
+    expect(diagnostic?.parameterKeys).toContain('detailView');
     expect(diagnostic?.parserStatus).toBe('OK');
   });
 
