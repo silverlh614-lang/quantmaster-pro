@@ -104,8 +104,9 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
 
     const semanticOnly = { ...report, snapshots: [report.snapshots[1]!] };
     const semanticRoute = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorWired: false, freshDataSupplyAdr0487: semanticOnly });
-    expect(semanticRoute.selectedProvider).toBe('SEMANTIC_NETBUY');
-    expect(semanticRoute.coverage.available).toBeGreaterThanOrEqual(1);
+    expect(semanticRoute.selectedProvider).toBe('NONE');
+    expect(semanticRoute.semanticInputStatus).toBe('READY_FOR_SHADOW');
+    expect(semanticRoute.diagnostics.join(' ')).toContain('role=DERIVED');
   });
 
   it('does not select REGISTRY_READY FreshData placeholders while CACHE_STALE_HIT is available', () => {
@@ -176,7 +177,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.rejectedProviders).toContain('NAVER_INVESTOR_TREND');
     expect(route.rejectedReasonByProvider?.NAVER_INVESTOR_TREND).toContain('PLACEHOLDER');
     expect(route.cacheFallbackReason).toContain('CACHE selected');
-    expect(route.fallbackChain).toEqual(['KIS_API', 'KRX_INVESTOR_FLOW', 'NAVER_INVESTOR_TREND', 'FSS_PASSIVE_ACTIVE', 'CACHE', 'SEMANTIC_NETBUY']);
+    expect(route.fallbackChain).toEqual(['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
     expect(route.coverageAfter).toBe(1);
     expect(route.liveExecutionAllowed).toBe(false);
   });
@@ -282,7 +283,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     });
 
     expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
-    expect(route.providerTried).toEqual(['NAVER', 'SEMANTIC_NETBUY', 'CACHE']);
+    expect(route.providerTried).toEqual(['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
     expect(route.coverage.available).toBeGreaterThanOrEqual(1);
     expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.sampleMaterialized).toBe(true);
     expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.usableForRouter).toBe(true);
@@ -290,7 +291,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.executionImpact).toBe('NONE');
   });
 
-  it('routes SemanticNetBuy normalized samples as selectedProvider=SEMANTIC_NETBUY and keeps NONE confidence shadow-only', () => {
+  it('keeps SemanticNetBuy normalized samples derived shadow-only without source-of-truth selection', () => {
     const report = buildSemanticNetBuyNormalizationReportAdr0482({
       code: '005930',
       generatedAt: '2026-05-11T00:00:00.000Z',
@@ -310,10 +311,11 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       semanticNetBuyNormalizationAdr0482: report,
     });
 
-    expect(route.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(route.selectedProvider).toBe('NONE');
     expect(route.providerStatuses.SEMANTIC_NETBUY).toBe('VERIFIED');
-    expect(route.semanticNetBuy?.source).toBe('KRX_INVESTOR_FLOW');
-    expect(route.signal).toBe('BULLISH');
+    expect(route.semanticNetBuy).toBeNull();
+    expect(route.diagnostics.join(' ')).toContain('selectedProvider remains real-source-only');
+    expect(route.signal).toBe('UNKNOWN');
     expect(route.liveExecutionAllowed).toBe(false);
 
     const unavailable = buildSemanticNetBuyNormalizationReportAdr0482({ code: '000660', inputs: [] });
@@ -390,7 +392,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.executionImpact).toBe('NONE');
   });
 
-  it('ranks multi-source materialized candidates KIS, KRX, NAVER, FSS, CACHE, then SEMANTIC', () => {
+  it('ranks multi-source materialized candidates KRX, KIS, FSS, NAVER, CACHE, then SEMANTIC', () => {
     const cacheLookup = {
       status: 'CACHE_HIT' as const,
       snapshot: null,
@@ -422,7 +424,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       supplySnapshotCacheLookupAdr0491: cacheLookup,
       kisTriedForInvestorFlow: true,
     });
-    expect(kis.selectedProvider).toBe('KIS_API');
+    expect(kis.selectedProvider).toBe('KRX_INVESTOR_FLOW');
     expect(kis.providerStatuses.KIS_API).toBe('VERIFIED');
     expect(kis.providerReasons.KIS_API).toContain('route separated');
 
@@ -435,6 +437,33 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(fss.selectedProvider).toBe('FSS_PASSIVE_ACTIVE');
     expect(fss.status).toBe('STALE');
     expect(fss.materializationDiagnostics?.FSS_PASSIVE_ACTIVE?.usableForRouter).toBe(true);
+  });
+
+  it('keeps KRX source-of-truth ahead of NAVER and falls back to KIS when KRX has no row', () => {
+    const krxWithNaverEmpty = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      naverRaw: null,
+      previousTradingDayKrxRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 10, institutionalNetBuy: 20, status: 'VERIFIED' },
+      nonTradingDay: true,
+    });
+    expect(krxWithNaverEmpty.selectedProvider).toBe('KRX_INVESTOR_FLOW');
+    expect(krxWithNaverEmpty.providerStatuses.NAVER_INVESTOR_TREND).not.toBe('VERIFIED');
+    expect(krxWithNaverEmpty.diagnostics.join(' ')).toContain('sourceOfTruth=KRX');
+    expect(krxWithNaverEmpty.coverage.available).toBeGreaterThan(0);
+    expect(krxWithNaverEmpty.liveExecutionAllowed).toBe(false);
+    expect(krxWithNaverEmpty.executionImpact).toBe('NONE');
+
+    const kisFallback = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      naverRaw: null,
+      kisInvestorRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 30, institutionalNetBuy: 40 },
+      kisTriedForInvestorFlow: true,
+    });
+    expect(kisFallback.selectedProvider).toBe('KIS_API');
+    expect(kisFallback.providerStatuses.KIS_API).toBe('VERIFIED');
+    expect(kisFallback.signal).toBe('BULLISH');
   });
 
   it('allows selectedProvider NONE only when every source has no materialized candidate', () => {
@@ -454,7 +483,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.liveExecutionAllowed).toBe(false);
   });
 
-  it('prefers fresh NAVER, fresh SemanticNetBuy, stale NAVER, stale SemanticNetBuy, then CACHE fallback', () => {
+  it('prefers NAVER as secondary real fallback, CACHE over SemanticNetBuy, and keeps SemanticNetBuy derived', () => {
     const naverFresh = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',
       naverCollectorResultAdr0481: buildNaverInvestorTrendCollectorResultAdr0481({
@@ -479,7 +508,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       }),
       cacheRaw: { foreignNetBuy: 1, institutionNetBuy: 1, sourceDate: '2026-05-04', status: 'STALE' },
     });
-    expect(semanticFresh.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(semanticFresh.selectedProvider).toBe('CACHE');
     expect(semanticFresh.liveExecutionAllowed).toBe(false);
 
     const naverStale = buildInvestorFlowProviderRouteResultAdr0477({
@@ -506,7 +535,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
         inputs: [{ code: '005930', provider: 'CACHE', sourceDate: '2026-05-04', rawForeignNetBuy: 1, rawInstitutionNetBuy: 1, unit: 'KRW', status: 'STALE', sourceAgeTradingDays: 4 }],
       }),
     });
-    expect(semanticStale.selectedProvider).toBe('SEMANTIC_NETBUY');
+    expect(semanticStale.selectedProvider).toBe('NONE');
     expect(semanticStale.semanticInputStatus).toBe('STALE');
 
     const cacheOnly = buildInvestorFlowProviderRouteResultAdr0477({
