@@ -39,9 +39,12 @@ export interface KisOfficialEvidencePack {
     programBuyRatio?: number | null;
   };
   marketProgram?: {
-    programNetBuyQty?: number;
-    programNetBuyAmount?: number;
+    programNetBuyQty?: number | null;
+    programNetBuyAmount?: number | null;
     programArbitrageNetBuy?: number | null;
+    programNonArbitrageNetBuy?: number | null;
+    programSellAmount?: number | null;
+    programBuyAmount?: number | null;
   };
   marketSupply?: {
     foreignNetBuy?: number;
@@ -120,6 +123,9 @@ function hasNonEmptyProgramFields(value: KisStockProgramTrade | KisMarketProgram
     record.programNetBuyAmount,
     record.programBuyRatio,
     record.programArbitrageNetBuy,
+    record.programNonArbitrageNetBuy,
+    record.programSellAmount,
+    record.programBuyAmount,
   ].filter((item): item is number => typeof item === 'number' && Number.isFinite(item));
   return numericValues.some((item) => item !== 0);
 }
@@ -212,6 +218,9 @@ export async function fetchKisOfficialEvidencePack(
         programNetBuyQty: marketProgram.programNetBuyQty,
         programNetBuyAmount: marketProgram.programNetBuyAmount,
         programArbitrageNetBuy: marketProgram.programArbitrageNetBuy,
+        programNonArbitrageNetBuy: marketProgram.programNonArbitrageNetBuy,
+        programSellAmount: marketProgram.programSellAmount,
+        programBuyAmount: marketProgram.programBuyAmount,
       },
     } : {}),
     ...(usableMarketSupply && marketSupply ? {

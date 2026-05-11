@@ -73,9 +73,12 @@ export interface KisStockProgramTrade {
  *   - arbt_ntby_tr_pbmn                    : 차익 거래대금
  */
 export interface KisMarketProgramTrade {
-  programNetBuyQty: number;
-  programNetBuyAmount: number;
+  programNetBuyQty: number | null;
+  programNetBuyAmount: number | null;
   programArbitrageNetBuy: number | null;
+  programNonArbitrageNetBuy?: number | null;
+  programSellAmount?: number | null;
+  programBuyAmount?: number | null;
   fetchedAt: string;
   source: 'KIS_API';
 }

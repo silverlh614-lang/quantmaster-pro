@@ -145,6 +145,19 @@ function extractKisNumberOptional(out: Record<string, string> | undefined, keys:
   return undefined;
 }
 
+function sumKisNumbersOptional(out: Record<string, string> | undefined, keys: string[]): number | undefined {
+  if (!out) return undefined;
+  let sum = 0;
+  let found = false;
+  for (const key of keys) {
+    const value = extractKisNumberOptional(out, [key]);
+    if (value === undefined) continue;
+    sum += value;
+    found = true;
+  }
+  return found ? sum : undefined;
+}
+
 function extractKisString(out: Record<string, string> | undefined, keys: string[]): string | undefined {
   if (!out) return undefined;
   for (const k of keys) {
@@ -301,27 +314,39 @@ export async function fetchKisMarketProgramTrade(
     const out = pickKisOutput(data);
     if (!out) return null;
 
-    const programNetBuyQty = extractKisNumber(
+    const programNetBuyQty = extractKisNumberOptional(
       out,
-      ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'],
+      ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'],
     );
-    const programNetBuyAmount = extractKisNumber(
+    const programNetBuyAmount = extractKisNumberOptional(
       out,
-      ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN'],
+      ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN'],
     );
     // 차익거래 부재 가능 — 강제 0 fallback 금지.
-    const arbitrageRaw =
-      out.arbt_ntby_tr_pbmn
-      ?? out.ARBT_NTBY_TR_PBMN
-      ?? out.arbt_ntby_tr_pbmn_2
-      ?? '';
-    const arbNum = arbitrageRaw === '' ? Number.NaN : Number(String(arbitrageRaw).replace(/,/g, ''));
-    const programArbitrageNetBuy = Number.isFinite(arbNum) ? arbNum : null;
+    const programArbitrageNetBuy = extractKisNumberOptional(
+      out,
+      ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2'],
+    ) ?? null;
+    const programNonArbitrageNetBuy = extractKisNumberOptional(
+      out,
+      ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN'],
+    ) ?? null;
+    const programSellAmount = sumKisNumbersOptional(out, [
+      'arbt_smtn_seln_tr_pbmn',
+      'nabt_smtn_seln_tr_pbmn',
+    ]) ?? null;
+    const programBuyAmount = sumKisNumbersOptional(out, [
+      'arbt_smtn_shnu_tr_pbmn',
+      'nabt_smtn_shnu_tr_pbmn',
+    ]) ?? null;
 
     return {
-      programNetBuyQty,
-      programNetBuyAmount,
+      programNetBuyQty: programNetBuyQty ?? null,
+      programNetBuyAmount: programNetBuyAmount ?? null,
       programArbitrageNetBuy,
+      programNonArbitrageNetBuy,
+      programSellAmount,
+      programBuyAmount,
       fetchedAt: new Date().toISOString(),
       source: 'KIS_API',
     };

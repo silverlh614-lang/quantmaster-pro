@@ -106,9 +106,12 @@ export interface KisOfficialSupplyPack {
     useScope: KisSupplyUseScope;
   };
   marketProgram?: {
-    programNetBuyQty?: number;
-    programNetBuyAmount?: number;
+    programNetBuyQty?: number | null;
+    programNetBuyAmount?: number | null;
     programArbitrageNetBuy?: number | null;
+    programNonArbitrageNetBuy?: number | null;
+    programSellAmount?: number | null;
+    programBuyAmount?: number | null;
     confidence: KisDataConfidence;
     useScope: KisSupplyUseScope;
   };
@@ -206,10 +209,16 @@ function realInvestorFlow(value: KisInvestorFlow | KisInvestorTradeByStockDaily 
     && finite(value.individualNetBuy);
 }
 
+function partialInvestorFlow(value: KisInvestorFlow | KisInvestorTradeByStockDaily | null): boolean {
+  return !!value
+    && finite(value.foreignNetBuy)
+    && finite(value.institutionalNetBuy);
+}
+
 function nonEmptyProgram(value: KisStockProgramTrade | KisMarketProgramTrade | null): boolean {
   if (!value) return false;
   const record = value as unknown as Record<string, unknown>;
-  return [record.programNetBuyQty, record.programNetBuyAmount, record.programBuyRatio, record.programArbitrageNetBuy]
+  return [record.programNetBuyQty, record.programNetBuyAmount, record.programBuyRatio, record.programArbitrageNetBuy, record.programNonArbitrageNetBuy, record.programSellAmount, record.programBuyAmount]
     .some((item) => finite(item) && item !== 0);
 }
 
@@ -326,8 +335,9 @@ export async function fetchKisOfficialSupplyPack(
   const hasPrevClose = !!prevClose && positive(prevClose.prevClose);
   tagIf(hasCurrentPrice, 'CASE_KIS_PRICE_PRIMARY', learningTags);
 
-  const investorFlowSource = realInvestorFlow(dailyInvestorFlow) ? dailyInvestorFlow : strictInvestorFlow;
-  const hasDailyInvestorFlow = realInvestorFlow(investorFlowSource);
+  const investorFlowSource = partialInvestorFlow(dailyInvestorFlow) ? dailyInvestorFlow : strictInvestorFlow;
+  const hasDailyInvestorFlow = partialInvestorFlow(investorFlowSource);
+  const hasFullDailyInvestorFlow = realInvestorFlow(investorFlowSource);
   tagIf(hasDailyInvestorFlow, 'CASE_KIS_INVESTOR_FLOW_VERIFIED', learningTags);
   tagIf(!hasDailyInvestorFlow, 'CASE_KIS_INVESTOR_FLOW_MISSING_FIELDS', learningTags);
 
@@ -368,9 +378,9 @@ export async function fetchKisOfficialSupplyPack(
       ? {
           foreignNetBuy: investorFlowSource!.foreignNetBuy,
           institutionalNetBuy: investorFlowSource!.institutionalNetBuy,
-          individualNetBuy: investorFlowSource!.individualNetBuy,
-          hasRealFields: true,
-          confidence: 'VERIFIED',
+          ...(finite(investorFlowSource!.individualNetBuy) ? { individualNetBuy: investorFlowSource!.individualNetBuy } : {}),
+          hasRealFields: hasFullDailyInvestorFlow,
+          confidence: hasFullDailyInvestorFlow ? 'VERIFIED' : 'DEGRADED',
           useScope: 'WEIGHTED',
         }
       : { hasRealFields: false, confidence: 'MISSING', useScope: 'DIAGNOSTIC_ONLY' },
@@ -433,9 +443,12 @@ export async function fetchKisOfficialSupplyPack(
     } : {}),
     ...(hasMarketProgram ? {
       marketProgram: {
-        programNetBuyQty: marketProgram!.programNetBuyQty,
-        programNetBuyAmount: marketProgram!.programNetBuyAmount,
-        programArbitrageNetBuy: marketProgram!.programArbitrageNetBuy,
+        ...(marketProgram!.programNetBuyQty !== undefined ? { programNetBuyQty: marketProgram!.programNetBuyQty } : {}),
+        ...(marketProgram!.programNetBuyAmount !== undefined ? { programNetBuyAmount: marketProgram!.programNetBuyAmount } : {}),
+        ...(marketProgram!.programArbitrageNetBuy !== undefined ? { programArbitrageNetBuy: marketProgram!.programArbitrageNetBuy } : {}),
+        ...(marketProgram!.programNonArbitrageNetBuy !== undefined ? { programNonArbitrageNetBuy: marketProgram!.programNonArbitrageNetBuy } : {}),
+        ...(marketProgram!.programSellAmount !== undefined ? { programSellAmount: marketProgram!.programSellAmount } : {}),
+        ...(marketProgram!.programBuyAmount !== undefined ? { programBuyAmount: marketProgram!.programBuyAmount } : {}),
         confidence: 'VERIFIED',
         useScope: 'WEIGHTED',
       },

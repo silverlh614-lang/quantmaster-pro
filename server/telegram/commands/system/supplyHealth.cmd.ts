@@ -363,7 +363,7 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
   }
   try {
     const live = await fetchKisMarketProgramTrade('MEDIUM');
-    if (live) return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`, 'updated: 0s ago', rawDiagLine, '상세: /program_market'] };
+    if (live && live.programNetBuyAmount !== null) return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`, 'updated: 0s ago', rawDiagLine, '상세: /program_market'] };
   } catch {}
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
     const stale = macroAge !== null && macroAge > KIS_STALE_MS;

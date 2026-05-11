@@ -1,6 +1,8 @@
 // @responsibility ADR-0487/0488 /fresh_data_status diagnostic command; provider fetch blocked, live execution blocked.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
+import { fetchKisOfficialSupplyPack } from '../../../supply/kisOfficialSupplyPack.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
 import {
   formatFreshDataSupplyDetailAdr0487,
@@ -28,6 +30,16 @@ import {
   safeBuildFreshDataStatusSectionAdr0498,
 } from '../../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
 
+async function loadKisPackForFreshDataStatus(): Promise<Record<string, unknown> | null> {
+  try {
+    const first = loadWatchlist().find((item) => typeof item.code === 'string' && item.code.trim().length > 0);
+    if (!first?.code) return null;
+    return await fetchKisOfficialSupplyPack(first.code) as unknown as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
   aliases: ['/fd', '/fds'],
@@ -38,6 +50,7 @@ const freshDataStatus: TelegramCommand = {
   usage: '/fresh_data_status',
   async execute({ reply }) {
     const summary = getLastScanSummary();
+    const kisOfficialSupplyPack = await loadKisPackForFreshDataStatus();
     const investorFlow = buildInvestorFlowSampleAcquisitionReportAdr0489({
       generatedAt: summary?.time ?? new Date().toISOString(),
       providerIssue: summary?.investorFlowProviderRouter?.status === 'PROVIDER_ERROR',
@@ -49,7 +62,7 @@ const freshDataStatus: TelegramCommand = {
       }] : [],
       diagnostics: ['ADR-0496 /fresh_data_status diagnostic normalization only; no provider fetch.'],
     });
-    const report = summary?.freshDataSupplyAdr0487 ?? safeBuildFreshDataSupplyReportAdr0487({
+    const freshDataInput: FreshDataSupplyReportInputAdr0487 = {
       sectorEnergyDiagnosticAdr0474: summary?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
       naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
       semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
@@ -58,7 +71,11 @@ const freshDataStatus: TelegramCommand = {
       supplyAdvisoryReadinessAdr0485: summary?.supplyAdvisoryReadinessAdr0485 as unknown as Record<string, unknown>,
       investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
       supplyCoverageReportAdr0496: investorFlow.adr0496SupplyCoverage,
-    });
+      kisOfficialSupplyPack,
+    };
+    const report = kisOfficialSupplyPack
+      ? safeBuildFreshDataSupplyReportAdr0487(freshDataInput)
+      : summary?.freshDataSupplyAdr0487 ?? safeBuildFreshDataSupplyReportAdr0487(freshDataInput);
     const adr0488 = summary?.sectorEnergySupplyUnknownAdr0488 ?? safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       sectorEnergyDiagnosticAdr0474: summary?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
       freshDataSupplyAdr0487: report,

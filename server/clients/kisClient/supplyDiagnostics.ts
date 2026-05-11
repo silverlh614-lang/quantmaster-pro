@@ -77,6 +77,19 @@ function parseNum(out: Record<string, string> | undefined, keys: string[]): numb
   return null;
 }
 
+function sumNum(out: Record<string, string> | undefined, keys: string[]): number | null {
+  if (!out) return null;
+  let sum = 0;
+  let found = false;
+  for (const key of keys) {
+    const value = parseNum(out, [key]);
+    if (value === null) continue;
+    sum += value;
+    found = true;
+  }
+  return found ? sum : null;
+}
+
 function pickSample(out: Record<string, string> | undefined, keys: string[]): Record<string, string | number | null> {
   const sample: Record<string, string | number | null> = {};
   for (const key of keys) sample[key] = out?.[key] ?? null;
@@ -262,10 +275,20 @@ export async function diagnoseKisMarketProgramRaw(
     if (!data) return failNullResponse('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
     const { path: outputPath, out } = firstOutput(data);
     const parsed = {
-      programNetBuyQty: parseNum(out, ['prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
-      programNetBuyAmount: parseNum(out, ['prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']),
-      programArbitrageNetBuy: parseNum(out, ['arbt_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn_2', 'ARBT_NTBY_TR_PBMN']),
+      programNetBuyQty: parseNum(out, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
+      programNetBuyAmount: parseNum(out, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']),
+      programArbitrageNetBuy: parseNum(out, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn_2', 'ARBT_NTBY_TR_PBMN']),
+      programNonArbitrageNetBuy: parseNum(out, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']),
+      programSellAmount: sumNum(out, ['arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn']),
+      programBuyAmount: sumNum(out, ['arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn']),
     };
+    const amountFieldsMissing = [
+      parsed.programNetBuyAmount,
+      parsed.programArbitrageNetBuy,
+      parsed.programNonArbitrageNetBuy,
+      parsed.programSellAmount,
+      parsed.programBuyAmount,
+    ].every((value) => value === null);
     const root = data as { rt_cd?: string; msg_cd?: string } | null;
     const acceptedEmpty = root?.rt_cd === '0' && root?.msg_cd === 'MCA00000' && !out;
     return {
@@ -278,8 +301,8 @@ export async function diagnoseKisMarketProgramRaw(
       outputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: acceptedEmpty ? 'ACCEPTED_EMPTY' : (out ? classifyZero(parsed) : 'NO_OUTPUT'),
-      sample: pickSample(out, ['prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
+      zeroReason: acceptedEmpty ? 'ACCEPTED_EMPTY' : (out ? amountFieldsMissing ? 'FIELD_MISSING' : classifyZero(parsed) : 'NO_OUTPUT'),
+      sample: pickSample(out, ['whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'arbt_smtn_ntby_tr_pbmn', 'nabt_smtn_ntby_tr_pbmn', 'arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn', 'arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
       rootSample: pickRootSample(data),
     };
   } catch (e) {

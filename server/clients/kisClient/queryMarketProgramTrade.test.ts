@@ -189,7 +189,7 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       'FHPPG04600101',
       '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
       expect.objectContaining({
-        FID_COND_MRKT_DIV_CODE: 'U',  // U = 시장 전체
+        FID_COND_MRKT_DIV_CODE: 'J',
         FID_INPUT_ISCD: '0001',       // 코스피
       }),
     );

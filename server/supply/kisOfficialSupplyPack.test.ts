@@ -110,6 +110,33 @@ describe('fetchKisOfficialSupplyPack', () => {
     expect(pack.diagnostics.join(' ')).toContain('investorFlowDaily=DATA_UNAVAILABLE');
     expect(pack.learningTags).toContain('CASE_KIS_INVESTOR_FLOW_MISSING_FIELDS');
   });
+
+  it('keeps KIS market program amount fields as usable official pack evidence', async () => {
+    const pack = await fetchKisOfficialSupplyPack('005930', new Date('2026-05-11T01:00:00.000Z'), fetchers({
+      fetchMarketProgramTrade: vi.fn(async () => ({
+        programNetBuyQty: null,
+        programNetBuyAmount: 1_500,
+        programArbitrageNetBuy: 500,
+        programNonArbitrageNetBuy: 1_000,
+        programSellAmount: 3_000,
+        programBuyAmount: 4_500,
+        source: 'KIS_API' as const,
+        fetchedAt: '2026-05-11T00:59:00.000Z',
+      })),
+    }));
+
+    expect(pack.marketProgram).toMatchObject({
+      programNetBuyQty: null,
+      programNetBuyAmount: 1_500,
+      programArbitrageNetBuy: 500,
+      programNonArbitrageNetBuy: 1_000,
+      programSellAmount: 3_000,
+      programBuyAmount: 4_500,
+      confidence: 'VERIFIED',
+    });
+    expect(pack.providerIssue).toBe(false);
+    expect(pack.diagnostics.join(' ')).toContain('marketProgram=OK');
+  });
 });
 
 describe('evaluateKisSupplyEnemyChecklist', () => {

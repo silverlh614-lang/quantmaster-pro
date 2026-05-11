@@ -586,7 +586,7 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   // macroState 는 *억원* 환산 (foreignNetBuy5d 등 다른 자금 흐름 필드와 단위 정합).
   // 호출 실패 시 programSource='NONE' 마커 + 기존 값 보존 (silent degradation 차단).
   const marketProgram = await fetchKisMarketProgramTrade().catch(() => null);
-  if (marketProgram) {
+  if (marketProgram && marketProgram.programNetBuyAmount !== null) {
     const eokwon = marketProgram.programNetBuyAmount / 100_000_000;
     const arbEokwon = marketProgram.programArbitrageNetBuy === null
       ? null

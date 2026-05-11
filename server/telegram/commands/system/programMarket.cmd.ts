@@ -51,10 +51,11 @@ export async function buildProgramMarketMessage(): Promise<string> {
     lines.push('  • TR ID 검증 — <code>KIS_MARKET_PROGRAM_TRADE_TR_ID</code> ENV 우회');
     lines.push('  • Path 검증 — <code>KIS_MARKET_PROGRAM_TRADE_PATH</code> ENV 우회');
   } else {
-    const qtyEmoji = live.programNetBuyQty > 0 ? '🟢'
-      : live.programNetBuyQty < 0 ? '🔴' : '⚪';
-    const qtyLabel = live.programNetBuyQty > 0 ? '시장 프로그램 순매수'
-      : live.programNetBuyQty < 0 ? '시장 프로그램 순매도' : '중립';
+    const liveQty = live.programNetBuyQty ?? 0;
+    const qtyEmoji = liveQty > 0 ? '🟢'
+      : liveQty < 0 ? '🔴' : '⚪';
+    const qtyLabel = liveQty > 0 ? '시장 프로그램 순매수'
+      : liveQty < 0 ? '시장 프로그램 순매도' : '중립';
 
     lines.push('📡 <b>실시간 (KIS 직접 호출)</b>');
     lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);

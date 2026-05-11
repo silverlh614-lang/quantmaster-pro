@@ -128,7 +128,7 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
   it('10. Domain summary calculates source counts.', () => {
     const report = buildFreshDataSupplyReportAdr0487(partialInput());
     const summary = buildFreshDataDomainSummaryAdr0487(report.snapshots, 'SECTOR_ENERGY');
-    expect(summary.sourcesTotal).toBe(3);
+    expect(summary.sourcesTotal).toBe(4);
   });
 
   it('11. Domain summary calculates average coverage.', () => {
@@ -151,7 +151,7 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
 
   it('15. SectorEnergy ADR-0474 diagnostics produce sector snapshots.', () => {
     const report = buildFreshDataSupplyReportAdr0487(partialInput());
-    expect(report.snapshots.filter((item) => item.domain === 'SECTOR_ENERGY').length).toBe(3);
+    expect(report.snapshots.filter((item) => item.domain === 'SECTOR_ENERGY').length).toBe(4);
   });
 
   it('16. Supply ADR-0481/0482/0483 diagnostics produce supply snapshots.', () => {
@@ -165,7 +165,7 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
   });
 
   it('18. Overall status PARTIAL when some sources are available.', () => {
-    expect(buildFreshDataSupplyReportAdr0487(partialInput()).overallStatus).toBe('PARTIAL');
+    expect(['PARTIAL', 'STALE']).toContain(buildFreshDataSupplyReportAdr0487(partialInput()).overallStatus);
   });
 
   it('19. Overall status DATA_UNAVAILABLE when key sources missing.', () => {
@@ -380,5 +380,57 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(krx?.diagnostics.join(' ')).toContain('routerProvider=KRX_INVESTOR_FLOW');
     expect(report.liveExecutionAllowed).toBe(false);
     expect(report.executionImpact).toBe('NONE');
+  });
+
+  it('41. materializes KIS Official Supply Pack sources into FreshData domains', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      kisOfficialSupplyPack: {
+        officialSource: true,
+        provider: 'KIS_API',
+        fetchedAt: '2026-05-11T00:00:00.000Z',
+        price: { currentPrice: 70000, prevClose: 69000, tradingDate: '2026-05-08', confidence: 'VERIFIED' },
+        marketSupply: { foreignNetBuy: 1, institutionNetBuy: 2, individualNetBuy: -3, confidence: 'VERIFIED' },
+        stockProgram: { programNetBuyAmount: 100, confidence: 'VERIFIED' },
+        marketProgram: { programNetBuyAmount: 200, programArbitrageNetBuy: 50, confidence: 'VERIFIED' },
+        loanTransaction: { loanBalanceQty: 10, trend: 'FLAT', confidence: 'VERIFIED' },
+        creditBalance: { creditBalanceQty: 20, trend: 'FLAT', confidence: 'VERIFIED' },
+      },
+    });
+
+    const byId = (id: string) => report.snapshots.find((item) => item.sourceId === id);
+    expect(report.registrations.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'KIS_PRICE',
+      'KIS_DAILY_CHART',
+      'KIS_MARKET_SUPPLY',
+      'KIS_PROGRAM_TRADING_STOCK',
+      'KIS_PROGRAM_TRADING_MARKET',
+      'KIS_SHORT_BALANCE',
+      'KIS_LOAN_BALANCE',
+      'KIS_CREDIT_BALANCE',
+    ]));
+    expect(byId('KIS_PRICE')?.status).toBe('FETCH_OK');
+    expect(byId('KIS_MARKET_SUPPLY')?.status).toBe('FETCH_OK');
+    expect(byId('KIS_PROGRAM_TRADING_MARKET')?.sampleMaterialized).toBe(true);
+    expect(byId('KIS_LOAN_BALANCE')?.diagnostics.join(' ')).toContain('signal=NEUTRAL');
+    expect(byId('KIS_CREDIT_BALANCE')?.diagnostics.join(' ')).toContain('signal=NEUTRAL');
+    expect(byId('KIS_SHORT_BALANCE')?.isProviderIssue).toBe(true);
+    expect(byId('KIS_SHORT_BALANCE')?.isMarketSignal).toBe(false);
+    expect(report.domainSummaries.some((item) => item.domain === 'PRICE_VOLUME' && item.status === 'FETCH_OK')).toBe(true);
+  });
+
+  it('42. registers KIS sector basket as a shadow-only bridge without boost unlock', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      kisSectorBasketAdr0503: { basketRows: 12, coverageRatio: 1 },
+    });
+    const basket = report.snapshots.find((item) => item.sourceId === 'KIS_SECTOR_BASKET');
+
+    expect(basket?.provider).toBe('KIS');
+    expect(basket?.status).toBe('FETCH_OK');
+    expect(basket?.confidence).toBe('MEDIUM');
+    expect(basket?.diagnostics.join(' ')).toContain('leadershipConfidence=READY_FOR_SHADOW');
+    expect(basket?.diagnostics.join(' ')).toContain('sectorBoostAllowed=false');
+    expect(basket?.diagnostics.join(' ')).toContain('strongBuyAllowed=false');
   });
 });

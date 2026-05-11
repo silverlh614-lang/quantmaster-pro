@@ -1,5 +1,6 @@
 /** KIS investor-flow evidence adapter. */
 import { fetchKisInvestorFlow } from '../clients/kisClient/investorFlowStrict.js';
+import { fetchKisForeignInstitutionTotal, fetchKisInvestorTradeByStockDaily } from '../clients/kisClient/index.js';
 import { makeInvestorFlowProviderHealth, resolveInvestorFlowSourceDateKst, type InvestorFlowProviderHealth } from './investorFlowProviderHealth.js';
 import type { InvestorFlowSample } from './investorFlowRouter.js';
 
@@ -31,6 +32,28 @@ function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy) && Number.isFinite(record.individualNetBuy);
+}
+
+function hasPartialSymbolInvestorFields(value: unknown): value is { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy?: number; tradingDate?: string } {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy);
+}
+
+function sampleFromInvestorFields(input: {
+  safeCode: string;
+  sourceDateKst: string;
+  value: { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy?: number; tradingDate?: string };
+}): InvestorFlowSample {
+  return {
+    stockCode: input.safeCode,
+    foreignNetBuy: input.value.foreignNetBuy,
+    institutionalNetBuy: input.value.institutionalNetBuy,
+    ...(Number.isFinite(input.value.individualNetBuy) ? { individualNetBuy: input.value.individualNetBuy as number } : {}),
+    provider: 'KIS_API',
+    fetchedAt: new Date().toISOString(),
+    tradingDate: input.value.tradingDate ?? input.sourceDateKst,
+  };
 }
 
 export function getKisInvestorFlowPromotionStage(): KisInvestorFlowPromotionStage {
@@ -75,26 +98,34 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
 
   try {
     const kis = await fetchKisInvestorFlow(safeCode, 'LOW');
-    if (hasRealInvestorFields(kis)) {
-      const data: InvestorFlowSample = {
-        stockCode: safeCode,
-        foreignNetBuy: kis.foreignNetBuy,
-        institutionalNetBuy: kis.institutionalNetBuy,
-        individualNetBuy: kis.individualNetBuy,
-        provider: 'KIS_API',
-        fetchedAt: new Date().toISOString(),
-        tradingDate: sourceDateKst,
-      };
+    const daily = hasRealInvestorFields(kis) ? null : await fetchKisInvestorTradeByStockDaily(safeCode, 'LOW');
+    const foreignInstitution = hasRealInvestorFields(kis) || hasPartialSymbolInvestorFields(daily)
+      ? null
+      : await fetchKisForeignInstitutionTotal('LOW');
+    const selected = hasRealInvestorFields(kis)
+      ? { value: kis, endpoint: 'KIS_INQUIRE_INVESTOR_STRICT', confidence: 'VERIFIED', hasRealInvestorFields: true }
+      : hasPartialSymbolInvestorFields(daily)
+        ? { value: daily, endpoint: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY', confidence: hasRealInvestorFields(daily) ? 'VERIFIED' : 'DEGRADED', hasRealInvestorFields: hasRealInvestorFields(daily) }
+        : hasPartialSymbolInvestorFields(foreignInstitution)
+          ? { value: foreignInstitution, endpoint: 'KIS_FOREIGN_INSTITUTION_TOTAL', confidence: 'DEGRADED', hasRealInvestorFields: false }
+          : null;
+
+    if (selected) {
+      const data = sampleFromInvestorFields({ safeCode, sourceDateKst, value: selected.value });
       const diagnostic = [
         `code=${safeCode}`,
         'stage=ADVISORY_CANDIDATE',
         'source=KIS_OFFICIAL_STANDARD_API',
+        `endpoint=${selected.endpoint}`,
+        `confidence=${selected.confidence}`,
         'safeOfficialSource=true',
         `promotionStage=${promotionStage}`,
         `selectableForRouter=${String(selectableForRouter)}`,
-        'hasRealInvestorFields=true',
-        'KIS=OK',
+        `hasRealInvestorFields=${String(selected.hasRealInvestorFields)}`,
+        `hasPartialInvestorFields=${String(!selected.hasRealInvestorFields)}`,
+        `KIS=${selected.confidence === 'DEGRADED' ? 'PARTIAL' : 'OK'}`,
         `sourceDate=${sourceDateKst}`,
+        'marketSignal=false',
         'liveExecutionAllowed=false',
         'executionImpact=NONE',
       ].join(';');
@@ -106,12 +137,12 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
           status: 'OK',
           reason: diagnostic,
           now,
-          sourceDateKst,
-          endpoint: 'KIS_INQUIRE_INVESTOR_STRICT',
+          sourceDateKst: data.tradingDate,
+          endpoint: selected.endpoint,
           semantic: {
             foreignNetBuy: data.foreignNetBuy,
             institutionNetBuy: data.institutionalNetBuy,
-            individualNetBuy: data.individualNetBuy,
+            ...(Number.isFinite(data.individualNetBuy) ? { individualNetBuy: data.individualNetBuy } : {}),
           },
           retryable: false,
           cacheFallback: true,

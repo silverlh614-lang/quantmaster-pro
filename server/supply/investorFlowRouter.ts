@@ -48,7 +48,7 @@ export interface InvestorFlowSample {
   stockCode: string;
   foreignNetBuy: number;
   institutionalNetBuy: number;
-  individualNetBuy: number;
+  individualNetBuy?: number;
   provider: Extract<SupplyProvider, 'KRX_INVESTOR_FLOW' | 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'CACHE'>;
   fetchedAt: string;
   tradingDate?: string;
@@ -98,6 +98,12 @@ function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy) && Number.isFinite(record.individualNetBuy);
+}
+
+function hasKisInvestorFields(value: unknown): value is { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy?: number } {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy);
 }
 
 function normalizeCode(code: string): string {
@@ -445,7 +451,7 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
   try {
     const kis = await fetchKisInvestorFlowEvidence(code, now);
     health.push(kis.health);
-    if (kis.data && hasRealInvestorFields(kis.data)) {
+    if (kis.data && hasKisInvestorFields(kis.data)) {
       pushAttempt(attempts, 'KIS_API', 'OK', kis.diagnostic);
 
       if (kis.selectableForRouter) {
@@ -464,7 +470,7 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
           semantic: {
             foreignNetBuy: kis.data.foreignNetBuy,
             institutionNetBuy: kis.data.institutionalNetBuy,
-            individualNetBuy: kis.data.individualNetBuy,
+            ...(Number.isFinite(kis.data.individualNetBuy) ? { individualNetBuy: kis.data.individualNetBuy } : {}),
           },
         });
         health.push(composite);

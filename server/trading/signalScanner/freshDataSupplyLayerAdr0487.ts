@@ -181,6 +181,12 @@ export interface FreshDataSupplyReportInputAdr0487 {
   supplyCoverageRecoveryAdr0484?: Record<string, unknown> | null;
   supplyAdvisoryReadinessAdr0485?: Record<string, unknown> | null;
   supplyCoverageReportAdr0496?: SupplyCoverageReportAdr0496 | null;
+  kisOfficialSupplyPack?: Record<string, unknown> | null;
+  kisSectorBasketAdr0503?: {
+    basketRows?: number;
+    coverageRatio?: number;
+    status?: string;
+  } | null;
   investorFlowProviderRouterAdr0477?: {
     selectedProvider?: string;
     providerStatuses?: Record<string, string>;
@@ -203,14 +209,21 @@ const POLICY = {
 
 const SOURCE_IDS = [
   'KRX_SECTOR_INDEX_MASTER',
+  'KIS_SECTOR_BASKET',
   'SECTOR_INDEX_CODE_MAPPING',
   'SECTOR_ENERGY_STOCK_DAILY_FALLBACK',
+  'KIS_PRICE',
+  'KIS_DAILY_CHART',
   'NAVER_INVESTOR_TREND',
   'SEMANTIC_NETBUY',
   'KRX_INVESTOR_FLOW',
   'SUPPLY_SNAPSHOT_CACHE',
-  'KIS_PROGRAM_TRADING',
-  'MARKET_PROGRAM_TRADING',
+  'KIS_MARKET_SUPPLY',
+  'KIS_PROGRAM_TRADING_STOCK',
+  'KIS_PROGRAM_TRADING_MARKET',
+  'KIS_SHORT_BALANCE',
+  'KIS_LOAN_BALANCE',
+  'KIS_CREDIT_BALANCE',
   'FSS_PASSIVE_ACTIVE',
   'SHORT_BALANCE',
   'CREDIT_BALANCE',
@@ -220,17 +233,24 @@ const SOURCE_IDS = [
 export function buildFreshDataSourceRegistryAdr0487(): FreshDataSourceRegistrationAdr0487[] {
   const rows: Array<Omit<FreshDataSourceRegistrationAdr0487, 'rawPayloadPersistenceAllowed' | 'liveExecutionAllowed' | 'executionImpact'>> = [
     { id: 'KRX_SECTOR_INDEX_MASTER', domain: 'SECTOR_ENERGY', provider: 'KRX', priority: 1, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Sector indexCode master data.', relatedAdrs: ['0474', '0487'] },
-    { id: 'SECTOR_INDEX_CODE_MAPPING', domain: 'SECTOR_ENERGY', provider: 'INTERNAL', priority: 2, stage: 'OBSERVE', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Stock, sector, and indexCode mapping.', relatedAdrs: ['0474', '0487'] },
-    { id: 'SECTOR_ENERGY_STOCK_DAILY_FALLBACK', domain: 'SECTOR_ENERGY', provider: 'CACHE', priority: 3, stage: 'OBSERVE', fetchAllowed: false, normalizeRequired: false, freshnessRequired: true, description: 'Fallback support data only; never leadership confidence.', relatedAdrs: ['0474', '0487'] },
+    { id: 'KIS_SECTOR_BASKET', domain: 'SECTOR_ENERGY', provider: 'KIS', priority: 2, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS official price based sector basket bridge; shadow/watch only.', relatedAdrs: ['0487', '0503'] },
+    { id: 'SECTOR_INDEX_CODE_MAPPING', domain: 'SECTOR_ENERGY', provider: 'INTERNAL', priority: 3, stage: 'OBSERVE', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Stock, sector, and indexCode mapping.', relatedAdrs: ['0474', '0487'] },
+    { id: 'SECTOR_ENERGY_STOCK_DAILY_FALLBACK', domain: 'SECTOR_ENERGY', provider: 'CACHE', priority: 4, stage: 'OBSERVE', fetchAllowed: false, normalizeRequired: false, freshnessRequired: true, description: 'Fallback support data only; never leadership confidence.', relatedAdrs: ['0474', '0487'] },
+    { id: 'KIS_PRICE', domain: 'PRICE_VOLUME', provider: 'KIS', priority: 1, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: false, freshnessRequired: true, description: 'KIS official current price source.', relatedAdrs: ['0487', '0503'] },
+    { id: 'KIS_DAILY_CHART', domain: 'PRICE_VOLUME', provider: 'KIS', priority: 2, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: false, freshnessRequired: true, description: 'KIS official daily chart or previous-close support line.', relatedAdrs: ['0487', '0503'] },
     { id: 'NAVER_INVESTOR_TREND', domain: 'SUPPLY', provider: 'NAVER', priority: 1, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'NAVER investor trend sample line.', relatedAdrs: ['0481', '0487'] },
     { id: 'SEMANTIC_NETBUY', domain: 'SUPPLY', provider: 'INTERNAL', priority: 2, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Semantic net-buy normalized sample line.', relatedAdrs: ['0482', '0487'] },
     { id: 'KRX_INVESTOR_FLOW', domain: 'SUPPLY', provider: 'KRX', priority: 3, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KRX investor-flow previous trading date fallback line.', relatedAdrs: ['0477', '0487', '0503'] },
     { id: 'SUPPLY_SNAPSHOT_CACHE', domain: 'SUPPLY', provider: 'CACHE', priority: 4, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: false, description: 'ADR-0491 sanitized supply snapshot cache fallback line.', relatedAdrs: ['0491', '0503'] },
-    { id: 'KIS_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 3, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS program trading sample line.', relatedAdrs: ['0477', '0487'] },
-    { id: 'MARKET_PROGRAM_TRADING', domain: 'PROGRAM_TRADING', provider: 'KRX', priority: 4, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Market program trading sample line.', relatedAdrs: ['0477', '0487'] },
-    { id: 'FSS_PASSIVE_ACTIVE', domain: 'SUPPLY', provider: 'FSS', priority: 5, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'FSS passive/active supply freshness line.', relatedAdrs: ['0483', '0487'] },
-    { id: 'SHORT_BALANCE', domain: 'SHORT_CREDIT', provider: 'FSS', priority: 6, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Short balance freshness line.', relatedAdrs: ['0483', '0487'] },
-    { id: 'CREDIT_BALANCE', domain: 'SHORT_CREDIT', provider: 'FSS', priority: 7, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Credit balance freshness line.', relatedAdrs: ['0483', '0487'] },
+    { id: 'KIS_MARKET_SUPPLY', domain: 'SUPPLY', provider: 'KIS', priority: 5, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS official market-level investor supply context; not symbol-level investor flow.', relatedAdrs: ['0487', '0503'] },
+    { id: 'KIS_PROGRAM_TRADING_STOCK', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 3, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS stock program trading sample line.', relatedAdrs: ['0477', '0487', '0503'] },
+    { id: 'KIS_PROGRAM_TRADING_MARKET', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 4, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS market program trading sample line.', relatedAdrs: ['0477', '0487', '0503'] },
+    { id: 'KIS_SHORT_BALANCE', domain: 'SHORT_CREDIT', provider: 'KIS', priority: 5, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS short-sale balance/risk source.', relatedAdrs: ['0487', '0503'] },
+    { id: 'KIS_LOAN_BALANCE', domain: 'SHORT_CREDIT', provider: 'KIS', priority: 6, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS loan transaction balance/risk source.', relatedAdrs: ['0487', '0503'] },
+    { id: 'KIS_CREDIT_BALANCE', domain: 'SHORT_CREDIT', provider: 'KIS', priority: 7, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS credit balance/risk source.', relatedAdrs: ['0487', '0503'] },
+    { id: 'FSS_PASSIVE_ACTIVE', domain: 'SUPPLY', provider: 'FSS', priority: 8, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'FSS passive/active supply freshness line.', relatedAdrs: ['0483', '0487'] },
+    { id: 'SHORT_BALANCE', domain: 'SHORT_CREDIT', provider: 'FSS', priority: 9, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Short balance freshness line.', relatedAdrs: ['0483', '0487'] },
+    { id: 'CREDIT_BALANCE', domain: 'SHORT_CREDIT', provider: 'FSS', priority: 10, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'Credit balance freshness line.', relatedAdrs: ['0483', '0487'] },
     { id: 'PRICE_VOLUME_DAILY', domain: 'PRICE_VOLUME', provider: 'CACHE', priority: 8, stage: 'OBSERVE', fetchAllowed: false, normalizeRequired: false, freshnessRequired: true, description: 'Price/volume support data if needed.', relatedAdrs: ['0487'] },
   ];
   return rows.map((row) => ({ ...row, rawPayloadPersistenceAllowed: false, liveExecutionAllowed: false, executionImpact: 'NONE' }));
@@ -252,6 +272,25 @@ function asNumber(value: unknown): number | null {
 
 function recordValue(input: unknown, key: string): unknown {
   return typeof input === 'object' && input !== null ? (input as Record<string, unknown>)[key] : undefined;
+}
+
+function asRecordValue(input: unknown): Record<string, unknown> | null {
+  return typeof input === 'object' && input !== null ? input as Record<string, unknown> : null;
+}
+
+function nestedRecord(input: unknown, key: string): Record<string, unknown> | null {
+  return asRecordValue(recordValue(input, key));
+}
+
+function finiteRecordValues(record: Record<string, unknown> | null, keys: readonly string[]): number[] {
+  if (!record) return [];
+  return keys
+    .map((key) => record[key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+}
+
+function hasAnyFiniteRecordValue(record: Record<string, unknown> | null, keys: readonly string[]): boolean {
+  return finiteRecordValues(record, keys).length > 0;
 }
 
 function materializationRecord(input: unknown): Record<string, unknown> | null {
@@ -385,6 +424,8 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
   const fallbackUsed = upper(diag.fallbackUsed);
   const missingIndexCode = Number(diag.missingIndexCode ?? diag.missingIndexCodeCount ?? 0);
   const aliasMissing = Number(diag.aliasMissing ?? diag.aliasMissingCount ?? 0);
+  const kisBasketRows = asNumber(input.kisSectorBasketAdr0503?.basketRows) ?? 0;
+  const kisBasketCoverage = clampCoverage(input.kisSectorBasketAdr0503?.coverageRatio ?? (kisBasketRows > 0 ? 1 : 0));
   const sourceState: FreshDataSourceState = coverage >= 0.8 ? 'FRESH' : coverage > 0 ? 'STALE' : 'MISSING';
   return [
     buildFreshDataSnapshotAdr0487({
@@ -400,6 +441,28 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
       readinessKind: coverage >= 0.8 && missingIndexCode === 0 ? 'MATERIALIZED_SAMPLE' : coverage > 0 ? 'PLACEHOLDER_READY' : 'NO_SAMPLE',
       sourceOfTruth: 'REGISTRY',
       diagnostics: [`indexCodeCoverage=${coverage}`, `missingIndexCode=${missingIndexCode}`],
+    }),
+    buildFreshDataSnapshotAdr0487({
+      registration: registrationById(registrations, 'KIS_SECTOR_BASKET'),
+      collectedAt: generatedAt,
+      cacheState: kisBasketRows > 0 ? 'FRESH' : 'UNKNOWN',
+      sourceState: kisBasketRows > 0 ? 'FRESH' : 'DATA_UNAVAILABLE',
+      coverageRatio: kisBasketCoverage,
+      normalized: false,
+      sampleMaterialized: kisBasketRows > 0,
+      usableForRouter: false,
+      usableForShadow: kisBasketRows > 0,
+      readinessKind: kisBasketRows > 0 ? 'MATERIALIZED_SAMPLE' : 'REGISTRY_READY',
+      sourceOfTruth: kisBasketRows > 0 ? 'SYNTHETIC' : 'REGISTRY',
+      confidence: kisBasketRows > 0 ? 'MEDIUM' : 'NONE',
+      diagnostics: [
+        `source=KIS_SECTOR_BASKET`,
+        `basketRows=${kisBasketRows}`,
+        `leadershipConfidence=${kisBasketRows > 0 ? 'READY_FOR_SHADOW' : 'BLOCKED'}`,
+        'sectorBoostAllowed=false',
+        'strongBuyAllowed=false',
+        'executionImpact=NONE',
+      ],
     }),
     buildFreshDataSnapshotAdr0487({
       registration: registrationById(registrations, 'SECTOR_INDEX_CODE_MAPPING'),
@@ -588,8 +651,146 @@ function routerSupplySnapshot(
   });
 }
 
+function kisPackSnapshot(
+  input: FreshDataSupplyReportInputAdr0487,
+  registration: FreshDataSourceRegistrationAdr0487,
+  generatedAt: string,
+): FreshDataSnapshotAdr0487 {
+  const pack = input.kisOfficialSupplyPack ?? null;
+  const price = nestedRecord(pack, 'price');
+  const marketSupply = nestedRecord(pack, 'marketSupply');
+  const stockProgram = nestedRecord(pack, 'stockProgram');
+  const marketProgram = nestedRecord(pack, 'marketProgram');
+  const shortSelling = nestedRecord(pack, 'shortSelling');
+  const loanTransaction = nestedRecord(pack, 'loanTransaction');
+  const creditBalance = nestedRecord(pack, 'creditBalance');
+  const sourceDate = typeof price?.tradingDate === 'string' ? price.tradingDate : null;
+  const commonDiagnostics = [
+    'source=KIS_OFFICIAL_SUPPLY_PACK',
+    'officialSource=true',
+    'rawPayloadPersistenceAllowed=false',
+    'liveExecutionAllowed=false',
+    'executionImpact=NONE',
+  ];
+
+  if (registration.id === 'KIS_PRICE') {
+    const ok = hasAnyFiniteRecordValue(price, ['currentPrice']);
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      sourceDate,
+      cacheState: ok ? 'FRESH' : 'UNKNOWN',
+      sourceState: ok ? 'FRESH' : 'DATA_UNAVAILABLE',
+      coverageRatio: ok ? 1 : 0,
+      normalized: false,
+      sampleMaterialized: ok,
+      usableForRouter: false,
+      usableForShadow: ok,
+      readinessKind: ok ? 'MATERIALIZED_SAMPLE' : 'NO_SAMPLE',
+      sourceOfTruth: ok ? 'ROUTER_INPUT' : 'REGISTRY',
+      confidence: ok && price?.confidence === 'VERIFIED' ? 'HIGH' : ok ? 'MEDIUM' : 'NONE',
+      diagnostics: [...commonDiagnostics, `priceConfidence=${price?.confidence ?? 'MISSING'}`],
+    });
+  }
+
+  if (registration.id === 'KIS_DAILY_CHART') {
+    const ok = hasAnyFiniteRecordValue(price, ['prevClose']);
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      sourceDate,
+      cacheState: ok ? 'FRESH' : 'UNKNOWN',
+      sourceState: ok ? 'FRESH' : 'DATA_UNAVAILABLE',
+      coverageRatio: ok ? 1 : 0,
+      normalized: false,
+      sampleMaterialized: ok,
+      usableForRouter: false,
+      usableForShadow: ok,
+      readinessKind: ok ? 'MATERIALIZED_SAMPLE' : 'REGISTRY_READY',
+      sourceOfTruth: ok ? 'ROUTER_INPUT' : 'REGISTRY',
+      confidence: ok ? 'MEDIUM' : 'NONE',
+      diagnostics: [...commonDiagnostics, `chartProxy=prevClose`, `priceConfidence=${price?.confidence ?? 'MISSING'}`],
+    });
+  }
+
+  if (registration.id === 'KIS_MARKET_SUPPLY') {
+    const ok = hasAnyFiniteRecordValue(marketSupply, ['foreignNetBuy', 'institutionNetBuy', 'individualNetBuy']);
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      cacheState: ok ? 'FRESH' : 'UNKNOWN',
+      sourceState: ok ? 'FRESH' : 'DATA_UNAVAILABLE',
+      coverageRatio: ok ? 1 : 0,
+      normalized: false,
+      sampleMaterialized: ok,
+      usableForRouter: false,
+      usableForShadow: ok,
+      readinessKind: ok ? 'MATERIALIZED_SAMPLE' : 'NO_SAMPLE',
+      sourceOfTruth: ok ? 'ROUTER_INPUT' : 'REGISTRY',
+      confidence: ok && marketSupply?.confidence === 'VERIFIED' ? 'HIGH' : ok ? 'MEDIUM' : 'NONE',
+      diagnostics: [...commonDiagnostics, 'marketSupply is market context only; not symbol-level investorFlow.'],
+    });
+  }
+
+  if (registration.id === 'KIS_PROGRAM_TRADING_STOCK' || registration.id === 'KIS_PROGRAM_TRADING_MARKET') {
+    const source = registration.id === 'KIS_PROGRAM_TRADING_STOCK' ? stockProgram : marketProgram;
+    const ok = hasAnyFiniteRecordValue(source, ['programNetBuyQty', 'programNetBuyAmount', 'programBuyRatio', 'programArbitrageNetBuy', 'programNonArbitrageNetBuy', 'programSellAmount', 'programBuyAmount']);
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      cacheState: ok ? 'FRESH' : 'UNKNOWN',
+      sourceState: ok ? 'FRESH' : 'DATA_UNAVAILABLE',
+      coverageRatio: ok ? 1 : 0,
+      normalized: false,
+      sampleMaterialized: ok,
+      usableForRouter: false,
+      usableForShadow: ok,
+      readinessKind: ok ? 'MATERIALIZED_SAMPLE' : 'NO_SAMPLE',
+      sourceOfTruth: ok ? 'ROUTER_INPUT' : 'REGISTRY',
+      confidence: ok ? 'HIGH' : 'NONE',
+      diagnostics: [...commonDiagnostics, `programStatus=${ok ? 'OK' : 'DATA_UNAVAILABLE'}`],
+    });
+  }
+
+  if (registration.id === 'KIS_SHORT_BALANCE' || registration.id === 'KIS_LOAN_BALANCE' || registration.id === 'KIS_CREDIT_BALANCE') {
+    const source = registration.id === 'KIS_SHORT_BALANCE'
+      ? shortSelling
+      : registration.id === 'KIS_LOAN_BALANCE'
+        ? loanTransaction
+        : creditBalance;
+    const ok = registration.id === 'KIS_SHORT_BALANCE'
+      ? hasAnyFiniteRecordValue(source, ['shortSaleQty', 'shortSaleAmount', 'shortSaleRatio', 'shortSaleIncreaseRate'])
+      : registration.id === 'KIS_LOAN_BALANCE'
+        ? hasAnyFiniteRecordValue(source, ['loanBalanceQty', 'loanBalanceAmount', 'loanIncreaseRate'])
+        : hasAnyFiniteRecordValue(source, ['creditBalanceQty', 'creditBalanceAmount', 'creditIncreaseRate']);
+    const trend = upper(source?.trend);
+    return buildFreshDataSnapshotAdr0487({
+      registration,
+      collectedAt: generatedAt,
+      cacheState: ok ? 'FRESH' : 'UNKNOWN',
+      sourceState: ok ? 'FRESH' : 'DATA_UNAVAILABLE',
+      coverageRatio: ok ? 1 : 0,
+      normalized: false,
+      sampleMaterialized: ok,
+      usableForRouter: false,
+      usableForShadow: ok,
+      readinessKind: ok ? 'MATERIALIZED_SAMPLE' : 'NO_SAMPLE',
+      sourceOfTruth: ok ? 'ROUTER_INPUT' : 'REGISTRY',
+      confidence: ok ? 'MEDIUM' : 'NONE',
+      diagnostics: [...commonDiagnostics, `signal=${trend === 'FLAT' ? 'NEUTRAL' : trend || 'UNKNOWN'}`, `providerIssue=${String(!ok)}`, 'marketSignal=false'],
+    });
+  }
+
+  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, sourceState: 'DATA_UNAVAILABLE', diagnostics: commonDiagnostics });
+}
+
 function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
-  const status = upper(input.investorFlowProviderRouterAdr0477?.providerStatuses?.[registration.id] ?? input.investorFlowProviderRouterAdr0477?.status);
+  const legacyId = registration.id === 'KIS_PROGRAM_TRADING_STOCK'
+    ? 'KIS_PROGRAM_TRADING'
+    : registration.id === 'KIS_PROGRAM_TRADING_MARKET'
+      ? 'MARKET_PROGRAM_TRADING'
+      : registration.id;
+  const status = upper(input.investorFlowProviderRouterAdr0477?.providerStatuses?.[registration.id] ?? input.investorFlowProviderRouterAdr0477?.providerStatuses?.[legacyId] ?? input.investorFlowProviderRouterAdr0477?.status);
   const fresh = status.includes('DATA_AVAILABLE') || status.includes('WIRED') || status.includes('OK');
   const sourceState: FreshDataSourceState = fresh ? 'FRESH' : status.includes('PROVIDER') ? 'PROVIDER_ERROR' : 'DATA_UNAVAILABLE';
   return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: fresh ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: fresh ? 1 : 0, normalized: fresh, diagnostics: [`programStatus=${status || 'missing'}`] });
@@ -611,13 +812,20 @@ function fssPassiveActiveSnapshot(input: FreshDataSupplyReportInputAdr0487, regi
 }
 
 function buildSupplySnapshots(input: FreshDataSupplyReportInputAdr0487, registrations: FreshDataSourceRegistrationAdr0487[], generatedAt: string): FreshDataSnapshotAdr0487[] {
+  const hasKisPack = Boolean(input.kisOfficialSupplyPack);
   return [
+    kisPackSnapshot(input, registrationById(registrations, 'KIS_PRICE'), generatedAt),
+    kisPackSnapshot(input, registrationById(registrations, 'KIS_DAILY_CHART'), generatedAt),
     naverSnapshot(input, registrationById(registrations, 'NAVER_INVESTOR_TREND'), generatedAt),
     semanticSnapshot(input, registrationById(registrations, 'SEMANTIC_NETBUY'), generatedAt),
     routerSupplySnapshot(input, registrationById(registrations, 'KRX_INVESTOR_FLOW'), generatedAt, 'KRX_INVESTOR_FLOW'),
     routerSupplySnapshot(input, registrationById(registrations, 'SUPPLY_SNAPSHOT_CACHE'), generatedAt, 'CACHE'),
-    programSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING'), generatedAt),
-    programSnapshot(input, registrationById(registrations, 'MARKET_PROGRAM_TRADING'), generatedAt),
+    kisPackSnapshot(input, registrationById(registrations, 'KIS_MARKET_SUPPLY'), generatedAt),
+    hasKisPack ? kisPackSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING_STOCK'), generatedAt) : programSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING_STOCK'), generatedAt),
+    hasKisPack ? kisPackSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING_MARKET'), generatedAt) : programSnapshot(input, registrationById(registrations, 'KIS_PROGRAM_TRADING_MARKET'), generatedAt),
+    kisPackSnapshot(input, registrationById(registrations, 'KIS_SHORT_BALANCE'), generatedAt),
+    kisPackSnapshot(input, registrationById(registrations, 'KIS_LOAN_BALANCE'), generatedAt),
+    kisPackSnapshot(input, registrationById(registrations, 'KIS_CREDIT_BALANCE'), generatedAt),
     fssPassiveActiveSnapshot(input, registrationById(registrations, 'FSS_PASSIVE_ACTIVE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'SHORT_BALANCE'), generatedAt),
     snapshotFromFreshness(input, registrationById(registrations, 'CREDIT_BALANCE'), generatedAt),
