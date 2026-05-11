@@ -358,8 +358,73 @@ export interface Stage1FilterResult {
  *
  * ADR-0185 (PR-B12-B) site 4 — strict 분기. ENV `EMERGENCY_STAGE1_STRICT_ENABLED=true` 활성 시
  * `classifyStage1RejectStrict` 우선 호출 → DATA_MISSING_* 5종 분리. legacy 기본값 (OFF) 시
- * 기존 동작 100% 보존 (LOW_VOLUME / HIGH_PER 등 조건 분류 그대로).
+ * DATA_MISSING_* strict 분기는 보존하고, legacy Stage1 hard reject는 보완 신호 기반 soft gate를 적용한다.
  */
+
+function isStage1Vcp(quote: YahooQuoteExtended): boolean {
+  const t = STAGE1_THRESHOLDS;
+  return quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * t.VCP_ATR_RATIO;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPriceAboveMovingAverage(price: number, movingAverage: unknown): boolean {
+  return isFiniteNumber(price) && isFiniteNumber(movingAverage) && movingAverage > 0 && price > movingAverage;
+}
+
+/**
+ * LOW_VOLUME soft-gate 보완 신호.
+ *
+ * Stage1은 명백한 부적격 제거가 목적이므로, 낮은 거래량 단독으로 VCP/눌림목/추세/모멘텀
+ * 후보를 Gate1 이전에 모두 제거하지 않는다. 데이터가 없는 조건은 false로 취급한다.
+ * TODO: evaluateStage1Filter 시그니처 확장 시 sector/regime 기반 leading sector 보완 신호 추가.
+ */
+export function hasStage1VolumeCompensationSignal(quote: YahooQuoteExtended): boolean {
+  const pullback = isPullbackSetup(quote);
+  return (
+    pullback ||
+    isStage1Vcp(quote) ||
+    isPriceAboveMovingAverage(quote.price, quote.ma20) ||
+    (isFiniteNumber(quote.return20d) && quote.return20d > 0) ||
+    (isFiniteNumber(quote.return5d) && quote.return5d > 0) ||
+    (isFiniteNumber(quote.changePercent) && quote.changePercent > 0) ||
+    quote.dailyVolumeDrying === true ||
+    (isFiniteNumber(quote.rsi14) && quote.rsi14 >= 35 && quote.rsi14 <= 65)
+  );
+}
+
+function hasStage1PerCompensationSignal(
+  quote: YahooQuoteExtended,
+  volumeForStage1: number,
+): boolean {
+  const pullback = isPullbackSetup(quote);
+  return (
+    (isFiniteNumber(quote.return20d) && quote.return20d > 5) ||
+    (isFiniteNumber(quote.return5d) && quote.return5d > 0) ||
+    isPriceAboveMovingAverage(quote.price, quote.ma20) ||
+    isStage1Vcp(quote) ||
+    pullback ||
+    (isFiniteNumber(quote.rsi14) && quote.rsi14 >= 40 && quote.rsi14 <= 70) ||
+    (quote.avgVolume > 0 && volumeForStage1 > 0 && volumeForStage1 >= quote.avgVolume * 0.8) ||
+    (isFiniteNumber(quote.changePercent) && quote.changePercent > 0)
+  );
+}
+
+function hasStage1NegativeDayCompensationSignal(quote: YahooQuoteExtended): boolean {
+  const pullback = isPullbackSetup(quote);
+  return (
+    pullback ||
+    isPriceAboveMovingAverage(quote.price, quote.ma20) ||
+    isPriceAboveMovingAverage(quote.price, quote.ma60) ||
+    (isFiniteNumber(quote.return20d) && quote.return20d > 0) ||
+    (isFiniteNumber(quote.rsi14) && quote.rsi14 >= 35 && quote.rsi14 <= 60) ||
+    isStage1Vcp(quote) ||
+    quote.dailyVolumeDrying === true
+  );
+}
+
 export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterResult {
   const t = STAGE1_THRESHOLDS;
 
@@ -386,22 +451,32 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterRes
   if (quote.price < t.MIN_PRICE) return { pass: false, reason: 'MIN_PRICE' };
   if (quote.isHighRisk) return { pass: false, reason: 'HIGH_RISK' };
   if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return { pass: false, reason: 'OVERHEAT' };
-  const pullback = isPullbackSetup(quote);
-  if (quote.changePercent < 0 && !pullback) return { pass: false, reason: 'NEGATIVE_DAY' };
   if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return { pass: false, reason: 'EXCESSIVE_DRAWDOWN' };
-  const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * t.VCP_ATR_RATIO;
+  if (
+    quote.changePercent < 0 &&
+    !hasStage1NegativeDayCompensationSignal(quote)
+  ) {
+    return { pass: false, reason: 'NEGATIVE_DAY' };
+  }
+  const pullback = isPullbackSetup(quote);
   const projectedVolume = projectIntradayVolume(quote.volume);
   const volumeForStage1 = projectedVolume > 0 ? projectedVolume : quote.volume;
 
   if (
     quote.avgVolume > 0 &&
+    volumeForStage1 > 0 &&
     volumeForStage1 < quote.avgVolume * t.MIN_VOLUME_MULTIPLIER &&
-    !isVCP &&
-    !pullback
+    !hasStage1VolumeCompensationSignal(quote)
   ) {
     return { pass: false, reason: 'LOW_VOLUME' };
   }
-  if (quote.per > 0 && quote.per > t.MAX_PER) return { pass: false, reason: 'HIGH_PER' };
+  if (
+    quote.per > 0 &&
+    quote.per > t.MAX_PER &&
+    !hasStage1PerCompensationSignal(quote, volumeForStage1)
+  ) {
+    return { pass: false, reason: 'HIGH_PER' };
+  }
   if (quote.ma20 > 0 && quote.price < quote.ma20 && !pullback) {
     return { pass: false, reason: 'BELOW_MA20' };
   }
