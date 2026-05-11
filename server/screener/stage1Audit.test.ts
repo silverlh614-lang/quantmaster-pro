@@ -5,10 +5,11 @@
  * evaluateStage1FilterTracked 가 카운터를 정확히 누적하는지 검증.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   evaluateStage1Filter, evaluateStage1FilterTracked,
   resetStage1RejectionCounts, getStage1RejectionCounts,
+  projectIntradayVolume,
 } from './pipelineHelpers.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
 
@@ -56,14 +57,54 @@ describe('evaluateStage1Filter — 사유 분기', () => {
     expect(evaluateStage1Filter(q({ return5d: 20 }))).toEqual({ pass: false, reason: 'OVEREXTENDED' });
   });
 
-  it('LOW_VOLUME: volume < avg×1.2 & !VCP & !pullback', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('LOW_VOLUME: 10:15 KST에는 avgVolume 25% 누적 거래량도 projection 기준으로 통과 가능', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T01:15:00.000Z')); // 10:15 KST
+
     const r = evaluateStage1Filter(q({
-      volume: 50_000, avgVolume: 100_000,  // 0.5× — fails
+      volume: 25_000, avgVolume: 100_000,  // 0.25× 누적 → projectedVolume ≈ 1.3×
       atr: 500, atr20avg: 500,             // not VCP
-      changePercent: 1,                     // positive, no pullback consideration
+      changePercent: 1,                    // positive, no pullback consideration
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.reason).toBeUndefined();
+  });
+
+  it('LOW_VOLUME: 장후 15:30 이후에는 projection ratio 1.0으로 기존처럼 탈락', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T06:31:00.000Z')); // 15:31 KST
+
+    const r = evaluateStage1Filter(q({
+      volume: 50_000, avgVolume: 100_000,  // 0.5× — fails after close
+      atr: 500, atr20avg: 500,             // not VCP
+      changePercent: 1,                    // positive, no pullback consideration
     }));
     expect(r.pass).toBe(false);
     expect(r.reason).toBe('LOW_VOLUME');
+  });
+
+  it('projectIntradayVolume: volume <= 0 이면 0 반환', () => {
+    expect(projectIntradayVolume(0, new Date('2026-05-11T01:15:00.000Z'))).toBe(0);
+    expect(projectIntradayVolume(-1, new Date('2026-05-11T01:15:00.000Z'))).toBe(0);
+  });
+
+  it('LOW_VOLUME: avgVolume <= 0 이면 hard reject 하지 않음', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T06:31:00.000Z')); // 15:31 KST
+
+    const r = evaluateStage1Filter(q({
+      volume: 0,
+      avgVolume: 0,
+      atr: 500,
+      atr20avg: 500,
+      changePercent: 1,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.reason).toBeUndefined();
   });
 });
 
