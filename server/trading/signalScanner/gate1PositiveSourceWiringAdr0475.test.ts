@@ -142,7 +142,7 @@ describe('ADR-0475 Gate1 Positive Source Wiring', () => {
   it('missing watchlist source records zeroReason', () => {
     const trace = resolveWatchlistUpstreamScore({ symbol: '005930' });
     expect(trace.importedScore).toBe(0);
-    expect(trace.zeroReason).toContain('UNAVAILABLE');
+    expect(trace.zeroReason).toContain('WATCHLIST_SCORE_MISSING');
   });
 
   it('price history computes RELATIVE_STRENGTH from PRICE_HISTORY', () => {

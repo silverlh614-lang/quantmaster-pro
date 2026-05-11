@@ -9,6 +9,7 @@ import type { RiskDoubleCountAuditReport } from './gate1RiskDoubleCount.js';
 import type { Gate1ScoringAlignmentReport } from './gate1ScoringAlignmentAdr0472.js';
 import type { NaverInvestorTrendCollectorResult } from './naverInvestorTrendCollectorAdr0481.js';
 import type { SemanticNetBuyNormalizationReportAdr0482, SemanticNetBuyProvider } from './semanticNetBuyNormalizerAdr0482.js';
+import { resolveWatchlistUpstreamScore as resolveCurrentWatchlistScore, summarizeWatchlistScoreSources } from './watchlistUpstreamScoreResolver.js';
 
 export type Gate1PositiveSourceCode =
   | 'SEMANTIC_NETBUY_ADR0482'
@@ -47,6 +48,10 @@ export interface WatchlistUpstreamScoreTrace {
     | 'UNAVAILABLE';
   status: Gate1PositiveSourceStatus;
   zeroReason?: string;
+  sourceField?: string;
+  rawScore?: number;
+  normalized100?: number;
+  currentPathConfidence?: 'VERIFIED' | 'MISSING' | 'UNKNOWN';
   executionImpact: 'NONE';
 }
 
@@ -194,6 +199,10 @@ export interface Gate1PositiveSourceWiringReport {
   breakoutStructureZeroCount: number;
   otherPositiveSharePct: number;
   watchlistUpstreamAvgScore: number;
+  watchlistScoreVerified: number;
+  watchlistScoreMissing: number;
+  watchlistScoreScale: 'NORMALIZED_100';
+  watchlistScoreSourceFieldDistribution: Record<string, number>;
   relativeStrengthAvgScore: number;
   breakoutStructureAvgScore: number;
   beforeNetScoreAvg: number;
@@ -319,10 +328,20 @@ function normalizePercentScore(rawScore: number, maxScore: number): number {
   return round2(clamp((rawScore / 100) * maxScore, 0, maxScore));
 }
 
+function scoreRelativeStrength(relativeReturn: number, rsRankPct: number | undefined, maxScore: number): number {
+  const relativeComponent = clamp((relativeReturn + 10) / 30, 0, 1) * maxScore;
+  const rankComponent = finite(rsRankPct) ? clamp(rsRankPct / 100, 0, 1) * maxScore : relativeComponent;
+  return round2((relativeComponent * 0.7) + (rankComponent * 0.3));
+}
+
 export function resolveWatchlistUpstreamScore(input: Gate1PositiveSourceCandidateInput): WatchlistUpstreamScoreTrace {
   const maxScore = 15;
-  if (finite(input.stage2Score) || finite(input.upstreamCandidateScore)) {
-    const raw = input.stage2Score ?? input.upstreamCandidateScore ?? 0;
+  const current = resolveCurrentWatchlistScore({
+    totalGateScore: input.upstreamCandidateScore,
+    stage2Score: input.stage2Score,
+    watchlistScore: input.watchlistScore,
+  });
+  if (current.confidence === 'VERIFIED') {
     return {
       symbol: input.symbol,
       name: input.name,
@@ -330,24 +349,14 @@ export function resolveWatchlistUpstreamScore(input: Gate1PositiveSourceCandidat
       watchlistScore: input.watchlistScore,
       watchlistRank: input.watchlistRank,
       watchlistReason: input.watchlistReason,
-      importedScore: normalizePercentScore(raw, maxScore),
+      importedScore: normalizePercentScore(current.normalized100, maxScore),
       maxScore,
-      source: 'STAGE2_SCORE',
+      source: current.sourceField === 'stage2Score' ? 'STAGE2_SCORE' : 'WATCHLIST_SCORE',
       status: 'VERIFIED',
-      executionImpact: 'NONE',
-    };
-  }
-  if (finite(input.watchlistScore)) {
-    return {
-      symbol: input.symbol,
-      name: input.name,
-      watchlistScore: input.watchlistScore,
-      watchlistRank: input.watchlistRank,
-      watchlistReason: input.watchlistReason,
-      importedScore: normalizePercentScore(input.watchlistScore, maxScore),
-      maxScore,
-      source: 'WATCHLIST_SCORE',
-      status: 'VERIFIED',
+      sourceField: current.sourceField,
+      rawScore: current.rawScore,
+      normalized100: current.normalized100,
+      currentPathConfidence: current.confidence,
       executionImpact: 'NONE',
     };
   }
@@ -363,10 +372,14 @@ export function resolveWatchlistUpstreamScore(input: Gate1PositiveSourceCandidat
       name: input.name,
       watchlistRank: input.watchlistRank,
       watchlistReason: input.watchlistReason,
-      importedScore: round2(clamp(importedScore, 5, maxScore)),
+      importedScore: round2(importedScore),
       maxScore,
       source: 'WATCHLIST_RANK',
       status: 'PROXY',
+      zeroReason: undefined,
+      sourceField: 'none',
+      normalized100: 0,
+      currentPathConfidence: 'MISSING',
       executionImpact: 'NONE',
     };
   }
@@ -379,6 +392,9 @@ export function resolveWatchlistUpstreamScore(input: Gate1PositiveSourceCandidat
       maxScore,
       source: 'WATCHLIST_REASON_PROXY',
       status: 'PROXY',
+      sourceField: 'none',
+      normalized100: 0,
+      currentPathConfidence: 'MISSING',
       executionImpact: 'NONE',
     };
   }
@@ -390,17 +406,12 @@ export function resolveWatchlistUpstreamScore(input: Gate1PositiveSourceCandidat
     maxScore,
     source: 'UNAVAILABLE',
     status: 'MISSING',
-    zeroReason: 'WATCHLIST_UPSTREAM_SCORE_SOURCE_UNAVAILABLE',
+    zeroReason: 'WATCHLIST_SCORE_MISSING',
+    sourceField: 'none',
+    normalized100: 0,
+    currentPathConfidence: 'MISSING',
     executionImpact: 'NONE',
   };
-}
-
-function scoreRelativeStrength(relative: number, rankPct: number | undefined, maxScore: number): number {
-  if (finite(rankPct)) return normalizePercentScore(rankPct, maxScore);
-  if (relative > 10) return 13.5;
-  if (relative > 3) return round2(7 + (relative - 3) * (5 / 7));
-  if (relative >= -2) return round2(3 + (relative + 2) * 0.8);
-  return round2(clamp(3 + relative * 0.5, 0, 3));
 }
 
 export function resolveRelativeStrengthSource(input: Gate1PositiveSourceCandidateInput): RelativeStrengthSourceTrace {
@@ -737,6 +748,14 @@ export function buildGate1PositiveSourceWiringReport(
   const naverInvestorTrendCandidatesAdr0481 = buildNaverInvestorTrendPositiveSourceTraceAdr0481(input.naverInvestorTrendAdr0481);
   const semanticNetBuyCandidatesAdr0482 = buildSemanticNetBuyPositiveSourceTraceAdr0482(input.semanticNetBuyNormalizationAdr0482);
 
+  const watchlistSourceSummary = summarizeWatchlistScoreSources(watchlistTraces.map((trace) => ({
+    sourceField: trace.sourceField === 'none' ? undefined : trace.sourceField as never,
+    rawScore: trace.rawScore,
+    normalized100: trace.normalized100 ?? 0,
+    confidence: trace.currentPathConfidence ?? (trace.status === 'VERIFIED' ? 'VERIFIED' : 'MISSING'),
+    reason: trace.zeroReason === 'WATCHLIST_SCORE_MISSING' ? 'WATCHLIST_SCORE_MISSING' : undefined,
+    message: trace.zeroReason ?? trace.source,
+  })));
   const watchlistUpstreamAvgScore = round1(avg(watchlistTraces.map((trace) => trace.importedScore)));
   const relativeStrengthAvgScore = round1(avg(relativeStrengthTraces.map((trace) => trace.normalizedRSScore)));
   const breakoutStructureAvgScore = round1(avg(breakoutTraces.map((trace) => trace.normalizedBreakoutScore)));
@@ -791,7 +810,11 @@ export function buildGate1PositiveSourceWiringReport(
     regime: input.regime,
     marketSession: input.marketSession,
     totalCandidates: report.totalCandidates,
-    watchlistUpstreamZeroCount: zeroCount(report, 'WATCHLIST_UPSTREAM_SCORE') || watchlistTraces.filter((trace) => trace.importedScore === 0).length,
+    watchlistUpstreamZeroCount: watchlistSourceSummary.missing,
+    watchlistScoreVerified: watchlistSourceSummary.verified,
+    watchlistScoreMissing: watchlistSourceSummary.missing,
+    watchlistScoreScale: 'NORMALIZED_100',
+    watchlistScoreSourceFieldDistribution: watchlistSourceSummary.sourceFieldDistribution,
     relativeStrengthZeroCount: zeroCount(report, 'RELATIVE_STRENGTH') || relativeStrengthTraces.filter((trace) => trace.normalizedRSScore === 0).length,
     breakoutStructureZeroCount: zeroCount(report, 'BREAKOUT_STRUCTURE') || breakoutTraces.filter((trace) => trace.normalizedBreakoutScore === 0).length,
     otherPositiveSharePct,
@@ -866,7 +889,8 @@ export function formatGate1PositiveSourceWiringReport(
   return [
     '🧬 Gate1 Positive Source Wiring (ADR-0475)',
     `  candidates: ${report.totalCandidates}`,
-    `  WATCHLIST_UPSTREAM_SCORE: zero ${report.watchlistUpstreamZeroCount} -> dryRunAvg +${report.watchlistUpstreamAvgScore.toFixed(1)}`,
+    `  WATCHLIST_UPSTREAM_SCORE: verified ${report.watchlistScoreVerified} / missing ${report.watchlistScoreMissing} / avg +${report.watchlistUpstreamAvgScore.toFixed(1)}`,
+    `  sourceField distribution: ${Object.entries(report.watchlistScoreSourceFieldDistribution ?? {}).map(([field, count]) => `${field}=${count}`).join(', ') || 'none=0'}`,
     `  RELATIVE_STRENGTH: zero ${report.relativeStrengthZeroCount} -> dryRunAvg +${report.relativeStrengthAvgScore.toFixed(1)}`,
     `  BREAKOUT_STRUCTURE: zero ${report.breakoutStructureZeroCount} -> dryRunAvg +${report.breakoutStructureAvgScore.toFixed(1)}`,
     `  OTHER_POSITIVE share: ${report.otherPositiveSharePct.toFixed(1)}% -> afterDecomposition ${afterOtherShare.toFixed(1)}%`,

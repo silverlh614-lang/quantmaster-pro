@@ -5,6 +5,7 @@
  * Does not relax thresholds, route orders, or mutate trading state.
  */
 import type { MacroGateState } from "./scanDiagnostics.js";
+import { resolveWatchlistUpstreamScore } from "./watchlistUpstreamScoreResolver.js";
 import type {
   CandidateEntryTrace,
   Gate1CandidateTrace,
@@ -777,33 +778,8 @@ export function buildMinimumSignalScoreTrace(input: {
     investorUnknown && supplyUnknown ? 0 : investorUnknown ? -8 : 8;
   const softFailPenalty =
     input.hasGate1Blocker && !supplyProviderUnknownRootSeen ? -5 : 0;
-  const watchlistScoreSource = numericTraceValue(input.trace, [
-    "watchlistUpstreamScore",
-    "upstreamScore",
-    "stage2Score",
-    "stage1Score",
-    "priorityScore",
-    "totalGateScore",
-    "watchlistScore",
-    "gateScore",
-  ]);
-  const watchlistScoreSourceName =
-    watchlistScoreSource === undefined
-      ? undefined
-      : [
-          "watchlistUpstreamScore",
-          "upstreamScore",
-          "stage2Score",
-          "stage1Score",
-          "priorityScore",
-          "totalGateScore",
-          "watchlistScore",
-          "gateScore",
-        ].find((key) =>
-          finite((input.trace as unknown as Record<string, unknown>)[key]),
-        );
-  const watchlistNormalizedScore =
-    normalizeSignalScoreTo100(watchlistScoreSource);
+  const resolvedWatchlistScore = resolveWatchlistUpstreamScore(input.trace);
+  const watchlistNormalizedScore = resolvedWatchlistScore.normalized100;
   const watchlistWeightedScore = weightedFromNormalized(
     watchlistNormalizedScore,
     10,
@@ -878,19 +854,19 @@ export function buildMinimumSignalScoreTrace(input: {
     }),
     component({
       code: "WATCHLIST_UPSTREAM_SCORE",
-      rawValue: watchlistScoreSource,
+      rawValue: resolvedWatchlistScore,
       normalizedScore: watchlistNormalizedScore,
       weight: 1,
       weightedScore: watchlistWeightedScore,
       maxScore: 10,
-      confidence: watchlistScoreSource === undefined ? "MISSING" : "VERIFIED",
-      providerIssue: watchlistScoreSource === undefined,
+      confidence: resolvedWatchlistScore.confidence,
+      providerIssue: false,
       marketSignal: false,
       penaltyApplied: false,
       message:
-        watchlistScoreSource === undefined
-          ? "WATCHLIST_UPSTREAM_SCORE source missing; contribution is 0 and is not silently coerced into OTHER_POSITIVE."
-          : `WATCHLIST_UPSTREAM_SCORE imported from ${watchlistScoreSourceName ?? "candidate score source"} and normalized to 0-100 before maxScore weighting.`,
+        resolvedWatchlistScore.confidence === "MISSING"
+          ? "WATCHLIST_SCORE_MISSING"
+          : resolvedWatchlistScore.message,
     }),
     component({
       code: "BREAKOUT_STRUCTURE",

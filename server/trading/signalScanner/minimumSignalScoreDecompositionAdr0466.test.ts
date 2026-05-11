@@ -94,16 +94,16 @@ describe("ADR-0466 minimum signal score decomposition", () => {
   it("normalizes 0-10 and 0-27 upstream scores for WATCHLIST_UPSTREAM_SCORE", () => {
     expect(normalizeSignalScoreTo100(6.4)).toBe(64);
     expect(Math.round(normalizeSignalScoreTo100(18) * 10) / 10).toBe(66.7);
-    const score64 = minTrace({ gateScore: 6.4 }).components.find(
+    const score64 = minTrace({ stage2Score: 6.4 }).components.find(
       (c) => c.code === "WATCHLIST_UPSTREAM_SCORE",
     );
     const total18 = minTrace({ totalGateScore: 18 }).components.find(
       (c) => c.code === "WATCHLIST_UPSTREAM_SCORE",
     );
     expect(score64?.weightedScore).toBeGreaterThan(6);
-    expect(score64?.message).toContain("imported from gateScore");
+    expect(score64?.message).toContain("stage2Score");
     expect(total18?.weightedScore).toBeGreaterThan(6.5);
-    expect(total18?.message).toContain("imported from totalGateScore");
+    expect(total18?.message).toContain("totalGateScore");
   });
 
   it("marks missing WATCHLIST_UPSTREAM_SCORE without silently zeroing it", () => {
@@ -112,7 +112,9 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     );
     expect(watchlist?.weightedScore).toBe(0);
     expect(watchlist?.confidence).toBe("MISSING");
-    expect(watchlist?.message).toContain("source missing");
+    expect(watchlist?.message).toContain("WATCHLIST_SCORE_MISSING");
+    expect(watchlist?.providerIssue).toBe(false);
+    expect(watchlist?.penaltyApplied).toBe(false);
   });
 
   it("separates relative strength and breakout structure positive components", () => {
@@ -349,7 +351,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     expect(
       trace.components.find((c) => c.code === "WATCHLIST_UPSTREAM_SCORE")
         ?.rawValue,
-    ).toBe(95);
+    ).toMatchObject({ rawScore: 95, normalized100: 95, confidence: "VERIFIED" });
   });
 
   it("passes symbolFeatures from CandidateEntryTrace into quote-driven scoring components", () => {

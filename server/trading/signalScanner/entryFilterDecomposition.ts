@@ -43,6 +43,10 @@ import {
   buildEntryDecisionLedgerPositiveSourceWiringSummaryFromScore,
   type EntryDecisionLedgerPositiveSourceWiringSummary,
 } from "./gate1PositiveSourceWiringAdr0475.js";
+import {
+  resolveWatchlistUpstreamScore,
+  type ResolvedWatchlistUpstreamScore,
+} from "./watchlistUpstreamScoreResolver.js";
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
 export const GATE1_SOFT_FAIL_ACCUMULATION_THRESHOLD = 3;
@@ -164,6 +168,7 @@ export interface Gate1SymbolFeatures {
   stage2Score?: number;
   totalGateScore?: number;
   watchlistPriorityScore?: number;
+  watchlistScore?: ResolvedWatchlistUpstreamScore;
 }
 
 export interface Gate1CandidateTrace {
@@ -309,6 +314,8 @@ export interface CandidateEntryTrace {
   watchlistScore?: number;
   stage1Score?: number;
   priorityScore?: number;
+  qualScore?: number;
+  score?: number;
   conditionKeys?: string[];
   watchlistReason?: string[];
   relativeStrengthScore?: number;
@@ -548,6 +555,8 @@ export interface CandidateSnapshot {
   watchlistScore?: number;
   stage1Score?: number;
   priorityScore?: number;
+  qualScore?: number;
+  score?: number;
   conditionKeys?: string[];
   watchlistReason?: string[];
   relativeStrengthScore?: number;
@@ -1339,6 +1348,11 @@ function buildSymbolFeatures(
       finiteFeature(c.watchlistScore) ??
       finiteFeature(c.watchlistUpstreamScore),
   };
+  const watchlistScore = resolveWatchlistUpstreamScore({
+    ...c,
+    symbolFeatures: { ...provided, ...features },
+  });
+  features.watchlistScore = watchlistScore;
   return Object.values(features).some((value) => value !== undefined)
     ? features
     : undefined;
@@ -1392,6 +1406,8 @@ export function buildEntryFilterDecomposition(
       stage2Score: c.stage2Score,
       stage1Score: c.stage1Score,
       priorityScore: c.priorityScore,
+      qualScore: c.qualScore,
+      score: c.score,
       conditionKeys: c.conditionKeys,
       watchlistScore: c.watchlistScore,
       watchlistReason: c.watchlistReason,

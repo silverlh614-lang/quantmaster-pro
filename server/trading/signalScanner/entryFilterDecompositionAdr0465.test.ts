@@ -210,3 +210,33 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
     expect(section).toContain('provider-softened survivor');
   });
 });
+
+describe('P0-7A watchlist score propagation', () => {
+  it('propagates gateScore into CandidateEntryTrace and Gate1 symbolFeatures.watchlistScore', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: snapshots(1, { symbol: '005930', gateScore: 18 }),
+      supplyProviderHealth: noRecentSample,
+    });
+    expect(d.candidateTraces[0].symbolFeatures?.watchlistScore?.sourceField).toBe('gateScore');
+    expect(d.candidateTraces[0].symbolFeatures?.watchlistScore?.normalized100).toBe(66.7);
+    expect(d.gate1CandidateTraces[0].symbolFeatures?.watchlistScore?.confidence).toBe('VERIFIED');
+  });
+
+  it('leaves missing watchlist score as diagnostic WATCHLIST_SCORE_MISSING', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: snapshots(1, { symbol: '000660' }),
+      supplyProviderHealth: noRecentSample,
+    });
+    expect(d.candidateTraces[0].symbolFeatures?.watchlistScore?.reason).toBe('WATCHLIST_SCORE_MISSING');
+  });
+});
