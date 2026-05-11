@@ -202,12 +202,14 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     expect(result.semanticNetBuyCandidate?.status).toBe('VERIFIED');
   });
 
-  it('ADR-0477 consumes ADR-0482 selected sample', () => {
+  it('ADR-0477 observes ADR-0482 selected sample without making semantic the source of truth', () => {
     const route = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', semanticNetBuyNormalizationAdr0482: positiveReport() });
-    expect(route.selectedProvider).toBe('SEMANTIC_NETBUY');
-    expect(route.semanticNetBuy?.source).toBe('NAVER_INVESTOR_TREND');
-    expect(route.signal).toBe('BULLISH');
+    expect(route.selectedProvider).toBe('NONE');
+    expect(route.semanticNetBuy).toBeNull();
+    expect(route.semanticInputStatus).toBe('VERIFIED');
+    expect(route.signal).toBe('UNKNOWN');
     expect(route.policyPromotionMode).toBe('SHADOW_ONLY');
+    expect(route.liveExecutionAllowed).toBe(false);
   });
 
   it('ADR-0475 exposes BULLISH selected sample only as SHADOW_ONLY positive source', () => {

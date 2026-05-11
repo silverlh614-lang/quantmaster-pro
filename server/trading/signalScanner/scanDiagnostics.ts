@@ -178,6 +178,7 @@ import {
 import {
   buildInvestorFlowProviderRouteResultAdr0477,
   formatInvestorFlowProviderRouterAdr0477,
+  type InvestorFlowProviderRouterInput,
   type InvestorFlowProviderRouteResult,
 } from './investorFlowProviderRouterAdr0477.js';
 import {
@@ -223,9 +224,16 @@ import {
 import {
   recordSupplySnapshotAdr0491,
   readLatestSupplySnapshotBySymbolSourceDomainAdr0491,
+  type SupplySnapshotCacheLookupAdr0491,
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
 import { previousTradingDateCandidateAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
+import {
+  fetchInvestorTrading,
+  getLastKrxInvestorTradingDiagnostic,
+  type KrxInvestorRow,
+  type KrxInvestorTradingDiagnostic,
+} from '../../clients/krxClient.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 export interface WaitDistribution {
@@ -1174,6 +1182,107 @@ function cacheRawToSemanticInputAdr0482(input: {
   };
 }
 
+function compactTradingDateAdr0505(date: string): string {
+  return date.replace(/[^0-9]/g, '');
+}
+
+function normalizeSymbolCodeAdr0505(symbol: string | null | undefined): string {
+  const digits = String(symbol ?? '').replace(/[^0-9]/g, '');
+  if (digits.length >= 6) return digits.slice(-6);
+  return digits.padStart(6, '0');
+}
+
+function krxInvestorRowToRouterRawAdr0505(input: {
+  row: KrxInvestorRow;
+  sourceDate: string;
+  status: 'VERIFIED' | 'STALE';
+}): Record<string, unknown> {
+  return {
+    code: normalizeSymbolCodeAdr0505(input.row.code),
+    sourceDate: input.sourceDate,
+    foreignNetBuy: input.row.foreignNetBuy,
+    institutionNetBuy: input.row.institutionNetBuy,
+    individualNetBuy: input.row.individualNetBuy,
+    status: input.status,
+  };
+}
+
+function krxInvestorRowToSemanticInputAdr0482(input: {
+  row: KrxInvestorRow;
+  sourceDate: string;
+  status: 'VERIFIED' | 'STALE';
+}): SemanticNetBuyInputPoint {
+  return {
+    code: normalizeSymbolCodeAdr0505(input.row.code),
+    provider: 'KRX',
+    sourceDate: input.sourceDate,
+    rawForeignNetBuy: input.row.foreignNetBuy,
+    rawInstitutionNetBuy: input.row.institutionNetBuy,
+    rawIndividualNetBuy: input.row.individualNetBuy,
+    unit: 'SHARES',
+    status: input.status,
+    sourceAgeTradingDays: input.status === 'STALE' ? 1 : 0,
+    diagnostics: ['KRX_INVESTOR_FLOW previousTradingDate sample consumed by ADR-0482 as SHADOW_ONLY input.'],
+  };
+}
+
+function cacheLookupToSemanticInputAdr0482(input: {
+  code: string;
+  lookup: SupplySnapshotCacheLookupAdr0491 | null | undefined;
+}): SemanticNetBuyInputPoint | null {
+  const lookup = input.lookup;
+  if (!lookup || (lookup.status !== 'CACHE_HIT' && lookup.status !== 'CACHE_STALE_HIT' && lookup.status !== 'STALE_HIT')) return null;
+  const latest = lookup.snapshot?.latestInvestorFlowSample;
+  const cacheRaw = lookup.cacheRaw ?? (latest ? {
+    sourceDate: latest.dataDate,
+    foreignNetBuy: latest.foreignNetBuy,
+    institutionNetBuy: latest.institutionNetBuy,
+    retailNetBuy: latest.retailNetBuy,
+    status: lookup.status === 'CACHE_STALE_HIT' || lookup.status === 'STALE_HIT' ? 'STALE' : latest.status,
+  } : null);
+  const sourceDate = scanDiagnosticString(cacheRaw?.sourceDate);
+  if (!sourceDate) return null;
+  return {
+    code: input.code,
+    provider: 'CACHE',
+    sourceDate,
+    rawForeignNetBuy: scanDiagnosticNumber(cacheRaw?.foreignNetBuy),
+    rawInstitutionNetBuy: scanDiagnosticNumber(cacheRaw?.institutionNetBuy),
+    rawProgramNetBuy: scanDiagnosticNumber(cacheRaw?.programNetBuy),
+    rawIndividualNetBuy: scanDiagnosticNumber(cacheRaw?.retailNetBuy),
+    unit: 'KRW',
+    status: lookup.stale || lookup.status === 'CACHE_STALE_HIT' || lookup.status === 'STALE_HIT' ? 'STALE' : 'VERIFIED',
+    sourceAgeTradingDays: lookup.stale || lookup.status === 'CACHE_STALE_HIT' || lookup.status === 'STALE_HIT' ? 4 : 0,
+    diagnostics: [`ADR-0491 ${lookup.status} sanitized CACHE fallback consumed by ADR-0482 as SHADOW_ONLY input; raw payload not persisted.`],
+  };
+}
+
+function krxDiagnosticToRouterInputAdr0505(
+  diagnostic: KrxInvestorTradingDiagnostic | null,
+  previousTradingDateCandidate: string,
+): NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']> | null {
+  if (!diagnostic) return null;
+  return {
+    parserStatus: diagnostic.parserStatus,
+    endpointIssueHint: diagnostic.endpointIssueHint,
+    endpoint: diagnostic.endpoint,
+    bld: diagnostic.bld,
+    tradeDate: diagnostic.tradeDate,
+    previousTradingDateCandidate,
+    contentType: diagnostic.contentType,
+    httpStatus: diagnostic.httpStatus,
+    responseKind: diagnostic.responseKind,
+    rawTopLevelKeys: diagnostic.rawTopLevelKeys,
+    detectedCandidatePaths: diagnostic.detectedCandidatePaths,
+    selectedRowPath: diagnostic.selectedRowPath,
+    selectedRowCount: diagnostic.selectedRowCount,
+    firstRowKeys: diagnostic.firstRowKeys,
+    normalizedRows: diagnostic.normalizedRows,
+    fieldMappings: diagnostic.fieldMappings,
+    summary: diagnostic.summary,
+  };
+}
+
 function naverCollectorToSemanticInputAdr0482(result: NaverInvestorTrendCollectorResult): SemanticNetBuyInputPoint | null {
   const candidate = result.semanticNetBuyCandidate;
   if (!candidate) return null;
@@ -2117,6 +2226,67 @@ export async function persistScanResults(
       tradingDate: todayKst,
     });
     const cacheRaw = supplySnapshotCacheLookupAdr0491.cacheRaw;
+    const krxTradeDate = compactTradingDateAdr0505(previousTradingDateCandidate);
+    let previousTradingDayKrxRaw: Record<string, unknown> | null = null;
+    let krxSemanticInputAdr0482: SemanticNetBuyInputPoint | null = null;
+    let krxInvestorDiagnosticAdr0505: InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505'] = null;
+    try {
+      const krxInvestorRows = await fetchInvestorTrading(krxTradeDate);
+      krxInvestorDiagnosticAdr0505 = krxDiagnosticToRouterInputAdr0505(
+        getLastKrxInvestorTradingDiagnostic(krxTradeDate),
+        previousTradingDateCandidate,
+      );
+      const normalizedFirstSymbol = normalizeSymbolCodeAdr0505(firstSymbol);
+      const krxHit = krxInvestorRows.find((row) => normalizeSymbolCodeAdr0505(row.code) === normalizedFirstSymbol) ?? null;
+      if (krxHit) {
+        previousTradingDayKrxRaw = krxInvestorRowToRouterRawAdr0505({
+          row: krxHit,
+          sourceDate: previousTradingDateCandidate,
+          status: 'STALE',
+        });
+        krxSemanticInputAdr0482 = krxInvestorRowToSemanticInputAdr0482({
+          row: krxHit,
+          sourceDate: previousTradingDateCandidate,
+          status: 'STALE',
+        });
+      } else if (krxInvestorDiagnosticAdr0505?.parserStatus === 'OK') {
+        krxInvestorDiagnosticAdr0505 = {
+          ...krxInvestorDiagnosticAdr0505,
+          parserStatus: 'PARSER_FIELD_MISMATCH',
+          endpointIssueHint: 'SYMBOL_CODE_FORMAT_ERROR',
+          summary: `${krxInvestorDiagnosticAdr0505.summary}; targetSymbol=${normalizedFirstSymbol}; symbolMatch=false`,
+        };
+      }
+    } catch (error) {
+      krxInvestorDiagnosticAdr0505 = {
+        parserStatus: 'PROVIDER_EMPTY_RESPONSE',
+        endpointIssueHint: 'ENDPOINT_PARAMETER_ERROR',
+        endpoint: 'MDCSTAT02203',
+        bld: 'dbms/MDC/STAT/standard/MDCSTAT02203',
+        tradeDate: krxTradeDate,
+        previousTradingDateCandidate,
+        contentType: 'unknown',
+        httpStatus: null,
+        responseKind: 'NETWORK_ERROR',
+        rawTopLevelKeys: [],
+        detectedCandidatePaths: [],
+        selectedRowPath: null,
+        selectedRowCount: 0,
+        firstRowKeys: [],
+        normalizedRows: 0,
+        fieldMappings: {
+          symbol: null,
+          date: null,
+          investorType: null,
+          foreignNetBuy: null,
+          institutionNetBuy: null,
+          individualNetBuy: null,
+          netBuyAmount: null,
+          netBuyVolume: null,
+        },
+        summary: `KRX_INVESTOR_FLOW fetch failed for previousTradingDateCandidate=${previousTradingDateCandidate}; error=${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
     const cachedNaverPoint = cacheRawToNaverInvestorTrendPointAdr0481(cacheRaw);
     let naverInvestorTrendAdr0481 = await collectNaverInvestorTrendCollectorResultAdr0481({
       code: firstSymbol,
@@ -2138,9 +2308,14 @@ export async function persistScanResults(
       });
     }
     summaryDraft.naverInvestorTrendAdr0481 = naverInvestorTrendAdr0481;
+    const cacheSemanticInputAdr0482 = cacheLookupToSemanticInputAdr0482({
+      code: firstSymbol,
+      lookup: supplySnapshotCacheLookupAdr0491,
+    }) ?? cacheRawToSemanticInputAdr0482({ code: firstSymbol, cacheRaw, stale: supplySnapshotCacheLookupAdr0491.stale });
     const semanticInputs = [
       naverCollectorToSemanticInputAdr0482(naverInvestorTrendAdr0481),
-      cacheRawToSemanticInputAdr0482({ code: firstSymbol, cacheRaw, stale: supplySnapshotCacheLookupAdr0491.stale }),
+      krxSemanticInputAdr0482,
+      cacheSemanticInputAdr0482,
     ].filter((item): item is SemanticNetBuyInputPoint => Boolean(item));
     const semanticNetBuyNormalizationAdr0482 = buildSemanticNetBuyNormalizationReportAdr0482({
       code: firstSymbol,
@@ -2156,6 +2331,8 @@ export async function persistScanResults(
       semanticNetBuyNormalizationAdr0482,
       cacheRaw: null,
       previousTradingDayCacheRaw: null,
+      previousTradingDayKrxRaw,
+      krxInvestorDiagnosticAdr0505,
       kisTriedForInvestorFlow: true,
       nonTradingDay: sellOnlyOrClosed,
       sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
@@ -2185,6 +2362,24 @@ export async function persistScanResults(
               : semanticNetBuyNormalizationAdr0482.samples.length > 0
                 ? 'STALE'
                 : 'EMPTY',
+        },
+        {
+          source: 'KRX',
+          cacheUpdatedAt: null,
+          sourceDate: previousTradingDayKrxRaw ? previousTradingDateCandidate : null,
+          providerStatus: previousTradingDayKrxRaw
+            ? 'STALE'
+            : krxInvestorDiagnosticAdr0505?.parserStatus === 'PROVIDER_EMPTY_RESPONSE' || krxInvestorDiagnosticAdr0505?.parserStatus === 'PARSER_KEY_MISMATCH' || krxInvestorDiagnosticAdr0505?.parserStatus === 'PARSER_FIELD_MISMATCH'
+              ? 'ERROR'
+              : 'EMPTY',
+        },
+        {
+          source: 'CACHE',
+          cacheUpdatedAt: null,
+          sourceDate: cacheSemanticInputAdr0482?.sourceDate ?? null,
+          providerStatus: cacheSemanticInputAdr0482
+            ? (supplySnapshotCacheLookupAdr0491.stale ? 'STALE' : 'OK')
+            : 'EMPTY',
         },
         {
           source: 'FSS',

@@ -282,9 +282,75 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.diagnosticUsableCoverage?.available).toBe(1);
     expect(route.selectedDiagnosticProvider).toBe('CACHE');
     expect(route.inputSources).toContain('CACHE');
+    expect(route.cacheFallbackUsed).toBe(true);
     expect(route.materializationDiagnostics?.CACHE?.sampleMaterialized).toBe(false);
     expect(route.selectedForLive).toBe(false);
     expect(route.selectedForShadow).toBe(true);
+  });
+
+  it('keeps CACHE shadow fallback selected while decomposing KRX empty response diagnostics', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      krxInvestorDiagnosticAdr0505: {
+        parserStatus: 'PROVIDER_EMPTY_RESPONSE',
+        endpointIssueHint: 'ENDPOINT_PARAMETER_ERROR',
+        endpoint: 'MDCSTAT02203',
+        bld: 'dbms/MDC/STAT/standard/MDCSTAT02203',
+        tradeDate: '20260508',
+        previousTradingDateCandidate: '2026-05-08',
+        contentType: 'json',
+        httpStatus: 200,
+        responseKind: 'EMPTY',
+        rawTopLevelKeys: ['output'],
+        detectedCandidatePaths: ['output:len=0'],
+        selectedRowPath: 'output',
+        selectedRowCount: 0,
+        firstRowKeys: [],
+        normalizedRows: 0,
+        fieldMappings: {
+          symbol: null,
+          date: null,
+          investorType: null,
+          foreignNetBuy: null,
+          institutionNetBuy: null,
+          individualNetBuy: null,
+          netBuyAmount: null,
+          netBuyVolume: null,
+        },
+        summary: 'MDCSTAT02203;contentType=json;responseKind=EMPTY;normalizedRows=0',
+      },
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_HIT',
+        snapshot: null,
+        cacheRaw: {
+          code: '005930',
+          sourceDate: '2026-05-08',
+          foreignNetBuy: 100,
+          institutionNetBuy: 200,
+          status: 'CACHE_HIT',
+        },
+        retained: 1,
+        reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+        stale: false,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
+      },
+    });
+
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.status).toBe('CACHE_HIT');
+    expect(route.providerStatuses.KRX_INVESTOR_FLOW).toBe('PROVIDER_EMPTY_RESPONSE');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('previousTradingDateCandidate=2026-05-08');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('contentType=json');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('responseKeySummary=output:len=0');
+    expect(route.krxSourceRepairDiagnostic?.parserStatus).toBe('PROVIDER_EMPTY_RESPONSE');
+    expect(route.cacheFallbackUsed).toBe(true);
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.executionImpact).toBe('NONE');
+    expect(formatInvestorFlowProviderRouterAdr0477(route)).toContain('krxSourceRepair');
   });
 
   it('NAVER NOT_WIRED, KIS PROVIDER_MISMATCH, and CACHE_EMPTY stay UNKNOWN with executionImpact NONE', () => {
@@ -570,6 +636,8 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(krx.selectedProvider).toBe('KRX_INVESTOR_FLOW');
     expect(krx.materializationDiagnostics?.KRX_INVESTOR_FLOW?.usableForRouter).toBe(true);
     expect(krx.coverage.available).toBeGreaterThanOrEqual(2);
+    expect(krx.cacheFallbackUsed).toBe(false);
+    expect(krx.diagnostics.join(' ')).toContain('sourceOfTruth=KRX');
 
     const kis = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',
