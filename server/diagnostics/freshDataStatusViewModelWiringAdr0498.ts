@@ -281,7 +281,7 @@ export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
 }
 
 export function mapFreshDataSupplyReportToStatusInputsAdr0498(report: {
-  snapshots?: Array<{ registration?: { id?: string; domain?: string; provider?: string }; sourceId?: string; domain?: string; provider?: string; status?: string; confidence?: string; coverageRatio?: number; isProviderIssue?: boolean; diagnostics?: string[] }>;
+  snapshots?: Array<{ registration?: { id?: string; domain?: string; provider?: string }; sourceId?: string; domain?: string; provider?: string; status?: string; confidence?: string; coverageRatio?: number; isProviderIssue?: boolean; diagnostics?: string[]; sampleMaterialized?: boolean; usableForRouter?: boolean; usableForShadow?: boolean; usableForLive?: false; readinessKind?: string; sourceOfTruth?: string }>;
   domainSummaries?: Array<{ domain?: string; status?: string; averageCoverageRatio?: number; topGaps?: string[] }>;
 } | null | undefined): FreshDataStatusViewModelInputAdr0498[] {
   if (!report) return [];
@@ -289,23 +289,40 @@ export function mapFreshDataSupplyReportToStatusInputsAdr0498(report: {
     const sourceId = snapshot.registration?.id ?? snapshot.sourceId ?? 'freshDataSupply';
     const sourceDomain = snapshot.registration?.domain ?? snapshot.domain;
     const sourceProvider = snapshot.registration?.provider ?? snapshot.provider;
+    const sampleMaterialized = snapshot.sampleMaterialized === true;
+    const usableForRouter = snapshot.usableForRouter === true;
+    const readinessKind = snapshot.readinessKind ?? (sampleMaterialized ? 'MATERIALIZED_SAMPLE' : 'REGISTRY_READY');
     const coverage = mapStatusFromCoverageAdr0498({
       coveragePct: typeof snapshot.coverageRatio === 'number' ? snapshot.coverageRatio * 100 : undefined,
-      sampleCount: snapshot.coverageRatio && snapshot.coverageRatio > 0 ? 1 : 0,
+      sampleCount: sampleMaterialized ? 1 : 0,
       providerHealth: snapshot.isProviderIssue ? coerceProviderHealth(snapshot.status) : 'UP',
     });
+    const dataLineStatus = sampleMaterialized && usableForRouter && coverage.dataLineStatus === 'READY_FOR_SHADOW'
+      ? 'READY_FOR_SHADOW'
+      : sampleMaterialized && snapshot.status === 'STALE'
+        ? 'OBSERVING'
+        : 'OBSERVING';
     return {
       sourceAdr: 'ADR_0487_FRESH_DATA',
       dataLineId: sourceId,
       domain: sourceDomain === 'SECTOR_ENERGY' || sourceDomain === 'SUPPLY' ? (sourceDomain === 'SUPPLY' ? 'INVESTOR_FLOW' : 'SECTOR_ENERGY') : 'UNKNOWN',
       providerHealth: snapshot.isProviderIssue ? coerceProviderHealth(snapshot.status) : 'UP',
-      dataConfidence: snapshot.confidence === 'HIGH' ? 'VERIFIED' : snapshot.confidence === 'MEDIUM' || snapshot.confidence === 'LOW' ? 'PARTIAL' : coverage.dataConfidence,
+      dataConfidence: sampleMaterialized && snapshot.confidence === 'HIGH' ? 'VERIFIED' : sampleMaterialized && (snapshot.confidence === 'MEDIUM' || snapshot.confidence === 'LOW') ? 'PARTIAL' : 'MISSING',
       marketSignal: 'UNKNOWN',
-      dataLineStatus: coverage.dataLineStatus,
+      dataLineStatus,
       blockers: coverage.blockers,
-      warnings: [...coverage.warnings, ...(snapshot.diagnostics ?? []).slice(0, 1)],
+      warnings: [
+        ...coverage.warnings,
+        `sampleMaterialized=${sampleMaterialized}`,
+        `usableForRouter=${usableForRouter}`,
+        `usableForShadow=${snapshot.usableForShadow === true}`,
+        'usableForLive=false',
+        `readinessKind=${readinessKind}`,
+        `sourceOfTruth=${snapshot.sourceOfTruth ?? 'REGISTRY'}`,
+        ...(snapshot.diagnostics ?? []).slice(0, 1),
+      ],
       providerDisplay: sourceProvider,
-      evidence: { sourceAdr: 'ADR_0487_FRESH_DATA', provider: sourceProvider },
+      evidence: { sourceAdr: 'ADR_0487_FRESH_DATA', provider: sourceProvider, sampleMaterialized, usableForRouter, readinessKind, sourceOfTruth: snapshot.sourceOfTruth ?? 'REGISTRY' },
     };
   });
   const fromDomains = fromSnapshots.length > 0 ? [] : (report.domainSummaries ?? []).map((domain): FreshDataStatusViewModelInputAdr0498 => {

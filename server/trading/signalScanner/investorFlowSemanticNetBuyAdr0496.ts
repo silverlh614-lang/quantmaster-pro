@@ -93,6 +93,10 @@ export interface SupplyCoverageReportAdr0496 {
   sampleCount: number;
   normalizedSampleCount: number;
   semanticNetBuyCount: number;
+  materializedSampleCount: number;
+  semanticPlaceholderCount: number;
+  routerUsableSampleCount: number;
+  registryReadyCount: number;
 
   coverageBefore: number;
   coverageAfter: number;
@@ -195,7 +199,7 @@ export function buildInvestorFlowSanitizedSampleAdr0496(
   const hasAnyAmount = Object.values(amounts).some((value) => value !== null);
   const providerError = input.providerError === true || input.status === 'PROVIDER_ERROR';
   const status = normalizeStatus(input.status, hasAnyAmount, missingFields.length, providerError);
-  const isProviderIssue = providerError || status === 'DATA_UNAVAILABLE' || status === 'MISSING' || status === 'STALE' || status === 'UNKNOWN';
+  const isProviderIssue = providerError || status === 'DATA_UNAVAILABLE' || status === 'MISSING';
   const capturedAt = input.capturedAt ?? new Date().toISOString();
   const confidence: InvestorFlowSanitizedSampleAdr0496['confidence'] =
     status === 'FRESH' && missingFields.length === 0 ? 'VERIFIED' : hasAnyAmount ? 'PARTIAL' : 'UNKNOWN';
@@ -281,8 +285,12 @@ export function buildSupplyCoverageReportAdr0496(
   const samples = [...(input.samples ?? [])];
   const semanticSamples = [...(input.semanticSamples ?? [])];
   const sampleCount = samples.length;
-  const normalizedSampleCount = samples.filter((sample) => countKnownAmounts(sample) > 0 && sample.status !== 'PROVIDER_ERROR').length;
+  const materializedSampleCount = samples.filter((sample) => countKnownAmounts(sample) > 0 && sample.status !== 'PROVIDER_ERROR' && sample.status !== 'DATA_UNAVAILABLE' && sample.status !== 'MISSING').length;
   const semanticNetBuyCount = semanticSamples.filter((sample) => sample.normalized).length;
+  const semanticPlaceholderCount = semanticSamples.filter((sample) => !sample.normalized).length;
+  const normalizedSampleCount = Math.max(materializedSampleCount, semanticNetBuyCount);
+  const routerUsableSampleCount = samples.filter((sample) => countKnownAmounts(sample) > 0 && (sample.status === 'FRESH' || sample.status === 'PARTIAL')).length + semanticNetBuyCount;
+  const registryReadyCount = Math.max(0, sampleCount - materializedSampleCount);
   const nullCount = samples.reduce((sum, sample) => sum + [sample.foreignNetBuy, sample.institutionNetBuy, sample.retailNetBuy].filter((value) => value === null).length, 0);
   const zeroCount = samples.reduce((sum, sample) => sum + [sample.foreignNetBuy, sample.institutionNetBuy, sample.retailNetBuy].filter((value) => value === 0).length, 0);
   const missingCount = samples.reduce((sum, sample) => sum + sample.missingFields.length, 0);
@@ -303,6 +311,10 @@ export function buildSupplyCoverageReportAdr0496(
     sampleCount,
     normalizedSampleCount,
     semanticNetBuyCount,
+    materializedSampleCount,
+    semanticPlaceholderCount,
+    routerUsableSampleCount,
+    registryReadyCount,
     coverageBefore,
     coverageAfter,
     nullCount,
@@ -332,6 +344,10 @@ export function formatSupplyCoverageSummaryAdr0496(report: SupplyCoverageReportA
     `sampleCount=${report.sampleCount}`,
     `normalizedSampleCount=${report.normalizedSampleCount}`,
     `semanticNetBuyCount=${report.semanticNetBuyCount}`,
+    `materializedSampleCount=${report.materializedSampleCount}`,
+    `semanticPlaceholderCount=${report.semanticPlaceholderCount}`,
+    `routerUsableSampleCount=${report.routerUsableSampleCount}`,
+    `registryReadyCount=${report.registryReadyCount}`,
     `nullCount=${report.nullCount}`,
     `zeroCount=${report.zeroCount}`,
     `missingCount=${report.missingCount}`,

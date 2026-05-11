@@ -69,6 +69,12 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       executionImpact: 'NONE' as const,
       liveExecutionAllowed: false as const,
       operatorApprovalRequired: true as const,
+      sampleMaterialized: true,
+      usableForRouter: true,
+      usableForShadow: true,
+      usableForLive: false as const,
+      readinessKind: 'MATERIALIZED_SAMPLE' as const,
+      sourceOfTruth: 'ROUTER_INPUT' as const,
       diagnostics: [],
     };
     const report = {
@@ -100,6 +106,74 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     const semanticRoute = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorWired: false, freshDataSupplyAdr0487: semanticOnly });
     expect(semanticRoute.selectedProvider).toBe('SEMANTIC_NETBUY');
     expect(semanticRoute.coverage.available).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not select REGISTRY_READY FreshData placeholders while CACHE_STALE_HIT is available', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      freshDataSupplyAdr0487: {
+        generatedAt: '2026-05-11T00:00:00.000Z',
+        registrations: [],
+        domainSummaries: [],
+        overallStatus: 'PARTIAL',
+        topGaps: [],
+        recommendedNextActions: [],
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        operatorApprovalRequired: true,
+        diagnostics: [],
+        snapshots: [{
+          sourceId: 'NAVER_INVESTOR_TREND',
+          domain: 'SUPPLY',
+          provider: 'NAVER',
+          stage: 'SHADOW_ONLY',
+          collectedAt: '2026-05-11T00:00:00.000Z',
+          sourceDate: null,
+          cacheState: 'UNKNOWN',
+          sourceState: 'DATA_UNAVAILABLE',
+          cacheAgeMinutes: null,
+          sourceAgeTradingDays: null,
+          coverageRatio: 0,
+          normalized: false,
+          status: 'OBSERVING',
+          confidence: 'NONE',
+          isProviderIssue: false,
+          isMarketSignal: false,
+          executionImpact: 'NONE',
+          liveExecutionAllowed: false,
+          operatorApprovalRequired: true,
+          sampleMaterialized: false,
+          usableForRouter: false,
+          usableForShadow: false,
+          usableForLive: false,
+          readinessKind: 'REGISTRY_READY',
+          sourceOfTruth: 'REGISTRY',
+          diagnostics: ['registry ready only'],
+        }],
+      },
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_STALE_HIT',
+        snapshot: null,
+        cacheRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 100, institutionNetBuy: 100, status: 'STALE' },
+        retained: 1,
+        reason: 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY',
+        stale: true,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
+      },
+    });
+
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.providerStatuses.NAVER_INVESTOR_TREND).toBe('REGISTRY_READY_NOT_MATERIALIZED');
+    expect(route.naverSampleStatus).toBe('REGISTRY_READY_NOT_MATERIALIZED');
+    expect(route.naverReadinessKind).toBe('REGISTRY_READY');
+    expect(route.selectedReason).toContain('CACHE_STALE_HIT');
+    expect(route.selectedReason).toContain('readinessKind=REGISTRY_READY');
+    expect(route.liveExecutionAllowed).toBe(false);
   });
 
   it('does not select FreshData samples that are not normalized', () => {
