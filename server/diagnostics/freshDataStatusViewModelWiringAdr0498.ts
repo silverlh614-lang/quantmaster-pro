@@ -216,6 +216,7 @@ function routerProviderDisplayAdr0498(selectedProvider: string | undefined): str
   if (selectedProvider === 'SEMANTIC_NETBUY') return 'SEMANTIC_NETBUY';
   if (selectedProvider === 'KRX' || selectedProvider === 'KRX_INVESTOR_FLOW') return 'KRX';
   if (selectedProvider === 'KIS' || selectedProvider === 'KIS_API') return 'KIS';
+  if (selectedProvider === 'FSS' || selectedProvider === 'FSS_PASSIVE_ACTIVE') return 'FSS';
   return selectedProvider && selectedProvider !== 'NONE' ? selectedProvider : 'EMPTY';
 }
 
