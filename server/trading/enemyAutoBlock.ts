@@ -22,6 +22,9 @@ export interface EnemyAutoBlockThresholds {
   creditRateWarn: number;
   individualBlock: number;
   individualWarn: number;
+  shortSaleIncreaseWarn: number;
+  loanIncreaseWarn: number;
+  creditIncreaseWarn: number;
 }
 
 export interface EnemyAutoBlockDecision {
@@ -33,6 +36,9 @@ export interface EnemyAutoBlockDecision {
   thresholds: EnemyAutoBlockThresholds;
   /** disabled ENV 또는 데이터 부재 시 skipReason 부여 (진단용) */
   skipReason?: 'DISABLED' | 'NO_DATA';
+  strongBuyAllowed: boolean;
+  shadowOnlyRecommended: boolean;
+  riskSignalCount: number;
 }
 
 const DEFAULTS: EnemyAutoBlockThresholds = {
@@ -40,6 +46,9 @@ const DEFAULTS: EnemyAutoBlockThresholds = {
   creditRateWarn: 8.0,
   individualBlock: 88.0,
   individualWarn: 80.0,
+  shortSaleIncreaseWarn: 30.0,
+  loanIncreaseWarn: 30.0,
+  creditIncreaseWarn: 30.0,
 };
 
 function parsePosNumberEnv(v: string | undefined, fallback: number): number {
@@ -55,6 +64,9 @@ export function getDefaultEnemyThresholds(): EnemyAutoBlockThresholds {
     creditRateWarn: parsePosNumberEnv(process.env.ENEMY_CREDIT_RATE_WARN, DEFAULTS.creditRateWarn),
     individualBlock: parsePosNumberEnv(process.env.ENEMY_INDIVIDUAL_BLOCK, DEFAULTS.individualBlock),
     individualWarn: parsePosNumberEnv(process.env.ENEMY_INDIVIDUAL_WARN, DEFAULTS.individualWarn),
+    shortSaleIncreaseWarn: parsePosNumberEnv(process.env.ENEMY_SHORT_SALE_INCREASE_WARN, DEFAULTS.shortSaleIncreaseWarn),
+    loanIncreaseWarn: parsePosNumberEnv(process.env.ENEMY_LOAN_INCREASE_WARN, DEFAULTS.loanIncreaseWarn),
+    creditIncreaseWarn: parsePosNumberEnv(process.env.ENEMY_CREDIT_INCREASE_WARN, DEFAULTS.creditIncreaseWarn),
   };
 }
 
@@ -81,6 +93,9 @@ export function evaluateEnemyAutoBlock(
       warnings: [],
       thresholds,
       skipReason: 'DISABLED',
+      strongBuyAllowed: true,
+      shadowOnlyRecommended: false,
+      riskSignalCount: 0,
     };
   }
 
@@ -91,11 +106,15 @@ export function evaluateEnemyAutoBlock(
       warnings: [],
       thresholds,
       skipReason: 'NO_DATA',
+      strongBuyAllowed: true,
+      shadowOnlyRecommended: false,
+      riskSignalCount: 0,
     };
   }
 
   const reasons: string[] = [];
   const warnings: string[] = [];
+  let riskSignalCount = 0;
 
   if (enemy.creditRate !== null && Number.isFinite(enemy.creditRate)) {
     if (enemy.creditRate >= thresholds.creditRateBlock) {
@@ -117,10 +136,38 @@ export function evaluateEnemyAutoBlock(
     }
   }
 
+  if (enemy.shortSaleIncreaseRate !== null && enemy.shortSaleIncreaseRate !== undefined && Number.isFinite(enemy.shortSaleIncreaseRate)) {
+    if (enemy.shortSaleIncreaseRate >= thresholds.shortSaleIncreaseWarn) {
+      warnings.push(`공매도 ${enemy.shortSaleIncreaseRate.toFixed(1)}% 증가`);
+      riskSignalCount++;
+    }
+  }
+
+  if (enemy.loanIncreaseRate !== null && enemy.loanIncreaseRate !== undefined && Number.isFinite(enemy.loanIncreaseRate)) {
+    if (enemy.loanIncreaseRate >= thresholds.loanIncreaseWarn) {
+      warnings.push(`대차잔고 ${enemy.loanIncreaseRate.toFixed(1)}% 증가`);
+      riskSignalCount++;
+    }
+  }
+
+  if (enemy.creditIncreaseRate !== null && enemy.creditIncreaseRate !== undefined && Number.isFinite(enemy.creditIncreaseRate)) {
+    if (enemy.creditIncreaseRate >= thresholds.creditIncreaseWarn) {
+      warnings.push(`신용잔고 ${enemy.creditIncreaseRate.toFixed(1)}% 증가`);
+      riskSignalCount++;
+    }
+  }
+
+  if (riskSignalCount >= 3) {
+    reasons.push('공매도/대차/신용 3개 위험 신호');
+  }
+
   return {
     shouldBlock: reasons.length > 0,
     reason: reasons.join(' / '),
     warnings,
     thresholds,
+    strongBuyAllowed: riskSignalCount < 2,
+    shadowOnlyRecommended: riskSignalCount >= 3,
+    riskSignalCount,
   };
 }

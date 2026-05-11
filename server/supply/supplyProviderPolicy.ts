@@ -8,11 +8,16 @@
  */
 
 export type SupplySignalKey =
+  | 'price'
+  | 'dailyChart'
   | 'investorFlow'
   | 'stockProgram'
   | 'marketProgram'
+  | 'marketSupply'
   | 'fssPassiveActive'
   | 'shortSelling'
+  | 'loanTransaction'
+  | 'creditBalance'
   | 'foreignerRatioTrend'
   | 'marginBalance';
 
@@ -60,11 +65,36 @@ export interface SupplyProviderPolicy {
 }
 
 export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPolicy> = {
+  price: {
+    key: 'price',
+    title: '가격/현재가',
+    primary: ['KIS_API'],
+    fallback: ['CACHE'],
+    diagnostic: [],
+    scoringMode: 'required_real_fields',
+    confidence: { KIS_API: 1.0, CACHE: 0.45 },
+    excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
+    notes: [
+      'KRX 복구 전까지 KIS 공식 현재가를 primary price source 로 사용한다.',
+      'Yahoo 는 별도 가격 라우터에서 diagnostic-only 비교 대상으로 둔다.',
+    ],
+  },
+  dailyChart: {
+    key: 'dailyChart',
+    title: '일봉/차트',
+    primary: ['KIS_API'],
+    fallback: ['CACHE'],
+    diagnostic: [],
+    scoringMode: 'required_real_fields',
+    confidence: { KIS_API: 0.95, CACHE: 0.45 },
+    excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
+    notes: ['KIS chart 가 있으면 KIS OHLCV 기반 지표를 우선한다. Yahoo-only path 에서만 provider degraded 허용.'],
+  },
   investorFlow: {
     key: 'investorFlow',
     title: '기관/외인 수급',
-    primary: ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_RECORDS', 'NAVER_INVESTOR_TREND'],
-    fallback: ['CACHE'],
+    primary: ['KIS_API', 'KRX_INVESTOR_FLOW'],
+    fallback: ['CACHE', 'NAVER_INVESTOR_TREND'],
     diagnostic: ['FSS_RECORDS', 'NAVER_INVESTOR_TREND', 'CACHE'],
     scoringMode: 'required_real_fields',
     confidence: {
@@ -76,8 +106,8 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
     },
     excludeStatuses: ['PROVIDER_MISMATCH', 'PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'ACCEPTED_EMPTY', 'MISSING'],
     notes: [
-      'KRX 투자자별 매매동향을 투자자별 수급 source of truth 로 우선한다.',
-      'KIS 는 symbol-level investor-flow real fields 가 있을 때만 KRX 다음 fallback 으로 사용한다.',
+      'KRX 복구 전 긴급 운영에서는 KIS symbol-level investor-flow real fields 를 primary/weighted source 로 사용한다.',
+      'KRX 투자자별 매매동향 복구 path 는 병렬 유지한다.',
       'NAVER 는 공식 원천이 아니라 SECONDARY/DISPLAY_DERIVED cross-check 및 fallback 이다.',
       '진짜 초록 조건은 외국인/기관 순매수 필드 존재 + 날짜/값 검증 통과다.',
     ],
@@ -104,6 +134,17 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
     excludeStatuses: ['ACCEPTED_EMPTY', 'PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
     notes: ['KIS MCA00000 + output empty 는 정상 0억이 아니라 ACCEPTED_EMPTY 로 보아 점수에서 제외한다.'],
   },
+  marketSupply: {
+    key: 'marketSupply',
+    title: '시장 수급',
+    primary: ['KIS_API'],
+    fallback: ['CACHE'],
+    diagnostic: [],
+    scoringMode: 'allowed_when_non_empty',
+    confidence: { KIS_API: 0.85, CACHE: 0.5 },
+    excludeStatuses: ['ACCEPTED_EMPTY', 'PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
+    notes: ['KIS 시장 수급은 risk-on/off 보조로 사용하며 단독 bearish 확정 금지.'],
+  },
   fssPassiveActive: {
     key: 'fssPassiveActive',
     title: 'FSS Passive/Active',
@@ -118,13 +159,35 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
   shortSelling: {
     key: 'shortSelling',
     title: '공매도/대차잔고',
-    primary: ['KRX_SHORT_SELLING', 'NAVER_SHORT_SELLING'],
+    primary: ['KIS_API', 'KRX_SHORT_SELLING', 'NAVER_SHORT_SELLING'],
     fallback: ['CACHE'],
     diagnostic: ['KIS_API'],
     scoringMode: 'optional',
-    confidence: { KRX_SHORT_SELLING: 0.95, NAVER_SHORT_SELLING: 0.75, CACHE: 0.55, KIS_API: 0.35 },
+    confidence: { KIS_API: 0.85, KRX_SHORT_SELLING: 0.95, NAVER_SHORT_SELLING: 0.75, CACHE: 0.55 },
     excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
-    notes: ['KIS estimate 는 KRX 실패 시 참고용이며 정확도 감점이 필요하다.'],
+    notes: ['KIS 공매도/대차/신용 official pack 은 EnemyChecklist 의 STRONG_BUY 차단 후보로 우선 사용한다. 데이터 없음은 bearish 아님.'],
+  },
+  loanTransaction: {
+    key: 'loanTransaction',
+    title: '대차거래',
+    primary: ['KIS_API'],
+    fallback: ['CACHE'],
+    diagnostic: [],
+    scoringMode: 'optional',
+    confidence: { KIS_API: 0.85, CACHE: 0.5 },
+    excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
+    notes: ['KIS 대차잔고 급증은 EnemyChecklist warning 이며 데이터 없음은 providerIssue 로만 기록한다.'],
+  },
+  creditBalance: {
+    key: 'creditBalance',
+    title: '신용잔고',
+    primary: ['KIS_API', 'KRX_MARGIN_BALANCE', 'FINANCIAL_INVESTMENT_ASSOCIATION'],
+    fallback: ['CACHE'],
+    diagnostic: [],
+    scoringMode: 'optional',
+    confidence: { KIS_API: 0.85, KRX_MARGIN_BALANCE: 0.9, FINANCIAL_INVESTMENT_ASSOCIATION: 0.85, CACHE: 0.5 },
+    excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
+    notes: ['KIS 신용잔고 급증은 STRONG_BUY 금지 후보. missing 은 bearish 변환 금지.'],
   },
   foreignerRatioTrend: {
     key: 'foreignerRatioTrend',
@@ -140,11 +203,12 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
   marginBalance: {
     key: 'marginBalance',
     title: '신용잔고',
-    primary: ['KRX_MARGIN_BALANCE', 'FINANCIAL_INVESTMENT_ASSOCIATION', 'ECOS_API'],
+    primary: ['KIS_API', 'KRX_MARGIN_BALANCE', 'FINANCIAL_INVESTMENT_ASSOCIATION', 'ECOS_API'],
     fallback: ['CACHE'],
     diagnostic: ['ECOS_API'],
     scoringMode: 'optional',
     confidence: {
+      KIS_API: 0.85,
       KRX_MARGIN_BALANCE: 0.9,
       FINANCIAL_INVESTMENT_ASSOCIATION: 0.85,
       ECOS_API: 0.7,

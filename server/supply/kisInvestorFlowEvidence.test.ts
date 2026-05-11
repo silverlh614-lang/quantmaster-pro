@@ -35,8 +35,8 @@ describe('KIS official investor-flow evidence adapter', () => {
 
     expect(result.data).toBeNull();
     expect(result.officialSource).toBe(true);
-    expect(result.promotionStage).toBe('SHADOW_SCORE');
-    expect(result.selectableForRouter).toBe(false);
+    expect(result.promotionStage).toBe('WEIGHTED');
+    expect(result.selectableForRouter).toBe(true);
     expect(result.executionImpact).toBe('NONE');
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.health.provider).toBe('KIS');

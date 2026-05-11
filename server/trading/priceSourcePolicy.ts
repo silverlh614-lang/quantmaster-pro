@@ -100,6 +100,7 @@ export function evaluateDataQuality(input: PriceSourceInput): DataQualityResult 
   // KIS + Yahoo 모두 부재 → MISSING
   const kisValid = typeof kisPrice === 'number' && Number.isFinite(kisPrice) && kisPrice > 0;
   const yahooValid = typeof yahooPrice === 'number' && Number.isFinite(yahooPrice) && yahooPrice > 0;
+  const yahooDiagnosticOnly = process.env.YAHOO_PRICE_ROLE !== 'ACTIVE';
 
   if (!kisValid && !yahooValid) {
     return {
@@ -125,6 +126,45 @@ export function evaluateDataQuality(input: PriceSourceInput): DataQualityResult 
       reasons: ['KIS_PRICE_MISSING_YAHOO_UNVERIFIED'],
       allowTechnicalIndicators: true, // 기술지표는 OHLCV 보조 허용
       allowExecution: false,           // 매수 차단 — KIS canonical 부재
+    };
+  }
+
+  // ADR-0502: KIS official price is primary by default. Yahoo remains available as
+  // diagnostic/comparison evidence, but its divergence must not quarantine a fresh
+  // KIS price unless the operator explicitly restores ACTIVE Yahoo validation.
+  if (kisValid && yahooDiagnosticOnly) {
+    if (yahooValid) {
+      const kis = kisPrice as number;
+      const yh = yahooPrice as number;
+      const discrepancyPct = (Math.abs(yh - kis) / kis) * 100;
+      reasons.push(
+        `KIS_PRIMARY_YAHOO_DIAGNOSTIC_ONLY: discrepancy=${discrepancyPct.toFixed(2)}% (KIS=${kis}, Yahoo=${yh})`,
+      );
+      reasons.push('noProviderDegrade=true');
+      return {
+        status: 'VALID',
+        canonicalPrice: kis,
+        canonicalSource: 'KIS',
+        kisPrice,
+        yahooPrice,
+        discrepancyPct,
+        reasons,
+        allowTechnicalIndicators: true,
+        allowExecution: true,
+      };
+    }
+
+    reasons.push('YAHOO_PRICE_MISSING');
+    reasons.push('KIS_PRIMARY');
+    return {
+      status: 'VALID',
+      canonicalPrice: kisPrice as number,
+      canonicalSource: 'KIS',
+      kisPrice,
+      yahooPrice,
+      reasons,
+      allowTechnicalIndicators: true,
+      allowExecution: true,
     };
   }
 

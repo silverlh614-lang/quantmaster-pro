@@ -13,13 +13,25 @@
  * 캐시 TTL: 10분 (장중 갱신 주기)
  */
 
-import { realDataKisGet, HAS_REAL_DATA_CLIENT } from './kisClient.js';
+import {
+  fetchKisDailyCreditBalance,
+  fetchKisDailyLoanTransaction,
+  fetchKisDailyShortSale,
+  realDataKisGet,
+  HAS_REAL_DATA_CLIENT,
+} from './kisClient.js';
 
 export interface EnemyCheckResult {
   /** 신용잔고율 (%) — KIS FHKST01010100 cred_vals */
   creditRate: number | null;
   /** 개인 순매수 절대값 / 전체 순매수 절대값 합산 (%) — 스마트머니 이탈 지표 */
   individualDominance: number | null;
+  /** KIS official 공매도 증가율 (%) — 부재 시 null, bearish 변환 금지 */
+  shortSaleIncreaseRate?: number | null;
+  /** KIS official 대차잔고 증가율 (%) — 부재 시 null, bearish 변환 금지 */
+  loanIncreaseRate?: number | null;
+  /** KIS official 신용잔고 증가율 (%) — 부재 시 null, bearish 변환 금지 */
+  creditIncreaseRate?: number | null;
   /** 데이터 신뢰도 */
   source: 'KIS_FULL' | 'KIS_PARTIAL' | 'UNAVAILABLE';
 }
@@ -39,6 +51,9 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
   const empty: EnemyCheckResult = {
     creditRate: null,
     individualDominance: null,
+    shortSaleIncreaseRate: null,
+    loanIncreaseRate: null,
+    creditIncreaseRate: null,
     source: 'UNAVAILABLE',
   };
 
@@ -48,6 +63,9 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
 
   let creditRate: number | null = null;
   let individualDominance: number | null = null;
+  let shortSaleIncreaseRate: number | null = null;
+  let loanIncreaseRate: number | null = null;
+  let creditIncreaseRate: number | null = null;
   let hitCount = 0;
 
   try {
@@ -91,9 +109,42 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
     // KIS 일시 장애 — 해당 항목만 null 유지
   }
 
+  try {
+    const short = await fetchKisDailyShortSale(key);
+    if (short?.shortSaleIncreaseRate !== undefined && Number.isFinite(short.shortSaleIncreaseRate)) {
+      shortSaleIncreaseRate = short.shortSaleIncreaseRate;
+      hitCount++;
+    }
+  } catch {
+    // KIS 일시 장애 — providerIssue 로만 취급, bearish 변환 금지
+  }
+
+  try {
+    const loan = await fetchKisDailyLoanTransaction(key);
+    if (loan?.loanIncreaseRate !== undefined && Number.isFinite(loan.loanIncreaseRate)) {
+      loanIncreaseRate = loan.loanIncreaseRate;
+      hitCount++;
+    }
+  } catch {
+    // KIS 일시 장애 — providerIssue 로만 취급, bearish 변환 금지
+  }
+
+  try {
+    const credit = await fetchKisDailyCreditBalance(key);
+    if (credit?.creditIncreaseRate !== undefined && Number.isFinite(credit.creditIncreaseRate)) {
+      creditIncreaseRate = credit.creditIncreaseRate;
+      hitCount++;
+    }
+  } catch {
+    // KIS 일시 장애 — providerIssue 로만 취급, bearish 변환 금지
+  }
+
   const result: EnemyCheckResult = {
     creditRate,
     individualDominance,
+    shortSaleIncreaseRate,
+    loanIncreaseRate,
+    creditIncreaseRate,
     source: hitCount >= 2 ? 'KIS_FULL' : hitCount === 1 ? 'KIS_PARTIAL' : 'UNAVAILABLE',
   };
 
@@ -118,6 +169,21 @@ export function formatEnemyCheckSummary(e: EnemyCheckResult): string | null {
   if (e.individualDominance !== null) {
     const warn = e.individualDominance > 80 ? ' ⚠️⚠️' : e.individualDominance > 70 ? ' ⚠️' : '';
     lines.push(`개인 비중: ${e.individualDominance.toFixed(0)}%${warn}`);
+  }
+
+  if (e.shortSaleIncreaseRate !== null && e.shortSaleIncreaseRate !== undefined) {
+    const warn = e.shortSaleIncreaseRate >= 30 ? ' ⚠️⚠️' : e.shortSaleIncreaseRate >= 10 ? ' ⚠️' : '';
+    lines.push(`공매도 증가율: ${e.shortSaleIncreaseRate.toFixed(1)}%${warn}`);
+  }
+
+  if (e.loanIncreaseRate !== null && e.loanIncreaseRate !== undefined) {
+    const warn = e.loanIncreaseRate >= 30 ? ' ⚠️⚠️' : e.loanIncreaseRate >= 10 ? ' ⚠️' : '';
+    lines.push(`대차잔고 증가율: ${e.loanIncreaseRate.toFixed(1)}%${warn}`);
+  }
+
+  if (e.creditIncreaseRate !== null && e.creditIncreaseRate !== undefined) {
+    const warn = e.creditIncreaseRate >= 30 ? ' ⚠️⚠️' : e.creditIncreaseRate >= 10 ? ' ⚠️' : '';
+    lines.push(`신용잔고 증가율: ${e.creditIncreaseRate.toFixed(1)}%${warn}`);
   }
 
   return lines.length > 0 ? lines.join('\n') : null;

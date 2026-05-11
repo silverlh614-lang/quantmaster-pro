@@ -80,6 +80,104 @@ export interface KisMarketProgramTrade {
   source: 'KIS_API';
 }
 
+export interface KisDailyShortSale {
+  stockCode: string;
+  tradingDate?: string;
+  shortSaleQty?: number;
+  shortSaleAmount?: number;
+  shortSaleRatio?: number;
+  shortSaleIncreaseRate?: number;
+  trend?: 'INCREASING' | 'DECREASING' | 'FLAT' | 'UNKNOWN';
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisShortSaleRankingRow {
+  stockCode?: string;
+  stockName?: string;
+  shortSaleQty?: number;
+  shortSaleAmount?: number;
+  shortSaleRatio?: number;
+  rank?: number;
+  source: 'KIS_API';
+}
+
+export interface KisDailyLoanTransaction {
+  stockCode: string;
+  tradingDate?: string;
+  loanBalanceQty?: number;
+  loanBalanceAmount?: number;
+  loanIncreaseRate?: number;
+  trend?: 'INCREASING' | 'DECREASING' | 'FLAT' | 'UNKNOWN';
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisDailyCreditBalance {
+  stockCode: string;
+  tradingDate?: string;
+  creditBalanceQty?: number;
+  creditBalanceAmount?: number;
+  creditIncreaseRate?: number;
+  creditBalanceRatio?: number;
+  trend?: 'INCREASING' | 'DECREASING' | 'FLAT' | 'UNKNOWN';
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisCreditBalanceRankingRow {
+  stockCode?: string;
+  stockName?: string;
+  creditBalanceQty?: number;
+  creditBalanceAmount?: number;
+  creditIncreaseRate?: number;
+  rank?: number;
+  source: 'KIS_API';
+}
+
+export interface KisInvestorTradeByStockDaily {
+  stockCode: string;
+  tradingDate?: string;
+  foreignNetBuy?: number;
+  institutionalNetBuy?: number;
+  individualNetBuy?: number;
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisForeignInstitutionTotal {
+  foreignNetBuy?: number;
+  institutionalNetBuy?: number;
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisInvestorTrendEstimate {
+  stockCode: string;
+  foreignNetBuyEstimate?: number;
+  institutionalNetBuyEstimate?: number;
+  individualNetBuyEstimate?: number;
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisInvestorDailyByMarket {
+  tradingDate?: string;
+  foreignNetBuy?: number;
+  institutionNetBuy?: number;
+  individualNetBuy?: number;
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
+export interface KisInvestorTimeByMarket {
+  foreignNetBuy?: number;
+  institutionNetBuy?: number;
+  individualNetBuy?: number;
+  source: 'KIS_API';
+  fetchedAt: string;
+}
+
 /**
  * KIS 전일종가 응답 — ADR-0004 대체 경로에서 장전 갭 계산의 기준가로 사용.
  */
@@ -140,5 +238,15 @@ export interface KisClientOverrides {
   fetchKisInvestorFlow?: (code: string) => Promise<KisInvestorFlow | null>;
   fetchKisStockProgramTrade?: (code: string) => Promise<KisStockProgramTrade | null>;
   fetchKisMarketProgramTrade?: () => Promise<KisMarketProgramTrade | null>;
+  fetchKisDailyShortSale?: (code: string) => Promise<KisDailyShortSale | null>;
+  fetchKisShortSaleRanking?: () => Promise<KisShortSaleRankingRow[] | null>;
+  fetchKisDailyLoanTransaction?: (code: string) => Promise<KisDailyLoanTransaction | null>;
+  fetchKisDailyCreditBalance?: (code: string) => Promise<KisDailyCreditBalance | null>;
+  fetchKisCreditBalanceRanking?: () => Promise<KisCreditBalanceRankingRow[] | null>;
+  fetchKisInvestorTradeByStockDaily?: (code: string) => Promise<KisInvestorTradeByStockDaily | null>;
+  fetchKisForeignInstitutionTotal?: () => Promise<KisForeignInstitutionTotal | null>;
+  fetchKisInvestorTrendEstimate?: (code: string) => Promise<KisInvestorTrendEstimate | null>;
+  fetchKisInvestorDailyByMarket?: () => Promise<KisInvestorDailyByMarket | null>;
+  fetchKisInvestorTimeByMarket?: () => Promise<KisInvestorTimeByMarket | null>;
   realDataKisGet?: (trId: string, apiPath: string, params: Record<string, string>) => Promise<unknown>;
 }

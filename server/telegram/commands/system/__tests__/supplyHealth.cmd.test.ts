@@ -9,11 +9,35 @@ import path from 'path';
 const investorMock = vi.fn();
 const stockProgramMock = vi.fn();
 const marketProgramMock = vi.fn();
+const currentPriceMock = vi.fn();
+const prevCloseMock = vi.fn();
+const stockNameMock = vi.fn();
+const shortSaleMock = vi.fn();
+const loanTransactionMock = vi.fn();
+const creditBalanceMock = vi.fn();
+const investorDailyMock = vi.fn();
+const foreignInstitutionMock = vi.fn();
+const investorEstimateMock = vi.fn();
+const marketSupplyMock = vi.fn();
+const investorDailyByMarketMock = vi.fn();
+const investorTimeByMarketMock = vi.fn();
 
 vi.mock('../../../../clients/kisClient/index.js', () => ({
+  fetchCurrentPrice: currentPriceMock,
+  fetchKisPrevClose: prevCloseMock,
+  fetchStockName: stockNameMock,
   fetchKisInvestorFlow: investorMock,
+  fetchKisDailyShortSale: shortSaleMock,
+  fetchKisDailyLoanTransaction: loanTransactionMock,
+  fetchKisDailyCreditBalance: creditBalanceMock,
+  fetchKisInvestorTradeByStockDaily: investorDailyMock,
+  fetchKisForeignInstitutionTotal: foreignInstitutionMock,
+  fetchKisInvestorTrendEstimate: investorEstimateMock,
   fetchKisStockProgramTrade: stockProgramMock,
   fetchKisMarketProgramTrade: marketProgramMock,
+  fetchKisMarketSupply: marketSupplyMock,
+  fetchKisInvestorDailyByMarket: investorDailyByMarketMock,
+  fetchKisInvestorTimeByMarket: investorTimeByMarketMock,
 }));
 
 function writeJson(file: string, value: unknown): void {
@@ -73,6 +97,30 @@ describe('/supply_health command', () => {
     investorMock.mockReset();
     stockProgramMock.mockReset();
     marketProgramMock.mockReset();
+    currentPriceMock.mockReset();
+    prevCloseMock.mockReset();
+    stockNameMock.mockReset();
+    shortSaleMock.mockReset();
+    loanTransactionMock.mockReset();
+    creditBalanceMock.mockReset();
+    investorDailyMock.mockReset();
+    foreignInstitutionMock.mockReset();
+    investorEstimateMock.mockReset();
+    marketSupplyMock.mockReset();
+    investorDailyByMarketMock.mockReset();
+    investorTimeByMarketMock.mockReset();
+    currentPriceMock.mockResolvedValue(null);
+    prevCloseMock.mockResolvedValue(null);
+    stockNameMock.mockResolvedValue(null);
+    shortSaleMock.mockResolvedValue(null);
+    loanTransactionMock.mockResolvedValue(null);
+    creditBalanceMock.mockResolvedValue(null);
+    investorDailyMock.mockResolvedValue(null);
+    foreignInstitutionMock.mockResolvedValue(null);
+    investorEstimateMock.mockResolvedValue(null);
+    marketSupplyMock.mockResolvedValue(null);
+    investorDailyByMarketMock.mockResolvedValue(null);
+    investorTimeByMarketMock.mockResolvedValue(null);
     vi.resetModules();
   });
 
@@ -199,9 +247,9 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('검증 종목: stage2Score 상위 10개 중 10개');
-    expect(investorMock).toHaveBeenCalledTimes(0);
-    expect(stockProgramMock).toHaveBeenCalledTimes(10);
-    expect(stockProgramMock.mock.calls.every((c) => c[1] === 'MEDIUM')).toBe(true);
+    expect(investorMock).toHaveBeenCalledTimes(1);
+    expect(stockProgramMock).toHaveBeenCalledTimes(11);
+    expect(stockProgramMock.mock.calls.filter((c) => c[1] === 'MEDIUM')).toHaveLength(10);
   });
 
   it('10개 미만이면 있는 만큼 표시', async () => {
@@ -214,7 +262,7 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('검증 종목: stage2Score 상위 7개');
-    expect(investorMock).toHaveBeenCalledTimes(0);
+    expect(investorMock).toHaveBeenCalledTimes(1);
   });
 
   it('zero-filled 의심 3/10 이상이면 경고 표시', async () => {
@@ -271,9 +319,10 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('1. 🟢 기관/외인 수급');
-    expect(msg).toContain('2. 🔴 종목 프로그램매매');
-    expect(msg).toContain('4. 🟡 FSS Passive/Active');
-    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
+    expect(msg).toContain('2. 🟠 KIS Official Supply Pack');
+    expect(msg).toContain('3. 🔴 종목 프로그램매매');
+    expect(msg).toContain('5. 🟡 FSS Passive/Active');
+    expect(msg).toContain('6. ⚪ 공매도/대차잔고');
     expect(msg).toContain('상세: /program_today');
     expect(msg).toContain('상세: /program_market');
     expect(msg).toContain('상세: /fss_status');
@@ -283,7 +332,7 @@ describe('/supply_health command', () => {
     expect(msg.length).toBeLessThan(4096);
   });
 
-  it('하단 상세는 7채널 고정 순서로 출력', async () => {
+  it('하단 상세는 8채널 고정 순서로 출력', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
     writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));
     investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
@@ -293,12 +342,13 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg.indexOf('1. 🟢 기관/외인 수급')).toBeLessThan(msg.indexOf('2. 🟢 종목 프로그램매매'));
-    expect(msg.indexOf('2. 🟢 종목 프로그램매매')).toBeLessThan(msg.indexOf('3. 🔴 시장 프로그램매매'));
-    expect(msg.indexOf('3. 🔴 시장 프로그램매매')).toBeLessThan(msg.indexOf('4. ⚪ FSS Passive/Active'));
-    expect(msg.indexOf('4. ⚪ FSS Passive/Active')).toBeLessThan(msg.indexOf('5. ⚪ 공매도/대차잔고'));
-    expect(msg.indexOf('5. ⚪ 공매도/대차잔고')).toBeLessThan(msg.indexOf('6. ⚪ 외인 보유율 추세'));
-    expect(msg.indexOf('6. ⚪ 외인 보유율 추세')).toBeLessThan(msg.indexOf('7. ⚪ 신용잔고'));
+    expect(msg.indexOf('1. 🟢 기관/외인 수급')).toBeLessThan(msg.indexOf('2. 🟠 KIS Official Supply Pack'));
+    expect(msg.indexOf('2. 🟠 KIS Official Supply Pack')).toBeLessThan(msg.indexOf('3. 🟢 종목 프로그램매매'));
+    expect(msg.indexOf('3. 🟢 종목 프로그램매매')).toBeLessThan(msg.indexOf('4. 🔴 시장 프로그램매매'));
+    expect(msg.indexOf('4. 🔴 시장 프로그램매매')).toBeLessThan(msg.indexOf('5. ⚪ FSS Passive/Active'));
+    expect(msg.indexOf('5. ⚪ FSS Passive/Active')).toBeLessThan(msg.indexOf('6. ⚪ 공매도/대차잔고'));
+    expect(msg.indexOf('6. ⚪ 공매도/대차잔고')).toBeLessThan(msg.indexOf('7. ⚪ 외인 보유율 추세'));
+    expect(msg.indexOf('7. ⚪ 외인 보유율 추세')).toBeLessThan(msg.indexOf('8. ⚪ 신용잔고'));
   });
 
   // ADR-0145: 4-way 분기 (MISSING / KIS_ESTIMATE STALE / age STALE / OK)
@@ -318,7 +368,7 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg).toContain('5. ⚪ 공매도/대차잔고');
+    expect(msg).toContain('6. ⚪ 공매도/대차잔고');
     expect(msg).toContain('PROVIDER_UNAVAILABLE');
     expect(msg).toContain('source: N/A');
     expect(msg).toContain('ratio: N/A');
@@ -341,7 +391,7 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg).toContain('5. 🟢 공매도/대차잔고');
+    expect(msg).toContain('6. 🟢 공매도/대차잔고');
     expect(msg).toContain('source: KRX_DIRECT');
     expect(msg).toContain('ratio: 4.85%');
   });
@@ -363,7 +413,7 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg).toContain('5. 🟡 공매도/대차잔고');
+    expect(msg).toContain('6. 🟡 공매도/대차잔고');
     expect(msg).toContain('KIS_ESTIMATE');
     expect(msg).toContain('source: KIS_ESTIMATE');
   });
@@ -385,7 +435,7 @@ describe('/supply_health command', () => {
 
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
-    expect(msg).toContain('5. 🟡 공매도/대차잔고');
+    expect(msg).toContain('6. 🟡 공매도/대차잔고');
     expect(msg).toContain('source: KRX_DIRECT');
     // age 3일 → "3일 전" 또는 "72h ago" 형태
     expect(msg).toMatch(/updated.+(?:3일 전|7\dh ago)/);
@@ -403,8 +453,8 @@ describe('/supply_health command', () => {
 
     expect(first).toContain('캐시: fresh');
     expect(second).toContain('캐시: 12s');
-    expect(investorMock).toHaveBeenCalledTimes(0);
-    expect(stockProgramMock).toHaveBeenCalledTimes(10);
+    expect(investorMock).toHaveBeenCalledTimes(1);
+    expect(stockProgramMock).toHaveBeenCalledTimes(11);
   });
 
   it('30초 TTL 만료 후 새로 진단한다', async () => {
@@ -417,8 +467,8 @@ describe('/supply_health command', () => {
     await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
     await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:31.000Z'));
 
-    expect(investorMock).toHaveBeenCalledTimes(0);
-    expect(stockProgramMock).toHaveBeenCalledTimes(20);
+    expect(investorMock).toHaveBeenCalledTimes(2);
+    expect(stockProgramMock).toHaveBeenCalledTimes(22);
   });
 
   it('개별 KIS 실패가 전체 명령 실패로 전파되지 않음', async () => {

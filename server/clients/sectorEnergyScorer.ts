@@ -52,6 +52,42 @@ export function scoreSectorEnergyAdr0462(input: SectorEnergyScorerInput): Sector
   if (input.providerHealth === 'EMPTY') reasons.push('PROVIDER_CACHE_EMPTY');
   if (input.providerHealth === 'STALE') reasons.push('PROVIDER_STALE');
 
+  if (input.sourceTier === 'KIS_OFFICIAL_INDEX' || input.sourceTier === 'KIS_OFFICIAL_DAILY') {
+    const guard = applyFallbackContaminationGuard({ sourceTier: input.sourceTier, sectorBoost, leadershipConfidence, reasons });
+    return {
+      dataQuality: 'VERIFIED',
+      mode: 'SCORING',
+      leadershipScore,
+      leadershipConfidence: guard.leadershipConfidence,
+      sectorBoost: guard.sectorBoost,
+      strongBuyBlocked,
+      executionHardBlock: false,
+      fallbackContributionToScore: guard.fallbackContributionToScore,
+      reasons: guard.reasons as SectorEnergyReason[],
+      indexCodeCoverage: indexCoverage,
+    };
+  }
+
+  if (input.sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
+    dataQuality = 'DEGRADED_BUT_USABLE';
+    mode = 'LIMITED_SCORING';
+    leadershipConfidence = 'DEGRADED';
+    sectorBoost = Math.min(sectorBoost, 0.5);
+    const guard = applyFallbackContaminationGuard({ sourceTier: input.sourceTier, sectorBoost, leadershipConfidence, reasons });
+    return {
+      dataQuality,
+      mode,
+      leadershipScore,
+      leadershipConfidence: guard.leadershipConfidence,
+      sectorBoost: guard.sectorBoost,
+      strongBuyBlocked,
+      executionHardBlock: false,
+      fallbackContributionToScore: guard.fallbackContributionToScore,
+      reasons: guard.reasons as SectorEnergyReason[],
+      indexCodeCoverage: indexCoverage,
+    };
+  }
+
   if (indexCoverage.ratio >= 0.85) {
     dataQuality = 'VERIFIED';
   } else if (indexCoverage.ratio >= 0.60) {

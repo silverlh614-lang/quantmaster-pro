@@ -24,7 +24,7 @@ describe('ADR-0397 (= 사용자 명시 ADR-0372): Yahoo ETF L4 fallback wiring',
       );
       const fnStart = src.indexOf('export async function buildSectorEnergyInputsWithMetaWithFallback');
       expect(fnStart).toBeGreaterThan(0);
-      const fnSrc = src.slice(fnStart, fnStart + 3500);
+      const fnSrc = src.slice(fnStart, fnStart + 6500);
 
       // L3 macroState cache 우선
       const l3Idx = fnSrc.indexOf('macroState cache');
@@ -149,7 +149,7 @@ describe('ADR-0397 (= 사용자 명시 ADR-0372): Yahoo ETF L4 fallback wiring',
         'utf-8',
       );
       const fnStart = src.indexOf('export async function buildSectorEnergyInputsWithMetaWithFallback');
-      const fnSrc = src.slice(fnStart, fnStart + 3500);
+      const fnSrc = src.slice(fnStart, fnStart + 6500);
       // applyYahooEtfDegradation 호출이 L3 cache 처리 이후 위치
       const cacheReturnIdx = fnSrc.indexOf("dataQuality: 'STALE'");
       const yahooApplyIdx = fnSrc.indexOf('applyYahooEtfDegradation');

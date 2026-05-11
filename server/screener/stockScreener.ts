@@ -34,7 +34,7 @@ import { fetchKrxScreenerFallback } from './adapters/krxScreenerAdapter.js';
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${s.code}.KS` direct concat 영구
 // 차단. screenerSymbols 의 symbol 필드 마스터 매칭 격상 (정확한 시장) + 부재 시
 // legacy .KS fallback 보존 (그레이스 — 코스닥도 Yahoo 에서 .KS 로 조회 가능).
-import { tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
+import { fetchYahooQuoteByCode, tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
 // ADR-0128 §Wiring 1B: 워치리스트 신규 후보 incremental 검증 (WATCHLIST role).
 // 워치리스트 등록 자체는 차단 금지 — alert 보류 + UI 마킹만 영향 (markDataQuarantine).
 import { verifyStockIncremental } from '../data/dataVerificationIncremental.js';
@@ -439,7 +439,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
   for (const stock of scanUniverse) {
     if (existingCodes.has(stock.code)) continue;
 
-    const quote = await fetchYahooQuote(stock.symbol);
+    const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote);
     if (!quote || quote.price <= 0) {
       rejectionLog.push({ code: stock.code, name: stock.name, reason: '시세조회실패' });
       continue;
@@ -458,7 +458,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 시계열 의존 14 evaluator 는 registry.run 에서 자동 PROVIDER_DEGRADED 강등 (score=0).
     // 후속 watchlistEntry 에 technicalProviderDegraded=true 영속 (라인 ~538 참조).
     let technicalProviderDegraded = false;
-    if (quote.dataQuality === 'KIS_PRIMARY_YAHOO_STALE_DETECTED') {
+    if (quote.dataQuality === 'KIS_PRIMARY_YAHOO_STALE_DETECTED' && !quote.noProviderDegrade) {
       technicalProviderDegraded = true;
       console.warn(
         `[AutoPopulate] ${stock.code} ${stock.name} — WATCHLIST_HOLD ` +

@@ -19,6 +19,28 @@ export type KrxSectorName =
 /** 계절성 가중치 보정 월 구분 */
 export type SeasonMonth = 'JAN' | 'APR_MAY' | 'OCT_NOV' | 'OTHER';
 
+export type SectorEnergySourceTier =
+  | 'KIS_OFFICIAL_INDEX'
+  | 'KIS_OFFICIAL_DAILY'
+  | 'KIS_STOCK_BASKET_DERIVED'
+  | 'KRX_OFFICIAL_INDEX'
+  | 'KRX_CODE'
+  | 'CACHE'
+  | 'YAHOO_GLOBAL_PROXY'
+  | 'YAHOO_ETF'
+  | 'INTERNAL_PROXY'
+  | 'STOCK_DAILY'
+  | 'MISSING'
+  | 'FAILED';
+
+export type SectorEnergyLeadershipConfidence =
+  | 'WEIGHTED'
+  | 'READY_FOR_SHADOW'
+  | 'PARTIAL'
+  | 'GLOBAL_DIAGNOSTIC_ONLY'
+  | 'DIAGNOSTIC_ONLY'
+  | 'BLOCKED';
+
 /** 섹터 에너지 점수 입력 — 섹터별로 수집 */
 export interface SectorEnergyInput {
   /** 섹터명 */
@@ -29,6 +51,22 @@ export interface SectorEnergyInput {
   volumeChangePct: number;
   /** 외국인 집중도 — 최근 4주 외국인 순매수 / 전체 거래대금 (0–100) */
   foreignConcentration: number;
+  sourceTier?: SectorEnergySourceTier;
+  sectorReturn5d?: number;
+  sectorReturn20d?: number;
+  turnoverAcceleration?: number;
+  breadthAbove20ma?: number;
+  foreignInstitutionFlowAlignment?: number;
+  sectorRelativeStrengthVsKospi?: number;
+  sectorRelativeStrengthVsKosdaq?: number;
+  sectorVolumeSurge?: boolean;
+  sectorBreadth?: number;
+  leadingStockCount?: number;
+  topConstituentMomentum?: number;
+  turnoverRank?: number;
+  leadershipPhase?: 'EARLY' | 'MID' | 'LATE' | 'UNKNOWN';
+  constituentCount?: number;
+  basketCodes?: string[];
 }
 
 /** 섹터 에너지 점수 계산 결과 */
@@ -48,6 +86,20 @@ export interface SectorEnergyScore {
   seasonalMultiplier: number;
   /** 최종 에너지 점수 (rawScore × seasonalMultiplier) */
   energyScore: number;
+  sourceTier?: SectorEnergySourceTier;
+  sectorReturn5d?: number;
+  sectorReturn20d?: number;
+  turnoverAcceleration?: number;
+  breadthAbove20ma?: number;
+  foreignInstitutionFlowAlignment?: number;
+  sectorRelativeStrengthVsKospi?: number;
+  sectorRelativeStrengthVsKosdaq?: number;
+  sectorVolumeSurge?: boolean;
+  sectorBreadth?: number;
+  leadingStockCount?: number;
+  topConstituentMomentum?: number;
+  turnoverRank?: number;
+  leadershipPhase?: 'EARLY' | 'MID' | 'LATE' | 'UNKNOWN';
 }
 
 /** 섹터 분류 결과 */
@@ -80,4 +132,14 @@ export interface SectorEnergyResult {
   calculatedAt: string;
   /** 요약 메시지 */
   summary: string;
+  sourceTier?: SectorEnergySourceTier;
+  confidence?: number;
+  leadershipConfidence?: SectorEnergyLeadershipConfidence;
+  verifiedIndexCodeCoverage?: number;
+  kisOfficialCoverage?: number;
+  kisBasketCoverage?: number;
+  internalProxyCoverage?: number;
+  stockDailyFallbackCoverage?: number;
+  liveExecutionAllowed?: false;
+  executionImpact?: 'NONE';
 }

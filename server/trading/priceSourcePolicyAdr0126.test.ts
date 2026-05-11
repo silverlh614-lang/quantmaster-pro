@@ -19,6 +19,17 @@ import {
 } from './priceSourcePolicy.js';
 import { shouldBlockTradingByDataQuality } from '../types/dataQuality.js';
 
+const ORIGINAL_YAHOO_PRICE_ROLE = process.env.YAHOO_PRICE_ROLE;
+
+beforeEach(() => {
+  delete process.env.YAHOO_PRICE_ROLE;
+});
+
+afterEach(() => {
+  if (ORIGINAL_YAHOO_PRICE_ROLE === undefined) delete process.env.YAHOO_PRICE_ROLE;
+  else process.env.YAHOO_PRICE_ROLE = ORIGINAL_YAHOO_PRICE_ROLE;
+});
+
 describe('toDataQualityInfo — DataQualityResult → DataQualityInfo 매핑 SSOT', () => {
   it('VALID → undefined (매수 허용)', () => {
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 50500 });
@@ -30,17 +41,41 @@ describe('toDataQualityInfo — DataQualityResult → DataQualityInfo 매핑 SSO
     expect(toDataQualityInfo(result)).toBeUndefined();
   });
 
-  it('INVALID → STALE_BASE_OR_SPLIT_ADJUSTMENT (sizingTier BLOCKED 트리거)', () => {
+  it('KIS primary + Yahoo 20% divergence → VALID without data quarantine', () => {
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 60000 });
     const dq = toDataQualityInfo(result);
+    expect(result.status).toBe('VALID');
+    expect(result.canonicalSource).toBe('KIS');
+    expect(result.allowExecution).toBe(true);
+    expect(result.reasons.join(' ')).toContain('KIS_PRIMARY_YAHOO_DIAGNOSTIC_ONLY');
+    expect(result.reasons.join(' ')).toContain('noProviderDegrade=true');
+    expect(dq).toBeUndefined();
+  });
+
+  it('KIS primary + Yahoo 40% divergence → VALID without provider degrade', () => {
+    const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 70000 });
+    const dq = toDataQualityInfo(result);
+    expect(result.status).toBe('VALID');
+    expect(result.canonicalPrice).toBe(50000);
+    expect(result.discrepancyPct).toBe(40);
+    expect(dq).toBeUndefined();
+  });
+
+  it('YAHOO_PRICE_ROLE=ACTIVE restores legacy INVALID quarantine', () => {
+    process.env.YAHOO_PRICE_ROLE = 'ACTIVE';
+    const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 60000 });
+    const dq = toDataQualityInfo(result);
+    expect(result.status).toBe('INVALID');
     expect(dq).toBeDefined();
     expect(dq?.status).toBe('STALE_BASE_OR_SPLIT_ADJUSTMENT');
     expect(shouldBlockTradingByDataQuality(dq)).toBe(true);
   });
 
-  it('CORPORATE_ACTION_SUSPECT → STALE_BASE_OR_SPLIT_ADJUSTMENT (액면분할 의심)', () => {
+  it('YAHOO_PRICE_ROLE=ACTIVE restores legacy corporate-action quarantine', () => {
+    process.env.YAHOO_PRICE_ROLE = 'ACTIVE';
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 70000 });
     const dq = toDataQualityInfo(result);
+    expect(result.status).toBe('CORPORATE_ACTION_SUSPECT');
     expect(dq).toBeDefined();
     expect(dq?.status).toBe('STALE_BASE_OR_SPLIT_ADJUSTMENT');
     expect(shouldBlockTradingByDataQuality(dq)).toBe(true);
@@ -65,15 +100,16 @@ describe('toDataQualityInfo — DataQualityResult → DataQualityInfo 매핑 SSO
   it('reasons + context 영속 — 진단 메시지 sizingTier BLOCKED 라벨에 반영', () => {
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 80000 });
     const dq = toDataQualityInfo(result, 'final-candidate:000660');
-    expect(dq?.context).toBe('final-candidate:000660');
-    expect(dq?.reason).toContain('discrepancy');
+    expect(result.status).toBe('VALID');
+    expect(result.reasons.join(' ')).toContain('discrepancy=60.00%');
+    expect(dq).toBeUndefined();
   });
 
   it('discrepancyPct context 자동 생성 (context 미전달 시)', () => {
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 80000 });
     const dq = toDataQualityInfo(result);
-    expect(dq?.context).toContain('discrepancy=');
-    expect(dq?.context).toContain('60.00%');
+    expect(result.discrepancyPct).toBe(60);
+    expect(dq).toBeUndefined();
   });
 });
 
@@ -94,17 +130,14 @@ describe('evaluateDataQualityFromStock — stock + currentPrice 합성 SSOT', ()
     expect(evaluateDataQualityFromStock({ priceKrw: 50500 }, 50000)).toBeUndefined();
   });
 
-  it('Yahoo 괴리 30%+ (액면분할 의심) → STALE_BASE_OR_SPLIT_ADJUSTMENT', () => {
+  it('KIS primary + Yahoo 30%+ divergence → no dataQuality block by default', () => {
     const dq = evaluateDataQualityFromStock({ priceKrw: 70000 }, 50000);
-    expect(dq).toBeDefined();
-    expect(dq?.status).toBe('STALE_BASE_OR_SPLIT_ADJUSTMENT');
-    expect(shouldBlockTradingByDataQuality(dq)).toBe(true);
+    expect(dq).toBeUndefined();
   });
 
-  it('Yahoo 괴리 10~30% → STALE_BASE_OR_SPLIT_ADJUSTMENT (매수 차단)', () => {
+  it('KIS primary + Yahoo 10~30% divergence → no dataQuality block by default', () => {
     const dq = evaluateDataQualityFromStock({ priceKrw: 60000 }, 50000);
-    expect(dq?.status).toBe('STALE_BASE_OR_SPLIT_ADJUSTMENT');
-    expect(shouldBlockTradingByDataQuality(dq)).toBe(true);
+    expect(dq).toBeUndefined();
   });
 
   it('KIS 부재 (현재가 null) + Yahoo 만 있음 → SOURCE_UNTRUSTED', () => {
@@ -132,17 +165,15 @@ describe('evaluateDataQualityFromStock — stock + currentPrice 합성 SSOT', ()
     expect(isPriceSourceExecutionGateDisabled()).toBe(false);
   });
 
-  it('1차 로그 098460 시나리오 — Yahoo +221% drift → STALE_BASE_OR_SPLIT_ADJUSTMENT 차단', () => {
+  it('1차 로그 098460 시나리오 — Yahoo +221% drift is ignored when KIS is primary', () => {
     // KIS=15000 (정상) + Yahoo=48150 (액면병합 전 가격)
     const dq = evaluateDataQualityFromStock({ priceKrw: 48150 }, 15000);
-    expect(dq?.status).toBe('STALE_BASE_OR_SPLIT_ADJUSTMENT');
-    expect(shouldBlockTradingByDataQuality(dq)).toBe(true);
-    // sizingTier 가 BLOCKED 분기 트리거 → 매수 차단 보장
+    expect(dq).toBeUndefined();
   });
 
   it('context propagate — 디버그 라벨', () => {
     const dq = evaluateDataQualityFromStock({ priceKrw: 80000 }, 50000, 'test-context');
-    expect(dq?.context).toBe('test-context');
+    expect(dq).toBeUndefined();
   });
 });
 

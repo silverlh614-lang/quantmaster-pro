@@ -46,6 +46,11 @@ export function isQuoteSane(quote: YahooQuoteExtended): boolean {
   return quote.dataQuality !== 'STALE_BASE';
 }
 
+async function fetchKisQuoteFirst(code: string): Promise<YahooQuoteExtended | null> {
+  const { fetchKisQuoteFallback } = await import('./kisQuoteAdapter.js');
+  return fetchKisQuoteFallback(code);
+}
+
 /**
  * code → Yahoo quote fetch 통합. 마스터 매칭 시 정확한 1회 fetch.
  * 마스터 부재 시 보수적 양쪽 시도 fallback (마이그레이션 그레이스).
@@ -71,6 +76,20 @@ export async function fetchYahooQuoteWithMarketFallback(
     }
     return finalQuote;
   };
+
+  const kisQuote = await fetchKisQuoteFirst(code).catch(() => null);
+  if (kisQuote && isQuoteSane(kisQuote)) {
+    finalSymbol = `${code}.KIS`;
+    finalQuote = {
+      ...kisQuote,
+      priceMetadata: kisQuote.priceMetadata ?? {
+        source: 'KIS_REALTIME',
+        asOf: new Date().toISOString(),
+        value: kisQuote.price,
+      },
+    };
+    return recordResult();
+  }
 
   const resolved = resolveYahooSymbolForCode(code);
   if (resolved) {

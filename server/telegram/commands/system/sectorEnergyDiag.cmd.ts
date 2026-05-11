@@ -122,6 +122,24 @@ export function formatSectorEnergyDiagMessage(): string {
     if (diag.fallbackReason) {
       lines.push(`⚠️ fallbackReason: <i>${diag.fallbackReason}</i>`);
     }
+    if (diag.coverageBreakdown) {
+      const c = diag.coverageBreakdown;
+      lines.push('');
+      lines.push('📊 <b>[KIS-first SectorEnergy coverage]</b>');
+      lines.push(`  • verifiedIndexCodeCoverage: <b>${(c.verifiedIndexCodeCoverage * 100).toFixed(1)}%</b> (${c.verifiedIndexCodeCount}/${c.totalSectors})`);
+      lines.push(`  • kisOfficialCoverage: <b>${(c.kisOfficialCoverage * 100).toFixed(1)}%</b> (${c.kisOfficialCount}/${c.totalSectors})`);
+      lines.push(`  • kisBasketCoverage: <b>${(c.kisBasketCoverage * 100).toFixed(1)}%</b> (${c.kisBasketCount}/${c.totalSectors})`);
+      lines.push(`  • internalProxyCoverage: <b>${(c.internalProxyCoverage * 100).toFixed(1)}%</b> (${c.internalProxyCount}/${c.totalSectors})`);
+      lines.push(`  • stockDailyFallbackCoverage: <b>${(c.stockDailyFallbackCoverage * 100).toFixed(1)}%</b> (${c.stockDailyFallbackCount}/${c.totalSectors})`);
+    }
+    if (diag.leadershipConfidence) {
+      lines.push(`🧭 leadershipConfidence: <b>${diag.leadershipConfidence}</b>`);
+    }
+    if (diag.selectedSectors && diag.selectedSectors.length > 0) {
+      lines.push(`🏁 selectedSectors: <code>${diag.selectedSectors.join(', ')}</code>`);
+    }
+    lines.push(`🛡 liveExecutionAllowed: <b>${String(diag.liveExecutionAllowed ?? false)}</b>`);
+    lines.push(`🧪 executionImpact: <b>${diag.executionImpact ?? 'NONE'}</b>`);
   }
 
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).

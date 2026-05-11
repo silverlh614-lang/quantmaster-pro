@@ -443,42 +443,6 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
   const health: InvestorFlowProviderHealth[] = [];
 
   try {
-    const krx = await fetchKrxInvestorFlow(code, now);
-    health.push(krx.health);
-    if (krx.data && hasRealInvestorFields(krx.data)) {
-      pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
-      const composite = makeInvestorFlowProviderHealth({
-        provider: 'COMPOSITE',
-        status: 'OK',
-        reason: 'KRX investor-flow semantic net-buy available',
-        now,
-        sourceDateKst: krx.data.tradingDate,
-        semantic: {
-          foreignNetBuy: krx.data.foreignNetBuy,
-          institutionNetBuy: krx.data.institutionalNetBuy,
-          individualNetBuy: krx.data.individualNetBuy,
-        },
-      });
-      health.push(composite);
-      rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: krx.data, attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
-    }
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
-  } catch (err) {
-    health.push(makeInvestorFlowProviderHealth({
-      provider: 'KRX',
-      status: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'UNKNOWN_ERROR',
-      reason: err instanceof Error ? err.message : String(err),
-      now,
-      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
-      endpoint: 'MDCSTAT02203',
-      retryable: true,
-      cacheFallback: true,
-    }));
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'ERROR', err instanceof Error ? err.message : String(err));
-  }
-
-  try {
     const kis = await fetchKisInvestorFlowEvidence(code, now);
     health.push(kis.health);
     if (kis.data && hasRealInvestorFields(kis.data)) {
@@ -543,6 +507,42 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
       cacheFallback: true,
     }));
     pushAttempt(attempts, 'KIS_API', 'ERROR', err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    const krx = await fetchKrxInvestorFlow(code, now);
+    health.push(krx.health);
+    if (krx.data && hasRealInvestorFields(krx.data)) {
+      pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
+      const composite = makeInvestorFlowProviderHealth({
+        provider: 'COMPOSITE',
+        status: 'OK',
+        reason: 'KRX investor-flow semantic net-buy available',
+        now,
+        sourceDateKst: krx.data.tradingDate,
+        semantic: {
+          foreignNetBuy: krx.data.foreignNetBuy,
+          institutionNetBuy: krx.data.institutionalNetBuy,
+          individualNetBuy: krx.data.individualNetBuy,
+        },
+      });
+      health.push(composite);
+      rememberInvestorFlowProviderHealth(health);
+      return { stockCode: code, data: krx.data, attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
+    }
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
+  } catch (err) {
+    health.push(makeInvestorFlowProviderHealth({
+      provider: 'KRX',
+      status: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'UNKNOWN_ERROR',
+      reason: err instanceof Error ? err.message : String(err),
+      now,
+      sourceDateKst: resolveInvestorFlowSourceDateKst(now),
+      endpoint: 'MDCSTAT02203',
+      retryable: true,
+      cacheFallback: true,
+    }));
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'ERROR', err instanceof Error ? err.message : String(err));
   }
 
   try {

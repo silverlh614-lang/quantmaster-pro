@@ -150,7 +150,19 @@ export interface MacroState {
    * - coverage: validSectorCount / totalSectorCount, 0~1
    * - confidence: sourceWeight × freshnessWeight × coverage, 0~1 (clamp)
    */
-  sectorEnergySourceTier?: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+  sectorEnergySourceTier?:
+    | 'KIS_OFFICIAL_INDEX'
+    | 'KIS_OFFICIAL_DAILY'
+    | 'KIS_STOCK_BASKET_DERIVED'
+    | 'KRX_OFFICIAL_INDEX'
+    | 'KRX_CODE'
+    | 'STOCK_DAILY'
+    | 'CACHE'
+    | 'YAHOO_GLOBAL_PROXY'
+    | 'YAHOO_ETF'
+    | 'INTERNAL_PROXY'
+    | 'MISSING'
+    | 'FAILED';
   /** ADR-0396: cache age 기반 freshness 분기. */
   sectorEnergyFreshness?: 'FRESH' | 'DEGRADED' | 'EXPIRED';
   /** ADR-0396: 12 섹터 중 유효 비율 (0~1, clamp). */
@@ -173,13 +185,58 @@ export interface MacroState {
   sectorEnergyDiagnostics?: {
     candidateDates: string[];
     sourceTierAttempts: Array<{
-      tier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+      tier:
+        | 'KIS_OFFICIAL_INDEX'
+        | 'KIS_OFFICIAL_DAILY'
+        | 'KIS_STOCK_BASKET_DERIVED'
+        | 'KRX_OFFICIAL_INDEX'
+        | 'KRX_CODE'
+        | 'STOCK_DAILY'
+        | 'CACHE'
+        | 'YAHOO_GLOBAL_PROXY'
+        | 'YAHOO_ETF'
+        | 'INTERNAL_PROXY'
+        | 'MISSING'
+        | 'FAILED';
       validCount: number;
       reason?: string;
     }>;
-    finalSourceTier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+    finalSourceTier:
+      | 'KIS_OFFICIAL_INDEX'
+      | 'KIS_OFFICIAL_DAILY'
+      | 'KIS_STOCK_BASKET_DERIVED'
+      | 'KRX_OFFICIAL_INDEX'
+      | 'KRX_CODE'
+      | 'STOCK_DAILY'
+      | 'CACHE'
+      | 'YAHOO_GLOBAL_PROXY'
+      | 'YAHOO_ETF'
+      | 'INTERNAL_PROXY'
+      | 'MISSING'
+      | 'FAILED';
     confidence: number;
     fallbackReason?: string;
+    coverageBreakdown?: {
+      totalSectors: number;
+      verifiedIndexCodeCount: number;
+      verifiedIndexCodeCoverage: number;
+      kisOfficialCount: number;
+      kisOfficialCoverage: number;
+      kisBasketCount: number;
+      kisBasketCoverage: number;
+      internalProxyCount: number;
+      internalProxyCoverage: number;
+      stockDailyFallbackCount: number;
+      stockDailyFallbackCoverage: number;
+      yahooGlobalProxyCount: number;
+      yahooGlobalProxyCoverage: number;
+    };
+    leadershipConfidence?: 'WEIGHTED' | 'READY_FOR_SHADOW' | 'PARTIAL' | 'GLOBAL_DIAGNOSTIC_ONLY' | 'DIAGNOSTIC_ONLY' | 'BLOCKED';
+    selectedSectors?: string[];
+    providerIssue?: boolean;
+    marketSignal?: false;
+    liveExecutionAllowed?: false;
+    executionImpact?: 'NONE';
   };
   /**
    * ADR-0423: SectorEnergy 데이터 진실성 진단 (옵셔널, 후방호환).
