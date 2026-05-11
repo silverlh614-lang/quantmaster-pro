@@ -1,55 +1,106 @@
 /**
  * @responsibility 종목 단위 진입 검증 — Gate·RRR·liveGate·failure·corr·sizing·cooldown 평가
  */
-import type { ScanCounters } from './scanDiagnostics.js';
-import { registerEntryCandidateSnapshots } from './scanDiagnostics.js';
-import { getSectorByCode } from '../../screener/sectorMap.js';
-import { isOpenShadowStatus } from '../entryEngine.js';
-import { decideProbingSlotBudget, buildArmKey, type BanditDecision } from '../../learning/probingBandit.js';
-import { saveWatchlist } from '../../persistence/watchlistRepo.js';
-import type { ApprovalQueueState } from './approvalQueue.js';
-import type { RunAutoSignalScanOptions } from './index.js';
+import type { ScanCounters } from "./scanDiagnostics.js";
+import { registerEntryCandidateSnapshots } from "./scanDiagnostics.js";
+import { getSectorByCode } from "../../screener/sectorMap.js";
+import { isOpenShadowStatus } from "../entryEngine.js";
+import {
+  decideProbingSlotBudget,
+  buildArmKey,
+  type BanditDecision,
+} from "../../learning/probingBandit.js";
+import { saveWatchlist } from "../../persistence/watchlistRepo.js";
+import type { ApprovalQueueState } from "./approvalQueue.js";
+import type { RunAutoSignalScanOptions } from "./index.js";
 
 // ADR-0134: barrel exports 복원
 // ADR-0188 (lint baseline cleanup): perSymbol/index.ts 의 SSOT 통합 barrel 을 그대로 re-export.
 // 이전엔 buyListLoop + intradayLoop 만 re-export 하여 helpers.SymbolExitContext + types.BuyListLoopMutables/
 // IntradayLoopMutables/BuyListLoopContext/IntradayLoopContext 가 누락 — entryGates/types.ts +
 // approvalQueue/applyApprovalReservation.ts + signalScanner.ts 의 import 경로 단절.
-import { evaluateBuyList as executeBuyList } from './perSymbol/buyListLoop.js';
-import { evaluateIntradayList as executeIntradayList } from './perSymbol/intradayLoop.js';
-export * from './perSymbol/index.js';
+import { evaluateBuyList as executeBuyList } from "./perSymbol/buyListLoop.js";
+import { evaluateIntradayList as executeIntradayList } from "./perSymbol/intradayLoop.js";
+export * from "./perSymbol/index.js";
 
 export async function evaluateMainCandidates(
   candidates: any,
   context: any,
   counters: ScanCounters,
-  queueState: ApprovalQueueState
+  queueState: ApprovalQueueState,
 ): Promise<void> {
   const { buyList, swingList } = candidates;
   const {
-    watchlist, shadows, shadowMode, totalAssets, effectiveMaxPositions,
-    regime, regimeConfig, macroState, vixGating, fomcProximity,
-    kellyMultiplier, accountKellyMultiplier, sellOnlyExc, volumeClock,
-    conditionWeights, supplyHealthSnapshot
+    watchlist,
+    shadows,
+    shadowMode,
+    totalAssets,
+    effectiveMaxPositions,
+    regime,
+    regimeConfig,
+    macroState,
+    vixGating,
+    fomcProximity,
+    kellyMultiplier,
+    accountKellyMultiplier,
+    sellOnlyExc,
+    volumeClock,
+    conditionWeights,
+    supplyHealthSnapshot,
   } = context;
 
-  registerEntryCandidateSnapshots(counters, buyList.map((w: any) => ({
-    symbol: w.code,
-    name: w.name,
-    stageReached: 'WATCHLIST' as const,
-    gateScore: w.gateScore,
-    gate1Passed: w.gateEvaluation?.gate1Passed,
-    gate2Passed: w.gateEvaluation?.gate2Passed,
-    gate3Passed: w.gateEvaluation?.gate3Passed,
-  })));
+  registerEntryCandidateSnapshots(
+    counters,
+    buyList.map((w: any) => ({
+      symbol: w.code,
+      name: w.name,
+      stageReached: "WATCHLIST" as const,
+      gateScore: w.gateScore,
+      totalGateScore: w.totalGateScore ?? w.gateScore,
+      stage1Score: w.stage1Score,
+      stage2Score: w.stage2Score,
+      watchlistScore: w.watchlistPriorityScore,
+      priorityScore: w.watchlistPriorityScore,
+      conditionKeys: w.conditionKeys,
+      symbolFeatures: {
+        ...(w.symbolFeatures ?? {}),
+        gateScore: w.symbolFeatures?.gateScore ?? w.gateScore,
+        stage1Score: w.symbolFeatures?.stage1Score ?? w.stage1Score,
+        stage2Score: w.symbolFeatures?.stage2Score ?? w.stage2Score,
+        totalGateScore:
+          w.symbolFeatures?.totalGateScore ?? w.totalGateScore ?? w.gateScore,
+        watchlistPriorityScore:
+          w.symbolFeatures?.watchlistPriorityScore ?? w.watchlistPriorityScore,
+        sector: w.symbolFeatures?.sector ?? w.sector,
+      },
+      return20d: w.symbolFeatures?.return20d,
+      return5d: w.symbolFeatures?.return5d,
+      volume: w.symbolFeatures?.volume,
+      avgVolume: w.symbolFeatures?.avgVolume,
+      projectedVolume: w.symbolFeatures?.projectedVolume,
+      price: w.symbolFeatures?.price ?? w.entryPrice,
+      ma20: w.symbolFeatures?.ma20,
+      ma60: w.symbolFeatures?.ma60,
+      rsi14: w.symbolFeatures?.rsi14,
+      atr: w.symbolFeatures?.atr,
+      atr20avg: w.symbolFeatures?.atr20avg,
+      kospi20dReturn: w.symbolFeatures?.kospi20dReturn,
+      gate1Passed: w.gateEvaluation?.gate1Passed,
+      gate2Passed: w.gateEvaluation?.gate2Passed,
+      gate3Passed: w.gateEvaluation?.gate3Passed,
+    })),
+  );
 
   const _banditCandidateArms: string[] = [];
   for (const w of buyList) {
-    const sig = (w.gateScore ?? 0) >= 9 ? 'STRONG_BUY' : 'BUY';
-    _banditCandidateArms.push(buildArmKey({ signalType: sig, profileType: w.profileType ?? null }));
+    const sig = (w.gateScore ?? 0) >= 9 ? "STRONG_BUY" : "BUY";
+    _banditCandidateArms.push(
+      buildArmKey({ signalType: sig, profileType: w.profileType ?? null }),
+    );
   }
-  _banditCandidateArms.push('PROBING:X');
-  const banditDecision: BanditDecision = decideProbingSlotBudget(_banditCandidateArms);
+  _banditCandidateArms.push("PROBING:X");
+  const banditDecision: BanditDecision =
+    decideProbingSlotBudget(_banditCandidateArms);
   if (banditDecision.budget > 1) {
     console.log(
       `[AutoTrade/Bandit] PROBING 동적 예산 ×${banditDecision.budget} (base 1) — ${banditDecision.rationale}`,
@@ -57,10 +108,14 @@ export async function evaluateMainCandidates(
   }
 
   for (const s of shadows) {
-    if (!isOpenShadowStatus(s.status) || s.watchlistSource === 'INTRADAY') continue;
-    const sec = getSectorByCode(s.stockCode) || '미분류';
+    if (!isOpenShadowStatus(s.status) || s.watchlistSource === "INTRADAY")
+      continue;
+    const sec = getSectorByCode(s.stockCode) || "미분류";
     const val = s.shadowEntryPrice * s.quantity;
-    queueState.currentSectorValue.set(sec, (queueState.currentSectorValue.get(sec) ?? 0) + val);
+    queueState.currentSectorValue.set(
+      sec,
+      (queueState.currentSectorValue.get(sec) ?? 0) + val,
+    );
   }
 
   let watchlistMutated = false;
@@ -116,18 +171,37 @@ export async function evaluateIntradayCandidates(
   context: any,
   counters: ScanCounters,
   queueState: ApprovalQueueState,
-  options?: RunAutoSignalScanOptions
+  options?: RunAutoSignalScanOptions,
 ): Promise<void> {
   const { intradayList: intradayBuyList } = candidates;
   const {
-    watchlist, shadows, shadowMode, totalAssets, accountKellyMultiplier,
-    kellyMultiplier, regime, regimeConfig, macroState, conditionWeights, supplyHealthSnapshot
+    watchlist,
+    shadows,
+    shadowMode,
+    totalAssets,
+    accountKellyMultiplier,
+    kellyMultiplier,
+    regime,
+    regimeConfig,
+    macroState,
+    conditionWeights,
+    supplyHealthSnapshot,
   } = context;
 
-  const intradayMutables = { orderableCash: { value: queueState.orderableCash } };
+  const intradayMutables = {
+    orderableCash: { value: queueState.orderableCash },
+  };
   await executeIntradayList({
-    intradayBuyList, shadows, shadowMode, totalAssets, accountKellyMultiplier,
-    kellyMultiplier, regime, regimeConfig, macroState, conditionWeights,
+    intradayBuyList,
+    shadows,
+    shadowMode,
+    totalAssets,
+    accountKellyMultiplier,
+    kellyMultiplier,
+    regime,
+    regimeConfig,
+    macroState,
+    conditionWeights,
     supplyHealthSnapshot,
     options: options ?? {},
     scanCounters: counters,
