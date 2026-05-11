@@ -383,12 +383,55 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       code: '005930',
       naverCollectorWired: false,
       supplySnapshotCacheLookupAdr0491: {
-        status: 'CACHE_KEY_MISMATCH', snapshot: null, cacheRaw: null, retained: 3, reason: 'KEY_MISMATCH_OR_SYMBOL_SOURCE_NOT_FOUND', stale: false, executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', rawPayloadPersistenceAllowed: false,
+        status: 'CACHE_KEY_MISMATCH',
+        snapshot: null,
+        cacheRaw: null,
+        retained: 3,
+        reason: 'SOURCE_ALIAS_MISMATCH',
+        stale: false,
+        debug: {
+          lookupKey: 'route=investor_flow|domain=SUPPLY|code=005930|source=NAVER_INVESTOR_TREND|dates=2026-05-11',
+          triedKeys: ['domain=SUPPLY|code=005930|source=NAVER_INVESTOR_TREND|tradingDate=2026-05-11|normalized=true'],
+          retainedSummary: {
+            total: 3,
+            byDomain: { SUPPLY: 2, SECTOR: 1 },
+            bySource: { KRX_INVESTOR_FLOW: 2, NAVER_INVESTOR_TREND: 1 },
+            byProvider: { KRX: 2, NAVER: 1 },
+            normalized: { true: 2, false: 1, missing: 0 },
+            byTradingDate: { '2026-05-04': 2, '2026-05-11': 1 },
+            sampleKeys: ['domain=SUPPLY source=KRX_INVESTOR_FLOW provider=KRX code=005930 tradingDate=2026-05-04 normalized=true'],
+          },
+          routerLookup: {
+            requestedCode: '005930',
+            normalizedCode: '005930',
+            route: 'investor_flow',
+            domainCandidates: ['SUPPLY'],
+            sourceCandidates: ['NAVER_INVESTOR_TREND'],
+            providerCandidates: ['NAVER', 'CACHE'],
+            tradingDateCandidates: ['2026-05-11', '2026-05-08'],
+            requireNormalized: true,
+            allowStale: true,
+            rawPayloadPersistenceAllowed: false,
+            liveExecutionAllowed: false,
+          },
+          mismatchHints: ['SOURCE_ALIAS_MISMATCH'],
+          closestMatches: [{ code: '005930', symbol: '005930', source: 'KRX_INVESTOR_FLOW', provider: 'KRX', tradingDate: '2026-05-04', sourceDate: '2026-05-04', normalized: true, reason: 'SOURCE_ALIAS_MISMATCH' }],
+        },
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
       },
     });
     expect(mismatch.selectedProvider).toBe('NONE');
     expect(mismatch.providerStatuses.CACHE).toBe('CACHE_KEY_MISMATCH');
     expect(mismatch.diagnostics.join(' ')).toContain('cacheLookupResult=CACHE_KEY_MISMATCH');
+    expect(mismatch.providerReasons.CACHE).toContain('mismatchHints=SOURCE_ALIAS_MISMATCH');
+    expect(mismatch.diagnostics.join(' ')).toContain('retainedSummary=total=3');
+    expect(mismatch.diagnostics.join(' ')).toContain('routerLookup=requestedCode=005930');
+    expect(mismatch.diagnostics.join(' ')).toContain('closestMatches=1.code=005930');
+    expect(mismatch.diagnostics.join(' ')).toContain('rawPayloadPersistenceAllowed=false');
+    expect(mismatch.diagnostics.join(' ')).toContain('liveExecutionAllowed=false');
   });
 
   it('Supply Health formatter does not show READY_FOR_SHADOW registry providers as NOT_WIRED', () => {
