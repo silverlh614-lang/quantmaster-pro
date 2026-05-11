@@ -64,18 +64,28 @@ describe('ADR-0185 evaluateStage1Filter strict 분기', () => {
       expect(result.pass).toBe(true);
     });
 
-    it('LOW_VOLUME legacy 분기 보존', async () => {
+    it('LOW_VOLUME 보완 신호 없음 분기 보존', async () => {
       const { evaluateStage1Filter } = await import('./pipelineHelpers');
       const result = evaluateStage1Filter(
-        makeQuote({ volume: 1000, avgVolume: 100_000, atr: 250, atr20avg: 200 }),
+        makeQuote({
+          volume: 1000, avgVolume: 100_000, atr: 250, atr20avg: 200,
+          return20d: 0, return5d: 0, ma20: 0, changePercent: 0,
+        }),
       );
       expect(result.pass).toBe(false);
       expect(result.reason).toBe('LOW_VOLUME');
     });
 
-    it('HIGH_PER legacy 분기 보존', async () => {
+    it('HIGH_PER 보완 신호 없음 분기 보존', async () => {
       const { evaluateStage1Filter } = await import('./pipelineHelpers');
-      const result = evaluateStage1Filter(makeQuote({ per: 70 }));
+      const result = evaluateStage1Filter(makeQuote({
+        per: 70,
+        return20d: 0,
+        return5d: 0,
+        ma20: 0,
+        changePercent: 0,
+        avgVolume: 0,
+      }));
       expect(result.pass).toBe(false);
       expect(result.reason).toBe('HIGH_PER');
     });
@@ -127,18 +137,28 @@ describe('ADR-0185 evaluateStage1Filter strict 분기', () => {
       expect(result.reason).toBe('DATA_MISSING_VOLUME');
     });
 
-    it('정상 데이터 + LOW_VOLUME — strict 통과 후 legacy 분기 적용', async () => {
+    it('정상 데이터 + LOW_VOLUME — strict 통과 후 보완 신호 없음 분기 적용', async () => {
       const { evaluateStage1Filter } = await import('./pipelineHelpers');
       const result = evaluateStage1Filter(
-        makeQuote({ volume: 1000, avgVolume: 100_000, atr: 250, atr20avg: 200 }),
+        makeQuote({
+          volume: 1000, avgVolume: 100_000, atr: 250, atr20avg: 200,
+          return20d: 0, return5d: 0, ma20: 0, changePercent: 0,
+        }),
       );
       expect(result.pass).toBe(false);
       expect(result.reason).toBe('LOW_VOLUME');
     });
 
-    it('정상 데이터 + HIGH_PER — strict 통과 후 legacy 분기', async () => {
+    it('정상 데이터 + HIGH_PER — strict 통과 후 보완 신호 없음 분기', async () => {
       const { evaluateStage1Filter } = await import('./pipelineHelpers');
-      const result = evaluateStage1Filter(makeQuote({ per: 70 }));
+      const result = evaluateStage1Filter(makeQuote({
+        per: 70,
+        return20d: 0,
+        return5d: 0,
+        ma20: 0,
+        changePercent: 0,
+        avgVolume: 0,
+      }));
       expect(result.pass).toBe(false);
       expect(result.reason).toBe('HIGH_PER');
     });

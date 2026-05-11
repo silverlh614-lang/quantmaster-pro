@@ -49,8 +49,28 @@ describe('evaluateStage1Filter — 사유 분기', () => {
     expect(evaluateStage1Filter(q({ changePercent: 8.5 }))).toEqual({ pass: false, reason: 'OVERHEAT' });
   });
 
-  it('HIGH_PER: per > 60', () => {
-    expect(evaluateStage1Filter(q({ per: 75 }))).toEqual({ pass: false, reason: 'HIGH_PER' });
+  it('HIGH_PER: PER 80이라도 모멘텀/추세 보완 신호가 있으면 통과', () => {
+    expect(evaluateStage1Filter(q({ per: 80, return20d: 6, price: 10_000, ma20: 9_500 }))).toEqual({ pass: true });
+  });
+
+  it('HIGH_PER: PER 160이고 보완 신호가 없으면 reject 유지', () => {
+    expect(evaluateStage1Filter(q({
+      per: 160,
+      return20d: 0,
+      return5d: 0,
+      price: 10_000,
+      ma20: 0,
+      changePercent: 0,
+      avgVolume: 0,
+      atr: 500,
+      atr20avg: 500,
+      rsi14: 30,
+    }))).toEqual({ pass: false, reason: 'HIGH_PER' });
+  });
+
+  it('HIGH_PER: PER <= 0은 HIGH_PER reject가 아니다', () => {
+    expect(evaluateStage1Filter(q({ per: 0 }))).toEqual({ pass: true });
+    expect(evaluateStage1Filter(q({ per: -5 }))).toEqual({ pass: true });
   });
 
   it('OVEREXTENDED: return5d > 15', () => {
@@ -74,14 +94,31 @@ describe('evaluateStage1Filter — 사유 분기', () => {
     expect(r.reason).toBeUndefined();
   });
 
-  it('LOW_VOLUME: 장후 15:30 이후에는 projection ratio 1.0으로 기존처럼 탈락', () => {
+  it('LOW_VOLUME: 장후 15:30 이후에도 추세 보완 신호가 있으면 통과', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-11T06:31:00.000Z')); // 15:31 KST
 
     const r = evaluateStage1Filter(q({
-      volume: 50_000, avgVolume: 100_000,  // 0.5× — fails after close
+      volume: 50_000, avgVolume: 100_000,  // 0.5× — projection 이후에도 부족
       atr: 500, atr20avg: 500,             // not VCP
-      changePercent: 1,                    // positive, no pullback consideration
+      price: 10_000, ma20: 9_500,          // 추세 보완 신호
+      changePercent: 0,
+      return20d: 0, return5d: 0, rsi14: 80,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.reason).toBeUndefined();
+  });
+
+  it('LOW_VOLUME: 보완 신호가 없으면 reject 유지', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T06:31:00.000Z')); // 15:31 KST
+
+    const r = evaluateStage1Filter(q({
+      volume: 50_000, avgVolume: 100_000,
+      atr: 500, atr20avg: 500,
+      price: 10_000, ma20: 0,
+      changePercent: 0,
+      return20d: 0, return5d: 0, rsi14: 80,
     }));
     expect(r.pass).toBe(false);
     expect(r.reason).toBe('LOW_VOLUME');
@@ -105,6 +142,57 @@ describe('evaluateStage1Filter — 사유 분기', () => {
     }));
     expect(r.pass).toBe(true);
     expect(r.reason).toBeUndefined();
+  });
+
+  it('LOW_VOLUME: volume 0은 LOW_VOLUME hard reject 하지 않음', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T06:31:00.000Z')); // 15:31 KST
+
+    const r = evaluateStage1Filter(q({
+      volume: 0,
+      avgVolume: 100_000,
+      atr: 500,
+      atr20avg: 500,
+      changePercent: 0,
+      return20d: 0,
+      return5d: 0,
+      ma20: 0,
+      rsi14: 80,
+    }));
+    expect(r.pass).toBe(true);
+    expect(r.reason).toBeUndefined();
+  });
+
+  it('NEGATIVE_DAY: -0.5%라도 추세/20일 수익률 보완 신호가 있으면 통과', () => {
+    expect(evaluateStage1Filter(q({
+      changePercent: -0.5,
+      price: 10_000,
+      ma20: 9_500,
+      return20d: 1,
+    }))).toEqual({ pass: true });
+  });
+
+  it('NEGATIVE_DAY: 보완 신호가 없으면 reject 유지', () => {
+    expect(evaluateStage1Filter(q({
+      changePercent: -0.5,
+      price: 10_000,
+      ma20: 11_000,
+      ma60: 11_500,
+      return20d: 0,
+      return5d: 0,
+      atr: 500,
+      atr20avg: 500,
+      rsi14: 80,
+    }))).toEqual({ pass: false, reason: 'NEGATIVE_DAY' });
+  });
+
+  it('EXCESSIVE_DRAWDOWN: -3%는 NEGATIVE_DAY 완화와 무관하게 reject 유지', () => {
+    expect(evaluateStage1Filter(q({
+      changePercent: -3,
+      price: 10_000,
+      ma20: 9_500,
+      return20d: 1,
+    }))).toEqual({ pass: false, reason: 'EXCESSIVE_DRAWDOWN' });
   });
 });
 
