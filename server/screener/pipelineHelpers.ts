@@ -297,6 +297,47 @@ export function projectIntradayVolume(
  *  3. VCP(변동성 축소) 또는 거래량 마름 (에너지 응축)
  *  4. RSI 30~62 (완화 — 강한 추세에서 RSI 56~62 첫 눌림 포착)
  */
+/**
+ * KST 정규장 기준 장중 경과율.
+ *
+ * Stage1 LOW_VOLUME은 일평균 거래량(avgVolume)과 현재 누적 거래량(volume)을
+ * 직접 비교하면 장초반에 대부분 탈락한다. 따라서 09:00~15:30 기준 경과율로
+ * 일일 예상 거래량(projectedVolume)을 산출한다.
+ *
+ * - 장전/장초반: 최소 MIN_INTRADAY_ELAPSED_RATIO 적용
+ * - 장후: 1.0
+ * - 휴장/주말 여부는 상위 스케줄러 책임. 여기서는 시간 보정만 수행.
+ */
+export function getKstRegularSessionElapsedRatio(now: Date = new Date()): number {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+
+  const open = 9 * 60;
+  const close = 15 * 60 + 30;
+  const total = close - open;
+
+  if (minutes <= open) return STAGE1_THRESHOLDS.MIN_INTRADAY_ELAPSED_RATIO;
+  if (minutes >= close) return 1;
+
+  const elapsed = (minutes - open) / total;
+  return Math.max(
+    STAGE1_THRESHOLDS.MIN_INTRADAY_ELAPSED_RATIO,
+    Math.min(1, elapsed),
+  );
+}
+
+/**
+ * 현재 누적 거래량을 정규장 경과율 기준 일일 예상 거래량으로 환산.
+ */
+export function projectIntradayVolume(
+  volume: number,
+  now: Date = new Date(),
+): number {
+  if (!Number.isFinite(volume) || volume <= 0) return 0;
+  const elapsedRatio = getKstRegularSessionElapsedRatio(now);
+  return volume / elapsedRatio;
+}
+
 export function isPullbackSetup(q: YahooQuoteExtended): boolean {
   if (q.high60d <= 0) return false;
   const drawdown = (q.high60d - q.price) / q.high60d * 100;
