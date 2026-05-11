@@ -262,6 +262,23 @@ export interface CandidateEntryTrace {
   minSignalScorePassed?: boolean;
   minSignalRequiredScore?: number;
   gateScore?: number;
+  totalGateScore?: number;
+  watchlistUpstreamScore?: number;
+  upstreamScore?: number;
+  stage2Score?: number;
+  watchlistScore?: number;
+  watchlistReason?: string[];
+  relativeStrengthScore?: number;
+  relativeStrength?: number;
+  rsRankPct?: number;
+  breakoutSignals?: Record<string, unknown>;
+  conditionResults?: Record<string, unknown>;
+  breakout_momentum?: unknown;
+  turtle_high?: unknown;
+  volume_breakout?: unknown;
+  volume_surge?: unknown;
+  vcp?: unknown;
+  trend_acceleration?: unknown;
   priceDataFresh?: boolean;
   volumeLiquidityPassed?: boolean;
   blockers: EntryBlocker[];
@@ -437,6 +454,23 @@ export interface CandidateSnapshot {
   minSignalScorePassed?: boolean;
   priceDataFresh?: boolean;
   volumeLiquidityPassed?: boolean;
+  totalGateScore?: number;
+  watchlistUpstreamScore?: number;
+  upstreamScore?: number;
+  stage2Score?: number;
+  watchlistScore?: number;
+  watchlistReason?: string[];
+  relativeStrengthScore?: number;
+  relativeStrength?: number;
+  rsRankPct?: number;
+  breakoutSignals?: Record<string, unknown>;
+  conditionResults?: Record<string, unknown>;
+  breakout_momentum?: unknown;
+  turtle_high?: unknown;
+  volume_breakout?: unknown;
+  volume_surge?: unknown;
+  vcp?: unknown;
+  trend_acceleration?: unknown;
 }
 
 interface BuildDecompositionInput {
@@ -949,6 +983,23 @@ export function buildEntryFilterDecomposition(input: BuildDecompositionInput): E
       minSignalScorePassed: c.minSignalScorePassed,
       minSignalRequiredScore: c.minSignalRequiredScore,
       gateScore: c.gateScore,
+      totalGateScore: c.totalGateScore,
+      watchlistUpstreamScore: c.watchlistUpstreamScore,
+      upstreamScore: c.upstreamScore,
+      stage2Score: c.stage2Score,
+      watchlistScore: c.watchlistScore,
+      watchlistReason: c.watchlistReason,
+      relativeStrengthScore: c.relativeStrengthScore,
+      relativeStrength: c.relativeStrength,
+      rsRankPct: c.rsRankPct,
+      breakoutSignals: c.breakoutSignals,
+      conditionResults: c.conditionResults,
+      breakout_momentum: c.breakout_momentum,
+      turtle_high: c.turtle_high,
+      volume_breakout: c.volume_breakout,
+      volume_surge: c.volume_surge,
+      vcp: c.vcp,
+      trend_acceleration: c.trend_acceleration,
       priceDataFresh: c.priceDataFresh,
       volumeLiquidityPassed: c.volumeLiquidityPassed,
       blockers: [],

@@ -12,6 +12,8 @@ export type SignalScoreComponentCode =
   | 'VOLUME_LIQUIDITY'
   | 'TECHNICAL_TREND'
   | 'RELATIVE_STRENGTH'
+  | 'WATCHLIST_UPSTREAM_SCORE'
+  | 'BREAKOUT_STRUCTURE'
   | 'SUPPLY_CONFLUENCE'
   | 'INVESTOR_FLOW'
   | 'SECTOR_ENERGY'
@@ -193,6 +195,78 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function normalizeSignalScoreTo100(score: number | null | undefined): number {
+  if (score == null || !Number.isFinite(score)) return 0;
+  if (score >= 0 && score <= 10) return score * 10;
+  if (score > 10 && score <= 27) return (score / 27) * 100;
+  if (score > 27 && score <= 100) return score;
+  if (score > 100) return 100;
+  return 0;
+}
+
+function weightedFromNormalized(normalizedScore: number, maxScore: number): number {
+  return round1((clamp(normalizedScore, 0, 100) / 100) * maxScore);
+}
+
+function numericTraceValue(trace: CandidateEntryTrace, keys: readonly string[]): number | undefined {
+  const record = trace as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (finite(value)) return value;
+  }
+  return undefined;
+}
+
+function stringArrayTraceValue(trace: CandidateEntryTrace, key: string): string[] | undefined {
+  const value = (trace as unknown as Record<string, unknown>)[key];
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined;
+}
+
+function positiveReasonProxy(reasons: readonly string[] | undefined): boolean {
+  return (reasons ?? []).some((reason) => /momentum|leader|leading|relative|rs|강세|주도주/i.test(reason));
+}
+
+const BREAKOUT_SOURCE_KEYS = ['breakout_momentum', 'turtle_high', 'volume_breakout', 'volume_surge', 'vcp', 'trend_acceleration'] as const;
+
+function breakoutSignalState(trace: CandidateEntryTrace, key: string): unknown {
+  const record = trace as unknown as Record<string, unknown>;
+  const direct = record[key];
+  if (direct !== undefined) return direct;
+  const signals = record.breakoutSignals;
+  if (signals && typeof signals === 'object') return (signals as Record<string, unknown>)[key];
+  const conditionResults = record.conditionResults;
+  if (conditionResults && typeof conditionResults === 'object') return (conditionResults as Record<string, unknown>)[key];
+  return undefined;
+}
+
+function isBreakoutFired(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'string') return /^(FIRED|PASS|PASSED|TRUE)$/i.test(value);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return record.fired === true || record.passed === true || isBreakoutFired(record.status) || isBreakoutFired(record.result);
+  }
+  return false;
+}
+
+function isBreakoutUnavailable(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === 'string') return /^(UNAVAILABLE|ERROR|MISSING|UNKNOWN)$/i.test(value);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return isBreakoutUnavailable(record.status) || isBreakoutUnavailable(record.result) || record.error === true;
+  }
+  return false;
+}
+
 function component(input: Omit<SignalScoreComponentTrace, 'contributionPct'>): SignalScoreComponentTrace {
   return {
     ...input,
@@ -219,6 +293,32 @@ export function buildMinimumSignalScoreTrace(input: {
   const supplyBearish = input.supplyConfluenceState === 'BEARISH';
   const investorUnknown = input.supplyProviderHealth.status !== 'VERIFIED';
   const softFailPenalty = input.hasGate1Blocker ? -5 : 0;
+  const watchlistScoreSource = numericTraceValue(input.trace, [
+    'watchlistUpstreamScore',
+    'upstreamScore',
+    'stage2Score',
+    'totalGateScore',
+    'watchlistScore',
+    'gateScore',
+  ]);
+  const watchlistScoreSourceName = watchlistScoreSource === undefined
+    ? undefined
+    : ['watchlistUpstreamScore', 'upstreamScore', 'stage2Score', 'totalGateScore', 'watchlistScore', 'gateScore']
+        .find((key) => finite((input.trace as unknown as Record<string, unknown>)[key]));
+  const watchlistNormalizedScore = normalizeSignalScoreTo100(watchlistScoreSource);
+  const watchlistWeightedScore = weightedFromNormalized(watchlistNormalizedScore, 10);
+  const explicitRelativeStrength = numericTraceValue(input.trace, ['relativeStrengthScore', 'relativeStrength', 'rsRankPct']);
+  const relativeProxyReasons = stringArrayTraceValue(input.trace, 'watchlistReason');
+  const relativeNormalizedScore = explicitRelativeStrength !== undefined
+    ? normalizeSignalScoreTo100(explicitRelativeStrength)
+    : positiveReasonProxy(relativeProxyReasons)
+      ? 60
+      : 0;
+  const relativeWeightedScore = weightedFromNormalized(relativeNormalizedScore, 10);
+  const breakoutStates = BREAKOUT_SOURCE_KEYS.map((key) => ({ key, value: breakoutSignalState(input.trace, key) }));
+  const breakoutFired = breakoutStates.filter((item) => isBreakoutFired(item.value));
+  const breakoutUnavailable = breakoutStates.filter((item) => isBreakoutUnavailable(item.value));
+  const breakoutWeightedScore = Math.min(10, breakoutFired.length * 5);
   const components: SignalScoreComponentTrace[] = [
     component({
       code: 'PRICE_MOMENTUM',
@@ -249,7 +349,55 @@ export function buildMinimumSignalScoreTrace(input: {
       message: 'Liquidity contribution is a market-signal component only when actual liquidity is low.',
     }),
     component({ code: 'TECHNICAL_TREND', normalizedScore: input.hasGate1Blocker ? 8 : 14, weight: 1, weightedScore: input.hasGate1Blocker ? 8 : 14, maxScore: 14, confidence: 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: false, message: 'Technical trend proxy from legacy Gate1 path.' }),
-    component({ code: 'RELATIVE_STRENGTH', normalizedScore: input.hasGate1Blocker ? 6 : 10, weight: 1, weightedScore: input.hasGate1Blocker ? 6 : 10, maxScore: 10, confidence: 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: false, message: 'Relative strength proxy from candidate ranking.' }),
+    component({
+      code: 'RELATIVE_STRENGTH',
+      rawValue: explicitRelativeStrength ?? relativeProxyReasons,
+      normalizedScore: relativeNormalizedScore,
+      weight: 1,
+      weightedScore: relativeWeightedScore,
+      maxScore: 10,
+      confidence: explicitRelativeStrength !== undefined ? 'VERIFIED' : positiveReasonProxy(relativeProxyReasons) ? 'DEGRADED' : 'MISSING',
+      providerIssue: explicitRelativeStrength === undefined && !positiveReasonProxy(relativeProxyReasons),
+      marketSignal: false,
+      penaltyApplied: false,
+      message: explicitRelativeStrength !== undefined
+        ? 'Relative strength component imported from explicit candidate ranking/source.'
+        : positiveReasonProxy(relativeProxyReasons)
+          ? 'Relative strength component uses watchlist reason proxy; no marketSignal penalty applied.'
+          : 'Relative strength source missing; contribution is 0 and is not treated as bearish.',
+    }),
+    component({
+      code: 'WATCHLIST_UPSTREAM_SCORE',
+      rawValue: watchlistScoreSource,
+      normalizedScore: watchlistNormalizedScore,
+      weight: 1,
+      weightedScore: watchlistWeightedScore,
+      maxScore: 10,
+      confidence: watchlistScoreSource === undefined ? 'MISSING' : 'VERIFIED',
+      providerIssue: watchlistScoreSource === undefined,
+      marketSignal: false,
+      penaltyApplied: false,
+      message: watchlistScoreSource === undefined
+        ? 'WATCHLIST_UPSTREAM_SCORE source missing; contribution is 0 and is not silently coerced into OTHER_POSITIVE.'
+        : `WATCHLIST_UPSTREAM_SCORE imported from ${watchlistScoreSourceName ?? 'candidate score source'} and normalized to 0-100 before maxScore weighting.`,
+    }),
+    component({
+      code: 'BREAKOUT_STRUCTURE',
+      rawValue: Object.fromEntries(breakoutStates.filter((item) => item.value !== undefined).map((item) => [item.key, item.value])),
+      normalizedScore: breakoutWeightedScore * 10,
+      weight: 1,
+      weightedScore: breakoutWeightedScore,
+      maxScore: 10,
+      confidence: breakoutFired.length > 0 ? 'VERIFIED' : breakoutUnavailable.length > 0 ? 'UNKNOWN' : 'MISSING',
+      providerIssue: breakoutFired.length === 0 && breakoutUnavailable.length > 0,
+      marketSignal: false,
+      penaltyApplied: false,
+      message: breakoutFired.length > 0
+        ? `Breakout structure positive component fired from ${breakoutFired.map((item) => item.key).join(', ')}.`
+        : breakoutUnavailable.length > 0
+          ? `Breakout structure source unavailable/error for ${breakoutUnavailable.map((item) => item.key).join(', ')}; not promoted to positive.`
+          : 'Breakout structure condition result missing; contribution is 0.',
+    }),
     component({ code: 'WATCHLIST_PRIORITY', normalizedScore: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 0 : 8, weight: 1, weightedScore: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 0 : 8, maxScore: 8, confidence: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 'MISSING' : 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: input.trace.symbol === 'UNIVERSE_SUMMARY', penaltyReason: input.trace.symbol === 'UNIVERSE_SUMMARY' ? 'WATCHLIST_MISSING' : undefined, message: 'Watchlist row priority contribution.' }),
     component({
       code: 'SUPPLY_CONFLUENCE',
@@ -299,7 +447,8 @@ export function buildMinimumSignalScoreTrace(input: {
     component({ code: 'SOFT_FAIL_PENALTY', rawValue: input.hasGate1Blocker, normalizedScore: softFailPenalty, weight: 1, weightedScore: softFailPenalty, maxScore: 0, confidence: softFailPenalty < 0 ? 'DEGRADED' : 'VERIFIED', providerIssue: false, marketSignal: false, penaltyApplied: softFailPenalty < 0, penaltyReason: softFailPenalty < 0 ? 'LEGACY_GATE1_SOFT_FAIL_ACCUMULATION' : undefined, message: 'Legacy Gate1 aggregate soft fail penalty is separated from hard risk.' }),
   ];
   const computedScore = round1(components.reduce((sum, c) => sum + c.weightedScore, 0));
-  const actualScore = input.trace.gateScore !== undefined
+  const gateScoreIsLegacySmallScale = input.trace.gateScore !== undefined && input.trace.gateScore <= 27;
+  const actualScore = input.trace.gateScore !== undefined && !gateScoreIsLegacySmallScale
     ? input.trace.gateScore
     : input.hasGate1Blocker ? computedScore : Math.max(requiredScore, computedScore);
   const positiveScoreTotal = round1(components.filter((c) => c.weightedScore > 0).reduce((sum, c) => sum + c.weightedScore, 0));
@@ -564,4 +713,3 @@ export function buildSignalScoreCalibrationResults(input: {
     };
   });
 }
-

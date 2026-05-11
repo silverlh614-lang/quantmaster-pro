@@ -5,9 +5,12 @@ import {
   type CandidateSnapshot,
 } from './entryFilterDecomposition.js';
 import {
+  buildMinimumSignalScoreTrace,
   buildUnknownDataTreatmentAudit,
+  normalizeSignalScoreTo100,
   type MinimumSignalScoreTrace,
 } from './minimumSignalScoreTrace.js';
+import { buildPositiveScoreStarvationFallbackReport } from './gate1PositiveScoreStarvation.js';
 
 const now = new Date('2026-05-08T01:00:00.000Z');
 
@@ -48,7 +51,97 @@ const noRecentSample = {
   reason: ['no recent investor-flow provider sample'],
 };
 
+const verifiedSupply = { status: 'VERIFIED' as const, providerIssue: false, marketSignal: false, gate1Severity: 'NONE' as const, reason: ['ok'] };
+
+function minTrace(patch: Partial<Parameters<typeof buildMinimumSignalScoreTrace>[0]['trace']> = {}) {
+  return buildMinimumSignalScoreTrace({
+    trace: {
+      symbol: 'WIRE',
+      stageReached: 'WATCHLIST',
+      blockers: [],
+      executionImpact: 'NONE',
+      ...patch,
+    },
+    hasGate1Blocker: true,
+    regime: 'R3_EARLY',
+    marketSession: 'NORMAL',
+    supplyProviderHealth: verifiedSupply,
+    supplyConfluenceState: 'NEUTRAL',
+    hasSectorEnergyDiagnostic: false,
+  });
+}
+
 describe('ADR-0466 minimum signal score decomposition', () => {
+  it('normalizes 0-10 and 0-27 upstream scores for WATCHLIST_UPSTREAM_SCORE', () => {
+    expect(normalizeSignalScoreTo100(6.4)).toBe(64);
+    expect(Math.round(normalizeSignalScoreTo100(18) * 10) / 10).toBe(66.7);
+    const score64 = minTrace({ gateScore: 6.4 }).components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE');
+    const total18 = minTrace({ totalGateScore: 18 }).components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE');
+    expect(score64?.weightedScore).toBeGreaterThan(6);
+    expect(score64?.message).toContain('imported from gateScore');
+    expect(total18?.weightedScore).toBeGreaterThan(6.5);
+    expect(total18?.message).toContain('imported from totalGateScore');
+  });
+
+  it('marks missing WATCHLIST_UPSTREAM_SCORE without silently zeroing it', () => {
+    const watchlist = minTrace({}).components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE');
+    expect(watchlist?.weightedScore).toBe(0);
+    expect(watchlist?.confidence).toBe('MISSING');
+    expect(watchlist?.message).toContain('source missing');
+  });
+
+  it('separates relative strength and breakout structure positive components', () => {
+    const trace = minTrace({
+      relativeStrengthScore: 72,
+      breakoutSignals: { breakout_momentum: 'FIRED', turtle_high: 'FIRED' },
+    });
+    expect(trace.components.find((c) => c.code === 'RELATIVE_STRENGTH')?.weightedScore).toBeGreaterThan(7);
+    expect(trace.components.find((c) => c.code === 'BREAKOUT_STRUCTURE')?.weightedScore).toBe(10);
+  });
+
+  it('does not promote unavailable or error breakout structure to positive', () => {
+    const trace = minTrace({ breakoutSignals: { breakout_momentum: 'ERROR', turtle_high: 'UNAVAILABLE' } });
+    const breakout = trace.components.find((c) => c.code === 'BREAKOUT_STRUCTURE');
+    expect(breakout?.weightedScore).toBe(0);
+    expect(breakout?.confidence).toBe('UNKNOWN');
+    expect(breakout?.marketSignal).toBe(false);
+  });
+
+  it('fallback score ceiling is reachable and OTHER_POSITIVE is decomposed', () => {
+    const report = buildPositiveScoreStarvationFallbackReport({
+      minSignalScoreReport: {
+        timestamp: '2026-05-11T00:00:00.000Z',
+        forDate: '2026-05-11',
+        regime: 'R3_EARLY',
+        marketSession: 'NORMAL',
+        totalCandidates: 45,
+        minSignalFailed: 45,
+        requiredScoreAvg: 70,
+        actualScoreAvg: 21.4,
+        actualScoreMin: 20,
+        actualScoreMax: 23,
+        avgScoreGap: -48.6,
+        topScoreDeficits: [],
+        topPenaltyContributors: [],
+        unknownTreatmentWarnings: 0,
+        wouldPassIfUnknownNeutral: 0,
+        wouldPassIfProviderPenaltyRemoved: 0,
+        wouldPassIfSessionPenaltyRemoved: 0,
+        wouldPassIfRiskPenaltyCapped: 0,
+        wouldPassIfSoftFailPenaltyRemoved: 0,
+        recommendedAction: 'REVIEW_MIN_SIGNAL_THRESHOLD',
+      },
+      timestamp: '2026-05-11T00:00:00.000Z',
+      forDate: '2026-05-11',
+      regime: 'R3_EARLY',
+      marketSession: 'NORMAL',
+    });
+    expect(report?.scoreCeilingAudit.requiredScoreReachable).toBe(true);
+    expect(report?.scoreCeilingAudit.configuredPositiveMaxScore).toBeGreaterThanOrEqual(70);
+    const other = report?.topPositiveContributors.find((item) => item.code === 'OTHER_POSITIVE')?.avgContribution ?? 0;
+    expect(other).toBeLessThan(report?.grossPositiveScoreAvg ?? 0);
+  });
+
   it('records requiredScore, actualScore, scoreGap and component weighted scores', () => {
     const d = buildEntryFilterDecomposition({
       now,
