@@ -121,7 +121,7 @@ describe('ADR-0467 Gate1 positive score starvation trace', () => {
     ]);
 
     expect(audit.allZeroFeatures).toContain('RELATIVE_STRENGTH');
-    expect(audit.allZeroFeatures).toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(audit.featureAvailability.find((item) => item.code === 'WATCHLIST_UPSTREAM_SCORE')?.missingCount).toBe(3);
   });
 
   it('actual score range compression is detected', () => {
@@ -309,6 +309,44 @@ describe('ADR-0467 Gate1 positive score starvation trace', () => {
     expect(message).toContain('scoreCeilingAudit');
     expect(message).toContain('actualScoreRange');
     expect(message).toContain('compressed');
+  });
+
+
+
+  it('current-path verified WATCHLIST_UPSTREAM_SCORE is not counted as zero starvation', () => {
+    const trace = buildGate1ScoreStarvationTrace({
+      symbol: 'P08',
+      requiredScore: 70,
+      actualScore: 24,
+      positiveComponents: [
+        positiveComponent({ code: 'PRICE_MOMENTUM', weightedScore: 8, maxScore: 15 }),
+        positiveComponent({
+          code: 'WATCHLIST_UPSTREAM_SCORE',
+          weightedScore: 2.6,
+          maxScore: 20,
+          available: true,
+          confidence: 'VERIFIED',
+        }),
+        positiveComponent({ code: 'BREAKOUT_STRUCTURE', weightedScore: 0, maxScore: 10, available: false, confidence: 'MISSING' }),
+      ],
+      penaltyComponents: [],
+    });
+    const report = buildPositiveScoreStarvationReport({
+      traces: [trace],
+      timestamp: '2026-05-11T00:00:00.000Z',
+      forDate: '2026-05-11',
+      regime: 'R3_EARLY',
+      marketSession: 'SELL_ONLY',
+    });
+
+    expect(report.zeroContributionComponents.map((item) => item.code)).not.toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(report.missingPositiveComponents.map((item) => item.code)).toContain('BREAKOUT_STRUCTURE');
+    expect(report.currentPathComponentStatus.find((item) => item.code === 'WATCHLIST_UPSTREAM_SCORE')).toMatchObject({
+      verified: 1,
+      missing: 0,
+      avgContribution: 2.6,
+    });
+    expect(formatPositiveScoreStarvationReport(report)).toContain('WATCHLIST_UPSTREAM_SCORE: verified 1 / missing 0 / avg +2.6');
   });
 
   it('ADR-0467 fallback report is emitted when gateScoreHealthSamples=0', () => {

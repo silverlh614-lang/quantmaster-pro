@@ -38,6 +38,14 @@ export type ShadowNearBreakoutEntryCause =
 
 export type ShadowNearBreakoutBlockReason =
   | 'RISK_BLOCKED'
+  | 'ENTRY_PRICE_NOT_REACHED'
+  | 'REPEATED_WAIT_COOLDOWN'
+  | 'BREAKOUT_MOMENTUM_GAP'
+  | 'VOLUME_SURGE_GAP'
+  | 'PULLBACK_NOT_CONFIRMED'
+  | 'DATA_UNAVAILABLE_PER_EARNINGS_SUPPLY'
+  | 'SECTOR_DATA_DEGRADED'
+  | 'SIZING_BLOCKED'
   | 'PRICE_TOO_FAR'
   | 'VOLUME_TOO_WEAK'
   | 'QUOTE_STALE'
@@ -80,6 +88,10 @@ export interface ShadowNearBreakoutEntryInput {
   alreadyHasOpenShadow?: boolean;
   alreadyEnteredToday?: boolean;
   dailyCreatedCount?: number;
+  /** ADR-P0-8 diagnostic-only fallback reasons, never used to allow live execution. */
+  unavailableConditions?: readonly string[];
+  thresholdNotMetConditions?: readonly string[];
+  sizingBlocked?: boolean;
 }
 
 /* ───────── Decision schema (사용자 §4 정합 — literal type 강제) ───────── */
@@ -98,6 +110,32 @@ export interface ShadowNearBreakoutEntryDecision {
   /** 절대 불변식 — 학습 tag SSOT (literal type) */
   learningTag: 'SHADOW_NEAR_BREAKOUT_ENTRY';
   operatorMessage: string;
+  allBlockReasons?: ShadowNearBreakoutBlockReason[];
+}
+
+
+function uniqueReasons(reasons: ShadowNearBreakoutBlockReason[]): ShadowNearBreakoutBlockReason[] {
+  return Array.from(new Set(reasons));
+}
+
+export function deriveShadowNearBreakoutBlockReasons(input: ShadowNearBreakoutEntryInput): ShadowNearBreakoutBlockReason[] {
+  const reasons: ShadowNearBreakoutBlockReason[] = [];
+  if (input.sizingBlocked) reasons.push('SIZING_BLOCKED');
+  if (input.quoteStale) reasons.push('SECTOR_DATA_DEGRADED');
+  const unavailable = input.unavailableConditions ?? [];
+  if (unavailable.some((c) => ['per', 'earnings_quality', 'supply_confluence'].includes(c))) {
+    reasons.push('DATA_UNAVAILABLE_PER_EARNINGS_SUPPLY');
+  }
+  const threshold = input.thresholdNotMetConditions ?? [];
+  if (threshold.includes('breakout_momentum') || threshold.includes('trend_acceleration') || threshold.includes('turtle_high')) reasons.push('BREAKOUT_MOMENTUM_GAP');
+  if (threshold.includes('volume_surge') || threshold.includes('volume_breakout')) reasons.push('VOLUME_SURGE_GAP');
+  if (threshold.includes('pullback') || threshold.includes('vcp')) reasons.push('PULLBACK_NOT_CONFIRMED');
+  if (input.preBreakoutState === 'WAIT_COOLDOWN') reasons.push('REPEATED_WAIT_COOLDOWN');
+  if (input.preBreakoutState === 'WAIT_RETRY_ELIGIBLE') reasons.push('ENTRY_PRICE_NOT_REACHED');
+  if (input.preBreakoutState === 'WAIT_PRICE_TOO_FAR') reasons.push('PRICE_TOO_FAR');
+  if (input.preBreakoutState === 'WAIT_VOLUME_WEAK') reasons.push('VOLUME_TOO_WEAK');
+  if (input.preBreakoutState === 'WAIT_GATE_RECHECK_FAILED') reasons.push('BREAKOUT_MOMENTUM_GAP');
+  return uniqueReasons(reasons.length > 0 ? reasons : ['ENTRY_PRICE_NOT_REACHED']);
 }
 
 /* ───────── 정책 임계 SSOT (사용자 §5 정합 — 절대 변경 금지) ───────── */
@@ -252,6 +290,7 @@ export function evaluateShadowNearBreakoutEntry(
   const conditionsPassed = input.conditionsPassed ?? 0;
   const volumeRatio = input.volumeRatio ?? 0;
   const recheckPassed = input.recheckPassed;
+  const diagnosticReasons = deriveShadowNearBreakoutBlockReasons(input);
 
   if (state === 'WAIT_REJECTED') {
     return {
@@ -313,13 +352,14 @@ export function evaluateShadowNearBreakoutEntry(
     }
     return {
       allowed: false,
-      blockReason: 'UNKNOWN',
+      blockReason: diagnosticReasons[0] ?? 'REPEATED_WAIT_COOLDOWN',
+      allBlockReasons: diagnosticReasons,
       executionImpact: 'NONE',
       createShadowTrade: false,
       createLiveOrder: false,
       createPaperOrder: false,
       learningTag: 'SHADOW_NEAR_BREAKOUT_ENTRY',
-      operatorMessage: `${input.symbol} ${state} — Shadow entry 차단 (학습 가치 미충족)`,
+      operatorMessage: `${input.symbol} ${state} — Shadow entry 차단 (${diagnosticReasons.join('/')})`,
     };
   }
 
@@ -367,15 +407,18 @@ export function evaluateShadowNearBreakoutEntry(
     }
 
     // 임계 미달 — block reason 분류.
-    let blockReason: ShadowNearBreakoutBlockReason = 'UNKNOWN';
+    let blockReason: ShadowNearBreakoutBlockReason = diagnosticReasons[0] ?? 'ENTRY_PRICE_NOT_REACHED';
     if (distance > SHADOW_NEAR_BREAKOUT_ENTRY_POLICY.SOFT_DISTANCE_PCT) {
       blockReason = 'PRICE_TOO_FAR';
     } else if (volumeRatio < SHADOW_NEAR_BREAKOUT_ENTRY_POLICY.MIN_VOLUME_RATIO) {
       blockReason = 'VOLUME_TOO_WEAK';
+    } else if (!gate1Passed || liveGateScore < SHADOW_NEAR_BREAKOUT_ENTRY_POLICY.MIN_LIVE_GATE_SCORE) {
+      blockReason = 'BREAKOUT_MOMENTUM_GAP';
     }
     return {
       allowed: false,
       blockReason,
+      allBlockReasons: uniqueReasons([blockReason, ...diagnosticReasons]),
       executionImpact: 'NONE',
       createShadowTrade: false,
       createLiveOrder: false,
@@ -388,7 +431,8 @@ export function evaluateShadowNearBreakoutEntry(
   // (9) preBreakoutState 미상 — 보수 fallback.
   return {
     allowed: false,
-    blockReason: 'UNKNOWN',
+    blockReason: diagnosticReasons[0] ?? 'ENTRY_PRICE_NOT_REACHED',
+    allBlockReasons: diagnosticReasons,
     executionImpact: 'NONE',
     createShadowTrade: false,
     createLiveOrder: false,

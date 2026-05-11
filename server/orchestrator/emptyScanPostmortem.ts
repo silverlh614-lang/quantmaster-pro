@@ -40,6 +40,10 @@ export type PostmortemVerdict = 'HEALTHY_REJECTION' | 'PATHOLOGICAL_BLOCK' | 'IN
 
 export type DominantCause =
   | 'REGIME_RISK_OFF'
+  | 'NO_LIVE_LEADERSHIP'
+  | 'PRE_BREAKOUT_WAIT_DOMINANT'
+  | 'DATA_UNAVAILABLE_DOMINANT'
+  | 'GATE2_TRUE_FAIL_DOMINANT'
   | 'YAHOO_DOWN'
   | 'GATE_TIGHT'
   | 'PRICE_FAIL'
@@ -123,6 +127,13 @@ export interface PostmortemReport {
     unavailableRate: number;
     errorRate: number;
     trueFailRate: number;
+    freshCandidateCount?: number;
+    gate1SoftSurvivors?: number;
+    gate2WatchPreservedCount?: number;
+    gate2ShadowPreservedCount?: number;
+    preBreakoutWaitPreserved?: number;
+    shadowObservable?: number;
+    liveEligible?: number;
   };
   topBlockerCondition: string | null;
   topBlockerFailRate: number;  // 0~1 (THRESHOLD_NOT_MET — 진짜 임계 미달)
@@ -503,6 +514,20 @@ export function runPostmortem(): PostmortemReport {
   const summary  = summarize(traces);
   const blocker  = findTopBlocker();
 
+  let lastSummary: ScanSummary | null = null;
+  try {
+    lastSummary = getLastScanSummary();
+  } catch {
+    lastSummary = null;
+  }
+  const freshGate2 = lastSummary?.freshGate2Attribution;
+  const preBreakoutPreserved = lastSummary?.preBreakoutWaitSummary?.preservedCount ?? freshGate2?.blockReasons?.preBreakoutWait ?? 0;
+  const hasFreshObservationLane =
+    (lastSummary?.shadowObservableCount ?? 0) > 0 ||
+    (freshGate2?.gate2WatchPreservedCount ?? 0) > 0 ||
+    (freshGate2?.gate2ShadowPreservedCount ?? 0) > 0 ||
+    preBreakoutPreserved > 0;
+
   // ADR-0417 — 합산 unavailableRate / errorRate / trueFailRate 우선 결정.
   const aggregateActions = deriveActionsByRates({
     unavailableRate: blocker.aggregateUnavailableRate,
@@ -521,7 +546,7 @@ export function runPostmortem(): PostmortemReport {
     cause   = 'REGIME_RISK_OFF';
     primaryAction = 'HOLD_AND_WAIT';
     reason  = `${regime} 레짐 — 매수 거부는 설계대로의 기능 동작. 백오프 불필요, 대기.`;
-  } else if (isRiskOn(regime) && summary.gateReached > 0 && summary.gateFailRatio > 0.95) {
+  } else if (isRiskOn(regime) && summary.gateReached > 0 && summary.gateFailRatio > 0.95 && !hasFreshObservationLane) {
     verdict = 'PATHOLOGICAL_BLOCK';
     cause   = 'GATE_TIGHT';
     // ADR-0417 — gate 타이트 외관이지만 *실제 원인* 은 unavailable/error/trueFail 합산이 결정.
@@ -544,6 +569,21 @@ export function runPostmortem(): PostmortemReport {
         : '') +
       ' ' + buildActionGuidance(aggregateActions)
     );
+  } else if (hasFreshObservationLane && (freshGate2?.gate2Pass ?? 0) === 0) {
+    verdict = 'INDETERMINATE';
+    const diagnosis = freshGate2?.recommendedDiagnosis;
+    if (diagnosis === 'PRE_BREAKOUT_WAIT_DOMINANT') cause = 'PRE_BREAKOUT_WAIT_DOMINANT';
+    else if (diagnosis === 'DATA_UNAVAILABLE_DOMINANT' || diagnosis === 'SECTOR_DATA_STALE_DOMINANT') cause = 'DATA_UNAVAILABLE_DOMINANT';
+    else if (diagnosis === 'TRUE_NO_LEADERSHIP') cause = 'GATE2_TRUE_FAIL_DOMINANT';
+    else cause = 'NO_LIVE_LEADERSHIP';
+    primaryAction = 'KEEP_COUNTERFACTUAL_LEARNING';
+    reason =
+      `fresh snapshot: liveEligible=${lastSummary?.liveEligibleCount ?? 0}, ` +
+      `shadowObservable=${lastSummary?.shadowObservableCount ?? 0}, ` +
+      `gate2WatchPreserved=${freshGate2?.gate2WatchPreservedCount ?? 0}, ` +
+      `gate2ShadowPreserved=${freshGate2?.gate2ShadowPreservedCount ?? 0}, ` +
+      `preBreakoutWaitPreserved=${preBreakoutPreserved}. ` +
+      'Gate1 survivor/Shadow/Watch 후보가 있어 PATHOLOGICAL_BLOCK 단정 대신 정상 대기/관측으로 분류.';
   } else if (summary.scanCandidates > 0 && summary.yahooFail === summary.scanCandidates) {
     verdict = 'PATHOLOGICAL_BLOCK';
     cause   = 'YAHOO_DOWN';
@@ -576,9 +616,8 @@ export function runPostmortem(): PostmortemReport {
   // PATCH_PROVIDER). 직전 ScanSummary 의 6 카운터를 입력으로 받음. 부재 시 빈 배열.
   // try/catch 격리 — getLastScanSummary throw 시 postmortem 자체 차단 안 함.
   let gateEligibilityActions: PostmortemAction[] = [];
-  let lastSummary: ScanSummary | null = null;
   try {
-    lastSummary = getLastScanSummary();
+    lastSummary = lastSummary ?? getLastScanSummary();
     if (lastSummary && lastSummary.shadowObservableCount !== undefined) {
       gateEligibilityActions = deriveGateEligibilityActions({
         shadowObservableCount: lastSummary.shadowObservableCount ?? 0,
@@ -619,6 +658,13 @@ export function runPostmortem(): PostmortemReport {
       unavailableRate: blocker.aggregateUnavailableRate,
       errorRate: blocker.aggregateErrorRate,
       trueFailRate: blocker.aggregateTrueFailRate,
+      freshCandidateCount: freshGate2?.candidates ?? lastSummary?.candidates,
+      gate1SoftSurvivors: freshGate2?.gate1Pass,
+      gate2WatchPreservedCount: freshGate2?.gate2WatchPreservedCount,
+      gate2ShadowPreservedCount: freshGate2?.gate2ShadowPreservedCount,
+      preBreakoutWaitPreserved: preBreakoutPreserved,
+      shadowObservable: lastSummary?.shadowObservableCount,
+      liveEligible: lastSummary?.liveEligibleCount,
     },
     topBlockerCondition: blocker.key,
     topBlockerFailRate:  blocker.failRate,

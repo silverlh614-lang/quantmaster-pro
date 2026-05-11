@@ -86,6 +86,8 @@ export interface Gate1ScoreStarvationTrace {
   penaltyComponents: SignalScoreComponentTrace[];
   zeroContributionComponents: PositiveSignalComponentCode[];
   missingPositiveComponents: PositiveSignalComponentCode[];
+  /** ADR-P0-8 — verified current-path components that are genuinely zero. */
+  verifiedZeroComponents: PositiveSignalComponentCode[];
   stalePositiveComponents: PositiveSignalComponentCode[];
   watchlistScore?: number;
   upstreamScore?: number;
@@ -254,6 +256,8 @@ export interface PositiveScoreStarvationReport {
   }>;
   zeroContributionComponents: Array<{ code: PositiveSignalComponentCode; count: number }>;
   missingPositiveComponents: Array<{ code: PositiveSignalComponentCode; count: number }>;
+  verifiedZeroComponents: Array<{ code: PositiveSignalComponentCode; count: number }>;
+  currentPathComponentStatus: Array<{ code: PositiveSignalComponentCode; verified: number; missing: number; avgContribution: number }>;
   scoreCeilingAudit: ScoreCeilingAudit;
   rangeCompressionReport: ScoreRangeCompressionReport;
   wouldPassIfWatchlistScoreImported: number;
@@ -552,11 +556,14 @@ export function buildGate1ScoreStarvationTrace(
     : 0;
   const scoreCeilingEstimate = round2(positiveMaxPossibleScore - totalPenaltyScore);
 
-  const zeroContributionComponents = input.positiveComponents
-    .filter((c) => c.weightedScore === 0)
-    .map((c) => c.code);
   const missingPositiveComponents = input.positiveComponents
     .filter((c) => !c.available || c.confidence === 'MISSING')
+    .map((c) => c.code);
+  const zeroContributionComponents = input.positiveComponents
+    .filter((c) => c.weightedScore === 0 && c.available && c.confidence !== 'MISSING')
+    .map((c) => c.code);
+  const verifiedZeroComponents = input.positiveComponents
+    .filter((c) => c.weightedScore === 0 && c.available && c.confidence === 'VERIFIED')
     .map((c) => c.code);
   const stalePositiveComponents = input.positiveComponents
     .filter((c) => c.confidence === 'STALE' || c.confidence === 'DEGRADED')
@@ -599,6 +606,7 @@ export function buildGate1ScoreStarvationTrace(
     penaltyComponents: input.penaltyComponents ?? [],
     zeroContributionComponents,
     missingPositiveComponents,
+    verifiedZeroComponents,
     stalePositiveComponents,
     watchlistScore: input.watchlistScore,
     upstreamScore: input.upstreamScore,
@@ -950,6 +958,15 @@ export function buildPositiveScoreStarvationReport(input: {
       .map(([code, count]) => ({ code, count }))
       .sort((a, b) => b.count - a.count);
 
+  const currentPathComponentStatus = Array.from(contributionMap.entries())
+    .map(([code, components]) => ({
+      code: code as PositiveSignalComponentCode,
+      verified: components.filter((component) => component.available && component.confidence !== 'MISSING').length,
+      missing: components.filter((component) => !component.available || component.confidence === 'MISSING').length,
+      avgContribution: round2(avg(components.map((component) => component.weightedScore))),
+    }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+
   const scoreCeilingAudit = buildScoreCeilingAudit({
     traces,
     theoreticalMaxScore: input.theoreticalMaxScore,
@@ -964,7 +981,8 @@ export function buildPositiveScoreStarvationReport(input: {
 
   let recommendedAction: PositiveScoreStarvationReport['recommendedAction'] = 'NO_ACTION';
   if (scoreCeilingAudit.scoreCeilingBelowThreshold) recommendedAction = 'CHECK_SCORE_CEILING';
-  else if (rangeCompressionReport.suspectedCauses.includes('WATCHLIST_SCORE_NOT_IMPORTED')) {
+  else if (rangeCompressionReport.suspectedCauses.includes('WATCHLIST_SCORE_NOT_IMPORTED') &&
+    currentPathComponentStatus.find((item) => item.code === 'WATCHLIST_UPSTREAM_SCORE')?.missing !== 0) {
     recommendedAction = 'CHECK_WATCHLIST_SCORE_PROPAGATION';
   } else if (hasDuplicatePenalty) recommendedAction = 'CHECK_PENALTY_DUPLICATION';
   else if (traces.some((trace) => trace.zeroContributionComponents.length > 0)) recommendedAction = 'CHECK_FEATURE_WIRING';
@@ -988,6 +1006,8 @@ export function buildPositiveScoreStarvationReport(input: {
     topPositiveContributors,
     zeroContributionComponents: countCodes((trace) => trace.zeroContributionComponents),
     missingPositiveComponents: countCodes((trace) => trace.missingPositiveComponents),
+    verifiedZeroComponents: countCodes((trace) => trace.verifiedZeroComponents),
+    currentPathComponentStatus,
     scoreCeilingAudit,
     rangeCompressionReport,
     wouldPassIfWatchlistScoreImported: traces.filter((trace) => trace.wouldPassIfWatchlistScoreImported).length,
@@ -1053,11 +1073,12 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
   };
   const deficitCount = (code: PositiveSignalComponentCode) =>
     min.topScoreDeficits.find((item) => item.code === code)?.affectedCount ?? 0;
-  const zeroContributionComponents = ([
+  const missingContributionComponents = ([
     { code: 'WATCHLIST_UPSTREAM_SCORE' as const, count: deficitCount('WATCHLIST_UPSTREAM_SCORE') },
     { code: 'RELATIVE_STRENGTH' as const, count: deficitCount('RELATIVE_STRENGTH') },
     { code: 'BREAKOUT_STRUCTURE' as const, count: deficitCount('BREAKOUT_STRUCTURE') },
   ] satisfies Array<{ code: PositiveSignalComponentCode; count: number }>).filter((item) => item.count > 0);
+  const zeroContributionComponents: Array<{ code: PositiveSignalComponentCode; count: number }> = [];
   const positiveAllocations: Array<{ code: PositiveSignalComponentCode; max: number }> = [
     { code: 'PRICE_MOMENTUM', max: 20 },
     { code: 'VOLUME_LIQUIDITY', max: 12 },
@@ -1097,7 +1118,14 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
       ? [...topPositiveContributors, { code: 'OTHER_POSITIVE', avgContribution: remainingOtherPositive, affectedCount: min.totalCandidates }]
       : topPositiveContributors,
     zeroContributionComponents,
-    missingPositiveComponents: zeroContributionComponents,
+    missingPositiveComponents: missingContributionComponents,
+    verifiedZeroComponents: [],
+    currentPathComponentStatus: positiveAllocations.map((item) => ({
+      code: item.code,
+      verified: min.totalCandidates,
+      missing: missingContributionComponents.find((missing) => missing.code === item.code)?.count ?? 0,
+      avgContribution: round1(grossPositiveScoreAvg * (item.max / allocationMax)),
+    })),
     scoreCeilingAudit,
     rangeCompressionReport,
     wouldPassIfWatchlistScoreImported: 0,
@@ -1149,6 +1177,21 @@ export function formatPositiveScoreStarvationReport(
         .join(', ')
       : 'none'}`,
   );
+  lines.push(
+    `  missingContributionComponents: ${report.missingPositiveComponents.length > 0
+      ? report.missingPositiveComponents
+        .slice(0, 5)
+        .map((item) => `${item.code} ${item.count}`)
+        .join(', ')
+      : 'none'}`,
+  );
+  const watchlistStatus = report.currentPathComponentStatus.find((item) => item.code === 'WATCHLIST_UPSTREAM_SCORE');
+  if (watchlistStatus) {
+    lines.push(
+      `  WATCHLIST_UPSTREAM_SCORE: verified ${watchlistStatus.verified} / ` +
+        `missing ${watchlistStatus.missing} / avg +${watchlistStatus.avgContribution.toFixed(1)}`,
+    );
+  }
   lines.push(
     `  scoreCeilingAudit: configured ${ceiling.configuredPositiveMaxScore.toFixed(1)}, ` +
       `observedPositiveMax ${ceiling.observedPositiveMaxScore.toFixed(1)}, ` +
