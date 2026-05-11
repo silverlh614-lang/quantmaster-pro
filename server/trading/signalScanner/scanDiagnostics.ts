@@ -1302,6 +1302,15 @@ function krxDiagnosticToRouterInputAdr0505(
     contentType: diagnostic.contentType,
     httpStatus: diagnostic.httpStatus,
     responseKind: diagnostic.responseKind,
+    consecutiveFailures: diagnostic.consecutiveFailures,
+    cooldownActive: diagnostic.cooldownActive,
+    cooldownRemainingMs: diagnostic.cooldownRemainingMs,
+    offHoursSuppressed: diagnostic.offHoursSuppressed,
+    diagnosticOnly: diagnostic.diagnosticOnly,
+    useForRouter: diagnostic.useForRouter,
+    useForGate: diagnostic.useForGate,
+    useForLive: diagnostic.useForLive,
+    useForShadow: diagnostic.useForShadow,
     rawTopLevelKeys: diagnostic.rawTopLevelKeys,
     detectedCandidatePaths: diagnostic.detectedCandidatePaths,
     selectedRowPath: diagnostic.selectedRowPath,
@@ -2449,13 +2458,22 @@ export async function persistScanResults(
         },
       ],
     });
-    console.warn(
-      `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +
-      `(status=${investorFlowProviderRouter.status}, signal=${investorFlowProviderRouter.signal}, ` +
-      `selectedProvider=${investorFlowProviderRouter.selectedProvider}, ` +
-      `executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
-      `liveExecutionAllowed=${investorFlowProviderRouter.liveExecutionAllowed})`,
-    );
+    if (process.env.KIS_FIRST_REBUILD_MODE === 'true') {
+      console.warn(
+        `[KIS_FIRST] Legacy diagnostic lane compact summary ` +
+        `(ADR-0467/0468/0469/0470/0471/0472/0475/0476/0477 emitted, ` +
+        `usedForCurrentGate=false, executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
+        `selectedProvider=${investorFlowProviderRouter.selectedProvider}, fallbackProvider=${investorFlowProviderRouter.fallbackProvider ?? 'NONE'})`,
+      );
+    } else {
+      console.warn(
+        `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +
+        `(status=${investorFlowProviderRouter.status}, signal=${investorFlowProviderRouter.signal}, ` +
+        `selectedProvider=${investorFlowProviderRouter.selectedProvider}, ` +
+        `executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
+        `liveExecutionAllowed=${investorFlowProviderRouter.liveExecutionAllowed})`,
+      );
+    }
   } catch (e) {
     console.warn('[ADR-0477] InvestorFlowProviderRouter build failed (engine unaffected):', e);
   }

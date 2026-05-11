@@ -288,6 +288,117 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.selectedForShadow).toBe(true);
   });
 
+  it('demotes CACHE_STALE_HIT to diagnostic fallback in KIS-first rebuild mode', () => {
+    const previous = process.env.KIS_FIRST_REBUILD_MODE;
+    process.env.KIS_FIRST_REBUILD_MODE = 'true';
+    try {
+      const route = buildInvestorFlowProviderRouteResultAdr0477({
+        code: '005930',
+        naverCollectorWired: false,
+        krxInvestorDiagnosticAdr0505: {
+          parserStatus: 'PROVIDER_EMPTY_RESPONSE',
+          endpointIssueHint: 'ENDPOINT_PARAMETER_ERROR',
+          endpoint: 'MDCSTAT02201',
+          bld: 'dbms/MDC/STAT/standard/MDCSTAT02201',
+          tradeDate: '20260508',
+          previousTradingDateCandidate: '2026-05-08',
+          contentType: 'empty',
+          httpStatus: 400,
+          responseKind: 'HTTP_ERROR',
+          consecutiveFailures: 2,
+          cooldownActive: true,
+          cooldownRemainingMs: 60 * 60 * 1000,
+          offHoursSuppressed: true,
+          diagnosticOnly: true,
+          useForRouter: false,
+          useForGate: false,
+          useForLive: false,
+          useForShadow: true,
+          rawTopLevelKeys: [],
+          detectedCandidatePaths: [],
+          selectedRowPath: null,
+          selectedRowCount: 0,
+          firstRowKeys: [],
+          normalizedRows: 0,
+          fieldMappings: {
+            symbol: null,
+            date: null,
+            investorType: null,
+            foreignNetBuy: null,
+            institutionNetBuy: null,
+            individualNetBuy: null,
+            netBuyAmount: null,
+            netBuyVolume: null,
+          },
+          summary: 'MDCSTAT02201;httpStatus=400;offHoursSuppressed=true;consecutiveFailures=2',
+        },
+        supplySnapshotCacheLookupAdr0491: {
+          status: 'CACHE_STALE_HIT',
+          snapshot: null,
+          cacheRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 100, institutionNetBuy: 100, status: 'STALE' },
+          retained: 1,
+          reason: 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY',
+          stale: true,
+          executionImpact: 'NONE',
+          liveExecutionAllowed: false,
+          policyPromotionMode: 'SHADOW_ONLY',
+          rawPayloadPersistenceAllowed: false,
+        },
+      });
+
+      expect(route.kisFirstMode).toBe(true);
+      expect(route.selectedProvider).toBe('NONE');
+      expect(route.fallbackProvider).toBe('CACHE');
+      expect(route.fallbackStatus).toBe('CACHE_STALE_HIT');
+      expect(route.fallbackDiagnosticOnly).toBe(true);
+      expect(route.selectedReason).toBe('NO_FRESH_SEMANTIC_NETBUY');
+      expect(route.providerStatuses.KRX_INVESTOR_FLOW).toBe('QUARANTINED');
+      expect(route.krxSourceRepairDiagnostic?.offHoursSuppressed).toBe(true);
+      expect(route.routerUsableCoverage?.available).toBe(0);
+      expect(route.diagnosticUsableCoverage?.available).toBeGreaterThanOrEqual(1);
+      expect(route.selectedForLive).toBe(false);
+      expect(route.selectedForShadow).toBe(false);
+      expect(route.executionImpact).toBe('NONE');
+      expect(route.diagnostics.join(' ')).toContain('fallbackDiagnosticOnly=true');
+      expect(formatInvestorFlowProviderRouterAdr0477(route)).toContain('usedForCurrentGate: false');
+    } finally {
+      if (previous === undefined) delete process.env.KIS_FIRST_REBUILD_MODE;
+      else process.env.KIS_FIRST_REBUILD_MODE = previous;
+    }
+  });
+
+  it('still allows CACHE_HIT as a KIS-first diagnostic selected provider', () => {
+    const previous = process.env.KIS_FIRST_REBUILD_MODE;
+    process.env.KIS_FIRST_REBUILD_MODE = 'true';
+    try {
+      const route = buildInvestorFlowProviderRouteResultAdr0477({
+        code: '005930',
+        naverCollectorWired: false,
+        supplySnapshotCacheLookupAdr0491: {
+          status: 'CACHE_HIT',
+          snapshot: null,
+          cacheRaw: { code: '005930', sourceDate: '2026-05-11', foreignNetBuy: 100, institutionNetBuy: 100, status: 'CACHE_HIT' },
+          retained: 1,
+          reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+          stale: false,
+          executionImpact: 'NONE',
+          liveExecutionAllowed: false,
+          policyPromotionMode: 'SHADOW_ONLY',
+          rawPayloadPersistenceAllowed: false,
+        },
+      });
+
+      expect(route.selectedProvider).toBe('CACHE');
+      expect(route.providerStatuses.CACHE).toBe('CACHE_HIT');
+      expect(route.fallbackDiagnosticOnly).toBe(false);
+      expect(route.selectedForLive).toBe(false);
+      expect(route.executionImpact).toBe('NONE');
+    } finally {
+      if (previous === undefined) delete process.env.KIS_FIRST_REBUILD_MODE;
+      else process.env.KIS_FIRST_REBUILD_MODE = previous;
+    }
+  });
+
   it('keeps CACHE shadow fallback selected while decomposing KRX empty response diagnostics', () => {
     const route = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',
@@ -897,6 +1008,8 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(formatted).not.toContain('<b>');
     expect(scanDiagnosticsSource()).toContain('formatInvestorFlowProviderRouterAdr0477');
     expect(scanDiagnosticsSource()).toContain('[ADR-0477] InvestorFlowProviderRouter build failed');
+    expect(scanDiagnosticsSource()).toContain('Legacy diagnostic lane compact summary');
+    expect(scanDiagnosticsSource()).toContain('usedForCurrentGate=false');
   });
 
   it('selects ADR-0491 sanitized cache lookup hits and keeps key mismatches diagnostic', () => {

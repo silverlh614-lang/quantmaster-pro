@@ -99,6 +99,15 @@ export interface KrxInvestorTradingDiagnostic {
   contentType: 'json' | 'html' | 'csv' | 'text' | 'empty' | 'unknown';
   httpStatus: number | null;
   responseKind: 'JSON' | 'HTML' | 'CSV' | 'TEXT' | 'EMPTY' | 'DISABLED' | 'GATED' | 'COOLDOWN' | 'HTTP_ERROR' | 'NETWORK_ERROR';
+  consecutiveFailures?: number;
+  cooldownActive?: boolean;
+  cooldownRemainingMs?: number;
+  offHoursSuppressed?: boolean;
+  diagnosticOnly?: boolean;
+  useForRouter?: boolean;
+  useForGate?: boolean;
+  useForLive?: boolean;
+  useForShadow?: boolean;
   rawTopLevelKeys: string[];
   detectedCandidatePaths: string[];
   selectedRowPath: string | null;
@@ -210,8 +219,13 @@ interface BldFailureState {
 }
 const _bldFailureState = new Map<string, BldFailureState>();
 const BLD_FAILURE_THRESHOLD = 5;
+const BLD_KIS_FIRST_QUARANTINE_THRESHOLD = 2;
 const BLD_COOLDOWN_MS = 60 * 60 * 1000; // 1시간
 const RECOVERY_PROBE_WINDOW_MS = 30 * 60 * 1000; // 30분
+
+function isKisFirstRebuildMode(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true';
+}
 
 function isBldCooldown(bld: string): boolean {
   const s = _bldFailureState.get(bld);
@@ -248,16 +262,23 @@ function markRecoveryProbed(bld: string): void {
   }
 }
 
-function recordBldFailure(bld: string): void {
+function recordBldFailure(bld: string, options: { cooldownThreshold?: number; reason?: string } = {}): BldFailureState {
   const s = _bldFailureState.get(bld) ?? { consecutiveFailures: 0, cooldownUntilMs: 0 };
   s.consecutiveFailures += 1;
-  if (s.consecutiveFailures >= BLD_FAILURE_THRESHOLD) {
+  const cooldownThreshold = options.cooldownThreshold ?? BLD_FAILURE_THRESHOLD;
+  if (s.consecutiveFailures >= cooldownThreshold) {
     s.cooldownUntilMs = Date.now() + BLD_COOLDOWN_MS;
     console.warn(
       `[KRX] ${bld} 연속 ${s.consecutiveFailures}회 실패 — 1시간 soft cooldown 활성화`,
     );
   }
   _bldFailureState.set(bld, s);
+  if (options.reason === 'OFF_HOURS_HTTP400' && s.cooldownUntilMs > Date.now()) {
+    console.warn(
+      `[KRX] QUARANTINED 1h endpoint=${bld.split('/').at(-1) ?? bld} reason=OFF_HOURS_HTTP400 providerIssue=true marketSignal=false useForRouter=false`,
+    );
+  }
+  return s;
 }
 
 function recordBldSuccess(bld: string): void {
@@ -437,6 +458,15 @@ interface KrxPostMeta {
   requiredKeysPresent?: string[];
   requiredKeysMissing?: string[];
   sentPayloadKeys?: string[];
+  consecutiveFailures?: number;
+  cooldownActive?: boolean;
+  cooldownRemainingMs?: number;
+  offHoursSuppressed?: boolean;
+  diagnosticOnly?: boolean;
+  useForRouter?: boolean;
+  useForGate?: boolean;
+  useForLive?: boolean;
+  useForShadow?: boolean;
 }
 
 interface KrxInvestorEndpointVariant {
@@ -471,6 +501,15 @@ const _lastKrxPostMeta = new Map<string, KrxPostMeta>();
 
 function setKrxPostMeta(bld: string, meta: KrxPostMeta): void {
   _lastKrxPostMeta.set(bld, meta);
+}
+
+function krxFailureMeta(bld: string): Pick<KrxPostMeta, 'consecutiveFailures' | 'cooldownActive' | 'cooldownRemainingMs'> {
+  const state = _bldFailureState.get(bld);
+  return {
+    consecutiveFailures: state?.consecutiveFailures ?? 0,
+    cooldownActive: Boolean(state && state.cooldownUntilMs > Date.now()),
+    cooldownRemainingMs: state ? Math.max(0, state.cooldownUntilMs - Date.now()) : 0,
+  };
 }
 
 function classifyContentType(header: string | null, text?: string): KrxInvestorTradingDiagnostic['contentType'] {
@@ -715,7 +754,7 @@ async function krxPost(
 
   if (isBldCooldown(bld)) {
     // ADR-0009 soft cooldown — 이미 실패가 누적된 bld 는 쿨다운 동안 skip.
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN' });
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN', ...krxFailureMeta(bld), diagnosticOnly: isKisFirstRebuildMode(), useForRouter: !isKisFirstRebuildMode(), useForGate: !isKisFirstRebuildMode(), useForLive: false, useForShadow: true });
     return null;
   }
 
@@ -725,7 +764,7 @@ async function krxPost(
   // 다음 30분 윈도우 안 호출은 skip (또 실패해서 cooldown 재발 방지).
   if (shouldSkipForRecoveryProbe(bld)) {
     console.debug(`[KRX] ${bld} probe 윈도우 안 추가 호출 skip (ADR-0259)`);
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN' });
+    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN', ...krxFailureMeta(bld), diagnosticOnly: isKisFirstRebuildMode(), useForRouter: !isKisFirstRebuildMode(), useForGate: !isKisFirstRebuildMode(), useForLive: false, useForShadow: true });
     return null;
   }
 
@@ -761,8 +800,12 @@ async function krxPost(
       // 의 400 은 정상 동작 — 카운터 미누적 (주말과 동일 정책). 사용자 5/6
       // 보고: 점심시간 KRX 400 누적이 cooldown 트리거하던 결함 차단.
       if (res.status === 400 && !isMarketDataPublished()) {
+        const kisFirst = isKisFirstRebuildMode();
+        if (kisFirst) {
+          recordBldFailure(bld, { cooldownThreshold: BLD_KIS_FIRST_QUARANTINE_THRESHOLD, reason: 'OFF_HOURS_HTTP400' });
+        }
         console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251)`);
-        setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
+        setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR', ...krxFailureMeta(bld), offHoursSuppressed: true, diagnosticOnly: kisFirst, useForRouter: !kisFirst, useForGate: !kisFirst, useForLive: false, useForShadow: true });
         return null;
       }
       console.warn(`[KRX] ${bld} HTTP ${res.status}`);
@@ -1206,6 +1249,15 @@ function buildInvestorTradingDiagnostic(input: {
     `contentType=${contentType}`,
     `responseKind=${responseKind}`,
     `httpStatus=${httpStatus ?? 'NONE'}`,
+    `consecutiveFailures=${meta?.consecutiveFailures ?? 0}`,
+    `cooldownActive=${String(meta?.cooldownActive ?? false)}`,
+    `cooldownRemainingMs=${meta?.cooldownRemainingMs ?? 0}`,
+    `offHoursSuppressed=${String(meta?.offHoursSuppressed ?? false)}`,
+    `diagnosticOnly=${String(meta?.diagnosticOnly ?? false)}`,
+    `useForRouter=${String(meta?.useForRouter ?? true)}`,
+    `useForGate=${String(meta?.useForGate ?? true)}`,
+    `useForLive=${String(meta?.useForLive ?? false)}`,
+    `useForShadow=${String(meta?.useForShadow ?? true)}`,
     `rawKeys=${rawTopLevelKeys.join(',') || 'NONE'}`,
     `candidatePaths=${input.extract.detectedCandidatePaths.join(',') || 'NONE'}`,
     `selectedRowPath=${input.extract.selectedRowPath ?? 'NONE'}`,
@@ -1255,6 +1307,15 @@ function buildInvestorTradingDiagnostic(input: {
     contentType,
     httpStatus,
     responseKind,
+    consecutiveFailures: meta?.consecutiveFailures,
+    cooldownActive: meta?.cooldownActive,
+    cooldownRemainingMs: meta?.cooldownRemainingMs,
+    offHoursSuppressed: meta?.offHoursSuppressed,
+    diagnosticOnly: meta?.diagnosticOnly,
+    useForRouter: meta?.useForRouter,
+    useForGate: meta?.useForGate,
+    useForLive: meta?.useForLive,
+    useForShadow: meta?.useForShadow,
     rawTopLevelKeys,
     detectedCandidatePaths: input.extract.detectedCandidatePaths,
     selectedRowPath: input.extract.selectedRowPath,

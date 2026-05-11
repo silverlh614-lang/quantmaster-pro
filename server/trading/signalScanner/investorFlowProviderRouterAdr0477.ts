@@ -58,6 +58,7 @@ export type InvestorFlowProviderStatus =
   | 'PARSE_ERROR'
   | 'PROVIDER_ERROR'
   | 'PROVIDER_EMPTY_RESPONSE'
+  | 'QUARANTINED'
   | 'PARSER_KEY_MISMATCH'
   | 'PARSER_FIELD_MISMATCH'
   | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
@@ -152,6 +153,14 @@ export interface InvestorFlowProviderRouteResult {
   selectedDiagnosticReason?: string | null;
   selectedForLive?: false;
   selectedForShadow?: boolean;
+  kisFirstMode?: boolean;
+  dryRunLane?: 'LEGACY_DIAGNOSTIC';
+  usedForCurrentGate?: false;
+  usedForLiveDecision?: false;
+  fallbackProvider?: InvestorFlowProviderId | null;
+  fallbackStatus?: InvestorFlowProviderStatus | null;
+  fallbackDiagnosticOnly?: boolean;
+  legacyDryRunSummary?: string | null;
   krxSourceRepairDiagnostic?: {
     parserStatus?: string;
     endpointIssueHint?: string;
@@ -180,6 +189,15 @@ export interface InvestorFlowProviderRouteResult {
     sentPayloadKeys?: readonly string[];
     contentType?: string;
     responseKind?: string;
+    consecutiveFailures?: number;
+    cooldownActive?: boolean;
+    cooldownRemainingMs?: number;
+    offHoursSuppressed?: boolean;
+    diagnosticOnly?: boolean;
+    useForRouter?: boolean;
+    useForGate?: boolean;
+    useForLive?: boolean;
+    useForShadow?: boolean;
     selectedRowCount?: number;
     normalizedRows?: number;
     summary?: string;
@@ -249,6 +267,15 @@ export interface InvestorFlowProviderRouterInput {
     contentType?: string;
     httpStatus?: number | null;
     responseKind?: string;
+    consecutiveFailures?: number;
+    cooldownActive?: boolean;
+    cooldownRemainingMs?: number;
+    offHoursSuppressed?: boolean;
+    diagnosticOnly?: boolean;
+    useForRouter?: boolean;
+    useForGate?: boolean;
+    useForLive?: boolean;
+    useForShadow?: boolean;
     rawTopLevelKeys?: readonly string[];
     detectedCandidatePaths?: readonly string[];
     selectedRowPath?: string | null;
@@ -332,6 +359,7 @@ function normalizeStatus(input: {
     'EMPTY',
     'PARSE_ERROR',
     'PROVIDER_ERROR',
+    'QUARANTINED',
     'DISABLED',
     'REGISTRY_READY_NOT_MATERIALIZED',
     'NO_INPUT_SAMPLE',
@@ -751,6 +779,15 @@ function krxDiagnosticStatusAdr0477(status: string | undefined): InvestorFlowPro
   return 'DATA_UNAVAILABLE';
 }
 
+function isKisFirstRebuildModeAdr0477(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true';
+}
+
+function isKrxQuarantineDiagnosticAdr0477(input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>): boolean {
+  return input.offHoursSuppressed === true
+    && ((input.consecutiveFailures ?? 0) >= 2 || input.cooldownActive === true || input.useForRouter === false);
+}
+
 function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>): string {
   const fieldMappings = input.fieldMappings
     ? Object.entries(input.fieldMappings).map(([key, value]) => `${key}:${value ?? 'NONE'}`).join(',')
@@ -795,6 +832,15 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `contentType=${input.contentType ?? 'unknown'}`,
     `responseKind=${input.responseKind ?? 'UNKNOWN'}`,
     `httpStatus=${input.httpStatus ?? 'NONE'}`,
+    `consecutiveFailures=${input.consecutiveFailures ?? 0}`,
+    `cooldownActive=${String(input.cooldownActive ?? false)}`,
+    `cooldownRemainingMs=${input.cooldownRemainingMs ?? 0}`,
+    `offHoursSuppressed=${String(input.offHoursSuppressed ?? false)}`,
+    `diagnosticOnly=${String(input.diagnosticOnly ?? false)}`,
+    `useForRouter=${String(input.useForRouter ?? true)}`,
+    `useForGate=${String(input.useForGate ?? true)}`,
+    `useForLive=${String(input.useForLive ?? false)}`,
+    `useForShadow=${String(input.useForShadow ?? true)}`,
     `endpointIssueHint=${input.endpointIssueHint ?? 'UNKNOWN'}`,
     `rawTopLevelKeys=${input.rawTopLevelKeys?.join(',') || 'NONE'}`,
     `responseKeySummary=${input.detectedCandidatePaths?.join(',') || 'NONE'}`,
@@ -998,6 +1044,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   input: InvestorFlowProviderRouterInput,
 ): InvestorFlowProviderRouteResult {
   const collectedAt = input.collectedAt ?? new Date().toISOString();
+  const kisFirstMode = isKisFirstRebuildModeAdr0477();
   const providerTried: InvestorFlowProviderId[] = ['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
   const providerStatuses: Record<string, InvestorFlowProviderStatus> = {};
   const providerReasons: Record<string, string> = {};
@@ -1199,10 +1246,15 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     if (materializationDiagnostics.CACHE?.sampleMaterialized) samplesByProvider.CACHE = cacheSample;
     if (!cacheLookup || cacheLookupSample) providerStatuses.CACHE = cacheLookupSample && cacheLookup ? cacheLookupStatusAdr0477(cacheLookup.status) : cacheSample.status;
     if (cacheSample.status === 'VERIFIED' || cacheSample.status === 'PARTIAL' || cacheSample.status === 'STALE' || cacheSample.status === 'CACHE_HIT' || cacheSample.status === 'CACHE_STALE_HIT') {
+      const staleCacheBlockedByKisFirst = kisFirstMode && (cacheSample.status === 'STALE' || cacheSample.status === 'CACHE_STALE_HIT');
       const naverNotMaterialized = naverFreshDataSnapshot && !freshDataSnapshotMaterializedAdr0477(naverFreshDataSnapshot)
         ? ` because NAVER readinessKind=${naverFreshDataSnapshot.readinessKind ?? 'REGISTRY_READY'} usableForRouter=${String(freshDataSnapshotUsableForRouterAdr0477(naverFreshDataSnapshot))}`
         : '';
-      selectShadow('CACHE', cacheSample, cacheLookup ? `ADR-0491 sanitized snapshot cache selected: ${cacheLookup.status}${naverNotMaterialized}.` : `CACHE fallback used${naverNotMaterialized}; fallback only, not primary truth.`);
+      if (staleCacheBlockedByKisFirst) {
+        diagnostics.push(`KIS_FIRST_REBUILD_MODE=true; CACHE_STALE_HIT is fallbackDiagnosticOnly and cannot be selectedProvider. fallbackProvider=CACHE; fallbackStatus=${cacheSample.status}; marketSignal=false.`);
+      } else {
+        selectShadow('CACHE', cacheSample, cacheLookup ? `ADR-0491 sanitized snapshot cache selected: ${cacheLookup.status}${naverNotMaterialized}.` : `CACHE fallback used${naverNotMaterialized}; fallback only, not primary truth.`);
+      }
     }
   } else if (!providerStatuses.CACHE) {
     providerStatuses.CACHE = input.cacheRaw ? 'PARTIAL' : 'CACHE_EMPTY';
@@ -1236,7 +1288,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       : `${krxProvider} materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.`;
     providerReasons.KRX_INVESTOR_FLOW = providerReasons[krxProvider];
   } else if (input.krxInvestorDiagnosticAdr0505) {
-    const krxStatus = krxDiagnosticStatusAdr0477(input.krxInvestorDiagnosticAdr0505.parserStatus);
+    const krxQuarantined = kisFirstMode && isKrxQuarantineDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505);
+    const krxStatus = krxQuarantined ? 'QUARANTINED' : krxDiagnosticStatusAdr0477(input.krxInvestorDiagnosticAdr0505.parserStatus);
     const krxReason = formatKrxRepairDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505);
     const krxDiagnosticProvider: InvestorFlowProviderId = input.krxInvestorDiagnosticAdr0505.routePurpose === 'SYMBOL_LEVEL'
       ? 'KRX_SYMBOL_INVESTOR_FLOW'
@@ -1246,10 +1299,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses[krxDiagnosticProvider] = krxStatus;
     providerStatuses.KRX_INVESTOR_FLOW = krxStatus;
     providerStatuses.KRX = krxStatus;
-    providerReasons[krxDiagnosticProvider] = krxReason;
-    providerReasons.KRX_INVESTOR_FLOW = krxReason;
-    providerReasons.KRX = krxReason;
-    diagnostics.push(krxReason);
+    providerReasons[krxDiagnosticProvider] = krxQuarantined
+      ? `${krxReason}; QUARANTINED retryAfterMs=${input.krxInvestorDiagnosticAdr0505.cooldownRemainingMs ?? 60 * 60 * 1000}; useForGate=false; useForRouter=false; useForLive=false; useForShadow=true; diagnosticOnly=true; executionImpact=NONE`
+      : krxReason;
+    providerReasons.KRX_INVESTOR_FLOW = providerReasons[krxDiagnosticProvider];
+    providerReasons.KRX = providerReasons[krxDiagnosticProvider];
+    diagnostics.push(providerReasons[krxDiagnosticProvider]);
   }
 
   if (input.kisInvestorRaw) {
@@ -1299,7 +1354,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   const multiSourceMaterialization = buildInvestorFlowMultiSourceMaterialization(materializationDiagnostics, samplesByProvider);
-  const selectedMultiSourceCandidate = multiSourceMaterialization.selectedCandidate;
+  const selectedMultiSourceCandidate = kisFirstMode
+    ? multiSourceMaterialization.rankedCandidates.find((candidate) => !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE')) ?? null
+    : multiSourceMaterialization.selectedCandidate;
   if (selectedMultiSourceCandidate) {
     const sample = samplesByProvider[selectedMultiSourceCandidate.provider];
     if (sample && selectedProvider !== selectedMultiSourceCandidate.provider) {
@@ -1350,8 +1407,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
   const selectedDiagnosticCandidate = selectedProvider === 'NONE'
     ? diagnosticUsableCandidates.find((candidate) => candidate.provider === 'FSS_PASSIVE_ACTIVE')
-      ?? diagnosticUsableCandidates.find((candidate) => candidate.provider === 'CACHE')
-      ?? diagnosticUsableCandidates[0]
+      ?? diagnosticUsableCandidates.find((candidate) => candidate.provider === 'CACHE' && (!kisFirstMode || candidate.status === 'CACHE_HIT'))
+      ?? diagnosticUsableCandidates.find((candidate) => !(kisFirstMode && candidate.provider === 'CACHE' && candidate.status !== 'CACHE_HIT'))
       ?? null
     : null;
   let selectedDiagnosticProvider: InvestorFlowProviderId | null = null;
@@ -1365,6 +1422,17 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses[selectedDiagnosticCandidate.provider] = selectedDiagnosticCandidate.status;
     providerReasons[selectedDiagnosticCandidate.provider] = selectedDiagnosticCandidate.reason;
     diagnostics.push(`diagnosticUsableCandidate selected provider=${selectedDiagnosticCandidate.provider}; source=${selectedDiagnosticCandidate.source}; status=${selectedDiagnosticCandidate.status}; selectedForShadow=true; selectedForLive=false`);
+  }
+
+  const staleCacheQuarantinedByKisFirst = kisFirstMode
+    && selectedProvider === 'NONE'
+    && (providerStatuses.CACHE === 'CACHE_STALE_HIT' || providerStatuses.CACHE === 'STALE');
+  if (staleCacheQuarantinedByKisFirst) {
+    selectedReason = 'NO_FRESH_SEMANTIC_NETBUY';
+    routeStatus = input.krxInvestorDiagnosticAdr0505 && isKrxQuarantineDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505)
+      ? 'DATA_UNAVAILABLE'
+      : routeStatus;
+    diagnostics.push('selectedProvider=NONE; fallbackProvider=CACHE; fallbackStatus=CACHE_STALE_HIT; fallbackDiagnosticOnly=true; selectedReason=NO_FRESH_SEMANTIC_NETBUY; marketSignal=false');
   }
 
   const selectedSemanticNetBuy = semanticNetBuy as SemanticNetBuySample | null;
@@ -1403,7 +1471,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const rejectedProviders = Object.keys(rejectedReasonByProvider) as InvestorFlowProviderId[];
   const coverageAfterSet = new Set<InvestorFlowProviderId>();
   for (const materialization of Object.values(materializationDiagnostics)) {
-    if (materialization?.usableForRouter) coverageAfterSet.add(providerIdFromMaterializationAdr0477(materialization.providerName));
+    const provider = materialization ? providerIdFromMaterializationAdr0477(materialization.providerName) : 'UNKNOWN';
+    const staleCacheRouterBlocked = kisFirstMode && provider === 'CACHE' && (providerStatuses.CACHE === 'CACHE_STALE_HIT' || providerStatuses.CACHE === 'STALE');
+    if (materialization?.usableForRouter && !staleCacheRouterBlocked) coverageAfterSet.add(provider);
   }
   if (selectedProviderForDiagnostics !== 'NONE' && selectedDiagnosticProvider !== selectedProviderForDiagnostics) coverageAfterSet.add(selectedProviderForDiagnostics);
   const coverageAfter = coverageAfterSet.size;
@@ -1418,8 +1488,13 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     available: diagnosticUsableCount,
     total: statusCoverage.total,
   };
+  const fallbackProvider: InvestorFlowProviderId | null = staleCacheQuarantinedByKisFirst ? 'CACHE' : null;
+  const fallbackStatus: InvestorFlowProviderStatus | null = staleCacheQuarantinedByKisFirst ? 'CACHE_STALE_HIT' : null;
+  const fallbackDiagnosticOnly = staleCacheQuarantinedByKisFirst;
   const cacheFallbackReason = selectedProviderForDiagnostics === 'CACHE'
     ? `CACHE selected after rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; selectedReason=${selectedReason ?? 'NONE'}`
+    : staleCacheQuarantinedByKisFirst
+      ? 'CACHE_STALE_HIT retained as fallbackDiagnosticOnly under KIS_FIRST_REBUILD_MODE=true; selectedProvider=NONE'
     : null;
   const staleButSelectedReason = selectedSemanticNetBuy?.status === 'STALE' || selectedSemanticNetBuy?.status === 'CACHE_STALE_HIT'
     ? `stale selected for SHADOW_ONLY diagnostic only; provider=${selectedProviderForDiagnostics}; status=${selectedSemanticNetBuy.status}; liveExecutionAllowed=false`
@@ -1474,6 +1549,16 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     selectedDiagnosticReason,
     selectedForLive: false,
     selectedForShadow: selectedProvider !== 'NONE',
+    kisFirstMode,
+    dryRunLane: kisFirstMode ? 'LEGACY_DIAGNOSTIC' : undefined,
+    usedForCurrentGate: false,
+    usedForLiveDecision: false,
+    fallbackProvider,
+    fallbackStatus,
+    fallbackDiagnosticOnly,
+    legacyDryRunSummary: kisFirstMode
+      ? 'ADR-0467/0468/0469/0470/0471/0472/0475/0476/0477 emitted; usedForCurrentGate=false; executionImpact=NONE'
+      : null,
     krxSourceRepairDiagnostic: input.krxInvestorDiagnosticAdr0505
       ? {
           parserStatus: input.krxInvestorDiagnosticAdr0505.parserStatus,
@@ -1503,6 +1588,15 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
           sentPayloadKeys: input.krxInvestorDiagnosticAdr0505.sentPayloadKeys,
           contentType: input.krxInvestorDiagnosticAdr0505.contentType,
           responseKind: input.krxInvestorDiagnosticAdr0505.responseKind,
+          consecutiveFailures: input.krxInvestorDiagnosticAdr0505.consecutiveFailures,
+          cooldownActive: input.krxInvestorDiagnosticAdr0505.cooldownActive,
+          cooldownRemainingMs: input.krxInvestorDiagnosticAdr0505.cooldownRemainingMs,
+          offHoursSuppressed: input.krxInvestorDiagnosticAdr0505.offHoursSuppressed,
+          diagnosticOnly: input.krxInvestorDiagnosticAdr0505.diagnosticOnly,
+          useForRouter: input.krxInvestorDiagnosticAdr0505.useForRouter,
+          useForGate: input.krxInvestorDiagnosticAdr0505.useForGate,
+          useForLive: input.krxInvestorDiagnosticAdr0505.useForLive,
+          useForShadow: input.krxInvestorDiagnosticAdr0505.useForShadow,
           selectedRowCount: input.krxInvestorDiagnosticAdr0505.selectedRowCount,
           normalizedRows: input.krxInvestorDiagnosticAdr0505.normalizedRows,
           summary: input.krxInvestorDiagnosticAdr0505.summary,
@@ -1556,6 +1650,14 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- selectedDiagnosticReason: ${result.selectedDiagnosticReason ?? 'NONE'}`,
     `- selectedForLive: ${result.selectedForLive ?? false}`,
     `- selectedForShadow: ${result.selectedForShadow ?? result.selectedProvider !== 'NONE'}`,
+    `- kisFirstMode: ${result.kisFirstMode ?? false}`,
+    `- dryRunLane: ${result.dryRunLane ?? 'NONE'}`,
+    `- usedForCurrentGate: ${result.usedForCurrentGate ?? false}`,
+    `- usedForLiveDecision: ${result.usedForLiveDecision ?? false}`,
+    `- fallbackProvider: ${result.fallbackProvider ?? 'NONE'}`,
+    `- fallbackStatus: ${result.fallbackStatus ?? 'NONE'}`,
+    `- fallbackDiagnosticOnly: ${result.fallbackDiagnosticOnly ?? false}`,
+    `- legacyDryRunSummary: ${result.legacyDryRunSummary ?? 'NONE'}`,
     `- krxSourceRepair: ${result.krxSourceRepairDiagnostic?.summary ?? result.krxSourceRepairDiagnostic?.parserStatus ?? 'NONE'}`,
     `- semanticInputStatus: ${result.semanticInputStatus ?? result.providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE'}`,
     `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
