@@ -109,12 +109,12 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
       expect(krxFlow?.usableForLive).toBe(false);
       expect(krxFlow?.executionImpact).toBe('NONE');
       expect(krxFlow?.diagnostics.join(' ')).toContain('selectedProvider=NONE');
-      expect(krxFlow?.diagnostics.join(' ')).toContain('KIS-first mode; KRX retained for manual validation only');
+      expect(krxFlow?.diagnostics.join(' ')).toContain('KIS-first mode; KRX retained for manual diagnostics only');
 
       expect(krxSector?.status).toBe('DISABLED_BY_KIS_FIRST_MODE');
       expect(krxSector?.isProviderIssue).toBe(false);
       expect(krxSector?.isMarketSignal).toBe(false);
-      expect(krxSector?.diagnostics.join(' ')).toContain('KIS sector basket / KIS price foundation active');
+      expect(krxSector?.diagnostics.join(' ')).toContain('KIS-first mode; KRX retained for manual diagnostics only');
     } finally {
       if (prev === undefined) delete process.env.KIS_FIRST_REBUILD_MODE;
       else process.env.KIS_FIRST_REBUILD_MODE = prev;

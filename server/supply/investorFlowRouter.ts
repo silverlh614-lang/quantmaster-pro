@@ -185,7 +185,7 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     const health = makeInvestorFlowProviderHealth({
       provider: 'KRX',
       status: 'DISABLED_BY_KIS_FIRST_MODE',
-      reason: 'KIS-first mode; KRX retained for manual validation only',
+      reason: 'KIS-first mode; KRX retained for manual diagnostics only',
       now,
       sourceDateKst,
       endpoint: 'MDCSTAT02201',
@@ -197,7 +197,7 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     console.info('[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=MDCSTAT02201');
     return {
       data: null,
-      diagnostic: 'status=DISABLED_BY_KIS_FIRST_MODE;provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=KIS-first mode; KRX retained for manual validation only',
+      diagnostic: 'status=DISABLED_BY_KIS_FIRST_MODE;provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=KIS-first mode; KRX retained for manual diagnostics only',
       unavailable: false,
       offHours: false,
       health,
@@ -474,7 +474,11 @@ export function summarizeInvestorFlowAttempts(attempts: InvestorFlowAttempt[]): 
 
 export { summarizeInvestorFlowProviderHealth };
 
-export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()): Promise<InvestorFlowRouteResult> {
+export async function fetchInvestorFlowWithPolicy(
+  code: string,
+  now = new Date(),
+  options: { krxAutoFetchDisabled?: boolean } = {},
+): Promise<InvestorFlowRouteResult> {
   const attempts: InvestorFlowAttempt[] = [];
   const health: InvestorFlowProviderHealth[] = [];
 
@@ -547,7 +551,29 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
   }
 
   try {
-    const krx = await fetchKrxInvestorFlow(code, now);
+    const krx = options.krxAutoFetchDisabled === true
+      ? (() => {
+          const sourceDateKst = resolveInvestorFlowSourceDateKst(now);
+          return {
+            data: null,
+            unavailable: false,
+            offHours: false,
+            diagnostic: 'status=DISABLED_BY_KIS_FIRST_MODE;provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=KIS-first mode; KRX retained for manual diagnostics only',
+            health: makeInvestorFlowProviderHealth({
+              provider: 'KRX',
+              status: 'DISABLED_BY_KIS_FIRST_MODE',
+              reason: 'KIS-first mode; KRX retained for manual diagnostics only',
+              now,
+              sourceDateKst,
+              endpoint: 'MDCSTAT02201',
+              retryable: false,
+              cacheFallback: false,
+              dataAvailable: false,
+              semanticAvailable: false,
+            }),
+          } satisfies KrxLookupResult;
+        })()
+      : await fetchKrxInvestorFlow(code, now);
     health.push(krx.health);
     if (krx.data && hasRealInvestorFields(krx.data)) {
       pushAttempt(attempts, 'KRX_INVESTOR_FLOW', 'OK', krx.diagnostic);
@@ -567,7 +593,7 @@ export async function fetchInvestorFlowWithPolicy(code: string, now = new Date()
       rememberInvestorFlowProviderHealth(health);
       return { stockCode: code, data: krx.data, attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
     }
-    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
+    pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.health.status === 'DISABLED_BY_KIS_FIRST_MODE' ? 'DISABLED_BY_KIS_FIRST_MODE' : krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
     health.push(makeInvestorFlowProviderHealth({
       provider: 'KRX',
