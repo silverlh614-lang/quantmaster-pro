@@ -1,0 +1,1 @@
+export const KIS_INVESTOR_FLOW_EVIDENCE_PLACEHOLDER = true;
