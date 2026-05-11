@@ -812,10 +812,14 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
   if (isKisOnlyRebuildMode()) {
     const report = await buildKisOnlyHealthReport({ now });
     const message = [
+      'Current Mode: KIS_ONLY_REBUILD',
+      'Active source diagnosis: /kis_health',
+      'Legacy Supply Health below is diagnostic-only.',
+      '',
       formatKisOnlyHealthReport(report),
       '',
       'Legacy Diagnostic Lane',
-      'KRX/NAVER/FSS/CACHE/SEMANTIC_NETBUY/Yahoo/ADR dry-run: disabled for current decision in KIS_ONLY_REBUILD_MODE.',
+      'Legacy providers are disabled for current decisions in KIS_ONLY_REBUILD_MODE.',
       'Reconnect order: KIS raw/normalized → FreshDataStatus → SEMANTIC_NETBUY → InvestorFlowRouter → Gate/Shadow.',
       '캐시: fresh',
     ].join('\n');
