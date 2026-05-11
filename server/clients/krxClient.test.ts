@@ -109,6 +109,59 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     });
   });
 
+  it('MDCSTAT02203 output2/data 계열 후보와 영문 alias를 자동 탐색해 투자자 row를 materialize한다', async () => {
+    const body = {
+      output2: [
+        {
+          code: 'A005930',
+          name: '삼성전자',
+          foreignNetBuy: '11',
+          institutionalNetBuy: '22',
+          retailNetBuy: '-33',
+        },
+      ],
+    };
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      text: async () => JSON.stringify(body),
+    }) as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20250419');
+    expect(rows).toEqual([{ code: '005930', name: '삼성전자', foreignNetBuy: 11, institutionNetBuy: 22, individualNetBuy: -33 }]);
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20250419');
+    expect(diagnostic?.parserStatus).toBe('OK');
+    expect(diagnostic?.detectedCandidatePaths).toContain('output2:len=1');
+    expect(diagnostic?.contentType).toBe('json');
+  });
+
+  it('MDCSTAT02203 long-form 투자자구분 row를 외국인/기관/개인 netBuyVolume으로 집계한다', async () => {
+    const body = {
+      result: {
+        rows: [
+          { ISU_SRT_CD: '005930', ISU_ABBRV: '삼성전자', INVST_TP_NM: '외국인', NETBY_QTY: '100' },
+          { ISU_SRT_CD: '005930', ISU_ABBRV: '삼성전자', INVST_TP_NM: '기관', NETBY_QTY: '200' },
+          { ISU_SRT_CD: '005930', ISU_ABBRV: '삼성전자', INVST_TP_NM: '개인', NETBY_QTY: '-300' },
+        ],
+      },
+    };
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      text: async () => JSON.stringify(body),
+    }) as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20250420');
+    expect(rows[0]).toMatchObject({ code: '005930', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 });
+    expect(getLastKrxInvestorTradingDiagnostic('20250420')?.selectedRowPath).toBe('result.rows');
+  });
+
   it('동일 날짜 재호출은 캐시 히트로 fetch 를 한 번만 사용한다', async () => {
     const body = { OutBlock_1: [] };
     const fetchSpy = vi.fn().mockResolvedValue({

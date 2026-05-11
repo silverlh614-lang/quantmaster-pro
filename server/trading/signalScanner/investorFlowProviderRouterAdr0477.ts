@@ -364,7 +364,8 @@ export function normalizeSemanticNetBuySampleAdr0477(
   });
   const foreignNetBuy = valueFromAliases(raw, ['foreignNetBuy', 'investorForeignNetBuy', 'foreign', 'frgnNetBuy']);
   const institutionNetBuy = valueFromAliases(raw, ['institutionNetBuy', 'institutionalNetBuy', 'investorInstitutionNetBuy', 'institution', 'orgNetBuy']);
-  const programNetBuy = valueFromAliases(raw, ['programNetBuy']);
+  const individualNetBuy = valueFromAliases(raw, ['individualNetBuy', 'retailNetBuy', 'individual', 'retail', 'prvtNetBuy']);
+  const programNetBuy = valueFromAliases(raw, ['programNetBuy']) ?? individualNetBuy;
   const confidence = confidenceForStatus(status, opts.sourceAgeTradingDays);
   const signal = deriveSignal({ foreignNetBuy, institutionNetBuy, confidence, status });
   return {
@@ -635,14 +636,26 @@ function sampleFromCacheLookupAdr0491(
   code: string,
   collectedAt: string,
 ): SemanticNetBuySample | null {
-  if (!lookup?.cacheRaw) return null;
-  const status = cacheLookupStatusAdr0477(lookup.status);
-  if (status !== 'CACHE_HIT' && status !== 'CACHE_STALE_HIT') return null;
-  return normalizeSemanticNetBuySampleAdr0477(lookup.cacheRaw, 'CACHE', {
+  const status = lookup ? cacheLookupStatusAdr0477(lookup.status) : 'CACHE_EMPTY';
+  if (!lookup || (status !== 'CACHE_HIT' && status !== 'CACHE_STALE_HIT')) return null;
+  const latest = lookup.snapshot?.latestInvestorFlowSample;
+  const snapshotRaw = latest ? {
+    code,
+    sourceDate: latest.dataDate,
+    foreignNetBuy: latest.foreignNetBuy,
+    institutionNetBuy: latest.institutionNetBuy,
+    individualNetBuy: latest.retailNetBuy,
+    status: status === 'CACHE_STALE_HIT' ? 'STALE' : 'CACHE_HIT',
+  } : null;
+  const cacheRaw = lookup.cacheRaw ?? snapshotRaw;
+  if (!cacheRaw) return null;
+  const sample = normalizeSemanticNetBuySampleAdr0477(cacheRaw, 'CACHE', {
     code,
     collectedAt,
     fallbackStatus: status === 'CACHE_STALE_HIT' ? 'CACHE_STALE_HIT' : 'CACHE_HIT',
   });
+  const hasRows = finiteNumber(sample.foreignNetBuy) || finiteNumber(sample.institutionNetBuy) || finiteNumber(sample.programNetBuy);
+  return hasRows ? sample : null;
 }
 
 function materializationFromSemanticSampleAdr0477(

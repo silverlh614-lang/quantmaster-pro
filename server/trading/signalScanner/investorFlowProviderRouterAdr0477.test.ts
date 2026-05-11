@@ -39,7 +39,6 @@ function notWiredRoute() {
 
 describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
 
-
   it('normalizes investor-flow source keys for FreshData, health, and cache bridges', () => {
     expect(normalizeInvestorFlowSourceKey('NAVER')).toBe('NAVER_INVESTOR_TREND');
     expect(normalizeInvestorFlowSourceKey('NAVER_INVESTOR_TREND')).toBe('NAVER_INVESTOR_TREND');
@@ -266,8 +265,6 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(staleNegative.signal).toBe('UNKNOWN');
   });
 
-
-
   it('routes ADR-0481 NAVER investor trend collector samples before cache while staying SHADOW_ONLY', () => {
     const collector = buildNaverInvestorTrendCollectorResultAdr0481({
       code: '005930',
@@ -390,6 +387,70 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.noMaterializedCandidateReason).toBeNull();
     expect(route.liveExecutionAllowed).toBe(false);
     expect(route.executionImpact).toBe('NONE');
+  });
+
+  it('materializes CACHE_HIT from sanitized snapshot when cacheRaw is missing', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_HIT',
+        snapshot: {
+          scanId: 'scan-cache-hit',
+          recordedAt: '2026-05-11T00:00:00.000Z',
+          tradingDate: '2026-05-08',
+          domains: ['SUPPLY'],
+          supplyStatus: 'CACHE_HIT',
+          sectorStatus: 'EMPTY',
+          programStatus: 'EMPTY',
+          providerIssue: false,
+          marketSignal: false,
+          sampleCounts: { supply: 1, sector: 0, program: 0 },
+          latestInvestorFlowSample: {
+            symbol: '005930',
+            provider: 'CACHE',
+            dataDate: '2026-05-08',
+            foreignNetBuy: 123,
+            institutionNetBuy: 456,
+            retailNetBuy: -579,
+            confidence: 'HIGH',
+            status: 'FRESH',
+            isProviderIssue: false,
+            isMarketSignal: false,
+          },
+          adr0496SupplyCoverage: null,
+          executionImpact: 'NONE',
+          liveExecutionAllowed: false,
+          policyPromotionMode: 'SHADOW_ONLY',
+          operatorApprovalRequired: true,
+          rawProviderPayloadPersisted: false,
+          diagnostics: [],
+        },
+        cacheRaw: null,
+        retained: 120,
+        reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+        stale: false,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
+      },
+      nonTradingDay: true,
+    });
+
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.status).toBe('CACHE_HIT');
+    expect(route.coverage.available).toBeGreaterThanOrEqual(1);
+    expect(route.materializationDiagnostics?.CACHE).toMatchObject({
+      sampleMaterialized: true,
+      materializedCount: 1,
+      placeholderDetected: false,
+      usableForRouter: true,
+      blockedReason: 'NONE',
+    });
+    expect(route.rejectedReasonByProvider?.CACHE).toBeUndefined();
+    expect(route.executionImpact).toBe('NONE');
+    expect(route.liveExecutionAllowed).toBe(false);
   });
 
   it('ranks multi-source materialized candidates KRX, KIS, FSS, NAVER, CACHE, then SEMANTIC', () => {
@@ -637,10 +698,6 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(scanDiagnosticsSource()).toContain('formatInvestorFlowProviderRouterAdr0477');
     expect(scanDiagnosticsSource()).toContain('[ADR-0477] InvestorFlowProviderRouter build failed');
   });
-
-
-
-
 
   it('selects ADR-0491 sanitized cache lookup hits and keeps key mismatches diagnostic', () => {
     const route = buildInvestorFlowProviderRouteResultAdr0477({
