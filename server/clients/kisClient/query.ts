@@ -25,6 +25,7 @@ import type {
   PrevClose,
 } from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
+import { isTradingDay } from '../../utils/marketDayClassifier.js';
 import {
   MARKET_PROGRAM_TRADE_TR_ID,
   MARKET_PROGRAM_TRADE_PATH,
@@ -48,6 +49,11 @@ const STOCK_PROGRAM_TRADE_TR_ID = process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID ?? '
 const STOCK_PROGRAM_TRADE_PATH =
   process.env.KIS_STOCK_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/program-trade-by-stock';
+
+const INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID = 'FHPTJ04160001';
+const INVESTOR_TRADE_BY_STOCK_DAILY_PATH = '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily';
+const INVESTOR_TRADE_BY_STOCK_DAILY_ORG_ADJ_PRC = process.env.KIS_INVESTOR_DAILY_ORG_ADJ_PRC ?? '0';
+const INVESTOR_TRADE_BY_STOCK_DAILY_ETC_CLS_CODE = process.env.KIS_INVESTOR_DAILY_ETC_CLS_CODE ?? '0';
 
 /**
  * ADR-0146: comp-program-trade-today 의 시장구분코드는 `U` 가 아니라 국내주식 공통값 `J`.
@@ -105,6 +111,47 @@ function isAcceptedEmptyKisResponse(data: unknown): boolean {
   const hasEmptyOutput2Array = Array.isArray(root.output2) && root.output2.length === 0;
   const hasNoPickedOutput = !pickKisOutput(data);
   return hasNoPickedOutput && (hasEmptyOutputArray || hasEmptyOutput1Array || hasEmptyOutput2Array);
+}
+
+
+function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function previousKrxTradingDate(dateKst: string): string {
+  let cursor = shiftYmd(dateKst, -1);
+  for (let i = 0; i < 32; i += 1) {
+    if (isTradingDay(cursor)) return cursor;
+    cursor = shiftYmd(cursor, -1);
+  }
+  return dateKst;
+}
+
+function investorDailySession(dateKst: string): 'PRE_OPEN' | 'REGULAR' | 'POST_CLOSE' | 'CLOSED' | 'NON_TRADING_DAY' {
+  if (!isTradingDay(dateKst)) return 'NON_TRADING_DAY';
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  if (minutes < 9 * 60) return 'PRE_OPEN';
+  if (minutes >= 9 * 60 && minutes < 15 * 60 + 30) return 'REGULAR';
+  if (minutes >= 15 * 60 + 30) return 'POST_CLOSE';
+  return 'CLOSED';
+}
+
+function investorTradeByStockDailyDateCandidates(): string[] {
+  const today = _kstDateStr();
+  const previous = previousKrxTradingDate(today);
+  return investorDailySession(today) === 'REGULAR' ? [today, previous] : [previous];
+}
+
+function buildInvestorTradeByStockDailyParams(safeCode: string, dateKst: string): Record<string, string> {
+  return {
+    FID_COND_MRKT_DIV_CODE: 'J',
+    FID_INPUT_ISCD: safeCode,
+    FID_INPUT_DATE_1: dateKst.replace(/-/g, ''),
+    FID_ORG_ADJ_PRC: INVESTOR_TRADE_BY_STOCK_DAILY_ORG_ADJ_PRC,
+    FID_ETC_CLS_CODE: INVESTOR_TRADE_BY_STOCK_DAILY_ETC_CLS_CODE,
+  };
 }
 
 /**
@@ -394,11 +441,11 @@ export async function fetchKisDailyShortSale(
     const latest = rows[0];
     if (!latest) return null;
     const previous = rows[1];
-    const shortSaleQty = extractKisNumberOptional(latest, ['ssts_cntg_qty', 'SSTS_CNTG_QTY']);
-    const shortSaleAmount = extractKisNumberOptional(latest, ['ssts_tr_pbmn', 'SSTS_TR_PBMN']);
-    const shortSaleRatio = extractKisNumberOptional(latest, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim', 'SSTS_TR_PBMN_RLIM']);
-    const previousAmount = extractKisNumberOptional(previous, ['ssts_tr_pbmn', 'SSTS_TR_PBMN']);
-    const previousQty = extractKisNumberOptional(previous, ['ssts_cntg_qty', 'SSTS_CNTG_QTY']);
+    const shortSaleQty = extractKisNumberOptional(latest, ['ssts_cntg_qty', 'shts_cntg_qty', 'stss_cntg_qty', 'SSTS_CNTG_QTY', 'SHTS_CNTG_QTY', 'STSS_CNTG_QTY']);
+    const shortSaleAmount = extractKisNumberOptional(latest, ['ssts_tr_pbmn', 'shts_tr_pbmn', 'stss_tr_pbmn', 'SSTS_TR_PBMN', 'SHTS_TR_PBMN', 'STSS_TR_PBMN']);
+    const shortSaleRatio = extractKisNumberOptional(latest, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim', 'stss_rate', 'short_rate', 'SSTS_TR_PBMN_RLIM', 'SSTS_VOL_RLIM', 'STSS_RATE', 'SHORT_RATE']);
+    const previousAmount = extractKisNumberOptional(previous, ['ssts_tr_pbmn', 'shts_tr_pbmn', 'stss_tr_pbmn', 'SSTS_TR_PBMN', 'SHTS_TR_PBMN', 'STSS_TR_PBMN']);
+    const previousQty = extractKisNumberOptional(previous, ['ssts_cntg_qty', 'shts_cntg_qty', 'stss_cntg_qty', 'SSTS_CNTG_QTY', 'SHTS_CNTG_QTY', 'STSS_CNTG_QTY']);
     const shortSaleIncreaseRate = percentChange(shortSaleAmount ?? shortSaleQty, previousAmount ?? previousQty);
     if (!hasAnyFinite(shortSaleQty, shortSaleAmount, shortSaleRatio, shortSaleIncreaseRate)) return null;
     return {
@@ -603,20 +650,25 @@ export async function fetchKisInvestorTradeByStockDaily(
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
   const safeCode = code.padStart(6, '0');
   try {
-    const data = await realDataKisGet(
-      'FHPTJ04160001',
-      '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
-      {
-        FID_COND_MRKT_DIV_CODE: 'J',
-        FID_INPUT_ISCD: safeCode,
-        FID_INPUT_DATE_1: _kstDateStr().replace(/-/g, ''),
-        FID_ORG_ADJ_PRC: '',
-        FID_ETC_CLS_CODE: '',
-      },
-      priority,
-    );
-    if (isAcceptedEmptyKisResponse(data)) return null;
-    const row = pickKisRows(data)[0];
+    let rows: KisOutput[] = [];
+    const dateCandidates = investorTradeByStockDailyDateCandidates();
+    for (let i = 0; i < dateCandidates.length; i += 1) {
+      const sourceDate = dateCandidates[i];
+      try {
+        const data = await realDataKisGet(
+          INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID,
+          INVESTOR_TRADE_BY_STOCK_DAILY_PATH,
+          buildInvestorTradeByStockDailyParams(safeCode, sourceDate),
+          priority,
+        );
+        if (isAcceptedEmptyKisResponse(data)) continue;
+        rows = pickKisRows(data);
+        if (rows.length > 0) break;
+      } catch (e) {
+        if (i === dateCandidates.length - 1) throw e;
+      }
+    }
+    const row = rows[0];
     if (!row) return null;
     const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'FRGN_NTBY_QTY']);
     const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'ORGN_NTBY_QTY']);

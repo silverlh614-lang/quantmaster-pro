@@ -342,9 +342,7 @@ export async function buildKisOnlyHealthReport(input: {
       investorEndpointTraces.push(...investorTraces.value);
       for (const trace of investorTraces.value) addReason(investorReasonSummary, trace);
     }
-    const selectedFlow = hasInvestorFields(dailyFlow.ok ? dailyFlow.value : null)
-      ? { value: dailyFlow.ok ? dailyFlow.value : null, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' }
-      : { value: strictFlow.ok ? strictFlow.value : null, sourceKind: 'INQUIRE_INVESTOR' };
+    const selectedFlow = { value: dailyFlow.ok ? dailyFlow.value : null, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' };
     if (hasInvestorFields(selectedFlow.value)) {
       investorMaterialized++;
       sampleRows.push({
@@ -357,7 +355,7 @@ export async function buildKisOnlyHealthReport(input: {
       });
     } else if (investorRaw.ok && classifyKisRawParserStatus(investorRaw.value) === 'HTTP_OK_FIELD_MISMATCH') {
       investorFieldMismatch++;
-      sampleRows.push({ stockCode: code, sourceKind: 'INQUIRE_INVESTOR', confidence: 'DEGRADED', blockedReason: 'HTTP_OK_FIELD_MISMATCH' });
+      sampleRows.push({ stockCode: code, sourceKind: 'INQUIRE_INVESTOR_QUOTE_LIKE', confidence: 'DEGRADED', blockedReason: 'diagnostic only: no investor net-buy fields' });
     } else if (!strictFlow.ok || !dailyFlow.ok || !investorRaw.ok) {
       investorErrors++;
     } else {
@@ -509,6 +507,7 @@ const KIS_TRACE_BLOCKED_REASONS: KisEndpointBlockedReason[] = [
   'NO_ROW_FOR_SYMBOL',
   'DATE_NOT_AVAILABLE',
   'FIELD_MISSING',
+  'QUOTE_LIKE_OUTPUT',
   'PARAM_ERROR',
   'PROVIDER_ERROR',
   'MATERIALIZED',
@@ -591,7 +590,8 @@ function formatShortDetail(report: KisOnlyHealthReport): string[] {
   if (examples.length > 0) {
     lines.push('  examples:');
     for (const trace of examples) {
-      lines.push(`    - ${trace.stockCode} / ${trace.tradingDate}: trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} blockedReason=${trace.blockedReason}`);
+      const outputKeys = (trace.outputKeys ?? []).slice(0, 20).join(',') || 'NONE';
+      lines.push(`    - ${trace.stockCode} / ${trace.tradingDate}: trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} blockedReason=${trace.blockedReason} outputKeys=${outputKeys}`);
     }
   }
   return lines;

@@ -15,6 +15,7 @@ import {
   materializeKisMarketProgramTrade,
 } from './programMaterializer.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
+import { isTradingDay } from '../../utils/marketDayClassifier.js';
 
 export type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM' | 'MARKET_PROGRAM';
 
@@ -312,6 +313,7 @@ export async function diagnoseKisMarketProgramRaw(
 
 export type KisEndpointBlockedReason =
   | 'MATERIALIZED'
+  | 'QUOTE_LIKE_OUTPUT'
   | 'SESSION_UNAVAILABLE'
   | 'EXPECTED_EMPTY_OFF_SESSION'
   | 'HTTP_OK_BUT_EMPTY'
@@ -343,6 +345,37 @@ export interface KisEndpointTrace {
   blockedReason: KisEndpointBlockedReason;
 }
 
+
+function kstDateStr(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function shiftYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function previousKrxTradingDate(dateKst: string): string {
+  let cursor = shiftYmd(dateKst, -1);
+  for (let i = 0; i < 32; i += 1) {
+    if (isTradingDay(cursor)) return cursor;
+    cursor = shiftYmd(cursor, -1);
+  }
+  return dateKst;
+}
+
+function investorDailyTraceDate(): string {
+  return previousKrxTradingDate(kstDateStr()).replace(/-/g, '');
+}
+
+function isInquireInvestorQuoteLikeOutput(sourceKind: string, row: Record<string, string> | undefined): boolean {
+  if (sourceKind !== 'INQUIRE_INVESTOR' || !row) return false;
+  const keys = new Set(Object.keys(row));
+  const hasQuoteLikeKeys = ['stck_prpr', 'cntg_vol', 'stck_cntg_hour'].some((key) => keys.has(key));
+  const hasInvestorKeys = ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty', 'frgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn'].some((key) => keys.has(key));
+  return hasQuoteLikeKeys && !hasInvestorKeys;
+}
+
 function rowsWithPath(data: unknown): { path: string; rows: Record<string, string>[] } {
   const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
   for (const key of ['output', 'output1', 'output2'] as const) {
@@ -365,7 +398,7 @@ function classifyEndpointRootIssue(data: unknown, sourceKind: string): KisEndpoi
   const message = `${msgCd} ${msg1}`.toUpperCase();
   if (message.includes('SESSION') || message.includes('TOKEN') || message.includes('AUTH') || message.includes('AUTHORIZATION')) return 'SESSION_UNAVAILABLE';
   if (message.includes('DATE') || message.includes('일자') || message.includes('영업일')) return 'DATE_NOT_AVAILABLE';
-  if (message.includes('INPUT FIELD') || message.includes('INVALID') || message.includes('PARAM') || message.includes('FID_')) return 'PARAM_ERROR';
+  if (msgCd === 'OPSQ2001' || message.includes('INPUT FIELD') || message.includes('INVALID') || message.includes('PARAM') || message.includes('FID_')) return 'PARAM_ERROR';
   if (rtCd && rtCd !== '0') return 'PROVIDER_ERROR';
   if (sourceKind === 'SHORT' && message.includes('조회할 자료가 없습니다')) return 'DATE_NOT_AVAILABLE';
   return null;
@@ -379,9 +412,9 @@ function parsedEndpointFields(sourceKind: string, row: Record<string, string> | 
   if (sourceKind === 'SHORT') {
     if (!row) return [];
     const fields: string[] = [];
-    if (parseNum(row, ['ssts_cntg_qty', 'SSTS_CNTG_QTY']) !== null) fields.push('shortSaleQty');
-    if (parseNum(row, ['ssts_tr_pbmn', 'SSTS_TR_PBMN']) !== null) fields.push('shortSaleAmount');
-    if (parseNum(row, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim', 'SSTS_TR_PBMN_RLIM']) !== null) fields.push('shortSaleRatio');
+    if (parseNum(row, ['ssts_cntg_qty', 'shts_cntg_qty', 'stss_cntg_qty', 'SSTS_CNTG_QTY', 'SHTS_CNTG_QTY', 'STSS_CNTG_QTY']) !== null) fields.push('shortSaleQty');
+    if (parseNum(row, ['ssts_tr_pbmn', 'shts_tr_pbmn', 'stss_tr_pbmn', 'SSTS_TR_PBMN', 'SHTS_TR_PBMN', 'STSS_TR_PBMN']) !== null) fields.push('shortSaleAmount');
+    if (parseNum(row, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim', 'stss_rate', 'short_rate', 'SSTS_TR_PBMN_RLIM', 'SSTS_VOL_RLIM', 'STSS_RATE', 'SHORT_RATE']) !== null) fields.push('shortSaleRatio');
     return fields;
   }
 
@@ -417,6 +450,7 @@ async function endpointTrace(input: {
     const msgCd = rootString(data, 'msg_cd');
     const rootIssue = classifyEndpointRootIssue(data, input.sourceKind);
     if (materialized) blockedReason = 'MATERIALIZED';
+    else if (isInquireInvestorQuoteLikeOutput(input.sourceKind, target)) blockedReason = 'QUOTE_LIKE_OUTPUT';
     else if (rootIssue) blockedReason = rootIssue;
     else if (rows.length === 0) blockedReason = 'HTTP_OK_BUT_EMPTY';
     else if (input.sourceKind === 'FOREIGN_INSTITUTION_TOTAL' && !targetFound) blockedReason = 'NOT_IN_TOP_LIST';
@@ -447,10 +481,10 @@ async function endpointTrace(input: {
 
 export async function diagnoseKisInvestorEndpointTraces(code: string, priority: KisApiPriority = 'LOW'): Promise<KisEndpointTrace[]> {
   const safeCode = code.padStart(6, '0');
-  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+  const previousTradingDay = investorDailyTraceDate();
   return Promise.all([
     endpointTrace({ stockCode: safeCode, sourceKind: 'INQUIRE_INVESTOR', trId: 'FHKST01010300', apiPath: '/uapi/domestic-stock/v1/quotations/inquire-investor', params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: safeCode }, priority }),
-    endpointTrace({ stockCode: safeCode, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY', trId: 'FHPTJ04160001', apiPath: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily', params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: safeCode, FID_INPUT_DATE_1: today, FID_ORG_ADJ_PRC: '', FID_ETC_CLS_CODE: '' }, priority }),
+    endpointTrace({ stockCode: safeCode, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY', trId: 'FHPTJ04160001', apiPath: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily', params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: safeCode, FID_INPUT_DATE_1: previousTradingDay, FID_ORG_ADJ_PRC: '0', FID_ETC_CLS_CODE: '0' }, priority }),
     endpointTrace({ stockCode: safeCode, sourceKind: 'FOREIGN_INSTITUTION_TOTAL', trId: 'FHPTJ04400000', apiPath: '/uapi/domestic-stock/v1/quotations/foreign-institution-total', params: { FID_COND_MRKT_DIV_CODE: 'V', FID_COND_SCR_DIV_CODE: '16449', FID_INPUT_ISCD: '0000', FID_DIV_CLS_CODE: '1', FID_RANK_SORT_CLS_CODE: '0', FID_ETC_CLS_CODE: '0' }, priority, targetList: true }),
     endpointTrace({ stockCode: safeCode, sourceKind: 'INVESTOR_TREND_ESTIMATE', trId: 'HHPTJ04160200', apiPath: '/uapi/domestic-stock/v1/quotations/investor-trend-estimate', params: { MKSC_SHRN_ISCD: safeCode }, priority }),
   ]);
