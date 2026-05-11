@@ -1,4 +1,5 @@
 // @responsibility ADR-0118 ScanCounters 확장 + buildMacroGateState + formatScanBlockersMessage 회귀
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   buildMacroGateState,
@@ -7,6 +8,15 @@ import {
   formatScanBlockersMessage,
   type ScanSummary,
 } from './scanDiagnostics.js';
+
+describe('ADR-0491 supply snapshot cache lookup date', () => {
+  it('uses the already KST-shifted diagnostic clock without applying a second 9h offset', () => {
+    const source = readFileSync(new URL('./scanDiagnostics.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain("const todayKst = kstNow.toISOString().slice(0, 10);");
+    expect(source).not.toContain('kstNow.getTime() + 9 * 60 * 60_000');
+  });
+});
 
 describe('createScanCounters — ADR-0118 신규 카운터 초기화', () => {
   it('waitDataHold/preBreakout/gateFail/sizingBlocked/driftRemove/corpAction/volumeDrop/other 모두 0', () => {

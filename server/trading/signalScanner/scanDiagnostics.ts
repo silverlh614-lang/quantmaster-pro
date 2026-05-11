@@ -2105,7 +2105,7 @@ export async function persistScanResults(
     const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
     const firstSnapshot = observationSnapshots[0];
     const firstSymbol = firstSnapshot?.symbol ?? 'UNIVERSE';
-    const todayKst = new Date(kstNow.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10);
+    const todayKst = kstNow.toISOString().slice(0, 10);
     const sellOnlyOrClosed = options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false;
     const supplySnapshotCacheLookupAdr0491 = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
       symbol: firstSymbol,
