@@ -43,7 +43,35 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
     });
   }
 
-  it('records KIS OK but keeps CACHE fallback selected at default SHADOW_SCORE stage', async () => {
+  it('selects KIS_API by default while keeping execution impact shadow-safe', async () => {
+    const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
+    setKisClientOverrides({
+      fetchKisInvestorFlow: async () => ({
+        foreignNetBuy: 100,
+        institutionalNetBuy: 200,
+        individualNetBuy: -300,
+        source: 'KIS_API',
+      }),
+    });
+    const { fetchInvestorFlowWithPolicy } = await import('./investorFlowRouter.js');
+
+    const result = await fetchInvestorFlowWithPolicy('005930', new Date('2026-05-11T09:30:00.000Z'));
+
+    expect(result.source).toBe('KIS_API');
+    expect(result.status).toBe('OK');
+    expect(result.data?.provider).toBe('KIS_API');
+    expect(result.attempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'KIS_API', status: 'OK' }),
+    ]));
+    const kisHealth = result.health.find((entry) => entry.provider === 'KIS');
+    expect(kisHealth?.status).toBe('OK');
+    expect(kisHealth?.reason).toContain('promotionStage=WEIGHTED');
+    expect(kisHealth?.reason).toContain('selectableForRouter=true');
+    expect(kisHealth?.reason).toContain('liveExecutionAllowed=false');
+  }, 15_000);
+
+  it('records KIS OK but keeps CACHE fallback selected when stage is SHADOW_SCORE', async () => {
+    process.env.KIS_INVESTOR_FLOW_PROMOTION_STAGE = 'SHADOW_SCORE';
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
       fetchKisInvestorFlow: async () => ({
@@ -69,7 +97,7 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
     expect(kisHealth?.status).toBe('OK');
     expect(kisHealth?.reason).toContain('promotionStage=SHADOW_SCORE');
     expect(kisHealth?.reason).toContain('selectableForRouter=false');
-    expect(kisHealth?.reason).toContain('liveExecutionAllowed=false');
+    expect(kisHealth?.reason).toContain('executionImpact=NONE');
   }, 15_000);
 
   it('selects KIS_API only when explicit promotion stage is WEIGHTED or higher', async () => {

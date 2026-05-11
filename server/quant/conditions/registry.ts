@@ -227,8 +227,12 @@ export class ConditionRegistry {
     //   `unavailable` 카운터 누적 — `failed` 와 분리, 진단 오염 차단).
     const isProviderDegradedDisabled = process.env.ADR_0411_PROVIDER_DEGRADED_DISABLED === 'true';
     const yahooDerivedReliable = ctx.quote?.yahooDerivedIndicatorsReliable;
+    const yahooDiagnosticOnly = ctx.quote?.yahooDiagnosticOnly === true;
+    const noProviderDegrade = ctx.quote?.noProviderDegrade === true;
     const downgradeTimeseriesEvaluators = !isProviderDegradedDisabled
-      && yahooDerivedReliable === false;
+      && yahooDerivedReliable === false
+      && !yahooDiagnosticOnly
+      && !noProviderDegrade;
 
     for (const ev of this.evaluators.values()) {
       let out: ConditionEvalOutput | null = null;

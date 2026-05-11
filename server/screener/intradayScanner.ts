@@ -262,10 +262,8 @@ async function discoverIntradayCandidates(): Promise<void> {
 
   for (const stock of candidates) {
     try {
-      // ADR-0231: stock.symbol 명시 시 직접 사용, 그 외 KRX 마스터 정확 매핑.
-      const quote = stock.symbol
-        ? (await fetchYahooQuote(stock.symbol).catch(() => null))
-        : (await fetchYahooQuoteByCode(stock.code, fetchYahooQuote));
+      // ADR-0231/0502: code-based SSOT keeps KIS official price first, then Yahoo fallback.
+      const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote).catch(() => null);
 
       if (!quote || quote.price <= 0) continue;
 

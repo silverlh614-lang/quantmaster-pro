@@ -63,7 +63,7 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
   investorFlow: {
     key: 'investorFlow',
     title: '기관/외인 수급',
-    primary: ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_RECORDS', 'NAVER_INVESTOR_TREND'],
+    primary: ['KIS_API', 'KRX_INVESTOR_FLOW', 'FSS_RECORDS', 'NAVER_INVESTOR_TREND'],
     fallback: ['CACHE'],
     diagnostic: ['FSS_RECORDS', 'NAVER_INVESTOR_TREND', 'CACHE'],
     scoringMode: 'required_real_fields',

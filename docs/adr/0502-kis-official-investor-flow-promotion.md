@@ -24,13 +24,16 @@ applies:
 ## Decision
 
 KIS official investor-flow evidence is wired into the investor-flow router as a
-real read-only evidence source. Its default promotion stage is `SHADOW_SCORE`.
-At this default stage, successful KIS evidence is recorded in provider health
-and attempts, but it is not selected as the router source.
+real read-only evidence source. During the 2026-05-11 KRX row recovery incident,
+its emergency default promotion stage is `WEIGHTED` so strict real investor
+fields can keep the router alive before cache fallback.
 
 KIS can become the selected router source only when
-`KIS_INVESTOR_FLOW_PROMOTION_STAGE` is explicitly set to `WEIGHTED`, `GATED`, or
-`CORE`. Even then, this patch does not enable live execution.
+`KIS_INVESTOR_FLOW_PROMOTION_STAGE` is `WEIGHTED`, `GATED`, or `CORE`. Operators
+can still force `OBSERVE`, `SHADOW_SCORE`, or `ADVISORY`; at those stages,
+successful KIS evidence is recorded in provider health and attempts but is not
+selected as the router source. Even when selected, this patch does not enable
+live execution.
 
 ## CORE Promotion Criteria
 

@@ -45,7 +45,7 @@ export function getKisInvestorFlowPromotionStage(): KisInvestorFlowPromotionStag
   ) {
     return raw;
   }
-  return 'SHADOW_SCORE';
+  return 'WEIGHTED';
 }
 
 export function isKisSelectableForRouter(stage: KisInvestorFlowPromotionStage): boolean {

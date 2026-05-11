@@ -87,15 +87,18 @@ export interface YahooQuoteExtended {
    */
   priceMetadata?: PriceBase;
   /**
-   * ADR-0091 PR-Z4 + ADR-0411 — Yahoo 데이터 품질 marker.
-   * `OK` (모두 valid) / `STALE_BASE` (changePercent / return5d / return20d 중 1개 이상 sanity 위반)
-   *   / `KIS_PRIMARY_YAHOO_STALE_DETECTED` (ADR-0411 — Yahoo↔KIS 가격 50% 초과 괴리, KIS price recovery).
-   *
-   * ADR-0411: ADR-0263 의 `return null` 대신 KIS 현재가 채택 (universe 손실 차단) + 시계열 의존
-   * evaluator 를 registry 단계에서 PROVIDER_DEGRADED 강등. 호출자(perSymbolEvaluation)
-   * 에서 `WATCHLIST_HOLD` 정책으로 자동 진입 보류.
+   * ADR-0091 PR-Z4 + ADR-0411/0502 — price data quality marker.
+   * KIS fresh current price is primary. Yahoo can still be fetched for diagnostics,
+   * but Yahoo divergence/staleness must not degrade Gate/Stage when KIS is fresh.
    */
-  dataQuality?: 'OK' | 'STALE_BASE' | 'KIS_PRIMARY_YAHOO_STALE_DETECTED';
+  dataQuality?:
+    | 'OK'
+    | 'STALE_BASE'
+    | 'KIS_PRIMARY'
+    | 'KIS_PRIMARY_YAHOO_DIAGNOSTIC_STALE'
+    | 'KIS_PRIMARY_YAHOO_STALE_DETECTED'
+    | 'YAHOO_FALLBACK_KIS_MISSING'
+    | 'CACHE_FALLBACK_PRICE_MISSING';
   /** dataQuality=STALE_BASE 시 어느 필드가 위반했는지 진단 — 운영 로그 추적용. */
   dataQualityIssues?: Array<'changePercent' | 'return5d' | 'return20d'>;
   /**
@@ -104,10 +107,15 @@ export interface YahooQuoteExtended {
    * relative_strength/breakout_momentum/volume_surge/rsi_zone/macd_bull/pullback/ma60_rising/
    * weekly_rsi_zone/trend_acceleration) 가 registry 단계에서 자동 PROVIDER_DEGRADED 강등.
    *
-   * `KIS_PRIMARY_YAHOO_STALE_DETECTED` 시 자동 false. `STALE_BASE` 도 이미 잘못된 base 이라 false.
-   * 미설정 (legacy) 또는 `OK` 시 true.
+   * KIS primary rows keep this true because Yahoo is diagnostic-only. Yahoo-only
+   * `STALE_BASE` keeps this false so legacy indicator paths can still degrade.
    */
   yahooDerivedIndicatorsReliable?: boolean;
+  /** ADR-0502: Yahoo may be fetched for logging only when KIS official price is fresh. */
+  yahooDiagnosticOnly?: boolean;
+  /** ADR-0502: prevent Yahoo diagnostic divergence from degrading Gate/Stage evaluators. */
+  noProviderDegrade?: boolean;
+  priceProvider?: 'KIS_PRICE' | 'YAHOO' | 'CACHE';
   /**
    * ADR-0411 — KIS recovery 진단 메타.
    * KIS price recovery 적용 시 `{ source: 'KIS_REALTIME', divergencePct, recoveredAt }` 영속.
@@ -126,12 +134,78 @@ export interface YahooQuoteExtended {
 const YAHOO_QUOTE_CACHE_TTL_MS = 5 * 60 * 1000;
 const _yahooQuoteCache = new Map<string, { data: YahooQuoteExtended; ts: number }>();
 
+function buildKisPrimaryQuoteFromIntraday(
+  symbol: string,
+  kis: { price: number; dayOpen: number; prevClose: number; volume: number },
+): YahooQuoteExtended {
+  const changePercent = kis.prevClose > 0 ? ((kis.price - kis.prevClose) / kis.prevClose) * 100 : 0;
+  const quote: YahooQuoteExtended = {
+    price: Math.round(kis.price),
+    dayOpen: Math.round(kis.dayOpen > 0 ? kis.dayOpen : kis.price),
+    prevClose: Math.round(kis.prevClose > 0 ? kis.prevClose : kis.price),
+    changePercent: parseFloat(changePercent.toFixed(2)),
+    volume: kis.volume,
+    avgVolume: kis.volume,
+    ma5: 0,
+    ma20: 0,
+    ma60: 0,
+    high5d: kis.price,
+    high20d: kis.price,
+    high60d: kis.price,
+    atr: 0,
+    atr20avg: 0,
+    per: 0,
+    rsi14: 50,
+    macd: 0,
+    macdSignal: 0,
+    macdHistogram: 0,
+    rsi5dAgo: 50,
+    weeklyRSI: 50,
+    ma60TrendUp: false,
+    macd5dHistAgo: 0,
+    return5d: 0,
+    return20d: 0,
+    recentCloses10d: [kis.price],
+    recentHighs10d: [kis.price],
+    recentLows10d: [kis.price],
+    recentVolumes10d: [kis.volume],
+    bbWidthCurrent: 0,
+    bbWidth20dAvg: 0,
+    vol5dAvg: kis.volume,
+    vol20dAvg: kis.volume,
+    atr5d: 0,
+    monthlyAboveEMA12: false,
+    monthlyEMARising: false,
+    weeklyAboveCloud: false,
+    weeklyLaggingSpanUp: false,
+    dailyVolumeDrying: false,
+    isHighRisk: false,
+    priceMetadata: {
+      value: kis.price,
+      asOf: new Date().toISOString(),
+      source: 'KIS_REALTIME',
+    },
+    dataQuality: 'KIS_PRIMARY',
+    yahooDerivedIndicatorsReliable: true,
+    yahooDiagnosticOnly: true,
+    noProviderDegrade: true,
+    priceProvider: 'KIS_PRICE',
+  };
+  _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
+  return quote;
+}
+
 export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtended | null> {
   const cached = _yahooQuoteCache.get(symbol);
   if (cached && Date.now() - cached.ts < YAHOO_QUOTE_CACHE_TTL_MS) {
     return cached.data;
   }
   try {
+    const krMatch = symbol.match(/^(\d{6})\.K[SQ]$/);
+    const krCode = krMatch ? krMatch[1] : null;
+    const kisSnap = krCode ? await fetchKisIntraday(krCode).catch(() => null) : null;
+    const kisPriceFresh = !!(kisSnap && kisSnap.price > 0);
+
     // ADR-0082 — Yahoo range 전역 ≤1y 정책. 1y = 252영업일은 MA60+5일전MA60(65일) /
     // ATR14 / BB20 / 주봉 RSI(9, 45영업일) / 60일 최고가 / 5일·20일 수익률 모두 충분.
     // 13개월 월봉은 12개월로 graceful (KIS MTAS 보강 별도). 사용자 명시 "2y 금지".
@@ -139,10 +213,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const res = await guardedFetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
     }, 'HISTORICAL');
-    if (!res.ok) return null;
+    if (!res.ok) return kisPriceFresh ? buildKisPrimaryQuoteFromIntraday(symbol, kisSnap!) : null;
     const data = await res.json();
     const result = data.chart?.result?.[0];
-    if (!result) return null;
+    if (!result) return kisPriceFresh ? buildKisPrimaryQuoteFromIntraday(symbol, kisSnap!) : null;
 
     const meta = result.meta;
 
@@ -155,7 +229,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
         `[yahooQuoteAdapter] 심볼 불일치 — 요청=${symbol} 응답=${respondedSymbol}. ` +
         `Yahoo 측 심볼 매핑 결함 의심 — 응답 폐기 (ADR-0234).`,
       );
-      return null;
+      return kisPriceFresh ? buildKisPrimaryQuoteFromIntraday(symbol, kisSnap!) : null;
     }
 
     const rawCloses: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
@@ -240,11 +314,6 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     let prevCloseAsOf = '';
     let prevCloseSource: PriceSource = 'YAHOO_HISTORICAL';
 
-    // KIS prevClose 1차 시도 — KR 종목 (.KS/.KQ) 만 적용.
-    const krMatch = symbol.match(/^(\d{6})\.K[SQ]$/);
-    const krCode = krMatch ? krMatch[1] : null;
-    const kisSnap = krCode ? await fetchKisIntraday(krCode).catch(() => null) : null;
-
     // ADR-0263 (원안) → ADR-0411 (개정): KIS vs Yahoo *현재가* 50% 초과 괴리 처리 정책 변경.
     // 기존 `return null` (마스터 매핑 결함 의심 → 응답 폐기) 은 Yahoo 가 분할/증자/정정 직후
     // stale price 를 반환하는 *데이터 품질* 케이스에서도 universe 에서 종목을 통째로 제거 →
@@ -260,42 +329,36 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     let yahooKisDiverged = false;
     let yahooKisRecoveryMeta: YahooQuoteExtended['yahooKisRecovery'] = undefined;
     let priceSource: PriceSource = 'YAHOO_INTRADAY';
-    if (
-      kisSnap && kisSnap.price > 0
-      && process.env.YAHOO_KIS_PRICE_DIVERGENCE_DISABLED !== 'true'
-    ) {
-      const divergence = Math.abs(price - kisSnap.price) / kisSnap.price;
+    let yahooDiagnosticOnly = false;
+    let noProviderDegrade = false;
+    if (kisPriceFresh) {
+      const divergence = Math.abs(price - kisSnap!.price) / kisSnap!.price;
+      const originalYahooPrice = price;
+      const divergencePct = divergence * 100;
+      price = kisSnap!.price;
+      priceSource = 'KIS_REALTIME';
+      yahooDiagnosticOnly = true;
+      noProviderDegrade = true;
       if (divergence > 0.5) {
-        if (process.env.ADR_0411_KIS_RECOVERY_DISABLED === 'true') {
-          // ADR-0263 원안 — 응답 폐기 (legacy 동작 복원)
-          console.error(
-            `[yahooQuoteAdapter] ${symbol} 종목 매핑 결함 의심 — ` +
-            `Yahoo price=${price} vs KIS price=${kisSnap.price} ` +
-            `(${(divergence * 100).toFixed(1)}% 괴리). 응답 폐기 (ADR-0263 legacy).`,
-          );
-          return null;
-        }
-        // ADR-0411 — KIS recovery
-        const originalYahooPrice = price;
-        const divergencePct = divergence * 100;
         console.warn(
-          `[yahooQuoteAdapter] ${symbol} Yahoo↔KIS ${divergencePct.toFixed(1)}% 괴리 ` +
-          `(Yahoo=${originalYahooPrice} → KIS=${kisSnap.price}) — KIS 가격 채택 + ` +
-          `dataQuality=KIS_PRIMARY_YAHOO_STALE_DETECTED. 시계열 의존 evaluator 는 ` +
-          `registry 에서 PROVIDER_DEGRADED 자동 강등 (ADR-0411).`,
+          `[yahooQuoteAdapter] ${symbol} Yahoo/KIS ${divergencePct.toFixed(1)}% divergence ` +
+          `(Yahoo=${originalYahooPrice}, KIS=${kisSnap!.price}) -> KIS official price primary; ` +
+          `yahooDiagnosticOnly=true; noProviderDegrade=true.`,
         );
-        price = kisSnap.price;
-        priceSource = 'KIS_REALTIME';
         yahooKisDiverged = true;
         yahooKisRecoveryMeta = {
           originalYahooPrice,
-          recoveredKisPrice: kisSnap.price,
+          recoveredKisPrice: kisSnap!.price,
           divergencePct,
           recoveredAt: new Date().toISOString(),
         };
+      } else if (process.env.DEBUG_PRICE_DIVERGENCE === 'true') {
+        console.info(
+          `[yahooQuoteAdapter] ${symbol} KIS official price primary; ` +
+          `Yahoo diagnostic divergence=${divergencePct.toFixed(1)}%; noProviderDegrade=true.`,
+        );
       }
     }
-
     if (kisSnap && kisSnap.prevClose > 0) {
       // KIS 채택 — KRX 거래일 캘린더 기반 직전 거래일 종가 (장 마감 15:30 KST).
       prevClose = kisSnap.prevClose;
@@ -319,7 +382,9 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       prevCloseSource = 'YAHOO_HISTORICAL';
     }
 
-    const dayOpen = validPrice(meta.regularMarketOpen) ?? price;
+    const dayOpen = kisPriceFresh
+      ? (kisSnap!.dayOpen > 0 ? kisSnap!.dayOpen : price)
+      : validPrice(meta.regularMarketOpen) ?? price;
 
     // ADR-0028: prevClose 가 null 이면 changePercent 계산 자체 미수행 — 0 fallback 차단.
     // safePctChange 가 -100% 패턴을 만들지 못하도록 입력 단계에서 차단.
@@ -600,13 +665,22 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       //     Yahoo 시계열 derived 지표 모두 신뢰성 손상).
       // (2) Yahoo 변화율 sanity 위반 → 'STALE_BASE' (base 는 Yahoo 인데 changePercent/return5d/20d 위반).
       // (3) 정상 → 'OK'.
-      dataQuality: yahooKisDiverged
-        ? 'KIS_PRIMARY_YAHOO_STALE_DETECTED'
-        : (dataQualityIssues.length > 0 ? 'STALE_BASE' : 'OK'),
+      dataQuality: kisPriceFresh
+        ? (yahooKisDiverged
+          ? 'KIS_PRIMARY_YAHOO_STALE_DETECTED'
+          : dataQualityIssues.length > 0
+            ? 'KIS_PRIMARY_YAHOO_DIAGNOSTIC_STALE'
+            : 'KIS_PRIMARY')
+        : (dataQualityIssues.length > 0
+          ? 'STALE_BASE'
+          : krCode ? 'YAHOO_FALLBACK_KIS_MISSING' : 'OK'),
       dataQualityIssues: dataQualityIssues.length > 0 ? dataQualityIssues : undefined,
       // ADR-0411: Yahoo 시계열 파생 지표 (MA/RSI/MACD/ATR/return5d/20d/BB폭/MTAS) 신뢰성.
       // KIS recovery 또는 STALE_BASE 시 false → registry 가 시계열 의존 evaluator 자동 강등.
-      yahooDerivedIndicatorsReliable: !yahooKisDiverged && dataQualityIssues.length === 0,
+      yahooDerivedIndicatorsReliable: kisPriceFresh ? true : dataQualityIssues.length === 0,
+      yahooDiagnosticOnly,
+      noProviderDegrade,
+      priceProvider: kisPriceFresh ? 'KIS_PRICE' : 'YAHOO',
       // ADR-0411: KIS recovery 진단 메타 — 미적용 시 undefined.
       yahooKisRecovery: yahooKisRecoveryMeta,
     };

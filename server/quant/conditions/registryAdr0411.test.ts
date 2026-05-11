@@ -30,7 +30,12 @@ function makeFiredEvaluator(key: ConditionKey, score: number): ConditionEvaluato
   };
 }
 
-function makeQuote(overrides: Partial<{ yahooDerivedIndicatorsReliable: boolean; dataQuality: string }>): ConditionEvalContext['quote'] {
+function makeQuote(overrides: Partial<{
+  yahooDerivedIndicatorsReliable: boolean;
+  yahooDiagnosticOnly: boolean;
+  noProviderDegrade: boolean;
+  dataQuality: string;
+}>): ConditionEvalContext['quote'] {
   return overrides as unknown as ConditionEvalContext['quote'];
 }
 
@@ -178,6 +183,29 @@ describe('registry.run PROVIDER_DEGRADED 자동 강등 (ADR-0411)', () => {
     const result = reg.run(ctx);
     const momentumOut = result.outputs.find(o => o.key === 'momentum');
     expect(momentumOut?.output?.detail).toContain('unknown');
+  });
+});
+
+describe('registry.run KIS primary diagnostic-only exemption (ADR-0502)', () => {
+  it('KIS fresh + Yahoo diagnostic-only이면 provider degraded 강등을 하지 않음', () => {
+    const reg = new ConditionRegistry();
+    reg.register(makeFiredEvaluator('momentum', 5));
+    reg.register(makeFiredEvaluator('per', 1));
+
+    const ctx: ConditionEvalContext = {
+      quote: makeQuote({
+        yahooDerivedIndicatorsReliable: false,
+        yahooDiagnosticOnly: true,
+        noProviderDegrade: true,
+        dataQuality: 'KIS_PRIMARY_YAHOO_STALE_DETECTED',
+      }),
+      weights: DEFAULT_CONDITION_WEIGHTS,
+    };
+
+    const result = reg.run(ctx);
+    expect(result.totalScore).toBe(6);
+    expect(result.conditionKeys).toEqual(['momentum', 'per']);
+    expect(result.outputs.some(o => o.output?.status === 'PROVIDER_DEGRADED')).toBe(false);
   });
 });
 
