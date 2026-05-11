@@ -5,6 +5,7 @@ export type InvestorFlowProviderAdr0496 =
   | 'FSS'
   | 'INTERNAL'
   | 'CACHE'
+  | 'KIS_API'
   | 'UNKNOWN';
 
 export type InvestorFlowSampleStatusAdr0496 =
@@ -167,7 +168,7 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 function normalizeProvider(value: unknown): InvestorFlowProviderAdr0496 {
-  if (value === 'NAVER' || value === 'FSS' || value === 'INTERNAL' || value === 'CACHE') return value;
+  if (value === 'NAVER' || value === 'FSS' || value === 'INTERNAL' || value === 'CACHE' || value === 'KIS_API') return value;
   return 'UNKNOWN';
 }
 

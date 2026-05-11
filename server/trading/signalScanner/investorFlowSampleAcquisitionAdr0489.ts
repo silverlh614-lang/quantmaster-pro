@@ -23,6 +23,7 @@ export interface InvestorFlowSemanticSampleAdr0489 {
   sourceDate: string | null;
   foreignNetBuy: number | null;
   institutionNetBuy: number | null;
+  individualNetBuy?: number | null;
   programNetBuy: number | null;
   signal: InvestorFlowSampleSignalAdr0489;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
@@ -47,6 +48,15 @@ export interface InvestorFlowSampleAcquisitionReportAdr0489 {
   diagnostics: string[];
 }
 
+export interface KisInvestorFlowMaterializationInputAdr0489 {
+  symbol: string;
+  investorTradeByStockDaily?: { tradingDate?: string; foreignNetBuy?: number; institutionalNetBuy?: number; individualNetBuy?: number } | null;
+  foreignInstitutionTotal?: { foreignNetBuy?: number; institutionalNetBuy?: number } | null;
+  strictInvestorFlow?: { foreignNetBuy?: number; institutionalNetBuy?: number; individualNetBuy?: number } | null;
+  investorTrendEstimate?: { foreignNetBuyEstimate?: number; institutionalNetBuyEstimate?: number; individualNetBuyEstimate?: number } | null;
+  marketSupply?: unknown;
+}
+
 export interface InvestorFlowSampleAcquisitionInputAdr0489 {
   generatedAt?: string;
   requestedProviders?: readonly string[];
@@ -57,6 +67,78 @@ export interface InvestorFlowSampleAcquisitionInputAdr0489 {
 
 function toFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function hasFinitePair(foreign: unknown, institution: unknown): boolean {
+  return toFiniteNumber(foreign) !== null && toFiniteNumber(institution) !== null;
+}
+
+export function materializeKisInvestorFlowSampleAdr0489(
+  input: KisInvestorFlowMaterializationInputAdr0489,
+): Partial<InvestorFlowSemanticSampleAdr0489> | null {
+  const daily = input.investorTradeByStockDaily;
+  if (daily && hasFinitePair(daily.foreignNetBuy, daily.institutionalNetBuy)) {
+    const individual = toFiniteNumber(daily.individualNetBuy);
+    return {
+      symbol: input.symbol,
+      provider: 'KIS_API',
+      sourceDate: daily.tradingDate ?? null,
+      foreignNetBuy: toFiniteNumber(daily.foreignNetBuy),
+      institutionNetBuy: toFiniteNumber(daily.institutionalNetBuy),
+      individualNetBuy: individual,
+      confidence: individual === null ? 'MEDIUM' : 'HIGH',
+      status: 'SAMPLE_READY',
+      diagnostics: [individual === null ? 'KIS investor_trade_by_stock_daily DEGRADED: individualNetBuy missing; shadow usable.' : 'KIS investor_trade_by_stock_daily VERIFIED.'],
+    };
+  }
+
+  const total = input.foreignInstitutionTotal;
+  if (total && hasFinitePair(total.foreignNetBuy, total.institutionalNetBuy)) {
+    return {
+      symbol: input.symbol,
+      provider: 'KIS_API',
+      sourceDate: null,
+      foreignNetBuy: toFiniteNumber(total.foreignNetBuy),
+      institutionNetBuy: toFiniteNumber(total.institutionalNetBuy),
+      individualNetBuy: null,
+      confidence: 'MEDIUM',
+      status: 'SAMPLE_READY',
+      diagnostics: ['KIS foreign_institution_total DEGRADED: foreign+institution only; shadow usable.'],
+    };
+  }
+
+  const strict = input.strictInvestorFlow;
+  if (strict && hasFinitePair(strict.foreignNetBuy, strict.institutionalNetBuy) && toFiniteNumber(strict.individualNetBuy) !== null) {
+    return {
+      symbol: input.symbol,
+      provider: 'KIS_API',
+      sourceDate: null,
+      foreignNetBuy: toFiniteNumber(strict.foreignNetBuy),
+      institutionNetBuy: toFiniteNumber(strict.institutionalNetBuy),
+      individualNetBuy: toFiniteNumber(strict.individualNetBuy),
+      confidence: 'HIGH',
+      status: 'SAMPLE_READY',
+      diagnostics: ['KIS inquire_investor strict parser VERIFIED.'],
+    };
+  }
+
+  const estimate = input.investorTrendEstimate;
+  if (estimate && hasFinitePair(estimate.foreignNetBuyEstimate, estimate.institutionalNetBuyEstimate)) {
+    return {
+      symbol: input.symbol,
+      provider: 'KIS_API',
+      sourceDate: null,
+      foreignNetBuy: toFiniteNumber(estimate.foreignNetBuyEstimate),
+      institutionNetBuy: toFiniteNumber(estimate.institutionalNetBuyEstimate),
+      individualNetBuy: toFiniteNumber(estimate.individualNetBuyEstimate),
+      confidence: 'LOW',
+      status: 'DATA_UNAVAILABLE',
+      diagnostics: ['KIS estimate endpoint is ESTIMATED/advisory only; not selected as semantic sample.'],
+    };
+  }
+
+  if (input.marketSupply) return null;
+  return null;
 }
 
 function normalizeSignal(input: Partial<InvestorFlowSemanticSampleAdr0489>): InvestorFlowSampleSignalAdr0489 {
@@ -83,6 +165,7 @@ export function buildInvestorFlowSampleAcquisitionReportAdr0489(
       sourceDate: sample.sourceDate ?? null,
       foreignNetBuy: toFiniteNumber(sample.foreignNetBuy),
       institutionNetBuy: toFiniteNumber(sample.institutionNetBuy),
+      individualNetBuy: toFiniteNumber(sample.individualNetBuy),
       programNetBuy: toFiniteNumber(sample.programNetBuy),
       signal,
       confidence: sample.confidence ?? (signal === 'UNKNOWN' ? 'NONE' : 'LOW'),
@@ -100,7 +183,7 @@ export function buildInvestorFlowSampleAcquisitionReportAdr0489(
     dataDate: sample.sourceDate,
     foreignNetBuy: sample.foreignNetBuy,
     institutionNetBuy: sample.institutionNetBuy,
-    retailNetBuy: null,
+    retailNetBuy: sample.individualNetBuy ?? null,
     status: sample.status === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : sample.status === 'SAMPLE_READY' ? 'PARTIAL' : 'DATA_UNAVAILABLE',
     providerError: sample.status === 'PROVIDER_ERROR',
     warnings: sample.diagnostics,
@@ -126,7 +209,7 @@ export function buildInvestorFlowSampleAcquisitionReportAdr0489(
     adr0496SanitizedSamples,
     adr0496SemanticNetBuySamples,
     adr0496SupplyCoverage,
-    requestedProviders: [...(input.requestedProviders ?? ['NAVER', 'CACHE'])],
+    requestedProviders: [...(input.requestedProviders ?? ['KIS_API', 'NAVER', 'CACHE'])],
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: 'OBSERVE',

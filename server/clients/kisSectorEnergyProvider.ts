@@ -204,6 +204,7 @@ export function rankKisSectorEnergyInputs(inputs: SectorEnergyInput[]): SectorEn
 }
 
 function stockMetrics(candles: KisChartCandle[]): {
+  return1d: number;
   return5d: number;
   return20d: number;
   turnoverAcceleration: number;
@@ -216,6 +217,7 @@ function stockMetrics(candles: KisChartCandle[]): {
   if (rows.length < 6) return null;
 
   const latest = rows[rows.length - 1]!;
+  const oneAgo = rows[Math.max(0, rows.length - 2)]!;
   const fiveAgo = rows[Math.max(0, rows.length - 6)]!;
   const twentyAgo = rows[Math.max(0, rows.length - 21)]!;
   const last20 = rows.slice(Math.max(0, rows.length - 20));
@@ -226,6 +228,7 @@ function stockMetrics(candles: KisChartCandle[]): {
   const ma20 = avg(last20.map((c) => c.close));
 
   return {
+    return1d: pctChange(oneAgo.close, latest.close),
     return5d: pctChange(fiveAgo.close, latest.close),
     return20d: pctChange(twentyAgo.close, latest.close),
     turnoverAcceleration: avgVol20 > 0 ? pctChange(avgVol20, avgVol5) : 0,
@@ -280,6 +283,34 @@ function inputFromMetrics(
     constituentCount: valid.length,
     basketCodes: codes,
   };
+}
+
+
+export function buildKisSectorBasketRowsFromSeries(
+  seriesByCode: Record<string, KisChartCandle[]>,
+): KisSectorBasketRow[] {
+  const rows: KisSectorBasketRow[] = [];
+  for (const entry of KIS_SECTOR_BASKET_DEFINITIONS) {
+    const codes = entry.representativeCodes.map(safeCode);
+    const metrics = codes
+      .map((code) => stockMetrics(seriesByCode[code] ?? []))
+      .filter((item): item is NonNullable<ReturnType<typeof stockMetrics>> => item !== null);
+    if (metrics.length === 0) continue;
+    rows.push({
+      sectorKey: entry.sectorKey,
+      displayName: entry.displayName,
+      representativeCodes: codes,
+      validPriceCount: metrics.length,
+      return1d: avg(metrics.map((item) => item.return1d)),
+      return5d: avg(metrics.map((item) => item.return5d)),
+      return20d: avg(metrics.map((item) => item.return20d)),
+      turnoverAcceleration: avg(metrics.map((item) => item.turnoverAcceleration)),
+      breadthAbove20ma: (metrics.filter((item) => item.above20ma).length / metrics.length) * 100,
+      source: 'KIS_DAILY_CHART',
+      confidence: 'PARTIAL',
+    });
+  }
+  return rows;
 }
 
 export function buildKisSectorEnergyBasketFromSeries(
@@ -468,10 +499,12 @@ export async function buildKisSectorEnergyInputsWithMeta(
     Object.assign(flowByCode, Object.fromEntries(flowEntries));
   }
 
+  const basketRows = buildKisSectorBasketRowsFromSeries(seriesByCode);
   const basketInputs = buildKisSectorEnergyBasketFromSeries(seriesByCode, flowByCode);
   if (basketInputs.length > 0) {
     return resultFromInputs(basketInputs, 'KIS_STOCK_BASKET_DERIVED', [
       'KIS official sector index unavailable; derived representative basket from official KIS daily prices.',
+      `basketRows=${basketRows.length}`,
       'Basket is PARTIAL, not KRX official index.',
     ]);
   }
