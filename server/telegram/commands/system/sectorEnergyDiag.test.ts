@@ -20,6 +20,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
     it('명령 메타데이터 정합 — name + alias + category + visibility', async () => {
       const mod = await import('./sectorEnergyDiag.cmd.js');
       expect(mod.default.name).toBe('/sector_energy_diag');
+      expect(mod.default.aliases).toContain('/se');
       expect(mod.default.aliases).toContain('/sed');
       expect(mod.default.aliases).toContain('/sector_diag');
       expect(mod.default.category).toBe('SYS');

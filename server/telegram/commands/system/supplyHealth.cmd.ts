@@ -32,6 +32,10 @@ import type {
   InvestorFlowProviderRouteResult,
   InvestorFlowProviderStatus as RouterInvestorFlowProviderStatus,
 } from '../../../trading/signalScanner/investorFlowProviderRouterAdr0477.js';
+import type {
+  KisOfficialSupplyPack,
+  KisSupplyEnemyChecklistDecision,
+} from '../../../supply/kisOfficialSupplyPack.js';
 
 export const SUPPLY_HEALTH_CACHE_TTL_MS = 30_000;
 const TOP_N = 10;
@@ -49,6 +53,12 @@ const ATTEMPT_REASON_MAX_LEN = 110;
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
 interface ChannelStatus { key: SupplySignalKey; title: string; marker: Marker; lines: string[]; riskReason?: string; zeroSuspect?: { count: number; total: number } }
 interface FssRecordRow { date: string; passiveNetBuy: number; activeNetBuy: number }
+interface KisOfficialSupplyPackLoad {
+  code: string | null;
+  pack: KisOfficialSupplyPack | null;
+  enemy: KisSupplyEnemyChecklistDecision | null;
+  error?: string;
+}
 
 let cache: { message: string; builtAt: number } | null = null;
 
@@ -98,6 +108,14 @@ function formatEokwon(value: number | null | undefined): string {
 }
 function zeroFilledRiskReason(count: number, total: number): string { return `zero-filled 의심 ${count}/${total} — KIS success지만 실데이터 신뢰 불가`; }
 function firstTargetCode(targets: WatchlistEntry[]): string | null { return targets[0]?.code ?? null; }
+function formatSignedNumeric(value: number | null | undefined, suffix = ''): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'N/A';
+  return `${value > 0 ? '+' : ''}${value.toLocaleString('ko-KR')}${suffix}`;
+}
+function formatPctValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'N/A';
+  return `${value.toFixed(2)}%`;
+}
 function compactProviderName(provider: SupplyProvider): string {
   const names: Partial<Record<SupplyProvider, string>> = {
     KIS_API: 'KIS', KRX_INVESTOR_FLOW: 'KRX', KRX_MARKET_PROGRAM: 'KRX', KRX_SHORT_SELLING: 'KRX', KRX_MARGIN_BALANCE: 'KRX',
@@ -354,7 +372,30 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
   return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'MISSING', riskReason: 'KIS/macroState 결손', lines: ['source: KIS_API', 'latest: N/A', 'updated: N/A', rawDiagLine, '상세: /program_market'] };
 }
 
-function diagnoseFss(macro: MacroState | null, nowMs: number): ChannelStatus {
+function diagnoseFss(macro: MacroState | null, nowMs: number, kisPack: KisOfficialSupplyPack | null): ChannelStatus {
+  const marketSupply = kisPack?.marketSupply;
+  const foreignInstitution = kisPack?.foreignInstitutionTotal;
+  if (marketSupply || foreignInstitution) {
+    const age = elapsedMs(kisPack?.fetchedAt, nowMs);
+    return {
+      key: 'fssPassiveActive',
+      title: 'FSS Passive/Active',
+      marker: marketSupply ? 'OK' : 'DEGRADED',
+      riskReason: marketSupply ? undefined : 'KIS foreign/institution aggregate only; FSS passive/active split unavailable',
+      lines: [
+        'source: KIS_API',
+        `status: ${marketSupply ? 'KIS_MARKET_SUPPLY' : 'KIS_FOREIGN_INSTITUTION_TOTAL'}`,
+        'passiveActiveBoth: N/A',
+        `foreignNetBuy: ${formatSignedNumeric(marketSupply?.foreignNetBuy ?? foreignInstitution?.foreignNetBuy)}`,
+        `institutionNetBuy: ${formatSignedNumeric(marketSupply?.institutionNetBuy ?? foreignInstitution?.institutionalNetBuy)}`,
+        `confidence: ${marketSupply?.confidence ?? foreignInstitution?.confidence ?? 'ESTIMATED'}`,
+        `updated: ${formatAgo(age)}`,
+        'via: KIS Official Supply Pack',
+        'note: FSS passive/active split unavailable; KIS official flow is used for shadow diagnostics.',
+        'detail: /fss_status',
+      ],
+    };
+  }
   const rows = loadFssRecordsReadOnly().sort((a, b) => a.date.localeCompare(b.date));
   if (rows.length === 0) {
     return { key: 'fssPassiveActive', title: 'FSS Passive/Active', marker: 'NEUTRAL', lines: ['source: FSS_RECORDS', 'status: COLLECTION_EMPTY', `passiveActiveBoth: ${macro?.passiveActiveBoth === undefined ? 'N/A' : String(macro.passiveActiveBoth)}`, 'updated: N/A', '판정: FSS 레코드 미누적 — 점수 제외', '수집: fssRecords / macroState wiring / backfill', '상세: /fss_status'] };
@@ -372,13 +413,60 @@ function renderShortStatus(source: MacroState['shortSellingSource'], ratio: numb
   const stale = ageStale || sourceStale;
   return { key: 'shortSelling', title: '공매도/대차잔고', marker: stale ? 'STALE' : 'OK', riskReason: sourceStale ? 'KIS_ESTIMATE — KRX 폴백 실패, 정확도 ↓' : ageStale ? `updated ${formatAgo(age)}` : undefined, lines: [`source: ${source}`, `ratio: ${ratio.toFixed(2)}%`, `updated: ${formatAgo(age)}`, `via: ${via}`, '상세: /short_status 예정'] };
 }
-async function diagnoseShort(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
+async function diagnoseShort(macro: MacroState | null, nowMs: number, kisPack: KisOfficialSupplyPack | null): Promise<ChannelStatus> {
+  if (kisPack?.shortSelling || kisPack?.loanTransaction) {
+    const age = elapsedMs(kisPack.fetchedAt, nowMs);
+    const partial = !kisPack.shortSelling || !kisPack.loanTransaction;
+    return {
+      key: 'shortSelling',
+      title: '공매도/대차잔고',
+      marker: partial ? 'DEGRADED' : 'OK',
+      riskReason: partial ? 'KIS short/loan partial coverage' : undefined,
+      lines: [
+        'source: KIS_API',
+        `shortRatio: ${formatPctValue(kisPack.shortSelling?.shortSaleRatio)}`,
+        `shortTrend: ${kisPack.shortSelling?.trend ?? 'DATA_UNAVAILABLE'}`,
+        `shortIncreaseRate: ${formatPctValue(kisPack.shortSelling?.shortSaleIncreaseRate)}`,
+        `loanTrend: ${kisPack.loanTransaction?.trend ?? 'DATA_UNAVAILABLE'}`,
+        `loanIncreaseRate: ${formatPctValue(kisPack.loanTransaction?.loanIncreaseRate)}`,
+        `confidence: ${kisPack.shortSelling?.confidence ?? kisPack.loanTransaction?.confidence ?? 'MISSING'}`,
+        `updated: ${formatAgo(age)}`,
+        'via: KIS Official Supply Pack',
+        'marketSignal=false',
+        'executionImpact=NONE',
+        'detail: /short_status',
+      ],
+    };
+  }
   if (macro?.shortSellingSource && macro.shortSellingRatio !== undefined) return renderShortStatus(macro.shortSellingSource, macro.shortSellingRatio, macro.shortSellingFetchedAt, nowMs, 'macroState');
   try { const live = await fetchKrxShortSelling(); if (live) { const status = renderShortStatus(live.source, live.ratio, live.fetchedAt, nowMs, 'liveProbe'); status.lines.push('판정: macroState 결손이나 live probe 성공 — refresh wiring 필요'); return status; } } catch {}
   return { key: 'shortSelling', title: '공매도/대차잔고', marker: 'NEUTRAL', lines: ['source: N/A', 'status: PROVIDER_UNAVAILABLE', 'ratio: N/A', 'updated: N/A', '판정: 사용 가능한 provider 없음 — 점수 제외', '대체: KRX / KIND CSV·OTP / NAVER / 공공데이터', '상세: /short_status 예정'] };
 }
 
-function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): ChannelStatus {
+function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number, kisPack: KisOfficialSupplyPack | null): ChannelStatus {
+  const marketSupply = kisPack?.marketSupply;
+  const foreignInstitution = kisPack?.foreignInstitutionTotal;
+  const estimate = kisPack?.investorFlowEstimate;
+  if (marketSupply || foreignInstitution || estimate?.confidence === 'ESTIMATED') {
+    const age = elapsedMs(kisPack?.fetchedAt, nowMs);
+    return {
+      key: 'foreignerRatioTrend',
+      title: '외인 보유율 추세',
+      marker: marketSupply || foreignInstitution ? 'OK' : 'DEGRADED',
+      riskReason: marketSupply || foreignInstitution ? undefined : 'KIS intraday estimate only',
+      lines: [
+        'source: KIS_API',
+        'series: KIS_FLOW_PROXY',
+        'stale: 0',
+        `foreignNetBuy: ${formatSignedNumeric(marketSupply?.foreignNetBuy ?? foreignInstitution?.foreignNetBuy ?? estimate?.foreignNetBuyEstimate)}`,
+        `confidence: ${marketSupply?.confidence ?? foreignInstitution?.confidence ?? estimate?.confidence ?? 'ESTIMATED'}`,
+        `updated: ${formatAgo(age)}`,
+        'via: KIS Official Supply Pack',
+        'note: NAVER holding-ratio series unavailable; KIS official foreign flow proxy is used for diagnostics.',
+        'detail: /foreigner_trend',
+      ],
+    };
+  }
   let seriesCount = 0, stale = 0;
   for (const stock of targets) {
     const series = loadForeignerRatioSeries(stock.code); if (series.length === 0) continue;
@@ -391,7 +479,28 @@ function diagnoseForeignerRatio(targets: WatchlistEntry[], nowMs: number): Chann
   return { key: 'foreignerRatioTrend', title: '외인 보유율 추세', marker, riskReason: marker === 'STALE' ? `stale ${stale}/${seriesCount}` : marker === 'DEGRADED' ? `coverage ${seriesCount}/${total}` : marker === 'MISSING' ? 'watchlist 없음' : undefined, lines: ['source: NAVER', `series: ${seriesCount}/${total}`, `stale: ${stale}`, '상세: /foreigner_trend'] };
 }
 
-function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus {
+function diagnoseMargin(macro: MacroState | null, nowMs: number, kisPack: KisOfficialSupplyPack | null): ChannelStatus {
+  if (kisPack?.creditBalance) {
+    const age = elapsedMs(kisPack.fetchedAt, nowMs);
+    return {
+      key: 'marginBalance',
+      title: '신용잔고',
+      marker: 'OK',
+      lines: [
+        'source: KIS_API',
+        `change5d: ${formatPctValue(kisPack.creditBalance.creditIncreaseRate)}`,
+        `balanceQty: ${formatSignedNumeric(kisPack.creditBalance.creditBalanceQty)}`,
+        `balanceAmount: ${formatSignedNumeric(kisPack.creditBalance.creditBalanceAmount)}`,
+        `trend: ${kisPack.creditBalance.trend ?? 'UNKNOWN'}`,
+        `confidence: ${kisPack.creditBalance.confidence}`,
+        `updated: ${formatAgo(age)}`,
+        'via: KIS Official Supply Pack',
+        'marketSignal=false',
+        'executionImpact=NONE',
+        'detail: /margin_balance',
+      ],
+    };
+  }
   if (!macro?.marginBalanceSource || macro.marginBalance5dChange === undefined) {
     return { key: 'marginBalance', title: '신용잔고', marker: 'NEUTRAL', lines: ['source: ECOS', 'status: PROVIDER_UNAVAILABLE', 'updated: N/A', 'reason: macroState 결손', '판정: provider/wiring 미확정 — 점수 제외', '대체: KRX / 금투협 / ECOS 재시도 / CACHE', '상세: /margin_balance'] };
   }
@@ -400,9 +509,25 @@ function diagnoseMargin(macro: MacroState | null, nowMs: number): ChannelStatus 
   return { key: 'marginBalance', title: '신용잔고', marker: stale ? 'STALE' : 'OK', riskReason: stale ? `updated ${formatAgo(age)}` : undefined, lines: [`source: ${macro.marginBalanceSource}`, `change5d: ${macro.marginBalance5dChange.toFixed(2)}%`, `updated: ${formatAgo(age)}`, 'via: macroState', '상세: /margin_balance'] };
 }
 
-async function diagnoseKisOfficialSupplyPack(targets: WatchlistEntry[]): Promise<ChannelStatus> {
+async function loadKisOfficialSupplyPackForSupplyHealth(targets: WatchlistEntry[]): Promise<KisOfficialSupplyPackLoad> {
   const code = firstTargetCode(targets);
-  if (!code) {
+  if (!code) return { code: null, pack: null, enemy: null };
+  try {
+    const { evaluateKisSupplyEnemyChecklist, fetchKisOfficialSupplyPack } = await import('../../../supply/kisOfficialSupplyPack.js');
+    const pack = await fetchKisOfficialSupplyPack(code);
+    return { code, pack, enemy: evaluateKisSupplyEnemyChecklist(pack) };
+  } catch (err) {
+    return {
+      code,
+      pack: null,
+      enemy: null,
+      error: err instanceof Error ? err.message.split('\n')[0] : String(err),
+    };
+  }
+}
+
+function diagnoseLoadedKisOfficialSupplyPack(load: KisOfficialSupplyPackLoad): ChannelStatus {
+  if (!load.code) {
     return {
       key: 'marketSupply',
       title: 'KIS Official Supply Pack',
@@ -410,40 +535,8 @@ async function diagnoseKisOfficialSupplyPack(targets: WatchlistEntry[]): Promise
       lines: ['source: KIS_API', 'status: NO_TARGET', 'executionImpact=NONE'],
     };
   }
-  try {
-    const { evaluateKisSupplyEnemyChecklist, fetchKisOfficialSupplyPack } = await import('../../../supply/kisOfficialSupplyPack.js');
-    const pack = await fetchKisOfficialSupplyPack(code);
-    const enemy = evaluateKisSupplyEnemyChecklist(pack);
-    const okCount = [
-      pack.price?.confidence === 'VERIFIED',
-      pack.investorFlowDaily?.hasRealFields === true,
-      !!pack.shortSelling,
-      !!pack.loanTransaction,
-      !!pack.creditBalance,
-      !!pack.stockProgram,
-      !!pack.marketProgram,
-      !!pack.marketSupply,
-    ].filter(Boolean).length;
-    const marker: Marker = pack.providerIssue ? 'MISSING' : okCount >= 4 ? 'OK' : 'DEGRADED';
-    return {
-      key: 'marketSupply',
-      title: 'KIS Official Supply Pack',
-      marker,
-      riskReason: enemy.warningCount > 0 ? enemy.reason : undefined,
-      lines: [
-        'source: KIS_API',
-        'officialSource=true',
-        `target: ${code}`,
-        `price=${pack.price?.confidence ?? 'MISSING'}; investorFlowDaily=${pack.investorFlowDaily?.hasRealFields ? 'OK' : 'DATA_UNAVAILABLE'}; estimate=${pack.investorFlowEstimate?.confidence ?? 'MISSING'}`,
-        `short=${pack.shortSelling ? pack.shortSelling.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; loan=${pack.loanTransaction ? pack.loanTransaction.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; credit=${pack.creditBalance ? pack.creditBalance.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}`,
-        `program=${pack.stockProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketProgram=${pack.marketProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketSupply=${pack.marketSupply ? 'OK' : 'DATA_UNAVAILABLE'}`,
-        `enemyWarnings=${enemy.warningCount}; strongBuyAllowed=${String(enemy.strongBuyAllowed)}; newBuyAllowed=${String(enemy.newBuyAllowed)}`,
-        'marketSignal=false',
-        'executionImpact=NONE',
-      ],
-    };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message.split('\n')[0] : String(err);
+  const pack = load.pack;
+  if (!pack) {
     return {
       key: 'marketSupply',
       title: 'KIS Official Supply Pack',
@@ -452,15 +545,53 @@ async function diagnoseKisOfficialSupplyPack(targets: WatchlistEntry[]): Promise
       lines: [
         'source: KIS_API',
         'officialSource=true',
-        `target: ${code}`,
+        `target: ${load.code}`,
         'status: PROVIDER_UNAVAILABLE',
-        `reason: ${reason}`,
+        `reason: ${load.error ?? 'UNKNOWN'}`,
         'providerIssue=true',
         'marketSignal=false',
         'executionImpact=NONE',
       ],
     };
   }
+  const enemy = load.enemy ?? {
+    warningCount: 0,
+    warnings: [],
+    strongBuyAllowed: true,
+    newBuyAllowed: true,
+    shadowOnly: false,
+    advisoryBoost: false,
+    reason: '',
+    learningTags: [],
+  };
+  const okCount = [
+    pack.price?.confidence === 'VERIFIED',
+    pack.investorFlowDaily?.hasRealFields === true,
+    !!pack.shortSelling,
+    !!pack.loanTransaction,
+    !!pack.creditBalance,
+    !!pack.stockProgram,
+    !!pack.marketProgram,
+    !!pack.marketSupply,
+  ].filter(Boolean).length;
+  const marker: Marker = pack.providerIssue ? 'MISSING' : okCount >= 4 ? 'OK' : 'DEGRADED';
+  return {
+    key: 'marketSupply',
+    title: 'KIS Official Supply Pack',
+    marker,
+    riskReason: enemy.warningCount > 0 ? enemy.reason : undefined,
+    lines: [
+      'source: KIS_API',
+      'officialSource=true',
+      `target: ${load.code}`,
+      `price=${pack.price?.confidence ?? 'MISSING'}; investorFlowDaily=${pack.investorFlowDaily?.hasRealFields ? 'OK' : 'DATA_UNAVAILABLE'}; estimate=${pack.investorFlowEstimate?.confidence ?? 'MISSING'}`,
+      `short=${pack.shortSelling ? pack.shortSelling.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; loan=${pack.loanTransaction ? pack.loanTransaction.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; credit=${pack.creditBalance ? pack.creditBalance.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}`,
+      `program=${pack.stockProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketProgram=${pack.marketProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketSupply=${pack.marketSupply ? 'OK' : 'DATA_UNAVAILABLE'}`,
+      `enemyWarnings=${enemy.warningCount}; strongBuyAllowed=${String(enemy.strongBuyAllowed)}; newBuyAllowed=${String(enemy.newBuyAllowed)}`,
+      'marketSignal=false',
+      'executionImpact=NONE',
+    ],
+  };
 }
 
 function buildRiskTop3(channels: ChannelStatus[]): string[] {
@@ -591,8 +722,18 @@ async function collectSupplyHealthChannels(now: Date): Promise<{ channels: Chann
   const watchlist = loadWatchlist();
   const targets = selectTopWatchlist(TOP_N);
   const macro = loadMacroStateReadOnly();
+  const kis = await loadKisOfficialSupplyPackForSupplyHealth(targets);
   return {
-    channels: [await diagnoseInvestorFlow(targets, now, nowMs), await diagnoseKisOfficialSupplyPack(targets), await diagnoseStockProgram(targets), await diagnoseMarketProgram(macro, nowMs), diagnoseFss(macro, nowMs), await diagnoseShort(macro, nowMs), diagnoseForeignerRatio(targets, nowMs), diagnoseMargin(macro, nowMs)],
+    channels: [
+      await diagnoseInvestorFlow(targets, now, nowMs),
+      diagnoseLoadedKisOfficialSupplyPack(kis),
+      await diagnoseStockProgram(targets),
+      await diagnoseMarketProgram(macro, nowMs),
+      diagnoseFss(macro, nowMs, kis.pack),
+      await diagnoseShort(macro, nowMs, kis.pack),
+      diagnoseForeignerRatio(targets, nowMs, kis.pack),
+      diagnoseMargin(macro, nowMs, kis.pack),
+    ],
     targetLine: formatTargetLine(watchlist.length, targets.length),
   };
 }
@@ -616,7 +757,7 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
 export function __resetSupplyHealthCacheForTests(): void { cache = null; }
 
 const supplyHealth: TelegramCommand = {
-  name: '/supply_health', aliases: ['/sh', '/investor_flow', '/flow_health'], category: 'SYS', visibility: 'ADMIN', riskLevel: 0,
+  name: '/supply_health', aliases: ['/sh', '/supply', '/investor_flow', '/flow_health'], category: 'SYS', visibility: 'ADMIN', riskLevel: 0,
   description: '수급 데이터 source/freshness/coverage/zero-filled 의심 read-only 진단', usage: '/supply_health',
   async execute({ reply }) {
     try { await reply(await buildSupplyHealthMessage()); } catch (err) { console.error('[supplyHealth.cmd] failed', err); await reply('🔴 Supply Health 진단 실패 — 서버 로그 확인 필요'); }

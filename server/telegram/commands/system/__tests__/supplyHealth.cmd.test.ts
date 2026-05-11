@@ -135,6 +135,7 @@ describe('/supply_health command', () => {
     const cmd = registry.commandRegistry.resolve('/supply_health');
     expect(cmd).toBeDefined();
     expect(registry.commandRegistry.resolve('/sh')).toBe(cmd);
+    expect(registry.commandRegistry.resolve('/supply')).toBe(cmd);
     expect(registry.commandRegistry.resolve('/investor_flow')).toBe(cmd);
     expect(registry.commandRegistry.resolve('/flow_health')).toBe(cmd);
     expect(cmd?.category).toBe('SYS');
@@ -154,6 +155,29 @@ describe('/supply_health command', () => {
 
     expect(reply).toHaveBeenCalledTimes(1);
     expect(reply.mock.calls[0][0]).toContain('Supply Health');
+  });
+
+  it('KIS Official Supply Pack data feeds FSS, short/loan, foreigner, and margin diagnostics', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(1));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue({ stockCode: 'x', programNetBuyQty: 1, programNetBuyAmount: 1, programBuyRatio: 1, fetchedAt: '2026-05-01T00:00:00.000Z', source: 'KIS_API' });
+    marketProgramMock.mockResolvedValue(null);
+    marketSupplyMock.mockResolvedValue({ foreignNetBuy: 120, institutionNetBuy: 340, individualNetBuy: -460 });
+    shortSaleMock.mockResolvedValue({ shortSaleRatio: 5.7, shortSaleIncreaseRate: 12.3, trend: 'FLAT' });
+    loanTransactionMock.mockResolvedValue({ loanBalanceQty: 1000, loanIncreaseRate: 4.5, trend: 'FLAT' });
+    creditBalanceMock.mockResolvedValue({ creditBalanceQty: 2000, creditBalanceAmount: 30_000_000, creditIncreaseRate: 1.8, trend: 'FLAT' });
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
+
+    expect(msg).toContain('status: KIS_MARKET_SUPPLY');
+    expect(msg).toContain('shortRatio: 5.70%');
+    expect(msg).toContain('loanIncreaseRate: 4.50%');
+    expect(msg).toContain('series: KIS_FLOW_PROXY');
+    expect(msg).toContain('foreignNetBuy: +120');
+    expect(msg).toContain('change5d: 1.80%');
+    expect(msg).toContain('balanceQty: +2,000');
+    expect(msg).not.toContain('source: NONE');
   });
 
   it('providerTried formatter prefers ADR-0477 router CACHE_STALE_HIT over legacy CACHE_EMPTY/NOT_WIRED', async () => {

@@ -231,7 +231,7 @@ export function formatSectorEnergyDiagMessage(): string {
 
 const sectorEnergyDiag: TelegramCommand = {
   name: '/sector_energy_diag',
-  aliases: ['/sed', '/sector_diag'],
+  aliases: ['/se', '/sed', '/sector_diag'],
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,

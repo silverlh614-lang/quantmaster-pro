@@ -30,6 +30,7 @@ import {
 
 const freshDataStatus: TelegramCommand = {
   name: '/fresh_data_status',
+  aliases: ['/fd', '/fds'],
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,
