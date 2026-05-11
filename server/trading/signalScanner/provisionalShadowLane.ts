@@ -230,6 +230,8 @@ export interface ProvisionalShadowSectionInput {
   eligible: number;
   /** created (= 실제 영속 등록 수, 호출자가 별도 합산). 본 PR scope 미연결 시 eligible 와 동일. */
   created?: number;
+  /** Duplicate 후보가 새 row 생성 대신 기존 observation row 를 refresh 한 수. */
+  updated?: number;
   /** ADR-0427 — skipped (= 영속 시도 중 dedup/ENV 등으로 건너뛴 수). */
   skipped?: number;
   /** ADR-0427 — skip 사유 분포 (DUPLICATE / ENV_DISABLED / PERSIST_ERROR 등). */
@@ -250,6 +252,9 @@ export function formatProvisionalShadowSection(
   lines.push('🌱 <b>R3 Provisional Shadow Lane (ADR-0426 / ADR-0427 wiring)</b>');
   lines.push(`  • eligible: <b>${input.eligible}</b>`);
   lines.push(`  • created: <b>${input.created ?? input.eligible}</b>`);
+  if (input.updated !== undefined && input.updated > 0) {
+    lines.push(`  • updated: <b>${input.updated}</b>`);
+  }
   if (input.skipped !== undefined && input.skipped > 0) {
     lines.push(`  • skipped: <b>${input.skipped}</b>`);
     if (input.skipReasons) {

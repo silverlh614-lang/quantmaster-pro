@@ -377,6 +377,7 @@ export interface PreBreakoutWaitSummary {
   volumeWeak: number;
   gateRecheckFailed: number;
   failCountProtected: number;
+  preservedCount: number;
   topReasons: Array<{ reason: PreBreakoutWaitReason; count: number }>;
 }
 
@@ -394,11 +395,13 @@ export function summarizePreBreakoutWaitDecisions(
   let volumeWeak = 0;
   let gateRecheckFailed = 0;
   let failCountProtected = 0;
+  let preservedCount = 0;
   const reasonCounts = new Map<PreBreakoutWaitReason, number>();
   for (const d of input.decisions) {
     // ADR-0115 보호: 본 SSOT 의 모든 decision 이 increaseFailCount=false 이므로
     // `failCountProtected = decisions.length` (호출자 운영자 가시성).
     failCountProtected += 1;
+    if (d.shadowLearningAllowed || d.counterfactualLearningAllowed || d.retryAllowed) preservedCount++;
     if (d.state === 'WAIT_RETRY_ELIGIBLE') retryEligible++;
     else if (d.state === 'WAIT_COOLDOWN') cooldown++;
     else if (d.state === 'WAIT_SHADOW_ONLY') shadowOnly++;
@@ -421,6 +424,7 @@ export function summarizePreBreakoutWaitDecisions(
     volumeWeak,
     gateRecheckFailed,
     failCountProtected,
+    preservedCount,
     topReasons,
   };
 }
@@ -456,5 +460,6 @@ export function formatPreBreakoutWaitSummarySection(
     lines.push(`  • topReason: ${reasonText}`);
   }
   lines.push(`  • failCountProtected: ${summary.failCountProtected}`);
+  lines.push(`  • preserved: ${summary.preservedCount} (watch/provisional/near-miss observation eligible)`);
   return lines.join('\n');
 }

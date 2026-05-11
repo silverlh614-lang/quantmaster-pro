@@ -54,6 +54,13 @@ export interface ProvisionalShadowLedgerEntry {
   shadowAllowed: true;
   routerSeverity?: string;
   /** ADR-0427 §C — provisional 진단 메타 (sectorEnergy/conditions/router). */
+  lastSeenAt?: string;
+  lastReason?: ProvisionalShadowReason;
+  latestGateSnapshot?: { gate1Passed: boolean; gate2Passed: boolean; routerSeverity?: string };
+  latestLaneLabel?: ProvisionalShadowLabel;
+  duplicateSeenCount?: number;
+  providerDegradedReason?: string;
+  gate2NotConfirmedReason?: string;
   metadata?: {
     sectorEnergyDataQuality?: string;
     sectorEnergyConfidence?: number;
@@ -150,7 +157,8 @@ export interface RecordProvisionalShadowInput {
 
 export type RecordProvisionalShadowResult =
   | { recorded: true; entry: ProvisionalShadowLedgerEntry }
-  | { recorded: false; reason: 'ENV_DISABLED' | 'DUPLICATE' | 'PERSIST_ERROR' };
+  | { recorded: false; updated: true; reason: 'DUPLICATE'; entry: ProvisionalShadowLedgerEntry }
+  | { recorded: false; reason: 'ENV_DISABLED' | 'PERSIST_ERROR' };
 
 /**
  * R3 provisional shadow 후보 영속 기록 SSOT (사용자 §C 정합).
@@ -169,11 +177,36 @@ export function recordR3ProvisionalShadowCandidate(
     return { recorded: false, reason: 'ENV_DISABLED' };
   }
 
-  if (hasExistingEntry(input.scanId, input.candidate.symbol)) {
-    return { recorded: false, reason: 'DUPLICATE' };
+  const nowIso = new Date().toISOString();
+  try {
+    const file = readLedgerFile();
+    const key = buildDedupKey(input.scanId, input.candidate.symbol);
+    const existing = file.entries.find((e) => buildDedupKey(e.scanId, e.symbol) === key);
+    if (existing) {
+      existing.lastSeenAt = input.scannedAtKst ?? nowIso;
+      existing.lastReason = input.candidate.reasons[input.candidate.reasons.length - 1];
+      existing.latestGateSnapshot = {
+        gate1Passed: input.candidate.gate1Passed,
+        gate2Passed: input.candidate.gate2Passed,
+        ...(input.candidate.routerSeverity !== undefined ? { routerSeverity: input.candidate.routerSeverity } : {}),
+      };
+      existing.latestLaneLabel = input.candidate.label;
+      existing.duplicateSeenCount = (existing.duplicateSeenCount ?? 0) + 1;
+      existing.providerDegradedReason = input.metadata?.unavailableConditions?.join(',') ?? existing.providerDegradedReason;
+      existing.gate2NotConfirmedReason = input.candidate.reasons.includes('PRE_BREAKOUT_WAIT')
+        ? 'PRE_BREAKOUT_WAIT'
+        : input.candidate.reasons.includes('DATA_UNAVAILABLE')
+          ? 'DATA_UNAVAILABLE'
+          : 'GATE2_NOT_CONFIRMED';
+      existing.metadata = { ...(existing.metadata ?? {}), ...(input.metadata ?? {}) };
+      atomicWrite(file);
+      return { recorded: false, updated: true, reason: 'DUPLICATE', entry: existing };
+    }
+  } catch (e) {
+    console.warn('[ProvisionalShadowLedger] duplicate update 실패 — 매수 흐름 무영향', e);
+    return { recorded: false, reason: 'PERSIST_ERROR' };
   }
 
-  const nowIso = new Date().toISOString();
   const entry: ProvisionalShadowLedgerEntry = {
     eventType: 'PROVISIONAL_SHADOW_ENTRY',
     provisional: true,
@@ -193,6 +226,21 @@ export function recordR3ProvisionalShadowCandidate(
     ...(input.candidate.routerSeverity !== undefined
       ? { routerSeverity: input.candidate.routerSeverity }
       : {}),
+    lastSeenAt: input.scannedAtKst ?? nowIso,
+    lastReason: input.candidate.reasons[input.candidate.reasons.length - 1],
+    latestGateSnapshot: {
+      gate1Passed: input.candidate.gate1Passed,
+      gate2Passed: input.candidate.gate2Passed,
+      ...(input.candidate.routerSeverity !== undefined ? { routerSeverity: input.candidate.routerSeverity } : {}),
+    },
+    latestLaneLabel: input.candidate.label,
+    duplicateSeenCount: 0,
+    providerDegradedReason: input.metadata?.unavailableConditions?.join(','),
+    gate2NotConfirmedReason: input.candidate.reasons.includes('PRE_BREAKOUT_WAIT')
+      ? 'PRE_BREAKOUT_WAIT'
+      : input.candidate.reasons.includes('DATA_UNAVAILABLE')
+        ? 'DATA_UNAVAILABLE'
+        : 'GATE2_NOT_CONFIRMED',
     ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
   };
 

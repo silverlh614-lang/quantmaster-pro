@@ -141,6 +141,14 @@ export interface Gate2FreshAttribution {
   sectorEnergy?: SectorEnergyDiagnostic;
   /** 매수 차단 사유 분해 (기존 waitDistribution 에서 발췌). */
   blockReasons?: Gate2BlockReasons;
+  /** Gate2 true failed 조건 수 (unavailable/stale/wait 제외). */
+  gate2TrueFailedCount: number;
+  /** Gate2 unavailable/provider issue 조건 수 (failed 아님). */
+  gate2UnavailableCount: number;
+  /** Gate2 blocked-but-watch 보존 예상 수. */
+  gate2WatchPreservedCount: number;
+  /** Gate2 blocked-but-shadow 보존 예상 수. */
+  gate2ShadowPreservedCount: number;
   /** 운영자 가이드 분류. */
   recommendedDiagnosis: Gate2LeadershipDiagnosis;
 }
@@ -442,6 +450,13 @@ export function buildGate2FreshAttribution(input: {
     blockReasons: input.blockReasons,
     sectorEnergy: input.sectorEnergy,
   });
+  const gate2TrueFailedCount = sorted.reduce((sum, b) => sum + b.failed, 0);
+  const gate2UnavailableCount = sorted.reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
+  const waitPreserved = input.blockReasons?.preBreakoutWait ?? sorted.reduce((sum, b) => sum + b.wait, 0);
+  const sizingPreserved = input.blockReasons?.sizingBlocked ?? 0;
+  const softPreserved = input.gate1Pass > 0 && input.gate2Pass === 0
+    ? Math.max(waitPreserved + sizingPreserved, gate2UnavailableCount > 0 ? Math.min(input.gate1Pass, gate2UnavailableCount) : 0)
+    : 0;
 
   return {
     ...(input.scanId ? { scanId: input.scanId } : {}),
@@ -458,6 +473,10 @@ export function buildGate2FreshAttribution(input: {
     topErrorCondition: pickTopBucket(sorted, 'error'),
     topStaleCondition: pickTopBucket(sorted, 'stale'),
     topWaitCondition: pickTopBucket(sorted, 'wait'),
+    gate2TrueFailedCount,
+    gate2UnavailableCount,
+    gate2WatchPreservedCount: softPreserved,
+    gate2ShadowPreservedCount: softPreserved,
     ...(input.sectorEnergy ? { sectorEnergy: input.sectorEnergy } : {}),
     ...(input.blockReasons ? { blockReasons: input.blockReasons } : {}),
     recommendedDiagnosis,
@@ -556,6 +575,12 @@ export function formatGate2AttributionSection(
   lines.push('🚧 <b>Gate2 / Leadership blockers (ADR-0422 fresh attribution):</b>');
   lines.push(
     `  • candidates=${attribution.candidates} gate1Pass=${attribution.gate1Pass} gate2Pass=${attribution.gate2Pass}`,
+  );
+  lines.push(
+    `  • split: gate2TrueFailedCount=${attribution.gate2TrueFailedCount} / ` +
+    `gate2UnavailableCount=${attribution.gate2UnavailableCount} / ` +
+    `gate2WatchPreservedCount=${attribution.gate2WatchPreservedCount} / ` +
+    `gate2ShadowPreservedCount=${attribution.gate2ShadowPreservedCount}`,
   );
 
   if (topBuckets.length > 0) {

@@ -35,14 +35,15 @@ describe('ADR-0425 Gate Decision Router', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // §H Test 2: SELL_ONLY → HARD_BLOCK
+  // §H Test 2: SELL_ONLY → SELL_ONLY
   // ────────────────────────────────────────────────────────
-  it('§H#2: SELL_ONLY → HARD_BLOCK + shadowAllowed=false', () => {
+  it('§H#2: SELL_ONLY → SELL_ONLY + shadow/watch 관측 유지', () => {
     const result = deriveGateDecisionRouterResult({
       riskFlags: { sellOnly: true },
     });
-    expect(result.severity).toBe('HARD_BLOCK');
-    expect(result.shadowAllowed).toBe(false);
+    expect(result.severity).toBe('SELL_ONLY');
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
     expect(result.reasons).toContain('SELL_ONLY');
   });
 
@@ -236,8 +237,9 @@ describe('ADR-0425 Gate Decision Router', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any,
     });
-    expect(result.severity).toBe('HARD_BLOCK');
-    expect(result.shadowAllowed).toBe(false);
+    expect(result.severity).toBe('SELL_ONLY');
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
   });
 
   // ────────────────────────────────────────────────────────
@@ -369,16 +371,19 @@ describe('ADR-0425 Gate Decision Router', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // 보너스: SIZING_BLOCKED 우세 → HARD_BLOCK
+  // 보너스: SIZING_BLOCKED 우세 → WATCH_ONLY 보존
   // ────────────────────────────────────────────────────────
-  it('보너스: SIZING_BLOCKED 우세 (블록 비율 ≥ 100%) → HARD_BLOCK', () => {
+  it('보너스: SIZING_BLOCKED 우세 (블록 비율 ≥ 100%) → WATCH_ONLY shadow/watch 보존', () => {
     const result = deriveGateDecisionRouterResult({
       gate1Pass: 5,
       blockReasons: { sizingBlocked: 5 },
     });
-    expect(result.severity).toBe('HARD_BLOCK');
+    expect(result.severity).toBe('WATCH_ONLY');
     expect(result.reasons).toContain('SIZING_BLOCKED');
-    expect(result.shadowAllowed).toBe(false);
+    expect(result.liveAllowed).toBe(false);
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
+    expect(result.executionImpact).toBe('NONE');
   });
 
   // ────────────────────────────────────────────────────────
