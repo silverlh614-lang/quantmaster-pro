@@ -142,6 +142,7 @@ export interface InvestorFlowProviderRouteResult {
   staleButSelectedReason?: string | null;
   coverageBefore?: number;
   coverageAfter?: number;
+  diagnosticUsableCount?: number;
   noMaterializedCandidateReason?: string | null;
   diagnostics: string[];
 }
@@ -1135,13 +1136,14 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
   if (selectedProviderForDiagnostics !== 'NONE') coverageAfterSet.add(selectedProviderForDiagnostics);
   const coverageAfter = coverageAfterSet.size;
+  const diagnosticUsableCount = multiSourceMaterialization.candidates.filter((candidate) => candidate.sampleMaterialized && candidate.usableForShadow && !candidate.placeholderDetected).length;
   const cacheFallbackReason = selectedProviderForDiagnostics === 'CACHE'
     ? `CACHE selected after rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; selectedReason=${selectedReason ?? 'NONE'}`
     : null;
   const staleButSelectedReason = selectedSemanticNetBuy?.status === 'STALE' || selectedSemanticNetBuy?.status === 'CACHE_STALE_HIT'
     ? `stale selected for SHADOW_ONLY diagnostic only; provider=${selectedProviderForDiagnostics}; status=${selectedSemanticNetBuy.status}; liveExecutionAllowed=false`
     : null;
-  diagnostics.push(`fallbackChain=${fallbackChain.join('>')}; selectedProvider=${selectedProviderForDiagnostics}; rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; cacheFallbackReason=${cacheFallbackReason ?? 'NONE'}; staleButSelectedReason=${staleButSelectedReason ?? 'NONE'}; coverageBefore=${statusCoverage.available}; coverageAfter=${coverageAfter}; coverageBasis=routerUsableSampleCount plus selected SHADOW fallback.`);
+  diagnostics.push(`fallbackChain=${fallbackChain.join('>')}; selectedProvider=${selectedProviderForDiagnostics}; rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; cacheFallbackReason=${cacheFallbackReason ?? 'NONE'}; staleButSelectedReason=${staleButSelectedReason ?? 'NONE'}; coverageBefore=${statusCoverage.available}; coverageAfter=${coverageAfter}; diagnosticUsableCount=${diagnosticUsableCount}; coverageBasis=routerUsableSampleCount plus selected SHADOW fallback.`);
   diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
@@ -1191,6 +1193,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     staleButSelectedReason,
     coverageBefore: statusCoverage.available,
     coverageAfter,
+    diagnosticUsableCount,
     noMaterializedCandidateReason: multiSourceMaterialization.noMaterializedCandidateReason,
     diagnostics,
   };
@@ -1223,6 +1226,7 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- cacheFallbackReason: ${result.cacheFallbackReason ?? 'NONE'}`,
     `- staleButSelectedReason: ${result.staleButSelectedReason ?? 'NONE'}`,
     `- coverageBasis: routerUsableSampleCount plus selected SHADOW fallback; before=${result.coverageBefore ?? result.coverage.available}, after=${result.coverageAfter ?? result.coverage.available}`,
+    `- diagnosticUsableCount: ${result.diagnosticUsableCount ?? 0}`,
     `- semanticInputStatus: ${result.semanticInputStatus ?? result.providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE'}`,
     `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
     `- naverReadinessKind: ${result.naverReadinessKind ?? 'UNKNOWN'}`,
