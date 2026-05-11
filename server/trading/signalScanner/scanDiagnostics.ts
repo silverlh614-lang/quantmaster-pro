@@ -2047,6 +2047,13 @@ export async function persistScanResults(
       sourceAgeTradingDays: null,
     });
     summaryDraft.naverInvestorTrendAdr0481 = naverInvestorTrendAdr0481;
+    const supplySnapshotCacheLookupAdr0491 = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
+      symbol: firstSnapshot?.symbol ?? 'UNIVERSE',
+      source: 'NAVER_INVESTOR_TREND',
+      domain: 'SUPPLY',
+      tradingDate: new Date(kstNow.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10),
+    });
+    const cacheRaw = supplySnapshotCacheLookupAdr0491.cacheRaw;
     const semanticInputs = naverInvestorTrendAdr0481.semanticNetBuyCandidate
       ? [{
           code: naverInvestorTrendAdr0481.code,
@@ -2060,7 +2067,20 @@ export async function persistScanResults(
           sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
           diagnostics: ['ADR-0481 NAVER collector candidate consumed by ADR-0482.'],
         }]
-      : [];
+      : cacheRaw
+        ? [{
+            code: firstSnapshot?.symbol ?? 'UNIVERSE',
+            provider: 'CACHE' as const,
+            sourceDate: typeof cacheRaw.sourceDate === 'string' ? cacheRaw.sourceDate : null,
+            rawForeignNetBuy: typeof cacheRaw.foreignNetBuy === 'number' ? cacheRaw.foreignNetBuy : null,
+            rawInstitutionNetBuy: typeof cacheRaw.institutionNetBuy === 'number' ? cacheRaw.institutionNetBuy : null,
+            rawProgramNetBuy: typeof cacheRaw.programNetBuy === 'number' ? cacheRaw.programNetBuy : null,
+            unit: 'KRW' as const,
+            status: supplySnapshotCacheLookupAdr0491.stale ? 'STALE' : supplySnapshotCacheLookupAdr0491.status === 'CACHE_HIT' ? 'VERIFIED' : 'DATA_UNAVAILABLE',
+            sourceAgeTradingDays: supplySnapshotCacheLookupAdr0491.stale ? 4 : 0,
+            diagnostics: ['ADR-0491 sanitized CACHE snapshot consumed by ADR-0482 as SHADOW_ONLY input; raw payload not persisted.'],
+          }]
+        : [];
     const semanticNetBuyNormalizationAdr0482 = buildSemanticNetBuyNormalizationReportAdr0482({
       code: firstSnapshot?.symbol ?? 'UNIVERSE',
       generatedAt: kstNow.toISOString(),
@@ -2081,12 +2101,7 @@ export async function persistScanResults(
       cacheAgeTradingDays: null,
       marketProgramStatus: 'ACCEPTED_EMPTY',
       fssSourceAgeTradingDays: 5,
-      supplySnapshotCacheLookupAdr0491: readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
-        symbol: firstSnapshot?.symbol ?? 'UNIVERSE',
-        source: 'NAVER_INVESTOR_TREND',
-        domain: 'SUPPLY',
-        tradingDate: new Date(kstNow.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10),
-      }),
+      supplySnapshotCacheLookupAdr0491,
     });
     summaryDraft.investorFlowProviderRouter = investorFlowProviderRouter;
     summaryDraft.supplySourceFreshnessAdr0483 = buildSupplySourceFreshnessReportAdr0483({

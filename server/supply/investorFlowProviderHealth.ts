@@ -688,20 +688,29 @@ export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProvider
     // ADR-0445 — parser 진단 sub-lines (옵셔널, 후방호환).
     lines.push(...formatKrxAdr0445SubLines(krx));
   }
-  if (naver) lines.push(`- NAVER: ${naver.status}`);
-  lines.push(`- Semantic NetBuy: ${composite?.semanticAvailable ? 'OK' : 'NOT_WIRED'}`);
-  if (cache) lines.push(`- CACHE: ${cache.status}`);
   if (router) {
     const routerCache = router.providerStatuses?.CACHE;
     const routerNaver = router.providerStatuses?.NAVER ?? router.providerStatuses?.NAVER_INVESTOR_TREND;
     const routerSemantic = router.providerStatuses?.SEMANTIC_NETBUY;
-    if (routerNaver) lines.push(`- NAVER(router): ${routerNaver === 'NOT_WIRED' ? 'DATA_UNAVAILABLE / NO_SAMPLE' : routerNaver}`);
-    if (routerSemantic) lines.push(`- Semantic NetBuy(router): ${routerSemantic === 'NOT_WIRED' ? 'DATA_UNAVAILABLE / NO_INPUT_SAMPLE' : routerSemantic}`);
-    if (routerCache) lines.push(`- CACHE(router): ${routerCache}`);
+    const naverDisplay = routerNaver === 'NOT_WIRED'
+      ? 'DATA_UNAVAILABLE / NO_SAMPLE'
+      : routerNaver ?? (naver ? normalizeSupplyProviderStatus(naver.status) : 'DATA_UNAVAILABLE / NO_SAMPLE');
+    const semanticDisplay = routerSemantic === 'READY_FOR_SHADOW'
+      ? 'READY_FOR_SHADOW / NORMALIZED_SAMPLE'
+      : routerSemantic && routerSemantic !== 'NOT_WIRED' && routerSemantic !== 'DATA_UNAVAILABLE'
+        ? routerSemantic
+        : 'DATA_UNAVAILABLE / NO_INPUT_SAMPLE';
+    const cacheDisplay = routerCache ?? cache?.status ?? 'CACHE_EMPTY';
+    lines.push(`- NAVER: ${naverDisplay}`);
+    lines.push(`- Semantic NetBuy: ${semanticDisplay}`);
+    lines.push(`- CACHE: ${cacheDisplay}`);
     lines.push(`- selectedProvider: ${router.selectedProvider}`);
     lines.push(`- selectedReason: ${router.selectedReason ?? 'NONE'}`);
     lines.push(`- supply_confluence: ${router.selectedProvider !== 'NONE' && router.signal === 'UNKNOWN' ? 'UNKNOWN / STALE_DIAGNOSTIC' : router.selectedProvider === 'NONE' ? 'DATA_UNAVAILABLE' : router.signal}, not failed`);
   } else {
+    if (naver) lines.push(`- NAVER: ${naver.status}`);
+    lines.push(`- Semantic NetBuy: ${composite?.semanticAvailable ? 'OK' : 'NOT_WIRED'}`);
+    if (cache) lines.push(`- CACHE: ${cache.status}`);
     lines.push(`- supply_confluence: ${composite?.semanticAvailable ? (composite.isNegativeFlowConfirmed ? 'BEARISH' : 'available') : 'DATA_UNAVAILABLE'}, not failed`);
   }
   lines.push('- liveStrongBuyAllowed: false');
