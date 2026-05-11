@@ -1013,7 +1013,8 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
     min.topPenaltyContributors.map((item) => Math.abs(item.avgPenalty)),
   ));
   const grossPositiveScoreAvg = round1(min.actualScoreAvg + totalPenaltyScoreAvg);
-  const configuredPositiveMaxScore = round1(Math.max(grossPositiveScoreAvg, min.actualScoreMax));
+  const fallbackSignalEligibleMaxScore = 92;
+  const configuredPositiveMaxScore = round1(Math.max(fallbackSignalEligibleMaxScore, grossPositiveScoreAvg, min.actualScoreMax));
   const requiredScoreAvg = round1(min.requiredScoreAvg);
   const actualScoreRange = round1(min.actualScoreMax - min.actualScoreMin);
   const compressed = min.totalCandidates >= 3 && actualScoreRange <= 5;
@@ -1050,11 +1051,31 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
       ? ['WATCHLIST_SCORE_NOT_IMPORTED', 'MISSING_SYMBOL_LEVEL_FEATURES']
       : ['UNKNOWN'],
   };
-  const zeroContributionComponents: Array<{ code: PositiveSignalComponentCode; count: number }> = [
-    { code: 'WATCHLIST_UPSTREAM_SCORE', count: min.totalCandidates },
-    { code: 'RELATIVE_STRENGTH', count: min.totalCandidates },
-    { code: 'BREAKOUT_STRUCTURE', count: min.totalCandidates },
+  const deficitCount = (code: PositiveSignalComponentCode) =>
+    min.topScoreDeficits.find((item) => item.code === code)?.affectedCount ?? 0;
+  const zeroContributionComponents = ([
+    { code: 'WATCHLIST_UPSTREAM_SCORE' as const, count: deficitCount('WATCHLIST_UPSTREAM_SCORE') },
+    { code: 'RELATIVE_STRENGTH' as const, count: deficitCount('RELATIVE_STRENGTH') },
+    { code: 'BREAKOUT_STRUCTURE' as const, count: deficitCount('BREAKOUT_STRUCTURE') },
+  ] satisfies Array<{ code: PositiveSignalComponentCode; count: number }>).filter((item) => item.count > 0);
+  const positiveAllocations: Array<{ code: PositiveSignalComponentCode; max: number }> = [
+    { code: 'PRICE_MOMENTUM', max: 20 },
+    { code: 'VOLUME_LIQUIDITY', max: 12 },
+    { code: 'TECHNICAL_TREND', max: 14 },
+    { code: 'RELATIVE_STRENGTH', max: 10 },
+    { code: 'WATCHLIST_UPSTREAM_SCORE', max: 10 },
+    { code: 'BREAKOUT_STRUCTURE', max: 10 },
+    { code: 'WATCHLIST_PRIORITY', max: 8 },
+    { code: 'MARKET_REGIME_SUPPORT', max: 6 },
   ];
+  const allocationMax = sum(positiveAllocations.map((item) => item.max));
+  const topPositiveContributors = positiveAllocations.map((item) => ({
+    code: item.code,
+    avgContribution: round1(grossPositiveScoreAvg * (item.max / allocationMax)),
+    affectedCount: min.totalCandidates,
+  }));
+  const allocatedPositive = round1(sum(topPositiveContributors.map((item) => item.avgContribution)));
+  const remainingOtherPositive = round1(Math.max(0, grossPositiveScoreAvg - allocatedPositive));
 
   return {
     timestamp: input.timestamp,
@@ -1072,13 +1093,9 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
     actualScoreMax: round1(min.actualScoreMax),
     actualScoreRange,
     actualScoreStdDev: 0,
-    topPositiveContributors: [
-      {
-        code: 'OTHER_POSITIVE',
-        avgContribution: grossPositiveScoreAvg,
-        affectedCount: min.totalCandidates,
-      },
-    ],
+    topPositiveContributors: remainingOtherPositive > 0
+      ? [...topPositiveContributors, { code: 'OTHER_POSITIVE', avgContribution: remainingOtherPositive, affectedCount: min.totalCandidates }]
+      : topPositiveContributors,
     zeroContributionComponents,
     missingPositiveComponents: zeroContributionComponents,
     scoreCeilingAudit,
