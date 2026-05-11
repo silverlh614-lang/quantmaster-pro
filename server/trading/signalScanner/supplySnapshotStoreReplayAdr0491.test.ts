@@ -10,7 +10,9 @@ import {
   recordSupplySnapshotAdr0491,
   replaySupplySnapshotsAdr0491,
   readLatestSupplySnapshotBySymbolSourceDomainAdr0491,
+  findLatestInvestorFlowSnapshotAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
+import { normalizeInvestorFlowSnapshotKeyAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 import { buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import { buildInvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 import { buildProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
@@ -171,7 +173,7 @@ describe('ADR-0491 supply snapshot store and replay', () => {
       tradingDate: '2026-05-11',
     });
     expect(miss.status).toBe('CACHE_KEY_MISMATCH');
-    expect(miss.reason).toBe('KEY_MISMATCH_OR_SYMBOL_SOURCE_NOT_FOUND');
+    expect(miss.reason).toBe('KEY_MISMATCH_OR_SYMBOL_SOURCE_DATE_DOMAIN_NOT_FOUND');
   });
 
   it('recovers corrupt JSON without throwing and exposes compact/detail formatters', () => {
@@ -194,4 +196,32 @@ describe('ADR-0491 supply snapshot store and replay', () => {
     expect(comparison.executionImpact).toBe('NONE');
     expect(comparison.liveExecutionAllowed).toBe(false);
   });
+  it('normalizes InvestorFlow snapshot lookup keys across code/source/route/domain aliases', () => {
+    const naver = normalizeInvestorFlowSnapshotKeyAdr0491({ symbol: '012200.KS', source: 'NAVER', route: 'investor_flow', tradingDate: '2026-05-11', now: new Date('2026-05-11T00:00:00.000Z') });
+    const semantic = normalizeInvestorFlowSnapshotKeyAdr0491({ code: '012200', provider: 'Semantic NetBuy', domain: 'SUPPLY', tradingDate: '2026-05-11', now: new Date('2026-05-11T00:00:00.000Z') });
+
+    expect(naver.normalizedCode).toBe('012200');
+    expect(naver.normalizedSource).toBe('NAVER_INVESTOR_TREND');
+    expect(semantic.normalizedSource).toBe('SEMANTIC_NETBUY');
+    expect(naver.normalizedDomain).toBe('SUPPLY');
+    expect(naver.route).toBe('investor_flow');
+    expect(naver.tradingDateCandidates).toContain('2026-05-08');
+  });
+
+  it('finds latest investor flow snapshots and distinguishes hit, stale, mismatch, and empty', () => {
+    const filePath = tempFile();
+    const report = buildInvestorFlowSampleAcquisitionReportAdr0489({
+      generatedAt: '2026-05-08T00:00:00.000Z',
+      samples: [{ symbol: '012200.KS', provider: 'NAVER', sourceDate: '2026-05-08', foreignNetBuy: 100, institutionNetBuy: 50, status: 'SAMPLE_READY' }],
+    });
+    recordSupplySnapshotAdr0491({ filePath, scanId: 'scan-key', recordedAt: '2026-05-08T00:00:00.000Z', tradingDate: '2026-05-08', investorFlowSampleAdr0489: report });
+
+    expect(findLatestInvestorFlowSnapshotAdr0491({ filePath, code: '012200', sourceCandidates: ['NAVER_INVESTOR_TREND'], tradingDateCandidates: ['2026-05-08'], requireNormalized: true }).status).toBe('CACHE_HIT');
+    expect(findLatestInvestorFlowSnapshotAdr0491({ filePath, code: '012200', sourceCandidates: ['NAVER_INVESTOR_TREND'], tradingDateCandidates: ['2026-05-11'], allowStale: true, requireNormalized: true }).status).toBe('CACHE_STALE_HIT');
+    const mismatch = findLatestInvestorFlowSnapshotAdr0491({ filePath, code: '012200', sourceCandidates: ['SEMANTIC_NETBUY'], tradingDateCandidates: ['2026-05-08'], requireNormalized: true });
+    expect(mismatch.status).toBe('CACHE_KEY_MISMATCH');
+    expect(mismatch.debug?.mismatchHints.join(' ')).toContain('source=NAVER_INVESTOR_TREND');
+    expect(findLatestInvestorFlowSnapshotAdr0491({ filePath: tempFile(), code: '012200', sourceCandidates: ['NAVER_INVESTOR_TREND'], tradingDateCandidates: ['2026-05-08'] }).status).toBe('CACHE_EMPTY');
+  });
+
 });

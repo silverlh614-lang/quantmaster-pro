@@ -219,6 +219,7 @@ import {
 } from './investorFlowSampleAcquisitionAdr0489.js';
 import {
   recordSupplySnapshotAdr0491,
+  readLatestSupplySnapshotBySymbolSourceDomainAdr0491,
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
@@ -2080,6 +2081,12 @@ export async function persistScanResults(
       cacheAgeTradingDays: null,
       marketProgramStatus: 'ACCEPTED_EMPTY',
       fssSourceAgeTradingDays: 5,
+      supplySnapshotCacheLookupAdr0491: readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
+        symbol: firstSnapshot?.symbol ?? 'UNIVERSE',
+        source: 'NAVER_INVESTOR_TREND',
+        domain: 'SUPPLY',
+        tradingDate: new Date(kstNow.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10),
+      }),
     });
     summaryDraft.investorFlowProviderRouter = investorFlowProviderRouter;
     summaryDraft.supplySourceFreshnessAdr0483 = buildSupplySourceFreshnessReportAdr0483({

@@ -7,6 +7,7 @@ import type { SectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEn
 import type { InvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowSampleAcquisitionAdr0489.js';
 import type { ProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
 import type { InvestorFlowSanitizedSampleAdr0496, SupplyCoverageReportAdr0496 } from './investorFlowSemanticNetBuyAdr0496.js';
+import { normalizeInvestorFlowCodeAdr0491, normalizeInvestorFlowSnapshotKeyAdr0491, normalizeInvestorFlowSourceKeyAdr0491, type InvestorFlowSnapshotSourceAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 
 export type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
 export type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
@@ -41,6 +42,12 @@ export interface SupplySnapshotCacheLookupAdr0491 {
   retained: number;
   reason: string;
   stale: boolean;
+  debug?: {
+    lookupKey: string;
+    triedKeys: string[];
+    retainedSummary: Record<string, unknown>;
+    mismatchHints: string[];
+  };
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   policyPromotionMode: 'SHADOW_ONLY';
@@ -263,10 +270,131 @@ export function replaySupplySnapshotsAdr0491(
 }
 
 
+
 function statusForCacheRaw(snapshot: SanitizedSupplySnapshotAdr0491, tradingDate?: string): SupplySnapshotCacheLookupStatusAdr0491 {
   if (tradingDate && snapshot.tradingDate !== tradingDate) return 'CACHE_STALE_HIT';
   if (snapshot.latestInvestorFlowSample?.status === 'STALE') return 'CACHE_STALE_HIT';
   return 'CACHE_HIT';
+}
+
+function snapshotSource(snapshot: SanitizedSupplySnapshotAdr0491): InvestorFlowSnapshotSourceAdr0491 | 'UNKNOWN' {
+  return normalizeInvestorFlowSourceKeyAdr0491(snapshot.latestInvestorFlowSample?.provider);
+}
+
+function snapshotCode(snapshot: SanitizedSupplySnapshotAdr0491): string {
+  return normalizeInvestorFlowCodeAdr0491(snapshot.latestInvestorFlowSample?.symbol);
+}
+
+function buildRetainedSummaryAdr0491(snapshots: SanitizedSupplySnapshotAdr0491[]): Record<string, unknown> {
+  const byDomain = new Map<string, number>();
+  const bySource = new Map<string, number>();
+  const byDate = new Map<string, number>();
+  let normalizedTrue = 0;
+  for (const snapshot of snapshots) {
+    for (const domain of snapshot.domains) byDomain.set(domain, (byDomain.get(domain) ?? 0) + 1);
+    const source = snapshotSource(snapshot);
+    bySource.set(source, (bySource.get(source) ?? 0) + 1);
+    byDate.set(snapshot.tradingDate, (byDate.get(snapshot.tradingDate) ?? 0) + 1);
+    if (snapshot.latestInvestorFlowSample) normalizedTrue += 1;
+  }
+  return {
+    retained: snapshots.length,
+    domains: Object.fromEntries(byDomain),
+    sources: Object.fromEntries(bySource),
+    normalizedTrue,
+    recentTradingDates: Object.fromEntries([...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 5)),
+  };
+}
+
+function snapshotKeyAdr0491(snapshot: SanitizedSupplySnapshotAdr0491): string {
+  return `domain=${snapshot.domains.join('/')}|code=${snapshotCode(snapshot)}|source=${snapshotSource(snapshot)}|tradingDate=${snapshot.tradingDate}|sourceDate=${snapshot.latestInvestorFlowSample?.dataDate ?? 'NONE'}|normalized=${String(Boolean(snapshot.latestInvestorFlowSample))}`;
+}
+
+function cacheRawFromSnapshotAdr0491(snapshot: SanitizedSupplySnapshotAdr0491, status: SupplySnapshotCacheLookupStatusAdr0491): Record<string, unknown> | null {
+  const latest = snapshot.latestInvestorFlowSample;
+  if (!latest) return null;
+  return {
+    code: snapshotCode(snapshot),
+    sourceDate: latest.dataDate,
+    foreignNetBuy: latest.foreignNetBuy,
+    institutionNetBuy: latest.institutionNetBuy,
+    retailNetBuy: latest.retailNetBuy,
+    status: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE' : latest.status === 'PARTIAL' || latest.status === 'FRESH' ? 'PARTIAL' : latest.status,
+  };
+}
+
+export function findLatestInvestorFlowSnapshotAdr0491(input: {
+  code: string;
+  sourceCandidates?: InvestorFlowSnapshotSourceAdr0491[];
+  tradingDateCandidates?: string[];
+  allowStale?: boolean;
+  requireNormalized?: boolean;
+  filePath?: string;
+  now?: Date;
+}): SupplySnapshotCacheLookupAdr0491 {
+  const { store, recovered } = readStore(input.filePath);
+  const normalized = normalizeInvestorFlowSnapshotKeyAdr0491({
+    code: input.code,
+    source: input.sourceCandidates?.[0] ?? null,
+    route: 'investor_flow',
+    domain: 'SUPPLY',
+    tradingDate: input.tradingDateCandidates?.[0] ?? null,
+    now: input.now,
+  });
+  const sourceCandidates = input.sourceCandidates ?? normalized.sourceCandidates;
+  const tradingDateCandidates = input.tradingDateCandidates ?? normalized.tradingDateCandidates;
+  const retainedSummary = buildRetainedSummaryAdr0491(store.snapshots);
+  const triedKeys = sourceCandidates.flatMap((source) => tradingDateCandidates.map((date) => `domain=SUPPLY|code=${normalized.normalizedCode}|source=${source}|tradingDate=${date}|normalized=${String(input.requireNormalized ?? true)}`));
+  const debugBase = { lookupKey: normalized.lookupKey, triedKeys, retainedSummary, mismatchHints: [] as string[] };
+  if (recovered) {
+    return { status: 'CORRUPT_RECOVERED', snapshot: null, cacheRaw: null, retained: 0, reason: 'CORRUPT_RECOVERED', stale: false, debug: debugBase, executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', rawPayloadPersistenceAllowed: false };
+  }
+  const supplyRows = store.snapshots
+    .filter((snapshot) => snapshot.domains.includes('SUPPLY'))
+    .filter((snapshot) => snapshot.latestInvestorFlowSample)
+    .filter((snapshot) => input.requireNormalized !== true || snapshot.latestInvestorFlowSample !== null)
+    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+  const direct = supplyRows.find((snapshot) =>
+    snapshotCode(snapshot) === normalized.normalizedCode &&
+    sourceCandidates.includes(snapshotSource(snapshot) as InvestorFlowSnapshotSourceAdr0491) &&
+    tradingDateCandidates.includes(snapshot.tradingDate));
+  const stale = direct ? null : supplyRows.find((snapshot) =>
+    input.allowStale === true &&
+    snapshotCode(snapshot) === normalized.normalizedCode &&
+    sourceCandidates.includes(snapshotSource(snapshot) as InvestorFlowSnapshotSourceAdr0491));
+  const hit = direct ?? stale;
+  if (hit) {
+    const status = direct ? statusForCacheRaw(hit, tradingDateCandidates[0]) : 'CACHE_STALE_HIT';
+    return {
+      status,
+      snapshot: hit,
+      cacheRaw: cacheRawFromSnapshotAdr0491(hit, status),
+      retained: store.snapshots.length,
+      reason: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY' : 'SANITIZED_SNAPSHOT_CACHE_HIT',
+      stale: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT',
+      debug: { ...debugBase, mismatchHints: [`closest=${snapshotKeyAdr0491(hit)}`] },
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+      policyPromotionMode: 'SHADOW_ONLY',
+      rawPayloadPersistenceAllowed: false,
+    };
+  }
+  const closest = supplyRows[0] ?? store.snapshots.sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0] ?? null;
+  const mismatchHints = closest ? [`closest=${snapshotKeyAdr0491(closest)}`] : [];
+  const hasRetainedRows = store.snapshots.length > 0;
+  return {
+    status: hasRetainedRows ? 'CACHE_KEY_MISMATCH' : 'CACHE_EMPTY',
+    snapshot: null,
+    cacheRaw: null,
+    retained: store.snapshots.length,
+    reason: hasRetainedRows ? 'KEY_MISMATCH_OR_SYMBOL_SOURCE_DATE_DOMAIN_NOT_FOUND' : 'SNAPSHOT_STORE_EMPTY',
+    stale: false,
+    debug: { ...debugBase, mismatchHints },
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+    rawPayloadPersistenceAllowed: false,
+  };
 }
 
 export function readLatestSupplySnapshotBySymbolSourceDomainAdr0491(input: {
@@ -276,64 +404,15 @@ export function readLatestSupplySnapshotBySymbolSourceDomainAdr0491(input: {
   tradingDate?: string;
   filePath?: string;
 }): SupplySnapshotCacheLookupAdr0491 {
-  const { store, recovered } = readStore(input.filePath);
-  if (recovered) {
-    return {
-      status: 'CORRUPT_RECOVERED',
-      snapshot: null,
-      cacheRaw: null,
-      retained: 0,
-      reason: 'CORRUPT_RECOVERED',
-      stale: false,
-      executionImpact: 'NONE',
-      liveExecutionAllowed: false,
-      policyPromotionMode: 'SHADOW_ONLY',
-      rawPayloadPersistenceAllowed: false,
-    };
-  }
-  const domain = input.domain ?? 'SUPPLY';
-  const source = input.source;
-  const candidates = store.snapshots
-    .filter((snapshot) => snapshot.domains.includes(domain))
-    .filter((snapshot) => snapshot.latestInvestorFlowSample?.symbol === input.symbol)
-    .filter((snapshot) => !source || snapshot.latestInvestorFlowSample?.provider === source)
-    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
-  const snapshot = candidates[0] ?? null;
-  if (!snapshot?.latestInvestorFlowSample) {
-    return {
-      status: store.snapshots.length > 0 ? 'CACHE_KEY_MISMATCH' : 'CACHE_EMPTY',
-      snapshot: null,
-      cacheRaw: null,
-      retained: store.snapshots.length,
-      reason: store.snapshots.length > 0 ? 'KEY_MISMATCH_OR_SYMBOL_SOURCE_NOT_FOUND' : 'SNAPSHOT_STORE_EMPTY',
-      stale: false,
-      executionImpact: 'NONE',
-      liveExecutionAllowed: false,
-      policyPromotionMode: 'SHADOW_ONLY',
-      rawPayloadPersistenceAllowed: false,
-    };
-  }
-  const latest = snapshot.latestInvestorFlowSample;
-  const status = statusForCacheRaw(snapshot, input.tradingDate);
-  return {
-    status,
-    snapshot,
-    cacheRaw: {
-      code: latest.symbol,
-      sourceDate: latest.dataDate,
-      foreignNetBuy: latest.foreignNetBuy,
-      institutionNetBuy: latest.institutionNetBuy,
-      retailNetBuy: latest.retailNetBuy,
-      status: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE' : latest.status === 'PARTIAL' || latest.status === 'FRESH' ? 'PARTIAL' : latest.status,
-    },
-    retained: store.snapshots.length,
-    reason: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT' ? 'STALE_SANITIZED_SNAPSHOT_HIT_OBSERVE_ONLY' : 'SANITIZED_SNAPSHOT_CACHE_HIT',
-    stale: status === 'CACHE_STALE_HIT' || status === 'STALE_HIT',
-    executionImpact: 'NONE',
-    liveExecutionAllowed: false,
-    policyPromotionMode: 'SHADOW_ONLY',
-    rawPayloadPersistenceAllowed: false,
-  };
+  const key = normalizeInvestorFlowSnapshotKeyAdr0491({ symbol: input.symbol, source: input.source, domain: input.domain, route: 'investor_flow', tradingDate: input.tradingDate });
+  return findLatestInvestorFlowSnapshotAdr0491({
+    code: key.normalizedCode,
+    sourceCandidates: key.sourceCandidates,
+    tradingDateCandidates: key.tradingDateCandidates,
+    allowStale: true,
+    requireNormalized: true,
+    filePath: input.filePath,
+  });
 }
 
 export function compareSupplySnapshotsAdr0491(
