@@ -131,6 +131,29 @@ function compactProviderRoute(key: SupplySignalKey): string {
   const diagnostic = p.diagnostic.length > 0 ? p.diagnostic.map(compactProviderName).join('>') : 'NONE';
   return `route: ${primary} | fb=${fallback} | diag=${diagnostic} | scoring=${p.scoringMode}`;
 }
+
+function isKrxAutoFetchDisabledForSupplyHealth(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED !== 'false';
+}
+
+function renderKrxDisabledByKisFirstChannel(key: SupplySignalKey, title: string): ChannelStatus {
+  return {
+    key,
+    title,
+    marker: 'NEUTRAL',
+    lines: [
+      'source: KRX',
+      'status: DISABLED_BY_KIS_FIRST_MODE',
+      'reason: KIS-first mode; KRX retained for manual diagnostics only',
+      'providerIssue=false',
+      'marketSignal=false',
+      'useForRouter=false',
+      'useForGate=false',
+      'executionImpact=NONE',
+    ],
+  };
+}
+
 function renderInvestorFlowDecision(marker: Marker): string {
   // ADR-0421 — DATA_UNAVAILABLE / MISSING 시 *명시적* 판정 메시지 (NEUTRAL 폐기).
   //   NEUTRAL 은 본 함수에서 더 이상 반환되지 않음 — classifyInvestorFlowMarker SSOT
@@ -277,7 +300,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
   const sourceCounts = new Map<SupplyProvider, number>();
   const cacheSamples: InvestorFlowSample[] = [];
   for (const stock of targets) {
-    const routed = await fetchInvestorFlowWithPolicy(stock.code, now);
+    const routed = await fetchInvestorFlowWithPolicy(stock.code, now, { krxAutoFetchDisabled: isKrxAutoFetchDisabledForSupplyHealth() });
     if (attemptSummaries.length < 3 && !routerSummary) attemptSummaries.push(`${stock.code}:${summarizeInvestorFlowAttempts(routed.attempts)}`);
     if (!providerHealthSummary) providerHealthSummary = summarizeInvestorFlowProviderHealth(routed.health, routerView);
     if (!routed.data) continue;
@@ -439,6 +462,11 @@ async function diagnoseShort(macro: MacroState | null, nowMs: number, kisPack: K
     };
   }
   if (macro?.shortSellingSource && macro.shortSellingRatio !== undefined) return renderShortStatus(macro.shortSellingSource, macro.shortSellingRatio, macro.shortSellingFetchedAt, nowMs, 'macroState');
+  if (isKrxAutoFetchDisabledForSupplyHealth()) {
+    const disabled = renderKrxDisabledByKisFirstChannel('shortSelling', '공매도/대차잔고');
+    disabled.lines.push('ratio: N/A', 'updated: N/A', '상세: /short_status 예정');
+    return disabled;
+  }
   try { const live = await fetchKrxShortSelling(); if (live) { const status = renderShortStatus(live.source, live.ratio, live.fetchedAt, nowMs, 'liveProbe'); status.lines.push('판정: macroState 결손이나 live probe 성공 — refresh wiring 필요'); return status; } } catch {}
   return { key: 'shortSelling', title: '공매도/대차잔고', marker: 'NEUTRAL', lines: ['source: N/A', 'status: PROVIDER_UNAVAILABLE', 'ratio: N/A', 'updated: N/A', '판정: 사용 가능한 provider 없음 — 점수 제외', '대체: KRX / KIND CSV·OTP / NAVER / 공공데이터', '상세: /short_status 예정'] };
 }

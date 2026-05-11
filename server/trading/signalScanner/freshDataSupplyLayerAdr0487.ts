@@ -454,7 +454,7 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
           'status=DISABLED_BY_KIS_FIRST_MODE',
           'providerIssue=false',
           'marketSignal=false',
-          'reason=KIS sector basket / KIS price foundation active',
+          'reason=KIS-first mode; KRX retained for manual diagnostics only',
         ],
       })
     : buildFreshDataSnapshotAdr0487({
@@ -658,7 +658,7 @@ function routerSupplySnapshot(
         'providerIssue=false',
         'marketSignal=false',
         'selectedProvider=NONE',
-        'reason=KIS-first mode; KRX retained for manual validation only',
+        'reason=KIS-first mode; KRX retained for manual diagnostics only',
       ],
     });
   }

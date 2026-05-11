@@ -113,7 +113,7 @@ function isAcceptedEmptyKisResponse(data: unknown): boolean {
   const hasEmptyOutput1Array = Array.isArray(root.output1) && root.output1.length === 0;
   const hasEmptyOutput2Array = Array.isArray(root.output2) && root.output2.length === 0;
   const hasNoPickedOutput = !pickKisOutput(data);
-  return hasNoPickedOutput && (hasEmptyOutputArray || hasEmptyOutput1Array || hasEmptyOutput2Array || !('output' in root));
+  return hasNoPickedOutput && (hasEmptyOutputArray || hasEmptyOutput1Array || hasEmptyOutput2Array);
 }
 
 /**
