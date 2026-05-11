@@ -248,6 +248,47 @@ export function addBusinessDays(date: Date, days: number): Date {
 }
 
 /**
+ * KST 정규장 기준 장중 경과율.
+ *
+ * Stage1 LOW_VOLUME은 일평균 거래량(avgVolume)과 현재 누적 거래량(volume)을
+ * 직접 비교하면 장초반에 대부분 탈락한다. 따라서 09:00~15:30 기준 경과율로
+ * 일일 예상 거래량(projectedVolume)을 산출한다.
+ *
+ * - 장전/장초반: 최소 MIN_INTRADAY_ELAPSED_RATIO 적용
+ * - 장후: 1.0
+ * - 휴장/주말 여부는 상위 스케줄러 책임. 여기서는 시간 보정만 수행.
+ */
+export function getKstRegularSessionElapsedRatio(now: Date = new Date()): number {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+
+  const open = 9 * 60;
+  const close = 15 * 60 + 30;
+  const total = close - open;
+
+  if (minutes <= open) return STAGE1_THRESHOLDS.MIN_INTRADAY_ELAPSED_RATIO;
+  if (minutes >= close) return 1;
+
+  const elapsed = (minutes - open) / total;
+  return Math.max(
+    STAGE1_THRESHOLDS.MIN_INTRADAY_ELAPSED_RATIO,
+    Math.min(1, elapsed),
+  );
+}
+
+/**
+ * 현재 누적 거래량을 정규장 경과율 기준 일일 예상 거래량으로 환산.
+ */
+export function projectIntradayVolume(
+  volume: number,
+  now: Date = new Date(),
+): number {
+  if (!Number.isFinite(volume) || volume <= 0) return 0;
+  const elapsedRatio = getKstRegularSessionElapsedRatio(now);
+  return volume / elapsedRatio;
+}
+
+/**
  * 눌림목(Pullback) 셋업 판별.
  *
  * 조건:
@@ -276,6 +317,7 @@ export const STAGE1_THRESHOLDS = {
   MAX_OVERHEAT_PCT: 8,          // 당일 과열 상한
   MAX_DRAWDOWN_PCT: -2,         // 눌림목이라도 하락 허용 하한
   MIN_VOLUME_MULTIPLIER: 1.2,   // 평균 대비 최소 거래량 배수
+  MIN_INTRADAY_ELAPSED_RATIO: 0.15, // 장중 거래량 projection 하한
   VCP_ATR_RATIO: 0.75,          // ATR < 20일평균 × 비율 = VCP
   MAX_PER: 60,                  // PER 상한 (0 이하는 미적용)
   MAX_RETURN_5D: 15,            // 5일 누적 수익률 상한 (급등주 제외)
@@ -348,7 +390,15 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterRes
   if (quote.changePercent < 0 && !pullback) return { pass: false, reason: 'NEGATIVE_DAY' };
   if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return { pass: false, reason: 'EXCESSIVE_DRAWDOWN' };
   const isVCP = quote.atr > 0 && quote.atr20avg > 0 && quote.atr < quote.atr20avg * t.VCP_ATR_RATIO;
-  if (quote.volume < quote.avgVolume * t.MIN_VOLUME_MULTIPLIER && !isVCP && !pullback) {
+  const projectedVolume = projectIntradayVolume(quote.volume);
+  const volumeForStage1 = projectedVolume > 0 ? projectedVolume : quote.volume;
+
+  if (
+    quote.avgVolume > 0 &&
+    volumeForStage1 < quote.avgVolume * t.MIN_VOLUME_MULTIPLIER &&
+    !isVCP &&
+    !pullback
+  ) {
     return { pass: false, reason: 'LOW_VOLUME' };
   }
   if (quote.per > 0 && quote.per > t.MAX_PER) return { pass: false, reason: 'HIGH_PER' };
