@@ -195,6 +195,98 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.signal).toBe('UNKNOWN');
   });
 
+  it('bridges FreshData FSS stale diagnostic provider into router selection without live eligibility', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      freshDataSupplyAdr0487: {
+        generatedAt: '2026-05-11T00:00:00.000Z',
+        registrations: [],
+        domainSummaries: [],
+        overallStatus: 'STALE',
+        topGaps: [],
+        recommendedNextActions: [],
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        operatorApprovalRequired: true,
+        diagnostics: [],
+        snapshots: [{
+          sourceId: 'FSS_PASSIVE_ACTIVE',
+          domain: 'SUPPLY',
+          provider: 'FSS',
+          stage: 'OBSERVE',
+          collectedAt: '2026-05-11T00:00:00.000Z',
+          sourceDate: '2026-04-29',
+          cacheState: 'FRESH',
+          sourceState: 'STALE',
+          cacheAgeMinutes: null,
+          sourceAgeTradingDays: 7,
+          coverageRatio: 0,
+          normalized: false,
+          status: 'STALE',
+          confidence: 'LOW',
+          isProviderIssue: true,
+          isMarketSignal: false,
+          executionImpact: 'NONE',
+          liveExecutionAllowed: false,
+          operatorApprovalRequired: true,
+          sampleMaterialized: false,
+          usableForRouter: false,
+          usableForShadow: false,
+          usableForLive: false,
+          readinessKind: 'REGISTRY_READY',
+          sourceOfTruth: 'FRESH_DATA_STATUS',
+          diagnostics: ['FreshData aggregate provider=FSS confidence=STALE status=OBSERVING'],
+        }],
+      },
+    });
+
+    expect(route.selectedProvider).toBe('FSS_PASSIVE_ACTIVE');
+    expect(route.status).toBe('STALE');
+    expect(route.signal).toBe('UNKNOWN');
+    expect(route.coverage.available).toBe(0);
+    expect(route.routerUsableCoverage?.available).toBe(0);
+    expect(route.diagnosticUsableCoverage?.available).toBeGreaterThanOrEqual(1);
+    expect(route.selectedDiagnosticProvider).toBe('FSS_PASSIVE_ACTIVE');
+    expect(route.selectedDiagnosticReason).toContain('FreshData aggregate diagnostic provider=FSS');
+    expect(route.inputSources).toContain('FSS_PASSIVE_ACTIVE');
+    expect(route.selectedForLive).toBe(false);
+    expect(route.selectedForShadow).toBe(true);
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(route.executionImpact).toBe('NONE');
+  });
+
+  it('uses CACHE_HIT as diagnostic fallback even when no materialized cache row exists', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      supplySnapshotCacheLookupAdr0491: {
+        status: 'CACHE_HIT',
+        snapshot: null,
+        cacheRaw: null,
+        retained: 1,
+        reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+        stale: false,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+        rawPayloadPersistenceAllowed: false,
+      },
+    });
+
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.status).toBe('OBSERVING');
+    expect(route.coverage.available).toBe(0);
+    expect(route.routerUsableCoverage?.available).toBe(0);
+    expect(route.diagnosticUsableCoverage?.available).toBe(1);
+    expect(route.selectedDiagnosticProvider).toBe('CACHE');
+    expect(route.inputSources).toContain('CACHE');
+    expect(route.materializationDiagnostics?.CACHE?.sampleMaterialized).toBe(false);
+    expect(route.selectedForLive).toBe(false);
+    expect(route.selectedForShadow).toBe(true);
+  });
+
   it('NAVER NOT_WIRED, KIS PROVIDER_MISMATCH, and CACHE_EMPTY stay UNKNOWN with executionImpact NONE', () => {
     const route = notWiredRoute();
 
