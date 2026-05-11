@@ -36,6 +36,7 @@ import type {
   KisOfficialSupplyPack,
   KisSupplyEnemyChecklistDecision,
 } from '../../../supply/kisOfficialSupplyPack.js';
+import { buildKisOnlyHealthReport, formatKisOnlyHealthReport, isKisOnlyRebuildMode } from '../../../diagnostics/kisOnlyHealth.js';
 
 export const SUPPLY_HEALTH_CACHE_TTL_MS = 30_000;
 const TOP_N = 10;
@@ -60,7 +61,7 @@ interface KisOfficialSupplyPackLoad {
   error?: string;
 }
 
-let cache: { message: string; builtAt: number } | null = null;
+let cache: { message: string; builtAt: number; mode: 'LEGACY' | 'KIS_ONLY_REBUILD' } | null = null;
 
 function markerIcon(marker: Marker): string {
   if (marker === 'OK') return '🟢';
@@ -767,19 +768,63 @@ async function collectSupplyHealthChannels(now: Date): Promise<{ channels: Chann
 }
 
 export async function buildSupplyHealthSnapshot(now: Date = new Date()): Promise<SupplyHealthSnapshot> {
+  if (isKisOnlyRebuildMode()) {
+    const report = await buildKisOnlyHealthReport({ now });
+    const ok = [
+      report.price.status === 'OK',
+      report.investorFlow.status === 'OK' || report.investorFlow.status === 'PARTIAL',
+      report.program.stockProgram.status === 'OK' || report.program.stockProgram.status === 'PARTIAL',
+      report.program.marketProgram.status === 'OK',
+      report.shortCredit.short === 'OK',
+      report.shortCredit.loan === 'OK' || report.shortCredit.loan === 'FLAT',
+      report.shortCredit.credit === 'OK' || report.shortCredit.credit === 'FLAT',
+      report.sectorBasket.status === 'OK' || report.sectorBasket.status === 'PARTIAL',
+    ].filter(Boolean).length;
+    const total = 8;
+    const missing = total - ok;
+    return {
+      summary: { ok, neutral: 0, degraded: 0, missing, stale: 0, cacheStatus: 'fresh', overallStatus: report.providerIssue ? 'BROKEN' : missing > 0 ? 'DEGRADED' : 'OK' },
+      coverage: { totalSources: total, okRatio: ok / total, degradedRatio: 0, missingRatio: missing / total, minCriticalCoverage: ok / total },
+      sources: {},
+      providerTried: ['KIS_ONLY_REBUILD'],
+      providerFailed: report.providerIssue ? ['KIS_API'] : [],
+      providerUsed: ['KIS_API'],
+      criticalFlags: {
+        investorFlowDegraded: report.investorFlow.status !== 'OK',
+        programTradingMissing: report.program.stockProgram.status === 'EMPTY' || report.program.stockProgram.status === 'ERROR',
+        foreignerTrendDegraded: false,
+        zeroFilledSuspected: false,
+        offHoursMode: false,
+      },
+    };
+  }
   const { channels } = await collectSupplyHealthChannels(now);
   return snapshotFromChannels(channels);
 }
 
 export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<string> {
   const nowMs = now.getTime();
-  if (cache && nowMs - cache.builtAt < SUPPLY_HEALTH_CACHE_TTL_MS) {
+  const currentMode = isKisOnlyRebuildMode() ? 'KIS_ONLY_REBUILD' : 'LEGACY';
+  if (cache && cache.mode === currentMode && nowMs - cache.builtAt < SUPPLY_HEALTH_CACHE_TTL_MS) {
     const ageSec = Math.max(0, Math.floor((nowMs - cache.builtAt) / 1000));
     return cache.message.replace('캐시: fresh', `캐시: ${ageSec}s`);
   }
+  if (isKisOnlyRebuildMode()) {
+    const report = await buildKisOnlyHealthReport({ now });
+    const message = [
+      formatKisOnlyHealthReport(report),
+      '',
+      'Legacy Diagnostic Lane',
+      'KRX/NAVER/FSS/CACHE/SEMANTIC_NETBUY/Yahoo/ADR dry-run: disabled for current decision in KIS_ONLY_REBUILD_MODE.',
+      'Reconnect order: KIS raw/normalized → FreshDataStatus → SEMANTIC_NETBUY → InvestorFlowRouter → Gate/Shadow.',
+      '캐시: fresh',
+    ].join('\n');
+    cache = { message, builtAt: nowMs, mode: currentMode };
+    return message;
+  }
   const { channels, targetLine } = await collectSupplyHealthChannels(now);
   const message = renderMessage(channels, targetLine, '캐시: fresh');
-  cache = { message, builtAt: nowMs };
+  cache = { message, builtAt: nowMs, mode: currentMode };
   return message;
 }
 export function __resetSupplyHealthCacheForTests(): void { cache = null; }

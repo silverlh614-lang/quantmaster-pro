@@ -21,6 +21,7 @@ import './health.cmd.js';
 import './healthFull.cmd.js';
 import './healthLoopStatus.cmd.js';
 import './investorFlowCache.cmd.js';
+import './kisHealth.cmd.js';
 import './krxCsvProbe.cmd.js';
 import './krxOpenApiProbe.cmd.js';
 import './krxMasterStatus.cmd.js';
