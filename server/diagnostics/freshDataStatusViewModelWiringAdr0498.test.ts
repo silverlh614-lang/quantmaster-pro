@@ -159,6 +159,27 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     }
   });
 
+  it('annotates KRX investor-flow as source of truth with secondary NAVER and derived semantic roles', () => {
+    const input = mapInvestorFlowRouterToStatusInputAdr0498({
+      selectedProvider: 'KRX_INVESTOR_FLOW',
+      status: 'VERIFIED',
+      signal: 'BULLISH',
+      selectedReason: 'KRX previousTradingDate materialized investor-flow row',
+      providerStatuses: { KRX_INVESTOR_FLOW: 'VERIFIED', NAVER_INVESTOR_TREND: 'EMPTY' },
+      coverage: { available: 2, total: 8 },
+      rawPayloadPersistenceAllowed: false,
+      liveExecutionAllowed: false,
+      executionImpact: 'NONE',
+    });
+    expect(input).toMatchObject({ providerDisplay: 'KRX', dataConfidence: 'VERIFIED' });
+    expect(input?.warnings?.join(' ')).toContain('sourceOfTruth=KRX');
+    expect(input?.warnings?.join(' ')).toContain('NAVER role=SECONDARY');
+    expect(input?.warnings?.join(' ')).toContain('SEMANTIC role=DERIVED');
+    const section = safeBuildFreshDataStatusSectionAdr0498([input!]);
+    expect(section.lines.join('\n')).toContain('INVESTOR_FLOW/investorFlow provider=KRX confidence=VERIFIED');
+    expect(section.lines.join('\n')).not.toContain('provider=EMPTY');
+  });
+
   it('keeps selectedProvider=NONE as provider=EMPTY/BLOCKED', () => {
     const input = mapInvestorFlowRouterToStatusInputAdr0498({ selectedProvider: 'NONE', status: 'DATA_UNAVAILABLE', signal: 'UNKNOWN', providerStatuses: { CACHE: 'CACHE_EMPTY' } });
     const section = safeBuildFreshDataStatusSectionAdr0498([input!]);

@@ -84,7 +84,7 @@ export function normalizeInvestorFlowSnapshotKeyAdr0491(
   const candidates = [...new Set([explicitDate, today, previousTradingDateCandidateAdr0491(explicitDate), previousTradingDateCandidateAdr0491(today)])]
     .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
   const sourceCandidates = source === 'UNKNOWN'
-    ? ['NAVER_INVESTOR_TREND', 'SEMANTIC_NETBUY', 'KRX_INVESTOR_FLOW', 'CACHE'] as InvestorFlowSnapshotSourceAdr0491[]
+    ? ['KRX_INVESTOR_FLOW', 'KIS_API', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'] as InvestorFlowSnapshotSourceAdr0491[]
     : [source];
   return {
     normalizedCode,

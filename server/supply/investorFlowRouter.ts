@@ -9,6 +9,7 @@
  * PR-595: KRX 공개 bld 가 전일자 전체 empty rows 를 반환하면 단순 종목 미매칭이 아니라
  * provider upstream unavailable 로 분류한다.
  * PR-596: 장외/주말에는 KRX public investor provider 를 호출하지 않고 OFF_HOURS 로 스킵한다.
+ * PR-597: MARKET_CLOSED/NON_TRADING_DAY/SELL_ONLY 에도 KRX previous trading day 는 source-of-truth 후보로 조회한다.
  */
 
 import { fetchInvestorTrading } from '../clients/krxClient.js';
@@ -166,59 +167,18 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     return { data: null, diagnostic: `invalid_code:${code}`, unavailable: true, offHours: false, health };
   }
 
+  const suppressed = shouldSuppressInvestorFlowFetch(now);
+  const outsideCallWindow = !isKrxInvestorCallWindow(now);
+  const forcePreviousTradingDay = suppressed.suppress || outsideCallWindow;
   const negative = getInvestorFlowNegativeCache('KRX', safeCode, now);
-  if (negative) {
+  const negativeIsSessionOnly = negative?.status === 'LUNCH_BREAK' || negative?.status === 'MARKET_CLOSED' || negative?.status === 'NON_TRADING_DAY';
+  if (negative && !negativeIsSessionOnly) {
     return {
       data: null,
       diagnostic: `code=${safeCode};sourceDate=${negative.sourceDateKst ?? sourceDateKst};status=${negative.status};reason=NEGATIVE_CACHE_HIT`,
       unavailable: true,
-      offHours: negative.status === 'LUNCH_BREAK' || negative.status === 'MARKET_CLOSED' || negative.status === 'NON_TRADING_DAY',
+      offHours: false,
       health: negative,
-    };
-  }
-
-  const suppressed = shouldSuppressInvestorFlowFetch(now);
-  if (suppressed.suppress) {
-    const health = makeInvestorFlowProviderHealth({
-      provider: 'KRX',
-      status: suppressed.status ?? 'MARKET_CLOSED',
-      reason: suppressed.reason ?? 'KRX investor-flow fetch suppressed by session gate',
-      now,
-      sourceDateKst: suppressed.sourceDateKst,
-      endpoint: 'MDCSTAT02203',
-      marketSession: suppressed.marketSession,
-      retryable: suppressed.status === 'LUNCH_BREAK',
-      cacheFallback: true,
-    });
-    console.info(`[InvestorFlow] KRX skipped: ${health.status}`);
-    setInvestorFlowNegativeCache('KRX', safeCode, health, now);
-    return {
-      data: null,
-      diagnostic: `code=${safeCode};endpoint=MDCSTAT02203;session=${suppressed.marketSession};sourceDate=${suppressed.sourceDateKst};reason=${health.status};retryable=${String(health.retryable)};cacheFallback=true`,
-      unavailable: true,
-      offHours: true,
-      health,
-    };
-  }
-
-  if (!isKrxInvestorCallWindow(now)) {
-    const kst = nowKstParts(now);
-    const health = makeInvestorFlowProviderHealth({
-      provider: 'KRX',
-      status: 'MARKET_CLOSED',
-      reason: `KRX investor-flow call outside 09:00-15:30 window: ${kst.label}`,
-      now,
-      sourceDateKst,
-      endpoint: 'MDCSTAT02203',
-      retryable: false,
-      cacheFallback: true,
-    });
-    return {
-      data: null,
-      diagnostic: `code=${safeCode};window=09:00-15:30 KST;now=${kst.label};reason=KRX_PUBLIC_CALL_SKIPPED_OFF_HOURS`,
-      unavailable: true,
-      offHours: true,
-      health,
     };
   }
 
@@ -231,8 +191,9 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
   const datesTried: string[] = [];
   const sampleCodeSet = new Set<string>();
   const emptyDates: string[] = [];
+  const previousTradingDayOffset = forcePreviousTradingDay ? 1 : 0;
   for (let i = 0; i < KRX_INVESTOR_FLOW_DAYS; i += 1) {
-    const ymd = previousBusinessDayYmd(now, i);
+    const ymd = previousBusinessDayYmd(now, i + previousTradingDayOffset);
     datesTried.push(ymd);
     const rows = await fetchInvestorTrading(ymd);
     totalRows += rows.length;
@@ -259,6 +220,8 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
     `rows=${totalRows}`,
     `empty=${emptyDates.length > 0 ? emptyDates.join(',') : 'NONE'}`,
     `sampleCodes=${sampleCodes([...sampleCodeSet])}`,
+    `previousTradingDateCandidate=${datesTried[0] ?? 'NONE'}`,
+    `sessionFallback=${forcePreviousTradingDay ? (suppressed.status ?? 'MARKET_CLOSED') : 'NONE'}`,
     `upstream=${upstream}`,
   ].join(';');
 
@@ -284,7 +247,7 @@ async function fetchKrxInvestorFlow(code: string, now = new Date()): Promise<Krx
       status: parserStatus,
       reason: diagnostic,
       now,
-      sourceDateKst,
+      sourceDateKst: datesTried[0] ? ymdToDate(datesTried[0]) : sourceDateKst,
       endpoint: 'MDCSTAT02203',
       retryable: !allDatesEmpty,
       cacheFallback: true,

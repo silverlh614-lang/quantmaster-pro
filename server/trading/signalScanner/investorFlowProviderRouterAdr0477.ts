@@ -710,10 +710,10 @@ export function collectInvestorFlowMaterializedCandidates(
   samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>>,
 ): InvestorFlowMaterializedCandidateAdr0503[] {
   const priority: Record<string, number> = {
-    KIS_API: 1,
-    KRX_INVESTOR_FLOW: 2,
-    NAVER_INVESTOR_TREND: 3,
-    FSS_PASSIVE_ACTIVE: 4,
+    KRX_INVESTOR_FLOW: 1,
+    KIS_API: 2,
+    FSS_PASSIVE_ACTIVE: 3,
+    NAVER_INVESTOR_TREND: 4,
     CACHE: 5,
     SEMANTIC_NETBUY: 6,
   };
@@ -733,6 +733,7 @@ export function collectInvestorFlowMaterializedCandidates(
         : sample?.status === 'VERIFIED' || sample?.status === 'PARTIAL' || sample?.status === 'CACHE_HIT' ? 'FRESH'
           : diag.staleReason ? 'STALE'
             : diag.sampleMaterialized ? 'UNKNOWN' : 'MISSING';
+    const candidateUsableForRouter = provider === 'SEMANTIC_NETBUY' ? false : diag.usableForRouter;
     return {
       provider,
       sourceKind: sourceKind[provider] ?? 'SEMANTIC_DERIVED',
@@ -741,7 +742,7 @@ export function collectInvestorFlowMaterializedCandidates(
       normalizedCount: diag.normalizedCount,
       materializedCount: diag.materializedCount,
       sampleMaterialized: diag.sampleMaterialized,
-      usableForRouter: diag.usableForRouter,
+      usableForRouter: candidateUsableForRouter,
       usableForShadow: diag.sampleMaterialized,
       confidence: sample?.confidence ?? (diag.confidenceLevel === 'VERIFIED' ? 'HIGH' : diag.confidenceLevel === 'PARTIAL' ? 'MEDIUM' : diag.confidenceLevel === 'LOW' || diag.confidenceLevel === 'DEGRADED' ? 'LOW' : 'NONE'),
       freshness,
@@ -749,7 +750,7 @@ export function collectInvestorFlowMaterializedCandidates(
       placeholderDetected: diag.placeholderDetected,
       inputSourceKind: diag.inputSourceKind,
       selectedPriority: priority[provider] ?? 99,
-      selectionReason: `${provider} materialized=${diag.sampleMaterialized} usableForRouter=${diag.usableForRouter} rawCount=${diag.rawCount} normalizedCount=${diag.normalizedCount} materializedCount=${diag.materializedCount} blockedReason=${diag.blockedReason}`,
+      selectionReason: `${provider} materialized=${diag.sampleMaterialized} usableForRouter=${candidateUsableForRouter} rawCount=${diag.rawCount} normalizedCount=${diag.normalizedCount} materializedCount=${diag.materializedCount} blockedReason=${provider === 'SEMANTIC_NETBUY' && diag.sampleMaterialized ? 'NO_REAL_INPUT_SOURCE' : diag.blockedReason}`,
     };
   });
 }
@@ -794,7 +795,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   input: InvestorFlowProviderRouterInput,
 ): InvestorFlowProviderRouteResult {
   const collectedAt = input.collectedAt ?? new Date().toISOString();
-  const providerTried: InvestorFlowProviderId[] = ['NAVER', 'SEMANTIC_NETBUY', 'CACHE'];
+  const providerTried: InvestorFlowProviderId[] = ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
   const providerStatuses: Record<string, InvestorFlowProviderStatus> = {};
   const providerReasons: Record<string, string> = {};
   const diagnostics: string[] = [];
@@ -830,7 +831,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     samplesByProvider.NAVER_INVESTOR_TREND = freshNaver;
     providerStatuses.NAVER = freshNaver.status;
     providerStatuses.NAVER_INVESTOR_TREND = freshNaver.status;
-    providerReasons.NAVER_INVESTOR_TREND = 'FreshData registry bridge READY_FOR_SHADOW normalized NAVER_INVESTOR_TREND sample.';
+    providerReasons.NAVER_INVESTOR_TREND = 'FreshData registry bridge READY_FOR_SHADOW normalized NAVER_INVESTOR_TREND sample; role=SECONDARY sourceOfTruth=KRX when KRX is available.';
     selectShadow('NAVER_INVESTOR_TREND', freshNaver, providerReasons.NAVER_INVESTOR_TREND);
   } else if (naverFreshDataSnapshot) {
     const sampleMaterialized = freshDataSnapshotMaterializedAdr0477(naverFreshDataSnapshot);
@@ -861,8 +862,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     materializationDiagnostics.SEMANTIC_NETBUY = materializationFromSemanticSampleAdr0477('SEMANTIC_NETBUY', freshSemantic, 'NORMALIZED_PROVIDER');
     samplesByProvider.SEMANTIC_NETBUY = freshSemantic;
     providerStatuses.SEMANTIC_NETBUY = freshSemantic.status;
-    providerReasons.SEMANTIC_NETBUY = 'FreshData registry bridge READY_FOR_SHADOW normalized SEMANTIC_NETBUY sample.';
-    selectShadow('SEMANTIC_NETBUY', freshSemantic, providerReasons.SEMANTIC_NETBUY);
+    providerReasons.SEMANTIC_NETBUY = 'FreshData registry bridge READY_FOR_SHADOW normalized SEMANTIC_NETBUY sample; role=DERIVED usableForShadow=true usableForLive=false and not selectable as source-of-truth.';
+    diagnostics.push(providerReasons.SEMANTIC_NETBUY);
   } else if (semanticFreshDataSnapshot) {
     const sampleMaterialized = freshDataSnapshotMaterializedAdr0477(semanticFreshDataSnapshot);
     const usableForRouter = freshDataSnapshotUsableForRouterAdr0477(semanticFreshDataSnapshot);
@@ -934,7 +935,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       providerStatuses.NAVER_INVESTOR_TREND = collectorStatus;
     }
     if ((naverSample.status === 'VERIFIED' || naverSample.status === 'PARTIAL') && !semanticNetBuy) {
-      selectShadow('NAVER_INVESTOR_TREND', naverSample, 'ADR-0481 NAVER investor trend collector selected for SHADOW_ONLY.');
+      selectShadow('NAVER_INVESTOR_TREND', naverSample, 'ADR-0481 NAVER investor trend collector selected for SHADOW_ONLY as SECONDARY/DISPLAY_DERIVED fallback; KRX remains sourceOfTruth when available.');
     } else if (naverSample.status === 'STALE' || naverSample.status === 'DEGRADED') {
       pendingNaverStale = naverSample;
       routeStatus = naverSample.status;
@@ -949,7 +950,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   if (!semanticNetBuy && pendingSemanticFresh) {
     const sample = sampleFromSemanticAdr0482(pendingSemanticFresh);
     samplesByProvider.SEMANTIC_NETBUY = sample;
-    selectShadow('SEMANTIC_NETBUY', sample, 'ADR-0482 semantic net-buy fresh selected sample consumed by ADR-0477.');
+    routeStatus = sample.status;
+    diagnostics.push('ADR-0482 semantic net-buy fresh sample retained for SHADOW_ONLY DERIVED diagnostics; selectedProvider remains real-source-only.');
   }
 
   if (!semanticNetBuy && pendingNaverStale) {
@@ -960,7 +962,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   if (!semanticNetBuy && pendingSemanticDiagnostic) {
     const sample = sampleFromSemanticAdr0482(pendingSemanticDiagnostic);
     samplesByProvider.SEMANTIC_NETBUY = sample;
-    selectShadow('SEMANTIC_NETBUY', sample, 'ADR-0482 semantic net-buy diagnostic sample consumed for OBSERVE/SHADOW_ONLY only.');
+    routeStatus = sample.status;
+    diagnostics.push('ADR-0482 semantic net-buy diagnostic sample retained for OBSERVE/SHADOW_ONLY DERIVED diagnostics; selectedProvider remains real-source-only.');
   }
 
   const cacheLookup = input.supplySnapshotCacheLookupAdr0491;
@@ -1097,7 +1100,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     ...(cacheLookupSample || input.cacheRaw || input.previousTradingDayCacheRaw ? ['CACHE' as const] : []),
   ]));
   const statusCoverage = coverageFromStatuses(providerStatuses);
-  const fallbackChain: InvestorFlowProviderId[] = ['KIS_API', 'KRX_INVESTOR_FLOW', 'NAVER_INVESTOR_TREND', 'FSS_PASSIVE_ACTIVE', 'CACHE', 'SEMANTIC_NETBUY'];
+  const fallbackChain: InvestorFlowProviderId[] = ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'];
   const selectedProviderForDiagnostics = selectedProvider as InvestorFlowProviderId;
   const rejectedReasonByProvider: Record<string, string> = {};
   for (const [providerName, materialization] of Object.entries(materializationDiagnostics)) {
@@ -1108,7 +1111,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       ? `blockedReason=${materialization.blockedReason}; sampleMaterialized=${materialization.sampleMaterialized}; usableForRouter=${materialization.usableForRouter}; rawCount=${materialization.rawCount}; normalizedCount=${materialization.normalizedCount}; materializedCount=${materialization.materializedCount}; placeholderDetected=${materialization.placeholderDetected}; inputSourceKind=${materialization.inputSourceKind}`
       : providerReasons[provider] ?? providerStatuses[provider] ?? 'NO_DIAGNOSTIC';
   }
-  for (const provider of ['KIS_API', 'KRX_INVESTOR_FLOW', 'NAVER_INVESTOR_TREND', 'FSS_PASSIVE_ACTIVE', 'SEMANTIC_NETBUY', 'CACHE'] as const) {
+  for (const provider of ['KRX_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY'] as const) {
     if (provider === selectedProviderForDiagnostics || rejectedReasonByProvider[provider]) continue;
     if (providerStatuses[provider]) rejectedReasonByProvider[provider] = providerReasons[provider] ?? `status=${providerStatuses[provider]}`;
   }
@@ -1126,6 +1129,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     ? `stale selected for SHADOW_ONLY diagnostic only; provider=${selectedProviderForDiagnostics}; status=${selectedSemanticNetBuy.status}; liveExecutionAllowed=false`
     : null;
   diagnostics.push(`fallbackChain=${fallbackChain.join('>')}; selectedProvider=${selectedProviderForDiagnostics}; rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; cacheFallbackReason=${cacheFallbackReason ?? 'NONE'}; staleButSelectedReason=${staleButSelectedReason ?? 'NONE'}; coverageBefore=${statusCoverage.available}; coverageAfter=${coverageAfter}; coverageBasis=routerUsableSampleCount plus selected SHADOW fallback.`);
+  diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
     diagnostics.push(formatInvestorSampleDiagnosticsAdr0502(materialization));

@@ -220,6 +220,25 @@ function routerProviderDisplayAdr0498(selectedProvider: string | undefined): str
   return selectedProvider && selectedProvider !== 'NONE' ? selectedProvider : 'EMPTY';
 }
 
+function routerSourceOfTruthAdr0498(selectedProvider: string | undefined): string {
+  if (selectedProvider === 'KRX' || selectedProvider === 'KRX_INVESTOR_FLOW') return 'KRX';
+  if (selectedProvider === 'KIS' || selectedProvider === 'KIS_API') return 'KIS_API';
+  if (selectedProvider === 'FSS' || selectedProvider === 'FSS_PASSIVE_ACTIVE') return 'FSS_OFFICIAL_DIAGNOSTIC';
+  if (selectedProvider === 'NAVER' || selectedProvider === 'NAVER_INVESTOR_TREND') return 'NAVER_SECONDARY';
+  if (selectedProvider === 'CACHE') return 'CACHE_STALE_FALLBACK';
+  if (selectedProvider === 'SEMANTIC_NETBUY') return 'SEMANTIC_DERIVED';
+  return 'UNKNOWN';
+}
+
+function routerRoleWarningsAdr0498(selectedProvider: string | undefined): string[] {
+  return [
+    `sourceOfTruth=${routerSourceOfTruthAdr0498(selectedProvider)}`,
+    'NAVER role=SECONDARY',
+    'SEMANTIC role=DERIVED',
+    'CACHE role=STALE_FALLBACK',
+  ];
+}
+
 function routerProviderHealthAdr0498(status: string | undefined, selectedProvider: string | undefined): ProviderHealthStatusAdr0497 {
   if (!selectedProvider || selectedProvider === 'NONE') return 'EMPTY';
   if (status === 'CACHE_STALE_HIT' || status === 'STALE') return 'STALE';
@@ -267,12 +286,13 @@ export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
     domain: 'INVESTOR_FLOW',
     providerHealth,
     providerDisplay: routerProviderDisplayAdr0498(selectedProvider),
-    dataConfidence: stale ? 'STALE' : selectedProvider === 'CACHE' ? 'PARTIAL' : 'PARTIAL',
+    dataConfidence: stale ? 'STALE' : selectedProvider === 'KRX_INVESTOR_FLOW' || selectedProvider === 'KRX' ? 'VERIFIED' : selectedProvider === 'CACHE' || selectedProvider === 'NAVER_INVESTOR_TREND' || selectedProvider === 'NAVER' || selectedProvider === 'SEMANTIC_NETBUY' ? 'PARTIAL' : 'PARTIAL',
     marketSignal: router.signal === 'BULLISH' || router.signal === 'BEARISH' || router.signal === 'NEUTRAL' ? router.signal : 'UNKNOWN',
     dataLineStatus: stale ? 'OBSERVING' : 'READY_FOR_SHADOW',
     promotionReadiness: 'NOT_EVALUATED',
     warnings: [
       `selectedProvider=${selectedProvider}`,
+      ...routerRoleWarningsAdr0498(selectedProvider),
       effectiveStatus ? `routerStatus=${effectiveStatus}` : 'routerStatus=UNKNOWN',
       'rawPayloadPersistenceAllowed=false',
       'liveExecutionAllowed=false',
