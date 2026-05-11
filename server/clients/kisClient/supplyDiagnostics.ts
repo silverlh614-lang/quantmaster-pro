@@ -7,6 +7,13 @@
 
 import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
+import {
+  MARKET_PROGRAM_TRADE_TR_ID,
+  MARKET_PROGRAM_TRADE_PATH,
+  MARKET_PROGRAM_INDEX_CODE,
+  buildMarketProgramParams,
+  materializeKisMarketProgramTrade,
+} from './programMaterializer.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
 
 export type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM' | 'MARKET_PROGRAM';
@@ -32,15 +39,6 @@ const STOCK_PROGRAM_TRADE_PATH =
   process.env.KIS_STOCK_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/program-trade-by-stock';
 
-const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
-const MARKET_PROGRAM_TRADE_PATH =
-  process.env.KIS_MARKET_PROGRAM_TRADE_PATH
-  ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
-const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
-const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
-const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
-const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
-const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
 
 function rootKeys(data: unknown): string[] {
   return data && typeof data === 'object' ? Object.keys(data as Record<string, unknown>).slice(0, 20) : [];
@@ -279,33 +277,20 @@ export async function diagnoseKisMarketProgramRaw(
     return fail('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', 'KIS_APP_KEY missing');
   }
   try {
-    const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, {
-      FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
-      FID_COND_MRKT_DIV_CODE1: MARKET_PROGRAM_DIV_CODE,
-      FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
-      FID_SCTN_CLS_CODE: MARKET_PROGRAM_SECTION_CLASS_CODE,
-      FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
-      FID_INPUT_HOUR_1: MARKET_PROGRAM_INPUT_HOUR_1,
-    }, priority);
+    const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, buildMarketProgramParams(), priority);
     if (!data) return failNullResponse('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
+    const materialized = materializeKisMarketProgramTrade(data);
     const { path: outputPath, out } = firstOutput(data);
     const parsed = {
-      programNetBuyQty: parseNum(out, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
-      programNetBuyAmount: parseNum(out, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']),
-      programArbitrageNetBuy: parseNum(out, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn_2', 'ARBT_NTBY_TR_PBMN']),
-      programNonArbitrageNetBuy: parseNum(out, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']),
-      programSellAmount: sumNum(out, ['arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn']),
-      programBuyAmount: sumNum(out, ['arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn']),
+      programNetBuyQty: materialized.materialized?.programNetBuyQty ?? null,
+      programNetBuyAmount: materialized.materialized?.programNetBuyAmount ?? null,
+      programArbitrageNetBuy: materialized.materialized?.programArbitrageNetBuy ?? null,
+      programNonArbitrageNetBuy: materialized.materialized?.programNonArbitrageNetBuy ?? null,
+      programSellAmount: materialized.materialized?.programSellAmount ?? null,
+      programBuyAmount: materialized.materialized?.programBuyAmount ?? null,
     };
-    const amountFieldsMissing = [
-      parsed.programNetBuyAmount,
-      parsed.programArbitrageNetBuy,
-      parsed.programNonArbitrageNetBuy,
-      parsed.programSellAmount,
-      parsed.programBuyAmount,
-    ].every((value) => value === null);
     const rootIssue = classifyKisRootIssue(data);
-    const acceptedEmpty = rootIssue === 'ACCEPTED_EMPTY' && !out;
+    const acceptedEmpty = materialized.status === 'ACCEPTED_EMPTY';
     return {
       kind: 'MARKET_PROGRAM',
       code: MARKET_PROGRAM_INDEX_CODE,
@@ -316,11 +301,156 @@ export async function diagnoseKisMarketProgramRaw(
       outputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: rootIssue ?? (out ? amountFieldsMissing ? 'FIELD_MISSING' : classifyZero(parsed) : 'NO_OUTPUT'),
+      zeroReason: rootIssue ?? (materialized.status === 'FIELD_MISSING' ? 'FIELD_MISSING' : out ? classifyZero(parsed) : 'NO_OUTPUT'),
       sample: pickSample(out, ['whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'arbt_smtn_ntby_tr_pbmn', 'nabt_smtn_ntby_tr_pbmn', 'arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn', 'arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
       rootSample: pickRootSample(data),
     };
   } catch (e) {
     return fail('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));
   }
+}
+
+export type KisEndpointBlockedReason =
+  | 'SESSION_UNAVAILABLE'
+  | 'HTTP_OK_BUT_EMPTY'
+  | 'NOT_IN_TOP_LIST'
+  | 'NO_ROW_FOR_SYMBOL'
+  | 'FIELD_MISSING'
+  | 'PARAM_ERROR'
+  | 'PROVIDER_ERROR'
+  | 'DATE_NOT_AVAILABLE'
+  | 'UNKNOWN';
+
+export interface KisEndpointTrace {
+  stockCode: string;
+  sourceKind: string;
+  trId: string;
+  apiPath: string;
+  params: Record<string, string>;
+  httpCalled: boolean;
+  httpStatus?: number;
+  rtCd?: string;
+  msgCd?: string;
+  msg1?: string;
+  outputPath?: string;
+  rowCount: number;
+  targetFound?: boolean;
+  outputKeys?: string[];
+  parsedFields: string[];
+  materialized: boolean;
+  blockedReason: KisEndpointBlockedReason;
+}
+
+function rowsWithPath(data: unknown): { path: string; rows: Record<string, string>[] } {
+  const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
+  for (const key of ['output', 'output1', 'output2'] as const) {
+    const bucket = root?.[key];
+    if (Array.isArray(bucket)) return { path: key, rows: bucket.filter((v): v is Record<string, string> => !!v && typeof v === 'object' && !Array.isArray(v)) };
+    if (bucket && typeof bucket === 'object') return { path: key, rows: [bucket as Record<string, string>] };
+  }
+  return { path: 'NONE', rows: [] };
+}
+
+function rootString(data: unknown, key: string): string | undefined {
+  const value = data && typeof data === 'object' ? (data as Record<string, unknown>)[key] : undefined;
+  return value === undefined || value === null ? undefined : String(value);
+}
+
+function rowCode(row: Record<string, string>): string {
+  return String(row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? row.pdno ?? row.MKSC_SHRN_ISCD ?? '').padStart(6, '0');
+}
+
+function parsedEndpointFields(sourceKind: string, row: Record<string, string> | undefined): string[] {
+  if (sourceKind === 'SHORT') {
+    if (!row) return [];
+    const fields: string[] = [];
+    if (parseNum(row, ['ssts_cntg_qty', 'SSTS_CNTG_QTY']) !== null) fields.push('shortSaleQty');
+    if (parseNum(row, ['ssts_tr_pbmn', 'SSTS_TR_PBMN']) !== null) fields.push('shortSaleAmount');
+    if (parseNum(row, ['ssts_tr_pbmn_rlim', 'ssts_vol_rlim', 'SSTS_TR_PBMN_RLIM']) !== null) fields.push('shortSaleRatio');
+    return fields;
+  }
+
+  if (!row) return [];
+  const fields: string[] = [];
+  if (parseNum(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY']) !== null) fields.push('foreignNetBuy');
+  if (parseNum(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY']) !== null) fields.push('institutionalNetBuy');
+  if (parseNum(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY']) !== null) fields.push('individualNetBuy');
+  return fields;
+}
+
+async function endpointTrace(input: {
+  stockCode: string;
+  sourceKind: string;
+  trId: string;
+  apiPath: string;
+  params: Record<string, string>;
+  priority: KisApiPriority;
+  targetList?: boolean;
+}): Promise<KisEndpointTrace> {
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) {
+    return { ...input, httpCalled: false, rowCount: 0, parsedFields: [], materialized: false, blockedReason: 'SESSION_UNAVAILABLE' };
+  }
+  try {
+    const data = await realDataKisGet(input.trId, input.apiPath, input.params, input.priority);
+    if (!data) return { ...input, httpCalled: true, rowCount: 0, parsedFields: [], materialized: false, blockedReason: 'PROVIDER_ERROR' };
+    const { path, rows } = rowsWithPath(data);
+    const target = input.targetList ? rows.find((row) => rowCode(row) === input.stockCode.padStart(6, '0')) : rows[0];
+    const parsedFields = parsedEndpointFields(input.sourceKind, target);
+    const targetFound = input.targetList ? Boolean(target) : rows.length > 0;
+    const materialized = parsedFields.length > 0;
+    let blockedReason: KisEndpointBlockedReason = 'UNKNOWN';
+    const msgCd = rootString(data, 'msg_cd');
+    if (materialized) blockedReason = 'UNKNOWN';
+    else if (msgCd && /ERROR|INVALID|INPUT FIELD/i.test(`${msgCd} ${rootString(data, 'msg1') ?? ''}`)) blockedReason = 'PARAM_ERROR';
+    else if (rows.length === 0) blockedReason = 'HTTP_OK_BUT_EMPTY';
+    else if (input.sourceKind === 'FOREIGN_INSTITUTION_TOTAL' && !targetFound) blockedReason = 'NOT_IN_TOP_LIST';
+    else if (!targetFound) blockedReason = 'NO_ROW_FOR_SYMBOL';
+    else blockedReason = 'FIELD_MISSING';
+    return {
+      stockCode: input.stockCode,
+      sourceKind: input.sourceKind,
+      trId: input.trId,
+      apiPath: input.apiPath,
+      params: input.params,
+      httpCalled: true,
+      rtCd: rootString(data, 'rt_cd'),
+      msgCd,
+      msg1: rootString(data, 'msg1'),
+      outputPath: path,
+      rowCount: rows.length,
+      targetFound,
+      outputKeys: target ? Object.keys(target).slice(0, 50) : rows[0] ? Object.keys(rows[0]).slice(0, 50) : [],
+      parsedFields,
+      materialized,
+      blockedReason,
+    };
+  } catch (e) {
+    return { ...input, httpCalled: true, rowCount: 0, parsedFields: [], materialized: false, blockedReason: 'PROVIDER_ERROR', msg1: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function diagnoseKisInvestorEndpointTraces(code: string, priority: KisApiPriority = 'LOW'): Promise<KisEndpointTrace[]> {
+  const safeCode = code.padStart(6, '0');
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+  return Promise.all([
+    endpointTrace({ stockCode: safeCode, sourceKind: 'INQUIRE_INVESTOR', trId: 'FHKST01010300', apiPath: '/uapi/domestic-stock/v1/quotations/inquire-investor', params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: safeCode }, priority }),
+    endpointTrace({ stockCode: safeCode, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY', trId: 'FHPTJ04160001', apiPath: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily', params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: safeCode, FID_INPUT_DATE_1: today, FID_ORG_ADJ_PRC: '', FID_ETC_CLS_CODE: '' }, priority }),
+    endpointTrace({ stockCode: safeCode, sourceKind: 'FOREIGN_INSTITUTION_TOTAL', trId: 'FHPTJ04400000', apiPath: '/uapi/domestic-stock/v1/quotations/foreign-institution-total', params: { FID_COND_MRKT_DIV_CODE: 'V', FID_COND_SCR_DIV_CODE: '16449', FID_INPUT_ISCD: '0000', FID_DIV_CLS_CODE: '1', FID_RANK_SORT_CLS_CODE: '0', FID_ETC_CLS_CODE: '0' }, priority, targetList: true }),
+    endpointTrace({ stockCode: safeCode, sourceKind: 'INVESTOR_TREND_ESTIMATE', trId: 'HHPTJ04160200', apiPath: '/uapi/domestic-stock/v1/quotations/investor-trend-estimate', params: { MKSC_SHRN_ISCD: safeCode }, priority }),
+  ]);
+}
+
+export interface KisShortDateTrace extends KisEndpointTrace { tradingDate: string }
+
+export async function diagnoseKisShortSaleDateTraces(code: string, tradingDates: string[], priority: KisApiPriority = 'LOW'): Promise<KisShortDateTrace[]> {
+  const safeCode = code.padStart(6, '0');
+  const trId = 'FHPST04830000';
+  const apiPath = '/uapi/domestic-stock/v1/quotations/daily-short-sale';
+  const traces: KisShortDateTrace[] = [];
+  for (const date of tradingDates) {
+    const ymd = date.replace(/-/g, '');
+    const trace = await endpointTrace({ stockCode: safeCode, sourceKind: 'SHORT', trId, apiPath, params: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: safeCode, FID_INPUT_DATE_1: ymd, FID_INPUT_DATE_2: ymd }, priority });
+    traces.push({ ...trace, tradingDate: date });
+  }
+  return traces;
 }

@@ -22,3 +22,11 @@ describe('/supply_health KIS-first KRX fetch guard', () => {
     expect(SOURCE).toContain("'executionImpact=NONE'");
   });
 });
+
+  it('labels KIS_ONLY_REBUILD supply health as legacy diagnostic-only without active alternatives', () => {
+    expect(SOURCE).toContain('Current Mode: KIS_ONLY_REBUILD');
+    expect(SOURCE).toContain('Active source diagnosis: /kis_health');
+    expect(SOURCE).toContain('Legacy Supply Health below is diagnostic-only.');
+    expect(SOURCE).toContain('Legacy providers are disabled for current decisions in KIS_ONLY_REBUILD_MODE.');
+    expect(SOURCE).not.toContain('KRX/NAVER/FSS/CACHE/SEMANTIC_NETBUY/Yahoo/ADR dry-run');
+  });

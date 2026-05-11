@@ -25,6 +25,12 @@ import type {
   PrevClose,
 } from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
+import {
+  MARKET_PROGRAM_TRADE_TR_ID,
+  MARKET_PROGRAM_TRADE_PATH,
+  buildMarketProgramParams,
+  materializeKisMarketProgramTrade,
+} from './programMaterializer.js';
 
 // ─── ADR-0137 (정정 ADR-0144): 종목별 프로그램 매매 (체결) ────────────────────
 // 사용자 12 아이디어 #3 — 페르소나 자료 #6 "외국인 프로그램/비프로그램" 시그널의
@@ -47,21 +53,6 @@ const STOCK_PROGRAM_TRADE_PATH =
  * ADR-0146: comp-program-trade-today 의 시장구분코드는 `U` 가 아니라 국내주식 공통값 `J`.
  * `/sh` rawDiag 에서 `msg_cd=OPSQ2001 ERROR INVALID FID_COND_MRKT_DIV_CODE` 로 확인됨.
  */
-const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
-const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
-/**
- * ADR-0147: PR #562 적용 후 `ERROR INPUT FIELD NOT FOUND [FID_MRKT_CLS_CODE]` 확인.
- * 시장 프로그램매매 endpoint 는 시장 분류 필드가 필수다. KIS 값이 계정/문서 버전에 따라
- * 다를 수 있어 ENV 로 즉시 우회 가능하게 둔다.
- */
-const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
-/**
- * ADR-0148: PR #564 적용 후 `ERROR INPUT FIELD NOT FOUND [FID_SCTN_CLS_CODE]` 확인.
- * section class code도 시장 프로그램매매 endpoint 필수 파라미터다.
- */
-const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
-/** PR-572: `/pmp`에서 `FID_INPUT_HOUR_1` 존재 시 MCA00000 accepted-empty 확인. */
-const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
 
 type KisOutput = Record<string, string>;
 
@@ -268,10 +259,6 @@ export async function fetchKisStockProgramTrade(
 // 직전 코드: tr_id=FHPPG04600101 (시간) + path=...-daily (일별) 교차 미스매치.
 // 일별이 필요한 경우: tr_id=FHPPG04600001 + path=...-daily (별도 ENV 로 전환).
 
-const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
-const MARKET_PROGRAM_TRADE_PATH =
-  process.env.KIS_MARKET_PROGRAM_TRADE_PATH
-  ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
 
 /**
  * ADR-0138 — KIS 시장 종합 프로그램 매매 추이 조회 (코스피 시장 단위).
@@ -293,14 +280,7 @@ export async function fetchKisMarketProgramTrade(
     const data = await realDataKisGet(
       MARKET_PROGRAM_TRADE_TR_ID,
       MARKET_PROGRAM_TRADE_PATH,
-      {
-        FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
-        FID_COND_MRKT_DIV_CODE1: MARKET_PROGRAM_DIV_CODE,
-        FID_MRKT_CLS_CODE: MARKET_PROGRAM_MARKET_CLASS_CODE,
-        FID_SCTN_CLS_CODE: MARKET_PROGRAM_SECTION_CLASS_CODE,
-        FID_INPUT_ISCD: MARKET_PROGRAM_INDEX_CODE,
-        FID_INPUT_HOUR_1: MARKET_PROGRAM_INPUT_HOUR_1,
-      },
+      buildMarketProgramParams(),
       priority,
     );
     // [임시 진단 도구 — 5/4 영업일 검증 후 제거 예정]
@@ -310,47 +290,7 @@ export async function fetchKisMarketProgramTrade(
       console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify(data));
     }
 
-    if (isAcceptedEmptyKisResponse(data)) return null;
-
-    const out = pickKisOutput(data);
-    if (!out) return null;
-
-    const programNetBuyQty = extractKisNumberOptional(
-      out,
-      ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'],
-    );
-    const programNetBuyAmount = extractKisNumberOptional(
-      out,
-      ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN'],
-    );
-    // 차익거래 부재 가능 — 강제 0 fallback 금지.
-    const programArbitrageNetBuy = extractKisNumberOptional(
-      out,
-      ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2'],
-    ) ?? null;
-    const programNonArbitrageNetBuy = extractKisNumberOptional(
-      out,
-      ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN'],
-    ) ?? null;
-    const programSellAmount = sumKisNumbersOptional(out, [
-      'arbt_smtn_seln_tr_pbmn',
-      'nabt_smtn_seln_tr_pbmn',
-    ]) ?? null;
-    const programBuyAmount = sumKisNumbersOptional(out, [
-      'arbt_smtn_shnu_tr_pbmn',
-      'nabt_smtn_shnu_tr_pbmn',
-    ]) ?? null;
-
-    return {
-      programNetBuyQty: programNetBuyQty ?? null,
-      programNetBuyAmount: programNetBuyAmount ?? null,
-      programArbitrageNetBuy,
-      programNonArbitrageNetBuy,
-      programSellAmount,
-      programBuyAmount,
-      fetchedAt: new Date().toISOString(),
-      source: 'KIS_API',
-    };
+    return materializeKisMarketProgramTrade(data).materialized;
   } catch (e) {
     console.error(
       '[KIS] 시장 종합 프로그램 매매 조회 실패:',

@@ -25,6 +25,7 @@
  */
 
 import { realDataKisGet } from '../../../clients/kisClient/http.js';
+import { materializeKisMarketProgramTrade } from '../../../clients/kisClient/programMaterializer.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -141,20 +142,20 @@ function buildParams(candidate: ProbeCandidate): Record<string, string> {
 
 async function probeOne(candidate: ProbeCandidate): Promise<ProbeResult> {
   const data = await realDataKisGet(TR_ID, API_PATH, buildParams(candidate), 'LOW') as ProbeRoot;
-  const { path, out } = firstOutput(data);
+  const materialized = materializeKisMarketProgramTrade(data);
   const rtCd = rootString(data, 'rt_cd');
   const msgCd = rootString(data, 'msg_cd');
   const msg1 = rootString(data, 'msg1');
-  const outputKeys = out ? Object.keys(out).slice(0, 10) : [];
+  const outputKeys = materialized.outputKeys.slice(0, 10);
   const accepted = rtCd === '0' && msgCd === 'MCA00000';
   return {
     candidate,
     rtCd,
     msgCd,
     msg1,
-    outputPath: path,
+    outputPath: materialized.outputPath,
     outputKeys,
-    success: accepted && Boolean(out),
+    success: materialized.status === 'OK',
     accepted,
   };
 }

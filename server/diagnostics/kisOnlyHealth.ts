@@ -24,10 +24,16 @@ import {
 } from '../clients/kisClient/index.js';
 import {
   diagnoseKisInvestorFlowRaw,
+  diagnoseKisInvestorEndpointTraces,
   diagnoseKisMarketProgramRaw,
+  diagnoseKisShortSaleDateTraces,
   diagnoseKisStockProgramRaw,
+  type KisEndpointBlockedReason,
+  type KisEndpointTrace,
   type KisRawSupplyDiagnostic,
+  type KisShortDateTrace,
 } from '../clients/kisClient/supplyDiagnostics.js';
+import { classifyInvestorFlowMarketSession, previousInvestorFlowTradingDate } from '../supply/investorFlowProviderHealth.js';
 import { buildKisSectorEnergyInputsWithMeta } from '../clients/kisSectorEnergyProvider.js';
 import { fetchKisDailyCandles, type KisChartCandle } from '../screener/kisChartDataFetcher.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
@@ -64,6 +70,8 @@ export interface KisOnlyHealthReport {
     fieldMismatchCount: number;
     missingCount: number;
     parserStatuses: KisParserDiagnosticStatus[];
+    reasonSummary?: Record<string, Record<KisEndpointBlockedReason, number>>;
+    endpointTraces?: KisEndpointTrace[];
     sampleRows: Array<{
       stockCode: string;
       sourceKind: string;
@@ -76,23 +84,28 @@ export interface KisOnlyHealthReport {
   };
   program: {
     stockProgram: {
-      status: 'OK' | 'PARTIAL' | 'EMPTY' | 'FIELD_MISMATCH' | 'ERROR';
+      status: 'OK' | 'PARTIAL' | 'EMPTY' | 'FIELD_MISMATCH' | 'ERROR' | 'SESSION_UNAVAILABLE' | 'EXPECTED_EMPTY_OFF_SESSION';
+      currentSession?: string;
+      nextValidSession?: 'REGULAR';
+      providerIssue?: boolean;
       materializedCount: number;
       emptyCount: number;
       fieldMismatchCount: number;
       parserStatuses: KisParserDiagnosticStatus[];
     };
     marketProgram: {
-      status: 'OK' | 'EMPTY' | 'FIELD_MISMATCH' | 'ERROR';
+      status: 'OK' | 'EMPTY' | 'FIELD_MISMATCH' | 'ERROR' | 'EXPECTED_EMPTY_OFF_SESSION';
       programNetBuyAmount?: number;
       programArbitrageNetBuy?: number;
       programNonArbitrageNetBuy?: number;
       blockedReason?: string;
       parserStatus: KisParserDiagnosticStatus;
+      parserSource?: 'programMaterializer';
     };
   };
   shortCredit: {
-    short: 'OK' | 'MISSING' | 'ERROR';
+    short: 'OK' | 'MISSING' | 'ERROR' | 'MISSING_CONFIRMED';
+    shortTrace?: { triedDates: string[]; traces: KisShortDateTrace[] };
     loan: 'OK' | 'FLAT' | 'MISSING' | 'ERROR';
     credit: 'OK' | 'FLAT' | 'MISSING' | 'ERROR';
   };
@@ -123,6 +136,8 @@ export interface KisOnlyHealthFetchers {
   diagnoseInvestorFlowRaw?: (code: string) => Promise<KisRawSupplyDiagnostic>;
   diagnoseStockProgramRaw?: (code: string) => Promise<KisRawSupplyDiagnostic>;
   diagnoseMarketProgramRaw?: () => Promise<KisRawSupplyDiagnostic>;
+  diagnoseInvestorEndpointTraces?: (code: string) => Promise<KisEndpointTrace[]>;
+  diagnoseShortDateTraces?: (code: string, tradingDates: string[]) => Promise<KisShortDateTrace[]>;
   buildSectorBasket?: () => Promise<{ basketRows: number; validPriceCount: number }>;
 }
 
@@ -132,6 +147,27 @@ const FALLBACK_TARGET = '005930';
 function normalizeCode(code: string): string {
   const digits = code.replace(/[^0-9]/g, '');
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
+}
+
+
+function isKisOnlyTraceEnabled(): boolean {
+  return process.env.KIS_ONLY_TRACE === 'true';
+}
+
+function addReason(summary: Record<string, Record<KisEndpointBlockedReason, number>>, trace: KisEndpointTrace): void {
+  const source = summary[trace.sourceKind] ?? {};
+  source[trace.blockedReason] = (source[trace.blockedReason] ?? 0) + 1;
+  summary[trace.sourceKind] = source;
+}
+
+function previousTradingDates(now: Date, count: number): string[] {
+  const dates: string[] = [];
+  let cursor = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  while (dates.length < count) {
+    cursor = previousInvestorFlowTradingDate(cursor);
+    dates.push(cursor);
+  }
+  return dates;
 }
 
 function finite(value: unknown): value is number {
@@ -230,6 +266,8 @@ function usedFetchers(fetchers: KisOnlyHealthFetchers): Required<KisOnlyHealthFe
     diagnoseInvestorFlowRaw: (code) => diagnoseKisInvestorFlowRaw(code, 'LOW'),
     diagnoseStockProgramRaw: (code) => diagnoseKisStockProgramRaw(code, 'LOW'),
     diagnoseMarketProgramRaw: () => diagnoseKisMarketProgramRaw('LOW'),
+    diagnoseInvestorEndpointTraces: (code) => diagnoseKisInvestorEndpointTraces(code, 'LOW'),
+    diagnoseShortDateTraces: (code, tradingDates) => diagnoseKisShortSaleDateTraces(code, tradingDates, 'LOW'),
     buildSectorBasket: defaultSectorBasket,
     ...fetchers,
   };
@@ -244,6 +282,12 @@ export async function buildKisOnlyHealthReport(input: {
   const now = input.now ?? new Date();
   const targetCodes = resolveKisOnlyTargets(input);
   const f = usedFetchers(input.fetchers ?? {});
+  const traceEnabled = isKisOnlyTraceEnabled();
+  const currentSession = classifyInvestorFlowMarketSession(now);
+  const investorReasonSummary: Record<string, Record<KisEndpointBlockedReason, number>> = {};
+  const investorEndpointTraces: KisEndpointTrace[] = [];
+  const shortTriedDates = previousTradingDates(now, 3);
+  const shortDateTraces: KisShortDateTrace[] = [];
 
   let currentPriceCount = 0;
   let prevCloseCount = 0;
@@ -274,13 +318,14 @@ export async function buildKisOnlyHealthReport(input: {
   const marketSupplyOk = marketSupply.ok && !!marketSupply.value && hasAnyFinite(marketSupply.value.foreignNetBuy, marketSupply.value.institutionNetBuy, marketSupply.value.individualNetBuy);
 
   await Promise.all(targetCodes.map(async (code) => {
-    const [price, prevClose, dailyChart, strictFlow, dailyFlow, investorRaw, stockProgram, stockProgramRaw, short, loan, credit] = await Promise.all([
+    const [price, prevClose, dailyChart, strictFlow, dailyFlow, investorRaw, investorTraces, stockProgram, stockProgramRaw, short, loan, credit] = await Promise.all([
       safe(() => f.fetchCurrentPrice(code)),
       safe(() => f.fetchPrevClose(code)),
       safe(() => f.fetchDailyChart(code)),
       safe(() => f.fetchInvestorFlow(code)),
       safe(() => f.fetchInvestorFlowDaily(code)),
       safe(() => f.diagnoseInvestorFlowRaw(code)),
+      traceEnabled ? safe(() => f.diagnoseInvestorEndpointTraces(code)) : Promise.resolve({ ok: true as const, value: [] as KisEndpointTrace[] }),
       safe(() => f.fetchStockProgramTrade(code)),
       safe(() => f.diagnoseStockProgramRaw(code)),
       safe(() => f.fetchShortSelling(code)),
@@ -293,6 +338,10 @@ export async function buildKisOnlyHealthReport(input: {
     if (dailyChart.ok && Array.isArray(dailyChart.value) && dailyChart.value.length > 0) dailyChartCount++; else if (!dailyChart.ok) priceErrors++;
 
     if (investorRaw.ok) investorParserStatuses.push(classifyKisRawParserStatus(investorRaw.value)); else investorErrors++;
+    if (investorTraces.ok) {
+      investorEndpointTraces.push(...investorTraces.value);
+      for (const trace of investorTraces.value) addReason(investorReasonSummary, trace);
+    }
     const selectedFlow = hasInvestorFields(dailyFlow.ok ? dailyFlow.value : null)
       ? { value: dailyFlow.ok ? dailyFlow.value : null, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' }
       : { value: strictFlow.ok ? strictFlow.value : null, sourceKind: 'INQUIRE_INVESTOR' };
@@ -321,6 +370,10 @@ export async function buildKisOnlyHealthReport(input: {
     else if (stockProgram.ok) stockProgramEmptyCount++;
     else stockProgramErrors++;
 
+    if (traceEnabled) {
+      const traces = await safe(() => f.diagnoseShortDateTraces(code, shortTriedDates));
+      if (traces.ok) shortDateTraces.push(...traces.value);
+    }
     if (short.ok && short.value && hasAnyFinite(short.value.shortSaleQty, short.value.shortSaleAmount, short.value.shortSaleRatio)) shortStatus = 'OK';
     else if (!short.ok) shortStatus = 'ERROR';
     if (loan.ok && loan.value && hasAnyFinite(loan.value.loanBalanceQty, loan.value.loanBalanceAmount, loan.value.loanIncreaseRate)) loanStatus = isFlat(loan.value.loanBalanceQty, loan.value.loanBalanceAmount, loan.value.loanIncreaseRate) ? 'FLAT' : 'OK';
@@ -362,7 +415,7 @@ export async function buildKisOnlyHealthReport(input: {
         : investorFieldMismatch > 0
           ? 'FIELD_MISMATCH'
           : (foreignInstitutionOk ? 'PARTIAL' : 'MISSING');
-  const stockProgramStatus: KisOnlyHealthReport['program']['stockProgram']['status'] = stockProgramErrors > 0 && stockProgramMaterializedCount === 0
+  let stockProgramStatus: KisOnlyHealthReport['program']['stockProgram']['status'] = stockProgramErrors > 0 && stockProgramMaterializedCount === 0
     ? 'ERROR'
     : stockProgramMaterializedCount === targetCodes.length
       ? 'OK'
@@ -371,13 +424,22 @@ export async function buildKisOnlyHealthReport(input: {
         : stockProgramFieldMismatchCount > 0
           ? 'FIELD_MISMATCH'
           : 'EMPTY';
-  const marketProgramStatus: KisOnlyHealthReport['program']['marketProgram']['status'] = !marketProgram.ok || !marketProgramRaw.ok
+  if (currentSession !== 'REGULAR' && stockProgramMaterializedCount === 0) {
+    stockProgramStatus = stockProgramErrors > 0 ? 'SESSION_UNAVAILABLE' : 'EXPECTED_EMPTY_OFF_SESSION';
+  }
+  let marketProgramStatus: KisOnlyHealthReport['program']['marketProgram']['status'] = !marketProgram.ok || !marketProgramRaw.ok
     ? 'ERROR'
     : marketProgramMaterialized(marketProgram.value)
       ? 'OK'
       : marketProgramParserStatus === 'HTTP_OK_FIELD_MISMATCH'
         ? 'FIELD_MISMATCH'
         : 'EMPTY';
+  if (currentSession !== 'REGULAR' && marketProgramStatus === 'EMPTY') {
+    marketProgramStatus = 'EXPECTED_EMPTY_OFF_SESSION';
+  }
+  if (traceEnabled && shortStatus !== 'OK' && shortDateTraces.length > 0 && shortDateTraces.every((trace) => !trace.materialized)) {
+    shortStatus = 'MISSING_CONFIRMED';
+  }
   const providerIssue = priceStatus === 'ERROR'
     || investorStatus === 'ERROR'
     || stockProgramStatus === 'ERROR'
@@ -401,11 +463,13 @@ export async function buildKisOnlyHealthReport(input: {
       fieldMismatchCount: investorFieldMismatch,
       missingCount: investorMissing,
       parserStatuses: investorParserStatuses,
+      ...(traceEnabled ? { reasonSummary: investorReasonSummary, endpointTraces: investorEndpointTraces } : {}),
       sampleRows: sampleRows.slice(0, 5),
     },
     program: {
       stockProgram: {
         status: stockProgramStatus,
+        ...(traceEnabled ? { currentSession, nextValidSession: 'REGULAR' as const, providerIssue: false } : {}),
         materializedCount: stockProgramMaterializedCount,
         emptyCount: stockProgramEmptyCount,
         fieldMismatchCount: stockProgramFieldMismatchCount,
@@ -418,9 +482,10 @@ export async function buildKisOnlyHealthReport(input: {
         ...(marketProgram.ok && finite(marketProgram.value?.programNonArbitrageNetBuy) ? { programNonArbitrageNetBuy: marketProgram.value.programNonArbitrageNetBuy } : {}),
         ...(marketProgramStatus !== 'OK' ? { blockedReason: marketProgramParserStatus } : {}),
         parserStatus: marketProgramParserStatus,
+        parserSource: 'programMaterializer',
       },
     },
-    shortCredit: { short: shortStatus, loan: loanStatus, credit: creditStatus },
+    shortCredit: { short: shortStatus, ...(traceEnabled ? { shortTrace: { triedDates: shortTriedDates, traces: shortDateTraces } } : {}), loan: loanStatus, credit: creditStatus },
     sectorBasket: sectorBasket.ok
       ? {
           status: sectorBasket.value.basketRows > 0 && sectorBasket.value.validPriceCount > 0 ? 'OK' : sectorBasket.value.basketRows > 0 ? 'PARTIAL' : 'MISSING',
@@ -435,6 +500,21 @@ export async function buildKisOnlyHealthReport(input: {
   };
 }
 
+function formatReasonSummary(report: KisOnlyHealthReport): string[] {
+  if (!report.investorFlow.reasonSummary) return [];
+  const lines = ['  reasonSummary:'];
+  for (const source of report.investorFlow.sourceTried) {
+    const counts = report.investorFlow.reasonSummary[source] ?? {};
+    const summary = Object.entries(counts).map(([reason, count]) => `${reason} ${count}/${report.targetCodes.length}`).join(', ') || `UNKNOWN 0/${report.targetCodes.length}`;
+    lines.push(`    ${source}: ${summary}`);
+  }
+  return lines;
+}
+
+function formatEndpointTrace(trace: KisEndpointTrace): string {
+  return `  - ${trace.stockCode}/${trace.sourceKind}: httpCalled=${trace.httpCalled} trId=${trace.trId} apiPath=${trace.apiPath} params=${JSON.stringify(trace.params)} rt_cd=${trace.rtCd ?? 'n/a'} msg_cd=${trace.msgCd ?? 'n/a'} msg1=${trace.msg1 ?? 'n/a'} outputPath=${trace.outputPath ?? 'n/a'} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} parsedFieldCount=${trace.parsedFields.length} parsedFields=${trace.parsedFields.join(',') || 'NONE'} materialized=${trace.materialized} blockedReason=${trace.blockedReason}`;
+}
+
 export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
   const tried = report.investorFlow.sourceTried.join(',');
   const stockTotal = report.targetCodes.length;
@@ -447,6 +527,11 @@ export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
   const sample = report.investorFlow.sampleRows.length > 0
     ? report.investorFlow.sampleRows.map((row) => `${row.stockCode}:${row.sourceKind}:${row.confidence}${row.blockedReason ? `(${row.blockedReason})` : ''}`).join(' | ')
     : 'NONE';
+  const traceLines = report.investorFlow.endpointTraces?.map(formatEndpointTrace) ?? [];
+  const stockProgram = report.program.stockProgram;
+  const stockSession = stockProgram.currentSession ? ` currentSession=${stockProgram.currentSession} nextValidSession=${stockProgram.nextValidSession} providerIssue=${stockProgram.providerIssue}` : '';
+  const shortTrace = report.shortCredit.shortTrace ? ` triedDates=${report.shortCredit.shortTrace.triedDates.join(',')}` : '';
+  const shortTraceLines = report.shortCredit.shortTrace?.traces.map(formatEndpointTrace) ?? [];
   return [
     'KIS Only Health',
     `Current Data Mode: ${report.mode}`,
@@ -455,10 +540,13 @@ export function formatKisOnlyHealthReport(report: KisOnlyHealthReport): string {
     `targets=${report.targetCodes.join(',')}`,
     `PRICE: ${report.price.status} current=${report.price.currentPriceCount}/${stockTotal} prevClose=${report.price.prevCloseCount}/${stockTotal} chart=${report.price.dailyChartCount}/${stockTotal}`,
     `INVESTOR_FLOW: ${report.investorFlow.status} materialized=${report.investorFlow.materializedCount} missing=${report.investorFlow.missingCount} fieldMismatch=${report.investorFlow.fieldMismatchCount} tried=${tried}`,
+    ...formatReasonSummary(report),
+    ...(traceLines.length > 0 ? ['  endpointTrace:', ...traceLines] : []),
     `INVESTOR_FLOW_SAMPLE: ${sample}`,
-    `PROGRAM_STOCK: ${report.program.stockProgram.status} ${report.program.stockProgram.materializedCount}/${stockTotal} empty=${report.program.stockProgram.emptyCount} fieldMismatch=${report.program.stockProgram.fieldMismatchCount}`,
-    `PROGRAM_MARKET: ${marketProgram.status}${marketProgramValue}`,
-    `SHORT: ${report.shortCredit.short}`,
+    `PROGRAM_STOCK: ${stockProgram.status}${stockSession} ${stockProgram.materializedCount}/${stockTotal} empty=${stockProgram.emptyCount} fieldMismatch=${stockProgram.fieldMismatchCount}`,
+    `PROGRAM_MARKET: ${marketProgram.status}${marketProgramValue} parserSource=${marketProgram.parserSource ?? 'unknown'}`,
+    `SHORT: ${report.shortCredit.short}${shortTrace}`,
+    ...(shortTraceLines.length > 0 ? ['  shortTrace:', ...shortTraceLines] : []),
     `LOAN: ${report.shortCredit.loan}`,
     `CREDIT: ${report.shortCredit.credit}`,
     `SECTOR_BASKET: ${report.sectorBasket.status} rows=${report.sectorBasket.basketRows} validPrice=${report.sectorBasket.validPriceCount}`,

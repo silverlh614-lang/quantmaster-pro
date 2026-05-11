@@ -84,3 +84,62 @@ describe('kisOnlyHealth', () => {
       .toBe('marketSupply cannot become symbol investorFlow');
   });
 });
+
+describe('kisOnlyHealth endpoint-level trace', () => {
+  it('does not increment fieldMismatch when output rows are absent and records endpoint reasons', async () => {
+    const old = process.env.KIS_ONLY_TRACE;
+    process.env.KIS_ONLY_TRACE = 'true';
+    const fetchers = baseFetchers();
+    fetchers.fetchInvestorFlow = vi.fn(async () => null);
+    fetchers.fetchInvestorFlowDaily = vi.fn(async () => null);
+    fetchers.diagnoseInvestorFlowRaw = vi.fn(async () => raw('OUTPUT_EMPTY', true, {}));
+    fetchers.diagnoseInvestorEndpointTraces = vi.fn(async (code) => [
+      { stockCode: code, sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY', trId: 'T1', apiPath: '/daily', params: {}, httpCalled: true, rtCd: '0', msgCd: 'MCA00000', msg1: 'OK', outputPath: 'output', rowCount: 0, targetFound: false, outputKeys: [], parsedFields: [], materialized: false, blockedReason: 'HTTP_OK_BUT_EMPTY' },
+      { stockCode: code, sourceKind: 'FOREIGN_INSTITUTION_TOTAL', trId: 'T2', apiPath: '/top', params: {}, httpCalled: true, rtCd: '0', msgCd: 'MCA00000', msg1: 'OK', outputPath: 'output', rowCount: 30, targetFound: false, outputKeys: ['mksc_shrn_iscd'], parsedFields: [], materialized: false, blockedReason: 'NOT_IN_TOP_LIST' },
+    ]);
+
+    const report = await buildKisOnlyHealthReport({ targetCodes: ['005930'], now: new Date('2026-05-11T00:30:00.000Z'), fetchers });
+
+    expect(report.investorFlow.fieldMismatchCount).toBe(0);
+    expect(report.investorFlow.reasonSummary?.INVESTOR_TRADE_BY_STOCK_DAILY.HTTP_OK_BUT_EMPTY).toBe(1);
+    expect(report.investorFlow.reasonSummary?.FOREIGN_INSTITUTION_TOTAL.NOT_IN_TOP_LIST).toBe(1);
+    expect(report.providerIssue).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
+    process.env.KIS_ONLY_TRACE = old;
+  });
+
+  it('marks off-session program empties as session unavailable/expected empty without provider issue', async () => {
+    const old = process.env.KIS_ONLY_TRACE;
+    process.env.KIS_ONLY_TRACE = 'true';
+    const fetchers = baseFetchers();
+    fetchers.fetchStockProgramTrade = vi.fn(async () => null);
+    fetchers.diagnoseStockProgramRaw = vi.fn(async () => raw('OUTPUT_EMPTY', true, {}));
+
+    const report = await buildKisOnlyHealthReport({ targetCodes: ['005930'], now: new Date('2026-05-10T23:00:00.000Z'), fetchers });
+
+    expect(['SESSION_UNAVAILABLE', 'EXPECTED_EMPTY_OFF_SESSION']).toContain(report.program.stockProgram.status);
+    expect(report.program.stockProgram.currentSession).toBe('PRE_OPEN');
+    expect(report.program.stockProgram.providerIssue).toBe(false);
+    expect(report.providerIssue).toBe(false);
+    process.env.KIS_ONLY_TRACE = old;
+  });
+
+  it('uses programMaterializer as market program parser source', async () => {
+    const report = await buildKisOnlyHealthReport({ targetCodes: ['005930'], fetchers: baseFetchers() });
+    expect(report.program.marketProgram.parserSource).toBe('programMaterializer');
+  });
+
+  it('tries short previous trading day, T-2, and T-3 before confirming missing', async () => {
+    const old = process.env.KIS_ONLY_TRACE;
+    process.env.KIS_ONLY_TRACE = 'true';
+    const fetchers = baseFetchers();
+    fetchers.fetchShortSelling = vi.fn(async () => null);
+    fetchers.diagnoseShortDateTraces = vi.fn(async (_code, dates) => dates.map((date) => ({ stockCode: '005930', sourceKind: 'SHORT', trId: 'S', apiPath: '/short', params: {}, httpCalled: true, outputPath: 'output', rowCount: 0, targetFound: false, outputKeys: [], parsedFields: [], materialized: false, blockedReason: 'HTTP_OK_BUT_EMPTY', tradingDate: date })));
+
+    const report = await buildKisOnlyHealthReport({ targetCodes: ['005930'], now: new Date('2026-05-11T00:00:00.000Z'), fetchers });
+
+    expect(report.shortCredit.shortTrace?.triedDates).toEqual(['2026-05-08', '2026-05-07', '2026-05-06']);
+    expect(report.shortCredit.short).toBe('MISSING_CONFIRMED');
+    process.env.KIS_ONLY_TRACE = old;
+  });
+});
