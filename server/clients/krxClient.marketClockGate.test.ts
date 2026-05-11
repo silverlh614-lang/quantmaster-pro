@@ -20,15 +20,18 @@ const SAT_1000_KST = new Date('2026-04-25T01:00:00.000Z');
 describe('krxClient — ADR-0009 통계 확정 게이트', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   let capturedBody: string | null;
+  let capturedBodies: string[];
 
   beforeEach(() => {
     resetKrxCache();
     capturedBody = null;
+    capturedBodies = [];
     delete process.env.DATA_FETCH_FORCE_MARKET;
     delete process.env.DATA_FETCH_FORCE_OFF;
     delete process.env.KRX_API_DISABLED;
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       capturedBody = typeof init?.body === 'string' ? init!.body : null;
+      if (capturedBody) capturedBodies.push(capturedBody);
       return new Response(JSON.stringify({ OutBlock_1: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -48,9 +51,9 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
     vi.useFakeTimers();
     vi.setSystemTime(FRI_1700_KST);
     await fetchInvestorTrading();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(capturedBody).toContain('strtDd=20260423');
-    expect(capturedBody).toContain('endDd=20260423');
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(capturedBodies.some((body) => body.includes('trdDd=20260423'))).toBe(true);
+    expect(capturedBodies.some((body) => body.includes('strtDd=20260423') && body.includes('endDd=20260423'))).toBe(true);
   });
 
   it('평일 19:00 KST + date 생략 → 오늘(20260424) 사용', async () => {
@@ -73,8 +76,8 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
     vi.useFakeTimers();
     vi.setSystemTime(FRI_1700_KST);
     await fetchInvestorTrading('20260101');
-    expect(capturedBody).toContain('strtDd=20260101');
-    expect(capturedBody).toContain('endDd=20260101');
+    expect(capturedBodies.some((body) => body.includes('trdDd=20260101'))).toBe(true);
+    expect(capturedBodies.some((body) => body.includes('strtDd=20260101') && body.includes('endDd=20260101'))).toBe(true);
   });
 
   it('bld 연속 5회 실패 → 1시간 soft cooldown (6번째 호출은 네트워크 skip)', async () => {
@@ -88,10 +91,10 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
     for (let i = 0; i < 5; i++) {
       await fetchInvestorTrading(`2026040${i + 1}`);
     }
-    expect(fetchSpy).toHaveBeenCalledTimes(5);
+    expect(fetchSpy).toHaveBeenCalledTimes(10);
     // 6번째 호출은 cooldown 으로 실제 fetch 없이 빈 배열 반환
     const out = await fetchInvestorTrading('20260410');
     expect(out).toEqual([]);
-    expect(fetchSpy).toHaveBeenCalledTimes(5);
+    expect(fetchSpy).toHaveBeenCalledTimes(10);
   });
 });

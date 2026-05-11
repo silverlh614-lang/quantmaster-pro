@@ -59,9 +59,19 @@ export type KrxInvestorParserStatus =
   | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
 
 export interface KrxInvestorTradingDiagnostic {
-  endpoint: 'MDCSTAT02203';
+  endpoint: string;
   bld: string;
   tradeDate: string;
+  endpointVariant?: string;
+  routeKind?: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
+  dateParam?: 'trdDd' | 'strtDd/endDd' | 'basDd' | 'searchDate';
+  marketCode?: string | null;
+  symbolCode?: string | null;
+  symbolRequired?: boolean;
+  otpRequired?: boolean;
+  parameterKeys?: string[];
+  attemptedVariants?: string[];
+  selectedVariant?: string | null;
   contentType: 'json' | 'html' | 'csv' | 'text' | 'empty' | 'unknown';
   httpStatus: number | null;
   responseKind: 'JSON' | 'HTML' | 'CSV' | 'TEXT' | 'EMPTY' | 'DISABLED' | 'GATED' | 'COOLDOWN' | 'HTTP_ERROR' | 'NETWORK_ERROR';
@@ -388,6 +398,23 @@ interface KrxPostMeta {
   responseKind: KrxInvestorTradingDiagnostic['responseKind'];
 }
 
+interface KrxInvestorEndpointVariant {
+  id: string;
+  endpoint: string;
+  bld: string;
+  routeKind: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
+  dateParam: NonNullable<KrxInvestorTradingDiagnostic['dateParam']>;
+  marketCode: 'STK' | 'KSQ' | 'ALL';
+  symbolCode: string | null;
+  symbolRequired: boolean;
+  otpRequired: boolean;
+  params: Record<string, string>;
+}
+
+export interface FetchInvestorTradingOptions {
+  symbol?: string | null;
+}
+
 const _lastKrxPostMeta = new Map<string, KrxPostMeta>();
 
 function setKrxPostMeta(bld: string, meta: KrxPostMeta): void {
@@ -423,6 +450,7 @@ function makeKrxResponseKind(contentType: KrxInvestorTradingDiagnostic['contentT
 async function krxPost(
   bld: string,
   params: Record<string, string>,
+  options: { bypassTimeWindow?: boolean } = {},
 ): Promise<KrxRawResponse | null> {
   if (KRX_DISABLED) {
     setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED' });
@@ -431,7 +459,7 @@ async function krxPost(
 
   // ADR-0256: 시간대 게이팅 — 통계 무의미 / 미확정 시간대 호출 차단.
   // 카운터 미누적 (ADR-0251 정합).
-  const gating = shouldSkipKrxCallByTimeWindow();
+  const gating = options.bypassTimeWindow ? { skip: false as const } : shouldSkipKrxCallByTimeWindow();
   if (gating.skip) {
     console.debug(`[KRX] ${bld} 시간대 게이팅 스킵 (${gating.reason}, ADR-0256)`);
     setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'GATED' });
@@ -716,8 +744,12 @@ function buildInvestorTradingDiagnostic(input: {
   tradeDate: string;
   extract: ExtractRowsResult;
   normalized: NormalizedInvestorRowsResult;
+  variant?: KrxInvestorEndpointVariant | null;
+  attemptedVariants?: string[];
 }): KrxInvestorTradingDiagnostic {
-  const meta = _lastKrxPostMeta.get(BLD_INVESTOR_TRADING);
+  const variant = input.variant ?? null;
+  const bld = variant?.bld ?? BLD_INVESTOR_TRADING;
+  const meta = _lastKrxPostMeta.get(bld);
   const rawTopLevelKeys = input.raw && typeof input.raw === 'object' ? Object.keys(input.raw).slice(0, 40) : [];
   const parserStatus = classifyInvestorParserStatus({
     raw: input.raw,
@@ -736,7 +768,14 @@ function buildInvestorTradingDiagnostic(input: {
   const httpStatus = meta?.httpStatus ?? null;
   const responseKind = meta?.responseKind ?? (input.raw ? 'JSON' : 'EMPTY');
   const summary = [
-    'MDCSTAT02203',
+    variant?.endpoint ?? endpointCodeFromBld(bld),
+    `variant=${variant?.id ?? 'LEGACY_SINGLE'}`,
+    `routeKind=${variant?.routeKind ?? 'UNKNOWN'}`,
+    `dateParam=${variant?.dateParam ?? 'UNKNOWN'}`,
+    `marketCode=${variant?.marketCode ?? 'UNKNOWN'}`,
+    `symbolCode=${variant?.symbolCode ?? 'NONE'}`,
+    `paramKeys=${variant ? Object.keys(variant.params).join(',') : 'UNKNOWN'}`,
+    `attemptedVariants=${input.attemptedVariants?.join('|') || variant?.id || 'LEGACY_SINGLE'}`,
     `contentType=${contentType}`,
     `responseKind=${responseKind}`,
     `httpStatus=${httpStatus ?? 'NONE'}`,
@@ -750,9 +789,19 @@ function buildInvestorTradingDiagnostic(input: {
     `endpointIssueHint=${endpointIssueHint}`,
   ].join(';');
   return {
-    endpoint: 'MDCSTAT02203',
-    bld: BLD_INVESTOR_TRADING,
+    endpoint: variant?.endpoint ?? endpointCodeFromBld(bld),
+    bld,
     tradeDate: input.tradeDate,
+    endpointVariant: variant?.id,
+    routeKind: variant?.routeKind,
+    dateParam: variant?.dateParam,
+    marketCode: variant?.marketCode ?? null,
+    symbolCode: variant?.symbolCode ?? null,
+    symbolRequired: variant?.symbolRequired,
+    otpRequired: variant?.otpRequired,
+    parameterKeys: variant ? Object.keys(variant.params) : undefined,
+    attemptedVariants: input.attemptedVariants,
+    selectedVariant: parserStatus === 'OK' ? variant?.id ?? null : null,
     contentType,
     httpStatus,
     responseKind,
@@ -785,39 +834,185 @@ function normalizeCode(s: unknown): string {
   return stripped.length === 6 && /^\d{6}$/.test(stripped) ? stripped : '';
 }
 
+function endpointCodeFromBld(bld: string): string {
+  return bld.split('/').at(-1) ?? bld;
+}
+
+function investorTradingBld(endpoint: string): string {
+  return `dbms/MDC/STAT/standard/${endpoint}`;
+}
+
+function compactTradeDate(date: string): string {
+  return date.replace(/[^0-9]/g, '');
+}
+
+function investorTradingParams(input: {
+  marketCode: 'STK' | 'KSQ' | 'ALL';
+  dateParam: NonNullable<KrxInvestorTradingDiagnostic['dateParam']>;
+  tradeDate: string;
+  symbolCode?: string | null;
+}): Record<string, string> {
+  const params: Record<string, string> = {
+    searchType: input.symbolCode ? '2' : '1',
+    mktId: input.marketCode,
+    trdVolVal: '1',
+    share: '1',
+    money: '1',
+    csvxls_isNo: 'false',
+  };
+  if (input.dateParam === 'trdDd') params.trdDd = input.tradeDate;
+  if (input.dateParam === 'strtDd/endDd') {
+    params.strtDd = input.tradeDate;
+    params.endDd = input.tradeDate;
+  }
+  if (input.dateParam === 'basDd') params.basDd = input.tradeDate;
+  if (input.dateParam === 'searchDate') params.searchDate = input.tradeDate;
+  if (input.symbolCode) {
+    params.isuCd = input.symbolCode;
+    params.isuCd2 = input.symbolCode;
+    params.codeNmisuCd_finder_stkisu0_0 = input.symbolCode;
+  }
+  return params;
+}
+
+function buildInvestorTradingVariants(tradeDate: string, symbol?: string | null): KrxInvestorEndpointVariant[] {
+  const symbolCode = normalizeCode(symbol);
+  const out: KrxInvestorEndpointVariant[] = [];
+  const push = (input: {
+    endpoint: string;
+    routeKind: KrxInvestorEndpointVariant['routeKind'];
+    dateParam: KrxInvestorEndpointVariant['dateParam'];
+    marketCode: KrxInvestorEndpointVariant['marketCode'];
+    symbolCode?: string | null;
+  }): void => {
+    const normalizedSymbol = input.symbolCode ? normalizeCode(input.symbolCode) : '';
+    const symbolRequired = input.routeKind === 'SYMBOL_INVESTOR_FLOW';
+    if (symbolRequired && !normalizedSymbol) return;
+    const bld = investorTradingBld(input.endpoint);
+    out.push({
+      id: `${input.endpoint}:${input.routeKind}:${input.marketCode}:${input.dateParam}${normalizedSymbol ? ':symbol' : ''}`,
+      endpoint: input.endpoint,
+      bld,
+      routeKind: input.routeKind,
+      dateParam: input.dateParam,
+      marketCode: input.marketCode,
+      symbolCode: normalizedSymbol || null,
+      symbolRequired,
+      otpRequired: false,
+      params: investorTradingParams({
+        marketCode: input.marketCode,
+        dateParam: input.dateParam,
+        tradeDate,
+        symbolCode: normalizedSymbol || null,
+      }),
+    });
+  };
+
+  if (symbolCode) {
+    for (const marketCode of ['STK', 'KSQ'] as const) {
+      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'trdDd', marketCode, symbolCode });
+      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'strtDd/endDd', marketCode, symbolCode });
+      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'basDd', marketCode, symbolCode });
+      push({ endpoint: 'MDCSTAT02203', routeKind: 'SYMBOL_INVESTOR_FLOW', dateParam: 'searchDate', marketCode, symbolCode });
+    }
+  }
+
+  for (const marketCode of ['STK', 'KSQ', 'ALL'] as const) {
+    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'trdDd', marketCode });
+    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'strtDd/endDd', marketCode });
+  }
+  for (const marketCode of ['STK', 'KSQ'] as const) {
+    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'basDd', marketCode });
+    push({ endpoint: 'MDCSTAT02201', routeKind: 'MARKET_INVESTOR_FLOW', dateParam: 'searchDate', marketCode });
+  }
+
+  const envBld = BLD_INVESTOR_TRADING;
+  const envEndpoint = endpointCodeFromBld(envBld);
+  if (!out.some((variant) => variant.bld === envBld)) {
+    out.push({
+      id: `${envEndpoint}:ENV_FALLBACK:ALL:strtDd/endDd`,
+      endpoint: envEndpoint,
+      bld: envBld,
+      routeKind: symbolCode ? 'SYMBOL_INVESTOR_FLOW' : 'MARKET_INVESTOR_FLOW',
+      dateParam: 'strtDd/endDd',
+      marketCode: 'ALL',
+      symbolCode: symbolCode || null,
+      symbolRequired: Boolean(symbolCode),
+      otpRequired: false,
+      params: investorTradingParams({
+        marketCode: 'ALL',
+        dateParam: 'strtDd/endDd',
+        tradeDate,
+        symbolCode: symbolCode || null,
+      }),
+    });
+  }
+
+  return out;
+}
+
 // ── 공개 API ─────────────────────────────────────────────────────────────────
 
 /**
  * 투자자별 개별종목 거래실적. 기본값: KST 오늘.
  * KRX 리포트 필드명 (MDCSTAT02203)은 한글 키 — 방어적 다중 키 fallback 적용.
  */
-export async function fetchInvestorTrading(date?: string): Promise<KrxInvestorRow[]> {
+export async function fetchInvestorTrading(date?: string, options: FetchInvestorTradingOptions = {}): Promise<KrxInvestorRow[]> {
   const tradeDate = resolveTradeDate(date);
-  const cacheKey = `investor:${tradeDate}`;
+  const symbolCode = normalizeCode(options.symbol);
+  const cacheKey = `investor:${tradeDate}:${symbolCode || 'ALL'}`;
   const cached = getCached<KrxInvestorRow[]>(cacheKey);
   if (cached) return cached;
 
-  const raw = await krxPost(BLD_INVESTOR_TRADING, {
-    searchType:   '1',
-    mktId:        'ALL',
-    trdVolVal:    '1',         // 1=거래량, 2=거래대금
-    strtDd:       tradeDate,
-    endDd:        tradeDate,
-    share:        '1',
-    money:        '1',
-    csvxls_isNo:  'false',
+  const compactDate = compactTradeDate(tradeDate);
+  const variants = buildInvestorTradingVariants(compactDate, symbolCode);
+  const attemptedDiagnostics: KrxInvestorTradingDiagnostic[] = [];
+  const attemptedVariantIds: string[] = [];
+  for (const variant of variants) {
+    attemptedVariantIds.push(variant.id);
+    const raw = await krxPost(variant.bld, variant.params, { bypassTimeWindow: true });
+    const extracted = extractRowsDetailed(raw);
+    const normalized = normalizeKrxInvestorRows(extracted.rows);
+    const rows = symbolCode
+      ? normalized.rows.filter((row) => row.code === symbolCode)
+      : normalized.rows;
+    const diagnostic = buildInvestorTradingDiagnostic({
+      raw,
+      tradeDate: compactDate,
+      extract: extracted,
+      normalized: { ...normalized, rows },
+      variant,
+      attemptedVariants: [...attemptedVariantIds],
+    });
+    attemptedDiagnostics.push(diagnostic);
+    if (rows.length > 0 && diagnostic.parserStatus === 'OK') {
+      const selectedDiagnostic = { ...diagnostic, selectedVariant: variant.id, attemptedVariants: [...attemptedVariantIds] };
+      setInvestorTradingDiagnostic(compactDate, selectedDiagnostic);
+      setCached(cacheKey, rows);
+      return rows;
+    }
+  }
+
+  const bestDiagnostic =
+    attemptedDiagnostics.find((diagnostic) => diagnostic.selectedRowCount > 0 && diagnostic.normalizedRows > 0) ??
+    attemptedDiagnostics.find((diagnostic) => diagnostic.responseKind !== 'HTTP_ERROR' && diagnostic.responseKind !== 'COOLDOWN') ??
+    attemptedDiagnostics.find((diagnostic) => diagnostic.responseKind === 'HTTP_ERROR') ??
+    attemptedDiagnostics.at(-1) ??
+    buildInvestorTradingDiagnostic({
+      raw: null,
+      tradeDate: compactDate,
+      extract: extractRowsDetailed(null),
+      normalized: normalizeKrxInvestorRows([]),
+      attemptedVariants: attemptedVariantIds,
+    });
+  setInvestorTradingDiagnostic(compactDate, {
+    ...bestDiagnostic,
+    selectedVariant: null,
+    attemptedVariants: attemptedVariantIds,
+    summary: `${bestDiagnostic.summary};selectedVariant=NONE;variantCount=${attemptedVariantIds.length}`,
   });
-  const extracted = extractRowsDetailed(raw);
-  const normalized = normalizeKrxInvestorRows(extracted.rows);
-  const diagnostic = buildInvestorTradingDiagnostic({
-    raw,
-    tradeDate,
-    extract: extracted,
-    normalized,
-  });
-  setInvestorTradingDiagnostic(tradeDate, diagnostic);
-  setCached(cacheKey, normalized.rows);
-  return normalized.rows;
+  setCached(cacheKey, []);
+  return [];
 }
 
 /**

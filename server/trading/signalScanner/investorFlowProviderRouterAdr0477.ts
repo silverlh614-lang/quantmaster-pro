@@ -193,6 +193,13 @@ export interface InvestorFlowProviderRouterInput {
     bld?: string;
     tradeDate?: string;
     previousTradingDateCandidate?: string;
+    endpointVariant?: string;
+    dateParam?: string;
+    marketCode?: string | null;
+    symbolCode?: string | null;
+    parameterKeys?: readonly string[];
+    attemptedVariants?: readonly string[];
+    selectedVariant?: string | null;
     contentType?: string;
     httpStatus?: number | null;
     responseKind?: string;
@@ -704,8 +711,14 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
     `bld=${input.bld ?? 'UNKNOWN'}`,
     `tradeDate=${input.tradeDate ?? 'UNKNOWN'}`,
     `previousTradingDateCandidate=${input.previousTradingDateCandidate ?? 'UNKNOWN'}`,
-    'marketCode=ALL',
+    `endpointVariant=${input.endpointVariant ?? 'UNKNOWN'}`,
+    `dateParam=${input.dateParam ?? 'UNKNOWN'}`,
+    `marketCode=${input.marketCode ?? 'UNKNOWN'}`,
+    `symbolCode=${input.symbolCode ?? 'NONE'}`,
     'symbolCodeFormat=6_DIGIT',
+    `parameterKeys=${input.parameterKeys?.join(',') || 'UNKNOWN'}`,
+    `attemptedVariants=${input.attemptedVariants?.join('|') || 'UNKNOWN'}`,
+    `selectedVariant=${input.selectedVariant ?? 'NONE'}`,
     `contentType=${input.contentType ?? 'unknown'}`,
     `responseKind=${input.responseKind ?? 'UNKNOWN'}`,
     `httpStatus=${input.httpStatus ?? 'NONE'}`,
