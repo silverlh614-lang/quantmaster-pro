@@ -158,7 +158,7 @@ describe('ADR-0491 supply snapshot store and replay', () => {
       domain: 'SUPPLY',
       tradingDate: '2026-05-11',
     });
-    expect(staleHit.status).toBe('STALE_HIT');
+    expect(staleHit.status).toBe('CACHE_STALE_HIT');
     expect(staleHit.cacheRaw?.foreignNetBuy).toBe(100);
     expect(staleHit.liveExecutionAllowed).toBe(false);
     expect(staleHit.rawPayloadPersistenceAllowed).toBe(false);
@@ -170,7 +170,7 @@ describe('ADR-0491 supply snapshot store and replay', () => {
       domain: 'SUPPLY',
       tradingDate: '2026-05-11',
     });
-    expect(miss.status).toBe('CACHE_EMPTY');
+    expect(miss.status).toBe('CACHE_KEY_MISMATCH');
     expect(miss.reason).toBe('KEY_MISMATCH_OR_SYMBOL_SOURCE_NOT_FOUND');
   });
 
