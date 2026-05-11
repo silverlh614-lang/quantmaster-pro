@@ -61,7 +61,7 @@ function providerIsSevere(providerHealth: ProviderHealthStatusAdr0497): boolean 
 function coerceProviderHealth(value: unknown): ProviderHealthStatusAdr0497 {
   const normalized = normalizeProviderHealthStatusAdr0499(typeof value === 'string' ? value : undefined);
   if (normalized !== 'UNKNOWN') return normalized;
-  if (value === 'DATA_AVAILABLE' || value === 'FRESH' || value === 'RECORDED' || value === 'REPLAY_READY') return 'UP';
+  if (value === 'DATA_AVAILABLE' || value === 'FRESH' || value === 'RECORDED' || value === 'REPLAY_READY' || value === 'DISABLED_BY_KIS_FIRST_MODE') return 'UP';
   if (value === 'FETCH_ERROR') return 'DOWN';
   if (value === 'CACHE_EMPTY' || value === 'REPLAY_UNAVAILABLE') return 'EMPTY';
   if (value === 'CORRUPT_RECOVERED') return 'PARSE_ERROR';
@@ -285,6 +285,28 @@ export function mapInvestorFlowRouterToStatusInputAdr0498(router: {
   const cacheStatus = router.providerStatuses?.CACHE;
   const providerStatus = router.providerStatuses?.[selectedProvider] ?? (selectedProvider === 'KRX_INVESTOR_FLOW' ? router.providerStatuses?.KRX : undefined) ?? (selectedProvider === 'KIS_API' ? router.providerStatuses?.KIS : undefined) ?? (selectedProvider === 'FSS_PASSIVE_ACTIVE' ? router.providerStatuses?.FSS : undefined);
   const effectiveStatus = selectedProvider === 'CACHE' && cacheStatus ? cacheStatus : providerStatus ?? router.status;
+  const krxDisabled = router.providerStatuses?.KRX_INVESTOR_FLOW === 'DISABLED_BY_KIS_FIRST_MODE' || router.providerStatuses?.KRX === 'DISABLED_BY_KIS_FIRST_MODE' || router.status === 'DISABLED_BY_KIS_FIRST_MODE';
+  if (rawSelectedProvider === 'NONE' && krxDisabled && !fallbackProvider) {
+    return {
+      sourceAdr: 'ADR_0489_INVESTOR_FLOW_SAMPLE',
+      dataLineId: 'investorFlow',
+      domain: 'INVESTOR_FLOW',
+      providerHealth: 'UP',
+      providerDisplay: 'NONE',
+      dataConfidence: 'MISSING',
+      marketSignal: 'UNKNOWN',
+      dataLineStatus: 'OBSERVING',
+      promotionReadiness: 'NOT_EVALUATED',
+      blockers: [],
+      warnings: [
+        'KRX_INVESTOR_FLOW status=DISABLED_BY_KIS_FIRST_MODE',
+        'providerIssue=false',
+        'marketSignal=false',
+        'selectedProvider=NONE',
+        'reason=KIS-first mode; KRX retained for manual validation only',
+      ],
+    };
+  }
   if (rawSelectedProvider === 'NONE' && !fallbackProvider) {
     return {
       sourceAdr: 'ADR_0489_INVESTOR_FLOW_SAMPLE',

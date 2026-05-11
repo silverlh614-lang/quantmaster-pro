@@ -17,6 +17,7 @@ export type InvestorFlowProviderStatus =
   | 'CACHE_STALE_HIT'
   | 'CACHE_KEY_MISMATCH'
   | 'CACHE_EMPTY'
+  | 'DISABLED_BY_KIS_FIRST_MODE'
   | 'HTTP_400'
   | 'HTTP_403'
   | 'HTTP_429'

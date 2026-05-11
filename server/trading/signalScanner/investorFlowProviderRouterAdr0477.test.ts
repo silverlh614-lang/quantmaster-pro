@@ -49,6 +49,52 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(normalizeInvestorFlowSourceKey('SUPPLY_SNAPSHOT_CACHE')).toBe('CACHE');
   });
 
+
+  it('keeps disabled KRX out of selectedProvider and Gate/live paths', () => {
+    const prev = process.env.KIS_FIRST_REBUILD_MODE;
+    process.env.KIS_FIRST_REBUILD_MODE = 'true';
+    try {
+      const route = buildInvestorFlowProviderRouteResultAdr0477({
+        code: '005930',
+        krxInvestorDiagnosticAdr0505: {
+          status: 'DISABLED_BY_KIS_FIRST_MODE',
+          provider: 'KRX',
+          providerIssue: false,
+          marketSignal: false,
+          executionImpact: 'NONE',
+          parserStatus: 'DISABLED_BY_KIS_FIRST_MODE',
+          endpointIssueHint: 'NONE',
+          endpoint: 'MDCSTAT02201',
+          bld: 'dbms/MDC/STAT/standard/MDCSTAT02201',
+          tradeDate: '20260508',
+          previousTradingDateCandidate: '2026-05-08',
+          routePurpose: 'MARKET_LEVEL',
+          selectedBld: 'dbms/MDC/STAT/standard/MDCSTAT02201',
+          diagnosticOnly: true,
+          useForRouter: false,
+          useForGate: false,
+          useForLive: false,
+          useForShadow: false,
+          summary: 'status=DISABLED_BY_KIS_FIRST_MODE;providerIssue=false;marketSignal=false;executionImpact=NONE',
+        },
+      });
+
+      expect(route.providerStatuses.KRX_INVESTOR_FLOW).toBe('DISABLED_BY_KIS_FIRST_MODE');
+      expect(route.selectedProvider).not.toBe('KRX_INVESTOR_FLOW');
+      expect(route.selectedProvider).toBe('NONE');
+      expect(route.selectedForShadow).toBe(false);
+      expect(route.usedForCurrentGate).toBe(false);
+      expect(route.usedForLiveDecision).toBe(false);
+      expect(route.executionImpact).toBe('NONE');
+      expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('providerIssue=false');
+      expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('marketSignal=false');
+      expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('useForGate=false');
+    } finally {
+      if (prev === undefined) delete process.env.KIS_FIRST_REBUILD_MODE;
+      else process.env.KIS_FIRST_REBUILD_MODE = prev;
+    }
+  });
+
   it('bridges ADR-0487 FreshData READY_FOR_SHADOW NAVER and Semantic samples into router selection', () => {
     const baseSnapshot = {
       domain: 'SUPPLY' as const,

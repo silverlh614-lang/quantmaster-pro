@@ -86,6 +86,41 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(snapshot.isMarketSignal).toBe(false);
   });
 
+
+  it('KRX disabled by KIS-first mode is not a provider issue and is excluded from router/live/gate use', () => {
+    const prev = process.env.KIS_FIRST_REBUILD_MODE;
+    process.env.KIS_FIRST_REBUILD_MODE = 'true';
+    try {
+      const report = buildFreshDataSupplyReportAdr0487({
+        ...partialInput(),
+        investorFlowProviderRouterAdr0477: {
+          status: 'DISABLED_BY_KIS_FIRST_MODE',
+          selectedProvider: 'NONE',
+          providerStatuses: { KRX_INVESTOR_FLOW: 'DISABLED_BY_KIS_FIRST_MODE', KRX: 'DISABLED_BY_KIS_FIRST_MODE' },
+        },
+      });
+      const krxFlow = report.snapshots.find((item) => item.sourceId === 'KRX_INVESTOR_FLOW');
+      const krxSector = report.snapshots.find((item) => item.sourceId === 'KRX_SECTOR_INDEX_MASTER');
+
+      expect(krxFlow?.status).toBe('DISABLED_BY_KIS_FIRST_MODE');
+      expect(krxFlow?.isProviderIssue).toBe(false);
+      expect(krxFlow?.isMarketSignal).toBe(false);
+      expect(krxFlow?.usableForRouter).toBe(false);
+      expect(krxFlow?.usableForLive).toBe(false);
+      expect(krxFlow?.executionImpact).toBe('NONE');
+      expect(krxFlow?.diagnostics.join(' ')).toContain('selectedProvider=NONE');
+      expect(krxFlow?.diagnostics.join(' ')).toContain('KIS-first mode; KRX retained for manual validation only');
+
+      expect(krxSector?.status).toBe('DISABLED_BY_KIS_FIRST_MODE');
+      expect(krxSector?.isProviderIssue).toBe(false);
+      expect(krxSector?.isMarketSignal).toBe(false);
+      expect(krxSector?.diagnostics.join(' ')).toContain('KIS sector basket / KIS price foundation active');
+    } finally {
+      if (prev === undefined) delete process.env.KIS_FIRST_REBUILD_MODE;
+      else process.env.KIS_FIRST_REBUILD_MODE = prev;
+    }
+  });
+
   it('8. Snapshot marks normalized fresh source as NORMALIZED or READY_FOR_SHADOW.', () => {
     const snapshot = buildFreshDataSnapshotAdr0487({ stage: 'SHADOW_ONLY', sourceState: 'FRESH', normalized: true, coverageRatio: 1 });
     expect(['NORMALIZED', 'READY_FOR_SHADOW']).toContain(snapshot.status);

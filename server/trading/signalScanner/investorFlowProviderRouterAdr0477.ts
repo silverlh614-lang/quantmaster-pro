@@ -63,6 +63,7 @@ export type InvestorFlowProviderStatus =
   | 'PARSER_FIELD_MISMATCH'
   | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
   | 'DISABLED'
+  | 'DISABLED_BY_KIS_FIRST_MODE'
   | 'REGISTRY_READY_NOT_MATERIALIZED'
   | 'NO_INPUT_SAMPLE'
   | 'MATERIALIZED_SAMPLE'
@@ -228,6 +229,11 @@ export interface InvestorFlowProviderRouterInput {
   krxInvestorRaw?: Record<string, unknown> | null;
   previousTradingDayKrxRaw?: Record<string, unknown> | null;
   krxInvestorDiagnosticAdr0505?: {
+    status?: 'DISABLED_BY_KIS_FIRST_MODE';
+    provider?: 'KRX';
+    providerIssue?: boolean;
+    marketSignal?: boolean;
+    executionImpact?: 'NONE';
     parserStatus?: string;
     endpointIssueHint?: string;
     endpoint?: string;
@@ -361,6 +367,7 @@ function normalizeStatus(input: {
     'PROVIDER_ERROR',
     'QUARANTINED',
     'DISABLED',
+    'DISABLED_BY_KIS_FIRST_MODE',
     'REGISTRY_READY_NOT_MATERIALIZED',
     'NO_INPUT_SAMPLE',
     'MATERIALIZED_SAMPLE',
@@ -771,6 +778,7 @@ function cacheLookupStatusAdr0477(status: SupplySnapshotCacheLookupAdr0491['stat
 }
 
 function krxDiagnosticStatusAdr0477(status: string | undefined): InvestorFlowProviderStatus {
+  if (status === 'DISABLED_BY_KIS_FIRST_MODE') return 'DISABLED_BY_KIS_FIRST_MODE';
   if (status === 'OK') return 'VERIFIED';
   if (status === 'PROVIDER_EMPTY_RESPONSE') return 'PROVIDER_EMPTY_RESPONSE';
   if (status === 'PARSER_KEY_MISMATCH') return 'PARSER_KEY_MISMATCH';
@@ -1260,7 +1268,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses.CACHE = input.cacheRaw ? 'PARTIAL' : 'CACHE_EMPTY';
   }
 
-  const krxRaw = input.krxInvestorRaw ?? input.previousTradingDayKrxRaw ?? null;
+  const krxDisabledDiagnostic = input.krxInvestorDiagnosticAdr0505?.parserStatus === 'DISABLED_BY_KIS_FIRST_MODE';
+  const krxRaw = krxDisabledDiagnostic ? null : input.krxInvestorRaw ?? input.previousTradingDayKrxRaw ?? null;
   if (krxRaw) {
     const krxProvider: InvestorFlowProviderId = input.krxInvestorDiagnosticAdr0505?.routePurpose === 'SYMBOL_LEVEL'
       ? 'KRX_SYMBOL_INVESTOR_FLOW'
@@ -1299,9 +1308,11 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses[krxDiagnosticProvider] = krxStatus;
     providerStatuses.KRX_INVESTOR_FLOW = krxStatus;
     providerStatuses.KRX = krxStatus;
-    providerReasons[krxDiagnosticProvider] = krxQuarantined
-      ? `${krxReason}; QUARANTINED retryAfterMs=${input.krxInvestorDiagnosticAdr0505.cooldownRemainingMs ?? 60 * 60 * 1000}; useForGate=false; useForRouter=false; useForLive=false; useForShadow=true; diagnosticOnly=true; executionImpact=NONE`
-      : krxReason;
+    providerReasons[krxDiagnosticProvider] = krxStatus === 'DISABLED_BY_KIS_FIRST_MODE'
+      ? `${krxReason}; status=DISABLED_BY_KIS_FIRST_MODE; provider=KRX; providerIssue=false; marketSignal=false; useForRouter=false; useForGate=false; useForLive=false; useForShadow=false; executionImpact=NONE`
+      : krxQuarantined
+        ? `${krxReason}; QUARANTINED retryAfterMs=${input.krxInvestorDiagnosticAdr0505.cooldownRemainingMs ?? 60 * 60 * 1000}; useForGate=false; useForRouter=false; useForLive=false; useForShadow=true; diagnosticOnly=true; executionImpact=NONE`
+        : krxReason;
     providerReasons.KRX_INVESTOR_FLOW = providerReasons[krxDiagnosticProvider];
     providerReasons.KRX = providerReasons[krxDiagnosticProvider];
     diagnostics.push(providerReasons[krxDiagnosticProvider]);
@@ -1354,8 +1365,10 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   const multiSourceMaterialization = buildInvestorFlowMultiSourceMaterialization(materializationDiagnostics, samplesByProvider);
-  const selectedMultiSourceCandidate = kisFirstMode
-    ? multiSourceMaterialization.rankedCandidates.find((candidate) => !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE')) ?? null
+  const krxAutoDisabled = providerStatuses.KRX_INVESTOR_FLOW === 'DISABLED_BY_KIS_FIRST_MODE' || providerStatuses.KRX === 'DISABLED_BY_KIS_FIRST_MODE';
+  const isBlockedAutoKrxCandidate = (provider: InvestorFlowProviderId): boolean => (kisFirstMode || krxAutoDisabled) && (provider === 'KRX_INVESTOR_FLOW' || provider === 'KRX_SYMBOL_INVESTOR_FLOW' || provider === 'KRX_MARKET_INVESTOR_FLOW');
+  const selectedMultiSourceCandidate = kisFirstMode || krxAutoDisabled
+    ? multiSourceMaterialization.rankedCandidates.find((candidate) => !isBlockedAutoKrxCandidate(candidate.provider) && !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE')) ?? null
     : multiSourceMaterialization.selectedCandidate;
   if (selectedMultiSourceCandidate) {
     const sample = samplesByProvider[selectedMultiSourceCandidate.provider];
@@ -1396,7 +1409,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     });
   }
   for (const candidate of multiSourceMaterialization.candidates) {
-    if (candidate.provider !== 'SEMANTIC_NETBUY' && candidate.sampleMaterialized && candidate.usableForShadow && !candidate.placeholderDetected) {
+    if (candidate.provider !== 'SEMANTIC_NETBUY' && !isBlockedAutoKrxCandidate(candidate.provider) && candidate.sampleMaterialized && candidate.usableForShadow && !candidate.placeholderDetected) {
       diagnosticUsableCandidates.push({
         provider: candidate.provider,
         status: samplesByProvider[candidate.provider]?.status ?? (candidate.freshness === 'STALE' ? 'STALE' : 'OBSERVING'),
