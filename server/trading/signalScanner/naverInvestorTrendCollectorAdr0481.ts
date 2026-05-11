@@ -1,5 +1,10 @@
 // @responsibility ADR-0481 NAVER Investor Trend Collector Wiring; SHADOW_ONLY semantic investor-flow candidate.
 import { normalizeSemanticNetBuySampleAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
+import {
+  buildInvestorSampleDiagnosticsAdr0502,
+  formatInvestorSampleDiagnosticsAdr0502,
+  type InvestorSampleDiagnosticsAdr0502,
+} from './investorSampleMaterializationAdr0502.js';
 
 
 export type NaverInvestorTrendCollectorStatus =
@@ -66,6 +71,7 @@ export interface NaverInvestorTrendCollectorResult {
     status: 'VERIFIED' | 'PARTIAL' | 'STALE' | 'EMPTY' | 'DATA_UNAVAILABLE';
     signal: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN';
   } | null;
+  materializationDiagnostics: InvestorSampleDiagnosticsAdr0502;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
   rawPayloadPersistenceAllowed: false;
@@ -125,7 +131,51 @@ function coverage(points: readonly NaverInvestorTrendNormalizedPoint[], requeste
   };
 }
 
+function pointHasInvestorFlow(point: NaverInvestorTrendNormalizedPoint): boolean {
+  return finiteNumber(point.foreignNetBuy) || finiteNumber(point.institutionNetBuy) || finiteNumber(point.programNetBuy);
+}
+
+function fieldCoverage(points: readonly NaverInvestorTrendNormalizedPoint[]): number {
+  if (points.length === 0) return 0;
+  const available = points.reduce((sum, point) => sum + [point.foreignNetBuy, point.institutionNetBuy, point.programNetBuy].filter(finiteNumber).length, 0);
+  return available / (points.length * 3);
+}
+
+function buildNaverMaterializationDiagnostics(
+  input: NaverInvestorTrendCollectorInput,
+  points: readonly NaverInvestorTrendNormalizedPoint[],
+  status: NaverInvestorTrendCollectorStatus,
+): InvestorSampleDiagnosticsAdr0502 {
+  const materializedPoints = points.filter(pointHasInvestorFlow);
+  const latest = materializedPoints[materializedPoints.length - 1] ?? null;
+  return buildInvestorSampleDiagnosticsAdr0502({
+    providerName: 'NAVER_INVESTOR_TREND',
+    rawFetched: input.rawPoints !== null && input.rawPoints !== undefined,
+    rawCount: input.rawPoints?.length ?? 0,
+    normalizedCount: points.length,
+    materializedCount: materializedPoints.length,
+    symbolCoverage: input.code ? 1 : 0,
+    dateCoverage: latest?.date ?? null,
+    fieldCoverage: fieldCoverage(points),
+    placeholderDetected: points.length === 0 || materializedPoints.length === 0,
+    inputSourceKind: input.rawPoints && input.rawPoints.length > 0 ? 'RAW_PROVIDER' : 'NONE',
+    inputSources: ['NAVER_INVESTOR_TREND'],
+    lastSuccessfulSampleAt: latest?.date ?? null,
+    confidenceLevel: status === 'DATA_AVAILABLE' ? 'VERIFIED' : status === 'PARTIAL' ? 'PARTIAL' : status === 'STALE' ? 'DEGRADED' : 'MISSING',
+    staleReason: status === 'STALE' ? `sourceAgeTradingDays=${input.sourceAgeTradingDays ?? 'UNKNOWN'}` : null,
+    hardBlocked: status === 'DISABLED' || status === 'PROVIDER_ERROR' || status === 'PARSE_ERROR',
+    safePreview: materializedPoints.slice(-3).map((point) => ({
+      code: input.code,
+      date: point.date,
+      foreignNetBuy: point.foreignNetBuy,
+      institutionNetBuy: point.institutionNetBuy,
+      programNetBuy: point.programNetBuy,
+    })),
+  });
+}
+
 function emptyResult(input: NaverInvestorTrendCollectorInput, status: NaverInvestorTrendCollectorStatus, diagnostic: string): NaverInvestorTrendCollectorResult {
+  const materializationDiagnostics = buildNaverMaterializationDiagnostics(input, [], status);
   return {
     code: input.code,
     provider: 'NAVER',
@@ -136,8 +186,14 @@ function emptyResult(input: NaverInvestorTrendCollectorInput, status: NaverInves
     coverage: coverage([], input.requestedDays ?? 5),
     freshness: { sourceState: status === 'DISABLED' ? 'UNKNOWN' : 'MISSING', lastSourceDate: null, sourceAgeTradingDays: null },
     semanticNetBuyCandidate: null,
+    materializationDiagnostics,
     ...ADR_0481_POLICY,
-    diagnostics: ['ADR-0481 NAVER collector wired as SHADOW_ONLY candidate.', diagnostic, 'UNKNOWN/provider issue is not bearish.'],
+    diagnostics: [
+      'ADR-0481 NAVER collector wired as SHADOW_ONLY candidate.',
+      diagnostic,
+      formatInvestorSampleDiagnosticsAdr0502(materializationDiagnostics),
+      'UNKNOWN/provider issue is not bearish.',
+    ],
   };
 }
 
@@ -211,6 +267,7 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
     status: candidateStatus,
     signal: normalized.signal,
   } : null;
+  const materializationDiagnostics = buildNaverMaterializationDiagnostics(input, points, status);
 
   return {
     code: input.code,
@@ -226,11 +283,13 @@ export function buildNaverInvestorTrendCollectorResultAdr0481(input: NaverInvest
       sourceAgeTradingDays: normalized.freshness.sourceAgeTradingDays,
     },
     semanticNetBuyCandidate,
+    materializationDiagnostics,
     ...ADR_0481_POLICY,
     diagnostics: [
       'ADR-0481 NAVER collector wired as SHADOW_ONLY candidate.',
       `status=${status}`,
       `signal=${signal}`,
+      formatInvestorSampleDiagnosticsAdr0502(materializationDiagnostics),
       input.nonTradingDay === true ? 'nonTradingDay previousTradingDate fallback consumed as STALE/SHADOW_ONLY.' : 'BUY_ALLOWED fresh NAVER sample path.',
       'executionImpact=NONE liveExecutionAllowed=false policyPromotionMode=SHADOW_ONLY',
       'rawPayloadPersistenceAllowed=false',
@@ -242,9 +301,15 @@ export function safeBuildNaverInvestorTrendCollectorResultAdr0481(input: NaverIn
   try {
     return buildNaverInvestorTrendCollectorResultAdr0481(input);
   } catch (error) {
+    const fallback = emptyResult(input, 'PROVIDER_ERROR', 'collector failure isolated; scan and Shadow Learning continue.');
     return {
-      ...emptyResult(input, 'PROVIDER_ERROR', 'collector failure isolated; scan and Shadow Learning continue.'),
-      diagnostics: ['ADR-0481 collector failure isolated.', error instanceof Error ? error.message : String(error), 'UNKNOWN/provider issue is not bearish.'],
+      ...fallback,
+      diagnostics: [
+        'ADR-0481 collector failure isolated.',
+        error instanceof Error ? error.message : String(error),
+        formatInvestorSampleDiagnosticsAdr0502(fallback.materializationDiagnostics),
+        'UNKNOWN/provider issue is not bearish.',
+      ],
     };
   }
 }
@@ -268,6 +333,7 @@ export function formatNaverInvestorTrendDetailAdr0481(result?: NaverInvestorTren
     `- coverage: days=${result.coverage.availableDays}/${result.coverage.requestedDays}, foreign=${result.coverage.foreignAvailable}, institution=${result.coverage.institutionAvailable}, program=${result.coverage.programAvailable}`,
     `- freshness: ${result.freshness.sourceState}, sourceDate=${result.freshness.lastSourceDate ?? 'none'}, age=${result.freshness.sourceAgeTradingDays ?? 'unknown'}`,
     `- semanticNetBuyCandidate: ${candidate ? `status=${candidate.status}, foreign=${candidate.foreignNetBuy ?? 'null'}, institution=${candidate.institutionNetBuy ?? 'null'}, program=${candidate.programNetBuy ?? 'null'}, confidence=${candidate.confidence}, sourceDate=${candidate.sourceDate ?? 'none'}` : 'none'}`,
+    `- materialization: ${formatInvestorSampleDiagnosticsAdr0502(result.materializationDiagnostics)}`,
     `- executionImpact: ${result.executionImpact}`,
     `- liveExecutionAllowed: ${result.liveExecutionAllowed}`,
     `- policyPromotionMode: ${result.policyPromotionMode}`,

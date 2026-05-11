@@ -167,6 +167,26 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     expect(report.signal).toBe('UNKNOWN');
   });
 
+  it('separates SEMANTIC placeholder/no-input from real router-usable input sources', () => {
+    const noInput = buildSemanticNetBuyNormalizationReportAdr0482({ code: '005930', inputs: [] });
+    expect(noInput.materializationDiagnostics).toMatchObject({
+      sampleMaterialized: false,
+      usableForRouter: false,
+      blockedReason: 'NO_INPUT_SAMPLE',
+      placeholderDetected: true,
+      inputSourceKind: 'NONE',
+    });
+    expect(noInput.inputSources).toEqual([]);
+
+    const derived = buildSemanticNetBuyNormalizationReportAdr0482({
+      code: '005930',
+      inputs: [verifiedInput({ provider: 'MANUAL' })],
+    });
+    expect(derived.materializationDiagnostics.inputSourceKind).toBe('SEMANTIC_DERIVED');
+    expect(derived.materializationDiagnostics.usableForRouter).toBe(false);
+    expect(derived.materializationDiagnostics.blockedReason).toBe('NO_REAL_INPUT_SOURCE');
+  });
+
   it('ADR-0481 NAVER collector uses ADR-0482 normalizer', () => {
     const src = fs.readFileSync(path.resolve('server/trading/signalScanner/naverInvestorTrendCollectorAdr0481.ts'), 'utf-8');
     const result = buildNaverInvestorTrendCollectorResultAdr0481({ code: '005930', rawPoints: [{ date: '2026-05-08', foreignNetBuy: 1, institutionNetBuy: 2 }] });
@@ -215,6 +235,7 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
     const entry = getSemanticNetBuyDetailRegistryEntryAdr0482(report);
     expect(entry.adrTraceHint).toBe('/adr_trace 0482');
     expect(entry.render()).toContain('selectedSample');
+    expect(entry.render()).toContain('materialization');
   });
 
   it('normalizer failure is try/catch isolated where integrated', () => {
