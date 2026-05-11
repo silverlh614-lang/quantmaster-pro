@@ -155,6 +155,42 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.fallbackUsed).toBe('STOCK_DAILY');
     expect(report.sectorBoostAllowed).toBe(false);
     expect(report.strongBuyAllowed).toBe(false);
+    expect(report.leadershipConfidence).toBe('BLOCKED');
+    expect(report.leadershipBlockReason).toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
+  });
+
+  it('keeps leadership blocked when internal proxy coverage is high but verified KRX index coverage is zero', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        indexCodeCoverageAfterAliasCandidate: 100,
+        verifiedIndexCodeCoverage: 0,
+        internalProxyCoverage: 100,
+        stockDailyFallbackCoverage: 100,
+        missingIndexCodeCount: 0,
+        aliasMissingCount: 0,
+        fallbackUsed: 'NONE',
+      }),
+    });
+    const compact = formatSectorEnergySupplyUnknownCompactAdr0488(buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        indexCodeCoverageAfterAliasCandidate: 100,
+        verifiedIndexCodeCoverage: 0,
+        internalProxyCoverage: 100,
+        stockDailyFallbackCoverage: 100,
+        missingIndexCodeCount: 0,
+        aliasMissingCount: 0,
+        fallbackUsed: 'NONE',
+      }),
+    }));
+
+    expect(report.verifiedIndexCodeCoverage).toBe(0);
+    expect(report.internalProxyCoverage).toBe(100);
+    expect(report.stockDailyFallbackCoverage).toBe(100);
+    expect(report.leadershipConfidence).toBe('BLOCKED');
+    expect(report.leadershipBlockReason).toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
+    expect(report.sectorBoostAllowed).toBe(false);
+    expect(compact).toContain('verifiedIndexCodeCoverage=0%');
+    expect(compact).toContain('internalProxyCoverage=100%');
   });
 
   it('computes indexCode coverage percentage', () => {

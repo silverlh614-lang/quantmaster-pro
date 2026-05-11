@@ -5,6 +5,7 @@ import {
   buildFreshDataStatusSectionAdr0498,
   buildFreshDataStatusViewModelFromInputAdr0498,
   formatFreshDataStatusLineAdr0498,
+  mapFreshDataSupplyReportToStatusInputsAdr0498,
   mapInvestorFlowRouterToStatusInputAdr0498,
   mapRuntimeFreshDataSummaryToStatusInputsAdr0498,
   mapStatusFromCoverageAdr0498,
@@ -141,6 +142,48 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(section.lines.join('\n')).toContain('confidence=MISSING');
     expect(section.lines.join('\n')).toContain('status=BLOCKED');
     expect(section.lines.join('\n')).not.toContain('signal=BEARISH');
+  });
+
+  it('keeps registry-ready FreshData placeholders OBSERVING until a router-usable sample is materialized', () => {
+    const [placeholder] = mapFreshDataSupplyReportToStatusInputsAdr0498({
+      snapshots: [{
+        sourceId: 'NAVER_INVESTOR_TREND',
+        domain: 'SUPPLY',
+        provider: 'NAVER',
+        status: 'READY_FOR_SHADOW',
+        confidence: 'HIGH',
+        coverageRatio: 1,
+        isProviderIssue: false,
+        sampleMaterialized: false,
+        usableForRouter: false,
+        usableForShadow: false,
+        usableForLive: false,
+        readinessKind: 'REGISTRY_READY',
+        sourceOfTruth: 'REGISTRY',
+      }],
+    });
+    const [materialized] = mapFreshDataSupplyReportToStatusInputsAdr0498({
+      snapshots: [{
+        sourceId: 'NAVER_INVESTOR_TREND',
+        domain: 'SUPPLY',
+        provider: 'NAVER',
+        status: 'READY_FOR_SHADOW',
+        confidence: 'HIGH',
+        coverageRatio: 1,
+        isProviderIssue: false,
+        sampleMaterialized: true,
+        usableForRouter: true,
+        usableForShadow: true,
+        usableForLive: false,
+        readinessKind: 'MATERIALIZED_SAMPLE',
+        sourceOfTruth: 'ROUTER_INPUT',
+      }],
+    });
+
+    expect(placeholder).toMatchObject({ dataLineStatus: 'OBSERVING', dataConfidence: 'MISSING' });
+    expect(placeholder?.warnings?.join(' ')).toContain('sampleMaterialized=false');
+    expect(materialized).toMatchObject({ dataLineStatus: 'READY_FOR_SHADOW', dataConfidence: 'VERIFIED' });
+    expect(materialized?.warnings?.join(' ')).toContain('readinessKind=MATERIALIZED_SAMPLE');
   });
 
   it('runtime summary prioritizes router selectedProvider over empty investorFlow samples', () => {

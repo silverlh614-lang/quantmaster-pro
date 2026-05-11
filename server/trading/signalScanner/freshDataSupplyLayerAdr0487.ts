@@ -56,6 +56,20 @@ export type FreshDataCacheState =
   | 'MISSING'
   | 'UNKNOWN';
 
+export type FreshDataReadinessKindAdr0487 =
+  | 'REGISTRY_READY'
+  | 'PLACEHOLDER_READY'
+  | 'MATERIALIZED_SAMPLE'
+  | 'CACHE_FALLBACK'
+  | 'NO_SAMPLE';
+
+export type FreshDataSourceOfTruthAdr0487 =
+  | 'FRESH_DATA_STATUS'
+  | 'SUPPLY_SNAPSHOT'
+  | 'ROUTER_INPUT'
+  | 'REGISTRY'
+  | 'SYNTHETIC';
+
 export interface FreshDataSourceRegistrationAdr0487 {
   id: string;
   domain: FreshDataDomain;
@@ -85,6 +99,12 @@ export interface FreshDataSnapshotAdr0487 {
   sourceAgeTradingDays: number | null;
   coverageRatio: number;
   normalized: boolean;
+  sampleMaterialized?: boolean;
+  usableForRouter?: boolean;
+  usableForShadow?: boolean;
+  usableForLive?: false;
+  readinessKind?: FreshDataReadinessKindAdr0487;
+  sourceOfTruth?: FreshDataSourceOfTruthAdr0487;
   status: FreshDataLineStatus;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
   isProviderIssue: boolean;
@@ -137,6 +157,11 @@ export interface BuildFreshDataSnapshotInputAdr0487 {
   sourceAgeTradingDays?: number | null;
   coverageRatio?: number | null;
   normalized?: boolean;
+  sampleMaterialized?: boolean;
+  usableForRouter?: boolean;
+  usableForShadow?: boolean;
+  readinessKind?: FreshDataReadinessKindAdr0487;
+  sourceOfTruth?: FreshDataSourceOfTruthAdr0487;
   confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
   diagnostics?: readonly string[];
 }
@@ -216,14 +241,14 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function statusForSnapshot(input: Required<Pick<BuildFreshDataSnapshotInputAdr0487, 'cacheState' | 'sourceState' | 'normalized' | 'stage'>> & { coverageRatio: number }): FreshDataLineStatus {
+function statusForSnapshot(input: Required<Pick<BuildFreshDataSnapshotInputAdr0487, 'cacheState' | 'sourceState' | 'normalized' | 'stage'>> & { coverageRatio: number; sampleMaterialized: boolean; usableForRouter: boolean }): FreshDataLineStatus {
   if (input.sourceState === 'PROVIDER_ERROR') return 'PROVIDER_ERROR';
   if (input.sourceState === 'STALE') return 'STALE';
   if (input.sourceState === 'NON_TRADING_DAY') return 'DATA_UNAVAILABLE';
   if (input.sourceState === 'MISSING' || input.sourceState === 'EMPTY' || input.sourceState === 'DATA_UNAVAILABLE') {
     return input.cacheState === 'FRESH' || input.cacheState === 'STALE' ? 'CACHE_ONLY' : input.sourceState === 'EMPTY' ? 'MISSING' : 'DATA_UNAVAILABLE';
   }
-  if (input.normalized && input.sourceState === 'FRESH' && input.coverageRatio >= 0.75 && input.stage === 'SHADOW_ONLY') return 'READY_FOR_SHADOW';
+  if (input.normalized && input.sampleMaterialized && input.usableForRouter && input.sourceState === 'FRESH' && input.coverageRatio >= 0.75 && input.stage === 'SHADOW_ONLY') return 'READY_FOR_SHADOW';
   if (input.normalized && input.sourceState === 'FRESH') return 'NORMALIZED';
   if (input.sourceState === 'FRESH' && input.coverageRatio > 0) return 'FETCH_OK';
   if (input.coverageRatio > 0) return 'PARTIAL';
@@ -244,7 +269,12 @@ export function buildFreshDataSnapshotAdr0487(input: BuildFreshDataSnapshotInput
   const sourceState = input.sourceState ?? 'UNKNOWN';
   const coverageRatio = clampCoverage(input.coverageRatio ?? 0);
   const normalized = input.normalized ?? false;
-  const status = statusForSnapshot({ cacheState, sourceState, coverageRatio, normalized, stage });
+  const sampleMaterialized = input.sampleMaterialized ?? (normalized && coverageRatio > 0 && input.readinessKind !== 'REGISTRY_READY' && input.readinessKind !== 'PLACEHOLDER_READY');
+  const usableForShadow = input.usableForShadow ?? sampleMaterialized;
+  const usableForRouter = input.usableForRouter ?? (sampleMaterialized && normalized && (sourceState === 'FRESH' || sourceState === 'STALE'));
+  const readinessKind = input.readinessKind ?? (sampleMaterialized ? 'MATERIALIZED_SAMPLE' : normalized ? 'REGISTRY_READY' : 'NO_SAMPLE');
+  const sourceOfTruth = input.sourceOfTruth ?? (sampleMaterialized ? 'ROUTER_INPUT' : 'REGISTRY');
+  const status = statusForSnapshot({ cacheState, sourceState, coverageRatio, normalized, stage, sampleMaterialized, usableForRouter });
   return {
     sourceId,
     domain,
@@ -258,12 +288,24 @@ export function buildFreshDataSnapshotAdr0487(input: BuildFreshDataSnapshotInput
     sourceAgeTradingDays: input.sourceAgeTradingDays ?? null,
     coverageRatio,
     normalized,
+    sampleMaterialized,
+    usableForRouter,
+    usableForShadow,
+    usableForLive: false,
+    readinessKind,
+    sourceOfTruth,
     status,
     confidence: input.confidence ?? (normalized && sourceState === 'FRESH' ? 'HIGH' : coverageRatio > 0 ? 'LOW' : 'NONE'),
     isProviderIssue: isProviderIssue(status),
     isMarketSignal: false,
     ...POLICY,
     diagnostics: [
+      `sampleMaterialized=${sampleMaterialized}`,
+      `usableForRouter=${usableForRouter}`,
+      `usableForShadow=${usableForShadow}`,
+      'usableForLive=false',
+      `readinessKind=${readinessKind}`,
+      `sourceOfTruth=${sourceOfTruth}`,
       ...(input.diagnostics ?? []),
       'ADR-0487 snapshot is diagnostic-only; provider issue is never bearish.',
     ],
@@ -334,6 +376,11 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
       sourceState,
       coverageRatio: coverage,
       normalized: coverage >= 0.8 && missingIndexCode === 0,
+      sampleMaterialized: coverage >= 0.8 && missingIndexCode === 0,
+      usableForRouter: false,
+      usableForShadow: coverage > 0,
+      readinessKind: coverage >= 0.8 && missingIndexCode === 0 ? 'MATERIALIZED_SAMPLE' : coverage > 0 ? 'PLACEHOLDER_READY' : 'NO_SAMPLE',
+      sourceOfTruth: 'REGISTRY',
       diagnostics: [`indexCodeCoverage=${coverage}`, `missingIndexCode=${missingIndexCode}`],
     }),
     buildFreshDataSnapshotAdr0487({
@@ -343,6 +390,11 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
       sourceState: coverage > 0 ? (aliasMissing > 0 ? 'STALE' : 'FRESH') : 'MISSING',
       coverageRatio: coverage,
       normalized: coverage >= 0.8 && aliasMissing === 0,
+      sampleMaterialized: coverage >= 0.8 && aliasMissing === 0,
+      usableForRouter: false,
+      usableForShadow: coverage > 0,
+      readinessKind: coverage >= 0.8 && aliasMissing === 0 ? 'MATERIALIZED_SAMPLE' : coverage > 0 ? 'PLACEHOLDER_READY' : 'NO_SAMPLE',
+      sourceOfTruth: 'REGISTRY',
       diagnostics: [`aliasMissing=${aliasMissing}`],
     }),
     buildFreshDataSnapshotAdr0487({
@@ -352,6 +404,11 @@ function buildSectorSnapshots(input: FreshDataSupplyReportInputAdr0487, registra
       sourceState: fallbackUsed && fallbackUsed !== 'NONE' ? 'FRESH' : 'MISSING',
       coverageRatio: fallbackUsed && fallbackUsed !== 'NONE' ? 1 : 0,
       normalized: false,
+      sampleMaterialized: false,
+      usableForRouter: false,
+      usableForShadow: Boolean(fallbackUsed && fallbackUsed !== 'NONE'),
+      readinessKind: fallbackUsed && fallbackUsed !== 'NONE' ? 'PLACEHOLDER_READY' : 'NO_SAMPLE',
+      sourceOfTruth: fallbackUsed && fallbackUsed !== 'NONE' ? 'SYNTHETIC' : 'REGISTRY',
       diagnostics: [`fallbackUsed=${fallbackUsed || 'NONE'}`, 'Fallback data is support-only and not leadership confidence.'],
     }),
   ];
@@ -377,22 +434,52 @@ function naverSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: F
   const naverFreshness = typeof input.naverInvestorTrendAdr0481?.freshness === 'object' && input.naverInvestorTrendAdr0481.freshness !== null
     ? input.naverInvestorTrendAdr0481.freshness as Record<string, unknown>
     : null;
-  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, sourceDate: typeof naverFreshness?.lastSourceDate === 'string' ? naverFreshness.lastSourceDate : null, sourceAgeTradingDays: asNumber(naverFreshness?.sourceAgeTradingDays), cacheState: sourceState === 'FRESH' ? 'FRESH' : hasNaverSample ? 'STALE' : 'UNKNOWN', sourceState, coverageRatio: coverage || (hasNaverSample ? 1 : sourceState === 'FRESH' ? 1 : 0), normalized: Boolean(adr0496?.normalizedSampleCount && adr0496.normalizedSampleCount > 0) || hasNaverSample || sourceState === 'FRESH', diagnostics: [`ADR-0481 status=${status || 'missing'}`, `ADR-0481 sample=${hasNaverSample ? 'NORMALIZED_SAMPLE' : 'NO_SAMPLE'}`, `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`] });
+  const normalized = hasNaverSample;
+  const naverSourceState = hasNaverSample ? sourceState : sourceState === 'FRESH' ? 'DATA_UNAVAILABLE' : sourceState;
+  return buildFreshDataSnapshotAdr0487({
+    registration,
+    collectedAt: generatedAt,
+    sourceDate: typeof naverFreshness?.lastSourceDate === 'string' ? naverFreshness.lastSourceDate : null,
+    sourceAgeTradingDays: asNumber(naverFreshness?.sourceAgeTradingDays),
+    cacheState: hasNaverSample ? (sourceState === 'FRESH' ? 'FRESH' : 'STALE') : 'UNKNOWN',
+    sourceState: naverSourceState,
+    coverageRatio: hasNaverSample ? 1 : 0,
+    normalized,
+    sampleMaterialized: hasNaverSample,
+    usableForRouter: hasNaverSample && naverSourceState === 'FRESH',
+    usableForShadow: hasNaverSample,
+    readinessKind: hasNaverSample ? 'MATERIALIZED_SAMPLE' : (status ? 'REGISTRY_READY' : 'NO_SAMPLE'),
+    sourceOfTruth: hasNaverSample ? 'ROUTER_INPUT' : 'REGISTRY',
+    diagnostics: [`ADR-0481 status=${status || 'missing'}`, `ADR-0481 sample=${hasNaverSample ? 'NORMALIZED_SAMPLE' : 'NO_SAMPLE'}`, `ADR-0496 sampleCount=${adr0496?.sampleCount ?? 0}`, `fallbackUsed=${hasNaverSample && naverSourceState === 'STALE'}`],
+  });
 }
 
 function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {
   const adr0496 = input.supplyCoverageReportAdr0496;
   const status = upper(input.semanticNetBuyNormalizationAdr0482?.status);
-  const hasAdr0496Sample = Boolean(adr0496 && adr0496.semanticNetBuyCount > 0);
   const semanticSamples = input.semanticNetBuyNormalizationAdr0482?.samples;
   const hasAnySemanticSample = Array.isArray(semanticSamples) && semanticSamples.length > 0;
-  const hasSample = hasAdr0496Sample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample) || hasAnySemanticSample || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
+  const hasMaterializedSemantic = hasAnySemanticSample || Boolean(input.semanticNetBuyNormalizationAdr0482?.selectedSample);
+  const hasSample = hasMaterializedSemantic || status.includes('DATA_AVAILABLE') || status.includes('NORMALIZED');
   const sourceState: FreshDataSourceState =
     status.includes('STALE') ? 'STALE'
       : hasSample ? 'FRESH'
         : status.includes('PARSE_ERROR') || status.includes('PROVIDER_ERROR') ? 'PROVIDER_ERROR'
           : 'DATA_UNAVAILABLE';
-  return buildFreshDataSnapshotAdr0487({ registration, collectedAt: generatedAt, cacheState: hasSample ? 'FRESH' : 'UNKNOWN', sourceState, coverageRatio: hasAdr0496Sample ? (adr0496?.coverageAfter ?? 0) : hasSample ? 1 : 0, normalized: hasSample, diagnostics: [`ADR-0482 status=${status || 'missing'}`, `ADR-0482 sampleCount=${Array.isArray(semanticSamples) ? semanticSamples.length : 0}`, `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`] });
+  return buildFreshDataSnapshotAdr0487({
+    registration,
+    collectedAt: generatedAt,
+    cacheState: hasMaterializedSemantic ? 'FRESH' : 'UNKNOWN',
+    sourceState: hasMaterializedSemantic ? sourceState : 'DATA_UNAVAILABLE',
+    coverageRatio: hasMaterializedSemantic ? 1 : 0,
+    normalized: hasMaterializedSemantic,
+    sampleMaterialized: hasMaterializedSemantic,
+    usableForRouter: hasMaterializedSemantic && sourceState === 'FRESH',
+    usableForShadow: hasMaterializedSemantic,
+    readinessKind: hasMaterializedSemantic ? 'MATERIALIZED_SAMPLE' : (status ? 'REGISTRY_READY' : 'NO_SAMPLE'),
+    sourceOfTruth: hasMaterializedSemantic ? 'ROUTER_INPUT' : 'REGISTRY',
+    diagnostics: [`ADR-0482 status=${status || 'missing'}`, `ADR-0482 sampleCount=${Array.isArray(semanticSamples) ? semanticSamples.length : 0}`, `ADR-0496 semanticNetBuyCount=${adr0496?.semanticNetBuyCount ?? 0}`, `semanticPlaceholder=${!hasMaterializedSemantic && status ? 'true' : 'false'}`],
+  });
 }
 
 function programSnapshot(input: FreshDataSupplyReportInputAdr0487, registration: FreshDataSourceRegistrationAdr0487, generatedAt: string): FreshDataSnapshotAdr0487 {

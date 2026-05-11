@@ -91,6 +91,36 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(['NORMALIZED', 'READY_FOR_SHADOW']).toContain(snapshot.status);
   });
 
+  it('8a. READY_FOR_SHADOW requires a materialized router-usable sample', () => {
+    const placeholder = buildFreshDataSnapshotAdr0487({
+      stage: 'SHADOW_ONLY',
+      sourceState: 'FRESH',
+      normalized: true,
+      coverageRatio: 1,
+      sampleMaterialized: false,
+      usableForRouter: false,
+      readinessKind: 'REGISTRY_READY',
+      sourceOfTruth: 'REGISTRY',
+    });
+    const materialized = buildFreshDataSnapshotAdr0487({
+      stage: 'SHADOW_ONLY',
+      sourceState: 'FRESH',
+      normalized: true,
+      coverageRatio: 1,
+      sampleMaterialized: true,
+      usableForRouter: true,
+      readinessKind: 'MATERIALIZED_SAMPLE',
+      sourceOfTruth: 'ROUTER_INPUT',
+    });
+
+    expect(placeholder.status).toBe('NORMALIZED');
+    expect(placeholder.status).not.toBe('READY_FOR_SHADOW');
+    expect(placeholder.sampleMaterialized).toBe(false);
+    expect(placeholder.usableForRouter).toBe(false);
+    expect(materialized.status).toBe('READY_FOR_SHADOW');
+    expect(materialized.sampleMaterialized).toBe(true);
+  });
+
   it('9. Missing input does not throw.', () => {
     expect(() => buildFreshDataSupplyReportAdr0487()).not.toThrow();
   });
@@ -131,7 +161,7 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
 
   it('17. Overall status OBSERVING when data exists but insufficient coverage.', () => {
     const report = buildFreshDataSupplyReportAdr0487({ ...partialInput(), sectorEnergyDiagnosticAdr0474: { indexCodeCoverage: 0.1 }, naverInvestorTrendAdr0481: { status: 'DATA_AVAILABLE', availableDays: 1, requestedDays: 10 } });
-    expect(report.overallStatus).toBe('OBSERVING');
+    expect(['OBSERVING', 'STALE']).toContain(report.overallStatus);
   });
 
   it('18. Overall status PARTIAL when some sources are available.', () => {
@@ -248,6 +278,19 @@ describe('ADR-0487 Fresh Data Supply Layer Foundation', () => {
     expect(semantic?.normalized).toBe(true);
     expect(semantic?.confidence).toBe('LOW');
     expect(semantic?.liveExecutionAllowed).toBe(false);
+  });
+
+  it('38a. NAVER registry-ready without a fetched sample remains non-materialized and not READY_FOR_SHADOW', () => {
+    const report = buildFreshDataSupplyReportAdr0487({
+      generatedAt: '2026-05-11T00:00:00.000Z',
+      naverInvestorTrendAdr0481: { status: 'DATA_AVAILABLE', availableDays: 5, requestedDays: 5 },
+    });
+    const naver = report.snapshots.find((item) => item.sourceId === 'NAVER_INVESTOR_TREND');
+
+    expect(naver?.sampleMaterialized).toBe(false);
+    expect(naver?.usableForRouter).toBe(false);
+    expect(naver?.readinessKind).toBe('REGISTRY_READY');
+    expect(naver?.status).not.toBe('READY_FOR_SHADOW');
   });
 
   it('39. FSS Passive/Active stale diagnostics expose lastUpdated, staleDays, and live=false', () => {

@@ -37,8 +37,9 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
   });
 
   it('semantic_net_buy_unknown_is_not_bearish', () => {
-    const sample = buildInvestorFlowSanitizedSampleAdr0496({ provider: 'CACHE' });
+    const sample = buildInvestorFlowSanitizedSampleAdr0496({ provider: 'CACHE', status: 'UNKNOWN' });
     const semantic = normalizeSemanticNetBuyAdr0496(sample);
+    expect(sample.isProviderIssue).toBe(false);
     expect(semantic.foreignDirection).toBe('UNKNOWN');
     expect(semantic.institutionDirection).toBe('UNKNOWN');
     expect(semantic.retailDirection).toBe('UNKNOWN');
@@ -76,6 +77,32 @@ describe('ADR-0496 investor flow semantic net-buy normalization', () => {
     expect(report.liveExecutionAllowed).toBe(false);
     expect(report.executionImpact).toBe('NONE');
     expect(report.marketSignalCount).toBe(0);
+  });
+
+  it('semantic placeholder count is separated from materialized normalized count', () => {
+    const sample = buildInvestorFlowSanitizedSampleAdr0496({ provider: 'CACHE', status: 'UNKNOWN' });
+    const placeholder = {
+      ...normalizeSemanticNetBuyAdr0496(sample),
+      normalized: false,
+    };
+    const report = buildSupplyCoverageReportAdr0496({ samples: [sample], semanticSamples: [placeholder] });
+
+    expect(report.semanticPlaceholderCount).toBe(1);
+    expect(report.semanticNetBuyCount).toBe(0);
+    expect(report.normalizedSampleCount).toBe(0);
+    expect(report.providerIssueCount).toBe(0);
+    expect(report.marketSignalCount).toBe(0);
+  });
+
+  it('semantic materialized normalized output contributes to semantic and normalized counts', () => {
+    const sample = buildInvestorFlowSanitizedSampleAdr0496({ provider: 'NAVER', status: 'FRESH', foreignNetBuy: null, institutionNetBuy: null, retailNetBuy: null });
+    const semantic = normalizeSemanticNetBuyAdr0496(sample);
+    const report = buildSupplyCoverageReportAdr0496({ samples: [sample], semanticSamples: [semantic] });
+
+    expect(report.semanticNetBuyCount).toBe(1);
+    expect(report.normalizedSampleCount).toBeGreaterThanOrEqual(report.semanticNetBuyCount);
+    expect(report.routerUsableSampleCount).toBeGreaterThanOrEqual(1);
+    expect(report.providerIssueCount).toBe(0);
   });
 
   it('raw_payload_not_persisted', () => {
