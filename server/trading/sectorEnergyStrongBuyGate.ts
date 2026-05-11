@@ -110,8 +110,8 @@ export function evaluateSectorEnergyStrongBuyGate(
   }
 
   // 조건 4: sourceTier === 'YAHOO_ETF' (해외 ETF 프록시 보조 신호)
-  if (input.sourceTier === 'YAHOO_ETF') {
-    reasons.push('sourceTier=YAHOO_ETF (해외 ETF 프록시 보조 신호)');
+  if (input.sourceTier === 'YAHOO_ETF' || input.sourceTier === 'YAHOO_GLOBAL_PROXY') {
+    reasons.push(`sourceTier=${input.sourceTier} (해외 ETF 프록시 보조 신호)`);
   }
 
   // 조건 5 (ADR-0415): dataQuality === 'STALE' (6~8 섹터 정상, 신뢰도 부족)

@@ -72,10 +72,26 @@ export type StrategicSector =
   | '통신/유틸리티';
 
 export interface SectorEnergyInput {
-  name: StrategicSector;
+  name: StrategicSector | string;
   return4w: number;
   volumeChangePct: number;
   foreignConcentration: number;
+  sourceTier?: SectorEnergySourceTierForDiag;
+  sectorReturn5d?: number;
+  sectorReturn20d?: number;
+  turnoverAcceleration?: number;
+  breadthAbove20ma?: number;
+  foreignInstitutionFlowAlignment?: number;
+  sectorRelativeStrengthVsKospi?: number;
+  sectorRelativeStrengthVsKosdaq?: number;
+  sectorVolumeSurge?: boolean;
+  sectorBreadth?: number;
+  leadingStockCount?: number;
+  topConstituentMomentum?: number;
+  turnoverRank?: number;
+  leadershipPhase?: 'EARLY' | 'MID' | 'LATE' | 'UNKNOWN';
+  constituentCount?: number;
+  basketCodes?: string[];
 }
 
 const CANONICAL_SECTORS: StrategicSector[] = [
@@ -145,11 +161,42 @@ export interface SymmetryValidationResult {
  * 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
  */
 export type SectorEnergySourceTierForDiag =
+  | 'KIS_OFFICIAL_INDEX'
+  | 'KIS_OFFICIAL_DAILY'
+  | 'KIS_STOCK_BASKET_DERIVED'
+  | 'KRX_OFFICIAL_INDEX'
   | 'KRX_CODE'
   | 'STOCK_DAILY'
   | 'CACHE'
+  | 'YAHOO_GLOBAL_PROXY'
   | 'YAHOO_ETF'
+  | 'INTERNAL_PROXY'
+  | 'MISSING'
   | 'FAILED';
+
+export type SectorEnergyLeadershipConfidenceForDiag =
+  | 'WEIGHTED'
+  | 'READY_FOR_SHADOW'
+  | 'PARTIAL'
+  | 'GLOBAL_DIAGNOSTIC_ONLY'
+  | 'DIAGNOSTIC_ONLY'
+  | 'BLOCKED';
+
+export interface SectorEnergyCoverageBreakdownForDiag {
+  totalSectors: number;
+  verifiedIndexCodeCount: number;
+  verifiedIndexCodeCoverage: number;
+  kisOfficialCount: number;
+  kisOfficialCoverage: number;
+  kisBasketCount: number;
+  kisBasketCoverage: number;
+  internalProxyCount: number;
+  internalProxyCoverage: number;
+  stockDailyFallbackCount: number;
+  stockDailyFallbackCoverage: number;
+  yahooGlobalProxyCount: number;
+  yahooGlobalProxyCoverage: number;
+}
 
 export interface SectorEnergyDiagnosticsMeta {
   /** T → T-1 → T-2 → T-3 → T-5 시도한 날짜 후보 (yyyymmdd 또는 'default'). */
@@ -166,6 +213,13 @@ export interface SectorEnergyDiagnosticsMeta {
   confidence: number;
   /** L4 (Yahoo ETF) 도달 사유 등. */
   fallbackReason?: string;
+  coverageBreakdown?: SectorEnergyCoverageBreakdownForDiag;
+  leadershipConfidence?: SectorEnergyLeadershipConfidenceForDiag;
+  selectedSectors?: string[];
+  providerIssue?: boolean;
+  marketSignal?: false;
+  liveExecutionAllowed?: false;
+  executionImpact?: 'NONE';
 }
 
 export interface SectorEnergyBuildResult {
@@ -192,6 +246,13 @@ export interface SectorEnergyBuildResult {
    * marketDataRefresh.ts 가 이 필드를 macroState 로 영속 → /sector_energy_diag + /scan_blockers.
    */
   qualityDiagnostic?: import('./sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+  coverageBreakdown?: SectorEnergyCoverageBreakdownForDiag;
+  leadershipConfidence?: SectorEnergyLeadershipConfidenceForDiag;
+  selectedSectors?: string[];
+  providerIssue?: boolean;
+  marketSignal?: false;
+  liveExecutionAllowed?: false;
+  executionImpact?: 'NONE';
 }
 
 /**
@@ -1033,6 +1094,45 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
   // ADR-0399: 진단 메타 누적 (각 layer 시도 결과).
   const sourceTierAttempts: SectorEnergyDiagnosticsMeta['sourceTierAttempts'] = [];
 
+  if (!isSectorEnergySourceRestorationDisabled() && !isKisSectorEnergyProviderDisabled()) {
+    try {
+      const { buildKisSectorEnergyInputsWithMeta } = await import('./kisSectorEnergyProvider.js');
+      const kis = await buildKisSectorEnergyInputsWithMeta();
+      sourceTierAttempts.push({
+        tier: kis.sourceTier,
+        validCount: kis.validSectorCount,
+        reason: kis.reasons.slice(0, 1).join('; ') || 'KIS sectorEnergy provider attempted',
+      });
+      if (kis.validSectorCount > 0 && kis.sourceTier !== 'MISSING') {
+        return attachDiagnostics(
+          {
+            inputs: kis.inputs,
+            dataQuality: kis.dataQuality,
+            validSectorCount: kis.validSectorCount,
+            totalSectorCount: kis.totalSectorCount,
+            reasons: kis.reasons,
+            sourceTier: kis.sourceTier,
+            coverageBreakdown: kis.coverageBreakdown,
+            leadershipConfidence: kis.leadershipConfidence,
+            selectedSectors: kis.selectedSectors,
+            providerIssue: kis.providerIssue,
+            marketSignal: kis.marketSignal,
+            liveExecutionAllowed: kis.liveExecutionAllowed,
+            executionImpact: kis.executionImpact,
+          },
+          [],
+          sourceTierAttempts,
+        );
+      }
+    } catch (e) {
+      sourceTierAttempts.push({
+        tier: 'MISSING',
+        validCount: 0,
+        reason: `KIS sectorEnergy throw: ${e instanceof Error ? e.message : 'unknown'}`,
+      });
+    }
+  }
+
   const result = await buildSectorEnergyInputsWithMetaRaw();
 
   // ADR-0399: raw 결과의 sourceTier 를 진단 메타에 기록 (L1/L2/FAILED 분기).
@@ -1176,6 +1276,13 @@ function attachDiagnostics(
       finalSourceTier,
       confidence,
       ...(fallbackReason ? { fallbackReason } : {}),
+      ...(result.coverageBreakdown ? { coverageBreakdown: result.coverageBreakdown } : {}),
+      ...(result.leadershipConfidence ? { leadershipConfidence: result.leadershipConfidence } : {}),
+      ...(result.selectedSectors ? { selectedSectors: result.selectedSectors } : {}),
+      ...(result.providerIssue !== undefined ? { providerIssue: result.providerIssue } : {}),
+      ...(result.marketSignal !== undefined ? { marketSignal: result.marketSignal } : {}),
+      ...(result.liveExecutionAllowed !== undefined ? { liveExecutionAllowed: result.liveExecutionAllowed } : {}),
+      ...(result.executionImpact !== undefined ? { executionImpact: result.executionImpact } : {}),
     },
   };
 }
@@ -1187,6 +1294,17 @@ function attachDiagnostics(
  */
 export function isSectorEnergySourceRestorationDisabled(): boolean {
   return process.env.SECTOR_ENERGY_SOURCE_RESTORATION_DISABLED === 'true';
+}
+
+export function isKisSectorEnergyProviderDisabled(): boolean {
+  if (process.env.KIS_SECTOR_ENERGY_PROVIDER_DISABLED === 'true') return true;
+  if (
+    (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') &&
+    process.env.KIS_SECTOR_ENERGY_PROVIDER_ENABLED !== 'true'
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**

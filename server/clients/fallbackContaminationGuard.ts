@@ -18,8 +18,19 @@ export function applyFallbackContaminationGuard(input: {
   reasons?: string[];
 }): FallbackContaminationDecision {
   const reasons = Array.from(new Set(input.reasons ?? []));
-  if (input.sourceTier === 'STOCK_DAILY_FALLBACK') {
+  if (input.sourceTier === 'STOCK_DAILY_FALLBACK' || input.sourceTier === 'INTERNAL_PROXY') {
     reasons.push('STOCK_DAILY_FALLBACK_USED', 'FALLBACK_DIAGNOSTIC_ONLY');
+    return {
+      diagnosticOnly: true,
+      fallbackContributionToScore: 0,
+      sectorBoost: 0,
+      leadershipConfidence: 'BLOCKED',
+      executionHardBlock: false,
+      reasons: Array.from(new Set(reasons)),
+    };
+  }
+  if (input.sourceTier === 'YAHOO_GLOBAL_PROXY') {
+    reasons.push('FALLBACK_DIAGNOSTIC_ONLY');
     return {
       diagnosticOnly: true,
       fallbackContributionToScore: 0,

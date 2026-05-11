@@ -247,15 +247,22 @@ describe('ADR-0399 Sector Energy Source Restoration', () => {
       expect(meta.fallbackReason).toBeUndefined();
     });
 
-    it('SectorEnergySourceTierForDiag — 5 union 정합', () => {
+    it('SectorEnergySourceTierForDiag — KIS-first + legacy union 정합', () => {
       const tiers: SectorEnergySourceTierForDiag[] = [
+        'KIS_OFFICIAL_INDEX',
+        'KIS_OFFICIAL_DAILY',
+        'KIS_STOCK_BASKET_DERIVED',
+        'KRX_OFFICIAL_INDEX',
         'KRX_CODE',
         'STOCK_DAILY',
         'CACHE',
+        'YAHOO_GLOBAL_PROXY',
         'YAHOO_ETF',
+        'INTERNAL_PROXY',
+        'MISSING',
         'FAILED',
       ];
-      expect(tiers).toHaveLength(5);
+      expect(tiers).toHaveLength(12);
     });
   });
 

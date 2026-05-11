@@ -42,7 +42,19 @@ export type SectorEnergyDataQuality5 =
   | 'FAILED';
 
 /** ADR-0396: 원천 데이터 출처 — 4-tier fallback chain + FAILED. */
-export type SectorEnergySourceTier = 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED';
+export type SectorEnergySourceTier =
+  | 'KIS_OFFICIAL_INDEX'
+  | 'KIS_OFFICIAL_DAILY'
+  | 'KIS_STOCK_BASKET_DERIVED'
+  | 'KRX_OFFICIAL_INDEX'
+  | 'KRX_CODE'
+  | 'STOCK_DAILY'
+  | 'CACHE'
+  | 'YAHOO_GLOBAL_PROXY'
+  | 'YAHOO_ETF'
+  | 'INTERNAL_PROXY'
+  | 'MISSING'
+  | 'FAILED';
 
 /** ADR-0396: cache age 기반 freshness 분기 — 30분/4h 임계. */
 export type SectorEnergyFreshness = 'FRESH' | 'DEGRADED' | 'EXPIRED';
@@ -74,10 +86,17 @@ export const SECTOR_QUALITY_THRESHOLDS = Object.freeze({
 
 /** sourceWeight SSOT (사용자 명시). */
 export const SOURCE_WEIGHT: Readonly<Record<SectorEnergySourceTier, number>> = Object.freeze({
+  KIS_OFFICIAL_INDEX: 1.0,
+  KIS_OFFICIAL_DAILY: 1.0,
+  KIS_STOCK_BASKET_DERIVED: 0.75,
+  KRX_OFFICIAL_INDEX: 1.0,
   KRX_CODE: 1.0,
   STOCK_DAILY: 0.85,
   CACHE: 0.7,
+  YAHOO_GLOBAL_PROXY: 0.5,
   YAHOO_ETF: 0.5,
+  INTERNAL_PROXY: 0.2,
+  MISSING: 0,
   FAILED: 0,
 });
 

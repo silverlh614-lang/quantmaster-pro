@@ -3,12 +3,18 @@
 import { SECTOR_INDEX_MASTER as LEGACY_SECTOR_INDEX_MASTER } from './sectorEnergyMaster.js';
 
 export type SectorSourceTier =
+  | 'KIS_OFFICIAL_INDEX'
+  | 'KIS_OFFICIAL_DAILY'
+  | 'KIS_STOCK_BASKET_DERIVED'
   | 'KRX_INDEX'
   | 'KRX_ETF'
+  | 'YAHOO_GLOBAL_PROXY'
   | 'YAHOO_PROXY'
-  | 'STOCK_DAILY_FALLBACK';
+  | 'STOCK_DAILY_FALLBACK'
+  | 'INTERNAL_PROXY'
+  | 'MISSING';
 
-export type SectorDataConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
+export type SectorDataConfidence = 'VERIFIED' | 'PARTIAL' | 'DIAGNOSTIC' | 'DEGRADED' | 'STALE' | 'MISSING';
 
 export interface SectorIndexMasterItem {
   canonicalSectorId: string;
@@ -58,7 +64,14 @@ export function getSectorIndexMasterItems(): ReadonlyArray<SectorIndexMasterItem
 }
 
 export function isScoringSourceTier(sourceTier: SectorSourceTier): boolean {
-  return sourceTier === 'KRX_INDEX' || sourceTier === 'KRX_ETF' || sourceTier === 'YAHOO_PROXY';
+  return (
+    sourceTier === 'KIS_OFFICIAL_INDEX' ||
+    sourceTier === 'KIS_OFFICIAL_DAILY' ||
+    sourceTier === 'KIS_STOCK_BASKET_DERIVED' ||
+    sourceTier === 'KRX_INDEX' ||
+    sourceTier === 'KRX_ETF' ||
+    sourceTier === 'YAHOO_PROXY'
+  );
 }
 
 export function getTradableSectorIndexMasterItems(): SectorIndexMasterItem[] {

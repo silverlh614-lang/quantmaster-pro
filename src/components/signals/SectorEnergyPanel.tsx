@@ -130,9 +130,17 @@ export const SectorEnergyPanel: React.FC<Props> = ({ result, inputs, onInputsCha
         </div>
         <div className="flex items-center gap-2">
           {result && (
-            <span className="text-xs text-gray-500">
-              계절: <span className="text-amber-400 font-medium">{result.currentSeason}</span>
-            </span>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-xs text-gray-500">
+                계절: <span className="text-amber-400 font-medium">{result.currentSeason}</span>
+              </span>
+              {result.sourceTier && (
+                <span className="text-[11px] text-gray-500">
+                  {result.sourceTier}
+                  {result.leadershipConfidence ? ` / ${result.leadershipConfidence}` : ''}
+                </span>
+              )}
+            </div>
           )}
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-gray-500" />

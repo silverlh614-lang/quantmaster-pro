@@ -761,7 +761,20 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   let sectorEnergyValidSectorCount: number | undefined;
   let sectorEnergyReasons: string[] | undefined;
   // ADR-0396 4-axis 영속 (사용자 명시 ADR-0371) + ADR-0399 진단 메타 (사용자 명시 ADR-0374).
-  let sectorEnergySourceTier: 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_ETF' | 'FAILED' | undefined;
+  let sectorEnergySourceTier:
+    | 'KIS_OFFICIAL_INDEX'
+    | 'KIS_OFFICIAL_DAILY'
+    | 'KIS_STOCK_BASKET_DERIVED'
+    | 'KRX_OFFICIAL_INDEX'
+    | 'KRX_CODE'
+    | 'STOCK_DAILY'
+    | 'CACHE'
+    | 'YAHOO_GLOBAL_PROXY'
+    | 'YAHOO_ETF'
+    | 'INTERNAL_PROXY'
+    | 'MISSING'
+    | 'FAILED'
+    | undefined;
   let sectorEnergyFreshness: 'FRESH' | 'DEGRADED' | 'EXPIRED' | undefined;
   let sectorEnergyCoverage: number | undefined;
   let sectorEnergyConfidence: number | undefined;
@@ -819,7 +832,23 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     }
 
     if (meta.inputs.length > 0) {
-      sectorEnergyResult = evaluateSectorEnergy(meta.inputs);
+      sectorEnergyResult = {
+        ...evaluateSectorEnergy(meta.inputs),
+        ...(meta.diagnostics?.finalSourceTier ? { sourceTier: meta.diagnostics.finalSourceTier } : {}),
+        ...(typeof meta.diagnostics?.confidence === 'number' ? { confidence: meta.diagnostics.confidence } : {}),
+        ...(meta.diagnostics?.leadershipConfidence ? { leadershipConfidence: meta.diagnostics.leadershipConfidence } : {}),
+        ...(meta.diagnostics?.coverageBreakdown
+          ? {
+              verifiedIndexCodeCoverage: meta.diagnostics.coverageBreakdown.verifiedIndexCodeCoverage,
+              kisOfficialCoverage: meta.diagnostics.coverageBreakdown.kisOfficialCoverage,
+              kisBasketCoverage: meta.diagnostics.coverageBreakdown.kisBasketCoverage,
+              internalProxyCoverage: meta.diagnostics.coverageBreakdown.internalProxyCoverage,
+              stockDailyFallbackCoverage: meta.diagnostics.coverageBreakdown.stockDailyFallbackCoverage,
+            }
+          : {}),
+        liveExecutionAllowed: false as const,
+        executionImpact: 'NONE' as const,
+      };
       sectorEnergyUpdatedAt = new Date().toISOString();
       // ADR-0454: meta.inputs SSOT 영속 — saveMacroState merge 분기에서 sectorEnergyInputs 영속.
       sectorEnergyInputsResolved = meta.inputs;

@@ -30,6 +30,12 @@ const W_RETURN = 0.4;
 const W_VOLUME = 0.3;
 const W_FOREIGN = 0.3;
 
+const W_SECTOR_RETURN_5D = 0.30;
+const W_SECTOR_RETURN_20D = 0.25;
+const W_TURNOVER_ACCELERATION = 0.20;
+const W_BREADTH_ABOVE_20MA = 0.15;
+const W_FLOW_ALIGNMENT = 0.10;
+
 // ─── 계절성 배수 테이블 ─────────────────────────────────────────────────────────
 // 섹터명 → [1월, 4~5월, 10~11월, 기타] 배수
 
@@ -77,6 +83,20 @@ function minMaxNormalize(values: number[]): number[] {
   return values.map((v) => ((v - min) / (max - min)) * 100);
 }
 
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasKisSectorMetrics(input: SectorEnergyInput): boolean {
+  return (
+    finite(input.sectorReturn5d) ||
+    finite(input.sectorReturn20d) ||
+    finite(input.turnoverAcceleration) ||
+    finite(input.breadthAbove20ma) ||
+    finite(input.foreignInstitutionFlowAlignment)
+  );
+}
+
 // ─── 핵심 공개 API ──────────────────────────────────────────────────────────────
 
 /**
@@ -107,9 +127,16 @@ export function evaluateSectorEnergy(
   // return4w와 volumeChangePct는 음수 가능; foreignConcentration은 0~100
   // 각 지표를 개별적으로 clamping하여 계산
   const rawScores = inputs.map((inp) => {
-    const returnContrib = inp.return4w * W_RETURN;
-    const volumeContrib = inp.volumeChangePct * W_VOLUME;
-    const foreignContrib = inp.foreignConcentration * W_FOREIGN;
+    const usesKisMetrics = hasKisSectorMetrics(inp);
+    const returnContrib = usesKisMetrics
+      ? (inp.sectorReturn5d ?? 0) * W_SECTOR_RETURN_5D + (inp.sectorReturn20d ?? 0) * W_SECTOR_RETURN_20D
+      : inp.return4w * W_RETURN;
+    const volumeContrib = usesKisMetrics
+      ? (inp.turnoverAcceleration ?? 0) * W_TURNOVER_ACCELERATION + (inp.breadthAbove20ma ?? 0) * W_BREADTH_ABOVE_20MA
+      : inp.volumeChangePct * W_VOLUME;
+    const foreignContrib = usesKisMetrics
+      ? (inp.foreignInstitutionFlowAlignment ?? 0) * W_FLOW_ALIGNMENT
+      : inp.foreignConcentration * W_FOREIGN;
     const rawScore = returnContrib + volumeContrib + foreignContrib;
     const seasonalMultiplier = getSeasonalMultiplier(inp.name, season);
     return {
@@ -120,6 +147,20 @@ export function evaluateSectorEnergy(
       foreignContrib,
       seasonalMultiplier,
       energyScore: rawScore * seasonalMultiplier,
+      ...(inp.sourceTier ? { sourceTier: inp.sourceTier } : {}),
+      ...(finite(inp.sectorReturn5d) ? { sectorReturn5d: inp.sectorReturn5d } : {}),
+      ...(finite(inp.sectorReturn20d) ? { sectorReturn20d: inp.sectorReturn20d } : {}),
+      ...(finite(inp.turnoverAcceleration) ? { turnoverAcceleration: inp.turnoverAcceleration } : {}),
+      ...(finite(inp.breadthAbove20ma) ? { breadthAbove20ma: inp.breadthAbove20ma } : {}),
+      ...(finite(inp.foreignInstitutionFlowAlignment) ? { foreignInstitutionFlowAlignment: inp.foreignInstitutionFlowAlignment } : {}),
+      ...(finite(inp.sectorRelativeStrengthVsKospi) ? { sectorRelativeStrengthVsKospi: inp.sectorRelativeStrengthVsKospi } : {}),
+      ...(finite(inp.sectorRelativeStrengthVsKosdaq) ? { sectorRelativeStrengthVsKosdaq: inp.sectorRelativeStrengthVsKosdaq } : {}),
+      ...(typeof inp.sectorVolumeSurge === 'boolean' ? { sectorVolumeSurge: inp.sectorVolumeSurge } : {}),
+      ...(finite(inp.sectorBreadth) ? { sectorBreadth: inp.sectorBreadth } : {}),
+      ...(finite(inp.leadingStockCount) ? { leadingStockCount: inp.leadingStockCount } : {}),
+      ...(finite(inp.topConstituentMomentum) ? { topConstituentMomentum: inp.topConstituentMomentum } : {}),
+      ...(finite(inp.turnoverRank) ? { turnoverRank: inp.turnoverRank } : {}),
+      ...(inp.leadershipPhase ? { leadershipPhase: inp.leadershipPhase } : {}),
     };
   });
 
@@ -161,6 +202,8 @@ export function evaluateSectorEnergy(
   const summary =
     `주도 섹터: ${topNames || '없음'} | 소외 섹터: ${botNames || '없음'} | 계절: ${season}`;
 
+  const sourceInput = inputs.find((input) => input.sourceTier);
+
   return {
     scores: sorted,
     leadingSectors,
@@ -169,6 +212,8 @@ export function evaluateSectorEnergy(
     currentSeason: season,
     calculatedAt: new Date().toISOString(),
     summary,
+    ...(sourceInput?.sourceTier ? { sourceTier: sourceInput.sourceTier } : {}),
+    ...(sourceInput?.sourceTier ? { liveExecutionAllowed: false as const, executionImpact: 'NONE' as const } : {}),
   };
 }
 
