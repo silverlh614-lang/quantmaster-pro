@@ -53,7 +53,7 @@ import {
   realDataKisGet,
   HAS_REAL_DATA_CLIENT,
   KIS_IS_REAL,
-  fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow,
+  fetchKisInvestorTradeByStockDaily,
   hasKisClientOverrides,
 } from "../clients/kisClient.js";
 import { getDartFinancials } from "../clients/dartFinancialClient.js";
@@ -371,7 +371,7 @@ export async function stage2SectorGateFilter(
   // ── KIS 투자자 수급 실데이터 조회 (실계좌 모드 또는 mock override, 상위 15개만) ──
   if (KIS_IS_REAL || hasKisClientOverrides()) {
     for (const c of top15) {
-      const flow = await fetchKisInvestorFlow(c.code).catch(() => null);
+      const flow = await fetchKisInvestorTradeByStockDaily(c.code).catch(() => null);
       if (flow) {
         c.kisFlow = {
           foreignNetBuy: flow.foreignNetBuy,

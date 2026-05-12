@@ -123,6 +123,19 @@ function pickMaterializedBucket(
   return null;
 }
 
+const INVESTOR_FLOW_SELECTED_LOG_TTL_MS = 10 * 60 * 1000;
+const investorFlowSelectedLogAt = new Map<string, number>();
+
+function logInvestorFlowSelected(code: string, materialized: number): void {
+  const now = Date.now();
+  const last = investorFlowSelectedLogAt.get(code) ?? 0;
+  if (now - last < INVESTOR_FLOW_SELECTED_LOG_TTL_MS) return;
+  investorFlowSelectedLogAt.set(code, now);
+  console.info(
+    `[KIS] investorFlow selected source=INVESTOR_TRADE_BY_STOCK_DAILY provider=KIS_API materialized=${materialized} confidence=VERIFIED usableForSignal=true executionImpact=NONE`,
+  );
+}
+
 function isAcceptedEmptyKisResponse(data: unknown): boolean {
   const root = data as { rt_cd?: unknown; msg_cd?: unknown; output?: unknown; output1?: unknown; output2?: unknown } | null;
   if (!root || typeof root !== 'object') return false;
@@ -709,7 +722,7 @@ export async function fetchKisInvestorTradeByStockDaily(
     const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN']);
     const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']);
     if (foreignNetBuy === undefined || institutionalNetBuy === undefined) return null;
-    console.info('[KIS] INVESTOR_FLOW materialized source=INVESTOR_TRADE_BY_STOCK_DAILY confidence=VERIFIED usableForSignal=true usableForExecution=false executionImpact=NONE');
+    logInvestorFlowSelected(safeCode, rows.length);
     return {
       stockCode: safeCode,
       tradingDate: formatKisYmd(extractKisString(row, ['stck_bsop_date', 'STCK_BSOP_DATE'])),

@@ -5,12 +5,12 @@ import {
   fetchKisPrevClose,
   fetchKisStockProgramTrade,
   fetchStockName,
+  fetchKisInvestorTradeByStockDaily,
   type KisMarketProgramTrade,
   type KisStockProgramTrade,
   type PrevClose,
 } from '../clients/kisClient/index.js';
-import { fetchKisInvestorFlow } from '../clients/kisClient/investorFlowStrict.js';
-import type { KisInvestorFlow } from '../clients/kisClient/types.js';
+import type { KisInvestorFlow, KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
 
 export type KisEvidenceFreshness = 'FRESH' | 'STALE' | 'MISSING';
 export type KisEvidenceConfidence = 'VERIFIED' | 'DEGRADED' | 'MISSING';
@@ -75,7 +75,7 @@ export interface KisOfficialEvidencePackFetchers {
   fetchCurrentPrice?: (code: string) => Promise<number | null>;
   fetchPrevClose?: (code: string) => Promise<PrevClose | null>;
   fetchStockName?: (code: string) => Promise<string | null>;
-  fetchInvestorFlow?: (code: string) => Promise<KisInvestorFlow | null>;
+  fetchInvestorFlow?: (code: string) => Promise<(KisInvestorFlow | KisInvestorTradeByStockDaily) | null>;
   fetchStockProgramTrade?: (code: string) => Promise<KisStockProgramTrade | null>;
   fetchMarketProgramTrade?: () => Promise<KisMarketProgramTrade | null>;
   fetchMarketSupply?: () => Promise<{
@@ -89,7 +89,7 @@ const DEFAULT_FETCHERS: Required<KisOfficialEvidencePackFetchers> = {
   fetchCurrentPrice,
   fetchPrevClose: fetchKisPrevClose,
   fetchStockName,
-  fetchInvestorFlow: (code) => fetchKisInvestorFlow(code, 'LOW'),
+  fetchInvestorFlow: (code) => fetchKisInvestorTradeByStockDaily(code, 'LOW'),
   fetchStockProgramTrade: fetchKisStockProgramTrade,
   fetchMarketProgramTrade: fetchKisMarketProgramTrade,
   fetchMarketSupply: fetchKisMarketSupply,
@@ -108,7 +108,7 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function hasRealInvestorFields(value: KisInvestorFlow | null): value is KisInvestorFlow {
+function hasRealInvestorFields(value: KisInvestorFlow | KisInvestorTradeByStockDaily | null): value is KisInvestorFlow | KisInvestorTradeByStockDaily {
   return !!value
     && finite(value.foreignNetBuy)
     && finite(value.institutionalNetBuy)

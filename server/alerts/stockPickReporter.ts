@@ -27,7 +27,7 @@ import {
   detectPreBreakoutAccumulation,
   type PreBreakoutInput,
 } from '../trading/preBreakoutAccumulationDetector.js';
-import { fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import { getScreenerCache } from '../screener/stockScreener.js';
 import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 
@@ -252,7 +252,7 @@ export async function generateDailyPickReport(): Promise<void> {
 
       for (const s of lowVolStocks) {
         try {
-          const flow = await fetchKisInvestorFlow(s.code);
+          const flow = await fetchKisInvestorTradeByStockDaily(s.code);
           if (!flow) continue;
           if (flow.foreignNetBuy > 0 && flow.institutionalNetBuy > 0) {
             hiddenCandidates.push({

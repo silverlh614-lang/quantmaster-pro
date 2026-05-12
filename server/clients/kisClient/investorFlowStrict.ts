@@ -25,6 +25,12 @@ const INVESTOR_FLOW_PATH =
   process.env.KIS_INVESTOR_FLOW_PATH
   ?? '/uapi/domestic-stock/v1/quotations/inquire-investor';
 const INVESTOR_FIELD_MISSING_LOG_TTL_MS = 10 * 60 * 1000;
+
+function shouldEmitInvestorQuoteLikeDetail(): boolean {
+  return process.env.KIS_ONLY_TRACE === 'true'
+    && (process.env.KIS_TRACE_CONTEXT === 'kis_health' || process.env.DEBUG_INVESTOR_FLOW_RAW === 'true');
+}
+
 let lastInvestorFieldMissingLogAt = 0;
 let suppressedInvestorFieldMissingLogs = 0;
 
@@ -49,7 +55,7 @@ function maybeKisNumber(out: KisOutput, keys: string[]): number | null {
 }
 
 function logInvestorFieldMissingOnce(code: string, out: KisOutput): void {
-  if (process.env.DEBUG_INVESTOR_FLOW_RAW !== 'true' && process.env.KIS_ONLY_TRACE !== 'true') {
+  if (process.env.DEBUG_INVESTOR_FLOW_RAW !== 'true' && !shouldEmitInvestorQuoteLikeDetail()) {
     suppressedInvestorFieldMissingLogs++;
     return;
   }
@@ -92,7 +98,7 @@ export async function fetchKisInvestorFlow(
     const out = pickKisOutput(data);
     const payloadClass = classifyInvestorFlowPayload(out ? [out] : [], { trId: INVESTOR_FLOW_TR_ID, path: INVESTOR_FLOW_PATH });
     if (!payloadClass.materialized) {
-      if (process.env.KIS_ONLY_TRACE === 'true') console.warn('[KIS] INVESTOR_FLOW diagnostic-only source=INQUIRE_INVESTOR_QUOTE_LIKE blockedReason=QUOTE_LIKE_OUTPUT_NO_NETBUY_FIELDS', payloadClass);
+      if (shouldEmitInvestorQuoteLikeDetail()) console.warn('[KIS] INVESTOR_FLOW_DETAIL diagnostic-only source=INQUIRE_INVESTOR_QUOTE_LIKE blockedReason=QUOTE_LIKE_OUTPUT_NO_NETBUY_FIELDS', payloadClass);
       return null;
     }
     if (!out) return null;
