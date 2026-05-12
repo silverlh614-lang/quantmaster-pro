@@ -23,7 +23,7 @@ import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
-import { fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';

@@ -134,7 +134,7 @@ function compactProviderRoute(key: SupplySignalKey): string {
 }
 
 function isKrxAutoFetchDisabledForSupplyHealth(): boolean {
-  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED !== 'false';
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
 }
 
 function renderKrxDisabledByKisFirstChannel(key: SupplySignalKey, title: string): ChannelStatus {
@@ -352,7 +352,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
       `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
       ...(providerHealthSummary ? providerHealthSummary.split('\n').map((line) => `providerHealth: ${line}`) : []),
       renderInvestorFlowDecision(marker),
-      '대체: KRX / NAVER / CACHE',
+      ...(isKrxAutoFetchDisabledForSupplyHealth() ? ['Legacy Providers: diagnostic-only'] : ['대체: KRX / NAVER / CACHE']),
       '상세: /investor_flow 예정',
     ],
   };
@@ -632,13 +632,21 @@ function buildRiskTop3(channels: ChannelStatus[]): string[] {
   return risks.slice(0, 3);
 }
 function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine: string): string {
+  const kisFirstMode = process.env.KIS_FIRST_REBUILD_MODE === 'true' || isKisOnlyRebuildMode();
   const ok = channels.filter((c) => c.marker === 'OK').length;
   const neutral = channels.filter((c) => c.marker === 'NEUTRAL').length;
   const stale = channels.filter((c) => c.marker === 'STALE').length;
   const degraded = channels.filter((c) => c.marker === 'DEGRADED').length;
   const missing = channels.filter((c) => c.marker === 'MISSING').length;
   const risks = buildRiskTop3(channels);
-  const lines = [`📊 Supply Health: ${ok}/${channels.length} OK | ${neutral} NEUTRAL | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`, targetLine, cacheLine, '', '⚠️ 위험 TOP 3', ...(risks.length > 0 ? risks : ['- 🟢 주요 위험 없음']), ''];
+  const lines = [
+    ...(kisFirstMode ? [
+      `Current Data Mode: ${isKisOnlyRebuildMode() ? 'KIS_ONLY_REBUILD' : 'KIS_FIRST_REBUILD'}`,
+      'Primary Provider: KIS_API',
+      'Legacy Providers: diagnostic-only',
+      '',
+    ] : []),
+    `📊 Supply Health: ${ok}/${channels.length} OK | ${neutral} NEUTRAL | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`, targetLine, cacheLine, '', '⚠️ 위험 TOP 3', ...(risks.length > 0 ? risks : ['- 🟢 주요 위험 없음']), ''];
   channels.forEach((channel, index) => {
     lines.push(`${index + 1}. ${markerIcon(channel.marker)} ${channel.title}`);
     if (channel.marker === 'NEUTRAL') lines.push(`  ${compactProviderRoute(channel.key)}`);
@@ -812,9 +820,10 @@ export async function buildSupplyHealthMessage(now: Date = new Date()): Promise<
   if (isKisOnlyRebuildMode()) {
     const report = await buildKisOnlyHealthReport({ now });
     const message = [
-      'Current Mode: KIS_ONLY_REBUILD',
+      'Current Data Mode: KIS_ONLY_REBUILD',
+      'Primary Provider: KIS_API',
+      'Legacy Providers: diagnostic-only',
       'Active source diagnosis: /kis_health',
-      'Legacy Supply Health below is diagnostic-only.',
       '',
       formatKisOnlyHealthReport(report),
       '',

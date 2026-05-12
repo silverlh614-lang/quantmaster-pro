@@ -5,7 +5,7 @@
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
  */
 
-import { fetchKisInvestorFlow } from '../../../clients/kisClient.js';
+import { fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../../../clients/kisClient.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
 import type { ServerShadowTrade, EntryKellySnapshot } from '../../../persistence/shadowTradeRepo.js';

@@ -49,7 +49,7 @@ function maybeKisNumber(out: KisOutput, keys: string[]): number | null {
 }
 
 function logInvestorFieldMissingOnce(code: string, out: KisOutput): void {
-  if (process.env.DEBUG_INVESTOR_FLOW_RAW !== 'true') {
+  if (process.env.DEBUG_INVESTOR_FLOW_RAW !== 'true' && process.env.KIS_ONLY_TRACE !== 'true') {
     suppressedInvestorFieldMissingLogs++;
     return;
   }
@@ -92,7 +92,7 @@ export async function fetchKisInvestorFlow(
     const out = pickKisOutput(data);
     const payloadClass = classifyInvestorFlowPayload(out ? [out] : [], { trId: INVESTOR_FLOW_TR_ID, path: INVESTOR_FLOW_PATH });
     if (!payloadClass.materialized) {
-      console.warn('[KIS] INVESTOR_FLOW materialize skipped', payloadClass);
+      if (process.env.KIS_ONLY_TRACE === 'true') console.warn('[KIS] INVESTOR_FLOW diagnostic-only source=INQUIRE_INVESTOR_QUOTE_LIKE blockedReason=QUOTE_LIKE_OUTPUT_NO_NETBUY_FIELDS', payloadClass);
       return null;
     }
     if (!out) return null;

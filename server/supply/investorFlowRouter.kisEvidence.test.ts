@@ -46,11 +46,14 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
   it('selects KIS_API by default while keeping execution impact shadow-safe', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => ({
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-08',
         foreignNetBuy: 100,
         institutionalNetBuy: 200,
         individualNetBuy: -300,
         source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
       }),
     });
     const { fetchInvestorFlowWithPolicy } = await import('./investorFlowRouter.js');
@@ -74,11 +77,14 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
     process.env.KIS_INVESTOR_FLOW_PROMOTION_STAGE = 'SHADOW_SCORE';
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => ({
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-08',
         foreignNetBuy: 100,
         institutionalNetBuy: 200,
         individualNetBuy: -300,
         source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
       }),
     });
     await seedCache();
@@ -104,11 +110,14 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
     process.env.KIS_INVESTOR_FLOW_PROMOTION_STAGE = 'WEIGHTED';
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => ({
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-08',
         foreignNetBuy: 100,
         institutionalNetBuy: 200,
         individualNetBuy: -300,
         source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
       }),
     });
     const { fetchInvestorFlowWithPolicy } = await import('./investorFlowRouter.js');
@@ -157,7 +166,7 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
   it('records KIS errors as provider issues and continues CACHE fallback', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => {
+      fetchKisInvestorTradeByStockDaily: async () => {
         throw new Error('KIS boom');
       },
     });
