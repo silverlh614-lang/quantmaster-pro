@@ -286,10 +286,22 @@ function providerStatusWithReason(provider: string, status: string, reason?: str
   return `${provider}:${status}${compact ? `(${compact})` : ''}`;
 }
 
+function isKisFirstRebuildModeForSupplyHealth(): boolean {
+  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || isKisOnlyRebuildMode();
+}
+
+function semanticNetBuyVerifiedStatus(status: string | undefined): boolean {
+  return status === 'VERIFIED' || status === 'READY_FOR_SHADOW' || status === 'OK';
+}
+
 export function formatRouterAwareInvestorFlowAttemptSummary(router: InvestorFlowProviderRouteResult | null | undefined): string | null {
   if (!router) return null;
   const statuses = router.providerStatuses;
   const parts: string[] = [];
+  const kisStatus = normalizeRouterProviderStatus(statuses.KIS ?? statuses.KIS_API);
+  if (kisStatus) {
+    parts.push(providerStatusWithReason('KIS_API', kisStatus, router.providerReasons.KIS ?? router.providerReasons.KIS_API));
+  }
   const krxStatus = normalizeRouterProviderStatus(statuses.KRX ?? statuses.KRX_INVESTOR_FLOW);
   if (krxStatus) {
     parts.push(providerStatusWithReason('KRX_INVESTOR_FLOW', krxStatus, router.providerReasons.KRX ?? router.providerReasons.KRX_INVESTOR_FLOW));
@@ -310,10 +322,6 @@ export function formatRouterAwareInvestorFlowAttemptSummary(router: InvestorFlow
   if (cacheStatus) {
     parts.push(providerStatusWithReason('CACHE', cacheStatus, router.providerReasons.CACHE));
   }
-  const kisStatus = normalizeRouterProviderStatus(statuses.KIS ?? statuses.KIS_API);
-  if (kisStatus) {
-    parts.push(providerStatusWithReason('KIS_API', kisStatus, router.providerReasons.KIS ?? router.providerReasons.KIS_API));
-  }
   if (parts.length === 0) return null;
   parts.push(`selectedProvider=${router.selectedProvider}`);
   if (router.selectedProvider === 'CACHE' && cacheStatus && cacheStatus !== 'CACHE_EMPTY') {
@@ -321,6 +329,52 @@ export function formatRouterAwareInvestorFlowAttemptSummary(router: InvestorFlow
   }
   if (router.selectedReason) parts.push(`selectedReason=${compactReason(router.selectedReason)}`);
   return parts.join(' / ');
+}
+
+function formatKisFirstInvestorFlowProviderTriedLines(
+  router: InvestorFlowProviderRouteResult | null | undefined,
+  success: number,
+  total: number,
+  sourceCounts: Map<SupplyProvider, number>,
+): string[] {
+  const kisSuccess = sourceCounts.get('KIS_API') ?? 0;
+  const semanticStatus = router?.providerStatuses.SEMANTIC_NETBUY;
+  const kisVerified = total > 0
+    && success === total
+    && kisSuccess === total
+    && (!router || router.selectedProvider === 'KIS_API')
+    && (!router || semanticNetBuyVerifiedStatus(semanticStatus));
+  if (!isKisFirstRebuildModeForSupplyHealth() || !kisVerified) return [];
+  return [
+    'providerTried:',
+    `  KIS_API:OK endpoint=KIS_INVESTOR_TRADE_BY_STOCK_DAILY confidence=VERIFIED materialized=${success}/${total}`,
+    '  KRX:DISABLED_BY_KIS_FIRST_MODE diagnosticOnly=true',
+    '  NAVER:DIAGNOSTIC_ONLY',
+    '  CACHE:FALLBACK_DISABLED_KIS_VERIFIED',
+  ];
+}
+
+function formatSupplyConfluenceLines(router: InvestorFlowProviderRouteResult | null | undefined, success: number): string[] {
+  if (!router || router.signal === 'UNKNOWN') return [];
+  const dataStatus = success > 0 ? 'OK' : 'DATA_UNAVAILABLE';
+  const providerIssue = dataStatus === 'OK' ? false : router.status !== 'VERIFIED';
+  const lines = [
+    'supply_confluence:',
+    `  signal=${router.signal}`,
+    `  dataStatus=${dataStatus}`,
+    `  providerIssue=${providerIssue}`,
+  ];
+  if (router.signal === 'BEARISH' && dataStatus === 'OK') {
+    lines.push(
+      '  interpretation=actual KIS verified flow is bearish, not provider failure',
+      '  executionImpact=NONE',
+      '  BEARISH는 데이터 장애가 아니라 KIS 실데이터 기반 약세 수급 신호입니다.',
+      '  일반 BUY는 최종 Gate 정책에 따르며, STRONG_BUY는 별도 제한될 수 있습니다.',
+    );
+  } else {
+    lines.push('  executionImpact=NONE');
+  }
+  return lines;
 }
 
 async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs: number): Promise<ChannelStatus> {
@@ -383,10 +437,12 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
         : staleCache > 0
           ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
           : undefined;
-  const kisVerified = sourceCounts.get('KIS_API') === total
+  const kisVerified = total > 0
+    && sourceCounts.get('KIS_API') === total
     && success === total
-    && router?.selectedProvider === 'KIS_API'
-    && (router.providerStatuses.SEMANTIC_NETBUY === 'READY_FOR_SHADOW' || router.providerStatuses.SEMANTIC_NETBUY === 'VERIFIED');
+    && (!router || router.selectedProvider === 'KIS_API')
+    && (!router || semanticNetBuyVerifiedStatus(router.providerStatuses.SEMANTIC_NETBUY));
+  const kisFirstProviderTriedLines = formatKisFirstInvestorFlowProviderTriedLines(router, success, total, sourceCounts);
   return {
     key: 'investorFlow', title: '기관/외인 수급', marker,
     riskReason,
@@ -400,13 +456,14 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
       `cache: ${cacheSamples.length}/${total}${oldestCacheAge !== null ? `, oldest=${formatAgo(oldestCacheAge)}` : ''}${cacheDates.length > 0 ? `, dates=${cacheDates.join(',')}` : ''}`,
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       ...formatZeroSuspectLines(zero, total, zeroDetails),
-      `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
+      ...(kisFirstProviderTriedLines.length > 0 ? kisFirstProviderTriedLines : [`providerTried: ${attemptSummaries[0] ?? 'N/A'}`]),
       ...(providerHealthSummary ? providerHealthSummary.split('\n').map((line) => `providerHealth: ${line}`) : []),
+      ...formatSupplyConfluenceLines(router, success),
       renderInvestorFlowDecision(marker),
       ...(kisVerified
         ? ['fallback: disabled because KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
         : isKrxAutoFetchDisabledForSupplyHealth()
-          ? ['Legacy Providers: diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
+          ? ['fallback: disabled by KIS-first mode until KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
           : ['대체: KRX / NAVER / CACHE']),
       '상세: /investor_flow 예정',
     ],
@@ -442,7 +499,7 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
       'scoring=allowed_when_non_empty',
       'providerIssue=false',
       'executionImpact=NONE',
-      lamp.status === 'OK' ? '판정: OK' : `판정: ${lamp.status} — 프로그램 수급 coverage/zero-filled 확인 필요`,
+      lamp.status === 'OK' ? '판정: OK' : lamp.status === 'PARTIAL' ? '판정: PARTIAL — KIS stock program usable for non-empty symbols' : '판정: DEGRADED — 프로그램 수급 coverage/zero-filled 확인 필요',
       ...(rawDiagLine ? [rawDiagLine] : []),
       '상세: /program_today',
     ],
@@ -450,7 +507,7 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
 }
 
 function renderAcceptedEmptyMarketProgram(): ChannelStatus {
-  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['route: KIS>KRX | fb=CACHE | diag=KIS | scoring=allowed_when_non_empty', 'source: KIS_API', 'status: ACCEPTED_EMPTY', 'scoring=excluded', 'providerIssue=false', 'marketSignal=false', 'action=observe', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외', 'rawDiag: hidden (/program_market raw 예정)', 'executionImpact=NONE', '상세: /program_market'] };
+  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['route: KIS>KRX | fb=CACHE | diag=KIS | scoring=allowed_when_non_empty', 'source: KIS_API', 'status: ACCEPTED_EMPTY', 'scoring=excluded', 'providerIssue=false', 'marketSignal=false', 'action=observe', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외/관찰; bearish signal로 변환하지 않음', 'rawDiag: hidden (/program_market raw 예정)', 'executionImpact=NONE', '상세: /program_market'] };
 }
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
@@ -721,7 +778,7 @@ function compactSupplyHealthLinesForTelegram(lines: string[]): string[] {
 }
 
 function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine: string): string {
-  const kisFirstMode = process.env.KIS_FIRST_REBUILD_MODE === 'true' || isKisOnlyRebuildMode();
+  const kisFirstMode = isKisFirstRebuildModeForSupplyHealth();
   const ok = channels.filter((c) => c.marker === 'OK').length;
   const neutral = channels.filter((c) => c.marker === 'NEUTRAL').length;
   const stale = channels.filter((c) => c.marker === 'STALE').length;
@@ -748,6 +805,21 @@ function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine:
   return compactMessage.length < 4096 ? compactMessage : `${compactMessage.slice(0, 4050)}\n...`;
 }
 
+function extractProviderTriedEntries(lines: string[]): string[] {
+  const entries: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('providerTried:')) {
+      const inline = line.split(':').slice(1).join(':').trim();
+      if (inline) entries.push(inline);
+      for (let j = i + 1; j < lines.length && /^\s{2}\S/.test(lines[j]); j++) {
+        entries.push(lines[j].trim());
+      }
+    }
+  }
+  return entries;
+}
+
 function sourceFromLine(lines: string[]): SourceHealth['source'] {
   const line = lines.find((l) => l.startsWith('source:')) ?? '';
   if (line.includes('KIS')) return 'KIS_API';
@@ -766,10 +838,7 @@ function sourceHealthFromChannel(channel: ChannelStatus): SourceHealth {
   const updatedLine = channel.lines.find((l) => l.startsWith('updated:'));
   const latestLine = channel.lines.find((l) => l.startsWith('latest:'));
   const successMatch = successLine?.match(/(\d+)\/(\d+)/);
-  const providerTried = channel.lines
-    .filter((l) => l.startsWith('providerTried'))
-    .map((l) => l.split(':').slice(1).join(':').trim())
-    .filter(Boolean);
+  const providerTried = extractProviderTriedEntries(channel.lines);
   // ADR-0421 — 'DATA_UNAVAILABLE' 신규 분기 (NEUTRAL 폐기 정합).
   const status: SourceHealth['status'] =
     channel.marker === 'OK' ? 'OK' :
@@ -814,9 +883,7 @@ function snapshotFromChannels(channels: ChannelStatus[]): SupplyHealthSnapshot {
   const missing = channels.filter((c) => c.marker === 'MISSING').length;
   const stale = channels.filter((c) => c.marker === 'STALE').length;
   const byKey = new Map(channels.map((c) => [c.key, sourceHealthFromChannel(c)]));
-  const providerTried = [...new Set(channels.flatMap((c) =>
-    c.lines.filter((l) => l.startsWith('providerTried')).map((l) => l.split(':').slice(1).join(':').trim()),
-  ).filter(Boolean))];
+  const providerTried = [...new Set(channels.flatMap((c) => extractProviderTriedEntries(c.lines)).filter(Boolean))];
   const providerUsed = [...new Set([...byKey.values()].map((s) => s.source).filter((s) => s !== 'UNKNOWN'))];
   const providerFailed = [...new Set(channels.filter((c) => c.marker === 'MISSING' || c.marker === 'STALE').map((c) => sourceHealthFromChannel(c).source))];
   const zeroFilledSuspected = channels.some((c) => c.zeroSuspect && isZeroFilledSuspicious(c.zeroSuspect.count, c.zeroSuspect.total));
