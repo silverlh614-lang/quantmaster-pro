@@ -5,6 +5,7 @@
  * PR-21 (404 완화 하드/소프트 분리) + PR-24 (24h 영속 블랙리스트) + PR-34 (ADR-0014 retry safety).
  */
 
+import { logger } from '../../utils/logger.js';
 import { sendTelegramAlert, escapeHtml } from '../../alerts/telegramClient.js';
 import {
   isEndpointBlacklisted as _isBlacklisted,
@@ -181,7 +182,7 @@ export function _recordCircuitSuccess(trId: string): void {
       const message = minorRecovery
         ? '[KIS] circuit recovery minor'
         : '[KIS] circuit recovery';
-      if (minorRecovery) console.debug(message, event);
+      if (minorRecovery) logger.debug(message, event);
       else console.info(message, event);
     }
   }

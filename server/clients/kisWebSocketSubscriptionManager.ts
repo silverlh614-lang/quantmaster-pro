@@ -532,7 +532,7 @@ export function requestKisWsSubscription(
       // subscribe 실패 시 entry 제거 (장중 disconnected 등)
       subscribedMap.delete(normalizedCode);
       if (isCoreWatchlistHighPriorityFailure({ priority, reasons: candidate.reasons })) {
-        console.warn(
+        appLogger.warn(
           `[KIS-WS] subscribe failed core watchlist ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}:`,
           e instanceof Error ? e.message : e,
         );
@@ -580,7 +580,7 @@ export function requestKisWsSubscription(
     } catch (e) {
       subscribedMap.delete(normalizedCode);
       if (isCoreWatchlistHighPriorityFailure({ priority, reasons: candidate.reasons })) {
-        console.warn(
+        appLogger.warn(
           `[KIS-WS] subscribe failed core watchlist ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}:`,
           e instanceof Error ? e.message : e,
         );

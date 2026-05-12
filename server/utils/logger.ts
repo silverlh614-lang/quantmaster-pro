@@ -86,6 +86,8 @@ export interface NoiseCounters {
   suppressed: number;
 }
 
+let lastNoiseSummaryEmittedAtMs = 0;
+
 const noiseCounters: NoiseCounters = {
   preEntryWait: 0,
   priceDistance: 0,
@@ -138,6 +140,7 @@ export function resetNoiseCountersForTest(): void {
   noiseCounters.gateDiagnostics = 0;
   noiseCounters.kisFirstDiagnostics = 0;
   noiseCounters.suppressed = 0;
+  lastNoiseSummaryEmittedAtMs = 0;
 }
 
 export function logNoiseDetail(input: {
@@ -175,7 +178,24 @@ export function formatNoiseSummary(input: NoiseSummaryInput = getNoiseCounters()
   return `[NoiseSummary]${session} suppressed=${counters.suppressed} preEntryWait=${counters.preEntryWait} priceDistance=${counters.priceDistance} kisWsDetail=${counters.kisWsDetail} kisMtasDetail=${counters.kisMtasDetail} gateDiagnostics=${counters.gateDiagnostics} kisFirstDiagnostics=${counters.kisFirstDiagnostics}${executionImpact}`;
 }
 
-export function logNoiseSummary(input: NoiseSummaryInput = getNoiseCounters(), loggerOverride: Pick<Console, 'info'> = logger): void {
-  if (!isNoiseSummaryEnabled()) return;
+function getNoiseSummaryIntervalMs(): number {
+  const minutes = Number(process.env.NOISE_SUMMARY_INTERVAL_MINUTES ?? '5');
+  if (!Number.isFinite(minutes) || minutes <= 0) return 5 * 60_000;
+  return minutes * 60_000;
+}
+
+export function shouldEmitNoiseSummary(nowMs = Date.now()): boolean {
+  if (!isNoiseSummaryEnabled()) return false;
+  if (lastNoiseSummaryEmittedAtMs === 0) return true;
+  return nowMs - lastNoiseSummaryEmittedAtMs >= getNoiseSummaryIntervalMs();
+}
+
+export function logNoiseSummary(
+  input: NoiseSummaryInput = getNoiseCounters(),
+  loggerOverride: Pick<Console, 'info'> = logger,
+  nowMs = Date.now(),
+): void {
+  if (!shouldEmitNoiseSummary(nowMs)) return;
+  lastNoiseSummaryEmittedAtMs = nowMs;
   loggerOverride.info(formatNoiseSummary(input));
 }

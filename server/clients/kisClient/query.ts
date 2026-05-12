@@ -5,6 +5,7 @@
  * 모든 함수가 overrides.ts (VTS mock) 우선 + http.ts realDataKisGet 경유.
  */
 
+import { logger } from '../../utils/logger.js';
 import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
 import { getKisOverrides } from './overrides.js';
@@ -191,7 +192,7 @@ function logInvestorFlowSelected(materialized: number, confidence: 'VERIFIED' | 
   investorFlowSelectedUnchangedRepeated += 1;
   investorFlowSelectedUnchangedLastSeen = now;
   if (now - investorFlowSelectedUnchangedLastSummaryAt >= INVESTOR_FLOW_SELECTED_UNCHANGED_SUMMARY_MS) {
-    console.debug(
+    logger.debug(
       `[KIS] investorFlow selected unchanged ${formatInvestorFlowSelectionPayload(payload)} `
       + `repeated=${investorFlowSelectedUnchangedRepeated} lastSeen=${formatUtcTime(investorFlowSelectedUnchangedLastSeen)}`,
     );

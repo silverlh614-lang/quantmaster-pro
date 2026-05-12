@@ -27,6 +27,9 @@
  * 호출자가 날짜를 넘기지 않으면 "직전 영업일" 개념으로 KST 오늘 하루 전을 사용한다.
  */
 
+import { logger } from '../utils/logger.js';
+
+
 import {
   krxGet as _openApiGet,
   fetchKospiDailyTrade,
@@ -888,7 +891,7 @@ async function krxPost(
   // 카운터 미누적 (ADR-0251 정합).
   const gating = options.bypassTimeWindow ? { skip: false as const } : shouldSkipKrxCallByTimeWindow();
   if (gating.skip) {
-    console.debug(`[KRX] ${bld} 시간대 게이팅 스킵 (${gating.reason}, ADR-0256)`);
+    logger.debug(`[KRX] ${bld} 시간대 게이팅 스킵 (${gating.reason}, ADR-0256)`);
     setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'GATED' });
     return null;
   }
@@ -904,7 +907,7 @@ async function krxPost(
   // 이후 호출은 정상 동작. 실패 시 markRecoveryProbed 마킹된 상태 유지 →
   // 다음 30분 윈도우 안 호출은 skip (또 실패해서 cooldown 재발 방지).
   if (shouldSkipForRecoveryProbe(bld)) {
-    console.debug(`[KRX] ${bld} probe 윈도우 안 추가 호출 skip (ADR-0259)`);
+    logger.debug(`[KRX] ${bld} probe 윈도우 안 추가 호출 skip (ADR-0259)`);
     setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN', ...krxFailureMeta(bld), diagnosticOnly: isKisFirstRebuildMode(), useForRouter: !isKisFirstRebuildMode(), useForGate: !isKisFirstRebuildMode(), useForLive: false, useForShadow: true });
     return null;
   }
@@ -945,7 +948,7 @@ async function krxPost(
         if (kisFirst) {
           recordBldFailure(bld, { cooldownThreshold: BLD_KIS_FIRST_QUARANTINE_THRESHOLD, reason: 'OFF_HOURS_HTTP400' });
         }
-        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251, executionImpact=NONE)`);
+        logger.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251, executionImpact=NONE)`);
         setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR', ...krxFailureMeta(bld), offHoursSuppressed: true, diagnosticOnly: kisFirst, useForRouter: !kisFirst, useForGate: !kisFirst, useForLive: false, useForShadow: true });
         return null;
       }

@@ -16,6 +16,7 @@
  *     marketClock 이 이미 처리). 본 모듈은 심볼 중심 (Yahoo) 우선.
  */
 
+import { logger } from './logger.js';
 import { classifySymbol, isMarketOpenFor, type MarketId } from './symbolMarketRegistry.js';
 
 interface HostRule {
@@ -173,7 +174,7 @@ function _logThrottled(decision: EgressDecision): void {
   const prev = _lastLogAt.get(key) ?? 0;
   if (now - prev < _LOG_INTERVAL_MS) return;
   _lastLogAt.set(key, now);
-  console.debug(`[EgressGuard] skip ${key} — ${decision.reason}`);
+  logger.debug(`[EgressGuard] skip ${key} — ${decision.reason}`);
 }
 
 export function __resetLogThrottleForTests(): void { _lastLogAt.clear(); }

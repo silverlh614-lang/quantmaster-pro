@@ -420,7 +420,11 @@ export async function enrichQuoteWithKisMTAS(
   } catch (err) {
     recordMtasAttempt(code, false);
     recordKisMtasNoiseResult({ failed: true });
-    console.warn(`[KisMTAS] ${code} KIS 보강 실패 (Yahoo 폴백):`, err instanceof Error ? err.message : err);
+    logNoiseDetail({
+      category: 'KIS_MTAS_DETAIL',
+      message: `[KisMTAS] ${code} KIS 보강 실패 (Yahoo 폴백)`,
+      payload: err instanceof Error ? err.message : err,
+    });
     return quote;
   }
 }
