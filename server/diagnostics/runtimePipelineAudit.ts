@@ -5,7 +5,12 @@
  * ADR-460/Live Overlay and does not call external APIs or order modules.
  */
 import { getEmergencyStop, getExecutionMode } from '../state.js';
-import { getLastScanSummary, type DataPromotionStatus, type PipelineStageDropoffSummary } from '../trading/signalScanner/scanDiagnostics.js';
+import {
+  DEFAULT_DATA_PROMOTION_STATUS,
+  getLastScanSummary,
+  type DataPromotionStatus,
+  type PipelineStageDropoffSummary,
+} from '../trading/signalScanner/scanDiagnostics.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getLastInvestorFlowProviderHealth } from '../supply/investorFlowProviderHealth.js';
 import { getAllNearMissOutcomes } from '../persistence/nearMissOutcomeLedger.js';
@@ -46,14 +51,6 @@ import {
   safeBuildWeekendReplaySummaryAdr0501,
   type WeekendReplaySummaryAdr0501,
 } from './weekendReplayAdr0501.js';
-
-
-const RUNTIME_DEFAULT_DATA_PROMOTION_STATUS: DataPromotionStatus = {
-  kisInvestorFlow: 'WEIGHTED',
-  sectorEnergy: 'WEIGHTED',
-  dartFinancials: 'ADVISORY',
-  yahooPrice: 'GATED',
-};
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -431,7 +428,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     topGate1BlockReasons: summary?.gateLayerAudit?.topGate1BlockReasons ?? [],
     topGate2BlockReasons: summary?.gateLayerAudit?.topGate2BlockReasons ?? [],
     topGate3BlockReasons: summary?.gateLayerAudit?.topGate3BlockReasons ?? [],
-    dataPromotionStatus: summary?.dataPromotionStatus ?? RUNTIME_DEFAULT_DATA_PROMOTION_STATUS,
+    dataPromotionStatus: summary?.dataPromotionStatus ?? DEFAULT_DATA_PROMOTION_STATUS,
     perStageDropoffSummary: summary?.perStageDropoffSummary ?? [],
     nearMissBucketSamples: nearMissSamples,
     nearMissOutcomeLedgerCount,
