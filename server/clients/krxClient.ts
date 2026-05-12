@@ -30,8 +30,8 @@
 import { logger } from '../utils/logger.js';
 
 
+// ADR-0502c Phase 2: `krxGet as _openApiGet` 는 ./krxClient/http.ts 가 단독 import.
 import {
-  krxGet as _openApiGet,
   fetchKospiDailyTrade,
   fetchKosdaqDailyTrade,
   fetchKospiIndexDaily,
@@ -42,8 +42,8 @@ import {
   type KrxStockDailyRow,
   type KrxIndexDailyRow,
 } from './krxOpenApi.js';
-import { isMarketDataPublished, isKstWeekend } from '../utils/marketClock.js';
 import { getStockByCode } from '../persistence/krxStockMasterRepo.js';
+// ADR-0502c Phase 2: isMarketDataPublished / isKstWeekend 는 ./krxClient/http.ts SSOT 안으로 이동.
 
 // ── 타입 (ADR-0502c 분해 — types.ts SSOT) ────────────────────────────────────
 export type {
@@ -82,29 +82,22 @@ import type {
 } from './krxClient/types.js';
 
 // ── 설정 (ADR-0502c 분해 — constants.ts SSOT) ───────────────────────────────
+// Phase 2: HTTP layer 전용 상수·헬퍼 (KRX_JSON_PATH / KRX_OTP_PATH /
+// KRX_DOWNLOAD_CSV_PATH / REQUEST_TIMEOUT_MS / KRX_USER_AGENT /
+// BLD_KIS_FIRST_QUARANTINE_THRESHOLD / isKisFirstRebuildMode /
+// isKisOnlyRebuildMode / krxDisabledStatus / krxDisabledReasonMessage) 와
+// 회로 상수 (BLD_FAILURE_THRESHOLD / BLD_COOLDOWN_MS / RECOVERY_PROBE_WINDOW_MS)
+// 는 ./krxClient/{http,cooldown}.ts SSOT 안으로 이동.
 import {
   KRX_BASE,
-  KRX_JSON_PATH,
-  KRX_OTP_PATH,
-  KRX_DOWNLOAD_CSV_PATH,
   KRX_DISABLED,
-  REQUEST_TIMEOUT_MS,
   CACHE_TTL_MS,
   BLD_INVESTOR_TRADING,
   BLD_PER_PBR,
   BLD_SHORT_BALANCE,
   BLD_INVESTOR_DETAIL,
-  KRX_USER_AGENT,
-  BLD_FAILURE_THRESHOLD,
-  BLD_KIS_FIRST_QUARANTINE_THRESHOLD,
-  BLD_COOLDOWN_MS,
-  RECOVERY_PROBE_WINDOW_MS,
   isKrxAutoFetchDisabled,
   krxAutoFetchDisabledReason,
-  isKisFirstRebuildMode,
-  isKisOnlyRebuildMode,
-  krxDisabledStatus,
-  krxDisabledReasonMessage,
 } from './krxClient/constants.js';
 
 export { isKrxAutomaticFetchDisabled } from './krxClient/constants.js';
@@ -123,23 +116,20 @@ export { getLastKrxInvestorTradingDiagnostic } from './krxClient/cache.js';
 /**
  * 전체 in-memory state 초기화. cache + cooldown + http meta clear.
  * 외부 호출자 진입점 (테스트 격리 + /api/system/reset).
- * ADR-0502c: http meta (`_lastKrxPostMeta`) 가 본 파일에 잔존 — Phase 3-7 http.ts 분리 시 cache.ts 가 통합 SSOT 로 격상.
+ * ADR-0502c Phase 2: http meta state 가 ./krxClient/http.ts SSOT 로 이전 —
+ * `clearLastKrxPostMetaState()` 위임 호출.
  */
 export function resetKrxCache(): void {
   resetCacheState();
   _resetCooldownState();
-  _lastKrxPostMeta.clear();
+  clearLastKrxPostMetaState();
 }
 
 // ── ADR-0009 / 0259 회로 (ADR-0502c — cooldown.ts SSOT) ──────────────────────
-import {
-  isBldCooldown,
-  shouldSkipForRecoveryProbe,
-  markRecoveryProbed,
-  recordBldFailure,
-  recordBldSuccess,
-  getBldFailureState,
-} from './krxClient/cooldown.js';
+// Phase 2: 6 회로 함수 (isBldCooldown / shouldSkipForRecoveryProbe /
+// markRecoveryProbed / recordBldFailure / recordBldSuccess / getBldFailureState)
+// 는 ./krxClient/http.ts SSOT 안에서 사용. otpCsv 는 recordBldSuccess 만 사용.
+// 본 파일은 진단 read-only export (getKrxBldFailureStates) 만 노출.
 export { getKrxBldFailureStates } from './krxClient/cooldown.js';
 
 // ── ADR-0256 시간대 게이팅 (ADR-0502c — timeWindow.ts SSOT) ──────────────────
@@ -154,632 +144,30 @@ import {
   compactTradeDate,
 } from './krxClient/dateUtils.js';
 
-// ── HTTP 헬퍼 ────────────────────────────────────────────────────────────────
-// ADR-0502c: KrxRawResponse / KrxPostMeta / KrxInvestorEndpointVariant /
-// FetchInvestorTradingOptions 타입 정의는 ./krxClient/types.ts SSOT 로 이동.
+// ── HTTP layer (ADR-0502c Phase 2 — http.ts SSOT) ────────────────────────────
+// KrxRawResponse / KrxPostMeta / KrxInvestorEndpointVariant / ParsedKrxCsv 등
+// 도메인 타입은 ./krxClient/types.ts SSOT 로 분리 (Phase 1). HTTP 본체 +
+// payload sanitize / meta state / krxGet 위임은 본 Phase 2 에서 분리.
+import {
+  krxPost,
+  getLastKrxPostMeta,
+  clearLastKrxPostMetaState,
+  sanitizeKrxPayload,
+  buildKrxAutoDisabledDiagnostic,
+} from './krxClient/http.js';
+// setKrxPostMeta / classifyContentType / makeKrxResponseKind / buildKrxOtpPayload
+// 는 ./krxClient/{http,otpCsv}.ts 내부에서만 사용 — 본 파일 export 0건.
 
-const _lastKrxPostMeta = new Map<string, KrxPostMeta>();
-
-function setKrxPostMeta(bld: string, meta: KrxPostMeta): void {
-  _lastKrxPostMeta.set(bld, meta);
-}
-
-function krxFailureMeta(bld: string): Pick<KrxPostMeta, 'consecutiveFailures' | 'cooldownActive' | 'cooldownRemainingMs'> {
-  const state = getBldFailureState(bld);
-  return {
-    consecutiveFailures: state?.consecutiveFailures ?? 0,
-    cooldownActive: Boolean(state && state.cooldownUntilMs > Date.now()),
-    cooldownRemainingMs: state ? Math.max(0, state.cooldownUntilMs - Date.now()) : 0,
-  };
-}
-
-function classifyContentType(header: string | null, text?: string): KrxInvestorTradingDiagnostic['contentType'] {
-  const lower = (header ?? '').toLowerCase();
-  const trimmed = (text ?? '').trimStart();
-  if (!text && !header) return 'unknown';
-  if (text !== undefined && trimmed.length === 0) return 'empty';
-  if (lower.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')) return 'json';
-  if (lower.includes('html') || /^<!doctype html|<html[\s>]/i.test(trimmed)) return 'html';
-  if (lower.includes('csv') || lower.includes('excel') || trimmed.includes('\n') && trimmed.includes(',')) return 'csv';
-  if (lower.includes('text')) return 'text';
-  return 'unknown';
-}
-
-function makeKrxResponseKind(contentType: KrxInvestorTradingDiagnostic['contentType']): KrxPostMeta['responseKind'] {
-  if (contentType === 'json') return 'JSON';
-  if (contentType === 'html') return 'HTML';
-  if (contentType === 'csv') return 'CSV';
-  if (contentType === 'empty') return 'EMPTY';
-  return 'TEXT';
-}
-
-const KRX_OMITTED_PAYLOAD_VALUES = new Set(['', 'NONE', 'UNKNOWN', 'N/A']);
-
-function sanitizeKrxPayload(input: Record<string, unknown>): { payload: Record<string, string>; omittedKeys: string[] } {
-  const payload: Record<string, string> = {};
-  const omittedKeys: string[] = [];
-  for (const [key, value] of Object.entries(input)) {
-    if (value == null) {
-      omittedKeys.push(key);
-      continue;
-    }
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (KRX_OMITTED_PAYLOAD_VALUES.has(trimmed)) {
-        omittedKeys.push(key);
-        continue;
-      }
-      payload[key] = trimmed;
-      continue;
-    }
-    payload[key] = String(value);
-  }
-  return { payload, omittedKeys };
-}
-
-function requiredKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
-  if (variant.routePurpose === 'SYMBOL_LEVEL') {
-    const dateKeys = variant.dateParam === 'strtDd/endDd' ? ['strtDd', 'endDd'] : [variant.dateParam];
-    return ['bld', 'isuCd', ...dateKeys, 'inqVal'];
-  }
-  const dateKey = variant.dateParam === 'trdDd' ? 'trdDd' : variant.dateParam;
-  return ['bld', 'inqTpCd', dateKey, 'mktId', 'inqVal'];
-}
-
-function forbiddenKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
-  const common = ['symbolCode', 'isuCd2', 'codeNmisuCd_finder_stkisu0_0'];
-  if (variant.payloadMode !== 'MINIMAL_STRICT') return common;
-  if (variant.routePurpose === 'MARKET_LEVEL') {
-    return [
-      ...common,
-      'isuCd',
-      'trdVolVal',
-      'share',
-      'money',
-      'detailView',
-      'csvxls_isNo',
-      'locale',
-    ];
-  }
-  return [
-    ...common,
-    'mktId',
-    'inqTpCd',
-    'trdVolVal',
-    'share',
-    'money',
-    'detailView',
-    'csvxls_isNo',
-    'locale',
-  ];
-}
-
-function buildKrxOtpPayload(variant: KrxInvestorEndpointVariant): {
-  body: string;
-  meta: Pick<KrxPostMeta, 'payloadMode' | 'omittedKeys' | 'forbiddenKeysPresent' | 'requiredKeysPresent' | 'requiredKeysMissing' | 'sentPayloadKeys'>;
-} {
-  const basePayload = variant.payloadMode === 'MINIMAL_STRICT'
-    ? {
-        name: 'fileDown',
-        bld: variant.bld,
-        ...variant.params,
-      }
-    : {
-        name: 'fileDown',
-        bld: variant.bld,
-        url: variant.bld,
-        csvxls_isNo: 'false',
-        locale: 'ko_KR',
-        ...variant.params,
-      };
-  const { payload, omittedKeys } = sanitizeKrxPayload(basePayload);
-  const sentPayloadKeys = Object.keys(payload).sort();
-  const requiredKeys = requiredKrxPayloadKeys(variant);
-  const forbiddenKeys = forbiddenKrxPayloadKeys(variant);
-  const requiredKeysPresent = requiredKeys.filter((key) => payload[key] != null);
-  const requiredKeysMissing = requiredKeys.filter((key) => payload[key] == null);
-  const forbiddenKeysPresent = forbiddenKeys.filter((key) => payload[key] != null);
-  return {
-    body: new URLSearchParams(payload).toString(),
-    meta: {
-      payloadMode: variant.payloadMode,
-      omittedKeys: omittedKeys.sort(),
-      forbiddenKeysPresent,
-      requiredKeysPresent,
-      requiredKeysMissing,
-      sentPayloadKeys,
-    },
-  };
-}
-
-function buildKrxAutoDisabledDiagnostic(input: {
-  tradeDate: string;
-  endpoint?: string;
-  bld?: string;
-  attemptedVariants?: string[];
-  routePurpose?: 'MARKET_LEVEL' | 'SYMBOL_LEVEL';
-  symbolCode?: string | null;
-}): KrxInvestorTradingDiagnostic {
-  const endpoint = input.endpoint ?? 'MDCSTAT02201';
-  const bld = input.bld ?? 'dbms/MDC/STAT/standard/MDCSTAT02201';
-  const reason = krxAutoFetchDisabledReason();
-  const status = krxDisabledStatus();
-  const reasonMessage = krxDisabledReasonMessage();
-  return {
-    status,
-    ...(status === 'DISABLED_BY_KIS_ONLY_MODE' ? { confidence: 'MISSING' as const } : {}),
-    provider: 'KRX',
-    providerIssue: false,
-    marketSignal: false,
-    executionImpact: 'NONE',
-    endpoint,
-    bld,
-    tradeDate: input.tradeDate,
-    selectedKrxFlowMode: 'DIRECT_JSON',
-    payloadMode: 'MINIMAL_STRICT',
-    routePurpose: input.routePurpose ?? 'MARKET_LEVEL',
-    selectedBld: bld,
-    requiredParamMissing: null,
-    shortCodeToIsuCdResolved: false,
-    isuCd: null,
-    inqTpCd: null,
-    inqVal: null,
-    detailView: null,
-    endpointVariant: `${endpoint}:AUTO_FETCH_DISABLED`,
-    routeKind: input.routePurpose === 'SYMBOL_LEVEL' ? 'SYMBOL_INVESTOR_FLOW' : 'MARKET_INVESTOR_FLOW',
-    dateParam: 'trdDd',
-    marketCode: 'ALL',
-    symbolCode: input.symbolCode ?? null,
-    symbolRequired: input.routePurpose === 'SYMBOL_LEVEL',
-    otpRequired: false,
-    otpGenerated: false,
-    otpLength: 0,
-    csvDownloaded: false,
-    csvRowCount: 0,
-    csvColumnKeys: [],
-    csvFailureReason: krxDisabledReasonMessage(),
-    csvHeaderDetected: false,
-    csvNoDataReason: krxDisabledReasonMessage(),
-    omittedKeys: [],
-    forbiddenKeysPresent: [],
-    requiredKeysPresent: [],
-    requiredKeysMissing: [],
-    sentPayloadKeys: [],
-    parameterKeys: [],
-    attemptedVariants: input.attemptedVariants ?? [],
-    selectedVariant: null,
-    contentType: 'empty',
-    httpStatus: null,
-    responseKind: 'DISABLED',
-    consecutiveFailures: 0,
-    cooldownActive: false,
-    cooldownRemainingMs: 0,
-    offHoursSuppressed: false,
-    diagnosticOnly: true,
-    useForRouter: false,
-    useForGate: false,
-    useForLive: false,
-    useForShadow: false,
-    rawTopLevelKeys: [],
-    detectedCandidatePaths: [],
-    selectedRowPath: null,
-    selectedRowCount: 0,
-    firstRowKeys: [],
-    normalizedRows: 0,
-    parserStatus: status,
-    fieldMappings: {
-      symbol: null,
-      date: null,
-      investorType: null,
-      foreignNetBuy: null,
-      institutionNetBuy: null,
-      individualNetBuy: null,
-      netBuyAmount: null,
-      netBuyVolume: null,
-    },
-    endpointIssueHint: 'NONE',
-    summary: `status=${status};provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=${reason};message=${reasonMessage}`,
-    reason: reasonMessage,
-  };
-}
-
+// __krxClientTestOnly — 외부 회귀 테스트가 호출하는 thin re-export.
+// sanitizeKrxPayload + buildKrxAutoDisabledDiagnostic 시그니처 byte-equivalent 보존.
 export const __krxClientTestOnly = {
   sanitizeKrxPayload,
   buildKrxAutoDisabledDiagnostic,
 };
 
-// ADR-0502c: KRX_USER_AGENT 는 ./krxClient/constants.ts SSOT 로 이동.
+// ── CSV 파서 + OTP-CSV flow (ADR-0502c Phase 2 — csv.ts + otpCsv.ts SSOT) ────
+import { krxInvestorOtpCsv } from './krxClient/otpCsv.js';
 
-function decodeKrxCsv(buffer: ArrayBuffer, contentType: string | null): string {
-  const lower = (contentType ?? '').toLowerCase();
-  if (lower.includes('utf-8')) return new TextDecoder('utf-8').decode(buffer);
-  try {
-    return new TextDecoder('euc-kr').decode(buffer);
-  } catch {
-    return new TextDecoder('utf-8').decode(buffer);
-  }
-}
-
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let current = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"' && quoted && line[i + 1] === '"') {
-      current += '"';
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      quoted = !quoted;
-      continue;
-    }
-    if (ch === ',' && !quoted) {
-      out.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += ch;
-  }
-  out.push(current.trim());
-  return out;
-}
-
-// ADR-0502c: ParsedKrxCsv 정의는 ./krxClient/types.ts 로 이동.
-
-function parseKrxCsv(text: string): ParsedKrxCsv {
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length === 0) return { rows: [], headers: [], headerDetected: false, noDataReason: 'EMPTY_CSV' };
-  const headers = parseCsvLine(lines[0]).map((header) => header.trim());
-  const headerDetected = headers.length > 0 && headers.some((header) => header.length > 0);
-  if (lines.length < 2) {
-    return {
-      rows: [],
-      headers,
-      headerDetected,
-      noDataReason: headerDetected ? 'HEADER_ONLY' : 'NO_CSV_HEADER',
-    };
-  }
-  const aliasKey = (header: string): string | null => {
-    const compact = header.replace(/\s+/g, '');
-    if (/종목코드|단축코드/i.test(compact)) return 'ISU_SRT_CD';
-    if (/종목명|종목약명/i.test(compact)) return 'ISU_ABBRV';
-    if (/일자|기준일/i.test(compact)) return 'TRD_DD';
-    if (/투자자구분|투자자/i.test(compact)) return 'INVST_TP_NM';
-    if (/외국인/i.test(compact)) return 'FORN_INVSTR_NETBY_QTY';
-    if (/기관합계|기관/i.test(compact)) return 'ORGN_INVSTR_NETBY_QTY';
-    if (/개인/i.test(compact)) return 'INDIV_INVSTR_NETBY_QTY';
-    if (/순매수.*대금|순매수거래대금/i.test(compact)) return 'NETBY_TRDVAL';
-    if (/순매수.*수량|순매수.*거래량/i.test(compact)) return 'NETBY_QTY';
-    return null;
-  };
-  const rows = lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-    const row: Record<string, unknown> = {};
-    headers.forEach((header, index) => {
-      const value = values[index] ?? '';
-      row[header] = value;
-      const alias = aliasKey(header);
-      if (alias && row[alias] == null) row[alias] = value;
-    });
-    return row;
-  });
-  return {
-    rows,
-    headers,
-    headerDetected,
-    noDataReason: rows.length > 0 ? null : 'CSV_EMPTY_ROWS',
-  };
-}
-
-/**
- * KRX POST 요청 1회. 실패 시 null 반환 (호출자가 빈 배열로 변환).
- * - AbortSignal timeout 으로 응답이 없어도 프로세스가 멈추지 않는다.
- * - Content-Type form-urlencoded — KRX 동적 JSON 엔드포인트 요구.
- * - Referer/Origin 헤더 — 일부 bld는 referer 없으면 거부한다.
- */
-async function krxPost(
-  bld: string,
-  params: Record<string, string>,
-  options: { bypassTimeWindow?: boolean; allowDisabledAutoFetch?: boolean } = {},
-): Promise<KrxRawResponse | null> {
-  if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
-    const endpoint = bld.split('/').at(-1) ?? bld;
-    console.info(`[KRX] skipped: ${krxAutoFetchDisabledReason()} auto fetch disabled endpoint=${endpoint}`);
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED', diagnosticOnly: true, useForRouter: false, useForGate: false, useForLive: false, useForShadow: false });
-    return null;
-  }
-
-  if (KRX_DISABLED) {
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED' });
-    return null;
-  }
-
-  // ADR-0256: 시간대 게이팅 — 통계 무의미 / 미확정 시간대 호출 차단.
-  // 카운터 미누적 (ADR-0251 정합).
-  const gating = options.bypassTimeWindow ? { skip: false as const } : shouldSkipKrxCallByTimeWindow();
-  if (gating.skip) {
-    logger.debug(`[KRX] ${bld} 시간대 게이팅 스킵 (${gating.reason}, ADR-0256)`);
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'GATED' });
-    return null;
-  }
-
-  if (isBldCooldown(bld)) {
-    // ADR-0009 soft cooldown — 이미 실패가 누적된 bld 는 쿨다운 동안 skip.
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN', ...krxFailureMeta(bld), diagnosticOnly: isKisFirstRebuildMode(), useForRouter: !isKisFirstRebuildMode(), useForGate: !isKisFirstRebuildMode(), useForLive: false, useForShadow: true });
-    return null;
-  }
-
-  // ADR-0259 wiring: probe 윈도우 (cooldown 만료 후 30분) 안 추가 호출 skip.
-  // 1회만 시도 → 성공 시 recordBldSuccess 가 cooldownUntilMs=0 으로 reset →
-  // 이후 호출은 정상 동작. 실패 시 markRecoveryProbed 마킹된 상태 유지 →
-  // 다음 30분 윈도우 안 호출은 skip (또 실패해서 cooldown 재발 방지).
-  if (shouldSkipForRecoveryProbe(bld)) {
-    logger.debug(`[KRX] ${bld} probe 윈도우 안 추가 호출 skip (ADR-0259)`);
-    setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'COOLDOWN', ...krxFailureMeta(bld), diagnosticOnly: isKisFirstRebuildMode(), useForRouter: !isKisFirstRebuildMode(), useForGate: !isKisFirstRebuildMode(), useForLive: false, useForShadow: true });
-    return null;
-  }
-
-  // probe 윈도우 안 첫 시도 시점 마킹 — 다음 호출은 skip.
-  markRecoveryProbed(bld);
-
-  const body = new URLSearchParams({ bld, ...params }).toString();
-
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(`${KRX_BASE}${KRX_JSON_PATH}`, {
-      method: 'POST',
-      signal: ac.signal,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json, text/plain, */*',
-        'User-Agent': KRX_USER_AGENT,
-        'Referer': `${KRX_BASE}/contents/MDC/STAT/standard/MDCSTAT0201.cmd`,
-        'Origin':  KRX_BASE,
-      },
-      body,
-    });
-    if (!res.ok) {
-      // 주말 KRX 400 — resolveTradeDate 가 직전 영업일로 후퇴해도 bld 별 간헐 400.
-      // 정보 가치 0 + cooldown 오염 방지를 위해 silent return (recordBldFailure 도 생략).
-      if (res.status === 400 && isKstWeekend()) {
-        setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
-        return null;
-      }
-      // ADR-0251: 평일 off-hours (장 시작 전 / 점심 / 마감 후 통계 미확정 창)
-      // 의 400 은 정상 동작 — 카운터 미누적 (주말과 동일 정책). 사용자 5/6
-      // 보고: 점심시간 KRX 400 누적이 cooldown 트리거하던 결함 차단.
-      if (res.status === 400 && !isMarketDataPublished()) {
-        const kisFirst = isKisFirstRebuildMode();
-        if (kisFirst) {
-          recordBldFailure(bld, { cooldownThreshold: BLD_KIS_FIRST_QUARANTINE_THRESHOLD, reason: 'OFF_HOURS_HTTP400' });
-        }
-        logger.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251, executionImpact=NONE)`);
-        setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR', ...krxFailureMeta(bld), offHoursSuppressed: true, diagnosticOnly: kisFirst, useForRouter: !kisFirst, useForGate: !kisFirst, useForLive: false, useForShadow: true });
-        return null;
-      }
-      console.warn(`[KRX] ${bld} HTTP ${res.status}`);
-      setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
-      recordBldFailure(bld);
-      return null;
-    }
-    const text = await res.text();
-    const contentType = classifyContentType(res.headers?.get?.('content-type') ?? null, text);
-    if (!text.trim()) {
-      setKrxPostMeta(bld, { contentType, httpStatus: res.status, responseKind: 'EMPTY' });
-      recordBldFailure(bld);
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(text);
-      setKrxPostMeta(bld, { contentType, httpStatus: res.status, responseKind: 'JSON' });
-      recordBldSuccess(bld);
-      return parsed;
-    }
-    catch {
-      console.warn(`[KRX] ${bld} JSON 파싱 실패 (앞 120자: ${text.slice(0, 120)})`);
-      setKrxPostMeta(bld, { contentType, httpStatus: res.status, responseKind: makeKrxResponseKind(contentType) });
-      recordBldFailure(bld);
-      return null;
-    }
-  } catch (e) {
-    // AbortError 포함 — 네트워크/타임아웃 모두 빈 응답 처리.
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[KRX] ${bld} 네트워크 실패: ${msg}`);
-    setKrxPostMeta(bld, { contentType: 'unknown', httpStatus: null, responseKind: 'NETWORK_ERROR' });
-    recordBldFailure(bld);
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function krxInvestorOtpCsv(
-  variant: KrxInvestorEndpointVariant,
-  options: { allowDisabledAutoFetch?: boolean } = {},
-): Promise<KrxRawResponse | null> {
-  const { body: otpBody, meta: payloadMeta } = buildKrxOtpPayload(variant);
-  if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
-    const endpoint = variant.endpoint;
-    console.info(`[KRX] skipped: ${krxAutoFetchDisabledReason()} auto fetch disabled endpoint=${endpoint}`);
-    setKrxPostMeta(variant.bld, {
-      ...payloadMeta,
-      contentType: 'empty',
-      httpStatus: null,
-      responseKind: 'DISABLED',
-      selectedKrxFlowMode: 'OTP_CSV',
-      otpGenerated: false,
-      otpLength: 0,
-      csvDownloaded: false,
-      csvRowCount: 0,
-      csvColumnKeys: [],
-      csvFailureReason: krxDisabledReasonMessage(),
-      csvHeaderDetected: false,
-      csvNoDataReason: krxDisabledReasonMessage(),
-      diagnosticOnly: true,
-      useForRouter: false,
-      useForGate: false,
-      useForLive: false,
-      useForShadow: false,
-    });
-    return null;
-  }
-
-  if (KRX_DISABLED) {
-    setKrxPostMeta(variant.bld, {
-      ...payloadMeta,
-      contentType: 'empty',
-      httpStatus: null,
-      responseKind: 'DISABLED',
-      selectedKrxFlowMode: 'OTP_CSV',
-      otpGenerated: false,
-      otpLength: 0,
-      csvDownloaded: false,
-      csvRowCount: 0,
-      csvColumnKeys: [],
-      csvFailureReason: 'KRX_API_DISABLED',
-      csvHeaderDetected: false,
-      csvNoDataReason: 'KRX_API_DISABLED',
-    });
-    return null;
-  }
-
-  try {
-    const otpRes = await fetch(`${KRX_BASE}${KRX_OTP_PATH}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'text/plain, */*',
-        'User-Agent': KRX_USER_AGENT,
-        'Referer': `${KRX_BASE}/contents/MDC/MDI/mdiLoader`,
-        'Origin': KRX_BASE,
-      },
-      body: otpBody,
-    });
-    if (!otpRes.ok) {
-      setKrxPostMeta(variant.bld, {
-        ...payloadMeta,
-        contentType: 'text',
-        httpStatus: otpRes.status,
-        responseKind: 'HTTP_ERROR',
-        selectedKrxFlowMode: 'OTP_CSV',
-        otpGenerated: false,
-        otpLength: 0,
-        csvDownloaded: false,
-        csvRowCount: 0,
-        csvColumnKeys: [],
-        csvFailureReason: `OTP_HTTP_${otpRes.status}`,
-        csvHeaderDetected: false,
-        csvNoDataReason: `OTP_HTTP_${otpRes.status}`,
-      });
-      return null;
-    }
-    const otp = (await otpRes.text()).trim();
-    const otpGenerated = otp.length > 0 && !/^<!doctype html|<html[\s>]/i.test(otp);
-    if (!otpGenerated) {
-      setKrxPostMeta(variant.bld, {
-        ...payloadMeta,
-        contentType: otp.length > 0 ? 'html' : 'empty',
-        httpStatus: otpRes.status,
-        responseKind: otp.length > 0 ? 'HTML' : 'EMPTY',
-        selectedKrxFlowMode: 'OTP_CSV',
-        otpGenerated: false,
-        otpLength: otp.length,
-        csvDownloaded: false,
-        csvRowCount: 0,
-        csvColumnKeys: [],
-        csvFailureReason: otp.length > 0 ? 'OTP_HTML_OR_SESSION_REQUIRED' : 'OTP_EMPTY',
-        csvHeaderDetected: false,
-        csvNoDataReason: otp.length > 0 ? 'OTP_HTML_OR_SESSION_REQUIRED' : 'OTP_EMPTY',
-      });
-      return null;
-    }
-
-    const csvRes = await fetch(`${KRX_BASE}${KRX_DOWNLOAD_CSV_PATH}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'text/csv, application/octet-stream, text/plain, */*',
-        'User-Agent': KRX_USER_AGENT,
-        'Referer': `${KRX_BASE}/contents/MDC/MDI/mdiLoader`,
-        'Origin': KRX_BASE,
-      },
-      body: new URLSearchParams({ code: otp }).toString(),
-    });
-    if (!csvRes.ok) {
-      setKrxPostMeta(variant.bld, {
-        ...payloadMeta,
-        contentType: 'text',
-        httpStatus: csvRes.status,
-        responseKind: 'HTTP_ERROR',
-        selectedKrxFlowMode: 'OTP_CSV',
-        otpGenerated: true,
-        otpLength: otp.length,
-        csvDownloaded: false,
-        csvRowCount: 0,
-        csvColumnKeys: [],
-        csvFailureReason: `CSV_HTTP_${csvRes.status}`,
-        csvHeaderDetected: false,
-        csvNoDataReason: `CSV_HTTP_${csvRes.status}`,
-      });
-      return null;
-    }
-    const arrayBuffer = await csvRes.arrayBuffer();
-    const contentType = csvRes.headers?.get?.('content-type') ?? null;
-    const text = decodeKrxCsv(arrayBuffer, contentType);
-    const parsed = parseKrxCsv(text);
-    const rows = parsed.rows.map((row) => {
-      if (variant.routePurpose !== 'SYMBOL_LEVEL' || !variant.symbolCode) return row;
-      return {
-        ...row,
-        ISU_SRT_CD: row.ISU_SRT_CD ?? variant.symbolCode,
-        ISU_CD: row.ISU_CD ?? variant.isuCd ?? undefined,
-      };
-    });
-    const columnKeys = rows[0] ? Object.keys(rows[0]).slice(0, 40) : parsed.headers.slice(0, 40);
-    const responseKind = makeKrxResponseKind(classifyContentType(contentType, text));
-    const csvNoDataReason = rows.length > 0
-      ? null
-      : parsed.headerDetected ? 'CSV_NO_DATA_FOR_DATE' : 'PARAMETER_MISMATCH';
-    setKrxPostMeta(variant.bld, {
-      ...payloadMeta,
-      contentType: classifyContentType(contentType, text),
-      httpStatus: csvRes.status,
-      responseKind,
-      selectedKrxFlowMode: 'OTP_CSV',
-      otpGenerated: true,
-      otpLength: otp.length,
-      csvDownloaded: true,
-      csvRowCount: rows.length,
-      csvColumnKeys: columnKeys,
-      csvFailureReason: csvNoDataReason,
-      csvHeaderDetected: parsed.headerDetected,
-      csvNoDataReason,
-    });
-    if (rows.length > 0) recordBldSuccess(variant.bld);
-    return { csv: rows };
-  } catch (error) {
-    setKrxPostMeta(variant.bld, {
-      ...payloadMeta,
-      contentType: 'unknown',
-      httpStatus: null,
-      responseKind: 'NETWORK_ERROR',
-      selectedKrxFlowMode: 'OTP_CSV',
-      otpGenerated: false,
-      otpLength: 0,
-      csvDownloaded: false,
-      csvRowCount: 0,
-      csvColumnKeys: [],
-      csvFailureReason: error instanceof Error ? error.message.slice(0, 80) : String(error).slice(0, 80),
-      csvHeaderDetected: false,
-      csvNoDataReason: 'NETWORK_ERROR',
-    });
-    return null;
-  }
-}
 
 const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'csv', 'list', 'rows', 'result', 'block1'] as const;
 
@@ -968,7 +356,8 @@ function buildInvestorTradingDiagnostic(input: {
 }): KrxInvestorTradingDiagnostic {
   const variant = input.variant ?? null;
   const bld = variant?.bld ?? BLD_INVESTOR_TRADING;
-  const meta = _lastKrxPostMeta.get(bld);
+  // ADR-0502c Phase 2: meta state SSOT 가 ./krxClient/http.ts 로 이동 — getLastKrxPostMeta() 위임.
+  const meta = getLastKrxPostMeta(bld);
   const rawTopLevelKeys = input.raw && typeof input.raw === 'object' ? Object.keys(input.raw).slice(0, 40) : [];
   const parserStatus = classifyInvestorParserStatus({
     raw: input.raw,
@@ -1601,13 +990,10 @@ export function getKrxAuthKey(): string {
  * KRX Open API 공통 GET 래퍼. 서킷브레이커·타임아웃·AUTH_KEY 헤더를
  * `krxOpenApi.ts` 의 `krxGet` 이 담당한다. 인증 실패·네트워크 실패·쿼터 초과는
  * 모두 null 로 정규화되어 호출자가 Yahoo 폴백을 시도할 수 있다.
+ *
+ * ADR-0502c Phase 2: 본체는 ./krxClient/http.ts SSOT 로 이동. 호환성 re-export.
  */
-export function krxGet(
-  endpoint: string,
-  params: Record<string, string>,
-): Promise<Record<string, unknown> | null> {
-  return _openApiGet(endpoint, params) as Promise<Record<string, unknown> | null>;
-}
+export { krxGet } from './krxClient/http.js';
 
 /**
  * 종목별 일별 OHLCV 스냅샷. KOSPI → KOSDAQ 순서로 조회하고 일치하는 종목 1건을 반환.

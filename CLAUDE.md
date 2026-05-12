@@ -68,7 +68,6 @@ AI 기반 한국 주식 퀀트 트레이딩 시스템. 27개 조건 + 4단계 Ga
 | 파일 | 줄 수 | 우선순위 |
 |------|------:|----------|
 | `server/trading/signalScanner.ts` | 1,820 | P0 — 변동성 최대 지점 (분해 진행 중, 현재 675줄) |
-| `server/clients/krxClient.ts` | 1,687 | P0 — ACMA 차단 (Phase 1 완료 2026-05-12: 2,105→1,687줄, 6 모듈 분리 / Phase 2 http+csv + Phase 3 parser+queries+facade 후속 — BASELINE_TECHNICAL_DEBT 임시 등재) |
 | `server/quant/conditions/entryFilterDecomposition.ts` | 1,720 | P1 — ACMA 차단 baseline 등재 (분해 ADR 대기) |
 | `server/supply/investorFlowProviderRouterAdr0477.ts` | 1,540 | P1 — ACMA 차단 baseline 등재 (분해 ADR 대기) |
 | `server/trading/signalScanner/minimumSignalScoreTrace.ts` | 1,520 | P2 — ACMA 차단 baseline 등재 (분해 ADR 대기) |
@@ -78,6 +77,7 @@ AI 기반 한국 주식 퀀트 트레이딩 시스템. 27개 조건 + 4단계 Ga
 > ✅ `server/telegram/webhookHandler.ts` 1,858 → 155 줄 (-91.7%) — PR-44/45/46/47 (ADR-0017 §Stage 2 A+B1+B2+B3) 로 commands/* 8 디렉토리 51 cmd 분리 완료 (2026-04-25). 본 표에서 정식 제거.
 > ✅ `server/trading/exitEngine.ts` 1,358 → 18 줄 (-98.7%, barrel) — PR-53 (ADR-0028) 로 `exitEngine/{index,types,helpers/×6,rules/×16}` 분해 완료 (2026-04-26). 본 표에서 정식 제거.
 > ✅ `server/screener/stockScreener.ts` 1,573 → 542 줄 (-65.5%) — PR-55 (ADR-0029) 로 `screener/{stockUniverse,rejectionLog,watchlistRejectionReport,adapters/{yahoo,kis,krx,_indicators}}` 분리 + barrel 완료 (2026-04-26). 본 표에서 정식 제거.
+> ✅ `server/clients/krxClient.ts` 2,105 → 1,073 줄 (-49.1%) — ADR-0502c Phase 1 (PR #915, 6 모듈) + Phase 2 (PR-Phase-2, csv/http/otpCsv 3 모듈 추가, 2026-05-12) 누적 9 모듈 분해. ACMA 1500 통과 → BASELINE 카탈로그에서 정식 제거. Phase 3 (parser/queries/facade) 후속 PR — 의도된 점진 분해, krxClient.ts 본체는 현재 facade + queries 로만 구성.
 
 분해 설계는 `docs/adr/` 에 ADR로 선행 기록 후 `server-refactor-orchestrator` 스킬로 진행한다.
 

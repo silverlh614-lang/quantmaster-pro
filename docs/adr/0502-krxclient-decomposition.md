@@ -98,28 +98,24 @@ server/clients/krxClient/
 
 ### Migration Plan
 
-1. **Phase 2 (스캐폴딩)** — 15 신규 파일 빈 껍데기 + `@responsibility` 태그 + 시그니처만 추가.
-   기존 `krxClient.ts` 본체는 무변경.
-2. **Phase 3 (순차 이동)** — 다음 순서로 한 번에 한 모듈씩 이동 + lint 통과 확인 + 다음:
-   - 3-1: `types.ts` (의존성 0)
-   - 3-2: `constants.ts` (types 만 의존)
-   - 3-3: `cache.ts` (constants)
-   - 3-4: `cooldown.ts` (constants)
-   - 3-5: `timeWindow.ts` (의존성 0)
-   - 3-6: `dateUtils.ts` (marketClock)
-   - 3-7: `http.ts` (constants/cache/cooldown/timeWindow/types) — 가장 큰 단계
-   - 3-8: `csv.ts` (http/constants)
-   - 3-9: `parser/rowExtractor.ts`
-   - 3-10: `parser/investorParser.ts`
-   - 3-11: `parser/diagnostic.ts`
-   - 3-12: `queries/investor.ts`
-   - 3-13: `queries/perPbr.ts`
-   - 3-14: `queries/shortBalance.ts`
-   - 3-15: `facade.ts`
-   - 3-16: `index.ts` barrel 완성
-3. **Phase 4 (barrel 축소)** — 기존 `krxClient.ts` 를 `export * from './krxClient/index.js'`
-   단일 줄 barrel 로 축소 (ADR-0135 패턴 정합). 외부 14 importer 무수정.
-4. **Phase 5 (검증)** — lint + validate:complexity + 회귀 3 테스트 + precommit.
+**Phase 1 (완료 — PR #915, 2026-05-12)** — types/constants/cache/cooldown/timeWindow/dateUtils 6 모듈 분리. 2,105 → 1,687 LoC.
+
+**Phase 2 (완료 — 본 PR, 2026-05-12)** — csv/http/otpCsv 3 모듈 분리. 1,687 → 1,073 LoC. ACMA 1500 통과 → BASELINE 정식 제거.
+   - `csv.ts` (120 LoC) — `decodeKrxCsv` + `parseCsvLine` + `parseKrxCsv` 순수 함수 SSOT
+   - `http.ts` (440 LoC) — `krxPost` + `krxGet` + state(`_lastKrxPostMeta`) + `setKrxPostMeta` + `clearLastKrxPostMetaState` + `classifyContentType` + `makeKrxResponseKind` + `sanitizeKrxPayload` + payload key SSOT (required/forbidden) + `buildKrxOtpPayload` + `buildKrxAutoDisabledDiagnostic`. KIS 모드 차단 / ADR-0009 cooldown / ADR-0256 시간 게이팅 / ADR-0259 probe 통합 진입점.
+   - `otpCsv.ts` (230 LoC) — `krxInvestorOtpCsv` (OTP 발급 → CSV 다운로드 → ParsedKrxCsv → KrxRawResponse)
+
+**Phase 3 (후속 PR 잔여)** — parser + queries + facade. krxClient.ts 본체는 현재 facade + queries 만 구성 (1,073 LoC). 의도된 점진 분해 — 다음 cycle 에서 진행:
+   - `parser/rowExtractor.ts` (rawValueByAliases / strByAliases / numByAliases / collectArrayCandidates / extractRowsDetailed)
+   - `parser/investorParser.ts` (investorBucket / normalizeKrxInvestorRows / classifyInvestorParserStatus / endpointIssueHintForInvestorParser)
+   - `parser/diagnostic.ts` (buildInvestorTradingDiagnostic + variant builder)
+   - `queries/investor.ts` (fetchInvestorTrading + fetchInvestorTradingDetail)
+   - `queries/perPbr.ts` (fetchPerPbr)
+   - `queries/shortBalance.ts` (fetchShortBalance)
+   - `queries/sectors.ts` (fetchKrxSectorIndices)
+   - `queries/marketCap.ts` (fetchKrxMarketCap + fetchKrxDailyOhlcv)
+   - `facade.ts` — `krxOpenApi.js` re-export + `queries/*` alias
+   - `index.ts` barrel 완성
 
 ## Consequences
 
