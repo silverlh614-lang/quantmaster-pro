@@ -38,14 +38,7 @@ describe('ADR diagnostic logging normalization', () => {
     expect(emitted).toBe(true);
     expect(mockLogger.error).not.toHaveBeenCalled();
     expect(mockLogger.warn).not.toHaveBeenCalled();
-    expect(mockLogger.debug).toHaveBeenCalledTimes(1);
-    expect(mockLogger.debug.mock.calls[0]?.[1]).toMatchObject({
-      issueClass: 'GATE1_DIAGNOSTIC',
-      providerIssue: false,
-      marketSignal: false,
-      executionImpact: 'NONE',
-      deferred: true,
-    });
+    expect(mockLogger.debug).not.toHaveBeenCalled();
   });
 
   it('rate-limits identical Gate1 dry-run ADR logs during LUNCH_GUARD while preserving shadow case recording', () => {
@@ -74,7 +67,7 @@ describe('ADR diagnostic logging normalization', () => {
 
     expect(first).toBe(true);
     expect(second).toBe(false);
-    expect(mockLogger.debug).toHaveBeenCalledTimes(1);
+    expect(mockLogger.debug).not.toHaveBeenCalled();
     expect(mockLogger.error).not.toHaveBeenCalled();
     expect(recordShadowCase).toHaveBeenCalledTimes(2);
   });

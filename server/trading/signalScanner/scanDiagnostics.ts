@@ -11,6 +11,7 @@
  */
 
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import { getNoiseCounters, logger, logNoiseDetail, logNoiseSummary } from '../../utils/logger.js';
 import {
   buildEmptyScanRootCauseEventsFromStringsAdr0500,
   safeBuildEmptyScanRootCauseDashboardAdr0500,
@@ -684,6 +685,8 @@ export interface ScanCounters {
    * 핵심 불변식: 모든 decision 의 `increaseFailCount: false` (literal type 강제, ADR-0115 보호).
    */
   preBreakoutWaitDecisions: PreBreakoutWaitDecision[];
+  /** Detail-only price-distance diagnostics suppressed from operational logs. */
+  preBreakoutPriceDistance: number;
 
   /**
    * ADR-0452 — Shadow Near-Breakout Entry 카운터.
@@ -765,6 +768,7 @@ export function createScanCounters(): ScanCounters {
     hardRiskBlockedCount: 0,
     // ADR-0449 — Pre-Breakout WAIT decisions 누적기 빈 배열 초기화.
     preBreakoutWaitDecisions: [],
+    preBreakoutPriceDistance: 0,
     // ADR-0452 — Shadow Near-Breakout Entry 카운터 초기화.
     shadowNearBreakoutCreated: 0,
     shadowNearBreakoutBlocked: 0,
@@ -1958,7 +1962,7 @@ export function logAdrDiagnostic(
   payload: AdrDiagnosticPayload = {},
   options: AdrDiagnosticLogOptions = {},
 ): boolean {
-  const logger = options.logger ?? console;
+  const activeLogger = options.logger ?? logger;
   const nowMs = options.nowMs ?? Date.now();
   const normalized = normalizeAdrDiagnosticPayload(event, payload);
   options.recordShadowCase?.();
@@ -1979,14 +1983,43 @@ export function logAdrDiagnostic(
   }
 
   if (nonImpact) {
-    logger.debug(event, { ...normalized, session, reason });
+    if (GATE1_DRY_RUN_ADR_CODES.has(adrCode)) {
+      logNoiseDetail({
+        category: 'GATE1_DIAGNOSTIC_DRY_RUN',
+        message: event,
+        payload: { ...normalized, session, reason },
+        loggerOverride: activeLogger,
+      });
+      return true;
+    }
+    activeLogger.debug(event, { ...normalized, session, reason });
     return true;
   }
 
-  logger.warn(event, { ...normalized, session, reason });
+  activeLogger.warn(event, { ...normalized, session, reason });
   return true;
 }
 
+
+
+export interface GateDiagnosticSummaryInput {
+  session: string;
+  dryRuns: number;
+  candidates: number;
+  deferred: number;
+  executionImpact: 'NONE' | string;
+}
+
+export function formatGateDiagnosticSummary(summary: GateDiagnosticSummaryInput): string {
+  return `[GateDiagnosticSummary] session=${summary.session} dryRuns=${summary.dryRuns} candidates=${summary.candidates} deferred=${summary.deferred} executionImpact=${summary.executionImpact}`;
+}
+
+export function logGateDiagnosticSummary(
+  summary: GateDiagnosticSummaryInput,
+  target: Pick<Console, 'info'> = logger,
+): void {
+  target.info(formatGateDiagnosticSummary(summary));
+}
 
 export interface PreBreakoutNoiseSummaryInput {
   scanned: number;
@@ -1995,10 +2028,12 @@ export interface PreBreakoutNoiseSummaryInput {
   gateFail: number;
   ready: number;
   rejected: number;
+  priceDistance?: number;
 }
 
 export function formatPreBreakoutNoiseSummary(summary: PreBreakoutNoiseSummaryInput): string {
-  return `[PreBreakoutSummary] scanned=${summary.scanned} wait=${summary.wait} approaching=${summary.approaching} gateFail=${summary.gateFail} ready=${summary.ready} rejected=${summary.rejected}`;
+  const priceDistance = summary.priceDistance === undefined ? '' : ` priceDistance=${summary.priceDistance}`;
+  return `[PreBreakoutSummary] scanned=${summary.scanned} wait=${summary.wait} approaching=${summary.approaching} gateFail=${summary.gateFail} ready=${summary.ready} rejected=${summary.rejected}${priceDistance}`;
 }
 
 export function logPreBreakoutNoiseSummary(
@@ -2841,12 +2876,13 @@ export async function persistScanResults(
       ],
     });
     if (process.env.KIS_FIRST_REBUILD_MODE === 'true') {
-      console.warn(
-        `[KIS_FIRST] Legacy diagnostic lane compact summary ` +
-        `(ADR-0467/0468/0469/0470/0471/0472/0475/0476/0477 emitted, ` +
-        `usedForCurrentGate=false, executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
-        `selectedProvider=${investorFlowProviderRouter.selectedProvider}, fallbackProvider=${investorFlowProviderRouter.fallbackProvider ?? 'NONE'})`,
-      );
+      logNoiseDetail({
+        category: 'KIS_FIRST_LEGACY_DIAGNOSTIC',
+        message: `[KIS_FIRST] Legacy diagnostic lane compact summary ` +
+          `(ADR-0467/0468/0469/0470/0471/0472/0475/0476/0477 emitted, ` +
+          `usedForCurrentGate=false, executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
+          `selectedProvider=${investorFlowProviderRouter.selectedProvider}, fallbackProvider=${investorFlowProviderRouter.fallbackProvider ?? 'NONE'})`,
+      });
     } else {
       console.warn(
         `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +
@@ -2893,6 +2929,17 @@ export async function persistScanResults(
     );
   } catch (e) {
     console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
+  }
+
+  {
+    const noiseCounters = getNoiseCounters();
+    logGateDiagnosticSummary({
+      session: options.macroGateState?.sellOnlyMode || options.sellOnly ? 'SELL_ONLY' : 'REGULAR',
+      dryRuns: noiseCounters.gateDiagnostics,
+      candidates: summaryDraft.candidates,
+      deferred: noiseCounters.gateDiagnostics,
+      executionImpact: 'NONE',
+    });
   }
 
   // ADR-0484/0485/0486/0487/0488: persist supply recovery/readiness/mount/fresh-data/UNKNOWN
@@ -3049,7 +3096,10 @@ export async function persistScanResults(
     gateFail: counters.waitGateFail,
     ready: counters.entries,
     rejected: counters.gateMisses + counters.rrrMisses,
+    priceDistance: counters.preBreakoutPriceDistance,
   });
+
+  logNoiseSummary({ session: options.macroGateState?.sellOnlyMode || options.sellOnly ? 'SELL_ONLY' : 'REGULAR', executionImpact: 'NONE' });
 
   if (options.sellOnly) {
     // sellOnly는 매수 금지 운영 상태일 뿐, /scan_blockers 진단 데이터는 유지한다.

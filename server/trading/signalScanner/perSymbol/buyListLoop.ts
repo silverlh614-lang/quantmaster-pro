@@ -6,6 +6,7 @@
  */
 
 import { fetchKisInvestorTradeByStockDaily } from '../../../clients/kisClient.js';
+import { logger, logNoiseDetail } from '../../../utils/logger.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
 import type { ServerShadowTrade, EntryKellySnapshot } from '../../../persistence/shadowTradeRepo.js';
@@ -318,7 +319,10 @@ function logPreEntryWaitDebug(input: {
     reason: input.reason,
   });
   if (shouldEmitPreEntryWaitLog(key, nowMs)) {
-    console.debug(`${input.message} actionable=false executionImpact=NONE telegram=false dedupeKey=${key}`);
+    logNoiseDetail({
+      category: 'PRE_ENTRY_WAIT',
+      message: `${input.message} actionable=false executionImpact=NONE telegram=false dedupeKey=${key}`,
+    });
   }
 }
 
@@ -777,11 +781,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ── Pre-Breakout 매집 감지 (진입가 미도달 + 손절선 위) ─────────────────
       if (!nearEntry && !breakout && aboveStop) {
         const priceDiffPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
-        console.debug(
-          `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달 — ` +
-          `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별 ` +
-          `actionable=false executionImpact=NONE telegram=false`,
-        );
+        ctx.scanCounters.preBreakoutPriceDistance++;
+        logNoiseDetail({
+          category: 'PRE_BREAKOUT_PRICE_DISTANCE',
+          message: `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달 — ` +
+            `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별 ` +
+            `actionable=false executionImpact=NONE telegram=false`,
+        });
         // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
         const reCheckQuotePb = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
                             ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
@@ -1016,7 +1022,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         if (shouldIncrementFailCount('PRE_BREAKOUT_MISS')) {
           stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
           ctx.mutables.watchlistMutated.value = true;
-          console.debug(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
+          logger.debug(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
         } else {
           logPreEntryWaitDebug({
             stockName: stock.name,

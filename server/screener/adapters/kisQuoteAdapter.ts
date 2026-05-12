@@ -14,6 +14,7 @@ import { realDataKisGet, HAS_REAL_DATA_CLIENT } from '../../clients/kisClient.js
 import { fetchKisMTASData, fetchKisDailyCandles, type KisChartCandle } from '../kisChartDataFetcher.js';
 import { recordMtasAttempt } from '../dataCompletenessTracker.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
+import { logger as appLogger, logNoiseDetail } from '../../utils/logger.js';
 import type { YahooQuoteExtended } from './yahooQuoteAdapter.js';
 
 /**
@@ -347,7 +348,7 @@ export function formatKisMtasNoiseSummary(summary: KisMtasNoiseSummary): string 
 
 export function logKisMtasNoiseSummary(
   summary: KisMtasNoiseSummary = getKisMtasNoiseSummary(),
-  logger: Pick<Console, 'info'> = console,
+  logger: Pick<Console, 'info'> = appLogger,
 ): void {
   logger.info(formatKisMtasNoiseSummary(summary));
 }
@@ -396,17 +397,19 @@ export async function enrichQuoteWithKisMTAS(
     if (kisMtas.monthlyCandleCount >= 13) {
       enriched.monthlyAboveEMA12 = kisMtas.monthlyAboveEMA12;
       enriched.monthlyEMARising = kisMtas.monthlyEMARising;
-      console.debug(
-        `[KisMTAS] ${code} 월봉 KIS 보강: EMA12위=${kisMtas.monthlyAboveEMA12} 상승=${kisMtas.monthlyEMARising} (${kisMtas.monthlyCandleCount}개월)`,
-      );
+      logNoiseDetail({
+        category: 'KIS_MTAS_DETAIL',
+        message: `[KisMTAS] ${code} 월봉 KIS 보강: EMA12위=${kisMtas.monthlyAboveEMA12} 상승=${kisMtas.monthlyEMARising} (${kisMtas.monthlyCandleCount}개월)`,
+      });
     }
 
     if (kisMtas.weeklyCandleCount >= 52) {
       enriched.weeklyAboveCloud = kisMtas.weeklyAboveCloud;
       enriched.weeklyLaggingSpanUp = kisMtas.weeklyLaggingSpanUp;
-      console.debug(
-        `[KisMTAS] ${code} 주봉 KIS 보강: 구름대위=${kisMtas.weeklyAboveCloud} 후행스팬=${kisMtas.weeklyLaggingSpanUp} (${kisMtas.weeklyCandleCount}주)`,
-      );
+      logNoiseDetail({
+        category: 'KIS_MTAS_DETAIL',
+        message: `[KisMTAS] ${code} 주봉 KIS 보강: 구름대위=${kisMtas.weeklyAboveCloud} 후행스팬=${kisMtas.weeklyLaggingSpanUp} (${kisMtas.weeklyCandleCount}주)`,
+      });
     }
 
     recordKisMtasNoiseResult({
