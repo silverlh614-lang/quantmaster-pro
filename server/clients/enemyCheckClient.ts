@@ -77,6 +77,10 @@ export interface EnemyCheckResult {
   shortStatus?: string;
   creditStatus?: string;
   loanStatus?: string;
+  /** Explicit materializer flags. false always wins over numeric-looking fallback values. */
+  shortMaterialized?: boolean;
+  creditMaterialized?: boolean;
+  loanMaterialized?: boolean;
   flowMaterialized?: boolean;
   priceMaterialized?: boolean;
   /** 데이터 신뢰도 */
@@ -97,7 +101,12 @@ const NOT_MATERIALIZED_REASONS = new Set([
   'LOAN_DATA_NOT_MATERIALIZED',
 ]);
 
-function isMaterializedNumeric(value: number | null | undefined, status?: string): value is number {
+function isMaterializedNumeric(
+  value: number | null | undefined,
+  status?: string,
+  materialized?: boolean,
+): value is number {
+  if (materialized === false) return false;
   if (status && NOT_MATERIALIZED_REASONS.has(status)) return false;
   return isFiniteNumber(value);
 }
@@ -112,11 +121,11 @@ export function shouldHideUnmaterializedEnemyItems(): boolean {
 }
 
 export function buildEnemyCheckItems(e: EnemyCheckResult): EnemyCheckItem[] {
-  const creditMaterialized = isMaterializedNumeric(e.creditRate, e.creditStatus);
-  const shortMaterialized = isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus);
-  const loanMaterialized = isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus);
-  const creditIncreaseMaterialized = isMaterializedNumeric(e.creditIncreaseRate, e.creditStatus);
-  const flowMaterialized = isMaterializedNumeric(e.individualDominance);
+  const creditMaterialized = isMaterializedNumeric(e.creditRate, e.creditStatus, e.creditMaterialized);
+  const shortMaterialized = isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus, e.shortMaterialized);
+  const loanMaterialized = isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus, e.loanMaterialized);
+  const creditIncreaseMaterialized = isMaterializedNumeric(e.creditIncreaseRate, e.creditStatus, e.creditMaterialized);
+  const flowMaterialized = isMaterializedNumeric(e.individualDominance, undefined, e.flowMaterialized);
 
   const creditValue: number | null = creditMaterialized ? e.creditRate as number : null;
   const flowValue: number | null = flowMaterialized ? e.individualDominance as number : null;
@@ -194,10 +203,10 @@ export function buildEnemyCheckItems(e: EnemyCheckResult): EnemyCheckItem[] {
 export function buildEnemyDataQualitySummary(e: EnemyCheckResult): EnemyDataQualitySummary {
   return {
     PRICE: dataQualityForMaterialized(e.priceMaterialized !== false),
-    FLOW: dataQualityForMaterialized(e.flowMaterialized === true || isFiniteNumber(e.individualDominance)),
-    SHORT: dataQualityForMaterialized(isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus)),
-    CREDIT: dataQualityForMaterialized(isMaterializedNumeric(e.creditRate, e.creditStatus)),
-    LOAN: dataQualityForMaterialized(isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus)),
+    FLOW: dataQualityForMaterialized(isMaterializedNumeric(e.individualDominance, undefined, e.flowMaterialized)),
+    SHORT: dataQualityForMaterialized(isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus, e.shortMaterialized)),
+    CREDIT: dataQualityForMaterialized(isMaterializedNumeric(e.creditRate, e.creditStatus, e.creditMaterialized)),
+    LOAN: dataQualityForMaterialized(isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus, e.loanMaterialized)),
     executionImpact: 'NONE',
   };
 }
@@ -219,9 +228,9 @@ export function buildPreMortem(input: {
   const dataDriven = !!(
     input.institutionNetSellMaterialized
     || input.foreignNetSellMaterialized
-    || (e && isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus) && Math.abs(e.shortSaleIncreaseRate) >= 20)
-    || (e && isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus) && Math.abs(e.loanIncreaseRate) >= 20)
-    || (e && isMaterializedNumeric(e.creditIncreaseRate, e.creditStatus) && Math.abs(e.creditIncreaseRate) >= 20)
+    || (e && isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus, e.shortMaterialized) && Math.abs(e.shortSaleIncreaseRate) >= 20)
+    || (e && isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus, e.loanMaterialized) && Math.abs(e.loanIncreaseRate) >= 20)
+    || (e && isMaterializedNumeric(e.creditIncreaseRate, e.creditStatus, e.creditMaterialized) && Math.abs(e.creditIncreaseRate) >= 20)
     || input.earningsConsensusDowngradeMaterialized
     || input.supportBreakMaterialized
     || input.disclosureBadNewsMaterialized
@@ -369,6 +378,9 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
     shortStatus,
     creditStatus,
     loanStatus,
+    shortMaterialized: isFiniteNumber(shortSaleIncreaseRate) && shortStatus === 'OK',
+    creditMaterialized: isFiniteNumber(creditRate) && creditStatus === 'OK',
+    loanMaterialized: isFiniteNumber(loanIncreaseRate) && loanStatus === 'OK',
     flowMaterialized,
     priceMaterialized: true,
     source: hitCount >= 2 ? 'KIS_FULL' : hitCount === 1 ? 'KIS_PARTIAL' : 'UNAVAILABLE',
