@@ -5,7 +5,7 @@
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
  */
 
-import { fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../../../clients/kisClient.js';
+import { fetchKisInvestorTradeByStockDaily } from '../../../clients/kisClient.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
 import type { ServerShadowTrade, EntryKellySnapshot } from '../../../persistence/shadowTradeRepo.js';
@@ -758,7 +758,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               const gateScorePb = (stock.gateScore ?? 0) + ctx.volumeClock.scoreBonus;
               // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
               const [kisFlowPb, dartFinPb] = await Promise.all([
-                fetchKisInvestorFlow(stock.code).catch(() => null),
+                fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
                 getDartFinancials(stock.code).catch(() => null),
               ]);
               const reCheckGatePb = evaluateServerGate(reCheckQuotePb, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFinPb, kisFlowPb, ctx.regime);
@@ -1334,7 +1334,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       const [kisFlow, dartFin] = reCheckQuote
         ? await Promise.all([
-            fetchKisInvestorFlow(stock.code).catch(() => null),
+            fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
             getDartFinancials(stock.code).catch(() => null),
           ])
         : [null, null];

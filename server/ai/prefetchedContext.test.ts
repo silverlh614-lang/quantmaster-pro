@@ -12,7 +12,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 // 실제 fetch·KIS·DART 모듈은 외부 네트워크 의존 — 모두 mock.
 vi.mock('../clients/kisClient.js', () => ({
   fetchCurrentPrice: vi.fn(),
-  fetchKisInvestorFlow: vi.fn(),
+  fetchKisInvestorTradeByStockDaily: vi.fn(),
   HAS_REAL_DATA_CLIENT: false,
   KIS_IS_REAL: false,
   hasKisClientOverrides: () => false,
@@ -33,7 +33,7 @@ vi.mock('../clients/krxClient.js', () => ({
   fetchPerPbr: vi.fn(async () => []),
 }));
 
-import { fetchCurrentPrice, fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { fetchCurrentPrice, fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
@@ -42,7 +42,7 @@ import { buildStockInterpretContext } from './prefetchedContext.js';
 describe('buildStockInterpretContext', () => {
   beforeEach(() => {
     vi.mocked(fetchCurrentPrice).mockReset();
-    vi.mocked(fetchKisInvestorFlow).mockReset();
+    vi.mocked(fetchKisInvestorTradeByStockDaily).mockReset();
     vi.mocked(fetchYahooQuote).mockReset();
     vi.mocked(getDartFinancials).mockReset();
     vi.mocked(fetchPerPbr).mockReset().mockResolvedValue([]);
@@ -56,7 +56,7 @@ describe('buildStockInterpretContext', () => {
 
   it('모든 소스가 null·실패여도 블록 문자열은 생성된다', async () => {
     vi.mocked(fetchCurrentPrice).mockResolvedValue(null);
-    vi.mocked(fetchKisInvestorFlow).mockResolvedValue(null);
+    vi.mocked(fetchKisInvestorTradeByStockDaily).mockResolvedValue(null);
     vi.mocked(fetchYahooQuote).mockResolvedValue(null);
     vi.mocked(getDartFinancials).mockResolvedValue(null);
 
@@ -71,11 +71,13 @@ describe('buildStockInterpretContext', () => {
 
   it('정상 데이터 주입 시 숫자·섹션이 모두 포함된다', async () => {
     vi.mocked(fetchCurrentPrice).mockResolvedValue(72500);
-    vi.mocked(fetchKisInvestorFlow).mockResolvedValue({
+    vi.mocked(fetchKisInvestorTradeByStockDaily).mockResolvedValue({
+      stockCode: '005930',
       foreignNetBuy: 1_200_000,
       institutionalNetBuy: 300_000,
       individualNetBuy: -1_500_000,
       source: 'KIS_API',
+      fetchedAt: '2026-05-11T09:30:00.000Z',
     });
     vi.mocked(fetchYahooQuote).mockResolvedValue({
       price: 72500, changePercent: 1.5, volume: 20_000_000,

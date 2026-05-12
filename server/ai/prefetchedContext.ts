@@ -15,7 +15,7 @@
  *   - 장애 내성: 각 소스 실패는 "데이터 없음" 문자열로 표기, 절대 throw 하지 않음
  */
 
-import { fetchCurrentPrice, fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { fetchCurrentPrice, fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import { fetchYahooQuote, type YahooQuoteExtended } from '../screener/stockScreener.js';
 import { getDartFinancials, type DartFinancials } from '../clients/dartFinancialClient.js';
 import { fetchPerPbr as krxFetchPerPbr } from '../clients/krxClient.js';
@@ -57,7 +57,7 @@ async function collectAll(ref: StockRef): Promise<CollectedData> {
 
   const [priceRes, flowRes, yahooRes, dartRes, perPbrRes] = await Promise.allSettled([
     fetchCurrentPrice(ref.code),
-    fetchKisInvestorFlow(ref.code),
+    fetchKisInvestorTradeByStockDaily(ref.code),
     fetchYahooQuote(symbol),
     getDartFinancials(ref.code),
     krxFetchPerPbr(),

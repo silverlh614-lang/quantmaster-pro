@@ -23,7 +23,7 @@ import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
-import { fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -154,7 +154,7 @@ export async function fetchGateData(
   if (!quote) return { quote: null, gate: null };
 
   const [kisFlow, dartFin] = await Promise.all([
-    fetchKisInvestorFlow(stockCode).catch(() => null),
+    fetchKisInvestorTradeByStockDaily(stockCode).catch(() => null),
     getDartFinancials(stockCode).catch(() => null),
   ]);
 
