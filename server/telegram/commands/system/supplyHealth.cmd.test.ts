@@ -82,4 +82,33 @@ describe('/supply_health KIS-first diagnostics', () => {
     expect(SOURCE).toContain("'marketSignal=false'");
     expect(SOURCE).toContain("'action=observe'");
   });
+  it('formats KIS-first providerTried with KIS_API first and cache disabled when verified', () => {
+    expect(SOURCE).toContain('function formatKisFirstInvestorFlowProviderTriedLines(');
+    expect(SOURCE).toContain('KIS_API:OK endpoint=KIS_INVESTOR_TRADE_BY_STOCK_DAILY confidence=VERIFIED materialized=${success}/${total}');
+    expect(SOURCE).toContain('KRX:DISABLED_BY_KIS_FIRST_MODE diagnosticOnly=true');
+    expect(SOURCE).toContain('NAVER:DIAGNOSTIC_ONLY');
+    expect(SOURCE).toContain('CACHE:FALLBACK_DISABLED_KIS_VERIFIED');
+    expect(SOURCE).toContain('!router || router.selectedProvider === \'KIS_API\'');
+  });
+
+  it('documents BEARISH supply_confluence as actual KIS flow, not provider failure', () => {
+    expect(SOURCE).toContain('function formatSupplyConfluenceLines(');
+    expect(SOURCE).toContain('supply_confluence:');
+    expect(SOURCE).toContain('signal=${router.signal}');
+    expect(SOURCE).toContain('dataStatus=${dataStatus}');
+    expect(SOURCE).toContain('providerIssue=${providerIssue}');
+    expect(SOURCE).toContain('interpretation=actual KIS verified flow is bearish, not provider failure');
+    expect(SOURCE).toContain('BEARISH는 데이터 장애가 아니라 KIS 실데이터 기반 약세 수급 신호입니다.');
+    expect(SOURCE).toContain('일반 BUY는 최종 Gate 정책에 따르며, STRONG_BUY는 별도 제한될 수 있습니다.');
+  });
+
+  it('pins program lamp semantics for stock partial plus accepted-empty market program', () => {
+    expect(SOURCE).toContain("if (success >= 8) return { marker: 'DEGRADED', status: 'PARTIAL', lamp: 'AMBER' }");
+    expect(SOURCE).toContain('판정: PARTIAL — KIS stock program usable for non-empty symbols');
+    expect(SOURCE).toContain('status: ACCEPTED_EMPTY');
+    expect(SOURCE).toContain('providerIssue=false');
+    expect(SOURCE).toContain('marketSignal=false');
+    expect(SOURCE).toContain('bearish signal로 변환하지 않음');
+  });
+
 });
