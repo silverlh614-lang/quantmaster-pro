@@ -29,10 +29,23 @@ import { assertSafeOrder, PreOrderGuardError } from '../trading/preOrderGuard.js
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
+import {
+  acquireShadowAuctionLock,
+  buildShadowAuctionOrderKey,
+  buildShadowAuctionTelegramFingerprint,
+  formatGapPct,
+  formatGateSnap,
+  saveShadowAuctionOrderOnce,
+  sendShadowAuctionTelegramOnce,
+} from '../trading/shadowAuctionIdempotency.js';
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
 export function getWatchlist()    { return loadWatchlist(); }
+
+function kstTradeDate(): string {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 // ─── 아이디어 2: 동시호가 예약 주문 (08:45 KST) ──────────────────────────────────
 
@@ -50,6 +63,13 @@ export async function preMarketOrderPrep(): Promise<void> {
     console.log('[PreMarket] 워치리스트 비어있음 — 예약 주문 건너뜀');
     return;
   }
+
+  const tradeDate = kstTradeDate();
+  const auctionSession = 'OPENING_AUCTION';
+  const schedulerLock = await acquireShadowAuctionLock({ tradeDate, auctionSession, logger: console });
+  if (!schedulerLock.acquired) return;
+
+  try {
 
   // ── 포지션 Full 가드 (진입부 즉시) ─────────────────────────────────────────
   // regimeConfig.maxPositions 이상 보유 시 preMarket 예약 주문 자체를 스킵.
@@ -123,6 +143,7 @@ export async function preMarketOrderPrep(): Promise<void> {
       // 장전 preMarket 은 워치리스트 entry snapshot (gateScore) 을 신뢰하고, 단순
       // 구간 포지션 사이징만 적용한다. (ADR-0004: Yahoo preMarket 호출 경로 제거)
       const entryGateScore = stock.gateScore ?? 0;
+      const gateSnapFormatted = formatGateSnap(entryGateScore);
       // 보수적 기본 사이징: SWING 기준 8% 표준 포지션. runAutoSignalScan 에서
       // 실가격·MTAS·레짐 반영한 사이징으로 재조정된다.
       const defaultPositionPct = entryGateScore >= 7 ? 0.10 : 0.08;
@@ -141,7 +162,7 @@ export async function preMarketOrderPrep(): Promise<void> {
       const gapWarnTag = probe.decision === 'WARN' ? ' ⚠️' : '';
       console.log(
         `[PreMarket] ${stock.name}(${stock.code}) 예약 — ${quantity}주 @${stock.entryPrice.toLocaleString()} ` +
-        `(GateSnap=${entryGateScore}${gapLabel})${gapWarnTag}`
+        `(GateSnap=${gateSnapFormatted}${gapLabel})${gapWarnTag}`
       );
 
       if (isLive && process.env.KIS_APP_KEY) {
@@ -204,23 +225,52 @@ export async function preMarketOrderPrep(): Promise<void> {
             `📋 <b>[동시호가 예약 주문]</b>\n` +
             `종목: ${stock.name} (${stock.code})\n` +
             `가격: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
-            `GateSnap: ${entryGateScore} | ${gapLine}\n` +
+            `GateSnap: ${gateSnapFormatted} | ${gapLine}\n` +
             `주문번호: ${ordNo}`
           ).catch(console.error);
         }
       } else {
-        // Shadow 모드: Telegram 알림만 (현금 차감 없음)
+        // Shadow 모드: Telegram 알림만 (현금 차감 없음). 판단/학습은 유지하고 저장/발송만 idempotent 처리한다.
         orderedCount++;
-        const gapLine = probe.gapPct != null
-          ? `${probe.decision === 'WARN' ? '⚠️ Gap' : 'Gap'} ${probe.gapPct.toFixed(1)}%`
-          : 'Gap n/a';
-        await sendTelegramAlert(
-          `🎭 <b>[SHADOW 동시호가 예약]</b>\n` +
-          `종목: ${stock.name} (${stock.code})\n` +
-          `예정가: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
-          `GateSnap: ${entryGateScore} | ${gapLine}\n` +
-          `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
-        ).catch(console.error);
+        const orderKey = buildShadowAuctionOrderKey({
+          tradeDate,
+          auctionSession,
+          stockCode: stock.code,
+          side: 'BUY',
+          plannedPrice: stock.entryPrice,
+          plannedQty: quantity,
+          accountMode: 'SHADOW',
+        });
+        const orderSave = await saveShadowAuctionOrderOnce({
+          orderKey,
+          createOrder: () => ({ orderKey, stockCode: stock.code, plannedPrice: stock.entryPrice, plannedQty: quantity }),
+          logger: console,
+        });
+        if (!orderSave.saved) continue;
+
+        const fingerprint = buildShadowAuctionTelegramFingerprint({
+          channelId: process.env.TELEGRAM_CHAT_ID ?? 'DEFAULT',
+          tradeDate,
+          auctionSession,
+          stockCode: stock.code,
+          plannedPrice: stock.entryPrice,
+          plannedQty: quantity,
+          gateSnap: entryGateScore,
+          gapPct: probe.gapPct,
+          accountMode: 'SHADOW',
+        });
+        await sendShadowAuctionTelegramOnce({
+          fingerprint,
+          stockCode: stock.code,
+          logger: console,
+          sendMessage: () => sendTelegramAlert(
+            `🎭 <b>[SHADOW 동시호가 예약]</b>\n` +
+            `종목: ${stock.name} (${stock.code})\n` +
+            `예정가: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
+            `GateSnap: ${gateSnapFormatted} | Gap ${formatGapPct(probe.gapPct)}\n` +
+            `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
+          ),
+        }).catch(console.error);
       }
 
       await new Promise(r => setTimeout(r, 300)); // KIS rate limit 여유
@@ -244,6 +294,9 @@ export async function preMarketOrderPrep(): Promise<void> {
   }
 
   console.log('[PreMarket] 동시호가 예약 주문 준비 완료');
+  } finally {
+    await schedulerLock.release();
+  }
 }
 
 // ─── 아이디어 1: TradingDayOrchestrator — 장 사이클 State Machine ──────────────

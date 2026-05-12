@@ -16,6 +16,7 @@ import {
 } from './programMaterializer.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
 import { isTradingDay } from '../../utils/marketDayClassifier.js';
+import { classifyInvestorFlowPayload, describeKisPayloadStatus, type KisPayloadStatus } from './payloadValidators.js';
 
 export type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM' | 'MARKET_PROGRAM';
 
@@ -29,7 +30,7 @@ export interface KisRawSupplyDiagnostic {
   outputPath: string;
   outputKeys: string[];
   parsed: Record<string, number | null>;
-  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'NO_OUTPUT' | 'OUTPUT_EMPTY' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO' | 'SESSION_UNAVAILABLE' | 'PARAM_ERROR' | 'PROVIDER_ERROR';
+  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'FIELD_MISMATCH' | 'QUOTE_LIKE_OUTPUT' | 'HTTP_OK_BUT_EMPTY' | 'NO_OUTPUT' | 'OUTPUT_EMPTY' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO' | 'SESSION_UNAVAILABLE' | 'PARAM_ERROR' | 'PROVIDER_ERROR';
   sample: Record<string, string | number | null>;
   rootSample: Record<string, string | number | boolean | null>;
   error?: string;
@@ -190,6 +191,9 @@ export function formatKisRawSupplyDiagnostic(diag: KisRawSupplyDiagnostic): stri
     `parsed=${Object.entries(diag.parsed).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(',') || 'NONE'}`,
     `zeroReason=${diag.zeroReason}`,
     diag.error ? `error=${diag.error}` : '',
+    ['QUOTE_LIKE_OUTPUT', 'HTTP_OK_BUT_EMPTY', 'FIELD_MISSING', 'FIELD_MISMATCH'].includes(diag.zeroReason)
+      ? describeKisPayloadStatus(diag.zeroReason as KisPayloadStatus)
+      : '',
   ].filter(Boolean).join(';');
 }
 
@@ -224,7 +228,14 @@ export async function diagnoseKisInvestorFlowRaw(
       outputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: out ? classifyZero(parsed) : 'NO_OUTPUT',
+      zeroReason: (() => {
+        if (!out) return 'NO_OUTPUT' as const;
+        const c = classifyInvestorFlowPayload([out], { trId, path });
+        if (c.status === 'QUOTE_LIKE_OUTPUT') return 'QUOTE_LIKE_OUTPUT' as const;
+        if (c.status === 'HTTP_OK_BUT_EMPTY') return 'HTTP_OK_BUT_EMPTY' as const;
+        if (c.status === 'FIELD_MISSING') return 'FIELD_MISSING' as const;
+        return classifyZero(parsed);
+      })(),
       sample: pickSample(out, ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty', 'FRGN_NETBUY_QTY', 'INST_NETBUY_QTY', 'INDV_NETBUY_QTY']),
       rootSample: pickRootSample(data),
     };
