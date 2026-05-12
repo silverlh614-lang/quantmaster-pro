@@ -16,7 +16,13 @@ import {
   escapeHtml,
 } from '../alerts/telegramClient.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
-import { formatEnemyCheckSummary, type EnemyCheckResult } from '../clients/enemyCheckClient.js';
+import {
+  buildPreMortem,
+  formatEnemyCheckSummary,
+  type EnemyCheckResult,
+  type PreMortem,
+} from '../clients/enemyCheckClient.js';
+import { formatNullableNumber, formatWon } from '../utils/nullableFormatters.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import { markUserApproved, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
 
@@ -49,6 +55,62 @@ export function getAutoApproveTimeoutMs(regime?: string): number {
 }
 
 export type ApprovalAction = 'APPROVE' | 'REJECT' | 'SKIP';
+
+export function normalizePreMortemForDisplay(preMortem: string | PreMortem | null | undefined): PreMortem | null {
+  if (!preMortem) return null;
+  if (typeof preMortem !== 'string') return preMortem;
+  const lines = preMortem.split('\n').map((line) => line.trim()).filter(Boolean);
+  return buildPreMortem({ lines });
+}
+
+export function formatPreMortemForDisplay(preMortem: string | PreMortem | null | undefined): string | null {
+  const normalized = normalizePreMortemForDisplay(preMortem);
+  if (!normalized) return null;
+  const title = normalized.source === 'DATA_DRIVEN'
+    ? `⚠️ 실패 시나리오(DATA_DRIVEN / ${normalized.confidence})`
+    : `⚠️ 실패 시나리오(Shadow 가설 / ${normalized.confidence})`;
+  const suffix = normalized.source === 'AI_GENERATED_HYPOTHESIS'
+    ? '\n※ 데이터 미검증 가설이며 실거래 판단에는 미반영'
+    : '';
+  return `${title}\n${normalized.lines.join('\n')}${suffix}`;
+}
+
+export function buildBuyApprovalMessage(params: {
+  stockName: string;
+  currentPrice: number;
+  quantity: number;
+  stopLoss: number;
+  targetPrice: number;
+  mode: 'LIVE' | 'SHADOW';
+  gateScore?: number;
+  enemyCheck?: EnemyCheckResult | null;
+  preMortem?: string | PreMortem | null;
+  timeoutLine: string;
+}): string {
+  const modeEmoji = params.mode === 'LIVE' ? '🔴' : '⚡';
+  const modeLabel = params.mode === 'LIVE' ? 'LIVE' : 'Shadow';
+  const risk = params.currentPrice - params.stopLoss;
+  const rrrRatio = risk > 0 ? (params.targetPrice - params.currentPrice) / risk : null;
+  const enemySummary = params.enemyCheck ? formatEnemyCheckSummary(params.enemyCheck) : null;
+  const enemySection = enemySummary
+    ? `━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${escapeHtml(enemySummary)}</i>\n`
+    : '';
+  const preMortemDisplay = formatPreMortemForDisplay(params.preMortem);
+  const preMortemSection = preMortemDisplay
+    ? `━━━━━━━━━━━━━━━━\n${escapeHtml(preMortemDisplay)}\n`
+    : '';
+
+  return `${modeEmoji} <b>[${modeLabel}] ${escapeHtml(params.stockName)} 매수 신호</b>\n`
+    + `━━━━━━━━━━━━━━━━\n`
+    + `현재가: ${formatWon(params.currentPrice)} × ${params.quantity}주\n`
+    + `손절: ${formatWon(params.stopLoss)} | 목표: ${formatWon(params.targetPrice)}\n`
+    + `RRR: ${formatNullableNumber(rrrRatio, 2)} | Gate: ${formatNullableNumber(params.gateScore, 2)}\n`
+    + enemySection
+    + preMortemSection
+    + `━━━━━━━━━━━━━━━━\n`
+    + params.timeoutLine;
+}
+
 
 interface PendingApproval {
   tradeId: string;
@@ -90,7 +152,7 @@ export async function requestBuyApproval(params: {
   /** 레짐별 가변 타임아웃 결정용. 미전달 시 기본 3분. */
   regime?: string;
   /** 매수 실패 시나리오 사전 체크리스트(Gemini Pre-Mortem). 있으면 메시지에 표시. */
-  preMortem?: string | null;
+  preMortem?: string | PreMortem | null;
   /** ADR-0077 — TradeSignalRecord id (`${signalTimeIso}:${stockCode}`). 전달 시 USER_APPROVED/BLOCKED 영속 */
   signalId?: string;
 }): Promise<ApprovalAction> {
@@ -100,38 +162,24 @@ export async function requestBuyApproval(params: {
     regime, preMortem, signalId,
   } = params;
 
-  const modeEmoji = mode === 'LIVE' ? '🔴' : '⚡';
-  const modeLabel = mode === 'LIVE' ? 'LIVE' : 'Shadow';
-  const rrrRatio = ((targetPrice - currentPrice) / (currentPrice - stopLoss)).toFixed(1);
   const timeoutMs = getAutoApproveTimeoutMs(regime);
   const autoApproveDisabled = timeoutMs === 0;
   const timeoutSec = Math.round(timeoutMs / 1000);
-
-  // 역검증 섹션 (데이터 있을 때만 표시)
-  const enemySummary = enemyCheck ? formatEnemyCheckSummary(enemyCheck) : null;
-  const enemySection = enemySummary
-    ? `━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${escapeHtml(enemySummary)}</i>\n`
-    : '';
-
-  // Pre-Mortem 섹션 (진입 전 실패 시나리오 사전 체크리스트)
-  const preMortemSection = preMortem
-    ? `━━━━━━━━━━━━━━━━\n⚠️ <b>실패 시나리오(Pre-Mortem)</b>\n${escapeHtml(preMortem)}\n`
-    : '';
-
   const timeoutLine = autoApproveDisabled
     ? `<i>🛑 자동 승인 비활성 (레짐 ${escapeHtml(regime ?? '')}) — 수동 승인 필수</i>`
     : `<i>${timeoutSec}초 내 미응답 시 자동 승인${regime ? ` (레짐 ${escapeHtml(regime)})` : ''}</i>`;
-
-  const message =
-    `${modeEmoji} <b>[${modeLabel}] ${escapeHtml(stockName)} 매수 신호</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
-    `현재가: ${currentPrice.toLocaleString()}원 × ${quantity}주\n` +
-    `손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` +
-    `RRR: ${rrrRatio} | Gate: ${gateScore ?? 'N/A'}\n` +
-    `${enemySection}` +
-    `${preMortemSection}` +
-    `━━━━━━━━━━━━━━━━\n` +
-    timeoutLine;
+  const message = buildBuyApprovalMessage({
+    stockName,
+    currentPrice,
+    quantity,
+    stopLoss,
+    targetPrice,
+    mode,
+    gateScore,
+    enemyCheck,
+    preMortem,
+    timeoutLine,
+  });
 
   const replyMarkup = {
     inline_keyboard: [[

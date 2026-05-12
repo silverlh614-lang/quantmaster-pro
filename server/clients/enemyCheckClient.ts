@@ -20,6 +20,47 @@ import {
   realDataKisGet,
   HAS_REAL_DATA_CLIENT,
 } from './kisClient.js';
+import {
+  formatNullablePercent,
+  formatSignedNullablePercent,
+  isFiniteNumber,
+} from '../utils/nullableFormatters.js';
+
+export type EnemySeverity = 'INFO' | 'WARN' | 'BLOCK';
+export type EnemySource = 'KIS' | 'DART' | 'NAVER' | 'AI_GENERATED' | 'MANUAL' | 'UNKNOWN';
+
+export interface EnemyCheckItem {
+  key: string;
+  label: string;
+  value: number | null;
+  displayValue: string;
+  materialized: boolean;
+  usableForScore: boolean;
+  usableForExecution: boolean;
+  severity: EnemySeverity;
+  source: EnemySource;
+  reason?: string;
+}
+
+export type EnemyDataQualityState = 'OK' | 'N/A' | 'DEGRADED' | 'STALE' | 'AI_ONLY';
+
+export interface EnemyDataQualitySummary {
+  PRICE: EnemyDataQualityState;
+  FLOW: EnemyDataQualityState;
+  SHORT: EnemyDataQualityState;
+  CREDIT: EnemyDataQualityState;
+  LOAN: EnemyDataQualityState;
+  executionImpact: 'NONE';
+}
+
+export interface PreMortem {
+  lines: string[];
+  source: 'DATA_DRIVEN' | 'AI_GENERATED_HYPOTHESIS';
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  usableForExecution: boolean;
+  usableForScore: boolean;
+  reason?: string;
+}
 
 export interface EnemyCheckResult {
   /** 신용잔고율 (%) — KIS FHKST01010100 cred_vals */
@@ -32,12 +73,179 @@ export interface EnemyCheckResult {
   loanIncreaseRate?: number | null;
   /** KIS official 신용잔고 증가율 (%) — 부재 시 null, bearish 변환 금지 */
   creditIncreaseRate?: number | null;
+  /** materializer/validator 진단. 표시 계층은 미검증 상태를 숫자로 대체하지 않는다. */
+  shortStatus?: string;
+  creditStatus?: string;
+  loanStatus?: string;
+  flowMaterialized?: boolean;
+  priceMaterialized?: boolean;
   /** 데이터 신뢰도 */
   source: 'KIS_FULL' | 'KIS_PARTIAL' | 'UNAVAILABLE';
 }
 
 const _cache = new Map<string, { data: EnemyCheckResult; exp: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10분
+
+const NOT_MATERIALIZED_REASONS = new Set([
+  'FIELD_MISMATCH_CONFIRMED',
+  'FIELD_MISSING',
+  'QUOTE_LIKE_OUTPUT_FOR_SHORT',
+  'NO_SHORT_SELLING_FIELDS',
+  'SHORT_DATA_NOT_MATERIALIZED',
+  'MISSING_CONFIRMED',
+  'CREDIT_DATA_NOT_MATERIALIZED',
+  'LOAN_DATA_NOT_MATERIALIZED',
+]);
+
+function isMaterializedNumeric(value: number | null | undefined, status?: string): value is number {
+  if (status && NOT_MATERIALIZED_REASONS.has(status)) return false;
+  return isFiniteNumber(value);
+}
+
+function dataQualityForMaterialized(ok: boolean): EnemyDataQualityState {
+  return ok ? 'OK' : 'N/A';
+}
+
+export function shouldHideUnmaterializedEnemyItems(): boolean {
+  return process.env.CARD_HIDE_UNMATERIALIZED_ENEMY_ITEMS !== 'false'
+    || process.env.TELEGRAM_HIDE_UNMATERIALIZED_ENEMY_ITEMS !== 'false';
+}
+
+export function buildEnemyCheckItems(e: EnemyCheckResult): EnemyCheckItem[] {
+  const creditMaterialized = isMaterializedNumeric(e.creditRate, e.creditStatus);
+  const shortMaterialized = isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus);
+  const loanMaterialized = isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus);
+  const creditIncreaseMaterialized = isMaterializedNumeric(e.creditIncreaseRate, e.creditStatus);
+  const flowMaterialized = isMaterializedNumeric(e.individualDominance);
+
+  const creditValue: number | null = creditMaterialized ? e.creditRate as number : null;
+  const flowValue: number | null = flowMaterialized ? e.individualDominance as number : null;
+  const shortValue: number | null = shortMaterialized ? e.shortSaleIncreaseRate as number : null;
+  const loanValue: number | null = loanMaterialized ? e.loanIncreaseRate as number : null;
+  const loanAbs = Math.abs(loanValue ?? 0);
+  const loanSeverity: EnemySeverity = !loanMaterialized || loanAbs < 10 ? 'INFO' : loanAbs < 20 ? 'WARN' : 'BLOCK';
+
+  const items: EnemyCheckItem[] = [
+    {
+      key: 'creditBalanceRatio',
+      label: '신용잔고율',
+      value: creditValue,
+      displayValue: formatNullablePercent(creditValue),
+      materialized: creditMaterialized,
+      usableForScore: creditMaterialized,
+      usableForExecution: false,
+      severity: creditValue !== null && creditValue >= 8 ? 'WARN' : 'INFO',
+      source: 'KIS',
+      reason: creditMaterialized ? undefined : 'CREDIT_DATA_NOT_MATERIALIZED',
+    },
+    {
+      key: 'individualDominance',
+      label: '개인 비중',
+      value: flowValue,
+      displayValue: flowValue !== null ? `${flowValue.toFixed(0)}%` : 'N/A',
+      materialized: flowMaterialized,
+      usableForScore: flowMaterialized,
+      usableForExecution: false,
+      severity: flowValue !== null && flowValue > 80 ? 'WARN' : 'INFO',
+      source: 'KIS',
+      reason: flowMaterialized ? undefined : 'FLOW_DATA_NOT_MATERIALIZED',
+    },
+    {
+      key: 'shortGrowthPct',
+      label: '공매도 증가율',
+      value: shortValue,
+      displayValue: formatNullablePercent(shortValue),
+      materialized: shortMaterialized,
+      usableForScore: shortMaterialized,
+      usableForExecution: false,
+      severity: shortValue !== null && shortValue >= 30 ? 'WARN' : 'INFO',
+      source: 'KIS',
+      reason: shortMaterialized ? undefined : (e.shortStatus ?? 'SHORT_DATA_NOT_MATERIALIZED'),
+    },
+    {
+      key: 'loanBalanceGrowthPct',
+      label: '대차잔고 증가율',
+      value: loanValue,
+      displayValue: formatSignedNullablePercent(loanValue),
+      materialized: loanMaterialized,
+      usableForScore: loanMaterialized && loanAbs >= 10,
+      usableForExecution: false,
+      severity: loanSeverity,
+      source: 'KIS',
+      reason: loanMaterialized ? (loanAbs < 10 ? 'LOAN_REFERENCE_ONLY_BELOW_10PCT' : undefined) : 'LOAN_DATA_NOT_MATERIALIZED',
+    },
+    {
+      key: 'creditBalanceGrowthPct',
+      label: '신용잔고 증가율',
+      value: creditIncreaseMaterialized ? e.creditIncreaseRate! : null,
+      displayValue: formatNullablePercent(creditIncreaseMaterialized ? e.creditIncreaseRate : null),
+      materialized: creditIncreaseMaterialized,
+      usableForScore: creditIncreaseMaterialized,
+      usableForExecution: false,
+      severity: creditIncreaseMaterialized && e.creditIncreaseRate! >= 30 ? 'WARN' : 'INFO',
+      source: 'KIS',
+      reason: creditIncreaseMaterialized ? undefined : 'CREDIT_DATA_NOT_MATERIALIZED',
+    },
+  ];
+
+  return shouldHideUnmaterializedEnemyItems() ? items.filter((item) => item.materialized) : items;
+}
+
+export function buildEnemyDataQualitySummary(e: EnemyCheckResult): EnemyDataQualitySummary {
+  return {
+    PRICE: dataQualityForMaterialized(e.priceMaterialized !== false),
+    FLOW: dataQualityForMaterialized(e.flowMaterialized === true || isFiniteNumber(e.individualDominance)),
+    SHORT: dataQualityForMaterialized(isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus)),
+    CREDIT: dataQualityForMaterialized(isMaterializedNumeric(e.creditRate, e.creditStatus)),
+    LOAN: dataQualityForMaterialized(isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus)),
+    executionImpact: 'NONE',
+  };
+}
+
+export function formatDataQualityBadge(summary: EnemyDataQualitySummary): string {
+  return `DataQuality:\nPRICE=${summary.PRICE} / FLOW=${summary.FLOW} / SHORT=${summary.SHORT} / CREDIT=${summary.CREDIT} / LOAN=${summary.LOAN}\nexecutionImpact=${summary.executionImpact}`;
+}
+
+export function buildPreMortem(input: {
+  lines: string[];
+  enemyCheck?: EnemyCheckResult | null;
+  institutionNetSellMaterialized?: boolean;
+  foreignNetSellMaterialized?: boolean;
+  earningsConsensusDowngradeMaterialized?: boolean;
+  supportBreakMaterialized?: boolean;
+  disclosureBadNewsMaterialized?: boolean;
+}): PreMortem {
+  const e = input.enemyCheck;
+  const dataDriven = !!(
+    input.institutionNetSellMaterialized
+    || input.foreignNetSellMaterialized
+    || (e && isMaterializedNumeric(e.shortSaleIncreaseRate, e.shortStatus) && Math.abs(e.shortSaleIncreaseRate) >= 20)
+    || (e && isMaterializedNumeric(e.loanIncreaseRate, e.loanStatus) && Math.abs(e.loanIncreaseRate) >= 20)
+    || (e && isMaterializedNumeric(e.creditIncreaseRate, e.creditStatus) && Math.abs(e.creditIncreaseRate) >= 20)
+    || input.earningsConsensusDowngradeMaterialized
+    || input.supportBreakMaterialized
+    || input.disclosureBadNewsMaterialized
+  );
+
+  if (!dataDriven) {
+    return {
+      lines: input.lines,
+      source: 'AI_GENERATED_HYPOTHESIS',
+      confidence: 'LOW',
+      usableForExecution: false,
+      usableForScore: false,
+      reason: 'DATA_NOT_MATERIALIZED',
+    };
+  }
+
+  return {
+    lines: input.lines,
+    source: 'DATA_DRIVEN',
+    confidence: 'HIGH',
+    usableForExecution: false,
+    usableForScore: true,
+  };
+}
 
 /**
  * 주어진 종목의 역검증 데이터를 KIS API로 수집한다.
@@ -54,6 +262,11 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
     shortSaleIncreaseRate: null,
     loanIncreaseRate: null,
     creditIncreaseRate: null,
+    shortStatus: 'SHORT_DATA_NOT_MATERIALIZED',
+    creditStatus: 'CREDIT_DATA_NOT_MATERIALIZED',
+    loanStatus: 'LOAN_DATA_NOT_MATERIALIZED',
+    flowMaterialized: false,
+    priceMaterialized: true,
     source: 'UNAVAILABLE',
   };
 
@@ -67,6 +280,10 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
   let loanIncreaseRate: number | null = null;
   let creditIncreaseRate: number | null = null;
   let hitCount = 0;
+  let creditStatus = 'CREDIT_DATA_NOT_MATERIALIZED';
+  let shortStatus = 'SHORT_DATA_NOT_MATERIALIZED';
+  let loanStatus = 'LOAN_DATA_NOT_MATERIALIZED';
+  let flowMaterialized = false;
 
   try {
     // ── FHKST01010100: 주식현재가 (신용잔고율 포함) ──────────────────────
@@ -76,10 +293,11 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
       { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: key },
     );
     const priceOut = (priceData as { output?: Record<string, string> } | null)?.output;
-    if (priceOut) {
-      const raw = parseFloat(priceOut['cred_vals'] ?? '0');
-      if (!isNaN(raw) && raw >= 0) {
+    if (priceOut && Object.prototype.hasOwnProperty.call(priceOut, 'cred_vals')) {
+      const raw = Number.parseFloat(priceOut.cred_vals);
+      if (Number.isFinite(raw) && raw >= 0) {
         creditRate = raw;
+        creditStatus = 'OK';
         hitCount++;
       }
     }
@@ -96,12 +314,13 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
     );
     const flowOut = (flowData as { output?: Record<string, string> } | null)?.output;
     if (flowOut) {
-      const foreignNet = parseInt(flowOut['frgn_ntby_qty'] ?? '0', 10);
-      const instNet    = parseInt(flowOut['orgn_ntby_qty']  ?? '0', 10);
-      const indivNet   = parseInt(flowOut['prsn_ntby_qty']  ?? '0', 10);
+      const foreignNet = Number.parseInt(flowOut.frgn_ntby_qty ?? '0', 10);
+      const instNet    = Number.parseInt(flowOut.orgn_ntby_qty  ?? '0', 10);
+      const indivNet   = Number.parseInt(flowOut.prsn_ntby_qty  ?? '0', 10);
       const totalAbs = Math.abs(foreignNet) + Math.abs(instNet) + Math.abs(indivNet);
       if (totalAbs > 0) {
         individualDominance = (Math.abs(indivNet) / totalAbs) * 100;
+        flowMaterialized = true;
         hitCount++;
       }
     }
@@ -111,8 +330,9 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
 
   try {
     const short = await fetchKisDailyShortSale(key);
-    if (short?.shortSaleIncreaseRate !== undefined && Number.isFinite(short.shortSaleIncreaseRate)) {
+    if (isFiniteNumber(short?.shortSaleIncreaseRate)) {
       shortSaleIncreaseRate = short.shortSaleIncreaseRate;
+      shortStatus = 'OK';
       hitCount++;
     }
   } catch {
@@ -121,8 +341,9 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
 
   try {
     const loan = await fetchKisDailyLoanTransaction(key);
-    if (loan?.loanIncreaseRate !== undefined && Number.isFinite(loan.loanIncreaseRate)) {
+    if (isFiniteNumber(loan?.loanIncreaseRate)) {
       loanIncreaseRate = loan.loanIncreaseRate;
+      loanStatus = 'OK';
       hitCount++;
     }
   } catch {
@@ -131,7 +352,7 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
 
   try {
     const credit = await fetchKisDailyCreditBalance(key);
-    if (credit?.creditIncreaseRate !== undefined && Number.isFinite(credit.creditIncreaseRate)) {
+    if (isFiniteNumber(credit?.creditIncreaseRate)) {
       creditIncreaseRate = credit.creditIncreaseRate;
       hitCount++;
     }
@@ -145,6 +366,11 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
     shortSaleIncreaseRate,
     loanIncreaseRate,
     creditIncreaseRate,
+    shortStatus,
+    creditStatus,
+    loanStatus,
+    flowMaterialized,
+    priceMaterialized: true,
     source: hitCount >= 2 ? 'KIS_FULL' : hitCount === 1 ? 'KIS_PARTIAL' : 'UNAVAILABLE',
   };
 
@@ -157,33 +383,23 @@ export async function fetchEnemyCheckData(code: string): Promise<EnemyCheckResul
  * 경고 임계값 초과 시 ⚠️ 표시.
  */
 export function formatEnemyCheckSummary(e: EnemyCheckResult): string | null {
-  if (e.source === 'UNAVAILABLE') return null;
-
+  const items = buildEnemyCheckItems(e);
   const lines: string[] = [];
 
-  if (e.creditRate !== null) {
-    const warn = e.creditRate > 8 ? ' ⚠️⚠️' : e.creditRate > 5 ? ' ⚠️' : '';
-    lines.push(`신용잔고율: ${e.creditRate.toFixed(1)}%${warn}`);
+  for (const item of items) {
+    if (!item.materialized) {
+      lines.push(`${item.label}: ${item.displayValue}`);
+      continue;
+    }
+    const marker = item.severity === 'BLOCK' ? ' ⚠️⚠️' : item.severity === 'WARN' ? ' ⚠️' : '';
+    const scoreNote = item.key === 'loanBalanceGrowthPct' && item.severity === 'INFO'
+      ? ' (INFO / score 미반영)'
+      : '';
+    lines.push(`${item.label}: ${item.displayValue}${marker}${scoreNote}`);
   }
 
-  if (e.individualDominance !== null) {
-    const warn = e.individualDominance > 80 ? ' ⚠️⚠️' : e.individualDominance > 70 ? ' ⚠️' : '';
-    lines.push(`개인 비중: ${e.individualDominance.toFixed(0)}%${warn}`);
-  }
-
-  if (e.shortSaleIncreaseRate !== null && e.shortSaleIncreaseRate !== undefined) {
-    const warn = e.shortSaleIncreaseRate >= 30 ? ' ⚠️⚠️' : e.shortSaleIncreaseRate >= 10 ? ' ⚠️' : '';
-    lines.push(`공매도 증가율: ${e.shortSaleIncreaseRate.toFixed(1)}%${warn}`);
-  }
-
-  if (e.loanIncreaseRate !== null && e.loanIncreaseRate !== undefined) {
-    const warn = e.loanIncreaseRate >= 30 ? ' ⚠️⚠️' : e.loanIncreaseRate >= 10 ? ' ⚠️' : '';
-    lines.push(`대차잔고 증가율: ${e.loanIncreaseRate.toFixed(1)}%${warn}`);
-  }
-
-  if (e.creditIncreaseRate !== null && e.creditIncreaseRate !== undefined) {
-    const warn = e.creditIncreaseRate >= 30 ? ' ⚠️⚠️' : e.creditIncreaseRate >= 10 ? ' ⚠️' : '';
-    lines.push(`신용잔고 증가율: ${e.creditIncreaseRate.toFixed(1)}%${warn}`);
+  if (process.env.DATAQUALITY_BADGE_ENABLED !== 'false') {
+    lines.push(formatDataQualityBadge(buildEnemyDataQualitySummary(e)));
   }
 
   return lines.length > 0 ? lines.join('\n') : null;
