@@ -88,18 +88,39 @@ function pickKisOutput(data: unknown): KisOutput | undefined {
   return undefined;
 }
 
-function pickKisRows(data: unknown): KisOutput[] {
-  const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
-  const buckets = [root?.output, root?.output1, root?.output2];
-  const rows: KisOutput[] = [];
-  for (const bucket of buckets) {
-    if (Array.isArray(bucket)) {
-      rows.push(...bucket.filter((item): item is KisOutput => !!item && typeof item === 'object' && !Array.isArray(item)));
-    } else if (bucket && typeof bucket === 'object') {
-      rows.push(bucket as KisOutput);
-    }
+function rowsFromKisBucket(bucket: unknown): KisOutput[] {
+  if (Array.isArray(bucket)) {
+    return bucket.filter((item): item is KisOutput => !!item && typeof item === 'object' && !Array.isArray(item));
   }
-  return rows;
+  if (bucket && typeof bucket === 'object') return [bucket as KisOutput];
+  return [];
+}
+
+function pickKisRowsByBucket(data: unknown): { output: KisOutput[]; output1: KisOutput[]; output2: KisOutput[] } {
+  const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
+  return {
+    output: rowsFromKisBucket(root?.output),
+    output1: rowsFromKisBucket(root?.output1),
+    output2: rowsFromKisBucket(root?.output2),
+  };
+}
+
+function pickKisRows(data: unknown): KisOutput[] {
+  const buckets = pickKisRowsByBucket(data);
+  return [...buckets.output, ...buckets.output1, ...buckets.output2];
+}
+
+function pickMaterializedBucket(
+  data: unknown,
+  order: Array<'output' | 'output1' | 'output2'>,
+  classifier: (rows: KisOutput[]) => { materialized: boolean },
+): { bucket: 'output' | 'output1' | 'output2'; rows: KisOutput[] } | null {
+  const buckets = pickKisRowsByBucket(data);
+  for (const bucket of order) {
+    const rows = buckets[bucket];
+    if (rows.length > 0 && classifier(rows).materialized) return { bucket, rows };
+  }
+  return null;
 }
 
 function isAcceptedEmptyKisResponse(data: unknown): boolean {
@@ -438,12 +459,14 @@ export async function fetchKisDailyShortSale(
       priority,
     );
     if (isAcceptedEmptyKisResponse(data)) return null;
-    const rows = pickKisRows(data);
-    const payloadClass = classifyShortPayload(rows, { trId: 'FHPST04830000' });
-    if (!payloadClass.materialized) {
+    const selected = pickMaterializedBucket(data, ['output2', 'output', 'output1'], (rows) => classifyShortPayload(rows, { trId: 'FHPST04830000' }));
+    if (!selected) {
+      const rows = pickKisRows(data);
+      const payloadClass = classifyShortPayload(rows, { trId: 'FHPST04830000' });
       console.warn('[KIS] SHORT materialize skipped', payloadClass);
       return null;
     }
+    const rows = selected.rows;
     const latest = rows[0];
     if (!latest) return null;
     const previous = rows[1];
@@ -668,7 +691,8 @@ export async function fetchKisInvestorTradeByStockDaily(
           priority,
         );
         if (isAcceptedEmptyKisResponse(data)) continue;
-        rows = pickKisRows(data);
+        const selected = pickMaterializedBucket(data, ['output2', 'output', 'output1'], (bucketRows) => classifyInvestorFlowPayload(bucketRows, { trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID }));
+        rows = selected?.rows ?? [];
         if (rows.length > 0) break;
       } catch (e) {
         if (i === dateCandidates.length - 1) throw e;
@@ -681,9 +705,9 @@ export async function fetchKisInvestorTradeByStockDaily(
     }
     const row = rows[0];
     if (!row) return null;
-    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'FRGN_NTBY_QTY']);
-    const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'ORGN_NTBY_QTY']);
-    const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'PRSN_NTBY_QTY']);
+    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY', 'FRGN_NTBY_TR_PBMN']);
+    const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN']);
+    const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']);
     if (!hasAnyFinite(foreignNetBuy, institutionalNetBuy, individualNetBuy)) return null;
     return {
       stockCode: safeCode,

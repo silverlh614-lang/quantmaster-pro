@@ -325,6 +325,11 @@ export async function diagnoseKisMarketProgramRaw(
 export type KisEndpointBlockedReason =
   | 'MATERIALIZED'
   | 'QUOTE_LIKE_OUTPUT'
+  | 'QUOTE_LIKE_OUTPUT_NO_NETBUY_FIELDS'
+  | 'QUOTE_LIKE_OUTPUT_NO_SHORT_FIELDS'
+  | 'NO_INVESTOR_BUCKET'
+  | 'NO_SHORT_BUCKET'
+  | 'OUTPUT_BUCKET_MISMATCH'
   | 'SESSION_UNAVAILABLE'
   | 'EXPECTED_EMPTY_OFF_SESSION'
   | 'HTTP_OK_BUT_EMPTY'
@@ -347,10 +352,20 @@ export interface KisEndpointTrace {
   rtCd?: string;
   msgCd?: string;
   msg1?: string;
+  rootKeys?: string[];
+  outputType?: string;
+  outputLength?: number;
+  outputKeys?: string[];
+  output1Type?: string;
+  output1Length?: number;
+  output1Keys?: string[];
+  output2Type?: string;
+  output2Length?: number;
+  output2Keys?: string[];
+  selectedBucket?: 'output' | 'output1' | 'output2' | 'NONE';
   outputPath?: string;
   rowCount: number;
   targetFound?: boolean;
-  outputKeys?: string[];
   parsedFields: string[];
   materialized: boolean;
   blockedReason: KisEndpointBlockedReason;
@@ -379,20 +394,67 @@ function investorDailyTraceDate(): string {
   return previousKrxTradingDate(kstDateStr()).replace(/-/g, '');
 }
 
+function isQuoteLikeOutput(row: Record<string, string> | undefined): boolean {
+  if (!row) return false;
+  const keys = new Set(Object.keys(row));
+  return ['stck_prpr', 'cntg_vol', 'stck_cntg_hour', 'prdy_vrss', 'prdy_ctrt', 'acml_vol', 'prdy_vol'].filter((key) => keys.has(key)).length >= 3;
+}
+
 function isInquireInvestorQuoteLikeOutput(sourceKind: string, row: Record<string, string> | undefined): boolean {
   if (sourceKind !== 'INQUIRE_INVESTOR' || !row) return false;
   const keys = new Set(Object.keys(row));
-  const hasQuoteLikeKeys = ['stck_prpr', 'cntg_vol', 'stck_cntg_hour'].some((key) => keys.has(key));
   const hasInvestorKeys = ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty', 'frgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn'].some((key) => keys.has(key));
-  return hasQuoteLikeKeys && !hasInvestorKeys;
+  return isQuoteLikeOutput(row) && !hasInvestorKeys;
 }
 
-function rowsWithPath(data: unknown): { path: string; rows: Record<string, string>[] } {
+function rowsFromBucket(bucket: unknown): Record<string, string>[] {
+  if (Array.isArray(bucket)) return bucket.filter((v): v is Record<string, string> => !!v && typeof v === 'object' && !Array.isArray(v));
+  if (bucket && typeof bucket === 'object') return [bucket as Record<string, string>];
+  return [];
+}
+
+function bucketType(bucket: unknown): string {
+  if (Array.isArray(bucket)) return 'array';
+  if (bucket && typeof bucket === 'object') return 'object';
+  if (bucket === undefined) return 'missing';
+  if (bucket === null) return 'null';
+  return typeof bucket;
+}
+
+function bucketKeys(rows: Record<string, string>[]): string[] {
+  return rows[0] ? Object.keys(rows[0]).slice(0, 50) : [];
+}
+
+function pickKisRowsByBucket(data: unknown): Record<'output' | 'output1' | 'output2', Record<string, string>[]> {
   const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
+  return {
+    output: rowsFromBucket(root?.output),
+    output1: rowsFromBucket(root?.output1),
+    output2: rowsFromBucket(root?.output2),
+  };
+}
+
+function bucketMeta(data: unknown): Pick<KisEndpointTrace, 'rootKeys' | 'outputType' | 'outputLength' | 'outputKeys' | 'output1Type' | 'output1Length' | 'output1Keys' | 'output2Type' | 'output2Length' | 'output2Keys'> {
+  const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
+  const rows = pickKisRowsByBucket(data);
+  return {
+    rootKeys: rootKeys(data),
+    outputType: bucketType(root?.output),
+    outputLength: rows.output.length,
+    outputKeys: bucketKeys(rows.output),
+    output1Type: bucketType(root?.output1),
+    output1Length: rows.output1.length,
+    output1Keys: bucketKeys(rows.output1),
+    output2Type: bucketType(root?.output2),
+    output2Length: rows.output2.length,
+    output2Keys: bucketKeys(rows.output2),
+  };
+}
+
+function rowsWithPath(data: unknown): { path: 'output' | 'output1' | 'output2' | 'NONE'; rows: Record<string, string>[] } {
+  const buckets = pickKisRowsByBucket(data);
   for (const key of ['output', 'output1', 'output2'] as const) {
-    const bucket = root?.[key];
-    if (Array.isArray(bucket)) return { path: key, rows: bucket.filter((v): v is Record<string, string> => !!v && typeof v === 'object' && !Array.isArray(v)) };
-    if (bucket && typeof bucket === 'object') return { path: key, rows: [bucket as Record<string, string>] };
+    if (buckets[key].length > 0) return { path: key, rows: buckets[key] };
   }
   return { path: 'NONE', rows: [] };
 }
@@ -431,9 +493,9 @@ function parsedEndpointFields(sourceKind: string, row: Record<string, string> | 
 
   if (!row) return [];
   const fields: string[] = [];
-  if (parseNum(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY']) !== null) fields.push('foreignNetBuy');
-  if (parseNum(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY']) !== null) fields.push('institutionalNetBuy');
-  if (parseNum(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY']) !== null) fields.push('individualNetBuy');
+  if (parseNum(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY', 'FRGN_NTBY_TR_PBMN']) !== null) fields.push('foreignNetBuy');
+  if (parseNum(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN']) !== null) fields.push('institutionalNetBuy');
+  if (parseNum(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']) !== null) fields.push('individualNetBuy');
   return fields;
 }
 
@@ -452,18 +514,48 @@ async function endpointTrace(input: {
   try {
     const data = await realDataKisGet(input.trId, input.apiPath, input.params, input.priority);
     if (!data) return { ...input, httpCalled: true, rowCount: 0, parsedFields: [], materialized: false, blockedReason: 'PROVIDER_ERROR' };
-    const { path, rows } = rowsWithPath(data);
-    const target = input.targetList ? rows.find((row) => rowCode(row) === input.stockCode.padStart(6, '0')) : rows[0];
-    const parsedFields = parsedEndpointFields(input.sourceKind, target);
+    const meta = bucketMeta(data);
+    const buckets = pickKisRowsByBucket(data);
+    const selectionOrder: Array<'output' | 'output1' | 'output2'> =
+      input.sourceKind === 'INVESTOR_TRADE_BY_STOCK_DAILY' || input.sourceKind === 'SHORT'
+        ? ['output2', 'output', 'output1']
+        : ['output', 'output1', 'output2'];
+    let selectedBucket: 'output' | 'output1' | 'output2' | 'NONE' = 'NONE';
+    let rows: Record<string, string>[] = [];
+    let target: Record<string, string> | undefined;
+    let parsedFields: string[] = [];
+    for (const bucket of selectionOrder) {
+      const bucketRows = buckets[bucket];
+      const bucketTarget = input.targetList ? bucketRows.find((row) => rowCode(row) === input.stockCode.padStart(6, '0')) : bucketRows[0];
+      const bucketParsedFields = parsedEndpointFields(input.sourceKind, bucketTarget);
+      if (bucketParsedFields.length > 0) {
+        selectedBucket = bucket;
+        rows = bucketRows;
+        target = bucketTarget;
+        parsedFields = bucketParsedFields;
+        break;
+      }
+    }
+    if (selectedBucket === 'NONE') {
+      const first = rowsWithPath(data);
+      selectedBucket = first.path;
+      rows = first.rows;
+      target = input.targetList ? rows.find((row) => rowCode(row) === input.stockCode.padStart(6, '0')) : rows[0];
+      parsedFields = parsedEndpointFields(input.sourceKind, target);
+    }
     const targetFound = input.targetList ? Boolean(target) : rows.length > 0;
     const materialized = parsedFields.length > 0;
     let blockedReason: KisEndpointBlockedReason = 'UNKNOWN';
     const msgCd = rootString(data, 'msg_cd');
     const rootIssue = classifyEndpointRootIssue(data, input.sourceKind);
+    const anyRows = [...buckets.output, ...buckets.output1, ...buckets.output2];
+    const hasQuoteLikeOnly = anyRows.length > 0 && anyRows.some(isQuoteLikeOutput);
     if (materialized) blockedReason = 'MATERIALIZED';
-    else if (isInquireInvestorQuoteLikeOutput(input.sourceKind, target)) blockedReason = 'QUOTE_LIKE_OUTPUT';
     else if (rootIssue) blockedReason = rootIssue;
-    else if (rows.length === 0) blockedReason = 'HTTP_OK_BUT_EMPTY';
+    else if (anyRows.length === 0) blockedReason = 'HTTP_OK_BUT_EMPTY';
+    else if (input.sourceKind === 'INVESTOR_TRADE_BY_STOCK_DAILY') blockedReason = buckets.output2.length === 0 ? 'NO_INVESTOR_BUCKET' : (hasQuoteLikeOnly ? 'QUOTE_LIKE_OUTPUT_NO_NETBUY_FIELDS' : 'FIELD_MISSING');
+    else if (input.sourceKind === 'SHORT') blockedReason = buckets.output2.length === 0 ? 'NO_SHORT_BUCKET' : (hasQuoteLikeOnly ? 'QUOTE_LIKE_OUTPUT_NO_SHORT_FIELDS' : 'FIELD_MISSING');
+    else if (isInquireInvestorQuoteLikeOutput(input.sourceKind, target)) blockedReason = 'QUOTE_LIKE_OUTPUT';
     else if (input.sourceKind === 'FOREIGN_INSTITUTION_TOTAL' && !targetFound) blockedReason = 'NOT_IN_TOP_LIST';
     else if (!targetFound) blockedReason = 'NO_ROW_FOR_SYMBOL';
     else blockedReason = 'FIELD_MISSING';
@@ -477,10 +569,11 @@ async function endpointTrace(input: {
       rtCd: rootString(data, 'rt_cd'),
       msgCd,
       msg1: rootString(data, 'msg1'),
-      outputPath: path,
+      ...meta,
+      selectedBucket,
+      outputPath: selectedBucket,
       rowCount: rows.length,
       targetFound,
-      outputKeys: target ? Object.keys(target).slice(0, 50) : rows[0] ? Object.keys(rows[0]).slice(0, 50) : [],
       parsedFields,
       materialized,
       blockedReason,
