@@ -85,27 +85,29 @@ export const SECTOR_QUALITY_THRESHOLDS = Object.freeze({
 } as const);
 
 /** sourceWeight SSOT (사용자 명시). */
-export const SOURCE_WEIGHT: Readonly<Record<SectorEnergySourceTier, number>> = Object.freeze({
-  KIS_OFFICIAL_INDEX: 1.0,
-  KIS_OFFICIAL_DAILY: 0.9,
-  KIS_STOCK_BASKET_DERIVED: 0.65,
-  KRX_OFFICIAL_INDEX: 1.0,
-  KRX_CODE: 1.0,
-  STOCK_DAILY: 0.2,
-  CACHE: 0.45,
-  YAHOO_GLOBAL_PROXY: 0.5,
-  YAHOO_ETF: 0.5,
-  INTERNAL_PROXY: 0.2,
-  MISSING: 0,
-  FAILED: 0,
-});
+export const SOURCE_WEIGHT: Readonly<Record<SectorEnergySourceTier, number>> =
+  Object.freeze({
+    KIS_OFFICIAL_INDEX: 1.0,
+    KIS_OFFICIAL_DAILY: 0.9,
+    KIS_STOCK_BASKET_DERIVED: 0.65,
+    KRX_OFFICIAL_INDEX: 1.0,
+    KRX_CODE: 1.0,
+    STOCK_DAILY: 0.2,
+    CACHE: 0.45,
+    YAHOO_GLOBAL_PROXY: 0.5,
+    YAHOO_ETF: 0.5,
+    INTERNAL_PROXY: 0.2,
+    MISSING: 0,
+    FAILED: 0,
+  });
 
 /** freshnessWeight SSOT (사용자 명시). */
-export const FRESHNESS_WEIGHT: Readonly<Record<SectorEnergyFreshness, number>> = Object.freeze({
-  FRESH: 1.0,
-  DEGRADED: 0.7,
-  EXPIRED: 0.4,
-});
+export const FRESHNESS_WEIGHT: Readonly<Record<SectorEnergyFreshness, number>> =
+  Object.freeze({
+    FRESH: 1.0,
+    DEGRADED: 0.7,
+    EXPIRED: 0.4,
+  });
 
 /** cache age 임계 (밀리초) SSOT (사용자 명시). */
 export const CACHE_AGE_THRESHOLDS_MS = Object.freeze({
@@ -123,7 +125,9 @@ export const TOTAL_SECTOR_COUNT_DEFAULT = 12;
  * 동작 100% 복원. 정확 비교 (=== 'true') — ADR-0157 의무 정합.
  */
 export function isSectorEnergyDataQualityDecompositionDisabled(): boolean {
-  return process.env.SECTOR_ENERGY_DATAQUALITY_DECOMPOSITION_DISABLED === 'true';
+  return (
+    process.env.SECTOR_ENERGY_DATAQUALITY_DECOMPOSITION_DISABLED === 'true'
+  );
 }
 
 // ─── 4-axis 산출 헬퍼 SSOT ────────────────────────────────────────────────
@@ -139,12 +143,15 @@ export function classifyDataQualityFromValidCount(
   validSectorCount: number,
   totalSectorCount: number = TOTAL_SECTOR_COUNT_DEFAULT,
 ): SectorEnergyDataQuality5 {
-  if (!Number.isFinite(validSectorCount) || validSectorCount < 0) return 'FAILED';
+  if (!Number.isFinite(validSectorCount) || validSectorCount < 0)
+    return 'FAILED';
   // OK 임계는 totalSectorCount 와 동일 (12) — totalSectorCount override 시도 OK 임계만 적응.
   if (validSectorCount >= totalSectorCount) return 'OK';
-  if (validSectorCount >= SECTOR_QUALITY_THRESHOLDS.PARTIAL_MIN) return 'PARTIAL';
+  if (validSectorCount >= SECTOR_QUALITY_THRESHOLDS.PARTIAL_MIN)
+    return 'PARTIAL';
   if (validSectorCount >= SECTOR_QUALITY_THRESHOLDS.STALE_MIN) return 'STALE';
-  if (validSectorCount >= SECTOR_QUALITY_THRESHOLDS.DEGRADED_MIN) return 'DEGRADED';
+  if (validSectorCount >= SECTOR_QUALITY_THRESHOLDS.DEGRADED_MIN)
+    return 'DEGRADED';
   return 'FAILED';
 }
 
@@ -152,7 +159,9 @@ export function classifyDataQualityFromValidCount(
  * cache age (밀리초) → freshness 3단계.
  * NaN/Infinity/음수 → EXPIRED 보수 fallback (caller side stale data 인지 가능).
  */
-export function classifyFreshnessFromAgeMs(ageMs: number): SectorEnergyFreshness {
+export function classifyFreshnessFromAgeMs(
+  ageMs: number,
+): SectorEnergyFreshness {
   if (!Number.isFinite(ageMs) || ageMs < 0) return 'EXPIRED';
   if (ageMs <= CACHE_AGE_THRESHOLDS_MS.FRESH_MAX) return 'FRESH';
   if (ageMs <= CACHE_AGE_THRESHOLDS_MS.DEGRADED_MAX) return 'DEGRADED';
@@ -183,9 +192,27 @@ export function computeConfidence(
   freshness: SectorEnergyFreshness,
   coverage: number,
 ): number {
-  const sw = SOURCE_WEIGHT[sourceTier] ?? 0;
   const fw = FRESHNESS_WEIGHT[freshness] ?? 0;
   const cw = Number.isFinite(coverage) ? Math.max(0, Math.min(1, coverage)) : 0;
+
+  // KIS basket is not an official sector index, but it is derived from official
+  // KIS daily stock prices. Do not collapse it to 0% just because verified KRX
+  // index-code coverage is 0%; score it from basket coverage and freshness.
+  if (sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
+    const raw =
+      cw >= 1
+        ? 0.65
+        : cw >= 0.7
+          ? 0.5 + ((cw - 0.7) / 0.3) * 0.15
+          : cw > 0
+            ? 0.3 + (cw / 0.7) * 0.15
+            : 0;
+    const adjusted = raw * fw;
+    if (!Number.isFinite(adjusted)) return 0;
+    return Math.max(0, Math.min(1, adjusted));
+  }
+
+  const sw = SOURCE_WEIGHT[sourceTier] ?? 0;
   const raw = sw * fw * cw;
   if (!Number.isFinite(raw)) return 0;
   return Math.max(0, Math.min(1, raw));
@@ -205,7 +232,10 @@ export function buildSectorEnergyQualityComposite(
   ageMs: number,
   totalSectorCount: number = TOTAL_SECTOR_COUNT_DEFAULT,
 ): SectorEnergyQualityComposite {
-  const dataQuality = classifyDataQualityFromValidCount(validSectorCount, totalSectorCount);
+  const dataQuality = classifyDataQualityFromValidCount(
+    validSectorCount,
+    totalSectorCount,
+  );
   const freshness = classifyFreshnessFromAgeMs(ageMs);
   const coverage = computeCoverage(validSectorCount, totalSectorCount);
   const confidence = computeConfidence(sourceTier, freshness, coverage);

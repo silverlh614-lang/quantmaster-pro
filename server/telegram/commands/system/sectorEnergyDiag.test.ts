@@ -29,10 +29,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
     });
 
     it('barrel index.ts 에 sectorEnergyDiag 등록', () => {
-      const src = fs.readFileSync(
-        path.resolve(__dirname, 'index.ts'),
-        'utf-8',
-      );
+      const src = fs.readFileSync(path.resolve(__dirname, 'index.ts'), 'utf-8');
       expect(src).toMatch(/import\s+'\.\/sectorEnergyDiag\.cmd\.js'/);
       expect(src).toMatch(/ADR-0398/);
     });
@@ -116,6 +113,69 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).toMatch(/dataQuality.*FAILED/);
       expect(msg).toMatch(/❌/);
       expect(msg).toMatch(/STRONG_BUY 차단/);
+    });
+
+    it('KIS basket derived + verifiedIndexCodeCoverage=0 + kisBasketCoverage=100% → PARTIAL 65% confidence and one ADR-0474 block', async () => {
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({
+        loadMacroState: vi.fn().mockReturnValue({
+          sectorEnergyDataQuality: 'PARTIAL',
+          sectorEnergySourceTier: 'KIS_STOCK_BASKET_DERIVED',
+          sectorEnergyFreshness: 'FRESH',
+          sectorEnergyCoverage: 1,
+          sectorEnergyConfidence: 0,
+          sectorEnergyValidSectorCount: 12,
+          sectorEnergyDiagnostics: {
+            finalSourceTier: 'KIS_STOCK_BASKET_DERIVED',
+            confidence: 0,
+            coverageBreakdown: {
+              verifiedIndexCodeCoverage: 0,
+              verifiedIndexCodeCount: 0,
+              kisOfficialCoverage: 0,
+              kisOfficialCount: 0,
+              kisBasketCoverage: 1,
+              kisBasketCount: 12,
+              internalProxyCoverage: 0,
+              internalProxyCount: 0,
+              stockDailyFallbackCoverage: 0,
+              stockDailyFallbackCount: 0,
+              totalSectors: 12,
+            },
+            leadershipConfidence: 'READY_FOR_SHADOW',
+            selectedSectors: ['자동차', '반도체', '철강'],
+            liveExecutionAllowed: false,
+            executionImpact: 'NONE',
+          },
+          sectorEnergyQualityDiagnostic: {
+            dataQuality: 'PARTIAL',
+            reasons: ['KIS_STOCK_BASKET_DERIVED'],
+            validSectorCount: 12,
+            expectedSectorCount: 12,
+            indexCodeCoverage: 0,
+            missingIndexCodeCount: 0,
+            totalSectorRows: 12,
+            fallbackUsed: 'NONE',
+            symmetryValidationPassed: true,
+            shouldBlockLeadershipConfidence: true,
+            operatorMessage: 'sourceTier=KIS_STOCK_BASKET_DERIVED',
+          },
+        }),
+      }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      const msg = mod.formatSectorEnergyDiagMessage();
+
+      expect(msg).toMatch(/confidence.*65\.0%.*PARTIAL.*KIS basket derived/);
+      expect(msg).not.toMatch(/confidence.*0\.0%/);
+      expect(msg).toContain('verifiedIndexCodeCoverage: <b>0.0%</b> (0/12)');
+      expect(msg).toContain('kisBasketCoverage: <b>100.0%</b> (12/12)');
+      expect(msg).toContain(
+        'KIS basket is derived from official KIS daily prices',
+      );
+      expect(msg).toMatch(/sourceTier=KIS_STOCK_BASKET_DERIVED/);
+      expect(msg).toMatch(/executionImpact: NONE/);
+      expect(
+        (msg.match(/SectorEnergy Coverage Recovery \(ADR-0474\)/g) ?? [])
+          .length,
+      ).toBe(1);
     });
 
     it('ENV STRONG_BUY_GATE_DISABLED → 게이트 비활성 안내', async () => {

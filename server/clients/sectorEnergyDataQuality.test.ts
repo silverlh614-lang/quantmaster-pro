@@ -177,9 +177,26 @@ describe('ADR-0396: computeConfidence 합성 SSOT 정책 정합', () => {
     expect(computeConfidence('YAHOO_ETF', 'FRESH', 1.0)).toBe(0.5);
   });
 
-
   it('KIS_STOCK_BASKET_DERIVED + FRESH + 100% → 65% shadow confidence', () => {
-    expect(computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 1.0)).toBe(0.65);
+    expect(computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 1.0)).toBe(
+      0.65,
+    );
+  });
+
+  it('KIS_STOCK_BASKET_DERIVED + FRESH + 70% 이상 → PARTIAL confidence lower bound', () => {
+    expect(computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 0.7)).toBe(
+      0.5,
+    );
+    expect(
+      computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 0.9),
+    ).toBeCloseTo(0.6, 4);
+  });
+
+  it('KIS_STOCK_BASKET_DERIVED + FRESH + 70% 미만 → DEGRADED confidence band', () => {
+    expect(
+      computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 0.3),
+    ).toBeCloseTo(0.3643, 4);
+    expect(computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 0)).toBe(0);
   });
 
   it('STOCK_DAILY + DEGRADED + 67% → 0.2 × 0.7 × 0.6667 ≈ 0.093', () => {
@@ -190,7 +207,10 @@ describe('ADR-0396: computeConfidence 합성 SSOT 정책 정합', () => {
   });
 
   it('CACHE + EXPIRED + 50% → 0.45 × 0.4 × 0.5 = 0.09', () => {
-    expect(computeConfidence('CACHE', 'EXPIRED', 0.5)).toBeCloseTo(0.45 * 0.4 * 0.5, 4);
+    expect(computeConfidence('CACHE', 'EXPIRED', 0.5)).toBeCloseTo(
+      0.45 * 0.4 * 0.5,
+      4,
+    );
   });
 
   it('FAILED 어떤 freshness/coverage 든 0 (사용자 명시)', () => {
@@ -222,7 +242,11 @@ describe('ADR-0396: buildSectorEnergyQualityComposite 통합 합성', () => {
   });
 
   it('STOCK_DAILY fallback 8 섹터 + 1h cache → 0.2 × 0.7 × 0.667 ≈ 0.093', () => {
-    const result = buildSectorEnergyQualityComposite(8, 'STOCK_DAILY', 60 * 60 * 1000);
+    const result = buildSectorEnergyQualityComposite(
+      8,
+      'STOCK_DAILY',
+      60 * 60 * 1000,
+    );
     expect(result.dataQuality).toBe('STALE');
     expect(result.sourceTier).toBe('STOCK_DAILY');
     expect(result.freshness).toBe('DEGRADED');
@@ -244,7 +268,11 @@ describe('ADR-0396: buildSectorEnergyQualityComposite 통합 합성', () => {
   });
 
   it('5 섹터 DEGRADED + 5h EXPIRED cache → 사용자 정책 정합', () => {
-    const result = buildSectorEnergyQualityComposite(5, 'CACHE', 5 * 60 * 60 * 1000);
+    const result = buildSectorEnergyQualityComposite(
+      5,
+      'CACHE',
+      5 * 60 * 60 * 1000,
+    );
     expect(result.dataQuality).toBe('DEGRADED');
     expect(result.freshness).toBe('EXPIRED');
     expect(result.confidence).toBeCloseTo(0.45 * 0.4 * (5 / 12), 4);
@@ -292,7 +320,13 @@ describe('ADR-0396: legacy 4-state 후방호환 / 5-state type guard', () => {
   });
 
   it('isSectorEnergyDataQuality5 — 5단계 모두 통과', () => {
-    const valid: SectorEnergyDataQuality5[] = ['OK', 'PARTIAL', 'STALE', 'DEGRADED', 'FAILED'];
+    const valid: SectorEnergyDataQuality5[] = [
+      'OK',
+      'PARTIAL',
+      'STALE',
+      'DEGRADED',
+      'FAILED',
+    ];
     for (const q of valid) {
       expect(isSectorEnergyDataQuality5(q)).toBe(true);
     }
