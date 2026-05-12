@@ -28,7 +28,7 @@ export interface SectorEnergyScorerResult {
   dataQuality: SectorEnergyAdr0462DataQuality;
   mode: 'SCORING' | 'LIMITED_SCORING' | 'DIAGNOSTIC_ONLY';
   leadershipScore: number;
-  leadershipConfidence: 'OK' | 'DEGRADED' | 'BLOCKED';
+  leadershipConfidence: 'OK' | 'READY_FOR_SHADOW' | 'DEGRADED' | 'BLOCKED';
   sectorBoost: number;
   strongBuyBlocked: boolean;
   executionHardBlock: boolean;
@@ -71,8 +71,9 @@ export function scoreSectorEnergyAdr0462(input: SectorEnergyScorerInput): Sector
   if (input.sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
     dataQuality = 'DEGRADED_BUT_USABLE';
     mode = 'LIMITED_SCORING';
-    leadershipConfidence = 'DEGRADED';
-    sectorBoost = Math.min(sectorBoost, 0.5);
+    leadershipConfidence = 'READY_FOR_SHADOW';
+    sectorBoost = 0;
+    strongBuyBlocked = true;
     const guard = applyFallbackContaminationGuard({ sourceTier: input.sourceTier, sectorBoost, leadershipConfidence, reasons });
     return {
       dataQuality,

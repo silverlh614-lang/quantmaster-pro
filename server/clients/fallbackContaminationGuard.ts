@@ -6,7 +6,7 @@ export interface FallbackContaminationDecision {
   diagnosticOnly: boolean;
   fallbackContributionToScore: number;
   sectorBoost: number;
-  leadershipConfidence: 'OK' | 'DEGRADED' | 'BLOCKED';
+  leadershipConfidence: 'OK' | 'READY_FOR_SHADOW' | 'DEGRADED' | 'BLOCKED';
   executionHardBlock: boolean;
   reasons: string[];
 }
@@ -14,7 +14,7 @@ export interface FallbackContaminationDecision {
 export function applyFallbackContaminationGuard(input: {
   sourceTier?: SectorSourceTier;
   sectorBoost?: number;
-  leadershipConfidence?: 'OK' | 'DEGRADED' | 'BLOCKED';
+  leadershipConfidence?: 'OK' | 'READY_FOR_SHADOW' | 'DEGRADED' | 'BLOCKED';
   reasons?: string[];
 }): FallbackContaminationDecision {
   const reasons = Array.from(new Set(input.reasons ?? []));

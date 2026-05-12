@@ -91,6 +91,18 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
     expect(result.reasons.some((r) => r.includes('STALE'))).toBe(true);
   });
 
+
+
+  it('KIS_STOCK_BASKET_DERIVED + PARTIAL + confidence=0.65 → shadow-only 차단', () => {
+    const result = evaluateSectorEnergyStrongBuyGate({
+      confidence: 0.65,
+      dataQuality: 'PARTIAL',
+      sourceTier: 'KIS_STOCK_BASKET_DERIVED',
+    });
+    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.reasons.some((r) => r.includes('KIS_STOCK_BASKET_DERIVED'))).toBe(true);
+  });
+
   it('PARTIAL 단독 → 통과', () => {
     const result = evaluateSectorEnergyStrongBuyGate({
       confidence: 0.7,

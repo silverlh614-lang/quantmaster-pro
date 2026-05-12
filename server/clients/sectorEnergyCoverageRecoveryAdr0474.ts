@@ -23,6 +23,7 @@ export type SectorEnergyCoverageRecoveryAction =
   | 'REPAIR_SECTOR_INDEX_MASTER'
   | 'REVIEW_AGGREGATE_IGNORED'
   | 'KEEP_DIAGNOSTIC_ONLY'
+  | 'OBSERVE_20D_THEN_PROMOTION_AUDIT'
   | 'NO_ACTION';
 
 export type SectorEnergyAliasCandidateSafety =
@@ -71,14 +72,16 @@ export interface SectorEnergyCoverageRecoveryReport {
   recoveryPotentialPct: number;
   missingItems: SectorEnergyMissingIndexCodeItem[];
   aliasSuggestions: SectorEnergyAliasSuggestion[];
+  sourceTier?: string;
   fallbackUsed: 'NONE' | 'STOCK_DAILY' | 'CACHE' | 'UNKNOWN';
-  leadershipConfidence: 'OK' | 'DEGRADED' | 'BLOCKED' | 'UNKNOWN';
+  leadershipConfidence: 'OK' | 'READY_FOR_SHADOW' | 'DEGRADED' | 'BLOCKED' | 'UNKNOWN';
   sectorBoostAllowed: boolean;
   strongBuyAllowed: boolean;
   executionHardBlock: false;
   liveExecutionAllowed: false;
   executionImpact: 'NONE';
   recommendedAction: SectorEnergyCoverageRecoveryAction;
+  reason?: string;
 }
 
 const MAX_TELEGRAM_ITEMS = 10;
@@ -334,11 +337,26 @@ export function buildSectorEnergyCoverageRecoveryReport(input: {
     ?? recovery?.rowsMissingIndexCode
     ?? missingItems.length;
   const unresolvedCount = Math.max(0, missingIndexCodeCount - safeAliasCount);
+  const sourceTier = quality?.sourceTier;
+  const isKisBasketDerived = sourceTier === 'KIS_STOCK_BASKET_DERIVED';
   const fallbackUsed = fallbackFromQuality(quality, recovery);
-  const leadershipConfidence = leadershipFromQuality(quality, recovery, fallbackUsed);
+  const leadershipConfidence = isKisBasketDerived
+    ? 'READY_FOR_SHADOW'
+    : leadershipFromQuality(quality, recovery, fallbackUsed);
   const fallbackContaminated = fallbackUsed === 'STOCK_DAILY' || leadershipConfidence === 'BLOCKED';
-  const sectorBoostAllowed = !fallbackContaminated && leadershipConfidence === 'OK';
-  const strongBuyAllowed = !fallbackContaminated && leadershipConfidence === 'OK';
+  const sectorBoostAllowed = isKisBasketDerived ? false : !fallbackContaminated && leadershipConfidence === 'OK';
+  const strongBuyAllowed = isKisBasketDerived ? false : !fallbackContaminated && leadershipConfidence === 'OK';
+  const recommendedAction = isKisBasketDerived
+    ? 'OBSERVE_20D_THEN_PROMOTION_AUDIT'
+    : chooseAction({
+      safeAliasCount,
+      unsafeAliasCount: unsafeAliasCandidateCount,
+      aggregateIgnoredCount,
+      unresolvedCount,
+    });
+  const reason = isKisBasketDerived
+    ? 'KIS basket is derived representative basket, not official sector index.'
+    : undefined;
 
   return {
     timestamp,
@@ -358,6 +376,7 @@ export function buildSectorEnergyCoverageRecoveryReport(input: {
     recoveryPotentialPct: (clamp01(afterAliasCandidateCoverage) - clamp01(beforeCoverage)) * 100,
     missingItems,
     aliasSuggestions,
+    ...(sourceTier ? { sourceTier } : {}),
     fallbackUsed,
     leadershipConfidence,
     sectorBoostAllowed,
@@ -365,12 +384,8 @@ export function buildSectorEnergyCoverageRecoveryReport(input: {
     executionHardBlock: false,
     liveExecutionAllowed: false,
     executionImpact: 'NONE',
-    recommendedAction: chooseAction({
-      safeAliasCount,
-      unsafeAliasCount: unsafeAliasCandidateCount,
-      aggregateIgnoredCount,
-      unresolvedCount,
-    }),
+    recommendedAction,
+    ...(reason ? { reason } : {}),
   };
 }
 
@@ -391,12 +406,14 @@ export function formatSectorEnergyCoverageRecoverySection(
     `  safeAliasCandidates: ${safeAlias}`,
     `  unsafeAliasCandidates: ${report.unsafeAliasCandidateCount}`,
     `  unresolved: ${report.unresolvedCount}`,
+    ...(report.sourceTier ? [`  sourceTier: ${report.sourceTier}`] : []),
     `  fallbackUsed: ${report.fallbackUsed}`,
     `  leadershipConfidence: ${report.leadershipConfidence}`,
     `  sectorBoostAllowed: ${String(report.sectorBoostAllowed)}`,
     `  strongBuyAllowed: ${String(report.strongBuyAllowed)}`,
     `  executionHardBlock: ${String(report.executionHardBlock)}`,
     `  executionImpact: ${report.executionImpact}`,
+    ...(report.reason ? [`  reason: ${report.reason}`] : []),
     `  nextAction: ${report.recommendedAction}`,
   ];
   if (topMissing.length > 0) {

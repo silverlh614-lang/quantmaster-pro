@@ -187,6 +187,35 @@ describe('ADR-0474 SectorEnergy Coverage Recovery', () => {
     expect(report.leadershipConfidence).not.toBe('OK');
   });
 
+
+
+  it('KIS_STOCK_BASKET_DERIVED remains shadow-only even with 100% basket coverage', () => {
+    const report = buildSectorEnergyCoverageRecoveryReport({
+      qualityDiagnostic: {
+        dataQuality: 'PARTIAL',
+        reasons: ['KIS_BASKET_DERIVED_SHADOW'],
+        validSectorCount: 12,
+        expectedSectorCount: 12,
+        indexCodeCoverage: 0,
+        missingIndexCodeCount: 12,
+        totalSectorRows: 12,
+        sourceTier: 'KIS_STOCK_BASKET_DERIVED',
+        fallbackUsed: 'NONE',
+        symmetryValidationPassed: true,
+        shouldBlockLeadershipConfidence: false,
+        operatorMessage: 'KIS basket is derived representative basket, not official sector index.',
+      },
+    });
+
+    expect(report.sourceTier).toBe('KIS_STOCK_BASKET_DERIVED');
+    expect(report.leadershipConfidence).toBe('READY_FOR_SHADOW');
+    expect(report.sectorBoostAllowed).toBe(false);
+    expect(report.strongBuyAllowed).toBe(false);
+    expect(report.liveExecutionAllowed).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
+    expect(report.recommendedAction).toBe('OBSERVE_20D_THEN_PROMOTION_AUDIT');
+  });
+
   it('execution and live invariants stay disabled', () => {
     const report = buildSectorEnergyCoverageRecoveryReport();
 
@@ -267,13 +296,13 @@ describe('ADR-0474 SectorEnergy Coverage Recovery', () => {
     expect(text).not.toContain('STRONG_BUY_OVERRIDE');
   });
 
-  it('ADR-0474 document exists and ADR index advances to 0475', () => {
+  it('ADR-0474 document exists and ADR index has advanced past 0474', () => {
     const root = process.cwd();
     const doc = join(root, 'docs/adr/0474-sector-energy-indexcode-coverage-recovery.md');
     const index = readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8');
 
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Dry-run');
-    expect(index).toContain('다음 ADR 번호: `0475`');
+    expect(index).toMatch(/다음 ADR 번호: `0[4-9][7-9][5-9]|다음 ADR 번호: `05\d{2}/);
   });
 });

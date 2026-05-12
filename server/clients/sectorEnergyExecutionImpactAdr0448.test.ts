@@ -78,6 +78,23 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
       expect(result.hardBlockAllowed).toBe(false);
     });
 
+
+
+    it('KIS basket READY_FOR_SHADOW → shadow-only, no sectorBoost or STRONG_BUY unlock', () => {
+      const result = deriveSectorEnergyExecutionImpact({
+        dataQuality: 'PARTIAL',
+        leadershipConfidence: 'READY_FOR_SHADOW',
+        sourceTier: 'KIS_STOCK_BASKET_DERIVED',
+        sanityConfidenceImpact: 'NONE',
+        fallbackUsed: 'NONE',
+      });
+      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.sectorBoostAllowed).toBe(false);
+      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.hardBlockAllowed).toBe(false);
+      expect(result.reason).toMatch(/derived representative basket/);
+    });
+
     it('SectorEnergy DEGRADED → ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY', () => {
       const result = deriveSectorEnergyExecutionImpact({
         dataQuality: 'DEGRADED',

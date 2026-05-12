@@ -87,12 +87,12 @@ export const SECTOR_QUALITY_THRESHOLDS = Object.freeze({
 /** sourceWeight SSOT (사용자 명시). */
 export const SOURCE_WEIGHT: Readonly<Record<SectorEnergySourceTier, number>> = Object.freeze({
   KIS_OFFICIAL_INDEX: 1.0,
-  KIS_OFFICIAL_DAILY: 1.0,
-  KIS_STOCK_BASKET_DERIVED: 0.75,
+  KIS_OFFICIAL_DAILY: 0.9,
+  KIS_STOCK_BASKET_DERIVED: 0.65,
   KRX_OFFICIAL_INDEX: 1.0,
   KRX_CODE: 1.0,
-  STOCK_DAILY: 0.85,
-  CACHE: 0.7,
+  STOCK_DAILY: 0.2,
+  CACHE: 0.45,
   YAHOO_GLOBAL_PROXY: 0.5,
   YAHOO_ETF: 0.5,
   INTERNAL_PROXY: 0.2,
