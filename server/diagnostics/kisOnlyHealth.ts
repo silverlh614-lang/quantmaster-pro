@@ -508,6 +508,11 @@ const KIS_TRACE_BLOCKED_REASONS: KisEndpointBlockedReason[] = [
   'DATE_NOT_AVAILABLE',
   'FIELD_MISSING',
   'QUOTE_LIKE_OUTPUT',
+  'QUOTE_LIKE_OUTPUT_NO_NETBUY_FIELDS',
+  'QUOTE_LIKE_OUTPUT_NO_SHORT_FIELDS',
+  'NO_INVESTOR_BUCKET',
+  'NO_SHORT_BUCKET',
+  'OUTPUT_BUCKET_MISMATCH',
   'PARAM_ERROR',
   'PROVIDER_ERROR',
   'MATERIALIZED',
@@ -547,14 +552,16 @@ function formatInvestorFlowDetail(report: KisOnlyHealthReport): string[] {
 }
 
 function formatEndpointTraceExample(trace: KisEndpointTrace, indent = '  '): string[] {
-  const outputKeys = (trace.outputKeys ?? []).slice(0, 12);
   return [
     `${indent}- code=${trace.stockCode} source=${trace.sourceKind} trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} blockedReason=${trace.blockedReason}`,
     `${indent}    path=${trace.apiPath}`,
     `${indent}    params=${JSON.stringify(trace.params)}`,
-    `${indent}    rt_cd=${trace.rtCd ?? 'n/a'} msg_cd=${trace.msgCd ?? 'n/a'}`,
-    `${indent}    outputPath=${trace.outputPath ?? 'n/a'}`,
-    `${indent}    outputKeys=${outputKeys.join(',') || 'NONE'}`,
+    `${indent}    rt_cd=${trace.rtCd ?? 'n/a'} msg_cd=${trace.msgCd ?? 'n/a'} msg1=${trace.msg1 ?? 'n/a'}`,
+    `${indent}    rootKeys=${trace.rootKeys?.join(',') || 'NONE'}`,
+    `${indent}    outputType=${trace.outputType ?? 'n/a'} outputLength=${trace.outputLength ?? 'n/a'} outputKeys=${(trace.outputKeys ?? []).slice(0, 20).join(',') || 'NONE'}`,
+    `${indent}    output1Type=${trace.output1Type ?? 'n/a'} output1Length=${trace.output1Length ?? 'n/a'} output1Keys=${(trace.output1Keys ?? []).slice(0, 20).join(',') || 'NONE'}`,
+    `${indent}    output2Type=${trace.output2Type ?? 'n/a'} output2Length=${trace.output2Length ?? 'n/a'} output2Keys=${(trace.output2Keys ?? []).slice(0, 20).join(',') || 'NONE'}`,
+    `${indent}    selectedBucket=${trace.selectedBucket ?? trace.outputPath ?? 'n/a'} outputPath=${trace.outputPath ?? 'n/a'} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'}`,
     `${indent}    parsedFields=${trace.parsedFields.join(',') || 'NONE'}`,
     `${indent}    materialized=${trace.materialized} blockedReason=${trace.blockedReason}`,
   ];
@@ -591,7 +598,10 @@ function formatShortDetail(report: KisOnlyHealthReport): string[] {
     lines.push('  examples:');
     for (const trace of examples) {
       const outputKeys = (trace.outputKeys ?? []).slice(0, 20).join(',') || 'NONE';
-      lines.push(`    - ${trace.stockCode} / ${trace.tradingDate}: trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} blockedReason=${trace.blockedReason} outputKeys=${outputKeys}`);
+      const output1Keys = (trace.output1Keys ?? []).slice(0, 20).join(',') || 'NONE';
+      const output2Keys = (trace.output2Keys ?? []).slice(0, 20).join(',') || 'NONE';
+      const rootKeys = trace.rootKeys?.join(',') || 'NONE';
+      lines.push(`    - ${trace.stockCode} / ${trace.tradingDate}: trId=${trace.trId} rowCount=${trace.rowCount} targetFound=${trace.targetFound ?? 'n/a'} selectedBucket=${trace.selectedBucket ?? trace.outputPath ?? 'n/a'} blockedReason=${trace.blockedReason} rootKeys=${rootKeys} outputKeys=${outputKeys} output1Keys=${output1Keys} output2Keys=${output2Keys}`);
     }
   }
   return lines;

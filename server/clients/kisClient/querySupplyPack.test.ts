@@ -166,4 +166,59 @@ describe('KIS official short/loan/credit read-only sources', () => {
     expect(_realDataKisGet.mock.calls.map((call) => call[2].FID_INPUT_DATE_1)).toEqual(['20260511', '20260508']);
   });
 
+  it('investor daily ignores quote-like output1 and materializes investor output2', async () => {
+    _realDataKisGet.mockResolvedValue({
+      output1: [{ stck_prpr: '1000', prdy_vrss: '10', prdy_vrss_sign: '2', prdy_ctrt: '1.0', acml_vol: '100' }],
+      output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '10', orgn_ntby_qty: '20', prsn_ntby_qty: '-30' }],
+    });
+
+    const result = await mod.fetchKisInvestorTradeByStockDaily('005930');
+
+    expect(result).toMatchObject({
+      tradingDate: '2026-05-08',
+      foreignNetBuy: 10,
+      institutionalNetBuy: 20,
+      individualNetBuy: -30,
+    });
+  });
+
+  it('investor daily does not materialize quote-like output1 when output2 is missing', async () => {
+    _realDataKisGet.mockResolvedValue({
+      output1: [{ stck_prpr: '1000', prdy_vrss: '10', prdy_vrss_sign: '2', prdy_ctrt: '1.0', acml_vol: '100' }],
+    });
+
+    const result = await mod.fetchKisInvestorTradeByStockDaily('005930');
+
+    expect(result).toBeNull();
+  });
+
+  it('daily short sale ignores quote-like output1 and materializes short output2', async () => {
+    _realDataKisGet.mockResolvedValue({
+      output1: [{ stck_prpr: '1000', prdy_vrss: '10', prdy_vrss_sign: '2', prdy_ctrt: '1.0', acml_vol: '100' }],
+      output2: [
+        { stck_bsop_date: '20260508', ssts_cntg_qty: '1,300', ssts_tr_pbmn: '13000000', ssts_tr_pbmn_rlim: '3.2' },
+        { stck_bsop_date: '20260507', ssts_cntg_qty: '1,000', ssts_tr_pbmn: '10000000', ssts_tr_pbmn_rlim: '2.1' },
+      ],
+    });
+
+    const result = await mod.fetchKisDailyShortSale('005930');
+
+    expect(result).toMatchObject({
+      tradingDate: '2026-05-08',
+      shortSaleQty: 1300,
+      shortSaleAmount: 13_000_000,
+      shortSaleRatio: 3.2,
+    });
+  });
+
+  it('daily short sale does not materialize quote-like-only buckets', async () => {
+    _realDataKisGet.mockResolvedValue({
+      output1: [{ stck_prpr: '1000', prdy_vrss: '10', prdy_vrss_sign: '2', prdy_ctrt: '1.0', acml_vol: '100' }],
+    });
+
+    const result = await mod.fetchKisDailyShortSale('005930');
+
+    expect(result).toBeNull();
+  });
+
 });

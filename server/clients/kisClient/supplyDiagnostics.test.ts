@@ -36,6 +36,7 @@ describe('diagnoseKisStockProgramRaw reason split', () => {
 
     expect(diag.zeroReason).toBe(expected);
   });
+
 });
 
 describe('KIS endpoint trace semantic classification', () => {
@@ -93,4 +94,67 @@ describe('KIS endpoint trace semantic classification', () => {
     expect(trace.parsedFields).toEqual(['shortSaleQty', 'shortSaleAmount', 'shortSaleRatio']);
     expect(trace.outputKeys).toContain('shts_cntg_qty');
   });
+
+  it('reports all output buckets and selects investor output2 over quote-like output1', async () => {
+    const { diagnoseKisInvestorEndpointTraces } = await import('./supplyDiagnostics.js');
+    _realDataKisGet.mockImplementation(async (trId: string) => {
+      if (trId === 'FHPTJ04160001') {
+        return {
+          rt_cd: '0',
+          msg_cd: 'MCA00000',
+          output1: [{ stck_prpr: '1000', prdy_vrss: '1', prdy_vrss_sign: '2', prdy_ctrt: '0.1', acml_vol: '10' }],
+          output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '1', orgn_ntby_qty: '2', prsn_ntby_qty: '-3' }],
+        };
+      }
+      return { rt_cd: '0', msg_cd: 'MCA00000', output: [] };
+    });
+
+    const traces = await diagnoseKisInvestorEndpointTraces('005930');
+    const daily = traces.find((trace) => trace.sourceKind === 'INVESTOR_TRADE_BY_STOCK_DAILY');
+
+    expect(daily?.blockedReason).toBe('MATERIALIZED');
+    expect(daily?.selectedBucket).toBe('output2');
+    expect(daily?.rootKeys).toEqual(expect.arrayContaining(['rt_cd', 'msg_cd', 'output1', 'output2']));
+    expect(daily?.output1Keys).toContain('stck_prpr');
+    expect(daily?.output2Keys).toContain('frgn_ntby_qty');
+  });
+
+  it('diagnoses investor daily quote-like output1 without output2 as NO_INVESTOR_BUCKET', async () => {
+    const { diagnoseKisInvestorEndpointTraces } = await import('./supplyDiagnostics.js');
+    _realDataKisGet.mockImplementation(async (trId: string) => {
+      if (trId === 'FHPTJ04160001') {
+        return {
+          rt_cd: '0',
+          msg_cd: 'MCA00000',
+          output1: [{ stck_prpr: '1000', prdy_vrss: '1', prdy_vrss_sign: '2', prdy_ctrt: '0.1', acml_vol: '10' }],
+        };
+      }
+      return { rt_cd: '0', msg_cd: 'MCA00000', output: [] };
+    });
+
+    const traces = await diagnoseKisInvestorEndpointTraces('005930');
+    const daily = traces.find((trace) => trace.sourceKind === 'INVESTOR_TRADE_BY_STOCK_DAILY');
+
+    expect(daily?.blockedReason).toBe('NO_INVESTOR_BUCKET');
+    expect(daily?.selectedBucket).toBe('output1');
+    expect(daily?.output2Length).toBe(0);
+  });
+
+  it('reports short output2 selection separately from quote-like output1', async () => {
+    const { diagnoseKisShortSaleDateTraces } = await import('./supplyDiagnostics.js');
+    _realDataKisGet.mockResolvedValue({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      output1: [{ stck_prpr: '1000', prdy_vrss: '1', prdy_vrss_sign: '2', prdy_ctrt: '0.1', acml_vol: '10' }],
+      output2: [{ stck_bsop_date: '20260508', ssts_cntg_qty: '10', ssts_tr_pbmn: '10000', ssts_tr_pbmn_rlim: '1.5' }],
+    });
+
+    const [trace] = await diagnoseKisShortSaleDateTraces('005930', ['2026-05-08']);
+
+    expect(trace.blockedReason).toBe('MATERIALIZED');
+    expect(trace.selectedBucket).toBe('output2');
+    expect(trace.output1Keys).toContain('stck_prpr');
+    expect(trace.output2Keys).toContain('ssts_cntg_qty');
+  });
+
 });
