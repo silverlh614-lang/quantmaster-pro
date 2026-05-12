@@ -1,13 +1,13 @@
-// @responsibility /supply_health KIS-first KRX auto-fetch guard regression tests.
+// @responsibility /supply_health KIS-first output policy regression tests.
 import fs from 'fs';
 import { describe, expect, it } from 'vitest';
 
 const SOURCE = fs.readFileSync('server/telegram/commands/system/supplyHealth.cmd.ts', 'utf-8');
 
-describe('/supply_health KIS-first KRX fetch guard', () => {
+describe('/supply_health KIS-first diagnostics', () => {
   it('passes a command-local KRX auto-fetch disabled flag into investor-flow routing', () => {
     expect(SOURCE).toContain('function isKrxAutoFetchDisabledForSupplyHealth()');
-    expect(SOURCE).toContain("process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED !== 'false'");
+    expect(SOURCE).toContain("process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true'");
     expect(SOURCE).toContain('fetchInvestorFlowWithPolicy(stock.code, now, { krxAutoFetchDisabled: isKrxAutoFetchDisabledForSupplyHealth() })');
   });
 
@@ -21,12 +21,32 @@ describe('/supply_health KIS-first KRX fetch guard', () => {
     expect(SOURCE).toContain("'marketSignal=false'");
     expect(SOURCE).toContain("'executionImpact=NONE'");
   });
-});
 
-  it('labels KIS_ONLY_REBUILD supply health as legacy diagnostic-only without active alternatives', () => {
-    expect(SOURCE).toContain('Current Mode: KIS_ONLY_REBUILD');
-    expect(SOURCE).toContain('Active source diagnosis: /kis_health');
-    expect(SOURCE).toContain('Legacy Supply Health below is diagnostic-only.');
-    expect(SOURCE).toContain('Legacy providers are disabled for current decisions in KIS_ONLY_REBUILD_MODE.');
-    expect(SOURCE).not.toContain('KRX/NAVER/FSS/CACHE/SEMANTIC_NETBUY/Yahoo/ADR dry-run');
+  it('labels KIS verified investor-flow samples without active KRX/NAVER/CACHE fallback wording', () => {
+    expect(SOURCE).toContain('fallback: disabled because KIS verified sample is available');
+    expect(SOURCE).toContain('legacyProviders: KRX/NAVER/CACHE diagnostic-only');
+    expect(SOURCE).toContain('KRX role=MANUAL_VALIDATION_ONLY');
   });
+
+  it('details zero-suspect reason and materialization action instead of only a count', () => {
+    expect(SOURCE).toContain('interface ZeroSuspectDetail');
+    expect(SOURCE).toContain("reason: 'REAL_ZERO_FIELD' | 'FALLBACK_ZERO' | 'UNKNOWN'");
+    expect(SOURCE).toContain("if (sample.provider === 'KIS_API' && hasRequiredNetBuyFields && hasOptionalIndividualField) return 'REAL_ZERO_FIELD'");
+    expect(SOURCE).toContain("reason === 'FALLBACK_ZERO' ? 'block materialization'");
+    expect(SOURCE).toContain('zeroSuspect:');
+  });
+
+  it('separates pack-local StrongBuy wording from final gate wording', () => {
+    expect(SOURCE).toContain('packLocalStrongBuyAllowed=');
+    expect(SOURCE).toContain('finalStrongBuyAllowed=controlledByFinalGate');
+    expect(SOURCE).toContain('supply_confluence and SectorEnergy remain final gates');
+  });
+
+  it('keeps accepted-empty market program as non-provider issue observation', () => {
+    expect(SOURCE).toContain("'status: ACCEPTED_EMPTY'");
+    expect(SOURCE).toContain("'scoring=excluded'");
+    expect(SOURCE).toContain("'providerIssue=false'");
+    expect(SOURCE).toContain("'marketSignal=false'");
+    expect(SOURCE).toContain("'action=observe'");
+  });
+});

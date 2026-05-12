@@ -137,6 +137,26 @@ describe('fetchKisOfficialSupplyPack', () => {
     expect(pack.providerIssue).toBe(false);
     expect(pack.diagnostics.join(' ')).toContain('marketProgram=OK');
   });
+
+  it('labels EnemyChecklist StrongBuy as pack-local and delegates final StrongBuy to final gate', async () => {
+    const pack = await fetchKisOfficialSupplyPack('005930', new Date('2026-05-11T01:00:00.000Z'), fetchers({
+      fetchShortSelling: vi.fn(async () => ({
+        stockCode: '005930',
+        shortSaleAmount: 130,
+        shortSaleIncreaseRate: 31,
+        trend: 'INCREASING' as const,
+        source: 'KIS_API' as const,
+        fetchedAt: '2026-05-11T00:59:00.000Z',
+      })),
+    }));
+
+    const diagnostics = pack.diagnostics.join(' ');
+    expect(diagnostics).toContain('enemyWarnings=1');
+    expect(diagnostics).toContain('packLocalStrongBuyAllowed=true');
+    expect(diagnostics).toContain('finalStrongBuyAllowed=controlledByFinalGate');
+    expect(diagnostics).toContain('supply_confluence and SectorEnergy remain final gates');
+    expect(diagnostics).not.toContain(' strongBuyAllowed=true');
+  });
 });
 
 describe('evaluateKisSupplyEnemyChecklist', () => {

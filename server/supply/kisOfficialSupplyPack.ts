@@ -492,7 +492,9 @@ export async function fetchKisOfficialSupplyPack(
     `marketProgram=${hasMarketProgram ? 'OK' : 'DATA_UNAVAILABLE'}`,
     `marketSupply=${hasMarketSupply ? 'OK' : 'DATA_UNAVAILABLE'}`,
     `enemyWarnings=${enemy.warningCount}`,
-    `strongBuyAllowed=${String(enemy.strongBuyAllowed)}`,
+    `packLocalStrongBuyAllowed=${String(enemy.strongBuyAllowed)}`,
+    'finalStrongBuyAllowed=controlledByFinalGate',
+    'finalGateNote=enemyWarnings<2 is not a standalone STRONG_BUY release; supply_confluence and SectorEnergy remain final gates',
     `newBuyAllowed=${String(enemy.newBuyAllowed)}`,
   );
   pack.learningTags = Array.from(new Set([...pack.learningTags, ...enemy.learningTags]));

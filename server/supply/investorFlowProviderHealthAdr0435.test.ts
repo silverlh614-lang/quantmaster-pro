@@ -116,7 +116,33 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
 
     const summary = summarizeInvestorFlowProviderHealth(result.health);
     expect(summary).toContain('NAVER: NOT_WIRED');
-    expect(summary).toContain('supply_confluence: DATA_UNAVAILABLE, not failed');
+    expect(summary).toContain('- supply_confluence:');
+    expect(summary).toContain('signal=DATA_UNAVAILABLE');
+    expect(summary).toContain('dataStatus=DATA_UNAVAILABLE');
+    expect(summary).toContain('providerIssue=false');
+    expect(summary).toContain('executionImpact=NONE');
     expect(summary).toContain('shadowObservableAllowed: true');
   }, 15_000);
+
+
+  it('renders bearish supply_confluence as OK data interpretation, not provider failure', async () => {
+    const { summarizeInvestorFlowProviderHealth } = await import('./investorFlowProviderHealth.js');
+    const summary = summarizeInvestorFlowProviderHealth([], {
+      status: 'OK',
+      selectedProvider: 'KIS_API',
+      selectedReason: 'KIS verified semantic net-buy',
+      providerTried: ['KIS_API'],
+      providerStatuses: { KIS_API: 'VERIFIED', SEMANTIC_NETBUY: 'READY_FOR_SHADOW' },
+      signal: 'BEARISH',
+      coverage: { available: 10, total: 10 },
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+    });
+
+    expect(summary).toContain('signal=BEARISH');
+    expect(summary).toContain('dataStatus=OK');
+    expect(summary).toContain('providerIssue=false');
+    expect(summary).toContain('interpretation=actual KIS verified flow is bearish, not provider failure');
+    expect(summary).toContain('executionImpact=NONE');
+  });
 });

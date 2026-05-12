@@ -52,7 +52,15 @@ const ATTEMPT_REASON_MAX_LEN = 110;
 
 // ADR-0421 — DATA_UNAVAILABLE 추가 (NEUTRAL 은 real-data + weak-direction 영역만 보존).
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
-interface ChannelStatus { key: SupplySignalKey; title: string; marker: Marker; lines: string[]; riskReason?: string; zeroSuspect?: { count: number; total: number } }
+interface ZeroSuspectDetail {
+  code: string;
+  source: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY' | 'KRX_INVESTOR_FLOW' | 'NAVER_INVESTOR_TREND' | 'CACHE' | 'UNKNOWN';
+  foreignNetBuy: number | null;
+  institutionalNetBuy: number | null;
+  individualNetBuy: number | null;
+  reason: 'REAL_ZERO_FIELD' | 'FALLBACK_ZERO' | 'UNKNOWN';
+}
+interface ChannelStatus { key: SupplySignalKey; title: string; marker: Marker; lines: string[]; riskReason?: string; zeroSuspect?: { count: number; total: number; details?: ZeroSuspectDetail[] } }
 interface FssRecordRow { date: string; passiveNetBuy: number; activeNetBuy: number }
 interface KisOfficialSupplyPackLoad {
   code: string | null;
@@ -102,6 +110,33 @@ function elapsedDays(date: string | null | undefined, nowMs: number): number | n
 }
 function isZeroFilledSuspicious(count: number, total: number): boolean { return total > 0 && count >= ZERO_FILLED_MIN_COUNT && count / total >= ZERO_FILLED_RATIO_WARN; }
 function zeroWarn(count: number, total: number): string { return `${count}/${total}${isZeroFilledSuspicious(count, total) ? ' ⚠️' : ''}`; }
+function zeroSuspectSource(provider: InvestorFlowSample['provider']): ZeroSuspectDetail['source'] {
+  if (provider === 'KIS_API') return 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY';
+  if (provider === 'KRX_INVESTOR_FLOW') return 'KRX_INVESTOR_FLOW';
+  if (provider === 'NAVER_INVESTOR_TREND') return 'NAVER_INVESTOR_TREND';
+  if (provider === 'CACHE') return 'CACHE';
+  return 'UNKNOWN';
+}
+function classifyZeroSuspectReason(sample: InvestorFlowSample): ZeroSuspectDetail['reason'] {
+  const hasRequiredNetBuyFields = Number.isFinite(sample.foreignNetBuy) && Number.isFinite(sample.institutionalNetBuy);
+  const hasOptionalIndividualField = sample.individualNetBuy === undefined || Number.isFinite(sample.individualNetBuy);
+  if (sample.provider === 'KIS_API' && hasRequiredNetBuyFields && hasOptionalIndividualField) return 'REAL_ZERO_FIELD';
+  if (!hasRequiredNetBuyFields) return 'FALLBACK_ZERO';
+  return 'UNKNOWN';
+}
+function formatZeroSuspectLines(count: number, total: number, details: ZeroSuspectDetail[]): string[] {
+  const reasonSet = new Set(details.map((detail) => detail.reason));
+  const reason = reasonSet.size === 1 ? [...reasonSet][0] : details.length > 0 ? 'UNKNOWN' : 'UNKNOWN';
+  const action = reason === 'REAL_ZERO_FIELD' ? 'none' : reason === 'FALLBACK_ZERO' ? 'block materialization' : 'trace required';
+  return [
+    'zeroSuspect:',
+    `  count=${count}/${total}`,
+    `  codes=${details.length > 0 ? details.map((detail) => detail.code).join(',') : 'NONE'}`,
+    `  reason=${reason}`,
+    `  action=${action}`,
+    ...details.slice(0, 3).map((detail) => `  detail code=${detail.code} source=${detail.source} foreignNetBuy=${detail.foreignNetBuy ?? 'N/A'} institutionalNetBuy=${detail.institutionalNetBuy ?? 'N/A'} individualNetBuy=${detail.individualNetBuy ?? 'N/A'} reason=${detail.reason}`),
+  ];
+}
 function formatEokwon(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return 'N/A';
   if (Math.abs(value) < 0.05) return '0억';
@@ -290,6 +325,7 @@ export function formatRouterAwareInvestorFlowAttemptSummary(router: InvestorFlow
 
 async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs: number): Promise<ChannelStatus> {
   let success = 0, zero = 0;
+  const zeroDetails: ZeroSuspectDetail[] = [];
   const attemptSummaries: string[] = [];
   let providerHealthSummary: string | null = null;
   const router = getLastScanSummary()?.investorFlowProviderRouter ?? null;
@@ -308,7 +344,17 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
     success++;
     bumpProviderCount(sourceCounts, routed.source);
     if (routed.source === 'CACHE') cacheSamples.push(routed.data);
-    if (routed.data.foreignNetBuy + routed.data.institutionalNetBuy === 0) zero++;
+    if (routed.data.foreignNetBuy + routed.data.institutionalNetBuy === 0) {
+      zero++;
+      zeroDetails.push({
+        code: stock.code,
+        source: zeroSuspectSource(routed.data.provider),
+        foreignNetBuy: Number.isFinite(routed.data.foreignNetBuy) ? routed.data.foreignNetBuy : null,
+        institutionalNetBuy: Number.isFinite(routed.data.institutionalNetBuy) ? routed.data.institutionalNetBuy : null,
+        individualNetBuy: Number.isFinite(routed.data.individualNetBuy) ? routed.data.individualNetBuy! : null,
+        reason: classifyZeroSuspectReason(routed.data),
+      });
+    }
   }
   const total = targets.length;
   const missing = Math.max(0, total - success);
@@ -337,10 +383,15 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
         : staleCache > 0
           ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
           : undefined;
+  const kisVerified = process.env.KIS_FIRST_REBUILD_MODE === 'true'
+    && sourceCounts.get('KIS_API') === total
+    && success === total
+    && router?.selectedProvider === 'KIS_API'
+    && (router.providerStatuses.SEMANTIC_NETBUY === 'READY_FOR_SHADOW' || router.providerStatuses.SEMANTIC_NETBUY === 'VERIFIED');
   return {
     key: 'investorFlow', title: '기관/외인 수급', marker,
     riskReason,
-    zeroSuspect: { count: zero, total },
+    zeroSuspect: { count: zero, total, details: zeroDetails },
     lines: [
       `source: ${formatProviderCounts(sourceCounts)}`,
       `status: ${marker}`,
@@ -349,10 +400,15 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
       `stale: ${staleCache}`,
       `cache: ${cacheSamples.length}/${total}${oldestCacheAge !== null ? `, oldest=${formatAgo(oldestCacheAge)}` : ''}${cacheDates.length > 0 ? `, dates=${cacheDates.join(',')}` : ''}`,
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
+      ...formatZeroSuspectLines(zero, total, zeroDetails),
       `providerTried: ${attemptSummaries[0] ?? 'N/A'}`,
       ...(providerHealthSummary ? providerHealthSummary.split('\n').map((line) => `providerHealth: ${line}`) : []),
       renderInvestorFlowDecision(marker),
-      ...(isKrxAutoFetchDisabledForSupplyHealth() ? ['Legacy Providers: diagnostic-only'] : ['대체: KRX / NAVER / CACHE']),
+      ...(kisVerified
+        ? ['fallback: disabled because KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
+        : isKrxAutoFetchDisabledForSupplyHealth()
+          ? ['Legacy Providers: diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
+          : ['대체: KRX / NAVER / CACHE']),
       '상세: /investor_flow 예정',
     ],
   };
@@ -376,7 +432,7 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
 }
 
 function renderAcceptedEmptyMarketProgram(): ChannelStatus {
-  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['source: KIS_API', 'status: ACCEPTED_EMPTY', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외', 'rawDiag: hidden (/program_market raw 예정)', '상세: /program_market'] };
+  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['source: KIS_API', 'status: ACCEPTED_EMPTY', 'scoring=excluded', 'providerIssue=false', 'marketSignal=false', 'action=observe', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외', 'rawDiag: hidden (/program_market raw 예정)', 'executionImpact=NONE', '상세: /program_market'] };
 }
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
@@ -616,7 +672,9 @@ function diagnoseLoadedKisOfficialSupplyPack(load: KisOfficialSupplyPackLoad): C
       `price=${pack.price?.confidence ?? 'MISSING'}; investorFlowDaily=${pack.investorFlowDaily?.hasRealFields ? 'OK' : 'DATA_UNAVAILABLE'}; estimate=${pack.investorFlowEstimate?.confidence ?? 'MISSING'}`,
       `short=${pack.shortSelling ? pack.shortSelling.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; loan=${pack.loanTransaction ? pack.loanTransaction.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}; credit=${pack.creditBalance ? pack.creditBalance.trend ?? 'UNKNOWN' : 'DATA_UNAVAILABLE'}`,
       `program=${pack.stockProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketProgram=${pack.marketProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketSupply=${pack.marketSupply ? 'OK' : 'DATA_UNAVAILABLE'}`,
-      `enemyWarnings=${enemy.warningCount}; strongBuyAllowed=${String(enemy.strongBuyAllowed)}; newBuyAllowed=${String(enemy.newBuyAllowed)}`,
+      `enemyWarnings=${enemy.warningCount}; packLocalStrongBuyAllowed=${String(enemy.strongBuyAllowed)}; newBuyAllowed=${String(enemy.newBuyAllowed)}`,
+      'finalStrongBuyAllowed=controlledByFinalGate',
+      'finalGateNote=enemyWarnings<2 is not a standalone STRONG_BUY release; supply_confluence and SectorEnergy remain final gates',
       'marketSignal=false',
       'executionImpact=NONE',
     ],

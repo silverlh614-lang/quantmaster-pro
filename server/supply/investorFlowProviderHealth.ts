@@ -615,9 +615,17 @@ export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarm
       : report.semanticNetBuyCollectorStatus === 'WIRED'
         ? 'DATA_UNAVAILABLE / NO_INPUT_SAMPLE'
         : 'DATA_UNAVAILABLE';
-  const supplyConfluence = report.investorFlowRouter?.selectedProvider && report.investorFlowRouter.selectedProvider !== 'NONE'
-    ? (report.investorFlowRouter.signal === 'UNKNOWN' ? 'UNKNOWN / STALE_DIAGNOSTIC, not bearish' : `${report.investorFlowRouter.signal}, not failed`)
-    : (report.marketSignal ? 'BEARISH, not failed' : 'DATA_UNAVAILABLE, not failed');
+  const supplyConfluenceSignal = report.investorFlowRouter?.selectedProvider && report.investorFlowRouter.selectedProvider !== 'NONE'
+    ? (report.investorFlowRouter.signal === 'UNKNOWN' ? 'UNKNOWN / STALE_DIAGNOSTIC' : report.investorFlowRouter.signal)
+    : (report.marketSignal ? 'BEARISH' : 'DATA_UNAVAILABLE');
+  const supplyConfluenceLines = [
+    '  supply_confluence:',
+    `    signal=${supplyConfluenceSignal}`,
+    `    dataStatus=${supplyConfluenceSignal === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'OK'}`,
+    '    providerIssue=false',
+    `    interpretation=${supplyConfluenceSignal === 'BEARISH' ? 'actual KIS verified flow is bearish, not provider failure' : 'provider health is reported separately from market direction'}`,
+    '    executionImpact=NONE',
+  ];
   return [
     '📊 Supply Provider Warmup (ADR-0473)',
     `  KRX: ${report.krxStatus} / previousTradingDateCandidate=${d.previousTradingDateCandidate} / cacheHit=${String(d.cacheHit)}`,
@@ -634,7 +642,7 @@ export function formatSupplyProviderWarmupCompactLine(report: SupplyProviderWarm
     ...(report.investorFlowRouter ? [
       `  selectedProvider: ${report.investorFlowRouter.selectedProvider}`,
       `  selectedReason: ${report.investorFlowRouter.selectedReason ?? 'NONE'}`,
-      `  supply_confluence: ${supplyConfluence}`,
+      ...supplyConfluenceLines,
       '  liveStrongBuyAllowed=false',
     ] : []),
     `  KIS: ${report.kisStatus}`,
@@ -680,7 +688,7 @@ function formatKrxAdr0445SubLines(krx: InvestorFlowProviderHealth): string[] {
 }
 
 export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProviderHealth[], router?: SupplyProviderWarmupReport['investorFlowRouter'] | null): string {
-  if (health.length === 0) return 'Supply Provider Health: no recent investor-flow provider sample';
+  if (health.length === 0 && !router) return 'Supply Provider Health: no recent investor-flow provider sample';
   const byProvider = new Map<InvestorFlowProvider, InvestorFlowProviderHealth>();
   for (const h of health) byProvider.set(h.provider, h);
   const krx = byProvider.get('KRX');
@@ -711,12 +719,24 @@ export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProvider
     lines.push(`- CACHE: ${cacheDisplay}`);
     lines.push(`- selectedProvider: ${router.selectedProvider}`);
     lines.push(`- selectedReason: ${router.selectedReason ?? 'NONE'}`);
-    lines.push(`- supply_confluence: ${router.selectedProvider !== 'NONE' && router.signal === 'UNKNOWN' ? 'UNKNOWN / STALE_DIAGNOSTIC' : router.selectedProvider === 'NONE' ? 'DATA_UNAVAILABLE' : router.signal}, not failed`);
+    const signal = router.selectedProvider !== 'NONE' && router.signal === 'UNKNOWN' ? 'UNKNOWN / STALE_DIAGNOSTIC' : router.selectedProvider === 'NONE' ? 'DATA_UNAVAILABLE' : router.signal;
+    lines.push('- supply_confluence:');
+    lines.push(`  signal=${signal}`);
+    lines.push(`  dataStatus=${signal === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'OK'}`);
+    lines.push('  providerIssue=false');
+    lines.push(`  interpretation=${signal === 'BEARISH' ? 'actual KIS verified flow is bearish, not provider failure' : 'provider health is reported separately from market direction'}`);
+    lines.push('  executionImpact=NONE');
   } else {
     if (naver) lines.push(`- NAVER: ${naver.status}`);
     lines.push(`- Semantic NetBuy: ${composite?.semanticAvailable ? 'OK' : 'NOT_WIRED'}`);
     if (cache) lines.push(`- CACHE: ${cache.status}`);
-    lines.push(`- supply_confluence: ${composite?.semanticAvailable ? (composite.isNegativeFlowConfirmed ? 'BEARISH' : 'available') : 'DATA_UNAVAILABLE'}, not failed`);
+    const signal = composite?.semanticAvailable ? (composite.isNegativeFlowConfirmed ? 'BEARISH' : 'available') : 'DATA_UNAVAILABLE';
+    lines.push('- supply_confluence:');
+    lines.push(`  signal=${signal}`);
+    lines.push(`  dataStatus=${signal === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'OK'}`);
+    lines.push('  providerIssue=false');
+    lines.push(`  interpretation=${signal === 'BEARISH' ? 'actual KIS verified flow is bearish, not provider failure' : 'provider health is reported separately from market direction'}`);
+    lines.push('  executionImpact=NONE');
   }
   lines.push('- liveStrongBuyAllowed: false');
   lines.push('- shadowObservableAllowed: true');
