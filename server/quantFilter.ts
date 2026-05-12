@@ -18,6 +18,28 @@ import { isTradingHeld } from './learning/learningState.js';
 import { getRegimeGateBand } from './trading/gateConfig.js';
 import { defaultRegistry, calculateCompressionScore } from './quant/conditions/index.js';
 
+export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
+
+export type GateFinalPath = 'LIVE_ELIGIBLE' | 'SHADOW_OBSERVABLE' | 'WATCHLIST_ONLY' | 'BLOCKED';
+
+export interface GateLayerBucket {
+  fired: string[];
+  unavailable: string[];
+  thresholdNotMet: string[];
+  providerDegraded: string[];
+  passed: boolean;
+  score: number;
+  availableMaxScore: number;
+}
+
+export interface GateLayerSummary {
+  gate1: GateLayerBucket;
+  gate2: GateLayerBucket;
+  gate3: GateLayerBucket;
+  finalPath: GateFinalPath;
+  primaryBlockReason?: string;
+}
+
 export interface ServerGateResult {
   gateScore: number;                          // 기존 live 의사결정 호환 raw score (float, 최대 ~15)
   /** ADR-452 — gateScore와 동일한 원점수. 신규 호출자는 rawScore를 선호. */
@@ -51,6 +73,11 @@ export interface ServerGateResult {
       hadRequiredData: boolean;
     };
   }>;
+  /**
+   * Gate 1/2/3 layer summary is diagnostic-only. It must never replace gateScore/rawScore
+   * or normalizedGateScore in live threshold decisions.
+   */
+  gateLayerSummary?: GateLayerSummary;
 }
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */
@@ -101,6 +128,101 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
 
 const CONDITION_WEIGHT_MIN = 0.1;
 const CONDITION_WEIGHT_MAX = 2.0;
+
+/** Gate condition → 3-layer diagnostic SSOT. Live thresholds/weights are not derived from this map. */
+export const GATE_CONDITION_LAYER_MAP: Record<ConditionKey, GateLayerName> = {
+  momentum: 'gate3',
+  ma_alignment: 'gate1',
+  volume_breakout: 'gate3',
+  per: 'gate2',
+  turtle_high: 'gate3',
+  relative_strength: 'gate2',
+  breakout_momentum: 'gate3',
+  vcp: 'gate3',
+  volume_surge: 'gate3',
+  rsi_zone: 'gate3',
+  macd_bull: 'gate3',
+  pullback: 'gate3',
+  ma60_rising: 'gate1',
+  weekly_rsi_zone: 'gate1',
+  supply_confluence: 'gate2',
+  earnings_quality: 'gate2',
+  trend_acceleration: 'gate2',
+};
+
+function emptyGateLayerBucket(): GateLayerBucket {
+  return {
+    fired: [],
+    unavailable: [],
+    thresholdNotMet: [],
+    providerDegraded: [],
+    passed: false,
+    score: 0,
+    availableMaxScore: 0,
+  };
+}
+
+function layerForCondition(key: string): GateLayerName {
+  return (GATE_CONDITION_LAYER_MAP as Record<string, GateLayerName>)[key] ?? 'gate3';
+}
+
+function buildGateLayerSummary(
+  outputs: NonNullable<ServerGateResult['outputs']>,
+  weights: ConditionWeights,
+  signalType: ServerGateResult['signalType'],
+): GateLayerSummary {
+  const summary: GateLayerSummary = {
+    gate1: emptyGateLayerBucket(),
+    gate2: emptyGateLayerBucket(),
+    gate3: emptyGateLayerBucket(),
+    finalPath: 'WATCHLIST_ONLY',
+  };
+
+  for (const item of outputs) {
+    const layer = summary[layerForCondition(item.key)];
+    const status = inferOutputStatus(item.output, item.context?.hadRequiredData);
+    const score = item.output && Number.isFinite(item.output.score) ? Math.max(0, item.output.score) : 0;
+    const baseWeight = conditionWeightFor(weights, item.key);
+
+    if (status === 'DATA_UNAVAILABLE' || status === 'ERROR') {
+      layer.unavailable.push(item.key);
+      continue;
+    }
+
+    layer.availableMaxScore += Math.max(baseWeight, score);
+    if (status === 'PROVIDER_DEGRADED') {
+      layer.providerDegraded.push(item.key);
+    } else if (status === 'THRESHOLD_NOT_MET' || status === 'SKIPPED_BY_POLICY' || status === 'SANITY_REJECTED') {
+      layer.thresholdNotMet.push(item.key);
+    } else if (score > 0 || status === 'FIRED') {
+      layer.fired.push(item.key);
+      layer.score += score;
+    }
+  }
+
+  for (const layer of [summary.gate1, summary.gate2, summary.gate3]) {
+    layer.passed = layer.unavailable.length === 0 && layer.providerDegraded.length === 0 && layer.thresholdNotMet.length === 0 && layer.fired.length > 0;
+  }
+
+  const unavailable = [...summary.gate1.unavailable, ...summary.gate2.unavailable, ...summary.gate3.unavailable];
+  const degraded = [...summary.gate1.providerDegraded, ...summary.gate2.providerDegraded, ...summary.gate3.providerDegraded];
+  const thresholdMiss = [...summary.gate1.thresholdNotMet, ...summary.gate2.thresholdNotMet, ...summary.gate3.thresholdNotMet];
+
+  if (signalType === 'SKIP') {
+    summary.finalPath = 'BLOCKED';
+    summary.primaryBlockReason = thresholdMiss[0] ? `THRESHOLD_NOT_MET:${thresholdMiss[0]}` : 'SIGNAL_SKIP';
+  } else if (unavailable.length > 0) {
+    summary.finalPath = 'SHADOW_OBSERVABLE';
+    summary.primaryBlockReason = `DATA_UNAVAILABLE:${unavailable[0]}`;
+  } else if (degraded.length > 0) {
+    summary.finalPath = 'SHADOW_OBSERVABLE';
+    summary.primaryBlockReason = `PROVIDER_DEGRADED:${degraded[0]}`;
+  } else {
+    summary.finalPath = 'LIVE_ELIGIBLE';
+  }
+
+  return summary;
+}
 
 type GateOutputStatus =
   | 'FIRED'
@@ -294,6 +416,8 @@ export function evaluateServerGate(
     }
   }
 
+  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType);
+
   return {
     gateScore: score,
     ...scoreHealth,
@@ -304,5 +428,6 @@ export function evaluateServerGate(
     compressionScore: cs,
     mtas,
     outputs: run.outputs,
+    gateLayerSummary,
   };
 }

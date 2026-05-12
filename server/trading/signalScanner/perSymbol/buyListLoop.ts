@@ -126,6 +126,8 @@ import {
   accumulateGateEligibility,
   accumulateGateScoreCandidateBucket,
   accumulateGateScoreHealth,
+  accumulateGateLayerSummary,
+  recordPipelineStage,
   accumulateNearMissOutcomeLedgerWrite,
   accumulateGateReclassificationDryRun,
   accumulatePositiveScoreStarvation,
@@ -1338,12 +1340,18 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             getDartFinancials(stock.code).catch(() => null),
           ])
         : [null, null];
+      try { recordPipelineStage(ctx.scanCounters, 'PRICE_FETCH', reCheckQuote ? 'PASS' : 'FAIL'); } catch {}
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
         : null;
+      try {
+        recordPipelineStage(ctx.scanCounters, 'SERVER_GATE_EVALUATED', reCheckGate ? 'PASS' : 'SKIPPED');
+        recordPipelineStage(ctx.scanCounters, 'GATE_LAYER_SUMMARY_BUILT', reCheckGate?.gateLayerSummary ? 'PASS' : 'SKIPPED');
+      } catch {}
       // ADR-452c — Gate Score Health 진단 누적. 표시 전용이며 live decision/Kelly/KIS 주문에는 미사용.
       try {
         accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);
+        accumulateGateLayerSummary(ctx.scanCounters, reCheckGate?.gateLayerSummary, reCheckGate?.signalType);
       } catch (e) {
         console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
       }
@@ -1545,6 +1553,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           hasTechnicalSetup,
         });
         accumulateGateEligibility(ctx.scanCounters, eligibility);
+        recordPipelineStage(ctx.scanCounters, 'GATE_ELIGIBILITY_CLASSIFIED', eligibility.liveEligible ? 'PASS' : eligibility.shadowObservable ? 'SHADOW_ONLY' : 'BLOCKED');
       } catch (e) {
         console.warn('[Adr0436GateEligibility] classify 실패 — 매수 흐름 무영향:', e);
       }

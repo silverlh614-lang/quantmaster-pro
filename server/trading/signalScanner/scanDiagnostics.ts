@@ -229,6 +229,7 @@ import {
 } from './supplySnapshotStoreReplayAdr0491.js';
 import { previousTradingDateCandidateAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 import { fetchKisInvestorFlowEvidence } from '../../supply/kisInvestorFlowEvidence.js';
+import type { GateLayerSummary } from '../../quantFilter.js';
 import {
   fetchInvestorTrading,
   getLastKrxInvestorTradingDiagnostic,
@@ -296,6 +297,54 @@ export interface MacroGateState {
   sellOnlyMode: boolean;
   kospi20dReturn?: number;
 }
+
+
+export type DataPromotionLevel = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
+
+export interface DataPromotionStatus {
+  kisInvestorFlow: DataPromotionLevel;
+  sectorEnergy: DataPromotionLevel;
+  dartFinancials: DataPromotionLevel;
+  yahooPrice: DataPromotionLevel;
+}
+
+export type PipelineStageName =
+  | 'PRICE_FETCH'
+  | 'DRIFT_CHECK'
+  | 'DATA_HOLD_CHECK'
+  | 'SERVER_GATE_EVALUATED'
+  | 'GATE_LAYER_SUMMARY_BUILT'
+  | 'GATE_ELIGIBILITY_CLASSIFIED'
+  | 'RRR_CHECK'
+  | 'SECTOR_EXPOSURE_CHECK'
+  | 'POSITION_SLOT_CHECK'
+  | 'COOLDOWN_CHECK'
+  | 'ENEMY_CHECK'
+  | 'APPROVAL_REQUESTED'
+  | 'SHADOW_RECORDED'
+  | 'LIVE_ORDER_REQUESTED'
+  | 'LIVE_ORDER_BLOCKED'
+  | 'LIVE_ORDER_SUBMITTED';
+
+export type PipelineStageStatus = 'PASS' | 'FAIL' | 'BLOCKED' | 'SKIPPED' | 'SHADOW_ONLY' | 'DATA_UNAVAILABLE' | 'PROVIDER_DEGRADED';
+
+export interface PipelineStageDropoffSummary {
+  stage: PipelineStageName;
+  pass: number;
+  fail: number;
+  blocked: number;
+  skipped: number;
+  shadowOnly: number;
+  dataUnavailable: number;
+  providerDegraded: number;
+}
+
+export const DEFAULT_DATA_PROMOTION_STATUS: DataPromotionStatus = {
+  kisInvestorFlow: 'WEIGHTED',
+  sectorEnergy: 'WEIGHTED',
+  dartFinancials: 'ADVISORY',
+  yahooPrice: 'GATED',
+};
 
 export interface ScanSummary {
   time: string;
@@ -478,6 +527,12 @@ export interface ScanSummary {
   gateScoreHealth?: GateScoreHealthSummary;
   /** ADR-452d — diagnostic-only near-miss buckets; executionImpact is always NONE. */
   gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
+  /** Gate 1/2/3 diagnostic-only layer summary aggregated from evaluateServerGate. */
+  gateLayerAudit?: GateLayerAuditSummary;
+  /** Data source promotion stage; conservative defaults, never a live escalation switch. */
+  dataPromotionStatus?: DataPromotionStatus;
+  /** Stage-level dropoff audit for Gate→RRR→routing visibility. */
+  perStageDropoffSummary?: PipelineStageDropoffSummary[];
   /** ADR-458 — APPROVED reclassification shadow/dry-run summary; live executionImpact is NONE. */
   gateReclassificationDryRun?: GateReclassificationDryRunSummary;
   /** ADR-0467 positive score starvation audit; diagnostic-only and executionImpact NONE. */
@@ -648,6 +703,8 @@ export interface ScanCounters {
   gateScoreUnavailableCounts: Record<string, number>;
   gateScoreThresholdNotMetCounts: Record<string, number>;
   gateScoreProviderDegradedCounts: Record<string, number>;
+  gateLayerAudit: GateLayerAuditAccumulator;
+  perStageDropoff: Partial<Record<PipelineStageName, Partial<Record<PipelineStageStatus, number>>>>;
   /** ADR-452d — diagnostic-only bucket counters (live decision 미사용). */
   gateScoreBucketCounts: Record<GateScoreCandidateBucket, number>;
   gateScoreBucketReasonCounts: Record<string, number>;
@@ -720,6 +777,8 @@ export function createScanCounters(): ScanCounters {
     gateScoreUnavailableCounts: {},
     gateScoreThresholdNotMetCounts: {},
     gateScoreProviderDegradedCounts: {},
+    gateLayerAudit: createGateLayerAuditAccumulator(),
+    perStageDropoff: {},
     // ADR-452d — Gate near-miss bucket 진단 누적기 초기화 (executionImpact NONE).
     gateScoreBucketCounts: {
       EXECUTABLE: 0,
@@ -904,6 +963,111 @@ export function accumulateGateScoreHealth(
   for (const condition of result.providerDegradedConditions ?? []) {
     incrementCount(counters.gateScoreProviderDegradedCounts, condition);
   }
+}
+
+
+export interface GateLayerAuditSummary {
+  gate1PassCount: number;
+  gate2PassCount: number;
+  gate3PassCount: number;
+  strongBuySuppressedByDataUnavailableCount: number;
+  topGate1BlockReasons: Array<{ reason: string; count: number }>;
+  topGate2BlockReasons: Array<{ reason: string; count: number }>;
+  topGate3BlockReasons: Array<{ reason: string; count: number }>;
+}
+
+interface GateLayerAuditAccumulator {
+  gate1PassCount: number;
+  gate2PassCount: number;
+  gate3PassCount: number;
+  strongBuySuppressedByDataUnavailableCount: number;
+  gate1BlockReasons: Record<string, number>;
+  gate2BlockReasons: Record<string, number>;
+  gate3BlockReasons: Record<string, number>;
+}
+
+function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
+  return {
+    gate1PassCount: 0,
+    gate2PassCount: 0,
+    gate3PassCount: 0,
+    strongBuySuppressedByDataUnavailableCount: 0,
+    gate1BlockReasons: {},
+    gate2BlockReasons: {},
+    gate3BlockReasons: {},
+  };
+}
+
+function recordLayerBlockReasons(target: Record<string, number>, layer: GateLayerSummary['gate1']): void {
+  for (const key of layer.unavailable) incrementCount(target, `DATA_UNAVAILABLE:${key}`);
+  for (const key of layer.providerDegraded) incrementCount(target, `PROVIDER_DEGRADED:${key}`);
+  for (const key of layer.thresholdNotMet) incrementCount(target, `THRESHOLD_NOT_MET:${key}`);
+}
+
+export function accumulateGateLayerSummary(
+  counters: ScanCounters,
+  summary: GateLayerSummary | null | undefined,
+  signalType?: string,
+): void {
+  if (!summary) return;
+  if (summary.gate1.passed) counters.gateLayerAudit.gate1PassCount += 1;
+  if (summary.gate2.passed) counters.gateLayerAudit.gate2PassCount += 1;
+  if (summary.gate3.passed) counters.gateLayerAudit.gate3PassCount += 1;
+  recordLayerBlockReasons(counters.gateLayerAudit.gate1BlockReasons, summary.gate1);
+  recordLayerBlockReasons(counters.gateLayerAudit.gate2BlockReasons, summary.gate2);
+  recordLayerBlockReasons(counters.gateLayerAudit.gate3BlockReasons, summary.gate3);
+  if (signalType === 'STRONG' && summary.finalPath === 'SHADOW_OBSERVABLE' && (
+    summary.gate1.unavailable.length > 0 || summary.gate2.unavailable.length > 0 || summary.gate3.unavailable.length > 0
+  )) {
+    counters.gateLayerAudit.strongBuySuppressedByDataUnavailableCount += 1;
+  }
+}
+
+export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
+  return {
+    gate1PassCount: counters.gateLayerAudit.gate1PassCount,
+    gate2PassCount: counters.gateLayerAudit.gate2PassCount,
+    gate3PassCount: counters.gateLayerAudit.gate3PassCount,
+    strongBuySuppressedByDataUnavailableCount: counters.gateLayerAudit.strongBuySuppressedByDataUnavailableCount,
+    topGate1BlockReasons: topCounts(counters.gateLayerAudit.gate1BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
+    topGate2BlockReasons: topCounts(counters.gateLayerAudit.gate2BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
+    topGate3BlockReasons: topCounts(counters.gateLayerAudit.gate3BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
+  };
+}
+
+function emptyStageDropoff(stage: PipelineStageName): PipelineStageDropoffSummary {
+  return { stage, pass: 0, fail: 0, blocked: 0, skipped: 0, shadowOnly: 0, dataUnavailable: 0, providerDegraded: 0 };
+}
+
+function stageStatusField(status: PipelineStageStatus): keyof Omit<PipelineStageDropoffSummary, 'stage'> {
+  switch (status) {
+    case 'PASS': return 'pass';
+    case 'FAIL': return 'fail';
+    case 'BLOCKED': return 'blocked';
+    case 'SKIPPED': return 'skipped';
+    case 'SHADOW_ONLY': return 'shadowOnly';
+    case 'DATA_UNAVAILABLE': return 'dataUnavailable';
+    case 'PROVIDER_DEGRADED': return 'providerDegraded';
+  }
+}
+
+export function recordPipelineStage(
+  counters: ScanCounters,
+  stage: PipelineStageName,
+  status: PipelineStageStatus,
+): void {
+  const bucket = counters.perStageDropoff[stage] ?? (counters.perStageDropoff[stage] = {});
+  bucket[status] = (bucket[status] ?? 0) + 1;
+}
+
+export function buildPerStageDropoffSummary(counters: ScanCounters): PipelineStageDropoffSummary[] {
+  return Object.entries(counters.perStageDropoff).map(([stage, counts]) => {
+    const row = emptyStageDropoff(stage as PipelineStageName);
+    for (const [status, count] of Object.entries(counts)) {
+      row[stageStatusField(status as PipelineStageStatus)] = count ?? 0;
+    }
+    return row;
+  });
 }
 
 /**
@@ -1920,6 +2084,9 @@ export async function persistScanResults(
     gateScoreHealth: buildGateScoreHealthSummary(counters),
     // ADR-452d — diagnostic-only near-miss bucket summary (executionImpact NONE).
     gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
+    gateLayerAudit: buildGateLayerAuditSummary(counters),
+    dataPromotionStatus: DEFAULT_DATA_PROMOTION_STATUS,
+    perStageDropoffSummary: buildPerStageDropoffSummary(counters),
     // ADR-458 — dry-run only approved reclassification impact summary.
     gateReclassificationDryRun: buildGateReclassificationDryRunSummary(counters.gateReclassificationDryRunResults),
     positiveScoreStarvation: buildPositiveScoreStarvationReport({

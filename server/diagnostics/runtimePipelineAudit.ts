@@ -5,7 +5,7 @@
  * ADR-460/Live Overlay and does not call external APIs or order modules.
  */
 import { getEmergencyStop, getExecutionMode } from '../state.js';
-import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
+import { getLastScanSummary, type DataPromotionStatus, type PipelineStageDropoffSummary } from '../trading/signalScanner/scanDiagnostics.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getLastInvestorFlowProviderHealth } from '../supply/investorFlowProviderHealth.js';
 import { getAllNearMissOutcomes } from '../persistence/nearMissOutcomeLedger.js';
@@ -46,6 +46,14 @@ import {
   safeBuildWeekendReplaySummaryAdr0501,
   type WeekendReplaySummaryAdr0501,
 } from './weekendReplayAdr0501.js';
+
+
+const RUNTIME_DEFAULT_DATA_PROMOTION_STATUS: DataPromotionStatus = {
+  kisInvestorFlow: 'WEIGHTED',
+  sectorEnergy: 'WEIGHTED',
+  dartFinancials: 'ADVISORY',
+  yahooPrice: 'GATED',
+};
 
 export type RuntimePipelineStage =
   | 'NOT_RUN'
@@ -96,6 +104,19 @@ export interface RuntimePipelineAuditSnapshot {
   buyListLoopEntered: boolean;
   scanSummaryPersisted: boolean;
   gateScoreHealthSamples: number;
+  gate1PassCount: number;
+  gate2PassCount: number;
+  gate3PassCount: number;
+  liveEligibleCount: number;
+  shadowObservableCount: number;
+  dataUnavailableBlockCount: number;
+  providerDegradedBlockCount: number;
+  strongBuySuppressedByDataUnavailableCount: number;
+  topGate1BlockReasons: Array<{ reason: string; count: number }>;
+  topGate2BlockReasons: Array<{ reason: string; count: number }>;
+  topGate3BlockReasons: Array<{ reason: string; count: number }>;
+  dataPromotionStatus: DataPromotionStatus;
+  perStageDropoffSummary: PipelineStageDropoffSummary[];
   nearMissBucketSamples: number;
   nearMissOutcomeLedgerCount: number;
   dryRunRecordCount: number;
@@ -399,6 +420,19 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     buyListLoopEntered,
     scanSummaryPersisted,
     gateScoreHealthSamples: gateSamples,
+    gate1PassCount: summary?.gateLayerAudit?.gate1PassCount ?? summary?.gatePassDistribution?.gate1Pass ?? 0,
+    gate2PassCount: summary?.gateLayerAudit?.gate2PassCount ?? summary?.gatePassDistribution?.gate2Pass ?? 0,
+    gate3PassCount: summary?.gateLayerAudit?.gate3PassCount ?? summary?.gatePassDistribution?.gate3Pass ?? 0,
+    liveEligibleCount: summary?.liveEligibleCount ?? 0,
+    shadowObservableCount: summary?.shadowObservableCount ?? 0,
+    dataUnavailableBlockCount: summary?.dataUnavailableBlockedCount ?? 0,
+    providerDegradedBlockCount: summary?.providerDegradedObservableCount ?? 0,
+    strongBuySuppressedByDataUnavailableCount: summary?.gateLayerAudit?.strongBuySuppressedByDataUnavailableCount ?? 0,
+    topGate1BlockReasons: summary?.gateLayerAudit?.topGate1BlockReasons ?? [],
+    topGate2BlockReasons: summary?.gateLayerAudit?.topGate2BlockReasons ?? [],
+    topGate3BlockReasons: summary?.gateLayerAudit?.topGate3BlockReasons ?? [],
+    dataPromotionStatus: summary?.dataPromotionStatus ?? RUNTIME_DEFAULT_DATA_PROMOTION_STATUS,
+    perStageDropoffSummary: summary?.perStageDropoffSummary ?? [],
     nearMissBucketSamples: nearMissSamples,
     nearMissOutcomeLedgerCount,
     dryRunRecordCount,
