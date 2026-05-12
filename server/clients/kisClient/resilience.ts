@@ -65,6 +65,9 @@ const CIRCUIT_THRESHOLD_HARD = 3;         // 5xx, 403 — 자연 복구 어려�
 const CIRCUIT_COOLDOWN_HARD_MS = 10 * 60 * 1000;
 const CIRCUIT_THRESHOLD_SOFT = 10;        // 404 — 종종 일시적, 관대 정책
 const CIRCUIT_COOLDOWN_SOFT_MS = 2 * 60 * 1000;
+const CIRCUIT_RECOVERY_LOG_RATE_LIMIT_MS = 5 * 60 * 1000;
+
+const _circuitRecoveryLogAt = new Map<string, number>();
 
 function _lenient404(): boolean {
   return (process.env.KIS_LENIENT_404 ?? 'false').toLowerCase() === 'true';
@@ -147,6 +150,13 @@ export function _recordCircuitFailure(trId: string, status: number): void {
   }
 }
 
+function shouldEmitCircuitRecoveryLog(trId: string, now: number): boolean {
+  const last = _circuitRecoveryLogAt.get(trId) ?? 0;
+  if (now - last < CIRCUIT_RECOVERY_LOG_RATE_LIMIT_MS) return false;
+  _circuitRecoveryLogAt.set(trId, now);
+  return true;
+}
+
 export function _recordCircuitSuccess(trId: string): void {
   // ADR-0010: 성공 시 영속 블랙리스트의 윈도우 카운터도 리셋(24h 차단 entry 는 만료 대기).
   _resetBlacklistCounter(trId);
@@ -154,10 +164,26 @@ export function _recordCircuitSuccess(trId: string): void {
   if (!state) return;
   const hadFailure = state.hardFailures > 0 || state.softFailures > 0 || state.openUntil > 0;
   if (hadFailure) {
-    console.log(
-      `[KIS] ✅ 회로 복구 — ${trId} 정상 응답 ` +
-      `(이전 hard ${state.hardFailures} / soft ${state.softFailures} 리셋)`
-    );
+    const now = Date.now();
+    const previousHard = state.hardFailures;
+    const previousSoft = state.softFailures;
+    const wasOpen = state.openUntil > 0;
+    const minorRecovery = previousHard <= 1 && previousSoft === 0 && !wasOpen;
+    if (shouldEmitCircuitRecoveryLog(trId, now)) {
+      const event = {
+        type: 'CIRCUIT_RECOVERY' as const,
+        trId,
+        previousHard,
+        previousSoft,
+        wasOpen,
+        logClass: minorRecovery ? 'TELEMETRY' as const : 'RECOVERY' as const,
+      };
+      const message = minorRecovery
+        ? '[KIS] circuit recovery minor'
+        : '[KIS] circuit recovery';
+      if (minorRecovery) console.debug(message, event);
+      else console.info(message, event);
+    }
   }
   state.hardFailures = 0;
   state.softFailures = 0;
@@ -175,6 +201,7 @@ export const __testOnly = {
   backoffDelayMs: (retriesLeft: number) => _kisBackoffDelayMs(retriesLeft),
   rateLimit429DelayMs: () => _kis429DelayMs(),
   isRetryEnabled: () => _isKisRetryEnabled(),
+  resetRecoveryLogRateLimit: () => _circuitRecoveryLogAt.clear(),
 };
 
 /** 회로 차단기 상태 조회 (디버깅/모니터링용) */
@@ -216,6 +243,7 @@ export function resetKisCircuits(): number {
     if (state.openUntil > now) openCount++;
   }
   _circuitByTrId.clear();
+  _circuitRecoveryLogAt.clear();
   // ADR-0010: 영속 블랙리스트도 함께 청소 (운영자 수동 복구).
   const blacklistCleared = _resetBlacklistAll();
   if (openCount > 0 || blacklistCleared > 0) {

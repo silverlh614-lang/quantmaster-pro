@@ -123,18 +123,93 @@ function pickMaterializedBucket(
   return null;
 }
 
-const INVESTOR_FLOW_SELECTED_LOG_TTL_MS = 10 * 60 * 1000;
-const investorFlowSelectedLogAt = new Map<string, number>();
+const INVESTOR_FLOW_SELECTED_UNCHANGED_SUMMARY_MS = 5 * 60 * 1000;
 
-function logInvestorFlowSelected(code: string, materialized: number): void {
-  const now = Date.now();
-  const last = investorFlowSelectedLogAt.get(code) ?? 0;
-  if (now - last < INVESTOR_FLOW_SELECTED_LOG_TTL_MS) return;
-  investorFlowSelectedLogAt.set(code, now);
-  console.info(
-    `[KIS] investorFlow selected source=INVESTOR_TRADE_BY_STOCK_DAILY provider=KIS_API materialized=${materialized} confidence=VERIFIED usableForSignal=true executionImpact=NONE`,
-  );
+type InvestorFlowSelectionLogPayload = {
+  source: 'INVESTOR_TRADE_BY_STOCK_DAILY';
+  provider: 'KIS_API';
+  materialized: number;
+  confidence: 'VERIFIED' | 'DEGRADED';
+  usableForSignal: boolean;
+  executionImpact: 'NONE';
+  providerIssue: boolean;
+  marketSignal: boolean;
+  logClass: 'TELEMETRY';
+};
+
+let lastInvestorFlowSelectionKey: string | undefined;
+let investorFlowSelectedUnchangedRepeated = 0;
+let investorFlowSelectedUnchangedLastSummaryAt = 0;
+let investorFlowSelectedUnchangedLastSeen = 0;
+
+function investorFlowSelectionKey(payload: InvestorFlowSelectionLogPayload): string {
+  return [
+    payload.source,
+    payload.provider,
+    payload.materialized,
+    payload.confidence,
+    payload.usableForSignal,
+    payload.executionImpact,
+  ].join('|');
 }
+
+function formatInvestorFlowSelectionPayload(payload: InvestorFlowSelectionLogPayload): string {
+  return `source=${payload.source} provider=${payload.provider} materialized=${payload.materialized} `
+    + `confidence=${payload.confidence} usableForSignal=${payload.usableForSignal} `
+    + `executionImpact=${payload.executionImpact} providerIssue=${payload.providerIssue} `
+    + `marketSignal=${payload.marketSignal} logClass=${payload.logClass}`;
+}
+
+function formatUtcTime(ms: number): string {
+  return new Date(ms).toISOString().slice(11, 19);
+}
+
+function logInvestorFlowSelected(materialized: number, confidence: 'VERIFIED' | 'DEGRADED' = 'VERIFIED'): void {
+  const payload: InvestorFlowSelectionLogPayload = {
+    source: 'INVESTOR_TRADE_BY_STOCK_DAILY',
+    provider: 'KIS_API',
+    materialized,
+    confidence,
+    usableForSignal: confidence === 'VERIFIED',
+    executionImpact: 'NONE',
+    providerIssue: confidence !== 'VERIFIED',
+    marketSignal: false,
+    logClass: 'TELEMETRY',
+  };
+  const now = Date.now();
+  const selectionKey = investorFlowSelectionKey(payload);
+
+  if (selectionKey !== lastInvestorFlowSelectionKey) {
+    console.info(`[KIS] investorFlow selected ${formatInvestorFlowSelectionPayload(payload)}`);
+    lastInvestorFlowSelectionKey = selectionKey;
+    investorFlowSelectedUnchangedRepeated = 0;
+    investorFlowSelectedUnchangedLastSummaryAt = now;
+    investorFlowSelectedUnchangedLastSeen = now;
+    return;
+  }
+
+  investorFlowSelectedUnchangedRepeated += 1;
+  investorFlowSelectedUnchangedLastSeen = now;
+  if (now - investorFlowSelectedUnchangedLastSummaryAt >= INVESTOR_FLOW_SELECTED_UNCHANGED_SUMMARY_MS) {
+    console.debug(
+      `[KIS] investorFlow selected unchanged ${formatInvestorFlowSelectionPayload(payload)} `
+      + `repeated=${investorFlowSelectedUnchangedRepeated} lastSeen=${formatUtcTime(investorFlowSelectedUnchangedLastSeen)}`,
+    );
+    investorFlowSelectedUnchangedLastSummaryAt = now;
+    investorFlowSelectedUnchangedRepeated = 0;
+  }
+}
+
+
+export const __queryTestOnly = {
+  logInvestorFlowSelected,
+  resetInvestorFlowSelectedLogState: () => {
+    lastInvestorFlowSelectionKey = undefined;
+    investorFlowSelectedUnchangedRepeated = 0;
+    investorFlowSelectedUnchangedLastSummaryAt = 0;
+    investorFlowSelectedUnchangedLastSeen = 0;
+  },
+};
 
 function isAcceptedEmptyKisResponse(data: unknown): boolean {
   const root = data as { rt_cd?: unknown; msg_cd?: unknown; output?: unknown; output1?: unknown; output2?: unknown } | null;
@@ -722,7 +797,7 @@ export async function fetchKisInvestorTradeByStockDaily(
     const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN']);
     const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']);
     if (foreignNetBuy === undefined || institutionalNetBuy === undefined) return null;
-    logInvestorFlowSelected(safeCode, rows.length);
+    logInvestorFlowSelected(rows.length);
     return {
       stockCode: safeCode,
       tradingDate: formatKisYmd(extractKisString(row, ['stck_bsop_date', 'STCK_BSOP_DATE'])),
