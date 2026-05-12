@@ -32,6 +32,7 @@
  * └─────────────────────────────────────────────────────────────────┘
  */
 
+import { logger } from '../utils/logger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
@@ -488,7 +489,7 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
       );
       const msg = `[AdaptiveScheduler] 빈 스캔 ${consecutiveEmptyScans}회 연속 — 다음 간격 ×${multiplier} 확대`;
       if (!isBuyableKstWindow()) {
-        console.debug(`${msg} (SELL_ONLY·장외 정상 동작)`);
+        logger.debug(`${msg} (SELL_ONLY·장외 정상 동작)`);
       } else {
         console.warn(`${msg} — 매수 구간 연속 빈 스캔, Gate 임계치 점검 필요`);
         if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {

@@ -7,6 +7,7 @@
  * signalScanner 등은 그대로 stockService/kisClient 사용.
  */
 
+import { logger } from '../utils/logger.js';
 import { googleSearch } from '../clients/googleSearchClient.js';
 import { fetchNaverStockSnapshots, fetchNaverStockSnapshot, type NaverStockSnapshot } from '../clients/naverFinanceClient.js';
 import { appendForeignerRatio } from '../persistence/foreignerRatioRepo.js';
@@ -315,8 +316,8 @@ export async function discoverUniverse(
     if (tryConsume('krx_master_refresh', 1)) {
       const result = await refreshMultiSourceMaster();
       if (result.finalSource === 'NONE') {
-        const logger = isKstWeekend() ? console.debug : console.warn;
-        logger('[AiUniverseService] 마스터 갱신 실패 — 모든 tier 실패, 기존 캐시로 진행');
+        const logMasterRefreshFailure = isKstWeekend() ? logger.debug : logger.warn;
+        logMasterRefreshFailure('[AiUniverseService] 마스터 갱신 실패 — 모든 tier 실패, 기존 캐시로 진행');
       } else if (result.usedFallback) {
         console.warn(
           `[AiUniverseService] 마스터 갱신: ${result.finalSource} fallback ` +

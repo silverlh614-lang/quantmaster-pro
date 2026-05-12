@@ -3,6 +3,7 @@
 // 외부 시장 데이터 라우터 — server.ts에서 분리
 // ECOS(한국은행), FRED, Yahoo Finance 프록시, 시장지표 일괄 조회
 import { Router, Request, Response } from 'express';
+import { logger } from '../utils/logger.js';
 import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
 import { analyzeNewsSupplyPatterns, loadNewsSupplyRecords } from '../learning/newsSupplyLogger.js';
 import { getFomcProximity, generateFomcIcs, FOMC_DATES } from '../trading/fomcCalendar.js';
@@ -187,7 +188,7 @@ router.get('/historical-data', async (req: Request, res: Response) => {
     const now = Date.now();
     if (now - _lastProxyCacheLogAt >= PROXY_LOG_INTERVAL_MS) {
       _lastProxyCacheLogAt = now;
-      console.debug('[YahooProxy] cache hit', { symbol: symbolStr, range: rangeStr, interval: intervalStr });
+      logger.debug('[YahooProxy] cache hit', { symbol: symbolStr, range: rangeStr, interval: intervalStr });
     }
     res.setHeader('Content-Type', cached.contentType);
     res.setHeader('X-Cache', 'HIT');

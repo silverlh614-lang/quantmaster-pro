@@ -18,6 +18,7 @@
  *  ⑥ 신용:   marginBalance5dChange — KRX 데이터 별도 필요
  */
 
+import { logger } from '../utils/logger.js';
 import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords, getFssRecordsAge, upsertFssRecord } from '../persistence/fssRepo.js';
 import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
@@ -859,7 +860,7 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
         `LAGGING ${sectorEnergyResult.laggingSectors.length})`,
       );
     } else {
-      console.debug(
+      logger.debug(
         `[MarketRefresh] sectorEnergy 입력 0건 — dataQuality=${meta.dataQuality}, ` +
         `이전 sectorEnergyResult 캐시 보존 (STALE reference).`,
       );
