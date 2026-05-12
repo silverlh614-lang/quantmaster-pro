@@ -68,6 +68,10 @@ AI 기반 한국 주식 퀀트 트레이딩 시스템. 27개 조건 + 4단계 Ga
 | 파일 | 줄 수 | 우선순위 |
 |------|------:|----------|
 | `server/trading/signalScanner.ts` | 1,820 | P0 — 변동성 최대 지점 (분해 진행 중, 현재 675줄) |
+| `server/clients/krxClient.ts` | 1,687 | P0 — ACMA 차단 (Phase 1 완료 2026-05-12: 2,105→1,687줄, 6 모듈 분리 / Phase 2 http+csv + Phase 3 parser+queries+facade 후속 — BASELINE_TECHNICAL_DEBT 임시 등재) |
+| `server/quant/conditions/entryFilterDecomposition.ts` | 1,720 | P1 — ACMA 차단 baseline 등재 (분해 ADR 대기) |
+| `server/supply/investorFlowProviderRouterAdr0477.ts` | 1,540 | P1 — ACMA 차단 baseline 등재 (분해 ADR 대기) |
+| `server/trading/signalScanner/minimumSignalScoreTrace.ts` | 1,520 | P2 — ACMA 차단 baseline 등재 (분해 ADR 대기) |
 
 > ✅ `server/trading/signalScanner/perSymbolEvaluation.ts` 1,617 → 30 줄 (-98.1%, barrel) — PR-Refactor-2 (ADR-0134) 로 `signalScanner/perSymbol/{index,types,helpers,buyListLoop,intradayLoop}` 분해 완료 (2026-05-01). BASELINE_TECHNICAL_DEBT 카탈로그에서 정식 제거.
 

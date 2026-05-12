@@ -14,7 +14,11 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0502`**
+**다음 ADR 번호: `0504`**
+
+(2026-05-12 기준, 마지막 발급 0502c — krxclient-decomposition. ADR-0502c — krxclient-decomposition. Decomposes `server/clients/krxClient.ts` (2105 LoC, ACMA 1500줄 한계 차단) into 15 module SSOTs (types/constants/cache/cooldown/timeWindow/dateUtils/http/csv/parser×3/queries×3/facade) + barrel re-export, following ADR-0135 (kisClient decomposition) pattern. 28 exports + 14 external importers 무수정, byte-equivalent 동작 보존, LIVE 매매 본체 0줄 변경. 충돌 그룹 0502 = 0502a (kis-official-investor-flow-promotion, 2026-05-11 23:05) / 0502b (kis-official-global-fallback-until-krx-recovery, 23:39) / 0502c (krxclient-decomposition, 본 PR) — ADR-0159 별칭 정책 정합.)
+
+(2026-05-12 기준, 마지막 발급 0503 — kis-official-supply-pack-until-krx-recovery. ADR-0503 adds the official KIS supply pack (short-sale loan credit + investor-flow) until KRX recovery, replacing the diagnostic-only fallback layer.)
 
 (2026-05-10 기준, 마지막 발급 0501 — weekend-replay-gate-failure-cause. ADR-0501 — weekend-replay-gate-failure-cause. Adds a diagnostic-only Weekend Replay layer that replays recent scan/blocker/snapshot evidence using ADR-0497 GateFailureCause and ADR-0500 Empty Scan Root Cause Dashboard to classify likely over-blocked, likely correct block, and needs-more-data outcomes while preserving executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes.)
 
@@ -147,8 +151,11 @@
 | 0147 | **0147b** | `0147-signalScanner-orchestration-migration.md` | signalScanner Phase 3 6단계 오케스트레이터 승격 | (2026-05-03) | 리팩토링 |
 | 0168 | **0168a** | `0168-kelly-clamp-ssot.md` | Kelly clamp 수치 정책 SSOT | PR-Kelly-Clamp-SSOT (2026-05-02) | 사이징 |
 | 0168 | **0168b** | `0168-emergency-data-quality-circuit-breaker.md` | Emergency Data Quality Circuit Breaker | (2026-05-03~05-05) | 데이터 안전 |
+| 0502 | **0502a** | `0502-kis-official-investor-flow-promotion.md` | KIS 공식 투자자 흐름 evidence 라우터 wiring | 6867ed3 (2026-05-11 23:05) | 수급 데이터 |
+| 0502 | **0502b** | `0502-kis-official-global-fallback-until-krx-recovery.md` | KIS 공식 가격 fresh 시 Yahoo 진단 강등 | 70c409b (2026-05-11 23:39) | 데이터 안정성 |
+| 0502 | **0502c** | `0502-krxclient-decomposition.md` | krxClient 분해 (ACMA 1500줄 한계 해소) | PR-Refactor-krxClient (2026-05-12) | 절대 규칙 #6 (1500줄) |
 
-**충돌 그룹 11개 / 충돌 ADR 26개 (별칭 26건 부여, ADR-0159)**. 향후 신규 발급은 §"다음 발급" 번호 사용 → 충돌 0건 유지.
+**충돌 그룹 12개 / 충돌 ADR 29개 (별칭 29건 부여, ADR-0159)**. 향후 신규 발급은 §"다음 발급" 번호 사용 → 충돌 0건 유지.
 
 ## 누락 (Gap)
 
@@ -514,8 +521,10 @@
 | 0499 | provider-health-market-signal-classifier-migration (diagnostic-only migration helpers using ADR-0497 classifier; provider errors, empty/stale/missing data, and parse failures invalidate requested market signals rather than becoming bearish evidence; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | trading |
 | 0500 | empty-scan-root-cause-dashboard (diagnostic-only Empty Scan Root Cause Dashboard using ADR-0497 GateFailureCause buckets for /scan_blockers and Runtime Pipeline Audit; separates provider/data issues, execution/session blocks, threshold/scoring causes, and true risk signals; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | diagnostics |
 | 0501 | weekend-replay-gate-failure-cause (diagnostic-only Weekend Replay layer using ADR-0497 GateFailureCause and ADR-0500 Empty Scan Root Cause Dashboard to classify likely over-blocked, likely correct block, and needs-more-data outcomes; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | diagnostics |
+| 0502 | krxclient-decomposition (충돌 그룹 0502c — server/clients/krxClient.ts 2105 LoC ACMA 한계 차단 해소; 15 모듈 분해 + barrel re-export, ADR-0135 패턴 정합. 28 exports + 14 importers 무수정, byte-equivalent, LIVE 본체 0줄 변경) | refactor |
+| 0503 | kis-official-supply-pack-until-krx-recovery (official KIS supply pack — short-sale loan credit + investor-flow evidence until KRX recovery) | supply |
 
-**총 발급 292 unique 번호** (마지막 발급 0501) / **충돌 26 파일 (11 그룹, 별칭 26건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0502**.
+**총 발급 293 unique 번호** (마지막 발급 0503) / **충돌 29 파일 (12 그룹, 별칭 29건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0504**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

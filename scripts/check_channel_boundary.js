@@ -39,6 +39,10 @@ const ALLOWED_FILES = [
   'server/alerts/alertCategories.ts',
   // 본 검증 스크립트 자체 — 탐지 시그니처 정의 목적
   'scripts/check_channel_boundary.js',
+  // /channel_routes 텔레그램 진단 명령 — read-only 진단 표시 (실제 발송은 alertRouter SSOT
+  // 경유). env 의 존재 여부를 운영자에게 노출하는 목적이라 화이트리스트 통과. ADR-0502c
+  // (2026-05-12) Phase 1 분해 시점 ACMA 통과 후 표면화된 사전 baseline 정합.
+  'server/telegram/commands/alert/channelRoutes.cmd.ts',
 ];
 
 const SIGNATURES = [
