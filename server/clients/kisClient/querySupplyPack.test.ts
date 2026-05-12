@@ -158,7 +158,7 @@ describe('KIS official short/loan/credit read-only sources', () => {
     vi.setSystemTime(new Date('2026-05-11T01:00:00.000Z')); // 2026-05-11 10:00 KST, REGULAR
     _realDataKisGet
       .mockRejectedValueOnce(new Error('OPSQ2001'))
-      .mockResolvedValueOnce({ output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '1' }] });
+      .mockResolvedValueOnce({ output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '1', orgn_ntby_qty: '2' }] });
 
     const result = await mod.fetchKisInvestorTradeByStockDaily('005930');
 
