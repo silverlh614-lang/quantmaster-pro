@@ -383,8 +383,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
         : staleCache > 0
           ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
           : undefined;
-  const kisVerified = process.env.KIS_FIRST_REBUILD_MODE === 'true'
-    && sourceCounts.get('KIS_API') === total
+  const kisVerified = sourceCounts.get('KIS_API') === total
     && success === total
     && router?.selectedProvider === 'KIS_API'
     && (router.providerStatuses.SEMANTIC_NETBUY === 'READY_FOR_SHADOW' || router.providerStatuses.SEMANTIC_NETBUY === 'VERIFIED');
@@ -414,6 +413,12 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
   };
 }
 
+function stockProgramLamp(success: number, total: number, zeroSuspicious: boolean): { marker: Marker; status: 'OK' | 'PARTIAL' | 'DEGRADED'; lamp: 'GREEN' | 'AMBER' | 'RED' } {
+  if (total > 0 && success === total && !zeroSuspicious) return { marker: 'OK', status: 'OK', lamp: 'GREEN' };
+  if (success >= 8) return { marker: 'DEGRADED', status: 'PARTIAL', lamp: 'AMBER' };
+  return { marker: 'MISSING', status: 'DEGRADED', lamp: 'RED' };
+}
+
 async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelStatus> {
   let success = 0, zero = 0;
   for (const stock of targets) {
@@ -421,18 +426,31 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   }
   const total = targets.length, missing = Math.max(0, total - success);
   const zeroSuspicious = isZeroFilledSuspicious(zero, total);
-  const marker: Marker = total === 0 || success === 0 ? 'MISSING' : zeroSuspicious || missing > 0 ? 'DEGRADED' : 'OK';
+  const lamp = stockProgramLamp(success, total, zeroSuspicious);
   const rawDiagLine = zeroSuspicious && firstTargetCode(targets) ? formatKisRawSupplyDiagnostic(await diagnoseKisStockProgramRaw(firstTargetCode(targets) as string, 'MEDIUM')) : null;
   return {
-    key: 'stockProgram', title: '종목 프로그램매매', marker,
-    riskReason: marker === 'MISSING' ? '조회 성공 0건' : zeroSuspicious ? zeroFilledRiskReason(zero, total) : missing > 0 ? `missing ${missing}` : undefined,
+    key: 'stockProgram', title: '종목 프로그램매매', marker: lamp.marker,
+    riskReason: lamp.status === 'DEGRADED' ? '조회 성공 5건 미만' : zeroSuspicious ? zeroFilledRiskReason(zero, total) : missing > 0 ? `missing ${missing}` : undefined,
     zeroSuspect: { count: zero, total },
-    lines: ['source: KIS_API', `success: ${success}/${total}`, `missing: ${missing}`, `zero-filled 의심: ${zeroWarn(zero, total)}`, marker === 'OK' ? '판정: OK' : `판정: ${marker} — 프로그램 수급 coverage/zero-filled 확인 필요`, ...(rawDiagLine ? [rawDiagLine] : []), '상세: /program_today'],
+    lines: [
+      'source: KIS_API',
+      `status: ${lamp.status}`,
+      `lamp: ${lamp.lamp}`,
+      `success: ${success}/${total}`,
+      `missing: ${missing}`,
+      `zero-filled 의심: ${zeroWarn(zero, total)}`,
+      'scoring=allowed_when_non_empty',
+      'providerIssue=false',
+      'executionImpact=NONE',
+      lamp.status === 'OK' ? '판정: OK' : `판정: ${lamp.status} — 프로그램 수급 coverage/zero-filled 확인 필요`,
+      ...(rawDiagLine ? [rawDiagLine] : []),
+      '상세: /program_today',
+    ],
   };
 }
 
 function renderAcceptedEmptyMarketProgram(): ChannelStatus {
-  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['source: KIS_API', 'status: ACCEPTED_EMPTY', 'scoring=excluded', 'providerIssue=false', 'marketSignal=false', 'action=observe', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외', 'rawDiag: hidden (/program_market raw 예정)', 'executionImpact=NONE', '상세: /program_market'] };
+  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['route: KIS>KRX | fb=CACHE | diag=KIS | scoring=allowed_when_non_empty', 'source: KIS_API', 'status: ACCEPTED_EMPTY', 'scoring=excluded', 'providerIssue=false', 'marketSignal=false', 'action=observe', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외', 'rawDiag: hidden (/program_market raw 예정)', 'executionImpact=NONE', '상세: /program_market'] };
 }
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
@@ -674,7 +692,7 @@ function diagnoseLoadedKisOfficialSupplyPack(load: KisOfficialSupplyPackLoad): C
       `program=${pack.stockProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketProgram=${pack.marketProgram ? 'OK' : 'DATA_UNAVAILABLE'}; marketSupply=${pack.marketSupply ? 'OK' : 'DATA_UNAVAILABLE'}`,
       `enemyWarnings=${enemy.warningCount}; packLocalStrongBuyAllowed=${String(enemy.strongBuyAllowed)}; newBuyAllowed=${String(enemy.newBuyAllowed)}`,
       'finalStrongBuyAllowed=controlledByFinalGate',
-      'finalGateNote=enemyWarnings<2 is not a standalone STRONG_BUY release; supply_confluence and SectorEnergy remain final gates',
+      'finalGateNote=enemyWarnings=1 does not block STRONG_BUY alone; final decision is controlled by FinalGate.',
       'marketSignal=false',
       'executionImpact=NONE',
     ],
@@ -689,6 +707,19 @@ function buildRiskTop3(channels: ChannelStatus[]): string[] {
   for (const channel of channels) if (channel.marker === 'N/A') risks.push(`- ${markerIcon(channel.marker)} ${channel.title}: ${channel.riskReason ?? channel.marker}`);
   return risks.slice(0, 3);
 }
+
+function compactSupplyHealthLinesForTelegram(lines: string[]): string[] {
+  const compacted = lines.filter((line) => {
+    const trimmed = line.trim();
+    return !trimmed.startsWith('providerHealth:')
+      && !trimmed.startsWith('providerTried:')
+      && !trimmed.startsWith('detail code=');
+  });
+  const cacheIndex = compacted.findIndex((line) => line.startsWith('캐시:'));
+  if (cacheIndex >= 0) compacted.splice(cacheIndex + 1, 0, '출력: compacted to preserve all 8 section boundaries');
+  return compacted;
+}
+
 function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine: string): string {
   const kisFirstMode = process.env.KIS_FIRST_REBUILD_MODE === 'true' || isKisOnlyRebuildMode();
   const ok = channels.filter((c) => c.marker === 'OK').length;
@@ -707,12 +738,14 @@ function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine:
     `📊 Supply Health: ${ok}/${channels.length} OK | ${neutral} NEUTRAL | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`, targetLine, cacheLine, '', '⚠️ 위험 TOP 3', ...(risks.length > 0 ? risks : ['- 🟢 주요 위험 없음']), ''];
   channels.forEach((channel, index) => {
     lines.push(`${index + 1}. ${markerIcon(channel.marker)} ${channel.title}`);
-    if (channel.marker === 'NEUTRAL') lines.push(`  ${compactProviderRoute(channel.key)}`);
+    if (channel.marker === 'NEUTRAL' && !channel.lines.some((line) => line.startsWith('route:')) && channel.key !== 'marketSupply') lines.push(`  ${compactProviderRoute(channel.key)}`);
     for (const line of channel.lines) lines.push(`  ${line}`);
     if (index !== channels.length - 1) lines.push('');
   });
   const message = lines.join('\n');
-  return message.length < 4096 ? message : `${message.slice(0, 4050)}\n...`;
+  if (message.length < 4096) return message;
+  const compactMessage = compactSupplyHealthLinesForTelegram(lines).join('\n');
+  return compactMessage.length < 4096 ? compactMessage : `${compactMessage.slice(0, 4050)}\n...`;
 }
 
 function sourceFromLine(lines: string[]): SourceHealth['source'] {
