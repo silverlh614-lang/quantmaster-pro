@@ -220,6 +220,7 @@ const SOURCE_IDS = [
   'SEMANTIC_NETBUY',
   'KRX_INVESTOR_FLOW',
   'SUPPLY_SNAPSHOT_CACHE',
+  'KIS_INVESTOR_FLOW_DAILY',
   'KIS_MARKET_SUPPLY',
   'KIS_PROGRAM_TRADING_STOCK',
   'KIS_PROGRAM_TRADING_MARKET',
@@ -244,6 +245,7 @@ export function buildFreshDataSourceRegistryAdr0487(): FreshDataSourceRegistrati
     { id: 'SEMANTIC_NETBUY', domain: 'SUPPLY', provider: 'INTERNAL', priority: 2, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: true, description: 'Semantic net-buy normalized sample line.', relatedAdrs: ['0482', '0487'] },
     { id: 'KRX_INVESTOR_FLOW', domain: 'SUPPLY', provider: 'KRX', priority: 3, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KRX investor-flow previous trading date fallback line.', relatedAdrs: ['0477', '0487', '0503'] },
     { id: 'SUPPLY_SNAPSHOT_CACHE', domain: 'SUPPLY', provider: 'CACHE', priority: 4, stage: 'SHADOW_ONLY', fetchAllowed: false, normalizeRequired: true, freshnessRequired: false, description: 'ADR-0491 sanitized supply snapshot cache fallback line.', relatedAdrs: ['0491', '0503'] },
+    { id: 'KIS_INVESTOR_FLOW_DAILY', domain: 'SUPPLY', provider: 'KIS', priority: 1, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS investor-trade-by-stock-daily symbol-level semantic net-buy source.', relatedAdrs: ['0477', '0482', '0487', '0503'] },
     { id: 'KIS_MARKET_SUPPLY', domain: 'SUPPLY', provider: 'KIS', priority: 5, stage: 'SHADOW_ONLY', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS official market-level investor supply context; not symbol-level investor flow.', relatedAdrs: ['0487', '0503'] },
     { id: 'KIS_PROGRAM_TRADING_STOCK', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 3, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS stock program trading sample line.', relatedAdrs: ['0477', '0487', '0503'] },
     { id: 'KIS_PROGRAM_TRADING_MARKET', domain: 'PROGRAM_TRADING', provider: 'KIS', priority: 4, stage: 'OBSERVE', fetchAllowed: true, normalizeRequired: true, freshnessRequired: true, description: 'KIS market program trading sample line.', relatedAdrs: ['0477', '0487', '0503'] },
@@ -621,12 +623,15 @@ function semanticSnapshot(input: FreshDataSupplyReportInputAdr0487, registration
 
 function routerMaterialization(input: FreshDataSupplyReportInputAdr0487, provider: string): Record<string, unknown> | null {
   const diagnostics = input.investorFlowProviderRouterAdr0477?.materializationDiagnostics;
-  const value = diagnostics?.[provider];
+  const value = provider === 'KIS_API'
+    ? (diagnostics?.KIS_INVESTOR ?? diagnostics?.KIS_API)
+    : diagnostics?.[provider];
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
 }
 
 function routerProviderStatus(input: FreshDataSupplyReportInputAdr0487, provider: string): string {
   const statuses = input.investorFlowProviderRouterAdr0477?.providerStatuses ?? {};
+  if (provider === 'KIS_API') return upper(statuses.KIS_API ?? statuses.KIS ?? input.investorFlowProviderRouterAdr0477?.status);
   if (provider === 'KRX_INVESTOR_FLOW') return upper(statuses.KRX_INVESTOR_FLOW ?? statuses.KRX ?? input.investorFlowProviderRouterAdr0477?.status);
   if (provider === 'CACHE') return upper(statuses.CACHE ?? input.investorFlowProviderRouterAdr0477?.status);
   return upper(statuses[provider] ?? input.investorFlowProviderRouterAdr0477?.status);
@@ -636,7 +641,7 @@ function routerSupplySnapshot(
   input: FreshDataSupplyReportInputAdr0487,
   registration: FreshDataSourceRegistrationAdr0487,
   generatedAt: string,
-  provider: 'KRX_INVESTOR_FLOW' | 'CACHE',
+  provider: 'KIS_API' | 'KRX_INVESTOR_FLOW' | 'CACHE',
 ): FreshDataSnapshotAdr0487 {
   const status = routerProviderStatus(input, provider);
   if (provider === 'KRX_INVESTOR_FLOW' && (status === 'DISABLED_BY_KIS_FIRST_MODE' || isKrxAutoFetchDisabledAdr0487())) {
@@ -691,6 +696,7 @@ function routerSupplySnapshot(
     confidence: stale ? 'LOW' : fresh ? 'MEDIUM' : 'NONE',
     diagnostics: [
       `routerProvider=${provider}`,
+      ...(provider === 'KIS_API' ? ['source=KIS_INVESTOR_TRADE_BY_STOCK_DAILY', 'sourceKind=INVESTOR_TRADE_BY_STOCK_DAILY', 'confidence=VERIFIED', 'usableForSignal=true', 'usableForExecution=false', 'executionImpact=NONE'] : []),
       `routerStatus=${status || 'missing'}`,
       `selectedProvider=${input.investorFlowProviderRouterAdr0477?.selectedProvider ?? 'NONE'}`,
       `selectedReason=${input.investorFlowProviderRouterAdr0477?.selectedReason ?? 'NONE'}`,
@@ -873,6 +879,7 @@ function buildSupplySnapshots(input: FreshDataSupplyReportInputAdr0487, registra
     kisPackSnapshot(input, registrationById(registrations, 'KIS_DAILY_CHART'), generatedAt),
     naverSnapshot(input, registrationById(registrations, 'NAVER_INVESTOR_TREND'), generatedAt),
     semanticSnapshot(input, registrationById(registrations, 'SEMANTIC_NETBUY'), generatedAt),
+    routerSupplySnapshot(input, registrationById(registrations, 'KIS_INVESTOR_FLOW_DAILY'), generatedAt, 'KIS_API'),
     routerSupplySnapshot(input, registrationById(registrations, 'KRX_INVESTOR_FLOW'), generatedAt, 'KRX_INVESTOR_FLOW'),
     routerSupplySnapshot(input, registrationById(registrations, 'SUPPLY_SNAPSHOT_CACHE'), generatedAt, 'CACHE'),
     kisPackSnapshot(input, registrationById(registrations, 'KIS_MARKET_SUPPLY'), generatedAt),
@@ -894,6 +901,7 @@ function gapForSnapshot(snapshot: FreshDataSnapshotAdr0487): string | null {
   if (snapshot.sourceId === 'SECTOR_ENERGY_STOCK_DAILY_FALLBACK' && snapshot.coverageRatio > 0) return 'DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE';
   if (snapshot.sourceId === 'NAVER_INVESTOR_TREND') return 'COLLECT_NAVER_INVESTOR_SAMPLE';
   if (snapshot.sourceId === 'SEMANTIC_NETBUY') return 'BUILD_SEMANTIC_NETBUY_SAMPLE';
+  if (snapshot.sourceId === 'KIS_INVESTOR_FLOW_DAILY') return snapshot.coverageRatio > 0 ? null : 'VERIFY_KIS_INVESTOR_TRADE_BY_STOCK_DAILY';
   if (snapshot.sourceId === 'KRX_INVESTOR_FLOW') return 'COLLECT_KRX_INVESTOR_FLOW_SAMPLE';
   if (snapshot.sourceId === 'SUPPLY_SNAPSHOT_CACHE') return 'VERIFY_SUPPLY_SNAPSHOT_CACHE';
   if (snapshot.sourceId === 'FSS_PASSIVE_ACTIVE') return 'REFRESH_FSS_PASSIVE_ACTIVE';
@@ -910,6 +918,7 @@ function actionForGap(gap: string): string {
     DO_NOT_USE_STOCK_DAILY_FOR_LEADERSHIP_CONFIDENCE: 'Keep stock-daily fallback as support-only, not leadership confidence.',
     COLLECT_NAVER_INVESTOR_SAMPLE: 'Collect sanitized NAVER investor trend samples.',
     BUILD_SEMANTIC_NETBUY_SAMPLE: 'Build normalized semantic net-buy samples.',
+    VERIFY_KIS_INVESTOR_TRADE_BY_STOCK_DAILY: 'Verify KIS investor-trade-by-stock-daily materialized samples.',
     COLLECT_KRX_INVESTOR_FLOW_SAMPLE: 'Collect KRX investor-flow previous trading date samples.',
     VERIFY_SUPPLY_SNAPSHOT_CACHE: 'Verify sanitized supply snapshot cache fallback rows.',
     REFRESH_FSS_PASSIVE_ACTIVE: 'Refresh FSS passive/active supply freshness.',

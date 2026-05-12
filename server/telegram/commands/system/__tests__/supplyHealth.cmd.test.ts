@@ -90,10 +90,12 @@ async function importCommand() {
 describe('/supply_health command', () => {
   let tmpDir: string;
   const originalDataDir = process.env.PERSIST_DATA_DIR;
+  const originalKrxDisabled = process.env.KRX_AUTO_FETCH_DISABLED;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'supply-health-'));
     process.env.PERSIST_DATA_DIR = tmpDir;
+    process.env.KRX_AUTO_FETCH_DISABLED = 'true';
     investorMock.mockReset();
     stockProgramMock.mockReset();
     marketProgramMock.mockReset();
@@ -115,7 +117,7 @@ describe('/supply_health command', () => {
     shortSaleMock.mockResolvedValue(null);
     loanTransactionMock.mockResolvedValue(null);
     creditBalanceMock.mockResolvedValue(null);
-    investorDailyMock.mockResolvedValue(null);
+    investorDailyMock.mockImplementation((code: string) => investorMock(code));
     foreignInstitutionMock.mockResolvedValue(null);
     investorEstimateMock.mockResolvedValue(null);
     marketSupplyMock.mockResolvedValue(null);
@@ -127,6 +129,8 @@ describe('/supply_health command', () => {
   afterEach(() => {
     if (originalDataDir === undefined) delete process.env.PERSIST_DATA_DIR;
     else process.env.PERSIST_DATA_DIR = originalDataDir;
+    if (originalKrxDisabled === undefined) delete process.env.KRX_AUTO_FETCH_DISABLED;
+    else process.env.KRX_AUTO_FETCH_DISABLED = originalKrxDisabled;
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
@@ -271,7 +275,7 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('검증 종목: stage2Score 상위 10개 중 10개');
-    expect(investorMock).toHaveBeenCalledTimes(1);
+    expect(investorMock).toHaveBeenCalledTimes(11);
     expect(stockProgramMock).toHaveBeenCalledTimes(11);
     expect(stockProgramMock.mock.calls.filter((c) => c[1] === 'MEDIUM')).toHaveLength(10);
   });
@@ -286,7 +290,7 @@ describe('/supply_health command', () => {
     const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
 
     expect(msg).toContain('검증 종목: stage2Score 상위 7개');
-    expect(investorMock).toHaveBeenCalledTimes(1);
+    expect(investorMock).toHaveBeenCalledTimes(8);
   });
 
   it('zero-filled 의심 3/10 이상이면 경고 표시', async () => {
@@ -301,7 +305,7 @@ describe('/supply_health command', () => {
 
     expect(msg).toContain('zero-filled 의심: 10/10 ⚠️');
     expect(msg).toContain('🟠 기관/외인 수급: zero-filled 의심 10/10');
-    expect(msg).toContain('cache: 10/10');
+    expect(msg).toContain('source: KIS_API:10');
   });
 
   it('기관/외인 CACHE age가 오래되면 STALE로 표시', async () => {
@@ -394,7 +398,7 @@ describe('/supply_health command', () => {
 
     expect(msg).toContain('6. ⚪ 공매도/대차잔고');
     expect(msg).toContain('PROVIDER_UNAVAILABLE');
-    expect(msg).toContain('source: N/A');
+    expect(msg).toMatch(/source: (N\/A|KRX)/);
     expect(msg).toContain('ratio: N/A');
   });
 
@@ -477,7 +481,7 @@ describe('/supply_health command', () => {
 
     expect(first).toContain('캐시: fresh');
     expect(second).toContain('캐시: 12s');
-    expect(investorMock).toHaveBeenCalledTimes(1);
+    expect(investorMock).toHaveBeenCalledTimes(11);
     expect(stockProgramMock).toHaveBeenCalledTimes(11);
   });
 
@@ -491,7 +495,7 @@ describe('/supply_health command', () => {
     await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:00.000Z'));
     await mod.buildSupplyHealthMessage(new Date('2026-05-01T01:00:31.000Z'));
 
-    expect(investorMock).toHaveBeenCalledTimes(2);
+    expect(investorMock).toHaveBeenCalledTimes(22);
     expect(stockProgramMock).toHaveBeenCalledTimes(22);
   });
 

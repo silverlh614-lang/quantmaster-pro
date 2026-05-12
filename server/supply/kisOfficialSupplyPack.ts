@@ -58,6 +58,11 @@ export interface KisOfficialSupplyPack {
     individualNetBuy?: number;
     hasRealFields: boolean;
     confidence: KisDataConfidence;
+    sourceKind?: 'INVESTOR_TRADE_BY_STOCK_DAILY';
+    provider?: 'KIS_API';
+    usableForSignal?: boolean;
+    usableForExecution?: boolean;
+    executionImpact?: 'NONE';
     useScope: KisSupplyUseScope;
   };
   investorFlowEstimate?: {
@@ -317,7 +322,7 @@ export async function fetchKisOfficialSupplyPack(
     safeCall(() => usedFetchers.fetchCurrentPrice(safeCode)),
     safeCall(() => usedFetchers.fetchPrevClose(safeCode)),
     safeCall(() => usedFetchers.fetchStockName(safeCode)),
-    safeCall(() => usedFetchers.fetchInvestorFlow(safeCode)),
+    Promise.resolve(null), // INQUIRE_INVESTOR quote-like endpoint is diagnostic-only; never semantic net-buy.
     safeCall(() => usedFetchers.fetchInvestorFlowDaily(safeCode)),
     safeCall(() => usedFetchers.fetchInvestorFlowEstimate(safeCode)),
     safeCall(() => usedFetchers.fetchForeignInstitutionTotal()),
@@ -335,7 +340,8 @@ export async function fetchKisOfficialSupplyPack(
   const hasPrevClose = !!prevClose && positive(prevClose.prevClose);
   tagIf(hasCurrentPrice, 'CASE_KIS_PRICE_PRIMARY', learningTags);
 
-  const investorFlowSource = partialInvestorFlow(dailyInvestorFlow) ? dailyInvestorFlow : strictInvestorFlow;
+  void strictInvestorFlow;
+  const investorFlowSource = partialInvestorFlow(dailyInvestorFlow) ? dailyInvestorFlow : null;
   const hasDailyInvestorFlow = partialInvestorFlow(investorFlowSource);
   const hasFullDailyInvestorFlow = realInvestorFlow(investorFlowSource);
   tagIf(hasDailyInvestorFlow, 'CASE_KIS_INVESTOR_FLOW_VERIFIED', learningTags);
@@ -381,6 +387,11 @@ export async function fetchKisOfficialSupplyPack(
           ...(finite(investorFlowSource!.individualNetBuy) ? { individualNetBuy: investorFlowSource!.individualNetBuy } : {}),
           hasRealFields: hasFullDailyInvestorFlow,
           confidence: hasFullDailyInvestorFlow ? 'VERIFIED' : 'DEGRADED',
+          sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY',
+          provider: 'KIS_API',
+          usableForSignal: true,
+          usableForExecution: false,
+          executionImpact: 'NONE',
           useScope: 'WEIGHTED',
         }
       : { hasRealFields: false, confidence: 'MISSING', useScope: 'DIAGNOSTIC_ONLY' },

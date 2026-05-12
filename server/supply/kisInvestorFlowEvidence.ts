@@ -1,5 +1,4 @@
 /** KIS investor-flow evidence adapter. */
-import { fetchKisInvestorFlow } from '../clients/kisClient/investorFlowStrict.js';
 import { fetchKisForeignInstitutionTotal, fetchKisInvestorTradeByStockDaily } from '../clients/kisClient/index.js';
 import { makeInvestorFlowProviderHealth, resolveInvestorFlowSourceDateKst, type InvestorFlowProviderHealth } from './investorFlowProviderHealth.js';
 import type { InvestorFlowSample } from './investorFlowRouter.js';
@@ -7,7 +6,7 @@ import type { InvestorFlowSample } from './investorFlowRouter.js';
 export interface KisSymbolInvestorFlowSample {
   stockCode: string;
   source: 'KIS_API';
-  sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' | 'FOREIGN_INSTITUTION_TOTAL' | 'INQUIRE_INVESTOR';
+  sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' | 'FOREIGN_INSTITUTION_TOTAL' | 'INQUIRE_INVESTOR_QUOTE_LIKE';
   foreignNetBuy?: number;
   institutionalNetBuy?: number;
   individualNetBuy?: number;
@@ -89,7 +88,7 @@ export function getKisInvestorFlowPromotionStage(): KisInvestorFlowPromotionStag
 }
 
 export function isKisSelectableForRouter(stage: KisInvestorFlowPromotionStage): boolean {
-  return stage === 'WEIGHTED' || stage === 'GATED' || stage === 'CORE';
+  return stage === 'WEIGHTED' || stage === 'GATED';
 }
 
 function evidenceResult(input: {
@@ -120,16 +119,10 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
     const foreignInstitution = hasPartialSymbolInvestorFields(daily)
       ? null
       : await fetchKisForeignInstitutionTotal('LOW');
-    const kis = hasPartialSymbolInvestorFields(daily) || hasPartialSymbolInvestorFields(foreignInstitution)
-      ? null
-      : await fetchKisInvestorFlow(safeCode, 'LOW');
     const selected = hasPartialSymbolInvestorFields(daily)
       ? { value: daily, endpoint: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY', sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' as const, confidence: hasRealInvestorFields(daily) ? 'VERIFIED' as const : 'DEGRADED' as const, hasRealInvestorFields: hasRealInvestorFields(daily) }
-      : hasPartialSymbolInvestorFields(foreignInstitution)
-        ? { value: foreignInstitution, endpoint: 'KIS_FOREIGN_INSTITUTION_TOTAL', sourceKind: 'FOREIGN_INSTITUTION_TOTAL' as const, confidence: 'DEGRADED' as const, hasRealInvestorFields: false }
-        : hasRealInvestorFields(kis)
-          ? { value: kis, endpoint: 'KIS_INQUIRE_INVESTOR_STRICT', sourceKind: 'INQUIRE_INVESTOR' as const, confidence: 'VERIFIED' as const, hasRealInvestorFields: true }
-          : null;
+      : null;
+    const advisoryOnlyForeignInstitution = hasPartialSymbolInvestorFields(foreignInstitution);
 
     if (selected) {
       const data = sampleFromInvestorFields({ safeCode, sourceDateKst, value: selected.value });
@@ -198,7 +191,7 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
       `selectableForRouter=${String(selectableForRouter)}`,
       'hasRealInvestorFields=false',
       'KIS=DATA_UNAVAILABLE',
-      'reason=strict investor fields missing',
+      `reason=KIS_INVESTOR_TRADE_BY_STOCK_DAILY missing; INQUIRE_INVESTOR_QUOTE_LIKE diagnosticOnly=true usableForSemanticNetBuy=false; FOREIGN_INSTITUTION_TOTAL advisoryOnly=${String(advisoryOnlyForeignInstitution)}`,
       'providerIssue=true',
       'marketSignal=false',
       'liveExecutionAllowed=false',
@@ -213,7 +206,7 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
         reason: diagnostic,
         now,
         sourceDateKst,
-        endpoint: 'KIS_INQUIRE_INVESTOR_STRICT',
+        endpoint: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY',
         semanticAvailable: false,
         dataAvailable: false,
         retryable: true,
@@ -247,7 +240,7 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
         reason: diagnostic,
         now,
         sourceDateKst,
-        endpoint: 'KIS_INQUIRE_INVESTOR_STRICT',
+        endpoint: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY',
         semanticAvailable: false,
         dataAvailable: false,
         retryable: true,

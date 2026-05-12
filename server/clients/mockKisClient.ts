@@ -173,7 +173,7 @@ export function createMockKisOverrides(): KisClientOverrides {
           output: {
             frgn_ntby_qty: flow.foreignNetBuy.toString(),
             orgn_ntby_qty: flow.institutionalNetBuy.toString(),
-            prsn_ntby_qty: flow.individualNetBuy.toString(),
+            prsn_ntby_qty: (flow.individualNetBuy ?? 0).toString(),
           },
           rt_cd: '0',
         };

@@ -27,7 +27,7 @@ import {
   detectPreBreakoutAccumulation,
   type PreBreakoutInput,
 } from '../trading/preBreakoutAccumulationDetector.js';
-import { fetchKisInvestorFlow } from '../clients/kisClient.js';
+import { fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow } from '../clients/kisClient.js';
 import { getScreenerCache } from '../screener/stockScreener.js';
 import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 

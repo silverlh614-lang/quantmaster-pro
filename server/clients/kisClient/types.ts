@@ -25,7 +25,7 @@ export interface KisPostOptions {
 export interface KisInvestorFlow {
   foreignNetBuy:      number;  // 외국인 당일 순매수량 (주)
   institutionalNetBuy: number; // 기관 당일 순매수량 (주)
-  individualNetBuy:   number;  // 개인 당일 순매수량 (주)
+  individualNetBuy?:  number;  // 개인 당일 순매수량 (주), missing is not zero-filled
   source: 'KIS_API';
 }
 
@@ -141,8 +141,8 @@ export interface KisCreditBalanceRankingRow {
 export interface KisInvestorTradeByStockDaily {
   stockCode: string;
   tradingDate?: string;
-  foreignNetBuy?: number;
-  institutionalNetBuy?: number;
+  foreignNetBuy: number;
+  institutionalNetBuy: number;
   individualNetBuy?: number;
   source: 'KIS_API';
   fetchedAt: string;

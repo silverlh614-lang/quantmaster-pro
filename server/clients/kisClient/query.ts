@@ -700,7 +700,7 @@ export async function fetchKisInvestorTradeByStockDaily(
     }
     const payloadClass = classifyInvestorFlowPayload(rows, { trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID });
     if (!payloadClass.materialized) {
-      console.warn('[KIS] INVESTOR_TRADE_BY_STOCK_DAILY materialize skipped', payloadClass);
+      if (process.env.KIS_ONLY_TRACE === 'true') console.warn('[KIS] INVESTOR_TRADE_BY_STOCK_DAILY materialize skipped', payloadClass);
       return null;
     }
     const row = rows[0];
@@ -708,12 +708,13 @@ export async function fetchKisInvestorTradeByStockDaily(
     const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY', 'FRGN_NTBY_TR_PBMN']);
     const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN']);
     const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']);
-    if (!hasAnyFinite(foreignNetBuy, institutionalNetBuy, individualNetBuy)) return null;
+    if (foreignNetBuy === undefined || institutionalNetBuy === undefined) return null;
+    console.info('[KIS] INVESTOR_FLOW materialized source=INVESTOR_TRADE_BY_STOCK_DAILY confidence=VERIFIED usableForSignal=true usableForExecution=false executionImpact=NONE');
     return {
       stockCode: safeCode,
       tradingDate: formatKisYmd(extractKisString(row, ['stck_bsop_date', 'STCK_BSOP_DATE'])),
-      ...(foreignNetBuy !== undefined ? { foreignNetBuy } : {}),
-      ...(institutionalNetBuy !== undefined ? { institutionalNetBuy } : {}),
+      foreignNetBuy,
+      institutionalNetBuy,
       ...(individualNetBuy !== undefined ? { individualNetBuy } : {}),
       source: 'KIS_API',
       fetchedAt: new Date().toISOString(),
@@ -750,8 +751,8 @@ export async function fetchKisForeignInstitutionTotal(
     const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_tr_pbmn', 'orgn_ntby_qty', 'ORGN_NTBY_QTY']);
     if (!hasAnyFinite(foreignNetBuy, institutionalNetBuy)) return null;
     return {
-      ...(foreignNetBuy !== undefined ? { foreignNetBuy } : {}),
-      ...(institutionalNetBuy !== undefined ? { institutionalNetBuy } : {}),
+      foreignNetBuy,
+      institutionalNetBuy,
       source: 'KIS_API',
       fetchedAt: new Date().toISOString(),
     };

@@ -54,11 +54,14 @@ describe('KIS official investor-flow evidence adapter', () => {
     process.env.KIS_INVESTOR_FLOW_PROMOTION_STAGE = 'WEIGHTED';
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => ({
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-08',
         foreignNetBuy: 100,
         institutionalNetBuy: 200,
         individualNetBuy: -300,
         source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
       }),
     });
     const { fetchKisInvestorFlowEvidence } = await import('./kisInvestorFlowEvidence.js');
@@ -72,7 +75,7 @@ describe('KIS official investor-flow evidence adapter', () => {
       individualNetBuy: -300,
       provider: 'KIS_API',
     });
-    expect(result.sample).toMatchObject({ sourceKind: 'INQUIRE_INVESTOR', confidence: 'VERIFIED', hasRealFields: true, executionImpact: 'NONE' });
+    expect(result.sample).toMatchObject({ sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY', confidence: 'VERIFIED', hasRealFields: true, executionImpact: 'NONE' });
     expect(result.promotionStage).toBe('WEIGHTED');
     expect(result.selectableForRouter).toBe(true);
     expect(result.health.provider).toBe('KIS');
@@ -88,7 +91,6 @@ describe('KIS official investor-flow evidence adapter', () => {
   it('uses KIS investor_trade_by_stock_daily when strict investor fields are missing', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => null,
       fetchKisInvestorTradeByStockDaily: async () => ({
         stockCode: '005930',
         tradingDate: '2026-05-08',
@@ -120,7 +122,6 @@ describe('KIS official investor-flow evidence adapter', () => {
   it('allows degraded symbol-level KIS evidence without fake individual zero', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => null,
       fetchKisInvestorTradeByStockDaily: async () => ({
         stockCode: '005930',
         tradingDate: '2026-05-08',
@@ -145,10 +146,9 @@ describe('KIS official investor-flow evidence adapter', () => {
     expect(result.health.reason).toContain('marketSignal=false');
   }, 15_000);
 
-  it('tries investor_trade_by_stock_daily before strict inquire_investor when both are available', async () => {
+  it('uses investor_trade_by_stock_daily as the only semantic KIS investor source', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
     setKisClientOverrides({
-      fetchKisInvestorFlow: async () => ({ foreignNetBuy: 999, institutionalNetBuy: 999, individualNetBuy: -1998, source: 'KIS_API' }),
       fetchKisInvestorTradeByStockDaily: async () => ({
         stockCode: '005930',
         tradingDate: '2026-05-08',

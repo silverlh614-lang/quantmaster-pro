@@ -53,7 +53,7 @@ import {
   realDataKisGet,
   HAS_REAL_DATA_CLIENT,
   KIS_IS_REAL,
-  fetchKisInvestorFlow,
+  fetchKisInvestorTradeByStockDaily as fetchKisInvestorFlow,
   hasKisClientOverrides,
 } from "../clients/kisClient.js";
 import { getDartFinancials } from "../clients/dartFinancialClient.js";

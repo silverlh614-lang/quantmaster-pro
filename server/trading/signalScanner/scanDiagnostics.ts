@@ -228,6 +228,7 @@ import {
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
 import { previousTradingDateCandidateAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
+import { fetchKisInvestorFlowEvidence } from '../../supply/kisInvestorFlowEvidence.js';
 import {
   fetchInvestorTrading,
   getLastKrxInvestorTradingDiagnostic,
@@ -1223,6 +1224,36 @@ function krxInvestorRowToSemanticInputAdr0482(input: {
     status: input.status,
     sourceAgeTradingDays: input.status === 'STALE' ? 1 : 0,
     diagnostics: ['KRX_INVESTOR_FLOW previousTradingDate sample consumed by ADR-0482 as SHADOW_ONLY input.'],
+  };
+}
+
+
+function kisEvidenceToSemanticInputAdr0482(input: {
+  code: string;
+  evidence: Awaited<ReturnType<typeof fetchKisInvestorFlowEvidence>> | null;
+}): SemanticNetBuyInputPoint | null {
+  const data = input.evidence?.data;
+  const sample = input.evidence?.sample;
+  if (!data || sample?.sourceKind !== 'INVESTOR_TRADE_BY_STOCK_DAILY') return null;
+  return {
+    code: input.code,
+    provider: 'KIS',
+    sourceDate: data.tradingDate ?? sample.sourceDate ?? null,
+    rawForeignNetBuy: data.foreignNetBuy,
+    rawInstitutionNetBuy: data.institutionalNetBuy,
+    rawIndividualNetBuy: data.individualNetBuy,
+    unit: 'SHARES',
+    status: sample.confidence === 'VERIFIED' ? 'VERIFIED' : 'PARTIAL',
+    sourceAgeTradingDays: 0,
+    providerSemanticCapable: true,
+    diagnostics: [
+      'inputSource=KIS_INVESTOR_TRADE_BY_STOCK_DAILY',
+      'sourceKind=INVESTOR_TRADE_BY_STOCK_DAILY',
+      'confidence=VERIFIED',
+      'usableForSignal=true',
+      'usableForExecution=false',
+      'executionImpact=NONE',
+    ],
   };
 }
 
@@ -2381,7 +2412,10 @@ export async function persistScanResults(
       code: firstSymbol,
       lookup: supplySnapshotCacheLookupAdr0491,
     }) ?? cacheRawToSemanticInputAdr0482({ code: firstSymbol, cacheRaw, stale: supplySnapshotCacheLookupAdr0491.stale });
+    const kisInvestorFlowEvidence = await fetchKisInvestorFlowEvidence(firstSymbol, kstNow).catch(() => null);
+    const kisSemanticInputAdr0482 = kisEvidenceToSemanticInputAdr0482({ code: firstSymbol, evidence: kisInvestorFlowEvidence });
     const semanticInputs = [
+      kisSemanticInputAdr0482,
       naverCollectorToSemanticInputAdr0482(naverInvestorTrendAdr0481),
       krxSemanticInputAdr0482,
       cacheSemanticInputAdr0482,
@@ -2402,6 +2436,14 @@ export async function persistScanResults(
       previousTradingDayCacheRaw: null,
       previousTradingDayKrxRaw,
       krxInvestorDiagnosticAdr0505,
+      kisInvestorRaw: kisInvestorFlowEvidence?.data ? {
+        code: firstSymbol,
+        sourceDate: kisInvestorFlowEvidence.data.tradingDate ?? kisInvestorFlowEvidence.sample?.sourceDate ?? null,
+        foreignNetBuy: kisInvestorFlowEvidence.data.foreignNetBuy,
+        institutionNetBuy: kisInvestorFlowEvidence.data.institutionalNetBuy,
+        individualNetBuy: kisInvestorFlowEvidence.data.individualNetBuy,
+        status: kisInvestorFlowEvidence.sample?.confidence === 'VERIFIED' ? 'VERIFIED' : 'PARTIAL',
+      } : null,
       kisTriedForInvestorFlow: true,
       nonTradingDay: sellOnlyOrClosed,
       sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
