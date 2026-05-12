@@ -1183,7 +1183,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         if (shouldIncrementFailCount('ENTRY_PRICE_DEVIATION')) {
           stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
           ctx.mutables.watchlistMutated.value = true;
-          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
+          logger.info(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
         } else {
           logPreEntryWaitDebug({
             stockName: stock.name,

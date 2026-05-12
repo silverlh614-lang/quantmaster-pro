@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   logger,
@@ -191,5 +193,25 @@ describe('log noise reduction', () => {
   it('Trading Engine execution path는 logger patch로 변경되지 않는다', () => {
     expect(shouldEmitPreEntryWaitLog('engine-path-sentinel', 1_000)).toBe(true);
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('buyListLoop ENTRY_PRICE_DEVIATION failCount 증가 로그는 logger.info 위임 + console.log 직접 호출 부재', () => {
+    const src = readFileSync(
+      resolve(import.meta.dirname, 'trading/signalScanner/perSymbol/buyListLoop.ts'),
+      'utf-8',
+    );
+    // 사용자 명시 PR #910 후속 — console.log → logger.info 교체 (LOG_LEVEL 정합)
+    expect(src).not.toMatch(
+      /console\.log\(`\[AutoTrade\] \${stock\.name}\(\${stock\.code}\) 진입가 이탈 — failCount=/,
+    );
+    expect(src).toMatch(
+      /logger\.info\(`\[AutoTrade\] \${stock\.name}\(\${stock\.code}\) 진입가 이탈 — failCount=/,
+    );
+  });
+
+  it('LOG_LEVEL=silent 일 때 logger.info 진입가 이탈 메시지도 출력되지 않는다', () => {
+    vi.stubEnv('LOG_LEVEL', 'silent');
+    logger.info('[AutoTrade] 삼성전자(005930) 진입가 이탈 — failCount=3');
+    expect(console.info).not.toHaveBeenCalled();
   });
 });
