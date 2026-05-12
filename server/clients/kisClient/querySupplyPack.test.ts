@@ -31,6 +31,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   delete process.env.KIS_APP_KEY;
   vi.clearAllMocks();
 });
@@ -128,8 +129,41 @@ describe('KIS official short/loan/credit read-only sources', () => {
     expect(_realDataKisGet).toHaveBeenCalledWith(
       'FHPTJ04160001',
       '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
-      expect.objectContaining({ FID_INPUT_ISCD: '005930', FID_COND_MRKT_DIV_CODE: 'J' }),
+      expect.objectContaining({ FID_INPUT_ISCD: '005930', FID_COND_MRKT_DIV_CODE: 'J', FID_ORG_ADJ_PRC: '0', FID_ETC_CLS_CODE: '0' }),
       'LOW',
     );
   });
+
+  it('investor daily uses previous trading day before open and never sends blank FIDs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-10T23:30:00.000Z')); // 2026-05-11 08:30 KST, PRE_OPEN
+    _realDataKisGet.mockResolvedValue({ output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '1' }] });
+
+    await mod.fetchKisInvestorTradeByStockDaily('005930');
+
+    expect(_realDataKisGet).toHaveBeenCalledWith(
+      'FHPTJ04160001',
+      '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
+      expect.objectContaining({
+        FID_INPUT_DATE_1: '20260508',
+        FID_ORG_ADJ_PRC: '0',
+        FID_ETC_CLS_CODE: '0',
+      }),
+      'LOW',
+    );
+  });
+
+  it('investor daily tries today during regular session then falls back to previous trading day', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T01:00:00.000Z')); // 2026-05-11 10:00 KST, REGULAR
+    _realDataKisGet
+      .mockRejectedValueOnce(new Error('OPSQ2001'))
+      .mockResolvedValueOnce({ output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '1' }] });
+
+    const result = await mod.fetchKisInvestorTradeByStockDaily('005930');
+
+    expect(result?.tradingDate).toBe('2026-05-08');
+    expect(_realDataKisGet.mock.calls.map((call) => call[2].FID_INPUT_DATE_1)).toEqual(['20260511', '20260508']);
+  });
+
 });

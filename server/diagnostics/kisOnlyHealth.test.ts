@@ -30,7 +30,7 @@ const baseFetchers = (): KisOnlyHealthFetchers => ({
   fetchDailyChart: vi.fn(async () => [{ date: '20260511', open: 1, high: 1, low: 1, close: 1, volume: 1 }]),
   fetchMarketSupply: vi.fn(async () => ({ foreignNetBuy: 10, institutionNetBuy: 20, individualNetBuy: -30 })),
   fetchInvestorFlow: vi.fn(async () => ({ foreignNetBuy: 100, institutionalNetBuy: 200, individualNetBuy: -300, source: 'KIS_API' as const })),
-  fetchInvestorFlowDaily: vi.fn(async () => null),
+  fetchInvestorFlowDaily: vi.fn(async () => ({ stockCode: '005930', foreignNetBuy: 100, institutionalNetBuy: 200, individualNetBuy: -300, source: 'KIS_API' as const, fetchedAt: '2026-05-11T00:00:00.000Z' })),
   fetchForeignInstitutionTotal: vi.fn(async () => ({ foreignNetBuy: 100, institutionalNetBuy: 200, source: 'KIS_API' as const, fetchedAt: '2026-05-11T00:00:00.000Z' })),
   fetchStockProgramTrade: vi.fn(async () => ({ stockCode: '005930', programNetBuyQty: 1, programNetBuyAmount: 2, programBuyRatio: 3, source: 'KIS_API' as const, fetchedAt: '2026-05-11T00:00:00.000Z' })),
   fetchMarketProgramTrade: vi.fn(async () => ({ programNetBuyQty: 1, programNetBuyAmount: 2, programArbitrageNetBuy: 3, programNonArbitrageNetBuy: 4, programSellAmount: 5, programBuyAmount: 6, source: 'KIS_API' as const, fetchedAt: '2026-05-11T00:00:00.000Z' })),
@@ -213,6 +213,7 @@ describe('kisOnlyHealth endpoint-level trace', () => {
     expect(formatted).toContain('SHORT_DETAIL:');
     expect(formatted).toContain('datePolicy=PREVIOUS_TRADING_DAY_THEN_T_MINUS_2_T_MINUS_3');
     expect(formatted).toContain('2026-05-08: status=HTTP_OK_BUT_EMPTY rowCount=0 targetFound=0/1');
+    expect(formatted).toContain('outputKeys=NONE');
     expect(formatted).toContain('finalStatus=MISSING_CONFIRMED');
     expect(formatted).toContain('providerIssue=false');
     process.env.KIS_ONLY_TRACE = old;
