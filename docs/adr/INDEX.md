@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0504`**
+**다음 ADR 번호: `0505`**
+
+(2026-05-12 기준, 마지막 발급 0504 — position-card-source-validation. ADR-0504 introduces 4 SSOTs (positionCardTypes / shadowPositionLedger / positionCardEnvHelpers / positionCardValidator) + 6 ENV helpers + 2 caller wiring (positionMorningCard / pos.cmd) to block ADR-0452 SHADOW_NEAR_BREAKOUT learning entries from being exposed as fake holdings on Telegram Position Cards. 5-guard SSOT (loadShadowTrades + isOpenShadowStatus + watchlistSource ≠ SHADOW_NEAR_BREAKOUT + getRemainingQty>0 + BUY fill ≥1, with guards 4/5 deprecated due to schema absence). Forbidden 8-source list (WATCHLIST/RECOMMENDATION_HISTORY/SHADOW_CANDIDATE/RESERVED_ORDER/COUNTERFACTUAL/PREVIOUS_TELEGRAM_CACHE/LAST_KNOWN_POSITIONS/MORNING_SCAN_RESULT) permanently blocked via runtime cast detection. positionsRouter REAL mode wiring deferred to follow-up PR (UI response schema breaking change risk). LIVE trading body 0 lines changed, KIS/KRX/Yahoo/Naver outbound 0, executionImpact='NONE' literal enforced, 70 regression tests.)
 
 (2026-05-12 기준, 마지막 발급 0502c — krxclient-decomposition. ADR-0502c — krxclient-decomposition. Decomposes `server/clients/krxClient.ts` (2105 LoC, ACMA 1500줄 한계 차단) into 15 module SSOTs (types/constants/cache/cooldown/timeWindow/dateUtils/http/csv/parser×3/queries×3/facade) + barrel re-export, following ADR-0135 (kisClient decomposition) pattern. 28 exports + 14 external importers 무수정, byte-equivalent 동작 보존, LIVE 매매 본체 0줄 변경. 충돌 그룹 0502 = 0502a (kis-official-investor-flow-promotion, 2026-05-11 23:05) / 0502b (kis-official-global-fallback-until-krx-recovery, 23:39) / 0502c (krxclient-decomposition, 본 PR) — ADR-0159 별칭 정책 정합.)
 
@@ -523,8 +525,9 @@
 | 0501 | weekend-replay-gate-failure-cause (diagnostic-only Weekend Replay layer using ADR-0497 GateFailureCause and ADR-0500 Empty Scan Root Cause Dashboard to classify likely over-blocked, likely correct block, and needs-more-data outcomes; executionImpact=NONE and no live Gate/Kelly/KIS/order/stage changes) | diagnostics |
 | 0502 | krxclient-decomposition (충돌 그룹 0502c — server/clients/krxClient.ts 2105 LoC ACMA 한계 차단 해소; 15 모듈 분해 + barrel re-export, ADR-0135 패턴 정합. 28 exports + 14 importers 무수정, byte-equivalent, LIVE 본체 0줄 변경) | refactor |
 | 0503 | kis-official-supply-pack-until-krx-recovery (official KIS supply pack — short-sale loan credit + investor-flow evidence until KRX recovery) | supply |
+| 0504 | position-card-source-validation (Telegram Position Card source contamination 차단 — 4 SSOT + 6 ENV helpers + 2 caller wiring; SHADOW_NEAR_BREAKOUT 학습 entry 가짜 보유 노출 영구 차단; LIVE 본체 0줄 변경, 70 회귀) | telegram |
 
-**총 발급 293 unique 번호** (마지막 발급 0503) / **충돌 29 파일 (12 그룹, 별칭 29건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0504**.
+**총 발급 294 unique 번호** (마지막 발급 0504) / **충돌 29 파일 (12 그룹, 별칭 29건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0505**.
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

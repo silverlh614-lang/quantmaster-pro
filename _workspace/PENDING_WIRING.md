@@ -116,6 +116,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | D5 | 0096 DataQualityRibbon + IDontKnow | `src/components/common/DataQualityRibbon.tsx` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — MarketOverviewHeader / DiscoverWatchlistPage 페이지 상단 임베드 |
 | D6 | 0094 UI_LANG.confluence | `src/config/uiLanguage.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — ConfluenceMeter 4축 라벨 SSOT 격상 (현재 컴포넌트 내부 AXIS_LABEL 상수) |
 | D7 | 0099 Verbosity Wiring | `src/components/common/UIVerbosityToggle.tsx` | 2026-05-02 | PARTIAL | P2 | 운영 데이터 누적 후 — 5 wiring PR 완주 (PR-Z14~Z18) 후 사용처 점진 마이그레이션 |
+| D8 | 0504 positionsRouter REAL mode wiring | `server/routes/autoTrade/positionsRouter.ts` | 2026-05-12 | INFRASTRUCTURE_ONLY | P1 | UI 가시성 — getOpenPositions SSOT 위임 + REAL mode `fetchKisHoldings` wiring (응답 schema breaking change 위험으로 별도 PR 분리, ADR-0504) |
 
 ### E. 영속 / 진단 / 정합
 
@@ -140,9 +141,9 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | A. 학습 시리즈 | 15 | 1 | 9 | 5 | 0 |
 | B. 매매 본체 | 15 | 3 | 5 | 7 | 0 |
 | C. 시그널 입력 | 19 | 1 | 3 | 8 | 7 |
-| D. UI Phase | 7 | 0 | 3 | 4 | 0 |
+| D. UI Phase | 8 | 0 | 4 | 4 | 0 |
 | E. 영속/진단 | 11 | 0 | 0 | 4 | 7 |
-| **합계** | **67** | **5** | **20** | **28** | **14** |
+| **합계** | **68** | **5** | **21** | **28** | **14** |
 
 > 주: P0 5건 — A3 (PR-A3-Audit 2026-04-30) + B1+B11 (PR-P0-Activation 2026-05-06) + C7 (PR-Phase1-DartFinalize 2026-05-01) 모두 DECIDED_NOT_WIRING 격상 완료. **B15 (PriceCorrection Stage 3 Live, ADR-0414) P0 신규 등재 — SLA 만기 2026-05-27 (Stage 2 검증 후)**.
 
