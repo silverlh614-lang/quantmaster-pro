@@ -28,6 +28,10 @@ import {
   enrichQuoteWithKisMTAS,
   STOCK_UNIVERSE,
 } from "./stockScreener.js";
+import {
+  logKisMtasNoiseSummary,
+  resetKisMtasNoiseSummary,
+} from "./adapters/kisQuoteAdapter.js";
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS ?? .KQ` brute-force
 // 패턴 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + ADR-0241 sanity 회복
 // 자연 적용 + tryGetYahooSymbol 가 symbol field 격상 (마스터 매칭 시 정확한 시장,
@@ -317,6 +321,7 @@ export async function stage2SectorGateFilter(
   const leadingSectors = getLeadingSectors(regime);
   const weights = loadConditionWeights();
   const results: CandidateStock[] = [];
+  resetKisMtasNoiseSummary();
 
   const kospi20dReturn = macroState?.kospi20dReturn;
 
@@ -408,6 +413,8 @@ export async function stage2SectorGateFilter(
     (c) => c.confluenceResult?.signal !== "HOLD",
   );
   const holdCount = top15.length - confluenceFiltered.length;
+
+  logKisMtasNoiseSummary();
 
   console.log(
     `[Pipeline/Stage2] Gate통과 ${results.length}개 (macroState=${macroState ? "OK" : "null"})` +

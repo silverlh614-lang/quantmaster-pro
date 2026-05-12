@@ -317,6 +317,52 @@ export async function fetchKisIntraday(code: string): Promise<{
 // 스크리너·시그널·리포트가 같은 분 안에 동일 심볼을 여러 번 조회하므로
 // 5분 TTL로만 묶어도 호출 수가 대폭 줄어든다. null 은 캐싱하지 않는다(일시 실패 재시도 허용).
 const YAHOO_QUOTE_CACHE_TTL_MS = 5 * 60 * 1000;
+export interface KisMtasNoiseSummary {
+  scanned: number;
+  monthlyBull: number;
+  weeklyBull: number;
+  bothBull: number;
+  failed: number;
+}
+
+let _kisMtasNoiseSummary: KisMtasNoiseSummary = {
+  scanned: 0,
+  monthlyBull: 0,
+  weeklyBull: 0,
+  bothBull: 0,
+  failed: 0,
+};
+
+export function resetKisMtasNoiseSummary(): void {
+  _kisMtasNoiseSummary = { scanned: 0, monthlyBull: 0, weeklyBull: 0, bothBull: 0, failed: 0 };
+}
+
+export function getKisMtasNoiseSummary(): KisMtasNoiseSummary {
+  return { ..._kisMtasNoiseSummary };
+}
+
+export function formatKisMtasNoiseSummary(summary: KisMtasNoiseSummary): string {
+  return `[KisMTASSummary] scanned=${summary.scanned} monthlyBull=${summary.monthlyBull} weeklyBull=${summary.weeklyBull} bothBull=${summary.bothBull} failed=${summary.failed}`;
+}
+
+export function logKisMtasNoiseSummary(
+  summary: KisMtasNoiseSummary = getKisMtasNoiseSummary(),
+  logger: Pick<Console, 'info'> = console,
+): void {
+  logger.info(formatKisMtasNoiseSummary(summary));
+}
+
+function recordKisMtasNoiseResult(input: { monthlyBull?: boolean; weeklyBull?: boolean; failed?: boolean }): void {
+  _kisMtasNoiseSummary.scanned++;
+  if (input.failed) {
+    _kisMtasNoiseSummary.failed++;
+    return;
+  }
+  if (input.monthlyBull) _kisMtasNoiseSummary.monthlyBull++;
+  if (input.weeklyBull) _kisMtasNoiseSummary.weeklyBull++;
+  if (input.monthlyBull && input.weeklyBull) _kisMtasNoiseSummary.bothBull++;
+}
+
 const _yahooQuoteCache = new Map<string, { data: YahooQuoteExtended; ts: number }>();
 
 
@@ -339,7 +385,10 @@ export async function enrichQuoteWithKisMTAS(
     const available = !!(kisMtas && kisMtas.dataAvailable
       && (kisMtas.monthlyCandleCount >= 13 || kisMtas.weeklyCandleCount >= 52));
     recordMtasAttempt(code, available);
-    if (!kisMtas || !kisMtas.dataAvailable) return quote;
+    if (!kisMtas || !kisMtas.dataAvailable) {
+      recordKisMtasNoiseResult({ failed: true });
+      return quote;
+    }
 
     // KIS 데이터가 충분한 경우에만 덮어쓰기
     const enriched = { ...quote };
@@ -347,7 +396,7 @@ export async function enrichQuoteWithKisMTAS(
     if (kisMtas.monthlyCandleCount >= 13) {
       enriched.monthlyAboveEMA12 = kisMtas.monthlyAboveEMA12;
       enriched.monthlyEMARising = kisMtas.monthlyEMARising;
-      console.log(
+      console.debug(
         `[KisMTAS] ${code} 월봉 KIS 보강: EMA12위=${kisMtas.monthlyAboveEMA12} 상승=${kisMtas.monthlyEMARising} (${kisMtas.monthlyCandleCount}개월)`,
       );
     }
@@ -355,14 +404,19 @@ export async function enrichQuoteWithKisMTAS(
     if (kisMtas.weeklyCandleCount >= 52) {
       enriched.weeklyAboveCloud = kisMtas.weeklyAboveCloud;
       enriched.weeklyLaggingSpanUp = kisMtas.weeklyLaggingSpanUp;
-      console.log(
+      console.debug(
         `[KisMTAS] ${code} 주봉 KIS 보강: 구름대위=${kisMtas.weeklyAboveCloud} 후행스팬=${kisMtas.weeklyLaggingSpanUp} (${kisMtas.weeklyCandleCount}주)`,
       );
     }
 
+    recordKisMtasNoiseResult({
+      monthlyBull: enriched.monthlyAboveEMA12 && enriched.monthlyEMARising,
+      weeklyBull: enriched.weeklyAboveCloud && enriched.weeklyLaggingSpanUp,
+    });
     return enriched;
   } catch (err) {
     recordMtasAttempt(code, false);
+    recordKisMtasNoiseResult({ failed: true });
     console.warn(`[KisMTAS] ${code} KIS 보강 실패 (Yahoo 폴백):`, err instanceof Error ? err.message : err);
     return quote;
   }

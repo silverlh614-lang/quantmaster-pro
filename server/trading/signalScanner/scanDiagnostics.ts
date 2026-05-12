@@ -1987,6 +1987,26 @@ export function logAdrDiagnostic(
   return true;
 }
 
+
+export interface PreBreakoutNoiseSummaryInput {
+  scanned: number;
+  wait: number;
+  approaching: number;
+  gateFail: number;
+  ready: number;
+  rejected: number;
+}
+
+export function formatPreBreakoutNoiseSummary(summary: PreBreakoutNoiseSummaryInput): string {
+  return `[PreBreakoutSummary] scanned=${summary.scanned} wait=${summary.wait} approaching=${summary.approaching} gateFail=${summary.gateFail} ready=${summary.ready} rejected=${summary.rejected}`;
+}
+
+export function logPreBreakoutNoiseSummary(
+  summary: PreBreakoutNoiseSummaryInput,
+  logger: Pick<Console, 'info'> = console,
+): void {
+  logger.info(formatPreBreakoutNoiseSummary(summary));
+}
 export interface PersistScanResultsOptions {
   sellOnly?: boolean;
   buyListLength: number;
@@ -3021,6 +3041,15 @@ export async function persistScanResults(
   }
 
   _lastScanSummary = summaryDraft;
+
+  logPreBreakoutNoiseSummary({
+    scanned: summaryDraft.candidates,
+    wait: counters.waitPreBreakout,
+    approaching: summaryDraft.preBreakoutWaitSummary?.retryEligible ?? 0,
+    gateFail: counters.waitGateFail,
+    ready: counters.entries,
+    rejected: counters.gateMisses + counters.rrrMisses,
+  });
 
   if (options.sellOnly) {
     // sellOnly는 매수 금지 운영 상태일 뿐, /scan_blockers 진단 데이터는 유지한다.

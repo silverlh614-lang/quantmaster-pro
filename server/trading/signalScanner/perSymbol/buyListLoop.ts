@@ -98,8 +98,10 @@ import { checkCooldownRelease } from '../../regretAsymmetryFilter.js';
 import { detectPreBreakoutAccumulation } from '../../preBreakoutAccumulationDetector.js';
 // ADR-0449 — Pre-Breakout WAIT 7-state Liveness Policy.
 import { evaluatePreBreakoutWait } from '../preBreakoutWaitPolicy.js';
+import { getKstIntradaySession } from '../emptyScanTaxonomy.js';
 // ADR-0450 — Pre-Breakout WAIT decision → KIS-WS priority routing SSOT.
 import { routePreBreakoutWaitToKisWs } from '../preBreakoutKisWsPriorityRouting.js';
+
 // ADR-0452 — Shadow Entry Liveness for Near-Breakout Candidates SSOT.
 //   Live 매수 조건 무변경 + Shadow virtual buy 만 near-breakout 후보에 허용.
 //   executionImpact: 'NONE' literal type 강제.
@@ -265,6 +267,59 @@ function applyBuySupplyHealthPolicy(params: {
     finalSignal: healthDecision.finalSignal,
     healthDecision,
   };
+}
+
+const PRE_ENTRY_WAIT_DEDUPE_MS = 30 * 60 * 1000;
+const preEntryWaitLogLastEmittedAt = new Map<string, number>();
+
+export function resetPreEntryWaitLogDedupeForTest(): void {
+  preEntryWaitLogLastEmittedAt.clear();
+}
+
+export function buildPreEntryWaitDedupeKey(input: {
+  tradeDate: string;
+  session: string;
+  stockCode: string;
+  entryPrice: number;
+  reason: string;
+}): string {
+  return `PRE_ENTRY_WAIT:${input.tradeDate}:${input.session}:${input.stockCode}:${input.entryPrice}:${input.reason}`;
+}
+
+export function shouldEmitPreEntryWaitLog(
+  key: string,
+  nowMs = Date.now(),
+  dedupeMs = PRE_ENTRY_WAIT_DEDUPE_MS,
+): boolean {
+  const last = preEntryWaitLogLastEmittedAt.get(key) ?? 0;
+  if (last > 0 && nowMs - last < dedupeMs) return false;
+  preEntryWaitLogLastEmittedAt.set(key, nowMs);
+  return true;
+}
+
+function currentKstTradeDate(nowMs = Date.now()): string {
+  return new Date(nowMs + 9 * 60 * 60_000).toISOString().slice(0, 10);
+}
+
+function logPreEntryWaitDebug(input: {
+  stockName: string;
+  stockCode: string;
+  entryPrice: number;
+  message: string;
+  reason: string;
+  nowMs?: number;
+}): void {
+  const nowMs = input.nowMs ?? Date.now();
+  const key = buildPreEntryWaitDedupeKey({
+    tradeDate: currentKstTradeDate(nowMs),
+    session: getKstIntradaySession(nowMs),
+    stockCode: input.stockCode,
+    entryPrice: input.entryPrice,
+    reason: input.reason,
+  });
+  if (shouldEmitPreEntryWaitLog(key, nowMs)) {
+    console.debug(`${input.message} actionable=false executionImpact=NONE telegram=false dedupeKey=${key}`);
+  }
 }
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
@@ -722,9 +777,10 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ── Pre-Breakout 매집 감지 (진입가 미도달 + 손절선 위) ─────────────────
       if (!nearEntry && !breakout && aboveStop) {
         const priceDiffPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
-        console.log(
+        console.debug(
           `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달 — ` +
-          `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별`,
+          `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별 ` +
+          `actionable=false executionImpact=NONE telegram=false`,
         );
         // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
         const reCheckQuotePb = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
@@ -960,9 +1016,15 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         if (shouldIncrementFailCount('PRE_BREAKOUT_MISS')) {
           stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
           ctx.mutables.watchlistMutated.value = true;
-          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
+          console.debug(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
         } else {
-          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — WAIT (ADR-0115 — failCount 미증가)`);
+          logPreEntryWaitDebug({
+            stockName: stock.name,
+            stockCode: stock.code,
+            entryPrice: stock.entryPrice,
+            reason: 'PRE_BREAKOUT_MISS',
+            message: `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — WAIT (ADR-0115 — failCount 미증가)`,
+          });
         }
         ctx.scanCounters.waitPreBreakout++;  // ADR-0118
         // ADR-0449 — Pre-Breakout WAIT 7-state 분류 + 영속 누적.
@@ -1117,7 +1179,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           ctx.mutables.watchlistMutated.value = true;
           console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
         } else {
-          console.log(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — WAIT (ADR-0115 — failCount 미증가)`);
+          logPreEntryWaitDebug({
+            stockName: stock.name,
+            stockCode: stock.code,
+            entryPrice: stock.entryPrice,
+            reason: 'ENTRY_PRICE_DEVIATION',
+            message: `[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — WAIT (ADR-0115 — failCount 미증가)`,
+          });
         }
         ctx.scanCounters.waitPreBreakout++;  // ADR-0118 (entry deviation 도 pre-breakout 분류로 통합 카운트)
         // ADR-0449 — 진입가 이탈 (PRICE_DISTANCE_TOO_FAR 등) 7-state 분류 + 영속 누적.
