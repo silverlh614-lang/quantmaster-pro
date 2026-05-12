@@ -32,10 +32,12 @@ describe('ADR-0396: SECTOR_QUALITY_THRESHOLDS SSOT 사용자 명시 정책', () 
     expect(SECTOR_QUALITY_THRESHOLDS.DEGRADED_MIN).toBe(3);
   });
 
-  it('SOURCE_WEIGHT SSOT 사용자 명시 정확 (KRX_CODE=1.0/STOCK_DAILY=0.85/CACHE=0.7/YAHOO_ETF=0.5/FAILED=0)', () => {
+  it('SOURCE_WEIGHT SSOT 사용자 명시 정확 (KIS basket=0.65/STOCK_DAILY=0.2/CACHE=0.45)', () => {
     expect(SOURCE_WEIGHT.KRX_CODE).toBe(1.0);
-    expect(SOURCE_WEIGHT.STOCK_DAILY).toBe(0.85);
-    expect(SOURCE_WEIGHT.CACHE).toBe(0.7);
+    expect(SOURCE_WEIGHT.KIS_STOCK_BASKET_DERIVED).toBe(0.65);
+    expect(SOURCE_WEIGHT.KIS_OFFICIAL_DAILY).toBe(0.9);
+    expect(SOURCE_WEIGHT.STOCK_DAILY).toBe(0.2);
+    expect(SOURCE_WEIGHT.CACHE).toBe(0.45);
     expect(SOURCE_WEIGHT.YAHOO_ETF).toBe(0.5);
     expect(SOURCE_WEIGHT.FAILED).toBe(0);
   });
@@ -175,15 +177,20 @@ describe('ADR-0396: computeConfidence 합성 SSOT 정책 정합', () => {
     expect(computeConfidence('YAHOO_ETF', 'FRESH', 1.0)).toBe(0.5);
   });
 
-  it('STOCK_DAILY + DEGRADED + 67% → 0.85 × 0.7 × 0.6667 ≈ 0.397', () => {
+
+  it('KIS_STOCK_BASKET_DERIVED + FRESH + 100% → 65% shadow confidence', () => {
+    expect(computeConfidence('KIS_STOCK_BASKET_DERIVED', 'FRESH', 1.0)).toBe(0.65);
+  });
+
+  it('STOCK_DAILY + DEGRADED + 67% → 0.2 × 0.7 × 0.6667 ≈ 0.093', () => {
     expect(computeConfidence('STOCK_DAILY', 'DEGRADED', 8 / 12)).toBeCloseTo(
-      0.85 * 0.7 * (8 / 12),
+      0.2 * 0.7 * (8 / 12),
       4,
     );
   });
 
-  it('CACHE + EXPIRED + 50% → 0.7 × 0.4 × 0.5 = 0.14', () => {
-    expect(computeConfidence('CACHE', 'EXPIRED', 0.5)).toBeCloseTo(0.7 * 0.4 * 0.5, 4);
+  it('CACHE + EXPIRED + 50% → 0.45 × 0.4 × 0.5 = 0.09', () => {
+    expect(computeConfidence('CACHE', 'EXPIRED', 0.5)).toBeCloseTo(0.45 * 0.4 * 0.5, 4);
   });
 
   it('FAILED 어떤 freshness/coverage 든 0 (사용자 명시)', () => {
@@ -214,13 +221,13 @@ describe('ADR-0396: buildSectorEnergyQualityComposite 통합 합성', () => {
     expect(result.confidence).toBe(1);
   });
 
-  it('STOCK_DAILY fallback 8 섹터 + 1h cache → 0.85 × 0.7 × 0.667 ≈ 0.397', () => {
+  it('STOCK_DAILY fallback 8 섹터 + 1h cache → 0.2 × 0.7 × 0.667 ≈ 0.093', () => {
     const result = buildSectorEnergyQualityComposite(8, 'STOCK_DAILY', 60 * 60 * 1000);
     expect(result.dataQuality).toBe('STALE');
     expect(result.sourceTier).toBe('STOCK_DAILY');
     expect(result.freshness).toBe('DEGRADED');
     expect(result.coverage).toBeCloseTo(8 / 12, 4);
-    expect(result.confidence).toBeCloseTo(0.85 * 0.7 * (8 / 12), 4);
+    expect(result.confidence).toBeCloseTo(0.2 * 0.7 * (8 / 12), 4);
   });
 
   it('YAHOO_ETF L4 fallback (ADR-0397 사전 호환) — confidence 절반', () => {
@@ -240,7 +247,7 @@ describe('ADR-0396: buildSectorEnergyQualityComposite 통합 합성', () => {
     const result = buildSectorEnergyQualityComposite(5, 'CACHE', 5 * 60 * 60 * 1000);
     expect(result.dataQuality).toBe('DEGRADED');
     expect(result.freshness).toBe('EXPIRED');
-    expect(result.confidence).toBeCloseTo(0.7 * 0.4 * (5 / 12), 4);
+    expect(result.confidence).toBeCloseTo(0.45 * 0.4 * (5 / 12), 4);
   });
 });
 

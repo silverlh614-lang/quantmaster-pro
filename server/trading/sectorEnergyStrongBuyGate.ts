@@ -12,6 +12,7 @@
  *       4. sourceTier='YAHOO_ETF'
  *       5. dataQuality='STALE' (ADR-0415 — ADR-0398 누락 결함 차단)
  *       6. dataQuality='PARTIAL_VOLUME' (ADR-0415 — BUY 까지만)
+ *       7. sourceTier='KIS_STOCK_BASKET_DERIVED' (derived basket shadow-only)
  *
  * Phase 1 dead code — 호출자 0건. 실제 매매 결정 wiring 후속 PR (회귀 위험 격리).
  *
@@ -125,6 +126,11 @@ export function evaluateSectorEnergyStrongBuyGate(
   // 사용자 명시 정책 *"PARTIAL_VOLUME → BUY 까지만"* — STRONG_BUY 차단, BUY 통과.
   if (input.dataQuality === 'PARTIAL_VOLUME') {
     reasons.push('dataQuality=PARTIAL_VOLUME (거래량/일부 섹터 누락 — BUY 까지만)');
+  }
+
+  // 조건 7: KIS representative basket is shadow/watch/ranking only until promotion audit.
+  if (input.sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
+    reasons.push('sourceTier=KIS_STOCK_BASKET_DERIVED (derived basket shadow-only; promotion audit required)');
   }
 
   return {

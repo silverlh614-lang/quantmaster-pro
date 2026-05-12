@@ -107,7 +107,9 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.validSectorCount).toBe(12);
     expect(result.coverageBreakdown.verifiedIndexCodeCoverage).toBe(0);
     expect(result.coverageBreakdown.kisBasketCoverage).toBe(1);
+    expect(result.confidence).toBe(0.65);
     expect(result.leadershipConfidence).toBe('READY_FOR_SHADOW');
+    expect(result.liveExecutionAllowed).toBe(false);
     expect(result.providerIssue).toBe(false);
     expect(result.marketSignal).toBe(false);
   });
@@ -162,8 +164,9 @@ describe('KIS SectorEnergy provider', () => {
       rawLeadershipScore: 88,
     });
     expect(kisBasket.mode).toBe('LIMITED_SCORING');
-    expect(kisBasket.leadershipConfidence).toBe('DEGRADED');
-    expect(kisBasket.strongBuyBlocked).toBe(false);
+    expect(kisBasket.leadershipConfidence).toBe('READY_FOR_SHADOW');
+    expect(kisBasket.sectorBoost).toBe(0);
+    expect(kisBasket.strongBuyBlocked).toBe(true);
 
     const internal = scoreSectorEnergyAdr0462({
       sourceTier: 'INTERNAL_PROXY',

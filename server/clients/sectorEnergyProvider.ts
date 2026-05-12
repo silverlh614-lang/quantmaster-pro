@@ -277,8 +277,10 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
   // todayRowsWithIndexCode 부재 시 todayCodeFillRatio × totalSectorRows 추정 (SymmetryValidationResult
   // 옛 callers 호환). symmetry 자체 부재 시 1.0 가정 (정상 KRX_CODE 경로).
   const rowsWithIndexCode =
-    sym?.todayRowsWithIndexCode ??
-    (sym ? Math.round((sym.todayCodeFillRatio ?? 1) * totalSectorRows) : totalSectorRows);
+    result.sourceTier === 'KIS_STOCK_BASKET_DERIVED'
+      ? (result.coverageBreakdown?.verifiedIndexCodeCount ?? 0)
+      : sym?.todayRowsWithIndexCode ??
+        (sym ? Math.round((sym.todayCodeFillRatio ?? 1) * totalSectorRows) : totalSectorRows);
   const fallbackUsed: 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE' =
     result.sourceTier === 'STOCK_DAILY' ? 'STOCK_DAILY'
     : result.sourceTier === 'YAHOO_ETF' ? 'ETF'

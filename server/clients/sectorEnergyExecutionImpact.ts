@@ -58,7 +58,7 @@ export type SectorEnergyExecutionImpact =
  */
 export interface SectorEnergyExecutionImpactInput {
   /** ADR-0399 4-axis 의 `leadershipConfidence`. dataQuality 와 함께 사용. */
-  leadershipConfidence?: 'OK' | 'DEGRADED' | 'BLOCKED';
+  leadershipConfidence?: 'OK' | 'READY_FOR_SHADOW' | 'DEGRADED' | 'BLOCKED';
   /** ADR-0396 5단계 dataQuality (`OK`/`PARTIAL`/`STALE`/`DEGRADED`/`FAILED`/`PARTIAL_VOLUME`). */
   dataQuality?: string;
   /** ADR-0399 sourceTier (`KRX_CODE`/`STOCK_DAILY`/`CACHE`/`YAHOO_ETF`/`UNKNOWN`/`FAILED`). */
@@ -185,6 +185,18 @@ export function deriveSectorEnergyExecutionImpact(
   // (3) DEGRADED / fallback / STOCK_DAILY / UNKNOWN / FAILED tier → DEGRADED
   const fallbackTainted = ft !== undefined && ft !== 'NONE';
   const sourceTainted = st === 'STOCK_DAILY' || st === 'UNKNOWN' || st === 'FAILED';
+  const kisBasketShadowOnly = st === 'KIS_STOCK_BASKET_DERIVED' || lc === 'READY_FOR_SHADOW';
+  if (kisBasketShadowOnly) {
+    return {
+      diagnosticStatus: 'DEGRADED',
+      scoringImpact: 'ZERO_SECTOR_BOOST',
+      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      sectorBoostAllowed: false,
+      strongBuyAllowed: false,
+      hardBlockAllowed: false,
+      reason: 'KIS basket is derived representative basket, not official sector index — shadow/watch/ranking only.',
+    };
+  }
   if (dq === 'DEGRADED' || fallbackTainted || sourceTainted) {
     return {
       diagnosticStatus: 'DEGRADED',

@@ -62,6 +62,7 @@ export type SectorEnergyQualityReason =
   | 'CACHE_STALE'
   | 'SOURCE_EMPTY'
   | 'SCHEMA_MISMATCH'
+  | 'KIS_BASKET_DERIVED_SHADOW'
   | 'UNKNOWN';
 
 /**
@@ -382,6 +383,9 @@ export function buildOperatorMessage(
   if (reasons.includes('CACHE_STALE')) {
     parts.push('cache age exceeds 4h');
   }
+  if (reasons.includes('KIS_BASKET_DERIVED_SHADOW')) {
+    parts.push('KIS basket is a derived representative basket, not an official sector index');
+  }
   if (parts.length === 0) {
     return `sector-energy data quality degraded to ${dataQuality}; operator review recommended.`;
   }
@@ -421,8 +425,21 @@ export function evaluateSectorEnergyQualityDiagnostic(
   const reasons: SectorEnergyQualityReason[] = [];
   let dataQuality: SectorEnergyDataQuality5;
 
+  if (input.sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
+    reasons.push('KIS_BASKET_DERIVED_SHADOW');
+    if (Number.isFinite(input.validSectorCount) && input.validSectorCount >= SECTOR_ENERGY_QUALITY_THRESHOLDS.VALID_SECTOR_COUNT_LOW_THRESHOLD) {
+      dataQuality = 'PARTIAL';
+    } else if (Number.isFinite(input.validSectorCount) && input.validSectorCount > 0) {
+      dataQuality = 'STALE';
+    } else {
+      dataQuality = 'FAILED';
+      reasons.push('SOURCE_EMPTY');
+    }
+    if (indexCodeCoverage === 0) reasons.push('INDEX_CODE_COVERAGE_ZERO');
+    if (!input.symmetryValidationPassed) reasons.push('SYMMETRY_VALIDATION_FAILED');
+  }
   // ① totalSectorRows === 0 → SOURCE_EMPTY (FAILED 분류 — DATA_UNAVAILABLE 의미)
-  if (!Number.isFinite(input.totalSectorRows) || input.totalSectorRows <= 0) {
+  else if (!Number.isFinite(input.totalSectorRows) || input.totalSectorRows <= 0) {
     reasons.push('SOURCE_EMPTY');
     dataQuality = 'FAILED';
   }
@@ -583,7 +600,10 @@ export function formatSectorEnergyQualityDiagnosticSection(
     }
   }
 
-  lines.push(`  • leadershipConfidence: ${diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK'}`);
+  const leadershipConfidence = diagnostic.sourceTier === 'KIS_STOCK_BASKET_DERIVED'
+    ? 'READY_FOR_SHADOW'
+    : diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK';
+  lines.push(`  • leadershipConfidence: ${leadershipConfidence}`);
 
   // ADR-0424: backfill stats + repair status (옵셔널, 후방호환).
   if (diagnostic.indexCodeBackfilledCount !== undefined && diagnostic.indexCodeBackfilledCount > 0) {
@@ -597,6 +617,8 @@ export function formatSectorEnergyQualityDiagnosticSection(
 
   if (diagnostic.shouldBlockLeadershipConfidence) {
     lines.push('  • operatorAction: sector indexCode mapping/provider cache 점검 우선');
+  } else if (diagnostic.sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
+    lines.push('  • operatorAction: observe 20D KIS basket history before promotion audit.');
   } else if (diagnostic.repairStatus === 'RECOVERED') {
     lines.push(
       '  • operatorAction: KRX 본체 정상 — backfill 로 복구 (ADR-0424). 데이터 결손 빈도 모니터링.',

@@ -405,11 +405,13 @@ function resultFromInputs(
       ? (validSectorCount >= 9 ? 'PARTIAL' : validSectorCount > 0 ? 'STALE' : 'FAILED')
       : validSectorCount >= TOTAL_SECTOR_COUNT ? 'OK' : validSectorCount >= 9 ? 'PARTIAL' : validSectorCount > 0 ? 'STALE' : 'FAILED';
   const confidence =
-    sourceTier === 'KIS_OFFICIAL_INDEX' || sourceTier === 'KIS_OFFICIAL_DAILY'
-      ? clamp(validSectorCount / TOTAL_SECTOR_COUNT, 0, 1)
-      : sourceTier === 'KIS_STOCK_BASKET_DERIVED'
-        ? clamp(0.75 * (validSectorCount / TOTAL_SECTOR_COUNT), 0, 1)
-        : 0;
+    sourceTier === 'KIS_OFFICIAL_INDEX'
+      ? clamp(0.95 * (validSectorCount / TOTAL_SECTOR_COUNT), 0, 1)
+      : sourceTier === 'KIS_OFFICIAL_DAILY'
+        ? clamp(0.9 * (validSectorCount / TOTAL_SECTOR_COUNT), 0, 1)
+        : sourceTier === 'KIS_STOCK_BASKET_DERIVED'
+          ? clamp(0.65 * (validSectorCount / TOTAL_SECTOR_COUNT), 0, 1)
+          : 0;
   const leadershipConfidence: KisSectorEnergyLeadershipConfidence =
     sourceTier === 'KIS_OFFICIAL_INDEX' || sourceTier === 'KIS_OFFICIAL_DAILY'
       ? 'WEIGHTED'
@@ -417,7 +419,7 @@ function resultFromInputs(
         ? 'READY_FOR_SHADOW'
         : 'BLOCKED';
   const breakdown = coverageBreakdown({
-    verifiedIndexCodeCount: 0,
+    verifiedIndexCodeCount: sourceTier === 'KIS_OFFICIAL_INDEX' || sourceTier === 'KIS_OFFICIAL_DAILY' ? validSectorCount : 0,
     kisOfficialCount: sourceTier === 'KIS_OFFICIAL_INDEX' || sourceTier === 'KIS_OFFICIAL_DAILY' ? validSectorCount : 0,
     kisBasketCount: sourceTier === 'KIS_STOCK_BASKET_DERIVED' ? validSectorCount : 0,
   });

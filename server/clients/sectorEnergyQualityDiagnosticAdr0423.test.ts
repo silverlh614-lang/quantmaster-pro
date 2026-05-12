@@ -95,6 +95,27 @@ describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
     expect(diag.shouldBlockLeadershipConfidence).toBe(false);
   });
 
+
+
+  it('KIS basket derived source is PARTIAL + READY_FOR_SHADOW, not OK or BLOCKED', () => {
+    const diag = evaluateSectorEnergyQualityDiagnostic({
+      validSectorCount: 12,
+      expectedSectorCount: 12,
+      totalSectorRows: 12,
+      rowsWithIndexCode: 0,
+      symmetryValidationPassed: true,
+      fallbackUsed: 'NONE',
+      sourceTier: 'KIS_STOCK_BASKET_DERIVED',
+    });
+    const section = formatSectorEnergyQualityDiagnosticSection(diag) ?? '';
+
+    expect(diag.dataQuality).toBe('PARTIAL');
+    expect(diag.reasons).toContain('KIS_BASKET_DERIVED_SHADOW');
+    expect(diag.shouldBlockLeadershipConfidence).toBe(false);
+    expect(section).toContain('leadershipConfidence: READY_FOR_SHADOW');
+    expect(section).not.toContain('leadershipConfidence: OK');
+  });
+
   it('6. totalSectorRows 0 이면 FAILED — SOURCE_EMPTY', () => {
     const diag = evaluateSectorEnergyQualityDiagnostic({
       validSectorCount: 0,
