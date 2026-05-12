@@ -55,17 +55,20 @@ export interface KrxInvestorRow {
 export type KrxInvestorParserStatus =
   | 'OK'
   | 'DISABLED_BY_KIS_FIRST_MODE'
+  | 'DISABLED_BY_KIS_ONLY_MODE'
   | 'PROVIDER_EMPTY_RESPONSE'
   | 'PARSER_KEY_MISMATCH'
   | 'PARSER_FIELD_MISMATCH'
   | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
 
 export interface KrxInvestorTradingDiagnostic {
-  status?: 'DISABLED_BY_KIS_FIRST_MODE';
+  status?: 'DISABLED_BY_KIS_FIRST_MODE' | 'DISABLED_BY_KIS_ONLY_MODE';
+  confidence?: 'MISSING';
   provider?: 'KRX';
   providerIssue?: boolean;
   marketSignal?: boolean;
   executionImpact?: 'NONE';
+  reason?: string;
   endpoint: string;
   bld: string;
   tradeDate: string;
@@ -161,13 +164,15 @@ const KRX_DOWNLOAD_CSV_PATH = '/comm/fileDn/download_csv/download.cmd';
 const KRX_DISABLED = process.env.KRX_API_DISABLED === 'true';
 
 function isKrxAutoFetchDisabled(): boolean {
-  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
+  return process.env.KIS_ONLY_REBUILD_MODE === 'true' || process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
 }
 
 function krxAutoFetchDisabledReason(): string {
-  return process.env.KIS_FIRST_REBUILD_MODE === 'true'
-    ? 'KIS_FIRST_REBUILD_MODE'
-    : 'KRX_AUTO_FETCH_DISABLED';
+  return process.env.KIS_ONLY_REBUILD_MODE === 'true'
+    ? 'KIS_ONLY_REBUILD'
+    : process.env.KIS_FIRST_REBUILD_MODE === 'true'
+      ? 'KIS_FIRST_REBUILD_MODE'
+      : 'KRX_AUTO_FETCH_DISABLED';
 }
 
 export function isKrxAutomaticFetchDisabled(): boolean {
@@ -246,6 +251,20 @@ const RECOVERY_PROBE_WINDOW_MS = 30 * 60 * 1000; // 30분
 
 function isKisFirstRebuildMode(): boolean {
   return process.env.KIS_FIRST_REBUILD_MODE === 'true';
+}
+
+function isKisOnlyRebuildMode(): boolean {
+  return process.env.KIS_ONLY_REBUILD_MODE === 'true';
+}
+
+function krxDisabledStatus(): 'DISABLED_BY_KIS_FIRST_MODE' | 'DISABLED_BY_KIS_ONLY_MODE' {
+  return isKisOnlyRebuildMode() ? 'DISABLED_BY_KIS_ONLY_MODE' : 'DISABLED_BY_KIS_FIRST_MODE';
+}
+
+function krxDisabledReasonMessage(): string {
+  return isKisOnlyRebuildMode()
+    ? 'KIS_ONLY_REBUILD disables KRX fallback'
+    : 'KIS-first mode; KRX retained for manual validation only';
 }
 
 function isBldCooldown(bld: string): boolean {
@@ -665,8 +684,11 @@ function buildKrxAutoDisabledDiagnostic(input: {
   const endpoint = input.endpoint ?? 'MDCSTAT02201';
   const bld = input.bld ?? 'dbms/MDC/STAT/standard/MDCSTAT02201';
   const reason = krxAutoFetchDisabledReason();
+  const status = krxDisabledStatus();
+  const reasonMessage = krxDisabledReasonMessage();
   return {
-    status: 'DISABLED_BY_KIS_FIRST_MODE',
+    status,
+    ...(status === 'DISABLED_BY_KIS_ONLY_MODE' ? { confidence: 'MISSING' as const } : {}),
     provider: 'KRX',
     providerIssue: false,
     marketSignal: false,
@@ -696,9 +718,9 @@ function buildKrxAutoDisabledDiagnostic(input: {
     csvDownloaded: false,
     csvRowCount: 0,
     csvColumnKeys: [],
-    csvFailureReason: 'KIS-first mode; KRX retained for manual validation only',
+    csvFailureReason: krxDisabledReasonMessage(),
     csvHeaderDetected: false,
-    csvNoDataReason: 'KIS-first mode; KRX retained for manual validation only',
+    csvNoDataReason: krxDisabledReasonMessage(),
     omittedKeys: [],
     forbiddenKeysPresent: [],
     requiredKeysPresent: [],
@@ -725,7 +747,7 @@ function buildKrxAutoDisabledDiagnostic(input: {
     selectedRowCount: 0,
     firstRowKeys: [],
     normalizedRows: 0,
-    parserStatus: 'DISABLED_BY_KIS_FIRST_MODE',
+    parserStatus: status,
     fieldMappings: {
       symbol: null,
       date: null,
@@ -737,7 +759,8 @@ function buildKrxAutoDisabledDiagnostic(input: {
       netBuyVolume: null,
     },
     endpointIssueHint: 'NONE',
-    summary: `status=DISABLED_BY_KIS_FIRST_MODE;provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=${reason};message=KIS-first mode; KRX retained for manual validation only`,
+    summary: `status=${status};provider=KRX;providerIssue=false;marketSignal=false;useForRouter=false;useForGate=false;useForLive=false;useForShadow=false;executionImpact=NONE;reason=${reason};message=${reasonMessage}`,
+    reason: reasonMessage,
   };
 }
 
@@ -851,7 +874,7 @@ async function krxPost(
 ): Promise<KrxRawResponse | null> {
   if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
     const endpoint = bld.split('/').at(-1) ?? bld;
-    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${endpoint}`);
+    console.info(`[KRX] skipped: ${krxAutoFetchDisabledReason()} auto fetch disabled endpoint=${endpoint}`);
     setKrxPostMeta(bld, { contentType: 'empty', httpStatus: null, responseKind: 'DISABLED', diagnosticOnly: true, useForRouter: false, useForGate: false, useForLive: false, useForShadow: false });
     return null;
   }
@@ -922,7 +945,7 @@ async function krxPost(
         if (kisFirst) {
           recordBldFailure(bld, { cooldownThreshold: BLD_KIS_FIRST_QUARANTINE_THRESHOLD, reason: 'OFF_HOURS_HTTP400' });
         }
-        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251)`);
+        console.debug(`[KRX] ${bld} HTTP 400 (off-hours fallback — suppressed, ADR-0251, executionImpact=NONE)`);
         setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR', ...krxFailureMeta(bld), offHoursSuppressed: true, diagnosticOnly: kisFirst, useForRouter: !kisFirst, useForGate: !kisFirst, useForLive: false, useForShadow: true });
         return null;
       }
@@ -969,7 +992,7 @@ async function krxInvestorOtpCsv(
   const { body: otpBody, meta: payloadMeta } = buildKrxOtpPayload(variant);
   if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
     const endpoint = variant.endpoint;
-    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${endpoint}`);
+    console.info(`[KRX] skipped: ${krxAutoFetchDisabledReason()} auto fetch disabled endpoint=${endpoint}`);
     setKrxPostMeta(variant.bld, {
       ...payloadMeta,
       contentType: 'empty',
@@ -981,9 +1004,9 @@ async function krxInvestorOtpCsv(
       csvDownloaded: false,
       csvRowCount: 0,
       csvColumnKeys: [],
-      csvFailureReason: 'KIS-first mode; KRX retained for manual validation only',
+      csvFailureReason: krxDisabledReasonMessage(),
       csvHeaderDetected: false,
-      csvNoDataReason: 'KIS-first mode; KRX retained for manual validation only',
+      csvNoDataReason: krxDisabledReasonMessage(),
       diagnosticOnly: true,
       useForRouter: false,
       useForGate: false,
@@ -1740,7 +1763,7 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
       routePurpose: symbolCode ? 'SYMBOL_LEVEL' : 'MARKET_LEVEL',
       symbolCode: symbolCode || null,
     });
-    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${diagnostic.endpoint}`);
+    console.info(`[KRX] skipped: ${krxAutoFetchDisabledReason()} auto fetch disabled endpoint=${diagnostic.endpoint}`);
     setInvestorTradingDiagnostic(compactDate, diagnostic);
     return [];
   }

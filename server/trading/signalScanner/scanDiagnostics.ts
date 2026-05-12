@@ -1714,6 +1714,115 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   return lines.join('\n');
 }
 
+
+const GATE1_DRY_RUN_ADR_CODES = new Set([
+  'ADR-0467',
+  'ADR-0468',
+  'ADR-0469',
+  'ADR-0470',
+  'ADR-0471',
+  'ADR-0472',
+  'ADR-0475',
+  'ADR-0476',
+]);
+const GATE1_DRY_RUN_LUNCH_RATE_LIMIT_MS = 15 * 60 * 1000;
+const gate1DryRunLogLastEmittedAt = new Map<string, number>();
+
+export interface AdrDiagnosticPayload {
+  adrCode?: string;
+  dryRun?: boolean;
+  engineMode?: string;
+  executionImpact?: 'NONE' | string;
+  liveExecutionAllowed?: boolean;
+  session?: string;
+  reason?: string;
+  issueClass?: string;
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  deferred?: boolean;
+  [key: string]: unknown;
+}
+
+export interface AdrDiagnosticLogOptions {
+  nowMs?: number;
+  rateLimitMs?: number;
+  recordShadowCase?: () => void;
+  logger?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+}
+
+function currentKstSession(nowMs = Date.now()): 'LUNCH_GUARD' | 'REGULAR' {
+  const kst = new Date(nowMs + 9 * 60 * 60_000);
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return minutes >= 11 * 60 + 30 && minutes < 13 * 60 ? 'LUNCH_GUARD' : 'REGULAR';
+}
+
+function adrCodeFromEvent(event: string, payload: AdrDiagnosticPayload): string {
+  return payload.adrCode ?? event.match(/ADR-\d{4}/)?.[0] ?? 'ADR-UNKNOWN';
+}
+
+function normalizeAdrDiagnosticPayload(event: string, payload: AdrDiagnosticPayload): AdrDiagnosticPayload {
+  const adrCode = adrCodeFromEvent(event, payload);
+  const gate1Diagnostic = GATE1_DRY_RUN_ADR_CODES.has(adrCode);
+  return {
+    ...payload,
+    adrCode,
+    ...(gate1Diagnostic
+      ? {
+          issueClass: payload.issueClass ?? 'GATE1_DIAGNOSTIC',
+          providerIssue: payload.providerIssue ?? false,
+          marketSignal: payload.marketSignal ?? false,
+          executionImpact: payload.executionImpact ?? 'NONE',
+          deferred: payload.deferred ?? true,
+        }
+      : {}),
+  };
+}
+
+function isNonImpactAdrDiagnostic(payload: AdrDiagnosticPayload): boolean {
+  return payload.dryRun === true
+    || payload.engineMode === 'SHADOW_ONLY'
+    || payload.executionImpact === 'NONE'
+    || payload.liveExecutionAllowed === false;
+}
+
+export function resetAdrDiagnosticLogRateLimiterForTest(): void {
+  gate1DryRunLogLastEmittedAt.clear();
+}
+
+export function logAdrDiagnostic(
+  event: string,
+  payload: AdrDiagnosticPayload = {},
+  options: AdrDiagnosticLogOptions = {},
+): boolean {
+  const logger = options.logger ?? console;
+  const nowMs = options.nowMs ?? Date.now();
+  const normalized = normalizeAdrDiagnosticPayload(event, payload);
+  options.recordShadowCase?.();
+
+  const adrCode = adrCodeFromEvent(event, normalized);
+  const session = normalized.session ?? currentKstSession(nowMs);
+  const reason = String(normalized.reason ?? normalized.issueClass ?? 'UNSPECIFIED');
+  const nonImpact = isNonImpactAdrDiagnostic(normalized);
+
+  if (GATE1_DRY_RUN_ADR_CODES.has(adrCode) && session === 'LUNCH_GUARD' && nonImpact) {
+    const key = `${adrCode}:${session}:${reason}`;
+    const rateLimitMs = options.rateLimitMs ?? GATE1_DRY_RUN_LUNCH_RATE_LIMIT_MS;
+    const lastEmittedAt = gate1DryRunLogLastEmittedAt.get(key) ?? 0;
+    if (lastEmittedAt > 0 && nowMs - lastEmittedAt < rateLimitMs) {
+      return false;
+    }
+    gate1DryRunLogLastEmittedAt.set(key, nowMs);
+  }
+
+  if (nonImpact) {
+    logger.debug(event, { ...normalized, session, reason });
+    return true;
+  }
+
+  logger.warn(event, { ...normalized, session, reason });
+  return true;
+}
+
 export interface PersistScanResultsOptions {
   sellOnly?: boolean;
   buyListLength: number;
@@ -2101,9 +2210,16 @@ export async function persistScanResults(
       });
       if (fallback) {
         summaryDraft.positiveScoreStarvation = fallback;
-        console.warn(
-          `[ADR-0467] fallback PositiveScoreStarvationReport emitted from ADR-0466 min-signal telemetry ` +
-          `(candidates=${fallback.totalCandidates}, gateScoreHealthSamples=${counters.gateScoreHealthSamples})`,
+        logAdrDiagnostic(
+          `[ADR-0467] fallback PositiveScoreStarvationReport emitted from ADR-0466 min-signal telemetry`,
+          {
+            adrCode: 'ADR-0467',
+            dryRun: true,
+            executionImpact: 'NONE',
+            candidates: fallback.totalCandidates,
+            gateScoreHealthSamples: counters.gateScoreHealthSamples,
+            reason: counters.gateScoreHealthSamples === 0 ? 'GATE_SCORE_HEALTH_SAMPLES_EMPTY' : 'POSITIVE_SCORE_STARVATION_FALLBACK',
+          },
         );
       }
     }
@@ -2125,10 +2241,16 @@ export async function persistScanResults(
     });
     if (repair) {
       summaryDraft.scoreCeilingRepair = repair;
-      console.warn(
-        `[ADR-0468] Gate1ScoreCeilingRepair dry-run emitted ` +
-        `(candidates=${repair.totalCandidates}, requiredReachableBefore=${repair.scoreCeilingRepairAudit.requiredReachableBefore}, ` +
-        `executionImpact=${repair.executionImpact})`,
+      logAdrDiagnostic(
+        `[ADR-0468] Gate1ScoreCeilingRepair dry-run emitted`,
+        {
+          adrCode: 'ADR-0468',
+          dryRun: true,
+          executionImpact: repair.executionImpact,
+          candidates: repair.totalCandidates,
+          requiredReachableBefore: repair.scoreCeilingRepairAudit.requiredReachableBefore,
+          reason: 'GATE1_SCORE_CEILING_REPAIR_DRY_RUN',
+        },
       );
     }
   } catch (e) {
@@ -2150,10 +2272,16 @@ export async function persistScanResults(
     });
     if (dedup) {
       summaryDraft.penaltyDeduplication = dedup;
-      console.warn(
-        `[ADR-0469] PenaltyDeduplication dry-run emitted ` +
-        `(candidates=${dedup.totalCandidates}, duplicateGroups=${dedup.duplicateGroups.length}, ` +
-        `executionImpact=${dedup.executionImpact})`,
+      logAdrDiagnostic(
+        `[ADR-0469] PenaltyDeduplication dry-run emitted`,
+        {
+          adrCode: 'ADR-0469',
+          dryRun: true,
+          executionImpact: dedup.executionImpact,
+          candidates: dedup.totalCandidates,
+          duplicateGroups: dedup.duplicateGroups.length,
+          reason: 'PENALTY_DEDUPLICATION_DRY_RUN',
+        },
       );
     }
   } catch (e) {
@@ -2180,10 +2308,16 @@ export async function persistScanResults(
     });
     if (riskDoubleCount) {
       summaryDraft.riskDoubleCount = riskDoubleCount;
-      console.warn(
-        `[ADR-0470] RiskDoubleCount dry-run emitted ` +
-        `(candidates=${riskDoubleCount.totalCandidates}, doubleCountCandidates=${riskDoubleCount.doubleCountCandidates}, ` +
-        `executionImpact=${riskDoubleCount.executionImpact})`,
+      logAdrDiagnostic(
+        `[ADR-0470] RiskDoubleCount dry-run emitted`,
+        {
+          adrCode: 'ADR-0470',
+          dryRun: true,
+          executionImpact: riskDoubleCount.executionImpact,
+          candidates: riskDoubleCount.totalCandidates,
+          doubleCountCandidates: riskDoubleCount.doubleCountCandidates,
+          reason: 'RISK_DOUBLE_COUNT_DRY_RUN',
+        },
       );
     }
   } catch (e) {
@@ -2207,10 +2341,17 @@ export async function persistScanResults(
     });
     if (finalGate1Calibration) {
       summaryDraft.finalGate1Calibration = finalGate1Calibration;
-      console.warn(
-        `[ADR-0471] FinalGate1Calibration dry-run emitted ` +
-        `(candidates=${finalGate1Calibration.candidates}, recommendedPolicy=${finalGate1Calibration.thresholdSweep.recommendedUnknownPolicy}, ` +
-        `liveExecutionAllowed=${finalGate1Calibration.liveExecutionAllowed})`,
+      logAdrDiagnostic(
+        `[ADR-0471] FinalGate1Calibration dry-run emitted`,
+        {
+          adrCode: 'ADR-0471',
+          dryRun: true,
+          executionImpact: finalGate1Calibration.executionImpact,
+          liveExecutionAllowed: finalGate1Calibration.liveExecutionAllowed,
+          candidates: finalGate1Calibration.candidates,
+          recommendedPolicy: finalGate1Calibration.thresholdSweep.recommendedUnknownPolicy,
+          reason: 'FINAL_GATE1_CALIBRATION_DRY_RUN',
+        },
       );
     }
   } catch (e) {
@@ -2236,11 +2377,17 @@ export async function persistScanResults(
     });
     if (gate1ScoringAlignment) {
       summaryDraft.gate1ScoringAlignment = gate1ScoringAlignment;
-      console.warn(
-        `[ADR-0472] Gate1ScoringAlignment SHADOW_ONLY dry-run emitted ` +
-        `(componentSetAligned=${gate1ScoringAlignment.componentSetAligned}, ` +
-        `missingComponents=${gate1ScoringAlignment.missingComponents.join('|') || 'none'}, ` +
-        `executionImpact=${gate1ScoringAlignment.executionImpact})`,
+      logAdrDiagnostic(
+        `[ADR-0472] Gate1ScoringAlignment SHADOW_ONLY dry-run emitted`,
+        {
+          adrCode: 'ADR-0472',
+          dryRun: true,
+          engineMode: 'SHADOW_ONLY',
+          executionImpact: gate1ScoringAlignment.executionImpact,
+          componentSetAligned: gate1ScoringAlignment.componentSetAligned,
+          missingComponents: gate1ScoringAlignment.missingComponents,
+          reason: gate1ScoringAlignment.missingComponents.join('|') || 'COMPONENT_SET_ALIGNED',
+        },
       );
     }
   } catch (e) {
@@ -2266,12 +2413,18 @@ export async function persistScanResults(
     });
     if (gate1PositiveSourceWiring) {
       summaryDraft.gate1PositiveSourceWiring = gate1PositiveSourceWiring;
-      console.warn(
-        `[ADR-0475] Gate1PositiveSourceWiring SHADOW_ONLY dry-run emitted ` +
-        `(candidates=${gate1PositiveSourceWiring.totalCandidates}, ` +
-        `afterRange=${gate1PositiveSourceWiring.afterDryRunScoreRange}, ` +
-        `executionImpact=${gate1PositiveSourceWiring.executionImpact}, ` +
-        `liveExecutionAllowed=${gate1PositiveSourceWiring.liveExecutionAllowed})`,
+      logAdrDiagnostic(
+        `[ADR-0475] Gate1PositiveSourceWiring SHADOW_ONLY dry-run emitted`,
+        {
+          adrCode: 'ADR-0475',
+          dryRun: true,
+          engineMode: 'SHADOW_ONLY',
+          executionImpact: gate1PositiveSourceWiring.executionImpact,
+          liveExecutionAllowed: gate1PositiveSourceWiring.liveExecutionAllowed,
+          candidates: gate1PositiveSourceWiring.totalCandidates,
+          afterRange: gate1PositiveSourceWiring.afterDryRunScoreRange,
+          reason: 'GATE1_POSITIVE_SOURCE_WIRING_DRY_RUN',
+        },
       );
     }
   } catch (e) {
@@ -2540,10 +2693,16 @@ export async function persistScanResults(
     });
     await saveGate1DryRunObservationRows(rows);
     summaryDraft.gate1DryRunObservationLedger = summarizeGate1DryRunObservationRows(rows, rows.length);
-    console.warn(
-      `[ADR-0476] Gate1DryRunObservation rows emitted ` +
-      `(rows=${rows.length}, executionImpact=${summaryDraft.gate1DryRunObservationLedger.executionImpact}, ` +
-      `liveExecutionAllowed=${summaryDraft.gate1DryRunObservationLedger.liveExecutionAllowed})`,
+    logAdrDiagnostic(
+      `[ADR-0476] Gate1DryRunObservation rows emitted`,
+      {
+        adrCode: 'ADR-0476',
+        dryRun: true,
+        executionImpact: summaryDraft.gate1DryRunObservationLedger.executionImpact,
+        liveExecutionAllowed: summaryDraft.gate1DryRunObservationLedger.liveExecutionAllowed,
+        rows: rows.length,
+        reason: 'GATE1_DRY_RUN_OBSERVATION_ROWS',
+      },
     );
   } catch (e) {
     console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);

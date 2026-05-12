@@ -111,7 +111,7 @@ function readDisabled(): boolean {
 }
 
 function isKrxAutoFetchDisabled(): boolean {
-  return process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
+  return process.env.KIS_ONLY_REBUILD_MODE === 'true' || process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
 }
 
 export function isKrxOpenApiAutoFetchDisabled(): boolean {
@@ -259,7 +259,7 @@ async function krxGetFromBase(
 
 export async function krxGet(endpoint: string, params: Record<string, string>): Promise<KrxOpenApiResponse | null> {
   if (isKrxAutoFetchDisabled()) {
-    console.info(`[KRX] skipped: KIS_FIRST_REBUILD_MODE auto fetch disabled endpoint=${endpoint}`);
+    console.info(`[KRX] skipped: KIS_ONLY_OR_FIRST_REBUILD auto fetch disabled endpoint=${endpoint}`);
     return null;
   }
   if (readDisabled()) return null;
