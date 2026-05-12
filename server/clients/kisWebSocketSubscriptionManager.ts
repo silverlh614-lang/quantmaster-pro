@@ -35,6 +35,7 @@ import {
 // ADR-0438 (= 사용자 명시 ADR-0442) — Symbol Resolver SSOT 위임.
 // ADR-0437 의 inline normalizeKrxCodeForWs 가 SSOT 통합 (정규식 인라인 제거).
 import { normalizeKrxCode as normalizeKrxCodeSsot } from '../utils/symbolNormalizer.js';
+import { logger as appLogger, logNoiseDetail } from '../utils/logger.js';
 
 /**
  * 12-value SubscriptionPriorityReason union.
@@ -174,7 +175,7 @@ export function formatKisWsNoiseSummary(summary: KisWsNoiseSummary): string {
 
 export function logKisWsNoiseSummary(
   summary: KisWsNoiseSummary,
-  logger: Pick<Console, 'info'> = console,
+  logger: Pick<Console, 'info'> = appLogger,
 ): void {
   logger.info(formatKisWsNoiseSummary(summary));
 }
@@ -424,7 +425,7 @@ export function requestKisWsSubscription(
   const normalizedCode = normalizeKrxCodeForWs(candidate.code);
   if (!normalizedCode) {
     _stats.invalidRejectedCount++;
-    console.debug(`[KIS-WS] reject invalid code ${candidate.code}`);
+    logNoiseDetail({ category: 'KIS_WS_DETAIL', message: `[KIS-WS] reject invalid code ${candidate.code}` });
     return {
       action: 'REJECT_INVALID_CODE',
       code: typeof candidate.code === 'string' ? candidate.code : String(candidate.code),
@@ -463,9 +464,10 @@ export function requestKisWsSubscription(
       _stats.evictedCount++;
       _stats.lastEvictedCode = normalizedCode;
       _stats.lastEvictedReason = 'HARD_RISK_BLOCK';
-      console.debug(
-        `[KIS-WS] evict ${normalizedCode} priority=${existing.priority} reason=HARD_RISK_BLOCK (immediate)`,
-      );
+      logNoiseDetail({
+        category: 'KIS_WS_DETAIL',
+        message: `[KIS-WS] evict ${normalizedCode} priority=${existing.priority} reason=HARD_RISK_BLOCK (immediate)`,
+      });
       return {
         action: 'UNSUBSCRIBE',
         code: normalizedCode,
@@ -494,13 +496,15 @@ export function requestKisWsSubscription(
       existing.openPosition = candidate.openPosition || existing.openPosition;
       existing.liveEligible = candidate.liveEligible || existing.liveEligible;
       existing.shadowObservable = candidate.shadowObservable || existing.shadowObservable;
-      console.debug(
-        `[KIS-WS] keep ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'} (priority 상승)`,
-      );
+      logNoiseDetail({
+        category: 'KIS_WS_DETAIL',
+        message: `[KIS-WS] keep ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'} (priority 상승)`,
+      });
     } else {
-      console.debug(
-        `[KIS-WS] keep ${normalizedCode} priority=${existing.priority} reason=${existing.reasons[0] ?? 'UNKNOWN'}`,
-      );
+      logNoiseDetail({
+        category: 'KIS_WS_DETAIL',
+        message: `[KIS-WS] keep ${normalizedCode} priority=${existing.priority} reason=${existing.reasons[0] ?? 'UNKNOWN'}`,
+      });
     }
     return {
       action: 'KEEP',
@@ -534,9 +538,10 @@ export function requestKisWsSubscription(
         );
       }
     }
-    console.debug(
-      `[KIS-WS] subscribe queued ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}`,
-    );
+    logNoiseDetail({
+      category: 'KIS_WS_DETAIL',
+      message: `[KIS-WS] subscribe queued ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}`,
+    });
     return {
       action: 'SUBSCRIBE',
       code: normalizedCode,
@@ -581,9 +586,10 @@ export function requestKisWsSubscription(
         );
       }
     }
-    console.debug(
-      `[KIS-WS] evict ${evictionTarget.code} priority=${evictionTarget.priority} reason=${evictionTarget.reasons[0] ?? 'UNKNOWN'} → subscribe ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}`,
-    );
+    logNoiseDetail({
+      category: 'KIS_WS_DETAIL',
+      message: `[KIS-WS] evict ${evictionTarget.code} priority=${evictionTarget.priority} reason=${evictionTarget.reasons[0] ?? 'UNKNOWN'} → subscribe ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}`,
+    });
     return {
       action: 'SUBSCRIBE',
       code: normalizedCode,
@@ -598,9 +604,10 @@ export function requestKisWsSubscription(
     Number.MAX_SAFE_INTEGER,
   );
   _stats.lowPriorityRejectedCount++;
-  console.debug(
-    `[KIS-WS] reject low priority ${normalizedCode} priority=${priority} limit=${limit} minPriority=${minSubscribedPriority}`,
-  );
+  logNoiseDetail({
+    category: 'KIS_WS_DETAIL',
+    message: `[KIS-WS] reject low priority ${normalizedCode} priority=${priority} limit=${limit} minPriority=${minSubscribedPriority}`,
+  });
   return {
     action: 'REJECT_LOW_PRIORITY',
     code: normalizedCode,
