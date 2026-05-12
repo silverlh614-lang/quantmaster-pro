@@ -32,6 +32,7 @@ import {
   buildMarketProgramParams,
   materializeKisMarketProgramTrade,
 } from './programMaterializer.js';
+import { classifyInvestorFlowPayload, classifyShortPayload } from './payloadValidators.js';
 
 // ─── ADR-0137 (정정 ADR-0144): 종목별 프로그램 매매 (체결) ────────────────────
 // 사용자 12 아이디어 #3 — 페르소나 자료 #6 "외국인 프로그램/비프로그램" 시그널의
@@ -438,6 +439,11 @@ export async function fetchKisDailyShortSale(
     );
     if (isAcceptedEmptyKisResponse(data)) return null;
     const rows = pickKisRows(data);
+    const payloadClass = classifyShortPayload(rows, { trId: 'FHPST04830000' });
+    if (!payloadClass.materialized) {
+      console.warn('[KIS] SHORT materialize skipped', payloadClass);
+      return null;
+    }
     const latest = rows[0];
     if (!latest) return null;
     const previous = rows[1];
@@ -667,6 +673,11 @@ export async function fetchKisInvestorTradeByStockDaily(
       } catch (e) {
         if (i === dateCandidates.length - 1) throw e;
       }
+    }
+    const payloadClass = classifyInvestorFlowPayload(rows, { trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID });
+    if (!payloadClass.materialized) {
+      console.warn('[KIS] INVESTOR_TRADE_BY_STOCK_DAILY materialize skipped', payloadClass);
+      return null;
     }
     const row = rows[0];
     if (!row) return null;

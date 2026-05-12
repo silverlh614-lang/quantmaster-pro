@@ -16,6 +16,7 @@ import { realDataKisGet } from './http.js';
 import { getKisOverrides } from './overrides.js';
 import type { KisInvestorFlow } from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
+import { classifyInvestorFlowPayload } from './payloadValidators.js';
 
 type KisOutput = Record<string, string>;
 
@@ -89,6 +90,11 @@ export async function fetchKisInvestorFlow(
       priority,
     );
     const out = pickKisOutput(data);
+    const payloadClass = classifyInvestorFlowPayload(out ? [out] : [], { trId: INVESTOR_FLOW_TR_ID, path: INVESTOR_FLOW_PATH });
+    if (!payloadClass.materialized) {
+      console.warn('[KIS] INVESTOR_FLOW materialize skipped', payloadClass);
+      return null;
+    }
     if (!out) return null;
 
     const foreignNetBuy = maybeKisNumber(out, ['frgn_ntby_qty', 'FRGN_NETBUY_QTY']);
