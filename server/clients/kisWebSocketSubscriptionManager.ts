@@ -142,6 +142,50 @@ interface SubscribedEntry {
   shadowObservable?: boolean;
 }
 
+
+export interface KisWsNoiseSummary {
+  active: number;
+  queued: number;
+  keep: number;
+  rejectedLowPriority: number;
+  limitReached: number;
+}
+
+export function summarizeKisWsDecisions(
+  decisions: SubscriptionDecision[],
+  active: number,
+  limit = KIS_WS_SUBSCRIPTION_LIMIT,
+): KisWsNoiseSummary {
+  const queued = decisions.filter((d) => d.action === 'SUBSCRIBE').length;
+  const keep = decisions.filter((d) => d.action === 'KEEP').length;
+  const rejectedLowPriority = decisions.filter((d) => d.action === 'REJECT_LOW_PRIORITY').length;
+  return {
+    active,
+    queued,
+    keep,
+    rejectedLowPriority,
+    limitReached: active >= limit ? rejectedLowPriority : 0,
+  };
+}
+
+export function formatKisWsNoiseSummary(summary: KisWsNoiseSummary): string {
+  return `[KIS-WSSummary] active=${summary.active} queued=${summary.queued} keep=${summary.keep} rejectedLowPriority=${summary.rejectedLowPriority} limitReached=${summary.limitReached}`;
+}
+
+export function logKisWsNoiseSummary(
+  summary: KisWsNoiseSummary,
+  logger: Pick<Console, 'info'> = console,
+): void {
+  logger.info(formatKisWsNoiseSummary(summary));
+}
+
+function isCoreWatchlistHighPriorityFailure(candidate: { priority?: number; reasons: SubscriptionPriorityReason[] }): boolean {
+  const priority = typeof candidate.priority === 'number' && Number.isFinite(candidate.priority)
+    ? candidate.priority
+    : derivePriorityFromReasons(candidate.reasons);
+  return priority >= SUBSCRIPTION_PRIORITY_TABLE.WATCHLIST && candidate.reasons.includes('WATCHLIST');
+}
+
 // ── ENV / 상수 SSOT ────────────────────────────────────────────────────────
 
 function clampLimit(n: number): number {
@@ -380,7 +424,7 @@ export function requestKisWsSubscription(
   const normalizedCode = normalizeKrxCodeForWs(candidate.code);
   if (!normalizedCode) {
     _stats.invalidRejectedCount++;
-    console.log(`[KIS-WS] reject invalid code ${candidate.code}`);
+    console.debug(`[KIS-WS] reject invalid code ${candidate.code}`);
     return {
       action: 'REJECT_INVALID_CODE',
       code: typeof candidate.code === 'string' ? candidate.code : String(candidate.code),
@@ -419,7 +463,7 @@ export function requestKisWsSubscription(
       _stats.evictedCount++;
       _stats.lastEvictedCode = normalizedCode;
       _stats.lastEvictedReason = 'HARD_RISK_BLOCK';
-      console.log(
+      console.debug(
         `[KIS-WS] evict ${normalizedCode} priority=${existing.priority} reason=HARD_RISK_BLOCK (immediate)`,
       );
       return {
@@ -450,11 +494,11 @@ export function requestKisWsSubscription(
       existing.openPosition = candidate.openPosition || existing.openPosition;
       existing.liveEligible = candidate.liveEligible || existing.liveEligible;
       existing.shadowObservable = candidate.shadowObservable || existing.shadowObservable;
-      console.log(
+      console.debug(
         `[KIS-WS] keep ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'} (priority 상승)`,
       );
     } else {
-      console.log(
+      console.debug(
         `[KIS-WS] keep ${normalizedCode} priority=${existing.priority} reason=${existing.reasons[0] ?? 'UNKNOWN'}`,
       );
     }
@@ -480,11 +524,17 @@ export function requestKisWsSubscription(
     subscribedMap.set(normalizedCode, entry);
     try {
       subscribeFn(normalizedCode);
-    } catch {
+    } catch (e) {
       // subscribe 실패 시 entry 제거 (장중 disconnected 등)
       subscribedMap.delete(normalizedCode);
+      if (isCoreWatchlistHighPriorityFailure({ priority, reasons: candidate.reasons })) {
+        console.warn(
+          `[KIS-WS] subscribe failed core watchlist ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
     }
-    console.log(
+    console.debug(
       `[KIS-WS] subscribe queued ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}`,
     );
     return {
@@ -522,10 +572,16 @@ export function requestKisWsSubscription(
     subscribedMap.set(normalizedCode, entry);
     try {
       subscribeFn(normalizedCode);
-    } catch {
+    } catch (e) {
       subscribedMap.delete(normalizedCode);
+      if (isCoreWatchlistHighPriorityFailure({ priority, reasons: candidate.reasons })) {
+        console.warn(
+          `[KIS-WS] subscribe failed core watchlist ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
     }
-    console.log(
+    console.debug(
       `[KIS-WS] evict ${evictionTarget.code} priority=${evictionTarget.priority} reason=${evictionTarget.reasons[0] ?? 'UNKNOWN'} → subscribe ${normalizedCode} priority=${priority} reason=${candidate.reasons[0] ?? 'UNKNOWN'}`,
     );
     return {
@@ -542,7 +598,7 @@ export function requestKisWsSubscription(
     Number.MAX_SAFE_INTEGER,
   );
   _stats.lowPriorityRejectedCount++;
-  console.log(
+  console.debug(
     `[KIS-WS] reject low priority ${normalizedCode} priority=${priority} limit=${limit} minPriority=${minSubscribedPriority}`,
   );
   return {
@@ -598,6 +654,8 @@ export function bulkApplySubscriptionsByPriority(
       });
     }
   }
+  const active = (ctx.subscribedPriorities ?? _subscribedPriorities).size;
+  logKisWsNoiseSummary(summarizeKisWsDecisions(decisions, active, limit));
   return decisions;
 }
 

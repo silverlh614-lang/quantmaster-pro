@@ -1,4 +1,17 @@
 // @responsibility telegramClient 알림 모듈
+
+const TELEGRAM_SUPPRESSED_NOISE_TYPES = new Set([
+  'PRE_ENTRY_WAIT',
+  'KIS_WS_LOW_PRIORITY_REJECT',
+  'KIS_MTAS_DETAIL',
+]);
+
+function isSuppressedNoiseTelegramAlert(message: string, opts?: TelegramAlertOptions): boolean {
+  const candidates = [opts?.category, opts?.dedupeKey, message].filter((v): v is string => typeof v === 'string');
+  return candidates.some((value) =>
+    Array.from(TELEGRAM_SUPPRESSED_NOISE_TYPES).some((noiseType) => value.includes(noiseType)),
+  );
+}
 /**
  * Telegram Bot API — setMyCommands로 봇 메뉴에 명령어 목록 등록
  * 서버 기동 시 1회 호출하면 Telegram 앱에서 '/' 입력 시 자동완성 메뉴가 표시된다.
@@ -351,6 +364,8 @@ export async function sendTelegramAlert(
   message: string,
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
+  if (isSuppressedNoiseTelegramAlert(message, opts)) return undefined;
+
   // 티어 의도가 명시된 경우에만 선두 아이콘을 강제한다 — 커맨드 응답은 기존 서식 유지.
   const hasTierIntent = Boolean(opts?.priority || opts?.tier);
   const tier: AlertTier | undefined = hasTierIntent ? deriveTier(opts) : undefined;
