@@ -20,6 +20,13 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/trading/signalScanner.ts` | Run 24/7 server-side automated signal scanning and trade execution via KIS order API |
 | `server/quantFilter.ts` | Evaluate 8 server-side Gate conditions from Yahoo Finance data with adaptive weights |
 | `server/clients/kisClient.ts` | Proxy all KIS API calls with token management and VTS/real switching |
+| `server/clients/krxClient.ts` | KRX 공개·인증 OpenAPI 단일 통로 barrel (ADR-0502c Phase 1 분해, 후속 Phase 2/3 진행 중) |
+| `server/clients/krxClient/types.ts` | 8 외부 노출 + 7 내부 공용 타입 SSOT (ADR-0502c) |
+| `server/clients/krxClient/constants.ts` | URL/path/BLD/timeout/cache TTL 상수 + KIS 모드 분기 헬퍼 SSOT (ADR-0502c) |
+| `server/clients/krxClient/cache.ts` | 10분 TTL 캐시 + investor-trading diagnostic Map SSOT (ADR-0502c) |
+| `server/clients/krxClient/cooldown.ts` | ADR-0009 bld soft cooldown + ADR-0259 recovery probe SSOT (ADR-0502c) |
+| `server/clients/krxClient/timeWindow.ts` | ADR-0256 시간대 게이팅 (PRE_DAWN/LUNCH_BREAK/POST_CLOSE_PRE_PUBLISH) SSOT (ADR-0502c) |
+| `server/clients/krxClient/dateUtils.ts` | KST 날짜 산술 + 영업일 후퇴 + resolveTradeDate SSOT (ADR-0502c) |
 | `server/routes/kisRouter.ts` | Expose REST endpoints that delegate KIS supply, short-selling, and order calls |
 | `server/routes/autoTradeRouter.ts` | Expose REST endpoints for auto-trade control, watchlist management, and macro state |
 | `server/trading/preMarketGapProbe.ts` | Compute pre-market gap from KIS previous close; classify as proceed/warn/skip by threshold |
@@ -133,6 +140,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 - **bearEngine boundary**: Functions named `evaluateBear*`, `evaluateInverseGate*`, `evaluateMarketNeutral`, `evaluateIPS`, `evaluateFSS` belong here. Do not mix with bull-market Gate evaluation.
 - **kisClient boundary**: All raw KIS REST calls (`kisGet`, `kisPost`, `getKisToken`) must go through this module. No other module may call the KIS API directly.
 - **kisClient barrel + kisClient/ 디렉토리 분해 SSOT** (ADR-0135 PR-Refactor-3): `server/clients/kisClient.ts` 는 분해 후 **얇은 barrel re-export 만 유지** (1382→23 LoC). 본체는 `clients/kisClient/` 디렉토리 9 파일로 분리: `types.ts` (8 도메인 타입 SSOT) / `constants.ts` (KIS_BASE/TR_ID/HAS_REAL_DATA_CLIENT) / `auth.ts` (토큰 캐시 + refresh*Token + invalidateKisToken) / `resilience.ts` (회로차단 + ADR-0014 jitter + __testOnly + _alertUnsafeWriteFailure) / `overrides.ts` (KisClientOverrides + set/has/getOverrides) / `http.ts` (_rawKisGet/_rawKisPost + kisGet/kisPost + realDataKisGet) / `query.ts` (시세 5함수) / `holdings.ts` (잔고 3함수) / `orders.ts` (주문 6함수) / `index.ts` (barrel). 외부 importer (51 파일 + 회귀 테스트) 경로 변경 0건 — barrel 호환 유지. 의존 그래프 단방향 (constants ← auth ← resilience+overrides ← http ← {query,holdings,orders}). LIVE 매매 본체 byte-equivalent 보존. 절대 규칙 #2 (kisClient 단일 통로) 보존.
+- **krxClient 분해 Phase 1 SSOT** (ADR-0502c PR-Refactor-krxClient Phase 1, 2026-05-12): `server/clients/krxClient.ts` 2105 → 1687 LoC. 6 모듈 분해 (642 LoC 분리) — `clients/krxClient/{types, constants, cache, cooldown, timeWindow, dateUtils}.ts`. 외부 importer (14 파일 + 회귀 3 테스트) 경로 변경 0건. 외부 export 28 시그니처 100% 보존, byte-equivalent 동작. 의존성 그래프 단방향 (types → constants → cache/cooldown/timeWindow → dateUtils). ADR-0009 / 0256 / 0259 / 0141 / 0445 정책 보존. ACMA 1500줄 한계 잔여 — BASELINE_TECHNICAL_DEBT 임시 등재 (Phase 2 http/csv + Phase 3 parser/queries/facade 후속 PR 분해 후 정식 제거 예정). 절대 규칙 #2 정합 (KRX 단일 통로).
 - **stockService boundary**: All external data fetches for **auto-trading and server-side screener** (Yahoo, DART, Gemini, KIS via proxy, KRX via proxy) originate here. quantEngine must not perform network requests.
 - **aiUniverseService boundary**: All external data fetches for **AI-recommendation universe discovery and enrichment** originate here. KIS/KRX direct calls are forbidden — use `googleSearchClient` + `naverFinanceClient` + `krxStockMasterRepo` (the master repo's once-a-day KRX download is the only allowed KRX touchpoint). Auto-trading paths must not import this module.
 - **autoTradeEngine boundary**: This is the sole channel for real order execution on the server. Client-side modules must not place live orders when `AUTO_TRADE_ENABLED=true`.

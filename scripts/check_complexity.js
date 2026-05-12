@@ -68,6 +68,22 @@ const BASELINE_TECHNICAL_DEBT = [
   //   누적 wiring SSOT. 분해 작업은 별도 PR (Phase B) — ScanSummary 옵셔널 필드 격상 +
   //   persistScanResults 본체 분기 모듈화. 본 PR scope 외.
   'server/trading/signalScanner/scanDiagnostics.ts',
+  // ADR-0502c (2026-05-12) PR-Refactor-krxClient Phase 1 — types/constants/cache/cooldown/
+  //   timeWindow/dateUtils 6 모듈 분해 (2105 → 1687 줄, 642 LoC 분리). 잔여 ACMA 한계
+  //   초과 부분은 PR-Refactor-krxClient-Phase-2 (http/csv) + Phase-3 (parser/queries/facade)
+  //   후속 PR 분해 예정. 완료 시점에 본 카탈로그에서 정식 제거. 28 export + 14 importer
+  //   무수정, byte-equivalent 동작 보존.
+  'server/clients/krxClient.ts',
+  // ADR-0502c (2026-05-12) — 1순위 ACMA 차단 파일 4종 중 잔여 3종. 사전 baseline 으로
+  //   origin/main 에 이미 누적된 부채 — 본 PR 에서 카탈로그 등재로 거버넌스 정합 회복.
+  //   분해 작업은 후속 PR 시리즈로 진행 (각 파일별 별도 ADR 필요):
+  //     - entryFilterDecomposition.ts (2277 LoC) — ADR-0464 본체, Gate1 분해 SSOT
+  //     - investorFlowProviderRouterAdr0477.ts (1694 LoC) — ADR-0477 router 본체
+  //     - minimumSignalScoreTrace.ts (1520 LoC) — ADR-0466 score 분해
+  //   각각 분해 PR 머지 시 본 카탈로그에서 정식 제거.
+  'server/trading/signalScanner/entryFilterDecomposition.ts',
+  'server/trading/signalScanner/investorFlowProviderRouterAdr0477.ts',
+  'server/trading/signalScanner/minimumSignalScoreTrace.ts',
 ];
 
 function isBaseline(file) {

@@ -45,502 +45,118 @@ import {
 import { isMarketDataPublished, isKstWeekend } from '../utils/marketClock.js';
 import { getStockByCode } from '../persistence/krxStockMasterRepo.js';
 
-// ── 타입 ─────────────────────────────────────────────────────────────────────
+// ── 타입 (ADR-0502c 분해 — types.ts SSOT) ────────────────────────────────────
+export type {
+  KrxInvestorRow,
+  KrxInvestorParserStatus,
+  KrxInvestorTradingDiagnostic,
+  KrxPerPbrRow,
+  KrxShortBalanceRow,
+  KrxInvestorDetailRow,
+  KrxMarketCapRow,
+  FetchInvestorTradingOptions,
+  KrxRawResponse,
+  KrxPostMeta,
+  KrxInvestorEndpointVariant,
+  ParsedKrxCsv,
+  ExtractRowsResult,
+  NormalizedInvestorRowsResult,
+  KrxIsuCdResolution,
+} from './krxClient/types.js';
+import type {
+  KrxInvestorRow,
+  KrxInvestorParserStatus,
+  KrxInvestorTradingDiagnostic,
+  KrxPerPbrRow,
+  KrxShortBalanceRow,
+  KrxInvestorDetailRow,
+  KrxMarketCapRow,
+  FetchInvestorTradingOptions,
+  KrxRawResponse,
+  KrxPostMeta,
+  KrxInvestorEndpointVariant,
+  ParsedKrxCsv,
+  ExtractRowsResult,
+  NormalizedInvestorRowsResult,
+  KrxIsuCdResolution,
+} from './krxClient/types.js';
 
-export interface KrxInvestorRow {
-  code: string;          // 6자리 종목코드
-  name: string;          // 한글 종목명
-  foreignNetBuy: number; // 외국인 순매수 수량(주)
-  institutionNetBuy: number; // 기관 순매수 수량(주)
-  individualNetBuy: number;  // 개인 순매수 수량(주)
-}
+// ── 설정 (ADR-0502c 분해 — constants.ts SSOT) ───────────────────────────────
+import {
+  KRX_BASE,
+  KRX_JSON_PATH,
+  KRX_OTP_PATH,
+  KRX_DOWNLOAD_CSV_PATH,
+  KRX_DISABLED,
+  REQUEST_TIMEOUT_MS,
+  CACHE_TTL_MS,
+  BLD_INVESTOR_TRADING,
+  BLD_PER_PBR,
+  BLD_SHORT_BALANCE,
+  BLD_INVESTOR_DETAIL,
+  KRX_USER_AGENT,
+  BLD_FAILURE_THRESHOLD,
+  BLD_KIS_FIRST_QUARANTINE_THRESHOLD,
+  BLD_COOLDOWN_MS,
+  RECOVERY_PROBE_WINDOW_MS,
+  isKrxAutoFetchDisabled,
+  krxAutoFetchDisabledReason,
+  isKisFirstRebuildMode,
+  isKisOnlyRebuildMode,
+  krxDisabledStatus,
+  krxDisabledReasonMessage,
+} from './krxClient/constants.js';
 
-export type KrxInvestorParserStatus =
-  | 'OK'
-  | 'DISABLED_BY_KIS_FIRST_MODE'
-  | 'DISABLED_BY_KIS_ONLY_MODE'
-  | 'PROVIDER_EMPTY_RESPONSE'
-  | 'PARSER_KEY_MISMATCH'
-  | 'PARSER_FIELD_MISMATCH'
-  | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+export { isKrxAutomaticFetchDisabled } from './krxClient/constants.js';
 
-export interface KrxInvestorTradingDiagnostic {
-  status?: 'DISABLED_BY_KIS_FIRST_MODE' | 'DISABLED_BY_KIS_ONLY_MODE';
-  confidence?: 'MISSING';
-  provider?: 'KRX';
-  providerIssue?: boolean;
-  marketSignal?: boolean;
-  executionImpact?: 'NONE';
-  reason?: string;
-  endpoint: string;
-  bld: string;
-  tradeDate: string;
-  selectedKrxFlowMode?: 'OTP_CSV' | 'DIRECT_JSON' | 'CACHE_FALLBACK';
-  payloadMode?: 'MINIMAL_STRICT' | 'EXTENDED_VARIANT';
-  routePurpose?: 'MARKET_LEVEL' | 'SYMBOL_LEVEL';
-  selectedBld?: string;
-  requiredParamMissing?: string | null;
-  shortCodeToIsuCdResolved?: boolean;
-  isuCd?: string | null;
-  inqTpCd?: string | null;
-  inqVal?: string | null;
-  detailView?: string | null;
-  endpointVariant?: string;
-  routeKind?: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
-  dateParam?: 'trdDd' | 'strtDd/endDd' | 'basDd' | 'searchDate';
-  marketCode?: string | null;
-  symbolCode?: string | null;
-  symbolRequired?: boolean;
-  otpRequired?: boolean;
-  otpGenerated?: boolean;
-  otpLength?: number;
-  csvDownloaded?: boolean;
-  csvRowCount?: number;
-  csvColumnKeys?: string[];
-  csvFailureReason?: string | null;
-  csvHeaderDetected?: boolean;
-  csvNoDataReason?: string | null;
-  omittedKeys?: string[];
-  forbiddenKeysPresent?: string[];
-  requiredKeysPresent?: string[];
-  requiredKeysMissing?: string[];
-  sentPayloadKeys?: string[];
-  parameterKeys?: string[];
-  attemptedVariants?: string[];
-  selectedVariant?: string | null;
-  contentType: 'json' | 'html' | 'csv' | 'text' | 'empty' | 'unknown';
-  httpStatus: number | null;
-  responseKind: 'JSON' | 'HTML' | 'CSV' | 'TEXT' | 'EMPTY' | 'DISABLED' | 'GATED' | 'COOLDOWN' | 'HTTP_ERROR' | 'NETWORK_ERROR';
-  consecutiveFailures?: number;
-  cooldownActive?: boolean;
-  cooldownRemainingMs?: number;
-  offHoursSuppressed?: boolean;
-  diagnosticOnly?: boolean;
-  useForRouter?: boolean;
-  useForGate?: boolean;
-  useForLive?: boolean;
-  useForShadow?: boolean;
-  rawTopLevelKeys: string[];
-  detectedCandidatePaths: string[];
-  selectedRowPath: string | null;
-  selectedRowCount: number;
-  firstRowKeys: string[];
-  normalizedRows: number;
-  parserStatus: KrxInvestorParserStatus;
-  fieldMappings: Record<'symbol' | 'date' | 'investorType' | 'foreignNetBuy' | 'institutionNetBuy' | 'individualNetBuy' | 'netBuyAmount' | 'netBuyVolume', string | null>;
-  endpointIssueHint: 'NONE' | 'ENDPOINT_PARAMETER_ERROR' | 'MARKET_CODE_ERROR' | 'SYMBOL_CODE_FORMAT_ERROR' | 'OTP_OR_HEADER_ERROR' | 'SCHEMA_KEY_CHANGED' | 'FIELD_ALIAS_CHANGED' | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
-  summary: string;
-}
-
-export interface KrxPerPbrRow {
-  code: string;
-  name: string;
-  per: number;           // 주가수익비율 (음수·NaN 시 0)
-  pbr: number;           // 주가순자산비율
-  dividendYield: number; // 배당수익률(%)
-  eps: number;           // 주당순이익
-  bps: number;           // 주당순자산
-  close: number;         // 종가
-}
-
-export interface KrxShortBalanceRow {
-  code: string;
-  name: string;
-  shortBalance: number;  // 공매도 잔고 수량
-  shortBalanceValue: number; // 공매도 잔고 금액
-  shortRatio: number;    // 상장주식수 대비 공매도 잔고 비율(%)
-}
-
-// ── 설정 ──────────────────────────────────────────────────────────────────────
-
-// KRX_PUBLIC_API_BASE 가 우선. 블루프린트에서 KRX_API_BASE 는 인증 OpenAPI 를 가리키므로,
-// 동일한 변수로 두 엔드포인트를 함께 오버라이드할 수 없다. 과거 배포에서 KRX_API_BASE 가
-// data.krx.co.kr(공개) 호스트를 담고 있던 경우에만 레거시 호환으로 수용한다.
-const _legacyKrxBase = (process.env.KRX_API_BASE ?? '').trim();
-const _legacyPublic =
-  /data\.krx\.co\.kr(?!.*\/svc\/apis)/.test(_legacyKrxBase) ? _legacyKrxBase : '';
-const KRX_BASE =
-  (process.env.KRX_PUBLIC_API_BASE ?? _legacyPublic) || 'http://data.krx.co.kr';
-const KRX_JSON_PATH = '/comm/bldAttendant/getJsonData.cmd';
-const KRX_OTP_PATH = '/comm/fileDn/GenerateOTP/generate.cmd';
-const KRX_DOWNLOAD_CSV_PATH = '/comm/fileDn/download_csv/download.cmd';
-const KRX_DISABLED = process.env.KRX_API_DISABLED === 'true';
-
-function isKrxAutoFetchDisabled(): boolean {
-  return process.env.KIS_ONLY_REBUILD_MODE === 'true' || process.env.KIS_FIRST_REBUILD_MODE === 'true' || process.env.KRX_AUTO_FETCH_DISABLED === 'true';
-}
-
-function krxAutoFetchDisabledReason(): string {
-  return process.env.KIS_ONLY_REBUILD_MODE === 'true'
-    ? 'KIS_ONLY_REBUILD'
-    : process.env.KIS_FIRST_REBUILD_MODE === 'true'
-      ? 'KIS_FIRST_REBUILD_MODE'
-      : 'KRX_AUTO_FETCH_DISABLED';
-}
-
-export function isKrxAutomaticFetchDisabled(): boolean {
-  return isKrxAutoFetchDisabled();
-}
-
-const REQUEST_TIMEOUT_MS = 8_000;
-const CACHE_TTL_MS = 10 * 60 * 1000;
-
-// bld 식별자 — KRX 정보데이터시스템 페이지 내부 키.
-// KRX 리뉴얼 시 바뀔 수 있어 환경변수로 오버라이드 가능.
-const BLD_INVESTOR_TRADING =
-  process.env.KRX_BLD_INVESTOR_TRADING ?? 'dbms/MDC/STAT/standard/MDCSTAT02203';
-const BLD_PER_PBR =
-  process.env.KRX_BLD_PER_PBR ?? 'dbms/MDC/STAT/standard/MDCSTAT03501';
-const BLD_SHORT_BALANCE =
-  process.env.KRX_BLD_SHORT_BALANCE ?? 'dbms/MDC/STAT/srt/MDCSTAT30001';
+// ── 캐시 (ADR-0502c — cache.ts SSOT) ─────────────────────────────────────────
+import {
+  getCached,
+  setCached,
+  setInvestorTradingDiagnostic,
+  listCacheKeys,
+  resetCacheState,
+} from './krxClient/cache.js';
+import { resetCooldownState as _resetCooldownState } from './krxClient/cooldown.js';
+export { getLastKrxInvestorTradingDiagnostic } from './krxClient/cache.js';
 
 /**
- * ADR-0141 Stage 1: KRX 11분류 투자자별 매매 BLD.
- * default `MDCSTAT02301` 추정 — 운영 환경 첫 호출 시 검증 필수.
- * 미작동 시 `KRX_BLD_INVESTOR_DETAIL` ENV 즉시 override.
+ * 전체 in-memory state 초기화. cache + cooldown + http meta clear.
+ * 외부 호출자 진입점 (테스트 격리 + /api/system/reset).
+ * ADR-0502c: http meta (`_lastKrxPostMeta`) 가 본 파일에 잔존 — Phase 3-7 http.ts 분리 시 cache.ts 가 통합 SSOT 로 격상.
  */
-const BLD_INVESTOR_DETAIL =
-  process.env.KRX_BLD_INVESTOR_DETAIL ?? 'dbms/MDC/STAT/standard/MDCSTAT02301';
-
-// ── 캐시 ─────────────────────────────────────────────────────────────────────
-
-interface CacheEntry<T> { data: T; expiresAt: number }
-const _cache = new Map<string, CacheEntry<unknown>>();
-const _lastInvestorTradingDiagnostics = new Map<string, KrxInvestorTradingDiagnostic>();
-
-function setInvestorTradingDiagnostic(tradeDate: string, diagnostic: KrxInvestorTradingDiagnostic): void {
-  _lastInvestorTradingDiagnostics.set(tradeDate, diagnostic);
-}
-
-export function getLastKrxInvestorTradingDiagnostic(date?: string): KrxInvestorTradingDiagnostic | null {
-  const tradeDate = date && isValidYyyymmdd(date) ? date : null;
-  if (tradeDate) return _lastInvestorTradingDiagnostics.get(tradeDate) ?? null;
-  return Array.from(_lastInvestorTradingDiagnostics.values()).at(-1) ?? null;
-}
-
-
-function getCached<T>(key: string): T | null {
-  const hit = _cache.get(key);
-  if (!hit || hit.expiresAt <= Date.now()) return null;
-  return hit.data as T;
-}
-
-function setCached<T>(key: string, data: T): void {
-  _cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-}
-
 export function resetKrxCache(): void {
-  _cache.clear();
-  _bldFailureState.clear();
-  _lastInvestorTradingDiagnostics.clear();
+  resetCacheState();
+  _resetCooldownState();
   _lastKrxPostMeta.clear();
 }
 
-// ── ADR-0009: bld 연속 실패 soft cooldown ────────────────────────────────────
-// 동일 bld 가 연속 5회 이상 실패 (HTTP 400 등) 하면 1시간 동안 추가 호출을 건너뛴다.
-// KRX 공개 통계는 확정 지연·스키마 변경 등으로 한동안 400 을 계속 내는 경우가 있어,
-// 방어적으로 호출 횟수 자체를 줄이는 쿨다운을 둔다.
-interface BldFailureState {
-  consecutiveFailures: number;
-  cooldownUntilMs: number;
-  /** ADR-0259: probe 윈도우 안 마지막 시도 시각 — 30분 안 추가 호출 skip 용. */
-  recoveryProbedAt?: number;
-}
-const _bldFailureState = new Map<string, BldFailureState>();
-const BLD_FAILURE_THRESHOLD = 5;
-const BLD_KIS_FIRST_QUARANTINE_THRESHOLD = 2;
-const BLD_COOLDOWN_MS = 60 * 60 * 1000; // 1시간
-const RECOVERY_PROBE_WINDOW_MS = 30 * 60 * 1000; // 30분
+// ── ADR-0009 / 0259 회로 (ADR-0502c — cooldown.ts SSOT) ──────────────────────
+import {
+  isBldCooldown,
+  shouldSkipForRecoveryProbe,
+  markRecoveryProbed,
+  recordBldFailure,
+  recordBldSuccess,
+  getBldFailureState,
+} from './krxClient/cooldown.js';
+export { getKrxBldFailureStates } from './krxClient/cooldown.js';
 
-function isKisFirstRebuildMode(): boolean {
-  return process.env.KIS_FIRST_REBUILD_MODE === 'true';
-}
+// ── ADR-0256 시간대 게이팅 (ADR-0502c — timeWindow.ts SSOT) ──────────────────
+export { shouldSkipKrxCallByTimeWindow } from './krxClient/timeWindow.js';
 
-function isKisOnlyRebuildMode(): boolean {
-  return process.env.KIS_ONLY_REBUILD_MODE === 'true';
-}
-
-function krxDisabledStatus(): 'DISABLED_BY_KIS_FIRST_MODE' | 'DISABLED_BY_KIS_ONLY_MODE' {
-  return isKisOnlyRebuildMode() ? 'DISABLED_BY_KIS_ONLY_MODE' : 'DISABLED_BY_KIS_FIRST_MODE';
-}
-
-function krxDisabledReasonMessage(): string {
-  return isKisOnlyRebuildMode()
-    ? 'KIS_ONLY_REBUILD disables KRX fallback'
-    : 'KIS-first mode; KRX retained for manual validation only';
-}
-
-function isBldCooldown(bld: string): boolean {
-  const s = _bldFailureState.get(bld);
-  if (!s) return false;
-  return s.cooldownUntilMs > Date.now();
-}
-
-/**
- * ADR-0259 wiring: probe 윈도우 안 추가 호출 skip — cooldown 만료 후 30분 안에는
- * 1회만 시도. 이미 probed 했으면 다음 일반 호출 (윈도우 종료 후) 까지 skip.
- *
- * 시간 분기:
- *   - cooldownUntilMs === 0: 처음부터 cooldown 없음 → false (정상 호출)
- *   - cooldown 활성: false (별도 isBldCooldown 분기에서 처리)
- *   - cooldown 만료 + 30분 윈도우 안: recoveryProbedAt > cooldownUntilMs 이면 true
- *   - 30분 지난 후: false (일반 호출)
- */
-function shouldSkipForRecoveryProbe(bld: string): boolean {
-  const s = _bldFailureState.get(bld);
-  if (!s || s.cooldownUntilMs === 0) return false;
-  if (s.cooldownUntilMs > Date.now()) return false;
-  const probeWindowEnd = s.cooldownUntilMs + RECOVERY_PROBE_WINDOW_MS;
-  if (Date.now() >= probeWindowEnd) return false;
-  return (s.recoveryProbedAt ?? 0) >= s.cooldownUntilMs;
-}
-
-/** ADR-0259: probe 시도 시점 마킹 — 30분 안 추가 호출 skip 트리거. */
-function markRecoveryProbed(bld: string): void {
-  const s = _bldFailureState.get(bld);
-  if (!s || s.cooldownUntilMs === 0) return;
-  if (Date.now() < s.cooldownUntilMs + RECOVERY_PROBE_WINDOW_MS) {
-    s.recoveryProbedAt = Date.now();
-    _bldFailureState.set(bld, s);
-  }
-}
-
-function recordBldFailure(bld: string, options: { cooldownThreshold?: number; reason?: string } = {}): BldFailureState {
-  const s = _bldFailureState.get(bld) ?? { consecutiveFailures: 0, cooldownUntilMs: 0 };
-  s.consecutiveFailures += 1;
-  const cooldownThreshold = options.cooldownThreshold ?? BLD_FAILURE_THRESHOLD;
-  if (s.consecutiveFailures >= cooldownThreshold) {
-    s.cooldownUntilMs = Date.now() + BLD_COOLDOWN_MS;
-    console.warn(
-      `[KRX] ${bld} 연속 ${s.consecutiveFailures}회 실패 — 1시간 soft cooldown 활성화`,
-    );
-  }
-  _bldFailureState.set(bld, s);
-  if (options.reason === 'OFF_HOURS_HTTP400' && s.cooldownUntilMs > Date.now()) {
-    console.warn(
-      `[KRX] QUARANTINED 1h endpoint=${bld.split('/').at(-1) ?? bld} reason=OFF_HOURS_HTTP400 providerIssue=true marketSignal=false useForRouter=false`,
-    );
-  }
-  return s;
-}
-
-function recordBldSuccess(bld: string): void {
-  const s = _bldFailureState.get(bld);
-  if (!s) return;
-  s.consecutiveFailures = 0;
-  s.cooldownUntilMs = 0;
-  _bldFailureState.set(bld, s);
-}
-
-/**
- * ADR-0256: KRX 호출 시간대 게이팅 — 통계 무의미 / 미확정 시간대 호출 차단.
- * 카운터 미누적 (ADR-0251 정합) — 정상 동작 인지 + 외부 호출 부담 절감.
- *
- * 차단 시간대 (KST):
- *   - PRE_DAWN (00:00~05:59): 통계 확정 전, 호출 무의미
- *   - LUNCH_BREAK (11:31~12:59): 매수 차단 구간 (volumeClock 정합)
- *   - POST_CLOSE_PRE_PUBLISH (15:30~17:59): 장 마감 후 통계 미확정
- *
- * ENV `KRX_TIME_WINDOW_GATING_DISABLED=true` → 게이팅 비활성, 모든 시각 호출 허용.
- */
-function isKrxTimeWindowGatingDisabled(): boolean {
-  return process.env.KRX_TIME_WINDOW_GATING_DISABLED === 'true';
-}
-
-export function shouldSkipKrxCallByTimeWindow(now: Date = new Date()):
-  { skip: boolean; reason?: 'PRE_DAWN' | 'LUNCH_BREAK' | 'POST_CLOSE_PRE_PUBLISH' } {
-  if (isKrxTimeWindowGatingDisabled()) return { skip: false };
-  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
-  const kst = new Date(kstMs);
-  const totalMin = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-
-  // 새벽 (00:00~05:59) — 통계 확정 전
-  if (totalMin < 6 * 60) return { skip: true, reason: 'PRE_DAWN' };
-
-  // 점심 (11:31~12:59) — 매수 차단 구간 (volumeClock 정합)
-  if (totalMin >= 11 * 60 + 31 && totalMin <= 12 * 60 + 59) {
-    return { skip: true, reason: 'LUNCH_BREAK' };
-  }
-
-  // 장 마감 후 ~ 18:00 (15:30~17:59) — KRX 통계 미확정
-  if (totalMin >= 15 * 60 + 30 && totalMin < 18 * 60) {
-    return { skip: true, reason: 'POST_CLOSE_PRE_PUBLISH' };
-  }
-
-  return { skip: false };
-}
-
-/**
- * ADR-0259: cooldown 만료 후 30분 이내 → probe mode (1회만 시도).
- * 운영자가 무의미한 재호출을 회피하면서도 회복 감지 가능.
- *
- * cooldownUntilMs > 0 (이전 cooldown 발생) AND now > cooldownUntilMs (만료) AND
- * now < cooldownUntilMs + 30 min (만료 직후 윈도우) → probe 시도.
- */
-function isBldInRecoveryProbe(bld: string): boolean {
-  const s = _bldFailureState.get(bld);
-  if (!s) return false;
-  const PROBE_WINDOW_MS = 30 * 60 * 1000;
-  return s.cooldownUntilMs > 0
-      && Date.now() > s.cooldownUntilMs
-      && Date.now() < s.cooldownUntilMs + PROBE_WINDOW_MS;
-}
-
-/** 진단 — 외부 노출 (예: /health_full 명령). */
-export function getKrxBldFailureStates(): Array<{
-  bld: string;
-  consecutiveFailures: number;
-  cooldownActive: boolean;
-  cooldownRemainingMs: number;
-  recoveryProbe: boolean;
-}> {
-  const out: Array<{
-    bld: string;
-    consecutiveFailures: number;
-    cooldownActive: boolean;
-    cooldownRemainingMs: number;
-    recoveryProbe: boolean;
-  }> = [];
-  for (const [bld, s] of _bldFailureState.entries()) {
-    out.push({
-      bld,
-      consecutiveFailures: s.consecutiveFailures,
-      cooldownActive: s.cooldownUntilMs > Date.now(),
-      cooldownRemainingMs: Math.max(0, s.cooldownUntilMs - Date.now()),
-      recoveryProbe: isBldInRecoveryProbe(bld),
-    });
-  }
-  return out;
-}
-
-// ── 날짜 유틸 ────────────────────────────────────────────────────────────────
-
-/** KST 기준 오늘(YYYYMMDD). 외부 조회 기본값. */
-function todayKstYYYYMMDD(): string {
-  // UTC → KST(+09) 변환. 런타임 TZ 영향을 받지 않도록 수동 계산.
-  const now = new Date();
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
-  const kst = new Date(utcMs + 9 * 60 * 60_000);
-  const y = kst.getUTCFullYear();
-  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(kst.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
-}
-
-/** YYYYMMDD 형식 검증 — 외부 입력값 방어. */
-function isValidYyyymmdd(v: string): boolean {
-  return /^\d{8}$/.test(v);
-}
-
-/**
- * KST 기준 직전 영업일(YYYYMMDD). 공휴일 캘린더 없이 "토/일 건너뛰기" 만 적용.
- * 입력이 월요일이면 금요일, 주말이면 직전 금요일, 평일이면 전일을 반환.
- * ADR-0009 — KRX 공개 통계가 당일 미확정(18:00 KST 전) 이거나 주말일 때 후퇴용.
- */
-function previousBusinessDayYYYYMMDD(now: Date = new Date()): string {
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
-  const kst = new Date(utcMs + 9 * 60 * 60_000);
-  // 최대 7일 되돌려서 첫 평일을 찾는다.
-  for (let i = 1; i <= 7; i++) {
-    const probe = new Date(kst.getTime() - i * 24 * 60 * 60_000);
-    const day = probe.getUTCDay();
-    if (day >= 1 && day <= 5) {
-      const y = probe.getUTCFullYear();
-      const m = String(probe.getUTCMonth() + 1).padStart(2, '0');
-      const d = String(probe.getUTCDate()).padStart(2, '0');
-      return `${y}${m}${d}`;
-    }
-  }
-  // 도달하지 않지만 안전망.
-  return todayKstYYYYMMDD();
-}
-
-/**
- * ADR-0009 — date 미지정 시 KRX 공개 통계 조회에 쓸 "안전한" 거래일자를 결정한다.
- *   - 수동 date 인자가 유효하면 그대로 존중 (백필/디버깅 경로).
- *   - 그렇지 않고 isMarketDataPublished=false (평일 18:00 이전 또는 DATA_FETCH_FORCE_OFF)
- *     면 직전 영업일로 후퇴.
- *   - 주말 역시 직전 영업일로 후퇴 (오늘이 토/일이면 오늘 날짜는 비영업일이므로).
- *   - 그 외(평일 18:00 이후) 오늘 KST 날짜를 그대로 사용.
- */
-function resolveTradeDate(date: string | undefined, now: Date = new Date()): string {
-  if (date && isValidYyyymmdd(date)) return date;
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
-  const kst = new Date(utcMs + 9 * 60 * 60_000);
-  const day = kst.getUTCDay();
-  const isWeekend = day === 0 || day === 6;
-  if (isWeekend || !isMarketDataPublished(now)) {
-    return previousBusinessDayYYYYMMDD(now);
-  }
-  return todayKstYYYYMMDD();
-}
+// ── 날짜 유틸 (ADR-0502c — dateUtils.ts SSOT) ────────────────────────────────
+import {
+  todayKstYYYYMMDD,
+  isValidYyyymmdd,
+  previousBusinessDayYYYYMMDD,
+  resolveTradeDate,
+  compactTradeDate,
+} from './krxClient/dateUtils.js';
 
 // ── HTTP 헬퍼 ────────────────────────────────────────────────────────────────
-
-interface KrxRawResponse {
-  /** KRX 리포트별 row 키는 가변 (OutBlock_1, output 등). 전부 맵으로 시도. */
-  [key: string]: unknown;
-}
-
-interface KrxPostMeta {
-  contentType: KrxInvestorTradingDiagnostic['contentType'];
-  httpStatus: number | null;
-  responseKind: KrxInvestorTradingDiagnostic['responseKind'];
-  selectedKrxFlowMode?: NonNullable<KrxInvestorTradingDiagnostic['selectedKrxFlowMode']>;
-  payloadMode?: NonNullable<KrxInvestorTradingDiagnostic['payloadMode']>;
-  otpGenerated?: boolean;
-  otpLength?: number;
-  csvDownloaded?: boolean;
-  csvRowCount?: number;
-  csvColumnKeys?: string[];
-  csvFailureReason?: string | null;
-  csvHeaderDetected?: boolean;
-  csvNoDataReason?: string | null;
-  omittedKeys?: string[];
-  forbiddenKeysPresent?: string[];
-  requiredKeysPresent?: string[];
-  requiredKeysMissing?: string[];
-  sentPayloadKeys?: string[];
-  consecutiveFailures?: number;
-  cooldownActive?: boolean;
-  cooldownRemainingMs?: number;
-  offHoursSuppressed?: boolean;
-  diagnosticOnly?: boolean;
-  useForRouter?: boolean;
-  useForGate?: boolean;
-  useForLive?: boolean;
-  useForShadow?: boolean;
-}
-
-interface KrxInvestorEndpointVariant {
-  id: string;
-  mode: 'OTP_CSV' | 'DIRECT_JSON';
-  payloadMode: NonNullable<KrxInvestorTradingDiagnostic['payloadMode']>;
-  endpoint: string;
-  bld: string;
-  routeKind: 'MARKET_INVESTOR_FLOW' | 'SYMBOL_INVESTOR_FLOW';
-  routePurpose: 'MARKET_LEVEL' | 'SYMBOL_LEVEL';
-  dateParam: NonNullable<KrxInvestorTradingDiagnostic['dateParam']>;
-  marketCode: 'STK' | 'KSQ' | 'ALL';
-  symbolCode: string | null;
-  isuCd: string | null;
-  shortCodeToIsuCdResolved: boolean;
-  requiredParamMissing: string | null;
-  symbolRequired: boolean;
-  otpRequired: boolean;
-  trdVolVal?: '1' | '2';
-  inqTpCd?: string | null;
-  inqVal?: string | null;
-  detailView?: string | null;
-  params: Record<string, string>;
-}
-
-export interface FetchInvestorTradingOptions {
-  symbol?: string | null;
-  isuCd?: string | null;
-  /** Allows explicit manual diagnostics or after-close validation jobs to bypass KIS-first KRX auto-fetch suppression. */
-  allowDisabledAutoFetch?: boolean;
-}
+// ADR-0502c: KrxRawResponse / KrxPostMeta / KrxInvestorEndpointVariant /
+// FetchInvestorTradingOptions 타입 정의는 ./krxClient/types.ts SSOT 로 이동.
 
 const _lastKrxPostMeta = new Map<string, KrxPostMeta>();
 
@@ -549,7 +165,7 @@ function setKrxPostMeta(bld: string, meta: KrxPostMeta): void {
 }
 
 function krxFailureMeta(bld: string): Pick<KrxPostMeta, 'consecutiveFailures' | 'cooldownActive' | 'cooldownRemainingMs'> {
-  const state = _bldFailureState.get(bld);
+  const state = getBldFailureState(bld);
   return {
     consecutiveFailures: state?.consecutiveFailures ?? 0,
     cooldownActive: Boolean(state && state.cooldownUntilMs > Date.now()),
@@ -772,9 +388,7 @@ export const __krxClientTestOnly = {
   buildKrxAutoDisabledDiagnostic,
 };
 
-const KRX_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// ADR-0502c: KRX_USER_AGENT 는 ./krxClient/constants.ts SSOT 로 이동.
 
 function decodeKrxCsv(buffer: ArrayBuffer, contentType: string | null): string {
   const lower = (contentType ?? '').toLowerCase();
@@ -812,12 +426,7 @@ function parseCsvLine(line: string): string[] {
   return out;
 }
 
-interface ParsedKrxCsv {
-  rows: Record<string, unknown>[];
-  headers: string[];
-  headerDetected: boolean;
-  noDataReason: string | null;
-}
+// ADR-0502c: ParsedKrxCsv 정의는 ./krxClient/types.ts 로 이동.
 
 function parseKrxCsv(text: string): ParsedKrxCsv {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -1174,12 +783,7 @@ async function krxInvestorOtpCsv(
 
 const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'csv', 'list', 'rows', 'result', 'block1'] as const;
 
-interface ExtractRowsResult {
-  rows: Record<string, unknown>[];
-  detectedCandidatePaths: string[];
-  selectedRowPath: string | null;
-  firstRowKeys: string[];
-}
+// ADR-0502c: ExtractRowsResult 정의는 ./krxClient/types.ts 로 이동.
 
 function isRecordArray(value: unknown): value is Record<string, unknown>[] {
   return Array.isArray(value) && value.every((row) => row && typeof row === 'object' && !Array.isArray(row));
@@ -1268,10 +872,7 @@ function investorBucket(value: string): 'foreign' | 'institution' | 'individual'
   return null;
 }
 
-interface NormalizedInvestorRowsResult {
-  rows: KrxInvestorRow[];
-  fieldMappings: KrxInvestorTradingDiagnostic['fieldMappings'];
-}
+// ADR-0502c: NormalizedInvestorRowsResult 정의는 ./krxClient/types.ts 로 이동.
 
 function normalizeKrxInvestorRows(rows: Record<string, unknown>[]): NormalizedInvestorRowsResult {
   const byCode = new Map<string, KrxInvestorRow>();
@@ -1524,20 +1125,14 @@ function investorTradingBld(endpoint: string): string {
   return `dbms/MDC/STAT/standard/${endpoint}`;
 }
 
-function compactTradeDate(date: string): string {
-  return date.replace(/[^0-9]/g, '');
-}
+// ADR-0502c: compactTradeDate 는 ./krxClient/dateUtils.ts SSOT 로 이동.
 
 function normalizeIsuCd(value: unknown): string {
   const normalized = String(value ?? '').trim().toUpperCase();
   return /^[A-Z0-9]{12}$/.test(normalized) ? normalized : '';
 }
 
-interface KrxIsuCdResolution {
-  isuCd: string | null;
-  shortCodeToIsuCdResolved: boolean;
-  source: 'FETCH_OPTION' | 'STOCK_MASTER' | 'NONE';
-}
+// ADR-0502c: KrxIsuCdResolution 정의는 ./krxClient/types.ts 로 이동.
 
 function resolveKrxIsuCdForSymbol(symbolCode: string, explicitIsuCd?: string | null): KrxIsuCdResolution {
   const fromOption = normalizeIsuCd(explicitIsuCd);
@@ -1838,14 +1433,7 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
  * - 한글 키 다중 fallback (보고서 버전 변동 안전)
  * - 10분 캐시 (다른 KRX 시리즈 정합)
  */
-export interface KrxInvestorDetailRow {
-  /** 카테고리 한글명 raw 보존 (예: "금융투자", "외국인") */
-  category: string;
-  /** 순매수 수량 (주, 양수=순매수) */
-  netBuyQty: number;
-  /** 순매수 거래대금 (원) */
-  netBuyKrw: number;
-}
+// ADR-0502c: KrxInvestorDetailRow 정의는 ./krxClient/types.ts 로 이동.
 
 export async function fetchInvestorTradingDetail(date?: string): Promise<KrxInvestorDetailRow[]> {
   const tradeDate = resolveTradeDate(date);
@@ -1975,7 +1563,7 @@ export function getKrxStatus(): {
   return {
     base: KRX_BASE,
     disabled: KRX_DISABLED,
-    cacheKeys: Array.from(_cache.keys()),
+    cacheKeys: listCacheKeys(),
   };
 }
 
@@ -2077,13 +1665,7 @@ export const fetchKrxShortBalance = fetchShortBalance;
  * 시가총액 스냅샷. 자릿수 오류(억/조 혼동)를 방지하기 위해 원 단위 정수로 반환한다.
  * KOSPI + KOSDAQ 일별매매정보에서 market_cap/상장주식수만 추출.
  */
-export interface KrxMarketCapRow {
-  code: string;
-  name: string;
-  marketCap: number;    // 원 단위 (KRX MKTCAP 원본)
-  listedShares: number; // 주 단위
-  market: string;       // 'KOSPI' | 'KOSDAQ' | …
-}
+// ADR-0502c: KrxMarketCapRow 정의는 ./krxClient/types.ts 로 이동.
 
 export async function fetchKrxMarketCap(date?: string): Promise<KrxMarketCapRow[]> {
   const [kospi, kosdaq] = await Promise.all([
