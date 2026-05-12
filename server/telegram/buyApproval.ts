@@ -91,11 +91,21 @@ export function buildBuyApprovalMessage(params: {
   const modeLabel = params.mode === 'LIVE' ? 'LIVE' : 'Shadow';
   const risk = params.currentPrice - params.stopLoss;
   const rrrRatio = risk > 0 ? (params.targetPrice - params.currentPrice) / risk : null;
-  const enemySummary = params.enemyCheck ? formatEnemyCheckSummary(params.enemyCheck) : null;
+  let enemySummary: string | null = null;
+  try {
+    enemySummary = params.enemyCheck ? formatEnemyCheckSummary(params.enemyCheck) : null;
+  } catch (error) {
+    console.warn('[BuyApproval] 역검증 표시 생성 실패 — trading engine 계속 진행', error);
+  }
   const enemySection = enemySummary
     ? `━━━━━━━━━━━━━━━━\n<i>[역검증 참고]\n${escapeHtml(enemySummary)}</i>\n`
     : '';
-  const preMortemDisplay = formatPreMortemForDisplay(params.preMortem);
+  let preMortemDisplay: string | null = null;
+  try {
+    preMortemDisplay = formatPreMortemForDisplay(params.preMortem);
+  } catch (error) {
+    console.warn('[BuyApproval] Pre-Mortem 표시 생성 실패 — trading engine 계속 진행', error);
+  }
   const preMortemSection = preMortemDisplay
     ? `━━━━━━━━━━━━━━━━\n${escapeHtml(preMortemDisplay)}\n`
     : '';

@@ -38,8 +38,9 @@ afterEach(() => {
 
 describe('EnemyCheckItem nullable display', () => {
   it('short materialized=false이면 공매도 증가율은 N/A로 출력된다', () => {
-    const summary = formatEnemyCheckSummary(base({ shortStatus: 'SHORT_DATA_NOT_MATERIALIZED' }));
+    const summary = formatEnemyCheckSummary(base({ shortSaleIncreaseRate: -100, shortMaterialized: false }));
     expect(summary).toContain('공매도 증가율: N/A');
+    expect(summary).not.toContain('공매도 증가율: -100.0%');
   });
 
   it('short FIELD_MISMATCH_CONFIRMED이면 -100.0%로 출력되지 않는다', () => {
@@ -61,8 +62,22 @@ describe('EnemyCheckItem nullable display', () => {
   });
 
   it('credit ratio 실제 0이면 0.0% 출력이 허용된다', () => {
-    const summary = formatEnemyCheckSummary(base({ creditRate: 0, creditStatus: 'OK' }));
+    const summary = formatEnemyCheckSummary(base({ creditRate: 0, creditStatus: 'OK', creditMaterialized: true }));
     expect(summary).toContain('신용잔고율: 0.0%');
+  });
+
+  it('credit materialized=false이면 원천값처럼 보이는 0도 N/A로 출력된다', () => {
+    const summary = formatEnemyCheckSummary(base({ creditRate: 0, creditMaterialized: false }));
+    expect(summary).toContain('신용잔고율: N/A');
+    expect(summary).not.toContain('신용잔고율: 0.0%');
+  });
+
+  it('loan materialized=false이면 대차잔고 증가율은 N/A이며 score 미반영이다', () => {
+    const item = buildEnemyCheckItems(base({ loanIncreaseRate: 25, loanMaterialized: false })).find((x) => x.key === 'loanBalanceGrowthPct');
+    expect(item?.value).toBeNull();
+    expect(item?.displayValue).toBe('N/A');
+    expect(item?.severity).toBe('INFO');
+    expect(item?.usableForScore).toBe(false);
   });
 
   it('loanBalanceGrowthPct=4.0이면 severity=INFO, usableForScore=false다', () => {
@@ -96,7 +111,7 @@ describe('Pre-Mortem confidence and score/execution isolation', () => {
 
   it('materialized된 실제 기관 순매도 또는 대차 급증이 있으면 DATA_DRIVEN으로 승격 가능하다', () => {
     const byInstitution = buildPreMortem({ lines: ['기관 순매도 확인'], institutionNetSellMaterialized: true });
-    const byLoan = buildPreMortem({ lines: ['대차 급증'], enemyCheck: base({ loanIncreaseRate: 25, loanStatus: 'OK' }) });
+    const byLoan = buildPreMortem({ lines: ['대차 급증'], enemyCheck: base({ loanIncreaseRate: 25, loanStatus: 'OK', loanMaterialized: true }) });
     expect(byInstitution.source).toBe('DATA_DRIVEN');
     expect(byLoan.source).toBe('DATA_DRIVEN');
     expect(byLoan.usableForScore).toBe(true);
@@ -106,7 +121,7 @@ describe('Pre-Mortem confidence and score/execution isolation', () => {
 
 describe('DataQuality badge', () => {
   it('FLOW/SHORT materialized=false이면 N/A, PRICE OK이면 OK로 표시된다', () => {
-    const dq = buildEnemyDataQualitySummary(base({ priceMaterialized: true, flowMaterialized: false, shortStatus: 'FIELD_MISMATCH_CONFIRMED' }));
+    const dq = buildEnemyDataQualitySummary(base({ priceMaterialized: true, flowMaterialized: false, individualDominance: 70, shortSaleIncreaseRate: 31, shortMaterialized: false }));
     expect(dq.FLOW).toBe('N/A');
     expect(dq.SHORT).toBe('N/A');
     expect(dq.PRICE).toBe('OK');
