@@ -18,7 +18,9 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     // 각 테스트 시작 전 환경변수·캐시 초기화.
     delete process.env.KRX_API_DISABLED;
     delete process.env.KIS_FIRST_REBUILD_MODE;
+    delete process.env.KIS_ONLY_REBUILD_MODE;
     delete process.env.KRX_AUTO_FETCH_DISABLED;
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     const mod = await import('./krxClient.js');
     mod.resetKrxCache();
   });
@@ -28,6 +30,32 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     vi.restoreAllMocks();
   });
 
+
+  it('KIS_ONLY_REBUILD_MODE=true 이면 KRX fallback HTTP client를 호출하지 않고 disabled 진단을 반환한다', async () => {
+    process.env.KIS_ONLY_REBUILD_MODE = 'true';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508', { symbol: '005930' });
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+
+    expect(rows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(diagnostic?.provider).toBe('KRX');
+    expect(diagnostic?.status).toBe('DISABLED_BY_KIS_ONLY_MODE');
+    expect(diagnostic?.parserStatus).toBe('DISABLED_BY_KIS_ONLY_MODE');
+    expect(diagnostic?.confidence).toBe('MISSING');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.marketSignal).toBe(false);
+    expect(diagnostic?.useForRouter).toBe(false);
+    expect(diagnostic?.useForGate).toBe(false);
+    expect(diagnostic?.useForLive).toBe(false);
+    expect(diagnostic?.useForShadow).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
+    expect(diagnostic?.reason).toBe('KIS_ONLY_REBUILD disables KRX fallback');
+  });
 
   it('KIS_FIRST_REBUILD_MODE=true 이면 KRX HTTP client를 호출하지 않고 disabled 진단을 반환한다', async () => {
     process.env.KIS_FIRST_REBUILD_MODE = 'true';
@@ -468,7 +496,9 @@ describe('krxClient — 블루프린트 파사드', () => {
     KRX_API_DISABLED: process.env.KRX_API_DISABLED,
     KRX_OPENAPI_DISABLED: process.env.KRX_OPENAPI_DISABLED,
     KIS_FIRST_REBUILD_MODE: process.env.KIS_FIRST_REBUILD_MODE,
+    KIS_ONLY_REBUILD_MODE: process.env.KIS_ONLY_REBUILD_MODE,
     KRX_AUTO_FETCH_DISABLED: process.env.KRX_AUTO_FETCH_DISABLED,
+    KRX_TIME_WINDOW_GATING_DISABLED: process.env.KRX_TIME_WINDOW_GATING_DISABLED,
   };
 
   beforeEach(() => {
@@ -476,7 +506,9 @@ describe('krxClient — 블루프린트 파사드', () => {
     delete process.env.KRX_OPENAPI_AUTH_KEY;
     delete process.env.KRX_API_DISABLED;
     delete process.env.KIS_FIRST_REBUILD_MODE;
+    delete process.env.KIS_ONLY_REBUILD_MODE;
     delete process.env.KRX_AUTO_FETCH_DISABLED;
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     delete process.env.KRX_OPENAPI_DISABLED;
   });
 
@@ -487,7 +519,9 @@ describe('krxClient — 블루프린트 파사드', () => {
     process.env.KRX_API_DISABLED = ORIG_ENV.KRX_API_DISABLED;
     process.env.KRX_OPENAPI_DISABLED = ORIG_ENV.KRX_OPENAPI_DISABLED;
     process.env.KIS_FIRST_REBUILD_MODE = ORIG_ENV.KIS_FIRST_REBUILD_MODE;
+    process.env.KIS_ONLY_REBUILD_MODE = ORIG_ENV.KIS_ONLY_REBUILD_MODE;
     process.env.KRX_AUTO_FETCH_DISABLED = ORIG_ENV.KRX_AUTO_FETCH_DISABLED;
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = ORIG_ENV.KRX_TIME_WINDOW_GATING_DISABLED;
     vi.restoreAllMocks();
     vi.resetModules();
   });

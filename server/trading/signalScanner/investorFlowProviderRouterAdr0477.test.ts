@@ -881,6 +881,9 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     });
     expect(kisFallback.selectedProvider).toBe('KIS_API');
     expect(kisFallback.providerStatuses.KIS_API).toBe('VERIFIED');
+    expect(kisFallback.executionImpact).toBe('NONE');
+    expect(kisFallback.liveExecutionAllowed).toBe(false);
+    expect(kisFallback.selectedForShadow).toBe(true);
     expect(kisFallback.signal).toBe('BULLISH');
   });
 
