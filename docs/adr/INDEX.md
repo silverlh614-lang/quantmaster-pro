@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0505`**
+**다음 ADR 번호: `0506`**
+
+(2026-05-12 기준, 마지막 발급 0505 — gate1-minimum-signal-forensic-audit. ADR-0505 (사용자 명시 ADR-0502 의미상 후속, INDEX SSOT 정합으로 0505 재할당 — 충돌 그룹 0502a/b/c 이미 머지) introduces a diagnostic-only forensic audit SSOT (`buildGate1MinimumSignalForensicAuditAdr0505`) that decomposes minimum-signal-score 100-scale failures into positive/penalty components, missing positive sources (WATCHLIST_UPSTREAM_SCORE / RELATIVE_STRENGTH / BREAKOUT_STRUCTURE), supply scope audit (KIS_FLOW_SYMBOL_MISMATCH / MISSING / POSSIBLE_MARKET_WIDE_FLOW_IN_SYMBOL_SLOT), sector-energy layer (raw-gate-impact: 0 literal), and 8 `wouldPassIf` counterfactual flags. ScanSummary.gate1MinimumSignalForensicAdr0505 optional after-the-fact aggregate + `/scan_blockers` compact line + `data/diagnostics/gate1-minimum-signal-forensic-adr0505.json` per-symbol detail trace (atomic write + FIFO 200 + 7-day TTL + sanitized metadata only, ADR-0445 정합). executionImpact='NONE' literal enforced, liveExecutionAllowed=false, policyPromotionMode='SHADOW_ONLY', requiredScore=70 unchanged, UNKNOWN penalty values unchanged, SectorEnergy hard-block forbidden, KIS order import 0, defaultRegistry order unchanged. ENV `GATE1_MINIMUM_SIGNAL_FORENSIC_ADR_0505_DISABLED=true` (default OFF, ADR-0157 exact comparison) 1-line rollback.)
 
 (2026-05-12 기준, 마지막 발급 0504 — position-card-source-validation. ADR-0504 introduces 4 SSOTs (positionCardTypes / shadowPositionLedger / positionCardEnvHelpers / positionCardValidator) + 6 ENV helpers + 2 caller wiring (positionMorningCard / pos.cmd) to block ADR-0452 SHADOW_NEAR_BREAKOUT learning entries from being exposed as fake holdings on Telegram Position Cards. 5-guard SSOT (loadShadowTrades + isOpenShadowStatus + watchlistSource ≠ SHADOW_NEAR_BREAKOUT + getRemainingQty>0 + BUY fill ≥1, with guards 4/5 deprecated due to schema absence). Forbidden 8-source list (WATCHLIST/RECOMMENDATION_HISTORY/SHADOW_CANDIDATE/RESERVED_ORDER/COUNTERFACTUAL/PREVIOUS_TELEGRAM_CACHE/LAST_KNOWN_POSITIONS/MORNING_SCAN_RESULT) permanently blocked via runtime cast detection. positionsRouter REAL mode wiring deferred to follow-up PR (UI response schema breaking change risk). LIVE trading body 0 lines changed, KIS/KRX/Yahoo/Naver outbound 0, executionImpact='NONE' literal enforced, 70 regression tests.)
 
@@ -526,6 +528,7 @@
 | 0502 | krxclient-decomposition (충돌 그룹 0502c — server/clients/krxClient.ts 2105 LoC ACMA 한계 차단 해소; 15 모듈 분해 + barrel re-export, ADR-0135 패턴 정합. 28 exports + 14 importers 무수정, byte-equivalent, LIVE 본체 0줄 변경) | refactor |
 | 0503 | kis-official-supply-pack-until-krx-recovery (official KIS supply pack — short-sale loan credit + investor-flow evidence until KRX recovery) | supply |
 | 0504 | position-card-source-validation (Telegram Position Card source contamination 차단 — 4 SSOT + 6 ENV helpers + 2 caller wiring; SHADOW_NEAR_BREAKOUT 학습 entry 가짜 보유 노출 영구 차단; LIVE 본체 0줄 변경, 70 회귀) | telegram |
+| 0505 | gate1-minimum-signal-forensic-audit (사용자 명시 ADR-0502 의미상 후속, INDEX SSOT 정합 0505 재할당 — 충돌 그룹 0502a/b/c 이미 머지. diagnostic-only forensic audit SSOT — positive/penalty 컴포넌트 분리 + missing positive sources + supply scope audit + sectorEnergy layer + 8 wouldPassIf counterfactuals + /scan_blockers compact section + per-symbol detail trace JSON; executionImpact='NONE'/liveExecutionAllowed=false/policyPromotionMode='SHADOW_ONLY' literal 강제, requiredScore=70 무수정, UNKNOWN penalty 수치 무수정, SectorEnergy hard-block 금지, KIS order import 0, defaultRegistry 순서 무수정) | diagnostics |
 
 **총 발급 294 unique 번호** (마지막 발급 0504) / **충돌 29 파일 (12 그룹, 별칭 29건 ADR-0159 부여)** / **누락 10건** (0062/0063/0089/0105/0106/0143/0445~0452 중 일부) / **다음 발급 0505**.
 

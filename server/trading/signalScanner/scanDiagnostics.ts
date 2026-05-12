@@ -88,6 +88,17 @@ import {
   type SectorEnergyQualityDiagnostic,
   formatSectorEnergyQualityDiagnosticSection,
 } from '../../clients/sectorEnergyQualityDiagnostic.js';
+// ADR-0505 — Gate1 Minimum Signal Forensic Audit (사용자 명시 ADR-0502 의미상 후속).
+//   diagnostic-only 100-scale score forensic decomposition + supply scope audit +
+//   sectorEnergy layer audit + 8 wouldPassIf counterfactuals. executionImpact='NONE'.
+import {
+  type Gate1MinimumSignalForensicSummaryAdr0505,
+  buildGate1MinimumSignalForensicAuditAdr0505,
+  buildGate1MinimumSignalForensicSummaryAdr0505,
+  formatGate1MinimumSignalForensicSection,
+  isGate1MinimumSignalForensicAuditDisabled,
+} from './gate1MinimumSignalForensicAuditAdr0505.js';
+import { appendGate1ForensicTrace } from '../../persistence/gate1MinimumSignalForensicTraceRepo.js';
 // ADR-0425 — Gate Decision Router (hard block vs soft degrade separation).
 //   Router 결과를 ScanSummary 옵셔널 필드로 영속 + /scan_blockers 표시.
 //   Gate threshold/weights/order policy 무수정 — decision semantics 분리만.
@@ -415,6 +426,18 @@ export interface ScanSummary {
    * 라벨만 표시 (후방호환).
    */
   sectorEnergyQualityDiagnostic?: SectorEnergyQualityDiagnostic;
+  /**
+   * ADR-0505 — Gate1 Minimum Signal Forensic Audit summary (옵셔널, 후방호환).
+   *
+   * 사용자 명시 ADR-0502 의미상 후속 (INDEX SSOT 정합 0505 재할당).
+   * `persistScanResults` 가 `gate1ForensicInputs` 가 전달됐을 때만 합성.
+   * 종목별 detail 은 `data/diagnostics/gate1-minimum-signal-forensic-adr0505.json`
+   * (별도 영속, FIFO 200 + 7일 TTL, ADR-0445 sanitized 정합).
+   *
+   * 부재 시 기존 ADR-0466 `positiveScoreStarvation` 보고만 유지 (회귀 안전).
+   * ENV `GATE1_MINIMUM_SIGNAL_FORENSIC_ADR_0505_DISABLED=true` 1줄 즉시 우회.
+   */
+  gate1MinimumSignalForensicAdr0505?: Gate1MinimumSignalForensicSummaryAdr0505;
   /**
    * ADR-0425 — Gate Decision Router 결과 snapshot (옵셔널, 후방호환).
    *
@@ -1685,6 +1708,20 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gate2Section);
   }
 
+  // ADR-0505 — Gate1 Minimum Signal Forensic Audit compact section.
+  // 사용자 명시 ADR-0502 의미상 후속 (INDEX SSOT 정합 0505 재할당).
+  // 100-scale minimum signal score 부결 원인을 component 단위로 분해 — positive
+  // starvation vs penalty accumulation 구분. ADR-0420 fresh attribution 과 *책임 분리*
+  // (ADR-0420 = 조건별 status 분해 / ADR-0505 = 100점형 점수 component 분해).
+  // summary 부재 또는 totalCandidates=0 시 미노출 (formatter 내부 필터, 잡음 차단).
+  const gate1ForensicSection = formatGate1MinimumSignalForensicSection(
+    summary.gate1MinimumSignalForensicAdr0505,
+  );
+  if (gate1ForensicSection) {
+    lines.push('');
+    lines.push(gate1ForensicSection);
+  }
+
   // ADR-452c — Gate Score Health visibility (diagnostic-only).
   // Gate attribution 근처에 raw/available/normalized score health 를 노출한다.
   // normalizedGateScore 는 표시만 하며 live decision 에 사용하지 않는다.
@@ -2085,6 +2122,38 @@ export interface PersistScanResultsOptions {
    * (영속 무영향 + 24h decay 보존).
    */
   r3StreakSkipped?: { skipped: boolean; reason?: StreakSkipReason };
+  /**
+   * ADR-0505 — Gate1 Minimum Signal Forensic Audit 입력 (옵셔널, 후방호환).
+   *
+   * 호출자 (signalScanner/index.ts 또는 entryFilterDecomposition) 가 후보 평가
+   * 시 buildMinimumSignalScoreTrace 결과 + 부수 메타 (candidate entry trace /
+   * supplyProviderHealth / kisFlow / sectorEnergyImpact) 를 모아 전달.
+   *
+   * 부재 시 ScanSummary.gate1MinimumSignalForensicAdr0505 미영속 — 기존 ADR-0466
+   * positiveScoreStarvation 보고만 유지 (회귀 안전).
+   *
+   * 본 PR 단계는 dead-code wiring — 호출자 측 입력 collector 는 후속 PR (Phase 1
+   * 정합). ENV `GATE1_MINIMUM_SIGNAL_FORENSIC_ADR_0505_DISABLED=true` 1줄 우회.
+   */
+  gate1ForensicInputs?: ReadonlyArray<{
+    trace: import('./minimumSignalScoreTrace.js').MinimumSignalScoreTrace;
+    candidate?: import('./entryFilterDecomposition.js').CandidateEntryTrace;
+    supplyProviderHealth?: Partial<
+      import('./entryFilterDecomposition.js').SupplyProviderHealthTrace
+    >;
+    supplyConfluence?: import('./entryFilterDecomposition.js').SupplyConfluenceState;
+    kisFlow?: {
+      symbol?: string | null;
+      foreignNetBuy?: number | null;
+      institutionalNetBuy?: number | null;
+      programNetBuy?: number | null;
+      semanticAvailable?: boolean;
+    };
+    quoteSymbol?: string | null;
+    sectorEnergyImpact?: import(
+      '../../clients/sectorEnergyExecutionImpact.js'
+    ).SectorEnergyExecutionImpactResult;
+  }>;
 }
 
 export async function persistScanResults(
@@ -3040,6 +3109,34 @@ export async function persistScanResults(
     }));
   } catch (e) {
     console.warn('[ADR-0486/0487/0488/0491] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
+  }
+
+  // ADR-0505 — Gate1 Minimum Signal Forensic Audit summary build + per-symbol detail
+  // trace persist. Diagnostic-only — executionImpact='NONE' literal type 강제.
+  // ENV `GATE1_MINIMUM_SIGNAL_FORENSIC_ADR_0505_DISABLED=true` 1줄 우회 (ADR-0157 정확 비교).
+  // 호출자 측 `options.gate1ForensicInputs` 부재 시 자연 skip (회귀 안전).
+  try {
+    if (
+      !isGate1MinimumSignalForensicAuditDisabled() &&
+      options.gate1ForensicInputs &&
+      options.gate1ForensicInputs.length > 0
+    ) {
+      const audits = options.gate1ForensicInputs.map((input) =>
+        buildGate1MinimumSignalForensicAuditAdr0505(input),
+      );
+      summaryDraft.gate1MinimumSignalForensicAdr0505 =
+        buildGate1MinimumSignalForensicSummaryAdr0505(audits);
+
+      // 종목별 detail trace 별도 영속 (FIFO 200 + 7일 TTL).
+      // 영속 throw 는 try/catch 격리 — scan 흐름 절대 차단 안 함.
+      const scanIdLabel = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
+      appendGate1ForensicTrace(scanIdLabel, kstNow.toISOString(), audits);
+    }
+  } catch (e) {
+    console.warn(
+      '[ADR-0505] Gate1 minimum signal forensic audit build failed (engine unaffected):',
+      e,
+    );
   }
 
   // ADR-0500 — Empty Scan Root Cause Dashboard snapshot. Diagnostic-only aggregation;

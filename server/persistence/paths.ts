@@ -111,6 +111,23 @@ export const KRX_INVESTOR_FLOW_PARSER_DIAGNOSTICS_FILE = path.join(
   DATA_DIR,
   'krx-investor-flow-parser-diagnostics.json',
 );
+/**
+ * ADR-0505 — Gate1 Minimum Signal Forensic Audit 종목별 detail trace ledger.
+ *
+ * sanitized metadata 만 영속 (raw payload / token / cookie / 계좌번호 /
+ * `total_assets` / `orderable_cash` / personal Telegram ID 영구 금지, ADR-0445
+ * sanitized 정합). per-symbol component 분해 + missing positive sources +
+ * supplyScopeAudit + sectorEnergyAudit + wouldPassIf 8 counterfactual flags
+ * 만 저장. 별도 ledger — 다른 ledger (shadow-trades / counterfactual-* /
+ * provisional-* / krx-investor-flow-parser-diagnostics) 와 *물리 분리*.
+ *
+ * FIFO 200 + 7일 TTL (ADR-0479 detail trace registry 정합).
+ */
+export const GATE1_MINIMUM_SIGNAL_FORENSIC_TRACE_FILE = path.join(
+  DATA_DIR,
+  'diagnostics',
+  'gate1-minimum-signal-forensic-adr0505.json',
+);
 /** Gate 조건 통과율 히트맵 — 조건별 passed/failed 누적 */
 export const GATE_AUDIT_FILE         = path.join(DATA_DIR, 'gate-audit.json');
 /** 파이프라인 트레이서 — 일별 스캔 의사결정 추적 파일 */
