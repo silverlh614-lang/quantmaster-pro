@@ -130,7 +130,7 @@ export interface InvestorFlowProviderRouteResult {
   kisRawRowAvailableAtAdapter?: boolean;
   kisNormalizedRowAvailableAtRouter?: boolean;
   kisSelectedCandidateCarriesSemanticRow?: boolean;
-  semanticRowBreakPoint?: 'ADAPTER_DID_NOT_RETURN_RAW_ROW' | 'ROUTER_DROPPED_RAW_ROW' | 'SELECTED_CANDIDATE_METADATA_ONLY' | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' | 'FIELD_ALIAS_NOT_MAPPED' | 'UNKNOWN';
+  semanticRowBreakPoint?: 'ADAPTER_DID_NOT_RETURN_RAW_ROW' | 'ROUTER_DROPPED_RAW_ROW' | 'SELECTED_CANDIDATE_METADATA_ONLY' | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' | 'FIELD_ALIAS_NOT_MAPPED' | 'ONLY_WRAPPER_METADATA' | 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' | 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' | 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED' | 'FIELD_ALIAS_MAPPED' | 'NO_ROW_FOUND' | 'UNKNOWN';
   status: InvestorFlowProviderStatus;
   signal: SemanticSupplySignal;
   coverage: {

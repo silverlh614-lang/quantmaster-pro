@@ -409,6 +409,12 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   institutionalNetBuyAvailable?: number;
   zeroButMaterializedCount?: number;
   kisRawFieldKeysTop?: Record<string, number>;
+  actualRawFieldKeysTop?: Record<string, number>;
+  actualNumericStringFieldKeysTop?: Record<string, number>;
+  actualNumberFieldKeysTop?: Record<string, number>;
+  actualPlaceholderFieldKeysTop?: Record<string, number>;
+  candidateNetBuyFieldKeysTop?: Record<string, number>;
+  selectedPathTop?: Record<string, number>;
   kisNormalizedFieldKeysTop?: Record<string, number>;
   sampleValueKindDistribution?: Record<string, number>;
   semanticRowAvailableCount?: number;
@@ -836,8 +842,11 @@ function buildSupplyScopeAudit(input: {
     && providerScope === 'SYMBOL_LEVEL'
     && Boolean(requestSymbol && expectedSymbol && requestSymbol === expectedSymbol);
 
-  const sanitizedSemanticRow = (kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow) as SanitizedInvestorFlowSemanticRow | null | undefined;
-  const flowForSemantic = sanitizedSemanticRow ?? kisFlow ?? null;
+  const semanticRowCandidate = (kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null | undefined;
+  const sanitizedSemanticRow = semanticRowCandidate && typeof semanticRowCandidate === 'object' && 'sourceFields' in semanticRowCandidate && 'rawFieldKeys' in semanticRowCandidate
+    ? semanticRowCandidate as SanitizedInvestorFlowSemanticRow
+    : null;
+  const flowForSemantic = kisFlow ?? sanitizedSemanticRow ?? null;
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
@@ -917,7 +926,7 @@ function buildSupplyScopeAudit(input: {
     rawInvestorRowAvailable,
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
-    semanticRowBreakPoint: kisFlow?.semanticRowBreakPoint ?? (semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY' ? 'SELECTED_CANDIDATE_METADATA_ONLY' : semantic.reason === 'FIELD_ALIAS_NOT_MAPPED' ? 'FIELD_ALIAS_NOT_MAPPED' : 'UNKNOWN'),
+    semanticRowBreakPoint: kisFlow?.semanticRowBreakPoint ?? semantic.semanticRowBreakPoint ?? (semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY' ? 'ONLY_WRAPPER_METADATA' : semantic.reason === 'FIELD_ALIAS_NOT_MAPPED' ? 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' : 'UNKNOWN'),
     semanticReason: semantic.reason,
     materializedCount: semantic.materializedCount,
     normalizedCount: semantic.normalizedCount,
@@ -1433,6 +1442,12 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const scoreUsageDistribution: Record<string, number> = {};
   const supplyUnknownRootCauseDistribution: Record<string, number> = {};
   const kisRawFieldKeysTop: Record<string, number> = {};
+  const actualRawFieldKeysTop: Record<string, number> = {};
+  const actualNumericStringFieldKeysTop: Record<string, number> = {};
+  const actualNumberFieldKeysTop: Record<string, number> = {};
+  const actualPlaceholderFieldKeysTop: Record<string, number> = {};
+  const candidateNetBuyFieldKeysTop: Record<string, number> = {};
+  const selectedPathTop: Record<string, number> = {};
   const kisNormalizedFieldKeysTop: Record<string, number> = {};
   const kisSemanticFieldKeysTop: Record<string, number> = {};
   const semanticRowBreakPointDistribution: Record<string, number> = {};
@@ -1594,6 +1609,12 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.supplyScopeAudit.wouldBeEligibleIfForeignOrInstitutionFieldMapped) shadowEligibleSupplyCount += 1;
     const fieldDiagnostics = a.supplyScopeAudit.fieldKeyDiagnostics;
     for (const key of fieldDiagnostics?.kisRawFieldKeysTop ?? []) kisRawFieldKeysTop[key] = (kisRawFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.actualRawFieldKeysTop ?? []) actualRawFieldKeysTop[key] = (actualRawFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.actualNumericStringFieldKeysTop ?? []) actualNumericStringFieldKeysTop[key] = (actualNumericStringFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.actualNumberFieldKeysTop ?? []) actualNumberFieldKeysTop[key] = (actualNumberFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.actualPlaceholderFieldKeysTop ?? []) actualPlaceholderFieldKeysTop[key] = (actualPlaceholderFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.candidateNetBuyFieldKeysTop ?? []) candidateNetBuyFieldKeysTop[key] = (candidateNetBuyFieldKeysTop[key] ?? 0) + 1;
+    if (fieldDiagnostics?.selectedPath) selectedPathTop[fieldDiagnostics.selectedPath] = (selectedPathTop[fieldDiagnostics.selectedPath] ?? 0) + 1;
     for (const key of fieldDiagnostics?.kisNormalizedFieldKeysTop ?? []) {
       kisNormalizedFieldKeysTop[key] = (kisNormalizedFieldKeysTop[key] ?? 0) + 1;
       kisSemanticFieldKeysTop[key] = (kisSemanticFieldKeysTop[key] ?? 0) + 1;
@@ -1734,6 +1755,12 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     institutionalNetBuyAvailable,
     zeroButMaterializedCount,
     kisRawFieldKeysTop,
+    actualRawFieldKeysTop,
+    actualNumericStringFieldKeysTop,
+    actualNumberFieldKeysTop,
+    actualPlaceholderFieldKeysTop,
+    candidateNetBuyFieldKeysTop,
+    selectedPathTop,
     kisNormalizedFieldKeysTop,
     kisSemanticFieldKeysTop,
     semanticRowAvailableCount,
@@ -1886,6 +1913,18 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(`- forensicInputCarriesSemanticRow: ${summary.forensicInputCarriesSemanticRowCount ?? 0}/${summary.totalCandidates}`);
   if (summary.semanticReasonDistribution) lines.push(`- semanticReasonDistribution: ${formatDistribution(summary.semanticReasonDistribution)}`);
   if (summary.kisRawFieldKeysTop) lines.push(`- kisRawFieldKeysTop: ${formatDistribution(summary.kisRawFieldKeysTop)}`);
+  lines.push('- Supply Semantic Unwrap:');
+  lines.push(`  - unwrapRows: ${Object.values(summary.selectedPathTop ?? {}).reduce((sum, count) => sum + count, 0)}/${summary.totalCandidates}`);
+  if (summary.selectedPathTop) lines.push(`  - selectedPathTop: ${formatDistribution(summary.selectedPathTop)}`);
+  if (summary.actualNumericStringFieldKeysTop) lines.push(`  - actualNumericStringFieldKeysTop: ${formatDistribution(summary.actualNumericStringFieldKeysTop)}`);
+  if (summary.actualRawFieldKeysTop) lines.push(`  - actualRawFieldKeysTop: ${formatDistribution(summary.actualRawFieldKeysTop)}`);
+  if (summary.actualNumberFieldKeysTop) lines.push(`  - actualNumberFieldKeysTop: ${formatDistribution(summary.actualNumberFieldKeysTop)}`);
+  if (summary.actualPlaceholderFieldKeysTop) lines.push(`  - actualPlaceholderFieldKeysTop: ${formatDistribution(summary.actualPlaceholderFieldKeysTop)}`);
+  if (summary.candidateNetBuyFieldKeysTop) lines.push(`  - candidateNetBuyFieldKeysTop: ${formatDistribution(summary.candidateNetBuyFieldKeysTop)}`);
+  if (summary.semanticRowBreakPointDistribution) lines.push(`  - semanticRowBreakPointDistribution: ${formatDistribution(summary.semanticRowBreakPointDistribution)}`);
+  lines.push(`  - semanticAvailable: ${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - zeroButMaterialized: ${summary.zeroButMaterializedCount ?? 0}`);
+  lines.push(`  - nextAction: ${resolveSupplySemanticUnwrapNextAction(summary)}`);
   if (summary.kisNormalizedFieldKeysTop) lines.push(`- kisNormalizedFieldKeysTop: ${formatDistribution(summary.kisNormalizedFieldKeysTop)}`);
   if (summary.kisSemanticFieldKeysTop) lines.push(`- kisSemanticFieldKeysTop: ${formatDistribution(summary.kisSemanticFieldKeysTop)}`);
   if (summary.semanticRowBreakPointDistribution) lines.push(`- semanticRowBreakPointDistribution: ${formatDistribution(summary.semanticRowBreakPointDistribution)}`);
@@ -1958,6 +1997,16 @@ export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForens
   if ((summary.breakoutTraceAvailableCount ?? summary.breakoutHydrationAvailableCount ?? 0) === 0) return 'WIRE_BREAKOUT_CONDITION_RESULTS';
   if ((summary.symbolMatchedCount ?? summary.supplySymbolMatchedCount ?? 0) === 0 && total > 0) return 'WIRE_SYMBOL_LEVEL_SUPPLY';
   return 'OBSERVE_3D_THEN_REVIEW';
+}
+
+
+function resolveSupplySemanticUnwrapNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
+  const breakPoint = pickTopDistributionKey(summary.semanticRowBreakPointDistribution ?? {});
+  if (breakPoint === 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' || breakPoint === 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED') return 'ADD_ALIAS_FOR_ACTUAL_NUMERIC_KEYS';
+  if (breakPoint === 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED') return 'MAP_INVESTOR_TYPE_ROWS';
+  if (breakPoint === 'ONLY_WRAPPER_METADATA' || breakPoint === 'NO_ROW_FOUND') return 'WIRE_UNWRAPPED_ROW_TO_SEMANTIC_MAPPER';
+  if ((summary.zeroButMaterializedCount ?? 0) > 0) return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';
+  return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';
 }
 
 function pickTopDistributionKey(distribution: Record<string, number>): string | null {
