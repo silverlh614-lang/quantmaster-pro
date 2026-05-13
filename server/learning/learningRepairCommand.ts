@@ -8,6 +8,7 @@ import { scheduleGeminiLearningReflection } from './geminiUtilizationScheduler.j
 import { runLearningIntegrityGuard } from './learningIntegrityGuard.js';
 import { appendJson, LEARNING_REPAIR_RUNS_FILE } from './learningStorage.js';
 import { collectLearningPulseV2, formatLearningPulseV2Message } from './learningPulseDiagnostics.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
 export async function learningRepairDryRun(now: Date = new Date()) {
   const close = await runGhostCloseResolver({ now, dryRun: true });
   const starvation = analyzeSampleStarvation(now);
@@ -25,6 +26,7 @@ export async function learningRepairRun(now: Date = new Date()) {
   order.push('GeminiUtilizationScheduler'); const gemini = scheduleGeminiLearningReflection(now);
   const integrity = runLearningIntegrityGuard({ brokerOrdersCreated: close.brokerOrdersCreated, liveExecutionAllowed: false });
   const result = { mode: 'run' as const, order, close, outcome, attr, suggest, gemini, criticalIntegrityEvents: integrity.filter(e => e.severity === 'CRITICAL').length, brokerOrdersCreated: 0 as const };
+  if (result.criticalIntegrityEvents > 0) await sendTelegramAlert(`🚨 Learning repair critical integrity events=${result.criticalIntegrityEvents} executionImpact=NONE brokerOrdersCreated=${result.brokerOrdersCreated}`, { priority: 'HIGH', tier: 'T1_ALARM', category: 'learning_integrity', dedupeKey: 'learning_repair_critical_integrity' });
   appendJson(LEARNING_REPAIR_RUNS_FILE, result);
   return result;
 }
