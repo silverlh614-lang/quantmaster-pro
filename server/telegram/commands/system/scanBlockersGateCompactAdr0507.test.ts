@@ -397,7 +397,10 @@ describe('ADR-0507 정적 grep 가드 — 안전 invariant', () => {
     const src = readFileSync(resolve(__dirname, 'scanBlockers.cmd.ts'), 'utf8');
     expect(src).toContain('formatScanBlockersGateCompactMessage');
     expect(src).toContain("mode === 'gate' && gateSubMode === 'compact'");
-    expect(src).toContain('applyScanBlockersLengthGuard(gateCompact');
+    // ADR-0509 — gate compact 끝부분에 Unified Gate compact line append (try/catch 격리).
+    //   기존 `applyScanBlockersLengthGuard(gateCompact, ...)` → `applyScanBlockersLengthGuard(finalGateCompact, ...)` 로 변경.
+    //   finalGateCompact 는 `gateCompact + (unifiedGateCompactLine ? \\n + line : '')` 합성.
+    expect(src).toMatch(/applyScanBlockersLengthGuard\((finalGateCompact|gateCompact)/);
   });
 
   it('collector SSOT 자체에는 KIS 주문 함수 / 외부 API import 0건 (절대 invariant)', () => {
