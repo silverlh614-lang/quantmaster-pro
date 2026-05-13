@@ -12,8 +12,18 @@ export type LearningCloseReason =
   | 'VIRTUAL_DATA_STALE_EXIT'
   | 'VIRTUAL_MANUAL_RECONCILE'
   | 'QUARANTINED_DATA_MISSING';
-export type LearningOutcomeLabel = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'ACTIVE' | 'EXPIRED' | 'DATA_CORRUPTED' | 'QUARANTINED';
+export type LearningOutcomeLabel = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'ACTIVE' | 'EXPIRED' | 'DATA_CORRUPTED' | 'QUARANTINED' | 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK';
 export type LearningDataQuality = 'OK' | 'STALE' | 'MISSING' | 'CORRUPTED' | 'QUARANTINED';
+export type LearningCohortType =
+  | 'FRESH_SHADOW'
+  | 'BACKLOG_REPAIR'
+  | 'GHOST_REPAIR'
+  | 'RECOVERED_METADATA'
+  | 'QUARANTINED'
+  | 'COUNTERFACTUAL_BLOCKED'
+  | 'COUNTERFACTUAL_MISSED_WIN'
+  | 'COUNTERFACTUAL_AVOIDED_LOSS';
+export type LearningRecoveryConfidence = 'RECOVERED' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type IntegritySeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type StarvationReason =
   | 'no_close'
@@ -42,8 +52,17 @@ export interface LearningGhostCase extends GhostPosition {
   outcomeLabel?: LearningOutcomeLabel;
   labelConfidence?: number;
   dataQuality?: LearningDataQuality;
-  sourceConfidence?: number;
+  sourceConfidence?: number | LearningRecoveryConfidence | 'HIGH';
   attributionProcessed?: boolean;
+  cohortType?: LearningCohortType;
+  entryPriceRecovered?: boolean;
+  targetStopRecovered?: boolean;
+  priceDataRecovered?: boolean;
+  recoverySource?: string;
+  recoveryConfidence?: LearningRecoveryConfidence;
+  recoveredAt?: string;
+  recoveryReason?: string;
+  holdingOutlierTag?: 'OUTLIER_HOLDING_TIME';
   executionImpact?: ExecutionImpact;
   pendingRetryReason?: string;
   quarantinedReason?: string;
