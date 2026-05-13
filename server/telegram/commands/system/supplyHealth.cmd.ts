@@ -10,6 +10,14 @@
 import fs from 'fs';
 import { fetchKisMarketProgramTrade, fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
 import { diagnoseKisMarketProgramRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
+// Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004 — 7-state classifier + KRX/CACHE fallback + Provider Coverage Map SSOT.
+import {
+  routeProgramMarketEmpty,
+  deriveCacheFallbackFromMacroState,
+  formatProgramMarketRouted,
+  type ProgramMarketRoutingDecision,
+} from '../../../clients/kisClient/programMarketRouterPatch004.js';
+import { MARKET_PROGRAM_INDEX_CODE } from '../../../clients/kisClient/programMaterializer.js';
 import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.js';
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
 import { loadWatchlist, type WatchlistEntry } from '../../../persistence/watchlistRepo.js';
@@ -506,12 +514,54 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
   };
 }
 
-function renderAcceptedEmptyMarketProgram(): ChannelStatus {
-  return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'NEUTRAL', lines: ['route: KIS>KRX | fb=CACHE | diag=KIS | scoring=allowed_when_non_empty', 'source: KIS_API', 'status: ACCEPTED_EMPTY', 'scoring=excluded', 'providerIssue=false', 'marketSignal=false', 'action=observe', 'latest: N/A', 'updated: N/A', '판정: KIS 정상 수락, output 없음 — 점수 제외/관찰; bearish signal로 변환하지 않음', 'rawDiag: hidden (/program_market raw 예정)', 'executionImpact=NONE', '상세: /program_market'] };
+// Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004: routed marker SSOT mapping.
+function markerForRoutedStatus(decision: ProgramMarketRoutingDecision): Marker {
+  switch (decision.routedStatus) {
+    case 'VERIFIED': return 'OK';
+    case 'STALE_CACHE': return 'STALE';
+    case 'DEGRADED': return 'DEGRADED';
+    case 'UNSUPPORTED':
+    case 'PARAM_MISMATCH': return 'NEUTRAL';
+    case 'EMPTY_VALID':
+    case 'MISSING':
+    default: return 'NEUTRAL';
+  }
 }
+
+function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision): ChannelStatus {
+  const marker = markerForRoutedStatus(decision);
+  const lines = formatProgramMarketRouted(decision);
+  // routedStatus + decisionDetail invariants 가 모든 분기에 노출됨.
+  return {
+    key: 'marketProgram',
+    title: '시장 프로그램매매',
+    marker,
+    riskReason: marker === 'NEUTRAL' && decision.routedStatus !== 'EMPTY_VALID' ? decision.routedStatus : undefined,
+    lines,
+  };
+}
+
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
-  const rawDiagLine = formatKisRawSupplyDiagnostic(await diagnoseKisMarketProgramRaw('HIGH'));
-  if (isAcceptedEmptyRaw(rawDiagLine)) return renderAcceptedEmptyMarketProgram();
+  const rawDiag = await diagnoseKisMarketProgramRaw('HIGH');
+  const rawDiagLine = formatKisRawSupplyDiagnostic(rawDiag);
+  // Patch-004: KIS ACCEPTED_EMPTY → KRX fallback (unwired) → CACHE (macroState LGV) fallback.
+  if (isAcceptedEmptyRaw(rawDiagLine)) {
+    const cacheFallback = deriveCacheFallbackFromMacroState(macro, nowMs);
+    const decision = routeProgramMarketEmpty({
+      rawDiag: {
+        zeroReason: rawDiag.zeroReason ?? undefined,
+        outputLength: rawDiag.outputKeys?.length ?? 0,
+        outputKeys: rawDiag.outputKeys,
+        trId: rawDiag.trId,
+        endpoint: rawDiag.path,
+        marketCode: MARKET_PROGRAM_INDEX_CODE,
+      },
+      // KRX program-market fallback is unwired (out of scope per Patch-004) — capability declared,
+      // actual KRX fetcher introduction is a separate ADR. cacheFallback handles LGV recovery.
+      cacheFallback,
+    });
+    return renderRoutedMarketProgram(decision);
+  }
   const macroAge = elapsedMs(macro?.programFetchedAt, nowMs);
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined && macroAge !== null && macroAge <= KIS_STALE_MS) {
     return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(macro.programNetBuyAmount)}`, `updated: ${formatAgo(macroAge)}`, rawDiagLine, '상세: /program_market'] };
