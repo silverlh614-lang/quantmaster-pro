@@ -210,6 +210,12 @@ export interface InvestorFlowRowsUnwrapDiagnostic {
   placeholderFieldKeys: string[];
   selectedPath: string | null;
   reason: InvestorFlowUnwrapReason;
+  rowCandidateCount?: number;
+  selectedRowScore?: number;
+  rejectedWrapperPathsTop?: string[];
+  wrapperOnlyCount?: number;
+  numericCandidateCount?: number;
+  aliasCandidateCount?: number;
 }
 
 export interface InvestorFlowFieldKeyDiscoveryDiagnostic {
@@ -230,6 +236,14 @@ export interface InvestorFlowFieldKeyDiscoveryDiagnostic {
   actualNumberFieldKeysTop?: string[];
   actualPlaceholderFieldKeysTop?: string[];
   candidateNetBuyFieldKeysTop?: string[];
+  rowCandidateCount?: number;
+  selectedRowScore?: number;
+  selectedActualRawFieldKeysTop?: string[];
+  selectedNumericStringFieldKeysTop?: string[];
+  rejectedWrapperPathsTop?: string[];
+  wrapperOnlyCount?: number;
+  numericCandidateCount?: number;
+  aliasCandidateCount?: number;
 }
 
 export type InvestorFlowProviderScope = 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
@@ -283,6 +297,14 @@ export type InvestorFlowSemanticAvailabilityReason =
   | 'NO_FOREIGN_OR_INSTITUTION_FIELD'
   | 'SEMANTIC_ROW_METADATA_ONLY'
   | 'FIELD_ALIAS_NOT_MAPPED'
+  | 'ONLY_WRAPPER_OBJECT_SELECTED'
+  | 'NO_ACTUAL_ROW_FOUND'
+  | 'DEEP_UNWRAP_NO_NUMERIC_FIELDS'
+  | 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN'
+  | 'ALIAS_MAPPED_FOREIGN_ONLY'
+  | 'ALIAS_MAPPED_INSTITUTION_ONLY'
+  | 'ALIAS_MAPPED_BOTH'
+  | 'INVESTOR_TYPE_ROW_MAPPING_FAILED'
   | 'RAW_INVESTOR_ROW_MISSING'
   | 'ROUTER_DROPPED_SEMANTIC_ROW'
   | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW'
@@ -331,9 +353,15 @@ const INVESTOR_FLOW_WRAPPER_METADATA_KEYS = new Set([
   'kisRawRowAvailableAtAdapter',
   'kisSelectedCandidateCarriesSemanticRow',
   'investorFlowSemanticRow',
-  'semanticRowBreakPoint',
+  'semanticRow',
+  'rawRow',
+  'normalizedRow',
+  'materializedCount',
+  'normalizedCount',
+  'rowCount',
   'scoreUsage',
   'executionImpact',
+  'semanticRowBreakPoint',
   'symbol',
   'provider',
   'routePurpose',
@@ -354,7 +382,15 @@ const INVESTOR_FLOW_NESTED_PATHS = [
   'input.normalized',
   'input.normalizedRow',
   'input.investorFlowSemanticRow',
+  'input.investorFlowSemanticRow.rawRow',
+  'input.investorFlowSemanticRow.normalizedRow',
+  'input.investorFlowSemanticRow.rows',
+  'input.investorFlowSemanticRow.data',
   'input.semanticRow',
+  'input.semanticRow.rawRow',
+  'input.semanticRow.normalizedRow',
+  'input.semanticRow.rows',
+  'input.semanticRow.data',
   'input.selectedCandidate',
   'input.selectedCandidate.raw',
   'input.selectedCandidate.normalized',
@@ -365,6 +401,9 @@ const INVESTOR_FLOW_NESTED_PATHS = [
   'input.data',
   'input.rows',
   'input.payload',
+  'input.payload.rawRow',
+  'input.payload.normalizedRow',
+  'input.payload.output',
   'input.output',
   'input.result',
   'input.items',
@@ -447,24 +486,59 @@ export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDi
   const wrapperKeys = input != null && typeof input === 'object' && !Array.isArray(input)
     ? Object.keys(input as Record<string, unknown>).filter((key) => INVESTOR_FLOW_WRAPPER_METADATA_KEYS.has(key))
     : [];
-  const candidates: Array<{ path: string; rows: Array<Record<string, unknown>>; score: number; order: number }> = [];
+  type Candidate = {
+    path: string;
+    rows: Array<Record<string, unknown>>;
+    score: number;
+    order: number;
+    numericTotal: number;
+    aliasTotal: number;
+    wrapperOnly: boolean;
+  };
+  const candidates: Candidate[] = [];
+  const rejectedWrapperPaths: string[] = [];
   const seen = new Set<unknown>();
   const pathsSeen = new Set<string>();
+  const normalizePath = (path: string): string => path || 'input';
+  const fieldNameSignalCount = (row: Record<string, unknown>): number => actualEntries(row)
+    .filter(([key]) => /frgn|orgn|indv|foreign|institution|individual|net|buy|sell|ntby|shnu|seln/i.test(key))
+    .length;
+  const allActualValuesPlaceholder = (row: Record<string, unknown>): boolean => {
+    const entries = actualEntries(row);
+    return entries.length > 0 && entries.every(([, value]) => {
+      const kind = sampleValueKind(value);
+      return kind === 'placeholder' || kind === 'empty';
+    });
+  };
   const addCandidate = (path: string, value: unknown, order: number) => {
     if (value == null || seen.has(value)) return;
     seen.add(value);
     const rows = safeObjectRows(value);
     if (rows.length === 0) return;
+    const normalizedPath = normalizePath(path);
     const actualKeyTotal = rows.reduce((sum, row) => sum + rowActualKeyCount(row), 0);
     const numericTotal = rows.reduce((sum, row) => sum + rowNumericSignalCount(row), 0);
     const aliasTotal = rows.reduce((sum, row) => sum + rowAliasSignalCount(row), 0);
+    const fieldNameTotal = rows.reduce((sum, row) => sum + fieldNameSignalCount(row), 0);
     const investorTypeTotal = rows.filter((row) => INVESTOR_TYPE_KEYS.some((key) => classifyInvestorType(row[key]))).length;
+    const buySellPairTotal = rows.filter((row) =>
+      (firstNumberLikeField(row, [...FOREIGN_BUY_ALIASES, ...INSTITUTIONAL_BUY_ALIASES, ...INDIVIDUAL_BUY_ALIASES, ...COMMON_BUY_AMOUNT_ALIASES]).rawMaterialized)
+      && (firstNumberLikeField(row, [...FOREIGN_SELL_ALIASES, ...INSTITUTIONAL_SELL_ALIASES, ...INDIVIDUAL_SELL_ALIASES, ...COMMON_SELL_AMOUNT_ALIASES]).rawMaterialized),
+    ).length;
+    const wrapperOnly = rows.every((row) => rowActualKeyCount(row) === 0);
+    const placeholderPenalty = rows.filter(allActualValuesPlaceholder).length * 25;
+    const metadataPenalty = wrapperOnly ? 500 : 0;
     const arrayBonus = Array.isArray(value) ? 4 : 0;
-    const nestedBonus = path === 'input' ? 0 : 2;
-    const score = aliasTotal * 100 + investorTypeTotal * 40 + numericTotal * 20 + actualKeyTotal + arrayBonus + nestedBonus;
+    const nestedBonus = normalizedPath === 'input' ? 0 : 6;
+    const semanticWrapperPenalty = normalizedPath === 'input' && wrapperKeys.length > 0 ? 100 : 0;
+    const score = aliasTotal * 100 + investorTypeTotal * 40 + buySellPairTotal * 35 + numericTotal * 20 + fieldNameTotal * 8 + actualKeyTotal + arrayBonus + nestedBonus - placeholderPenalty - metadataPenalty - semanticWrapperPenalty;
+    pathsSeen.add(normalizedPath);
+    if (wrapperOnly) {
+      rejectedWrapperPaths.push(normalizedPath);
+      return;
+    }
     if (score <= 0) return;
-    candidates.push({ path: path.replace(/^input\.?/, '') || 'input', rows, score, order });
-    pathsSeen.add(path.replace(/^input\.?/, '') || 'input');
+    candidates.push({ path: normalizedPath, rows, score, order, numericTotal, aliasTotal, wrapperOnly });
   };
 
   INVESTOR_FLOW_NESTED_PATHS.forEach((path, index) => addCandidate(path, getPathValue(input, path), index));
@@ -473,11 +547,15 @@ export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDi
   const recursiveSeen = new Set<unknown>();
   while (queue.length > 0) {
     const current = queue.shift()!;
-    if (current.value == null || typeof current.value !== 'object' || recursiveSeen.has(current.value) || current.depth > 3) continue;
+    if (current.value == null || typeof current.value !== 'object' || recursiveSeen.has(current.value) || current.depth > 5) continue;
     recursiveSeen.add(current.value);
     if (Array.isArray(current.value)) {
       addCandidate(current.path, current.value, 100 + current.depth);
-      for (const [index, item] of current.value.slice(0, 5).entries()) queue.push({ value: item, path: `${current.path}[${index}]`, depth: current.depth + 1 });
+      for (const [index, item] of current.value.slice(0, 5).entries()) {
+        const itemPath = `${current.path}[${index}]`;
+        addCandidate(itemPath, item, 110 + current.depth + index);
+        queue.push({ value: item, path: itemPath, depth: current.depth + 1 });
+      }
       continue;
     }
     const obj = current.value as Record<string, unknown>;
@@ -505,7 +583,7 @@ export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDi
       else if (kind === 'placeholder' || kind === 'empty') placeholderFieldKeys.push(key);
     }
   }
-  const hasWrapperOnly = wrapperKeys.length > 0 && rawFieldKeys.length === 0;
+  const hasWrapperOnly = rejectedWrapperPaths.length > 0 && rows.length === 0;
   return {
     rows,
     paths: Array.from(pathsSeen),
@@ -515,6 +593,12 @@ export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDi
     placeholderFieldKeys: topUnique(placeholderFieldKeys),
     selectedPath: selected?.path ?? null,
     reason: selected ? unwrapReasonForPath(selected.path, rows, input) : hasWrapperOnly ? 'ONLY_WRAPPER_METADATA' : 'NO_ROW_FOUND',
+    rowCandidateCount: candidates.length,
+    selectedRowScore: selected?.score,
+    rejectedWrapperPathsTop: topUnique(rejectedWrapperPaths),
+    wrapperOnlyCount: rejectedWrapperPaths.length,
+    numericCandidateCount: candidates.filter((candidate) => candidate.numericTotal > 0).length,
+    aliasCandidateCount: candidates.filter((candidate) => candidate.aliasTotal > 0).length,
   };
 }
 
@@ -708,6 +792,14 @@ function buildFieldKeyDiagnostics(
     actualNumberFieldKeysTop: topUnique(raw.numberKeys),
     actualPlaceholderFieldKeysTop: topUnique(raw.placeholderKeys),
     candidateNetBuyFieldKeysTop: topUnique(raw.candidateNetBuyKeys),
+    rowCandidateCount: raw.unwrap.rowCandidateCount,
+    selectedRowScore: raw.unwrap.selectedRowScore,
+    selectedActualRawFieldKeysTop: topUnique(raw.keys),
+    selectedNumericStringFieldKeysTop: topUnique(raw.numericStringKeys),
+    rejectedWrapperPathsTop: raw.unwrap.rejectedWrapperPathsTop,
+    wrapperOnlyCount: raw.unwrap.wrapperOnlyCount,
+    numericCandidateCount: raw.unwrap.numericCandidateCount,
+    aliasCandidateCount: raw.unwrap.aliasCandidateCount,
   };
 }
 
@@ -903,6 +995,11 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   else if (input.rawInvestorRowAvailable === false && !hasCoreField) reason = 'RAW_INVESTOR_ROW_MISSING';
   else if (isMetadataOnlySemanticRow(input.flow) && !hasCoreField) reason = 'SEMANTIC_ROW_METADATA_ONLY';
   else if (fields.placeholderOnly) reason = 'PLACEHOLDER_ONLY';
+  else if (fields.fieldKeyDiagnostics?.unwrapReason === 'ONLY_WRAPPER_METADATA' && !hasCoreField) reason = 'ONLY_WRAPPER_OBJECT_SELECTED';
+  else if (fields.fieldKeyDiagnostics?.unwrapReason === 'NO_ROW_FOUND' && !hasCoreField) reason = 'NO_ACTUAL_ROW_FOUND';
+  else if ((fields.fieldKeyDiagnostics?.numericCandidateCount ?? 0) === 0 && (fields.fieldKeyDiagnostics?.rowCandidateCount ?? 0) > 0 && !hasCoreField) reason = 'DEEP_UNWRAP_NO_NUMERIC_FIELDS';
+  else if ((fields.rowCount ?? 0) > 0 && fields.rowMappingConfidence === 'LOW' && (fields.investorTypesDetected?.length ?? 0) > 0 && !hasCoreField) reason = 'INVESTOR_TYPE_ROW_MAPPING_FAILED';
+  else if ((fields.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop?.length ?? 0) + (fields.fieldKeyDiagnostics?.actualNumberFieldKeysTop?.length ?? 0) > 0 && !hasCoreField) reason = 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN';
   else if ((fields.rowCount ?? 0) > 0 && fields.rowMappingConfidence === 'LOW' && !hasCoreField) reason = 'FIELD_ALIAS_NOT_MAPPED';
   else if (fields.materializedCount > 0 && !hasCoreField) reason = 'FIELD_ALIAS_NOT_MAPPED';
   else if (!hasCoreField) reason = input.semanticRowExpected ? 'ROUTER_DROPPED_SEMANTIC_ROW' : 'NO_FOREIGN_OR_INSTITUTION_FIELD';

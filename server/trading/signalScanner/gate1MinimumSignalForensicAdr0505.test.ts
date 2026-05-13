@@ -662,7 +662,7 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(result.available).toBe(true);
       expect(result.foreignNetBuy).toBe(1234);
       expect(result.institutionalNetBuy).toBe(-2000);
-      expect(result.fieldKeyDiagnostics?.selectedPath).toBe('investorFlowSemanticRow');
+      expect(result.fieldKeyDiagnostics?.selectedPath).toBe('input.investorFlowSemanticRow');
       expect(result.fieldKeyDiagnostics?.actualRawFieldKeysTop).toContain('frgn_ntby_tr_pbmn');
       expect(result.fieldKeyDiagnostics?.actualRawFieldKeysTop).not.toContain('candidateSymbol');
       expect(result.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop).toContain('frgn_ntby_tr_pbmn');
@@ -676,11 +676,11 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
         providerScope: 'SYMBOL_LEVEL',
       });
       expect(rawRowResult.available).toBe(true);
-      expect(rawRowResult.fieldKeyDiagnostics?.selectedPath).toBe('rawRow');
+      expect(rawRowResult.fieldKeyDiagnostics?.selectedPath).toBe('input.rawRow');
 
       const rowsResult = unwrapInvestorFlowRows({ rows: [{ investorType: '외국인', netBuyAmount: '1,000' }] });
       expect(rowsResult.rows).toHaveLength(1);
-      expect(rowsResult.selectedPath).toBe('rows');
+      expect(rowsResult.selectedPath).toBe('input.rows');
       expect(rowsResult.reason).toBe('FOUND_ROWS_ARRAY');
     });
 
@@ -718,6 +718,56 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(numericUnknown.available).toBe(false);
       expect(numericUnknown.semanticRowBreakPoint).toBe('NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED');
       expect(numericUnknown.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop).toContain('mystery_net_flow');
+    });
+
+
+    it('Patch-KIS-INVESTOR-FLOW-NESTED-ROW-PATH-004 — semanticRow/rawRow/normalizedRow deep unwrap path와 alias를 표시한다', () => {
+      const semanticRowResult = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { semanticRow: { frgn_ntby_tr_pbmn: '1,000' } },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(semanticRowResult.fieldKeyDiagnostics?.selectedPath).toBe('input.semanticRow');
+      expect(semanticRowResult.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop).toContain('frgn_ntby_tr_pbmn');
+      expect(semanticRowResult.fieldKeyDiagnostics?.actualRawFieldKeysTop).not.toContain('semanticRow');
+      expect(semanticRowResult.available).toBe(true);
+
+      const rawRowResult = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { semanticRow: { rawRow: { frgn_ntby_tr_pbmn: '2,000' } } },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(rawRowResult.fieldKeyDiagnostics?.selectedPath).toBe('input.semanticRow.rawRow');
+      expect(rawRowResult.foreignNetBuy).toBe(2000);
+      expect(rawRowResult.fieldKeyDiagnostics?.candidateMappedFields.foreign).toContain('frgn_ntby_tr_pbmn');
+
+      const normalizedRowResult = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { investorFlowSemanticRow: { normalizedRow: { orgn_ntby_tr_pbmn: '-3,000' } } },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(normalizedRowResult.fieldKeyDiagnostics?.selectedPath).toBe('input.investorFlowSemanticRow.normalizedRow');
+      expect(normalizedRowResult.institutionalNetBuy).toBe(-3000);
+      expect(normalizedRowResult.fieldKeyDiagnostics?.candidateMappedFields.institution).toContain('orgn_ntby_tr_pbmn');
+    });
+
+    it('Patch-KIS-INVESTOR-FLOW-NESTED-ROW-PATH-004 — wrapper-only object는 actual row로 선택하지 않고 세분 reason을 유지한다', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: {
+          semanticRow: { candidateSymbol: '005930', providerScope: 'SYMBOL_LEVEL', scoreUsage: 'SHADOW_ONLY', executionImpact: 'NONE' },
+          materializedCount: 0,
+          normalizedCount: 0,
+          rowCount: 0,
+        },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(false);
+      expect(['ONLY_WRAPPER_OBJECT_SELECTED', 'NO_ACTUAL_ROW_FOUND', 'SEMANTIC_ROW_METADATA_ONLY']).toContain(result.reason);
+      expect(result.semanticRowBreakPoint).toBe('ONLY_WRAPPER_METADATA');
+      expect(result.fieldKeyDiagnostics?.selectedPath).toBeNull();
+      expect(result.fieldKeyDiagnostics?.rejectedWrapperPathsTop).toContain('input');
+      expect(result.fieldKeyDiagnostics?.wrapperOnlyCount).toBeGreaterThan(0);
     });
 
     it('/scan_blockers supply section exposes Supply Semantic Unwrap diagnostics', () => {

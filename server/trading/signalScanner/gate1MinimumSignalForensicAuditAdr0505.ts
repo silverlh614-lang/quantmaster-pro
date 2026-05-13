@@ -414,6 +414,14 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   actualNumberFieldKeysTop?: Record<string, number>;
   actualPlaceholderFieldKeysTop?: Record<string, number>;
   candidateNetBuyFieldKeysTop?: Record<string, number>;
+  selectedActualRawFieldKeysTop?: Record<string, number>;
+  selectedNumericStringFieldKeysTop?: Record<string, number>;
+  rejectedWrapperPathsTop?: Record<string, number>;
+  rowCandidateCount?: number;
+  selectedRowScoreAvg?: number;
+  wrapperOnlyCount?: number;
+  numericCandidateCount?: number;
+  aliasCandidateCount?: number;
   selectedPathTop?: Record<string, number>;
   kisNormalizedFieldKeysTop?: Record<string, number>;
   sampleValueKindDistribution?: Record<string, number>;
@@ -1336,6 +1344,14 @@ const EMPTY_SEMANTIC_REASON_DISTRIBUTION: Record<InvestorFlowSemanticAvailabilit
   NO_FOREIGN_OR_INSTITUTION_FIELD: 0,
   SEMANTIC_ROW_METADATA_ONLY: 0,
   FIELD_ALIAS_NOT_MAPPED: 0,
+  ONLY_WRAPPER_OBJECT_SELECTED: 0,
+  NO_ACTUAL_ROW_FOUND: 0,
+  DEEP_UNWRAP_NO_NUMERIC_FIELDS: 0,
+  NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN: 0,
+  ALIAS_MAPPED_FOREIGN_ONLY: 0,
+  ALIAS_MAPPED_INSTITUTION_ONLY: 0,
+  ALIAS_MAPPED_BOTH: 0,
+  INVESTOR_TYPE_ROW_MAPPING_FAILED: 0,
   RAW_INVESTOR_ROW_MISSING: 0,
   ROUTER_DROPPED_SEMANTIC_ROW: 0,
   FORENSIC_INPUT_DROPPED_SEMANTIC_ROW: 0,
@@ -1447,6 +1463,15 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const actualNumberFieldKeysTop: Record<string, number> = {};
   const actualPlaceholderFieldKeysTop: Record<string, number> = {};
   const candidateNetBuyFieldKeysTop: Record<string, number> = {};
+  const selectedActualRawFieldKeysTop: Record<string, number> = {};
+  const selectedNumericStringFieldKeysTop: Record<string, number> = {};
+  const rejectedWrapperPathsTop: Record<string, number> = {};
+  let rowCandidateCount = 0;
+  let selectedRowScoreSum = 0;
+  let selectedRowScoreCount = 0;
+  let wrapperOnlyCount = 0;
+  let numericCandidateCount = 0;
+  let aliasCandidateCount = 0;
   const selectedPathTop: Record<string, number> = {};
   const kisNormalizedFieldKeysTop: Record<string, number> = {};
   const kisSemanticFieldKeysTop: Record<string, number> = {};
@@ -1614,6 +1639,17 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     for (const key of fieldDiagnostics?.actualNumberFieldKeysTop ?? []) actualNumberFieldKeysTop[key] = (actualNumberFieldKeysTop[key] ?? 0) + 1;
     for (const key of fieldDiagnostics?.actualPlaceholderFieldKeysTop ?? []) actualPlaceholderFieldKeysTop[key] = (actualPlaceholderFieldKeysTop[key] ?? 0) + 1;
     for (const key of fieldDiagnostics?.candidateNetBuyFieldKeysTop ?? []) candidateNetBuyFieldKeysTop[key] = (candidateNetBuyFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.selectedActualRawFieldKeysTop ?? []) selectedActualRawFieldKeysTop[key] = (selectedActualRawFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.selectedNumericStringFieldKeysTop ?? []) selectedNumericStringFieldKeysTop[key] = (selectedNumericStringFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.rejectedWrapperPathsTop ?? []) rejectedWrapperPathsTop[key] = (rejectedWrapperPathsTop[key] ?? 0) + 1;
+    rowCandidateCount += fieldDiagnostics?.rowCandidateCount ?? 0;
+    if (typeof fieldDiagnostics?.selectedRowScore === 'number') {
+      selectedRowScoreSum += fieldDiagnostics.selectedRowScore;
+      selectedRowScoreCount += 1;
+    }
+    wrapperOnlyCount += fieldDiagnostics?.wrapperOnlyCount ?? 0;
+    numericCandidateCount += fieldDiagnostics?.numericCandidateCount ?? 0;
+    aliasCandidateCount += fieldDiagnostics?.aliasCandidateCount ?? 0;
     if (fieldDiagnostics?.selectedPath) selectedPathTop[fieldDiagnostics.selectedPath] = (selectedPathTop[fieldDiagnostics.selectedPath] ?? 0) + 1;
     for (const key of fieldDiagnostics?.kisNormalizedFieldKeysTop ?? []) {
       kisNormalizedFieldKeysTop[key] = (kisNormalizedFieldKeysTop[key] ?? 0) + 1;
@@ -1760,6 +1796,14 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     actualNumberFieldKeysTop,
     actualPlaceholderFieldKeysTop,
     candidateNetBuyFieldKeysTop,
+    selectedActualRawFieldKeysTop,
+    selectedNumericStringFieldKeysTop,
+    rejectedWrapperPathsTop,
+    rowCandidateCount,
+    selectedRowScoreAvg: selectedRowScoreCount > 0 ? selectedRowScoreSum / selectedRowScoreCount : 0,
+    wrapperOnlyCount,
+    numericCandidateCount,
+    aliasCandidateCount,
     selectedPathTop,
     kisNormalizedFieldKeysTop,
     kisSemanticFieldKeysTop,
@@ -1915,12 +1959,20 @@ export function formatGate1MinimumSignalForensicSection(
   if (summary.kisRawFieldKeysTop) lines.push(`- kisRawFieldKeysTop: ${formatDistribution(summary.kisRawFieldKeysTop)}`);
   lines.push('- Supply Semantic Unwrap:');
   lines.push(`  - unwrapRows: ${Object.values(summary.selectedPathTop ?? {}).reduce((sum, count) => sum + count, 0)}/${summary.totalCandidates}`);
+  lines.push(`  - rowCandidateCount: ${summary.rowCandidateCount ?? 0}`);
+  lines.push(`  - selectedRowScore: ${(summary.selectedRowScoreAvg ?? 0).toFixed(1)}`);
   if (summary.selectedPathTop) lines.push(`  - selectedPathTop: ${formatDistribution(summary.selectedPathTop)}`);
   if (summary.actualNumericStringFieldKeysTop) lines.push(`  - actualNumericStringFieldKeysTop: ${formatDistribution(summary.actualNumericStringFieldKeysTop)}`);
   if (summary.actualRawFieldKeysTop) lines.push(`  - actualRawFieldKeysTop: ${formatDistribution(summary.actualRawFieldKeysTop)}`);
+  if (summary.selectedActualRawFieldKeysTop) lines.push(`  - selectedActualRawFieldKeysTop: ${formatDistribution(summary.selectedActualRawFieldKeysTop)}`);
+  if (summary.selectedNumericStringFieldKeysTop) lines.push(`  - selectedNumericStringFieldKeysTop: ${formatDistribution(summary.selectedNumericStringFieldKeysTop)}`);
   if (summary.actualNumberFieldKeysTop) lines.push(`  - actualNumberFieldKeysTop: ${formatDistribution(summary.actualNumberFieldKeysTop)}`);
   if (summary.actualPlaceholderFieldKeysTop) lines.push(`  - actualPlaceholderFieldKeysTop: ${formatDistribution(summary.actualPlaceholderFieldKeysTop)}`);
   if (summary.candidateNetBuyFieldKeysTop) lines.push(`  - candidateNetBuyFieldKeysTop: ${formatDistribution(summary.candidateNetBuyFieldKeysTop)}`);
+  if (summary.rejectedWrapperPathsTop) lines.push(`  - rejectedWrapperPathsTop: ${formatDistribution(summary.rejectedWrapperPathsTop)}`);
+  lines.push(`  - wrapperOnlyCount: ${summary.wrapperOnlyCount ?? 0}`);
+  lines.push(`  - numericCandidateCount: ${summary.numericCandidateCount ?? 0}`);
+  lines.push(`  - aliasCandidateCount: ${summary.aliasCandidateCount ?? 0}`);
   if (summary.semanticRowBreakPointDistribution) lines.push(`  - semanticRowBreakPointDistribution: ${formatDistribution(summary.semanticRowBreakPointDistribution)}`);
   lines.push(`  - semanticAvailable: ${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - zeroButMaterialized: ${summary.zeroButMaterializedCount ?? 0}`);
