@@ -539,3 +539,166 @@ export async function resolvePendingApproval(
   pending.resolve(action);
   return true;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADR-0508 — SIGTERM Graceful Inflight Approval Drain
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 결함: process restart 시점에 모듈 로컬 `pendingApprovals` Map + dedupe store
+// (in-memory) 가 휘발 → 사용자가 클릭한 승인 메시지의 Promise 가 영원히 unresolved →
+// `await requestBuyApproval` 무한 대기 → Shadow trade 영속 0건 + 다음 사이클 동일
+// 종목 카드 재발송 (PR #923 Patch-SHADOW-APPROVAL-DEDUP-001 가 다룬 결함의 *재배포
+// 사각지대*).
+//
+// 정책 (사용자 명시 절대 변경 금지):
+//   - 모든 inflight approval 을 'SKIP' 으로 resolve (LIVE / SHADOW 동일)
+//   - clearTimeout(timer) 의무 (auto-approval timer 차단, 잔존 타이머 발화 0)
+//   - shadowDedupeKey 있으면 markShadowApprovalSkipped (state 전이 + dedupe timer
+//     clearTimeout) — 부팅 후 동일 dedupeKey 의 PENDING 흔적 0 보장 (영속 ledger
+//     자체는 휘발 in-memory 라 다음 부팅에서 fresh, 그러나 본 PR 의 의미론 일관성
+//     보존을 위해 상태 전이 의무)
+//   - LIVE 주문 호출 0건 (drain 은 'SKIP' resolve 만, KIS order path 무관)
+//   - executionImpact: 'NONE' literal (호출자 측 invariant 자동 충족)
+//   - 단일 호출 idempotent (이미 비어 있는 Map 재호출 시 drained=0 + errors=0)
+//
+// 안전 invariants:
+//   - LIVE 매매 본체 0줄 변경 (signalScanner / entryEngine / exitEngine / kisClient
+//     / orchestrator / autoTradeEngine / trancheExecutor / buyPipeline 모두 무수정)
+//   - KIS 주문 함수 5종 (placeKisMarketOrder / placeKisSellOrder /
+//     placeKisStopLossOrder / placeKisTakeProfitOrder / cancelKisOrder) import 0건
+//   - autoTradeEngine / orderExecutor / trancheExecutor import 0건
+//   - 외부 API (fetch / axios / node-fetch) 호출 0건
+//   - Gate threshold + condition weight + STRONG_BUY 조건 + requiredScore + UNKNOWN
+//     penalty 변경 0
+//   - ENV `INFLIGHT_APPROVAL_DRAIN_DISABLED=true` (default OFF, ADR-0157 정확 비교)
+//     1줄 즉시 legacy 동작 (drain skip) 복원
+//   - 호출자 측 inline ENV 검사 0건 (`isInflightApprovalDrainDisabled()` SSOT 위임)
+//
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface InflightApprovalDrainSummary {
+  drained: number;
+  liveDrained: number;
+  shadowDrained: number;
+  shadowDedupeKeysMarkedSkipped: number;
+  errors: number;
+  drainedAtIso: string;
+  signal?: string;
+  reason: 'GRACEFUL_SHUTDOWN' | 'OPERATOR_INITIATED' | 'TEST';
+  executionImpact: 'NONE';
+  liveOrderPlaced: false;
+  disabled?: boolean;
+}
+
+/**
+ * ADR-0508 — ENV gate (default OFF, ADR-0157 정확 비교 의무).
+ * `=== 'true'` — `'1'` / `'TRUE'` / `'yes'` / 빈 문자열 모두 default 동작 유지.
+ */
+export function isInflightApprovalDrainDisabled(): boolean {
+  return process.env.INFLIGHT_APPROVAL_DRAIN_DISABLED === 'true';
+}
+
+/**
+ * ADR-0508 — SIGTERM graceful approval drain SSOT.
+ *
+ * 모든 inflight `pendingApprovals` 를 'SKIP' 으로 resolve + clearTimeout + (SHADOW
+ * 모드 + dedupeKey 있을 시) markShadowApprovalSkipped 호출.
+ *
+ * 호출 시점:
+ *   - `server/index.ts` shutdown() 진입 직후 (SIGTERM/SIGINT 양쪽)
+ *   - 운영자 수동 트리거 (drain reason='OPERATOR_INITIATED', 후속 PR scope)
+ *   - 회귀 테스트 (drain reason='TEST')
+ *
+ * 단일 호출 idempotent — 이미 비어 있는 Map 재호출 시 drained=0 + errors=0 안전.
+ *
+ * @returns drain summary (telemetry/test)
+ */
+export function drainPendingApprovals(opts?: {
+  signal?: string;
+  reason?: 'GRACEFUL_SHUTDOWN' | 'OPERATOR_INITIATED' | 'TEST';
+}): InflightApprovalDrainSummary {
+  const drainedAtIso = new Date().toISOString();
+  const reason = opts?.reason ?? 'GRACEFUL_SHUTDOWN';
+  const signal = opts?.signal;
+
+  if (isInflightApprovalDrainDisabled()) {
+    return {
+      drained: 0,
+      liveDrained: 0,
+      shadowDrained: 0,
+      shadowDedupeKeysMarkedSkipped: 0,
+      errors: 0,
+      drainedAtIso,
+      signal,
+      reason,
+      executionImpact: 'NONE',
+      liveOrderPlaced: false,
+      disabled: true,
+    };
+  }
+
+  let drained = 0;
+  let liveDrained = 0;
+  let shadowDrained = 0;
+  let shadowDedupeKeysMarkedSkipped = 0;
+  let errors = 0;
+
+  // Map 스냅샷 — drain 진행 중 외부 callback 이 동일 Map mutate 하지 않도록 정렬된
+  // 키 배열로 작업 (방어적 패턴).
+  const tradeIds = Array.from(pendingApprovals.keys());
+
+  for (const tradeId of tradeIds) {
+    const pending = pendingApprovals.get(tradeId);
+    if (!pending) continue;
+    try {
+      // 1) auto-approval timer 차단 (SIGTERM 후에도 잔존 타이머 발화 0 보장)
+      try { clearTimeout(pending.timer); } catch { /* ignore */ }
+
+      // 2) Shadow dedupe state 전이 — 부팅 후 동일 dedupeKey 의 PENDING 흔적 0
+      if (pending.shadowDedupeKey && pending.mode === 'SHADOW') {
+        try {
+          const transitioned = markShadowApprovalSkipped(pending.shadowDedupeKey);
+          if (transitioned) shadowDedupeKeysMarkedSkipped += 1;
+        } catch {
+          // dedupe store throw 가 drain 전체 차단 금지 — 다음 entry 계속.
+          errors += 1;
+        }
+      }
+
+      // 3) Map 에서 제거 (resolve 보다 먼저 — resolve 가 동기적으로 다른 흐름을
+      //    invoke 해도 Map 재방문 영향 0).
+      pendingApprovals.delete(tradeId);
+
+      // 4) Promise resolve('SKIP') — 호출자 (buyPipeline.createBuyTask) 가 'SKIP'
+      //    경로로 진입 → KIS 주문 호출 0건 + Shadow trade 영속 0건 + tradeSignalStatus
+      //    `markBlocked` 호출 0건 (resolve 후 호출자 측 분기 그대로).
+      try { pending.resolve('SKIP'); } catch { errors += 1; }
+
+      drained += 1;
+      if (pending.mode === 'LIVE') liveDrained += 1;
+      else shadowDrained += 1;
+    } catch (e) {
+      errors += 1;
+      try {
+        console.warn(
+          '[InflightApprovalDrain] error draining tradeId',
+          tradeId,
+          e instanceof Error ? e.message : String(e),
+        );
+      } catch { /* ignore */ }
+    }
+  }
+
+  return {
+    drained,
+    liveDrained,
+    shadowDrained,
+    shadowDedupeKeysMarkedSkipped,
+    errors,
+    drainedAtIso,
+    signal,
+    reason,
+    executionImpact: 'NONE',
+    liveOrderPlaced: false,
+  };
+}
