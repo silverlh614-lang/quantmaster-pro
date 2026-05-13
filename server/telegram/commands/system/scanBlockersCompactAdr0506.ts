@@ -392,7 +392,9 @@ export function formatScanBlockersGateCompactMessage(
   // candidates / survivors
   const candidates = summary?.candidates ?? 0;
   const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));
-  lines.push(`• candidates: ${candidates} / Gate1 survivors: ${gate1Pass}`);
+  const gate2Pass = summary?.gatePassDistribution?.gate2Pass ?? 0;
+  lines.push(`• Gate1 pass: ${gate1Pass}/${candidates}`);
+  lines.push(`• Gate2 pass: ${gate2Pass}/${gate1Pass}`);
 
   if (!forensic || forensic.totalCandidates === 0) {
     lines.push('• forensic: n/a (ADR-0505 NOT_EMITTED — /scan_blockers full 참조)');
@@ -457,10 +459,17 @@ export function formatScanBlockersGateCompactMessage(
     }
   }
 
-  // SectorEnergy STRONG_BUY blocked count (있을 때만)
-  if (forensic.sectorEnergyStrongBuyBlockedCount > 0) {
-    lines.push(`• SectorEnergy STRONG_BUY blocked: ${forensic.sectorEnergyStrongBuyBlockedCount}`);
+  lines.push(`• rsHydration: ${forensic.rsHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• breakoutHydration: ${forensic.breakoutHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• supplySymbolMatched: ${forensic.supplySymbolMatchedCount ?? 0}/${forensic.totalCandidates}`);
+  const topMissingFields = forensic.topHydrationMissingFields ?? [];
+  if (topMissingFields.length > 0) {
+    lines.push(`• topMissingFields: ${topMissingFields.slice(0, 4).join(', ')}`);
   }
+
+  lines.push(`• SectorEnergy: boost=0 strongBuyBlocked=${forensic.sectorEnergyStrongBuyBlockedCount}`);
+
+  lines.push('• nextAction: WIRE_SYMBOL_LEVEL_SUPPLY_AND_FEATURE_HYDRATION');
 
   // 안전 invariant (절대 변경 금지 — 정적 grep 가드 회귀 테스트 검증)
   lines.push(`• impact: ${forensic.executionImpact} (liveExecutionAllowed=${forensic.liveExecutionAllowed})`);
@@ -528,8 +537,14 @@ export const SCAN_BLOCKERS_LENGTH_BUDGET: Readonly<Record<ScanBlockersMode, numb
  */
 export function applyScanBlockersLengthGuard(message: string, mode: ScanBlockersMode): string {
   const budget = SCAN_BLOCKERS_LENGTH_BUDGET[mode];
+  return applyScanBlockersLengthBudget(message, budget);
+}
+
+export function applyScanBlockersLengthBudget(message: string, budget: number): string {
   if (message.length <= budget) return message;
   const suffix = `\n…\n(truncated — /scan_blockers full 로 전체 출력 확인)`;
   const sliceLen = Math.max(0, budget - suffix.length);
   return message.slice(0, sliceLen) + suffix;
 }
+
+export const SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET = 2500;

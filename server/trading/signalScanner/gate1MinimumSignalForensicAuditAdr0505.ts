@@ -88,14 +88,38 @@ export interface ComponentForensicDetail {
 export interface SupplyScopeAudit {
   /** 사용자 명시 핵심 불변식 — 절대 변경 금지. */
   expectedScope: 'SYMBOL_LEVEL_INVESTOR_FLOW';
+  /** CandidateEntryTrace.symbol — symbol-level supply 검증의 기준 축. */
+  candidateSymbol?: string | null;
+  /** quote.symbol — quote payload 가 종목 단위인지 확인하는 보조 축. */
   quoteSymbol?: string | null;
   kisFlowSymbol?: string | null;
+  /** candidate/quote/kisFlow symbol 이 모두 확인될 때만 true. */
   symbolMatched: boolean | null;
   foreignNetBuy: number | null;
   institutionalNetBuy: number | null;
   programNetBuy?: number | null;
   semanticAvailable: boolean;
+  /** symbol 확인 실패 수급은 SHADOW_ONLY diagnostic 으로만 표기한다. */
+  scoreUsage?: 'SHADOW_ONLY';
   warning: SupplyScopeWarning;
+}
+
+export type HydrationMissingReason =
+  | 'CANDIDATE_TRACE_MISSING'
+  | 'FIELD_MISSING'
+  | 'QUOTE_MISSING'
+  | 'SYMBOL_FEATURES_MISSING'
+  | 'CONDITION_RESULTS_MISSING';
+
+export interface FeatureHydrationAuditAdr0509 {
+  rsAvailable: boolean;
+  breakoutAvailable: boolean;
+  rsMissingReasons: HydrationMissingReason[];
+  breakoutMissingReasons: HydrationMissingReason[];
+  missingFields: string[];
+  candidateTraceHasQuote: boolean;
+  candidateTraceHasSymbolFeatures: boolean;
+  candidateTraceHasConditionResults: boolean;
 }
 
 export interface SectorEnergyForensicAudit {
@@ -145,6 +169,7 @@ export interface Gate1MinimumSignalForensicAuditAdr0505 {
   dominantFailureReason: DominantFailureReason;
 
   supplyScopeAudit: SupplyScopeAudit;
+  hydrationAuditAdr0509?: FeatureHydrationAuditAdr0509;
   sectorEnergyAudit: SectorEnergyForensicAudit;
 
   wouldPassIf: WouldPassIfFlags;
@@ -184,6 +209,15 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   };
 
   supplyScopeWarnings: Record<SupplyScopeWarning, number>;
+  supplySymbolMatchedCount?: number;
+  rsHydrationAvailableCount?: number;
+  breakoutHydrationAvailableCount?: number;
+  rsMissingReasonDistribution?: Record<HydrationMissingReason, number>;
+  breakoutMissingReasonDistribution?: Record<HydrationMissingReason, number>;
+  topHydrationMissingFields?: string[];
+  candidateTraceHasQuote?: number;
+  candidateTraceHasSymbolFeatures?: number;
+  candidateTraceHasConditionResults?: number;
   sectorEnergyStrongBuyBlockedCount: number;
   sectorEnergyHardBlockCount: number;
 
@@ -306,10 +340,13 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
     quoteSymbol,
   });
 
-  // 4) sectorEnergyAudit
+  // 4) ADR-0509 hydration audit — diagnostic-only, scoring 영향 0
+  const hydrationAuditAdr0509 = buildFeatureHydrationAuditAdr0509(candidate);
+
+  // 5) sectorEnergyAudit
   const sectorEnergyAudit = buildSectorEnergyAudit({ candidate, sectorEnergyImpact });
 
-  // 5) wouldPassIf flags
+  // 6) wouldPassIf flags
   const wouldPassIf = computeWouldPassIf({ trace, missingPositiveSources });
 
   return {
@@ -325,6 +362,7 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
     missingPositiveSources,
     dominantFailureReason,
     supplyScopeAudit,
+    hydrationAuditAdr0509,
     sectorEnergyAudit,
     wouldPassIf,
     executionImpact: 'NONE',
@@ -413,11 +451,15 @@ function buildSupplyScopeAudit(input: {
   kisFlow?: BuildGate1MinimumSignalForensicInput['kisFlow'];
   quoteSymbol?: string | null;
 }): SupplyScopeAudit {
-  const { trace, kisFlow, quoteSymbol, supplyProviderHealth } = input;
+  const { trace, candidate, kisFlow, quoteSymbol, supplyProviderHealth } = input;
 
-  const kisSymbol = kisFlow?.symbol ?? null;
-  const qSymbol = quoteSymbol ?? null;
-  const traceSymbol = trace.symbol;
+  const kisSymbol = normalizeSymbol(kisFlow?.symbol ?? null);
+  const candidateSymbol = normalizeSymbol(candidate?.symbol ?? trace.symbol ?? null);
+  const quoteObject = candidate?.quote && typeof candidate.quote === 'object'
+    ? (candidate.quote as Record<string, unknown>)
+    : undefined;
+  const qSymbol = normalizeSymbol(quoteSymbol ?? (quoteObject?.symbol as string | null | undefined) ?? null);
+  const traceSymbol = normalizeSymbol(trace.symbol);
 
   const foreignNetBuy = kisFlow?.foreignNetBuy ?? null;
   const institutionalNetBuy = kisFlow?.institutionalNetBuy ?? null;
@@ -426,8 +468,9 @@ function buildSupplyScopeAudit(input: {
 
   // symbolMatched 판정 — 둘 다 있고 일치 시 true / 둘 다 있고 불일치 시 false / 그 외 null
   let symbolMatched: boolean | null = null;
-  if (kisSymbol && (qSymbol ?? traceSymbol)) {
-    symbolMatched = kisSymbol === (qSymbol ?? traceSymbol);
+  const expectedSymbol = candidateSymbol ?? qSymbol ?? traceSymbol;
+  if (kisSymbol && expectedSymbol) {
+    symbolMatched = kisSymbol === expectedSymbol && (!qSymbol || qSymbol === expectedSymbol);
   }
 
   // warning 우선순위 결정 트리 (사용자 명시 절대 변경 금지)
@@ -461,6 +504,7 @@ function buildSupplyScopeAudit(input: {
 
   return {
     expectedScope: 'SYMBOL_LEVEL_INVESTOR_FLOW',
+    candidateSymbol,
     quoteSymbol: qSymbol,
     kisFlowSymbol: kisSymbol,
     symbolMatched,
@@ -468,9 +512,111 @@ function buildSupplyScopeAudit(input: {
     institutionalNetBuy,
     programNetBuy,
     semanticAvailable,
+    scoreUsage: 'SHADOW_ONLY',
     warning,
   };
 }
+
+
+function normalizeSymbol(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+const RS_HYDRATION_FIELDS = [
+  'return20d',
+  'return5d',
+  'kospi20dReturn',
+  'relativeReturn20d',
+  'marketRelativeReturn',
+  'rsRankPct',
+  'relativeStrengthScore',
+] as const;
+
+const BREAKOUT_HYDRATION_FIELDS = [
+  'price',
+  'high5d',
+  'high20d',
+  'high60',
+  'volume',
+  'avgVolume',
+  'breakout_momentum',
+  'turtle_high',
+  'volume_breakout',
+  'volume_surge',
+  'vcp',
+  'trend_acceleration',
+  'breakoutSignals',
+  'conditionResults',
+  'conditionKeys',
+] as const;
+
+function hasHydrationField(candidate: CandidateEntryTrace, field: string): boolean {
+  const record = candidate as unknown as Record<string, unknown>;
+  const direct = record[field];
+  if (direct !== undefined && direct !== null) return true;
+  const quote = record.quote;
+  if (quote && typeof quote === 'object' && (quote as Record<string, unknown>)[field] != null) return true;
+  const symbolFeatures = record.symbolFeatures;
+  if (symbolFeatures && typeof symbolFeatures === 'object' && (symbolFeatures as Record<string, unknown>)[field] != null) {
+    return true;
+  }
+  const macroState = record.macroState;
+  if (macroState && typeof macroState === 'object' && (macroState as Record<string, unknown>)[field] != null) return true;
+  return false;
+}
+
+function buildFeatureHydrationAuditAdr0509(
+  candidate: CandidateEntryTrace | undefined,
+): FeatureHydrationAuditAdr0509 {
+  if (!candidate) {
+    return {
+      rsAvailable: false,
+      breakoutAvailable: false,
+      rsMissingReasons: ['CANDIDATE_TRACE_MISSING'],
+      breakoutMissingReasons: ['CANDIDATE_TRACE_MISSING'],
+      missingFields: [...RS_HYDRATION_FIELDS, ...BREAKOUT_HYDRATION_FIELDS],
+      candidateTraceHasQuote: false,
+      candidateTraceHasSymbolFeatures: false,
+      candidateTraceHasConditionResults: false,
+    };
+  }
+  const record = candidate as unknown as Record<string, unknown>;
+  const candidateTraceHasQuote = Boolean(record.quote && typeof record.quote === 'object');
+  const candidateTraceHasSymbolFeatures = Boolean(record.symbolFeatures && typeof record.symbolFeatures === 'object');
+  const candidateTraceHasConditionResults = Boolean(record.conditionResults && typeof record.conditionResults === 'object');
+  const missingFields = [
+    ...RS_HYDRATION_FIELDS.filter((field) => !hasHydrationField(candidate, field)),
+    ...BREAKOUT_HYDRATION_FIELDS.filter((field) => !hasHydrationField(candidate, field)),
+  ];
+  const rsAvailable = RS_HYDRATION_FIELDS.some((field) => hasHydrationField(candidate, field));
+  const breakoutAvailable = BREAKOUT_HYDRATION_FIELDS.some((field) => hasHydrationField(candidate, field));
+  const rsMissingReasons: HydrationMissingReason[] = [];
+  const breakoutMissingReasons: HydrationMissingReason[] = [];
+  if (!rsAvailable) rsMissingReasons.push('FIELD_MISSING');
+  if (!candidateTraceHasQuote) rsMissingReasons.push('QUOTE_MISSING');
+  if (!candidateTraceHasSymbolFeatures) rsMissingReasons.push('SYMBOL_FEATURES_MISSING');
+  if (!breakoutAvailable) breakoutMissingReasons.push('FIELD_MISSING');
+  if (!candidateTraceHasConditionResults) breakoutMissingReasons.push('CONDITION_RESULTS_MISSING');
+  if (!candidateTraceHasSymbolFeatures) breakoutMissingReasons.push('SYMBOL_FEATURES_MISSING');
+  return {
+    rsAvailable,
+    breakoutAvailable,
+    rsMissingReasons,
+    breakoutMissingReasons,
+    missingFields,
+    candidateTraceHasQuote,
+    candidateTraceHasSymbolFeatures,
+    candidateTraceHasConditionResults,
+  };
+}
+
+const EMPTY_HYDRATION_REASON_DISTRIBUTION: Record<HydrationMissingReason, number> = {
+  CANDIDATE_TRACE_MISSING: 0,
+  FIELD_MISSING: 0,
+  QUOTE_MISSING: 0,
+  SYMBOL_FEATURES_MISSING: 0,
+  CONDITION_RESULTS_MISSING: 0,
+};
 
 /* ───────── sectorEnergyAudit SSOT ───────── */
 
@@ -624,11 +770,31 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   }
 
   const supplyScopeWarnings = { ...EMPTY_SUPPLY_SCOPE_WARNINGS };
+  let supplySymbolMatchedCount = 0;
+  let rsHydrationAvailableCount = 0;
+  let breakoutHydrationAvailableCount = 0;
+  const rsMissingReasonDistribution = { ...EMPTY_HYDRATION_REASON_DISTRIBUTION };
+  const breakoutMissingReasonDistribution = { ...EMPTY_HYDRATION_REASON_DISTRIBUTION };
+  const hydrationMissingFieldCounts: Record<string, number> = {};
+  let candidateTraceHasQuote = 0;
+  let candidateTraceHasSymbolFeatures = 0;
+  let candidateTraceHasConditionResults = 0;
   let sectorEnergyStrongBuyBlockedCount = 0;
   let sectorEnergyHardBlockCount = 0;
 
   for (const a of failed) {
     supplyScopeWarnings[a.supplyScopeAudit.warning] += 1;
+    if (a.supplyScopeAudit.symbolMatched === true) supplySymbolMatchedCount += 1;
+    if (a.hydrationAuditAdr0509?.rsAvailable) rsHydrationAvailableCount += 1;
+    if (a.hydrationAuditAdr0509?.breakoutAvailable) breakoutHydrationAvailableCount += 1;
+    for (const reason of a.hydrationAuditAdr0509?.rsMissingReasons ?? []) rsMissingReasonDistribution[reason] += 1;
+    for (const reason of a.hydrationAuditAdr0509?.breakoutMissingReasons ?? []) breakoutMissingReasonDistribution[reason] += 1;
+    for (const field of a.hydrationAuditAdr0509?.missingFields ?? []) {
+      hydrationMissingFieldCounts[field] = (hydrationMissingFieldCounts[field] ?? 0) + 1;
+    }
+    if (a.hydrationAuditAdr0509?.candidateTraceHasQuote) candidateTraceHasQuote += 1;
+    if (a.hydrationAuditAdr0509?.candidateTraceHasSymbolFeatures) candidateTraceHasSymbolFeatures += 1;
+    if (a.hydrationAuditAdr0509?.candidateTraceHasConditionResults) candidateTraceHasConditionResults += 1;
     if (a.sectorEnergyAudit.strongBuyAllowed === false) sectorEnergyStrongBuyBlockedCount += 1;
     // 사용자 명시 — SectorEnergy hardBlock 절대 금지. 본 카운터는 *항상* 0 이어야 함.
     if (a.sectorEnergyAudit.executionImpact === 'HARD_BLOCK') {
@@ -646,6 +812,18 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     missingPositiveSourceCounts,
     penaltyCounts,
     supplyScopeWarnings,
+    supplySymbolMatchedCount,
+    rsHydrationAvailableCount,
+    breakoutHydrationAvailableCount,
+    rsMissingReasonDistribution,
+    breakoutMissingReasonDistribution,
+    topHydrationMissingFields: Object.entries(hydrationMissingFieldCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([field]) => field),
+    candidateTraceHasQuote,
+    candidateTraceHasSymbolFeatures,
+    candidateTraceHasConditionResults,
     sectorEnergyStrongBuyBlockedCount,
     sectorEnergyHardBlockCount,
     executionImpact: 'NONE',
@@ -705,6 +883,15 @@ export function formatGate1MinimumSignalForensicSection(
     warnParts.push(`marketWide=${w.POSSIBLE_MARKET_WIDE_FLOW_IN_SYMBOL_SLOT}`);
   }
   if (warnParts.length > 0) lines.push(`- supplyScopeWarnings: ${warnParts.join(' ')}`);
+
+  lines.push(`- rsHydration: ${summary.rsHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- breakoutHydration: ${summary.breakoutHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- supplySymbolMatched: ${summary.supplySymbolMatchedCount ?? 0}/${summary.totalCandidates}`);
+  const topHydrationMissingFields = summary.topHydrationMissingFields ?? [];
+  if (topHydrationMissingFields.length > 0) {
+    lines.push(`- topMissingFields: ${topHydrationMissingFields.slice(0, 4).join(', ')}`);
+  }
+  lines.push('- nextAction: WIRE_SYMBOL_LEVEL_SUPPLY_AND_FEATURE_HYDRATION');
 
   // SectorEnergy — 강제 노출 (운영자 인지 의무)
   lines.push(
