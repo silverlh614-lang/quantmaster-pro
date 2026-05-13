@@ -10,6 +10,7 @@ import {
   type InvestorSampleDiagnosticsAdr0502,
   type InvestorSampleProviderNameAdr0502,
 } from './investorSampleMaterializationAdr0502.js';
+import { buildSanitizedInvestorFlowSemanticRow, normalizeNumberLikeInvestorFlowValue, type SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
 
 
 export type InvestorFlowProviderId =
@@ -125,6 +126,11 @@ export interface InvestorFlowProviderRouteResult {
   providerReasons: Record<string, string>;
   providerStatuses: Record<string, InvestorFlowProviderStatus>;
   semanticNetBuy: SemanticNetBuySample | null;
+  semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+  kisRawRowAvailableAtAdapter?: boolean;
+  kisNormalizedRowAvailableAtRouter?: boolean;
+  kisSelectedCandidateCarriesSemanticRow?: boolean;
+  semanticRowBreakPoint?: 'ADAPTER_DID_NOT_RETURN_RAW_ROW' | 'ROUTER_DROPPED_RAW_ROW' | 'SELECTED_CANDIDATE_METADATA_ONLY' | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' | 'FIELD_ALIAS_NOT_MAPPED' | 'UNKNOWN';
   status: InvestorFlowProviderStatus;
   signal: SemanticSupplySignal;
   coverage: {
@@ -337,6 +343,8 @@ function valueFromAliases(raw: Record<string, unknown> | null | undefined, keys:
   for (const key of keys) {
     const value = raw?.[key];
     if (finiteNumber(value)) return value;
+    const normalized = normalizeNumberLikeInvestorFlowValue(value);
+    if (normalized !== null) return normalized;
   }
   return null;
 }
@@ -514,9 +522,9 @@ export function normalizeSemanticNetBuySampleAdr0477(
     sourceAgeTradingDays: opts.sourceAgeTradingDays,
     fallbackStatus: opts.fallbackStatus,
   });
-  const foreignNetBuy = valueFromAliases(raw, ['foreignNetBuy', 'investorForeignNetBuy', 'foreign', 'frgnNetBuy']);
-  const institutionNetBuy = valueFromAliases(raw, ['institutionNetBuy', 'institutionalNetBuy', 'investorInstitutionNetBuy', 'institution', 'orgNetBuy']);
-  const individualNetBuy = valueFromAliases(raw, ['individualNetBuy', 'retailNetBuy', 'individual', 'retail', 'prvtNetBuy']);
+  const foreignNetBuy = valueFromAliases(raw, ['foreignNetBuy', 'foreignNetAmount', 'foreignNetVolume', 'foreignerNetBuy', 'frgnNetBuy', 'frgnNetAmount', 'frgn_ntby', 'frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'frgn_ntby_tr_pbmn_amt', 'frgn_ntby_vol', 'investorForeignNetBuy', 'foreign']);
+  const institutionNetBuy = valueFromAliases(raw, ['institutionalNetBuy', 'institutionNetBuy', 'instNetBuy', 'orgNetBuy', 'orgnNetBuy', 'orgn_ntby', 'orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn_amt', 'orgn_ntby_vol', 'investorInstitutionNetBuy', 'institution']);
+  const individualNetBuy = valueFromAliases(raw, ['individualNetBuy', 'retailNetBuy', 'prsnNetBuy', 'indvNetBuy', 'indv_ntby', 'indv_ntby_qty', 'indv_ntby_tr_pbmn', 'individual', 'retail', 'prvtNetBuy']);
   const programNetBuy = valueFromAliases(raw, ['programNetBuy']) ?? individualNetBuy;
   const confidence = confidenceForStatus(status, opts.sourceAgeTradingDays);
   const signal = deriveSignal({ foreignNetBuy, institutionNetBuy, confidence, status });
@@ -1081,6 +1089,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   let pendingNaverStale: SemanticNetBuySample | null = null;
   const materializationDiagnostics: Partial<Record<InvestorSampleProviderNameAdr0502, InvestorSampleDiagnosticsAdr0502>> = {};
   const samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>> = {};
+  const semanticRowsByProvider: Partial<Record<InvestorFlowProviderId, SanitizedInvestorFlowSemanticRow>> = {};
+  let kisRawRowAvailableAtAdapter = false;
+  let kisNormalizedRowAvailableAtRouter = false;
   const selectShadow = (provider: InvestorFlowProviderId, sample: SemanticNetBuySample, reason: string): void => {
     if (semanticNetBuy) return;
     selectedProvider = provider;
@@ -1334,6 +1345,15 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   if (input.kisInvestorRaw) {
+    const kisSemanticRow = buildSanitizedInvestorFlowSemanticRow({
+      flow: input.kisInvestorRaw,
+      symbol: input.code,
+      provider: 'KIS_API',
+      providerScope: 'SYMBOL_LEVEL',
+    });
+    kisRawRowAvailableAtAdapter = kisSemanticRow.rawFieldKeys.length > 0;
+    kisNormalizedRowAvailableAtRouter = kisSemanticRow.normalizedFieldKeys.length > 0 || kisSemanticRow.foreignNetBuy !== null || kisSemanticRow.institutionalNetBuy !== null || kisSemanticRow.individualNetBuy !== null;
+    semanticRowsByProvider.KIS_API = kisSemanticRow;
     const kisSample = normalizeSemanticNetBuySampleAdr0477(input.kisInvestorRaw, 'KIS_API', {
       code: input.code,
       collectedAt,
@@ -1463,6 +1483,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     diagnostics.push('selectedProvider=NONE; fallbackProvider=CACHE; fallbackStatus=CACHE_STALE_HIT; fallbackDiagnosticOnly=true; selectedReason=NO_FRESH_SEMANTIC_NETBUY; marketSignal=false');
   }
 
+  const selectedSemanticRow = semanticRowsByProvider[selectedProvider] ?? null;
   const selectedSemanticNetBuy = semanticNetBuy as SemanticNetBuySample | null;
   const signal = selectedSemanticNetBuy?.signal ?? 'UNKNOWN';
   if (!semanticNetBuy && !selectedDiagnosticProvider && providerStatuses.NAVER === 'NOT_WIRED' && providerStatuses.CACHE === 'CACHE_EMPTY') {
@@ -1529,6 +1550,17 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     : null;
   diagnostics.push(`fallbackChain=${fallbackChain.join('>')}; selectedProvider=${selectedProviderForDiagnostics}; rejectedProviders=${rejectedProviders.join(',') || 'NONE'}; cacheFallbackReason=${cacheFallbackReason ?? 'NONE'}; staleButSelectedReason=${staleButSelectedReason ?? 'NONE'}; coverageBefore=${statusCoverage.available}; coverageAfter=${coverageAfter}; routerUsableCoverage=${routerUsableCoverage.available}/${routerUsableCoverage.total}; diagnosticUsableCoverage=${diagnosticUsableCoverage.available}/${diagnosticUsableCoverage.total}; diagnosticUsableCount=${diagnosticUsableCount}; selectedDiagnosticProvider=${selectedDiagnosticProvider ?? 'NONE'}; coverageBasis=routerUsableSampleCount plus selected SHADOW fallback.`);
   diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' || selectedProvider === 'KRX_SYMBOL_INVESTOR_FLOW' || selectedProvider === 'KRX_MARKET_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'FSS_PASSIVE_ACTIVE' ? 'FSS_OFFICIAL_DIAGNOSTIC' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
+  const kisSelectedCandidateCarriesSemanticRow = selectedProvider === 'KIS_API' && Boolean(selectedSemanticRow);
+  const semanticRowBreakPoint = selectedProvider === 'KIS_API'
+    ? !kisRawRowAvailableAtAdapter
+      ? 'ADAPTER_DID_NOT_RETURN_RAW_ROW'
+      : !selectedSemanticRow
+        ? 'SELECTED_CANDIDATE_METADATA_ONLY'
+        : !kisNormalizedRowAvailableAtRouter
+          ? 'FIELD_ALIAS_NOT_MAPPED'
+          : 'UNKNOWN'
+    : undefined;
+  diagnostics.push(`kisRawRowAvailableAtAdapter=${kisRawRowAvailableAtAdapter}; kisNormalizedRowAvailableAtRouter=${kisNormalizedRowAvailableAtRouter}; kisSelectedCandidateCarriesSemanticRow=${kisSelectedCandidateCarriesSemanticRow}; semanticRowBreakPoint=${semanticRowBreakPoint ?? 'UNKNOWN'}; rawPayloadPersistenceAllowed=false`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
     diagnostics.push(formatInvestorSampleDiagnosticsAdr0502(materialization));
@@ -1556,6 +1588,11 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerReasons,
     providerStatuses,
     semanticNetBuy: selectedSemanticNetBuy,
+    semanticRow: selectedSemanticRow,
+    kisRawRowAvailableAtAdapter,
+    kisNormalizedRowAvailableAtRouter,
+    kisSelectedCandidateCarriesSemanticRow,
+    semanticRowBreakPoint,
     status,
     signal,
     coverage: {
@@ -1702,6 +1739,11 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- legacyDryRunSummary: ${result.legacyDryRunSummary ?? 'NONE'}`,
     `- krxSourceRepair: ${result.krxSourceRepairDiagnostic?.summary ?? result.krxSourceRepairDiagnostic?.parserStatus ?? 'NONE'}`,
     `- semanticInputStatus: ${result.semanticInputStatus ?? result.providerStatuses.SEMANTIC_NETBUY ?? 'DATA_UNAVAILABLE'}`,
+    `- kisRawRowAvailableAtAdapter: ${result.kisRawRowAvailableAtAdapter ?? false}`,
+    `- kisNormalizedRowAvailableAtRouter: ${result.kisNormalizedRowAvailableAtRouter ?? false}`,
+    `- kisSelectedCandidateCarriesSemanticRow: ${result.kisSelectedCandidateCarriesSemanticRow ?? false}`,
+    `- semanticRowBreakPoint: ${result.semanticRowBreakPoint ?? 'UNKNOWN'}`,
+
     `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
     `- naverReadinessKind: ${result.naverReadinessKind ?? 'UNKNOWN'}`,
     `- semanticReadinessKind: ${result.semanticReadinessKind ?? 'UNKNOWN'}`,

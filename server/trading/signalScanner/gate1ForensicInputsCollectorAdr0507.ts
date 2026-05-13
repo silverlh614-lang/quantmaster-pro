@@ -17,6 +17,7 @@
 import type { CandidateEntryTrace, Gate1CandidateTrace, SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
 import { conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
+import type { SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
 import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath } from './gate1MinimumSignalForensicAuditAdr0505.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
@@ -99,6 +100,13 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           usableForLive: false as const,
           usableForShadow: true as const,
           semanticAvailable: healthRecord.status === 'VERIFIED',
+          semanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
+          investorFlowSemanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
+          kisRawRowAvailableAtAdapter: healthRecord.kisRawRowAvailableAtAdapter as boolean | undefined,
+          kisNormalizedRowAvailableAtRouter: healthRecord.kisNormalizedRowAvailableAtRouter as boolean | undefined,
+          kisSelectedCandidateCarriesSemanticRow: healthRecord.kisSelectedCandidateCarriesSemanticRow as boolean | undefined,
+          forensicInputCarriesSemanticRow: Boolean(healthRecord.semanticRow),
+          semanticRowBreakPoint: (healthRecord.semanticRowBreakPoint as string | undefined) ?? (healthRecord.kisSelectedCandidateCarriesSemanticRow === false ? 'SELECTED_CANDIDATE_METADATA_ONLY' : undefined),
         }
       : undefined;
     const sourcePath: Gate1ForensicTraceSourcePath = candidate?.marketSession === 'SELL_ONLY'

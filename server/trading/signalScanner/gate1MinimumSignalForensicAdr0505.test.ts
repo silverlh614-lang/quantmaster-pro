@@ -606,6 +606,47 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(out).toContain('mappedFieldDistribution');
     });
 
+
+
+    it('sanitized semanticRow가 forensic input에 있으면 frgn/orgn alias를 보존하고 semanticAvailable=true', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({
+          components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })],
+        }),
+        kisFlow: {
+          symbol: '005930',
+          providerScope: 'SYMBOL_LEVEL',
+          selectedProvider: 'KIS_API',
+          semanticRow: {
+            symbol: '005930',
+            provider: 'KIS_API',
+            providerScope: 'SYMBOL_LEVEL',
+            materialized: true,
+            foreignNetBuy: 1234,
+            institutionalNetBuy: -2000,
+            individualNetBuy: 766,
+            netBuyAmount: null,
+            netBuyVolume: null,
+            sourceFields: { foreign: 'frgn_ntby_tr_pbmn', institutional: 'orgn_ntby_tr_pbmn', individual: 'indv_ntby_tr_pbmn' },
+            rawFieldKeys: ['symbol', 'frgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn', 'indv_ntby_tr_pbmn'],
+            normalizedFieldKeys: ['foreignNetBuy', 'institutionalNetBuy', 'individualNetBuy'],
+          },
+          kisRawRowAvailableAtAdapter: true,
+          kisSelectedCandidateCarriesSemanticRow: true,
+          forensicInputCarriesSemanticRow: true,
+        },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+      expect(audit.supplyScopeAudit.semanticAvailable).toBe(true);
+      expect(summary.semanticRowAvailableCount).toBe(1);
+      expect(summary.rawInvestorRowAvailableCount).toBe(1);
+      expect(summary.selectedCandidateCarriesSemanticRowCount).toBe(1);
+      expect(summary.forensicInputCarriesSemanticRowCount).toBe(1);
+      expect(summary.kisRawFieldKeysTop?.frgn_ntby_tr_pbmn).toBe(1);
+      expect(summary.kisSemanticFieldKeysTop?.foreignNetBuy).toBe(1);
+      expect(summary.mappedFieldDistribution?.institution.orgn_ntby_tr_pbmn).toBe(1);
+    });
+
     it('symbolMatched=false면 semanticAvailable=false', () => {
       const result = evaluateInvestorFlowSemanticAvailabilityV2({
         flow: { foreignNetBuy: 10 },
@@ -636,12 +677,15 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       });
       const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
       expect(summary.supplyRouterForensicConflict).toBe(true);
-      expect(summary.semanticReasonDistribution?.NO_FOREIGN_OR_INSTITUTION_FIELD).toBe(1);
-      expect(summary.supplyUnknownRootCauseDistribution?.SUPPLY_ROUTER_VERIFIED_BUT_GATE_SEMANTIC_UNUSABLE).toBe(1);
+      expect(summary.semanticReasonDistribution?.SEMANTIC_ROW_METADATA_ONLY).toBe(1);
+      expect(summary.semanticRowMetadataOnlyCount).toBe(1);
+      expect(summary.semanticRowBreakPointDistribution?.SELECTED_CANDIDATE_METADATA_ONLY).toBe(1);
+      expect(summary.supplyUnknownRootCauseDistribution?.SUPPLY_SEMANTIC_ROW_METADATA_ONLY).toBe(1);
       const out = formatGate1MinimumSignalForensicSection(summary)!;
       expect(out).toContain('supplySemantic: available=0/1 diagnosticAvailable=1/1');
       expect(out).toContain('supplyUnknownRootCause');
-      expect(out).toContain('nextAction: MAP_KIS_NETBUY_FIELDS');
+      expect(out).toContain('semanticRowMetadataOnly: 1/1');
+      expect(out).toContain('nextAction: WIRE_KIS_SELECTED_CANDIDATE_SEMANTIC_ROW');
     });
 
     it('/scan_blockers supply에 Supply Semantic Audit 섹션 wiring이 존재한다', () => {

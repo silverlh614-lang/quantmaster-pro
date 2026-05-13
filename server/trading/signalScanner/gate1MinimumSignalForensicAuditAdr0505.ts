@@ -36,6 +36,7 @@ import {
   type InvestorFlowSemanticAvailabilityReason,
   type InvestorFlowSemanticAvailabilityResult,
   type InvestorFlowFieldKeyDiscoveryDiagnostic,
+  type SanitizedInvestorFlowSemanticRow,
 } from '../../supply/investorFlowSemanticAvailability.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
@@ -121,6 +122,12 @@ export interface SupplyScopeAudit {
   individualNetBuy?: number | null;
   semanticAvailable: boolean;
   semanticDiagnosticAvailable?: boolean;
+  semanticRowAvailable?: boolean;
+  semanticRowMetadataOnly?: boolean;
+  rawInvestorRowAvailable?: boolean;
+  selectedCandidateCarriesSemanticRow?: boolean;
+  forensicInputCarriesSemanticRow?: boolean;
+  semanticRowBreakPoint?: string;
   semanticReason?: InvestorFlowSemanticAvailabilityReason;
   materializedCount?: number;
   normalizedCount?: number;
@@ -136,6 +143,8 @@ export interface SupplyScopeAudit {
   marketSignal?: false;
   wouldBeNeutralIfZeroButMaterialized?: boolean;
   wouldBeEligibleIfForeignOrInstitutionFieldMapped?: boolean;
+  wouldBeSemanticAvailableIfFieldMapped?: boolean;
+  wouldBeZeroNeutralIfAllZero?: boolean;
   /** symbol 확인 실패 수급은 SHADOW_ONLY diagnostic 으로만 표기한다. */
   scoreUsage?: 'ELIGIBLE_AFTER_SEMANTIC_MATCH' | 'SHADOW_ONLY' | 'DIAGNOSTIC_ONLY';
   executionImpact?: 'NONE';
@@ -402,6 +411,13 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   kisRawFieldKeysTop?: Record<string, number>;
   kisNormalizedFieldKeysTop?: Record<string, number>;
   sampleValueKindDistribution?: Record<string, number>;
+  semanticRowAvailableCount?: number;
+  semanticRowMetadataOnlyCount?: number;
+  rawInvestorRowAvailableCount?: number;
+  selectedCandidateCarriesSemanticRowCount?: number;
+  forensicInputCarriesSemanticRowCount?: number;
+  semanticRowBreakPointDistribution?: Record<string, number>;
+  kisSemanticFieldKeysTop?: Record<string, number>;
   mappedFieldDistribution?: {
     foreign: Record<string, number>;
     institution: Record<string, number>;
@@ -504,6 +520,14 @@ export interface BuildGate1MinimumSignalForensicInput {
     foreignNetBuy?: number | null;
     institutionalNetBuy?: number | null;
     programNetBuy?: number | null;
+    individualNetBuy?: number | null;
+    semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+    investorFlowSemanticRow?: SanitizedInvestorFlowSemanticRow | null;
+    kisRawRowAvailableAtAdapter?: boolean;
+    kisNormalizedRowAvailableAtRouter?: boolean;
+    kisSelectedCandidateCarriesSemanticRow?: boolean;
+    forensicInputCarriesSemanticRow?: boolean;
+    semanticRowBreakPoint?: string;
     semanticAvailable?: boolean;
     stale?: boolean;
     [key: string]: unknown;
@@ -812,13 +836,22 @@ function buildSupplyScopeAudit(input: {
     && providerScope === 'SYMBOL_LEVEL'
     && Boolean(requestSymbol && expectedSymbol && requestSymbol === expectedSymbol);
 
+  const sanitizedSemanticRow = (kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow) as SanitizedInvestorFlowSemanticRow | null | undefined;
+  const flowForSemantic = sanitizedSemanticRow ?? kisFlow ?? null;
+  const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
+  const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
+  const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const semantic = evaluateInvestorFlowSemanticAvailabilityV2({
-    flow: kisFlow ?? null,
+    flow: flowForSemantic,
     symbolMatched,
     inferredSymbolMatched,
     providerScope,
     stale: kisFlow?.stale === true,
     providerIssue: false,
+    rawInvestorRowAvailable,
+    semanticRowExpected: selectedCandidateCarriesSemanticRow,
+    semanticRowDropped: kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_RAW_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_SEMANTIC_ROW',
+    forensicInputDroppedSemanticRow: kisFlow?.semanticRowBreakPoint === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW',
   });
   const foreignNetBuy = semantic.foreignNetBuy;
   const institutionalNetBuy = semantic.institutionalNetBuy;
@@ -879,6 +912,12 @@ function buildSupplyScopeAudit(input: {
     individualNetBuy,
     semanticAvailable,
     semanticDiagnosticAvailable: semantic.diagnosticAvailable,
+    semanticRowAvailable: semantic.foreignNetBuy !== null || semantic.institutionalNetBuy !== null || semantic.individualNetBuy !== null,
+    semanticRowMetadataOnly: semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY',
+    rawInvestorRowAvailable,
+    selectedCandidateCarriesSemanticRow,
+    forensicInputCarriesSemanticRow,
+    semanticRowBreakPoint: kisFlow?.semanticRowBreakPoint ?? (semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY' ? 'SELECTED_CANDIDATE_METADATA_ONLY' : semantic.reason === 'FIELD_ALIAS_NOT_MAPPED' ? 'FIELD_ALIAS_NOT_MAPPED' : 'UNKNOWN'),
     semanticReason: semantic.reason,
     materializedCount: semantic.materializedCount,
     normalizedCount: semantic.normalizedCount,
@@ -889,11 +928,24 @@ function buildSupplyScopeAudit(input: {
     institutionalRowFound: semantic.institutionalRowFound,
     individualRowFound: semantic.individualRowFound,
     rowMappingConfidence: semantic.rowMappingConfidence,
-    fieldKeyDiagnostics: semantic.fieldKeyDiagnostics,
+    fieldKeyDiagnostics: sanitizedSemanticRow
+      ? {
+          kisRawFieldKeysTop: sanitizedSemanticRow.rawFieldKeys,
+          kisNormalizedFieldKeysTop: sanitizedSemanticRow.normalizedFieldKeys,
+          sampleValueKinds: semantic.fieldKeyDiagnostics?.sampleValueKinds ?? { number: 0, numericString: 0, empty: 0, placeholder: 0 },
+          candidateMappedFields: {
+            foreign: sanitizedSemanticRow.sourceFields.foreign ? [sanitizedSemanticRow.sourceFields.foreign] : [],
+            institution: sanitizedSemanticRow.sourceFields.institutional ? [sanitizedSemanticRow.sourceFields.institutional] : [],
+            individual: sanitizedSemanticRow.sourceFields.individual ? [sanitizedSemanticRow.sourceFields.individual] : [],
+          },
+        }
+      : semantic.fieldKeyDiagnostics,
     providerIssue: semantic.providerIssue,
     marketSignal: false,
     wouldBeNeutralIfZeroButMaterialized: semantic.wouldBeNeutralIfZeroButMaterialized,
     wouldBeEligibleIfForeignOrInstitutionFieldMapped: semantic.wouldBeEligibleIfForeignOrInstitutionFieldMapped,
+    wouldBeSemanticAvailableIfFieldMapped: semantic.wouldBeSemanticAvailableIfFieldMapped,
+    wouldBeZeroNeutralIfAllZero: semantic.wouldBeZeroNeutralIfAllZero,
     scoreUsage: semantic.scoreUsage,
     executionImpact: 'NONE',
     warning,
@@ -904,6 +956,11 @@ function resolveSupplyUnknownRootCause(audit: SupplyScopeAudit): string {
   if (!audit.kisFlowSymbol && !audit.providerSymbol && !audit.normalizedSymbol && audit.inferredSymbolMatched !== true) return 'SUPPLY_SYMBOL_MISSING';
   if (audit.symbolMatched === false && audit.inferredSymbolMatched !== true) return 'SUPPLY_SYMBOL_MISMATCH';
   if (audit.semanticReason === 'ONLY_MARKET_LEVEL_FLOW' || audit.semanticReason === 'ONLY_SECTOR_LEVEL_FLOW' || audit.semanticReason === 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL') return 'SUPPLY_PROVIDER_SCOPE_NOT_SYMBOL';
+  if (audit.semanticReason === 'SEMANTIC_ROW_METADATA_ONLY') return 'SUPPLY_SEMANTIC_ROW_METADATA_ONLY';
+  if (audit.semanticReason === 'RAW_INVESTOR_ROW_MISSING') return 'SUPPLY_RAW_INVESTOR_ROW_MISSING';
+  if (audit.semanticReason === 'ROUTER_DROPPED_SEMANTIC_ROW') return 'SUPPLY_ROUTER_DROPPED_SEMANTIC_ROW';
+  if (audit.semanticReason === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW') return 'SUPPLY_FORENSIC_INPUT_DROPPED_SEMANTIC_ROW';
+  if (audit.semanticReason === 'FIELD_ALIAS_NOT_MAPPED') return 'SUPPLY_FIELD_ALIAS_NOT_MAPPED';
   if (audit.semanticReason === 'PLACEHOLDER_ONLY') return 'SUPPLY_PLACEHOLDER_ONLY';
   if (audit.semanticReason === 'STALE_ONLY') return 'SUPPLY_STALE_ONLY';
   if (audit.semanticReason === 'ZERO_BUT_MATERIALIZED') return 'SUPPLY_ZERO_NEUTRAL_BUT_NOT_PROMOTED';
@@ -1268,6 +1325,11 @@ const EMPTY_SUPPLY_SCOPE_WARNINGS: Record<SupplyScopeWarning, number> = {
 const EMPTY_SEMANTIC_REASON_DISTRIBUTION: Record<InvestorFlowSemanticAvailabilityReason, number> = {
   AVAILABLE: 0,
   NO_FOREIGN_OR_INSTITUTION_FIELD: 0,
+  SEMANTIC_ROW_METADATA_ONLY: 0,
+  FIELD_ALIAS_NOT_MAPPED: 0,
+  RAW_INVESTOR_ROW_MISSING: 0,
+  ROUTER_DROPPED_SEMANTIC_ROW: 0,
+  FORENSIC_INPUT_DROPPED_SEMANTIC_ROW: 0,
   SYMBOL_NOT_MATCHED: 0,
   PROVIDER_SCOPE_NOT_SYMBOL_LEVEL: 0,
   ONLY_MARKET_LEVEL_FLOW: 0,
@@ -1372,6 +1434,13 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const supplyUnknownRootCauseDistribution: Record<string, number> = {};
   const kisRawFieldKeysTop: Record<string, number> = {};
   const kisNormalizedFieldKeysTop: Record<string, number> = {};
+  const kisSemanticFieldKeysTop: Record<string, number> = {};
+  const semanticRowBreakPointDistribution: Record<string, number> = {};
+  let semanticRowAvailableCount = 0;
+  let semanticRowMetadataOnlyCount = 0;
+  let rawInvestorRowAvailableCount = 0;
+  let selectedCandidateCarriesSemanticRowCount = 0;
+  let forensicInputCarriesSemanticRowCount = 0;
   const sampleValueKindDistribution: Record<string, number> = {};
   const mappedFieldDistribution: { foreign: Record<string, number>; institution: Record<string, number>; individual: Record<string, number> } = {
     foreign: {},
@@ -1508,6 +1577,13 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     providerScopeDistribution[scopeKey] = (providerScopeDistribution[scopeKey] ?? 0) + 1;
     if (a.supplyScopeAudit.semanticAvailable) supplySemanticAvailable += 1;
     if (a.supplyScopeAudit.semanticDiagnosticAvailable) supplyDiagnosticAvailable += 1;
+    if (a.supplyScopeAudit.semanticRowAvailable) semanticRowAvailableCount += 1;
+    if (a.supplyScopeAudit.semanticRowMetadataOnly) semanticRowMetadataOnlyCount += 1;
+    if (a.supplyScopeAudit.rawInvestorRowAvailable) rawInvestorRowAvailableCount += 1;
+    if (a.supplyScopeAudit.selectedCandidateCarriesSemanticRow) selectedCandidateCarriesSemanticRowCount += 1;
+    if (a.supplyScopeAudit.forensicInputCarriesSemanticRow) forensicInputCarriesSemanticRowCount += 1;
+    const breakPoint = a.supplyScopeAudit.semanticRowBreakPoint ?? 'UNKNOWN';
+    semanticRowBreakPointDistribution[breakPoint] = (semanticRowBreakPointDistribution[breakPoint] ?? 0) + 1;
     if (a.supplyScopeAudit.foreignNetBuy !== null) foreignNetBuyAvailable += 1;
     if (a.supplyScopeAudit.institutionalNetBuy !== null) institutionalNetBuyAvailable += 1;
     const semanticReason = a.supplyScopeAudit.semanticReason ?? 'UNKNOWN';
@@ -1518,7 +1594,10 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.supplyScopeAudit.wouldBeEligibleIfForeignOrInstitutionFieldMapped) shadowEligibleSupplyCount += 1;
     const fieldDiagnostics = a.supplyScopeAudit.fieldKeyDiagnostics;
     for (const key of fieldDiagnostics?.kisRawFieldKeysTop ?? []) kisRawFieldKeysTop[key] = (kisRawFieldKeysTop[key] ?? 0) + 1;
-    for (const key of fieldDiagnostics?.kisNormalizedFieldKeysTop ?? []) kisNormalizedFieldKeysTop[key] = (kisNormalizedFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.kisNormalizedFieldKeysTop ?? []) {
+      kisNormalizedFieldKeysTop[key] = (kisNormalizedFieldKeysTop[key] ?? 0) + 1;
+      kisSemanticFieldKeysTop[key] = (kisSemanticFieldKeysTop[key] ?? 0) + 1;
+    }
     for (const [kind, count] of Object.entries(fieldDiagnostics?.sampleValueKinds ?? {})) {
       sampleValueKindDistribution[kind] = (sampleValueKindDistribution[kind] ?? 0) + Number(count);
     }
@@ -1656,6 +1735,13 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     zeroButMaterializedCount,
     kisRawFieldKeysTop,
     kisNormalizedFieldKeysTop,
+    kisSemanticFieldKeysTop,
+    semanticRowAvailableCount,
+    semanticRowMetadataOnlyCount,
+    rawInvestorRowAvailableCount,
+    selectedCandidateCarriesSemanticRowCount,
+    forensicInputCarriesSemanticRowCount,
+    semanticRowBreakPointDistribution,
     sampleValueKindDistribution,
     mappedFieldDistribution,
     scoreUsageDistribution,
@@ -1667,7 +1753,15 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     routerForensicConflictReason: supplyDiagnosticAvailable > 0 && supplySemanticAvailable === 0
       ? semanticReasonDistribution.STALE_ONLY > 0
         ? 'ROUTER_VERIFIED_BUT_SHADOW_ONLY_STALE'
-        : 'ROUTER_VERIFIED_BUT_SEMANTIC_FIELDS_MISSING'
+        : semanticRowMetadataOnlyCount > 0
+          ? 'ROUTER_VERIFIED_BUT_SELECTED_CANDIDATE_METADATA_ONLY'
+          : Object.keys(semanticRowBreakPointDistribution).some((key) => key.includes('DROPPED') && semanticRowBreakPointDistribution[key] > 0)
+            ? 'ROUTER_VERIFIED_BUT_SEMANTIC_ROW_DROPPED'
+            : semanticReasonDistribution.FIELD_ALIAS_NOT_MAPPED > 0
+              ? 'ROUTER_VERIFIED_BUT_FIELD_ALIAS_NOT_MAPPED'
+              : semanticReasonDistribution.ONLY_MARKET_LEVEL_FLOW > 0 || semanticReasonDistribution.ONLY_SECTOR_LEVEL_FLOW > 0
+                ? 'ROUTER_VERIFIED_BUT_MARKET_LEVEL_ONLY'
+                : 'ROUTER_VERIFIED_BUT_SEMANTIC_FIELDS_MISSING'
       : undefined,
     shadowEligibleSupplyCount,
     candidateTraceCount: totalCandidates,
@@ -1785,9 +1879,16 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(
     `- supplySemanticFields: foreignField=${summary.foreignNetBuyAvailable ?? 0}/${summary.totalCandidates} institutionField=${summary.institutionalNetBuyAvailable ?? 0}/${summary.totalCandidates} zeroButMaterialized=${summary.zeroButMaterializedCount ?? 0}`,
   );
+  lines.push(`- semanticRowAvailable: ${summary.semanticRowAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- semanticRowMetadataOnly: ${summary.semanticRowMetadataOnlyCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- rawInvestorRowAvailable: ${summary.rawInvestorRowAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- selectedCandidateCarriesSemanticRow: ${summary.selectedCandidateCarriesSemanticRowCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- forensicInputCarriesSemanticRow: ${summary.forensicInputCarriesSemanticRowCount ?? 0}/${summary.totalCandidates}`);
   if (summary.semanticReasonDistribution) lines.push(`- semanticReasonDistribution: ${formatDistribution(summary.semanticReasonDistribution)}`);
   if (summary.kisRawFieldKeysTop) lines.push(`- kisRawFieldKeysTop: ${formatDistribution(summary.kisRawFieldKeysTop)}`);
   if (summary.kisNormalizedFieldKeysTop) lines.push(`- kisNormalizedFieldKeysTop: ${formatDistribution(summary.kisNormalizedFieldKeysTop)}`);
+  if (summary.kisSemanticFieldKeysTop) lines.push(`- kisSemanticFieldKeysTop: ${formatDistribution(summary.kisSemanticFieldKeysTop)}`);
+  if (summary.semanticRowBreakPointDistribution) lines.push(`- semanticRowBreakPointDistribution: ${formatDistribution(summary.semanticRowBreakPointDistribution)}`);
   if (summary.sampleValueKindDistribution) lines.push(`- sampleValueKinds: ${formatDistribution(summary.sampleValueKindDistribution)}`);
   if (summary.mappedFieldDistribution) {
     lines.push(`- mappedFieldDistribution: foreign=${formatDistribution(summary.mappedFieldDistribution.foreign)} institution=${formatDistribution(summary.mappedFieldDistribution.institution)} individual=${formatDistribution(summary.mappedFieldDistribution.individual)}`);
@@ -1842,6 +1943,10 @@ export function formatGate1MinimumSignalForensicSection(
 export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
   const total = summary.totalCandidates;
   const topSemanticReason = pickTopDistributionKey(summary.semanticReasonDistribution ?? {});
+  if (topSemanticReason === 'SEMANTIC_ROW_METADATA_ONLY') return 'WIRE_KIS_SELECTED_CANDIDATE_SEMANTIC_ROW';
+  if (topSemanticReason === 'ROUTER_DROPPED_SEMANTIC_ROW') return 'WIRE_KIS_SELECTED_CANDIDATE_SEMANTIC_ROW';
+  if (topSemanticReason === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW') return 'WIRE_KIS_SELECTED_CANDIDATE_SEMANTIC_ROW';
+  if (topSemanticReason === 'FIELD_ALIAS_NOT_MAPPED') return 'MAP_KIS_NETBUY_FIELDS';
   if (topSemanticReason === 'NO_FOREIGN_OR_INSTITUTION_FIELD') return 'MAP_KIS_NETBUY_FIELDS';
   if (topSemanticReason === 'ROW_MAPPING_FAILED') return 'MAP_INVESTOR_TYPE_ROWS_TO_NETBUY';
   if (topSemanticReason === 'ONLY_MARKET_LEVEL_FLOW' || topSemanticReason === 'ONLY_SECTOR_LEVEL_FLOW') return 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE';

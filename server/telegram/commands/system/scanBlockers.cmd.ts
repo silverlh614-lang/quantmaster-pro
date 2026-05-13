@@ -718,8 +718,15 @@ const scanBlockers: TelegramCommand = {
           .sort((a, b) => Number(b[1]) - Number(a[1]))
           .map(([usage]) => usage)
           .join(',') || 'SHADOW_ONLY';
-        const nextAction = reasonTop.includes('NO_FOREIGN_OR_INSTITUTION_FIELD')
-          ? 'MAP_KIS_NETBUY_FIELDS'
+        const breakPointTop = Object.entries(forensic.semanticRowBreakPointDistribution ?? {})
+          .filter(([, count]) => Number(count) > 0)
+          .sort((a, b) => Number(b[1]) - Number(a[1]))
+          .map(([breakPoint, count]) => `${breakPoint} ${count}`)
+          .join(', ') || 'UNKNOWN';
+        const nextAction = reasonTop.includes('SEMANTIC_ROW_METADATA_ONLY') || reasonTop.includes('ROUTER_DROPPED_SEMANTIC_ROW') || reasonTop.includes('FORENSIC_INPUT_DROPPED_SEMANTIC_ROW')
+          ? 'WIRE_KIS_SELECTED_CANDIDATE_SEMANTIC_ROW'
+          : reasonTop.includes('FIELD_ALIAS_NOT_MAPPED') || reasonTop.includes('NO_FOREIGN_OR_INSTITUTION_FIELD')
+            ? 'MAP_KIS_NETBUY_FIELDS'
           : reasonTop.includes('ROW_MAPPING_FAILED')
             ? 'MAP_INVESTOR_TYPE_ROWS_TO_NETBUY'
             : reasonTop.includes('ONLY_MARKET_LEVEL_FLOW') || reasonTop.includes('ONLY_SECTOR_LEVEL_FLOW')
@@ -728,6 +735,19 @@ const scanBlockers: TelegramCommand = {
                 ? 'OBSERVE_ZERO_NEUTRAL_SUPPLY'
                 : 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
         supplySemanticAuditSection = [
+          '🔌 KIS Investor Flow Semantic Row',
+          `• selectedProvider: ${summary?.investorFlowProviderRouter?.selectedProvider ?? 'KIS_API'}`,
+          `• rawRow: ${forensic.rawInvestorRowAvailableCount ?? 0}/${forensic.totalCandidates}`,
+          `• semanticRow: ${forensic.semanticRowAvailableCount ?? 0}/${forensic.totalCandidates}`,
+          `• metadataOnly: ${forensic.semanticRowMetadataOnlyCount ?? 0}/${forensic.totalCandidates}`,
+          `• foreignField: ${forensic.foreignNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
+          `• institutionalField: ${forensic.institutionalNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
+          `• breakPoint: ${breakPointTop}`,
+          '• scoreUsage: SHADOW_ONLY',
+          '• marketSignal=false',
+          '• executionImpact=NONE',
+          `• nextAction: ${nextAction}`,
+          '',
           '🔌 Supply Semantic Audit (ADR-0482)',
           `• selectedProvider: ${summary?.investorFlowProviderRouter?.selectedProvider ?? 'KIS_API'}`,
           `• symbolMatched: ${forensic.symbolMatchedCount ?? forensic.supplySymbolMatchedCount ?? 0}/${forensic.totalCandidates}`,
@@ -742,6 +762,9 @@ const scanBlockers: TelegramCommand = {
           '• marketSignal=false',
           '• executionImpact=NONE',
           `• supplyRouterForensicConflict=${forensic.supplyRouterForensicConflict === true}`,
+          `• selectedCandidateCarriesSemanticRow: ${forensic.selectedCandidateCarriesSemanticRowCount ?? 0}/${forensic.totalCandidates}`,
+          `• forensicInputCarriesSemanticRow: ${forensic.forensicInputCarriesSemanticRowCount ?? 0}/${forensic.totalCandidates}`,
+          `• semanticRowBreakPoint: ${breakPointTop}`,
           `• nextAction: ${nextAction}`,
         ].join('\n');
       }
