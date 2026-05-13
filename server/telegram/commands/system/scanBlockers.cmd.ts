@@ -181,6 +181,10 @@ import { formatKisRealDataHealthSection } from '../../../clients/kisClient/realD
 import { formatShadowExecutionPipelineSection } from '../../../trading/shadowExecutionPipeline.js';
 // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — runtime section.
 import { formatShadowPositionLifecycleSection } from '../../../trading/shadowPositionLifecycle.js';
+// Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine + Last Good Value
+//   cache + Shadow case recording compact summary. providerIssue=true / marketSignal=false /
+//   executionImpact='NONE' / telegramAllowed=false literal type 강제.
+import { formatProviderHealthIsolationSection } from '../../../clients/kisClient/providerHealthIsolationPatch003.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -881,6 +885,18 @@ const scanBlockers: TelegramCommand = {
       if (lifecycleSection) parts.push(lifecycleSection);
     } catch (err) {
       console.warn('[scan_blockers] Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 section failed:', err);
+    }
+
+    // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — KIS RealData circuit breaker state +
+    //   Last Good Value cache + Shadow case count. [PATCH-RUNTIME] 태그로 runtime 모드
+    //   sectionMatchesMode 통과. read-only — buildProviderHealthIsolationRuntimeSummary()
+    //   메모리 read 만, LIVE 매매 영향 0. providerIssue=true / marketSignal=false /
+    //   executionImpact='NONE' / telegramAllowed=false literal 강제.
+    try {
+      const providerHealthSection = formatProviderHealthIsolationSection();
+      if (providerHealthSection) parts.push(providerHealthSection);
+    } catch (err) {
+      console.warn('[scan_blockers] Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 section failed:', err);
     }
 
     // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.

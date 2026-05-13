@@ -34,6 +34,15 @@ import {
   recordKisRealDataSuccess,
   shouldEmitNoiseSummary,
 } from './realDataNoiseStore.js';
+// Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine (OPEN/HALF_OPEN/
+//   CLOSED) + KIS500 단독 실패가 매매엔진 중단 사유 아님 강제. ENV
+//   `KIS500_PROVIDER_HEALTH_ISOLATION_DISABLED=true` 1줄 즉시 Patch-001 직후 동작 100% 복원.
+import {
+  evaluateCircuitTransition,
+  recordProviderFailure,
+  recordProviderSuccess,
+  shouldSkipProviderCall,
+} from './providerHealthIsolationPatch003.js';
 
 /**
  * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
@@ -280,6 +289,13 @@ export function realDataKisGet(
       // 잡음 차단 — cooldown skip 은 별도 INFO 로그 0건 (suppressed count 만 누적).
       return null;
     }
+    // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine.
+    //   OPEN 상태 시 호출 차단 (잡음 0). HALF_OPEN 으로 자동 전이 후 1회 test 통과.
+    //   호출자 측 inline ENV 검사 0건 — `shouldSkipProviderCall` SSOT 위임.
+    evaluateCircuitTransition();
+    if (shouldSkipProviderCall()) {
+      return null;
+    }
 
     const doFetch = async (token: string) => fetch(
       `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
@@ -329,6 +345,9 @@ export function realDataKisGet(
           httpStatus: res.status,
         });
         const noise = recordKisRealDataFailure(classified);
+        // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine update.
+        //   5xx 누적 시 60s burst / 5min burst / consecutive 임계 평가 후 OPEN 자동 전이.
+        recordProviderFailure(classified);
         if (retriesLeft > 0) {
           const delay = _kisBackoffDelayMs(retriesLeft);
           if (noise.shouldEmitDetailLog) {
@@ -369,6 +388,9 @@ export function realDataKisGet(
       // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — 성공 응답 시 backoff state reset
       //   (해당 endpoint 의 모든 errorKind record 삭제 — fast recovery).
       recordKisRealDataSuccess({ endpoint: apiPath });
+      // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker CLOSED 자동 전이.
+      //   HALF_OPEN test 성공 시 CLOSED + consecutiveFailures=0 + sliding window 정리.
+      recordProviderSuccess();
       const text = await res.text();
       if (!text.trim()) return null;
       try { return JSON.parse(text); } catch { return null; }
