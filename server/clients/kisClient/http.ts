@@ -22,6 +22,18 @@ import {
 } from './resilience.js';
 import { getKisOverrides } from './overrides.js';
 import type { KisPostIdempotency, KisPostOptions } from './types.js';
+// Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — provider noise classification + per-key
+//   cooldown + suppressed log count. providerIssue=true / marketSignal=false /
+//   executionImpact='NONE' literal type 강제. ENV `KIS_REALDATA_BACKOFF_DISABLED=true`
+//   1줄 즉시 기존 retry/log 동작 100% 복원.
+import {
+  classifyKisRealDataError,
+  formatKisRealDataNoiseSummaryLine,
+  isKisRealDataCooldownActive,
+  recordKisRealDataFailure,
+  recordKisRealDataSuccess,
+  shouldEmitNoiseSummary,
+} from './realDataNoiseStore.js';
 
 /**
  * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
@@ -261,6 +273,13 @@ export function realDataKisGet(
       console.warn(`[KIS-RealData] 5xx micro-cooldown — ${trId} ${apiPath} 호출 건너뜀`);
       return null;
     }
+    // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — per-key (endpoint + symbol +
+    //   errorKind) cooldown 활성 시 호출 자체 skip. ENV disabled 시 무영향.
+    //   호출자 측 inline ENV 검사 0건 — `isKisRealDataCooldownActive` SSOT 위임.
+    if (isKisRealDataCooldownActive({ endpoint: apiPath })) {
+      // 잡음 차단 — cooldown skip 은 별도 INFO 로그 0건 (suppressed count 만 누적).
+      return null;
+    }
 
     const doFetch = async (token: string) => fetch(
       `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
@@ -302,9 +321,29 @@ export function realDataKisGet(
       if (res.status >= 500 && res.status < 600) {
         _recordCircuitFailure(trId, res.status);
         recordRealData5xxCooldown(trId, apiPath, res.status);
+        // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — provider noise 분류 +
+        //   per-key suppressed count. providerIssue=true / marketSignal=false /
+        //   executionImpact='NONE' literal type 강제.
+        const classified = classifyKisRealDataError({
+          endpoint: apiPath,
+          httpStatus: res.status,
+        });
+        const noise = recordKisRealDataFailure(classified);
         if (retriesLeft > 0) {
           const delay = _kisBackoffDelayMs(retriesLeft);
-          console.warn(`[KIS-RealData] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+          if (noise.shouldEmitDetailLog) {
+            console.warn(
+              `[KIS-RealData] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기 — `
+              + `providerIssue=true marketSignal=false executionImpact=NONE`,
+            );
+          } else {
+            // 반복 5xx — 상세 로그 suppress + 60s 간격 INFO compact summary 노출.
+            //   ENV disabled 시 shouldEmitNow=false (lastSummaryLoggedAt 갱신 안 함).
+            const summary = shouldEmitNoiseSummary();
+            if (summary.shouldEmitNow) {
+              console.info(formatKisRealDataNoiseSummaryLine(noise.record));
+            }
+          }
           await _kisSleep(delay);
           retriesLeft -= 1;
           continue;
@@ -327,6 +366,9 @@ export function realDataKisGet(
 
       _recordCircuitSuccess(trId);
       clearRealData5xxCooldown(trId, apiPath);
+      // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — 성공 응답 시 backoff state reset
+      //   (해당 endpoint 의 모든 errorKind record 삭제 — fast recovery).
+      recordKisRealDataSuccess({ endpoint: apiPath });
       const text = await res.text();
       if (!text.trim()) return null;
       try { return JSON.parse(text); } catch { return null; }
