@@ -35,6 +35,13 @@ import { learningOrchestrator } from '../../orchestrator/learningOrchestrator.js
 import { requestImmediateRescan } from '../../orchestrator/adaptiveScanScheduler.js';
 
 import type { ExitContext, ExitRule } from './types.js';
+// Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW 포지션 monitor
+// cycle 진입 시점 audit emit. try/catch 격리 (Always-On Trading Kernel — Shadow
+// 오류가 Live 매매엔진 차단 0).
+import {
+  emitShadowPositionMonitor,
+  recordShadowLifecycleOutcome,
+} from '../shadowPositionLifecycle.js';
 import { atrDynamicStop } from './rules/atrDynamicStop.js';
 import { r6EmergencyExit } from './rules/r6EmergencyExit.js';
 import { ma60DeathForceExit } from './rules/ma60DeathForceExit.js';
@@ -170,6 +177,21 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
     // REJECTED는 buyApproval 거부/KIS 주문 실패 시 shadows에 남는 종료 상태이므로 안전.
     // ORDER_SUBMITTED는 fillMonitor가 체결 확인 후 ACTIVE로 전환할 때까지 exitEngine이 관여하지 않음.
     if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
+
+    // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW 포지션이
+    // monitor cycle 에 편입됨을 영속 audit. SHADOW 만 대상 (mode!=SHADOW 시 SSOT
+    // 내부에서 NOT_SHADOW 반환, no-op). try/catch 격리 — lifecycle emit 실패는
+    // exit 규칙 평가 흐름을 차단하지 않음 (Always-On Trading Kernel).
+    try {
+      const monitorResult = emitShadowPositionMonitor(shadow);
+      recordShadowLifecycleOutcome('SHADOW_POSITION_MONITOR', monitorResult.outcome);
+    } catch (err) {
+      console.warn(
+        `[ShadowPositionLifecycle] emitShadowPositionMonitor 실패 (exit 평가 계속) — ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     // ─── Fill 기반 잔량 동기화 (단일 진실 원천) ──────────────────────────────
     // fills 배열이 진실 원천. 재시작·중복 실행 등으로 quantity 캐시가 어긋났으면 교정.

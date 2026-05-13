@@ -179,6 +179,8 @@ import { loadGate1ForensicTrace } from '../../../persistence/gate1MinimumSignalF
 import { formatKisRealDataHealthSection } from '../../../clients/kisClient/realDataNoiseStore.js';
 // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — Shadow execution pipeline 진단 SSOT (read-only).
 import { formatShadowExecutionPipelineSection } from '../../../trading/shadowExecutionPipeline.js';
+// Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — runtime section.
+import { formatShadowPositionLifecycleSection } from '../../../trading/shadowPositionLifecycle.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -844,6 +846,18 @@ const scanBlockers: TelegramCommand = {
       if (executionSection) parts.push(executionSection);
     } catch (err) {
       console.warn('[scan_blockers] Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 section failed:', err);
+    }
+
+    // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — Shadow position
+    // lifecycle (OPENED/MONITOR/SELL_SIGNAL/SELL_PAPER_FILLED/CLOSED) summary.
+    //   [PATCH-RUNTIME] 태그로 runtime 모드 sectionMatchesMode 통과.
+    //   read-only — getShadowLifecycleSummary() 메모리 read 만, LIVE 매매 영향 0.
+    //   liveOrderPlaced=false / executionImpact=NONE literal 강제.
+    try {
+      const lifecycleSection = formatShadowPositionLifecycleSection();
+      if (lifecycleSection) parts.push(lifecycleSection);
+    } catch (err) {
+      console.warn('[scan_blockers] Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 section failed:', err);
     }
 
     // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.
