@@ -8,6 +8,7 @@ import './ghostKisDiag.cmd.js';
 import './kelly.cmd.js';
 import './kellySurface.cmd.js';
 import './learningPulse.cmd.js';
+import './learningRepair.cmd.js';
 import './ledger.cmd.js';
 import './regimeCoverage.cmd.js';
 import './resetCircuits.cmd.js';

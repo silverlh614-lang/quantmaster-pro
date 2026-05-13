@@ -13,6 +13,7 @@ import { checkWeeklySharpeAlert } from '../learning/weeklySharpeMonitor.js';
 import { runF2WReverseLoop } from '../learning/failureToWeight.js';
 import { runNightlyReflection } from '../learning/nightlyReflectionEngine.js';
 import { refreshGhostPortfolio } from '../learning/ghostPortfolioTracker.js';
+import { learningRepairRun } from '../learning/learningRepairCommand.js';
 import { distillWeeklyKnowledge } from '../learning/silentKnowledgeDistillation.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { resolveCounterfactuals, evaluateCounterfactualSuggestion } from '../learning/counterfactualShadow.js';
@@ -81,6 +82,20 @@ export function registerLearningJobs(): void {
   scheduledJob('40 6 * * 1-5', 'TRADING_DAY_ONLY', 'ghost_portfolio', async () => {
     const res = await refreshGhostPortfolio();
     console.log(`[GhostPortfolio] updated=${res.updated} closed=${res.closed} skipped=${res.skipped}`);
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
+
+
+  // Learning Flow Unclog Patch v1 — 장마감 후 가상 close→outcome→attribution→diagnostic suggest→Gemini schedule.
+  // 실거래 주문/브로커 adapter 미사용, Ghost/Shadow executionImpact=NONE 보장.
+  scheduledJob('50 6 * * 1-5', 'TRADING_DAY_ONLY', 'learning_flow_unclog_eod', async () => {
+    const res = await learningRepairRun();
+    console.log(`[LearningFlowUnclog] order=${res.order.join('>')} closed=${res.close.closed} attr=${res.attr.processedCount} brokerOrdersCreated=${res.brokerOrdersCreated}`);
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
+
+  // 장중 15분 간격 virtual close scan — 실제 주문/포지션 변경 없음.
+  scheduledJob('*/15 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'learning_flow_unclog_intraday', async () => {
+    const res = await learningRepairRun();
+    console.log(`[LearningFlowUnclogIntraday] closed=${res.close.closed} pendingRetry=${res.close.pendingRetry} brokerOrdersCreated=${res.brokerOrdersCreated}`);
   }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // Silent Knowledge Distillation — 매주 일요일 KST 18:00 (UTC 09:00).
