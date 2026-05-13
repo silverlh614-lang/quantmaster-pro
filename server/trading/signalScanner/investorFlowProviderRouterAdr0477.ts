@@ -133,7 +133,9 @@ export interface InvestorFlowProviderRouteResult {
   actualInvestorFlowRowSourcePath?: string | null;
   actualInvestorFlowFieldKeys?: string[];
   actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
+  selectedCandidate?: InvestorFlowMaterializedCandidateAdr0503 | null;
   selectedActualRowPath?: string | null;
   selectedActualRowFieldKeys?: string[];
   selectedActualNumericFieldKeys?: string[];
@@ -1047,7 +1049,32 @@ export interface InvestorFlowMaterializedCandidateAdr0503 {
   inputSourceKind: InvestorSampleDiagnosticsAdr0502['inputSourceKind'];
   selectedPriority: number;
   selectionReason: string;
+  actualInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRowCount?: number;
+  actualInvestorFlowRowSourcePath?: string | null;
+  actualInvestorFlowFieldKeys?: string[];
+  actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowNumericStringKeys?: string[];
+  actualInvestorFlowCarried?: boolean;
 }
+
+type ActualInvestorFlowCarryAdr0477 = Pick<InvestorFlowMaterializedCandidateAdr0503,
+  | 'actualInvestorFlowRows'
+  | 'actualInvestorFlowRowCount'
+  | 'actualInvestorFlowRowSourcePath'
+  | 'actualInvestorFlowFieldKeys'
+  | 'actualInvestorFlowNumericKeys'
+  | 'actualInvestorFlowNumericStringKeys'
+  | 'actualInvestorFlowCarried'
+>;
+
+type ActualInvestorFlowDropReasonAdr0477 =
+  | 'ADAPTER_ROW_NOT_PRESENT'
+  | 'NORMALIZER_DROPPED_ACTUAL_ROW'
+  | 'MATERIALIZED_CANDIDATE_DROPPED_ACTUAL_ROW'
+  | 'SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW'
+  | 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW'
+  | 'UNKNOWN';
 
 interface InvestorFlowDiagnosticUsableCandidateAdr0504 {
   provider: InvestorFlowProviderId;
@@ -1059,6 +1086,7 @@ interface InvestorFlowDiagnosticUsableCandidateAdr0504 {
 export function collectInvestorFlowMaterializedCandidates(
   materializationDiagnostics: Partial<Record<InvestorSampleProviderNameAdr0502, InvestorSampleDiagnosticsAdr0502>>,
   samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>>,
+  actualRowCarryByProvider: Partial<Record<InvestorFlowProviderId, ActualInvestorFlowCarryAdr0477>> = {},
 ): InvestorFlowMaterializedCandidateAdr0503[] {
   const priority: Record<string, number> = {
     KRX_SYMBOL_INVESTOR_FLOW: 1,
@@ -1083,6 +1111,7 @@ export function collectInvestorFlowMaterializedCandidates(
   return Object.values(materializationDiagnostics).map((diag) => {
     const provider = providerIdFromMaterializationAdr0477(diag.providerName);
     const sample = samplesByProvider[provider];
+    const actualCarry = actualRowCarryByProvider[provider];
     const freshness: InvestorFlowMaterializedCandidateAdr0503['freshness'] =
       sample?.status === 'STALE' || sample?.status === 'CACHE_STALE_HIT' ? 'STALE'
         : sample?.status === 'VERIFIED' || sample?.status === 'PARTIAL' || sample?.status === 'CACHE_HIT' ? 'FRESH'
@@ -1106,6 +1135,15 @@ export function collectInvestorFlowMaterializedCandidates(
       inputSourceKind: diag.inputSourceKind,
       selectedPriority: priority[provider] ?? 99,
       selectionReason: `${provider} materialized=${diag.sampleMaterialized} usableForRouter=${candidateUsableForRouter} rawCount=${diag.rawCount} normalizedCount=${diag.normalizedCount} materializedCount=${diag.materializedCount} blockedReason=${provider === 'SEMANTIC_NETBUY' && diag.sampleMaterialized ? 'NO_REAL_INPUT_SOURCE' : diag.blockedReason}`,
+      ...(actualCarry ? {
+        actualInvestorFlowRows: actualCarry.actualInvestorFlowRows,
+        actualInvestorFlowRowCount: actualCarry.actualInvestorFlowRowCount,
+        actualInvestorFlowRowSourcePath: actualCarry.actualInvestorFlowRowSourcePath,
+        actualInvestorFlowFieldKeys: actualCarry.actualInvestorFlowFieldKeys,
+        actualInvestorFlowNumericKeys: actualCarry.actualInvestorFlowNumericKeys,
+        actualInvestorFlowNumericStringKeys: actualCarry.actualInvestorFlowNumericStringKeys,
+        actualInvestorFlowCarried: actualCarry.actualInvestorFlowCarried,
+      } : {}),
     };
   });
 }
@@ -1127,13 +1165,14 @@ export function selectBestInvestorFlowCandidate(
 export function buildInvestorFlowMultiSourceMaterialization(
   materializationDiagnostics: Partial<Record<InvestorSampleProviderNameAdr0502, InvestorSampleDiagnosticsAdr0502>>,
   samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>>,
+  actualRowCarryByProvider: Partial<Record<InvestorFlowProviderId, ActualInvestorFlowCarryAdr0477>> = {},
 ): {
   candidates: InvestorFlowMaterializedCandidateAdr0503[];
   rankedCandidates: InvestorFlowMaterializedCandidateAdr0503[];
   selectedCandidate: InvestorFlowMaterializedCandidateAdr0503 | null;
   noMaterializedCandidateReason: string | null;
 } {
-  const candidates = collectInvestorFlowMaterializedCandidates(materializationDiagnostics, samplesByProvider);
+  const candidates = collectInvestorFlowMaterializedCandidates(materializationDiagnostics, samplesByProvider, actualRowCarryByProvider);
   const rankedCandidates = rankInvestorFlowMaterializedCandidates(candidates);
   const selectedCandidate = rankedCandidates[0] ?? null;
   return {
@@ -1164,6 +1203,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   let pendingNaverStale: SemanticNetBuySample | null = null;
   const materializationDiagnostics: Partial<Record<InvestorSampleProviderNameAdr0502, InvestorSampleDiagnosticsAdr0502>> = {};
   const samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>> = {};
+  const actualRowCarryByProvider: Partial<Record<InvestorFlowProviderId, ActualInvestorFlowCarryAdr0477>> = {};
   const semanticRowsByProvider: Partial<Record<InvestorFlowProviderId, SanitizedInvestorFlowSemanticRow>> = {};
   let kisRawRowAvailableAtAdapter = false;
   let kisNormalizedRowAvailableAtRouter = false;
@@ -1451,6 +1491,15 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       sourceAgeTradingDays: input.sourceAgeTradingDays,
     });
     materializationDiagnostics.KIS_INVESTOR = materializationFromSemanticSampleAdr0477('KIS_INVESTOR', kisSample, 'RAW_PROVIDER');
+    actualRowCarryByProvider.KIS_API = {
+      actualInvestorFlowRows: sanitizedInvestorFlowRows,
+      actualInvestorFlowRowCount: sanitizedInvestorFlowRows.length,
+      actualInvestorFlowRowSourcePath: selectedActualRowPath,
+      actualInvestorFlowFieldKeys: selectedActualRowFieldKeys,
+      actualInvestorFlowNumericKeys: Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
+      actualInvestorFlowNumericStringKeys: selectedActualNumericStringFieldKeys,
+      actualInvestorFlowCarried: sanitizedInvestorFlowRows.length > 0,
+    };
     if (materializationDiagnostics.KIS_INVESTOR.sampleMaterialized) samplesByProvider.KIS_API = kisSample;
     providerStatuses.KIS_API = kisSample.status;
     providerStatuses.KIS = kisSample.status;
@@ -1490,12 +1539,14 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     diagnostics.push(`FSS source stale ${input.fssSourceAgeTradingDays} trading days; diagnostic only.`);
   }
 
-  const multiSourceMaterialization = buildInvestorFlowMultiSourceMaterialization(materializationDiagnostics, samplesByProvider);
+  const multiSourceMaterialization = buildInvestorFlowMultiSourceMaterialization(materializationDiagnostics, samplesByProvider, actualRowCarryByProvider);
   const krxAutoDisabled = providerStatuses.KRX_INVESTOR_FLOW === 'DISABLED_BY_KIS_FIRST_MODE' || providerStatuses.KRX === 'DISABLED_BY_KIS_FIRST_MODE';
   const isBlockedAutoKrxCandidate = (provider: InvestorFlowProviderId): boolean => (kisFirstMode || krxAutoDisabled) && (provider === 'KRX_INVESTOR_FLOW' || provider === 'KRX_SYMBOL_INVESTOR_FLOW' || provider === 'KRX_MARKET_INVESTOR_FLOW');
   const selectedMultiSourceCandidate = kisFirstMode || krxAutoDisabled
     ? multiSourceMaterialization.rankedCandidates.find((candidate) => !isBlockedAutoKrxCandidate(candidate.provider) && !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE')) ?? null
     : multiSourceMaterialization.selectedCandidate;
+  const adapterCarriesActualRow = sanitizedInvestorFlowRows.length > 0;
+  const candidateBeforeSelectionCarriesActualRow = multiSourceMaterialization.candidates.some((candidate) => candidate.provider === 'KIS_API' && (candidate.actualInvestorFlowRowCount ?? 0) > 0);
   if (selectedMultiSourceCandidate) {
     const sample = samplesByProvider[selectedMultiSourceCandidate.provider];
     if (sample && selectedProvider !== selectedMultiSourceCandidate.provider) {
@@ -1577,6 +1628,24 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   const selectedSemanticRow = semanticRowsByProvider[selectedProvider] ?? null;
+  const selectedMaterializedCandidate = selectedMultiSourceCandidate?.provider === selectedProvider
+    ? selectedMultiSourceCandidate
+    : multiSourceMaterialization.candidates.find((candidate) => candidate.provider === selectedProvider) ?? null;
+  const selectedCandidateActualRows = selectedMaterializedCandidate?.actualInvestorFlowRows ?? (selectedProvider === 'KIS_API' ? sanitizedInvestorFlowRows : []);
+  const selectedCandidateActualRowCount = selectedMaterializedCandidate?.actualInvestorFlowRowCount ?? selectedCandidateActualRows.length;
+  const selectedCandidateCarriesActualRow = selectedCandidateActualRowCount > 0;
+  const selectedCandidateActualRowFieldKeysTop = selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys;
+  const selectedCandidateActualRowDropReason: ActualInvestorFlowDropReasonAdr0477 = selectedCandidateCarriesActualRow
+    ? 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW'
+    : !input.kisInvestorRaw
+      ? 'ADAPTER_ROW_NOT_PRESENT'
+      : sanitizedInvestorFlowRows.length === 0
+        ? 'NORMALIZER_DROPPED_ACTUAL_ROW'
+        : !candidateBeforeSelectionCarriesActualRow
+          ? 'MATERIALIZED_CANDIDATE_DROPPED_ACTUAL_ROW'
+          : selectedProvider === 'KIS_API'
+            ? 'SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW'
+            : 'UNKNOWN';
   const selectedSemanticNetBuy = semanticNetBuy as SemanticNetBuySample | null;
   const signal = selectedSemanticNetBuy?.signal ?? 'UNKNOWN';
   if (!semanticNetBuy && !selectedDiagnosticProvider && providerStatuses.NAVER === 'NOT_WIRED' && providerStatuses.CACHE === 'CACHE_EMPTY') {
@@ -1660,6 +1729,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
                 : 'ACTUAL_ROW_CARRIED_WITH_FIELDS'
     : undefined;
   diagnostics.push(`kisRawRowAvailableAtAdapter=${kisRawRowAvailableAtAdapter}; kisNormalizedRowAvailableAtRouter=${kisNormalizedRowAvailableAtRouter}; kisSelectedCandidateCarriesSemanticRow=${kisSelectedCandidateCarriesSemanticRow}; semanticRowBreakPoint=${semanticRowBreakPoint ?? 'UNKNOWN'}; selectedActualRowPath=${selectedActualRowPath ?? 'none'}; selectedActualRowFieldKeys=${selectedActualRowFieldKeys.join(',') || 'none'}; selectedActualNumericStringFieldKeys=${selectedActualNumericStringFieldKeys.join(',') || 'none'}; sanitizedInvestorFlowRows=${sanitizedInvestorFlowRows.length}; rawPayloadPersistenceAllowed=false`);
+  diagnostics.push(`adapterCarriesActualRow=${String(adapterCarriesActualRow)}; candidateBeforeSelectionCarriesActualRow=${String(candidateBeforeSelectionCarriesActualRow)}; selectedCandidateCarriesActualRow=${String(selectedCandidateCarriesActualRow)}; selectedCandidateActualRowCount=${selectedCandidateActualRowCount}; selectedCandidateActualRowFieldKeysTop=${selectedCandidateActualRowFieldKeysTop.slice(0, 16).join(',') || 'NONE'}; selectedCandidateActualRowDropReason=${selectedCandidateActualRowDropReason}; executionImpact=NONE; scoreUsage=SHADOW_ONLY`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
     diagnostics.push(formatInvestorSampleDiagnosticsAdr0502(materialization));
@@ -1689,12 +1759,14 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     semanticNetBuy: selectedSemanticNetBuy,
     semanticRow: selectedSemanticRow,
     sanitizedInvestorFlowRows,
-    actualInvestorFlowRows: sanitizedInvestorFlowRows,
-    actualInvestorFlowRowCount: sanitizedInvestorFlowRows.length,
-    actualInvestorFlowRowSourcePath: selectedActualRowPath,
-    actualInvestorFlowFieldKeys: selectedActualRowFieldKeys,
-    actualInvestorFlowNumericKeys: Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
-    actualInvestorFlowCarried: selectedProvider === 'KIS_API' && sanitizedInvestorFlowRows.length > 0,
+    actualInvestorFlowRows: selectedProvider === 'KIS_API' ? selectedCandidateActualRows : sanitizedInvestorFlowRows,
+    actualInvestorFlowRowCount: selectedProvider === 'KIS_API' ? selectedCandidateActualRowCount : sanitizedInvestorFlowRows.length,
+    actualInvestorFlowRowSourcePath: selectedMaterializedCandidate?.actualInvestorFlowRowSourcePath ?? selectedActualRowPath,
+    actualInvestorFlowFieldKeys: selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys,
+    actualInvestorFlowNumericKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericKeys ?? Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
+    actualInvestorFlowNumericStringKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericStringKeys ?? selectedActualNumericStringFieldKeys,
+    actualInvestorFlowCarried: selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow,
+    selectedCandidate: selectedMaterializedCandidate,
     selectedActualRowPath,
     selectedActualRowFieldKeys,
     selectedActualNumericFieldKeys,
@@ -1857,6 +1929,10 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- selectedActualRowPath: ${result.selectedActualRowPath ?? 'NONE'}`,
     `- selectedActualRowFieldKeys: ${result.selectedActualRowFieldKeys?.join(',') || 'NONE'}`,
     `- selectedActualNumericStringFieldKeys: ${result.selectedActualNumericStringFieldKeys?.join(',') || 'NONE'}`,
+    `- selectedCandidateCarriesActualRow: ${result.selectedCandidate?.actualInvestorFlowCarried ?? result.actualInvestorFlowCarried ?? false}`,
+    `- selectedCandidateActualRowCount: ${result.selectedCandidate?.actualInvestorFlowRowCount ?? result.actualInvestorFlowRowCount ?? 0}`,
+    `- selectedCandidateActualRowFieldKeysTop: ${(result.selectedCandidate?.actualInvestorFlowFieldKeys ?? result.actualInvestorFlowFieldKeys ?? []).slice(0, 16).join(',') || 'NONE'}`,
+    `- selectedCandidateActualRowDropReason: ${(result.actualInvestorFlowCarried ?? false) ? 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW' : 'SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW'}`,
 
     `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
     `- naverReadinessKind: ${result.naverReadinessKind ?? 'UNKNOWN'}`,

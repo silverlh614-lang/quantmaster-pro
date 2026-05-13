@@ -143,7 +143,9 @@ export interface SupplyProviderHealthTrace {
   actualInvestorFlowRowSourcePath?: string | null;
   actualInvestorFlowFieldKeys?: string[];
   actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
+  selectedCandidate?: Record<string, unknown> | null;
   selectedActualRowPath?: string | null;
   selectedActualRowFieldKeys?: string[];
   selectedActualNumericFieldKeys?: string[];
@@ -830,7 +832,9 @@ function classifySupplyProviderHealth(
     actualInvestorFlowRowSourcePath: input?.actualInvestorFlowRowSourcePath,
     actualInvestorFlowFieldKeys: input?.actualInvestorFlowFieldKeys,
     actualInvestorFlowNumericKeys: input?.actualInvestorFlowNumericKeys,
+    actualInvestorFlowNumericStringKeys: input?.actualInvestorFlowNumericStringKeys,
     actualInvestorFlowCarried: input?.actualInvestorFlowCarried,
+    selectedCandidate: input?.selectedCandidate,
     selectedActualRowPath: input?.selectedActualRowPath,
     selectedActualRowFieldKeys: input?.selectedActualRowFieldKeys,
     selectedActualNumericFieldKeys: input?.selectedActualNumericFieldKeys,

@@ -84,6 +84,27 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       : undefined;
     const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
     const healthRecord = health as Record<string, unknown> | undefined;
+    const selectedCandidateRecord = healthRecord?.selectedCandidate && typeof healthRecord.selectedCandidate === 'object'
+      ? healthRecord.selectedCandidate as Record<string, unknown>
+      : undefined;
+    const actualRowsFromSelectedCandidate = selectedCandidateRecord && Array.isArray(selectedCandidateRecord.actualInvestorFlowRows)
+      ? selectedCandidateRecord.actualInvestorFlowRows as Array<Record<string, unknown>>
+      : undefined;
+    const actualRowsFromRouter = healthRecord && Array.isArray(healthRecord.actualInvestorFlowRows)
+      ? healthRecord.actualInvestorFlowRows as Array<Record<string, unknown>>
+      : undefined;
+    const sanitizedRowsFromRouter = healthRecord && Array.isArray(healthRecord.sanitizedInvestorFlowRows)
+      ? healthRecord.sanitizedInvestorFlowRows as Array<Record<string, unknown>>
+      : undefined;
+    const actualInvestorFlowRows = actualRowsFromSelectedCandidate ?? actualRowsFromRouter ?? sanitizedRowsFromRouter;
+    const actualInvestorFlowFieldKeys = (selectedCandidateRecord?.actualInvestorFlowFieldKeys as string[] | undefined)
+      ?? (healthRecord?.actualInvestorFlowFieldKeys as string[] | undefined)
+      ?? (healthRecord?.selectedActualRowFieldKeys as string[] | undefined);
+    const actualInvestorFlowNumericKeys = (selectedCandidateRecord?.actualInvestorFlowNumericKeys as string[] | undefined)
+      ?? (healthRecord?.actualInvestorFlowNumericKeys as string[] | undefined);
+    const actualInvestorFlowNumericStringKeys = (selectedCandidateRecord?.actualInvestorFlowNumericStringKeys as string[] | undefined)
+      ?? (healthRecord?.actualInvestorFlowNumericStringKeys as string[] | undefined)
+      ?? (healthRecord?.selectedActualNumericStringFieldKeys as string[] | undefined);
     const kisFlow = healthRecord
       ? {
           requestSymbol: (healthRecord.requestSymbol as string | null | undefined) ?? candidate?.symbol ?? t.symbol ?? null,
@@ -102,23 +123,24 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           semanticAvailable: healthRecord.status === 'VERIFIED',
           semanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
           investorFlowSemanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
-          sanitizedInvestorFlowRows: ((healthRecord.actualInvestorFlowRows as Array<Record<string, unknown>> | undefined) ?? (healthRecord.sanitizedInvestorFlowRows as Array<Record<string, unknown>> | undefined)),
-          actualInvestorFlowRows: ((healthRecord.actualInvestorFlowRows as Array<Record<string, unknown>> | undefined) ?? (healthRecord.sanitizedInvestorFlowRows as Array<Record<string, unknown>> | undefined)),
-          actualInvestorFlowRowCount: healthRecord.actualInvestorFlowRowCount as number | undefined,
-          actualInvestorFlowRowSourcePath: (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined) ?? (healthRecord.selectedActualRowPath as string | null | undefined),
-          actualInvestorFlowFieldKeys: (healthRecord.actualInvestorFlowFieldKeys as string[] | undefined) ?? (healthRecord.selectedActualRowFieldKeys as string[] | undefined),
-          actualInvestorFlowNumericKeys: healthRecord.actualInvestorFlowNumericKeys as string[] | undefined,
-          actualInvestorFlowCarried: healthRecord.actualInvestorFlowCarried as boolean | undefined,
+          sanitizedInvestorFlowRows: actualInvestorFlowRows,
+          actualInvestorFlowRows,
+          actualInvestorFlowRowCount: (selectedCandidateRecord?.actualInvestorFlowRowCount as number | undefined) ?? (healthRecord.actualInvestorFlowRowCount as number | undefined) ?? actualInvestorFlowRows?.length,
+          actualInvestorFlowRowSourcePath: (selectedCandidateRecord?.actualInvestorFlowRowSourcePath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined) ?? (healthRecord.selectedActualRowPath as string | null | undefined),
+          actualInvestorFlowFieldKeys,
+          actualInvestorFlowNumericKeys,
+          actualInvestorFlowNumericStringKeys,
+          actualInvestorFlowCarried: (selectedCandidateRecord?.actualInvestorFlowCarried as boolean | undefined) ?? (healthRecord.actualInvestorFlowCarried as boolean | undefined) ?? ((actualInvestorFlowRows?.length ?? 0) > 0),
           selectedActualRowPath: ((healthRecord.selectedActualRowPath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined)),
-          selectedActualRowFieldKeys: ((healthRecord.selectedActualRowFieldKeys as string[] | undefined) ?? (healthRecord.actualInvestorFlowFieldKeys as string[] | undefined)),
+          selectedActualRowFieldKeys: ((healthRecord.selectedActualRowFieldKeys as string[] | undefined) ?? actualInvestorFlowFieldKeys),
           selectedActualNumericFieldKeys: healthRecord.selectedActualNumericFieldKeys as string[] | undefined,
-          selectedActualNumericStringFieldKeys: healthRecord.selectedActualNumericStringFieldKeys as string[] | undefined,
+          selectedActualNumericStringFieldKeys: (healthRecord.selectedActualNumericStringFieldKeys as string[] | undefined) ?? actualInvestorFlowNumericStringKeys,
           selectedActualPlaceholderFieldKeys: healthRecord.selectedActualPlaceholderFieldKeys as string[] | undefined,
           kisRawRowAvailableAtAdapter: healthRecord.kisRawRowAvailableAtAdapter as boolean | undefined,
           kisNormalizedRowAvailableAtRouter: healthRecord.kisNormalizedRowAvailableAtRouter as boolean | undefined,
           kisSelectedCandidateCarriesSemanticRow: healthRecord.kisSelectedCandidateCarriesSemanticRow as boolean | undefined,
           forensicInputCarriesSemanticRow: Boolean(healthRecord.semanticRow),
-          forensicInputCarriesActualInvestorRows: (Array.isArray(healthRecord.actualInvestorFlowRows) && healthRecord.actualInvestorFlowRows.length > 0) || (Array.isArray(healthRecord.sanitizedInvestorFlowRows) && healthRecord.sanitizedInvestorFlowRows.length > 0),
+          forensicInputCarriesActualInvestorRows: (actualInvestorFlowRows?.length ?? 0) > 0,
           semanticRowBreakPoint: (healthRecord.semanticRowBreakPoint as string | undefined) ?? (healthRecord.kisSelectedCandidateCarriesSemanticRow === false ? 'SELECTED_CANDIDATE_METADATA_ONLY' : undefined),
         }
       : undefined;
