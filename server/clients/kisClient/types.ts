@@ -138,6 +138,20 @@ export interface KisCreditBalanceRankingRow {
   source: 'KIS_API';
 }
 
+export interface KisInvestorFlowActualRowCarrier {
+  provider: 'KIS_API';
+  requestSymbol: string | null;
+  normalizedSymbol: string | null;
+  providerScope: 'SYMBOL_LEVEL';
+  actualRows: Array<Record<string, unknown>>;
+  rowSourcePath: string;
+  rawFieldKeys: string[];
+  numericStringFieldKeys: string[];
+  numberFieldKeys: string[];
+  placeholderFieldKeys: string[];
+  carriedAt: string;
+}
+
 export interface KisInvestorTradeByStockDaily {
   stockCode: string;
   tradingDate?: string;
@@ -146,6 +160,7 @@ export interface KisInvestorTradeByStockDaily {
   individualNetBuy?: number;
   source: 'KIS_API';
   fetchedAt: string;
+  actualInvestorFlowRowCarrier?: KisInvestorFlowActualRowCarrier;
 }
 
 export interface KisForeignInstitutionTotal {

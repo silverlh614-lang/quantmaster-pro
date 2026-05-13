@@ -128,6 +128,12 @@ export interface InvestorFlowProviderRouteResult {
   semanticNetBuy: SemanticNetBuySample | null;
   semanticRow?: SanitizedInvestorFlowSemanticRow | null;
   sanitizedInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRowCount?: number;
+  actualInvestorFlowRowSourcePath?: string | null;
+  actualInvestorFlowFieldKeys?: string[];
+  actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowCarried?: boolean;
   selectedActualRowPath?: string | null;
   selectedActualRowFieldKeys?: string[];
   selectedActualNumericFieldKeys?: string[];
@@ -136,7 +142,7 @@ export interface InvestorFlowProviderRouteResult {
   kisRawRowAvailableAtAdapter?: boolean;
   kisNormalizedRowAvailableAtRouter?: boolean;
   kisSelectedCandidateCarriesSemanticRow?: boolean;
-  semanticRowBreakPoint?: 'ADAPTER_DID_NOT_RETURN_RAW_ROW' | 'ROUTER_DROPPED_RAW_ROW' | 'SELECTED_CANDIDATE_METADATA_ONLY' | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' | 'FIELD_ALIAS_NOT_MAPPED' | 'ONLY_WRAPPER_METADATA' | 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' | 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' | 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED' | 'FIELD_ALIAS_MAPPED' | 'NO_ROW_FOUND' | 'UNKNOWN';
+  semanticRowBreakPoint?: 'ADAPTER_DID_NOT_RETURN_RAW_ROW' | 'ROUTER_DROPPED_RAW_ROW' | 'SELECTED_CANDIDATE_METADATA_ONLY' | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' | 'FIELD_ALIAS_NOT_MAPPED' | 'ONLY_WRAPPER_METADATA' | 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' | 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' | 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED' | 'FIELD_ALIAS_MAPPED' | 'NO_ROW_FOUND' | 'ADAPTER_DID_NOT_ATTACH_ACTUAL_ROW' | 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW' | 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW' | 'ACTUAL_ROW_CARRIED_BUT_EMPTY' | 'ACTUAL_ROW_CARRIED_WITH_FIELDS' | 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED' | 'UNKNOWN';
   status: InvestorFlowProviderStatus;
   signal: SemanticSupplySignal;
   coverage: {
@@ -1639,17 +1645,19 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' || selectedProvider === 'KRX_SYMBOL_INVESTOR_FLOW' || selectedProvider === 'KRX_MARKET_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'FSS_PASSIVE_ACTIVE' ? 'FSS_OFFICIAL_DIAGNOSTIC' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
   const kisSelectedCandidateCarriesSemanticRow = selectedProvider === 'KIS_API' && Boolean(selectedSemanticRow);
   const semanticRowBreakPoint = selectedProvider === 'KIS_API'
-    ? sanitizedInvestorFlowRows.length === 0 && selectedActualWrapperOnly
-      ? 'ONLY_WRAPPER_METADATA'
-      : sanitizedInvestorFlowRows.length === 0
-        ? 'NO_ROW_FOUND'
-        : !kisRawRowAvailableAtAdapter
-          ? 'ADAPTER_DID_NOT_RETURN_RAW_ROW'
-          : !selectedSemanticRow
-            ? 'SELECTED_CANDIDATE_METADATA_ONLY'
-            : !kisNormalizedRowAvailableAtRouter
-              ? 'FIELD_ALIAS_NOT_MAPPED'
-              : 'UNKNOWN'
+    ? !input.kisInvestorRaw
+      ? 'ADAPTER_DID_NOT_ATTACH_ACTUAL_ROW'
+      : sanitizedInvestorFlowRows.length === 0 && selectedActualWrapperOnly
+        ? 'ACTUAL_ROW_CARRIED_BUT_EMPTY'
+        : sanitizedInvestorFlowRows.length === 0
+          ? 'ADAPTER_DID_NOT_ATTACH_ACTUAL_ROW'
+          : !kisRawRowAvailableAtAdapter
+            ? 'ADAPTER_DID_NOT_RETURN_RAW_ROW'
+            : !selectedSemanticRow
+              ? 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW'
+              : !kisNormalizedRowAvailableAtRouter
+                ? 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED'
+                : 'ACTUAL_ROW_CARRIED_WITH_FIELDS'
     : undefined;
   diagnostics.push(`kisRawRowAvailableAtAdapter=${kisRawRowAvailableAtAdapter}; kisNormalizedRowAvailableAtRouter=${kisNormalizedRowAvailableAtRouter}; kisSelectedCandidateCarriesSemanticRow=${kisSelectedCandidateCarriesSemanticRow}; semanticRowBreakPoint=${semanticRowBreakPoint ?? 'UNKNOWN'}; selectedActualRowPath=${selectedActualRowPath ?? 'none'}; selectedActualRowFieldKeys=${selectedActualRowFieldKeys.join(',') || 'none'}; selectedActualNumericStringFieldKeys=${selectedActualNumericStringFieldKeys.join(',') || 'none'}; sanitizedInvestorFlowRows=${sanitizedInvestorFlowRows.length}; rawPayloadPersistenceAllowed=false`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
@@ -1681,6 +1689,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     semanticNetBuy: selectedSemanticNetBuy,
     semanticRow: selectedSemanticRow,
     sanitizedInvestorFlowRows,
+    actualInvestorFlowRows: sanitizedInvestorFlowRows,
+    actualInvestorFlowRowCount: sanitizedInvestorFlowRows.length,
+    actualInvestorFlowRowSourcePath: selectedActualRowPath,
+    actualInvestorFlowFieldKeys: selectedActualRowFieldKeys,
+    actualInvestorFlowNumericKeys: Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
+    actualInvestorFlowCarried: selectedProvider === 'KIS_API' && sanitizedInvestorFlowRows.length > 0,
     selectedActualRowPath,
     selectedActualRowFieldKeys,
     selectedActualNumericFieldKeys,

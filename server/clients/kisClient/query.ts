@@ -20,6 +20,7 @@ import type {
   KisInvestorTradeByStockDaily,
   KisInvestorTrendEstimate,
   KisInvestorFlow,
+  KisInvestorFlowActualRowCarrier,
   KisMarketProgramTrade,
   KisShortSaleRankingRow,
   KisStockProgramTrade,
@@ -63,6 +64,54 @@ const INVESTOR_TRADE_BY_STOCK_DAILY_ETC_CLS_CODE = process.env.KIS_INVESTOR_DAIL
  */
 
 type KisOutput = Record<string, string>;
+
+const INVESTOR_FLOW_ACTUAL_ROW_KEEP_KEY_PATTERN = /code|symbol|mksc|stck|pdno|frgn|orgn|indv|prsn|foreign|institution|individual|investor|type|net|buy|sell|ntby|shnu|seln|amount|volume|qty|tr_pbmn|bsop/i;
+const INVESTOR_FLOW_ACTUAL_ROW_PRIVATE_KEY_PATTERN = /token|secret|password|authorization|auth|appkey|appsecret|account|acct|cano|acnt/i;
+
+function investorFlowActualValueKind(value: unknown): 'number' | 'numericString' | 'placeholder' | 'other' {
+  if (typeof value === 'number') return Number.isFinite(value) ? 'number' : 'placeholder';
+  if (value == null) return 'placeholder';
+  if (typeof value !== 'string') return 'other';
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '-' || trimmed.toUpperCase() === 'N/A') return 'placeholder';
+  return /^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(trimmed.replace(/,/g, '')) ? 'numericString' : 'other';
+}
+
+function buildKisActualInvestorFlowRowCarrier(input: {
+  row: KisOutput;
+  safeCode: string;
+  sourcePath: string;
+}): KisInvestorFlowActualRowCarrier {
+  const sanitized: Record<string, unknown> = {};
+  const rawFieldKeys: string[] = [];
+  const numericStringFieldKeys: string[] = [];
+  const numberFieldKeys: string[] = [];
+  const placeholderFieldKeys: string[] = [];
+  for (const [key, value] of Object.entries(input.row)) {
+    if (INVESTOR_FLOW_ACTUAL_ROW_PRIVATE_KEY_PATTERN.test(key)) continue;
+    if (value != null && typeof value === 'object') continue;
+    const kind = investorFlowActualValueKind(value);
+    if (!INVESTOR_FLOW_ACTUAL_ROW_KEEP_KEY_PATTERN.test(key) && kind !== 'number' && kind !== 'numericString') continue;
+    sanitized[key] = value;
+    rawFieldKeys.push(key);
+    if (kind === 'number') numberFieldKeys.push(key);
+    else if (kind === 'numericString') numericStringFieldKeys.push(key);
+    else if (kind === 'placeholder') placeholderFieldKeys.push(key);
+  }
+  return {
+    provider: 'KIS_API',
+    requestSymbol: input.safeCode,
+    normalizedSymbol: input.safeCode,
+    providerScope: 'SYMBOL_LEVEL',
+    actualRows: Object.keys(sanitized).length > 0 ? [sanitized] : [],
+    rowSourcePath: input.sourcePath,
+    rawFieldKeys: Array.from(new Set(rawFieldKeys)).slice(0, 64),
+    numericStringFieldKeys: Array.from(new Set(numericStringFieldKeys)).slice(0, 64),
+    numberFieldKeys: Array.from(new Set(numberFieldKeys)).slice(0, 64),
+    placeholderFieldKeys: Array.from(new Set(placeholderFieldKeys)).slice(0, 64),
+    carriedAt: new Date().toISOString(),
+  };
+}
 
 /**
  * KIS는 동일 TR에서도 output 객체, output 배열, output1 객체, output2 배열을 섞어 반환한다.
@@ -807,6 +856,11 @@ export async function fetchKisInvestorTradeByStockDaily(
       ...(individualNetBuy !== undefined ? { individualNetBuy } : {}),
       source: 'KIS_API',
       fetchedAt: new Date().toISOString(),
+      actualInvestorFlowRowCarrier: buildKisActualInvestorFlowRowCarrier({
+        row,
+        safeCode,
+        sourcePath: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]',
+      }),
     };
   } catch (e) {
     console.error('[KIS] 종목별 투자자매매동향 일별 조회 실패:', e instanceof Error ? e.message : e);

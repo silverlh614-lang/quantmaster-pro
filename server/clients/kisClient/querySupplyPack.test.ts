@@ -113,7 +113,7 @@ describe('KIS official short/loan/credit read-only sources', () => {
   it('investor daily by stock uses official daily endpoint and requires real fields', async () => {
     _realDataKisGet.mockResolvedValue({
       output2: [
-        { stck_bsop_date: '20260508', frgn_ntby_qty: '10', orgn_ntby_qty: '20', prsn_ntby_qty: '-30' },
+        { stck_bsop_date: '20260508', frgn_ntby_qty: '10', orgn_ntby_qty: '20', prsn_ntby_qty: '-30', accountNo: 'PRIVATE' },
       ],
     });
 
@@ -126,6 +126,9 @@ describe('KIS official short/loan/credit read-only sources', () => {
       institutionalNetBuy: 20,
       individualNetBuy: -30,
     });
+    expect(result?.actualInvestorFlowRowCarrier?.actualRows).toHaveLength(1);
+    expect(result?.actualInvestorFlowRowCarrier?.numericStringFieldKeys).toContain('frgn_ntby_qty');
+    expect(JSON.stringify(result?.actualInvestorFlowRowCarrier)).not.toContain('accountNo');
     expect(_realDataKisGet).toHaveBeenCalledWith(
       'FHPTJ04160001',
       '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
@@ -180,6 +183,9 @@ describe('KIS official short/loan/credit read-only sources', () => {
       institutionalNetBuy: 20,
       individualNetBuy: -30,
     });
+    expect(result?.actualInvestorFlowRowCarrier?.actualRows).toHaveLength(1);
+    expect(result?.actualInvestorFlowRowCarrier?.numericStringFieldKeys).toContain('frgn_ntby_qty');
+    expect(JSON.stringify(result?.actualInvestorFlowRowCarrier)).not.toContain('accountNo');
   });
 
   it('investor daily does not materialize quote-like output1 when output2 is missing', async () => {

@@ -549,6 +549,12 @@ export interface BuildGate1MinimumSignalForensicInput {
     semanticRow?: SanitizedInvestorFlowSemanticRow | null;
     investorFlowSemanticRow?: SanitizedInvestorFlowSemanticRow | null;
     sanitizedInvestorFlowRows?: Array<Record<string, unknown>>;
+    actualInvestorFlowRows?: Array<Record<string, unknown>>;
+    actualInvestorFlowRowCount?: number;
+    actualInvestorFlowRowSourcePath?: string | null;
+    actualInvestorFlowFieldKeys?: string[];
+    actualInvestorFlowNumericKeys?: string[];
+    actualInvestorFlowCarried?: boolean;
     kisRawRowAvailableAtAdapter?: boolean;
     kisNormalizedRowAvailableAtRouter?: boolean;
     kisSelectedCandidateCarriesSemanticRow?: boolean;
@@ -872,7 +878,7 @@ function buildSupplyScopeAudit(input: {
   const sanitizedSemanticRow = semanticRowCandidate && typeof semanticRowCandidate === 'object' && 'sourceFields' in semanticRowCandidate && 'rawFieldKeys' in semanticRowCandidate
     ? semanticRowCandidate as SanitizedInvestorFlowSemanticRow
     : null;
-  const actualInvestorRows = Array.isArray(kisFlow?.sanitizedInvestorFlowRows) ? kisFlow.sanitizedInvestorFlowRows : [];
+  const actualInvestorRows = Array.isArray(kisFlow?.actualInvestorFlowRows) ? kisFlow.actualInvestorFlowRows : Array.isArray(kisFlow?.sanitizedInvestorFlowRows) ? kisFlow.sanitizedInvestorFlowRows : [];
   const flowForSemantic = actualInvestorRows.length > 0 ? actualInvestorRows : sanitizedSemanticRow ?? kisFlow ?? null;
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
@@ -887,9 +893,9 @@ function buildSupplyScopeAudit(input: {
     providerIssue: false,
     rawInvestorRowAvailable,
     semanticRowExpected: selectedCandidateCarriesSemanticRow,
-    semanticRowDropped: kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_RAW_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_SEMANTIC_ROW',
-    forensicInputDroppedSemanticRow: kisFlow?.semanticRowBreakPoint === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW',
-    actualInvestorRowCarried: (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows') ? forensicInputCarriesActualInvestorRows : undefined,
+    semanticRowDropped: kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_RAW_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW',
+    forensicInputDroppedSemanticRow: kisFlow?.semanticRowBreakPoint === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW',
+    actualInvestorRowCarried: (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
   });
   const foreignNetBuy = semantic.foreignNetBuy;
   const institutionalNetBuy = semantic.institutionalNetBuy;
@@ -956,12 +962,12 @@ function buildSupplyScopeAudit(input: {
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
     forensicInputCarriesActualInvestorRows,
-    selectedActualRowPath: kisFlow?.selectedActualRowPath ?? semantic.fieldKeyDiagnostics?.selectedPath ?? null,
-    selectedActualRowFieldKeys: kisFlow?.selectedActualRowFieldKeys ?? semantic.fieldKeyDiagnostics?.actualRawFieldKeysTop ?? [],
+    selectedActualRowPath: kisFlow?.selectedActualRowPath ?? kisFlow?.actualInvestorFlowRowSourcePath ?? semantic.fieldKeyDiagnostics?.selectedPath ?? null,
+    selectedActualRowFieldKeys: kisFlow?.selectedActualRowFieldKeys ?? kisFlow?.actualInvestorFlowFieldKeys ?? semantic.fieldKeyDiagnostics?.actualRawFieldKeysTop ?? [],
     selectedActualNumericFieldKeys: kisFlow?.selectedActualNumericFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumberFieldKeysTop ?? [],
     selectedActualNumericStringFieldKeys: kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop ?? [],
     selectedActualPlaceholderFieldKeys: kisFlow?.selectedActualPlaceholderFieldKeys ?? semantic.fieldKeyDiagnostics?.actualPlaceholderFieldKeysTop ?? [],
-    semanticRowBreakPoint: kisFlow?.semanticRowBreakPoint ?? semantic.semanticRowBreakPoint ?? (semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY' ? 'ONLY_WRAPPER_METADATA' : semantic.reason === 'FIELD_ALIAS_NOT_MAPPED' ? 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' : 'UNKNOWN'),
+    semanticRowBreakPoint: kisFlow?.semanticRowBreakPoint ?? (forensicInputCarriesActualInvestorRows && !semanticAvailable ? 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED' : semantic.semanticRowBreakPoint) ?? (semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY' ? 'ONLY_WRAPPER_METADATA' : semantic.reason === 'FIELD_ALIAS_NOT_MAPPED' ? 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' : 'UNKNOWN'),
     semanticReason: semantic.reason,
     materializedCount: semantic.materializedCount,
     normalizedCount: semantic.normalizedCount,
@@ -2031,6 +2037,15 @@ export function formatGate1MinimumSignalForensicSection(
   if (summary.semanticRowBreakPointDistribution) lines.push(`  - semanticRowBreakPointDistribution: ${formatDistribution(summary.semanticRowBreakPointDistribution)}`);
   lines.push(`  - semanticAvailable: ${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - zeroButMaterialized: ${summary.zeroButMaterializedCount ?? 0}`);
+  lines.push('- Supply Actual Row Carry:');
+  lines.push(`  - adapterCarriesActualRow: ${summary.rawInvestorRowAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - routerCarriesActualRow: ${summary.selectedCandidateCarriesSemanticRowCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - forensicCarriesActualRow: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - fieldKeysTop: ${formatDistribution(summary.actualInvestorRowFieldKeysTop ?? {})}`);
+  lines.push(`  - numericKeysTop: ${formatDistribution({ ...(summary.actualInvestorNumericStringKeysTop ?? {}), ...(summary.actualInvestorNumberKeysTop ?? {}) })}`);
+  lines.push(`  - breakPointTop: ${formatDistribution(summary.semanticRowBreakPointDistribution ?? {})}`);
+  lines.push(`  - nextAction: ${resolveSupplySemanticUnwrapNextAction(summary)}`);
   lines.push('- KIS Investor Flow Actual Row:');
   lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - selectedPathTop: ${formatDistribution(summary.actualInvestorRowPathDistribution ?? {})}`);
@@ -2117,7 +2132,10 @@ export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForens
 
 function resolveSupplySemanticUnwrapNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
   const breakPoint = pickTopDistributionKey(summary.semanticRowBreakPointDistribution ?? {});
-  if (breakPoint === 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' || breakPoint === 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED') return 'ADD_ALIAS_FOR_ACTUAL_NUMERIC_KEYS';
+  if (breakPoint === 'ADAPTER_DID_NOT_ATTACH_ACTUAL_ROW' || breakPoint === 'ACTUAL_ROW_CARRIED_BUT_EMPTY') return 'WIRE_ADAPTER_ACTUAL_ROW';
+  if (breakPoint === 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW') return 'WIRE_ROUTER_SELECTED_CANDIDATE_ACTUAL_ROW';
+  if (breakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW') return 'WIRE_FORENSIC_COLLECTOR_ACTUAL_ROW';
+  if (breakPoint === 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED' || breakPoint === 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' || breakPoint === 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED') return 'ADD_ALIAS_FOR_ACTUAL_NUMERIC_KEYS';
   if (breakPoint === 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED') return 'MAP_INVESTOR_TYPE_ROWS';
   if (breakPoint === 'ONLY_WRAPPER_METADATA' || breakPoint === 'NO_ROW_FOUND') return 'WIRE_SELECTED_CANDIDATE_ACTUAL_ROW';
   if ((summary.zeroButMaterializedCount ?? 0) > 0) return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';

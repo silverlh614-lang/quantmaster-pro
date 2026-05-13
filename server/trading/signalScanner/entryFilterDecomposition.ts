@@ -137,6 +137,18 @@ export interface SupplyProviderHealthTrace {
   semanticNetBuyStatus?: string;
   semanticNetBuySignal?: string;
   semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+  sanitizedInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRowCount?: number;
+  actualInvestorFlowRowSourcePath?: string | null;
+  actualInvestorFlowFieldKeys?: string[];
+  actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowCarried?: boolean;
+  selectedActualRowPath?: string | null;
+  selectedActualRowFieldKeys?: string[];
+  selectedActualNumericFieldKeys?: string[];
+  selectedActualNumericStringFieldKeys?: string[];
+  selectedActualPlaceholderFieldKeys?: string[];
   kisRawRowAvailableAtAdapter?: boolean;
   kisNormalizedRowAvailableAtRouter?: boolean;
   kisSelectedCandidateCarriesSemanticRow?: boolean;
@@ -812,6 +824,18 @@ function classifySupplyProviderHealth(
     semanticNetBuyStatus: input?.semanticNetBuyStatus,
     semanticNetBuySignal: input?.semanticNetBuySignal,
     semanticRow: input?.semanticRow,
+    sanitizedInvestorFlowRows: input?.sanitizedInvestorFlowRows,
+    actualInvestorFlowRows: input?.actualInvestorFlowRows,
+    actualInvestorFlowRowCount: input?.actualInvestorFlowRowCount,
+    actualInvestorFlowRowSourcePath: input?.actualInvestorFlowRowSourcePath,
+    actualInvestorFlowFieldKeys: input?.actualInvestorFlowFieldKeys,
+    actualInvestorFlowNumericKeys: input?.actualInvestorFlowNumericKeys,
+    actualInvestorFlowCarried: input?.actualInvestorFlowCarried,
+    selectedActualRowPath: input?.selectedActualRowPath,
+    selectedActualRowFieldKeys: input?.selectedActualRowFieldKeys,
+    selectedActualNumericFieldKeys: input?.selectedActualNumericFieldKeys,
+    selectedActualNumericStringFieldKeys: input?.selectedActualNumericStringFieldKeys,
+    selectedActualPlaceholderFieldKeys: input?.selectedActualPlaceholderFieldKeys,
     kisRawRowAvailableAtAdapter: input?.kisRawRowAvailableAtAdapter,
     kisNormalizedRowAvailableAtRouter: input?.kisNormalizedRowAvailableAtRouter,
     kisSelectedCandidateCarriesSemanticRow: input?.kisSelectedCandidateCarriesSemanticRow,

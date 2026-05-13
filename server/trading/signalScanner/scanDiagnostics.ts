@@ -2893,6 +2893,7 @@ export async function persistScanResults(
         institutionNetBuy: kisInvestorFlowEvidence.data.institutionalNetBuy,
         individualNetBuy: kisInvestorFlowEvidence.data.individualNetBuy,
         status: kisInvestorFlowEvidence.sample?.confidence === 'VERIFIED' ? 'VERIFIED' : 'PARTIAL',
+        ...(kisInvestorFlowEvidence.sample?.actualInvestorFlowRowCarrier ? { actualInvestorFlowRowCarrier: kisInvestorFlowEvidence.sample.actualInvestorFlowRowCarrier } : {}),
       } : null,
       kisTriedForInvestorFlow: true,
       nonTradingDay: sellOnlyOrClosed,

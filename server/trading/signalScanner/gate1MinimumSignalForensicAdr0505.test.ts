@@ -991,4 +991,40 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     expect(out).toContain('KIS Investor Flow Actual Row');
     expect(out).toContain('actualRowsCarried: 1/1');
   });
+
+  it('reports router and forensic actual-row drop breakpoints without changing scoring policy', () => {
+    const routerDropped = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
+      kisFlow: {
+        requestSymbol: '005930',
+        candidateSymbol: '005930',
+        providerScope: 'SYMBOL_LEVEL',
+        selectedProvider: 'KIS_API',
+        actualInvestorFlowRows: [{ mysteryNetFlow: '123' }],
+        semanticRowBreakPoint: 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW',
+      },
+    });
+    const forensicDropped = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
+      kisFlow: {
+        requestSymbol: '005930',
+        candidateSymbol: '005930',
+        providerScope: 'SYMBOL_LEVEL',
+        selectedProvider: 'KIS_API',
+        actualInvestorFlowRows: [{ mysteryNetFlow: '123' }],
+        semanticRowBreakPoint: 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW',
+      },
+    });
+    const summary = buildGate1MinimumSignalForensicSummaryAdr0505([routerDropped, forensicDropped]);
+    const out = formatGate1MinimumSignalForensicSection(summary)!;
+
+    expect(summary.semanticRowBreakPointDistribution?.ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW).toBe(1);
+    expect(summary.semanticRowBreakPointDistribution?.FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW).toBe(1);
+    expect(out).toContain('Supply Actual Row Carry');
+    expect(out).toContain('WIRE_ROUTER_SELECTED_CANDIDATE_ACTUAL_ROW');
+    expect(routerDropped.executionImpact).toBe('NONE');
+    expect(routerDropped.liveExecutionAllowed).toBe(false);
+  });
+
+
 });
