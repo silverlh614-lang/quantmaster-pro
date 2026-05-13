@@ -1253,8 +1253,42 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004', () => {
     expect(route.sanitizedInvestorFlowRows?.length).toBeGreaterThan(0);
     expect(route.selectedActualRowPath).toBe('input.selectedCandidate.rawRow');
     expect(route.selectedActualNumericStringFieldKeys).toContain('frgn_ntby_tr_pbmn');
+    expect(route.actualInvestorFlowRows?.length).toBeGreaterThan(0);
+    expect(route.actualInvestorFlowRowCount).toBeGreaterThan(0);
+    expect(route.actualInvestorFlowCarried).toBe(true);
+    expect(route.actualInvestorFlowFieldKeys).toContain('orgn_ntby_tr_pbmn');
+    expect(route.actualInvestorFlowNumericKeys).toContain('frgn_ntby_tr_pbmn');
     expect(JSON.stringify(route.sanitizedInvestorFlowRows)).not.toContain('accountNo');
     expect(routerSource()).not.toMatch(/placeKisMarketBuyOrder|placeKisSellOrder|placeKisStopLossOrder|placeKisTakeProfitOrder|cancelKisOrder/);
+  });
+
+
+
+  it('unwraps KIS adapter ActualInvestorFlowRowCarrier from selected candidate without raw payload persistence', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        actualInvestorFlowRowCarrier: {
+          provider: 'KIS_API',
+          requestSymbol: '005930',
+          normalizedSymbol: '005930',
+          providerScope: 'SYMBOL_LEVEL',
+          actualRows: [{ frgn_ntby_qty: '11', orgn_ntby_qty: '22', appsecret: 'DROP' }],
+          rowSourcePath: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]',
+          rawFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty'],
+          numericStringFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty'],
+          numberFieldKeys: [],
+          placeholderFieldKeys: [],
+          carriedAt: '2026-05-13T00:00:00.000Z',
+        },
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.actualInvestorFlowRows).toHaveLength(1);
+    expect(route.actualInvestorFlowRowSourcePath).toBe('input.actualInvestorFlowRowCarrier.actualRows');
+    expect(route.semanticRowBreakPoint).toBe('ACTUAL_ROW_CARRIED_WITH_FIELDS');
+    expect(JSON.stringify(route.actualInvestorFlowRows)).not.toContain('appsecret');
   });
 
   it('records normalizedRow path and unwraps nested investorFlowSemanticRow.rawRow while ignoring wrapper metadata only', () => {

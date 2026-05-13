@@ -72,12 +72,17 @@ export const INVESTOR_FLOW_REQUIRED_FIELDS = ['foreignNetBuy', 'institutionalNet
  * KisInvestorFlow 는 표준 키만 사용하지만 향후 multi-provider 결합 시 확장 가능.
  */
 export const INVESTOR_FLOW_FIELD_ALIASES: Record<string, readonly string[]> = {
-  foreignNetBuy: ['foreignNetBuy', 'foreignNetAmount', 'foreignerNetBuy'],
+  foreignNetBuy: ['foreignNetBuy', 'foreignNetAmount', 'foreignerNetBuy', 'frgn_ntby', 'frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'frgn_ntby_tr_pbmn_amt', 'frgn_seln_qty', 'frgn_shnu_qty'],
   institutionalNetBuy: [
     'institutionalNetBuy',
     'institutionNetBuy',
     'institutionNetAmount',
     'institutionalNetAmount',
+    'orgn_ntby',
+    'orgn_ntby_qty',
+    'orgn_ntby_tr_pbmn',
+    'orgn_ntby_tr_pbmn_amt',
+    'orgNetBuy',
   ],
 };
 
@@ -363,6 +368,11 @@ const INVESTOR_FLOW_WRAPPER_METADATA_KEYS = new Set([
   'scoreUsage',
   'executionImpact',
   'semanticRowBreakPoint',
+  'actualInvestorFlowRowCarrier',
+  'actualInvestorFlowRows',
+  'actualInvestorFlowRowCount',
+  'actualInvestorFlowRowSourcePath',
+  'actualInvestorFlowCarried',
   'symbol',
   'provider',
   'routePurpose',
@@ -395,6 +405,8 @@ const INVESTOR_FLOW_NESTED_PATHS = [
   'input.selectedCandidate',
   'input.selectedCandidate.raw',
   'input.selectedCandidate.rawRow',
+  'input.selectedCandidate.actualInvestorFlowRows',
+  'input.selectedCandidate.actualInvestorFlowRowCarrier.actualRows',
   'input.selectedCandidate.normalized',
   'input.selectedCandidate.normalizedRow',
   'input.selectedCandidate.rows',
@@ -410,6 +422,8 @@ const INVESTOR_FLOW_NESTED_PATHS = [
   'input.providerResult',
   'input.providerResult.raw',
   'input.providerResult.normalized',
+  'input.actualInvestorFlowRows',
+  'input.actualInvestorFlowRowCarrier.actualRows',
   'input.data',
   'input.rows',
   'input.payload',
@@ -625,6 +639,8 @@ const FOREIGN_NET_BUY_ALIASES = [
   'frgn_ntby_qty',
   'frgn_ntby_tr_pbmn',
   'frgn_ntby_tr_pbmn_amt',
+  'frgn_seln_qty',
+  'frgn_shnu_qty',
   'frgn_ntby_qty_amt',
   'frgn_ntby_vol',
   'frgnPurScl',

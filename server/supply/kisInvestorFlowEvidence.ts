@@ -17,6 +17,7 @@ export interface KisSymbolInvestorFlowSample {
   providerIssue: boolean;
   executionImpact: 'NONE';
   usableForShadow: boolean;
+  actualInvestorFlowRowCarrier?: import('../clients/kisClient/types.js').KisInvestorFlowActualRowCarrier;
 }
 
 export interface KisInvestorFlowEvidenceResult {
@@ -140,6 +141,7 @@ export async function fetchKisInvestorFlowEvidence(code: string, now = new Date(
         providerIssue: false,
         executionImpact: 'NONE',
         usableForShadow: selected.confidence === 'VERIFIED' || selected.confidence === 'DEGRADED',
+        ...(selected.value.actualInvestorFlowRowCarrier ? { actualInvestorFlowRowCarrier: selected.value.actualInvestorFlowRowCarrier } : {}),
       };
       const diagnostic = [
         `code=${safeCode}`,

@@ -205,6 +205,36 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     expect(r[1]!.supplyProviderHealth).toBe(sph);
   });
 
+
+
+  it('copies router selected candidate actualInvestorFlowRows into kisFlow forensic input', () => {
+    const sph = {
+      status: 'VERIFIED',
+      providerName: 'KIS_API',
+      selectedInvestorFlowProvider: 'KIS_API',
+      gate1Severity: 'NONE',
+      reason: [],
+      providerIssue: false,
+      marketSignal: false,
+      actualInvestorFlowRows: [{ frgn_ntby_qty: '10', orgn_ntby_qty: '20' }],
+      actualInvestorFlowRowCount: 1,
+      actualInvestorFlowRowSourcePath: 'input.actualInvestorFlowRowCarrier.actualRows',
+      actualInvestorFlowFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty'],
+      actualInvestorFlowNumericKeys: ['frgn_ntby_qty', 'orgn_ntby_qty'],
+      actualInvestorFlowCarried: true,
+    } as unknown as SupplyProviderHealthTrace;
+    const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
+      supplyProviderHealth: sph,
+    });
+
+    expect(r[0]!.kisFlow?.actualInvestorFlowRows).toHaveLength(1);
+    expect(r[0]!.kisFlow?.sanitizedInvestorFlowRows).toHaveLength(1);
+    expect(r[0]!.kisFlow?.forensicInputCarriesActualInvestorRows).toBe(true);
+    expect(r[0]!.kisFlow?.selectedActualRowPath).toBe('input.actualInvestorFlowRowCarrier.actualRows');
+    expect(r[0]!.kisFlow?.selectedActualRowFieldKeys).toContain('frgn_ntby_qty');
+  });
+
   it('supplyProviderHealth 부재 시 supplyProviderHealth 키 미포함', () => {
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
