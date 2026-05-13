@@ -38,6 +38,11 @@ import {
   recordDuplicateSuppressed,
   type ShadowApprovalSourceLane,
 } from './shadowApprovalDedupeStore.js';
+import {
+  mapShadowApprovalSourceLaneToAuditTriggerSource,
+  markShadowGateAuditApprovalState,
+  recordShadowApprovalCardAudit,
+} from './shadowGateAuditStore.js';
 
 /** 자동 승인까지 대기 시간 (ms) — 기본(레짐 미지정 시) 3분 */
 const AUTO_APPROVE_TIMEOUT_MS = 3 * 60 * 1000;
@@ -188,11 +193,18 @@ export async function requestBuyApproval(params: {
   sourceLane?: ShadowApprovalSourceLane;
   /** Patch-SHADOW-APPROVAL-DEDUP-001 — RRR (dedupe 진단 lastRrr 기록 용도. dedupeKey 에는 포함 안 됨). */
   rrr?: number;
+  /** Patch-SHADOW-GATE-AUDIT-001 — Shadow Gate raw diagnostics (audit only). */
+  mtas?: number;
+  compressionScore?: number;
+  signalType?: string;
+  gateBandNormal?: number;
+  gateBandStrong?: number;
 }): Promise<ApprovalAction> {
   const {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
     regime, preMortem, signalId, tradeDate, marketSession, sourceLane, rrr,
+    mtas, compressionScore, signalType, gateBandNormal, gateBandStrong,
   } = params;
 
   // ─── Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe guard ─────────────
@@ -242,6 +254,24 @@ export async function requestBuyApproval(params: {
             liveOrderPlaced: false,
           }),
         );
+        recordShadowApprovalCardAudit({
+          symbol: stockCode,
+          name: stockName,
+          tradeDate,
+          marketSession,
+          rawGateScore: gateScore,
+          mtas,
+          compressionScore,
+          rrr,
+          signalType,
+          gateBandNormal,
+          gateBandStrong,
+          approvalCardEmitted: false,
+          approvalState: 'DEDUPED',
+          shadowRecorded: existing.state === 'APPROVED',
+          triggerSource: mapShadowApprovalSourceLaneToAuditTriggerSource(lane),
+          dedupeKey: shadowDedupeKey,
+        });
         // 이미 APPROVED 면 'APPROVE' resolve (caller buyPipeline 의 SHADOW 분기 정상 수행).
         // 그 외 (PENDING/REJECTED/SKIPPED/EXPIRED) 는 'SKIP' — caller 가 onRejected 처리.
         return existing.state === 'APPROVED' ? 'APPROVE' : 'SKIP';
@@ -249,6 +279,12 @@ export async function requestBuyApproval(params: {
       // DEDUPED state 도 같은 session 안에서 새 카드 발송 금지.
       if (existing.state === 'DEDUPED') {
         recordDuplicateSuppressed(stockCode, stockName);
+        recordShadowApprovalCardAudit({
+          symbol: stockCode, name: stockName, tradeDate, marketSession,
+          rawGateScore: gateScore, mtas, compressionScore, rrr, signalType, gateBandNormal, gateBandStrong,
+          approvalCardEmitted: false, approvalState: 'DEDUPED', shadowRecorded: false,
+          triggerSource: mapShadowApprovalSourceLaneToAuditTriggerSource(lane), dedupeKey: shadowDedupeKey,
+        });
         return 'SKIP';
       }
     }
@@ -264,6 +300,24 @@ export async function requestBuyApproval(params: {
       ...(currentPrice !== undefined ? { price: currentPrice } : {}),
       ...(gateScore !== undefined ? { gateScore } : {}),
       ...(rrr !== undefined ? { rrr } : {}),
+    });
+    recordShadowApprovalCardAudit({
+      symbol: stockCode,
+      name: stockName,
+      tradeDate,
+      marketSession,
+      rawGateScore: gateScore,
+      mtas,
+      compressionScore,
+      rrr,
+      signalType,
+      gateBandNormal,
+      gateBandStrong,
+      approvalCardEmitted: true,
+      approvalState: 'PENDING',
+      shadowRecorded: false,
+      triggerSource: mapShadowApprovalSourceLaneToAuditTriggerSource(lane),
+      dedupeKey: shadowDedupeKey,
     });
   }
   // ──────────────────────────────────────────────────────────────────────────
@@ -337,6 +391,12 @@ export async function requestBuyApproval(params: {
             }
             // PENDING — auto-approval 진행 + state APPROVED 전이.
             markShadowApprovalAutoApproved(pending.shadowDedupeKey);
+            markShadowGateAuditApprovalState({
+              dedupeKey: pending.shadowDedupeKey,
+              approvalState: 'APPROVED',
+              shadowRecorded: true,
+              triggerSource: 'SHADOW_APPROVAL_CARD',
+            });
           }
 
           pendingApprovals.delete(tradeId);
@@ -423,9 +483,29 @@ export async function handleBuyApprovalCallback(
   // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe state 전이 + timer clearTimeout.
   // dedupe store 내부 timer 도 함께 cleartimeout (방어). liveOrderPlaced=false 강제.
   if (pending.shadowDedupeKey && pending.mode === 'SHADOW') {
-    if (action === 'APPROVE') markShadowApprovalApproved(pending.shadowDedupeKey);
-    else if (action === 'REJECT') markShadowApprovalRejected(pending.shadowDedupeKey);
-    else if (action === 'SKIP') markShadowApprovalSkipped(pending.shadowDedupeKey);
+    if (action === 'APPROVE') {
+      markShadowApprovalApproved(pending.shadowDedupeKey);
+      markShadowGateAuditApprovalState({
+        dedupeKey: pending.shadowDedupeKey,
+        approvalState: 'APPROVED',
+        shadowRecorded: true,
+        triggerSource: 'DECISION_BROKER_MANUAL_APPROVAL',
+      });
+    } else if (action === 'REJECT') {
+      markShadowApprovalRejected(pending.shadowDedupeKey);
+      markShadowGateAuditApprovalState({
+        dedupeKey: pending.shadowDedupeKey,
+        approvalState: 'REJECTED',
+        shadowRecorded: false,
+      });
+    } else if (action === 'SKIP') {
+      markShadowApprovalSkipped(pending.shadowDedupeKey);
+      markShadowGateAuditApprovalState({
+        dedupeKey: pending.shadowDedupeKey,
+        approvalState: 'SKIPPED',
+        shadowRecorded: false,
+      });
+    }
   }
 
   const actionLabel = action === 'APPROVE' ? '✅ 승인' : action === 'REJECT' ? '❌ 거부' : '⏸ 스킵';
@@ -524,6 +604,19 @@ export async function resolvePendingApproval(
 
   clearTimeout(pending.timer);
   pendingApprovals.delete(tradeId);
+
+  if (pending.shadowDedupeKey && pending.mode === 'SHADOW') {
+    if (action === 'APPROVE') {
+      markShadowApprovalApproved(pending.shadowDedupeKey);
+      markShadowGateAuditApprovalState({ dedupeKey: pending.shadowDedupeKey, approvalState: 'APPROVED', shadowRecorded: true, triggerSource: 'DECISION_BROKER_MANUAL_APPROVAL' });
+    } else if (action === 'REJECT') {
+      markShadowApprovalRejected(pending.shadowDedupeKey);
+      markShadowGateAuditApprovalState({ dedupeKey: pending.shadowDedupeKey, approvalState: 'REJECTED', shadowRecorded: false });
+    } else if (action === 'SKIP') {
+      markShadowApprovalSkipped(pending.shadowDedupeKey);
+      markShadowGateAuditApprovalState({ dedupeKey: pending.shadowDedupeKey, approvalState: 'SKIPPED', shadowRecorded: false });
+    }
+  }
 
   const actionLabel = action === 'APPROVE' ? '✅ 승인' : action === 'REJECT' ? '❌ 거부' : '⏸ 스킵';
   const actionEmoji = action === 'APPROVE' ? '✅' : action === 'REJECT' ? '❌' : '⏸';

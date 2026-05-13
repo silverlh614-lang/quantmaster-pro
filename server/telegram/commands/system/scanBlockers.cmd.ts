@@ -161,6 +161,10 @@ import {
   formatShadowApprovalDedupeSection,
   getShadowApprovalDedupeStats,
 } from '../../shadowApprovalDedupeStore.js';
+import {
+  formatShadowGateAuditSection,
+  listShadowGateAuditRecords,
+} from '../../shadowGateAuditStore.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -702,6 +706,14 @@ const scanBlockers: TelegramCommand = {
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
     if (supplySnapshotLine) parts.push(supplySnapshotLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
+
+    // Patch-SHADOW-GATE-AUDIT-001 — Shadow Gate vs Live minimum signal compact audit.
+    try {
+      const shadowGateAudits = listShadowGateAuditRecords({ hydrateLiveMinimum: true });
+      if (shadowGateAudits.length > 0) parts.push(formatShadowGateAuditSection(shadowGateAudits));
+    } catch (err) {
+      console.warn('[scan_blockers] Patch-SHADOW-GATE-AUDIT-001 section failed:', err);
+    }
 
     // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 통계 (runtime/full 모드 노출).
     //   [PATCH-RUNTIME] 태그로 runtime 모드 sectionMatchesMode 통과. liveOrderPlaced=false 명시.
