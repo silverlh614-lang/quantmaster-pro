@@ -34,6 +34,14 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
+// Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — INTRADAY SHADOW paper-fill 영속 SSOT.
+//   onApproved 가 ctx.shadows.push(t) 만 하고 saveShadowTrades 미호출하던 결함 차단.
+//   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향.
+import {
+  executeShadowBuy,
+  recordShadowExecutionOutcome,
+} from '../../shadowExecutionPipeline.js';
+import { channelShadowBuyFilled } from '../../../alerts/channelPipeline.js';
 import {
   applySupplyHealthToSignal,
   createLearningSampleFromDecision,
@@ -360,6 +368,31 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
               }
               ctx.shadows.push(t);
               ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - effectiveBudget);
+              // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — INTRADAY SHADOW paper-fill 영속.
+              // SSOT 가 mode 검사 (LIVE 는 NOT_SHADOW skip), 멱등 (이미 ACTIVE 시 skip),
+              // 영속 실패 시 status 롤백, [Shadow 체결] Telegram 1회 발송 보장.
+              if (intradayShadowMode) {
+                try {
+                  const _r = await executeShadowBuy({
+                    trade: t,
+                    allTrades: ctx.shadows,
+                    fillPrice: shadowEntryPrice,
+                    notifyFilled: async (n) => {
+                      await channelShadowBuyFilled({
+                        stockName: n.stockName,
+                        stockCode: n.stockCode,
+                        fillPrice: n.fillPrice,
+                        quantity: n.quantity,
+                        fillId: n.fillId,
+                        tradeId: n.tradeId,
+                      });
+                    },
+                  });
+                  recordShadowExecutionOutcome(_r.outcome);
+                } catch (e) {
+                  console.warn('[ShadowExecutionPipeline] INTRADAY 영속 실패 (매매 흐름 보호):', e);
+                }
+              }
             },
           }));
           // Phase 1 ①: 큐 푸시 시점에 Intraday 슬롯 예약 (플러시 후 실패 시 롤백)

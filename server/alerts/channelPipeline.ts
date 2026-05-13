@@ -89,6 +89,35 @@ export async function channelBuySignal(p: ChannelBuySignalParams): Promise<void>
   await channelBuySignalEmitted(p);
 }
 
+// ── 1.5. Shadow paper-fill 알림 (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001) ─────
+// Shadow approval 직후 paper-fill 완료 (status=PENDING→ACTIVE + INITIAL_BUY fill 영속)
+// 시점에 1회만 발송. executeShadowBuy SSOT 의 멱등 가드로 동일 trade 에 대해 한 번만
+// 호출됨. LIVE 매매 무관 — channelBuyFilled (LIVE 체결) 와 책임 분리.
+export interface ChannelShadowBuyFilledParams {
+  stockName: string;
+  stockCode: string;
+  fillPrice: number;
+  quantity: number;
+  fillId: string;
+  tradeId: string;
+}
+
+export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): Promise<void> {
+  if (!isChannelEnabled()) return;
+  const message = formatAlert({
+    category: AlertCategory.ANALYSIS,
+    eventType: `[Shadow 체결] ${p.stockName} (${p.stockCode})`,
+    headerEmoji: '🧾',
+    bodyLines: [
+      `💵 paper-fill: <b>${p.fillPrice.toLocaleString()}원</b> × ${p.quantity}주`,
+      `🧾 fillId: ${escapeHtml(p.fillId)}`,
+      `⚠️ SHADOW 모드 — 실주문 0건, executionImpact=NONE`,
+      `📌 lifecycle: PENDING → ACTIVE (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
+    ],
+  });
+  await dispatchAlert(AlertCategory.ANALYSIS, message).catch(console.error);
+}
+
 // ── 2. 매도/청산 신호 ────────────────────────────────────────────────────────
 
 export interface ChannelSellSignalParams {
