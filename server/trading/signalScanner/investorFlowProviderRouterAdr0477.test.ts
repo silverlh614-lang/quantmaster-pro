@@ -1258,6 +1258,12 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004', () => {
     expect(route.actualInvestorFlowCarried).toBe(true);
     expect(route.actualInvestorFlowFieldKeys).toContain('orgn_ntby_tr_pbmn');
     expect(route.actualInvestorFlowNumericKeys).toContain('frgn_ntby_tr_pbmn');
+    expect(route.selectedCandidate?.actualInvestorFlowRows).toHaveLength(1);
+    expect(route.selectedCandidate?.actualInvestorFlowRowCount).toBe(1);
+    expect(route.selectedCandidate?.actualInvestorFlowFieldKeys).toContain('frgn_ntby_tr_pbmn');
+    expect(route.selectedCandidate?.actualInvestorFlowNumericStringKeys).toContain('orgn_ntby_tr_pbmn');
+    expect(route.diagnostics.join('\n')).toContain('selectedCandidateCarriesActualRow=true');
+    expect(route.diagnostics.join('\n')).toContain('selectedCandidateActualRowDropReason=SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW');
     expect(JSON.stringify(route.sanitizedInvestorFlowRows)).not.toContain('accountNo');
     expect(routerSource()).not.toMatch(/placeKisMarketBuyOrder|placeKisSellOrder|placeKisStopLossOrder|placeKisTakeProfitOrder|cancelKisOrder/);
   });

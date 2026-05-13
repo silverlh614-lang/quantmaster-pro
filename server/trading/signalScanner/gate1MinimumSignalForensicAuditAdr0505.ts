@@ -435,6 +435,7 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   semanticRowMetadataOnlyCount?: number;
   rawInvestorRowAvailableCount?: number;
   selectedCandidateCarriesSemanticRowCount?: number;
+  selectedCandidateCarriesActualRowCount?: number;
   forensicInputCarriesSemanticRowCount?: number;
   semanticRowBreakPointDistribution?: Record<string, number>;
   forensicInputCarriesActualInvestorRowsCount?: number;
@@ -554,6 +555,7 @@ export interface BuildGate1MinimumSignalForensicInput {
     actualInvestorFlowRowSourcePath?: string | null;
     actualInvestorFlowFieldKeys?: string[];
     actualInvestorFlowNumericKeys?: string[];
+    actualInvestorFlowNumericStringKeys?: string[];
     actualInvestorFlowCarried?: boolean;
     kisRawRowAvailableAtAdapter?: boolean;
     kisNormalizedRowAvailableAtRouter?: boolean;
@@ -1525,6 +1527,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let semanticRowMetadataOnlyCount = 0;
   let rawInvestorRowAvailableCount = 0;
   let selectedCandidateCarriesSemanticRowCount = 0;
+  let selectedCandidateCarriesActualRowCount = 0;
   let forensicInputCarriesSemanticRowCount = 0;
   let forensicInputCarriesActualInvestorRowsCount = 0;
   const actualInvestorRowPathDistribution: Record<string, number> = {};
@@ -1671,6 +1674,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.supplyScopeAudit.semanticRowMetadataOnly) semanticRowMetadataOnlyCount += 1;
     if (a.supplyScopeAudit.rawInvestorRowAvailable) rawInvestorRowAvailableCount += 1;
     if (a.supplyScopeAudit.selectedCandidateCarriesSemanticRow) selectedCandidateCarriesSemanticRowCount += 1;
+    if ((a.supplyScopeAudit.selectedActualRowFieldKeys?.length ?? 0) > 0) selectedCandidateCarriesActualRowCount += 1;
     if (a.supplyScopeAudit.forensicInputCarriesSemanticRow) forensicInputCarriesSemanticRowCount += 1;
     if (a.supplyScopeAudit.forensicInputCarriesActualInvestorRows) forensicInputCarriesActualInvestorRowsCount += 1;
     if (a.supplyScopeAudit.selectedActualRowPath) actualInvestorRowPathDistribution[a.supplyScopeAudit.selectedActualRowPath] = (actualInvestorRowPathDistribution[a.supplyScopeAudit.selectedActualRowPath] ?? 0) + 1;
@@ -1866,6 +1870,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     semanticRowMetadataOnlyCount,
     rawInvestorRowAvailableCount,
     selectedCandidateCarriesSemanticRowCount,
+    selectedCandidateCarriesActualRowCount,
     forensicInputCarriesSemanticRowCount,
     forensicInputCarriesActualInvestorRowsCount,
     actualInvestorRowPathDistribution,
@@ -2039,11 +2044,14 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(`  - zeroButMaterialized: ${summary.zeroButMaterializedCount ?? 0}`);
   lines.push('- Supply Actual Row Carry:');
   lines.push(`  - adapterCarriesActualRow: ${summary.rawInvestorRowAvailableCount ?? 0}/${summary.totalCandidates}`);
-  lines.push(`  - routerCarriesActualRow: ${summary.selectedCandidateCarriesSemanticRowCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - routerCarriesActualRow: ${summary.selectedCandidateCarriesActualRowCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - forensicCarriesActualRow: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - fieldKeysTop: ${formatDistribution(summary.actualInvestorRowFieldKeysTop ?? {})}`);
   lines.push(`  - numericKeysTop: ${formatDistribution({ ...(summary.actualInvestorNumericStringKeysTop ?? {}), ...(summary.actualInvestorNumberKeysTop ?? {}) })}`);
+  lines.push(`  - forensicActualRowCount: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - forensicActualRowFieldKeysTop: ${formatDistribution(summary.actualInvestorRowFieldKeysTop ?? {})}`);
+  lines.push(`  - forensicActualRowNumericKeysTop: ${formatDistribution({ ...(summary.actualInvestorNumericStringKeysTop ?? {}), ...(summary.actualInvestorNumberKeysTop ?? {}) })}`);
   lines.push(`  - breakPointTop: ${formatDistribution(summary.semanticRowBreakPointDistribution ?? {})}`);
   lines.push(`  - nextAction: ${resolveSupplySemanticUnwrapNextAction(summary)}`);
   lines.push('- KIS Investor Flow Actual Row:');
