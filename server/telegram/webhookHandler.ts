@@ -27,6 +27,7 @@ import './commands/learning/index.js';
 import './commands/control/index.js';
 import './commands/trade/index.js';
 import './commands/infra/index.js';
+import './commands/shadow/index.js';
 
 // ADR-0017: 메타 callback → 합성 text 재진입은 1단계만 허용 — 무한 루프 차단 sentinel.
 const META_RECURSIVE_FLAG = '__metaRecursiveInvocation';
