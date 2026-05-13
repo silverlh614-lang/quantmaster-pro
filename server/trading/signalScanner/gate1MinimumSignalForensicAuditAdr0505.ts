@@ -940,15 +940,24 @@ function buildSupplyScopeAudit(input: {
       : kisFlowActualRows.length > 0
         ? kisFlowActualRows
         : kisFlowSanitizedRows;
-  const primarySemanticFlow = semanticRowCandidate
-    ?? input.normalizedInvestorRow
-    ?? input.actualInvestorRow
-    ?? input.selectedCandidate?.normalizedInvestorRow
-    ?? input.selectedCandidate?.actualInvestorRow
-    ?? kisFlow?.normalizedInvestorRow
-    ?? kisFlow?.actualInvestorRow
-    ?? sanitizedSemanticRow
-    ?? null;
+  // Patch-KIS-INVESTOR-FLOW-ROUTER-CARRY-006 — actual KIS rows are the
+  // highest-fidelity forensic semantic input. Prefer rows carried by the
+  // forensic collector / selected candidate before normalized semantic objects
+  // so row-presence failures move from NO_ACTUAL_ROW_FOUND to alias mapping
+  // diagnostics without changing scores, thresholds, or live execution paths.
+  const primarySemanticFlow = forensicInputActualRows.length > 0
+    ? forensicInputActualRows
+    : selectedCandidateActualRows.length > 0
+      ? selectedCandidateActualRows
+      : semanticRowCandidate
+        ?? input.normalizedInvestorRow
+        ?? input.actualInvestorRow
+        ?? input.selectedCandidate?.normalizedInvestorRow
+        ?? input.selectedCandidate?.actualInvestorRow
+        ?? kisFlow?.normalizedInvestorRow
+        ?? kisFlow?.actualInvestorRow
+        ?? sanitizedSemanticRow
+        ?? null;
   const flowForSemantic = primarySemanticFlow ?? (actualInvestorRows.length > 0 ? actualInvestorRows : kisFlow ?? null);
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
