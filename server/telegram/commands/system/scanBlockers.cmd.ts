@@ -173,6 +173,10 @@ import {
   formatUnifiedGateCompactLine,
 } from '../../../trading/signalScanner/unifiedGateScoreKernelAdr0509.js';
 import { loadGate1ForensicTrace } from '../../../persistence/gate1MinimumSignalForensicTraceRepo.js';
+// Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — KIS RealData 500 provider noise compact health.
+//   read-only — listKisRealDataNoiseRecords() 메모리 read 만, LIVE 매매 영향 0.
+//   providerIssue=true / marketSignal=false / executionImpact=NONE literal type 강제.
+import { formatKisRealDataHealthSection } from '../../../clients/kisClient/realDataNoiseStore.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -757,6 +761,17 @@ const scanBlockers: TelegramCommand = {
       if (unifiedSection) parts.push(unifiedSection);
     } catch (err) {
       console.warn('[scan_blockers] ADR-0509 Unified Gate runtime section failed:', err);
+    }
+
+    // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — KIS RealData provider noise compact health.
+    //   [PATCH-RUNTIME] 태그로 runtime 모드 sectionMatchesMode 통과.
+    //   read-only — listKisRealDataNoiseRecords() 메모리 read 만, LIVE 매매 영향 0.
+    //   providerIssue=true / marketSignal=false / executionImpact=NONE literal type 강제.
+    try {
+      const realDataHealth = formatKisRealDataHealthSection();
+      if (realDataHealth) parts.push(realDataHealth);
+    } catch (err) {
+      console.warn('[scan_blockers] Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 section failed:', err);
     }
 
     // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 통계 (runtime/full 모드 노출).
