@@ -97,6 +97,7 @@ import {
   buildGate1MinimumSignalForensicSummaryAdr0505,
   formatGate1MinimumSignalForensicSection,
   isGate1MinimumSignalForensicAuditDisabled,
+  resolveGate1EvaluationStateAdr0510,
 } from './gate1MinimumSignalForensicAuditAdr0505.js';
 import { appendGate1ForensicTrace } from '../../persistence/gate1MinimumSignalForensicTraceRepo.js';
 // ADR-0507 — Gate1 Forensic Inputs Collector SSOT (ADR-0505 Phase 1 후속).
@@ -3141,8 +3142,33 @@ export async function persistScanResults(
       const audits = effectiveForensicInputs.map((input) =>
         buildGate1MinimumSignalForensicAuditAdr0505(input),
       );
-      summaryDraft.gate1MinimumSignalForensicAdr0505 =
-        buildGate1MinimumSignalForensicSummaryAdr0505(audits);
+      const forensicSummary = buildGate1MinimumSignalForensicSummaryAdr0505(audits);
+      const buyListLoopEntered = Boolean(summaryDraft.entryFilterDecomposition?.gate1CandidateTraces?.length);
+      forensicSummary.buyListLoopEntered = buyListLoopEntered;
+      forensicSummary.perSymbolEvaluationEntered = buyListLoopEntered;
+      forensicSummary.evaluationState = resolveGate1EvaluationStateAdr0510({
+        totalCandidates: forensicSummary.totalCandidates,
+        traceWithQuoteCount: forensicSummary.traceWithQuoteCount ?? forensicSummary.candidateTraceHasQuote ?? 0,
+        traceWithSymbolFeaturesCount: forensicSummary.traceWithSymbolFeaturesCount ?? forensicSummary.candidateTraceHasSymbolFeatures ?? 0,
+        traceWithConditionResultsCount: forensicSummary.traceWithConditionResultsCount ?? forensicSummary.candidateTraceHasConditionResults ?? 0,
+        minSignalScoreTraceAvailableCount: forensicSummary.minSignalScoreTraceAvailableCount,
+        buyListLoopEntered,
+        gateEvaluationOutputAvailableCount: forensicSummary.gateEvaluationOutputAvailableCount,
+        sellOnlyMode: summaryDraft.macroGateState?.sellOnlyMode === true,
+        orderBlocked: (((summaryDraft.waitDistribution as Record<string, number> | undefined)?.orderBlocked ?? 0) > 0),
+      });
+      if (forensicSummary.evaluationState === 'NOT_EVALUATED_SELL_ONLY') {
+        forensicSummary.sourcePathDistribution = {
+          ...(forensicSummary.sourcePathDistribution ?? {}),
+          ENTRY_FILTER_GATE1_CANDIDATE_TRACE: 0,
+          ENTRY_FILTER_CANDIDATE_TRACE: 0,
+          WATCHLIST_CANDIDATE: 0,
+          PREFLIGHT_UNIVERSE_SNAPSHOT: 0,
+          SELL_ONLY_DIAGNOSTIC_SNAPSHOT: forensicSummary.totalCandidates,
+          UNKNOWN: 0,
+        };
+      }
+      summaryDraft.gate1MinimumSignalForensicAdr0505 = forensicSummary;
 
       // 종목별 detail trace 별도 영속 (FIFO 200 + 7일 TTL).
       // 영속 throw 는 try/catch 격리 — scan 흐름 절대 차단 안 함.

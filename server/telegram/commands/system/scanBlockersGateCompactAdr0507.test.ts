@@ -362,6 +362,46 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
     expect(out).toContain('liveExecutionAllowed=false');
   });
 
+
+
+  it('NOT_EVALUATED 상태에서는 failed/actualAvg를 주요 판정값으로 표시하지 않고 trace-only 안내를 출력', () => {
+    const summary = {
+      time: '2026-05-13T00:00:00.000Z',
+      candidates: 48,
+      gatePassDistribution: { gate1Pass: 0, gate2Pass: 0 },
+      gate1MinimumSignalForensicAdr0505: makeForensicSummary({
+        totalCandidates: 48,
+        failedCandidates: 48,
+        evaluationState: 'NOT_EVALUATED_SELL_ONLY',
+        evaluatedCandidateCount: 0,
+        traceOnlyCandidateCount: 48,
+        buyListLoopEntered: false,
+        actualScoreAvg: 3,
+        traceWithQuoteCount: 0,
+        traceWithSymbolFeaturesCount: 48,
+        traceWithConditionResultsCount: 0,
+        watchlistScoreImportedCount: 0,
+        sourcePathDistribution: { SELL_ONLY_DIAGNOSTIC_SNAPSHOT: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['sourcePathDistribution'],
+        watchlistBreakPointDistribution: { WATCHLIST_ENTRY_MISSING_SCORE: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['watchlistBreakPointDistribution'],
+        quoteHydrationBreakPointDistribution: { SELL_ONLY_SKIPPED_QUOTE_EVALUATION: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['quoteHydrationBreakPointDistribution'],
+        conditionResultsBreakPointDistribution: { SELL_ONLY_SKIPPED_GATE_EVALUATION: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['conditionResultsBreakPointDistribution'],
+      }),
+    } as unknown as ScanSummary;
+    const out = formatScanBlockersGateCompactMessage(summary, {
+      adr0505: deriveAdr0505EmissionStatus(summary),
+    });
+    expect(out).toContain('NOT_EVALUATED_SELL_ONLY');
+    expect(out).toContain('evaluated: 0');
+    expect(out).toContain('traceOnly: 48');
+    expect(out).toContain('live failure 판단 아님');
+    expect(out).toContain('SELL_ONLY_DIAGNOSTIC_SNAPSHOT 48');
+    expect(out).toContain('WATCHLIST_ENTRY_MISSING_SCORE 48');
+    expect(out).toContain('SELL_ONLY_SKIPPED_QUOTE_EVALUATION 48');
+    expect(out).toContain('SELL_ONLY_SKIPPED_GATE_EVALUATION 48');
+    expect(out).not.toContain('• failed: 48 / total: 48');
+    expect(out).not.toContain('• actualAvg:');
+  });
+
   it('30~40줄 가이드라인 — 정상 EMITTED 시 50줄 이하', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',

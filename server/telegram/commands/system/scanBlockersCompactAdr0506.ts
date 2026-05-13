@@ -234,6 +234,18 @@ function fmtPctGap(actual: number | undefined, required: number | undefined): st
   return `${a.toFixed(1)} / ${r.toFixed(1)} (gap ${(a - r).toFixed(1)})`;
 }
 
+function fmtDistribution(distribution: Record<string, number> | undefined, limit = 3): string {
+  const entries = Object.entries(distribution ?? {})
+    .filter(([, value]) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+  return entries.length > 0 ? entries.map(([key, value]) => `${key} ${value}`).join(', ') : 'none';
+}
+
+function isGate1NotEvaluatedState(state: string | undefined): boolean {
+  return state === 'PARTIAL_TRACE_ONLY' || Boolean(state?.startsWith('NOT_EVALUATED_'));
+}
+
 /**
  * Compact summary — 사용자 명시 §B 형식 (15~25줄 이내, ≤2000자 권장).
  * 운영 핵심 판단만 노출.
@@ -282,7 +294,11 @@ export function formatScanBlockersCompactMessage(
     // ADR-0505 schema 정합 — actualScoreAvg / requiredScoreAvg.
     const actualAvg = forensic.actualScoreAvg;
     const required = forensic.requiredScoreAvg;
-    lines.push(`• MinScore: ${fmtPctGap(actualAvg, required)}`);
+    if (isGate1NotEvaluatedState(forensic.evaluationState)) {
+      lines.push(`• MinScore: n/a (${forensic.evaluationState}, diagnostic fallback ${actualAvg.toFixed(1)})`);
+    } else {
+      lines.push(`• MinScore: ${fmtPctGap(actualAvg, required)}`);
+    }
     const dist = forensic.dominantFailureDistribution;
     if (dist) {
       const top = Object.entries(dist)
@@ -381,7 +397,7 @@ export function formatScanBlockersGateCompactMessage(
   const tsStr = typeof summary?.time === 'string' ? summary.time : null;
   const tsMs = tsStr ? Date.parse(tsStr) : NaN;
   const tsLabel = Number.isFinite(tsMs) ? fmtKstHm(tsMs) : '미실행';
-  lines.push(`🚪 <b>[Gate1 Minimum Signal Compact]</b> ${tsLabel}`);
+  lines.push(`🚪 <b>Gate1 Minimum Signal: ${forensic?.evaluationState ?? '미실행'}</b> ${tsLabel}`);
   lines.push('━━━━━━━━━━━━━━');
 
   // ADR-0505 emission (1줄 요약)
@@ -403,12 +419,28 @@ export function formatScanBlockersGateCompactMessage(
     return lines.join('\n');
   }
 
-  // 점수 분포 (3 줄)
-  lines.push(`• requiredAvg: ${forensic.requiredScoreAvg.toFixed(1)}`);
-  lines.push(`• actualAvg:   ${forensic.actualScoreAvg.toFixed(1)}`);
-  lines.push(`• gap:         ${forensic.avgScoreGap.toFixed(1)}`);
-  lines.push(`• failed: ${forensic.failedCandidates} / total: ${forensic.totalCandidates}`);
+  const notEvaluated = isGate1NotEvaluatedState(forensic.evaluationState);
+  if (notEvaluated) {
+    const reasonParts = [
+      forensic.evaluationState,
+      forensic.buyListLoopEntered ? null : 'buyListLoop not reached',
+    ].filter(Boolean);
+    lines.push(`• reason: ${reasonParts.join(' / ')}`);
+    lines.push(`• candidates: ${forensic.totalCandidates}`);
+    lines.push(`• evaluated: ${forensic.evaluatedCandidateCount ?? 0}`);
+    lines.push(`• traceOnly: ${forensic.traceOnlyCandidateCount ?? forensic.totalCandidates}`);
+    lines.push(`• minScore: n/a (diagnostic fallback ${forensic.actualScoreAvg.toFixed(1)})`);
+    lines.push('• live failure 판단 아님');
+    lines.push('• 안내: SELL_ONLY/장외 trace는 diagnostic snapshot입니다. BUY_ALLOWED 정규장 fresh scan에서 Gate1/MinSignal을 재검증하십시오.');
+  } else {
+    // 점수 분포 (실제 평가 실행 시에만 주요 판정값으로 표시)
+    lines.push(`• requiredAvg: ${forensic.requiredScoreAvg.toFixed(1)}`);
+    lines.push(`• actualAvg:   ${forensic.actualScoreAvg.toFixed(1)}`);
+    lines.push(`• gap:         ${forensic.avgScoreGap.toFixed(1)}`);
+    lines.push(`• failed: ${forensic.failedCandidates} / total: ${forensic.totalCandidates}`);
+  }
 
+  if (!notEvaluated) {
   // dominant failure Top 3
   const dist = forensic.dominantFailureDistribution;
   const dominantEntries = Object.entries(dist)
@@ -460,12 +492,18 @@ export function formatScanBlockersGateCompactMessage(
     }
   }
 
+  }
+
   lines.push(`• watchlistImported: ${forensic.watchlistScoreImportedCount ?? 0}/${forensic.totalCandidates}`);
   lines.push(`• rsTraceAvailable: ${forensic.rsTraceAvailableCount ?? forensic.rsHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
   lines.push(`• rsScoreUsable: ${forensic.rsScoreUsableCount ?? 0}/${forensic.totalCandidates}`);
   lines.push(`• breakoutTraceAvailable: ${forensic.breakoutTraceAvailableCount ?? forensic.breakoutHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
   lines.push(`• breakoutScoreUsable: ${forensic.breakoutScoreUsableCount ?? 0}/${forensic.totalCandidates}`);
   lines.push(`• traceCompleteness: quote ${forensic.traceWithQuoteCount ?? forensic.candidateTraceHasQuote ?? 0}/${forensic.totalCandidates}, symbolFeatures ${forensic.traceWithSymbolFeaturesCount ?? forensic.candidateTraceHasSymbolFeatures ?? 0}/${forensic.totalCandidates}, conditionResults ${forensic.traceWithConditionResultsCount ?? forensic.candidateTraceHasConditionResults ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• sourcePath: ${fmtDistribution(forensic.sourcePathDistribution)}`);
+  lines.push(`• watchlistBreakPoint: ${fmtDistribution(forensic.watchlistBreakPointDistribution, 2)}`);
+  lines.push(`• quoteHydrationBreakPoint: ${fmtDistribution(forensic.quoteHydrationBreakPointDistribution, 2)}`);
+  lines.push(`• conditionResultsBreakPoint: ${fmtDistribution(forensic.conditionResultsBreakPointDistribution, 2)}`);
   lines.push(`• supplySymbolMatched: ${forensic.supplySymbolMatchedCount ?? forensic.symbolMatchedCount ?? 0}/${forensic.totalCandidates}`);
   const topMissingFields = forensic.topHydrationMissingFields ?? [];
   if (topMissingFields.length > 0) {
@@ -474,7 +512,7 @@ export function formatScanBlockersGateCompactMessage(
 
   lines.push(`• SectorEnergy: boost=0 strongBuyBlocked=${forensic.sectorEnergyStrongBuyBlockedCount}`);
 
-  lines.push(`• nextAction: ${resolveGate1ForensicNextAction(forensic)}`);
+  lines.push(`• nextAction: ${notEvaluated ? 'RUN_BUY_ALLOWED_FRESH_SCAN or WIRE_WATCHLIST_UPSTREAM_SCORE' : resolveGate1ForensicNextAction(forensic)}`);
 
   // 안전 invariant (절대 변경 금지 — 정적 grep 가드 회귀 테스트 검증)
   lines.push(`• executionImpact=${forensic.executionImpact} impact: ${forensic.executionImpact} liveExecutionAllowed=${forensic.liveExecutionAllowed}`);

@@ -16,7 +16,7 @@
 
 import type { CandidateEntryTrace, Gate1CandidateTrace, SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
-import type { BuildGate1MinimumSignalForensicInput } from './gate1MinimumSignalForensicAuditAdr0505.js';
+import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath } from './gate1MinimumSignalForensicAuditAdr0505.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -100,8 +100,18 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           semanticAvailable: healthRecord.status === 'VERIFIED',
         }
       : undefined;
+    const sourcePath: Gate1ForensicTraceSourcePath = candidate?.marketSession === 'SELL_ONLY'
+      ? 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
+      : candidate?.gate1Trace || t.minSignalScoreTrace
+        ? 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE'
+        : candidate?.stageReached === 'WATCHLIST'
+          ? 'WATCHLIST_CANDIDATE'
+          : candidate?.stageReached === 'UNIVERSE'
+            ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
+            : 'UNKNOWN';
     const entry: BuildGate1MinimumSignalForensicInput = {
       trace,
+      sourcePath,
       ...(candidate ? { candidate } : {}),
       quoteSymbol: quoteSymbol ?? t.symbol ?? null,
       ...(health ? { supplyProviderHealth: health } : {}),
