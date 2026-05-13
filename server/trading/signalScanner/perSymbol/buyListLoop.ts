@@ -152,6 +152,10 @@ import { deriveCounterfactualShadowLearningCandidate } from '../counterfactualSh
 import { appendCounterfactualShadowLearningEntry } from '../../../persistence/counterfactualShadowLearningRepo.js';
 import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
 import { getRegimeGateBand } from '../../gateConfig.js';
+// Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단 SSOT.
+//   evaluateBuyList 진입부 1회 deriveShadowApprovalContext() 호출 → 모든 createBuyTask 에 propagate.
+//   LIVE 모드 무영향 (SHADOW 모드 + tradeDate + marketSession 모두 전달 시 buyPipeline / buyApproval 측 guard 활성).
+import { deriveShadowApprovalContext } from '../../../telegram/shadowApprovalDedupeStore.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
@@ -327,6 +331,10 @@ function logPreEntryWaitDebug(input: {
 }
 
 export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
+  // Patch-SHADOW-APPROVAL-DEDUP-001 — 본 스캔 사이클 SSOT 컨텍스트 (tradeDate + marketSession).
+  // SHADOW 모드 createBuyTask 호출 시 buyPipeline → requestBuyApproval 가 이 두 필드로 dedupeKey 생성.
+  // LIVE 모드 호출 site 도 동일 propagate 하나 buyPipeline 측 guard 가 SHADOW 분기에서만 발동.
+  const _shadowApprovalCtx = deriveShadowApprovalContext();
   for (const stock of ctx.buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
     // LIVE 모드 스캔 중에도 MOMENTUM 후보는 실 자본을 쓰지 않고 학습 표본만 남긴다.
@@ -749,6 +757,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               gateScore: gateScoreFollow, shadowMode: followHealth.shadowMode, effectiveBudget: followFinalQty * followEntryPrice,
               alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               signalId: buildSignalId(_signalTimeFollow, stock.code), // ADR-0077
+              // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate.
+              tradeDate: _shadowApprovalCtx.tradeDate,
+              marketSession: _shadowApprovalCtx.marketSession,
+              sourceLane: 'SHADOW',
+              rrr: stock.rrr,
               onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice); },
             }));
             // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
@@ -1001,6 +1014,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   gateScore: gateScorePb, shadowMode: pbHealth.shadowMode, effectiveBudget: pbFinalQty * pbEntryPrice,
                   alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
                   signalId: buildSignalId(_signalTimePb, stock.code), // ADR-0077
+                  // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate.
+                  tradeDate: _shadowApprovalCtx.tradeDate,
+                  marketSession: _shadowApprovalCtx.marketSession,
+                  sourceLane: 'SHADOW',
+                  rrr: stock.rrr,
                   onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbFinalQty * pbEntryPrice); },
                 }));
                 // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
@@ -2374,6 +2392,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         alertMessage: mainAlertMsg,
         logEvent: isMomentumShadow ? 'MOMENTUM_SHADOW_SIGNAL' : (stockShadowMode ? 'SIGNAL' : 'ORDER'),
         signalId: buildSignalId(_signalTimeMain, stock.code), // ADR-0077
+        // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate (LIVE 모드는 buyPipeline 측 guard 가 SHADOW 분기에서만 발동).
+        tradeDate: _shadowApprovalCtx.tradeDate,
+        marketSession: _shadowApprovalCtx.marketSession,
+        sourceLane: 'SHADOW',
+        rrr: _rrr,
         onApproved: async (t) => {
           ctx.shadows.push(t);
           await channelBuySignalEmitted({

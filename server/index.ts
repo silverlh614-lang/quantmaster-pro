@@ -554,6 +554,31 @@ async function startServer() {
         .catch((e) => console.error('[BootReconcile] 모듈 로드 실패:', e));
     }, 30_000);
 
+    // Patch-SHADOW-APPROVAL-DEDUP-001 (follow-up) — 부팅 60초 후 1회 /scan 실행.
+    //   사용자 요청: "재부팅하면 /scan 을 시행하도록 수정"
+    //   ENV `BOOT_SCAN_TRIGGER_DISABLED=true` (default OFF, ADR-0157 정확 비교) 시 비활성.
+    //   기존 SHADOW/LIVE 분기는 runAutoSignalScan 본체 정책 그대로 — sellOnly 가드 / 시간대
+    //   가드 / R6_DEFENSE 등 invariants 모두 적용. fire-and-forget try/catch 격리.
+    //   30초 후 bootReconcile 직후 발화 (KIS 토큰 갱신 완료 시점 보장).
+    if (process.env.BOOT_SCAN_TRIGGER_DISABLED !== 'true') {
+      setTimeout(() => {
+        import('./trading/signalScanner.js')
+          .then(({ runAutoSignalScan }) => runAutoSignalScan())
+          .then((result) => {
+            const summary = (result && typeof result === 'object' && 'summary' in result)
+              ? (result as { summary?: { candidates?: number; entries?: number } }).summary
+              : undefined;
+            console.log(
+              `[BootScan] Patch-SHADOW-APPROVAL-DEDUP-001 부팅 후 1회 /scan 실행 — ` +
+                `candidates=${summary?.candidates ?? 'n/a'} entries=${summary?.entries ?? 'n/a'}`,
+            );
+          })
+          .catch((e) => console.error('[BootScan] runAutoSignalScan 실패 (live trading 영향 0):', e));
+      }, 60_000);
+    } else {
+      console.log('[BootScan] BOOT_SCAN_TRIGGER_DISABLED=true — 부팅 /scan skip');
+    }
+
     // 아이디어 7-A: 14분 간격 자가 핑 — Railway 슬립 방지
     const selfUrl = process.env.RAILWAY_STATIC_URL ?? `http://localhost:${PORT}`;
     setInterval(async () => {
