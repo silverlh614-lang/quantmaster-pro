@@ -74,13 +74,16 @@ describe('/supply_health KIS-first diagnostics', () => {
     expect(SOURCE).toContain("'executionImpact=NONE'");
   });
 
-  it('keeps accepted-empty market program as non-provider issue observation', () => {
-    expect(SOURCE).toContain("'route: KIS>KRX | fb=CACHE | diag=KIS | scoring=allowed_when_non_empty'");
-    expect(SOURCE).toContain("'status: ACCEPTED_EMPTY'");
-    expect(SOURCE).toContain("'scoring=excluded'");
-    expect(SOURCE).toContain("'providerIssue=false'");
-    expect(SOURCE).toContain("'marketSignal=false'");
-    expect(SOURCE).toContain("'action=observe'");
+  it('routes accepted-empty market program through Patch-004 SSOT (no hardcoded ACCEPTED_EMPTY observation text)', () => {
+    // Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004: hardcoded renderAcceptedEmptyMarketProgram replaced
+    // by routeProgramMarketEmpty(...) SSOT + formatProgramMarketRouted(...) builder.
+    expect(SOURCE).toContain('programMarketRouterPatch004');
+    expect(SOURCE).toContain('routeProgramMarketEmpty');
+    expect(SOURCE).toContain('formatProgramMarketRouted');
+    expect(SOURCE).toContain('renderRoutedMarketProgram');
+    expect(SOURCE).toContain('deriveCacheFallbackFromMacroState');
+    // legacy hardcoded function removed
+    expect(SOURCE).not.toContain('renderAcceptedEmptyMarketProgram');
   });
   it('formats KIS-first providerTried with KIS_API first and cache disabled when verified', () => {
     expect(SOURCE).toContain('function formatKisFirstInvestorFlowProviderTriedLines(');
@@ -102,13 +105,16 @@ describe('/supply_health KIS-first diagnostics', () => {
     expect(SOURCE).toContain('일반 BUY는 최종 Gate 정책에 따르며, STRONG_BUY는 별도 제한될 수 있습니다.');
   });
 
-  it('pins program lamp semantics for stock partial plus accepted-empty market program', () => {
+  it('pins program lamp semantics for stock partial plus routed market program (Patch-004)', () => {
+    // Stock-program lamp semantics preserved
     expect(SOURCE).toContain("if (success >= 8) return { marker: 'DEGRADED', status: 'PARTIAL', lamp: 'AMBER' }");
     expect(SOURCE).toContain('판정: PARTIAL — KIS stock program usable for non-empty symbols');
-    expect(SOURCE).toContain('status: ACCEPTED_EMPTY');
     expect(SOURCE).toContain('providerIssue=false');
-    expect(SOURCE).toContain('marketSignal=false');
-    expect(SOURCE).toContain('bearish signal로 변환하지 않음');
+    // Market-program ACCEPTED_EMPTY now routed via Patch-004 SSOT (router decides routedStatus + marker)
+    expect(SOURCE).toContain('routeProgramMarketEmpty');
+    expect(SOURCE).toContain('markerForRoutedStatus');
+    // No bearish conversion (preserved through Patch-004 literal types: marketSignal=false)
+    expect(SOURCE).not.toContain('renderAcceptedEmptyMarketProgram');
   });
 
 });
