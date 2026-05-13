@@ -194,7 +194,9 @@ export type Gate1EvaluationState =
 
 export type SellOnlyCarryBreakPointAdr0507 =
   | 'BYSYMBOL_PAYLOAD_MISSING'
+  | 'BYSYMBOL_PAYLOAD_STALE'
   | 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED'
+  | 'BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED'
   | 'MERGED_BUT_FORENSIC_DROPPED'
   | 'CARRIED_TO_FORENSIC'
   | 'UNKNOWN';
@@ -1067,7 +1069,7 @@ function buildSupplyScopeAudit(input: {
     sellOnlyBySymbolPayloadAvailable: input.sellOnlyBySymbolPayloadAvailable,
     sellOnlyBySymbolPayloadMerged: input.sellOnlyBySymbolPayloadMerged,
     sellOnlyCarryBreakPoint: input.sellOnlyCarryBreakPoint === 'CARRIED_TO_FORENSIC' && !forensicInputCarriesActualInvestorRows
-      ? 'MERGED_BUT_FORENSIC_DROPPED'
+      ? 'BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED'
       : input.sellOnlyCarryBreakPoint,
     selectedActualRowPath: input.actualInvestorFlowRowSourcePath ?? input.selectedCandidate?.actualInvestorFlowRowSourcePath ?? kisFlow?.selectedActualRowPath ?? kisFlow?.actualInvestorFlowRowSourcePath ?? semantic.fieldKeyDiagnostics?.selectedPath ?? null,
     selectedActualRowFieldKeys: input.actualInvestorFlowFieldKeys ?? input.selectedCandidate?.actualInvestorFlowFieldKeys ?? kisFlow?.selectedActualRowFieldKeys ?? kisFlow?.actualInvestorFlowFieldKeys ?? semantic.fieldKeyDiagnostics?.actualRawFieldKeysTop ?? [],
@@ -1707,7 +1709,9 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const sourcePathWithConditionResults: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
   const sellOnlyCarryBreakPointDistribution: Record<SellOnlyCarryBreakPointAdr0507, number> = {
     BYSYMBOL_PAYLOAD_MISSING: 0,
+    BYSYMBOL_PAYLOAD_STALE: 0,
     BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED: 0,
+    BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED: 0,
     MERGED_BUT_FORENSIC_DROPPED: 0,
     CARRIED_TO_FORENSIC: 0,
     UNKNOWN: 0,
