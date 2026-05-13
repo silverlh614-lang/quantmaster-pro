@@ -135,8 +135,9 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
       { subscribeFn: () => true, unsubscribeFn: () => {} },
     );
     let captured = '';
+    // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요 (기존 동작 보존).
     await scanBlockers.execute({
-      args: [],
+      args: ['full'],
       reply: async (msg: string) => {
         captured = msg;
       },
@@ -150,13 +151,15 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
 
   it('default ENV + 구독 0건 (total=0) → 섹션 미노출 (운영자 noise 차단)', async () => {
     let captured = '';
+    // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요 (기존 동작 보존).
     await scanBlockers.execute({
-      args: [],
+      args: ['full'],
       reply: async (msg: string) => {
         captured = msg;
       },
     } as never);
-    expect(captured).toBe('🛡️ baseMessage');
+    // ADR-0506 — full 모드는 header + baseMessage + (ADR-0505 NOT_EMITTED) 포함, baseMessage 만 단독 strict equality 부적합.
+    expect(captured).toContain('🛡️ baseMessage');
     expect(captured).not.toContain('KIS WebSocket Subscription Queue');
   });
 
@@ -167,13 +170,15 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
       { subscribeFn: () => true, unsubscribeFn: () => {} },
     );
     let captured = '';
+    // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요 (기존 동작 보존).
     await scanBlockers.execute({
-      args: [],
+      args: ['full'],
       reply: async (msg: string) => {
         captured = msg;
       },
     } as never);
-    expect(captured).toBe('🛡️ baseMessage');
+    // ADR-0506 — full 모드는 header + baseMessage + (ADR-0505 NOT_EMITTED) 포함, baseMessage 만 단독 strict equality 부적합.
+    expect(captured).toContain('🛡️ baseMessage');
     expect(captured).not.toContain('KIS WebSocket Subscription Queue');
   });
 
@@ -185,8 +190,9 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     let captured = '';
     let threw = false;
     try {
+      // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요.
       await scanBlockers.execute({
-        args: [],
+        args: ['full'],
         reply: async (msg: string) => {
           captured = msg;
         },

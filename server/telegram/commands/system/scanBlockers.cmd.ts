@@ -141,6 +141,18 @@ import {
   formatWeekendReplayCompactAdr0501,
   safeBuildWeekendReplaySummaryAdr0501,
 } from '../../../diagnostics/weekendReplayAdr0501.js';
+// ADR-0506 — compact mode + ADR-0505 emission verification.
+// diagnostic / display only — live trading / score / threshold / order path 변경 0.
+import {
+  applyScanBlockersLengthGuard,
+  deriveAdr0505EmissionStatus,
+  formatAdr0505EmissionCompactLine,
+  formatAdr0505EmissionDetailBlock,
+  formatScanBlockersCompactMessage,
+  parseScanBlockersMode,
+  sectionMatchesMode,
+  type ScanBlockersMode,
+} from './scanBlockersCompactAdr0506.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -148,10 +160,28 @@ const scanBlockers: TelegramCommand = {
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: '직전 스캔의 매수 차단 사유 분포 + 거시 게이트 상태 (ADR-0118)',
-  usage: '/scan_blockers',
-  async execute({ reply }) {
+  description: '직전 스캔의 매수 차단 사유 분포 + 거시 게이트 상태 (ADR-0118 / ADR-0506)',
+  usage: '/scan_blockers [full|gate|supply|sector|runtime]',
+  async execute({ args, reply }) {
+    // ADR-0506 — mode parser (default compact). unknown → compact fallback + usage hint.
+    const modeResult = parseScanBlockersMode(args);
+    const mode: ScanBlockersMode = modeResult.mode;
     const summary = getLastScanSummary();
+
+    // ADR-0506 — ADR-0505 emission status (compact 안 + gate/full 모드 노출).
+    // diagnostic-only — process.env read 만, throw 안 함 (deriveAdr0505EmissionStatus 자체 안전).
+    const adr0505Diag = deriveAdr0505EmissionStatus(summary);
+
+    // ADR-0506 — compact mode: 15~25줄 운영 요약, length budget 2000 보호.
+    if (mode === 'compact') {
+      const compactMessage = formatScanBlockersCompactMessage(summary, { adr0505: adr0505Diag });
+      const unknownHint = modeResult.isUnknown
+        ? `\n⚠️ 알 수 없는 mode "${modeResult.rawToken}" — compact 로 fallback.`
+        : '';
+      await reply(applyScanBlockersLengthGuard(compactMessage + unknownHint, 'compact'));
+      return;
+    }
+
     const baseMessage = formatScanBlockersMessage(summary);
 
     // ADR-0118 §"진단 추정" 확장 — TECHNICAL_PROVIDER_DEGRADED 운영자 노출 (ADR-0411).
@@ -620,6 +650,13 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] ADR-0484/0485/0486/0487/0488 supply recovery/readiness/mount/fresh-data/unknown line failed:', err);
     }
 
+    // ADR-0506 — ADR-0505 emission status line (compact for gate / detail for full).
+    // SUMMARY_FIELD_MISSING / FORENSIC_INPUTS_MISSING / BUILDER_NOT_CALLED 시 NOT_EMITTED 표시.
+    const adr0505CompactLine =
+      adr0505Diag.status === 'EMITTED' ? null : formatAdr0505EmissionCompactLine(adr0505Diag);
+    const adr0505DetailBlock =
+      mode === 'full' || mode === 'gate' ? formatAdr0505EmissionDetailBlock(adr0505Diag) : null;
+
     const parts: string[] = [baseMessage];
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
@@ -646,8 +683,28 @@ const scanBlockers: TelegramCommand = {
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
     if (supplySnapshotLine) parts.push(supplySnapshotLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
-    const finalMessage = parts.join('\n');
-    await reply(finalMessage);
+
+    // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.
+    if (adr0505CompactLine) parts.push(adr0505CompactLine);
+    if (adr0505DetailBlock) parts.push(adr0505DetailBlock);
+
+    // ADR-0506 — full mode header (운영자 명시 호출 표시).
+    if (mode === 'full') {
+      const fullHeader = '🔬 <b>[scan_blockers full mode]</b>';
+      const finalFull = [fullHeader, ...parts].join('\n');
+      await reply(applyScanBlockersLengthGuard(finalFull, 'full'));
+      return;
+    }
+
+    // ADR-0506 — gate/supply/sector/runtime: ADR 마커 기반 section 필터링.
+    // baseMessage 는 모든 모드 공통 (운영 컨텍스트).
+    const filteredParts = parts.filter((part, idx) => {
+      if (idx === 0) return true; // baseMessage 항상 포함
+      return sectionMatchesMode(part, mode);
+    });
+    const modeHeader = `🔍 <b>[scan_blockers ${mode} mode]</b>`;
+    const finalMessage = [modeHeader, ...filteredParts].join('\n');
+    await reply(applyScanBlockersLengthGuard(finalMessage, mode));
   },
 };
 
