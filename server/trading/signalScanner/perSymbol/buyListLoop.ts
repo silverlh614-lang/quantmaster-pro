@@ -156,6 +156,15 @@ import { getRegimeGateBand } from '../../gateConfig.js';
 //   evaluateBuyList 진입부 1회 deriveShadowApprovalContext() 호출 → 모든 createBuyTask 에 propagate.
 //   LIVE 모드 무영향 (SHADOW 모드 + tradeDate + marketSession 모두 전달 시 buyPipeline / buyApproval 측 guard 활성).
 import { deriveShadowApprovalContext } from '../../../telegram/shadowApprovalDedupeStore.js';
+// Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — Shadow approval 직후 paper-fill 영속 SSOT.
+//   onApproved 콜백이 ctx.shadows.push 만 하고 saveShadowTrades 미호출하던 결함 차단.
+//   status PENDING → ACTIVE 전이 + INITIAL_BUY fill 영속 + [Shadow 체결] Telegram + 멱등 가드.
+//   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향 (mode='LIVE' 시 NOT_SHADOW skip).
+import {
+  executeShadowBuy,
+  recordShadowExecutionOutcome,
+} from '../../shadowExecutionPipeline.js';
+import { channelShadowBuyFilled } from '../../../alerts/channelPipeline.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
@@ -768,7 +777,33 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               signalType: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               gateBandNormal: getRegimeGateBand(ctx.regime).normal,
               gateBandStrong: getRegimeGateBand(ctx.regime).strong,
-              onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice); },
+              onApproved: async () => {
+                ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice);
+                // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — SHADOW paper-fill 영속.
+                // followTrade 는 위 ctx.shadows.push() 로 이미 등록됨. SSOT 가 멱등 + LIVE 차단.
+                if (followHealth.shadowMode) {
+                  try {
+                    const _r = await executeShadowBuy({
+                      trade: followTrade,
+                      allTrades: ctx.shadows,
+                      fillPrice: followEntryPrice,
+                      notifyFilled: async (n) => {
+                        await channelShadowBuyFilled({
+                          stockName: n.stockName,
+                          stockCode: n.stockCode,
+                          fillPrice: n.fillPrice,
+                          quantity: n.quantity,
+                          fillId: n.fillId,
+                          tradeId: n.tradeId,
+                        });
+                      },
+                    });
+                    recordShadowExecutionOutcome(_r.outcome);
+                  } catch (e) {
+                    console.warn('[ShadowExecutionPipeline] PRE_BREAKOUT_FOLLOWTHROUGH 영속 실패 (매매 흐름 보호):', e);
+                  }
+                }
+              },
             }));
             // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
             ctx.mutables.reservedSlots.value++;
@@ -1030,7 +1065,33 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   signalType: 'PRE_BREAKOUT_SHADOW_ALLOWED',
                   gateBandNormal: getRegimeGateBand(ctx.regime).normal,
                   gateBandStrong: getRegimeGateBand(ctx.regime).strong,
-                  onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbFinalQty * pbEntryPrice); },
+                  onApproved: async () => {
+                    ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbFinalQty * pbEntryPrice);
+                    // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — SHADOW paper-fill 영속.
+                    // pbTrade 는 위 ctx.shadows.push() 로 이미 등록됨. SSOT 가 멱등 + LIVE 차단.
+                    if (pbHealth.shadowMode) {
+                      try {
+                        const _r = await executeShadowBuy({
+                          trade: pbTrade,
+                          allTrades: ctx.shadows,
+                          fillPrice: pbEntryPrice,
+                          notifyFilled: async (n) => {
+                            await channelShadowBuyFilled({
+                              stockName: n.stockName,
+                              stockCode: n.stockCode,
+                              fillPrice: n.fillPrice,
+                              quantity: n.quantity,
+                              fillId: n.fillId,
+                              tradeId: n.tradeId,
+                            });
+                          },
+                        });
+                        recordShadowExecutionOutcome(_r.outcome);
+                      } catch (e) {
+                        console.warn('[ShadowExecutionPipeline] PRE_BREAKOUT_ENTRY 영속 실패 (매매 흐름 보호):', e);
+                      }
+                    }
+                  },
                 }));
                 // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
                 ctx.mutables.reservedSlots.value++;
@@ -2435,6 +2496,33 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         gateBandStrong: getRegimeGateBand(ctx.regime).strong,
         onApproved: async (t) => {
           ctx.shadows.push(t);
+          // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — SHADOW paper-fill 영속.
+          // ctx.shadows.push(t) 직후 즉시 saveShadowTrades 영속 + status PENDING→ACTIVE.
+          // SSOT 가 mode 검사 (LIVE 는 NOT_SHADOW skip), 멱등 (이미 ACTIVE 시 skip),
+          // 영속 실패 시 status 롤백, [Shadow 체결] Telegram 1회 발송 보장.
+          // LIVE 매매 본체 0줄 변경 — LIVE path 는 fillMonitor + placeKisMarketBuyOrder SSOT 그대로.
+          if (stockShadowMode) {
+            try {
+              const _r = await executeShadowBuy({
+                trade: t,
+                allTrades: ctx.shadows,
+                fillPrice: shadowEntryPrice,
+                notifyFilled: async (n) => {
+                  await channelShadowBuyFilled({
+                    stockName: n.stockName,
+                    stockCode: n.stockCode,
+                    fillPrice: n.fillPrice,
+                    quantity: n.quantity,
+                    fillId: n.fillId,
+                    tradeId: n.tradeId,
+                  });
+                },
+              });
+              recordShadowExecutionOutcome(_r.outcome);
+            } catch (e) {
+              console.warn('[ShadowExecutionPipeline] 메인 buyList 영속 실패 (매매 흐름 보호):', e);
+            }
+          }
           await channelBuySignalEmitted({
             mode: stockShadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
             price: currentPrice, quantity: execQty, gateScore: liveGateScore,
