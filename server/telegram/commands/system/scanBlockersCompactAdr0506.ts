@@ -14,6 +14,7 @@
  */
 
 import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
+import { resolveGate1ForensicNextAction } from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
 
 /* ───────── Mode parser SSOT ───────── */
 
@@ -459,9 +460,13 @@ export function formatScanBlockersGateCompactMessage(
     }
   }
 
-  lines.push(`• rsHydration: ${forensic.rsHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
-  lines.push(`• breakoutHydration: ${forensic.breakoutHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
-  lines.push(`• supplySymbolMatched: ${forensic.supplySymbolMatchedCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• watchlistImported: ${forensic.watchlistScoreImportedCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• rsTraceAvailable: ${forensic.rsTraceAvailableCount ?? forensic.rsHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• rsScoreUsable: ${forensic.rsScoreUsableCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• breakoutTraceAvailable: ${forensic.breakoutTraceAvailableCount ?? forensic.breakoutHydrationAvailableCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• breakoutScoreUsable: ${forensic.breakoutScoreUsableCount ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• traceCompleteness: quote ${forensic.traceWithQuoteCount ?? forensic.candidateTraceHasQuote ?? 0}/${forensic.totalCandidates}, symbolFeatures ${forensic.traceWithSymbolFeaturesCount ?? forensic.candidateTraceHasSymbolFeatures ?? 0}/${forensic.totalCandidates}, conditionResults ${forensic.traceWithConditionResultsCount ?? forensic.candidateTraceHasConditionResults ?? 0}/${forensic.totalCandidates}`);
+  lines.push(`• supplySymbolMatched: ${forensic.supplySymbolMatchedCount ?? forensic.symbolMatchedCount ?? 0}/${forensic.totalCandidates}`);
   const topMissingFields = forensic.topHydrationMissingFields ?? [];
   if (topMissingFields.length > 0) {
     lines.push(`• topMissingFields: ${topMissingFields.slice(0, 4).join(', ')}`);
@@ -469,10 +474,10 @@ export function formatScanBlockersGateCompactMessage(
 
   lines.push(`• SectorEnergy: boost=0 strongBuyBlocked=${forensic.sectorEnergyStrongBuyBlockedCount}`);
 
-  lines.push('• nextAction: WIRE_SYMBOL_LEVEL_SUPPLY_AND_FEATURE_HYDRATION');
+  lines.push(`• nextAction: ${resolveGate1ForensicNextAction(forensic)}`);
 
   // 안전 invariant (절대 변경 금지 — 정적 grep 가드 회귀 테스트 검증)
-  lines.push(`• impact: ${forensic.executionImpact} (liveExecutionAllowed=${forensic.liveExecutionAllowed})`);
+  lines.push(`• executionImpact=${forensic.executionImpact} impact: ${forensic.executionImpact} liveExecutionAllowed=${forensic.liveExecutionAllowed}`);
 
   lines.push(SCAN_BLOCKERS_GATE_FULL_HINT);
   return lines.join('\n');

@@ -9,6 +9,7 @@ import {
   buildGate1MinimumSignalForensicAuditAdr0505,
   buildGate1MinimumSignalForensicSummaryAdr0505,
   formatGate1MinimumSignalForensicSection,
+  resolveGate1ForensicNextAction,
   isGate1MinimumSignalForensicAuditDisabled,
   type Gate1MinimumSignalForensicAuditAdr0505,
   type Gate1MinimumSignalForensicSummaryAdr0505,
@@ -296,6 +297,127 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(out).toContain('executionImpact=NONE live=false');
     });
   });
+
+
+  describe('Patch-GATE-FEATURE-WIRING-002 — watchlist/quote/conditionResults trace propagation', () => {
+    it('watchlist score fields are imported with source/scale/average diagnostics', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0001' }),
+        candidate: {
+          symbol: 'A0001',
+          stageReached: 'WATCHLIST',
+          blockers: [],
+          executionImpact: 'NONE',
+          stage2Score: 8,
+          upstreamCandidateScore: 7,
+          watchlistRank: 3,
+          totalCandidates: 48,
+          watchlistReason: ['relative breakout leader'],
+        },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+
+      expect(audit.hydrationAuditAdr0509?.watchlist.scoreImported).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.watchlist.sourceField).toBe('stage2Score');
+      expect(audit.hydrationAuditAdr0509?.watchlist.scoreScale).toBe('0~10');
+      expect(summary.watchlistScoreImportedCount).toBe(1);
+      expect(summary.watchlistSourceFieldDistribution?.stage2Score).toBe(1);
+      expect(summary.watchlistScoreScaleDistribution?.['0~10']).toBe(1);
+      expect(summary.watchlistScoreAvg).toBe(80);
+    });
+
+    it('quote return fields recover RS trace availability via QUOTE_RETURN', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0002' }),
+        candidate: {
+          symbol: 'A0002',
+          stageReached: 'WATCHLIST',
+          blockers: [],
+          executionImpact: 'NONE',
+          quote: { return20d: 12, return5d: 3, high20d: 110, volume: 1000, avgVolume: 800, ma20: 95, ma60: 90 },
+        },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+
+      expect(audit.hydrationAuditAdr0509?.rsAvailable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.rsSource).toBe('QUOTE_RETURN');
+      expect(summary.traceWithQuoteCount).toBe(1);
+      expect(summary.rsTraceAvailableCount).toBe(1);
+      expect(summary.quoteFeatureFieldCoverage?.return20d).toBe(1);
+    });
+
+    it('conditionResults relative_strength and breakout keys recover trace/source diagnostics', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0003' }),
+        candidate: {
+          symbol: 'A0003',
+          stageReached: 'WATCHLIST',
+          blockers: [],
+          executionImpact: 'NONE',
+          conditionResults: {
+            relative_strength: { status: 'THRESHOLD_NOT_MET', score: 2, hadRequiredData: true },
+            breakout_momentum: { status: 'FIRED', score: 1, hadRequiredData: true },
+            turtle_high: { status: 'THRESHOLD_NOT_MET', score: 0, hadRequiredData: true },
+          },
+        },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+
+      expect(audit.hydrationAuditAdr0509?.rsSource).toBe('CONDITION_RESULTS');
+      expect(audit.hydrationAuditAdr0509?.rsScoreUsable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.breakoutSource).toBe('CONDITION_RESULTS');
+      expect(audit.hydrationAuditAdr0509?.breakoutScoreUsable).toBe(true);
+      expect(summary.traceWithConditionResultsCount).toBe(1);
+      expect(summary.conditionResultsKeyCoverage?.relative_strength).toBe(1);
+      expect(summary.conditionResultStatusDistribution?.FIRED).toBe(1);
+      expect(summary.breakoutConditionKeyCoverage?.breakout_momentum).toBe(1);
+    });
+
+    it('conditionKeys breakout proxy recovers breakout trace availability without score usable', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0004' }),
+        candidate: {
+          symbol: 'A0004',
+          stageReached: 'WATCHLIST',
+          blockers: [],
+          executionImpact: 'NONE',
+          conditionKeys: ['breakout_momentum'],
+        },
+      });
+      expect(audit.hydrationAuditAdr0509?.breakoutAvailable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.breakoutSource).toBe('CONDITION_KEYS');
+      expect(audit.hydrationAuditAdr0509?.breakoutScoreUsable).toBe(false);
+    });
+
+    it('nextAction priority and ADR-0467/ADR-0505 conflict diagnostics are exposed', () => {
+      const imported = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0005' }),
+        candidate: { symbol: 'A0005', stageReached: 'WATCHLIST', blockers: [], executionImpact: 'NONE', stage2Score: 8 },
+      });
+      const missing = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0006' }),
+        candidate: { symbol: 'A0006', stageReached: 'WATCHLIST', blockers: [], executionImpact: 'NONE' },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([imported, missing]);
+      expect(resolveGate1ForensicNextAction(summary)).toBe('WIRE_QUOTE_FEATURES_TO_FORENSIC_TRACE');
+      expect(summary.watchlistDiagnosticConflict).toBe(false);
+      expect(summary.adr0467WatchlistVerifiedCount).toBe(1);
+      expect(summary.adr0505WatchlistImportedCount).toBe(1);
+
+      const conflicted = buildGate1MinimumSignalForensicSummaryAdr0505([
+        buildGate1MinimumSignalForensicAuditAdr0505({
+          trace: makeTrace({
+            symbol: 'A0007',
+            components: [makeComponent('WATCHLIST_UPSTREAM_SCORE', { weightedScore: 0, confidence: 'MISSING' })],
+          }),
+          candidate: { symbol: 'A0007', stageReached: 'WATCHLIST', blockers: [], executionImpact: 'NONE', stage2Score: 8 },
+        }),
+      ]);
+      expect(conflicted.watchlistDiagnosticConflict).toBe(true);
+      expect(conflicted.conflictReason).toBe('TRACE_FIELD_MISSING');
+    });
+  });
+
 
   describe('정적 grep 가드 (사용자 명시 금지 사항 영구 차단)', () => {
     it('SSOT 모듈에 KIS 주문 함수 5종 import 0건', () => {

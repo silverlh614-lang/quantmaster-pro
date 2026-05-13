@@ -329,6 +329,9 @@ export interface CandidateEntryTrace {
   totalGateScore?: number;
   watchlistUpstreamScore?: number;
   upstreamScore?: number;
+  upstreamCandidateScore?: number;
+  watchlistRank?: number;
+  totalCandidates?: number;
   stage2Score?: number;
   watchlistScore?: number;
   stage1Score?: number;
@@ -350,11 +353,16 @@ export interface CandidateEntryTrace {
     | {
         return20d?: number;
         return5d?: number;
+        symbol?: string;
+        code?: string;
         price?: number;
         currentPrice?: number;
+        changePercent?: number;
         high5d?: number;
         high20d?: number;
+        high20?: number;
         high60?: number;
+        ma5?: number;
         ma20?: number;
         ma60?: number;
         volume?: number;
@@ -363,6 +371,10 @@ export interface CandidateEntryTrace {
         rsi14?: number;
         atr?: number;
         atr20avg?: number;
+        bbWidthCurrent?: number;
+        bbWidth20dAvg?: number;
+        vol5dAvg?: number;
+        vol20dAvg?: number;
       }
     | Record<string, unknown>;
   macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
@@ -589,6 +601,9 @@ export interface CandidateSnapshot {
   totalGateScore?: number;
   watchlistUpstreamScore?: number;
   upstreamScore?: number;
+  upstreamCandidateScore?: number;
+  watchlistRank?: number;
+  totalCandidates?: number;
   stage2Score?: number;
   watchlistScore?: number;
   stage1Score?: number;
@@ -610,11 +625,16 @@ export interface CandidateSnapshot {
     | {
         return20d?: number;
         return5d?: number;
+        symbol?: string;
+        code?: string;
         price?: number;
         currentPrice?: number;
+        changePercent?: number;
         high5d?: number;
         high20d?: number;
+        high20?: number;
         high60?: number;
+        ma5?: number;
         ma20?: number;
         ma60?: number;
         volume?: number;
@@ -623,6 +643,10 @@ export interface CandidateSnapshot {
         rsi14?: number;
         atr?: number;
         atr20avg?: number;
+        bbWidthCurrent?: number;
+        bbWidth20dAvg?: number;
+        vol5dAvg?: number;
+        vol20dAvg?: number;
       }
     | Record<string, unknown>;
   macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
@@ -1492,6 +1516,9 @@ export function buildEntryFilterDecomposition(
       totalGateScore: c.totalGateScore,
       watchlistUpstreamScore: c.watchlistUpstreamScore,
       upstreamScore: c.upstreamScore,
+      upstreamCandidateScore: c.upstreamCandidateScore,
+      watchlistRank: c.watchlistRank,
+      totalCandidates: c.totalCandidates,
       stage2Score: c.stage2Score,
       stage1Score: c.stage1Score,
       priorityScore: c.priorityScore,
