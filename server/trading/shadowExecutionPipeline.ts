@@ -60,6 +60,13 @@ import {
   appendShadowLog,
   type ServerShadowTrade,
 } from '../persistence/shadowTradeRepo.js';
+// Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — paper-fill 직후
+// SHADOW_POSITION_OPENED 이벤트 영속 (사용자 §J #3 invariant: SHADOW_PAPER_FILLED 만
+// 발생하고 OPEN 포지션 생성되지 않는 상태 영구 차단).
+import {
+  emitShadowPositionOpened,
+  recordShadowLifecycleOutcome,
+} from './shadowPositionLifecycle.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -372,6 +379,20 @@ export async function executeShadowBuy(
       `fillId=${fillId} executionImpact=NONE liveOrderPlaced=false ` +
       `(Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
   );
+
+  // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW_POSITION_OPENED
+  // 이벤트 영속. try/catch 격리 — lifecycle emit throw 가 paper-fill 결과를 차단하지
+  // 않도록 (Always-On Trading Kernel, 사용자 §J #2).
+  try {
+    const lifecycleResult = emitShadowPositionOpened(input.trade, { now });
+    recordShadowLifecycleOutcome('SHADOW_POSITION_OPENED', lifecycleResult.outcome);
+  } catch (err) {
+    console.warn(
+      `[ShadowPositionLifecycle] emitShadowPositionOpened 실패 (paper-fill 완료) — ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
 
   return {
     outcome: 'EXECUTED',

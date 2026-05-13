@@ -27,6 +27,15 @@ import {
 } from '../../../persistence/shadowTradeRepo.js';
 import { appendTradeEvent, type TradeEvent } from '../../tradeEventLog.js';
 import { emitPartialAttributionForSell } from './attribution.js';
+// Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW_ONLY 분기에서
+// SELL_SIGNAL → SELL_PAPER_FILLED → POSITION_CLOSED (qty=0 시) 이벤트 영속 audit.
+// try/catch 격리 — emit 실패가 매매 흐름 차단 0 (Always-On Trading Kernel).
+import {
+  emitShadowSellSignal,
+  emitShadowSellPaperFilled,
+  emitShadowPositionClosed,
+  recordShadowLifecycleOutcome,
+} from '../../shadowPositionLifecycle.js';
 
 export type ReserveSellResult =
   | { kind: 'SHADOW';  recorded: true;  remainingQty: number; statusPrefix: string; statusSuffix: string }
@@ -65,6 +74,28 @@ export function reserveSell(
 
   const isShadow = orderRes.outcome === 'SHADOW_ONLY';
   const nowIso = new Date().toISOString();
+  const now = new Date(nowIso);
+
+  // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW_ONLY 분기 진입부
+  // SELL_SIGNAL emit (paper-fill 실행 전 결정 시점 audit). evtSubType 을 sell_reason
+  // 으로 사용 — HARD_STOP / STOP_LOSS / TARGET_HIT / TRAILING / EUPHORIA / RRR_COLLAPSE
+  // / DIVERGENCE / CASCADE / MANUAL 등 일관 분류. try/catch 격리.
+  if (isShadow) {
+    try {
+      const signalResult = emitShadowSellSignal(shadow, evtSubType, {
+        sellQty: fill.qty,
+        price: fill.price,
+        now,
+      });
+      recordShadowLifecycleOutcome('SHADOW_SELL_SIGNAL', signalResult.outcome);
+    } catch (err) {
+      console.warn(
+        `[ShadowPositionLifecycle] emitShadowSellSignal 실패 (reserveSell 계속) — ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
   const fullFill: Omit<PositionFill, 'id'> = {
     ...fill,
@@ -111,6 +142,42 @@ export function reserveSell(
   }
 
   if (isShadow) {
+    // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW paper-fill
+    // 완료 직후 영속 audit. 사용자 §J #7 invariant — sell idempotency key 적용
+    // (`${trade_date}:SHADOW:SELL:${symbol}:${position_id}:${sell_reason}` 정확 포맷).
+    // try/catch 격리 — emit 실패가 statusPrefix 반환을 차단하지 않음.
+    try {
+      const lastFill = shadow.fills?.[shadow.fills.length - 1];
+      const filledResult = emitShadowSellPaperFilled(shadow, evtSubType, {
+        fillId: lastFill?.id,
+        fillPrice: fill.price,
+        fillQty: fill.qty,
+        remainingQtyAfter: remainingQty,
+        pnlPct: fill.pnlPct,
+        now,
+      });
+      recordShadowLifecycleOutcome('SHADOW_SELL_PAPER_FILLED', filledResult.outcome);
+
+      // 잔량 0 도달 — POSITION_CLOSED emit (사용자 명시 6-state 시퀀스 마지막).
+      // 동일 position 의 CLOSED 는 idempotency 가드로 1회만.
+      if (remainingQty === 0) {
+        const closedResult = emitShadowPositionClosed(shadow, {
+          closeReason: evtSubType,
+          finalExitPrice: fill.price,
+          weightedPnlPct: fill.pnlPct,
+          realizedPnl: fill.pnl,
+          now,
+        });
+        recordShadowLifecycleOutcome('SHADOW_POSITION_CLOSED', closedResult.outcome);
+      }
+    } catch (err) {
+      console.warn(
+        `[ShadowPositionLifecycle] emit SHADOW_SELL_PAPER_FILLED/CLOSED 실패 (reserveSell 결과 보존) — ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     return {
       kind: 'SHADOW',
       recorded: true,
