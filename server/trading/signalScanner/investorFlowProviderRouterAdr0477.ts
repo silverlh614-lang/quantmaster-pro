@@ -10,7 +10,7 @@ import {
   type InvestorSampleDiagnosticsAdr0502,
   type InvestorSampleProviderNameAdr0502,
 } from './investorSampleMaterializationAdr0502.js';
-import { buildSanitizedInvestorFlowSemanticRow, normalizeNumberLikeInvestorFlowValue, type SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
+import { buildSanitizedInvestorFlowSemanticRow, normalizeNumberLikeInvestorFlowValue, unwrapInvestorFlowRows, type SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
 
 
 export type InvestorFlowProviderId =
@@ -127,6 +127,12 @@ export interface InvestorFlowProviderRouteResult {
   providerStatuses: Record<string, InvestorFlowProviderStatus>;
   semanticNetBuy: SemanticNetBuySample | null;
   semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+  sanitizedInvestorFlowRows?: Array<Record<string, unknown>>;
+  selectedActualRowPath?: string | null;
+  selectedActualRowFieldKeys?: string[];
+  selectedActualNumericFieldKeys?: string[];
+  selectedActualNumericStringFieldKeys?: string[];
+  selectedActualPlaceholderFieldKeys?: string[];
   kisRawRowAvailableAtAdapter?: boolean;
   kisNormalizedRowAvailableAtRouter?: boolean;
   kisSelectedCandidateCarriesSemanticRow?: boolean;
@@ -347,6 +353,69 @@ function valueFromAliases(raw: Record<string, unknown> | null | undefined, keys:
     if (normalized !== null) return normalized;
   }
   return null;
+}
+
+
+const INVESTOR_FLOW_ROW_KEEP_KEY_PATTERN_ADR0477 = /frgn|orgn|indv|foreign|institution|individual|investor|type|net|buy|sell|ntby|shnu|seln|amount|volume|qty/i;
+const PRIVATE_OR_SECRET_FIELD_PATTERN_ADR0477 = /token|secret|password|authorization|auth|appkey|appsecret|account|acct|cano|acnt/i;
+
+function investorFlowValueKindAdr0477(value: unknown): 'number' | 'numericString' | 'placeholder' | 'other' {
+  if (typeof value === 'number') return Number.isFinite(value) ? 'number' : 'placeholder';
+  if (value == null) return 'placeholder';
+  if (typeof value !== 'string') return 'other';
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '-' || trimmed.toUpperCase() === 'N/A') return 'placeholder';
+  return normalizeNumberLikeInvestorFlowValue(trimmed) !== null ? 'numericString' : 'other';
+}
+
+function sanitizeActualInvestorFlowRowsAdr0477(rows: readonly Record<string, unknown>[]): Array<Record<string, unknown>> {
+  return rows.slice(0, 8).map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (PRIVATE_OR_SECRET_FIELD_PATTERN_ADR0477.test(key)) continue;
+      if (value != null && typeof value === 'object') continue;
+      if (!INVESTOR_FLOW_ROW_KEEP_KEY_PATTERN_ADR0477.test(key) && investorFlowValueKindAdr0477(value) !== 'number' && investorFlowValueKindAdr0477(value) !== 'numericString') continue;
+      out[key] = value;
+    }
+    return out;
+  }).filter((row) => Object.keys(row).length > 0);
+}
+
+function selectedActualRowDiagnosticsAdr0477(input: unknown): {
+  rows: Array<Record<string, unknown>>;
+  selectedPath: string | null;
+  fieldKeys: string[];
+  numericFieldKeys: string[];
+  numericStringFieldKeys: string[];
+  placeholderFieldKeys: string[];
+  wrapperOnly: boolean;
+  breakPoint: InvestorFlowProviderRouteResult['semanticRowBreakPoint'];
+} {
+  const unwrap = unwrapInvestorFlowRows(input);
+  const rows = sanitizeActualInvestorFlowRowsAdr0477(unwrap.rows);
+  const fieldKeys: string[] = [];
+  const numericFieldKeys: string[] = [];
+  const numericStringFieldKeys: string[] = [];
+  const placeholderFieldKeys: string[] = [];
+  for (const row of rows) {
+    for (const [key, value] of Object.entries(row)) {
+      fieldKeys.push(key);
+      const kind = investorFlowValueKindAdr0477(value);
+      if (kind === 'number') numericFieldKeys.push(key);
+      else if (kind === 'numericString') numericStringFieldKeys.push(key);
+      else if (kind === 'placeholder') placeholderFieldKeys.push(key);
+    }
+  }
+  return {
+    rows,
+    selectedPath: unwrap.selectedPath,
+    fieldKeys: Array.from(new Set(fieldKeys)).slice(0, 32),
+    numericFieldKeys: Array.from(new Set(numericFieldKeys)).slice(0, 32),
+    numericStringFieldKeys: Array.from(new Set(numericStringFieldKeys)).slice(0, 32),
+    placeholderFieldKeys: Array.from(new Set(placeholderFieldKeys)).slice(0, 32),
+    wrapperOnly: unwrap.reason === 'ONLY_WRAPPER_METADATA' || ((unwrap.wrapperOnlyCount ?? 0) > 0 && rows.length === 0),
+    breakPoint: unwrap.reason === 'ONLY_WRAPPER_METADATA' ? 'ONLY_WRAPPER_METADATA' : rows.length === 0 ? 'NO_ROW_FOUND' : undefined,
+  };
 }
 
 function providerIdFromMaterializationAdr0477(providerName: InvestorSampleProviderNameAdr0502): InvestorFlowProviderId {
@@ -1092,6 +1161,13 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const semanticRowsByProvider: Partial<Record<InvestorFlowProviderId, SanitizedInvestorFlowSemanticRow>> = {};
   let kisRawRowAvailableAtAdapter = false;
   let kisNormalizedRowAvailableAtRouter = false;
+  let selectedActualRowPath: string | null = null;
+  let sanitizedInvestorFlowRows: Array<Record<string, unknown>> = [];
+  let selectedActualRowFieldKeys: string[] = [];
+  let selectedActualNumericFieldKeys: string[] = [];
+  let selectedActualNumericStringFieldKeys: string[] = [];
+  let selectedActualPlaceholderFieldKeys: string[] = [];
+  let selectedActualWrapperOnly = false;
   const selectShadow = (provider: InvestorFlowProviderId, sample: SemanticNetBuySample, reason: string): void => {
     if (semanticNetBuy) return;
     selectedProvider = provider;
@@ -1345,16 +1421,25 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   if (input.kisInvestorRaw) {
+    const actualRowDiagnostic = selectedActualRowDiagnosticsAdr0477(input.kisInvestorRaw);
+    sanitizedInvestorFlowRows = actualRowDiagnostic.rows;
+    selectedActualRowPath = actualRowDiagnostic.selectedPath;
+    selectedActualRowFieldKeys = actualRowDiagnostic.fieldKeys;
+    selectedActualNumericFieldKeys = actualRowDiagnostic.numericFieldKeys;
+    selectedActualNumericStringFieldKeys = actualRowDiagnostic.numericStringFieldKeys;
+    selectedActualPlaceholderFieldKeys = actualRowDiagnostic.placeholderFieldKeys;
+    selectedActualWrapperOnly = actualRowDiagnostic.wrapperOnly;
+    const actualFlowForSemantic = sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows : input.kisInvestorRaw;
     const kisSemanticRow = buildSanitizedInvestorFlowSemanticRow({
-      flow: input.kisInvestorRaw,
+      flow: actualFlowForSemantic,
       symbol: input.code,
       provider: 'KIS_API',
       providerScope: 'SYMBOL_LEVEL',
     });
-    kisRawRowAvailableAtAdapter = kisSemanticRow.rawFieldKeys.length > 0;
+    kisRawRowAvailableAtAdapter = kisSemanticRow.rawFieldKeys.length > 0 || sanitizedInvestorFlowRows.length > 0;
     kisNormalizedRowAvailableAtRouter = kisSemanticRow.normalizedFieldKeys.length > 0 || kisSemanticRow.foreignNetBuy !== null || kisSemanticRow.institutionalNetBuy !== null || kisSemanticRow.individualNetBuy !== null;
     semanticRowsByProvider.KIS_API = kisSemanticRow;
-    const kisSample = normalizeSemanticNetBuySampleAdr0477(input.kisInvestorRaw, 'KIS_API', {
+    const kisSample = normalizeSemanticNetBuySampleAdr0477((sanitizedInvestorFlowRows[0] ?? input.kisInvestorRaw) as Record<string, unknown>, 'KIS_API', {
       code: input.code,
       collectedAt,
       sourceAgeTradingDays: input.sourceAgeTradingDays,
@@ -1469,6 +1554,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     routeStatus = selectedDiagnosticCandidate.status === 'CACHE_HIT' ? 'OBSERVING' : selectedDiagnosticCandidate.status;
     providerStatuses[selectedDiagnosticCandidate.provider] = selectedDiagnosticCandidate.status;
     providerReasons[selectedDiagnosticCandidate.provider] = selectedDiagnosticCandidate.reason;
+    const diagnosticSample = samplesByProvider[selectedDiagnosticCandidate.provider];
+    if (!semanticNetBuy && diagnosticSample) semanticNetBuy = diagnosticSample;
     diagnostics.push(`diagnosticUsableCandidate selected provider=${selectedDiagnosticCandidate.provider}; source=${selectedDiagnosticCandidate.source}; status=${selectedDiagnosticCandidate.status}; selectedForShadow=true; selectedForLive=false`);
   }
 
@@ -1552,15 +1639,19 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   diagnostics.push(`sourceOfTruth=${selectedProvider === 'KRX_INVESTOR_FLOW' || selectedProvider === 'KRX_SYMBOL_INVESTOR_FLOW' || selectedProvider === 'KRX_MARKET_INVESTOR_FLOW' ? 'KRX' : selectedProvider === 'FSS_PASSIVE_ACTIVE' ? 'FSS_OFFICIAL_DIAGNOSTIC' : selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_SECONDARY' : selectedProvider === 'CACHE' ? 'CACHE_STALE_FALLBACK' : selectedProvider === 'SEMANTIC_NETBUY' ? 'SEMANTIC_DERIVED' : selectedProvider}; NAVER role=SECONDARY; SEMANTIC role=DERIVED; CACHE role=STALE_FALLBACK`);
   const kisSelectedCandidateCarriesSemanticRow = selectedProvider === 'KIS_API' && Boolean(selectedSemanticRow);
   const semanticRowBreakPoint = selectedProvider === 'KIS_API'
-    ? !kisRawRowAvailableAtAdapter
-      ? 'ADAPTER_DID_NOT_RETURN_RAW_ROW'
-      : !selectedSemanticRow
-        ? 'SELECTED_CANDIDATE_METADATA_ONLY'
-        : !kisNormalizedRowAvailableAtRouter
-          ? 'FIELD_ALIAS_NOT_MAPPED'
-          : 'UNKNOWN'
+    ? sanitizedInvestorFlowRows.length === 0 && selectedActualWrapperOnly
+      ? 'ONLY_WRAPPER_METADATA'
+      : sanitizedInvestorFlowRows.length === 0
+        ? 'NO_ROW_FOUND'
+        : !kisRawRowAvailableAtAdapter
+          ? 'ADAPTER_DID_NOT_RETURN_RAW_ROW'
+          : !selectedSemanticRow
+            ? 'SELECTED_CANDIDATE_METADATA_ONLY'
+            : !kisNormalizedRowAvailableAtRouter
+              ? 'FIELD_ALIAS_NOT_MAPPED'
+              : 'UNKNOWN'
     : undefined;
-  diagnostics.push(`kisRawRowAvailableAtAdapter=${kisRawRowAvailableAtAdapter}; kisNormalizedRowAvailableAtRouter=${kisNormalizedRowAvailableAtRouter}; kisSelectedCandidateCarriesSemanticRow=${kisSelectedCandidateCarriesSemanticRow}; semanticRowBreakPoint=${semanticRowBreakPoint ?? 'UNKNOWN'}; rawPayloadPersistenceAllowed=false`);
+  diagnostics.push(`kisRawRowAvailableAtAdapter=${kisRawRowAvailableAtAdapter}; kisNormalizedRowAvailableAtRouter=${kisNormalizedRowAvailableAtRouter}; kisSelectedCandidateCarriesSemanticRow=${kisSelectedCandidateCarriesSemanticRow}; semanticRowBreakPoint=${semanticRowBreakPoint ?? 'UNKNOWN'}; selectedActualRowPath=${selectedActualRowPath ?? 'none'}; selectedActualRowFieldKeys=${selectedActualRowFieldKeys.join(',') || 'none'}; selectedActualNumericStringFieldKeys=${selectedActualNumericStringFieldKeys.join(',') || 'none'}; sanitizedInvestorFlowRows=${sanitizedInvestorFlowRows.length}; rawPayloadPersistenceAllowed=false`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
     diagnostics.push(formatInvestorSampleDiagnosticsAdr0502(materialization));
@@ -1589,6 +1680,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses,
     semanticNetBuy: selectedSemanticNetBuy,
     semanticRow: selectedSemanticRow,
+    sanitizedInvestorFlowRows,
+    selectedActualRowPath,
+    selectedActualRowFieldKeys,
+    selectedActualNumericFieldKeys,
+    selectedActualNumericStringFieldKeys,
+    selectedActualPlaceholderFieldKeys,
     kisRawRowAvailableAtAdapter,
     kisNormalizedRowAvailableAtRouter,
     kisSelectedCandidateCarriesSemanticRow,
@@ -1743,6 +1840,9 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- kisNormalizedRowAvailableAtRouter: ${result.kisNormalizedRowAvailableAtRouter ?? false}`,
     `- kisSelectedCandidateCarriesSemanticRow: ${result.kisSelectedCandidateCarriesSemanticRow ?? false}`,
     `- semanticRowBreakPoint: ${result.semanticRowBreakPoint ?? 'UNKNOWN'}`,
+    `- selectedActualRowPath: ${result.selectedActualRowPath ?? 'NONE'}`,
+    `- selectedActualRowFieldKeys: ${result.selectedActualRowFieldKeys?.join(',') || 'NONE'}`,
+    `- selectedActualNumericStringFieldKeys: ${result.selectedActualNumericStringFieldKeys?.join(',') || 'NONE'}`,
 
     `- naverSampleStatus: ${result.naverSampleStatus ?? result.providerStatuses.NAVER_INVESTOR_TREND ?? result.providerStatuses.NAVER ?? 'DATA_UNAVAILABLE'}`,
     `- naverReadinessKind: ${result.naverReadinessKind ?? 'UNKNOWN'}`,

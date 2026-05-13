@@ -1236,3 +1236,49 @@ describe('ADR-0477 investor flow provider router evidence for ADR-0480', () => {
     expect(report.allActions[0].liveExecutionAllowed).toBe(false);
   });
 });
+
+describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004', () => {
+  it('carries selectedCandidate.rawRow actual investor row and records numeric string keys without order imports', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        selectedCandidate: {
+          rawRow: { frgn_ntby_tr_pbmn: '1,000', orgn_ntby_tr_pbmn: '2,000', accountNo: 'SHOULD_NOT_PERSIST' },
+        },
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.selectedProvider).toBe('KIS_API');
+    expect(route.sanitizedInvestorFlowRows?.length).toBeGreaterThan(0);
+    expect(route.selectedActualRowPath).toBe('input.selectedCandidate.rawRow');
+    expect(route.selectedActualNumericStringFieldKeys).toContain('frgn_ntby_tr_pbmn');
+    expect(JSON.stringify(route.sanitizedInvestorFlowRows)).not.toContain('accountNo');
+    expect(routerSource()).not.toMatch(/placeKisMarketBuyOrder|placeKisSellOrder|placeKisStopLossOrder|placeKisTakeProfitOrder|cancelKisOrder/);
+  });
+
+  it('records normalizedRow path and unwraps nested investorFlowSemanticRow.rawRow while ignoring wrapper metadata only', () => {
+    const normalized = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: { selectedCandidate: { normalizedRow: { foreignNetBuy: 10, institutionalNetBuy: 20 } } },
+      kisTriedForInvestorFlow: true,
+    });
+    expect(normalized.selectedActualRowPath).toBe('input.selectedCandidate.normalizedRow');
+    expect(normalized.selectedActualNumericFieldKeys).toContain('foreignNetBuy');
+
+    const nested = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: { selectedCandidate: { investorFlowSemanticRow: { rawRow: { frgn_ntby_tr_pbmn: '3', orgn_ntby_tr_pbmn: '4' } } } },
+      kisTriedForInvestorFlow: true,
+    });
+    expect(nested.selectedActualRowPath).toBe('input.selectedCandidate.investorFlowSemanticRow.rawRow');
+
+    const wrapperOnly = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: { selectedCandidate: { materializedCount: 1, normalizedCount: 1, rowCount: 1, providerScope: 'SYMBOL_LEVEL', executionImpact: 'NONE', scoreUsage: 'SHADOW_ONLY' } },
+      kisTriedForInvestorFlow: true,
+    });
+    expect(wrapperOnly.sanitizedInvestorFlowRows).toHaveLength(0);
+    expect(wrapperOnly.selectedActualRowPath).toBeNull();
+  });
+});

@@ -102,10 +102,17 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           semanticAvailable: healthRecord.status === 'VERIFIED',
           semanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
           investorFlowSemanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
+          sanitizedInvestorFlowRows: healthRecord.sanitizedInvestorFlowRows as Array<Record<string, unknown>> | undefined,
+          selectedActualRowPath: healthRecord.selectedActualRowPath as string | null | undefined,
+          selectedActualRowFieldKeys: healthRecord.selectedActualRowFieldKeys as string[] | undefined,
+          selectedActualNumericFieldKeys: healthRecord.selectedActualNumericFieldKeys as string[] | undefined,
+          selectedActualNumericStringFieldKeys: healthRecord.selectedActualNumericStringFieldKeys as string[] | undefined,
+          selectedActualPlaceholderFieldKeys: healthRecord.selectedActualPlaceholderFieldKeys as string[] | undefined,
           kisRawRowAvailableAtAdapter: healthRecord.kisRawRowAvailableAtAdapter as boolean | undefined,
           kisNormalizedRowAvailableAtRouter: healthRecord.kisNormalizedRowAvailableAtRouter as boolean | undefined,
           kisSelectedCandidateCarriesSemanticRow: healthRecord.kisSelectedCandidateCarriesSemanticRow as boolean | undefined,
           forensicInputCarriesSemanticRow: Boolean(healthRecord.semanticRow),
+          forensicInputCarriesActualInvestorRows: Array.isArray(healthRecord.sanitizedInvestorFlowRows) && healthRecord.sanitizedInvestorFlowRows.length > 0,
           semanticRowBreakPoint: (healthRecord.semanticRowBreakPoint as string | undefined) ?? (healthRecord.kisSelectedCandidateCarriesSemanticRow === false ? 'SELECTED_CANDIDATE_METADATA_ONLY' : undefined),
         }
       : undefined;

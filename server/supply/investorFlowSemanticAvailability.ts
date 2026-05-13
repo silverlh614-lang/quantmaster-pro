@@ -299,6 +299,7 @@ export type InvestorFlowSemanticAvailabilityReason =
   | 'FIELD_ALIAS_NOT_MAPPED'
   | 'ONLY_WRAPPER_OBJECT_SELECTED'
   | 'NO_ACTUAL_ROW_FOUND'
+  | 'ACTUAL_INVESTOR_ROW_NOT_CARRIED'
   | 'DEEP_UNWRAP_NO_NUMERIC_FIELDS'
   | 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN'
   | 'ALIAS_MAPPED_FOREIGN_ONLY'
@@ -393,8 +394,19 @@ const INVESTOR_FLOW_NESTED_PATHS = [
   'input.semanticRow.data',
   'input.selectedCandidate',
   'input.selectedCandidate.raw',
+  'input.selectedCandidate.rawRow',
   'input.selectedCandidate.normalized',
+  'input.selectedCandidate.normalizedRow',
+  'input.selectedCandidate.rows',
+  'input.selectedCandidate.data',
+  'input.selectedCandidate.payload',
+  'input.selectedCandidate.output',
+  'input.selectedCandidate.result',
+  'input.selectedCandidate.providerResult.raw',
+  'input.selectedCandidate.providerResult.normalized',
   'input.selectedCandidate.investorFlowSemanticRow',
+  'input.selectedCandidate.investorFlowSemanticRow.rawRow',
+  'input.selectedCandidate.investorFlowSemanticRow.normalizedRow',
   'input.providerResult',
   'input.providerResult.raw',
   'input.providerResult.normalized',
@@ -979,6 +991,7 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   semanticRowExpected?: boolean;
   semanticRowDropped?: boolean;
   forensicInputDroppedSemanticRow?: boolean;
+  actualInvestorRowCarried?: boolean;
 }): InvestorFlowSemanticAvailabilityResult {
   const fields = extractInvestorFlowSemanticFields(input.flow);
   const symbolOk = input.symbolMatched === true || input.inferredSymbolMatched === true;
@@ -991,6 +1004,7 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   else if (providerScope === 'SECTOR_LEVEL') reason = 'ONLY_SECTOR_LEVEL_FLOW';
   else if (providerScope !== 'SYMBOL_LEVEL') reason = 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL';
   else if (input.forensicInputDroppedSemanticRow) reason = 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW';
+  else if (input.actualInvestorRowCarried === false && !hasCoreField) reason = 'ACTUAL_INVESTOR_ROW_NOT_CARRIED';
   else if (input.semanticRowDropped) reason = 'ROUTER_DROPPED_SEMANTIC_ROW';
   else if (input.rawInvestorRowAvailable === false && !hasCoreField) reason = 'RAW_INVESTOR_ROW_MISSING';
   else if (isMetadataOnlySemanticRow(input.flow) && !hasCoreField) reason = 'SEMANTIC_ROW_METADATA_ONLY';
