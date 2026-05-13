@@ -324,6 +324,12 @@ export interface CreateBuyTaskParams {
   sourceLane?: 'SHADOW' | 'DECISION_BROKER' | 'PROVISIONAL' | 'COUNTERFACTUAL';
   /** Patch-SHADOW-APPROVAL-DEDUP-001 — dedupe 진단 lastRrr 기록 (dedupeKey 포함 X). */
   rrr?: number;
+  /** Patch-SHADOW-GATE-AUDIT-001 — Shadow Gate audit diagnostics only. */
+  mtas?: number;
+  compressionScore?: number;
+  signalType?: string;
+  gateBandNormal?: number;
+  gateBandStrong?: number;
 }
 
 /**
@@ -499,6 +505,11 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
       marketSession: p.marketSession,
       sourceLane:   p.sourceLane,
       rrr:          p.rrr,
+      mtas:         p.mtas,
+      compressionScore: p.compressionScore,
+      signalType:   p.signalType,
+      gateBandNormal: p.gateBandNormal,
+      gateBandStrong: p.gateBandStrong,
     }),
     execute: async (approval: ApprovalAction) => {
       if (approval !== 'APPROVE') {

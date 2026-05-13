@@ -762,6 +762,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               marketSession: _shadowApprovalCtx.marketSession,
               sourceLane: 'SHADOW',
               rrr: stock.rrr,
+              mtas: reCheckGateFollow?.mtas,
+              compressionScore: reCheckGateFollow?.compressionScore,
+              signalType: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+              gateBandNormal: getRegimeGateBand(ctx.regime).normal,
+              gateBandStrong: getRegimeGateBand(ctx.regime).strong,
               onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice); },
             }));
             // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
@@ -1019,6 +1024,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   marketSession: _shadowApprovalCtx.marketSession,
                   sourceLane: 'SHADOW',
                   rrr: stock.rrr,
+                  mtas: reCheckGatePb?.mtas,
+                  compressionScore: reCheckGatePb?.compressionScore,
+                  signalType: 'PRE_BREAKOUT_SHADOW_ALLOWED',
+                  gateBandNormal: getRegimeGateBand(ctx.regime).normal,
+                  gateBandStrong: getRegimeGateBand(ctx.regime).strong,
                   onApproved: async () => { ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbFinalQty * pbEntryPrice); },
                 }));
                 // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
@@ -2397,6 +2407,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         marketSession: _shadowApprovalCtx.marketSession,
         sourceLane: 'SHADOW',
         rrr: _rrr,
+        mtas: reCheckGate.mtas,
+        compressionScore: reCheckGate.compressionScore,
+        signalType: isFinalStrongBuy ? 'STRONG_BUY' : 'BUY',
+        gateBandNormal: getRegimeGateBand(ctx.regime).normal,
+        gateBandStrong: getRegimeGateBand(ctx.regime).strong,
         onApproved: async (t) => {
           ctx.shadows.push(t);
           await channelBuySignalEmitted({
