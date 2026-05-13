@@ -30,6 +30,7 @@ export interface SupplyBySymbolPayloadSnapshot {
   tradeDate: string;
   capturedAt: string;
   selectedProvider: string;
+  source: 'INVESTOR_FLOW_ROUTER';
   bySymbol: Record<string, SupplyBySymbolPayloadSnapshotEntry>;
 }
 
@@ -166,6 +167,7 @@ export function buildSupplyBySymbolPayloadSnapshot(input: {
     tradeDate: input.tradeDate ?? kstTradeDate(capturedAt),
     capturedAt,
     selectedProvider: input.routeResult?.selectedProvider ?? 'UNKNOWN',
+    source: 'INVESTOR_FLOW_ROUTER',
     bySymbol,
   };
 }

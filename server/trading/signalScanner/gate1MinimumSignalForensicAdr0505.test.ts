@@ -1252,6 +1252,7 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
 
     expect(JSON.stringify(snapshot)).not.toContain('appsecret');
     expect(JSON.stringify(snapshot)).not.toContain('accountNo');
+    expect(snapshot?.source).toBe('INVESTOR_FLOW_ROUTER');
     expect(JSON.stringify(snapshot)).not.toContain('selectedCandidate');
 
     const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
@@ -1343,6 +1344,8 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_STALE');
     expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.scoreUsage).toBe('SHADOW_ONLY');
     expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.liveExecutionAllowed).toBe(false);
+    expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
+    expect(inputs[0].actualInvestorFlowCarried).toBe(false);
   });
 
 });
