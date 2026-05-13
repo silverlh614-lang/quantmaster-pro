@@ -648,6 +648,7 @@ const scanBlockers: TelegramCommand = {
     let supplyRecoveryRuntimeMountLine: string | null = null;
     let freshDataSupplyLine: string | null = null;
     let sectorEnergySupplyUnknownLine: string | null = null;
+    let supplySemanticAuditSection: string | null = null;
     try {
       const recoveryReport = summary?.supplyCoverageRecoveryAdr0484 ?? buildSupplyCoverageRecoveryObservationReportAdr0484({ scanSummary: summary, persist: false });
       supplyCoverageRecoveryLine = formatSupplyCoverageRecoveryCompactAdr0484(recoveryReport);
@@ -700,6 +701,44 @@ const scanBlockers: TelegramCommand = {
         marketSignal: false,
       });
       sectorEnergySupplyUnknownLine = formatSectorEnergySupplyUnknownCompactAdr0488(sectorEnergySupplyUnknownReportForOperator);
+      const forensic = summary?.gate1MinimumSignalForensicAdr0505;
+      if (forensic?.totalCandidates && forensic.totalCandidates > 0) {
+        const reasonTop = Object.entries(forensic.semanticReasonDistribution ?? {})
+          .filter(([, count]) => Number(count) > 0)
+          .sort((a, b) => Number(b[1]) - Number(a[1]))
+          .slice(0, 2)
+          .map(([reason, count]) => `${reason} ${count}`)
+          .join(', ') || 'none';
+        const scoreUsage = Object.entries(forensic.scoreUsageDistribution ?? {})
+          .filter(([, count]) => Number(count) > 0)
+          .sort((a, b) => Number(b[1]) - Number(a[1]))
+          .map(([usage]) => usage)
+          .join(',') || 'SHADOW_ONLY';
+        const nextAction = reasonTop.includes('NO_FOREIGN_OR_INSTITUTION_FIELD')
+          ? 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS'
+          : reasonTop.includes('ROW_MAPPING_FAILED')
+            ? 'MAP_INVESTOR_TYPE_ROWS_TO_NETBUY'
+            : reasonTop.includes('ONLY_MARKET_LEVEL_FLOW') || reasonTop.includes('ONLY_SECTOR_LEVEL_FLOW')
+              ? 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE'
+              : (forensic.zeroButMaterializedCount ?? 0) > 0
+                ? 'OBSERVE_ZERO_NEUTRAL_SUPPLY'
+                : 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
+        supplySemanticAuditSection = [
+          '🔌 Supply Semantic Audit (ADR-0482)',
+          `• selectedProvider: ${summary?.investorFlowProviderRouter?.selectedProvider ?? 'KIS_API'}`,
+          `• symbolMatched: ${forensic.symbolMatchedCount ?? forensic.supplySymbolMatchedCount ?? 0}/${forensic.totalCandidates}`,
+          `• semanticAvailable: ${forensic.supplySemanticAvailable ?? 0}/${forensic.totalCandidates}`,
+          `• diagnosticAvailable: ${forensic.supplyDiagnosticAvailable ?? 0}/${forensic.totalCandidates}`,
+          `• foreignNetBuy: ${forensic.foreignNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
+          `• institutionalNetBuy: ${forensic.institutionalNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
+          `• reasonTop: ${reasonTop}`,
+          `• scoreUsage: ${scoreUsage}`,
+          '• marketSignal=false',
+          '• executionImpact=NONE',
+          `• supplyRouterForensicConflict=${forensic.supplyRouterForensicConflict === true}`,
+          `• nextAction: ${nextAction}`,
+        ].join('\n');
+      }
     } catch (err) {
       console.warn('[scan_blockers] ADR-0484/0485/0486/0487/0488 supply recovery/readiness/mount/fresh-data/unknown line failed:', err);
     }
@@ -735,6 +774,7 @@ const scanBlockers: TelegramCommand = {
     if (supplyRecoveryRuntimeMountLine) parts.push(supplyRecoveryRuntimeMountLine);
     if (freshDataSupplyLine) parts.push(freshDataSupplyLine);
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
+    if (supplySemanticAuditSection) parts.push(supplySemanticAuditSection);
     if (supplySnapshotLine) parts.push(supplySnapshotLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
 
