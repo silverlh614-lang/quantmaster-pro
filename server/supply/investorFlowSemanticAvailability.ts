@@ -191,6 +191,27 @@ export interface InvestorFlowSemanticRowAudit {
 
 export type InvestorFlowSampleValueKind = 'number' | 'numericString' | 'empty' | 'placeholder';
 
+export type InvestorFlowUnwrapReason =
+  | 'FOUND_DIRECT_ROW'
+  | 'FOUND_NESTED_INVESTOR_FLOW_SEMANTIC_ROW'
+  | 'FOUND_NESTED_RAW_ROW'
+  | 'FOUND_NESTED_NORMALIZED_ROW'
+  | 'FOUND_ROWS_ARRAY'
+  | 'FOUND_DATA_ARRAY'
+  | 'ONLY_WRAPPER_METADATA'
+  | 'NO_ROW_FOUND';
+
+export interface InvestorFlowRowsUnwrapDiagnostic {
+  rows: Array<Record<string, unknown>>;
+  paths: string[];
+  wrapperKeys: string[];
+  rawFieldKeys: string[];
+  numericStringFieldKeys: string[];
+  placeholderFieldKeys: string[];
+  selectedPath: string | null;
+  reason: InvestorFlowUnwrapReason;
+}
+
 export interface InvestorFlowFieldKeyDiscoveryDiagnostic {
   kisRawFieldKeysTop: string[];
   kisNormalizedFieldKeysTop: string[];
@@ -200,6 +221,15 @@ export interface InvestorFlowFieldKeyDiscoveryDiagnostic {
     institution: string[];
     individual: string[];
   };
+  unwrapRows?: number;
+  selectedPath?: string | null;
+  unwrapReason?: InvestorFlowUnwrapReason;
+  wrapperKeys?: string[];
+  actualRawFieldKeysTop?: string[];
+  actualNumericStringFieldKeysTop?: string[];
+  actualNumberFieldKeysTop?: string[];
+  actualPlaceholderFieldKeysTop?: string[];
+  candidateNetBuyFieldKeysTop?: string[];
 }
 
 export type InvestorFlowProviderScope = 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
@@ -279,6 +309,213 @@ export interface InvestorFlowSemanticAvailabilityResult extends InvestorFlowSema
   wouldBeEligibleIfForeignOrInstitutionFieldMapped?: boolean;
   wouldBeSemanticAvailableIfFieldMapped?: boolean;
   wouldBeZeroNeutralIfAllZero?: boolean;
+  semanticRowBreakPoint?: string;
+}
+
+
+const INVESTOR_FLOW_WRAPPER_METADATA_KEYS = new Set([
+  'candidateSymbol',
+  'quoteSymbol',
+  'providerSymbol',
+  'normalizedSymbol',
+  'requestSymbol',
+  'providerScope',
+  'selectedProvider',
+  'materialized',
+  'usableForRouter',
+  'usableForGate',
+  'usableForLive',
+  'usableForShadow',
+  'forensicInputCarriesSemanticRow',
+  'kisNormalizedRowAvailableAtRouter',
+  'kisRawRowAvailableAtAdapter',
+  'kisSelectedCandidateCarriesSemanticRow',
+  'investorFlowSemanticRow',
+  'semanticRowBreakPoint',
+  'scoreUsage',
+  'executionImpact',
+  'symbol',
+  'provider',
+  'routePurpose',
+  'semanticAvailable',
+  'status',
+  'signal',
+  'source',
+  'stale',
+  'liveExecutionAllowed',
+]);
+
+const PRIVATE_OR_SECRET_FIELD_PATTERN = /token|secret|password|authorization|auth|appkey|appsecret|account|acct|cano|acnt/i;
+
+const INVESTOR_FLOW_NESTED_PATHS = [
+  'input',
+  'input.raw',
+  'input.rawRow',
+  'input.normalized',
+  'input.normalizedRow',
+  'input.investorFlowSemanticRow',
+  'input.semanticRow',
+  'input.selectedCandidate',
+  'input.selectedCandidate.raw',
+  'input.selectedCandidate.normalized',
+  'input.selectedCandidate.investorFlowSemanticRow',
+  'input.providerResult',
+  'input.providerResult.raw',
+  'input.providerResult.normalized',
+  'input.data',
+  'input.rows',
+  'input.payload',
+  'input.output',
+  'input.result',
+  'input.items',
+] as const;
+
+function safeObjectRows(value: unknown, limit = 8): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, limit)
+      .filter((row): row is Record<string, unknown> => row != null && typeof row === 'object' && !Array.isArray(row));
+  }
+  if (value != null && typeof value === 'object' && !Array.isArray(value)) return [value as Record<string, unknown>];
+  return [];
+}
+
+function getPathValue(input: unknown, path: string): unknown {
+  if (path === 'input') return input;
+  const parts = path.replace(/^input\.?/, '').split('.').filter(Boolean);
+  let current = input;
+  for (const part of parts) {
+    if (current == null || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function isRawDiscoveryKey(key: string): boolean {
+  return !INVESTOR_FLOW_WRAPPER_METADATA_KEYS.has(key) && !PRIVATE_OR_SECRET_FIELD_PATTERN.test(key);
+}
+
+function actualEntries(row: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(row).filter(([key, value]) => isRawDiscoveryKey(key) && (value == null || typeof value !== 'object'));
+}
+
+function rowActualKeyCount(row: Record<string, unknown>): number {
+  return actualEntries(row).length;
+}
+
+function rowNumericSignalCount(row: Record<string, unknown>): number {
+  return actualEntries(row).filter(([, value]) => {
+    const kind = sampleValueKind(value);
+    return kind === 'number' || kind === 'numericString';
+  }).length;
+}
+
+function rowAliasSignalCount(row: Record<string, unknown>): number {
+  const aliasGroups = [
+    FOREIGN_NET_BUY_ALIASES,
+    INSTITUTIONAL_NET_BUY_ALIASES,
+    INDIVIDUAL_NET_BUY_ALIASES,
+    NET_BUY_AMOUNT_ALIASES,
+    NET_BUY_VOLUME_ALIASES,
+    FOREIGN_BUY_ALIASES,
+    FOREIGN_SELL_ALIASES,
+    INSTITUTIONAL_BUY_ALIASES,
+    INSTITUTIONAL_SELL_ALIASES,
+    INDIVIDUAL_BUY_ALIASES,
+    INDIVIDUAL_SELL_ALIASES,
+    COMMON_BUY_AMOUNT_ALIASES,
+    COMMON_SELL_AMOUNT_ALIASES,
+  ];
+  let count = 0;
+  for (const aliases of aliasGroups) {
+    if (firstNumberLikeField(row, aliases).rawMaterialized) count += 1;
+  }
+  return count;
+}
+
+function unwrapReasonForPath(path: string, rows: Array<Record<string, unknown>>, input: unknown): InvestorFlowUnwrapReason {
+  if (path === 'input') return 'FOUND_DIRECT_ROW';
+  if (path.includes('investorFlowSemanticRow') || path.includes('semanticRow')) return 'FOUND_NESTED_INVESTOR_FLOW_SEMANTIC_ROW';
+  if (path.includes('rawRow') || path.endsWith('.raw')) return 'FOUND_NESTED_RAW_ROW';
+  if (path.includes('normalizedRow') || path.endsWith('.normalized')) return 'FOUND_NESTED_NORMALIZED_ROW';
+  if (path.includes('rows') || (Array.isArray(getPathValue(input, path)) && path !== 'input.data')) return 'FOUND_ROWS_ARRAY';
+  if (path.includes('data')) return 'FOUND_DATA_ARRAY';
+  return rows.length > 1 ? 'FOUND_ROWS_ARRAY' : 'FOUND_DIRECT_ROW';
+}
+
+export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDiagnostic {
+  const wrapperKeys = input != null && typeof input === 'object' && !Array.isArray(input)
+    ? Object.keys(input as Record<string, unknown>).filter((key) => INVESTOR_FLOW_WRAPPER_METADATA_KEYS.has(key))
+    : [];
+  const candidates: Array<{ path: string; rows: Array<Record<string, unknown>>; score: number; order: number }> = [];
+  const seen = new Set<unknown>();
+  const pathsSeen = new Set<string>();
+  const addCandidate = (path: string, value: unknown, order: number) => {
+    if (value == null || seen.has(value)) return;
+    seen.add(value);
+    const rows = safeObjectRows(value);
+    if (rows.length === 0) return;
+    const actualKeyTotal = rows.reduce((sum, row) => sum + rowActualKeyCount(row), 0);
+    const numericTotal = rows.reduce((sum, row) => sum + rowNumericSignalCount(row), 0);
+    const aliasTotal = rows.reduce((sum, row) => sum + rowAliasSignalCount(row), 0);
+    const investorTypeTotal = rows.filter((row) => INVESTOR_TYPE_KEYS.some((key) => classifyInvestorType(row[key]))).length;
+    const arrayBonus = Array.isArray(value) ? 4 : 0;
+    const nestedBonus = path === 'input' ? 0 : 2;
+    const score = aliasTotal * 100 + investorTypeTotal * 40 + numericTotal * 20 + actualKeyTotal + arrayBonus + nestedBonus;
+    if (score <= 0) return;
+    candidates.push({ path: path.replace(/^input\.?/, '') || 'input', rows, score, order });
+    pathsSeen.add(path.replace(/^input\.?/, '') || 'input');
+  };
+
+  INVESTOR_FLOW_NESTED_PATHS.forEach((path, index) => addCandidate(path, getPathValue(input, path), index));
+
+  const queue: Array<{ value: unknown; path: string; depth: number }> = [{ value: input, path: 'input', depth: 0 }];
+  const recursiveSeen = new Set<unknown>();
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.value == null || typeof current.value !== 'object' || recursiveSeen.has(current.value) || current.depth > 3) continue;
+    recursiveSeen.add(current.value);
+    if (Array.isArray(current.value)) {
+      addCandidate(current.path, current.value, 100 + current.depth);
+      for (const [index, item] of current.value.slice(0, 5).entries()) queue.push({ value: item, path: `${current.path}[${index}]`, depth: current.depth + 1 });
+      continue;
+    }
+    const obj = current.value as Record<string, unknown>;
+    for (const [key, value] of Object.entries(obj)) {
+      if (PRIVATE_OR_SECRET_FIELD_PATTERN.test(key)) continue;
+      const childPath = `${current.path}.${key}`;
+      if (Array.isArray(value) || (value != null && typeof value === 'object')) {
+        addCandidate(childPath, value, 100 + current.depth);
+        queue.push({ value, path: childPath, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score || a.order - b.order || a.path.localeCompare(b.path));
+  const selected = candidates[0];
+  const rows = selected?.rows ?? [];
+  const rawFieldKeys: string[] = [];
+  const numericStringFieldKeys: string[] = [];
+  const placeholderFieldKeys: string[] = [];
+  for (const row of rows) {
+    for (const [key, value] of actualEntries(row)) {
+      rawFieldKeys.push(key);
+      const kind = sampleValueKind(value);
+      if (kind === 'numericString') numericStringFieldKeys.push(key);
+      else if (kind === 'placeholder' || kind === 'empty') placeholderFieldKeys.push(key);
+    }
+  }
+  const hasWrapperOnly = wrapperKeys.length > 0 && rawFieldKeys.length === 0;
+  return {
+    rows,
+    paths: Array.from(pathsSeen),
+    wrapperKeys: topUnique(wrapperKeys),
+    rawFieldKeys: topUnique(rawFieldKeys),
+    numericStringFieldKeys: topUnique(numericStringFieldKeys),
+    placeholderFieldKeys: topUnique(placeholderFieldKeys),
+    selectedPath: selected?.path ?? null,
+    reason: selected ? unwrapReasonForPath(selected.path, rows, input) : hasWrapperOnly ? 'ONLY_WRAPPER_METADATA' : 'NO_ROW_FOUND',
+  };
 }
 
 const FOREIGN_NET_BUY_ALIASES = [
@@ -334,10 +571,12 @@ const INDIVIDUAL_NET_BUY_ALIASES = [
 const INDIVIDUAL_BUY_ALIASES = ['individualBuy', 'individualBuyAmount', 'individualBuyVolume', 'retailBuy', 'prsnBuy', 'indvBuy', 'indv_buy', 'indv_shnu_qty'] as const;
 const INDIVIDUAL_SELL_ALIASES = ['individualSell', 'individualSellAmount', 'individualSellVolume', 'retailSell', 'prsnSell', 'indvSell', 'indv_sell', 'indv_seln_qty'] as const;
 const PROGRAM_NET_BUY_ALIASES = ['programNetBuy'] as const;
-const NET_BUY_AMOUNT_ALIASES = ['netBuyAmount', 'netAmount', 'buyAmount', 'sellAmount'] as const;
-const NET_BUY_VOLUME_ALIASES = ['netBuyVolume', 'netVolume', 'buyVolume', 'sellVolume'] as const;
+const NET_BUY_AMOUNT_ALIASES = ['netBuyAmount', 'netAmount', 'netBuy', 'net_buy'] as const;
+const NET_BUY_VOLUME_ALIASES = ['netBuyVolume', 'netVolume', 'netVol', 'ntby', 'ntby_qty', 'ntby_tr_pbmn'] as const;
+const COMMON_BUY_AMOUNT_ALIASES = ['buyAmount', 'buyVolume', 'buyQty', 'buyQuantity', 'shnu_qty'] as const;
+const COMMON_SELL_AMOUNT_ALIASES = ['sellAmount', 'sellVolume', 'sellQty', 'sellQuantity', 'seln_qty'] as const;
 const ROW_ARRAY_KEYS = ['rows', 'data', 'items', 'investorFlows', 'investorFlow', 'flows', 'result', 'output'] as const;
-const INVESTOR_TYPE_KEYS = ['investorType', 'invstType', 'trdVolType', 'invrDvsn', 'type', 'investor', 'invrDvsnName', 'invr_dvsn_name'] as const;
+const INVESTOR_TYPE_KEYS = ['investorType', 'invstType', 'invrDvsn', 'trdVolType', 'investorName', 'type', 'investor', 'invrDvsnName', 'invr_dvsn_name'] as const;
 
 export function normalizeNumberLikeInvestorFlowValue(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
@@ -391,18 +630,41 @@ function sampleValueKind(value: unknown): InvestorFlowSampleValueKind | null {
   return normalizeNumberLikeInvestorFlowValue(trimmed) !== null ? 'numericString' : null;
 }
 
-function collectRawRowsAndKeys(input: unknown): { keys: string[]; values: unknown[] } {
+function collectRawRowsAndKeys(input: unknown): { keys: string[]; values: unknown[]; numberKeys: string[]; numericStringKeys: string[]; placeholderKeys: string[]; candidateNetBuyKeys: string[]; unwrap: InvestorFlowRowsUnwrapDiagnostic } {
+  const unwrap = unwrapInvestorFlowRows(input);
   const keys: string[] = [];
   const values: unknown[] = [];
-  const addObject = (obj: Record<string, unknown>) => {
-    for (const [key, value] of Object.entries(obj)) {
+  const numberKeys: string[] = [];
+  const numericStringKeys: string[] = [];
+  const placeholderKeys: string[] = [];
+  const candidateNetBuyKeys: string[] = [];
+  const netBuyAliases = new Set<string>([
+    ...FOREIGN_NET_BUY_ALIASES,
+    ...INSTITUTIONAL_NET_BUY_ALIASES,
+    ...INDIVIDUAL_NET_BUY_ALIASES,
+    ...NET_BUY_AMOUNT_ALIASES,
+    ...NET_BUY_VOLUME_ALIASES,
+    ...FOREIGN_BUY_ALIASES,
+    ...FOREIGN_SELL_ALIASES,
+    ...INSTITUTIONAL_BUY_ALIASES,
+    ...INSTITUTIONAL_SELL_ALIASES,
+    ...INDIVIDUAL_BUY_ALIASES,
+    ...INDIVIDUAL_SELL_ALIASES,
+    ...COMMON_BUY_AMOUNT_ALIASES,
+    ...COMMON_SELL_AMOUNT_ALIASES,
+  ]);
+  for (const row of unwrap.rows) {
+    for (const [key, value] of actualEntries(row)) {
       keys.push(key);
       values.push(value);
+      const kind = sampleValueKind(value);
+      if (kind === 'number') numberKeys.push(key);
+      if (kind === 'numericString') numericStringKeys.push(key);
+      if (kind === 'placeholder' || kind === 'empty') placeholderKeys.push(key);
+      if (netBuyAliases.has(key) || /ntby|netBuy|buy|sell|shnu|seln/i.test(key)) candidateNetBuyKeys.push(key);
     }
-  };
-  if (input != null && typeof input === 'object' && !Array.isArray(input)) addObject(input as Record<string, unknown>);
-  for (const row of findRows(input)) addObject(row);
-  return { keys, values };
+  }
+  return { keys, values, numberKeys, numericStringKeys, placeholderKeys, candidateNetBuyKeys, unwrap };
 }
 
 function topUnique(values: readonly string[], limit = 16): string[] {
@@ -433,10 +695,19 @@ function buildFieldKeyDiagnostics(
     kisNormalizedFieldKeysTop: topUnique(normalizedKeys),
     sampleValueKinds,
     candidateMappedFields: {
-      foreign: source.foreignNetBuy ? [source.foreignNetBuy] : [],
-      institution: source.institutionalNetBuy ? [source.institutionalNetBuy] : [],
-      individual: source.individualNetBuy ? [source.individualNetBuy] : [],
+      foreign: source.foreignNetBuy ? [source.foreignNetBuy.replace(/^row\./, '')] : [],
+      institution: source.institutionalNetBuy ? [source.institutionalNetBuy.replace(/^row\./, '')] : [],
+      individual: source.individualNetBuy ? [source.individualNetBuy.replace(/^row\./, '')] : [],
     },
+    unwrapRows: raw.unwrap.rows.length,
+    selectedPath: raw.unwrap.selectedPath,
+    unwrapReason: raw.unwrap.reason,
+    wrapperKeys: raw.unwrap.wrapperKeys,
+    actualRawFieldKeysTop: topUnique(raw.keys),
+    actualNumericStringFieldKeysTop: topUnique(raw.numericStringKeys),
+    actualNumberFieldKeysTop: topUnique(raw.numberKeys),
+    actualPlaceholderFieldKeysTop: topUnique(raw.placeholderKeys),
+    candidateNetBuyFieldKeysTop: topUnique(raw.candidateNetBuyKeys),
   };
 }
 
@@ -462,14 +733,7 @@ function classifyInvestorType(value: unknown): 'foreign' | 'institutional' | 'in
 }
 
 function findRows(input: unknown): Record<string, unknown>[] {
-  if (Array.isArray(input)) return input.filter((row): row is Record<string, unknown> => row != null && typeof row === 'object' && !Array.isArray(row));
-  if (input == null || typeof input !== 'object') return [];
-  const obj = input as Record<string, unknown>;
-  for (const key of ROW_ARRAY_KEYS) {
-    const candidate = obj[key];
-    if (Array.isArray(candidate)) return candidate.filter((row): row is Record<string, unknown> => row != null && typeof row === 'object' && !Array.isArray(row));
-  }
-  return [];
+  return unwrapInvestorFlowRows(input).rows;
 }
 
 function extractRowFields(input: unknown): Partial<InvestorFlowSemanticFields> & InvestorFlowSemanticRowAudit {
@@ -482,12 +746,14 @@ function extractRowFields(input: unknown): Partial<InvestorFlowSemanticFields> &
     if (typeof investorTypeRaw === 'string' && investorTypeRaw.trim()) audit.investorTypesDetected.push(investorTypeRaw.trim());
     const investorType = classifyInvestorType(investorTypeRaw);
     if (!investorType) continue;
-    const direct = firstNumberLikeField(row, [...NET_BUY_AMOUNT_ALIASES, ...NET_BUY_VOLUME_ALIASES, 'netBuy', 'net_buy', 'ntby', 'ntby_qty', 'ntby_tr_pbmn']);
-    const pair = investorType === 'foreign'
+    const direct = firstNumberLikeField(row, [...NET_BUY_AMOUNT_ALIASES, ...NET_BUY_VOLUME_ALIASES, 'ntby', 'ntby_qty', 'ntby_tr_pbmn']);
+    const typedPair = investorType === 'foreign'
       ? numberLikePairDifference(row, FOREIGN_BUY_ALIASES, FOREIGN_SELL_ALIASES)
       : investorType === 'institutional'
         ? numberLikePairDifference(row, INSTITUTIONAL_BUY_ALIASES, INSTITUTIONAL_SELL_ALIASES)
         : numberLikePairDifference(row, INDIVIDUAL_BUY_ALIASES, INDIVIDUAL_SELL_ALIASES);
+    const commonPair = numberLikePairDifference(row, COMMON_BUY_AMOUNT_ALIASES, COMMON_SELL_AMOUNT_ALIASES);
+    const pair = typedPair.value !== null ? typedPair : commonPair;
     const net = direct.value !== null ? direct : pair;
     if (net.value === null) continue;
     if (investorType === 'foreign') {
@@ -527,7 +793,8 @@ export function extractInvestorFlowSemanticFields(input: unknown): InvestorFlowS
     placeholderOnly: false,
   };
   if (input == null) return base;
-  const obj = Array.isArray(input) ? {} : typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const unwrap = unwrapInvestorFlowRows(input);
+  const obj = unwrap.rows[0] ?? (Array.isArray(input) ? {} : typeof input === 'object' ? (input as Record<string, unknown>) : {});
   const row = extractRowFields(input);
   Object.assign(sourceFields, row.sourceFields ?? {});
   base.rowCount = row.rowCount;
@@ -621,9 +888,7 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   semanticRowDropped?: boolean;
   forensicInputDroppedSemanticRow?: boolean;
 }): InvestorFlowSemanticAvailabilityResult {
-  const flowRecord = input.flow && typeof input.flow === 'object' ? input.flow as Record<string, unknown> : undefined;
-  const semanticRow = flowRecord?.semanticRow ?? flowRecord?.investorFlowSemanticRow ?? flowRecord?.sanitizedSemanticRow;
-  const fields = extractInvestorFlowSemanticFields(semanticRow ?? input.flow);
+  const fields = extractInvestorFlowSemanticFields(input.flow);
   const symbolOk = input.symbolMatched === true || input.inferredSymbolMatched === true;
   const providerScope = input.providerScope ?? 'UNKNOWN';
   const hasCoreField = fields.foreignNetBuy !== null || fields.institutionalNetBuy !== null;
@@ -646,6 +911,21 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   else reason = 'AVAILABLE';
 
   const available = reason === 'AVAILABLE' || reason === 'ZERO_BUT_MATERIALIZED';
+  const fieldDiagnostics = fields.fieldKeyDiagnostics;
+  const actualNumericFieldCount = (fieldDiagnostics?.actualNumericStringFieldKeysTop?.length ?? 0) + (fieldDiagnostics?.actualNumberFieldKeysTop?.length ?? 0);
+  const semanticRowBreakPoint = available
+    ? 'FIELD_ALIAS_MAPPED'
+    : fieldDiagnostics?.unwrapReason === 'ONLY_WRAPPER_METADATA'
+      ? 'ONLY_WRAPPER_METADATA'
+      : fieldDiagnostics?.unwrapReason === 'NO_ROW_FOUND'
+        ? 'NO_ROW_FOUND'
+        : (fields.rowCount ?? 0) > 0 && (fields.investorTypesDetected?.length ?? 0) > 0 && fields.rowMappingConfidence === 'LOW'
+          ? 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED'
+          : actualNumericFieldCount > 0
+            ? 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED'
+            : (fieldDiagnostics?.unwrapRows ?? 0) > 0
+              ? 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED'
+              : 'NO_ROW_FOUND';
   const hasFlowObject = input.flow != null && typeof input.flow === 'object';
   const diagnosticAvailable = materialized || fields.materializedCount > 0 || fields.rowCount! > 0 || (hasFlowObject && symbolOk && providerScope === 'SYMBOL_LEVEL');
   return {
@@ -662,6 +942,7 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
     wouldBeEligibleIfForeignOrInstitutionFieldMapped: !hasCoreField && symbolOk && providerScope === 'SYMBOL_LEVEL',
     wouldBeSemanticAvailableIfFieldMapped: !hasCoreField && symbolOk && providerScope === 'SYMBOL_LEVEL',
     wouldBeZeroNeutralIfAllZero: fields.allMaterializedValuesZero === true,
+    semanticRowBreakPoint,
   };
 }
 

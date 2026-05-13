@@ -20,7 +20,7 @@ import type {
   SignalScoreComponentCode,
 } from './minimumSignalScoreTrace.js';
 import { projectGateOutputsToConditionResultsTrace, conditionResultsTraceToMap } from './gateConditionResultTrace.js';
-import { extractInvestorFlowSemanticFields, evaluateInvestorFlowSemanticAvailabilityV2 } from '../../supply/investorFlowSemanticAvailability.js';
+import { extractInvestorFlowSemanticFields, evaluateInvestorFlowSemanticAvailabilityV2, unwrapInvestorFlowRows } from '../../supply/investorFlowSemanticAvailability.js';
 
 function makeComponent(
   code: SignalScoreComponentCode,
@@ -647,6 +647,102 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(summary.mappedFieldDistribution?.institution.orgn_ntby_tr_pbmn).toBe(1);
     });
 
+  describe('Patch-KIS-INVESTOR-FLOW-ROW-UNWRAP-003 — nested row unwrap diagnostics', () => {
+    it('wrapper object 안의 investorFlowSemanticRow를 unwrap하고 metadata key를 actual raw key에서 제외한다', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: {
+          candidateSymbol: '005930',
+          forensicInputCarriesSemanticRow: true,
+          kisNormalizedRowAvailableAtRouter: true,
+          investorFlowSemanticRow: { frgn_ntby_tr_pbmn: '1,234', orgn_ntby_tr_pbmn: '-2,000', indv_ntby_tr_pbmn: '766' },
+        },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(true);
+      expect(result.foreignNetBuy).toBe(1234);
+      expect(result.institutionalNetBuy).toBe(-2000);
+      expect(result.fieldKeyDiagnostics?.selectedPath).toBe('investorFlowSemanticRow');
+      expect(result.fieldKeyDiagnostics?.actualRawFieldKeysTop).toContain('frgn_ntby_tr_pbmn');
+      expect(result.fieldKeyDiagnostics?.actualRawFieldKeysTop).not.toContain('candidateSymbol');
+      expect(result.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop).toContain('frgn_ntby_tr_pbmn');
+      expect(result.semanticRowBreakPoint).toBe('FIELD_ALIAS_MAPPED');
+    });
+
+    it('rawRow nested object와 rows array를 unwrap한다', () => {
+      const rawRowResult = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { candidateSymbol: '005930', rawRow: { frgn_ntby_tr_pbmn: '10', orgn_ntby_tr_pbmn: '20' } },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(rawRowResult.available).toBe(true);
+      expect(rawRowResult.fieldKeyDiagnostics?.selectedPath).toBe('rawRow');
+
+      const rowsResult = unwrapInvestorFlowRows({ rows: [{ investorType: '외국인', netBuyAmount: '1,000' }] });
+      expect(rowsResult.rows).toHaveLength(1);
+      expect(rowsResult.selectedPath).toBe('rows');
+      expect(rowsResult.reason).toBe('FOUND_ROWS_ARRAY');
+    });
+
+    it('frgn/orgn alias와 investorType row array를 nested row에서 매핑한다', () => {
+      const aliasResult = extractInvestorFlowSemanticFields({
+        payload: { rawRow: { frgn_ntby_tr_pbmn: '3,000', orgn_ntby_tr_pbmn: '-1,000' } },
+      });
+      expect(aliasResult.foreignNetBuy).toBe(3000);
+      expect(aliasResult.institutionalNetBuy).toBe(-1000);
+
+      const rowArrayResult = extractInvestorFlowSemanticFields({
+        output: [
+          { investorName: '외국인', buyAmount: '2,500', sellAmount: '500' },
+          { investorName: '기관', netBuyVolume: '-700' },
+        ],
+      });
+      expect(rowArrayResult.foreignNetBuy).toBe(2000);
+      expect(rowArrayResult.institutionalNetBuy).toBe(-700);
+      expect(rowArrayResult.rowMappingConfidence).toBe('HIGH');
+    });
+
+    it('only wrapper metadata와 alias 미인식 numeric field breakPoint를 분리한다', () => {
+      const wrapperOnly = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { candidateSymbol: '005930', kisRawRowAvailableAtAdapter: true, forensicInputCarriesSemanticRow: true },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(wrapperOnly.semanticRowBreakPoint).toBe('ONLY_WRAPPER_METADATA');
+
+      const numericUnknown = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { rawRow: { mystery_net_flow: '123', another_amount: 10 } },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(numericUnknown.available).toBe(false);
+      expect(numericUnknown.semanticRowBreakPoint).toBe('NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED');
+      expect(numericUnknown.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop).toContain('mystery_net_flow');
+    });
+
+    it('/scan_blockers supply section exposes Supply Semantic Unwrap diagnostics', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
+        kisFlow: {
+          symbol: '005930',
+          requestSymbol: '005930',
+          providerScope: 'SYMBOL_LEVEL',
+          selectedProvider: 'KIS_API',
+          candidateSymbol: '005930',
+          investorFlowSemanticRow: { frgn_ntby_tr_pbmn: '1', orgn_ntby_tr_pbmn: '2' } as never,
+        },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+      const out = formatGate1MinimumSignalForensicSection(summary)!;
+      expect(summary.actualNumericStringFieldKeysTop?.frgn_ntby_tr_pbmn).toBe(1);
+      expect(summary.semanticRowBreakPointDistribution?.FIELD_ALIAS_MAPPED).toBe(1);
+      expect(out).toContain('Supply Semantic Unwrap');
+      expect(out).toContain('actualNumericStringFieldKeysTop');
+      expect(out).toContain('nextAction');
+    });
+  });
+
+
     it('symbolMatched=false면 semanticAvailable=false', () => {
       const result = evaluateInvestorFlowSemanticAvailabilityV2({
         flow: { foreignNetBuy: 10 },
@@ -679,7 +775,7 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(summary.supplyRouterForensicConflict).toBe(true);
       expect(summary.semanticReasonDistribution?.SEMANTIC_ROW_METADATA_ONLY).toBe(1);
       expect(summary.semanticRowMetadataOnlyCount).toBe(1);
-      expect(summary.semanticRowBreakPointDistribution?.SELECTED_CANDIDATE_METADATA_ONLY).toBe(1);
+      expect(summary.semanticRowBreakPointDistribution?.ONLY_WRAPPER_METADATA).toBe(1);
       expect(summary.supplyUnknownRootCauseDistribution?.SUPPLY_SEMANTIC_ROW_METADATA_ONLY).toBe(1);
       const out = formatGate1MinimumSignalForensicSection(summary)!;
       expect(out).toContain('supplySemantic: available=0/1 diagnosticAvailable=1/1');
