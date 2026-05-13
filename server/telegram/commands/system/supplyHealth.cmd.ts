@@ -17,6 +17,13 @@ import {
   formatProgramMarketRouted,
   type ProgramMarketRoutingDecision,
 } from '../../../clients/kisClient/programMarketRouterPatch004.js';
+// Patch-MARKET-PROGRAM-TRADING-FALLBACK-RECOVERY-006 — actual KRX aggregate wiring + 3-tier CACHE TTL + intraday session.
+import {
+  routeProgramMarketEmptyWithKrxAggregate,
+  formatProgramMarketRoutedV2,
+  isPatch006Disabled,
+  type ProgramMarketRoutingDecisionV2,
+} from '../../../clients/krxClient/programMarketRouterPatch006.js';
 import { MARKET_PROGRAM_INDEX_CODE } from '../../../clients/kisClient/programMaterializer.js';
 import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.js';
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
@@ -515,12 +522,18 @@ async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelS
 }
 
 // Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004: routed marker SSOT mapping.
-function markerForRoutedStatus(decision: ProgramMarketRoutingDecision): Marker {
+// Patch-006 격상: V2 routedStatus (PARTIAL_VERIFIED / UNSUPPORTED_INTRADAY / 3-tier cache) 분기 추가.
+function markerForRoutedStatus(decision: ProgramMarketRoutingDecision | ProgramMarketRoutingDecisionV2): Marker {
   switch (decision.routedStatus) {
     case 'VERIFIED': return 'OK';
+    case 'PARTIAL_VERIFIED': return 'STALE'; // Patch-006: KOSPI 또는 KOSDAQ 만 회복
     case 'STALE_CACHE': return 'STALE';
+    case 'STALE_CACHE_BUT_USABLE_FOR_DIAG': return 'STALE'; // Patch-006: ≤5min
+    case 'STALE_CACHE_SHADOW_ONLY': return 'STALE'; // Patch-006: 5-30min
+    case 'CACHE_EXPIRED': return 'MISSING'; // Patch-006: >30min (excluded)
     case 'DEGRADED': return 'DEGRADED';
     case 'UNSUPPORTED':
+    case 'UNSUPPORTED_INTRADAY': // Patch-006: KRX 장중 미지원
     case 'PARAM_MISMATCH': return 'NEUTRAL';
     case 'EMPTY_VALID':
     case 'MISSING':
@@ -528,9 +541,12 @@ function markerForRoutedStatus(decision: ProgramMarketRoutingDecision): Marker {
   }
 }
 
-function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision): ChannelStatus {
+function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision | ProgramMarketRoutingDecisionV2): ChannelStatus {
   const marker = markerForRoutedStatus(decision);
-  const lines = formatProgramMarketRouted(decision);
+  // Patch-006: V2 decision 인 경우 V2 formatter 사용 (KRX aggregate / cacheTtl / intraday 노출).
+  const lines = isV2Decision(decision)
+    ? formatProgramMarketRoutedV2(decision)
+    : formatProgramMarketRouted(decision);
   // routedStatus + decisionDetail invariants 가 모든 분기에 노출됨.
   return {
     key: 'marketProgram',
@@ -541,13 +557,17 @@ function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision): Chan
   };
 }
 
+function isV2Decision(d: ProgramMarketRoutingDecision | ProgramMarketRoutingDecisionV2): d is ProgramMarketRoutingDecisionV2 {
+  return 'patch006Activated' in d;
+}
+
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   const rawDiag = await diagnoseKisMarketProgramRaw('HIGH');
   const rawDiagLine = formatKisRawSupplyDiagnostic(rawDiag);
-  // Patch-004: KIS ACCEPTED_EMPTY → KRX fallback (unwired) → CACHE (macroState LGV) fallback.
+  // Patch-006: KIS ACCEPTED_EMPTY → 실제 KRX aggregate 호출 + 3-tier CACHE TTL + intraday session 분류.
   if (isAcceptedEmptyRaw(rawDiagLine)) {
     const cacheFallback = deriveCacheFallbackFromMacroState(macro, nowMs);
-    const decision = routeProgramMarketEmpty({
+    const input = {
       rawDiag: {
         zeroReason: rawDiag.zeroReason ?? undefined,
         outputLength: rawDiag.outputKeys?.length ?? 0,
@@ -556,11 +576,15 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
         endpoint: rawDiag.path,
         marketCode: MARKET_PROGRAM_INDEX_CODE,
       },
-      // KRX program-market fallback is unwired (out of scope per Patch-004) — capability declared,
-      // actual KRX fetcher introduction is a separate ADR. cacheFallback handles LGV recovery.
       cacheFallback,
-    });
-    return renderRoutedMarketProgram(decision);
+    };
+    // Patch-006: ENV disabled → Patch-004 직접 위임 (V1 동작 100% 보존).
+    if (isPatch006Disabled()) {
+      const decisionV1 = routeProgramMarketEmpty(input);
+      return renderRoutedMarketProgram(decisionV1);
+    }
+    const decisionV2 = await routeProgramMarketEmptyWithKrxAggregate(input, { nowMs });
+    return renderRoutedMarketProgram(decisionV2);
   }
   const macroAge = elapsedMs(macro?.programFetchedAt, nowMs);
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined && macroAge !== null && macroAge <= KIS_STALE_MS) {
