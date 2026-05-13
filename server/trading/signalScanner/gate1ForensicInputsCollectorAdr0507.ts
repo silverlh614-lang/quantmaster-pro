@@ -288,19 +288,21 @@ function mergeActualRowCarryAdr0507(
   const selectedCandidate = base?.selectedCandidate && typeof base.selectedCandidate === 'object'
     ? base.selectedCandidate as Record<string, unknown>
     : {};
-  const actualRows = Array.isArray(payload.actualInvestorFlowRows)
-    ? payload.actualInvestorFlowRows
-    : payload.actualInvestorRow && typeof payload.actualInvestorRow === 'object'
-      ? [payload.actualInvestorRow as Record<string, unknown>]
-      : undefined;
+  const actualRows = stale
+    ? undefined
+    : Array.isArray(payload.actualInvestorFlowRows)
+      ? payload.actualInvestorFlowRows
+      : payload.actualInvestorRow && typeof payload.actualInvestorRow === 'object'
+        ? [payload.actualInvestorRow as Record<string, unknown>]
+        : undefined;
   return {
     ...(base ?? {}),
-    actualInvestorRow: payload.actualInvestorRow ?? base?.actualInvestorRow ?? actualRows?.[0],
+    actualInvestorRow: stale ? base?.actualInvestorRow : (payload.actualInvestorRow ?? base?.actualInvestorRow ?? actualRows?.[0]),
     normalizedInvestorRow: payload.normalizedInvestorRow ?? base?.normalizedInvestorRow,
     semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? base?.semanticInvestorRow,
     supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? base?.supplySemanticRow,
-    actualInvestorFlowRows: actualRows ?? base?.actualInvestorFlowRows,
-    actualInvestorFlowRowCount: payload.actualInvestorFlowRowCount ?? actualRows?.length ?? base?.actualInvestorFlowRowCount,
+    actualInvestorFlowRows: stale ? base?.actualInvestorFlowRows : (actualRows ?? base?.actualInvestorFlowRows),
+    actualInvestorFlowRowCount: stale ? base?.actualInvestorFlowRowCount : (payload.actualInvestorFlowRowCount ?? actualRows?.length ?? base?.actualInvestorFlowRowCount),
     actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath ?? base?.actualInvestorFlowRowSourcePath,
     actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys ?? payload.selectedActualRowFieldKeys ?? base?.actualInvestorFlowFieldKeys,
     actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? base?.actualInvestorFlowNumericKeys,
@@ -313,12 +315,12 @@ function mergeActualRowCarryAdr0507(
     selectedCandidate: {
       ...selectedCandidate,
       ...(payload.selectedCandidate && typeof payload.selectedCandidate === 'object' ? payload.selectedCandidate as Record<string, unknown> : {}),
-      actualInvestorRow: payload.actualInvestorRow ?? selectedCandidate.actualInvestorRow ?? actualRows?.[0],
+      actualInvestorRow: stale ? selectedCandidate.actualInvestorRow : (payload.actualInvestorRow ?? selectedCandidate.actualInvestorRow ?? actualRows?.[0]),
       normalizedInvestorRow: payload.normalizedInvestorRow ?? selectedCandidate.normalizedInvestorRow,
       semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? selectedCandidate.semanticInvestorRow,
       supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? selectedCandidate.supplySemanticRow,
-      actualInvestorFlowRows: actualRows ?? selectedCandidate.actualInvestorFlowRows,
-      actualInvestorFlowRowCount: payload.actualInvestorFlowRowCount ?? actualRows?.length ?? selectedCandidate.actualInvestorFlowRowCount,
+      actualInvestorFlowRows: stale ? selectedCandidate.actualInvestorFlowRows : (actualRows ?? selectedCandidate.actualInvestorFlowRows),
+      actualInvestorFlowRowCount: stale ? selectedCandidate.actualInvestorFlowRowCount : (payload.actualInvestorFlowRowCount ?? actualRows?.length ?? selectedCandidate.actualInvestorFlowRowCount),
       actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath ?? selectedCandidate.actualInvestorFlowRowSourcePath,
       actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys ?? payload.selectedActualRowFieldKeys ?? selectedCandidate.actualInvestorFlowFieldKeys,
       actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? selectedCandidate.actualInvestorFlowNumericKeys,
