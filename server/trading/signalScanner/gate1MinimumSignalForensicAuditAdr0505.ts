@@ -128,6 +128,9 @@ export interface SupplyScopeAudit {
   selectedCandidateCarriesSemanticRow?: boolean;
   forensicInputCarriesSemanticRow?: boolean;
   forensicInputCarriesActualInvestorRows?: boolean;
+  sellOnlyBySymbolPayloadAvailable?: boolean;
+  sellOnlyBySymbolPayloadMerged?: boolean;
+  sellOnlyCarryBreakPoint?: SellOnlyCarryBreakPointAdr0507;
   selectedActualRowPath?: string | null;
   selectedActualRowFieldKeys?: string[];
   selectedActualNumericFieldKeys?: string[];
@@ -187,6 +190,13 @@ export type Gate1EvaluationState =
   | 'NOT_EVALUATED_BUYLIST_NOT_REACHED'
   | 'NOT_EVALUATED_PRECHECK_ONLY'
   | 'PARTIAL_TRACE_ONLY'
+  | 'UNKNOWN';
+
+export type SellOnlyCarryBreakPointAdr0507 =
+  | 'BYSYMBOL_PAYLOAD_MISSING'
+  | 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED'
+  | 'MERGED_BUT_FORENSIC_DROPPED'
+  | 'CARRIED_TO_FORENSIC'
   | 'UNKNOWN';
 
 export type Gate1ForensicTraceSourcePath =
@@ -480,6 +490,10 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   conditionResultsBreakPointDistribution?: Record<ConditionResultsBreakPointAdr0510, number>;
   sectorEnergyStrongBuyBlockedCount: number;
   sectorEnergyHardBlockCount: number;
+  sellOnlyBySymbolPayloadAvailableCount?: number;
+  sellOnlyBySymbolPayloadMergedCount?: number;
+  sellOnlyActualRowsCarriedCount?: number;
+  sellOnlyCarryBreakPointDistribution?: Record<SellOnlyCarryBreakPointAdr0507, number>;
 
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
@@ -604,6 +618,9 @@ export interface BuildGate1MinimumSignalForensicInput {
   quoteSymbol?: string | null;
   sectorEnergyImpact?: SectorEnergyExecutionImpactResult;
   sourcePath?: Gate1ForensicTraceSourcePath;
+  sellOnlyBySymbolPayloadAvailable?: boolean;
+  sellOnlyBySymbolPayloadMerged?: boolean;
+  sellOnlyCarryBreakPoint?: SellOnlyCarryBreakPointAdr0507;
 }
 
 export function resolveGate1EvaluationStateAdr0510(input: {
@@ -711,6 +728,9 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
     actualInvestorFlowNumericStringKeys: input.actualInvestorFlowNumericStringKeys,
     actualInvestorFlowCarried: input.actualInvestorFlowCarried,
     selectedCandidate: input.selectedCandidate,
+    sellOnlyBySymbolPayloadAvailable: input.sellOnlyBySymbolPayloadAvailable,
+    sellOnlyBySymbolPayloadMerged: input.sellOnlyBySymbolPayloadMerged,
+    sellOnlyCarryBreakPoint: input.sellOnlyCarryBreakPoint,
     quoteSymbol,
   });
 
@@ -896,6 +916,9 @@ function buildSupplyScopeAudit(input: {
   semanticInvestorRow?: BuildGate1MinimumSignalForensicInput['semanticInvestorRow'];
   supplySemanticRow?: BuildGate1MinimumSignalForensicInput['supplySemanticRow'];
   selectedCandidate?: BuildGate1MinimumSignalForensicInput['selectedCandidate'];
+  sellOnlyBySymbolPayloadAvailable?: BuildGate1MinimumSignalForensicInput['sellOnlyBySymbolPayloadAvailable'];
+  sellOnlyBySymbolPayloadMerged?: BuildGate1MinimumSignalForensicInput['sellOnlyBySymbolPayloadMerged'];
+  sellOnlyCarryBreakPoint?: BuildGate1MinimumSignalForensicInput['sellOnlyCarryBreakPoint'];
   quoteSymbol?: string | null;
 }): SupplyScopeAudit {
   const { trace, candidate, kisFlow, quoteSymbol, supplyProviderHealth } = input;
@@ -1041,6 +1064,11 @@ function buildSupplyScopeAudit(input: {
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
     forensicInputCarriesActualInvestorRows,
+    sellOnlyBySymbolPayloadAvailable: input.sellOnlyBySymbolPayloadAvailable,
+    sellOnlyBySymbolPayloadMerged: input.sellOnlyBySymbolPayloadMerged,
+    sellOnlyCarryBreakPoint: input.sellOnlyCarryBreakPoint === 'CARRIED_TO_FORENSIC' && !forensicInputCarriesActualInvestorRows
+      ? 'MERGED_BUT_FORENSIC_DROPPED'
+      : input.sellOnlyCarryBreakPoint,
     selectedActualRowPath: input.actualInvestorFlowRowSourcePath ?? input.selectedCandidate?.actualInvestorFlowRowSourcePath ?? kisFlow?.selectedActualRowPath ?? kisFlow?.actualInvestorFlowRowSourcePath ?? semantic.fieldKeyDiagnostics?.selectedPath ?? null,
     selectedActualRowFieldKeys: input.actualInvestorFlowFieldKeys ?? input.selectedCandidate?.actualInvestorFlowFieldKeys ?? kisFlow?.selectedActualRowFieldKeys ?? kisFlow?.actualInvestorFlowFieldKeys ?? semantic.fieldKeyDiagnostics?.actualRawFieldKeysTop ?? [],
     selectedActualNumericFieldKeys: input.actualInvestorFlowNumericKeys ?? input.selectedCandidate?.actualInvestorFlowNumericKeys ?? kisFlow?.selectedActualNumericFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumberFieldKeysTop ?? [],
@@ -1677,6 +1705,16 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const sourcePathWithWatchlistScore: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
   const sourcePathWithQuote: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
   const sourcePathWithConditionResults: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
+  const sellOnlyCarryBreakPointDistribution: Record<SellOnlyCarryBreakPointAdr0507, number> = {
+    BYSYMBOL_PAYLOAD_MISSING: 0,
+    BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED: 0,
+    MERGED_BUT_FORENSIC_DROPPED: 0,
+    CARRIED_TO_FORENSIC: 0,
+    UNKNOWN: 0,
+  };
+  let sellOnlyBySymbolPayloadAvailableCount = 0;
+  let sellOnlyBySymbolPayloadMergedCount = 0;
+  let sellOnlyActualRowsCarriedCount = 0;
   const sourcePathMissingFieldCounts: Record<string, Record<string, number>> = {};
   const watchlistBreakPointDistribution: Record<WatchlistBreakPointAdr0510, number> = {
     WATCHLIST_ENTRY_MISSING_SCORE: 0,
@@ -1716,6 +1754,13 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   for (const a of failed) {
     const sourcePath = a.sourcePath ?? 'UNKNOWN';
     bump(sourcePathDistribution, sourcePath);
+    if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') {
+      if (a.supplyScopeAudit.sellOnlyBySymbolPayloadAvailable) sellOnlyBySymbolPayloadAvailableCount += 1;
+      if (a.supplyScopeAudit.sellOnlyBySymbolPayloadMerged) sellOnlyBySymbolPayloadMergedCount += 1;
+      if (a.supplyScopeAudit.forensicInputCarriesActualInvestorRows) sellOnlyActualRowsCarriedCount += 1;
+      const sellOnlyBreakPoint = a.supplyScopeAudit.sellOnlyCarryBreakPoint ?? 'UNKNOWN';
+      sellOnlyCarryBreakPointDistribution[sellOnlyBreakPoint] = (sellOnlyCarryBreakPointDistribution[sellOnlyBreakPoint] ?? 0) + 1;
+    }
     bump(watchlistBreakPointDistribution, a.watchlistBreakPoint ?? 'UNKNOWN');
     bump(quoteHydrationBreakPointDistribution, a.quoteHydrationBreakPoint ?? 'UNKNOWN');
     bump(conditionResultsBreakPointDistribution, a.conditionResultsBreakPoint ?? 'UNKNOWN');
@@ -2012,6 +2057,10 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     sourcePathWithWatchlistScore,
     sourcePathWithQuote,
     sourcePathWithConditionResults,
+    sellOnlyBySymbolPayloadAvailableCount,
+    sellOnlyBySymbolPayloadMergedCount,
+    sellOnlyActualRowsCarriedCount,
+    sellOnlyCarryBreakPointDistribution,
     watchlistBreakPointDistribution,
     watchlistEntryScoreAvailable,
     stage2ScoreAvailable,
@@ -2129,6 +2178,10 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(`  - routerCarriesActualRow: ${summary.selectedCandidateCarriesActualRowCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - forensicCarriesActualRow: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyBySymbolPayloadAvailable: ${summary.sellOnlyBySymbolPayloadAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyBySymbolPayloadMerged: ${summary.sellOnlyBySymbolPayloadMergedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyActualRowsCarried: ${summary.sellOnlyActualRowsCarriedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyCarryBreakPoint: ${formatDistribution(summary.sellOnlyCarryBreakPointDistribution ?? {})}`);
   lines.push(`  - fieldKeysTop: ${formatDistribution(summary.actualInvestorRowFieldKeysTop ?? {})}`);
   lines.push(`  - numericKeysTop: ${formatDistribution({ ...(summary.actualInvestorNumericStringKeysTop ?? {}), ...(summary.actualInvestorNumberKeysTop ?? {}) })}`);
   lines.push(`  - forensicActualRowCount: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
@@ -2138,6 +2191,10 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(`  - nextAction: ${resolveSupplySemanticUnwrapNextAction(summary)}`);
   lines.push('- KIS Investor Flow Actual Row:');
   lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyBySymbolPayloadAvailable: ${summary.sellOnlyBySymbolPayloadAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyBySymbolPayloadMerged: ${summary.sellOnlyBySymbolPayloadMergedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyActualRowsCarried: ${summary.sellOnlyActualRowsCarriedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyCarryBreakPoint: ${formatDistribution(summary.sellOnlyCarryBreakPointDistribution ?? {})}`);
   lines.push(`  - selectedPathTop: ${formatDistribution(summary.actualInvestorRowPathDistribution ?? {})}`);
   lines.push(`  - numericStringKeysTop: ${formatDistribution(summary.actualInvestorNumericStringKeysTop ?? {})}`);
   lines.push(`  - numberKeysTop: ${formatDistribution(summary.actualInvestorNumberKeysTop ?? {})}`);

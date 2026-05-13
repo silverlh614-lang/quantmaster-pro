@@ -146,6 +146,7 @@ export interface InvestorFlowProviderRouteResult {
   actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
   selectedCandidate?: InvestorFlowMaterializedCandidateAdr0503 | null;
+  bySymbol?: Record<string, InvestorFlowProviderRouteBySymbolPayloadAdr0477>;
   selectedActualRowPath?: string | null;
   selectedActualRowFieldKeys?: string[];
   selectedActualNumericFieldKeys?: string[];
@@ -376,6 +377,12 @@ function valueFromAliases(raw: Record<string, unknown> | null | undefined, keys:
 
 const INVESTOR_FLOW_ROW_KEEP_KEY_PATTERN_ADR0477 = /frgn|orgn|indv|foreign|institution|individual|investor|type|net|buy|sell|ntby|shnu|seln|amount|volume|qty/i;
 const PRIVATE_OR_SECRET_FIELD_PATTERN_ADR0477 = /token|secret|password|authorization|auth|appkey|appsecret|account|acct|cano|acnt/i;
+
+function normalizeCodeAdr0477(value: unknown): string {
+  const raw = String(value ?? '');
+  const digits = raw.replace(/[^0-9]/g, '');
+  return digits.length >= 6 ? digits.slice(-6) : digits || raw;
+}
 
 function investorFlowValueKindAdr0477(value: unknown): 'number' | 'numericString' | 'placeholder' | 'other' {
   if (typeof value === 'number') return Number.isFinite(value) ? 'number' : 'placeholder';
@@ -1041,6 +1048,55 @@ export type InvestorFlowMaterializedSourceKindAdr0503 =
   | 'FSS_STALE_DIAGNOSTIC'
   | 'CACHE_SANITIZED_SNAPSHOT'
   | 'SEMANTIC_DERIVED';
+
+export type InvestorFlowProviderRouteBySymbolPayloadAdr0477 = Pick<InvestorFlowProviderRouteResult,
+  | 'code'
+  | 'requestSymbol'
+  | 'candidateSymbol'
+  | 'quoteSymbol'
+  | 'providerSymbol'
+  | 'normalizedSymbol'
+  | 'providerScope'
+  | 'routePurpose'
+  | 'materialized'
+  | 'usableForRouter'
+  | 'usableForGate'
+  | 'usableForLive'
+  | 'usableForShadow'
+  | 'selectedProvider'
+  | 'semanticRow'
+  | 'actualInvestorRow'
+  | 'normalizedInvestorRow'
+  | 'semanticInvestorRow'
+  | 'supplySemanticRow'
+  | 'actualRowAvailable'
+  | 'normalizedRowAvailable'
+  | 'semanticRowAvailable'
+  | 'rowCarryPath'
+  | 'sanitizedInvestorFlowRows'
+  | 'actualInvestorFlowRows'
+  | 'actualInvestorFlowRowCount'
+  | 'actualInvestorFlowRowSourcePath'
+  | 'actualInvestorFlowFieldKeys'
+  | 'actualInvestorFlowNumericKeys'
+  | 'actualInvestorFlowNumericStringKeys'
+  | 'actualInvestorFlowCarried'
+  | 'selectedCandidate'
+  | 'selectedActualRowPath'
+  | 'selectedActualRowFieldKeys'
+  | 'selectedActualNumericFieldKeys'
+  | 'selectedActualNumericStringFieldKeys'
+  | 'selectedActualPlaceholderFieldKeys'
+  | 'kisRawRowAvailableAtAdapter'
+  | 'kisNormalizedRowAvailableAtRouter'
+  | 'kisSelectedCandidateCarriesSemanticRow'
+  | 'semanticRowBreakPoint'
+  | 'status'
+  | 'signal'
+  | 'executionImpact'
+  | 'liveExecutionAllowed'
+  | 'scoreUsage'
+>;
 
 export interface InvestorFlowMaterializedCandidateAdr0503 {
   provider: InvestorFlowProviderId;
@@ -1812,6 +1868,55 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
                 : 'ACTUAL_ROW_CARRIED_WITH_FIELDS'
     : undefined;
   diagnostics.push(`kisRawRowAvailableAtAdapter=${kisRawRowAvailableAtAdapter}; kisNormalizedRowAvailableAtRouter=${kisNormalizedRowAvailableAtRouter}; kisSelectedCandidateCarriesSemanticRow=${kisSelectedCandidateCarriesSemanticRow}; semanticRowBreakPoint=${semanticRowBreakPoint ?? 'UNKNOWN'}; selectedActualRowPath=${selectedActualRowPath ?? 'none'}; selectedActualRowFieldKeys=${selectedActualRowFieldKeys.join(',') || 'none'}; selectedActualNumericStringFieldKeys=${selectedActualNumericStringFieldKeys.join(',') || 'none'}; sanitizedInvestorFlowRows=${sanitizedInvestorFlowRows.length}; rawPayloadPersistenceAllowed=false`);
+  const routeBySymbolPayload: InvestorFlowProviderRouteBySymbolPayloadAdr0477 = {
+    code: input.code,
+    requestSymbol: input.code,
+    candidateSymbol: selectedSemanticNetBuy?.code ?? input.code,
+    quoteSymbol: input.code,
+    providerSymbol: selectedSemanticNetBuy?.code ?? input.code,
+    normalizedSymbol: selectedSemanticNetBuy?.code ?? input.code,
+    providerScope: selectedSemanticNetBuy?.code ? 'SYMBOL_LEVEL' : 'UNKNOWN',
+    routePurpose: 'GATE1_FORENSIC_SHADOW_AUDIT',
+    materialized: Boolean(selectedMaterializedCandidate?.sampleMaterialized ?? selectedSemanticNetBuy),
+    usableForRouter: selectedProvider !== 'NONE',
+    usableForGate: false,
+    usableForLive: false,
+    usableForShadow: true,
+    selectedProvider,
+    semanticRow: selectedSemanticRow,
+    actualInvestorRow: selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? null,
+    normalizedInvestorRow: selectedMaterializedCandidate?.normalizedInvestorRow ?? normalizedInvestorRowFromSemanticAdr0477(selectedSemanticRow) ?? null,
+    semanticInvestorRow: selectedMaterializedCandidate?.semanticInvestorRow ?? selectedSemanticRow,
+    supplySemanticRow: selectedMaterializedCandidate?.supplySemanticRow ?? selectedSemanticRow,
+    actualRowAvailable: Boolean(selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0]),
+    normalizedRowAvailable: Boolean(selectedMaterializedCandidate?.normalizedInvestorRow ?? selectedSemanticRow),
+    semanticRowAvailable: Boolean(selectedMaterializedCandidate?.semanticInvestorRow ?? selectedSemanticRow),
+    rowCarryPath: selectedProvider === 'KIS_API' ? 'ADAPTER_TO_ROUTER' : 'NONE',
+    sanitizedInvestorFlowRows,
+    actualInvestorFlowRows: selectedProvider === 'KIS_API' ? selectedCandidateActualRows : sanitizedInvestorFlowRows,
+    actualInvestorFlowRowCount: selectedProvider === 'KIS_API' ? selectedCandidateActualRowCount : sanitizedInvestorFlowRows.length,
+    actualInvestorFlowRowSourcePath: selectedMaterializedCandidate?.actualInvestorFlowRowSourcePath ?? selectedActualRowPath,
+    actualInvestorFlowFieldKeys: selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys,
+    actualInvestorFlowNumericKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericKeys ?? Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
+    actualInvestorFlowNumericStringKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericStringKeys ?? selectedActualNumericStringFieldKeys,
+    actualInvestorFlowCarried: selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow,
+    selectedCandidate: selectedMaterializedCandidate,
+    selectedActualRowPath,
+    selectedActualRowFieldKeys,
+    selectedActualNumericFieldKeys,
+    selectedActualNumericStringFieldKeys,
+    selectedActualPlaceholderFieldKeys,
+    kisRawRowAvailableAtAdapter,
+    kisNormalizedRowAvailableAtRouter,
+    kisSelectedCandidateCarriesSemanticRow,
+    semanticRowBreakPoint,
+    status,
+    signal,
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    scoreUsage: 'SHADOW_ONLY',
+  };
+  const routeBySymbolKey = normalizeCodeAdr0477(input.code);
   diagnostics.push(`adapterCarriesActualRow=${String(adapterCarriesActualRow)}; routerCarriesActualRow=${String(routerCarriesActualRow)}; candidateBeforeSelectionCarriesActualRow=${String(candidateBeforeSelectionCarriesActualRow)}; selectedCandidateCarriesActualRow=${String(selectedCandidateCarriesActualRow)}; selectedCandidateActualRowCount=${selectedCandidateActualRowCount}; selectedCandidateActualRowFieldKeysTop=${selectedCandidateActualRowFieldKeysTop.slice(0, 16).join(',') || 'NONE'}; selectedCandidateActualRowDropReason=${selectedCandidateActualRowDropReason}; executionImpact=NONE; scoreUsage=SHADOW_ONLY`);
   diagnostics.push(`[SUPPLY_ROUTER_VERIFIED_GUARD] symbol=${input.code} adapterHasActualRow=${adapterCarriesActualRow} routerCarriesActualRow=${routerCarriesActualRow} candidateCarriesActualRow=${selectedCandidateCarriesActualRow} forensicCarriesActualRow=deferred routerStatus=${status}`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
@@ -1859,6 +1964,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     actualInvestorFlowNumericStringKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericStringKeys ?? selectedActualNumericStringFieldKeys,
     actualInvestorFlowCarried: selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow,
     selectedCandidate: selectedMaterializedCandidate,
+    bySymbol: { [routeBySymbolKey]: routeBySymbolPayload },
     selectedActualRowPath,
     selectedActualRowFieldKeys,
     selectedActualNumericFieldKeys,

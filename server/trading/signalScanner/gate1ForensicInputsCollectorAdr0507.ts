@@ -40,6 +40,8 @@ export interface CollectGate1ForensicInputsInput {
   candidateTraces?: ReadonlyArray<CandidateEntryTrace>;
   /** EntryFilterDecomposition.supplyProviderHealth — 공통 supply health (모든 종목 동일). */
   supplyProviderHealth?: SupplyProviderHealthTrace;
+  /** Diagnostic-only supply router snapshot carrying bySymbol payloads. */
+  supplyRouterResult?: { bySymbol?: Record<string, Record<string, unknown>> } | Record<string, unknown>;
 }
 
 /* ───────── 핵심 SSOT — collectGate1ForensicInputs ───────── */
@@ -70,6 +72,9 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
   const traces = input.gate1CandidateTraces ?? [];
   if (traces.length === 0) return [];
   const supplyProviderHealth = input.supplyProviderHealth;
+  const routerBySymbol = input.supplyRouterResult && typeof input.supplyRouterResult === 'object'
+    ? ((input.supplyRouterResult as { bySymbol?: Record<string, Record<string, unknown>> }).bySymbol)
+    : undefined;
   const candidateBySymbol = new Map<string, CandidateEntryTrace>();
   for (const c of input.candidateTraces ?? []) {
     if (c.symbol) candidateBySymbol.set(c.symbol, c);
@@ -82,8 +87,20 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const quoteSymbol = candidate?.quote && typeof candidate.quote === 'object'
       ? ((candidate.quote as Record<string, unknown>).symbol as string | null | undefined)
       : undefined;
+    const sourcePath: Gate1ForensicTraceSourcePath = candidate?.marketSession === 'SELL_ONLY'
+      ? 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
+      : candidate?.gate1Trace || t.minSignalScoreTrace
+        ? 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE'
+        : candidate?.stageReached === 'WATCHLIST'
+          ? 'WATCHLIST_CANDIDATE'
+          : candidate?.stageReached === 'UNIVERSE'
+            ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
+            : 'UNKNOWN';
     const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
-    const healthRecord = health as Record<string, unknown> | undefined;
+    const bySymbolPayload = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT')
+      ? bySymbolPayloadForCandidateAdr0507(routerBySymbol, candidate, t.symbol)
+      : undefined;
+    const healthRecord = mergeActualRowCarryAdr0507(health as Record<string, unknown> | undefined, bySymbolPayload);
     const selectedCandidateRecord = healthRecord?.selectedCandidate && typeof healthRecord.selectedCandidate === 'object'
       ? healthRecord.selectedCandidate as Record<string, unknown>
       : undefined;
@@ -162,15 +179,6 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           semanticRowBreakPoint: (healthRecord.semanticRowBreakPoint as string | undefined) ?? (healthRecord.kisSelectedCandidateCarriesSemanticRow === false ? 'SELECTED_CANDIDATE_METADATA_ONLY' : undefined),
         }
       : undefined;
-    const sourcePath: Gate1ForensicTraceSourcePath = candidate?.marketSession === 'SELL_ONLY'
-      ? 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
-      : candidate?.gate1Trace || t.minSignalScoreTrace
-        ? 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE'
-        : candidate?.stageReached === 'WATCHLIST'
-          ? 'WATCHLIST_CANDIDATE'
-          : candidate?.stageReached === 'UNIVERSE'
-            ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
-            : 'UNKNOWN';
     const conditionResultsTrace = candidate?.conditionResultsTrace ?? t.conditionResultsTrace;
     const conditionResults = candidate?.conditionResults ?? t.conditionResults ?? conditionResultsTraceToMap(conditionResultsTrace);
     const conditionKeys = candidate?.conditionKeys ?? t.conditionKeys;
@@ -182,7 +190,7 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...(conditionResults ? { conditionResults } : {}),
       ...(conditionKeys ? { conditionKeys } : {}),
       quoteSymbol: quoteSymbol ?? t.symbol ?? null,
-      ...(health ? { supplyProviderHealth: health } : {}),
+      ...(healthRecord ? { supplyProviderHealth: healthRecord } : {}),
       ...(candidate?.supplyConfluenceState ? { supplyConfluence: candidate.supplyConfluenceState } : {}),
       ...(actualInvestorFlowRows ? { actualInvestorFlowRows } : {}),
       ...(actualInvestorFlowRowCount !== undefined ? { actualInvestorFlowRowCount } : {}),
@@ -196,6 +204,15 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...((selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) ? { semanticInvestorRow: (selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...((selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) ? { supplySemanticRow: (selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
+      ...(sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' ? {
+        sellOnlyBySymbolPayloadAvailable: Boolean(bySymbolPayload),
+        sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && (actualInvestorFlowRows?.length ?? 0) > 0),
+        sellOnlyCarryBreakPoint: !bySymbolPayload
+          ? 'BYSYMBOL_PAYLOAD_MISSING'
+          : (actualInvestorFlowRows?.length ?? 0) > 0
+            ? 'CARRIED_TO_FORENSIC'
+            : 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED',
+      } : {}),
       ...(kisFlow ? { kisFlow } : {}),
     };
     out.push(entry);
@@ -216,6 +233,77 @@ export interface Gate1ForensicInputCompletenessSummaryAdr0507 {
   traceWithSupplyContextCount: number;
   traceWithMinSignalScoreTraceCount: number;
   dominantFailureReason?: 'TRACE_HYDRATION_MISSING';
+}
+
+function normalizeSymbolKeyAdr0507(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const digits = value.replace(/[^0-9]/g, '');
+  return digits.length >= 6 ? digits.slice(-6) : digits || value;
+}
+
+function bySymbolPayloadForCandidateAdr0507(
+  bySymbol: Record<string, Record<string, unknown>> | undefined,
+  candidate: CandidateEntryTrace | undefined,
+  traceSymbol: string,
+): Record<string, unknown> | undefined {
+  if (!bySymbol || typeof bySymbol !== 'object') return undefined;
+  const quoteSymbol = candidate?.quote && typeof candidate.quote === 'object'
+    ? ((candidate.quote as Record<string, unknown>).symbol as string | undefined)
+    : undefined;
+  const keys = [candidate?.symbol, traceSymbol, quoteSymbol]
+    .flatMap((item) => {
+      const normalized = normalizeSymbolKeyAdr0507(item);
+      return normalized && item ? [normalized, String(item)] : normalized ? [normalized] : item ? [String(item)] : [];
+    });
+  for (const key of keys) {
+    const payload = bySymbol[key];
+    if (payload && typeof payload === 'object') return payload;
+  }
+  return undefined;
+}
+
+function mergeActualRowCarryAdr0507(
+  base: Record<string, unknown> | undefined,
+  payload: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!payload) return base;
+  const selectedCandidate = base?.selectedCandidate && typeof base.selectedCandidate === 'object'
+    ? base.selectedCandidate as Record<string, unknown>
+    : {};
+  const actualRows = Array.isArray(payload.actualInvestorFlowRows)
+    ? payload.actualInvestorFlowRows
+    : payload.actualInvestorRow && typeof payload.actualInvestorRow === 'object'
+      ? [payload.actualInvestorRow as Record<string, unknown>]
+      : undefined;
+  return {
+    ...(base ?? {}),
+    actualInvestorRow: payload.actualInvestorRow ?? base?.actualInvestorRow ?? actualRows?.[0],
+    normalizedInvestorRow: payload.normalizedInvestorRow ?? base?.normalizedInvestorRow,
+    semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? base?.semanticInvestorRow,
+    supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? base?.supplySemanticRow,
+    actualInvestorFlowRows: actualRows ?? base?.actualInvestorFlowRows,
+    actualInvestorFlowRowCount: payload.actualInvestorFlowRowCount ?? actualRows?.length ?? base?.actualInvestorFlowRowCount,
+    actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath ?? base?.actualInvestorFlowRowSourcePath,
+    actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys ?? payload.selectedActualRowFieldKeys ?? base?.actualInvestorFlowFieldKeys,
+    actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? base?.actualInvestorFlowNumericKeys,
+    actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? base?.actualInvestorFlowNumericStringKeys,
+    actualInvestorFlowCarried: payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? base?.actualInvestorFlowCarried,
+    selectedCandidate: {
+      ...selectedCandidate,
+      ...(payload.selectedCandidate && typeof payload.selectedCandidate === 'object' ? payload.selectedCandidate as Record<string, unknown> : {}),
+      actualInvestorRow: payload.actualInvestorRow ?? selectedCandidate.actualInvestorRow ?? actualRows?.[0],
+      normalizedInvestorRow: payload.normalizedInvestorRow ?? selectedCandidate.normalizedInvestorRow,
+      semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? selectedCandidate.semanticInvestorRow,
+      supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? selectedCandidate.supplySemanticRow,
+      actualInvestorFlowRows: actualRows ?? selectedCandidate.actualInvestorFlowRows,
+      actualInvestorFlowRowCount: payload.actualInvestorFlowRowCount ?? actualRows?.length ?? selectedCandidate.actualInvestorFlowRowCount,
+      actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath ?? selectedCandidate.actualInvestorFlowRowSourcePath,
+      actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys ?? payload.selectedActualRowFieldKeys ?? selectedCandidate.actualInvestorFlowFieldKeys,
+      actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? selectedCandidate.actualInvestorFlowNumericKeys,
+      actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? selectedCandidate.actualInvestorFlowNumericStringKeys,
+      actualInvestorFlowCarried: payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? selectedCandidate.actualInvestorFlowCarried,
+    },
+  };
 }
 
 function getConditionResults(input: CandidateEntryTrace): Record<string, unknown> | undefined {
