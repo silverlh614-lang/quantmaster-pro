@@ -9,6 +9,9 @@ import {
   getAllStockEntries,
   getStockByCode,
   isMasterStale,
+  getKrxMasterMetadata,
+  RAW_KRX_MASTER_MIN_TOTAL,
+  TRADABLE_KRX_UNIVERSE_MIN_TOTAL,
   type StockMasterEntry,
 } from '../../../persistence/krxStockMasterRepo.js';
 import { getHealthSnapshot, computeOverallHealth } from '../../../persistence/stockMasterHealthRepo.js';
@@ -89,7 +92,10 @@ export function resolveKrxMasterProductionBlock(input: {
 }): { blocked: boolean; reason: string } {
   const min = DEFAULT_KRX_MASTER_GUARD.minTotal;
   if (input.size === 0) return { blocked: true, reason: 'KRX_MASTER_MISSING' };
-  if (input.size < min) return { blocked: true, reason: `KRX_MASTER_TOO_SMALL total=${input.size} < ${min}` };
+  if (input.size < min) return { blocked: true, reason: `KRX_MASTER_TOO_SMALL raw=${input.size} < ${min}` };
+  if (input.tier.tier !== 4 && input.size >= min) {
+    // tradable universe 는 formatter 에서 metadata 기준으로 별도 표시한다.
+  }
   if (input.isStale) return { blocked: true, reason: `KRX_MASTER_TTL_EXPIRED > ${DEFAULT_KRX_MASTER_GUARD.ttlHours}h` };
   if (input.tier.tier === 4) return { blocked: true, reason: 'STATIC_SEED_NOT_ALLOWED_FOR_SCAN' };
   return { blocked: false, reason: 'OK' };
@@ -99,6 +105,7 @@ export function resolveKrxMasterProductionBlock(input: {
 export function formatKrxMasterStatusMessage(input: {
   size: number;
   market: ReturnType<typeof countByMarket>;
+  metadata: ReturnType<typeof getKrxMasterMetadata>;
   tier: TierEstimate;
   fetchedAtMs: number | null;
   isStale: boolean;
@@ -121,12 +128,17 @@ export function formatKrxMasterStatusMessage(input: {
   lines.push(`🗓️ 마지막 업데이트: ${formatKstAge(input.fetchedAtMs, input.now)}`);
   if (input.isStale) lines.push('   ⚠️ TTL 만료 (24h+) — 부팅 또는 다음 cron 사이클에서 갱신 시도');
   lines.push('');
-  lines.push('📈 등록 종목 수:');
-  lines.push(`   KOSPI:  ${input.market.KOSPI}`);
-  lines.push(`   KOSDAQ: ${input.market.KOSDAQ}`);
-  if (input.market.KONEX > 0) lines.push(`   KONEX:  ${input.market.KONEX}`);
-  if (input.market.OTHER > 0) lines.push(`   OTHER:  ${input.market.OTHER}`);
-  lines.push(`   TOTAL:  ${input.market.total}`);
+  lines.push('📈 KRX Full Master 계층:');
+  lines.push(`   KRX Raw Master: ${input.metadata.raw_krx_master_total}개 (기준 ≥${RAW_KRX_MASTER_MIN_TOTAL})`);
+  lines.push(`   - KOSPI:  ${input.metadata.kospi_total}개`);
+  lines.push(`   - KOSDAQ: ${input.metadata.kosdaq_total}개`);
+  lines.push(`   - KONEX:  ${input.metadata.konex_total_optional}개 (optional)`);
+  if (input.market.OTHER > 0) lines.push(`   - OTHER:  ${input.market.OTHER}개`);
+  lines.push(`   Tradable Universe: ${input.metadata.tradable_universe_total}개 (기준 ≥${TRADABLE_KRX_UNIVERSE_MIN_TOTAL})`);
+  lines.push(`   Scanner Candidates: ${input.metadata.scanner_candidate_total}개 (master 기준 아님)`);
+  lines.push(`   Watchlist: ${input.watchlistTotal}개`);
+  lines.push(`   Cache: ${input.metadata.is_partial ? 'PARTIAL' : input.isStale ? 'STALE' : 'CACHE'} / version=${input.metadata.cache_version}`);
+  lines.push(`   Source Markets: ${input.metadata.source_markets.join(',') || 'NONE'}`);
   lines.push('');
   lines.push('🚦 Tier 추정:');
   lines.push(`   ${input.tier.label}`);
@@ -134,15 +146,13 @@ export function formatKrxMasterStatusMessage(input: {
   lines.push('');
   lines.push('🛡️ Production Use:');
   if (production.blocked) {
-    lines.push('   scanner: 🛑 BLOCKED');
-    lines.push('   recommendation: 🛑 BLOCKED');
-    lines.push('   autotrade: 🛑 BLOCKED');
-    lines.push('   shadow learning: 🟡 DEGRADED_ONLY');
+    lines.push('   scanner 신규 후보 발굴: 🛑 BLOCKED');
+    lines.push('   trading engine: ✅ CONTINUE (기존 watchlist/보유 관리)');
+    lines.push('   shadow learning: ✅ CONTINUE + 장애 case 기록');
     lines.push(`   reason: ${production.reason}`);
   } else {
-    lines.push('   scanner: ✅ ALLOWED');
-    lines.push('   recommendation: ✅ ALLOWED');
-    lines.push('   autotrade: ✅ ALLOWED');
+    lines.push('   scanner 신규 후보 발굴: ✅ ALLOWED');
+    lines.push('   trading engine: ✅ CONTINUE');
     lines.push('   shadow learning: ✅ NORMAL');
   }
   lines.push('');
@@ -168,6 +178,8 @@ export function formatKrxMasterStatusMessage(input: {
     const cfTag = cf >= 3 ? ` (연속실패 ${cf}회 ⚠️)` : cf > 0 ? ` (연속실패 ${cf}회)` : '';
     lines.push(`   ${h.source}: ${h.score} — 최근성공 ${lastSucc}${cfTag}`);
   }
+  lines.push('');
+  lines.push(`영향: ${production.blocked ? '전 종목 신규 후보 발굴 불가 / Trading Engine·Shadow 지속' : '전 종목 신규 후보 발굴 가능'}`);
   lines.push('');
   lines.push('🎯 권장 조치:');
   if (input.size === 0) {
@@ -210,6 +222,7 @@ const krxMasterStatus: TelegramCommand = {
     const message = formatKrxMasterStatusMessage({
       size,
       market,
+      metadata: getKrxMasterMetadata(),
       tier,
       fetchedAtMs,
       isStale,

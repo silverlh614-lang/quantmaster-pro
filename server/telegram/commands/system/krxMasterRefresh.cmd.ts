@@ -11,7 +11,7 @@
 // - AUTO_TRADE_ENABLED / emergencyStop 가드 불필요 (인프라 갱신은 비상 시에도 안전)
 
 import { refreshMultiSourceMaster } from '../../../services/multiSourceStockMaster.js';
-import { getMasterSize } from '../../../persistence/krxStockMasterRepo.js';
+import { getMasterSize, getKrxMasterMetadata } from '../../../persistence/krxStockMasterRepo.js';
 import { DEFAULT_KRX_MASTER_GUARD } from '../../../dataQuality/emergencyDataQualityGuards.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -35,6 +35,7 @@ export function formatKrxMasterRefreshMessage(input: {
   attempts: Array<{ source: string; ok: boolean; count: number; reason?: string }>;
   elapsedMs: number;
   acceptableMin?: number;
+  metadata?: ReturnType<typeof getKrxMasterMetadata>;
 }): string {
   const min = input.acceptableMin ?? MIN_ACCEPTABLE_FINAL_COUNT;
   const accepted = input.finalCount >= min && input.finalSource !== 'NONE';
@@ -58,6 +59,17 @@ export function formatKrxMasterRefreshMessage(input: {
   lines.push(`소스: ${input.finalSource}${input.usedFallback ? ' (fallback)' : ''}`);
   lines.push(`이전: ${input.before}개 → 현재: ${input.after}개 (${input.after - input.before >= 0 ? '+' : ''}${input.after - input.before})`);
   lines.push(`소요: ${(input.elapsedMs / 1000).toFixed(1)}s`);
+  if (input.metadata) {
+    lines.push('');
+    lines.push(`KRX Raw Master: ${input.metadata.raw_krx_master_total}개`);
+    lines.push(`- KOSPI: ${input.metadata.kospi_total}개`);
+    lines.push(`- KOSDAQ: ${input.metadata.kosdaq_total}개`);
+    lines.push(`- KONEX: ${input.metadata.konex_total_optional}개 (optional)`);
+    lines.push(`Tradable Universe: ${input.metadata.tradable_universe_total}개`);
+    lines.push(`Scanner Candidates: ${input.metadata.scanner_candidate_total}개 (master 기준 아님)`);
+    lines.push(`Watchlist: ${input.metadata.watchlist_total}개`);
+    lines.push(`Cache: ${input.metadata.is_partial ? 'PARTIAL' : input.metadata.stale ? 'STALE' : 'CACHE'} / version=${input.metadata.cache_version}`);
+  }
   lines.push('');
 
   // tier 시도 내역
@@ -75,7 +87,7 @@ export function formatKrxMasterRefreshMessage(input: {
     lines.push('   → KRX_PUBLIC_API_BASE / 네트워크 점검');
     lines.push('   → /kms 로 현재 상태 재확인');
   } else if (!accepted) {
-    lines.push('🚨 partial fetch 의심 — 별도 진단 PR 필요');
+    lines.push('🚨 partial/fallback fetch 의심 — 정상 KRX_FULL_MASTER cache는 덮어쓰지 않음');
     lines.push(`   → production usable 기준: TOTAL ≥${min}`);
     lines.push('   → /health 에서 KRX Master / Production scan BLOCKED 여부 확인');
   } else if (live) {
@@ -127,6 +139,7 @@ const krxMasterRefresh: TelegramCommand = {
           usedFallback: result.usedFallback,
           attempts: result.attempts,
           elapsedMs,
+          metadata: getKrxMasterMetadata(),
         }),
       );
     } catch (e) {

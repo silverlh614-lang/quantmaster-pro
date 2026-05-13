@@ -1,0 +1,6 @@
+# Force source files through textual diffs even when an older blob accidentally
+# contains a NUL placeholder character.
+*.ts text diff
+*.tsx text diff
+*.js text diff
+*.jsx text diff

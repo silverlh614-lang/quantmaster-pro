@@ -90,6 +90,11 @@ import {
   formatProductionMasterBlockedMessage,
 } from "../dataQuality/productionMasterGuard.js";
 import { isEmergencyMasterGuardScanEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
+import {
+  getAllStockEntries,
+  getTradableKrxUniverse,
+  updateKrxMasterRuntimeCounts,
+} from "../persistence/krxStockMasterRepo.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -126,6 +131,18 @@ async function ensureScannerMasterUsable(jobLabel: string): Promise<boolean> {
     ).catch(console.error);
     return false;
   }
+}
+
+
+function buildKrxFullMasterScannerUniverse(): Array<{ symbol: string; code: string; name: string }> {
+  const raw = getAllStockEntries();
+  const tradable = getTradableKrxUniverse(raw);
+  if (tradable.length === 0) return [];
+  return tradable.map((entry) => ({
+    code: entry.code,
+    name: entry.name,
+    symbol: entry.market === "KOSDAQ" ? `${entry.code}.KQ` : `${entry.code}.KS`,
+  }));
 }
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
@@ -257,7 +274,15 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   // ─ Yahoo 유니버스 스캔 (VTS 보완 + KIS 미제공 종목) — 5개씩 병렬 배치 ─
   // 아이디어 6: 동적 확장 유니버스 사용 (정적 + 주간 52주신고가/외국인순매수)
   const { getExpandedUniverse } = await import("./dynamicUniverseExpander.js");
-  const scanUniverse = getExpandedUniverse();
+  const expandedUniverse = getExpandedUniverse();
+  const krxFullMasterUniverse = buildKrxFullMasterScannerUniverse();
+  const scanUniverse = krxFullMasterUniverse.length > expandedUniverse.length
+    ? krxFullMasterUniverse
+    : expandedUniverse;
+  console.log(
+    `[Pipeline/Stage1] KRX_FULL_MASTER raw=${getAllStockEntries().length} ` +
+      `tradable=${krxFullMasterUniverse.length} scannerUniverse=${scanUniverse.length}`
+  );
   for (let i = 0; i < scanUniverse.length; i += BATCH_SIZE) {
     const batch = scanUniverse.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
@@ -299,6 +324,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     .slice(0, 3)
     .map(([k, n]) => `${k}=${n}`)
     .join(", ");
+  updateKrxMasterRuntimeCounts({ scannerCandidateTotal: result.length, watchlistTotal: loadWatchlist().length });
   console.log(
     `[Pipeline/Stage1] 스캔 ${candidates.length}개 → 상위 ${result.length}개 추출 ` +
       `· 평가 ${stats.totalEvaluated} · 탈락 ${stats.totalRejected}` +

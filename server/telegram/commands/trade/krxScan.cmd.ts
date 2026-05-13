@@ -3,6 +3,7 @@
 import { getEmergencyStop } from '../../../state.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
+import { getKrxMasterMetadata } from '../../../persistence/krxStockMasterRepo.js';
 import { getLiveRegime } from '../../../trading/regimeBridge.js';
 import { resetKrxCache } from '../../../clients/krxClient.js';
 import {
@@ -33,8 +34,8 @@ const krxScan: TelegramCommand = {
     await reply(
       `🇰🇷 <b>KRX 강제 스캔 트리거</b>\n` +
       `서킷: ${before.circuitState} (실패 ${before.failures}회) → RESET\n` +
-      `캐시: 초기화 완료\n` +
-      `Stage1(KRX 종목조회) → Stage2 → Stage3 재실행 중...`,
+      `캐시: KRX client cache 초기화 완료 (정상 KRX_FULL_MASTER 파일은 검증 통과 전 보존)\n` +
+      `Stage1(KRX_FULL_MASTER 로딩) → Stage2(tradable universe 필터링) → Stage3(scanner candidate 생성) 재실행 중...`,
     );
     try {
       const macroState = loadMacroState();
@@ -50,10 +51,18 @@ const krxScan: TelegramCommand = {
       }
       const after = getKrxOpenApiStatus();
       const wl = loadWatchlist();
+      const meta = getKrxMasterMetadata();
       await reply(
         `✅ <b>KRX 강제 스캔 완료</b>\n` +
-        `서킷: ${after.circuitState} (실패 ${after.failures}회)\n` +
-        `워치리스트: ${wl.length}개`,
+        `KRX Raw Master: ${meta.raw_krx_master_total}개\n` +
+        `- KOSPI: ${meta.kospi_total}개\n` +
+        `- KOSDAQ: ${meta.kosdaq_total}개\n` +
+        `- KONEX: ${meta.konex_total_optional}개 (optional)\n` +
+        `Tradable Universe: ${meta.tradable_universe_total}개\n` +
+        `Scanner Candidates: ${meta.scanner_candidate_total}개\n` +
+        `Watchlist: ${wl.length}개\n` +
+        `Cache: ${meta.is_partial ? 'PARTIAL' : meta.stale ? 'STALE' : 'CACHE'}\n` +
+        `서킷: ${after.circuitState} (실패 ${after.failures}회)`,
       );
     } catch (e) {
       await reply(
