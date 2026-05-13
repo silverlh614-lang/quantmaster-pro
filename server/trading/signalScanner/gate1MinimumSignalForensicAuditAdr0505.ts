@@ -35,6 +35,7 @@ import {
   evaluateInvestorFlowSemanticAvailabilityV2,
   type InvestorFlowSemanticAvailabilityReason,
   type InvestorFlowSemanticAvailabilityResult,
+  type InvestorFlowFieldKeyDiscoveryDiagnostic,
 } from '../../supply/investorFlowSemanticAvailability.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
@@ -130,6 +131,7 @@ export interface SupplyScopeAudit {
   institutionalRowFound?: boolean;
   individualRowFound?: boolean;
   rowMappingConfidence?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  fieldKeyDiagnostics?: InvestorFlowFieldKeyDiscoveryDiagnostic;
   providerIssue?: boolean;
   marketSignal?: false;
   wouldBeNeutralIfZeroButMaterialized?: boolean;
@@ -397,6 +399,14 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   foreignNetBuyAvailable?: number;
   institutionalNetBuyAvailable?: number;
   zeroButMaterializedCount?: number;
+  kisRawFieldKeysTop?: Record<string, number>;
+  kisNormalizedFieldKeysTop?: Record<string, number>;
+  sampleValueKindDistribution?: Record<string, number>;
+  mappedFieldDistribution?: {
+    foreign: Record<string, number>;
+    institution: Record<string, number>;
+    individual: Record<string, number>;
+  };
   scoreUsageDistribution?: Record<string, number>;
   supplyUnknownRootCauseDistribution?: Record<string, number>;
   supplyRouterForensicConflict?: boolean;
@@ -879,6 +889,7 @@ function buildSupplyScopeAudit(input: {
     institutionalRowFound: semantic.institutionalRowFound,
     individualRowFound: semantic.individualRowFound,
     rowMappingConfidence: semantic.rowMappingConfidence,
+    fieldKeyDiagnostics: semantic.fieldKeyDiagnostics,
     providerIssue: semantic.providerIssue,
     marketSignal: false,
     wouldBeNeutralIfZeroButMaterialized: semantic.wouldBeNeutralIfZeroButMaterialized,
@@ -1359,6 +1370,14 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const semanticReasonDistribution = { ...EMPTY_SEMANTIC_REASON_DISTRIBUTION };
   const scoreUsageDistribution: Record<string, number> = {};
   const supplyUnknownRootCauseDistribution: Record<string, number> = {};
+  const kisRawFieldKeysTop: Record<string, number> = {};
+  const kisNormalizedFieldKeysTop: Record<string, number> = {};
+  const sampleValueKindDistribution: Record<string, number> = {};
+  const mappedFieldDistribution: { foreign: Record<string, number>; institution: Record<string, number>; individual: Record<string, number> } = {
+    foreign: {},
+    institution: {},
+    individual: {},
+  };
   let supplySemanticAvailable = 0;
   let supplyDiagnosticAvailable = 0;
   let foreignNetBuyAvailable = 0;
@@ -1497,6 +1516,15 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     const scoreUsageKey = a.supplyScopeAudit.scoreUsage ?? 'SHADOW_ONLY';
     scoreUsageDistribution[scoreUsageKey] = (scoreUsageDistribution[scoreUsageKey] ?? 0) + 1;
     if (a.supplyScopeAudit.wouldBeEligibleIfForeignOrInstitutionFieldMapped) shadowEligibleSupplyCount += 1;
+    const fieldDiagnostics = a.supplyScopeAudit.fieldKeyDiagnostics;
+    for (const key of fieldDiagnostics?.kisRawFieldKeysTop ?? []) kisRawFieldKeysTop[key] = (kisRawFieldKeysTop[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.kisNormalizedFieldKeysTop ?? []) kisNormalizedFieldKeysTop[key] = (kisNormalizedFieldKeysTop[key] ?? 0) + 1;
+    for (const [kind, count] of Object.entries(fieldDiagnostics?.sampleValueKinds ?? {})) {
+      sampleValueKindDistribution[kind] = (sampleValueKindDistribution[kind] ?? 0) + Number(count);
+    }
+    for (const key of fieldDiagnostics?.candidateMappedFields.foreign ?? []) mappedFieldDistribution.foreign[key] = (mappedFieldDistribution.foreign[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.candidateMappedFields.institution ?? []) mappedFieldDistribution.institution[key] = (mappedFieldDistribution.institution[key] ?? 0) + 1;
+    for (const key of fieldDiagnostics?.candidateMappedFields.individual ?? []) mappedFieldDistribution.individual[key] = (mappedFieldDistribution.individual[key] ?? 0) + 1;
     if (a.penaltyComponents['SUPPLY_CONFLUENCE']?.weightedScore < 0) {
       const rootCause = resolveSupplyUnknownRootCause(a.supplyScopeAudit);
       supplyUnknownRootCauseDistribution[rootCause] = (supplyUnknownRootCauseDistribution[rootCause] ?? 0) + 1;
@@ -1626,6 +1654,10 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     foreignNetBuyAvailable,
     institutionalNetBuyAvailable,
     zeroButMaterializedCount,
+    kisRawFieldKeysTop,
+    kisNormalizedFieldKeysTop,
+    sampleValueKindDistribution,
+    mappedFieldDistribution,
     scoreUsageDistribution,
     supplyUnknownRootCauseDistribution,
     supplyRouterForensicConflict: supplyDiagnosticAvailable > 0 && supplySemanticAvailable === 0,
@@ -1633,7 +1665,9 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     routerSignal: 'NEUTRAL',
     forensicSemanticAvailable: `${supplySemanticAvailable}/${totalCandidates}`,
     routerForensicConflictReason: supplyDiagnosticAvailable > 0 && supplySemanticAvailable === 0
-      ? 'ROUTER_VERIFIED_BUT_SEMANTIC_FIELDS_MISSING'
+      ? semanticReasonDistribution.STALE_ONLY > 0
+        ? 'ROUTER_VERIFIED_BUT_SHADOW_ONLY_STALE'
+        : 'ROUTER_VERIFIED_BUT_SEMANTIC_FIELDS_MISSING'
       : undefined,
     shadowEligibleSupplyCount,
     candidateTraceCount: totalCandidates,
@@ -1752,6 +1786,12 @@ export function formatGate1MinimumSignalForensicSection(
     `- supplySemanticFields: foreignField=${summary.foreignNetBuyAvailable ?? 0}/${summary.totalCandidates} institutionField=${summary.institutionalNetBuyAvailable ?? 0}/${summary.totalCandidates} zeroButMaterialized=${summary.zeroButMaterializedCount ?? 0}`,
   );
   if (summary.semanticReasonDistribution) lines.push(`- semanticReasonDistribution: ${formatDistribution(summary.semanticReasonDistribution)}`);
+  if (summary.kisRawFieldKeysTop) lines.push(`- kisRawFieldKeysTop: ${formatDistribution(summary.kisRawFieldKeysTop)}`);
+  if (summary.kisNormalizedFieldKeysTop) lines.push(`- kisNormalizedFieldKeysTop: ${formatDistribution(summary.kisNormalizedFieldKeysTop)}`);
+  if (summary.sampleValueKindDistribution) lines.push(`- sampleValueKinds: ${formatDistribution(summary.sampleValueKindDistribution)}`);
+  if (summary.mappedFieldDistribution) {
+    lines.push(`- mappedFieldDistribution: foreign=${formatDistribution(summary.mappedFieldDistribution.foreign)} institution=${formatDistribution(summary.mappedFieldDistribution.institution)} individual=${formatDistribution(summary.mappedFieldDistribution.individual)}`);
+  }
   if (summary.providerScopeDistribution) lines.push(`- providerScopeDistribution: ${formatDistribution(summary.providerScopeDistribution)}`);
   if (summary.scoreUsageDistribution) lines.push(`- scoreUsageDistribution: ${formatDistribution(summary.scoreUsageDistribution)}`);
   if (summary.supplyUnknownRootCauseDistribution) lines.push(`- supplyUnknownRootCause: ${formatDistribution(summary.supplyUnknownRootCauseDistribution)}`);
@@ -1802,7 +1842,7 @@ export function formatGate1MinimumSignalForensicSection(
 export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
   const total = summary.totalCandidates;
   const topSemanticReason = pickTopDistributionKey(summary.semanticReasonDistribution ?? {});
-  if (topSemanticReason === 'NO_FOREIGN_OR_INSTITUTION_FIELD') return 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
+  if (topSemanticReason === 'NO_FOREIGN_OR_INSTITUTION_FIELD') return 'MAP_KIS_NETBUY_FIELDS';
   if (topSemanticReason === 'ROW_MAPPING_FAILED') return 'MAP_INVESTOR_TYPE_ROWS_TO_NETBUY';
   if (topSemanticReason === 'ONLY_MARKET_LEVEL_FLOW' || topSemanticReason === 'ONLY_SECTOR_LEVEL_FLOW') return 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE';
   if ((summary.zeroButMaterializedCount ?? 0) > 0) return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';

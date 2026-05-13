@@ -189,6 +189,19 @@ export interface InvestorFlowSemanticRowAudit {
   rowMappingConfidence: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
+export type InvestorFlowSampleValueKind = 'number' | 'numericString' | 'empty' | 'placeholder';
+
+export interface InvestorFlowFieldKeyDiscoveryDiagnostic {
+  kisRawFieldKeysTop: string[];
+  kisNormalizedFieldKeysTop: string[];
+  sampleValueKinds: Record<InvestorFlowSampleValueKind, number>;
+  candidateMappedFields: {
+    foreign: string[];
+    institution: string[];
+    individual: string[];
+  };
+}
+
 export interface InvestorFlowSemanticFields {
   foreignNetBuy: number | null;
   institutionalNetBuy: number | null;
@@ -207,6 +220,7 @@ export interface InvestorFlowSemanticFields {
   rowMappingConfidence?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
   allMaterializedValuesZero?: boolean;
   placeholderOnly?: boolean;
+  fieldKeyDiagnostics?: InvestorFlowFieldKeyDiscoveryDiagnostic;
 }
 
 export type InvestorFlowSemanticAvailabilityReason =
@@ -245,8 +259,16 @@ const FOREIGN_NET_BUY_ALIASES = [
   'frgn_ntby',
   'frgn_ntby_qty',
   'frgn_ntby_tr_pbmn',
+  'frgn_ntby_tr_pbmn_amt',
+  'frgn_ntby_qty_amt',
+  'frgn_ntby_vol',
+  'frgnPurScl',
+  'netBuyAmount',
+  'netBuyVolume',
   'foreigner',
 ] as const;
+const FOREIGN_BUY_ALIASES = ['foreignBuy', 'foreignBuyAmount', 'foreignBuyVolume', 'frgnBuy', 'frgn_buy', 'frgn_shnu_qty'] as const;
+const FOREIGN_SELL_ALIASES = ['foreignSell', 'foreignSellAmount', 'foreignSellVolume', 'frgnSell', 'frgn_sell', 'frgn_seln_qty'] as const;
 const INSTITUTIONAL_NET_BUY_ALIASES = [
   'institutionalNetBuy',
   'institutionNetBuy',
@@ -256,20 +278,34 @@ const INSTITUTIONAL_NET_BUY_ALIASES = [
   'orgn_ntby',
   'orgn_ntby_qty',
   'orgn_ntby_tr_pbmn',
+  'orgn_ntby_tr_pbmn_amt',
+  'orgn_ntby_vol',
+  '기관합계',
+  '기관',
+  'inst',
   'institution',
 ] as const;
+const INSTITUTIONAL_BUY_ALIASES = ['institutionBuy', 'institutionBuyAmount', 'institutionBuyVolume', 'institutionalBuy', 'instBuy', 'orgnBuy', 'orgn_buy', 'orgn_shnu_qty'] as const;
+const INSTITUTIONAL_SELL_ALIASES = ['institutionSell', 'institutionSellAmount', 'institutionSellVolume', 'institutionalSell', 'instSell', 'orgnSell', 'orgn_sell', 'orgn_seln_qty'] as const;
 const INDIVIDUAL_NET_BUY_ALIASES = [
   'individualNetBuy',
   'retailNetBuy',
   'prsnNetBuy',
   'indvNetBuy',
   'indv_ntby',
+  'indv_ntby_qty',
+  'indv_ntby_tr_pbmn',
+  '개인',
+  'retail',
   'individual',
 ] as const;
+const INDIVIDUAL_BUY_ALIASES = ['individualBuy', 'individualBuyAmount', 'individualBuyVolume', 'retailBuy', 'prsnBuy', 'indvBuy', 'indv_buy', 'indv_shnu_qty'] as const;
+const INDIVIDUAL_SELL_ALIASES = ['individualSell', 'individualSellAmount', 'individualSellVolume', 'retailSell', 'prsnSell', 'indvSell', 'indv_sell', 'indv_seln_qty'] as const;
 const PROGRAM_NET_BUY_ALIASES = ['programNetBuy'] as const;
 const NET_BUY_AMOUNT_ALIASES = ['netBuyAmount', 'netAmount', 'buyAmount', 'sellAmount'] as const;
 const NET_BUY_VOLUME_ALIASES = ['netBuyVolume', 'netVolume', 'buyVolume', 'sellVolume'] as const;
 const ROW_ARRAY_KEYS = ['rows', 'data', 'items', 'investorFlows', 'investorFlow', 'flows', 'result', 'output'] as const;
+const INVESTOR_TYPE_KEYS = ['investorType', 'invstType', 'trdVolType', 'invrDvsn', 'type', 'investor', 'invrDvsnName', 'invr_dvsn_name'] as const;
 
 export function normalizeNumberLikeInvestorFlowValue(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
@@ -294,6 +330,82 @@ function firstNumberLikeField(
     if (value !== null) return { value, sourceField: key, rawMaterialized: true };
   }
   return { value: null, rawMaterialized };
+}
+
+
+function numberLikePairDifference(
+  obj: Record<string, unknown>,
+  buyAliases: readonly string[],
+  sellAliases: readonly string[],
+): { value: number | null; sourceField?: string; rawMaterialized: boolean } {
+  const buy = firstNumberLikeField(obj, buyAliases);
+  const sell = firstNumberLikeField(obj, sellAliases);
+  const rawMaterialized = buy.rawMaterialized || sell.rawMaterialized;
+  if (buy.value === null || sell.value === null) return { value: null, rawMaterialized };
+  return {
+    value: buy.value - sell.value,
+    sourceField: `${buy.sourceField ?? 'buy'}-${sell.sourceField ?? 'sell'}`,
+    rawMaterialized: true,
+  };
+}
+
+function sampleValueKind(value: unknown): InvestorFlowSampleValueKind | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? 'number' : 'placeholder';
+  if (value == null) return 'placeholder';
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return 'empty';
+  if (trimmed === '-' || trimmed.toUpperCase() === 'N/A') return 'placeholder';
+  return normalizeNumberLikeInvestorFlowValue(trimmed) !== null ? 'numericString' : null;
+}
+
+function collectRawRowsAndKeys(input: unknown): { keys: string[]; values: unknown[] } {
+  const keys: string[] = [];
+  const values: unknown[] = [];
+  const addObject = (obj: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(obj)) {
+      keys.push(key);
+      values.push(value);
+    }
+  };
+  if (input != null && typeof input === 'object' && !Array.isArray(input)) addObject(input as Record<string, unknown>);
+  for (const row of findRows(input)) addObject(row);
+  return { keys, values };
+}
+
+function topUnique(values: readonly string[], limit = 16): string[] {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([key]) => key);
+}
+
+function buildFieldKeyDiagnostics(
+  input: unknown,
+  fields: Pick<InvestorFlowSemanticFields, 'sourceFields' | 'foreignNetBuy' | 'institutionalNetBuy' | 'individualNetBuy' | 'programNetBuy' | 'netBuyAmount' | 'netBuyVolume'>,
+): InvestorFlowFieldKeyDiscoveryDiagnostic {
+  const raw = collectRawRowsAndKeys(input);
+  const sampleValueKinds: Record<InvestorFlowSampleValueKind, number> = { number: 0, numericString: 0, empty: 0, placeholder: 0 };
+  for (const value of raw.values) {
+    const kind = sampleValueKind(value);
+    if (kind) sampleValueKinds[kind] += 1;
+  }
+  const normalizedKeys = Object.entries(fields)
+    .filter(([key, value]) => key !== 'sourceFields' && typeof value === 'number' && Number.isFinite(value))
+    .map(([key]) => key);
+  const source = fields.sourceFields ?? {};
+  return {
+    kisRawFieldKeysTop: topUnique(raw.keys),
+    kisNormalizedFieldKeysTop: topUnique(normalizedKeys),
+    sampleValueKinds,
+    candidateMappedFields: {
+      foreign: source.foreignNetBuy ? [source.foreignNetBuy] : [],
+      institution: source.institutionalNetBuy ? [source.institutionalNetBuy] : [],
+      individual: source.individualNetBuy ? [source.individualNetBuy] : [],
+    },
+  };
 }
 
 function emptyRowAudit(): InvestorFlowSemanticRowAudit {
@@ -334,11 +446,17 @@ function extractRowFields(input: unknown): Partial<InvestorFlowSemanticFields> &
   audit.rowCount = rows.length;
   const mapped: Partial<InvestorFlowSemanticFields> = { sourceFields: {} };
   for (const row of rows) {
-    const investorTypeRaw = row.investorType ?? row.type ?? row.investor ?? row.invstType ?? row.invrDvsnName ?? row.invr_dvsn_name;
+    const investorTypeRaw = INVESTOR_TYPE_KEYS.map((key) => row[key]).find((value) => typeof value === 'string' && value.trim());
     if (typeof investorTypeRaw === 'string' && investorTypeRaw.trim()) audit.investorTypesDetected.push(investorTypeRaw.trim());
     const investorType = classifyInvestorType(investorTypeRaw);
     if (!investorType) continue;
-    const net = firstNumberLikeField(row, [...NET_BUY_AMOUNT_ALIASES, ...NET_BUY_VOLUME_ALIASES, 'netBuy', 'net_buy', 'ntby', 'ntby_qty', 'ntby_tr_pbmn']);
+    const direct = firstNumberLikeField(row, [...NET_BUY_AMOUNT_ALIASES, ...NET_BUY_VOLUME_ALIASES, 'netBuy', 'net_buy', 'ntby', 'ntby_qty', 'ntby_tr_pbmn']);
+    const pair = investorType === 'foreign'
+      ? numberLikePairDifference(row, FOREIGN_BUY_ALIASES, FOREIGN_SELL_ALIASES)
+      : investorType === 'institutional'
+        ? numberLikePairDifference(row, INSTITUTIONAL_BUY_ALIASES, INSTITUTIONAL_SELL_ALIASES)
+        : numberLikePairDifference(row, INDIVIDUAL_BUY_ALIASES, INDIVIDUAL_SELL_ALIASES);
+    const net = direct.value !== null ? direct : pair;
     if (net.value === null) continue;
     if (investorType === 'foreign') {
       mapped.foreignNetBuy = net.value;
@@ -387,17 +505,19 @@ export function extractInvestorFlowSemanticFields(input: unknown): InvestorFlowS
   base.individualRowFound = row.individualRowFound;
   base.rowMappingConfidence = row.rowMappingConfidence;
 
-  const mappings: Array<[keyof InvestorFlowSemanticFields, readonly string[]]> = [
-    ['foreignNetBuy', FOREIGN_NET_BUY_ALIASES],
-    ['institutionalNetBuy', INSTITUTIONAL_NET_BUY_ALIASES],
-    ['individualNetBuy', INDIVIDUAL_NET_BUY_ALIASES],
-    ['programNetBuy', PROGRAM_NET_BUY_ALIASES],
-    ['netBuyAmount', NET_BUY_AMOUNT_ALIASES],
-    ['netBuyVolume', NET_BUY_VOLUME_ALIASES],
+  const mappings: Array<[keyof InvestorFlowSemanticFields, readonly string[], readonly string[] | undefined, readonly string[] | undefined]> = [
+    ['foreignNetBuy', FOREIGN_NET_BUY_ALIASES, FOREIGN_BUY_ALIASES, FOREIGN_SELL_ALIASES],
+    ['institutionalNetBuy', INSTITUTIONAL_NET_BUY_ALIASES, INSTITUTIONAL_BUY_ALIASES, INSTITUTIONAL_SELL_ALIASES],
+    ['individualNetBuy', INDIVIDUAL_NET_BUY_ALIASES, INDIVIDUAL_BUY_ALIASES, INDIVIDUAL_SELL_ALIASES],
+    ['programNetBuy', PROGRAM_NET_BUY_ALIASES, undefined, undefined],
+    ['netBuyAmount', NET_BUY_AMOUNT_ALIASES, undefined, undefined],
+    ['netBuyVolume', NET_BUY_VOLUME_ALIASES, undefined, undefined],
   ];
-  for (const [target, aliases] of mappings) {
-    const picked = firstNumberLikeField(obj, aliases);
-    if (picked.rawMaterialized) base.materializedCount += 1;
+  for (const [target, aliases, buyAliases, sellAliases] of mappings) {
+    const direct = firstNumberLikeField(obj, aliases);
+    const pair = buyAliases && sellAliases ? numberLikePairDifference(obj, buyAliases, sellAliases) : { value: null, rawMaterialized: false };
+    const picked = direct.value !== null ? direct : pair;
+    if (direct.rawMaterialized || pair.rawMaterialized) base.materializedCount += 1;
     const rowValue = row[target] as number | null | undefined;
     const value = rowValue ?? picked.value;
     if (value !== null && value !== undefined) {
@@ -412,6 +532,7 @@ export function extractInvestorFlowSemanticFields(input: unknown): InvestorFlowS
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
   base.allMaterializedValuesZero = values.length > 0 && values.every((value) => value === 0);
   base.placeholderOnly = base.materializedCount > 0 && base.normalizedCount === 0;
+  base.fieldKeyDiagnostics = buildFieldKeyDiagnostics(input, base);
   return base;
 }
 
