@@ -140,6 +140,48 @@ export type BreakoutHydrationSourceAdr0509 =
   | 'WATCHLIST_REASON_PROXY'
   | 'MISSING';
 
+export type Gate1EvaluationState =
+  | 'EVALUATED'
+  | 'NOT_EVALUATED_SELL_ONLY'
+  | 'NOT_EVALUATED_ORDER_BLOCKED'
+  | 'NOT_EVALUATED_BUYLIST_NOT_REACHED'
+  | 'NOT_EVALUATED_PRECHECK_ONLY'
+  | 'PARTIAL_TRACE_ONLY'
+  | 'UNKNOWN';
+
+export type Gate1ForensicTraceSourcePath =
+  | 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE'
+  | 'ENTRY_FILTER_CANDIDATE_TRACE'
+  | 'WATCHLIST_CANDIDATE'
+  | 'PREFLIGHT_UNIVERSE_SNAPSHOT'
+  | 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
+  | 'UNKNOWN';
+
+export type WatchlistBreakPointAdr0510 =
+  | 'WATCHLIST_ENTRY_MISSING_SCORE'
+  | 'STAGE2_SCORE_NOT_COPIED'
+  | 'PROMOTION_SCORE_NOT_COPIED'
+  | 'ENTRY_FILTER_TRACE_MISSING_SCORE'
+  | 'FORENSIC_INPUT_MISSING_SCORE'
+  | 'SOURCE_FIELD_NONE'
+  | 'UNKNOWN';
+
+export type QuoteHydrationBreakPointAdr0510 =
+  | 'QUOTE_NOT_FETCHED'
+  | 'QUOTE_FETCHED_NOT_COPIED'
+  | 'SAFE_QUOTE_FEATURES_NOT_BUILT'
+  | 'SELL_ONLY_SKIPPED_QUOTE_EVALUATION'
+  | 'PRECHECK_ONLY_TRACE'
+  | 'UNKNOWN';
+
+export type ConditionResultsBreakPointAdr0510 =
+  | 'EVALUATE_SERVER_GATE_NOT_CALLED'
+  | 'GATE_OUTPUTS_NOT_COPIED'
+  | 'CONDITION_RESULTS_NOT_PROJECTED'
+  | 'SELL_ONLY_SKIPPED_GATE_EVALUATION'
+  | 'PRECHECK_ONLY_TRACE'
+  | 'UNKNOWN';
+
 export interface WatchlistHydrationAuditAdr0509 {
   sourceAvailable: boolean;
   sourceField: string | null;
@@ -228,6 +270,10 @@ export interface Gate1MinimumSignalForensicAuditAdr0505 {
 
   supplyScopeAudit: SupplyScopeAudit;
   hydrationAuditAdr0509?: FeatureHydrationAuditAdr0509;
+  sourcePath?: Gate1ForensicTraceSourcePath;
+  watchlistBreakPoint?: WatchlistBreakPointAdr0510;
+  quoteHydrationBreakPoint?: QuoteHydrationBreakPointAdr0510;
+  conditionResultsBreakPoint?: ConditionResultsBreakPointAdr0510;
   sectorEnergyAudit: SectorEnergyForensicAudit;
 
   wouldPassIf: WouldPassIfFlags;
@@ -242,6 +288,13 @@ export interface Gate1MinimumSignalForensicAuditAdr0505 {
 export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   totalCandidates: number;
   failedCandidates: number;
+  evaluationState?: Gate1EvaluationState;
+  evaluatedCandidateCount?: number;
+  traceOnlyCandidateCount?: number;
+  buyListLoopEntered?: boolean;
+  perSymbolEvaluationEntered?: boolean;
+  gateEvaluationOutputAvailableCount?: number;
+  minSignalScoreTraceAvailableCount?: number;
   requiredScoreAvg: number;
   actualScoreAvg: number;
   avgScoreGap: number;
@@ -319,6 +372,19 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   traceWithSupplyContextCount?: number;
   traceWithMinSignalScoreTraceCount?: number;
   traceDominantFailureReason?: 'TRACE_HYDRATION_MISSING';
+  sourcePathDistribution?: Record<Gate1ForensicTraceSourcePath, number>;
+  sourcePathTopMissingFields?: Record<string, string[]>;
+  sourcePathWithWatchlistScore?: Record<Gate1ForensicTraceSourcePath, number>;
+  sourcePathWithQuote?: Record<Gate1ForensicTraceSourcePath, number>;
+  sourcePathWithConditionResults?: Record<Gate1ForensicTraceSourcePath, number>;
+  watchlistBreakPointDistribution?: Record<WatchlistBreakPointAdr0510, number>;
+  watchlistEntryScoreAvailable?: number;
+  stage2ScoreAvailable?: number;
+  promotionScoreAvailable?: number;
+  entryFilterTraceScoreAvailable?: number;
+  forensicInputScoreAvailable?: number;
+  quoteHydrationBreakPointDistribution?: Record<QuoteHydrationBreakPointAdr0510, number>;
+  conditionResultsBreakPointDistribution?: Record<ConditionResultsBreakPointAdr0510, number>;
   sectorEnergyStrongBuyBlockedCount: number;
   sectorEnergyHardBlockCount: number;
 
@@ -388,6 +454,34 @@ export interface BuildGate1MinimumSignalForensicInput {
   };
   quoteSymbol?: string | null;
   sectorEnergyImpact?: SectorEnergyExecutionImpactResult;
+  sourcePath?: Gate1ForensicTraceSourcePath;
+}
+
+export function resolveGate1EvaluationStateAdr0510(input: {
+  totalCandidates: number;
+  traceWithQuoteCount?: number;
+  traceWithSymbolFeaturesCount?: number;
+  traceWithConditionResultsCount?: number;
+  minSignalScoreTraceAvailableCount?: number;
+  buyListLoopEntered?: boolean;
+  gateEvaluationOutputAvailableCount?: number;
+  sellOnlyMode?: boolean;
+  orderBlocked?: boolean;
+}): Gate1EvaluationState {
+  const total = input.totalCandidates;
+  const quote = input.traceWithQuoteCount ?? 0;
+  const symbolFeatures = input.traceWithSymbolFeaturesCount ?? 0;
+  const conditionResults = input.traceWithConditionResultsCount ?? 0;
+  const gateOutputs = input.gateEvaluationOutputAvailableCount ?? conditionResults;
+  const minTrace = input.minSignalScoreTraceAvailableCount ?? 0;
+  if (total <= 0) return 'UNKNOWN';
+  if (input.sellOnlyMode) return 'NOT_EVALUATED_SELL_ONLY';
+  if (input.orderBlocked) return 'NOT_EVALUATED_ORDER_BLOCKED';
+  if (input.buyListLoopEntered === false) return 'NOT_EVALUATED_BUYLIST_NOT_REACHED';
+  if (conditionResults > 0 || gateOutputs > 0) return 'EVALUATED';
+  if (minTrace === 0) return 'NOT_EVALUATED_PRECHECK_ONLY';
+  if (quote === 0 && conditionResults === 0 && symbolFeatures > 0) return 'PARTIAL_TRACE_ONLY';
+  return 'UNKNOWN';
 }
 
 /* ───────── 핵심 SSOT — buildGate1MinimumSignalForensicAuditAdr0505 ───────── */
@@ -457,6 +551,11 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
   // 4) ADR-0509 hydration audit — diagnostic-only, scoring 영향 0
   const hydrationAuditAdr0509 = buildFeatureHydrationAuditAdr0509(candidate, trace);
 
+  const sourcePath = input.sourcePath ?? inferTraceSourcePath(candidate);
+  const watchlistBreakPoint = resolveWatchlistBreakPoint(candidate, trace);
+  const quoteHydrationBreakPoint = resolveQuoteHydrationBreakPoint(candidate, sourcePath);
+  const conditionResultsBreakPoint = resolveConditionResultsBreakPoint(candidate, sourcePath);
+
   // 5) sectorEnergyAudit
   const sectorEnergyAudit = buildSectorEnergyAudit({ candidate, sectorEnergyImpact });
 
@@ -477,12 +576,62 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
     dominantFailureReason,
     supplyScopeAudit,
     hydrationAuditAdr0509,
+    sourcePath,
+    watchlistBreakPoint,
+    quoteHydrationBreakPoint,
+    conditionResultsBreakPoint,
     sectorEnergyAudit,
     wouldPassIf,
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
     policyPromotionMode: 'SHADOW_ONLY',
   };
+}
+
+
+function inferTraceSourcePath(candidate?: CandidateEntryTrace): Gate1ForensicTraceSourcePath {
+  if (!candidate) return 'UNKNOWN';
+  if (candidate.marketSession === 'SELL_ONLY') return 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT';
+  if (candidate.gate1Trace) return 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE';
+  if (candidate.stageReached === 'UNIVERSE') return 'PREFLIGHT_UNIVERSE_SNAPSHOT';
+  if (candidate.stageReached === 'WATCHLIST') return 'WATCHLIST_CANDIDATE';
+  return 'ENTRY_FILTER_CANDIDATE_TRACE';
+}
+
+function resolveWatchlistBreakPoint(candidate: CandidateEntryTrace | undefined, trace: MinimumSignalScoreTrace): WatchlistBreakPointAdr0510 {
+  if (!candidate) return 'SOURCE_FIELD_NONE';
+  const record = candidate as unknown as Record<string, unknown>;
+  const hasNum = (key: string) => typeof record[key] === 'number' && Number.isFinite(record[key] as number);
+  const features = record.symbolFeatures && typeof record.symbolFeatures === 'object' ? record.symbolFeatures as Record<string, unknown> : undefined;
+  const traceHasWatchlist = (trace.components ?? []).some((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE' && (c.weightedScore ?? 0) > 0);
+  const entry = hasNum('watchlistScore') || hasNum('watchlistUpstreamScore') || typeof features?.watchlistScore === 'number';
+  const stage2 = hasNum('stage2Score') || hasNum('totalGateScore') || hasNum('gateScore');
+  const promotion = hasNum('priorityScore') || hasNum('qualScore') || hasNum('upstreamCandidateScore') || hasNum('upstreamScore');
+  if (traceHasWatchlist) return 'UNKNOWN';
+  if (entry) return 'FORENSIC_INPUT_MISSING_SCORE';
+  if (promotion) return 'ENTRY_FILTER_TRACE_MISSING_SCORE';
+  if (stage2) return 'PROMOTION_SCORE_NOT_COPIED';
+  return 'WATCHLIST_ENTRY_MISSING_SCORE';
+}
+
+function resolveQuoteHydrationBreakPoint(candidate: CandidateEntryTrace | undefined, sourcePath: Gate1ForensicTraceSourcePath): QuoteHydrationBreakPointAdr0510 {
+  if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') return 'SELL_ONLY_SKIPPED_QUOTE_EVALUATION';
+  if (sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') return 'PRECHECK_ONLY_TRACE';
+  if (!candidate) return 'QUOTE_NOT_FETCHED';
+  if (!candidate.quote) return 'QUOTE_NOT_FETCHED';
+  return candidate.symbolFeatures ? 'UNKNOWN' : 'SAFE_QUOTE_FEATURES_NOT_BUILT';
+}
+
+function resolveConditionResultsBreakPoint(candidate: CandidateEntryTrace | undefined, sourcePath: Gate1ForensicTraceSourcePath): ConditionResultsBreakPointAdr0510 {
+  if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') return 'SELL_ONLY_SKIPPED_GATE_EVALUATION';
+  if (sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') return 'PRECHECK_ONLY_TRACE';
+  if (!candidate?.gate1Trace) return 'EVALUATE_SERVER_GATE_NOT_CALLED';
+  if (!candidate.conditionResults) return 'CONDITION_RESULTS_NOT_PROJECTED';
+  return 'UNKNOWN';
+}
+
+function bump<K extends string>(record: Record<K, number>, key: K): void {
+  record[key] = (record[key] ?? 0) + 1;
 }
 
 /* ───────── 분류 헬퍼 SSOT ───────── */
@@ -1130,10 +1279,72 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let candidateTraceHasQuote = 0;
   let candidateTraceHasSymbolFeatures = 0;
   let candidateTraceHasConditionResults = 0;
+  const sourcePathDistribution: Record<Gate1ForensicTraceSourcePath, number> = {
+    ENTRY_FILTER_GATE1_CANDIDATE_TRACE: 0,
+    ENTRY_FILTER_CANDIDATE_TRACE: 0,
+    WATCHLIST_CANDIDATE: 0,
+    PREFLIGHT_UNIVERSE_SNAPSHOT: 0,
+    SELL_ONLY_DIAGNOSTIC_SNAPSHOT: 0,
+    UNKNOWN: 0,
+  };
+  const sourcePathWithWatchlistScore: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
+  const sourcePathWithQuote: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
+  const sourcePathWithConditionResults: Record<Gate1ForensicTraceSourcePath, number> = { ...sourcePathDistribution };
+  const sourcePathMissingFieldCounts: Record<string, Record<string, number>> = {};
+  const watchlistBreakPointDistribution: Record<WatchlistBreakPointAdr0510, number> = {
+    WATCHLIST_ENTRY_MISSING_SCORE: 0,
+    STAGE2_SCORE_NOT_COPIED: 0,
+    PROMOTION_SCORE_NOT_COPIED: 0,
+    ENTRY_FILTER_TRACE_MISSING_SCORE: 0,
+    FORENSIC_INPUT_MISSING_SCORE: 0,
+    SOURCE_FIELD_NONE: 0,
+    UNKNOWN: 0,
+  };
+  const quoteHydrationBreakPointDistribution: Record<QuoteHydrationBreakPointAdr0510, number> = {
+    QUOTE_NOT_FETCHED: 0,
+    QUOTE_FETCHED_NOT_COPIED: 0,
+    SAFE_QUOTE_FEATURES_NOT_BUILT: 0,
+    SELL_ONLY_SKIPPED_QUOTE_EVALUATION: 0,
+    PRECHECK_ONLY_TRACE: 0,
+    UNKNOWN: 0,
+  };
+  const conditionResultsBreakPointDistribution: Record<ConditionResultsBreakPointAdr0510, number> = {
+    EVALUATE_SERVER_GATE_NOT_CALLED: 0,
+    GATE_OUTPUTS_NOT_COPIED: 0,
+    CONDITION_RESULTS_NOT_PROJECTED: 0,
+    SELL_ONLY_SKIPPED_GATE_EVALUATION: 0,
+    PRECHECK_ONLY_TRACE: 0,
+    UNKNOWN: 0,
+  };
+  let watchlistEntryScoreAvailable = 0;
+  let stage2ScoreAvailable = 0;
+  let promotionScoreAvailable = 0;
+  let entryFilterTraceScoreAvailable = 0;
+  let forensicInputScoreAvailable = 0;
   let sectorEnergyStrongBuyBlockedCount = 0;
   let sectorEnergyHardBlockCount = 0;
 
   for (const a of failed) {
+    const sourcePath = a.sourcePath ?? 'UNKNOWN';
+    bump(sourcePathDistribution, sourcePath);
+    bump(watchlistBreakPointDistribution, a.watchlistBreakPoint ?? 'UNKNOWN');
+    bump(quoteHydrationBreakPointDistribution, a.quoteHydrationBreakPoint ?? 'UNKNOWN');
+    bump(conditionResultsBreakPointDistribution, a.conditionResultsBreakPoint ?? 'UNKNOWN');
+    if (a.hydrationAuditAdr0509?.watchlist.scoreImported) {
+      sourcePathWithWatchlistScore[sourcePath] += 1;
+      forensicInputScoreAvailable += 1;
+    }
+    if (a.hydrationAuditAdr0509?.watchlist.watchlistScore != null) watchlistEntryScoreAvailable += 1;
+    if (a.hydrationAuditAdr0509?.watchlist.stage2Score != null) stage2ScoreAvailable += 1;
+    if (a.hydrationAuditAdr0509?.watchlist.upstreamCandidateScore != null) promotionScoreAvailable += 1;
+    if (a.hydrationAuditAdr0509?.watchlist.sourceAvailable) entryFilterTraceScoreAvailable += 1;
+    if (a.hydrationAuditAdr0509?.candidateTraceHasQuote) sourcePathWithQuote[sourcePath] += 1;
+    if (a.hydrationAuditAdr0509?.candidateTraceHasConditionResults) sourcePathWithConditionResults[sourcePath] += 1;
+    for (const field of a.hydrationAuditAdr0509?.missingFields ?? []) {
+      const byField = sourcePathMissingFieldCounts[sourcePath] ?? {};
+      byField[field] = (byField[field] ?? 0) + 1;
+      sourcePathMissingFieldCounts[sourcePath] = byField;
+    }
     supplyScopeWarnings[a.supplyScopeAudit.warning] += 1;
     if (a.supplyScopeAudit.symbolMatched === true) supplySymbolMatchedCount += 1;
     if (a.supplyScopeAudit.inferredSymbolMatched === true) inferredSymbolMatchedCount += 1;
@@ -1204,6 +1415,21 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   return {
     totalCandidates,
     failedCandidates,
+    evaluationState: resolveGate1EvaluationStateAdr0510({
+      totalCandidates,
+      traceWithQuoteCount: candidateTraceHasQuote,
+      traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
+      traceWithConditionResultsCount: candidateTraceHasConditionResults,
+      minSignalScoreTraceAvailableCount: totalCandidates,
+      buyListLoopEntered: totalCandidates > 0,
+      gateEvaluationOutputAvailableCount: candidateTraceHasConditionResults,
+    }),
+    evaluatedCandidateCount: candidateTraceHasConditionResults,
+    traceOnlyCandidateCount: Math.max(0, totalCandidates - candidateTraceHasConditionResults),
+    buyListLoopEntered: totalCandidates > 0,
+    perSymbolEvaluationEntered: totalCandidates > 0,
+    gateEvaluationOutputAvailableCount: candidateTraceHasConditionResults,
+    minSignalScoreTraceAvailableCount: totalCandidates,
     requiredScoreAvg: round1(requiredScoreAvg),
     actualScoreAvg: round1(actualScoreAvg),
     avgScoreGap: round1(avgScoreGap),
@@ -1272,6 +1498,22 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     ...(totalCandidates > 0 && candidateTraceHasQuote === 0 && candidateTraceHasSymbolFeatures === 0 && candidateTraceHasConditionResults === 0
       ? { traceDominantFailureReason: 'TRACE_HYDRATION_MISSING' as const }
       : {}),
+    sourcePathDistribution,
+    sourcePathTopMissingFields: Object.fromEntries(Object.entries(sourcePathMissingFieldCounts).map(([source, counts]) => [
+      source,
+      Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([field]) => field),
+    ])),
+    sourcePathWithWatchlistScore,
+    sourcePathWithQuote,
+    sourcePathWithConditionResults,
+    watchlistBreakPointDistribution,
+    watchlistEntryScoreAvailable,
+    stage2ScoreAvailable,
+    promotionScoreAvailable,
+    entryFilterTraceScoreAvailable,
+    forensicInputScoreAvailable,
+    quoteHydrationBreakPointDistribution,
+    conditionResultsBreakPointDistribution,
     sectorEnergyStrongBuyBlockedCount,
     sectorEnergyHardBlockCount,
     executionImpact: 'NONE',
@@ -1294,10 +1536,16 @@ export function formatGate1MinimumSignalForensicSection(
 
   const lines: string[] = [];
   lines.push('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
-  lines.push(`- candidates=${summary.totalCandidates} failed=${summary.failedCandidates}`);
-  lines.push(
-    `- requiredAvg=${summary.requiredScoreAvg.toFixed(1)} actualAvg=${summary.actualScoreAvg.toFixed(1)} gap=${summary.avgScoreGap.toFixed(1)}`,
-  );
+  lines.push(`- evaluationState=${summary.evaluationState} evaluated=${summary.evaluatedCandidateCount}/${summary.totalCandidates} traceOnly=${summary.traceOnlyCandidateCount}`);
+  if (summary.evaluationState === 'EVALUATED') {
+    lines.push(`- candidates=${summary.totalCandidates} failed=${summary.failedCandidates}`);
+    lines.push(
+      `- requiredAvg=${summary.requiredScoreAvg.toFixed(1)} actualAvg=${summary.actualScoreAvg.toFixed(1)} gap=${summary.avgScoreGap.toFixed(1)}`,
+    );
+  } else {
+    lines.push(`- candidates=${summary.totalCandidates} failed=n/a (not live failure)`);
+    lines.push(`- minScore=n/a diagnosticFallback=${summary.actualScoreAvg.toFixed(1)}`);
+  }
 
   // dominant — failed > 0 일 때만 표시
   if (summary.failedCandidates > 0) {
@@ -1355,6 +1603,10 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(`- watchlistScoreAvg: ${(summary.watchlistScoreAvg ?? 0).toFixed(1)}`);
   lines.push(`- traceWithQuoteCount: ${summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0}/${summary.totalCandidates}`);
   lines.push(`- traceWithConditionResultsCount: ${summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0}/${summary.totalCandidates}`);
+  if (summary.sourcePathDistribution) lines.push(`- sourcePathDistribution: ${formatDistribution(summary.sourcePathDistribution)}`);
+  if (summary.watchlistBreakPointDistribution) lines.push(`- watchlistBreakPoint: ${formatDistribution(summary.watchlistBreakPointDistribution)}`);
+  if (summary.quoteHydrationBreakPointDistribution) lines.push(`- quoteHydrationBreakPoint: ${formatDistribution(summary.quoteHydrationBreakPointDistribution)}`);
+  if (summary.conditionResultsBreakPointDistribution) lines.push(`- conditionResultsBreakPoint: ${formatDistribution(summary.conditionResultsBreakPointDistribution)}`);
   lines.push(`- nextAction: ${resolveGate1ForensicNextAction(summary)}`);
 
   // SectorEnergy — 강제 노출 (운영자 인지 의무)
