@@ -967,6 +967,48 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     expect(audit.supplyScopeAudit.semanticReason).toBe('ACTUAL_INVESTOR_ROW_NOT_CARRIED');
   });
 
+  it('prioritizes forensic input actualInvestorFlowRows over selectedCandidate and metadata fallback', () => {
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
+      actualInvestorFlowRows: [{ mysteryNetFlow: '123' }],
+      actualInvestorFlowRowCount: 1,
+      actualInvestorFlowRowSourcePath: 'input.actualInvestorFlowRows',
+      actualInvestorFlowFieldKeys: ['mysteryNetFlow'],
+      actualInvestorFlowNumericStringKeys: ['mysteryNetFlow'],
+      selectedCandidate: {
+        actualInvestorFlowRows: [{ selectedOnly: '456' }],
+        actualInvestorFlowFieldKeys: ['selectedOnly'],
+      },
+      kisFlow: {
+        requestSymbol: '005930',
+        candidateSymbol: '005930',
+        providerSymbol: '005930',
+        providerScope: 'SYMBOL_LEVEL',
+        selectedProvider: 'KIS_API',
+        semanticRow: {
+          symbol: '005930',
+          provider: 'KIS_API',
+          providerScope: 'SYMBOL_LEVEL',
+          materialized: false,
+          foreignNetBuy: null,
+          institutionalNetBuy: null,
+          individualNetBuy: null,
+          sourceFields: {},
+          rawFieldKeys: [],
+          normalizedFieldKeys: [],
+          rowCount: 0,
+          investorTypesDetected: [],
+        },
+      },
+    });
+
+    expect(audit.supplyScopeAudit.semanticReason).not.toBe('NO_ACTUAL_ROW_FOUND');
+    expect(audit.supplyScopeAudit.selectedActualRowPath).toBe('input.actualInvestorFlowRows');
+    expect(audit.supplyScopeAudit.selectedActualRowFieldKeys).toContain('mysteryNetFlow');
+    expect(audit.supplyScopeAudit.selectedActualRowFieldKeys).not.toContain('selectedOnly');
+    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(true);
+  });
+
   it('reports FIELD_ALIAS_NOT_MAPPED for carried actual row with unknown numeric aliases and includes actual row output', () => {
     const audit = buildGate1MinimumSignalForensicAuditAdr0505({
       trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
