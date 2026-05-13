@@ -20,6 +20,7 @@ import type {
   SignalScoreComponentCode,
 } from './minimumSignalScoreTrace.js';
 import { projectGateOutputsToConditionResultsTrace, conditionResultsTraceToMap } from './gateConditionResultTrace.js';
+import { extractInvestorFlowSemanticFields, evaluateInvestorFlowSemanticAvailabilityV2 } from '../../supply/investorFlowSemanticAvailability.js';
 
 function makeComponent(
   code: SignalScoreComponentCode,
@@ -480,6 +481,106 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       ]);
       expect(conflicted.watchlistDiagnosticConflict).toBe(true);
       expect(conflicted.conflictReason).toBe('TRACE_FIELD_MISSING');
+    });
+  });
+
+
+  describe('Patch-SUPPLY-SEMANTIC-AVAILABILITY-001 — semantic field materialization audit', () => {
+    it('foreignNetBuy 숫자 필드가 있으면 semanticAvailable=true', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { symbol: '005930', foreignNetBuy: '1,234' },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(true);
+      expect(result.foreignNetBuy).toBe(1234);
+      expect(result.reason).toBe('AVAILABLE');
+    });
+
+    it('institutionalNetBuy 숫자 필드가 있으면 semanticAvailable=true', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { symbol: '005930', institutionalNetBuy: '-1,234' },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(true);
+      expect(result.institutionalNetBuy).toBe(-1234);
+    });
+
+    it('foreign/institution 값이 0이어도 materialized로 인정하고 ZERO_BUT_MATERIALIZED reason을 출력한다', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { symbol: '005930', foreignNetBuy: 0, institutionalNetBuy: '0' },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(true);
+      expect(result.materializedCount).toBeGreaterThanOrEqual(2);
+      expect(result.reason).toBe('ZERO_BUT_MATERIALIZED');
+      expect(result.wouldBeNeutralIfZeroButMaterialized).toBe(true);
+    });
+
+    it('investorType row 배열에서 외국인/기관 row를 netBuy로 매핑한다', () => {
+      const fields = extractInvestorFlowSemanticFields([
+        { investorType: '외국인', netBuyAmount: '2,000' },
+        { investorType: '기관', netBuyAmount: '-500' },
+        { investorType: '개인', netBuyAmount: 0 },
+      ]);
+      expect(fields.foreignNetBuy).toBe(2000);
+      expect(fields.institutionalNetBuy).toBe(-500);
+      expect(fields.individualNetBuy).toBe(0);
+      expect(fields.rowCount).toBe(3);
+      expect(fields.foreignRowFound).toBe(true);
+      expect(fields.institutionalRowFound).toBe(true);
+      expect(fields.rowMappingConfidence).toBe('HIGH');
+    });
+
+    it('symbolMatched=false면 semanticAvailable=false', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { foreignNetBuy: 10 },
+        symbolMatched: false,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(false);
+      expect(result.reason).toBe('SYMBOL_NOT_MATCHED');
+    });
+
+    it('providerScope=MARKET_LEVEL이면 semanticAvailable=false', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { foreignNetBuy: 10 },
+        symbolMatched: true,
+        providerScope: 'MARKET_LEVEL',
+      });
+      expect(result.available).toBe(false);
+      expect(result.reason).toBe('ONLY_MARKET_LEVEL_FLOW');
+      expect(result.marketSignal).toBe(false);
+    });
+
+    it('router VERIFIED but semantic field missing이면 supplyRouterForensicConflict=true + field-level root cause', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({
+          components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })],
+        }),
+        kisFlow: { symbol: '005930', providerScope: 'SYMBOL_LEVEL', selectedProvider: 'KIS_API', materialized: true },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+      expect(summary.supplyRouterForensicConflict).toBe(true);
+      expect(summary.semanticReasonDistribution?.NO_FOREIGN_OR_INSTITUTION_FIELD).toBe(1);
+      expect(summary.supplyUnknownRootCauseDistribution?.SUPPLY_ROUTER_VERIFIED_BUT_GATE_SEMANTIC_UNUSABLE).toBe(1);
+      const out = formatGate1MinimumSignalForensicSection(summary)!;
+      expect(out).toContain('supplySemantic: available=0/1 diagnosticAvailable=1/1');
+      expect(out).toContain('supplyUnknownRootCause');
+      expect(out).toContain('nextAction: WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS');
+    });
+
+    it('/scan_blockers supply에 Supply Semantic Audit 섹션 wiring이 존재한다', () => {
+      const fs = require('fs');
+      const src = fs.readFileSync(
+        require('path').join(__dirname, '..', '..', 'telegram', 'commands', 'system', 'scanBlockers.cmd.ts'),
+        'utf-8',
+      );
+      expect(src).toContain('🔌 Supply Semantic Audit (ADR-0482)');
+      expect(src).toContain('marketSignal=false');
+      expect(src).toContain('executionImpact=NONE');
     });
   });
 

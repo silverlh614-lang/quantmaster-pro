@@ -31,6 +31,11 @@ import type {
 import type { SectorEnergyExecutionImpactResult } from '../../clients/sectorEnergyExecutionImpact.js';
 import { resolveWatchlistUpstreamScore } from './watchlistUpstreamScoreResolver.js';
 import { conditionResultsTraceToMap, type GateConditionResultTrace } from './gateConditionResultTrace.js';
+import {
+  evaluateInvestorFlowSemanticAvailabilityV2,
+  type InvestorFlowSemanticAvailabilityReason,
+  type InvestorFlowSemanticAvailabilityResult,
+} from '../../supply/investorFlowSemanticAvailability.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -112,9 +117,26 @@ export interface SupplyScopeAudit {
   foreignNetBuy: number | null;
   institutionalNetBuy: number | null;
   programNetBuy?: number | null;
+  individualNetBuy?: number | null;
   semanticAvailable: boolean;
+  semanticDiagnosticAvailable?: boolean;
+  semanticReason?: InvestorFlowSemanticAvailabilityReason;
+  materializedCount?: number;
+  normalizedCount?: number;
+  sourceFields?: Record<string, string>;
+  rowCount?: number;
+  investorTypesDetected?: string[];
+  foreignRowFound?: boolean;
+  institutionalRowFound?: boolean;
+  individualRowFound?: boolean;
+  rowMappingConfidence?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  providerIssue?: boolean;
+  marketSignal?: false;
+  wouldBeNeutralIfZeroButMaterialized?: boolean;
+  wouldBeEligibleIfForeignOrInstitutionFieldMapped?: boolean;
   /** symbol 확인 실패 수급은 SHADOW_ONLY diagnostic 으로만 표기한다. */
-  scoreUsage?: 'SHADOW_ONLY';
+  scoreUsage?: 'ELIGIBLE_AFTER_SEMANTIC_MATCH' | 'SHADOW_ONLY' | 'DIAGNOSTIC_ONLY';
+  executionImpact?: 'NONE';
   warning: SupplyScopeWarning;
 }
 
@@ -369,6 +391,20 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   symbolMismatchCount?: number;
   providerScopeDistribution?: Record<string, number>;
   scoreUsage?: 'SHADOW_ONLY';
+  supplySemanticAvailable?: number;
+  supplyDiagnosticAvailable?: number;
+  semanticReasonDistribution?: Record<InvestorFlowSemanticAvailabilityReason, number>;
+  foreignNetBuyAvailable?: number;
+  institutionalNetBuyAvailable?: number;
+  zeroButMaterializedCount?: number;
+  scoreUsageDistribution?: Record<string, number>;
+  supplyUnknownRootCauseDistribution?: Record<string, number>;
+  supplyRouterForensicConflict?: boolean;
+  routerStatus?: string;
+  routerSignal?: string;
+  forensicSemanticAvailable?: string;
+  routerForensicConflictReason?: string;
+  shadowEligibleSupplyCount?: number;
   candidateTraceCount?: number;
   traceWithQuoteCount?: number;
   traceWithSymbolFeaturesCount?: number;
@@ -459,6 +495,8 @@ export interface BuildGate1MinimumSignalForensicInput {
     institutionalNetBuy?: number | null;
     programNetBuy?: number | null;
     semanticAvailable?: boolean;
+    stale?: boolean;
+    [key: string]: unknown;
   };
   quoteSymbol?: string | null;
   sectorEnergyImpact?: SectorEnergyExecutionImpactResult;
@@ -753,11 +791,6 @@ function buildSupplyScopeAudit(input: {
   const routePurpose = kisFlow?.routePurpose ?? supplyProviderHealth?.routePurpose ?? null;
   const selectedProvider = kisFlow?.selectedProvider ?? supplyProviderHealth?.selectedInvestorFlowProvider ?? supplyProviderHealth?.providerName ?? null;
 
-  const foreignNetBuy = kisFlow?.foreignNetBuy ?? null;
-  const institutionalNetBuy = kisFlow?.institutionalNetBuy ?? null;
-  const programNetBuy = kisFlow?.programNetBuy ?? null;
-  const semanticAvailable = kisFlow?.semanticAvailable === true;
-
   // symbolMatched 판정 — provider/normalized symbol 이 있을 때는 strict, SYMBOL_LEVEL request inference 는 별도 표기.
   let symbolMatched: boolean | null = null;
   const expectedSymbol = candidateSymbol ?? qSymbol ?? traceSymbol;
@@ -768,6 +801,20 @@ function buildSupplyScopeAudit(input: {
   const inferredSymbolMatched = symbolMatched !== true
     && providerScope === 'SYMBOL_LEVEL'
     && Boolean(requestSymbol && expectedSymbol && requestSymbol === expectedSymbol);
+
+  const semantic = evaluateInvestorFlowSemanticAvailabilityV2({
+    flow: kisFlow ?? null,
+    symbolMatched,
+    inferredSymbolMatched,
+    providerScope,
+    stale: kisFlow?.stale === true,
+    providerIssue: false,
+  });
+  const foreignNetBuy = semantic.foreignNetBuy;
+  const institutionalNetBuy = semantic.institutionalNetBuy;
+  const programNetBuy = semantic.programNetBuy ?? null;
+  const individualNetBuy = semantic.individualNetBuy;
+  const semanticAvailable = semantic.available;
 
   // warning 우선순위 결정 트리 (사용자 명시 절대 변경 금지)
   let warning: SupplyScopeWarning = 'NONE';
@@ -819,12 +866,39 @@ function buildSupplyScopeAudit(input: {
     foreignNetBuy,
     institutionalNetBuy,
     programNetBuy,
+    individualNetBuy,
     semanticAvailable,
-    scoreUsage: 'SHADOW_ONLY',
+    semanticDiagnosticAvailable: semantic.diagnosticAvailable,
+    semanticReason: semantic.reason,
+    materializedCount: semantic.materializedCount,
+    normalizedCount: semantic.normalizedCount,
+    sourceFields: semantic.sourceFields,
+    rowCount: semantic.rowCount,
+    investorTypesDetected: semantic.investorTypesDetected,
+    foreignRowFound: semantic.foreignRowFound,
+    institutionalRowFound: semantic.institutionalRowFound,
+    individualRowFound: semantic.individualRowFound,
+    rowMappingConfidence: semantic.rowMappingConfidence,
+    providerIssue: semantic.providerIssue,
+    marketSignal: false,
+    wouldBeNeutralIfZeroButMaterialized: semantic.wouldBeNeutralIfZeroButMaterialized,
+    wouldBeEligibleIfForeignOrInstitutionFieldMapped: semantic.wouldBeEligibleIfForeignOrInstitutionFieldMapped,
+    scoreUsage: semantic.scoreUsage,
+    executionImpact: 'NONE',
     warning,
   };
 }
 
+function resolveSupplyUnknownRootCause(audit: SupplyScopeAudit): string {
+  if (!audit.kisFlowSymbol && !audit.providerSymbol && !audit.normalizedSymbol && audit.inferredSymbolMatched !== true) return 'SUPPLY_SYMBOL_MISSING';
+  if (audit.symbolMatched === false && audit.inferredSymbolMatched !== true) return 'SUPPLY_SYMBOL_MISMATCH';
+  if (audit.semanticReason === 'ONLY_MARKET_LEVEL_FLOW' || audit.semanticReason === 'ONLY_SECTOR_LEVEL_FLOW' || audit.semanticReason === 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL') return 'SUPPLY_PROVIDER_SCOPE_NOT_SYMBOL';
+  if (audit.semanticReason === 'PLACEHOLDER_ONLY') return 'SUPPLY_PLACEHOLDER_ONLY';
+  if (audit.semanticReason === 'STALE_ONLY') return 'SUPPLY_STALE_ONLY';
+  if (audit.semanticReason === 'ZERO_BUT_MATERIALIZED') return 'SUPPLY_ZERO_NEUTRAL_BUT_NOT_PROMOTED';
+  if (audit.symbolMatched === true || audit.inferredSymbolMatched === true) return 'SUPPLY_ROUTER_VERIFIED_BUT_GATE_SEMANTIC_UNUSABLE';
+  return 'SUPPLY_SEMANTIC_FIELD_MISSING';
+}
 
 function normalizeSymbol(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
@@ -1180,6 +1254,20 @@ const EMPTY_SUPPLY_SCOPE_WARNINGS: Record<SupplyScopeWarning, number> = {
   POSSIBLE_MARKET_WIDE_FLOW_IN_SYMBOL_SLOT: 0,
 };
 
+const EMPTY_SEMANTIC_REASON_DISTRIBUTION: Record<InvestorFlowSemanticAvailabilityReason, number> = {
+  AVAILABLE: 0,
+  NO_FOREIGN_OR_INSTITUTION_FIELD: 0,
+  SYMBOL_NOT_MATCHED: 0,
+  PROVIDER_SCOPE_NOT_SYMBOL_LEVEL: 0,
+  ONLY_MARKET_LEVEL_FLOW: 0,
+  ONLY_SECTOR_LEVEL_FLOW: 0,
+  PLACEHOLDER_ONLY: 0,
+  STALE_ONLY: 0,
+  ZERO_BUT_MATERIALIZED: 0,
+  ROW_MAPPING_FAILED: 0,
+  UNKNOWN: 0,
+};
+
 export function buildGate1MinimumSignalForensicSummaryAdr0505(
   audits: ReadonlyArray<Gate1MinimumSignalForensicAuditAdr0505>,
 ): Gate1MinimumSignalForensicSummaryAdr0505 {
@@ -1268,6 +1356,15 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let symbolMissingCount = 0;
   let symbolMismatchCount = 0;
   const providerScopeDistribution: Record<string, number> = {};
+  const semanticReasonDistribution = { ...EMPTY_SEMANTIC_REASON_DISTRIBUTION };
+  const scoreUsageDistribution: Record<string, number> = {};
+  const supplyUnknownRootCauseDistribution: Record<string, number> = {};
+  let supplySemanticAvailable = 0;
+  let supplyDiagnosticAvailable = 0;
+  let foreignNetBuyAvailable = 0;
+  let institutionalNetBuyAvailable = 0;
+  let zeroButMaterializedCount = 0;
+  let shadowEligibleSupplyCount = 0;
   let rsHydrationAvailableCount = 0;
   let breakoutHydrationAvailableCount = 0;
   const rsMissingReasonDistribution = { ...EMPTY_HYDRATION_REASON_DISTRIBUTION };
@@ -1390,6 +1487,20 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.supplyScopeAudit.warning === 'KIS_FLOW_SYMBOL_MISMATCH') symbolMismatchCount += 1;
     const scopeKey = a.supplyScopeAudit.providerScope ?? 'UNKNOWN';
     providerScopeDistribution[scopeKey] = (providerScopeDistribution[scopeKey] ?? 0) + 1;
+    if (a.supplyScopeAudit.semanticAvailable) supplySemanticAvailable += 1;
+    if (a.supplyScopeAudit.semanticDiagnosticAvailable) supplyDiagnosticAvailable += 1;
+    if (a.supplyScopeAudit.foreignNetBuy !== null) foreignNetBuyAvailable += 1;
+    if (a.supplyScopeAudit.institutionalNetBuy !== null) institutionalNetBuyAvailable += 1;
+    const semanticReason = a.supplyScopeAudit.semanticReason ?? 'UNKNOWN';
+    semanticReasonDistribution[semanticReason] = (semanticReasonDistribution[semanticReason] ?? 0) + 1;
+    if (semanticReason === 'ZERO_BUT_MATERIALIZED') zeroButMaterializedCount += 1;
+    const scoreUsageKey = a.supplyScopeAudit.scoreUsage ?? 'SHADOW_ONLY';
+    scoreUsageDistribution[scoreUsageKey] = (scoreUsageDistribution[scoreUsageKey] ?? 0) + 1;
+    if (a.supplyScopeAudit.wouldBeEligibleIfForeignOrInstitutionFieldMapped) shadowEligibleSupplyCount += 1;
+    if (a.penaltyComponents['SUPPLY_CONFLUENCE']?.weightedScore < 0) {
+      const rootCause = resolveSupplyUnknownRootCause(a.supplyScopeAudit);
+      supplyUnknownRootCauseDistribution[rootCause] = (supplyUnknownRootCauseDistribution[rootCause] ?? 0) + 1;
+    }
     if (a.hydrationAuditAdr0509?.watchlist.sourceAvailable) watchlistSourceAvailableCount += 1;
     if (a.hydrationAuditAdr0509?.watchlist.scoreImported) watchlistScoreImportedCount += 1;
     const watchlistField = a.hydrationAuditAdr0509?.watchlist.sourceField ?? 'none';
@@ -1509,6 +1620,22 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     symbolMismatchCount,
     providerScopeDistribution,
     scoreUsage: 'SHADOW_ONLY',
+    supplySemanticAvailable,
+    supplyDiagnosticAvailable,
+    semanticReasonDistribution,
+    foreignNetBuyAvailable,
+    institutionalNetBuyAvailable,
+    zeroButMaterializedCount,
+    scoreUsageDistribution,
+    supplyUnknownRootCauseDistribution,
+    supplyRouterForensicConflict: supplyDiagnosticAvailable > 0 && supplySemanticAvailable === 0,
+    routerStatus: supplyDiagnosticAvailable > 0 ? 'VERIFIED' : undefined,
+    routerSignal: 'NEUTRAL',
+    forensicSemanticAvailable: `${supplySemanticAvailable}/${totalCandidates}`,
+    routerForensicConflictReason: supplyDiagnosticAvailable > 0 && supplySemanticAvailable === 0
+      ? 'ROUTER_VERIFIED_BUT_SEMANTIC_FIELDS_MISSING'
+      : undefined,
+    shadowEligibleSupplyCount,
     candidateTraceCount: totalCandidates,
     traceWithQuoteCount: candidateTraceHasQuote,
     traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
@@ -1618,6 +1745,20 @@ export function formatGate1MinimumSignalForensicSection(
   }
   if (warnParts.length > 0) lines.push(`- supplyScopeWarnings: ${warnParts.join(' ')}`);
 
+  lines.push(
+    `- supplySemantic: available=${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates} diagnosticAvailable=${summary.supplyDiagnosticAvailable ?? 0}/${summary.totalCandidates}`,
+  );
+  lines.push(
+    `- supplySemanticFields: foreignField=${summary.foreignNetBuyAvailable ?? 0}/${summary.totalCandidates} institutionField=${summary.institutionalNetBuyAvailable ?? 0}/${summary.totalCandidates} zeroButMaterialized=${summary.zeroButMaterializedCount ?? 0}`,
+  );
+  if (summary.semanticReasonDistribution) lines.push(`- semanticReasonDistribution: ${formatDistribution(summary.semanticReasonDistribution)}`);
+  if (summary.providerScopeDistribution) lines.push(`- providerScopeDistribution: ${formatDistribution(summary.providerScopeDistribution)}`);
+  if (summary.scoreUsageDistribution) lines.push(`- scoreUsageDistribution: ${formatDistribution(summary.scoreUsageDistribution)}`);
+  if (summary.supplyUnknownRootCauseDistribution) lines.push(`- supplyUnknownRootCause: ${formatDistribution(summary.supplyUnknownRootCauseDistribution)}`);
+  lines.push(
+    `- supplyRouterForensicConflict=${summary.supplyRouterForensicConflict === true} routerStatus=${summary.routerStatus ?? 'UNKNOWN'} routerSignal=${summary.routerSignal ?? 'UNKNOWN'} forensicSemanticAvailable=${summary.forensicSemanticAvailable ?? `${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates}`} conflictReason=${summary.routerForensicConflictReason ?? 'NONE'}`,
+  );
+
   lines.push(`- watchlistImported: ${summary.watchlistScoreImportedCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`- rsScoreUsable: ${summary.rsScoreUsableCount ?? summary.rsHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`- breakoutScoreUsable: ${summary.breakoutScoreUsableCount ?? summary.breakoutHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
@@ -1660,6 +1801,11 @@ export function formatGate1MinimumSignalForensicSection(
 
 export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
   const total = summary.totalCandidates;
+  const topSemanticReason = pickTopDistributionKey(summary.semanticReasonDistribution ?? {});
+  if (topSemanticReason === 'NO_FOREIGN_OR_INSTITUTION_FIELD') return 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
+  if (topSemanticReason === 'ROW_MAPPING_FAILED') return 'MAP_INVESTOR_TYPE_ROWS_TO_NETBUY';
+  if (topSemanticReason === 'ONLY_MARKET_LEVEL_FLOW' || topSemanticReason === 'ONLY_SECTOR_LEVEL_FLOW') return 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE';
+  if ((summary.zeroButMaterializedCount ?? 0) > 0) return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';
   if ((summary.watchlistScoreImportedCount ?? 0) === 0) return 'WIRE_WATCHLIST_UPSTREAM_SCORE';
   if ((summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0) === 0) return 'WIRE_QUOTE_FEATURES_TO_FORENSIC_TRACE';
   if ((summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0) === 0) return 'WIRE_CONDITION_RESULTS_TO_FORENSIC_TRACE';
@@ -1667,6 +1813,11 @@ export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForens
   if ((summary.breakoutTraceAvailableCount ?? summary.breakoutHydrationAvailableCount ?? 0) === 0) return 'WIRE_BREAKOUT_CONDITION_RESULTS';
   if ((summary.symbolMatchedCount ?? summary.supplySymbolMatchedCount ?? 0) === 0 && total > 0) return 'WIRE_SYMBOL_LEVEL_SUPPLY';
   return 'OBSERVE_3D_THEN_REVIEW';
+}
+
+function pickTopDistributionKey(distribution: Record<string, number>): string | null {
+  const top = Object.entries(distribution).filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1])[0];
+  return top?.[0] ?? null;
 }
 
 function formatDistribution(distribution: Record<string, number>): string {

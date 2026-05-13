@@ -178,6 +178,286 @@ export function evaluateInvestorFlowSemanticAvailability(
   };
 }
 
+
+
+export interface InvestorFlowSemanticRowAudit {
+  rowCount: number;
+  investorTypesDetected: string[];
+  foreignRowFound: boolean;
+  institutionalRowFound: boolean;
+  individualRowFound: boolean;
+  rowMappingConfidence: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+export interface InvestorFlowSemanticFields {
+  foreignNetBuy: number | null;
+  institutionalNetBuy: number | null;
+  individualNetBuy: number | null;
+  programNetBuy?: number | null;
+  netBuyAmount?: number | null;
+  netBuyVolume?: number | null;
+  sourceFields: Record<string, string>;
+  materializedCount: number;
+  normalizedCount: number;
+  rowCount?: number;
+  investorTypesDetected?: string[];
+  foreignRowFound?: boolean;
+  institutionalRowFound?: boolean;
+  individualRowFound?: boolean;
+  rowMappingConfidence?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  allMaterializedValuesZero?: boolean;
+  placeholderOnly?: boolean;
+}
+
+export type InvestorFlowSemanticAvailabilityReason =
+  | 'AVAILABLE'
+  | 'NO_FOREIGN_OR_INSTITUTION_FIELD'
+  | 'SYMBOL_NOT_MATCHED'
+  | 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL'
+  | 'ONLY_MARKET_LEVEL_FLOW'
+  | 'ONLY_SECTOR_LEVEL_FLOW'
+  | 'PLACEHOLDER_ONLY'
+  | 'STALE_ONLY'
+  | 'ZERO_BUT_MATERIALIZED'
+  | 'ROW_MAPPING_FAILED'
+  | 'UNKNOWN';
+
+export interface InvestorFlowSemanticAvailabilityResult extends InvestorFlowSemanticFields {
+  available: boolean;
+  diagnosticAvailable: boolean;
+  reason: InvestorFlowSemanticAvailabilityReason;
+  providerIssue: boolean;
+  marketSignal: false;
+  scoreUsage: 'ELIGIBLE_AFTER_SEMANTIC_MATCH' | 'SHADOW_ONLY' | 'DIAGNOSTIC_ONLY';
+  executionImpact: 'NONE';
+  semanticDiagnosticAvailable?: boolean;
+  wouldBeNeutralIfZeroButMaterialized?: boolean;
+  wouldBeEligibleIfForeignOrInstitutionFieldMapped?: boolean;
+}
+
+const FOREIGN_NET_BUY_ALIASES = [
+  'foreignNetBuy',
+  'foreignNetAmount',
+  'foreignNetVolume',
+  'foreignerNetBuy',
+  'frgnNetBuy',
+  'frgnNetAmount',
+  'frgn_ntby',
+  'frgn_ntby_qty',
+  'frgn_ntby_tr_pbmn',
+  'foreigner',
+] as const;
+const INSTITUTIONAL_NET_BUY_ALIASES = [
+  'institutionalNetBuy',
+  'institutionNetBuy',
+  'instNetBuy',
+  'orgNetBuy',
+  'orgnNetBuy',
+  'orgn_ntby',
+  'orgn_ntby_qty',
+  'orgn_ntby_tr_pbmn',
+  'institution',
+] as const;
+const INDIVIDUAL_NET_BUY_ALIASES = [
+  'individualNetBuy',
+  'retailNetBuy',
+  'prsnNetBuy',
+  'indvNetBuy',
+  'indv_ntby',
+  'individual',
+] as const;
+const PROGRAM_NET_BUY_ALIASES = ['programNetBuy'] as const;
+const NET_BUY_AMOUNT_ALIASES = ['netBuyAmount', 'netAmount', 'buyAmount', 'sellAmount'] as const;
+const NET_BUY_VOLUME_ALIASES = ['netBuyVolume', 'netVolume', 'buyVolume', 'sellVolume'] as const;
+const ROW_ARRAY_KEYS = ['rows', 'data', 'items', 'investorFlows', 'investorFlow', 'flows', 'result', 'output'] as const;
+
+export function normalizeNumberLikeInvestorFlowValue(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '-' || trimmed.toUpperCase() === 'N/A') return null;
+  const normalized = trimmed.replace(/,/g, '');
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstNumberLikeField(
+  obj: Record<string, unknown>,
+  aliases: readonly string[],
+): { value: number | null; sourceField?: string; rawMaterialized: boolean } {
+  let rawMaterialized = false;
+  for (const key of aliases) {
+    if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+    rawMaterialized = true;
+    const value = normalizeNumberLikeInvestorFlowValue(obj[key]);
+    if (value !== null) return { value, sourceField: key, rawMaterialized: true };
+  }
+  return { value: null, rawMaterialized };
+}
+
+function emptyRowAudit(): InvestorFlowSemanticRowAudit {
+  return {
+    rowCount: 0,
+    investorTypesDetected: [],
+    foreignRowFound: false,
+    institutionalRowFound: false,
+    individualRowFound: false,
+    rowMappingConfidence: 'NONE',
+  };
+}
+
+function classifyInvestorType(value: unknown): 'foreign' | 'institutional' | 'individual' | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().toUpperCase();
+  if (!text) return null;
+  if (/(외국인|FOREIGN|FRGN|FOREIGNER)/i.test(text)) return 'foreign';
+  if (/(기관|INSTITUTION|INSTITUTIONAL|ORG|ORGN|INST)/i.test(text)) return 'institutional';
+  if (/(개인|INDIVIDUAL|RETAIL|PRSN|INDV)/i.test(text)) return 'individual';
+  return null;
+}
+
+function findRows(input: unknown): Record<string, unknown>[] {
+  if (Array.isArray(input)) return input.filter((row): row is Record<string, unknown> => row != null && typeof row === 'object' && !Array.isArray(row));
+  if (input == null || typeof input !== 'object') return [];
+  const obj = input as Record<string, unknown>;
+  for (const key of ROW_ARRAY_KEYS) {
+    const candidate = obj[key];
+    if (Array.isArray(candidate)) return candidate.filter((row): row is Record<string, unknown> => row != null && typeof row === 'object' && !Array.isArray(row));
+  }
+  return [];
+}
+
+function extractRowFields(input: unknown): Partial<InvestorFlowSemanticFields> & InvestorFlowSemanticRowAudit {
+  const rows = findRows(input);
+  const audit = emptyRowAudit();
+  audit.rowCount = rows.length;
+  const mapped: Partial<InvestorFlowSemanticFields> = { sourceFields: {} };
+  for (const row of rows) {
+    const investorTypeRaw = row.investorType ?? row.type ?? row.investor ?? row.invstType ?? row.invrDvsnName ?? row.invr_dvsn_name;
+    if (typeof investorTypeRaw === 'string' && investorTypeRaw.trim()) audit.investorTypesDetected.push(investorTypeRaw.trim());
+    const investorType = classifyInvestorType(investorTypeRaw);
+    if (!investorType) continue;
+    const net = firstNumberLikeField(row, [...NET_BUY_AMOUNT_ALIASES, ...NET_BUY_VOLUME_ALIASES, 'netBuy', 'net_buy', 'ntby', 'ntby_qty', 'ntby_tr_pbmn']);
+    if (net.value === null) continue;
+    if (investorType === 'foreign') {
+      mapped.foreignNetBuy = net.value;
+      (mapped.sourceFields as Record<string, string>).foreignNetBuy = `row.${net.sourceField ?? 'netBuyAmount'}`;
+      audit.foreignRowFound = true;
+    } else if (investorType === 'institutional') {
+      mapped.institutionalNetBuy = net.value;
+      (mapped.sourceFields as Record<string, string>).institutionalNetBuy = `row.${net.sourceField ?? 'netBuyAmount'}`;
+      audit.institutionalRowFound = true;
+    } else if (investorType === 'individual') {
+      mapped.individualNetBuy = net.value;
+      (mapped.sourceFields as Record<string, string>).individualNetBuy = `row.${net.sourceField ?? 'netBuyAmount'}`;
+      audit.individualRowFound = true;
+    }
+  }
+  const mappedCount = [audit.foreignRowFound, audit.institutionalRowFound, audit.individualRowFound].filter(Boolean).length;
+  audit.rowMappingConfidence = mappedCount >= 2 ? 'HIGH' : mappedCount === 1 ? 'MEDIUM' : rows.length > 0 ? 'LOW' : 'NONE';
+  audit.investorTypesDetected = Array.from(new Set(audit.investorTypesDetected));
+  return { ...mapped, ...audit };
+}
+
+export function extractInvestorFlowSemanticFields(input: unknown): InvestorFlowSemanticFields {
+  const sourceFields: Record<string, string> = {};
+  const base: InvestorFlowSemanticFields = {
+    foreignNetBuy: null,
+    institutionalNetBuy: null,
+    individualNetBuy: null,
+    programNetBuy: null,
+    netBuyAmount: null,
+    netBuyVolume: null,
+    sourceFields,
+    materializedCount: 0,
+    normalizedCount: 0,
+    ...emptyRowAudit(),
+    allMaterializedValuesZero: false,
+    placeholderOnly: false,
+  };
+  if (input == null) return base;
+  const obj = Array.isArray(input) ? {} : typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const row = extractRowFields(input);
+  Object.assign(sourceFields, row.sourceFields ?? {});
+  base.rowCount = row.rowCount;
+  base.investorTypesDetected = row.investorTypesDetected;
+  base.foreignRowFound = row.foreignRowFound;
+  base.institutionalRowFound = row.institutionalRowFound;
+  base.individualRowFound = row.individualRowFound;
+  base.rowMappingConfidence = row.rowMappingConfidence;
+
+  const mappings: Array<[keyof InvestorFlowSemanticFields, readonly string[]]> = [
+    ['foreignNetBuy', FOREIGN_NET_BUY_ALIASES],
+    ['institutionalNetBuy', INSTITUTIONAL_NET_BUY_ALIASES],
+    ['individualNetBuy', INDIVIDUAL_NET_BUY_ALIASES],
+    ['programNetBuy', PROGRAM_NET_BUY_ALIASES],
+    ['netBuyAmount', NET_BUY_AMOUNT_ALIASES],
+    ['netBuyVolume', NET_BUY_VOLUME_ALIASES],
+  ];
+  for (const [target, aliases] of mappings) {
+    const picked = firstNumberLikeField(obj, aliases);
+    if (picked.rawMaterialized) base.materializedCount += 1;
+    const rowValue = row[target] as number | null | undefined;
+    const value = rowValue ?? picked.value;
+    if (value !== null && value !== undefined) {
+      (base as unknown as Record<string, unknown>)[target] = value;
+      base.normalizedCount += 1;
+      if (!sourceFields[target as string]) sourceFields[target as string] = picked.sourceField ?? String(target);
+    }
+  }
+  const rowMaterialized = [row.foreignRowFound, row.institutionalRowFound, row.individualRowFound].filter(Boolean).length;
+  base.materializedCount += rowMaterialized;
+  const values = [base.foreignNetBuy, base.institutionalNetBuy, base.individualNetBuy, base.programNetBuy, base.netBuyAmount, base.netBuyVolume]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  base.allMaterializedValuesZero = values.length > 0 && values.every((value) => value === 0);
+  base.placeholderOnly = base.materializedCount > 0 && base.normalizedCount === 0;
+  return base;
+}
+
+export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
+  flow: unknown;
+  symbolMatched?: boolean | null;
+  inferredSymbolMatched?: boolean;
+  providerScope?: 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
+  stale?: boolean;
+  providerIssue?: boolean;
+}): InvestorFlowSemanticAvailabilityResult {
+  const fields = extractInvestorFlowSemanticFields(input.flow);
+  const symbolOk = input.symbolMatched === true || input.inferredSymbolMatched === true;
+  const providerScope = input.providerScope ?? 'UNKNOWN';
+  const hasCoreField = fields.foreignNetBuy !== null || fields.institutionalNetBuy !== null;
+  const materialized = fields.materializedCount > 0 && fields.normalizedCount > 0;
+  let reason: InvestorFlowSemanticAvailabilityReason = 'UNKNOWN';
+  if (!symbolOk) reason = 'SYMBOL_NOT_MATCHED';
+  else if (providerScope === 'MARKET_LEVEL') reason = 'ONLY_MARKET_LEVEL_FLOW';
+  else if (providerScope === 'SECTOR_LEVEL') reason = 'ONLY_SECTOR_LEVEL_FLOW';
+  else if (providerScope !== 'SYMBOL_LEVEL') reason = 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL';
+  else if (fields.placeholderOnly) reason = 'PLACEHOLDER_ONLY';
+  else if ((fields.rowCount ?? 0) > 0 && fields.rowMappingConfidence === 'LOW' && !hasCoreField) reason = 'ROW_MAPPING_FAILED';
+  else if (!hasCoreField) reason = 'NO_FOREIGN_OR_INSTITUTION_FIELD';
+  else if (input.stale) reason = 'STALE_ONLY';
+  else if (fields.allMaterializedValuesZero) reason = 'ZERO_BUT_MATERIALIZED';
+  else reason = 'AVAILABLE';
+
+  const available = reason === 'AVAILABLE' || reason === 'ZERO_BUT_MATERIALIZED';
+  const hasFlowObject = input.flow != null && typeof input.flow === 'object';
+  const diagnosticAvailable = materialized || fields.materializedCount > 0 || fields.rowCount! > 0 || (hasFlowObject && symbolOk && providerScope === 'SYMBOL_LEVEL');
+  return {
+    ...fields,
+    available,
+    diagnosticAvailable,
+    semanticDiagnosticAvailable: diagnosticAvailable,
+    reason,
+    providerIssue: input.providerIssue ?? !available,
+    marketSignal: false,
+    scoreUsage: available && !input.stale ? 'ELIGIBLE_AFTER_SEMANTIC_MATCH' : diagnosticAvailable ? 'SHADOW_ONLY' : 'DIAGNOSTIC_ONLY',
+    executionImpact: 'NONE',
+    wouldBeNeutralIfZeroButMaterialized: reason === 'ZERO_BUT_MATERIALIZED',
+    wouldBeEligibleIfForeignOrInstitutionFieldMapped: !hasCoreField && symbolOk && providerScope === 'SYMBOL_LEVEL',
+  };
+}
+
 /**
  * supplyHealth marker 분류 SSOT (사용자 §F 정합).
  *
