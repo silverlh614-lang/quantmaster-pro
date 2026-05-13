@@ -43,6 +43,20 @@ import {
   recordProviderSuccess,
   shouldSkipProviderCall,
 } from './providerHealthIsolationPatch003.js';
+import {
+  classifyKisError,
+  formatKisFallbackSelectedLog,
+  getKisCallPressureSnapshot,
+  isKisServerCircuitOpen,
+  isKisTemporaryUnsupported,
+  recordKisCallDeferred,
+  recordKisCallFinished,
+  recordKisCallStarted,
+  recordKisServerErrorForCircuit,
+  recordKisServerSuccess,
+  recordKisUnsupported404,
+  selectKisFallback,
+} from './errorTaxonomy.js';
 
 /**
  * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
@@ -274,8 +288,13 @@ export function realDataKisGet(
   if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, priority);
 
   return scheduleKisCall(priority, `REAL_GET ${trId}`, async () => {
-    if (_isCircuitOpen(trId)) {
+    if (_isCircuitOpen(trId) || isKisServerCircuitOpen(trId)) {
       console.warn(`[KIS-RealData] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+      recordKisCallDeferred();
+      return null;
+    }
+    if (isKisTemporaryUnsupported({ trId, endpoint: apiPath, marketCode: params.marketCode ?? params.FID_COND_MRKT_DIV_CODE })) {
+      recordKisCallDeferred();
       return null;
     }
     if (isRealData5xxCooldownActive(trId, apiPath)) {
@@ -297,19 +316,26 @@ export function realDataKisGet(
       return null;
     }
 
-    const doFetch = async (token: string) => fetch(
-      `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          appkey: process.env.KIS_REAL_DATA_APP_KEY!,
-          appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
-          tr_id: trId,
-          custtype: 'P',
-        },
-      },
-    );
+    const doFetch = async (token: string) => {
+      recordKisCallStarted(trId);
+      try {
+        return await fetch(
+          `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+              appkey: process.env.KIS_REAL_DATA_APP_KEY!,
+              appsecret: process.env.KIS_REAL_DATA_APP_SECRET!,
+              tr_id: trId,
+              custtype: 'P',
+            },
+          },
+        );
+      } finally {
+        recordKisCallFinished();
+      }
+    };
 
     let retriesLeft = _isKisRetryEnabled() ? 2 : 0;
     let token = await refreshRealDataToken();
@@ -336,7 +362,26 @@ export function realDataKisGet(
 
       if (res.status >= 500 && res.status < 600) {
         _recordCircuitFailure(trId, res.status);
+        const circuit = recordKisServerErrorForCircuit(trId);
         recordRealData5xxCooldown(trId, apiPath, res.status);
+        const taxonomy = classifyKisError({
+          httpStatus: res.status,
+          trId,
+          endpoint: apiPath,
+          marketCode: params.marketCode ?? params.FID_COND_MRKT_DIV_CODE,
+          symbol: params.symbol ?? params.FID_INPUT_ISCD,
+        });
+        const pressure = getKisCallPressureSnapshot();
+        console.info(
+          `[KIS_CALL_PRESSURE] windowSec=${pressure.windowSec} totalCalls=${pressure.totalCalls} `
+          + `byTrId=${JSON.stringify(pressure.byTrId)} concurrentCalls=${pressure.concurrentCalls} `
+          + `queuedCalls=${pressure.queuedCalls} deferredCalls=${pressure.deferredCalls}`,
+        );
+        console.warn(
+          `[KIS_SERVER_ERROR_CONTEXT] trId=${trId} httpStatus=${res.status} `
+          + `sameSecondCalls=${pressure.sameSecondCalls} sameMinuteCalls=${pressure.sameMinuteCalls} `
+          + `concurrentCalls=${pressure.concurrentCalls} retryWaveDetected=${pressure.retryWaveDetected}`,
+        );
         // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — provider noise 분류 +
         //   per-key suppressed count. providerIssue=true / marketSignal=false /
         //   executionImpact='NONE' literal type 강제.
@@ -352,8 +397,8 @@ export function realDataKisGet(
           const delay = _kisBackoffDelayMs(retriesLeft);
           if (noise.shouldEmitDetailLog) {
             console.warn(
-              `[KIS-RealData] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기 — `
-              + `providerIssue=true marketSignal=false executionImpact=NONE`,
+              `[KIS_SERVER_ERROR] trId=${trId} httpStatus=${res.status} retryable=${taxonomy.retryable} `
+              + `retryLeft=${retriesLeft} backoffMs=${delay} providerIssue=true marketSignal=false executionImpact=NONE`,
             );
           } else {
             // 반복 5xx — 상세 로그 suppress + 60s 간격 INFO compact summary 노출.
@@ -367,23 +412,57 @@ export function realDataKisGet(
           retriesLeft -= 1;
           continue;
         }
+        if (circuit.opened) {
+          const fallback = selectKisFallback({ trId, errorClass: taxonomy.errorClass });
+          console.warn(
+            `[KIS_CIRCUIT_OPEN] trId=${trId} reason=${circuit.reason} cooldownSec=${circuit.cooldownSec} `
+            + `fallbackProvider=${fallback.fallbackProvider} executionImpact=NONE`,
+          );
+        }
+        const fallback = selectKisFallback({ trId, errorClass: taxonomy.errorClass });
+        console.info(formatKisFallbackSelectedLog({ fromTrId: trId, errorClass: taxonomy.errorClass, ...fallback }));
       }
 
       if (!res.ok) {
-        console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
-        // 5xx(일시 장애) + 404/403(엔드포인트/권한 불일치 — 자연 복구 불가)은 회로 차단.
-        // 400/429는 호출자 파라미터 조정·재시도로 해결 여지가 있어 카운팅에서 제외.
-        if (
-          (res.status >= 500 && res.status < 600)
-          || res.status === 404
-          || res.status === 403
-        ) {
-          _recordCircuitFailure(trId, res.status);
+        if (res.status === 404) {
+          const classified404 = recordKisUnsupported404({
+            httpStatus: 404,
+            trId,
+            endpoint: apiPath,
+            marketCode: params.marketCode ?? params.FID_COND_MRKT_DIV_CODE,
+            symbol: params.symbol ?? params.FID_INPUT_ISCD,
+          });
+          const fallback = selectKisFallback({ trId, errorClass: classified404.errorClass });
+          console.warn(
+            `[KIS_ENDPOINT_UNSUPPORTED] trId=${trId} httpStatus=404 endpoint=${apiPath} `
+            + `marketCode=${params.marketCode ?? params.FID_COND_MRKT_DIV_CODE ?? ''} `
+            + `symbol=${params.symbol ?? params.FID_INPUT_ISCD ?? ''} reason=${classified404.errorClass} `
+            + `retryable=${classified404.retryable} fallbackRequired=${classified404.fallbackRequired} executionImpact=NONE`,
+          );
+          console.info(formatKisFallbackSelectedLog({ fromTrId: trId, errorClass: classified404.errorClass, ...fallback }));
+          return null;
+        }
+        const taxonomy = classifyKisError({
+          httpStatus: res.status,
+          trId,
+          endpoint: apiPath,
+          marketCode: params.marketCode ?? params.FID_COND_MRKT_DIV_CODE,
+          symbol: params.symbol ?? params.FID_INPUT_ISCD,
+        });
+        console.error(
+          `[KIS-RealData] API 오류 ${res.status} (${trId}) errorClass=${taxonomy.errorClass} `
+          + `providerIssue=true marketSignal=false executionImpact=NONE`,
+        );
+        if (taxonomy.circuitBreakerEligible) _recordCircuitFailure(trId, res.status);
+        if (taxonomy.fallbackRequired) {
+          const fallback = selectKisFallback({ trId, errorClass: taxonomy.errorClass });
+          console.info(formatKisFallbackSelectedLog({ fromTrId: trId, errorClass: taxonomy.errorClass, ...fallback }));
         }
         return null;
       }
 
       _recordCircuitSuccess(trId);
+      recordKisServerSuccess(trId);
       clearRealData5xxCooldown(trId, apiPath);
       // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — 성공 응답 시 backoff state reset
       //   (해당 endpoint 의 모든 errorKind record 삭제 — fast recovery).
