@@ -15,9 +15,13 @@ describe('KIS operational log policy', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
+  // LOG_LEVEL=debug 강제 — logger.debug 가 console.debug 로 전달되도록 정합 (server/utils/logger.ts default 'info' filter 우회).
+  const origLogLevel = process.env.LOG_LEVEL;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-12T03:00:00.000Z'));
+    process.env.LOG_LEVEL = 'debug';
     resetKisCircuits();
     __queryTestOnly.resetInvestorFlowSelectedLogState();
     infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -29,6 +33,8 @@ describe('KIS operational log policy', () => {
   afterEach(() => {
     resetKisCircuits();
     __queryTestOnly.resetInvestorFlowSelectedLogState();
+    if (origLogLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = origLogLevel;
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
