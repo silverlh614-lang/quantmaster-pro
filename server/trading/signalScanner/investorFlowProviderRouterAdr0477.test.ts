@@ -39,6 +39,34 @@ function notWiredRoute() {
 
 describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
 
+  it('KIS_API selected candidate carries only sanitized semantic row with frgn/orgn aliases mapped', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        symbol: '005930',
+        sourceDate: '2026-05-08',
+        frgn_ntby_tr_pbmn: '1,234',
+        orgn_ntby_tr_pbmn: '-2,000',
+        indv_ntby_tr_pbmn: '766',
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.selectedProvider).toBe('KIS_API');
+    expect(route.semanticRow?.provider).toBe('KIS_API');
+    expect(route.semanticRow?.foreignNetBuy).toBe(1234);
+    expect(route.semanticRow?.institutionalNetBuy).toBe(-2000);
+    expect(route.semanticRow?.individualNetBuy).toBe(766);
+    expect(route.semanticRow?.sourceFields.foreign).toBe('frgn_ntby_tr_pbmn');
+    expect(route.semanticRow?.rawFieldKeys).toContain('frgn_ntby_tr_pbmn');
+    expect(route.kisRawRowAvailableAtAdapter).toBe(true);
+    expect(route.kisNormalizedRowAvailableAtRouter).toBe(true);
+    expect(route.kisSelectedCandidateCarriesSemanticRow).toBe(true);
+    expect(route.rawPayloadPersistenceAllowed).toBe(false);
+    expect(JSON.stringify(route.semanticRow)).not.toContain('token');
+  });
+
+
   it('normalizes investor-flow source keys for FreshData, health, and cache bridges', () => {
     expect(normalizeInvestorFlowSourceKey('NAVER')).toBe('NAVER_INVESTOR_TREND');
     expect(normalizeInvestorFlowSourceKey('NAVER_INVESTOR_TREND')).toBe('NAVER_INVESTOR_TREND');

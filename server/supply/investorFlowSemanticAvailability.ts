@@ -202,6 +202,31 @@ export interface InvestorFlowFieldKeyDiscoveryDiagnostic {
   };
 }
 
+export type InvestorFlowProviderScope = 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
+
+export interface SanitizedInvestorFlowSemanticRow {
+  symbol: string | null;
+  provider: string;
+  providerScope: InvestorFlowProviderScope;
+  materialized: boolean;
+  foreignNetBuy: number | null;
+  institutionalNetBuy: number | null;
+  individualNetBuy: number | null;
+  netBuyAmount?: number | null;
+  netBuyVolume?: number | null;
+  sourceFields: {
+    foreign?: string;
+    institutional?: string;
+    individual?: string;
+    netBuyAmount?: string;
+    netBuyVolume?: string;
+  };
+  rawFieldKeys: string[];
+  normalizedFieldKeys: string[];
+  rowCount?: number;
+  investorTypesDetected?: string[];
+}
+
 export interface InvestorFlowSemanticFields {
   foreignNetBuy: number | null;
   institutionalNetBuy: number | null;
@@ -226,6 +251,11 @@ export interface InvestorFlowSemanticFields {
 export type InvestorFlowSemanticAvailabilityReason =
   | 'AVAILABLE'
   | 'NO_FOREIGN_OR_INSTITUTION_FIELD'
+  | 'SEMANTIC_ROW_METADATA_ONLY'
+  | 'FIELD_ALIAS_NOT_MAPPED'
+  | 'RAW_INVESTOR_ROW_MISSING'
+  | 'ROUTER_DROPPED_SEMANTIC_ROW'
+  | 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW'
   | 'SYMBOL_NOT_MATCHED'
   | 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL'
   | 'ONLY_MARKET_LEVEL_FLOW'
@@ -247,6 +277,8 @@ export interface InvestorFlowSemanticAvailabilityResult extends InvestorFlowSema
   semanticDiagnosticAvailable?: boolean;
   wouldBeNeutralIfZeroButMaterialized?: boolean;
   wouldBeEligibleIfForeignOrInstitutionFieldMapped?: boolean;
+  wouldBeSemanticAvailableIfFieldMapped?: boolean;
+  wouldBeZeroNeutralIfAllZero?: boolean;
 }
 
 const FOREIGN_NET_BUY_ALIASES = [
@@ -536,6 +568,47 @@ export function extractInvestorFlowSemanticFields(input: unknown): InvestorFlowS
   return base;
 }
 
+
+export function buildSanitizedInvestorFlowSemanticRow(input: {
+  flow: unknown;
+  symbol?: string | null;
+  provider?: string;
+  providerScope?: InvestorFlowProviderScope;
+  materialized?: boolean;
+}): SanitizedInvestorFlowSemanticRow {
+  const fields = extractInvestorFlowSemanticFields(input.flow);
+  const source = fields.sourceFields ?? {};
+  return {
+    symbol: input.symbol ?? null,
+    provider: input.provider ?? 'UNKNOWN',
+    providerScope: input.providerScope ?? 'UNKNOWN',
+    materialized: input.materialized ?? fields.normalizedCount > 0,
+    foreignNetBuy: fields.foreignNetBuy,
+    institutionalNetBuy: fields.institutionalNetBuy,
+    individualNetBuy: fields.individualNetBuy,
+    netBuyAmount: fields.netBuyAmount,
+    netBuyVolume: fields.netBuyVolume,
+    sourceFields: {
+      ...(source.foreignNetBuy ? { foreign: source.foreignNetBuy } : {}),
+      ...(source.institutionalNetBuy ? { institutional: source.institutionalNetBuy } : {}),
+      ...(source.individualNetBuy ? { individual: source.individualNetBuy } : {}),
+      ...(source.netBuyAmount ? { netBuyAmount: source.netBuyAmount } : {}),
+      ...(source.netBuyVolume ? { netBuyVolume: source.netBuyVolume } : {}),
+    },
+    rawFieldKeys: fields.fieldKeyDiagnostics?.kisRawFieldKeysTop ?? [],
+    normalizedFieldKeys: fields.fieldKeyDiagnostics?.kisNormalizedFieldKeysTop ?? [],
+    rowCount: fields.rowCount,
+    investorTypesDetected: fields.investorTypesDetected,
+  };
+}
+
+function isMetadataOnlySemanticRow(input: unknown): boolean {
+  if (input == null || typeof input !== 'object') return false;
+  const obj = input as Record<string, unknown>;
+  const metadataKeys = new Set(['symbol', 'requestSymbol', 'candidateSymbol', 'quoteSymbol', 'providerSymbol', 'normalizedSymbol', 'provider', 'selectedProvider', 'providerScope', 'routePurpose', 'materialized', 'usableForRouter', 'usableForGate', 'usableForLive', 'usableForShadow', 'semanticAvailable', 'status', 'signal', 'source', 'stale']);
+  const keys = Object.keys(obj).filter((key) => obj[key] !== undefined);
+  return keys.length > 0 && keys.every((key) => metadataKeys.has(key));
+}
 export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   flow: unknown;
   symbolMatched?: boolean | null;
@@ -543,8 +616,14 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   providerScope?: 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
   stale?: boolean;
   providerIssue?: boolean;
+  rawInvestorRowAvailable?: boolean;
+  semanticRowExpected?: boolean;
+  semanticRowDropped?: boolean;
+  forensicInputDroppedSemanticRow?: boolean;
 }): InvestorFlowSemanticAvailabilityResult {
-  const fields = extractInvestorFlowSemanticFields(input.flow);
+  const flowRecord = input.flow && typeof input.flow === 'object' ? input.flow as Record<string, unknown> : undefined;
+  const semanticRow = flowRecord?.semanticRow ?? flowRecord?.investorFlowSemanticRow ?? flowRecord?.sanitizedSemanticRow;
+  const fields = extractInvestorFlowSemanticFields(semanticRow ?? input.flow);
   const symbolOk = input.symbolMatched === true || input.inferredSymbolMatched === true;
   const providerScope = input.providerScope ?? 'UNKNOWN';
   const hasCoreField = fields.foreignNetBuy !== null || fields.institutionalNetBuy !== null;
@@ -554,9 +633,14 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   else if (providerScope === 'MARKET_LEVEL') reason = 'ONLY_MARKET_LEVEL_FLOW';
   else if (providerScope === 'SECTOR_LEVEL') reason = 'ONLY_SECTOR_LEVEL_FLOW';
   else if (providerScope !== 'SYMBOL_LEVEL') reason = 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL';
+  else if (input.forensicInputDroppedSemanticRow) reason = 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW';
+  else if (input.semanticRowDropped) reason = 'ROUTER_DROPPED_SEMANTIC_ROW';
+  else if (input.rawInvestorRowAvailable === false && !hasCoreField) reason = 'RAW_INVESTOR_ROW_MISSING';
+  else if (isMetadataOnlySemanticRow(input.flow) && !hasCoreField) reason = 'SEMANTIC_ROW_METADATA_ONLY';
   else if (fields.placeholderOnly) reason = 'PLACEHOLDER_ONLY';
-  else if ((fields.rowCount ?? 0) > 0 && fields.rowMappingConfidence === 'LOW' && !hasCoreField) reason = 'ROW_MAPPING_FAILED';
-  else if (!hasCoreField) reason = 'NO_FOREIGN_OR_INSTITUTION_FIELD';
+  else if ((fields.rowCount ?? 0) > 0 && fields.rowMappingConfidence === 'LOW' && !hasCoreField) reason = 'FIELD_ALIAS_NOT_MAPPED';
+  else if (fields.materializedCount > 0 && !hasCoreField) reason = 'FIELD_ALIAS_NOT_MAPPED';
+  else if (!hasCoreField) reason = input.semanticRowExpected ? 'ROUTER_DROPPED_SEMANTIC_ROW' : 'NO_FOREIGN_OR_INSTITUTION_FIELD';
   else if (input.stale) reason = 'STALE_ONLY';
   else if (fields.allMaterializedValuesZero) reason = 'ZERO_BUT_MATERIALIZED';
   else reason = 'AVAILABLE';
@@ -576,6 +660,8 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
     executionImpact: 'NONE',
     wouldBeNeutralIfZeroButMaterialized: reason === 'ZERO_BUT_MATERIALIZED',
     wouldBeEligibleIfForeignOrInstitutionFieldMapped: !hasCoreField && symbolOk && providerScope === 'SYMBOL_LEVEL',
+    wouldBeSemanticAvailableIfFieldMapped: !hasCoreField && symbolOk && providerScope === 'SYMBOL_LEVEL',
+    wouldBeZeroNeutralIfAllZero: fields.allMaterializedValuesZero === true,
   };
 }
 

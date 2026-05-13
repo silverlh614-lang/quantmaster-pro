@@ -48,6 +48,7 @@ import {
   type ResolvedWatchlistUpstreamScore,
 } from "./watchlistUpstreamScoreResolver.js";
 import type { GateConditionResultTrace } from "./gateConditionResultTrace.js";
+import type { SanitizedInvestorFlowSemanticRow } from "../../supply/investorFlowSemanticAvailability.js";
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
 export const GATE1_SOFT_FAIL_ACCUMULATION_THRESHOLD = 3;
@@ -135,6 +136,12 @@ export interface SupplyProviderHealthTrace {
   usableForShadow?: true;
   semanticNetBuyStatus?: string;
   semanticNetBuySignal?: string;
+  semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+  kisRawRowAvailableAtAdapter?: boolean;
+  kisNormalizedRowAvailableAtRouter?: boolean;
+  kisSelectedCandidateCarriesSemanticRow?: boolean;
+  forensicInputCarriesSemanticRow?: boolean;
+  semanticRowBreakPoint?: string;
   routeCoverage?: {
     available: number;
     total: number;
@@ -804,6 +811,12 @@ function classifySupplyProviderHealth(
     usableForShadow: true,
     semanticNetBuyStatus: input?.semanticNetBuyStatus,
     semanticNetBuySignal: input?.semanticNetBuySignal,
+    semanticRow: input?.semanticRow,
+    kisRawRowAvailableAtAdapter: input?.kisRawRowAvailableAtAdapter,
+    kisNormalizedRowAvailableAtRouter: input?.kisNormalizedRowAvailableAtRouter,
+    kisSelectedCandidateCarriesSemanticRow: input?.kisSelectedCandidateCarriesSemanticRow,
+    forensicInputCarriesSemanticRow: input?.forensicInputCarriesSemanticRow,
+    semanticRowBreakPoint: input?.semanticRowBreakPoint,
     routeCoverage: input?.routeCoverage,
     freshness: input?.freshness,
     diagnostics: input?.diagnostics,
