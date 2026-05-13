@@ -949,3 +949,46 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
 });
 
 import { afterEach } from 'vitest';
+
+describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => {
+  it('reports ACTUAL_INVESTOR_ROW_NOT_CARRIED when KIS selected candidate has no carried actual rows', () => {
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
+      kisFlow: {
+        symbol: '005930',
+        requestSymbol: '005930',
+        candidateSymbol: '005930',
+        providerSymbol: '005930',
+        providerScope: 'SYMBOL_LEVEL',
+        selectedProvider: 'KIS_API',
+        sanitizedInvestorFlowRows: [],
+      },
+    });
+    expect(audit.supplyScopeAudit.semanticReason).toBe('ACTUAL_INVESTOR_ROW_NOT_CARRIED');
+  });
+
+  it('reports FIELD_ALIAS_NOT_MAPPED for carried actual row with unknown numeric aliases and includes actual row output', () => {
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })] }),
+      kisFlow: {
+        symbol: '005930',
+        requestSymbol: '005930',
+        candidateSymbol: '005930',
+        providerSymbol: '005930',
+        providerScope: 'SYMBOL_LEVEL',
+        selectedProvider: 'KIS_API',
+        sanitizedInvestorFlowRows: [{ mysteryNetFlow: '123' }],
+        selectedActualRowPath: 'input.selectedCandidate.rawRow',
+        selectedActualRowFieldKeys: ['mysteryNetFlow'],
+        selectedActualNumericStringFieldKeys: ['mysteryNetFlow'],
+      },
+    });
+    const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+    const out = formatGate1MinimumSignalForensicSection(summary)!;
+    expect(['FIELD_ALIAS_NOT_MAPPED', 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN']).toContain(audit.supplyScopeAudit.semanticReason);
+    expect(summary.forensicInputCarriesActualInvestorRowsCount).toBe(1);
+    expect(summary.actualInvestorNumericStringKeysTop?.mysteryNetFlow).toBe(1);
+    expect(out).toContain('KIS Investor Flow Actual Row');
+    expect(out).toContain('actualRowsCarried: 1/1');
+  });
+});
