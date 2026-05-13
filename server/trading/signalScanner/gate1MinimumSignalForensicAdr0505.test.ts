@@ -14,6 +14,7 @@ import {
   type Gate1MinimumSignalForensicAuditAdr0505,
   type Gate1MinimumSignalForensicSummaryAdr0505,
 } from './gate1MinimumSignalForensicAuditAdr0505.js';
+import { collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 } from './gate1ForensicInputsCollectorAdr0507.js';
 import type {
   MinimumSignalScoreTrace,
   SignalScoreComponentTrace,
@@ -1068,5 +1069,158 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     expect(routerDropped.liveExecutionAllowed).toBe(false);
   });
 
+
+
+  it('carries SELL_ONLY bySymbol actual rows into forensic inputs and summary diagnostics', () => {
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [{
+        symbol: '005930',
+        name: '삼성전자',
+        regime: 'R2_BULL',
+        marketSession: 'SELL_ONLY',
+        gate1Passed: false,
+        hardFailCount: 0,
+        softFailCount: 0,
+        diagnosticOnlyCount: 1,
+        conditions: [],
+        wouldPassIfProviderIssueSoftened: false,
+        wouldPassIfSupplySampleIgnored: false,
+        wouldPassIfSectorEnergyIgnored: false,
+        wouldPassIfTimeWindowIgnored: true,
+        minSignalScoreTrace: makeTrace(),
+        executionImpact: 'NONE',
+      }],
+      candidateTraces: [{
+        symbol: '005930',
+        stageReached: 'WATCHLIST',
+        marketSession: 'SELL_ONLY',
+        blockers: [],
+        executionImpact: 'NONE',
+      }],
+      supplyRouterResult: {
+        bySymbol: {
+          '005930': {
+            actualInvestorRow: { foreignNetBuy: '123', institutionNetBuy: '456' },
+            actualInvestorFlowRows: [{ foreignNetBuy: '123', institutionNetBuy: '456' }],
+            actualInvestorFlowRowCount: 1,
+            actualInvestorFlowRowSourcePath: 'router.bySymbol.005930.actualInvestorFlowRows',
+            actualInvestorFlowFieldKeys: ['foreignNetBuy', 'institutionNetBuy'],
+            actualInvestorFlowNumericStringKeys: ['foreignNetBuy', 'institutionNetBuy'],
+            actualInvestorFlowCarried: true,
+          },
+        },
+      },
+    });
+
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].sourcePath).toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
+    expect(inputs[0].selectedCandidate?.actualInvestorFlowRows).toHaveLength(1);
+    expect(inputs[0].actualInvestorFlowRows).toHaveLength(1);
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
+    const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+    const out = formatGate1MinimumSignalForensicSection(summary)!;
+
+    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(true);
+    expect(summary.selectedCandidateCarriesActualRowCount).toBe(1);
+    expect(summary.forensicInputCarriesActualInvestorRowsCount).toBe(1);
+    expect(summary.sellOnlyBySymbolPayloadAvailableCount).toBe(1);
+    expect(summary.sellOnlyBySymbolPayloadMergedCount).toBe(1);
+    expect(summary.sellOnlyActualRowsCarriedCount).toBe(1);
+    expect(summary.sellOnlyCarryBreakPointDistribution?.CARRIED_TO_FORENSIC).toBe(1);
+    expect(out).toContain('sellOnlyActualRowsCarried: 1/1');
+    expect(out).toContain('sellOnlyCarryBreakPoint: CARRIED_TO_FORENSIC=1');
+  });
+
+  it('marks SELL_ONLY bySymbol payload missing without converting provider issues into market signals', () => {
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [{
+        symbol: '000660',
+        regime: 'R2_BULL',
+        marketSession: 'SELL_ONLY',
+        gate1Passed: false,
+        hardFailCount: 0,
+        softFailCount: 0,
+        diagnosticOnlyCount: 1,
+        conditions: [],
+        wouldPassIfProviderIssueSoftened: false,
+        wouldPassIfSupplySampleIgnored: false,
+        wouldPassIfSectorEnergyIgnored: false,
+        wouldPassIfTimeWindowIgnored: true,
+        minSignalScoreTrace: makeTrace({ symbol: '000660' }),
+        executionImpact: 'NONE',
+      }],
+      candidateTraces: [{
+        symbol: '000660',
+        stageReached: 'WATCHLIST',
+        marketSession: 'SELL_ONLY',
+        supplyProviderHealth: {
+          status: 'UNKNOWN',
+          providerIssue: true,
+          marketSignal: false,
+          gate1Severity: 'DIAGNOSTIC_ONLY',
+          reason: ['provider unavailable'],
+        },
+        blockers: [],
+        executionImpact: 'NONE',
+      }],
+      supplyRouterResult: { bySymbol: {} },
+    });
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
+    const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(false);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MISSING');
+    expect(audit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MISSING');
+    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(false);
+    expect(audit.positiveComponents.SUPPLY_CONFLUENCE?.marketSignal).not.toBe(true);
+    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MISSING).toBe(1);
+  });
+
+
+  it('distinguishes SELL_ONLY payload-found-not-merged and forensic-dropped breakpoints', () => {
+    const payloadWithoutRows = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [{
+        symbol: '035420',
+        regime: 'R2_BULL',
+        marketSession: 'SELL_ONLY',
+        gate1Passed: false,
+        hardFailCount: 0,
+        softFailCount: 0,
+        diagnosticOnlyCount: 1,
+        conditions: [],
+        wouldPassIfProviderIssueSoftened: false,
+        wouldPassIfSupplySampleIgnored: false,
+        wouldPassIfSectorEnergyIgnored: false,
+        wouldPassIfTimeWindowIgnored: true,
+        minSignalScoreTrace: makeTrace({ symbol: '035420' }),
+        executionImpact: 'NONE',
+      }],
+      candidateTraces: [{
+        symbol: '035420',
+        stageReached: 'WATCHLIST',
+        marketSession: 'SELL_ONLY',
+        blockers: [],
+        executionImpact: 'NONE',
+      }],
+      supplyRouterResult: { bySymbol: { '035420': { selectedProvider: 'KIS_API' } } },
+    });
+    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadMerged).toBe(false);
+    expect(payloadWithoutRows[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED');
+
+    const forensicDropped = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ symbol: '035420' }),
+      sourcePath: 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT',
+      sellOnlyBySymbolPayloadAvailable: true,
+      sellOnlyBySymbolPayloadMerged: true,
+      sellOnlyCarryBreakPoint: 'CARRIED_TO_FORENSIC',
+    });
+    const summary = buildGate1MinimumSignalForensicSummaryAdr0505([forensicDropped]);
+    expect(forensicDropped.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('MERGED_BUT_FORENSIC_DROPPED');
+    expect(summary.sellOnlyCarryBreakPointDistribution?.MERGED_BUT_FORENSIC_DROPPED).toBe(1);
+  });
 
 });

@@ -3134,6 +3134,7 @@ export async function persistScanResults(
             gate1CandidateTraces: summaryDraft.entryFilterDecomposition?.gate1CandidateTraces,
             candidateTraces: summaryDraft.entryFilterDecomposition?.candidateTraces,
             supplyProviderHealth: summaryDraft.entryFilterDecomposition?.supplyProviderHealth,
+            supplyRouterResult: summaryDraft.investorFlowProviderRouter,
           });
     if (
       !isGate1MinimumSignalForensicAuditDisabled() &&
