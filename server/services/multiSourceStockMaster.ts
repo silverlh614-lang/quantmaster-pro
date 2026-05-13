@@ -11,6 +11,9 @@ import {
   getMasterSize,
   fetchKrxMasterEntries,
   validateMasterPayload,
+  getTradableKrxUniverse,
+  RAW_KRX_MASTER_MIN_TOTAL,
+  TRADABLE_KRX_UNIVERSE_MIN_TOTAL,
   type StockMasterEntry,
 } from '../persistence/krxStockMasterRepo.js';
 import { fetchMasterFromOpenApi } from '../clients/krxOpenApiMasterFetcher.js';
@@ -228,13 +231,36 @@ export async function refreshMultiSourceMaster(
     };
   }
 
-  // active master 갱신
-  setStockMaster(final.entries);
+  const rawTotal = final.entries.length;
+  const tradableTotal = getTradableKrxUniverse(final.entries).length;
+  const isFullKrxSource = final.source === 'KRX_OPENAPI' || final.source === 'KRX_CSV';
+  const productionUsable = isFullKrxSource
+    && rawTotal >= RAW_KRX_MASTER_MIN_TOTAL
+    && tradableTotal >= TRADABLE_KRX_UNIVERSE_MIN_TOTAL;
 
-  // Tier 0/1/2 만 shadow 갱신 (Tier 3 은 자기 자신, Tier 4 는 seed → 오염 방지)
-  if (final.source === 'KRX_OPENAPI' || final.source === 'KRX_CSV' || final.source === 'NAVER_LIST') {
-    updateShadowMaster(final.source, final.entries);
+  if (!productionUsable) {
+    const reason = isFullKrxSource
+      ? `KRX_UNIVERSE_TOO_SMALL raw=${rawTotal} tradable=${tradableTotal}`
+      : `FALLBACK_NOT_FULL_MASTER source=${final.source} raw=${rawTotal}`;
+    recordRun(final.source, { ok: false, count: rawTotal, reason });
+    return {
+      finalSource: final.source,
+      finalCount: rawTotal,
+      usedFallback,
+      attempts: [...attempts, { source: final.source, ok: false, count: rawTotal, reason }],
+    };
   }
+
+  // active KRX_FULL_MASTER 갱신 — production 기준 미달/후보군 fallback 으로 정상 cache 덮어쓰기 금지.
+  setStockMaster(final.entries, Date.now(), {
+    raw_krx_master_total: rawTotal,
+    tradable_universe_total: tradableTotal,
+    is_partial: false,
+    stale: false,
+  });
+
+  // Tier 0/1 만 shadow 갱신 (Naver/Shadow/Seed 는 KRX_FULL_MASTER 오염 방지)
+  updateShadowMaster(final.source, final.entries);
 
   return {
     finalSource: final.source,

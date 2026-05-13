@@ -180,6 +180,7 @@ export function mapBaseInfoToMaster(
     if (seen.has(r.code)) continue;
     seen.add(r.code);
     const entry: StockMasterEntry = { code: r.code, name: r.name, market };
+    if (r.securityType && r.securityType !== '주권') entry.securityType = r.securityType;
     // ADR-0455: enrichment 필드 propagate — 빈 문자열 / NaN / 0 거부.
     if (r.isin && /^[A-Z0-9]{12}$/i.test(r.isin)) entry.isin = r.isin.toUpperCase();
     if (r.listDate && /^\d{4}[-/]?\d{2}[-/]?\d{2}$/.test(r.listDate)) {
@@ -201,7 +202,10 @@ async function buildRawProbeSummaryForDate(basDd: string): Promise<string> {
     probeKrxOpenApiBases(getKrxOpenApiEndpointPath('kospiBaseInfo'), { basDd }),
     probeKrxOpenApiBases(getKrxOpenApiEndpointPath('kosdaqBaseInfo'), { basDd }),
   ]);
-  return `KOSPI[${formatRawProbeSummary(kospi)}] KOSDAQ[${formatRawProbeSummary(kosdaq)}]`;
+  const kospiSummary = formatRawProbeSummary(kospi);
+  const kosdaqSummary = formatRawProbeSummary(kosdaq);
+  if (kospiSummary === kosdaqSummary) return kospiSummary;
+  return `KOSPI[${kospiSummary}] KOSDAQ[${kosdaqSummary}]`;
 }
 
 /**

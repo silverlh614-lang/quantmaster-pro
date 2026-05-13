@@ -68,7 +68,7 @@ describe('multiSourceStockMaster (ADR-0013)', () => {
     expect(result.finalSource).toBe('SHADOW_DB');
     expect(result.finalCount).toBe(100);
     expect(result.usedFallback).toBe(true);
-    expect(getMasterSize()).toBe(100);
+    expect(getMasterSize()).not.toBe(100);
     // Shadow 내용은 KRX_CSV 그대로 — Tier 3 사용이 shadow 를 갱신하지 않음
     expect(loadShadowMaster()?.source).toBe('KRX_CSV');
   });
@@ -78,7 +78,7 @@ describe('multiSourceStockMaster (ADR-0013)', () => {
     expect(result.finalSource).toBe('STATIC_SEED');
     expect(result.usedFallback).toBe(true);
     expect(result.finalCount).toBeGreaterThanOrEqual(50);
-    expect(getMasterSize()).toBe(result.finalCount);
+    expect(getMasterSize()).not.toBe(result.finalCount);
     // Seed 는 shadow 를 갱신하지 않음
     expect(loadShadowMaster()).toBeNull();
   });
@@ -97,9 +97,10 @@ describe('multiSourceStockMaster (ADR-0013)', () => {
     // Shadow 에 데이터 적재 (Tier 3 진입을 위해)
     (await import('../persistence/shadowMasterDb.js')).updateShadowMaster('KRX_CSV', generateValidEntries(100));
     const result = await refreshMultiSourceMaster({ skipOpenApi: true, skipKrx: true, skipNaver: true });
-    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts).toHaveLength(2);
     expect(result.attempts[0].source).toBe('SHADOW_DB');
     expect(result.attempts[0].ok).toBe(true);
+    expect(result.attempts[1].reason).toContain('FALLBACK_NOT_FULL_MASTER');
   });
 
   it('getMasterDiagnostic — 5 source 의 score + activeCount 노출 (Tier 0 KRX_OPENAPI 포함)', async () => {
