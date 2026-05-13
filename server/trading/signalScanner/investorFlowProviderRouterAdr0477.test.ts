@@ -1270,6 +1270,39 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004', () => {
 
 
 
+
+
+  it('carries actual, normalized, and semantic investor rows from KIS adapter through router and selected candidate', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        symbol: '005930',
+        sourceDate: '2026-05-13',
+        frgn_ntby_tr_pbmn: '-19,034',
+        orgn_ntby_tr_pbmn: '2,500',
+        indv_ntby_tr_pbmn: '16,534',
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.selectedProvider).toBe('KIS_API');
+    expect(route.actualInvestorRow).toMatchObject({ frgn_ntby_tr_pbmn: '-19,034' });
+    expect(route.normalizedInvestorRow).toMatchObject({ foreignNetBuy: -19034, institutionNetBuy: 2500, individualNetBuy: 16534 });
+    expect(route.semanticInvestorRow).toMatchObject({ foreignNetBuy: -19034, institutionalNetBuy: 2500, individualNetBuy: 16534 });
+    expect(route.actualRowAvailable).toBe(true);
+    expect(route.normalizedRowAvailable).toBe(true);
+    expect(route.semanticRowAvailable).toBe(true);
+    expect(route.rowCarryPath).toBe('ADAPTER_TO_ROUTER');
+    expect(route.selectedCandidate?.actualInvestorRow).toMatchObject({ frgn_ntby_tr_pbmn: '-19,034' });
+    expect(route.selectedCandidate?.normalizedInvestorRow).toMatchObject({ foreignNetBuy: -19034 });
+    expect(route.selectedCandidate?.semanticInvestorRow).toMatchObject({ institutionalNetBuy: 2500 });
+    expect(route.diagnostics.join('\n')).toContain('[SUPPLY_ROUTER_ROW_CARRIED]');
+    expect(route.diagnostics.join('\n')).toContain('routerCarriesActualRow=true');
+    expect(route.diagnostics.join('\n')).toContain('[SELECTED_CANDIDATE_SUPPLY_ROW_ATTACHED]');
+    expect(route.diagnostics.join('\n')).toContain('[SUPPLY_SEMANTIC_FIELD_MAPPED]');
+  });
+
+
   it('unwraps KIS adapter ActualInvestorFlowRowCarrier from selected candidate without raw payload persistence', () => {
     const route = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',

@@ -535,6 +535,10 @@ export interface BuildGate1MinimumSignalForensicInput {
   actualInvestorFlowNumericKeys?: string[];
   actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
+  actualInvestorRow?: Record<string, unknown> | null;
+  normalizedInvestorRow?: Record<string, unknown> | null;
+  semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
+  supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
   selectedCandidate?: {
     actualInvestorFlowRows?: Array<Record<string, unknown>>;
     actualInvestorFlowRowCount?: number;
@@ -543,6 +547,10 @@ export interface BuildGate1MinimumSignalForensicInput {
     actualInvestorFlowNumericKeys?: string[];
     actualInvestorFlowNumericStringKeys?: string[];
     actualInvestorFlowCarried?: boolean;
+    actualInvestorRow?: Record<string, unknown> | null;
+    normalizedInvestorRow?: Record<string, unknown> | null;
+    semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
+    supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
     [key: string]: unknown;
   } | null;
   kisFlow?: {
@@ -566,6 +574,10 @@ export interface BuildGate1MinimumSignalForensicInput {
     individualNetBuy?: number | null;
     semanticRow?: SanitizedInvestorFlowSemanticRow | null;
     investorFlowSemanticRow?: SanitizedInvestorFlowSemanticRow | null;
+    actualInvestorRow?: Record<string, unknown> | null;
+    normalizedInvestorRow?: Record<string, unknown> | null;
+    semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
+    supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
     sanitizedInvestorFlowRows?: Array<Record<string, unknown>>;
     actualInvestorFlowRows?: Array<Record<string, unknown>>;
     actualInvestorFlowRowCount?: number;
@@ -879,6 +891,10 @@ function buildSupplyScopeAudit(input: {
   actualInvestorFlowNumericKeys?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowNumericKeys'];
   actualInvestorFlowNumericStringKeys?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowNumericStringKeys'];
   actualInvestorFlowCarried?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowCarried'];
+  actualInvestorRow?: BuildGate1MinimumSignalForensicInput['actualInvestorRow'];
+  normalizedInvestorRow?: BuildGate1MinimumSignalForensicInput['normalizedInvestorRow'];
+  semanticInvestorRow?: BuildGate1MinimumSignalForensicInput['semanticInvestorRow'];
+  supplySemanticRow?: BuildGate1MinimumSignalForensicInput['supplySemanticRow'];
   selectedCandidate?: BuildGate1MinimumSignalForensicInput['selectedCandidate'];
   quoteSymbol?: string | null;
 }): SupplyScopeAudit {
@@ -909,13 +925,13 @@ function buildSupplyScopeAudit(input: {
     && providerScope === 'SYMBOL_LEVEL'
     && Boolean(requestSymbol && expectedSymbol && requestSymbol === expectedSymbol);
 
-  const semanticRowCandidate = (kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null | undefined;
+  const semanticRowCandidate = (input.semanticInvestorRow ?? input.supplySemanticRow ?? input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null | undefined;
   const sanitizedSemanticRow = semanticRowCandidate && typeof semanticRowCandidate === 'object' && 'sourceFields' in semanticRowCandidate && 'rawFieldKeys' in semanticRowCandidate
     ? semanticRowCandidate as SanitizedInvestorFlowSemanticRow
     : null;
-  const forensicInputActualRows = Array.isArray(input.actualInvestorFlowRows) ? input.actualInvestorFlowRows : [];
-  const selectedCandidateActualRows = Array.isArray(input.selectedCandidate?.actualInvestorFlowRows) ? input.selectedCandidate.actualInvestorFlowRows : [];
-  const kisFlowActualRows = Array.isArray(kisFlow?.actualInvestorFlowRows) ? kisFlow.actualInvestorFlowRows : [];
+  const forensicInputActualRows = Array.isArray(input.actualInvestorFlowRows) ? input.actualInvestorFlowRows : (input.actualInvestorRow ? [input.actualInvestorRow] : []);
+  const selectedCandidateActualRows = Array.isArray(input.selectedCandidate?.actualInvestorFlowRows) ? input.selectedCandidate.actualInvestorFlowRows : (input.selectedCandidate?.actualInvestorRow ? [input.selectedCandidate.actualInvestorRow] : []);
+  const kisFlowActualRows = Array.isArray(kisFlow?.actualInvestorFlowRows) ? kisFlow.actualInvestorFlowRows : (kisFlow?.actualInvestorRow ? [kisFlow.actualInvestorRow] : []);
   const kisFlowSanitizedRows = Array.isArray(kisFlow?.sanitizedInvestorFlowRows) ? kisFlow.sanitizedInvestorFlowRows : [];
   const actualInvestorRows = forensicInputActualRows.length > 0
     ? forensicInputActualRows
@@ -924,10 +940,19 @@ function buildSupplyScopeAudit(input: {
       : kisFlowActualRows.length > 0
         ? kisFlowActualRows
         : kisFlowSanitizedRows;
-  const flowForSemantic = actualInvestorRows.length > 0 ? actualInvestorRows : sanitizedSemanticRow ?? kisFlow ?? null;
+  const primarySemanticFlow = semanticRowCandidate
+    ?? input.normalizedInvestorRow
+    ?? input.actualInvestorRow
+    ?? input.selectedCandidate?.normalizedInvestorRow
+    ?? input.selectedCandidate?.actualInvestorRow
+    ?? kisFlow?.normalizedInvestorRow
+    ?? kisFlow?.actualInvestorRow
+    ?? sanitizedSemanticRow
+    ?? null;
+  const flowForSemantic = primarySemanticFlow ?? (actualInvestorRows.length > 0 ? actualInvestorRows : kisFlow ?? null);
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
-  const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
-  const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
+  const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
+  const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
   const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? actualInvestorRows.length > 0;
   const semantic = evaluateInvestorFlowSemanticAvailabilityV2({
     flow: flowForSemantic,
@@ -940,7 +965,7 @@ function buildSupplyScopeAudit(input: {
     semanticRowExpected: selectedCandidateCarriesSemanticRow,
     semanticRowDropped: kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_RAW_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW',
     forensicInputDroppedSemanticRow: kisFlow?.semanticRowBreakPoint === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW',
-    actualInvestorRowCarried: (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
+    actualInvestorRowCarried: (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorRow') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
   });
   const foreignNetBuy = semantic.foreignNetBuy;
   const institutionalNetBuy = semantic.institutionalNetBuy;
@@ -2009,6 +2034,11 @@ export function formatGate1MinimumSignalForensicSection(
   const lines: string[] = [];
   lines.push('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
   lines.push(`- evaluationState=${summary.evaluationState} evaluated=${summary.evaluatedCandidateCount}/${summary.totalCandidates} traceOnly=${summary.traceOnlyCandidateCount}`);
+  if (summary.evaluationState === 'NOT_EVALUATED_SELL_ONLY') {
+    lines.push('- Gate live evaluation skipped due to SELL_ONLY');
+    lines.push('- Supply row carry diagnostic executed');
+    lines.push('- row carry failure is a wiring issue, not a live-entry failure');
+  }
   if (summary.evaluationState === 'EVALUATED') {
     lines.push(`- candidates=${summary.totalCandidates} failed=${summary.failedCandidates}`);
     lines.push(

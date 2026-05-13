@@ -89,10 +89,14 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       : undefined;
     const selectedCandidateActualRowsCandidate = selectedCandidateRecord && Array.isArray(selectedCandidateRecord.actualInvestorFlowRows)
       ? selectedCandidateRecord.actualInvestorFlowRows as Array<Record<string, unknown>>
-      : undefined;
+      : selectedCandidateRecord?.actualInvestorRow && typeof selectedCandidateRecord.actualInvestorRow === 'object'
+        ? [selectedCandidateRecord.actualInvestorRow as Record<string, unknown>]
+        : undefined;
     const routerActualRowsCandidate = healthRecord && Array.isArray(healthRecord.actualInvestorFlowRows)
       ? healthRecord.actualInvestorFlowRows as Array<Record<string, unknown>>
-      : undefined;
+      : healthRecord?.actualInvestorRow && typeof healthRecord.actualInvestorRow === 'object'
+        ? [healthRecord.actualInvestorRow as Record<string, unknown>]
+        : undefined;
     const sanitizedRowsCandidate = healthRecord && Array.isArray(healthRecord.sanitizedInvestorFlowRows)
       ? healthRecord.sanitizedInvestorFlowRows as Array<Record<string, unknown>>
       : undefined;
@@ -131,8 +135,12 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           usableForLive: false as const,
           usableForShadow: true as const,
           semanticAvailable: healthRecord.status === 'VERIFIED',
-          semanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
-          investorFlowSemanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
+          semanticRow: (healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | null | undefined,
+          investorFlowSemanticRow: (healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | null | undefined,
+          actualInvestorRow: (selectedCandidateRecord?.actualInvestorRow ?? healthRecord.actualInvestorRow ?? actualInvestorFlowRows?.[0]) as Record<string, unknown> | null | undefined,
+          normalizedInvestorRow: (selectedCandidateRecord?.normalizedInvestorRow ?? healthRecord.normalizedInvestorRow) as Record<string, unknown> | null | undefined,
+          semanticInvestorRow: (selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null | undefined,
+          supplySemanticRow: (selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticInvestorRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null | undefined,
           sanitizedInvestorFlowRows: actualInvestorFlowRows,
           actualInvestorFlowRows,
           actualInvestorFlowRowCount,
@@ -149,7 +157,7 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           kisRawRowAvailableAtAdapter: healthRecord.kisRawRowAvailableAtAdapter as boolean | undefined,
           kisNormalizedRowAvailableAtRouter: healthRecord.kisNormalizedRowAvailableAtRouter as boolean | undefined,
           kisSelectedCandidateCarriesSemanticRow: healthRecord.kisSelectedCandidateCarriesSemanticRow as boolean | undefined,
-          forensicInputCarriesSemanticRow: Boolean(healthRecord.semanticRow),
+          forensicInputCarriesSemanticRow: Boolean(selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow),
           forensicInputCarriesActualInvestorRows: (actualInvestorFlowRows?.length ?? 0) > 0,
           semanticRowBreakPoint: (healthRecord.semanticRowBreakPoint as string | undefined) ?? (healthRecord.kisSelectedCandidateCarriesSemanticRow === false ? 'SELECTED_CANDIDATE_METADATA_ONLY' : undefined),
         }
@@ -183,6 +191,10 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...(actualInvestorFlowNumericKeys ? { actualInvestorFlowNumericKeys } : {}),
       ...(actualInvestorFlowNumericStringKeys ? { actualInvestorFlowNumericStringKeys } : {}),
       ...(actualInvestorFlowCarried !== undefined ? { actualInvestorFlowCarried } : {}),
+      ...((selectedCandidateRecord?.actualInvestorRow ?? (healthRecord?.actualInvestorRow as Record<string, unknown> | undefined) ?? actualInvestorFlowRows?.[0]) ? { actualInvestorRow: (selectedCandidateRecord?.actualInvestorRow ?? healthRecord?.actualInvestorRow ?? actualInvestorFlowRows?.[0]) as Record<string, unknown> } : {}),
+      ...((selectedCandidateRecord?.normalizedInvestorRow ?? healthRecord?.normalizedInvestorRow) ? { normalizedInvestorRow: (selectedCandidateRecord?.normalizedInvestorRow ?? healthRecord?.normalizedInvestorRow) as Record<string, unknown> } : {}),
+      ...((selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) ? { semanticInvestorRow: (selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
+      ...((selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) ? { supplySemanticRow: (selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
       ...(kisFlow ? { kisFlow } : {}),
     };
