@@ -258,6 +258,11 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
       supplyProviderHealth: sph,
     });
 
+    expect(r[0]!.actualInvestorFlowRows).toHaveLength(1);
+    expect(r[0]!.actualInvestorFlowRowCount).toBe(1);
+    expect(r[0]!.actualInvestorFlowRowSourcePath).toBe('input.selectedCandidate.actualInvestorFlowRows');
+    expect(r[0]!.actualInvestorFlowNumericStringKeys).toContain('orgn_ntby_qty');
+    expect(r[0]!.selectedCandidate?.actualInvestorFlowRows).toHaveLength(1);
     expect(r[0]!.kisFlow?.actualInvestorFlowRows).toHaveLength(1);
     expect(r[0]!.kisFlow?.actualInvestorFlowRowCount).toBe(1);
     expect(r[0]!.kisFlow?.actualInvestorFlowRowSourcePath).toBe('input.selectedCandidate.actualInvestorFlowRows');

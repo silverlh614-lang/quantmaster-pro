@@ -87,15 +87,18 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const selectedCandidateRecord = healthRecord?.selectedCandidate && typeof healthRecord.selectedCandidate === 'object'
       ? healthRecord.selectedCandidate as Record<string, unknown>
       : undefined;
-    const actualRowsFromSelectedCandidate = selectedCandidateRecord && Array.isArray(selectedCandidateRecord.actualInvestorFlowRows)
+    const selectedCandidateActualRowsCandidate = selectedCandidateRecord && Array.isArray(selectedCandidateRecord.actualInvestorFlowRows)
       ? selectedCandidateRecord.actualInvestorFlowRows as Array<Record<string, unknown>>
       : undefined;
-    const actualRowsFromRouter = healthRecord && Array.isArray(healthRecord.actualInvestorFlowRows)
+    const routerActualRowsCandidate = healthRecord && Array.isArray(healthRecord.actualInvestorFlowRows)
       ? healthRecord.actualInvestorFlowRows as Array<Record<string, unknown>>
       : undefined;
-    const sanitizedRowsFromRouter = healthRecord && Array.isArray(healthRecord.sanitizedInvestorFlowRows)
+    const sanitizedRowsCandidate = healthRecord && Array.isArray(healthRecord.sanitizedInvestorFlowRows)
       ? healthRecord.sanitizedInvestorFlowRows as Array<Record<string, unknown>>
       : undefined;
+    const actualRowsFromSelectedCandidate = selectedCandidateActualRowsCandidate && selectedCandidateActualRowsCandidate.length > 0 ? selectedCandidateActualRowsCandidate : undefined;
+    const actualRowsFromRouter = routerActualRowsCandidate && routerActualRowsCandidate.length > 0 ? routerActualRowsCandidate : undefined;
+    const sanitizedRowsFromRouter = sanitizedRowsCandidate && sanitizedRowsCandidate.length > 0 ? sanitizedRowsCandidate : undefined;
     const actualInvestorFlowRows = actualRowsFromSelectedCandidate ?? actualRowsFromRouter ?? sanitizedRowsFromRouter;
     const actualInvestorFlowFieldKeys = (selectedCandidateRecord?.actualInvestorFlowFieldKeys as string[] | undefined)
       ?? (healthRecord?.actualInvestorFlowFieldKeys as string[] | undefined)
@@ -105,6 +108,13 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const actualInvestorFlowNumericStringKeys = (selectedCandidateRecord?.actualInvestorFlowNumericStringKeys as string[] | undefined)
       ?? (healthRecord?.actualInvestorFlowNumericStringKeys as string[] | undefined)
       ?? (healthRecord?.selectedActualNumericStringFieldKeys as string[] | undefined);
+    const actualInvestorFlowRowCount = (selectedCandidateRecord?.actualInvestorFlowRowCount as number | undefined) ?? (healthRecord?.actualInvestorFlowRowCount as number | undefined) ?? actualInvestorFlowRows?.length;
+    const actualInvestorFlowRowSourcePath = (selectedCandidateRecord?.actualInvestorFlowRowSourcePath as string | null | undefined)
+      ?? (healthRecord?.actualInvestorFlowRowSourcePath as string | null | undefined)
+      ?? (healthRecord?.selectedActualRowPath as string | null | undefined);
+    const actualInvestorFlowCarried = (selectedCandidateRecord?.actualInvestorFlowCarried as boolean | undefined)
+      ?? (healthRecord?.actualInvestorFlowCarried as boolean | undefined)
+      ?? ((actualInvestorFlowRows?.length ?? 0) > 0);
     const kisFlow = healthRecord
       ? {
           requestSymbol: (healthRecord.requestSymbol as string | null | undefined) ?? candidate?.symbol ?? t.symbol ?? null,
@@ -125,12 +135,12 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           investorFlowSemanticRow: healthRecord.semanticRow as SanitizedInvestorFlowSemanticRow | null | undefined,
           sanitizedInvestorFlowRows: actualInvestorFlowRows,
           actualInvestorFlowRows,
-          actualInvestorFlowRowCount: (selectedCandidateRecord?.actualInvestorFlowRowCount as number | undefined) ?? (healthRecord.actualInvestorFlowRowCount as number | undefined) ?? actualInvestorFlowRows?.length,
-          actualInvestorFlowRowSourcePath: (selectedCandidateRecord?.actualInvestorFlowRowSourcePath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined) ?? (healthRecord.selectedActualRowPath as string | null | undefined),
+          actualInvestorFlowRowCount,
+          actualInvestorFlowRowSourcePath,
           actualInvestorFlowFieldKeys,
           actualInvestorFlowNumericKeys,
           actualInvestorFlowNumericStringKeys,
-          actualInvestorFlowCarried: (selectedCandidateRecord?.actualInvestorFlowCarried as boolean | undefined) ?? (healthRecord.actualInvestorFlowCarried as boolean | undefined) ?? ((actualInvestorFlowRows?.length ?? 0) > 0),
+          actualInvestorFlowCarried,
           selectedActualRowPath: ((healthRecord.selectedActualRowPath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined)),
           selectedActualRowFieldKeys: ((healthRecord.selectedActualRowFieldKeys as string[] | undefined) ?? actualInvestorFlowFieldKeys),
           selectedActualNumericFieldKeys: healthRecord.selectedActualNumericFieldKeys as string[] | undefined,
@@ -166,6 +176,14 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       quoteSymbol: quoteSymbol ?? t.symbol ?? null,
       ...(health ? { supplyProviderHealth: health } : {}),
       ...(candidate?.supplyConfluenceState ? { supplyConfluence: candidate.supplyConfluenceState } : {}),
+      ...(actualInvestorFlowRows ? { actualInvestorFlowRows } : {}),
+      ...(actualInvestorFlowRowCount !== undefined ? { actualInvestorFlowRowCount } : {}),
+      ...(actualInvestorFlowRowSourcePath !== undefined ? { actualInvestorFlowRowSourcePath } : {}),
+      ...(actualInvestorFlowFieldKeys ? { actualInvestorFlowFieldKeys } : {}),
+      ...(actualInvestorFlowNumericKeys ? { actualInvestorFlowNumericKeys } : {}),
+      ...(actualInvestorFlowNumericStringKeys ? { actualInvestorFlowNumericStringKeys } : {}),
+      ...(actualInvestorFlowCarried !== undefined ? { actualInvestorFlowCarried } : {}),
+      ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
       ...(kisFlow ? { kisFlow } : {}),
     };
     out.push(entry);

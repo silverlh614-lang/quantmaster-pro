@@ -528,6 +528,23 @@ export interface BuildGate1MinimumSignalForensicInput {
   conditionKeys?: string[];
   supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
   supplyConfluence?: SupplyConfluenceState;
+  actualInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRowCount?: number;
+  actualInvestorFlowRowSourcePath?: string | null;
+  actualInvestorFlowFieldKeys?: string[];
+  actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowNumericStringKeys?: string[];
+  actualInvestorFlowCarried?: boolean;
+  selectedCandidate?: {
+    actualInvestorFlowRows?: Array<Record<string, unknown>>;
+    actualInvestorFlowRowCount?: number;
+    actualInvestorFlowRowSourcePath?: string | null;
+    actualInvestorFlowFieldKeys?: string[];
+    actualInvestorFlowNumericKeys?: string[];
+    actualInvestorFlowNumericStringKeys?: string[];
+    actualInvestorFlowCarried?: boolean;
+    [key: string]: unknown;
+  } | null;
   kisFlow?: {
     symbol?: string | null;
     requestSymbol?: string | null;
@@ -674,6 +691,14 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
     candidate,
     supplyProviderHealth,
     kisFlow,
+    actualInvestorFlowRows: input.actualInvestorFlowRows,
+    actualInvestorFlowRowCount: input.actualInvestorFlowRowCount,
+    actualInvestorFlowRowSourcePath: input.actualInvestorFlowRowSourcePath,
+    actualInvestorFlowFieldKeys: input.actualInvestorFlowFieldKeys,
+    actualInvestorFlowNumericKeys: input.actualInvestorFlowNumericKeys,
+    actualInvestorFlowNumericStringKeys: input.actualInvestorFlowNumericStringKeys,
+    actualInvestorFlowCarried: input.actualInvestorFlowCarried,
+    selectedCandidate: input.selectedCandidate,
     quoteSymbol,
   });
 
@@ -847,6 +872,14 @@ function buildSupplyScopeAudit(input: {
   conditionKeys?: string[];
   supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
   kisFlow?: BuildGate1MinimumSignalForensicInput['kisFlow'];
+  actualInvestorFlowRows?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowRows'];
+  actualInvestorFlowRowCount?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowRowCount'];
+  actualInvestorFlowRowSourcePath?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowRowSourcePath'];
+  actualInvestorFlowFieldKeys?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowFieldKeys'];
+  actualInvestorFlowNumericKeys?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowNumericKeys'];
+  actualInvestorFlowNumericStringKeys?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowNumericStringKeys'];
+  actualInvestorFlowCarried?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowCarried'];
+  selectedCandidate?: BuildGate1MinimumSignalForensicInput['selectedCandidate'];
   quoteSymbol?: string | null;
 }): SupplyScopeAudit {
   const { trace, candidate, kisFlow, quoteSymbol, supplyProviderHealth } = input;
@@ -880,7 +913,17 @@ function buildSupplyScopeAudit(input: {
   const sanitizedSemanticRow = semanticRowCandidate && typeof semanticRowCandidate === 'object' && 'sourceFields' in semanticRowCandidate && 'rawFieldKeys' in semanticRowCandidate
     ? semanticRowCandidate as SanitizedInvestorFlowSemanticRow
     : null;
-  const actualInvestorRows = Array.isArray(kisFlow?.actualInvestorFlowRows) ? kisFlow.actualInvestorFlowRows : Array.isArray(kisFlow?.sanitizedInvestorFlowRows) ? kisFlow.sanitizedInvestorFlowRows : [];
+  const forensicInputActualRows = Array.isArray(input.actualInvestorFlowRows) ? input.actualInvestorFlowRows : [];
+  const selectedCandidateActualRows = Array.isArray(input.selectedCandidate?.actualInvestorFlowRows) ? input.selectedCandidate.actualInvestorFlowRows : [];
+  const kisFlowActualRows = Array.isArray(kisFlow?.actualInvestorFlowRows) ? kisFlow.actualInvestorFlowRows : [];
+  const kisFlowSanitizedRows = Array.isArray(kisFlow?.sanitizedInvestorFlowRows) ? kisFlow.sanitizedInvestorFlowRows : [];
+  const actualInvestorRows = forensicInputActualRows.length > 0
+    ? forensicInputActualRows
+    : selectedCandidateActualRows.length > 0
+      ? selectedCandidateActualRows
+      : kisFlowActualRows.length > 0
+        ? kisFlowActualRows
+        : kisFlowSanitizedRows;
   const flowForSemantic = actualInvestorRows.length > 0 ? actualInvestorRows : sanitizedSemanticRow ?? kisFlow ?? null;
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
@@ -964,10 +1007,10 @@ function buildSupplyScopeAudit(input: {
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
     forensicInputCarriesActualInvestorRows,
-    selectedActualRowPath: kisFlow?.selectedActualRowPath ?? kisFlow?.actualInvestorFlowRowSourcePath ?? semantic.fieldKeyDiagnostics?.selectedPath ?? null,
-    selectedActualRowFieldKeys: kisFlow?.selectedActualRowFieldKeys ?? kisFlow?.actualInvestorFlowFieldKeys ?? semantic.fieldKeyDiagnostics?.actualRawFieldKeysTop ?? [],
-    selectedActualNumericFieldKeys: kisFlow?.selectedActualNumericFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumberFieldKeysTop ?? [],
-    selectedActualNumericStringFieldKeys: kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop ?? [],
+    selectedActualRowPath: input.actualInvestorFlowRowSourcePath ?? input.selectedCandidate?.actualInvestorFlowRowSourcePath ?? kisFlow?.selectedActualRowPath ?? kisFlow?.actualInvestorFlowRowSourcePath ?? semantic.fieldKeyDiagnostics?.selectedPath ?? null,
+    selectedActualRowFieldKeys: input.actualInvestorFlowFieldKeys ?? input.selectedCandidate?.actualInvestorFlowFieldKeys ?? kisFlow?.selectedActualRowFieldKeys ?? kisFlow?.actualInvestorFlowFieldKeys ?? semantic.fieldKeyDiagnostics?.actualRawFieldKeysTop ?? [],
+    selectedActualNumericFieldKeys: input.actualInvestorFlowNumericKeys ?? input.selectedCandidate?.actualInvestorFlowNumericKeys ?? kisFlow?.selectedActualNumericFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumberFieldKeysTop ?? [],
+    selectedActualNumericStringFieldKeys: input.actualInvestorFlowNumericStringKeys ?? input.selectedCandidate?.actualInvestorFlowNumericStringKeys ?? kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop ?? [],
     selectedActualPlaceholderFieldKeys: kisFlow?.selectedActualPlaceholderFieldKeys ?? semantic.fieldKeyDiagnostics?.actualPlaceholderFieldKeysTop ?? [],
     semanticRowBreakPoint: kisFlow?.semanticRowBreakPoint ?? (forensicInputCarriesActualInvestorRows && !semanticAvailable ? 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED' : semantic.semanticRowBreakPoint) ?? (semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY' ? 'ONLY_WRAPPER_METADATA' : semantic.reason === 'FIELD_ALIAS_NOT_MAPPED' ? 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED' : 'UNKNOWN'),
     semanticReason: semantic.reason,
@@ -991,14 +1034,14 @@ function buildSupplyScopeAudit(input: {
             individual: sanitizedSemanticRow.sourceFields.individual ? [sanitizedSemanticRow.sourceFields.individual] : [],
           },
           unwrapRows: actualInvestorRows.length,
-          selectedPath: kisFlow?.selectedActualRowPath ?? semantic.fieldKeyDiagnostics?.selectedPath,
+          selectedPath: input.actualInvestorFlowRowSourcePath ?? input.selectedCandidate?.actualInvestorFlowRowSourcePath ?? kisFlow?.selectedActualRowPath ?? semantic.fieldKeyDiagnostics?.selectedPath,
           unwrapReason: semantic.fieldKeyDiagnostics?.unwrapReason,
-          actualRawFieldKeysTop: kisFlow?.selectedActualRowFieldKeys ?? sanitizedSemanticRow.rawFieldKeys,
-          actualNumericStringFieldKeysTop: kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop ?? [],
-          actualNumberFieldKeysTop: kisFlow?.selectedActualNumericFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumberFieldKeysTop ?? [],
+          actualRawFieldKeysTop: input.actualInvestorFlowFieldKeys ?? input.selectedCandidate?.actualInvestorFlowFieldKeys ?? kisFlow?.selectedActualRowFieldKeys ?? sanitizedSemanticRow.rawFieldKeys,
+          actualNumericStringFieldKeysTop: input.actualInvestorFlowNumericStringKeys ?? input.selectedCandidate?.actualInvestorFlowNumericStringKeys ?? kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumericStringFieldKeysTop ?? [],
+          actualNumberFieldKeysTop: input.actualInvestorFlowNumericKeys ?? input.selectedCandidate?.actualInvestorFlowNumericKeys ?? kisFlow?.selectedActualNumericFieldKeys ?? semantic.fieldKeyDiagnostics?.actualNumberFieldKeysTop ?? [],
           actualPlaceholderFieldKeysTop: kisFlow?.selectedActualPlaceholderFieldKeys ?? semantic.fieldKeyDiagnostics?.actualPlaceholderFieldKeysTop ?? [],
-          selectedActualRawFieldKeysTop: kisFlow?.selectedActualRowFieldKeys ?? sanitizedSemanticRow.rawFieldKeys,
-          selectedNumericStringFieldKeysTop: kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.selectedNumericStringFieldKeysTop ?? [],
+          selectedActualRawFieldKeysTop: input.actualInvestorFlowFieldKeys ?? input.selectedCandidate?.actualInvestorFlowFieldKeys ?? kisFlow?.selectedActualRowFieldKeys ?? sanitizedSemanticRow.rawFieldKeys,
+          selectedNumericStringFieldKeysTop: input.actualInvestorFlowNumericStringKeys ?? input.selectedCandidate?.actualInvestorFlowNumericStringKeys ?? kisFlow?.selectedActualNumericStringFieldKeys ?? semantic.fieldKeyDiagnostics?.selectedNumericStringFieldKeysTop ?? [],
           wrapperOnlyCount: semantic.fieldKeyDiagnostics?.wrapperOnlyCount,
         }
       : semantic.fieldKeyDiagnostics,
