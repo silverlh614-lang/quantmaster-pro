@@ -128,6 +128,7 @@ export type RsHydrationSourceAdr0509 =
   | 'QUOTE_RETURN'
   | 'SYMBOL_FEATURES'
   | 'CONDITION_RESULTS'
+  | 'EXPLICIT_RELATIVE_RETURN'
   | 'WATCHLIST_PROXY'
   | 'MISSING';
 
@@ -143,6 +144,16 @@ export interface WatchlistHydrationAuditAdr0509 {
   sourceAvailable: boolean;
   sourceField: string | null;
   scoreImported: boolean;
+  rawScore?: number | null;
+  normalizedWatchlistScore?: number | null;
+  scoreScale?: string | null;
+  stage2Score?: number | null;
+  watchlistScore?: number | null;
+  upstreamCandidateScore?: number | null;
+  watchlistRank?: number | null;
+  totalCandidates?: number | null;
+  watchlistReason?: string[];
+  watchlistSourceField?: string | null;
   missingReason?: string;
 }
 
@@ -165,6 +176,8 @@ export interface FeatureHydrationAuditAdr0509 {
   candidateTraceHasSupplyContext: boolean;
   candidateTraceHasMinSignalScoreTrace: boolean;
   watchlist: WatchlistHydrationAuditAdr0509;
+  conditionKeyStatus?: Record<string, 'FIRED' | 'DATA_UNAVAILABLE' | 'THRESHOLD_NOT_MET' | 'PROVIDER_DEGRADED' | 'ERROR'>;
+  breakoutConditionKeys?: string[];
 }
 
 export interface SectorEnergyForensicAudit {
@@ -267,6 +280,19 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   watchlistSourceFieldDistribution?: Record<string, number>;
   watchlistScoreImportedCount?: number;
   watchlistMissingReasonTop?: string[];
+  watchlistScoreScaleDistribution?: Record<string, number>;
+  watchlistScoreAvg?: number;
+  watchlistDiagnosticConflict?: boolean;
+  adr0467WatchlistVerifiedCount?: number;
+  adr0505WatchlistImportedCount?: number;
+  conflictReason?: 'DIFFERENT_SOURCE_PATH' | 'FALLBACK_PROXY_NOT_IMPORTED' | 'TRACE_FIELD_MISSING' | 'UNKNOWN';
+  quoteFeatureAvailableCount?: number;
+  quoteMissingReasonTop?: string[];
+  quoteFeatureFieldCoverage?: Record<string, number>;
+  conditionResultsAvailableCount?: number;
+  conditionResultsKeyCoverage?: Record<string, number>;
+  conditionResultStatusDistribution?: Record<string, number>;
+  breakoutConditionKeyCoverage?: Record<string, number>;
   rsTraceAvailableCount?: number;
   rsScoreUsableCount?: number;
   rsMissingFieldsTop?: string[];
@@ -704,20 +730,90 @@ function hasHydrationField(candidate: CandidateEntryTrace, field: string): boole
   return false;
 }
 
+
+const REQUIRED_CONDITION_KEYS = [
+  'momentum',
+  'ma_alignment',
+  'volume_breakout',
+  'turtle_high',
+  'relative_strength',
+  'breakout_momentum',
+  'vcp',
+  'volume_surge',
+  'rsi_zone',
+  'macd_bull',
+  'pullback',
+  'ma60_rising',
+  'weekly_rsi_zone',
+  'supply_confluence',
+  'earnings_quality',
+  'trend_acceleration',
+] as const;
+
+const BREAKOUT_CONDITION_KEYS: ReadonlySet<string> = new Set([
+  'breakout_momentum',
+  'turtle_high',
+  'volume_breakout',
+  'volume_surge',
+  'vcp',
+  'trend_acceleration',
+]);
+
+type ConditionStatus = 'FIRED' | 'DATA_UNAVAILABLE' | 'THRESHOLD_NOT_MET' | 'PROVIDER_DEGRADED' | 'ERROR';
+
+function numericValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function conditionRecord(candidate: CandidateEntryTrace, key: string): Record<string, unknown> | undefined {
+  const results = (candidate as unknown as Record<string, unknown>).conditionResults;
+  if (!results || typeof results !== 'object') return undefined;
+  const value = (results as Record<string, unknown>)[key];
+  return value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+}
+
+function conditionStatus(candidate: CandidateEntryTrace, key: string): ConditionStatus | undefined {
+  const record = conditionRecord(candidate, key);
+  if (!record) return undefined;
+  const explicit = typeof record.status === 'string' ? record.status.toUpperCase() : undefined;
+  if (explicit === 'FIRED' || explicit === 'PASS' || explicit === 'PASSED') return 'FIRED';
+  if (explicit === 'DATA_UNAVAILABLE' || explicit === 'UNAVAILABLE' || explicit === 'MISSING') return 'DATA_UNAVAILABLE';
+  if (explicit === 'THRESHOLD_NOT_MET' || explicit === 'NOT_MET' || explicit === 'FALSE') return 'THRESHOLD_NOT_MET';
+  if (explicit === 'PROVIDER_DEGRADED' || explicit === 'DEGRADED') return 'PROVIDER_DEGRADED';
+  if (explicit === 'ERROR') return 'ERROR';
+  if (record.fired === true || record.passed === true) return 'FIRED';
+  if (record.unavailable === true || record.hadRequiredData === false) return 'DATA_UNAVAILABLE';
+  if (record.providerDegraded === true) return 'PROVIDER_DEGRADED';
+  if (record.thresholdNotMet === true || record.fired === false || record.passed === false) return 'THRESHOLD_NOT_MET';
+  return numericValue(record.score) !== undefined || numericValue(record.normalizedScore) !== undefined ? 'THRESHOLD_NOT_MET' : 'DATA_UNAVAILABLE';
+}
+
+function hasConditionNumericScore(candidate: CandidateEntryTrace, key: string): boolean {
+  const record = conditionRecord(candidate, key);
+  return Boolean(record && (numericValue(record.score) !== undefined || numericValue(record.normalizedScore) !== undefined));
+}
+
+function hasPositiveConditionScore(candidate: CandidateEntryTrace, key: string): boolean {
+  const record = conditionRecord(candidate, key);
+  const score = numericValue(record?.score) ?? numericValue(record?.normalizedScore);
+  return score !== undefined && score > 0;
+}
+
 function classifyRsSource(candidate: CandidateEntryTrace): RsHydrationSourceAdr0509 {
-  if (hasNestedValue(candidate, 'quote.return20d') || hasNestedValue(candidate, 'quote.return5d')) return 'QUOTE_RETURN';
-  if (hasAny(candidate, ['return20d', 'return5d', 'kospi20dReturn', 'relativeReturn20d', 'marketRelativeReturn', 'rsRankPct', 'relativeStrengthScore'])) return 'SYMBOL_FEATURES';
   if (hasNestedValue(candidate, 'conditionResults.relative_strength')) return 'CONDITION_RESULTS';
+  if (hasNestedValue(candidate, 'quote.return20d') || hasNestedValue(candidate, 'quote.return5d')) return 'QUOTE_RETURN';
+  if (hasAny(candidate, ['relativeReturn20d', 'marketRelativeReturn', 'kospiRelativeReturn'])) return 'EXPLICIT_RELATIVE_RETURN';
+  if (hasAny(candidate, ['return20d', 'return5d', 'kospi20dReturn', 'rsRankPct', 'relativeStrengthScore'])) return 'SYMBOL_FEATURES';
   if (hasWatchlistReasonProxy(candidate, /relative|rs|leader|leading|강세|주도주/i)) return 'WATCHLIST_PROXY';
   return 'MISSING';
 }
 
 function classifyBreakoutSource(candidate: CandidateEntryTrace): BreakoutHydrationSourceAdr0509 {
-  if (hasAny(candidate, ['quote.price', 'quote.currentPrice', 'quote.high5d', 'quote.high20d', 'quote.high60', 'quote.volume', 'quote.avgVolume', 'quote.volumeRatio', 'quote.ma20', 'quote.ma60'])) return 'QUOTE_OHLCV';
-  if (hasAny(candidate, ['price', 'currentPrice', 'high5d', 'high20d', 'high60', 'volume', 'avgVolume', 'volumeRatio', 'ma20', 'ma60', 'aboveMA20', 'aboveMA60', 'breakoutSignals'])) return 'SYMBOL_FEATURES';
   if (hasNestedValue(candidate, 'conditionResults.breakout_momentum') || hasNestedValue(candidate, 'conditionResults.turtle_high') || hasNestedValue(candidate, 'conditionResults.volume_breakout') || hasNestedValue(candidate, 'conditionResults.volume_surge') || hasNestedValue(candidate, 'conditionResults.vcp') || hasNestedValue(candidate, 'conditionResults.trend_acceleration')) return 'CONDITION_RESULTS';
   const keys = (candidate as unknown as Record<string, unknown>).conditionKeys;
-  if (Array.isArray(keys) && keys.length > 0) return 'CONDITION_KEYS';
+  if (Array.isArray(keys) && keys.some((key) => BREAKOUT_CONDITION_KEYS.has(String(key)))) return 'CONDITION_KEYS';
+  if (hasAny(candidate, ['quote.price', 'quote.currentPrice', 'quote.high5d', 'quote.high20d', 'quote.high60', 'quote.volume', 'quote.avgVolume', 'quote.volumeRatio', 'quote.ma20', 'quote.ma60'])) return 'QUOTE_OHLCV';
+  if (hasAny(candidate, ['price', 'currentPrice', 'high5d', 'high20d', 'high60', 'volume', 'avgVolume', 'volumeRatio', 'ma20', 'ma60', 'aboveMA20', 'aboveMA60', 'breakoutSignals'])) return 'SYMBOL_FEATURES';
   if (hasWatchlistReasonProxy(candidate, /breakout|new high|vcp|turtle|volume surge|volume breakout|돌파|거래량/i)) return 'WATCHLIST_REASON_PROXY';
   return 'MISSING';
 }
@@ -761,8 +857,22 @@ function buildFeatureHydrationAuditAdr0509(
   const breakoutSource = classifyBreakoutSource(candidate);
   const rsAvailable = rsSource !== 'MISSING';
   const breakoutAvailable = breakoutSource !== 'MISSING';
-  const rsScoreUsable = rsAvailable && trace?.components?.some((c) => c.code === 'RELATIVE_STRENGTH' && c.confidence !== 'MISSING') === true;
-  const breakoutScoreUsable = breakoutAvailable && trace?.components?.some((c) => c.code === 'BREAKOUT_STRUCTURE' && c.confidence !== 'MISSING') === true;
+  const conditionKeyStatus: Record<string, ConditionStatus> = {};
+  for (const key of REQUIRED_CONDITION_KEYS) {
+    const status = conditionStatus(candidate, key);
+    if (status) conditionKeyStatus[key] = status;
+  }
+  const conditionKeys = Array.isArray(record.conditionKeys) ? record.conditionKeys.map(String) : [];
+  const breakoutConditionKeys = [
+    ...Object.keys(conditionKeyStatus).filter((key) => BREAKOUT_CONDITION_KEYS.has(key)),
+    ...conditionKeys.filter((key) => BREAKOUT_CONDITION_KEYS.has(key)),
+  ].filter((key, index, arr) => arr.indexOf(key) === index);
+  const rsScoreUsable = rsSource === 'CONDITION_RESULTS'
+    ? conditionStatus(candidate, 'relative_strength') === 'FIRED' || hasConditionNumericScore(candidate, 'relative_strength')
+    : rsAvailable && trace?.components?.some((c) => c.code === 'RELATIVE_STRENGTH' && c.confidence !== 'MISSING') === true;
+  const breakoutScoreUsable = breakoutSource === 'CONDITION_RESULTS'
+    ? breakoutConditionKeys.some((key) => conditionStatus(candidate, key) === 'FIRED' || hasPositiveConditionScore(candidate, key))
+    : breakoutAvailable && trace?.components?.some((c) => c.code === 'BREAKOUT_STRUCTURE' && c.confidence !== 'MISSING') === true;
   const rsMissingReasons: HydrationMissingReason[] = [];
   const breakoutMissingReasons: HydrationMissingReason[] = [];
   if (!rsAvailable) rsMissingReasons.push('FIELD_MISSING');
@@ -792,9 +902,21 @@ function buildFeatureHydrationAuditAdr0509(
     watchlist: {
       sourceAvailable: resolvedWatchlist.confidence === 'VERIFIED',
       sourceField: resolvedWatchlist.sourceField ?? null,
-      scoreImported: resolvedWatchlist.confidence === 'VERIFIED',
+      scoreImported: resolvedWatchlist.confidence === 'VERIFIED' && resolvedWatchlist.sourceField !== undefined,
+      rawScore: resolvedWatchlist.rawScore ?? null,
+      normalizedWatchlistScore: resolvedWatchlist.confidence === 'VERIFIED' ? resolvedWatchlist.normalized100 : null,
+      scoreScale: resolvedWatchlist.scoreScale ?? null,
+      stage2Score: numericValue(record.stage2Score) ?? null,
+      watchlistScore: numericValue(record.watchlistScore) ?? null,
+      upstreamCandidateScore: numericValue(record.upstreamCandidateScore) ?? numericValue(record.upstreamScore) ?? null,
+      watchlistRank: numericValue(record.watchlistRank) ?? null,
+      totalCandidates: numericValue(record.totalCandidates) ?? null,
+      watchlistReason: Array.isArray(record.watchlistReason) ? record.watchlistReason.filter((item): item is string => typeof item === 'string') : undefined,
+      watchlistSourceField: resolvedWatchlist.sourceField ?? null,
       missingReason: resolvedWatchlist.confidence === 'VERIFIED' ? undefined : resolvedWatchlist.reason ?? 'WATCHLIST_SCORE_MISSING',
     },
+    conditionKeyStatus,
+    breakoutConditionKeys,
   };
 }
 
@@ -976,10 +1098,20 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const breakoutMissingFieldCounts: Record<string, number> = {};
   const watchlistSourceFieldDistribution: Record<string, number> = {};
   const watchlistMissingReasonCounts: Record<string, number> = {};
+  const watchlistScoreScaleDistribution: Record<string, number> = {};
+  let watchlistScoreSum = 0;
+  const quoteMissingReasonCounts: Record<string, number> = {};
+  const quoteFeatureFieldCoverage: Record<string, number> = { return5d: 0, return20d: 0, high5d: 0, high20d: 0, volume: 0, avgVolume: 0, ma20: 0, ma60: 0 };
+  let quoteFeatureAvailableCount = 0;
+  const conditionResultsKeyCoverage: Record<string, number> = {};
+  const conditionResultStatusDistribution: Record<string, number> = { FIRED: 0, DATA_UNAVAILABLE: 0, THRESHOLD_NOT_MET: 0, PROVIDER_DEGRADED: 0, ERROR: 0 };
+  let conditionResultsAvailableCount = 0;
+  const breakoutConditionKeyCoverage: Record<string, number> = {};
   const rsSourceDistribution: Record<RsHydrationSourceAdr0509, number> = {
     QUOTE_RETURN: 0,
     SYMBOL_FEATURES: 0,
     CONDITION_RESULTS: 0,
+    EXPLICIT_RELATIVE_RETURN: 0,
     WATCHLIST_PROXY: 0,
     MISSING: 0,
   };
@@ -1017,8 +1149,31 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.hydrationAuditAdr0509?.watchlist.scoreImported) watchlistScoreImportedCount += 1;
     const watchlistField = a.hydrationAuditAdr0509?.watchlist.sourceField ?? 'none';
     watchlistSourceFieldDistribution[watchlistField] = (watchlistSourceFieldDistribution[watchlistField] ?? 0) + 1;
+    const watchlistScale = a.hydrationAuditAdr0509?.watchlist.scoreScale ?? 'none';
+    watchlistScoreScaleDistribution[watchlistScale] = (watchlistScoreScaleDistribution[watchlistScale] ?? 0) + 1;
+    if (a.hydrationAuditAdr0509?.watchlist.scoreImported && typeof a.hydrationAuditAdr0509.watchlist.normalizedWatchlistScore === 'number') {
+      watchlistScoreSum += a.hydrationAuditAdr0509.watchlist.normalizedWatchlistScore;
+    }
     const watchlistMissingReason = a.hydrationAuditAdr0509?.watchlist.missingReason;
     if (watchlistMissingReason) watchlistMissingReasonCounts[watchlistMissingReason] = (watchlistMissingReasonCounts[watchlistMissingReason] ?? 0) + 1;
+    if (!a.hydrationAuditAdr0509?.candidateTraceHasQuote) quoteMissingReasonCounts.QUOTE_MISSING = (quoteMissingReasonCounts.QUOTE_MISSING ?? 0) + 1;
+    let candidateHasQuoteFeature = false;
+    for (const field of Object.keys(quoteFeatureFieldCoverage)) {
+      if (!a.hydrationAuditAdr0509?.rsMissingFields.includes(field) || !a.hydrationAuditAdr0509?.breakoutMissingFields.includes(field)) {
+        quoteFeatureFieldCoverage[field] += 1;
+        candidateHasQuoteFeature = true;
+      }
+    }
+    if (candidateHasQuoteFeature) quoteFeatureAvailableCount += 1;
+    for (const [key, value] of Object.entries(a.hydrationAuditAdr0509?.conditionKeyStatus ?? {})) {
+      conditionResultsKeyCoverage[key] = (conditionResultsKeyCoverage[key] ?? 0) + 1;
+      const status = value || 'DATA_UNAVAILABLE';
+      conditionResultStatusDistribution[status] = (conditionResultStatusDistribution[status] ?? 0) + 1;
+      conditionResultsAvailableCount += 1;
+    }
+    for (const key of a.hydrationAuditAdr0509?.breakoutConditionKeys ?? []) {
+      breakoutConditionKeyCoverage[key] = (breakoutConditionKeyCoverage[key] ?? 0) + 1;
+    }
     if (a.hydrationAuditAdr0509?.rsAvailable) rsHydrationAvailableCount += 1;
     if (a.hydrationAuditAdr0509?.breakoutAvailable) breakoutHydrationAvailableCount += 1;
     if (a.hydrationAuditAdr0509?.rsScoreUsable) rsScoreUsableCount += 1;
@@ -1095,6 +1250,23 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
     traceWithConditionResultsCount: candidateTraceHasConditionResults,
     traceWithWatchlistScoreCount: watchlistScoreImportedCount,
+    watchlistScoreScaleDistribution,
+    watchlistScoreAvg: watchlistScoreImportedCount > 0 ? round1(watchlistScoreSum / watchlistScoreImportedCount) : 0,
+    watchlistDiagnosticConflict: watchlistSourceAvailableCount !== watchlistScoreImportedCount || missingPositiveSourceCounts.watchlistUpstreamMissing > 0 && watchlistScoreImportedCount > 0,
+    adr0467WatchlistVerifiedCount: watchlistSourceAvailableCount,
+    adr0505WatchlistImportedCount: watchlistScoreImportedCount,
+    conflictReason: watchlistSourceAvailableCount !== watchlistScoreImportedCount
+      ? 'DIFFERENT_SOURCE_PATH'
+      : missingPositiveSourceCounts.watchlistUpstreamMissing > 0 && watchlistScoreImportedCount > 0
+        ? 'TRACE_FIELD_MISSING'
+        : undefined,
+    quoteFeatureAvailableCount,
+    quoteMissingReasonTop: Object.entries(quoteMissingReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([reason]) => reason),
+    quoteFeatureFieldCoverage,
+    conditionResultsAvailableCount,
+    conditionResultsKeyCoverage,
+    conditionResultStatusDistribution,
+    breakoutConditionKeyCoverage,
     traceWithSupplyContextCount: audits.filter((a) => a.hydrationAuditAdr0509?.candidateTraceHasSupplyContext).length,
     traceWithMinSignalScoreTraceCount: audits.filter((a) => a.hydrationAuditAdr0509?.candidateTraceHasMinSignalScoreTrace).length,
     ...(totalCandidates > 0 && candidateTraceHasQuote === 0 && candidateTraceHasSymbolFeatures === 0 && candidateTraceHasConditionResults === 0
@@ -1172,15 +1344,18 @@ export function formatGate1MinimumSignalForensicSection(
   if (topHydrationMissingFields.length > 0) {
     lines.push(`- topMissingFields: ${topHydrationMissingFields.slice(0, 4).join(', ')}`);
   }
-  const deficits: Array<[string, number]> = [
-    ['WIRE_WATCHLIST_UPSTREAM_SCORE', summary.totalCandidates - (summary.watchlistScoreImportedCount ?? 0)],
-    ['WIRE_RS_RETURN_FEATURES', summary.totalCandidates - (summary.rsScoreUsableCount ?? summary.rsHydrationAvailableCount ?? 0)],
-    ['WIRE_BREAKOUT_CONDITION_RESULTS', summary.totalCandidates - (summary.breakoutScoreUsableCount ?? summary.breakoutHydrationAvailableCount ?? 0)],
-    ['WIRE_KIS_REQUEST_SYMBOL', summary.totalCandidates - ((summary.symbolMatchedCount ?? summary.supplySymbolMatchedCount ?? 0) + (summary.inferredSymbolMatchedCount ?? 0))],
-    ['WIRE_CANDIDATE_TRACE_FEATURES', summary.totalCandidates - Math.max(summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0, summary.traceWithSymbolFeaturesCount ?? summary.candidateTraceHasSymbolFeatures ?? 0, summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0)],
-  ];
-  deficits.sort((a, b) => b[1] - a[1]);
-  lines.push(`- nextAction: ${deficits[0]?.[0] ?? 'WIRE_CANDIDATE_TRACE_FEATURES'}`);
+  lines.push(`- rsTraceAvailable: ${summary.rsTraceAvailableCount ?? summary.rsHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- breakoutTraceAvailable: ${summary.breakoutTraceAvailableCount ?? summary.breakoutHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
+  if (summary.watchlistSourceFieldDistribution) {
+    lines.push(`- watchlistSourceFieldDistribution: ${formatDistribution(summary.watchlistSourceFieldDistribution)}`);
+  }
+  if (summary.watchlistScoreScaleDistribution) {
+    lines.push(`- watchlistScoreScaleDistribution: ${formatDistribution(summary.watchlistScoreScaleDistribution)}`);
+  }
+  lines.push(`- watchlistScoreAvg: ${(summary.watchlistScoreAvg ?? 0).toFixed(1)}`);
+  lines.push(`- traceWithQuoteCount: ${summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- traceWithConditionResultsCount: ${summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- nextAction: ${resolveGate1ForensicNextAction(summary)}`);
 
   // SectorEnergy — 강제 노출 (운영자 인지 의무)
   lines.push(
@@ -1192,6 +1367,26 @@ export function formatGate1MinimumSignalForensicSection(
 }
 
 /* ───────── 보조 헬퍼 ───────── */
+
+export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
+  const total = summary.totalCandidates;
+  if ((summary.watchlistScoreImportedCount ?? 0) === 0) return 'WIRE_WATCHLIST_UPSTREAM_SCORE';
+  if ((summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0) === 0) return 'WIRE_QUOTE_FEATURES_TO_FORENSIC_TRACE';
+  if ((summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0) === 0) return 'WIRE_CONDITION_RESULTS_TO_FORENSIC_TRACE';
+  if ((summary.rsTraceAvailableCount ?? summary.rsHydrationAvailableCount ?? 0) === 0) return 'WIRE_RS_RETURN_FEATURES';
+  if ((summary.breakoutTraceAvailableCount ?? summary.breakoutHydrationAvailableCount ?? 0) === 0) return 'WIRE_BREAKOUT_CONDITION_RESULTS';
+  if ((summary.symbolMatchedCount ?? summary.supplySymbolMatchedCount ?? 0) === 0 && total > 0) return 'WIRE_SYMBOL_LEVEL_SUPPLY';
+  return 'OBSERVE_3D_THEN_REVIEW';
+}
+
+function formatDistribution(distribution: Record<string, number>): string {
+  return Object.entries(distribution)
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ') || 'none';
+}
 
 function pickTopDominant(distribution: Record<DominantFailureReason, number>): DominantFailureReason | null {
   let top: DominantFailureReason | null = null;

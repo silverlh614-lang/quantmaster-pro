@@ -17,6 +17,76 @@ import { createApprovalQueueState, flushApprovalQueue } from './approvalQueue.js
 import { dispatchApprovedBuy } from './orderDispatch.js';
 import { createScanCounters, persistScanResults } from './scanDiagnostics.js';
 
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function pickNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const n = finiteOrNull(value);
+    if (n !== null) return n;
+  }
+  return null;
+}
+
+function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
+  const q = w.quote && typeof w.quote === 'object' ? w.quote : {};
+  const sf = w.symbolFeatures && typeof w.symbolFeatures === 'object' ? w.symbolFeatures : {};
+  return {
+    symbol: typeof q.symbol === 'string' ? q.symbol : w.code,
+    code: typeof q.code === 'string' ? q.code : w.code,
+    price: pickNumber(q.price, q.currentPrice, sf.price, sf.currentPrice, w.entryPrice),
+    changePercent: pickNumber(q.changePercent, sf.changePercent),
+    return5d: pickNumber(q.return5d, sf.return5d, w.return5d),
+    return20d: pickNumber(q.return20d, sf.return20d, w.return20d),
+    high5d: pickNumber(q.high5d, sf.high5d),
+    high20d: pickNumber(q.high20d, q.high20, sf.high20d, sf.high20),
+    high20: pickNumber(q.high20, q.high20d, sf.high20, sf.high20d),
+    high60: pickNumber(q.high60, sf.high60),
+    volume: pickNumber(q.volume, sf.volume),
+    avgVolume: pickNumber(q.avgVolume, sf.avgVolume),
+    ma5: pickNumber(q.ma5, sf.ma5),
+    ma20: pickNumber(q.ma20, sf.ma20),
+    ma60: pickNumber(q.ma60, sf.ma60),
+    rsi14: pickNumber(q.rsi14, sf.rsi14),
+    atr: pickNumber(q.atr, sf.atr),
+    atr20avg: pickNumber(q.atr20avg, sf.atr20avg),
+    bbWidthCurrent: pickNumber(q.bbWidthCurrent, sf.bbWidthCurrent),
+    bbWidth20dAvg: pickNumber(q.bbWidth20dAvg, sf.bbWidth20dAvg),
+    vol5dAvg: pickNumber(q.vol5dAvg, sf.vol5dAvg),
+    vol20dAvg: pickNumber(q.vol20dAvg, sf.vol20dAvg),
+  };
+}
+
+function buildConditionResultsTrace(w: any): Record<string, unknown> | undefined {
+  if (w.conditionResults && typeof w.conditionResults === 'object') return w.conditionResults;
+  const outputs = w.gateEvaluation?.outputs;
+  if (!Array.isArray(outputs)) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const item of outputs) {
+    if (!item || typeof item.key !== 'string') continue;
+    const status = typeof item.output?.status === 'string'
+      ? item.output.status
+      : item.output?.score > 0
+        ? 'FIRED'
+        : 'THRESHOLD_NOT_MET';
+    out[item.key] = {
+      key: item.key,
+      status,
+      score: finiteOrNull(item.output?.score),
+      detail: null,
+      requiredData: item.context?.requiredData ?? [],
+      availableData: item.context?.availableData ?? {},
+      hadRequiredData: item.context?.hadRequiredData ?? true,
+      fired: status === 'FIRED' || item.output?.score > 0,
+      unavailable: status === 'DATA_UNAVAILABLE',
+      thresholdNotMet: status === 'THRESHOLD_NOT_MET',
+      providerDegraded: status === 'PROVIDER_DEGRADED',
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface RunAutoSignalScanOptions {
   sellOnly?: boolean;
   forceBuyCodes?: string[];
@@ -118,12 +188,15 @@ export async function runAutoSignalScan(
         stage1Score: w.stage1Score,
         stage2Score: w.stage2Score,
         watchlistScore: w.watchlistPriorityScore ?? w.watchlistScore,
+        upstreamCandidateScore: w.upstreamCandidateScore,
+        watchlistRank: w.watchlistRank,
+        totalCandidates: w.totalCandidates,
         watchlistUpstreamScore: w.watchlistUpstreamScore,
         upstreamScore: w.upstreamScore ?? w.upstreamCandidateScore,
         priorityScore: w.watchlistPriorityScore ?? w.priorityScore,
         qualScore: w.qualScore,
         score: w.score,
-        conditionKeys: w.conditionKeys,
+        conditionKeys: w.conditionKeys ?? w.gateEvaluation?.conditionKeys,
         watchlistReason: w.watchlistReason ?? w.reason,
         symbolFeatures: w.symbolFeatures,
         relativeStrengthScore: w.relativeStrengthScore ?? w.symbolFeatures?.relativeStrengthScore,
@@ -134,7 +207,7 @@ export async function runAutoSignalScan(
         return20d: w.return20d ?? w.symbolFeatures?.return20d ?? w.quote?.return20d,
         return5d: w.return5d ?? w.symbolFeatures?.return5d ?? w.quote?.return5d,
         kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? macro?.kospi20dReturn,
-        quote: w.quote,
+        quote: buildSafeQuoteFeatures(w),
         price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
         currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
         high5d: w.symbolFeatures?.high5d ?? w.quote?.high5d,
@@ -147,14 +220,14 @@ export async function runAutoSignalScan(
         ma60: w.symbolFeatures?.ma60 ?? w.quote?.ma60,
         aboveMA20: w.symbolFeatures?.aboveMA20,
         aboveMA60: w.symbolFeatures?.aboveMA60,
-        conditionResults: w.conditionResults,
+        conditionResults: buildConditionResultsTrace(w),
         breakoutSignals: w.breakoutSignals,
-        breakout_momentum: w.breakout_momentum ?? w.conditionResults?.breakout_momentum,
-        turtle_high: w.turtle_high ?? w.conditionResults?.turtle_high,
-        volume_breakout: w.volume_breakout ?? w.conditionResults?.volume_breakout,
-        volume_surge: w.volume_surge ?? w.conditionResults?.volume_surge,
-        vcp: w.vcp ?? w.conditionResults?.vcp,
-        trend_acceleration: w.trend_acceleration ?? w.conditionResults?.trend_acceleration,
+        breakout_momentum: w.breakout_momentum ?? (buildConditionResultsTrace(w) as any)?.breakout_momentum,
+        turtle_high: w.turtle_high ?? (buildConditionResultsTrace(w) as any)?.turtle_high,
+        volume_breakout: w.volume_breakout ?? (buildConditionResultsTrace(w) as any)?.volume_breakout,
+        volume_surge: w.volume_surge ?? (buildConditionResultsTrace(w) as any)?.volume_surge,
+        vcp: w.vcp ?? (buildConditionResultsTrace(w) as any)?.vcp,
+        trend_acceleration: w.trend_acceleration ?? (buildConditionResultsTrace(w) as any)?.trend_acceleration,
       })),
       ...candidates.intradayList.map((w: any) => ({
         symbol: w.code,
@@ -165,12 +238,15 @@ export async function runAutoSignalScan(
         stage1Score: w.stage1Score,
         stage2Score: w.stage2Score,
         watchlistScore: w.watchlistPriorityScore ?? w.watchlistScore,
+        upstreamCandidateScore: w.upstreamCandidateScore,
+        watchlistRank: w.watchlistRank,
+        totalCandidates: w.totalCandidates,
         watchlistUpstreamScore: w.watchlistUpstreamScore,
         upstreamScore: w.upstreamScore ?? w.upstreamCandidateScore,
         priorityScore: w.watchlistPriorityScore ?? w.priorityScore,
         qualScore: w.qualScore,
         score: w.score,
-        conditionKeys: w.conditionKeys,
+        conditionKeys: w.conditionKeys ?? w.gateEvaluation?.conditionKeys,
         watchlistReason: w.watchlistReason ?? w.reason,
         symbolFeatures: w.symbolFeatures,
         relativeStrengthScore: w.relativeStrengthScore ?? w.symbolFeatures?.relativeStrengthScore,
@@ -181,7 +257,7 @@ export async function runAutoSignalScan(
         return20d: w.return20d ?? w.symbolFeatures?.return20d ?? w.quote?.return20d,
         return5d: w.return5d ?? w.symbolFeatures?.return5d ?? w.quote?.return5d,
         kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? macro?.kospi20dReturn,
-        quote: w.quote,
+        quote: buildSafeQuoteFeatures(w),
         price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
         currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
         high5d: w.symbolFeatures?.high5d ?? w.quote?.high5d,
@@ -194,14 +270,14 @@ export async function runAutoSignalScan(
         ma60: w.symbolFeatures?.ma60 ?? w.quote?.ma60,
         aboveMA20: w.symbolFeatures?.aboveMA20,
         aboveMA60: w.symbolFeatures?.aboveMA60,
-        conditionResults: w.conditionResults,
+        conditionResults: buildConditionResultsTrace(w),
         breakoutSignals: w.breakoutSignals,
-        breakout_momentum: w.breakout_momentum ?? w.conditionResults?.breakout_momentum,
-        turtle_high: w.turtle_high ?? w.conditionResults?.turtle_high,
-        volume_breakout: w.volume_breakout ?? w.conditionResults?.volume_breakout,
-        volume_surge: w.volume_surge ?? w.conditionResults?.volume_surge,
-        vcp: w.vcp ?? w.conditionResults?.vcp,
-        trend_acceleration: w.trend_acceleration ?? w.conditionResults?.trend_acceleration,
+        breakout_momentum: w.breakout_momentum ?? (buildConditionResultsTrace(w) as any)?.breakout_momentum,
+        turtle_high: w.turtle_high ?? (buildConditionResultsTrace(w) as any)?.turtle_high,
+        volume_breakout: w.volume_breakout ?? (buildConditionResultsTrace(w) as any)?.volume_breakout,
+        volume_surge: w.volume_surge ?? (buildConditionResultsTrace(w) as any)?.volume_surge,
+        vcp: w.vcp ?? (buildConditionResultsTrace(w) as any)?.vcp,
+        trend_acceleration: w.trend_acceleration ?? (buildConditionResultsTrace(w) as any)?.trend_acceleration,
       })),
     ],
     watchlistSource: 'signalScanner.selectCandidates',

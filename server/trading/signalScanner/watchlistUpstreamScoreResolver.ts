@@ -3,15 +3,17 @@
 export type WatchlistScoreConfidence = 'VERIFIED' | 'MISSING' | 'UNKNOWN';
 
 export type WatchlistScoreSourceField =
+  | 'stage2Score'
+  | 'watchlistScore'
+  | 'upstreamCandidateScore'
+  | 'watchlistRank'
   | 'totalGateScore'
   | 'gateScore'
-  | 'stage2Score'
   | 'stage1Score'
   | 'priorityScore'
   | 'watchlistPriorityScore'
   | 'qualScore'
   | 'score'
-  | 'watchlistScore'
   | 'watchlistUpstreamScore'
   | 'upstreamScore';
 
@@ -19,23 +21,26 @@ export interface ResolvedWatchlistUpstreamScore {
   sourceField?: WatchlistScoreSourceField;
   rawScore?: number;
   normalized100: number;
+  scoreScale?: '0~10' | '0~27' | '0~100' | 'rank' | 'unknown';
   confidence: WatchlistScoreConfidence;
   reason?: 'WATCHLIST_SCORE_MISSING' | 'WATCHLIST_SCORE_UNKNOWN_SCALE';
   message: string;
 }
 
 const SOURCE_FIELDS: WatchlistScoreSourceField[] = [
+  'stage2Score',
+  'watchlistScore',
+  'upstreamCandidateScore',
+  'watchlistUpstreamScore',
+  'upstreamScore',
+  'watchlistRank',
   'totalGateScore',
   'gateScore',
-  'stage2Score',
   'stage1Score',
   'priorityScore',
   'watchlistPriorityScore',
   'qualScore',
   'score',
-  'watchlistScore',
-  'watchlistUpstreamScore',
-  'upstreamScore',
 ];
 
 function numeric(value: unknown): number | undefined {
@@ -66,36 +71,41 @@ function pickRaw(input: Record<string, unknown>): { field: WatchlistScoreSourceF
   return undefined;
 }
 
-function normalizeByField(field: WatchlistScoreSourceField, raw: number): { normalized100: number; message: string } {
+function normalizeByField(field: WatchlistScoreSourceField, raw: number): { normalized100: number; scoreScale: ResolvedWatchlistUpstreamScore['scoreScale']; message: string } {
   if (raw <= 0) {
-    return { normalized100: 0, message: `watchlist ${field} verified as explicit zero score` };
+    return { normalized100: 0, scoreScale: '0~100', message: `watchlist ${field} verified as explicit zero score` };
   }
   if (field === 'totalGateScore' || field === 'gateScore') {
     if (raw <= 27) {
       return {
         normalized100: round1((raw / 27) * 100),
+        scoreScale: '0~27',
         message: `watchlist ${field} normalized from 0~27 scale`,
       };
     }
     return {
       normalized100: round1(clamp(raw, 0, 100)),
+      scoreScale: '0~100',
       message: `watchlist ${field} treated as 0~100 scale and capped`,
     };
   }
   if (raw <= 10) {
     return {
       normalized100: round1(raw * 10),
+      scoreScale: '0~10',
       message: `watchlist ${field} normalized from 0~10 scale`,
     };
   }
   if (raw <= 27 && (field === 'watchlistPriorityScore' || field === 'priorityScore')) {
     return {
       normalized100: round1((raw / 27) * 100),
+      scoreScale: '0~27',
       message: `watchlist ${field} normalized from 0~27 priority scale`,
     };
   }
   return {
     normalized100: round1(clamp(raw, 0, 100)),
+    scoreScale: '0~100',
     message: raw > 100
       ? `watchlist ${field} treated as 0~100 scale and capped`
       : `watchlist ${field} treated as 0~100 scale`,
@@ -125,6 +135,7 @@ export function resolveWatchlistUpstreamScore(input: unknown): ResolvedWatchlist
     sourceField: picked.field,
     rawScore: picked.raw,
     normalized100: normalized.normalized100,
+    scoreScale: normalized.scoreScale,
     confidence: 'VERIFIED',
     message: normalized.message,
   };
@@ -137,12 +148,16 @@ export function summarizeWatchlistScoreSources(
   missing: number;
   avgNormalized100: number;
   sourceFieldDistribution: Record<string, number>;
+  scoreScaleDistribution: Record<string, number>;
 } {
   const verifiedScores = scores.filter((score) => score.confidence === 'VERIFIED');
   const sourceFieldDistribution: Record<string, number> = {};
+  const scoreScaleDistribution: Record<string, number> = {};
   for (const score of scores) {
     const key = score.sourceField ?? 'none';
     sourceFieldDistribution[key] = (sourceFieldDistribution[key] ?? 0) + 1;
+    const scale = score.scoreScale ?? 'none';
+    scoreScaleDistribution[scale] = (scoreScaleDistribution[scale] ?? 0) + 1;
   }
   const avgNormalized100 = verifiedScores.length === 0
     ? 0
@@ -152,5 +167,6 @@ export function summarizeWatchlistScoreSources(
     missing: scores.length - verifiedScores.length,
     avgNormalized100,
     sourceFieldDistribution,
+    scoreScaleDistribution,
   };
 }
