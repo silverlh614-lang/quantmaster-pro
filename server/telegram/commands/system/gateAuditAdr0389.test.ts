@@ -108,7 +108,9 @@ describe('formatGateAuditMessage — conditionStatusRows 섹션 (ADR-0389)', () 
     });
     expect(msg).toMatch(/📐 조건별 status/);
     expect(msg).toMatch(/per: passed=80 failed=20 unavailable=0\(0%\) error=0\(0%\)/);
-    expect(msg).not.toMatch(/❌|⚠️|🚧/);
+    // FIRED-only row → no row marker (❌/⚠️/🚧) prefix on the per: line.
+    // (The 🚧 in "🚧 직전 7일 Ghost 거절 사유" section header is a section icon, not a row marker.)
+    expect(msg).not.toMatch(/[❌⚠️🚧]\s*per:/);
   });
 
   it('ERROR worstStatus → ❌ 마커', () => {

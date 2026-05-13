@@ -39,7 +39,7 @@ describe('/learning_loop_health cmd (ADR-0130 PR-Diag)', () => {
     await mod.default.execute({ args: [], reply });
     expect(reply).toHaveBeenCalledOnce();
     const sentMsg = reply.mock.calls[0][0] as string;
-    expect(sentMsg).toContain('자기학습 루프 헬스');
+    expect(sentMsg).toContain('Self-learning loop health');
   });
 
   it('4. execute throw 시 graceful — ❌ 메시지 + reply 호출', async () => {
