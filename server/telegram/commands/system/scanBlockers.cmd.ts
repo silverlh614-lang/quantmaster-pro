@@ -165,6 +165,14 @@ import {
   formatShadowGateAuditSection,
   listShadowGateAuditRecords,
 } from '../../shadowGateAuditStore.js';
+// ADR-0509 — Patch-UNIFIED-GATE-SCORE-KERNEL-AUDIT-001 — Shadow rawGate + Live minSignal 통합 진단.
+// diagnostic / display only — Gate threshold / score / requiredScore / KIS order path 변경 0.
+import {
+  buildUnifiedSnapshotsFromCurrentState,
+  formatUnifiedGateComparisonSection,
+  formatUnifiedGateCompactLine,
+} from '../../../trading/signalScanner/unifiedGateScoreKernelAdr0509.js';
+import { loadGate1ForensicTrace } from '../../../persistence/gate1MinimumSignalForensicTraceRepo.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -200,7 +208,26 @@ const scanBlockers: TelegramCommand = {
     //   `gate full` 또는 `full` 일 때만 기존 ADR 마커 필터링 + 장문 출력.
     if (mode === 'gate' && gateSubMode === 'compact') {
       const gateCompact = formatScanBlockersGateCompactMessage(summary, { adr0505: adr0505Diag });
-      const gateCompactGuarded = applyScanBlockersLengthGuard(gateCompact, 'gate');
+      // ADR-0509 — gate compact 끝부분에 Unified Gate 1줄 요약 append (있을 때만).
+      // try/catch 격리 — kernel throw / loadGate1ForensicTrace throw 가 gate compact 차단 안 함.
+      let unifiedGateCompactLine: string | null = null;
+      try {
+        const shadowAudits = listShadowGateAuditRecords({ hydrateLiveMinimum: true });
+        const forensicEntries = loadGate1ForensicTrace();
+        const snapshots = buildUnifiedSnapshotsFromCurrentState({
+          shadowAudits,
+          forensicTraceEntries: forensicEntries,
+        });
+        if (snapshots.length > 0) {
+          unifiedGateCompactLine = formatUnifiedGateCompactLine(snapshots);
+        }
+      } catch (err) {
+        console.warn('[scan_blockers] ADR-0509 Unified Gate compact line failed:', err);
+      }
+      const finalGateCompact = unifiedGateCompactLine
+        ? `${gateCompact}\n${unifiedGateCompactLine}`
+        : gateCompact;
+      const gateCompactGuarded = applyScanBlockersLengthGuard(finalGateCompact, 'gate');
       await reply(applyScanBlockersLengthBudget(gateCompactGuarded, SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET));
       return;
     }
@@ -713,6 +740,23 @@ const scanBlockers: TelegramCommand = {
       if (shadowGateAudits.length > 0) parts.push(formatShadowGateAuditSection(shadowGateAudits));
     } catch (err) {
       console.warn('[scan_blockers] Patch-SHADOW-GATE-AUDIT-001 section failed:', err);
+    }
+
+    // ADR-0509 — Patch-UNIFIED-GATE-SCORE-KERNEL-AUDIT-001 — Shadow rawGate + Live minSignal
+    // 통합 진단 (runtime 모드 노출). [PATCH-RUNTIME] 태그로 sectionMatchesMode 통과.
+    // try/catch 격리 — kernel throw / loadGate1ForensicTrace throw 가 base 메시지 차단 안 함.
+    // executionImpact='NONE' / liveOrderPlaced=false literal type 강제 (kernel 본체).
+    try {
+      const shadowAudits = listShadowGateAuditRecords({ hydrateLiveMinimum: true });
+      const forensicEntries = loadGate1ForensicTrace();
+      const snapshots = buildUnifiedSnapshotsFromCurrentState({
+        shadowAudits,
+        forensicTraceEntries: forensicEntries,
+      });
+      const unifiedSection = formatUnifiedGateComparisonSection(snapshots);
+      if (unifiedSection) parts.push(unifiedSection);
+    } catch (err) {
+      console.warn('[scan_blockers] ADR-0509 Unified Gate runtime section failed:', err);
     }
 
     // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 통계 (runtime/full 모드 노출).
