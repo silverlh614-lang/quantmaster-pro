@@ -19,6 +19,9 @@ import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics
 
 export type ScanBlockersMode = 'compact' | 'full' | 'gate' | 'supply' | 'sector' | 'runtime';
 
+/** Gate sub-mode SSOT — ADR-0507 §"Gate Mode Compact Split". */
+export type ScanBlockersGateSubMode = 'compact' | 'full';
+
 /** 6 허용 모드 (절대 변경 금지) */
 export const SCAN_BLOCKERS_ALLOWED_MODES: ReadonlySet<ScanBlockersMode> = new Set<ScanBlockersMode>([
   'compact',
@@ -30,33 +33,47 @@ export const SCAN_BLOCKERS_ALLOWED_MODES: ReadonlySet<ScanBlockersMode> = new Se
 ]);
 
 /**
- * /scan_blockers args 를 ScanBlockersMode 로 파싱.
+ * /scan_blockers args 를 ScanBlockersMode (+ ADR-0507 gate sub-mode) 로 파싱.
+ *
  * - 빈 args / 부재 → 'compact' (default).
  * - unknown mode → 'compact' fallback (호출자가 usage 안내 별도 추가 가능).
  * - case-insensitive.
+ * - ADR-0507: `gate full` 또는 `gate compact` 만 sub-token 인식. 그 외 sub-token
+ *   은 무시 (silent). `gate` 단독 → compact gate (default).
  */
 export function parseScanBlockersMode(args: ReadonlyArray<string> | string | undefined): {
   mode: ScanBlockersMode;
+  /** Gate sub-mode (mode='gate' 일 때만 의미 있음, 그 외 항상 undefined). */
+  gateSubMode?: ScanBlockersGateSubMode;
   isUnknown: boolean;
   rawToken: string | null;
 } {
-  let token: string | null = null;
+  let tokens: string[] = [];
   if (typeof args === 'string') {
-    token = args.trim().split(/\s+/u)[0] ?? null;
+    tokens = args.trim().split(/\s+/u).filter((t) => t.length > 0);
   } else if (Array.isArray(args)) {
-    token = args[0]?.trim() ?? null;
+    tokens = args.map((t) => t.trim()).filter((t) => t.length > 0);
   }
+  const token = tokens[0] ?? null;
   if (!token) return { mode: 'compact', isUnknown: false, rawToken: null };
   const normalized = token.toLowerCase();
   if (SCAN_BLOCKERS_ALLOWED_MODES.has(normalized as ScanBlockersMode)) {
-    return { mode: normalized as ScanBlockersMode, isUnknown: false, rawToken: token };
+    const mode = normalized as ScanBlockersMode;
+    if (mode === 'gate') {
+      // ADR-0507 — gate sub-mode (compact default, full 옵셔널).
+      const subRaw = tokens[1]?.toLowerCase();
+      const gateSubMode: ScanBlockersGateSubMode =
+        subRaw === 'full' ? 'full' : 'compact';
+      return { mode, gateSubMode, isUnknown: false, rawToken: token };
+    }
+    return { mode, isUnknown: false, rawToken: token };
   }
   return { mode: 'compact', isUnknown: true, rawToken: token };
 }
 
 /** Mode 안내 한 줄 SSOT — compact / unknown 시 출력. */
 export const SCAN_BLOCKERS_USAGE_HINT =
-  '상세: /scan_blockers full | gate | supply | sector | runtime';
+  '상세: /scan_blockers full | gate | gate full | supply | sector | runtime';
 
 /* ───────── ADR-0505 Emission Status SSOT ───────── */
 
@@ -259,16 +276,33 @@ export function formatScanBlockersCompactMessage(
   const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));
   lines.push(`• Gate1: ${gate1Pass}/${candidates}`);
 
-  // MinSignal requiredAvg / actualAvg / gap (ADR-0466 / 0505)
+  // MinSignal requiredAvg / actualAvg / gap (ADR-0466 / 0505 / 0507)
   if (forensic) {
-    const actualAvg = (forensic as { averageActualScore?: number }).averageActualScore;
-    const required = (forensic as { requiredScore?: number }).requiredScore;
+    // ADR-0505 schema 정합 — actualScoreAvg / requiredScoreAvg.
+    const actualAvg = forensic.actualScoreAvg;
+    const required = forensic.requiredScoreAvg;
     lines.push(`• MinScore: ${fmtPctGap(actualAvg, required)}`);
-    const dist = (forensic as { dominantFailureDistribution?: Record<string, number> })
-      .dominantFailureDistribution;
+    const dist = forensic.dominantFailureDistribution;
     if (dist) {
-      const top = Object.entries(dist).sort((a, b) => b[1] - a[1])[0];
-      if (top) lines.push(`• dominant: ${top[0]}`);
+      const top = Object.entries(dist)
+        .filter(([, v]) => Number.isFinite(v) && v > 0)
+        .sort((a, b) => b[1] - a[1])[0];
+      if (top) lines.push(`• dominant: ${top[0]} (${top[1]})`);
+    }
+    // ADR-0507 §B — missing positive top + penalty top (compact 한 줄씩, 옵셔널).
+    const missing = forensic.missingPositiveSourceCounts;
+    if (missing) {
+      const topMissing = Object.entries(missing)
+        .filter(([, v]) => Number.isFinite(v) && v > 0)
+        .sort((a, b) => b[1] - a[1])[0];
+      if (topMissing) lines.push(`• missing+: ${topMissing[0]} (${topMissing[1]})`);
+    }
+    const penalty = forensic.penaltyCounts;
+    if (penalty) {
+      const topPen = Object.entries(penalty)
+        .filter(([, v]) => Number.isFinite(v) && v > 0)
+        .sort((a, b) => b[1] - a[1])[0];
+      if (topPen) lines.push(`• penalty: ${topPen[0]} (${topPen[1]})`);
     }
   } else {
     lines.push('• MinScore: n/a (forensic missing)');
@@ -315,6 +349,129 @@ export function formatScanBlockersCompactMessage(
   lines.push(SCAN_BLOCKERS_USAGE_HINT);
   return lines.join('\n');
 }
+
+/* ───────── ADR-0507 — Gate compact formatter SSOT ───────── */
+
+/**
+ * Gate compact 30~40줄 — `/scan_blockers gate` 기본 출력.
+ *
+ * 사용자 명시 §B 직접 반영:
+ *   - ADR-0505 emission 상태 (EMITTED / NOT_EMITTED 분류)
+ *   - Gate1 survivor count + candidate 비율
+ *   - requiredScoreAvg / actualScoreAvg / avgScoreGap (3 줄)
+ *   - dominantFailure 분포 Top 3
+ *   - missing positive Top 3
+ *   - penalty Top 3
+ *   - supply scope warnings (있을 때만)
+ *   - usage hint pointing to `/scan_blockers gate full`
+ *
+ * 안전 — diagnostic/display only. throw 안 함 (모든 옵셔널 필드 safe fallback).
+ * executionImpact='NONE', liveExecutionAllowed=false.
+ */
+export function formatScanBlockersGateCompactMessage(
+  summary: ScanSummary | null | undefined,
+  options: { adr0505?: Adr0505EmissionDiagnostic } = {},
+): string {
+  const lines: string[] = [];
+  const forensic = summary?.gate1MinimumSignalForensicAdr0505;
+  const adr0505 = options.adr0505;
+
+  // 헤더
+  const tsStr = typeof summary?.time === 'string' ? summary.time : null;
+  const tsMs = tsStr ? Date.parse(tsStr) : NaN;
+  const tsLabel = Number.isFinite(tsMs) ? fmtKstHm(tsMs) : '미실행';
+  lines.push(`🚪 <b>[Gate1 Minimum Signal Compact]</b> ${tsLabel}`);
+  lines.push('━━━━━━━━━━━━━━');
+
+  // ADR-0505 emission (1줄 요약)
+  if (adr0505) {
+    const firstLine = formatAdr0505EmissionCompactLine(adr0505).split('\n')[0];
+    lines.push(firstLine);
+  }
+
+  // candidates / survivors
+  const candidates = summary?.candidates ?? 0;
+  const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));
+  lines.push(`• candidates: ${candidates} / Gate1 survivors: ${gate1Pass}`);
+
+  if (!forensic || forensic.totalCandidates === 0) {
+    lines.push('• forensic: n/a (ADR-0505 NOT_EMITTED — /scan_blockers full 참조)');
+    lines.push(SCAN_BLOCKERS_GATE_FULL_HINT);
+    return lines.join('\n');
+  }
+
+  // 점수 분포 (3 줄)
+  lines.push(`• requiredAvg: ${forensic.requiredScoreAvg.toFixed(1)}`);
+  lines.push(`• actualAvg:   ${forensic.actualScoreAvg.toFixed(1)}`);
+  lines.push(`• gap:         ${forensic.avgScoreGap.toFixed(1)}`);
+  lines.push(`• failed: ${forensic.failedCandidates} / total: ${forensic.totalCandidates}`);
+
+  // dominant failure Top 3
+  const dist = forensic.dominantFailureDistribution;
+  const dominantEntries = Object.entries(dist)
+    .filter(([, v]) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+  if (dominantEntries.length > 0) {
+    lines.push('— dominant failure Top 3 —');
+    for (const [reason, count] of dominantEntries) {
+      lines.push(`  ${reason}: ${count}`);
+    }
+  }
+
+  // missing positive Top 3
+  const missing = forensic.missingPositiveSourceCounts;
+  const missingEntries = Object.entries(missing)
+    .filter(([, v]) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+  if (missingEntries.length > 0) {
+    lines.push('— missing positive Top 3 —');
+    for (const [src, count] of missingEntries) {
+      lines.push(`  ${src}: ${count}`);
+    }
+  }
+
+  // penalty Top 3
+  const penalty = forensic.penaltyCounts;
+  const penaltyEntries = Object.entries(penalty)
+    .filter(([, v]) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+  if (penaltyEntries.length > 0) {
+    lines.push('— penalty Top 3 —');
+    for (const [src, count] of penaltyEntries) {
+      lines.push(`  ${src}: ${count}`);
+    }
+  }
+
+  // supply scope warnings (있을 때만)
+  const supplyWarnings = forensic.supplyScopeWarnings;
+  const supplyEntries = Object.entries(supplyWarnings)
+    .filter(([, v]) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (supplyEntries.length > 0) {
+    lines.push('— supply scope warnings —');
+    for (const [w, count] of supplyEntries.slice(0, 3)) {
+      lines.push(`  ${w}: ${count}`);
+    }
+  }
+
+  // SectorEnergy STRONG_BUY blocked count (있을 때만)
+  if (forensic.sectorEnergyStrongBuyBlockedCount > 0) {
+    lines.push(`• SectorEnergy STRONG_BUY blocked: ${forensic.sectorEnergyStrongBuyBlockedCount}`);
+  }
+
+  // 안전 invariant (절대 변경 금지 — 정적 grep 가드 회귀 테스트 검증)
+  lines.push(`• impact: ${forensic.executionImpact} (liveExecutionAllowed=${forensic.liveExecutionAllowed})`);
+
+  lines.push(SCAN_BLOCKERS_GATE_FULL_HINT);
+  return lines.join('\n');
+}
+
+/** Gate compact 모드 안내 한 줄 — full 호출 안내 SSOT. */
+export const SCAN_BLOCKERS_GATE_FULL_HINT =
+  '상세 ADR 섹션: /scan_blockers gate full | /scan_blockers full';
 
 /* ───────── Mode → ADR group inclusion SSOT ───────── */
 

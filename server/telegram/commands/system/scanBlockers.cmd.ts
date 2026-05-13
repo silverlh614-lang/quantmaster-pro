@@ -149,6 +149,7 @@ import {
   formatAdr0505EmissionCompactLine,
   formatAdr0505EmissionDetailBlock,
   formatScanBlockersCompactMessage,
+  formatScanBlockersGateCompactMessage,
   parseScanBlockersMode,
   sectionMatchesMode,
   type ScanBlockersMode,
@@ -164,8 +165,10 @@ const scanBlockers: TelegramCommand = {
   usage: '/scan_blockers [full|gate|supply|sector|runtime]',
   async execute({ args, reply }) {
     // ADR-0506 — mode parser (default compact). unknown → compact fallback + usage hint.
+    // ADR-0507 — gate sub-mode 인식 ('gate' / 'gate full').
     const modeResult = parseScanBlockersMode(args);
     const mode: ScanBlockersMode = modeResult.mode;
+    const gateSubMode = modeResult.gateSubMode;
     const summary = getLastScanSummary();
 
     // ADR-0506 — ADR-0505 emission status (compact 안 + gate/full 모드 노출).
@@ -179,6 +182,14 @@ const scanBlockers: TelegramCommand = {
         ? `\n⚠️ 알 수 없는 mode "${modeResult.rawToken}" — compact 로 fallback.`
         : '';
       await reply(applyScanBlockersLengthGuard(compactMessage + unknownHint, 'compact'));
+      return;
+    }
+
+    // ADR-0507 — gate compact (default for `gate` mode): 30~40줄 Gate1/ADR-0505 요약.
+    //   `gate full` 또는 `full` 일 때만 기존 ADR 마커 필터링 + 장문 출력.
+    if (mode === 'gate' && gateSubMode === 'compact') {
+      const gateCompact = formatScanBlockersGateCompactMessage(summary, { adr0505: adr0505Diag });
+      await reply(applyScanBlockersLengthGuard(gateCompact, 'gate'));
       return;
     }
 

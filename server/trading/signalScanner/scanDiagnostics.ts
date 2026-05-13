@@ -99,6 +99,11 @@ import {
   isGate1MinimumSignalForensicAuditDisabled,
 } from './gate1MinimumSignalForensicAuditAdr0505.js';
 import { appendGate1ForensicTrace } from '../../persistence/gate1MinimumSignalForensicTraceRepo.js';
+// ADR-0507 — Gate1 Forensic Inputs Collector SSOT (ADR-0505 Phase 1 후속).
+//   summaryDraft.entryFilterDecomposition.gate1CandidateTraces 로부터 forensic input
+//   array 자동 합성 → 호출자 측 collector 신규 0 + dead-code wiring 차단.
+//   executionImpact='NONE', liveExecutionAllowed=false (분석/표시 전용).
+import { collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 } from './gate1ForensicInputsCollectorAdr0507.js';
 // ADR-0425 — Gate Decision Router (hard block vs soft degrade separation).
 //   Router 결과를 ScanSummary 옵셔널 필드로 영속 + /scan_blockers 표시.
 //   Gate threshold/weights/order policy 무수정 — decision semantics 분리만.
@@ -3114,14 +3119,25 @@ export async function persistScanResults(
   // ADR-0505 — Gate1 Minimum Signal Forensic Audit summary build + per-symbol detail
   // trace persist. Diagnostic-only — executionImpact='NONE' literal type 강제.
   // ENV `GATE1_MINIMUM_SIGNAL_FORENSIC_ADR_0505_DISABLED=true` 1줄 우회 (ADR-0157 정확 비교).
-  // 호출자 측 `options.gate1ForensicInputs` 부재 시 자연 skip (회귀 안전).
+  //
+  // ADR-0507 Phase 1 — caller 가 options.gate1ForensicInputs 를 전달하지 않으면
+  // summaryDraft.entryFilterDecomposition 결과로부터 자동 합성 (`collectGate1ForensicInputs
+  // FromEntryFilterDecompositionAdr0507` SSOT 위임). 본 wiring 이후 운영 환경의
+  // SUMMARY_FIELD_MISSING 결함이 EMITTED 로 자연 전환.
   try {
+    const effectiveForensicInputs =
+      options.gate1ForensicInputs && options.gate1ForensicInputs.length > 0
+        ? options.gate1ForensicInputs
+        : collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+            gate1CandidateTraces: summaryDraft.entryFilterDecomposition?.gate1CandidateTraces,
+            supplyProviderHealth: summaryDraft.entryFilterDecomposition?.supplyProviderHealth,
+          });
     if (
       !isGate1MinimumSignalForensicAuditDisabled() &&
-      options.gate1ForensicInputs &&
-      options.gate1ForensicInputs.length > 0
+      effectiveForensicInputs &&
+      effectiveForensicInputs.length > 0
     ) {
-      const audits = options.gate1ForensicInputs.map((input) =>
+      const audits = effectiveForensicInputs.map((input) =>
         buildGate1MinimumSignalForensicAuditAdr0505(input),
       );
       summaryDraft.gate1MinimumSignalForensicAdr0505 =
