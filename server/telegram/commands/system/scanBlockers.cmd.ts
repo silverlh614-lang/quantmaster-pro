@@ -156,6 +156,11 @@ import {
   sectionMatchesMode,
   type ScanBlockersMode,
 } from './scanBlockersCompactAdr0506.js';
+// Patch-SHADOW-APPROVAL-DEDUP-001 — runtime 모드 visibility (Shadow approval 중복 발송 통계).
+import {
+  formatShadowApprovalDedupeSection,
+  getShadowApprovalDedupeStats,
+} from '../../shadowApprovalDedupeStore.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -697,6 +702,23 @@ const scanBlockers: TelegramCommand = {
     if (sectorEnergySupplyUnknownLine) parts.push(sectorEnergySupplyUnknownLine);
     if (supplySnapshotLine) parts.push(supplySnapshotLine);
     if (runtimeAuditSection) parts.push(runtimeAuditSection);
+
+    // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 통계 (runtime/full 모드 노출).
+    //   [PATCH-RUNTIME] 태그로 runtime 모드 sectionMatchesMode 통과. liveOrderPlaced=false 명시.
+    try {
+      const dedupStats = getShadowApprovalDedupeStats();
+      if (
+        dedupStats.pending > 0 ||
+        dedupStats.approved > 0 ||
+        dedupStats.deduped > 0 ||
+        dedupStats.duplicateSuppressed > 0 ||
+        dedupStats.autoTimerCancelled > 0
+      ) {
+        parts.push(formatShadowApprovalDedupeSection(dedupStats));
+      }
+    } catch (err) {
+      console.warn('[scan_blockers] Patch-SHADOW-APPROVAL-DEDUP-001 section failed:', err);
+    }
 
     // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.
     if (adr0505CompactLine) parts.push(adr0505CompactLine);

@@ -508,10 +508,13 @@ export function extractAdrMarkersFromSection(section: string): string[] {
  * 주어진 section 이 특정 mode 에 속하는지 판정 SSOT.
  * - section 안에 mode 포함 ADR 번호가 1개라도 매칭되면 true.
  * - mode='full' 또는 'compact' 호출자가 직접 결정 (본 함수는 분류 mode 만).
+ * - Patch-SHADOW-APPROVAL-DEDUP-001 — `[PATCH-RUNTIME]` 태그를 포함한 section 은
+ *   ADR 발급 없이 runtime 모드 출력에 포함 (MODE_ADR_INCLUSION 본체 변경 없이 확장).
  */
 export function sectionMatchesMode(section: string | null | undefined, mode: ScanBlockersMode): boolean {
   if (!section) return false;
   if (mode === 'full' || mode === 'compact') return true;
+  if (mode === 'runtime' && section.includes('[PATCH-RUNTIME]')) return true;
   const markers = extractAdrMarkersFromSection(section);
   const allowed = MODE_ADR_INCLUSION[mode];
   return markers.some((m) => allowed.includes(m));

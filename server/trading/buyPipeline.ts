@@ -314,6 +314,16 @@ export interface CreateBuyTaskParams {
    */
   volumeZ?: number;
   priceMomentumPct?: number;
+  /**
+   * Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단용 dedupe 컨텍스트.
+   * SHADOW 모드 + 두 필드 모두 전달 시에만 dedupe guard 활성화. LIVE 모드는 무관.
+   */
+  tradeDate?: string;
+  marketSession?: string;
+  /** Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane 분류. 기본 'SHADOW'. */
+  sourceLane?: 'SHADOW' | 'DECISION_BROKER' | 'PROVISIONAL' | 'COUNTERFACTUAL';
+  /** Patch-SHADOW-APPROVAL-DEDUP-001 — dedupe 진단 lastRrr 기록 (dedupeKey 포함 X). */
+  rrr?: number;
 }
 
 /**
@@ -483,6 +493,12 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
       regime,
       preMortem,
       signalId:    p.signalId, // ADR-0077 — buyApproval callback 이 USER_APPROVED/BLOCKED 영속
+      // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow 모드에서만 dedupe guard 활성화 (LIVE 무영향).
+      // tradeDate + marketSession 모두 전달 시에만 requestBuyApproval 의 pre-flight guard 발동.
+      tradeDate:    p.tradeDate,
+      marketSession: p.marketSession,
+      sourceLane:   p.sourceLane,
+      rrr:          p.rrr,
     }),
     execute: async (approval: ApprovalAction) => {
       if (approval !== 'APPROVE') {

@@ -25,6 +25,19 @@ import {
 import { formatNullableNumber, formatWon } from '../utils/nullableFormatters.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import { markUserApproved, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
+// Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단.
+// diagnostic/dedup only — LIVE 매매 본체 무수정, KIS 주문 함수 import 0.
+import {
+  buildShadowApprovalDedupeKey,
+  getShadowApprovalRecord,
+  recordPendingShadowApproval,
+  markShadowApprovalApproved,
+  markShadowApprovalRejected,
+  markShadowApprovalSkipped,
+  markShadowApprovalAutoApproved,
+  recordDuplicateSuppressed,
+  type ShadowApprovalSourceLane,
+} from './shadowApprovalDedupeStore.js';
 
 /** 자동 승인까지 대기 시간 (ms) — 기본(레짐 미지정 시) 3분 */
 const AUTO_APPROVE_TIMEOUT_MS = 3 * 60 * 1000;
@@ -136,6 +149,10 @@ interface PendingApproval {
   resolve: (action: ApprovalAction) => void;
   /** ADR-0077 — 호출자가 buildSignalId 결과를 전달하면 USER_APPROVED/BLOCKED 영속 가능 */
   signalId?: string;
+  /** Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe wiring (SHADOW 모드에서만 set). */
+  shadowDedupeKey?: string;
+  /** Patch-SHADOW-APPROVAL-DEDUP-001 — mode tag for callback path. */
+  mode?: 'LIVE' | 'SHADOW';
 }
 
 /** 대기 중인 승인 요청 (tradeId → PendingApproval) */
@@ -165,12 +182,91 @@ export async function requestBuyApproval(params: {
   preMortem?: string | PreMortem | null;
   /** ADR-0077 — TradeSignalRecord id (`${signalTimeIso}:${stockCode}`). 전달 시 USER_APPROVED/BLOCKED 영속 */
   signalId?: string;
+  /** Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe 키 구성 필드. SHADOW 모드 + 전달 시 dedup guard 활성. */
+  tradeDate?: string;
+  marketSession?: string;
+  sourceLane?: ShadowApprovalSourceLane;
+  /** Patch-SHADOW-APPROVAL-DEDUP-001 — RRR (dedupe 진단 lastRrr 기록 용도. dedupeKey 에는 포함 안 됨). */
+  rrr?: number;
 }): Promise<ApprovalAction> {
   const {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
-    regime, preMortem, signalId,
+    regime, preMortem, signalId, tradeDate, marketSession, sourceLane, rrr,
   } = params;
+
+  // ─── Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe guard ─────────────
+  // SHADOW 모드 + dedupe 필수 필드 전달 시에만 활성. LIVE 모드는 본 가드 미적용
+  // (LIVE 는 buyPipeline 단에서 이미 entryFailCount/blacklist/cooldown 등 별도 가드).
+  // 안전 invariants — diagnostic/dedup only, executionImpact='NONE', liveOrderPlaced=false.
+  let shadowDedupeKey: string | undefined;
+  if (mode === 'SHADOW' && tradeDate && marketSession) {
+    const lane: ShadowApprovalSourceLane = sourceLane ?? 'SHADOW';
+    shadowDedupeKey = buildShadowApprovalDedupeKey({
+      tradeDate,
+      marketSession,
+      symbol: stockCode,
+      sourceLane: lane,
+      approvalKind: 'BUY_APPROVAL',
+    });
+    const existing = getShadowApprovalRecord(shadowDedupeKey);
+    if (existing) {
+      const blockingStates = ['PENDING', 'APPROVED', 'REJECTED', 'SKIPPED', 'EXPIRED'] as const;
+      if ((blockingStates as readonly string[]).includes(existing.state)) {
+        // dedupe — Telegram 장문 발송 금지, logger compact 만.
+        recordDuplicateSuppressed(stockCode, stockName);
+        // lastSeenAt / lastPrice / lastGateScore / lastRrr 갱신 — record 상태는 보존.
+        recordPendingShadowApproval({
+          dedupeKey: shadowDedupeKey,
+          tradeDate,
+          marketSession,
+          symbol: stockCode,
+          name: stockName,
+          sourceLane: lane,
+          approvalKind: 'BUY_APPROVAL',
+          ...(currentPrice !== undefined ? { price: currentPrice } : {}),
+          ...(gateScore !== undefined ? { gateScore } : {}),
+          ...(rrr !== undefined ? { rrr } : {}),
+        });
+        console.log(
+          '[ShadowApprovalDedup] duplicate suppressed',
+          JSON.stringify({
+            symbol: stockCode,
+            name: stockName,
+            dedupeKey: shadowDedupeKey,
+            previousState: existing.state,
+            lastPrice: existing.lastPrice,
+            newPrice: currentPrice,
+            reason: 'ALREADY_APPROVED_OR_PENDING_IN_SESSION',
+            executionImpact: 'NONE',
+            liveOrderPlaced: false,
+          }),
+        );
+        // 이미 APPROVED 면 'APPROVE' resolve (caller buyPipeline 의 SHADOW 분기 정상 수행).
+        // 그 외 (PENDING/REJECTED/SKIPPED/EXPIRED) 는 'SKIP' — caller 가 onRejected 처리.
+        return existing.state === 'APPROVED' ? 'APPROVE' : 'SKIP';
+      }
+      // DEDUPED state 도 같은 session 안에서 새 카드 발송 금지.
+      if (existing.state === 'DEDUPED') {
+        recordDuplicateSuppressed(stockCode, stockName);
+        return 'SKIP';
+      }
+    }
+    // 새 record 생성 — state='PENDING' 으로 시작. timerId 는 아래에서 setTimeout 후 별도 갱신.
+    recordPendingShadowApproval({
+      dedupeKey: shadowDedupeKey,
+      tradeDate,
+      marketSession,
+      symbol: stockCode,
+      name: stockName,
+      sourceLane: lane,
+      approvalKind: 'BUY_APPROVAL',
+      ...(currentPrice !== undefined ? { price: currentPrice } : {}),
+      ...(gateScore !== undefined ? { gateScore } : {}),
+      ...(rrr !== undefined ? { rrr } : {}),
+    });
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   const timeoutMs = getAutoApproveTimeoutMs(regime);
   const autoApproveDisabled = timeoutMs === 0;
@@ -218,6 +314,31 @@ export async function requestBuyApproval(params: {
       : setTimeout(async () => {
           const pending = pendingApprovals.get(tradeId);
           if (!pending) return;
+
+          // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane 의 경우 dedupe state 가 PENDING 일
+          // 때만 자동 승인 진행. APPROVED/REJECTED/SKIPPED/DEDUPED 면 메시지 발송 0건.
+          // (사용자 §E 규약 — timerFiredAfterManualApproval 인 경우 logger 만 남김.)
+          if (pending.shadowDedupeKey) {
+            const dedupeRec = getShadowApprovalRecord(pending.shadowDedupeKey);
+            if (dedupeRec && dedupeRec.state !== 'PENDING') {
+              console.log(
+                '[ShadowApprovalDedup] auto timer fired after state transition — suppressed',
+                JSON.stringify({
+                  symbol: pending.stockCode,
+                  dedupeKey: pending.shadowDedupeKey,
+                  state: dedupeRec.state,
+                  reason: 'TIMER_FIRED_AFTER_MANUAL_APPROVAL_OR_TRANSITION',
+                  executionImpact: 'NONE',
+                  liveOrderPlaced: false,
+                }),
+              );
+              pendingApprovals.delete(tradeId);
+              return;
+            }
+            // PENDING — auto-approval 진행 + state APPROVED 전이.
+            markShadowApprovalAutoApproved(pending.shadowDedupeKey);
+          }
+
           pendingApprovals.delete(tradeId);
 
           // 자동 승인 시 메시지 업데이트
@@ -248,7 +369,18 @@ export async function requestBuyApproval(params: {
       timer,
       resolve,
       signalId,
+      ...(shadowDedupeKey !== undefined ? { shadowDedupeKey } : {}),
+      mode,
     });
+
+    // Patch-SHADOW-APPROVAL-DEDUP-001 — dedupe record 의 timerId 갱신 (수동 승인 시 clearTimeout 위함).
+    if (shadowDedupeKey && !autoApproveDisabled) {
+      const rec = getShadowApprovalRecord(shadowDedupeKey);
+      if (rec && rec.state === 'PENDING') {
+        // mutate 형태로 timerId 갱신 — Map 내부 reference 직접 갱신.
+        rec.timerId = timer;
+      }
+    }
   });
 }
 
@@ -288,15 +420,30 @@ export async function handleBuyApprovalCallback(
   clearTimeout(pending.timer);
   pendingApprovals.delete(tradeId);
 
+  // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe state 전이 + timer clearTimeout.
+  // dedupe store 내부 timer 도 함께 cleartimeout (방어). liveOrderPlaced=false 강제.
+  if (pending.shadowDedupeKey && pending.mode === 'SHADOW') {
+    if (action === 'APPROVE') markShadowApprovalApproved(pending.shadowDedupeKey);
+    else if (action === 'REJECT') markShadowApprovalRejected(pending.shadowDedupeKey);
+    else if (action === 'SKIP') markShadowApprovalSkipped(pending.shadowDedupeKey);
+  }
+
   const actionLabel = action === 'APPROVE' ? '✅ 승인' : action === 'REJECT' ? '❌ 거부' : '⏸ 스킵';
   const actionEmoji = action === 'APPROVE' ? '✅' : action === 'REJECT' ? '❌' : '⏸';
 
-  // 메시지 업데이트 (버튼 제거 + 결과 표시)
-  await editMessageText(
-    pending.messageId,
-    `${actionEmoji} <b>[${escapeHtml(pending.stockName)}] ${actionLabel} 처리됨</b>\n` +
-    `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주`,
-  );
+  // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow 승인 시 사용자 §D 형식
+  // (liveOrderPlaced=false / shadowRecorded=true 명시) + LIVE 모드는 기존 메시지 보존.
+  const completionMessage =
+    pending.mode === 'SHADOW' && action === 'APPROVE'
+      ? `${actionEmoji} <b>[Shadow 승인 처리됨]</b> ${escapeHtml(pending.stockName)}\n` +
+        `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주\n` +
+        `실매수 주문: 없음\n` +
+        `liveOrderPlaced=false\n` +
+        `shadowRecorded=true`
+      : `${actionEmoji} <b>[${escapeHtml(pending.stockName)}] ${actionLabel} 처리됨</b>\n` +
+        `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주`;
+
+  await editMessageText(pending.messageId, completionMessage);
 
   await answerCallbackQuery(callbackQueryId, `${actionLabel} 완료`);
   console.log(`[BuyApproval] ${actionLabel}: ${pending.stockName} (${pending.stockCode})`);

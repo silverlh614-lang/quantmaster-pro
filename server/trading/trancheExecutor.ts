@@ -15,6 +15,7 @@ import { getTradingMode } from '../state.js';
 import { applyExposureBudgetCap } from './sizing/positionSizingEngineWiring.js';
 import { resolveCurrentEquityExposure } from './sizing/currentEquityExposure.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
+import { deriveShadowApprovalContext } from '../telegram/shadowApprovalDedupeStore.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from './regimeBridge.js';
@@ -323,6 +324,8 @@ export class TrancheExecutor {
 
         // 실행 전 승인 요청 (LIVE/Shadow 공통 — 미승인 시 연속 주문 방지)
         {
+          // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow 모드에서만 dedupe guard 활성화 (LIVE 무영향).
+          const _shadowApprovalCtx = deriveShadowApprovalContext();
           const trancheApproval = await requestBuyApproval({
             tradeId:      `${t.id}_exec`,
             stockCode:    t.stockCode,
@@ -332,6 +335,9 @@ export class TrancheExecutor {
             stopLoss:     t.stopLoss,
             targetPrice:  t.targetPrice,
             mode:         isLive ? 'LIVE' : 'SHADOW',
+            tradeDate:    _shadowApprovalCtx.tradeDate,
+            marketSession: _shadowApprovalCtx.marketSession,
+            sourceLane:   'SHADOW',
           });
           if (trancheApproval !== 'APPROVE') {
             t.status = 'CANCELLED';
