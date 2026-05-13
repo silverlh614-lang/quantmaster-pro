@@ -29,6 +29,7 @@ import type {
   SupplyProviderHealthTrace,
 } from './entryFilterDecomposition.js';
 import type { SectorEnergyExecutionImpactResult } from '../../clients/sectorEnergyExecutionImpact.js';
+import { resolveWatchlistUpstreamScore } from './watchlistUpstreamScoreResolver.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -92,9 +93,21 @@ export interface SupplyScopeAudit {
   candidateSymbol?: string | null;
   /** quote.symbol — quote payload 가 종목 단위인지 확인하는 보조 축. */
   quoteSymbol?: string | null;
+  requestSymbol?: string | null;
+  providerSymbol?: string | null;
+  normalizedSymbol?: string | null;
+  providerScope?: 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
+  routePurpose?: string | null;
+  selectedProvider?: string | null;
+  materialized?: boolean;
+  usableForRouter?: boolean;
+  usableForGate?: false;
+  usableForLive?: false;
+  usableForShadow?: true;
   kisFlowSymbol?: string | null;
-  /** candidate/quote/kisFlow symbol 이 모두 확인될 때만 true. */
+  /** candidate/quote/kisFlow/request symbol 이 확인될 때만 true. */
   symbolMatched: boolean | null;
+  inferredSymbolMatched?: boolean;
   foreignNetBuy: number | null;
   institutionalNetBuy: number | null;
   programNetBuy?: number | null;
@@ -111,15 +124,47 @@ export type HydrationMissingReason =
   | 'SYMBOL_FEATURES_MISSING'
   | 'CONDITION_RESULTS_MISSING';
 
+export type RsHydrationSourceAdr0509 =
+  | 'QUOTE_RETURN'
+  | 'SYMBOL_FEATURES'
+  | 'CONDITION_RESULTS'
+  | 'WATCHLIST_PROXY'
+  | 'MISSING';
+
+export type BreakoutHydrationSourceAdr0509 =
+  | 'QUOTE_OHLCV'
+  | 'SYMBOL_FEATURES'
+  | 'CONDITION_RESULTS'
+  | 'CONDITION_KEYS'
+  | 'WATCHLIST_REASON_PROXY'
+  | 'MISSING';
+
+export interface WatchlistHydrationAuditAdr0509 {
+  sourceAvailable: boolean;
+  sourceField: string | null;
+  scoreImported: boolean;
+  missingReason?: string;
+}
+
 export interface FeatureHydrationAuditAdr0509 {
   rsAvailable: boolean;
   breakoutAvailable: boolean;
+  rsScoreUsable: boolean;
+  breakoutScoreUsable: boolean;
+  rsSource: RsHydrationSourceAdr0509;
+  breakoutSource: BreakoutHydrationSourceAdr0509;
   rsMissingReasons: HydrationMissingReason[];
   breakoutMissingReasons: HydrationMissingReason[];
+  rsMissingFields: string[];
+  breakoutMissingFields: string[];
   missingFields: string[];
   candidateTraceHasQuote: boolean;
   candidateTraceHasSymbolFeatures: boolean;
   candidateTraceHasConditionResults: boolean;
+  candidateTraceHasWatchlistScore: boolean;
+  candidateTraceHasSupplyContext: boolean;
+  candidateTraceHasMinSignalScoreTrace: boolean;
+  watchlist: WatchlistHydrationAuditAdr0509;
 }
 
 export interface SectorEnergyForensicAudit {
@@ -218,6 +263,36 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   candidateTraceHasQuote?: number;
   candidateTraceHasSymbolFeatures?: number;
   candidateTraceHasConditionResults?: number;
+  watchlistSourceAvailableCount?: number;
+  watchlistSourceFieldDistribution?: Record<string, number>;
+  watchlistScoreImportedCount?: number;
+  watchlistMissingReasonTop?: string[];
+  rsTraceAvailableCount?: number;
+  rsScoreUsableCount?: number;
+  rsMissingFieldsTop?: string[];
+  rsSourceDistribution?: Record<RsHydrationSourceAdr0509, number>;
+  breakoutTraceAvailableCount?: number;
+  breakoutScoreUsableCount?: number;
+  breakoutMissingFieldsTop?: string[];
+  breakoutSourceDistribution?: Record<BreakoutHydrationSourceAdr0509, number>;
+  candidateSymbolAvailableCount?: number;
+  quoteSymbolAvailableCount?: number;
+  requestSymbolAvailableCount?: number;
+  providerSymbolAvailableCount?: number;
+  symbolMatchedCount?: number;
+  inferredSymbolMatchedCount?: number;
+  symbolMissingCount?: number;
+  symbolMismatchCount?: number;
+  providerScopeDistribution?: Record<string, number>;
+  scoreUsage?: 'SHADOW_ONLY';
+  candidateTraceCount?: number;
+  traceWithQuoteCount?: number;
+  traceWithSymbolFeaturesCount?: number;
+  traceWithConditionResultsCount?: number;
+  traceWithWatchlistScoreCount?: number;
+  traceWithSupplyContextCount?: number;
+  traceWithMinSignalScoreTraceCount?: number;
+  traceDominantFailureReason?: 'TRACE_HYDRATION_MISSING';
   sectorEnergyStrongBuyBlockedCount: number;
   sectorEnergyHardBlockCount: number;
 
@@ -267,6 +342,19 @@ export interface BuildGate1MinimumSignalForensicInput {
   supplyConfluence?: SupplyConfluenceState;
   kisFlow?: {
     symbol?: string | null;
+    requestSymbol?: string | null;
+    candidateSymbol?: string | null;
+    quoteSymbol?: string | null;
+    providerSymbol?: string | null;
+    normalizedSymbol?: string | null;
+    providerScope?: 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
+    routePurpose?: string;
+    selectedProvider?: string;
+    materialized?: boolean;
+    usableForRouter?: boolean;
+    usableForGate?: false;
+    usableForLive?: false;
+    usableForShadow?: true;
     foreignNetBuy?: number | null;
     institutionalNetBuy?: number | null;
     programNetBuy?: number | null;
@@ -341,7 +429,7 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
   });
 
   // 4) ADR-0509 hydration audit — diagnostic-only, scoring 영향 0
-  const hydrationAuditAdr0509 = buildFeatureHydrationAuditAdr0509(candidate);
+  const hydrationAuditAdr0509 = buildFeatureHydrationAuditAdr0509(candidate, trace);
 
   // 5) sectorEnergyAudit
   const sectorEnergyAudit = buildSectorEnergyAudit({ candidate, sectorEnergyImpact });
@@ -454,38 +542,48 @@ function buildSupplyScopeAudit(input: {
   const { trace, candidate, kisFlow, quoteSymbol, supplyProviderHealth } = input;
 
   const kisSymbol = normalizeSymbol(kisFlow?.symbol ?? null);
-  const candidateSymbol = normalizeSymbol(candidate?.symbol ?? trace.symbol ?? null);
+  const candidateSymbol = normalizeSymbol(kisFlow?.candidateSymbol ?? candidate?.symbol ?? trace.symbol ?? null);
   const quoteObject = candidate?.quote && typeof candidate.quote === 'object'
     ? (candidate.quote as Record<string, unknown>)
     : undefined;
-  const qSymbol = normalizeSymbol(quoteSymbol ?? (quoteObject?.symbol as string | null | undefined) ?? null);
+  const qSymbol = normalizeSymbol(kisFlow?.quoteSymbol ?? quoteSymbol ?? (quoteObject?.symbol as string | null | undefined) ?? supplyProviderHealth?.quoteSymbol ?? null);
   const traceSymbol = normalizeSymbol(trace.symbol);
+  const requestSymbol = normalizeSymbol(kisFlow?.requestSymbol ?? supplyProviderHealth?.requestSymbol ?? null);
+  const providerSymbol = normalizeSymbol(kisFlow?.providerSymbol ?? supplyProviderHealth?.providerSymbol ?? kisSymbol ?? null);
+  const normalizedSymbol = normalizeSymbol(kisFlow?.normalizedSymbol ?? supplyProviderHealth?.normalizedSymbol ?? providerSymbol ?? requestSymbol ?? null);
+  const providerScope = kisFlow?.providerScope ?? supplyProviderHealth?.providerScope ?? 'UNKNOWN';
+  const routePurpose = kisFlow?.routePurpose ?? supplyProviderHealth?.routePurpose ?? null;
+  const selectedProvider = kisFlow?.selectedProvider ?? supplyProviderHealth?.selectedInvestorFlowProvider ?? supplyProviderHealth?.providerName ?? null;
 
   const foreignNetBuy = kisFlow?.foreignNetBuy ?? null;
   const institutionalNetBuy = kisFlow?.institutionalNetBuy ?? null;
   const programNetBuy = kisFlow?.programNetBuy ?? null;
   const semanticAvailable = kisFlow?.semanticAvailable === true;
 
-  // symbolMatched 판정 — 둘 다 있고 일치 시 true / 둘 다 있고 불일치 시 false / 그 외 null
+  // symbolMatched 판정 — provider/normalized symbol 이 있을 때는 strict, SYMBOL_LEVEL request inference 는 별도 표기.
   let symbolMatched: boolean | null = null;
   const expectedSymbol = candidateSymbol ?? qSymbol ?? traceSymbol;
-  if (kisSymbol && expectedSymbol) {
-    symbolMatched = kisSymbol === expectedSymbol && (!qSymbol || qSymbol === expectedSymbol);
+  const comparableProviderSymbol = providerSymbol ?? kisSymbol ?? normalizedSymbol;
+  if (comparableProviderSymbol && expectedSymbol) {
+    symbolMatched = comparableProviderSymbol === expectedSymbol && (!qSymbol || qSymbol === expectedSymbol);
   }
+  const inferredSymbolMatched = symbolMatched !== true
+    && providerScope === 'SYMBOL_LEVEL'
+    && Boolean(requestSymbol && expectedSymbol && requestSymbol === expectedSymbol);
 
   // warning 우선순위 결정 트리 (사용자 명시 절대 변경 금지)
   let warning: SupplyScopeWarning = 'NONE';
 
-  if (!kisSymbol) {
+  if (!comparableProviderSymbol && !inferredSymbolMatched) {
     warning = 'KIS_FLOW_SYMBOL_MISSING';
-  } else if (symbolMatched === false) {
+  } else if (symbolMatched === false && !inferredSymbolMatched) {
     warning = 'KIS_FLOW_SYMBOL_MISMATCH';
   } else if (kisFlow !== undefined && !semanticAvailable) {
     warning = 'KIS_FLOW_SEMANTIC_UNAVAILABLE';
   }
 
   // POSSIBLE_MARKET_WIDE_FLOW_IN_SYMBOL_SLOT — providerName / providerTried 에
-  // 'MARKET_WIDE' 또는 'AGGREGATE' 키워드 검출 시
+  // 'MARKET_WIDE' 또는 'AGGREGATE' 키워드 검출 시. Market/sector scope is never injected as candidate symbol.
   const providerSignals: string[] = [];
   if (supplyProviderHealth?.providerName) providerSignals.push(supplyProviderHealth.providerName);
   if (supplyProviderHealth?.selectedInvestorFlowProvider) {
@@ -494,8 +592,8 @@ function buildSupplyScopeAudit(input: {
   if (supplyProviderHealth?.providerTried) {
     providerSignals.push(...supplyProviderHealth.providerTried);
   }
-  const hasMarketWideSignal = providerSignals.some((s) => {
-    const lower = (s ?? '').toLowerCase();
+  const hasMarketWideSignal = providerScope === 'MARKET_LEVEL' || providerScope === 'SECTOR_LEVEL' || providerSignals.some((sig) => {
+    const lower = (sig ?? '').toLowerCase();
     return lower.includes('market_wide') || lower.includes('market-wide') || lower.includes('aggregate');
   });
   if (hasMarketWideSignal && warning === 'NONE') {
@@ -506,8 +604,20 @@ function buildSupplyScopeAudit(input: {
     expectedScope: 'SYMBOL_LEVEL_INVESTOR_FLOW',
     candidateSymbol,
     quoteSymbol: qSymbol,
+    requestSymbol,
+    providerSymbol,
+    normalizedSymbol,
+    providerScope,
+    routePurpose,
+    selectedProvider,
+    materialized: kisFlow?.materialized ?? supplyProviderHealth?.materialized,
+    usableForRouter: kisFlow?.usableForRouter ?? supplyProviderHealth?.usableForRouter,
+    usableForGate: false,
+    usableForLive: false,
+    usableForShadow: true,
     kisFlowSymbol: kisSymbol,
     symbolMatched,
+    inferredSymbolMatched,
     foreignNetBuy,
     institutionalNetBuy,
     programNetBuy,
@@ -522,6 +632,29 @@ function normalizeSymbol(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function recordValue(input: unknown, key: string): unknown {
+  return input && typeof input === 'object' ? (input as Record<string, unknown>)[key] : undefined;
+}
+
+function hasValue(input: unknown, key: string): boolean {
+  const value = recordValue(input, key);
+  return value !== undefined && value !== null;
+}
+
+function hasNestedValue(input: unknown, path: string): boolean {
+  const value = path.split('.').reduce<unknown>((current, part) => recordValue(current, part), input);
+  return value !== undefined && value !== null;
+}
+
+function hasAny(candidate: CandidateEntryTrace, fields: readonly string[]): boolean {
+  return fields.some((field) => field.includes('.') ? hasNestedValue(candidate, field) : hasHydrationField(candidate, field));
+}
+
+function hasWatchlistReasonProxy(candidate: CandidateEntryTrace, pattern: RegExp): boolean {
+  const reason = (candidate as unknown as Record<string, unknown>).watchlistReason;
+  return Array.isArray(reason) && reason.some((item) => typeof item === 'string' && pattern.test(item));
+}
+
 const RS_HYDRATION_FIELDS = [
   'return20d',
   'return5d',
@@ -534,11 +667,17 @@ const RS_HYDRATION_FIELDS = [
 
 const BREAKOUT_HYDRATION_FIELDS = [
   'price',
+  'currentPrice',
   'high5d',
   'high20d',
   'high60',
   'volume',
   'avgVolume',
+  'volumeRatio',
+  'ma20',
+  'ma60',
+  'aboveMA20',
+  'aboveMA60',
   'breakout_momentum',
   'turtle_high',
   'volume_breakout',
@@ -565,31 +704,65 @@ function hasHydrationField(candidate: CandidateEntryTrace, field: string): boole
   return false;
 }
 
+function classifyRsSource(candidate: CandidateEntryTrace): RsHydrationSourceAdr0509 {
+  if (hasNestedValue(candidate, 'quote.return20d') || hasNestedValue(candidate, 'quote.return5d')) return 'QUOTE_RETURN';
+  if (hasAny(candidate, ['return20d', 'return5d', 'kospi20dReturn', 'relativeReturn20d', 'marketRelativeReturn', 'rsRankPct', 'relativeStrengthScore'])) return 'SYMBOL_FEATURES';
+  if (hasNestedValue(candidate, 'conditionResults.relative_strength')) return 'CONDITION_RESULTS';
+  if (hasWatchlistReasonProxy(candidate, /relative|rs|leader|leading|강세|주도주/i)) return 'WATCHLIST_PROXY';
+  return 'MISSING';
+}
+
+function classifyBreakoutSource(candidate: CandidateEntryTrace): BreakoutHydrationSourceAdr0509 {
+  if (hasAny(candidate, ['quote.price', 'quote.currentPrice', 'quote.high5d', 'quote.high20d', 'quote.high60', 'quote.volume', 'quote.avgVolume', 'quote.volumeRatio', 'quote.ma20', 'quote.ma60'])) return 'QUOTE_OHLCV';
+  if (hasAny(candidate, ['price', 'currentPrice', 'high5d', 'high20d', 'high60', 'volume', 'avgVolume', 'volumeRatio', 'ma20', 'ma60', 'aboveMA20', 'aboveMA60', 'breakoutSignals'])) return 'SYMBOL_FEATURES';
+  if (hasNestedValue(candidate, 'conditionResults.breakout_momentum') || hasNestedValue(candidate, 'conditionResults.turtle_high') || hasNestedValue(candidate, 'conditionResults.volume_breakout') || hasNestedValue(candidate, 'conditionResults.volume_surge') || hasNestedValue(candidate, 'conditionResults.vcp') || hasNestedValue(candidate, 'conditionResults.trend_acceleration')) return 'CONDITION_RESULTS';
+  const keys = (candidate as unknown as Record<string, unknown>).conditionKeys;
+  if (Array.isArray(keys) && keys.length > 0) return 'CONDITION_KEYS';
+  if (hasWatchlistReasonProxy(candidate, /breakout|new high|vcp|turtle|volume surge|volume breakout|돌파|거래량/i)) return 'WATCHLIST_REASON_PROXY';
+  return 'MISSING';
+}
+
 function buildFeatureHydrationAuditAdr0509(
   candidate: CandidateEntryTrace | undefined,
+  trace?: MinimumSignalScoreTrace,
 ): FeatureHydrationAuditAdr0509 {
   if (!candidate) {
     return {
       rsAvailable: false,
       breakoutAvailable: false,
+      rsScoreUsable: false,
+      breakoutScoreUsable: false,
+      rsSource: 'MISSING',
+      breakoutSource: 'MISSING',
       rsMissingReasons: ['CANDIDATE_TRACE_MISSING'],
       breakoutMissingReasons: ['CANDIDATE_TRACE_MISSING'],
+      rsMissingFields: [...RS_HYDRATION_FIELDS],
+      breakoutMissingFields: [...BREAKOUT_HYDRATION_FIELDS],
       missingFields: [...RS_HYDRATION_FIELDS, ...BREAKOUT_HYDRATION_FIELDS],
       candidateTraceHasQuote: false,
       candidateTraceHasSymbolFeatures: false,
       candidateTraceHasConditionResults: false,
+      candidateTraceHasWatchlistScore: false,
+      candidateTraceHasSupplyContext: false,
+      candidateTraceHasMinSignalScoreTrace: Boolean(trace),
+      watchlist: { sourceAvailable: false, sourceField: null, scoreImported: false, missingReason: 'CANDIDATE_TRACE_MISSING' },
     };
   }
   const record = candidate as unknown as Record<string, unknown>;
   const candidateTraceHasQuote = Boolean(record.quote && typeof record.quote === 'object');
   const candidateTraceHasSymbolFeatures = Boolean(record.symbolFeatures && typeof record.symbolFeatures === 'object');
   const candidateTraceHasConditionResults = Boolean(record.conditionResults && typeof record.conditionResults === 'object');
-  const missingFields = [
-    ...RS_HYDRATION_FIELDS.filter((field) => !hasHydrationField(candidate, field)),
-    ...BREAKOUT_HYDRATION_FIELDS.filter((field) => !hasHydrationField(candidate, field)),
-  ];
-  const rsAvailable = RS_HYDRATION_FIELDS.some((field) => hasHydrationField(candidate, field));
-  const breakoutAvailable = BREAKOUT_HYDRATION_FIELDS.some((field) => hasHydrationField(candidate, field));
+  const candidateTraceHasSupplyContext = Boolean(record.supplyConfluenceState || record.supplyProviderHealth);
+  const resolvedWatchlist = resolveWatchlistUpstreamScore(candidate);
+  const candidateTraceHasWatchlistScore = resolvedWatchlist.confidence === 'VERIFIED';
+  const rsMissingFields = RS_HYDRATION_FIELDS.filter((field) => !hasHydrationField(candidate, field));
+  const breakoutMissingFields = BREAKOUT_HYDRATION_FIELDS.filter((field) => !hasHydrationField(candidate, field));
+  const rsSource = classifyRsSource(candidate);
+  const breakoutSource = classifyBreakoutSource(candidate);
+  const rsAvailable = rsSource !== 'MISSING';
+  const breakoutAvailable = breakoutSource !== 'MISSING';
+  const rsScoreUsable = rsAvailable && trace?.components?.some((c) => c.code === 'RELATIVE_STRENGTH' && c.confidence !== 'MISSING') === true;
+  const breakoutScoreUsable = breakoutAvailable && trace?.components?.some((c) => c.code === 'BREAKOUT_STRUCTURE' && c.confidence !== 'MISSING') === true;
   const rsMissingReasons: HydrationMissingReason[] = [];
   const breakoutMissingReasons: HydrationMissingReason[] = [];
   if (!rsAvailable) rsMissingReasons.push('FIELD_MISSING');
@@ -601,12 +774,27 @@ function buildFeatureHydrationAuditAdr0509(
   return {
     rsAvailable,
     breakoutAvailable,
+    rsScoreUsable,
+    breakoutScoreUsable,
+    rsSource,
+    breakoutSource,
     rsMissingReasons,
     breakoutMissingReasons,
-    missingFields,
+    rsMissingFields,
+    breakoutMissingFields,
+    missingFields: [...rsMissingFields, ...breakoutMissingFields],
     candidateTraceHasQuote,
     candidateTraceHasSymbolFeatures,
     candidateTraceHasConditionResults,
+    candidateTraceHasWatchlistScore,
+    candidateTraceHasSupplyContext,
+    candidateTraceHasMinSignalScoreTrace: Boolean(trace),
+    watchlist: {
+      sourceAvailable: resolvedWatchlist.confidence === 'VERIFIED',
+      sourceField: resolvedWatchlist.sourceField ?? null,
+      scoreImported: resolvedWatchlist.confidence === 'VERIFIED',
+      missingReason: resolvedWatchlist.confidence === 'VERIFIED' ? undefined : resolvedWatchlist.reason ?? 'WATCHLIST_SCORE_MISSING',
+    },
   };
 }
 
@@ -771,11 +959,42 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
 
   const supplyScopeWarnings = { ...EMPTY_SUPPLY_SCOPE_WARNINGS };
   let supplySymbolMatchedCount = 0;
+  let inferredSymbolMatchedCount = 0;
+  let candidateSymbolAvailableCount = 0;
+  let quoteSymbolAvailableCount = 0;
+  let requestSymbolAvailableCount = 0;
+  let providerSymbolAvailableCount = 0;
+  let symbolMissingCount = 0;
+  let symbolMismatchCount = 0;
+  const providerScopeDistribution: Record<string, number> = {};
   let rsHydrationAvailableCount = 0;
   let breakoutHydrationAvailableCount = 0;
   const rsMissingReasonDistribution = { ...EMPTY_HYDRATION_REASON_DISTRIBUTION };
   const breakoutMissingReasonDistribution = { ...EMPTY_HYDRATION_REASON_DISTRIBUTION };
   const hydrationMissingFieldCounts: Record<string, number> = {};
+  const rsMissingFieldCounts: Record<string, number> = {};
+  const breakoutMissingFieldCounts: Record<string, number> = {};
+  const watchlistSourceFieldDistribution: Record<string, number> = {};
+  const watchlistMissingReasonCounts: Record<string, number> = {};
+  const rsSourceDistribution: Record<RsHydrationSourceAdr0509, number> = {
+    QUOTE_RETURN: 0,
+    SYMBOL_FEATURES: 0,
+    CONDITION_RESULTS: 0,
+    WATCHLIST_PROXY: 0,
+    MISSING: 0,
+  };
+  const breakoutSourceDistribution: Record<BreakoutHydrationSourceAdr0509, number> = {
+    QUOTE_OHLCV: 0,
+    SYMBOL_FEATURES: 0,
+    CONDITION_RESULTS: 0,
+    CONDITION_KEYS: 0,
+    WATCHLIST_REASON_PROXY: 0,
+    MISSING: 0,
+  };
+  let watchlistSourceAvailableCount = 0;
+  let watchlistScoreImportedCount = 0;
+  let rsScoreUsableCount = 0;
+  let breakoutScoreUsableCount = 0;
   let candidateTraceHasQuote = 0;
   let candidateTraceHasSymbolFeatures = 0;
   let candidateTraceHasConditionResults = 0;
@@ -785,12 +1004,37 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   for (const a of failed) {
     supplyScopeWarnings[a.supplyScopeAudit.warning] += 1;
     if (a.supplyScopeAudit.symbolMatched === true) supplySymbolMatchedCount += 1;
+    if (a.supplyScopeAudit.inferredSymbolMatched === true) inferredSymbolMatchedCount += 1;
+    if (a.supplyScopeAudit.candidateSymbol) candidateSymbolAvailableCount += 1;
+    if (a.supplyScopeAudit.quoteSymbol) quoteSymbolAvailableCount += 1;
+    if (a.supplyScopeAudit.requestSymbol) requestSymbolAvailableCount += 1;
+    if (a.supplyScopeAudit.providerSymbol || a.supplyScopeAudit.kisFlowSymbol || a.supplyScopeAudit.normalizedSymbol) providerSymbolAvailableCount += 1;
+    if (a.supplyScopeAudit.warning === 'KIS_FLOW_SYMBOL_MISSING') symbolMissingCount += 1;
+    if (a.supplyScopeAudit.warning === 'KIS_FLOW_SYMBOL_MISMATCH') symbolMismatchCount += 1;
+    const scopeKey = a.supplyScopeAudit.providerScope ?? 'UNKNOWN';
+    providerScopeDistribution[scopeKey] = (providerScopeDistribution[scopeKey] ?? 0) + 1;
+    if (a.hydrationAuditAdr0509?.watchlist.sourceAvailable) watchlistSourceAvailableCount += 1;
+    if (a.hydrationAuditAdr0509?.watchlist.scoreImported) watchlistScoreImportedCount += 1;
+    const watchlistField = a.hydrationAuditAdr0509?.watchlist.sourceField ?? 'none';
+    watchlistSourceFieldDistribution[watchlistField] = (watchlistSourceFieldDistribution[watchlistField] ?? 0) + 1;
+    const watchlistMissingReason = a.hydrationAuditAdr0509?.watchlist.missingReason;
+    if (watchlistMissingReason) watchlistMissingReasonCounts[watchlistMissingReason] = (watchlistMissingReasonCounts[watchlistMissingReason] ?? 0) + 1;
     if (a.hydrationAuditAdr0509?.rsAvailable) rsHydrationAvailableCount += 1;
     if (a.hydrationAuditAdr0509?.breakoutAvailable) breakoutHydrationAvailableCount += 1;
+    if (a.hydrationAuditAdr0509?.rsScoreUsable) rsScoreUsableCount += 1;
+    if (a.hydrationAuditAdr0509?.breakoutScoreUsable) breakoutScoreUsableCount += 1;
+    if (a.hydrationAuditAdr0509?.rsSource) rsSourceDistribution[a.hydrationAuditAdr0509.rsSource] += 1;
+    if (a.hydrationAuditAdr0509?.breakoutSource) breakoutSourceDistribution[a.hydrationAuditAdr0509.breakoutSource] += 1;
     for (const reason of a.hydrationAuditAdr0509?.rsMissingReasons ?? []) rsMissingReasonDistribution[reason] += 1;
     for (const reason of a.hydrationAuditAdr0509?.breakoutMissingReasons ?? []) breakoutMissingReasonDistribution[reason] += 1;
     for (const field of a.hydrationAuditAdr0509?.missingFields ?? []) {
       hydrationMissingFieldCounts[field] = (hydrationMissingFieldCounts[field] ?? 0) + 1;
+    }
+    for (const field of a.hydrationAuditAdr0509?.rsMissingFields ?? []) {
+      rsMissingFieldCounts[field] = (rsMissingFieldCounts[field] ?? 0) + 1;
+    }
+    for (const field of a.hydrationAuditAdr0509?.breakoutMissingFields ?? []) {
+      breakoutMissingFieldCounts[field] = (breakoutMissingFieldCounts[field] ?? 0) + 1;
     }
     if (a.hydrationAuditAdr0509?.candidateTraceHasQuote) candidateTraceHasQuote += 1;
     if (a.hydrationAuditAdr0509?.candidateTraceHasSymbolFeatures) candidateTraceHasSymbolFeatures += 1;
@@ -824,6 +1068,38 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     candidateTraceHasQuote,
     candidateTraceHasSymbolFeatures,
     candidateTraceHasConditionResults,
+    watchlistSourceAvailableCount,
+    watchlistSourceFieldDistribution,
+    watchlistScoreImportedCount,
+    watchlistMissingReasonTop: Object.entries(watchlistMissingReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([reason]) => reason),
+    rsTraceAvailableCount: rsHydrationAvailableCount,
+    rsScoreUsableCount,
+    rsMissingFieldsTop: Object.entries(rsMissingFieldCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([field]) => field),
+    rsSourceDistribution,
+    breakoutTraceAvailableCount: breakoutHydrationAvailableCount,
+    breakoutScoreUsableCount,
+    breakoutMissingFieldsTop: Object.entries(breakoutMissingFieldCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([field]) => field),
+    breakoutSourceDistribution,
+    candidateSymbolAvailableCount,
+    quoteSymbolAvailableCount,
+    requestSymbolAvailableCount,
+    providerSymbolAvailableCount,
+    symbolMatchedCount: supplySymbolMatchedCount,
+    inferredSymbolMatchedCount,
+    symbolMissingCount,
+    symbolMismatchCount,
+    providerScopeDistribution,
+    scoreUsage: 'SHADOW_ONLY',
+    candidateTraceCount: totalCandidates,
+    traceWithQuoteCount: candidateTraceHasQuote,
+    traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
+    traceWithConditionResultsCount: candidateTraceHasConditionResults,
+    traceWithWatchlistScoreCount: watchlistScoreImportedCount,
+    traceWithSupplyContextCount: audits.filter((a) => a.hydrationAuditAdr0509?.candidateTraceHasSupplyContext).length,
+    traceWithMinSignalScoreTraceCount: audits.filter((a) => a.hydrationAuditAdr0509?.candidateTraceHasMinSignalScoreTrace).length,
+    ...(totalCandidates > 0 && candidateTraceHasQuote === 0 && candidateTraceHasSymbolFeatures === 0 && candidateTraceHasConditionResults === 0
+      ? { traceDominantFailureReason: 'TRACE_HYDRATION_MISSING' as const }
+      : {}),
     sectorEnergyStrongBuyBlockedCount,
     sectorEnergyHardBlockCount,
     executionImpact: 'NONE',
@@ -884,14 +1160,27 @@ export function formatGate1MinimumSignalForensicSection(
   }
   if (warnParts.length > 0) lines.push(`- supplyScopeWarnings: ${warnParts.join(' ')}`);
 
-  lines.push(`- rsHydration: ${summary.rsHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
-  lines.push(`- breakoutHydration: ${summary.breakoutHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
-  lines.push(`- supplySymbolMatched: ${summary.supplySymbolMatchedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- watchlistImported: ${summary.watchlistScoreImportedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- rsScoreUsable: ${summary.rsScoreUsableCount ?? summary.rsHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- breakoutScoreUsable: ${summary.breakoutScoreUsableCount ?? summary.breakoutHydrationAvailableCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- supplySymbolMatched: ${summary.symbolMatchedCount ?? summary.supplySymbolMatchedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`- supplySymbolInferred: ${summary.inferredSymbolMatchedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(
+    `- traceCompleteness: quote ${summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0}/${summary.totalCandidates}, symbolFeatures ${summary.traceWithSymbolFeaturesCount ?? summary.candidateTraceHasSymbolFeatures ?? 0}/${summary.totalCandidates}, conditionResults ${summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0}/${summary.totalCandidates}`,
+  );
   const topHydrationMissingFields = summary.topHydrationMissingFields ?? [];
   if (topHydrationMissingFields.length > 0) {
     lines.push(`- topMissingFields: ${topHydrationMissingFields.slice(0, 4).join(', ')}`);
   }
-  lines.push('- nextAction: WIRE_SYMBOL_LEVEL_SUPPLY_AND_FEATURE_HYDRATION');
+  const deficits: Array<[string, number]> = [
+    ['WIRE_WATCHLIST_UPSTREAM_SCORE', summary.totalCandidates - (summary.watchlistScoreImportedCount ?? 0)],
+    ['WIRE_RS_RETURN_FEATURES', summary.totalCandidates - (summary.rsScoreUsableCount ?? summary.rsHydrationAvailableCount ?? 0)],
+    ['WIRE_BREAKOUT_CONDITION_RESULTS', summary.totalCandidates - (summary.breakoutScoreUsableCount ?? summary.breakoutHydrationAvailableCount ?? 0)],
+    ['WIRE_KIS_REQUEST_SYMBOL', summary.totalCandidates - ((summary.symbolMatchedCount ?? summary.supplySymbolMatchedCount ?? 0) + (summary.inferredSymbolMatchedCount ?? 0))],
+    ['WIRE_CANDIDATE_TRACE_FEATURES', summary.totalCandidates - Math.max(summary.traceWithQuoteCount ?? summary.candidateTraceHasQuote ?? 0, summary.traceWithSymbolFeaturesCount ?? summary.candidateTraceHasSymbolFeatures ?? 0, summary.traceWithConditionResultsCount ?? summary.candidateTraceHasConditionResults ?? 0)],
+  ];
+  deficits.sort((a, b) => b[1] - a[1]);
+  lines.push(`- nextAction: ${deficits[0]?.[0] ?? 'WIRE_CANDIDATE_TRACE_FEATURES'}`);
 
   // SectorEnergy — 강제 노출 (운영자 인지 의무)
   lines.push(
