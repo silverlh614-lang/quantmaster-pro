@@ -78,6 +78,9 @@ import { globalErrorHandler } from './utils/apiResponse.js';
 import { installGlobalErrorHandlers, setCurrentBootId } from './utils/globalErrorHandlers.js';
 import { startBoot, markBootReady, markCleanShutdown } from './persistence/bootManifest.js';
 import { errorsSince, recordPersistentError } from './persistence/persistentErrorLog.js';
+// ADR-0508 — SIGTERM graceful inflight approval drain (top-level import 의무 — dynamic
+// import 시 process.exit 가 drain 완료 전 발화하는 race 차단).
+import { drainPendingApprovals } from './telegram/buyApproval.js';
 
 
 export { isEmergencyStopped, setDailyLoss };
@@ -430,6 +433,26 @@ async function startServer() {
       console.log(`[Server] ${signal} 수신 — graceful shutdown 시작`);
       // 기억 보완 회로: 정상 종료 마감 — 다음 부팅에서 'clean' 으로 관측된다.
       try { markCleanShutdown(bootInfo.current.bootId, signal); } catch { /* noop */ }
+      // ADR-0508 — SIGTERM graceful inflight approval drain.
+      // process restart 시점에 in-memory `pendingApprovals` Map + dedupe store 가
+      // 휘발되어 사용자가 클릭한 승인 메시지의 Promise 가 영원히 unresolved 되던
+      // 결함 차단. 모든 inflight approval 을 'SKIP' 으로 resolve + clearTimeout +
+      // shadowDedupeKey 가 있으면 markShadowApprovalSkipped (state 전이) 호출.
+      // 동기 함수 (KIS 호출 0건, 외부 fetch 0건) — server.close 이전 안전 호출.
+      try {
+        const drainSummary = drainPendingApprovals({ signal, reason: 'GRACEFUL_SHUTDOWN' });
+        if (drainSummary.drained > 0 || drainSummary.errors > 0) {
+          console.log(
+            `[InflightApprovalDrain] signal=${signal} drained=${drainSummary.drained} ` +
+            `(live=${drainSummary.liveDrained} shadow=${drainSummary.shadowDrained}) ` +
+            `dedupeSkipped=${drainSummary.shadowDedupeKeysMarkedSkipped} ` +
+            `errors=${drainSummary.errors} executionImpact=NONE liveOrderPlaced=false (ADR-0508)`,
+          );
+        }
+      } catch (e) {
+        // drain throw 가 shutdown 흐름 차단 금지 — 다음 단계 (AI 캐시 flush + HTTP close) 계속.
+        console.warn('[InflightApprovalDrain] error during shutdown (ADR-0508):', e);
+      }
       // Idea 4: AI 캐시 강제 flush — debounce 타이머 대기 없이 디스크에 저장
       import('./persistence/aiCacheRepo.js')
         .then(({ flushAiCache }) => flushAiCache())
