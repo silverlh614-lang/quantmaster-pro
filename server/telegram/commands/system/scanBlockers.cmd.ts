@@ -144,12 +144,14 @@ import {
 // ADR-0506 — compact mode + ADR-0505 emission verification.
 // diagnostic / display only — live trading / score / threshold / order path 변경 0.
 import {
+  applyScanBlockersLengthBudget,
   applyScanBlockersLengthGuard,
   deriveAdr0505EmissionStatus,
   formatAdr0505EmissionCompactLine,
   formatAdr0505EmissionDetailBlock,
   formatScanBlockersCompactMessage,
   formatScanBlockersGateCompactMessage,
+  SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET,
   parseScanBlockersMode,
   sectionMatchesMode,
   type ScanBlockersMode,
@@ -189,7 +191,8 @@ const scanBlockers: TelegramCommand = {
     //   `gate full` 또는 `full` 일 때만 기존 ADR 마커 필터링 + 장문 출력.
     if (mode === 'gate' && gateSubMode === 'compact') {
       const gateCompact = formatScanBlockersGateCompactMessage(summary, { adr0505: adr0505Diag });
-      await reply(applyScanBlockersLengthGuard(gateCompact, 'gate'));
+      const gateCompactGuarded = applyScanBlockersLengthGuard(gateCompact, 'gate');
+      await reply(applyScanBlockersLengthBudget(gateCompactGuarded, SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET));
       return;
     }
 

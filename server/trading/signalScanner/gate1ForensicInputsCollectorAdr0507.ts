@@ -14,7 +14,7 @@
  *   - 호출자 측 inline 합성 금지 — 본 SSOT 위임 의무
  */
 
-import type { Gate1CandidateTrace, SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
+import type { CandidateEntryTrace, Gate1CandidateTrace, SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
 import type { BuildGate1MinimumSignalForensicInput } from './gate1MinimumSignalForensicAuditAdr0505.js';
 
@@ -34,6 +34,8 @@ export function isGate1ForensicCollectorAdr0507Disabled(): boolean {
 export interface CollectGate1ForensicInputsInput {
   /** EntryFilterDecomposition.gate1CandidateTraces — minSignalScoreTrace 포함. */
   gate1CandidateTraces?: ReadonlyArray<Gate1CandidateTrace>;
+  /** EntryFilterDecomposition.candidateTraces — ADR-0509 feature hydration audit source. */
+  candidateTraces?: ReadonlyArray<CandidateEntryTrace>;
   /** EntryFilterDecomposition.supplyProviderHealth — 공통 supply health (모든 종목 동일). */
   supplyProviderHealth?: SupplyProviderHealthTrace;
 }
@@ -66,14 +68,26 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
   const traces = input.gate1CandidateTraces ?? [];
   if (traces.length === 0) return [];
   const supplyProviderHealth = input.supplyProviderHealth;
+  const candidateBySymbol = new Map<string, CandidateEntryTrace>();
+  for (const c of input.candidateTraces ?? []) {
+    if (c.symbol) candidateBySymbol.set(c.symbol, c);
+  }
   const out: BuildGate1MinimumSignalForensicInput[] = [];
   for (const t of traces) {
     const trace: MinimumSignalScoreTrace | undefined = t.minSignalScoreTrace;
     if (!trace) continue;
+    const candidate = candidateBySymbol.get(t.symbol);
+    const quoteSymbol = candidate?.quote && typeof candidate.quote === 'object'
+      ? ((candidate.quote as Record<string, unknown>).symbol as string | null | undefined)
+      : undefined;
     const entry: BuildGate1MinimumSignalForensicInput = {
       trace,
-      quoteSymbol: t.symbol ?? null,
-      ...(supplyProviderHealth ? { supplyProviderHealth } : {}),
+      ...(candidate ? { candidate } : {}),
+      quoteSymbol: quoteSymbol ?? t.symbol ?? null,
+      ...(candidate?.supplyProviderHealth ?? supplyProviderHealth
+        ? { supplyProviderHealth: candidate?.supplyProviderHealth ?? supplyProviderHealth }
+        : {}),
+      ...(candidate?.supplyConfluenceState ? { supplyConfluence: candidate.supplyConfluenceState } : {}),
     };
     out.push(entry);
   }

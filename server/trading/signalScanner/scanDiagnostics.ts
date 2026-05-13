@@ -3130,6 +3130,7 @@ export async function persistScanResults(
         ? options.gate1ForensicInputs
         : collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
             gate1CandidateTraces: summaryDraft.entryFilterDecomposition?.gate1CandidateTraces,
+            candidateTraces: summaryDraft.entryFilterDecomposition?.candidateTraces,
             supplyProviderHealth: summaryDraft.entryFilterDecomposition?.supplyProviderHealth,
           });
     if (
