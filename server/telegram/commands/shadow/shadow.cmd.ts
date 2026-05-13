@@ -11,8 +11,9 @@ function register(name: string, description: string, execute: TelegramCommand['e
 
 register('/shadow_status', 'Shadow 엔진 요약', async ({ reply }) => reply(formatShadowStatus(shadowCaseLedger)));
 register('/shadow_integrity', 'Shadow 무결성 요약', async ({ reply }) => reply(formatShadowIntegrity(shadowCaseLedger)));
-register('/shadow_return_flow', 'Shadow 사후 조회 품질', async ({ reply }) => reply(formatShadowReturnFlow(shadowReturnFlow.metrics())));
-register('/shadow_promotion', 'Shadow 승격 후보 리포트', async ({ reply }) => reply(formatShadowPromotion(shadowCaseLedger, shadowReturnFlow.metrics().hitRate)));
+// Hotfix: 기존 /shadow_return_flow (shadowFlowPlaceholder.cmd.ts warmup+resolver), /shadow_promotion (shadowPromotion.cmd.ts ADR-0432) 와 이름 충돌 → rename.
+register('/shadow_return_quality', 'Shadow 사후 조회 품질', async ({ reply }) => reply(formatShadowReturnFlow(shadowReturnFlow.metrics())));
+register('/shadow_promotion_candidates', 'Shadow 승격 후보 리포트', async ({ reply }) => reply(formatShadowPromotion(shadowCaseLedger, shadowReturnFlow.metrics().hitRate)));
 register('/shadow_outcomes', 'Shadow outcome 최근 요약', async ({ reply }) => reply(formatShadowOutcomes(shadowCaseLedger)));
 register('/shadow_blocked', '차단된 Shadow case 요약', async ({ reply }) => {
   const rows = shadowCaseLedger.listCases().filter((c) => c.blockedReason).slice(-10);
