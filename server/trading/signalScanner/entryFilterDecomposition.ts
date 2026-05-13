@@ -137,6 +137,10 @@ export interface SupplyProviderHealthTrace {
   semanticNetBuyStatus?: string;
   semanticNetBuySignal?: string;
   semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+  actualInvestorRow?: Record<string, unknown> | null;
+  normalizedInvestorRow?: Record<string, unknown> | null;
+  semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
+  supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
   sanitizedInvestorFlowRows?: Array<Record<string, unknown>>;
   actualInvestorFlowRows?: Array<Record<string, unknown>>;
   actualInvestorFlowRowCount?: number;
@@ -826,6 +830,10 @@ function classifySupplyProviderHealth(
     semanticNetBuyStatus: input?.semanticNetBuyStatus,
     semanticNetBuySignal: input?.semanticNetBuySignal,
     semanticRow: input?.semanticRow,
+    actualInvestorRow: input?.actualInvestorRow,
+    normalizedInvestorRow: input?.normalizedInvestorRow,
+    semanticInvestorRow: input?.semanticInvestorRow,
+    supplySemanticRow: input?.supplySemanticRow,
     sanitizedInvestorFlowRows: input?.sanitizedInvestorFlowRows,
     actualInvestorFlowRows: input?.actualInvestorFlowRows,
     actualInvestorFlowRowCount: input?.actualInvestorFlowRowCount,

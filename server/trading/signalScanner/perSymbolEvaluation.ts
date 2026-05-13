@@ -36,6 +36,55 @@ function pickNumber(...values: unknown[]): number | null {
   return null;
 }
 
+
+function normalizeSymbolKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const digits = value.replace(/[^0-9]/g, "");
+  return digits.length >= 6 ? digits.slice(-6) : digits || value;
+}
+
+function supplyRouterPayloadForSymbol(context: any, symbol: unknown): Record<string, unknown> | undefined {
+  const key = normalizeSymbolKey(symbol);
+  if (!key) return undefined;
+  const source = context?.supplyRouterResult ?? context?.investorFlowRouteResult ?? context?.investorFlowRouter;
+  const bySymbol = source?.bySymbol;
+  if (!bySymbol || typeof bySymbol !== "object") return undefined;
+  const payload = bySymbol[key] ?? bySymbol[String(symbol)];
+  return payload && typeof payload === "object" ? payload : undefined;
+}
+
+function mergeSupplyProviderHealth(w: any, context: any): Record<string, unknown> | undefined {
+  const payload = supplyRouterPayloadForSymbol(context, w.code);
+  if (!payload) return w.supplyProviderHealth;
+  return {
+    ...(w.supplyProviderHealth ?? {}),
+    actualInvestorRow: payload.actualInvestorRow,
+    normalizedInvestorRow: payload.normalizedInvestorRow,
+    semanticInvestorRow: payload.semanticInvestorRow,
+    supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow,
+    actualInvestorFlowRows: payload.actualInvestorFlowRows,
+    actualInvestorFlowRowCount: payload.actualInvestorFlowRowCount,
+    actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath,
+    actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys,
+    actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys,
+    actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys,
+    actualInvestorFlowCarried: payload.actualInvestorFlowCarried,
+    selectedCandidate: {
+      actualInvestorRow: payload.actualInvestorRow,
+      normalizedInvestorRow: payload.normalizedInvestorRow,
+      semanticInvestorRow: payload.semanticInvestorRow,
+      supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow,
+      actualInvestorFlowRows: payload.actualInvestorFlowRows,
+      actualInvestorFlowRowCount: payload.actualInvestorFlowRowCount,
+      actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath,
+      actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys,
+      actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys,
+      actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys,
+      actualInvestorFlowCarried: payload.actualInvestorFlowCarried,
+    },
+  };
+}
+
 function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
   const q = w.quote && typeof w.quote === "object" ? w.quote : {};
   const sf = w.symbolFeatures && typeof w.symbolFeatures === "object" ? w.symbolFeatures : {};
@@ -179,6 +228,7 @@ export async function evaluateMainCandidates(
       gate1Passed: w.gateEvaluation?.gate1Passed,
       gate2Passed: w.gateEvaluation?.gate2Passed,
       gate3Passed: w.gateEvaluation?.gate3Passed,
+      supplyProviderHealth: mergeSupplyProviderHealth(w, context),
     })),
   );
 

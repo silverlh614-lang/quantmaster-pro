@@ -51,7 +51,15 @@ function hasRealInvestorFields(value: unknown): value is { foreignNetBuy: number
   return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy) && Number.isFinite(record.individualNetBuy);
 }
 
-function hasPartialSymbolInvestorFields(value: unknown): value is { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy?: number; tradingDate?: string } {
+type PartialKisInvestorFieldsWithCarrier = {
+  foreignNetBuy: number;
+  institutionalNetBuy: number;
+  individualNetBuy?: number;
+  tradingDate?: string;
+  actualInvestorFlowRowCarrier?: import('../clients/kisClient/types.js').KisInvestorFlowActualRowCarrier;
+};
+
+function hasPartialSymbolInvestorFields(value: unknown): value is PartialKisInvestorFieldsWithCarrier {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return Number.isFinite(record.foreignNetBuy) && Number.isFinite(record.institutionalNetBuy);
@@ -60,8 +68,26 @@ function hasPartialSymbolInvestorFields(value: unknown): value is { foreignNetBu
 function sampleFromInvestorFields(input: {
   safeCode: string;
   sourceDateKst: string;
-  value: { foreignNetBuy: number; institutionalNetBuy: number; individualNetBuy?: number; tradingDate?: string };
+  value: PartialKisInvestorFieldsWithCarrier;
 }): InvestorFlowSample {
+  const actualRows = input.value.actualInvestorFlowRowCarrier?.actualRows ?? [];
+  const actualInvestorRow = actualRows[0] ?? null;
+  const normalizedInvestorRow: Record<string, unknown> = {
+    stockCode: input.safeCode,
+    symbol: input.safeCode,
+    foreignNetBuy: input.value.foreignNetBuy,
+    institutionNetBuy: input.value.institutionalNetBuy,
+    institutionalNetBuy: input.value.institutionalNetBuy,
+    ...(Number.isFinite(input.value.individualNetBuy) ? { individualNetBuy: input.value.individualNetBuy as number } : {}),
+  };
+  const semanticInvestorRow: Record<string, unknown> = {
+    symbol: input.safeCode,
+    provider: 'KIS_API',
+    providerScope: 'SYMBOL_LEVEL',
+    foreignNetBuy: input.value.foreignNetBuy,
+    institutionalNetBuy: input.value.institutionalNetBuy,
+    ...(Number.isFinite(input.value.individualNetBuy) ? { individualNetBuy: input.value.individualNetBuy as number } : {}),
+  };
   return {
     stockCode: input.safeCode,
     foreignNetBuy: input.value.foreignNetBuy,
@@ -70,6 +96,19 @@ function sampleFromInvestorFields(input: {
     provider: 'KIS_API',
     fetchedAt: new Date().toISOString(),
     tradingDate: input.value.tradingDate ?? input.sourceDateKst,
+    ...(actualInvestorRow ? { actualInvestorRow } : {}),
+    normalizedInvestorRow,
+    semanticInvestorRow,
+    supplySemanticRow: semanticInvestorRow,
+    ...(actualRows.length > 0 ? {
+      actualInvestorFlowRows: actualRows,
+      actualInvestorFlowRowCount: actualRows.length,
+      actualInvestorFlowRowSourcePath: input.value.actualInvestorFlowRowCarrier?.rowSourcePath ?? null,
+      actualInvestorFlowFieldKeys: input.value.actualInvestorFlowRowCarrier?.rawFieldKeys ?? [],
+      actualInvestorFlowNumericKeys: input.value.actualInvestorFlowRowCarrier?.numberFieldKeys ?? [],
+      actualInvestorFlowNumericStringKeys: input.value.actualInvestorFlowRowCarrier?.numericStringFieldKeys ?? [],
+      actualInvestorFlowCarried: true,
+    } : {}),
   };
 }
 
