@@ -15,6 +15,7 @@
  */
 
 import type { CandidateEntryTrace, Gate1CandidateTrace, SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
+import { conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
 import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath } from './gate1MinimumSignalForensicAuditAdr0505.js';
 
@@ -109,10 +110,16 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           : candidate?.stageReached === 'UNIVERSE'
             ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
             : 'UNKNOWN';
+    const conditionResultsTrace = candidate?.conditionResultsTrace ?? t.conditionResultsTrace;
+    const conditionResults = candidate?.conditionResults ?? t.conditionResults ?? conditionResultsTraceToMap(conditionResultsTrace);
+    const conditionKeys = candidate?.conditionKeys ?? t.conditionKeys;
     const entry: BuildGate1MinimumSignalForensicInput = {
       trace,
       sourcePath,
       ...(candidate ? { candidate } : {}),
+      ...(conditionResultsTrace && conditionResultsTrace.length > 0 ? { conditionResultsTrace } : {}),
+      ...(conditionResults ? { conditionResults } : {}),
+      ...(conditionKeys ? { conditionKeys } : {}),
       quoteSymbol: quoteSymbol ?? t.symbol ?? null,
       ...(health ? { supplyProviderHealth: health } : {}),
       ...(candidate?.supplyConfluenceState ? { supplyConfluence: candidate.supplyConfluenceState } : {}),
@@ -128,10 +135,19 @@ export interface Gate1ForensicInputCompletenessSummaryAdr0507 {
   traceWithQuoteCount: number;
   traceWithSymbolFeaturesCount: number;
   traceWithConditionResultsCount: number;
+  conditionResultsAvailableCount: number;
+  conditionResultsKeyCoverage: Record<string, number>;
+  conditionResultStatusDistribution: Record<string, number>;
+  conditionResultsBreakPoint: 'NONE' | 'CONDITION_RESULTS_PROJECTED' | 'CONDITION_RESULTS_NOT_PROJECTED';
   traceWithWatchlistScoreCount: number;
   traceWithSupplyContextCount: number;
   traceWithMinSignalScoreTraceCount: number;
   dominantFailureReason?: 'TRACE_HYDRATION_MISSING';
+}
+
+function getConditionResults(input: CandidateEntryTrace): Record<string, unknown> | undefined {
+  if (input.conditionResults && typeof input.conditionResults === 'object') return input.conditionResults;
+  return conditionResultsTraceToMap(input.conditionResultsTrace);
 }
 
 function hasObjectField(input: unknown, field: string): boolean {
@@ -151,11 +167,34 @@ export function summarizeGate1ForensicInputCompletenessAdr0507(
 ): Gate1ForensicInputCompletenessSummaryAdr0507 {
   const candidateTraces = input.candidateTraces ?? [];
   const minTraceSymbols = new Set((input.gate1CandidateTraces ?? []).filter((t) => t.minSignalScoreTrace).map((t) => t.symbol));
+  const conditionResultsByTrace = candidateTraces.map(getConditionResults);
+  const conditionResultsKeyCoverage: Record<string, number> = {};
+  const conditionResultStatusDistribution: Record<string, number> = {};
+  for (const results of conditionResultsByTrace) {
+    if (!results) continue;
+    for (const [key, value] of Object.entries(results)) {
+      conditionResultsKeyCoverage[key] = (conditionResultsKeyCoverage[key] ?? 0) + 1;
+      const status = value && typeof value === 'object' && typeof (value as Record<string, unknown>).status === 'string'
+        ? String((value as Record<string, unknown>).status)
+        : 'UNKNOWN';
+      conditionResultStatusDistribution[status] = (conditionResultStatusDistribution[status] ?? 0) + 1;
+    }
+  }
+  const traceWithConditionResultsCount = conditionResultsByTrace.filter(Boolean).length;
+  const conditionResultsAvailableCount = Object.values(conditionResultsKeyCoverage).reduce((sum, count) => sum + count, 0);
   const summary: Gate1ForensicInputCompletenessSummaryAdr0507 = {
     candidateTraceCount: candidateTraces.length,
     traceWithQuoteCount: candidateTraces.filter((t) => hasObjectField(t, 'quote')).length,
     traceWithSymbolFeaturesCount: candidateTraces.filter((t) => hasObjectField(t, 'symbolFeatures')).length,
-    traceWithConditionResultsCount: candidateTraces.filter((t) => hasObjectField(t, 'conditionResults')).length,
+    traceWithConditionResultsCount,
+    conditionResultsAvailableCount,
+    conditionResultsKeyCoverage,
+    conditionResultStatusDistribution,
+    conditionResultsBreakPoint: traceWithConditionResultsCount === 0
+      ? 'CONDITION_RESULTS_NOT_PROJECTED'
+      : conditionResultsAvailableCount > 0
+        ? 'CONDITION_RESULTS_PROJECTED'
+        : 'NONE',
     traceWithWatchlistScoreCount: candidateTraces.filter(hasWatchlistScoreField).length,
     traceWithSupplyContextCount: candidateTraces.filter((t) => Boolean(t.supplyConfluenceState || t.supplyProviderHealth)).length,
     traceWithMinSignalScoreTraceCount: candidateTraces.filter((t) => minTraceSymbols.has(t.symbol)).length,

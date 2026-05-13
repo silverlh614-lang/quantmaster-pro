@@ -19,6 +19,7 @@ import type {
   SignalScoreComponentTrace,
   SignalScoreComponentCode,
 } from './minimumSignalScoreTrace.js';
+import { projectGateOutputsToConditionResultsTrace, conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 
 function makeComponent(
   code: SignalScoreComponentCode,
@@ -287,7 +288,7 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       const summary = buildGate1MinimumSignalForensicSummaryAdr0505(audits);
       const out = formatGate1MinimumSignalForensicSection(summary);
       expect(out).toContain('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
-      expect(out).toContain('candidates=48 failed=48');
+      expect(out).toContain('candidates=48 failed=n/a (not live failure)');
       expect(out).toContain('dominant=POSITIVE_SCORE_STARVATION');
       expect(out).toContain('watchlist=48');
       expect(out).toContain('rs=48');
@@ -355,7 +356,7 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
           blockers: [],
           executionImpact: 'NONE',
           conditionResults: {
-            relative_strength: { status: 'THRESHOLD_NOT_MET', score: 2, hadRequiredData: true },
+            relative_strength: { status: 'FIRED', score: 2, hadRequiredData: true },
             breakout_momentum: { status: 'FIRED', score: 1, hadRequiredData: true },
             turtle_high: { status: 'THRESHOLD_NOT_MET', score: 0, hadRequiredData: true },
           },
@@ -369,8 +370,72 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(audit.hydrationAuditAdr0509?.breakoutScoreUsable).toBe(true);
       expect(summary.traceWithConditionResultsCount).toBe(1);
       expect(summary.conditionResultsKeyCoverage?.relative_strength).toBe(1);
-      expect(summary.conditionResultStatusDistribution?.FIRED).toBe(1);
+      expect(summary.conditionResultStatusDistribution?.FIRED).toBe(2);
       expect(summary.breakoutConditionKeyCoverage?.breakout_momentum).toBe(1);
+    });
+
+
+
+    it('evaluateServerGate outputs are projected to conditionResultsTrace and key-indexed conditionResults', () => {
+      const trace = projectGateOutputsToConditionResultsTrace([
+        {
+          key: 'relative_strength',
+          output: { score: 1.5, status: 'FIRED', detail: 'RS fired' },
+          context: { requiredData: ['kospi20dReturn'], availableData: { kospi20dReturn: true }, hadRequiredData: true },
+        },
+        {
+          key: 'breakout_momentum',
+          output: { score: 0, status: 'THRESHOLD_NOT_MET', detail: 'not yet' },
+          context: { requiredData: ['high20d'], availableData: { high20d: true }, hadRequiredData: true },
+        },
+      ]);
+      const map = conditionResultsTraceToMap(trace);
+
+      expect(trace[0]).toMatchObject({ key: 'relative_strength', score: 1.5, status: 'FIRED', fired: true });
+      expect(trace[1]).toMatchObject({ key: 'breakout_momentum', score: 0, status: 'THRESHOLD_NOT_MET', thresholdNotMet: true });
+      expect(map?.relative_strength).toMatchObject({ detail: 'RS fired', hadRequiredData: true });
+    });
+
+    it('conditionResultsTrace-only candidate input is preserved and recovers RS/breakout diagnostics', () => {
+      const conditionResultsTrace = projectGateOutputsToConditionResultsTrace([
+        { key: 'relative_strength', output: { score: 1, status: 'FIRED' }, context: { requiredData: [], availableData: {}, hadRequiredData: true } },
+        { key: 'vcp', output: { score: 0, status: 'THRESHOLD_NOT_MET' }, context: { requiredData: [], availableData: {}, hadRequiredData: true } },
+      ]);
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0003T' }),
+        candidate: { symbol: 'A0003T', stageReached: 'WATCHLIST', blockers: [], executionImpact: 'NONE', conditionResultsTrace },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+
+      expect(audit.hydrationAuditAdr0509?.candidateTraceHasConditionResults).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.rsSource).toBe('CONDITION_RESULTS');
+      expect(audit.hydrationAuditAdr0509?.rsScoreUsable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.breakoutSource).toBe('CONDITION_RESULTS');
+      expect(audit.hydrationAuditAdr0509?.breakoutScoreUsable).toBe(false);
+      expect(summary.conditionResultsBreakPointDistribution?.CONDITION_RESULTS_PROJECTED).toBe(1);
+      expect(summary.rsConditionStatusDistribution?.FIRED).toBe(1);
+      expect(summary.breakoutConditionStatusDistribution?.THRESHOLD_NOT_MET).toBe(1);
+    });
+
+    it('THRESHOLD_NOT_MET condition result is traceAvailable=true and scoreUsable=false', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0003N' }),
+        candidate: {
+          symbol: 'A0003N',
+          stageReached: 'WATCHLIST',
+          blockers: [],
+          executionImpact: 'NONE',
+          conditionResults: {
+            relative_strength: { status: 'THRESHOLD_NOT_MET', score: 2, hadRequiredData: true },
+            turtle_high: { status: 'THRESHOLD_NOT_MET', score: 0, hadRequiredData: true },
+          },
+        },
+      });
+
+      expect(audit.hydrationAuditAdr0509?.rsAvailable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.rsScoreUsable).toBe(false);
+      expect(audit.hydrationAuditAdr0509?.breakoutAvailable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.breakoutScoreUsable).toBe(false);
     });
 
     it('conditionKeys breakout proxy recovers breakout trace availability without score usable', () => {

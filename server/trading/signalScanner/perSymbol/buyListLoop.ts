@@ -182,6 +182,7 @@ import {
   upsertGateReclassificationDryRunRecord,
 } from '../../../persistence/gateReclassificationDryRunRepo.js';
 import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
+import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from '../gateConditionResultTrace.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -1450,6 +1451,26 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         recordPipelineStage(ctx.scanCounters, 'SERVER_GATE_EVALUATED', reCheckGate ? 'PASS' : 'SKIPPED');
         recordPipelineStage(ctx.scanCounters, 'GATE_LAYER_SUMMARY_BUILT', reCheckGate?.gateLayerSummary ? 'PASS' : 'SKIPPED');
       } catch {}
+      if (reCheckGate) {
+        const conditionResultsTrace = projectGateOutputsToConditionResultsTrace(reCheckGate.outputs);
+        const conditionResults = conditionResultsTraceToMap(conditionResultsTrace);
+        Object.assign(stock, {
+          gateEvaluation: {
+            ...((stock as { gateEvaluation?: Record<string, unknown> }).gateEvaluation ?? {}),
+            rawScore: reCheckGate.rawScore,
+            availableMaxScore: reCheckGate.availableMaxScore,
+            normalizedGateScore: reCheckGate.normalizedGateScore,
+            conditionKeys: reCheckGate.conditionKeys,
+            outputs: reCheckGate.outputs,
+          },
+          conditionResultsTrace,
+          ...(conditionResults ? { conditionResults } : {}),
+          conditionKeys: reCheckGate.conditionKeys,
+          gateRawScore: reCheckGate.rawScore,
+          normalizedGateScore: reCheckGate.normalizedGateScore,
+          availableMaxScore: reCheckGate.availableMaxScore,
+        });
+      }
       // ADR-452c — Gate Score Health 진단 누적. 표시 전용이며 live decision/Kelly/KIS 주문에는 미사용.
       try {
         accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);

@@ -16,6 +16,7 @@ import { evaluateMainCandidates, evaluateIntradayCandidates } from './perSymbolE
 import { createApprovalQueueState, flushApprovalQueue } from './approvalQueue.js';
 import { dispatchApprovedBuy } from './orderDispatch.js';
 import { createScanCounters, persistScanResults } from './scanDiagnostics.js';
+import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from './gateConditionResultTrace.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -60,32 +61,17 @@ function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
 
 function buildConditionResultsTrace(w: any): Record<string, unknown> | undefined {
   if (w.conditionResults && typeof w.conditionResults === 'object') return w.conditionResults;
-  const outputs = w.gateEvaluation?.outputs;
-  if (!Array.isArray(outputs)) return undefined;
-  const out: Record<string, unknown> = {};
-  for (const item of outputs) {
-    if (!item || typeof item.key !== 'string') continue;
-    const status = typeof item.output?.status === 'string'
-      ? item.output.status
-      : item.output?.score > 0
-        ? 'FIRED'
-        : 'THRESHOLD_NOT_MET';
-    out[item.key] = {
-      key: item.key,
-      status,
-      score: finiteOrNull(item.output?.score),
-      detail: null,
-      requiredData: item.context?.requiredData ?? [],
-      availableData: item.context?.availableData ?? {},
-      hadRequiredData: item.context?.hadRequiredData ?? true,
-      fired: status === 'FIRED' || item.output?.score > 0,
-      unavailable: status === 'DATA_UNAVAILABLE',
-      thresholdNotMet: status === 'THRESHOLD_NOT_MET',
-      providerDegraded: status === 'PROVIDER_DEGRADED',
-    };
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return conditionResultsTraceToMap(
+    w.conditionResultsTrace ?? projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs),
+  );
 }
+
+function buildConditionResultsTraceArray(w: any) {
+  return Array.isArray(w.conditionResultsTrace)
+    ? w.conditionResultsTrace
+    : projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs);
+}
+
 
 export interface RunAutoSignalScanOptions {
   sellOnly?: boolean;
@@ -197,6 +183,10 @@ export async function runAutoSignalScan(
         qualScore: w.qualScore,
         score: w.score,
         conditionKeys: w.conditionKeys ?? w.gateEvaluation?.conditionKeys,
+        conditionResultsTrace: buildConditionResultsTraceArray(w),
+        gateRawScore: w.gateRawScore ?? w.gateEvaluation?.rawScore ?? w.gateScore,
+        normalizedGateScore: w.normalizedGateScore ?? w.gateEvaluation?.normalizedGateScore,
+        availableMaxScore: w.availableMaxScore ?? w.gateEvaluation?.availableMaxScore,
         watchlistReason: w.watchlistReason ?? w.reason,
         symbolFeatures: w.symbolFeatures,
         relativeStrengthScore: w.relativeStrengthScore ?? w.symbolFeatures?.relativeStrengthScore,
@@ -247,6 +237,10 @@ export async function runAutoSignalScan(
         qualScore: w.qualScore,
         score: w.score,
         conditionKeys: w.conditionKeys ?? w.gateEvaluation?.conditionKeys,
+        conditionResultsTrace: buildConditionResultsTraceArray(w),
+        gateRawScore: w.gateRawScore ?? w.gateEvaluation?.rawScore ?? w.gateScore,
+        normalizedGateScore: w.normalizedGateScore ?? w.gateEvaluation?.normalizedGateScore,
+        availableMaxScore: w.availableMaxScore ?? w.gateEvaluation?.availableMaxScore,
         watchlistReason: w.watchlistReason ?? w.reason,
         symbolFeatures: w.symbolFeatures,
         relativeStrengthScore: w.relativeStrengthScore ?? w.symbolFeatures?.relativeStrengthScore,
