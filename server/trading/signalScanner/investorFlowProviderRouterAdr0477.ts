@@ -106,6 +106,20 @@ export interface SemanticNetBuySample {
 export interface InvestorFlowProviderRouteResult {
   code: string;
   route: 'investor_flow';
+  requestSymbol?: string | null;
+  candidateSymbol?: string | null;
+  quoteSymbol?: string | null;
+  providerSymbol?: string | null;
+  normalizedSymbol?: string | null;
+  providerScope?: 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
+  routePurpose?: string;
+  materialized?: boolean;
+  usableForRouter?: boolean;
+  usableForGate?: false;
+  usableForLive?: false;
+  usableForShadow?: true;
+  scoreUsage?: 'SHADOW_ONLY';
+  inferredSymbolMatched?: boolean;
   selectedProvider: InvestorFlowProviderId;
   providerTried: InvestorFlowProviderId[];
   providerReasons: Record<string, string>;
@@ -1523,6 +1537,20 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   return {
     code: input.code,
     route: 'investor_flow',
+    requestSymbol: input.code,
+    candidateSymbol: input.code,
+    quoteSymbol: input.code,
+    providerSymbol: selectedSemanticNetBuy?.code ?? null,
+    normalizedSymbol: selectedSemanticNetBuy?.code ?? input.code,
+    providerScope: 'SYMBOL_LEVEL',
+    routePurpose: 'SYMBOL_LEVEL_INVESTOR_FLOW_SHADOW_AUDIT',
+    materialized: Boolean(selectedSemanticNetBuy),
+    usableForRouter: routerUsableCoverage.available > 0,
+    usableForGate: false,
+    usableForLive: false,
+    usableForShadow: true,
+    scoreUsage: 'SHADOW_ONLY',
+    inferredSymbolMatched: !selectedSemanticNetBuy?.code && Boolean(input.code),
     selectedProvider,
     providerTried,
     providerReasons,

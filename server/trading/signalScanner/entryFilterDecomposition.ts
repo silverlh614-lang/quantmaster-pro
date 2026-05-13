@@ -120,6 +120,18 @@ export interface SupplyProviderHealthTrace {
   investorFlowRouterStatus?: string;
   selectedInvestorFlowProvider?: string;
   providerTried?: string[];
+  requestSymbol?: string | null;
+  candidateSymbol?: string | null;
+  quoteSymbol?: string | null;
+  providerSymbol?: string | null;
+  normalizedSymbol?: string | null;
+  providerScope?: "SYMBOL_LEVEL" | "MARKET_LEVEL" | "SECTOR_LEVEL" | "UNKNOWN";
+  routePurpose?: string;
+  materialized?: boolean;
+  usableForRouter?: boolean;
+  usableForGate?: false;
+  usableForLive?: false;
+  usableForShadow?: true;
   semanticNetBuyStatus?: string;
   semanticNetBuySignal?: string;
   routeCoverage?: {
@@ -151,6 +163,13 @@ export type SupplyConfluenceState =
 
 export interface Gate1SymbolFeatures {
   price?: number;
+  currentPrice?: number;
+  high5d?: number;
+  high20d?: number;
+  high60?: number;
+  volumeRatio?: number;
+  aboveMA20?: boolean;
+  aboveMA60?: boolean;
   ma20?: number;
   ma60?: number;
   return5d?: number;
@@ -332,10 +351,15 @@ export interface CandidateEntryTrace {
         return20d?: number;
         return5d?: number;
         price?: number;
+        currentPrice?: number;
+        high5d?: number;
+        high20d?: number;
+        high60?: number;
         ma20?: number;
         ma60?: number;
         volume?: number;
         avgVolume?: number;
+        volumeRatio?: number;
         rsi14?: number;
         atr?: number;
         atr20avg?: number;
@@ -356,6 +380,13 @@ export interface CandidateEntryTrace {
   avgVolume?: number;
   projectedVolume?: number;
   price?: number;
+  currentPrice?: number;
+  high5d?: number;
+  high20d?: number;
+  high60?: number;
+  volumeRatio?: number;
+  aboveMA20?: boolean;
+  aboveMA60?: boolean;
   ma20?: number;
   ma60?: number;
   rsi14?: number;
@@ -543,6 +574,13 @@ export interface CandidateSnapshot {
   avgVolume?: number;
   projectedVolume?: number;
   price?: number;
+  currentPrice?: number;
+  high5d?: number;
+  high20d?: number;
+  high60?: number;
+  volumeRatio?: number;
+  aboveMA20?: boolean;
+  aboveMA60?: boolean;
   ma20?: number;
   ma60?: number;
   rsi14?: number;
@@ -573,10 +611,15 @@ export interface CandidateSnapshot {
         return20d?: number;
         return5d?: number;
         price?: number;
+        currentPrice?: number;
+        high5d?: number;
+        high20d?: number;
+        high60?: number;
         ma20?: number;
         ma60?: number;
         volume?: number;
         avgVolume?: number;
+        volumeRatio?: number;
         rsi14?: number;
         atr?: number;
         atr20avg?: number;
@@ -705,6 +748,26 @@ function classifySupplyProviderHealth(
     providerIssue,
     marketSignal,
     gate1Severity,
+    investorFlowRouterStatus: input?.investorFlowRouterStatus,
+    selectedInvestorFlowProvider: input?.selectedInvestorFlowProvider,
+    providerTried: input?.providerTried,
+    requestSymbol: input?.requestSymbol,
+    candidateSymbol: input?.candidateSymbol,
+    quoteSymbol: input?.quoteSymbol,
+    providerSymbol: input?.providerSymbol,
+    normalizedSymbol: input?.normalizedSymbol,
+    providerScope: input?.providerScope,
+    routePurpose: input?.routePurpose,
+    materialized: input?.materialized,
+    usableForRouter: input?.usableForRouter,
+    usableForGate: false,
+    usableForLive: false,
+    usableForShadow: true,
+    semanticNetBuyStatus: input?.semanticNetBuyStatus,
+    semanticNetBuySignal: input?.semanticNetBuySignal,
+    routeCoverage: input?.routeCoverage,
+    freshness: input?.freshness,
+    diagnostics: input?.diagnostics,
     reason,
   };
 }
@@ -1304,7 +1367,33 @@ function buildSymbolFeatures(
   const provided = c.symbolFeatures ?? {};
   const features: Gate1SymbolFeatures = {
     ...provided,
-    price: provided.price ?? finiteFeature(c.price) ?? quoteFeature(c, "price"),
+    price:
+      provided.price ??
+      finiteFeature(c.price) ??
+      finiteFeature(c.currentPrice) ??
+      quoteFeature(c, "price") ??
+      quoteFeature(c, "currentPrice"),
+    currentPrice:
+      ((provided as Record<string, unknown>).currentPrice as number | undefined) ??
+      finiteFeature(c.currentPrice) ??
+      quoteFeature(c, "currentPrice") ??
+      quoteFeature(c, "price"),
+    high5d:
+      ((provided as Record<string, unknown>).high5d as number | undefined) ??
+      finiteFeature(c.high5d) ??
+      quoteFeature(c, "high5d"),
+    high20d:
+      ((provided as Record<string, unknown>).high20d as number | undefined) ??
+      finiteFeature(c.high20d) ??
+      quoteFeature(c, "high20d"),
+    high60:
+      ((provided as Record<string, unknown>).high60 as number | undefined) ??
+      finiteFeature(c.high60) ??
+      quoteFeature(c, "high60"),
+    volumeRatio:
+      ((provided as Record<string, unknown>).volumeRatio as number | undefined) ??
+      finiteFeature(c.volumeRatio) ??
+      quoteFeature(c, "volumeRatio"),
     ma20: provided.ma20 ?? finiteFeature(c.ma20) ?? quoteFeature(c, "ma20"),
     ma60: provided.ma60 ?? finiteFeature(c.ma60) ?? quoteFeature(c, "ma60"),
     return5d:
@@ -1435,7 +1524,14 @@ export function buildEntryFilterDecomposition(
       volume: c.volume ?? symbolFeatures?.volume,
       avgVolume: c.avgVolume ?? symbolFeatures?.avgVolume,
       projectedVolume: c.projectedVolume ?? symbolFeatures?.projectedVolume,
-      price: c.price ?? symbolFeatures?.price,
+      price: c.price ?? c.currentPrice ?? symbolFeatures?.price,
+      currentPrice: c.currentPrice ?? c.price ?? ((symbolFeatures as Record<string, unknown> | undefined)?.currentPrice as number | undefined),
+      high5d: c.high5d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high5d as number | undefined),
+      high20d: c.high20d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high20d as number | undefined),
+      high60: c.high60 ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high60 as number | undefined),
+      volumeRatio: c.volumeRatio ?? ((symbolFeatures as Record<string, unknown> | undefined)?.volumeRatio as number | undefined),
+      aboveMA20: c.aboveMA20,
+      aboveMA60: c.aboveMA60,
       ma20: c.ma20 ?? symbolFeatures?.ma20,
       ma60: c.ma60 ?? symbolFeatures?.ma60,
       rsi14: c.rsi14 ?? symbolFeatures?.rsi14,

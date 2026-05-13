@@ -80,16 +80,83 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const quoteSymbol = candidate?.quote && typeof candidate.quote === 'object'
       ? ((candidate.quote as Record<string, unknown>).symbol as string | null | undefined)
       : undefined;
+    const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
+    const healthRecord = health as Record<string, unknown> | undefined;
+    const kisFlow = healthRecord
+      ? {
+          requestSymbol: (healthRecord.requestSymbol as string | null | undefined) ?? candidate?.symbol ?? t.symbol ?? null,
+          candidateSymbol: (healthRecord.candidateSymbol as string | null | undefined) ?? candidate?.symbol ?? t.symbol ?? null,
+          quoteSymbol: quoteSymbol ?? (healthRecord.quoteSymbol as string | null | undefined) ?? null,
+          providerSymbol: (healthRecord.providerSymbol as string | null | undefined) ?? null,
+          normalizedSymbol: (healthRecord.normalizedSymbol as string | null | undefined) ?? null,
+          providerScope: (healthRecord.providerScope as 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN' | undefined) ?? 'SYMBOL_LEVEL',
+          routePurpose: (healthRecord.routePurpose as string | undefined) ?? 'GATE1_FORENSIC_SHADOW_AUDIT',
+          selectedProvider: (healthRecord.selectedInvestorFlowProvider as string | undefined) ?? (healthRecord.providerName as string | undefined),
+          materialized: healthRecord.materialized as boolean | undefined,
+          usableForRouter: healthRecord.usableForRouter as boolean | undefined,
+          usableForGate: false as const,
+          usableForLive: false as const,
+          usableForShadow: true as const,
+          semanticAvailable: healthRecord.status === 'VERIFIED',
+        }
+      : undefined;
     const entry: BuildGate1MinimumSignalForensicInput = {
       trace,
       ...(candidate ? { candidate } : {}),
       quoteSymbol: quoteSymbol ?? t.symbol ?? null,
-      ...(candidate?.supplyProviderHealth ?? supplyProviderHealth
-        ? { supplyProviderHealth: candidate?.supplyProviderHealth ?? supplyProviderHealth }
-        : {}),
+      ...(health ? { supplyProviderHealth: health } : {}),
       ...(candidate?.supplyConfluenceState ? { supplyConfluence: candidate.supplyConfluenceState } : {}),
+      ...(kisFlow ? { kisFlow } : {}),
     };
     out.push(entry);
   }
   return out;
+}
+
+export interface Gate1ForensicInputCompletenessSummaryAdr0507 {
+  candidateTraceCount: number;
+  traceWithQuoteCount: number;
+  traceWithSymbolFeaturesCount: number;
+  traceWithConditionResultsCount: number;
+  traceWithWatchlistScoreCount: number;
+  traceWithSupplyContextCount: number;
+  traceWithMinSignalScoreTraceCount: number;
+  dominantFailureReason?: 'TRACE_HYDRATION_MISSING';
+}
+
+function hasObjectField(input: unknown, field: string): boolean {
+  return Boolean(input && typeof input === 'object' && (input as Record<string, unknown>)[field] && typeof (input as Record<string, unknown>)[field] === 'object');
+}
+
+function hasWatchlistScoreField(input: CandidateEntryTrace): boolean {
+  const record = input as unknown as Record<string, unknown>;
+  const fields = ['stage2Score', 'watchlistScore', 'upstreamCandidateScore', 'watchlistUpstreamScore', 'totalGateScore', 'gateScore', 'priorityScore', 'score'];
+  const features = record.symbolFeatures && typeof record.symbolFeatures === 'object' ? record.symbolFeatures as Record<string, unknown> : undefined;
+  return fields.some((field) => typeof record[field] === 'number' || typeof features?.[field] === 'number');
+}
+
+/** Diagnostic-only input completeness summary for /scan_blockers compact audit. */
+export function summarizeGate1ForensicInputCompletenessAdr0507(
+  input: CollectGate1ForensicInputsInput,
+): Gate1ForensicInputCompletenessSummaryAdr0507 {
+  const candidateTraces = input.candidateTraces ?? [];
+  const minTraceSymbols = new Set((input.gate1CandidateTraces ?? []).filter((t) => t.minSignalScoreTrace).map((t) => t.symbol));
+  const summary: Gate1ForensicInputCompletenessSummaryAdr0507 = {
+    candidateTraceCount: candidateTraces.length,
+    traceWithQuoteCount: candidateTraces.filter((t) => hasObjectField(t, 'quote')).length,
+    traceWithSymbolFeaturesCount: candidateTraces.filter((t) => hasObjectField(t, 'symbolFeatures')).length,
+    traceWithConditionResultsCount: candidateTraces.filter((t) => hasObjectField(t, 'conditionResults')).length,
+    traceWithWatchlistScoreCount: candidateTraces.filter(hasWatchlistScoreField).length,
+    traceWithSupplyContextCount: candidateTraces.filter((t) => Boolean(t.supplyConfluenceState || t.supplyProviderHealth)).length,
+    traceWithMinSignalScoreTraceCount: candidateTraces.filter((t) => minTraceSymbols.has(t.symbol)).length,
+  };
+  if (
+    summary.candidateTraceCount > 0 &&
+    summary.traceWithQuoteCount === 0 &&
+    summary.traceWithSymbolFeaturesCount === 0 &&
+    summary.traceWithConditionResultsCount === 0
+  ) {
+    summary.dominantFailureReason = 'TRACE_HYDRATION_MISSING';
+  }
+  return summary;
 }
