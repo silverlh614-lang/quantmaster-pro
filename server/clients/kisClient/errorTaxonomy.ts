@@ -31,8 +31,11 @@ export type KisCoverageDiagnosis =
   | 'SYMBOL_FORMAT_MISMATCH'
   | 'SUPPORTED_OR_UNKNOWN';
 
-export type KisFallbackProvider = 'KIS_ALT' | 'KRX' | 'CACHE' | 'NONE';
-export type KisFallbackConfidence = 'DEGRADED' | 'STALE' | 'MISSING';
+export type KisFallbackProvider = 'KIS_ALT' | 'KRX' | 'CACHE' | 'NAVER' | 'YAHOO' | 'NONE';
+export type KisFallbackConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
+export type KisTrCircuitStateName = 'CLOSED' | 'SOFT_THROTTLED' | 'OPEN' | 'HALF_OPEN' | 'CLOSED_RECOVERED';
+export type KisCallPriority = 'REAL_POSITION' | 'SHADOW_OPEN' | 'READY_CANDIDATE' | 'WATCHLIST' | 'SCAN_DIAGNOSTIC';
+export type KisThrottleLevel = 'NONE' | 'SOFT' | 'HARD' | 'CIRCUIT_OPEN';
 
 export interface KisTrCoverageEntry {
   purpose: string;
@@ -234,14 +237,24 @@ export const KIS_ERROR_TAXONOMY_CONSTANTS = Object.freeze({
   SERVER_CONSECUTIVE_FAILURE_THRESHOLD: 5,
   SERVER_CIRCUIT_COOLDOWN_MS: 60_000,
   SERVER_MAX_RETRIES: 2,
+  TR_SOFT_SAME_SECOND_THRESHOLD: 3,
+  TR_SOFT_SAME_MINUTE_THRESHOLD: 30,
+  TR_HARD_SAME_SECOND_THRESHOLD: 5,
+  TR_HARD_SAME_MINUTE_THRESHOLD: 50,
+  TR_CIRCUIT_SAME_SECOND_THRESHOLD: 8,
+  TR_CIRCUIT_SAME_MINUTE_THRESHOLD: 60,
+  TR_CIRCUIT_500_WINDOW_MS: 60_000,
+  TR_CIRCUIT_500_THRESHOLD: 3,
 });
 
 interface ServerFailureEvent { trId: string; atMs: number }
 interface ServerCircuitState {
-  state: 'CLOSED' | 'OPEN';
+  state: KisTrCircuitStateName;
   cooldownUntilMs: number;
   consecutiveFailures: number;
   lastOpenedReason: string | null;
+  halfOpenTestInFlight: boolean;
+  lastError: string | null;
 }
 
 const _serverFailures: ServerFailureEvent[] = [];
@@ -255,6 +268,8 @@ function getCircuitState(trId: string): ServerCircuitState {
     cooldownUntilMs: 0,
     consecutiveFailures: 0,
     lastOpenedReason: null,
+    halfOpenTestInFlight: false,
+    lastError: null,
   };
   _serverCircuitByTrId.set(trId, created);
   return created;
@@ -264,9 +279,9 @@ export function isKisServerCircuitOpen(trId: string, nowMs = Date.now()): boolea
   const state = getCircuitState(trId);
   if (state.state === 'OPEN' && nowMs < state.cooldownUntilMs) return true;
   if (state.state === 'OPEN') {
-    state.state = 'CLOSED';
+    state.state = 'HALF_OPEN';
     state.cooldownUntilMs = 0;
-    state.consecutiveFailures = 0;
+    state.halfOpenTestInFlight = false;
   }
   return false;
 }
@@ -291,10 +306,14 @@ export function recordKisServerErrorForCircuit(trId: string, nowMs = Date.now())
   else if (providerBurstCount >= KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_PROVIDER_BURST_THRESHOLD) reason = 'PROVIDER_500_BURST';
   else if (state.consecutiveFailures >= KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_CONSECUTIVE_FAILURE_THRESHOLD) reason = 'CONSECUTIVE_FAILURES';
 
+  const wasHalfOpen = state.state === 'HALF_OPEN';
+  if (wasHalfOpen && !reason) reason = 'CONSECUTIVE_FAILURES';
   if (reason) {
     state.state = 'OPEN';
     state.cooldownUntilMs = nowMs + KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_CIRCUIT_COOLDOWN_MS;
-    state.lastOpenedReason = reason;
+    state.lastOpenedReason = wasHalfOpen ? 'HALF_OPEN_FAILED' : reason;
+    state.lastError = String(state.lastOpenedReason);
+    state.halfOpenTestInFlight = false;
   }
 
   return {
@@ -306,21 +325,40 @@ export function recordKisServerErrorForCircuit(trId: string, nowMs = Date.now())
 
 export function recordKisServerSuccess(trId: string): void {
   const state = getCircuitState(trId);
-  state.state = 'CLOSED';
+  state.state = state.state === 'HALF_OPEN' ? 'CLOSED_RECOVERED' : 'CLOSED';
   state.cooldownUntilMs = 0;
   state.consecutiveFailures = 0;
   state.lastOpenedReason = null;
+  state.halfOpenTestInFlight = false;
 }
 
-interface KisCallPressureEvent { trId: string; atMs: number }
+interface KisCallPressureEvent {
+  trId: string;
+  endpoint?: string;
+  symbol?: string;
+  requestedAt: number;
+  atMs: number;
+  status?: 'STARTED' | 'SUCCESS' | 'ERROR' | 'DEFERRED' | 'CACHE_HIT';
+  latencyMs?: number;
+  httpStatus?: number;
+  caller?: string;
+  priority?: KisCallPriority;
+  retryAttempt?: number;
+  isRetry?: boolean;
+}
 const _callPressureEvents: KisCallPressureEvent[] = [];
 let _concurrentCalls = 0;
 let _queuedCalls = 0;
 let _deferredCalls = 0;
+const _retryCoordinators = new Map<string, { untilMs: number; retryAttempt: number }>();
 
-export function recordKisCallStarted(trId: string, nowMs = Date.now()): void {
+export function recordKisCallStarted(
+  trId: string,
+  nowMs = Date.now(),
+  meta: Partial<Omit<KisCallPressureEvent, 'trId' | 'atMs' | 'requestedAt'>> = {},
+): void {
   _concurrentCalls += 1;
-  _callPressureEvents.push({ trId, atMs: nowMs });
+  _callPressureEvents.push({ trId, atMs: nowMs, requestedAt: nowMs, status: 'STARTED', ...meta });
   const minuteStart = nowMs - 60_000;
   while (_callPressureEvents.length > 0 && _callPressureEvents[0]!.atMs < minuteStart) _callPressureEvents.shift();
 }
@@ -329,11 +367,16 @@ export function recordKisCallFinished(): void {
   _concurrentCalls = Math.max(0, _concurrentCalls - 1);
 }
 
-export function recordKisCallDeferred(): void {
+export function recordKisCallDeferred(
+  trId?: string,
+  nowMs = Date.now(),
+  meta: Partial<Omit<KisCallPressureEvent, 'trId' | 'atMs' | 'requestedAt' | 'status'>> = {},
+): void {
   _deferredCalls += 1;
+  if (trId) _callPressureEvents.push({ trId, atMs: nowMs, requestedAt: nowMs, status: 'DEFERRED', ...meta });
 }
 
-export function getKisCallPressureSnapshot(nowMs = Date.now()): {
+export function getKisCallPressureSnapshot(nowMs = Date.now(), trId?: string): {
   windowSec: 1;
   totalCalls: number;
   byTrId: Record<string, number>;
@@ -350,17 +393,139 @@ export function getKisCallPressureSnapshot(nowMs = Date.now()): {
   const sameMinute = _callPressureEvents.filter((e) => e.atMs >= minuteStart);
   const byTrId: Record<string, number> = {};
   for (const event of sameSecond) byTrId[event.trId] = (byTrId[event.trId] ?? 0) + 1;
+  const secondForTr = trId ? sameSecond.filter((e) => e.trId === trId) : sameSecond;
+  const minuteForTr = trId ? sameMinute.filter((e) => e.trId === trId) : sameMinute;
+  const retryAttempts = minuteForTr.filter((e) => e.isRetry).length;
   return {
     windowSec: 1,
     totalCalls: sameSecond.length,
     byTrId,
-    sameSecondCalls: sameSecond.length,
-    sameMinuteCalls: sameMinute.length,
+    sameSecondCalls: secondForTr.length,
+    sameMinuteCalls: minuteForTr.length,
     concurrentCalls: _concurrentCalls,
     queuedCalls: _queuedCalls,
     deferredCalls: _deferredCalls,
-    retryWaveDetected: sameSecond.length >= 3 || sameMinute.length >= 10,
+    retryWaveDetected: retryAttempts >= 2 || secondForTr.length > KIS_ERROR_TAXONOMY_CONSTANTS.TR_HARD_SAME_SECOND_THRESHOLD || minuteForTr.length > KIS_ERROR_TAXONOMY_CONSTANTS.TR_HARD_SAME_MINUTE_THRESHOLD,
   };
+}
+
+
+
+export function getKisTrCircuitState(trId: string, nowMs = Date.now()): KisTrCircuitStateName {
+  isKisServerCircuitOpen(trId, nowMs);
+  return getCircuitState(trId).state;
+}
+
+export function assessKisTrPressure(input: {
+  trId: string;
+  priority?: KisCallPriority;
+  nowMs?: number;
+  httpStatus?: number;
+}): {
+  level: KisThrottleLevel;
+  action: 'ALLOW' | 'DEFER_LOW_PRIORITY_CALLS' | 'OPEN_CIRCUIT';
+  sameSecondCalls: number;
+  sameMinuteCalls: number;
+  retryWaveDetected: boolean;
+  circuitState: KisTrCircuitStateName;
+  shouldDefer: boolean;
+} {
+  const nowMs = input.nowMs ?? Date.now();
+  const priority = input.priority ?? 'SCAN_DIAGNOSTIC';
+  const pressure = getKisCallPressureSnapshot(nowMs, input.trId);
+  const oneMinuteAgo = nowMs - KIS_ERROR_TAXONOMY_CONSTANTS.TR_CIRCUIT_500_WINDOW_MS;
+  const recent500 = _serverFailures.filter((e) => e.trId === input.trId && e.atMs >= oneMinuteAgo).length;
+  const state = getCircuitState(input.trId);
+  let level: KisThrottleLevel = 'NONE';
+  if (
+    pressure.sameSecondCalls >= KIS_ERROR_TAXONOMY_CONSTANTS.TR_CIRCUIT_SAME_SECOND_THRESHOLD
+    || pressure.sameMinuteCalls >= KIS_ERROR_TAXONOMY_CONSTANTS.TR_CIRCUIT_SAME_MINUTE_THRESHOLD
+    || recent500 >= KIS_ERROR_TAXONOMY_CONSTANTS.TR_CIRCUIT_500_THRESHOLD
+    || state.consecutiveFailures >= KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_CONSECUTIVE_FAILURE_THRESHOLD
+  ) level = 'CIRCUIT_OPEN';
+  else if (
+    pressure.sameSecondCalls > KIS_ERROR_TAXONOMY_CONSTANTS.TR_HARD_SAME_SECOND_THRESHOLD
+    || pressure.sameMinuteCalls > KIS_ERROR_TAXONOMY_CONSTANTS.TR_HARD_SAME_MINUTE_THRESHOLD
+    || pressure.retryWaveDetected
+  ) level = 'HARD';
+  else if (
+    pressure.sameSecondCalls > KIS_ERROR_TAXONOMY_CONSTANTS.TR_SOFT_SAME_SECOND_THRESHOLD
+    || pressure.sameMinuteCalls > KIS_ERROR_TAXONOMY_CONSTANTS.TR_SOFT_SAME_MINUTE_THRESHOLD
+  ) level = 'SOFT';
+
+  if (level === 'CIRCUIT_OPEN') {
+    state.state = 'OPEN';
+    state.cooldownUntilMs = nowMs + KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_CIRCUIT_COOLDOWN_MS;
+    state.lastOpenedReason = 'CALL_PRESSURE_OR_RETRY_WAVE';
+    state.lastError = input.httpStatus ? String(input.httpStatus) : state.lastError;
+    state.halfOpenTestInFlight = false;
+  } else if (level === 'HARD') {
+    state.state = 'SOFT_THROTTLED';
+  } else if (level === 'SOFT' && state.state === 'CLOSED') {
+    state.state = 'SOFT_THROTTLED';
+  }
+
+  const lowPriority = priority === 'SCAN_DIAGNOSTIC' || priority === 'WATCHLIST';
+  return {
+    level,
+    action: level === 'CIRCUIT_OPEN' ? 'OPEN_CIRCUIT' : level === 'NONE' ? 'ALLOW' : 'DEFER_LOW_PRIORITY_CALLS',
+    sameSecondCalls: pressure.sameSecondCalls,
+    sameMinuteCalls: pressure.sameMinuteCalls,
+    retryWaveDetected: pressure.retryWaveDetected,
+    circuitState: state.state,
+    shouldDefer: state.state === 'OPEN' || ((level === 'SOFT' || level === 'HARD') && lowPriority),
+  };
+}
+
+export function claimKisHalfOpenTest(trId: string, nowMs = Date.now()): boolean {
+  isKisServerCircuitOpen(trId, nowMs);
+  const state = getCircuitState(trId);
+  if (state.state !== 'HALF_OPEN') return false;
+  if (state.halfOpenTestInFlight) return false;
+  state.halfOpenTestInFlight = true;
+  return true;
+}
+
+export function extendKisTrCircuit(trId: string, reason = 'HALF_OPEN_FAILED', nowMs = Date.now()): number {
+  const state = getCircuitState(trId);
+  state.state = 'OPEN';
+  state.cooldownUntilMs = nowMs + KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_CIRCUIT_COOLDOWN_MS;
+  state.lastOpenedReason = reason;
+  state.lastError = reason;
+  state.halfOpenTestInFlight = false;
+  return Math.ceil(KIS_ERROR_TAXONOMY_CONSTANTS.SERVER_CIRCUIT_COOLDOWN_MS / 1000);
+}
+
+export function coordinateKisRetry(input: {
+  trId: string;
+  retryAttempt: number;
+  backoffMs: number;
+  nowMs?: number;
+  retryWaveDetected?: boolean;
+}): { allowed: boolean; suppressedRetries: number; representativeRetry: boolean; jitterMs: number; reason?: 'RETRY_WAVE_DETECTED' | 'SINGLE_FLIGHT_RETRY_ACTIVE' } {
+  const nowMs = input.nowMs ?? Date.now();
+  const pressure = getKisCallPressureSnapshot(nowMs, input.trId);
+  if (input.retryWaveDetected || pressure.retryWaveDetected) {
+    extendKisTrCircuit(input.trId, 'CALL_PRESSURE_OR_RETRY_WAVE', nowMs);
+    return { allowed: false, suppressedRetries: Math.max(1, pressure.sameSecondCalls - 1), representativeRetry: false, jitterMs: 0, reason: 'RETRY_WAVE_DETECTED' };
+  }
+  const active = _retryCoordinators.get(input.trId);
+  if (active && active.untilMs > nowMs) {
+    return { allowed: false, suppressedRetries: 1, representativeRetry: false, jitterMs: 0, reason: 'SINGLE_FLIGHT_RETRY_ACTIVE' };
+  }
+  const jitterMs = Math.floor(Math.random() * 250);
+  _retryCoordinators.set(input.trId, { untilMs: nowMs + input.backoffMs + jitterMs, retryAttempt: input.retryAttempt });
+  return { allowed: true, suppressedRetries: 0, representativeRetry: true, jitterMs };
+}
+
+export function formatKisTrPressureLog(input: { trId: string; priority?: KisCallPriority; nowMs?: number }): string {
+  const pressure = getKisCallPressureSnapshot(input.nowMs ?? Date.now(), input.trId);
+  return `[KIS_TR_PRESSURE] trId=${input.trId} sameSecondCalls=${pressure.sameSecondCalls} sameMinuteCalls=${pressure.sameMinuteCalls} `
+    + `retryWaveDetected=${pressure.retryWaveDetected} priority=${input.priority ?? 'SCAN_DIAGNOSTIC'} executionImpact=NONE`;
+}
+
+export function formatKisProviderDegradedSafeLog(trId: string): string {
+  return `[KIS_PROVIDER_DEGRADED_SAFE] trId=${trId} engineAlive=true shadowLearning=true marketSignal=false executionImpact=NONE`;
 }
 
 export function selectKisFallback(input: {
@@ -423,4 +588,5 @@ export function __resetKisErrorTaxonomyForTests(): void {
   _concurrentCalls = 0;
   _queuedCalls = 0;
   _deferredCalls = 0;
+  _retryCoordinators.clear();
 }
