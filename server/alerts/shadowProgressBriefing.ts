@@ -14,6 +14,7 @@
 import { loadShadowTrades, aggregateFillStats, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import type { DisplayMetric } from './displayMetric.js';
 
 // ── 설정 ──────────────────────────────────────────────────────────────────────
 
@@ -166,34 +167,55 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
 }
 
 export function formatShadowProgress(p: ShadowProgress): string {
-  const closedPct = p.totalClosed > 0
-    ? ` (승률 ${p.winRatePct.toFixed(1)}%)`
-    : '';
+  const closedWinRateMetric: DisplayMetric = {
+    label: '종료 샘플 승률',
+    value: `${p.winRatePct.toFixed(1)}%`,
+    numerator: p.winCount,
+    denominator: p.totalClosed,
+    denominatorLabel: 'closed_samples',
+    note: 'ACTIVE는 종료 샘플 승률 분모에서 제외됩니다.',
+  };
+  const allSamplesMetric: DisplayMetric = {
+    label: '전체 샘플',
+    value: `${p.totalSamples}/${p.targetSamples}`,
+    numerator: p.totalSamples,
+    denominator: p.targetSamples,
+    denominatorLabel: 'all_shadow_samples',
+  };
   const beFills = p.fillBeFills ?? 0;
-  const realizedLine = (p.fillWins + p.fillLosses + beFills) > 0
-    ? `🎯 실현 fill: ${p.fillWins}익 / ${p.fillLosses}손` +
+  const hasFillRealizations = (p.fillWins + p.fillLosses + beFills) > 0;
+  const fillSummaryLine = hasFillRealizations
+    ? `${p.fillWins}익 / ${p.fillLosses}손` +
       (beFills > 0 ? ` / ${beFills}본절` : '') +
-      (p.partialOnlyCount > 0 ? ` · 부분매도만 ${p.partialOnlyCount}건` : '') +
-      ` · 가중 P&L ${p.fillWeightedReturnPct >= 0 ? '+' : ''}${p.fillWeightedReturnPct.toFixed(2)}%`
+      (p.partialOnlyCount > 0 ? ` · 부분매도만 ${p.partialOnlyCount}건` : '')
+    : '';
+  const fillPnlLine = hasFillRealizations
+    ? `가중 P&L ${p.fillWeightedReturnPct >= 0 ? '+' : ''}${p.fillWeightedReturnPct.toFixed(2)}%`
     : '';
   // ADR-0129: trade 단위 BE 라인 — beCount > 0 시에만 노출 (BE_CLASSIFICATION_DISABLED 자연 호환).
   const beTradeCount = p.beCount ?? 0;
-  const beTradeLine = beTradeCount > 0 ? `⚪ BE: ${beTradeCount}건` : '';
+  const beTradeLine = beTradeCount > 0 ? `⚪ 종료 본절: ${beTradeCount}건` : '';
   return [
     `📊 <b>[SHADOW 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
-    `신규 신호: ${p.newToday}건 | 전체 샘플: ${p.totalSamples}/${p.targetSamples}`,
-    `━━━━━━━━━━━━━━━━━━`,
-    `✅ WIN: ${p.winCount}건${closedPct}`,
-    `❌ LOSS: ${p.lossCount}건`,
+    `신규 신호: ${p.newToday}건 | 📊 ${allSamplesMetric.label}: ${allSamplesMetric.value}`,
+    ``,
+    `✅ ${closedWinRateMetric.label}: ${closedWinRateMetric.value} = ${p.winCount}승 / ${p.totalClosed}종료`,
+    `❌ 종료 손실: ${p.lossCount}건`,
     beTradeLine,
-    `⏳ ACTIVE: ${p.activeCount}건`,
-    realizedLine,
-    `━━━━━━━━━━━━━━━━━━`,
+    `⏳ 진행 중: ${p.activeCount}건`,
+    hasFillRealizations ? `` : '',
+    hasFillRealizations ? `🎯 Fill 기준 실현:` : '',
+    fillSummaryLine,
+    fillPnlLine,
+    ``,
     p.etaDaysRemain >= 0
       ? `예상 완주: ${p.etaDate} (D-${p.etaDaysRemain})`
       : `예상 완주: 미정 (최근 7일 신규 0건)`,
     `⚠️ SHADOW 모드 — 실계좌 잔고 아님`,
-  ].filter(Boolean).join('\n');
+    ``,
+    `※ ${closedWinRateMetric.note}`,
+    `※ Fill 기준 실현은 sample 승률과 다른 단위입니다.`,
+  ].filter(line => line !== '').join('\n');
 }
 
 export async function sendDailyShadowProgress(): Promise<void> {

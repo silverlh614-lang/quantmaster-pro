@@ -11,6 +11,7 @@ import { loadShadowTrades, getWeightedPnlPct } from '../persistence/shadowTradeR
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { computeNetPnL } from '../trading/executionCosts.js';
 import { computeMaxDrawdown } from './mddCalculator.js';
+import type { DisplayMetric } from '../alerts/displayMetric.js';
 
 /** v2 이후 fills 데이터가 있는 거래가 이 수에 도달해야 가중치 재조정이 허용된다. */
 export const CALIBRATION_MIN_TRADES = 30;
@@ -68,6 +69,72 @@ export interface MonthlyStats {
 
 /** 통계 신뢰 판정 최소 표본 수. */
 export const MIN_STATS_SAMPLE = 5;
+
+export interface TransitionProgressDisplayInput {
+  passCount: number;
+  totalChecks: number;
+  evaluatedSamples: number;
+  requiredSamples: number;
+  winRatePct: number;
+  weightedWins: number;
+  winRateTargetPct: number;
+  winRatePassed: boolean;
+  profitFactor: number;
+  profitFactorPassed: boolean;
+  mddPct: number;
+  mddPassed: boolean;
+  avgHoldingDays: number;
+  holdingPeriodPassed: boolean;
+  maxConsecLoss: number;
+  consecLossPassed: boolean;
+  sampleSizePassed: boolean;
+}
+
+function progressBar(current: number, target: number, width = 10): string {
+  const ratio  = Math.min(current / (target || 1), 1);
+  const filled = Math.round(ratio * width);
+  return '▓'.repeat(filled) + '░'.repeat(width - filled) + ` ${Math.round(ratio * 100)}%`;
+}
+
+export function formatTransitionProgressMessage(input: TransitionProgressDisplayInput): string {
+  const sampleMetric: DisplayMetric = {
+    label: '평가 완료 샘플',
+    value: `${input.evaluatedSamples}/${input.requiredSamples}`,
+    numerator: input.evaluatedSamples,
+    denominator: input.requiredSamples,
+    denominatorLabel: 'transition_evaluated_samples',
+    passed: input.sampleSizePassed,
+    note: '전환심사 기준이므로 Shadow 전체 샘플 수와 다를 수 있습니다.',
+  };
+  const winRateMetric: DisplayMetric = {
+    label: '전환심사 승률',
+    value: `${input.winRatePct.toFixed(1)}%`,
+    numerator: input.weightedWins,
+    denominator: input.evaluatedSamples,
+    denominatorLabel: 'transition_evaluated_samples',
+    target: `${input.winRateTargetPct.toFixed(0)}%`,
+    passed: input.winRatePassed,
+    note: '전체 Shadow 승률이 아니라 실거래 전환 심사 대상 기준입니다.',
+  };
+  const remaining = input.requiredSamples - input.evaluatedSamples;
+  return [
+    `📊 <b>[실거래 전환 진행률]</b>`,
+    `${input.passCount}/${input.totalChecks} 조건 충족`,
+    `${sampleMetric.label}: ${sampleMetric.value} ${progressBar(input.evaluatedSamples, input.requiredSamples)} ${sampleMetric.passed ? '✅' : '⏳'}`,
+    ``,
+    `⏳ ${winRateMetric.label}: ${winRateMetric.value} = ${input.weightedWins}승 / ${input.evaluatedSamples}평가 / 목표 ${winRateMetric.target} ${winRateMetric.passed ? '✅' : '❌'}`,
+    `PF: ${input.profitFactor.toFixed(2)} / 1.5 ${input.profitFactorPassed ? '✅' : '❌'}`,
+    `MDD: ${input.mddPct.toFixed(2)}% / -10% ${input.mddPassed ? '✅' : '❌'}`,
+    `보유기간: ${input.avgHoldingDays.toFixed(1)}일 / 3~15일 ${input.holdingPeriodPassed ? '✅' : '❌'}`,
+    `연속손절: ${input.maxConsecLoss}회 / ≤3회 ${input.consecLossPassed ? '✅' : '❌'}`,
+    remaining > 0 ? `` : '',
+    remaining > 0 ? `→ ${remaining}건 더 쌓이면 전환 검토 가능` : '',
+    ``,
+    `※ ${winRateMetric.note}`,
+    `※ 전체 Shadow 종료 샘플 승률과 다를 수 있습니다.`,
+    `※ ${sampleMetric.note}`,
+  ].filter(line => line !== '').join('\n');
+}
 
 function loadRecommendations(): RecommendationRecord[] {
   ensureDataDir();
@@ -305,20 +372,14 @@ export async function evaluateRecommendations(): Promise<void> {
   const passCount   = Object.values(readyChecks).filter(Boolean).length;
   const totalChecks = Object.keys(readyChecks).length;
 
-  const progressBar = (current: number, target: number, width = 10): string => {
-    const ratio  = Math.min(current / (target || 1), 1);
-    const filled = Math.round(ratio * width);
-    return '▓'.repeat(filled) + '░'.repeat(width - filled) + ` ${Math.round(ratio * 100)}%`;
-  };
-
   if (passCount === totalChecks) {
     const curStats = getMonthlyStats();
     writeRealTradeFlag(curStats);
     await sendTelegramAlert(
       `🎯 <b>[QuantMaster] 실거래 전환 준비 완료!</b>\n\n` +
       `Shadow ${closedCount}건 검증 완료 — 6개 조건 모두 충족 ✅\n\n` +
-      `✅ 건수: ${closedCount}/30\n` +
-      `✅ 승률: ${winRate.toFixed(1)}%\n` +
+      `✅ 평가 완료 샘플: ${closedCount}/30\n` +
+      `✅ 전환심사 승률: ${winRate.toFixed(1)}% = ${weightedWins}승 / ${closedCount}평가 / 목표 55%\n` +
       `✅ PF: ${profitFactor.toFixed(2)}\n` +
       `✅ MDD: ${mdd.toFixed(2)}%\n` +
       `✅ 보유기간: ${avgHoldingDays.toFixed(1)}일\n` +
@@ -328,20 +389,32 @@ export async function evaluateRecommendations(): Promise<void> {
       `2️⃣ KIS_IS_REAL = true 설정\n` +
       `3️⃣ 재배포(Redeploy) 클릭\n` +
       `4️⃣ 다음 장 시작 시 자동 실거래 전환\n\n` +
-      `⚠️ data/real-trade-ready.flag 생성됨`
+      `⚠️ data/real-trade-ready.flag 생성됨\n\n` +
+      `※ 전환심사 승률은 실거래 전환 평가 대상 기준입니다.\n` +
+      `※ 전체 Shadow 종료 샘플 승률과 다를 수 있습니다.`
     ).catch(console.error);
     console.log('[자기학습] 🎯 실거래 전환 조건 모두 충족!');
   } else {
-    const remaining = 30 - closedCount;
     await sendTelegramAlert(
-      `📊 <b>[실거래 전환 진행률] ${passCount}/${totalChecks} 조건 충족</b>\n` +
-      `건수: ${closedCount}/30 ${progressBar(closedCount, 30)} ${readyChecks.sampleSize ? '✅' : '⏳'}\n` +
-      `승률: ${winRate.toFixed(1)}%/55% ${readyChecks.winRate ? '✅' : '❌'}\n` +
-      `PF: ${profitFactor.toFixed(2)}/1.5 ${readyChecks.profitFactor ? '✅' : '❌'}\n` +
-      `MDD: ${mdd.toFixed(2)}%/-10% ${readyChecks.mddSafe ? '✅' : '❌'}\n` +
-      `보유기간: ${avgHoldingDays.toFixed(1)}일/3~15일 ${readyChecks.holdingPeriod ? '✅' : '❌'}\n` +
-      `연속손절: ${maxConsecLoss}회/≤3회 ${readyChecks.consecLoss ? '✅' : '❌'}` +
-      (remaining > 0 ? `\n→ ${remaining}건 더 쌓이면 전환 검토 가능` : '')
+      formatTransitionProgressMessage({
+        passCount,
+        totalChecks,
+        evaluatedSamples: closedCount,
+        requiredSamples: 30,
+        winRatePct: winRate,
+        weightedWins,
+        winRateTargetPct: 55,
+        winRatePassed: readyChecks.winRate,
+        profitFactor,
+        profitFactorPassed: readyChecks.profitFactor,
+        mddPct: mdd,
+        mddPassed: readyChecks.mddSafe,
+        avgHoldingDays,
+        holdingPeriodPassed: readyChecks.holdingPeriod,
+        maxConsecLoss,
+        consecLossPassed: readyChecks.consecLoss,
+        sampleSizePassed: readyChecks.sampleSize,
+      })
     ).catch(console.error);
     console.log(`[자기학습] 전환 진행률: ${passCount}/${totalChecks}`);
   }

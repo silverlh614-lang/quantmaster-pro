@@ -159,17 +159,17 @@ describe('ADR-0129 formatShadowProgress BE 라인 노출', () => {
     ];
     const p = _computeProgressFromShadows(shadows, new Date('2026-04-30T07:00:00Z'));
     const msg = formatShadowProgress(p);
-    expect(msg).toContain('⚪ BE: 2건');
-    expect(msg).toContain('✅ WIN: 1건');
-    expect(msg).toContain('❌ LOSS: 1건');
+    expect(msg).toContain('⚪ 종료 본절: 2건');
+    expect(msg).toContain('✅ 종료 샘플 승률: 50.0% = 1승 / 2종료');
+    expect(msg).toContain('❌ 종료 손실: 1건');
   });
 
   it('beCount=0 시 BE 라인 미노출 (자연 호환)', () => {
     const shadows = [baseTrade({ status: 'HIT_TARGET' })];
     const p = _computeProgressFromShadows(shadows, new Date('2026-04-30T07:00:00Z'));
     const msg = formatShadowProgress(p);
-    expect(msg).not.toContain('⚪ BE');
-    expect(msg).not.toContain('BE: ');
+    expect(msg).not.toContain('⚪ 종료 본절');
+    expect(msg).not.toContain('종료 본절: ');
   });
 
   it('승률 분모는 BE 제외 — 1WIN / 1LOSS / 2BE → 50% (4건 25% 아님)', () => {
@@ -182,6 +182,35 @@ describe('ADR-0129 formatShadowProgress BE 라인 노출', () => {
     const p = _computeProgressFromShadows(shadows, new Date('2026-04-30T07:00:00Z'));
     expect(p.winRatePct).toBeCloseTo(50, 5); // 1/2 = 50% (BE 제외)
     const msg = formatShadowProgress(p);
-    expect(msg).toContain('승률 50.0%');
+    expect(msg).toContain('종료 샘플 승률: 50.0% = 1승 / 2종료');
+  });
+});
+
+
+describe('Patch SHADOW-METRIC-LABEL-CLARITY-001 Shadow formatter labels', () => {
+  it('종료 샘플 승률 분자/분모, ACTIVE 제외 note, Fill 기준 실현을 표시한다', () => {
+    const shadows = [
+      baseTrade({ status: 'HIT_TARGET' }),
+      baseTrade({ status: 'HIT_TARGET' }),
+      ...Array.from({ length: 10 }, () => baseTrade({ status: 'HIT_STOP' })),
+      ...Array.from({ length: 4 }, () => baseTrade({ status: 'ACTIVE' })),
+    ];
+    const p = _computeProgressFromShadows(shadows, new Date('2026-04-30T07:00:00Z'));
+    const msg = formatShadowProgress({
+      ...p,
+      fillWins: 13,
+      fillLosses: 3,
+      fillBeFills: 5,
+      partialOnlyCount: 1,
+      fillWeightedReturnPct: 2.86,
+    });
+
+    expect(p.winRatePct).toBeCloseTo(16.67, 2);
+    expect(msg).toContain('종료 샘플 승률');
+    expect(msg).toContain('16.7% = 2승 / 12종료');
+    expect(msg).toContain('ACTIVE는 종료 샘플 승률 분모에서 제외됩니다.');
+    expect(msg).toContain('🎯 Fill 기준 실현:');
+    expect(msg).toContain('Fill 기준 실현은 sample 승률과 다른 단위입니다.');
+    expect(msg).toContain('📊 전체 샘플: 16/30');
   });
 });
