@@ -270,6 +270,60 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     expect(r[0]!.kisFlow?.forensicInputCarriesActualInvestorRows).toBe(true);
   });
 
+
+
+  it('carries singular actual/semantic investor rows from router selectedCandidate into forensic input', () => {
+    const semanticInvestorRow = {
+      symbol: '005930',
+      provider: 'KIS_API',
+      providerScope: 'SYMBOL_LEVEL',
+      materialized: true,
+      foreignNetBuy: -19034,
+      institutionalNetBuy: 2500,
+      individualNetBuy: 16534,
+      netBuyAmount: null,
+      netBuyVolume: null,
+      sourceFields: { foreign: 'frgn_ntby_tr_pbmn', institutional: 'orgn_ntby_tr_pbmn', individual: 'indv_ntby_tr_pbmn' },
+      rawFieldKeys: ['frgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn', 'indv_ntby_tr_pbmn'],
+      normalizedFieldKeys: ['foreignNetBuy', 'institutionalNetBuy', 'individualNetBuy'],
+      rowCount: 1,
+      investorTypesDetected: [],
+    };
+    const sph = {
+      status: 'VERIFIED',
+      providerName: 'KIS_API',
+      selectedInvestorFlowProvider: 'KIS_API',
+      gate1Severity: 'NONE',
+      reason: [],
+      providerIssue: false,
+      marketSignal: false,
+      actualInvestorRow: { frgn_ntby_tr_pbmn: '-19,034', orgn_ntby_tr_pbmn: '2,500', indv_ntby_tr_pbmn: '16,534' },
+      normalizedInvestorRow: { foreignNetBuy: -19034, institutionNetBuy: 2500, individualNetBuy: 16534 },
+      semanticInvestorRow,
+      supplySemanticRow: semanticInvestorRow,
+      selectedCandidate: {
+        actualInvestorRow: { frgn_ntby_tr_pbmn: '-19,034', orgn_ntby_tr_pbmn: '2,500', indv_ntby_tr_pbmn: '16,534' },
+        normalizedInvestorRow: { foreignNetBuy: -19034, institutionNetBuy: 2500, individualNetBuy: 16534 },
+        semanticInvestorRow,
+        supplySemanticRow: semanticInvestorRow,
+      },
+    } as unknown as SupplyProviderHealthTrace;
+    const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
+      supplyProviderHealth: sph,
+    });
+
+    expect(r[0]!.actualInvestorRow).toMatchObject({ frgn_ntby_tr_pbmn: '-19,034' });
+    expect(r[0]!.normalizedInvestorRow).toMatchObject({ foreignNetBuy: -19034 });
+    expect(r[0]!.semanticInvestorRow).toMatchObject({ foreignNetBuy: -19034 });
+    expect(r[0]!.supplySemanticRow).toMatchObject({ individualNetBuy: 16534 });
+    expect(r[0]!.kisFlow?.actualInvestorRow).toMatchObject({ orgn_ntby_tr_pbmn: '2,500' });
+    expect(r[0]!.kisFlow?.semanticInvestorRow).toMatchObject({ institutionalNetBuy: 2500 });
+    expect(r[0]!.kisFlow?.forensicInputCarriesSemanticRow).toBe(true);
+    expect(r[0]!.kisFlow?.forensicInputCarriesActualInvestorRows).toBe(true);
+  });
+
+
   it('supplyProviderHealth 부재 시 supplyProviderHealth 키 미포함', () => {
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
