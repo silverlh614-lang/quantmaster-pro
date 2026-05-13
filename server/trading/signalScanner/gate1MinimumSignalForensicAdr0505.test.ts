@@ -4,7 +4,7 @@
  * 사용자 명시 10 mandatory cases + 핵심 불변식 정적 가드 (executionImpact NONE /
  * liveExecutionAllowed false / SHADOW_ONLY literal type / KIS 주문 import 0).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildGate1MinimumSignalForensicAuditAdr0505,
   buildGate1MinimumSignalForensicSummaryAdr0505,
@@ -22,6 +22,12 @@ import type {
 } from './minimumSignalScoreTrace.js';
 import { projectGateOutputsToConditionResultsTrace, conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 import { extractInvestorFlowSemanticFields, evaluateInvestorFlowSemanticAvailabilityV2, unwrapInvestorFlowRows } from '../../supply/investorFlowSemanticAvailability.js';
+import { clearSupplyBySymbolPayloadSnapshotsForTest, rememberSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
+
+beforeEach(() => {
+  clearSupplyBySymbolPayloadSnapshotsForTest();
+
+});
 
 function makeComponent(
   code: SignalScoreComponentCode,
@@ -1219,8 +1225,124 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
       sellOnlyCarryBreakPoint: 'CARRIED_TO_FORENSIC',
     });
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([forensicDropped]);
-    expect(forensicDropped.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('MERGED_BUT_FORENSIC_DROPPED');
-    expect(summary.sellOnlyCarryBreakPointDistribution?.MERGED_BUT_FORENSIC_DROPPED).toBe(1);
+    expect(forensicDropped.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED');
+    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED).toBe(1);
+  });
+
+  it('persists sanitized bySymbol payload snapshots and looks them up for SELL_ONLY candidates', () => {
+    const snapshot = rememberSupplyBySymbolPayloadSnapshot({
+      tradeDate: '2026-05-13',
+      capturedAt: '2026-05-13T01:00:00.000Z',
+      routeResult: {
+        selectedProvider: 'KIS_API',
+        bySymbol: {
+          '005930': {
+            code: '005930',
+            providerScope: 'SYMBOL_LEVEL',
+            actualInvestorRow: { frgn_ntby_qty: '100', appsecret: 'do-not-persist' },
+            actualInvestorFlowRows: [{ frgn_ntby_qty: '100', orgn_ntby_qty: '200', accountNo: 'private' }],
+            actualInvestorFlowFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty', 'appsecret'],
+            actualInvestorFlowNumericStringKeys: ['frgn_ntby_qty', 'orgn_ntby_qty'],
+            actualInvestorFlowCarried: true,
+            selectedCandidate: { appsecret: 'raw-selected-candidate-not-allowed' },
+          },
+        },
+      },
+    });
+
+    expect(JSON.stringify(snapshot)).not.toContain('appsecret');
+    expect(JSON.stringify(snapshot)).not.toContain('accountNo');
+    expect(JSON.stringify(snapshot)).not.toContain('selectedCandidate');
+
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      tradeDate: '2026-05-13',
+      now: '2026-05-13T01:05:00.000Z',
+      maxAgeMinutes: 60,
+      gate1CandidateTraces: [{
+        symbol: '005930',
+        regime: 'R2_BULL',
+        marketSession: 'SELL_ONLY',
+        gate1Passed: false,
+        hardFailCount: 0,
+        softFailCount: 0,
+        diagnosticOnlyCount: 1,
+        conditions: [],
+        wouldPassIfProviderIssueSoftened: false,
+        wouldPassIfSupplySampleIgnored: false,
+        wouldPassIfSectorEnergyIgnored: false,
+        wouldPassIfTimeWindowIgnored: true,
+        minSignalScoreTrace: makeTrace({ symbol: '005930' }),
+        executionImpact: 'NONE',
+      }],
+      candidateTraces: [{
+        symbol: '005930',
+        stageReached: 'WATCHLIST',
+        marketSession: 'SELL_ONLY',
+        blockers: [],
+        executionImpact: 'NONE',
+      }],
+      supplyRouterResult: { bySymbol: {} },
+    });
+
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
+    expect(inputs[0].actualInvestorFlowRows).toHaveLength(1);
+    expect(inputs[0].actualInvestorFlowRows?.[0]).toMatchObject({ frgn_ntby_qty: '100', orgn_ntby_qty: '200' });
+  });
+
+  it('marks stale bySymbol payload snapshots SHADOW_ONLY without merging them as carried rows', () => {
+    rememberSupplyBySymbolPayloadSnapshot({
+      tradeDate: '2026-05-12',
+      capturedAt: '2026-05-12T01:00:00.000Z',
+      routeResult: {
+        selectedProvider: 'KIS_API',
+        bySymbol: {
+          '000660': {
+            code: '000660',
+            providerScope: 'SYMBOL_LEVEL',
+            actualInvestorFlowRows: [{ frgn_ntby_qty: '10' }],
+            actualInvestorFlowCarried: true,
+          },
+        },
+      },
+    });
+
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      tradeDate: '2026-05-13',
+      now: '2026-05-13T03:00:00.000Z',
+      maxAgeMinutes: 60,
+      gate1CandidateTraces: [{
+        symbol: '000660',
+        regime: 'R2_BULL',
+        marketSession: 'SELL_ONLY',
+        gate1Passed: false,
+        hardFailCount: 0,
+        softFailCount: 0,
+        diagnosticOnlyCount: 1,
+        conditions: [],
+        wouldPassIfProviderIssueSoftened: false,
+        wouldPassIfSupplySampleIgnored: false,
+        wouldPassIfSectorEnergyIgnored: false,
+        wouldPassIfTimeWindowIgnored: true,
+        minSignalScoreTrace: makeTrace({ symbol: '000660' }),
+        executionImpact: 'NONE',
+      }],
+      candidateTraces: [{
+        symbol: '000660',
+        stageReached: 'WATCHLIST',
+        marketSession: 'SELL_ONLY',
+        blockers: [],
+        executionImpact: 'NONE',
+      }],
+      supplyRouterResult: { bySymbol: {} },
+    });
+
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(false);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_STALE');
+    expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.scoreUsage).toBe('SHADOW_ONLY');
+    expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.liveExecutionAllowed).toBe(false);
   });
 
 });

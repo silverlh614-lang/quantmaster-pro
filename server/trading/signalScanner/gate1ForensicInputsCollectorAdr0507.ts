@@ -19,6 +19,7 @@ import { conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
 import type { SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
 import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath } from './gate1MinimumSignalForensicAuditAdr0505.js';
+import { lookupSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -42,6 +43,10 @@ export interface CollectGate1ForensicInputsInput {
   supplyProviderHealth?: SupplyProviderHealthTrace;
   /** Diagnostic-only supply router snapshot carrying bySymbol payloads. */
   supplyRouterResult?: { bySymbol?: Record<string, Record<string, unknown>> } | Record<string, unknown>;
+  /** Diagnostic cache freshness guard for bySymbol snapshot lookup. */
+  tradeDate?: string;
+  now?: string;
+  maxAgeMinutes?: number;
 }
 
 /* ───────── 핵심 SSOT — collectGate1ForensicInputs ───────── */
@@ -97,10 +102,20 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
             ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
             : 'UNKNOWN';
     const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
-    const bySymbolPayload = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT')
+    const directBySymbolPayload = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT')
       ? bySymbolPayloadForCandidateAdr0507(routerBySymbol, candidate, t.symbol)
       : undefined;
-    const healthRecord = mergeActualRowCarryAdr0507(health as Record<string, unknown> | undefined, bySymbolPayload);
+    const cachedBySymbolLookup = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') && !directBySymbolPayload
+      ? lookupSupplyBySymbolPayloadSnapshot({
+          symbol: candidate?.symbol ?? t.symbol,
+          tradeDate: input.tradeDate,
+          now: input.now,
+          maxAgeMinutes: input.maxAgeMinutes,
+        })
+      : undefined;
+    const bySymbolPayload = (directBySymbolPayload ?? cachedBySymbolLookup?.payload ?? undefined) as Record<string, unknown> | undefined;
+    const bySymbolPayloadStale = Boolean(cachedBySymbolLookup?.payload && cachedBySymbolLookup.stale);
+    const healthRecord = mergeActualRowCarryAdr0507(health as Record<string, unknown> | undefined, bySymbolPayload, bySymbolPayloadStale);
     const selectedCandidateRecord = healthRecord?.selectedCandidate && typeof healthRecord.selectedCandidate === 'object'
       ? healthRecord.selectedCandidate as Record<string, unknown>
       : undefined;
@@ -206,12 +221,14 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
       ...(sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' ? {
         sellOnlyBySymbolPayloadAvailable: Boolean(bySymbolPayload),
-        sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && (actualInvestorFlowRows?.length ?? 0) > 0),
+        sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && !bySymbolPayloadStale && (actualInvestorFlowRows?.length ?? 0) > 0),
         sellOnlyCarryBreakPoint: !bySymbolPayload
           ? 'BYSYMBOL_PAYLOAD_MISSING'
-          : (actualInvestorFlowRows?.length ?? 0) > 0
-            ? 'CARRIED_TO_FORENSIC'
-            : 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED',
+          : bySymbolPayloadStale
+            ? 'BYSYMBOL_PAYLOAD_STALE'
+            : (actualInvestorFlowRows?.length ?? 0) > 0
+              ? 'CARRIED_TO_FORENSIC'
+              : 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED',
       } : {}),
       ...(kisFlow ? { kisFlow } : {}),
     };
@@ -265,6 +282,7 @@ function bySymbolPayloadForCandidateAdr0507(
 function mergeActualRowCarryAdr0507(
   base: Record<string, unknown> | undefined,
   payload: Record<string, unknown> | undefined,
+  stale = false,
 ): Record<string, unknown> | undefined {
   if (!payload) return base;
   const selectedCandidate = base?.selectedCandidate && typeof base.selectedCandidate === 'object'
@@ -287,7 +305,11 @@ function mergeActualRowCarryAdr0507(
     actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys ?? payload.selectedActualRowFieldKeys ?? base?.actualInvestorFlowFieldKeys,
     actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? base?.actualInvestorFlowNumericKeys,
     actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? base?.actualInvestorFlowNumericStringKeys,
-    actualInvestorFlowCarried: payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? base?.actualInvestorFlowCarried,
+    actualInvestorFlowCarried: stale ? false : (payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? base?.actualInvestorFlowCarried),
+    diagnosticAvailable: true,
+    scoreUsage: 'SHADOW_ONLY',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
     selectedCandidate: {
       ...selectedCandidate,
       ...(payload.selectedCandidate && typeof payload.selectedCandidate === 'object' ? payload.selectedCandidate as Record<string, unknown> : {}),
@@ -301,7 +323,7 @@ function mergeActualRowCarryAdr0507(
       actualInvestorFlowFieldKeys: payload.actualInvestorFlowFieldKeys ?? payload.selectedActualRowFieldKeys ?? selectedCandidate.actualInvestorFlowFieldKeys,
       actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? selectedCandidate.actualInvestorFlowNumericKeys,
       actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? selectedCandidate.actualInvestorFlowNumericStringKeys,
-      actualInvestorFlowCarried: payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? selectedCandidate.actualInvestorFlowCarried,
+      actualInvestorFlowCarried: stale ? false : (payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? selectedCandidate.actualInvestorFlowCarried),
     },
   };
 }

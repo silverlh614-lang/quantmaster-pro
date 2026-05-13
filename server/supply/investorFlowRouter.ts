@@ -44,6 +44,7 @@ import {
 } from './krxInvestorFlowParserDiagnostic.js';
 import { fetchKisInvestorFlowEvidence } from './kisInvestorFlowEvidence.js';
 import type { SanitizedInvestorFlowSemanticRow } from './investorFlowSemanticAvailability.js';
+import { rememberSupplyBySymbolPayloadSnapshot } from './investorFlowBySymbolPayloadSnapshot.js';
 
 export interface InvestorFlowSample {
   stockCode: string;
@@ -144,6 +145,18 @@ function normalizeCode(code: string): string {
 function bySymbolPayload(data: InvestorFlowSample | null): Record<string, InvestorFlowSample> {
   if (!data?.stockCode) return {};
   return { [normalizeCode(data.stockCode)]: data };
+}
+
+function persistBySymbolPayloadSnapshot(result: InvestorFlowRouteResult, now: Date): InvestorFlowRouteResult {
+  rememberSupplyBySymbolPayloadSnapshot({
+    routeResult: {
+      selectedProvider: result.source ?? 'UNKNOWN',
+      bySymbol: result.bySymbol as unknown as Record<string, Record<string, unknown>>,
+    },
+    tradeDate: toKstDateYmd(now),
+    capturedAt: now.toISOString(),
+  });
+  return result;
 }
 
 function nowKstParts(now = new Date()): { dow: number; minutes: number; label: string } {
@@ -538,7 +551,7 @@ export async function fetchInvestorFlowWithPolicy(
         });
         health.push(composite);
         rememberInvestorFlowProviderHealth(health);
-        return {
+        return persistBySymbolPayloadSnapshot({
           stockCode: code,
           data: kis.data,
           bySymbol: bySymbolPayload(kis.data),
@@ -546,7 +559,7 @@ export async function fetchInvestorFlowWithPolicy(
           health,
           status: 'OK',
           source: 'KIS_API',
-        };
+        }, now);
       }
     } else {
       pushAttempt(
@@ -620,7 +633,7 @@ export async function fetchInvestorFlowWithPolicy(
       });
       health.push(composite);
       rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: krx.data, bySymbol: bySymbolPayload(krx.data), attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
+      return persistBySymbolPayloadSnapshot({ stockCode: code, data: krx.data, bySymbol: bySymbolPayload(krx.data), attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' }, now);
     }
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.health.status === 'DISABLED_BY_KIS_FIRST_MODE' ? 'DISABLED_BY_KIS_FIRST_MODE' : krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
@@ -667,7 +680,7 @@ export async function fetchInvestorFlowWithPolicy(
       });
       health.push(naverHealth, composite);
       rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: naver, bySymbol: bySymbolPayload(naver), attempts, health, status: 'OK', source: 'NAVER_INVESTOR_TREND' };
+      return persistBySymbolPayloadSnapshot({ stockCode: code, data: naver, bySymbol: bySymbolPayload(naver), attempts, health, status: 'OK', source: 'NAVER_INVESTOR_TREND' }, now);
     }
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',
@@ -722,7 +735,7 @@ export async function fetchInvestorFlowWithPolicy(
       });
       health.push(cacheHealth, composite);
       rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: cached, bySymbol: bySymbolPayload(cached), attempts, health, status: 'OK', source: 'CACHE' };
+      return persistBySymbolPayloadSnapshot({ stockCode: code, data: cached, bySymbol: bySymbolPayload(cached), attempts, health, status: 'OK', source: 'CACHE' }, now);
     }
     health.push(makeInvestorFlowProviderHealth({
       provider: 'CACHE',

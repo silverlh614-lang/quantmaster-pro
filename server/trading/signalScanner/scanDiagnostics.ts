@@ -247,6 +247,7 @@ import {
 } from './supplySnapshotStoreReplayAdr0491.js';
 import { previousTradingDateCandidateAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 import { fetchKisInvestorFlowEvidence } from '../../supply/kisInvestorFlowEvidence.js';
+import { rememberSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
 import type { GateLayerSummary } from '../../quantFilter.js';
 import {
   fetchInvestorTrading,
@@ -2904,6 +2905,11 @@ export async function persistScanResults(
       supplySnapshotCacheLookupAdr0491,
     });
     summaryDraft.investorFlowProviderRouter = investorFlowProviderRouter;
+    rememberSupplyBySymbolPayloadSnapshot({
+      routeResult: investorFlowProviderRouter as unknown as { selectedProvider?: string; bySymbol?: Record<string, Record<string, unknown>> },
+      tradeDate: kstNow.toISOString().slice(0, 10),
+      capturedAt: kstNow.toISOString(),
+    });
     summaryDraft.supplySourceFreshnessAdr0483 = buildSupplySourceFreshnessReportAdr0483({
       now: kstNow,
       sources: [
@@ -3135,6 +3141,8 @@ export async function persistScanResults(
             candidateTraces: summaryDraft.entryFilterDecomposition?.candidateTraces,
             supplyProviderHealth: summaryDraft.entryFilterDecomposition?.supplyProviderHealth,
             supplyRouterResult: summaryDraft.investorFlowProviderRouter,
+            tradeDate: kstNow.toISOString().slice(0, 10),
+            now: kstNow.toISOString(),
           });
     if (
       !isGate1MinimumSignalForensicAuditDisabled() &&
