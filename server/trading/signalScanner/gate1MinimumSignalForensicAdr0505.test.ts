@@ -534,6 +534,78 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(fields.rowMappingConfidence).toBe('HIGH');
     });
 
+
+
+    it('KIS frgn/orgn numeric string 필드를 표준 net-buy로 normalize하고 field-key diagnostic을 남긴다', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: { symbol: '005930', frgn_ntby_tr_pbmn: '1,234', orgn_ntby_tr_pbmn: '-2,000', indv_ntby_tr_pbmn: '766' },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(true);
+      expect(result.reason).toBe('AVAILABLE');
+      expect(result.foreignNetBuy).toBe(1234);
+      expect(result.institutionalNetBuy).toBe(-2000);
+      expect(result.individualNetBuy).toBe(766);
+      expect(result.fieldKeyDiagnostics?.kisRawFieldKeysTop).toContain('frgn_ntby_tr_pbmn');
+      expect(result.fieldKeyDiagnostics?.kisNormalizedFieldKeysTop).toContain('foreignNetBuy');
+      expect(result.fieldKeyDiagnostics?.sampleValueKinds.numericString).toBeGreaterThanOrEqual(3);
+      expect(result.fieldKeyDiagnostics?.candidateMappedFields.foreign).toContain('frgn_ntby_tr_pbmn');
+      expect(result.fieldKeyDiagnostics?.candidateMappedFields.institution).toContain('orgn_ntby_tr_pbmn');
+    });
+
+    it('직접 netBuy가 없고 buy/sell pair가 있으면 foreign/institution/individual netBuy를 계산한다', () => {
+      const result = evaluateInvestorFlowSemanticAvailabilityV2({
+        flow: {
+          symbol: '005930',
+          foreignBuy: '2,500',
+          foreignSell: '1,000',
+          institutionBuy: 700,
+          institutionSell: '1,200',
+          individualBuy: '0',
+          individualSell: '0',
+        },
+        symbolMatched: true,
+        providerScope: 'SYMBOL_LEVEL',
+      });
+      expect(result.available).toBe(true);
+      expect(result.foreignNetBuy).toBe(1500);
+      expect(result.institutionalNetBuy).toBe(-500);
+      expect(result.individualNetBuy).toBe(0);
+      expect(result.sourceFields.foreignNetBuy).toBe('foreignBuy-foreignSell');
+    });
+
+    it('row array invrDvsn/trdVolType와 netBuyVolume을 investor type별로 매핑한다', () => {
+      const fields = extractInvestorFlowSemanticFields({
+        output: [
+          { invrDvsn: 'FRGN', netBuyVolume: '+1,000' },
+          { trdVolType: 'INSTITUTION', netBuyVolume: '-250' },
+        ],
+      });
+      expect(fields.foreignNetBuy).toBe(1000);
+      expect(fields.institutionalNetBuy).toBe(-250);
+      expect(fields.rowMappingConfidence).toBe('HIGH');
+    });
+
+    it('/scan_blockers supply diagnostic에 raw key top과 mapped field distribution이 표시된다', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({
+          components: [makeComponent('SUPPLY_CONFLUENCE', { weightedScore: -2, penaltyApplied: true, confidence: 'UNKNOWN' })],
+        }),
+        kisFlow: { symbol: '005930', providerScope: 'SYMBOL_LEVEL', selectedProvider: 'KIS_API', frgn_ntby_tr_pbmn: '1', orgn_ntby_tr_pbmn: '2' },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+      const out = formatGate1MinimumSignalForensicSection(summary)!;
+      expect(summary.supplyRouterForensicConflict).toBe(false);
+      expect(summary.foreignNetBuyAvailable).toBe(1);
+      expect(summary.institutionalNetBuyAvailable).toBe(1);
+      expect(summary.semanticReasonDistribution?.NO_FOREIGN_OR_INSTITUTION_FIELD).toBe(0);
+      expect(summary.kisRawFieldKeysTop?.frgn_ntby_tr_pbmn).toBe(1);
+      expect(summary.mappedFieldDistribution?.foreign.frgn_ntby_tr_pbmn).toBe(1);
+      expect(out).toContain('kisRawFieldKeysTop');
+      expect(out).toContain('mappedFieldDistribution');
+    });
+
     it('symbolMatched=false면 semanticAvailable=false', () => {
       const result = evaluateInvestorFlowSemanticAvailabilityV2({
         flow: { foreignNetBuy: 10 },
@@ -569,7 +641,7 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       const out = formatGate1MinimumSignalForensicSection(summary)!;
       expect(out).toContain('supplySemantic: available=0/1 diagnosticAvailable=1/1');
       expect(out).toContain('supplyUnknownRootCause');
-      expect(out).toContain('nextAction: WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS');
+      expect(out).toContain('nextAction: MAP_KIS_NETBUY_FIELDS');
     });
 
     it('/scan_blockers supply에 Supply Semantic Audit 섹션 wiring이 존재한다', () => {
@@ -581,6 +653,8 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(src).toContain('🔌 Supply Semantic Audit (ADR-0482)');
       expect(src).toContain('marketSignal=false');
       expect(src).toContain('executionImpact=NONE');
+      expect(src).toContain('kisRawFieldKeysTop');
+      expect(src).toContain('mappedFieldDistribution');
     });
   });
 

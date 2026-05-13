@@ -715,7 +715,7 @@ const scanBlockers: TelegramCommand = {
           .map(([usage]) => usage)
           .join(',') || 'SHADOW_ONLY';
         const nextAction = reasonTop.includes('NO_FOREIGN_OR_INSTITUTION_FIELD')
-          ? 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS'
+          ? 'MAP_KIS_NETBUY_FIELDS'
           : reasonTop.includes('ROW_MAPPING_FAILED')
             ? 'MAP_INVESTOR_TYPE_ROWS_TO_NETBUY'
             : reasonTop.includes('ONLY_MARKET_LEVEL_FLOW') || reasonTop.includes('ONLY_SECTOR_LEVEL_FLOW')
@@ -732,6 +732,8 @@ const scanBlockers: TelegramCommand = {
           `• foreignNetBuy: ${forensic.foreignNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
           `• institutionalNetBuy: ${forensic.institutionalNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
           `• reasonTop: ${reasonTop}`,
+          `• kisRawFieldKeysTop: ${Object.entries(forensic.kisRawFieldKeysTop ?? {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 8).map(([key, count]) => `${key}=${count}`).join(', ') || 'none'}`,
+          `• mappedFieldDistribution: foreign=${Object.entries(forensic.mappedFieldDistribution?.foreign ?? {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(', ') || 'none'} institution=${Object.entries(forensic.mappedFieldDistribution?.institution ?? {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(', ') || 'none'}`,
           `• scoreUsage: ${scoreUsage}`,
           '• marketSignal=false',
           '• executionImpact=NONE',
