@@ -43,6 +43,7 @@ import {
   toKrxParserKstIso,
 } from './krxInvestorFlowParserDiagnostic.js';
 import { fetchKisInvestorFlowEvidence } from './kisInvestorFlowEvidence.js';
+import type { SanitizedInvestorFlowSemanticRow } from './investorFlowSemanticAvailability.js';
 
 export interface InvestorFlowSample {
   stockCode: string;
@@ -52,6 +53,17 @@ export interface InvestorFlowSample {
   provider: Extract<SupplyProvider, 'KRX_INVESTOR_FLOW' | 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'CACHE'>;
   fetchedAt: string;
   tradingDate?: string;
+  actualInvestorRow?: Record<string, unknown> | null;
+  normalizedInvestorRow?: Record<string, unknown> | null;
+  semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
+  supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
+  actualInvestorFlowRows?: Array<Record<string, unknown>>;
+  actualInvestorFlowRowCount?: number;
+  actualInvestorFlowRowSourcePath?: string | null;
+  actualInvestorFlowFieldKeys?: string[];
+  actualInvestorFlowNumericKeys?: string[];
+  actualInvestorFlowNumericStringKeys?: string[];
+  actualInvestorFlowCarried?: boolean;
 }
 
 export type InvestorFlowAttemptStatus =
@@ -75,6 +87,7 @@ export interface InvestorFlowAttempt {
 export interface InvestorFlowRouteResult {
   stockCode: string;
   data: InvestorFlowSample | null;
+  bySymbol: Record<string, InvestorFlowSample>;
   attempts: InvestorFlowAttempt[];
   health: InvestorFlowProviderHealth[];
   status: 'OK' | 'PROVIDER_MISMATCH' | 'PROVIDER_UNAVAILABLE' | 'CACHE_EMPTY';
@@ -126,6 +139,11 @@ function disabledKrxInvestorFlowReason(): string {
 function normalizeCode(code: string): string {
   const digits = code.replace(/[^0-9]/g, '');
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
+}
+
+function bySymbolPayload(data: InvestorFlowSample | null): Record<string, InvestorFlowSample> {
+  if (!data?.stockCode) return {};
+  return { [normalizeCode(data.stockCode)]: data };
 }
 
 function nowKstParts(now = new Date()): { dow: number; minutes: number; label: string } {
@@ -523,6 +541,7 @@ export async function fetchInvestorFlowWithPolicy(
         return {
           stockCode: code,
           data: kis.data,
+          bySymbol: bySymbolPayload(kis.data),
           attempts,
           health,
           status: 'OK',
@@ -601,7 +620,7 @@ export async function fetchInvestorFlowWithPolicy(
       });
       health.push(composite);
       rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: krx.data, attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
+      return { stockCode: code, data: krx.data, bySymbol: bySymbolPayload(krx.data), attempts, health, status: 'OK', source: 'KRX_INVESTOR_FLOW' };
     }
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.health.status === 'DISABLED_BY_KIS_FIRST_MODE' ? 'DISABLED_BY_KIS_FIRST_MODE' : krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
@@ -648,7 +667,7 @@ export async function fetchInvestorFlowWithPolicy(
       });
       health.push(naverHealth, composite);
       rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: naver, attempts, health, status: 'OK', source: 'NAVER_INVESTOR_TREND' };
+      return { stockCode: code, data: naver, bySymbol: bySymbolPayload(naver), attempts, health, status: 'OK', source: 'NAVER_INVESTOR_TREND' };
     }
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',
@@ -703,7 +722,7 @@ export async function fetchInvestorFlowWithPolicy(
       });
       health.push(cacheHealth, composite);
       rememberInvestorFlowProviderHealth(health);
-      return { stockCode: code, data: cached, attempts, health, status: 'OK', source: 'CACHE' };
+      return { stockCode: code, data: cached, bySymbol: bySymbolPayload(cached), attempts, health, status: 'OK', source: 'CACHE' };
     }
     health.push(makeInvestorFlowProviderHealth({
       provider: 'CACHE',
@@ -743,6 +762,7 @@ export async function fetchInvestorFlowWithPolicy(
   return {
     stockCode: code,
     data: null,
+    bySymbol: {},
     attempts,
     health,
     status: hasHardProviderError ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_MISMATCH',

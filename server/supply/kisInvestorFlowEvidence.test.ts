@@ -169,4 +169,43 @@ describe('KIS official investor-flow evidence adapter', () => {
     expect(result.executionImpact).toBe('NONE');
   }, 15_000);
 
+  it('carries KIS actual, normalized, and semantic rows in adapter evidence data', async () => {
+    process.env.KIS_INVESTOR_FLOW_PROMOTION_STAGE = 'WEIGHTED';
+    const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
+    setKisClientOverrides({
+      fetchKisInvestorTradeByStockDaily: async () => ({
+        stockCode: '005930',
+        tradingDate: '2026-05-08',
+        foreignNetBuy: -19034,
+        institutionalNetBuy: 2500,
+        individualNetBuy: 16534,
+        source: 'KIS_API',
+        fetchedAt: '2026-05-11T09:30:00.000Z',
+        actualInvestorFlowRowCarrier: {
+          provider: 'KIS_API',
+          requestSymbol: '005930',
+          normalizedSymbol: '005930',
+          providerScope: 'SYMBOL_LEVEL',
+          actualRows: [{ frgn_ntby_tr_pbmn: '-19,034', orgn_ntby_tr_pbmn: '2,500', indv_ntby_tr_pbmn: '16,534' }],
+          rowSourcePath: 'output2[0]',
+          rawFieldKeys: ['frgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn', 'indv_ntby_tr_pbmn'],
+          numericStringFieldKeys: ['frgn_ntby_tr_pbmn', 'orgn_ntby_tr_pbmn', 'indv_ntby_tr_pbmn'],
+          numberFieldKeys: [],
+          placeholderFieldKeys: [],
+          carriedAt: '2026-05-11T09:30:00.000Z',
+        },
+      }),
+    });
+    const { fetchKisInvestorFlowEvidence } = await import('./kisInvestorFlowEvidence.js');
+
+    const result = await fetchKisInvestorFlowEvidence('005930', new Date('2026-05-11T09:30:00.000Z'));
+
+    expect(result.data?.actualInvestorRow).toMatchObject({ frgn_ntby_tr_pbmn: '-19,034' });
+    expect(result.data?.normalizedInvestorRow).toMatchObject({ foreignNetBuy: -19034, institutionNetBuy: 2500, individualNetBuy: 16534 });
+    expect(result.data?.semanticInvestorRow).toMatchObject({ foreignNetBuy: -19034, institutionalNetBuy: 2500, individualNetBuy: 16534 });
+    expect(result.data?.supplySemanticRow).toMatchObject({ foreignNetBuy: -19034, institutionalNetBuy: 2500 });
+    expect(result.data?.actualInvestorFlowRows).toHaveLength(1);
+    expect(result.data?.actualInvestorFlowCarried).toBe(true);
+  }, 15_000);
+
 });

@@ -54,6 +54,19 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
         individualNetBuy: -300,
         source: 'KIS_API',
         fetchedAt: '2026-05-11T09:30:00.000Z',
+        actualInvestorFlowRowCarrier: {
+          provider: 'KIS_API',
+          requestSymbol: '005930',
+          normalizedSymbol: '005930',
+          providerScope: 'SYMBOL_LEVEL',
+          actualRows: [{ frgn_ntby_qty: '100', orgn_ntby_qty: '200', prsn_ntby_qty: '-300' }],
+          rowSourcePath: 'output2[0]',
+          rawFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty'],
+          numericStringFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty'],
+          numberFieldKeys: [],
+          placeholderFieldKeys: [],
+          carriedAt: '2026-05-11T09:30:00.000Z',
+        },
       }),
     });
     const { fetchInvestorFlowWithPolicy } = await import('./investorFlowRouter.js');
@@ -63,6 +76,11 @@ describe('InvestorFlowRouter KIS official evidence wiring', () => {
     expect(result.source).toBe('KIS_API');
     expect(result.status).toBe('OK');
     expect(result.data?.provider).toBe('KIS_API');
+    expect(result.bySymbol['005930']?.actualInvestorRow).toMatchObject({ frgn_ntby_qty: '100' });
+    expect(result.bySymbol['005930']?.normalizedInvestorRow).toMatchObject({ foreignNetBuy: 100, institutionNetBuy: 200 });
+    expect(result.bySymbol['005930']?.semanticInvestorRow).toMatchObject({ foreignNetBuy: 100, institutionalNetBuy: 200 });
+    expect(result.bySymbol['005930']?.supplySemanticRow).toMatchObject({ individualNetBuy: -300 });
+    expect(result.bySymbol['005930']?.actualInvestorFlowRows).toHaveLength(1);
     expect(result.attempts).toEqual(expect.arrayContaining([
       expect.objectContaining({ provider: 'KIS_API', status: 'OK' }),
     ]));
