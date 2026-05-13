@@ -30,6 +30,7 @@ import type {
 } from './entryFilterDecomposition.js';
 import type { SectorEnergyExecutionImpactResult } from '../../clients/sectorEnergyExecutionImpact.js';
 import { resolveWatchlistUpstreamScore } from './watchlistUpstreamScoreResolver.js';
+import { conditionResultsTraceToMap, type GateConditionResultTrace } from './gateConditionResultTrace.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -175,6 +176,8 @@ export type QuoteHydrationBreakPointAdr0510 =
   | 'UNKNOWN';
 
 export type ConditionResultsBreakPointAdr0510 =
+  | 'NONE'
+  | 'CONDITION_RESULTS_PROJECTED'
   | 'EVALUATE_SERVER_GATE_NOT_CALLED'
   | 'GATE_OUTPUTS_NOT_COPIED'
   | 'CONDITION_RESULTS_NOT_PROJECTED'
@@ -346,10 +349,12 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   conditionResultsKeyCoverage?: Record<string, number>;
   conditionResultStatusDistribution?: Record<string, number>;
   breakoutConditionKeyCoverage?: Record<string, number>;
+  breakoutConditionStatusDistribution?: Record<string, number>;
   rsTraceAvailableCount?: number;
   rsScoreUsableCount?: number;
   rsMissingFieldsTop?: string[];
   rsSourceDistribution?: Record<RsHydrationSourceAdr0509, number>;
+  rsConditionStatusDistribution?: Record<string, number>;
   breakoutTraceAvailableCount?: number;
   breakoutScoreUsableCount?: number;
   breakoutMissingFieldsTop?: string[];
@@ -430,6 +435,9 @@ const MISSING_CONFIDENCE: ReadonlySet<SignalScoreComponentConfidence> = new Set(
 export interface BuildGate1MinimumSignalForensicInput {
   trace: MinimumSignalScoreTrace;
   candidate?: CandidateEntryTrace;
+  conditionResultsTrace?: GateConditionResultTrace[];
+  conditionResults?: Record<string, unknown>;
+  conditionKeys?: string[];
   supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
   supplyConfluence?: SupplyConfluenceState;
   kisFlow?: {
@@ -496,7 +504,16 @@ export function resolveGate1EvaluationStateAdr0510(input: {
 export function buildGate1MinimumSignalForensicAuditAdr0505(
   input: BuildGate1MinimumSignalForensicInput,
 ): Gate1MinimumSignalForensicAuditAdr0505 {
-  const { trace, candidate, supplyProviderHealth, kisFlow, quoteSymbol, sectorEnergyImpact } = input;
+  const { trace, supplyProviderHealth, kisFlow, quoteSymbol, sectorEnergyImpact } = input;
+  const projectedConditionResults = input.conditionResults ?? conditionResultsTraceToMap(input.conditionResultsTrace);
+  const candidate = input.candidate && (projectedConditionResults || input.conditionResultsTrace || input.conditionKeys)
+    ? {
+        ...input.candidate,
+        ...(input.conditionResultsTrace ? { conditionResultsTrace: input.conditionResultsTrace } : {}),
+        ...(projectedConditionResults ? { conditionResults: projectedConditionResults } : {}),
+        ...(input.conditionKeys ? { conditionKeys: input.conditionKeys } : {}),
+      } satisfies CandidateEntryTrace
+    : input.candidate;
 
   // 1) 컴포넌트 분류 — positive vs penalty
   const positiveComponents: Record<string, ComponentForensicDetail> = {};
@@ -625,9 +642,12 @@ function resolveQuoteHydrationBreakPoint(candidate: CandidateEntryTrace | undefi
 function resolveConditionResultsBreakPoint(candidate: CandidateEntryTrace | undefined, sourcePath: Gate1ForensicTraceSourcePath): ConditionResultsBreakPointAdr0510 {
   if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') return 'SELL_ONLY_SKIPPED_GATE_EVALUATION';
   if (sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') return 'PRECHECK_ONLY_TRACE';
+  const record = candidate as unknown as Record<string, unknown> | undefined;
+  const hasResults = Boolean(record?.conditionResults && typeof record.conditionResults === 'object')
+    || Boolean(Array.isArray(record?.conditionResultsTrace) && record?.conditionResultsTrace.length > 0);
+  if (hasResults) return 'CONDITION_RESULTS_PROJECTED';
   if (!candidate?.gate1Trace) return 'EVALUATE_SERVER_GATE_NOT_CALLED';
-  if (!candidate.conditionResults) return 'CONDITION_RESULTS_NOT_PROJECTED';
-  return 'UNKNOWN';
+  return 'CONDITION_RESULTS_NOT_PROJECTED';
 }
 
 function bump<K extends string>(record: Record<K, number>, key: K): void {
@@ -710,6 +730,9 @@ function computeDominantFailureReason(input: {
 function buildSupplyScopeAudit(input: {
   trace: MinimumSignalScoreTrace;
   candidate?: CandidateEntryTrace;
+  conditionResultsTrace?: GateConditionResultTrace[];
+  conditionResults?: Record<string, unknown>;
+  conditionKeys?: string[];
   supplyProviderHealth?: Partial<SupplyProviderHealthTrace>;
   kisFlow?: BuildGate1MinimumSignalForensicInput['kisFlow'];
   quoteSymbol?: string | null;
@@ -915,7 +938,10 @@ function numericValue(value: unknown): number | undefined {
 }
 
 function conditionRecord(candidate: CandidateEntryTrace, key: string): Record<string, unknown> | undefined {
-  const results = (candidate as unknown as Record<string, unknown>).conditionResults;
+  const raw = candidate as unknown as Record<string, unknown>;
+  const results = raw.conditionResults && typeof raw.conditionResults === 'object'
+    ? raw.conditionResults
+    : conditionResultsTraceToMap(Array.isArray(raw.conditionResultsTrace) ? raw.conditionResultsTrace as GateConditionResultTrace[] : undefined);
   if (!results || typeof results !== 'object') return undefined;
   const value = (results as Record<string, unknown>)[key];
   return value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
@@ -949,16 +975,16 @@ function hasPositiveConditionScore(candidate: CandidateEntryTrace, key: string):
 }
 
 function classifyRsSource(candidate: CandidateEntryTrace): RsHydrationSourceAdr0509 {
-  if (hasNestedValue(candidate, 'conditionResults.relative_strength')) return 'CONDITION_RESULTS';
+  if (conditionRecord(candidate, 'relative_strength')) return 'CONDITION_RESULTS';
   if (hasNestedValue(candidate, 'quote.return20d') || hasNestedValue(candidate, 'quote.return5d')) return 'QUOTE_RETURN';
-  if (hasAny(candidate, ['relativeReturn20d', 'marketRelativeReturn', 'kospiRelativeReturn'])) return 'EXPLICIT_RELATIVE_RETURN';
   if (hasAny(candidate, ['return20d', 'return5d', 'kospi20dReturn', 'rsRankPct', 'relativeStrengthScore'])) return 'SYMBOL_FEATURES';
+  if (hasAny(candidate, ['relativeReturn20d', 'marketRelativeReturn', 'kospiRelativeReturn'])) return 'EXPLICIT_RELATIVE_RETURN';
   if (hasWatchlistReasonProxy(candidate, /relative|rs|leader|leading|강세|주도주/i)) return 'WATCHLIST_PROXY';
   return 'MISSING';
 }
 
 function classifyBreakoutSource(candidate: CandidateEntryTrace): BreakoutHydrationSourceAdr0509 {
-  if (hasNestedValue(candidate, 'conditionResults.breakout_momentum') || hasNestedValue(candidate, 'conditionResults.turtle_high') || hasNestedValue(candidate, 'conditionResults.volume_breakout') || hasNestedValue(candidate, 'conditionResults.volume_surge') || hasNestedValue(candidate, 'conditionResults.vcp') || hasNestedValue(candidate, 'conditionResults.trend_acceleration')) return 'CONDITION_RESULTS';
+  if ([...BREAKOUT_CONDITION_KEYS].some((key) => conditionRecord(candidate, key))) return 'CONDITION_RESULTS';
   const keys = (candidate as unknown as Record<string, unknown>).conditionKeys;
   if (Array.isArray(keys) && keys.some((key) => BREAKOUT_CONDITION_KEYS.has(String(key)))) return 'CONDITION_KEYS';
   if (hasAny(candidate, ['quote.price', 'quote.currentPrice', 'quote.high5d', 'quote.high20d', 'quote.high60', 'quote.volume', 'quote.avgVolume', 'quote.volumeRatio', 'quote.ma20', 'quote.ma60'])) return 'QUOTE_OHLCV';
@@ -996,7 +1022,7 @@ function buildFeatureHydrationAuditAdr0509(
   const record = candidate as unknown as Record<string, unknown>;
   const candidateTraceHasQuote = Boolean(record.quote && typeof record.quote === 'object');
   const candidateTraceHasSymbolFeatures = Boolean(record.symbolFeatures && typeof record.symbolFeatures === 'object');
-  const candidateTraceHasConditionResults = Boolean(record.conditionResults && typeof record.conditionResults === 'object');
+  const candidateTraceHasConditionResults = Boolean((record.conditionResults && typeof record.conditionResults === 'object') || (Array.isArray(record.conditionResultsTrace) && record.conditionResultsTrace.length > 0));
   const candidateTraceHasSupplyContext = Boolean(record.supplyConfluenceState || record.supplyProviderHealth);
   const resolvedWatchlist = resolveWatchlistUpstreamScore(candidate);
   const candidateTraceHasWatchlistScore = resolvedWatchlist.confidence === 'VERIFIED';
@@ -1016,11 +1042,15 @@ function buildFeatureHydrationAuditAdr0509(
     ...Object.keys(conditionKeyStatus).filter((key) => BREAKOUT_CONDITION_KEYS.has(key)),
     ...conditionKeys.filter((key) => BREAKOUT_CONDITION_KEYS.has(key)),
   ].filter((key, index, arr) => arr.indexOf(key) === index);
+  const rsStatus = conditionStatus(candidate, 'relative_strength');
   const rsScoreUsable = rsSource === 'CONDITION_RESULTS'
-    ? conditionStatus(candidate, 'relative_strength') === 'FIRED' || hasConditionNumericScore(candidate, 'relative_strength')
+    ? rsStatus === 'FIRED' || (rsStatus === undefined && hasPositiveConditionScore(candidate, 'relative_strength'))
     : rsAvailable && trace?.components?.some((c) => c.code === 'RELATIVE_STRENGTH' && c.confidence !== 'MISSING') === true;
   const breakoutScoreUsable = breakoutSource === 'CONDITION_RESULTS'
-    ? breakoutConditionKeys.some((key) => conditionStatus(candidate, key) === 'FIRED' || hasPositiveConditionScore(candidate, key))
+    ? breakoutConditionKeys.some((key) => {
+        const status = conditionStatus(candidate, key);
+        return status === 'FIRED' || (status === undefined && hasPositiveConditionScore(candidate, key));
+      })
     : breakoutAvailable && trace?.components?.some((c) => c.code === 'BREAKOUT_STRUCTURE' && c.confidence !== 'MISSING') === true;
   const rsMissingReasons: HydrationMissingReason[] = [];
   const breakoutMissingReasons: HydrationMissingReason[] = [];
@@ -1254,6 +1284,8 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let quoteFeatureAvailableCount = 0;
   const conditionResultsKeyCoverage: Record<string, number> = {};
   const conditionResultStatusDistribution: Record<string, number> = { FIRED: 0, DATA_UNAVAILABLE: 0, THRESHOLD_NOT_MET: 0, PROVIDER_DEGRADED: 0, ERROR: 0 };
+  const rsConditionStatusDistribution: Record<string, number> = {};
+  const breakoutConditionStatusDistribution: Record<string, number> = {};
   let conditionResultsAvailableCount = 0;
   const breakoutConditionKeyCoverage: Record<string, number> = {};
   const rsSourceDistribution: Record<RsHydrationSourceAdr0509, number> = {
@@ -1309,6 +1341,8 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     UNKNOWN: 0,
   };
   const conditionResultsBreakPointDistribution: Record<ConditionResultsBreakPointAdr0510, number> = {
+    NONE: 0,
+    CONDITION_RESULTS_PROJECTED: 0,
     EVALUATE_SERVER_GATE_NOT_CALLED: 0,
     GATE_OUTPUTS_NOT_COPIED: 0,
     CONDITION_RESULTS_NOT_PROJECTED: 0,
@@ -1380,6 +1414,8 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
       conditionResultsKeyCoverage[key] = (conditionResultsKeyCoverage[key] ?? 0) + 1;
       const status = value || 'DATA_UNAVAILABLE';
       conditionResultStatusDistribution[status] = (conditionResultStatusDistribution[status] ?? 0) + 1;
+      if (key === 'relative_strength') rsConditionStatusDistribution[status] = (rsConditionStatusDistribution[status] ?? 0) + 1;
+      if (BREAKOUT_CONDITION_KEYS.has(key)) breakoutConditionStatusDistribution[status] = (breakoutConditionStatusDistribution[status] ?? 0) + 1;
       conditionResultsAvailableCount += 1;
     }
     for (const key of a.hydrationAuditAdr0509?.breakoutConditionKeys ?? []) {
@@ -1457,10 +1493,12 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     rsScoreUsableCount,
     rsMissingFieldsTop: Object.entries(rsMissingFieldCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([field]) => field),
     rsSourceDistribution,
+    rsConditionStatusDistribution,
     breakoutTraceAvailableCount: breakoutHydrationAvailableCount,
     breakoutScoreUsableCount,
     breakoutMissingFieldsTop: Object.entries(breakoutMissingFieldCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([field]) => field),
     breakoutSourceDistribution,
+    breakoutConditionStatusDistribution,
     candidateSymbolAvailableCount,
     quoteSymbolAvailableCount,
     requestSymbolAvailableCount,

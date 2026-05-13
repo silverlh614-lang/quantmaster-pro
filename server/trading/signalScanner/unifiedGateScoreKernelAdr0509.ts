@@ -527,6 +527,9 @@ export interface UnifiedGateScoreSummary {
   shadowSignals: number;
   shadowAllowedButLiveFailed: number;
   liveForensicMissing: number;
+  conditionResultsAvailable: number;
+  rsFromConditionResults: number;
+  breakoutFromConditionResults: number;
   divergenceReasonBreakdown: Record<UnifiedDivergenceReason, number>;
   latest?: UnifiedGateScoreSnapshot;
   executionImpact: 'NONE';
@@ -553,12 +556,18 @@ export function summarizeUnifiedGateScoreSnapshots(
   let shadowSignals = 0;
   let shadowAllowedButLiveFailed = 0;
   let liveForensicMissing = 0;
+  let conditionResultsAvailable = 0;
+  let rsFromConditionResults = 0;
+  let breakoutFromConditionResults = 0;
 
   for (const snap of snapshots) {
     if (snap.shadowApprovalAllowed) shadowSignals += 1;
     if (snap.divergence.shadowAllowedButLiveFailed) shadowAllowedButLiveFailed += 1;
     if (snap.warning === 'LIVE_FORENSIC_NOT_FOUND') liveForensicMissing += 1;
     breakdown[snap.divergence.reason] = (breakdown[snap.divergence.reason] ?? 0) + 1;
+    if (snap.dataQuality.conditionResultsAvailable) conditionResultsAvailable += 1;
+    if ((snap.components.relativeStrength.missingReason ?? '').includes('CONDITION_RESULTS')) rsFromConditionResults += 1;
+    if ((snap.components.breakoutStructure.missingReason ?? '').includes('CONDITION_RESULTS')) breakoutFromConditionResults += 1;
   }
 
   // 최신 1건 (updatedAtIso desc)
@@ -571,6 +580,9 @@ export function summarizeUnifiedGateScoreSnapshots(
     shadowSignals,
     shadowAllowedButLiveFailed,
     liveForensicMissing,
+    conditionResultsAvailable,
+    rsFromConditionResults,
+    breakoutFromConditionResults,
     divergenceReasonBreakdown: breakdown,
     ...(sorted[0] ? { latest: sorted[0] } : {}),
     executionImpact: 'NONE',
@@ -652,8 +664,18 @@ export function formatUnifiedGateCompactLine(
   const latest = summary.latest;
   if (!latest) return null;
 
+  const nextAction = summary.conditionResultsAvailable === 0
+    ? 'WIRE_CONDITION_RESULTS_TO_FORENSIC_TRACE'
+    : summary.rsFromConditionResults === 0
+      ? 'REVIEW_RELATIVE_STRENGTH_THRESHOLDS_OR_DATA'
+      : summary.breakoutFromConditionResults > 0
+        ? 'REVIEW_BREAKOUT_CONDITIONS'
+        : 'NONE';
   const lines: string[] = [
     `🧪 Unified Gate (ADR-0509): shadowSignals=${summary.shadowSignals} · shadowAllowedButLiveFailed=${summary.shadowAllowedButLiveFailed}`,
+    `• conditionResults: ${summary.conditionResultsAvailable}/${summary.totalSnapshots} · rsFromConditionResults: ${summary.rsFromConditionResults}/${summary.totalSnapshots} · breakoutFromConditionResults: ${summary.breakoutFromConditionResults}/${summary.totalSnapshots}`,
+    '• conditionStatusTop: FIRED, THRESHOLD_NOT_MET, DATA_UNAVAILABLE',
+    `• nextAction: ${nextAction}`,
   ];
   if (latest.divergence.shadowAllowedButLiveFailed) {
     lines.push(`• latest divergence: ${latest.divergence.reason}`);

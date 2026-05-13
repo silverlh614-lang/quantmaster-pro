@@ -13,6 +13,7 @@ import {
 import { saveWatchlist } from "../../persistence/watchlistRepo.js";
 import type { ApprovalQueueState } from "./approvalQueue.js";
 import type { RunAutoSignalScanOptions } from "./index.js";
+import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from "./gateConditionResultTrace.js";
 
 // ADR-0134: barrel exports 복원
 // ADR-0188 (lint baseline cleanup): perSymbol/index.ts 의 SSOT 통합 barrel 을 그대로 re-export.
@@ -66,32 +67,18 @@ function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
 
 function buildConditionResultsTrace(w: any): Record<string, unknown> | undefined {
   if (w.conditionResults && typeof w.conditionResults === "object") return w.conditionResults;
-  const outputs = w.gateEvaluation?.outputs;
-  if (!Array.isArray(outputs)) return undefined;
-  const out: Record<string, unknown> = {};
-  for (const item of outputs) {
-    if (!item || typeof item.key !== "string") continue;
-    const status = typeof item.output?.status === "string"
-      ? item.output.status
-      : item.output?.score > 0
-        ? "FIRED"
-        : "THRESHOLD_NOT_MET";
-    out[item.key] = {
-      key: item.key,
-      status,
-      score: finiteOrNull(item.output?.score),
-      detail: null,
-      requiredData: item.context?.requiredData ?? [],
-      availableData: item.context?.availableData ?? {},
-      hadRequiredData: item.context?.hadRequiredData ?? true,
-      fired: status === "FIRED" || item.output?.score > 0,
-      unavailable: status === "DATA_UNAVAILABLE",
-      thresholdNotMet: status === "THRESHOLD_NOT_MET",
-      providerDegraded: status === "PROVIDER_DEGRADED",
-    };
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
+  const projected = conditionResultsTraceToMap(
+    w.conditionResultsTrace ?? projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs),
+  );
+  return projected;
 }
+
+function buildConditionResultsTraceArray(w: any) {
+  return Array.isArray(w.conditionResultsTrace)
+    ? w.conditionResultsTrace
+    : projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs);
+}
+
 
 export async function evaluateMainCandidates(
   candidates: any,
@@ -136,6 +123,10 @@ export async function evaluateMainCandidates(
       qualScore: w.qualScore,
       score: w.score,
       conditionKeys: w.conditionKeys ?? w.gateEvaluation?.conditionKeys,
+      conditionResultsTrace: buildConditionResultsTraceArray(w),
+      gateRawScore: w.gateRawScore ?? w.gateEvaluation?.rawScore ?? w.gateScore,
+      normalizedGateScore: w.normalizedGateScore ?? w.gateEvaluation?.normalizedGateScore,
+      availableMaxScore: w.availableMaxScore ?? w.gateEvaluation?.availableMaxScore,
       upstreamCandidateScore: w.upstreamCandidateScore,
       watchlistRank: w.watchlistRank,
       totalCandidates: w.totalCandidates,

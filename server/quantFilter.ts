@@ -66,7 +66,7 @@ export interface ServerGateResult {
    */
   outputs?: Array<{
     key: string;
-    output: { score: number; status?: string } | null;
+    output: { score: number; status?: string; detail?: string } | null;
     context?: {
       requiredData: string[];
       availableData: Record<string, boolean>;

@@ -47,6 +47,7 @@ import {
   resolveWatchlistUpstreamScore,
   type ResolvedWatchlistUpstreamScore,
 } from "./watchlistUpstreamScoreResolver.js";
+import type { GateConditionResultTrace } from "./gateConditionResultTrace.js";
 
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
 export const GATE1_SOFT_FAIL_ACCUMULATION_THRESHOLD = 3;
@@ -211,6 +212,12 @@ export interface Gate1CandidateTrace {
   riskPenaltyTrace?: RiskPenaltyTrace;
   calibrationTags?: string[];
   symbolFeatures?: Gate1SymbolFeatures;
+  conditionResultsTrace?: GateConditionResultTrace[];
+  conditionResults?: Record<string, unknown>;
+  conditionKeys?: string[];
+  gateRawScore?: number;
+  normalizedGateScore?: number;
+  availableMaxScore?: number;
   executionImpact: "NONE" | "PAPER_ONLY" | "LIVE_READY";
 }
 
@@ -339,6 +346,10 @@ export interface CandidateEntryTrace {
   qualScore?: number;
   score?: number;
   conditionKeys?: string[];
+  conditionResultsTrace?: GateConditionResultTrace[];
+  gateRawScore?: number;
+  normalizedGateScore?: number;
+  availableMaxScore?: number;
   watchlistReason?: string[];
   relativeStrengthScore?: number;
   relativeStrength?: number;
@@ -611,6 +622,10 @@ export interface CandidateSnapshot {
   qualScore?: number;
   score?: number;
   conditionKeys?: string[];
+  conditionResultsTrace?: GateConditionResultTrace[];
+  gateRawScore?: number;
+  normalizedGateScore?: number;
+  availableMaxScore?: number;
   watchlistReason?: string[];
   relativeStrengthScore?: number;
   relativeStrength?: number;
@@ -1202,6 +1217,12 @@ function buildGate1CandidateTrace(input: {
     softFailAccumulationTrace,
     riskPenaltyTrace,
     symbolFeatures: trace.symbolFeatures,
+    conditionResultsTrace: trace.conditionResultsTrace,
+    conditionResults: trace.conditionResults,
+    conditionKeys: trace.conditionKeys,
+    gateRawScore: trace.gateRawScore,
+    normalizedGateScore: trace.normalizedGateScore,
+    availableMaxScore: trace.availableMaxScore,
     calibrationTags: [
       ...(minSignalScoreTrace.scoreGap < 0
         ? ["CASE_MIN_SIGNAL_SCORE_GAP"]
@@ -1525,6 +1546,10 @@ export function buildEntryFilterDecomposition(
       qualScore: c.qualScore,
       score: c.score,
       conditionKeys: c.conditionKeys,
+      conditionResultsTrace: c.conditionResultsTrace,
+      gateRawScore: c.gateRawScore,
+      normalizedGateScore: c.normalizedGateScore,
+      availableMaxScore: c.availableMaxScore,
       watchlistScore: c.watchlistScore,
       watchlistReason: c.watchlistReason,
       relativeStrengthScore: c.relativeStrengthScore,
