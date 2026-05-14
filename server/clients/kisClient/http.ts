@@ -61,22 +61,6 @@ import {
   classifyDataVacuumRootCause,
   formatDataVacuumRootCauseLogThrottled,
 } from './dataVacuumRootCauseClassifierPatch004.js';
-// Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — circuit×priority enforcement
-//   매트릭스 SSOT (CLOSED / SOFT_THROTTLED / OPEN / HARD_OPEN). READY_CANDIDATE(P2) 가
-//   OPEN/HARD_OPEN 상태에서 deferred queue 적재 영구 금지 — SKIP_WITH_STALE_OR_BLOCK 처리.
-//   P0/P1 최소 허용, P3/P4 suppress. ENV 1줄 즉시 PR #965 동작 100% 복원.
-//   호출자 측 inline ENV 검사 0건 — SSOT 위임 의무.
-import {
-  evaluateCircuitEnforcement,
-  formatKisCircuitStateLog,
-  formatKisReadyCandidateSkippedLog,
-  shouldEmitCircuitStateLog,
-} from './kisCircuitStateGovernorPatch005.js';
-import {
-  formatKisTrTtlCacheHitLog,
-  lookupKisTrResultCache,
-  storeKisTrResultCache,
-} from './kisResultCachePatch005.js';
 import {
   assessKisTrPressure,
   classifyKisError,
@@ -376,48 +360,6 @@ export function realDataKisGet(
     const callPriorityV2 = mapPriorityV1ToV2(pressureGate.shouldDefer || _isCircuitOpen(trId) || isKisServerCircuitOpen(trId)
       ? pressureGate.circuitState === 'OPEN' || pressureGate.level === 'HARD' ? callPriority : callPriority
       : callPriority);
-
-    // Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — 5s TTL result cache lookup
-    //   동일 trId+symbol+params 가 5초 내 재호출 시 cached result 반환 (네트워크 호출 0건).
-    //   P0_POSITION_EXIT 는 cache 적용 안 함 (보유 매도 최신 데이터 절대 보호).
-    //   ENV `KIS_RESULT_CACHE_PATCH_005_DISABLED=true` 시 cache miss 강제 (legacy 동작 복원).
-    const cacheLookup = lookupKisTrResultCache(trId, symbol, callPriorityV2, params);
-    if (cacheLookup.hit) {
-      console.info(formatKisTrTtlCacheHitLog(trId, symbol, cacheLookup.ageMs ?? 0));
-      return cacheLookup.result;
-    }
-
-    // Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — circuit×priority enforcement
-    //   매트릭스 SSOT. SOFT_THROTTLED + P2 cache miss → SKIP_WITH_STALE_OR_BLOCK (deferred queue 적재 0).
-    //   OPEN + P2 → SKIP_WITH_STALE_OR_BLOCK. HARD_OPEN + P1 → SKIP. P3/P4 SUPPRESS.
-    //   P0 는 모든 state 에서 통과 (HARD_OPEN 에서도 ALLOW_LIMITED).
-    const _cachedForGovernor = getLastGoodForKey(requestKey);
-    const _governorCacheAvailable = _cachedForGovernor !== null && _cachedForGovernor.confidence !== 'MISSING';
-    const enforcement = evaluateCircuitEnforcement({
-      trId,
-      symbol,
-      priority: callPriorityV2,
-      trCircuitState: pressureGate.circuitState,
-      throttleLevel: pressureGate.level,
-      cacheAvailable: _governorCacheAvailable,
-    });
-    // circuit state 전이 시 1회만 emit (60s window throttle 동반)
-    const circuitLogResult = shouldEmitCircuitStateLog(trId, enforcement.enforcementState);
-    if (circuitLogResult.emit) {
-      console.warn(formatKisCircuitStateLog(enforcement));
-    }
-    if (!enforcement.allowed) {
-      // P2 SKIP_WITH_STALE_OR_BLOCK 분기 — deferred queue 적재 영구 금지 (절대 불변식)
-      if (callPriorityV2 === 'P2_READY_CANDIDATE_CONFIRM') {
-        console.warn(formatKisReadyCandidateSkippedLog(enforcement));
-      }
-      // P1 HARD_OPEN SKIP — deferred queue 적재 0
-      // P3/P4 SUPPRESS — Patch-004 정합 (별도 로그 0건)
-      if (_cachedForGovernor && _cachedForGovernor.confidence !== 'MISSING') {
-        return _cachedForGovernor.value;
-      }
-      return null;
-    }
     const _cachedForBudget = getLastGoodForKey(requestKey);
     const _cacheAvailableForBudget = _cachedForBudget !== null && _cachedForBudget.confidence !== 'MISSING';
     const budgetDecision = evaluatePriorityBudget({
@@ -692,10 +634,6 @@ export function realDataKisGet(
       try {
         const parsed = JSON.parse(text);
         _realDataLastGood.set(requestKey, { value: parsed, storedAt: Date.now() });
-        // Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — result cache store.
-        //   P0_POSITION_EXIT 는 자동 제외 (storeKisTrResultCache 내부 invariant).
-        //   ENV `KIS_RESULT_CACHE_PATCH_005_DISABLED=true` 시 no-op (legacy 동작 복원).
-        storeKisTrResultCache(trId, symbol, callPriorityV2, params, parsed);
         return parsed;
       } catch { return null; }
     }
