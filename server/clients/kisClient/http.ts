@@ -50,16 +50,15 @@ import {
 //   Patch-003 동작 100% 복원. 호출자 측 inline ENV 검사 0건 — SSOT 위임.
 import {
   evaluatePriorityBudget,
-  formatKisPriorityBudgetLogThrottled,
+  formatKisPriorityBudgetLog,
   isPriorityCallDeduped,
   mapPriorityV1ToV2,
   recordPriorityBudgetCall,
   recordPriorityCallTtl,
-  shouldEmitTtlDedupLog,
 } from './kisPriorityBudgetPatch004.js';
 import {
   classifyDataVacuumRootCause,
-  formatDataVacuumRootCauseLogThrottled,
+  formatDataVacuumRootCauseLog,
 } from './dataVacuumRootCauseClassifierPatch004.js';
 import {
   assessKisTrPressure,
@@ -373,13 +372,7 @@ export function realDataKisGet(
       cacheAvailable: _cacheAvailableForBudget,
     });
     if (!budgetDecision.allowed) {
-      // Patch-004 throttle hotfix — (trId, reason) 별 60s window 내 첫 emit 1회만 detail
-      //   출력, 후속은 suppress + 카운트 누적. 60s 경과 후 다음 emit 에 suppressedCount
-      //   suffix 부착. ENV `KIS_PRIORITY_BUDGET_LOG_THROTTLE_DISABLED=true` 1줄 즉시 복원.
-      //   사용자 5/14 Railway 로그 도배 결함 차단 — `realDataKisGet` 매 호출마다 2 console.warn
-      //   라인이 throttle/circuit 활성 시 분당 수백 라인 폭주하던 결함.
-      const budgetLog = formatKisPriorityBudgetLogThrottled(budgetDecision);
-      if (budgetLog) console.warn(budgetLog);
+      console.warn(formatKisPriorityBudgetLog(budgetDecision));
       const vacuum = classifyDataVacuumRootCause({
         throttleLevel: pressureGate.level,
         circuitState: pressureGate.circuitState,
@@ -387,8 +380,7 @@ export function realDataKisGet(
         cacheAvailable: _cacheAvailableForBudget,
         upstreamHydrationFailed: false,
       });
-      const vacuumLog = formatDataVacuumRootCauseLogThrottled(vacuum);
-      if (vacuumLog) console.warn(vacuumLog);
+      console.warn(formatDataVacuumRootCauseLog(vacuum));
       if (budgetDecision.deferred) {
         recordKisCallDeferred(trId, Date.now(), { endpoint: apiPath, symbol, caller: 'realDataKisGet', priority: callPriority });
       }
@@ -430,15 +422,7 @@ export function realDataKisGet(
     //   동일 trId+symbol+priority 호출이 5초 TTL 내 중복이면 dedup defer.
     //   P0_POSITION_EXIT 은 dedup 적용 안 함 (보유 매도 절대 보호 invariant).
     if (isPriorityCallDeduped(trId, symbol, callPriorityV2)) {
-      // Patch-004 throttle hotfix — TTL_DEDUP_DUPLICATE 도 trId 별 60s window 적용.
-      //   5초 TTL dedup 자체는 동작 그대로 (호출 차단 = 정상 invariant), 로그 출력만 throttle.
-      const dedupLog = shouldEmitTtlDedupLog(trId);
-      if (dedupLog.emit) {
-        const suffix = dedupLog.suppressedSinceLast > 0
-          ? ` suppressedSinceLastMs=${dedupLog.windowMs} suppressedCount=${dedupLog.suppressedSinceLast}`
-          : '';
-        console.warn(`[KIS_PRIORITY_BUDGET] priority=${callPriorityV2} allowed=false reason=TTL_DEDUP_DUPLICATE action=DEFER executionImpact=NONE${suffix}`);
-      }
+      console.warn(`[KIS_PRIORITY_BUDGET] priority=${callPriorityV2} allowed=false reason=TTL_DEDUP_DUPLICATE action=DEFER executionImpact=NONE`);
       return null;
     }
     recordPriorityCallTtl(trId, symbol, callPriorityV2);
