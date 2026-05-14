@@ -1244,7 +1244,7 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
             actualInvestorFlowFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty', 'appsecret'],
             actualInvestorFlowNumericStringKeys: ['frgn_ntby_qty', 'orgn_ntby_qty'],
             actualInvestorFlowCarried: true,
-            selectedCandidate: { appsecret: 'raw-selected-candidate-not-allowed' },
+            selectedCandidate: { appsecret: 'raw-candidate-blocked' },
           },
         },
       },

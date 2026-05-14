@@ -1,4 +1,4 @@
-// @responsibility preflightRegressionMatrix — pure live-entry guard matrix for tests and operator reasoning.
+// @responsibility Pure live-entry preflight regression matrix.
 //
 // This module is pure/read-only. It does not import KIS/order/Gate/Kelly runtime paths
 // and does not dispatch orders. It models the minimum conditions required before a

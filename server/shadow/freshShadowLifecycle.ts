@@ -1,4 +1,4 @@
-// @responsibility Fresh Shadow Lifecycle Activation Patch v1 — FRESH_SHADOW cohort assignment, integrity diagnostics, and fresh-only promotion metrics
+// @responsibility Fresh shadow lifecycle state transitions.
 import type { ShadowCaseLedgerStore } from './shadowCaseLedger.js';
 import type { IntegrityIssue, ShadowCase, ShadowLifecycleState, ShadowStateTransition } from './shadowTypes.js';
 

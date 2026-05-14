@@ -1,4 +1,4 @@
-// @responsibility KIS program trade materialization SSOT shared by KIS-only, SupplyPack diagnostics, and command probes.
+// @responsibility KIS program trade materialization SSOT for diagnostic consumers.
 
 import type { KisMarketProgramTrade } from './types.js';
 

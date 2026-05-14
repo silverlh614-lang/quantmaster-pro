@@ -1,4 +1,4 @@
-// @responsibility Learning Sample Quality Segmentation & Metadata Recovery Patch v1 — cohort isolation, metadata repair, counterfactual input build, and promotion-safe diagnostics
+// @responsibility Learning sample quality metadata recovery diagnostics.
 import fs from 'fs';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { scanTraceFile } from '../persistence/paths.js';

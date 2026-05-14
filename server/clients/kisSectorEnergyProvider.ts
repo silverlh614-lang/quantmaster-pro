@@ -8,6 +8,18 @@ import type { KisSectorIndexDaily, KisSectorIndexDailyRow } from './kisClient/ty
 import type { SectorEnergyDataQuality, SectorEnergyInput } from './sectorEnergyProvider.js';
 import type { KisRepresentativeBasketAudit, SectorEnergyCoverageBreakdown } from './sectorEnergyQualityDiagnostic.js';
 import { appendKisSectorIndexPromotionHistoryRecord, type KisSectorIndexPromotionHistoryRecord } from '../persistence/kisSectorIndexPromotionHistoryRepo.js';
+import {
+  sectorIndexMappingRegistry,
+  setSectorIndexIdxcodeMasterRowsForTests,
+  verifySectorIndexCodeWithIdxMaster,
+  type SectorIndexCodeVerificationMatchedBy,
+} from './kisSectorIndexCodeVerifier.js';
+
+export {
+  sectorIndexMappingRegistry,
+  setSectorIndexIdxcodeMasterRowsForTests,
+  verifySectorIndexCodeWithIdxMaster,
+};
 
 export type KisSectorEnergySourceTier =
   | 'KIS_OFFICIAL_INDEX'
@@ -175,12 +187,6 @@ function logKisSectorIndexDryRunCandidate(report: KisSectorIndexDryRunReport, no
     `[SECTOR_INDEX_PROMOTION_BLOCKED] reason=${report.promotionBlockedReason} strongBuyAllowed=${report.strongBuyAllowed} sectorBoostAllowed=${report.sectorBoostAllowed}`,
   );
   const verifyRequired = report.rows.filter((row) => !row.success && (row.resolutionStatus === 'PENDING_IDXCODE_MST_VERIFY' || row.errorClass === 'UNRESOLVED_EMPTY'));
-  const pending2005_2006 = report.rows.filter((row) => !row.success && (row.iscd === '2005' || row.iscd === '2006'));
-  if (pending2005_2006.length > 0) {
-    console.log(
-      `[SECTOR_INDEX_CODE_VERIFY_PENDING] codes=${pending2005_2006.map((row) => row.iscd).sort().join(',')} status=PENDING_IDXCODE_MST_VERIFY marketSignal=false executionImpact=${report.executionImpact}`,
-    );
-  }
   if (verifyRequired.length > 0) {
     console.log(
       `[SECTOR_INDEX_CODE_VERIFY_REQUIRED] failedCodes=${verifyRequired.map((row) => row.iscd).join(',')} resolutionStatus=PENDING_IDXCODE_MST_VERIFY marketSignal=false executionImpact=${report.executionImpact}`,
@@ -266,50 +272,6 @@ export interface SectorIdxcodeMasterRow {
   aliases?: string[];
 }
 
-export type SectorIndexCodeVerificationMatchedBy =
-  | 'EXACT_ISCD'
-  | 'KOREAN_NAME'
-  | 'ENGLISH_KEY'
-  | 'ALIAS'
-  | 'MANUAL_REGISTRY'
-  | 'NONE';
-
-export interface SectorIndexCodeVerificationCandidate {
-  iscd: string;
-  name?: string;
-  matchedBy: SectorIndexCodeVerificationMatchedBy;
-  endpointRows?: number;
-  latestDate?: string;
-  return5dAvailable?: boolean;
-  return20dAvailable?: boolean;
-  compatible: boolean;
-  reason?: string;
-}
-
-export interface SectorIndexCodeVerificationResult {
-  sectorKey: string;
-  sectorNameKo: string;
-  originalIscd: string;
-  verifiedIscd?: string;
-  verifiedName?: string;
-  verification:
-    | 'VERIFIED'
-    | 'SAFE_ALIAS_CANDIDATE_FOUND'
-    | 'NO_ALIAS_FOUND'
-    | 'UNSAFE_ALIAS_REJECTED'
-    | 'UNRESOLVED';
-  resolutionStatus:
-    | 'IDXCODE_MST_VERIFIED'
-    | 'PENDING_IDXCODE_MST_VERIFY'
-    | 'IDXCODE_MST_NOT_FOUND'
-    | 'ENDPOINT_COMPATIBILITY_FAILED'
-    | 'UNRESOLVED_EMPTY';
-  matchedBy: SectorIndexCodeVerificationMatchedBy;
-  candidatesTried: SectorIndexCodeVerificationCandidate[];
-  marketSignal: false;
-  executionImpact: 'NONE';
-}
-
 export interface SectorIndexCodeMasterVerificationResult {
   verification: 'VERIFIED' | 'UNRESOLVED';
   resolutionStatus: 'IDXCODE_MST_VERIFIED' | 'IDXCODE_MST_NOT_FOUND';
@@ -336,48 +298,6 @@ const STATIC_IDXCODE_MASTER_ROWS: ReadonlyArray<SectorIdxcodeMasterRow> = Object
   { iscd: '2011', koreanName: '건설/부동산', englishKey: 'CONSTRUCTION', aliases: ['건설', '부동산'] },
   { iscd: '2012', koreanName: '이차전지', englishKey: 'BATTERY', aliases: ['2차전지', '이차전지', '배터리'] },
 ]);
-
-export interface SectorIndexMappingRegistryRecord {
-  sectorKey: string;
-  sectorNameKo: string;
-  previousIscd: string;
-  verifiedIscd: string;
-  verifiedName?: string;
-  source: 'IDXCODE_MST';
-  matchedBy: SectorIndexCodeVerificationMatchedBy;
-  verification: 'VERIFIED';
-  resolutionStatus: 'IDXCODE_MST_VERIFIED';
-  useForDryRun: true;
-  useForProduction: false;
-  promotionStage: 'OBSERVE';
-  sectorBoostAllowed: false;
-  strongBuyAllowed: false;
-  executionImpact: 'NONE';
-  verifiedAt: string;
-}
-
-const sectorIndexMappingRegistryRows = new Map<string, SectorIndexMappingRegistryRecord>();
-
-export const sectorIndexMappingRegistry = {
-  update(record: SectorIndexMappingRegistryRecord): void {
-    sectorIndexMappingRegistryRows.set(record.sectorKey, record);
-  },
-  get(sectorKey: string): SectorIndexMappingRegistryRecord | undefined {
-    return sectorIndexMappingRegistryRows.get(sectorKey);
-  },
-  list(): SectorIndexMappingRegistryRecord[] {
-    return [...sectorIndexMappingRegistryRows.values()];
-  },
-  clearForTests(): void {
-    sectorIndexMappingRegistryRows.clear();
-  },
-};
-
-let idxcodeMasterRowsForTests: readonly SectorIdxcodeMasterRow[] | null = null;
-
-export function setSectorIndexIdxcodeMasterRowsForTests(rows: readonly SectorIdxcodeMasterRow[] | null): void {
-  idxcodeMasterRowsForTests = rows;
-}
 
 function normalizeLookupText(value: string): string {
   return value.toLowerCase().replace(/[\s/_-]+/g, '').trim();
@@ -421,209 +341,6 @@ export function verifySectorIndexCodeWithMaster(input: {
     resolutionStatus: 'IDXCODE_MST_NOT_FOUND',
     useForProduction: false,
     useForDryRun: false,
-    marketSignal: false,
-    executionImpact: 'NONE',
-  };
-}
-
-const FINANCE_IDXCODE_LOOKUP_TERMS = [
-  '금융',
-  '금융업',
-  '은행',
-  '증권',
-  '보험',
-  '금융지주',
-  '기타금융',
-  'FINANCE',
-  'FINANCIAL',
-  'BANK',
-  'BANKING',
-  'SECURITIES',
-  'INSURANCE',
-  'FINANCIAL_HOLDING',
-];
-
-const IT_INTERNET_IDXCODE_LOOKUP_TERMS = [
-  '인터넷',
-  '플랫폼',
-  '인터넷/플랫폼',
-  '소프트웨어',
-  'IT서비스',
-  '서비스업',
-  '디지털',
-  '커뮤니케이션서비스',
-  '미디어/콘텐츠',
-  'IT_INTERNET',
-  'INTERNET',
-  'PLATFORM',
-  'SOFTWARE',
-  'IT_SERVICE',
-  'DIGITAL',
-  'COMMUNICATION_SERVICE',
-  'MEDIA_CONTENT',
-];
-
-function idxcodeLookupTermsForSector(sectorKey: string, sectorNameKo: string, aliasCandidates: readonly string[]): string[] {
-  const base = sectorKey === 'FINANCE'
-    ? FINANCE_IDXCODE_LOOKUP_TERMS
-    : sectorKey === 'IT_INTERNET'
-      ? IT_INTERNET_IDXCODE_LOOKUP_TERMS
-      : [];
-  return Array.from(new Set([sectorNameKo, sectorKey, ...base, ...aliasCandidates].filter(Boolean)));
-}
-
-function isFreshDryRunLatestDate(latestDate: string | undefined, nowMs: number, staleWindowDays = 7): boolean {
-  if (!latestDate || !/^\d{8}$/.test(latestDate)) return false;
-  const y = Number(latestDate.slice(0, 4));
-  const m = Number(latestDate.slice(4, 6));
-  const d = Number(latestDate.slice(6, 8));
-  const latestUtc = Date.UTC(y, m - 1, d);
-  if (!Number.isFinite(latestUtc)) return false;
-  const now = new Date(nowMs + 9 * 60 * 60 * 1000);
-  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const ageDays = Math.floor((todayUtc - latestUtc) / (24 * 60 * 60 * 1000));
-  return ageDays <= staleWindowDays;
-}
-
-function evaluateKisSectorIndexEndpointCompatibility(
-  result: KisSectorIndexDaily | null,
-  nowMs: number,
-): { compatible: boolean; candidate: Pick<SectorIndexCodeVerificationCandidate, 'endpointRows' | 'latestDate' | 'return5dAvailable' | 'return20dAvailable' | 'reason'>; metrics?: Pick<KisSectorIndexDryRunRow, 'seriesCount' | 'latestDate' | 'return5d' | 'return20d' | 'turnoverAcceleration'> } {
-  if (!result) return { compatible: false, candidate: { reason: 'ENDPOINT_EMPTY' } };
-  const rows = sortedKisSectorIndexSeries(result.series);
-  const metrics = deriveKisSectorIndexDryRunMetrics(result);
-  const return5dAvailable = finite(metrics.return5d);
-  const return20dAvailable = finite(metrics.return20d);
-  const latestFresh = isFreshDryRunLatestDate(metrics.latestDate, nowMs);
-  const compatible = rows.length >= 20 && latestFresh && return5dAvailable && return20dAvailable;
-  const reason = rows.length < 20
-    ? `ROWS_LT_20_${rows.length}`
-    : !latestFresh
-      ? 'LATEST_DATE_STALE'
-      : !return5dAvailable
-        ? 'RETURN5D_UNAVAILABLE'
-        : !return20dAvailable
-          ? 'RETURN20D_UNAVAILABLE'
-          : undefined;
-  return {
-    compatible,
-    candidate: {
-      endpointRows: rows.length,
-      latestDate: metrics.latestDate,
-      return5dAvailable,
-      return20dAvailable,
-      reason,
-    },
-    metrics,
-  };
-}
-
-function addVerificationCandidate(
-  candidates: SectorIndexCodeVerificationCandidate[],
-  seen: Set<string>,
-  row: SectorIdxcodeMasterRow | undefined,
-  iscd: string,
-  matchedBy: SectorIndexCodeVerificationMatchedBy,
-): void {
-  if (!/^\d{4}$/.test(iscd) || seen.has(iscd)) return;
-  seen.add(iscd);
-  candidates.push({
-    iscd,
-    name: row?.koreanName,
-    matchedBy,
-    compatible: false,
-  });
-}
-
-export async function verifySectorIndexCodeWithIdxMaster(input: {
-  sectorKey: string;
-  sectorNameKo: string;
-  currentCandidateIscd: string;
-  aliasCandidates: string[];
-}, options: {
-  masterRows?: readonly SectorIdxcodeMasterRow[];
-  endpointFetcher?: (iscd: string) => Promise<KisSectorIndexDaily | null>;
-  nowMs?: number;
-} = {}): Promise<SectorIndexCodeVerificationResult> {
-  const masterRows = options.masterRows ?? idxcodeMasterRowsForTests ?? STATIC_IDXCODE_MASTER_ROWS;
-  const endpointFetcher = options.endpointFetcher ?? fetchKisSectorIndexDaily;
-  const nowMs = options.nowMs ?? Date.now();
-  const originalIscd = input.currentCandidateIscd.trim();
-  const terms = idxcodeLookupTermsForSector(input.sectorKey, input.sectorNameKo, input.aliasCandidates)
-    .map(normalizeLookupText)
-    .filter(Boolean);
-  const candidates: SectorIndexCodeVerificationCandidate[] = [];
-  const seen = new Set<string>();
-
-  const exact = masterRows.find((row) => row.iscd === originalIscd);
-  if (exact) addVerificationCandidate(candidates, seen, exact, originalIscd, 'EXACT_ISCD');
-
-  for (const row of masterRows) {
-    if (terms.includes(normalizeLookupText(row.koreanName))) addVerificationCandidate(candidates, seen, row, row.iscd, 'KOREAN_NAME');
-  }
-  for (const row of masterRows) {
-    if (terms.includes(normalizeLookupText(row.englishKey ?? ''))) addVerificationCandidate(candidates, seen, row, row.iscd, 'ENGLISH_KEY');
-  }
-  for (const row of masterRows) {
-    if ((row.aliases ?? []).some((alias) => terms.includes(normalizeLookupText(alias)))) {
-      addVerificationCandidate(candidates, seen, row, row.iscd, 'ALIAS');
-    }
-  }
-
-  const manual = SECTOR_INDEX_MASTER.find((entry) => entry.sectorKey === input.sectorKey);
-  if (manual?.krxIndexCode && /^\d{4}$/.test(manual.krxIndexCode)) {
-    addVerificationCandidate(candidates, seen, undefined, manual.krxIndexCode, 'MANUAL_REGISTRY');
-  }
-
-  if (candidates.length === 0) {
-    return {
-      sectorKey: input.sectorKey,
-      sectorNameKo: input.sectorNameKo,
-      originalIscd,
-      verification: 'NO_ALIAS_FOUND',
-      resolutionStatus: 'IDXCODE_MST_NOT_FOUND',
-      matchedBy: 'NONE',
-      candidatesTried: [],
-      marketSignal: false,
-      executionImpact: 'NONE',
-    };
-  }
-
-  const tried: SectorIndexCodeVerificationCandidate[] = [];
-  for (const candidate of candidates) {
-    const result = await endpointFetcher(candidate.iscd);
-    const compatibility = evaluateKisSectorIndexEndpointCompatibility(result, nowMs);
-    const triedCandidate: SectorIndexCodeVerificationCandidate = {
-      ...candidate,
-      ...compatibility.candidate,
-      compatible: compatibility.compatible,
-    };
-    tried.push(triedCandidate);
-    if (compatibility.compatible) {
-      return {
-        sectorKey: input.sectorKey,
-        sectorNameKo: input.sectorNameKo,
-        originalIscd,
-        verifiedIscd: candidate.iscd,
-        verifiedName: candidate.name ?? result?.sectorName,
-        verification: 'VERIFIED',
-        resolutionStatus: 'IDXCODE_MST_VERIFIED',
-        matchedBy: candidate.matchedBy,
-        candidatesTried: tried,
-        marketSignal: false,
-        executionImpact: 'NONE',
-      };
-    }
-  }
-
-  return {
-    sectorKey: input.sectorKey,
-    sectorNameKo: input.sectorNameKo,
-    originalIscd,
-    verification: 'SAFE_ALIAS_CANDIDATE_FOUND',
-    resolutionStatus: tried.some((candidate) => candidate.reason !== 'ENDPOINT_EMPTY') ? 'ENDPOINT_COMPATIBILITY_FAILED' : 'PENDING_IDXCODE_MST_VERIFY',
-    matchedBy: 'NONE',
-    candidatesTried: tried,
     marketSignal: false,
     executionImpact: 'NONE',
   };
@@ -840,12 +557,12 @@ function deriveKisSectorIndexDryRunMetrics(result: KisSectorIndexDaily): Pick<Ki
 }
 
 /**
- * KIS 국내업종 기간별 지수 dry-run diagnostic.
+ * KIS 援?궡?낆쥌 湲곌컙蹂?吏??dry-run diagnostic.
  *
  * read-only invariant:
- * - ENV `KIS_SECTOR_INDEX_DAILY_ENABLED === 'true'` 에서만 KIS 호출.
- * - `/sector_energy_diag` 같은 운영자 진단에서만 호출하며 live fallback 에 연결하지 않는다.
- * - KIS 응답은 KRX official benchmark 로 승격하지 않고 dataQuality=PARTIAL / executionImpact=NONE 고정.
+ * - ENV `KIS_SECTOR_INDEX_DAILY_ENABLED === 'true'` ?먯꽌留?KIS ?몄텧.
+ * - `/sector_energy_diag` 媛숈? ?댁쁺??吏꾨떒?먯꽌留??몄텧?섎ŉ live fallback ???곌껐?섏? ?딅뒗??
+ * - KIS ?묐떟? KRX official benchmark 濡??밴꺽?섏? ?딄퀬 dataQuality=PARTIAL / executionImpact=NONE 怨좎젙.
  */
 export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise<KisSectorIndexDryRunReport> {
   const enabled = process.env.KIS_SECTOR_INDEX_DAILY_ENABLED === 'true';
@@ -979,7 +696,7 @@ export function resetKisSectorIndexDryRunCacheForTests(options: { keepNegativeCo
   kisSectorIndexDryRunLastLogKey = null;
   kisSectorIndexDryRunLastLogExpiresAt = 0;
   kisSectorIndexDryRunSuppressedCount = 0;
-  idxcodeMasterRowsForTests = null;
+  setSectorIndexIdxcodeMasterRowsForTests(null);
   sectorIndexMappingRegistry.clearForTests();
   if (!options.keepNegativeCooldown) kisSectorIndexNegativeCooldownUntil.clear();
 }
@@ -1345,7 +1062,7 @@ async function refreshBatteryMissingPriceRows(input: {
 }): Promise<void> {
   const beforeMissing = batteryMissingCodes(input.seriesByCode);
   if (beforeMissing.length === 0) {
-    console.log('[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=2차전지 layer=PRODUCTION_BASKET before=FULL_QUALITY after=FULL_QUALITY executionImpact=NONE');
+    console.log('[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=2李⑥쟾吏 layer=PRODUCTION_BASKET before=FULL_QUALITY after=FULL_QUALITY executionImpact=NONE');
     return;
   }
   const refreshed = await mapLimit(beforeMissing, 2, async (code) => {
@@ -1357,7 +1074,7 @@ async function refreshBatteryMissingPriceRows(input: {
   }
   const afterMissing = batteryMissingCodes(input.seriesByCode);
   console.log(
-    `[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=2차전지 layer=PRODUCTION_BASKET before=PARTIAL after=${afterMissing.length === 0 ? 'FULL_QUALITY' : 'PARTIAL'} executionImpact=NONE`,
+    `[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=2李⑥쟾吏 layer=PRODUCTION_BASKET before=PARTIAL after=${afterMissing.length === 0 ? 'FULL_QUALITY' : 'PARTIAL'} executionImpact=NONE`,
   );
 }
 

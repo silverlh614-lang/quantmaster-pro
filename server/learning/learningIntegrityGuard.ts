@@ -1,4 +1,4 @@
-// @responsibility LearningIntegrityGuard — detects broken learning-loop links and ghost/live safety contamination
+// @responsibility LearningIntegrityGuard detects learning-loop integrity faults.
 import { loadGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { loadCurrentSchemaRecords } from '../persistence/attributionRepo.js';
 import { appendJson, LEARNING_INTEGRITY_EVENTS_FILE } from './learningStorage.js';

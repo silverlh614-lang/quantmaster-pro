@@ -1,3 +1,5 @@
+// @responsibility System Telegram command registration barrel.
+
 import './aiStatus.cmd.js';
 import './bugs.cmd.js';
 import './bugCandidates.cmd.js';
@@ -54,6 +56,7 @@ import './scanReadiness.cmd.js';
 import './scanIndices.cmd.js';
 // ADR-0398: Sector Energy 4-axis diagnostic command.
 import './sectorEnergyDiag.cmd.js';
+import './sectorIscdProbe.cmd.js';
 import './scheduleClassDiag.cmd.js';
 import './scheduler.cmd.js';
 import './shadowProvisional.cmd.js';

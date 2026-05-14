@@ -1,4 +1,4 @@
-// @responsibility Shadow auction idempotency, lock, and display formatting
+// @responsibility Shadow auction idempotency key handling.
 export interface DedupeStore {
   exists(key: string): Promise<boolean>;
   set(key: string, value: true, opts: { ttlSeconds: number }): Promise<void>;
