@@ -125,6 +125,13 @@ export interface SupplyScopeAudit {
   semanticRowAvailable?: boolean;
   semanticRowMetadataOnly?: boolean;
   rawInvestorRowAvailable?: boolean;
+  /**
+   * ADR-0477 supply actual row carry diagnostic — adapter (KIS) row 가 router 까지 carry 됐고
+   * selectedProvider != 'KIS_API' 인 경우. 사용자 명시 #6 단절 진단 — adapter 보유 vs router
+   * carry 정합성 가시화. true 시 selectedProvider (KRX/NAVER/CACHE 등) 의 CORE 결정과 무관하게
+   * KIS adapter row 가 diagnostic / SHADOW_SCORE 전용으로 propagate 된 상태.
+   */
+  adapterRowsForwardedAcrossProviders?: boolean;
   selectedCandidateCarriesSemanticRow?: boolean;
   forensicInputCarriesSemanticRow?: boolean;
   forensicInputCarriesActualInvestorRows?: boolean;
@@ -448,6 +455,12 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   rawInvestorRowAvailableCount?: number;
   selectedCandidateCarriesSemanticRowCount?: number;
   selectedCandidateCarriesActualRowCount?: number;
+  /**
+   * ADR-0477 supply actual row carry diagnostic — adapter (KIS) 가 row 보유 시 router 가
+   * selectedProvider 무관 carry 한 candidate 수. 사용자 명시 #6: adapter=N/47 vs router=0/47
+   * 단절을 가시화 + 정합성 진단.
+   */
+  adapterRowsForwardedAcrossProvidersCount?: number;
   forensicInputCarriesSemanticRowCount?: number;
   semanticRowBreakPointDistribution?: Record<string, number>;
   forensicInputCarriesActualInvestorRowsCount?: number;
@@ -602,6 +615,13 @@ export interface BuildGate1MinimumSignalForensicInput {
     actualInvestorFlowNumericKeys?: string[];
     actualInvestorFlowNumericStringKeys?: string[];
     actualInvestorFlowCarried?: boolean;
+    /**
+     * ADR-0477 supply actual row carry diagnostic — KIS adapter 가 actual row 보유했지만
+     * selectedProvider 가 KIS_API 가 아닌 경우 router 가 진단용으로 carry 했음을 표시.
+     * 사용자 명시 #6 단절 진단 (adapterCarriesActualRow=47/47 vs routerCarriesActualRow=0/47).
+     * CORE 결정 무영향 — diagnostic / SHADOW_SCORE 전용.
+     */
+    adapterRowsForwardedAcrossProviders?: boolean;
     kisRawRowAvailableAtAdapter?: boolean;
     kisNormalizedRowAvailableAtRouter?: boolean;
     kisSelectedCandidateCarriesSemanticRow?: boolean;
@@ -975,6 +995,11 @@ function buildSupplyScopeAudit(input: {
     ?? sanitizedSemanticRow
     ?? null;
   const flowForSemantic = primarySemanticFlow ?? (actualInvestorRows.length > 0 ? actualInvestorRows : kisFlow ?? null);
+  // ADR-0477 supply actual row carry diagnostic — `rawInvestorRowAvailable` (= adapterCarriesActualRow)
+  // 은 adapter 가 router 까지 *무언가* 를 carry 했는지 (metadata-only 포함) 를 표시. 사용자 명시 #6
+  // 단절 (adapter=N/47 vs router=0/47) 의 해결은 본 필드 재정의가 아니라 *별도* 신규 카운터
+  // `adapterRowsForwardedAcrossProviders` 로 가시화 — metadata-only vs actual-row 구분
+  // (SEMANTIC_ROW_METADATA_ONLY 분류) 은 그대로 보존. CORE 무영향 / diagnostic only.
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
@@ -1054,6 +1079,11 @@ function buildSupplyScopeAudit(input: {
     semanticRowAvailable: semantic.foreignNetBuy !== null || semantic.institutionalNetBuy !== null || semantic.individualNetBuy !== null,
     semanticRowMetadataOnly: semantic.reason === 'SEMANTIC_ROW_METADATA_ONLY',
     rawInvestorRowAvailable,
+    // ADR-0477 supply actual row carry diagnostic — adapter (KIS) row 보유 + selectedProvider !=
+    // 'KIS_API' + router 가 carry 한 경우. 사용자 명시 #6 단절 진단 — 사용자 보고 47/47 vs 0/47
+    // 케이스에서 KIS adapter 가 firstSymbol 만 있고 selectedProvider 가 다른 경우 routerCarriesActualRow
+    // = true 로 격상. CORE 결정 (selectedProvider) 무영향 — diagnostic / SHADOW_SCORE 전용.
+    adapterRowsForwardedAcrossProviders: Boolean(kisFlow?.adapterRowsForwardedAcrossProviders),
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
     forensicInputCarriesActualInvestorRows,
@@ -1624,6 +1654,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let semanticRowAvailableCount = 0;
   let semanticRowMetadataOnlyCount = 0;
   let rawInvestorRowAvailableCount = 0;
+  let adapterRowsForwardedAcrossProvidersCount = 0;
   let selectedCandidateCarriesSemanticRowCount = 0;
   let selectedCandidateCarriesActualRowCount = 0;
   let forensicInputCarriesSemanticRowCount = 0;
@@ -1790,6 +1821,9 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.supplyScopeAudit.semanticRowAvailable) semanticRowAvailableCount += 1;
     if (a.supplyScopeAudit.semanticRowMetadataOnly) semanticRowMetadataOnlyCount += 1;
     if (a.supplyScopeAudit.rawInvestorRowAvailable) rawInvestorRowAvailableCount += 1;
+    // ADR-0477 supply actual row carry diagnostic — adapter (KIS) 가 actual row 보유 +
+    // selectedProvider != KIS_API 인 경우에도 router 가 carry. 사용자 명시 #6 단절 진단 집계.
+    if (a.supplyScopeAudit.adapterRowsForwardedAcrossProviders) adapterRowsForwardedAcrossProvidersCount += 1;
     if (a.supplyScopeAudit.selectedCandidateCarriesSemanticRow) selectedCandidateCarriesSemanticRowCount += 1;
     if ((a.supplyScopeAudit.selectedActualRowFieldKeys?.length ?? 0) > 0) selectedCandidateCarriesActualRowCount += 1;
     if (a.supplyScopeAudit.forensicInputCarriesSemanticRow) forensicInputCarriesSemanticRowCount += 1;
@@ -1986,6 +2020,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     semanticRowAvailableCount,
     semanticRowMetadataOnlyCount,
     rawInvestorRowAvailableCount,
+    adapterRowsForwardedAcrossProvidersCount,
     selectedCandidateCarriesSemanticRowCount,
     selectedCandidateCarriesActualRowCount,
     forensicInputCarriesSemanticRowCount,
@@ -2171,6 +2206,9 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push('- Supply Actual Row Carry:');
   lines.push(`  - adapterCarriesActualRow: ${summary.rawInvestorRowAvailableCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - routerCarriesActualRow: ${summary.selectedCandidateCarriesActualRowCount ?? 0}/${summary.totalCandidates}`);
+  // ADR-0477 supply actual row carry diagnostic — adapter (KIS) 가 actual row 보유했지만
+  // selectedProvider != KIS_API 인 경우에도 router 가 carry. 사용자 명시 #6 단절 진단 (47/47 vs 0/47).
+  lines.push(`  - adapterRowsForwardedAcrossProviders: ${summary.adapterRowsForwardedAcrossProvidersCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - forensicCarriesActualRow: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - sellOnlyBySymbolPayloadAvailable: ${summary.sellOnlyBySymbolPayloadAvailableCount ?? 0}/${summary.totalCandidates}`);

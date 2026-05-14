@@ -145,6 +145,13 @@ export interface InvestorFlowProviderRouteResult {
   actualInvestorFlowNumericKeys?: string[];
   actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
+  /**
+   * ADR-0477 supply actual row carry diagnostic — KIS adapter 가 actual row 보유했지만
+   * selectedProvider 가 KIS_API 가 아닌 경우 router 가 진단용으로 carry 했음을 표시.
+   * 사용자 명시 #6 단절 진단 (adapterCarriesActualRow=47/47 vs routerCarriesActualRow=0/47).
+   * CORE 결정 (selectedProvider) 무영향 — diagnostic / SHADOW_SCORE 전용. executionImpact='NONE'.
+   */
+  adapterRowsForwardedAcrossProviders?: boolean;
   selectedCandidate?: InvestorFlowMaterializedCandidateAdr0503 | null;
   bySymbol?: Record<string, InvestorFlowProviderRouteBySymbolPayloadAdr0477>;
   selectedActualRowPath?: string | null;
@@ -1081,6 +1088,7 @@ export type InvestorFlowProviderRouteBySymbolPayloadAdr0477 = Pick<InvestorFlowP
   | 'actualInvestorFlowNumericKeys'
   | 'actualInvestorFlowNumericStringKeys'
   | 'actualInvestorFlowCarried'
+  | 'adapterRowsForwardedAcrossProviders'
   | 'selectedCandidate'
   | 'selectedActualRowPath'
   | 'selectedActualRowFieldKeys'
@@ -1762,12 +1770,22 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const selectedMaterializedCandidate = selectedMultiSourceCandidate?.provider === selectedProvider
     ? selectedMultiSourceCandidate
     : multiSourceMaterialization.candidates.find((candidate) => candidate.provider === selectedProvider) ?? null;
-  const selectedCandidateActualRows = selectedMaterializedCandidate?.actualInvestorFlowRows ?? (selectedProvider === 'KIS_API' ? sanitizedInvestorFlowRows : []);
+  // ADR-0477 supply actual row carry — sanitizedInvestorFlowRows (KIS adapter SSOT) 가
+  // selectedProvider !== 'KIS_API' 일 때도 diagnostic-only 로 propagate. selectedProvider 의
+  // CORE 판단은 그대로 (KRX/NAVER/CACHE 등 multi-source materialization 결과 우선),
+  // KIS adapter row 는 diagnostic / SHADOW_SCORE 전용 — executionImpact='NONE',
+  // liveExecutionAllowed=false 보존. 사용자 명시 #6: adapterCarriesActualRow=47/47 인데
+  // routerCarriesActualRow=0/47 인 단절 차단 — adapter 가 데이터 보유 시 router 도 carry.
+  // 사용자 명시 #9 (KRX CORE 직결 금지) 정합 — selectedProvider 결정 로직 변경 0.
+  const adapterFallbackActualRows = sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows : [];
+  const selectedCandidateActualRows = selectedMaterializedCandidate?.actualInvestorFlowRows
+    ?? (selectedProvider === 'KIS_API' ? sanitizedInvestorFlowRows : adapterFallbackActualRows);
   const selectedCandidateActualRowCount = selectedMaterializedCandidate?.actualInvestorFlowRowCount ?? selectedCandidateActualRows.length;
   const selectedCandidateCarriesActualRow = selectedCandidateActualRowCount > 0;
+  const adapterRowsForwardedAcrossProviders = selectedProvider !== 'KIS_API' && selectedProvider !== 'NONE' && adapterFallbackActualRows.length > 0;
   const selectedCandidateActualRowFieldKeysTop = selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys;
   const selectedCandidateActualRowDropReason: ActualInvestorFlowDropReasonAdr0477 = selectedCandidateCarriesActualRow
-    ? 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW'
+    ? (adapterRowsForwardedAcrossProviders ? 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW' : 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW')
     : !input.kisInvestorRaw
       ? 'ADAPTER_ROW_NOT_PRESENT'
       : sanitizedInvestorFlowRows.length === 0
@@ -1790,7 +1808,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const oldest = [input.sourceAgeTradingDays, input.cacheAgeTradingDays, input.fssSourceAgeTradingDays]
     .filter((item): item is number => finiteNumber(item))
     .sort((a, b) => b - a)[0] ?? null;
-  const routerCarriesActualRow = selectedCandidateCarriesActualRow || (selectedProvider === 'KIS_API' && sanitizedInvestorFlowRows.length > 0);
+  // ADR-0477 supply actual row carry — adapter 가 데이터 보유 시 router 가 무조건 carry
+  // (selectedProvider 무관). selectedProvider != 'KIS_API' 일 때도 adapterFallbackActualRows
+  // 가 router 결과로 propagate — diagnostic / SHADOW_SCORE 전용, executionImpact='NONE'.
+  const routerCarriesActualRow = selectedCandidateCarriesActualRow
+    || (selectedProvider === 'KIS_API' && sanitizedInvestorFlowRows.length > 0)
+    || adapterRowsForwardedAcrossProviders;
   const routerVerifiedGuardStatus: InvestorFlowProviderStatus = routeStatus === 'VERIFIED' && (selectedProvider === 'KIS_API' || providerStatuses.KIS_API === 'VERIFIED') && !routerCarriesActualRow
     ? (adapterCarriesActualRow ? 'VERIFIED_ADAPTER_ONLY' : 'SEMANTIC_CARRY_FAILED')
     : routeStatus;
@@ -1884,22 +1907,28 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     usableForShadow: true,
     selectedProvider,
     semanticRow: selectedSemanticRow,
-    actualInvestorRow: selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? null,
+    // ADR-0477 carry fix — adapter row 가 모든 selectedProvider 에서 fallback. selectedProvider 의
+    // CORE 결정은 그대로 (selectedMaterializedCandidate.actualInvestorRow 우선), KIS adapter 는 마지막
+    // fallback 으로 diagnostic 자료 보존. executionImpact='NONE' literal 유지.
+    actualInvestorRow: selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? adapterFallbackActualRows[0] ?? null,
     normalizedInvestorRow: selectedMaterializedCandidate?.normalizedInvestorRow ?? normalizedInvestorRowFromSemanticAdr0477(selectedSemanticRow) ?? null,
     semanticInvestorRow: selectedMaterializedCandidate?.semanticInvestorRow ?? selectedSemanticRow,
     supplySemanticRow: selectedMaterializedCandidate?.supplySemanticRow ?? selectedSemanticRow,
-    actualRowAvailable: Boolean(selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0]),
+    actualRowAvailable: Boolean(selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? adapterFallbackActualRows[0]),
     normalizedRowAvailable: Boolean(selectedMaterializedCandidate?.normalizedInvestorRow ?? selectedSemanticRow),
     semanticRowAvailable: Boolean(selectedMaterializedCandidate?.semanticInvestorRow ?? selectedSemanticRow),
-    rowCarryPath: selectedProvider === 'KIS_API' ? 'ADAPTER_TO_ROUTER' : 'NONE',
+    // rowCarryPath — ADAPTER_TO_ROUTER 은 KIS_API selected 또는 adapter fallback 모두 인정.
+    rowCarryPath: selectedProvider === 'KIS_API' || adapterRowsForwardedAcrossProviders ? 'ADAPTER_TO_ROUTER' : 'NONE',
     sanitizedInvestorFlowRows,
-    actualInvestorFlowRows: selectedProvider === 'KIS_API' ? selectedCandidateActualRows : sanitizedInvestorFlowRows,
-    actualInvestorFlowRowCount: selectedProvider === 'KIS_API' ? selectedCandidateActualRowCount : sanitizedInvestorFlowRows.length,
+    actualInvestorFlowRows: selectedProvider === 'KIS_API' ? selectedCandidateActualRows : (sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows : selectedCandidateActualRows),
+    actualInvestorFlowRowCount: selectedProvider === 'KIS_API' ? selectedCandidateActualRowCount : (sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows.length : selectedCandidateActualRowCount),
     actualInvestorFlowRowSourcePath: selectedMaterializedCandidate?.actualInvestorFlowRowSourcePath ?? selectedActualRowPath,
     actualInvestorFlowFieldKeys: selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys,
     actualInvestorFlowNumericKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericKeys ?? Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
     actualInvestorFlowNumericStringKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericStringKeys ?? selectedActualNumericStringFieldKeys,
-    actualInvestorFlowCarried: selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow,
+    // actualInvestorFlowCarried — selectedProvider 무관 adapter carry 인정 (diagnostic only).
+    actualInvestorFlowCarried: (selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow) || adapterRowsForwardedAcrossProviders,
+    adapterRowsForwardedAcrossProviders,
     selectedCandidate: selectedMaterializedCandidate,
     selectedActualRowPath,
     selectedActualRowFieldKeys,
@@ -1917,8 +1946,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     scoreUsage: 'SHADOW_ONLY',
   };
   const routeBySymbolKey = normalizeCodeAdr0477(input.code);
-  diagnostics.push(`adapterCarriesActualRow=${String(adapterCarriesActualRow)}; routerCarriesActualRow=${String(routerCarriesActualRow)}; candidateBeforeSelectionCarriesActualRow=${String(candidateBeforeSelectionCarriesActualRow)}; selectedCandidateCarriesActualRow=${String(selectedCandidateCarriesActualRow)}; selectedCandidateActualRowCount=${selectedCandidateActualRowCount}; selectedCandidateActualRowFieldKeysTop=${selectedCandidateActualRowFieldKeysTop.slice(0, 16).join(',') || 'NONE'}; selectedCandidateActualRowDropReason=${selectedCandidateActualRowDropReason}; executionImpact=NONE; scoreUsage=SHADOW_ONLY`);
-  diagnostics.push(`[SUPPLY_ROUTER_VERIFIED_GUARD] symbol=${input.code} adapterHasActualRow=${adapterCarriesActualRow} routerCarriesActualRow=${routerCarriesActualRow} candidateCarriesActualRow=${selectedCandidateCarriesActualRow} forensicCarriesActualRow=deferred routerStatus=${status}`);
+  diagnostics.push(`adapterCarriesActualRow=${String(adapterCarriesActualRow)}; routerCarriesActualRow=${String(routerCarriesActualRow)}; adapterRowsForwardedAcrossProviders=${String(adapterRowsForwardedAcrossProviders)}; candidateBeforeSelectionCarriesActualRow=${String(candidateBeforeSelectionCarriesActualRow)}; selectedCandidateCarriesActualRow=${String(selectedCandidateCarriesActualRow)}; selectedCandidateActualRowCount=${selectedCandidateActualRowCount}; selectedCandidateActualRowFieldKeysTop=${selectedCandidateActualRowFieldKeysTop.slice(0, 16).join(',') || 'NONE'}; selectedCandidateActualRowDropReason=${selectedCandidateActualRowDropReason}; executionImpact=NONE; scoreUsage=SHADOW_ONLY`);
+  diagnostics.push(`[SUPPLY_ROUTER_VERIFIED_GUARD] symbol=${input.code} adapterHasActualRow=${adapterCarriesActualRow} routerCarriesActualRow=${routerCarriesActualRow} adapterRowsForwardedAcrossProviders=${adapterRowsForwardedAcrossProviders} candidateCarriesActualRow=${selectedCandidateCarriesActualRow} forensicCarriesActualRow=deferred routerStatus=${status}`);
   diagnostics.push(`multiSourceCandidates=${multiSourceMaterialization.candidates.map((candidate) => `${candidate.provider}:${candidate.materializedCount}:${candidate.blockedReason}:priority=${candidate.selectedPriority}`).join('|') || 'NONE'}; noMaterializedCandidateReason=${multiSourceMaterialization.noMaterializedCandidateReason ?? 'NONE'}`);
   for (const materialization of Object.values(materializationDiagnostics)) {
     diagnostics.push(formatInvestorSampleDiagnosticsAdr0502(materialization));
@@ -1947,22 +1976,24 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses,
     semanticNetBuy: selectedSemanticNetBuy,
     semanticRow: selectedSemanticRow,
-    actualInvestorRow: selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? null,
+    // ADR-0477 carry fix — top-level result 도 bySymbol 과 동일 fallback 패턴.
+    actualInvestorRow: selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? adapterFallbackActualRows[0] ?? null,
     normalizedInvestorRow: selectedMaterializedCandidate?.normalizedInvestorRow ?? normalizedInvestorRowFromSemanticAdr0477(selectedSemanticRow) ?? null,
     semanticInvestorRow: selectedMaterializedCandidate?.semanticInvestorRow ?? selectedSemanticRow,
     supplySemanticRow: selectedMaterializedCandidate?.supplySemanticRow ?? selectedSemanticRow,
-    actualRowAvailable: Boolean(selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0]),
+    actualRowAvailable: Boolean(selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? adapterFallbackActualRows[0]),
     normalizedRowAvailable: Boolean(selectedMaterializedCandidate?.normalizedInvestorRow ?? selectedSemanticRow),
     semanticRowAvailable: Boolean(selectedMaterializedCandidate?.semanticInvestorRow ?? selectedSemanticRow),
-    rowCarryPath: selectedProvider === 'KIS_API' ? 'ADAPTER_TO_ROUTER' : 'NONE',
+    rowCarryPath: selectedProvider === 'KIS_API' || adapterRowsForwardedAcrossProviders ? 'ADAPTER_TO_ROUTER' : 'NONE',
     sanitizedInvestorFlowRows,
-    actualInvestorFlowRows: selectedProvider === 'KIS_API' ? selectedCandidateActualRows : sanitizedInvestorFlowRows,
-    actualInvestorFlowRowCount: selectedProvider === 'KIS_API' ? selectedCandidateActualRowCount : sanitizedInvestorFlowRows.length,
+    actualInvestorFlowRows: selectedProvider === 'KIS_API' ? selectedCandidateActualRows : (sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows : selectedCandidateActualRows),
+    actualInvestorFlowRowCount: selectedProvider === 'KIS_API' ? selectedCandidateActualRowCount : (sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows.length : selectedCandidateActualRowCount),
     actualInvestorFlowRowSourcePath: selectedMaterializedCandidate?.actualInvestorFlowRowSourcePath ?? selectedActualRowPath,
     actualInvestorFlowFieldKeys: selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys,
     actualInvestorFlowNumericKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericKeys ?? Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
     actualInvestorFlowNumericStringKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericStringKeys ?? selectedActualNumericStringFieldKeys,
-    actualInvestorFlowCarried: selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow,
+    actualInvestorFlowCarried: (selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow) || adapterRowsForwardedAcrossProviders,
+    adapterRowsForwardedAcrossProviders,
     selectedCandidate: selectedMaterializedCandidate,
     bySymbol: { [routeBySymbolKey]: routeBySymbolPayload },
     selectedActualRowPath,

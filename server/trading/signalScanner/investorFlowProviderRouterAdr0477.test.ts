@@ -1355,3 +1355,97 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004', () => {
     expect(wrapperOnly.selectedActualRowPath).toBeNull();
   });
 });
+
+describe('ADR-0477 supply actual row carry — adapterRowsForwardedAcrossProviders (사용자 명시 #5/#6)', () => {
+  // 사용자 명시 #6 단절 진단: adapterCarriesActualRow=47/47 인데 routerCarriesActualRow=0/47 인 케이스 —
+  // KIS adapter 가 actual row 를 보유했지만 selectedProvider 가 KIS_API 가 아닌 경우 router 가 carry.
+  const krxStaleCacheLookup = {
+    status: 'CACHE_HIT' as const,
+    snapshot: null,
+    cacheRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 1, institutionNetBuy: 1, status: 'CACHE_HIT' },
+    retained: 1,
+    reason: 'SANITIZED_SNAPSHOT_CACHE_HIT',
+    stale: false,
+    executionImpact: 'NONE' as const,
+    liveExecutionAllowed: false as const,
+    policyPromotionMode: 'SHADOW_ONLY' as const,
+    rawPayloadPersistenceAllowed: false as const,
+  };
+
+  it('forwards KIS adapter actual row when selectedProvider !== KIS_API (was routerCarriesActualRow=0)', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        symbol: '005930',
+        sourceDate: '2026-05-08',
+        frgn_ntby_tr_pbmn: '1,234',
+        orgn_ntby_tr_pbmn: '-2,000',
+        indv_ntby_tr_pbmn: '766',
+      },
+      previousTradingDayKrxRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 10, institutionalNetBuy: 20, status: 'STALE' },
+      supplySnapshotCacheLookupAdr0491: krxStaleCacheLookup,
+      kisTriedForInvestorFlow: true,
+    });
+
+    // selectedProvider 는 CORE 결정 그대로 (KIS_API 가 아님) — 사용자 명시 #9 KRX/KIS CORE 무영향.
+    expect(route.selectedProvider).not.toBe('KIS_API');
+    // adapter 는 actual row 를 보유 (sanitizedInvestorFlowRows.length > 0).
+    expect(route.sanitizedInvestorFlowRows?.length ?? 0).toBeGreaterThan(0);
+    // ADR-0477 carry fix — router 가 adapter row 를 forward.
+    expect(route.adapterRowsForwardedAcrossProviders).toBe(true);
+    expect(route.actualInvestorFlowCarried).toBe(true);
+    expect(route.rowCarryPath).toBe('ADAPTER_TO_ROUTER');
+    expect(route.actualInvestorRow).not.toBeNull();
+    expect(route.actualRowAvailable).toBe(true);
+    // diagnostic 단절 라인 — adapterCarriesActualRow=true && routerCarriesActualRow=true.
+    expect(route.diagnostics.join(' ')).toContain('adapterCarriesActualRow=true');
+    expect(route.diagnostics.join(' ')).toContain('routerCarriesActualRow=true');
+    expect(route.diagnostics.join(' ')).toContain('adapterRowsForwardedAcrossProviders=true');
+    // bySymbol payload 도 동일 carry.
+    const bySymbol = route.bySymbol?.['005930'];
+    expect(bySymbol?.adapterRowsForwardedAcrossProviders).toBe(true);
+    expect(bySymbol?.actualInvestorFlowCarried).toBe(true);
+    expect(bySymbol?.rowCarryPath).toBe('ADAPTER_TO_ROUTER');
+    // 안전 invariant — executionImpact / liveExecutionAllowed 보존.
+    expect(route.executionImpact).toBe('NONE');
+    expect(route.liveExecutionAllowed).toBe(false);
+    expect(bySymbol?.executionImpact).toBe('NONE');
+    expect(bySymbol?.liveExecutionAllowed).toBe(false);
+    expect(bySymbol?.scoreUsage).toBe('SHADOW_ONLY');
+  });
+
+  it('does not flag adapterRowsForwardedAcrossProviders when KIS_API itself is selected (regression)', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        symbol: '005930',
+        sourceDate: '2026-05-08',
+        frgn_ntby_tr_pbmn: '1,234',
+        orgn_ntby_tr_pbmn: '-2,000',
+        indv_ntby_tr_pbmn: '766',
+      },
+      kisTriedForInvestorFlow: true,
+    });
+    expect(route.selectedProvider).toBe('KIS_API');
+    expect(route.sanitizedInvestorFlowRows?.length ?? 0).toBeGreaterThan(0);
+    // KIS_API selected — forward across providers 아님 (자기 자신이 selected provider).
+    expect(route.adapterRowsForwardedAcrossProviders).toBe(false);
+    expect(route.rowCarryPath).toBe('ADAPTER_TO_ROUTER');
+    expect(route.bySymbol?.['005930']?.adapterRowsForwardedAcrossProviders).toBe(false);
+    expect(route.diagnostics.join(' ')).toContain('adapterRowsForwardedAcrossProviders=false');
+  });
+
+  it('keeps adapterRowsForwardedAcrossProviders false when no KIS adapter row exists', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: true,
+      previousTradingDayKrxRaw: { code: '005930', sourceDate: '2026-05-08', foreignNetBuy: 10, institutionalNetBuy: 20, status: 'VERIFIED' },
+      nonTradingDay: true,
+    });
+    expect(route.selectedProvider).not.toBe('KIS_API');
+    expect(route.sanitizedInvestorFlowRows?.length ?? 0).toBe(0);
+    expect(route.adapterRowsForwardedAcrossProviders).toBe(false);
+    expect(route.bySymbol?.['005930']?.adapterRowsForwardedAcrossProviders).toBe(false);
+    expect(route.diagnostics.join(' ')).toContain('adapterRowsForwardedAcrossProviders=false');
+  });
+});
