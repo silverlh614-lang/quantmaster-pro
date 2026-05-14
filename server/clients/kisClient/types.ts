@@ -197,6 +197,49 @@ export interface KisInvestorTimeByMarket {
 }
 
 /**
+ * KIS 국내업종 기간별 지수 시세 (inquire-daily-indexchartprice / FHKUP03500100).
+ *
+ * KIS 공식 오픈소스 (open-trading-api) 검증 — `[국내주식] 업종/기타 > 국내주식업종기간별시세
+ * (일/주/월/년) [v1_국내주식-021]`. `FID_COND_MRKT_DIV_CODE='U'` (업종),
+ * `FID_INPUT_ISCD` = 업종 상세코드 (idxcode.mst 마스터 — 0001:종합, 0002:대형주 …).
+ *
+ * SectorEnergy 정책: KRX OpenAPI (`idx/kospi_dd_trd` 등) 가 *공식 원천* 이고 본 KIS
+ * 경유 지수 시세는 *임시 proxy / 보조 fallback*. ENV `KIS_SECTOR_INDEX_DAILY_ENABLED`
+ * default OFF — 명시 활성화 전까지 호출 0건.
+ */
+export interface KisSectorIndexDailyRow {
+  /** 영업 일자 (YYYYMMDD) — stck_bsop_date */
+  baseDate: string;
+  /** 업종 지수 종가 — bstp_nmix_prpr */
+  close: number;
+  /** 업종 지수 시가 — bstp_nmix_oprc */
+  open: number;
+  /** 업종 지수 최고가 — bstp_nmix_hgpr */
+  high: number;
+  /** 업종 지수 최저가 — bstp_nmix_lwpr */
+  low: number;
+  /** 누적 거래량 — acml_vol */
+  volume: number;
+  /** 누적 거래 대금 — acml_tr_pbmn */
+  value: number;
+}
+
+export interface KisSectorIndexDaily {
+  /** 조회한 업종 상세코드 (FID_INPUT_ISCD) */
+  sectorIscd: string;
+  /** HTS 한글 업종명 — hts_kor_isnm (부재 시 빈 문자열) */
+  sectorName: string;
+  /** 업종 지수 현재가 — output1 bstp_nmix_prpr */
+  currentIndex: number | null;
+  /** 업종 지수 전일 대비율 — output1 bstp_nmix_prdy_ctrt (부재 시 null) */
+  changePct: number | null;
+  /** output2 일자별 지수 시계열 (최신순). 부재 시 빈 배열. */
+  series: KisSectorIndexDailyRow[];
+  fetchedAt: string;
+  source: 'KIS_API';
+}
+
+/**
  * KIS 전일종가 응답 — ADR-0004 대체 경로에서 장전 갭 계산의 기준가로 사용.
  */
 export interface PrevClose {
@@ -266,5 +309,6 @@ export interface KisClientOverrides {
   fetchKisInvestorTrendEstimate?: (code: string) => Promise<KisInvestorTrendEstimate | null>;
   fetchKisInvestorDailyByMarket?: () => Promise<KisInvestorDailyByMarket | null>;
   fetchKisInvestorTimeByMarket?: () => Promise<KisInvestorTimeByMarket | null>;
+  fetchKisSectorIndexDaily?: (sectorIscd: string) => Promise<KisSectorIndexDaily | null>;
   realDataKisGet?: (trId: string, apiPath: string, params: Record<string, string>) => Promise<unknown>;
 }

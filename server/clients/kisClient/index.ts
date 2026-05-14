@@ -27,6 +27,8 @@ export type {
   KisStockProgramTrade,
   KisMarketProgramTrade,
   KisShortSaleRankingRow,
+  KisSectorIndexDaily,
+  KisSectorIndexDailyRow,
   PrevClose,
   KisHolding,
   SellOrderOutcome,
@@ -90,6 +92,9 @@ export {
   fetchCurrentPrice,
   fetchKisPrevClose,
   fetchStockName,
+  fetchKisSectorIndexDaily,
+  isKisSectorIndexDailyDisabled,
+  KIS_SECTOR_INDEX_ISCD,
 } from './query.js';
 
 // ─── holdings (잔고 조회) ──────────────────────────────────────────────────
