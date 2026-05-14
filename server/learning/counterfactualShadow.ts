@@ -46,6 +46,46 @@ export interface CounterfactualEntry {
   /** 90 거래일 */
   return90d?: number;
   resolvedAt?: string;
+  /** Counterfactual Truth v1 idempotency key: sourceCandidateId+symbol+tradingDate+blockedReason+hypotheticalSide+strategyId. */
+  counterfactualKey?: string;
+  sourceCandidateId?: string;
+  symbol?: string;
+  tradingDate?: string;
+  blockedReason?: string;
+  hypotheticalSide?: 'BUY' | 'SELL';
+  strategyId?: string;
+  hypotheticalEntryPrice?: number;
+  hypotheticalTargetPrice?: number;
+  hypotheticalStopPrice?: number;
+  maxHoldingMinutes?: number;
+  outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK';
+  outcomeStatus?: 'PENDING' | 'LABELED' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'EXPIRED' | 'UNRESOLVED';
+  outcomeResolvedAt?: string;
+  duplicateSuppressedAt?: string;
+  duplicateSuppressedCount?: number;
+}
+
+export function buildCounterfactualKey(params: {
+  sourceCandidateId?: string;
+  symbol?: string;
+  stockCode?: string;
+  tradingDate?: string;
+  signalDate?: string;
+  blockedReason?: string;
+  skipReason?: string;
+  hypotheticalSide?: string;
+  strategyId?: string;
+}): string {
+  const symbol = String(params.symbol ?? params.stockCode ?? 'UNKNOWN');
+  const tradingDate = String(params.tradingDate ?? params.signalDate ?? 'UNKNOWN_DATE').slice(0, 10);
+  return [
+    params.sourceCandidateId ?? `${symbol}:${tradingDate}`,
+    symbol,
+    tradingDate,
+    params.blockedReason ?? params.skipReason ?? 'BLOCKED',
+    params.hypotheticalSide ?? 'BUY',
+    params.strategyId ?? 'default',
+  ].map((v) => String(v).replace(/\s+/g, '_')).join('|');
 }
 
 const MAX_RECORDS = 1000;
@@ -62,7 +102,7 @@ function load(): CounterfactualEntry[] {
   }
 }
 
-function save(entries: CounterfactualEntry[]): void {
+export function saveCounterfactuals(entries: CounterfactualEntry[]): void {
   ensureDataDir();
   fs.writeFileSync(
     COUNTERFACTUAL_FILE,
@@ -75,10 +115,10 @@ export function loadCounterfactuals(): CounterfactualEntry[] {
 }
 
 /**
- * 신규 탈락 후보를 기록. 같은 날 같은 종목 중복은 스킵 (멱등).
+ * 신규 탈락 후보를 기록. 동일 counterfactualKey 중복은 upsert/suppress 한다 (멱등).
  * signalDate 는 ISO 날짜 부분(YYYY-MM-DD) 으로 정규화.
  */
-export function recordCounterfactual(params: {
+export function recordCounterfactualCase(params: {
   stockCode: string;
   stockName: string;
   priceAtSignal: number;
@@ -87,15 +127,40 @@ export function recordCounterfactual(params: {
   conditionKeys: string[];
   skipReason: string;
   now?: Date;
-}): CounterfactualEntry | null {
-  if (!Number.isFinite(params.priceAtSignal) || params.priceAtSignal <= 0) return null;
+  sourceCandidateId?: string;
+  blockedReason?: string;
+  hypotheticalSide?: 'BUY' | 'SELL';
+  strategyId?: string;
+  hypotheticalTargetPrice?: number;
+  hypotheticalStopPrice?: number;
+  maxHoldingMinutes?: number;
+}): { entry: CounterfactualEntry | null; created: boolean; duplicateSuppressed: boolean; existingCaseId?: string; attemptedKey?: string } {
+  if (!Number.isFinite(params.priceAtSignal) || params.priceAtSignal <= 0) return { entry: null, created: false, duplicateSuppressed: false };
   const now = params.now ?? new Date();
   const signalDate = now.toISOString().slice(0, 10);
+  const blockedReason = params.blockedReason ?? params.skipReason;
+  const sourceCandidateId = params.sourceCandidateId ?? `${params.stockCode}:${signalDate}:${blockedReason}`;
+  const counterfactualKey = buildCounterfactualKey({ sourceCandidateId, stockCode: params.stockCode, tradingDate: signalDate, blockedReason, hypotheticalSide: params.hypotheticalSide ?? 'BUY', strategyId: params.strategyId ?? 'default' });
   const entries = load();
-  const duplicate = entries.some(
-    e => e.stockCode === params.stockCode && e.signalDate === signalDate,
-  );
-  if (duplicate) return null;
+  const existing = entries.find((e) => (e.counterfactualKey ?? buildCounterfactualKey({ sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`, stockCode: e.stockCode, tradingDate: e.signalDate, blockedReason: e.blockedReason ?? e.skipReason, hypotheticalSide: e.hypotheticalSide ?? 'BUY', strategyId: e.strategyId ?? 'default' })) === counterfactualKey);
+  if (existing) {
+    existing.counterfactualKey = counterfactualKey;
+    existing.sourceCandidateId = sourceCandidateId;
+    existing.symbol = existing.symbol ?? params.stockCode;
+    existing.tradingDate = existing.tradingDate ?? signalDate;
+    existing.blockedReason = blockedReason;
+    existing.hypotheticalSide = params.hypotheticalSide ?? existing.hypotheticalSide ?? 'BUY';
+    existing.strategyId = params.strategyId ?? existing.strategyId ?? 'default';
+    existing.hypotheticalEntryPrice = params.priceAtSignal;
+    existing.hypotheticalTargetPrice = params.hypotheticalTargetPrice ?? existing.hypotheticalTargetPrice;
+    existing.hypotheticalStopPrice = params.hypotheticalStopPrice ?? existing.hypotheticalStopPrice;
+    existing.maxHoldingMinutes = params.maxHoldingMinutes ?? existing.maxHoldingMinutes;
+    existing.duplicateSuppressedAt = now.toISOString();
+    existing.duplicateSuppressedCount = (existing.duplicateSuppressedCount ?? 0) + 1;
+    saveCounterfactuals(entries);
+    console.info('COUNTERFACTUAL_DUPLICATE_SUPPRESSED', { existingCaseId: existing.id, attemptedKey: counterfactualKey });
+    return { entry: existing, created: false, duplicateSuppressed: true, existingCaseId: existing.id, attemptedKey: counterfactualKey };
+  }
 
   const entry: CounterfactualEntry = {
     id: `cf_${Date.now()}_${params.stockCode}`,
@@ -108,12 +173,32 @@ export function recordCounterfactual(params: {
     regime: params.regime,
     conditionKeys: params.conditionKeys,
     skipReason: params.skipReason,
+    counterfactualKey,
+    sourceCandidateId,
+    symbol: params.stockCode,
+    tradingDate: signalDate,
+    blockedReason,
+    hypotheticalSide: params.hypotheticalSide ?? 'BUY',
+    strategyId: params.strategyId ?? 'default',
+    hypotheticalEntryPrice: params.priceAtSignal,
+    hypotheticalTargetPrice: params.hypotheticalTargetPrice,
+    hypotheticalStopPrice: params.hypotheticalStopPrice,
+    maxHoldingMinutes: params.maxHoldingMinutes,
+    outcomeStatus: 'PENDING',
   };
   entries.push(entry);
-  save(entries);
-  return entry;
+  saveCounterfactuals(entries);
+  return { entry, created: true, duplicateSuppressed: false };
 }
 
+/**
+ * 신규 탈락 후보를 기록. 동일 counterfactualKey 중복은 스킵 (멱등).
+ * signalDate 는 ISO 날짜 부분(YYYY-MM-DD) 으로 정규화.
+ */
+export function recordCounterfactual(params: Parameters<typeof recordCounterfactualCase>[0]): CounterfactualEntry | null {
+  const result = recordCounterfactualCase(params);
+  return result.created ? result.entry : null;
+}
 /**
  * 아직 resolved 가 아닌 엔트리 중, signalDate 로부터 N 영업일 경과한 것을 찾아
  * 현재가로 수익률을 계산해 기록한다. 호출자는 현재가 fetcher (주로 fetchCurrentPrice) 를 주입.
@@ -147,7 +232,7 @@ export async function resolveCounterfactuals(
     if (elapsedDays >= 90 && e.return90d === undefined) { e.return90d = ret; r90++; e.resolvedAt = now.toISOString(); }
   }
 
-  save(entries);
+  saveCounterfactuals(entries);
   return { resolved30d: r30, resolved60d: r60, resolved90d: r90 };
 }
 

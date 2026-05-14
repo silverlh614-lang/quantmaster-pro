@@ -85,6 +85,16 @@ describe('Fresh Shadow Lifecycle Activation Patch v1', () => {
     expect(p.blocker).toBe('FRESH_SAMPLE_SIZE_LT_100');
   });
 
+
+  it('renders fresh expectancy as N/A when there are zero fresh samples', () => {
+    const ledger = new InMemoryShadowCaseLedger();
+    const p = collectFreshOnlyPromotion(ledger, 1);
+    expect(p.freshSampleSize).toBe(0);
+    expect(p.freshExpectancyR).toBe('N/A');
+    expect(p.freshExpectancyReason).toBe('NO_FRESH_SAMPLE');
+    expect(p.blocker).toBe('NO_FRESH_SAMPLE');
+  });
+
   it('formats fresh shadow status and lifecycle command output', () => {
     const ledger = fullLifecycle();
     expect(formatFreshShadowStatus(collectFreshShadowStatus(ledger, now))).toContain('todayFreshCandidates');

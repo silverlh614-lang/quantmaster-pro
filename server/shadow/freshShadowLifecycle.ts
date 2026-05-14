@@ -138,9 +138,9 @@ export function collectFreshOnlyPromotion(ledger: ShadowCaseLedgerStore, returnF
   const wins = closed.filter((c) => c.outcomeLabel === 'WIN');
   const losses = closed.filter((c) => c.outcomeLabel === 'LOSS');
   const labelDen = fresh.filter((c) => c.state === 'SHADOW_POSITION_CLOSED' || c.state === 'OUTCOME_LABELED' || CLOSED_LABELS.has(c.outcomeLabel ?? '')).length;
-  const freshExpectancyR = avg(closed.map(retR));
-  const blockers = fresh.length < REQUIRED_FRESH_SAMPLES ? ['FRESH_SAMPLE_SIZE_LT_100'] : [];
-  return { basis: 'FRESH_ONLY' as const, freshSampleSize: fresh.length, freshClosedSampleSize: closed.length, freshWinRate: rate(wins.length, wins.length + losses.length), freshExpectancyR, freshReturnFlowHitRate: returnFlowHitRate, freshLabelCompletionRate: rate(closed.length, labelDen, 1), requiredFreshSamples: REQUIRED_FRESH_SAMPLES, promotionAllowed: false, blocker: blockers[0] ?? 'PROMOTION_DISABLED_UNTIL_MANUAL_REVIEW', blockers };
+  const freshExpectancyR = fresh.length === 0 ? 'N/A' as const : avg(closed.map(retR));
+  const blockers = fresh.length === 0 ? ['NO_FRESH_SAMPLE'] : fresh.length < REQUIRED_FRESH_SAMPLES ? ['FRESH_SAMPLE_SIZE_LT_100'] : [];
+  return { basis: 'FRESH_ONLY' as const, freshSampleSize: fresh.length, freshClosedSampleSize: closed.length, freshWinRate: rate(wins.length, wins.length + losses.length), freshExpectancyR, freshExpectancyReason: fresh.length === 0 ? 'NO_FRESH_SAMPLE' as const : undefined, freshReturnFlowHitRate: returnFlowHitRate, freshLabelCompletionRate: rate(closed.length, labelDen, 1), requiredFreshSamples: REQUIRED_FRESH_SAMPLES, promotionAllowed: false, blocker: blockers[0] ?? 'PROMOTION_DISABLED_UNTIL_MANUAL_REVIEW', blockers };
 }
 export function formatFreshShadowStatus(s: ReturnType<typeof collectFreshShadowStatus>): string {
   return ['🌱 <b>[Fresh Shadow Status]</b>', ...Object.entries(s).map(([k, v]) => `- ${k}: ${typeof v === 'number' ? Number(v.toFixed(4)) : v}`)].join('\n');
@@ -149,5 +149,5 @@ export function formatFreshShadowLifecycle(rows: ReturnType<typeof collectFreshS
   return ['🌿 <b>[Fresh Shadow Lifecycle]</b>', ...rows.map((r) => `- caseId=${r.caseId} symbol=${r.symbol} createdAt=${r.createdAt} currentState=${r.currentState} cohortType=${r.cohortType} transitions=${r.transitions.join('>')} entryPrice=${r.entryPrice ?? 'N/A'} targetPrice=${r.targetPrice ?? 'N/A'} stopPrice=${r.stopPrice ?? 'N/A'} outcomeLabel=${r.outcomeLabel ?? 'N/A'} executionImpact=${r.executionImpact} integrityStatus=${r.integrityStatus}`)].join('\n');
 }
 export function formatFreshOnlyPromotion(p: ReturnType<typeof collectFreshOnlyPromotion>): string {
-  return [`basis=${p.basis}`, `freshSampleSize=${p.freshSampleSize}`, `freshClosedSampleSize=${p.freshClosedSampleSize}`, `freshWinRate=${p.freshWinRate.toFixed(4)}`, `freshExpectancyR=${p.freshExpectancyR.toFixed(4)}`, `freshReturnFlowHitRate=${p.freshReturnFlowHitRate.toFixed(4)}`, `freshLabelCompletionRate=${p.freshLabelCompletionRate.toFixed(4)}`, `requiredFreshSamples=${p.requiredFreshSamples}`, `promotionAllowed=${p.promotionAllowed}`, `blocker=${p.blocker}`].join('\n');
+  return [`basis=${p.basis}`, `freshSampleSize=${p.freshSampleSize}`, `freshClosedSampleSize=${p.freshClosedSampleSize}`, `freshWinRate=${p.freshWinRate.toFixed(4)}`, `freshExpectancyR=${typeof p.freshExpectancyR === 'number' ? p.freshExpectancyR.toFixed(4) : 'N/A'}`, `freshReturnFlowHitRate=${p.freshReturnFlowHitRate.toFixed(4)}`, `freshLabelCompletionRate=${p.freshLabelCompletionRate.toFixed(4)}`, `requiredFreshSamples=${p.requiredFreshSamples}`, `promotionAllowed=${p.promotionAllowed}`, `reason=${p.freshExpectancyReason ?? 'OK'}`, `blocker=${p.blocker}`].join('\n');
 }
