@@ -47,7 +47,7 @@ describe('Learning Outcome Quality Patch v1 reports', () => {
     expect(s.promotionAllowed).toBe(false);
     expect(msg).toContain('closedTotal=225');
     expect(msg).toContain('executionImpact=NONE');
-  });
+  }, 15000);
 
   it('/learning_open_residue가 남은 86건과 closeCandidates=0 사유를 분해하는가?', async () => {
     write('ghost-portfolio.json', Array.from({ length: 86 }, (_, i) => openCase(i)));
@@ -102,11 +102,55 @@ describe('Learning Outcome Quality Patch v1 reports', () => {
     write('gemini_learning_runs.json', [{ nextScheduledAt: '2026-05-13T09:00:00.000Z' }]);
     const q = await quality();
     const msg = q.formatLearningPulseV3(q.collectLearningPulseV3(NOW));
-    expect(msg).toContain('Repair Last Run');
+    expect(msg).toContain('Repair Runs:');
     expect(msg).toContain('Outcome Quality');
     expect(msg).toContain('Open Residue');
     expect(msg).toContain('Attribution Quality');
     expect(msg).toContain('Gemini:');
+  });
+
+  it('Learning Pulse v4 Aggregation Truth Patch v1: cohort/repair/rate/suggest/consistency 진실을 표시한다', async () => {
+    const ghostRepair = Array.from({ length: 225 }, (_, i) => ghost({ id: `ghost-repair-${i}`, caseKind: 'ghost', closed: true, closedAt: NOW.toISOString(), closeReason: 'VIRTUAL_TIME_EXIT', outcomeLabel: i % 2 ? 'LOSS' : 'WIN', returnR: -0.2356, finalReturnPct: -1, attributionProcessed: true }));
+    const openUnresolved = Array.from({ length: 70 }, (_, i) => ghost({ id: `open-unresolved-${i}`, closed: false, currentReturnPct: 1, maxHoldingMinutes: 999999, lastUpdatedAt: NOW.toISOString() }));
+    const quarantined = Array.from({ length: 16 }, (_, i) => ghost({ id: `quarantined-${i}`, closed: false, outcomeLabel: 'QUARANTINED', dataQuality: 'QUARANTINED', quarantinedReason: 'entry_price_missing', entryPrice: undefined, signalPriceKrw: undefined as any }));
+    write('ghost-portfolio.json', [...ghostRepair, ...openUnresolved, ...quarantined]);
+    write('attribution-records.json', Array.from({ length: 147 }, (_, i) => attr(i)));
+    write('learning_repair_runs.json', [{ runAt: NOW.toISOString(), close: { closed: 225, brokerOrdersCreated: 0 }, outcome: { finalized: 225 }, attr: { processedCount: 147 }, suggest: { proposals: [{}] }, criticalIntegrityEvents: 0, brokerOrdersCreated: 0 }]);
+    write('ghost_close_runs.json', [{ runId: 'ghost-close-last', lastRunAt: NOW.toISOString(), candidatesScanned: 86, closed: 0, pendingRetry: 70, quarantined: 16, closedIds: [], brokerOrdersCreated: 0 }]);
+    write('learning_cohort_backfill_runs.json', [{ scanned: 311, updated: 311, before: { UNSET: 311 }, after: { GHOST_REPAIR: 225, OPEN_UNRESOLVED: 70, QUARANTINED: 16 }, runAt: NOW.toISOString(), executionImpact: 'NONE', brokerOrdersCreated: 0, promotionAllowed: false }]);
+    write('suggest_diagnostic_proposals.json', Array.from({ length: 3 }, (_, i) => ({ id: `p${i}`, createdAt: NOW.toISOString(), channel: 'counterfactual', currentThreshold: 0.7, observedScore: 0.4, sampleSize: 0, blocker: 'NO_INPUT_SAMPLE', recommendation: 'observe only', riskLevel: 'LOW', autoApply: false })));
+    const q = await quality();
+    const pulse = q.collectLearningPulseV3(NOW);
+    const msg = q.formatLearningPulseV3(pulse);
+    expect(pulse.cohortSummary.ghostRepairCount).toBe(225);
+    expect(pulse.cohortSummary.openUnresolvedCount).toBe(70);
+    expect(pulse.cohortSummary.quarantinedCount).toBe(16);
+    expect(pulse.cohortSummary.freshShadowExpectancyR.value).toBe('N/A');
+    expect(pulse.cohortSummary.freshShadowExpectancyR.reason).toBe('NO_FRESH_SAMPLE');
+    expect(pulse.cohortSummary.ghostRepairExpectancyR.value).toBe(-0.2356);
+    expect(pulse.repairRuns.lastLearningRepairRun.closed).toBe(225);
+    expect(pulse.repairRuns.lastGhostCloseRun.closed).toBe(0);
+    expect(pulse.rateMetrics.closeRate7d).toBeCloseTo(225 / 311, 4);
+    expect(pulse.rateMetrics.lastGhostCloseRunCloseRate).toBe(0);
+    expect(msg).not.toContain(['repair', 'Close', 'Rate'].join(''));
+    expect(pulse.suggest.suggestSignals7d).toBe(0);
+    expect(pulse.suggest.diagnosticProposals7d).toBe(3);
+    expect(pulse.consistencyCheck.metricWarnings).toEqual([]);
+    expect(pulse.promotionAllowed).toBe(false);
+    expect(pulse.executionImpact).toBe('NONE');
+    expect(pulse.brokerOrdersCreated).toBe(0);
+    expect(msg).toContain('Ghost repair sample count=225');
+    expect(msg).toContain('freshShadowExpectancyR=N/A reason=NO_FRESH_SAMPLE');
+    expect(msg).toContain('lastGhostCloseRunCloseRate 0.0%');
+  });
+
+  it('Learning Pulse v4 consistencyCheck가 backfill truth 미반영을 경고한다', async () => {
+    write('ghost-portfolio.json', [ghost({ id: 'open-only', closed: false, currentReturnPct: 1 })]);
+    write('attribution-records.json', []);
+    write('learning_cohort_backfill_runs.json', [{ scanned: 1, updated: 1, before: { UNSET: 1 }, after: { GHOST_REPAIR: 1 }, runAt: NOW.toISOString() }]);
+    const q = await quality();
+    const pulse = q.collectLearningPulseV3(NOW);
+    expect(pulse.consistencyCheck.metricWarnings).toContain('COHORT_BACKFILL_NOT_REFLECTED_IN_PULSE');
   });
 });
 

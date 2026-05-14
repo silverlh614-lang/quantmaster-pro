@@ -25,7 +25,7 @@ export async function learningRepairRun(now: Date = new Date()) {
   order.push('SuggestThresholdCalibrator'); const suggest = runSuggestThresholdCalibrator({ now, suggest7d: { counterfactual: 0, ledger: 0, kellySurface: 0, regime: 0 } });
   order.push('GeminiUtilizationScheduler'); const gemini = scheduleGeminiLearningReflection(now);
   const integrity = runLearningIntegrityGuard({ brokerOrdersCreated: close.brokerOrdersCreated, liveExecutionAllowed: false });
-  const result = { mode: 'run' as const, order, close, outcome, attr, suggest, gemini, criticalIntegrityEvents: integrity.filter(e => e.severity === 'CRITICAL').length, brokerOrdersCreated: 0 as const };
+  const result = { mode: 'run' as const, runAt: now.toISOString(), order, close, outcome, attr, suggest, gemini, criticalIntegrityEvents: integrity.filter(e => e.severity === 'CRITICAL').length, brokerOrdersCreated: 0 as const };
   if (result.criticalIntegrityEvents > 0) await sendTelegramAlert(`🚨 Learning repair critical integrity events=${result.criticalIntegrityEvents} executionImpact=NONE brokerOrdersCreated=${result.brokerOrdersCreated}`, { priority: 'HIGH', tier: 'T1_ALARM', category: 'learning_integrity', dedupeKey: 'learning_repair_critical_integrity' });
   appendJson(LEARNING_REPAIR_RUNS_FILE, result);
   return result;

@@ -4,6 +4,7 @@ import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectio
 import { scanTraceFile } from '../persistence/paths.js';
 import { recordCounterfactual, loadCounterfactuals } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
+import { appendJson, LEARNING_COHORT_BACKFILL_RUNS_FILE } from './learningStorage.js';
 import type { LearningCohortType, LearningGhostCase, LearningRecoveryConfidence } from './learningTypes.js';
 
 const COHORTS: LearningCohortType[] = ['FRESH_SHADOW', 'BACKLOG_REPAIR', 'GHOST_REPAIR', 'RECOVERED_METADATA', 'QUARANTINED', 'COUNTERFACTUAL_BLOCKED', 'COUNTERFACTUAL_MISSED_WIN', 'COUNTERFACTUAL_AVOIDED_LOSS', 'GHOST_REPAIR_PENDING', 'OPEN_UNRESOLVED'];
@@ -53,7 +54,7 @@ function cohortStats(ghosts: LearningGhostCase[], now: Date) {
     const rows = ghosts.filter(g => inferLearningCohort(g) === c);
     const rs = rows.map(finalReturnR).filter((v): v is number => v !== undefined);
     const labeled = rows.filter(g => ['WIN', 'LOSS', 'BREAKEVEN', 'EXPIRED'].includes(String(g.outcomeLabel)));
-    out[c] = { count: rows.length, expectancyR: c === 'QUARANTINED' ? 'N/A' : round(avg(rs)), winRate: c === 'QUARANTINED' ? 'N/A' : round(labeled.length ? rows.filter(g => g.outcomeLabel === 'WIN').length / labeled.length : 0), avgHoldingMinutes: round(avg(rows.map(g => holdMinutes(g, now))), 2) };
+    out[c] = { count: rows.length, expectancyR: c === 'QUARANTINED' || rs.length === 0 ? 'N/A' : round(avg(rs)), winRate: c === 'QUARANTINED' || labeled.length === 0 ? 'N/A' : round(rows.filter(g => g.outcomeLabel === 'WIN').length / labeled.length), avgHoldingMinutes: round(avg(rows.map(g => holdMinutes(g, now))), 2) };
   }
   return out;
 }
@@ -68,7 +69,7 @@ export function collectLearningCohortSummary(now: Date = new Date()) {
   const promotionEligible = ghosts.filter(g => inferLearningCohort(g) === 'FRESH_SHADOW' && !isHoldingOutlier(g, now));
   const stats = cohortStats(ghosts, now);
   const metricExclusionReasonByCohort = { QUARANTINED: 'N/A: true data-quality defect cohort; WIN/LOSS expectancy is reported by outcomeLabel, not quarantine cohort' };
-  return { totalSamples: ghosts.length, byCohort, byOutcomeLabel, outcomeLabelSampleCount: closedOrFinalized.length, openPendingCount: byCohort.GHOST_REPAIR_PENDING + byCohort.OPEN_UNRESOLVED, closedRepairCount, freshShadowCount: byCohort.FRESH_SHADOW, backlogRepairCount: byCohort.BACKLOG_REPAIR, ghostRepairCount: byCohort.GHOST_REPAIR, recoveredMetadataCount: byCohort.RECOVERED_METADATA, trueQuarantinedCount: byCohort.QUARANTINED, quarantinedCount: byCohort.QUARANTINED, counterfactualCount, expectancyByCohort: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v.expectancyR])), winRateByCohort: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v.winRate])), metricExclusionReasonByCohort, avgHoldingMinutesByCohort: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v.avgHoldingMinutes])), promotionEligibleSamples: promotionEligible.length, promotionExcludedSamples: ghosts.length - promotionEligible.length, exclusionReason: 'promotion primary metric uses FRESH_SHADOW only; backlog/recovered/quarantined/counterfactual/outlier samples are diagnostic-only', executionImpact: 'NONE' as const };
+  return { totalSamples: ghosts.length, byCohort, byOutcomeLabel, outcomeLabelSampleCount: closedOrFinalized.length, openPendingCount: byCohort.GHOST_REPAIR_PENDING + byCohort.OPEN_UNRESOLVED, closedRepairCount, freshShadowCount: byCohort.FRESH_SHADOW, backlogRepairCount: byCohort.BACKLOG_REPAIR, ghostRepairCount: byCohort.GHOST_REPAIR, openUnresolvedCount: byCohort.OPEN_UNRESOLVED, recoveredMetadataCount: byCohort.RECOVERED_METADATA, trueQuarantinedCount: byCohort.QUARANTINED, quarantinedCount: byCohort.QUARANTINED, counterfactualCount, counterfactualBuiltCount: counterfactualCount, counterfactualCandidateCount: counterfactualCount, expectancyByCohort: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v.expectancyR])), winRateByCohort: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v.winRate])), metricExclusionReasonByCohort, avgHoldingMinutesByCohort: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, v.avgHoldingMinutes])), promotionEligibleSamples: promotionEligible.length, promotionExcludedSamples: ghosts.length - promotionEligible.length, exclusionReason: 'promotion primary metric uses FRESH_SHADOW only; GHOST_REPAIR is displayed separately from BACKLOG_REPAIR and both are diagnostic-only', executionImpact: 'NONE' as const };
 }
 
 export function learningCohortBackfillRun(now: Date = new Date()) {
@@ -84,7 +85,9 @@ export function learningCohortBackfillRun(now: Date = new Date()) {
     if (g.cohortType !== next) { g.cohortType = next; g.cohortBackfilledAt = now.toISOString(); g.cohortBackfillReason = 'Learning Cohort Truth & Metric Consistency Patch v1; outcomeLabel preserved separately; executionImpact=NONE'; g.executionImpact = 'NONE'; updated++; }
   }
   if (updated > 0) saveGhostPortfolio(all);
-  return { scanned: all.length, updated, before, after, executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
+  const result = { scanned: all.length, updated, before, after, runAt: now.toISOString(), executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
+  appendJson(LEARNING_COHORT_BACKFILL_RUNS_FILE, result);
+  return result;
 }
 
 function recoverPlan(g: LearningGhostCase) {

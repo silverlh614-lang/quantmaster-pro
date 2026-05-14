@@ -293,7 +293,7 @@ describe('formatLearningPulseMessage', () => {
     expect(msg).toContain('👻 Ghost Portfolio');
     expect(msg).toContain('📊 Attribution');
     expect(msg).toContain('⚖️ Condition Weights');
-    expect(msg).toContain('🔔 Suggest 발사');
+    expect(msg).toContain('🔔 Suggest Metrics');
     expect(msg).toContain('🧪 Experiment Proposal');
     expect(msg).toContain('🤖 Gemini');
     expect(msg).toContain('진단 플래그');
