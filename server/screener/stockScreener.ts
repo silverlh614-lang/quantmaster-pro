@@ -30,6 +30,12 @@ import { STOCK_UNIVERSE } from './stockUniverse.js';
 import { type RejectionEntry, setLastRejectionLog } from './rejectionLog.js';
 import { fetchYahooQuote, type YahooQuoteExtended } from './adapters/yahooQuoteAdapter.js';
 import { fetchKisQuoteFallback, fetchKisIntraday, enrichQuoteWithKisMTAS } from './adapters/kisQuoteAdapter.js';
+// PR-KIS-CHART-COOLDOWN — Yahoo STALE_BASE 분기에서 KIS 차트 cooldown 활성 여부
+// 조회 SSOT. true 면 추가 outbound 호출 0건으로 quoteHydrationFailed 처리
+// (STALE_YAHOO_AND_KIS_CHART_FAILED + SKIP_THIS_SCAN, providerIssue=true /
+// marketSignal=false / executionImpact=NONE). #974 KIS chart 5xx cooldown
+// 인프라 위에 stack — 운영자 Telegram 알림 0건, 전체 스캔 흐름 무중단.
+import { isKisChartCooldownActive } from '../clients/kisClient.js';
 import { fetchKrxScreenerFallback } from './adapters/krxScreenerAdapter.js';
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${s.code}.KS` direct concat 영구
 // 차단. screenerSymbols 의 symbol 필드 마스터 매칭 격상 (정확한 시장) + 부재 시
@@ -473,6 +479,25 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // KIS 폴백 실패 또는 return5d/return20d 까지 STALE 인 경우 → universe 제외.
     if (quote.dataQuality === 'STALE_BASE') {
       const issues = quote.dataQualityIssues ?? [];
+
+      // PR-KIS-CHART-COOLDOWN — Yahoo stale + KIS 차트(FHKST03010100 D) 5xx cooldown
+      // 활성 시 quoteHydrationFailed 처리. 추가 outbound 호출 0건 + 운영자 Telegram
+      // 알림 0건 + providerIssue=true / marketSignal=false / executionImpact=NONE
+      // literal. 전체 스캔 / Shadow learning / 보유·매도 관리는 무중단 (continue 만).
+      // 같은 종목 반복 호출은 cooldown 으로 자동 차단되어 로그 폭주 영구 차단.
+      if (isKisChartCooldownActive(stock.code, 'D')) {
+        rejectionLog.push({
+          code: stock.code,
+          name: stock.name,
+          reason:
+            `quoteHydrationFailed (STALE_YAHOO_AND_KIS_CHART_FAILED) — `
+            + `Yahoo STALE_BASE: ${issues.join(',')} + KIS chart cooldown `
+            + `(symbol=${stock.code} period=D providerIssue=true marketSignal=false `
+            + `executionImpact=NONE candidateAction=SKIP_THIS_SCAN)`,
+        });
+        continue;
+      }
+
       const onlyChangePercent = issues.length === 1 && issues[0] === 'changePercent';
       let kisRecovered = false;
       if (onlyChangePercent) {

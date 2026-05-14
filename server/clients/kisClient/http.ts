@@ -312,6 +312,25 @@ function clearKisChart5xxCooldown(ctx: { trId: string; symbol: string; period: s
 }
 
 /**
+ * 공개 SSOT — KIS 차트(FHKST03010100) symbol+period cooldown 활성 여부 조회.
+ *
+ * 사용 시나리오:
+ *   stockScreener / fetchKisQuoteFallback 등 caller 가 Yahoo STALE_BASE 분기에서
+ *   KIS 차트 fallback 자체가 직전 5xx 로 cooldown 중인지 *호출 없이* 판정하고,
+ *   true 면 즉시 quoteHydrationFailed 처리 (STALE_YAHOO_AND_KIS_CHART_FAILED +
+ *   SKIP_THIS_SCAN). 추가 outbound 호출 0건.
+ *
+ * @param symbol KRX 6자리 (앞쪽 0 자동 padStart)
+ * @param period 'D' | 'W' | 'M' (default 'D' — daily candle 가장 흔한 cooldown)
+ * @returns true 면 cooldown 활성 (재호출 시 자동 skip).
+ */
+export function isKisChartCooldownActive(symbol: string, period: 'D' | 'W' | 'M' = 'D'): boolean {
+  const padded = (symbol ?? '').padStart(6, '0');
+  if (!padded || padded.length !== 6) return false;
+  return isKisChart5xxCooldownActive({ trId: KIS_CHART_TR_ID, symbol: padded, period });
+}
+
+/**
  * 실계좌 데이터 전용 GET 요청 (rate-limited).
  * KIS_REAL_DATA_APP_KEY 설정 시 실계좌 서버로, 미설정 시 기존 kisGet 폴백.
  */
