@@ -639,6 +639,15 @@ export interface ScanCounters {
   waitDriftCorpAction: number;
   waitVolumeDrop: number;
   waitOther: number;
+  /**
+   * ADR-0516 — Watchlist Tier 정책 REST 차단으로 가격 미확보된 후보 카운트 (옵셔널 후방호환).
+   *
+   * MOMENTUM_PASSIVE / KIS_LOAD_STATE=RED 등 tier 정책이 REST fallback 을 차단해
+   * 이번 사이클 가격을 못 얻은 경우. *FAIL 아님* — DATA_VACUUM / providerIssue /
+   * marketSignal / NEW_BUY_BLOCKED 으로 격상 금지. Shadow learning 은 계속되나
+   * 가격 부재 MOMENTUM_PASSIVE 후보는 이번 사이클 학습 표본을 건너뛴다.
+   */
+  waitTierRestSuppressed?: number;
   gate1Pass: number;
   gate1Unknown: number;
   gate2Pass: number;
@@ -778,6 +787,8 @@ export function createScanCounters(): ScanCounters {
     waitDriftCorpAction: 0,
     waitVolumeDrop: 0,
     waitOther: 0,
+    // ADR-0516 — Watchlist Tier 정책 REST 차단 카운터 초기화 (옵셔널이지만 명시 0).
+    waitTierRestSuppressed: 0,
     gate1Pass: 0,
     gate1Unknown: 0,
     gate2Pass: 0,

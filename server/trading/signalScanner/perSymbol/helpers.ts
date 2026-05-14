@@ -40,6 +40,23 @@ export interface GetPriceSubscriptionContext {
   isEntryCandidate?: boolean;
   /** 표시용 종목명 (진단 로그) */
   stockName?: string;
+  // ── ADR-0516 — Watchlist Tier 정책 컨텍스트 (옵셔널, 후방호환) ─────────────
+  /** watchlistManager.assignSection 결과 (진단 로그용). */
+  section?: 'SWING' | 'CATALYST' | 'MOMENTUM';
+  /** Gate Score (진단 로그용). */
+  gateScore?: number;
+  /** Stage2 Score (진단 로그용). */
+  stage2Score?: number;
+  /**
+   * REST fallback (fetchCurrentPrice) 허용 여부.
+   * `false` 명시 시에만 REST 차단 — `undefined` (미전달) 는 기존 동작 보존 (REST 허용).
+   * MOMENTUM_PASSIVE / KIS_LOAD_STATE=RED tier 정책이 false 를 전달한다.
+   */
+  allowRestFallback?: boolean;
+  /** REST 결과 캐시 TTL (ms) — 진단/향후 캐시 wiring 용 컨텍스트 carry. */
+  restTtlMs?: number;
+  /** 가격 조회 목적 (진단 로그용). */
+  pricePurpose?: 'BUY_EVAL' | 'INTRADAY_EVAL' | 'DIAGNOSTIC';
 }
 
 /**
@@ -74,6 +91,12 @@ function deriveSubscriptionReasons(
  * 활성 시 legacy 직접 호출 동작 100% 복원 (회귀 위험 격리).
  *
  * try/catch 격리 — manager throw / subscribe 실패가 매수 흐름 절대 차단 안 함.
+ *
+ * ADR-0516 — Watchlist Tier 정책: `ctx.allowRestFallback === false` 시 REST
+ * fetchCurrentPrice 호출을 차단하고 null 반환 (WS 실시간 가격은 그대로 사용).
+ * `undefined` (미전달) 는 기존 동작 100% 보존 — REST fallback 정상 수행.
+ * KIS WebSocket priority queue (ADR-0437) 정책은 무변경 — REST 차단과 무관하게
+ * `requestKisWsSubscription` 은 항상 호출되어 WS 구독 우선순위를 유지한다.
  */
 export async function getPrice(
   stockCode: string,
@@ -104,6 +127,16 @@ export async function getPrice(
         // legacy fallback throw 도 격리
       }
     }
+  }
+  // ADR-0516 — Tier 정책 REST 차단. 명시적 false 일 때만 차단 (후방호환).
+  if (ctx?.allowRestFallback === false) {
+    if (process.env.WATCHLIST_KIS_TIER_DEBUG === 'true') {
+      console.debug(
+        `[KIS_REST_SUPPRESSED_BY_TIER] symbol=${stockCode} section=${ctx.section ?? '?'} ` +
+          `allowRestPrice=false reason=tier-rest-suppressed executionImpact=NONE marketSignal=false`,
+      );
+    }
+    return null;
   }
   return fetchCurrentPrice(stockCode).catch(() => null);
 }
