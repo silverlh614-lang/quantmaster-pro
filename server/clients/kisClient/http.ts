@@ -43,6 +43,23 @@ import {
   recordProviderSuccess,
   shouldSkipProviderCall,
 } from './providerHealthIsolationPatch003.js';
+// Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — 5-priority budget queue (P0~P4) +
+//   trId+symbol+priority TTL dedup + DATA_VACUUM root cause 4분류. literal type 강제로
+//   marketSignal=false / executionImpact=NONE|NEW_BUY_BLOCKED_ONLY / engineAlive=true /
+//   shadowLearning=true 보장. ENV `KIS_PRIORITY_BUDGET_PATCH_004_DISABLED=true` 1줄 즉시
+//   Patch-003 동작 100% 복원. 호출자 측 inline ENV 검사 0건 — SSOT 위임.
+import {
+  evaluatePriorityBudget,
+  formatKisPriorityBudgetLog,
+  isPriorityCallDeduped,
+  mapPriorityV1ToV2,
+  recordPriorityBudgetCall,
+  recordPriorityCallTtl,
+} from './kisPriorityBudgetPatch004.js';
+import {
+  classifyDataVacuumRootCause,
+  formatDataVacuumRootCauseLog,
+} from './dataVacuumRootCauseClassifierPatch004.js';
 import {
   assessKisTrPressure,
   classifyKisError,
@@ -335,6 +352,43 @@ export function realDataKisGet(
     if (pressureGate.level === 'SOFT' || pressureGate.level === 'HARD') {
       console.warn(`[KIS_TR_THROTTLE_APPLIED] trId=${trId} level=${pressureGate.level} sameSecondCalls=${pressureGate.sameSecondCalls} sameMinuteCalls=${pressureGate.sameMinuteCalls} retryWaveDetected=${pressureGate.retryWaveDetected} action=DEFER_LOW_PRIORITY_CALLS executionImpact=NONE`);
     }
+    // Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — 5-priority budget queue (P0~P4)
+    //   wiring 진입. P0_POSITION_EXIT 는 항상 통과 (절대 불변식). circuit OPEN/HARD throttle 시
+    //   P3/P4 자동 defer/suppress. TTL dedup 으로 5초 내 동일 trId+symbol+priority 중복 차단.
+    //   LIVE 매매 본체 0줄 변경 — 진단 layer + 신규 fallback decision wrapper 만.
+    const callPriorityV2 = mapPriorityV1ToV2(pressureGate.shouldDefer || _isCircuitOpen(trId) || isKisServerCircuitOpen(trId)
+      ? pressureGate.circuitState === 'OPEN' || pressureGate.level === 'HARD' ? callPriority : callPriority
+      : callPriority);
+    const _cachedForBudget = getLastGoodForKey(requestKey);
+    const _cacheAvailableForBudget = _cachedForBudget !== null && _cachedForBudget.confidence !== 'MISSING';
+    const budgetDecision = evaluatePriorityBudget({
+      trId,
+      symbol,
+      priority: callPriorityV2,
+      throttleLevel: pressureGate.level,
+      circuitState: pressureGate.circuitState,
+      sameSecondCalls: pressureGate.sameSecondCalls,
+      sameMinuteCalls: pressureGate.sameMinuteCalls,
+      cacheAvailable: _cacheAvailableForBudget,
+    });
+    if (!budgetDecision.allowed) {
+      console.warn(formatKisPriorityBudgetLog(budgetDecision));
+      const vacuum = classifyDataVacuumRootCause({
+        throttleLevel: pressureGate.level,
+        circuitState: pressureGate.circuitState,
+        hasRecent5xx: pressureGate.circuitState === 'OPEN' || pressureGate.circuitState === 'CLOSED_RECOVERED',
+        cacheAvailable: _cacheAvailableForBudget,
+        upstreamHydrationFailed: false,
+      });
+      console.warn(formatDataVacuumRootCauseLog(vacuum));
+      if (budgetDecision.deferred) {
+        recordKisCallDeferred(trId, Date.now(), { endpoint: apiPath, symbol, caller: 'realDataKisGet', priority: callPriority });
+      }
+      if (_cachedForBudget && _cachedForBudget.confidence !== 'MISSING') {
+        return _cachedForBudget.value;
+      }
+      return null;
+    }
     if (_isCircuitOpen(trId) || isKisServerCircuitOpen(trId) || pressureGate.shouldDefer) {
       const cached = getLastGoodForKey(requestKey);
       recordKisCallDeferred(trId, Date.now(), { endpoint: apiPath, symbol, caller: 'realDataKisGet', priority: callPriority });
@@ -364,6 +418,15 @@ export function realDataKisGet(
       // 잡음 차단 — cooldown skip 은 별도 INFO 로그 0건 (suppressed count 만 누적).
       return null;
     }
+    // Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — TTL dedup check + budget call record.
+    //   동일 trId+symbol+priority 호출이 5초 TTL 내 중복이면 dedup defer.
+    //   P0_POSITION_EXIT 은 dedup 적용 안 함 (보유 매도 절대 보호 invariant).
+    if (isPriorityCallDeduped(trId, symbol, callPriorityV2)) {
+      console.warn(`[KIS_PRIORITY_BUDGET] priority=${callPriorityV2} allowed=false reason=TTL_DEDUP_DUPLICATE action=DEFER executionImpact=NONE`);
+      return null;
+    }
+    recordPriorityCallTtl(trId, symbol, callPriorityV2);
+    recordPriorityBudgetCall(trId, callPriorityV2);
     // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine.
     //   OPEN 상태 시 호출 차단 (잡음 0). HALF_OPEN 으로 자동 전이 후 1회 test 통과.
     //   호출자 측 inline ENV 검사 0건 — `shouldSkipProviderCall` SSOT 위임.
