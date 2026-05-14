@@ -899,6 +899,18 @@ const scanBlockers: TelegramCommand = {
       console.warn('[scan_blockers] Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 section failed:', err);
     }
 
+    // Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — 60s 5-priority budget snapshot.
+    //   [PATCH-RUNTIME] (Patch-004) 태그로 runtime 모드 sectionMatchesMode 통과.
+    //   marketSignal=false / executionImpact=NONE / engineAlive=true / shadowLearning=true literal.
+    //   read-only — countPriorityBudgetUsed60s 메모리 read 만, LIVE 매매 영향 0.
+    try {
+      const { formatKisPriorityBudgetCompactLine } = await import('../../../clients/kisClient/kisPriorityBudgetPatch004.js');
+      const budgetLine = formatKisPriorityBudgetCompactLine();
+      if (budgetLine) parts.push(budgetLine);
+    } catch (err) {
+      console.warn('[scan_blockers] Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 section failed:', err);
+    }
+
     // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.
     if (adr0505CompactLine) parts.push(adr0505CompactLine);
     if (adr0505DetailBlock) parts.push(adr0505DetailBlock);
