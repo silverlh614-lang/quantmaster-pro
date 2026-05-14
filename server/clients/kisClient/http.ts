@@ -233,6 +233,44 @@ export function kisPost(
  * 같은 TR 이 다수 종목에 반복될 수 있어 첫 5xx 직후에도 짧은 micro-cooldown 이 필요하다.
  */
 const _realData5xxCooldownUntil = new Map<string, number>();
+const KIS_CHART_TR_ID = 'FHKST03010100';
+const KIS_CHART_5XX_COOLDOWN_MS = 5 * 60 * 1000;
+const KIS_CHART_LOG_THROTTLE_MS = 60 * 1000;
+const _kisChartLogThrottle = new Map<string, number>();
+
+function getKisChartContext(trId: string, params: Record<string, string>): {
+  trId: string;
+  symbol: string;
+  period: string;
+  startDate: string;
+  endDate: string;
+} | null {
+  if (trId !== KIS_CHART_TR_ID) return null;
+  const rawSymbol = params.FID_INPUT_ISCD ?? '';
+  const period = params.FID_PERIOD_DIV_CODE ?? '';
+  if (!rawSymbol || !period) return null;
+  const symbol = rawSymbol.padStart(6, '0');
+  return {
+    trId,
+    symbol,
+    period,
+    startDate: params.FID_INPUT_DATE_1 ?? '',
+    endDate: params.FID_INPUT_DATE_2 ?? '',
+  };
+}
+
+function kisChartCooldownKey(ctx: { trId: string; symbol: string; period: string }): string {
+  return `${ctx.trId}:${ctx.symbol}:${ctx.period}`;
+}
+
+function shouldEmitKisChartLog(kind: string, key: string): boolean {
+  const throttleKey = `${kind}:${key}`;
+  const now = Date.now();
+  const last = _kisChartLogThrottle.get(throttleKey) ?? 0;
+  if (now - last < KIS_CHART_LOG_THROTTLE_MS) return false;
+  _kisChartLogThrottle.set(throttleKey, now);
+  return true;
+}
 
 function realDataCooldownKey(trId: string, apiPath: string): string {
   return `${trId}:${apiPath}`;
@@ -249,14 +287,28 @@ function isRealData5xxCooldownActive(trId: string, apiPath: string): boolean {
   return Date.now() < until;
 }
 
+function isKisChart5xxCooldownActive(ctx: { trId: string; symbol: string; period: string }): boolean {
+  const until = _realData5xxCooldownUntil.get(kisChartCooldownKey(ctx)) ?? 0;
+  return Date.now() < until;
+}
+
 function recordRealData5xxCooldown(trId: string, apiPath: string, status: number): void {
   const cooldownMs = realData5xxCooldownMs(status);
   if (cooldownMs <= 0) return;
   _realData5xxCooldownUntil.set(realDataCooldownKey(trId, apiPath), Date.now() + cooldownMs);
 }
 
+function recordKisChart5xxCooldown(ctx: { trId: string; symbol: string; period: string }, status: number): void {
+  if (status < 500 || status >= 600) return;
+  _realData5xxCooldownUntil.set(kisChartCooldownKey(ctx), Date.now() + KIS_CHART_5XX_COOLDOWN_MS);
+}
+
 function clearRealData5xxCooldown(trId: string, apiPath: string): void {
   _realData5xxCooldownUntil.delete(realDataCooldownKey(trId, apiPath));
+}
+
+function clearKisChart5xxCooldown(ctx: { trId: string; symbol: string; period: string }): void {
+  _realData5xxCooldownUntil.delete(kisChartCooldownKey(ctx));
 }
 
 /**
@@ -274,18 +326,34 @@ export function realDataKisGet(
   if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, priority);
 
   return scheduleKisCall(priority, `REAL_GET ${trId}`, async () => {
+    const chartContext = getKisChartContext(trId, params);
+    const chartCooldownKey = chartContext ? kisChartCooldownKey(chartContext) : null;
     if (_isCircuitOpen(trId)) {
       console.warn(`[KIS-RealData] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
       return null;
     }
-    if (isRealData5xxCooldownActive(trId, apiPath)) {
+    if (chartContext && isKisChart5xxCooldownActive(chartContext)) {
+      if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_HIT', chartCooldownKey!)) {
+        console.warn(
+          `[KIS_CHART_COOLDOWN_HIT]\n`
+          + `trId=${chartContext.trId}\n`
+          + `symbol=${chartContext.symbol}\n`
+          + `period=${chartContext.period}\n`
+          + `newNetworkCall=false\n`
+          + `executionImpact=NONE`,
+        );
+      }
+      return null;
+    }
+    if (!chartContext && isRealData5xxCooldownActive(trId, apiPath)) {
       console.warn(`[KIS-RealData] 5xx micro-cooldown — ${trId} ${apiPath} 호출 건너뜀`);
       return null;
     }
     // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — per-key (endpoint + symbol +
     //   errorKind) cooldown 활성 시 호출 자체 skip. ENV disabled 시 무영향.
+    //   FHKST03010100 은 symbol+period chart cooldown 으로 분리하여 다른 종목/주기 영향 0.
     //   호출자 측 inline ENV 검사 0건 — `isKisRealDataCooldownActive` SSOT 위임.
-    if (isKisRealDataCooldownActive({ endpoint: apiPath })) {
+    if (!chartContext && isKisRealDataCooldownActive({ endpoint: apiPath })) {
       // 잡음 차단 — cooldown skip 은 별도 INFO 로그 0건 (suppressed count 만 누적).
       return null;
     }
@@ -336,18 +404,41 @@ export function realDataKisGet(
 
       if (res.status >= 500 && res.status < 600) {
         _recordCircuitFailure(trId, res.status);
-        recordRealData5xxCooldown(trId, apiPath, res.status);
+        if (chartContext) {
+          recordKisChart5xxCooldown(chartContext, res.status);
+          if (shouldEmitKisChartLog('KIS_CHART_FETCH_FAILED', chartCooldownKey!)) {
+            console.warn(
+              `[KIS_CHART_FETCH_FAILED]\n`
+              + `trId=${chartContext.trId}\n`
+              + `symbol=${chartContext.symbol}\n`
+              + `period=${chartContext.period}\n`
+              + `startDate=${chartContext.startDate}\n`
+              + `endDate=${chartContext.endDate}\n`
+              + `status=${res.status}\n`
+              + `providerIssue=true\n`
+              + `marketSignal=false\n`
+              + `executionImpact=NONE\n`
+              + `cooldownMs=${KIS_CHART_5XX_COOLDOWN_MS}`,
+            );
+          }
+        } else {
+          recordRealData5xxCooldown(trId, apiPath, res.status);
+        }
         // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — provider noise 분류 +
         //   per-key suppressed count. providerIssue=true / marketSignal=false /
         //   executionImpact='NONE' literal type 강제.
         const classified = classifyKisRealDataError({
-          endpoint: apiPath,
+          endpoint: chartContext ? chartContext.trId : apiPath,
+          ...(chartContext ? { symbol: `${chartContext.symbol}:${chartContext.period}` } : {}),
           httpStatus: res.status,
         });
         const noise = recordKisRealDataFailure(classified);
         // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine update.
         //   5xx 누적 시 60s burst / 5min burst / consecutive 임계 평가 후 OPEN 자동 전이.
         recordProviderFailure(classified);
+        if (chartContext) {
+          return null;
+        }
         if (retriesLeft > 0) {
           const delay = _kisBackoffDelayMs(retriesLeft);
           if (noise.shouldEmitDetailLog) {
@@ -384,10 +475,16 @@ export function realDataKisGet(
       }
 
       _recordCircuitSuccess(trId);
-      clearRealData5xxCooldown(trId, apiPath);
+      if (chartContext) {
+        clearKisChart5xxCooldown(chartContext);
+      } else {
+        clearRealData5xxCooldown(trId, apiPath);
+      }
       // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — 성공 응답 시 backoff state reset
       //   (해당 endpoint 의 모든 errorKind record 삭제 — fast recovery).
-      recordKisRealDataSuccess({ endpoint: apiPath });
+      recordKisRealDataSuccess(chartContext
+        ? { endpoint: chartContext.trId, symbol: `${chartContext.symbol}:${chartContext.period}` }
+        : { endpoint: apiPath });
       // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker CLOSED 자동 전이.
       //   HALF_OPEN test 성공 시 CLOSED + consecutiveFailures=0 + sliding window 정리.
       recordProviderSuccess();
