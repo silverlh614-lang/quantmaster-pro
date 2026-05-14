@@ -71,26 +71,6 @@ export {
 // ─── http ──────────────────────────────────────────────────────────────────
 export { kisGet, kisPost, realDataKisGet } from './http.js';
 
-// ─── error taxonomy / provider routing diagnostics ─────────────────────────
-export {
-  classifyKisError,
-  diagnoseKisCoverage,
-  formatKisProviderHealthSummary,
-  getKisCallPressureSnapshot,
-  isKisServerCircuitOpen,
-  isKisTemporaryUnsupported,
-  kisTrCoverageMap,
-  recordKisUnsupported404,
-  selectKisFallback,
-} from './errorTaxonomy.js';
-export type {
-  KisCoverageDiagnosis,
-  KisErrorClass,
-  KisErrorClassification,
-  KisFallbackProvider,
-  KisTrCoverageEntry,
-} from './errorTaxonomy.js';
-
 // ─── query (시세 조회) ─────────────────────────────────────────────────────
 export { fetchKisInvestorFlow } from './investorFlowStrict.js';
 export {
