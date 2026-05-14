@@ -8,12 +8,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyScanBlockersLengthGuard,
+  buildScanBlockersSupplyForensicSections,
   deriveAdr0505EmissionStatus,
   extractAdrMarkersFromSection,
   formatAdr0505EmissionCompactLine,
   formatAdr0505EmissionDetailBlock,
   formatScanBlockersCompactMessage,
   formatScanBlockersGateCompactMessage,
+  paginateScanBlockersMessage,
   parseScanBlockersMode,
   SCAN_BLOCKERS_ALLOWED_MODES,
   SCAN_BLOCKERS_LENGTH_BUDGET,
@@ -151,6 +153,18 @@ describe('parseScanBlockersMode', () => {
   it('case-insensitive', () => {
     expect(parseScanBlockersMode(['FULL']).mode).toBe('full');
     expect(parseScanBlockersMode(['Gate']).mode).toBe('gate');
+  });
+
+  it('supply sub-mode parser — full/page/carry/semantic/fields/raw/next', () => {
+    expect(parseScanBlockersMode(['supply']).supplySubMode).toBe('summary');
+    expect(parseScanBlockersMode(['supply', 'full']).supplySubMode).toBe('full');
+    expect(parseScanBlockersMode(['supply', 'page', '3']).supplySubMode).toBe('page');
+    expect(parseScanBlockersMode(['supply', 'page', '3']).supplyPage).toBe(3);
+    expect(parseScanBlockersMode(['supply', 'carry']).supplySubMode).toBe('carry');
+    expect(parseScanBlockersMode(['supply', 'semantic']).supplySubMode).toBe('semantic');
+    expect(parseScanBlockersMode(['supply', 'fields']).supplySubMode).toBe('fields');
+    expect(parseScanBlockersMode(['supply', 'raw']).supplySubMode).toBe('raw');
+    expect(parseScanBlockersMode(['supply', 'next']).supplySubMode).toBe('next');
   });
 
   it('unknown → compact fallback + isUnknown=true', () => {
@@ -380,6 +394,81 @@ describe('MODE_ADR_INCLUSION + sectionMatchesMode + extractAdrMarkersFromSection
   it('null/undefined section → false', () => {
     expect(sectionMatchesMode(null, 'gate')).toBe(false);
     expect(sectionMatchesMode(undefined, 'gate')).toBe(false);
+  });
+});
+
+
+/* ───────── supply full pagination ───────── */
+
+describe('SCAN-BLOCKERS-SUPPLY-FULL-PAGINATION-001', () => {
+  const forensicSummary = {
+    candidates: 45,
+    gate1MinimumSignalForensicAdr0505: {
+      totalCandidates: 45,
+      failedCandidates: 45,
+      evaluationState: 'NOT_EVALUATED_SELL_ONLY',
+      evaluatedCandidateCount: 0,
+      traceOnlyCandidateCount: 45,
+      requiredScoreAvg: 70,
+      actualScoreAvg: 12,
+      avgScoreGap: -58,
+      dominantFailureDistribution: { SUPPLY_UNKNOWN: 45 },
+      missingPositiveSourceCounts: {
+        watchlistUpstreamMissing: 0,
+        relativeStrengthMissing: 0,
+        breakoutStructureMissing: 0,
+        priceMomentumMissing: 0,
+        technicalTrendMissing: 0,
+        volumeLiquidityMissing: 0,
+      },
+      penaltyCounts: {
+        supplyUnknownPenalty: 45,
+        investorFlowUnknownPenalty: 45,
+        sectorEnergyPenaltyOrBlocked: 0,
+        unknownDataPenalty: 0,
+        softFailPenalty: 0,
+        riskPenalty: 0,
+      },
+      supplyScopeWarnings: {
+        KIS_FLOW_SYMBOL_MISSING: 0,
+        KIS_FLOW_SYMBOL_MISMATCH: 0,
+        KIS_FLOW_SEMANTIC_UNAVAILABLE: 45,
+        POSSIBLE_MARKET_WIDE_FLOW_IN_SYMBOL_SLOT: 0,
+      },
+      rawInvestorRowAvailableCount: 0,
+      selectedCandidateCarriesActualRowCount: 0,
+      diagnosticActualInvestorRowCarriedCount: 0,
+      supplySemanticAvailable: 0,
+      semanticRowAvailableCount: 0,
+      semanticRowMetadataOnlyCount: 45,
+      foreignNetBuyAvailable: 0,
+      institutionalNetBuyAvailable: 0,
+      semanticReasonDistribution: { SEMANTIC_ROW_METADATA_ONLY: 45 },
+      semanticRowBreakPointDistribution: { ONLY_WRAPPER_METADATA: 45 },
+      actualRawFieldKeysTop: { output: 45, rt_cd: 45 },
+      actualNumericStringFieldKeysTop: { frgn_ntby_tr_pbmn: 45 },
+      mappedFieldDistribution: { foreign: {}, institution: {}, individual: {} },
+      sampleValueKindDistribution: { string: 45 },
+    },
+  } as unknown as ScanSummary;
+
+  it('builds section-specific supply forensic output', () => {
+    const sections = buildScanBlockersSupplyForensicSections(forensicSummary);
+    expect(sections.full.length).toBeGreaterThanOrEqual(6);
+    expect(sections.carry.join('\n')).toContain('Supply Actual Row Carry');
+    expect(sections.semantic.join('\n')).toContain('semanticReasonDistribution');
+    expect(sections.fields.join('\n')).toContain('actualNumericStringFieldKeysTop');
+    expect(sections.raw.join('\n')).toContain('sampleValueKinds');
+    expect(sections.next.join('\n')).toContain('recommendedPatchTarget');
+  });
+
+  it('paginates long supply full output with headers and final footer under 3500 chars', () => {
+    const sections = buildScanBlockersSupplyForensicSections(forensicSummary).full;
+    const pages = paginateScanBlockersMessage('🔍 [scan_blockers supply full]', [...sections, 'extra\n'.repeat(4000)], 3500);
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0]?.body).toContain('Page 1/');
+    expect(pages[pages.length - 1]?.body).toContain('/scan_blockers supply fields');
+    expect(pages.every((page) => page.body.length <= 3500)).toBe(true);
   });
 });
 

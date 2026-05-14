@@ -14,7 +14,10 @@
  */
 
 import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { resolveGate1ForensicNextAction } from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
+import {
+  resolveGate1ForensicNextAction,
+  type Gate1MinimumSignalForensicSummaryAdr0505,
+} from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
 
 /* ───────── Mode parser SSOT ───────── */
 
@@ -22,6 +25,23 @@ export type ScanBlockersMode = 'compact' | 'full' | 'gate' | 'supply' | 'sector'
 
 /** Gate sub-mode SSOT — ADR-0507 §"Gate Mode Compact Split". */
 export type ScanBlockersGateSubMode = 'compact' | 'full';
+
+export type ScanBlockersSupplySubMode =
+  | 'summary'
+  | 'full'
+  | 'carry'
+  | 'semantic'
+  | 'fields'
+  | 'raw'
+  | 'next'
+  | 'page';
+
+export type PaginatedMessage = {
+  page: number;
+  totalPages: number;
+  title: string;
+  body: string;
+};
 
 /** 6 허용 모드 (절대 변경 금지) */
 export const SCAN_BLOCKERS_ALLOWED_MODES: ReadonlySet<ScanBlockersMode> = new Set<ScanBlockersMode>([
@@ -46,6 +66,10 @@ export function parseScanBlockersMode(args: ReadonlyArray<string> | string | und
   mode: ScanBlockersMode;
   /** Gate sub-mode (mode='gate' 일 때만 의미 있음, 그 외 항상 undefined). */
   gateSubMode?: ScanBlockersGateSubMode;
+  /** Supply sub-mode (mode='supply' 일 때만 의미 있음, 그 외 항상 undefined). */
+  supplySubMode?: ScanBlockersSupplySubMode;
+  /** `supply page N` 요청 page (1-based). */
+  supplyPage?: number;
   isUnknown: boolean;
   rawToken: string | null;
 } {
@@ -67,6 +91,26 @@ export function parseScanBlockersMode(args: ReadonlyArray<string> | string | und
         subRaw === 'full' ? 'full' : 'compact';
       return { mode, gateSubMode, isUnknown: false, rawToken: token };
     }
+    if (mode === 'supply') {
+      const subRaw = tokens[1]?.toLowerCase();
+      if (subRaw === 'full') return { mode, supplySubMode: 'full', isUnknown: false, rawToken: token };
+      if (subRaw === 'carry') return { mode, supplySubMode: 'carry', isUnknown: false, rawToken: token };
+      if (subRaw === 'semantic') return { mode, supplySubMode: 'semantic', isUnknown: false, rawToken: token };
+      if (subRaw === 'fields') return { mode, supplySubMode: 'fields', isUnknown: false, rawToken: token };
+      if (subRaw === 'raw') return { mode, supplySubMode: 'raw', isUnknown: false, rawToken: token };
+      if (subRaw === 'next') return { mode, supplySubMode: 'next', isUnknown: false, rawToken: token };
+      if (subRaw === 'page') {
+        const requestedPage = Number.parseInt(tokens[2] ?? '1', 10);
+        return {
+          mode,
+          supplySubMode: 'page',
+          supplyPage: Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+          isUnknown: false,
+          rawToken: token,
+        };
+      }
+      return { mode, supplySubMode: 'summary', isUnknown: false, rawToken: token };
+    }
     return { mode, isUnknown: false, rawToken: token };
   }
   return { mode: 'compact', isUnknown: true, rawToken: token };
@@ -74,7 +118,251 @@ export function parseScanBlockersMode(args: ReadonlyArray<string> | string | und
 
 /** Mode 안내 한 줄 SSOT — compact / unknown 시 출력. */
 export const SCAN_BLOCKERS_USAGE_HINT =
-  '상세: /scan_blockers full | gate | gate full | supply | sector | runtime';
+  '상세: /scan_blockers full | gate | gate full | supply | supply full | supply page 1 | sector | runtime';
+
+
+/* ───────── Supply full pagination SSOT ───────── */
+
+const SCAN_BLOCKERS_SUPPLY_FULL_FOOTER = [
+  '전체 확인:',
+  '- /scan_blockers supply page 1',
+  '- /scan_blockers supply page 2',
+  '- /scan_blockers supply carry',
+  '- /scan_blockers supply semantic',
+  '- /scan_blockers supply fields',
+  '- /scan_blockers supply next',
+].join('\n');
+
+function buildScanBlockersPageHeader(title: string, page: number, totalPages: number): string {
+  return `${title}\nPage ${page}/${totalPages}\n━━━━━━━━━━━━━━━━`;
+}
+
+function splitOversizedSectionByLine(section: string, maxBodyChars: number): string[] {
+  if (section.length <= maxBodyChars) return [section];
+  const chunks: string[] = [];
+  let current = '';
+  for (const rawLine of section.split('\n')) {
+    const linePieces: string[] = [];
+    if (rawLine.length <= maxBodyChars) {
+      linePieces.push(rawLine);
+    } else {
+      for (let i = 0; i < rawLine.length; i += maxBodyChars) {
+        linePieces.push(rawLine.slice(i, i + maxBodyChars));
+      }
+    }
+    for (const line of linePieces) {
+      const candidate = current ? `${current}\n${line}` : line;
+      if (candidate.length > maxBodyChars && current) {
+        chunks.push(current);
+        current = line;
+      } else {
+        current = candidate;
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length > 0 ? chunks : [''];
+}
+
+export function paginateScanBlockersMessage(
+  title: string,
+  sections: string[],
+  maxChars = 3500,
+): PaginatedMessage[] {
+  const nonEmptySections = sections.filter((section) => section.trim().length > 0);
+  const headerReserve = buildScanBlockersPageHeader(title, 999, 999).length + 2;
+  const bodyLimit = Math.max(500, maxChars - headerReserve - SCAN_BLOCKERS_SUPPLY_FULL_FOOTER.length - 4);
+  const normalizedSections = nonEmptySections.flatMap((section) => splitOversizedSectionByLine(section, bodyLimit));
+  const pages: string[] = [];
+  let current = '';
+  for (const section of normalizedSections.length > 0 ? normalizedSections : ['진단 섹션 없음']) {
+    const candidate = current ? `${current}\n\n${section}` : section;
+    if (candidate.length > bodyLimit && current) {
+      pages.push(current);
+      current = section;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) pages.push(current);
+
+  // 마지막 footer를 포함했을 때 초과하면 footer 전용 page를 추가한다.
+  const last = pages[pages.length - 1] ?? '';
+  if (`${last}\n\n${SCAN_BLOCKERS_SUPPLY_FULL_FOOTER}`.length <= bodyLimit) {
+    pages[pages.length - 1] = `${last}\n\n${SCAN_BLOCKERS_SUPPLY_FULL_FOOTER}`;
+  } else {
+    pages.push(SCAN_BLOCKERS_SUPPLY_FULL_FOOTER);
+  }
+
+  const totalPages = pages.length;
+  return pages.map((pageBody, index) => {
+    const page = index + 1;
+    return {
+      page,
+      totalPages,
+      title,
+      body: `${buildScanBlockersPageHeader(title, page, totalPages)}\n${pageBody}`,
+    };
+  });
+}
+
+function fmtCount(value: number | undefined, total: number): string {
+  return `${value ?? 0}/${total}`;
+}
+
+function fmtTop(distribution: Record<string, number> | undefined, limit = 8): string {
+  return Object.entries(distribution ?? {})
+    .filter(([, value]) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, limit)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ') || 'none';
+}
+
+function resolveSupplyUnwrapNextActionForScanBlockers(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
+  const breakPoint = Object.entries(summary.semanticRowBreakPointDistribution ?? {})
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (breakPoint === 'ADAPTER_DID_NOT_ATTACH_ACTUAL_ROW' || breakPoint === 'ACTUAL_ROW_CARRIED_BUT_EMPTY') return 'WIRE_ADAPTER_ACTUAL_ROW';
+  if (breakPoint === 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW') return 'WIRE_ROUTER_SELECTED_CANDIDATE_ACTUAL_ROW';
+  if (breakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW') return 'WIRE_FORENSIC_COLLECTOR_ACTUAL_ROW';
+  if (breakPoint === 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED' || breakPoint === 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' || breakPoint === 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED') return 'ADD_ALIAS_FOR_ACTUAL_NUMERIC_KEYS';
+  if (breakPoint === 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED') return 'MAP_INVESTOR_TYPE_ROWS';
+  if (breakPoint === 'ONLY_WRAPPER_METADATA' || breakPoint === 'NO_ROW_FOUND') return 'WIRE_SELECTED_CANDIDATE_ACTUAL_ROW';
+  if ((summary.zeroButMaterializedCount ?? 0) > 0) return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';
+  return resolveGate1ForensicNextAction(summary);
+}
+
+export function buildScanBlockersSupplyForensicSections(
+  summary: ScanSummary | null | undefined,
+): Record<Exclude<ScanBlockersSupplySubMode, 'page'>, string[]> {
+  const forensic = summary?.gate1MinimumSignalForensicAdr0505;
+  if (!forensic || forensic.totalCandidates === 0) {
+    const unavailable = [
+      '요약',
+      '- supply forensic unavailable',
+      `- candidates=${summary?.candidates ?? 0}`,
+      '- gate1MinimumSignalForensicAdr0505=NOT_EMITTED',
+      '- nextAction=/scan_blockers gate full',
+      '- executionImpact=NONE live=false',
+    ].join('\n');
+    return { summary: [unavailable], full: [unavailable], carry: [unavailable], semantic: [unavailable], fields: [unavailable], raw: [unavailable], next: [unavailable] };
+  }
+  const total = forensic.totalCandidates;
+  const nextAction = resolveGate1ForensicNextAction(forensic);
+  const unwrapNextAction = resolveSupplyUnwrapNextActionForScanBlockers(forensic);
+  const dominant = Object.entries(forensic.dominantFailureDistribution ?? {})
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'none';
+
+  const summarySection = [
+    '요약',
+    `- candidates=${total}`,
+    `- rawInvestorRowAvailable=${fmtCount(forensic.rawInvestorRowAvailableCount, total)}`,
+    `- semanticAvailable=${fmtCount(forensic.supplySemanticAvailable, total)}`,
+    `- semanticRowAvailable=${fmtCount(forensic.semanticRowAvailableCount, total)}`,
+    `- foreignNetBuy=${fmtCount(forensic.foreignNetBuyAvailable, total)}`,
+    `- institutionalNetBuy=${fmtCount(forensic.institutionalNetBuyAvailable, total)}`,
+    `- dominant=${dominant}`,
+    `- semanticReasonDistribution=${fmtTop(forensic.semanticReasonDistribution, 6)}`,
+    `- nextAction=${nextAction}`,
+    '- executionImpact=NONE live=false',
+  ].join('\n');
+
+  const carrySection = [
+    'Supply Actual Row Carry',
+    `- adapterCarriesActualRow=${fmtCount(forensic.rawInvestorRowAvailableCount, total)}`,
+    `- routerCarriesActualRow=${fmtCount(forensic.selectedCandidateCarriesActualRowCount, total)}`,
+    `- adapterRowsForwardedAcrossProviders=${fmtCount(forensic.adapterRowsForwardedAcrossProvidersCount, total)}`,
+    `- diagnosticActualInvestorRowCarried=${fmtCount(forensic.diagnosticActualInvestorRowCarriedCount, total)}`,
+    `- selectedProviderActualRow=${fmtCount(forensic.selectedProviderActualRowCount, total)}`,
+    `- diagnosticOnlyActualRow=${fmtCount(forensic.diagnosticOnlyActualRowCount, total)}`,
+    `- forensicCarriesActualRow=${fmtCount(forensic.forensicInputCarriesActualInvestorRowsCount, total)}`,
+    `- actualInvestorRowProvider=${fmtTop(forensic.actualInvestorRowProviderDistribution)}`,
+    `- actualInvestorRowUseScope=${fmtTop(forensic.actualInvestorRowUseScopeDistribution)}`,
+    `- actualInvestorRowPath=${fmtTop(forensic.actualInvestorRowPathDistribution)}`,
+    `- breakPointTop=${fmtTop(forensic.semanticRowBreakPointDistribution)}`,
+    `- nextAction=${unwrapNextAction}`,
+  ].join('\n');
+
+  const semanticSection = [
+    'Supply Semantic / Semantic Unwrap',
+    `- selectedCandidateCarriesSemanticRow=${fmtCount(forensic.selectedCandidateCarriesSemanticRowCount, total)}`,
+    `- forensicInputCarriesSemanticRow=${fmtCount(forensic.forensicInputCarriesSemanticRowCount, total)}`,
+    `- semanticRowAvailable=${fmtCount(forensic.semanticRowAvailableCount, total)}`,
+    `- semanticRowMetadataOnly=${fmtCount(forensic.semanticRowMetadataOnlyCount, total)}`,
+    `- supplySemanticAvailable=${fmtCount(forensic.supplySemanticAvailable, total)}`,
+    `- supplyDiagnosticAvailable=${fmtCount(forensic.supplyDiagnosticAvailable, total)}`,
+    `- zeroButMaterialized=${forensic.zeroButMaterializedCount ?? 0}`,
+    `- semanticReasonDistribution=${fmtTop(forensic.semanticReasonDistribution, 10)}`,
+    `- semanticRowBreakPointDistribution=${fmtTop(forensic.semanticRowBreakPointDistribution, 10)}`,
+    `- wrapperOnly=${fmtCount(forensic.wrapperOnlyCount, total)}`,
+    `- rowCandidateCount=${forensic.rowCandidateCount ?? 0}`,
+    `- numericCandidateCount=${forensic.numericCandidateCount ?? 0}`,
+    `- aliasCandidateCount=${forensic.aliasCandidateCount ?? 0}`,
+    `- selectedPathTop=${fmtTop(forensic.selectedPathTop)}`,
+    `- rejectedWrapperPathsTop=${fmtTop(forensic.rejectedWrapperPathsTop)}`,
+    `- nextAction=${unwrapNextAction}`,
+  ].join('\n');
+
+  const fieldsSection = [
+    'fieldKeysTop / numericKeysTop / mappedFieldDistribution',
+    `- kisRawFieldKeysTop=${fmtTop(forensic.kisRawFieldKeysTop, 12)}`,
+    `- actualRawFieldKeysTop=${fmtTop(forensic.actualRawFieldKeysTop, 12)}`,
+    `- actualNumericStringFieldKeysTop=${fmtTop(forensic.actualNumericStringFieldKeysTop, 12)}`,
+    `- actualNumberFieldKeysTop=${fmtTop(forensic.actualNumberFieldKeysTop, 12)}`,
+    `- actualInvestorRowFieldKeysTop=${fmtTop(forensic.actualInvestorRowFieldKeysTop, 12)}`,
+    `- actualInvestorNumericStringKeysTop=${fmtTop(forensic.actualInvestorNumericStringKeysTop, 12)}`,
+    `- actualInvestorNumberKeysTop=${fmtTop(forensic.actualInvestorNumberKeysTop, 12)}`,
+    `- selectedActualRawFieldKeysTop=${fmtTop(forensic.selectedActualRawFieldKeysTop, 12)}`,
+    `- selectedNumericStringFieldKeysTop=${fmtTop(forensic.selectedNumericStringFieldKeysTop, 12)}`,
+    `- candidateNetBuyFieldKeysTop=${fmtTop(forensic.candidateNetBuyFieldKeysTop, 12)}`,
+    `- kisNormalizedFieldKeysTop=${fmtTop(forensic.kisNormalizedFieldKeysTop, 12)}`,
+    `- kisSemanticFieldKeysTop=${fmtTop(forensic.kisSemanticFieldKeysTop, 12)}`,
+    `- mappedFieldDistribution.foreign=${fmtTop(forensic.mappedFieldDistribution?.foreign, 8)}`,
+    `- mappedFieldDistribution.institution=${fmtTop(forensic.mappedFieldDistribution?.institution, 8)}`,
+    `- mappedFieldDistribution.individual=${fmtTop(forensic.mappedFieldDistribution?.individual, 8)}`,
+  ].join('\n');
+
+  const rawSection = [
+    'raw / materialized / normalized / breakPoint',
+    `- rawInvestorRowAvailable=${fmtCount(forensic.rawInvestorRowAvailableCount, total)}`,
+    `- materialized.foreignNetBuy=${fmtCount(forensic.foreignNetBuyAvailable, total)}`,
+    `- materialized.institutionalNetBuy=${fmtCount(forensic.institutionalNetBuyAvailable, total)}`,
+    `- zeroButMaterialized=${forensic.zeroButMaterializedCount ?? 0}`,
+    `- sampleValueKinds=${fmtTop(forensic.sampleValueKindDistribution, 10)}`,
+    `- providerScopeDistribution=${fmtTop(forensic.providerScopeDistribution, 8)}`,
+    `- scoreUsageDistribution=${fmtTop(forensic.scoreUsageDistribution, 8)}`,
+    `- supplyUnknownRootCause=${fmtTop(forensic.supplyUnknownRootCauseDistribution, 8)}`,
+    `- selectedRowScoreAvg=${Number.isFinite(forensic.selectedRowScoreAvg) ? forensic.selectedRowScoreAvg : 'n/a'}`,
+    `- breakPointTop=${fmtTop(forensic.semanticRowBreakPointDistribution, 10)}`,
+    `- supplyRouterForensicConflict=${forensic.supplyRouterForensicConflict === true}`,
+    `- routerStatus=${forensic.routerStatus ?? 'UNKNOWN'} routerSignal=${forensic.routerSignal ?? 'UNKNOWN'} conflictReason=${forensic.routerForensicConflictReason ?? 'NONE'}`,
+    `- nextAction=${unwrapNextAction}`,
+  ].join('\n');
+
+  const nextSection = [
+    'nextAction / breakPointTop / recommended patch target',
+    `- dominant=${dominant}`,
+    `- semanticReasonTop=${fmtTop(forensic.semanticReasonDistribution, 6)}`,
+    `- breakPointTop=${fmtTop(forensic.semanticRowBreakPointDistribution, 8)}`,
+    `- gateNextAction=${nextAction}`,
+    `- supplyUnwrapNextAction=${unwrapNextAction}`,
+    `- recommendedPatchTarget=${unwrapNextAction}`,
+    '- KIS/KRX/Yahoo/Naver new calls=0',
+    '- executionImpact=NONE live=false',
+  ].join('\n');
+
+  return {
+    summary: [summarySection],
+    full: [summarySection, carrySection, semanticSection, fieldsSection, rawSection, nextSection],
+    carry: [carrySection],
+    semantic: [semanticSection],
+    fields: [fieldsSection],
+    raw: [rawSection],
+    next: [nextSection],
+  };
+}
 
 /* ───────── ADR-0505 Emission Status SSOT ───────── */
 

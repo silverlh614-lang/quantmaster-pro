@@ -149,12 +149,14 @@ import {
 import {
   applyScanBlockersLengthBudget,
   applyScanBlockersLengthGuard,
+  buildScanBlockersSupplyForensicSections,
   deriveAdr0505EmissionStatus,
   formatAdr0505EmissionCompactLine,
   formatAdr0505EmissionDetailBlock,
   formatScanBlockersCompactMessage,
   formatScanBlockersGateCompactMessage,
   SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET,
+  paginateScanBlockersMessage,
   parseScanBlockersMode,
   sectionMatchesMode,
   type ScanBlockersMode,
@@ -203,6 +205,7 @@ const scanBlockers: TelegramCommand = {
     const modeResult = parseScanBlockersMode(args);
     const mode: ScanBlockersMode = modeResult.mode;
     const gateSubMode = modeResult.gateSubMode;
+    const supplySubMode = modeResult.supplySubMode ?? 'summary';
     const summary = getLastScanSummary();
 
     // ADR-0506 — ADR-0505 emission status (compact 안 + gate/full 모드 노출).
@@ -913,6 +916,30 @@ const scanBlockers: TelegramCommand = {
     // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.
     if (adr0505CompactLine) parts.push(adr0505CompactLine);
     if (adr0505DetailBlock) parts.push(adr0505DetailBlock);
+
+    // SCAN-BLOCKERS-SUPPLY-FULL-PAGINATION-001 — supply forensic sub-modes.
+    // display-only: already materialized ScanSummary fields만 read, provider/KIS/KRX/Naver/Yahoo 호출 0.
+    if (mode === 'supply' && supplySubMode !== 'summary') {
+      const supplyForensicSections = buildScanBlockersSupplyForensicSections(summary);
+      const selectedSections = supplySubMode === 'page'
+        ? supplyForensicSections.full
+        : supplyForensicSections[supplySubMode];
+      const pages = paginateScanBlockersMessage('🔍 [scan_blockers supply full]', selectedSections, 3500);
+      if (supplySubMode === 'page') {
+        const pageNumber = modeResult.supplyPage ?? 1;
+        const page = pages[Math.min(Math.max(pageNumber, 1), pages.length) - 1] ?? pages[0];
+        await reply(page.body);
+        return;
+      }
+      if (supplySubMode === 'full') {
+        for (const page of pages) {
+          await reply(page.body);
+        }
+        return;
+      }
+      await reply(pages[0]?.body ?? '🔍 [scan_blockers supply full]\nPage 1/1\n━━━━━━━━━━━━━━━━\n진단 섹션 없음');
+      return;
+    }
 
     // ADR-0506 — full mode header (운영자 명시 호출 표시).
     if (mode === 'full') {
