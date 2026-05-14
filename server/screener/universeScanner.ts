@@ -60,7 +60,10 @@ import {
   fetchKisInvestorTradeByStockDaily,
   hasKisClientOverrides,
 } from "../clients/kisClient.js";
-import { getDartFinancials } from "../clients/dartFinancialClient.js";
+import {
+  getDartFinancials,
+  type DartFinancials,
+} from "../clients/dartFinancialClient.js";
 import { recordDartAttempt } from "./dataCompletenessTracker.js";
 import {
   calcReliabilityScore,
@@ -143,6 +146,37 @@ function buildKrxFullMasterScannerUniverse(): Array<{ symbol: string; code: stri
     name: entry.name,
     symbol: entry.market === "KOSDAQ" ? `${entry.code}.KQ` : `${entry.code}.KS`,
   }));
+}
+
+// ── GateEvaluation snapshot refresh helper ────────────────────────────────────
+//
+// KIS 수급 / DART 재무 hydration 이후 evaluateServerGate() 재호출 결과를
+// CandidateStock 의 Gate raw snapshot 필드에 반영한다.
+//
+// 주의:
+//   - candidate.gateScore 는 호출부 정책(ETF boost / Gemini totalGateScore 등)에
+//     따라 boosted 값이 있을 수 있으므로 여기서 덮지 않는다. 필요 시 호출부에서
+//     명시적으로 candidate.gateScore 를 갱신한다.
+//   - gateEvaluation / gateLayerSummary / gateRawScore / availableMaxScore /
+//     normalizedGateScore / gateOutputs / gateCondKeys 는 refreshedGate 기준 snapshot.
+//   - gateEvaluation 은 conditionKeys.includes(...) 재계산 없이 gate.gateEvaluation
+//     그대로 사용한다 (gateLayerSummary 파생 SSOT 유지).
+function applyGateSnapshotToCandidate(
+  candidate: CandidateStock,
+  gate: ReturnType<typeof evaluateServerGate>,
+): void {
+  candidate.gateCondKeys = gate.conditionKeys;
+  candidate.gateDetails = gate.details;
+  candidate.gateSignal = gate.signalType;
+
+  // 기존 gateScore는 호출부 정책에 따라 boosted 값이 있을 수 있으므로 여기서 덮지 않는다.
+  // gateRawScore는 evaluateServerGate 원점수 snapshot.
+  candidate.gateEvaluation = gate.gateEvaluation;
+  candidate.gateLayerSummary = gate.gateLayerSummary;
+  candidate.gateRawScore = gate.rawScore;
+  candidate.availableMaxScore = gate.availableMaxScore;
+  candidate.normalizedGateScore = gate.normalizedGateScore;
+  candidate.gateOutputs = gate.outputs;
 }
 
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
@@ -419,6 +453,37 @@ export async function stage2SectorGateFilter(
           (flow.foreignNetBuy > 0 ? 0.3 : 0) +
           (flow.institutionalNetBuy > 0 ? 0.2 : 0);
         c.stage2Score = (c.stage2Score ?? 0) + flowBonus;
+
+        // ── KIS 수급 hydration 이후 GateEvaluation refresh ────────────────────
+        // 최초 evaluateServerGate 는 kisFlow=null 상태였다. 수급 실데이터가
+        // 채워졌으므로 재호출해 supply_confluence 를 GateEvaluation 에 반영한다.
+        // dartFin 은 Stage3 에서 조회되므로 여기서는 null 유지.
+        // discovery 진단 / watchlist snapshot 품질 향상 목적 — live threshold /
+        // 주문 / Kelly sizing / Shadow execution 은 변경하지 않는다.
+        const refreshedGate = evaluateServerGate(
+          c.quote,
+          weights,
+          kospi20dReturn,
+          null,
+          flow,
+          regime,
+        );
+        applyGateSnapshotToCandidate(c, refreshedGate);
+
+        // 기존 gateScore 에는 ETF boost 가 반영되어 있었으므로 정책 유지:
+        // refreshedGate 원점수 + ETF boost 를 재적용한다.
+        const etfBoost = computeEtfSectorBoost(c.sector);
+        c.gateScore = refreshedGate.gateScore + etfBoost.boost;
+        if (etfBoost.reasons.length > 0) {
+          c.gateDetails = [...refreshedGate.details, ...etfBoost.reasons];
+        }
+
+        console.log(
+          `[GateRefresh/Stage2] ${c.name}(${c.code}) ` +
+            `kisFlow=${c.kisFlow ? "OK" : "null"} ` +
+            `gate2=${c.gateEvaluation?.gate2Passed ? "PASS" : "NO"} ` +
+            `unavailable=${c.gateEvaluation?.unavailableKeys?.join("|") || "none"}`,
+        );
       }
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -469,12 +534,16 @@ export async function stage3AIScreenAndRegister(
   if (candidates.length === 0) return 0;
 
   // ── DART 펀더멘털 실데이터 병렬 조회 ────────────────────────────────────────
+  // dartFinByCode: GateEvaluation refresh 에 쓸 full DartFinancials snapshot 보관.
+  // CandidateStock.dartFin 은 narrow 타입(roe/opm/debtRatio/ocfRatio)이므로 별도 보관.
+  const dartFinByCode = new Map<string, DartFinancials>();
   await Promise.all(
     candidates.map(async (c) => {
       const fin = await getDartFinancials(c.code).catch(() => null);
       const hasData = !!(fin && fin.ocfRatio != null);
       recordDartAttempt(c.code, hasData);
       if (fin) {
+        dartFinByCode.set(c.code, fin);
         c.dartFin = {
           roe: fin.roe,
           opm: fin.opm,
@@ -486,6 +555,40 @@ export async function stage3AIScreenAndRegister(
   );
 
   const macroState = loadMacroState();
+
+  // ── KIS/DART hydration 이후 GateEvaluation refresh ──────────────────────────
+  // 최초 evaluateServerGate(Stage2) 는 dartFin=null 상태였다. DART 재무가 채워졌고
+  // KIS 수급도 Stage2 에서 hydrate 됐으므로 재호출해 earnings_quality /
+  // supply_confluence 를 GateEvaluation 에 반영한다.
+  // gateScore 는 Stage2 ranking semantics(sector/ETF boost) 를 보존하므로 무조건
+  // 덮지 않는다 — gateEvaluation / gateRawScore / availableMaxScore /
+  // normalizedGateScore / gateOutputs / gateCondKeys refresh 가 핵심.
+  // live threshold / 주문 / Kelly sizing / Shadow execution 은 변경하지 않는다.
+  const weights = loadConditionWeights();
+  for (const c of candidates) {
+    const kisFlowForGate = c.kisFlow
+      ? { ...c.kisFlow, source: "KIS_API" as const }
+      : null;
+    const refreshedGate = evaluateServerGate(
+      c.quote,
+      weights,
+      macroState?.kospi20dReturn,
+      dartFinByCode.get(c.code) ?? null,
+      kisFlowForGate,
+      regime,
+    );
+    applyGateSnapshotToCandidate(c, refreshedGate);
+    // gateScore 가 비어 있을 때만 refreshedGate 원점수로 채운다.
+    if (c.gateScore == null) {
+      c.gateScore = refreshedGate.gateScore;
+    }
+    console.log(
+      `[GateRefresh/Stage3] ${c.name}(${c.code}) ` +
+        `dartFin=${c.dartFin ? "OK" : "null"} kisFlow=${c.kisFlow ? "OK" : "null"} ` +
+        `gate2=${c.gateEvaluation?.gate2Passed ? "PASS" : "NO"} ` +
+        `unavailable=${c.gateEvaluation?.unavailableKeys?.join("|") || "none"}`,
+    );
+  }
 
   // ── DART 조회 후 컨플루언스 재평가 (4축 완전체) ───────────────────────────
   for (const c of candidates) {
