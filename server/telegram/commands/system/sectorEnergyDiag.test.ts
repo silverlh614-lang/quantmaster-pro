@@ -9,6 +9,9 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
     vi.resetModules();
+    vi.doMock('../../commandRegistry.js', () => ({
+      commandRegistry: { register: vi.fn() },
+    }));
   });
 
   afterEach(() => {
@@ -26,7 +29,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(mod.default.category).toBe('SYS');
       expect(mod.default.visibility).toBe('ADMIN');
       expect(mod.default.riskLevel).toBe(0); // read-only
-    });
+    }, 10_000);
 
     it('barrel index.ts 에 sectorEnergyDiag 등록', () => {
       const src = fs.readFileSync(path.resolve(__dirname, 'index.ts'), 'utf-8');
@@ -354,8 +357,70 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
 
       expect(reply).toHaveBeenCalledTimes(1);
       expect(String(reply.mock.calls[0][0])).not.toContain('Dry Run unchanged');
-      expect(logSpy.mock.calls.map((call) => String(call[0])).join('\n')).toContain('[SECTOR_ENERGY_TELEGRAM_SUPPRESSED] reason=UNCHANGED_SNAPSHOT suppressedCount=1 executionImpact=NONE');
+      const logs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logs).toContain('[SECTOR_ENERGY_DEDUP_CHECK]');
+      expect(logs).toContain('isDuplicate=true');
+      expect(logs).toContain('decision=SUPPRESS');
+      expect(logs).toContain('changedFields=[]');
+      expect(logs).toContain('[SECTOR_ENERGY_TELEGRAM_SUPPRESSED] reason=UNCHANGED_SNAPSHOT');
+      expect(logs).toContain('suppressedCount=1');
+      expect(logs).toContain('executionImpact=NONE');
       logSpy.mockRestore();
+    });
+
+    it('stable snapshot key는 timestamp/generatedAt 변동만으로 바뀌지 않아 SUPPRESS 한다', async () => {
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({ loadMacroState: vi.fn().mockReturnValue(macroState()) }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      mod.resetSeTelegramSnapshotDedupForTests();
+      const base = mod.buildSectorEnergyTelegramSnapshot({
+        baseMessage: 'base',
+        dryRunSection: 'dry',
+        dryRun: { attempted: 12, succeeded: 10, sourceTier: 'KIS_SECTOR_INDEX_DAILY_DRYRUN', promotionStage: 'OBSERVE', rows: [{ success: false, iscd: '2005' }, { success: false, iscd: '2006' }] },
+        now: new Date('2026-05-14T00:00:00.000Z'),
+      });
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      expect(mod.shouldSuppressSectorEnergySnapshotTelegram({ ...base, timestamp: '2026-05-14T00:00:01Z' } as any, 1000)).toBe(false);
+      expect(mod.shouldSuppressSectorEnergySnapshotTelegram({ ...base, timestamp: '2026-05-14T00:09:01Z', generatedAt: '2026-05-14T00:09:01Z' } as any, 2000)).toBe(true);
+      expect(mod.buildSectorEnergyStableSnapshotKey({ ...base, generatedAt: 'volatile' } as any)).toBe(mod.buildSectorEnergyStableSnapshotKey(base));
+
+      const logs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logs).toContain('decision=SUPPRESS');
+      expect(logs).toContain('changedFields=[]');
+      logSpy.mockRestore();
+    });
+
+    it('stable 판단 필드 변화는 같은 날이라도 Telegram SEND를 허용한다', async () => {
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({ loadMacroState: vi.fn().mockReturnValue(macroState()) }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      mod.resetSeTelegramSnapshotDedupForTests();
+      const base = mod.buildSectorEnergyTelegramSnapshot({
+        baseMessage: 'base',
+        dryRunSection: 'dry',
+        dryRun: { attempted: 12, succeeded: 10, sourceTier: 'KIS_SECTOR_INDEX_DAILY_DRYRUN', promotionStage: 'OBSERVE', rows: [{ success: false, iscd: '2005' }, { success: false, iscd: '2006' }] },
+        now: new Date('2026-05-14T00:00:00.000Z'),
+      });
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      expect(mod.shouldSuppressSectorEnergySnapshotTelegram(base, 1000)).toBe(false);
+      expect(mod.shouldSuppressSectorEnergySnapshotTelegram({ ...base, dryRunSucceeded: 11 } as any, 2000)).toBe(false);
+      expect(mod.shouldSuppressSectorEnergySnapshotTelegram({ ...base, dryRunSucceeded: 11, dryRunFailedCodes: '2006' } as any, 3000)).toBe(false);
+      expect(mod.shouldSuppressSectorEnergySnapshotTelegram({ ...base, dryRunSucceeded: 11, dryRunFailedCodes: '2006', topProblemsStableHash: 'other-sector', topProblemsHash: 'other-sector' } as any, 4000)).toBe(false);
+
+      const logs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logs).toContain('changedFields=["dryRunSucceeded"]');
+      expect(logs).toContain('changedFields=["dryRunFailedCodes"]');
+      expect(logs).toContain('changedFields=["topProblemsStableHash"]');
+      logSpy.mockRestore();
+    });
+
+    it('production/dry-run 실행 블록은 SectorEnergy Telegram을 sendSectorEnergySnapshot으로만 발송한다', () => {
+      const src = fs.readFileSync(path.resolve(__dirname, 'sectorEnergyDiag.cmd.ts'), 'utf-8');
+      const executeBody = src.slice(src.indexOf('async execute({ reply })'), src.indexOf('} catch (err)', src.indexOf('async execute({ reply })')));
+      expect(executeBody).toContain('sendSectorEnergySnapshot(disabledSnapshot, reply)');
+      expect(executeBody).toContain('sendSectorEnergySnapshot(snapshot, reply)');
+      expect(executeBody).not.toContain('sendSectorEnergyTelegramMessage(reply');
+      expect(executeBody).not.toContain('sendTelegramAlert(');
     });
 
     it('snapshot key는 safety invariant와 일반 BUY 미차단 플래그를 유지한다', async () => {
@@ -375,7 +440,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(snapshot.sectorBoostAllowed).toBe(false);
       expect(snapshot.executionImpact).toBe('NONE');
       expect(snapshot.generalBuyBlocked).toBe(false);
-      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:KIS_STOCK_BASKET_DERIVED:PARTIAL:0/12:12/12:false:10:2005,2006:OBSERVE');
+      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:KIS_STOCK_BASKET_DERIVED:PARTIAL:0/12:12/12:false:false:NONE:KIS_SECTOR_INDEX_DAILY_DRYRUN:2:10:2005,2006:OBSERVE');
     });
   });
 
