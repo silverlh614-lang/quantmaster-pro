@@ -22,7 +22,9 @@ export type LearningCohortType =
   | 'QUARANTINED'
   | 'COUNTERFACTUAL_BLOCKED'
   | 'COUNTERFACTUAL_MISSED_WIN'
-  | 'COUNTERFACTUAL_AVOIDED_LOSS';
+  | 'COUNTERFACTUAL_AVOIDED_LOSS'
+  | 'GHOST_REPAIR_PENDING'
+  | 'OPEN_UNRESOLVED';
 export type LearningRecoveryConfidence = 'RECOVERED' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type IntegritySeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type StarvationReason =
@@ -32,7 +34,8 @@ export type StarvationReason =
   | 'attribution_threshold_too_high'
   | 'data_quarantine_too_many'
   | 'duplicate_suppression_too_strict'
-  | 'none';
+  | 'none'
+  | 'resolved';
 
 export interface LearningGhostCase extends GhostPosition {
   id?: string;
@@ -55,6 +58,9 @@ export interface LearningGhostCase extends GhostPosition {
   sourceConfidence?: number | LearningRecoveryConfidence | 'HIGH';
   attributionProcessed?: boolean;
   cohortType?: LearningCohortType;
+  repairRunId?: string;
+  cohortBackfilledAt?: string;
+  cohortBackfillReason?: string;
   entryPriceRecovered?: boolean;
   targetStopRecovered?: boolean;
   priceDataRecovered?: boolean;
@@ -115,6 +121,7 @@ export interface StarvationAnalysis {
   samples7d: number;
   reasons: Record<StarvationReason, number>;
   primaryReason: StarvationReason;
+  previousStarvationReason?: StarvationReason;
   recommendedAction: string;
 }
 

@@ -144,7 +144,10 @@ describe('Learning Sample Quality Segmentation & Metadata Recovery Patch v1', ()
     write('counterfactual-shadow.json', []);
     const q = await sampleQuality();
     const s = q.collectLearningCohortSummary(NOW);
-    expect(s.backlogRepairCount).toBe(210);
+    expect(s.backlogRepairCount).toBe(225);
+    expect(s.trueQuarantinedCount).toBe(0);
+    expect(s.byOutcomeLabel.QUARANTINED).toBe(15);
+    expect(s.expectancyByCohort.QUARANTINED).toBe('N/A');
     expect(s.freshShadowCount).toBe(1);
     expect(s.promotionEligibleSamples).toBe(1);
     expect(q.formatLearningCohortSummary(s)).toContain('exclusionReason=promotion primary metric uses FRESH_SHADOW only');
