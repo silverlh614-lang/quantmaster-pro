@@ -134,7 +134,7 @@ describe('collectLearningPulse — 7영역 SSOT 수집', () => {
     expect(snap.flags.some((f) => f.includes('ghost_close_blocker'))).toBe(false);
   });
 
-  it('2. ghost open=150 + closed=5 (ratio=0.033) → ghost_close_blocker 발동', async () => {
+  it('2. ghost open=150 + closed=5 (ratio=0.032) → ghost_close_blocker 발동', async () => {
     const ghosts: GhostPosition[] = [];
     for (let i = 0; i < 150; i++) ghosts.push(makeGhost(`g${i}`, false));
     for (let i = 0; i < 5; i++) ghosts.push(makeGhost(`g_closed_${i}`, true, isoNDaysAgo(2)));
@@ -143,7 +143,7 @@ describe('collectLearningPulse — 7영역 SSOT 수집', () => {
     const snap = collectLearningPulse(NOW);
     expect(snap.ghost.open).toBe(150);
     expect(snap.ghost.closedRecent7d).toBe(5);
-    expect(snap.ghost.closeRatio).toBeCloseTo(5 / 150, 3);
+    expect(snap.ghost.closeRatio).toBeCloseTo(5 / (5 + 150), 3);
     expect(snap.flags.some((f) => f.includes('ghost_close_blocker'))).toBe(true);
   });
 

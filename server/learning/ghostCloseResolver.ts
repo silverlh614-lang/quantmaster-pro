@@ -56,7 +56,7 @@ export async function runGhostCloseResolver(opts: GhostCloseResolverOptions = {}
     const close = resolveClose(g, snap, now);
     if (!close) continue;
     g.closed = true; g.closedAt = now.toISOString(); g.lastUpdatedAt = now.toISOString(); g.closeReason = close.reason;
-    g.exitPriceVirtual = close.price; g.executionImpact = 'NONE'; g.caseKind = g.caseKind ?? 'ghost';
+    g.exitPriceVirtual = close.price; g.executionImpact = 'NONE'; g.caseKind = g.caseKind ?? 'ghost'; g.repairRunId = runId; g.cohortType = g.caseKind === 'ghost' ? 'GHOST_REPAIR' : 'BACKLOG_REPAIR';
     result.closed++; result.closedIds.push(caseId(g));
   }
   if (!opts.dryRun) saveGhostPortfolio(all);

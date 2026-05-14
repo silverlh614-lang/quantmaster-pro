@@ -8,14 +8,17 @@ export function analyzeSampleStarvation(now: Date = new Date(), targetSampleCoun
   const ghosts = loadGhostPortfolio() as LearningGhostCase[];
   const attrs = loadCurrentSchemaRecords();
   const samples7d = attrs.filter(r => recent(r.closedAt, 7, now)).length;
-  const reasons: Record<StarvationReason, number> = { no_close: 0, close_without_label: 0, label_without_attribution: 0, attribution_threshold_too_high: 0, data_quarantine_too_many: 0, duplicate_suppression_too_strict: 0, none: 0 };
+  const reasons: Record<StarvationReason, number> = { no_close: 0, close_without_label: 0, label_without_attribution: 0, attribution_threshold_too_high: 0, data_quarantine_too_many: 0, duplicate_suppression_too_strict: 0, none: 0, resolved: 0 };
   reasons.no_close = ghosts.filter(g => !g.closed).length;
   reasons.close_without_label = ghosts.filter(g => g.closed && !g.outcomeLabel).length;
   reasons.label_without_attribution = ghosts.filter(g => g.closed && !!g.outcomeLabel && !g.attributionProcessed && !['DATA_CORRUPTED','QUARANTINED','ACTIVE'].includes(g.outcomeLabel)).length;
   reasons.data_quarantine_too_many = ghosts.filter(g => ['DATA_CORRUPTED','QUARANTINED'].includes(g.outcomeLabel ?? '') || ['CORRUPTED','QUARANTINED'].includes(g.dataQuality ?? '')).length;
   if (samples7d < targetSampleCount && Object.values(reasons).every(v => v === 0)) reasons.attribution_threshold_too_high = targetSampleCount - samples7d;
-  let primaryReason: StarvationReason = 'none';
-  for (const [k, v] of Object.entries(reasons) as Array<[StarvationReason, number]>) if (k !== 'none' && v > (reasons[primaryReason] ?? 0)) primaryReason = k;
+  let previousStarvationReason: StarvationReason = 'none';
+  for (const [k, v] of Object.entries(reasons) as Array<[StarvationReason, number]>) if (!['none','resolved'].includes(k) && v > (reasons[previousStarvationReason] ?? 0)) previousStarvationReason = k;
+  const starvationFlag = samples7d < targetSampleCount;
+  const primaryReason: StarvationReason = starvationFlag ? previousStarvationReason : 'resolved';
+  if (!starvationFlag) reasons.resolved = samples7d;
   const action = primaryReason === 'no_close' ? 'run GhostCloseResolver' : primaryReason === 'close_without_label' ? 'run GhostOutcomeFinalizer' : primaryReason === 'label_without_attribution' ? 'run AttributionBackfillEngine' : primaryReason === 'attribution_threshold_too_high' ? 'send to SuggestThresholdCalibrator' : primaryReason === 'data_quarantine_too_many' ? 'inspect data provider quarantine' : 'no repair needed';
-  return { starvationFlag: samples7d < targetSampleCount, targetSampleCount, samples7d, reasons, primaryReason, recommendedAction: action };
+  return { starvationFlag, targetSampleCount, samples7d, reasons, primaryReason, previousStarvationReason: previousStarvationReason === 'none' ? undefined : previousStarvationReason, recommendedAction: action };
 }
