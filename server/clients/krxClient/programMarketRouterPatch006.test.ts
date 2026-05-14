@@ -222,6 +222,72 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     else process.env.KRX_MARKET_PROGRAM_FALLBACK_DISABLED = origKrx;
   });
 
+  it('intradaySession=false이면 KRX fallback을 호출하지 않고 SESSION_CLOSED_NOT_APPLICABLE로 격리한다', async () => {
+    let krxCalled = false;
+    const decision = await routeProgramMarketEmptyWithKrxAggregate(
+      { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0, marketCode: '0001' } },
+      {
+        fetchKrx: async () => {
+          krxCalled = true;
+          return {
+            kospi: makeRow('KOSPI', 500), kosdaq: makeRow('KOSDAQ', 200),
+            totalProgramNet: 700, arbitrageNet: 140, nonArbitrageNet: 560,
+            timestamp: 'x', confidence: 'VERIFIED', fetchedAt: 'x', endpoint: 'x', bld: 'x',
+            marketsAttempted: ['KOSPI', 'KOSDAQ'], marketsSucceeded: ['KOSPI', 'KOSDAQ'],
+          };
+        },
+        nowMs: NON_INTRADAY_NOW_MS,
+      },
+    );
+
+    expect(krxCalled).toBe(false);
+    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.source).toBe('NONE');
+    expect(decision.scoring).toBe('excluded');
+    expect(decision.fallbackAttempted).toBe(false);
+    expect(decision.fallbackResult).toBe('NOT_TRIED');
+    expect(decision.krxAttempted).toBe(false);
+    expect(decision.displayCase).toBe('I_SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.providerIssue).toBe(false);
+    expect(decision.marketSignal).toBe(false);
+    expect(decision.executionImpact).toBe('NONE');
+    expect(decision.decisionDetail).toContain('MARKET_PROGRAM_INTRADAY_ONLY');
+  });
+
+  it('session=CLOSED 격리가 다음 INTRADAY KRX fallback을 차단하지 않는다', async () => {
+    let krxCalled = 0;
+    await routeProgramMarketEmptyWithKrxAggregate(
+      { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
+      {
+        fetchKrx: async () => {
+          krxCalled += 1;
+          return null;
+        },
+        nowMs: NON_INTRADAY_NOW_MS,
+      },
+    );
+    const agg: KrxMarketProgramAggregate = {
+      kospi: makeRow('KOSPI', 500), kosdaq: makeRow('KOSDAQ', 200),
+      totalProgramNet: 700, arbitrageNet: 140, nonArbitrageNet: 560,
+      timestamp: 'x', confidence: 'VERIFIED', fetchedAt: 'x', endpoint: 'x', bld: 'x',
+      marketsAttempted: ['KOSPI', 'KOSDAQ'], marketsSucceeded: ['KOSPI', 'KOSDAQ'],
+    };
+    const intradayDecision = await routeProgramMarketEmptyWithKrxAggregate(
+      { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
+      {
+        fetchKrx: async () => {
+          krxCalled += 1;
+          return agg;
+        },
+        nowMs: INTRADAY_NOW_MS,
+      },
+    );
+
+    expect(krxCalled).toBe(1);
+    expect(intradayDecision.routedStatus).toBe('VERIFIED');
+    expect(intradayDecision.source).toBe('KRX_API');
+  });
+
   it('사용자 §J #1: KIS ACCEPTED_EMPTY + KRX VERIFIED → routedStatus=VERIFIED + source=KRX_API + scoring=allowed_when_non_empty', async () => {
     const agg: KrxMarketProgramAggregate = {
       kospi: makeRow('KOSPI', 500), kosdaq: makeRow('KOSDAQ', 200),
@@ -231,7 +297,7 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     };
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0, marketCode: '0001' } },
-      { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
+      { fetchKrx: async () => agg, nowMs: INTRADAY_NOW_MS },
     );
     expect(decision.routedStatus).toBe('VERIFIED');
     expect(decision.source).toBe('KRX_API');
@@ -257,7 +323,7 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     };
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0, marketCode: '0001' } },
-      { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
+      { fetchKrx: async () => agg, nowMs: INTRADAY_NOW_MS },
     );
     expect(decision.routedStatus).toBe('PARTIAL_VERIFIED');
     expect(decision.source).toBe('KRX_API');
@@ -300,10 +366,10 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
       },
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('STALE_CACHE_BUT_USABLE_FOR_DIAG');
-    expect(decision.source).toBe('CACHE');
-    expect(decision.scoring).toBe('shadow_only_or_excluded');
-    expect(decision.displayCase).toBe('E_CACHE_USABLE');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.source).toBe('NONE');
+    expect(decision.scoring).toBe('excluded');
+    expect(decision.displayCase).toBe('I_SESSION_CLOSED_NOT_APPLICABLE');
     expect(decision.cacheTtl?.tier).toBe('FRESH');
     expect(decision.cacheTtl?.ageMs).toBe(3 * 60 * 1000);
   });
@@ -321,10 +387,10 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
       },
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('STALE_CACHE_SHADOW_ONLY');
-    expect(decision.source).toBe('CACHE');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.source).toBe('NONE');
     expect(decision.cacheTtl?.tier).toBe('SHADOW_ONLY');
-    expect(decision.displayCase).toBe('F_CACHE_SHADOW_ONLY');
+    expect(decision.displayCase).toBe('I_SESSION_CLOSED_NOT_APPLICABLE');
   });
 
   it('사용자 §J #6: CACHE 45min → CACHE_EXPIRED + scoring=excluded', async () => {
@@ -340,13 +406,13 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
       },
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('CACHE_EXPIRED');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
     expect(decision.source).toBe('NONE');
     expect(decision.scoring).toBe('excluded');
     expect(decision.cacheTtl?.tier).toBe('EXPIRED');
   });
 
-  it('사용자 §J #7: 모든 fallback 실패 (KRX EMPTY + CACHE 부재) + 비-intraday → MISSING', async () => {
+  it('사용자 §J #7: KRX EMPTY + CACHE 부재 + intraday → UNSUPPORTED_INTRADAY', async () => {
     const agg: KrxMarketProgramAggregate = {
       kospi: null, kosdaq: null, totalProgramNet: null, arbitrageNet: null, nonArbitrageNet: null,
       timestamp: 'x', confidence: 'EMPTY', fetchedAt: 'x', endpoint: 'x', bld: 'x',
@@ -354,13 +420,13 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     };
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
-      { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
+      { fetchKrx: async () => agg, nowMs: INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('MISSING');
+    expect(decision.routedStatus).toBe('UNSUPPORTED_INTRADAY');
     expect(decision.source).toBe('NONE');
     expect(decision.scoring).toBe('excluded');
-    expect(decision.fallbackResult).toBe('ALL_FAILED');
-    expect(decision.displayCase).toBe('B_ALL_FAILED');
+    expect(decision.fallbackResult).toBe('KRX_EMPTY');
+    expect(decision.displayCase).toBe('C_UNSUPPORTED_INTRADAY');
   });
 
   it('사용자 §J #8: PARAM_ERROR → KRX 호출 안 함 (Patch-004 PARAM_MISMATCH)', async () => {
@@ -428,21 +494,21 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
           krxCalled = true;
           return null;
         },
-        nowMs: NON_INTRADAY_NOW_MS,
+        nowMs: INTRADAY_NOW_MS,
       },
     );
     expect(decision.patch006Activated).toBe(true);
     expect(decision.krxAttempted).toBe(false); // ENV 우회로 KRX skip
     expect(krxCalled).toBe(false);
-    expect(decision.routedStatus).toBe('MISSING'); // KRX 안 시도 + cache 없음 → MISSING
+    expect(decision.routedStatus).toBe('UNSUPPORTED_INTRADAY'); // KRX 안 시도 + 장중 → intraday-only empty
   });
 
   it('KRX fetch throw → graceful (confidence=ERROR 처리)', async () => {
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
-      { fetchKrx: async () => { throw new Error('KRX 500'); }, nowMs: NON_INTRADAY_NOW_MS },
+      { fetchKrx: async () => { throw new Error('KRX 500'); }, nowMs: INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('MISSING');
+    expect(decision.routedStatus).toBe('UNSUPPORTED_INTRADAY');
     expect(decision.krxAttempted).toBe(true);
     expect(decision.krxAggregate).toBeNull();
     expect(decision.executionImpact).toBe('NONE');
@@ -479,7 +545,7 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
           krxCalled = true;
           return agg;
         },
-        nowMs: NON_INTRADAY_NOW_MS,
+        nowMs: INTRADAY_NOW_MS,
       },
     );
     expect(krxCalled).toBe(true);
@@ -497,7 +563,7 @@ describe('Patch-006 formatProgramMarketRoutedV2', () => {
     };
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
-      { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
+      { fetchKrx: async () => agg, nowMs: INTRADAY_NOW_MS },
     );
     const lines = formatProgramMarketRoutedV2(decision);
     const text = lines.join('\n');
@@ -544,7 +610,7 @@ describe('Patch-006 formatProgramMarketRoutedV2', () => {
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
     const text = formatProgramMarketRoutedV2(decision).join('\n');
-    expect(text).toContain('routedStatusV2: CACHE_EXPIRED');
+    expect(text).toContain('routedStatusV2: SESSION_CLOSED_NOT_APPLICABLE');
     expect(text).toContain('cacheTtl: tier=EXPIRED');
   });
 });
@@ -559,14 +625,14 @@ describe('Patch-006 formatProgramMarketRoutedV2Compact', () => {
     };
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
-      { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
+      { fetchKrx: async () => agg, nowMs: INTRADAY_NOW_MS },
     );
     const compact = formatProgramMarketRoutedV2Compact(decision);
     expect(compact).toContain('[PATCH-RUNTIME] (Patch-006)');
     expect(compact).toContain('status=VERIFIED');
     expect(compact).toContain('source=KRX_API');
     expect(compact).toContain('display=A_KRX_RECOVERED');
-    expect(compact).toContain('intraday=false');
+    expect(compact).toContain('intraday=true');
     expect(compact).toContain('executionImpact=NONE');
   });
 });

@@ -54,7 +54,8 @@ export type ProgramMarketRoutedStatusV2 =
   | 'UNSUPPORTED_INTRADAY'          // 9th — 장중 KRX 미지원 (intraday endpoint 미제공)
   | 'STALE_CACHE_BUT_USABLE_FOR_DIAG'  // 10th — 5min 이내 (사용자 §3 #1)
   | 'STALE_CACHE_SHADOW_ONLY'       // 11th — 5~30min (사용자 §3 #2)
-  | 'CACHE_EXPIRED';                // 12th — 30min+ (사용자 §3 #3)
+  | 'CACHE_EXPIRED'                 // 12th — 30min+ (사용자 §3 #3)
+  | 'SESSION_CLOSED_NOT_APPLICABLE';
 
 /** 사용자 §3: CACHE TTL tier (절대 변경 금지). */
 export const PATCH_006_CACHE_FRESH_MS = 5 * 60 * 1000;        // 5min — STALE_CACHE_BUT_USABLE_FOR_DIAG
@@ -70,7 +71,8 @@ export type ProgramMarketDisplayCase =
   | 'E_CACHE_USABLE'            // CACHE_BUT_USABLE_FOR_DIAG (≤5min)
   | 'F_CACHE_SHADOW_ONLY'       // CACHE_SHADOW_ONLY (5-30min)
   | 'G_PARTIAL_VERIFIED'        // KOSPI 또는 KOSDAQ 만 회복
-  | 'H_KIS_VERIFIED';           // KIS 정상 응답
+  | 'H_KIS_VERIFIED'            // KIS 정상 응답
+  | 'I_SESSION_CLOSED_NOT_APPLICABLE';
 
 /** 사용자 §6: KOSPI/KOSDAQ aggregate 진단 메타. */
 export interface ProgramMarketAggregateMeta {
@@ -174,6 +176,8 @@ function deriveDisplayCase(
       return 'G_PARTIAL_VERIFIED';
     case 'UNSUPPORTED_INTRADAY':
       return 'C_UNSUPPORTED_INTRADAY';
+    case 'SESSION_CLOSED_NOT_APPLICABLE':
+      return 'I_SESSION_CLOSED_NOT_APPLICABLE';
     case 'PARAM_MISMATCH':
       return 'D_PARAM_MISMATCH';
     case 'STALE_CACHE_BUT_USABLE_FOR_DIAG':
@@ -260,6 +264,33 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
       cacheTtl: null,
       patch006Activated: true,
     });
+  }
+
+  if (!intradaySession) {
+    console.info(
+      `[MARKET_PROGRAM_SESSION_CLOSED] reason=${rawZeroReason ?? 'EMPTY'} intradaySession=false executionImpact=NONE providerIssue=false fallbackAttempted=false`,
+    );
+    return {
+      routedStatus: 'SESSION_CLOSED_NOT_APPLICABLE',
+      source: 'NONE',
+      rawStatus: rawZeroReason ?? 'UNKNOWN',
+      scoring: 'excluded',
+      fallbackAttempted: false,
+      fallbackResult: 'NOT_TRIED',
+      textVariant: 'B_UNSUPPORTED',
+      displayCase: 'I_SESSION_CLOSED_NOT_APPLICABLE',
+      isIntradaySession: false,
+      krxAttempted: false,
+      krxAggregate: null,
+      cacheTtl: classifyCacheTtl(input.cacheFallback),
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+      decisionDetail: 'MARKET_PROGRAM_INTRADAY_ONLY: session closed, KRX market program fallback not applicable',
+      rawDiagHidden: true,
+      patch006Activated: true,
+    };
   }
 
   // 사용자 §1 #2: KIS empty → KRX fallback 실제 호출
@@ -466,6 +497,7 @@ export function formatProgramMarketRoutedV2(decision: ProgramMarketRoutingDecisi
   const v1Like: ProgramMarketRoutingDecision = {
     routedStatus: (decision.routedStatus === 'PARTIAL_VERIFIED' ? 'STALE_CACHE'
       : decision.routedStatus === 'UNSUPPORTED_INTRADAY' ? 'UNSUPPORTED'
+      : decision.routedStatus === 'SESSION_CLOSED_NOT_APPLICABLE' ? 'UNSUPPORTED'
       : decision.routedStatus === 'STALE_CACHE_BUT_USABLE_FOR_DIAG' ? 'STALE_CACHE'
       : decision.routedStatus === 'STALE_CACHE_SHADOW_ONLY' ? 'STALE_CACHE'
       : decision.routedStatus === 'CACHE_EXPIRED' ? 'MISSING'
