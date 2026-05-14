@@ -85,14 +85,16 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(report.rows[0].return20d).toBeGreaterThan(0);
 
     const section = mod.formatKisSectorIndexDryRunSection(report);
-    expect(section).toContain('- successTop:');
+    expect(section).toContain('successTop:');
     expect(section).toContain('latest=<code>20260525</code>');
     expect(section).toContain('rows=<b>25</b>');
     expect(section).toContain('return5d=<code>');
     expect(section).toContain('return20d=<code>');
-    expect(section).toContain('- sectorBoostAllowed: <b>false</b>');
-    expect(section).toContain('- strongBuyAllowed: <b>false</b>');
-    expect(section).toContain('- executionImpact: <code>NONE</code>');
+    expect(section).toContain('candidateCoverage: <b>100.0%</b>');
+    expect(section).toContain('promotionStage: <code>OBSERVE</code>');
+    expect(section).toContain('sectorBoostAllowed: <b>false</b>');
+    expect(section).toContain('strongBuyAllowed: <b>false</b>');
+    expect(section).toContain('executionImpact: <code>NONE</code>');
   });
 
   it('실패 row는 sectorKey/label/iscd/errorClass를 formatter에 노출한다', async () => {
@@ -107,7 +109,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
 
     expect(report.failed).toBe(2);
     for (const row of report.rows.filter((item) => !item.success)) {
-      expect(section).toContain(`<code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / errorClass=<code>EMPTY</code>`);
+      expect(section).toContain(`<code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / errorClass=<code>UNRESOLVED_EMPTY</code>`);
     }
     expect(section).not.toContain('failedIscd');
   });
@@ -162,9 +164,10 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(report.failed).toBe(1);
     expect(report.rows[0]).toMatchObject({
       success: false,
-      providerIssue: true,
+      providerIssue: false,
+      marketSignal: false,
       error: 'KIS_EMPTY_OR_DISABLED',
-      errorClass: 'EMPTY',
+      errorClass: 'UNRESOLVED_EMPTY',
     });
   });
 
@@ -178,7 +181,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(report.strongBuyAllowed).toBe(false);
     expect(report.executionImpact).toBe('NONE');
     expect(report.marketSignal).toBe(false);
-    expect(report.providerIssue).toBe(true);
+    expect(report.providerIssue).toBe(false);
   });
 
   it('sectorEnergyProvider live fallback은 dry-run을 호출하지 않는다', async () => {
@@ -190,4 +193,44 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     });
     expect(_fetchKisSectorIndexDaily).not.toHaveBeenCalled();
   });
+
+  it('dry-run 10/12 성공은 candidateCoverage=83.3%로 표시하고 promotionStage=OBSERVE를 유지한다', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      return Promise.resolve(dailyResult(iscd));
+    });
+
+    const report = await mod.fetchKisSectorIndexRowsDryRun(1000);
+    const section = mod.formatKisSectorIndexDryRunSection(report);
+
+    expect(report.succeeded).toBe(10);
+    expect(report.failed).toBe(2);
+    expect(report.candidateCoverage).toBeCloseTo(10 / 12, 5);
+    expect(report.promotionStage).toBe('OBSERVE');
+    expect(report.strongBuyAllowed).toBe(false);
+    expect(section).toContain('candidateCoverage: <b>83.3%</b>');
+    expect(section).toContain('sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>');
+  });
+
+  it('2005/2006 EMPTY는 UNRESOLVED_EMPTY + marketSignal=false + executionImpact=NONE으로 유지한다', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      return Promise.resolve(dailyResult(iscd));
+    });
+
+    const report = await mod.fetchKisSectorIndexRowsDryRun(1000);
+    const failed = report.rows.filter((row) => row.iscd === '2005' || row.iscd === '2006');
+    expect(failed).toHaveLength(2);
+    for (const row of failed) {
+      expect(row.errorClass).toBe('UNRESOLVED_EMPTY');
+      expect(row.providerIssue).toBe(false);
+      expect(row.marketSignal).toBe(false);
+      expect(row.verificationAction).toBe('VERIFY_WITH_IDXCODE_MST_BEFORE_L4_WIRING');
+    }
+    expect(report.executionImpact).toBe('NONE');
+    expect(report.marketSignal).toBe(false);
+  });
+
 });

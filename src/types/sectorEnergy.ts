@@ -23,6 +23,7 @@ export type SectorEnergySourceTier =
   | 'KIS_OFFICIAL_INDEX'
   | 'KIS_OFFICIAL_DAILY'
   | 'KIS_STOCK_BASKET_DERIVED'
+  | 'KIS_SECTOR_INDEX_DAILY_DRYRUN'
   | 'KRX_OFFICIAL_INDEX'
   | 'KRX_CODE'
   | 'CACHE'
@@ -40,6 +41,14 @@ export type SectorEnergyLeadershipConfidence =
   | 'GLOBAL_DIAGNOSTIC_ONLY'
   | 'DIAGNOSTIC_ONLY'
   | 'BLOCKED';
+
+export type SectorEnergyPromotionStage =
+  | 'OBSERVE'
+  | 'SHADOW_SCORE'
+  | 'ADVISORY'
+  | 'WEIGHTED'
+  | 'GATED'
+  | 'CORE';
 
 /** 섹터 에너지 점수 입력 — 섹터별로 수집 */
 export interface SectorEnergyInput {
@@ -136,6 +145,17 @@ export interface SectorEnergyResult {
   confidence?: number;
   leadershipConfidence?: SectorEnergyLeadershipConfidence;
   verifiedIndexCodeCoverage?: number;
+  /** Production source tier only; dry-run candidate tiers must not be wired to live CORE/GATED/STRONG_BUY. */
+  selectedProductionSourceTier?: SectorEnergySourceTier;
+  productionOfficialCoverage?: number;
+  productionBasketCoverage?: number;
+  dryRunCandidateSourceTier?: Extract<SectorEnergySourceTier, 'KIS_SECTOR_INDEX_DAILY_DRYRUN'>;
+  dryRunAttempted?: number;
+  dryRunSucceeded?: number;
+  dryRunFailed?: number;
+  dryRunCandidateCoverage?: number;
+  officialBenchmark?: boolean;
+  promotionStage?: SectorEnergyPromotionStage;
   kisOfficialCoverage?: number;
   kisBasketCoverage?: number;
   internalProxyCoverage?: number;

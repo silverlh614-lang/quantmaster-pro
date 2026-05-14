@@ -229,15 +229,24 @@ export function formatSectorEnergyDiagMessage(): string {
     if (diag.coverageBreakdown) {
       const c = diag.coverageBreakdown;
       lines.push('');
-      lines.push('📊 <b>[KIS-first SectorEnergy coverage]</b>');
+      lines.push('📊 <b>[Production SectorEnergy]</b>');
       lines.push(
-        `  • verifiedIndexCodeCoverage: <b>${(c.verifiedIndexCodeCoverage * 100).toFixed(1)}%</b> (${c.verifiedIndexCodeCount}/${c.totalSectors})`,
+        `selectedSourceTier: <code>${diag.finalSourceTier ?? sourceTier ?? 'MISSING'}</code>`,
       );
       lines.push(
-        `  • kisOfficialCoverage: <b>${(c.kisOfficialCoverage * 100).toFixed(1)}%</b> (${c.kisOfficialCount}/${c.totalSectors})`,
+        `officialCoverage: <b>${c.kisOfficialCount + c.verifiedIndexCodeCount}/${c.totalSectors}</b>`,
       );
       lines.push(
-        `  • kisBasketCoverage: <b>${(c.kisBasketCoverage * 100).toFixed(1)}%</b> (${c.kisBasketCount}/${c.totalSectors})`,
+        `basketCoverage: <b>${c.kisBasketCount}/${c.totalSectors}</b>`,
+      );
+      lines.push('sectorBoostAllowed: <b>false</b>');
+      lines.push('strongBuyAllowed: <b>false</b>');
+      lines.push(`executionImpact: <code>${diag.executionImpact ?? 'NONE'}</code>`);
+      lines.push(
+        `  • productionOfficialCoverage: <b>${(Math.max(c.verifiedIndexCodeCoverage, c.kisOfficialCoverage) * 100).toFixed(1)}%</b> (${Math.max(c.verifiedIndexCodeCount, c.kisOfficialCount)}/${c.totalSectors})`,
+      );
+      lines.push(
+        `  • productionBasketCoverage: <b>${(c.kisBasketCoverage * 100).toFixed(1)}%</b> (${c.kisBasketCount}/${c.totalSectors})`,
       );
       lines.push(
         `  • internalProxyCoverage: <b>${(c.internalProxyCoverage * 100).toFixed(1)}%</b> (${c.internalProxyCount}/${c.totalSectors})`,
@@ -361,23 +370,56 @@ export function formatSectorEnergyDiagMessage(): string {
 
 function formatDisabledKisSectorIndexDryRunSection(): string {
   return [
-    '🧪 <b>KIS Sector Index Dry Run</b>',
-    '- enabled: <b>false</b>',
-    '- attempted: <b>0</b>',
-    '- succeeded: <b>0</b>',
-    '- failed: <b>0</b>',
-    '- latestDateTop: <code>N/A</code>',
-    '- failed:',
-    '  0. <code>none</code>',
-    '- successTop:',
-    '  0. <code>none</code>',
-    '- sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>',
-    '- officialBenchmark: <b>false</b>',
-    '- sectorBoostAllowed: <b>false</b>',
-    '- strongBuyAllowed: <b>false</b>',
-    '- executionImpact: <code>NONE</code>',
-    '- nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
+    '<b>[KIS Sector Index Candidate Dry Run]</b>',
+    'sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>',
+    'attempted: <b>0</b>',
+    'succeeded: <b>0</b>',
+    'failed: <b>0</b>',
+    'candidateCoverage: <b>0.0%</b>',
+    'officialBenchmark: <b>false</b>',
+    'promotionStage: <code>OBSERVE</code>',
+    'sectorBoostAllowed: <b>false</b>',
+    'strongBuyAllowed: <b>false</b>',
+    'executionImpact: <code>NONE</code>',
+    'nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
   ].join('\n');
+}
+
+
+const SECTOR_INDEX_DRYRUN_TELEGRAM_DEDUP_TTL_MS = 20 * 60 * 1000;
+let lastSectorIndexDryRunTelegramKey: string | null = null;
+let lastSectorIndexDryRunTelegramExpiresAt = 0;
+let sectorIndexDryRunTelegramSuppressedCount = 0;
+
+function buildSectorIndexDryRunTelegramDedupKey(report: {
+  attempted: number;
+  succeeded: number;
+  rows: Array<{ success: boolean; iscd: string }>;
+}): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const failedCodes = report.rows
+    .filter((row) => !row.success)
+    .map((row) => row.iscd)
+    .sort()
+    .join(',') || 'none';
+  return `SECTOR_INDEX_DRYRUN:${date}:${report.attempted}:${report.succeeded}:${failedCodes}`;
+}
+
+function shouldSuppressSectorIndexDryRunTelegram(report: {
+  attempted: number;
+  succeeded: number;
+  rows: Array<{ success: boolean; iscd: string }>;
+}, nowMs = Date.now()): boolean {
+  const key = buildSectorIndexDryRunTelegramDedupKey(report);
+  if (lastSectorIndexDryRunTelegramKey === key && lastSectorIndexDryRunTelegramExpiresAt > nowMs) {
+    sectorIndexDryRunTelegramSuppressedCount += 1;
+    console.log(`[SECTOR_INDEX_DRYRUN_TELEGRAM_SUPPRESSED] key=${key} suppressedCount=${sectorIndexDryRunTelegramSuppressedCount}`);
+    return true;
+  }
+  lastSectorIndexDryRunTelegramKey = key;
+  lastSectorIndexDryRunTelegramExpiresAt = nowMs + SECTOR_INDEX_DRYRUN_TELEGRAM_DEDUP_TTL_MS;
+  sectorIndexDryRunTelegramSuppressedCount = 0;
+  return false;
 }
 
 const sectorEnergyDiag: TelegramCommand = {
@@ -399,6 +441,10 @@ const sectorEnergyDiag: TelegramCommand = {
         '../../../clients/kisSectorEnergyProvider.js'
       );
       const dryRun = await fetchKisSectorIndexRowsDryRun();
+      if (shouldSuppressSectorIndexDryRunTelegram(dryRun)) {
+        await reply(`${baseMessage}\n\n<i>KIS Sector Index Candidate Dry Run unchanged — duplicate Telegram detail suppressed; see Railway suppressedCount log.</i>`);
+        return;
+      }
       const message = `${baseMessage}\n\n${formatKisSectorIndexDryRunSection(dryRun)}`;
       await reply(message);
     } catch (err) {

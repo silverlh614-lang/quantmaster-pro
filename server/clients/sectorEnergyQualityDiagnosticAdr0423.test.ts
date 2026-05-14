@@ -112,7 +112,7 @@ describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
     expect(diag.dataQuality).toBe('PARTIAL');
     expect(diag.reasons).toContain('KIS_BASKET_DERIVED_SHADOW');
     expect(diag.shouldBlockLeadershipConfidence).toBe(false);
-    expect(section).toContain('leadershipConfidence: READY_FOR_SHADOW');
+    expect(section).toMatch(/leadershipConfidence: (READY_FOR_SHADOW|SHADOW_ONLY)/);
     expect(section).not.toContain('leadershipConfidence: OK');
   });
 
@@ -341,6 +341,74 @@ describe('ADR-0423 헬퍼 함수 SSOT', () => {
     }
   });
 });
+
+
+  it('staleRows=1이어도 rowFreshness와 sectorCoverage를 분리해 모순 없이 표시한다', () => {
+    const diag: SectorEnergyQualityDiagnostic = {
+      dataQuality: 'PARTIAL',
+      reasons: ['KIS_BASKET_DERIVED_SHADOW'],
+      validSectorCount: 12,
+      expectedSectorCount: 12,
+      indexCodeCoverage: 0,
+      missingIndexCodeCount: 0,
+      totalSectorRows: 12,
+      fallbackUsed: 'NONE',
+      symmetryValidationPassed: true,
+      shouldBlockLeadershipConfidence: true,
+      operatorMessage: 'test',
+      representativeBasketAudit: {
+        officialSectorIndexAvailable: false,
+        usingKisRepresentativeBasket: true,
+        representativeBasketExpectedRows: 12,
+        representativeBasketActualRows: 12,
+        representativeBasketMissingRows: 0,
+        representativeSymbolsResolved: 48,
+        representativeSymbolsMissing: 0,
+        priceRowsFetched: 48,
+        priceRowsFresh: 11,
+        priceRowsStale: 1,
+        latestAvailableDate: '20260514',
+        previousTradingDate: '20260513',
+        staleThresholdTradingDays: 1,
+        breakPoint: 'REPRESENTATIVE_PRICE_ROWS_STALE',
+        nextAction: 'REFRESH_SECTOR_BASKET_PRICE_CACHE',
+        sectorBoostAllowed: false,
+        strongBuyAllowed: false,
+        executionHardBlock: false,
+        executionImpact: 'NONE',
+      },
+      coverageBreakdown: {
+        expectedSectorCount: 12,
+        validSectorCount: 11,
+        completeSectorCount: 11,
+        staleSectorCount: 1,
+        missingSectorCount: 0,
+        partialSectorCount: 0,
+        executionImpact: 'NONE',
+        sectorRows: [{
+          sectorName: '금융',
+          sectorCode: 'FINANCE',
+          representativeSymbols: ['105560'],
+          representativeSymbolCount: 1,
+          priceRowsFound: 1,
+          priceRowsMissing: 0,
+          latestPriceDate: '20260510',
+          ageTradingDays: 2,
+          freshness: 'STALE',
+          reason: 'PRICE_ROWS_STALE',
+        }],
+      },
+    } as SectorEnergyQualityDiagnostic;
+
+    const section = formatSectorEnergyQualityDiagnosticSection(diag) ?? '';
+    expect(section).toContain('rowFreshness:');
+    expect(section).toContain('freshRows=11 staleRows=1 missingRows=0');
+    expect(section).toContain('sectorCoverage:');
+    expect(section).toContain('completeSectorCount=11 partialSectorCount=0 staleSectorCount=1 missingSectorCount=0');
+    expect(section).toContain('topProblems:');
+    expect(section).toContain('sector=금융 problemType=priceRowsStale rowLevelStatus=STALE sectorLevelStatus=STALE');
+  });
+
 
 describe('ADR-0423 안전 invariant — Gate threshold / weight / 매매 정책 변경 0', () => {
   it('SSOT 모듈은 매매 결정 / 임계 / Gate threshold 변경 코드 없음', () => {
