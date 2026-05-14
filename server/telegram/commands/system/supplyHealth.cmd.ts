@@ -22,6 +22,7 @@ import {
   routeProgramMarketEmptyWithKrxAggregate,
   formatProgramMarketRoutedV2,
   isPatch006Disabled,
+  isProgramTradingIntradaySession,
   type ProgramMarketRoutingDecisionV2,
 } from '../../../clients/krxClient/programMarketRouterPatch006.js';
 import { MARKET_PROGRAM_INDEX_CODE } from '../../../clients/kisClient/programMaterializer.js';
@@ -64,6 +65,8 @@ const INVESTOR_FLOW_CACHE_STALE_DAYS = 2;
 const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
 const ATTEMPT_REASON_MAX_LEN = 110;
+const PROGRAM_TRADING_SESSION_CLOSED_LOG_COOLDOWN_MS = 5 * 60 * 1000;
+const programTradingSessionClosedLastLog = new Map<'STOCK' | 'MARKET', number>();
 
 // ADR-0421 — DATA_UNAVAILABLE 추가 (NEUTRAL 은 real-data + weak-direction 영역만 보존).
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
@@ -85,6 +88,45 @@ interface KisOfficialSupplyPackLoad {
 }
 
 let cache: { message: string; builtAt: number; mode: 'LEGACY' | 'KIS_ONLY_REBUILD' } | null = null;
+
+
+function logProgramTradingSessionClosed(scope: 'STOCK' | 'MARKET', nowMs: number): void {
+  const last = programTradingSessionClosedLastLog.get(scope) ?? 0;
+  if (nowMs - last < PROGRAM_TRADING_SESSION_CLOSED_LOG_COOLDOWN_MS) return;
+  programTradingSessionClosedLastLog.set(scope, nowMs);
+  console.info(
+    `[PROGRAM_TRADING_SESSION_CLOSED] scope=${scope} sessionState=CLOSED status=SESSION_CLOSED scoring=excluded_afterhours action=observe providerIssue=false marketSignal=false executionImpact=NONE`,
+  );
+}
+
+function buildProgramTradingSessionClosedStatus(scope: 'STOCK' | 'MARKET', source: 'KIS_API' | 'NONE', nowMs: number): ChannelStatus {
+  logProgramTradingSessionClosed(scope, nowMs);
+  const isStock = scope === 'STOCK';
+  return {
+    key: isStock ? 'stockProgram' : 'marketProgram',
+    title: isStock ? '종목 프로그램매매' : '시장 프로그램매매',
+    marker: 'NEUTRAL',
+    lines: [
+      `source: ${source}`,
+      'status: SESSION_CLOSED',
+      'lamp: GRAY',
+      'success: N/A',
+      'missing: N/A',
+      'zero-filled 의심: N/A',
+      'scoring=excluded_afterhours',
+      'providerIssue=false',
+      'marketSignal=false',
+      'executionImpact=NONE',
+      'dataVacuum=false',
+      'newBuyBlocked=false',
+      'generalBuyBlocked=false',
+      'strongBuyBlocked=false',
+      'action=observe',
+      `reason: ${isStock ? 'STOCK_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED' : 'MARKET_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED'}`,
+      isStock ? '상세: /program_today' : '상세: /program_market',
+    ],
+  };
+}
 
 function markerIcon(marker: Marker): string {
   if (marker === 'OK') return '🟢';
@@ -491,7 +533,10 @@ function stockProgramLamp(success: number, total: number, zeroSuspicious: boolea
   return { marker: 'MISSING', status: 'DEGRADED', lamp: 'RED' };
 }
 
-async function diagnoseStockProgram(targets: WatchlistEntry[]): Promise<ChannelStatus> {
+async function diagnoseStockProgram(targets: WatchlistEntry[], nowMs: number): Promise<ChannelStatus> {
+  if (!isProgramTradingIntradaySession(nowMs)) {
+    return buildProgramTradingSessionClosedStatus('STOCK', targets.length > 0 ? 'KIS_API' : 'NONE', nowMs);
+  }
   let success = 0, zero = 0;
   for (const stock of targets) {
     try { const data = await fetchKisStockProgramTrade(stock.code, 'MEDIUM'); if (!data) continue; success++; if (data.programNetBuyAmount === 0) zero++; } catch {}
@@ -532,6 +577,8 @@ function markerForRoutedStatus(decision: ProgramMarketRoutingDecision | ProgramM
     case 'STALE_CACHE_SHADOW_ONLY': return 'STALE'; // Patch-006: 5-30min
     case 'CACHE_EXPIRED': return 'MISSING'; // Patch-006: >30min (excluded)
     case 'DEGRADED': return 'DEGRADED';
+    case 'SESSION_CLOSED':
+    case 'SESSION_CLOSED_NOT_APPLICABLE':
     case 'UNSUPPORTED':
     case 'UNSUPPORTED_INTRADAY': // Patch-006: KRX 장중 미지원
     case 'PARAM_MISMATCH': return 'NEUTRAL';
@@ -562,6 +609,9 @@ function isV2Decision(d: ProgramMarketRoutingDecision | ProgramMarketRoutingDeci
 }
 
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
+  if (!isProgramTradingIntradaySession(nowMs)) {
+    return buildProgramTradingSessionClosedStatus('MARKET', macro?.programSource === 'KIS_API' ? 'KIS_API' : 'NONE', nowMs);
+  }
   const rawDiag = await diagnoseKisMarketProgramRaw('HIGH');
   const rawDiagLine = formatKisRawSupplyDiagnostic(rawDiag);
   // Patch-006: KIS ACCEPTED_EMPTY → 실제 KRX aggregate 호출 + 3-tier CACHE TTL + intraday session 분류.
@@ -996,7 +1046,7 @@ async function collectSupplyHealthChannels(now: Date): Promise<{ channels: Chann
     channels: [
       await diagnoseInvestorFlow(targets, now, nowMs),
       diagnoseLoadedKisOfficialSupplyPack(kis),
-      await diagnoseStockProgram(targets),
+      await diagnoseStockProgram(targets, nowMs),
       await diagnoseMarketProgram(macro, nowMs),
       diagnoseFss(macro, nowMs, kis.pack),
       await diagnoseShort(macro, nowMs, kis.pack),

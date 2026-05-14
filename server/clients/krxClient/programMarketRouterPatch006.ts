@@ -55,12 +55,18 @@ export type ProgramMarketRoutedStatusV2 =
   | 'STALE_CACHE_BUT_USABLE_FOR_DIAG'  // 10th — 5min 이내 (사용자 §3 #1)
   | 'STALE_CACHE_SHADOW_ONLY'       // 11th — 5~30min (사용자 §3 #2)
   | 'CACHE_EXPIRED'                 // 12th — 30min+ (사용자 §3 #3)
+  | 'SESSION_CLOSED'                // 장외/휴장: intraday-only program trading not evaluated
   | 'SESSION_CLOSED_NOT_APPLICABLE';
 
 /** 사용자 §3: CACHE TTL tier (절대 변경 금지). */
 export const PATCH_006_CACHE_FRESH_MS = 5 * 60 * 1000;        // 5min — STALE_CACHE_BUT_USABLE_FOR_DIAG
 export const PATCH_006_CACHE_SHADOW_MS = 30 * 60 * 1000;      // 30min — STALE_CACHE_SHADOW_ONLY
 // 30min+ → CACHE_EXPIRED (excluded)
+
+/** 프로그램매매 데이터 평가 가능 여부 SSOT — 매매 허용/차단 판단에 사용하지 않는다. */
+export function isProgramTradingIntradaySession(now: Date | number = Date.now()): boolean {
+  return isKstIntradaySession(now instanceof Date ? now.getTime() : now);
+}
 
 /** 사용자 §10 (D variant): Telegram 4-case display branches 라벨. */
 export type ProgramMarketDisplayCase =
@@ -176,6 +182,7 @@ function deriveDisplayCase(
       return 'G_PARTIAL_VERIFIED';
     case 'UNSUPPORTED_INTRADAY':
       return 'C_UNSUPPORTED_INTRADAY';
+    case 'SESSION_CLOSED':
     case 'SESSION_CLOSED_NOT_APPLICABLE':
       return 'I_SESSION_CLOSED_NOT_APPLICABLE';
     case 'PARAM_MISMATCH':
@@ -217,7 +224,7 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
   } = {},
 ): Promise<ProgramMarketRoutingDecisionV2> {
   const nowMs = options.nowMs ?? Date.now();
-  const intradaySession = isKstIntradaySession(nowMs);
+  const intradaySession = isProgramTradingIntradaySession(nowMs);
 
   // ENV disable → Patch-004 직접 위임 (V2 형식으로 wrap)
   if (isPatch006Disabled()) {
@@ -268,13 +275,13 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
 
   if (!intradaySession) {
     console.info(
-      `[MARKET_PROGRAM_SESSION_CLOSED] reason=${rawZeroReason ?? 'EMPTY'} intradaySession=false executionImpact=NONE providerIssue=false fallbackAttempted=false`,
+      `[PROGRAM_TRADING_SESSION_CLOSED] scope=MARKET sessionState=CLOSED status=SESSION_CLOSED scoring=excluded_afterhours action=observe providerIssue=false marketSignal=false executionImpact=NONE reason=${rawZeroReason ?? 'EMPTY'} fallbackAttempted=false`,
     );
     return {
-      routedStatus: 'SESSION_CLOSED_NOT_APPLICABLE',
+      routedStatus: 'SESSION_CLOSED',
       source: 'NONE',
-      rawStatus: rawZeroReason ?? 'UNKNOWN',
-      scoring: 'excluded',
+      rawStatus: rawZeroReason ?? 'SESSION_CLOSED_EMPTY',
+      scoring: 'excluded_afterhours',
       fallbackAttempted: false,
       fallbackResult: 'NOT_TRIED',
       textVariant: 'B_UNSUPPORTED',
@@ -287,7 +294,7 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
       marketSignal: false,
       executionImpact: 'NONE',
       liveExecutionAllowed: false,
-      decisionDetail: 'MARKET_PROGRAM_INTRADAY_ONLY: session closed, KRX market program fallback not applicable',
+      decisionDetail: 'MARKET_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED',
       rawDiagHidden: true,
       patch006Activated: true,
     };
@@ -497,7 +504,8 @@ export function formatProgramMarketRoutedV2(decision: ProgramMarketRoutingDecisi
   const v1Like: ProgramMarketRoutingDecision = {
     routedStatus: (decision.routedStatus === 'PARTIAL_VERIFIED' ? 'STALE_CACHE'
       : decision.routedStatus === 'UNSUPPORTED_INTRADAY' ? 'UNSUPPORTED'
-      : decision.routedStatus === 'SESSION_CLOSED_NOT_APPLICABLE' ? 'UNSUPPORTED'
+      : decision.routedStatus === 'SESSION_CLOSED' ? 'SESSION_CLOSED'
+      : decision.routedStatus === 'SESSION_CLOSED_NOT_APPLICABLE' ? 'SESSION_CLOSED'
       : decision.routedStatus === 'STALE_CACHE_BUT_USABLE_FOR_DIAG' ? 'STALE_CACHE'
       : decision.routedStatus === 'STALE_CACHE_SHADOW_ONLY' ? 'STALE_CACHE'
       : decision.routedStatus === 'CACHE_EXPIRED' ? 'MISSING'
