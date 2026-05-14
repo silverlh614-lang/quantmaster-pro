@@ -352,12 +352,12 @@ describe('applyEntryPriceDrift', () => {
       }
     });
 
-    it('drift -99% (음수 거대) — ADR-0117 sanity 90% 위반 → DATA_HOLD', () => {
-      // ADR-0117: drift=-99% (90% 초과) → safePctChangeStrict 차단 → DATA_HOLD.
-      // 이전 ADR-0113 동작: KEEP (sanity null fallback). corporateActionDetector
-      // 는 abs>150% 만 감지라 -99% 는 미감지.
+    it('drift -99% (음수 거대) → CORPORATE_ACTION (ADR-0301: abs > 80% STRONG → SPLIT 의심)', () => {
+      // ADR-0301 STRONG_DRIFT_PCT 80 — corporateActionDetector 가 abs 99% 를 SPLIT 으로
+      // 분류 → CORPORATE_ACTION 반환. ADR-0117 sanity DATA_HOLD 경로는 위
+      // 'CORPORATE_ACTION_DETECTOR_DISABLED=true' 테스트가 커버.
       const entry = makeEntry({ code: 'A', entryPrice: 100, addedBy: 'AUTO' });
-      expect(applyEntryPriceDrift(entry, 1)).toBe('DATA_HOLD');
+      expect(applyEntryPriceDrift(entry, 1)).toBe('CORPORATE_ACTION');
     });
   });
 });

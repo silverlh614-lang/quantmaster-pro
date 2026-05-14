@@ -21,13 +21,13 @@ describe('ADR-0184 universeScanner master guard wiring', () => {
 
     it('isEmergencyMasterGuardScanEnabled import', () => {
       expect(SOURCE).toMatch(
-        /import\s*{\s*isEmergencyMasterGuardScanEnabled\s*}\s*from\s*'\.\.\/dataQuality\/emergencyDataQualityGuards\.js'/,
+        /import\s*{\s*isEmergencyMasterGuardScanEnabled\s*}\s*from\s*['"]\.\.\/dataQuality\/emergencyDataQualityGuards\.js['"]/,
       );
     });
 
     it('assertProductionMasterUsable + formatProductionMasterBlockedMessage import', () => {
       expect(SOURCE).toMatch(
-        /import\s*{\s*assertProductionMasterUsable,\s*formatProductionMasterBlockedMessage,\s*}\s*from\s*'\.\.\/dataQuality\/productionMasterGuard\.js'/,
+        /import\s*{\s*assertProductionMasterUsable,\s*formatProductionMasterBlockedMessage,\s*}\s*from\s*['"]\.\.\/dataQuality\/productionMasterGuard\.js['"]/,
       );
     });
 

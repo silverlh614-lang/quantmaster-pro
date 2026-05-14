@@ -85,8 +85,8 @@ export const STOCK_UNIVERSE: { symbol: string; code: string; name: string }[] = 
   { symbol: '259960.KS', code: '259960', name: '크래프톤' },
   { symbol: '402340.KS', code: '402340', name: 'SK스퀘어' },
   // ── KOSDAQ 주요 종목 ──
-  { symbol: '247540.KS', code: '247540', name: '에코프로비엠' },
-  { symbol: '086520.KS', code: '086520', name: '에코프로' },
+  { symbol: '247540.KQ', code: '247540', name: '에코프로비엠' },
+  { symbol: '086520.KQ', code: '086520', name: '에코프로' },
   { symbol: '042700.KS', code: '042700', name: '한미반도체' },
   { symbol: '196170.KS', code: '196170', name: '알테오젠' },
   { symbol: '403870.KQ', code: '403870', name: 'HPSP' },
