@@ -167,6 +167,11 @@ import {
 import { channelShadowBuyFilled } from '../../../alerts/channelPipeline.js';
 import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
+// ADR-0516 — Watchlist Tier 정책: KIS REST 호출 빈도 차등화 SSOT.
+//   MOMENTUM_PASSIVE / KIS_LOAD_STATE=RED 등 tier 정책이 REST fallback 을 차단하면
+//   getPrice 가 null 반환 → FAIL 아닌 SKIP_TIER_PASSIVE_NO_REST 로 처리 (DATA_VACUUM /
+//   providerIssue / marketSignal / NEW_BUY_BLOCKED 으로 격상 금지).
+import { resolveWatchlistKisPolicy } from '../../watchlistKisTierPolicy.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 // ADR-0167 — currentEquityExposureAmount 정확 산출 SSOT (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true` 활성화).
@@ -380,8 +385,54 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stages: { ...stageLog },
       });
 
-      const currentPrice = await getPrice(stock.code);
-      if (!currentPrice) { stageLog.price = 'FAIL'; pushTrace(); continue; }
+      // ADR-0516 — Watchlist Tier 정책으로 KIS REST 호출 빈도 차등화.
+      //   - 보유 종목(shadows 활성) → OPEN_POSITION (REST 항상 허용, P0 보호)
+      //   - force buy → ENTRY_CANDIDATE 격상 (P0 보호 — 무성 실패 차단)
+      //   - SWING/CATALYST → REST 허용 / MOMENTUM 상위 N개만 REST 허용
+      //   - MOMENTUM_PASSIVE / KIS RED → REST 차단 (WS 실시간 가격은 그대로 사용)
+      const isHeldPosition = ctx.shadows.some(
+        (s) => s.stockCode === stock.code && isOpenShadowStatus(s.status),
+      );
+      const kisTierPolicy = resolveWatchlistKisPolicy({
+        section: stock.section,
+        gateScore: stock.gateScore,
+        stage2Score: stock.stage2Score,
+        momentumRank: (stock as { momentumRank?: number }).momentumRank,
+        isOpenPosition: isHeldPosition,
+        isForceBuy: (stock as { isForceBuy?: boolean }).isForceBuy,
+      });
+      const currentPrice = await getPrice(stock.code, {
+        section: stock.section,
+        gateScore: stock.gateScore,
+        stage2Score: stock.stage2Score,
+        isOpenPosition: isHeldPosition,
+        allowRestFallback: kisTierPolicy.allowRestPrice,
+        restTtlMs: kisTierPolicy.priceTtlMs,
+        pricePurpose: 'BUY_EVAL',
+        stockName: stock.name,
+      });
+      if (!currentPrice) {
+        // ADR-0516 — tier 정책 REST 차단으로 가격 미확보 시 FAIL 아닌 SKIP.
+        // DATA_VACUUM / providerIssue / marketSignal / NEW_BUY_BLOCKED 으로 격상 금지.
+        // Shadow learning 은 계속되나 MOMENTUM_PASSIVE 후보는 이번 사이클 표본을 건너뛴다.
+        if (!kisTierPolicy.allowRestPrice) {
+          stageLog.price = 'SKIP_TIER_PASSIVE_NO_REST';
+          ctx.scanCounters.waitTierRestSuppressed =
+            (ctx.scanCounters.waitTierRestSuppressed ?? 0) + 1;
+          if (process.env.WATCHLIST_KIS_TIER_DEBUG === 'true') {
+            console.debug(
+              `[WATCHLIST_KIS_TIER] symbol=${stock.code} section=${stock.section ?? '?'} ` +
+                `tier=${kisTierPolicy.tier} allowRestPrice=false reason=${kisTierPolicy.reason} ` +
+                `executionImpact=NONE marketSignal=false`,
+            );
+          }
+          pushTrace();
+          continue;
+        }
+        stageLog.price = 'FAIL';
+        pushTrace();
+        continue;
+      }
       stageLog.price = 'PASS';
 
       // ADR-0120 (PR-B): Gate 1/2/3 통과 카운터 누적 — emptyScanClassifier

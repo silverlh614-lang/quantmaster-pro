@@ -8,7 +8,11 @@
 
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { fetchInvestorFlowWithPolicy, summarizeInvestorFlowAttempts } from '../supply/investorFlowRouter.js';
+import { computeFocusCodes, assignSection } from '../screener/watchlistManager.js';
 import { scheduledJob } from './scheduleGuard.js';
+// ADR-0516 — Watchlist Tier 정책: MOMENTUM_PASSIVE 는 warmup 후순위 (KIS 부하 완화).
+//   warmup 은 SWING/CATALYST/MOMENTUM_ACTIVE 에 집중하고 MOMENTUM_PASSIVE 는 잔여 capacity 만 사용.
+import { assignMomentumRanks, resolveWatchlistKisPolicy } from '../trading/watchlistKisTierPolicy.js';
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
@@ -27,10 +31,44 @@ function scoreOf(entry: WatchlistEntry): number {
   return Number.isFinite(gate) ? gate : 0;
 }
 
+/**
+ * ADR-0516 — Watchlist Tier 정책 기반 warmup 후보 선정.
+ *
+ * MOMENTUM_PASSIVE tier (REST 차단 대상) 는 후순위로 밀어 warmup capacity 를
+ * SWING / CATALYST / MOMENTUM_ACTIVE 에 집중시킨다. MOMENTUM_PASSIVE 도 잔여
+ * limit capacity 가 있으면 warmup — 하드 exclude 가 아닌 lower-priority.
+ *
+ * KIS_LOAD_STATE / momentumRank 는 resolveWatchlistKisPolicy 가 ENV/필드에서
+ * 자동 도출. 영속 schema 변경 없음 — section/momentumRank 는 runtime-only.
+ */
 function selectWarmupCodes(limit: number): string[] {
+  const watchlist = loadWatchlist();
+  // section 할당 — warmup 은 자체 watchlist 사본을 쓰므로 직접 분류한다.
+  const focusCodes = computeFocusCodes(watchlist);
+  for (const w of watchlist) {
+    w.section = assignSection(w, focusCodes);
+  }
+  assignMomentumRanks(watchlist.filter((w) => w.section === 'MOMENTUM'));
+
+  // tier 정책으로 active / passive 2-bucket 분리. 각 bucket 내부는 scoreOf 내림차순.
+  const active: WatchlistEntry[] = [];
+  const passive: WatchlistEntry[] = [];
+  for (const entry of watchlist) {
+    const policy = resolveWatchlistKisPolicy({
+      section: entry.section,
+      gateScore: (entry as { gateScore?: number }).gateScore,
+      stage2Score: (entry as { stage2Score?: number }).stage2Score,
+      momentumRank: (entry as { momentumRank?: number }).momentumRank,
+    });
+    (policy.tier === 'MOMENTUM_PASSIVE' ? passive : active).push(entry);
+  }
+  const sortByScore = (a: WatchlistEntry, b: WatchlistEntry) => scoreOf(b) - scoreOf(a);
+  active.sort(sortByScore);
+  passive.sort(sortByScore);
+
   const seen = new Set<string>();
   const codes: string[] = [];
-  for (const entry of [...loadWatchlist()].sort((a, b) => scoreOf(b) - scoreOf(a))) {
+  for (const entry of [...active, ...passive]) {
     const code = String(entry.code ?? '').replace(/[^0-9]/g, '').slice(0, 6).padStart(6, '0');
     if (!/^\d{6}$/.test(code) || seen.has(code)) continue;
     seen.add(code);
