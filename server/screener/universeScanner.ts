@@ -98,6 +98,10 @@ import {
   getTradableKrxUniverse,
   updateKrxMasterRuntimeCounts,
 } from "../persistence/krxStockMasterRepo.js";
+import {
+  evaluateKisChartFallbackAllowed,
+  formatPreopenKisFallbackSkippedLog,
+} from "../trading/kisChartFallbackGuard.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -198,7 +202,17 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
   // VTS mock override가 설치된 경우에도 허용 (mock client가 ranking TR 응답을 생성)
   const hasMockOverride = hasKisClientOverrides();
+  const stage1KisFallbackDecision = evaluateKisChartFallbackAllowed(new Date(), "STAGE1_DISCOVERY");
+  if (!stage1KisFallbackDecision.allowed) {
+    console.log(formatPreopenKisFallbackSkippedLog({
+      stage: "Stage1",
+      reason: stage1KisFallbackDecision.reason,
+      fallback: "YAHOO_KRX_ONLY",
+    }));
+  }
+
   if (
+    stage1KisFallbackDecision.allowed &&
     (HAS_REAL_DATA_CLIENT || KIS_IS_REAL || hasMockOverride) &&
     (process.env.KIS_REAL_DATA_APP_KEY ||
       process.env.KIS_APP_KEY ||
@@ -385,9 +399,20 @@ export async function stage2SectorGateFilter(
 
   const kospi20dReturn = macroState?.kospi20dReturn;
 
+  const stage2KisFallbackDecision = evaluateKisChartFallbackAllowed(new Date(), "STAGE2_DISCOVERY");
+  if (!stage2KisFallbackDecision.allowed) {
+    console.log(formatPreopenKisFallbackSkippedLog({
+      stage: "Stage2",
+      reason: stage2KisFallbackDecision.reason,
+      fallback: "YAHOO_KRX_ONLY",
+    }));
+  }
+
   for (const c of candidates) {
     // 아이디어 9: KIS API 월봉/주봉 데이터로 MTAS 보강
-    const enrichedQuote = await enrichQuoteWithKisMTAS(c.quote, c.code);
+    const enrichedQuote = stage2KisFallbackDecision.allowed
+      ? await enrichQuoteWithKisMTAS(c.quote, c.code)
+      : c.quote;
     const gate = evaluateServerGate(
       enrichedQuote,
       weights,
@@ -440,7 +465,7 @@ export async function stage2SectorGateFilter(
     .slice(0, 15);
 
   // ── KIS 투자자 수급 실데이터 조회 (실계좌 모드 또는 mock override, 상위 15개만) ──
-  if (KIS_IS_REAL || hasKisClientOverrides()) {
+  if (stage2KisFallbackDecision.allowed && (KIS_IS_REAL || hasKisClientOverrides())) {
     for (const c of top15) {
       const flow = await fetchKisInvestorTradeByStockDaily(c.code).catch(() => null);
       if (flow) {
@@ -965,9 +990,18 @@ export async function runStage2_3FinalScreening(
     Date.now() - new Date(cache.cachedAt).getTime() < cacheMaxAgeMs;
 
   if (!cacheValid) {
-    console.log(
-      "[Pipeline/FinalScreen] Stage1 캐시 없음 또는 만료 — 전체 파이프라인 fallback",
-    );
+    const finalFallbackDecision = evaluateKisChartFallbackAllowed(new Date(), "FINAL_SCREEN_FALLBACK");
+    if (!finalFallbackDecision.allowed) {
+      console.log(formatPreopenKisFallbackSkippedLog({
+        stage: "FinalScreen",
+        reason: finalFallbackDecision.reason,
+        fallback: "KRX_CACHE_ONLY",
+      }));
+    } else {
+      console.log(
+        "[Pipeline/FinalScreen] Stage1 캐시 없음 또는 만료 — 전체 파이프라인 fallback",
+      );
+    }
     await runFullDiscoveryPipeline(regime, macroState);
     return;
   }
