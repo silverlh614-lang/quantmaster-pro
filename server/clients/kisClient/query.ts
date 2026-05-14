@@ -29,6 +29,7 @@ import type {
   PrevClose,
 } from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
+import type { SectorKey } from '../sectorEnergyMaster.js';
 import { isTradingDay } from '../../utils/marketDayClassifier.js';
 import {
   MARKET_PROGRAM_TRADE_TR_ID,
@@ -252,7 +253,6 @@ function logInvestorFlowSelected(materialized: number, confidence: 'VERIFIED' | 
   }
 }
 
-
 export const __queryTestOnly = {
   logInvestorFlowSelected,
   resetInvestorFlowSelectedLogState: () => {
@@ -274,7 +274,6 @@ function isAcceptedEmptyKisResponse(data: unknown): boolean {
   const hasNoPickedOutput = !pickKisOutput(data);
   return hasNoPickedOutput && (hasEmptyOutputArray || hasEmptyOutput1Array || hasEmptyOutput2Array);
 }
-
 
 function shiftYmd(ymd: string, days: number): string {
   const [y, m, d] = ymd.split('-').map(Number);
@@ -468,7 +467,6 @@ export async function fetchKisStockProgramTrade(
 // 직전 코드: tr_id=FHPPG04600101 (시간) + path=...-daily (일별) 교차 미스매치.
 // 일별이 필요한 경우: tr_id=FHPPG04600001 + path=...-daily (별도 ENV 로 전환).
 
-
 /**
  * ADR-0138 — KIS 시장 종합 프로그램 매매 추이 조회 (코스피 시장 단위).
  *
@@ -524,6 +522,37 @@ export async function fetchKisMarketProgramTrade(
 // 실패 시 *임시 proxy / 보조 fallback* 으로만 사용 — ENV `KIS_SECTOR_INDEX_DAILY_ENABLED`
 // default OFF. 명시 활성화 전까지 호출 0건. 본 PR 은 *callable 함수 신설* 만 —
 // SectorEnergy live 파이프라인 wiring 은 후속 PR (ADR 문서화).
+
+export type KisSectorIscdMapRow = {
+  sectorKey: SectorKey;
+  iscd: string;
+  label: string;
+  verified: boolean;
+  source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' | 'IDXCODE_MST_VERIFIED';
+};
+
+/**
+ * KIS 12-sector 업종 상세코드 dry-run SSOT.
+ *
+ * 운영 주의:
+ * - 아래 4자리 코드는 idxcode.mst 대조 전 best-effort 후보이며 live fallback 에 사용 금지.
+ * - 모든 row 는 verified=false 로 고정한다. idxcode.mst 검증 후 별도 PR 에서만 true 승격.
+ * - KRX 공식 SectorEnergy 원천을 대체하지 않고 diagnostic-only dry-run 에서만 순회한다.
+ */
+export const KIS_SECTOR_ISCD_MAP: ReadonlyArray<KisSectorIscdMapRow> = Object.freeze([
+  { sectorKey: 'SEMICONDUCTOR', iscd: '2004', label: '반도체', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'BATTERY', iscd: '2012', label: '이차전지', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'BIO_HEALTHCARE', iscd: '2009', label: '바이오/헬스케어', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'FINANCE', iscd: '2006', label: '금융', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'SHIPBUILDING', iscd: '2010', label: '조선', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'STEEL', iscd: '2007', label: '철강', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'CHEMICAL', iscd: '2008', label: '에너지/화학', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'CONSTRUCTION', iscd: '2011', label: '건설/부동산', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'CONSUMER_RETAIL', iscd: '2003', label: '유통/소비재', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'IT_INTERNET', iscd: '2005', label: '인터넷/플랫폼', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'AUTOMOTIVE', iscd: '2002', label: '자동차', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'OTHER', iscd: '2001', label: '기타(KOSPI200 proxy)', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+]);
 
 /** KIS 업종 상세코드 SSOT (idxcode.mst 마스터의 well-known 집계 코드). */
 export const KIS_SECTOR_INDEX_ISCD = Object.freeze({

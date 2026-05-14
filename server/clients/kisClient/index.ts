@@ -95,7 +95,9 @@ export {
   fetchKisSectorIndexDaily,
   isKisSectorIndexDailyDisabled,
   KIS_SECTOR_INDEX_ISCD,
+  KIS_SECTOR_ISCD_MAP,
 } from './query.js';
+export type { KisSectorIscdMapRow } from './query.js';
 
 // ─── holdings (잔고 조회) ──────────────────────────────────────────────────
 export {
