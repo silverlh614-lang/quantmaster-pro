@@ -151,6 +151,7 @@ export interface SupplyScopeAudit {
   sellOnlyBySymbolPayloadAvailable?: boolean;
   sellOnlyBySymbolPayloadMerged?: boolean;
   sellOnlyCarryBreakPoint?: SellOnlyCarryBreakPointAdr0507;
+  supplySemanticSkipReason?: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL';
   selectedActualRowPath?: string | null;
   selectedActualRowFieldKeys?: string[];
   selectedActualNumericFieldKeys?: string[];
@@ -218,6 +219,7 @@ export type SellOnlyCarryBreakPointAdr0507 =
   | 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED'
   | 'BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED'
   | 'MERGED_BUT_FORENSIC_DROPPED'
+  | 'PSEUDO_SYMBOL_NOT_RESOLVED'
   | 'CARRIED_TO_FORENSIC'
   | 'UNKNOWN';
 
@@ -684,6 +686,7 @@ export interface BuildGate1MinimumSignalForensicInput {
   sellOnlyBySymbolPayloadAvailable?: boolean;
   sellOnlyBySymbolPayloadMerged?: boolean;
   sellOnlyCarryBreakPoint?: SellOnlyCarryBreakPointAdr0507;
+  supplySemanticSkipReason?: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL';
 }
 
 export function resolveGate1EvaluationStateAdr0510(input: {
@@ -794,6 +797,7 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
     sellOnlyBySymbolPayloadAvailable: input.sellOnlyBySymbolPayloadAvailable,
     sellOnlyBySymbolPayloadMerged: input.sellOnlyBySymbolPayloadMerged,
     sellOnlyCarryBreakPoint: input.sellOnlyCarryBreakPoint,
+    supplySemanticSkipReason: input.supplySemanticSkipReason,
     quoteSymbol,
   });
 
@@ -982,9 +986,12 @@ function buildSupplyScopeAudit(input: {
   sellOnlyBySymbolPayloadAvailable?: BuildGate1MinimumSignalForensicInput['sellOnlyBySymbolPayloadAvailable'];
   sellOnlyBySymbolPayloadMerged?: BuildGate1MinimumSignalForensicInput['sellOnlyBySymbolPayloadMerged'];
   sellOnlyCarryBreakPoint?: BuildGate1MinimumSignalForensicInput['sellOnlyCarryBreakPoint'];
+  supplySemanticSkipReason?: BuildGate1MinimumSignalForensicInput['supplySemanticSkipReason'];
   quoteSymbol?: string | null;
 }): SupplyScopeAudit {
   const { trace, candidate, kisFlow, quoteSymbol, supplyProviderHealth } = input;
+  const pseudoSymbolSkipped = input.supplySemanticSkipReason === 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL'
+    || (input.sellOnlyCarryBreakPoint === 'PSEUDO_SYMBOL_NOT_RESOLVED' && /^WATCHLIST_\d+$/i.test(trace.symbol));
 
   const kisSymbol = normalizeSymbol(kisFlow?.symbol ?? null);
   const candidateSymbol = normalizeSymbol(kisFlow?.candidateSymbol ?? candidate?.symbol ?? trace.symbol ?? null);
@@ -1088,11 +1095,11 @@ function buildSupplyScopeAudit(input: {
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
   const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? actualInvestorRows.length > 0;
-  const wireDiag = shouldEmitSupplySemanticWireDiagLog(trace.symbol);
+  const wireDiag = pseudoSymbolSkipped ? { emit: false, suppressedSinceLast: 0 } : shouldEmitSupplySemanticWireDiagLog(trace.symbol);
   if (wireDiag.emit) {
-    console.warn(
+    console.info(
       `[SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC] symbol=${trace.symbol} stage=BEFORE_SEMANTIC_EVAL`
-      + ` inputShape=${flatRowForGate != null ? 'FLAT_ROW' : 'WRAPPER'}`
+      + ` inputShape=${pseudoSymbolSkipped ? 'SKIPPED_PSEUDO_SYMBOL' : flatRowForGate != null ? 'FLAT_ROW' : 'WRAPPER'}`
       + ` foreignNetBuy=${flatRowForGate?.foreignNetBuy ?? 'null'}`
       + ` institutionNetBuy=${flatRowForGate?.institutionNetBuy ?? 'null'}`
       + ` programNetBuy=${flatRowForGate?.programNetBuy ?? 'null'}`
@@ -1100,7 +1107,24 @@ function buildSupplyScopeAudit(input: {
       + (flatRowForGate == null && input.sellOnlyCarryBreakPoint ? ` sellOnlyCarryBreakPoint=${input.sellOnlyCarryBreakPoint}` : ''),
     );
   }
-  const semantic = evaluateInvestorFlowSemanticAvailabilityV2({
+  const semantic: InvestorFlowSemanticAvailabilityResult = pseudoSymbolSkipped
+    ? {
+        available: false,
+        diagnosticAvailable: true,
+        reason: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL' as const,
+        providerIssue: false,
+        marketSignal: false as const,
+        scoreUsage: 'DIAGNOSTIC_ONLY' as const,
+        executionImpact: 'NONE' as const,
+        foreignNetBuy: null,
+        institutionalNetBuy: null,
+        programNetBuy: null,
+        individualNetBuy: null,
+        sourceFields: {},
+        materializedCount: 0,
+        normalizedCount: 0,
+      }
+    : evaluateInvestorFlowSemanticAvailabilityV2({
     flow: flowForSemantic,
     symbolMatched,
     inferredSymbolMatched,
@@ -1118,7 +1142,7 @@ function buildSupplyScopeAudit(input: {
       : (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorRow') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
   });
   if (wireDiag.emit) {
-    console.warn(
+    console.info(
       `[SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC] symbol=${trace.symbol} stage=AFTER_SEMANTIC_EVAL`
       + ` available=${semantic.available}`
       + ` reason=${semantic.reason}`
@@ -1269,6 +1293,7 @@ function resolveSupplyUnknownRootCause(audit: SupplyScopeAudit): string {
   if (audit.semanticReason === 'RAW_INVESTOR_ROW_MISSING') return 'SUPPLY_RAW_INVESTOR_ROW_MISSING';
   if (audit.semanticReason === 'ROUTER_DROPPED_SEMANTIC_ROW') return 'SUPPLY_ROUTER_DROPPED_SEMANTIC_ROW';
   if (audit.semanticReason === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW') return 'SUPPLY_FORENSIC_INPUT_DROPPED_SEMANTIC_ROW';
+  if (audit.semanticReason === 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL') return 'SUPPLY_DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL';
   if (audit.semanticReason === 'ACTUAL_INVESTOR_ROW_NOT_CARRIED') return 'SUPPLY_ACTUAL_INVESTOR_ROW_NOT_CARRIED';
   if (audit.semanticReason === 'FIELD_ALIAS_NOT_MAPPED') return 'SUPPLY_FIELD_ALIAS_NOT_MAPPED';
   if (audit.semanticReason === 'PLACEHOLDER_ONLY') return 'SUPPLY_PLACEHOLDER_ONLY';
@@ -1650,6 +1675,7 @@ const EMPTY_SEMANTIC_REASON_DISTRIBUTION: Record<InvestorFlowSemanticAvailabilit
   RAW_INVESTOR_ROW_MISSING: 0,
   ROUTER_DROPPED_SEMANTIC_ROW: 0,
   FORENSIC_INPUT_DROPPED_SEMANTIC_ROW: 0,
+  DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL: 0,
   SYMBOL_NOT_MATCHED: 0,
   PROVIDER_SCOPE_NOT_SYMBOL_LEVEL: 0,
   ONLY_MARKET_LEVEL_FLOW: 0,
@@ -1870,6 +1896,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED: 0,
     BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED: 0,
     MERGED_BUT_FORENSIC_DROPPED: 0,
+    PSEUDO_SYMBOL_NOT_RESOLVED: 0,
     CARRIED_TO_FORENSIC: 0,
     UNKNOWN: 0,
   };
@@ -2348,6 +2375,10 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(
     `- supplySemantic: available=${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates} diagnosticAvailable=${summary.supplyDiagnosticAvailable ?? 0}/${summary.totalCandidates}`,
   );
+  const pseudoSkipped = summary.semanticReasonDistribution?.DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL ?? 0;
+  if (pseudoSkipped > 0) {
+    lines.push(`[SUPPLY_SEMANTIC_WIRE_SUMMARY] pseudoSkipped=${pseudoSkipped} reason=DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL executionImpact=NONE`);
+  }
   lines.push(
     `- supplySemanticFields: foreignField=${summary.foreignNetBuyAvailable ?? 0}/${summary.totalCandidates} institutionField=${summary.institutionalNetBuyAvailable ?? 0}/${summary.totalCandidates} zeroButMaterialized=${summary.zeroButMaterializedCount ?? 0}`,
   );

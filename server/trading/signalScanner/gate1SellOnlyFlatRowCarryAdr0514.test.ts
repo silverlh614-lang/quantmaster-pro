@@ -142,8 +142,9 @@ describe('ADR-0514 SELL_ONLY gateSemanticFlatRow carry', () => {
     expect(inputs[0].kisFlow?.gateSemanticFlatRow).toEqual(baseFlatRow);
   });
 
-  it('adds sellOnlyCarryBreakPoint to WRAPPER semantic wire diagnostics', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('adds sellOnlyCarryBreakPoint to WRAPPER semantic wire diagnostics without error logging', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       buildGate1MinimumSignalForensicAuditAdr0505({
         trace: makeTrace('999991'),
@@ -157,13 +158,75 @@ describe('ADR-0514 SELL_ONLY gateSemanticFlatRow carry', () => {
           materialized: true,
         },
       });
-      const beforeLog = warnSpy.mock.calls
+      const beforeLog = infoSpy.mock.calls
         .map((call) => String(call[0]))
         .find((line) => line.includes('stage=BEFORE_SEMANTIC_EVAL'));
       expect(beforeLog).toContain('inputShape=WRAPPER');
       expect(beforeLog).toContain('sellOnlyCarryBreakPoint=BYSYMBOL_PAYLOAD_MISSING');
+      expect(errorSpy).not.toHaveBeenCalled();
     } finally {
-      warnSpy.mockRestore();
+      infoSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('resolves WATCHLIST pseudo symbol through quote.symbol and carries bySymbol flat row', () => {
+    const flatRow = {
+      foreignNetBuy: 300,
+      institutionNetBuy: 200,
+      programNetBuy: null,
+      _source: 'ROUTER_EXTRACTED' as const,
+    };
+    const candidate = {
+      ...sellOnlyCandidateTrace('WATCHLIST_1'),
+      quote: { symbol: '011210' },
+    };
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [sellOnlyGateTrace('WATCHLIST_1')],
+      candidateTraces: [candidate],
+      supplyRouterResult: {
+        bySymbol: {
+          '011210': {
+            code: '011210',
+            providerScope: 'SYMBOL_LEVEL',
+            gateSemanticFlatRow: flatRow,
+          },
+        },
+      },
+    });
+
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
+    expect(inputs[0].kisFlow?.gateSemanticFlatRow).toEqual(flatRow);
+  });
+
+  it('skips unresolved WATCHLIST pseudo symbol instead of evaluating wrapper metadata', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+        gate1CandidateTraces: [sellOnlyGateTrace('WATCHLIST_45')],
+        candidateTraces: [sellOnlyCandidateTrace('WATCHLIST_45')],
+        supplyProviderHealth: {
+          providerName: 'KIS_API',
+          selectedInvestorFlowProvider: 'KIS_API',
+          providerScope: 'SYMBOL_LEVEL',
+        } as unknown as Parameters<typeof collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507>[0]['supplyProviderHealth'],
+        supplyRouterResult: { bySymbol: {} },
+      });
+      expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(false);
+      expect(inputs[0].sellOnlyCarryBreakPoint).toBe('PSEUDO_SYMBOL_NOT_RESOLVED');
+      expect(inputs[0].supplySemanticSkipReason).toBe('DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL');
+
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
+      expect(audit.supplyScopeAudit.semanticReason).toBe('DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL');
+      expect(audit.supplyScopeAudit.providerIssue).toBe(false);
+      expect(audit.supplyScopeAudit.executionImpact).toBe('NONE');
+      expect(audit.supplyScopeAudit.scoreUsage).toBe('DIAGNOSTIC_ONLY');
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      infoSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 });

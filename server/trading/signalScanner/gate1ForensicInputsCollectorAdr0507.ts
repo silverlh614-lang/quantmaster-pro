@@ -103,12 +103,17 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
             ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
             : 'UNKNOWN';
     const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
+    const resolvedBySymbol = resolveActualSymbolForBySymbolAdr0515(candidate, t.symbol);
+    const pseudoSymbolUnresolved = sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
+      && resolvedBySymbol == null
+      && (isPseudoWatchlistSymbolAdr0515(t.symbol) || isPseudoWatchlistSymbolAdr0515(candidate?.symbol));
     const directBySymbolPayload = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT')
-      ? bySymbolPayloadForCandidateAdr0507(routerBySymbol, candidate, t.symbol)
+      ? bySymbolPayloadForCandidateAdr0507(routerBySymbol, candidate, t.symbol, resolvedBySymbol)
       : undefined;
-    const cachedBySymbolLookup = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') && !directBySymbolPayload
+    const cachedLookupSymbol = resolvedBySymbol ?? (isPseudoWatchlistSymbolAdr0515(candidate?.symbol) ? null : candidate?.symbol) ?? (isPseudoWatchlistSymbolAdr0515(t.symbol) ? null : t.symbol);
+    const cachedBySymbolLookup = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') && !pseudoSymbolUnresolved && !directBySymbolPayload && cachedLookupSymbol
       ? lookupSupplyBySymbolPayloadSnapshot({
-          symbol: candidate?.symbol ?? t.symbol,
+          symbol: cachedLookupSymbol,
           tradeDate: input.tradeDate,
           now: input.now,
           maxAgeMinutes: input.maxAgeMinutes,
@@ -242,13 +247,16 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...(sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' ? {
         sellOnlyBySymbolPayloadAvailable: Boolean(bySymbolPayload),
         sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && !bySymbolPayloadStale && ((actualInvestorFlowRows?.length ?? 0) > 0 || gateFlatCarryMerged)),
-        sellOnlyCarryBreakPoint: !bySymbolPayload
+        sellOnlyCarryBreakPoint: pseudoSymbolUnresolved
+          ? 'PSEUDO_SYMBOL_NOT_RESOLVED'
+          : !bySymbolPayload
           ? 'BYSYMBOL_PAYLOAD_MISSING'
           : bySymbolPayloadStale
             ? 'BYSYMBOL_PAYLOAD_STALE'
             : (actualInvestorFlowRows?.length ?? 0) > 0 || gateFlatCarryMerged
               ? 'CARRIED_TO_FORENSIC'
               : 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED',
+        ...(pseudoSymbolUnresolved ? { supplySemanticSkipReason: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL' as const } : {}),
       } : {}),
       ...(kisFlow ? { kisFlow } : {}),
     };
@@ -278,16 +286,60 @@ function normalizeSymbolKeyAdr0507(value: unknown): string | null {
   return digits.length >= 6 ? digits.slice(-6) : digits || value;
 }
 
+function isPseudoWatchlistSymbolAdr0515(value: unknown): boolean {
+  return typeof value === 'string' && /^WATCHLIST_\d+$/i.test(value);
+}
+
+function resolveActualSymbolForBySymbolAdr0515(
+  candidate: CandidateEntryTrace | undefined,
+  traceSymbol: string,
+): string | null {
+  const record = candidate as unknown as Record<string, unknown> | undefined;
+  const quote = record?.quote && typeof record.quote === 'object'
+    ? record.quote as Record<string, unknown>
+    : undefined;
+  const selectedCandidate = record?.selectedCandidate && typeof record.selectedCandidate === 'object'
+    ? record.selectedCandidate as Record<string, unknown>
+    : undefined;
+  const candidates = [
+    record?.actualSymbol,
+    record?.stockCode,
+    record?.code,
+    record?.iscd,
+    record?.symbolCode,
+    quote?.symbol,
+    quote?.code,
+    quote?.stockCode,
+    selectedCandidate?.symbol,
+    selectedCandidate?.code,
+    selectedCandidate?.stockCode,
+    traceSymbol,
+    candidate?.symbol,
+  ];
+  for (const value of candidates) {
+    const normalized = normalizeSymbolKeyAdr0507(value);
+    if (normalized && /^\d{6}$/.test(normalized)) return normalized;
+  }
+  return null;
+}
+
 function bySymbolPayloadForCandidateAdr0507(
   bySymbol: Record<string, Record<string, unknown>> | undefined,
   candidate: CandidateEntryTrace | undefined,
   traceSymbol: string,
+  resolvedActualSymbol?: string | null,
 ): Record<string, unknown> | undefined {
   if (!bySymbol || typeof bySymbol !== 'object') return undefined;
   const quoteSymbol = candidate?.quote && typeof candidate.quote === 'object'
     ? ((candidate.quote as Record<string, unknown>).symbol as string | undefined)
     : undefined;
-  const keys = [candidate?.symbol, traceSymbol, quoteSymbol]
+  const keys = [
+    resolvedActualSymbol,
+    candidate?.symbol,
+    traceSymbol,
+    quoteSymbol,
+  ]
+    .filter((item) => !isPseudoWatchlistSymbolAdr0515(item))
     .flatMap((item) => {
       const normalized = normalizeSymbolKeyAdr0507(item);
       return normalized && item ? [normalized, String(item)] : normalized ? [normalized] : item ? [String(item)] : [];
