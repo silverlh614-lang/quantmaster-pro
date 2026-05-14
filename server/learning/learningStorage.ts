@@ -21,3 +21,4 @@ export const ATTRIBUTION_BACKFILL_RUNS_FILE = 'attribution_backfill_runs.json';
 export const SUGGEST_DIAGNOSTIC_PROPOSALS_FILE = 'suggest_diagnostic_proposals.json';
 export const GEMINI_LEARNING_RUNS_FILE = 'gemini_learning_runs.json';
 export const GHOST_CLOSE_RUNS_FILE = 'ghost_close_runs.json';
+export const LEARNING_COHORT_BACKFILL_RUNS_FILE = 'learning_cohort_backfill_runs.json';
