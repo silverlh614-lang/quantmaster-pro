@@ -152,6 +152,19 @@ export interface InvestorFlowProviderRouteResult {
    * CORE 결정 (selectedProvider) 무영향 — diagnostic / SHADOW_SCORE 전용. executionImpact='NONE'.
    */
   adapterRowsForwardedAcrossProviders?: boolean;
+  /**
+   * INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — adapter actual row 를
+   * selectedProvider 와 무관하게 carry (selectedProvider==='NONE' 포함).
+   * DIAGNOSTIC_ONLY scope — executionImpact='NONE', liveExecutionAllowed=false.
+   */
+  diagnosticActualInvestorRow?: Record<string, unknown> | null;
+  /**
+   * selectedProvider 가 actualRowProvider 와 일치할 때만 set.
+   * NONE / 불일치 시 null — CORE 결정 입력 아님.
+   */
+  selectedProviderActualInvestorRow?: Record<string, unknown> | null;
+  actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
   selectedCandidate?: InvestorFlowMaterializedCandidateAdr0503 | null;
   bySymbol?: Record<string, InvestorFlowProviderRouteBySymbolPayloadAdr0477>;
   selectedActualRowPath?: string | null;
@@ -1089,6 +1102,10 @@ export type InvestorFlowProviderRouteBySymbolPayloadAdr0477 = Pick<InvestorFlowP
   | 'actualInvestorFlowNumericStringKeys'
   | 'actualInvestorFlowCarried'
   | 'adapterRowsForwardedAcrossProviders'
+  | 'diagnosticActualInvestorRow'
+  | 'selectedProviderActualInvestorRow'
+  | 'actualInvestorRowProvider'
+  | 'actualInvestorRowUseScope'
   | 'selectedCandidate'
   | 'selectedActualRowPath'
   | 'selectedActualRowFieldKeys'
@@ -1782,7 +1799,29 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     ?? (selectedProvider === 'KIS_API' ? sanitizedInvestorFlowRows : adapterFallbackActualRows);
   const selectedCandidateActualRowCount = selectedMaterializedCandidate?.actualInvestorFlowRowCount ?? selectedCandidateActualRows.length;
   const selectedCandidateCarriesActualRow = selectedCandidateActualRowCount > 0;
-  const adapterRowsForwardedAcrossProviders = selectedProvider !== 'KIS_API' && selectedProvider !== 'NONE' && adapterFallbackActualRows.length > 0;
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — adapter actual row 를 selectedProvider 와
+  // *완전히 분리*. 기존 `selectedProvider !== 'NONE'` guard 가 selectedProvider==='NONE'
+  // (materialized 후보 0건) 케이스를 제외해 routerCarriesActualRow=0/46 결함 발생.
+  // diagnosticActualInvestorRow 는 selectedProvider 무관 carry — DIAGNOSTIC_ONLY scope,
+  // executionImpact='NONE', liveExecutionAllowed=false. CORE 결정 입력 아님.
+  const actualRowProvider: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null =
+    adapterFallbackActualRows.length > 0
+      ? 'KIS_API'
+      : selectedMaterializedCandidate?.actualInvestorRow
+        ? (selectedProvider === 'NAVER_INVESTOR_TREND' ? 'NAVER_INVESTOR_TREND' : 'UNKNOWN')
+        : null;
+  const diagnosticActualInvestorRow: Record<string, unknown> | null =
+    (adapterFallbackActualRows[0] as Record<string, unknown> | undefined)
+    ?? (selectedMaterializedCandidate?.actualInvestorRow ?? null);
+  const actualRowProviderMatchesSelected = actualRowProvider != null && selectedProvider === actualRowProvider;
+  const selectedProviderActualInvestorRow: Record<string, unknown> | null =
+    actualRowProviderMatchesSelected ? diagnosticActualInvestorRow : null;
+  const actualInvestorRowUseScope: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' =
+    actualRowProviderMatchesSelected ? 'SELECTED_PROVIDER' : 'DIAGNOSTIC_ONLY';
+  // FIXED: `selectedProvider !== 'NONE'` guard 제거 — selectedProvider==='NONE' 도
+  // adapter row 를 보유하면 cross-provider carry 로 인정.
+  const adapterRowsForwardedAcrossProviders =
+    actualRowProvider != null && selectedProvider !== actualRowProvider && diagnosticActualInvestorRow != null;
   const selectedCandidateActualRowFieldKeysTop = selectedMaterializedCandidate?.actualInvestorFlowFieldKeys ?? selectedActualRowFieldKeys;
   const selectedCandidateActualRowDropReason: ActualInvestorFlowDropReasonAdr0477 = selectedCandidateCarriesActualRow
     ? (adapterRowsForwardedAcrossProviders ? 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW' : 'SELECTED_CANDIDATE_CARRIES_ACTUAL_ROW')
@@ -1799,6 +1838,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     selectedMaterializedCandidate.supplyProviderStatus = routeStatus;
     diagnostics.push(`[SELECTED_CANDIDATE_SUPPLY_ROW_ATTACHED] symbol=${input.code} hasActualInvestorRow=${Boolean(selectedMaterializedCandidate.actualInvestorRow ?? selectedCandidateActualRows[0])} hasSemanticInvestorRow=${Boolean(selectedMaterializedCandidate.semanticInvestorRow ?? selectedSemanticRow)} source=SUPPLY_ROUTER_BY_SYMBOL fieldKeys=${(selectedMaterializedCandidate.actualInvestorFlowFieldKeys ?? selectedCandidateActualRowFieldKeysTop).slice(0, 16).join(',') || 'NONE'} numericKeys=${(selectedMaterializedCandidate.actualInvestorFlowNumericKeys ?? selectedActualNumericFieldKeys).slice(0, 16).join(',') || 'NONE'}`);
   }
+  diagnostics.push(`[INVESTOR_FLOW_ACTUAL_ROW_CARRY] symbol=${input.code} selectedProvider=${selectedProvider} actualRowProvider=${actualRowProvider ?? 'NONE'} useScope=${actualInvestorRowUseScope} diagnosticActualRow=${diagnosticActualInvestorRow != null} selectedProviderActualRow=${selectedProviderActualInvestorRow != null} adapterForwarded=${adapterRowsForwardedAcrossProviders} executionImpact=NONE liveExecutionAllowed=false`);
   const selectedSemanticNetBuy = semanticNetBuy as SemanticNetBuySample | null;
   const signal = selectedSemanticNetBuy?.signal ?? 'UNKNOWN';
   if (!semanticNetBuy && !selectedDiagnosticProvider && providerStatuses.NAVER === 'NOT_WIRED' && providerStatuses.CACHE === 'CACHE_EMPTY') {
@@ -1929,6 +1969,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     // actualInvestorFlowCarried — selectedProvider 무관 adapter carry 인정 (diagnostic only).
     actualInvestorFlowCarried: (selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow) || adapterRowsForwardedAcrossProviders,
     adapterRowsForwardedAcrossProviders,
+    // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row 를 bySymbol payload
+    // 에 저장 (selectedProvider 무관). forensic 단계가 이 payload 를 merge 해 carry 유지.
+    diagnosticActualInvestorRow,
+    selectedProviderActualInvestorRow,
+    actualInvestorRowProvider: actualRowProvider,
+    actualInvestorRowUseScope,
     selectedCandidate: selectedMaterializedCandidate,
     selectedActualRowPath,
     selectedActualRowFieldKeys,
@@ -1994,6 +2040,10 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     actualInvestorFlowNumericStringKeys: selectedMaterializedCandidate?.actualInvestorFlowNumericStringKeys ?? selectedActualNumericStringFieldKeys,
     actualInvestorFlowCarried: (selectedProvider === 'KIS_API' && selectedCandidateCarriesActualRow) || adapterRowsForwardedAcrossProviders,
     adapterRowsForwardedAcrossProviders,
+    diagnosticActualInvestorRow,
+    selectedProviderActualInvestorRow,
+    actualInvestorRowProvider: actualRowProvider,
+    actualInvestorRowUseScope,
     selectedCandidate: selectedMaterializedCandidate,
     bySymbol: { [routeBySymbolKey]: routeBySymbolPayload },
     selectedActualRowPath,

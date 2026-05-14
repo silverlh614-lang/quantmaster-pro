@@ -107,6 +107,53 @@ export function hasNumberLikeField(input: unknown, candidates: readonly string[]
 }
 
 /**
+ * actual investor numeric row 판정 SSOT (INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001).
+ *
+ * adapter/router 가 carry 한 row 가 *진짜 실데이터 row* 인지 판정 — dummy/wrapper/
+ * metadata-only 객체를 거부한다.
+ *
+ * 검사 규칙:
+ *   - 후보 키 중 하나라도 finite number 또는 finite numeric-string → true
+ *   - null/undefined/non-object/array → false
+ *   - 후보 키 전부 부재 또는 전부 non-numeric → false (wrapper/metadata-only 거부)
+ *   - 0 은 *유효한 값* — "오늘 순매수 0주" (NEUTRAL 후보).
+ *
+ * 외부 부작용 0.
+ */
+const ACTUAL_INVESTOR_NUMERIC_ROW_FIELDS: readonly string[] = [
+  'foreignNetBuy',
+  'institutionalNetBuy',
+  'institutionNetBuy',
+  'individualNetBuy',
+  'frgn_ntby_qty',
+  'orgn_ntby_qty',
+  'prsn_ntby_qty',
+  'frgn_ntby_tr_pbmn',
+  'orgn_ntby_tr_pbmn',
+  'prsn_ntby_tr_pbmn',
+  'foreign',
+  'institution',
+  'individual',
+  'foreignAmount',
+  'institutionAmount',
+  'individualAmount',
+] as const;
+
+export function hasActualInvestorNumericRow(row: unknown): boolean {
+  if (row == null || typeof row !== 'object' || Array.isArray(row)) return false;
+  const obj = row as Record<string, unknown>;
+  for (const key of ACTUAL_INVESTOR_NUMERIC_ROW_FIELDS) {
+    const value = obj[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return true;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value.replace(/,/g, ''));
+      if (Number.isFinite(parsed)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Investor-flow semantic availability 평가 SSOT (사용자 §C 정합).
  *
  * 결정 트리 (위에서 아래 첫 매칭):
@@ -305,6 +352,9 @@ export type InvestorFlowSemanticAvailabilityReason =
   | 'ONLY_WRAPPER_OBJECT_SELECTED'
   | 'NO_ACTUAL_ROW_FOUND'
   | 'ACTUAL_INVESTOR_ROW_NOT_CARRIED'
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — carry 된 row 가 dummy/wrapper 라 숫자 투자자
+  // 필드가 하나도 없는 경우 (실데이터 row 와 metadata-only row 구분).
+  | 'NO_NUMERIC_INVESTOR_FIELD_FOUND'
   | 'DEEP_UNWRAP_NO_NUMERIC_FIELDS'
   | 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN'
   | 'ALIAS_MAPPED_FOREIGN_ONLY'
@@ -1021,6 +1071,10 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   else if (providerScope !== 'SYMBOL_LEVEL') reason = 'PROVIDER_SCOPE_NOT_SYMBOL_LEVEL';
   else if (input.forensicInputDroppedSemanticRow) reason = 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW';
   else if (input.actualInvestorRowCarried === false && !hasCoreField) reason = 'ACTUAL_INVESTOR_ROW_NOT_CARRIED';
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — row 는 carry 됐으나 (actualInvestorRowCarried
+  // === true) carry 된 객체에 숫자 투자자 필드가 하나도 없는 경우 (dummy/wrapper). ACTUAL_
+  // INVESTOR_ROW_NOT_CARRIED (carry 자체가 안 됨) 와 구분 — 단절 위치 정밀 진단.
+  else if (input.actualInvestorRowCarried === true && !hasCoreField && !hasActualInvestorNumericRow(input.flow)) reason = 'NO_NUMERIC_INVESTOR_FIELD_FOUND';
   else if (input.semanticRowDropped) reason = 'ROUTER_DROPPED_SEMANTIC_ROW';
   else if (input.rawInvestorRowAvailable === false && !hasCoreField) reason = 'RAW_INVESTOR_ROW_MISSING';
   else if (isMetadataOnlySemanticRow(input.flow) && !hasCoreField) reason = 'SEMANTIC_ROW_METADATA_ONLY';

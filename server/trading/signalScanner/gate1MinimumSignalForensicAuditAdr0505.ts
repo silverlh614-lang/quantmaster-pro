@@ -33,6 +33,7 @@ import { resolveWatchlistUpstreamScore } from './watchlistUpstreamScoreResolver.
 import { conditionResultsTraceToMap, type GateConditionResultTrace } from './gateConditionResultTrace.js';
 import {
   evaluateInvestorFlowSemanticAvailabilityV2,
+  hasActualInvestorNumericRow,
   type InvestorFlowSemanticAvailabilityReason,
   type InvestorFlowSemanticAvailabilityResult,
   type InvestorFlowFieldKeyDiscoveryDiagnostic,
@@ -132,6 +133,13 @@ export interface SupplyScopeAudit {
    * KIS adapter row 가 diagnostic / SHADOW_SCORE 전용으로 propagate 된 상태.
    */
   adapterRowsForwardedAcrossProviders?: boolean;
+  /**
+   * INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — adapter actual row 가 forensic 단계까지
+   * carry 됐는지 (selectedProvider 무관). DIAGNOSTIC_ONLY scope — executionImpact='NONE'.
+   */
+  diagnosticActualInvestorRowCarried?: boolean;
+  actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
   selectedCandidateCarriesSemanticRow?: boolean;
   forensicInputCarriesSemanticRow?: boolean;
   forensicInputCarriesActualInvestorRows?: boolean;
@@ -461,6 +469,16 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
    * 단절을 가시화 + 정합성 진단.
    */
   adapterRowsForwardedAcrossProvidersCount?: number;
+  /**
+   * INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual numeric row 가 forensic
+   * 단계까지 carry + 숫자 필드 검증 통과한 candidate 수 (selectedProvider 무관). 사용자 보고
+   * adapterCarriesActualRow=46/46 vs forensicCarriesActualRow=0/46 단절 가시화.
+   */
+  diagnosticActualInvestorRowCarriedCount?: number;
+  selectedProviderActualRowCount?: number;
+  diagnosticOnlyActualRowCount?: number;
+  actualInvestorRowProviderDistribution?: Record<string, number>;
+  actualInvestorRowUseScopeDistribution?: Record<string, number>;
   forensicInputCarriesSemanticRowCount?: number;
   semanticRowBreakPointDistribution?: Record<string, number>;
   forensicInputCarriesActualInvestorRowsCount?: number;
@@ -622,6 +640,15 @@ export interface BuildGate1MinimumSignalForensicInput {
      * CORE 결정 무영향 — diagnostic / SHADOW_SCORE 전용.
      */
     adapterRowsForwardedAcrossProviders?: boolean;
+    /**
+     * INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — adapter actual row 를 selectedProvider
+     * 와 무관하게 carry (selectedProvider==='NONE' 포함). DIAGNOSTIC_ONLY scope.
+     */
+    diagnosticActualInvestorRow?: Record<string, unknown> | null;
+    selectedProviderActualInvestorRow?: Record<string, unknown> | null;
+    actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
+    actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+    bySymbol?: Record<string, Record<string, unknown>>;
     kisRawRowAvailableAtAdapter?: boolean;
     kisNormalizedRowAvailableAtRouter?: boolean;
     kisSelectedCandidateCarriesSemanticRow?: boolean;
@@ -994,13 +1021,50 @@ function buildSupplyScopeAudit(input: {
     ?? kisFlow?.actualInvestorRow
     ?? sanitizedSemanticRow
     ?? null;
-  const flowForSemantic = primarySemanticFlow ?? (actualInvestorRows.length > 0 ? actualInvestorRows : kisFlow ?? null);
-  // ADR-0477 supply actual row carry diagnostic — `rawInvestorRowAvailable` (= adapterCarriesActualRow)
-  // 은 adapter 가 router 까지 *무언가* 를 carry 했는지 (metadata-only 포함) 를 표시. 사용자 명시 #6
-  // 단절 (adapter=N/47 vs router=0/47) 의 해결은 본 필드 재정의가 아니라 *별도* 신규 카운터
-  // `adapterRowsForwardedAcrossProviders` 로 가시화 — metadata-only vs actual-row 구분
-  // (SEMANTIC_ROW_METADATA_ONLY 분류) 은 그대로 보존. CORE 무영향 / diagnostic only.
-  const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter ?? (flowForSemantic != null && typeof flowForSemantic === 'object');
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row 를 router payload 에서
+  // 수신. SELL_ONLY lane 은 kisFlow 본체가 비어 bySymbol payload 에만 carry 가 들어올 수 있어
+  // bySymbol[code] payload 도 merge 한다. selectedProvider 무관 — DIAGNOSTIC_ONLY scope.
+  const routeBySymbolKey = (kisSymbol ?? candidateSymbol ?? qSymbol ?? traceSymbol ?? '').replace(/[^0-9A-Za-z]/g, '');
+  const sellOnlyBySymbolPayload = (kisFlow?.bySymbol && routeBySymbolKey && typeof kisFlow.bySymbol === 'object')
+    ? (kisFlow.bySymbol[routeBySymbolKey] as Record<string, unknown> | undefined)
+    : undefined;
+  const diagnosticActualInvestorRow =
+    (input.actualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (kisFlow?.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (sellOnlyBySymbolPayload?.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (actualInvestorRows.length > 0 ? (actualInvestorRows[0] as Record<string, unknown>) : null)
+    ?? null;
+  const selectedProviderActualInvestorRow =
+    (kisFlow?.selectedProviderActualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (sellOnlyBySymbolPayload?.selectedProviderActualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? null;
+  const actualInvestorRowProvider =
+    (kisFlow?.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)
+    ?? (sellOnlyBySymbolPayload?.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)
+    ?? null;
+  const actualInvestorRowUseScope =
+    (kisFlow?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
+    ?? (sellOnlyBySymbolPayload?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
+    ?? 'DIAGNOSTIC_ONLY';
+  const diagnosticActualInvestorRowCarried = hasActualInvestorNumericRow(diagnosticActualInvestorRow);
+
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — semantic mapper 입력 우선순위:
+  // selectedProvider actual row > diagnostic actual row > legacy primarySemanticFlow > wrapper.
+  // primarySemanticFlow 가 숫자 필드를 가진 실데이터면 그대로 사용, 아니면 (metadata-only/
+  // wrapper) selectedProvider/diagnostic numeric row 를 우선 — 실데이터 carry 유지.
+  const flowForSemantic = (hasActualInvestorNumericRow(primarySemanticFlow) ? primarySemanticFlow : null)
+    ?? (hasActualInvestorNumericRow(selectedProviderActualInvestorRow) ? selectedProviderActualInvestorRow : null)
+    ?? (diagnosticActualInvestorRowCarried ? diagnosticActualInvestorRow : null)
+    ?? primarySemanticFlow
+    ?? (actualInvestorRows.length > 0 ? actualInvestorRows : kisFlow ?? null);
+
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — `rawInvestorRowAvailable` 강화. 기존
+  // `flowForSemantic != null && typeof === 'object'` fallback 은 dummy/wrapper/metadata-only
+  // 객체도 true 로 판정해 실데이터 부재를 가렸음. hasActualInvestorNumericRow 로 *숫자 필드가
+  // 하나라도 있는 실데이터 row* 만 인정 — diagnostic actual row 또는 flowForSemantic 의 numeric
+  // 필드 검증. CORE 무영향 / diagnostic only.
+  const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter
+    ?? (diagnosticActualInvestorRowCarried || hasActualInvestorNumericRow(flowForSemantic));
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
   const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? actualInvestorRows.length > 0;
@@ -1015,7 +1079,11 @@ function buildSupplyScopeAudit(input: {
     semanticRowExpected: selectedCandidateCarriesSemanticRow,
     semanticRowDropped: kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_RAW_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'ROUTER_SELECTED_CANDIDATE_DROPPED_ACTUAL_ROW',
     forensicInputDroppedSemanticRow: kisFlow?.semanticRowBreakPoint === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW',
-    actualInvestorRowCarried: (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorRow') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
+    // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual numeric row 가 carry 됐으면
+    // selectedProvider 무관 true. 그 외엔 기존 KIS-only 판정 유지.
+    actualInvestorRowCarried: diagnosticActualInvestorRowCarried
+      ? true
+      : (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorRow') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
   });
   const foreignNetBuy = semantic.foreignNetBuy;
   const institutionalNetBuy = semantic.institutionalNetBuy;
@@ -1084,11 +1152,17 @@ function buildSupplyScopeAudit(input: {
     // 케이스에서 KIS adapter 가 firstSymbol 만 있고 selectedProvider 가 다른 경우 routerCarriesActualRow
     // = true 로 격상. CORE 결정 (selectedProvider) 무영향 — diagnostic / SHADOW_SCORE 전용.
     adapterRowsForwardedAcrossProviders: Boolean(kisFlow?.adapterRowsForwardedAcrossProviders),
+    // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row 가 forensic 단계까지
+    // carry + 숫자 필드 보유 검증 통과 여부 (selectedProvider 무관). SELL_ONLY lane 의 bySymbol
+    // payload merge 도 반영. DIAGNOSTIC_ONLY scope — executionImpact='NONE'.
+    diagnosticActualInvestorRowCarried,
+    actualInvestorRowProvider,
+    actualInvestorRowUseScope,
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
     forensicInputCarriesActualInvestorRows,
-    sellOnlyBySymbolPayloadAvailable: input.sellOnlyBySymbolPayloadAvailable,
-    sellOnlyBySymbolPayloadMerged: input.sellOnlyBySymbolPayloadMerged,
+    sellOnlyBySymbolPayloadAvailable: input.sellOnlyBySymbolPayloadAvailable ?? Boolean(sellOnlyBySymbolPayload),
+    sellOnlyBySymbolPayloadMerged: input.sellOnlyBySymbolPayloadMerged ?? Boolean(sellOnlyBySymbolPayload && diagnosticActualInvestorRowCarried),
     sellOnlyCarryBreakPoint: input.sellOnlyCarryBreakPoint === 'CARRIED_TO_FORENSIC' && !forensicInputCarriesActualInvestorRows
       ? 'BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED'
       : input.sellOnlyCarryBreakPoint,
@@ -1521,6 +1595,7 @@ const EMPTY_SEMANTIC_REASON_DISTRIBUTION: Record<InvestorFlowSemanticAvailabilit
   ONLY_WRAPPER_OBJECT_SELECTED: 0,
   NO_ACTUAL_ROW_FOUND: 0,
   ACTUAL_INVESTOR_ROW_NOT_CARRIED: 0,
+  NO_NUMERIC_INVESTOR_FIELD_FOUND: 0,
   DEEP_UNWRAP_NO_NUMERIC_FIELDS: 0,
   NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN: 0,
   ALIAS_MAPPED_FOREIGN_ONLY: 0,
@@ -1655,6 +1730,12 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let semanticRowMetadataOnlyCount = 0;
   let rawInvestorRowAvailableCount = 0;
   let adapterRowsForwardedAcrossProvidersCount = 0;
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row carry 카운터.
+  let diagnosticActualInvestorRowCarriedCount = 0;
+  let selectedProviderActualRowCount = 0;
+  let diagnosticOnlyActualRowCount = 0;
+  const actualInvestorRowProviderDistribution: Record<string, number> = {};
+  const actualInvestorRowUseScopeDistribution: Record<string, number> = {};
   let selectedCandidateCarriesSemanticRowCount = 0;
   let selectedCandidateCarriesActualRowCount = 0;
   let forensicInputCarriesSemanticRowCount = 0;
@@ -1824,6 +1905,20 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     // ADR-0477 supply actual row carry diagnostic — adapter (KIS) 가 actual row 보유 +
     // selectedProvider != KIS_API 인 경우에도 router 가 carry. 사용자 명시 #6 단절 진단 집계.
     if (a.supplyScopeAudit.adapterRowsForwardedAcrossProviders) adapterRowsForwardedAcrossProvidersCount += 1;
+    // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row carry 집계.
+    if (a.supplyScopeAudit.diagnosticActualInvestorRowCarried) {
+      diagnosticActualInvestorRowCarriedCount += 1;
+      if (a.supplyScopeAudit.actualInvestorRowUseScope === 'SELECTED_PROVIDER') selectedProviderActualRowCount += 1;
+      else diagnosticOnlyActualRowCount += 1;
+    }
+    if (a.supplyScopeAudit.actualInvestorRowProvider) {
+      const provider = a.supplyScopeAudit.actualInvestorRowProvider;
+      actualInvestorRowProviderDistribution[provider] = (actualInvestorRowProviderDistribution[provider] ?? 0) + 1;
+    }
+    if (a.supplyScopeAudit.actualInvestorRowUseScope) {
+      const scope = a.supplyScopeAudit.actualInvestorRowUseScope;
+      actualInvestorRowUseScopeDistribution[scope] = (actualInvestorRowUseScopeDistribution[scope] ?? 0) + 1;
+    }
     if (a.supplyScopeAudit.selectedCandidateCarriesSemanticRow) selectedCandidateCarriesSemanticRowCount += 1;
     if ((a.supplyScopeAudit.selectedActualRowFieldKeys?.length ?? 0) > 0) selectedCandidateCarriesActualRowCount += 1;
     if (a.supplyScopeAudit.forensicInputCarriesSemanticRow) forensicInputCarriesSemanticRowCount += 1;
@@ -2021,6 +2116,11 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     semanticRowMetadataOnlyCount,
     rawInvestorRowAvailableCount,
     adapterRowsForwardedAcrossProvidersCount,
+    diagnosticActualInvestorRowCarriedCount,
+    selectedProviderActualRowCount,
+    diagnosticOnlyActualRowCount,
+    actualInvestorRowProviderDistribution,
+    actualInvestorRowUseScopeDistribution,
     selectedCandidateCarriesSemanticRowCount,
     selectedCandidateCarriesActualRowCount,
     forensicInputCarriesSemanticRowCount,
@@ -2209,6 +2309,12 @@ export function formatGate1MinimumSignalForensicSection(
   // ADR-0477 supply actual row carry diagnostic — adapter (KIS) 가 actual row 보유했지만
   // selectedProvider != KIS_API 인 경우에도 router 가 carry. 사용자 명시 #6 단절 진단 (47/47 vs 0/47).
   lines.push(`  - adapterRowsForwardedAcrossProviders: ${summary.adapterRowsForwardedAcrossProvidersCount ?? 0}/${summary.totalCandidates}`);
+  // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row carry 진단 (selectedProvider 무관).
+  lines.push(`  - diagnosticActualInvestorRowCarried: ${summary.diagnosticActualInvestorRowCarriedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - selectedProviderActualRow: ${summary.selectedProviderActualRowCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - diagnosticOnlyActualRow: ${summary.diagnosticOnlyActualRowCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - actualInvestorRowProvider: ${formatDistribution(summary.actualInvestorRowProviderDistribution ?? {})}`);
+  lines.push(`  - actualInvestorRowUseScope: ${formatDistribution(summary.actualInvestorRowUseScopeDistribution ?? {})}`);
   lines.push(`  - forensicCarriesActualRow: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - actualRowsCarried: ${summary.forensicInputCarriesActualInvestorRowsCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - sellOnlyBySymbolPayloadAvailable: ${summary.sellOnlyBySymbolPayloadAvailableCount ?? 0}/${summary.totalCandidates}`);
