@@ -19,6 +19,7 @@
  */
 
 import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSection } from '../persistence/watchlistRepo.js';
+import { syncDetachedFromWatchlist } from './watchlistDetachmentSync.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import {
   detectCorporateAction,
@@ -420,4 +421,9 @@ export async function cleanupWatchlist(): Promise<void> {
       `SWING ${swingCount}개 / CATALYST ${catalystCount}개 / MOMENTUM ${momentumCount}개)`,
     );
   }
+
+  // Patch-WATCHLIST-DETACHMENT-SYNC-001 — cleanup 으로 워치리스트에서 제거된 종목 중
+  // OPEN Shadow 포지션 보유분에 detachedFromWatchlist 마커 동기화. 포지션은 닫지 않고
+  // exit management 는 계속된다 (마커는 진단 전용 + 신규 진입 후보에서만 제외).
+  syncDetachedFromWatchlist();
 }
