@@ -73,6 +73,70 @@ export type SectorEnergyQualityReason =
  */
 export type SectorEnergyFallbackUsed = 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
 
+
+export type SectorEnergyCoverageFreshness = 'FRESH' | 'STALE' | 'MISSING' | 'PARTIAL';
+export type SectorEnergyCoverageReason =
+  | 'OK'
+  | 'NO_REPRESENTATIVE_SYMBOLS'
+  | 'PRICE_ROWS_MISSING'
+  | 'PRICE_ROWS_STALE'
+  | 'SECTOR_CODE_MISSING'
+  | 'KIS_BASKET_DERIVED_ONLY'
+  | 'UNKNOWN';
+
+export interface SectorEnergyCoverageBreakdown {
+  expectedSectorCount: number;
+  validSectorCount: number;
+  staleSectorCount: number;
+  missingSectorCount: number;
+  partialSectorCount: number;
+  sectorRows: Array<{
+    sectorName: string;
+    sectorCode?: string | null;
+    representativeSymbols: string[];
+    representativeSymbolCount: number;
+    priceRowsFound: number;
+    priceRowsMissing: number;
+    latestPriceDate?: string | null;
+    ageTradingDays?: number | null;
+    freshness: SectorEnergyCoverageFreshness;
+    reason: SectorEnergyCoverageReason;
+  }>;
+  executionImpact: 'NONE';
+}
+
+export type KisRepresentativeBasketBreakPoint =
+  | 'OFFICIAL_SECTOR_INDEX_UNAVAILABLE'
+  | 'REPRESENTATIVE_SYMBOLS_MISSING'
+  | 'REPRESENTATIVE_PRICE_ROWS_MISSING'
+  | 'REPRESENTATIVE_PRICE_ROWS_STALE'
+  | 'BASKET_ROWS_BELOW_MINIMUM'
+  | 'DATE_ALIGNMENT_FAILED'
+  | 'CACHE_STALE'
+  | 'UNKNOWN';
+
+export interface KisRepresentativeBasketAudit {
+  officialSectorIndexAvailable: boolean;
+  usingKisRepresentativeBasket: boolean;
+  representativeBasketExpectedRows: number;
+  representativeBasketActualRows: number;
+  representativeBasketMissingRows: number;
+  representativeSymbolsResolved: number;
+  representativeSymbolsMissing: number;
+  priceRowsFetched: number;
+  priceRowsFresh: number;
+  priceRowsStale: number;
+  latestAvailableDate?: string | null;
+  previousTradingDate?: string | null;
+  staleThresholdTradingDays: number;
+  breakPoint: KisRepresentativeBasketBreakPoint;
+  nextAction: string;
+  sectorBoostAllowed: false;
+  strongBuyAllowed: false;
+  executionHardBlock: false;
+  executionImpact: 'NONE';
+}
+
 /**
  * ADR-0423 quality 진단 SSOT — 단일 sector-energy build 결과의 *데이터 진실성* 분해.
  *
@@ -148,6 +212,12 @@ export interface SectorEnergyQualityDiagnostic {
    */
   sanityViolation?: SectorEnergySanityViolationDiagnostic;
 
+
+  /** Patch-SECTOR-ENERGY-STALE-RECOVERY-001 — diagnostic-only coverage decomposition. */
+  coverageBreakdown?: SectorEnergyCoverageBreakdown;
+  /** Patch-SECTOR-ENERGY-STALE-RECOVERY-001 — KIS representative basket construction audit. */
+  representativeBasketAudit?: KisRepresentativeBasketAudit;
+
   /**
    * ADR-0447: alias 확장으로 backfill 된 row 수 (옵셔널 후방호환).
    *
@@ -222,6 +292,12 @@ export interface EvaluateSectorEnergyQualityInput {
    * Provider 가 `finalizeSanityDiagnostic` SSOT 로 합성 후 전달.
    */
   sanityViolation?: SectorEnergySanityViolationDiagnostic;
+
+
+  /** Patch-SECTOR-ENERGY-STALE-RECOVERY-001 — diagnostic-only coverage decomposition. */
+  coverageBreakdown?: SectorEnergyCoverageBreakdown;
+  /** Patch-SECTOR-ENERGY-STALE-RECOVERY-001 — KIS representative basket construction audit. */
+  representativeBasketAudit?: KisRepresentativeBasketAudit;
 
   /**
    * ADR-0447: alias 확장 카운트 (옵셔널 후방호환).
@@ -537,6 +613,8 @@ export function evaluateSectorEnergyQualityDiagnostic(
     // ADR-0446 — Phase 2 진단 + Sanity violation 진단 (옵셔널, 후방호환).
     ...(input.sectorIndexRecovery ? { sectorIndexRecovery: input.sectorIndexRecovery } : {}),
     ...(input.sanityViolation ? { sanityViolation: input.sanityViolation } : {}),
+    ...(input.coverageBreakdown ? { coverageBreakdown: input.coverageBreakdown } : {}),
+    ...(input.representativeBasketAudit ? { representativeBasketAudit: input.representativeBasketAudit } : {}),
     // ADR-0447 — alias expansion 카운트 (옵셔널, 후방호환).
     // Caller 명시 전달 우선, 미전달 시 sectorIndexRecovery 자동 propagate.
     ...(input.aliasExpansionRecovered !== undefined
@@ -587,6 +665,41 @@ export function formatSectorEnergyQualityDiagnosticSection(
   lines.push(`  • symmetryValidation: ${diagnostic.symmetryValidationPassed ? 'PASSED' : 'FAILED'}`);
   lines.push(`  • fallbackUsed: ${diagnostic.fallbackUsed}`);
 
+
+  const audit = diagnostic.representativeBasketAudit;
+  const coverage = diagnostic.coverageBreakdown;
+  if (audit) {
+    lines.push('');
+    lines.push('🌐 SectorEnergy Recovery Audit');
+    lines.push(`  • dataQuality: ${diagnostic.dataQuality}`);
+    lines.push(`  • validSectorCount: ${diagnostic.validSectorCount}/${diagnostic.expectedSectorCount}`);
+    lines.push(`  • officialIndex: ${audit.officialSectorIndexAvailable ? 'available' : 'unavailable'}`);
+    lines.push(`  • basket: KIS representative, rows=${audit.representativeBasketActualRows}/${audit.representativeBasketExpectedRows}`);
+    lines.push(`  • freshRows: ${audit.priceRowsFresh} / staleRows: ${audit.priceRowsStale} / missingRows: ${audit.representativeBasketMissingRows}`);
+    lines.push(`  • breakPoint: ${audit.breakPoint}`);
+    lines.push(`  • sectorBoostAllowed=${audit.sectorBoostAllowed}`);
+    lines.push(`  • strongBuyAllowed=${audit.strongBuyAllowed}`);
+    lines.push(`  • executionHardBlock=${audit.executionHardBlock}`);
+    lines.push(`  • executionImpact=${audit.executionImpact}`);
+    lines.push(`  • nextAction: ${audit.nextAction}`);
+  }
+  if (coverage) {
+    const topProblems = coverage.sectorRows
+      .filter((row) => row.reason !== 'OK')
+      .slice(0, 3);
+    lines.push(`  • coverage: expectedSectorCount=${coverage.expectedSectorCount} validSectorCount=${coverage.validSectorCount} staleSectorCount=${coverage.staleSectorCount} missingSectorCount=${coverage.missingSectorCount} partialSectorCount=${coverage.partialSectorCount}`);
+    if (topProblems.length > 0) {
+      lines.push('  • Sector rows top problems:');
+      topProblems.forEach((row, index) => {
+        const reasonLabel = row.reason === 'PRICE_ROWS_MISSING' ? 'priceRowsMissing'
+          : row.reason === 'PRICE_ROWS_STALE' ? 'priceRowsStale'
+            : row.reason === 'NO_REPRESENTATIVE_SYMBOLS' ? 'representativeSymbolsMissing'
+              : row.reason;
+        lines.push(`    ${index + 1}. ${row.sectorName}: ${reasonLabel}`);
+      });
+    }
+  }
+
   // Top 3 reasons (텔레그램 메시지 길이 제한)
   const filteredReasons = diagnostic.reasons.filter((r) => r !== 'OK');
   if (filteredReasons.length > 0) {
@@ -601,7 +714,7 @@ export function formatSectorEnergyQualityDiagnosticSection(
   }
 
   const leadershipConfidence = diagnostic.sourceTier === 'KIS_STOCK_BASKET_DERIVED'
-    ? 'READY_FOR_SHADOW'
+    ? 'SHADOW_ONLY'
     : diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK';
   lines.push(`  • leadershipConfidence: ${leadershipConfidence}`);
 

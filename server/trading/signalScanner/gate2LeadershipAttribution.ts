@@ -109,6 +109,24 @@ export type Gate2LeadershipDiagnosis =
   | 'NO_GATE1_SURVIVORS'
   | 'UNKNOWN';
 
+
+export type Gate2LeadershipDominantReason =
+  | 'SECTOR_DATA_STALE'
+  | 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
+  | 'FUNDAMENTAL_DATA_UNAVAILABLE'
+  | 'MIXED'
+  | 'UNKNOWN';
+
+export interface Gate2LeadershipAttribution {
+  gate1Pass: number;
+  gate2Pass: number;
+  blockedBySectorStaleCount: number;
+  blockedByConditionFailCount: number;
+  blockedByUnavailableFundamentalCount: number;
+  sectorStaleContributionPct: number;
+  dominantReason: Gate2LeadershipDominantReason;
+}
+
 /**
  * SectorEnergy 진단 메타 — Gate2 진단 분류 입력 + /scan_blockers 표시용.
  *
@@ -176,6 +194,8 @@ export interface Gate2FreshAttribution {
   gate2WatchPreservedCount: number;
   /** Gate2 blocked-but-shadow 보존 예상 수. */
   gate2ShadowPreservedCount: number;
+  /** Gate2 NO_LEADERSHIP 원인 축 분해 (diagnostic only). */
+  leadershipAttribution: Gate2LeadershipAttribution;
   /** 운영자 가이드 분류. */
   recommendedDiagnosis: Gate2LeadershipDiagnosis;
 }
@@ -558,6 +578,42 @@ export function computeGate2LeadershipDiagnosis(input: {
  *
  * 외부 부작용 0.
  */
+
+function buildGate2LeadershipAttribution(input: {
+  sorted: Gate2BlockerBucket[];
+  gate1Pass: number;
+  gate2Pass: number;
+  sectorEnergy?: SectorEnergyDiagnostic;
+}): Gate2LeadershipAttribution {
+  const conditionKeys = new Set(['momentum', 'breakout_momentum', 'turtle_high', 'vcp', 'pullback', 'trend_acceleration']);
+  const fundamentalKeys = new Set(['earnings_quality', 'per', 'sectorLeadership', 'sector_leadership', 'sectorBoost', 'sector_boost']);
+  const blockedByConditionFailCount = input.sorted
+    .filter((b) => conditionKeys.has(b.conditionKey))
+    .reduce((sum, b) => sum + b.failed, 0);
+  const blockedByUnavailableFundamentalCount = input.sorted
+    .filter((b) => fundamentalKeys.has(b.conditionKey))
+    .reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
+  const blockedBySectorStaleCount = input.sectorEnergy?.isStale ? input.gate1Pass : input.sorted
+    .filter((b) => b.conditionKey.toLowerCase().includes('sector'))
+    .reduce((sum, b) => sum + b.stale, 0);
+  const denom = Math.max(1, input.gate1Pass);
+  const sectorStaleContributionPct = Math.round((blockedBySectorStaleCount / denom) * 1000) / 10;
+  let dominantReason: Gate2LeadershipDominantReason = 'UNKNOWN';
+  if (blockedBySectorStaleCount / denom >= 0.5) dominantReason = 'SECTOR_DATA_STALE';
+  else if (blockedByUnavailableFundamentalCount / denom >= 0.5) dominantReason = 'FUNDAMENTAL_DATA_UNAVAILABLE';
+  else if (blockedByConditionFailCount / denom >= 0.5) dominantReason = 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
+  else if (blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount > 0) dominantReason = 'MIXED';
+  return {
+    gate1Pass: input.gate1Pass,
+    gate2Pass: input.gate2Pass,
+    blockedBySectorStaleCount,
+    blockedByConditionFailCount,
+    blockedByUnavailableFundamentalCount,
+    sectorStaleContributionPct,
+    dominantReason,
+  };
+}
+
 export function buildGate2FreshAttribution(input: {
   buckets: Gate2BlockerBucket[];
   candidates: number;
@@ -588,6 +644,12 @@ export function buildGate2FreshAttribution(input: {
     gate1Pass: input.gate1Pass,
     blockReasons: input.blockReasons,
     sectorEnergy: input.sectorEnergy,
+  });
+  const leadershipAttribution = buildGate2LeadershipAttribution({
+    sorted,
+    gate1Pass: input.gate1Pass,
+    gate2Pass: input.gate2Pass,
+    ...(input.sectorEnergy ? { sectorEnergy: input.sectorEnergy } : {}),
   });
   const gate2TrueFailedCount = sorted.reduce((sum, b) => sum + b.failed, 0);
   const gate2UnavailableCount = sorted.reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
@@ -625,6 +687,7 @@ export function buildGate2FreshAttribution(input: {
     gate2ShadowPreservedCount: softPreserved,
     ...(input.sectorEnergy ? { sectorEnergy: input.sectorEnergy } : {}),
     ...(input.blockReasons ? { blockReasons: input.blockReasons } : {}),
+    leadershipAttribution,
     recommendedDiagnosis,
   };
 }
@@ -727,6 +790,15 @@ export function formatGate2AttributionSection(
     `gate2UnavailableCount=${attribution.gate2UnavailableCount} / ` +
     `gate2WatchPreservedCount=${attribution.gate2WatchPreservedCount} / ` +
     `gate2ShadowPreservedCount=${attribution.gate2ShadowPreservedCount}`,
+  );
+
+  const leadership = attribution.leadershipAttribution;
+  lines.push(
+    `  • Gate2LeadershipAttribution: sectorStale=${leadership.blockedBySectorStaleCount} / ` +
+    `conditionFail=${leadership.blockedByConditionFailCount} / ` +
+    `fundamentalUnavailable=${leadership.blockedByUnavailableFundamentalCount} / ` +
+    `sectorStaleContributionPct=${leadership.sectorStaleContributionPct.toFixed(1)}% / ` +
+    `dominant=${leadership.dominantReason}`,
   );
 
   if (attribution.nearMissConditions.length > 0) {

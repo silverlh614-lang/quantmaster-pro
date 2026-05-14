@@ -4,6 +4,7 @@ import { fetchKisDailyCandles, type KisChartCandle } from '../screener/kisChartD
 import { SECTOR_INDEX_MASTER, type SectorKey } from './sectorEnergyMaster.js';
 import type { KisInvestorTradeByStockDaily } from './kisClient/index.js';
 import type { SectorEnergyDataQuality, SectorEnergyInput } from './sectorEnergyProvider.js';
+import type { KisRepresentativeBasketAudit, SectorEnergyCoverageBreakdown } from './sectorEnergyQualityDiagnostic.js';
 
 export type KisSectorEnergySourceTier =
   | 'KIS_OFFICIAL_INDEX'
@@ -85,6 +86,8 @@ export interface KisSectorEnergyProviderResult {
   executionImpact: 'NONE';
   reasons: string[];
   diagnostics: string[];
+  recoveryAudit?: KisRepresentativeBasketAudit;
+  sectorCoverageBreakdown?: SectorEnergyCoverageBreakdown;
 }
 
 const TOTAL_SECTOR_COUNT = SECTOR_INDEX_MASTER.length;
@@ -393,10 +396,160 @@ async function mapLimit<T, R>(
   return output;
 }
 
+
+function parseYmd(date: string | undefined): Date | null {
+  if (!date || !/^\d{8}$/.test(date)) return null;
+  return new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8))));
+}
+
+function tradingDayAge(latest: string | undefined, now: Date): number | null {
+  const start = parseYmd(latest);
+  if (!start) return null;
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  let age = 0;
+  for (let d = new Date(start); d < end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) age += 1;
+  }
+  return Math.max(0, age);
+}
+
+function previousTradingDate(now: Date): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  do {
+    d.setUTCDate(d.getUTCDate() - 1);
+  } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function latestCandleDate(candles: KisChartCandle[]): string | undefined {
+  return candles.map((c) => c.date).filter((date) => /^\d{8}$/.test(date)).sort().at(-1);
+}
+
+function deriveKisBasketDiagnostics(
+  seriesByCode: Record<string, KisChartCandle[]>,
+  basketRows: KisSectorBasketRow[],
+  now: Date,
+): { audit: KisRepresentativeBasketAudit; coverage: SectorEnergyCoverageBreakdown } {
+  const expected = KIS_SECTOR_BASKET_DEFINITIONS.length;
+  const actual = basketRows.length;
+  const rowBySector = new Map(basketRows.map((row) => [row.sectorKey, row]));
+  const staleThresholdTradingDays = 1;
+  let priceRowsFetched = 0;
+  let priceRowsFresh = 0;
+  let priceRowsStale = 0;
+  let representativeSymbolsResolved = 0;
+  let representativeSymbolsMissing = 0;
+  let latestAvailableDate: string | undefined;
+
+  const sectorRows = KIS_SECTOR_BASKET_DEFINITIONS.map((entry) => {
+    const symbols = entry.representativeCodes.map(safeCode);
+    const latestDates = symbols.map((code) => latestCandleDate(seriesByCode[code] ?? []));
+    const found = latestDates.filter(Boolean).length;
+    const missing = Math.max(0, symbols.length - found);
+    const latest = latestDates.filter((date): date is string => Boolean(date)).sort().at(-1);
+    if (latest && (!latestAvailableDate || latest > latestAvailableDate)) latestAvailableDate = latest;
+    const age = tradingDayAge(latest, now);
+    priceRowsFetched += found;
+    representativeSymbolsResolved += symbols.length;
+    representativeSymbolsMissing += symbols.length === 0 ? 1 : 0;
+    const row = rowBySector.get(entry.sectorKey);
+    let freshness: SectorEnergyCoverageBreakdown['sectorRows'][number]['freshness'];
+    let reason: SectorEnergyCoverageBreakdown['sectorRows'][number]['reason'];
+    if (symbols.length === 0) {
+      freshness = 'MISSING';
+      reason = 'NO_REPRESENTATIVE_SYMBOLS';
+    } else if (found === 0 || !row) {
+      freshness = 'MISSING';
+      reason = 'PRICE_ROWS_MISSING';
+    } else if (missing > 0) {
+      freshness = 'PARTIAL';
+      reason = 'PRICE_ROWS_MISSING';
+    } else if (age !== null && age > staleThresholdTradingDays) {
+      freshness = 'STALE';
+      reason = 'PRICE_ROWS_STALE';
+    } else {
+      freshness = 'FRESH';
+      reason = 'OK';
+    }
+    if (freshness === 'FRESH') priceRowsFresh += 1;
+    if (freshness === 'STALE' || freshness === 'PARTIAL') priceRowsStale += 1;
+    return {
+      sectorName: entry.displayName,
+      sectorCode: entry.sectorKey,
+      representativeSymbols: symbols,
+      representativeSymbolCount: symbols.length,
+      priceRowsFound: found,
+      priceRowsMissing: missing,
+      latestPriceDate: latest ?? null,
+      ageTradingDays: age,
+      freshness,
+      reason,
+    };
+  });
+
+  const staleSectorCount = sectorRows.filter((row) => row.freshness === 'STALE').length;
+  const missingSectorCount = sectorRows.filter((row) => row.freshness === 'MISSING').length;
+  const partialSectorCount = sectorRows.filter((row) => row.freshness === 'PARTIAL').length;
+  const breakPoint: KisRepresentativeBasketAudit['breakPoint'] = actual < 8
+    ? 'BASKET_ROWS_BELOW_MINIMUM'
+    : representativeSymbolsMissing > 0
+      ? 'REPRESENTATIVE_SYMBOLS_MISSING'
+      : missingSectorCount > 0
+        ? 'REPRESENTATIVE_PRICE_ROWS_MISSING'
+        : staleSectorCount + partialSectorCount > 0
+          ? 'REPRESENTATIVE_PRICE_ROWS_STALE'
+          : 'OFFICIAL_SECTOR_INDEX_UNAVAILABLE';
+  const nextAction = breakPoint === 'OFFICIAL_SECTOR_INDEX_UNAVAILABLE'
+    ? 'REPAIR_KRX_OR_KIS_SECTOR_INDEX_MASTER'
+    : breakPoint === 'REPRESENTATIVE_SYMBOLS_MISSING'
+      ? 'REPAIR_SECTOR_REPRESENTATIVE_SYMBOL_MAP'
+      : breakPoint === 'REPRESENTATIVE_PRICE_ROWS_MISSING' || breakPoint === 'BASKET_ROWS_BELOW_MINIMUM'
+        ? 'WIRE_KIS_DAILY_PRICE_ROWS_FOR_SECTOR_BASKET'
+        : breakPoint === 'REPRESENTATIVE_PRICE_ROWS_STALE' || breakPoint === 'CACHE_STALE'
+          ? 'REFRESH_SECTOR_BASKET_PRICE_CACHE'
+          : breakPoint === 'DATE_ALIGNMENT_FAILED'
+            ? 'FIX_SECTOR_BASKET_TRADING_DATE_ALIGNMENT'
+            : 'RECOVER_SECTOR_COVERAGE_BEFORE_GATE2_PROMOTION';
+  return {
+    audit: {
+      officialSectorIndexAvailable: false,
+      usingKisRepresentativeBasket: true,
+      representativeBasketExpectedRows: expected,
+      representativeBasketActualRows: actual,
+      representativeBasketMissingRows: Math.max(0, expected - actual),
+      representativeSymbolsResolved,
+      representativeSymbolsMissing,
+      priceRowsFetched,
+      priceRowsFresh,
+      priceRowsStale,
+      latestAvailableDate: latestAvailableDate ?? null,
+      previousTradingDate: previousTradingDate(now),
+      staleThresholdTradingDays,
+      breakPoint,
+      nextAction,
+      sectorBoostAllowed: false,
+      strongBuyAllowed: false,
+      executionHardBlock: false,
+      executionImpact: 'NONE',
+    },
+    coverage: {
+      expectedSectorCount: expected,
+      validSectorCount: actual,
+      staleSectorCount,
+      missingSectorCount,
+      partialSectorCount,
+      sectorRows,
+      executionImpact: 'NONE',
+    },
+  };
+}
+
 function resultFromInputs(
   inputs: SectorEnergyInput[],
   sourceTier: KisSectorEnergySourceTier,
   reasons: string[],
+  diagnostics?: { audit?: KisRepresentativeBasketAudit; coverage?: SectorEnergyCoverageBreakdown },
 ): KisSectorEnergyProviderResult {
   const validSectorCount = inputs.length;
   const selectedSectors = rankKisSectorEnergyInputs(inputs).slice(0, 3).map((input) => String(input.name));
@@ -449,7 +602,18 @@ function resultFromInputs(
       'sourcePolicy=KIS_STOCK_BASKET_DERIVED',
       'liveExecutionAllowed=false',
       'executionImpact=NONE',
+      ...(diagnostics?.audit ? [
+        `representativeBasketExpectedRows=${diagnostics.audit.representativeBasketExpectedRows}`,
+        `representativeBasketActualRows=${diagnostics.audit.representativeBasketActualRows}`,
+        `representativeBasketMissingRows=${diagnostics.audit.representativeBasketMissingRows}`,
+        `priceRowsFetched=${diagnostics.audit.priceRowsFetched}`,
+        `priceRowsFresh=${diagnostics.audit.priceRowsFresh}`,
+        `priceRowsStale=${diagnostics.audit.priceRowsStale}`,
+        `breakPoint=${diagnostics.audit.breakPoint}`,
+      ] : []),
     ],
+    ...(diagnostics?.audit ? { recoveryAudit: diagnostics.audit } : {}),
+    ...(diagnostics?.coverage ? { sectorCoverageBreakdown: diagnostics.coverage } : {}),
   };
 }
 
@@ -462,6 +626,7 @@ export async function buildKisSectorEnergyInputsWithMeta(
   const fetchOfficialDailyRows = used.fetchOfficialDailyRows ?? defaultOfficialDailyRows;
   const fetchCandles = used.fetchCandles ?? defaultFetchCandles;
   const fetchInvestorFlow = used.fetchInvestorFlow;
+  const now = used.now?.() ?? new Date();
 
   const indexRows = await fetchOfficialIndexRows().catch(() => [] as KisSectorEnergyIndexRow[]);
   const indexInputs = indexRows.map((row) => inputFromOfficialRow({ ...row, sourceTier: 'KIS_OFFICIAL_INDEX' }));
@@ -502,17 +667,18 @@ export async function buildKisSectorEnergyInputsWithMeta(
   }
 
   const basketRows = buildKisSectorBasketRowsFromSeries(seriesByCode);
+  const basketDiagnostics = deriveKisBasketDiagnostics(seriesByCode, basketRows, now);
   const basketInputs = buildKisSectorEnergyBasketFromSeries(seriesByCode, flowByCode);
   if (basketInputs.length > 0) {
     return resultFromInputs(basketInputs, 'KIS_STOCK_BASKET_DERIVED', [
       'KIS official sector index unavailable; derived representative basket from official KIS daily prices.',
       `basketRows=${basketRows.length}`,
       'Basket is PARTIAL, not KRX official index.',
-    ]);
+    ], { audit: basketDiagnostics.audit, coverage: basketDiagnostics.coverage });
   }
 
   return resultFromInputs([], 'MISSING', [
     'KIS sector index and representative basket returned no materialized rows.',
     'providerIssue=true; marketSignal=false',
-  ]);
+  ], { audit: basketDiagnostics.audit, coverage: basketDiagnostics.coverage });
 }
