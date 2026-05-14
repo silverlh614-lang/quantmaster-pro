@@ -246,6 +246,8 @@ export interface SectorEnergyBuildResult {
    * marketDataRefresh.ts 가 이 필드를 macroState 로 영속 → /sector_energy_diag + /scan_blockers.
    */
   qualityDiagnostic?: import('./sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
+  sectorCoverageBreakdown?: import('./sectorEnergyQualityDiagnostic.js').SectorEnergyCoverageBreakdown;
+  recoveryAudit?: import('./sectorEnergyQualityDiagnostic.js').KisRepresentativeBasketAudit;
   coverageBreakdown?: SectorEnergyCoverageBreakdownForDiag;
   leadershipConfidence?: SectorEnergyLeadershipConfidenceForDiag;
   selectedSectors?: string[];
@@ -327,6 +329,8 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     ...(indexCodeBackfilledCount > 0 ? { indexCodeBackfilledCount } : {}),
     ...(sectorIndexRecovery ? { sectorIndexRecovery } : {}),
     ...(sanityViolation ? { sanityViolation } : {}),
+    ...(result.sectorCoverageBreakdown ? { coverageBreakdown: result.sectorCoverageBreakdown } : {}),
+    ...(result.recoveryAudit ? { representativeBasketAudit: result.recoveryAudit } : {}),
   });
   return { ...result, qualityDiagnostic };
 }
@@ -1121,6 +1125,8 @@ export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<Sec
             marketSignal: kis.marketSignal,
             liveExecutionAllowed: kis.liveExecutionAllowed,
             executionImpact: kis.executionImpact,
+            recoveryAudit: kis.recoveryAudit,
+            sectorCoverageBreakdown: kis.sectorCoverageBreakdown,
           },
           [],
           sourceTierAttempts,
@@ -1270,7 +1276,7 @@ function attachDiagnostics(
     confidence = 0;
   }
 
-  return {
+  return withQualityDiagnostic({
     ...result,
     diagnostics: {
       candidateDates,
@@ -1286,7 +1292,7 @@ function attachDiagnostics(
       ...(result.liveExecutionAllowed !== undefined ? { liveExecutionAllowed: result.liveExecutionAllowed } : {}),
       ...(result.executionImpact !== undefined ? { executionImpact: result.executionImpact } : {}),
     },
-  };
+  });
 }
 
 /**

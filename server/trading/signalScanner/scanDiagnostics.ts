@@ -2255,8 +2255,15 @@ export async function persistScanResults(
   if (counters.gate1Pass > 0) {
     const candidates = options.buyListLength + options.intradayBuyListLength;
     const scanIdLabel = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
-    const sectorEnergyDiag =
-      options.sectorEnergyQuality !== undefined
+    const sectorEnergyDiag = options.sectorEnergyQualityDiagnostic
+      ? buildSectorEnergyDiagnostic({
+          dataQuality: options.sectorEnergyQualityDiagnostic.dataQuality,
+          validSectorCount: options.sectorEnergyQualityDiagnostic.validSectorCount,
+          expectedSectorCount: options.sectorEnergyQualityDiagnostic.expectedSectorCount,
+          reasons: options.sectorEnergyQualityDiagnostic.reasons,
+          indexCodeCoverage: options.sectorEnergyQualityDiagnostic.indexCodeCoverage,
+        })
+      : options.sectorEnergyQuality !== undefined
         ? buildSectorEnergyDiagnostic({
             dataQuality: options.sectorEnergyQuality,
             validSectorCount: options.validSectorCount,

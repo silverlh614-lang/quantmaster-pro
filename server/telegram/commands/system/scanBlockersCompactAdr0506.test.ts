@@ -13,6 +13,7 @@ import {
   formatAdr0505EmissionCompactLine,
   formatAdr0505EmissionDetailBlock,
   formatScanBlockersCompactMessage,
+  formatScanBlockersGateCompactMessage,
   parseScanBlockersMode,
   SCAN_BLOCKERS_ALLOWED_MODES,
   SCAN_BLOCKERS_LENGTH_BUDGET,
@@ -27,6 +28,101 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+
+
+describe('Patch-SECTOR-ENERGY-STALE-RECOVERY-001 compact output', () => {
+  it('/scan_blockers compact shows SectorEnergy recovery audit row summary', () => {
+    const summary = {
+      time: '2026-05-14T00:00:00Z',
+      candidates: 48,
+      entries: 0,
+      emptyScanReason: 'NO_LEADERSHIP',
+      gatePassDistribution: { gate1Pass: 8, gate2Pass: 0 },
+      sectorEnergyQualityDiagnostic: {
+        dataQuality: 'STALE',
+        reasons: ['KIS_BASKET_DERIVED_SHADOW', 'VALID_SECTOR_COUNT_LOW'],
+        validSectorCount: 2,
+        expectedSectorCount: 12,
+        indexCodeCoverage: 0,
+        missingIndexCodeCount: 12,
+        totalSectorRows: 12,
+        sourceTier: 'KIS_STOCK_BASKET_DERIVED',
+        fallbackUsed: 'NONE',
+        symmetryValidationPassed: false,
+        shouldBlockLeadershipConfidence: true,
+        operatorMessage: 'KIS basket is a derived representative basket, not an official sector index.',
+        representativeBasketAudit: {
+          officialSectorIndexAvailable: false,
+          usingKisRepresentativeBasket: true,
+          representativeBasketExpectedRows: 12,
+          representativeBasketActualRows: 2,
+          representativeBasketMissingRows: 10,
+          representativeSymbolsResolved: 48,
+          representativeSymbolsMissing: 0,
+          priceRowsFetched: 8,
+          priceRowsFresh: 2,
+          priceRowsStale: 0,
+          latestAvailableDate: '20260425',
+          previousTradingDate: '20260513',
+          staleThresholdTradingDays: 1,
+          breakPoint: 'BASKET_ROWS_BELOW_MINIMUM',
+          nextAction: 'WIRE_KIS_DAILY_PRICE_ROWS_FOR_SECTOR_BASKET',
+          sectorBoostAllowed: false,
+          strongBuyAllowed: false,
+          executionHardBlock: false,
+          executionImpact: 'NONE',
+        },
+      },
+    } as unknown as ScanSummary;
+
+    const text = formatScanBlockersCompactMessage(summary);
+    expect(text).toContain('SectorEnergy: STALE, leadership BLOCKED');
+    expect(text).toContain('SectorAudit: rows=2/12 breakPoint=BASKET_ROWS_BELOW_MINIMUM');
+  });
+
+  it('/scan_blockers gate compact shows Gate2 Leadership attribution', () => {
+    const summary = {
+      time: '2026-05-14T00:00:00Z',
+      candidates: 48,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 8, gate2Pass: 0 },
+      freshGate2Attribution: {
+        gate1Pass: 8,
+        gate2Pass: 0,
+        leadershipAttribution: {
+          gate1Pass: 8,
+          gate2Pass: 0,
+          blockedBySectorStaleCount: 8,
+          blockedByConditionFailCount: 0,
+          blockedByUnavailableFundamentalCount: 0,
+          sectorStaleContributionPct: 100,
+          dominantReason: 'SECTOR_DATA_STALE',
+        },
+      },
+      sectorEnergyQualityDiagnostic: {
+        dataQuality: 'STALE',
+        reasons: ['VALID_SECTOR_COUNT_LOW'],
+        validSectorCount: 2,
+        expectedSectorCount: 12,
+        indexCodeCoverage: 0,
+        missingIndexCodeCount: 12,
+        totalSectorRows: 12,
+        fallbackUsed: 'NONE',
+        symmetryValidationPassed: false,
+        shouldBlockLeadershipConfidence: true,
+        operatorMessage: '',
+      },
+      gate1MinimumSignalForensicAdr0505: { totalCandidates: 0 },
+    } as unknown as ScanSummary;
+
+    const text = formatScanBlockersGateCompactMessage(summary);
+    expect(text).toContain('Gate2 Leadership:');
+    expect(text).toContain('- dominant=SECTOR_DATA_STALE');
+    expect(text).toContain('- sectorValid=2/12');
+    expect(text).toContain('- nextAction=/scan_blockers sector');
+  });
+});
 
 /* ───────── parseScanBlockersMode ───────── */
 

@@ -344,6 +344,10 @@ export function formatScanBlockersCompactMessage(
     const block = (sectorEnergyDiag as { shouldBlockLeadershipConfidence?: boolean })
       .shouldBlockLeadershipConfidence;
     lines.push(`• SectorEnergy: ${dq}${block ? ', leadership BLOCKED' : ''}`);
+    const audit = (sectorEnergyDiag as { representativeBasketAudit?: { breakPoint?: string; representativeBasketActualRows?: number; representativeBasketExpectedRows?: number; nextAction?: string } }).representativeBasketAudit;
+    if (audit) {
+      lines.push(`• SectorAudit: rows=${audit.representativeBasketActualRows ?? '?'}/${audit.representativeBasketExpectedRows ?? '?'} breakPoint=${audit.breakPoint ?? 'UNKNOWN'}`);
+    }
   } else if (sectorEnergyLabel) {
     lines.push(`• SectorEnergy: ${sectorEnergyLabel}`);
   } else {
@@ -412,6 +416,16 @@ export function formatScanBlockersGateCompactMessage(
   const gate2Pass = summary?.gatePassDistribution?.gate2Pass ?? 0;
   lines.push(`• Gate1 pass: ${gate1Pass}/${candidates}`);
   lines.push(`• Gate2 pass: ${gate2Pass}/${gate1Pass}`);
+  const leadership = summary?.freshGate2Attribution?.leadershipAttribution;
+  const sectorDiag = summary?.sectorEnergyQualityDiagnostic;
+  if (leadership) {
+    lines.push('Gate2 Leadership:');
+    lines.push(`- gate1Pass=${leadership.gate1Pass}`);
+    lines.push(`- gate2Pass=${leadership.gate2Pass}`);
+    lines.push(`- dominant=${leadership.dominantReason}`);
+    if (sectorDiag) lines.push(`- sectorValid=${sectorDiag.validSectorCount}/${sectorDiag.expectedSectorCount}`);
+    lines.push('- nextAction=/scan_blockers sector');
+  }
 
   if (!forensic || forensic.totalCandidates === 0) {
     lines.push('• forensic: n/a (ADR-0505 NOT_EMITTED — /scan_blockers full 참조)');

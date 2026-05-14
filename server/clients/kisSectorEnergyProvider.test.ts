@@ -142,6 +142,44 @@ describe('KIS SectorEnergy provider', () => {
     expect(top?.sourceTier).toBe('KIS_STOCK_BASKET_DERIVED');
   });
 
+
+
+  it('audits stale KIS representative basket coverage when only 2/12 sectors materialize', async () => {
+    const series: Record<string, KisChartCandle[]> = {};
+    for (const key of ['SHIPBUILDING', 'SEMICONDUCTOR'] as const) {
+      for (const code of KIS_REPRESENTATIVE_SECTOR_BASKET[key]) {
+        series[code] = candles(100, 110);
+      }
+    }
+
+    const result = await buildKisSectorEnergyInputsWithMeta({
+      fetchOfficialIndexRows: async () => [],
+      fetchOfficialDailyRows: async () => [],
+      fetchCandles: async (code) => series[code] ?? [],
+      now: () => new Date('2026-04-30T00:00:00Z'),
+    });
+
+    expect(result.sourceTier).toBe('KIS_STOCK_BASKET_DERIVED');
+    expect(result.validSectorCount).toBe(2);
+    expect(result.dataQuality).toBe('STALE');
+    expect(result.leadershipConfidence).toBe('READY_FOR_SHADOW');
+    expect(result.recoveryAudit).toMatchObject({
+      officialSectorIndexAvailable: false,
+      usingKisRepresentativeBasket: true,
+      representativeBasketExpectedRows: 12,
+      representativeBasketActualRows: 2,
+      representativeBasketMissingRows: 10,
+      breakPoint: 'BASKET_ROWS_BELOW_MINIMUM',
+      sectorBoostAllowed: false,
+      strongBuyAllowed: false,
+      executionHardBlock: false,
+      executionImpact: 'NONE',
+    });
+    expect(result.sectorCoverageBreakdown?.expectedSectorCount).toBe(12);
+    expect(result.sectorCoverageBreakdown?.validSectorCount).toBe(2);
+    expect(result.sectorCoverageBreakdown?.missingSectorCount).toBe(10);
+  });
+
   it('marks all-missing KIS sector data as provider issue but not market signal', async () => {
     const result = await buildKisSectorEnergyInputsWithMeta({
       fetchOfficialIndexRows: async () => [],
