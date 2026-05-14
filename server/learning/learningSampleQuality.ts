@@ -2,7 +2,7 @@
 import fs from 'fs';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { scanTraceFile } from '../persistence/paths.js';
-import { recordCounterfactual, loadCounterfactuals } from './counterfactualShadow.js';
+import { buildCounterfactualKey, recordCounterfactualCase, loadCounterfactuals, saveCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
 import { appendJson, LEARNING_COHORT_BACKFILL_RUNS_FILE } from './learningStorage.js';
 import type { LearningCohortType, LearningGhostCase, LearningRecoveryConfidence } from './learningTypes.js';
@@ -142,23 +142,111 @@ function ghostBlockedEntries(): MaybeEntry[] {
   return (loadGhostPortfolio() as LearningGhostCase[]).filter(g => !!(g as any).blockedReason || !!(g as any).rejectionReason || inferLearningCohort(g) === 'QUARANTINED').map(g => ({ stockCode: g.stockCode, stockName: g.stockName, priceAtSignal: learningEntryPrice(g), gateScore: Number((g as any).gateScore ?? 0), regime: String((g as any).regime ?? 'UNKNOWN'), conditionKeys: Object.keys(g.conditionScores ?? {}), skipReason: String((g as any).blockedReason ?? (g as any).rejectionReason ?? g.quarantinedReason ?? 'BLOCKED_BUY'), label: g.outcomeLabel === 'WIN' ? 'MISSED_WIN' : g.outcomeLabel === 'LOSS' ? 'AVOIDED_LOSS' : hasMissingLearningMetadata(g) ? 'DATA_INSUFFICIENT' : 'NEUTRAL_BLOCK', signalTime: g.entryAt ?? `${g.signalDate}T00:00:00.000Z` }));
 }
 function labelBreakdown(entries: MaybeEntry[]) { return Object.fromEntries(COUNTERFACTUAL_LABELS.map(l => [l, entries.filter(e => (e.label ?? 'NEUTRAL_BLOCK') === l).length])); }
+function counterfactualSourceId(c: MaybeEntry, now: Date): string {
+  const date = (c.signalTime ?? now.toISOString()).slice(0, 10);
+  return `${c.stockCode}:${date}:${c.skipReason ?? 'BLOCKED_BUY'}`;
+}
+function candidateKey(c: MaybeEntry, now: Date): string {
+  const tradingDate = (c.signalTime ?? now.toISOString()).slice(0, 10);
+  return buildCounterfactualKey({ sourceCandidateId: counterfactualSourceId(c, now), stockCode: c.stockCode, tradingDate, blockedReason: c.skipReason ?? 'BLOCKED_BUY', hypotheticalSide: 'BUY', strategyId: 'default' });
+}
+function normalizeCounterfactuals(rows = loadCounterfactuals()): CounterfactualEntry[] {
+  return rows.map((e) => ({
+    ...e,
+    counterfactualKey: e.counterfactualKey ?? buildCounterfactualKey({ sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`, stockCode: e.stockCode, tradingDate: e.signalDate, blockedReason: e.blockedReason ?? e.skipReason, hypotheticalSide: e.hypotheticalSide ?? 'BUY', strategyId: e.strategyId ?? 'default' }),
+    sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`,
+    symbol: e.symbol ?? e.stockCode,
+    tradingDate: e.tradingDate ?? e.signalDate,
+    blockedReason: e.blockedReason ?? e.skipReason,
+    hypotheticalSide: e.hypotheticalSide ?? 'BUY',
+    strategyId: e.strategyId ?? 'default',
+    hypotheticalEntryPrice: e.hypotheticalEntryPrice ?? e.priceAtSignal,
+    outcomeStatus: e.outcomeStatus ?? (e.outcomeLabel ? 'LABELED' : 'PENDING'),
+  }));
+}
+function statusCounts(rows = normalizeCounterfactuals()) {
+  const labeledCount = rows.filter((e) => e.outcomeStatus === 'LABELED' && !!e.outcomeLabel).length;
+  const dataInsufficientCount = rows.filter((e) => e.outcomeStatus === 'DATA_INSUFFICIENT').length;
+  const quarantinedCount = rows.filter((e) => e.outcomeStatus === 'QUARANTINED').length;
+  const expiredCount = rows.filter((e) => e.outcomeStatus === 'EXPIRED').length;
+  const unresolvedCount = rows.filter((e) => e.outcomeStatus === 'UNRESOLVED').length;
+  const pendingOutcomeCount = rows.length - labeledCount - dataInsufficientCount - quarantinedCount - expiredCount - unresolvedCount;
+  return { labeledCount, pendingOutcomeCount, dataInsufficientCount, quarantinedCount, expiredCount, unresolvedCount };
+}
+function counterfactualInvariant(base: { candidateCount: number; eligibleCount: number; builtUniqueCount: number; rawCandidateCount?: number } & ReturnType<typeof statusCounts>) {
+  const statusSum = base.labeledCount + base.pendingOutcomeCount + base.dataInsufficientCount + base.quarantinedCount + base.expiredCount + base.unresolvedCount;
+  const countInvariantValid = base.builtUniqueCount === statusSum && base.builtUniqueCount <= base.eligibleCount && base.eligibleCount <= base.candidateCount;
+  const metricWarnings: string[] = [];
+  if (base.builtUniqueCount > base.candidateCount || ((base.rawCandidateCount ?? 0) > 0 && base.builtUniqueCount > (base.rawCandidateCount ?? 0))) metricWarnings.push('BUILT_UNIQUE_GT_CANDIDATE', 'COUNTERFACTUAL_BUILT_GT_CANDIDATE');
+  if (!countInvariantValid) metricWarnings.push('COUNTERFACTUAL_COUNT_INVARIANT_BROKEN');
+  return { countInvariantValid, metricWarnings };
+}
 export function counterfactualBuildDryRun(now: Date = new Date()) {
   const candidates = [...todayTraceEntries(now), ...ghostBlockedEntries()];
-  const seen = new Set(loadCounterfactuals().map(e => `${e.stockCode}|${e.signalDate}`));
-  const eligibleRows = candidates.filter(c => c.stockCode && num(c.priceAtSignal) && !seen.has(`${c.stockCode}|${(c.signalTime ?? now.toISOString()).slice(0, 10)}`));
-  const quarantined = candidates.length - candidates.filter(c => c.stockCode && num(c.priceAtSignal)).length;
-  return { candidateCount: candidates.length, eligibleCount: eligibleRows.length, builtCount: 0, pendingOutcome: eligibleRows.length, labeledCount: 0, blocker: eligibleRows.length === 0 ? 'NO_ELIGIBLE_BLOCKED_CANDIDATES' : 'NONE', scannedBlocked: candidates.length, eligible: eligibleRows.length, built: 0, pending: eligibleRows.length, quarantined, labelBreakdown: labelBreakdown(eligibleRows), sampleSize: loadCounterfactuals().length, executionImpact: 'NONE' as const };
+  const existing = normalizeCounterfactuals();
+  const existingKeys = new Set(existing.map((e) => e.counterfactualKey));
+  const validCandidates = candidates.filter(c => c.stockCode && num(c.priceAtSignal));
+  const eligibleRows = validCandidates.filter(c => !existingKeys.has(candidateKey(c, now)));
+  const duplicateSuppressedCount = validCandidates.length - eligibleRows.length;
+  const counts = statusCounts(existing);
+  const builtUniqueCount = existing.length;
+  const candidateCount = Math.max(candidates.length, builtUniqueCount);
+  const eligibleCount = Math.max(validCandidates.length, builtUniqueCount);
+  const inv = counterfactualInvariant({ candidateCount, eligibleCount, builtUniqueCount, rawCandidateCount: candidates.length, ...counts });
+  return { candidateCount, eligibleCount, buildEventCount: 0, builtUniqueCount, duplicateSuppressedCount, ...counts, countInvariantValid: inv.countInvariantValid, metricWarnings: inv.metricWarnings, rawCandidateCount: candidates.length, blocker: eligibleRows.length === 0 ? 'NO_ELIGIBLE_BLOCKED_CANDIDATES' : 'NONE', scannedBlocked: candidates.length, eligible: eligibleCount, built: 0, pending: counts.pendingOutcomeCount, quarantined: candidates.length - validCandidates.length, labelBreakdown: labelBreakdown([]), sampleSize: builtUniqueCount, status: inv.metricWarnings.includes('BUILT_UNIQUE_GT_CANDIDATE') ? 'ERROR' : 'OK', executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
 }
 export function counterfactualBuildRun(now: Date = new Date()) {
+  const candidates = [...todayTraceEntries(now), ...ghostBlockedEntries()];
   const dry = counterfactualBuildDryRun(now);
-  let built = 0;
-  for (const c of [...todayTraceEntries(now), ...ghostBlockedEntries()]) {
+  let buildEventCount = 0;
+  let duplicateSuppressedCount = 0;
+  for (const c of candidates) {
     if (!c.stockCode || !num(c.priceAtSignal)) continue;
-    const e = recordCounterfactual({ stockCode: c.stockCode, stockName: c.stockName ?? 'N/A', priceAtSignal: c.priceAtSignal!, gateScore: c.gateScore ?? 0, regime: c.regime ?? 'UNKNOWN', conditionKeys: c.conditionKeys ?? [], skipReason: `${c.skipReason ?? 'BLOCKED_BUY'}|label=${c.label ?? 'NEUTRAL_BLOCK'}`, now: new Date(c.signalTime ?? now) });
-    if (e) built++;
+    buildEventCount++;
+    const result = recordCounterfactualCase({ stockCode: c.stockCode, stockName: c.stockName ?? 'N/A', priceAtSignal: c.priceAtSignal!, gateScore: c.gateScore ?? 0, regime: c.regime ?? 'UNKNOWN', conditionKeys: c.conditionKeys ?? [], skipReason: c.skipReason ?? 'BLOCKED_BUY', blockedReason: c.skipReason ?? 'BLOCKED_BUY', sourceCandidateId: counterfactualSourceId(c, now), now: new Date(c.signalTime ?? now), hypotheticalTargetPrice: round(c.priceAtSignal! * (1 + LEARNING_DEFAULT_TARGET_RETURN_PCT / 100), 4), hypotheticalStopPrice: round(c.priceAtSignal! * (1 + LEARNING_DEFAULT_STOP_RETURN_PCT / 100), 4), maxHoldingMinutes: LEARNING_DEFAULT_MAX_HOLDING_MINUTES });
+    if (result.duplicateSuppressed) duplicateSuppressedCount++;
   }
-  const all = loadCounterfactuals(); const labeledCount = all.filter((e: any) => String(e.skipReason ?? '').includes('label=')).length; return { candidateCount: dry.candidateCount, eligibleCount: dry.eligibleCount, builtCount: built, pendingOutcome: Math.max(0, dry.eligible - built), labeledCount, blocker: built === 0 ? dry.blocker : 'NONE', scannedBlocked: dry.scannedBlocked, eligible: dry.eligible, built, pending: Math.max(0, dry.eligible - built), quarantined: dry.quarantined, labelBreakdown: dry.labelBreakdown, sampleSize: all.length, executionImpact: 'NONE' as const };
+  const all = normalizeCounterfactuals();
+  saveCounterfactuals(all);
+  const counts = statusCounts(all);
+  const builtUniqueCount = all.length;
+  const inv = counterfactualInvariant({ candidateCount: dry.candidateCount, eligibleCount: dry.eligibleCount, builtUniqueCount, rawCandidateCount: dry.rawCandidateCount, ...counts });
+  return { ...dry, buildEventCount, builtUniqueCount, duplicateSuppressedCount: dry.duplicateSuppressedCount + duplicateSuppressedCount, ...counts, countInvariantValid: inv.countInvariantValid, metricWarnings: inv.metricWarnings, blocker: buildEventCount === 0 ? dry.blocker : 'NONE', built: buildEventCount, pending: counts.pendingOutcomeCount, sampleSize: builtUniqueCount, status: inv.metricWarnings.includes('BUILT_UNIQUE_GT_CANDIDATE') ? 'ERROR' : 'OK', executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
 }
+export function collectCounterfactualStatus(now: Date = new Date()) {
+  const dry = counterfactualBuildDryRun(now);
+  const all = normalizeCounterfactuals();
+  const counts = statusCounts(all);
+  const builtUniqueCount = all.length;
+  const inv = counterfactualInvariant({ candidateCount: dry.candidateCount, eligibleCount: Math.max(dry.eligibleCount, builtUniqueCount), builtUniqueCount, rawCandidateCount: dry.rawCandidateCount, ...counts });
+  return { ...dry, eligibleCount: Math.max(dry.eligibleCount, builtUniqueCount), buildEventCount: all.reduce((s, e) => s + 1 + (e.duplicateSuppressedCount ?? 0), 0), builtUniqueCount, duplicateSuppressedCount: all.reduce((s, e) => s + (e.duplicateSuppressedCount ?? 0), 0), ...counts, countInvariantValid: inv.countInvariantValid, metricWarnings: inv.metricWarnings, labelBreakdown: labelBreakdown([]), blocker: 'NONE', status: inv.metricWarnings.includes('BUILT_UNIQUE_GT_CANDIDATE') ? 'ERROR' : 'OK', executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
+}
+export function counterfactualResolveDryRun(now: Date = new Date()) { return counterfactualResolve(now, false); }
+export function counterfactualResolveRun(now: Date = new Date()) { return counterfactualResolve(now, true); }
+function counterfactualResolve(now: Date, write: boolean) {
+  const all = normalizeCounterfactuals();
+  let resolvable = 0, labeled = 0, pending = 0, dataInsufficient = 0, quarantined = 0;
+  const labelBreakdown: Record<string, number> = { MISSED_WIN: 0, BAD_BLOCK: 0, AVOIDED_LOSS: 0, GOOD_BLOCK: 0, NEUTRAL_BLOCK: 0, DATA_INSUFFICIENT: 0, QUARANTINED: 0 };
+  for (const e of all) {
+    if (e.outcomeStatus === 'LABELED') { labelBreakdown[e.outcomeLabel ?? 'NEUTRAL_BLOCK'] = (labelBreakdown[e.outcomeLabel ?? 'NEUTRAL_BLOCK'] ?? 0) + 1; continue; }
+    const missingMeta = !num(e.hypotheticalEntryPrice ?? e.priceAtSignal) || !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice) || !e.signalTime;
+    if (missingMeta) { quarantined++; labelBreakdown.QUARANTINED++; if (write) e.outcomeStatus = 'QUARANTINED'; continue; }
+    const elapsed = Math.floor((now.getTime() - new Date(e.signalTime).getTime()) / 60000);
+    const maxHold = e.maxHoldingMinutes ?? LEARNING_DEFAULT_MAX_HOLDING_MINUTES;
+    if (elapsed < maxHold && e.return30d === undefined && e.return60d === undefined && e.return90d === undefined) { pending++; if (write) e.outcomeStatus = 'PENDING'; continue; }
+    if (e.return30d === undefined && e.return60d === undefined && e.return90d === undefined) { dataInsufficient++; labelBreakdown.DATA_INSUFFICIENT++; if (write) e.outcomeStatus = 'DATA_INSUFFICIENT'; continue; }
+    resolvable++;
+    const ret = e.return30d ?? e.return60d ?? e.return90d ?? 0;
+    const label = ret > 0 ? 'MISSED_WIN' : ret < 0 ? 'AVOIDED_LOSS' : 'NEUTRAL_BLOCK';
+    labelBreakdown[label] = (labelBreakdown[label] ?? 0) + 1;
+    labeled++;
+    if (write) { e.outcomeLabel = label; e.outcomeStatus = 'LABELED'; e.outcomeResolvedAt = now.toISOString(); }
+  }
+  if (write) saveCounterfactuals(all);
+  return { scannedBuilt: all.length, resolvable, labeled, pending, dataInsufficient, quarantined, labelBreakdown, executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const };
+}
+export function formatCounterfactualBuild(s: ReturnType<typeof counterfactualBuildDryRun> | ReturnType<typeof counterfactualBuildRun> | ReturnType<typeof collectCounterfactualStatus>, title = 'counterfactual_build'): string { return [`🧪 ${title}`, `status=${s.status} candidateCount=${s.candidateCount} eligibleCount=${s.eligibleCount} buildEventCount=${s.buildEventCount}`, `builtUniqueCount=${s.builtUniqueCount} duplicateSuppressedCount=${s.duplicateSuppressedCount}`, `labeledCount=${s.labeledCount} pendingOutcomeCount=${s.pendingOutcomeCount} dataInsufficientCount=${s.dataInsufficientCount} quarantinedCount=${s.quarantinedCount} expiredCount=${s.expiredCount} unresolvedCount=${s.unresolvedCount}`, `countInvariantValid=${s.countInvariantValid} metricWarnings=${JSON.stringify(s.metricWarnings)}`, `blocker=${s.blocker} executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
+export function formatCounterfactualResolve(s: ReturnType<typeof counterfactualResolveDryRun>, title = 'counterfactual_resolve'): string { return [`🧪 ${title}`, `scannedBuilt=${s.scannedBuilt} resolvable=${s.resolvable} labeled=${s.labeled} pending=${s.pending} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated}`].join('\n'); }
 
 export function isHoldingOutlier(g: LearningGhostCase, now: Date = new Date()): boolean { return holdMinutes(g, now) >= (g.maxHoldingMinutes ?? LEARNING_DEFAULT_MAX_HOLDING_MINUTES) * 3; }
 export function collectLearningHoldingOutliers(now: Date = new Date()) {
@@ -172,7 +260,5 @@ export function collectLearningHoldingOutliers(now: Date = new Date()) {
 export function formatLearningCohortSummary(s: ReturnType<typeof collectLearningCohortSummary>): string { return [`🧱 learning_cohort_summary`, `totalSamples=${s.totalSamples} byCohort=${JSON.stringify(s.byCohort)}`, `byOutcomeLabel=${JSON.stringify(s.byOutcomeLabel)} outcomeLabelSampleCount=${s.outcomeLabelSampleCount}`, `openPendingCount=${s.openPendingCount} closedRepairCount=${s.closedRepairCount}`, `freshShadowCount=${s.freshShadowCount} backlogRepairCount=${s.backlogRepairCount} ghostRepairCount=${s.ghostRepairCount} recoveredMetadataCount=${s.recoveredMetadataCount} trueQuarantinedCount=${s.trueQuarantinedCount} counterfactualCount=${s.counterfactualCount}`, `expectancyByCohort=${JSON.stringify(s.expectancyByCohort)} winRateByCohort=${JSON.stringify(s.winRateByCohort)}`, `metricExclusionReasonByCohort=${JSON.stringify(s.metricExclusionReasonByCohort)}`, `avgHoldingMinutesByCohort=${JSON.stringify(s.avgHoldingMinutesByCohort)}`, `promotionEligibleSamples=${s.promotionEligibleSamples} promotionExcludedSamples=${s.promotionExcludedSamples}`, `exclusionReason=${s.exclusionReason}`, `executionImpact=${s.executionImpact}`].join('\n'); }
 export function formatMetadataRepairDryRun(s: ReturnType<typeof learningMetadataRepairDryRun>): string { return [`🛠 learning_metadata_repair_dryrun`, `scanned=${s.scanned} missingEntryPrice=${s.missingEntryPrice} missingTargetStop=${s.missingTargetStop} missingPriceData=${s.missingPriceData}`, `recoverableEntry=${s.recoverableEntry} recoverableTargetStop=${s.recoverableTargetStop} unrecoverable=${s.unrecoverable}`, `proposedRecoverySource=${JSON.stringify(s.proposedRecoverySource)} expectedCohortAfterRepair=${s.expectedCohortAfterRepair}`, `executionImpact=${s.executionImpact}`].join('\n'); }
 export function formatMetadataRepairRun(s: ReturnType<typeof learningMetadataRepairRun>): string { return [`🛠 learning_metadata_repair_run`, `scanned=${s.scanned} entryRecovered=${s.entryRecovered} targetStopRecovered=${s.targetStopRecovered} priceDataRecovered=${s.priceDataRecovered}`, `movedToRecoveredMetadata=${s.movedToRecoveredMetadata} stillQuarantined=${s.stillQuarantined} unrecoverable=${s.unrecoverable}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} livePositionTouched=${s.livePositionTouched}`].join('\n'); }
-export function collectCounterfactualStatus(now: Date = new Date()) { const dry = counterfactualBuildDryRun(now); const all = loadCounterfactuals(); return { candidateCount: dry.candidateCount, eligibleCount: dry.eligibleCount, builtCount: all.length, pendingOutcome: dry.pendingOutcome, labeledCount: all.filter((e: any) => String(e.skipReason ?? '').includes('label=')).length, labelBreakdown: dry.labelBreakdown, blocker: dry.blocker, executionImpact: 'NONE' as const }; }
-export function formatCounterfactualBuild(s: ReturnType<typeof counterfactualBuildDryRun> | ReturnType<typeof counterfactualBuildRun> | ReturnType<typeof collectCounterfactualStatus>, title = 'counterfactual_build'): string { return [`🧪 ${title}`, `candidateCount=${s.candidateCount} eligibleCount=${s.eligibleCount} builtCount=${s.builtCount} pendingOutcome=${s.pendingOutcome}`, `labeledCount=${s.labeledCount} labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `blocker=${s.blocker} executionImpact=${s.executionImpact}`].join('\n'); }
 export function formatLearningHoldingOutliers(s: ReturnType<typeof collectLearningHoldingOutliers>): string { return [`⏱ learning_holding_outliers`, `total=${s.total} outlierCount=${s.outlierCount} maxHoldingMinutes=${s.maxHoldingMinutes}`, `avgHoldingFresh=${s.avgHoldingFresh} avgHoldingBacklog=${s.avgHoldingBacklog}`, `excludedFromPromotion=${s.excludedFromPromotion} examples=${JSON.stringify(s.examples)}`, `executionImpact=${s.executionImpact}`].join('\n'); }
 
