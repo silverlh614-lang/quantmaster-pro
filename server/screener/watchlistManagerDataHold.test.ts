@@ -1,4 +1,4 @@
-// @responsibility ADR-0117 watchlistManager applyEntryPriceDrift DATA_HOLD 회귀
+// @responsibility ADR-0117 + ADR-0301 watchlistManager applyEntryPriceDrift DATA_HOLD/CORPORATE_ACTION 분기 회귀
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyEntryPriceDrift } from './watchlistManager.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
@@ -29,17 +29,25 @@ function makeEntry(overrides: Partial<WatchlistEntry>): WatchlistEntry {
 }
 
 describe('applyEntryPriceDrift — ADR-0117 DATA_HOLD 분기', () => {
-  it('drift 95% (60~150% INVALID 영역) → DATA_HOLD', () => {
-    // 60~150% drift — corporateActionDetector 미감지 (>150% 만 detect) →
-    // safePctChangeStrict 가 sanity 위반 차단 → DATA_HOLD 반환.
+  it('drift 95% → CORPORATE_ACTION (ADR-0301: abs > 80% STRONG → SPLIT 의심)', () => {
+    // ADR-0301 STRONG_DRIFT_PCT 80 — corporateActionDetector 가 abs 95% 를 SPLIT 으로
+    // 분류 → applyEntryPriceDrift 가 sanity 게이트보다 먼저 CORPORATE_ACTION 반환.
     const entry = makeEntry({ entryPrice: 10000 });
     const result = applyEntryPriceDrift(entry, 19500); // +95%
-    expect(result).toBe('DATA_HOLD');
+    expect(result).toBe('CORPORATE_ACTION');
   });
 
-  it('drift -95% → DATA_HOLD', () => {
+  it('drift -95% → CORPORATE_ACTION (ADR-0301: abs > 80% — 음수도 SPLIT 의심)', () => {
     const entry = makeEntry({ entryPrice: 100000 });
     const result = applyEntryPriceDrift(entry, 5000); // -95%
+    expect(result).toBe('CORPORATE_ACTION');
+  });
+
+  it('drift +260% → DATA_HOLD (ADR-0301 ABSOLUTE_DEAD_ZONE >250% — 실제 데이터 오염)', () => {
+    // ABSOLUTE_DEAD_ZONE_LIMIT 250 초과 — 코퍼레이트 액션 아닌 데이터 오염 →
+    // CORPORATE_ACTION 분기보다 우선 DATA_HOLD 반환.
+    const entry = makeEntry({ entryPrice: 10000 });
+    const result = applyEntryPriceDrift(entry, 36000); // +260%
     expect(result).toBe('DATA_HOLD');
   });
 
@@ -49,7 +57,7 @@ describe('applyEntryPriceDrift — ADR-0117 DATA_HOLD 분기', () => {
     expect(result).toBe('REMOVE');
   });
 
-  it('drift +200% → CORPORATE_ACTION (>150%, ADR-0113)', () => {
+  it('drift +200% → CORPORATE_ACTION (>80% STRONG, ADR-0301)', () => {
     const entry = makeEntry({ entryPrice: 10000 });
     const result = applyEntryPriceDrift(entry, 30000); // +200%
     expect(result).toBe('CORPORATE_ACTION');
@@ -67,12 +75,27 @@ describe('applyEntryPriceDrift — ADR-0117 DATA_HOLD 분기', () => {
     expect(result).toBe('KEEP');
   });
 
-  it('ENV DATA_QUALITY_STRICT_DISABLED=true — 95% drift 도 KEEP (sanity 우회)', () => {
+  it('ENV DATA_QUALITY_STRICT_DISABLED=true — 95% drift 도 CORPORATE_ACTION (sanity 게이트보다 우선)', () => {
     process.env.DATA_QUALITY_STRICT_DISABLED = 'true';
     const entry = makeEntry({ entryPrice: 10000 });
-    // ENV 우회 → strict 가 ok=true 반환 → driftPct=95% → +10% 임계 통과 →
-    // AUTO 라 REMOVE (정상 동작 복원)
+    // ADR-0301 CORPORATE_ACTION 분기가 ADR-0117 sanity 게이트보다 위 — ENV 우회와 무관하게
+    // abs 95% > 80% STRONG → CORPORATE_ACTION 반환.
     const result = applyEntryPriceDrift(entry, 19500);
-    expect(result).toBe('REMOVE');
+    expect(result).toBe('CORPORATE_ACTION');
+  });
+
+  it('ENV CORPORATE_ACTION_DETECTOR_DISABLED=true — 95% drift → DATA_HOLD (ADR-0117 sanity 게이트)', () => {
+    const original = process.env.CORPORATE_ACTION_DETECTOR_DISABLED;
+    process.env.CORPORATE_ACTION_DETECTOR_DISABLED = 'true';
+    try {
+      const entry = makeEntry({ entryPrice: 10000 });
+      // detector disabled → CORPORATE_ACTION 미감지 → safePctChangeStrict 가
+      // maxAbsPct 90 초과(95%) 차단 → DATA_HOLD 반환 (ADR-0117 거래 차단 게이트).
+      const result = applyEntryPriceDrift(entry, 19500);
+      expect(result).toBe('DATA_HOLD');
+    } finally {
+      if (original === undefined) delete process.env.CORPORATE_ACTION_DETECTOR_DISABLED;
+      else process.env.CORPORATE_ACTION_DETECTOR_DISABLED = original;
+    }
   });
 });
