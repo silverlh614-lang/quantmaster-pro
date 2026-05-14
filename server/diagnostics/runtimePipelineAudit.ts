@@ -12,6 +12,11 @@ import {
   type PipelineStageDropoffSummary,
 } from '../trading/signalScanner/scanDiagnostics.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
+// ADR-0367: buyListLoop 진입 전 preflight 차단 진단 SSOT.
+import {
+  getLastPreflightBlockedScanSummary,
+  type PreflightBlockedScanSummary,
+} from '../trading/signalScanner/preflightBlockedScanSummary.js';
 import { getLastInvestorFlowProviderHealth } from '../supply/investorFlowProviderHealth.js';
 import { getAllNearMissOutcomes } from '../persistence/nearMissOutcomeLedger.js';
 import { loadGateReclassificationDryRunRecords } from '../persistence/gateReclassificationDryRunRepo.js';
@@ -78,6 +83,7 @@ export type RuntimePipelineBlockReason =
   | 'MACRO_RISK_BLOCK'
   | 'MARKET_CLOSED'
   | 'BUYLIST_NOT_REACHED'
+  | 'BUYLIST_NOT_REACHED_PRE_FLIGHT_BLOCKED'
   | 'NO_GATE_SAMPLES'
   | 'NO_NEAR_MISS_SAMPLES'
   | 'NO_APPROVED_RECLASSIFICATION_ITEMS'
@@ -100,6 +106,7 @@ export interface RuntimePipelineAuditSnapshot {
   watchlistCount: number | null;
   buyListLoopEntered: boolean;
   scanSummaryPersisted: boolean;
+  preflightSummaryPersisted: boolean;
   gateScoreHealthSamples: number;
   gate1PassCount: number;
   gate2PassCount: number;
@@ -227,6 +234,7 @@ function buildSectorEnergyHealth(summary: ReturnType<typeof getLastScanSummary>)
 
 function deriveStage(input: {
   summary: ReturnType<typeof getLastScanSummary>;
+  preflightBlocked: PreflightBlockedScanSummary | null;
   buyListLoopEntered: boolean;
   gateSamples: number;
   nearMissSamples: number;
@@ -234,7 +242,8 @@ function deriveStage(input: {
   dryRunCount: number;
   rolloutCount: number;
 }): RuntimePipelineStage {
-  if (!input.summary) return 'NOT_RUN';
+  // ADR-0367: summary 가 없어도 직전 스캔이 preflight 차단됐으면 BEFORE_BUYLIST_LOOP 로 표시.
+  if (!input.summary) return input.preflightBlocked ? 'BEFORE_BUYLIST_LOOP' : 'NOT_RUN';
   if (!input.buyListLoopEntered) return 'BEFORE_BUYLIST_LOOP';
   if (input.rolloutCount > 0) return 'ROLLOUT_EVALUATED';
   if (input.dryRunCount > 0) return 'DRY_RUN_EVALUATED';
@@ -252,7 +261,15 @@ function buildOperatorMessage(input: {
   dryRunCount: number;
   rolloutCount: number;
   summaryExists: boolean;
+  preflightBlocked: PreflightBlockedScanSummary | null;
 }): string {
+  // ADR-0367: summary 없이 preflight 차단된 경우 — "스캔 미실행" 이 아니라 "buyListLoop 진입 전 차단".
+  if (!input.summaryExists && input.preflightBlocked) {
+    const pb = input.preflightBlocked;
+    return `buyListLoop 진입 전 preflight 단계에서 차단되었습니다 (BUYLIST_NOT_REACHED_PRE_FLIGHT_BLOCKED, blockedBy=${pb.blockedBy}). ` +
+      `후보 universe snapshot (candidateSummaryCount=${pb.candidateSummaryCount}) 과 counterfactual learning 은 정상 기록되었습니다. ` +
+      'Gate Score Health 와 Near-Miss Bucket 은 buyListLoop 이후 생성되므로 현재 표시되지 않습니다. ADR-460 Live Overlay는 설치되어 있지 않습니다.';
+  }
   if (!input.summaryExists) {
     return '최근 스캔 summary 없음. /scan 강제 실행 또는 정규장 스캔 후 재확인 필요. ADR-460 Live Overlay는 설치되어 있지 않습니다.';
   }
@@ -273,14 +290,17 @@ function buildOperatorMessage(input: {
 
 export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapshot {
   const summary = getLastScanSummary();
+  // ADR-0367: 직전 스캔이 buyListLoop 진입 전 preflight 차단된 경우의 진단 SSOT.
+  const preflightBlocked = getLastPreflightBlockedScanSummary();
   const blockedBy: RuntimePipelineBlockReason[] = [];
   const gateSamples = summary?.gateScoreHealth?.samples ?? 0;
   const scanNearMissSamples = countNearMissBuckets(summary);
   const observationNearMissSamples = summary?.gate1DryRunObservationLedger?.sources?.GATE1_NEAR_MISS ?? 0;
   const nearMissSamples = scanNearMissSamples + observationNearMissSamples;
-  const candidateSummaryCount = summary ? summary.candidates : 0;
+  const candidateSummaryCount = summary ? summary.candidates : (preflightBlocked?.candidateSummaryCount ?? 0);
   const buyListLoopEntered = Boolean(summary && (gateSamples > 0 || nearMissSamples > 0 || (summary.gatePassDistribution?.gate1Pass ?? 0) > 0));
   const scanSummaryPersisted = Boolean(summary);
+  const preflightSummaryPersisted = Boolean(preflightBlocked);
   const sellOnlyActive = Boolean(summary?.macroGateState?.sellOnlyMode);
   const autoTradeEnabled = process.env.AUTO_TRADE_ENABLED === undefined ? null : process.env.AUTO_TRADE_ENABLED === 'true';
 
@@ -305,6 +325,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
 
   const latestStage = deriveStage({
     summary,
+    preflightBlocked,
     buyListLoopEntered,
     gateSamples,
     nearMissSamples,
@@ -314,6 +335,11 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   });
 
   if (!summary) addReason(blockedBy, 'BUYLIST_NOT_REACHED');
+  // ADR-0367: summary 없이 preflight 차단된 경우 — 전용 reason + HARD_BLOCK 매핑.
+  if (!summary && preflightBlocked) {
+    addReason(blockedBy, 'BUYLIST_NOT_REACHED_PRE_FLIGHT_BLOCKED');
+    if (preflightBlocked.blockedBy === 'HARD_BLOCK') addReason(blockedBy, 'HARD_BLOCK');
+  }
   if (sellOnlyActive) addReason(blockedBy, 'SELL_ONLY_SESSION');
   if (summary?.macroGateState?.watchlistEmpty || watchlistCount === 0) addReason(blockedBy, 'WATCHLIST_EMPTY');
   if (summary?.macroGateState?.emergencyStop) addReason(blockedBy, 'HARD_BLOCK');
@@ -416,6 +442,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     watchlistCount,
     buyListLoopEntered,
     scanSummaryPersisted,
+    preflightSummaryPersisted,
     gateScoreHealthSamples: gateSamples,
     gate1PassCount: summary?.gateLayerAudit?.gate1PassCount ?? summary?.gatePassDistribution?.gate1Pass ?? 0,
     gate2PassCount: summary?.gateLayerAudit?.gate2PassCount ?? summary?.gatePassDistribution?.gate2Pass ?? 0,
@@ -474,6 +501,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
       dryRunCount: dryRunRecordCount,
       rolloutCount: rolloutItemCount,
       summaryExists: Boolean(summary),
+      preflightBlocked,
     }),
   };
 }
@@ -485,6 +513,7 @@ export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAudit
     `  • blockedBy: <code>${snapshot.blockedBy.join(', ') || 'none'}</code>`,
     `  • buyListLoopEntered: <code>${snapshot.buyListLoopEntered ? 'true' : 'false'}</code>`,
     `  • scanSummaryPersisted: <code>${snapshot.scanSummaryPersisted ? 'true' : 'false'}</code>`,
+    `  • preflightSummaryPersisted: <code>${snapshot.preflightSummaryPersisted ? 'true' : 'false'}</code>`,
     `  • gateScoreHealthSamples: <code>${snapshot.gateScoreHealthSamples}</code>`,
     `  • nearMissBucketSamples: <code>${snapshot.nearMissBucketSamples}</code>`,
     `  • nearMissOutcomeLedger: <code>${snapshot.nearMissOutcomeLedgerCount}</code>`,
@@ -544,6 +573,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     `  • watchlistCount: <code>${snapshot.watchlistCount ?? 'unknown'}</code>`,
     `  • buyListLoopEntered: <code>${snapshot.buyListLoopEntered}</code>`,
     `  • scanSummaryPersisted: <code>${snapshot.scanSummaryPersisted}</code>`,
+    `  • preflightSummaryPersisted: <code>${snapshot.preflightSummaryPersisted}</code>`,
     `  • gateScoreHealthSamples: <code>${snapshot.gateScoreHealthSamples}</code>`,
     `  • nearMissBucketSamples: <code>${snapshot.nearMissBucketSamples}</code>`,
     `  • nearMissOutcomeLedgerCount: <code>${snapshot.nearMissOutcomeLedgerCount}</code>`,

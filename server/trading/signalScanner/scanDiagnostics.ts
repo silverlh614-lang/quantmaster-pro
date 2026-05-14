@@ -36,6 +36,12 @@ import {
   type R3ViolationStateResult,
 } from './r3ViolationStateMachine.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+// ADR-0367: buyListLoop 진입 전 preflight 차단 시 진단 SSOT.
+import {
+  clearPreflightBlockedScanSummary,
+  formatPreflightBlockedScanSection,
+  getLastPreflightBlockedScanSummary,
+} from './preflightBlockedScanSummary.js';
 // ADR-0412: Frozen Quote Detector — 입력 데이터 오염 + Holiday-aware streak skip 진단 표시.
 import type { FrozenQuoteResult } from './frozenQuoteDetector.js';
 import type { StreakSkipReason } from './r3StreakSkipPolicy.js';
@@ -1569,6 +1575,13 @@ function naverCollectorToSemanticInputAdr0482(result: NaverInvestorTrendCollecto
 }
 
 export function formatScanBlockersMessage(summary: ScanSummary | null): string {
+  // ADR-0367: 직전 스캔이 buyListLoop 진입 전 preflight 차단됐으면 preflight blocked scan 을 우선 표시.
+  // persistScanResults 가 _lastScanSummary 를 채울 때 clearPreflightBlockedScanSummary 로 stale 제거되므로
+  // _lastPreflightBlockedScanSummary 가 non-null 이면 항상 "직전 스캔 = preflight 차단" 을 의미한다.
+  const preflightBlocked = getLastPreflightBlockedScanSummary();
+  if (preflightBlocked) {
+    return formatPreflightBlockedScanSection(preflightBlocked);
+  }
   if (!summary) {
     return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
   }
@@ -3245,6 +3258,8 @@ export async function persistScanResults(
   }
 
   _lastScanSummary = summaryDraft;
+  // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
+  clearPreflightBlockedScanSummary();
 
   logPreBreakoutNoiseSummary({
     scanned: summaryDraft.candidates,

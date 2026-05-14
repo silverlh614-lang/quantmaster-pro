@@ -82,6 +82,11 @@ const BASELINE_TECHNICAL_DEBT = [
   'server/trading/signalScanner/entryFilterDecomposition.ts',
   'server/trading/signalScanner/investorFlowProviderRouterAdr0477.ts',
   'server/trading/signalScanner/minimumSignalScoreTrace.ts',
+  // ADR-0367 (2026-05-14) — gate1MinimumSignalForensicAuditAdr0505.ts 2317 LoC.
+  //   ADR-0505 본체(~430 LoC) 가 #944~#953 KIS investor row carry / forensic mapper
+  //   누적 PR 로 1500 초과 — origin/main 에 이미 누적된 사전 baseline. ADR-0502c 패턴 정합
+  //   (카탈로그 등재로 거버넌스 정합 회복). 분해 작업은 별도 ADR 후속 PR.
+  'server/trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.ts',
 ];
 
 function isBaseline(file) {

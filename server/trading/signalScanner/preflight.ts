@@ -48,6 +48,7 @@ import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
 import {
   captureSupplyHealthSnapshot,
   recordBlockedDayShadowScan,
+  recordPreflightBlockedScan,
   recordPreflightUniverseLearningSnapshot,
 } from './preflightLearningRecorder.js';
 
@@ -180,18 +181,28 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       ).catch(console.error);
       await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
       // ADR-0433: preflight abort 시 universe-level learning snapshot 영속 (HARD_BLOCK).
-      await recordPreflightUniverseLearningSnapshot({
-        stage: 'AFTER_UNIVERSE_BUILD',
-        primaryReason: 'HARD_BLOCK',
-        watchlist,
-        regime,
-        marketSnapshot: {
-          emergencyStop: getEmergencyStop(),
-          regime: regime ?? macroState?.regime,
-          vkospiLevel: macroState?.vkospi,
+      // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+      await recordPreflightBlockedScan(
+        {
+          stage: 'AFTER_UNIVERSE_BUILD',
+          primaryReason: 'HARD_BLOCK',
+          watchlist,
+          regime,
+          marketSnapshot: {
+            emergencyStop: getEmergencyStop(),
+            regime: regime ?? macroState?.regime,
+            vkospiLevel: macroState?.vkospi,
+          },
+          notes: [`R3 sanity latch active — ${r3SanityBlock.violation}`],
         },
-        notes: [`R3 sanity latch active — ${r3SanityBlock.violation}`],
-      });
+        {
+          blockedBy: 'HARD_BLOCK',
+          hardBlockSource: 'R3_SANITY_LATCH',
+          hardBlockModule: 'r3SanityBlockRepo',
+          hardBlockReason: `${r3SanityBlock.violation} (${r3SanityBlock.regime})`,
+          preflightDecision: 'ABORT_HARD_BLOCK',
+        },
+      );
       await updateShadowResults(shadows, regime);
       saveShadowTrades(shadows);
       return { shouldAbort: true, skipPersist: true };
@@ -212,19 +223,26 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     console.log(`[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용 (예외 불가: ${sellOnlyExc.reason})`);
     await recordBlockedDayShadowScan('MANUAL_BLOCK');
     // ADR-0433: SELL_ONLY preflight abort universe snapshot.
-    await recordPreflightUniverseLearningSnapshot({
-      stage: 'AFTER_UNIVERSE_BUILD',
-      primaryReason: 'SELL_ONLY',
-      watchlist,
-      regime,
-      marketSnapshot: {
-        sellOnly: true,
-        emergencyStop: getEmergencyStop(),
-        regime: regime ?? macroState?.regime,
-        vkospiLevel: macroState?.vkospi,
+    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    await recordPreflightBlockedScan(
+      {
+        stage: 'AFTER_UNIVERSE_BUILD',
+        primaryReason: 'SELL_ONLY',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          sellOnly: true,
+          emergencyStop: getEmergencyStop(),
+          regime: regime ?? macroState?.regime,
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [`SELL_ONLY 예외 불가: ${sellOnlyExc.reason}`],
       },
-      notes: [`SELL_ONLY 예외 불가: ${sellOnlyExc.reason}`],
-    });
+      {
+        blockedBy: 'SELL_ONLY',
+        preflightDecision: 'ABORT_SELL_ONLY',
+      },
+    );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true };
@@ -238,19 +256,26 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
     await recordBlockedDayShadowScan('RISK_OFF_REGIME');
     // ADR-0433: R6_DEFENSE preflight abort universe snapshot.
-    await recordPreflightUniverseLearningSnapshot({
-      stage: 'AFTER_UNIVERSE_BUILD',
-      primaryReason: 'R6_DEFENSE',
-      watchlist,
-      regime,
-      marketSnapshot: {
-        r6Defense: true,
-        emergencyStop: getEmergencyStop(),
-        regime: 'R6_DEFENSE',
-        vkospiLevel: macroState?.vkospi,
+    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    await recordPreflightBlockedScan(
+      {
+        stage: 'AFTER_UNIVERSE_BUILD',
+        primaryReason: 'R6_DEFENSE',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          r6Defense: true,
+          emergencyStop: getEmergencyStop(),
+          regime: 'R6_DEFENSE',
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [`MHS=${macroState?.mhs ?? 'N/A'} — 블랙스완 감지`],
       },
-      notes: [`MHS=${macroState?.mhs ?? 'N/A'} — 블랙스완 감지`],
-    });
+      {
+        blockedBy: 'PRE_FLIGHT_BLOCK',
+        preflightDecision: 'ABORT_R6_DEFENSE',
+      },
+    );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true };
@@ -268,18 +293,25 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     }
     await recordBlockedDayShadowScan('VIX_SPIKE');
     // ADR-0433: VIX preflight abort universe snapshot.
-    await recordPreflightUniverseLearningSnapshot({
-      stage: 'AFTER_UNIVERSE_BUILD',
-      primaryReason: 'VIX_BLOCK',
-      watchlist,
-      regime,
-      marketSnapshot: {
-        emergencyStop: getEmergencyStop(),
-        regime: regime ?? macroState?.regime,
-        vkospiLevel: macroState?.vkospi,
+    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    await recordPreflightBlockedScan(
+      {
+        stage: 'AFTER_UNIVERSE_BUILD',
+        primaryReason: 'VIX_BLOCK',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          emergencyStop: getEmergencyStop(),
+          regime: regime ?? macroState?.regime,
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [vixGating.reason],
       },
-      notes: [vixGating.reason],
-    });
+      {
+        blockedBy: 'PRE_FLIGHT_BLOCK',
+        preflightDecision: 'ABORT_VIX_BLOCK',
+      },
+    );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true };
@@ -298,18 +330,25 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     }
     await recordBlockedDayShadowScan('FOMC_BLOCK');
     // ADR-0433: FOMC preflight abort universe snapshot.
-    await recordPreflightUniverseLearningSnapshot({
-      stage: 'AFTER_UNIVERSE_BUILD',
-      primaryReason: 'FOMC_BLOCK',
-      watchlist,
-      regime,
-      marketSnapshot: {
-        emergencyStop: getEmergencyStop(),
-        regime: regime ?? macroState?.regime,
-        vkospiLevel: macroState?.vkospi,
+    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    await recordPreflightBlockedScan(
+      {
+        stage: 'AFTER_UNIVERSE_BUILD',
+        primaryReason: 'FOMC_BLOCK',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          emergencyStop: getEmergencyStop(),
+          regime: regime ?? macroState?.regime,
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [fomcProximity.description ?? 'FOMC 게이팅'],
       },
-      notes: [fomcProximity.description ?? 'FOMC 게이팅'],
-    });
+      {
+        blockedBy: 'PRE_FLIGHT_BLOCK',
+        preflightDecision: 'ABORT_FOMC_BLOCK',
+      },
+    );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true };
@@ -321,20 +360,27 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     await sendTelegramAlert(`🧪 <b>[데이터 빈곤 스캔] 신규 진입 보류</b>\nMTAS 실패 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n표본: M${snap.mtasAttempts} · D${snap.dartAttempts}\n빈 스캔과 구분되는 "데이터 부재" 상태 — 원천 데이터 점검 후 복귀`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
     await recordBlockedDayShadowScan('DATA_STARVED');
     // ADR-0433: data-starved preflight abort universe snapshot.
-    await recordPreflightUniverseLearningSnapshot({
-      stage: 'AFTER_UNIVERSE_BUILD',
-      primaryReason: 'SCAN_ABORTED',
-      watchlist,
-      regime,
-      marketSnapshot: {
-        emergencyStop: getEmergencyStop(),
-        regime: regime ?? macroState?.regime,
-        vkospiLevel: macroState?.vkospi,
+    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    await recordPreflightBlockedScan(
+      {
+        stage: 'AFTER_UNIVERSE_BUILD',
+        primaryReason: 'SCAN_ABORTED',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          emergencyStop: getEmergencyStop(),
+          regime: regime ?? macroState?.regime,
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [
+          `data starved — MTAS fail ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
+        ],
       },
-      notes: [
-        `data starved — MTAS fail ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
-      ],
-    });
+      {
+        blockedBy: 'PRE_FLIGHT_BLOCK',
+        preflightDecision: 'ABORT_DATA_STARVED',
+      },
+    );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true };
@@ -373,18 +419,25 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   if (slotResult.isFull) {
     console.log(`[AutoTrade] 최대 동시 포지션 도달 (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}, raw=${slotResult.rawCount}) — 신규 진입 스킵`);
     await recordBlockedDayShadowScan('POSITION_FULL');
-    await recordPreflightUniverseLearningSnapshot({
-      stage: 'BEFORE_BUYLIST_LOOP',
-      primaryReason: 'POSITION_FULL',
-      watchlist,
-      regime,
-      marketSnapshot: {
-        emergencyStop: getEmergencyStop(),
-        regime: regime ?? macroState?.regime,
-        vkospiLevel: macroState?.vkospi,
+    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    await recordPreflightBlockedScan(
+      {
+        stage: 'BEFORE_BUYLIST_LOOP',
+        primaryReason: 'POSITION_FULL',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          emergencyStop: getEmergencyStop(),
+          regime: regime ?? macroState?.regime,
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [`position slots full — consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
       },
-      notes: [`position slots full — consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
-    });
+      {
+        blockedBy: 'NO_BUYLIST_ELIGIBLE',
+        preflightDecision: 'ABORT_POSITION_FULL',
+      },
+    );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
     return { shouldAbort: true, skipPersist: true, positionFull: true };
@@ -473,20 +526,30 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         ).catch(console.error);
         await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
         // ADR-0433: R3 SHADOW_ONLY ephemeral preflight abort universe snapshot.
-        await recordPreflightUniverseLearningSnapshot({
-          stage: 'BEFORE_BUYLIST_LOOP',
-          primaryReason: 'HARD_BLOCK',
-          watchlist,
-          regime,
-          marketSnapshot: {
-            emergencyStop: getEmergencyStop(),
-            regime: regime ?? macroState?.regime,
-            vkospiLevel: macroState?.vkospi,
+        // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+        await recordPreflightBlockedScan(
+          {
+            stage: 'BEFORE_BUYLIST_LOOP',
+            primaryReason: 'HARD_BLOCK',
+            watchlist,
+            regime,
+            marketSnapshot: {
+              emergencyStop: getEmergencyStop(),
+              regime: regime ?? macroState?.regime,
+              vkospiLevel: macroState?.vkospi,
+            },
+            notes: [
+              `R3 SHADOW_ONLY ephemeral — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.violation}, ${effectiveStreak.regime})`,
+            ],
           },
-          notes: [
-            `R3 SHADOW_ONLY ephemeral — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.violation}, ${effectiveStreak.regime})`,
-          ],
-        });
+          {
+            blockedBy: 'HARD_BLOCK',
+            hardBlockSource: 'R3_VIOLATION_STREAK',
+            hardBlockModule: 'r3ViolationStreakRepo',
+            hardBlockReason: `${effectiveStreak.violation} streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.regime})`,
+            preflightDecision: 'ABORT_SHADOW_ONLY_EPHEMERAL',
+          },
+        );
         await updateShadowResults(shadows, regime);
         saveShadowTrades(shadows);
         return { shouldAbort: true, skipPersist: true };

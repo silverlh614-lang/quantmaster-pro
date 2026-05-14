@@ -84,7 +84,9 @@ vi.mock('../entryEngine.js', () => ({
 
 vi.mock('./counterfactualUniverseLearningWiring.js', () => ({
   deriveUniverseLearningReason: vi.fn((reason: string) => reason),
-  recordCounterfactualUniverseLearningSnapshot: vi.fn(),
+  recordCounterfactualUniverseLearningSnapshot: vi.fn(() => ({ recorded: true })),
+  // ADR-0367: recordPreflightUniverseLearningSnapshot 가 candidateSummaryCount 산출용으로 호출.
+  buildCandidateSummaries: vi.fn((candidates?: unknown[]) => candidates ?? []),
 }));
 
 vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
@@ -245,7 +247,9 @@ describe('preflight.ts byte-equivalent tests', () => {
       allowRealOrder: false,
       reason: 'VOLUME_CLOCK_BLOCK',
     }));
-    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
+    // ADR-0367: recordBlockedDayShadowScan 의 VOLUME_CLOCK_BLOCK 분기가
+    // recordPreflightUniverseLearningSnapshot 를 호출 — universe snapshot 기록은 정상 동작.
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['VOLUME_CLOCK_BLOCK'],
     }));
   });
