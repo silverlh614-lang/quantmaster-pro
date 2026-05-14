@@ -186,6 +186,18 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           // 이 값을 읽어 adapterRowsForwardedAcrossProvidersCount 로 집계. CORE 무영향 / diagnostic only.
           adapterRowsForwardedAcrossProviders: ((selectedCandidateRecord?.adapterRowsForwardedAcrossProviders as boolean | undefined)
             ?? (healthRecord.adapterRowsForwardedAcrossProviders as boolean | undefined)),
+          // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — selectedProvider 와 actual row carry 분리.
+          // healthRecord 는 mergeActualRowCarryAdr0507 가 bySymbol payload 의 diagnostic row 를
+          // 이미 merge 한 상태. forensic supplyScopeAudit 가 selectedProvider='NONE' 인 경우에도
+          // 이 carry 를 읽어 diagnosticActualInvestorRowCarriedCount 로 집계. CORE 무영향 / diagnostic only.
+          diagnosticActualInvestorRow: ((selectedCandidateRecord?.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
+            ?? (healthRecord.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)),
+          selectedProviderActualInvestorRow: ((selectedCandidateRecord?.selectedProviderActualInvestorRow as Record<string, unknown> | null | undefined)
+            ?? (healthRecord.selectedProviderActualInvestorRow as Record<string, unknown> | null | undefined)),
+          actualInvestorRowProvider: ((selectedCandidateRecord?.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)
+            ?? (healthRecord.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)),
+          actualInvestorRowUseScope: ((selectedCandidateRecord?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
+            ?? (healthRecord.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)),
           selectedActualRowPath: ((healthRecord.selectedActualRowPath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined)),
           selectedActualRowFieldKeys: ((healthRecord.selectedActualRowFieldKeys as string[] | undefined) ?? actualInvestorFlowFieldKeys),
           selectedActualNumericFieldKeys: healthRecord.selectedActualNumericFieldKeys as string[] | undefined,
@@ -316,6 +328,13 @@ function mergeActualRowCarryAdr0507(
     // ADR-0477 supply actual row carry diagnostic — bySymbol payload 의
     // adapterRowsForwardedAcrossProviders 를 merge. stale payload 는 carry 주장 금지 (false).
     adapterRowsForwardedAcrossProviders: stale ? false : (payload.adapterRowsForwardedAcrossProviders ?? base?.adapterRowsForwardedAcrossProviders),
+    // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — selectedProvider 와 actual row carry 분리.
+    // diagnosticActualInvestorRow 는 selectedProvider 무관하게 carry (DIAGNOSTIC_ONLY scope).
+    // stale payload 는 diagnostic row 새로 주장 금지 (base 보존).
+    diagnosticActualInvestorRow: stale ? base?.diagnosticActualInvestorRow : (payload.diagnosticActualInvestorRow ?? base?.diagnosticActualInvestorRow),
+    selectedProviderActualInvestorRow: stale ? base?.selectedProviderActualInvestorRow : (payload.selectedProviderActualInvestorRow ?? base?.selectedProviderActualInvestorRow),
+    actualInvestorRowProvider: payload.actualInvestorRowProvider ?? base?.actualInvestorRowProvider,
+    actualInvestorRowUseScope: payload.actualInvestorRowUseScope ?? base?.actualInvestorRowUseScope,
     diagnosticAvailable: true,
     scoreUsage: 'SHADOW_ONLY',
     executionImpact: 'NONE',
@@ -334,6 +353,11 @@ function mergeActualRowCarryAdr0507(
       actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? selectedCandidate.actualInvestorFlowNumericKeys,
       actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? selectedCandidate.actualInvestorFlowNumericStringKeys,
       actualInvestorFlowCarried: stale ? false : (payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? selectedCandidate.actualInvestorFlowCarried),
+      // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — selectedCandidate 레벨에도 carry 분리 전파.
+      diagnosticActualInvestorRow: stale ? selectedCandidate.diagnosticActualInvestorRow : (payload.diagnosticActualInvestorRow ?? selectedCandidate.diagnosticActualInvestorRow),
+      selectedProviderActualInvestorRow: stale ? selectedCandidate.selectedProviderActualInvestorRow : (payload.selectedProviderActualInvestorRow ?? selectedCandidate.selectedProviderActualInvestorRow),
+      actualInvestorRowProvider: payload.actualInvestorRowProvider ?? selectedCandidate.actualInvestorRowProvider,
+      actualInvestorRowUseScope: payload.actualInvestorRowUseScope ?? selectedCandidate.actualInvestorRowUseScope,
     },
   };
 }
