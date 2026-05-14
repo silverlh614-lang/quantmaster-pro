@@ -101,11 +101,11 @@ describe('ADR-0477 KIS VERIFIED short-circuit', () => {
     expect(route.liveExecutionAllowed).toBe(false);
   });
 
-  it('scan diagnostics logs KIS short-circuit instead of SHADOW_ONLY warning for KIS_API VERIFIED', () => {
+  it('scan diagnostics routes KIS short-circuit through ADR-0477 emission policy without SHADOW_ONLY warning spam', () => {
     const source = scanDiagnosticsSource();
 
-    expect(source).toContain('selectedProvider=KIS_API');
-    expect(source).toContain('reason=KIS_VERIFIED_SHORTCIRCUIT');
-    expect(source).toContain('InvestorFlowProviderRouter SHADOW_ONLY emitted');
+    expect(source).toContain('emitInvestorFlowRouterEventAdr0477');
+    expect(source).toContain('[InvestorFlowRouterObservation]');
+    expect(source).not.toContain('InvestorFlowProviderRouter SHADOW_ONLY emitted');
   });
 });
