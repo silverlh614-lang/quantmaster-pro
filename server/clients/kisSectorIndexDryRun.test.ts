@@ -124,7 +124,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
   it('실패 row는 sectorKey/label/iscd/errorClass를 formatter에 노출한다', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
-      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      if (iscd === '0021' || iscd === '0029') return Promise.resolve({ ...dailyResult(iscd), series: [] });
       return Promise.resolve(dailyResult(iscd));
     });
 
@@ -221,7 +221,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
   it('dry-run 10/12 성공은 candidateCoverage=83.3%로 표시하고 promotionStage=OBSERVE를 유지한다', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
-      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      if (iscd === '0021' || iscd === '0029') return Promise.resolve({ ...dailyResult(iscd), series: [] });
       return Promise.resolve(dailyResult(iscd));
     });
 
@@ -237,15 +237,15 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(section).toContain('sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>');
   });
 
-  it('2005/2006 EMPTY는 safe alias 후보로 분리되어 PENDING_IDXCODE_MST_VERIFY가 된다', async () => {
+  it('0021/0029 EMPTY는 safe alias 후보로 분리되어 PENDING_IDXCODE_MST_VERIFY가 된다', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
-      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      if (iscd === '0021' || iscd === '0029') return Promise.resolve({ ...dailyResult(iscd), series: [] });
       return Promise.resolve(dailyResult(iscd));
     });
 
     const report = await mod.fetchKisSectorIndexRowsDryRun(1000);
-    const failed = report.rows.filter((row) => row.iscd === '2005' || row.iscd === '2006');
+    const failed = report.rows.filter((row) => row.iscd === '0021' || row.iscd === '0029');
     expect(failed).toHaveLength(2);
     for (const row of failed) {
       expect(row.errorClass).toBe('EMPTY');
@@ -263,7 +263,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
   it('formatter는 UNRESOLVED_EMPTY와 SAFE_ALIAS_CANDIDATE를 동시에 표시하지 않는다', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
-      if (iscd === '2005') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      if (iscd === '0029') return Promise.resolve({ ...dailyResult(iscd), series: [] });
       return Promise.resolve(dailyResult(iscd));
     });
 
@@ -345,17 +345,9 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(badValues.candidatesTried[0]).toMatchObject({ compatible: false, reason: 'ROWS_LT_20_0' });
   });
 
-  it('verified FINANCE and IT_INTERNET recover dry-run to 12/12 while safety flags stay closed', async () => {
+  it('probe-verified FINANCE and IT_INTERNET keep dry-run at 12/12 while safety flags stay closed', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
-    mod.setSectorIndexIdxcodeMasterRowsForTests([
-      { iscd: '2006', koreanName: '금융', englishKey: 'FINANCE', aliases: ['금융'] },
-      { iscd: '2106', koreanName: '은행', englishKey: 'BANK', aliases: ['은행', 'FINANCE'] },
-      { iscd: '2005', koreanName: '인터넷/플랫폼', englishKey: 'IT_INTERNET', aliases: ['인터넷'] },
-      { iscd: '2105', koreanName: '플랫폼', englishKey: 'PLATFORM', aliases: ['플랫폼', 'IT_INTERNET'] },
-    ]);
     _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
-      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
-      if (iscd === '2105' || iscd === '2106') return Promise.resolve(dailyResultEnding(iscd, '20260514'));
       return Promise.resolve(dailyResultEnding(iscd, '20260514'));
     });
 
@@ -376,30 +368,16 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
       providerIssue: false,
     });
     expect(report.rows.find((row) => row.sectorKey === 'FINANCE')).toMatchObject({
-      previousIscd: '2006',
-      iscd: '2106',
+      iscd: '0021',
       verificationStatus: 'VERIFIED',
-      resolutionStatus: 'IDXCODE_MST_VERIFIED',
-      useForProduction: false,
-      useForDryRun: true,
+      resolutionStatus: 'NONE',
     });
     expect(report.rows.find((row) => row.sectorKey === 'IT_INTERNET')).toMatchObject({
-      previousIscd: '2005',
-      iscd: '2105',
+      iscd: '0029',
       verificationStatus: 'VERIFIED',
-      resolutionStatus: 'IDXCODE_MST_VERIFIED',
+      resolutionStatus: 'NONE',
     });
-    expect(section).toContain('recovered:');
     expect(section).toContain('nextAction: <code>OBSERVE_20D_THEN_PROMOTION_AUDIT</code>');
-    expect(mod.sectorIndexMappingRegistry.get('FINANCE')).toMatchObject({
-      previousIscd: '2006',
-      verifiedIscd: '2106',
-      useForProduction: false,
-      promotionStage: 'OBSERVE',
-      sectorBoostAllowed: false,
-      strongBuyAllowed: false,
-      executionImpact: 'NONE',
-    });
   });
 
 });

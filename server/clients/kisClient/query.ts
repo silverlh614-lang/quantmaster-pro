@@ -528,7 +528,7 @@ export type KisSectorIscdMapRow = {
   iscd: string;
   label: string;
   verified: boolean;
-  source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' | 'IDXCODE_MST_VERIFIED';
+  source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' | 'IDXCODE_MST_VERIFIED' | 'KIS_ISCD_PROBE_VERIFIED_20260514';
 };
 
 /**
@@ -543,13 +543,13 @@ export const KIS_SECTOR_ISCD_MAP: ReadonlyArray<KisSectorIscdMapRow> = Object.fr
   { sectorKey: 'SEMICONDUCTOR', iscd: '2004', label: '반도체', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'BATTERY', iscd: '2012', label: '이차전지', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'BIO_HEALTHCARE', iscd: '2009', label: '바이오/헬스케어', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
-  { sectorKey: 'FINANCE', iscd: '2006', label: '금융', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'FINANCE', iscd: '0021', label: '금융', verified: true, source: 'KIS_ISCD_PROBE_VERIFIED_20260514' },
   { sectorKey: 'SHIPBUILDING', iscd: '2010', label: '조선', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'STEEL', iscd: '2007', label: '철강', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'CHEMICAL', iscd: '2008', label: '에너지/화학', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'CONSTRUCTION', iscd: '2011', label: '건설/부동산', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'CONSUMER_RETAIL', iscd: '2003', label: '유통/소비재', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
-  { sectorKey: 'IT_INTERNET', iscd: '2005', label: '인터넷/플랫폼', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
+  { sectorKey: 'IT_INTERNET', iscd: '0029', label: '인터넷/플랫폼', verified: true, source: 'KIS_ISCD_PROBE_VERIFIED_20260514' },
   { sectorKey: 'AUTOMOTIVE', iscd: '2002', label: '자동차', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
   { sectorKey: 'OTHER', iscd: '2001', label: '기타(KOSPI200 proxy)', verified: false, source: 'KIS_OFFICIAL_DOC_BEST_EFFORT' },
 ]);
