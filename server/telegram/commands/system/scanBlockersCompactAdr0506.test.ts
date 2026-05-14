@@ -543,6 +543,28 @@ describe('ADR-0506 안전 invariant 정적 grep 가드', () => {
     expect(src).toMatch(/scanBlockersCompactAdr0506/);
   });
 
+
+  it('scanBlockers.cmd.ts — compact fallback/single summary replyOnce guard + supply full replyMany wiring', () => {
+    const src = readSrc('./scanBlockers.cmd.ts');
+    expect(src).toMatch(/const requestId = randomUUID\(\)/);
+    expect(src).toMatch(/let replyCount = 0/);
+    expect(src).toMatch(/async function replyOnce\(message: string\): Promise<void>/);
+    expect(src).toMatch(/duplicate reply suppressed requestId=\$\{requestId\} replyCount=\$\{replyCount\}/);
+    expect(src).toMatch(/async function replyMany\(messages: string\[\]\): Promise<void>/);
+    expect(src).toMatch(/mode === 'compact'[\s\S]+?await replyOnce[\s\S]+?return;/);
+    expect(src).toMatch(/mode === 'gate' && gateSubMode === 'compact'[\s\S]+?await replyOnce[\s\S]+?return;/);
+    expect(src).toMatch(/supplySubMode === 'full'[\s\S]+?logCommand\('paginated', pages\.length\)[\s\S]+?await replyMany\(pages\.map/);
+    expect(src).toMatch(/await replyOnce\(applyScanBlockersLengthGuard\(finalMessage, mode\)\)/);
+  });
+
+  it('commandRegistry.ts — /scan_blockers duplicate registration diagnostics are wired', () => {
+    const src = readSrc('../../commandRegistry.ts');
+    expect(src).toMatch(/cmd\.name === '\/scan_blockers'/);
+    expect(src).toMatch(/duplicate registration ignored command=\$\{cmd\.name\}/);
+    expect(src).toMatch(/registration diagnostic command=\$\{cmd\.name\}/);
+    expect(src).toMatch(/중복 등록: \$\{norm\}/);
+  });
+
   it('scanBlockers.cmd.ts — 매수 결정/주문 함수 import 0건 (LIVE 본체 무수정)', () => {
     const src = readSrc('./scanBlockers.cmd.ts');
     expect(src).not.toMatch(/placeKisMarketBuyOrder/);

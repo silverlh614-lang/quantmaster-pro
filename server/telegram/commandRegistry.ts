@@ -22,12 +22,24 @@ class CommandRegistry {
       const norm = k.toLowerCase();
       if (this.byName.has(norm)) {
         const existing = this.byName.get(norm)!;
-        if (existing === cmd) continue; // 동일 instance 중복 등록은 무시 (HMR 안전).
-        throw new Error(
-          `[commandRegistry] 중복 등록: ${norm} 이미 ${existing.name} 으로 점유됨 (신규: ${cmd.name})`,
-        );
+        if (existing === cmd) {
+          if (cmd.name === '/scan_blockers') {
+            console.warn(
+              `[commandRegistry] duplicate registration ignored command=${cmd.name} key=${norm} existing=${existing.name}`,
+            );
+          }
+          continue; // 동일 instance 중복 등록은 무시 (HMR 안전).
+        }
+        const message = `[commandRegistry] 중복 등록: ${norm} 이미 ${existing.name} 으로 점유됨 (신규: ${cmd.name})`;
+        console.error(message);
+        throw new Error(message);
       }
       this.byName.set(norm, cmd);
+      if (cmd.name === '/scan_blockers') {
+        console.info(
+          `[commandRegistry] registration diagnostic command=${cmd.name} key=${norm} duplicate=false totalKeys=${this.byName.size}`,
+        );
+      }
     }
   }
 
