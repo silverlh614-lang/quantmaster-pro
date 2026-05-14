@@ -22,6 +22,8 @@ import type {
   KisInvestorFlow,
   KisInvestorFlowActualRowCarrier,
   KisMarketProgramTrade,
+  KisSectorIndexDaily,
+  KisSectorIndexDailyRow,
   KisShortSaleRankingRow,
   KisStockProgramTrade,
   PrevClose,
@@ -503,6 +505,133 @@ export async function fetchKisMarketProgramTrade(
       '[KIS] 시장 종합 프로그램 매매 조회 실패:',
       e instanceof Error ? e.message : e,
     );
+    return null;
+  }
+}
+
+// ─── KIS 국내업종 기간별 지수 시세 (SectorEnergy 보조 fallback) ───────────────
+//
+// KIS 공식 오픈소스 (open-trading-api) 검증 — `[국내주식] 업종/기타 >
+// 국내주식업종기간별시세(일/주/월/년) [v1_국내주식-021]`.
+//   API_URL : /uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice
+//   tr_id   : FHKUP03500100 (실전투자)
+//   params  : FID_COND_MRKT_DIV_CODE='U' (업종) / FID_INPUT_ISCD=업종 상세코드 /
+//             FID_INPUT_DATE_1=시작 / FID_INPUT_DATE_2=종료 / FID_PERIOD_DIV_CODE='D'
+//   output1 : 업종 지수 현재 스냅샷 (bstp_nmix_prpr / bstp_nmix_prdy_ctrt / hts_kor_isnm)
+//   output2 : 일자별 지수 OHLC 시계열 (stck_bsop_date / bstp_nmix_* / acml_vol)
+//
+// 정책: SectorEnergy 의 공식 원천은 KRX OpenAPI (`idx/kospi_dd_trd`). 본 함수는 KRX
+// 실패 시 *임시 proxy / 보조 fallback* 으로만 사용 — ENV `KIS_SECTOR_INDEX_DAILY_ENABLED`
+// default OFF. 명시 활성화 전까지 호출 0건. 본 PR 은 *callable 함수 신설* 만 —
+// SectorEnergy live 파이프라인 wiring 은 후속 PR (ADR 문서화).
+
+/** KIS 업종 상세코드 SSOT (idxcode.mst 마스터의 well-known 집계 코드). */
+export const KIS_SECTOR_INDEX_ISCD = Object.freeze({
+  /** 코스피 종합 */
+  KOSPI: '0001',
+  /** 코스닥 종합 */
+  KOSDAQ: '1001',
+  /** 코스피200 */
+  KOSPI200: '2001',
+} as const);
+
+const SECTOR_INDEX_DAILY_TR_ID =
+  process.env.KIS_SECTOR_INDEX_DAILY_TR_ID ?? 'FHKUP03500100';
+const SECTOR_INDEX_DAILY_PATH =
+  '/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice';
+
+/**
+ * KIS 국내업종 지수 시세 ENV gate — ADR-0157 정확 비교 의무. default OFF.
+ * 활성 전까지 `fetchKisSectorIndexDaily` 는 호출 0건 (null 반환).
+ */
+export function isKisSectorIndexDailyDisabled(): boolean {
+  return process.env.KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true';
+}
+
+/** KST 기준 YYYYMMDD (날짜 helper 의존성 0 — 인라인 계산). */
+function kstYyyymmdd(offsetDays = 0): string {
+  const ms = Date.now() + 9 * 60 * 60 * 1000 - offsetDays * 24 * 60 * 60 * 1000;
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+/**
+ * KIS 국내업종 기간별 지수 시세 조회 (inquire-daily-indexchartprice / FHKUP03500100).
+ *
+ * - ENV `KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true'` → null (default OFF).
+ * - VTS override (`fetchKisSectorIndexDaily`) 우선.
+ * - KIS_APP_KEY 미설정 + 실계좌 클라이언트 부재 → null.
+ * - realDataKisGet SSOT 경유 — 회로차단/블랙리스트/jitter 자동 적용 (절대 규칙 #2).
+ * - output 필드 다중 키 매칭 — KIS 공식 응답 한글 약어 (bstp_nmix_*).
+ * - fromDate/toDate 미지정 시 KST 기준 (today-30d ~ today) 기본 윈도우.
+ *
+ * @param sectorIscd 업종 상세코드 (KIS_SECTOR_INDEX_ISCD 또는 idxcode.mst 코드)
+ */
+export async function fetchKisSectorIndexDaily(
+  sectorIscd: string,
+  fromDate?: string,
+  toDate?: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisSectorIndexDaily | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisSectorIndexDaily) return overrides.fetchKisSectorIndexDaily(sectorIscd);
+  if (isKisSectorIndexDailyDisabled()) return null;
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const iscd = (sectorIscd ?? '').trim();
+  if (!iscd) return null;
+  const date1 = /^\d{8}$/.test(fromDate ?? '') ? (fromDate as string) : kstYyyymmdd(30);
+  const date2 = /^\d{8}$/.test(toDate ?? '') ? (toDate as string) : kstYyyymmdd(0);
+  try {
+    const data = await realDataKisGet(
+      SECTOR_INDEX_DAILY_TR_ID,
+      SECTOR_INDEX_DAILY_PATH,
+      {
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: iscd,
+        FID_INPUT_DATE_1: date1,
+        FID_INPUT_DATE_2: date2,
+        FID_PERIOD_DIV_CODE: 'D',
+      },
+      priority,
+    );
+    const buckets = pickKisRowsByBucket(data);
+    const snapshot = buckets.output1[0] ?? buckets.output[0];
+    const seriesRows: KisSectorIndexDailyRow[] = (
+      buckets.output2.length > 0 ? buckets.output2 : buckets.output
+    )
+      .map((row): KisSectorIndexDailyRow | null => {
+        const baseDate = String(row.stck_bsop_date ?? '').trim();
+        if (!/^\d{8}$/.test(baseDate)) return null;
+        return {
+          baseDate,
+          close: extractKisNumber(row, ['bstp_nmix_prpr']),
+          open: extractKisNumber(row, ['bstp_nmix_oprc']),
+          high: extractKisNumber(row, ['bstp_nmix_hgpr']),
+          low: extractKisNumber(row, ['bstp_nmix_lwpr']),
+          volume: extractKisNumber(row, ['acml_vol']),
+          value: extractKisNumber(row, ['acml_tr_pbmn']),
+        };
+      })
+      .filter((r): r is KisSectorIndexDailyRow => r !== null);
+
+    return {
+      sectorIscd: iscd,
+      sectorName: snapshot ? String(snapshot.hts_kor_isnm ?? '').trim() : '',
+      currentIndex: snapshot
+        ? extractKisNumberOptional(snapshot, ['bstp_nmix_prpr']) ?? null
+        : null,
+      changePct: snapshot
+        ? extractKisNumberOptional(snapshot, ['bstp_nmix_prdy_ctrt']) ?? null
+        : null,
+      series: seriesRows,
+      fetchedAt: new Date().toISOString(),
+      source: 'KIS_API',
+    };
+  } catch (e) {
+    console.error('[KIS] 국내업종 기간별 지수 시세 조회 실패:', e instanceof Error ? e.message : e);
     return null;
   }
 }
