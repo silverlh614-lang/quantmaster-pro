@@ -88,6 +88,15 @@ import {
   shouldBypassCapture,
 } from './unifiedBriefing.js';
 import { buildBotMenuCommandsExtended } from '../telegram/metaCommands.js';
+import {
+  sanitizeTelegramHtml,
+  splitHtmlSafeChunks,
+  classifyTelegramRouting,
+  isTelegramInvariantRoutingDisabled,
+  shouldLogHtmlFailure,
+  htmlFailureSignature,
+  TELEGRAM_MAX_MESSAGE_LEN,
+} from './telegramHtmlSanitizer.js';
 export type { AlertTier } from './alertTiers.js';
 
 interface AlertCooldownEntry {
@@ -279,13 +288,15 @@ async function sendTelegramAlertRaw(
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
 
-  const MAX_LEN = 4096;
-
-  /** 단일 청크를 전송한다. 400 파싱 오류 시 plain-text로 재시도. */
+  /**
+   * 단일 청크를 전송한다. 전송 전 sanitizeTelegramHtml 로 비허용 태그/stray `<` 를
+   * 정제하고 미닫힘 태그를 자동 닫는다. 그래도 400 파싱 오류 시 plain-text 재시도.
+   */
   async function sendChunk(
-    text: string,
+    rawText: string,
     markup?: Record<string, unknown>,
   ): Promise<number | undefined> {
+    const text = sanitizeTelegramHtml(rawText);
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text,
@@ -303,7 +314,10 @@ async function sendTelegramAlertRaw(
       const err = await res.text();
       // 400 + 엔티티 파싱 오류 → parse_mode 없이 plain text 재시도
       if (res.status === 400 && err.includes("can't parse entities")) {
-        console.warn('[Telegram] ⚠️ HTML 파싱 실패 → plain text 재시도 (첫 100자):', text.slice(0, 100));
+        // HTML 실패 로그는 dedup/cooldown — 같은 시그니처는 5분 내 1회만.
+        if (shouldLogHtmlFailure(htmlFailureSignature(text))) {
+          console.warn('[Telegram] ⚠️ HTML 파싱 실패 → plain text 재시도 (첫 100자):', text.slice(0, 100));
+        }
         const plain: Record<string, unknown> = { chat_id: chatId, text: stripHtml(text) };
         if (markup) plain.reply_markup = markup;
         const fb = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -327,21 +341,20 @@ async function sendTelegramAlertRaw(
   }
 
   try {
-    if (message.length <= MAX_LEN) {
+    if (message.length <= TELEGRAM_MAX_MESSAGE_LEN) {
       return await sendChunk(message, replyMarkup);
-    } else {
-      // 4096자 초과 시 청크 분할 전송
-      let lastMsgId: number | undefined;
-      for (let i = 0; i < message.length; i += MAX_LEN) {
-        const chunk = message.slice(i, i + MAX_LEN);
-        // replyMarkup은 마지막 청크에만 첨부
-        const markup = (replyMarkup && i + MAX_LEN >= message.length) ? replyMarkup : undefined;
-        const msgId = await sendChunk(chunk, markup);
-        if (msgId !== undefined) lastMsgId = msgId;
-        await new Promise(r => setTimeout(r, 300)); // 연속 전송 간격
-      }
-      return lastMsgId;
     }
+    // 4096자 초과 — HTML 태그 중간에서 자르지 않는 안전 청크 분할.
+    const parts = splitHtmlSafeChunks(message, TELEGRAM_MAX_MESSAGE_LEN);
+    let lastMsgId: number | undefined;
+    for (let idx = 0; idx < parts.length; idx += 1) {
+      // replyMarkup은 마지막 청크에만 첨부
+      const markup = (replyMarkup && idx === parts.length - 1) ? replyMarkup : undefined;
+      const msgId = await sendChunk(parts[idx], markup);
+      if (msgId !== undefined) lastMsgId = msgId;
+      await new Promise(r => setTimeout(r, 300)); // 연속 전송 간격
+    }
+    return lastMsgId;
   } catch (e: unknown) {
     console.error('[Telegram] ❌ 네트워크 오류 (거래는 완료됨):', e instanceof Error ? e.message : e);
   }
@@ -365,6 +378,17 @@ export async function sendTelegramAlert(
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
   if (isSuppressedNoiseTelegramAlert(message, opts)) return undefined;
+
+  // invariant/debug 라우팅 가드 — `[INVARIANT]`/`[DEBUG]`/`[TRACE]` 접두 문자열은
+  // 기본 Telegram 알림이 아니라 Railway/debug 로그로만 보낸다.
+  // ENV `TELEGRAM_INVARIANT_ROUTING_DISABLED=true` 로 우회 가능.
+  if (
+    !isTelegramInvariantRoutingDisabled() &&
+    classifyTelegramRouting(message) === 'RAILWAY_LOG_ONLY'
+  ) {
+    console.log('[TelegramRoutingGuard] invariant/debug 문자열 — Telegram 발송 생략, 로그 전용:', message.slice(0, 200));
+    return undefined;
+  }
 
   // 티어 의도가 명시된 경우에만 선두 아이콘을 강제한다 — 커맨드 응답은 기존 서식 유지.
   const hasTierIntent = Boolean(opts?.priority || opts?.tier);
@@ -475,6 +499,60 @@ export async function sendTelegramAlert(
 }
 
 /**
+ * parse_mode 없는 plain text 전용 전송 SSOT.
+ *
+ * HTML 파싱을 일절 거치지 않으므로 `<`, `>`, `&` 가 그대로 안전하게 전달된다.
+ * 진단/raw 문자열, HTML 마크업이 의미 없는 메시지에 사용한다.
+ *
+ * - parse_mode 미지정 (HTML 파싱 0건)
+ * - 4096자 초과 시 splitHtmlSafeChunks 로 분할 (plain text 도 안전)
+ * - dedupeKey/cooldownMs/priority 로 쿨다운 적용 (sendTelegramAlert 와 동일 메커니즘)
+ * - 티어 아이콘 / 다이제스트 / ACK 버튼 미적용 — 순수 plain text
+ */
+export async function sendTelegramPlainText(
+  message: string,
+  opts?: Pick<TelegramAlertOptions, 'priority' | 'dedupeKey' | 'cooldownMs'>,
+): Promise<number | undefined> {
+  if (!shouldSendAlert(opts)) {
+    console.log(`[Telegram] plain 쿨다운 중 — 발송 생략 (key=${opts?.dedupeKey})`);
+    return;
+  }
+
+  const token  = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  async function sendPlainChunk(text: string): Promise<number | undefined> {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text }), // parse_mode 미지정
+      });
+      if (!res.ok) {
+        console.error('[Telegram] ❌ plain text 전송 실패:', (await res.text()).slice(0, 200));
+        return;
+      }
+      const data = await res.json() as { result?: { message_id?: number } };
+      return data.result?.message_id;
+    } catch (e: unknown) {
+      console.error('[Telegram] ❌ plain text 네트워크 오류:', e instanceof Error ? e.message : e);
+      return;
+    }
+  }
+
+  let lastMsgId: number | undefined;
+  const parts = splitHtmlSafeChunks(message, TELEGRAM_MAX_MESSAGE_LEN);
+  for (const part of parts) {
+    const msgId = await sendPlainChunk(part);
+    if (msgId !== undefined) lastMsgId = msgId;
+    if (parts.length > 1) await new Promise(r => setTimeout(r, 300));
+  }
+  recordAlertSent(opts);
+  return lastMsgId;
+}
+
+/**
  * Telegram callbackQuery에 대한 응답 (answerCallbackQuery)
  */
 export async function answerCallbackQuery(
@@ -515,7 +593,7 @@ export async function editMessageText(
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       message_id: messageId,
-      text,
+      text: sanitizeTelegramHtml(text),
       parse_mode: 'HTML',
     };
     if (replyMarkup) payload.reply_markup = replyMarkup;
@@ -563,7 +641,7 @@ export async function sendChannelAlertTo(
   try {
     const payload: Record<string, unknown> = {
       chat_id: channelId,
-      text: message,
+      text: sanitizeTelegramHtml(message),
       parse_mode: 'HTML',
     };
     if (opts?.disableNotification) {
