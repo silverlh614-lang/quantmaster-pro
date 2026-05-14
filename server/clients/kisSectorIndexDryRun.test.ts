@@ -83,6 +83,72 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(report.rows[0].latestDate).toBe('20260525');
     expect(report.rows[0].return5d).toBeGreaterThan(0);
     expect(report.rows[0].return20d).toBeGreaterThan(0);
+
+    const section = mod.formatKisSectorIndexDryRunSection(report);
+    expect(section).toContain('- successTop:');
+    expect(section).toContain('latest=<code>20260525</code>');
+    expect(section).toContain('rows=<b>25</b>');
+    expect(section).toContain('return5d=<code>');
+    expect(section).toContain('return20d=<code>');
+    expect(section).toContain('- sectorBoostAllowed: <b>false</b>');
+    expect(section).toContain('- strongBuyAllowed: <b>false</b>');
+    expect(section).toContain('- executionImpact: <code>NONE</code>');
+  });
+
+  it('실패 row는 sectorKey/label/iscd/errorClass를 formatter에 노출한다', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      return Promise.resolve(dailyResult(iscd));
+    });
+
+    const report = await mod.fetchKisSectorIndexRowsDryRun(1000);
+    const section = mod.formatKisSectorIndexDryRunSection(report);
+
+    expect(report.failed).toBe(2);
+    for (const row of report.rows.filter((item) => !item.success)) {
+      expect(section).toContain(`<code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / errorClass=<code>EMPTY</code>`);
+    }
+    expect(section).not.toContain('failedIscd');
+  });
+
+  it('실패 원인을 INVALID_CODE/PROVIDER_500/TIMEOUT/INSUFFICIENT_SERIES로 분류한다', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    const invalidIscd = KIS_SECTOR_ISCD_MAP[0].iscd;
+    const provider500Iscd = KIS_SECTOR_ISCD_MAP[1].iscd;
+    const timeoutIscd = KIS_SECTOR_ISCD_MAP[2].iscd;
+    const insufficientIscd = KIS_SECTOR_ISCD_MAP[3].iscd;
+    const disabledIscd = KIS_SECTOR_ISCD_MAP[4].iscd;
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === invalidIscd) throw new Error('invalid code');
+      if (iscd === provider500Iscd) throw new Error('provider 500 internal server');
+      if (iscd === timeoutIscd) throw new Error('request timeout');
+      if (iscd === insufficientIscd) return Promise.resolve(dailyResult(iscd, 10));
+      if (iscd === disabledIscd) throw new Error('KIS sector index disabled');
+      return Promise.resolve(dailyResult(iscd));
+    });
+
+    const report = await mod.fetchKisSectorIndexRowsDryRun(1000);
+    expect(report.rows.find((row) => row.iscd === invalidIscd)?.errorClass).toBe('INVALID_CODE');
+    expect(report.rows.find((row) => row.iscd === provider500Iscd)?.errorClass).toBe('PROVIDER_500');
+    expect(report.rows.find((row) => row.iscd === timeoutIscd)?.errorClass).toBe('TIMEOUT');
+    expect(report.rows.find((row) => row.iscd === insufficientIscd)?.errorClass).toBe('INSUFFICIENT_SERIES');
+    expect(report.rows.find((row) => row.iscd === disabledIscd)?.errorClass).toBe('DISABLED');
+  });
+
+  it('failed iscd는 10분 negative cooldown 동안 재호출하지 않는다', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    const failedIscd = KIS_SECTOR_ISCD_MAP[0].iscd;
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === failedIscd) return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      return Promise.resolve(dailyResult(iscd));
+    });
+
+    await mod.fetchKisSectorIndexRowsDryRun(1000);
+    mod.resetKisSectorIndexDryRunCacheForTests({ keepNegativeCooldown: true });
+    await mod.fetchKisSectorIndexRowsDryRun(1000 + 9 * 60 * 1000);
+
+    expect(_fetchKisSectorIndexDaily.mock.calls.filter((call) => call[0] === failedIscd)).toHaveLength(1);
   });
 
   it('실패 row는 throw 없이 기록하고 providerIssue=true로 남긴다', async () => {
@@ -98,6 +164,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
       success: false,
       providerIssue: true,
       error: 'KIS_EMPTY_OR_DISABLED',
+      errorClass: 'EMPTY',
     });
   });
 
