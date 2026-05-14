@@ -3,6 +3,7 @@ import fs from 'fs';
 import { MACRO_STATE_FILE, ensureDataDir } from './paths.js';
 import type { SectorEnergyInput, SectorEnergyResult } from '../../src/types/sectorEnergy.js';
 import type { FssRecordsAgeInfo } from './fssRepo.js';
+import type { GroupedSectorEnergySnapshot } from '../clients/groupedSectorEnergyProvider.js';
 
 export interface MacroState {
   mhs: number;        // Macro Health Score (0~100)
@@ -261,6 +262,8 @@ export interface MacroState {
     symmetryValidationPassed: boolean;
     shouldBlockLeadershipConfidence: boolean;
     operatorMessage: string;
+    /** SECTOR-CLASSIFICATION-SNAPSHOT — internal grouped energy, shadow/advisory only. */
+    groupedSectorEnergy?: GroupedSectorEnergySnapshot;
     /** ADR-0424: indexCode 백필로 회복된 row 수 (옵셔널, 후방호환). */
     indexCodeBackfilledCount?: number;
     /** ADR-0424: 수리 상태 분류 (옵셔널, 후방호환). */

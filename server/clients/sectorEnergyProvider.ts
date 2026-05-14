@@ -58,6 +58,7 @@ import {
   type SectorEnergySanityViolation,
   type SectorEnergySanityViolationState,
 } from './sectorEnergySanityViolationDiagnostic.js';
+import { buildGroupedSectorEnergyFromSnapshotQuotes, type SymbolGroupedEnergyQuote } from './groupedSectorEnergyProvider.js';
 
 export type StrategicSector =
   | '반도체'
@@ -303,6 +304,59 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     }
   }
 
+
+  // SECTOR-CLASSIFICATION-SNAPSHOT — derive internal grouped energy from already-built
+  // sector input cache/baskets only. No KIS/KRX/Yahoo/Naver calls; diagnostic shadow/advisory only.
+  let groupedSectorEnergy: ReturnType<typeof buildGroupedSectorEnergyFromSnapshotQuotes> | undefined;
+  try {
+    const groupedQuotes: SymbolGroupedEnergyQuote[] = [];
+    for (const input of result.inputs ?? []) {
+      const basketCodes = Array.isArray(input.basketCodes) ? input.basketCodes : [];
+      for (const code of basketCodes) {
+        const close = 100;
+        const r1 = typeof input.return4w === 'number' && Number.isFinite(input.return4w) ? input.return4w / 20 : 0;
+        const r5 = typeof input.sectorReturn5d === 'number' && Number.isFinite(input.sectorReturn5d) ? input.sectorReturn5d : r1 * 5;
+        const r20 = typeof input.sectorReturn20d === 'number' && Number.isFinite(input.sectorReturn20d) ? input.sectorReturn20d : input.return4w;
+        const tradingValueChangePct = typeof input.turnoverAcceleration === 'number' && Number.isFinite(input.turnoverAcceleration)
+          ? input.turnoverAcceleration
+          : input.volumeChangePct;
+        groupedQuotes.push({
+          symbol: code,
+          close,
+          previousClose: close / (1 + r1 / 100),
+          close5dAgo: close / (1 + r5 / 100),
+          close20dAgo: close / (1 + r20 / 100),
+          tradingValue: 100 * (1 + (Number.isFinite(tradingValueChangePct) ? tradingValueChangePct : 0) / 100),
+          tradingValue20dAvg: 100,
+          volume: input.sectorVolumeSurge ? 160 : 100,
+          volume20dAvg: 100,
+          ma20: (input.breadthAbove20ma ?? 0) >= 50 ? 95 : 105,
+          high20d: close / 0.98,
+        });
+      }
+    }
+    if (groupedQuotes.length > 0) {
+      groupedSectorEnergy = buildGroupedSectorEnergyFromSnapshotQuotes(groupedQuotes);
+      console.log(
+        `[SECTOR_CLASSIFICATION_SNAPSHOT] coverage=${groupedSectorEnergy.classification.snapshotCoverage} ` +
+        `missing=${groupedSectorEnergy.classification.missingClassification} source=${groupedSectorEnergy.classification.source} ` +
+        `executionImpact=${groupedSectorEnergy.executionImpact}`,
+      );
+      console.log(
+        `[GROUPED_SECTOR_ENERGY] sourceTier=${groupedSectorEnergy.sourceTier} ` +
+        `validSectorCount=${groupedSectorEnergy.groupedValidSectorCount}/${groupedSectorEnergy.expectedSectorCount} ` +
+        `benchmarkStatus=${groupedSectorEnergy.benchmarkStatus} ` +
+        `topSectors=${groupedSectorEnergy.topGroupedSectors.join(',') || 'none'} ` +
+        `leadershipConfidence=${groupedSectorEnergy.leadershipConfidence} ` +
+        `sectorBoostAllowed=${groupedSectorEnergy.sectorBoostAllowed} ` +
+        `strongBuyAllowed=${groupedSectorEnergy.strongBuyAllowed} ` +
+        `executionImpact=${groupedSectorEnergy.executionImpact}`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[SectorEnergy] grouped snapshot energy synth 실패: ${(err as Error)?.message ?? err}`);
+  }
+
   // ADR-0446 Phase 2: per-build state → Phase 2 recovery diagnostic 합성.
   let sectorIndexRecovery: ReturnType<typeof evaluateIndexCodeRecovery> | undefined;
   if (!isSectorEnergyRecoveryPhase2Disabled() && _currentBuildRecoveryAfter.length > 0) {
@@ -338,6 +392,15 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     console.warn(`[SectorEnergy] KRX raw 부검 진단 합성 실패: ${(err as Error)?.message ?? err}`);
   }
 
+  if (groupedSectorEnergy) {
+    const verifiedCoverage = result.coverageBreakdown?.verifiedIndexCodeCoverage ?? (rowsWithIndexCode / Math.max(1, totalSectorRows));
+    console.log(
+      `[SECTOR_BENCHMARK_STATUS] krxVerifiedIndexCodeCoverage=${(verifiedCoverage * 100).toFixed(1)} ` +
+      `benchmarkStatus=${groupedSectorEnergy.benchmarkStatus} groupedEnergyAvailable=${groupedSectorEnergy.groupedValidSectorCount > 0} ` +
+      `executionImpact=${groupedSectorEnergy.executionImpact}`,
+    );
+  }
+
   const qualityDiagnostic = evaluateSectorEnergyQualityDiagnostic({
     validSectorCount: result.validSectorCount,
     expectedSectorCount: result.totalSectorCount,
@@ -352,6 +415,7 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     ...(sanityViolation ? { sanityViolation } : {}),
     ...(result.sectorCoverageBreakdown ? { coverageBreakdown: result.sectorCoverageBreakdown } : {}),
     ...(result.recoveryAudit ? { representativeBasketAudit: result.recoveryAudit } : {}),
+    ...(groupedSectorEnergy ? { groupedSectorEnergy } : {}),
   });
   return { ...result, qualityDiagnostic };
 }

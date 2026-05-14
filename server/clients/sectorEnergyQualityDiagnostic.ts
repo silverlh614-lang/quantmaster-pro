@@ -32,6 +32,7 @@ import type {
   KrxSectorIndexRawDiagnostic,
 } from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import type { SectorEnergySanityViolationDiagnostic } from './sectorEnergySanityViolationDiagnostic.js';
+import { formatGroupedSectorEnergyDiagnosticSection, type GroupedSectorEnergySnapshot } from './groupedSectorEnergyProvider.js';
 
 // ─── ENV gate SSOT (호출자 측 inline 검사 0건) ──────────────────────────────
 
@@ -230,6 +231,8 @@ export interface SectorEnergyQualityDiagnostic {
   coverageBreakdown?: SectorEnergyCoverageBreakdown;
   /** Patch-SECTOR-ENERGY-STALE-RECOVERY-001 — KIS representative basket construction audit. */
   representativeBasketAudit?: KisRepresentativeBasketAudit;
+  /** SECTOR-CLASSIFICATION-SNAPSHOT — internal grouped energy, shadow/advisory only. */
+  groupedSectorEnergy?: GroupedSectorEnergySnapshot;
 
   /**
    * ADR-0447: alias 확장으로 backfill 된 row 수 (옵셔널 후방호환).
@@ -318,6 +321,8 @@ export interface EvaluateSectorEnergyQualityInput {
   coverageBreakdown?: SectorEnergyCoverageBreakdown;
   /** Patch-SECTOR-ENERGY-STALE-RECOVERY-001 — KIS representative basket construction audit. */
   representativeBasketAudit?: KisRepresentativeBasketAudit;
+  /** SECTOR-CLASSIFICATION-SNAPSHOT — internal grouped energy, shadow/advisory only. */
+  groupedSectorEnergy?: GroupedSectorEnergySnapshot;
 
   /**
    * ADR-0447: alias 확장 카운트 (옵셔널 후방호환).
@@ -637,6 +642,7 @@ export function evaluateSectorEnergyQualityDiagnostic(
     ...(input.sanityViolation ? { sanityViolation: input.sanityViolation } : {}),
     ...(input.coverageBreakdown ? { coverageBreakdown: input.coverageBreakdown } : {}),
     ...(input.representativeBasketAudit ? { representativeBasketAudit: input.representativeBasketAudit } : {}),
+    ...(input.groupedSectorEnergy ? { groupedSectorEnergy: input.groupedSectorEnergy } : {}),
     // ADR-0447 — alias expansion 카운트 (옵셔널, 후방호환).
     // Caller 명시 전달 우선, 미전달 시 sectorIndexRecovery 자동 propagate.
     ...(input.aliasExpansionRecovered !== undefined
@@ -720,6 +726,13 @@ export function formatSectorEnergyQualityDiagnosticSection(
         lines.push(`    ${index + 1}. ${row.sectorName}: ${reasonLabel}`);
       });
     }
+  }
+
+
+  const groupedSection = formatGroupedSectorEnergyDiagnosticSection(diagnostic.groupedSectorEnergy);
+  if (groupedSection) {
+    lines.push('');
+    lines.push(groupedSection);
   }
 
   // Top 3 reasons (텔레그램 메시지 길이 제한)
