@@ -2,7 +2,9 @@
 
 import { fetchKisDailyCandles, type KisChartCandle } from '../screener/kisChartDataFetcher.js';
 import { SECTOR_INDEX_MASTER, type SectorKey } from './sectorEnergyMaster.js';
+import { fetchKisSectorIndexDaily, KIS_SECTOR_ISCD_MAP } from './kisClient/query.js';
 import type { KisInvestorTradeByStockDaily } from './kisClient/index.js';
+import type { KisSectorIndexDaily, KisSectorIndexDailyRow } from './kisClient/types.js';
 import type { SectorEnergyDataQuality, SectorEnergyInput } from './sectorEnergyProvider.js';
 import type { KisRepresentativeBasketAudit, SectorEnergyCoverageBreakdown } from './sectorEnergyQualityDiagnostic.js';
 
@@ -60,6 +62,216 @@ export interface KisSectorEnergyIndexRow {
   leadingStockCount?: number;
   topConstituentMomentum?: number;
   sourceTier?: Extract<KisSectorEnergySourceTier, 'KIS_OFFICIAL_INDEX' | 'KIS_OFFICIAL_DAILY'>;
+}
+
+export interface KisSectorIndexDryRunRow {
+  sectorKey: SectorKey;
+  iscd: string;
+  label: string;
+  success: boolean;
+  seriesCount: number;
+  latestDate?: string;
+  return5d?: number;
+  return20d?: number;
+  turnoverAcceleration?: number;
+  providerIssue?: boolean;
+  error?: string;
+}
+
+export interface KisSectorIndexDryRunReport {
+  enabled: boolean;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  rows: KisSectorIndexDryRunRow[];
+  sourceTier: 'KIS_SECTOR_INDEX_DAILY_DRYRUN';
+  dataQuality: 'PARTIAL';
+  officialBenchmark: false;
+  sectorBoostAllowed: false;
+  strongBuyAllowed: false;
+  executionImpact: 'NONE';
+  marketSignal: false;
+  providerIssue: boolean;
+}
+
+interface KisSectorIndexDryRunCacheEntry {
+  expiresAt: number;
+  report: KisSectorIndexDryRunReport;
+}
+
+const KIS_SECTOR_INDEX_DRYRUN_TTL_MS = 20 * 60 * 1000;
+const KIS_SECTOR_INDEX_NEGATIVE_COOLDOWN_MS = 10 * 60 * 1000;
+let kisSectorIndexDryRunCache: KisSectorIndexDryRunCacheEntry | null = null;
+const kisSectorIndexNegativeCooldownUntil = new Map<string, number>();
+
+function emptyKisSectorIndexDryRunReport(enabled: boolean): KisSectorIndexDryRunReport {
+  return {
+    enabled,
+    attempted: 0,
+    succeeded: 0,
+    failed: 0,
+    rows: [],
+    sourceTier: 'KIS_SECTOR_INDEX_DAILY_DRYRUN',
+    dataQuality: 'PARTIAL',
+    officialBenchmark: false,
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    executionImpact: 'NONE',
+    marketSignal: false,
+    providerIssue: false,
+  };
+}
+
+function roundMetric(value: number | undefined): number | undefined {
+  if (!finite(value)) return undefined;
+  return Math.round(value * 10000) / 10000;
+}
+
+function sortedKisSectorIndexSeries(series: readonly KisSectorIndexDailyRow[]): KisSectorIndexDailyRow[] {
+  return [...series]
+    .filter((row) => /^\d{8}$/.test(row.baseDate) && finite(row.close) && row.close > 0)
+    .sort((a, b) => a.baseDate.localeCompare(b.baseDate));
+}
+
+function deriveKisSectorIndexDryRunMetrics(result: KisSectorIndexDaily): Pick<KisSectorIndexDryRunRow, 'seriesCount' | 'latestDate' | 'return5d' | 'return20d' | 'turnoverAcceleration'> {
+  const rows = sortedKisSectorIndexSeries(result.series);
+  const latest = rows.at(-1);
+  const return5d = rows.length >= 6 ? pctChange(rows.at(-6)!.close, latest!.close) : undefined;
+  const return20d = rows.length >= 21 ? pctChange(rows.at(-21)!.close, latest!.close) : undefined;
+  const recentVolumes = rows.slice(-5).map((row) => row.volume).filter(finite);
+  const previousVolumes = rows.slice(-25, -5).map((row) => row.volume).filter(finite);
+  const previousAvg = avg(previousVolumes);
+  const turnoverAcceleration = previousAvg > 0 ? ((avg(recentVolumes) - previousAvg) / previousAvg) * 100 : undefined;
+  return {
+    seriesCount: rows.length,
+    latestDate: latest?.baseDate,
+    return5d: roundMetric(return5d),
+    return20d: roundMetric(return20d),
+    turnoverAcceleration: roundMetric(turnoverAcceleration),
+  };
+}
+
+/**
+ * KIS 국내업종 기간별 지수 dry-run diagnostic.
+ *
+ * read-only invariant:
+ * - ENV `KIS_SECTOR_INDEX_DAILY_ENABLED === 'true'` 에서만 KIS 호출.
+ * - `/sector_energy_diag` 같은 운영자 진단에서만 호출하며 live fallback 에 연결하지 않는다.
+ * - KIS 응답은 KRX official benchmark 로 승격하지 않고 dataQuality=PARTIAL / executionImpact=NONE 고정.
+ */
+export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise<KisSectorIndexDryRunReport> {
+  const enabled = process.env.KIS_SECTOR_INDEX_DAILY_ENABLED === 'true';
+  if (!enabled) {
+    kisSectorIndexDryRunCache = null;
+    return emptyKisSectorIndexDryRunReport(false);
+  }
+  if (kisSectorIndexDryRunCache && kisSectorIndexDryRunCache.expiresAt > nowMs) {
+    return kisSectorIndexDryRunCache.report;
+  }
+
+  const rows = await mapLimit([...KIS_SECTOR_ISCD_MAP], 3, async (entry): Promise<KisSectorIndexDryRunRow> => {
+    const cooldownUntil = kisSectorIndexNegativeCooldownUntil.get(entry.iscd) ?? 0;
+    if (cooldownUntil > nowMs) {
+      return {
+        sectorKey: entry.sectorKey,
+        iscd: entry.iscd,
+        label: entry.label,
+        success: false,
+        seriesCount: 0,
+        providerIssue: true,
+        error: 'NEGATIVE_COOLDOWN_ACTIVE',
+      };
+    }
+    try {
+      const result = await fetchKisSectorIndexDaily(entry.iscd);
+      if (!result || result.series.length === 0) {
+        kisSectorIndexNegativeCooldownUntil.set(entry.iscd, nowMs + KIS_SECTOR_INDEX_NEGATIVE_COOLDOWN_MS);
+        return {
+          sectorKey: entry.sectorKey,
+          iscd: entry.iscd,
+          label: entry.label,
+          success: false,
+          seriesCount: 0,
+          providerIssue: true,
+          error: result ? 'EMPTY_SERIES' : 'KIS_EMPTY_OR_DISABLED',
+        };
+      }
+      const metrics = deriveKisSectorIndexDryRunMetrics(result);
+      return {
+        sectorKey: entry.sectorKey,
+        iscd: entry.iscd,
+        label: entry.label,
+        success: true,
+        providerIssue: false,
+        ...metrics,
+      };
+    } catch (error) {
+      kisSectorIndexNegativeCooldownUntil.set(entry.iscd, nowMs + KIS_SECTOR_INDEX_NEGATIVE_COOLDOWN_MS);
+      return {
+        sectorKey: entry.sectorKey,
+        iscd: entry.iscd,
+        label: entry.label,
+        success: false,
+        seriesCount: 0,
+        providerIssue: true,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  const succeeded = rows.filter((row) => row.success).length;
+  const report: KisSectorIndexDryRunReport = {
+    enabled: true,
+    attempted: rows.length,
+    succeeded,
+    failed: rows.length - succeeded,
+    rows,
+    sourceTier: 'KIS_SECTOR_INDEX_DAILY_DRYRUN',
+    dataQuality: 'PARTIAL',
+    officialBenchmark: false,
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    executionImpact: 'NONE',
+    marketSignal: false,
+    providerIssue: rows.some((row) => row.providerIssue),
+  };
+  kisSectorIndexDryRunCache = {
+    expiresAt: nowMs + KIS_SECTOR_INDEX_DRYRUN_TTL_MS,
+    report,
+  };
+  console.log(
+    `[KS_SECTOR_INDEX_DRYRUN] enabled=${report.enabled} attempted=${report.attempted} succeeded=${report.succeeded} failed=${report.failed} sourceTier=${report.sourceTier} dataQuality=${report.dataQuality} officialBenchmark=${report.officialBenchmark} sectorBoostAllowed=${report.sectorBoostAllowed} strongBuyAllowed=${report.strongBuyAllowed} executionImpact=${report.executionImpact}`,
+  );
+  return report;
+}
+
+export function resetKisSectorIndexDryRunCacheForTests(): void {
+  kisSectorIndexDryRunCache = null;
+  kisSectorIndexNegativeCooldownUntil.clear();
+}
+
+export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunReport): string {
+  const latestDateTop = report.rows
+    .map((row) => row.latestDate)
+    .filter((date): date is string => typeof date === 'string' && /^\d{8}$/.test(date))
+    .sort()
+    .at(-1) ?? 'N/A';
+  const failedIscd = report.rows
+    .filter((row) => !row.success)
+    .map((row) => row.iscd)
+    .join(', ') || 'none';
+  return [
+    '🧪 <b>KIS Sector Index Dry Run</b>',
+    `- enabled: <b>${String(report.enabled)}</b>`,
+    `- attempted: <b>${report.attempted}</b>`,
+    `- succeeded: <b>${report.succeeded}</b>`,
+    `- failed: <b>${report.failed}</b>`,
+    `- latestDateTop: <code>${latestDateTop}</code>`,
+    `- failedIscd: <code>${failedIscd}</code>`,
+    `- sourceTier: <code>${report.sourceTier}</code>`,
+    `- officialBenchmark: <b>${String(report.officialBenchmark)}</b>`,
+    '- nextAction: <code>VERIFY_ISCD_MAP_BEFORE_L4_WIRING</code>',
+  ].join('\n');
 }
 
 export interface KisSectorEnergyProviderOverrides {
@@ -288,7 +500,6 @@ function inputFromMetrics(
   };
 }
 
-
 export function buildKisSectorBasketRowsFromSeries(
   seriesByCode: Record<string, KisChartCandle[]>,
 ): KisSectorBasketRow[] {
@@ -395,7 +606,6 @@ async function mapLimit<T, R>(
   await Promise.all(workers);
   return output;
 }
-
 
 function parseYmd(date: string | undefined): Date | null {
   if (!date || !/^\d{8}$/.test(date)) return null;

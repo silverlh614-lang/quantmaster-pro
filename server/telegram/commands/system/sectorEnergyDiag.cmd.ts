@@ -359,6 +359,21 @@ export function formatSectorEnergyDiagMessage(): string {
   return lines.join('\n');
 }
 
+function formatDisabledKisSectorIndexDryRunSection(): string {
+  return [
+    '🧪 <b>KIS Sector Index Dry Run</b>',
+    '- enabled: <b>false</b>',
+    '- attempted: <b>0</b>',
+    '- succeeded: <b>0</b>',
+    '- failed: <b>0</b>',
+    '- latestDateTop: <code>N/A</code>',
+    '- failedIscd: <code>none</code>',
+    '- sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>',
+    '- officialBenchmark: <b>false</b>',
+    '- nextAction: <code>VERIFY_ISCD_MAP_BEFORE_L4_WIRING</code>',
+  ].join('\n');
+}
+
 const sectorEnergyDiag: TelegramCommand = {
   name: '/sector_energy_diag',
   aliases: ['/se', '/sed', '/sector_diag'],
@@ -369,7 +384,16 @@ const sectorEnergyDiag: TelegramCommand = {
   usage: '/sector_energy_diag',
   async execute({ reply }) {
     try {
-      const message = formatSectorEnergyDiagMessage();
+      const baseMessage = formatSectorEnergyDiagMessage();
+      if (process.env.KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true') {
+        await reply(`${baseMessage}\n\n${formatDisabledKisSectorIndexDryRunSection()}`);
+        return;
+      }
+      const { fetchKisSectorIndexRowsDryRun, formatKisSectorIndexDryRunSection } = await import(
+        '../../../clients/kisSectorEnergyProvider.js'
+      );
+      const dryRun = await fetchKisSectorIndexRowsDryRun();
+      const message = `${baseMessage}\n\n${formatKisSectorIndexDryRunSection(dryRun)}`;
       await reply(message);
     } catch (err) {
       console.error('[sectorEnergyDiag.cmd] failed', err);

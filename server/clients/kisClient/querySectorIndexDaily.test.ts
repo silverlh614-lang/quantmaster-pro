@@ -21,6 +21,7 @@ vi.mock('./constants.js', () => ({
 let fetchKisSectorIndexDaily: typeof import('./query.js').fetchKisSectorIndexDaily;
 let isKisSectorIndexDailyDisabled: typeof import('./query.js').isKisSectorIndexDailyDisabled;
 let KIS_SECTOR_INDEX_ISCD: typeof import('./query.js').KIS_SECTOR_INDEX_ISCD;
+let KIS_SECTOR_ISCD_MAP: typeof import('./query.js').KIS_SECTOR_ISCD_MAP;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -36,6 +37,7 @@ beforeEach(async () => {
   fetchKisSectorIndexDaily = mod.fetchKisSectorIndexDaily;
   isKisSectorIndexDailyDisabled = mod.isKisSectorIndexDailyDisabled;
   KIS_SECTOR_INDEX_ISCD = mod.KIS_SECTOR_INDEX_ISCD;
+  KIS_SECTOR_ISCD_MAP = mod.KIS_SECTOR_ISCD_MAP;
 });
 
 afterEach(() => {
@@ -68,6 +70,18 @@ describe('KIS_SECTOR_INDEX_ISCD SSOT', () => {
     expect(KIS_SECTOR_INDEX_ISCD.KOSPI).toBe('0001');
     expect(KIS_SECTOR_INDEX_ISCD.KOSDAQ).toBe('1001');
     expect(KIS_SECTOR_INDEX_ISCD.KOSPI200).toBe('2001');
+  });
+});
+
+describe('KIS_SECTOR_ISCD_MAP 12-sector dry-run SSOT', () => {
+  it('12개 SectorKey에 4자리 best-effort 코드와 UNVERIFIED 상태를 노출', () => {
+    expect(KIS_SECTOR_ISCD_MAP).toHaveLength(12);
+    expect(new Set(KIS_SECTOR_ISCD_MAP.map((row) => row.sectorKey)).size).toBe(12);
+    for (const row of KIS_SECTOR_ISCD_MAP) {
+      expect(row.iscd).toMatch(/^\d{4}$/);
+      expect(row.verified).toBe(false);
+      expect(row.source).toBe('KIS_OFFICIAL_DOC_BEST_EFFORT');
+    }
   });
 });
 
