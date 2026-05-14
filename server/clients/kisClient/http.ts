@@ -43,40 +43,6 @@ import {
   recordProviderSuccess,
   shouldSkipProviderCall,
 } from './providerHealthIsolationPatch003.js';
-// Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — 5-priority budget queue (P0~P4) +
-//   trId+symbol+priority TTL dedup + DATA_VACUUM root cause 4분류. literal type 강제로
-//   marketSignal=false / executionImpact=NONE|NEW_BUY_BLOCKED_ONLY / engineAlive=true /
-//   shadowLearning=true 보장. ENV `KIS_PRIORITY_BUDGET_PATCH_004_DISABLED=true` 1줄 즉시
-//   Patch-003 동작 100% 복원. 호출자 측 inline ENV 검사 0건 — SSOT 위임.
-import {
-  evaluatePriorityBudget,
-  formatKisPriorityBudgetLogThrottled,
-  isPriorityCallDeduped,
-  mapPriorityV1ToV2,
-  recordPriorityBudgetCall,
-  recordPriorityCallTtl,
-  shouldEmitTtlDedupLog,
-} from './kisPriorityBudgetPatch004.js';
-import {
-  classifyDataVacuumRootCause,
-  formatDataVacuumRootCauseLogThrottled,
-} from './dataVacuumRootCauseClassifierPatch004.js';
-// Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — circuit×priority enforcement
-//   매트릭스 SSOT (CLOSED / SOFT_THROTTLED / OPEN / HARD_OPEN). READY_CANDIDATE(P2) 가
-//   OPEN/HARD_OPEN 상태에서 deferred queue 적재 영구 금지 — SKIP_WITH_STALE_OR_BLOCK 처리.
-//   P0/P1 최소 허용, P3/P4 suppress. ENV 1줄 즉시 PR #965 동작 100% 복원.
-//   호출자 측 inline ENV 검사 0건 — SSOT 위임 의무.
-import {
-  evaluateCircuitEnforcement,
-  formatKisCircuitStateLog,
-  formatKisReadyCandidateSkippedLog,
-  shouldEmitCircuitStateLog,
-} from './kisCircuitStateGovernorPatch005.js';
-import {
-  formatKisTrTtlCacheHitLog,
-  lookupKisTrResultCache,
-  storeKisTrResultCache,
-} from './kisResultCachePatch005.js';
 import {
   assessKisTrPressure,
   classifyKisError,
@@ -369,84 +335,6 @@ export function realDataKisGet(
     if (pressureGate.level === 'SOFT' || pressureGate.level === 'HARD') {
       console.warn(`[KIS_TR_THROTTLE_APPLIED] trId=${trId} level=${pressureGate.level} sameSecondCalls=${pressureGate.sameSecondCalls} sameMinuteCalls=${pressureGate.sameMinuteCalls} retryWaveDetected=${pressureGate.retryWaveDetected} action=DEFER_LOW_PRIORITY_CALLS executionImpact=NONE`);
     }
-    // Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — 5-priority budget queue (P0~P4)
-    //   wiring 진입. P0_POSITION_EXIT 는 항상 통과 (절대 불변식). circuit OPEN/HARD throttle 시
-    //   P3/P4 자동 defer/suppress. TTL dedup 으로 5초 내 동일 trId+symbol+priority 중복 차단.
-    //   LIVE 매매 본체 0줄 변경 — 진단 layer + 신규 fallback decision wrapper 만.
-    const callPriorityV2 = mapPriorityV1ToV2(pressureGate.shouldDefer || _isCircuitOpen(trId) || isKisServerCircuitOpen(trId)
-      ? pressureGate.circuitState === 'OPEN' || pressureGate.level === 'HARD' ? callPriority : callPriority
-      : callPriority);
-
-    // Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — 5s TTL result cache lookup
-    //   동일 trId+symbol+params 가 5초 내 재호출 시 cached result 반환 (네트워크 호출 0건).
-    //   P0_POSITION_EXIT 는 cache 적용 안 함 (보유 매도 최신 데이터 절대 보호).
-    //   ENV `KIS_RESULT_CACHE_PATCH_005_DISABLED=true` 시 cache miss 강제 (legacy 동작 복원).
-    const cacheLookup = lookupKisTrResultCache(trId, symbol, callPriorityV2, params);
-    if (cacheLookup.hit) {
-      console.info(formatKisTrTtlCacheHitLog(trId, symbol, cacheLookup.ageMs ?? 0));
-      return cacheLookup.result;
-    }
-
-    // Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — circuit×priority enforcement
-    //   매트릭스 SSOT. SOFT_THROTTLED + P2 cache miss → SKIP_WITH_STALE_OR_BLOCK (deferred queue 적재 0).
-    //   OPEN + P2 → SKIP_WITH_STALE_OR_BLOCK. HARD_OPEN + P1 → SKIP. P3/P4 SUPPRESS.
-    //   P0 는 모든 state 에서 통과 (HARD_OPEN 에서도 ALLOW_LIMITED).
-    const _cachedForGovernor = getLastGoodForKey(requestKey);
-    const _governorCacheAvailable = _cachedForGovernor !== null && _cachedForGovernor.confidence !== 'MISSING';
-    const enforcement = evaluateCircuitEnforcement({
-      trId,
-      symbol,
-      priority: callPriorityV2,
-      trCircuitState: pressureGate.circuitState,
-      throttleLevel: pressureGate.level,
-      cacheAvailable: _governorCacheAvailable,
-    });
-    // circuit state 전이 시 1회만 emit (60s window throttle 동반)
-    const circuitLogResult = shouldEmitCircuitStateLog(trId, enforcement.enforcementState);
-    if (circuitLogResult.emit) {
-      console.warn(formatKisCircuitStateLog(enforcement));
-    }
-    if (!enforcement.allowed) {
-      // P2 SKIP_WITH_STALE_OR_BLOCK 분기 — deferred queue 적재 영구 금지 (절대 불변식)
-      if (callPriorityV2 === 'P2_READY_CANDIDATE_CONFIRM') {
-        console.warn(formatKisReadyCandidateSkippedLog(enforcement));
-      }
-      // P1 HARD_OPEN SKIP — deferred queue 적재 0
-      // P3/P4 SUPPRESS — Patch-004 정합 (별도 로그 0건)
-      if (_cachedForGovernor && _cachedForGovernor.confidence !== 'MISSING') {
-        return _cachedForGovernor.value;
-      }
-      return null;
-    }
-    const _cachedForBudget = getLastGoodForKey(requestKey);
-    const _cacheAvailableForBudget = _cachedForBudget !== null && _cachedForBudget.confidence !== 'MISSING';
-    const budgetDecision = evaluatePriorityBudget({
-      trId,
-      symbol,
-      priority: callPriorityV2,
-      throttleLevel: pressureGate.level,
-      circuitState: pressureGate.circuitState,
-      sameSecondCalls: pressureGate.sameSecondCalls,
-      sameMinuteCalls: pressureGate.sameMinuteCalls,
-      cacheAvailable: _cacheAvailableForBudget,
-    });
-    if (!budgetDecision.allowed) {
-      // Patch-004 throttle hotfix — (trId, reason) 별 60s window 내 첫 emit 1회만 detail
-      //   출력, 후속은 suppress + 카운트 누적. 60s 경과 후 다음 emit 에 suppressedCount
-      //   suffix 부착. ENV `KIS_PRIORITY_BUDGET_LOG_THROTTLE_DISABLED=true` 1줄 즉시 복원.
-      //   사용자 5/14 Railway 로그 도배 결함 차단 — `realDataKisGet` 매 호출마다 2 console.warn
-      //   라인이 throttle/circuit 활성 시 분당 수백 라인 폭주하던 결함.
-      const budgetLog = formatKisPriorityBudgetLogThrottled(budgetDecision);
-      if (budgetLog) console.warn(budgetLog);
-      // P3/P4 budget denial is diagnostic-only; never emit DATA_VACUUM from budget suppression.
-      if (budgetDecision.deferred) {
-        recordKisCallDeferred(trId, Date.now(), { endpoint: apiPath, symbol, caller: 'realDataKisGet', priority: callPriority });
-      }
-      if (_cachedForBudget && _cachedForBudget.confidence !== 'MISSING') {
-        return _cachedForBudget.value;
-      }
-      return null;
-    }
     if (_isCircuitOpen(trId) || isKisServerCircuitOpen(trId) || pressureGate.shouldDefer) {
       const cached = getLastGoodForKey(requestKey);
       recordKisCallDeferred(trId, Date.now(), { endpoint: apiPath, symbol, caller: 'realDataKisGet', priority: callPriority });
@@ -476,23 +364,6 @@ export function realDataKisGet(
       // 잡음 차단 — cooldown skip 은 별도 INFO 로그 0건 (suppressed count 만 누적).
       return null;
     }
-    // Patch-KIS-TR-PRIORITY-BUDGET-AND-SAFE-DEGRADE-001 — TTL dedup check + budget call record.
-    //   동일 trId+symbol+priority 호출이 5초 TTL 내 중복이면 dedup defer.
-    //   P0_POSITION_EXIT 은 dedup 적용 안 함 (보유 매도 절대 보호 invariant).
-    if (isPriorityCallDeduped(trId, symbol, callPriorityV2)) {
-      // Patch-004 throttle hotfix — TTL_DEDUP_DUPLICATE 도 trId 별 60s window 적용.
-      //   5초 TTL dedup 자체는 동작 그대로 (호출 차단 = 정상 invariant), 로그 출력만 throttle.
-      const dedupLog = shouldEmitTtlDedupLog(trId);
-      if (dedupLog.emit) {
-        const suffix = dedupLog.suppressedSinceLast > 0
-          ? ` suppressedSinceLastMs=${dedupLog.windowMs} suppressedCount=${dedupLog.suppressedSinceLast}`
-          : '';
-        console.warn(`[KIS_PRIORITY_BUDGET] priority=${callPriorityV2} allowed=false reason=TTL_DEDUP_DUPLICATE action=DEFER executionImpact=NONE${suffix}`);
-      }
-      return null;
-    }
-    recordPriorityCallTtl(trId, symbol, callPriorityV2);
-    recordPriorityBudgetCall(trId, callPriorityV2);
     // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine.
     //   OPEN 상태 시 호출 차단 (잡음 0). HALF_OPEN 으로 자동 전이 후 1회 test 통과.
     //   호출자 측 inline ENV 검사 0건 — `shouldSkipProviderCall` SSOT 위임.
@@ -623,21 +494,6 @@ export function realDataKisGet(
         }
         const fallback = selectKisFallback({ trId, errorClass: taxonomy.errorClass });
         console.info(formatKisFallbackSelectedLog({ fromTrId: trId, errorClass: taxonomy.errorClass, ...fallback }));
-        if (callPriorityV2 === 'P2_READY_CANDIDATE_CONFIRM') {
-          const cachedForExecution = getLastGoodForKey(requestKey);
-          const cacheAvailableForExecution = cachedForExecution !== null && cachedForExecution.confidence !== 'MISSING';
-          const vacuum = classifyDataVacuumRootCause({
-            throttleLevel: pressureGate.level,
-            circuitState: trPressure.circuitState,
-            hasRecent5xx: true,
-            cacheAvailable: cacheAvailableForExecution,
-            upstreamHydrationFailed: false,
-            priority: callPriorityV2,
-            trId,
-          });
-          const vacuumLog = formatDataVacuumRootCauseLogThrottled(vacuum);
-          if (vacuumLog) console.warn(vacuumLog);
-        }
       }
 
       if (!res.ok) {
@@ -692,10 +548,6 @@ export function realDataKisGet(
       try {
         const parsed = JSON.parse(text);
         _realDataLastGood.set(requestKey, { value: parsed, storedAt: Date.now() });
-        // Patch-KIS-CIRCUIT-OPEN-ENFORCEMENT-AND-DATA-EVAL-STATE-001 — result cache store.
-        //   P0_POSITION_EXIT 는 자동 제외 (storeKisTrResultCache 내부 invariant).
-        //   ENV `KIS_RESULT_CACHE_PATCH_005_DISABLED=true` 시 no-op (legacy 동작 복원).
-        storeKisTrResultCache(trId, symbol, callPriorityV2, params, parsed);
         return parsed;
       } catch { return null; }
     }
