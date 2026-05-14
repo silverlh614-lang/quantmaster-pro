@@ -24,13 +24,14 @@ export type ProgramMarketRoutedStatus =
   | 'PARAM_MISMATCH'  // 요청 파라미터 문제로 빈 응답 의심 (FID_INPUT_ISCD 등)
   | 'STALE_CACHE'     // cache 만 사용 가능 (LGV TTL 초과 직전)
   | 'DEGRADED'        // provider 응답 불안정 (다중 시도 실패)
-  | 'MISSING';        // 모든 provider 에서 데이터 없음
+  | 'MISSING'         // 모든 provider 에서 데이터 없음
+  | 'SESSION_CLOSED'; // 장외/휴장: intraday-only program trading not evaluated
 
 /** 사용자 §B: routed source 분류. */
 export type ProgramMarketRoutedSource = 'KIS_API' | 'KRX_API' | 'CACHE' | 'NONE';
 
 /** 사용자 §B: scoring 정책. */
-export type ProgramMarketScoringPolicy = 'allowed_when_non_empty' | 'shadow_only_or_excluded' | 'excluded';
+export type ProgramMarketScoringPolicy = 'allowed_when_non_empty' | 'shadow_only_or_excluded' | 'excluded' | 'excluded_afterhours';
 
 /** Telegram 문구 변형 4종 (사용자 §J #6). */
 export type ProgramMarketTextVariant =
@@ -434,6 +435,7 @@ export function formatProgramMarketRouted(decision: ProgramMarketRoutingDecision
   const lines: string[] = [
     `route: KIS>KRX | fb=CACHE | diag=KIS | scoring=${decision.scoring}`,
     `source: ${decision.source}`,
+    `status: ${decision.routedStatus === 'SESSION_CLOSED' ? 'SESSION_CLOSED' : decision.routedStatus}`,
     `routedStatus: ${decision.routedStatus}`,
     `rawStatus: ${decision.rawStatus}`,
     `fallback: ${decision.fallbackAttempted ? decision.fallbackResult : 'NOT_TRIED'}`,

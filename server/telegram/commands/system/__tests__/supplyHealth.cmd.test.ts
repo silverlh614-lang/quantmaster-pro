@@ -360,6 +360,36 @@ describe('/supply_health command', () => {
     expect(msg.length).toBeLessThan(4096);
   });
 
+  it('장외시간 프로그램매매 missing/empty는 SESSION_CLOSED/GRAY로 표시하고 KIS live 호출을 늘리지 않는다', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue(null);
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-01T08:00:00.000Z'));
+
+    expect(msg).toContain('3. ⚪ 종목 프로그램매매');
+    expect(msg).toContain('4. ⚪ 시장 프로그램매매');
+    expect(msg).toContain('status: SESSION_CLOSED');
+    expect(msg).toContain('lamp: GRAY');
+    expect(msg).toContain('success: N/A');
+    expect(msg).toContain('missing: N/A');
+    expect(msg).toContain('scoring=excluded_afterhours');
+    expect(msg).toContain('reason: STOCK_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED');
+    expect(msg).toContain('reason: MARKET_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED');
+    expect(msg).toContain('providerIssue=false');
+    expect(msg).toContain('marketSignal=false');
+    expect(msg).toContain('executionImpact=NONE');
+    expect(msg).toContain('dataVacuum=false');
+    expect(msg).toContain('newBuyBlocked=false');
+    expect(msg).not.toContain('3. 🔴 종목 프로그램매매');
+    expect(msg).not.toContain('판정: DEGRADED — 프로그램 수급 coverage/zero-filled 확인 필요');
+    expect(stockProgramMock.mock.calls.some((args) => args[1] === 'MEDIUM')).toBe(false);
+    expect(marketProgramMock.mock.calls.some((args) => args[0] === 'MEDIUM')).toBe(false);
+  });
+
   it('하단 상세는 8채널 고정 순서로 출력', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
     writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));

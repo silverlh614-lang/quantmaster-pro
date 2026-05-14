@@ -222,7 +222,7 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     else process.env.KRX_MARKET_PROGRAM_FALLBACK_DISABLED = origKrx;
   });
 
-  it('intradaySession=false이면 KRX fallback을 호출하지 않고 SESSION_CLOSED_NOT_APPLICABLE로 격리한다', async () => {
+  it('intradaySession=false이면 KRX fallback을 호출하지 않고 SESSION_CLOSED로 격리한다', async () => {
     let krxCalled = false;
     const decision = await routeProgramMarketEmptyWithKrxAggregate(
       { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0, marketCode: '0001' } },
@@ -241,9 +241,9 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     );
 
     expect(krxCalled).toBe(false);
-    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED');
     expect(decision.source).toBe('NONE');
-    expect(decision.scoring).toBe('excluded');
+    expect(decision.scoring).toBe('excluded_afterhours');
     expect(decision.fallbackAttempted).toBe(false);
     expect(decision.fallbackResult).toBe('NOT_TRIED');
     expect(decision.krxAttempted).toBe(false);
@@ -251,7 +251,7 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
     expect(decision.providerIssue).toBe(false);
     expect(decision.marketSignal).toBe(false);
     expect(decision.executionImpact).toBe('NONE');
-    expect(decision.decisionDetail).toContain('MARKET_PROGRAM_INTRADAY_ONLY');
+    expect(decision.decisionDetail).toBe('MARKET_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED');
   });
 
   it('session=CLOSED 격리가 다음 INTRADAY KRX fallback을 차단하지 않는다', async () => {
@@ -366,9 +366,9 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
       },
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED');
     expect(decision.source).toBe('NONE');
-    expect(decision.scoring).toBe('excluded');
+    expect(decision.scoring).toBe('excluded_afterhours');
     expect(decision.displayCase).toBe('I_SESSION_CLOSED_NOT_APPLICABLE');
     expect(decision.cacheTtl?.tier).toBe('FRESH');
     expect(decision.cacheTtl?.ageMs).toBe(3 * 60 * 1000);
@@ -387,7 +387,7 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
       },
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED');
     expect(decision.source).toBe('NONE');
     expect(decision.cacheTtl?.tier).toBe('SHADOW_ONLY');
     expect(decision.displayCase).toBe('I_SESSION_CLOSED_NOT_APPLICABLE');
@@ -406,9 +406,9 @@ describe('Patch-006 routeProgramMarketEmptyWithKrxAggregate', () => {
       },
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
-    expect(decision.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(decision.routedStatus).toBe('SESSION_CLOSED');
     expect(decision.source).toBe('NONE');
-    expect(decision.scoring).toBe('excluded');
+    expect(decision.scoring).toBe('excluded_afterhours');
     expect(decision.cacheTtl?.tier).toBe('EXPIRED');
   });
 
@@ -610,7 +610,7 @@ describe('Patch-006 formatProgramMarketRoutedV2', () => {
       { fetchKrx: async () => agg, nowMs: NON_INTRADAY_NOW_MS },
     );
     const text = formatProgramMarketRoutedV2(decision).join('\n');
-    expect(text).toContain('routedStatusV2: SESSION_CLOSED_NOT_APPLICABLE');
+    expect(text).toContain('routedStatusV2: SESSION_CLOSED');
     expect(text).toContain('cacheTtl: tier=EXPIRED');
   });
 });
