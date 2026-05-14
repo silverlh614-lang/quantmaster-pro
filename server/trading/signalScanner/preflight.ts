@@ -461,7 +461,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   if (!volumeClock.allowEntry) {
     console.log(volumeClock.reason);
-    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:30, 13:00~15:20 KST)`);
+    // ADR-0515 — volumeClock 점심 차단을 ADR-0192(12:00~12:59) 정합 → 허용 구간 09:30~11:59.
+    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:59, 13:00~15:20 KST)`);
     await recordBlockedDayShadowScan('VOLUME_CLOCK_BLOCK');
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);

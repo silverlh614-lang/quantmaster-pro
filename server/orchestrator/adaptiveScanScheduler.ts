@@ -440,14 +440,16 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
       return;
     }
 
-    // ADR-0237: volumeClock 매수 차단 구간 (점심 11:31~12:59 / 시초가 09:00~09:29 /
-    // 마감 동시호가 15:21~15:30) 의 빈 스캔은 preflight 가 의도적으로 abort 한
-    // 것이므로 정상 동작. consecutiveEmptyScans 증가 + 경고 모두 차단.
+    // ADR-0237 / ADR-0515: volumeClock 매수 차단 구간 (시초가 09:00~09:29 /
+    // 점심 12:00~12:59 (ADR-0192 정합) / 마감 동시호가 15:21~15:30) 의 빈 스캔은
+    // preflight 가 의도적으로 abort 한 것이므로 정상 동작.
+    // consecutiveEmptyScans 증가 + 경고 모두 차단.
+    //   legacy(TRADE_WINDOW_LEGACY_HOURS=true): 점심 11:31~12:59 (ADR-0237).
     //
     // 결함 사유: 기존 코드는 isBuyableKstWindow (09:30~12:00 + 13:00~15:30, ADR-0192)
-    // 만 사용해 11:31~11:59 / 15:21~15:30 같은 *볼륨클록 BLOCKED + 매수창 inside*
-    // 영역에서 false positive 경고 ("Gate 임계치 점검 필요") 발생.
-    // 사용자 5/6 11:43 보고 — 점심 차단 9회 빈 스캔 → 잘못된 임계 조정 권유.
+    // 만 사용해 *볼륨클록 BLOCKED + 매수창 inside* 영역에서 false positive 경고
+    // ("Gate 임계치 점검 필요") 발생. 사용자 5/6 11:43 보고 — 점심 차단 빈 스캔 →
+    // 잘못된 임계 조정 권유.
     //
     // checkVolumeClockWindow.allowEntry=false 시 즉시 return — 카운터 보존 (BLOCKED
     // 종료 후 매수창 재개 시 이전 누적 그대로 평가).
