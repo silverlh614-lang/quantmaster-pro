@@ -10,6 +10,8 @@
  * 정책 작동 중인 종목을 1 명령으로 인지 가능. ENV
  * `SCAN_BLOCKERS_PROVIDER_DEGRADED_DISABLED=true` 시 섹션 미노출.
  */
+import { randomUUID } from 'node:crypto';
+
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import {
@@ -200,6 +202,26 @@ const scanBlockers: TelegramCommand = {
   description: '직전 스캔의 매수 차단 사유 분포 + 거시 게이트 상태 (ADR-0118 / ADR-0506)',
   usage: '/scan_blockers [full|gate|supply|sector|runtime]',
   async execute({ args, reply }) {
+    const requestId = randomUUID();
+    let replyCount = 0;
+
+    async function replyOnce(message: string): Promise<void> {
+      if (replyCount > 0) {
+        console.warn(
+          `[scan_blockers] duplicate reply suppressed requestId=${requestId} replyCount=${replyCount}`,
+        );
+        return;
+      }
+      replyCount += 1;
+      await reply(message);
+    }
+
+    async function replyMany(messages: string[]): Promise<void> {
+      for (const message of messages) {
+        await reply(message);
+      }
+    }
+
     // ADR-0506 — mode parser (default compact). unknown → compact fallback + usage hint.
     // ADR-0507 — gate sub-mode 인식 ('gate' / 'gate full').
     const modeResult = parseScanBlockersMode(args);
@@ -207,6 +229,22 @@ const scanBlockers: TelegramCommand = {
     const gateSubMode = modeResult.gateSubMode;
     const supplySubMode = modeResult.supplySubMode ?? 'summary';
     const summary = getLastScanSummary();
+
+    function logCommand(replyMode: 'single' | 'paginated', pages?: number): void {
+      const subMode = mode === 'gate'
+        ? (gateSubMode ?? 'compact')
+        : mode === 'supply'
+          ? supplySubMode
+          : 'summary';
+      console.info([
+        '[SCAN_BLOCKERS_COMMAND]',
+        `requestId=${requestId}`,
+        `mode=${mode}`,
+        `subMode=${subMode}`,
+        `replyMode=${replyMode}`,
+        ...(typeof pages === 'number' ? [`pages=${pages}`] : []),
+      ].join(' '));
+    }
 
     // ADR-0506 — ADR-0505 emission status (compact 안 + gate/full 모드 노출).
     // diagnostic-only — process.env read 만, throw 안 함 (deriveAdr0505EmissionStatus 자체 안전).
@@ -218,7 +256,8 @@ const scanBlockers: TelegramCommand = {
       const unknownHint = modeResult.isUnknown
         ? `\n⚠️ 알 수 없는 mode "${modeResult.rawToken}" — compact 로 fallback.`
         : '';
-      await reply(applyScanBlockersLengthGuard(compactMessage + unknownHint, 'compact'));
+      logCommand('single');
+      await replyOnce(applyScanBlockersLengthGuard(compactMessage + unknownHint, 'compact'));
       return;
     }
 
@@ -246,7 +285,10 @@ const scanBlockers: TelegramCommand = {
         ? `${gateCompact}\n${unifiedGateCompactLine}`
         : gateCompact;
       const gateCompactGuarded = applyScanBlockersLengthGuard(finalGateCompact, 'gate');
-      await reply(applyScanBlockersLengthBudget(gateCompactGuarded, SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET));
+      logCommand('single');
+      await replyOnce(
+        applyScanBlockersLengthBudget(gateCompactGuarded, SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET),
+      );
       return;
     }
 
@@ -928,16 +970,19 @@ const scanBlockers: TelegramCommand = {
       if (supplySubMode === 'page') {
         const pageNumber = modeResult.supplyPage ?? 1;
         const page = pages[Math.min(Math.max(pageNumber, 1), pages.length) - 1] ?? pages[0];
-        await reply(page.body);
+        logCommand('single');
+        await replyOnce(page.body);
         return;
       }
       if (supplySubMode === 'full') {
-        for (const page of pages) {
-          await reply(page.body);
-        }
+        logCommand('paginated', pages.length);
+        await replyMany(pages.map((page) => page.body));
         return;
       }
-      await reply(pages[0]?.body ?? '🔍 [scan_blockers supply full]\nPage 1/1\n━━━━━━━━━━━━━━━━\n진단 섹션 없음');
+      logCommand('single');
+      await replyOnce(
+        pages[0]?.body ?? '🔍 [scan_blockers supply full]\nPage 1/1\n━━━━━━━━━━━━━━━━\n진단 섹션 없음',
+      );
       return;
     }
 
@@ -945,7 +990,8 @@ const scanBlockers: TelegramCommand = {
     if (mode === 'full') {
       const fullHeader = '🔬 <b>[scan_blockers full mode]</b>';
       const finalFull = [fullHeader, ...parts].join('\n');
-      await reply(applyScanBlockersLengthGuard(finalFull, 'full'));
+      logCommand('single');
+      await replyOnce(applyScanBlockersLengthGuard(finalFull, 'full'));
       return;
     }
 
@@ -957,7 +1003,8 @@ const scanBlockers: TelegramCommand = {
     });
     const modeHeader = `🔍 <b>[scan_blockers ${mode} mode]</b>`;
     const finalMessage = [modeHeader, ...filteredParts].join('\n');
-    await reply(applyScanBlockersLengthGuard(finalMessage, mode));
+    logCommand('single');
+    await replyOnce(applyScanBlockersLengthGuard(finalMessage, mode));
   },
 };
 

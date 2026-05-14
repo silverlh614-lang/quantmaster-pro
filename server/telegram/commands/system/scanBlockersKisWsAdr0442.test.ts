@@ -210,6 +210,57 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     expect(warnCalls.some((m) => m.includes('kis-ws subscription'))).toBe(true);
   });
 
+
+  it('SCAN-BLOCKERS duplicate reply guard — compact/supply/sector/runtime/unknown are single reply, supply full is paginated', async () => {
+    const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const singleModes: Array<{ args: string[]; expectedMode: string }> = [
+      { args: ['compact'], expectedMode: 'compact' },
+      { args: ['supply'], expectedMode: 'supply' },
+      { args: ['sector'], expectedMode: 'sector' },
+      { args: ['runtime'], expectedMode: 'runtime' },
+      { args: ['unknown-mode'], expectedMode: 'compact' },
+    ];
+
+    for (const { args, expectedMode } of singleModes) {
+      const replies: string[] = [];
+      await scanBlockers.execute({
+        args,
+        reply: async (msg: string) => {
+          replies.push(msg);
+        },
+      } as never);
+      expect(replies, args.join(' ')).toHaveLength(1);
+      const commandLogs = consoleInfoSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        commandLogs.some((m) =>
+          m.includes('[SCAN_BLOCKERS_COMMAND]') &&
+          m.includes(`mode=${expectedMode}`) &&
+          m.includes('replyMode=single'),
+        ),
+      ).toBe(true);
+      consoleInfoSpy.mockClear();
+    }
+
+    const paginatedReplies: string[] = [];
+    await scanBlockers.execute({
+      args: ['supply', 'full'],
+      reply: async (msg: string) => {
+        paginatedReplies.push(msg);
+      },
+    } as never);
+    expect(paginatedReplies.length).toBeGreaterThanOrEqual(1);
+    const paginatedLogs = consoleInfoSpy.mock.calls.map((c) => String(c[0]));
+    expect(
+      paginatedLogs.some((m) =>
+        m.includes('[SCAN_BLOCKERS_COMMAND]') &&
+        m.includes('mode=supply') &&
+        m.includes('subMode=full') &&
+        m.includes('replyMode=paginated') &&
+        m.includes(`pages=${paginatedReplies.length}`),
+      ),
+    ).toBe(true);
+  });
+
   it('정적 grep — ADR-0442 import 3종 + parts.push(kisWsSubscriptionSection) 호출', () => {
     // import 3종 정합
     expect(SCAN_BLOCKERS_SRC).toMatch(/buildSubscriptionDiagnosis/);
