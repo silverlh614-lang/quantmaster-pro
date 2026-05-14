@@ -53,7 +53,7 @@ describe('ADR-0477 KIS VERIFIED short-circuit', () => {
     expect(route.selectedReason).toContain('KIS_VERIFIED_SHORTCIRCUIT');
     expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('routedStatus=OPTIONAL_KRX_DETAIL_UNAVAILABLE');
     expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('useForRouter=false');
-    expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('STALE_WHILE_KIS_VERIFIED');
+    expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('NAVER_STALE_WHILE_KIS_VERIFIED');
     expect(route.executionImpact).toBe('NONE');
     expect(route.liveExecutionAllowed).toBe(false);
     expect(route.diagnostics.join('\n')).toContain('selectedProvider=KIS_API status=VERIFIED reason=KIS_VERIFIED_SHORTCIRCUIT');
@@ -78,6 +78,27 @@ describe('ADR-0477 KIS VERIFIED short-circuit', () => {
     expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('selectedProviderCandidate=false');
     expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('diagnosticOnly=true');
     expect(route.executionImpact).toBe('NONE');
+  });
+
+  it('KIS VERIFIED short-circuits when NAVER is not wired', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      naverCollectorWired: false,
+      kisInvestorRaw: {
+        symbol: '005930',
+        sourceDate: '2026-05-08',
+        foreignNetBuy: 100,
+        institutionNetBuy: 200,
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.selectedProvider).toBe('KIS_API');
+    expect(route.status).toBe('VERIFIED');
+    expect(route.selectedReason).toContain('KIS_VERIFIED_SHORTCIRCUIT');
+    expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('NAVER_NOT_AVAILABLE_WHILE_KIS_VERIFIED');
+    expect(route.executionImpact).toBe('NONE');
+    expect(route.liveExecutionAllowed).toBe(false);
   });
 
   it('scan diagnostics logs KIS short-circuit instead of SHADOW_ONLY warning for KIS_API VERIFIED', () => {

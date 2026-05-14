@@ -1834,15 +1834,23 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   );
   const kisMaterialization = materializationDiagnostics.KIS_INVESTOR;
   const kisSampleForSelection = samplesByProvider.KIS_API;
+  const naverStatusForShortCircuit = providerStatuses.NAVER_INVESTOR_TREND;
+  const naverNotUsable =
+    naverStatusForShortCircuit === 'STALE' ||
+    naverStatusForShortCircuit === 'NOT_WIRED' ||
+    naverStatusForShortCircuit === 'DATA_UNAVAILABLE' ||
+    naverStatusForShortCircuit === 'EMPTY' ||
+    naverStatusForShortCircuit === undefined;
   const kisVerifiedShortCircuitAvailable =
     kisSampleForSelection?.status === 'VERIFIED' &&
     kisMaterialization?.confidenceLevel === 'VERIFIED' &&
     (kisMaterialization.materializedCount ?? 0) > 0 &&
     kisMaterialization.sampleMaterialized === true &&
     !hasRouterUsableKrxRawCandidate &&
-    (optionalKrxDetailUnavailable || providerStatuses.NAVER_INVESTOR_TREND === 'STALE');
-  if (kisVerifiedShortCircuitAvailable && providerStatuses.NAVER_INVESTOR_TREND === 'STALE') {
-    const naverExclusion = 'fallbackProvider=NAVER_INVESTOR_TREND excludedReason=STALE_WHILE_KIS_VERIFIED selectedProvider=KIS_API executionImpact=NONE';
+    (optionalKrxDetailUnavailable || naverNotUsable);
+  if (kisVerifiedShortCircuitAvailable && naverNotUsable) {
+    const naverStatus = naverStatusForShortCircuit ?? 'NOT_AVAILABLE';
+    const naverExclusion = `fallbackProvider=NAVER_INVESTOR_TREND excludedReason=NAVER_${naverStatus}_WHILE_KIS_VERIFIED selectedProvider=KIS_API executionImpact=NONE`;
     providerReasons.NAVER_INVESTOR_TREND = providerReasons.NAVER_INVESTOR_TREND
       ? `${providerReasons.NAVER_INVESTOR_TREND}; ${naverExclusion}`
       : naverExclusion;
