@@ -64,6 +64,14 @@ export interface KisSectorEnergyIndexRow {
   sourceTier?: Extract<KisSectorEnergySourceTier, 'KIS_OFFICIAL_INDEX' | 'KIS_OFFICIAL_DAILY'>;
 }
 
+export type SectorIndexVerificationStatus =
+  | 'NO_ALIAS_FOUND'
+  | 'SAFE_ALIAS_CANDIDATE_FOUND'
+  | 'UNSAFE_ALIAS_REJECTED'
+  | 'PENDING_IDXCODE_MST_VERIFY'
+  | 'VERIFIED'
+  | 'UNRESOLVED';
+
 export type KisSectorIndexDryRunErrorClass =
   | 'EMPTY'
   | 'INVALID_CODE'
@@ -85,8 +93,9 @@ export interface KisSectorIndexDryRunRow {
   turnoverAcceleration?: number;
   providerIssue?: boolean;
   marketSignal?: false;
-  verificationStatus?: 'NOT_REQUIRED' | 'SAFE_ALIAS_CANDIDATE' | 'UNRESOLVED_EMPTY';
+  verificationStatus?: SectorIndexVerificationStatus | 'NOT_REQUIRED';
   verificationAction?: string;
+  resolutionStatus?: 'PENDING_IDXCODE_MST_VERIFY' | 'REQUIRES_IDXCODE_MST_LOOKUP' | 'NONE';
   safeAliasCandidate?: { sectorKey: SectorKey; displayName: string; krxIndexCode: string };
   aliasCandidates?: string[];
   errorClass?: KisSectorIndexDryRunErrorClass;
@@ -157,10 +166,10 @@ function logKisSectorIndexDryRunCandidate(report: KisSectorIndexDryRunReport, no
   console.log(
     `[SECTOR_INDEX_PROMOTION_BLOCKED] reason=${report.promotionBlockedReason} strongBuyAllowed=${report.strongBuyAllowed} sectorBoostAllowed=${report.sectorBoostAllowed}`,
   );
-  const verifyRequired = report.rows.filter((row) => !row.success && row.errorClass === 'UNRESOLVED_EMPTY');
+  const verifyRequired = report.rows.filter((row) => !row.success && (row.resolutionStatus === 'PENDING_IDXCODE_MST_VERIFY' || row.errorClass === 'UNRESOLVED_EMPTY'));
   if (verifyRequired.length > 0) {
     console.log(
-      `[SECTOR_INDEX_CODE_VERIFY_REQUIRED] failedCodes=${verifyRequired.map((row) => row.iscd).join(',')} action=VERIFY_WITH_IDXCODE_MST marketSignal=false executionImpact=${report.executionImpact}`,
+      `[SECTOR_INDEX_CODE_VERIFY_REQUIRED] failedCodes=${verifyRequired.map((row) => row.iscd).join(',')} resolutionStatus=PENDING_IDXCODE_MST_VERIFY marketSignal=false executionImpact=${report.executionImpact}`,
     );
   }
 }
@@ -238,13 +247,14 @@ function buildKisSectorIndexCodeVerification(input: {
   iscd: string;
   label: string;
   errorClass: KisSectorIndexDryRunErrorClass;
-}): Pick<KisSectorIndexDryRunRow, 'providerIssue' | 'marketSignal' | 'verificationStatus' | 'verificationAction' | 'safeAliasCandidate' | 'aliasCandidates' | 'errorClass'> {
+}): Pick<KisSectorIndexDryRunRow, 'providerIssue' | 'marketSignal' | 'verificationStatus' | 'verificationAction' | 'resolutionStatus' | 'safeAliasCandidate' | 'aliasCandidates' | 'errorClass'> {
   if (input.errorClass !== 'EMPTY') {
     return {
       providerIssue: true,
       marketSignal: false,
       verificationStatus: 'NOT_REQUIRED',
       verificationAction: 'NONE',
+      resolutionStatus: 'NONE',
       errorClass: input.errorClass,
     };
   }
@@ -266,23 +276,25 @@ function buildKisSectorIndexCodeVerification(input: {
     return {
       providerIssue: false,
       marketSignal: false,
-      verificationStatus: 'SAFE_ALIAS_CANDIDATE',
+      verificationStatus: 'SAFE_ALIAS_CANDIDATE_FOUND',
       verificationAction: 'VERIFY_WITH_IDXCODE_MST_BEFORE_L4_WIRING',
+      resolutionStatus: 'PENDING_IDXCODE_MST_VERIFY',
       safeAliasCandidate: {
         sectorKey: safeAlias.sectorKey,
         displayName: safeAlias.displayName,
         krxIndexCode: safeAlias.krxIndexCode,
       },
       aliasCandidates: tokens,
-      errorClass: 'UNRESOLVED_EMPTY',
+      errorClass: 'EMPTY',
     };
   }
 
   return {
     providerIssue: false,
     marketSignal: false,
-    verificationStatus: 'UNRESOLVED_EMPTY',
+    verificationStatus: 'NO_ALIAS_FOUND',
     verificationAction: 'VERIFY_WITH_IDXCODE_MST',
+    resolutionStatus: 'REQUIRES_IDXCODE_MST_LOOKUP',
     aliasCandidates: tokens,
     errorClass: 'UNRESOLVED_EMPTY',
   };
@@ -385,7 +397,8 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
         success: true,
         providerIssue: false,
         marketSignal: false,
-        verificationStatus: 'NOT_REQUIRED',
+        verificationStatus: 'VERIFIED',
+        resolutionStatus: 'NONE',
         ...metrics,
       };
     } catch (error) {
@@ -469,8 +482,9 @@ export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunRe
   } else {
     failedRows.forEach((row, idx) => {
       const status = row.verificationStatus ? ` / verification=<code>${row.verificationStatus}</code>` : '';
+      const resolution = row.resolutionStatus ? ` / resolutionStatus=<code>${row.resolutionStatus}</code>` : '';
       lines.push(
-        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / errorClass=<code>${row.errorClass ?? 'EMPTY'}</code>${status}`,
+        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / layer=<code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code> / errorClass=<code>${row.errorClass ?? 'EMPTY'}</code>${status}${resolution}`,
       );
     });
   }
@@ -480,7 +494,7 @@ export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunRe
   } else {
     successRows.forEach((row, idx) => {
       lines.push(
-        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / latest=<code>${row.latestDate ?? 'N/A'}</code> / rows=<b>${row.seriesCount}</b> / return5d=<code>${formatDryRunMetric(row.return5d)}</code> / return20d=<code>${formatDryRunMetric(row.return20d)}</code>`,
+        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / layer=<code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code> / latest=<code>${row.latestDate ?? 'N/A'}</code> / rows=<b>${row.seriesCount}</b> / return5d=<code>${formatDryRunMetric(row.return5d)}</code> / return20d=<code>${formatDryRunMetric(row.return20d)}</code>`,
       );
     });
   }
@@ -921,6 +935,7 @@ function deriveKisBasketDiagnostics(
   const staleSectorCount = sectorRows.filter((row) => row.freshness === 'STALE').length;
   const missingSectorCount = sectorRows.filter((row) => row.freshness === 'MISSING').length;
   const partialSectorCount = sectorRows.filter((row) => row.freshness === 'PARTIAL').length;
+  const fullQualitySectorCount = sectorRows.filter((row) => row.freshness === 'FRESH').length;
   const breakPoint: KisRepresentativeBasketAudit['breakPoint'] = actual < 8
     ? 'BASKET_ROWS_BELOW_MINIMUM'
     : representativeSymbolsMissing > 0
@@ -966,6 +981,8 @@ function deriveKisBasketDiagnostics(
     coverage: {
       expectedSectorCount: expected,
       validSectorCount: actual,
+      fullQualitySectorCount,
+      partialQualitySectorCount: partialSectorCount,
       staleSectorCount,
       missingSectorCount,
       partialSectorCount,

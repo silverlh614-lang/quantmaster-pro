@@ -380,7 +380,7 @@ describe('ADR-0423 헬퍼 함수 SSOT', () => {
       coverageBreakdown: {
         expectedSectorCount: 12,
         validSectorCount: 11,
-        completeSectorCount: 11,
+        fullQualitySectorCount: 11,
         staleSectorCount: 1,
         missingSectorCount: 0,
         partialSectorCount: 0,
@@ -404,9 +404,52 @@ describe('ADR-0423 헬퍼 함수 SSOT', () => {
     expect(section).toContain('rowFreshness:');
     expect(section).toContain('freshRows=11 staleRows=1 missingRows=0');
     expect(section).toContain('sectorCoverage:');
-    expect(section).toContain('completeSectorCount=11 partialSectorCount=0 staleSectorCount=1 missingSectorCount=0');
+    expect(section).toContain('validSectorCount=11 fullQualitySectorCount=11 partialQualitySectorCount=0 staleSectorCount=1 missingSectorCount=0');
     expect(section).toContain('topProblems:');
-    expect(section).toContain('sector=금융 problemType=priceRowsStale rowLevelStatus=STALE sectorLevelStatus=STALE');
+    expect(section).toContain('layer=PRODUCTION_BASKET sector=금융 problemType=priceRowsStale rowLevelStatus=STALE sectorLevelStatus=STALE');
+  });
+
+  it('coverage count를 valid/fullQuality/partialQuality로 정규화하고 topProblems layer를 표시한다', () => {
+    const diag = {
+      dataQuality: 'PARTIAL',
+      reasons: ['KIS_STOCK_BASKET_DERIVED'],
+      validSectorCount: 12,
+      expectedSectorCount: 12,
+      indexCodeCoverage: 0,
+      missingIndexCodeCount: 0,
+      totalSectorRows: 12,
+      fallbackUsed: 'NONE',
+      symmetryValidationPassed: true,
+      shouldBlockLeadershipConfidence: true,
+      operatorMessage: 'test',
+      coverageBreakdown: {
+        expectedSectorCount: 12,
+        validSectorCount: 12,
+        fullQualitySectorCount: 11,
+        partialQualitySectorCount: 1,
+        staleSectorCount: 0,
+        missingSectorCount: 0,
+        partialSectorCount: 1,
+        executionImpact: 'NONE',
+        sectorRows: [{
+          sectorName: '2차전지',
+          sectorCode: 'BATTERY',
+          representativeSymbols: ['373220', '051910'],
+          representativeSymbolCount: 2,
+          priceRowsFound: 1,
+          priceRowsMissing: 1,
+          latestPriceDate: '20260514',
+          ageTradingDays: 0,
+          freshness: 'PARTIAL',
+          reason: 'PRICE_ROWS_MISSING',
+        }],
+      },
+    } as unknown as SectorEnergyQualityDiagnostic;
+
+    const section = formatSectorEnergyQualityDiagnosticSection(diag) ?? '';
+    expect(section).toContain('validSectorCount=12 fullQualitySectorCount=11 partialQualitySectorCount=1 staleSectorCount=0 missingSectorCount=0');
+    expect(section).not.toContain('completeSectorCount=');
+    expect(section).toContain('layer=PRODUCTION_BASKET sector=2차전지 problemType=priceRowsMissing rowLevelStatus=MISSING_ROWS sectorLevelStatus=PARTIAL action=WIRE_KIS_DAILY_PRICE_ROWS_FOR_SECTOR_BASKET');
   });
 
 
