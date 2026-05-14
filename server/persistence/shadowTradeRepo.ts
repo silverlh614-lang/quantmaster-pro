@@ -665,6 +665,18 @@ export interface ServerShadowTrade {
     chasePolicy?: { waitSeconds: number; priceDeltaPct: number };
     decidedAt: string;
   };
+  /**
+   * Patch-WATCHLIST-DETACHMENT-SYNC-001 — 워치리스트 cleanup/rotation 으로
+   * 해당 종목이 candidate store(`data/watchlist.json`)에서 제거됐으나 OPEN
+   * Shadow 포지션은 그대로 유지될 때 부착되는 진단 마커.
+   *
+   * 핵심 불변식: 이 마커는 *진단 전용* — exit management(손절/익절/트레일링)을
+   * 절대 차단하지 않는다. 영향 범위는 "신규 진입 후보 발굴"에서 제외되는 것뿐.
+   * 워치리스트 재진입 시 syncDetachedFromWatchlist()가 마커를 자동 해제한다.
+   */
+  detachedFromWatchlist?: boolean;
+  /** detachedFromWatchlist=true 최초 부착 KST ISO 타임스탬프. */
+  detachedFromWatchlistAt?: string;
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────
