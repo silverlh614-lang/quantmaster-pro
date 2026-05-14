@@ -3,7 +3,7 @@ import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { shadowCaseLedger } from '../../../shadow/shadowCaseLedger.js';
 import { shadowReturnFlow } from '../../../shadow/shadowReturnFlow.js';
-import { formatShadowCase, formatShadowIntegrity, formatShadowOutcomes, formatShadowPromotion, formatShadowReturnFlow, formatShadowStatus, formatShadowSymbol } from '../../../shadow/shadowCommands.js';
+import { formatFreshShadowLifecycleCommand, formatFreshShadowStatusCommand, formatShadowCase, formatShadowIntegrity, formatShadowOutcomes, formatShadowPromotion, formatShadowReturnFlow, formatShadowStatus, formatShadowSymbol } from '../../../shadow/shadowCommands.js';
 
 function register(name: string, description: string, execute: TelegramCommand['execute'], usage?: string): void {
   commandRegistry.register({ name, category: 'LRN', visibility: 'ADMIN', riskLevel: 0, description, usage, execute });
@@ -13,7 +13,9 @@ register('/shadow_status', 'Shadow 엔진 요약', async ({ reply }) => reply(fo
 register('/shadow_integrity', 'Shadow 무결성 요약', async ({ reply }) => reply(formatShadowIntegrity(shadowCaseLedger)));
 // Hotfix: 기존 /shadow_return_flow (shadowFlowPlaceholder.cmd.ts warmup+resolver), /shadow_promotion (shadowPromotion.cmd.ts ADR-0432) 와 이름 충돌 → rename.
 register('/shadow_return_quality', 'Shadow 사후 조회 품질', async ({ reply }) => reply(formatShadowReturnFlow(shadowReturnFlow.metrics())));
-register('/shadow_promotion_candidates', 'Shadow 승격 후보 리포트', async ({ reply }) => reply(formatShadowPromotion(shadowCaseLedger, shadowReturnFlow.metrics().hitRate)));
+register('/shadow_promotion_candidates', 'Shadow 승격 후보 리포트 (fresh-only primary)', async ({ reply }) => reply(formatShadowPromotion(shadowCaseLedger, shadowReturnFlow.metrics().hitRate)));
+register('/fresh_shadow_status', 'Fresh Shadow lifecycle 상태', async ({ reply }) => reply(formatFreshShadowStatusCommand(shadowCaseLedger)));
+register('/fresh_shadow_lifecycle', '최근 Fresh Shadow 상태 전이', async ({ reply }) => reply(formatFreshShadowLifecycleCommand(shadowCaseLedger)));
 register('/shadow_outcomes', 'Shadow outcome 최근 요약', async ({ reply }) => reply(formatShadowOutcomes(shadowCaseLedger)));
 register('/shadow_blocked', '차단된 Shadow case 요약', async ({ reply }) => {
   const rows = shadowCaseLedger.listCases().filter((c) => c.blockedReason).slice(-10);

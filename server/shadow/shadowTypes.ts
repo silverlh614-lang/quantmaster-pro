@@ -1,6 +1,7 @@
 // @responsibility Shadow Learning Genius Patch v1 타입 SSOT
 export type ShadowLifecycleState =
   | 'CANDIDATE_DETECTED'
+  | 'SHADOW_SIGNAL_APPROVED'
   | 'GATE_EVALUATED'
   | 'DECISION_MADE'
   | 'LIVE_APPROVED'
@@ -80,6 +81,18 @@ export interface ShadowCase {
   state?: ShadowLifecycleState;
   liveOrderCreated?: boolean;
   brokerOrderCreated?: boolean;
+  brokerOrdersCreated?: 0 | number;
+  cohortType?: 'FRESH_SHADOW' | 'BACKLOG_REPAIR' | 'GHOST_REPAIR' | 'RECOVERED_METADATA' | 'QUARANTINED' | 'COUNTERFACTUAL_BLOCKED';
+  repairRunId?: string;
+  backfillRunId?: string;
+  metadataRecovered?: boolean;
+  pendingRetryReason?: string;
+  quarantinedReason?: string;
+  entryPriceSource?: string;
+  targetStopSource?: string;
+  riskRuleId?: string;
+  rMultiple?: number;
+  returnR?: number;
   duplicateTelegramSuppressed?: boolean;
   counterfactualRecorded?: boolean;
   labelUpdatedAt?: string;
