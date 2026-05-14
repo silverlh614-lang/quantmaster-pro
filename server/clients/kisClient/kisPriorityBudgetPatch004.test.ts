@@ -148,7 +148,7 @@ describe('Patch-004 §"반드시 테스트" #1 — P0 보유 매도 관리 HARD 
 describe('Patch-004 §"반드시 테스트" #2 — SCAN_DIAGNOSTIC (P3) defer 시점', () => {
   beforeEach(() => __resetKisPriorityBudgetStateForTests());
 
-  it('SOFT throttle + P3 budget 초과 시 diagnostic-only suppress', () => {
+  it('SOFT throttle + P3 budget 초과 시 deferred=true', () => {
     for (let i = 0; i < 5; i++) recordPriorityBudgetCall('FHKST01010100', 'P3_SCAN_DIAGNOSTIC');
     const d = evaluatePriorityBudget({
       trId: 'FHKST01010100',
@@ -161,13 +161,12 @@ describe('Patch-004 §"반드시 테스트" #2 — SCAN_DIAGNOSTIC (P3) defer �
       cacheAvailable: true,
     });
     expect(d.allowed).toBe(false);
-    expect(d.deferred).toBe(false);
-    expect(d.diagnosticSuppressed).toBe(true);
-    expect(d.action).toBe('SUPPRESS_DIAGNOSTIC_ONLY');
+    expect(d.deferred).toBe(true);
+    expect(d.action).toBe('DEFER');
     expect(d.reason).toBe('BUDGET_EXCEEDED');
   });
 
-  it('HARD throttle + P3 즉시 diagnostic-only suppress', () => {
+  it('HARD throttle + P3 즉시 deferred', () => {
     const d = evaluatePriorityBudget({
       trId: 'FHKST01010100',
       symbol: '005930',
@@ -179,8 +178,7 @@ describe('Patch-004 §"반드시 테스트" #2 — SCAN_DIAGNOSTIC (P3) defer �
       cacheAvailable: true,
     });
     expect(d.allowed).toBe(false);
-    expect(d.deferred).toBe(false);
-    expect(d.diagnosticSuppressed).toBe(true);
+    expect(d.deferred).toBe(true);
     expect(d.reason).toBe('TR_CIRCUIT_OPEN_OR_THROTTLED');
   });
 
@@ -197,7 +195,7 @@ describe('Patch-004 §"반드시 테스트" #2 — SCAN_DIAGNOSTIC (P3) defer �
     });
     expect(d.allowed).toBe(false);
     expect(d.dropped).toBe(true);
-    expect(d.action).toBe('SUPPRESS_DIAGNOSTIC_ONLY');
+    expect(d.action).toBe('SUPPRESS');
   });
 });
 
@@ -220,7 +218,7 @@ describe('Patch-004 §"반드시 테스트" #3 — P2 > P3 우선순위', () => 
     expect(d.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
   });
 
-  it('circuit OPEN 시 P2 통과 (P3 는 diagnostic-only suppress)', () => {
+  it('circuit OPEN 시 P2 통과 (P3 는 defer)', () => {
     const dP2 = evaluatePriorityBudget({
       trId: 'FHKST01010100',
       symbol: '005930',
@@ -243,8 +241,7 @@ describe('Patch-004 §"반드시 테스트" #3 — P2 > P3 우선순위', () => 
       cacheAvailable: false,
     });
     expect(dP3.allowed).toBe(false);
-    expect(dP3.deferred).toBe(false);
-    expect(dP3.diagnosticSuppressed).toBe(true);
+    expect(dP3.deferred).toBe(true);
   });
 });
 
@@ -261,7 +258,7 @@ describe('Patch-004 §"반드시 테스트" #4+#5 — fallbackProvider CACHE/NON
     expect(r.confidence).toBe('MISSING');
   });
 
-  it('diagnostic decision 은 cache 상태와 무관하게 confidence=NOT_APPLICABLE (cache 가용)', () => {
+  it('decision 의 fallbackProvider/confidence 정합 (cache 가용)', () => {
     const d = evaluatePriorityBudget({
       trId: 'FHKST01010100',
       symbol: '005930',
@@ -272,11 +269,11 @@ describe('Patch-004 §"반드시 테스트" #4+#5 — fallbackProvider CACHE/NON
       sameMinuteCalls: 8,
       cacheAvailable: true,
     });
-    expect(d.fallbackProvider).toBe('NONE');
-    expect(d.confidence).toBe('NOT_APPLICABLE');
+    expect(d.fallbackProvider).toBe('CACHE');
+    expect(d.confidence).toBe('DEGRADED');
   });
 
-  it('diagnostic decision 은 cache 상태와 무관하게 confidence=NOT_APPLICABLE (cache 부재)', () => {
+  it('decision 의 fallbackProvider/confidence 정합 (cache 부재)', () => {
     const d = evaluatePriorityBudget({
       trId: 'FHKST01010100',
       symbol: '005930',
@@ -288,7 +285,7 @@ describe('Patch-004 §"반드시 테스트" #4+#5 — fallbackProvider CACHE/NON
       cacheAvailable: false,
     });
     expect(d.fallbackProvider).toBe('NONE');
-    expect(d.confidence).toBe('NOT_APPLICABLE');
+    expect(d.confidence).toBe('MISSING');
   });
 });
 

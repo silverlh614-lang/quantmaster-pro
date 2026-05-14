@@ -298,7 +298,7 @@ describe('Patch-004 log throttle — DATA_VACUUM root cause (dataVacuumRootCause
     });
   });
 
-  describe('shouldEmitDataVacuumLog — rootCause+priority+trId 별 60s window', () => {
+  describe('shouldEmitDataVacuumLog — rootCause 별 60s window', () => {
     it('첫 호출 → emit=true', () => {
       const r = shouldEmitDataVacuumLog('KIS_TR_THROTTLED', 1_000_000);
       expect(r.emit).toBe(true);
@@ -331,18 +331,6 @@ describe('Patch-004 log throttle — DATA_VACUUM root cause (dataVacuumRootCause
       expect(r1.emit).toBe(true);
       expect(r2.emit).toBe(true);
       expect(r3.emit).toBe(true);
-    });
-
-    it('rootCause 같아도 priority+trId 가 다르면 독립', () => {
-      const t0 = 4_500_000;
-      const r1 = shouldEmitDataVacuumLog('KIS_SERVER_ERROR_NO_CACHE', t0, 'P2_READY_CANDIDATE_CONFIRM', 'TR-A');
-      const r2 = shouldEmitDataVacuumLog('KIS_SERVER_ERROR_NO_CACHE', t0 + 1_000, 'P2_READY_CANDIDATE_CONFIRM', 'TR-A');
-      const r3 = shouldEmitDataVacuumLog('KIS_SERVER_ERROR_NO_CACHE', t0 + 1_000, 'P2_READY_CANDIDATE_CONFIRM', 'TR-B');
-      const r4 = shouldEmitDataVacuumLog('KIS_SERVER_ERROR_NO_CACHE', t0 + 1_000, 'P1_SHADOW_POSITION_MANAGEMENT', 'TR-A');
-      expect(r1.emit).toBe(true);
-      expect(r2.emit).toBe(false);
-      expect(r3.emit).toBe(true);
-      expect(r4.emit).toBe(true);
     });
     it('ENV DISABLED 시 항상 emit=true', () => {
       process.env.DATA_VACUUM_LOG_THROTTLE_DISABLED = 'true';

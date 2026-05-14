@@ -380,7 +380,15 @@ export function realDataKisGet(
       //   라인이 throttle/circuit 활성 시 분당 수백 라인 폭주하던 결함.
       const budgetLog = formatKisPriorityBudgetLogThrottled(budgetDecision);
       if (budgetLog) console.warn(budgetLog);
-      // P3/P4 budget denial is diagnostic-only; never emit DATA_VACUUM from budget suppression.
+      const vacuum = classifyDataVacuumRootCause({
+        throttleLevel: pressureGate.level,
+        circuitState: pressureGate.circuitState,
+        hasRecent5xx: pressureGate.circuitState === 'OPEN' || pressureGate.circuitState === 'CLOSED_RECOVERED',
+        cacheAvailable: _cacheAvailableForBudget,
+        upstreamHydrationFailed: false,
+      });
+      const vacuumLog = formatDataVacuumRootCauseLogThrottled(vacuum);
+      if (vacuumLog) console.warn(vacuumLog);
       if (budgetDecision.deferred) {
         recordKisCallDeferred(trId, Date.now(), { endpoint: apiPath, symbol, caller: 'realDataKisGet', priority: callPriority });
       }
@@ -565,21 +573,6 @@ export function realDataKisGet(
         }
         const fallback = selectKisFallback({ trId, errorClass: taxonomy.errorClass });
         console.info(formatKisFallbackSelectedLog({ fromTrId: trId, errorClass: taxonomy.errorClass, ...fallback }));
-        if (callPriorityV2 === 'P2_READY_CANDIDATE_CONFIRM') {
-          const cachedForExecution = getLastGoodForKey(requestKey);
-          const cacheAvailableForExecution = cachedForExecution !== null && cachedForExecution.confidence !== 'MISSING';
-          const vacuum = classifyDataVacuumRootCause({
-            throttleLevel: pressureGate.level,
-            circuitState: trPressure.circuitState,
-            hasRecent5xx: true,
-            cacheAvailable: cacheAvailableForExecution,
-            upstreamHydrationFailed: false,
-            priority: callPriorityV2,
-            trId,
-          });
-          const vacuumLog = formatDataVacuumRootCauseLogThrottled(vacuum);
-          if (vacuumLog) console.warn(vacuumLog);
-        }
       }
 
       if (!res.ok) {

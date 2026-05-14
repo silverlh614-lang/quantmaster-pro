@@ -39,59 +39,6 @@ describe('Patch-004 DataVacuum — ENV gate (ADR-0157)', () => {
 });
 
 describe('Patch-004 DataVacuum 결정 트리 SSOT (사용자 §10 4분류)', () => {
-  it('P3_SCAN_DIAGNOSTIC budget exceeded → non-blocking diagnostic suppression, no DATA_VACUUM', () => {
-    const c = classifyDataVacuumRootCause({
-      throttleLevel: 'SOFT',
-      circuitState: 'SOFT_THROTTLED',
-      hasRecent5xx: false,
-      cacheAvailable: false,
-      upstreamHydrationFailed: false,
-      priority: 'P3_SCAN_DIAGNOSTIC',
-      trId: 'FHKST01010100',
-      budgetExceeded: true,
-    });
-    expect(c.rootCause).toBe('P3_DIAGNOSTIC_BUDGET_SUPPRESSED');
-    expect(c.blocking).toBe(false);
-    expect(c.dataVacuum).toBe(false);
-    expect(c.executionImpact).toBe('NONE');
-    expect(c.confidence).toBe('NOT_APPLICABLE');
-  });
-
-  it('P4_TELEMETRY_VERBOSE budget exceeded → non-blocking telemetry suppression, no confidence=MISSING propagation', () => {
-    const c = classifyDataVacuumRootCause({
-      throttleLevel: 'SOFT',
-      circuitState: 'SOFT_THROTTLED',
-      hasRecent5xx: false,
-      cacheAvailable: false,
-      upstreamHydrationFailed: false,
-      priority: 'P4_TELEMETRY_VERBOSE',
-      trId: 'FHKST01010100',
-      budgetExceeded: true,
-    });
-    expect(c.rootCause).toBe('P4_TELEMETRY_SUPPRESSED');
-    expect(c.blocking).toBe(false);
-    expect(c.dataVacuum).toBe(false);
-    expect(c.executionImpact).toBe('NONE');
-    expect(c.confidence).toBe('NOT_APPLICABLE');
-  });
-
-  it('KIS_SHORT materialize skipped → 보조 레이어 실패만 표시하고 execution 차단 금지', () => {
-    const c = classifyDataVacuumRootCause({
-      throttleLevel: 'NONE',
-      circuitState: 'CLOSED',
-      hasRecent5xx: false,
-      cacheAvailable: false,
-      upstreamHydrationFailed: false,
-      shortLayerMaterializeSkipped: true,
-    });
-    expect(c.rootCause).toBe('SHORT_LAYER_NOT_MATERIALIZED');
-    expect(c.blocking).toBe(false);
-    expect(c.marketSignal).toBe(false);
-    expect(c.executionImpact).toBe('NONE');
-    expect(c.useForExecution).toBe(false);
-    expect(c.useForShadow).toBe(true);
-  });
-
   it('upstream hydration 실패 → UPSTREAM_CANDIDATE_HYDRATION_FAILED + NEW_BUY_BLOCKED_ONLY', () => {
     const c = classifyDataVacuumRootCause({
       throttleLevel: 'NONE',
@@ -116,7 +63,7 @@ describe('Patch-004 DataVacuum 결정 트리 SSOT (사용자 §10 4분류)', () 
     expect(c.rootCause).toBe('KIS_SERVER_ERROR_WITH_CACHE');
     expect(c.fallbackProvider).toBe('CACHE');
     expect(c.confidence).toBe('DEGRADED');
-    expect(c.executionImpact).toBe('NONE');
+    expect(c.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
   });
 
   it('circuit OPEN + 5xx + cache 부재 → KIS_SERVER_ERROR_NO_CACHE + MISSING', () => {
@@ -146,7 +93,7 @@ describe('Patch-004 DataVacuum 결정 트리 SSOT (사용자 §10 4분류)', () 
     }
   });
 
-  it('UNCLASSIFIED fallback (정상 상태)', () => {
+  it('UNKNOWN fallback (정상 상태)', () => {
     const c = classifyDataVacuumRootCause({
       throttleLevel: 'NONE',
       circuitState: 'CLOSED',
@@ -154,11 +101,11 @@ describe('Patch-004 DataVacuum 결정 트리 SSOT (사용자 §10 4분류)', () 
       cacheAvailable: true,
       upstreamHydrationFailed: false,
     });
-    expect(c.rootCause).toBe('UNCLASSIFIED_EXECUTION_DATA_GAP');
+    expect(c.rootCause).toBe('UNKNOWN');
     expect(c.executionImpact).toBe('NONE');
   });
 
-  it('ENV DISABLED → UNCLASSIFIED_NON_BLOCKING_DIAGNOSTIC + executionImpact=NONE 안전 fallback', () => {
+  it('ENV DISABLED → UNKNOWN + executionImpact=NONE 안전 fallback', () => {
     const originalEnv = process.env.DATA_VACUUM_CLASSIFIER_PATCH_004_DISABLED;
     process.env.DATA_VACUUM_CLASSIFIER_PATCH_004_DISABLED = 'true';
     try {
@@ -169,7 +116,7 @@ describe('Patch-004 DataVacuum 결정 트리 SSOT (사용자 §10 4분류)', () 
         cacheAvailable: false,
         upstreamHydrationFailed: true,
       });
-      expect(c.rootCause).toBe('UNCLASSIFIED_NON_BLOCKING_DIAGNOSTIC');
+      expect(c.rootCause).toBe('UNKNOWN');
       expect(c.executionImpact).toBe('NONE');
     } finally {
       if (originalEnv === undefined) delete process.env.DATA_VACUUM_CLASSIFIER_PATCH_004_DISABLED;

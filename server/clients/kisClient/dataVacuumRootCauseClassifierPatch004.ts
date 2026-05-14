@@ -22,17 +22,13 @@
 
 import type { KisFallbackConfidence, KisFallbackProvider, KisThrottleLevel, KisTrCircuitStateName } from './errorTaxonomy.js';
 
-// DATA_VACUUM root cause SSOT — UNKNOWN 금지, diagnostic/non-blocking 과 execution data gap 분리.
+// 5-value union SSOT (사용자 §10 4분류 + UNKNOWN)
 export type DataVacuumRootCause =
   | 'KIS_TR_THROTTLED'
   | 'KIS_SERVER_ERROR_WITH_CACHE'
   | 'KIS_SERVER_ERROR_NO_CACHE'
   | 'UPSTREAM_CANDIDATE_HYDRATION_FAILED'
-  | 'P3_DIAGNOSTIC_BUDGET_SUPPRESSED'
-  | 'P4_TELEMETRY_SUPPRESSED'
-  | 'SHORT_LAYER_NOT_MATERIALIZED'
-  | 'UNCLASSIFIED_NON_BLOCKING_DIAGNOSTIC'
-  | 'UNCLASSIFIED_EXECUTION_DATA_GAP';
+  | 'UNKNOWN';
 
 // nextAction 6-value union (사용자 §"기대 로그 예시" 참조)
 export type DataVacuumNextAction =
@@ -41,8 +37,7 @@ export type DataVacuumNextAction =
   | 'RETRY_AFTER_COOLDOWN'
   | 'CHECK_UPSTREAM_PROVIDER'
   | 'KEEP_OBSERVING_NO_ACTION'
-  | 'UNKNOWN_INVESTIGATE_RAILWAY_LOG'
-  | 'KEEP_DIAGNOSTIC_SUPPRESSED';
+  | 'UNKNOWN_INVESTIGATE_RAILWAY_LOG';
 
 export interface ClassifyDataVacuumInput {
   readonly throttleLevel: KisThrottleLevel;
@@ -50,10 +45,6 @@ export interface ClassifyDataVacuumInput {
   readonly hasRecent5xx: boolean;          // 직전 1분 내 5xx 발생 여부
   readonly cacheAvailable: boolean;        // LGV CACHE 가용
   readonly upstreamHydrationFailed: boolean; // candidate 합성 단계 실패
-  readonly priority?: import('./kisPriorityBudgetPatch004.js').KisCallPriorityV2;
-  readonly trId?: string;
-  readonly budgetExceeded?: boolean;
-  readonly shortLayerMaterializeSkipped?: boolean;
 }
 
 // Classification result schema (literal type 강제)
@@ -68,12 +59,6 @@ export interface DataVacuumClassification {
   readonly shadowLearning: true;
   readonly nextAction: DataVacuumNextAction;
   readonly classifiedAtMs: number;
-  readonly priority?: import('./kisPriorityBudgetPatch004.js').KisCallPriorityV2;
-  readonly trId?: string;
-  readonly blocking: boolean;
-  readonly dataVacuum: boolean;
-  readonly useForExecution: boolean;
-  readonly useForShadow: boolean;
 }
 
 export function isDataVacuumClassifierDisabled(): boolean {
@@ -96,43 +81,7 @@ export function isDataVacuumClassifierDisabled(): boolean {
 export function classifyDataVacuumRootCause(input: ClassifyDataVacuumInput, nowMs = Date.now()): DataVacuumClassification {
   // 1. ENV DISABLED
   if (isDataVacuumClassifierDisabled()) {
-    return buildClassification('UNCLASSIFIED_NON_BLOCKING_DIAGNOSTIC', 'NONE', 'NOT_APPLICABLE', 'KEEP_DIAGNOSTIC_SUPPRESSED', 'NONE', nowMs, input);
-  }
-
-  if (input.shortLayerMaterializeSkipped) {
-    return buildClassification(
-      'SHORT_LAYER_NOT_MATERIALIZED',
-      'NONE',
-      'NOT_APPLICABLE',
-      'KEEP_OBSERVING_NO_ACTION',
-      'NONE',
-      nowMs,
-      input,
-    );
-  }
-
-  if (input.priority === 'P3_SCAN_DIAGNOSTIC' && input.budgetExceeded) {
-    return buildClassification(
-      'P3_DIAGNOSTIC_BUDGET_SUPPRESSED',
-      'NONE',
-      'NOT_APPLICABLE',
-      'KEEP_DIAGNOSTIC_SUPPRESSED',
-      'NONE',
-      nowMs,
-      input,
-    );
-  }
-
-  if (input.priority === 'P4_TELEMETRY_VERBOSE' && input.budgetExceeded) {
-    return buildClassification(
-      'P4_TELEMETRY_SUPPRESSED',
-      'NONE',
-      'NOT_APPLICABLE',
-      'KEEP_DIAGNOSTIC_SUPPRESSED',
-      'NONE',
-      nowMs,
-      input,
-    );
+    return buildClassification('UNKNOWN', 'NONE', 'MISSING', 'UNKNOWN_INVESTIGATE_RAILWAY_LOG', 'NONE', nowMs);
   }
 
   // 2. upstream hydration 실패 (KIS provider 무관)
@@ -144,7 +93,6 @@ export function classifyDataVacuumRootCause(input: ClassifyDataVacuumInput, nowM
       'CHECK_UPSTREAM_PROVIDER',
       'NEW_BUY_BLOCKED_ONLY',
       nowMs,
-      input,
     );
   }
 
@@ -157,9 +105,8 @@ export function classifyDataVacuumRootCause(input: ClassifyDataVacuumInput, nowM
         'CACHE',
         'DEGRADED',
         'WAIT_FOR_PROVIDER_RECOVERY',
-        'NONE',
+        'NEW_BUY_BLOCKED_ONLY',
         nowMs,
-        input,
       );
     }
     return buildClassification(
@@ -169,7 +116,6 @@ export function classifyDataVacuumRootCause(input: ClassifyDataVacuumInput, nowM
       'WAIT_FOR_PROVIDER_RECOVERY',
       'NEW_BUY_BLOCKED_ONLY',
       nowMs,
-      input,
     );
   }
 
@@ -181,23 +127,19 @@ export function classifyDataVacuumRootCause(input: ClassifyDataVacuumInput, nowM
       input.cacheAvailable ? 'CACHE' : 'NONE',
       input.cacheAvailable ? 'DEGRADED' : 'MISSING',
       'REDUCE_SCAN_DIAGNOSTIC_CALLS_AND_USE_BATCH_CACHE',
-      'NONE',
+      'NEW_BUY_BLOCKED_ONLY',
       nowMs,
-      input,
     );
   }
 
   // 5. UNKNOWN
   return buildClassification(
-    input.priority === 'P3_SCAN_DIAGNOSTIC' || input.priority === 'P4_TELEMETRY_VERBOSE'
-      ? 'UNCLASSIFIED_NON_BLOCKING_DIAGNOSTIC'
-      : 'UNCLASSIFIED_EXECUTION_DATA_GAP',
+    'UNKNOWN',
     input.cacheAvailable ? 'CACHE' : 'NONE',
     input.cacheAvailable ? 'DEGRADED' : 'MISSING',
     'UNKNOWN_INVESTIGATE_RAILWAY_LOG',
     'NONE',
     nowMs,
-    input,
   );
 }
 
@@ -208,12 +150,7 @@ function buildClassification(
   nextAction: DataVacuumNextAction,
   executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY',
   classifiedAtMs: number,
-  input?: ClassifyDataVacuumInput,
 ): DataVacuumClassification {
-  const nonBlocking = rootCause === 'P3_DIAGNOSTIC_BUDGET_SUPPRESSED'
-    || rootCause === 'P4_TELEMETRY_SUPPRESSED'
-    || rootCause === 'SHORT_LAYER_NOT_MATERIALIZED'
-    || rootCause === 'UNCLASSIFIED_NON_BLOCKING_DIAGNOSTIC';
   return {
     rootCause,
     fallbackProvider,
@@ -224,12 +161,6 @@ function buildClassification(
     shadowLearning: true,
     nextAction,
     classifiedAtMs,
-    priority: input?.priority,
-    trId: input?.trId,
-    blocking: !nonBlocking && executionImpact === 'NEW_BUY_BLOCKED_ONLY',
-    dataVacuum: !nonBlocking && executionImpact === 'NEW_BUY_BLOCKED_ONLY',
-    useForExecution: rootCause !== 'SHORT_LAYER_NOT_MATERIALIZED' && !nonBlocking,
-    useForShadow: true,
   };
 }
 
@@ -240,11 +171,7 @@ export function formatDataVacuumRootCauseLog(c: DataVacuumClassification): strin
   return [
     '[DATA_VACUUM_ROOT_CAUSE]',
     `rootCause=${c.rootCause}`,
-    ...(c.priority ? [`priority=${c.priority}`] : []),
-    ...(c.trId ? [`trId=${c.trId}`] : []),
-    `blocking=${c.blocking}`,
     `marketSignal=${c.marketSignal}`,
-    `dataVacuum=${c.dataVacuum}`,
     `executionImpact=${c.executionImpact}`,
     `shadowLearning=${c.shadowLearning}`,
     `engineAlive=${c.engineAlive}`,
@@ -299,13 +226,11 @@ export function isDataVacuumLogThrottleDisabled(): boolean {
 export function shouldEmitDataVacuumLog(
   rootCause: DataVacuumRootCause,
   nowMs: number = Date.now(),
-  priority?: string,
-  trId?: string,
 ): ShouldEmitDataVacuumLogResult {
   if (isDataVacuumLogThrottleDisabled()) {
     return { emit: true, suppressedSinceLast: 0, windowMs: DATA_VACUUM_LOG_THROTTLE_WINDOW_MS };
   }
-  const key = `${rootCause}:${priority ?? 'NO_PRIORITY'}:${trId ?? 'NO_TRID'}`;
+  const key = rootCause;
   const entry = _dataVacuumLogThrottle.get(key);
   if (!entry) {
     _dataVacuumLogThrottle.set(key, { lastEmittedAtMs: nowMs, suppressedCount: 0 });
@@ -336,7 +261,7 @@ export function formatDataVacuumRootCauseLogThrottled(
   c: DataVacuumClassification,
   nowMs: number = Date.now(),
 ): string | null {
-  const result = shouldEmitDataVacuumLog(c.rootCause, nowMs, c.priority, c.trId);
+  const result = shouldEmitDataVacuumLog(c.rootCause, nowMs);
   if (!result.emit) return null;
   const base = formatDataVacuumRootCauseLog(c);
   if (result.suppressedSinceLast > 0) {
