@@ -32,7 +32,7 @@ export type KisCoverageDiagnosis =
   | 'SUPPORTED_OR_UNKNOWN';
 
 export type KisFallbackProvider = 'KIS_ALT' | 'KRX' | 'CACHE' | 'NAVER' | 'YAHOO' | 'NONE';
-export type KisFallbackConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
+export type KisFallbackConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'NOT_APPLICABLE' | 'DIAGNOSTIC_SKIPPED';
 export type KisTrCircuitStateName = 'CLOSED' | 'SOFT_THROTTLED' | 'OPEN' | 'HALF_OPEN' | 'CLOSED_RECOVERED';
 export type KisCallPriority = 'REAL_POSITION' | 'SHADOW_OPEN' | 'READY_CANDIDATE' | 'WATCHLIST' | 'SCAN_DIAGNOSTIC';
 export type KisThrottleLevel = 'NONE' | 'SOFT' | 'HARD' | 'CIRCUIT_OPEN';

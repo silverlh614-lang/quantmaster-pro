@@ -76,7 +76,7 @@ export type KisPriorityBudgetReason =
   | 'KIS_TR_HARD_THROTTLED'              // 사용자 §HARD throttle 시 새 매수 후보 보류
   | 'P0_BUDGET_OK_INFINITE';             // P0 무제한 명시
 
-export type KisPriorityBudgetAction = 'ALLOW' | 'DEFER' | 'SUPPRESS' | 'DROP';
+export type KisPriorityBudgetAction = 'ALLOW' | 'DEFER' | 'SUPPRESS' | 'DROP' | 'SUPPRESS_DIAGNOSTIC_ONLY';
 
 // Decision schema (literal type 강제)
 export interface KisPriorityBudgetDecision {
@@ -88,6 +88,9 @@ export interface KisPriorityBudgetDecision {
   readonly fallbackProvider?: KisFallbackProvider;
   readonly fallbackReason?: string;
   readonly confidence?: KisFallbackConfidence;
+  readonly diagnosticSuppressed?: boolean;
+  readonly blocking?: boolean;
+  readonly dataVacuum?: boolean;
   readonly throttleLevel: KisThrottleLevel;
   readonly circuitState: KisTrCircuitStateName;
   readonly sameSecondCalls: number;
@@ -217,6 +220,8 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
     trId: input.trId,
     symbol: input.symbol,
     decidedAtMs: nowMs,
+    blocking: false as const,
+    dataVacuum: false as const,
   };
 
   // 1. ENV DISABLED → allowed=true (Patch-003 동작 보존)
@@ -245,6 +250,19 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
     };
   }
 
+  // 2b. P1_SHADOW_POSITION_MANAGEMENT → throttle/budget 상황에서도 항상 allowed=true (보유 관리/Shadow 보호)
+  if (input.priority === 'P1_SHADOW_POSITION_MANAGEMENT') {
+    return {
+      ...baseDecision,
+      allowed: true,
+      deferred: false,
+      dropped: false,
+      reason: 'BUDGET_OK',
+      executionImpact: 'NONE',
+      action: 'ALLOW',
+    };
+  }
+
   // 3. TTL dedup → deferred=true
   if (isPriorityCallDeduped(input.trId, input.symbol, input.priority, nowMs)) {
     return {
@@ -264,18 +282,7 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
 
   // 4. circuit OPEN/HARD throttle
   if (circuitOpen || hardThrottle) {
-    // P1/P2 보호 (보유 관리 + READY 후보)
-    if (input.priority === 'P1_SHADOW_POSITION_MANAGEMENT') {
-      return {
-        ...baseDecision,
-        allowed: true,
-        deferred: false,
-        dropped: false,
-        reason: 'BUDGET_OK',
-        executionImpact: 'NONE',
-        action: 'ALLOW',
-      };
-    }
+    // P2 보호 (READY 후보)
     if (input.priority === 'P2_READY_CANDIDATE_CONFIRM') {
       // HARD throttle + P2 신규 매수 후보 → blockReason 명시
       if (hardThrottle) {
@@ -302,23 +309,13 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
         action: 'ALLOW',
       };
     }
-    // P3/P4 → defer
-    const fallback = computeFallbackForDeferred(input.cacheAvailable);
-    return {
-      ...baseDecision,
-      allowed: false,
-      deferred: input.priority === 'P3_SCAN_DIAGNOSTIC',
-      dropped: input.priority === 'P4_TELEMETRY_VERBOSE',
-      reason: 'TR_CIRCUIT_OPEN_OR_THROTTLED',
-      ...fallback,
-      executionImpact: 'NONE',
-      action: input.priority === 'P4_TELEMETRY_VERBOSE' ? 'SUPPRESS' : 'DEFER',
-    };
+    // P3/P4 → 진단/텔레메트리 전용 suppress. execution confidence / DATA_VACUUM 으로 전파 금지.
+    return buildDiagnosticSuppressedDecision(baseDecision, 'TR_CIRCUIT_OPEN_OR_THROTTLED');
   }
 
   // 5. SOFT throttle
   if (softThrottle) {
-    if (input.priority === 'P1_SHADOW_POSITION_MANAGEMENT' || input.priority === 'P2_READY_CANDIDATE_CONFIRM') {
+    if (input.priority === 'P2_READY_CANDIDATE_CONFIRM') {
       // budget check
       if (budgetUsed60s >= budgetLimit60s) {
         const fallback = computeFallbackForDeferred(input.cacheAvailable);
@@ -346,17 +343,7 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
     // P3 → budget 초과 시 defer
     if (input.priority === 'P3_SCAN_DIAGNOSTIC') {
       if (budgetUsed60s >= budgetLimit60s) {
-        const fallback = computeFallbackForDeferred(input.cacheAvailable);
-        return {
-          ...baseDecision,
-          allowed: false,
-          deferred: true,
-          dropped: false,
-          reason: 'BUDGET_EXCEEDED',
-          ...fallback,
-          executionImpact: 'NONE',
-          action: 'DEFER',
-        };
+        return buildDiagnosticSuppressedDecision(baseDecision, 'BUDGET_EXCEEDED');
       }
       return {
         ...baseDecision,
@@ -368,17 +355,9 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
         action: 'ALLOW',
       };
     }
-    // P4 → budget 초과 시 drop
+    // P4 → budget 초과 시 telemetry-only suppress
     if (budgetUsed60s >= budgetLimit60s) {
-      return {
-        ...baseDecision,
-        allowed: false,
-        deferred: false,
-        dropped: true,
-        reason: 'BUDGET_EXCEEDED',
-        executionImpact: 'NONE',
-        action: 'SUPPRESS',
-      };
+      return buildDiagnosticSuppressedDecision(baseDecision, 'BUDGET_EXCEEDED');
     }
     return {
       ...baseDecision,
@@ -394,15 +373,10 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
   // 6. NONE throttle: budget 잔여만 check
   if (budgetUsed60s >= budgetLimit60s) {
     if (input.priority === 'P4_TELEMETRY_VERBOSE') {
-      return {
-        ...baseDecision,
-        allowed: false,
-        deferred: false,
-        dropped: true,
-        reason: 'BUDGET_EXCEEDED',
-        executionImpact: 'NONE',
-        action: 'SUPPRESS',
-      };
+      return buildDiagnosticSuppressedDecision(baseDecision, 'BUDGET_EXCEEDED');
+    }
+    if (input.priority === 'P3_SCAN_DIAGNOSTIC') {
+      return buildDiagnosticSuppressedDecision(baseDecision, 'BUDGET_EXCEEDED');
     }
     const fallback = computeFallbackForDeferred(input.cacheAvailable);
     return {
@@ -426,6 +400,29 @@ export function evaluatePriorityBudget(input: EvaluatePriorityBudgetInput): KisP
     reason: 'BUDGET_OK',
     executionImpact: 'NONE',
     action: 'ALLOW',
+  };
+}
+
+
+function buildDiagnosticSuppressedDecision(
+  baseDecision: Omit<KisPriorityBudgetDecision, 'allowed' | 'deferred' | 'dropped' | 'reason' | 'executionImpact' | 'action'>,
+  reason: KisPriorityBudgetReason,
+): KisPriorityBudgetDecision {
+  const isP4 = baseDecision.priority === 'P4_TELEMETRY_VERBOSE';
+  return {
+    ...baseDecision,
+    allowed: false,
+    deferred: false,
+    dropped: true,
+    reason,
+    fallbackProvider: 'NONE',
+    fallbackReason: 'DIAGNOSTIC_SUPPRESSED_NO_EXECUTION_FALLBACK_REQUIRED',
+    confidence: 'NOT_APPLICABLE',
+    diagnosticSuppressed: true,
+    blocking: false,
+    dataVacuum: false,
+    executionImpact: 'NONE',
+    action: isP4 || baseDecision.priority === 'P3_SCAN_DIAGNOSTIC' ? 'SUPPRESS_DIAGNOSTIC_ONLY' : 'SUPPRESS',
   };
 }
 
@@ -462,6 +459,8 @@ export function formatKisPriorityBudgetLog(decision: KisPriorityBudgetDecision):
     `allowed=${decision.allowed}`,
     `reason=${decision.reason}`,
     `action=${decision.action}`,
+    `blocking=${decision.blocking ?? false}`,
+    `dataVacuum=${decision.dataVacuum ?? false}`,
     `executionImpact=${decision.executionImpact}`,
   ];
   if (decision.fallbackProvider) parts.push(`fallbackProvider=${decision.fallbackProvider}`);
