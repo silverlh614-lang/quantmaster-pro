@@ -18,10 +18,16 @@ import {
 import type { SupplyHealthSnapshot } from '../../learning/supplyHealthLearning.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
 import {
+  buildCandidateSummaries,
   deriveUniverseLearningReason,
   recordCounterfactualUniverseLearningSnapshot,
 } from './counterfactualUniverseLearningWiring.js';
 import type { CounterfactualUniverseLearningReason } from '../../persistence/counterfactualUniverseLearningRepo.js';
+import {
+  recordPreflightBlockedScanSummary,
+  type PreflightBlockedBy,
+  type PreflightBlockedScanSummary,
+} from './preflightBlockedScanSummary.js';
 
 export type PreflightUniverseLearningStage =
   | 'BEFORE_UNIVERSE_BUILD'
@@ -102,7 +108,7 @@ export async function recordBlockedDayShadowScan(
  */
 export async function recordPreflightUniverseLearningSnapshot(
   input: PreflightUniverseLearningSnapshotInput,
-): Promise<void> {
+): Promise<{ recorded: boolean; candidateSummaryCount: number }> {
   try {
     const reasons: CounterfactualUniverseLearningReason[] = [
       deriveUniverseLearningReason(input.primaryReason),
@@ -116,7 +122,10 @@ export async function recordPreflightUniverseLearningSnapshot(
       source: 'watchlist',
       rank: i + 1,
     }));
-    recordCounterfactualUniverseLearningSnapshot({
+    // ADR-0367: candidateSummaryCount 는 buildCandidateSummaries 의 sanitize 결과 길이 (invalid KRX code 제외,
+    // Top N≤50 절삭). counterfactual env-disabled 여도 순수 함수라 항상 계산 가능 — preflight blocked summary 입력.
+    const candidateSummaryCount = buildCandidateSummaries(candidates).length;
+    const result = recordCounterfactualUniverseLearningSnapshot({
       preflightStage: input.stage,
       blockedBy: [input.primaryReason],
       reasons,
@@ -127,7 +136,48 @@ export async function recordPreflightUniverseLearningSnapshot(
       marketSnapshot: input.marketSnapshot,
       notes: input.notes,
     });
+    return { recorded: result.recorded, candidateSummaryCount };
   } catch (e) {
     console.warn('[CounterfactualUniverseLearning] preflight snapshot 영속 실패 — 격리 (abort 흐름 보호)', e);
+    return { recorded: false, candidateSummaryCount: 0 };
+  }
+}
+
+export interface PreflightBlockedScanMeta {
+  blockedBy: PreflightBlockedBy;
+  hardBlockSource?: string;
+  hardBlockModule?: string;
+  hardBlockReason?: string;
+  preflightDecision?: string;
+}
+
+/**
+ * ADR-0367: buyListLoop 진입 전 preflight abort 시 universe learning snapshot + blocked scan summary 동시 영속.
+ *
+ * recordPreflightUniverseLearningSnapshot (counterfactual learning) 의 결과를 받아
+ * preflightBlockedScanSummary SSOT 에 candidateSummaryCount / universeSnapshotRecorded /
+ * counterfactualRecorded 를 propagate. ADR-0433 에서 universe snapshot = counterfactual learning event 가
+ * 단일 영속 연산이므로 두 플래그 모두 learningResult.recorded 를 사용한다.
+ * 실패는 catch 격리 — preflight abort 흐름을 절대 차단하지 않는다.
+ */
+export async function recordPreflightBlockedScan(
+  learningInput: PreflightUniverseLearningSnapshotInput,
+  blockMeta: PreflightBlockedScanMeta,
+): Promise<PreflightBlockedScanSummary | null> {
+  try {
+    const learningResult = await recordPreflightUniverseLearningSnapshot(learningInput);
+    return recordPreflightBlockedScanSummary({
+      blockedBy: blockMeta.blockedBy,
+      hardBlockSource: blockMeta.hardBlockSource,
+      hardBlockModule: blockMeta.hardBlockModule,
+      hardBlockReason: blockMeta.hardBlockReason,
+      preflightDecision: blockMeta.preflightDecision,
+      candidateSummaryCount: learningResult.candidateSummaryCount,
+      universeSnapshotRecorded: learningResult.recorded,
+      counterfactualRecorded: learningResult.recorded,
+    });
+  } catch (e) {
+    console.warn('[PreflightBlockedScan] blocked scan summary 영속 실패 — 격리 (abort 흐름 보호)', e);
+    return null;
   }
 }
