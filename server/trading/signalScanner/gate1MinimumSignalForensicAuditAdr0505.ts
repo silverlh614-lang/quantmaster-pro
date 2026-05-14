@@ -39,6 +39,7 @@ import {
   type InvestorFlowFieldKeyDiscoveryDiagnostic,
   type SanitizedInvestorFlowSemanticRow,
 } from '../../supply/investorFlowSemanticAvailability.js';
+import type { InvestorRowMaterializationClass } from './investorFlowProviderRouterAdr0477.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -140,6 +141,8 @@ export interface SupplyScopeAudit {
   diagnosticActualInvestorRowCarried?: boolean;
   actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
   actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  investorRowMaterializationClass?: InvestorRowMaterializationClass;
+  diagnosticActualInvestorRowFromNormalized?: boolean;
   selectedCandidateCarriesSemanticRow?: boolean;
   forensicInputCarriesSemanticRow?: boolean;
   forensicInputCarriesActualInvestorRows?: boolean;
@@ -479,6 +482,15 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   diagnosticOnlyActualRowCount?: number;
   actualInvestorRowProviderDistribution?: Record<string, number>;
   actualInvestorRowUseScopeDistribution?: Record<string, number>;
+  kisNormalizedRowsMaterialized?: number;
+  kisSemanticRowsMaterialized?: number;
+  normalizedRowsPromotedToDiagnosticActualRow?: number;
+  normalizedMetadataOnlyRows?: number;
+  semanticMetadataOnlyRows?: number;
+  bySymbolDiagnosticActualRowFromNormalized?: number;
+  sellOnlyBySymbolPayloadFromNormalized?: number;
+  semanticFromNormalizedActualRow?: number;
+  investorRowMaterializationClassDistribution?: Record<string, number>;
   forensicInputCarriesSemanticRowCount?: number;
   semanticRowBreakPointDistribution?: Record<string, number>;
   forensicInputCarriesActualInvestorRowsCount?: number;
@@ -1158,6 +1170,9 @@ function buildSupplyScopeAudit(input: {
     diagnosticActualInvestorRowCarried,
     actualInvestorRowProvider,
     actualInvestorRowUseScope,
+    investorRowMaterializationClass: (kisFlow?.investorRowMaterializationClass as InvestorRowMaterializationClass | undefined)
+      ?? (sellOnlyBySymbolPayload?.investorRowMaterializationClass as InvestorRowMaterializationClass | undefined),
+    diagnosticActualInvestorRowFromNormalized: Boolean(kisFlow?.diagnosticActualInvestorRowFromNormalized ?? sellOnlyBySymbolPayload?.diagnosticActualInvestorRowFromNormalized),
     selectedCandidateCarriesSemanticRow,
     forensicInputCarriesSemanticRow,
     forensicInputCarriesActualInvestorRows,
@@ -1736,6 +1751,15 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let diagnosticOnlyActualRowCount = 0;
   const actualInvestorRowProviderDistribution: Record<string, number> = {};
   const actualInvestorRowUseScopeDistribution: Record<string, number> = {};
+  let kisNormalizedRowsMaterialized = 0;
+  let kisSemanticRowsMaterialized = 0;
+  let normalizedRowsPromotedToDiagnosticActualRow = 0;
+  let normalizedMetadataOnlyRows = 0;
+  let semanticMetadataOnlyRows = 0;
+  let bySymbolDiagnosticActualRowFromNormalized = 0;
+  let sellOnlyBySymbolPayloadFromNormalized = 0;
+  let semanticFromNormalizedActualRow = 0;
+  const investorRowMaterializationClassDistribution: Record<string, number> = {};
   let selectedCandidateCarriesSemanticRowCount = 0;
   let selectedCandidateCarriesActualRowCount = 0;
   let forensicInputCarriesSemanticRowCount = 0;
@@ -1919,6 +1943,18 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
       const scope = a.supplyScopeAudit.actualInvestorRowUseScope;
       actualInvestorRowUseScopeDistribution[scope] = (actualInvestorRowUseScopeDistribution[scope] ?? 0) + 1;
     }
+    if ((a.supplyScopeAudit.normalizedCount ?? 0) > 0 || (a.supplyScopeAudit.fieldKeyDiagnostics?.kisNormalizedFieldKeysTop?.length ?? 0) > 0) kisNormalizedRowsMaterialized += 1;
+    if ((a.supplyScopeAudit.materializedCount ?? 0) > 0 || a.supplyScopeAudit.semanticRowAvailable) kisSemanticRowsMaterialized += 1;
+    const materializationClass = a.supplyScopeAudit.investorRowMaterializationClass ?? (a.supplyScopeAudit.diagnosticActualInvestorRowFromNormalized ? 'NORMALIZED_NUMERIC_ROW' : undefined);
+    if (materializationClass) investorRowMaterializationClassDistribution[materializationClass] = (investorRowMaterializationClassDistribution[materializationClass] ?? 0) + 1;
+    if (a.supplyScopeAudit.diagnosticActualInvestorRowFromNormalized && a.supplyScopeAudit.diagnosticActualInvestorRowCarried) {
+      normalizedRowsPromotedToDiagnosticActualRow += 1;
+      semanticFromNormalizedActualRow += a.supplyScopeAudit.semanticAvailable ? 1 : 0;
+    }
+    if (materializationClass === 'NORMALIZED_METADATA_ONLY') normalizedMetadataOnlyRows += 1;
+    if (materializationClass === 'SEMANTIC_METADATA_ONLY') semanticMetadataOnlyRows += 1;
+    if (a.supplyScopeAudit.diagnosticActualInvestorRowFromNormalized && a.supplyScopeAudit.sellOnlyBySymbolPayloadAvailable) bySymbolDiagnosticActualRowFromNormalized += 1;
+    if (a.supplyScopeAudit.diagnosticActualInvestorRowFromNormalized && a.supplyScopeAudit.sellOnlyBySymbolPayloadAvailable) sellOnlyBySymbolPayloadFromNormalized += 1;
     if (a.supplyScopeAudit.selectedCandidateCarriesSemanticRow) selectedCandidateCarriesSemanticRowCount += 1;
     if ((a.supplyScopeAudit.selectedActualRowFieldKeys?.length ?? 0) > 0) selectedCandidateCarriesActualRowCount += 1;
     if (a.supplyScopeAudit.forensicInputCarriesSemanticRow) forensicInputCarriesSemanticRowCount += 1;
@@ -2121,6 +2157,15 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     diagnosticOnlyActualRowCount,
     actualInvestorRowProviderDistribution,
     actualInvestorRowUseScopeDistribution,
+    kisNormalizedRowsMaterialized,
+    kisSemanticRowsMaterialized,
+    normalizedRowsPromotedToDiagnosticActualRow,
+    normalizedMetadataOnlyRows,
+    semanticMetadataOnlyRows,
+    bySymbolDiagnosticActualRowFromNormalized,
+    sellOnlyBySymbolPayloadFromNormalized,
+    semanticFromNormalizedActualRow,
+    investorRowMaterializationClassDistribution,
     selectedCandidateCarriesSemanticRowCount,
     selectedCandidateCarriesActualRowCount,
     forensicInputCarriesSemanticRowCount,
@@ -2311,6 +2356,15 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push(`  - adapterRowsForwardedAcrossProviders: ${summary.adapterRowsForwardedAcrossProvidersCount ?? 0}/${summary.totalCandidates}`);
   // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row carry 진단 (selectedProvider 무관).
   lines.push(`  - diagnosticActualInvestorRowCarried: ${summary.diagnosticActualInvestorRowCarriedCount ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - kisNormalizedRowsMaterialized: ${summary.kisNormalizedRowsMaterialized ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - kisSemanticRowsMaterialized: ${summary.kisSemanticRowsMaterialized ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - normalizedRowsPromotedToDiagnosticActualRow: ${summary.normalizedRowsPromotedToDiagnosticActualRow ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - normalizedMetadataOnlyRows: ${summary.normalizedMetadataOnlyRows ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - semanticMetadataOnlyRows: ${summary.semanticMetadataOnlyRows ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - bySymbolDiagnosticActualRowFromNormalized: ${summary.bySymbolDiagnosticActualRowFromNormalized ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - sellOnlyBySymbolPayloadFromNormalized: ${summary.sellOnlyBySymbolPayloadFromNormalized ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - semanticFromNormalizedActualRow: ${summary.semanticFromNormalizedActualRow ?? 0}/${summary.totalCandidates}`);
+  lines.push(`  - investorRowMaterializationClass: ${formatDistribution(summary.investorRowMaterializationClassDistribution ?? {})}`);
   lines.push(`  - selectedProviderActualRow: ${summary.selectedProviderActualRowCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - diagnosticOnlyActualRow: ${summary.diagnosticOnlyActualRowCount ?? 0}/${summary.totalCandidates}`);
   lines.push(`  - actualInvestorRowProvider: ${formatDistribution(summary.actualInvestorRowProviderDistribution ?? {})}`);

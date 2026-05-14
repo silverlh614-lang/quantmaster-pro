@@ -10,7 +10,7 @@ import {
   type InvestorSampleDiagnosticsAdr0502,
   type InvestorSampleProviderNameAdr0502,
 } from './investorSampleMaterializationAdr0502.js';
-import { buildSanitizedInvestorFlowSemanticRow, normalizeNumberLikeInvestorFlowValue, unwrapInvestorFlowRows, type SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
+import { buildSanitizedInvestorFlowSemanticRow, hasActualInvestorNumericRow, normalizeNumberLikeInvestorFlowValue, unwrapInvestorFlowRows, type SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
 
 
 export type InvestorFlowProviderId =
@@ -79,6 +79,14 @@ export type SemanticSupplySignal =
   | 'NEUTRAL'
   | 'BEARISH'
   | 'UNKNOWN';
+
+export type InvestorRowMaterializationClass =
+  | 'ACTUAL_NUMERIC_ROW'
+  | 'NORMALIZED_NUMERIC_ROW'
+  | 'NORMALIZED_METADATA_ONLY'
+  | 'SEMANTIC_METADATA_ONLY'
+  | 'WRAPPER_ONLY'
+  | 'MISSING';
 
 export interface SupplyProviderCapability {
   provider: InvestorFlowProviderId;
@@ -165,6 +173,8 @@ export interface InvestorFlowProviderRouteResult {
   selectedProviderActualInvestorRow?: Record<string, unknown> | null;
   actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
   actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  investorRowMaterializationClass?: InvestorRowMaterializationClass;
+  diagnosticActualInvestorRowFromNormalized?: boolean;
   selectedCandidate?: InvestorFlowMaterializedCandidateAdr0503 | null;
   bySymbol?: Record<string, InvestorFlowProviderRouteBySymbolPayloadAdr0477>;
   selectedActualRowPath?: string | null;
@@ -1106,6 +1116,8 @@ export type InvestorFlowProviderRouteBySymbolPayloadAdr0477 = Pick<InvestorFlowP
   | 'selectedProviderActualInvestorRow'
   | 'actualInvestorRowProvider'
   | 'actualInvestorRowUseScope'
+  | 'investorRowMaterializationClass'
+  | 'diagnosticActualInvestorRowFromNormalized'
   | 'selectedCandidate'
   | 'selectedActualRowPath'
   | 'selectedActualRowFieldKeys'
@@ -1155,6 +1167,12 @@ export interface InvestorFlowMaterializedCandidateAdr0503 {
   normalizedRowAvailable?: boolean;
   semanticRowAvailable?: boolean;
   rowCarryPath?: 'ADAPTER_TO_ROUTER' | 'NONE';
+  diagnosticActualInvestorRow?: Record<string, unknown> | null;
+  selectedProviderActualInvestorRow?: Record<string, unknown> | null;
+  actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  investorRowMaterializationClass?: InvestorRowMaterializationClass;
+  diagnosticActualInvestorRowFromNormalized?: boolean;
   supplyProviderStatus?: InvestorFlowProviderStatus;
 }
 
@@ -1174,6 +1192,12 @@ type ActualInvestorFlowCarryAdr0477 = Pick<InvestorFlowMaterializedCandidateAdr0
   | 'normalizedRowAvailable'
   | 'semanticRowAvailable'
   | 'rowCarryPath'
+  | 'diagnosticActualInvestorRow'
+  | 'selectedProviderActualInvestorRow'
+  | 'actualInvestorRowProvider'
+  | 'actualInvestorRowUseScope'
+  | 'investorRowMaterializationClass'
+  | 'diagnosticActualInvestorRowFromNormalized'
 >;
 
 type ActualInvestorFlowDropReasonAdr0477 =
@@ -1287,6 +1311,12 @@ export function collectInvestorFlowMaterializedCandidates(
         normalizedRowAvailable: actualCarry.normalizedRowAvailable,
         semanticRowAvailable: actualCarry.semanticRowAvailable,
         rowCarryPath: actualCarry.rowCarryPath,
+        diagnosticActualInvestorRow: actualCarry.diagnosticActualInvestorRow,
+        selectedProviderActualInvestorRow: actualCarry.selectedProviderActualInvestorRow,
+        actualInvestorRowProvider: actualCarry.actualInvestorRowProvider,
+        actualInvestorRowUseScope: actualCarry.actualInvestorRowUseScope,
+        investorRowMaterializationClass: actualCarry.investorRowMaterializationClass,
+        diagnosticActualInvestorRowFromNormalized: actualCarry.diagnosticActualInvestorRowFromNormalized,
       } : {}),
     };
   });
@@ -1353,6 +1383,9 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   let kisNormalizedRowAvailableAtRouter = false;
   let selectedActualRowPath: string | null = null;
   let sanitizedInvestorFlowRows: Array<Record<string, unknown>> = [];
+  let kisNormalizedDiagnosticInvestorRow: Record<string, unknown> | null = null;
+  let kisSemanticDiagnosticInvestorRow: Record<string, unknown> | null = null;
+  let investorRowMaterializationClass: InvestorRowMaterializationClass = 'MISSING';
   let selectedActualRowFieldKeys: string[] = [];
   let selectedActualNumericFieldKeys: string[] = [];
   let selectedActualNumericStringFieldKeys: string[] = [];
@@ -1631,30 +1664,63 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     semanticRowsByProvider.KIS_API = kisSemanticRow;
     const kisActualInvestorRow = sanitizedInvestorFlowRows[0] ?? (input.kisInvestorRaw as Record<string, unknown>);
     const kisNormalizedInvestorRow = normalizedInvestorRowFromSemanticAdr0477(kisSemanticRow);
-    const kisSample = normalizeSemanticNetBuySampleAdr0477((sanitizedInvestorFlowRows[0] ?? input.kisInvestorRaw) as Record<string, unknown>, 'KIS_API', {
+    const semanticRowAsDiagnostic = kisSemanticRow as unknown as Record<string, unknown>;
+    kisNormalizedDiagnosticInvestorRow = hasActualInvestorNumericRow(kisNormalizedInvestorRow) ? kisNormalizedInvestorRow : null;
+    kisSemanticDiagnosticInvestorRow = hasActualInvestorNumericRow(semanticRowAsDiagnostic) ? semanticRowAsDiagnostic : null;
+    const selectedActualPathIsNormalized = /normalized/i.test(selectedActualRowPath ?? '');
+    const hasExplicitNormalizedObject = input.kisInvestorRaw != null && typeof input.kisInvestorRaw === 'object' && !Array.isArray(input.kisInvestorRaw) && Object.prototype.hasOwnProperty.call(input.kisInvestorRaw, 'normalizedRow');
+    investorRowMaterializationClass = (selectedActualWrapperOnly || actualRowDiagnostic.wrapperOnly) && sanitizedInvestorFlowRows.length === 0 && !kisNormalizedDiagnosticInvestorRow && !kisSemanticDiagnosticInvestorRow && !hasExplicitNormalizedObject
+      ? 'WRAPPER_ONLY'
+      : sanitizedInvestorFlowRows.some((row) => hasActualInvestorNumericRow(row))
+        ? (selectedActualPathIsNormalized ? 'NORMALIZED_NUMERIC_ROW' : 'ACTUAL_NUMERIC_ROW')
+        : kisNormalizedDiagnosticInvestorRow
+        ? 'NORMALIZED_NUMERIC_ROW'
+        : kisSemanticDiagnosticInvestorRow
+          ? 'NORMALIZED_NUMERIC_ROW'
+          : kisNormalizedInvestorRow
+            ? 'NORMALIZED_METADATA_ONLY'
+            : kisNormalizedRowAvailableAtRouter
+              ? 'SEMANTIC_METADATA_ONLY'
+              : selectedActualWrapperOnly || actualRowDiagnostic.wrapperOnly
+                ? 'WRAPPER_ONLY'
+                : 'MISSING';
+    kisRawRowAvailableAtAdapter = investorRowMaterializationClass === 'ACTUAL_NUMERIC_ROW' || investorRowMaterializationClass === 'NORMALIZED_NUMERIC_ROW';
+    const kisSample = normalizeSemanticNetBuySampleAdr0477((sanitizedInvestorFlowRows[0] ?? kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow ?? input.kisInvestorRaw) as Record<string, unknown>, 'KIS_API', {
       code: input.code,
       collectedAt,
       sourceAgeTradingDays: input.sourceAgeTradingDays,
     });
     materializationDiagnostics.KIS_INVESTOR = materializationFromSemanticSampleAdr0477('KIS_INVESTOR', kisSample, 'RAW_PROVIDER');
+    const kisDiagnosticActualRows = sanitizedInvestorFlowRows.length > 0
+      ? sanitizedInvestorFlowRows
+      : (kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow)
+        ? [kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow as Record<string, unknown>]
+        : [];
+    const kisDiagnosticFieldKeys = kisDiagnosticActualRows.length > 0 ? Array.from(new Set(kisDiagnosticActualRows.flatMap((row) => Object.keys(row)))) : selectedActualRowFieldKeys;
+    const kisDiagnosticNumericKeys = kisDiagnosticActualRows.length > 0 ? Array.from(new Set(kisDiagnosticActualRows.flatMap((row) => supplyNumericKeysAdr0477(row)))) : Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys]));
     actualRowCarryByProvider.KIS_API = {
-      actualInvestorFlowRows: sanitizedInvestorFlowRows,
-      actualInvestorFlowRowCount: sanitizedInvestorFlowRows.length,
-      actualInvestorFlowRowSourcePath: selectedActualRowPath,
-      actualInvestorFlowFieldKeys: selectedActualRowFieldKeys,
-      actualInvestorFlowNumericKeys: Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys])),
+      actualInvestorFlowRows: kisDiagnosticActualRows,
+      actualInvestorFlowRowCount: kisDiagnosticActualRows.length,
+      actualInvestorFlowRowSourcePath: selectedActualRowPath ?? (kisDiagnosticActualRows.length > 0 ? 'input.normalizedInvestorRow' : null),
+      actualInvestorFlowFieldKeys: kisDiagnosticFieldKeys,
+      actualInvestorFlowNumericKeys: kisDiagnosticNumericKeys,
       actualInvestorFlowNumericStringKeys: selectedActualNumericStringFieldKeys,
-      actualInvestorFlowCarried: sanitizedInvestorFlowRows.length > 0,
+      actualInvestorFlowCarried: kisDiagnosticActualRows.length > 0,
       actualInvestorRow: kisActualInvestorRow,
       normalizedInvestorRow: kisNormalizedInvestorRow,
       semanticInvestorRow: kisSemanticRow,
       supplySemanticRow: kisSemanticRow,
       actualRowAvailable: Boolean(kisActualInvestorRow),
+      diagnosticActualInvestorRow: kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow ?? (hasActualInvestorNumericRow(kisActualInvestorRow) ? kisActualInvestorRow : null),
+      actualInvestorRowProvider: (kisNormalizedDiagnosticInvestorRow || kisSemanticDiagnosticInvestorRow || hasActualInvestorNumericRow(kisActualInvestorRow)) ? 'KIS_API' : null,
+      actualInvestorRowUseScope: 'DIAGNOSTIC_ONLY',
+      investorRowMaterializationClass,
+      diagnosticActualInvestorRowFromNormalized: Boolean(kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow),
       normalizedRowAvailable: Boolean(kisNormalizedInvestorRow),
       semanticRowAvailable: kisNormalizedRowAvailableAtRouter,
       rowCarryPath: 'ADAPTER_TO_ROUTER',
     };
-    diagnostics.push(`[SUPPLY_ROUTER_ROW_CARRIED] symbol=${input.code} actualRowAvailable=${Boolean(kisActualInvestorRow)} semanticRowAvailable=${kisNormalizedRowAvailableAtRouter} fieldKeys=${supplyRowKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} numericKeys=${supplyNumericKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} rowCarryPath=ADAPTER_TO_ROUTER`);
+    diagnostics.push(`[SUPPLY_ROUTER_ROW_CARRIED] symbol=${input.code} actualRowAvailable=${Boolean(kisActualInvestorRow)} semanticRowAvailable=${kisNormalizedRowAvailableAtRouter} materializationClass=${investorRowMaterializationClass} normalizedPromoted=${Boolean(kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow)} fieldKeys=${supplyRowKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} numericKeys=${supplyNumericKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} rowCarryPath=ADAPTER_TO_ROUTER`);
     diagnostics.push(`[SUPPLY_SEMANTIC_FIELD_MAPPED] symbol=${input.code} foreignField=${kisSemanticRow.sourceFields.foreign ?? 'none'} institutionField=${kisSemanticRow.sourceFields.institutional ?? 'none'} individualField=${kisSemanticRow.sourceFields.individual ?? 'none'} foreignNetBuy=${kisSemanticRow.foreignNetBuy ?? 'null'} institutionNetBuy=${kisSemanticRow.institutionalNetBuy ?? 'null'} individualNetBuy=${kisSemanticRow.individualNetBuy ?? 'null'}`);
     if (materializationDiagnostics.KIS_INVESTOR.sampleMaterialized) samplesByProvider.KIS_API = kisSample;
     providerStatuses.KIS_API = kisSample.status;
@@ -1794,9 +1860,13 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   // liveExecutionAllowed=false 보존. 사용자 명시 #6: adapterCarriesActualRow=47/47 인데
   // routerCarriesActualRow=0/47 인 단절 차단 — adapter 가 데이터 보유 시 router 도 carry.
   // 사용자 명시 #9 (KRX CORE 직결 금지) 정합 — selectedProvider 결정 로직 변경 0.
-  const adapterFallbackActualRows = sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows : [];
+  const normalizedFallbackActualRows = (kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow)
+    ? [kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow as Record<string, unknown>]
+    : [];
+  const adapterFallbackActualRows = sanitizedInvestorFlowRows.length > 0 ? sanitizedInvestorFlowRows : normalizedFallbackActualRows;
+  const diagnosticActualRowFromNormalized = (sanitizedInvestorFlowRows.length === 0 && normalizedFallbackActualRows.length > 0) || (adapterFallbackActualRows.length > 0 && /NORMALIZED/.test(investorRowMaterializationClass));
   const selectedCandidateActualRows = selectedMaterializedCandidate?.actualInvestorFlowRows
-    ?? (selectedProvider === 'KIS_API' ? sanitizedInvestorFlowRows : adapterFallbackActualRows);
+    ?? (selectedProvider === 'KIS_API' ? adapterFallbackActualRows : adapterFallbackActualRows);
   const selectedCandidateActualRowCount = selectedMaterializedCandidate?.actualInvestorFlowRowCount ?? selectedCandidateActualRows.length;
   const selectedCandidateCarriesActualRow = selectedCandidateActualRowCount > 0;
   // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — adapter actual row 를 selectedProvider 와
@@ -1813,7 +1883,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const diagnosticActualInvestorRow: Record<string, unknown> | null =
     (adapterFallbackActualRows[0] as Record<string, unknown> | undefined)
     ?? (selectedMaterializedCandidate?.actualInvestorRow ?? null);
-  const actualRowProviderMatchesSelected = actualRowProvider != null && selectedProvider === actualRowProvider;
+  const actualRowProviderMatchesSelected = actualRowProvider != null && selectedProvider === actualRowProvider && !diagnosticActualRowFromNormalized;
   const selectedProviderActualInvestorRow: Record<string, unknown> | null =
     actualRowProviderMatchesSelected ? diagnosticActualInvestorRow : null;
   const actualInvestorRowUseScope: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' =
@@ -1838,7 +1908,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     selectedMaterializedCandidate.supplyProviderStatus = routeStatus;
     diagnostics.push(`[SELECTED_CANDIDATE_SUPPLY_ROW_ATTACHED] symbol=${input.code} hasActualInvestorRow=${Boolean(selectedMaterializedCandidate.actualInvestorRow ?? selectedCandidateActualRows[0])} hasSemanticInvestorRow=${Boolean(selectedMaterializedCandidate.semanticInvestorRow ?? selectedSemanticRow)} source=SUPPLY_ROUTER_BY_SYMBOL fieldKeys=${(selectedMaterializedCandidate.actualInvestorFlowFieldKeys ?? selectedCandidateActualRowFieldKeysTop).slice(0, 16).join(',') || 'NONE'} numericKeys=${(selectedMaterializedCandidate.actualInvestorFlowNumericKeys ?? selectedActualNumericFieldKeys).slice(0, 16).join(',') || 'NONE'}`);
   }
-  diagnostics.push(`[INVESTOR_FLOW_ACTUAL_ROW_CARRY] symbol=${input.code} selectedProvider=${selectedProvider} actualRowProvider=${actualRowProvider ?? 'NONE'} useScope=${actualInvestorRowUseScope} diagnosticActualRow=${diagnosticActualInvestorRow != null} selectedProviderActualRow=${selectedProviderActualInvestorRow != null} adapterForwarded=${adapterRowsForwardedAcrossProviders} executionImpact=NONE liveExecutionAllowed=false`);
+  diagnostics.push(`[INVESTOR_FLOW_ACTUAL_ROW_CARRY] symbol=${input.code} selectedProvider=${selectedProvider} actualRowProvider=${actualRowProvider ?? 'NONE'} useScope=${actualInvestorRowUseScope} materializationClass=${investorRowMaterializationClass} diagnosticActualRow=${diagnosticActualInvestorRow != null} diagnosticActualRowFromNormalized=${diagnosticActualRowFromNormalized} selectedProviderActualRow=${selectedProviderActualInvestorRow != null} adapterForwarded=${adapterRowsForwardedAcrossProviders} executionImpact=NONE liveExecutionAllowed=false`);
   const selectedSemanticNetBuy = semanticNetBuy as SemanticNetBuySample | null;
   const signal = selectedSemanticNetBuy?.signal ?? 'UNKNOWN';
   if (!semanticNetBuy && !selectedDiagnosticProvider && providerStatuses.NAVER === 'NOT_WIRED' && providerStatuses.CACHE === 'CACHE_EMPTY') {
@@ -1975,6 +2045,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     selectedProviderActualInvestorRow,
     actualInvestorRowProvider: actualRowProvider,
     actualInvestorRowUseScope,
+    investorRowMaterializationClass,
+    diagnosticActualInvestorRowFromNormalized: diagnosticActualRowFromNormalized,
     selectedCandidate: selectedMaterializedCandidate,
     selectedActualRowPath,
     selectedActualRowFieldKeys,
@@ -2044,6 +2116,8 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     selectedProviderActualInvestorRow,
     actualInvestorRowProvider: actualRowProvider,
     actualInvestorRowUseScope,
+    investorRowMaterializationClass,
+    diagnosticActualInvestorRowFromNormalized: diagnosticActualRowFromNormalized,
     selectedCandidate: selectedMaterializedCandidate,
     bySymbol: { [routeBySymbolKey]: routeBySymbolPayload },
     selectedActualRowPath,
