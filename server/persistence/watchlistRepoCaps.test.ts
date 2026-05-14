@@ -5,7 +5,6 @@ import {
   enforceSectionCaps,
   resolveSectionCaps,
   buildWatchlistAutoTrimAlert,
-  buildWatchlistOverflowAlert,
   TTL_NEAR_EXPIRY_MS,
   type WatchlistEntry,
 } from './watchlistRepo.js';
@@ -112,11 +111,13 @@ describe('resolveSectionCaps (env 오버라이드)', () => {
     }
   });
 
-  it('기본값 — SWING 8/6, CATALYST 5/4, MOMENTUM 50/30', () => {
+  it('기본값 — SWING 8/6, CATALYST 5/4, MOMENTUM 50/40', () => {
+    // Patch-WATCHLIST-SATURATION-COOLDOWN-001 — MOMENTUM soft cap 30 → 40.
+    // 30~39 구간은 ADVISORY/용량 주의 (강제 cleanup 없음), soft cap 40 이상부터 능동 정리.
     for (const k of ENV_KEYS) delete process.env[k];
     const caps = resolveSectionCaps();
     expect(caps.hard).toEqual({ SWING: 8, CATALYST: 5, MOMENTUM: 50 });
-    expect(caps.soft).toEqual({ SWING: 6, CATALYST: 4, MOMENTUM: 30 });
+    expect(caps.soft).toEqual({ SWING: 6, CATALYST: 4, MOMENTUM: 40 });
     expect(caps.softDisabled).toBe(false);
   });
 
@@ -176,22 +177,23 @@ describe('enforceSectionCaps (soft 능동 정리 + hard 강제)', () => {
     return out;
   }
 
-  it('soft cap 미달 (MOMENTUM 25/30) → 정리 0건', () => {
-    const list = makeMomentumList(25);
+  it('soft cap 미달 (MOMENTUM 35/40) → 정리 0건 — ADVISORY 구간 강제 cleanup 없음', () => {
+    // Patch-WATCHLIST-SATURATION-COOLDOWN-001 — 30~39 ADVISORY 구간은 능동 정리 미발동.
+    const list = makeMomentumList(35);
     const r = enforceSectionCaps(list, BASE_NOW);
     expect(r.dropped.MOMENTUM).toBe(0);
     expect(r.softDropped.MOMENTUM).toBe(0);
     expect(r.hardDropped.MOMENTUM).toBe(0);
-    expect(r.trimmed).toHaveLength(25);
+    expect(r.trimmed).toHaveLength(35);
   });
 
-  it('soft cap 초과 + hard 미초과 (MOMENTUM 35/30/50) → soft 능동 정리 5건', () => {
-    const list = makeMomentumList(35);
+  it('soft cap 초과 + hard 미초과 (MOMENTUM 45/40/50) → soft 능동 정리 5건', () => {
+    const list = makeMomentumList(45);
     const r = enforceSectionCaps(list, BASE_NOW);
     expect(r.softDropped.MOMENTUM).toBe(5);
     expect(r.hardDropped.MOMENTUM).toBe(0);
     expect(r.dropped.MOMENTUM).toBe(5);
-    expect(r.trimmed).toHaveLength(30);
+    expect(r.trimmed).toHaveLength(40);
   });
 
   it('hard cap 초과 (MOMENTUM 60/50) → hard 강제 정리 (soft 단계 건너뜀)', () => {
@@ -203,19 +205,19 @@ describe('enforceSectionCaps (soft 능동 정리 + hard 강제)', () => {
     expect(r.trimmed).toHaveLength(50);
   });
 
-  it('사용자 보고 시나리오 (MOMENTUM 48/30/50) → soft 능동 정리 18건 → 30개 유지', () => {
+  it('사용자 보고 시나리오 (MOMENTUM 48/40/50) → soft 능동 정리 8건 → 40개 유지', () => {
     const list = makeMomentumList(48);
     const r = enforceSectionCaps(list, BASE_NOW);
-    expect(r.softDropped.MOMENTUM).toBe(18);
+    expect(r.softDropped.MOMENTUM).toBe(8);
     expect(r.hardDropped.MOMENTUM).toBe(0);
-    expect(r.trimmed).toHaveLength(30);
+    expect(r.trimmed).toHaveLength(40);
   });
 
   it('composite score 하위 우선 드롭 — staleness 큰 entry 먼저 빠짐', () => {
-    // 31개 — soft cap 30 → 1개 드롭. 하위 1개는 *5일 전 추가 + entryFailCount 3* (가장 낮은 score)
+    // 41개 — soft cap 40 → 1개 드롭. 하위 1개는 *5일 전 추가 + entryFailCount 3* (가장 낮은 score)
     const fiveDaysAgo = new Date(BASE_NOW.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
     const list: WatchlistEntry[] = [];
-    for (let i = 0; i < 30; i += 1) {
+    for (let i = 0; i < 40; i += 1) {
       list.push(entry({ code: String(i).padStart(6, '0'), gateScore: 12 }));
     }
     list.push(entry({
@@ -230,8 +232,8 @@ describe('enforceSectionCaps (soft 능동 정리 + hard 강제)', () => {
   });
 
   it('출처 분포 메타 — AUTO 5건 정리 시 removedBySource.AUTO=5', () => {
-    const list = makeMomentumList(35);
-    // 35 중 처음 5개 (가장 낮은 점수) 가 정리 대상 (gateScore 10~14 분포)
+    const list = makeMomentumList(45);
+    // 45 중 처음 5개 (가장 낮은 점수) 가 정리 대상 (gateScore 10~14 분포)
     const r = enforceSectionCaps(list, BASE_NOW);
     expect(r.removedBySource.AUTO + r.removedBySource.MANUAL + r.removedBySource.DART).toBe(5);
     expect(r.removedBySource.AUTO).toBe(5); // 모든 entry 가 AUTO
@@ -239,7 +241,7 @@ describe('enforceSectionCaps (soft 능동 정리 + hard 강제)', () => {
 
   it('WATCHLIST_SOFT_CAP_DISABLED=true → soft 단계 비활성, hard 단계만 작동', () => {
     process.env.WATCHLIST_SOFT_CAP_DISABLED = 'true';
-    const list = makeMomentumList(45); // hard 50 미만, soft 30 초과
+    const list = makeMomentumList(45); // hard 50 미만, soft 40 초과
     const r = enforceSectionCaps(list, BASE_NOW);
     expect(r.softDropped.MOMENTUM).toBe(0);
     expect(r.hardDropped.MOMENTUM).toBe(0);
@@ -259,7 +261,7 @@ describe('enforceSectionCaps (soft 능동 정리 + hard 강제)', () => {
     const list: WatchlistEntry[] = [];
     for (let i = 0; i < 7; i += 1) list.push(entry({ section: 'SWING', code: `S${i}` }));      // soft 6 → 1 drop
     for (let i = 0; i < 5; i += 1) list.push(entry({ section: 'CATALYST', code: `C${i}` }));   // soft 4 → 1 drop
-    for (let i = 0; i < 31; i += 1) list.push(entry({ section: 'MOMENTUM', code: `M${i}` }));  // soft 30 → 1 drop
+    for (let i = 0; i < 41; i += 1) list.push(entry({ section: 'MOMENTUM', code: `M${i}` }));  // soft 40 → 1 drop
     const r = enforceSectionCaps(list, BASE_NOW);
     expect(r.softDropped.SWING).toBe(1);
     expect(r.softDropped.CATALYST).toBe(1);
@@ -339,77 +341,6 @@ describe('buildWatchlistAutoTrimAlert (메시지 빌더)', () => {
   });
 });
 
-describe('buildWatchlistOverflowAlert (메시지 빌더)', () => {
-  it('사용자 보고 시나리오: MOMENTUM 48/30/50 + AUTO 비중 ↑ → 출처 진단 + 자동 액션', () => {
-    const msg = buildWatchlistOverflowAlert({
-      section: 'MOMENTUM',
-      count: 48,
-      alertThreshold: 30,
-      softCap: 30,
-      hardCap: 50,
-      sourceDistribution: { AUTO: 40, MANUAL: 5, DART: 3 },
-    });
-    expect(msg).toContain('Watchlist 포화');
-    expect(msg).toContain('MOMENTUM 섹션: 48개');
-    expect(msg).toContain('alert 30 / soft 30 / hard 50');
-    expect(msg).toContain('AUTO 40');
-    // 단정적 표현 부재 (모순 9 의 핵심)
-    expect(msg).not.toContain('재검토하세요');
-    // 자동 액션 명시 (조건부)
-    expect(msg).toContain('soft cap 능동 정리 진행 중');
-    // AUTO 비중 ↑ 진단
-    expect(msg).toContain('AUTO 비중 높음');
-    expect(msg).toContain('잔여 슬롯: 2개');
-  });
-
-  it('hard cap 도달 (MOMENTUM 50/30/50) → hard 강제 정리 발동 안내', () => {
-    const msg = buildWatchlistOverflowAlert({
-      section: 'MOMENTUM',
-      count: 50,
-      alertThreshold: 30,
-      softCap: 30,
-      hardCap: 50,
-      sourceDistribution: { AUTO: 50, MANUAL: 0, DART: 0 },
-    });
-    expect(msg).toContain('hard cap 강제 정리 발동');
-    expect(msg).toContain('잔여 슬롯: 0개');
-  });
-
-  it('alert 임계 초과 + soft 미달 (custom 임계) → 능동 정리 미발동 안내', () => {
-    const msg = buildWatchlistOverflowAlert({
-      section: 'MOMENTUM',
-      count: 28, // alert 25 < 28 < soft 30
-      alertThreshold: 25,
-      softCap: 30,
-      hardCap: 50,
-      sourceDistribution: { AUTO: 28, MANUAL: 0, DART: 0 },
-    });
-    expect(msg).toContain('능동 정리 미발동');
-  });
-
-  it('AUTO 비중 0 + MANUAL 만 → "분포 안정" 안내 + 수동 정리 권고', () => {
-    const msg = buildWatchlistOverflowAlert({
-      section: 'MOMENTUM',
-      count: 35,
-      alertThreshold: 30,
-      softCap: 30,
-      hardCap: 50,
-      sourceDistribution: { AUTO: 0, MANUAL: 35, DART: 0 },
-    });
-    expect(msg).toContain('분포 안정');
-    expect(msg).toContain('수동 정리 권고');
-  });
-
-  it('단정적 표현 회귀 차단 — "재검토하세요"/"신호 발굴 필터" 부재', () => {
-    const msg = buildWatchlistOverflowAlert({
-      section: 'MOMENTUM',
-      count: 35,
-      alertThreshold: 30,
-      softCap: 30,
-      hardCap: 50,
-      sourceDistribution: { AUTO: 35, MANUAL: 0, DART: 0 },
-    });
-    expect(msg).not.toContain('재검토하세요');
-    expect(msg).not.toContain('신호 발굴 필터를');
-  });
-});
+// Patch-WATCHLIST-SATURATION-COOLDOWN-001 — `buildWatchlistOverflowAlert` 는
+// `watchlistSaturationPolicy` SSOT (severity 분류 + cooldown 상태머신)로 이관.
+// 회귀 테스트는 `watchlistSaturationPolicy.test.ts` 참조.

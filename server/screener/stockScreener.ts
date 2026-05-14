@@ -14,7 +14,7 @@
 
 import fs from 'fs';
 import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadWatchlist, saveWatchlist, type WatchlistSection } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist, MOMENTUM_ALERT_THRESHOLD, type WatchlistSection } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverrides } from '../clients/kisClient.js';
@@ -45,6 +45,16 @@ import { fetchYahooQuoteByCode, tryGetYahooSymbol } from './adapters/yahooSymbol
 // 워치리스트 등록 자체는 차단 금지 — alert 보류 + UI 마킹만 영향 (markDataQuarantine).
 import { verifyStockIncremental } from '../data/dataVerificationIncremental.js';
 import { markDataQuarantine } from '../persistence/watchlistRepo.js';
+// Patch-WATCHLIST-SATURATION-COOLDOWN-001 — MOMENTUM AUTO 편입 감속 SSOT.
+// autoRatio >= 0.8 && MOMENTUM count >= alertCap(30) 일 때 사이클당 신규 AUTO
+// 편입을 MOMENTUM_AUTO_ADD_PER_CYCLE(3) 이하로 제한 + 최근 cleanup/탈락된
+// MOMENTUM AUTO 종목 re-add cooldown(120분). SWING/CATALYST/MANUAL/보유/force buy
+// 무영향. 신규 KIS 호출 0건 — 순수 결정 함수 + in-memory snapshot diff.
+import {
+  evaluateMomentumAutoIntake,
+  syncMomentumAutoSnapshot,
+  isMomentumReAddBlocked,
+} from './momentumAutoIntakePolicy.js';
 
 // ── 본 모듈 자체에서 정의·노출하는 핵심 타입 ──────────────────────────────
 export interface ScreenedStock {
@@ -371,6 +381,61 @@ export async function autoPopulateWatchlist(): Promise<number> {
   // 아이디어 5: 탈락 사유 추적 — 매 실행마다 초기화
   const rejectionLog: RejectionEntry[] = [];
 
+  // Patch-WATCHLIST-SATURATION-COOLDOWN-001 — MOMENTUM AUTO 편입 감속 평가.
+  //   - autoRatio >= 0.8 && MOMENTUM count >= 30 → 사이클당 신규 AUTO 편입 3개 이하로 제한
+  //   - 직전 사이클 대비 사라진 (cleanup/탈락) MOMENTUM AUTO 종목은 re-add cooldown
+  //   - 본 가드는 *신규 후보 편입* 만 제한 — 보유/Shadow 포지션·SWING·CATALYST·MANUAL 무영향
+  const momentumEntries = watchlist.filter(
+    (w) => w.section === 'MOMENTUM' || (!w.section && w.track === 'A'),
+  );
+  const momentumAutoEntries = momentumEntries.filter(
+    (w) => (w.addedBy ?? 'AUTO') === 'AUTO',
+  );
+  const intake = evaluateMomentumAutoIntake({
+    momentumCount: momentumEntries.length,
+    alertCap: MOMENTUM_ALERT_THRESHOLD,
+    autoCount: momentumAutoEntries.length,
+    manualCount: momentumEntries.filter((w) => w.addedBy === 'MANUAL').length,
+    dartCount: momentumEntries.filter((w) => w.addedBy === 'DART').length,
+  });
+  syncMomentumAutoSnapshot(momentumAutoEntries.map((w) => w.code));
+  let autoMomentumAddedThisCycle = 0;
+  if (intake.slowed) {
+    console.log(
+      `[MOMENTUM_AUTO_INTAKE_SLOWED] ${intake.reason} — ` +
+        `perCycleLimit=${intake.perCycleLimit} ` +
+        `executionImpact=NONE marketSignal=false providerIssue=false`,
+    );
+  }
+  /** MOMENTUM AUTO 신규 편입 가드 — 차단 시 rejectionLog push 후 호출자가 continue. */
+  const momentumAutoIntakeBlocked = (
+    code: string,
+    name: string,
+  ): boolean => {
+    if (isMomentumReAddBlocked(code)) {
+      rejectionLog.push({
+        code,
+        name,
+        reason: 'MOMENTUM 재편입 cooldown (최근 cleanup/탈락 — re-add 차단)',
+      });
+      return true;
+    }
+    if (intake.slowed && autoMomentumAddedThisCycle >= intake.perCycleLimit) {
+      rejectionLog.push({
+        code,
+        name,
+        reason: `MOMENTUM AUTO 편입 감속 (사이클당 ${intake.perCycleLimit}개 한도)`,
+      });
+      console.log(
+        `[MOMENTUM_AUTO_INTAKE_LIMITED] ${name}(${code}) — ` +
+          `autoRatio=${intake.autoRatio.toFixed(2)} perCycleLimit=${intake.perCycleLimit} ` +
+          `addedThisCycle=${autoMomentumAddedThisCycle} executionImpact=NONE`,
+      );
+      return true;
+    }
+    return false;
+  };
+
   // 실계좌: preScreenStocks 결과 → 워치리스트 승격
   if (KIS_IS_REAL) {
     const screened = getScreenerCache().slice(0, PRE_SCREEN_MAX_RESULTS);
@@ -384,6 +449,10 @@ export async function autoPopulateWatchlist(): Promise<number> {
         rejectionLog.push({ code: s.code, name: s.name, reason: `외국인순매도 ${s.foreignNetBuy.toLocaleString()}주` });
         continue;
       }
+
+      // Patch-WATCHLIST-SATURATION-COOLDOWN-001 — MOMENTUM AUTO 편입 감속 가드
+      // (스크리너 경로는 항상 section='MOMENTUM' AUTO — 전건 적용).
+      if (momentumAutoIntakeBlocked(s.code, s.name)) continue;
 
       const sl = Math.round(s.currentPrice * 0.92);
       const tp = Math.round(s.currentPrice * 1.20);
@@ -407,6 +476,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
       }
       existingCodes.add(s.code);
       added++;
+      autoMomentumAddedThisCycle++;
       console.log(`[AutoPopulate] 스크리너 → 워치리스트 [MOMENTUM]: ${s.name}(${s.code}) @${s.currentPrice.toLocaleString()}`);
 
       // ADR-0128 §Wiring 1B: 등록 자체는 보존, sanity 위반 시 markDataQuarantine 으로 alert 보류.
@@ -593,6 +663,12 @@ export async function autoPopulateWatchlist(): Promise<number> {
     // 섹션별 만료: SWING 7영업일, MOMENTUM 2영업일
     const expireDays = section === 'SWING' ? 7 : 2;
 
+    // Patch-WATCHLIST-SATURATION-COOLDOWN-001 — MOMENTUM AUTO 편입 감속 가드.
+    // SWING/CATALYST 후보는 무영향 — section==='MOMENTUM' 일 때만 적용.
+    if (section === 'MOMENTUM' && momentumAutoIntakeBlocked(stock.code, stock.name)) {
+      continue;
+    }
+
     const sl = Math.round(quote.price * 0.92);
     const tp = Math.round(quote.price * 1.20);
     const addResult = addToWatchlist(watchlist, {
@@ -623,6 +699,7 @@ export async function autoPopulateWatchlist(): Promise<number> {
     }
     existingCodes.add(stock.code);
     added++;
+    if (section === 'MOMENTUM') autoMomentumAddedThisCycle++;
     console.log(
       `[AutoPopulate] Yahoo → 워치리스트 [${section}]: ${stock.name}(${stock.code}) ` +
       `@${quote.price.toLocaleString()} (+${quote.changePercent.toFixed(1)}% / ${(quote.volume / 10000).toFixed(0)}만주) ` +
