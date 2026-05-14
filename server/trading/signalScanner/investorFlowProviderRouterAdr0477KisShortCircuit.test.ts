@@ -60,7 +60,7 @@ describe('ADR-0477 KIS VERIFIED short-circuit', () => {
     expect(route.diagnostics.join('\n')).not.toContain('selectedProvider=NAVER_INVESTOR_TREND');
   });
 
-  it('KIS missing plus stale NAVER can still emit SHADOW_ONLY fallback diagnostics', () => {
+  it('KIS missing plus stale NAVER remains diagnostic-only and is not selectedProvider', () => {
     const route = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',
       naverCollectorWired: true,
@@ -73,9 +73,10 @@ describe('ADR-0477 KIS VERIFIED short-circuit', () => {
       },
     });
 
-    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
-    expect(route.status).toBe('STALE');
-    expect(route.selectedReason).toContain('STALE SHADOW_ONLY diagnostic');
+    expect(route.selectedProvider).toBe('NONE');
+    expect(route.providerStatuses.NAVER_INVESTOR_TREND).toBe('STALE');
+    expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('selectedProviderCandidate=false');
+    expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('diagnosticOnly=true');
     expect(route.executionImpact).toBe('NONE');
   });
 

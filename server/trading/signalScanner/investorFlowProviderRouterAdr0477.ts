@@ -1440,6 +1440,12 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   let selectedActualPlaceholderFieldKeys: string[] = [];
   let selectedActualWrapperOnly = false;
   const selectShadow = (provider: InvestorFlowProviderId, sample: SemanticNetBuySample, reason: string): void => {
+    if (provider === 'NAVER_INVESTOR_TREND') {
+      samplesByProvider.NAVER_INVESTOR_TREND = sample;
+      providerReasons.NAVER_INVESTOR_TREND = `${reason}; selectedProviderCandidate=false; diagnosticOnly=true; reason=NAVER_SECONDARY_NOT_ROUTER_SELECTABLE; executionImpact=NONE`;
+      diagnostics.push(providerReasons.NAVER_INVESTOR_TREND);
+      return;
+    }
     if (semanticNetBuy) return;
     selectedProvider = provider;
     selectedReason = reason;
@@ -1844,12 +1850,19 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
   const krxAutoDisabled = providerStatuses.KRX_INVESTOR_FLOW === 'DISABLED_BY_KIS_FIRST_MODE' || providerStatuses.KRX === 'DISABLED_BY_KIS_FIRST_MODE';
   const isBlockedAutoKrxCandidate = (provider: InvestorFlowProviderId): boolean => (kisFirstMode || krxAutoDisabled) && (provider === 'KRX_INVESTOR_FLOW' || provider === 'KRX_SYMBOL_INVESTOR_FLOW' || provider === 'KRX_MARKET_INVESTOR_FLOW');
+  const isRouterSelectableMaterializedCandidate = (candidate: { provider: InvestorFlowProviderId; freshness?: string } | null | undefined): candidate is { provider: InvestorFlowProviderId; freshness?: string } =>
+    candidate != null &&
+    candidate.provider !== 'NAVER_INVESTOR_TREND' &&
+    !isBlockedAutoKrxCandidate(candidate.provider) &&
+    !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE');
   const kisVerifiedShortCircuitCandidate = kisVerifiedShortCircuitAvailable
     ? multiSourceMaterialization.candidates.find((candidate) => candidate.provider === 'KIS_API') ?? null
     : null;
   const selectedMultiSourceCandidate = kisVerifiedShortCircuitCandidate ?? (kisFirstMode || krxAutoDisabled
-    ? multiSourceMaterialization.rankedCandidates.find((candidate) => !isBlockedAutoKrxCandidate(candidate.provider) && !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE')) ?? null
-    : multiSourceMaterialization.selectedCandidate);
+    ? multiSourceMaterialization.rankedCandidates.find(isRouterSelectableMaterializedCandidate) ?? null
+    : isRouterSelectableMaterializedCandidate(multiSourceMaterialization.selectedCandidate)
+      ? multiSourceMaterialization.selectedCandidate
+      : multiSourceMaterialization.rankedCandidates.find(isRouterSelectableMaterializedCandidate) ?? null);
   const adapterCarriesActualRow = sanitizedInvestorFlowRows.length > 0;
   const candidateBeforeSelectionCarriesActualRow = multiSourceMaterialization.candidates.some((candidate) => candidate.provider === 'KIS_API' && (candidate.actualInvestorFlowRowCount ?? 0) > 0);
   if (selectedMultiSourceCandidate) {
@@ -1896,7 +1909,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     });
   }
   for (const candidate of multiSourceMaterialization.candidates) {
-    if (candidate.provider !== 'SEMANTIC_NETBUY' && !isBlockedAutoKrxCandidate(candidate.provider) && candidate.sampleMaterialized && candidate.usableForShadow && !candidate.placeholderDetected) {
+    if (candidate.provider !== 'NAVER_INVESTOR_TREND' && candidate.provider !== 'SEMANTIC_NETBUY' && !isBlockedAutoKrxCandidate(candidate.provider) && candidate.sampleMaterialized && candidate.usableForShadow && !candidate.placeholderDetected) {
       diagnosticUsableCandidates.push({
         provider: candidate.provider,
         status: samplesByProvider[candidate.provider]?.status ?? (candidate.freshness === 'STALE' ? 'STALE' : 'OBSERVING'),

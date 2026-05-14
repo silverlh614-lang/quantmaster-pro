@@ -169,11 +169,12 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     };
 
     const naverRoute = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorWired: false, freshDataSupplyAdr0487: report });
-    expect(naverRoute.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(naverRoute.selectedProvider).toBe('NONE');
     expect(naverRoute.providerStatuses.NAVER).toBe('READY_FOR_SHADOW');
     expect(naverRoute.signal).toBe('UNKNOWN');
     expect(naverRoute.liveExecutionAllowed).toBe(false);
     expect(naverRoute.rawPayloadPersistenceAllowed).toBe(false);
+    expect(naverRoute.providerReasons.NAVER_INVESTOR_TREND).toContain('selectedProviderCandidate=false');
 
     const semanticOnly = { ...report, snapshots: [report.snapshots[1]!] };
     const semanticRoute = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorWired: false, freshDataSupplyAdr0487: semanticOnly });
@@ -601,14 +602,15 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       sourceAgeTradingDays: 5,
     });
 
-    expect(positive.signal).toBe('BULLISH');
-    expect(positive.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(positive.signal).toBe('UNKNOWN');
+    expect(positive.selectedProvider).toBe('NONE');
+    expect(positive.providerReasons.NAVER_INVESTOR_TREND).toContain('selectedProviderCandidate=false');
     expect(positive.liveExecutionAllowed).toBe(false);
-    expect(negative.signal).toBe('BEARISH');
+    expect(negative.signal).toBe('UNKNOWN');
     expect(staleNegative.signal).toBe('UNKNOWN');
   });
 
-  it('routes ADR-0481 NAVER investor trend collector samples before cache while staying SHADOW_ONLY', () => {
+  it('keeps ADR-0481 NAVER investor trend collector diagnostic-only while cache can route', () => {
     const collector = buildNaverInvestorTrendCollectorResultAdr0481({
       code: '005930',
       requestedDays: 5,
@@ -622,11 +624,12 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       cacheAgeTradingDays: 1,
     });
 
-    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    expect(route.selectedProvider).toBe('CACHE');
     expect(route.providerTried).toEqual(['KRX_SYMBOL_INVESTOR_FLOW', 'KRX_MARKET_INVESTOR_FLOW', 'KIS_API', 'FSS_PASSIVE_ACTIVE', 'NAVER_INVESTOR_TREND', 'CACHE', 'SEMANTIC_NETBUY']);
     expect(route.coverage.available).toBeGreaterThanOrEqual(1);
     expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.sampleMaterialized).toBe(true);
     expect(route.materializationDiagnostics?.NAVER_INVESTOR_TREND?.usableForRouter).toBe(true);
+    expect(route.providerReasons.NAVER_INVESTOR_TREND).toContain('selectedProviderCandidate=false');
     expect(route.liveExecutionAllowed).toBe(false);
     expect(route.executionImpact).toBe('NONE');
   });
@@ -931,7 +934,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.liveExecutionAllowed).toBe(false);
   });
 
-  it('prefers NAVER as secondary real fallback, CACHE over SemanticNetBuy, and keeps SemanticNetBuy derived', () => {
+  it('keeps NAVER diagnostic-only, prefers CACHE over SemanticNetBuy, and keeps SemanticNetBuy derived', () => {
     const naverFresh = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',
       naverCollectorResultAdr0481: buildNaverInvestorTrendCollectorResultAdr0481({
@@ -944,8 +947,9 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
       }),
       cacheRaw: { foreignNetBuy: 1, institutionNetBuy: 1, sourceDate: '2026-05-04', status: 'STALE' },
     });
-    expect(naverFresh.selectedProvider).toBe('NAVER_INVESTOR_TREND');
-    expect(naverFresh.cacheFallbackUsed).toBe(false);
+    expect(naverFresh.selectedProvider).toBe('CACHE');
+    expect(naverFresh.cacheFallbackUsed).toBe(true);
+    expect(naverFresh.providerReasons.NAVER_INVESTOR_TREND).toContain('selectedProviderCandidate=false');
 
     const semanticFresh = buildInvestorFlowProviderRouteResultAdr0477({
       code: '005930',
@@ -971,8 +975,8 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
         inputs: [{ code: '005930', provider: 'CACHE', sourceDate: '2026-05-04', rawForeignNetBuy: 1, rawInstitutionNetBuy: 1, unit: 'KRW', status: 'STALE', sourceAgeTradingDays: 4 }],
       }),
     });
-    expect(naverStale.selectedProvider).toBe('NAVER_INVESTOR_TREND');
-    expect(naverStale.status).toBe('STALE');
+    expect(naverStale.selectedProvider).toBe('NONE');
+    expect(naverStale.providerStatuses.NAVER_INVESTOR_TREND).toBe('STALE');
     expect(naverStale.signal).toBe('UNKNOWN');
 
     const semanticStale = buildInvestorFlowProviderRouteResultAdr0477({
