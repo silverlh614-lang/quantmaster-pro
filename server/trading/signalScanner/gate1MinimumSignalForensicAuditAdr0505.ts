@@ -33,7 +33,9 @@ import { resolveWatchlistUpstreamScore } from './watchlistUpstreamScoreResolver.
 import { conditionResultsTraceToMap, type GateConditionResultTrace } from './gateConditionResultTrace.js';
 import {
   evaluateInvestorFlowSemanticAvailabilityV2,
+  extractFlatInvestorFlowRow,
   hasActualInvestorNumericRow,
+  shouldEmitSupplySemanticWireDiagLog,
   type InvestorFlowSemanticAvailabilityReason,
   type InvestorFlowSemanticAvailabilityResult,
   type InvestorFlowFieldKeyDiscoveryDiagnostic,
@@ -1064,11 +1066,17 @@ function buildSupplyScopeAudit(input: {
   // selectedProvider actual row > diagnostic actual row > legacy primarySemanticFlow > wrapper.
   // primarySemanticFlow 가 숫자 필드를 가진 실데이터면 그대로 사용, 아니면 (metadata-only/
   // wrapper) selectedProvider/diagnostic numeric row 를 우선 — 실데이터 carry 유지.
-  const flowForSemantic = (hasActualInvestorNumericRow(primarySemanticFlow) ? primarySemanticFlow : null)
+  const candidateFlowForSemantic = (hasActualInvestorNumericRow(primarySemanticFlow) ? primarySemanticFlow : null)
     ?? (hasActualInvestorNumericRow(selectedProviderActualInvestorRow) ? selectedProviderActualInvestorRow : null)
     ?? (diagnosticActualInvestorRowCarried ? diagnosticActualInvestorRow : null)
     ?? primarySemanticFlow
     ?? (actualInvestorRows.length > 0 ? actualInvestorRows : kisFlow ?? null);
+  const flatRowForGate = extractFlatInvestorFlowRow(
+    kisFlow?.gateSemanticFlatRow
+    ?? sellOnlyBySymbolPayload?.gateSemanticFlatRow
+    ?? candidateFlowForSemantic,
+  );
+  const flowForSemantic = flatRowForGate ?? candidateFlowForSemantic;
 
   // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — `rawInvestorRowAvailable` 강화. 기존
   // `flowForSemantic != null && typeof === 'object'` fallback 은 dummy/wrapper/metadata-only
@@ -1076,10 +1084,21 @@ function buildSupplyScopeAudit(input: {
   // 하나라도 있는 실데이터 row* 만 인정 — diagnostic actual row 또는 flowForSemantic 의 numeric
   // 필드 검증. CORE 무영향 / diagnostic only.
   const rawInvestorRowAvailable = kisFlow?.kisRawRowAvailableAtAdapter
-    ?? (diagnosticActualInvestorRowCarried || hasActualInvestorNumericRow(flowForSemantic));
+    ?? (flatRowForGate != null || diagnosticActualInvestorRowCarried || hasActualInvestorNumericRow(flowForSemantic));
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
   const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? actualInvestorRows.length > 0;
+  const wireDiag = shouldEmitSupplySemanticWireDiagLog(trace.symbol);
+  if (wireDiag.emit) {
+    console.warn(
+      `[SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC] symbol=${trace.symbol} stage=BEFORE_SEMANTIC_EVAL`
+      + ` inputShape=${flatRowForGate != null ? 'FLAT_ROW' : 'WRAPPER'}`
+      + ` foreignNetBuy=${flatRowForGate?.foreignNetBuy ?? 'null'}`
+      + ` institutionNetBuy=${flatRowForGate?.institutionNetBuy ?? 'null'}`
+      + ` programNetBuy=${flatRowForGate?.programNetBuy ?? 'null'}`
+      + ' providerIssue=false',
+    );
+  }
   const semantic = evaluateInvestorFlowSemanticAvailabilityV2({
     flow: flowForSemantic,
     symbolMatched,
@@ -1093,10 +1112,20 @@ function buildSupplyScopeAudit(input: {
     forensicInputDroppedSemanticRow: kisFlow?.semanticRowBreakPoint === 'FORENSIC_INPUT_DROPPED_SEMANTIC_ROW' || kisFlow?.semanticRowBreakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW',
     // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual numeric row 가 carry 됐으면
     // selectedProvider 무관 true. 그 외엔 기존 KIS-only 판정 유지.
-    actualInvestorRowCarried: diagnosticActualInvestorRowCarried
+    actualInvestorRowCarried: flatRowForGate != null || diagnosticActualInvestorRowCarried
       ? true
       : (selectedProvider === 'KIS_API' || selectedProvider === 'KIS') && (Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorFlowRows') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'actualInvestorRow') || Object.prototype.hasOwnProperty.call(kisFlow ?? {}, 'sanitizedInvestorFlowRows')) ? forensicInputCarriesActualInvestorRows : undefined,
   });
+  if (wireDiag.emit) {
+    console.warn(
+      `[SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC] symbol=${trace.symbol} stage=AFTER_SEMANTIC_EVAL`
+      + ` available=${semantic.available}`
+      + ` reason=${semantic.reason}`
+      + ` providerIssue=${semantic.providerIssue}`
+      + ' executionImpact=NONE'
+      + (wireDiag.suppressedSinceLast > 0 ? ` suppressedCount=${wireDiag.suppressedSinceLast}` : ''),
+    );
+  }
   const foreignNetBuy = semantic.foreignNetBuy;
   const institutionalNetBuy = semantic.institutionalNetBuy;
   const programNetBuy = semantic.programNetBuy ?? null;

@@ -80,6 +80,13 @@ export type SemanticSupplySignal =
   | 'BEARISH'
   | 'UNKNOWN';
 
+export type InvestorFlowFlatRowForGateAdr0513 = {
+  foreignNetBuy: number | null;
+  institutionNetBuy: number | null;
+  programNetBuy: number | null;
+  _source: 'ROUTER_EXTRACTED';
+};
+
 export type InvestorRowMaterializationClass =
   | 'ACTUAL_NUMERIC_ROW'
   | 'NORMALIZED_NUMERIC_ROW'
@@ -137,6 +144,7 @@ export interface InvestorFlowProviderRouteResult {
   providerStatuses: Record<string, InvestorFlowProviderStatus>;
   semanticNetBuy: SemanticNetBuySample | null;
   semanticRow?: SanitizedInvestorFlowSemanticRow | null;
+  gateSemanticFlatRow?: InvestorFlowFlatRowForGateAdr0513 | null;
   actualInvestorRow?: Record<string, unknown> | null;
   normalizedInvestorRow?: Record<string, unknown> | null;
   semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
@@ -1095,6 +1103,7 @@ export type InvestorFlowProviderRouteBySymbolPayloadAdr0477 = Pick<InvestorFlowP
   | 'usableForShadow'
   | 'selectedProvider'
   | 'semanticRow'
+  | 'gateSemanticFlatRow'
   | 'actualInvestorRow'
   | 'normalizedInvestorRow'
   | 'semanticInvestorRow'
@@ -1222,6 +1231,26 @@ function normalizedInvestorRowFromSemanticAdr0477(row: SanitizedInvestorFlowSema
   if (row.netBuyAmount !== null) normalized.netBuyAmount = row.netBuyAmount;
   if (row.netBuyVolume !== null) normalized.netBuyVolume = row.netBuyVolume;
   return normalized;
+}
+
+export function buildInvestorFlowFlatRowForGate(
+  semanticRow: SanitizedInvestorFlowSemanticRow | null | undefined,
+): InvestorFlowFlatRowForGateAdr0513 | null {
+  if (semanticRow == null) return null;
+  const toNumber = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+  const row = semanticRow as SanitizedInvestorFlowSemanticRow & { institutionNetBuy?: unknown; programNetBuy?: unknown };
+  const foreignNetBuy = toNumber(row.foreignNetBuy);
+  const institutionNetBuy = toNumber(row.institutionNetBuy ?? row.institutionalNetBuy);
+  const programNetBuy = toNumber(row.programNetBuy);
+  if (foreignNetBuy == null && institutionNetBuy == null) return null;
+  return { foreignNetBuy, institutionNetBuy, programNetBuy, _source: 'ROUTER_EXTRACTED' };
 }
 
 function supplyRowKeysAdr0477(row: unknown): string[] {
@@ -1850,6 +1879,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   const selectedSemanticRow = semanticRowsByProvider[selectedProvider] ?? null;
+  const selectedGateSemanticFlatRow = buildInvestorFlowFlatRowForGate(selectedSemanticRow);
   const selectedMaterializedCandidate = selectedMultiSourceCandidate?.provider === selectedProvider
     ? selectedMultiSourceCandidate
     : multiSourceMaterialization.candidates.find((candidate) => candidate.provider === selectedProvider) ?? null;
@@ -2017,6 +2047,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     usableForShadow: true,
     selectedProvider,
     semanticRow: selectedSemanticRow,
+    gateSemanticFlatRow: selectedGateSemanticFlatRow,
     // ADR-0477 carry fix — adapter row 가 모든 selectedProvider 에서 fallback. selectedProvider 의
     // CORE 결정은 그대로 (selectedMaterializedCandidate.actualInvestorRow 우선), KIS adapter 는 마지막
     // fallback 으로 diagnostic 자료 보존. executionImpact='NONE' literal 유지.
@@ -2094,6 +2125,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses,
     semanticNetBuy: selectedSemanticNetBuy,
     semanticRow: selectedSemanticRow,
+    gateSemanticFlatRow: selectedGateSemanticFlatRow,
     // ADR-0477 carry fix — top-level result 도 bySymbol 과 동일 fallback 패턴.
     actualInvestorRow: selectedMaterializedCandidate?.actualInvestorRow ?? selectedCandidateActualRows[0] ?? adapterFallbackActualRows[0] ?? null,
     normalizedInvestorRow: selectedMaterializedCandidate?.normalizedInvestorRow ?? normalizedInvestorRowFromSemanticAdr0477(selectedSemanticRow) ?? null,

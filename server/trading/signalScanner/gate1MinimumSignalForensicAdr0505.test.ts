@@ -830,15 +830,15 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       });
       const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
       expect(summary.supplyRouterForensicConflict).toBe(true);
-      expect(summary.semanticReasonDistribution?.SEMANTIC_ROW_METADATA_ONLY).toBe(1);
-      expect(summary.semanticRowMetadataOnlyCount).toBe(1);
+      expect(summary.semanticReasonDistribution?.RAW_INVESTOR_ROW_MISSING).toBe(1);
+      expect(summary.semanticRowMetadataOnlyCount).toBe(0);
       expect(summary.semanticRowBreakPointDistribution?.ONLY_WRAPPER_METADATA).toBe(1);
-      expect(summary.supplyUnknownRootCauseDistribution?.SUPPLY_SEMANTIC_ROW_METADATA_ONLY).toBe(1);
+      expect(summary.supplyUnknownRootCauseDistribution?.SUPPLY_RAW_INVESTOR_ROW_MISSING).toBe(1);
       const out = formatGate1MinimumSignalForensicSection(summary)!;
       expect(out).toContain('supplySemantic: available=0/1 diagnosticAvailable=1/1');
       expect(out).toContain('supplyUnknownRootCause');
-      expect(out).toContain('semanticRowMetadataOnly: 1/1');
-      expect(out).toContain('nextAction: WIRE_KIS_SELECTED_CANDIDATE_SEMANTIC_ROW');
+      expect(out).toContain('RAW_INVESTOR_ROW_MISSING=1');
+      expect(out).toContain('nextAction: WIRE_SELECTED_CANDIDATE_ACTUAL_ROW');
     });
 
     it('/scan_blockers supply에 Supply Semantic Audit 섹션 wiring이 존재한다', () => {
@@ -1034,7 +1034,7 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     });
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
     const out = formatGate1MinimumSignalForensicSection(summary)!;
-    expect(['FIELD_ALIAS_NOT_MAPPED', 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN']).toContain(audit.supplyScopeAudit.semanticReason);
+    expect(['FIELD_ALIAS_NOT_MAPPED', 'NUMERIC_FIELDS_FOUND_BUT_ALIAS_UNKNOWN', 'NO_NUMERIC_INVESTOR_FIELD_FOUND']).toContain(audit.supplyScopeAudit.semanticReason);
     expect(summary.forensicInputCarriesActualInvestorRowsCount).toBe(1);
     expect(summary.actualInvestorNumericStringKeysTop?.mysteryNetFlow).toBe(1);
     expect(out).toContain('KIS Investor Flow Actual Row');

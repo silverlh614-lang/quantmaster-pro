@@ -569,6 +569,30 @@ function unwrapReasonForPath(path: string, rows: Array<Record<string, unknown>>,
   return rows.length > 1 ? 'FOUND_ROWS_ARRAY' : 'FOUND_DIRECT_ROW';
 }
 
+/**
+ * Router가 이미 추출한 flat row에서 gate용 핵심 필드 추출.
+ * 0은 유효한 중립값이므로 null과 구분한다.
+ */
+export function extractFlatInvestorFlowRow(
+  input: unknown,
+): { foreignNetBuy: number | null; institutionNetBuy: number | null; programNetBuy: number | null } | null {
+  if (input == null || typeof input !== 'object' || Array.isArray(input)) return null;
+  const row = input as Record<string, unknown>;
+  const toNum = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+  const foreignNetBuy = toNum(row.foreignNetBuy);
+  const institutionNetBuy = toNum(row.institutionNetBuy ?? row.institutionalNetBuy);
+  const programNetBuy = toNum(row.programNetBuy);
+  if (foreignNetBuy == null && institutionNetBuy == null) return null;
+  return { foreignNetBuy, institutionNetBuy, programNetBuy };
+}
+
 export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDiagnostic {
   const wrapperKeys = input != null && typeof input === 'object' && !Array.isArray(input)
     ? Object.keys(input as Record<string, unknown>).filter((key) => INVESTOR_FLOW_WRAPPER_METADATA_KEYS.has(key))
@@ -1024,7 +1048,8 @@ export function buildSanitizedInvestorFlowSemanticRow(input: {
   providerScope?: InvestorFlowProviderScope;
   materialized?: boolean;
 }): SanitizedInvestorFlowSemanticRow {
-  const fields = extractInvestorFlowSemanticFields(input.flow);
+  const { flow } = input;
+  const fields = extractInvestorFlowSemanticFields(flow);
   const source = fields.sourceFields ?? {};
   return {
     symbol: input.symbol ?? null,
@@ -1057,6 +1082,25 @@ function isMetadataOnlySemanticRow(input: unknown): boolean {
   const keys = Object.keys(obj).filter((key) => obj[key] !== undefined);
   return keys.length > 0 && keys.every((key) => metadataKeys.has(key));
 }
+
+const SUPPLY_SEMANTIC_WIRE_DIAG_WINDOW_MS = 60_000;
+const supplySemanticWireDiagLogState = new Map<string, { lastEmitMs: number; suppressed: number }>();
+
+export function shouldEmitSupplySemanticWireDiagLog(
+  symbol: string | null | undefined,
+  nowMs = Date.now(),
+): { emit: boolean; suppressedSinceLast: number } {
+  const key = symbol?.trim() || 'UNKNOWN';
+  const previous = supplySemanticWireDiagLogState.get(key);
+  if (!previous || nowMs - previous.lastEmitMs >= SUPPLY_SEMANTIC_WIRE_DIAG_WINDOW_MS) {
+    const suppressedSinceLast = previous?.suppressed ?? 0;
+    supplySemanticWireDiagLogState.set(key, { lastEmitMs: nowMs, suppressed: 0 });
+    return { emit: true, suppressedSinceLast };
+  }
+  previous.suppressed += 1;
+  return { emit: false, suppressedSinceLast: previous.suppressed };
+}
+
 export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   flow: unknown;
   symbolMatched?: boolean | null;
@@ -1070,7 +1114,16 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   forensicInputDroppedSemanticRow?: boolean;
   actualInvestorRowCarried?: boolean;
 }): InvestorFlowSemanticAvailabilityResult {
-  const fields = extractInvestorFlowSemanticFields(input.flow);
+  const { flow } = input;
+  const flatRow = extractFlatInvestorFlowRow(flow);
+  const effectiveFlow = flatRow != null
+    ? {
+      foreignNetBuy: flatRow.foreignNetBuy,
+      institutionNetBuy: flatRow.institutionNetBuy,
+      programNetBuy: flatRow.programNetBuy,
+    }
+    : flow;
+  const fields = extractInvestorFlowSemanticFields(effectiveFlow);
   const symbolOk = input.symbolMatched === true || input.inferredSymbolMatched === true;
   const providerScope = input.providerScope ?? 'UNKNOWN';
   const hasCoreField = fields.foreignNetBuy !== null || fields.institutionalNetBuy !== null;
@@ -1085,10 +1138,10 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
   // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — row 는 carry 됐으나 (actualInvestorRowCarried
   // === true) carry 된 객체에 숫자 투자자 필드가 하나도 없는 경우 (dummy/wrapper). ACTUAL_
   // INVESTOR_ROW_NOT_CARRIED (carry 자체가 안 됨) 와 구분 — 단절 위치 정밀 진단.
-  else if (input.actualInvestorRowCarried === true && !hasCoreField && !hasActualInvestorNumericRow(input.flow)) reason = 'NO_NUMERIC_INVESTOR_FIELD_FOUND';
+  else if (input.actualInvestorRowCarried === true && !hasCoreField && !hasActualInvestorNumericRow(effectiveFlow)) reason = 'NO_NUMERIC_INVESTOR_FIELD_FOUND';
   else if (input.semanticRowDropped) reason = 'ROUTER_DROPPED_SEMANTIC_ROW';
   else if (input.rawInvestorRowAvailable === false && !hasCoreField) reason = 'RAW_INVESTOR_ROW_MISSING';
-  else if (isMetadataOnlySemanticRow(input.flow) && !hasCoreField) reason = 'SEMANTIC_ROW_METADATA_ONLY';
+  else if (isMetadataOnlySemanticRow(effectiveFlow) && !hasCoreField) reason = 'SEMANTIC_ROW_METADATA_ONLY';
   else if (fields.placeholderOnly) reason = 'PLACEHOLDER_ONLY';
   else if (fields.fieldKeyDiagnostics?.unwrapReason === 'ONLY_WRAPPER_METADATA' && !hasCoreField) reason = 'ONLY_WRAPPER_OBJECT_SELECTED';
   else if (fields.fieldKeyDiagnostics?.unwrapReason === 'NO_ROW_FOUND' && !hasCoreField) reason = 'NO_ACTUAL_ROW_FOUND';
@@ -1118,7 +1171,7 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
             : (fieldDiagnostics?.unwrapRows ?? 0) > 0
               ? 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED'
               : 'NO_ROW_FOUND';
-  const hasFlowObject = input.flow != null && typeof input.flow === 'object';
+  const hasFlowObject = effectiveFlow != null && typeof effectiveFlow === 'object';
   const diagnosticAvailable = materialized || fields.materializedCount > 0 || fields.rowCount! > 0 || (hasFlowObject && symbolOk && providerScope === 'SYMBOL_LEVEL');
   return {
     ...fields,
@@ -1126,7 +1179,7 @@ export function evaluateInvestorFlowSemanticAvailabilityV2(input: {
     diagnosticAvailable,
     semanticDiagnosticAvailable: diagnosticAvailable,
     reason,
-    providerIssue: input.providerIssue ?? !available,
+    providerIssue: reason === 'ONLY_WRAPPER_OBJECT_SELECTED' ? false : (input.providerIssue ?? !available),
     marketSignal: false,
     scoreUsage: available && !input.stale ? 'ELIGIBLE_AFTER_SEMANTIC_MATCH' : diagnosticAvailable ? 'SHADOW_ONLY' : 'DIAGNOSTIC_ONLY',
     executionImpact: 'NONE',
