@@ -61,7 +61,10 @@ import {
 // read-only — macroState 영속 sectorEnergyQualityDiagnostic 만 read.
 // LIVE 매매 본체 영향 0.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { formatPhase2RecoveryCompactLine } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import {
+  formatPhase2RecoveryCompactLine,
+  formatKrxSectorIndexRawDiagnosticCompactLine,
+} from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticCompactLine } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
 import {
   buildSectorEnergyCoverageRecoveryReport,
@@ -412,6 +415,7 @@ const scanBlockers: TelegramCommand = {
     // read-only — macroState.sectorEnergyQualityDiagnostic 만 read.
     // try/catch 격리 — 진단 throw 가 base 메시지 차단 안 함.
     let phase2Line: string | null = null;
+    let krxRawLine: string | null = null;
     let sanityLine: string | null = null;
     let sectorEnergyCoverageRecoverySection: string | null = null;
     try {
@@ -421,6 +425,12 @@ const scanBlockers: TelegramCommand = {
         // sectorIndexRecovery 영속 데이터 (cast 안전 — schema 옵셔널 후방호환)
         phase2Line = formatPhase2RecoveryCompactLine(
           qDiag.sectorIndexRecovery as Parameters<typeof formatPhase2RecoveryCompactLine>[0],
+        );
+      }
+      // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: KRX raw 입력 부검 compact line.
+      if (qDiag?.krxSectorIndexRaw) {
+        krxRawLine = formatKrxSectorIndexRawDiagnosticCompactLine(
+          qDiag.krxSectorIndexRaw as Parameters<typeof formatKrxSectorIndexRawDiagnosticCompactLine>[0],
         );
       }
       if (qDiag?.sanityViolation) {
@@ -792,6 +802,7 @@ const scanBlockers: TelegramCommand = {
     if (universeSection) parts.push(universeSection);
     if (kisWsSubscriptionSection) parts.push(kisWsSubscriptionSection);
     if (phase2Line) parts.push(`🧩 SectorEnergy indexCode Recovery Phase 2: ${phase2Line}`);
+    if (krxRawLine) parts.push(krxRawLine);
     if (sanityLine) parts.push(`🧪 ${sanityLine}`);
     if (sectorEnergyCoverageRecoverySection) parts.push(sectorEnergyCoverageRecoverySection);
     if (executionImpactLine) parts.push(executionImpactLine);

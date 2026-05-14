@@ -25,7 +25,10 @@ import {
 // ADR-0423: SectorEnergy 데이터 진실성 진단 SSOT — quality reason 분해 + leadershipConfidence.
 import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sectorEnergyQualityDiagnostic.js';
 // ADR-0446: Phase 2 indexCode recovery + sanity violation 진단 섹션 SSOT.
-import { formatPhase2RecoverySection } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import {
+  formatPhase2RecoverySection,
+  formatKrxSectorIndexRawDiagnosticSection,
+} from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticSection } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
 import {
   buildSectorEnergyCoverageRecoveryReport,
@@ -280,6 +283,16 @@ export function formatSectorEnergyDiagMessage(): string {
       if (phase2) {
         lines.push('');
         lines.push(phase2);
+      }
+    }
+
+    // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: KRX 섹터 indexCode raw 입력 부검.
+    // verifiedIndexCodeCoverage=0% 의 정확한 break point 노출 (진단 전용 — 매매 영향 0).
+    if (qualityDiag.krxSectorIndexRaw) {
+      const krxRaw = formatKrxSectorIndexRawDiagnosticSection(qualityDiag.krxSectorIndexRaw);
+      if (krxRaw) {
+        lines.push('');
+        lines.push(krxRaw);
       }
     }
 

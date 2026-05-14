@@ -327,6 +327,38 @@ export interface MacroState {
       count: number;
     }>;
     /**
+     * KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: KRX 섹터 indexCode raw 입력 부검 (옵셔널, 후방호환).
+     *
+     * `verifiedIndexCodeCoverage=0%` 의 정확한 break point — KRX raw row 가 IDX_IND_CD /
+     * indexName 을 갖는지, alias lookup 실패 원인, backfill 호출 여부, sourceTier 가 왜
+     * KIS_STOCK_BASKET_DERIVED 로 떨어지는지를 row 단위로 분해. 진단 전용 — 매매 영향 0.
+     *
+     * raw 값 / token / private metadata 영속 절대 금지 — sample 배열은 진단 한도
+     * (sampleIndexNames ≤20, sampleIndexCodes ≤20, sampleUnresolvedNames ≤20,
+     * sampleRawKeysTop ≤30) 안에서 indexName / indexCode / key 명만 복사.
+     */
+    krxSectorIndexRaw?: {
+      breakPoint: string;
+      totalRawRows: number;
+      rowsWithIndexCode: number;
+      rowsWithIndexName: number;
+      rowsMissingCodeButHaveName: number;
+      rowsMissingCodeAndName: number;
+      indexCodeInMasterCount: number;
+      aliasResolvableCount: number;
+      unresolvedIndexNameCount: number;
+      backfillInvoked: boolean;
+      backfilledCount: number;
+      finalSourceTier: string;
+      sampleIndexNames: string[];
+      sampleIndexCodes: string[];
+      sampleUnresolvedNames: string[];
+      sampleRawKeysTop: Array<{ key: string; count: number }>;
+      operatorHint: string;
+      executionImpact: 'NONE';
+      liveExecutionAllowed: false;
+    };
+    /**
      * ADR-0446: sanity violation 진단 (옵셔널, 후방호환).
      *
      * 단순 console.warn 로그였던 sanity violation (sector pct > 30% / stockVolume >

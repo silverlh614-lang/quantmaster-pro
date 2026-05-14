@@ -27,7 +27,10 @@
  */
 
 import type { SectorEnergyDataQuality5 } from './sectorEnergyDataQuality.js';
-import type { SectorIndexCodeRecoveryDiagnostic } from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
+import type {
+  SectorIndexCodeRecoveryDiagnostic,
+  KrxSectorIndexRawDiagnostic,
+} from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import type { SectorEnergySanityViolationDiagnostic } from './sectorEnergySanityViolationDiagnostic.js';
 
 // ─── ENV gate SSOT (호출자 측 inline 검사 0건) ──────────────────────────────
@@ -202,6 +205,16 @@ export interface SectorEnergyQualityDiagnostic {
    */
   sectorIndexRecovery?: SectorIndexCodeRecoveryDiagnostic;
   /**
+   * KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001 — KRX 섹터 indexCode raw 입력 부검 (옵셔널, 후방호환).
+   *
+   * `verifiedIndexCodeCoverage=0%` 의 정확한 break point — KRX raw row 가 IDX_IND_CD /
+   * indexName 을 갖는지, alias lookup 이 왜 실패하는지, backfill 호출 여부, sourceTier 가
+   * 왜 KIS_STOCK_BASKET_DERIVED 로 떨어지는지를 row 단위로 분해. 진단 전용 — 매매 영향 0.
+   *
+   * 부재 시 caller 무영향 — 진단 layer 만 미노출.
+   */
+  krxSectorIndexRaw?: KrxSectorIndexRawDiagnostic;
+  /**
    * ADR-0446 sanity violation 진단 (옵셔널, 후방호환).
    *
    * 단순 console.warn 로그였던 sanity violation 을 *구조화된 진단* 으로 집계.
@@ -286,6 +299,13 @@ export interface EvaluateSectorEnergyQualityInput {
    * Provider 가 `evaluateIndexCodeRecovery` SSOT 로 합성 후 전달.
    */
   sectorIndexRecovery?: SectorIndexCodeRecoveryDiagnostic;
+  /**
+   * KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001 — KRX 섹터 indexCode raw 입력 부검 (옵셔널, 후방호환).
+   *
+   * Provider 가 `evaluateKrxSectorIndexRawDiagnostic` SSOT 로 합성 후 전달. evaluator 는
+   * propagate 만 — 분류 로직 자체는 변경 없음. 진단 전용 — 매매 영향 0.
+   */
+  krxSectorIndexRaw?: KrxSectorIndexRawDiagnostic;
   /**
    * ADR-0446 sanity violation 진단 (옵셔널, 후방호환).
    *
@@ -612,6 +632,8 @@ export function evaluateSectorEnergyQualityDiagnostic(
     repairStatus,
     // ADR-0446 — Phase 2 진단 + Sanity violation 진단 (옵셔널, 후방호환).
     ...(input.sectorIndexRecovery ? { sectorIndexRecovery: input.sectorIndexRecovery } : {}),
+    // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001 — KRX raw 입력 부검 (옵셔널, 후방호환, propagate 만).
+    ...(input.krxSectorIndexRaw ? { krxSectorIndexRaw: input.krxSectorIndexRaw } : {}),
     ...(input.sanityViolation ? { sanityViolation: input.sanityViolation } : {}),
     ...(input.coverageBreakdown ? { coverageBreakdown: input.coverageBreakdown } : {}),
     ...(input.representativeBasketAudit ? { representativeBasketAudit: input.representativeBasketAudit } : {}),

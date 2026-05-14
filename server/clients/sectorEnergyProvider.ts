@@ -42,9 +42,11 @@ import {
 // ADR-0447: SECTOR_INDEX_MASTER alias expansion + NON_SECTOR_AGGREGATE_ROW 분리 격상.
 import {
   evaluateIndexCodeRecovery,
+  evaluateKrxSectorIndexRawDiagnostic,
   expandAliasCandidates,
   isSectorEnergyAliasRegistryExpansionDisabled,
   isSectorEnergyRecoveryPhase2Disabled,
+  logKrxSectorIndexRawDiagnostic,
   normalizeIndexNameForLookup,
   type RecoveryRowInput,
 } from './sectorEnergyIndexCodeRecoveryDiagnostic.js';
@@ -318,6 +320,24 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     }
   }
 
+  // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: per-build KRX raw 스냅샷 → raw 입력 부검 합성.
+  // KIS provider 가 먼저 채택되면 _currentBuildKrxRawSnapshot 이 null → raw path 미진입을
+  // rawTodayRows=[] + backfillInvoked=false 로 표현 → finalSourceTier 로 FALLBACK_TO_* 분류.
+  let krxSectorIndexRaw: ReturnType<typeof evaluateKrxSectorIndexRawDiagnostic> | undefined;
+  try {
+    krxSectorIndexRaw = evaluateKrxSectorIndexRawDiagnostic({
+      rawTodayRows: _currentBuildKrxRawSnapshot?.rawTodayRows ?? [],
+      backfillInvoked: _currentBuildKrxRawSnapshot?.backfillInvoked ?? false,
+      backfilledCount: _currentBuildKrxRawSnapshot?.backfilledCount ?? 0,
+      finalSourceTier: result.sourceTier ?? 'UNKNOWN',
+    });
+    // 1스캔 1회 + 같은 breakPoint 60초 throttle (모듈 로컬 throttle).
+    logKrxSectorIndexRawDiagnostic(krxSectorIndexRaw);
+  } catch (err) {
+    // raw 부검 실패가 build 흐름 차단 안 함 (try/catch 격리).
+    console.warn(`[SectorEnergy] KRX raw 부검 진단 합성 실패: ${(err as Error)?.message ?? err}`);
+  }
+
   const qualityDiagnostic = evaluateSectorEnergyQualityDiagnostic({
     validSectorCount: result.validSectorCount,
     expectedSectorCount: result.totalSectorCount,
@@ -328,6 +348,7 @@ function withQualityDiagnostic(result: SectorEnergyBuildResult): SectorEnergyBui
     ...(result.sourceTier ? { sourceTier: result.sourceTier } : {}),
     ...(indexCodeBackfilledCount > 0 ? { indexCodeBackfilledCount } : {}),
     ...(sectorIndexRecovery ? { sectorIndexRecovery } : {}),
+    ...(krxSectorIndexRaw ? { krxSectorIndexRaw } : {}),
     ...(sanityViolation ? { sanityViolation } : {}),
     ...(result.sectorCoverageBreakdown ? { coverageBreakdown: result.sectorCoverageBreakdown } : {}),
     ...(result.recoveryAudit ? { representativeBasketAudit: result.recoveryAudit } : {}),
@@ -877,10 +898,27 @@ let _currentBuildRecoveryBefore: RecoveryRowInput[] = [];
 /** ADR-0446: backfill 이후 row 누적 (rowsAfterBackfill, indexCodeSource 포함). */
 let _currentBuildRecoveryAfter: RecoveryRowInput[] = [];
 
+/**
+ * KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: per-build KRX raw 스냅샷 (module-local).
+ *
+ * `buildSectorEnergyInputsWithMetaRaw` 진입 시 raw todayIdx row 캡처 + backfill 호출 여부/카운트.
+ * KIS provider 가 먼저 채택되면 raw path 미진입 → null 유지 → FALLBACK_TO_KIS_BASKET 분류.
+ */
+let _currentBuildKrxRawSnapshot: {
+  rawTodayRows: Array<{ indexCode?: string | null; indexName?: string | null }>;
+  backfillInvoked: boolean;
+  backfilledCount: number;
+} | null = null;
+
 function resetCurrentBuildPhase2State(): void {
   _currentBuildSanityState = isSectorEnergySanityDiagnosticDisabled() ? null : createSanityViolationState();
   _currentBuildRecoveryBefore = [];
   _currentBuildRecoveryAfter = [];
+  _currentBuildKrxRawSnapshot = null;
+}
+
+export function __getCurrentBuildKrxRawSnapshotForTests(): typeof _currentBuildKrxRawSnapshot {
+  return _currentBuildKrxRawSnapshot;
 }
 
 export function __getCurrentBuildSanityStateForTests(): SectorEnergySanityViolationState | null {
@@ -927,6 +965,13 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
 
   const todayIdx = [...todayKospiIdx, ...todayKosdaqIdx];
   const pastIdx = [...pastKospiIdx, ...pastKosdaqIdx];
+  // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: raw todayIdx 스냅샷 캡처 (backfill 이전).
+  // backfill 후 invoked/count 갱신. duck-typed — 진단 필요 부분만 복사 (raw payload 누출 차단).
+  _currentBuildKrxRawSnapshot = {
+    rawTodayRows: todayIdx.map((r) => ({ indexCode: r.indexCode, indexName: r.indexName })),
+    backfillInvoked: false,
+    backfilledCount: 0,
+  };
   const todayStocks = [...kospiStocks, ...kosdaqStocks];
   const pastStocks = [...pastKospiStocks, ...pastKosdaqStocks];
   const stockSectorMap = buildStockSectorMap(todayStocks);
@@ -961,6 +1006,11 @@ async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildRe
   const todayIdxBackfilled = todayBackfill.rows;
   const pastIdxBackfilled = pastBackfill.rows;
   const totalBackfilledCount = todayBackfill.backfilledCount + pastBackfill.backfilledCount;
+  // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: backfill 호출 여부/카운트 갱신.
+  if (_currentBuildKrxRawSnapshot) {
+    _currentBuildKrxRawSnapshot.backfillInvoked = true;
+    _currentBuildKrxRawSnapshot.backfilledCount = todayBackfill.backfilledCount;
+  }
 
   const symmetryRaw = validateIndexResponseSymmetry(todayIdxBackfilled, pastIdxBackfilled);
   // ADR-0424: backfill 통계 첨부 (옵셔널, 후방호환).
@@ -1099,6 +1149,11 @@ function applyYahooEtfDegradation(yahooResult: SectorEnergyBuildResult): SectorE
 export async function buildSectorEnergyInputsWithMetaWithFallback(): Promise<SectorEnergyBuildResult> {
   // ADR-0399: 진단 메타 누적 (각 layer 시도 결과).
   const sourceTierAttempts: SectorEnergyDiagnosticsMeta['sourceTierAttempts'] = [];
+
+  // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: per-build phase2 state reset 을 funnel 진입부에서
+  // 수행 — KIS provider 가 먼저 채택되면 buildSectorEnergyInputsWithMetaRaw 미진입이므로
+  // raw snapshot 이 null 로 남아 FALLBACK_TO_KIS_BASKET 으로 정확히 분류됨.
+  resetCurrentBuildPhase2State();
 
   if (!isSectorEnergySourceRestorationDisabled() && !isKisSectorEnergyProviderDisabled()) {
     try {
