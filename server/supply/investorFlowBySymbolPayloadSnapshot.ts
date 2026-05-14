@@ -14,6 +14,11 @@ export interface SupplyBySymbolPayloadSnapshotEntry {
   normalizedInvestorRow?: Record<string, unknown>;
   semanticInvestorRow?: Record<string, unknown>;
   supplySemanticRow?: Record<string, unknown>;
+  gateSemanticFlatRow?: {
+    foreignNetBuy: number | null;
+    institutionNetBuy: number | null;
+    programNetBuy: number | null;
+  } | null;
   actualInvestorFlowRowCount?: number;
   actualInvestorFlowFieldKeys?: string[];
   actualInvestorFlowNumericKeys?: string[];
@@ -80,6 +85,26 @@ function sanitizeRecord(value: unknown): Record<string, unknown> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function sanitizeGateSemanticFlatRow(raw: unknown): {
+  foreignNetBuy: number | null;
+  institutionNetBuy: number | null;
+  programNetBuy: number | null;
+} | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const toNum = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const foreignNetBuy = toNum(row.foreignNetBuy);
+  const institutionNetBuy = toNum(row.institutionNetBuy);
+  const programNetBuy = toNum(row.programNetBuy);
+  if (foreignNetBuy == null && institutionNetBuy == null) return null;
+  return {
+    foreignNetBuy,
+    institutionNetBuy,
+    programNetBuy,
+  };
+}
+
 function stringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const out = value.filter((item): item is string => typeof item === 'string' && !SECRET_KEY_PATTERN.test(item)).slice(0, 80);
@@ -98,6 +123,7 @@ function sanitizeEntry(symbol: string, raw: Record<string, unknown>): SupplyBySy
   const normalizedInvestorRow = sanitizeRecord(raw.normalizedInvestorRow);
   const semanticInvestorRow = sanitizeRecord(raw.semanticInvestorRow);
   const supplySemanticRow = sanitizeRecord(raw.supplySemanticRow);
+  const gateSemanticFlatRow = sanitizeGateSemanticFlatRow(raw.gateSemanticFlatRow);
   const entry: SupplyBySymbolPayloadSnapshotEntry = {
     symbol,
     providerScope: providerScope(raw.providerScope),
@@ -106,6 +132,7 @@ function sanitizeEntry(symbol: string, raw: Record<string, unknown>): SupplyBySy
     ...(normalizedInvestorRow ? { normalizedInvestorRow } : {}),
     ...(semanticInvestorRow ? { semanticInvestorRow } : {}),
     ...(supplySemanticRow ? { supplySemanticRow } : {}),
+    ...(gateSemanticFlatRow != null ? { gateSemanticFlatRow } : {}),
     ...(typeof raw.actualInvestorFlowRowCount === 'number' ? { actualInvestorFlowRowCount: raw.actualInvestorFlowRowCount } : actualRows.length > 0 ? { actualInvestorFlowRowCount: actualRows.length } : {}),
     ...(stringArray(raw.actualInvestorFlowFieldKeys) ? { actualInvestorFlowFieldKeys: stringArray(raw.actualInvestorFlowFieldKeys) } : {}),
     ...(stringArray(raw.actualInvestorFlowNumericKeys) ? { actualInvestorFlowNumericKeys: stringArray(raw.actualInvestorFlowNumericKeys) } : {}),
@@ -117,7 +144,7 @@ function sanitizeEntry(symbol: string, raw: Record<string, unknown>): SupplyBySy
     usableForShadow: true,
     executionImpact: 'NONE',
   };
-  return actualRows.length > 0 || actualInvestorRow || normalizedInvestorRow || semanticInvestorRow || supplySemanticRow ? entry : null;
+  return actualRows.length > 0 || actualInvestorRow || normalizedInvestorRow || semanticInvestorRow || supplySemanticRow || gateSemanticFlatRow != null ? entry : null;
 }
 
 function readStore(): SupplyBySymbolPayloadSnapshot[] {
