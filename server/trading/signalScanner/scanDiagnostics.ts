@@ -1397,6 +1397,52 @@ function normalizeSymbolCodeAdr0505(symbol: string | null | undefined): string {
   return digits.padStart(6, '0');
 }
 
+function isPseudoWatchlistSymbolAdr0520(value: unknown): boolean {
+  return typeof value === 'string' && /^WATCHLIST_\d+$/i.test(value);
+}
+
+function normalizeActualSymbolForAdr0477(value: unknown): string | null {
+  if (isPseudoWatchlistSymbolAdr0520(value)) return null;
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const withoutPrefix = raw.replace(/^[A-Z]/, '');
+  const digits = withoutPrefix.replace(/[^0-9]/g, '');
+  return digits.length === 6 ? digits : null;
+}
+
+function objectFieldAdr0477(input: unknown, key: string): Record<string, unknown> | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const value = (input as Record<string, unknown>)[key];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function resolveActualSymbolForAdr0477(snapshot: CandidateSnapshot | undefined): string | null {
+  const record = snapshot as unknown as Record<string, unknown> | undefined;
+  const quote = objectFieldAdr0477(record, 'quote');
+  const selectedCandidate = objectFieldAdr0477(record, 'selectedCandidate');
+  const candidates = [
+    record?.actualSymbol,
+    record?.stockCode,
+    record?.code,
+    record?.iscd,
+    record?.symbolCode,
+    quote?.symbol,
+    quote?.code,
+    quote?.stockCode,
+    selectedCandidate?.symbol,
+    selectedCandidate?.code,
+    selectedCandidate?.stockCode,
+    snapshot?.symbol,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeActualSymbolForAdr0477(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 function krxInvestorRowToRouterRawAdr0505(input: {
   row: KrxInvestorRow;
   sourceDate: string;
@@ -2755,8 +2801,13 @@ export async function persistScanResults(
   // live Gate/Kelly policy.
   try {
     const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
-    const firstSnapshot = observationSnapshots[0];
-    const firstSymbol = firstSnapshot?.symbol ?? 'UNIVERSE';
+    const firstResolvableSnapshot = observationSnapshots.find((snapshot) => resolveActualSymbolForAdr0477(snapshot) !== null);
+    const firstSnapshot = firstResolvableSnapshot ?? observationSnapshots[0];
+    const traceSymbol = firstSnapshot?.symbol ?? 'UNIVERSE';
+    const firstSymbol = resolveActualSymbolForAdr0477(firstSnapshot) ?? traceSymbol;
+    if (firstSymbol !== traceSymbol) {
+      console.info(`[ADR-0477] resolved pseudo/candidate symbol traceSymbol=${traceSymbol} actualSymbol=${firstSymbol} executionImpact=NONE`);
+    }
     const todayKst = kstNow.toISOString().slice(0, 10);
     const previousTradingDateCandidate = previousTradingDateCandidateAdr0491(todayKst);
     const sellOnlyOrClosed = options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false;
