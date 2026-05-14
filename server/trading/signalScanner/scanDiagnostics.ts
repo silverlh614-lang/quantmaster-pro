@@ -280,6 +280,7 @@ export interface GatePassDistribution {
   gate2Pass: number;
   gate3Pass: number;
   lastTriggerPass: number;
+  gate1Unknown?: number;
 }
 
 export interface GateScoreHealthSummary {
@@ -639,6 +640,7 @@ export interface ScanCounters {
   waitVolumeDrop: number;
   waitOther: number;
   gate1Pass: number;
+  gate1Unknown: number;
   gate2Pass: number;
   gate3Pass: number;
   lastTriggerPass: number;
@@ -777,6 +779,7 @@ export function createScanCounters(): ScanCounters {
     waitVolumeDrop: 0,
     waitOther: 0,
     gate1Pass: 0,
+    gate1Unknown: 0,
     gate2Pass: 0,
     gate3Pass: 0,
     lastTriggerPass: 0,
@@ -934,6 +937,7 @@ export function buildGatePassDistribution(counters: ScanCounters): GatePassDistr
     gate2Pass: counters.gate2Pass,
     gate3Pass: counters.gate3Pass,
     lastTriggerPass: counters.lastTriggerPass,
+    gate1Unknown: counters.gate1Unknown,
   };
 }
 

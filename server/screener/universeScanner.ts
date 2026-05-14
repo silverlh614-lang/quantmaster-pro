@@ -390,6 +390,12 @@ export async function stage2SectorGateFilter(
       gateSignal: gate.signalType,
       gateDetails: boostedDetails,
       gateCondKeys: gate.conditionKeys,
+      gateEvaluation: gate.gateEvaluation,
+      gateLayerSummary: gate.gateLayerSummary,
+      gateRawScore: gate.rawScore,
+      availableMaxScore: gate.availableMaxScore,
+      normalizedGateScore: gate.normalizedGateScore,
+      gateOutputs: gate.outputs,
       sectorBonus,
       stage2Score,
     });
@@ -603,6 +609,16 @@ export async function stage3AIScreenAndRegister(
       stage2Score: candidate?.stage2Score,
       totalGateScore: result.totalGateScore,
       watchlistPriorityScore: result.totalGateScore,
+      gateEvaluation: candidate?.gateEvaluation
+        ? {
+          ...candidate.gateEvaluation,
+          conditionKeys: candidate.gateCondKeys,
+          outputs: candidate.gateOutputs,
+        }
+        : undefined,
+      gateRawScore: candidate?.gateRawScore,
+      availableMaxScore: candidate?.availableMaxScore,
+      normalizedGateScore: candidate?.normalizedGateScore,
       symbolFeatures: {
         price: currentPrice || undefined,
         ma20: candidate?.quote.ma20,

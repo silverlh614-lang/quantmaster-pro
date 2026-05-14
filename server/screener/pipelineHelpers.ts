@@ -22,6 +22,7 @@ import type { YahooQuoteExtended } from './stockScreener.js';
 import type { ConfluenceResult } from '../trading/confluenceEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+import type { GateEvaluationSnapshot, GateLayerSummary, ServerGateResult } from '../quantFilter.js';
 import {
   classifyStage1RejectStrict,
   isEmergencyStage1StrictEnabled,
@@ -41,6 +42,12 @@ export interface CandidateStock {
   gateSignal?:      string;
   gateDetails?:     string[];   // 실계산 통과 조건 레이블 (Gemini에 전달)
   gateCondKeys?:    string[];   // 실계산 통과 조건 키
+  gateEvaluation?:  GateEvaluationSnapshot;
+  gateLayerSummary?: GateLayerSummary;
+  gateRawScore?:    number;
+  availableMaxScore?: number;
+  normalizedGateScore?: number;
+  gateOutputs?:     ServerGateResult['outputs'];
   sectorBonus?:     number;
   stage2Score?:     number;
   // 실데이터 수급 (KIS API — Stage 2)

@@ -40,6 +40,18 @@ export interface GateLayerSummary {
   primaryBlockReason?: string;
 }
 
+export interface GateEvaluationSnapshot {
+  gate1Passed: boolean;
+  gate2Passed: boolean;
+  gate3Passed: boolean;
+  passedCount: number;
+  unavailableKeys: string[];
+  thresholdNotMetKeys: string[];
+  providerDegradedKeys: string[];
+  finalPath: GateFinalPath;
+  blockReason?: string;
+}
+
 export interface ServerGateResult {
   gateScore: number;                          // 기존 live 의사결정 호환 raw score (float, 최대 ~15)
   /** ADR-452 — gateScore와 동일한 원점수. 신규 호출자는 rawScore를 선호. */
@@ -78,6 +90,11 @@ export interface ServerGateResult {
    * or normalizedGateScore in live threshold decisions.
    */
   gateLayerSummary?: GateLayerSummary;
+  /**
+   * Gate 1/2/3 pass snapshot for persistence. Derived only from gateLayerSummary.
+   * Diagnostic/persistence data only; never use this to replace live threshold decisions.
+   */
+  gateEvaluation: GateEvaluationSnapshot;
 }
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */
@@ -222,6 +239,35 @@ function buildGateLayerSummary(
   }
 
   return summary;
+}
+
+function buildGateEvaluationSnapshot(
+  summary: GateLayerSummary,
+  conditionKeys: string[],
+): GateEvaluationSnapshot {
+  return {
+    gate1Passed: summary.gate1.passed,
+    gate2Passed: summary.gate2.passed,
+    gate3Passed: summary.gate3.passed,
+    passedCount: conditionKeys.length,
+    unavailableKeys: [
+      ...summary.gate1.unavailable,
+      ...summary.gate2.unavailable,
+      ...summary.gate3.unavailable,
+    ],
+    thresholdNotMetKeys: [
+      ...summary.gate1.thresholdNotMet,
+      ...summary.gate2.thresholdNotMet,
+      ...summary.gate3.thresholdNotMet,
+    ],
+    providerDegradedKeys: [
+      ...summary.gate1.providerDegraded,
+      ...summary.gate2.providerDegraded,
+      ...summary.gate3.providerDegraded,
+    ],
+    finalPath: summary.finalPath,
+    ...(summary.primaryBlockReason ? { blockReason: summary.primaryBlockReason } : {}),
+  };
 }
 
 type GateOutputStatus =
@@ -417,6 +463,7 @@ export function evaluateServerGate(
   }
 
   const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType);
+  const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);
 
   return {
     gateScore: score,
@@ -429,5 +476,6 @@ export function evaluateServerGate(
     mtas,
     outputs: run.outputs,
     gateLayerSummary,
+    gateEvaluation,
   };
 }

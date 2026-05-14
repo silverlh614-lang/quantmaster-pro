@@ -390,21 +390,16 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 에 정의되어 있으나 WatchlistEntry 에는 부재). inline cast 로 영속 schema
       // 변경 회피. try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
       //
-      // ADR-0211 (P0 응급 패치): WatchlistEntry 에는 gateEvaluation 이 영속되지
-      // 않아 ge?.gate1Passed 가 항상 undefined → gate1Pass 카운터 영구 0 →
-      // R3 Sanity Check (GATE1_PASS_ZERO) false positive 로 latch 활성 →
-      // 신규 매수 영구 차단. 폴백: stock.gateScore ≥ 5.0 (evaluateServerGate
-      // SWING/STRONG_BUY 임계 정합) 시 Gate 1 통과 추정.
+      // GateEvaluation 미영속 구 watchlist 항목은 gate1Unknown 으로만 집계한다.
       try {
-        const ge = (stock as { gateEvaluation?: { gate1Passed?: boolean; gate2Passed?: boolean; gate3Passed?: boolean } }).gateEvaluation;
-        if (ge?.gate1Passed) {
+        const ge = stock.gateEvaluation;
+        if (ge?.gate1Passed === true) {
           ctx.scanCounters.gate1Pass++;
-        } else if (typeof stock.gateScore === 'number' && stock.gateScore >= 5.0) {
-          // ADR-0211 폴백: gateEvaluation 미영속 시 gateScore ≥ 5.0 으로 Gate 1 통과 추정
-          ctx.scanCounters.gate1Pass++;
+        } else if (!ge) {
+          ctx.scanCounters.gate1Unknown++;
         }
-        if (ge?.gate2Passed) ctx.scanCounters.gate2Pass++;
-        if (ge?.gate3Passed) ctx.scanCounters.gate3Pass++;
+        if (ge?.gate2Passed === true) ctx.scanCounters.gate2Pass++;
+        if (ge?.gate3Passed === true) ctx.scanCounters.gate3Pass++;
       } catch (e) {
         console.warn('[ADR-0120] Gate pass 카운터 누적 실패:', e);
       }
@@ -1517,7 +1512,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         const conditionResults = conditionResultsTraceToMap(conditionResultsTrace);
         Object.assign(stock, {
           gateEvaluation: {
-            ...((stock as { gateEvaluation?: Record<string, unknown> }).gateEvaluation ?? {}),
+            ...reCheckGate.gateEvaluation,
             rawScore: reCheckGate.rawScore,
             availableMaxScore: reCheckGate.availableMaxScore,
             normalizedGateScore: reCheckGate.normalizedGateScore,
@@ -1648,12 +1643,9 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       //   denominator=gate1Pass (사용자 §C 정합 — 전체 candidates 가 아닌 Gate1
       //   통과 후보 중심). PROVIDER_DEGRADED + STALE detail 은 stale 버킷으로
       //   분리 (사용자 핵심 불변식 — STALE 은 failed 가 아님).
-      // ADR-0211 폴백 패턴 차용: gateEvaluation.gate1Passed === true OR gateScore ≥ 5.0
       // try/catch 격리 — Gate2 attribution 실패 시 매수 흐름 차단 안 함.
-      const ge2 = (stock as { gateEvaluation?: { gate1Passed?: boolean } }).gateEvaluation;
-      const isGate1Survivor =
-        ge2?.gate1Passed === true ||
-        (typeof stock.gateScore === 'number' && stock.gateScore >= 5.0);
+      const ge2 = stock.gateEvaluation;
+      const isGate1Survivor = ge2?.gate1Passed === true;
       if (isGate1Survivor && reCheckGate?.outputs && reCheckGate.outputs.length > 0) {
         try {
           accumulateGate2ConditionOutputs(
@@ -1690,10 +1682,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         // 신호 등급 — gateScore 기반 폴백 (WatchlistEntry 에는 명시 등급 부재).
         //   gateScore ≥ 9 → STRONG_BUY (PR-13 정합 임계) / ≥ 5 → BUY / 그 외 undefined.
         //   shadowObservable 후보성 평가 입력 — 절대 자동 매수 결정 입력 아님.
+        const buySignalThreshold = 5;
+        const strongBuySignalThreshold = 9;
         const signalGrade: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'NEUTRAL' | undefined =
-          typeof stock.gateScore === 'number' && stock.gateScore >= 9
+          typeof stock.gateScore === 'number' && stock.gateScore >= strongBuySignalThreshold
             ? 'STRONG_BUY'
-            : typeof stock.gateScore === 'number' && stock.gateScore >= 5
+            : typeof stock.gateScore === 'number' && stock.gateScore >= buySignalThreshold
               ? 'BUY'
               : undefined;
         // sectorEnergyDataQuality 영속 union 그대로 전달

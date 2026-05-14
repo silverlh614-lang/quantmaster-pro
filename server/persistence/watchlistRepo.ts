@@ -4,6 +4,7 @@ import { WATCHLIST_FILE, ensureDataDir } from "./paths.js";
 import { sendTelegramAlert } from "../alerts/telegramClient.js";
 import { isEmergencyWatchlistCodeGuardEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
 import { normalizeKrxCode } from "../utils/symbolNormalizer.js";
+import type { GateEvaluationSnapshot } from "../quantFilter.js";
 
 /**
  * 워치리스트 섹션 — 신호 품질에 따라 매매 파라미터를 차등 적용
@@ -307,6 +308,22 @@ export interface WatchlistEntry {
   sector?: string; // 섹터 정보 (섹터별 성과 분석용)
   rrr?: number; // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
   conditionKeys?: string[]; // 진입 당시 통과한 Gate 조건 키 목록
+  /** Gate evaluation snapshot. Undefined means legacy watchlist data and is counted as gate1Unknown. */
+  gateEvaluation?: GateEvaluationSnapshot & {
+    rawScore?: number;
+    availableMaxScore?: number;
+    normalizedGateScore?: number;
+    conditionKeys?: string[];
+    outputs?: unknown;
+  };
+  /** Gate raw score snapshot. Diagnostic only. */
+  gateRawScore?: number;
+  /** Gate available max score snapshot. Diagnostic only. */
+  availableMaxScore?: number;
+  /** Gate normalized score snapshot. Diagnostic only; never replaces live decisions. */
+  normalizedGateScore?: number;
+  /** Gate output trace. Diagnostic only. */
+  conditionResultsTrace?: unknown;
   profileType?: "A" | "B" | "C" | "D"; // 종목 프로파일 (A=대형주도 B=중형성장 C=소형모멘텀 D=촉매)
   entryRegime?: string; // 진입 시 레짐 (AI 파이프라인 메타)
   expiresAt?: string; // 자동 만료 시각 ISO — 섹션별 차등 (SWING 7일 / CATALYST 3일 / MOMENTUM 2일)

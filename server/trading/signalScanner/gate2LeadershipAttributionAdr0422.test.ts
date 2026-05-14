@@ -437,7 +437,9 @@ describe('ADR-0422 buyListLoop wiring 정적 가드', () => {
     const src = readFileSync('server/trading/signalScanner/perSymbol/buyListLoop.ts', 'utf8');
     expect(src).toMatch(/accumulateGate2ConditionOutputs/);
     expect(src).toMatch(/isGate1Survivor/);
-    expect(src).toMatch(/gateScore.*5\.0|stock\.gateScore >= 5/);
+    expect(src).toMatch(/ge2\?\.gate1Passed === true/);
+    const forbiddenFallback = new RegExp('gateScore.*5\\\\.0|stock\\\\.gateScore >=' + ' 5');
+    expect(src).not.toMatch(forbiddenFallback);
     // try/catch 격리 — Gate2 attribution 실패 시 매수 흐름 차단 안 함
     expect(src).toMatch(/Adr0422Gate2Attribution.*accumulate 실패/);
   });
