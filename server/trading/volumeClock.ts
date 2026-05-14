@@ -5,42 +5,72 @@
  * 한국 주식 시장의 시간대별 특성에 기반하여 발주 실행 가능 여부와
  * 시간대 가중치 보너스를 결정한다.
  *
- * ┌─ 절대 차단 (KST) ──────────────────────────────────────────────────────────┐
+ * ADR-0515 (사용자 5/14): 점심 차단 구간을 ADR-0192 정책(12:00~12:59)에 맞춰 정합.
+ *   기존 11:31~12:59 차단 → adaptiveScanScheduler.decideScan (ADR-0192 점심 12:00~13:00) 과
+ *   불일치로 운영 환경에서 11:30~12:59 sell-only 가 관측되던 결함 차단.
+ *   ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 시 ADR-0237 legacy 동작(11:31~12:59) 복원
+ *   — adaptiveScanScheduler / isBuyableKstWindow 와 동일 ENV 단일 통로.
+ *
+ * ┌─ 절대 차단 (KST, ADR-0192 신규 정책) ──────────────────────────────────────┐
  * │  09:00 ~ 09:29  시초가 결정 구간 — 슬리피지 극심                            │
- * │  11:31 ~ 12:59  점심 구간 — 거래량 저조, Scanner SELL_ONLY 연동              │
+ * │  12:00 ~ 12:59  점심 구간 — 거래량 저조, Scanner SELL_ONLY 연동              │
  * │  15:21 ~ 15:30  마감 동시호가 — 절대 불가                                   │
  * └─────────────────────────────────────────────────────────────────────────────┘
  *
- * ┌─ 시간대별 점수 조정 ───────────────────────────────────────────────────────┐
+ * ┌─ 시간대별 점수 조정 (ADR-0192 신규 정책) ─────────────────────────────────┐
  * │  패널티 -2  09:30~09:59  개장 초반 노이즈                                  │
  * │  패널티 -2  14:30~15:20  마감 50분 전~동시호가 직전 변동성 확대             │
  * │  패널티 -2  13:00~13:14  점심 직후 회복 초기                                │
  * │  패널티 -1  13:15~13:29  거래 회복 중                                      │
- * │  패널티 -1  11:00~11:30  오전 후반 모멘텀 약화                              │
+ * │  패널티 -1  11:00~11:59  오전 후반 모멘텀 약화                              │
  * │  보너스  0  13:30~14:29  오후 기관 리밸런싱                                 │
  * │  보너스 +2  10:00~10:59  기관 알고리즘 집중 구간                            │
  * └─────────────────────────────────────────────────────────────────────────────┘
  *
- * 매수 허용 시간: 09:30~11:30 + 13:00~15:20 (사용자 정책 갱신).
+ * 매수 허용 시간: 09:30~11:59 + 13:00~15:20 (ADR-0192 정합).
+ *   legacy(TRADE_WINDOW_LEGACY_HOURS=true): 09:30~11:30 + 13:00~15:20 (ADR-0237).
  */
 
-/** 절대 차단 시간대 (KST, 분 단위 HH*60+MM) */
-const BLOCKED_WINDOWS: Array<{ start: number; end: number; label: string }> = [
+interface BlockedWindow { start: number; end: number; label: string; }
+interface TimeZone { start: number; end: number; bonus: number; label: string; }
+
+/** 절대 차단 시간대 (KST, 분 단위 HH*60+MM) — ADR-0192 신규 정책 */
+const BLOCKED_WINDOWS: ReadonlyArray<BlockedWindow> = [
   { start:  9 * 60,      end:  9 * 60 + 29, label: '09:00~09:29 시초가 결정 — 슬리피지 극심' },
-  { start: 11 * 60 + 31, end: 12 * 60 + 59, label: '11:31~12:59 점심 구간 — 거래량 저조' },
+  { start: 12 * 60,      end: 12 * 60 + 59, label: '12:00~12:59 점심 구간 — 거래량 저조 (ADR-0192)' },
+  { start: 15 * 60 + 21, end: 15 * 60 + 30, label: '15:21~15:30 마감 동시호가 — 절대 불가' },
+];
+
+/** 절대 차단 시간대 (KST) — ADR-0237 legacy (TRADE_WINDOW_LEGACY_HOURS=true 시) */
+const BLOCKED_WINDOWS_LEGACY: ReadonlyArray<BlockedWindow> = [
+  { start:  9 * 60,      end:  9 * 60 + 29, label: '09:00~09:29 시초가 결정 — 슬리피지 극심' },
+  { start: 11 * 60 + 31, end: 12 * 60 + 59, label: '11:31~12:59 점심 구간 — 거래량 저조 (legacy)' },
   { start: 15 * 60 + 21, end: 15 * 60 + 30, label: '15:21~15:30 마감 동시호가 — 절대 불가' },
 ];
 
 /**
- * 시간대별 점수 조정 구간 (KST, 분 단위)
- * 09:30~15:20 전체를 빈틈 없이 커버한다 (점심 11:31~12:59 제외).
+ * 시간대별 점수 조정 구간 (KST, 분 단위) — ADR-0192 신규 정책
+ * 09:30~15:20 전체를 빈틈 없이 커버한다 (점심 12:00~12:59 제외).
  * 배열 순서 = 시간 순서 (검색 시 첫 매칭 반환).
  */
-const TIME_ZONES: Array<{ start: number; end: number; bonus: number; label: string }> = [
+const TIME_ZONES: ReadonlyArray<TimeZone> = [
+  { start:  9 * 60 + 30, end:  9 * 60 + 59, bonus: -2, label: '09:30~09:59 개장 초반 노이즈 (-2점)' },
+  { start: 10 * 60,      end: 10 * 60 + 59, bonus: +2, label: '10:00~10:59 기관 알고리즘 집중 (+2점)' },
+  // ADR-0192: 점심 차단을 12:00 로 후퇴 → 11:31~11:59 도 매수 허용(오전 후반 -1점)으로 흡수.
+  { start: 11 * 60,      end: 11 * 60 + 59, bonus: -1, label: '11:00~11:59 오전 후반 모멘텀 약화 (-1점)' },
+  // 12:00~12:59 → BLOCKED_WINDOWS (점심 구간 매수 차단, Scanner SELL_ONLY 연동)
+  { start: 13 * 60,      end: 13 * 60 + 14, bonus: -2, label: '13:00~13:14 점심 직후 회복 초기 (-2점)' },
+  { start: 13 * 60 + 15, end: 13 * 60 + 29, bonus: -1, label: '13:15~13:29 거래 회복 중 (-1점)' },
+  { start: 13 * 60 + 30, end: 14 * 60 + 29, bonus:  0, label: '13:30~14:29 오후 기관 리밸런싱' },
+  { start: 14 * 60 + 30, end: 15 * 60 + 20, bonus: -2, label: '14:30~15:20 마감 50분 전~동시호가 직전 변동성 확대 (-2점)' },
+];
+
+/** 시간대별 점수 조정 구간 (KST) — ADR-0237 legacy (TRADE_WINDOW_LEGACY_HOURS=true 시) */
+const TIME_ZONES_LEGACY: ReadonlyArray<TimeZone> = [
   { start:  9 * 60 + 30, end:  9 * 60 + 59, bonus: -2, label: '09:30~09:59 개장 초반 노이즈 (-2점)' },
   { start: 10 * 60,      end: 10 * 60 + 59, bonus: +2, label: '10:00~10:59 기관 알고리즘 집중 (+2점)' },
   { start: 11 * 60,      end: 11 * 60 + 30, bonus: -1, label: '11:00~11:30 오전 후반 모멘텀 약화 (-1점)' },
-  // 11:31~12:59 → BLOCKED_WINDOWS로 이동 (점심 구간 매수 차단, Scanner SELL_ONLY 연동)
+  // 11:31~12:59 → BLOCKED_WINDOWS_LEGACY (점심 구간 매수 차단)
   { start: 13 * 60,      end: 13 * 60 + 14, bonus: -2, label: '13:00~13:14 점심 직후 회복 초기 (-2점)' },
   { start: 13 * 60 + 15, end: 13 * 60 + 29, bonus: -1, label: '13:15~13:29 거래 회복 중 (-1점)' },
   { start: 13 * 60 + 30, end: 14 * 60 + 29, bonus:  0, label: '13:30~14:29 오후 기관 리밸런싱' },
@@ -56,6 +86,14 @@ export interface VolumeClockResult {
   windowLabel:  string;
   /** 허용·차단 사유 */
   reason:       string;
+}
+
+/**
+ * ADR-0515 — TRADE_WINDOW_LEGACY_HOURS legacy 분기 판정 SSOT.
+ * adaptiveScanScheduler / isBuyableKstWindow 와 동일 ENV 단일 통로 — drift 차단.
+ */
+function isVolumeClockLegacyHours(): boolean {
+  return process.env.TRADE_WINDOW_LEGACY_HOURS === 'true';
 }
 
 /**
@@ -75,9 +113,12 @@ function kstMinutesOfDay(now: Date): number {
  */
 export function checkVolumeClockWindow(now: Date = new Date()): VolumeClockResult {
   const mins = kstMinutesOfDay(now);
+  const legacy = isVolumeClockLegacyHours();
+  const blockedWindows = legacy ? BLOCKED_WINDOWS_LEGACY : BLOCKED_WINDOWS;
+  const timeZones      = legacy ? TIME_ZONES_LEGACY      : TIME_ZONES;
 
   // 1. 절대 차단 구간 (최우선)
-  for (const win of BLOCKED_WINDOWS) {
+  for (const win of blockedWindows) {
     if (mins >= win.start && mins <= win.end) {
       return {
         allowEntry:  false,
@@ -88,8 +129,8 @@ export function checkVolumeClockWindow(now: Date = new Date()): VolumeClockResul
     }
   }
 
-  // 2. 시간대별 점수 조정 구간 (09:30~14:54)
-  for (const zone of TIME_ZONES) {
+  // 2. 시간대별 점수 조정 구간 (09:30~15:20)
+  for (const zone of timeZones) {
     if (mins >= zone.start && mins <= zone.end) {
       const bonusNote = zone.bonus !== 0
         ? ` (${zone.bonus > 0 ? '+' : ''}${zone.bonus}점)`
