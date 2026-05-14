@@ -64,6 +64,14 @@ export interface KisSectorEnergyIndexRow {
   sourceTier?: Extract<KisSectorEnergySourceTier, 'KIS_OFFICIAL_INDEX' | 'KIS_OFFICIAL_DAILY'>;
 }
 
+export type KisSectorIndexDryRunErrorClass =
+  | 'EMPTY'
+  | 'INVALID_CODE'
+  | 'PROVIDER_500'
+  | 'TIMEOUT'
+  | 'DISABLED'
+  | 'INSUFFICIENT_SERIES';
+
 export interface KisSectorIndexDryRunRow {
   sectorKey: SectorKey;
   iscd: string;
@@ -75,6 +83,7 @@ export interface KisSectorIndexDryRunRow {
   return20d?: number;
   turnoverAcceleration?: number;
   providerIssue?: boolean;
+  errorClass?: KisSectorIndexDryRunErrorClass;
   error?: string;
 }
 
@@ -101,6 +110,7 @@ interface KisSectorIndexDryRunCacheEntry {
 
 const KIS_SECTOR_INDEX_DRYRUN_TTL_MS = 20 * 60 * 1000;
 const KIS_SECTOR_INDEX_NEGATIVE_COOLDOWN_MS = 10 * 60 * 1000;
+const KIS_SECTOR_INDEX_MIN_SERIES_COUNT = 21;
 let kisSectorIndexDryRunCache: KisSectorIndexDryRunCacheEntry | null = null;
 const kisSectorIndexNegativeCooldownUntil = new Map<string, number>();
 
@@ -131,6 +141,41 @@ function sortedKisSectorIndexSeries(series: readonly KisSectorIndexDailyRow[]): 
   return [...series]
     .filter((row) => /^\d{8}$/.test(row.baseDate) && finite(row.close) && row.close > 0)
     .sort((a, b) => a.baseDate.localeCompare(b.baseDate));
+}
+
+function classifyKisSectorIndexDryRunError(error: unknown): KisSectorIndexDryRunErrorClass {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const normalized = message.toLowerCase();
+  if (normalized.includes('kis_empty_or_disabled')) return 'EMPTY';
+  if (
+    normalized.includes('timeout') ||
+    normalized.includes('timed out') ||
+    normalized.includes('etimedout')
+  ) {
+    return 'TIMEOUT';
+  }
+  if (
+    normalized.includes('500') ||
+    normalized.includes('provider_500') ||
+    normalized.includes('internal server')
+  ) {
+    return 'PROVIDER_500';
+  }
+  if (
+    normalized.includes('disabled') ||
+    normalized.includes('not enabled')
+  ) {
+    return 'DISABLED';
+  }
+  if (
+    normalized.includes('invalid') ||
+    normalized.includes('bad iscd') ||
+    normalized.includes('invalid_code')
+  ) {
+    return 'INVALID_CODE';
+  }
+  if (normalized.includes('insufficient')) return 'INSUFFICIENT_SERIES';
+  return 'EMPTY';
 }
 
 function deriveKisSectorIndexDryRunMetrics(result: KisSectorIndexDaily): Pick<KisSectorIndexDryRunRow, 'seriesCount' | 'latestDate' | 'return5d' | 'return20d' | 'turnoverAcceleration'> {
@@ -179,6 +224,7 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
         success: false,
         seriesCount: 0,
         providerIssue: true,
+        errorClass: 'EMPTY',
         error: 'NEGATIVE_COOLDOWN_ACTIVE',
       };
     }
@@ -193,10 +239,24 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
           success: false,
           seriesCount: 0,
           providerIssue: true,
+          errorClass: result ? 'EMPTY' : classifyKisSectorIndexDryRunError('KIS_EMPTY_OR_DISABLED'),
           error: result ? 'EMPTY_SERIES' : 'KIS_EMPTY_OR_DISABLED',
         };
       }
       const metrics = deriveKisSectorIndexDryRunMetrics(result);
+      if (metrics.seriesCount < KIS_SECTOR_INDEX_MIN_SERIES_COUNT) {
+        kisSectorIndexNegativeCooldownUntil.set(entry.iscd, nowMs + KIS_SECTOR_INDEX_NEGATIVE_COOLDOWN_MS);
+        return {
+          sectorKey: entry.sectorKey,
+          iscd: entry.iscd,
+          label: entry.label,
+          success: false,
+          providerIssue: true,
+          errorClass: 'INSUFFICIENT_SERIES',
+          error: `INSUFFICIENT_SERIES_${metrics.seriesCount}`,
+          ...metrics,
+        };
+      }
       return {
         sectorKey: entry.sectorKey,
         iscd: entry.iscd,
@@ -214,6 +274,7 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
         success: false,
         seriesCount: 0,
         providerIssue: true,
+        errorClass: classifyKisSectorIndexDryRunError(error),
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -245,9 +306,9 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
   return report;
 }
 
-export function resetKisSectorIndexDryRunCacheForTests(): void {
+export function resetKisSectorIndexDryRunCacheForTests(options: { keepNegativeCooldown?: boolean } = {}): void {
   kisSectorIndexDryRunCache = null;
-  kisSectorIndexNegativeCooldownUntil.clear();
+  if (!options.keepNegativeCooldown) kisSectorIndexNegativeCooldownUntil.clear();
 }
 
 export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunReport): string {
@@ -256,22 +317,48 @@ export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunRe
     .filter((date): date is string => typeof date === 'string' && /^\d{8}$/.test(date))
     .sort()
     .at(-1) ?? 'N/A';
-  const failedIscd = report.rows
-    .filter((row) => !row.success)
-    .map((row) => row.iscd)
-    .join(', ') || 'none';
-  return [
+  const failedRows = report.rows.filter((row) => !row.success);
+  const successRows = report.rows
+    .filter((row) => row.success)
+    .sort((a, b) => (b.latestDate ?? '').localeCompare(a.latestDate ?? '') || b.seriesCount - a.seriesCount)
+    .slice(0, 5);
+  const lines = [
     '🧪 <b>KIS Sector Index Dry Run</b>',
     `- enabled: <b>${String(report.enabled)}</b>`,
     `- attempted: <b>${report.attempted}</b>`,
     `- succeeded: <b>${report.succeeded}</b>`,
     `- failed: <b>${report.failed}</b>`,
     `- latestDateTop: <code>${latestDateTop}</code>`,
-    `- failedIscd: <code>${failedIscd}</code>`,
+    '- failed:',
+  ];
+  if (failedRows.length === 0) {
+    lines.push('  0. <code>none</code>');
+  } else {
+    failedRows.forEach((row, idx) => {
+      lines.push(
+        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / errorClass=<code>${row.errorClass ?? 'EMPTY'}</code>`,
+      );
+    });
+  }
+  lines.push('- successTop:');
+  if (successRows.length === 0) {
+    lines.push('  0. <code>none</code>');
+  } else {
+    successRows.forEach((row, idx) => {
+      lines.push(
+        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / latest=<code>${row.latestDate ?? 'N/A'}</code> / rows=<b>${row.seriesCount}</b> / return5d=<code>${formatDryRunMetric(row.return5d)}</code> / return20d=<code>${formatDryRunMetric(row.return20d)}</code>`,
+      );
+    });
+  }
+  lines.push(
     `- sourceTier: <code>${report.sourceTier}</code>`,
     `- officialBenchmark: <b>${String(report.officialBenchmark)}</b>`,
-    '- nextAction: <code>VERIFY_ISCD_MAP_BEFORE_L4_WIRING</code>',
-  ].join('\n');
+    `- sectorBoostAllowed: <b>${String(report.sectorBoostAllowed)}</b>`,
+    `- strongBuyAllowed: <b>${String(report.strongBuyAllowed)}</b>`,
+    `- executionImpact: <code>${report.executionImpact}</code>`,
+    '- nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
+  );
+  return lines.join('\n');
 }
 
 export interface KisSectorEnergyProviderOverrides {
@@ -369,6 +456,10 @@ function pctChange(from: number, to: number): number {
 function safeCode(code: string): string {
   const digits = code.replace(/[^0-9]/g, '');
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
+}
+
+function formatDryRunMetric(value: number | undefined): string {
+  return finite(value) ? value.toFixed(4) : 'N/A';
 }
 
 function sectorName(sectorKey: string): string {

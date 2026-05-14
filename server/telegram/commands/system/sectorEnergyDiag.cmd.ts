@@ -367,10 +367,16 @@ function formatDisabledKisSectorIndexDryRunSection(): string {
     '- succeeded: <b>0</b>',
     '- failed: <b>0</b>',
     '- latestDateTop: <code>N/A</code>',
-    '- failedIscd: <code>none</code>',
+    '- failed:',
+    '  0. <code>none</code>',
+    '- successTop:',
+    '  0. <code>none</code>',
     '- sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>',
     '- officialBenchmark: <b>false</b>',
-    '- nextAction: <code>VERIFY_ISCD_MAP_BEFORE_L4_WIRING</code>',
+    '- sectorBoostAllowed: <b>false</b>',
+    '- strongBuyAllowed: <b>false</b>',
+    '- executionImpact: <code>NONE</code>',
+    '- nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
   ].join('\n');
 }
 
