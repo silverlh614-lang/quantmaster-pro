@@ -1349,3 +1349,64 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
   });
 
 });
+
+describe('ADR-0477 supply actual row carry — forensic audit (사용자 명시 #5/#6 단절 진단)', () => {
+  it('reflects adapterRowsForwardedAcrossProviders from kisFlow into supplyScopeAudit', () => {
+    const trace = makeTrace({ symbol: '005930' });
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace,
+      quoteSymbol: '005930',
+      kisFlow: {
+        symbol: '005930',
+        kisRawRowAvailableAtAdapter: true,
+        actualInvestorRow: { frgn_ntby_tr_pbmn: '1,234', orgn_ntby_tr_pbmn: '-2,000' },
+        adapterRowsForwardedAcrossProviders: true,
+        semanticAvailable: true,
+      },
+    });
+    expect(audit.supplyScopeAudit.adapterRowsForwardedAcrossProviders).toBe(true);
+    // 안전 invariant — diagnostic 전용, executionImpact 무영향.
+    expect(audit.executionImpact).toBe('NONE');
+    expect(audit.liveExecutionAllowed).toBe(false);
+  });
+
+  it('keeps adapterRowsForwardedAcrossProviders false when kisFlow does not carry the flag', () => {
+    const trace = makeTrace({ symbol: '005930' });
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace,
+      quoteSymbol: '005930',
+      kisFlow: { symbol: '005930', kisRawRowAvailableAtAdapter: true, actualInvestorRow: { frgn_ntby_tr_pbmn: '1,234' }, semanticAvailable: true },
+    });
+    expect(audit.supplyScopeAudit.adapterRowsForwardedAcrossProviders).toBe(false);
+  });
+
+  it('keeps adapterRowsForwardedAcrossProviders false for a metadata-only kisFlow object', () => {
+    const trace = makeTrace({ symbol: '005930' });
+    // metadata-only kisFlow object — adapterRowsForwardedAcrossProviders 플래그 미보유.
+    // rawInvestorRowAvailable / SEMANTIC_ROW_METADATA_ONLY 분류는 그대로 보존 (본 PR 비범위).
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace,
+      quoteSymbol: '005930',
+      kisFlow: { symbol: '005930' },
+    });
+    expect(audit.supplyScopeAudit.adapterRowsForwardedAcrossProviders).toBe(false);
+  });
+
+  it('aggregates adapterRowsForwardedAcrossProvidersCount in the forensic summary', () => {
+    const forwarded = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ symbol: '005930' }),
+      quoteSymbol: '005930',
+      kisFlow: { symbol: '005930', kisRawRowAvailableAtAdapter: true, actualInvestorRow: { frgn_ntby_tr_pbmn: '10' }, adapterRowsForwardedAcrossProviders: true, semanticAvailable: true },
+    });
+    const selectedKis = buildGate1MinimumSignalForensicAuditAdr0505({
+      trace: makeTrace({ symbol: '000660' }),
+      quoteSymbol: '000660',
+      kisFlow: { symbol: '000660', kisRawRowAvailableAtAdapter: true, actualInvestorRow: { frgn_ntby_tr_pbmn: '20' }, adapterRowsForwardedAcrossProviders: false, semanticAvailable: true },
+    });
+    const summary = buildGate1MinimumSignalForensicSummaryAdr0505([forwarded, selectedKis]);
+    expect(summary.adapterRowsForwardedAcrossProvidersCount).toBe(1);
+    const section = formatGate1MinimumSignalForensicSection(summary);
+    expect(section).not.toBeNull();
+    expect(section).toContain('adapterRowsForwardedAcrossProviders: 1/2');
+  });
+});

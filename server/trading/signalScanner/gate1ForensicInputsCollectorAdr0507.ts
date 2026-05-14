@@ -181,6 +181,11 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           actualInvestorFlowNumericKeys,
           actualInvestorFlowNumericStringKeys,
           actualInvestorFlowCarried,
+          // ADR-0477 supply actual row carry diagnostic — router/bySymbol 가 adapter row 를
+          // selectedProvider != KIS_API 인 경우에도 carry 했는지. forensic supplyScopeAudit 가
+          // 이 값을 읽어 adapterRowsForwardedAcrossProvidersCount 로 집계. CORE 무영향 / diagnostic only.
+          adapterRowsForwardedAcrossProviders: ((selectedCandidateRecord?.adapterRowsForwardedAcrossProviders as boolean | undefined)
+            ?? (healthRecord.adapterRowsForwardedAcrossProviders as boolean | undefined)),
           selectedActualRowPath: ((healthRecord.selectedActualRowPath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined)),
           selectedActualRowFieldKeys: ((healthRecord.selectedActualRowFieldKeys as string[] | undefined) ?? actualInvestorFlowFieldKeys),
           selectedActualNumericFieldKeys: healthRecord.selectedActualNumericFieldKeys as string[] | undefined,
@@ -308,6 +313,9 @@ function mergeActualRowCarryAdr0507(
     actualInvestorFlowNumericKeys: payload.actualInvestorFlowNumericKeys ?? payload.selectedActualNumericFieldKeys ?? base?.actualInvestorFlowNumericKeys,
     actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? base?.actualInvestorFlowNumericStringKeys,
     actualInvestorFlowCarried: stale ? false : (payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? base?.actualInvestorFlowCarried),
+    // ADR-0477 supply actual row carry diagnostic — bySymbol payload 의
+    // adapterRowsForwardedAcrossProviders 를 merge. stale payload 는 carry 주장 금지 (false).
+    adapterRowsForwardedAcrossProviders: stale ? false : (payload.adapterRowsForwardedAcrossProviders ?? base?.adapterRowsForwardedAcrossProviders),
     diagnosticAvailable: true,
     scoreUsage: 'SHADOW_ONLY',
     executionImpact: 'NONE',
