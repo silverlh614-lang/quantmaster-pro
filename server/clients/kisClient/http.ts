@@ -234,7 +234,9 @@ export function kisPost(
  */
 const _realData5xxCooldownUntil = new Map<string, number>();
 const KIS_CHART_TR_ID = 'FHKST03010100';
+const KIS_CHART_404_COOLDOWN_MS = 5 * 60 * 1000;
 const KIS_CHART_5XX_COOLDOWN_MS = 5 * 60 * 1000;
+const KIS_CHART_TIMEOUT_COOLDOWN_MS = 2 * 60 * 1000;
 const KIS_CHART_LOG_THROTTLE_MS = 60 * 1000;
 const _kisChartLogThrottle = new Map<string, number>();
 
@@ -242,6 +244,7 @@ function getKisChartContext(trId: string, params: Record<string, string>): {
   trId: string;
   symbol: string;
   period: string;
+  purpose: string;
   startDate: string;
   endDate: string;
 } | null {
@@ -254,13 +257,14 @@ function getKisChartContext(trId: string, params: Record<string, string>): {
     trId,
     symbol,
     period,
+    purpose: params.__kisPurpose ?? 'DISCOVERY',
     startDate: params.FID_INPUT_DATE_1 ?? '',
     endDate: params.FID_INPUT_DATE_2 ?? '',
   };
 }
 
-function kisChartCooldownKey(ctx: { trId: string; symbol: string; period: string }): string {
-  return `${ctx.trId}:${ctx.symbol}:${ctx.period}`;
+function kisChartCooldownKey(ctx: { trId: string; symbol: string; period: string; purpose?: string }): string {
+  return `KIS:${ctx.trId}:${ctx.symbol}:${ctx.period}:${ctx.purpose ?? 'DISCOVERY'}`;
 }
 
 function shouldEmitKisChartLog(kind: string, key: string): boolean {
@@ -287,9 +291,14 @@ function isRealData5xxCooldownActive(trId: string, apiPath: string): boolean {
   return Date.now() < until;
 }
 
-function isKisChart5xxCooldownActive(ctx: { trId: string; symbol: string; period: string }): boolean {
+function isKisChart5xxCooldownActive(ctx: { trId: string; symbol: string; period: string; purpose?: string }): boolean {
   const until = _realData5xxCooldownUntil.get(kisChartCooldownKey(ctx)) ?? 0;
   return Date.now() < until;
+}
+
+function getKisChartCooldownRemainingMs(ctx: { trId: string; symbol: string; period: string; purpose?: string }): number {
+  const until = _realData5xxCooldownUntil.get(kisChartCooldownKey(ctx)) ?? 0;
+  return Math.max(0, until - Date.now());
 }
 
 function recordRealData5xxCooldown(trId: string, apiPath: string, status: number): void {
@@ -298,9 +307,16 @@ function recordRealData5xxCooldown(trId: string, apiPath: string, status: number
   _realData5xxCooldownUntil.set(realDataCooldownKey(trId, apiPath), Date.now() + cooldownMs);
 }
 
-function recordKisChart5xxCooldown(ctx: { trId: string; symbol: string; period: string }, status: number): void {
-  if (status < 500 || status >= 600) return;
-  _realData5xxCooldownUntil.set(kisChartCooldownKey(ctx), Date.now() + KIS_CHART_5XX_COOLDOWN_MS);
+function kisChartCooldownMsForStatus(status: number): number {
+  if (status === 404) return KIS_CHART_404_COOLDOWN_MS;
+  if (status >= 500 && status < 600) return KIS_CHART_5XX_COOLDOWN_MS;
+  return KIS_CHART_TIMEOUT_COOLDOWN_MS;
+}
+
+function recordKisChartCooldown(ctx: { trId: string; symbol: string; period: string; purpose?: string }, status: number): number {
+  const cooldownMs = kisChartCooldownMsForStatus(status);
+  _realData5xxCooldownUntil.set(kisChartCooldownKey(ctx), Date.now() + cooldownMs);
+  return cooldownMs;
 }
 
 function clearRealData5xxCooldown(trId: string, apiPath: string): void {
@@ -324,10 +340,35 @@ function clearKisChart5xxCooldown(ctx: { trId: string; symbol: string; period: s
  * @param period 'D' | 'W' | 'M' (default 'D' — daily candle 가장 흔한 cooldown)
  * @returns true 면 cooldown 활성 (재호출 시 자동 skip).
  */
-export function isKisChartCooldownActive(symbol: string, period: 'D' | 'W' | 'M' = 'D'): boolean {
+export function isKisChartCooldownActive(
+  symbol: string,
+  period: 'D' | 'W' | 'M' = 'D',
+  purpose = 'DISCOVERY',
+): boolean {
   const padded = (symbol ?? '').padStart(6, '0');
   if (!padded || padded.length !== 6) return false;
-  return isKisChart5xxCooldownActive({ trId: KIS_CHART_TR_ID, symbol: padded, period });
+  return isKisChart5xxCooldownActive({ trId: KIS_CHART_TR_ID, symbol: padded, period, purpose });
+}
+
+export function __testOnlyRecordKisChartCooldown(input: {
+  symbol: string;
+  period?: 'D' | 'W' | 'M';
+  purpose?: string;
+  status: number;
+}): number {
+  const symbol = input.symbol.padStart(6, '0');
+  return recordKisChartCooldown({
+    trId: KIS_CHART_TR_ID,
+    symbol,
+    period: input.period ?? 'D',
+    purpose: input.purpose ?? 'DISCOVERY',
+  }, input.status);
+}
+
+export function __testOnlyResetKisChartCooldowns(): void {
+  for (const key of Array.from(_realData5xxCooldownUntil.keys())) {
+    if (key.startsWith('KIS:FHKST03010100:')) _realData5xxCooldownUntil.delete(key);
+  }
 }
 
 /**
@@ -354,12 +395,15 @@ export function realDataKisGet(
     if (chartContext && isKisChart5xxCooldownActive(chartContext)) {
       if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_HIT', chartCooldownKey!)) {
         console.warn(
-          `[KIS_CHART_COOLDOWN_HIT]\n`
+          `[KIS_CHART_COOLDOWN_SKIPPED]\n`
           + `trId=${chartContext.trId}\n`
           + `symbol=${chartContext.symbol}\n`
           + `period=${chartContext.period}\n`
+          + `purpose=${chartContext.purpose}\n`
+          + `remainingMs=${getKisChartCooldownRemainingMs(chartContext)}\n`
           + `newNetworkCall=false\n`
-          + `executionImpact=NONE`,
+          + `executionImpact=NONE\n`
+          + `marketSignal=false`,
         );
       }
       return null;
@@ -384,8 +428,11 @@ export function realDataKisGet(
       return null;
     }
 
+    const wireParams = Object.fromEntries(
+      Object.entries(params).filter(([key]) => !key.startsWith('__')),
+    );
     const doFetch = async (token: string) => fetch(
-      `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(params)}`,
+      `${REAL_DATA_BASE}${apiPath}?${new URLSearchParams(wireParams)}`,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -424,20 +471,23 @@ export function realDataKisGet(
       if (res.status >= 500 && res.status < 600) {
         _recordCircuitFailure(trId, res.status);
         if (chartContext) {
-          recordKisChart5xxCooldown(chartContext, res.status);
-          if (shouldEmitKisChartLog('KIS_CHART_FETCH_FAILED', chartCooldownKey!)) {
+          const cooldownMs = recordKisChartCooldown(chartContext, res.status);
+          if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_SET', chartCooldownKey!)) {
             console.warn(
-              `[KIS_CHART_FETCH_FAILED]\n`
+              `[KIS_CHART_COOLDOWN_SET]\n`
               + `trId=${chartContext.trId}\n`
               + `symbol=${chartContext.symbol}\n`
               + `period=${chartContext.period}\n`
+              + `purpose=${chartContext.purpose}\n`
               + `startDate=${chartContext.startDate}\n`
               + `endDate=${chartContext.endDate}\n`
               + `status=${res.status}\n`
               + `providerIssue=true\n`
               + `marketSignal=false\n`
               + `executionImpact=NONE\n`
-              + `cooldownMs=${KIS_CHART_5XX_COOLDOWN_MS}`,
+              + `dataVacuum=false\n`
+              + `newBuyBlocked=false\n`
+              + `cooldownMs=${cooldownMs}`,
             );
           }
         } else {
@@ -480,6 +530,31 @@ export function realDataKisGet(
       }
 
       if (!res.ok) {
+        if (chartContext && (res.status === 404 || (res.status >= 500 && res.status < 600))) {
+          const cooldownMs = recordKisChartCooldown(chartContext, res.status);
+          const classified = classifyKisRealDataError({
+            endpoint: chartContext.trId,
+            symbol: `${chartContext.symbol}:${chartContext.period}:${chartContext.purpose}`,
+            httpStatus: res.status,
+          });
+          recordKisRealDataFailure(classified);
+          if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_SET', chartCooldownKey!)) {
+            console.warn(
+              `[KIS_CHART_COOLDOWN_SET]\n`
+              + `trId=${chartContext.trId}\n`
+              + `symbol=${chartContext.symbol}\n`
+              + `period=${chartContext.period}\n`
+              + `purpose=${chartContext.purpose}\n`
+              + `status=${res.status}\n`
+              + `cooldownMs=${cooldownMs}\n`
+              + `providerIssue=true\n`
+              + `marketSignal=false\n`
+              + `executionImpact=NONE\n`
+              + `dataVacuum=false\n`
+              + `newBuyBlocked=false`,
+            );
+          }
+        }
         console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
         // 5xx(일시 장애) + 404/403(엔드포인트/권한 불일치 — 자연 복구 불가)은 회로 차단.
         // 400/429는 호출자 파라미터 조정·재시도로 해결 여지가 있어 카운팅에서 제외.

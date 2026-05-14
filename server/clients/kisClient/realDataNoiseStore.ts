@@ -103,7 +103,7 @@ export function isKisRealDataBackoffDisabled(): boolean {
  *   3. httpStatus 401|403 또는 token 키워드 → AUTH_OR_TOKEN
  *   4. httpStatus 429 또는 rate limit/throttle 키워드 → RATE_LIMIT_OR_THROTTLE
  *   5. httpStatus 500~599 → TRANSIENT_SERVER_500
- *   6. httpStatus 400 또는 invalid symbol/bad request 키워드 → BAD_REQUEST_OR_SYMBOL
+ *   6. httpStatus 400|404 또는 invalid symbol/bad request 키워드 → BAD_REQUEST_OR_SYMBOL
  *   7. 장외/휴장/거래불가 키워드 (market closed) → MARKET_CLOSED_OR_UNAVAILABLE
  *   8. 그 외 → UNKNOWN
  *
@@ -140,7 +140,7 @@ export function classifyKisRealDataError(
     || message.includes('거래불가')
   ) {
     errorKind = 'MARKET_CLOSED_OR_UNAVAILABLE';
-  } else if (status === 400 || message.includes('invalid symbol') || message.includes('bad request')) {
+  } else if (status === 400 || status === 404 || message.includes('invalid symbol') || message.includes('bad request')) {
     errorKind = 'BAD_REQUEST_OR_SYMBOL';
   }
 

@@ -1,5 +1,6 @@
 // @responsibility KIS chart symbol+period cooldown 공개 SSOT 회귀 (PR-KIS-CHART-COOLDOWN)
 import { describe, it, expect, beforeEach } from 'vitest';
+import { isKisChartCooldownActive } from './http.js';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,8 +28,9 @@ describe('PR-KIS-CHART-COOLDOWN — public SSOT 시그니처 + barrel 등록', (
   it('A1. http.ts 가 isKisChartCooldownActive 공개 export 보유', () => {
     const httpPath = resolve(__dirnameLocal, 'http.ts');
     const src = readFileSync(httpPath, 'utf-8');
-    expect(src).toContain('export function isKisChartCooldownActive(symbol: string, period:');
+    expect(src).toContain('export function isKisChartCooldownActive(');
     expect(src).toContain("period: 'D' | 'W' | 'M' = 'D'");
+    expect(src).toContain("purpose = 'DISCOVERY'");
   });
 
   it('A2. 시그니처가 trId 인자 노출 0건 — FHKST03010100 SSOT 위임', () => {
@@ -36,14 +38,14 @@ describe('PR-KIS-CHART-COOLDOWN — public SSOT 시그니처 + barrel 등록', (
     const src = readFileSync(httpPath, 'utf-8');
     // 공개 export 시그니처 라인에 trId 매개변수 없음
     expect(src).toMatch(
-      /export function isKisChartCooldownActive\(symbol: string, period: 'D' \| 'W' \| 'M' = 'D'\)/,
+      /export function isKisChartCooldownActive\([\s\S]*symbol: string,[\s\S]*period: 'D' \| 'W' \| 'M' = 'D',[\s\S]*purpose = 'DISCOVERY',[\s\S]*\)/,
     );
   });
 
   it('A3. 내부에서 trId=KIS_CHART_TR_ID 자동 주입 — 호출자 측 하드코딩 차단', () => {
     const httpPath = resolve(__dirnameLocal, 'http.ts');
     const src = readFileSync(httpPath, 'utf-8');
-    expect(src).toContain('isKisChart5xxCooldownActive({ trId: KIS_CHART_TR_ID, symbol: padded, period })');
+    expect(src).toContain('isKisChart5xxCooldownActive({ trId: KIS_CHART_TR_ID, symbol: padded, period, purpose })');
   });
 
   it('A4. symbol 6자리 padStart 정규화 — 호출자 측 inline padStart 0건', () => {
@@ -74,26 +76,22 @@ describe('PR-KIS-CHART-COOLDOWN — public SSOT 시그니처 + barrel 등록', (
 });
 
 describe('PR-KIS-CHART-COOLDOWN — runtime behavior', () => {
-  it('B1. invalid symbol (빈 / 5자리 / 7자리) → false 반환', async () => {
-    const { isKisChartCooldownActive } = await import('./http.js');
+  it('B1. invalid symbol (빈 / 5자리 / 7자리) → false 반환', () => {
     expect(isKisChartCooldownActive('', 'D')).toBe(false);
     expect(isKisChartCooldownActive('12345', 'D')).toBe(false);
     expect(isKisChartCooldownActive('1234567', 'D')).toBe(false);
   });
 
-  it('B2. 6자리 정상 symbol — cooldown 미설정 시 false', async () => {
-    const { isKisChartCooldownActive } = await import('./http.js');
+  it('B2. 6자리 정상 symbol — cooldown 미설정 시 false', () => {
     expect(isKisChartCooldownActive('298380', 'D')).toBe(false);
   });
 
-  it('B3. 5자리 symbol → padStart(6) 으로 정규화 후 동일 cooldown 키 사용', async () => {
-    const { isKisChartCooldownActive } = await import('./http.js');
+  it('B3. 5자리 symbol → padStart(6) 으로 정규화 후 동일 cooldown 키 사용', () => {
     // padStart 후 '012345' 가 되어 별도 cooldown 키. 미설정 상태에서 false.
     expect(isKisChartCooldownActive('12345', 'D')).toBe(false);
   });
 
-  it('B4. period default = D — 인자 생략 시 daily 차트 cooldown 조회', async () => {
-    const { isKisChartCooldownActive } = await import('./http.js');
+  it('B4. period default = D — 인자 생략 시 daily 차트 cooldown 조회', () => {
     // period 미전달 시 fallback 'D' 적용. 서로 다른 period 는 별도 키이므로
     // D=false 라면 W/M 도 일반적으로 false (cross-pollination 0).
     expect(isKisChartCooldownActive('298380')).toBe(false);

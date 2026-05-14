@@ -370,8 +370,8 @@ describe('Patch-KIS-REALDATA-500 — 정적 grep 안전 invariant', () => {
     expect(src).toContain('FID_PERIOD_DIV_CODE');
     expect(src).toContain('FID_INPUT_DATE_1');
     expect(src).toContain('FID_INPUT_DATE_2');
-    expect(src).toContain('[KIS_CHART_FETCH_FAILED]');
-    expect(src).toContain('[KIS_CHART_COOLDOWN_HIT]');
+    expect(src).toContain('[KIS_CHART_COOLDOWN_SET]');
+    expect(src).toContain('[KIS_CHART_COOLDOWN_SKIPPED]');
     expect(src).toContain('newNetworkCall=false');
   });
 
@@ -381,7 +381,7 @@ describe('Patch-KIS-REALDATA-500 — 정적 grep 안전 invariant', () => {
     expect(src).toContain('kisChartCooldownKey(ctx)');
     expect(src).toContain('if (!chartContext && isRealData5xxCooldownActive(trId, apiPath))');
     expect(src).toContain('if (!chartContext && isKisRealDataCooldownActive({ endpoint: apiPath }))');
-    expect(src).toContain("symbol: `${chartContext.symbol}:${chartContext.period}`");
+    expect(src).toContain("symbol: `${chartContext.symbol}:${chartContext.period}");
     expect(src).toMatch(new RegExp('if \\(chartContext\\) \\{\\n\\s+return null;\\n\\s+\\}\\n\\s+if \\(retriesLeft > 0\\)'));
   });
 
