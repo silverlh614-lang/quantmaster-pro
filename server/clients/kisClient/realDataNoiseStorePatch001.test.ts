@@ -360,6 +360,31 @@ describe('Patch-KIS-REALDATA-500 — 정적 grep 안전 invariant', () => {
     expect(src).toContain('isKisRealDataCooldownActive');
   });
 
+  it('G6-1. FHKST03010100 chart 500은 symbol+period cooldown/log context 로 격리한다', () => {
+    const httpPath = resolve(__dirname, 'http.ts');
+    const src = readFileSync(httpPath, 'utf-8');
+    expect(src).toContain(`const KIS_CHART_TR_ID = 'FHKST03010100'`);
+    expect(src).toContain('const KIS_CHART_5XX_COOLDOWN_MS = 5 * 60 * 1000');
+    expect(src).toContain('const KIS_CHART_LOG_THROTTLE_MS = 60 * 1000');
+    expect(src).toContain('FID_INPUT_ISCD');
+    expect(src).toContain('FID_PERIOD_DIV_CODE');
+    expect(src).toContain('FID_INPUT_DATE_1');
+    expect(src).toContain('FID_INPUT_DATE_2');
+    expect(src).toContain('[KIS_CHART_FETCH_FAILED]');
+    expect(src).toContain('[KIS_CHART_COOLDOWN_HIT]');
+    expect(src).toContain('newNetworkCall=false');
+  });
+
+  it('G6-2. FHKST03010100 chart cooldown 은 endpoint global cooldown 을 우회해 다른 symbol/period 영향 0을 보존한다', () => {
+    const httpPath = resolve(__dirname, 'http.ts');
+    const src = readFileSync(httpPath, 'utf-8');
+    expect(src).toContain('kisChartCooldownKey(ctx)');
+    expect(src).toContain('if (!chartContext && isRealData5xxCooldownActive(trId, apiPath))');
+    expect(src).toContain('if (!chartContext && isKisRealDataCooldownActive({ endpoint: apiPath }))');
+    expect(src).toContain("symbol: `${chartContext.symbol}:${chartContext.period}`");
+    expect(src).toMatch(new RegExp('if \\(chartContext\\) \\{\\n\\s+return null;\\n\\s+\\}\\n\\s+if \\(retriesLeft > 0\\)'));
+  });
+
   it('G7. scanBlockers.cmd wiring — formatKisRealDataHealthSection import + try/catch 격리', () => {
     const scanPath = resolve(__dirname, '../../telegram/commands/system/scanBlockers.cmd.ts');
     const src = readFileSync(scanPath, 'utf-8');
