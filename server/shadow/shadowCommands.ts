@@ -1,4 +1,5 @@
 // @responsibility Shadow Telegram/control command formatter — Telegram 요약, 상세는 server log
+import { collectFreshOnlyPromotion, collectFreshShadowLifecycle, collectFreshShadowStatus, formatFreshOnlyPromotion, formatFreshShadowLifecycle, formatFreshShadowStatus, inspectFreshShadowIntegrity } from './freshShadowLifecycle.js';
 import { inspectShadowIntegrity, summarizeIntegrity } from './shadowIntegrityGuard.js';
 import type { ShadowCaseLedgerStore } from './shadowCaseLedger.js';
 import { buildPromotionReport } from './shadowPromotionGate.js';
@@ -22,18 +23,23 @@ export function formatShadowStatus(ledger: ShadowCaseLedgerStore): string {
 }
 
 export function formatShadowIntegrity(ledger: ShadowCaseLedgerStore): string {
-  const issues = inspectShadowIntegrity(ledger);
+  const issues = [...inspectShadowIntegrity(ledger), ...inspectFreshShadowIntegrity(ledger)];
   console.info('[ShadowIntegrityDetail]', JSON.stringify(issues));
   const s = summarizeIntegrity(issues);
   const get = (name: string) => issues.find((i) => i.item === name)?.count ?? 0;
-  return ['🧪 <b>[Shadow Integrity]</b>', `- verdict: ${s.verdict}`, `- critical: ${s.critical}`, `- warn: ${s.warn}`, `- closed_without_label: ${get('closed_without_label')}`, `- blocked_without_counterfactual: ${get('blocked_without_counterfactual')}`, `- executionImpactViolation: ${get('executionImpact_not_NONE_in_shadow')}`].join('\n');
+  return ['🧪 <b>[Shadow Integrity]</b>', `- verdict: ${s.verdict}`, `- critical: ${s.critical}`, `- warn: ${s.warn}`, `- closed_without_label: ${get('closed_without_label')}`, `- blocked_without_counterfactual: ${get('blocked_without_counterfactual')}`, `- executionImpactViolation: ${get('executionImpact_not_NONE_in_shadow') + get('executionImpact_not_NONE')}`].join('\n');
 }
 
 export function formatShadowPromotion(ledger: ShadowCaseLedgerStore, returnFlowHitRate = 1): string {
-  const r = buildPromotionReport(ledger, returnFlowHitRate);
-  console.info('[ShadowPromotionDetail]', JSON.stringify(r));
-  return ['🚦 <b>[Shadow Promotion]</b>', `- status: ${r.promotionStatus}`, `- sampleSize: ${r.sampleSize}`, `- expectancyR: ${r.expectancyR.toFixed(2)}`, `- labelCompletionRate: ${r.labelCompletionRate.toFixed(2)}`, `- returnFlowHitRate: ${r.returnFlowHitRate.toFixed(2)}`, `- blockers: ${r.blockers.join(', ') || 'none'}`].join('\n');
+  const diagnostic = buildPromotionReport(ledger, returnFlowHitRate);
+  const fresh = collectFreshOnlyPromotion(ledger, returnFlowHitRate);
+  console.info('[ShadowPromotionDetail]', JSON.stringify({ fresh, ghostRepairDiagnosticOnly: diagnostic }));
+  return ['🚦 <b>[Shadow Promotion]</b>', formatFreshOnlyPromotion(fresh), `diagnosticOnly.ghostRepairSampleSize=${diagnostic.sampleSize}`, `diagnosticOnly.ghostRepairExpectancyR=${diagnostic.expectancyR.toFixed(4)}`, 'diagnosticOnly=true', `blockers=${fresh.blockers.join(', ') || fresh.blocker}`].join('\n');
 }
+
+export function formatFreshShadowStatusCommand(ledger: ShadowCaseLedgerStore): string { return formatFreshShadowStatus(collectFreshShadowStatus(ledger)); }
+export function formatFreshShadowLifecycleCommand(ledger: ShadowCaseLedgerStore): string { return formatFreshShadowLifecycle(collectFreshShadowLifecycle(ledger)); }
+
 
 
 export function formatShadowOutcomes(ledger: ShadowCaseLedgerStore): string {

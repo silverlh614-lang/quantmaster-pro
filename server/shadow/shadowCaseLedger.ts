@@ -1,5 +1,6 @@
 // @responsibility Shadow case ledger — append/update 가능한 저장소 인터페이스와 메모리 구현
 import { DEFAULT_MAX_LEDGER_ITEMS } from './shadowConstants.js';
+import { prepareFreshShadowCase } from './freshShadowLifecycle.js';
 import { isShadowNoImpactMode } from './shadowStateMachine.js';
 import type { EngineMode, ExecutionImpact, ShadowCase, ShadowStateTransition } from './shadowTypes.js';
 
@@ -24,13 +25,13 @@ export class InMemoryShadowCaseLedger implements ShadowCaseLedgerStore {
   upsertCase(input: ShadowCase): ShadowCase {
     const now = new Date().toISOString();
     const existing = this.cases.get(input.caseId);
-    const next: ShadowCase = {
+    const next: ShadowCase = prepareFreshShadowCase({
       ...existing,
       ...input,
       executionImpact: normalizeImpact(input.engineMode, input.executionImpact),
       createdAt: existing?.createdAt ?? input.createdAt ?? now,
       updatedAt: now,
-    };
+    }, this.listTransitions(input.caseId));
     this.cases.set(next.caseId, next);
     this.trim();
     return next;
@@ -41,14 +42,19 @@ export class InMemoryShadowCaseLedger implements ShadowCaseLedgerStore {
     if (!existing) return undefined;
     const engineMode = patch.engineMode ?? existing.engineMode;
     const executionImpact = normalizeImpact(engineMode, patch.executionImpact ?? existing.executionImpact);
-    const next = { ...existing, ...patch, engineMode, executionImpact, updatedAt: new Date().toISOString() };
+    const next = prepareFreshShadowCase({ ...existing, ...patch, engineMode, executionImpact, updatedAt: new Date().toISOString() }, this.listTransitions(caseId));
     this.cases.set(caseId, next);
     return next;
   }
 
   getCase(caseId: string): ShadowCase | undefined { return this.cases.get(caseId); }
   listCases(): ShadowCase[] { return Array.from(this.cases.values()); }
-  recordTransition(t: ShadowStateTransition): void { this.transitions.push({ ...t, executionImpact: normalizeImpact(t.engineMode, t.executionImpact) }); }
+  recordTransition(t: ShadowStateTransition): void {
+    const next = { ...t, executionImpact: normalizeImpact(t.engineMode, t.executionImpact) };
+    this.transitions.push(next);
+    const existing = this.cases.get(t.caseId);
+    if (existing) this.cases.set(t.caseId, prepareFreshShadowCase({ ...existing, state: next.to, executionImpact: next.executionImpact, updatedAt: next.timestamp }, this.listTransitions(t.caseId)));
+  }
   listTransitions(caseId?: string): ShadowStateTransition[] { return caseId ? this.transitions.filter((t) => t.caseId === caseId) : [...this.transitions]; }
 
   private trim(): void {
