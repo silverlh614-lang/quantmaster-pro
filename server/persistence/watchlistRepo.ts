@@ -2,6 +2,13 @@
 import fs from "fs";
 import { WATCHLIST_FILE, ensureDataDir } from "./paths.js";
 import { sendTelegramAlert } from "../alerts/telegramClient.js";
+import {
+  evaluateWatchlistSaturationAlert,
+  recordWatchlistSaturationAlertSent,
+  buildWatchlistSaturationMessage,
+  formatWatchlistSaturationSentLog,
+  formatWatchlistSaturationSuppressedLog,
+} from "./watchlistSaturationPolicy.js";
 import { isEmergencyWatchlistCodeGuardEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
 import { normalizeKrxCode } from "../utils/symbolNormalizer.js";
 import type { GateEvaluationSnapshot } from "../quantFilter.js";
@@ -19,7 +26,7 @@ import type { GateEvaluationSnapshot } from "../quantFilter.js";
 export type WatchlistSection = "SWING" | "CATALYST" | "MOMENTUM";
 
 /** 알림 임계 (HIGH priority 텔레그램 발송 기준). soft cap 보다 클 수 있음. */
-const MOMENTUM_ALERT_THRESHOLD = 30;
+export const MOMENTUM_ALERT_THRESHOLD = 30;
 
 // PR-3 #8: 섹션별 하드 상한 — watchlistManager.SECTION_MAX 와 동일 값.
 // 순환 import 를 피하기 위해 상수를 복제해 놓는다. 값이 바뀌면 양쪽 동기 필요.
@@ -41,7 +48,8 @@ const DEFAULT_SECTION_HARD_MAX: Record<WatchlistSection, number> = {
  * 기본값:
  *  - SWING 6  (hard 8 의 75%)
  *  - CATALYST 4 (hard 5 의 80%)
- *  - MOMENTUM 30 (hard 50 의 60% — 사용자 보고 사례 임계와 정합)
+ *  - MOMENTUM 40 (hard 50 의 80% — Patch-WATCHLIST-SATURATION-COOLDOWN-001:
+ *    30~39 구간은 ADVISORY/용량 주의 — 강제 cleanup 없음. soft cap 40 이상부터 능동 정리.)
  *
  * env 오버라이드: WATCHLIST_SOFT_CAP_{SECTION}, WATCHLIST_HARD_CAP_{SECTION}.
  * `WATCHLIST_SOFT_CAP_DISABLED=true` → soft cap 능동 정리 비활성 (기존 동작 복원).
@@ -49,7 +57,7 @@ const DEFAULT_SECTION_HARD_MAX: Record<WatchlistSection, number> = {
 const DEFAULT_SECTION_SOFT_CAP: Record<WatchlistSection, number> = {
   SWING: 6,
   CATALYST: 4,
-  MOMENTUM: 30,
+  MOMENTUM: 40,
 };
 
 function envInt(key: string, fallback: number): number {
@@ -469,53 +477,9 @@ export function buildWatchlistAutoTrimAlert(input: {
   return lines.join("\n");
 }
 
-/**
- * ADR-0028 §모순9: Watchlist 포화 알림 빌더 — soft/hard 정리 *후에도* 임계 초과
- * 시 발송. 기존 "필터를 재검토하세요" 운영자 의무화 → 출처 분포 + 다음 자동 액션
- * 안내로 *조건부 액션* 표현화.
- */
-export function buildWatchlistOverflowAlert(input: {
-  section: WatchlistSection;
-  count: number;
-  alertThreshold: number;
-  softCap: number;
-  hardCap: number;
-  sourceDistribution: Record<"AUTO" | "MANUAL" | "DART", number>;
-}): string {
-  const {
-    section,
-    count,
-    alertThreshold,
-    softCap,
-    hardCap,
-    sourceDistribution,
-  } = input;
-  const remainingSlots = Math.max(0, hardCap - count);
-  const sources = (["AUTO", "MANUAL", "DART"] as const)
-    .filter((s) => sourceDistribution[s] > 0)
-    .map((s) => `${s} ${sourceDistribution[s]}`)
-    .join(" · ");
-
-  const lines: string[] = [
-    `🚨 <b>[Watchlist 포화]</b>`,
-    `${section} 섹션: ${count}개 (alert ${alertThreshold} / soft ${softCap} / hard ${hardCap})`,
-  ];
-  if (sources) lines.push(`출처 분포: ${sources || "메타 부재"}`);
-  lines.push(
-    count >= hardCap
-      ? `⚡ 자동 액션: 다음 saveWatchlist 사이클에서 hard cap 강제 정리 발동`
-      : count > softCap
-        ? `⚡ 자동 액션: soft cap 능동 정리 진행 중 — composite score 하위 우선 드롭`
-        : `ℹ️ alert 임계 초과지만 soft cap 미달 — 능동 정리 미발동`,
-  );
-  lines.push(`잔여 슬롯: ${remainingSlots}개 (hard cap 까지)`);
-  lines.push(
-    sources && /AUTO\s\d+/.test(sources)
-      ? `ℹ️ AUTO 비중 높음 — autoPopulate 빈도/Gate 임계 검토 권고`
-      : `ℹ️ 분포 안정 — TTL 만료 자연 감소 또는 수동 정리 권고`,
-  );
-  return lines.join("\n");
-}
+// Patch-WATCHLIST-SATURATION-COOLDOWN-001 — `buildWatchlistOverflowAlert` 폐기.
+// severity 분류(ADVISORY/WARNING/CRITICAL) + cooldown 상태머신 + 메시지 빌더는
+// `./watchlistSaturationPolicy.ts` SSOT 로 이관 — 반복 발송 억제 + "포화" 표현 분리.
 
 export function saveWatchlist(list: WatchlistEntry[]): void {
   ensureDataDir();
@@ -575,42 +539,52 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
     ).catch(console.error);
   }
 
-  // 자동 trim 이후에도 MOMENTUM 이 soft cap 90% 임박이면 포화 경보.
-  // 단순 alert 임계 통과는 발송 차단 — 운영자 행동 불필요한 정보 노이즈 제거.
-  const overflowAlertEnabled =
-    process.env.WATCHLIST_OVERFLOW_ALERT_DISABLED !== "true";
-  // soft 비활성 시 hard cap 90% 임박 사용
-  const overflowThreshold = softDisabled
-    ? hard.MOMENTUM * 0.9
-    : soft.MOMENTUM * 0.9;
-  if (overflowAlertEnabled && momentumCount >= overflowThreshold) {
-    const sourceDistribution: Record<"AUTO" | "MANUAL" | "DART", number> = {
-      AUTO: 0,
-      MANUAL: 0,
-      DART: 0,
-    };
-    for (const entry of trimmed) {
-      const isMomentum =
-        entry.section === "MOMENTUM" || (!entry.section && entry.track === "A");
-      if (!isMomentum) continue;
-      const src = (entry.addedBy ?? "AUTO") as "AUTO" | "MANUAL" | "DART";
-      sourceDistribution[src] = (sourceDistribution[src] ?? 0) + 1;
+  // Patch-WATCHLIST-SATURATION-COOLDOWN-001 — MOMENTUM watchlist 포화 알림 반복 발송 억제.
+  // severity 분류(ADVISORY/WARNING/CRITICAL) + runtime cooldown 상태머신은
+  // watchlistSaturationPolicy SSOT 가 담당. count < alertCap 이면 classification=null.
+  // 신규 KIS 호출 0건 — 출처 분포는 in-memory `trimmed` 에서만 집계.
+  const momentumSourceDist: Record<"AUTO" | "MANUAL" | "DART", number> = {
+    AUTO: 0,
+    MANUAL: 0,
+    DART: 0,
+  };
+  for (const entry of trimmed) {
+    const isMomentum =
+      entry.section === "MOMENTUM" || (!entry.section && entry.track === "A");
+    if (!isMomentum) continue;
+    const src = (entry.addedBy ?? "AUTO") as "AUTO" | "MANUAL" | "DART";
+    momentumSourceDist[src] = (momentumSourceDist[src] ?? 0) + 1;
+  }
+  const { classification: saturation, decision: saturationDecision } =
+    evaluateWatchlistSaturationAlert({
+      section: "MOMENTUM",
+      count: momentumCount,
+      alertCap: MOMENTUM_ALERT_THRESHOLD,
+      softCap: soft.MOMENTUM,
+      hardCap: hard.MOMENTUM,
+      autoCount: momentumSourceDist.AUTO,
+      manualCount: momentumSourceDist.MANUAL,
+      dartCount: momentumSourceDist.DART,
+    });
+  if (saturation) {
+    if (saturationDecision.shouldEmit && saturationDecision.emitReason) {
+      console.log(
+        formatWatchlistSaturationSentLog(saturation, saturationDecision.emitReason),
+      );
+      void sendTelegramAlert(buildWatchlistSaturationMessage(saturation), {
+        priority: saturation.severity === "CRITICAL" ? "HIGH" : "NORMAL",
+        // cooldown 은 watchlistSaturationPolicy 상태머신이 단독 관리 — telegramClient 의 키 기반
+        // cooldown 은 우회 (cooldownMs:0). 카테고리 추정용으로만 dedupeKey 전달.
+        dedupeKey: "watchlist-momentum-saturation",
+        cooldownMs: 0,
+      }).catch(console.error);
+      recordWatchlistSaturationAlertSent(saturation);
+    } else {
+      // Telegram 발송 억제 — Railway 에는 compact 로그만.
+      console.log(
+        formatWatchlistSaturationSuppressedLog(saturation, saturationDecision),
+      );
     }
-    void sendTelegramAlert(
-      buildWatchlistOverflowAlert({
-        section: "MOMENTUM",
-        count: momentumCount,
-        alertThreshold: MOMENTUM_ALERT_THRESHOLD,
-        softCap: soft.MOMENTUM,
-        hardCap: hard.MOMENTUM,
-        sourceDistribution,
-      }),
-      {
-        priority: "HIGH",
-        dedupeKey: "watchlist-momentum-overflow",
-        cooldownMs: 12 * 60 * 60 * 1000, // 12시간
-      },
-    ).catch(console.error);
   }
 }
 
