@@ -208,6 +208,33 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.executionImpact).toBe('NONE');
   });
 
+  it('fills missing battery production basket price rows from fallback representative daily candles', async () => {
+    const series = allBasketSeries();
+    delete series['247540'];
+    const calls: string[] = [];
+    const result = await buildKisSectorEnergyInputsWithMeta({
+      fetchOfficialIndexRows: async () => [],
+      fetchOfficialDailyRows: async () => [],
+      fetchCandles: async (code) => {
+        calls.push(code);
+        if (code === '003670') return candles(100, 125);
+        return series[code] ?? [];
+      },
+      now: () => new Date('2026-04-25T00:00:00Z'),
+    });
+
+    const battery = result.sectorCoverageBreakdown?.sectorRows.find((row) => row.sectorCode === 'BATTERY');
+    expect(calls.filter((code) => code === '247540')).toHaveLength(2);
+    expect(calls).toContain('003670');
+    expect(battery).toMatchObject({
+      priceRowsMissing: 0,
+      rowLevelStatus: 'COMPLETE',
+      sectorLevelStatus: 'FULL_QUALITY',
+      problemType: 'RESOLVED',
+    });
+    expect(result.executionImpact).toBe('NONE');
+  });
+
   it('audits stale KIS representative basket coverage when only 2/12 sectors materialize', async () => {
     const series: Record<string, KisChartCandle[]> = {};
     for (const key of ['SHIPBUILDING', 'SEMICONDUCTOR'] as const) {

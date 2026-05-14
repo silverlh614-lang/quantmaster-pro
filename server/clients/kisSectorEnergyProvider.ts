@@ -812,6 +812,10 @@ export const KIS_REPRESENTATIVE_SECTOR_BASKET: Readonly<Record<string, readonly 
   OTHER: ['003550', '034730', '012750', '010120'],
 });
 
+const KIS_SECTOR_BASKET_PRICE_ROW_FALLBACKS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  BATTERY: ['003670'],
+});
+
 const KIS_SECTOR_BASKET_DEFINITIONS: ReadonlyArray<{ sectorKey: string; displayName: string; representativeCodes: readonly string[] }> = Object.freeze([
   { sectorKey: 'SHIPBUILDING', displayName: '조선', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.SHIPBUILDING },
   { sectorKey: 'DEFENSE', displayName: '방산', representativeCodes: KIS_REPRESENTATIVE_SECTOR_BASKET.DEFENSE },
@@ -1071,6 +1075,19 @@ async function refreshBatteryMissingPriceRows(input: {
   });
   for (const [code, candles] of refreshed) {
     if (candles.length > 0) input.seriesByCode[code] = candles;
+  }
+  const fallbackCodes = KIS_SECTOR_BASKET_PRICE_ROW_FALLBACKS.BATTERY.map(safeCode);
+  for (const missingCode of batteryMissingCodes(input.seriesByCode)) {
+    for (const fallbackCode of fallbackCodes) {
+      if (fallbackCode === missingCode) continue;
+      const candles = await input.fetchCandles(fallbackCode).catch(() => [] as KisChartCandle[]);
+      if (stockMetrics(candles) === null) continue;
+      input.seriesByCode[missingCode] = candles;
+      console.log(
+        `[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=BATTERY layer=PRODUCTION_BASKET missingCode=${missingCode} fallbackCode=${fallbackCode} fallbackApplied=true executionImpact=NONE`,
+      );
+      break;
+    }
   }
   const afterMissing = batteryMissingCodes(input.seriesByCode);
   console.log(
