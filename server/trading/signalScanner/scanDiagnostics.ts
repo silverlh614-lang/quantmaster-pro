@@ -253,6 +253,7 @@ import {
 } from './supplySnapshotStoreReplayAdr0491.js';
 import { previousTradingDateCandidateAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 import { fetchKisInvestorFlowEvidence } from '../../supply/kisInvestorFlowEvidence.js';
+import { fetchInvestorFlowWithPolicy } from '../../supply/investorFlowRouter.js';
 import { rememberSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
 import type { GateLayerSummary } from '../../quantFilter.js';
 import {
@@ -1504,6 +1505,67 @@ function kisEvidenceToSemanticInputAdr0482(input: {
       'usableForExecution=false',
       'executionImpact=NONE',
     ],
+  };
+}
+
+function routedKisFlowToSemanticInputAdr0482(input: {
+  code: string;
+  routeResult: Awaited<ReturnType<typeof fetchInvestorFlowWithPolicy>> | null;
+}): SemanticNetBuyInputPoint | null {
+  const data = input.routeResult?.source === 'KIS_API' && input.routeResult.status === 'OK'
+    ? input.routeResult.data
+    : null;
+  if (!data) return null;
+  return {
+    code: input.code,
+    provider: 'KIS',
+    sourceDate: data.tradingDate ?? null,
+    rawForeignNetBuy: data.foreignNetBuy,
+    rawInstitutionNetBuy: data.institutionalNetBuy,
+    rawIndividualNetBuy: data.individualNetBuy,
+    unit: 'SHARES',
+    status: 'VERIFIED',
+    sourceAgeTradingDays: 0,
+    providerSemanticCapable: true,
+    diagnostics: [
+      'inputSource=KIS_INVESTOR_TRADE_BY_STOCK_DAILY',
+      'sourceKind=INVESTOR_TRADE_BY_STOCK_DAILY',
+      'confidence=VERIFIED',
+      'usableForSignal=true',
+      'usableForExecution=false',
+      'executionImpact=NONE',
+      'selectedBy=INVESTOR_FLOW_POLICY_ROUTER',
+    ],
+  };
+}
+
+function routedKisFlowToAdr0477Raw(input: {
+  code: string;
+  routeResult: Awaited<ReturnType<typeof fetchInvestorFlowWithPolicy>> | null;
+}): Record<string, unknown> | null {
+  const data = input.routeResult?.source === 'KIS_API' && input.routeResult.status === 'OK'
+    ? input.routeResult.data
+    : null;
+  if (!data) return null;
+  return {
+    code: input.code,
+    sourceDate: data.tradingDate ?? null,
+    foreignNetBuy: data.foreignNetBuy,
+    institutionNetBuy: data.institutionalNetBuy,
+    individualNetBuy: data.individualNetBuy,
+    status: 'VERIFIED',
+    provider: 'KIS_API',
+    actualInvestorRow: data.actualInvestorRow ?? null,
+    normalizedInvestorRow: data.normalizedInvestorRow ?? null,
+    semanticInvestorRow: data.semanticInvestorRow ?? null,
+    supplySemanticRow: data.supplySemanticRow ?? null,
+    actualInvestorFlowRows: data.actualInvestorFlowRows ?? [],
+    actualInvestorFlowRowCount: data.actualInvestorFlowRowCount ?? data.actualInvestorFlowRows?.length ?? 0,
+    actualInvestorFlowRowSourcePath: data.actualInvestorFlowRowSourcePath ?? null,
+    actualInvestorFlowFieldKeys: data.actualInvestorFlowFieldKeys ?? [],
+    actualInvestorFlowNumericKeys: data.actualInvestorFlowNumericKeys ?? [],
+    actualInvestorFlowNumericStringKeys: data.actualInvestorFlowNumericStringKeys ?? [],
+    actualInvestorFlowCarried: data.actualInvestorFlowCarried ?? false,
   };
 }
 
@@ -2935,7 +2997,23 @@ export async function persistScanResults(
       lookup: supplySnapshotCacheLookupAdr0491,
     }) ?? cacheRawToSemanticInputAdr0482({ code: firstSymbol, cacheRaw, stale: supplySnapshotCacheLookupAdr0491.stale });
     const kisInvestorFlowEvidence = await fetchKisInvestorFlowEvidence(firstSymbol, kstNow).catch(() => null);
-    const kisSemanticInputAdr0482 = kisEvidenceToSemanticInputAdr0482({ code: firstSymbol, evidence: kisInvestorFlowEvidence });
+    const routedInvestorFlowAdr0477 = kisInvestorFlowEvidence?.data
+      ? null
+      : await fetchInvestorFlowWithPolicy(firstSymbol, kstNow, { krxAutoFetchDisabled: true }).catch(() => null);
+    const routedKisRawAdr0477 = routedKisFlowToAdr0477Raw({
+      code: firstSymbol,
+      routeResult: routedInvestorFlowAdr0477,
+    });
+    if (!kisInvestorFlowEvidence?.data && routedKisRawAdr0477) {
+      console.info(
+        `[ADR-0477] InvestorFlowProviderRouter reused policy router KIS_API status=VERIFIED symbol=${firstSymbol} reason=KIS_POLICY_ROUTER_VERIFIED_FALLBACK executionImpact=NONE`,
+      );
+    }
+    const kisSemanticInputAdr0482 = kisEvidenceToSemanticInputAdr0482({ code: firstSymbol, evidence: kisInvestorFlowEvidence })
+      ?? routedKisFlowToSemanticInputAdr0482({
+        code: firstSymbol,
+        routeResult: routedInvestorFlowAdr0477,
+      });
     const semanticInputs = [
       kisSemanticInputAdr0482,
       naverCollectorToSemanticInputAdr0482(naverInvestorTrendAdr0481),
@@ -2966,7 +3044,7 @@ export async function persistScanResults(
         individualNetBuy: kisInvestorFlowEvidence.data.individualNetBuy,
         status: kisInvestorFlowEvidence.sample?.confidence === 'VERIFIED' ? 'VERIFIED' : 'PARTIAL',
         ...(kisInvestorFlowEvidence.sample?.actualInvestorFlowRowCarrier ? { actualInvestorFlowRowCarrier: kisInvestorFlowEvidence.sample.actualInvestorFlowRowCarrier } : {}),
-      } : null,
+      } : routedKisRawAdr0477,
       kisTriedForInvestorFlow: true,
       nonTradingDay: sellOnlyOrClosed,
       sourceAgeTradingDays: naverInvestorTrendAdr0481.freshness.sourceAgeTradingDays,
