@@ -199,3 +199,82 @@ describe('Router — adapter actual row carry / selectedProvider 분리', () => 
     expect(route.liveExecutionAllowed).toBe(false);
   });
 });
+
+describe('KIS normalized row bridge — diagnostic-only promotion', () => {
+  it('18. normalized row numeric field → diagnosticActualInvestorRow promotion + DIAGNOSTIC_ONLY', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        symbol: '005930',
+        normalizedRow: {
+          symbol: '005930',
+          foreignNetBuy: '1,234',
+          institutionNetBuy: '-2,000',
+        },
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.investorRowMaterializationClass).toBe('NORMALIZED_NUMERIC_ROW');
+    expect(route.diagnosticActualInvestorRowFromNormalized).toBe(true);
+    expect(route.diagnosticActualInvestorRow).toEqual(expect.objectContaining({ foreignNetBuy: '1,234', institutionNetBuy: '-2,000' }));
+    expect(route.actualInvestorRowProvider).toBe('KIS_API');
+    expect(route.actualInvestorRowUseScope).toBe('DIAGNOSTIC_ONLY');
+    expect(route.executionImpact).toBe('NONE');
+    expect(route.liveExecutionAllowed).toBe(false);
+  });
+
+  it('19. normalized row metadata-only → actual row로 오판하지 않음', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        symbol: '005930',
+        normalizedRow: {
+          symbol: '005930',
+          provider: 'KIS_API',
+          providerScope: 'SYMBOL_LEVEL',
+        },
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.investorRowMaterializationClass).toBe('NORMALIZED_METADATA_ONLY');
+    expect(route.diagnosticActualInvestorRowFromNormalized).toBe(false);
+    expect(route.diagnosticActualInvestorRow ?? null).toBeNull();
+    expect(route.actualInvestorRowProvider ?? null).toBeNull();
+  });
+
+  it('20. wrapper-only object → rawInvestorRowAvailable=false equivalent and no diagnostic row', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        selectedProvider: 'KIS_API',
+        materialized: true,
+        usableForRouter: true,
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    expect(route.investorRowMaterializationClass).toBe('WRAPPER_ONLY');
+    expect(route.kisRawRowAvailableAtAdapter).toBe(false);
+    expect(route.diagnosticActualInvestorRow ?? null).toBeNull();
+  });
+
+  it('21. bySymbol payload carries normalized diagnostic row for SELL_ONLY merge path', () => {
+    const route = buildInvestorFlowProviderRouteResultAdr0477({
+      code: '005930',
+      kisInvestorRaw: {
+        normalizedRow: {
+          foreignNetBuy: '1,234',
+          institutionNetBuy: '-2,000',
+        },
+      },
+      kisTriedForInvestorFlow: true,
+    });
+
+    const payload = route.bySymbol?.['005930'];
+    expect(payload?.diagnosticActualInvestorRowFromNormalized).toBe(true);
+    expect(payload?.diagnosticActualInvestorRow).toEqual(route.diagnosticActualInvestorRow);
+    expect(payload?.actualInvestorRowUseScope).toBe('DIAGNOSTIC_ONLY');
+  });
+});
