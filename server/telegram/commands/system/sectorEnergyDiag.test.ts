@@ -253,6 +253,132 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
     });
   });
 
+
+  describe('SectorEnergy snapshot Telegram consistency patch', () => {
+    function macroState() {
+      return {
+        sectorEnergyDataQuality: 'PARTIAL',
+        sectorEnergySourceTier: 'KIS_STOCK_BASKET_DERIVED',
+        sectorEnergyFreshness: 'FRESH',
+        sectorEnergyCoverage: 1,
+        sectorEnergyConfidence: 0,
+        sectorEnergyValidSectorCount: 12,
+        sectorEnergyDiagnostics: {
+          coverageBreakdown: {
+            totalSectors: 12,
+            verifiedIndexCodeCount: 0,
+            kisOfficialCount: 0,
+            kisBasketCount: 12,
+          },
+          executionImpact: 'NONE',
+        },
+        sectorEnergyQualityDiagnostic: {
+          dataQuality: 'PARTIAL',
+          reasons: ['KIS_STOCK_BASKET_DERIVED'],
+          validSectorCount: 12,
+          expectedSectorCount: 12,
+          indexCodeCoverage: 0,
+          missingIndexCodeCount: 0,
+          totalSectorRows: 12,
+          fallbackUsed: 'NONE',
+          symmetryValidationPassed: true,
+          shouldBlockLeadershipConfidence: true,
+          operatorMessage: 'sourceTier=KIS_STOCK_BASKET_DERIVED',
+          coverageBreakdown: {
+            expectedSectorCount: 12,
+            validSectorCount: 12,
+            fullQualitySectorCount: 11,
+            partialQualitySectorCount: 1,
+            staleSectorCount: 0,
+            missingSectorCount: 0,
+            partialSectorCount: 1,
+            executionImpact: 'NONE',
+            sectorRows: [{
+              sectorName: '2차전지',
+              sectorCode: 'BATTERY',
+              representativeSymbols: ['373220', '051910'],
+              representativeSymbolCount: 2,
+              priceRowsFound: 1,
+              priceRowsMissing: 1,
+              latestPriceDate: '20260514',
+              ageTradingDays: 0,
+              freshness: 'PARTIAL',
+              reason: 'PRICE_ROWS_MISSING',
+            }],
+          },
+        },
+      };
+    }
+
+    it('buildSectorEnergyTelegramMessage chunk split은 SEMICONDUCTOR sector key를 중간에서 자르지 않는다', async () => {
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({ loadMacroState: vi.fn().mockReturnValue(macroState()) }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      const snapshot = mod.buildSectorEnergyTelegramSnapshot({
+        baseMessage: Array.from({ length: 8 }, (_, i) => `line-${i}-${'x'.repeat(20)}`).join('\n'),
+        dryRunSection: 'successTop:\n  1. <code>SEMICONDUCTOR</code> / 반도체 / iscd=<code>2004</code> / layer=<code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code> / rows=<b>21</b>',
+        dryRun: { succeeded: 10, promotionStage: 'OBSERVE', rows: [{ success: false, iscd: '2005' }, { success: false, iscd: '2006' }] },
+        now: new Date('2026-05-14T00:00:00.000Z'),
+      });
+      const chunks = mod.splitSectorEnergyTelegramMessageByLine(mod.buildSectorEnergyTelegramMessage(snapshot), 220);
+      expect(chunks.some((chunk: string) => chunk.includes('<code>SEMICONDUCTOR</code>'))).toBe(true);
+      expect(chunks.every((chunk: string) => !chunk.includes('SEMICO') || chunk.includes('SEMICONDUCTOR'))).toBe(true);
+      expect(chunks.every((chunk: string) => !chunk.includes('NDUCTOR') || chunk.includes('SEMICONDUCTOR'))).toBe(true);
+    });
+
+    it('동일 SectorEnergy full snapshot은 두 번째 Telegram을 보내지 않고 suppressedCount만 증가시킨다', async () => {
+      process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({ loadMacroState: vi.fn().mockReturnValue(macroState()) }));
+      vi.doMock('../../../clients/kisSectorEnergyProvider.js', () => ({
+        fetchKisSectorIndexRowsDryRun: vi.fn().mockResolvedValue({
+          attempted: 12,
+          succeeded: 10,
+          failed: 2,
+          rows: [{ success: false, iscd: '2005' }, { success: false, iscd: '2006' }],
+          sourceTier: 'KIS_SECTOR_INDEX_DAILY_DRYRUN',
+          candidateCoverage: 10 / 12,
+          officialBenchmark: false,
+          promotionStage: 'OBSERVE',
+          sectorBoostAllowed: false,
+          strongBuyAllowed: false,
+          executionImpact: 'NONE',
+        }),
+        formatKisSectorIndexDryRunSection: vi.fn().mockReturnValue('successTop:\n  1. <code>BATTERY</code> / 2차전지 / layer=<code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code> / rows=<b>21</b>'),
+      }));
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      mod.resetSeTelegramSnapshotDedupForTests();
+      const reply = vi.fn();
+
+      await mod.default.execute({ args: [], reply });
+      await mod.default.execute({ args: [], reply });
+
+      expect(reply).toHaveBeenCalledTimes(1);
+      expect(String(reply.mock.calls[0][0])).not.toContain('Dry Run unchanged');
+      expect(logSpy.mock.calls.map((call) => String(call[0])).join('\n')).toContain('[SECTOR_ENERGY_TELEGRAM_SUPPRESSED] reason=UNCHANGED_SNAPSHOT suppressedCount=1 executionImpact=NONE');
+      logSpy.mockRestore();
+    });
+
+    it('snapshot key는 safety invariant와 일반 BUY 미차단 플래그를 유지한다', async () => {
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({ loadMacroState: vi.fn().mockReturnValue(macroState()) }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      const snapshot = mod.buildSectorEnergyTelegramSnapshot({
+        baseMessage: 'base',
+        dryRunSection: 'dry',
+        dryRun: { succeeded: 10, promotionStage: 'OBSERVE', rows: [{ success: false, iscd: '2005' }, { success: false, iscd: '2006' }] },
+        now: new Date('2026-05-14T00:00:00.000Z'),
+      });
+
+      expect(snapshot.selectedProductionSourceTier).toBe('KIS_STOCK_BASKET_DERIVED');
+      expect(snapshot.productionOfficialCoverage).toBe('0/12');
+      expect(snapshot.productionBasketCoverage).toBe('12/12');
+      expect(snapshot.strongBuyAllowed).toBe(false);
+      expect(snapshot.sectorBoostAllowed).toBe(false);
+      expect(snapshot.executionImpact).toBe('NONE');
+      expect(snapshot.generalBuyBlocked).toBe(false);
+      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:KIS_STOCK_BASKET_DERIVED:PARTIAL:0/12:12/12:false:10:2005,2006:OBSERVE');
+    });
+  });
+
   describe('KIS 주문 함수 import 0건 + manual override 트리거 부재', () => {
     it('sectorEnergyDiag.cmd.ts 는 KIS 주문 함수 5종 import 부재', () => {
       const KIS_ORDER_PATTERNS = [

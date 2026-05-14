@@ -91,6 +91,10 @@ export type SectorEnergyCoverageReason =
 export interface SectorEnergyCoverageBreakdown {
   expectedSectorCount: number;
   validSectorCount: number;
+  /** Full-quality sectors with complete fresh production basket rows. */
+  fullQualitySectorCount?: number;
+  /** Partial-quality sectors with usable but incomplete production basket rows. */
+  partialQualitySectorCount?: number;
   staleSectorCount: number;
   missingSectorCount: number;
   partialSectorCount: number;
@@ -717,7 +721,9 @@ export function formatSectorEnergyQualityDiagnosticSection(
       .filter((row) => row.reason !== 'OK')
       .slice(0, 3);
     lines.push('  • sectorCoverage:');
-    lines.push(`    completeSectorCount=${coverage.validSectorCount} partialSectorCount=${coverage.partialSectorCount} staleSectorCount=${coverage.staleSectorCount} missingSectorCount=${coverage.missingSectorCount}`);
+    const partialQualitySectorCount = coverage.partialQualitySectorCount ?? coverage.partialSectorCount;
+    const fullQualitySectorCount = coverage.fullQualitySectorCount ?? Math.max(0, coverage.validSectorCount - partialQualitySectorCount - coverage.staleSectorCount);
+    lines.push(`    validSectorCount=${coverage.validSectorCount} fullQualitySectorCount=${fullQualitySectorCount} partialQualitySectorCount=${partialQualitySectorCount} staleSectorCount=${coverage.staleSectorCount} missingSectorCount=${coverage.missingSectorCount}`);
     if (topProblems.length > 0) {
       lines.push('  • topProblems:');
       topProblems.forEach((row, index) => {
@@ -729,7 +735,7 @@ export function formatSectorEnergyQualityDiagnosticSection(
         const action = row.reason === 'PRICE_ROWS_STALE' ? 'REFRESH_SECTOR_BASKET_PRICE_CACHE'
           : row.reason === 'PRICE_ROWS_MISSING' ? 'WIRE_KIS_DAILY_PRICE_ROWS_FOR_SECTOR_BASKET'
             : 'VERIFY_SECTOR_COVERAGE_INPUT';
-        lines.push(`    ${index + 1}. sector=${row.sectorName} problemType=${problemType} rowLevelStatus=${rowLevelStatus} sectorLevelStatus=${row.freshness} action=${action}`);
+        lines.push(`    ${index + 1}. layer=PRODUCTION_BASKET sector=${row.sectorName} problemType=${problemType} rowLevelStatus=${rowLevelStatus} sectorLevelStatus=${row.freshness} action=${action}`);
       });
     }
   }

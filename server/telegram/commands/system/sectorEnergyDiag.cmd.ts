@@ -11,6 +11,7 @@
 //
 // 외부 호출 0건 — read-only macroStateRepo. 부수효과 없음.
 
+import { createHash } from 'node:crypto';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import {
   evaluateSectorEnergyStrongBuyGate,
@@ -30,6 +31,7 @@ import {
   formatKrxSectorIndexRawDiagnosticSection,
 } from '../../../clients/sectorEnergyIndexCodeRecoveryDiagnostic.js';
 import { formatSanityDiagnosticSection } from '../../../clients/sectorEnergySanityViolationDiagnostic.js';
+import { fetchKisSectorIndexRowsDryRun, formatKisSectorIndexDryRunSection } from '../../../clients/kisSectorEnergyProvider.js';
 import {
   buildSectorEnergyCoverageRecoveryReport,
   formatSectorEnergyCoverageRecoverySection,
@@ -368,6 +370,182 @@ export function formatSectorEnergyDiagMessage(): string {
   return lines.join('\n');
 }
 
+
+export interface SectorEnergySnapshot {
+  topicKey: 'SECTOR_ENERGY';
+  date: string;
+  selectedProductionSourceTier: string;
+  dataQuality: string;
+  productionOfficialCoverage: string;
+  productionBasketCoverage: string;
+  strongBuyAllowed: false;
+  sectorBoostAllowed: false;
+  executionImpact: 'NONE';
+  generalBuyBlocked: false;
+  dryRunSucceeded: number;
+  dryRunFailedCodes: string;
+  promotionStage: string;
+  topProblemsHash: string;
+  baseMessage: string;
+  dryRunSection: string;
+}
+
+const SECTOR_ENERGY_TELEGRAM_TOPIC_KEY = 'SECTOR_ENERGY' as const;
+const SECTOR_ENERGY_SNAPSHOT_TELEGRAM_DEDUP_TTL_MS = 20 * 60 * 1000;
+const SECTOR_ENERGY_TELEGRAM_MAX_CHARS = 4000;
+let lastSectorEnergySnapshotTelegramKey: string | null = null;
+let lastSectorEnergySnapshotTelegramExpiresAt = 0;
+let sectorEnergySnapshotTelegramSuppressedCount = 0;
+const sectorEnergyTopicQueues = new Map<string, Promise<void>>();
+
+function stableHash(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex').slice(0, 16);
+}
+
+function ratioString(count: unknown, total: unknown): string {
+  const c = typeof count === 'number' && Number.isFinite(count) ? count : 0;
+  const t = typeof total === 'number' && Number.isFinite(total) ? total : 12;
+  return `${c}/${t}`;
+}
+
+function extractCoverageCounts(macro: Record<string, any> | null | undefined): {
+  official: string;
+  basket: string;
+  topProblemsHash: string;
+} {
+  const diag = macro?.sectorEnergyDiagnostics as any;
+  const quality = macro?.sectorEnergyQualityDiagnostic as any;
+  const coverageBreakdown = diag?.coverageBreakdown;
+  const total = coverageBreakdown?.totalSectors ?? quality?.expectedSectorCount ?? macro?.sectorEnergyValidSectorCount ?? 12;
+  const officialCount = coverageBreakdown?.kisOfficialCount ?? coverageBreakdown?.verifiedIndexCodeCount ?? 0;
+  const basketCount = coverageBreakdown?.kisBasketCount ?? macro?.sectorEnergyValidSectorCount ?? 0;
+  const topProblems = (quality?.coverageBreakdown?.sectorRows ?? [])
+    .filter((row: any) => row?.reason && row.reason !== 'OK')
+    .slice(0, 3)
+    .map((row: any) => ({
+      layer: 'PRODUCTION_BASKET',
+      sector: row.sectorName,
+      problemType: row.reason,
+      priceRowsMissing: row.priceRowsMissing,
+      freshness: row.freshness,
+    }));
+  return {
+    official: ratioString(officialCount, total),
+    basket: ratioString(basketCount, total),
+    topProblemsHash: stableHash(topProblems),
+  };
+}
+
+export function buildSectorEnergyTelegramSnapshot(input: {
+  baseMessage: string;
+  dryRunSection: string;
+  dryRun?: { succeeded: number; rows: Array<{ success: boolean; iscd: string }>; promotionStage?: string };
+  now?: Date;
+}): SectorEnergySnapshot {
+  const macro = loadMacroState() as Record<string, any> | null;
+  const coverage = extractCoverageCounts(macro);
+  const dryRunFailedCodes = input.dryRun?.rows
+    ?.filter((row) => !row.success)
+    .map((row) => row.iscd)
+    .sort()
+    .join(',') || 'none';
+  return Object.freeze({
+    topicKey: SECTOR_ENERGY_TELEGRAM_TOPIC_KEY,
+    date: (input.now ?? new Date()).toISOString().slice(0, 10),
+    selectedProductionSourceTier: String(macro?.sectorEnergySourceTier ?? 'UNKNOWN'),
+    dataQuality: String(macro?.sectorEnergyDataQuality ?? 'UNKNOWN'),
+    productionOfficialCoverage: coverage.official,
+    productionBasketCoverage: coverage.basket,
+    strongBuyAllowed: false,
+    sectorBoostAllowed: false,
+    executionImpact: 'NONE',
+    generalBuyBlocked: false,
+    dryRunSucceeded: input.dryRun?.succeeded ?? 0,
+    dryRunFailedCodes,
+    promotionStage: input.dryRun?.promotionStage ?? 'OBSERVE',
+    topProblemsHash: coverage.topProblemsHash,
+    baseMessage: input.baseMessage,
+    dryRunSection: input.dryRunSection,
+  });
+}
+
+export function buildSectorEnergySnapshotDedupKey(snapshot: SectorEnergySnapshot): string {
+  return [
+    'SECTOR_ENERGY_SNAPSHOT',
+    snapshot.date,
+    snapshot.selectedProductionSourceTier,
+    snapshot.dataQuality,
+    snapshot.productionOfficialCoverage,
+    snapshot.productionBasketCoverage,
+    String(snapshot.strongBuyAllowed),
+    String(snapshot.dryRunSucceeded),
+    snapshot.dryRunFailedCodes,
+    snapshot.promotionStage,
+    snapshot.topProblemsHash,
+  ].join(':');
+}
+
+export function buildSectorEnergyTelegramMessage(snapshot: SectorEnergySnapshot): string {
+  return `${snapshot.baseMessage}\n\n${snapshot.dryRunSection}`;
+}
+
+export function splitSectorEnergyTelegramMessageByLine(message: string, maxChars = SECTOR_ENERGY_TELEGRAM_MAX_CHARS): string[] {
+  if (message.length <= maxChars) return [message];
+  const chunks: string[] = [];
+  let current = '';
+  for (const line of message.split('\n')) {
+    if (line.length > maxChars) {
+      throw new Error(`SectorEnergy line exceeds Telegram chunk budget: ${line.slice(0, 80)}`);
+    }
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > maxChars && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+export function shouldSuppressSectorEnergySnapshotTelegram(snapshot: SectorEnergySnapshot, nowMs = Date.now()): boolean {
+  const key = buildSectorEnergySnapshotDedupKey(snapshot);
+  if (lastSectorEnergySnapshotTelegramKey === key && lastSectorEnergySnapshotTelegramExpiresAt > nowMs) {
+    sectorEnergySnapshotTelegramSuppressedCount += 1;
+    console.log(
+      `[SECTOR_ENERGY_TELEGRAM_SUPPRESSED] reason=UNCHANGED_SNAPSHOT suppressedCount=${sectorEnergySnapshotTelegramSuppressedCount} executionImpact=${snapshot.executionImpact}`,
+    );
+    return true;
+  }
+  lastSectorEnergySnapshotTelegramKey = key;
+  lastSectorEnergySnapshotTelegramExpiresAt = nowMs + SECTOR_ENERGY_SNAPSHOT_TELEGRAM_DEDUP_TTL_MS;
+  sectorEnergySnapshotTelegramSuppressedCount = 0;
+  console.log(
+    `[SECTOR_ENERGY_SNAPSHOT] selectedProductionSourceTier=${snapshot.selectedProductionSourceTier} productionOfficialCoverage=${snapshot.productionOfficialCoverage} productionBasketCoverage=${snapshot.productionBasketCoverage} dryRunCandidateCoverage=${snapshot.dryRunSucceeded}/${snapshot.dryRunFailedCodes === 'none' ? snapshot.dryRunSucceeded : snapshot.dryRunSucceeded + snapshot.dryRunFailedCodes.split(',').length} promotionStage=${snapshot.promotionStage} strongBuyAllowed=${snapshot.strongBuyAllowed} executionImpact=${snapshot.executionImpact}`,
+  );
+  return false;
+}
+
+export function resetSeTelegramSnapshotDedupForTests(): void {
+  lastSectorEnergySnapshotTelegramKey = null;
+  lastSectorEnergySnapshotTelegramExpiresAt = 0;
+  sectorEnergySnapshotTelegramSuppressedCount = 0;
+  sectorEnergyTopicQueues.clear();
+}
+
+async function sendSectorEnergyTelegramMessage(reply: (message: string) => unknown | Promise<unknown>, message: string): Promise<void> {
+  const chunks = splitSectorEnergyTelegramMessageByLine(message);
+  const previous = sectorEnergyTopicQueues.get(SECTOR_ENERGY_TELEGRAM_TOPIC_KEY) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(async () => {
+    for (const chunk of chunks) {
+      await reply(chunk);
+    }
+  });
+  sectorEnergyTopicQueues.set(SECTOR_ENERGY_TELEGRAM_TOPIC_KEY, next.then(() => undefined, () => undefined));
+  await next;
+}
+
 function formatDisabledKisSectorIndexDryRunSection(): string {
   return [
     '<b>[KIS Sector Index Candidate Dry Run]</b>',
@@ -434,19 +612,24 @@ const sectorEnergyDiag: TelegramCommand = {
     try {
       const baseMessage = formatSectorEnergyDiagMessage();
       if (process.env.KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true') {
-        await reply(`${baseMessage}\n\n${formatDisabledKisSectorIndexDryRunSection()}`);
+        const disabledSnapshot = buildSectorEnergyTelegramSnapshot({
+          baseMessage,
+          dryRunSection: formatDisabledKisSectorIndexDryRunSection(),
+        });
+        if (shouldSuppressSectorEnergySnapshotTelegram(disabledSnapshot)) return;
+        await sendSectorEnergyTelegramMessage(reply, buildSectorEnergyTelegramMessage(disabledSnapshot));
         return;
       }
-      const { fetchKisSectorIndexRowsDryRun, formatKisSectorIndexDryRunSection } = await import(
-        '../../../clients/kisSectorEnergyProvider.js'
-      );
       const dryRun = await fetchKisSectorIndexRowsDryRun();
-      if (shouldSuppressSectorIndexDryRunTelegram(dryRun)) {
-        await reply(`${baseMessage}\n\n<i>KIS Sector Index Candidate Dry Run unchanged — duplicate Telegram detail suppressed; see Railway suppressedCount log.</i>`);
-        return;
-      }
-      const message = `${baseMessage}\n\n${formatKisSectorIndexDryRunSection(dryRun)}`;
-      await reply(message);
+      // Keep Railway-only dry-run detail dedup for diagnostics; full snapshot dedup owns user-visible output.
+      shouldSuppressSectorIndexDryRunTelegram(dryRun);
+      const snapshot = buildSectorEnergyTelegramSnapshot({
+        baseMessage,
+        dryRunSection: formatKisSectorIndexDryRunSection(dryRun),
+        dryRun,
+      });
+      if (shouldSuppressSectorEnergySnapshotTelegram(snapshot)) return;
+      await sendSectorEnergyTelegramMessage(reply, buildSectorEnergyTelegramMessage(snapshot));
     } catch (err) {
       console.error('[sectorEnergyDiag.cmd] failed', err);
       await reply('❌ Sector Energy 진단 실패 — 서버 로그 확인 필요');

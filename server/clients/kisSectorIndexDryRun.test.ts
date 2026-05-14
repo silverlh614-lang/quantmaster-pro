@@ -109,7 +109,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
 
     expect(report.failed).toBe(2);
     for (const row of report.rows.filter((item) => !item.success)) {
-      expect(section).toContain(`<code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / errorClass=<code>UNRESOLVED_EMPTY</code>`);
+      expect(section).toContain(`<code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / layer=<code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code> / errorClass=<code>${row.errorClass}</code>`);
     }
     expect(section).not.toContain('failedIscd');
   });
@@ -167,7 +167,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
       providerIssue: false,
       marketSignal: false,
       error: 'KIS_EMPTY_OR_DISABLED',
-      errorClass: 'UNRESOLVED_EMPTY',
+      errorClass: 'EMPTY',
     });
   });
 
@@ -213,7 +213,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(section).toContain('sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>');
   });
 
-  it('2005/2006 EMPTY는 UNRESOLVED_EMPTY + marketSignal=false + executionImpact=NONE으로 유지한다', async () => {
+  it('2005/2006 EMPTY는 safe alias 후보로 분리되어 PENDING_IDXCODE_MST_VERIFY가 된다', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
       if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
@@ -224,13 +224,30 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     const failed = report.rows.filter((row) => row.iscd === '2005' || row.iscd === '2006');
     expect(failed).toHaveLength(2);
     for (const row of failed) {
-      expect(row.errorClass).toBe('UNRESOLVED_EMPTY');
+      expect(row.errorClass).toBe('EMPTY');
+      expect(row.errorClass).not.toBe('UNRESOLVED_EMPTY');
+      expect(row.verificationStatus).toBe('SAFE_ALIAS_CANDIDATE_FOUND');
+      expect(row.resolutionStatus).toBe('PENDING_IDXCODE_MST_VERIFY');
       expect(row.providerIssue).toBe(false);
       expect(row.marketSignal).toBe(false);
       expect(row.verificationAction).toBe('VERIFY_WITH_IDXCODE_MST_BEFORE_L4_WIRING');
     }
     expect(report.executionImpact).toBe('NONE');
     expect(report.marketSignal).toBe(false);
+  });
+
+  it('formatter는 UNRESOLVED_EMPTY와 SAFE_ALIAS_CANDIDATE를 동시에 표시하지 않는다', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === '2005') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      return Promise.resolve(dailyResult(iscd));
+    });
+
+    const report = await mod.fetchKisSectorIndexRowsDryRun(1000);
+    const section = mod.formatKisSectorIndexDryRunSection(report);
+
+    expect(section).not.toContain('errorClass=<code>UNRESOLVED_EMPTY</code> / verification=<code>SAFE_ALIAS_CANDIDATE');
+    expect(section).toContain('errorClass=<code>EMPTY</code> / verification=<code>SAFE_ALIAS_CANDIDATE_FOUND</code> / resolutionStatus=<code>PENDING_IDXCODE_MST_VERIFY</code>');
   });
 
 });
