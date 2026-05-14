@@ -86,14 +86,18 @@ function makeShadowProgress(overrides: Partial<ShadowProgress> = {}): ShadowProg
 }
 
 describe('formatShadowProgress — BE 라인 조건부 표시', () => {
+  // canonical 형식 (#959 unclog learning flow repair loop): 헤더 `🎯 Fill 기준 실현:`
+  // 줄 + 다음 줄에 `N익 / N손 / N본절 · 부분매도만 N건` (beFills>0 시 `/ N본절`).
   it('fillBeFills > 0 시 "/N본절" 라인 노출', () => {
     const msg = formatShadowProgress(makeShadowProgress({ fillBeFills: 3 }));
-    expect(msg).toContain('🎯 실현 fill: 4익 / 2손 / 3본절');
+    expect(msg).toContain('🎯 Fill 기준 실현:');
+    expect(msg).toContain('4익 / 2손 / 3본절');
   });
 
   it('fillBeFills === 0 시 본절 라인 미노출 (기존 형식 보존)', () => {
     const msg = formatShadowProgress(makeShadowProgress({ fillBeFills: 0 }));
-    expect(msg).toContain('🎯 실현 fill: 4익 / 2손');
+    expect(msg).toContain('🎯 Fill 기준 실현:');
+    expect(msg).toContain('4익 / 2손');
     expect(msg).not.toContain('본절');
   });
 
@@ -101,7 +105,8 @@ describe('formatShadowProgress — BE 라인 조건부 표시', () => {
     const p = makeShadowProgress();
     delete (p as Partial<ShadowProgress>).fillBeFills;
     const msg = formatShadowProgress(p);
-    expect(msg).toContain('🎯 실현 fill: 4익 / 2손');
+    expect(msg).toContain('🎯 Fill 기준 실현:');
+    expect(msg).toContain('4익 / 2손');
     expect(msg).not.toContain('본절');
   });
 
@@ -109,14 +114,15 @@ describe('formatShadowProgress — BE 라인 조건부 표시', () => {
     const msg = formatShadowProgress(
       makeShadowProgress({ fillWins: 0, fillLosses: 0, fillBeFills: 0 }),
     );
-    expect(msg).not.toContain('🎯 실현 fill');
+    expect(msg).not.toContain('🎯 Fill 기준 실현');
   });
 
   it('익/손=0 + 본절만 있어도 실현 라인 노출 (BE 단독 시나리오)', () => {
     const msg = formatShadowProgress(
       makeShadowProgress({ fillWins: 0, fillLosses: 0, fillBeFills: 2 }),
     );
-    expect(msg).toContain('🎯 실현 fill: 0익 / 0손 / 2본절');
+    expect(msg).toContain('🎯 Fill 기준 실현:');
+    expect(msg).toContain('0익 / 0손 / 2본절');
   });
 });
 
