@@ -6,6 +6,7 @@ import {
   buildKisSectorEnergyBasketFromSeries,
   buildKisSectorEnergyInputsWithMeta,
   rankKisSectorEnergyInputs,
+  verifySectorIndexCodeWithMaster,
   resetKisSectorEnergyProviderOverridesForTests,
   setKisSectorEnergyProviderOverridesForTests,
   type KisSectorEnergyIndexRow,
@@ -114,6 +115,41 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.marketSignal).toBe(false);
   });
 
+
+  it('verifies idxcode master candidates without production wiring', () => {
+    const verified = verifySectorIndexCodeWithMaster({
+      sectorKey: 'FINANCE',
+      sectorNameKo: '금융',
+      candidateIscd: '2006',
+      aliasCandidates: ['금융', '은행'],
+      masterRows: [{ iscd: '2006', koreanName: '금융', englishKey: 'FINANCE', aliases: ['금융'] }],
+    });
+    expect(verified).toMatchObject({
+      verification: 'VERIFIED',
+      resolutionStatus: 'IDXCODE_MST_VERIFIED',
+      useForProduction: false,
+      useForDryRun: true,
+      marketSignal: false,
+      executionImpact: 'NONE',
+    });
+
+    const unresolved = verifySectorIndexCodeWithMaster({
+      sectorKey: 'IT_INTERNET',
+      sectorNameKo: '인터넷/플랫폼',
+      candidateIscd: '9999',
+      aliasCandidates: ['unsafe-alias'],
+      masterRows: [{ iscd: '2005', koreanName: '인터넷/플랫폼', englishKey: 'IT_INTERNET', aliases: ['인터넷'] }],
+    });
+    expect(unresolved).toMatchObject({
+      verification: 'UNRESOLVED',
+      resolutionStatus: 'IDXCODE_MST_NOT_FOUND',
+      useForProduction: false,
+      useForDryRun: false,
+      marketSignal: false,
+      executionImpact: 'NONE',
+    });
+  });
+
   it('generates KIS sector basket rows from representative daily chart prices only as PARTIAL shadow data', () => {
     const rows = buildKisSectorBasketRowsFromSeries(allBasketSeries('SHIPBUILDING'));
 
@@ -143,6 +179,34 @@ describe('KIS SectorEnergy provider', () => {
   });
 
 
+
+
+  it('refreshes only missing 2차전지 production basket price rows and marks row COMPLETE', async () => {
+    const series = allBasketSeries();
+    delete series['247540'];
+    const calls: string[] = [];
+    const result = await buildKisSectorEnergyInputsWithMeta({
+      fetchOfficialIndexRows: async () => [],
+      fetchOfficialDailyRows: async () => [],
+      fetchCandles: async (code) => {
+        calls.push(code);
+        if (code === '247540' && calls.filter((item) => item === code).length > 1) return candles(100, 120);
+        return series[code] ?? [];
+      },
+      now: () => new Date('2026-04-25T00:00:00Z'),
+    });
+
+    const battery = result.sectorCoverageBreakdown?.sectorRows.find((row) => row.sectorCode === 'BATTERY');
+    expect(calls.filter((code) => code === '247540')).toHaveLength(2);
+    expect(battery).toMatchObject({
+      sectorName: '2차전지',
+      priceRowsMissing: 0,
+      rowLevelStatus: 'COMPLETE',
+      sectorLevelStatus: 'FULL_QUALITY',
+      problemType: 'RESOLVED',
+    });
+    expect(result.executionImpact).toBe('NONE');
+  });
 
   it('audits stale KIS representative basket coverage when only 2/12 sectors materialize', async () => {
     const series: Record<string, KisChartCandle[]> = {};

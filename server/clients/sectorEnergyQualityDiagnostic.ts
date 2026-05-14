@@ -109,6 +109,12 @@ export interface SectorEnergyCoverageBreakdown {
     ageTradingDays?: number | null;
     freshness: SectorEnergyCoverageFreshness;
     reason: SectorEnergyCoverageReason;
+    /** Production basket row completeness after targeted missing-price refresh. */
+    rowLevelStatus?: 'COMPLETE' | 'PARTIAL' | 'MISSING' | 'STALE';
+    /** Sector-level production basket quality after targeted missing-price refresh. */
+    sectorLevelStatus?: 'FULL_QUALITY' | 'PARTIAL' | 'MISSING' | 'STALE';
+    /** Structured recovery problem type, when the sector row is not full quality. */
+    problemType?: 'PRICE_ROWS_MISSING' | 'PRICE_ROWS_STALE' | 'NO_REPRESENTATIVE_SYMBOLS' | 'RESOLVED' | 'UNKNOWN';
   }>;
   executionImpact: 'NONE';
 }

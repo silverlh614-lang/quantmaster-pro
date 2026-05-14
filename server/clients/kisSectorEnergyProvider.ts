@@ -7,6 +7,7 @@ import type { KisInvestorTradeByStockDaily } from './kisClient/index.js';
 import type { KisSectorIndexDaily, KisSectorIndexDailyRow } from './kisClient/types.js';
 import type { SectorEnergyDataQuality, SectorEnergyInput } from './sectorEnergyProvider.js';
 import type { KisRepresentativeBasketAudit, SectorEnergyCoverageBreakdown } from './sectorEnergyQualityDiagnostic.js';
+import { appendKisSectorIndexPromotionHistoryRecord, type KisSectorIndexPromotionHistoryRecord } from '../persistence/kisSectorIndexPromotionHistoryRepo.js';
 
 export type KisSectorEnergySourceTier =
   | 'KIS_OFFICIAL_INDEX'
@@ -95,10 +96,12 @@ export interface KisSectorIndexDryRunRow {
   marketSignal?: false;
   verificationStatus?: SectorIndexVerificationStatus | 'NOT_REQUIRED';
   verificationAction?: string;
-  resolutionStatus?: 'PENDING_IDXCODE_MST_VERIFY' | 'REQUIRES_IDXCODE_MST_LOOKUP' | 'NONE';
+  resolutionStatus?: 'PENDING_IDXCODE_MST_VERIFY' | 'REQUIRES_IDXCODE_MST_LOOKUP' | 'IDXCODE_MST_VERIFIED' | 'IDXCODE_MST_NOT_FOUND' | 'NONE';
   safeAliasCandidate?: { sectorKey: SectorKey; displayName: string; krxIndexCode: string };
   aliasCandidates?: string[];
   errorClass?: KisSectorIndexDryRunErrorClass;
+  useForProduction?: false;
+  useForDryRun?: boolean;
   error?: string;
 }
 
@@ -118,7 +121,9 @@ export interface KisSectorIndexDryRunReport {
   providerIssue: boolean;
   candidateCoverage: number;
   promotionStage: 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
-  promotionBlockedReason: 'OBSERVE_20D_REQUIRED';
+  promotionBlockedReason: 'OBSERVE_20D_REQUIRED' | 'SHADOW_SCORE_CANDIDATE_MANUAL_AUDIT_REQUIRED';
+  daysCollected: number;
+  promotionHistoryRecorded: boolean;
 }
 
 interface KisSectorIndexDryRunCacheEntry {
@@ -167,6 +172,12 @@ function logKisSectorIndexDryRunCandidate(report: KisSectorIndexDryRunReport, no
     `[SECTOR_INDEX_PROMOTION_BLOCKED] reason=${report.promotionBlockedReason} strongBuyAllowed=${report.strongBuyAllowed} sectorBoostAllowed=${report.sectorBoostAllowed}`,
   );
   const verifyRequired = report.rows.filter((row) => !row.success && (row.resolutionStatus === 'PENDING_IDXCODE_MST_VERIFY' || row.errorClass === 'UNRESOLVED_EMPTY'));
+  const pending2005_2006 = report.rows.filter((row) => !row.success && (row.iscd === '2005' || row.iscd === '2006'));
+  if (pending2005_2006.length > 0) {
+    console.log(
+      `[SECTOR_INDEX_CODE_VERIFY_PENDING] codes=${pending2005_2006.map((row) => row.iscd).sort().join(',')} status=PENDING_IDXCODE_MST_VERIFY marketSignal=false executionImpact=${report.executionImpact}`,
+    );
+  }
   if (verifyRequired.length > 0) {
     console.log(
       `[SECTOR_INDEX_CODE_VERIFY_REQUIRED] failedCodes=${verifyRequired.map((row) => row.iscd).join(',')} resolutionStatus=PENDING_IDXCODE_MST_VERIFY marketSignal=false executionImpact=${report.executionImpact}`,
@@ -192,6 +203,8 @@ function emptyKisSectorIndexDryRunReport(enabled: boolean): KisSectorIndexDryRun
     candidateCoverage: 0,
     promotionStage: 'OBSERVE',
     promotionBlockedReason: 'OBSERVE_20D_REQUIRED',
+    daysCollected: 0,
+    promotionHistoryRecorded: false,
   };
 }
 
@@ -242,12 +255,94 @@ function classifyKisSectorIndexDryRunError(error: unknown): KisSectorIndexDryRun
 }
 
 
+
+export interface SectorIdxcodeMasterRow {
+  iscd: string;
+  koreanName: string;
+  englishKey?: string;
+  aliases?: string[];
+}
+
+export interface SectorIndexCodeMasterVerificationResult {
+  verification: 'VERIFIED' | 'UNRESOLVED';
+  resolutionStatus: 'IDXCODE_MST_VERIFIED' | 'IDXCODE_MST_NOT_FOUND';
+  useForProduction: false;
+  useForDryRun: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE';
+  matchedBy?: 'EXACT_ISCD' | 'KOREAN_NAME' | 'ENGLISH_SECTOR_KEY' | 'ALIAS' | 'ENDPOINT_COMPATIBILITY_DRY_RUN';
+  matchedIscd?: string;
+  matchedName?: string;
+}
+
+const STATIC_IDXCODE_MASTER_ROWS: ReadonlyArray<SectorIdxcodeMasterRow> = Object.freeze([
+  { iscd: '2001', koreanName: '코스피200', englishKey: 'OTHER', aliases: ['기타', 'KOSPI200 proxy'] },
+  { iscd: '2002', koreanName: '자동차', englishKey: 'AUTOMOTIVE', aliases: ['자동차'] },
+  { iscd: '2003', koreanName: '유통/소비재', englishKey: 'CONSUMER_RETAIL', aliases: ['유통', '소비재'] },
+  { iscd: '2004', koreanName: '반도체', englishKey: 'SEMICONDUCTOR', aliases: ['반도체'] },
+  { iscd: '2005', koreanName: '인터넷/플랫폼', englishKey: 'IT_INTERNET', aliases: ['인터넷', '플랫폼', 'IT'] },
+  { iscd: '2006', koreanName: '금융', englishKey: 'FINANCE', aliases: ['금융', '은행', '증권', '보험'] },
+  { iscd: '2007', koreanName: '철강', englishKey: 'STEEL', aliases: ['철강'] },
+  { iscd: '2008', koreanName: '에너지/화학', englishKey: 'CHEMICAL', aliases: ['화학', '에너지'] },
+  { iscd: '2009', koreanName: '바이오/헬스케어', englishKey: 'BIO_HEALTHCARE', aliases: ['바이오', '헬스케어'] },
+  { iscd: '2010', koreanName: '조선', englishKey: 'SHIPBUILDING', aliases: ['조선'] },
+  { iscd: '2011', koreanName: '건설/부동산', englishKey: 'CONSTRUCTION', aliases: ['건설', '부동산'] },
+  { iscd: '2012', koreanName: '이차전지', englishKey: 'BATTERY', aliases: ['2차전지', '이차전지', '배터리'] },
+]);
+
+function normalizeLookupText(value: string): string {
+  return value.toLowerCase().replace(/[\s/_-]+/g, '').trim();
+}
+
+export function verifySectorIndexCodeWithMaster(input: {
+  sectorKey: SectorKey;
+  sectorNameKo: string;
+  candidateIscd: string;
+  aliasCandidates: string[];
+  masterRows?: readonly SectorIdxcodeMasterRow[];
+  endpointCompatible?: boolean;
+}): SectorIndexCodeMasterVerificationResult {
+  const rows = input.masterRows ?? STATIC_IDXCODE_MASTER_ROWS;
+  const candidate = input.candidateIscd.trim();
+  const ko = normalizeLookupText(input.sectorNameKo);
+  const key = normalizeLookupText(input.sectorKey);
+  const aliases = input.aliasCandidates.map(normalizeLookupText).filter(Boolean);
+  const match = (matchedBy: NonNullable<SectorIndexCodeMasterVerificationResult['matchedBy']>, row?: SectorIdxcodeMasterRow): SectorIndexCodeMasterVerificationResult => ({
+    verification: 'VERIFIED',
+    resolutionStatus: 'IDXCODE_MST_VERIFIED',
+    useForProduction: false,
+    useForDryRun: true,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    matchedBy,
+    matchedIscd: row?.iscd ?? candidate,
+    matchedName: row?.koreanName,
+  });
+  const exact = rows.find((row) => row.iscd === candidate && normalizeLookupText(row.englishKey ?? '') === key);
+  if (exact) return match('EXACT_ISCD', exact);
+  const byKo = rows.find((row) => row.iscd === candidate && normalizeLookupText(row.koreanName) === ko);
+  if (byKo) return match('KOREAN_NAME', byKo);
+  const byKey = rows.find((row) => row.iscd === candidate && normalizeLookupText(row.englishKey ?? '') === key);
+  if (byKey) return match('ENGLISH_SECTOR_KEY', byKey);
+  const byAlias = rows.find((row) => row.iscd === candidate && (row.aliases ?? []).some((alias) => aliases.includes(normalizeLookupText(alias))));
+  if (byAlias) return match('ALIAS', byAlias);
+  if (input.endpointCompatible === true) return match('ENDPOINT_COMPATIBILITY_DRY_RUN');
+  return {
+    verification: 'UNRESOLVED',
+    resolutionStatus: 'IDXCODE_MST_NOT_FOUND',
+    useForProduction: false,
+    useForDryRun: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+  };
+}
+
 function buildKisSectorIndexCodeVerification(input: {
   sectorKey: SectorKey;
   iscd: string;
   label: string;
   errorClass: KisSectorIndexDryRunErrorClass;
-}): Pick<KisSectorIndexDryRunRow, 'providerIssue' | 'marketSignal' | 'verificationStatus' | 'verificationAction' | 'resolutionStatus' | 'safeAliasCandidate' | 'aliasCandidates' | 'errorClass'> {
+}): Pick<KisSectorIndexDryRunRow, 'providerIssue' | 'marketSignal' | 'verificationStatus' | 'verificationAction' | 'resolutionStatus' | 'safeAliasCandidate' | 'aliasCandidates' | 'errorClass' | 'useForProduction' | 'useForDryRun'> {
   if (input.errorClass !== 'EMPTY') {
     return {
       providerIssue: true,
@@ -286,6 +381,8 @@ function buildKisSectorIndexCodeVerification(input: {
       },
       aliasCandidates: tokens,
       errorClass: 'EMPTY',
+      useForProduction: false,
+      useForDryRun: false,
     };
   }
 
@@ -297,7 +394,71 @@ function buildKisSectorIndexCodeVerification(input: {
     resolutionStatus: 'REQUIRES_IDXCODE_MST_LOOKUP',
     aliasCandidates: tokens,
     errorClass: 'UNRESOLVED_EMPTY',
+    useForProduction: false,
+    useForDryRun: false,
   };
+}
+
+
+function yyyymmddFromNowMs(nowMs: number): string {
+  return new Date(nowMs).toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function promotionLatestDateTop(rows: readonly KisSectorIndexDryRunRow[]): string | null {
+  return rows.map((row) => row.latestDate).filter((date): date is string => typeof date === 'string' && /^\d{8}$/.test(date)).sort().at(-1) ?? null;
+}
+
+function buildPromotionHistoryRecord(report: KisSectorIndexDryRunReport, nowMs: number): KisSectorIndexPromotionHistoryRecord {
+  const rowsBySector: Record<string, number> = {};
+  const return5dBySector: Record<string, number | null> = {};
+  const return20dBySector: Record<string, number | null> = {};
+  for (const row of report.rows) {
+    rowsBySector[row.sectorKey] = row.seriesCount;
+    return5dBySector[row.sectorKey] = finite(row.return5d) ? row.return5d : null;
+    return20dBySector[row.sectorKey] = finite(row.return20d) ? row.return20d : null;
+  }
+  return {
+    date: yyyymmddFromNowMs(nowMs),
+    attempted: report.attempted,
+    succeeded: report.succeeded,
+    failed: report.failed,
+    failedCodes: report.rows.filter((row) => !row.success).map((row) => row.iscd).sort(),
+    latestDateTop: promotionLatestDateTop(report.rows),
+    rowsBySector,
+    return5dBySector,
+    return20dBySector,
+    officialBenchmark: report.officialBenchmark,
+    promotionStage: report.promotionStage,
+    candidateCoverage: report.candidateCoverage,
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    executionImpact: 'NONE',
+    corePromotionAllowed: false,
+    manualAuditFlagRequired: true,
+    recordedAt: new Date(nowMs).toISOString(),
+  };
+}
+
+function recordKisSectorIndexPromotionHistory(report: KisSectorIndexDryRunReport, nowMs: number): KisSectorIndexDryRunReport {
+  const stored = appendKisSectorIndexPromotionHistoryRecord(buildPromotionHistoryRecord(report, nowMs));
+  const daysCollected = Math.min(20, stored.length);
+  const eligibleForShadow = stored.length >= 20 && report.failed === 0 && report.candidateCoverage >= 1 && report.officialBenchmark === false;
+  const promotionStage = eligibleForShadow ? 'SHADOW_SCORE' : 'OBSERVE';
+  const promotionBlockedReason = eligibleForShadow ? 'SHADOW_SCORE_CANDIDATE_MANUAL_AUDIT_REQUIRED' : 'OBSERVE_20D_REQUIRED';
+  const updated: KisSectorIndexDryRunReport = {
+    ...report,
+    promotionStage,
+    promotionBlockedReason,
+    daysCollected,
+    promotionHistoryRecorded: true,
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    executionImpact: 'NONE',
+  };
+  console.log(
+    `[SECTOR_INDEX_PROMOTION_HISTORY_RECORDED] date=${yyyymmddFromNowMs(nowMs)} attempted=${updated.attempted} succeeded=${updated.succeeded} failed=${updated.failed} promotionStage=${updated.promotionStage} daysCollected=${daysCollected}/20 strongBuyAllowed=false executionImpact=NONE`,
+  );
+  return updated;
 }
 
 function deriveKisSectorIndexDryRunMetrics(result: KisSectorIndexDaily): Pick<KisSectorIndexDryRunRow, 'seriesCount' | 'latestDate' | 'return5d' | 'return20d' | 'turnoverAcceleration'> {
@@ -434,13 +595,16 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
     candidateCoverage: rows.length > 0 ? succeeded / rows.length : 0,
     promotionStage: 'OBSERVE',
     promotionBlockedReason: 'OBSERVE_20D_REQUIRED',
+    daysCollected: 0,
+    promotionHistoryRecorded: false,
   };
+  const recordedReport = recordKisSectorIndexPromotionHistory(report, nowMs);
   kisSectorIndexDryRunCache = {
     expiresAt: nowMs + KIS_SECTOR_INDEX_DRYRUN_TTL_MS,
-    report,
+    report: recordedReport,
   };
-  logKisSectorIndexDryRunCandidate(report, nowMs);
-  return report;
+  logKisSectorIndexDryRunCandidate(recordedReport, nowMs);
+  return recordedReport;
 }
 
 export function resetKisSectorIndexDryRunCacheForTests(options: { keepNegativeCooldown?: boolean } = {}): void {
@@ -786,6 +950,37 @@ export function buildKisSectorEnergyBasketFromSeries(
   }));
 }
 
+
+function batteryMissingCodes(seriesByCode: Record<string, KisChartCandle[]>): string[] {
+  const battery = KIS_SECTOR_BASKET_DEFINITIONS.find((entry) => entry.sectorKey === 'BATTERY');
+  if (!battery) return [];
+  return battery.representativeCodes
+    .map(safeCode)
+    .filter((code) => stockMetrics(seriesByCode[code] ?? []) === null);
+}
+
+async function refreshBatteryMissingPriceRows(input: {
+  seriesByCode: Record<string, KisChartCandle[]>;
+  fetchCandles: (code: string) => Promise<KisChartCandle[]>;
+}): Promise<void> {
+  const beforeMissing = batteryMissingCodes(input.seriesByCode);
+  if (beforeMissing.length === 0) {
+    console.log('[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=2차전지 layer=PRODUCTION_BASKET before=FULL_QUALITY after=FULL_QUALITY executionImpact=NONE');
+    return;
+  }
+  const refreshed = await mapLimit(beforeMissing, 2, async (code) => {
+    const candles = await input.fetchCandles(code).catch(() => [] as KisChartCandle[]);
+    return [code, candles] as const;
+  });
+  for (const [code, candles] of refreshed) {
+    if (candles.length > 0) input.seriesByCode[code] = candles;
+  }
+  const afterMissing = batteryMissingCodes(input.seriesByCode);
+  console.log(
+    `[SECTOR_BASKET_PRICE_ROWS_REFRESH] sector=2차전지 layer=PRODUCTION_BASKET before=PARTIAL after=${afterMissing.length === 0 ? 'FULL_QUALITY' : 'PARTIAL'} executionImpact=NONE`,
+  );
+}
+
 function inputFromOfficialRow(row: KisSectorEnergyIndexRow): SectorEnergyInput {
   const breadth = row.breadthAbove20ma ?? 0;
   return {
@@ -918,6 +1113,9 @@ function deriveKisBasketDiagnostics(
     }
     if (freshness === 'FRESH') priceRowsFresh += 1;
     if (freshness === 'STALE' || freshness === 'PARTIAL') priceRowsStale += 1;
+    const rowLevelStatus: NonNullable<SectorEnergyCoverageBreakdown['sectorRows'][number]['rowLevelStatus']> = freshness === 'FRESH' ? 'COMPLETE' : freshness === 'MISSING' ? 'MISSING' : freshness === 'STALE' ? 'STALE' : 'PARTIAL';
+    const sectorLevelStatus: NonNullable<SectorEnergyCoverageBreakdown['sectorRows'][number]['sectorLevelStatus']> = freshness === 'FRESH' ? 'FULL_QUALITY' : freshness === 'MISSING' ? 'MISSING' : freshness === 'STALE' ? 'STALE' : 'PARTIAL';
+    const problemType: NonNullable<SectorEnergyCoverageBreakdown['sectorRows'][number]['problemType']> = reason === 'OK' ? 'RESOLVED' : reason === 'PRICE_ROWS_MISSING' ? 'PRICE_ROWS_MISSING' : reason === 'PRICE_ROWS_STALE' ? 'PRICE_ROWS_STALE' : reason === 'NO_REPRESENTATIVE_SYMBOLS' ? 'NO_REPRESENTATIVE_SYMBOLS' : 'UNKNOWN';
     return {
       sectorName: entry.displayName,
       sectorCode: entry.sectorKey,
@@ -929,6 +1127,9 @@ function deriveKisBasketDiagnostics(
       ageTradingDays: age,
       freshness,
       reason,
+      rowLevelStatus,
+      sectorLevelStatus,
+      problemType,
     };
   });
 
@@ -1103,6 +1304,7 @@ export async function buildKisSectorEnergyInputsWithMeta(
     return [code, candles] as const;
   });
   const seriesByCode = Object.fromEntries(candleEntries);
+  await refreshBatteryMissingPriceRows({ seriesByCode, fetchCandles });
 
   const flowByCode: Record<string, KisInvestorTradeByStockDaily | null> = {};
   if (fetchInvestorFlow) {

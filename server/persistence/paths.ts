@@ -208,6 +208,8 @@ export const DXY_MONITOR_STATE_FILE   = path.join(DATA_DIR, 'dxy-monitor-state.j
  * 섹터 ETF 30분 모멘텀 교차 스캐너 — 미국 섹터 ETF 간밤 RS 랭킹 + 한국 섹터 매핑 결과.
  */
 export const SECTOR_ETF_MOMENTUM_FILE = path.join(DATA_DIR, 'sector-etf-momentum.json');
+/** KIS Sector Index dry-run promotion audit history — 20 trading-day observation lane. */
+export const KIS_SECTOR_INDEX_PROMOTION_HISTORY_FILE = path.join(DATA_DIR, 'kis-sector-index-promotion-history.json');
 /**
  * AI 응답 캐시 영속화 — 클라이언트 lsSet/aiCache의 3층 (Volume) 백엔드.
  * macro-environment 등 분기급 TTL 키는 재배포 후에도 즉시 히트하여 비용 절감.
