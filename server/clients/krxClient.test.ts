@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('krxClient — 네트워크 내성 및 캐시', () => {
   const originalFetch = globalThis.fetch;
+  const originalKrxInvestorDetailEnabled = process.env.KRX_INVESTOR_DETAIL_ENABLED;
 
   beforeEach(async () => {
     // 각 테스트 시작 전 환경변수·캐시 초기화.
@@ -20,6 +21,7 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     delete process.env.KIS_FIRST_REBUILD_MODE;
     delete process.env.KIS_ONLY_REBUILD_MODE;
     delete process.env.KRX_AUTO_FETCH_DISABLED;
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = 'true';
     process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     const mod = await import('./krxClient.js');
     mod.resetKrxCache();
@@ -27,6 +29,7 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = originalKrxInvestorDetailEnabled;
     vi.restoreAllMocks();
   });
 
@@ -236,7 +239,7 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(getLastKrxInvestorTradingDiagnostic('20250420')?.selectedRowPath).toBe('result.rows');
   });
 
-  it('tries endpoint/date/market variants after MDCSTAT02203 HTTP 400 and selects first valid KRX row', async () => {
+  it('isolates endpoint variants after MDCSTAT02201 HTTP 400 instead of retrying the same endpoint family', async () => {
     const fetchSpy = vi.fn().mockImplementation(async (url, init) => {
       const urlText = String(url);
       const body = String(init?.body ?? '');
@@ -276,18 +279,17 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     vi.resetModules();
     const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
     const rows = await fetchInvestorTrading('20260508', { symbol: '005930' });
-    expect(rows).toEqual([{ code: '005930', name: 'Samsung', foreignNetBuy: 100, institutionNetBuy: 200, individualNetBuy: -300 }]);
+    expect(rows).toEqual([]);
     const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
     expect(diagnostic?.endpoint).toBe('MDCSTAT02201');
-    expect(diagnostic?.selectedVariant).toContain('MDCSTAT02201');
-    expect(diagnostic?.attemptedVariants?.some((variant) => variant.includes('MDCSTAT02203'))).toBe(true);
+    expect(diagnostic?.selectedVariant).toBeNull();
+    expect(diagnostic?.routedStatus).toBe('BAD_REQUEST_SESSION_OR_PARAM');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
     expect(diagnostic?.routeKind).toBe('MARKET_INVESTOR_FLOW');
-    expect(diagnostic?.dateParam).toBe('trdDd');
     expect(diagnostic?.marketCode).toBe('STK');
-    expect(diagnostic?.symbolCode).toBeNull();
-    expect(diagnostic?.parameterKeys).toContain('trdDd');
-    expect(diagnostic?.responseKind).toBe('JSON');
-    expect(diagnostic?.httpStatus).toBe(200);
+    expect(diagnostic?.responseKind).toBe('HTTP_ERROR');
+    expect(diagnostic?.httpStatus).toBe(400);
   });
 
   it('prefers KRX symbol-level OTP CSV download flow and normalizes individual-issue rows', async () => {
@@ -447,13 +449,101 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     await expect(fetchInvestorTrading('20260508', { symbol: '005930' })).resolves.toEqual([]);
     const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
     expect(diagnostic?.parserStatus).toBe('PROVIDER_EMPTY_RESPONSE');
-    expect(diagnostic?.endpointIssueHint).toBe('OTP_OR_HEADER_ERROR');
+    expect(diagnostic?.endpointIssueHint).toBe('ENDPOINT_PARAMETER_ERROR');
+    expect(diagnostic?.routedStatus).toBe('BAD_REQUEST_SESSION_OR_PARAM');
     expect(diagnostic?.responseKind).toBe('HTTP_ERROR');
     expect(diagnostic?.httpStatus).toBe(400);
     expect((diagnostic?.attemptedVariants?.length ?? 0)).toBeGreaterThan(1);
     expect(diagnostic?.summary).toContain('selectedVariant=NONE');
     expect(diagnostic?.summary).toContain('selectedKrxFlowMode=OTP_CSV');
     expect(JSON.stringify(diagnostic)).not.toContain('bad request');
+  });
+
+  it('guards MDCSTAT02201/02203 after market close without issuing HTTP fetches', async () => {
+    delete process.env.KRX_TIME_WINDOW_GATING_DISABLED;
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = 'true';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508', { now: new Date('2026-05-14T12:50:00.000Z') });
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+
+    expect(rows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(diagnostic?.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.marketSignal).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
+  });
+
+  it('guards MDCSTAT02201/02203 when KRX_INVESTOR_DETAIL_ENABLED is not true', async () => {
+    delete process.env.KRX_INVESTOR_DETAIL_ENABLED;
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260508', { now: new Date('2026-05-14T01:30:00.000Z') });
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+
+    expect(rows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(diagnostic?.routedStatus).toBe('ENDPOINT_PARAM_NOT_READY');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
+  });
+
+  it('isolates intraday MDCSTAT02201 HTTP 400 and prevents repeated endpoint calls with cooldown', async () => {
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = 'true';
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: { get: () => 'text/plain' },
+      text: async () => 'bad request',
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    await expect(fetchInvestorTrading('20260508', { now: new Date('2026-05-14T01:30:00.000Z') })).resolves.toEqual([]);
+    const callsAfterFirst = fetchSpy.mock.calls.length;
+    await expect(fetchInvestorTrading('20260508', { now: new Date('2026-05-14T01:31:00.000Z'), allowDisabledAutoFetch: true })).resolves.toEqual([]);
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260508');
+
+    expect(callsAfterFirst).toBe(2);
+    expect(fetchSpy.mock.calls.length).toBe(2);
+    expect(diagnostic?.routedStatus).toBe('BAD_REQUEST_SESSION_OR_PARAM');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.marketSignal).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
+    expect(diagnostic?.useForRouter).toBe(false);
+    expect(diagnostic?.useForGate).toBe(false);
+  });
+
+  it('classifies incomplete endpoint params as not ready before fetch', async () => {
+    vi.resetModules();
+    const { __krxClientTestOnly } = await import('./krxClient.js');
+    expect(__krxClientTestOnly.hasKrxInvestorDetailRequiredParams({
+      id: 'DIRECT_JSON:MDCSTAT02203:SYMBOL_INVESTOR_FLOW:STK:trdDd:symbol',
+      mode: 'DIRECT_JSON',
+      payloadMode: 'EXTENDED_VARIANT',
+      endpoint: 'MDCSTAT02203',
+      bld: 'dbms/MDC/STAT/standard/MDCSTAT02203',
+      routeKind: 'SYMBOL_INVESTOR_FLOW',
+      routePurpose: 'SYMBOL_LEVEL',
+      dateParam: 'trdDd',
+      marketCode: 'STK',
+      symbolCode: null,
+      isuCd: null,
+      shortCodeToIsuCdResolved: false,
+      requiredParamMissing: 'isuCd',
+      symbolRequired: true,
+      otpRequired: false,
+      params: { trdDd: '20260508', mktId: 'STK' },
+    })).toBe(false);
   });
 
   it('동일 날짜 재호출은 캐시 히트로 fetch 를 한 번만 사용한다', async () => {

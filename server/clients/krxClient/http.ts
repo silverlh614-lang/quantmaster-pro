@@ -311,7 +311,7 @@ export function buildKrxAutoDisabledDiagnostic(input: {
 export async function krxPost(
   bld: string,
   params: Record<string, string>,
-  options: { bypassTimeWindow?: boolean; allowDisabledAutoFetch?: boolean } = {},
+  options: { bypassTimeWindow?: boolean; allowDisabledAutoFetch?: boolean; suppressHttpErrorLog?: boolean } = {},
 ): Promise<KrxRawResponse | null> {
   if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
     const endpoint = bld.split('/').at(-1) ?? bld;
@@ -390,7 +390,9 @@ export async function krxPost(
         setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR', ...krxFailureMeta(bld), offHoursSuppressed: true, diagnosticOnly: kisFirst, useForRouter: !kisFirst, useForGate: !kisFirst, useForLive: false, useForShadow: true });
         return null;
       }
-      console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      if (!options.suppressHttpErrorLog) {
+        console.warn(`[KRX] ${bld} HTTP ${res.status}`);
+      }
       setKrxPostMeta(bld, { contentType: 'empty', httpStatus: res.status, responseKind: 'HTTP_ERROR' });
       recordBldFailure(bld);
       return null;

@@ -22,6 +22,7 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
   let capturedBody: string | null;
   let capturedBodies: string[];
   let capturedUrls: string[];
+  const originalKrxInvestorDetailEnabled = process.env.KRX_INVESTOR_DETAIL_ENABLED;
 
   beforeEach(() => {
     resetKrxCache();
@@ -31,6 +32,8 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
     delete process.env.DATA_FETCH_FORCE_MARKET;
     delete process.env.DATA_FETCH_FORCE_OFF;
     delete process.env.KRX_API_DISABLED;
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = 'true';
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       capturedUrls.push(String(_url));
       capturedBody = typeof init?.body === 'string' ? init!.body : null;
@@ -48,6 +51,8 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
     delete process.env.DATA_FETCH_FORCE_MARKET;
     delete process.env.DATA_FETCH_FORCE_OFF;
     delete process.env.KRX_API_DISABLED;
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = originalKrxInvestorDetailEnabled;
+    delete process.env.KRX_TIME_WINDOW_GATING_DISABLED;
   });
 
   it('평일 17:00 KST + date 생략 → 직전 영업일(20260423) 사용', async () => {
@@ -100,7 +105,7 @@ describe('krxClient — ADR-0009 통계 확정 게이트', () => {
       url.includes('/comm/bldAttendant/getJsonData.cmd'),
     ).length;
     expect(callsBeforeCooldownProbe).toBeGreaterThan(0);
-    expect(directJsonCallsBeforeCooldownProbe).toBe(10);
+    expect(directJsonCallsBeforeCooldownProbe).toBe(5);
     // 6번째 호출은 cooldown 으로 실제 fetch 없이 빈 배열 반환
     const out = await fetchInvestorTrading('20260410');
     expect(out).toEqual([]);

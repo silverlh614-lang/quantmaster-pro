@@ -105,6 +105,11 @@ export interface KrxInvestorTradingDiagnostic {
   parserStatus: KrxInvestorParserStatus;
   fieldMappings: Record<'symbol' | 'date' | 'investorType' | 'foreignNetBuy' | 'institutionNetBuy' | 'individualNetBuy' | 'netBuyAmount' | 'netBuyVolume', string | null>;
   endpointIssueHint: 'NONE' | 'ENDPOINT_PARAMETER_ERROR' | 'MARKET_CODE_ERROR' | 'SYMBOL_CODE_FORMAT_ERROR' | 'OTP_OR_HEADER_ERROR' | 'SCHEMA_KEY_CHANGED' | 'FIELD_ALIAS_CHANGED' | 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+  routedStatus?: 'SESSION_CLOSED_NOT_APPLICABLE' | 'ENDPOINT_PARAM_NOT_READY' | 'BAD_REQUEST_SESSION_OR_PARAM';
+  endpointIssue?: boolean;
+  scoring?: 'excluded';
+  retryable?: boolean;
+  fallbackAttempted?: boolean;
   summary: string;
 }
 
@@ -142,6 +147,7 @@ export interface KrxInvestorDetailRow {
 export interface FetchInvestorTradingOptions {
   symbol?: string | null;
   isuCd?: string | null;
+  now?: Date;
   /** Allows explicit manual diagnostics or after-close validation jobs to bypass KIS-first KRX auto-fetch suppression. */
   allowDisabledAutoFetch?: boolean;
 }

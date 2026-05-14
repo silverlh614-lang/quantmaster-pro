@@ -123,6 +123,7 @@ export function resetKrxCache(): void {
   resetCacheState();
   _resetCooldownState();
   clearLastKrxPostMetaState();
+  resetKrxInvestorDetailSafeProbeGuardState();
 }
 
 // ── ADR-0009 / 0259 회로 (ADR-0502c — cooldown.ts SSOT) ──────────────────────
@@ -163,6 +164,7 @@ import {
 export const __krxClientTestOnly = {
   sanitizeKrxPayload,
   buildKrxAutoDisabledDiagnostic,
+  hasKrxInvestorDetailRequiredParams,
 };
 
 // ── CSV 파서 + OTP-CSV flow (ADR-0502c Phase 2 — csv.ts + otpCsv.ts SSOT) ────
@@ -170,6 +172,109 @@ import { krxInvestorOtpCsv } from './krxClient/otpCsv.js';
 
 
 const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'csv', 'list', 'rows', 'result', 'block1'] as const;
+const INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS = new Set(['MDCSTAT02201', 'MDCSTAT02203']);
+const INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS = 60 * 60 * 1000;
+
+type KrxEndpointGuardReason =
+  | 'SESSION_CLOSED_NOT_APPLICABLE'
+  | 'ENDPOINT_PARAM_NOT_READY'
+  | 'BAD_REQUEST_SESSION_OR_PARAM';
+
+const krxInvestorDetailGuardCooldown = new Map<string, number>();
+const krxInvestorDetailGuardLogState = new Map<string, { lastEmittedAt: number; suppressedCount: number }>();
+
+function resetKrxInvestorDetailSafeProbeGuardState(): void {
+  krxInvestorDetailGuardCooldown.clear();
+  krxInvestorDetailGuardLogState.clear();
+}
+
+function kstDateParts(now: Date): { day: number; hour: number; minute: number } {
+  const kst = new Date(now.getTime() + 9 * 60 * 60_000);
+  return {
+    day: kst.getUTCDay(),
+    hour: kst.getUTCHours(),
+    minute: kst.getUTCMinutes(),
+  };
+}
+
+function isKrxInvestorDetailIntradaySession(now: Date): boolean {
+  if (process.env.KRX_TIME_WINDOW_GATING_DISABLED === 'true') return true;
+  if (process.env.DATA_FETCH_FORCE_MARKET === 'true') return true;
+  if (process.env.DATA_FETCH_FORCE_OFF === 'true') return false;
+  const { day, hour, minute } = kstDateParts(now);
+  if (day === 0 || day === 6) return false;
+  const minutes = hour * 60 + minute;
+  return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
+}
+
+function isKrxInvestorDetailSafeProbeEndpoint(endpoint: string): boolean {
+  return INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS.has(endpoint);
+}
+
+function krxInvestorDetailProbeEnabled(): boolean {
+  return process.env.KRX_INVESTOR_DETAIL_ENABLED === 'true';
+}
+
+function krxInvestorDetailGuardCooldownKey(input: {
+  endpoint: string;
+  session: 'CLOSED' | 'INTRADAY';
+  tradeDate: string;
+}): string {
+  return `provider=KRX:module=INVESTOR_DETAIL:endpoint=${input.endpoint}:session=${input.session}:date=${input.tradeDate}`;
+}
+
+function activeKrxInvestorDetailGuardCooldown(input: {
+  endpoint: string;
+  session: 'CLOSED' | 'INTRADAY';
+  tradeDate: string;
+  now: Date;
+}): number {
+  const cooldownUntil = krxInvestorDetailGuardCooldown.get(krxInvestorDetailGuardCooldownKey(input)) ?? 0;
+  return Math.max(0, cooldownUntil - input.now.getTime());
+}
+
+function recordKrxInvestorDetailBadRequestCooldown(input: {
+  endpoint: string;
+  tradeDate: string;
+  now: Date;
+}): void {
+  krxInvestorDetailGuardCooldown.set(
+    krxInvestorDetailGuardCooldownKey({ endpoint: input.endpoint, session: 'INTRADAY', tradeDate: input.tradeDate }),
+    input.now.getTime() + INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS,
+  );
+}
+
+function emitKrxInvestorDetailGuard(input: {
+  endpoint: string;
+  reason: KrxEndpointGuardReason;
+  intradaySession: boolean;
+  enabled: boolean;
+  now: Date;
+}): void {
+  const key = `${input.endpoint}:${input.reason}:${input.intradaySession ? 'INTRADAY' : 'CLOSED'}:${input.enabled ? 'ENABLED' : 'DISABLED'}`;
+  const state = krxInvestorDetailGuardLogState.get(key);
+  const elapsed = state ? input.now.getTime() - state.lastEmittedAt : Number.POSITIVE_INFINITY;
+  if (!state || elapsed >= INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS) {
+    if (state && state.suppressedCount > 0) {
+      console.info(
+        `[KRX_ENDPOINT_GUARD_SUPPRESSED] endpoint=${input.endpoint}` +
+        ` reason=${input.reason}` +
+        ` suppressedCount=${state.suppressedCount}` +
+        ' executionImpact=NONE',
+      );
+    }
+    console.info(
+      `[KRX_ENDPOINT_GUARDED] endpoint=${input.endpoint}` +
+      ` reason=${input.reason}` +
+      ` intradaySession=${String(input.intradaySession)}` +
+      ` enabled=${String(input.enabled)}` +
+      ' providerIssue=false marketSignal=false executionImpact=NONE',
+    );
+    krxInvestorDetailGuardLogState.set(key, { lastEmittedAt: input.now.getTime(), suppressedCount: 0 });
+    return;
+  }
+  state.suppressedCount += 1;
+}
 
 // ADR-0502c: ExtractRowsResult 정의는 ./krxClient/types.ts 로 이동.
 
@@ -490,6 +595,237 @@ function buildInvestorTradingDiagnostic(input: {
   };
 }
 
+function emptyInvestorFieldMappings(): KrxInvestorTradingDiagnostic['fieldMappings'] {
+  return {
+    symbol: null,
+    date: null,
+    investorType: null,
+    foreignNetBuy: null,
+    institutionNetBuy: null,
+    individualNetBuy: null,
+    netBuyAmount: null,
+    netBuyVolume: null,
+  };
+}
+
+function buildKrxInvestorDetailGuardDiagnostic(input: {
+  variant: KrxInvestorEndpointVariant;
+  tradeDate: string;
+  attemptedVariants: string[];
+  reason: KrxEndpointGuardReason;
+  intradaySession: boolean;
+  enabled: boolean;
+  cooldownRemainingMs?: number;
+  httpStatus?: number | null;
+}): KrxInvestorTradingDiagnostic {
+  const responseKind: KrxInvestorTradingDiagnostic['responseKind'] =
+    input.reason === 'BAD_REQUEST_SESSION_OR_PARAM'
+      ? (input.httpStatus === 400 ? 'HTTP_ERROR' : 'COOLDOWN')
+      : 'GATED';
+  const endpointIssueHint: KrxInvestorTradingDiagnostic['endpointIssueHint'] =
+    input.reason === 'SESSION_CLOSED_NOT_APPLICABLE'
+      ? 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE'
+      : 'ENDPOINT_PARAMETER_ERROR';
+  const summary = [
+    input.variant.endpoint,
+    `routedStatus=${input.reason}`,
+    `endpointIssueHint=${endpointIssueHint}`,
+    `intradaySession=${String(input.intradaySession)}`,
+    `enabled=${String(input.enabled)}`,
+    'providerIssue=false',
+    'marketSignal=false',
+    'executionImpact=NONE',
+    'scoring=excluded',
+    'fallbackAttempted=false',
+    'useForRouter=false',
+    'useForGate=false',
+    'useForLive=false',
+    'useForShadow=false',
+    `cooldownRemainingMs=${input.cooldownRemainingMs ?? 0}`,
+    `httpStatus=${input.httpStatus ?? 'NONE'}`,
+    `variant=${input.variant.id}`,
+    `attemptedVariants=${input.attemptedVariants.join('|') || input.variant.id}`,
+  ].join(';');
+  return {
+    provider: 'KRX',
+    providerIssue: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    endpoint: input.variant.endpoint,
+    bld: input.variant.bld,
+    tradeDate: input.tradeDate,
+    selectedKrxFlowMode: input.variant.mode,
+    payloadMode: input.variant.payloadMode,
+    routePurpose: input.variant.routePurpose,
+    selectedBld: input.variant.bld,
+    requiredParamMissing: input.variant.requiredParamMissing ?? null,
+    shortCodeToIsuCdResolved: input.variant.shortCodeToIsuCdResolved,
+    isuCd: input.variant.isuCd,
+    inqTpCd: input.variant.inqTpCd ?? null,
+    inqVal: input.variant.inqVal ?? null,
+    detailView: input.variant.detailView ?? null,
+    endpointVariant: input.variant.id,
+    routeKind: input.variant.routeKind,
+    dateParam: input.variant.dateParam,
+    marketCode: input.variant.marketCode,
+    symbolCode: input.variant.symbolCode,
+    symbolRequired: input.variant.symbolRequired,
+    otpRequired: input.variant.otpRequired,
+    otpGenerated: false,
+    otpLength: 0,
+    csvDownloaded: false,
+    csvRowCount: 0,
+    csvColumnKeys: [],
+    csvFailureReason: input.reason,
+    csvHeaderDetected: false,
+    csvNoDataReason: input.reason,
+    omittedKeys: [],
+    forbiddenKeysPresent: [],
+    requiredKeysPresent: [],
+    requiredKeysMissing: input.variant.requiredParamMissing ? [input.variant.requiredParamMissing] : [],
+    sentPayloadKeys: [],
+    parameterKeys: Object.keys(input.variant.params),
+    attemptedVariants: input.attemptedVariants,
+    selectedVariant: null,
+    contentType: 'empty',
+    httpStatus: input.httpStatus ?? null,
+    responseKind,
+    consecutiveFailures: input.reason === 'BAD_REQUEST_SESSION_OR_PARAM' ? 1 : 0,
+    cooldownActive: input.reason === 'BAD_REQUEST_SESSION_OR_PARAM',
+    cooldownRemainingMs: input.cooldownRemainingMs ?? 0,
+    offHoursSuppressed: input.reason === 'SESSION_CLOSED_NOT_APPLICABLE',
+    diagnosticOnly: true,
+    useForRouter: false,
+    useForGate: false,
+    useForLive: false,
+    useForShadow: false,
+    rawTopLevelKeys: [],
+    detectedCandidatePaths: [],
+    selectedRowPath: null,
+    selectedRowCount: 0,
+    firstRowKeys: [],
+    normalizedRows: 0,
+    parserStatus: 'PROVIDER_EMPTY_RESPONSE',
+    fieldMappings: emptyInvestorFieldMappings(),
+    endpointIssueHint,
+    routedStatus: input.reason,
+    endpointIssue: input.reason !== 'SESSION_CLOSED_NOT_APPLICABLE',
+    scoring: 'excluded',
+    retryable: false,
+    fallbackAttempted: false,
+    summary,
+  };
+}
+
+function hasKrxInvestorDetailRequiredParams(variant: KrxInvestorEndpointVariant): boolean {
+  if (!variant.bld.trim()) return false;
+  if (variant.requiredParamMissing) return false;
+  if (!['STK', 'KSQ', 'ALL'].includes(variant.marketCode)) return false;
+  const dateKeys = variant.dateParam === 'strtDd/endDd' ? ['strtDd', 'endDd'] : [variant.dateParam];
+  if (!dateKeys.every((key) => /^\d{8}$/.test(String(variant.params[key] ?? '')))) return false;
+  if (variant.routePurpose === 'SYMBOL_LEVEL') {
+    const hasSymbol = variant.symbolCode != null && /^\d{6}$/.test(variant.symbolCode);
+    const hasIsuCd = variant.isuCd != null && /^[A-Z]{2}\d{10}$/.test(variant.isuCd);
+    if (!hasSymbol && !hasIsuCd) return false;
+    if (variant.id.includes('SYMBOL_ISU') && !variant.shortCodeToIsuCdResolved) return false;
+  }
+  return true;
+}
+
+function guardedKrxInvestorDetailDiagnosticForVariant(input: {
+  variant: KrxInvestorEndpointVariant;
+  tradeDate: string;
+  attemptedVariants: string[];
+  intradaySession: boolean;
+  now: Date;
+}): KrxInvestorTradingDiagnostic | null {
+  if (!isKrxInvestorDetailSafeProbeEndpoint(input.variant.endpoint)) return null;
+  const enabled = krxInvestorDetailProbeEnabled();
+  const session = input.intradaySession ? 'INTRADAY' : 'CLOSED';
+  const cooldownRemainingMs = activeKrxInvestorDetailGuardCooldown({
+    endpoint: input.variant.endpoint,
+    session,
+    tradeDate: input.tradeDate,
+    now: input.now,
+  });
+  const reason: KrxEndpointGuardReason | null =
+    !input.intradaySession
+      ? 'SESSION_CLOSED_NOT_APPLICABLE'
+      : !enabled
+        ? 'ENDPOINT_PARAM_NOT_READY'
+        : cooldownRemainingMs > 0
+          ? 'BAD_REQUEST_SESSION_OR_PARAM'
+          : !hasKrxInvestorDetailRequiredParams(input.variant)
+            ? 'ENDPOINT_PARAM_NOT_READY'
+            : null;
+  if (!reason) return null;
+  emitKrxInvestorDetailGuard({
+    endpoint: input.variant.endpoint,
+    reason,
+    intradaySession: input.intradaySession,
+    enabled,
+    now: input.now,
+  });
+  return buildKrxInvestorDetailGuardDiagnostic({
+    variant: input.variant,
+    tradeDate: input.tradeDate,
+    attemptedVariants: input.attemptedVariants,
+    reason,
+    intradaySession: input.intradaySession,
+    enabled,
+    cooldownRemainingMs,
+  });
+}
+
+function markKrxInvestorDetailBadRequestDiagnostic(input: {
+  diagnostic: KrxInvestorTradingDiagnostic;
+  variant: KrxInvestorEndpointVariant;
+  tradeDate: string;
+  attemptedVariants: string[];
+  intradaySession: boolean;
+  now: Date;
+}): KrxInvestorTradingDiagnostic {
+  if (
+    !isKrxInvestorDetailSafeProbeEndpoint(input.variant.endpoint) ||
+    !input.intradaySession ||
+    input.diagnostic.httpStatus !== 400
+  ) {
+    return input.diagnostic;
+  }
+  recordKrxInvestorDetailBadRequestCooldown({
+    endpoint: input.variant.endpoint,
+    tradeDate: input.tradeDate,
+    now: input.now,
+  });
+  emitKrxInvestorDetailGuard({
+    endpoint: input.variant.endpoint,
+    reason: 'BAD_REQUEST_SESSION_OR_PARAM',
+    intradaySession: input.intradaySession,
+    enabled: krxInvestorDetailProbeEnabled(),
+    now: input.now,
+  });
+  return {
+    ...input.diagnostic,
+    providerIssue: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    useForRouter: false,
+    useForGate: false,
+    useForLive: false,
+    useForShadow: false,
+    endpointIssueHint: 'ENDPOINT_PARAMETER_ERROR',
+    routedStatus: 'BAD_REQUEST_SESSION_OR_PARAM',
+    endpointIssue: true,
+    scoring: 'excluded',
+    retryable: false,
+    fallbackAttempted: false,
+    cooldownActive: true,
+    cooldownRemainingMs: INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS,
+    attemptedVariants: input.attemptedVariants,
+    summary: `${input.diagnostic.summary};routedStatus=BAD_REQUEST_SESSION_OR_PARAM;providerIssue=false;marketSignal=false;executionImpact=NONE;scoring=excluded;retryable=false;cooldownMs=${INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS};useForRouter=false;useForGate=false;useForLive=false;useForShadow=false`,
+  };
+}
+
 /** "1,234,567" · "-1,234" · "" → number. 실패 시 0. */
 function toNum(s: unknown): number {
   if (s == null) return 0;
@@ -736,7 +1072,8 @@ function buildInvestorTradingVariants(
  * KRX 리포트 필드명 (MDCSTAT02203)은 한글 키 — 방어적 다중 키 fallback 적용.
  */
 export async function fetchInvestorTrading(date?: string, options: FetchInvestorTradingOptions = {}): Promise<KrxInvestorRow[]> {
-  const tradeDate = resolveTradeDate(date);
+  const now = options.now ?? new Date();
+  const tradeDate = resolveTradeDate(date, now);
   const symbolCode = normalizeCode(options.symbol);
   const explicitIsuCd = normalizeIsuCd(options.isuCd);
   const cacheKey = `investor:${tradeDate}:${symbolCode || 'ALL'}:${explicitIsuCd || 'AUTO_ISU'}`;
@@ -756,25 +1093,44 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
   }
   const isuCdResolution = resolveKrxIsuCdForSymbol(symbolCode, explicitIsuCd);
   const variants = buildInvestorTradingVariants(compactDate, symbolCode, isuCdResolution);
+  const intradaySession = isKrxInvestorDetailIntradaySession(now);
   const attemptedDiagnostics: KrxInvestorTradingDiagnostic[] = [];
   const attemptedVariantIds: string[] = [];
   for (const variant of variants) {
     attemptedVariantIds.push(variant.id);
+    const guardedDiagnostic = guardedKrxInvestorDetailDiagnosticForVariant({
+      variant,
+      tradeDate: compactDate,
+      attemptedVariants: [...attemptedVariantIds],
+      intradaySession,
+      now,
+    });
+    if (guardedDiagnostic) {
+      attemptedDiagnostics.push(guardedDiagnostic);
+      continue;
+    }
     const raw = variant.mode === 'OTP_CSV'
       ? await krxInvestorOtpCsv(variant, { allowDisabledAutoFetch: options.allowDisabledAutoFetch })
-      : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true, allowDisabledAutoFetch: options.allowDisabledAutoFetch });
+      : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true, allowDisabledAutoFetch: options.allowDisabledAutoFetch, suppressHttpErrorLog: isKrxInvestorDetailSafeProbeEndpoint(variant.endpoint) });
     const extracted = extractRowsDetailed(raw);
     const normalized = normalizeKrxInvestorRows(extracted.rows);
     const rows = symbolCode
       ? normalized.rows.filter((row) => row.code === symbolCode)
       : normalized.rows;
-    const diagnostic = buildInvestorTradingDiagnostic({
-      raw,
-      tradeDate: compactDate,
-      extract: extracted,
-      normalized: { ...normalized, rows },
+    const diagnostic = markKrxInvestorDetailBadRequestDiagnostic({
+      diagnostic: buildInvestorTradingDiagnostic({
+        raw,
+        tradeDate: compactDate,
+        extract: extracted,
+        normalized: { ...normalized, rows },
+        variant,
+        attemptedVariants: [...attemptedVariantIds],
+      }),
       variant,
+      tradeDate: compactDate,
       attemptedVariants: [...attemptedVariantIds],
+      intradaySession,
+      now,
     });
     attemptedDiagnostics.push(diagnostic);
     if (rows.length > 0 && diagnostic.parserStatus === 'OK') {
@@ -787,6 +1143,7 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
 
   const bestDiagnostic =
     attemptedDiagnostics.find((diagnostic) => diagnostic.selectedRowCount > 0 && diagnostic.normalizedRows > 0) ??
+    attemptedDiagnostics.find((diagnostic) => diagnostic.routedStatus === 'BAD_REQUEST_SESSION_OR_PARAM') ??
     attemptedDiagnostics.find((diagnostic) => diagnostic.responseKind !== 'HTTP_ERROR' && diagnostic.responseKind !== 'COOLDOWN') ??
     attemptedDiagnostics.find((diagnostic) => diagnostic.responseKind === 'HTTP_ERROR') ??
     attemptedDiagnostics.at(-1) ??
