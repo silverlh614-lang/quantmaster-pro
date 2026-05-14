@@ -204,4 +204,10 @@ describe('sectorScoreBoost (ADR-0075)', () => {
       expect(describeSectorBoost('반도체', 0, 'UNKNOWN')).toBe('반도체 0');
     });
   });
+
+  it('KIS_STOCK_BASKET_DERIVED production source는 sector boost를 허용하지 않는다', () => {
+    const r = { ...makeResult({ leading: ['반도체'] }), selectedProductionSourceTier: 'KIS_STOCK_BASKET_DERIVED' as const };
+    expect(applySectorScoreBoost('반도체', r, 'R2_BULL', 'PARTIAL')).toBe(0);
+  });
+
 });

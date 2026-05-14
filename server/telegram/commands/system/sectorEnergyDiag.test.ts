@@ -165,8 +165,11 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
 
       expect(msg).toMatch(/confidence.*65\.0%.*PARTIAL.*KIS basket derived/);
       expect(msg).not.toMatch(/confidence.*0\.0%/);
-      expect(msg).toContain('verifiedIndexCodeCoverage: <b>0.0%</b> (0/12)');
-      expect(msg).toContain('kisBasketCoverage: <b>100.0%</b> (12/12)');
+      expect(msg).toContain('selectedSourceTier: <code>KIS_STOCK_BASKET_DERIVED</code>');
+      expect(msg).toContain('officialCoverage: <b>0/12</b>');
+      expect(msg).toContain('basketCoverage: <b>12/12</b>');
+      expect(msg).toContain('productionOfficialCoverage: <b>0.0%</b> (0/12)');
+      expect(msg).toContain('productionBasketCoverage: <b>100.0%</b> (12/12)');
       expect(msg).toContain(
         'KIS basket is derived from official KIS daily prices',
       );

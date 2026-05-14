@@ -46,6 +46,7 @@ export type SectorEnergySourceTier =
   | 'KIS_OFFICIAL_INDEX'
   | 'KIS_OFFICIAL_DAILY'
   | 'KIS_STOCK_BASKET_DERIVED'
+  | 'KIS_SECTOR_INDEX_DAILY_DRYRUN'
   | 'KRX_OFFICIAL_INDEX'
   | 'KRX_CODE'
   | 'STOCK_DAILY'
@@ -90,6 +91,7 @@ export const SOURCE_WEIGHT: Readonly<Record<SectorEnergySourceTier, number>> =
     KIS_OFFICIAL_INDEX: 1.0,
     KIS_OFFICIAL_DAILY: 0.9,
     KIS_STOCK_BASKET_DERIVED: 0.65,
+    KIS_SECTOR_INDEX_DAILY_DRYRUN: 0,
     KRX_OFFICIAL_INDEX: 1.0,
     KRX_CODE: 1.0,
     STOCK_DAILY: 0.2,

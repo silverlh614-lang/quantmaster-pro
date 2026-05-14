@@ -95,6 +95,16 @@ export function applySectorScoreBoost(
   if (!sectorName) return 0;
   if (!sectorResult) return 0;
 
+  // KIS representative basket / sector-index dry-run are shadow/watch-only sources.
+  // They must not produce a live sector Gate boost before the promotion ladder reaches CORE.
+  if (
+    sectorResult.selectedProductionSourceTier === 'KIS_STOCK_BASKET_DERIVED' ||
+    sectorResult.sourceTier === 'KIS_STOCK_BASKET_DERIVED' ||
+    sectorResult.dryRunCandidateSourceTier === 'KIS_SECTOR_INDEX_DAILY_DRYRUN'
+  ) {
+    return 0;
+  }
+
   // ADR-0125: dataQuality multiplier 사전 계산 — STALE/FAILED 시 즉시 0 반환.
   const multiplier = getSectorBoostMultiplier(dataQuality);
   if (multiplier === 0) return 0;

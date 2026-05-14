@@ -703,7 +703,8 @@ export function formatSectorEnergyQualityDiagnosticSection(
     lines.push(`  • validSectorCount: ${diagnostic.validSectorCount}/${diagnostic.expectedSectorCount}`);
     lines.push(`  • officialIndex: ${audit.officialSectorIndexAvailable ? 'available' : 'unavailable'}`);
     lines.push(`  • basket: KIS representative, rows=${audit.representativeBasketActualRows}/${audit.representativeBasketExpectedRows}`);
-    lines.push(`  • freshRows: ${audit.priceRowsFresh} / staleRows: ${audit.priceRowsStale} / missingRows: ${audit.representativeBasketMissingRows}`);
+    lines.push('  • rowFreshness:');
+    lines.push(`    freshRows=${audit.priceRowsFresh} staleRows=${audit.priceRowsStale} missingRows=${audit.representativeBasketMissingRows}`);
     lines.push(`  • breakPoint: ${audit.breakPoint}`);
     lines.push(`  • sectorBoostAllowed=${audit.sectorBoostAllowed}`);
     lines.push(`  • strongBuyAllowed=${audit.strongBuyAllowed}`);
@@ -715,15 +716,20 @@ export function formatSectorEnergyQualityDiagnosticSection(
     const topProblems = coverage.sectorRows
       .filter((row) => row.reason !== 'OK')
       .slice(0, 3);
-    lines.push(`  • coverage: expectedSectorCount=${coverage.expectedSectorCount} validSectorCount=${coverage.validSectorCount} staleSectorCount=${coverage.staleSectorCount} missingSectorCount=${coverage.missingSectorCount} partialSectorCount=${coverage.partialSectorCount}`);
+    lines.push('  • sectorCoverage:');
+    lines.push(`    completeSectorCount=${coverage.validSectorCount} partialSectorCount=${coverage.partialSectorCount} staleSectorCount=${coverage.staleSectorCount} missingSectorCount=${coverage.missingSectorCount}`);
     if (topProblems.length > 0) {
-      lines.push('  • Sector rows top problems:');
+      lines.push('  • topProblems:');
       topProblems.forEach((row, index) => {
-        const reasonLabel = row.reason === 'PRICE_ROWS_MISSING' ? 'priceRowsMissing'
+        const problemType = row.reason === 'PRICE_ROWS_MISSING' ? 'priceRowsMissing'
           : row.reason === 'PRICE_ROWS_STALE' ? 'priceRowsStale'
             : row.reason === 'NO_REPRESENTATIVE_SYMBOLS' ? 'representativeSymbolsMissing'
               : row.reason;
-        lines.push(`    ${index + 1}. ${row.sectorName}: ${reasonLabel}`);
+        const rowLevelStatus = row.priceRowsMissing > 0 ? 'MISSING_ROWS' : row.freshness;
+        const action = row.reason === 'PRICE_ROWS_STALE' ? 'REFRESH_SECTOR_BASKET_PRICE_CACHE'
+          : row.reason === 'PRICE_ROWS_MISSING' ? 'WIRE_KIS_DAILY_PRICE_ROWS_FOR_SECTOR_BASKET'
+            : 'VERIFY_SECTOR_COVERAGE_INPUT';
+        lines.push(`    ${index + 1}. sector=${row.sectorName} problemType=${problemType} rowLevelStatus=${rowLevelStatus} sectorLevelStatus=${row.freshness} action=${action}`);
       });
     }
   }
