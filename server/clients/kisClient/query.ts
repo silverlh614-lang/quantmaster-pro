@@ -601,7 +601,7 @@ export async function fetchKisDailyShortSale(
     if (!selected) {
       const rows = pickKisRows(data);
       const payloadClass = classifyShortPayload(rows, { trId: 'FHPST04830000' });
-      console.warn('[KIS] SHORT materialize skipped', payloadClass);
+      console.warn(`[SHORT_LAYER_SKIPPED] rootCause=SHORT_LAYER_NOT_MATERIALIZED blocking=false marketSignal=false executionImpact=NONE useForExecution=false useForShadow=true payloadClass=${JSON.stringify(payloadClass)}`);
       return null;
     }
     const rows = selected.rows;
