@@ -1,0 +1,169 @@
+// @responsibility ADR-0514 SELL_ONLY gateSemanticFlatRow carry regression tests.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearSupplyBySymbolPayloadSnapshotsForTest, rememberSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
+import { buildGate1MinimumSignalForensicAuditAdr0505 } from './gate1MinimumSignalForensicAuditAdr0505.js';
+import { collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 } from './gate1ForensicInputsCollectorAdr0507.js';
+import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
+
+function makeTrace(symbol: string): MinimumSignalScoreTrace {
+  return {
+    symbol,
+    requiredScore: 6,
+    actualScore: 0,
+    scoreGap: 6,
+    passed: false,
+    components: [],
+    positiveScoreTotal: 0,
+    penaltyTotal: 0,
+    unknownPenaltyTotal: 0,
+    providerIssuePenaltyTotal: 0,
+    sessionPenaltyTotal: 0,
+    sectorPenaltyTotal: 0,
+    riskPenaltyTotal: 0,
+    softFailPenaltyTotal: 0,
+    topMissingContributors: [],
+    topPenaltyContributors: [],
+    wouldPassIfUnknownNeutral: false,
+    wouldPassIfProviderPenaltyRemoved: false,
+    wouldPassIfSessionPenaltyRemoved: false,
+    wouldPassIfRiskPenaltyCapped: false,
+    wouldPassIfSectorPenaltyRemoved: false,
+    wouldPassIfSoftFailPenaltyRemoved: false,
+  };
+}
+
+function sellOnlyGateTrace(symbol: string) {
+  return {
+    symbol,
+    regime: 'R2_BULL' as const,
+    marketSession: 'SELL_ONLY' as const,
+    gate1Passed: false,
+    hardFailCount: 0,
+    softFailCount: 0,
+    diagnosticOnlyCount: 1,
+    conditions: [],
+    wouldPassIfProviderIssueSoftened: false,
+    wouldPassIfSupplySampleIgnored: false,
+    wouldPassIfSectorEnergyIgnored: false,
+    wouldPassIfTimeWindowIgnored: true,
+    minSignalScoreTrace: makeTrace(symbol),
+    executionImpact: 'NONE' as const,
+  };
+}
+
+function sellOnlyCandidateTrace(symbol: string) {
+  return {
+    symbol,
+    stageReached: 'WATCHLIST' as const,
+    marketSession: 'SELL_ONLY' as const,
+    blockers: [],
+    executionImpact: 'NONE' as const,
+  };
+}
+
+beforeEach(() => {
+  clearSupplyBySymbolPayloadSnapshotsForTest();
+});
+
+describe('ADR-0514 SELL_ONLY gateSemanticFlatRow carry', () => {
+  it('carries gateSemanticFlatRow from SELL_ONLY bySymbol payload into forensic kisFlow', () => {
+    const flatRow = {
+      foreignNetBuy: 0,
+      institutionNetBuy: 250,
+      programNetBuy: null,
+      _source: 'ROUTER_EXTRACTED' as const,
+    };
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      tradeDate: '2026-05-13',
+      now: '2026-05-13T01:05:00.000Z',
+      maxAgeMinutes: 60,
+      gate1CandidateTraces: [sellOnlyGateTrace('123450')],
+      candidateTraces: [sellOnlyCandidateTrace('123450')],
+      supplyRouterResult: {
+        bySymbol: {
+          '123450': {
+            code: '123450',
+            providerScope: 'SYMBOL_LEVEL',
+            gateSemanticFlatRow: flatRow,
+            actualInvestorFlowCarried: true,
+          },
+        },
+      },
+    });
+
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
+    expect(inputs[0].kisFlow?.gateSemanticFlatRow).toEqual(flatRow);
+    expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.gateSemanticFlatRow).toEqual(flatRow);
+  });
+
+  it('preserves base gateSemanticFlatRow when cached SELL_ONLY bySymbol payload is stale', () => {
+    rememberSupplyBySymbolPayloadSnapshot({
+      tradeDate: '2026-05-12',
+      capturedAt: '2026-05-12T01:00:00.000Z',
+      routeResult: {
+        selectedProvider: 'KIS_API',
+        bySymbol: {
+          '000661': {
+            code: '000661',
+            providerScope: 'SYMBOL_LEVEL',
+            actualInvestorFlowRows: [{ frgn_ntby_qty: '10' }],
+            actualInvestorFlowCarried: true,
+          },
+        },
+      },
+    });
+    const baseFlatRow = {
+      foreignNetBuy: 10,
+      institutionNetBuy: -20,
+      programNetBuy: null,
+      _source: 'ROUTER_EXTRACTED' as const,
+    };
+    const supplyProviderHealth = {
+      providerName: 'KIS_API',
+      selectedInvestorFlowProvider: 'KIS_API',
+      providerScope: 'SYMBOL_LEVEL',
+      gateSemanticFlatRow: baseFlatRow,
+    } as unknown as NonNullable<Parameters<typeof collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507>[0]['supplyProviderHealth']>;
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      tradeDate: '2026-05-13',
+      now: '2026-05-13T03:00:00.000Z',
+      maxAgeMinutes: 60,
+      gate1CandidateTraces: [sellOnlyGateTrace('000661')],
+      candidateTraces: [sellOnlyCandidateTrace('000661')],
+      supplyProviderHealth,
+      supplyRouterResult: { bySymbol: {} },
+    });
+
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(false);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_STALE');
+    expect(inputs[0].kisFlow?.gateSemanticFlatRow).toEqual(baseFlatRow);
+  });
+
+  it('adds sellOnlyCarryBreakPoint to WRAPPER semantic wire diagnostics', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace('999991'),
+        quoteSymbol: '999991',
+        sellOnlyCarryBreakPoint: 'BYSYMBOL_PAYLOAD_MISSING',
+        kisFlow: {
+          symbol: '999991',
+          requestSymbol: '999991',
+          providerScope: 'SYMBOL_LEVEL',
+          selectedProvider: 'KIS_API',
+          materialized: true,
+        },
+      });
+      const beforeLog = warnSpy.mock.calls
+        .map((call) => String(call[0]))
+        .find((line) => line.includes('stage=BEFORE_SEMANTIC_EVAL'));
+      expect(beforeLog).toContain('inputShape=WRAPPER');
+      expect(beforeLog).toContain('sellOnlyCarryBreakPoint=BYSYMBOL_PAYLOAD_MISSING');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});

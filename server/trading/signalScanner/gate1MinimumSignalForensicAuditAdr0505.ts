@@ -1096,7 +1096,8 @@ function buildSupplyScopeAudit(input: {
       + ` foreignNetBuy=${flatRowForGate?.foreignNetBuy ?? 'null'}`
       + ` institutionNetBuy=${flatRowForGate?.institutionNetBuy ?? 'null'}`
       + ` programNetBuy=${flatRowForGate?.programNetBuy ?? 'null'}`
-      + ' providerIssue=false',
+      + ' providerIssue=false'
+      + (flatRowForGate == null && input.sellOnlyCarryBreakPoint ? ` sellOnlyCarryBreakPoint=${input.sellOnlyCarryBreakPoint}` : ''),
     );
   }
   const semantic = evaluateInvestorFlowSemanticAvailabilityV2({

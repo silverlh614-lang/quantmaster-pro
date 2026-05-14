@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0514`**
+**다음 ADR 번호: `0515`**
+
+(2026-05-14 기준, 마지막 발급 0514 — sell-only-gate-flat-row-carry-restore. ADR-0514 는 SELL_ONLY 세션 bySymbol payload carry 경로에서 `gateSemanticFlatRow` 가 누락되어 Gate semantic eval 이 `inputShape=WRAPPER` / `RAW_INVESTOR_ROW_MISSING` 으로 반복 진단되던 결함을 복구한다. `mergeActualRowCarryAdr0507` 이 fresh bySymbol payload 의 flat row 를 carry 하고, stale payload 는 base flat row 를 보존한다. WRAPPER fallback 진단에는 `sellOnlyCarryBreakPoint` 를 함께 출력한다. executionImpact=NONE, liveExecutionAllowed=false, autoTradeEngine / KIS order path 변경 0.)
 
 (2026-05-14 기준, 마지막 발급 0513 — supply-gate-semantic-unwrap-wiring. ADR-0513 은 InvestorFlowProviderRouter VERIFIED 이지만 Gate semantic 이 wrapper metadata 를 선택해 0/50 unusable 이 되는 단절을 복구한다. Router 가 `foreignNetBuy` / `institutionNetBuy` / `programNetBuy` 만 담은 flat gate row 를 명시 생성하고, semantic evaluator 는 `extractFlatInvestorFlowRow()` 로 effectiveFlow 를 전 경로에 적용한다. `0` 은 유효한 중립값이며 missing 이 아니다. `ONLY_WRAPPER_OBJECT_SELECTED` 는 providerIssue=false, marketSignal=false, executionImpact=NONE 으로 격리한다. BEFORE/AFTER semantic eval 진단 로그는 60초 throttle 로 emit 한다. LIVE 매매 본체 / KIS order path / autoTradeEngine 변경 0.)
 
@@ -203,6 +205,7 @@
 
 | 번호 | 제목 | 도메인 |
 |------|------|--------|
+| 0514 | sell-only-gate-flat-row-carry-restore. SELL_ONLY 세션 bySymbol payload carry 경로에서 `gateSemanticFlatRow` 가 누락되어 Gate semantic eval 이 `inputShape=WRAPPER` / `RAW_INVESTOR_ROW_MISSING` 으로 반복 진단되던 결함 복구. `mergeActualRowCarryAdr0507` 이 fresh bySymbol payload flat row 를 carry 하고 stale payload 는 base flat row 를 보존. WRAPPER fallback 진단에는 `sellOnlyCarryBreakPoint` 추가. executionImpact=NONE / liveExecutionAllowed=false / autoTradeEngine·KIS order path 변경 0. | supply / sell-only / gate-semantic |
 | 0513 | supply-gate-semantic-unwrap-wiring. InvestorFlowProviderRouter VERIFIED 이지만 Gate semantic 이 wrapper metadata 를 선택해 0/50 unusable 이 되는 단절 복구. Router flat gate row (`foreignNetBuy` / `institutionNetBuy` / `programNetBuy`) 명시 생성, semantic evaluator effectiveFlow 전 경로 적용, `0` 은 missing 이 아닌 중립값. `ONLY_WRAPPER_OBJECT_SELECTED` 는 providerIssue=false / marketSignal=false / executionImpact=NONE. BEFORE/AFTER semantic eval 60s throttle 진단 로그. LIVE 매매 본체 / KIS order path / autoTradeEngine 변경 0. | supply / gate-semantic / diagnostics |
 | 0511 | kis-sector-index-daily-fetcher. KIS 국내업종 기간별 지수 시세 Fetcher — callable SSOT (ENV-gated default OFF, live 파이프라인 미연결). KIS 공식 오픈소스 zip 분석 → `inquire-daily-indexchartprice` / `FHKUP03500100` endpoint 검증 채택 → `fetchKisSectorIndexDaily()` callable SSOT + `KIS_SECTOR_INDEX_ISCD` well-known 업종 상세코드 SSOT + `isKisSectorIndexDailyDisabled()` ENV gate + `KisSectorIndexDailyRow`/`KisSectorIndexDaily` 도메인 타입. `realDataKisGet` SSOT 경유, output1 스냅샷 + output2 시계열 파싱. ENV `KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true'` default OFF. 9 불변식 — LIVE 매매 본체 0줄 / KIS 주문 함수 import 0건 / 신규 외부 API 직접 호출 0건 / SectorEnergy live 미연결 (callable only) / KRX 가 공식 원천 KIS 는 proxy/fallback (ADR-0510 정합) / executionImpact='NONE'. 회귀 14/14 PASS. callable 함수 신설만 — live wiring 후속 PR. | kis / sector-energy / proxy-fallback / callable-only |
 | 0510 | krx-first-universe-and-sector-energy-pipeline-design. KRX-First Universe & Sector Energy Pipeline — Design ADR (코드 0줄, OBSERVE 단계 전 설계 SSOT). KRX 를 전 종목 스캔·섹터 에너지·기초 시장 데이터의 1차 원천으로 복귀시키고 KIS 는 최종 후보 검증·보유/매도 관리에만 남기는 6-Stage 파이프라인 + 7-Phase 점진 승격 (OBSERVE → SHADOW_SCORE → ADVISORY → WEIGHTED → GATED → CORE) SSOT 설계. 코드 0줄 변경 design ADR — 실제 SSOT 신설은 ADR-0511+ 후속 PR 분리. | design / krx-first / sector-energy / pipeline |

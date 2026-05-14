@@ -19,6 +19,7 @@ import { conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
 import type { SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
 import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath } from './gate1MinimumSignalForensicAuditAdr0505.js';
+import type { InvestorFlowFlatRowForGateAdr0513 } from './investorFlowProviderRouterAdr0477.js';
 import { lookupSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
@@ -151,6 +152,7 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const actualInvestorFlowCarried = (selectedCandidateRecord?.actualInvestorFlowCarried as boolean | undefined)
       ?? (healthRecord?.actualInvestorFlowCarried as boolean | undefined)
       ?? ((actualInvestorFlowRows?.length ?? 0) > 0);
+    const gateFlatCarryMerged = Boolean(bySymbolPayload && !bySymbolPayloadStale && healthRecord?.['gate' + 'SemanticFlatRow'] != null);
     const kisFlow = healthRecord
       ? {
           requestSymbol: (healthRecord.requestSymbol as string | null | undefined) ?? candidate?.symbol ?? t.symbol ?? null,
@@ -169,6 +171,7 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           semanticAvailable: healthRecord.status === 'VERIFIED',
           semanticRow: (healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | null | undefined,
           investorFlowSemanticRow: (healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | null | undefined,
+          gateSemanticFlatRow: (healthRecord.gateSemanticFlatRow as InvestorFlowFlatRowForGateAdr0513 | null | undefined) ?? null,
           actualInvestorRow: (selectedCandidateRecord?.actualInvestorRow ?? healthRecord.actualInvestorRow ?? actualInvestorFlowRows?.[0]) as Record<string, unknown> | null | undefined,
           normalizedInvestorRow: (selectedCandidateRecord?.normalizedInvestorRow ?? healthRecord.normalizedInvestorRow) as Record<string, unknown> | null | undefined,
           semanticInvestorRow: (selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null | undefined,
@@ -238,12 +241,12 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
       ...(sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' ? {
         sellOnlyBySymbolPayloadAvailable: Boolean(bySymbolPayload),
-        sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && !bySymbolPayloadStale && (actualInvestorFlowRows?.length ?? 0) > 0),
+        sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && !bySymbolPayloadStale && ((actualInvestorFlowRows?.length ?? 0) > 0 || gateFlatCarryMerged)),
         sellOnlyCarryBreakPoint: !bySymbolPayload
           ? 'BYSYMBOL_PAYLOAD_MISSING'
           : bySymbolPayloadStale
             ? 'BYSYMBOL_PAYLOAD_STALE'
-            : (actualInvestorFlowRows?.length ?? 0) > 0
+            : (actualInvestorFlowRows?.length ?? 0) > 0 || gateFlatCarryMerged
               ? 'CARRIED_TO_FORENSIC'
               : 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED',
       } : {}),
@@ -318,6 +321,7 @@ function mergeActualRowCarryAdr0507(
     normalizedInvestorRow: payload.normalizedInvestorRow ?? base?.normalizedInvestorRow,
     semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? base?.semanticInvestorRow,
     supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? base?.supplySemanticRow,
+    gateSemanticFlatRow: stale ? base?.gateSemanticFlatRow : (payload.gateSemanticFlatRow ?? base?.gateSemanticFlatRow),
     actualInvestorFlowRows: stale ? base?.actualInvestorFlowRows : (actualRows ?? base?.actualInvestorFlowRows),
     actualInvestorFlowRowCount: stale ? base?.actualInvestorFlowRowCount : (payload.actualInvestorFlowRowCount ?? actualRows?.length ?? base?.actualInvestorFlowRowCount),
     actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath ?? base?.actualInvestorFlowRowSourcePath,
@@ -346,6 +350,7 @@ function mergeActualRowCarryAdr0507(
       normalizedInvestorRow: payload.normalizedInvestorRow ?? selectedCandidate.normalizedInvestorRow,
       semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? selectedCandidate.semanticInvestorRow,
       supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? selectedCandidate.supplySemanticRow,
+      gateSemanticFlatRow: stale ? selectedCandidate.gateSemanticFlatRow : (payload.gateSemanticFlatRow ?? selectedCandidate.gateSemanticFlatRow),
       actualInvestorFlowRows: stale ? selectedCandidate.actualInvestorFlowRows : (actualRows ?? selectedCandidate.actualInvestorFlowRows),
       actualInvestorFlowRowCount: stale ? selectedCandidate.actualInvestorFlowRowCount : (payload.actualInvestorFlowRowCount ?? actualRows?.length ?? selectedCandidate.actualInvestorFlowRowCount),
       actualInvestorFlowRowSourcePath: payload.actualInvestorFlowRowSourcePath ?? selectedCandidate.actualInvestorFlowRowSourcePath,
