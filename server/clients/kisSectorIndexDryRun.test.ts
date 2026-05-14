@@ -26,6 +26,23 @@ function sectorSeries(days: number, startClose = 100): KisSectorIndexDaily['seri
   }));
 }
 
+function sectorSeriesEnding(days: number, endDate: string, startClose = 100): KisSectorIndexDaily['series'] {
+  const end = Date.UTC(Number(endDate.slice(0, 4)), Number(endDate.slice(4, 6)) - 1, Number(endDate.slice(6, 8)));
+  return Array.from({ length: days }, (_, idx) => {
+    const d = new Date(end - (days - idx - 1) * 24 * 60 * 60 * 1000);
+    const baseDate = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+    return {
+      baseDate,
+      close: startClose + idx,
+      open: startClose + idx - 0.5,
+      high: startClose + idx + 1,
+      low: startClose + idx - 1,
+      volume: 1000 + idx * 10,
+      value: 100000 + idx * 1000,
+    };
+  });
+}
+
 function dailyResult(iscd: string, days = 25): KisSectorIndexDaily {
   return {
     sectorIscd: iscd,
@@ -35,6 +52,13 @@ function dailyResult(iscd: string, days = 25): KisSectorIndexDaily {
     series: sectorSeries(days),
     fetchedAt: '2026-05-14T00:00:00.000Z',
     source: 'KIS_API',
+  };
+}
+
+function dailyResultEnding(iscd: string, endDate: string, days = 25): KisSectorIndexDaily {
+  return {
+    ...dailyResult(iscd, days),
+    series: sectorSeriesEnding(days, endDate),
   };
 }
 
@@ -248,6 +272,134 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
 
     expect(section).not.toContain('errorClass=<code>UNRESOLVED_EMPTY</code> / verification=<code>SAFE_ALIAS_CANDIDATE');
     expect(section).toContain('errorClass=<code>EMPTY</code> / verification=<code>SAFE_ALIAS_CANDIDATE_FOUND</code> / resolutionStatus=<code>PENDING_IDXCODE_MST_VERIFY</code>');
+  });
+
+  it('idxcode master alias candidates require endpoint compatibility before VERIFIED', async () => {
+    const verified = await mod.verifySectorIndexCodeWithIdxMaster({
+      sectorKey: 'FINANCE',
+      sectorNameKo: '금융',
+      currentCandidateIscd: '2006',
+      aliasCandidates: ['금융', '은행'],
+    }, {
+      nowMs: Date.UTC(2026, 4, 14),
+      masterRows: [
+        { iscd: '2006', koreanName: '금융', englishKey: 'FINANCE', aliases: ['금융'] },
+        { iscd: '2106', koreanName: '은행', englishKey: 'BANK', aliases: ['은행'] },
+      ],
+      endpointFetcher: async (iscd) => iscd === '2106' ? dailyResultEnding(iscd, '20260514') : { ...dailyResult(iscd), series: [] },
+    });
+
+    expect(verified).toMatchObject({
+      verification: 'VERIFIED',
+      resolutionStatus: 'IDXCODE_MST_VERIFIED',
+      verifiedIscd: '2106',
+      marketSignal: false,
+      executionImpact: 'NONE',
+    });
+    expect(verified.candidatesTried[0]).toMatchObject({ iscd: '2006', compatible: false });
+    expect(verified.candidatesTried.at(-1)).toMatchObject({
+      iscd: '2106',
+      endpointRows: 25,
+      latestDate: '20260514',
+      return5dAvailable: true,
+      return20dAvailable: true,
+      compatible: true,
+    });
+  });
+
+  it('rows/latest/return/index value failures are not VERIFIED', async () => {
+    const base = {
+      sectorKey: 'IT_INTERNET',
+      sectorNameKo: '인터넷/플랫폼',
+      currentCandidateIscd: '2005',
+      aliasCandidates: ['인터넷', '플랫폼'],
+    };
+    const masterRows = [{ iscd: '2005', koreanName: '인터넷/플랫폼', englishKey: 'IT_INTERNET', aliases: ['인터넷', '플랫폼'] }];
+    const nowMs = Date.UTC(2026, 4, 14);
+
+    const shortRows = await mod.verifySectorIndexCodeWithIdxMaster(base, {
+      nowMs,
+      masterRows,
+      endpointFetcher: async (iscd) => dailyResultEnding(iscd, '20260514', 19),
+    });
+    expect(shortRows.verification).not.toBe('VERIFIED');
+    expect(shortRows.candidatesTried[0]).toMatchObject({ compatible: false, reason: 'ROWS_LT_20_19' });
+
+    const stale = await mod.verifySectorIndexCodeWithIdxMaster(base, {
+      nowMs,
+      masterRows,
+      endpointFetcher: async (iscd) => dailyResultEnding(iscd, '20260430', 25),
+    });
+    expect(stale.verification).not.toBe('VERIFIED');
+    expect(stale.candidatesTried[0]).toMatchObject({ compatible: false, reason: 'LATEST_DATE_STALE' });
+
+    const badValues = await mod.verifySectorIndexCodeWithIdxMaster(base, {
+      nowMs,
+      masterRows,
+      endpointFetcher: async (iscd) => ({
+        ...dailyResultEnding(iscd, '20260514', 25),
+        series: sectorSeriesEnding(25, '20260514', 0).map((row) => ({ ...row, close: 0 })),
+      }),
+    });
+    expect(badValues.verification).not.toBe('VERIFIED');
+    expect(badValues.candidatesTried[0]).toMatchObject({ compatible: false, reason: 'ROWS_LT_20_0' });
+  });
+
+  it('verified FINANCE and IT_INTERNET recover dry-run to 12/12 while safety flags stay closed', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    mod.setSectorIndexIdxcodeMasterRowsForTests([
+      { iscd: '2006', koreanName: '금융', englishKey: 'FINANCE', aliases: ['금융'] },
+      { iscd: '2106', koreanName: '은행', englishKey: 'BANK', aliases: ['은행', 'FINANCE'] },
+      { iscd: '2005', koreanName: '인터넷/플랫폼', englishKey: 'IT_INTERNET', aliases: ['인터넷'] },
+      { iscd: '2105', koreanName: '플랫폼', englishKey: 'PLATFORM', aliases: ['플랫폼', 'IT_INTERNET'] },
+    ]);
+    _fetchKisSectorIndexDaily.mockImplementation((iscd: string) => {
+      if (iscd === '2005' || iscd === '2006') return Promise.resolve({ ...dailyResult(iscd), series: [] });
+      if (iscd === '2105' || iscd === '2106') return Promise.resolve(dailyResultEnding(iscd, '20260514'));
+      return Promise.resolve(dailyResultEnding(iscd, '20260514'));
+    });
+
+    const report = await mod.fetchKisSectorIndexRowsDryRun(Date.UTC(2026, 4, 14));
+    const section = mod.formatKisSectorIndexDryRunSection(report);
+
+    expect(report).toMatchObject({
+      attempted: 12,
+      succeeded: 12,
+      failed: 0,
+      candidateCoverage: 1,
+      promotionStage: 'OBSERVE',
+      strongBuyAllowed: false,
+      sectorBoostAllowed: false,
+      executionImpact: 'NONE',
+      officialBenchmark: false,
+      marketSignal: false,
+      providerIssue: false,
+    });
+    expect(report.rows.find((row) => row.sectorKey === 'FINANCE')).toMatchObject({
+      previousIscd: '2006',
+      iscd: '2106',
+      verificationStatus: 'VERIFIED',
+      resolutionStatus: 'IDXCODE_MST_VERIFIED',
+      useForProduction: false,
+      useForDryRun: true,
+    });
+    expect(report.rows.find((row) => row.sectorKey === 'IT_INTERNET')).toMatchObject({
+      previousIscd: '2005',
+      iscd: '2105',
+      verificationStatus: 'VERIFIED',
+      resolutionStatus: 'IDXCODE_MST_VERIFIED',
+    });
+    expect(section).toContain('recovered:');
+    expect(section).toContain('nextAction: <code>OBSERVE_20D_THEN_PROMOTION_AUDIT</code>');
+    expect(mod.sectorIndexMappingRegistry.get('FINANCE')).toMatchObject({
+      previousIscd: '2006',
+      verifiedIscd: '2106',
+      useForProduction: false,
+      promotionStage: 'OBSERVE',
+      sectorBoostAllowed: false,
+      strongBuyAllowed: false,
+      executionImpact: 'NONE',
+    });
   });
 
 });

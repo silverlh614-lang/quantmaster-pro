@@ -19,6 +19,8 @@ export interface KisSectorIndexPromotionHistoryRecord {
   officialBenchmark: boolean;
   promotionStage: KisSectorIndexPromotionStage;
   candidateCoverage: number;
+  verifiedCodes?: Record<string, string>;
+  unresolvedCodes?: Record<string, string>;
   sectorBoostAllowed: false;
   strongBuyAllowed: false;
   executionImpact: 'NONE';

@@ -85,6 +85,7 @@ export type KisSectorIndexDryRunErrorClass =
 export interface KisSectorIndexDryRunRow {
   sectorKey: SectorKey;
   iscd: string;
+  previousIscd?: string;
   label: string;
   success: boolean;
   seriesCount: number;
@@ -96,9 +97,11 @@ export interface KisSectorIndexDryRunRow {
   marketSignal?: false;
   verificationStatus?: SectorIndexVerificationStatus | 'NOT_REQUIRED';
   verificationAction?: string;
-  resolutionStatus?: 'PENDING_IDXCODE_MST_VERIFY' | 'REQUIRES_IDXCODE_MST_LOOKUP' | 'IDXCODE_MST_VERIFIED' | 'IDXCODE_MST_NOT_FOUND' | 'NONE';
+  resolutionStatus?: 'PENDING_IDXCODE_MST_VERIFY' | 'REQUIRES_IDXCODE_MST_LOOKUP' | 'IDXCODE_MST_VERIFIED' | 'IDXCODE_MST_NOT_FOUND' | 'ENDPOINT_COMPATIBILITY_FAILED' | 'UNRESOLVED_EMPTY' | 'NONE';
   safeAliasCandidate?: { sectorKey: SectorKey; displayName: string; krxIndexCode: string };
   aliasCandidates?: string[];
+  verifiedName?: string;
+  matchedBy?: SectorIndexCodeVerificationMatchedBy;
   errorClass?: KisSectorIndexDryRunErrorClass;
   useForProduction?: false;
   useForDryRun?: boolean;
@@ -263,6 +266,50 @@ export interface SectorIdxcodeMasterRow {
   aliases?: string[];
 }
 
+export type SectorIndexCodeVerificationMatchedBy =
+  | 'EXACT_ISCD'
+  | 'KOREAN_NAME'
+  | 'ENGLISH_KEY'
+  | 'ALIAS'
+  | 'MANUAL_REGISTRY'
+  | 'NONE';
+
+export interface SectorIndexCodeVerificationCandidate {
+  iscd: string;
+  name?: string;
+  matchedBy: SectorIndexCodeVerificationMatchedBy;
+  endpointRows?: number;
+  latestDate?: string;
+  return5dAvailable?: boolean;
+  return20dAvailable?: boolean;
+  compatible: boolean;
+  reason?: string;
+}
+
+export interface SectorIndexCodeVerificationResult {
+  sectorKey: string;
+  sectorNameKo: string;
+  originalIscd: string;
+  verifiedIscd?: string;
+  verifiedName?: string;
+  verification:
+    | 'VERIFIED'
+    | 'SAFE_ALIAS_CANDIDATE_FOUND'
+    | 'NO_ALIAS_FOUND'
+    | 'UNSAFE_ALIAS_REJECTED'
+    | 'UNRESOLVED';
+  resolutionStatus:
+    | 'IDXCODE_MST_VERIFIED'
+    | 'PENDING_IDXCODE_MST_VERIFY'
+    | 'IDXCODE_MST_NOT_FOUND'
+    | 'ENDPOINT_COMPATIBILITY_FAILED'
+    | 'UNRESOLVED_EMPTY';
+  matchedBy: SectorIndexCodeVerificationMatchedBy;
+  candidatesTried: SectorIndexCodeVerificationCandidate[];
+  marketSignal: false;
+  executionImpact: 'NONE';
+}
+
 export interface SectorIndexCodeMasterVerificationResult {
   verification: 'VERIFIED' | 'UNRESOLVED';
   resolutionStatus: 'IDXCODE_MST_VERIFIED' | 'IDXCODE_MST_NOT_FOUND';
@@ -289,6 +336,48 @@ const STATIC_IDXCODE_MASTER_ROWS: ReadonlyArray<SectorIdxcodeMasterRow> = Object
   { iscd: '2011', koreanName: '건설/부동산', englishKey: 'CONSTRUCTION', aliases: ['건설', '부동산'] },
   { iscd: '2012', koreanName: '이차전지', englishKey: 'BATTERY', aliases: ['2차전지', '이차전지', '배터리'] },
 ]);
+
+export interface SectorIndexMappingRegistryRecord {
+  sectorKey: string;
+  sectorNameKo: string;
+  previousIscd: string;
+  verifiedIscd: string;
+  verifiedName?: string;
+  source: 'IDXCODE_MST';
+  matchedBy: SectorIndexCodeVerificationMatchedBy;
+  verification: 'VERIFIED';
+  resolutionStatus: 'IDXCODE_MST_VERIFIED';
+  useForDryRun: true;
+  useForProduction: false;
+  promotionStage: 'OBSERVE';
+  sectorBoostAllowed: false;
+  strongBuyAllowed: false;
+  executionImpact: 'NONE';
+  verifiedAt: string;
+}
+
+const sectorIndexMappingRegistryRows = new Map<string, SectorIndexMappingRegistryRecord>();
+
+export const sectorIndexMappingRegistry = {
+  update(record: SectorIndexMappingRegistryRecord): void {
+    sectorIndexMappingRegistryRows.set(record.sectorKey, record);
+  },
+  get(sectorKey: string): SectorIndexMappingRegistryRecord | undefined {
+    return sectorIndexMappingRegistryRows.get(sectorKey);
+  },
+  list(): SectorIndexMappingRegistryRecord[] {
+    return [...sectorIndexMappingRegistryRows.values()];
+  },
+  clearForTests(): void {
+    sectorIndexMappingRegistryRows.clear();
+  },
+};
+
+let idxcodeMasterRowsForTests: readonly SectorIdxcodeMasterRow[] | null = null;
+
+export function setSectorIndexIdxcodeMasterRowsForTests(rows: readonly SectorIdxcodeMasterRow[] | null): void {
+  idxcodeMasterRowsForTests = rows;
+}
 
 function normalizeLookupText(value: string): string {
   return value.toLowerCase().replace(/[\s/_-]+/g, '').trim();
@@ -332,6 +421,209 @@ export function verifySectorIndexCodeWithMaster(input: {
     resolutionStatus: 'IDXCODE_MST_NOT_FOUND',
     useForProduction: false,
     useForDryRun: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+  };
+}
+
+const FINANCE_IDXCODE_LOOKUP_TERMS = [
+  '금융',
+  '금융업',
+  '은행',
+  '증권',
+  '보험',
+  '금융지주',
+  '기타금융',
+  'FINANCE',
+  'FINANCIAL',
+  'BANK',
+  'BANKING',
+  'SECURITIES',
+  'INSURANCE',
+  'FINANCIAL_HOLDING',
+];
+
+const IT_INTERNET_IDXCODE_LOOKUP_TERMS = [
+  '인터넷',
+  '플랫폼',
+  '인터넷/플랫폼',
+  '소프트웨어',
+  'IT서비스',
+  '서비스업',
+  '디지털',
+  '커뮤니케이션서비스',
+  '미디어/콘텐츠',
+  'IT_INTERNET',
+  'INTERNET',
+  'PLATFORM',
+  'SOFTWARE',
+  'IT_SERVICE',
+  'DIGITAL',
+  'COMMUNICATION_SERVICE',
+  'MEDIA_CONTENT',
+];
+
+function idxcodeLookupTermsForSector(sectorKey: string, sectorNameKo: string, aliasCandidates: readonly string[]): string[] {
+  const base = sectorKey === 'FINANCE'
+    ? FINANCE_IDXCODE_LOOKUP_TERMS
+    : sectorKey === 'IT_INTERNET'
+      ? IT_INTERNET_IDXCODE_LOOKUP_TERMS
+      : [];
+  return Array.from(new Set([sectorNameKo, sectorKey, ...base, ...aliasCandidates].filter(Boolean)));
+}
+
+function isFreshDryRunLatestDate(latestDate: string | undefined, nowMs: number, staleWindowDays = 7): boolean {
+  if (!latestDate || !/^\d{8}$/.test(latestDate)) return false;
+  const y = Number(latestDate.slice(0, 4));
+  const m = Number(latestDate.slice(4, 6));
+  const d = Number(latestDate.slice(6, 8));
+  const latestUtc = Date.UTC(y, m - 1, d);
+  if (!Number.isFinite(latestUtc)) return false;
+  const now = new Date(nowMs + 9 * 60 * 60 * 1000);
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const ageDays = Math.floor((todayUtc - latestUtc) / (24 * 60 * 60 * 1000));
+  return ageDays <= staleWindowDays;
+}
+
+function evaluateKisSectorIndexEndpointCompatibility(
+  result: KisSectorIndexDaily | null,
+  nowMs: number,
+): { compatible: boolean; candidate: Pick<SectorIndexCodeVerificationCandidate, 'endpointRows' | 'latestDate' | 'return5dAvailable' | 'return20dAvailable' | 'reason'>; metrics?: Pick<KisSectorIndexDryRunRow, 'seriesCount' | 'latestDate' | 'return5d' | 'return20d' | 'turnoverAcceleration'> } {
+  if (!result) return { compatible: false, candidate: { reason: 'ENDPOINT_EMPTY' } };
+  const rows = sortedKisSectorIndexSeries(result.series);
+  const metrics = deriveKisSectorIndexDryRunMetrics(result);
+  const return5dAvailable = finite(metrics.return5d);
+  const return20dAvailable = finite(metrics.return20d);
+  const latestFresh = isFreshDryRunLatestDate(metrics.latestDate, nowMs);
+  const compatible = rows.length >= 20 && latestFresh && return5dAvailable && return20dAvailable;
+  const reason = rows.length < 20
+    ? `ROWS_LT_20_${rows.length}`
+    : !latestFresh
+      ? 'LATEST_DATE_STALE'
+      : !return5dAvailable
+        ? 'RETURN5D_UNAVAILABLE'
+        : !return20dAvailable
+          ? 'RETURN20D_UNAVAILABLE'
+          : undefined;
+  return {
+    compatible,
+    candidate: {
+      endpointRows: rows.length,
+      latestDate: metrics.latestDate,
+      return5dAvailable,
+      return20dAvailable,
+      reason,
+    },
+    metrics,
+  };
+}
+
+function addVerificationCandidate(
+  candidates: SectorIndexCodeVerificationCandidate[],
+  seen: Set<string>,
+  row: SectorIdxcodeMasterRow | undefined,
+  iscd: string,
+  matchedBy: SectorIndexCodeVerificationMatchedBy,
+): void {
+  if (!/^\d{4}$/.test(iscd) || seen.has(iscd)) return;
+  seen.add(iscd);
+  candidates.push({
+    iscd,
+    name: row?.koreanName,
+    matchedBy,
+    compatible: false,
+  });
+}
+
+export async function verifySectorIndexCodeWithIdxMaster(input: {
+  sectorKey: string;
+  sectorNameKo: string;
+  currentCandidateIscd: string;
+  aliasCandidates: string[];
+}, options: {
+  masterRows?: readonly SectorIdxcodeMasterRow[];
+  endpointFetcher?: (iscd: string) => Promise<KisSectorIndexDaily | null>;
+  nowMs?: number;
+} = {}): Promise<SectorIndexCodeVerificationResult> {
+  const masterRows = options.masterRows ?? idxcodeMasterRowsForTests ?? STATIC_IDXCODE_MASTER_ROWS;
+  const endpointFetcher = options.endpointFetcher ?? fetchKisSectorIndexDaily;
+  const nowMs = options.nowMs ?? Date.now();
+  const originalIscd = input.currentCandidateIscd.trim();
+  const terms = idxcodeLookupTermsForSector(input.sectorKey, input.sectorNameKo, input.aliasCandidates)
+    .map(normalizeLookupText)
+    .filter(Boolean);
+  const candidates: SectorIndexCodeVerificationCandidate[] = [];
+  const seen = new Set<string>();
+
+  const exact = masterRows.find((row) => row.iscd === originalIscd);
+  if (exact) addVerificationCandidate(candidates, seen, exact, originalIscd, 'EXACT_ISCD');
+
+  for (const row of masterRows) {
+    if (terms.includes(normalizeLookupText(row.koreanName))) addVerificationCandidate(candidates, seen, row, row.iscd, 'KOREAN_NAME');
+  }
+  for (const row of masterRows) {
+    if (terms.includes(normalizeLookupText(row.englishKey ?? ''))) addVerificationCandidate(candidates, seen, row, row.iscd, 'ENGLISH_KEY');
+  }
+  for (const row of masterRows) {
+    if ((row.aliases ?? []).some((alias) => terms.includes(normalizeLookupText(alias)))) {
+      addVerificationCandidate(candidates, seen, row, row.iscd, 'ALIAS');
+    }
+  }
+
+  const manual = SECTOR_INDEX_MASTER.find((entry) => entry.sectorKey === input.sectorKey);
+  if (manual?.krxIndexCode && /^\d{4}$/.test(manual.krxIndexCode)) {
+    addVerificationCandidate(candidates, seen, undefined, manual.krxIndexCode, 'MANUAL_REGISTRY');
+  }
+
+  if (candidates.length === 0) {
+    return {
+      sectorKey: input.sectorKey,
+      sectorNameKo: input.sectorNameKo,
+      originalIscd,
+      verification: 'NO_ALIAS_FOUND',
+      resolutionStatus: 'IDXCODE_MST_NOT_FOUND',
+      matchedBy: 'NONE',
+      candidatesTried: [],
+      marketSignal: false,
+      executionImpact: 'NONE',
+    };
+  }
+
+  const tried: SectorIndexCodeVerificationCandidate[] = [];
+  for (const candidate of candidates) {
+    const result = await endpointFetcher(candidate.iscd);
+    const compatibility = evaluateKisSectorIndexEndpointCompatibility(result, nowMs);
+    const triedCandidate: SectorIndexCodeVerificationCandidate = {
+      ...candidate,
+      ...compatibility.candidate,
+      compatible: compatibility.compatible,
+    };
+    tried.push(triedCandidate);
+    if (compatibility.compatible) {
+      return {
+        sectorKey: input.sectorKey,
+        sectorNameKo: input.sectorNameKo,
+        originalIscd,
+        verifiedIscd: candidate.iscd,
+        verifiedName: candidate.name ?? result?.sectorName,
+        verification: 'VERIFIED',
+        resolutionStatus: 'IDXCODE_MST_VERIFIED',
+        matchedBy: candidate.matchedBy,
+        candidatesTried: tried,
+        marketSignal: false,
+        executionImpact: 'NONE',
+      };
+    }
+  }
+
+  return {
+    sectorKey: input.sectorKey,
+    sectorNameKo: input.sectorNameKo,
+    originalIscd,
+    verification: 'SAFE_ALIAS_CANDIDATE_FOUND',
+    resolutionStatus: tried.some((candidate) => candidate.reason !== 'ENDPOINT_EMPTY') ? 'ENDPOINT_COMPATIBILITY_FAILED' : 'PENDING_IDXCODE_MST_VERIFY',
+    matchedBy: 'NONE',
+    candidatesTried: tried,
     marketSignal: false,
     executionImpact: 'NONE',
   };
@@ -430,6 +722,8 @@ function buildPromotionHistoryRecord(report: KisSectorIndexDryRunReport, nowMs: 
     officialBenchmark: report.officialBenchmark,
     promotionStage: report.promotionStage,
     candidateCoverage: report.candidateCoverage,
+    verifiedCodes: Object.fromEntries(report.rows.filter((row) => row.success && row.verificationStatus === 'VERIFIED').map((row) => [row.sectorKey, row.iscd])),
+    unresolvedCodes: Object.fromEntries(report.rows.filter((row) => !row.success).map((row) => [row.sectorKey, row.iscd])),
     sectorBoostAllowed: false,
     strongBuyAllowed: false,
     executionImpact: 'NONE',
@@ -443,7 +737,7 @@ function recordKisSectorIndexPromotionHistory(report: KisSectorIndexDryRunReport
   const stored = appendKisSectorIndexPromotionHistoryRecord(buildPromotionHistoryRecord(report, nowMs));
   const daysCollected = Math.min(20, stored.length);
   const eligibleForShadow = stored.length >= 20 && report.failed === 0 && report.candidateCoverage >= 1 && report.officialBenchmark === false;
-  const promotionStage = eligibleForShadow ? 'SHADOW_SCORE' : 'OBSERVE';
+  const promotionStage = 'OBSERVE';
   const promotionBlockedReason = eligibleForShadow ? 'SHADOW_SCORE_CANDIDATE_MANUAL_AUDIT_REQUIRED' : 'OBSERVE_20D_REQUIRED';
   const updated: KisSectorIndexDryRunReport = {
     ...report,
@@ -456,9 +750,75 @@ function recordKisSectorIndexPromotionHistory(report: KisSectorIndexDryRunReport
     executionImpact: 'NONE',
   };
   console.log(
-    `[SECTOR_INDEX_PROMOTION_HISTORY_RECORDED] date=${yyyymmddFromNowMs(nowMs)} attempted=${updated.attempted} succeeded=${updated.succeeded} failed=${updated.failed} promotionStage=${updated.promotionStage} daysCollected=${daysCollected}/20 strongBuyAllowed=false executionImpact=NONE`,
+    `[SECTOR_INDEX_PROMOTION_HISTORY_RECORDED] date=${yyyymmddFromNowMs(nowMs)} attempted=${updated.attempted} succeeded=${updated.succeeded} failed=${updated.failed} failedCodes=${dryRunFailedCodes(updated.rows)} candidateCoverage=${(updated.candidateCoverage * 100).toFixed(1)}% promotionStage=${updated.promotionStage} daysCollected=${daysCollected}/20 executionImpact=NONE`,
   );
   return updated;
+}
+
+async function tryRecoverKisSectorIndexDryRunRow(input: {
+  entry: { sectorKey: SectorKey; iscd: string; label: string };
+  verification: Pick<KisSectorIndexDryRunRow, 'aliasCandidates'>;
+  nowMs: number;
+}): Promise<KisSectorIndexDryRunRow | null> {
+  if (input.entry.sectorKey !== 'FINANCE' && input.entry.sectorKey !== 'IT_INTERNET') return null;
+  const result = await verifySectorIndexCodeWithIdxMaster({
+    sectorKey: input.entry.sectorKey,
+    sectorNameKo: input.entry.label,
+    currentCandidateIscd: input.entry.iscd,
+    aliasCandidates: input.verification.aliasCandidates ?? [],
+  }, { nowMs: input.nowMs });
+  const compatible = result.candidatesTried.find((candidate) => candidate.compatible && candidate.iscd === result.verifiedIscd);
+  if (result.verification !== 'VERIFIED' || result.resolutionStatus !== 'IDXCODE_MST_VERIFIED' || !result.verifiedIscd || !compatible) {
+    console.log(
+      `[SECTOR_INDEX_CODE_VERIFY_FAILED] sectorKey=${input.entry.sectorKey} originalIscd=${input.entry.iscd} reason=NO_COMPATIBLE_IDXCODE_FOUND marketSignal=false executionImpact=NONE`,
+    );
+    return null;
+  }
+  const endpoint = await fetchKisSectorIndexDaily(result.verifiedIscd);
+  const metrics = endpoint ? deriveKisSectorIndexDryRunMetrics(endpoint) : {
+    seriesCount: compatible.endpointRows ?? 0,
+    latestDate: compatible.latestDate,
+    return5d: undefined,
+    return20d: undefined,
+    turnoverAcceleration: undefined,
+  };
+  sectorIndexMappingRegistry.update({
+    sectorKey: input.entry.sectorKey,
+    sectorNameKo: input.entry.label,
+    previousIscd: input.entry.iscd,
+    verifiedIscd: result.verifiedIscd,
+    verifiedName: result.verifiedName,
+    source: 'IDXCODE_MST',
+    matchedBy: result.matchedBy,
+    verification: 'VERIFIED',
+    resolutionStatus: 'IDXCODE_MST_VERIFIED',
+    useForDryRun: true,
+    useForProduction: false,
+    promotionStage: 'OBSERVE',
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    executionImpact: 'NONE',
+    verifiedAt: new Date(input.nowMs).toISOString(),
+  });
+  console.log(
+    `[SECTOR_INDEX_CODE_VERIFIED] sectorKey=${input.entry.sectorKey} previousIscd=${input.entry.iscd} verifiedIscd=${result.verifiedIscd} verifiedName=${result.verifiedName ?? 'N/A'} matchedBy=${result.matchedBy} rows=${metrics.seriesCount} latestDate=${metrics.latestDate ?? 'N/A'} verification=VERIFIED resolutionStatus=IDXCODE_MST_VERIFIED executionImpact=NONE`,
+  );
+  return {
+    sectorKey: input.entry.sectorKey,
+    iscd: result.verifiedIscd,
+    previousIscd: input.entry.iscd,
+    label: input.entry.label,
+    success: true,
+    providerIssue: false,
+    marketSignal: false,
+    verificationStatus: 'VERIFIED',
+    resolutionStatus: 'IDXCODE_MST_VERIFIED',
+    verifiedName: result.verifiedName,
+    matchedBy: result.matchedBy,
+    useForProduction: false,
+    useForDryRun: true,
+    ...metrics,
+  };
 }
 
 function deriveKisSectorIndexDryRunMetrics(result: KisSectorIndexDaily): Pick<KisSectorIndexDryRunRow, 'seriesCount' | 'latestDate' | 'return5d' | 'return20d' | 'turnoverAcceleration'> {
@@ -527,6 +887,8 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
           label: entry.label,
           errorClass,
         });
+        const recovered = await tryRecoverKisSectorIndexDryRunRow({ entry, verification, nowMs });
+        if (recovered) return recovered;
         return {
           sectorKey: entry.sectorKey,
           iscd: entry.iscd,
@@ -599,6 +961,11 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
     promotionHistoryRecorded: false,
   };
   const recordedReport = recordKisSectorIndexPromotionHistory(report, nowMs);
+  if (recordedReport.attempted === 12 && recordedReport.succeeded === 12 && recordedReport.failed === 0) {
+    console.log(
+      `[SECTOR_INDEX_DRYRUN_RECOVERED] attempted=12 succeeded=12 failed=0 candidateCoverage=100.0% promotionStage=OBSERVE sectorBoostAllowed=false strongBuyAllowed=false executionImpact=NONE`,
+    );
+  }
   kisSectorIndexDryRunCache = {
     expiresAt: nowMs + KIS_SECTOR_INDEX_DRYRUN_TTL_MS,
     report: recordedReport,
@@ -612,6 +979,8 @@ export function resetKisSectorIndexDryRunCacheForTests(options: { keepNegativeCo
   kisSectorIndexDryRunLastLogKey = null;
   kisSectorIndexDryRunLastLogExpiresAt = 0;
   kisSectorIndexDryRunSuppressedCount = 0;
+  idxcodeMasterRowsForTests = null;
+  sectorIndexMappingRegistry.clearForTests();
   if (!options.keepNegativeCooldown) kisSectorIndexNegativeCooldownUntil.clear();
 }
 
@@ -622,6 +991,7 @@ export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunRe
     .sort()
     .at(-1) ?? 'N/A';
   const failedRows = report.rows.filter((row) => !row.success);
+  const recoveredRows = report.rows.filter((row) => row.success && row.previousIscd);
   const successRows = report.rows
     .filter((row) => row.success)
     .sort((a, b) => (b.latestDate ?? '').localeCompare(a.latestDate ?? '') || b.seriesCount - a.seriesCount)
@@ -662,8 +1032,18 @@ export function formatKisSectorIndexDryRunSection(report: KisSectorIndexDryRunRe
       );
     });
   }
+  if (recoveredRows.length > 0) {
+    lines.push('recovered:');
+    recoveredRows.forEach((row, idx) => {
+      lines.push(
+        `  ${idx + 1}. <code>${row.sectorKey}</code> / ${row.label} / iscd=<code>${row.iscd}</code> / verification=<code>${row.verificationStatus ?? 'VERIFIED'}</code> / rows=<b>${row.seriesCount}</b> / latest=<code>${row.latestDate ?? 'N/A'}</code>`,
+      );
+    });
+  }
   lines.push(
-    'nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
+    report.failed === 0
+      ? 'nextAction: <code>OBSERVE_20D_THEN_PROMOTION_AUDIT</code>'
+      : 'nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
   );
   return lines.join('\n');
 }
