@@ -2985,6 +2985,16 @@ export async function persistScanResults(
           `usedForCurrentGate=false, executionImpact=${investorFlowProviderRouter.executionImpact}, ` +
           `selectedProvider=${investorFlowProviderRouter.selectedProvider}, fallbackProvider=${investorFlowProviderRouter.fallbackProvider ?? 'NONE'})`,
       });
+    } else if (
+      investorFlowProviderRouter.selectedProvider === 'KIS_API' &&
+      investorFlowProviderRouter.status === 'VERIFIED'
+    ) {
+      console.info(
+        `[ADR-0477] InvestorFlowProviderRouter selectedProvider=KIS_API ` +
+        `status=VERIFIED reason=KIS_VERIFIED_SHORTCIRCUIT ` +
+        `executionImpact=${investorFlowProviderRouter.executionImpact} ` +
+        `liveExecutionAllowed=${investorFlowProviderRouter.liveExecutionAllowed}`,
+      );
     } else {
       console.warn(
         `[ADR-0477] InvestorFlowProviderRouter SHADOW_ONLY emitted ` +

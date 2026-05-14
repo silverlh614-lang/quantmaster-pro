@@ -1017,6 +1017,25 @@ function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlowProvide
   ].join('; ');
 }
 
+function isOptionalKrxInvestorDetailUnavailableAdr0477(input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>): boolean {
+  const endpoint = String(input.endpoint ?? input.selectedBld ?? input.bld ?? '');
+  const optionalDetailEndpoint = endpoint.includes('MDCSTAT02201') || endpoint.includes('MDCSTAT02203');
+  if (!optionalDetailEndpoint) return false;
+  if (input.offHoursSuppressed === true) return false;
+  const summary = String(input.summary ?? '');
+  return input.httpStatus === 400 ||
+    (input.responseKind === 'HTTP_ERROR' && input.endpointIssueHint === 'ENDPOINT_PARAMETER_ERROR') ||
+    summary.includes('BAD_REQUEST_SESSION_OR_PARAM') ||
+    summary.includes('ENDPOINT_PARAM_NOT_READY') ||
+    summary.includes('OPTIONAL_KRX_DETAIL_UNAVAILABLE');
+}
+
+function krxOptionalDetailExcludedReasonAdr0477(input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>): string {
+  if (input.httpStatus === 400 || input.responseKind === 'HTTP_ERROR') return 'HTTP_400_OR_DISABLED';
+  if (input.useForRouter === false || input.diagnosticOnly === true) return 'OPTIONAL_DIAGNOSTIC_ONLY';
+  return 'OPTIONAL_KRX_DETAIL_UNAVAILABLE';
+}
+
 function sampleFromCacheLookupAdr0491(
   lookup: SupplySnapshotCacheLookupAdr0491 | null | undefined,
   code: string,
@@ -1651,8 +1670,11 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       : `${krxProvider} materialized investor-flow row selected as SHADOW_ONLY diagnostic candidate.`;
     providerReasons.KRX_INVESTOR_FLOW = providerReasons[krxProvider];
   } else if (input.krxInvestorDiagnosticAdr0505) {
+    const optionalDetailUnavailable = isOptionalKrxInvestorDetailUnavailableAdr0477(input.krxInvestorDiagnosticAdr0505);
     const krxQuarantined = kisFirstMode && isKrxQuarantineDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505);
-    const krxStatus = krxQuarantined ? 'QUARANTINED' : krxDiagnosticStatusAdr0477(input.krxInvestorDiagnosticAdr0505.parserStatus);
+    const krxStatus = optionalDetailUnavailable
+      ? 'DATA_UNAVAILABLE'
+      : krxQuarantined ? 'QUARANTINED' : krxDiagnosticStatusAdr0477(input.krxInvestorDiagnosticAdr0505.parserStatus);
     const krxReason = formatKrxRepairDiagnosticAdr0477(input.krxInvestorDiagnosticAdr0505);
     const krxDiagnosticProvider: InvestorFlowProviderId = input.krxInvestorDiagnosticAdr0505.routePurpose === 'SYMBOL_LEVEL'
       ? 'KRX_SYMBOL_INVESTOR_FLOW'
@@ -1664,12 +1686,17 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     providerStatuses.KRX = krxStatus;
     providerReasons[krxDiagnosticProvider] = krxStatus === 'DISABLED_BY_KIS_FIRST_MODE'
       ? `${krxReason}; status=DISABLED_BY_KIS_FIRST_MODE; provider=KRX; providerIssue=false; marketSignal=false; useForRouter=false; useForGate=false; useForLive=false; useForShadow=false; executionImpact=NONE`
-      : krxQuarantined
+      : optionalDetailUnavailable
+        ? `${krxReason}; selectedProviderCandidate=false; routedStatus=OPTIONAL_KRX_DETAIL_UNAVAILABLE; reason=${krxOptionalDetailExcludedReasonAdr0477(input.krxInvestorDiagnosticAdr0505)}; useForRouter=false; useForGate=false; useForLive=false; useForShadow=false; diagnosticOnly=true; providerIssue=false; marketSignal=false; executionImpact=NONE`
+        : krxQuarantined
         ? `${krxReason}; QUARANTINED retryAfterMs=${input.krxInvestorDiagnosticAdr0505.cooldownRemainingMs ?? 60 * 60 * 1000}; useForGate=false; useForRouter=false; useForLive=false; useForShadow=true; diagnosticOnly=true; executionImpact=NONE`
         : krxReason;
     providerReasons.KRX_INVESTOR_FLOW = providerReasons[krxDiagnosticProvider];
     providerReasons.KRX = providerReasons[krxDiagnosticProvider];
     diagnostics.push(providerReasons[krxDiagnosticProvider]);
+    if (optionalDetailUnavailable) {
+      diagnostics.push(`[KRX_OPTIONAL_DETAIL_EXCLUDED] endpoint=${input.krxInvestorDiagnosticAdr0505.endpoint ?? input.krxInvestorDiagnosticAdr0505.selectedBld ?? 'UNKNOWN'} reason=${krxOptionalDetailExcludedReasonAdr0477(input.krxInvestorDiagnosticAdr0505)} useForRouter=false executionImpact=NONE`);
+    }
   }
 
   if (input.kisInvestorRaw) {
@@ -1791,11 +1818,38 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   }
 
   const multiSourceMaterialization = buildInvestorFlowMultiSourceMaterialization(materializationDiagnostics, samplesByProvider, actualRowCarryByProvider);
+  const optionalKrxDetailUnavailable = input.krxInvestorDiagnosticAdr0505
+    ? isOptionalKrxInvestorDetailUnavailableAdr0477(input.krxInvestorDiagnosticAdr0505)
+    : false;
+  const hasRouterUsableKrxRawCandidate = multiSourceMaterialization.rankedCandidates.some((candidate) =>
+    (candidate.provider === 'KRX_INVESTOR_FLOW' || candidate.provider === 'KRX_SYMBOL_INVESTOR_FLOW' || candidate.provider === 'KRX_MARKET_INVESTOR_FLOW') &&
+    candidate.sampleMaterialized &&
+    candidate.usableForRouter,
+  );
+  const kisMaterialization = materializationDiagnostics.KIS_INVESTOR;
+  const kisSampleForSelection = samplesByProvider.KIS_API;
+  const kisVerifiedShortCircuitAvailable =
+    kisSampleForSelection?.status === 'VERIFIED' &&
+    kisMaterialization?.confidenceLevel === 'VERIFIED' &&
+    (kisMaterialization.materializedCount ?? 0) > 0 &&
+    kisMaterialization.sampleMaterialized === true &&
+    !hasRouterUsableKrxRawCandidate &&
+    (optionalKrxDetailUnavailable || providerStatuses.NAVER_INVESTOR_TREND === 'STALE');
+  if (kisVerifiedShortCircuitAvailable && providerStatuses.NAVER_INVESTOR_TREND === 'STALE') {
+    const naverExclusion = 'fallbackProvider=NAVER_INVESTOR_TREND excludedReason=STALE_WHILE_KIS_VERIFIED selectedProvider=KIS_API executionImpact=NONE';
+    providerReasons.NAVER_INVESTOR_TREND = providerReasons.NAVER_INVESTOR_TREND
+      ? `${providerReasons.NAVER_INVESTOR_TREND}; ${naverExclusion}`
+      : naverExclusion;
+    diagnostics.push(`[ADR-0477] ${naverExclusion}`);
+  }
   const krxAutoDisabled = providerStatuses.KRX_INVESTOR_FLOW === 'DISABLED_BY_KIS_FIRST_MODE' || providerStatuses.KRX === 'DISABLED_BY_KIS_FIRST_MODE';
   const isBlockedAutoKrxCandidate = (provider: InvestorFlowProviderId): boolean => (kisFirstMode || krxAutoDisabled) && (provider === 'KRX_INVESTOR_FLOW' || provider === 'KRX_SYMBOL_INVESTOR_FLOW' || provider === 'KRX_MARKET_INVESTOR_FLOW');
-  const selectedMultiSourceCandidate = kisFirstMode || krxAutoDisabled
+  const kisVerifiedShortCircuitCandidate = kisVerifiedShortCircuitAvailable
+    ? multiSourceMaterialization.candidates.find((candidate) => candidate.provider === 'KIS_API') ?? null
+    : null;
+  const selectedMultiSourceCandidate = kisVerifiedShortCircuitCandidate ?? (kisFirstMode || krxAutoDisabled
     ? multiSourceMaterialization.rankedCandidates.find((candidate) => !isBlockedAutoKrxCandidate(candidate.provider) && !(candidate.provider === 'CACHE' && candidate.freshness === 'STALE')) ?? null
-    : multiSourceMaterialization.selectedCandidate;
+    : multiSourceMaterialization.selectedCandidate);
   const adapterCarriesActualRow = sanitizedInvestorFlowRows.length > 0;
   const candidateBeforeSelectionCarriesActualRow = multiSourceMaterialization.candidates.some((candidate) => candidate.provider === 'KIS_API' && (candidate.actualInvestorFlowRowCount ?? 0) > 0);
   if (selectedMultiSourceCandidate) {
@@ -1803,11 +1857,16 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
     if (sample && selectedProvider !== selectedMultiSourceCandidate.provider) {
       const previousReason = providerReasons[selectedMultiSourceCandidate.provider];
       selectedProvider = selectedMultiSourceCandidate.provider;
-      selectedReason = `ADR-0503 multi-source materialized candidate selected: ${selectedMultiSourceCandidate.selectionReason}`;
+      selectedReason = kisVerifiedShortCircuitCandidate
+        ? `KIS_VERIFIED_SHORTCIRCUIT: ${selectedMultiSourceCandidate.selectionReason}`
+        : `ADR-0503 multi-source materialized candidate selected: ${selectedMultiSourceCandidate.selectionReason}`;
       semanticNetBuy = sample;
       routeStatus = sample.status;
       providerReasons[selectedMultiSourceCandidate.provider] = previousReason ? `${selectedReason}; ${previousReason}` : selectedReason;
       diagnostics.push(providerReasons[selectedMultiSourceCandidate.provider]);
+      if (kisVerifiedShortCircuitCandidate) {
+        diagnostics.push('[ADR-0477] InvestorFlowProviderRouter selectedProvider=KIS_API status=VERIFIED reason=KIS_VERIFIED_SHORTCIRCUIT executionImpact=NONE liveExecutionAllowed=false');
+      }
     }
   }
 

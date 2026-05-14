@@ -66,7 +66,6 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(JSON.stringify(route.semanticRow)).not.toContain('token');
   });
 
-
   it('normalizes investor-flow source keys for FreshData, health, and cache bridges', () => {
     expect(normalizeInvestorFlowSourceKey('NAVER')).toBe('NAVER_INVESTOR_TREND');
     expect(normalizeInvestorFlowSourceKey('NAVER_INVESTOR_TREND')).toBe('NAVER_INVESTOR_TREND');
@@ -1043,7 +1042,6 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.signal).toBe('UNKNOWN');
     expect(route.diagnostics.join(' ')).toContain('provider issue');
   });
-
   it('ADR-0469 can keep provider unknown grouped away from verified bearish supply', () => {
     const source = penaltyDedupSource();
 
