@@ -12,6 +12,10 @@ describe('/normal_supply_preview command wiring', () => {
     expect(source).toContain('realOrderAllowed=false');
     expect(source).toContain('executionImpact=NONE');
     expect(source).toContain('collectNormalSupplyPreviewFromWatchlist');
+    expect(source).toContain('NORMAL_SUPPLY_DIAGNOSTIC_FULL');
+    expect(source).toContain('formatNormalSupplyPreviewFullSections');
+    expect(source).toContain('replyMany');
+    expect(source).toContain('[NORMAL_SUPPLY_PREVIEW_FULL_DONE]');
   });
 
   it('is mounted in the system command barrel and scan_blockers full output', () => {
@@ -27,8 +31,10 @@ describe('/normal_supply_preview command wiring', () => {
   it('does not import live order or scanner execution paths', () => {
     const command = readFileSync(resolve(process.cwd(), 'server/telegram/commands/system/normalSupplyPreview.cmd.ts'), 'utf-8');
     const runner = readFileSync(resolve(process.cwd(), 'server/trading/signalScanner/normalSupplyPreviewRunner.ts'), 'utf-8');
-    const source = `${command}\n${runner}`;
+    const formatter = readFileSync(resolve(process.cwd(), 'server/trading/signalScanner/normalSupplyPreview.ts'), 'utf-8');
+    const source = `${command}\n${runner}\n${formatter}`;
     expect(source).not.toMatch(/runAutoSignalScan|dispatchApprovedBuy|createApprovalQueueState|flushApprovalQueue/);
     expect(source).not.toMatch(/placeKisMarketOrder|placeKisMarketBuyOrder|placeKisSellOrder|orderExecutor|trancheExecutor/);
+    expect(formatter).not.toMatch(/fetchInvestorFlowWithPolicy|fetchKis|fetchYahoo|fetchInvestorTrading|getDartFinancials/);
   });
 });

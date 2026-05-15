@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import {
   __resetNormalSupplyPreviewForTests,
   deriveNormalSupplyPreviewEngineMode,
+  formatNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewSection,
   getLastNormalSupplyPreview,
   persistNormalSupplyPreview,
@@ -99,6 +100,9 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('realOrderAllowed: false');
     expect(section).toContain('executionImpact: NONE');
     expect(section).toContain('UNKNOWN: 0');
+    expect(section).not.toContain('NORMAL_SUPPLY_DIAGNOSTIC_FULL');
+    expect(section).not.toContain('BEARISH Supply Candidates');
+    expect(section).not.toContain('Signal Source Split');
   });
 
   it('classifies SELL_ONLY and macro live block separately from true hard block', () => {
@@ -110,5 +114,188 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     })).toBe('MACRO_LIVE_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_HARD_BLOCK' })).toBe('HARD_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_POSITION_FULL' })).toBe('POSITION_FULL');
+  });
+
+  it('formats full mode summary with safety flags and threshold explanation', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [
+        {
+          code: '003230',
+          name: 'Samyang Foods',
+          preflight: {
+            supplyContext: {
+              symbol: '003230',
+              provider: 'KIS_API',
+              supplyProviderHealth: 'VERIFIED',
+              supplySignal: 'NEUTRAL',
+              providerIssue: false,
+              marketSignal: true,
+              executionImpact: 'NONE',
+              foreignNetBuyAmount: 100,
+              institutionNetBuyAmount: 50,
+            },
+          },
+        },
+      ] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(text).toContain('previewMode: NORMAL_SUPPLY_DIAGNOSTIC_FULL');
+    expect(text).toContain('unknownPenaltyApplied=false');
+    expect(text).toContain('providerIssueAsBearish=false');
+    expect(text).toContain('bullishThreshold: 80');
+    expect(text).toContain('topSupplyScore: 77');
+    expect(text).toContain('topSignal: NEUTRAL');
+    expect(text).toContain('threshold 미달');
+    expect(text).toContain('realOrderAllowed=false');
+  });
+
+  it('prints bearish per-symbol details with provider and market split', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'SELL_ONLY',
+      source: 'COMMAND',
+      candidates: [
+        {
+          code: '111111',
+          name: 'Bear One',
+          preflight: {
+            supplyContext: {
+              symbol: '111111',
+              provider: 'KIS_API',
+              supplyProviderHealth: 'VERIFIED',
+              supplySignal: 'BEARISH',
+              providerIssue: false,
+              marketSignal: true,
+              executionImpact: 'NONE',
+              foreignNetBuyAmount: -123000000,
+              institutionNetBuyAmount: -87000000,
+              programNetBuyAmount: -1000,
+            },
+          },
+        },
+        {
+          code: '222222',
+          name: 'Bear Two',
+          preflight: {
+            supplyContext: {
+              symbol: '222222',
+              provider: 'KIS_API',
+              supplyProviderHealth: 'VERIFIED',
+              supplySignal: 'BEARISH',
+              providerIssue: false,
+              marketSignal: true,
+              executionImpact: 'NONE',
+              foreignNetBuyAmount: -1,
+              institutionNetBuyAmount: -2,
+            },
+          },
+        },
+      ] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(text).toContain('BEARISH Supply Candidates 2');
+    expect(text).toContain('111111 Bear One');
+    expect(text).toContain('signal=BEARISH');
+    expect(text).toContain('foreignNetBuy=-123,000,000');
+    expect(text).toContain('institutionNetBuy=-87,000,000');
+    expect(text).toContain('providerIssue=false');
+    expect(text).toContain('marketSignal=true');
+    expect(text).toContain('dataStatus=VERIFIED');
+    expect(text).toContain('sourceProvider=KIS_API');
+    expect(text).toContain('usedForLiveDecision=false');
+    expect(text).toContain('executionImpact=NONE');
+    expect(text).toContain('bearishFromProviderIssue: 0');
+  });
+
+  it('keeps providerIssue and UNKNOWN rows out of bearish directional counts', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'MACRO_LIVE_BLOCK',
+      source: 'COMMAND',
+      candidates: [
+        {
+          code: '333333',
+          name: 'Provider Gap',
+          preflight: {
+            supplyContext: {
+              symbol: '333333',
+              provider: 'KIS_API',
+              supplyProviderHealth: 'DEGRADED',
+              supplySignal: 'BEARISH',
+              providerIssue: true,
+              marketSignal: false,
+              executionImpact: 'SCORE_CONFIDENCE_DOWN_ONLY',
+              foreignNetBuyAmount: -10,
+              institutionNetBuyAmount: -20,
+              rawStatus: 'KIS_TIMEOUT',
+            },
+          },
+        },
+        {
+          code: '444444',
+          name: 'Unknown Row',
+          preflight: {
+            supplyContext: {
+              symbol: '444444',
+              provider: 'NONE',
+              supplyProviderHealth: 'UNKNOWN',
+              supplySignal: 'UNUSABLE',
+              providerIssue: true,
+              marketSignal: false,
+              executionImpact: 'SCORE_CONFIDENCE_DOWN_ONLY',
+              rawStatus: 'UNKNOWN_PROVIDER',
+            },
+          },
+        },
+      ] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.signalCounts.BEARISH).toBe(0);
+    expect(preview.signalCounts.UNUSABLE).toBe(2);
+    expect(preview.signalSourceSplit.bearishFromProviderIssue).toBe(0);
+    expect(text).toContain('UNUSABLE / UNKNOWN Supply Rows');
+    expect(text).toContain('Provider Gap');
+    expect(text).toContain('penaltyApplied=false');
+    expect(text).toContain('unknownPenaltyApplied=false');
+    expect(text).toContain('bearishFromProviderIssue: 0');
+  });
+
+  it('reports field availability and paginates long full output', () => {
+    const candidates = Array.from({ length: 41 }, (_, index) => ({
+      code: `${100000 + index}`,
+      name: `Candidate ${index}`,
+      preflight: {
+        supplyContext: {
+          symbol: `${100000 + index}`,
+          provider: 'KIS_API',
+          supplyProviderHealth: 'VERIFIED',
+          supplySignal: index % 5 === 0 ? 'BEARISH' : 'NEUTRAL',
+          providerIssue: false,
+          marketSignal: true,
+          executionImpact: 'NONE',
+          foreignNetBuyAmount: index % 5 === 0 ? -100 - index : 100 + index,
+          institutionNetBuyAmount: index % 5 === 0 ? -200 - index : 200 + index,
+        },
+      },
+    }));
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'SELL_ONLY',
+      source: 'COMMAND',
+      candidates: candidates as any,
+    });
+
+    const pages = formatNormalSupplyPreviewFullSections(preview, { maxTopCandidates: 41, maxChars: 1200 });
+    const text = pages.join('\n');
+    expect(pages.length).toBeGreaterThan(1);
+    expect(text).toContain('foreignNetBuyField: 41/41');
+    expect(text).toContain('institutionNetBuyField: 41/41');
+    expect(text).toContain('programNetBuyField: 0/41');
+    expect(text).toContain('semanticRowAvailable: 41/41');
+    expect(text).toContain('rawInvestorRowAvailable: 41/41');
+    expect(text).toContain('providerCallsAdded=0');
+    expect(pages.every((page) => page.length <= 1300)).toBe(true);
   });
 });
