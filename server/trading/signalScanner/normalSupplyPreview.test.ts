@@ -360,6 +360,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(text).toContain('providerCallsAdded=0');
     expect(pages.every((page) => page.length <= 1300)).toBe(true);
   });
+
 });
 
 describe('Normal Supply Preview program flow diagnostics', () => {
@@ -517,6 +518,66 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.fieldAvailability.passiveProxyUsedForLiveDecision).toBe(false);
     expect(preview.candidates[0]?.activePassiveConfluence).toBe('ACTIVE_PASSIVE_CONFIRMED_BUY');
     expect(preview.programFlowDiagnostics.nextAction).toBe('WIRE_STOCK_AND_MARKET_PROGRAM_FLOW_FIELDS');
+  });
+
+  it('treats zero and snake-case/abbreviated stock program aliases as available neutral evidence', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [
+        baseCandidate({ prgm_buy_amt: '40', prgm_sell_amt: '40' }),
+        baseCandidate({ symbol: '123457', stockPrgmNetBuy: 0, foreignNetBuyAmount: 0, institutionNetBuyAmount: 0 }),
+      ] as any,
+    });
+
+    expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(0);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.signal).toBe('NEUTRAL');
+    expect(preview.candidates[1]?.programFlow?.stockLevel.netBuy).toBe(0);
+    expect(preview.candidates[1]?.programFlow?.stockLevel.signal).toBe('NEUTRAL');
+    expect(preview.fieldAvailability.stockProgramRowsAvailable).toBe(2);
+  });
+
+  it('discovers market program flow from existing nested candidate diagnostic context without provider calls', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [{
+        ...baseCandidate(),
+        diagnosticContext: {
+          programTrading: {
+            scoring: {
+              combinedProgramNetBuy: '-2,000',
+              sourceProvider: 'SNAPSHOT',
+            },
+          },
+        },
+      }] as any,
+    });
+
+    expect(preview.fieldAvailability.marketProgramAvailable).toBe(true);
+    expect(preview.fieldAvailability.marketProgramSignal).toBe('BEARISH');
+    expect(preview.fieldAvailability.marketProgramSource).toBe('SNAPSHOT');
+    expect(preview.fieldAvailability.providerCallsAdded).toBe(0);
+    expect(preview.candidates[0]?.activePassiveConfluence).toBe('MIXED_FLOW');
+  });
+
+  it('prints passive proxy availability context flags and keeps provider calls at zero', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { marketProgramStatus: 'EMPTY' },
+      candidates: [baseCandidate({ program_net_amount: 'N/A' })] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_FLOW_WIRED_BUT_ALL_NA');
+    expect(text).toContain('Program Passive Proxy Availability');
+    expect(text).toContain('stockProgramRowsAvailable: 0/1');
+    expect(text).toContain('contextFound: true');
+    expect(text).toContain('wiredButNoFields: false');
+    expect(text).toContain('providerCallsAdded=0');
+    expect(text).toContain('passiveProxyUsedForLiveDecision=false');
   });
 
 });
