@@ -88,12 +88,14 @@ function logFullStart(preview: NormalSupplyPreview): void {
 
 function logFullDone(preview: NormalSupplyPreview, pages: number): void {
   const contamination =
-    preview.signalSourceSplit.bearishFromProviderIssue + preview.signalSourceSplit.bullishFromProviderIssue;
+    preview.signalSourceSplit.bearishFromProviderIssue +
+    preview.signalSourceSplit.bullishFromProviderIssue +
+    preview.signalSourceSplit.accumulatingFromProviderIssue;
   console.info(
     `[NORMAL_SUPPLY_PREVIEW_FULL_DONE] ` +
       `candidateCount=${preview.candidateCount} verified=${preview.healthCounts.VERIFIED} ` +
       `unknown=${preview.healthCounts.UNKNOWN} bullish=${preview.signalCounts.BULLISH} ` +
-      `neutral=${preview.signalCounts.NEUTRAL} bearish=${preview.signalCounts.BEARISH} ` +
+      `accumulating=${preview.signalCounts.ACCUMULATING} neutral=${preview.signalCounts.NEUTRAL} bearish=${preview.signalCounts.BEARISH} ` +
       `unusable=${preview.signalCounts.UNUSABLE} ` +
       `bearishFromProviderIssue=${preview.signalSourceSplit.bearishFromProviderIssue} ` +
       `unknownPenaltyApplied=false providerCallsAdded=0 pages=${pages} executionImpact=NONE`,
@@ -101,7 +103,7 @@ function logFullDone(preview: NormalSupplyPreview, pages: number): void {
   if (contamination > 0) {
     console.warn(
       `[NORMAL_SUPPLY_PREVIEW_PROVIDER_SIGNAL_CONTAMINATION] ` +
-        `signal=BEARISH|BULLISH providerIssueCount=${contamination} executionImpact=NONE severity=warn`,
+        `signal=BEARISH|BULLISH|ACCUMULATING providerIssueCount=${contamination} executionImpact=NONE severity=warn`,
     );
   }
 }

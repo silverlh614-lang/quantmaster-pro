@@ -11,6 +11,7 @@ export const NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE = 'NORMAL_SUPPLY_DIAGNOSTIC' 
 export const NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE = 'NORMAL_SUPPLY_DIAGNOSTIC_FULL' as const;
 export const NORMAL_SUPPLY_SCORE_THRESHOLDS = Object.freeze({
   bullishThreshold: 80,
+  accumulatingThreshold: 70,
   bearishThreshold: 35,
 });
 
@@ -42,6 +43,10 @@ export interface NormalSupplyPreviewCandidate {
   reason: string;
   invalidBearishReason?: 'PROVIDER_ISSUE_SHOULD_NOT_BE_BEARISH';
   invalidBullishReason?: 'PROVIDER_ISSUE_SHOULD_NOT_BE_BULLISH';
+  usedForLiveDecision: false;
+  strongBuyAllowed: false;
+  watchlistPriorityBoost: number;
+  shadowTracking: boolean;
   foreignNetBuyAmount?: number;
   institutionNetBuyAmount?: number;
   programNetBuyAmount?: number;
@@ -57,6 +62,8 @@ export interface NormalSupplyPreviewCandidate {
 export interface NormalSupplySignalSourceSplit {
   bullishFromMarketSignal: number;
   bullishFromProviderIssue: number;
+  accumulatingFromMarketSignal: number;
+  accumulatingFromProviderIssue: number;
   bearishFromMarketSignal: number;
   bearishFromProviderIssue: number;
   neutralFromVerifiedData: number;
@@ -80,6 +87,10 @@ export interface NormalSupplyPreviewSafety {
   staleAsBearish: false;
   missingAsBearish: false;
   realOrderAllowed: false;
+  accumulatingUsedForLiveDecision: false;
+  accumulatingAllowsStrongBuy: false;
+  accumulatingAllowsWatchlistBoost: true;
+  accumulatingAllowsShadowTracking: true;
 }
 
 export interface NormalSupplyPreview {
@@ -160,13 +171,39 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
       staleAsBearish: false,
       missingAsBearish: false,
       realOrderAllowed: false,
+      accumulatingUsedForLiveDecision: false,
+      accumulatingAllowsStrongBuy: false,
+      accumulatingAllowsWatchlistBoost: true,
+      accumulatingAllowsShadowTracking: true,
     },
   };
+  logSupplySignalTierRefinement(lastNormalSupplyPreview);
   return lastNormalSupplyPreview;
 }
 
 export function getLastNormalSupplyPreview(): NormalSupplyPreview | null {
   return lastNormalSupplyPreview;
+}
+
+function logSupplySignalTierRefinement(preview: NormalSupplyPreview): void {
+  console.info(
+    `[SUPPLY_SIGNAL_TIER_REFINEMENT] ` +
+      `candidateCount=${preview.candidateCount} bullish=${preview.signalCounts.BULLISH} ` +
+      `accumulating=${preview.signalCounts.ACCUMULATING} neutral=${preview.signalCounts.NEUTRAL} ` +
+      `bearish=${preview.signalCounts.BEARISH} unusable=${preview.signalCounts.UNUSABLE} ` +
+      `accumulatingUsedForLiveDecision=false executionImpact=NONE`,
+  );
+  for (const candidate of preview.candidates) {
+    if (candidate.supplySignal !== 'ACCUMULATING') continue;
+    console.info(
+      `[SUPPLY_ACCUMULATING_DETECTED] ` +
+        `symbol=${candidate.symbol} name=${candidate.name ?? 'n/a'} supplyScore=${candidate.supplyScore} ` +
+        `foreignNetBuy=${candidate.foreignNetBuyAmount ?? 'N/A'} ` +
+        `institutionNetBuy=${candidate.institutionNetBuyAmount ?? 'N/A'} ` +
+        `reason=FOREIGN_AND_INSTITUTION_NET_BUY_BUT_BELOW_BULLISH_THRESHOLD ` +
+        `usedForLiveDecision=false shadowTracking=true executionImpact=NONE`,
+    );
+  }
 }
 
 export function deriveNormalSupplyPreviewEngineMode(input: {
@@ -242,6 +279,7 @@ export function formatNormalSupplyPreviewSection(
   lines.push('');
   lines.push('정상모드 기준 수급 판정:');
   lines.push(`  BULLISH: ${preview.signalCounts.BULLISH}`);
+  lines.push(`  ACCUMULATING: ${preview.signalCounts.ACCUMULATING}`);
   lines.push(`  NEUTRAL: ${preview.signalCounts.NEUTRAL}`);
   lines.push(`  BEARISH: ${preview.signalCounts.BEARISH}`);
   lines.push(`  UNUSABLE: ${preview.signalCounts.UNUSABLE}`);
@@ -280,7 +318,9 @@ export function buildNormalSupplyPreviewFullSections(
   const thresholds = NORMAL_SUPPLY_SCORE_THRESHOLDS;
   const top = preview.topCandidates[0];
   const contamination =
-    preview.signalSourceSplit.bearishFromProviderIssue + preview.signalSourceSplit.bullishFromProviderIssue;
+    preview.signalSourceSplit.bearishFromProviderIssue +
+    preview.signalSourceSplit.bullishFromProviderIssue +
+    preview.signalSourceSplit.accumulatingFromProviderIssue;
   const sections: string[] = [];
 
   sections.push([
@@ -310,6 +350,7 @@ export function buildNormalSupplyPreviewFullSections(
     '',
     'Signal:',
     `  BULLISH=${preview.signalCounts.BULLISH}`,
+    `  ACCUMULATING=${preview.signalCounts.ACCUMULATING}`,
     `  NEUTRAL=${preview.signalCounts.NEUTRAL}`,
     `  BEARISH=${preview.signalCounts.BEARISH}`,
     `  UNUSABLE=${preview.signalCounts.UNUSABLE}`,
@@ -320,12 +361,18 @@ export function buildNormalSupplyPreviewFullSections(
     `  staleAsBearish=${preview.safety.staleAsBearish}`,
     `  missingAsBearish=${preview.safety.missingAsBearish}`,
     `  realOrderAllowed=${preview.safety.realOrderAllowed}`,
+    `  accumulatingUsedForLiveDecision=${preview.safety.accumulatingUsedForLiveDecision}`,
+    `  accumulatingAllowsStrongBuy=${preview.safety.accumulatingAllowsStrongBuy}`,
+    `  accumulatingAllowsWatchlistBoost=${preview.safety.accumulatingAllowsWatchlistBoost}`,
+    `  accumulatingAllowsShadowTracking=${preview.safety.accumulatingAllowsShadowTracking}`,
+    `  executionImpact=${preview.executionImpact}`,
     contamination > 0 ? `  warning=PROVIDER_SIGNAL_CONTAMINATION count=${contamination}` : '',
     '',
     '📐 <b>Supply Score Threshold</b>',
     `  bullishThreshold: ${thresholds.bullishThreshold}`,
+    `  accumulatingRange: ${thresholds.accumulatingThreshold}~${thresholds.bullishThreshold - 1}`,
     `  bearishThreshold: ${thresholds.bearishThreshold}`,
-    `  neutralRange: ${thresholds.bearishThreshold}~${thresholds.bullishThreshold - 1}`,
+    `  neutralRange: ${thresholds.bearishThreshold}~${thresholds.accumulatingThreshold - 1}`,
     `  topSupplyScore: ${top?.supplyScore ?? 'N/A'}`,
     `  topSignal: ${top?.supplySignal ?? 'N/A'}`,
     `  explanation: ${escapeHtmlText(buildThresholdExplanation(top))}`,
@@ -333,6 +380,8 @@ export function buildNormalSupplyPreviewFullSections(
     '📊 <b>Signal Source Split</b>',
     `  bullishFromMarketSignal: ${preview.signalSourceSplit.bullishFromMarketSignal}`,
     `  bullishFromProviderIssue: ${preview.signalSourceSplit.bullishFromProviderIssue}`,
+    `  accumulatingFromMarketSignal: ${preview.signalSourceSplit.accumulatingFromMarketSignal}`,
+    `  accumulatingFromProviderIssue: ${preview.signalSourceSplit.accumulatingFromProviderIssue}`,
     `  bearishFromMarketSignal: ${preview.signalSourceSplit.bearishFromMarketSignal}`,
     `  bearishFromProviderIssue: ${preview.signalSourceSplit.bearishFromProviderIssue}`,
     `  neutralFromVerifiedData: ${preview.signalSourceSplit.neutralFromVerifiedData}`,
@@ -493,11 +542,16 @@ function toPreviewCandidate(candidate: CandidateWithSupplyContext): NormalSupply
   const health = normalizeHealth(supplyContext.supplyProviderHealth);
   const providerIssue = supplyContext.providerIssue === true;
   const marketSignal = supplyContext.marketSignal === true;
-  const rawSignal = normalizeSignal(supplyContext.supplySignal);
-  const signal = providerIssue && !marketSignal && (rawSignal === 'BULLISH' || rawSignal === 'BEARISH')
-    ? 'UNUSABLE'
-    : rawSignal;
-  const reason = describeSupplyReason(supplyContext);
+  const supplyScore = deriveSupplyScore(supplyContext);
+  const signal = classifySupplySignal({
+    supplyScore,
+    dataStatus: health,
+    providerIssue,
+    marketSignal,
+    foreignNetBuy: supplyContext.foreignNetBuyAmount,
+    institutionNetBuy: supplyContext.institutionNetBuyAmount,
+  });
+  const reason = describeSupplyReason(supplyContext, signal, supplyScore);
   return {
     symbol,
     name: typeof (candidate as { name?: unknown }).name === 'string' ? (candidate as { name: string }).name : undefined,
@@ -509,7 +563,7 @@ function toPreviewCandidate(candidate: CandidateWithSupplyContext): NormalSupply
     providerIssue,
     marketSignal,
     executionImpact: supplyContext.executionImpact,
-    supplyScore: deriveSupplyScore(supplyContext),
+    supplyScore,
     summary: summarizeSupplyContext(supplyContext),
     reason,
     ...(signal === 'BEARISH' && providerIssue
@@ -528,6 +582,10 @@ function toPreviewCandidate(candidate: CandidateWithSupplyContext): NormalSupply
     rawInvestorRowAvailable: hasRawInvestorRow(trace, health),
     selectedCandidateCarriesSemanticRow: selectedCarriesSemanticRow(trace, health),
     selectedCandidateCarriesActualRow: selectedCarriesActualRow(trace, health),
+    usedForLiveDecision: false,
+    strongBuyAllowed: false,
+    watchlistPriorityBoost: signal === 'ACCUMULATING' ? 1 : 0,
+    shadowTracking: signal === 'ACCUMULATING',
   };
 }
 
@@ -556,8 +614,43 @@ function normalizeHealth(value: unknown): SupplyProviderHealth {
 }
 
 function normalizeSignal(value: unknown): SupplySignal {
-  if (value === 'BULLISH' || value === 'NEUTRAL' || value === 'BEARISH' || value === 'UNUSABLE') return value;
+  if (
+    value === 'BULLISH' ||
+    value === 'ACCUMULATING' ||
+    value === 'NEUTRAL' ||
+    value === 'BEARISH' ||
+    value === 'UNUSABLE'
+  ) {
+    return value;
+  }
   return 'UNUSABLE';
+}
+
+export function classifySupplySignal(input: {
+  supplyScore: number;
+  dataStatus: SupplyProviderHealth;
+  providerIssue: boolean;
+  marketSignal: boolean;
+  foreignNetBuy?: number | null;
+  institutionNetBuy?: number | null;
+}): SupplySignal {
+  const {
+    supplyScore,
+    dataStatus,
+    providerIssue,
+    marketSignal,
+    foreignNetBuy,
+    institutionNetBuy,
+  } = input;
+
+  if (dataStatus !== 'VERIFIED') return 'UNUSABLE';
+  if (providerIssue) return 'UNUSABLE';
+  if (!marketSignal) return 'NEUTRAL';
+  if (foreignNetBuy == null || institutionNetBuy == null) return 'UNUSABLE';
+  if (supplyScore >= NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold) return 'BULLISH';
+  if (supplyScore >= NORMAL_SUPPLY_SCORE_THRESHOLDS.accumulatingThreshold) return 'ACCUMULATING';
+  if (supplyScore < NORMAL_SUPPLY_SCORE_THRESHOLDS.bearishThreshold) return 'BEARISH';
+  return 'NEUTRAL';
 }
 
 function countHealth(candidates: NormalSupplyPreviewCandidate[]): Record<SupplyProviderHealth, number> {
@@ -575,6 +668,7 @@ function countHealth(candidates: NormalSupplyPreviewCandidate[]): Record<SupplyP
 function countSignals(candidates: NormalSupplyPreviewCandidate[]): Record<SupplySignal, number> {
   const counts: Record<SupplySignal, number> = {
     BULLISH: 0,
+    ACCUMULATING: 0,
     NEUTRAL: 0,
     BEARISH: 0,
     UNUSABLE: 0,
@@ -587,6 +681,8 @@ function buildSignalSourceSplit(candidates: NormalSupplyPreviewCandidate[]): Nor
   const split: NormalSupplySignalSourceSplit = {
     bullishFromMarketSignal: 0,
     bullishFromProviderIssue: 0,
+    accumulatingFromMarketSignal: 0,
+    accumulatingFromProviderIssue: 0,
     bearishFromMarketSignal: 0,
     bearishFromProviderIssue: 0,
     neutralFromVerifiedData: 0,
@@ -596,6 +692,9 @@ function buildSignalSourceSplit(candidates: NormalSupplyPreviewCandidate[]): Nor
     if (candidate.supplySignal === 'BULLISH') {
       if (candidate.providerIssue) split.bullishFromProviderIssue += 1;
       else if (candidate.marketSignal) split.bullishFromMarketSignal += 1;
+    } else if (candidate.supplySignal === 'ACCUMULATING') {
+      if (candidate.providerIssue) split.accumulatingFromProviderIssue += 1;
+      else if (candidate.marketSignal) split.accumulatingFromMarketSignal += 1;
     } else if (candidate.supplySignal === 'BEARISH') {
       if (candidate.providerIssue) split.bearishFromProviderIssue += 1;
       else if (candidate.marketSignal) split.bearishFromMarketSignal += 1;
@@ -740,6 +839,9 @@ function formatFullCandidateDetail(
     ...(options.includeThreshold
       ? [`   bullishThreshold=${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold}`]
       : []),
+    ...(candidate.supplySignal === 'ACCUMULATING'
+      ? [`   accumulatingRange=${NORMAL_SUPPLY_SCORE_THRESHOLDS.accumulatingThreshold}~${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold - 1}`]
+      : []),
     `   reason=${escapeHtmlText(candidate.reason)}`,
     `   foreignNetBuy=${formatAmount(candidate.foreignNetBuyAmount)}`,
     `   institutionNetBuy=${formatAmount(candidate.institutionNetBuyAmount)}`,
@@ -749,7 +851,10 @@ function formatFullCandidateDetail(
     `   dataStatus=${candidate.dataStatus}`,
     `   sourceProvider=${candidate.sourceProvider}`,
     `   confidence=${candidate.confidence}`,
+    `   watchlistPriorityBoost=${candidate.watchlistPriorityBoost}`,
+    `   shadowTracking=${candidate.shadowTracking}`,
     '   usedForLiveDecision=false',
+    '   strongBuyAllowed=false',
     '   executionImpact=NONE',
   ];
   if (options.includeInvalidWarning && candidate.invalidBearishReason) {
@@ -786,6 +891,12 @@ function formatAmount(value: number | undefined): string {
 
 function buildThresholdExplanation(candidate: NormalSupplyPreviewCandidate | undefined): string {
   if (!candidate) return 'No candidate rows are available for threshold explanation.';
+  if (candidate.supplySignal === 'ACCUMULATING') {
+    return `supplyScore ${candidate.supplyScore} is below bullishThreshold ${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold} and inside accumulatingRange ${NORMAL_SUPPLY_SCORE_THRESHOLDS.accumulatingThreshold}-${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold - 1}; quiet accumulation candidate, not a live buy signal.`;
+  }
+  if (candidate.supplySignal === 'NEUTRAL' && candidate.supplyScore < NORMAL_SUPPLY_SCORE_THRESHOLDS.accumulatingThreshold) {
+    return `supplyScore ${candidate.supplyScore} is below accumulatingRange ${NORMAL_SUPPLY_SCORE_THRESHOLDS.accumulatingThreshold}-${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold - 1}; classified as NEUTRAL.`;
+  }
   if (candidate.supplySignal === 'NEUTRAL' && candidate.supplyScore < NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold) {
     return `supplyScore ${candidate.supplyScore}은 ${candidate.reason} 기준이나 bullishThreshold ${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold} 미만이므로 NEUTRAL로 분류됩니다.`;
   }
@@ -798,15 +909,21 @@ function buildThresholdExplanation(candidate: NormalSupplyPreviewCandidate | und
   return `supplyScore ${candidate.supplyScore}이며 dataStatus=${candidate.dataStatus}입니다. UNKNOWN/MISSING/STALE은 bearish penalty로 변환하지 않습니다.`;
 }
 
-function describeSupplyReason(ctx: PerSymbolSupplyContext): string {
+function describeSupplyReason(ctx: PerSymbolSupplyContext, classifiedSignal?: SupplySignal, supplyScore?: number): string {
   const health = normalizeHealth(ctx.supplyProviderHealth);
-  const signal = normalizeSignal(ctx.supplySignal);
+  const signal = classifiedSignal ?? normalizeSignal(ctx.supplySignal);
   if (ctx.providerIssue === true || health !== 'VERIFIED') {
     return `${health} provider gap (${ctx.rawStatus ?? 'n/a'})`;
   }
   const foreign = ctx.foreignNetBuyAmount ?? 0;
   const institution = ctx.institutionNetBuyAmount ?? 0;
   const program = ctx.programNetBuyAmount ?? 0;
+  if (signal === 'ACCUMULATING' && foreign > 0 && institution > 0) {
+    return `foreign+institution net buy but below bullish threshold (${supplyScore ?? 'n/a'}/${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold}) - ACCUMULATING quiet observation candidate`;
+  }
+  if (signal === 'ACCUMULATING') {
+    return `VERIFIED supply data shows accumulation (${supplyScore ?? 'n/a'}) - diagnostic/shadow only, not used for live decision`;
+  }
   if (signal === 'BEARISH' && foreign < 0 && institution < 0) return '외국인+기관 동반 순매도';
   if (signal === 'BULLISH' && foreign > 0 && institution > 0 && program > 0) return '외국인+기관+프로그램 동반 순매수';
   if (signal === 'NEUTRAL' && foreign > 0 && institution > 0) return '외인+기관 동반 순매수이나 bullish threshold 미달';

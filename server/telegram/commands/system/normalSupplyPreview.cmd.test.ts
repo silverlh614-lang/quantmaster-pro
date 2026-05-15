@@ -16,6 +16,7 @@ describe('/normal_supply_preview command wiring', () => {
     expect(source).toContain('formatNormalSupplyPreviewFullSections');
     expect(source).toContain('replyMany');
     expect(source).toContain('[NORMAL_SUPPLY_PREVIEW_FULL_DONE]');
+    expect(source).toContain('accumulating=${preview.signalCounts.ACCUMULATING}');
   });
 
   it('is mounted in the system command barrel and scan_blockers full output', () => {

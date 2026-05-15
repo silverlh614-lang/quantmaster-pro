@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
   __resetNormalSupplyPreviewForTests,
+  classifySupplySignal,
   deriveNormalSupplyPreviewEngineMode,
   formatNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewSection,
@@ -82,9 +83,60 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
       UNKNOWN: 0,
     });
     expect(preview.signalCounts.BULLISH).toBe(1);
-    expect(preview.signalCounts.UNUSABLE).toBe(1);
+    expect(preview.signalCounts.UNUSABLE).toBe(2);
     expect(preview.topCandidates[0]?.symbol).toBe('005930');
     expect(getLastNormalSupplyPreview()).toBe(preview);
+  });
+
+  it('classifies the ACCUMULATING tier without weakening the BULLISH threshold', () => {
+    expect(classifySupplySignal({
+      supplyScore: 77,
+      dataStatus: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: true,
+      foreignNetBuy: 100,
+      institutionNetBuy: 50,
+    })).toBe('ACCUMULATING');
+    expect(classifySupplySignal({
+      supplyScore: 81,
+      dataStatus: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: true,
+      foreignNetBuy: 100,
+      institutionNetBuy: 50,
+    })).toBe('BULLISH');
+    expect(classifySupplySignal({
+      supplyScore: 65,
+      dataStatus: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: true,
+      foreignNetBuy: 100,
+      institutionNetBuy: 50,
+    })).toBe('NEUTRAL');
+    expect(classifySupplySignal({
+      supplyScore: 28,
+      dataStatus: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: true,
+      foreignNetBuy: -100,
+      institutionNetBuy: -50,
+    })).toBe('BEARISH');
+    expect(classifySupplySignal({
+      supplyScore: 77,
+      dataStatus: 'STALE',
+      providerIssue: false,
+      marketSignal: true,
+      foreignNetBuy: 100,
+      institutionNetBuy: 50,
+    })).toBe('UNUSABLE');
+    expect(classifySupplySignal({
+      supplyScore: 77,
+      dataStatus: 'VERIFIED',
+      providerIssue: true,
+      marketSignal: true,
+      foreignNetBuy: 100,
+      institutionNetBuy: 50,
+    })).toBe('UNUSABLE');
   });
 
   it('formats the overlay with UNKNOWN=0 and executionImpact=NONE', () => {
@@ -146,9 +198,16 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(text).toContain('unknownPenaltyApplied=false');
     expect(text).toContain('providerIssueAsBearish=false');
     expect(text).toContain('bullishThreshold: 80');
+    expect(text).toContain('accumulatingRange: 70~79');
     expect(text).toContain('topSupplyScore: 77');
-    expect(text).toContain('topSignal: NEUTRAL');
-    expect(text).toContain('threshold 미달');
+    expect(text).toContain('topSignal: ACCUMULATING');
+    expect(text).toContain('ACCUMULATING quiet observation candidate');
+    expect(text).toContain('quiet accumulation candidate');
+    expect(text).toContain('accumulatingUsedForLiveDecision=false');
+    expect(text).toContain('accumulatingAllowsStrongBuy=false');
+    expect(text).toContain('watchlistPriorityBoost=1');
+    expect(text).toContain('shadowTracking=true');
+    expect(text).toContain('strongBuyAllowed=false');
     expect(text).toContain('realOrderAllowed=false');
   });
 
@@ -290,6 +349,9 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     const pages = formatNormalSupplyPreviewFullSections(preview, { maxTopCandidates: 41, maxChars: 1200 });
     const text = pages.join('\n');
     expect(pages.length).toBeGreaterThan(1);
+    expect(preview.signalCounts.ACCUMULATING).toBe(32);
+    expect(preview.signalCounts.BEARISH).toBe(9);
+    expect(text).toContain('ACCUMULATING=32');
     expect(text).toContain('foreignNetBuyField: 41/41');
     expect(text).toContain('institutionNetBuyField: 41/41');
     expect(text).toContain('programNetBuyField: 0/41');

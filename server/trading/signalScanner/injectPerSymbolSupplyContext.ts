@@ -12,6 +12,7 @@ export type SupplyProviderHealth =
 
 export type SupplySignal =
   | 'BULLISH'
+  | 'ACCUMULATING'
   | 'NEUTRAL'
   | 'BEARISH'
   | 'UNUSABLE';
