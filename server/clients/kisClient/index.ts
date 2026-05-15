@@ -71,7 +71,7 @@ export {
 } from './overrides.js';
 
 // ─── http ──────────────────────────────────────────────────────────────────
-export { kisGet, kisPost, realDataKisGet, isKisChartCooldownActive } from './http.js';
+export { kisGet, kisPost, realDataKisGet, isKisChartCooldownActive, getKisChartCooldownRemainingMs } from './http.js';
 
 // ─── query (시세 조회) ─────────────────────────────────────────────────────
 export { fetchKisInvestorFlow } from './investorFlowStrict.js';

@@ -22,6 +22,7 @@ import {
 } from './resilience.js';
 import { getKisOverrides } from './overrides.js';
 import type { KisPostIdempotency, KisPostOptions } from './types.js';
+import { normalizeKisPurpose, shouldGuardKisRealDataPreopen } from '../../utils/preopenDiscoveryGuards.js';
 // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — provider noise classification + per-key
 //   cooldown + suppressed log count. providerIssue=true / marketSignal=false /
 //   executionImpact='NONE' literal type 강제. ENV `KIS_REALDATA_BACKOFF_DISABLED=true`
@@ -296,8 +297,14 @@ function isKisChart5xxCooldownActive(ctx: { trId: string; symbol: string; period
   return Date.now() < until;
 }
 
-function getKisChartCooldownRemainingMs(ctx: { trId: string; symbol: string; period: string; purpose?: string }): number {
-  const until = _realData5xxCooldownUntil.get(kisChartCooldownKey(ctx)) ?? 0;
+export function getKisChartCooldownRemainingMs(ctx: { trId?: string; symbol: string; period?: 'D' | 'W' | 'M' | string; purpose?: string }): number {
+  const normalized = {
+    trId: ctx.trId ?? KIS_CHART_TR_ID,
+    symbol: (ctx.symbol ?? '').padStart(6, '0'),
+    period: ctx.period ?? 'D',
+    purpose: normalizeKisPurpose(ctx.purpose),
+  };
+  const until = _realData5xxCooldownUntil.get(kisChartCooldownKey(normalized)) ?? 0;
   return Math.max(0, until - Date.now());
 }
 
@@ -383,6 +390,35 @@ export function realDataKisGet(
 ) {
   const overrides = getKisOverrides();
   if (overrides.realDataKisGet) return overrides.realDataKisGet(trId, apiPath, params);
+
+  const purpose = normalizeKisPurpose(params.__kisPurpose);
+  if (shouldGuardKisRealDataPreopen({ trId, purpose })) {
+    console.warn(
+      `[KIS_REALDATA_PREOPEN_GUARDED]\n`
+      + `trId=${trId}\n`
+      + `purpose=${purpose}\n`
+      + `reason=PREOPEN_REALDATA_TR_NOT_APPLICABLE\n`
+      + `providerIssue=false\n`
+      + `marketSignal=false\n`
+      + `executionImpact=NONE\n`
+      + `dataVacuum=false\n`
+      + `newBuyBlocked=false\n`
+      + `confidence=NOT_APPLICABLE_PREOPEN`,
+    );
+    return Promise.resolve({
+      status: 'NOT_APPLICABLE_PREOPEN',
+      reason: 'PREOPEN_REALDATA_TR_NOT_APPLICABLE',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'NONE',
+      dataVacuum: false,
+      newBuyBlocked: false,
+      confidence: 'NOT_APPLICABLE_PREOPEN',
+      rows: [],
+      output: [],
+    });
+  }
+
   if (!HAS_REAL_DATA_CLIENT) return kisGet(trId, apiPath, params, priority);
 
   return scheduleKisCall(priority, `REAL_GET ${trId}`, async () => {

@@ -84,6 +84,7 @@ export async function fetchKisChartData(
         FID_INPUT_DATE_2: endDate,
         FID_PERIOD_DIV_CODE: period,
         FID_ORG_ADJ_PRC: '0',  // 수정주가 반영
+        __kisPurpose: 'DISCOVERY',
       },
     );
 

@@ -28,15 +28,21 @@ import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistMa
 // ── PR-55 분해 후 모듈 import ───────────────────────────────────────────────
 import { STOCK_UNIVERSE } from './stockUniverse.js';
 import { type RejectionEntry, setLastRejectionLog } from './rejectionLog.js';
-import { fetchYahooQuote, type YahooQuoteExtended } from './adapters/yahooQuoteAdapter.js';
+import {
+  fetchYahooQuote,
+  isYahooStaleQuarantined,
+  getYahooStaleQuarantineRemainingMs,
+  type YahooQuoteExtended,
+} from './adapters/yahooQuoteAdapter.js';
 import { fetchKisQuoteFallback, fetchKisIntraday, enrichQuoteWithKisMTAS } from './adapters/kisQuoteAdapter.js';
 // PR-KIS-CHART-COOLDOWN — Yahoo STALE_BASE 분기에서 KIS 차트 cooldown 활성 여부
 // 조회 SSOT. true 면 추가 outbound 호출 0건으로 quoteHydrationFailed 처리
 // (STALE_YAHOO_AND_KIS_CHART_FAILED + SKIP_THIS_SCAN, providerIssue=true /
 // marketSignal=false / executionImpact=NONE). #974 KIS chart 5xx cooldown
 // 인프라 위에 stack — 운영자 Telegram 알림 0건, 전체 스캔 흐름 무중단.
-import { isKisChartCooldownActive } from '../clients/kisClient.js';
+import { getKisChartCooldownRemainingMs, isKisChartCooldownActive } from '../clients/kisClient.js';
 import { fetchKrxScreenerFallback } from './adapters/krxScreenerAdapter.js';
+import { isKstPreopenDiscoveryWindow, PREOPEN_AUTOPOPULATE_TTL_MS } from '../utils/preopenDiscoveryGuards.js';
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${s.code}.KS` direct concat 영구
 // 차단. screenerSymbols 의 symbol 필드 마스터 매칭 격상 (정확한 시장) + 부재 시
 // legacy .KS fallback 보존 (그레이스 — 코스닥도 Yahoo 에서 .KS 로 조회 가능).
@@ -70,6 +76,7 @@ export interface ScreenedStock {
 }
 
 const PRE_SCREEN_MAX_RESULTS = 40;
+let preopenAutoPopulateLastAllowedAt = 0;
 
 /**
  * ADR-0418 Phase 3 (2026-05-07) — registry.run 이 evaluator.inputs 메타로부터
@@ -136,6 +143,7 @@ export async function preScreenStocks(options?: {
         fid_input_price_2:      '500000',
         fid_vol_cnt:            '50000',   // 5만주로 완화
         fid_input_date_1:       '',
+        __kisPurpose:          'SCREENER',
       }),
 
       // 2. 상승률 상위 (신규)
@@ -154,6 +162,7 @@ export async function preScreenStocks(options?: {
         fid_div_cls_code:       '0',
         fid_rsfl_rate1:         '1',       // 1% 이상 상승
         fid_rsfl_rate2:         '15',      // 15% 미만 (과열 제외)
+        __kisPurpose:          'SCREENER',
       }),
 
       // 3. 52주 신고가 (신규) — 주도주 포착 핵심
@@ -167,6 +176,7 @@ export async function preScreenStocks(options?: {
         fid_trgt_cls_code:      '0',
         fid_trgt_exls_cls_code: '0',
         fid_div_cls_code:       '0',
+        __kisPurpose:          'SCREENER',
       }),
 
       // 4. 외국인 순매수 상위 (신규) — 수급 기반 핵심
@@ -183,6 +193,7 @@ export async function preScreenStocks(options?: {
         fid_vol_cnt:            '50000',
         fid_input_price_1:      '3000',
         fid_input_price_2:      '500000',
+        __kisPurpose:          'SCREENER',
       }),
     ]);
 
@@ -373,7 +384,30 @@ export async function preScreenStocks(options?: {
  *
  * 손절: 현재가 -8%, 목표: 현재가 +15%
  */
-export async function autoPopulateWatchlist(): Promise<number> {
+export async function autoPopulateWatchlist(options: { force?: boolean } = {}): Promise<number> {
+  if (isKstPreopenDiscoveryWindow() && !options.force) {
+    const now = Date.now();
+    const remainingMs = PREOPEN_AUTOPOPULATE_TTL_MS - (now - preopenAutoPopulateLastAllowedAt);
+    if (preopenAutoPopulateLastAllowedAt > 0 && remainingMs > 0) {
+      console.info(
+        `[PREOPEN_AUTOPOPULATE_SKIPPED]\n`
+        + `reason=PREOPEN_AUTOPOPULATE_TTL_ACTIVE\n`
+        + `remainingMs=${remainingMs}\n`
+        + `executionImpact=NONE\n`
+        + `marketSignal=false\n`
+        + `providerIssue=false`,
+      );
+      return 0;
+    }
+    preopenAutoPopulateLastAllowedAt = now;
+    console.info(
+      `[PREOPEN_AUTOPOPULATE_ALLOWED]\n`
+      + `reason=PREOPEN_AUTOPOPULATE_TTL_EXPIRED\n`
+      + `ttlMs=${PREOPEN_AUTOPOPULATE_TTL_MS}\n`
+      + `executionImpact=NONE`,
+    );
+  }
+
   const watchlist = loadWatchlist();
   const existingCodes = new Set(watchlist.map(w => w.code));
   let added = 0;
@@ -400,6 +434,9 @@ export async function autoPopulateWatchlist(): Promise<number> {
   });
   syncMomentumAutoSnapshot(momentumAutoEntries.map((w) => w.code));
   let autoMomentumAddedThisCycle = 0;
+  const cycleId = `AUTOPOPULATE:${Date.now()}`;
+  const momentumLimitedSamples: string[] = [];
+  let momentumLimitedCount = 0;
   if (intake.slowed) {
     console.log(
       `[MOMENTUM_AUTO_INTAKE_SLOWED] ${intake.reason} — ` +
@@ -426,8 +463,10 @@ export async function autoPopulateWatchlist(): Promise<number> {
         name,
         reason: `MOMENTUM AUTO 편입 감속 (사이클당 ${intake.perCycleLimit}개 한도)`,
       });
-      console.log(
-        `[MOMENTUM_AUTO_INTAKE_LIMITED] ${name}(${code}) — ` +
+      momentumLimitedCount++;
+      if (momentumLimitedSamples.length < 10) momentumLimitedSamples.push(`${name}(${code})`);
+      console.debug(
+        `[MOMENTUM_AUTO_INTAKE_LIMITED_DEBUG] ${name}(${code}) — ` +
           `autoRatio=${intake.autoRatio.toFixed(2)} perCycleLimit=${intake.perCycleLimit} ` +
           `addedThisCycle=${autoMomentumAddedThisCycle} executionImpact=NONE`,
       );
@@ -514,6 +553,28 @@ export async function autoPopulateWatchlist(): Promise<number> {
   );
   for (const stock of scanUniverse) {
     if (existingCodes.has(stock.code)) continue;
+    if (isYahooStaleQuarantined(stock.code)) {
+      rejectionLog.push({
+        code: stock.code,
+        name: stock.name,
+        reason: `Yahoo stale discovery quarantine active (${getYahooStaleQuarantineRemainingMs(stock.code)}ms remaining)`,
+      });
+      continue;
+    }
+    if (isKisChartCooldownActive(stock.code, 'D', 'DISCOVERY')) {
+      console.info(
+        `[DISCOVERY_CANDIDATE_SKIPPED_BY_KIS_CHART_COOLDOWN]\n`
+        + `trId=FHKST03010100\n`
+        + `symbol=${stock.code}\n`
+        + `period=D\n`
+        + `purpose=DISCOVERY\n`
+        + `remainingMs=${getKisChartCooldownRemainingMs({ symbol: stock.code, period: 'D', purpose: 'DISCOVERY' })}\n`
+        + `executionImpact=NONE\n`
+        + `marketSignal=false`,
+      );
+      rejectionLog.push({ code: stock.code, name: stock.name, reason: 'KIS chart cooldown active (DISCOVERY skip)' });
+      continue;
+    }
 
     const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote);
     if (!quote || quote.price <= 0) {
@@ -722,6 +783,21 @@ export async function autoPopulateWatchlist(): Promise<number> {
 
   // 아이디어 11: Gate 감사 플러시 — 루프 종료 후 단일 파일 I/O
   flushGateAudit();
+
+  if (momentumLimitedCount > 0) {
+    console.info(
+      `[MOMENTUM_AUTO_INTAKE_LIMITED_SUMMARY]\n`
+      + `cycleId=${cycleId}\n`
+      + `limitedCount=${momentumLimitedCount}\n`
+      + `sample=[${momentumLimitedSamples.join(', ')}]\n`
+      + `autoRatio=${intake.autoRatio.toFixed(2)}\n`
+      + `perCycleLimit=${intake.perCycleLimit}\n`
+      + `addedThisCycle=${autoMomentumAddedThisCycle}\n`
+      + `executionImpact=NONE\n`
+      + `marketSignal=false\n`
+      + `providerIssue=false`,
+    );
+  }
 
   // 아이디어 5: 탈락 로그를 메모리 캐시에 저장 + 상세 JSON 로그 출력
   setLastRejectionLog(rejectionLog);

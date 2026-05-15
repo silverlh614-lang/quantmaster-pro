@@ -58,9 +58,9 @@ router.post('/auto-trade/screener/run', async (_req: any, res: any) => {
   }
 });
 
-router.post('/auto-trade/populate', async (_req: any, res: any) => {
+router.post('/auto-trade/populate', async (req: any, res: any) => {
   try {
-    const added = await autoPopulateWatchlist();
+    const added = await autoPopulateWatchlist({ force: req.body?.force === true || req.query?.force === 'true' });
     res.json({ ok: true, added, watchlist: loadWatchlist() });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
