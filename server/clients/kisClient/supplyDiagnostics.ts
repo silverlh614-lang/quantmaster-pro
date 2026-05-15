@@ -30,10 +30,25 @@ export interface KisRawSupplyDiagnostic {
   outputPath: string;
   outputKeys: string[];
   parsed: Record<string, number | null>;
-  zeroReason: 'RAW_ZERO' | 'FIELD_MISSING' | 'FIELD_MISMATCH' | 'QUOTE_LIKE_OUTPUT' | 'HTTP_OK_BUT_EMPTY' | 'NO_OUTPUT' | 'OUTPUT_EMPTY' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO' | 'SESSION_UNAVAILABLE' | 'PARAM_ERROR' | 'PROVIDER_ERROR';
+  zeroReason: 'RAW_ZERO' | 'RAW_ZERO_ALL_ROWS' | 'FIELD_MISSING' | 'FIELD_MISMATCH' | 'QUOTE_LIKE_OUTPUT' | 'HTTP_OK_BUT_EMPTY' | 'NO_OUTPUT' | 'OUTPUT_EMPTY' | 'ACCEPTED_EMPTY' | 'FETCH_FAIL' | 'NON_ZERO' | 'SESSION_UNAVAILABLE' | 'PARAM_ERROR' | 'PROVIDER_ERROR';
   sample: Record<string, string | number | null>;
   rootSample: Record<string, string | number | boolean | null>;
   error?: string;
+  rowCount?: number;
+  selectedPath?: string;
+  selectedBsopHour?: string;
+  selectedReason?: string;
+  nonZeroRowCount?: number;
+  latestRowBsopHour?: string;
+  sumProgramBuyAmount?: number;
+  sumProgramSellAmount?: number;
+  sumProgramNetBuyAmount?: number;
+  sumArbitrageNetBuy?: number;
+  sumNonArbitrageNetBuy?: number;
+  parseQuality?: string;
+  providerIssue?: boolean;
+  executionImpact?: 'NONE';
+  status?: string;
 }
 
 const STOCK_PROGRAM_TRADE_TR_ID = process.env.KIS_STOCK_PROGRAM_TRADE_TR_ID ?? 'FHPPG04650101';
@@ -187,9 +202,24 @@ export function formatKisRawSupplyDiagnostic(diag: KisRawSupplyDiagnostic): stri
     `path=${diag.outputPath}`,
     `rootKeys=${diag.rootKeys.join('|') || 'NONE'}`,
     `rootSample=${fmtSample(diag.rootSample)}`,
+    diag.rowCount !== undefined ? `rowCount=${diag.rowCount}` : '',
+    diag.selectedPath ? `selectedPath=${diag.selectedPath}` : '',
+    diag.selectedBsopHour ? `selectedBsopHour=${diag.selectedBsopHour}` : '',
+    diag.selectedReason ? `selectedReason=${diag.selectedReason}` : '',
+    diag.nonZeroRowCount !== undefined ? `nonZeroRowCount=${diag.nonZeroRowCount}` : '',
+    diag.latestRowBsopHour ? `latestRowBsopHour=${diag.latestRowBsopHour}` : '',
+    diag.sumProgramBuyAmount !== undefined ? `sumProgramBuyAmount=${diag.sumProgramBuyAmount}` : '',
+    diag.sumProgramSellAmount !== undefined ? `sumProgramSellAmount=${diag.sumProgramSellAmount}` : '',
+    diag.sumProgramNetBuyAmount !== undefined ? `sumProgramNetBuyAmount=${diag.sumProgramNetBuyAmount}` : '',
+    diag.sumArbitrageNetBuy !== undefined ? `sumArbitrageNetBuy=${diag.sumArbitrageNetBuy}` : '',
+    diag.sumNonArbitrageNetBuy !== undefined ? `sumNonArbitrageNetBuy=${diag.sumNonArbitrageNetBuy}` : '',
     `outputKeys=${diag.outputKeys.slice(0, 8).join('|') || 'NONE'}`,
     `parsed=${Object.entries(diag.parsed).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(',') || 'NONE'}`,
     `zeroReason=${diag.zeroReason}`,
+    diag.parseQuality ? `parseQuality=${diag.parseQuality}` : '',
+    diag.providerIssue !== undefined ? `providerIssue=${diag.providerIssue}` : '',
+    diag.executionImpact ? `executionImpact=${diag.executionImpact}` : '',
+    diag.status ? `status=${diag.status}` : '',
     diag.error ? `error=${diag.error}` : '',
     ['QUOTE_LIKE_OUTPUT', 'HTTP_OK_BUT_EMPTY', 'FIELD_MISSING', 'FIELD_MISMATCH'].includes(diag.zeroReason)
       ? describeKisPayloadStatus(diag.zeroReason as KisPayloadStatus)
@@ -292,7 +322,8 @@ export async function diagnoseKisMarketProgramRaw(
     const data = await realDataKisGet(MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, buildMarketProgramParams(), priority);
     if (!data) return failNullResponse('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH);
     const materialized = materializeKisMarketProgramTrade(data);
-    const { path: outputPath, out } = firstOutput(data);
+    const { path: firstOutputPath, out } = firstOutput(data);
+    const diag = materialized.diagnostics;
     const parsed = {
       programNetBuyQty: materialized.materialized?.programNetBuyQty ?? null,
       programNetBuyAmount: materialized.materialized?.programNetBuyAmount ?? null,
@@ -302,20 +333,35 @@ export async function diagnoseKisMarketProgramRaw(
       programBuyAmount: materialized.materialized?.programBuyAmount ?? null,
     };
     const rootIssue = classifyKisRootIssue(data);
-    const acceptedEmpty = materialized.status === 'ACCEPTED_EMPTY';
+    const okZeroReason = diag?.zeroReason === 'RAW_ZERO_ALL_ROWS' ? 'RAW_ZERO_ALL_ROWS' : undefined;
     return {
       kind: 'MARKET_PROGRAM',
       code: MARKET_PROGRAM_INDEX_CODE,
-      ok: Boolean(out) || acceptedEmpty,
+      ok: materialized.status !== 'PROVIDER_ERROR' && materialized.status !== 'TRUE_EMPTY',
       trId: MARKET_PROGRAM_TRADE_TR_ID,
       path: MARKET_PROGRAM_TRADE_PATH,
       rootKeys: rootKeys(data),
-      outputPath,
+      outputPath: diag?.selectedPath ?? materialized.outputPath ?? firstOutputPath,
       outputKeys: out ? Object.keys(out).slice(0, 30) : [],
       parsed,
-      zeroReason: rootIssue ?? (materialized.status === 'FIELD_MISSING' ? 'FIELD_MISSING' : out ? classifyZero(parsed) : 'NO_OUTPUT'),
-      sample: pickSample(out, ['whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'arbt_smtn_ntby_tr_pbmn', 'nabt_smtn_ntby_tr_pbmn', 'arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn', 'arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
+      zeroReason: rootIssue ?? okZeroReason ?? (materialized.status === 'FIELD_MISSING' ? 'FIELD_MISSING' : out ? classifyZero(parsed) : 'NO_OUTPUT'),
+      sample: pickSample(out, ['bsop_hour', 'whol_smtn_ntby_qty', 'whol_smtn_ntby_tr_pbmn', 'arbt_smtn_ntby_tr_pbmn', 'nabt_smtn_ntby_tr_pbmn', 'arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn', 'arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn', 'prgm_ntby_qty', 'prgm_ntby_tr_pbmn', 'prgm_ntby_qty_2', 'prgm_ntby_tr_pbmn_2', 'arbt_ntby_tr_pbmn']),
       rootSample: pickRootSample(data),
+      rowCount: diag?.rowCount,
+      selectedPath: diag?.selectedPath,
+      selectedBsopHour: diag?.selectedBsopHour,
+      selectedReason: diag?.selectedReason,
+      nonZeroRowCount: diag?.nonZeroRowCount,
+      latestRowBsopHour: diag?.latestRowBsopHour,
+      sumProgramBuyAmount: diag?.sumProgramBuyAmount,
+      sumProgramSellAmount: diag?.sumProgramSellAmount,
+      sumProgramNetBuyAmount: diag?.sumProgramNetBuyAmount,
+      sumArbitrageNetBuy: diag?.sumArbitrageNetBuy,
+      sumNonArbitrageNetBuy: diag?.sumNonArbitrageNetBuy,
+      parseQuality: diag?.parseQuality,
+      providerIssue: diag?.providerIssue,
+      executionImpact: diag?.executionImpact,
+      status: diag?.status,
     };
   } catch (e) {
     return fail('MARKET_PROGRAM', MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, 'FETCH_FAIL', e instanceof Error ? e.message : String(e));

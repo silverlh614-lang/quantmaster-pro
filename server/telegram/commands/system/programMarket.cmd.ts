@@ -10,7 +10,7 @@ import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
 /** 억원 변환 — ADR-0137 패턴 차용. 음수 부호 보존, 소수점 1자리. */
-function formatKrwInEokwon(amountWon: number | null): string {
+function formatKrwInEokwon(amountWon: number | null | undefined): string {
   if (amountWon === null || !Number.isFinite(amountWon)) return 'N/A';
   const eokwon = amountWon / 100_000_000;
   if (Math.abs(eokwon) < 0.05) return '0억원';
@@ -43,7 +43,7 @@ export async function buildProgramMarketMessage(): Promise<string> {
   lines.push('');
 
   if (live === null) {
-    lines.push('❌ KIS 실시간 조회 실패');
+    lines.push('🟡 KIS 실시간 조회 실패');
     lines.push('');
     lines.push('💡 <i>운영자 안내</i>:');
     lines.push('  • <code>KIS_APP_KEY</code> 또는 실계좌 클라이언트 미설정 가능성');
@@ -51,14 +51,27 @@ export async function buildProgramMarketMessage(): Promise<string> {
     lines.push('  • TR ID 검증 — <code>KIS_MARKET_PROGRAM_TRADE_TR_ID</code> ENV 우회');
     lines.push('  • Path 검증 — <code>KIS_MARKET_PROGRAM_TRADE_PATH</code> ENV 우회');
   } else {
-    const liveQty = live.programNetBuyQty ?? 0;
-    const qtyEmoji = liveQty > 0 ? '🟢'
-      : liveQty < 0 ? '🔴' : '⚪';
-    const qtyLabel = liveQty > 0 ? '시장 프로그램 순매수'
-      : liveQty < 0 ? '시장 프로그램 순매도' : '중립';
+    const status = live.marketProgramStatus ?? (live.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO');
+    const statusEmoji = status === 'OK_NONZERO' ? '🟢' : status === 'PROVIDER_ERROR' ? '🟡' : '⚪';
 
     lines.push('📡 <b>실시간 (KIS 직접 호출)</b>');
+    lines.push(`${statusEmoji} status: ${status}`);
+    lines.push(`latest: ${live.latest ?? 'N/A'}`);
+    lines.push(`updated: ${live.updated ?? 'N/A'}`);
+    const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
+    const qtyEmoji = liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
+    const qtyLabel = liveQty > 0 ? '시장 프로그램 순매수' : liveQty < 0 ? '시장 프로그램 순매도' : '중립';
     lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
+    lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
+    lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
+    if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
+      lines.push(`nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`);
+    }
+    if (live.zeroReason) lines.push(`zeroReason: ${live.zeroReason}`);
+    lines.push(`providerIssue=${live.providerIssue ?? false}`);
+    lines.push(`executionImpact=${live.executionImpact ?? 'NONE'}`);
+    lines.push(`판정: ${status === 'OK_NONZERO' ? 'usable' : 'observe / scoring excluded'}`);
+    lines.push(`selectedPath: ${live.selectedPath ?? 'N/A'}`);
 
     if (live.programArbitrageNetBuy !== null) {
       lines.push(`📈 차익거래 순매수: ${formatKrwInEokwon(live.programArbitrageNetBuy)}`);

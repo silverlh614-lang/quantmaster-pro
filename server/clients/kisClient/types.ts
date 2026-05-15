@@ -29,6 +29,7 @@ export interface KisInvestorFlow {
   source: 'KIS_API';
 }
 
+
 /**
  * ADR-0137 — 종목별 당일 프로그램 매매 (comp-program-trade-today).
  *
@@ -81,6 +82,21 @@ export interface KisMarketProgramTrade {
   programBuyAmount?: number | null;
   fetchedAt: string;
   source: 'KIS_API';
+  marketProgramStatus?: 'OK_NONZERO' | 'OK_RAW_ZERO' | 'OK_EMPTY_OUTPUT' | 'OK_PARSE_PARTIAL' | 'PROVIDER_ERROR' | 'STALE_CACHE' | 'MISSING';
+  selectedPath?: string;
+  selectedBsopHour?: string;
+  selectedReason?: 'LATEST_NON_ZERO_ROW' | 'LATEST_ROW_ALL_ZERO' | 'NO_VALID_ROW' | 'EMPTY_OUTPUT';
+  rowCount?: number;
+  nonZeroRowCount?: number;
+  latest?: string;
+  updated?: string;
+  zeroReason?: string;
+  parseQuality?: string;
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  scoring?: 'enabled' | 'excluded' | 'limited' | 'neutral';
+  executionImpact?: 'NONE';
+  aggregateDiagnostic?: Record<string, unknown>;
 }
 
 export interface KisDailyShortSale {

@@ -533,7 +533,7 @@ function stockProgramLamp(success: number, total: number, zeroSuspicious: boolea
   return { marker: 'MISSING', status: 'DEGRADED', lamp: 'RED' };
 }
 
-async function diagnoseStockProgram(targets: WatchlistEntry[], nowMs: number): Promise<ChannelStatus> {
+async function diagnoseStockProgram(targets: WatchlistEntry[], nowMs = Date.now()): Promise<ChannelStatus> {
   if (!isProgramTradingIntradaySession(nowMs)) {
     return buildProgramTradingSessionClosedStatus('STOCK', targets.length > 0 ? 'KIS_API' : 'NONE', nowMs);
   }
@@ -642,7 +642,30 @@ async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): P
   }
   try {
     const live = await fetchKisMarketProgramTrade('MEDIUM');
-    if (live && live.programNetBuyAmount !== null) return { key: 'marketProgram', title: '시장 프로그램매매', marker: 'OK', lines: ['source: KIS_API', `latest: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`, 'updated: 0s ago', rawDiagLine, '상세: /program_market'] };
+    if (live && live.programNetBuyAmount !== null) {
+      const status = live.marketProgramStatus ?? (live.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO');
+      const neutral = status !== 'OK_NONZERO';
+      return {
+        key: 'marketProgram',
+        title: '시장 프로그램매매',
+        marker: neutral ? 'NEUTRAL' : 'OK',
+        lines: [
+          'source: KIS_API',
+          `status: ${status}`,
+          `latest: ${live.latest ?? formatEokwon(live.programNetBuyAmount / 100_000_000)}`,
+          `updated: ${live.updated ?? '0s ago'}`,
+          `selectedNetBuy: ${formatEokwon(live.programNetBuyAmount / 100_000_000)}`,
+          `selectedReason: ${live.selectedReason ?? 'N/A'}`,
+          `nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`,
+          live.zeroReason ? `zeroReason: ${live.zeroReason}` : '',
+          `providerIssue=${live.providerIssue ?? false}`,
+          `executionImpact=${live.executionImpact ?? 'NONE'}`,
+          `판정: ${neutral ? 'observe / scoring excluded' : 'usable'}`,
+          rawDiagLine,
+          '상세: /program_market',
+        ].filter(Boolean),
+      };
+    }
   } catch {}
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
     const stale = macroAge !== null && macroAge > KIS_STALE_MS;
@@ -1046,7 +1069,7 @@ async function collectSupplyHealthChannels(now: Date): Promise<{ channels: Chann
     channels: [
       await diagnoseInvestorFlow(targets, now, nowMs),
       diagnoseLoadedKisOfficialSupplyPack(kis),
-      await diagnoseStockProgram(targets, nowMs),
+      await diagnoseStockProgram(targets),
       await diagnoseMarketProgram(macro, nowMs),
       diagnoseFss(macro, nowMs, kis.pack),
       await diagnoseShort(macro, nowMs, kis.pack),
