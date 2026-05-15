@@ -321,6 +321,23 @@ export function shouldEmitPreEntryWaitLog(
   return true;
 }
 
+function getDiagnosticLiveBlockReason(ctx: BuyListLoopContext): string | undefined {
+  const reason = ctx.liveEntryBlockedReason?.trim();
+  if (reason) return reason;
+  return ctx.positionFullDiagnosticOnly ? 'POSITION_FULL' : undefined;
+}
+
+function suppressDiagnosticLiveBuyTask(
+  ctx: BuyListLoopContext,
+  stock: { name?: string; code?: string },
+  reason: string,
+): void {
+  recordPipelineStage(ctx.scanCounters, 'LIVE_ORDER_BLOCKED', 'BLOCKED');
+  console.log(
+    `[AutoTrade] ${reason} diagnostic-only suppressed buy task: ${stock.name ?? 'UNKNOWN'}(${stock.code ?? 'UNKNOWN'})`,
+  );
+}
+
 function currentKstTradeDate(nowMs = Date.now()): string {
   return new Date(nowMs + 9 * 60 * 60_000).toISOString().slice(0, 10);
 }
@@ -354,7 +371,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   // SHADOW 모드 createBuyTask 호출 시 buyPipeline → requestBuyApproval 가 이 두 필드로 dedupeKey 생성.
   // LIVE 모드 호출 site 도 동일 propagate 하나 buyPipeline 측 guard 가 SHADOW 분기에서만 발동.
   const _shadowApprovalCtx = deriveShadowApprovalContext();
-  let positionFullDiagnosticLogged = false;
+  let diagnosticLiveBlockLogged = false;
   for (const stock of ctx.buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
     // LIVE 모드 스캔 중에도 MOMENTUM 후보는 실 자본을 쓰지 않고 학습 표본만 남긴다.
@@ -373,20 +390,21 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     const slotResult = computeSlotConsumption(ctx.shadows, ctx.effectiveMaxPositions);
     const currentActive = slotResult.rawCount;        // sizing 분모용 (PR-S2 후속 변경 대상)
     const totalCommitted = slotResult.consumed + ctx.mutables.reservedSlots.value;
-    if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && !ctx.positionFullDiagnosticOnly) {
+    const diagnosticLiveBlockReason = getDiagnosticLiveBlockReason(ctx);
+    if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && !diagnosticLiveBlockReason) {
       // MOMENTUM Shadow 는 LIVE 슬롯 한도에 귀속되지 않으므로 이 가드를 건너뛴다.
       console.log(
         `[AutoTrade] 최대 포지션 도달 (활성 ${slotResult.consumed.toFixed(2)} + 예약 ${ctx.mutables.reservedSlots.value} = ${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions}${ctx.sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${ctx.regime}, raw=${slotResult.rawCount}) — 나머지 종목 스킵`,
       );
       break;
     }
-    if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && ctx.positionFullDiagnosticOnly) {
+    if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && diagnosticLiveBlockReason) {
       stockShadowMode = true;
-      if (!positionFullDiagnosticLogged) {
+      if (!diagnosticLiveBlockLogged) {
         console.log(
-          `[AutoTrade] POSITION_FULL diagnostic-only path active — live buy tasks suppressed while gate diagnostics continue (${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions})`,
+          `[AutoTrade] ${diagnosticLiveBlockReason} diagnostic-only path active — live buy tasks suppressed while gate diagnostics continue (${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions})`,
         );
-        positionFullDiagnosticLogged = true;
+        diagnosticLiveBlockLogged = true;
       }
     }
 
@@ -840,9 +858,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               `주문가: ${followEntryPrice.toLocaleString()}원 × ${followFinalQty}주\n` +
               `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
-            if (ctx.positionFullDiagnosticOnly) {
-              recordPipelineStage(ctx.scanCounters, 'LIVE_ORDER_BLOCKED', 'BLOCKED');
-              console.log(`[AutoTrade] POSITION_FULL diagnostic-only suppressed buy task: ${stock.name}(${stock.code})`);
+            if (diagnosticLiveBlockReason) {
+              suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
               continue;
             }
 
@@ -1155,9 +1172,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   `손절: ${formatStopLossBreakdown(stopLossPlanPb)} | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
                   `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbFinalQty}주) 추가 집행`;
 
-                if (ctx.positionFullDiagnosticOnly) {
-                  recordPipelineStage(ctx.scanCounters, 'LIVE_ORDER_BLOCKED', 'BLOCKED');
-                  console.log(`[AutoTrade] POSITION_FULL diagnostic-only suppressed buy task: ${stock.name}(${stock.code})`);
+                if (diagnosticLiveBlockReason) {
+                  suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
                   continue;
                 }
 
@@ -2613,9 +2629,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
       const _rrr = stock.rrr, _sector = stock.sector;
-      if (ctx.positionFullDiagnosticOnly) {
-        recordPipelineStage(ctx.scanCounters, 'LIVE_ORDER_BLOCKED', 'BLOCKED');
-        console.log(`[AutoTrade] POSITION_FULL diagnostic-only suppressed buy task: ${stock.name}(${stock.code})`);
+      if (diagnosticLiveBlockReason) {
+        suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
         continue;
       }
 

@@ -114,6 +114,8 @@ function buildPreflightDiagnosticContext(input: {
 }
 
 const MACRO_OVERRIDE_ALLOWED_SIGNALS = ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'];
+const DEFAULT_MACRO_DIAGNOSTIC_KELLY_FLOOR = 0.3;
+const DEFAULT_MACRO_DIAGNOSTIC_MAX_POSITIONS_FLOOR = 1;
 
 function macroEntryOverrideApplies(
   override: MacroEntryOverrideState | null,
@@ -122,16 +124,59 @@ function macroEntryOverrideApplies(
   return override?.targets.includes(target) === true;
 }
 
+function getMacroDiagnosticKellyFloor(): number {
+  const parsed = Number(process.env.MACRO_DIAGNOSTIC_KELLY_FLOOR ?? DEFAULT_MACRO_DIAGNOSTIC_KELLY_FLOOR);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MACRO_DIAGNOSTIC_KELLY_FLOOR;
+}
+
+function getMacroDiagnosticMaxPositionsFloor(): number {
+  const parsed = Number(
+    process.env.MACRO_DIAGNOSTIC_MAX_POSITIONS_FLOOR ?? DEFAULT_MACRO_DIAGNOSTIC_MAX_POSITIONS_FLOOR,
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_MACRO_DIAGNOSTIC_MAX_POSITIONS_FLOOR;
+}
+
+function appendLiveEntryBlockReason(current: string | undefined, reason: string): string {
+  if (!current) return reason;
+  const parts = current.split(',').map((part) => part.trim()).filter(Boolean);
+  return parts.includes(reason) ? current : `${current},${reason}`;
+}
+
+function applyMacroDiagnosticRegimeConfig(regimeConfig: any): any {
+  const caution = (REGIME_CONFIGS as any).R5_CAUTION ?? {};
+  const gate2Ceiling = caution.gate2Required ?? 10;
+  const gate3Ceiling = caution.gate3Required ?? 8;
+  const allowedSignals = Array.isArray(regimeConfig?.allowedSignals) && regimeConfig.allowedSignals.length > 0
+    ? regimeConfig.allowedSignals
+    : [...MACRO_OVERRIDE_ALLOWED_SIGNALS];
+  return {
+    ...regimeConfig,
+    gate2Required: Math.min(regimeConfig?.gate2Required ?? gate2Ceiling, gate2Ceiling),
+    gate3Required: Math.min(regimeConfig?.gate3Required ?? gate3Ceiling, gate3Ceiling),
+    kellyMultiplier: Math.max(regimeConfig?.kellyMultiplier ?? 0, getMacroDiagnosticKellyFloor()),
+    maxPositions: Math.max(regimeConfig?.maxPositions ?? 0, getMacroDiagnosticMaxPositionsFloor()),
+    allowedSignals,
+    trancheStrategy: `${regimeConfig?.trancheStrategy ?? 'macro diagnostic'} | MACRO_DIAGNOSTIC_ONLY`,
+  };
+}
+
+function applyMacroDiagnosticKellyFloor(value: number, active: boolean): number {
+  if (!active) return value;
+  return Math.max(value, getMacroDiagnosticKellyFloor());
+}
+
 function applyMacroEntryOverrideRegimeConfig(
   regimeConfig: any,
   override: MacroEntryOverrideState | null,
 ): any {
   if (!override) return regimeConfig;
-  const caution = REGIME_CONFIGS.R5_CAUTION;
+  const caution = (REGIME_CONFIGS as any).R5_CAUTION ?? {};
+  const gate2Ceiling = caution.gate2Required ?? 10;
+  const gate3Ceiling = caution.gate3Required ?? 8;
   return {
     ...regimeConfig,
-    gate2Required: Math.min(regimeConfig?.gate2Required ?? caution.gate2Required, caution.gate2Required),
-    gate3Required: Math.min(regimeConfig?.gate3Required ?? caution.gate3Required, caution.gate3Required),
+    gate2Required: Math.min(regimeConfig?.gate2Required ?? gate2Ceiling, gate2Ceiling),
+    gate3Required: Math.min(regimeConfig?.gate3Required ?? gate3Ceiling, gate3Ceiling),
     kellyMultiplier: Math.max(regimeConfig?.kellyMultiplier ?? 0, override.kellyFloor),
     maxPositions: Math.max(regimeConfig?.maxPositions ?? 0, override.maxPositionsFloor),
     allowedSignals:
@@ -255,6 +300,16 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       { priority: 'HIGH', dedupeKey: 'operator_macro_entry_override:r6', cooldownMs: 30 * 60_000 },
     ).catch(console.error);
   }
+  let liveEntryBlockedReason: string | undefined;
+  let macroDiagnosticOnly = false;
+  const markMacroDiagnosticLiveBlock = (reason: MacroEntryOverrideTarget) => {
+    liveEntryBlockedReason = appendLiveEntryBlockReason(liveEntryBlockedReason, reason);
+    macroDiagnosticOnly = true;
+  };
+  if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
+    markMacroDiagnosticLiveBlock('R6_DEFENSE');
+    regimeConfig = applyMacroDiagnosticRegimeConfig(regimeConfig);
+  }
   conditionWeights = applyFreshnessDecayToNeutralWeightedRecord(
     conditionWeights,
     { generatedAt: getConditionWeightsUpdatedAt() ?? undefined, regime },
@@ -321,8 +376,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   }
 
   // ADR-0419: SHADOW_ONLY pre-scan 발화는 *정상 거래일에 GATE1_PASS_ZERO 가 누적될 때만* 의미가 있으므로
-  // SELL_ONLY / VolumeClock closed / R6 / VIX / FOMC / 데이터 빈곤 시점은 아래 매크로 게이트들이 먼저 abort.
-  // 그 결과 본 분기는 모든 매크로 게이트를 통과하고 volumeClock 까지 OK 인 정상 거래 가능 상태에서만 도달한다.
+  // R6/VIX/FOMC 는 liveEntryBlockedReason 으로 실진입만 막고 진단 루프는 계속 살린다.
+  // SELL_ONLY / VolumeClock closed / 데이터 빈곤은 여전히 preflight abort 로 별도 학습 snapshot 을 남긴다.
   // 추가 belt-and-suspenders 가드는 라인 ~360 의 evaluateR3CountableScan 호출.
   // HARD_BLOCK latch (영속, ADR-0120) 는 위 분기에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
 
@@ -365,31 +420,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
     await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] 신규 진입 전면 차단</b>\nMHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`).catch(console.error);
     console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
+    console.warn(`[AutoTrade] R6_DEFENSE diagnostic-only live block active; continuing scan diagnostics`);
     await recordBlockedDayShadowScan('RISK_OFF_REGIME');
-    // ADR-0433: R6_DEFENSE preflight abort universe snapshot.
-    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
-    await recordPreflightBlockedScan(
-      {
-        stage: 'AFTER_UNIVERSE_BUILD',
-        primaryReason: 'R6_DEFENSE',
-        watchlist,
-        regime,
-        marketSnapshot: {
-          r6Defense: true,
-          emergencyStop: getEmergencyStop(),
-          regime: 'R6_DEFENSE',
-          vkospiLevel: macroState?.vkospi,
-        },
-        notes: [`MHS=${macroState?.mhs ?? 'N/A'} — 블랙스완 감지`],
-      },
-      {
-        blockedBy: 'PRE_FLIGHT_BLOCK',
-        preflightDecision: 'ABORT_R6_DEFENSE',
-      },
-    );
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true, context: diagnosticContext() };
   }
   if (regime === 'R6_DEFENSE' && r6EntryOverrideActive) {
     console.warn(
@@ -401,6 +433,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
   if (vixGating.noNewEntry && !vixEntryOverrideActive) {
+    markMacroDiagnosticLiveBlock('VIX_BLOCK');
     console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
     const session = getGatingAlertSession();
     if (session) {
@@ -409,30 +442,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         dedupeKey: `vix_gating_block:${kstDateStr}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
+    console.warn(`[AutoTrade] VIX_BLOCK diagnostic-only live block active; continuing scan diagnostics`);
     await recordBlockedDayShadowScan('VIX_SPIKE');
-    // ADR-0433: VIX preflight abort universe snapshot.
-    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
-    await recordPreflightBlockedScan(
-      {
-        stage: 'AFTER_UNIVERSE_BUILD',
-        primaryReason: 'VIX_BLOCK',
-        watchlist,
-        regime,
-        marketSnapshot: {
-          emergencyStop: getEmergencyStop(),
-          regime: regime ?? macroState?.regime,
-          vkospiLevel: macroState?.vkospi,
-        },
-        notes: [vixGating.reason],
-      },
-      {
-        blockedBy: 'PRE_FLIGHT_BLOCK',
-        preflightDecision: 'ABORT_VIX_BLOCK',
-      },
-    );
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating }) };
   }
   if (vixGating.noNewEntry && vixEntryOverrideActive) {
     console.warn(
@@ -446,6 +457,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   );
   const fomcEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'FOMC_BLOCK');
   if (fomcProximity.noNewEntry && !fomcEntryOverrideActive) {
+    markMacroDiagnosticLiveBlock('FOMC_BLOCK');
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
     const session = getGatingAlertSession();
     if (session) {
@@ -453,30 +465,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
+    console.warn(`[AutoTrade] FOMC_BLOCK diagnostic-only live block active; continuing scan diagnostics`);
     await recordBlockedDayShadowScan('FOMC_BLOCK');
-    // ADR-0433: FOMC preflight abort universe snapshot.
-    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
-    await recordPreflightBlockedScan(
-      {
-        stage: 'AFTER_UNIVERSE_BUILD',
-        primaryReason: 'FOMC_BLOCK',
-        watchlist,
-        regime,
-        marketSnapshot: {
-          emergencyStop: getEmergencyStop(),
-          regime: regime ?? macroState?.regime,
-          vkospiLevel: macroState?.vkospi,
-        },
-        notes: [fomcProximity.description ?? 'FOMC 게이팅'],
-      },
-      {
-        blockedBy: 'PRE_FLIGHT_BLOCK',
-        preflightDecision: 'ABORT_FOMC_BLOCK',
-      },
-    );
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating, fomcProximity }) };
   }
   if (fomcProximity.noNewEntry && fomcEntryOverrideActive) {
     console.warn(
@@ -524,13 +514,15 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
   const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
+  const vixDiagnosticOnly = vixGating.noNewEntry && !vixEntryOverrideActive;
+  const fomcDiagnosticOnly = fomcProximity.noNewEntry && !fomcEntryOverrideActive;
   const effectiveVixKelly = applyMacroEntryOverrideKellyFloor(
-    vixGating.kellyMultiplier,
+    applyMacroDiagnosticKellyFloor(vixGating.kellyMultiplier, vixDiagnosticOnly),
     macroEntryOverride,
     'VIX_BLOCK',
   );
   const effectiveFomcKelly = applyMacroEntryOverrideKellyFloor(
-    fomcProximity.kellyMultiplier,
+    applyMacroDiagnosticKellyFloor(fomcProximity.kellyMultiplier, fomcDiagnosticOnly),
     macroEntryOverride,
     'FOMC_BLOCK',
   );
@@ -557,6 +549,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   );
   
   const slotResult = computeSlotConsumption(shadows, effectiveMaxPositions);
+  const liveEntryBlockReason = slotResult.isFull
+    ? appendLiveEntryBlockReason(liveEntryBlockedReason, 'POSITION_FULL')
+    : liveEntryBlockedReason;
+  const diagnosticOnlyLiveBlock = Boolean(liveEntryBlockReason);
   if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT !== 'true') {
     console.log(`[AutoTrade] POSITION_FULL live entry blocked, diagnostic buyList/gate loop kept (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, regime=${regime}, raw=${slotResult.rawCount})`);
     await recordBlockedDayShadowScan('POSITION_FULL');
@@ -604,12 +600,14 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     fomcKelly: effectiveFomcKelly,
     finalKelly: kellyMultiplier,
     vixGatingActive: vixGating.noNewEntry,
-    bearDefenseMode: false,
+    bearDefenseMode: regime === 'R6_DEFENSE',
     mhsBelow30: (macroState?.mhs ?? 100) < 30,
     watchlistEmpty: watchlist.length === 0,
     sellOnlyMode: optSellOnly === true || !volumeClock.allowEntry,
     macroEntryOverrideActive: macroEntryOverride !== null,
     macroEntryOverrideTargets: macroEntryOverride?.targets,
+    diagnosticLiveEntryBlocked: diagnosticOnlyLiveBlock,
+    liveEntryBlockedReason: liveEntryBlockReason,
   });
 
   if (!volumeClock.allowEntry) {
@@ -637,9 +635,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     console.log(volumeClock.reason);
   }
 
-  // ADR-0419: SHADOW_ONLY ephemeral 차단 — 이 지점은 모든 매크로 게이트 (SELL_ONLY / R6 / VIX / FOMC /
-  //   데이터 빈곤 / volumeClock closed) 를 통과한 *정상 거래일* 이라야 도달 가능. evaluateR3CountableScan
-  //   호출은 belt-and-suspenders 안전망 (호출 순서 변경 회귀 차단) + 진단 로그 가시화.
+  // ADR-0419: SHADOW_ONLY ephemeral 차단 — R6/VIX/FOMC 상태에서도 진단 루프는 유지한다.
+  //   evaluateR3CountableScan 은 이런 거시 차단일을 R3 streak 누적에서 제외하는 안전망이다.
   // ADR-0401: 영속 latch 와 무관, streak repo 의 24h decay 로 자연 회복.
   // HARD_BLOCK latch (영속, ADR-0120) 는 라인 ~173 에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
   const todayKstDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -715,7 +712,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     }
   } else {
     // ADR-0419: 비정상 컨텍스트 — SHADOW_ONLY pre-scan 자체 차단 (사용자 명시 절대 원칙).
-    // 이 분기는 매크로 게이트들의 early-return 이 누락된 회귀가 발생했을 때만 도달 가능 — 추가 안전망.
+    // R6/VIX/FOMC 진단일은 buyList/gate 진단을 계속하되 R3 streak 산정에서 제외한다.
     console.warn(
       `[AutoTrade] R3 SHADOW_ONLY pre-scan 자체 skip — ${r3Countability.skipReason ?? 'unknown'} (ADR-0419)`,
     );
@@ -750,7 +747,9 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       watchlist,
       optSellOnly,
       positionFullDiagnosticOnly: slotResult.isFull,
-      liveEntryBlockedReason: slotResult.isFull ? 'POSITION_FULL' : undefined,
+      macroDiagnosticOnly,
+      diagnosticOnlyLiveBlock,
+      liveEntryBlockedReason: liveEntryBlockReason,
       positionSlotDiagnostic: slotResult.isFull
         ? {
             consumed: slotResult.consumed,

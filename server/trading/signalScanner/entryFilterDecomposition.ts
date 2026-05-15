@@ -1682,6 +1682,22 @@ export function buildEntryFilterDecomposition(
     }
   }
 
+  if (input.macroGateState?.diagnosticLiveEntryBlocked) {
+    for (const trace of traces) {
+      trace.blockers.push(
+        blocker({
+          category: "MARKET_RISK",
+          code: input.macroGateState.liveEntryBlockedReason ?? "DIAGNOSTIC_LIVE_ENTRY_BLOCK",
+          severity: "DIAGNOSTIC_ONLY",
+          message:
+            "Live new-buy execution is blocked, but candidate/gate diagnostics continue.",
+          executionBlocking: "NEW_BUY_ONLY",
+          expectedInRegime: true,
+        }),
+      );
+    }
+  }
+
   if (input.macroGateState && !input.macroGateState.autoTradeEnabled) {
     for (const trace of traces) {
       trace.blockers.push(

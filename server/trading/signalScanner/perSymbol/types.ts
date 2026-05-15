@@ -66,6 +66,8 @@ export interface BuyListLoopContext {
   conditionWeights: ReturnType<typeof import('../../../persistence/conditionWeightsRepo.js')['loadConditionWeights']>;
   supplyHealthSnapshot?: SupplyHealthSnapshot;
   positionFullDiagnosticOnly?: boolean;
+  macroDiagnosticOnly?: boolean;
+  diagnosticOnlyLiveBlock?: boolean;
   liveEntryBlockedReason?: string;
   // 출력 / mutable
   scanCounters: ScanCounters;

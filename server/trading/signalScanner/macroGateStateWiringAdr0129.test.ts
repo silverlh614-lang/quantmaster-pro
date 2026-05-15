@@ -30,7 +30,7 @@ describe('ADR-0129 macroGateState propagate wiring', () => {
   });
 
   it('signalScanner 가 getEmergencyStop 을 import (state.js)', () => {
-    expect(signalScanner).toMatch(/import.*getEmergencyStop.*from.*state/);
+    expect(signalScanner).toMatch(/import[\s\S]*getEmergencyStop[\s\S]*from.*state/);
   });
 
   it('persistScanResults 호출에 macroGateState 인자 전달 (signalScanner/index.ts 가 호출자)', () => {
@@ -70,10 +70,8 @@ describe('ADR-0129 macroGateState propagate wiring', () => {
     );
   });
 
-  it('bearDefenseMode 는 false (R6_DEFENSE 는 line 311 에서 early return)', () => {
-    // ADR-0129 wiring: R6_DEFENSE 는 신규 진입 차단으로 이미 early return.
-    // persistScanResults 가 호출되는 시점에는 항상 R6_DEFENSE 가 아님.
-    expect(signalScanner).toMatch(/bearDefenseMode:\s*false/);
+  it('bearDefenseMode 는 R6_DEFENSE 진단 스캔에서도 macroGateState 로 전달', () => {
+    expect(signalScanner).toMatch(/bearDefenseMode:\s*regime\s*===\s*['"]R6_DEFENSE['"]/);
   });
 
   it('mhsBelow30 은 macroState.mhs < 30 비교', () => {

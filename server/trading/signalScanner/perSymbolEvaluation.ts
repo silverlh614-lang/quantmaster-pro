@@ -191,6 +191,8 @@ export async function evaluateMainCandidates(
     conditionWeights,
     supplyHealthSnapshot,
     positionFullDiagnosticOnly,
+    macroDiagnosticOnly,
+    diagnosticOnlyLiveBlock,
     liveEntryBlockedReason,
   } = context;
 
@@ -344,6 +346,8 @@ export async function evaluateMainCandidates(
     conditionWeights,
     supplyHealthSnapshot,
     positionFullDiagnosticOnly,
+    macroDiagnosticOnly,
+    diagnosticOnlyLiveBlock,
     liveEntryBlockedReason,
     scanCounters: counters,
     mutables: {

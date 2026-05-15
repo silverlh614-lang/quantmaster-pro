@@ -94,7 +94,8 @@ vi.mock('./counterfactualUniverseLearningWiring.js', () => ({
 vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
   REGIME_CONFIGS: {
     R2_BULL: { kellyMultiplier: 0.8, maxPositions: 6, sellOnlyException: { enabled: false } },
-    R6_DEFENSE: { kellyMultiplier: 0, maxPositions: 0, sellOnlyException: { enabled: false } },
+    R5_CAUTION: { gate2Required: 10, gate3Required: 8, kellyMultiplier: 0.3, maxPositions: 2, allowedSignals: ['CONFIRMED_STRONG_BUY'], sellOnlyException: { enabled: false } },
+    R6_DEFENSE: { gate2Required: 99, gate3Required: 99, kellyMultiplier: 0, maxPositions: 0, allowedSignals: [], sellOnlyException: { enabled: false } },
   },
 }));
 
@@ -194,38 +195,63 @@ describe('preflight.ts byte-equivalent tests', () => {
     }));
   });
 
-  it('should abort in R6_DEFENSE regime', async () => {
+  it('should keep diagnostics alive in R6_DEFENSE while blocking live entry', async () => {
     mockedGetLiveRegime.mockReturnValue('R6_DEFENSE');
     const result = await runPreflight();
-    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
-    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), regime: 'R6_DEFENSE' }));
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: false }));
+    expect(result.macroGateState).toEqual(expect.objectContaining({
+      regime: 'R6_DEFENSE',
+      diagnosticLiveEntryBlocked: true,
+      liveEntryBlockedReason: 'R6_DEFENSE',
+    }));
+    expect(result.context).toEqual(expect.objectContaining({
+      watchlist: expect.any(Array),
+      regime: 'R6_DEFENSE',
+      macroDiagnosticOnly: true,
+      liveEntryBlockedReason: 'R6_DEFENSE',
+    }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
-    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      preflightStage: 'AFTER_UNIVERSE_BUILD',
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['R6_DEFENSE'],
     }));
   });
 
-  it('should abort if VIX gating is active', async () => {
+  it('should keep diagnostics alive if VIX gating is active while blocking live entry', async () => {
     mockedGetVixGating.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, reason: 'VIX spike' } as ReturnType<typeof getVixGating>);
     const result = await runPreflight();
-    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
-    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), vixGating: expect.objectContaining({ noNewEntry: true }) }));
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: false }));
+    expect(result.context).toEqual(expect.objectContaining({
+      watchlist: expect.any(Array),
+      vixGating: expect.objectContaining({ noNewEntry: true }),
+      macroDiagnosticOnly: true,
+      liveEntryBlockedReason: 'VIX_BLOCK',
+    }));
+    expect(result.macroGateState).toEqual(expect.objectContaining({
+      diagnosticLiveEntryBlocked: true,
+      liveEntryBlockedReason: 'VIX_BLOCK',
+    }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'VIX_SPIKE' }));
-    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      preflightStage: 'AFTER_UNIVERSE_BUILD',
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['VIX_BLOCK'],
     }));
   });
 
-  it('should record FOMC shadow and universe learning even when scan persist is skipped', async () => {
+  it('should keep diagnostics alive on FOMC block while blocking live entry', async () => {
     mockedGetFomcProximity.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, phase: 'BLACKOUT', description: 'FOMC blackout' } as unknown as ReturnType<typeof getFomcProximity>);
     const result = await runPreflight();
-    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
-    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), fomcProximity: expect.objectContaining({ noNewEntry: true }) }));
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: false }));
+    expect(result.context).toEqual(expect.objectContaining({
+      watchlist: expect.any(Array),
+      fomcProximity: expect.objectContaining({ noNewEntry: true }),
+      macroDiagnosticOnly: true,
+      liveEntryBlockedReason: 'FOMC_BLOCK',
+    }));
+    expect(result.macroGateState).toEqual(expect.objectContaining({
+      diagnosticLiveEntryBlocked: true,
+      liveEntryBlockedReason: 'FOMC_BLOCK',
+    }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'FOMC_BLOCK' }));
-    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      preflightStage: 'AFTER_UNIVERSE_BUILD',
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['FOMC_BLOCK'],
     }));
   });

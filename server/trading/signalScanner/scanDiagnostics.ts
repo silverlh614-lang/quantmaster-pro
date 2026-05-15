@@ -326,6 +326,8 @@ export interface MacroGateState {
   kospi20dReturn?: number;
   macroEntryOverrideActive?: boolean;
   macroEntryOverrideTargets?: string[];
+  diagnosticLiveEntryBlocked?: boolean;
+  liveEntryBlockedReason?: string;
 }
 
 
@@ -1349,6 +1351,8 @@ export function buildMacroGateState(input: {
   kospi20dReturn?: number;
   macroEntryOverrideActive?: boolean;
   macroEntryOverrideTargets?: string[];
+  diagnosticLiveEntryBlocked?: boolean;
+  liveEntryBlockedReason?: string;
 }): MacroGateState {
   return {
     emergencyStop: input.emergencyStop,
@@ -1366,6 +1370,8 @@ export function buildMacroGateState(input: {
     kospi20dReturn: input.kospi20dReturn,
     macroEntryOverrideActive: input.macroEntryOverrideActive,
     macroEntryOverrideTargets: input.macroEntryOverrideTargets,
+    diagnosticLiveEntryBlocked: input.diagnosticLiveEntryBlocked,
+    liveEntryBlockedReason: input.liveEntryBlockedReason,
   };
 }
 
@@ -1733,6 +1739,9 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
     if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);
     if (mg.mhsBelow30) lines.push(`  • MHS<30: <b>ON ⚠️</b>`);
+    if (mg.diagnosticLiveEntryBlocked) {
+      lines.push(`  • liveEntryBlocked: <b>${mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY'}</b> (diagnostics continue)`);
+    }
     if (mg.sellOnlyMode) {
       lines.push(`  • SELL_ONLY: <b>ON ⚠️</b> (점심/장외 시간대)`);
       lines.push('  marketSession note: SELL_ONLY/장외 구간의 Gate1 zero survivor는 live-entry evaluation이 아니라 order-blocked diagnostic입니다. BUY_ALLOWED 정규장 fresh scan과 분리해 해석하십시오.');
