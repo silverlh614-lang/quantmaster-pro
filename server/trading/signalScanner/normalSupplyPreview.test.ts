@@ -6,8 +6,33 @@ import {
   formatNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewSection,
   getLastNormalSupplyPreview,
+  normalizeProgramFlowValue,
   persistNormalSupplyPreview,
 } from './normalSupplyPreview.js';
+
+
+describe('normalizeProgramFlowValue', () => {
+  it.each([
+    [1234, true, 1234, 'PROGRAM_VALUE_PARSE_OK'],
+    [0, true, 0, 'PROGRAM_VALUE_ZERO'],
+    ['1234', true, 1234, 'PROGRAM_VALUE_NUMERIC_STRING'],
+    ['1,234', true, 1234, 'PROGRAM_VALUE_COMMA_NUMERIC_STRING'],
+    ['-1,234', true, -1234, 'PROGRAM_VALUE_COMMA_NUMERIC_STRING'],
+    ['+1,234', true, 1234, 'PROGRAM_VALUE_COMMA_NUMERIC_STRING'],
+    ['N/A', false, undefined, 'PROGRAM_VALUE_NA'],
+    ['-', false, undefined, 'PROGRAM_VALUE_PLACEHOLDER'],
+    ['', false, undefined, 'PROGRAM_VALUE_EMPTY'],
+    [{ value: '1,234' }, true, 1234, 'PROGRAM_VALUE_OBJECT_WRAPPER'],
+    [{ netAmount: '-1,234' }, true, -1234, 'PROGRAM_VALUE_OBJECT_WRAPPER'],
+    ['매수우위', false, undefined, 'PROGRAM_VALUE_UNSUPPORTED_FORMAT'],
+  ])('normalizes %o as diagnostic-only program value', (input, ok, value, reason) => {
+    const normalized = normalizeProgramFlowValue(input);
+    expect(normalized.ok).toBe(ok);
+    expect(normalized.value).toBe(value);
+    expect(normalized.reason).toBe(reason);
+    expect(normalized.diagnosticOnly).toBe(true);
+  });
+});
 
 describe('Normal Supply Preview under SELL_ONLY', () => {
   beforeEach(() => {
@@ -572,7 +597,7 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     });
 
     const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
-    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_CONTEXT_HAS_STATUS_ONLY');
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_VALUE_PLACEHOLDER_ONLY');
     expect(text).toContain('Program Passive Proxy Availability');
     expect(text).toContain('stockProgramRowsAvailable: 0/1');
     expect(text).toContain('contextFound: true');
@@ -618,8 +643,8 @@ describe('Normal Supply Preview program flow diagnostics', () => {
 
     expect(preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey).toBe(1);
     expect(preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue).toBe(0);
-    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_FLOW_WIRED_BUT_ALL_NA');
-    expect(preview.programFlowDiagnostics.nextAction).toBe('MAP_PROGRAM_NUMERIC_FIELD_ALIASES');
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_VALUE_PLACEHOLDER_ONLY');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('USE_LATEST_INTRADAY_PROGRAM_SNAPSHOT_OR_CACHE');
     expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
   });
 
@@ -638,5 +663,63 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).toContain('marketProgramStatusFieldsFound: marketProgramStatus');
     expect(text).toContain('executionImpact=NONE');
   });
+
+  it('normalizes stock wrapper program values and reports reason distribution in full output', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ programNetBuyAmount: { value: '1,234' } })] as any,
+    });
+
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(1234);
+    expect(preview.programFlowDiagnostics.stockProgramRowsWithParsableProgramValue).toBe(1);
+    expect(preview.programFlowDiagnostics.stockProgramValueReasonTop).toContain('PROGRAM_VALUE_OBJECT_WRAPPER=1');
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(text).toContain('stockProgramRowsWithParsableProgramValue: 1/1');
+    expect(text).toContain('stockProgramValueReasonDistribution: PROGRAM_VALUE_OBJECT_WRAPPER=1');
+    expect(text).toContain('stockProgramSanitizedSampleTop: 1. "1,234"');
+  });
+
+  it('keeps stock program parse failures unavailable without bearish or penalty contamination', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ programNetBuyAmount: '매수우위' })] as any,
+    });
+
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(false);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.valueIssue).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.valueReason).toBe('PROGRAM_VALUE_UNSUPPORTED_FORMAT');
+    expect(preview.candidates[0]?.programMissingAsBearish).toBe(false);
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_VALUE_UNSUPPORTED_FORMAT');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('STORE_PROGRAM_NETBUY_AS_NUMERIC_FIELD');
+  });
+
+  it('normalizes market string program flow and keeps market parse failure non-directional', () => {
+    const success = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { marketProgramNetBuy: '-5,000', sourceProvider: 'CACHE' },
+      candidates: [baseCandidate()] as any,
+    });
+    expect(success.fieldAvailability.marketProgramAvailable).toBe(true);
+    expect(success.fieldAvailability.marketProgramSignal).toBe('BEARISH');
+    expect(success.fieldAvailability.marketProgramMarketSignal).toBe(true);
+    expect(success.programFlowDiagnostics.marketProgramValueReasonTop).toContain('PROGRAM_VALUE_COMMA_NUMERIC_STRING=1');
+
+    const failure = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { marketProgramNetBuy: 'UNKNOWN' },
+      candidates: [baseCandidate()] as any,
+    });
+    expect(failure.fieldAvailability.marketProgramAvailable).toBe(false);
+    expect(failure.fieldAvailability.marketProgramMarketSignal).toBe(false);
+    expect(failure.fieldAvailability.marketProgramProviderIssue).toBe(false);
+    expect(failure.signalCounts.BEARISH).toBe(0);
+  });
+
 
 });

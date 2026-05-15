@@ -19,6 +19,32 @@ export type NormalSupplyPreviewMode = typeof NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MO
 export type NormalSupplyPreviewFullMode = typeof NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE;
 export type ProgramFlowSignal = 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN' | 'UNAVAILABLE';
 export type ProgramFlowSourceProvider = 'KIS_API' | 'KRX_API' | 'CACHE' | 'SNAPSHOT' | 'NONE';
+export type ProgramFlowValueReason =
+  | 'PROGRAM_VALUE_PARSE_OK'
+  | 'PROGRAM_VALUE_NULL'
+  | 'PROGRAM_VALUE_EMPTY'
+  | 'PROGRAM_VALUE_NA'
+  | 'PROGRAM_VALUE_PLACEHOLDER'
+  | 'PROGRAM_VALUE_ZERO'
+  | 'PROGRAM_VALUE_NUMERIC_STRING'
+  | 'PROGRAM_VALUE_SIGNED_NUMERIC_STRING'
+  | 'PROGRAM_VALUE_COMMA_NUMERIC_STRING'
+  | 'PROGRAM_VALUE_UNIT_STRING_WON'
+  | 'PROGRAM_VALUE_UNIT_STRING_MILLION'
+  | 'PROGRAM_VALUE_UNIT_STRING_EOK'
+  | 'PROGRAM_VALUE_OBJECT_WRAPPER'
+  | 'PROGRAM_VALUE_UNSUPPORTED_FORMAT'
+  | 'PROGRAM_VALUE_PARSE_FAILED';
+export type ProgramFlowValueRawKind = 'number' | 'string' | 'object' | 'null' | 'undefined' | 'boolean' | 'array' | 'unknown';
+
+export interface ProgramFlowValueNormalizationResult {
+  ok: boolean;
+  value?: number;
+  reason: ProgramFlowValueReason;
+  rawKind: ProgramFlowValueRawKind;
+  sanitizedSample?: string;
+  diagnosticOnly: true;
+}
 export type ActivePassiveConfluence =
   | 'ACTIVE_PASSIVE_CONFIRMED_BUY'
   | 'ACTIVE_BUYING_ONLY'
@@ -42,6 +68,9 @@ export interface ProgramFlowDiagnostic {
     providerIssue: boolean;
     marketSignal: boolean;
     reason?: string;
+    valueIssue?: boolean;
+    valueReason?: ProgramFlowValueReason;
+    sanitizedSample?: string;
     diagnosticOnly: true;
     executionImpact: 'NONE';
   };
@@ -55,6 +84,9 @@ export interface ProgramFlowDiagnostic {
     providerIssue: boolean;
     marketSignal: boolean;
     reason?: string;
+    valueIssue?: boolean;
+    valueReason?: ProgramFlowValueReason;
+    sanitizedSample?: string;
     diagnosticOnly: true;
     executionImpact: 'NONE';
   };
@@ -109,6 +141,7 @@ export interface NormalSupplyPreviewCandidate {
   passiveFlow: string;
   activePassiveConfluence: ActivePassiveConfluence;
   programMissingAsBearish: false;
+  programValueReason?: ProgramFlowValueReason;
   fetchedAt?: string;
   rawStatus?: string;
   semanticRowAvailable: boolean;
@@ -138,6 +171,10 @@ export interface NormalSupplyFieldAvailability {
   stockProgramRowsAvailable: number;
   stockProgramRowsWithAnyProgramKey: number;
   stockProgramRowsWithNumericProgramValue: number;
+  stockProgramRowsWithParsableProgramValue: number;
+  stockProgramValueReasonDistribution: Record<string, number>;
+  stockProgramValueReasonTop: string;
+  stockProgramSanitizedSampleTop: string[];
   stockProgramFieldKeysTop: string;
   stockProgramBreakPoint: ProgramFlowEvidenceTrace['stockLevel']['breakPoint'];
   marketProgramAvailable: boolean;
@@ -145,6 +182,9 @@ export interface NormalSupplyFieldAvailability {
   marketProgramSource: ProgramFlowSourceProvider;
   marketProgramContextFound: boolean;
   marketProgramBreakPoint: ProgramFlowEvidenceTrace['marketLevel']['breakPoint'];
+  marketProgramParsableFieldsFound: string[];
+  marketProgramValueReasonTop: string;
+  marketProgramSanitizedSample?: string;
   missingProgramFlowAsBearish: false;
   marketProgramProviderIssue: boolean;
   marketProgramMarketSignal: boolean;
@@ -204,6 +244,9 @@ export interface ProgramFlowEvidenceTrace {
     candidateFieldCounts: Record<string, number>;
     candidateRowsWithAnyProgramKey: number;
     candidateRowsWithNumericProgramValue: number;
+    candidateRowsWithParsableProgramValue: number;
+    valueReasonDistribution: Record<string, number>;
+    sanitizedSampleTop: string[];
     normalizedFieldScanAttempted: boolean;
     normalizedFieldsFound: string[];
     snapshotFieldScanAttempted: boolean;
@@ -221,6 +264,9 @@ export interface ProgramFlowEvidenceTrace {
     snapshotContextFound: boolean;
     fieldsFound: string[];
     numericFieldsFound: string[];
+    parsableFieldsFound: string[];
+    valueReasonDistribution: Record<string, number>;
+    sanitizedSample?: string;
     statusFieldsFound: string[];
     sourceCandidates: string[];
     result: ProgramFlowMarketEvidenceResult;
@@ -234,6 +280,10 @@ export interface ProgramFlowDiagnosticsSummary {
   stockProgramRowsAvailable: number;
   stockProgramRowsWithAnyProgramKey: number;
   stockProgramRowsWithNumericProgramValue: number;
+  stockProgramRowsWithParsableProgramValue: number;
+  stockProgramValueReasonDistribution: Record<string, number>;
+  stockProgramValueReasonTop: string;
+  stockProgramSanitizedSampleTop: string[];
   stockProgramFieldKeysTop: string;
   stockProgramBreakPoint: ProgramFlowEvidenceTrace['stockLevel']['breakPoint'];
   total: number;
@@ -245,6 +295,10 @@ export interface ProgramFlowDiagnosticsSummary {
   marketProgramContextFound: boolean;
   marketProgramFieldsFound: string[];
   marketProgramNumericFieldsFound: string[];
+  marketProgramParsableFieldsFound: string[];
+  marketProgramValueReasonDistribution: Record<string, number>;
+  marketProgramValueReasonTop: string;
+  marketProgramSanitizedSample?: string;
   marketProgramStatusFieldsFound: string[];
   marketProgramBreakPoint: ProgramFlowEvidenceTrace['marketLevel']['breakPoint'];
   marketProgramReason: string;
@@ -256,7 +310,7 @@ export interface ProgramFlowDiagnosticsSummary {
   programFlowUsedForLiveDecision: false;
   providerCallsAdded: 0;
   passiveProxyUsedForLiveDecision: false;
-  nextAction: 'WIRE_STOCK_AND_MARKET_PROGRAM_FLOW_FIELDS' | 'OBSERVE_PROGRAM_FLOW_PROXY' | 'WIRE_PROGRAM_FLOW_CONTEXT_TO_PREVIEW' | 'WIRE_UPSTREAM_PROGRAM_NUMERIC_FIELDS_TO_CONTEXT' | 'MAP_PROGRAM_NUMERIC_FIELD_ALIASES' | 'WIRE_MARKET_PROGRAM_NUMERIC_NETBUY_FIELDS' | 'USE_LATEST_INTRADAY_PROGRAM_SNAPSHOT_OR_CACHE';
+  nextAction: 'WIRE_STOCK_AND_MARKET_PROGRAM_FLOW_FIELDS' | 'OBSERVE_PROGRAM_FLOW_PROXY' | 'WIRE_PROGRAM_FLOW_CONTEXT_TO_PREVIEW' | 'WIRE_UPSTREAM_PROGRAM_NUMERIC_FIELDS_TO_CONTEXT' | 'MAP_PROGRAM_NUMERIC_FIELD_ALIASES' | 'WIRE_MARKET_PROGRAM_NUMERIC_NETBUY_FIELDS' | 'USE_LATEST_INTRADAY_PROGRAM_SNAPSHOT_OR_CACHE' | 'ADD_PROGRAM_VALUE_UNIT_PARSER_OR_STORE_NUMERIC_VALUE' | 'STORE_PROGRAM_NETBUY_AS_NUMERIC_FIELD';
   executionImpact: 'NONE';
 }
 
@@ -322,6 +376,12 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
       `providerCallsAdded=0 executionImpact=NONE`,
   );
   const marketProgramFlowRaw = input.marketProgramFlow ?? extractMarketProgramFlowFromCandidates(input.candidates);
+  console.info(
+    `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_NORMALIZER_START] ` +
+      `candidateCount=${input.candidates.length} stockProgramKeyRows=${countStockProgramKeyRows(input.candidates)} ` +
+      `marketProgramContextFound=${Boolean(asRecord(marketProgramFlowRaw))} ` +
+      `providerCallsAdded=0 executionImpact=NONE`,
+  );
   const marketProgramFlow = normalizeMarketProgramFlow(marketProgramFlowRaw);
   const previewCandidates = input.candidates
     .map((candidate) => toPreviewCandidate(candidate, marketProgramFlow))
@@ -495,11 +555,34 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
       `reason=${preview.programFlowDiagnostics.reason} nextAction=${preview.programFlowDiagnostics.nextAction} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
   );
+  console.info(
+    `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_NORMALIZER_DONE] ` +
+      `candidateCount=${preview.candidateCount} ` +
+      `stockProgramRowsWithAnyProgramKey=${preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey} ` +
+      `stockProgramRowsWithParsableProgramValue=${preview.programFlowDiagnostics.stockProgramRowsWithParsableProgramValue} ` +
+      `stockProgramValueReasonTop=${preview.programFlowDiagnostics.stockProgramValueReasonTop} ` +
+      `marketProgramParsable=${preview.programFlowDiagnostics.marketProgramParsableFieldsFound.length > 0} ` +
+      `marketProgramValueReason=${preview.programFlowDiagnostics.marketProgramValueReasonTop} ` +
+      `reason=${preview.programFlowDiagnostics.reason} nextAction=${preview.programFlowDiagnostics.nextAction} ` +
+      `providerCallsAdded=0 executionImpact=NONE`,
+  );
   if (stockProgramAvailable > 0) {
     console.info(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_EVIDENCE_FOUND] ` +
         `scope=STOCK fieldKeys=${preview.programFlowDiagnostics.stockProgramFieldKeysTop} ` +
         `numericRows=${preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue} ` +
+        `diagnosticOnly=true executionImpact=NONE`,
+    );
+    console.info(
+      `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSED] ` +
+        `scope=STOCK field=${preview.programFlowDiagnostics.stockProgramFieldKeysTop} ` +
+        `parsedCount=${preview.programFlowDiagnostics.stockProgramRowsWithParsableProgramValue} ` +
+        `diagnosticOnly=true executionImpact=NONE`,
+    );
+  } else if (preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey > 0) {
+    console.info(
+      `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSE_FAILED] ` +
+        `scope=STOCK reasonTop=${preview.programFlowDiagnostics.stockProgramValueReasonTop} ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
   }
@@ -508,6 +591,17 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_EVIDENCE_FOUND] ` +
         `scope=MARKET fieldKeys=${formatList(preview.programFlowDiagnostics.marketProgramNumericFieldsFound)} ` +
         `numericRows=1 diagnosticOnly=true executionImpact=NONE`,
+    );
+    console.info(
+      `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSED] ` +
+        `scope=MARKET field=${formatList(preview.programFlowDiagnostics.marketProgramParsableFieldsFound)} ` +
+        `parsedCount=1 diagnosticOnly=true executionImpact=NONE`,
+    );
+  } else if (preview.programFlowDiagnostics.marketProgramFieldsFound.length > 0) {
+    console.info(
+      `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSE_FAILED] ` +
+        `scope=MARKET reasonTop=${preview.programFlowDiagnostics.marketProgramValueReasonTop} ` +
+        `diagnosticOnly=true executionImpact=NONE`,
     );
   }
   const contamination = preview.candidates.filter((candidate) =>
@@ -528,6 +622,16 @@ function buildActivePassiveConfluenceCounts(candidates: NormalSupplyPreviewCandi
 }
 
 
+function countStockProgramKeyRows<T extends CandidateWithSupplyContext>(rawCandidates: T[]): number {
+  let rows = 0;
+  for (const candidate of rawCandidates) {
+    const supplyContext = candidate.preflight?.supplyContext ?? candidate.supplyContext ?? buildMissingContext(normalizePreviewSymbol(candidate.symbol ?? candidate.code));
+    const records = candidateProgramRecords(candidate, supplyContext);
+    if (records.some((record) => Object.keys(record).some(isStockProgramScanKey))) rows += 1;
+  }
+  return rows;
+}
+
 function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
   rawCandidates: T[],
   marketProgramFlowRaw: unknown,
@@ -537,6 +641,9 @@ function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
   const stockKeyCounts = new Map<string, number>();
   let stockRowsWithAny = 0;
   let stockRowsWithNumeric = 0;
+  let stockRowsWithParsable = 0;
+  const stockValueReasons = new Map<string, number>();
+  const stockSamples: string[] = [];
   const normalizedFields = new Set<string>();
   const snapshotFields = new Set<string>();
   const cacheFields = new Set<string>();
@@ -549,10 +656,21 @@ function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
         if (isStockProgramScanKey(key)) rowKeys.add(key);
       }
     }
+    let rowParsable = false;
     if (rowKeys.size > 0) {
       stockRowsWithAny += 1;
       for (const key of rowKeys) stockKeyCounts.set(key, (stockKeyCounts.get(key) ?? 0) + 1);
+      for (const record of records) {
+        for (const key of rowKeys) {
+          if (record[key] === undefined) continue;
+          const normalized = normalizeProgramFlowValue(record[key]);
+          incrementCount(stockValueReasons, normalized.reason);
+          if (normalized.sanitizedSample) pushUniqueLimited(stockSamples, normalized.sanitizedSample, 3);
+          rowParsable ||= normalized.ok;
+        }
+      }
     }
+    if (rowParsable) stockRowsWithParsable += 1;
     if (previewCandidates.some((preview) => preview.symbol === normalizePreviewSymbol(candidate.symbol ?? candidate.code) && preview.programFlow?.stockLevel.available)) {
       stockRowsWithNumeric += 1;
     }
@@ -582,12 +700,23 @@ function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
   const marketRecords = marketRoot ? collectProgramRecords(marketRoot) : [];
   const marketFields = new Set<string>();
   const marketNumeric = new Set<string>();
+  const marketParsable = new Set<string>();
+  const marketValueReasons = new Map<string, number>();
+  const marketSamples: string[] = [];
   const marketStatus = new Set<string>();
   const marketSources = new Set<string>();
   for (const record of marketRecords) {
     for (const key of Object.keys(record)) {
       if (MARKET_PROGRAM_NUMERIC_KEYS.includes(key) || MARKET_PROGRAM_STATUS_KEYS.includes(key) || key === 'programTrading') marketFields.add(key);
-      if (MARKET_PROGRAM_NUMERIC_KEYS.includes(key) && parseFiniteNumber(record[key]) !== undefined) marketNumeric.add(key);
+      if (MARKET_PROGRAM_NUMERIC_KEYS.includes(key)) {
+        const normalized = normalizeProgramFlowValue(record[key]);
+        incrementCount(marketValueReasons, normalized.reason);
+        if (normalized.sanitizedSample) pushUniqueLimited(marketSamples, normalized.sanitizedSample, 1);
+        if (normalized.ok) {
+          marketNumeric.add(key);
+          marketParsable.add(key);
+        }
+      }
       if (MARKET_PROGRAM_STATUS_KEYS.includes(key) && record[key] !== undefined && record[key] !== null) marketStatus.add(key);
     }
     const source = stringValue(record.sourceProvider ?? record.provider ?? record.programSource ?? record.source ?? record.selectedProvider);
@@ -622,6 +751,9 @@ function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
       candidateFieldCounts: Object.fromEntries(stockKeyCounts),
       candidateRowsWithAnyProgramKey: stockRowsWithAny,
       candidateRowsWithNumericProgramValue: stockRowsWithNumeric,
+      candidateRowsWithParsableProgramValue: stockRowsWithParsable,
+      valueReasonDistribution: Object.fromEntries(stockValueReasons),
+      sanitizedSampleTop: stockSamples,
       normalizedFieldScanAttempted: true,
       normalizedFieldsFound: Array.from(normalizedFields).sort(),
       snapshotFieldScanAttempted: true,
@@ -639,6 +771,9 @@ function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
       snapshotContextFound: hasNestedRecordKey(marketRoot, 'snapshot') || hasNestedRecordKey(marketRoot, 'latestSanitizedSnapshot') || hasNestedRecordKey(marketRoot, 'programTradingSnapshot'),
       fieldsFound: Array.from(marketFields).sort(),
       numericFieldsFound: Array.from(marketNumeric).sort(),
+      parsableFieldsFound: Array.from(marketParsable).sort(),
+      valueReasonDistribution: Object.fromEntries(marketValueReasons),
+      sanitizedSample: marketSamples[0],
       statusFieldsFound: Array.from(marketStatus).sort(),
       sourceCandidates: Array.from(marketSources).sort(),
       result: marketResult,
@@ -658,13 +793,17 @@ function buildProgramFlowDiagnostics(
   const marketProgramAvailable = marketProgramFlow.available;
   const stockAny = evidenceTrace.stockLevel.candidateRowsWithAnyProgramKey;
   const stockNumeric = evidenceTrace.stockLevel.candidateRowsWithNumericProgramValue;
+  const stockParsable = evidenceTrace.stockLevel.candidateRowsWithParsableProgramValue;
   let reason = 'PROGRAM_FLOW_NOT_WIRED_OR_NOT_AVAILABLE';
   if (!evidenceTrace.contextFound) reason = 'PROGRAM_FLOW_CONTEXT_NOT_FOUND';
-  else if (marketProgramAvailable || stockNumeric > 0) reason = 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY';
+  else if (marketProgramAvailable || stockNumeric > 0 || stockParsable > 0) reason = 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY';
   else if (evidenceTrace.marketLevel.result === 'SESSION_CLOSED_DIAGNOSTIC_ONLY' || marketProgramFlow.providerIssue) reason = 'PROGRAM_PROVIDER_ISSUE_DIAGNOSTIC_ONLY';
-  else if (evidenceTrace.marketLevel.result === 'ONLY_STATUS_NO_NUMERIC') reason = 'PROGRAM_CONTEXT_HAS_STATUS_ONLY';
-  else if (stockAny > 0 || evidenceTrace.marketLevel.fieldsFound.length > 0) reason = 'PROGRAM_FLOW_WIRED_BUT_ALL_NA';
   else if (evidenceTrace.wiredButNoFields) reason = 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS';
+  else if (hasOnlyProgramReasons(evidenceTrace, ['PROGRAM_VALUE_NA', 'PROGRAM_VALUE_PLACEHOLDER', 'PROGRAM_VALUE_EMPTY', 'PROGRAM_VALUE_NULL'])) reason = 'PROGRAM_VALUE_PLACEHOLDER_ONLY';
+  else if (hasAnyProgramReasons(evidenceTrace, ['PROGRAM_VALUE_UNIT_STRING_WON', 'PROGRAM_VALUE_UNIT_STRING_MILLION', 'PROGRAM_VALUE_UNIT_STRING_EOK'])) reason = 'PROGRAM_VALUE_UNIT_NORMALIZATION_REQUIRED';
+  else if (hasAnyProgramReasons(evidenceTrace, ['PROGRAM_VALUE_UNSUPPORTED_FORMAT'])) reason = 'PROGRAM_VALUE_UNSUPPORTED_FORMAT';
+  else if (evidenceTrace.marketLevel.result === 'ONLY_STATUS_NO_NUMERIC') reason = 'PROGRAM_CONTEXT_HAS_STATUS_ONLY';
+  else if (stockAny > 0 || evidenceTrace.marketLevel.fieldsFound.length > 0) reason = 'PROGRAM_VALUE_NORMALIZATION_REQUIRED';
   else reason = 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS';
 
   const nextAction = nextActionForProgramReason(reason);
@@ -672,6 +811,10 @@ function buildProgramFlowDiagnostics(
     stockProgramRowsAvailable,
     stockProgramRowsWithAnyProgramKey: stockAny,
     stockProgramRowsWithNumericProgramValue: stockNumeric,
+    stockProgramRowsWithParsableProgramValue: evidenceTrace.stockLevel.candidateRowsWithParsableProgramValue,
+    stockProgramValueReasonDistribution: evidenceTrace.stockLevel.valueReasonDistribution,
+    stockProgramValueReasonTop: formatReasonDistribution(evidenceTrace.stockLevel.valueReasonDistribution),
+    stockProgramSanitizedSampleTop: evidenceTrace.stockLevel.sanitizedSampleTop,
     stockProgramFieldKeysTop: formatStockProgramFieldKeysTop(evidenceTrace.stockLevel.candidateFieldsFound, evidenceTrace.stockLevel.candidateFieldCounts),
     stockProgramBreakPoint: evidenceTrace.stockLevel.breakPoint,
     total: candidates.length,
@@ -683,6 +826,10 @@ function buildProgramFlowDiagnostics(
     marketProgramContextFound: evidenceTrace.marketLevel.fieldsFound.length > 0 || evidenceTrace.marketLevel.programTradingContextFound || evidenceTrace.marketLevel.programMarketRouterResultFound || evidenceTrace.marketLevel.programTodayContextFound || evidenceTrace.marketLevel.cacheContextFound || evidenceTrace.marketLevel.snapshotContextFound,
     marketProgramFieldsFound: evidenceTrace.marketLevel.fieldsFound,
     marketProgramNumericFieldsFound: evidenceTrace.marketLevel.numericFieldsFound,
+    marketProgramParsableFieldsFound: evidenceTrace.marketLevel.parsableFieldsFound,
+    marketProgramValueReasonDistribution: evidenceTrace.marketLevel.valueReasonDistribution,
+    marketProgramValueReasonTop: formatReasonDistribution(evidenceTrace.marketLevel.valueReasonDistribution),
+    marketProgramSanitizedSample: evidenceTrace.marketLevel.sanitizedSample,
     marketProgramStatusFieldsFound: evidenceTrace.marketLevel.statusFieldsFound,
     marketProgramBreakPoint: evidenceTrace.marketLevel.breakPoint,
     marketProgramReason: evidenceTrace.marketLevel.result,
@@ -703,11 +850,35 @@ function nextActionForProgramReason(reason: string): ProgramFlowDiagnosticsSumma
   if (reason === 'PROGRAM_FLOW_CONTEXT_NOT_FOUND') return 'WIRE_PROGRAM_FLOW_CONTEXT_TO_PREVIEW';
   if (reason === 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS') return 'WIRE_UPSTREAM_PROGRAM_NUMERIC_FIELDS_TO_CONTEXT';
   if (reason === 'PROGRAM_FLOW_WIRED_BUT_ALL_NA') return 'MAP_PROGRAM_NUMERIC_FIELD_ALIASES';
+  if (reason === 'PROGRAM_VALUE_PLACEHOLDER_ONLY') return 'USE_LATEST_INTRADAY_PROGRAM_SNAPSHOT_OR_CACHE';
+  if (reason === 'PROGRAM_VALUE_UNIT_NORMALIZATION_REQUIRED') return 'ADD_PROGRAM_VALUE_UNIT_PARSER_OR_STORE_NUMERIC_VALUE';
+  if (reason === 'PROGRAM_VALUE_UNSUPPORTED_FORMAT') return 'STORE_PROGRAM_NETBUY_AS_NUMERIC_FIELD';
+  if (reason === 'PROGRAM_VALUE_NORMALIZATION_REQUIRED') return 'STORE_PROGRAM_NETBUY_AS_NUMERIC_FIELD';
   if (reason === 'PROGRAM_CONTEXT_HAS_STATUS_ONLY') return 'WIRE_MARKET_PROGRAM_NUMERIC_NETBUY_FIELDS';
   if (reason === 'PROGRAM_PROVIDER_ISSUE_DIAGNOSTIC_ONLY') return 'USE_LATEST_INTRADAY_PROGRAM_SNAPSHOT_OR_CACHE';
   if (reason === 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY') return 'OBSERVE_PROGRAM_FLOW_PROXY';
   return 'WIRE_STOCK_AND_MARKET_PROGRAM_FLOW_FIELDS';
 }
+
+function allProgramReasonEntries(evidenceTrace: ProgramFlowEvidenceTrace): string[] {
+  return [
+    ...Object.keys(evidenceTrace.stockLevel.valueReasonDistribution),
+    ...Object.keys(evidenceTrace.marketLevel.valueReasonDistribution),
+  ];
+}
+
+function hasAnyProgramReasons(evidenceTrace: ProgramFlowEvidenceTrace, reasons: string[]): boolean {
+  const wanted = new Set(reasons);
+  return allProgramReasonEntries(evidenceTrace).some((reason) => wanted.has(reason));
+}
+
+function hasOnlyProgramReasons(evidenceTrace: ProgramFlowEvidenceTrace, reasons: string[]): boolean {
+  const entries = allProgramReasonEntries(evidenceTrace);
+  if (entries.length === 0) return false;
+  const allowed = new Set(reasons);
+  return entries.every((reason) => allowed.has(reason));
+}
+
 
 
 
@@ -888,12 +1059,16 @@ export function buildNormalSupplyPreviewFullSections(
     formatAvailabilityLine('stockProgramRowsAvailable', preview.fieldAvailability.stockProgramRowsAvailable, preview.fieldAvailability.total),
     formatAvailabilityLine('stockProgramRowsWithAnyProgramKey', preview.fieldAvailability.stockProgramRowsWithAnyProgramKey, preview.fieldAvailability.total),
     formatAvailabilityLine('stockProgramRowsWithNumericProgramValue', preview.fieldAvailability.stockProgramRowsWithNumericProgramValue, preview.fieldAvailability.total),
+    formatAvailabilityLine('stockProgramRowsWithParsableProgramValue', preview.fieldAvailability.stockProgramRowsWithParsableProgramValue, preview.fieldAvailability.total),
+    `  stockProgramValueReasonTop: ${preview.fieldAvailability.stockProgramValueReasonTop}`,
     formatAvailabilityLine('programNetBuyField', preview.fieldAvailability.programNetBuyField, preview.fieldAvailability.total),
     `  marketProgramAvailable: ${preview.fieldAvailability.marketProgramAvailable}`,
     `  marketProgramSignal: ${preview.fieldAvailability.marketProgramSignal}`,
     `  marketProgramSource: ${preview.fieldAvailability.marketProgramSource}`,
     `  marketProgramContextFound: ${preview.fieldAvailability.marketProgramContextFound}`,
     `  marketProgramBreakPoint: ${preview.fieldAvailability.marketProgramBreakPoint}`,
+    `  marketProgramParsableFieldsFound: ${formatList(preview.fieldAvailability.marketProgramParsableFieldsFound)}`,
+    `  marketProgramValueReasonTop: ${preview.fieldAvailability.marketProgramValueReasonTop}`,
     `  marketProgramProviderIssue: ${preview.fieldAvailability.marketProgramProviderIssue}`,
     `  marketProgramMarketSignal: ${preview.fieldAvailability.marketProgramMarketSignal}`,
     `  missingProgramFlowAsBearish=${preview.fieldAvailability.missingProgramFlowAsBearish}`,
@@ -984,7 +1159,10 @@ export function buildNormalSupplyPreviewFullSections(
     formatAvailabilityLine('stockProgramRowsAvailable', preview.programFlowDiagnostics.stockProgramRowsAvailable, preview.programFlowDiagnostics.total),
     formatAvailabilityLine('stockProgramRowsWithAnyProgramKey', preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey, preview.programFlowDiagnostics.total),
     formatAvailabilityLine('stockProgramRowsWithNumericProgramValue', preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue, preview.programFlowDiagnostics.total),
+    formatAvailabilityLine('stockProgramRowsWithParsableProgramValue', preview.programFlowDiagnostics.stockProgramRowsWithParsableProgramValue, preview.programFlowDiagnostics.total),
     `  stockProgramFieldKeysTop: ${preview.programFlowDiagnostics.stockProgramFieldKeysTop}`,
+    `  stockProgramValueReasonDistribution: ${preview.programFlowDiagnostics.stockProgramValueReasonTop}`,
+    `  stockProgramSanitizedSampleTop: ${formatSampleList(preview.programFlowDiagnostics.stockProgramSanitizedSampleTop)}`,
     `  stockProgramBreakPoint: ${preview.programFlowDiagnostics.stockProgramBreakPoint}`,
     '',
     `  marketProgramAvailable: ${preview.programFlowDiagnostics.marketProgramAvailable}`,
@@ -995,6 +1173,9 @@ export function buildNormalSupplyPreviewFullSections(
     `  marketProgramContextFound: ${preview.programFlowDiagnostics.marketProgramContextFound}`,
     `  marketProgramFieldsFound: ${formatList(preview.programFlowDiagnostics.marketProgramFieldsFound)}`,
     `  marketProgramNumericFieldsFound: ${formatList(preview.programFlowDiagnostics.marketProgramNumericFieldsFound)}`,
+    `  marketProgramParsableFieldsFound: ${formatList(preview.programFlowDiagnostics.marketProgramParsableFieldsFound)}`,
+    `  marketProgramValueReasonDistribution: ${preview.programFlowDiagnostics.marketProgramValueReasonTop}`,
+    `  marketProgramSanitizedSample: ${preview.programFlowDiagnostics.marketProgramSanitizedSample ? `"${escapeHtmlText(preview.programFlowDiagnostics.marketProgramSanitizedSample)}"` : 'none'}`,
     `  marketProgramStatusFieldsFound: ${formatList(preview.programFlowDiagnostics.marketProgramStatusFieldsFound)}`,
     `  marketProgramBreakPoint: ${preview.programFlowDiagnostics.marketProgramBreakPoint}`,
     `  marketProgramReason: ${preview.programFlowDiagnostics.marketProgramReason}`,
@@ -1189,6 +1370,7 @@ function toPreviewCandidate(
     passiveFlow: describeProgramSignal(passiveProxySignal),
     activePassiveConfluence,
     programMissingAsBearish: false,
+    programValueReason: stockProgramFlow.valueReason,
     fetchedAt: supplyContext.fetchedAt,
     rawStatus: supplyContext.rawStatus,
     semanticRowAvailable: hasSemanticRow(trace, health),
@@ -1330,9 +1512,9 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
   if (!root) return { ...PROGRAM_FLOW_NOT_AVAILABLE_MARKET, reason: 'PROGRAM_FLOW_CONTEXT_NOT_FOUND' };
   const records = collectProgramRecords(root);
   const hasAnyProgramField = records.some(hasProgramField);
-  const kospiNetBuy = firstNumberFromRecords(records, ['kospiNetBuy', 'kospiProgramNetBuy', 'kospiProgramNetBuyAmount']);
-  const kosdaqNetBuy = firstNumberFromRecords(records, ['kosdaqNetBuy', 'kosdaqProgramNetBuy', 'kosdaqProgramNetBuyAmount']);
-  const combined = firstNumberFromRecords(records, [
+  const kospiResult = firstProgramValueNormalization(records, ['kospiNetBuy', 'kospiProgramNetBuy', 'kospiProgramNetBuyAmount']);
+  const kosdaqResult = firstProgramValueNormalization(records, ['kosdaqNetBuy', 'kosdaqProgramNetBuy', 'kosdaqProgramNetBuyAmount']);
+  const combinedResult = firstProgramValueNormalization(records, [
     'combinedNetBuy',
     'combinedProgramNetBuy',
     'marketProgramNetBuy',
@@ -1344,8 +1526,14 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
     'program_net_buy',
     'program_net_amount',
   ]);
-  const buyAmount = firstNumberFromRecords(records, ['programBuyAmount', 'marketProgramBuyAmount', 'buyAmount', 'programBuy']);
-  const sellAmount = firstNumberFromRecords(records, ['programSellAmount', 'marketProgramSellAmount', 'sellAmount', 'programSell']);
+  const buyAmountResult = firstProgramValueNormalization(records, ['programBuyAmount', 'marketProgramBuyAmount', 'buyAmount', 'programBuy']);
+  const sellAmountResult = firstProgramValueNormalization(records, ['programSellAmount', 'marketProgramSellAmount', 'sellAmount', 'programSell']);
+  const firstValueFailure = [kospiResult, kosdaqResult, combinedResult, buyAmountResult, sellAmountResult].find((item) => item && !item.ok);
+  const kospiNetBuy = kospiResult?.value;
+  const kosdaqNetBuy = kosdaqResult?.value;
+  const combined = combinedResult?.value;
+  const buyAmount = buyAmountResult?.value;
+  const sellAmount = sellAmountResult?.value;
   const providerIssue = records.some((record) => record.providerIssue === true);
   const sourceProvider = normalizeProgramSource(firstValueFromRecords(records, ['sourceProvider', 'provider', 'programSource', 'source']));
   const explicitSignal = normalizeProgramFlowSignal(firstValueFromRecords(records, ['programMarketSignal', 'marketProgramSignal', 'signal']));
@@ -1361,9 +1549,13 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
       providerIssue,
       marketSignal: false,
       signal: providerIssue ? 'UNKNOWN' : explicitSignal ?? (unavailableByStatus ? 'UNAVAILABLE' : 'UNAVAILABLE'),
-      reason: stringValue(firstValueFromRecords(records, ['reason'])) ?? (hasAnyProgramField ? 'PROGRAM_FLOW_WIRED_BUT_ALL_NA' : 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS'),
+      reason: stringValue(firstValueFromRecords(records, ['reason'])) ?? firstValueFailure?.reason ?? (hasAnyProgramField ? 'PROGRAM_FLOW_WIRED_BUT_ALL_NA' : 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS'),
+      valueIssue: Boolean(firstValueFailure),
+      valueReason: firstValueFailure?.reason,
+      sanitizedSample: firstValueFailure?.sanitizedSample,
     };
   }
+  const selectedValue = combinedResult ?? kospiResult ?? kosdaqResult ?? buyAmountResult ?? sellAmountResult;
   const signal = providerIssue ? 'UNKNOWN' : explicitSignal ?? signalFromNetBuy(derivedCombined);
   return {
     available: true,
@@ -1375,6 +1567,9 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
     providerIssue,
     marketSignal: !providerIssue && signal !== 'UNKNOWN' && signal !== 'UNAVAILABLE',
     reason: 'MARKET_PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+    valueIssue: false,
+    valueReason: selectedValue?.reason,
+    sanitizedSample: selectedValue?.sanitizedSample,
     diagnosticOnly: true,
     executionImpact: 'NONE',
   };
@@ -1387,14 +1582,23 @@ function extractStockProgramFlow(
   const records = candidateProgramRecords(candidate, supplyContext);
   let providerIssue = false;
   let sourceProvider: ProgramFlowSourceProvider = 'NONE';
+  let firstValueFailure: (ProgramFlowValueNormalizationResult & { key: string }) | undefined;
   for (const record of records) {
     providerIssue = providerIssue || record.providerIssue === true;
     const normalizedSource = normalizeProgramSource(record.sourceProvider ?? record.provider ?? record.programSource ?? record.source);
     if (normalizedSource !== 'NONE') sourceProvider = normalizedSource;
-    const buyAmount = firstNumber(record, STOCK_PROGRAM_BUY_KEYS);
-    const sellAmount = firstNumber(record, STOCK_PROGRAM_SELL_KEYS);
-    const netAmount = firstNumber(record, STOCK_PROGRAM_NET_AMOUNT_KEYS);
-    const directNetBuy = firstNumber(record, STOCK_PROGRAM_NET_BUY_KEYS);
+    const buyAmountResult = firstNormalizedProgramValue(record, STOCK_PROGRAM_BUY_KEYS);
+    const sellAmountResult = firstNormalizedProgramValue(record, STOCK_PROGRAM_SELL_KEYS);
+    const netAmountResult = firstNormalizedProgramValue(record, STOCK_PROGRAM_NET_AMOUNT_KEYS);
+    const directNetBuyResult = firstNormalizedProgramValue(record, STOCK_PROGRAM_NET_BUY_KEYS);
+    firstValueFailure ??= [buyAmountResult, sellAmountResult, netAmountResult, directNetBuyResult].find((item) => item && !item.ok);
+    const buyAmount = buyAmountResult?.value;
+    const sellAmount = sellAmountResult?.value;
+    const netAmount = netAmountResult?.value;
+    const directNetBuy = directNetBuyResult?.value;
+    const selectedValue = buyAmount !== undefined && sellAmount !== undefined
+      ? buyAmountResult ?? sellAmountResult
+      : netAmountResult ?? directNetBuyResult;
     const netBuy = buyAmount !== undefined && sellAmount !== undefined
       ? buyAmount - sellAmount
       : netAmount ?? directNetBuy;
@@ -1410,6 +1614,9 @@ function extractStockProgramFlow(
       providerIssue: Boolean(record.providerIssue),
       marketSignal: record.providerIssue !== true,
       reason: 'STOCK_PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+      valueIssue: false,
+      valueReason: selectedValue?.reason,
+      sanitizedSample: selectedValue?.sanitizedSample,
       diagnosticOnly: true,
       executionImpact: 'NONE',
     };
@@ -1423,9 +1630,14 @@ function extractStockProgramFlow(
     signal: providerIssue ? 'UNKNOWN' : 'UNAVAILABLE',
     reason: providerIssue
       ? 'PROGRAM_PROVIDER_ISSUE_DIAGNOSTIC_ONLY'
-      : !hasContext
-        ? 'PROGRAM_FLOW_CONTEXT_NOT_FOUND'
-        : hasAnyProgramField ? 'PROGRAM_FLOW_WIRED_BUT_ALL_NA' : 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS',
+      : firstValueFailure
+        ? firstValueFailure.reason
+        : !hasContext
+          ? 'PROGRAM_FLOW_CONTEXT_NOT_FOUND'
+          : hasAnyProgramField ? 'PROGRAM_FLOW_WIRED_BUT_ALL_NA' : 'PROGRAM_FLOW_WIRED_BUT_NO_FIELDS',
+    valueIssue: Boolean(firstValueFailure),
+    valueReason: firstValueFailure?.reason,
+    sanitizedSample: firstValueFailure?.sanitizedSample,
   };
 }
 
@@ -1603,20 +1815,138 @@ function firstNumberFromRecords(records: Record<string, unknown>[], keys: string
 }
 
 function firstNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+  const normalized = firstNormalizedProgramValue(record, keys);
+  return normalized?.value;
+}
+
+function firstNormalizedProgramValue(
+  record: Record<string, unknown>,
+  keys: string[],
+): (ProgramFlowValueNormalizationResult & { key: string }) | undefined {
+  let firstFailure: (ProgramFlowValueNormalizationResult & { key: string }) | undefined;
   for (const key of keys) {
-    const parsed = parseFiniteNumber(record[key]);
-    if (parsed !== undefined) return parsed;
+    if (record[key] === undefined) continue;
+    const normalized = normalizeProgramFlowValue(record[key]);
+    const keyed = { ...normalized, key };
+    if (normalized.ok) return keyed;
+    firstFailure ??= keyed;
   }
-  return undefined;
+  return firstFailure;
+}
+
+function firstProgramValueNormalization(
+  records: Record<string, unknown>[],
+  keys: string[],
+): (ProgramFlowValueNormalizationResult & { key: string }) | undefined {
+  let firstFailure: (ProgramFlowValueNormalizationResult & { key: string }) | undefined;
+  for (const record of records) {
+    for (const key of keys) {
+      if (record[key] === undefined) continue;
+      const normalized = normalizeProgramFlowValue(record[key]);
+      const keyed = { ...normalized, key };
+      if (normalized.ok) return keyed;
+      firstFailure ??= keyed;
+    }
+  }
+  return firstFailure;
 }
 
 function parseFiniteNumber(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.replace(/,/g, '').trim();
-  if (!normalized || normalized.toUpperCase() === 'N/A') return undefined;
-  const parsed = Number(normalized);
+  const normalized = normalizeProgramFlowValue(value);
+  return normalized.ok ? normalized.value : undefined;
+}
+
+export function normalizeProgramFlowValue(input: unknown): ProgramFlowValueNormalizationResult {
+  const rawKind = rawKindOf(input);
+  if (input === null || input === undefined) return normalizationFailure('PROGRAM_VALUE_NULL', rawKind);
+  if (typeof input === 'number') {
+    if (!Number.isFinite(input)) return normalizationFailure('PROGRAM_VALUE_PARSE_FAILED', 'number', String(input));
+    return { ok: true, value: input, reason: input === 0 ? 'PROGRAM_VALUE_ZERO' : 'PROGRAM_VALUE_PARSE_OK', rawKind: 'number', sanitizedSample: safeSample(input), diagnosticOnly: true };
+  }
+  if (typeof input === 'string') return normalizeProgramFlowString(input, 'string');
+  if (Array.isArray(input)) return normalizationFailure('PROGRAM_VALUE_UNSUPPORTED_FORMAT', 'array', safeSample(input));
+  if (typeof input === 'object') {
+    const wrapper = input as Record<string, unknown>;
+    for (const key of ['value', 'amount', 'netBuy', 'netAmount']) {
+      if (wrapper[key] === undefined) continue;
+      const normalized = normalizeProgramFlowValue(wrapper[key]);
+      if (normalized.ok) {
+        return { ...normalized, reason: 'PROGRAM_VALUE_OBJECT_WRAPPER', rawKind: 'object', sanitizedSample: normalized.sanitizedSample ?? safeSample(wrapper[key]) };
+      }
+      return { ...normalized, rawKind: 'object', sanitizedSample: normalized.sanitizedSample ?? safeSample(wrapper[key]) };
+    }
+    return normalizationFailure('PROGRAM_VALUE_UNSUPPORTED_FORMAT', 'object', safeSample(input));
+  }
+  if (typeof input === 'boolean') return normalizationFailure('PROGRAM_VALUE_UNSUPPORTED_FORMAT', 'boolean', String(input));
+  return normalizationFailure('PROGRAM_VALUE_UNSUPPORTED_FORMAT', rawKind, safeSample(input));
+}
+
+function normalizeProgramFlowString(input: string, rawKind: ProgramFlowValueRawKind): ProgramFlowValueNormalizationResult {
+  const trimmed = input.trim();
+  const sample = safeSample(trimmed);
+  if (trimmed.length === 0) return normalizationFailure('PROGRAM_VALUE_EMPTY', rawKind, sample);
+  const upper = trimmed.toUpperCase();
+  if (upper === 'N/A' || upper === 'NA' || upper === 'NULL') return normalizationFailure('PROGRAM_VALUE_NA', rawKind, sample);
+  if (trimmed === '-' || upper === 'UNKNOWN' || upper === 'NONE' || upper === 'UNAVAILABLE') return normalizationFailure('PROGRAM_VALUE_PLACEHOLDER', rawKind, sample);
+  if (/백\s*만\s*원|백만원|MILLION/i.test(trimmed)) return normalizationFailure('PROGRAM_VALUE_UNIT_STRING_MILLION', rawKind, sample);
+  if (/억/i.test(trimmed)) return normalizationFailure('PROGRAM_VALUE_UNIT_STRING_EOK', rawKind, sample);
+  if (/원/.test(trimmed)) {
+    const withoutWon = trimmed.replace(/원/g, '').trim();
+    const numeric = parsePlainProgramNumericString(withoutWon);
+    if (numeric !== undefined) return { ok: true, value: numeric, reason: 'PROGRAM_VALUE_UNIT_STRING_WON', rawKind, sanitizedSample: sample, diagnosticOnly: true };
+    return normalizationFailure('PROGRAM_VALUE_UNIT_STRING_WON', rawKind, sample);
+  }
+  const parsed = parsePlainProgramNumericString(trimmed);
+  if (parsed === undefined) return normalizationFailure('PROGRAM_VALUE_UNSUPPORTED_FORMAT', rawKind, sample);
+  return { ok: true, value: parsed, reason: programNumericStringReason(trimmed, parsed), rawKind, sanitizedSample: sample, diagnosticOnly: true };
+}
+
+function parsePlainProgramNumericString(value: string): number | undefined {
+  if (!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value)) return undefined;
+  const parsed = Number(value.replace(/,/g, ''));
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function programNumericStringReason(value: string, parsed: number): ProgramFlowValueReason {
+  if (parsed === 0) return 'PROGRAM_VALUE_ZERO';
+  if (/,/.test(value)) return 'PROGRAM_VALUE_COMMA_NUMERIC_STRING';
+  if (/^[+-]/.test(value)) return 'PROGRAM_VALUE_SIGNED_NUMERIC_STRING';
+  return 'PROGRAM_VALUE_NUMERIC_STRING';
+}
+
+function normalizationFailure(
+  reason: ProgramFlowValueReason,
+  rawKind: ProgramFlowValueRawKind,
+  sanitizedSample?: string,
+): ProgramFlowValueNormalizationResult {
+  return { ok: false, reason, rawKind, ...(sanitizedSample ? { sanitizedSample } : {}), diagnosticOnly: true };
+}
+
+function rawKindOf(value: unknown): ProgramFlowValueRawKind {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'object') return 'object';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'unknown';
+}
+
+function safeSample(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  let sample: string;
+  if (typeof value === 'object' && value !== null) {
+    sample = Array.isArray(value) ? '[array]' : '{object}';
+  } else {
+    sample = String(value);
+  }
+  const sanitized = sample
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[REDACTED_EMAIL]')
+    .replace(/\b\d{3,}-\d{2,}-\d{4,}\b/g, '[REDACTED_ID]')
+    .slice(0, 80);
+  return sanitized.length > 0 ? sanitized : undefined;
 }
 
 function normalizeProgramFlowSignal(value: unknown): ProgramFlowSignal | undefined {
@@ -1661,6 +1991,24 @@ function formatList(values: string[]): string {
   return values.length > 0 ? values.join(', ') : 'none';
 }
 
+function incrementCount(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function pushUniqueLimited(values: string[], value: string, limit: number): void {
+  if (values.length >= limit || values.includes(value)) return;
+  values.push(value);
+}
+
+function formatReasonDistribution(distribution: Record<string, number>): string {
+  const entries = Object.entries(distribution).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return entries.length > 0 ? entries.map(([reason, count]) => `${reason}=${count}`).join(', ') : 'none';
+}
+
+function formatSampleList(samples: string[]): string {
+  return samples.length > 0 ? samples.map((sample, index) => `${index + 1}. "${escapeHtmlText(sample)}"`).join('\n  ') : 'none';
+}
+
 function formatStockProgramFieldKeysTop(keys: string[], counts: Record<string, number>): string {
   if (keys.length === 0) return 'none';
   return keys.slice(0, 8).map((key) => `${key}=${counts[key] ?? 0}`).join(', ');
@@ -1692,6 +2040,10 @@ function buildFieldAvailability(candidates: NormalSupplyPreviewCandidate[], evid
     stockProgramRowsAvailable: stockProgramAvailable,
     stockProgramRowsWithAnyProgramKey: evidenceTrace?.stockLevel.candidateRowsWithAnyProgramKey ?? stockProgramAvailable,
     stockProgramRowsWithNumericProgramValue: evidenceTrace?.stockLevel.candidateRowsWithNumericProgramValue ?? stockProgramAvailable,
+    stockProgramRowsWithParsableProgramValue: evidenceTrace?.stockLevel.candidateRowsWithParsableProgramValue ?? stockProgramAvailable,
+    stockProgramValueReasonDistribution: evidenceTrace?.stockLevel.valueReasonDistribution ?? {},
+    stockProgramValueReasonTop: evidenceTrace ? formatReasonDistribution(evidenceTrace.stockLevel.valueReasonDistribution) : 'none',
+    stockProgramSanitizedSampleTop: evidenceTrace?.stockLevel.sanitizedSampleTop ?? [],
     stockProgramFieldKeysTop: evidenceTrace ? formatList(evidenceTrace.stockLevel.candidateFieldsFound) : 'none',
     stockProgramBreakPoint: evidenceTrace?.stockLevel.breakPoint ?? 'UNKNOWN',
     marketProgramAvailable: marketProgram.available,
@@ -1699,6 +2051,9 @@ function buildFieldAvailability(candidates: NormalSupplyPreviewCandidate[], evid
     marketProgramSource: marketProgram.sourceProvider ?? 'NONE',
     marketProgramContextFound: evidenceTrace ? (evidenceTrace.marketLevel.fieldsFound.length > 0 || evidenceTrace.marketLevel.programTradingContextFound || evidenceTrace.marketLevel.programMarketRouterResultFound || evidenceTrace.marketLevel.programTodayContextFound || evidenceTrace.marketLevel.cacheContextFound || evidenceTrace.marketLevel.snapshotContextFound) : false,
     marketProgramBreakPoint: evidenceTrace?.marketLevel.breakPoint ?? 'UNKNOWN',
+    marketProgramParsableFieldsFound: evidenceTrace?.marketLevel.parsableFieldsFound ?? [],
+    marketProgramValueReasonTop: evidenceTrace ? formatReasonDistribution(evidenceTrace.marketLevel.valueReasonDistribution) : 'none',
+    marketProgramSanitizedSample: evidenceTrace?.marketLevel.sanitizedSample,
     missingProgramFlowAsBearish: false,
     marketProgramProviderIssue: marketProgram.providerIssue,
     marketProgramMarketSignal: marketProgram.marketSignal,
@@ -1839,6 +2194,7 @@ function formatFullCandidateDetail(
     `   foreignNetBuy=${formatAmount(candidate.foreignNetBuyAmount)}`,
     `   institutionNetBuy=${formatAmount(candidate.institutionNetBuyAmount)}`,
     `   stockProgramNetBuy=${formatAmount(candidate.programFlow?.stockLevel.netBuy)}`,
+    `   programValueReason=${candidate.programValueReason ?? candidate.programFlow?.stockLevel.valueReason ?? 'N/A'}`,
     `   marketProgramSignal=${candidate.programFlow?.marketLevel.signal ?? 'UNAVAILABLE'}`,
     `   programNetBuy=${formatAmount(candidate.programNetBuyAmount)}`,
     `   programMissingAsBearish=${candidate.programMissingAsBearish}`,
