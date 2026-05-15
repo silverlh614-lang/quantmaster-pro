@@ -600,6 +600,7 @@ export interface BuildGate1MinimumSignalForensicInput {
   actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
   actualInvestorRow?: Record<string, unknown> | null;
+  diagnosticActualInvestorRow?: Record<string, unknown> | null;
   normalizedInvestorRow?: Record<string, unknown> | null;
   semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
   supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
@@ -612,6 +613,7 @@ export interface BuildGate1MinimumSignalForensicInput {
     actualInvestorFlowNumericStringKeys?: string[];
     actualInvestorFlowCarried?: boolean;
     actualInvestorRow?: Record<string, unknown> | null;
+    diagnosticActualInvestorRow?: Record<string, unknown> | null;
     normalizedInvestorRow?: Record<string, unknown> | null;
     semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
     supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
@@ -980,6 +982,7 @@ function buildSupplyScopeAudit(input: {
   actualInvestorFlowNumericStringKeys?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowNumericStringKeys'];
   actualInvestorFlowCarried?: BuildGate1MinimumSignalForensicInput['actualInvestorFlowCarried'];
   actualInvestorRow?: BuildGate1MinimumSignalForensicInput['actualInvestorRow'];
+  diagnosticActualInvestorRow?: BuildGate1MinimumSignalForensicInput['diagnosticActualInvestorRow'];
   normalizedInvestorRow?: BuildGate1MinimumSignalForensicInput['normalizedInvestorRow'];
   semanticInvestorRow?: BuildGate1MinimumSignalForensicInput['semanticInvestorRow'];
   supplySemanticRow?: BuildGate1MinimumSignalForensicInput['supplySemanticRow'];
@@ -1050,11 +1053,20 @@ function buildSupplyScopeAudit(input: {
   const sellOnlyBySymbolPayload = (kisFlow?.bySymbol && routeBySymbolKey && typeof kisFlow.bySymbol === 'object')
     ? (kisFlow.bySymbol[routeBySymbolKey] as Record<string, unknown> | undefined)
     : undefined;
+  const normalizedRowForPromotion =
+    (input.normalizedInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (input.selectedCandidate?.normalizedInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (kisFlow?.normalizedInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (sellOnlyBySymbolPayload?.normalizedInvestorRow as Record<string, unknown> | null | undefined)
+    ?? null;
   const diagnosticActualInvestorRow =
-    (input.actualInvestorRow as Record<string, unknown> | null | undefined)
+    (input.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (input.actualInvestorRow as Record<string, unknown> | null | undefined)
+    ?? (input.selectedCandidate?.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
     ?? (kisFlow?.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
     ?? (sellOnlyBySymbolPayload?.diagnosticActualInvestorRow as Record<string, unknown> | null | undefined)
     ?? (actualInvestorRows.length > 0 ? (actualInvestorRows[0] as Record<string, unknown>) : null)
+    ?? normalizedRowForPromotion
     ?? null;
   const selectedProviderActualInvestorRow =
     (kisFlow?.selectedProviderActualInvestorRow as Record<string, unknown> | null | undefined)
@@ -1068,7 +1080,7 @@ function buildSupplyScopeAudit(input: {
     (kisFlow?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
     ?? (sellOnlyBySymbolPayload?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
     ?? 'DIAGNOSTIC_ONLY';
-  const diagnosticActualInvestorRowCarried = hasActualInvestorNumericRow(diagnosticActualInvestorRow);
+  const diagnosticActualInvestorRowCarried = hasActualInvestorNumericRow(diagnosticActualInvestorRow) || hasActualInvestorNumericRow(normalizedRowForPromotion);
 
   // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — semantic mapper 입력 우선순위:
   // selectedProvider actual row > diagnostic actual row > legacy primarySemanticFlow > wrapper.
@@ -1095,7 +1107,7 @@ function buildSupplyScopeAudit(input: {
     ?? (flatRowForGate != null || diagnosticActualInvestorRowCarried || hasActualInvestorNumericRow(flowForSemantic));
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
-  const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? actualInvestorRows.length > 0;
+  const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? (actualInvestorRows.length > 0 || diagnosticActualInvestorRowCarried);
   // Patch-009 P1 — 프로덕션 진단 로그 게이트. SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC 은
   // 평가용 진단(executionImpact=NONE)일 뿐이라 default LOG_LEVEL=info 에서는 종목별
   // 60s dedup 이 있어도 종목 수 × 2 stage 로 누적된다. 중앙 logger 의 noise 게이트로

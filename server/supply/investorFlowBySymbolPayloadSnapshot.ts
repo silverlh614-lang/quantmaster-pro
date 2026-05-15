@@ -11,6 +11,7 @@ export interface SupplyBySymbolPayloadSnapshotEntry {
   providerScope: SupplyBySymbolProviderScope;
   actualInvestorFlowRows?: SanitizedInvestorFlowRow[];
   actualInvestorRow?: Record<string, unknown>;
+  diagnosticActualInvestorRow?: Record<string, unknown>;
   normalizedInvestorRow?: Record<string, unknown>;
   semanticInvestorRow?: Record<string, unknown>;
   supplySemanticRow?: Record<string, unknown>;
@@ -119,21 +120,23 @@ function sanitizeEntry(symbol: string, raw: Record<string, unknown>): SupplyBySy
   const actualRows = Array.isArray(raw.actualInvestorFlowRows)
     ? raw.actualInvestorFlowRows.map(sanitizeRecord).filter((row): row is Record<string, unknown> => Boolean(row)).slice(0, 10)
     : [];
-  const actualInvestorRow = sanitizeRecord(raw.actualInvestorRow) ?? actualRows[0];
   const normalizedInvestorRow = sanitizeRecord(raw.normalizedInvestorRow);
+  const actualInvestorRow = sanitizeRecord(raw.actualInvestorRow) ?? actualRows[0] ?? normalizedInvestorRow;
+  const diagnosticActualInvestorRow = sanitizeRecord(raw.diagnosticActualInvestorRow) ?? actualInvestorRow ?? normalizedInvestorRow;
   const semanticInvestorRow = sanitizeRecord(raw.semanticInvestorRow);
   const supplySemanticRow = sanitizeRecord(raw.supplySemanticRow);
   const gateSemanticFlatRow = sanitizeGateSemanticFlatRow(raw.gateSemanticFlatRow);
   const entry: SupplyBySymbolPayloadSnapshotEntry = {
     symbol,
     providerScope: providerScope(raw.providerScope),
-    ...(actualRows.length > 0 ? { actualInvestorFlowRows: actualRows } : {}),
+    ...(actualRows.length > 0 ? { actualInvestorFlowRows: actualRows } : actualInvestorRow ? { actualInvestorFlowRows: [actualInvestorRow] } : {}),
     ...(actualInvestorRow ? { actualInvestorRow } : {}),
+    ...(diagnosticActualInvestorRow ? { diagnosticActualInvestorRow } : {}),
     ...(normalizedInvestorRow ? { normalizedInvestorRow } : {}),
     ...(semanticInvestorRow ? { semanticInvestorRow } : {}),
     ...(supplySemanticRow ? { supplySemanticRow } : {}),
     ...(gateSemanticFlatRow != null ? { gateSemanticFlatRow } : {}),
-    ...(typeof raw.actualInvestorFlowRowCount === 'number' ? { actualInvestorFlowRowCount: raw.actualInvestorFlowRowCount } : actualRows.length > 0 ? { actualInvestorFlowRowCount: actualRows.length } : {}),
+    ...(typeof raw.actualInvestorFlowRowCount === 'number' ? { actualInvestorFlowRowCount: raw.actualInvestorFlowRowCount } : actualRows.length > 0 ? { actualInvestorFlowRowCount: actualRows.length } : actualInvestorRow ? { actualInvestorFlowRowCount: 1 } : {}),
     ...(stringArray(raw.actualInvestorFlowFieldKeys) ? { actualInvestorFlowFieldKeys: stringArray(raw.actualInvestorFlowFieldKeys) } : {}),
     ...(stringArray(raw.actualInvestorFlowNumericKeys) ? { actualInvestorFlowNumericKeys: stringArray(raw.actualInvestorFlowNumericKeys) } : {}),
     ...(stringArray(raw.actualInvestorFlowNumericStringKeys) ? { actualInvestorFlowNumericStringKeys: stringArray(raw.actualInvestorFlowNumericStringKeys) } : {}),
@@ -144,7 +147,7 @@ function sanitizeEntry(symbol: string, raw: Record<string, unknown>): SupplyBySy
     usableForShadow: true,
     executionImpact: 'NONE',
   };
-  return actualRows.length > 0 || actualInvestorRow || normalizedInvestorRow || semanticInvestorRow || supplySemanticRow || gateSemanticFlatRow != null ? entry : null;
+  return actualRows.length > 0 || actualInvestorRow || diagnosticActualInvestorRow || normalizedInvestorRow || semanticInvestorRow || supplySemanticRow || gateSemanticFlatRow != null ? entry : null;
 }
 
 function readStore(): SupplyBySymbolPayloadSnapshot[] {

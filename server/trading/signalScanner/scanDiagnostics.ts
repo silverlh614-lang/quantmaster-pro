@@ -1824,9 +1824,21 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   lines.push('');
   if (summary.emptyScanReason) {
     const desc = describeEmptyScanReason(summary.emptyScanReason);
-    lines.push(`💡 <b>빈스캔 원인 (ADR-0119):</b> ${summary.emptyScanReason}`);
-    lines.push(`  • ${desc.label}`);
-    lines.push(`  • ${desc.advice}`);
+    const forensic = summary.gate1MinimumSignalForensicAdr0505;
+    const supplyAvailable = forensic?.supplySemanticAvailable ?? 0;
+    const supplyTotal = forensic?.totalCandidates ?? summary.candidates ?? 0;
+    const supplyAvailabilityRate = supplyTotal > 0 ? supplyAvailable / supplyTotal : 0;
+    if (summary.emptyScanReason === 'NO_LEADERSHIP' && supplyTotal > 0 && supplyAvailabilityRate < 0.3) {
+      lines.push('💡 <b>빈스캔 원인 (ADR-0119):</b> DEGRADED_SCAN');
+      lines.push(`  • 표면상 NO_LEADERSHIP이나, 수급 semantic row ${supplyAvailable}/${supplyTotal}으로 리더십 판정 신뢰도 낮음`);
+      lines.push('  • leadership diagnosis confidence: LOW');
+      lines.push('  • 우선 조치: Supply Semantic Row Carry 복구 필요');
+    } else {
+      lines.push(`💡 <b>빈스캔 원인 (ADR-0119):</b> ${summary.emptyScanReason}`);
+      lines.push(`  • ${desc.label}`);
+      lines.push(`  • ${desc.advice}`);
+      if (supplyTotal > 0) lines.push(`  • supplySemantic availability: ${supplyAvailable}/${supplyTotal}`);
+    }
   } else if (summary.entries > 0) {
     lines.push(`✅ <b>매수 발생:</b> ${summary.entries}개 (분류 대상 아님)`);
   } else {

@@ -55,6 +55,7 @@ export interface InvestorFlowSample {
   fetchedAt: string;
   tradingDate?: string;
   actualInvestorRow?: Record<string, unknown> | null;
+  diagnosticActualInvestorRow?: Record<string, unknown> | null;
   normalizedInvestorRow?: Record<string, unknown> | null;
   semanticInvestorRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
   supplySemanticRow?: SanitizedInvestorFlowSemanticRow | Record<string, unknown> | null;
@@ -65,6 +66,9 @@ export interface InvestorFlowSample {
   actualInvestorFlowNumericKeys?: string[];
   actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
+  actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  diagnosticActualInvestorRowFromNormalized?: boolean;
 }
 
 export type InvestorFlowAttemptStatus =
