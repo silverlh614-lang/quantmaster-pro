@@ -38,6 +38,10 @@ import {
   isKstIntradaySession,
   type KrxMarketProgramAggregate,
 } from './programTradeFetcher.js';
+import {
+  fetchKrxIntradayProgramTradeAggregate,
+  isKrxIntradayMarketProgramEnabled,
+} from './intradayProgramTradeFetcher.js';
 
 /** Patch-006 patch identifier (static grep guard SSOT). */
 export const PATCH_006_IDENTIFIER = 'Patch-MARKET-PROGRAM-TRADING-FALLBACK-RECOVERY-006';
@@ -121,6 +125,10 @@ export interface ProgramMarketRoutingDecisionV2 {
   decisionDetail: string;
   rawDiagHidden: true;              // /program_market_raw 만 노출
   patch006Activated: boolean;       // Patch-006 활성화 여부 (ENV / aggregate 가용성)
+  // Patch-007 KRX intraday endpoint wiring (모두 옵셔널 후방호환).
+  intradayWiringAttempted?: boolean;     // intraday endpoint 호출 시도 여부
+  intradayWiringSucceeded?: boolean;     // intraday endpoint 가 정상 응답 (VERIFIED / PARTIAL)
+  intradayAggregate?: ProgramMarketAggregateMeta | null;
 }
 
 /** 사용자 §3: cache age 를 3-tier 로 분류. */
@@ -379,6 +387,60 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
 
   // KRX confidence='EMPTY' → intraday session 분류
   if (intradaySession) {
+    // Patch-007: UNSUPPORTED_INTRADAY 전에 intraday endpoint candidate (MDCSTAT00301) 시도.
+    // ENV `KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true` opt-in (default OFF — endpoint shape 검증 의무).
+    let intradayAggregate: KrxMarketProgramAggregate | null = null;
+    let intradayWiringAttempted = false;
+    if (isKrxIntradayMarketProgramEnabled()) {
+      intradayWiringAttempted = true;
+      try {
+        console.info(
+          `[MARKET_PROGRAM_KRX_INTRADAY_FALLBACK_START] reason=${rawZeroReason ?? 'EMPTY'} eodConfidence=EMPTY executionImpact=NONE providerIssue=false`,
+        );
+        intradayAggregate = await fetchKrxIntradayProgramTradeAggregate(nowMs);
+        console.info(
+          `[MARKET_PROGRAM_KRX_INTRADAY_FALLBACK_RESULT] confidence=${intradayAggregate.confidence} marketsSucceeded=${intradayAggregate.marketsSucceeded.join(',') || 'NONE'} totalProgramNet=${intradayAggregate.totalProgramNet ?? 'N/A'}`,
+        );
+      } catch (err) {
+        console.warn(
+          `[MARKET_PROGRAM_KRX_INTRADAY_FALLBACK_RESULT] confidence=ERROR err=${err instanceof Error ? err.message : String(err)} executionImpact=NONE`,
+        );
+        intradayAggregate = null;
+      }
+    }
+
+    const intradayMeta = aggregateToMeta(intradayAggregate);
+    const intradayWiringSucceeded =
+      intradayAggregate !== null && intradayAggregate.confidence !== 'EMPTY';
+
+    if (intradayWiringSucceeded && intradayAggregate) {
+      const isPartial = intradayAggregate.confidence === 'PARTIAL';
+      return {
+        routedStatus: isPartial ? 'PARTIAL_VERIFIED' : 'VERIFIED',
+        source: 'KRX_API',
+        rawStatus: rawZeroReason ?? 'UNKNOWN',
+        scoring: isPartial ? 'shadow_only_or_excluded' : 'allowed_when_non_empty',
+        fallbackAttempted: true,
+        fallbackResult: 'KRX_OK',
+        textVariant: 'D_FALLBACK_OK',
+        displayCase: isPartial ? 'G_PARTIAL_VERIFIED' : 'A_KRX_RECOVERED',
+        isIntradaySession: true,
+        krxAttempted,
+        krxAggregate: aggregateMeta,
+        cacheTtl,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        decisionDetail: `KIS empty + KRX EOD empty → KRX intraday recovered (succeeded=${intradayAggregate.marketsSucceeded.join(',')}, total=${intradayAggregate.totalProgramNet ?? 'N/A'}억원)`,
+        rawDiagHidden: true,
+        patch006Activated: true,
+        intradayWiringAttempted,
+        intradayWiringSucceeded,
+        intradayAggregate: intradayMeta,
+      };
+    }
+
     return {
       routedStatus: 'UNSUPPORTED_INTRADAY',
       source: 'NONE',
@@ -396,9 +458,14 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
       marketSignal: false,
       executionImpact: 'NONE',
       liveExecutionAllowed: false,
-      decisionDetail: 'KRX 장중 프로그램매매 endpoint 미제공 (intraday session, EOD endpoint 만 존재)',
+      decisionDetail: intradayWiringAttempted
+        ? 'KRX EOD + intraday endpoint 모두 empty (intraday endpoint shape 또는 BLD ID 미검증 가능성)'
+        : 'KRX 장중 프로그램매매 endpoint 미제공 (intraday session, EOD endpoint 만 존재, intraday wiring 비활성)',
       rawDiagHidden: true,
       patch006Activated: true,
+      intradayWiringAttempted,
+      intradayWiringSucceeded: false,
+      intradayAggregate: intradayMeta,
     };
   }
 
@@ -546,6 +613,17 @@ export function formatProgramMarketRoutedV2(decision: ProgramMarketRoutingDecisi
     v2Lines.push(`cacheTtl: tier=${decision.cacheTtl.tier} ageMs=${decision.cacheTtl.ageMs} → ${decision.cacheTtl.routedStatus}`);
   }
   v2Lines.push(`patch006: activated=${decision.patch006Activated}`);
+  // Patch-007: intraday endpoint wiring 진단 라인 (intradayWiringAttempted=true 일 때만 노출).
+  if (decision.intradayWiringAttempted === true) {
+    if (decision.intradayWiringSucceeded === true && decision.intradayAggregate) {
+      v2Lines.push(
+        `krxIntraday: confidence=${decision.intradayAggregate.confidence} kospi=${formatEokwon(decision.intradayAggregate.kospiProgramNet)} kosdaq=${formatEokwon(decision.intradayAggregate.kosdaqProgramNet)} total=${formatEokwon(decision.intradayAggregate.totalProgramNet)}`,
+      );
+      v2Lines.push(`krxIntradayMarkets: attempted=${decision.intradayAggregate.marketsAttempted.join(',')} succeeded=${decision.intradayAggregate.marketsSucceeded.join(',')}`);
+    } else {
+      v2Lines.push('krxIntraday: confidence=EMPTY (endpoint shape/BLD ID 미검증 가능성)');
+    }
+  }
 
   return [...baseLines, ...v2Lines];
 }

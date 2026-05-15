@@ -637,8 +637,15 @@ function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision | Prog
   const isIntradayUnsupported =
     isV2Decision(decision) && decision.routedStatus === 'UNSUPPORTED_INTRADAY' && decision.isIntradaySession === true;
   if (isIntradayUnsupported && process.env.SUPPLY_HEALTH_DEGENERATE_DISPLAY_DISABLED !== 'true') {
-    lines.push('주의: KRX intraday endpoint 미연동 가능성 — 현재 EOD-only (MDCSTAT01701) 만 호출 중');
-    lines.push('후속: KRX 일중 프로그램매매 추이 (MDCSTAT00301 등) endpoint wiring 검증 필요 (별도 PR)');
+    // Patch-KRX-INTRADAY-MARKET-PROGRAM-WIRING-001: intraday endpoint wiring 활성화 여부 분기.
+    const v2 = decision as ProgramMarketRoutingDecisionV2;
+    if (v2.intradayWiringAttempted === true) {
+      lines.push('주의: KRX EOD + intraday endpoint 모두 empty (intraday endpoint shape/BLD ID 미검증 가능성)');
+      lines.push('후속: KRX_BLD_MARKET_PROGRAM_INTRADAY ENV 로 BLD ID override + 응답 shape 검증 필요');
+    } else {
+      lines.push('주의: KRX intraday endpoint 미연동 — 현재 EOD-only (MDCSTAT01701) 만 호출 중');
+      lines.push('후속: ENV `KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true` 로 intraday endpoint wiring 활성화 (default OFF — endpoint shape 검증 의무)');
+    }
   }
   // routedStatus + decisionDetail invariants 가 모든 분기에 노출됨.
   return {
