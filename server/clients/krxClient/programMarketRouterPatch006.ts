@@ -56,6 +56,8 @@ export type ProgramMarketRoutedStatusV2 =
   | ProgramMarketRoutedStatus       // 7 from Patch-004: VERIFIED/EMPTY_VALID/UNSUPPORTED/PARAM_MISMATCH/STALE_CACHE/DEGRADED/MISSING
   | 'PARTIAL_VERIFIED'              // 8th — KOSPI 또는 KOSDAQ 한쪽만 KRX 회복
   | 'UNSUPPORTED_INTRADAY'          // 9th — 장중 KRX 미지원 (intraday endpoint 미제공)
+  | 'SHAPE_CANDIDATE'                // Patch-007 — row exists but mapper is not verified (OBSERVE only)
+  | 'SHAPE_VERIFIED'                 // Patch-007 — reserved for 3-business-day verified mapping
   | 'STALE_CACHE_BUT_USABLE_FOR_DIAG'  // 10th — 5min 이내 (사용자 §3 #1)
   | 'STALE_CACHE_SHADOW_ONLY'       // 11th — 5~30min (사용자 §3 #2)
   | 'CACHE_EXPIRED'                 // 12th — 30min+ (사용자 §3 #3)
@@ -82,7 +84,8 @@ export type ProgramMarketDisplayCase =
   | 'F_CACHE_SHADOW_ONLY'       // CACHE_SHADOW_ONLY (5-30min)
   | 'G_PARTIAL_VERIFIED'        // KOSPI 또는 KOSDAQ 만 회복
   | 'H_KIS_VERIFIED'            // KIS 정상 응답
-  | 'I_SESSION_CLOSED_NOT_APPLICABLE';
+  | 'I_SESSION_CLOSED_NOT_APPLICABLE'
+  | 'J_SHAPE_CANDIDATE';
 
 /** 사용자 §6: KOSPI/KOSDAQ aggregate 진단 메타. */
 export interface ProgramMarketAggregateMeta {
@@ -94,6 +97,18 @@ export interface ProgramMarketAggregateMeta {
   confidence: 'VERIFIED' | 'PARTIAL' | 'EMPTY';
   marketsAttempted: string[];
   marketsSucceeded: string[];
+}
+
+export interface ProgramMarketShapeProbeMeta {
+  confidence: 'EMPTY' | 'SHAPE_CANDIDATE';
+  topLevelKeys: string[];
+  shapeCandidatePath: string | null;
+  rowCount: number;
+  firstRowKeys: string[];
+  numericFieldCandidates: string[];
+  firstRowSample: Record<string, unknown> | null;
+  bld: string;
+  promotionGuard: 'THREE_BUSINESS_DAYS_MAPPING_REQUIRED';
 }
 
 /** 사용자 §3: CACHE TTL 분류 결과. */
@@ -129,6 +144,7 @@ export interface ProgramMarketRoutingDecisionV2 {
   intradayWiringAttempted?: boolean;     // intraday endpoint 호출 시도 여부
   intradayWiringSucceeded?: boolean;     // intraday endpoint 가 정상 응답 (VERIFIED / PARTIAL)
   intradayAggregate?: ProgramMarketAggregateMeta | null;
+  intradayShapeProbe?: ProgramMarketShapeProbeMeta | null;
 }
 
 /** 사용자 §3: cache age 를 3-tier 로 분류. */
@@ -178,6 +194,22 @@ export function aggregateToMeta(aggregate: KrxMarketProgramAggregate | null): Pr
   };
 }
 
+function shapeProbeToMeta(aggregate: KrxMarketProgramAggregate | null): ProgramMarketShapeProbeMeta | null {
+  const probe = aggregate?.intradayShapeProbe;
+  if (!probe) return null;
+  return {
+    confidence: probe.confidence,
+    topLevelKeys: [...probe.topLevelKeys],
+    shapeCandidatePath: probe.shapeCandidatePath,
+    rowCount: probe.rowCount,
+    firstRowKeys: [...probe.firstRowKeys],
+    numericFieldCandidates: [...probe.numericFieldCandidates],
+    firstRowSample: probe.firstRowSample ? { ...probe.firstRowSample } : null,
+    bld: probe.bld,
+    promotionGuard: 'THREE_BUSINESS_DAYS_MAPPING_REQUIRED',
+  };
+}
+
 /** 사용자 §10: routedStatus → displayCase 매핑 SSOT. */
 function deriveDisplayCase(
   routedStatus: ProgramMarketRoutedStatusV2,
@@ -190,6 +222,9 @@ function deriveDisplayCase(
       return 'G_PARTIAL_VERIFIED';
     case 'UNSUPPORTED_INTRADAY':
       return 'C_UNSUPPORTED_INTRADAY';
+    case 'SHAPE_CANDIDATE':
+    case 'SHAPE_VERIFIED':
+      return 'J_SHAPE_CANDIDATE';
     case 'SESSION_CLOSED':
     case 'SESSION_CLOSED_NOT_APPLICABLE':
       return 'I_SESSION_CLOSED_NOT_APPLICABLE';
@@ -441,6 +476,35 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
       };
     }
 
+    const intradayShapeProbe = shapeProbeToMeta(intradayAggregate);
+    if (intradayShapeProbe?.confidence === 'SHAPE_CANDIDATE') {
+      return {
+        routedStatus: 'SHAPE_CANDIDATE',
+        source: 'KRX_API',
+        rawStatus: rawZeroReason ?? 'UNKNOWN',
+        scoring: 'excluded',
+        fallbackAttempted: true,
+        fallbackResult: 'KRX_EMPTY',
+        textVariant: 'B_UNSUPPORTED',
+        displayCase: 'J_SHAPE_CANDIDATE',
+        isIntradaySession: true,
+        krxAttempted,
+        krxAggregate: aggregateMeta,
+        cacheTtl,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        decisionDetail: `KRX intraday row count > 0 but mapper unverified (path=${intradayShapeProbe.shapeCandidatePath ?? 'N/A'}, rows=${intradayShapeProbe.rowCount}); 3영업일 연속 mapping 성공 전까지 OBSERVE only`,
+        rawDiagHidden: true,
+        patch006Activated: true,
+        intradayWiringAttempted,
+        intradayWiringSucceeded: false,
+        intradayAggregate: intradayMeta,
+        intradayShapeProbe,
+      };
+    }
+
     return {
       routedStatus: 'UNSUPPORTED_INTRADAY',
       source: 'NONE',
@@ -466,6 +530,7 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
       intradayWiringAttempted,
       intradayWiringSucceeded: false,
       intradayAggregate: intradayMeta,
+      intradayShapeProbe: shapeProbeToMeta(intradayAggregate),
     };
   }
 
@@ -570,6 +635,8 @@ function wrapV1Decision(
 export function formatProgramMarketRoutedV2(decision: ProgramMarketRoutingDecisionV2): string[] {
   const v1Like: ProgramMarketRoutingDecision = {
     routedStatus: (decision.routedStatus === 'PARTIAL_VERIFIED' ? 'STALE_CACHE'
+      : decision.routedStatus === 'SHAPE_CANDIDATE' ? 'UNSUPPORTED'
+      : decision.routedStatus === 'SHAPE_VERIFIED' ? 'UNSUPPORTED'
       : decision.routedStatus === 'UNSUPPORTED_INTRADAY' ? 'UNSUPPORTED'
       : decision.routedStatus === 'SESSION_CLOSED' ? 'SESSION_CLOSED'
       : decision.routedStatus === 'SESSION_CLOSED_NOT_APPLICABLE' ? 'SESSION_CLOSED'
@@ -624,6 +691,12 @@ export function formatProgramMarketRoutedV2(decision: ProgramMarketRoutingDecisi
       v2Lines.push('krxIntraday: confidence=EMPTY (endpoint shape/BLD ID 미검증 가능성)');
     }
   }
+  if (decision.intradayShapeProbe) {
+    v2Lines.push(`krxIntradayShape: confidence=${decision.intradayShapeProbe.confidence} path=${decision.intradayShapeProbe.shapeCandidatePath ?? 'NONE'} rows=${decision.intradayShapeProbe.rowCount}`);
+    v2Lines.push(`krxIntradayKeys: top=${decision.intradayShapeProbe.topLevelKeys.join(',') || 'NONE'} firstRow=${decision.intradayShapeProbe.firstRowKeys.slice(0, 12).join(',') || 'NONE'}`);
+    v2Lines.push(`krxIntradayNumericCandidates: ${decision.intradayShapeProbe.numericFieldCandidates.slice(0, 12).join(',') || 'NONE'}`);
+    v2Lines.push('promotionGuard: 3영업일 연속 row>0 + field mapping 성공 전까지 scoring=excluded');
+  }
 
   return [...baseLines, ...v2Lines];
 }
@@ -631,7 +704,10 @@ export function formatProgramMarketRoutedV2(decision: ProgramMarketRoutingDecisi
 /** /scan_blockers runtime compact line. */
 export function formatProgramMarketRoutedV2Compact(decision: ProgramMarketRoutingDecisionV2): string {
   const tag = '[PATCH-RUNTIME] (Patch-006)';
-  return `${tag} programMarket: status=${decision.routedStatus} source=${decision.source} fallback=${decision.fallbackResult} display=${decision.displayCase} intraday=${decision.isIntradaySession} executionImpact=NONE`;
+  if (decision.routedStatus === 'UNSUPPORTED_INTRADAY') {
+    return `${tag} programMarket: status=UNSUPPORTED_INTRADAY source=NONE reason=KIS accepted empty + KRX intraday empty scoring=excluded action=observe providerIssue=false marketSignal=false executionImpact=NONE detail=/program_market_raw`;
+  }
+  return `${tag} programMarket: status=${decision.routedStatus} source=${decision.source} fallback=${decision.fallbackResult} display=${decision.displayCase} intraday=${decision.isIntradaySession} scoring=${decision.scoring} action=observe providerIssue=false marketSignal=false executionImpact=NONE`;
 }
 
 function formatEokwon(value: number | null | undefined): string {

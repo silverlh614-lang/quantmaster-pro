@@ -14,6 +14,8 @@ import { krxPost } from './http.js';
 import {
   PATCH_007_INTRADAY_IDENTIFIER,
   KRX_BLD_MARKET_PROGRAM_INTRADAY,
+  getKrxIntradayMarketProgramBld,
+  probeKrxIntradayProgramTradeShape,
   isKrxIntradayMarketProgramEnabled,
   fetchKrxIntradayProgramTradeSingle,
   fetchKrxIntradayProgramTradeAggregate,
@@ -40,6 +42,27 @@ describe('Patch-007 SSOT 정합', () => {
   it('KRX_BLD_MARKET_PROGRAM_INTRADAY default 또는 ENV override', () => {
     expect(typeof KRX_BLD_MARKET_PROGRAM_INTRADAY).toBe('string');
     expect(KRX_BLD_MARKET_PROGRAM_INTRADAY.length).toBeGreaterThan(0);
+  });
+
+  it('runtime ENV override wins for KRX_BLD_MARKET_PROGRAM_INTRADAY', () => {
+    const orig = process.env.KRX_BLD_MARKET_PROGRAM_INTRADAY;
+    process.env.KRX_BLD_MARKET_PROGRAM_INTRADAY = 'dbms/MDC/STAT/standard/OVERRIDE007';
+    expect(getKrxIntradayMarketProgramBld()).toBe('dbms/MDC/STAT/standard/OVERRIDE007');
+    if (orig === undefined) delete process.env.KRX_BLD_MARKET_PROGRAM_INTRADAY;
+    else process.env.KRX_BLD_MARKET_PROGRAM_INTRADAY = orig;
+  });
+  it('shape probe scans required candidate paths and records firstRowKeys/numericFieldCandidates', () => {
+    const probe = probeKrxIntradayProgramTradeShape({
+      msgCd: 'MCA00000',
+      tableData: [{ foo: 'abc', amountLike: '1,234', time: '0930' }],
+    }, 'bld-test');
+    expect(probe.confidence).toBe('SHAPE_CANDIDATE');
+    expect(probe.topLevelKeys).toContain('tableData');
+    expect(probe.shapeCandidatePath).toBe('tableData');
+    expect(probe.rowCount).toBe(1);
+    expect(probe.firstRowKeys).toEqual(['foo', 'amountLike', 'time']);
+    expect(probe.numericFieldCandidates).toEqual(['amountLike', 'time']);
+    expect(probe.bld).toBe('bld-test');
   });
 });
 
@@ -329,6 +352,40 @@ describe('Patch-007 routeProgramMarketEmptyWithKrxAggregate intraday wiring', ()
     expect(decision.routedStatus).toBe('PARTIAL_VERIFIED');
     expect(decision.intradayWiringSucceeded).toBe(true);
     expect(decision.scoring).toBe('shadow_only_or_excluded');
+    delete process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED;
+  });
+
+
+  it('intraday + EOD empty + rows>0 but mapper unmapped → SHAPE_CANDIDATE + scoring=excluded', async () => {
+    process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED = 'true';
+    const eodEmpty: KrxMarketProgramAggregate = {
+      kospi: null,
+      kosdaq: null,
+      totalProgramNet: null,
+      arbitrageNet: null,
+      nonArbitrageNet: null,
+      timestamp: new Date(INTRADAY_NOW_MS).toISOString(),
+      confidence: 'EMPTY',
+      fetchedAt: new Date(INTRADAY_NOW_MS).toISOString(),
+      endpoint: 'mock-eod',
+      bld: 'mock-eod',
+      marketsAttempted: ['KOSPI', 'KOSDAQ'],
+      marketsSucceeded: [],
+    };
+    mockKrxPost
+      .mockResolvedValueOnce({ tableData: [{ mysteryAmt: '123', unknownKey: 'x' }] })
+      .mockResolvedValueOnce({ output: [] });
+    const decision = await routeProgramMarketEmptyWithKrxAggregate(
+      { rawDiag: { zeroReason: 'ACCEPTED_EMPTY', outputLength: 0 } },
+      { fetchKrx: () => Promise.resolve(eodEmpty), nowMs: INTRADAY_NOW_MS },
+    );
+    expect(decision.routedStatus).toBe('SHAPE_CANDIDATE');
+    expect(decision.scoring).toBe('excluded');
+    expect(decision.executionImpact).toBe('NONE');
+    expect(decision.providerIssue).toBe(false);
+    expect(decision.marketSignal).toBe(false);
+    expect(decision.intradayShapeProbe?.shapeCandidatePath).toBe('tableData');
+    expect(decision.intradayShapeProbe?.promotionGuard).toBe('THREE_BUSINESS_DAYS_MAPPING_REQUIRED');
     delete process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED;
   });
 

@@ -58,6 +58,17 @@ export interface KrxMarketProgramAggregate {
   bld: string;
   marketsAttempted: KrxMarketProgramCode[];
   marketsSucceeded: KrxMarketProgramCode[];
+  /** Patch-007 diagnostic-only KRX intraday shape probe; never CORE-scored. */
+  intradayShapeProbe?: {
+    confidence: 'EMPTY' | 'SHAPE_CANDIDATE';
+    topLevelKeys: string[];
+    shapeCandidatePath: string | null;
+    rowCount: number;
+    firstRowKeys: string[];
+    numericFieldCandidates: string[];
+    firstRowSample: Record<string, unknown> | null;
+    bld: string;
+  } | null;
 }
 
 /** ENV gate SSOT (ADR-0157 정확 비교 의무). */

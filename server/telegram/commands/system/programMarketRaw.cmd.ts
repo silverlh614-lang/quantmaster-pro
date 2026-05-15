@@ -6,6 +6,7 @@
 import { diagnoseKisMarketProgramRaw } from '../../../clients/kisClient/supplyDiagnostics.js';
 import { formatProgramMarketRawDiag } from '../../../clients/kisClient/programMarketRouterPatch004.js';
 import { MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH } from '../../../clients/kisClient/programMaterializer.js';
+import { fetchKrxIntradayProgramTradeAggregate, getKrxIntradayMarketProgramBld, isKrxIntradayMarketProgramEnabled } from '../../../clients/krxClient/intradayProgramTradeFetcher.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -38,6 +39,33 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     requestedAt,
     providerLatencyMs: latencyMs,
   });
+  lines.push('');
+  lines.push('🔬 <b>[KRX Intraday Shape Probe]</b>');
+  lines.push(`krxIntradayEnabled: ${isKrxIntradayMarketProgramEnabled()}`);
+  lines.push(`krxBldMarketProgramIntraday: ${getKrxIntradayMarketProgramBld()}`);
+  if (isKrxIntradayMarketProgramEnabled()) {
+    const krxStartMs = Date.now();
+    const krx = await fetchKrxIntradayProgramTradeAggregate(Date.now());
+    const shapeProbe = krx.intradayShapeProbe ?? null;
+    lines.push(`krxFallbackStatus: ${krx.confidence}`);
+    lines.push(`krxProviderLatencyMs: ${Date.now() - krxStartMs}`);
+    lines.push(`krxIntradayConfidence: ${shapeProbe?.confidence ?? krx.confidence}`);
+    lines.push(`selectedPath: ${shapeProbe?.shapeCandidatePath ?? 'NONE'}`);
+    lines.push(`topLevelKeys: ${shapeProbe?.topLevelKeys.join(', ') || 'NONE'}`);
+    lines.push(`rowCount: ${shapeProbe?.rowCount ?? 0}`);
+    lines.push(`firstRowKeys: ${shapeProbe?.firstRowKeys.slice(0, 12).join(', ') || 'NONE'}`);
+    lines.push(`numericFieldCandidates: ${shapeProbe?.numericFieldCandidates.slice(0, 12).join(', ') || 'NONE'}`);
+    if (shapeProbe?.firstRowSample) {
+      const sample = Object.entries(shapeProbe.firstRowSample).slice(0, 8).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(', ');
+      lines.push(`firstRowSample: ${sample || 'NONE'}`);
+    }
+  } else {
+    lines.push('krxFallbackStatus: NOT_TRIED');
+    lines.push('krxIntradayConfidence: DISABLED');
+    lines.push('operatorHint: set KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true and optionally KRX_BLD_MARKET_PROGRAM_INTRADAY for shape verification');
+  }
+  lines.push('zeroReason: KIS_ACCEPTED_EMPTY_IS_NOT_BEARISH');
+  lines.push('executionImpact=NONE, providerIssue=false, marketSignal=false, scoring=excluded until mapping verified');
   return lines.join('\n');
 }
 
