@@ -11,7 +11,7 @@ import type { TelegramCommand } from '../_types.js';
 
 /** 억원 변환 — ADR-0137 패턴 차용. 음수 부호 보존, 소수점 1자리. */
 function formatKrwInEokwon(amountWon: number | null | undefined): string {
-  if (amountWon === null || !Number.isFinite(amountWon)) return 'N/A';
+  if (amountWon === null || amountWon === undefined || !Number.isFinite(amountWon)) return 'N/A';
   const eokwon = amountWon / 100_000_000;
   if (Math.abs(eokwon) < 0.05) return '0억원';
   const sign = eokwon > 0 ? '+' : '';

@@ -523,7 +523,7 @@ export async function fetchKisMarketProgramTrade(
         marketSignal: result.diagnostics.marketSignal,
         scoring: result.diagnostics.scoring,
         executionImpact: result.diagnostics.executionImpact,
-        aggregateDiagnostic: result.diagnostics,
+        aggregateDiagnostic: result.diagnostics as unknown as Record<string, unknown>,
       };
     }
     return null;
