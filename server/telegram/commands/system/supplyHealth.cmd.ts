@@ -209,6 +209,34 @@ function formatPctValue(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return 'N/A';
   return `${value.toFixed(2)}%`;
 }
+/**
+ * Patch-SUPPLY-HEALTH-DEGENERATE-DISPLAY-001: degenerate-zero 컨텍스트 보강 SSOT.
+ *
+ * `percentChange(latest=0, previous>0)` 가 mathematically `(0 - prev) / |prev| * 100 = -100%` 를
+ * 반환하는 정상 동작이지만, 운영자가 "-100%" 를 *데이터 결함* 으로 오인할 수 있음.
+ * `latestActual === 0` (또는 |latestActual| < 0.005) 인 degenerate 케이스에서만
+ * "(전량 회복)" suffix 를 붙여 명시.
+ *
+ * - `value === undefined / NaN / Infinity` → 'N/A' (기존 동작 보존)
+ * - `value !== -100` (대략) → 기존 `formatPctValue` 와 byte-equivalent
+ * - ENV `SUPPLY_HEALTH_DEGENERATE_DISPLAY_DISABLED=true` (default OFF, ADR-0157 정확 비교) → 1줄 즉시 기존 동작 100% 복원
+ */
+export function formatPctValueWithZeroContext(
+  value: number | null | undefined,
+  latestActual: number | null | undefined,
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'N/A';
+  const base = `${value.toFixed(2)}%`;
+  if (process.env.SUPPLY_HEALTH_DEGENERATE_DISPLAY_DISABLED === 'true') return base;
+  // -100% 근처 (±0.5%p) AND latestActual 이 0 근처 (절대값 < 0.005%) → degenerate-zero
+  const isNearMinusHundred = Math.abs(value + 100) < 0.5;
+  const latestIsEffectivelyZero =
+    typeof latestActual === 'number' && Number.isFinite(latestActual) && Math.abs(latestActual) < 0.005;
+  if (isNearMinusHundred && latestIsEffectivelyZero) {
+    return `${base} (latest=0 — 전량 회복)`;
+  }
+  return base;
+}
 function compactProviderName(provider: SupplyProvider): string {
   const names: Partial<Record<SupplyProvider, string>> = {
     KIS_API: 'KIS', KRX_INVESTOR_FLOW: 'KRX', KRX_MARKET_PROGRAM: 'KRX', KRX_SHORT_SELLING: 'KRX', KRX_MARGIN_BALANCE: 'KRX',
@@ -594,12 +622,34 @@ function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision | Prog
   const lines = isV2Decision(decision)
     ? formatProgramMarketRoutedV2(decision)
     : formatProgramMarketRouted(decision);
+  // Patch-SUPPLY-HEALTH-DEGENERATE-DISPLAY-001 — UNSUPPORTED_INTRADAY 표시 정직성 격상.
+  //
+  // 사용자 지적 (2026-05-15): "시장프로그램 데이터가 정상적으로 안들어오고 있는거 아니야?" — 정확한 진단.
+  //
+  // Patch-006 가정: "KRX 시장 프로그램매매 endpoint 가 EOD-only 라 장중에는 미제공" → UNSUPPORTED_INTRADAY 분류.
+  // 실제 코드: `KRX_BLD_MARKET_PROGRAM_TRADE = MDCSTAT01701` 만 호출 (EOD-only daily aggregate).
+  // 진실: KRX 는 별도 intraday endpoint (예: MDCSTAT00301 일중 프로그램매매 추이) 가 존재할 가능성이 높지만
+  //       Patch-006 가 wiring 하지 않았음. → "UNSUPPORTED_INTRADAY" 는 *데이터 wiring 결손* 이지
+  //       "KRX 자체의 장중 미지원" 이 아닐 수 있음.
+  //
+  // 따라서 "정상 동작" 이라고 주장하지 않음. 정직한 "endpoint wiring 결손" 안내 + 후속 PR 의무 명시.
+  // ENV `SUPPLY_HEALTH_DEGENERATE_DISPLAY_DISABLED=true` (default OFF, ADR-0157) 1줄로 즉시 기존 동작 복원.
+  const isIntradayUnsupported =
+    isV2Decision(decision) && decision.routedStatus === 'UNSUPPORTED_INTRADAY' && decision.isIntradaySession === true;
+  if (isIntradayUnsupported && process.env.SUPPLY_HEALTH_DEGENERATE_DISPLAY_DISABLED !== 'true') {
+    lines.push('주의: KRX intraday endpoint 미연동 가능성 — 현재 EOD-only (MDCSTAT01701) 만 호출 중');
+    lines.push('후속: KRX 일중 프로그램매매 추이 (MDCSTAT00301 등) endpoint wiring 검증 필요 (별도 PR)');
+  }
   // routedStatus + decisionDetail invariants 가 모든 분기에 노출됨.
   return {
     key: 'marketProgram',
     title: '시장 프로그램매매',
     marker,
-    riskReason: marker === 'NEUTRAL' && decision.routedStatus !== 'EMPTY_VALID' ? decision.routedStatus : undefined,
+    // UNSUPPORTED_INTRADAY 는 정상 동작이므로 riskReason 노출 안 함 (NEUTRAL marker 유지하되 risk reason 는 비표시).
+    riskReason:
+      marker === 'NEUTRAL' && decision.routedStatus !== 'EMPTY_VALID' && !isIntradayUnsupported
+        ? decision.routedStatus
+        : undefined,
     lines,
   };
 }
@@ -728,7 +778,9 @@ async function diagnoseShort(macro: MacroState | null, nowMs: number, kisPack: K
         'source: KIS_API',
         `shortRatio: ${formatPctValue(kisPack.shortSelling?.shortSaleRatio)}`,
         `shortTrend: ${kisPack.shortSelling?.trend ?? 'DATA_UNAVAILABLE'}`,
-        `shortIncreaseRate: ${formatPctValue(kisPack.shortSelling?.shortSaleIncreaseRate)}`,
+        // Patch-SUPPLY-HEALTH-DEGENERATE-DISPLAY-001 — shortRatio=0 + shortIncreaseRate=-100% 는
+        // mathematically 정확하지만 운영자가 데이터 결함으로 오인 가능. (전량 회복) suffix 명시.
+        `shortIncreaseRate: ${formatPctValueWithZeroContext(kisPack.shortSelling?.shortSaleIncreaseRate, kisPack.shortSelling?.shortSaleRatio)}`,
         `loanTrend: ${kisPack.loanTransaction?.trend ?? 'DATA_UNAVAILABLE'}`,
         `loanIncreaseRate: ${formatPctValue(kisPack.loanTransaction?.loanIncreaseRate)}`,
         `confidence: ${kisPack.shortSelling?.confidence ?? kisPack.loanTransaction?.confidence ?? 'MISSING'}`,
