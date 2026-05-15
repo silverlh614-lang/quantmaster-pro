@@ -34,6 +34,8 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
+// PATCH-010 후속 — Shadow Bull Exposure Floor (INTRADAY 경로 wiring, ENV default OFF).
+import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — INTRADAY SHADOW paper-fill 영속 SSOT.
 //   onApproved 가 ctx.shadows.push(t) 만 하고 saveShadowTrades 미호출하던 결함 차단.
 //   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향.
@@ -160,11 +162,29 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           // 포지션 사이징: gateScore 없으므로 기본 5% × 레짐 Kelly × 50% 축소
           const rawPositionPct  = 0.05; // Intraday 기본 포지션
           const positionPct     = rawPositionPct * ctx.kellyMultiplier * INTRADAY_POSITION_PCT_FACTOR;
+          // PATCH-010 후속 — Shadow Bull Exposure Floor (INTRADAY 경로).
+          const exposureFloorIntraday = resolveCandidatePositionFloor({
+            shadowMode: ctx.shadowMode,
+            regime: ctx.regime,
+            tier: 'STANDARD',
+            computedPositionPct: positionPct,
+          });
+          const effectivePositionPct = exposureFloorIntraday.effectivePositionPct;
+          if (exposureFloorIntraday.applied) {
+            console.log(
+              formatShadowBullFloorLog(exposureFloorIntraday, {
+                stockName: stock.name,
+                stockCode: stock.code,
+                computedPositionPct: positionPct,
+                pathLabel: 'INTRADAY',
+              }),
+            );
+          }
           const remainingSlots  = Math.max(1, MAX_INTRADAY_POSITIONS - currentIntradayActive);
           const { quantity: legacyIntradayQty, effectiveBudget } = calculateOrderQuantity({
             totalAssets: ctx.totalAssets,
             orderableCash: ctx.mutables.orderableCash.value,
-            positionPct,
+            positionPct: effectivePositionPct,
             price: shadowEntryPrice,
             remainingSlots,
             accountKellyMultiplier: ctx.accountKellyMultiplier,

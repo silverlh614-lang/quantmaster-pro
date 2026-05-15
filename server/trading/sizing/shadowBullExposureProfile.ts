@@ -164,3 +164,21 @@ export function resolveCandidatePositionFloor(input: CandidateFloorInput): Candi
   }
   return { ...base, applied: true, effectivePositionPct: floorPct };
 }
+
+/**
+ * `[AutoTrade/ShadowBullFloor]` 진단 로그 포맷 SSOT — 4 진입 경로 공용.
+ *
+ * `pathLabel` 미전달 시 메인 buyList 경로 (byte-equivalent),
+ * 전달 시 PRE_BREAKOUT_FOLLOWTHROUGH / PRE_BREAKOUT_30PCT / INTRADAY 경로 구분.
+ */
+export function formatShadowBullFloorLog(
+  result: CandidateFloorResult,
+  ctx: { stockName: string; stockCode: string; computedPositionPct: number; pathLabel?: string },
+): string {
+  const path = ctx.pathLabel ? `${ctx.pathLabel} ` : '';
+  return (
+    `[AutoTrade/ShadowBullFloor] ${ctx.stockName}(${ctx.stockCode}) ${path}positionPct ` +
+    `${(ctx.computedPositionPct * 100).toFixed(2)}% → ${(result.effectivePositionPct * 100).toFixed(2)}% ` +
+    `(floor ${(result.floorPct * 100).toFixed(1)}%, ${result.mode}/${result.exposureRegime})`
+  );
+}
