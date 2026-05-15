@@ -5,6 +5,9 @@
 // 운영자가 macroState 영속 값 + 직전 KIS 응답을 비교 진단 가능.
 
 import { fetchKisMarketProgramTrade } from '../../../clients/kisClient/index.js';
+import { diagnoseKisMarketProgramRaw } from '../../../clients/kisClient/supplyDiagnostics.js';
+import { MARKET_PROGRAM_INDEX_CODE } from '../../../clients/kisClient/programMaterializer.js';
+import { routeProgramMarketEmptyWithKrxAggregate } from '../../../clients/krxClient/programMarketRouterPatch006.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -24,6 +27,17 @@ function formatEokwonSaved(eokwon: number | null | undefined): string {
   if (Math.abs(eokwon) < 0.05) return '0억원';
   const sign = eokwon > 0 ? '+' : '';
   return `${sign}${eokwon.toFixed(1)}억원`;
+}
+
+function isAcceptedEmptyMarketProgram(live: Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>): boolean {
+  if (!live) return false;
+  const status = live.marketProgramStatus ?? '';
+  const zeroReason = live.zeroReason ?? live.selectedReason ?? '';
+  return status === 'OK_EMPTY_OUTPUT'
+    || zeroReason === 'ACCEPTED_EMPTY'
+    || zeroReason === 'EMPTY_OUTPUT'
+    || zeroReason === 'OUTPUT_EMPTY'
+    || live.rowCount === 0;
 }
 
 /**
@@ -55,6 +69,36 @@ export async function buildProgramMarketMessage(): Promise<string> {
     const statusEmoji = status === 'OK_NONZERO' ? '🟢' : status === 'PROVIDER_ERROR' ? '🟡' : '⚪';
 
     lines.push('📡 <b>실시간 (KIS 직접 호출)</b>');
+    if (isAcceptedEmptyMarketProgram(live)) {
+      const rawDiag = await diagnoseKisMarketProgramRaw('LOW');
+      const decision = await routeProgramMarketEmptyWithKrxAggregate({
+        rawDiag: {
+          zeroReason: rawDiag.zeroReason ?? live.zeroReason ?? 'ACCEPTED_EMPTY',
+          outputLength: rawDiag.outputKeys?.length ?? live.rowCount ?? 0,
+          outputKeys: rawDiag.outputKeys,
+          marketCode: MARKET_PROGRAM_INDEX_CODE,
+          trId: rawDiag.trId,
+          endpoint: rawDiag.path,
+        },
+      });
+      const compactSource = decision.routedStatus === 'SHAPE_CANDIDATE' ? 'KRX' : decision.source;
+      const compactReason = decision.routedStatus === 'SHAPE_CANDIDATE'
+        ? 'KRX intraday shape candidate (observe only)'
+        : decision.routedStatus === 'UNSUPPORTED_INTRADAY'
+          ? 'KIS accepted empty + KRX intraday empty'
+          : decision.decisionDetail;
+      lines.push('4. ⚪ 시장 프로그램매매');
+      lines.push(`  status: ${decision.routedStatus}`);
+      lines.push(`  source: ${compactSource}`);
+      lines.push(`  reason: ${compactReason}`);
+      lines.push(`  scoring: ${decision.scoring}`);
+      lines.push('  action: observe');
+      lines.push('  providerIssue: false');
+      lines.push('  marketSignal: false');
+      lines.push('  executionImpact: NONE');
+      lines.push('  detail: /program_market_raw');
+      lines.push('');
+    }
     lines.push(`${statusEmoji} status: ${status}`);
     lines.push(`latest: ${live.latest ?? 'N/A'}`);
     lines.push(`updated: ${live.updated ?? 'N/A'}`);

@@ -50,6 +50,11 @@ export const PATCH_007_INTRADAY_IDENTIFIER = 'Patch-KRX-INTRADAY-MARKET-PROGRAM-
 export const KRX_BLD_MARKET_PROGRAM_INTRADAY =
   process.env.KRX_BLD_MARKET_PROGRAM_INTRADAY ?? 'dbms/MDC/STAT/standard/MDCSTAT00301';
 
+/** Runtime BLD resolver — ENV override must win without process restart in tests/ops probes. */
+export function getKrxIntradayMarketProgramBld(): string {
+  return process.env.KRX_BLD_MARKET_PROGRAM_INTRADAY ?? KRX_BLD_MARKET_PROGRAM_INTRADAY;
+}
+
 /**
  * ENV gate SSOT (ADR-0157 정확 비교 의무).
  *
@@ -74,10 +79,74 @@ interface KrxRowRaw {
   [key: string]: unknown;
 }
 
+export const KRX_INTRADAY_SHAPE_CANDIDATE_PATHS = Object.freeze([
+  'output',
+  'output1',
+  'output2',
+  'data',
+  'rows',
+  'list',
+  'result',
+  'grid',
+  'block1',
+  'block2',
+  'tableData',
+  // legacy KRX aliases kept after required candidates.
+  'OutBlock_1',
+] as const);
+
+export interface KrxIntradayShapeProbe {
+  confidence: 'EMPTY' | 'SHAPE_CANDIDATE';
+  topLevelKeys: string[];
+  shapeCandidatePath: string | null;
+  rowCount: number;
+  firstRowKeys: string[];
+  numericFieldCandidates: string[];
+  firstRowSample: Record<string, unknown> | null;
+  bld: string;
+}
+
+export function probeKrxIntradayProgramTradeShape(payload: unknown, bld = getKrxIntradayMarketProgramBld()): KrxIntradayShapeProbe {
+  const root = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const topLevelKeys = Object.keys(root);
+  for (const path of KRX_INTRADAY_SHAPE_CANDIDATE_PATHS) {
+    const bucket = root[path];
+    const rows = Array.isArray(bucket)
+      ? bucket.filter((r): r is KrxRowRaw => !!r && typeof r === 'object')
+      : [];
+    if (rows.length > 0) {
+      const firstRow = rows[0];
+      const firstRowKeys = Object.keys(firstRow);
+      const numericFieldCandidates = firstRowKeys.filter((key) => parseAmount(firstRow[key]) !== null);
+      return {
+        confidence: 'SHAPE_CANDIDATE',
+        topLevelKeys,
+        shapeCandidatePath: path,
+        rowCount: rows.length,
+        firstRowKeys,
+        numericFieldCandidates,
+        firstRowSample: Object.fromEntries(Object.entries(firstRow).slice(0, 12)),
+        bld,
+      };
+    }
+  }
+  return {
+    confidence: 'EMPTY',
+    topLevelKeys,
+    shapeCandidatePath: null,
+    rowCount: 0,
+    firstRowKeys: [],
+    numericFieldCandidates: [],
+    firstRowSample: null,
+    bld,
+  };
+}
+
 function extractRowsAt(payload: unknown): KrxRowRaw[] {
   if (!payload || typeof payload !== 'object') return [];
-  for (const key of ['output', 'OutBlock_1', 'block1', 'output1']) {
-    const bucket = (payload as Record<string, unknown>)[key];
+  const root = payload as Record<string, unknown>;
+  for (const key of KRX_INTRADAY_SHAPE_CANDIDATE_PATHS) {
+    const bucket = root[key];
     if (Array.isArray(bucket)) return bucket.filter((r): r is KrxRowRaw => !!r && typeof r === 'object');
   }
   return [];
@@ -129,6 +198,67 @@ function extractLatestMarketRow(rows: KrxRowRaw[], market: KrxMarketProgramCode)
   };
 }
 
+export async function probeKrxIntradayProgramTradeSingleShape(
+  market: KrxMarketProgramCode,
+): Promise<KrxIntradayShapeProbe> {
+  const bld = getKrxIntradayMarketProgramBld();
+  if (!isKrxIntradayMarketProgramEnabled()) {
+    return emptyShapeProbe(bld);
+  }
+  try {
+    const raw = await krxPost(bld, { mktId: KRX_MARKET_PROGRAM_CODE_MAP[market] }, { bypassTimeWindow: true });
+    return probeKrxIntradayProgramTradeShape(raw, bld);
+  } catch {
+    return emptyShapeProbe(bld);
+  }
+}
+
+interface IntradaySingleFetchResult {
+  row: KrxMarketProgramRow | null;
+  shapeProbe: KrxIntradayShapeProbe;
+}
+
+function emptyShapeProbe(bld = getKrxIntradayMarketProgramBld()): KrxIntradayShapeProbe {
+  return {
+    confidence: 'EMPTY',
+    topLevelKeys: [],
+    shapeCandidatePath: null,
+    rowCount: 0,
+    firstRowKeys: [],
+    numericFieldCandidates: [],
+    firstRowSample: null,
+    bld,
+  };
+}
+
+async function fetchKrxIntradayProgramTradeSingleWithProbe(
+  market: KrxMarketProgramCode,
+): Promise<IntradaySingleFetchResult> {
+  const bld = getKrxIntradayMarketProgramBld();
+  if (!isKrxIntradayMarketProgramEnabled()) return { row: null, shapeProbe: emptyShapeProbe(bld) };
+  const params: Record<string, string> = {
+    mktId: KRX_MARKET_PROGRAM_CODE_MAP[market],
+  };
+  try {
+    const raw = await krxPost(bld, params, { bypassTimeWindow: true });
+    const shapeProbe = probeKrxIntradayProgramTradeShape(raw, bld);
+    const rows = extractRowsAt(raw);
+    if (rows.length === 0) return { row: null, shapeProbe };
+    const result = extractLatestMarketRow(rows, market);
+    if (
+      result === null
+      || (result.programNetBuyAmount === null
+        && result.programBuyAmount === null
+        && result.programSellAmount === null)
+    ) {
+      return { row: null, shapeProbe };
+    }
+    return { row: result, shapeProbe };
+  } catch {
+    return { row: null, shapeProbe: emptyShapeProbe(bld) };
+  }
+}
+
 /**
  * 단일 market intraday 프로그램매매 fetch.
  *
@@ -138,27 +268,7 @@ function extractLatestMarketRow(rows: KrxRowRaw[], market: KrxMarketProgramCode)
 export async function fetchKrxIntradayProgramTradeSingle(
   market: KrxMarketProgramCode,
 ): Promise<KrxMarketProgramRow | null> {
-  if (!isKrxIntradayMarketProgramEnabled()) return null;
-  const params: Record<string, string> = {
-    mktId: KRX_MARKET_PROGRAM_CODE_MAP[market],
-  };
-  try {
-    const raw = await krxPost(KRX_BLD_MARKET_PROGRAM_INTRADAY, params, { bypassTimeWindow: true });
-    const rows = extractRowsAt(raw);
-    if (rows.length === 0) return null;
-    const result = extractLatestMarketRow(rows, market);
-    if (
-      result === null
-      || (result.programNetBuyAmount === null
-        && result.programBuyAmount === null
-        && result.programSellAmount === null)
-    ) {
-      return null;
-    }
-    return result;
-  } catch {
-    return null;
-  }
+  return (await fetchKrxIntradayProgramTradeSingleWithProbe(market)).row;
 }
 
 /**
@@ -179,18 +289,22 @@ export async function fetchKrxIntradayProgramTradeAggregate(
       timestamp: fetchedAt,
       confidence: 'EMPTY',
       fetchedAt,
-      endpoint: KRX_BLD_MARKET_PROGRAM_INTRADAY,
-      bld: KRX_BLD_MARKET_PROGRAM_INTRADAY,
+      endpoint: getKrxIntradayMarketProgramBld(),
+      bld: getKrxIntradayMarketProgramBld(),
       marketsAttempted: [],
       marketsSucceeded: [],
     };
   }
 
   const marketsAttempted: KrxMarketProgramCode[] = ['KOSPI', 'KOSDAQ'];
-  const [kospiResult, kosdaqResult] = await Promise.all([
-    fetchKrxIntradayProgramTradeSingle('KOSPI'),
-    fetchKrxIntradayProgramTradeSingle('KOSDAQ'),
+  const [kospiSingle, kosdaqSingle] = await Promise.all([
+    fetchKrxIntradayProgramTradeSingleWithProbe('KOSPI'),
+    fetchKrxIntradayProgramTradeSingleWithProbe('KOSDAQ'),
   ]);
+  const kospiResult = kospiSingle.row;
+  const kosdaqResult = kosdaqSingle.row;
+  const shapeProbes = [kospiSingle.shapeProbe, kosdaqSingle.shapeProbe];
+  const shapeCandidate = shapeProbes.find((probe) => probe.confidence === 'SHAPE_CANDIDATE') ?? null;
 
   const marketsSucceeded: KrxMarketProgramCode[] = [];
   if (kospiResult !== null) marketsSucceeded.push('KOSPI');
@@ -228,9 +342,10 @@ export async function fetchKrxIntradayProgramTradeAggregate(
     timestamp: fetchedAt,
     confidence,
     fetchedAt,
-    endpoint: KRX_BLD_MARKET_PROGRAM_INTRADAY,
-    bld: KRX_BLD_MARKET_PROGRAM_INTRADAY,
+    endpoint: getKrxIntradayMarketProgramBld(),
+    bld: getKrxIntradayMarketProgramBld(),
     marketsAttempted,
     marketsSucceeded,
+    intradayShapeProbe: shapeCandidate,
   };
 }

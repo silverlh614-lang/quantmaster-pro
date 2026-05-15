@@ -628,6 +628,8 @@ function markerForRoutedStatus(decision: ProgramMarketRoutingDecision | ProgramM
     case 'SESSION_CLOSED_NOT_APPLICABLE':
     case 'UNSUPPORTED':
     case 'UNSUPPORTED_INTRADAY': // Patch-006: KRX 장중 미지원
+    case 'SHAPE_CANDIDATE': // Patch-007: rows exist, mapper not verified (OBSERVE only)
+    case 'SHAPE_VERIFIED':
     case 'PARAM_MISMATCH': return 'NEUTRAL';
     case 'EMPTY_VALID':
     case 'MISSING':
@@ -661,6 +663,7 @@ function renderRoutedMarketProgram(decision: ProgramMarketRoutingDecision | Prog
     if (v2.intradayWiringAttempted === true) {
       lines.push('주의: KRX EOD + intraday endpoint 모두 empty (intraday endpoint shape/BLD ID 미검증 가능성)');
       lines.push('후속: KRX_BLD_MARKET_PROGRAM_INTRADAY ENV 로 BLD ID override + 응답 shape 검증 필요');
+      lines.push('운영: rawDiag/shapeProbe 는 /program_market_raw 에서만 확인');
     } else {
       lines.push('주의: KRX intraday endpoint 미연동 — 현재 EOD-only (MDCSTAT01701) 만 호출 중');
       lines.push('후속: ENV `KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true` 로 intraday endpoint wiring 활성화 (default OFF — endpoint shape 검증 의무)');
