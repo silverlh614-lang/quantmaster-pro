@@ -190,7 +190,7 @@ describe('log noise reduction', () => {
   it('NoiseSummary는 INFO로 출력된다', () => {
     logNoiseDetail({ category: 'PRE_ENTRY_WAIT', message: 'hidden' });
     logNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
-    expect(console.info).toHaveBeenCalledWith('[NoiseSummary] session=REGULAR suppressed=1 preEntryWait=1 priceDistance=0 kisWsDetail=0 kisMtasDetail=0 gateDiagnostics=0 kisFirstDiagnostics=0 supplySemanticWireDiag=0 commandRegistryDiag=0 executionImpact=NONE');
+    expect(console.info).toHaveBeenCalledWith('[NoiseSummary] session=REGULAR suppressed=1 preEntryWait=1 priceDistance=0 kisWsDetail=0 kisMtasDetail=0 gateDiagnostics=0 kisFirstDiagnostics=0 supplySemanticWireDiag=0 commandRegistryDiag=0 counterfactualDuplicate=0 executionImpact=NONE');
   });
 
   // Patch-009 P1 — 프로덕션 진단 로그 게이트 (SUPPLY_SEMANTIC_WIRE / COMMAND_REGISTRY).
@@ -241,6 +241,41 @@ describe('log noise reduction', () => {
     );
     expect(src).toMatch(/shouldSuppressNoise\('COMMAND_REGISTRY_DIAGNOSTIC'\)/);
     expect(src).toMatch(/recordNoiseSuppressed\('COMMAND_REGISTRY_DIAGNOSTIC'\)/);
+  });
+
+  // Patch-009 P2 — counterfactual 중복 억제 로그 집계.
+  it('COUNTERFACTUAL_DUPLICATE_SUPPRESSED는 LOG_LEVEL=info에서 기본 억제된다', () => {
+    expect(shouldSuppressNoise('COUNTERFACTUAL_DUPLICATE_SUPPRESSED')).toBe(true);
+  });
+
+  it('LOG_LEVEL=debug일 때 COUNTERFACTUAL_DUPLICATE_SUPPRESSED는 억제되지 않는다', () => {
+    vi.stubEnv('LOG_LEVEL', 'debug');
+    expect(shouldSuppressNoise('COUNTERFACTUAL_DUPLICATE_SUPPRESSED')).toBe(false);
+  });
+
+  it('LOG_SUPPRESS_COUNTERFACTUAL_DUPLICATE=false 명시 시 억제 해제된다', () => {
+    vi.stubEnv('LOG_SUPPRESS_COUNTERFACTUAL_DUPLICATE', 'false');
+    expect(shouldSuppressNoise('COUNTERFACTUAL_DUPLICATE_SUPPRESSED')).toBe(false);
+  });
+
+  it('counterfactual 중복 억제 카운트는 NoiseSummary에 집계된다', () => {
+    recordNoiseSuppressed('COUNTERFACTUAL_DUPLICATE_SUPPRESSED');
+    recordNoiseSuppressed('COUNTERFACTUAL_DUPLICATE_SUPPRESSED');
+    recordNoiseSuppressed('COUNTERFACTUAL_DUPLICATE_SUPPRESSED');
+    const summary = formatNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
+    expect(summary).toContain('counterfactualDuplicate=3');
+    expect(summary).toContain('suppressed=3');
+  });
+
+  it('counterfactualShadow 중복 억제 로그는 중앙 logger 게이트 경유한다', () => {
+    const src = readFileSync(
+      resolve(import.meta.dirname, 'learning/counterfactualShadow.ts'),
+      'utf-8',
+    );
+    expect(src).toMatch(/shouldSuppressNoise\('COUNTERFACTUAL_DUPLICATE_SUPPRESSED'\)/);
+    expect(src).toMatch(/recordNoiseSuppressed\('COUNTERFACTUAL_DUPLICATE_SUPPRESSED'\)/);
+    // duplicateSuppressedCount 영속은 게이트와 무관하게 유지 (entry 에 항상 기록)
+    expect(src).toMatch(/existing\.duplicateSuppressedCount\s*=/);
   });
 
   it('Trading Engine execution path는 logger patch로 변경되지 않는다', () => {
