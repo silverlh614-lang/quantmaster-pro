@@ -497,7 +497,36 @@ export async function fetchKisMarketProgramTrade(
       console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify(data));
     }
 
-    return materializeKisMarketProgramTrade(data).materialized;
+    const result = materializeKisMarketProgramTrade(data);
+    if (result.materialized) return result.materialized;
+    if (result.diagnostics && ['OK_EMPTY_OUTPUT', 'PROVIDER_ERROR'].includes(result.diagnostics.status)) {
+      return {
+        programNetBuyQty: null,
+        programNetBuyAmount: null,
+        programArbitrageNetBuy: null,
+        programNonArbitrageNetBuy: null,
+        programSellAmount: null,
+        programBuyAmount: null,
+        fetchedAt: new Date().toISOString(),
+        source: 'KIS_API',
+        marketProgramStatus: result.diagnostics.status,
+        selectedPath: result.diagnostics.selectedPath,
+        selectedBsopHour: result.diagnostics.selectedBsopHour,
+        selectedReason: result.diagnostics.selectedReason,
+        rowCount: result.diagnostics.rowCount,
+        nonZeroRowCount: result.diagnostics.nonZeroRowCount,
+        latest: result.diagnostics.latest,
+        updated: result.diagnostics.updated,
+        zeroReason: result.diagnostics.zeroReason,
+        parseQuality: result.diagnostics.parseQuality,
+        providerIssue: result.diagnostics.providerIssue,
+        marketSignal: result.diagnostics.marketSignal,
+        scoring: result.diagnostics.scoring,
+        executionImpact: result.diagnostics.executionImpact,
+        aggregateDiagnostic: result.diagnostics,
+      };
+    }
+    return null;
   } catch (e) {
     console.error(
       '[KIS] 시장 종합 프로그램 매매 조회 실패:',

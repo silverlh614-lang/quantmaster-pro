@@ -12,7 +12,64 @@ export const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_M
 export const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
 export const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
 
-export type MarketProgramMaterializerStatus = 'OK' | 'ACCEPTED_EMPTY' | 'TRUE_EMPTY' | 'FIELD_MISSING';
+export type MarketProgramStatus =
+  | 'OK_NONZERO'
+  | 'OK_RAW_ZERO'
+  | 'OK_EMPTY_OUTPUT'
+  | 'OK_PARSE_PARTIAL'
+  | 'PROVIDER_ERROR'
+  | 'STALE_CACHE'
+  | 'MISSING';
+
+export type MarketProgramMaterializerStatus = MarketProgramStatus | 'OK' | 'ACCEPTED_EMPTY' | 'TRUE_EMPTY' | 'FIELD_MISSING';
+
+export type MarketProgramSelectedReason =
+  | 'LATEST_NON_ZERO_ROW'
+  | 'LATEST_ROW_ALL_ZERO'
+  | 'NO_VALID_ROW'
+  | 'EMPTY_OUTPUT';
+
+export interface MarketProgramRow {
+  bsopHour?: string;
+  programBuyAmount: number;
+  programSellAmount: number;
+  programNetBuyAmount: number;
+  arbitrageNetBuy: number;
+  nonArbitrageNetBuy: number;
+  raw: Record<string, unknown>;
+  index: number;
+  hasAnyNumericField: boolean;
+  hasNonZeroValue: boolean;
+  numericParseFailed: boolean;
+}
+
+export interface MarketProgramAggregateDiagnostic {
+  rowCount: number;
+  nonZeroRowCount: number;
+  sumProgramBuyAmount: number;
+  sumProgramSellAmount: number;
+  sumProgramNetBuyAmount: number;
+  sumArbitrageNetBuy: number;
+  sumNonArbitrageNetBuy: number;
+}
+
+export interface MarketProgramMaterializerDiagnostics extends MarketProgramAggregateDiagnostic {
+  status: MarketProgramStatus;
+  selectedPath: string;
+  selectedBsopHour?: string;
+  selectedReason: MarketProgramSelectedReason;
+  latestRowBsopHour?: string;
+  zeroReason?: 'RAW_ZERO_ALL_ROWS' | 'EMPTY_OUTPUT' | 'FIELD_MISSING' | 'PROVIDER_ERROR';
+  parseQuality: 'OK' | 'OK_ZERO_VALUE' | 'PARTIAL' | 'EMPTY' | 'PROVIDER_ERROR' | 'MISSING';
+  providerIssue: boolean;
+  marketSignal: boolean;
+  scoring: 'enabled' | 'excluded' | 'limited' | 'neutral';
+  executionImpact: 'NONE';
+  latest: string;
+  updated: string;
+  selectedLatestNetBuy: number | null;
+  aggregateNetBuyDiagnostic: number;
+}
 
 export interface MarketProgramMaterializerResult {
   parserSource: 'programMaterializer';
@@ -22,9 +79,34 @@ export interface MarketProgramMaterializerResult {
   rowCount: number;
   outputKeys: string[];
   parsedFields: string[];
+  diagnostics?: MarketProgramMaterializerDiagnostics;
 }
 
-type KisOutput = Record<string, string>;
+type KisOutput = Record<string, unknown>;
+
+const MARKET_PROGRAM_STATUS_SUPPRESS_TTL_MS: Record<string, number> = {
+  OK_RAW_ZERO: 60_000,
+  OK_EMPTY_OUTPUT: 60_000,
+  PROVIDER_ERROR: 300_000,
+  OK_NONZERO: 0,
+};
+let lastMarketProgramStatusLog: { key: string; loggedAt: number; suppressedCount: number; lastSelectedBsopHour?: string } | null = null;
+
+function logMarketProgramStatusDiagnostic(diag: MarketProgramMaterializerDiagnostics, nowMs = Date.now()): void {
+  if (process.env.NODE_ENV === 'test') return;
+  const key = `MARKET_PROGRAM_STATUS:${diag.status}:${diag.selectedBsopHour ?? 'NONE'}:${diag.zeroReason ?? 'NONE'}`;
+  const ttl = MARKET_PROGRAM_STATUS_SUPPRESS_TTL_MS[diag.status] ?? 60_000;
+  if (ttl > 0 && lastMarketProgramStatusLog?.key === key && nowMs - lastMarketProgramStatusLog.loggedAt < ttl) {
+    lastMarketProgramStatusLog.suppressedCount += 1;
+    lastMarketProgramStatusLog.lastSelectedBsopHour = diag.selectedBsopHour;
+    return;
+  }
+  if (lastMarketProgramStatusLog && lastMarketProgramStatusLog.suppressedCount > 0) {
+    console.log(`[MARKET_PROGRAM_STATUS_SUPPRESSED] status=${diag.status} suppressedCount=${lastMarketProgramStatusLog.suppressedCount} lastSelectedBsopHour=${lastMarketProgramStatusLog.lastSelectedBsopHour ?? 'NONE'} providerIssue=${diag.providerIssue} executionImpact=${diag.executionImpact}`);
+  }
+  console.log(`[MARKET_PROGRAM_STATUS] status=${diag.status} rowCount=${diag.rowCount} selectedPath=${diag.selectedPath} selectedBsopHour=${diag.selectedBsopHour ?? 'NONE'} selectedReason=${diag.selectedReason} nonZeroRowCount=${diag.nonZeroRowCount} zeroReason=${diag.zeroReason ?? 'NONE'} parseQuality=${diag.parseQuality} providerIssue=${diag.providerIssue} executionImpact=${diag.executionImpact}`);
+  lastMarketProgramStatusLog = { key, loggedAt: nowMs, suppressedCount: 0, lastSelectedBsopHour: diag.selectedBsopHour };
+}
 
 export function buildMarketProgramParams(): Record<string, string> {
   return {
@@ -54,15 +136,42 @@ function acceptedEmpty(data: unknown): boolean {
   return [root.output, root.output1, root.output2].some((v) => Array.isArray(v) && v.length === 0) && rowsAt(data).rows.length === 0;
 }
 
-function num(out: KisOutput | undefined, keys: string[]): number | null {
-  if (!out) return null;
+function providerError(data: unknown): boolean {
+  const root = data as { rt_cd?: unknown } | null;
+  if (!root || typeof root !== 'object' || root.rt_cd === undefined || root.rt_cd === null || String(root.rt_cd) === '') return false;
+  return String(root.rt_cd) !== '0';
+}
+
+export function parseKisNumber(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  const raw = String(value).trim();
+  if (raw === '') return 0;
+  const normalized = raw.replace(/,/g, '');
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return 0;
+  return n;
+}
+
+function parseDiag(value: unknown): { rawValuePresent: boolean; numericParseFailed: boolean; numericValue: number } {
+  const rawValuePresent = value !== null && value !== undefined && String(value).trim() !== '';
+  if (!rawValuePresent) return { rawValuePresent, numericParseFailed: false, numericValue: 0 };
+  const n = Number(String(value).trim().replace(/,/g, ''));
+  return { rawValuePresent, numericParseFailed: !Number.isFinite(n), numericValue: Number.isFinite(n) ? n : 0 };
+}
+
+function firstPresent(out: KisOutput | undefined, keys: string[]): { value: number; present: boolean; failed: boolean } {
+  if (!out) return { value: 0, present: false, failed: false };
   for (const key of keys) {
-    const raw = out[key];
-    if (raw === undefined || raw === null || raw === '') continue;
-    const n = Number(String(raw).replace(/,/g, '').trim());
-    if (Number.isFinite(n)) return n;
+    const d = parseDiag(out[key]);
+    if (!d.rawValuePresent) continue;
+    return { value: d.numericValue, present: true, failed: d.numericParseFailed };
   }
-  return null;
+  return { value: 0, present: false, failed: false };
+}
+
+function num(out: KisOutput | undefined, keys: string[]): number | null {
+  const d = firstPresent(out, keys);
+  return d.present && !d.failed ? d.value : null;
 }
 
 function sum(out: KisOutput | undefined, keys: string[]): number | null {
@@ -77,29 +186,189 @@ function sum(out: KisOutput | undefined, keys: string[]): number | null {
   return found ? total : null;
 }
 
-export function materializeKisMarketProgramTrade(data: unknown, fetchedAt = new Date().toISOString()): MarketProgramMaterializerResult {
-  const { path, rows } = rowsAt(data);
-  const out = rows[0];
+function normalizeBsopHour(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const digits = String(value).trim().replace(/\D/g, '');
+  if (digits.length < 4) return undefined;
+  return digits.length >= 6 ? digits.slice(0, 6) : digits.slice(0, 4);
+}
+
+export function formatBsopHour(value: unknown): string {
+  const h = normalizeBsopHour(value);
+  if (!h) return 'N/A';
+  if (h.length >= 6) return `${h.slice(0, 2)}:${h.slice(2, 4)}:${h.slice(4, 6)}`;
+  return `${h.slice(0, 2)}:${h.slice(2, 4)}`;
+}
+
+function bsopMinutes(value: string | undefined): number | null {
+  const h = normalizeBsopHour(value);
+  if (!h) return null;
+  const hh = Number(h.slice(0, 2));
+  const mm = Number(h.slice(2, 4));
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
+function kstMinutes(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date);
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  return hh * 60 + mm;
+}
+
+function isValidBsopHour(value: string | undefined): boolean { return bsopMinutes(value) !== null; }
+function isNotFutureBsopHour(value: string | undefined, nowKst: Date): boolean {
+  const m = bsopMinutes(value);
+  return m !== null && m <= kstMinutes(nowKst);
+}
+function compareBsopHourDesc(a: string | undefined, b: string | undefined): number {
+  return (bsopMinutes(b) ?? -1) - (bsopMinutes(a) ?? -1);
+}
+
+export function normalizeMarketProgramRow(raw: KisOutput, index: number): MarketProgramRow {
+  const arbitrageSell = firstPresent(raw, ['arbt_smtn_seln_tr_pbmn']);
+  const arbitrageBuy = firstPresent(raw, ['arbt_smtn_shnu_tr_pbmn']);
+  const nonArbitrageSell = firstPresent(raw, ['nabt_smtn_seln_tr_pbmn']);
+  const nonArbitrageBuy = firstPresent(raw, ['nabt_smtn_shnu_tr_pbmn']);
+  const arbitrageNet = firstPresent(raw, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2']);
+  const nonArbitrageNet = firstPresent(raw, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']);
+  const wholeNet = firstPresent(raw, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']);
+  const qty = firstPresent(raw, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']);
+  const diagnostics = [arbitrageSell, arbitrageBuy, nonArbitrageSell, nonArbitrageBuy, arbitrageNet, nonArbitrageNet, wholeNet, qty];
+  const programBuyAmount = arbitrageBuy.value + nonArbitrageBuy.value;
+  const programSellAmount = arbitrageSell.value + nonArbitrageSell.value;
+  const programNetBuyAmount = wholeNet.present ? wholeNet.value : arbitrageNet.value + nonArbitrageNet.value;
+  const numericValues = [programBuyAmount, programSellAmount, programNetBuyAmount, arbitrageNet.value, nonArbitrageNet.value, qty.value];
+  return {
+    bsopHour: normalizeBsopHour(raw.bsop_hour),
+    programBuyAmount,
+    programSellAmount,
+    programNetBuyAmount,
+    arbitrageNetBuy: arbitrageNet.value,
+    nonArbitrageNetBuy: nonArbitrageNet.value,
+    raw,
+    index,
+    hasAnyNumericField: diagnostics.some((d) => d.present),
+    hasNonZeroValue: numericValues.some((v) => v !== 0),
+    numericParseFailed: diagnostics.some((d) => d.failed),
+  };
+}
+
+export function selectMarketProgramRow(rows: MarketProgramRow[], nowKst: Date): {
+  selectedRow: MarketProgramRow | null;
+  selectedReason: MarketProgramSelectedReason;
+  nonZeroRowCount: number;
+  latestRow: MarketProgramRow | null;
+} {
+  if (!rows.length) return { selectedRow: null, selectedReason: 'EMPTY_OUTPUT', nonZeroRowCount: 0, latestRow: null };
+  const validTimeRows = rows
+    .filter((r) => isValidBsopHour(r.bsopHour))
+    .filter((r) => isNotFutureBsopHour(r.bsopHour, nowKst))
+    .sort((a, b) => compareBsopHourDesc(a.bsopHour, b.bsopHour));
+  const candidateRows = validTimeRows.length > 0 ? validTimeRows : rows.slice().sort((a, b) => b.index - a.index);
+  const nonZeroRows = candidateRows.filter((r) => r.hasNonZeroValue);
+  const latestRow = candidateRows[0] ?? null;
+  if (nonZeroRows.length > 0) {
+    return { selectedRow: nonZeroRows[0], selectedReason: 'LATEST_NON_ZERO_ROW', nonZeroRowCount: nonZeroRows.length, latestRow };
+  }
+  return { selectedRow: latestRow, selectedReason: 'LATEST_ROW_ALL_ZERO', nonZeroRowCount: 0, latestRow };
+}
+
+export function aggregateMarketProgramRows(rows: MarketProgramRow[]): MarketProgramAggregateDiagnostic {
+  return {
+    rowCount: rows.length,
+    nonZeroRowCount: rows.filter((r) => r.hasNonZeroValue).length,
+    sumProgramBuyAmount: rows.reduce((s, r) => s + r.programBuyAmount, 0),
+    sumProgramSellAmount: rows.reduce((s, r) => s + r.programSellAmount, 0),
+    sumProgramNetBuyAmount: rows.reduce((s, r) => s + r.programNetBuyAmount, 0),
+    sumArbitrageNetBuy: rows.reduce((s, r) => s + r.arbitrageNetBuy, 0),
+    sumNonArbitrageNetBuy: rows.reduce((s, r) => s + r.nonArbitrageNetBuy, 0),
+  };
+}
+
+function updatedFromBsopHour(bsopHour: string | undefined, now: Date): string {
+  if (!bsopHour) return 'N/A';
+  const h = normalizeBsopHour(bsopHour);
+  if (!h) return 'N/A';
+  const kstDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const time = h.length >= 6 ? `${h.slice(0, 2)}:${h.slice(2, 4)}:${h.slice(4, 6)}` : `${h.slice(0, 2)}:${h.slice(2, 4)}:00`;
+  return `${kstDate} ${time} KST`;
+}
+
+function buildDiagnostics(status: MarketProgramStatus, rows: MarketProgramRow[], outputPath: string, now: Date, providerIssue = false): MarketProgramMaterializerDiagnostics {
+  const aggregate = aggregateMarketProgramRows(rows);
+  const selected = selectMarketProgramRow(rows, now);
+  const selectedPath = selected.selectedRow ? `${outputPath}[${selected.selectedRow.index}]` : outputPath === 'NONE' ? 'NONE' : outputPath;
+  const parseFailed = rows.some((r) => r.numericParseFailed);
+  const selectedBsopHour = selected.selectedRow?.bsopHour;
+  const finalStatus: MarketProgramStatus = status === 'OK_NONZERO' && parseFailed ? 'OK_PARSE_PARTIAL' : status;
+  return {
+    ...aggregate,
+    status: finalStatus,
+    selectedPath,
+    selectedBsopHour,
+    selectedReason: selected.selectedReason,
+    latestRowBsopHour: selected.latestRow?.bsopHour,
+    zeroReason: finalStatus === 'OK_RAW_ZERO' ? 'RAW_ZERO_ALL_ROWS' : finalStatus === 'OK_EMPTY_OUTPUT' ? 'EMPTY_OUTPUT' : finalStatus === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : undefined,
+    parseQuality: finalStatus === 'OK_NONZERO' ? 'OK' : finalStatus === 'OK_RAW_ZERO' ? 'OK_ZERO_VALUE' : finalStatus === 'OK_EMPTY_OUTPUT' ? 'EMPTY' : finalStatus === 'OK_PARSE_PARTIAL' ? 'PARTIAL' : finalStatus === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'MISSING',
+    providerIssue,
+    marketSignal: finalStatus === 'OK_NONZERO',
+    scoring: finalStatus === 'OK_NONZERO' ? 'enabled' : finalStatus === 'OK_PARSE_PARTIAL' ? 'limited' : 'excluded',
+    executionImpact: 'NONE',
+    latest: selectedBsopHour ? formatBsopHour(selectedBsopHour).replace(/:00$/, '') : 'N/A',
+    updated: updatedFromBsopHour(selectedBsopHour, now),
+    selectedLatestNetBuy: selected.selectedRow?.programNetBuyAmount ?? null,
+    aggregateNetBuyDiagnostic: aggregate.sumProgramNetBuyAmount,
+  };
+}
+
+export function materializeKisMarketProgramTrade(data: unknown, fetchedAt = new Date().toISOString(), now = new Date(fetchedAt)): MarketProgramMaterializerResult {
+  const { path, rows: rawRows } = rowsAt(data);
+  const rows = rawRows.map(normalizeMarketProgramRow);
+  const out = rawRows[0];
   const outputKeys = out ? Object.keys(out).slice(0, 50) : [];
-  if (!out) {
-    return { parserSource: 'programMaterializer', status: acceptedEmpty(data) ? 'ACCEPTED_EMPTY' : 'TRUE_EMPTY', materialized: null, outputPath: path, rowCount: rows.length, outputKeys, parsedFields: [] };
+
+  if (providerError(data)) {
+    const diagnostics = buildDiagnostics('PROVIDER_ERROR', rows, path, now, true);
+    logMarketProgramStatusDiagnostic(diagnostics);
+    return { parserSource: 'programMaterializer', status: 'PROVIDER_ERROR', materialized: null, outputPath: path, rowCount: rawRows.length, outputKeys, parsedFields: [], diagnostics };
   }
 
+  if (!out) {
+    const isAcceptedEmpty = acceptedEmpty(data);
+    const status: MarketProgramStatus = isAcceptedEmpty ? 'OK_EMPTY_OUTPUT' : 'MISSING';
+    const diagnostics = buildDiagnostics(status, rows, path, now, false);
+    logMarketProgramStatusDiagnostic(diagnostics);
+    return { parserSource: 'programMaterializer', status: isAcceptedEmpty ? 'OK_EMPTY_OUTPUT' : 'TRUE_EMPTY', materialized: null, outputPath: path, rowCount: rawRows.length, outputKeys, parsedFields: [], diagnostics };
+  }
+
+  const selected = selectMarketProgramRow(rows, now);
+  const row = selected.selectedRow;
+  if (!row || !rows.some((r) => r.hasAnyNumericField)) {
+    const diagnostics = buildDiagnostics('MISSING', rows, path, now, false);
+    logMarketProgramStatusDiagnostic(diagnostics);
+    return { parserSource: 'programMaterializer', status: 'FIELD_MISSING', materialized: null, outputPath: path, rowCount: rawRows.length, outputKeys, parsedFields: [], diagnostics };
+  }
+
+  const wholeNet = num(row.raw, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']);
+  const arbNet = num(row.raw, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2']);
+  const nonArbNet = num(row.raw, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']);
+  const computedNet = wholeNet ?? (arbNet !== null || nonArbNet !== null ? (arbNet ?? 0) + (nonArbNet ?? 0) : null);
   const parsed = {
-    programNetBuyQty: num(out, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
-    programNetBuyAmount: num(out, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']),
-    programArbitrageNetBuy: num(out, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2']),
-    programNonArbitrageNetBuy: num(out, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']),
-    programSellAmount: sum(out, ['arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn']),
-    programBuyAmount: sum(out, ['arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn']),
+    programNetBuyQty: num(row.raw, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
+    programNetBuyAmount: computedNet,
+    programArbitrageNetBuy: arbNet,
+    programNonArbitrageNetBuy: nonArbNet,
+    programSellAmount: sum(row.raw, ['arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn']),
+    programBuyAmount: sum(row.raw, ['arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn']),
   };
   const parsedFields = Object.entries(parsed).filter(([, v]) => v !== null).map(([k]) => k);
-  if (parsedFields.length === 0) {
-    return { parserSource: 'programMaterializer', status: 'FIELD_MISSING', materialized: null, outputPath: path, rowCount: rows.length, outputKeys, parsedFields };
-  }
+  const diagStatus: MarketProgramStatus = rows.some((r) => r.hasNonZeroValue) ? 'OK_NONZERO' : 'OK_RAW_ZERO';
+  const diagnostics = buildDiagnostics(diagStatus, rows, path, now, false);
+  logMarketProgramStatusDiagnostic(diagnostics);
   return {
     parserSource: 'programMaterializer',
-    status: 'OK',
+    status: diagnostics.status,
     materialized: {
       programNetBuyQty: parsed.programNetBuyQty,
       programNetBuyAmount: parsed.programNetBuyAmount,
@@ -109,10 +378,26 @@ export function materializeKisMarketProgramTrade(data: unknown, fetchedAt = new 
       programBuyAmount: parsed.programBuyAmount,
       fetchedAt,
       source: 'KIS_API',
+      marketProgramStatus: diagnostics.status,
+      selectedPath: diagnostics.selectedPath,
+      selectedBsopHour: diagnostics.selectedBsopHour,
+      selectedReason: diagnostics.selectedReason,
+      rowCount: diagnostics.rowCount,
+      nonZeroRowCount: diagnostics.nonZeroRowCount,
+      latest: diagnostics.latest,
+      updated: diagnostics.updated,
+      zeroReason: diagnostics.zeroReason,
+      parseQuality: diagnostics.parseQuality,
+      providerIssue: diagnostics.providerIssue,
+      marketSignal: diagnostics.marketSignal,
+      scoring: diagnostics.scoring,
+      executionImpact: diagnostics.executionImpact,
+      aggregateDiagnostic: diagnostics,
     },
-    outputPath: path,
-    rowCount: rows.length,
+    outputPath: diagnostics.selectedPath,
+    rowCount: rawRows.length,
     outputKeys,
     parsedFields,
+    diagnostics,
   };
 }
