@@ -136,10 +136,11 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     );
     let captured = '';
     // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요 (기존 동작 보존).
+    // Patch-SUPPLY-DIAG-ACCURACY: full mode 가 4096 budget 초과 시 paginated reply — 모든 페이지 concat.
     await scanBlockers.execute({
       args: ['full'],
       reply: async (msg: string) => {
-        captured = msg;
+        captured += (captured ? '\n' : '') + msg;
       },
     } as never);
     expect(captured).toContain('🛡️ baseMessage');
@@ -152,10 +153,11 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
   it('default ENV + 구독 0건 (total=0) → 섹션 미노출 (운영자 noise 차단)', async () => {
     let captured = '';
     // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요 (기존 동작 보존).
+    // Patch-SUPPLY-DIAG-ACCURACY: full mode 가 4096 budget 초과 시 paginated reply — 모든 페이지 concat.
     await scanBlockers.execute({
       args: ['full'],
       reply: async (msg: string) => {
-        captured = msg;
+        captured += (captured ? '\n' : '') + msg;
       },
     } as never);
     // ADR-0506 — full 모드는 header + baseMessage + (ADR-0505 NOT_EMITTED) 포함, baseMessage 만 단독 strict equality 부적합.
@@ -171,10 +173,11 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     );
     let captured = '';
     // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요 (기존 동작 보존).
+    // Patch-SUPPLY-DIAG-ACCURACY: full mode 가 4096 budget 초과 시 paginated reply — 모든 페이지 concat.
     await scanBlockers.execute({
       args: ['full'],
       reply: async (msg: string) => {
-        captured = msg;
+        captured += (captured ? '\n' : '') + msg;
       },
     } as never);
     // ADR-0506 — full 모드는 header + baseMessage + (ADR-0505 NOT_EMITTED) 포함, baseMessage 만 단독 strict equality 부적합.
@@ -191,10 +194,11 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     let threw = false;
     try {
       // ADR-0506 — default mode 가 compact 로 변경되어 full 명시 필요.
+      // Patch-SUPPLY-DIAG-ACCURACY: full mode 가 4096 budget 초과 시 paginated reply — 모든 페이지 concat.
       await scanBlockers.execute({
         args: ['full'],
         reply: async (msg: string) => {
-          captured = msg;
+          captured += (captured ? '\n' : '') + msg;
         },
       } as never);
     } catch {

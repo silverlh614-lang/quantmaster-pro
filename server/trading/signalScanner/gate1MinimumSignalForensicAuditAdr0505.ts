@@ -2022,7 +2022,11 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
       const scope = a.supplyScopeAudit.actualInvestorRowUseScope;
       actualInvestorRowUseScopeDistribution[scope] = (actualInvestorRowUseScopeDistribution[scope] ?? 0) + 1;
     }
-    if ((a.supplyScopeAudit.normalizedCount ?? 0) > 0 || (a.supplyScopeAudit.fieldKeyDiagnostics?.kisNormalizedFieldKeysTop?.length ?? 0) > 0) kisNormalizedRowsMaterialized += 1;
+    // Patch-SUPPLY-DIAG-ACCURACY: kisNormalizedRowsMaterialized 는 실제 정규화 *값* 이 1개
+    // 이상 존재할 때만 카운트한다. 이전엔 `kisNormalizedFieldKeysTop.length > 0` OR 분기가
+    // wrapper/metadata 키만 보유한 후보까지 materialized 로 집계해 40/40 false positive 를
+    // 만들었다 (kisSemanticRowsMaterialized 0/40 + investorRowMaterializationClass none 과 모순).
+    if ((a.supplyScopeAudit.normalizedCount ?? 0) > 0) kisNormalizedRowsMaterialized += 1;
     if ((a.supplyScopeAudit.materializedCount ?? 0) > 0 || a.supplyScopeAudit.semanticRowAvailable) kisSemanticRowsMaterialized += 1;
     const materializationClass = a.supplyScopeAudit.investorRowMaterializationClass ?? (a.supplyScopeAudit.diagnosticActualInvestorRowFromNormalized ? 'NORMALIZED_NUMERIC_ROW' : undefined);
     if (materializationClass) investorRowMaterializationClassDistribution[materializationClass] = (investorRowMaterializationClassDistribution[materializationClass] ?? 0) + 1;

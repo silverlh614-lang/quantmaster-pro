@@ -155,6 +155,24 @@ export async function evaluateMainCandidates(
     supplyHealthSnapshot,
   } = context;
 
+  // Patch-SUPPLY-DIAG-ACCURACY (silent UNKNOWN 차단): preflight context 가 종목별
+  // 투자자수급 라우터 결과(supplyRouterResult/investorFlowRouteResult/investorFlowRouter)를
+  // 전혀 담지 않으면 mergeSupplyProviderHealth 가 모든 후보에 대해 w.supplyProviderHealth(=UNKNOWN)
+  // 를 그대로 반환 → 전 후보 supplyConfluence/investorFlow UNKNOWN 페널티. 이전엔 이게 조용히
+  // 발생했다. 1회성 진단 로그로 표면화한다 (executionImpact=NONE, 매매 결정 무변경).
+  if (
+    !context?.supplyRouterResult &&
+    !context?.investorFlowRouteResult &&
+    !context?.investorFlowRouter
+  ) {
+    console.warn(
+      `[AutoTrade/SupplyHealth] preflight context 에 투자자수급 라우터 결과 없음 — ` +
+        `buyList ${Array.isArray(buyList) ? buyList.length : 0}개 후보 전부 ` +
+        `supplyProviderHealth=UNKNOWN 으로 디폴트됨 (per-symbol investor-flow 미페치, ` +
+        `SUPPLY_PROVIDER_UNKNOWN_PENALTY 근본 원인). executionImpact=NONE`,
+    );
+  }
+
   registerEntryCandidateSnapshots(
     counters,
     buyList.map((w: any) => ({

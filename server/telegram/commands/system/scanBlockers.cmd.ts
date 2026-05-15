@@ -161,6 +161,7 @@ import {
   paginateScanBlockersMessage,
   parseScanBlockersMode,
   sectionMatchesMode,
+  SCAN_BLOCKERS_LENGTH_BUDGET,
   type ScanBlockersMode,
 } from './scanBlockersCompactAdr0506.js';
 // Patch-SHADOW-APPROVAL-DEDUP-001 — runtime 모드 visibility (Shadow approval 중복 발송 통계).
@@ -987,11 +988,24 @@ const scanBlockers: TelegramCommand = {
     }
 
     // ADR-0506 — full mode header (운영자 명시 호출 표시).
+    // Patch-SUPPLY-DIAG-ACCURACY: 4096 budget 초과 시 paginate (footer='' 로 supply-specific footer 회피).
+    // 사용자 보고 — `/scan_blockers full` 출력이 truncate 되어 정밀한 root cause 가 전달 안 됨 → pagination 으로 차단.
     if (mode === 'full') {
       const fullHeader = '🔬 <b>[scan_blockers full mode]</b>';
       const finalFull = [fullHeader, ...parts].join('\n');
-      logCommand('single');
-      await replyOnce(applyScanBlockersLengthGuard(finalFull, 'full'));
+      if (finalFull.length <= SCAN_BLOCKERS_LENGTH_BUDGET.full) {
+        logCommand('single');
+        await replyOnce(finalFull);
+        return;
+      }
+      const pages = paginateScanBlockersMessage(
+        '🔬 [scan_blockers full mode]',
+        [fullHeader, ...parts],
+        3500,
+        '',
+      );
+      logCommand('paginated', pages.length);
+      await replyMany(pages.map((page) => page.body));
       return;
     }
 
