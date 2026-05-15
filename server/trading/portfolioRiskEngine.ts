@@ -22,19 +22,75 @@ import { getRealtimePrice } from '../clients/kisStreamClient.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getDailyLossPct } from '../state.js';
+import { getTradingMode } from '../state.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
+import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
 
 // ─── 설정 상수 ───────────────────────────────────────────────────────────────
 
-/** 동일 섹터 최대 비중 (30%) */
+/** 동일 섹터 최대 비중 (30%) — 신규 진입 차단/보유 내부 구성비 참고용. */
 const MAX_SECTOR_WEIGHT      = parseFloat(process.env.MAX_SECTOR_WEIGHT ?? '0.30');
-/** 섹터 집중도 자동 대응 시 손절선 긴축 비율 (현재가 ×0.99 = -1% 긴축, ADR-0028 §Phase B). */
+/** 섹터 집중도 자동 대응 시 트레일링 후보 비율 (현재가 ×0.99 = -1% 후보, ADR-0028 §Phase B). */
 export const SECTOR_TIGHT_STOP_RATIO = 0.99;
 
+export type SectorType = 'INDUSTRY' | 'THEME' | 'MARKET_SEGMENT' | 'RISK_BUCKET' | 'UNKNOWN';
+
+export type SectorRiskReason =
+  | 'SECTOR_EXPOSURE_LIMIT_EXCEEDED'
+  | 'OPEN_POSITION_CONCENTRATION_ONLY'
+  | 'SINGLE_POSITION_ARTIFACT'
+  | 'SMALL_EXPOSURE_ARTIFACT'
+  | 'MARKET_SEGMENT_NOT_INDUSTRY_SECTOR'
+  | 'SHADOW_POSITION_OBSERVE_ONLY'
+  | 'INSUFFICIENT_POSITION_COUNT'
+  | 'INSUFFICIENT_CAPITAL_EXPOSURE'
+  | 'AUTO_ACTION_DISABLED_FOR_SHADOW'
+  | 'VALID_LIVE_SECTOR_RISK';
+
+export interface ExposureMetrics {
+  sectorName: string;
+  sectorType: SectorType;
+  positionCount: number;
+  sectorExposureAmount: number;
+  totalOpenPositionExposure: number;
+  baseCapital: number;
+  accountNAV: number | null;
+  activeRiskBudget: number | null;
+  concentrationByOpenPositionsPct: number;
+  exposureByBaseCapitalPct: number;
+  exposureByNAVPct: number | null;
+  exposureByRiskBudgetPct: number | null;
+  isSmallExposure: boolean;
+  isSinglePositionArtifact: boolean;
+}
+
+export interface SectorRiskConfig {
+  maxSectorConcentrationByOpenPositionsPct: number;
+  maxSectorExposureByCapitalPct: number;
+  maxSectorExposureByNavPct: number;
+  minPositionsForSectorAutoAction: number;
+  minSectorExposureAmount: number;
+  minSectorExposureByCapitalPct: number;
+  allowShadowSectorAutoAction: boolean;
+  allowLiveSectorAutoAction: boolean;
+}
+
+export const DEFAULT_SECTOR_RISK_CONFIG: SectorRiskConfig = Object.freeze({
+  maxSectorConcentrationByOpenPositionsPct: Number(process.env.MAX_SECTOR_CONCENTRATION_BY_OPEN_POSITIONS_PCT ?? 30),
+  maxSectorExposureByCapitalPct: Number(process.env.MAX_SECTOR_EXPOSURE_BY_CAPITAL_PCT ?? 30),
+  maxSectorExposureByNavPct: Number(process.env.MAX_SECTOR_EXPOSURE_BY_NAV_PCT ?? 30),
+  minPositionsForSectorAutoAction: Number(process.env.MIN_POSITIONS_FOR_SECTOR_AUTO_ACTION ?? 2),
+  minSectorExposureAmount: Number(process.env.MIN_SECTOR_EXPOSURE_AMOUNT ?? 3_000_000),
+  minSectorExposureByCapitalPct: Number(process.env.MIN_SECTOR_EXPOSURE_BY_CAPITAL_PCT ?? 3),
+  allowShadowSectorAutoAction: process.env.ALLOW_SHADOW_SECTOR_AUTO_ACTION === 'true',
+  allowLiveSectorAutoAction: process.env.ALLOW_LIVE_SECTOR_AUTO_ACTION !== 'false',
+});
+
 /**
- * 섹터 집중도 자동 대응에서 *실제로 긴축이 적용된* 포지션 메타.
- * 알림 메시지에 예상 청산 가격 + 거리 + 현재 pnlPct 를 함께 노출하기 위한 SSOT.
- * 적용 종목이 없으면 null 전달 → 메시지에서 자동 액션 라인 생략.
+ * 섹터 집중도 자동 대응에서 리스크 액션 후보로 표시할 포지션 메타.
+ * PATCH-008 이후 이 값은 즉시 손절선 변경/청산이 아니라 LIVE risk action candidate
+ * 또는 SHADOW 학습용 트레일링 후보 메시지에만 사용한다.
  */
 export interface SectorTighteningMeta {
   stockName: string;
@@ -44,11 +100,172 @@ export interface SectorTighteningMeta {
   pnlPct: number;
 }
 
+const MarketSegmentLabels = new Set([
+  '우량기업부',
+  '벤처기업부',
+  '중견기업부',
+  '기술성장기업부',
+  '관리종목',
+  '투자주의환기종목',
+  'KOSPI',
+  'KOSDAQ',
+  'KONEX',
+]);
+
+const KnownIndustrySectors = new Set([
+  '반도체', '이차전지', '자동차', '바이오', '금융', '방산', '소프트웨어',
+  '화학', '철강', '유통', '건설', '통신', '에너지', '엔터', '조선',
+]);
+const KnownThemeBuckets = new Set(['원전', '전력기기', '로봇', 'AI', '조선']);
+const KnownRiskBuckets = new Set(['고베타', '저유동성', '단기급등', '상관고위험']);
+
+export function classifySectorType(label: string): SectorType {
+  if (MarketSegmentLabels.has(label)) return 'MARKET_SEGMENT';
+  if (KnownIndustrySectors.has(label)) return 'INDUSTRY';
+  if (KnownThemeBuckets.has(label)) return 'THEME';
+  if (KnownRiskBuckets.has(label)) return 'RISK_BUCKET';
+  return 'UNKNOWN';
+}
+
+export function calculateExposureMetrics(input: {
+  sectorName: string;
+  sectorExposureAmount: number;
+  totalOpenPositionExposure: number;
+  positionCount: number;
+  baseCapital: number;
+  accountNAV?: number | null;
+  activeRiskBudget?: number | null;
+  config?: SectorRiskConfig;
+}): ExposureMetrics {
+  const config = input.config ?? DEFAULT_SECTOR_RISK_CONFIG;
+  const accountNAV = input.accountNAV ?? null;
+  const activeRiskBudget = input.activeRiskBudget ?? null;
+  const exposureByBaseCapitalPct = input.baseCapital > 0
+    ? (input.sectorExposureAmount / input.baseCapital) * 100
+    : 0;
+
+  return {
+    sectorName: input.sectorName,
+    sectorType: classifySectorType(input.sectorName),
+    positionCount: input.positionCount,
+    sectorExposureAmount: input.sectorExposureAmount,
+    totalOpenPositionExposure: input.totalOpenPositionExposure,
+    baseCapital: input.baseCapital,
+    accountNAV,
+    activeRiskBudget,
+    concentrationByOpenPositionsPct: input.totalOpenPositionExposure > 0
+      ? (input.sectorExposureAmount / input.totalOpenPositionExposure) * 100
+      : 0,
+    exposureByBaseCapitalPct,
+    exposureByNAVPct: accountNAV !== null && accountNAV > 0
+      ? (input.sectorExposureAmount / accountNAV) * 100
+      : null,
+    exposureByRiskBudgetPct: activeRiskBudget !== null && activeRiskBudget > 0
+      ? (input.sectorExposureAmount / activeRiskBudget) * 100
+      : null,
+    isSmallExposure: input.sectorExposureAmount < config.minSectorExposureAmount
+      || exposureByBaseCapitalPct < config.minSectorExposureByCapitalPct,
+    isSinglePositionArtifact: input.positionCount === 1,
+  };
+}
+
+export function evaluateSectorRiskAutoAction(input: {
+  metrics: ExposureMetrics;
+  mode: 'LIVE' | 'SHADOW';
+  config?: SectorRiskConfig;
+}): { canTriggerAutoAction: boolean; reasons: SectorRiskReason[]; singlePositionRisk: boolean } {
+  const config = input.config ?? DEFAULT_SECTOR_RISK_CONFIG;
+  const { metrics } = input;
+  const reasons: SectorRiskReason[] = [];
+
+  const exceedsCapitalLimit = metrics.exposureByBaseCapitalPct >= config.maxSectorExposureByCapitalPct;
+  const exceedsNavLimit = metrics.exposureByNAVPct !== null
+    && metrics.exposureByNAVPct >= config.maxSectorExposureByNavPct;
+  const hasEnoughPositions = metrics.positionCount >= config.minPositionsForSectorAutoAction;
+  const hasEnoughExposure = metrics.sectorExposureAmount >= config.minSectorExposureAmount
+    && metrics.exposureByBaseCapitalPct >= config.minSectorExposureByCapitalPct;
+  const isValidSectorType = metrics.sectorType === 'INDUSTRY'
+    || metrics.sectorType === 'THEME'
+    || metrics.sectorType === 'RISK_BUCKET';
+
+  if (metrics.concentrationByOpenPositionsPct >= config.maxSectorConcentrationByOpenPositionsPct
+      && !exceedsCapitalLimit && !exceedsNavLimit) {
+    reasons.push('OPEN_POSITION_CONCENTRATION_ONLY');
+  }
+  if (!hasEnoughPositions) reasons.push('INSUFFICIENT_POSITION_COUNT');
+  if (metrics.isSinglePositionArtifact) reasons.push('SINGLE_POSITION_ARTIFACT');
+  if (!hasEnoughExposure || metrics.isSmallExposure) {
+    reasons.push('SMALL_EXPOSURE_ARTIFACT', 'INSUFFICIENT_CAPITAL_EXPOSURE');
+  }
+  if (metrics.sectorType === 'MARKET_SEGMENT') reasons.push('MARKET_SEGMENT_NOT_INDUSTRY_SECTOR');
+  if (input.mode === 'SHADOW') {
+    reasons.push('SHADOW_POSITION_OBSERVE_ONLY');
+    if (!config.allowShadowSectorAutoAction) reasons.push('AUTO_ACTION_DISABLED_FOR_SHADOW');
+  }
+  if ((exceedsCapitalLimit || exceedsNavLimit) && isValidSectorType) {
+    reasons.push('SECTOR_EXPOSURE_LIMIT_EXCEEDED');
+  }
+
+  const modeAllowed = input.mode === 'LIVE'
+    ? config.allowLiveSectorAutoAction
+    : config.allowShadowSectorAutoAction;
+  const canTriggerAutoAction = modeAllowed
+    && isValidSectorType
+    && hasEnoughPositions
+    && hasEnoughExposure
+    && (exceedsCapitalLimit || exceedsNavLimit);
+
+  if (canTriggerAutoAction && input.mode === 'LIVE') reasons.push('VALID_LIVE_SECTOR_RISK');
+
+  return {
+    canTriggerAutoAction,
+    reasons: Array.from(new Set(reasons)),
+    singlePositionRisk: metrics.positionCount === 1 && (exceedsCapitalLimit || exceedsNavLimit),
+  };
+}
+
+export function buildSectorObserveOnlyAlert(input: {
+  metrics: ExposureMetrics;
+  posNames: string;
+  reasons: SectorRiskReason[];
+}): string {
+  const { metrics, posNames, reasons } = input;
+  return [
+    `ℹ️ <b>[섹터 집중도 참고 – 자동대응 없음]</b>`,
+    `분류: <b>${metrics.sectorName}</b>`,
+    `분류유형: ${metrics.sectorType}`,
+    `보유 종목: ${posNames} ${metrics.positionCount}개`,
+    `보유 기준 비중: ${metrics.concentrationByOpenPositionsPct.toFixed(1)}%`,
+    `원금 대비 노출: ${metrics.exposureByBaseCapitalPct.toFixed(2)}%`,
+    `평가금액: 약 ${Math.round(metrics.sectorExposureAmount).toLocaleString()}원`,
+    ``,
+    `판정: 초기/소형 SHADOW 포지션 착시`,
+    `자동 액션: 없음`,
+    `사유: ${reasons.join(', ')}`,
+  ].join('\n');
+}
+
+export function buildShadowProfitProtectionCandidateAlert(input: {
+  target: SectorTighteningMeta;
+  previousStop: number;
+}): string {
+  const pnlSign = input.target.pnlPct >= 0 ? '+' : '';
+  return [
+    `🟡 <b>[SHADOW 수익 보호 후보]</b>`,
+    `종목: ${input.target.stockName}(${input.target.stockCode})`,
+    `현재 수익률: ${pnlSign}${input.target.pnlPct.toFixed(2)}%`,
+    `현재가: ${input.target.currentPrice.toLocaleString()}원`,
+    `기존 손절: ${input.previousStop.toLocaleString()}원`,
+    `트레일링 후보: ${input.target.tightStop.toLocaleString()}원`,
+    ``,
+    `판정: 수익 보호 조건 후보`,
+    `주의: 실계좌 주문 아님 / 섹터 집중도 대응 아님`,
+  ].join('\n');
+}
+
 /**
- * 섹터 집중도 초과 알림 빌더 — ADR-0028 §Phase B.
- * 기존 단정적 표현 "다음 스캔에서 청산 예정" → 조건부 "긴축선 도달 시 청산".
- * 예상 청산 가격 + 현재가까지 거리 + 현재 pnlPct 함께 표기 → 운영자가
- * 발동 가능성을 즉시 판단 가능 (수익권이라 안 떨어질지 / 곧 도달할지).
+ * LIVE 전용 섹터 노출 초과 알림 빌더.
+ * PATCH-008: 즉시 손절선 긴축/청산 표현을 제거하고 후보 액션만 표시한다.
  */
 export function buildSectorOverflowAlert(input: {
   sector: string;
@@ -56,33 +273,30 @@ export function buildSectorOverflowAlert(input: {
   limitPct: number;
   posNames: string;
   exitTarget: SectorTighteningMeta | null;
+  metrics?: ExposureMetrics;
 }): string {
-  const { sector, weightPct, limitPct, posNames, exitTarget } = input;
-  const lines: string[] = [
-    `🚨 <b>[섹터 집중도 초과 — 자동 대응]</b>`,
-    `섹터: <b>${sector}</b> — ${weightPct.toFixed(1)}% (한도 ${limitPct.toFixed(0)}%)`,
-    `보유 종목: ${posNames}`,
-  ];
-
-  if (exitTarget) {
-    const dropPct = exitTarget.currentPrice > 0
-      ? ((exitTarget.currentPrice - exitTarget.tightStop) / exitTarget.currentPrice) * 100
-      : 0;
-    const pnlSign = exitTarget.pnlPct >= 0 ? '+' : '';
-    lines.push(
-      `⚡ 자동 액션: 최저수익 포지션 <b>${exitTarget.stockName}</b>(${exitTarget.stockCode}, ` +
-      `현재 ${pnlSign}${exitTarget.pnlPct.toFixed(2)}%) ` +
-      `손절선을 ${exitTarget.tightStop.toLocaleString()}원으로 긴축`,
-      `   → 가격이 ${exitTarget.tightStop.toLocaleString()}원 도달 시 청산 ` +
-      `(현재가 ${exitTarget.currentPrice.toLocaleString()}원, -${dropPct.toFixed(1)}% 거리)`,
-      `ℹ️ 가격 미도달 시 미발동 — 수동 청산 또는 다음 점검에서 재평가`,
-    );
-  } else {
-    lines.push(`ℹ️ 자동 액션: 적용 가능한 최저수익 포지션 없음 (수동 청산 권고)`);
-  }
-
-  lines.push(`LIVE 전환 전 섹터 분산 필수!`);
-  return lines.join('\n');
+  const { sector, weightPct, limitPct, posNames, metrics } = input;
+  const exposureByCapital = metrics?.exposureByBaseCapitalPct ?? weightPct;
+  const exposureByNav = metrics?.exposureByNAVPct;
+  return [
+    `⚠️ <b>[LIVE 섹터 노출 초과]</b>`,
+    `섹터: <b>${sector}</b>`,
+    `보유 종목: ${posNames}${metrics ? ` (${metrics.positionCount}개)` : ''}`,
+    metrics ? `섹터 평가금액: ${Math.round(metrics.sectorExposureAmount).toLocaleString()}원` : null,
+    `원금 대비 노출: ${exposureByCapital.toFixed(1)}%`,
+    `NAV 대비 노출: ${exposureByNav === null || exposureByNav === undefined ? 'N/A' : `${exposureByNav.toFixed(1)}%`}`,
+    `한도: ${limitPct.toFixed(1)}%`,
+    ``,
+    `자동 액션 후보:`,
+    `1. 신규 매수 제한`,
+    `2. 추가 진입 차단`,
+    `3. 최저 기대값 포지션 축소 후보`,
+    `4. 트레일링 스탑 강화 후보`,
+    ``,
+    `executionImpact=RISK_CONTROL_ONLY`,
+    `engineAlive=true`,
+    `positionExitAllowed=true`,
+  ].filter((line): line is string => line !== null).join('\n');
 }
 /** 포트폴리오 가중 베타 한도 */
 const MAX_PORTFOLIO_BETA     = parseFloat(process.env.MAX_PORTFOLIO_BETA ?? '1.5');
@@ -130,7 +344,8 @@ export interface PortfolioRiskResult {
   warnings: string[];
 
   // 세부 지표
-  sectorWeights: Record<string, number>;     // 섹터별 비중 (0-1)
+  sectorWeights: Record<string, number>;     // 보유 포지션 내부 섹터별 상대 비중 (0-1)
+  sectorExposureMetrics?: ExposureMetrics[];  // 원금/NAV/리스크예산 대비 실제 노출률
   portfolioBeta: number;                      // 가중 베타
   highCorrelationPairs: [string, string, number][]; // [종목A, 종목B, 상관계수]
   dailyLossPct: number;                       // 당일 손실률
@@ -147,6 +362,7 @@ interface PositionSnapshot {
   quantity: number;
   marketValue: number;   // currentPrice × quantity
   beta: number;
+  mode: 'LIVE' | 'SHADOW';
 }
 
 async function buildPositionSnapshots(): Promise<PositionSnapshot[]> {
@@ -177,6 +393,7 @@ async function buildPositionSnapshots(): Promise<PositionSnapshot[]> {
       quantity: pos.quantity,
       marketValue: currentPrice * pos.quantity,
       beta,
+      mode: pos.mode === 'LIVE' ? 'LIVE' : 'SHADOW',
     });
   }
 
@@ -211,6 +428,34 @@ function checkSectorConcentration(
   }
 
   return { weights, blocked: false };
+}
+
+function buildSectorExposureMetrics(
+  snapshots: PositionSnapshot[],
+  totalValue: number,
+): ExposureMetrics[] {
+  const settings = loadTradingSettings();
+  const baseCapital = Number(process.env.AUTO_TRADE_ASSETS || settings.startingCapital);
+  const currentPrices = Object.fromEntries(snapshots.map(s => [s.stockCode, s.currentPrice]));
+  const accountNAV = computeShadowAccount(loadShadowTrades(), baseCapital, currentPrices).totalAssets;
+  const bySector = new Map<string, { exposure: number; count: number }>();
+
+  for (const s of snapshots) {
+    const prev = bySector.get(s.sector) ?? { exposure: 0, count: 0 };
+    prev.exposure += s.marketValue;
+    prev.count += 1;
+    bySector.set(s.sector, prev);
+  }
+
+  return Array.from(bySector.entries()).map(([sectorName, v]) => calculateExposureMetrics({
+    sectorName,
+    sectorExposureAmount: v.exposure,
+    totalOpenPositionExposure: totalValue,
+    positionCount: v.count,
+    baseCapital,
+    accountNAV,
+    activeRiskBudget: null,
+  }));
 }
 
 // ─── ② 가중 베타 합산 ───────────────────────────────────────────────────────
@@ -305,6 +550,7 @@ export async function evaluatePortfolioRisk(
 
   // ① 섹터 집중도
   const sector = checkSectorConcentration(snapshots, totalValue, candidateSector);
+  const sectorExposureMetrics = buildSectorExposureMetrics(snapshots, totalValue);
   if (sector.blocked && sector.reason) blockReasons.push(sector.reason);
 
   // ② 가중 베타
@@ -324,6 +570,7 @@ export async function evaluatePortfolioRisk(
     blockReasons,
     warnings,
     sectorWeights: sector.weights,
+    sectorExposureMetrics,
     portfolioBeta: beta.beta,
     highCorrelationPairs: corr.pairs,
     dailyLossPct: loss.lossPct,
@@ -378,75 +625,78 @@ export async function runPortfolioRiskCheck(): Promise<void> {
   const shadows = loadShadowTrades();
   const wlMap = new Map(loadWatchlist().map(w => [w.code, w]));
   let shadowsChanged = false;
+  const runtimeMode = getTradingMode();
 
-  for (const [sector, weight] of Object.entries(result.sectorWeights)) {
-    // '기타'는 섹터 미분류 버킷이므로 집중 판정 대상에서 제외한다.
-    // checkCorrelation도 동일하게 '기타'를 무시하는 것과 일관성을 맞춘다.
-    if (sector === '기타') continue;
-    const weightPct = (weight * 100).toFixed(1);
+  for (const metrics of result.sectorExposureMetrics ?? []) {
+    if (metrics.sectorName === '기타') continue;
 
-    if (weight >= MAX_SECTOR_WEIGHT) {
-      // ── 한도 초과: 해당 섹터 최저수익 포지션의 손절선을 현재가로 올려 청산을 유도 ──
-      const sectorPositions = shadows.filter(s => {
-        if (!isOpenShadowStatus(s.status)) return false;
-        const wl = wlMap.get(s.stockCode);
-        return (wl?.sector ?? '기타') === sector;
-      });
+    const sectorPositions = shadows.filter(s => {
+      if (!isOpenShadowStatus(s.status)) return false;
+      const wl = wlMap.get(s.stockCode);
+      return (wl?.sector ?? '기타') === metrics.sectorName;
+    });
+    const sectorMode: 'LIVE' | 'SHADOW' = sectorPositions.some(p => p.mode === 'LIVE') || runtimeMode === 'LIVE'
+      ? 'LIVE'
+      : 'SHADOW';
+    const decision = evaluateSectorRiskAutoAction({ metrics, mode: sectorMode });
+    const posNames = sectorPositions.map(s => s.stockName).join(', ');
 
-      let exitTargetMeta: SectorTighteningMeta | null = null;
-      if (sectorPositions.length > 0) {
-        // 수익률 기준 오름차순 정렬 → 가장 낮은 수익률 포지션부터 청산 대상
-        const sorted = sectorPositions
-          .map(s => {
-            const currentPrice = getRealtimePrice(s.stockCode) ?? s.shadowEntryPrice;
-            // ADR-0059: stale currentPrice 시 0 fallback — 섹터 약체 정렬 입력 보호.
-            const pnlPct = safePctChange(currentPrice, s.shadowEntryPrice, {
-              label: `portfolioRisk:${s.stockCode}`,
-            }) ?? 0;
-            return { shadow: s, pnlPct, currentPrice };
-          })
-          .sort((a, b) => a.pnlPct - b.pnlPct);
+    console.warn(
+      `[SECTOR_CONCENTRATION_EVALUATED] ` +
+      `mode=${sectorMode} ` +
+      `sectorName=${metrics.sectorName} ` +
+      `sectorType=${metrics.sectorType} ` +
+      `positionCount=${metrics.positionCount} ` +
+      `sectorExposureAmount=${Math.round(metrics.sectorExposureAmount)} ` +
+      `baseCapital=${Math.round(metrics.baseCapital)} ` +
+      `concentrationByOpenPositionsPct=${metrics.concentrationByOpenPositionsPct.toFixed(2)} ` +
+      `exposureByBaseCapitalPct=${metrics.exposureByBaseCapitalPct.toFixed(2)} ` +
+      `limitByOpenPositionsPct=${DEFAULT_SECTOR_RISK_CONFIG.maxSectorConcentrationByOpenPositionsPct.toFixed(2)} ` +
+      `limitByCapitalPct=${DEFAULT_SECTOR_RISK_CONFIG.maxSectorExposureByCapitalPct.toFixed(2)} ` +
+      `canTriggerAutoAction=${decision.canTriggerAutoAction} ` +
+      `reasons=${decision.reasons.join(',')} ` +
+      `executionImpact=${decision.canTriggerAutoAction ? 'RISK_CONTROL_ONLY' : 'NONE'}`,
+    );
 
-        // 최저수익 포지션의 손절선을 현재가 -1%로 긴축 → exitEngine이 다음 틱에서 청산
-        const exitTarget = sorted[0];
-        const tightStop = Math.round(exitTarget.currentPrice * SECTOR_TIGHT_STOP_RATIO);
-        if (exitTarget.shadow.stopLoss < tightStop) {
-          exitTarget.shadow.stopLoss = tightStop;
-          exitTarget.shadow.exitRuleTag = 'HARD_STOP';
-          shadowsChanged = true;
-          // 알림 메시지에서 활용할 메타 — *실제로 긴축이 적용된 경우만* 노출.
-          exitTargetMeta = {
-            stockName: exitTarget.shadow.stockName,
-            stockCode: exitTarget.shadow.stockCode,
-            currentPrice: exitTarget.currentPrice,
-            tightStop,
-            pnlPct: exitTarget.pnlPct,
-          };
-          console.warn(
-            `[PortfolioRisk] 🚨 섹터 ${sector} 비중 ${weightPct}% 초과 → ` +
-            `${exitTarget.shadow.stockName}(${exitTarget.shadow.stockCode}) 손절선 ${tightStop.toLocaleString()}원으로 긴축 (PnL: ${exitTarget.pnlPct.toFixed(1)}%)`,
-          );
-        }
-      }
+    if (!decision.canTriggerAutoAction) {
+      console.warn(
+        `[SECTOR_AUTO_ACTION_BLOCKED] ` +
+        `reason=${decision.reasons.includes('SINGLE_POSITION_ARTIFACT') && decision.reasons.includes('SMALL_EXPOSURE_ARTIFACT') && sectorMode === 'SHADOW'
+          ? 'SINGLE_SMALL_SHADOW_POSITION_ARTIFACT'
+          : decision.reasons[0] ?? 'OPEN_POSITION_CONCENTRATION_ONLY'} ` +
+        `mode=${sectorMode} ` +
+        `autoAction=NONE ` +
+        `engineAlive=true ` +
+        `shadowLearning=${sectorMode === 'SHADOW'} ` +
+        `positionExitAllowed=true`,
+      );
 
-      // Telegram 긴급 경보 (섹터별 장중 1회)
-      if (!_alertedSectors.has(sector)) {
-        _alertedSectors.add(sector);
-        const posNames = sectorPositions.map(s => s.stockName).join(', ');
+      if (metrics.concentrationByOpenPositionsPct >= DEFAULT_SECTOR_RISK_CONFIG.maxSectorConcentrationByOpenPositionsPct
+          && !_alertedSectors.has(metrics.sectorName)) {
+        _alertedSectors.add(metrics.sectorName);
         await sendTelegramAlert(
-          buildSectorOverflowAlert({
-            sector,
-            weightPct: parseFloat(weightPct),
-            limitPct: MAX_SECTOR_WEIGHT * 100,
-            posNames,
-            exitTarget: exitTargetMeta,
-          }),
-          { priority: 'HIGH', dedupeKey: `sector_conc_${sector}_${today}` },
+          buildSectorObserveOnlyAlert({ metrics, posNames, reasons: decision.reasons }),
+          { priority: 'LOW', dedupeKey: `sector_observe_${metrics.sectorName}_${today}` },
         ).catch(console.error);
       }
-    } else if (weight >= MAX_SECTOR_WEIGHT * 0.8) {
-      // 80% 접근 시 사전 경고
-      console.warn(`[PortfolioRisk] 섹터 ${sector} 비중 ${weightPct}% — 한도(${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%) 접근 중`);
+      continue;
+    }
+
+    if (sectorMode !== 'LIVE') continue;
+
+    if (!_alertedSectors.has(metrics.sectorName)) {
+      _alertedSectors.add(metrics.sectorName);
+      await sendTelegramAlert(
+        buildSectorOverflowAlert({
+          sector: metrics.sectorName,
+          weightPct: metrics.concentrationByOpenPositionsPct,
+          limitPct: DEFAULT_SECTOR_RISK_CONFIG.maxSectorExposureByCapitalPct,
+          posNames,
+          exitTarget: null,
+          metrics,
+        }),
+        { priority: 'HIGH', dedupeKey: `sector_exposure_${metrics.sectorName}_${today}` },
+      ).catch(console.error);
     }
   }
 
