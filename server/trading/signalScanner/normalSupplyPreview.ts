@@ -661,11 +661,13 @@ function buildProgramFlowEvidenceTrace<T extends CandidateWithSupplyContext>(
       stockRowsWithAny += 1;
       for (const key of rowKeys) stockKeyCounts.set(key, (stockKeyCounts.get(key) ?? 0) + 1);
       for (const record of records) {
-        for (const key of rowKeys) {
-          if (record[key] === undefined) continue;
-          const normalized = normalizeProgramFlowValue(record[key]);
+        for (const key of Object.keys(record)) {
+          if (!isStockProgramScanKey(key)) continue;
+          const raw = record[key];
+          const normalized = normalizeProgramFlowValue(raw ?? null);
           incrementCount(stockValueReasons, normalized.reason);
-          if (normalized.sanitizedSample) pushUniqueLimited(stockSamples, normalized.sanitizedSample, 3);
+          const sample = normalized.sanitizedSample ?? (raw == null ? 'null' : undefined);
+          if (sample) pushUniqueLimited(stockSamples, `${key}=${sample}`, 3);
           rowParsable ||= normalized.ok;
         }
       }

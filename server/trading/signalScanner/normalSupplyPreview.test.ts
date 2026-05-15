@@ -678,7 +678,28 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
     expect(text).toContain('stockProgramRowsWithParsableProgramValue: 1/1');
     expect(text).toContain('stockProgramValueReasonDistribution: PROGRAM_VALUE_OBJECT_WRAPPER=1');
-    expect(text).toContain('stockProgramSanitizedSampleTop: 1. "1,234"');
+    expect(text).toContain('stockProgramSanitizedSampleTop: 1. "programNetBuyAmount=1,234"');
+  });
+
+  it('records explicit null diagnostics when a stock program key exists with undefined value', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ programNetBuyAmount: undefined })] as any,
+    });
+
+    expect(preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey).toBe(1);
+    expect(preview.programFlowDiagnostics.stockProgramRowsWithParsableProgramValue).toBe(0);
+    expect(preview.programFlowDiagnostics.stockProgramValueReasonDistribution).toEqual({
+      PROGRAM_VALUE_NULL: 1,
+    });
+    expect(preview.programFlowDiagnostics.stockProgramSanitizedSampleTop).toEqual([
+      'programNetBuyAmount=null',
+    ]);
+    expect(preview.programFlowDiagnostics.stockProgramBreakPoint).toBe('PROGRAM_KEYS_PRESENT_BUT_NON_NUMERIC');
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(text).toContain('stockProgramValueReasonDistribution: PROGRAM_VALUE_NULL=1');
+    expect(text).toContain('stockProgramSanitizedSampleTop: 1. "programNetBuyAmount=null"');
   });
 
   it('keeps stock program parse failures unavailable without bearish or penalty contamination', () => {
