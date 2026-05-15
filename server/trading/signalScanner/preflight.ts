@@ -8,8 +8,16 @@
  */
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';
-import { getManualBlockNewBuy, getManualManageOnly, getEmergencyStop, getTradingMode } from '../../state.js';
-import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import {
+  getManualBlockNewBuy,
+  getManualManageOnly,
+  getEmergencyStop,
+  getTradingMode,
+  getMacroEntryOverrideState,
+  type MacroEntryOverrideState,
+  type MacroEntryOverrideTarget,
+} from '../../state.js';
+import { sendTelegramAlert, escapeHtml } from '../../alerts/telegramClient.js';
 import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../regimeBridge.js';
@@ -75,6 +83,76 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
     minMtas: cfg.minMtas, 
     reason: 'sectorAligned 통과' 
   };
+}
+
+function buildPreflightDiagnosticContext(input: {
+  watchlist: WatchlistEntry[];
+  shadows: any[];
+  shadowMode: boolean;
+  totalAssets: number;
+  orderableCash: number;
+  activeHoldingValue: number;
+  macroState: any;
+  regime: any;
+  regimeConfig: any;
+  conditionWeights: any;
+  extra?: Record<string, unknown>;
+}): any {
+  return {
+    watchlist: input.watchlist,
+    shadows: input.shadows,
+    shadowMode: input.shadowMode,
+    totalAssets: input.totalAssets,
+    orderableCash: input.orderableCash,
+    activeHoldingValue: input.activeHoldingValue,
+    macroState: input.macroState,
+    regime: input.regime,
+    regimeConfig: input.regimeConfig,
+    conditionWeights: input.conditionWeights,
+    ...(input.extra ?? {}),
+  };
+}
+
+const MACRO_OVERRIDE_ALLOWED_SIGNALS = ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'];
+
+function macroEntryOverrideApplies(
+  override: MacroEntryOverrideState | null,
+  target: MacroEntryOverrideTarget,
+): override is MacroEntryOverrideState {
+  return override?.targets.includes(target) === true;
+}
+
+function applyMacroEntryOverrideRegimeConfig(
+  regimeConfig: any,
+  override: MacroEntryOverrideState | null,
+): any {
+  if (!override) return regimeConfig;
+  const caution = REGIME_CONFIGS.R5_CAUTION;
+  return {
+    ...regimeConfig,
+    gate2Required: Math.min(regimeConfig?.gate2Required ?? caution.gate2Required, caution.gate2Required),
+    gate3Required: Math.min(regimeConfig?.gate3Required ?? caution.gate3Required, caution.gate3Required),
+    kellyMultiplier: Math.max(regimeConfig?.kellyMultiplier ?? 0, override.kellyFloor),
+    maxPositions: Math.max(regimeConfig?.maxPositions ?? 0, override.maxPositionsFloor),
+    allowedSignals:
+      Array.isArray(regimeConfig?.allowedSignals) && regimeConfig.allowedSignals.length > 0
+        ? regimeConfig.allowedSignals
+        : [...MACRO_OVERRIDE_ALLOWED_SIGNALS],
+    trancheStrategy: `${regimeConfig?.trancheStrategy ?? 'operator macro override'} | OPERATOR_MACRO_ENTRY_OVERRIDE`,
+  };
+}
+
+function applyMacroEntryOverrideKellyFloor(
+  value: number,
+  override: MacroEntryOverrideState | null,
+  target: MacroEntryOverrideTarget,
+): number {
+  if (!macroEntryOverrideApplies(override, target)) return value;
+  return Math.max(value, override.kellyFloor);
+}
+
+function formatMacroEntryOverrideLog(override: MacroEntryOverrideState): string {
+  return `targets=${override.targets.join(',')} expiresAt=${override.expiresAt} reason=${override.reason}`;
 }
 
 export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<any> {
@@ -160,12 +238,45 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   const macroState = loadMacroState();
   const regime      = getLiveRegime(macroState);
-  const regimeConfig = REGIME_CONFIGS[regime];
+  let regimeConfig = REGIME_CONFIGS[regime];
+  const macroEntryOverride = getMacroEntryOverrideState();
+  const r6EntryOverrideActive =
+    regime === 'R6_DEFENSE' && macroEntryOverrideApplies(macroEntryOverride, 'R6_DEFENSE');
+  if (r6EntryOverrideActive) {
+    regimeConfig = applyMacroEntryOverrideRegimeConfig(regimeConfig, macroEntryOverride!);
+    console.warn(
+      `[AutoTrade] OPERATOR_MACRO_ENTRY_OVERRIDE applied for R6_DEFENSE — ${formatMacroEntryOverrideLog(macroEntryOverride!)}`,
+    );
+    await sendTelegramAlert(
+      `⚠️ <b>[Operator Macro Entry Override]</b>\n` +
+      `R6_DEFENSE 신규 진입 차단을 운영자 명령으로 우회합니다.\n` +
+      `expiresAt: <code>${macroEntryOverride!.expiresAt}</code>\n` +
+      `reason: <code>${escapeHtml(macroEntryOverride!.reason)}</code>`,
+      { priority: 'HIGH', dedupeKey: 'operator_macro_entry_override:r6', cooldownMs: 30 * 60_000 },
+    ).catch(console.error);
+  }
   conditionWeights = applyFreshnessDecayToNeutralWeightedRecord(
     conditionWeights,
     { generatedAt: getConditionWeightsUpdatedAt() ?? undefined, regime },
     regime,
   );
+  const diagnosticContext = (extra: Record<string, unknown> = {}) =>
+    buildPreflightDiagnosticContext({
+      watchlist,
+      shadows,
+      shadowMode,
+      totalAssets,
+      orderableCash,
+      activeHoldingValue,
+      macroState,
+      regime,
+      regimeConfig,
+      conditionWeights,
+      extra: {
+        macroEntryOverride,
+        ...extra,
+      },
+    });
 
   const r3SanityBlock = loadR3SanityBlockState();
   if (r3SanityBlock.active) {
@@ -205,7 +316,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       );
       await updateShadowResults(shadows, regime);
       saveShadowTrades(shadows);
-      return { shouldAbort: true, skipPersist: true };
+      return { shouldAbort: true, skipPersist: true, context: diagnosticContext() };
     }
   }
 
@@ -245,13 +356,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true };
+    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ sellOnlyExc }) };
   }
   if (optSellOnly && sellOnlyExc.allow) {
     console.log(`[AutoTrade] SELL_ONLY 예외 채널 활성 — ${sellOnlyExc.reason} | maxSlots=${sellOnlyExc.maxSlots}, Kelly×${sellOnlyExc.kellyFactor}, Gate≥${sellOnlyExc.minLiveGate}, MTAS≥${sellOnlyExc.minMtas}`);
   }
 
-  if (regime === 'R6_DEFENSE') {
+  if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
     await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] 신규 진입 전면 차단</b>\nMHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`).catch(console.error);
     console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
     await recordBlockedDayShadowScan('RISK_OFF_REGIME');
@@ -278,11 +389,18 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true };
+    return { shouldAbort: true, skipPersist: true, context: diagnosticContext() };
+  }
+  if (regime === 'R6_DEFENSE' && r6EntryOverrideActive) {
+    console.warn(
+      `[AutoTrade] R6_DEFENSE no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE — ` +
+      `kellyFloor=${macroEntryOverride?.kellyFloor}, maxPositionsFloor=${macroEntryOverride?.maxPositionsFloor}`,
+    );
   }
 
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
-  if (vixGating.noNewEntry) {
+  const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
+  if (vixGating.noNewEntry && !vixEntryOverrideActive) {
     console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
     const session = getGatingAlertSession();
     if (session) {
@@ -314,13 +432,20 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true };
+    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating }) };
+  }
+  if (vixGating.noNewEntry && vixEntryOverrideActive) {
+    console.warn(
+      `[AutoTrade] VIX no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE — ` +
+      `${formatMacroEntryOverrideLog(macroEntryOverride!)}`,
+    );
   }
 
   const fomcProximity = getFomcProximity(
     macroState ? { mhs: macroState.mhs, regime: regime ?? macroState.regime, vkospi: macroState.vkospi } : undefined,
   );
-  if (fomcProximity.noNewEntry) {
+  const fomcEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'FOMC_BLOCK');
+  if (fomcProximity.noNewEntry && !fomcEntryOverrideActive) {
     console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
     const session = getGatingAlertSession();
     if (session) {
@@ -351,7 +476,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true };
+    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating, fomcProximity }) };
+  }
+  if (fomcProximity.noNewEntry && fomcEntryOverrideActive) {
+    console.warn(
+      `[AutoTrade] FOMC no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE — ` +
+      `${formatMacroEntryOverrideLog(macroEntryOverride!)}`,
+    );
   }
 
   if (isDataStarvedScan()) {
@@ -383,7 +514,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true };
+    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating, fomcProximity }) };
   }
 
   const ipsKelly = getIpsKellyMultiplier();
@@ -393,9 +524,19 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
   const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
   const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
-  const regimeFomcCombined = combineRegimeAndFomcKelly(regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime);
+  const effectiveVixKelly = applyMacroEntryOverrideKellyFloor(
+    vixGating.kellyMultiplier,
+    macroEntryOverride,
+    'VIX_BLOCK',
+  );
+  const effectiveFomcKelly = applyMacroEntryOverrideKellyFloor(
+    fomcProximity.kellyMultiplier,
+    macroEntryOverride,
+    'FOMC_BLOCK',
+  );
+  const regimeFomcCombined = combineRegimeAndFomcKelly(regimeConfig.kellyMultiplier, effectiveFomcKelly, fomcProximity.phase, regime);
   
-  const rawKelly = regimeFomcCombined.value * vixGating.kellyMultiplier * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier * safetyGateMultiplier;
+  const rawKelly = regimeFomcCombined.value * effectiveVixKelly * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier * safetyGateMultiplier;
   const kellyMultiplier = applyKellyClamp(rawKelly);
   
   if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
@@ -405,7 +546,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied — x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
   if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
-      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × VIX(×${vixGating.kellyMultiplier.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
+      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × VIX(×${effectiveVixKelly.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
     );
   }
 
@@ -440,7 +581,12 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true, positionFull: true };
+    return {
+      shouldAbort: true,
+      skipPersist: true,
+      positionFull: true,
+      context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier }),
+    };
   }
 
   const volumeClock = checkVolumeClockWindow();
@@ -450,13 +596,15 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     regime: regime ?? 'UNKNOWN',
     regimeKelly: regimeConfig.kellyMultiplier,
     fomcPhase: fomcProximity.phase,
-    fomcKelly: fomcProximity.kellyMultiplier,
+    fomcKelly: effectiveFomcKelly,
     finalKelly: kellyMultiplier,
     vixGatingActive: vixGating.noNewEntry,
     bearDefenseMode: false,
     mhsBelow30: (macroState?.mhs ?? 100) < 30,
     watchlistEmpty: watchlist.length === 0,
     sellOnlyMode: optSellOnly === true || !volumeClock.allowEntry,
+    macroEntryOverrideActive: macroEntryOverride !== null,
+    macroEntryOverrideTargets: macroEntryOverride?.targets,
   });
 
   if (!volumeClock.allowEntry) {
@@ -477,7 +625,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         momentumListLength: watchlist.length,
         macroGateState,
       },
-      context: { macroState },
+      context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier, volumeClock, macroGateState }),
     };
   }
   if (volumeClock.scoreBonus !== 0) {
@@ -553,7 +701,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         );
         await updateShadowResults(shadows, regime);
         saveShadowTrades(shadows);
-        return { shouldAbort: true, skipPersist: true };
+        return {
+          shouldAbort: true,
+          skipPersist: true,
+          context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier, volumeClock, macroGateState }),
+        };
       }
     }
   } else {
@@ -581,7 +733,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       vixGating,
       fomcProximity,
       kellyMultiplier,
+      effectiveVixKelly,
+      effectiveFomcKelly,
       accountKellyMultiplier,
+      macroEntryOverride,
       sellOnlyExc,
       volumeClock,
       conditionWeights,

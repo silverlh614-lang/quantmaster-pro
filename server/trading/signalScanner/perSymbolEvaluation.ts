@@ -54,6 +54,43 @@ function supplyRouterPayloadForSymbol(context: any, symbol: unknown): Record<str
 }
 
 function mergeSupplyProviderHealth(w: any, context: any): Record<string, unknown> | undefined {
+  const supplyContext = w.preflight?.supplyContext ?? w.supplyContext;
+  if (supplyContext && typeof supplyContext === "object") {
+    return {
+      ...(w.supplyProviderHealth ?? {}),
+      status: supplyContext.supplyProviderHealth === "MISSING" ? "MISSING" : supplyContext.supplyProviderHealth,
+      providerName: supplyContext.provider === "NONE" ? "investor-flow" : supplyContext.provider,
+      lastSampleAt: supplyContext.fetchedAt,
+      sampleCountRecent: supplyContext.supplyProviderHealth === "VERIFIED" ? 1 : 0,
+      hasForeignFlow: supplyContext.foreignNetBuyAmount !== undefined,
+      hasInstitutionFlow: supplyContext.institutionNetBuyAmount !== undefined,
+      hasProgramFlow: supplyContext.programNetBuyAmount !== undefined,
+      providerIssue: supplyContext.providerIssue,
+      marketSignal: supplyContext.marketSignal,
+      gate1Severity: supplyContext.supplyProviderHealth === "VERIFIED" ? "NONE" : "SOFT_FAIL",
+      requestSymbol: supplyContext.symbol,
+      candidateSymbol: supplyContext.symbol,
+      normalizedSymbol: supplyContext.symbol,
+      providerScope: "SYMBOL_LEVEL",
+      routePurpose: "BUY_CANDIDATE_PREFLIGHT",
+      materialized: supplyContext.supplyProviderHealth === "VERIFIED",
+      usableForRouter: supplyContext.supplyProviderHealth === "VERIFIED",
+      usableForGate: false,
+      usableForLive: false,
+      usableForShadow: true,
+      semanticNetBuyStatus: supplyContext.rawStatus,
+      semanticNetBuySignal: supplyContext.supplySignal === "UNUSABLE" ? "UNKNOWN" : supplyContext.supplySignal,
+      diagnostics: [
+        `perSymbolSupplyContext=${supplyContext.supplyProviderHealth}`,
+        `executionImpact=${supplyContext.executionImpact}`,
+      ],
+      reason: [
+        supplyContext.supplyProviderHealth === "VERIFIED"
+          ? "per-symbol investor-flow verified"
+          : `per-symbol investor-flow ${String(supplyContext.supplyProviderHealth).toLowerCase()}: ${supplyContext.rawStatus ?? "n/a"}`,
+      ],
+    };
+  }
   const payload = supplyRouterPayloadForSymbol(context, w.code);
   if (!payload) return w.supplyProviderHealth;
   return {
@@ -161,6 +198,7 @@ export async function evaluateMainCandidates(
   // 를 그대로 반환 → 전 후보 supplyConfluence/investorFlow UNKNOWN 페널티. 이전엔 이게 조용히
   // 발생했다. 1회성 진단 로그로 표면화한다 (executionImpact=NONE, 매매 결정 무변경).
   if (
+    !buyList.some((w: any) => w.preflight?.supplyContext || w.supplyContext) &&
     !context?.supplyRouterResult &&
     !context?.investorFlowRouteResult &&
     !context?.investorFlowRouter

@@ -9,6 +9,7 @@ import './stop.cmd.js';
 import './unblockBuy.cmd.js';
 import './unmanageOnly.cmd.js';
 import './guards.cmd.js';
+import './macroEntryOverride.cmd.js';
 // ADR-0195 — R3 sanity block 영속 latch 텔레그램 즉시 해제.
 import './r3Unblock.cmd.js';
 // ADR-0401 — R3 Sanity 단계형 state machine 통합 진단 (read-only).

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   __resetPreflightBlockedScanSummaryForTests,
+  attachPreflightBlockedPerSymbolSupplyInjection,
   clearPreflightBlockedScanSummary,
   formatPreflightBlockedScanSection,
   getLastPreflightBlockedScanSummary,
@@ -73,6 +74,64 @@ describe('preflightBlockedScanSummary (ADR-0367)', () => {
   });
 
   // 테스트 3: hardBlockSource / hardBlockModule / hardBlockReason 이 존재하는가
+  it('shows per-symbol supply injection as skipped when preflight stops before buyList loop', () => {
+    const recorded = recordPreflightBlockedScanSummary({
+      blockedBy: 'PRE_FLIGHT_BLOCK',
+      preflightDecision: 'ABORT_R6_DEFENSE',
+      candidateSummaryCount: 41,
+      universeSnapshotRecorded: false,
+      counterfactualRecorded: true,
+    });
+
+    const section = formatPreflightBlockedScanSection(recorded);
+    expect(section).toContain('Per-Symbol Supply Injection');
+    expect(section).toContain('status: SKIPPED_PRE_FLIGHT_BLOCK');
+    expect(section).toContain('reason: buyListLoopEntered=false / ABORT_R6_DEFENSE');
+    expect(section).toContain('candidateSummaryCount: 41');
+    expect(section).toContain('candidates: 0');
+    expect(section).toContain('requested: 0');
+    expect(section).toContain('injected: 0');
+    expect(section).toContain('unknown: 0');
+    expect(section).toContain('routerConnected: false');
+    expect(section).toContain('gateContextConnected: false');
+  });
+
+  it('shows collected per-symbol supply diagnostics even when preflight blocks live entry', () => {
+    recordPreflightBlockedScanSummary({
+      blockedBy: 'PRE_FLIGHT_BLOCK',
+      preflightDecision: 'ABORT_R6_DEFENSE',
+      candidateSummaryCount: 41,
+      universeSnapshotRecorded: false,
+      counterfactualRecorded: true,
+    });
+    attachPreflightBlockedPerSymbolSupplyInjection({
+      totalCandidates: 41,
+      requestedSymbols: 41,
+      receivedResults: 41,
+      injected: 35,
+      verified: 35,
+      degraded: 3,
+      stale: 1,
+      missing: 2,
+      unknown: 0,
+      routerConnected: true,
+      gateContextConnected: true,
+    });
+
+    const section = formatPreflightBlockedScanSection(getLastPreflightBlockedScanSummary()!);
+    expect(section).toContain('status: DIAGNOSTIC_COLLECTED_PRE_FLIGHT_BLOCK');
+    expect(section).toContain('candidates: 41');
+    expect(section).toContain('requested: 41');
+    expect(section).toContain('receivedResults: 41');
+    expect(section).toContain('verified: 35');
+    expect(section).toContain('degraded: 3');
+    expect(section).toContain('stale: 1');
+    expect(section).toContain('missing: 2');
+    expect(section).toContain('unknown: 0');
+    expect(section).toContain('routerConnected: true');
+    expect(section).toContain('gateContextConnected: true');
+  });
+
   it('preserves hardBlockSource / hardBlockModule / hardBlockReason / preflightDecision fields', () => {
     const recorded = recordPreflightBlockedScanSummary({
       blockedBy: 'HARD_BLOCK',

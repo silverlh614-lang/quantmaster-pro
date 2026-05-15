@@ -14,6 +14,7 @@ import {
   getDailyLossPct,
   getSmokeTestLiveBlocked,
   getSmokeTestLastFailedReason,
+  getMacroEntryOverrideState,
 } from '../../../state.js';
 // ADR-0195: 8번째 가드 — R3 sanity block 영속 latch 가시화.
 import { loadR3SanityBlockState } from '../../../persistence/r3SanityBlockRepo.js';
@@ -35,6 +36,7 @@ const guards: TelegramCommand = {
     const manageOnly = getManualManageOnly();
     const smokeBlocked = getSmokeTestLiveBlocked();
     const smokeReason = getSmokeTestLastFailedReason();
+    const macroEntryOverride = getMacroEntryOverrideState();
     const dailyLossPct = getDailyLossPct();
     const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
     const dailyLossHit = dailyLossPct >= dailyLossLimit;
@@ -53,6 +55,7 @@ const guards: TelegramCommand = {
       `신규 매수 차단 (/unblock_buy): ${blockNewBuy ? '🔴 활성' : '✅ 비활성'}`,
       `보유만 관리 (/unmanage_only): ${manageOnly ? '🔒 활성' : '✅ 비활성'}`,
       `Pre-Market Smoke Test: ${smokeBlocked ? `🟡 LIVE 차단 (${smokeReason ?? '사유 미상'}, 다음 08:45 자동 해제)` : '✅ 통과'}`,
+      `Macro Entry Override (/macro_unblock): ${macroEntryOverride ? `ACTIVE (${macroEntryOverride.targets.join(',')} until ${macroEntryOverride.expiresAt})` : 'inactive'}`,
       `일일 손실 한도: ${dailyLossPct.toFixed(2)}% / ${dailyLossLimit}% ${dailyLossHit ? '🔴 도달' : '✅ 여유'}`,
       // ADR-0195: 8번째 가드 — R3 sanity block 영속 latch (활성 시에만 운영자 인지용 라인 추가).
       `R3 Sanity Block (/r3_unblock): ${r3Active ? `🚨 활성 (${r3Sanity.violation}/${r3Sanity.regime})` : '✅ 비활성'}`,

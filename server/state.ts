@@ -49,6 +49,124 @@ export const setManualBlockNewBuy = (v: boolean) => { MANUAL_BLOCK_NEW_BUY = v; 
 export const getManualManageOnly = () => MANUAL_MANAGE_ONLY;
 export const setManualManageOnly = (v: boolean) => { MANUAL_MANAGE_ONLY = v; };
 
+// Operator-scoped macro entry override. This only bypasses macro no-new-entry
+// gates (R6/VIX/FOMC) and is intentionally in-memory + time-boxed.
+export const MACRO_ENTRY_OVERRIDE_TARGETS = [
+  'R6_DEFENSE',
+  'VIX_BLOCK',
+  'FOMC_BLOCK',
+] as const;
+
+export type MacroEntryOverrideTarget = typeof MACRO_ENTRY_OVERRIDE_TARGETS[number];
+
+export interface MacroEntryOverrideState {
+  active: true;
+  targets: MacroEntryOverrideTarget[];
+  reason: string;
+  setBy: string;
+  createdAt: string;
+  expiresAt: string;
+  ttlMinutes: number;
+  kellyFloor: number;
+  maxPositionsFloor: number;
+}
+
+export interface SetMacroEntryOverrideInput {
+  targets?: MacroEntryOverrideTarget[];
+  reason?: string;
+  setBy?: string;
+  ttlMinutes?: number;
+  now?: Date;
+  kellyFloor?: number;
+  maxPositionsFloor?: number;
+}
+
+const DEFAULT_MACRO_ENTRY_OVERRIDE_TTL_MINUTES = 60;
+const DEFAULT_MACRO_ENTRY_OVERRIDE_MAX_TTL_MINUTES = 240;
+const DEFAULT_MACRO_ENTRY_OVERRIDE_KELLY_FLOOR = 0.3;
+const DEFAULT_MACRO_ENTRY_OVERRIDE_MAX_POSITIONS_FLOOR = 1;
+
+let MACRO_ENTRY_OVERRIDE: MacroEntryOverrideState | null = null;
+
+function clampMacroOverrideTtl(minutes: number | undefined): number {
+  const configuredMax = Number(process.env.MACRO_ENTRY_OVERRIDE_MAX_MINUTES ?? DEFAULT_MACRO_ENTRY_OVERRIDE_MAX_TTL_MINUTES);
+  const maxMinutes = Number.isFinite(configuredMax) && configuredMax > 0
+    ? configuredMax
+    : DEFAULT_MACRO_ENTRY_OVERRIDE_MAX_TTL_MINUTES;
+  const raw = Number.isFinite(minutes) && minutes !== undefined
+    ? minutes
+    : DEFAULT_MACRO_ENTRY_OVERRIDE_TTL_MINUTES;
+  return Math.max(1, Math.min(maxMinutes, Math.floor(raw)));
+}
+
+function normalizeMacroOverrideTargets(
+  targets: MacroEntryOverrideTarget[] | undefined,
+): MacroEntryOverrideTarget[] {
+  const allowed = new Set<MacroEntryOverrideTarget>(MACRO_ENTRY_OVERRIDE_TARGETS);
+  const normalized = [...new Set((targets ?? MACRO_ENTRY_OVERRIDE_TARGETS).filter((target) => allowed.has(target)))];
+  return normalized.length > 0 ? normalized : [...MACRO_ENTRY_OVERRIDE_TARGETS];
+}
+
+function cloneMacroEntryOverrideState(state: MacroEntryOverrideState): MacroEntryOverrideState {
+  return {
+    ...state,
+    targets: [...state.targets],
+  };
+}
+
+export function setMacroEntryOverride(input: SetMacroEntryOverrideInput = {}): MacroEntryOverrideState {
+  const now = input.now ?? new Date();
+  const ttlMinutes = clampMacroOverrideTtl(input.ttlMinutes);
+  const expiresAt = new Date(now.getTime() + ttlMinutes * 60_000);
+  const kellyFloor = Number.isFinite(input.kellyFloor) && input.kellyFloor !== undefined
+    ? Math.max(0.05, Math.min(1.0, input.kellyFloor))
+    : DEFAULT_MACRO_ENTRY_OVERRIDE_KELLY_FLOOR;
+  const maxPositionsFloor = Number.isFinite(input.maxPositionsFloor) && input.maxPositionsFloor !== undefined
+    ? Math.max(1, Math.min(3, Math.floor(input.maxPositionsFloor)))
+    : DEFAULT_MACRO_ENTRY_OVERRIDE_MAX_POSITIONS_FLOOR;
+
+  MACRO_ENTRY_OVERRIDE = {
+    active: true,
+    targets: normalizeMacroOverrideTargets(input.targets),
+    reason: input.reason?.trim() || 'operator macro entry override',
+    setBy: input.setBy?.trim() || 'operator',
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    ttlMinutes,
+    kellyFloor,
+    maxPositionsFloor,
+  };
+
+  return cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE);
+}
+
+export function clearMacroEntryOverride(): MacroEntryOverrideState | null {
+  const previous = MACRO_ENTRY_OVERRIDE ? cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE) : null;
+  MACRO_ENTRY_OVERRIDE = null;
+  return previous;
+}
+
+export function getMacroEntryOverrideState(now: Date = new Date()): MacroEntryOverrideState | null {
+  if (!MACRO_ENTRY_OVERRIDE) return null;
+  if (new Date(MACRO_ENTRY_OVERRIDE.expiresAt).getTime() <= now.getTime()) {
+    MACRO_ENTRY_OVERRIDE = null;
+    return null;
+  }
+  return cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE);
+}
+
+export function isMacroEntryOverrideActive(
+  target: MacroEntryOverrideTarget,
+  now: Date = new Date(),
+): boolean {
+  const state = getMacroEntryOverrideState(now);
+  return state?.targets.includes(target) === true;
+}
+
+export function __resetMacroEntryOverrideForTests(): void {
+  MACRO_ENTRY_OVERRIDE = null;
+}
+
 // ─── Phase 2차 C7: Pre-Market Smoke Test Gate ──────────────────────────────────
 // 08:45 KST 스모크 테스트 실패 시 LIVE 주문 경로만 차단한다. Shadow 학습 루프는
 // 계속 돌아감 — 버그가 LIVE 주문에 도달하기 전에 선제적으로 차단하는 방어선.

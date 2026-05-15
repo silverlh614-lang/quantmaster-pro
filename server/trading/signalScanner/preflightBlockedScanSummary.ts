@@ -35,6 +35,7 @@ export interface PreflightBlockedScanSummary {
   gateSamples: 0;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
+  perSymbolSupplyInjection?: PreflightBlockedPerSymbolSupplyInjectionStats;
 }
 
 export interface RecordPreflightBlockedScanSummaryInput {
@@ -48,6 +49,20 @@ export interface RecordPreflightBlockedScanSummaryInput {
   counterfactualRecorded: boolean;
   scanId?: string;
   timestamp?: string;
+}
+
+export interface PreflightBlockedPerSymbolSupplyInjectionStats {
+  totalCandidates: number;
+  requestedSymbols: number;
+  receivedResults: number;
+  injected: number;
+  verified: number;
+  degraded: number;
+  stale: number;
+  missing: number;
+  unknown: number;
+  routerConnected: boolean;
+  gateContextConnected: boolean;
 }
 
 /**
@@ -129,6 +144,16 @@ export function clearPreflightBlockedScanSummary(): void {
   _lastPreflightBlockedScanSummary = null;
 }
 
+export function attachPreflightBlockedPerSymbolSupplyInjection(
+  stats: PreflightBlockedPerSymbolSupplyInjectionStats,
+): void {
+  if (!_lastPreflightBlockedScanSummary) return;
+  _lastPreflightBlockedScanSummary = {
+    ..._lastPreflightBlockedScanSummary,
+    perSymbolSupplyInjection: stats,
+  };
+}
+
 /** /scan_blockers baseMessage 용 plain key=value 섹션 (사용자 §"기대 출력" 정합). */
 export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanSummary): string {
   const lines: string[] = [];
@@ -146,7 +171,29 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   lines.push(`counterfactualRecorded=${summary.counterfactualRecorded}`);
   lines.push(`buyListLoopEntered=${summary.buyListLoopEntered}`);
   lines.push(`executionImpact=${summary.executionImpact}`);
+  lines.push('');
+  lines.push('📊 <b>Per-Symbol Supply Injection</b>');
+  const supplyInjection = summary.perSymbolSupplyInjection;
+  lines.push(`  status: ${supplyInjection ? 'DIAGNOSTIC_COLLECTED_PRE_FLIGHT_BLOCK' : 'SKIPPED_PRE_FLIGHT_BLOCK'}`);
+  lines.push(`  reason: ${formatPerSymbolSupplyInjectionSkipReason(summary)}`);
+  lines.push(`  candidateSummaryCount: ${summary.candidateSummaryCount}`);
+  lines.push(`  candidates: ${supplyInjection?.totalCandidates ?? 0}`);
+  lines.push(`  requested: ${supplyInjection?.requestedSymbols ?? 0}`);
+  lines.push(`  receivedResults: ${supplyInjection?.receivedResults ?? 0}`);
+  lines.push(`  injected: ${supplyInjection?.injected ?? 0}`);
+  lines.push(`  verified: ${supplyInjection?.verified ?? 0}`);
+  lines.push(`  degraded: ${supplyInjection?.degraded ?? 0}`);
+  lines.push(`  stale: ${supplyInjection?.stale ?? 0}`);
+  lines.push(`  missing: ${supplyInjection?.missing ?? 0}`);
+  lines.push(`  unknown: ${supplyInjection?.unknown ?? 0}`);
+  lines.push(`  routerConnected: ${supplyInjection?.routerConnected ?? false}`);
+  lines.push(`  gateContextConnected: ${supplyInjection?.gateContextConnected ?? false}`);
   return lines.join('\n');
+}
+
+function formatPerSymbolSupplyInjectionSkipReason(summary: PreflightBlockedScanSummary): string {
+  const decision = summary.preflightDecision ?? summary.blockedBy;
+  return `buyListLoopEntered=false / ${decision}`;
 }
 
 export function __resetPreflightBlockedScanSummaryForTests(): void {

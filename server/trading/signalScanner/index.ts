@@ -16,7 +16,13 @@ import { evaluateMainCandidates, evaluateIntradayCandidates } from './perSymbolE
 import { createApprovalQueueState, flushApprovalQueue } from './approvalQueue.js';
 import { dispatchApprovedBuy } from './orderDispatch.js';
 import { createScanCounters, persistScanResults } from './scanDiagnostics.js';
+import { attachPreflightBlockedPerSymbolSupplyInjection } from './preflightBlockedScanSummary.js';
 import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from './gateConditionResultTrace.js';
+import {
+  createDefaultInvestorFlowRouter,
+  injectPerSymbolSupplyContext,
+  type PerSymbolSupplyInjectionStats,
+} from './injectPerSymbolSupplyContext.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -72,6 +78,42 @@ function buildConditionResultsTraceArray(w: any) {
     : projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs);
 }
 
+async function collectPreflightAbortDiagnostics(
+  preflightResult: any,
+  options?: RunAutoSignalScanOptions,
+): Promise<PerSymbolSupplyInjectionStats | undefined> {
+  const context = preflightResult?.context;
+  if (!Array.isArray(context?.watchlist) || context.watchlist.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const diagnosticCandidates = await selectCandidates(context, options);
+    const injected = await injectPerSymbolSupplyContext({
+      candidates: diagnosticCandidates.buyList,
+      investorFlowRouter: createDefaultInvestorFlowRouter(),
+    });
+    attachPreflightBlockedPerSymbolSupplyInjection(injected.stats);
+    console.info('[AutoTrade/Diagnostics] preflight-blocked supply diagnostics collected', {
+      blockedBy: preflightResult?.preflightDecision ?? preflightResult?.blockedBy ?? 'PRE_FLIGHT_BLOCK',
+      buyList: injected.stats.totalCandidates,
+      requestedSymbols: injected.stats.requestedSymbols,
+      verified: injected.stats.verified,
+      degraded: injected.stats.degraded,
+      stale: injected.stats.stale,
+      missing: injected.stats.missing,
+      unknown: injected.stats.unknown,
+    });
+    return injected.stats;
+  } catch (error) {
+    console.warn(
+      '[AutoTrade/Diagnostics] preflight-blocked supply diagnostics failed; live block preserved',
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+}
+
 
 export interface RunAutoSignalScanOptions {
   sellOnly?: boolean;
@@ -94,6 +136,7 @@ export async function runAutoSignalScan(
   // 1. Preflight (거시/시스템 환경 평가 및 게이팅)
   const preflightResult = await runPreflight(options);
   if (preflightResult.shouldAbort) {
+    const preflightAbortSupplyInjection = await collectPreflightAbortDiagnostics(preflightResult, options);
     if (!preflightResult.skipPersist) {
       // ADR-0187: preflight abort 경로도 sectorEnergy meta carry-over (정상 경로와 정합).
       // ADR-0423: sectorEnergyQualityDiagnostic 도 함께 carry-over (옵셔널, 후방호환).
@@ -109,6 +152,7 @@ export async function runAutoSignalScan(
       await persistScanResults(counters, {
         sellOnly: options?.sellOnly,
         ...preflightResult.diagnosticData,
+        ...(preflightAbortSupplyInjection ? { perSymbolSupplyInjection: preflightAbortSupplyInjection } : {}),
         ...(abortMacro?.sectorEnergyDataQuality !== undefined ? {
           sectorEnergyQuality: abortMacro.sectorEnergyDataQuality,
           validSectorCount: abortMacro.sectorEnergyValidSectorCount,
@@ -124,6 +168,21 @@ export async function runAutoSignalScan(
 
   // 2. Candidate Select (관심종목 3섹션 및 Intraday 후보군 선정)
   const candidates = await selectCandidates(preflightResult.context, options);
+  let perSymbolSupplyInjection: PerSymbolSupplyInjectionStats | undefined;
+  try {
+    const injected = await injectPerSymbolSupplyContext({
+      candidates: candidates.buyList,
+      investorFlowRouter: createDefaultInvestorFlowRouter(),
+    });
+    candidates.buyList = injected.candidates;
+    candidates.mainList = injected.candidates;
+    perSymbolSupplyInjection = injected.stats;
+  } catch (error) {
+    console.warn(
+      '[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION] failed before evaluation; continuing',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   // 3. Per-Symbol Evaluation (매수 조건 검증, 큐/포지션/가용현금 상태관리 공유)
   const queueState = createApprovalQueueState(preflightResult.context.orderableCash);
@@ -155,6 +214,7 @@ export async function runAutoSignalScan(
   await persistScanResults(counters, {
     sellOnly: options?.sellOnly,
     ...candidates.lengths,
+    ...(perSymbolSupplyInjection ? { perSymbolSupplyInjection } : {}),
     macroGateState: preflightResult.macroGateState,
     ...(macro?.sectorEnergyDataQuality !== undefined ? {
       sectorEnergyQuality: macro.sectorEnergyDataQuality,

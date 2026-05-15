@@ -205,6 +205,7 @@ import {
   type InvestorFlowProviderRouterInput,
   type InvestorFlowProviderRouteResult,
 } from './investorFlowProviderRouterAdr0477.js';
+import type { PerSymbolSupplyInjectionStats } from './injectPerSymbolSupplyContext.js';
 import {
   buildNaverInvestorTrendCollectorResultAdr0481,
   collectNaverInvestorTrendCollectorResultAdr0481,
@@ -323,6 +324,8 @@ export interface MacroGateState {
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
   kospi20dReturn?: number;
+  macroEntryOverrideActive?: boolean;
+  macroEntryOverrideTargets?: string[];
 }
 
 
@@ -495,6 +498,7 @@ export interface ScanSummary {
    * decomposition, watchlist health, and diagnostic-only conservatism report.
    */
   entryFilterDecomposition?: EntryFilterDecomposition;
+  perSymbolSupplyInjection?: PerSymbolSupplyInjectionStats;
   /**
    * ADR-0414 §6 — Price Integrity 종목별 분류 진단 (옵셔널, Stage 1 Read-Only).
    *
@@ -1343,6 +1347,8 @@ export function buildMacroGateState(input: {
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
   kospi20dReturn?: number;
+  macroEntryOverrideActive?: boolean;
+  macroEntryOverrideTargets?: string[];
 }): MacroGateState {
   return {
     emergencyStop: input.emergencyStop,
@@ -1358,6 +1364,8 @@ export function buildMacroGateState(input: {
     watchlistEmpty: input.watchlistEmpty,
     sellOnlyMode: input.sellOnlyMode,
     kospi20dReturn: input.kospi20dReturn,
+    macroEntryOverrideActive: input.macroEntryOverrideActive,
+    macroEntryOverrideTargets: input.macroEntryOverrideTargets,
   };
 }
 
@@ -1775,6 +1783,22 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   // ADR-0412 — Frozen Quote 진단 + R3 streak skip 라인 (R3 state machine 노출 *전*).
+  if (summary.perSymbolSupplyInjection) {
+    const s = summary.perSymbolSupplyInjection;
+    lines.push('');
+    lines.push('📊 <b>Per-Symbol Supply Injection</b>');
+    lines.push(`  candidates: ${s.totalCandidates}`);
+    lines.push(`  requested: ${s.requestedSymbols}`);
+    lines.push(`  injected: ${s.injected}`);
+    lines.push(`  verified: ${s.verified}`);
+    lines.push(`  degraded: ${s.degraded}`);
+    lines.push(`  stale: ${s.stale}`);
+    lines.push(`  missing: ${s.missing}`);
+    lines.push(`  unknown: ${s.unknown}`);
+    lines.push(`  routerConnected: ${s.routerConnected}`);
+    lines.push(`  gateContextConnected: ${s.gateContextConnected}`);
+  }
+
   const frozenSection = formatFrozenQuoteSection(summary.frozenQuote);
   if (frozenSection) {
     lines.push(frozenSection);
@@ -2476,6 +2500,7 @@ export interface PersistScanResultsOptions {
   swingListLength: number;
   catalystListLength: number;
   momentumListLength: number;
+  perSymbolSupplyInjection?: PerSymbolSupplyInjectionStats;
   candidateSnapshots?: CandidateSnapshot[];
   watchlistRefreshedAt?: string;
   watchlistSource?: string;
@@ -2585,6 +2610,9 @@ export async function persistScanResults(
     // ADR-0423 — SectorEnergy 데이터 진실성 진단 영속 (옵셔널, 후방호환).
     ...(options.sectorEnergyQualityDiagnostic
       ? { sectorEnergyQualityDiagnostic: options.sectorEnergyQualityDiagnostic }
+      : {}),
+    ...(options.perSymbolSupplyInjection
+      ? { perSymbolSupplyInjection: options.perSymbolSupplyInjection }
       : {}),
     // ADR-0436 — Gate Eligibility Split 6 카운터 propagate (counters → ScanSummary).
     // 옵셔널 후방호환 — 0 이어도 명시 영속하여 진단 가시화 보장.

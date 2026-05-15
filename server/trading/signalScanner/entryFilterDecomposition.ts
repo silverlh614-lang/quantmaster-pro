@@ -100,6 +100,7 @@ export type SupplyProviderHealthStatus =
   | "VERIFIED"
   | "DEGRADED"
   | "STALE"
+  | "MISSING"
   | "NO_RECENT_SAMPLE"
   | "EMPTY"
   | "ERROR"
@@ -782,22 +783,22 @@ function makeCondition(input: Gate1ConditionTrace): Gate1ConditionTrace {
 function classifySupplyProviderHealth(
   input?: Partial<SupplyProviderHealthTrace>,
 ): SupplyProviderHealthTrace {
-  const status = input?.status ?? "UNKNOWN";
+  const status = input?.status === "UNKNOWN" ? "MISSING" : input?.status ?? "MISSING";
   const providerIssue = input?.providerIssue ?? status !== "VERIFIED";
   const marketSignal = input?.marketSignal ?? false;
   const gate1Severity =
     input?.gate1Severity ??
     (status === "VERIFIED"
       ? "NONE"
-      : status === "UNKNOWN"
-        ? "DIAGNOSTIC_ONLY"
-        : "SOFT_FAIL");
+      : "SOFT_FAIL");
   const reason =
     input?.reason ??
     (status === "NO_RECENT_SAMPLE"
       ? ["no recent investor-flow provider sample"]
       : status === "VERIFIED"
         ? ["provider verified"]
+        : status === "MISSING"
+          ? ["supply context missing/not injected; provider gap, not bearish"]
         : [`supply provider status=${status}`]);
   return {
     status,
@@ -1831,7 +1832,7 @@ export function buildEntryFilterDecomposition(
     );
     const supplyConfluenceState =
       trace.supplyConfluenceState ??
-      (supplyProviderHealth.status === "VERIFIED" ? "NEUTRAL" : "UNKNOWN");
+      (supplyProviderHealth.status === "VERIFIED" ? "NEUTRAL" : "UNAVAILABLE");
     const gate1Trace = buildGate1CandidateTrace({
       trace,
       regime,

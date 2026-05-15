@@ -11,9 +11,11 @@ vi.mock('../../state.js', () => ({
   getEmergencyStop: vi.fn().mockReturnValue(false),
   // ADR-0392 P0-B — preflight 가 getTradingMode() 사용 → mock 추가.
   getTradingMode: vi.fn().mockReturnValue('SHADOW'),
+  getMacroEntryOverrideState: vi.fn().mockReturnValue(null),
 }));
 vi.mock('../../alerts/telegramClient.js', () => ({
   sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
+  escapeHtml: vi.fn((text: string) => text),
 }));
 vi.mock('../../utils/gatingAlertWindow.js', () => ({
   getGatingAlertSession: vi.fn().mockReturnValue('OPEN'),
@@ -183,7 +185,8 @@ describe('preflight.ts byte-equivalent tests', () => {
     mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof loadR3SanityBlockState>);
     mockedIsR3SanityAckTokenValid.mockReturnValue(false);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), regime: 'R2_BULL' }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'R3_SANITY_BLOCK' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       preflightStage: 'AFTER_UNIVERSE_BUILD',
@@ -194,7 +197,8 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('should abort in R6_DEFENSE regime', async () => {
     mockedGetLiveRegime.mockReturnValue('R6_DEFENSE');
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), regime: 'R6_DEFENSE' }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       preflightStage: 'AFTER_UNIVERSE_BUILD',
@@ -205,7 +209,8 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('should abort if VIX gating is active', async () => {
     mockedGetVixGating.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, reason: 'VIX spike' } as ReturnType<typeof getVixGating>);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), vixGating: expect.objectContaining({ noNewEntry: true }) }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'VIX_SPIKE' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       preflightStage: 'AFTER_UNIVERSE_BUILD',
@@ -216,7 +221,8 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('should record FOMC shadow and universe learning even when scan persist is skipped', async () => {
     mockedGetFomcProximity.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, phase: 'BLACKOUT', description: 'FOMC blackout' } as unknown as ReturnType<typeof getFomcProximity>);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), fomcProximity: expect.objectContaining({ noNewEntry: true }) }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'FOMC_BLOCK' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       preflightStage: 'AFTER_UNIVERSE_BUILD',
@@ -227,7 +233,8 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('skipPersist=true means normal scan persistence may be skipped, not Shadow/Universe learning', async () => {
     mockedIsDataStarvedScan.mockReturnValue(true);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true });
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true }));
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array) }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'DATA_STARVED',
@@ -243,6 +250,7 @@ describe('preflight.ts byte-equivalent tests', () => {
     const result = await runPreflight();
     expect(result.shouldAbort).toBe(true);
     expect(result.skipPersist).toBe(false);
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), volumeClock: expect.objectContaining({ allowEntry: false }) }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'VOLUME_CLOCK_BLOCK',
@@ -257,7 +265,8 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('should abort if position slots are full', async () => {
     mockedComputeSlotConsumption.mockReturnValue({ isFull: true, consumed: 8, rawCount: 8 } as ReturnType<typeof computeSlotConsumption>);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: true, positionFull: true });
+    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true, positionFull: true }));
+    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), kellyMultiplier: expect.any(Number) }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'POSITION_FULL',
