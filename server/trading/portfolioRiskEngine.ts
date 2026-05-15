@@ -127,6 +127,18 @@ export function classifySectorType(label: string): SectorType {
   return 'UNKNOWN';
 }
 
+/**
+ * Patch-PORTFOLIO-RISK-ENTRY-MARKET-SEGMENT-001 — 진입 차단 경로 시장구분 가드.
+ * PATCH-008 은 auto-action(손절선 긴축) 경로만 MARKET_SEGMENT 를 제외했고,
+ * 진입 차단 경로 checkSectorConcentration / checkCorrelation 은 여전히
+ * '기타'만 제외해 우량기업부 100% → 신규 진입 차단 오판이 잔존했다.
+ * ENV PORTFOLIO_RISK_MARKET_SEGMENT_ENTRY_GUARD_DISABLED=true 시 PATCH-008 이전 동작 복원.
+ * default OFF (가드 활성).
+ */
+function isMarketSegmentEntryGuardDisabled(): boolean {
+  return process.env.PORTFOLIO_RISK_MARKET_SEGMENT_ENTRY_GUARD_DISABLED === 'true';
+}
+
 export function calculateExposureMetrics(input: {
   sectorName: string;
   sectorExposureAmount: number;
@@ -417,13 +429,22 @@ function checkSectorConcentration(
     weights[sector] = totalValue > 0 ? value / totalValue : 0;
   }
 
-  // 후보 종목 섹터가 이미 30% 초과인지 확인
-  // '기타'는 섹터 미분류 버킷이므로 집중도 판정에서 제외.
-  if (candidateSector && candidateSector !== '기타' && (weights[candidateSector] ?? 0) >= MAX_SECTOR_WEIGHT) {
+  // 후보 종목 섹터가 이미 30% 초과인지 확인.
+  // '기타' = 섹터 미분류 버킷. 우량기업부/KOSPI 등 KRX 소속부·시장구분은 산업 섹터가
+  // 아니므로 집중도 판정에서 제외 (Patch-PORTFOLIO-RISK-ENTRY-MARKET-SEGMENT-001).
+  // 또한 보유 2종목 미만이면 단일 포지션이 비중 100%일 뿐 "집중"이 아니므로 차단하지 않는다.
+  const entryGuardActive = !isMarketSegmentEntryGuardDisabled();
+  const blockEligible = entryGuardActive
+    ? candidateSector != null
+      && candidateSector !== '기타'
+      && classifySectorType(candidateSector) !== 'MARKET_SEGMENT'
+      && snapshots.length >= 2
+    : candidateSector != null && candidateSector !== '기타';
+  if (blockEligible && (weights[candidateSector!] ?? 0) >= MAX_SECTOR_WEIGHT) {
     return {
       weights,
       blocked: true,
-      reason: `섹터 집중도 초과: ${candidateSector} ${((weights[candidateSector] ?? 0) * 100).toFixed(1)}% ≥ ${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%`,
+      reason: `섹터 집중도 초과: ${candidateSector} ${((weights[candidateSector!] ?? 0) * 100).toFixed(1)}% ≥ ${(MAX_SECTOR_WEIGHT * 100).toFixed(0)}%`,
     };
   }
 
@@ -493,13 +514,20 @@ function checkCorrelation(
   snapshots: PositionSnapshot[],
 ): { pairs: [string, string, number][]; warning: boolean; reason?: string } {
   const pairs: [string, string, number][] = [];
+  // 우량기업부/KOSPI 등 KRX 소속부·시장구분은 산업 섹터가 아니므로 상관 쌍에서 제외
+  // (Patch-PORTFOLIO-RISK-ENTRY-MARKET-SEGMENT-001 — 허위 분산 경보 오판 차단).
+  const marketSegmentGuard = !isMarketSegmentEntryGuardDisabled();
 
   for (let i = 0; i < snapshots.length; i++) {
     for (let j = i + 1; j < snapshots.length; j++) {
       const a = snapshots[i];
       const b = snapshots[j];
       // 동일 섹터 → 높은 상관 (0.8 가정)
-      if (a.sector === b.sector && a.sector !== '기타') {
+      if (
+        a.sector === b.sector &&
+        a.sector !== '기타' &&
+        (!marketSegmentGuard || classifySectorType(a.sector) !== 'MARKET_SEGMENT')
+      ) {
         pairs.push([a.stockName, b.stockName, 0.8]);
       }
     }
