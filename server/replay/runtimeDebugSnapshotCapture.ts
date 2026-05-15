@@ -163,7 +163,7 @@ async function buildShadowBlock(
         if ((t as { detachedFromWatchlist?: boolean }).detachedFromWatchlist === true) detached++;
         if (typeof t.signalTime === 'string' && t.signalTime.startsWith(marketDate)) todayCreated++;
         if (
-          (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP' || t.status === 'REVERTED') &&
+          (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP') &&
           typeof t.signalTime === 'string' &&
           t.signalTime.startsWith(marketDate)
         ) {
