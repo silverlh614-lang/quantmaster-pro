@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   logger,
+  classifyOperationalSeverity,
+  logOperationalEvent,
   logNoiseDetail,
   logNoiseSummary,
   resetNoiseCountersForTest,
@@ -185,6 +187,53 @@ describe('log noise reduction', () => {
     expect(console.error).not.toHaveBeenCalled();
     expect(console.warn).not.toHaveBeenCalled();
     expect(console.debug).not.toHaveBeenCalled();
+  });
+
+  it('HOTFIX-013 operational severity: SHADOW autoAction NONE executionImpact NONE is info/stdout', () => {
+    const severity = logOperationalEvent('SECTOR_AUTO_ACTION_BLOCKED', {
+      mode: 'SHADOW',
+      autoAction: 'NONE',
+      engineAlive: true,
+      shadowLearning: true,
+      positionExitAllowed: true,
+      providerIssue: false,
+      newBuyBlocked: false,
+      dataVacuum: false,
+      executionImpact: 'NONE',
+      reason: 'SINGLE_SMALL_SHADOW_POSITION_ARTIFACT',
+    });
+
+    expect(severity).toBe('info');
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('[SECTOR_AUTO_ACTION_BLOCKED]'));
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('severity=info'));
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('logClass=RISK_OBSERVE'));
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('HOTFIX-013 operational severity: LIVE risk control is warn and blocked exit is error', () => {
+    expect(classifyOperationalSeverity({
+      tag: 'SECTOR_AUTO_ACTION_TRIGGERED',
+      mode: 'LIVE',
+      autoAction: 'TIGHTEN_TRAILING_STOP_CANDIDATE',
+      executionImpact: 'RISK_CONTROL_ONLY',
+      positionExitAllowed: true,
+      engineAlive: true,
+    })).toBe('warn');
+
+    expect(classifyOperationalSeverity({
+      tag: 'POSITION_EXIT_BLOCKED',
+      mode: 'LIVE',
+      executionImpact: 'POSITION_EXIT_BLOCKED',
+      positionExitAllowed: false,
+      engineAlive: true,
+    })).toBe('error');
+
+    expect(classifyOperationalSeverity({
+      tag: 'ENGINE_HEALTH',
+      engineAlive: false,
+      executionImpact: 'POSITION_EXIT_BLOCKED',
+    })).toBe('error');
   });
 
   it('NoiseSummary는 INFO로 출력된다', () => {
