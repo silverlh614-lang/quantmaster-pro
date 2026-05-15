@@ -23,6 +23,7 @@ import { registerMaintenanceJobs } from './maintenanceJobs.js';
 import { registerCommandUsageJobs } from './commandUsageJobs.js';
 import { registerBugLedgerSummaryJob } from './bugLedgerSummaryJob.js';
 import { registerBugCandidateJob } from './bugCandidateJob.js';
+import { registerMarketCloseSnapshotJob } from './marketCloseSnapshotJob.js';
 import { registerHealthLoop } from './healthLoop.js';
 import { registerPostHolidayKickstart } from './postHolidayKickstart.js';
 import { registerInvestorFlowWarmupJobs } from './investorFlowWarmupJob.js';
@@ -59,6 +60,7 @@ export function startScheduler(): void {
   registerCommandUsageJobs();
   registerBugLedgerSummaryJob();  // PR #669/#670/#671/#672/#673 후속 P2-B — 매월 1일 10:00 KST
   registerBugCandidateJob();       // PR #669~#674 후속 P3 — 매일 09:30 KST CRITICAL 패턴 검출
+  registerMarketCloseSnapshotJob(); // Patch-MARKET-CLOSE-SNAPSHOT-001 — 매 평일 15:19 KST replay snapshot capture
 
   // PATCH-OPS: startup execution context clarification.
   // 기존 부팅 메시지의 "KIS: 실거래" 문구가 실주문 허용으로 오해되지 않도록

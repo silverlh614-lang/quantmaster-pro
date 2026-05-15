@@ -495,6 +495,38 @@ export const GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE = path.join(DATA_DIR, 'gat
 /** ADR-459 — approved gate reclassification controlled rollout 운영 상태 기록. */
 export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-reclassification-rollout.json');
 
+/**
+ * Patch-MARKET-CLOSE-SNAPSHOT-001 — 15:19 KST market-close replay snapshot 영속 디렉토리.
+ * 사용자 명시 lifecycle (절대 변경 금지):
+ *   - 매일 장 종료 직전 15:19 KST 자동 capture (SELL_ONLY 시간 회피)
+ *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 거래일 09:00 ~ 15:19 까지 그대로 유지
+ *   - 다음 거래일 15:19 capture 시점에 이전 일자 디렉토리 cleanup (overwrite)
+ *   - 금요일 snapshot → 월요일 15:19 capture 가 덮어쓰기
+ *   - 같은 일자 안에서 multi-capture 시 revision 누적 (r1~r5 FIFO trim)
+ * `data/intraday-snapshots/YYYY-MM-DD/market-close-1519.json` + revision r1/r2 등.
+ * `data/intraday-snapshots/latest-market-close.json` — 최신 성공 snapshot pointer.
+ * Sensitive field redaction 의무 (token / accountNo / orderId / authorization 등 영속 0건).
+ */
+export const INTRADAY_SNAPSHOTS_DIR = path.join(DATA_DIR, 'intraday-snapshots');
+export const LATEST_MARKET_CLOSE_POINTER_FILE = path.join(INTRADAY_SNAPSHOTS_DIR, 'latest-market-close.json');
+
+export function intradaySnapshotDayDir(yyyymmdd: string): string {
+  // path traversal 방어 — `YYYY-MM-DD` 형식만 허용
+  const safe = yyyymmdd.replace(/[^0-9\-]/g, '').slice(0, 10);
+  return path.join(INTRADAY_SNAPSHOTS_DIR, safe);
+}
+
+export function marketCloseSnapshotFile(yyyymmdd: string, revision: number): string {
+  const safeRev = Math.max(1, Math.min(99, Math.floor(revision)));
+  const suffix = safeRev === 1 ? '' : `-r${safeRev}`;
+  return path.join(intradaySnapshotDayDir(yyyymmdd), `market-close-1519${suffix}.json`);
+}
+
+export function ensureIntradaySnapshotsDir(): void {
+  ensureDataDir();
+  if (!fs.existsSync(INTRADAY_SNAPSHOTS_DIR)) fs.mkdirSync(INTRADAY_SNAPSHOTS_DIR, { recursive: true });
+}
+
 export function ensureReflectionsDir(): void {
   ensureDataDir();
   if (!fs.existsSync(REFLECTIONS_DIR)) fs.mkdirSync(REFLECTIONS_DIR, { recursive: true });
