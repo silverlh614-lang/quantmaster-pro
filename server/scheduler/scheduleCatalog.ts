@@ -44,6 +44,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '14:30', label: 'FOMC DAY 자동 청산', group: 'trading', jobName: 'fomc_day_liquidation', silentWhen: 'FOMC DAY phase + 5중 가드(enabled/AUTO_TRADE/emergencyStop/시각 boundary) 미충족 시 무음 (ADR-0061)' },
   { timeKst: '14:30', label: '섹터 사이클 대시보드', group: 'reports', jobName: 'sector_cycle_dashboard' },
   { timeKst: '15:15', label: '휴장 진입 직전 알림 (ADR-0132)', group: 'alerts', jobName: 'holiday_enter_alert', silentWhen: '다음 영업일까지 비영업 간격 < 3일이면 무음 — LONG_HOLIDAY 진입 직전에만 발송' },
+  { timeKst: '15:19', label: 'Market-close replay snapshot capture (Patch-MARKET-CLOSE-SNAPSHOT-001)', group: 'maintenance', jobName: 'market_close_snapshot_capture', silentWhen: 'MARKET_CLOSE_SNAPSHOT_DISABLED=true 이거나 KRX 휴장일이면 무음 — 다음 거래일 09:00 개장 시 초기화 안 함, 다음 15:19 capture 가 이전 일자 cleanup (overwrite). 금→월 lifecycle 보존.' },
   { timeKst: '15:35', label: 'INFO 일일 다이제스트 flush', group: 'reports', jobName: 'info_digest_flush', silentWhen: 'INFO 버퍼 비어 있으면 무음 (당일 INFO 알림 없음)' },
   { timeKst: '15:40', label: 'Ghost Portfolio 갱신', group: 'learning', jobName: 'ghost_portfolio', silentWhen: '내부 캐시 갱신만 — Telegram 송출 없음' },
   { timeKst: '16:00', label: 'Counterfactual Resolve (ADR-0007)', group: 'learning', jobName: 'counterfactual_resolve', silentWhen: '내부 학습 영속만 — Telegram 송출 없음' },
