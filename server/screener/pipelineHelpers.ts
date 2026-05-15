@@ -23,6 +23,7 @@ import type { ConfluenceResult } from '../trading/confluenceEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import type { GateEvaluationSnapshot, GateLayerSummary, ServerGateResult } from '../quantFilter.js';
+import type { KisInvestorFlowActualRowCarrier, KisInvestorFlowRawRow } from '../clients/kisClient.js';
 import {
   classifyStage1RejectStrict,
   isEmergencyStage1StrictEnabled,
@@ -54,6 +55,9 @@ export interface CandidateStock {
   kisFlow?: {
     foreignNetBuy:      number;  // 외국인 당일 순매수량
     institutionalNetBuy: number; // 기관 당일 순매수량
+    individualNetBuy?:  number;  // 개인 당일 순매수량
+    actualRows?: KisInvestorFlowRawRow[];
+    actualInvestorFlowRowCarrier?: KisInvestorFlowActualRowCarrier;
   };
   // 실데이터 펀더멘털 (DART API — Stage 3)
   dartFin?: {

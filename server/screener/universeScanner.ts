@@ -183,6 +183,40 @@ function applyGateSnapshotToCandidate(
   candidate.gateOutputs = gate.outputs;
 }
 
+function resolveKisInvestorFlowFetchTargets(
+  candidates: CandidateStock[],
+  kisLoadState: string,
+): CandidateStock[] {
+  if (kisLoadState === "RED") return [];
+
+  const maxCount = kisLoadState === "YELLOW" ? 15 : 25;
+  const watchlist = loadWatchlist();
+  const focusCodes = computeFocusCodes(watchlist);
+  const sectionMap = new Map<string, string>();
+  for (const w of watchlist) {
+    sectionMap.set(w.code, assignSection(w, focusCodes));
+  }
+
+  const swing: CandidateStock[] = [];
+  const catalyst: CandidateStock[] = [];
+  const momentum: CandidateStock[] = [];
+
+  for (const c of candidates) {
+    const section = sectionMap.get(c.code) ?? "MOMENTUM";
+    if (section === "SWING") swing.push(c);
+    else if (section === "CATALYST") catalyst.push(c);
+    else momentum.push(c);
+  }
+
+  const targets: CandidateStock[] = [...swing, ...catalyst];
+  if (kisLoadState === "GREEN") {
+    const remaining = maxCount - targets.length;
+    if (remaining > 0) targets.push(...momentum.slice(0, remaining));
+  }
+
+  return targets.slice(0, maxCount);
+}
+
 // ── Stage 1 ───────────────────────────────────────────────────────────────────
 
 /**
@@ -460,18 +494,30 @@ export async function stage2SectorGateFilter(
     });
   }
 
-  const top15 = results
-    .sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0))
-    .slice(0, 15);
+  // 1차 정렬 — kisFlow 반영 전 stage2Score 기준
+  results.sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0));
 
-  // ── KIS 투자자 수급 실데이터 조회 (실계좌 모드 또는 mock override, 상위 15개만) ──
+  // ── KIS 투자자 수급 실데이터 조회 — budgeted tier-aware (ADR-P0-2) ──
+  // top15 고정 제거, KIS_LOAD_STATE와 섹션 정책 기반 최대 25개 선정
+  // kisRateLimiter LOW 우선순위 + 200ms 간격으로 초당 15건 한도 내 유지
   if (stage2KisFallbackDecision.allowed && (KIS_IS_REAL || hasKisClientOverrides())) {
-    for (const c of top15) {
+    const kisLoadState = (process.env.KIS_LOAD_STATE ?? "GREEN").toUpperCase();
+    const kisFlowTargets = resolveKisInvestorFlowFetchTargets(results, kisLoadState);
+
+    console.log(
+      `[Pipeline/Stage2] KIS investor flow fetch: ` +
+        `state=${kisLoadState} target=${kisFlowTargets.length}/${results.length}개`,
+    );
+
+    for (const c of kisFlowTargets) {
       const flow = await fetchKisInvestorTradeByStockDaily(c.code).catch(() => null);
       if (flow) {
         c.kisFlow = {
           foreignNetBuy: flow.foreignNetBuy,
           institutionalNetBuy: flow.institutionalNetBuy,
+          individualNetBuy: flow.individualNetBuy,
+          actualRows: flow.actualRows ?? flow.actualInvestorFlowRowCarrier?.actualRows ?? [],
+          actualInvestorFlowRowCarrier: flow.actualInvestorFlowRowCarrier,
         };
         // 외국인 순매수 보너스: stage2Score에 반영
         const flowBonus =
@@ -510,11 +556,14 @@ export async function stage2SectorGateFilter(
             `unavailable=${c.gateEvaluation?.unavailableKeys?.join("|") || "none"}`,
         );
       }
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 200));
     }
-    // KIS 수급 보너스 반영 후 재정렬
-    top15.sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0));
   }
+
+  // kisFlow 반영 후 재정렬 → top15 산출
+  const top15 = results
+    .sort((a, b) => (b.stage2Score ?? 0) - (a.stage2Score ?? 0))
+    .slice(0, 15);
 
   // ── Phase 2 컨플루언스 스코어링 ────────────────────────────────────────────
   // DART는 Stage 3에서 조회하므로 여기선 null 전달 (기술·수급·매크로 3축 평가)
