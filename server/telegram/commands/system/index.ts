@@ -73,7 +73,6 @@ import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
 import './sizingDebug.cmd.js'; // PATCH-010 §"/sizing_debug" — 사이징 룰 read-only 진단.
-import './snapshotLatest.cmd.js'; // Patch-MARKET-CLOSE-SNAPSHOT-001 — 15:19 KST replay snapshot read-only.
 import './status.cmd.js';
 import './supplyHealth.cmd.js';
 import './supplyHealthForce.cmd.js';

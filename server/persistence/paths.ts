@@ -496,31 +496,56 @@ export const GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE = path.join(DATA_DIR, 'gat
 export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-reclassification-rollout.json');
 
 /**
- * Patch-MARKET-CLOSE-SNAPSHOT-001 — 15:19 KST market-close replay snapshot 영속 디렉토리.
- * 사용자 명시 lifecycle (절대 변경 금지):
- *   - 매일 장 종료 직전 15:19 KST 자동 capture (SELL_ONLY 시간 회피)
- *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 거래일 09:00 ~ 15:19 까지 그대로 유지
- *   - 다음 거래일 15:19 capture 시점에 이전 일자 디렉토리 cleanup (overwrite)
- *   - 금요일 snapshot → 월요일 15:19 capture 가 덮어쓰기
- *   - 같은 일자 안에서 multi-capture 시 revision 누적 (r1~r5 FIFO trim)
- * `data/intraday-snapshots/YYYY-MM-DD/market-close-1519.json` + revision r1/r2 등.
- * `data/intraday-snapshots/latest-market-close.json` — 최신 성공 snapshot pointer.
- * Sensitive field redaction 의무 (token / accountNo / orderId / authorization 등 영속 0건).
+ * Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002 — 17:00 KST runtime debug snapshot 영속 SSOT.
+ *
+ * 사용자 명시 framing (Patch-001):
+ *   "어차피 장 종료 이후에 찍는 스냅샷도 크게 다르지 않다.
+ *    15시 19분에 찍는 스냅샷은 철회한다. 17시에 스냅샷을 찍고,
+ *    17시에 찍는 스냅샷은 sell only 용이 아니고 장중 스냅샷과 동일하게 취급한다."
+ *
+ * 사용자 명시 framing (Patch-002):
+ *   "스냅샷을 단순 조회용으로만 쓰지 않고, SnapshotInvestorFlowReplayAdapter 를
+ *    추가하여 snapshot 에 저장된 frozen per-symbol supply rows 를 실제 preflight
+ *    merge 경로에 주입할 수 있게 한다."
+ *
+ * Lifecycle 정책 (사용자 명시 절대 변경 금지):
+ *   - 매 평일 17:00 KST 자동 capture (ScheduleClass='TRADING_DAY_ONLY' KRX 휴장일 silent skip)
+ *   - **단일 latest overwrite 모델** — FIFO revision 누적 X, latest 1 개만 유지
+ *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 평일 17:00 까지 유지
+ *   - 다음 평일 17:00 성공 capture 가 직전 latest 를 atomic overwrite
+ *   - 금요일 17:00 snapshot → 월요일 17:00 capture 가 덮어쓰기 (주말 내내 Fri snapshot 보존)
+ *   - 월요일 장 시작 시 금요일 snapshot 삭제 절대 금지 (cron 미존재)
+ *   - capture 실패 시 직전 latest 보존 (atomic write + preserve-on-failure)
+ *
+ * 저장:
+ *   - 파일: `data/replay/latest-runtime-debug-snapshot.json` (단일 파일)
+ *   - atomic write tmp → rename (race 안전)
+ *   - 손상 JSON 시 null fallback (시스템 무중단)
+ *
+ * 절대 invariants:
+ *   1. raw API payload 영속 0건 (sanitized fields 만)
+ *   2. 민감정보 영속 0건 (token / accountNo / orderId / authorization 등)
+ *   3. executionImpact: 'NONE' literal type 강제
+ *   4. replayOnly: true literal 강제
+ *   5. diagnosticOnly: true literal 강제
+ *   6. sellOnlySemanticApplied: false literal 강제 (17:00 = 장중 runtime state 동일 취급)
+ *   7. priceSemantics: 'REFERENCE_ONLY_NOT_FOR_TRADE_DECISION' literal 강제
+ *   8. providerCallsAllowed: false literal 강제 (replay mode)
+ *   9. 외부 API 호출 0건 (영속 read/write 만, KIS/KRX/Yahoo/Naver 신규 호출 금지)
+ *   10. KIS 주문 함수 5종 import 0건
+ *   11. capture 실패 시 직전 latest 보존 (preserveOnFailure)
  */
+export const REPLAY_DIR = path.join(DATA_DIR, 'replay');
+export const LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE = path.join(REPLAY_DIR, 'latest-runtime-debug-snapshot.json');
+
+export function ensureReplayDir(): void {
+  ensureDataDir();
+  if (!fs.existsSync(REPLAY_DIR)) fs.mkdirSync(REPLAY_DIR, { recursive: true });
+}
+
+// Legacy Patch-MARKET-CLOSE-SNAPSHOT-001 (15:19) — 사용자 명시로 철회 (Patch-AFTER-HOURS-002).
+// 파일 시스템에 남아있을 수 있는 이전 디렉토리 정리용 path 만 유지 (호환성 0 — 미사용).
 export const INTRADAY_SNAPSHOTS_DIR = path.join(DATA_DIR, 'intraday-snapshots');
-export const LATEST_MARKET_CLOSE_POINTER_FILE = path.join(INTRADAY_SNAPSHOTS_DIR, 'latest-market-close.json');
-
-export function intradaySnapshotDayDir(yyyymmdd: string): string {
-  // path traversal 방어 — `YYYY-MM-DD` 형식만 허용
-  const safe = yyyymmdd.replace(/[^0-9\-]/g, '').slice(0, 10);
-  return path.join(INTRADAY_SNAPSHOTS_DIR, safe);
-}
-
-export function marketCloseSnapshotFile(yyyymmdd: string, revision: number): string {
-  const safeRev = Math.max(1, Math.min(99, Math.floor(revision)));
-  const suffix = safeRev === 1 ? '' : `-r${safeRev}`;
-  return path.join(intradaySnapshotDayDir(yyyymmdd), `market-close-1519${suffix}.json`);
-}
 
 export function ensureIntradaySnapshotsDir(): void {
   ensureDataDir();

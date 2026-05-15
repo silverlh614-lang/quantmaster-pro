@@ -1,11 +1,12 @@
 // @responsibility Replay-mode SSOT 진입점 — provider call guard, 외부 API 차단
 
 /**
- * Patch-MARKET-CLOSE-SNAPSHOT-001 — Replay Context SSOT.
+ * Patch-MARKET-CLOSE-SNAPSHOT-001 / Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002 — Replay Context SSOT.
  *
- * 사용자 명시 framing (§6):
+ * 사용자 명시 framing (§6 / Patch-002 §F):
  *   "replay mode에서는 외부 호출을 금지한다.
- *    필수 invariant: providerCalls=0, kisCalls=0, krxCalls=0, yahooCalls=0, naverCalls=0"
+ *    필수 invariant: providerCalls=0, kisCalls=0, krxCalls=0, yahooCalls=0, naverCalls=0.
+ *    SnapshotInvestorFlowReplayAdapter 도 동일 invariant 강제."
  *
  * `withReplayContext(fn)` SSOT 진입점 — fn 안에서 `isReplayProviderCallBlocked()` 가
  * true 를 반환해 provider client 가 호출을 차단해야 한다.
@@ -18,9 +19,14 @@
  *   3. context 안에서 외부 fetch 호출 시점 시 BLOCKED 진단 로그 의무
  *   4. executionImpact: 'NONE' literal 강제 (TypeScript 컴파일 타임)
  *   5. context 가 throw 해도 context 자동 해제 의무 (try/finally)
+ *   6. ReplayMode 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT' (Patch-002) — preflight supply
+ *      hydration adapter wrapping 시 동일 guard 강제
  */
 
-export type ReplayMode = 'NONE' | 'MARKET_CLOSE_SNAPSHOT';
+export type ReplayMode =
+  | 'NONE'
+  | 'MARKET_CLOSE_SNAPSHOT' // legacy — Patch-001 시기 호환 (현재 사용 0, 후속 PR 에서 제거 검토)
+  | 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT'; // Patch-002 — 17:00 KST runtime debug snapshot replay
 
 export interface ReplayContext {
   readonly mode: ReplayMode;
