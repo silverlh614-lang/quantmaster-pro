@@ -19,8 +19,10 @@
  */
 
 import { mapInternalToExposureRegime, type MarketRegimeLevel } from './regimeExposurePolicy.js';
+import { computeCurrentEquityExposure } from './currentEquityExposure.js';
 import type { RegimeLevel } from '../../../src/types/core.js';
 import type { SizingTier } from '../sizingTier.js';
+import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 
 export type ExposureProfileMode = 'SHADOW' | 'LIVE';
 
@@ -181,4 +183,159 @@ export function formatShadowBullFloorLog(
     `${(ctx.computedPositionPct * 100).toFixed(2)}% → ${(result.effectivePositionPct * 100).toFixed(2)}% ` +
     `(floor ${(result.floorPct * 100).toFixed(1)}%, ${result.mode}/${result.exposureRegime})`
   );
+}
+
+// ─── §17 계좌 총 노출 갭 진단 SSOT (diagnostic only — 사이징 경로 미연결) ──────
+
+export interface AccountExposureGapInput {
+  /** SHADOW vs LIVE 프로파일 */
+  shadowMode: boolean;
+  /** 내부 레짐 (RegimeLevel — exposure 레짐으로 자동 매핑) */
+  regime: RegimeLevel;
+  /** 계좌 총 평가액 (KRW) */
+  accountTotalEquity: number;
+  /** 활성 trade 영속 (ctx.shadows) — computeCurrentEquityExposure 위임 */
+  shadows: ServerShadowTrade[];
+  /** 옵셔널 시가 매핑 — 부재 시 보유원가 평가 */
+  currentPriceMap?: Map<string, number>;
+}
+
+export interface AccountExposureGapResult {
+  mode: ExposureProfileMode;
+  exposureRegime: MarketRegimeLevel;
+  /** accountTargetExposurePct — 레짐별 목표 노출률 */
+  targetExposurePct: number;
+  /** 현재 활성 trade 평가금액 합산 (computeCurrentEquityExposure) */
+  currentExposureAmount: number;
+  /** currentExposureAmount / accountTotalEquity (accountTotalEquity ≤ 0 시 0) */
+  currentExposurePct: number;
+  /** accountTotalEquity × targetExposurePct */
+  targetExposureAmount: number;
+  /** targetExposureAmount - currentExposureAmount (음수 = over-exposed) */
+  exposureGapAmount: number;
+  /** currentExposurePct < targetExposurePct */
+  underExposed: boolean;
+  /** 합산에 포함된 활성 trade 수 */
+  activeTradeCount: number;
+  /** 진단 전용 마커 — 실제 사이징 경로 입력 아님 (§17 portfolio fill wiring 후속 PR scope) */
+  diagnosticOnly: true;
+}
+
+/**
+ * §17 계좌 총 노출 갭 진단 SSOT.
+ *
+ * 레짐별 accountTargetExposurePct 와 현재 활성 trade 평가금액 합산(computeCurrentEquityExposure)을
+ * 비교해 "계좌가 목표 노출률 대비 얼마나 비어 있는가" 를 산출한다.
+ *
+ * 절대 규칙:
+ *   - 진단 전용 (`diagnosticOnly: true` literal) — 실제 order quantity 를 바꾸지 않는다 (LIVE 매매 본체 0줄 변경).
+ *   - portfolio fill 사이징 경로 wiring 은 후속 PR scope (verbatim §17 spec 의무).
+ *   - accountTotalEquity 비유한값/≤0 시 currentExposurePct=0 / underExposed=true 보수적 fallback.
+ */
+export function resolveAccountExposureGap(input: AccountExposureGapInput): AccountExposureGapResult {
+  const mode: ExposureProfileMode = input.shadowMode ? 'SHADOW' : 'LIVE';
+  const profile = getRegimeExposureProfile(mode, input.regime);
+  const targetExposurePct = profile.accountTargetExposurePct;
+
+  const exposure = computeCurrentEquityExposure({
+    shadows: input.shadows,
+    currentPriceMap: input.currentPriceMap,
+  });
+  const currentExposureAmount = exposure.totalAmount;
+
+  const accountTotalEquity =
+    Number.isFinite(input.accountTotalEquity) && input.accountTotalEquity > 0
+      ? input.accountTotalEquity
+      : 0;
+
+  const currentExposurePct = accountTotalEquity > 0 ? currentExposureAmount / accountTotalEquity : 0;
+  const targetExposureAmount = accountTotalEquity * targetExposurePct;
+  const exposureGapAmount = targetExposureAmount - currentExposureAmount;
+  const underExposed = currentExposurePct < targetExposurePct;
+
+  return {
+    mode,
+    exposureRegime: profile.regime,
+    targetExposurePct,
+    currentExposureAmount,
+    currentExposurePct,
+    targetExposureAmount,
+    exposureGapAmount,
+    underExposed,
+    activeTradeCount: exposure.activeTradeCount,
+    diagnosticOnly: true,
+  };
+}
+
+// ─── minNotional 보정 진단 SSOT (diagnostic only — 사이징 경로 미연결) ─────────
+
+/** floor division 후 최소 매수 주식 수 — 고가주 0주 silent 드롭 보정 목표. */
+export const MIN_CANDIDATE_SHARES = 1;
+
+/**
+ * 단일 1주가 계좌 총액의 이 비율을 초과하면 minNotional 보정 미적용.
+ * (초고가 1주가 그 자체로 과도한 종목 집중을 만드는 것 차단)
+ */
+export const MIN_NOTIONAL_PRICE_CEILING_RATIO = 0.05;
+
+export interface MinNotionalSharesInput {
+  /** 종목 가격 (KRW) */
+  price: number;
+  /** positionPct × accountTotalEquity (또는 orderableCash) 기준 예산 (KRW) */
+  budgetAmount: number;
+  /** 계좌 총 평가액 — 1주 ceiling 검증용 (옵셔널, 미전달 시 ceiling 검증 생략) */
+  accountTotalEquity?: number;
+}
+
+export interface MinNotionalSharesResult {
+  /** Math.floor(budgetAmount / price) */
+  rawShares: number;
+  /** minNotional 보정 적용 권고 여부 (true 면 effectiveShares=1 권고) */
+  minNotionalApplied: boolean;
+  /** rawShares 또는 보정된 1 (진단 권고값 — 실제 주문 수량 아님) */
+  effectiveShares: number;
+  /** 미적용 사유 */
+  skipReason?: 'ALREADY_ABOVE_MIN' | 'PRICE_OVER_CEILING' | 'INVALID_INPUT';
+}
+
+/**
+ * minNotional 보정 진단 SSOT.
+ *
+ * 근본 결함: `Math.floor(budgetAmount / price)` 가 고가주 + 소액 예산에서 0 을 반환 →
+ *           legacyQuantity < 1 → 후보가 silent 드롭. 본 SSOT 는 "1주는 살 수 있었는가" 를 진단한다.
+ *
+ * 결정 트리:
+ *   1. price/budgetAmount 비유한값 또는 ≤ 0 → INVALID_INPUT
+ *   2. rawShares >= MIN_CANDIDATE_SHARES → ALREADY_ABOVE_MIN (보정 불필요)
+ *   3. accountTotalEquity 전달 + price > accountTotalEquity × ceiling → PRICE_OVER_CEILING
+ *      (초고가 1주가 과도한 집중 — 강제 매수 차단)
+ *   4. 그 외 (rawShares < 1, price ≤ ceiling) → minNotionalApplied=true / effectiveShares=1
+ *
+ * 절대 규칙:
+ *   - 진단 전용 — 실제 주문 수량을 바꾸지 않는다 (LIVE 매매 본체 0줄 변경).
+ *   - 사이징 경로 wiring 은 후속 PR scope (verbatim spec 의무).
+ */
+export function resolveMinNotionalShares(input: MinNotionalSharesInput): MinNotionalSharesResult {
+  const { price, budgetAmount, accountTotalEquity } = input;
+
+  if (!Number.isFinite(price) || !Number.isFinite(budgetAmount) || price <= 0 || budgetAmount <= 0) {
+    return { rawShares: 0, minNotionalApplied: false, effectiveShares: 0, skipReason: 'INVALID_INPUT' };
+  }
+
+  const rawShares = Math.floor(budgetAmount / price);
+  if (rawShares >= MIN_CANDIDATE_SHARES) {
+    return { rawShares, minNotionalApplied: false, effectiveShares: rawShares, skipReason: 'ALREADY_ABOVE_MIN' };
+  }
+
+  // rawShares < 1 → budgetAmount < price → minNotional 보정 후보. ceiling 검증.
+  if (
+    accountTotalEquity != null &&
+    Number.isFinite(accountTotalEquity) &&
+    accountTotalEquity > 0 &&
+    price > accountTotalEquity * MIN_NOTIONAL_PRICE_CEILING_RATIO
+  ) {
+    return { rawShares, minNotionalApplied: false, effectiveShares: rawShares, skipReason: 'PRICE_OVER_CEILING' };
+  }
+
+  return { rawShares, minNotionalApplied: true, effectiveShares: MIN_CANDIDATE_SHARES };
 }
