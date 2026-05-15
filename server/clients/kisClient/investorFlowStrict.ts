@@ -14,7 +14,7 @@
 import { HAS_REAL_DATA_CLIENT } from './constants.js';
 import { realDataKisGet } from './http.js';
 import { getKisOverrides } from './overrides.js';
-import type { KisInvestorFlow } from './types.js';
+import type { KisInvestorFlow, KisInvestorFlowRawRow } from './types.js';
 import type { KisApiPriority } from '../kisRateLimiter.js';
 import { classifyInvestorFlowPayload } from './payloadValidators.js';
 
@@ -112,11 +112,26 @@ export async function fetchKisInvestorFlow(
       return null;
     }
 
+    const rawRow: KisInvestorFlowRawRow = {
+      foreignNetBuy,
+      institutionNetBuy: institutionalNetBuy,
+      institutionalNetBuy,
+      individualNetBuy,
+      stck_bsop_date: out.stck_bsop_date
+        ?? new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      frgn_ntby_qty: out.frgn_ntby_qty ?? out.FRGN_NETBUY_QTY ?? '0',
+      orgn_ntby_qty: out.orgn_ntby_qty ?? out.INST_NETBUY_QTY ?? '0',
+      prsn_ntby_qty: out.prsn_ntby_qty ?? out.INDV_NETBUY_QTY ?? '0',
+      frgn_ntby_tr_pbmn: out.frgn_ntby_tr_pbmn,
+      orgn_ntby_tr_pbmn: out.orgn_ntby_tr_pbmn,
+    };
+
     return {
       foreignNetBuy,
       institutionalNetBuy,
       individualNetBuy,
       source: 'KIS_API',
+      actualRows: [rawRow],
     };
   } catch {
     return null;

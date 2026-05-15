@@ -23,10 +23,11 @@ export interface KisPostOptions {
 }
 
 export interface KisInvestorFlow {
-  foreignNetBuy:      number;  // 외국인 당일 순매수량 (주)
-  institutionalNetBuy: number; // 기관 당일 순매수량 (주)
-  individualNetBuy?:  number;  // 개인 당일 순매수량 (주), missing is not zero-filled
+  foreignNetBuy:       number;  // 외국인 당일 순매수량 (주)
+  institutionalNetBuy: number;  // 기관 당일 순매수량 (주)
+  individualNetBuy?:   number;  // 개인 당일 순매수량 (주), missing is not zero-filled
   source: 'KIS_API';
+  actualRows?: KisInvestorFlowRawRow[];
 }
 
 
@@ -154,12 +155,30 @@ export interface KisCreditBalanceRankingRow {
   source: 'KIS_API';
 }
 
+export interface KisInvestorFlowRawRow {
+  // Gate1 semantic validator 기대 필드 (정규화 — number)
+  foreignNetBuy?: number;
+  institutionNetBuy?: number;
+  institutionalNetBuy?: number;
+  individualNetBuy?: number;
+
+  // KIS 원시 필드 — forensic 추적용
+  stck_bsop_date?: string;
+  frgn_ntby_qty?: string;
+  orgn_ntby_qty?: string;
+  prsn_ntby_qty?: string;
+  frgn_ntby_tr_pbmn?: string;
+  orgn_ntby_tr_pbmn?: string;
+
+  [key: string]: unknown;
+}
+
 export interface KisInvestorFlowActualRowCarrier {
   provider: 'KIS_API';
   requestSymbol: string | null;
   normalizedSymbol: string | null;
   providerScope: 'SYMBOL_LEVEL';
-  actualRows: Array<Record<string, unknown>>;
+  actualRows: KisInvestorFlowRawRow[];
   rowSourcePath: string;
   rawFieldKeys: string[];
   numericStringFieldKeys: string[];
@@ -177,6 +196,7 @@ export interface KisInvestorTradeByStockDaily {
   source: 'KIS_API';
   fetchedAt: string;
   actualInvestorFlowRowCarrier?: KisInvestorFlowActualRowCarrier;
+  actualRows?: KisInvestorFlowRawRow[];
 }
 
 export interface KisForeignInstitutionTotal {

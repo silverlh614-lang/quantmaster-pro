@@ -9,7 +9,7 @@
  * 사용법: server/index.ts에서 setKisClientOverrides(createMockKisOverrides())
  */
 
-import type { KisClientOverrides, KisInvestorFlow } from './kisClient.js';
+import type { KisClientOverrides, KisInvestorFlow, KisInvestorTradeByStockDaily } from './kisClient.js';
 
 // ─── 가상 시세 생성 유틸 ─────────────────────────────────────────────────────
 
@@ -69,11 +69,52 @@ function generateMockInvestorFlow(code: string): KisInvestorFlow {
   const foreignNet = ((seed % 200000) - 50000);
   const institutionalNet = ((seed % 100000) - 30000);
   const individualNet = -(foreignNet + institutionalNet); // 제로섬 근사
+  const stckBsopDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   return {
     foreignNetBuy: foreignNet,
     institutionalNetBuy: institutionalNet,
     individualNetBuy: individualNet,
     source: 'KIS_API',
+    actualRows: [{
+      foreignNetBuy: foreignNet,
+      institutionNetBuy: institutionalNet,
+      institutionalNetBuy: institutionalNet,
+      individualNetBuy: individualNet,
+      stck_bsop_date: stckBsopDate,
+      frgn_ntby_qty: foreignNet.toString(),
+      orgn_ntby_qty: institutionalNet.toString(),
+      prsn_ntby_qty: individualNet.toString(),
+    }],
+  };
+}
+
+function generateMockInvestorTradeByStockDaily(code: string): KisInvestorTradeByStockDaily {
+  const safeCode = code.padStart(6, '0');
+  const flow = generateMockInvestorFlow(safeCode);
+  const actualRows = flow.actualRows ?? [];
+  const rawFieldKeys = Object.keys(actualRows[0] ?? {});
+  return {
+    stockCode: safeCode,
+    tradingDate: new Date().toISOString().slice(0, 10),
+    foreignNetBuy: flow.foreignNetBuy,
+    institutionalNetBuy: flow.institutionalNetBuy,
+    individualNetBuy: flow.individualNetBuy,
+    source: 'KIS_API',
+    fetchedAt: new Date().toISOString(),
+    actualRows,
+    actualInvestorFlowRowCarrier: {
+      provider: 'KIS_API',
+      requestSymbol: safeCode,
+      normalizedSymbol: safeCode,
+      providerScope: 'SYMBOL_LEVEL',
+      actualRows,
+      rowSourcePath: 'MOCK_KIS_INVESTOR_TRADE_BY_STOCK_DAILY.actualRows',
+      rawFieldKeys,
+      numericStringFieldKeys: ['frgn_ntby_qty', 'orgn_ntby_qty', 'prsn_ntby_qty'],
+      numberFieldKeys: ['foreignNetBuy', 'institutionNetBuy', 'institutionalNetBuy', 'individualNetBuy'],
+      placeholderFieldKeys: [],
+      carriedAt: new Date().toISOString(),
+    },
   };
 }
 
@@ -139,6 +180,10 @@ export function createMockKisOverrides(): KisClientOverrides {
       return generateMockInvestorFlow(code);
     },
 
+    fetchKisInvestorTradeByStockDaily: async (code: string) => {
+      return generateMockInvestorTradeByStockDaily(code);
+    },
+
     realDataKisGet: async (trId: string, _apiPath: string, params: Record<string, string>) => {
       // 현재가 조회 (FHKST01010100)
       if (trId === 'FHKST01010100') {
@@ -161,6 +206,16 @@ export function createMockKisOverrides(): KisClientOverrides {
             w52_hgpr: Math.round(price * 1.2).toString(),
             w52_lwpr: Math.round(price * 0.7).toString(),
           },
+          rt_cd: '0',
+        };
+      }
+
+      // 종목별 투자자매매동향 일별 (FHPTJ04160001)
+      if (trId === 'FHPTJ04160001') {
+        const code = params.FID_INPUT_ISCD ?? params.fid_input_iscd ?? '005930';
+        const flow = generateMockInvestorFlow(code);
+        return {
+          output2: flow.actualRows ?? [],
           rt_cd: '0',
         };
       }
