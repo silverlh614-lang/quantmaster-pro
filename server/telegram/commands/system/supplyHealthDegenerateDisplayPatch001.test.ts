@@ -104,14 +104,21 @@ describe('Patch-SUPPLY-HEALTH-DEGENERATE-DISPLAY-001 — UNSUPPORTED_INTRADAY �
     expect(SOURCE).toContain('decision.isIntradaySession === true');
   });
 
-  it('"정상 동작" 거짓 주장 부재 — Patch-006 가정 (KRX 자체 미지원) 미검증 명시', () => {
+  it('"정상 동작" 거짓 주장 부재 — Patch-006/007 가정 (KRX 자체 미지원) 미검증 명시', () => {
     // 이전 PR 의 misleading "정상 동작" 라벨 영구 차단 (사용자 지적 정합)
     expect(SOURCE).not.toContain('정상 동작: KRX 장중 endpoint 부재');
-    // 정직한 안내 — endpoint wiring 결손 명시
-    expect(SOURCE).toContain('주의: KRX intraday endpoint 미연동 가능성');
-    expect(SOURCE).toContain('MDCSTAT01701'); // 현재 사용 중인 EOD-only endpoint 명시
-    expect(SOURCE).toContain('MDCSTAT00301'); // 후속 PR 검증 대상 (KRX 일중 endpoint 후보)
-    expect(SOURCE).toContain('endpoint wiring 검증 필요 (별도 PR)');
+    // Patch-007 분기 — intradayWiringAttempted 기반 두 분기 모두 정직한 안내
+    // 분기 A (ENV OFF, default): wiring 활성화 안내
+    expect(SOURCE).toContain('주의: KRX intraday endpoint 미연동 — 현재 EOD-only (MDCSTAT01701) 만 호출 중');
+    expect(SOURCE).toContain('KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true');
+    expect(SOURCE).toContain('endpoint shape 검증 의무');
+    // 분기 B (ENV ON, wiring 시도 후 fallthrough): BLD ID override 안내
+    expect(SOURCE).toContain('주의: KRX EOD + intraday endpoint 모두 empty');
+    expect(SOURCE).toContain('KRX_BLD_MARKET_PROGRAM_INTRADAY');
+    expect(SOURCE).toContain('BLD ID override');
+    // EOD endpoint 명시 보존 + intraday endpoint 후보 명시 보존 (Patch-006/007)
+    expect(SOURCE).toContain('MDCSTAT01701'); // 현재 사용 중인 EOD-only endpoint
+    expect(SOURCE).toContain('MDCSTAT00301'); // Patch-007 wiring 대상 (KRX 일중 endpoint 후보)
   });
 
   it('isIntradayUnsupported 시 riskReason 미노출 (NEUTRAL marker 유지하되 routedStatus name 미표시)', () => {
