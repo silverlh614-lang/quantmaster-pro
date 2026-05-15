@@ -19,6 +19,26 @@ const ROUTER_PATH = join(__dirname, 'gateDecisionRouter.ts');
 const ROUTER_SOURCE = readFileSync(ROUTER_PATH, 'utf-8');
 
 describe('ADR-0425 Gate Decision Router', () => {
+  it('SELL_ONLY + R6_DEFENSE is macro live block, not HARD_BLOCK', () => {
+    const result = deriveGateDecisionRouterResult({
+      riskFlags: { sellOnly: true, r6Defense: true },
+    });
+    expect(result.severity).toBe('MACRO_LIVE_BLOCK');
+    expect(result.liveAllowed).toBe(false);
+    expect(result.paperAllowed).toBe(false);
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
+    expect(result.lanes).toEqual(expect.objectContaining({
+      live: false,
+      paper: false,
+      shadow: true,
+      watch: true,
+      learning: true,
+      counterfactual: true,
+    }));
+    expect(result.reasons).toEqual(expect.arrayContaining(['SELL_ONLY', 'R6_DEFENSE']));
+  });
+
   // ────────────────────────────────────────────────────────
   // §H Test 1: emergencyStop → HARD_BLOCK
   // ────────────────────────────────────────────────────────

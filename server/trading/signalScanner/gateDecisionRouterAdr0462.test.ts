@@ -4,7 +4,9 @@ import { deriveGateDecisionRouterResult, formatGateDecisionRouterSection } from 
 describe('ADR-0462 GateDecisionRouter semantics', () => {
   it('counterfactual learning persists under HARD_BLOCK', () => {
     const result = deriveGateDecisionRouterResult({ riskFlags: { vixBlock: true } });
-    expect(result.severity).toBe('HARD_BLOCK');
+    expect(result.severity).toBe('MACRO_LIVE_BLOCK');
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
     expect(result.counterfactualLearningAllowed).toBe(true);
     expect(result.lanes?.counterfactual).toBe(true);
     expect(result.executionImpact).toBe('NONE');

@@ -103,7 +103,7 @@ export interface DeriveR3ProvisionalShadowInput {
  *
  * 결정 트리 우선순위:
  *   1. regime ≠ R3_EARLY → null
- *   2. emergencyStop / sellOnly / r6Defense → null (HARD_BLOCK 의미, 사용자 §C #2)
+ *   2. emergencyStop → null; sellOnly/r6Defense are live-entry blocks only and remain shadow-observable.
  *   3. liquidityBlock / rrrBlock → null (HARD_BLOCK)
  *   4. technicalBreakdown → null (사용자 §C — 진짜 기술 미달은 학습 표본 오염)
  *   5. router.severity === 'HARD_BLOCK' → null (ADR-0425 정합)
@@ -127,7 +127,7 @@ export function deriveR3ProvisionalShadowCandidate(
   const rf = input.riskFlags ?? {};
 
   // 2. HARD_BLOCK 의미 — riskFlags 직접 체크 (Router 미전달 시도 차단)
-  if (rf.emergencyStop || rf.sellOnly || rf.r6Defense) return null;
+  if (rf.emergencyStop) return null;
 
   // 3. liquidity / RRR severe block — HARD_BLOCK 동급
   if (rf.liquidityBlock || rf.rrrBlock) return null;
@@ -275,7 +275,7 @@ export function formatProvisionalShadowSection(
     } else {
       lines.push(`  • blockedBy: <i>R3_EARLY 후보 없음 또는 HARD_BLOCK</i>`);
     }
-    lines.push(`  • <i>note: HARD_BLOCK / SELL_ONLY 에서는 Shadow 학습도 제한.</i>`);
+    lines.push(`  • <i>note: true HARD_BLOCK can limit provisional shadow; SELL_ONLY/R6/FOMC/VIX block live entry only, while Shadow/Watch diagnostics stay available.</i>`);
     return lines.join('\n');
   }
 

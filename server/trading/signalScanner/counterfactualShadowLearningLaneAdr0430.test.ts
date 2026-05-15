@@ -49,9 +49,9 @@ describe('ADR-0430 — Counterfactual Shadow Learning Lane SSOT', () => {
     expect(c?.reasons).toContain('LEARNING_ONLY');
   });
 
-  // 2. HARD_BLOCK + SELL_ONLY → provisional 0, counterfactual 1 (정책 분리)
-  it('§K-2: HARD_BLOCK + SELL_ONLY 에서 일반 provisional shadow 는 생성되지 않음 — 분리 정책', () => {
-    // SSOT 자체 단위 — counterfactual 만 생성. provisional null 반환은 ADR-0426 별도 검증.
+  // 2. SELL_ONLY → counterfactual learning also records, while provisional shadow remains separately observable.
+  it('§K-2: SELL_ONLY counterfactual learning remains recorded alongside diagnostic shadow lanes', () => {
+    // SSOT 자체 단위 — counterfactual learning ledger 를 보존한다. provisional shadow 가능 여부는 ADR-0426 별도 검증.
     const c = deriveCounterfactualShadowLearningCandidate({
       symbol: '000660',
       regime: 'R3_EARLY',
@@ -470,10 +470,10 @@ describe('ADR-0430 — counterfactualShadowLearningRepo 영속 분리', () => {
   });
 });
 
-// ── §K-11 — Router formatter shadow=❌ + learning=✅ 정합 ──────
+// ── §K-11 — Macro live block keeps shadow/watch diagnostics always-on ──────
 
 describe('ADR-0430 — Router learning lane 표시', () => {
-  it('§K-11: HARD_BLOCK 시 shadow=❌ + learning=✅ 모순 없이 표시', async () => {
+  it('§K-11: SELL_ONLY is live-only block with shadow/watch diagnostics', async () => {
     const { deriveGateDecisionRouterResult, formatGateDecisionRouterSection } = await import(
       './gateDecisionRouter.js'
     );
@@ -482,12 +482,16 @@ describe('ADR-0430 — Router learning lane 표시', () => {
       gate1Pass: 1,
       riskFlags: { sellOnly: true },
     });
-    expect(result.severity).toBe('HARD_BLOCK');
-    expect(result.shadowAllowed).toBe(false);
+    expect(result.severity).toBe('SELL_ONLY');
+    expect(result.liveAllowed).toBe(false);
+    expect(result.paperAllowed).toBe(false);
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
     expect(result.counterfactualLearningAllowed).toBe(true);
     expect(result.learningShadowAllowed).toBe(true);
     const text = formatGateDecisionRouterSection(result);
-    expect(text).toContain('shadow=❌');
+    expect(text).toContain('shadow=✅');
+    expect(text).toContain('watch=✅');
     expect(text).toContain('learning=✅');
   });
 

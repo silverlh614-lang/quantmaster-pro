@@ -327,6 +327,13 @@ function getDiagnosticLiveBlockReason(ctx: BuyListLoopContext): string | undefin
   return ctx.positionFullDiagnosticOnly ? 'POSITION_FULL' : undefined;
 }
 
+function isMacroDiagnosticLiveBlockReason(reason: string | undefined): boolean {
+  if (!reason) return false;
+  const macroReasons = new Set(['SELL_ONLY', 'R6_DEFENSE', 'VIX_BLOCK', 'FOMC_BLOCK']);
+  const parts = reason.split(',').map((part) => part.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((part) => macroReasons.has(part));
+}
+
 function suppressDiagnosticLiveBuyTask(
   ctx: BuyListLoopContext,
   stock: { name?: string; code?: string },
@@ -391,6 +398,10 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     const currentActive = slotResult.rawCount;        // sizing 분모용 (PR-S2 후속 변경 대상)
     const totalCommitted = slotResult.consumed + ctx.mutables.reservedSlots.value;
     const diagnosticLiveBlockReason = getDiagnosticLiveBlockReason(ctx);
+    const macroDiagnosticLiveBlock = isMacroDiagnosticLiveBlockReason(diagnosticLiveBlockReason);
+    if (!isMomentumShadow && macroDiagnosticLiveBlock) {
+      stockShadowMode = true;
+    }
     if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && !diagnosticLiveBlockReason) {
       // MOMENTUM Shadow 는 LIVE 슬롯 한도에 귀속되지 않으므로 이 가드를 건너뛴다.
       console.log(
@@ -406,6 +417,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         );
         diagnosticLiveBlockLogged = true;
       }
+    } else if (!isMomentumShadow && macroDiagnosticLiveBlock && !diagnosticLiveBlockLogged) {
+      console.log(
+        `[AutoTrade] ${diagnosticLiveBlockReason} macro diagnostic path active — live buy tasks routed to shadow while gate diagnostics continue`,
+      );
+      diagnosticLiveBlockLogged = true;
     }
 
     try {
@@ -858,7 +874,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               `주문가: ${followEntryPrice.toLocaleString()}원 × ${followFinalQty}주\n` +
               `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
-            if (diagnosticLiveBlockReason) {
+            if (diagnosticLiveBlockReason && !macroDiagnosticLiveBlock) {
               suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
               continue;
             }
@@ -867,7 +883,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               trade: followTrade, stockCode: stock.code, stockName: stock.name,
               currentPrice, quantity: followFinalQty, entryPrice: followEntryPrice,
               stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-              gateScore: gateScoreFollow, shadowMode: followHealth.shadowMode, effectiveBudget: followFinalQty * followEntryPrice,
+              gateScore: gateScoreFollow, shadowMode: macroDiagnosticLiveBlock ? true : followHealth.shadowMode, effectiveBudget: followFinalQty * followEntryPrice,
               alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
               signalId: buildSignalId(_signalTimeFollow, stock.code), // ADR-0077
               // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate.
@@ -1172,7 +1188,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   `손절: ${formatStopLossBreakdown(stopLossPlanPb)} | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
                   `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbFinalQty}주) 추가 집행`;
 
-                if (diagnosticLiveBlockReason) {
+                if (diagnosticLiveBlockReason && !macroDiagnosticLiveBlock) {
                   suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
                   continue;
                 }
@@ -1181,7 +1197,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   trade: pbTrade, stockCode: stock.code, stockName: stock.name,
                   currentPrice, quantity: pbFinalQty, entryPrice: pbEntryPrice,
                   stopLoss: stopLossPlanPb.hardStopLoss, targetPrice: stock.targetPrice,
-                  gateScore: gateScorePb, shadowMode: pbHealth.shadowMode, effectiveBudget: pbFinalQty * pbEntryPrice,
+                  gateScore: gateScorePb, shadowMode: macroDiagnosticLiveBlock ? true : pbHealth.shadowMode, effectiveBudget: pbFinalQty * pbEntryPrice,
                   alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
                   signalId: buildSignalId(_signalTimePb, stock.code), // ADR-0077
                   // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate.
@@ -2629,7 +2645,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
 
       const _rrr = stock.rrr, _sector = stock.sector;
-      if (diagnosticLiveBlockReason) {
+      if (diagnosticLiveBlockReason && !macroDiagnosticLiveBlock) {
         suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
         continue;
       }

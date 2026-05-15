@@ -28,12 +28,13 @@ import type { SectorEnergyQualityDiagnostic } from '../../clients/sectorEnergyQu
 /**
  * 7-tier severity (사용자 명시 union, 절대 변경 금지).
  *
- * 우선순위 (HARD_BLOCK 가장 강함):
- *   HARD_BLOCK > TRUE_WEAKNESS > SOFT_DEGRADE > WATCH_ONLY >
+ * 우선순위 (실제 리스크 HARD_BLOCK 가장 강함):
+ *   HARD_BLOCK > MACRO_LIVE_BLOCK/SELL_ONLY > TRUE_WEAKNESS > SOFT_DEGRADE > WATCH_ONLY >
  *   SHADOW_ENTRY_ALLOWED > REDUCED_ENTRY_CANDIDATE > FULL_ENTRY_CANDIDATE
  */
 export type GateDecisionSeverity =
   | 'HARD_BLOCK'
+  | 'MACRO_LIVE_BLOCK'
   | 'SELL_ONLY'
   | 'TRUE_WEAKNESS'
   | 'SOFT_DEGRADE'
@@ -157,7 +158,7 @@ export const GATE_DECISION_ROUTER_THRESHOLDS = Object.freeze({
  * 7-tier 결정 트리 SSOT (사용자 §C 정합, 절대 변경 금지).
  *
  * 우선순위:
- *   1. HARD_BLOCK (riskFlags 또는 SIZING_BLOCKED)
+ *   1. Risk flags (true HARD_BLOCK 또는 macro live-only block) / SIZING_BLOCKED
  *   2. WATCH_ONLY (preBreakoutWait 우세, gate1Pass>0)
  *   3. SOFT_DEGRADE (sectorEnergy STALE 또는 DATA_UNAVAILABLE 우세)
  *   4. TRUE_WEAKNESS (진짜 기술 미달 우세)
@@ -171,7 +172,7 @@ export function deriveGateDecisionRouterResult(
   const reasons: GateDecisionReason[] = [];
 
   // ────────────────────────────────────────────────────────
-  // 1. HARD_BLOCK — riskFlags 우선 (사용자 §C 절대 원칙 #3 — Shadow 도 차단)
+  // 1. Risk flags: true safety risks hard-block all lanes; macro bans block live entry only.
   // ────────────────────────────────────────────────────────
   const rf = input.riskFlags ?? {};
   if (rf.emergencyStop) reasons.push('EMERGENCY_STOP');
@@ -184,25 +185,48 @@ export function deriveGateDecisionRouterResult(
 
   if (reasons.length > 0) {
     const sellOnlyOnly = reasons.length === 1 && reasons[0] === 'SELL_ONLY';
+    const macroLiveBlockReasons = new Set<GateDecisionReason>([
+      'SELL_ONLY',
+      'R6_DEFENSE',
+      'VIX_BLOCK',
+      'FOMC_BLOCK',
+    ]);
+    const macroOnly = reasons.every((reason) => macroLiveBlockReasons.has(reason));
     // ADR-0430 — HARD_BLOCK / SELL_ONLY 에서도 counterfactual learning 은 365일 살아있다.
     // 단, ENV `COUNTERFACTUAL_SHADOW_LEARNING_DISABLED=true` 시 비활성.
     const learningAllowed =
       process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED !== 'true';
+    if (macroOnly) {
+      return {
+        severity: sellOnlyOnly ? 'SELL_ONLY' : 'MACRO_LIVE_BLOCK',
+        reasons,
+        liveAllowed: false,
+        paperAllowed: false,
+        shadowAllowed: true,
+        watchAllowed: true,
+        counterfactualLearningAllowed: learningAllowed,
+        learningShadowAllowed: learningAllowed,
+        label: 'BLOCK_RISK',
+        lanes: { live: false, paper: false, shadow: true, watch: true, learning: learningAllowed, counterfactual: learningAllowed },
+        executionImpact: 'NONE',
+        operatorMessage:
+          'Macro/live-entry block: real new buys are blocked, but Shadow/Watch diagnostics and learning stay always-on.',
+      };
+    }
     return {
-      severity: sellOnlyOnly ? 'SELL_ONLY' : 'HARD_BLOCK',
+      severity: 'HARD_BLOCK',
       reasons,
       liveAllowed: false,
       paperAllowed: false,
-      shadowAllowed: !sellOnlyOnly ? false : true,
-      watchAllowed: sellOnlyOnly,
+      shadowAllowed: false,
+      watchAllowed: false,
       counterfactualLearningAllowed: learningAllowed,
       learningShadowAllowed: learningAllowed,
       label: 'BLOCK_RISK',
-      lanes: { live: false, paper: false, shadow: sellOnlyOnly, watch: sellOnlyOnly, learning: learningAllowed, counterfactual: learningAllowed },
+      lanes: { live: false, paper: false, shadow: false, watch: false, learning: learningAllowed, counterfactual: learningAllowed },
       executionImpact: 'NONE',
-      operatorMessage: sellOnlyOnly
-        ? 'SELL_ONLY — 신규 매수만 차단. 보유 관리/매도 허용, engine alive, counterfactual universe learning 유지.'
-        : '리스크 차단 — 실매수/가상체결/일반 shadow 모두 차단. 단 ADR-0430 counterfactual learning 은 별도 ledger 에 365일 영속 가능.',
+      operatorMessage:
+        'Risk hard block: live, paper, shadow, and watch lanes are blocked. Counterfactual learning remains available.',
     };
   }
 
@@ -488,7 +512,8 @@ export function formatGateDecisionRouterSection(
   if (!result) return null;
 
   const lines: string[] = [];
-  const sevIcon: Record<GateDecisionSeverity, string> = {
+  const sevIcon: Record<string, string> = {
+    MACRO_LIVE_BLOCK: 'M',
     HARD_BLOCK: '🚨',
     SELL_ONLY: '🟠',
     TRUE_WEAKNESS: '🔴',

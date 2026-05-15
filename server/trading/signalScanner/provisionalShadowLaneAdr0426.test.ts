@@ -81,23 +81,29 @@ describe('ADR-0426 Provisional Shadow Lane', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // §G #3: SELL_ONLY → null
+  // §G #3: SELL_ONLY → shadow-observable live-only block
   // ────────────────────────────────────────────────────────
-  it('§G#3: SELL_ONLY → null', () => {
+  it('§G#3: SELL_ONLY remains provisional shadow-observable', () => {
     const result = deriveR3ProvisionalShadowCandidate(baseInput({
       riskFlags: { sellOnly: true },
     }));
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result?.liveAllowed).toBe(false);
+    expect(result?.shadowAllowed).toBe(true);
+    expect(result?.reasons).toContain('NO_HARD_RISK');
   });
 
   // ────────────────────────────────────────────────────────
-  // §G #4: R6_DEFENSE → null
+  // §G #4: R6_DEFENSE → shadow-observable live-only block
   // ────────────────────────────────────────────────────────
-  it('§G#4: R6_DEFENSE → null', () => {
+  it('§G#4: R6_DEFENSE remains provisional shadow-observable', () => {
     const result = deriveR3ProvisionalShadowCandidate(baseInput({
       riskFlags: { r6Defense: true },
     }));
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result?.liveAllowed).toBe(false);
+    expect(result?.shadowAllowed).toBe(true);
+    expect(result?.reasons).toContain('NO_HARD_RISK');
   });
 
   // ────────────────────────────────────────────────────────
