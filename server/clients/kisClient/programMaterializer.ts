@@ -392,7 +392,7 @@ export function materializeKisMarketProgramTrade(data: unknown, fetchedAt = new 
       marketSignal: diagnostics.marketSignal,
       scoring: diagnostics.scoring,
       executionImpact: diagnostics.executionImpact,
-      aggregateDiagnostic: diagnostics,
+      aggregateDiagnostic: diagnostics as unknown as Record<string, unknown>,
     },
     outputPath: diagnostics.selectedPath,
     rowCount: rawRows.length,
