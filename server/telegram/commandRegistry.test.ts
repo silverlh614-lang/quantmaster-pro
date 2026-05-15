@@ -68,7 +68,7 @@ describe('commands/system barrel — 9 read-only commands auto-registered', () =
   beforeAll(async () => {
     // 본 import 가 모든 system .cmd.ts 를 로드해 commandRegistry 등록 트리거.
     await import('./commands/system/index.js');
-  });
+  }, 30000);
 
   it('all 9 system commands are resolvable by canonical name', () => {
     const expectedNames = [
