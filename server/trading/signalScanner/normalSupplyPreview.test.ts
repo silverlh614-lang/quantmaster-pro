@@ -361,6 +361,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(pages.every((page) => page.length <= 1300)).toBe(true);
   });
 
+
 });
 
 describe('Normal Supply Preview program flow diagnostics', () => {
@@ -517,7 +518,7 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.fieldAvailability.marketProgramSource).toBe('CACHE');
     expect(preview.fieldAvailability.passiveProxyUsedForLiveDecision).toBe(false);
     expect(preview.candidates[0]?.activePassiveConfluence).toBe('ACTIVE_PASSIVE_CONFIRMED_BUY');
-    expect(preview.programFlowDiagnostics.nextAction).toBe('WIRE_STOCK_AND_MARKET_PROGRAM_FLOW_FIELDS');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('OBSERVE_PROGRAM_FLOW_PROXY');
   });
 
   it('treats zero and snake-case/abbreviated stock program aliases as available neutral evidence', () => {
@@ -571,13 +572,71 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     });
 
     const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
-    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_FLOW_WIRED_BUT_ALL_NA');
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_CONTEXT_HAS_STATUS_ONLY');
     expect(text).toContain('Program Passive Proxy Availability');
     expect(text).toContain('stockProgramRowsAvailable: 0/1');
     expect(text).toContain('contextFound: true');
     expect(text).toContain('wiredButNoFields: false');
     expect(text).toContain('providerCallsAdded=0');
     expect(text).toContain('passiveProxyUsedForLiveDecision=false');
+  });
+
+  it('traces context found with no program fields to upstream numeric field wiring', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate()] as any,
+    });
+
+    expect(preview.programFlowDiagnostics.contextFound).toBe(true);
+    expect(preview.programFlowDiagnostics.wiredButNoFields).toBe(true);
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_FLOW_WIRED_BUT_NO_FIELDS');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('WIRE_UPSTREAM_PROGRAM_NUMERIC_FIELDS_TO_CONTEXT');
+    expect(preview.programFlowDiagnostics.stockProgramBreakPoint).toBe('CANDIDATE_PROGRAM_KEYS_MISSING');
+    expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
+  });
+
+  it('reports no context when neither stock candidates nor market program context exist', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [] as any,
+    });
+
+    expect(preview.programFlowDiagnostics.contextFound).toBe(false);
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_FLOW_CONTEXT_NOT_FOUND');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('WIRE_PROGRAM_FLOW_CONTEXT_TO_PREVIEW');
+    expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
+  });
+
+  it('traces non-numeric stock program aliases as all-NA diagnostic evidence', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ programNetBuy: 'N/A' })] as any,
+    });
+
+    expect(preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey).toBe(1);
+    expect(preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue).toBe(0);
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_FLOW_WIRED_BUT_ALL_NA');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('MAP_PROGRAM_NUMERIC_FIELD_ALIASES');
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+  });
+
+  it('prints evidence trace counts in full output', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { marketProgramStatus: 'EMPTY' },
+      candidates: [baseCandidate({ programNetBuy: '1,234' })] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(text).toContain('stockProgramRowsWithAnyProgramKey: 1/1');
+    expect(text).toContain('stockProgramRowsWithNumericProgramValue: 1/1');
+    expect(text).toContain('marketProgramContextFound: true');
+    expect(text).toContain('marketProgramStatusFieldsFound: marketProgramStatus');
+    expect(text).toContain('executionImpact=NONE');
   });
 
 });
