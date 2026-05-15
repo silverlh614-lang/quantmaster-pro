@@ -262,18 +262,20 @@ describe('preflight.ts byte-equivalent tests', () => {
     }));
   });
 
-  it('should abort if position slots are full', async () => {
+  it('should keep diagnostic scan alive if position slots are full', async () => {
     mockedComputeSlotConsumption.mockReturnValue({ isFull: true, consumed: 8, rawCount: 8 } as ReturnType<typeof computeSlotConsumption>);
     const result = await runPreflight();
-    expect(result).toEqual(expect.objectContaining({ shouldAbort: true, skipPersist: true, positionFull: true }));
-    expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), kellyMultiplier: expect.any(Number) }));
+    expect(result.shouldAbort).toBe(false);
+    expect(result.macroGateState).toBeDefined();
+    expect(result.context).toEqual(expect.objectContaining({
+      watchlist: expect.any(Array),
+      kellyMultiplier: expect.any(Number),
+      positionFullDiagnosticOnly: true,
+      liveEntryBlockedReason: 'POSITION_FULL',
+    }));
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'POSITION_FULL',
-    }));
-    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      preflightStage: 'BEFORE_BUYLIST_LOOP',
-      blockedBy: ['POSITION_FULL'],
     }));
   });
 

@@ -190,6 +190,8 @@ export async function evaluateMainCandidates(
     volumeClock,
     conditionWeights,
     supplyHealthSnapshot,
+    positionFullDiagnosticOnly,
+    liveEntryBlockedReason,
   } = context;
 
   // Patch-SUPPLY-DIAG-ACCURACY (silent UNKNOWN 차단): preflight context 가 종목별
@@ -341,6 +343,8 @@ export async function evaluateMainCandidates(
     volumeClock,
     conditionWeights,
     supplyHealthSnapshot,
+    positionFullDiagnosticOnly,
+    liveEntryBlockedReason,
     scanCounters: counters,
     mutables: {
       liveBuyQueue: queueState.liveBuyQueue,

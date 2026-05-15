@@ -65,6 +65,8 @@ export interface BuyListLoopContext {
   volumeClock: { allowEntry?: boolean; scoreBonus: number; reason?: string };
   conditionWeights: ReturnType<typeof import('../../../persistence/conditionWeightsRepo.js')['loadConditionWeights']>;
   supplyHealthSnapshot?: SupplyHealthSnapshot;
+  positionFullDiagnosticOnly?: boolean;
+  liveEntryBlockedReason?: string;
   // 출력 / mutable
   scanCounters: ScanCounters;
   mutables: BuyListLoopMutables;

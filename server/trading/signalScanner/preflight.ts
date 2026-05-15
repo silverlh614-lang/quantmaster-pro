@@ -557,7 +557,12 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   );
   
   const slotResult = computeSlotConsumption(shadows, effectiveMaxPositions);
-  if (slotResult.isFull) {
+  if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT !== 'true') {
+    console.log(`[AutoTrade] POSITION_FULL live entry blocked, diagnostic buyList/gate loop kept (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, regime=${regime}, raw=${slotResult.rawCount})`);
+    await recordBlockedDayShadowScan('POSITION_FULL');
+  }
+
+  if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT === 'true') {
     console.log(`[AutoTrade] 최대 동시 포지션 도달 (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}, raw=${slotResult.rawCount}) — 신규 진입 스킵`);
     await recordBlockedDayShadowScan('POSITION_FULL');
     // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
@@ -744,6 +749,15 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       shadows,
       watchlist,
       optSellOnly,
+      positionFullDiagnosticOnly: slotResult.isFull,
+      liveEntryBlockedReason: slotResult.isFull ? 'POSITION_FULL' : undefined,
+      positionSlotDiagnostic: slotResult.isFull
+        ? {
+            consumed: slotResult.consumed,
+            rawCount: slotResult.rawCount,
+            effectiveMaxPositions,
+          }
+        : undefined,
     },
   };
 }
