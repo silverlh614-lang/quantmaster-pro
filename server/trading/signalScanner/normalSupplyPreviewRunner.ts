@@ -25,6 +25,8 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     regime?: string;
     fomcPhase?: string;
     vixGatingActive?: boolean;
+    programNetBuyAmount?: number;
+    programSource?: 'KIS_API' | 'NONE';
   } | null;
   const watchlist = loadWatchlist();
   const selected = await selectCandidates({ watchlist }, { forceBuyCodes: params.forceBuyCodes });
@@ -51,5 +53,12 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     reason: params.reason ?? 'telegram operator normal supply preview',
     candidates: injected.candidates,
     supplyInjection: injected.stats,
+    marketProgramFlow: macroState
+      ? {
+          marketProgramNetBuy: macroState.programNetBuyAmount,
+          sourceProvider: macroState.programSource ?? 'NONE',
+          providerIssue: macroState.programSource === 'NONE',
+        }
+      : undefined,
   });
 }
