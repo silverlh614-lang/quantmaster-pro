@@ -8,6 +8,15 @@ import {
   __resetPersistentExecutionModeForTests,
   type ExecutionModeOverrideRecord,
 } from './persistence/executionModeOverrideRepo.js';
+import {
+  PERSISTENT_MACRO_ENTRY_OVERRIDE_TARGETS,
+  loadPersistentMacroEntryOverride,
+  savePersistentMacroEntryOverride,
+  clearPersistentMacroEntryOverride,
+  __resetPersistentMacroEntryOverrideForTests,
+  type PersistentMacroEntryOverrideRecord,
+  type PersistentMacroEntryOverrideTarget,
+} from './persistence/macroEntryOverrideRepo.js';
 let EMERGENCY_STOP = false;
 let DAILY_LOSS_PCT = 0;
 
@@ -50,26 +59,12 @@ export const getManualManageOnly = () => MANUAL_MANAGE_ONLY;
 export const setManualManageOnly = (v: boolean) => { MANUAL_MANAGE_ONLY = v; };
 
 // Operator-scoped macro entry override. This only bypasses macro no-new-entry
-// gates (R6/VIX/FOMC) and is intentionally in-memory + time-boxed.
-export const MACRO_ENTRY_OVERRIDE_TARGETS = [
-  'R6_DEFENSE',
-  'VIX_BLOCK',
-  'FOMC_BLOCK',
-] as const;
+// gates (R6/VIX/FOMC). It is persisted so Telegram and scheduler processes share it on Railway.
+export const MACRO_ENTRY_OVERRIDE_TARGETS = PERSISTENT_MACRO_ENTRY_OVERRIDE_TARGETS;
 
-export type MacroEntryOverrideTarget = typeof MACRO_ENTRY_OVERRIDE_TARGETS[number];
+export type MacroEntryOverrideTarget = PersistentMacroEntryOverrideTarget;
 
-export interface MacroEntryOverrideState {
-  active: true;
-  targets: MacroEntryOverrideTarget[];
-  reason: string;
-  setBy: string;
-  createdAt: string;
-  expiresAt: string;
-  ttlMinutes: number;
-  kellyFloor: number;
-  maxPositionsFloor: number;
-}
+export type MacroEntryOverrideState = PersistentMacroEntryOverrideRecord;
 
 export interface SetMacroEntryOverrideInput {
   targets?: MacroEntryOverrideTarget[];
@@ -114,6 +109,34 @@ function cloneMacroEntryOverrideState(state: MacroEntryOverrideState): MacroEntr
   };
 }
 
+function loadStoredMacroEntryOverride(): MacroEntryOverrideState | null {
+  try {
+    return loadPersistentMacroEntryOverride();
+  } catch {
+    return null;
+  }
+}
+
+function persistMacroEntryOverride(state: MacroEntryOverrideState): void {
+  try {
+    savePersistentMacroEntryOverride(state);
+  } catch (error) {
+    console.warn('[state] macro entry override persist failed:', error);
+  }
+}
+
+function clearStoredMacroEntryOverride(): void {
+  try {
+    clearPersistentMacroEntryOverride();
+  } catch {
+    // idempotent
+  }
+}
+
+function isMacroEntryOverrideExpired(state: MacroEntryOverrideState, now: Date): boolean {
+  return new Date(state.expiresAt).getTime() <= now.getTime();
+}
+
 export function setMacroEntryOverride(input: SetMacroEntryOverrideInput = {}): MacroEntryOverrideState {
   const now = input.now ?? new Date();
   const ttlMinutes = clampMacroOverrideTtl(input.ttlMinutes);
@@ -137,21 +160,30 @@ export function setMacroEntryOverride(input: SetMacroEntryOverrideInput = {}): M
     maxPositionsFloor,
   };
 
+  persistMacroEntryOverride(MACRO_ENTRY_OVERRIDE);
   return cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE);
 }
 
 export function clearMacroEntryOverride(): MacroEntryOverrideState | null {
-  const previous = MACRO_ENTRY_OVERRIDE ? cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE) : null;
+  const previous =
+    MACRO_ENTRY_OVERRIDE
+      ? cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE)
+      : loadStoredMacroEntryOverride();
   MACRO_ENTRY_OVERRIDE = null;
+  clearStoredMacroEntryOverride();
   return previous;
 }
 
 export function getMacroEntryOverrideState(now: Date = new Date()): MacroEntryOverrideState | null {
-  if (!MACRO_ENTRY_OVERRIDE) return null;
-  if (new Date(MACRO_ENTRY_OVERRIDE.expiresAt).getTime() <= now.getTime()) {
+  const stored = loadStoredMacroEntryOverride();
+  const current = stored ?? MACRO_ENTRY_OVERRIDE;
+  if (!current) return null;
+  if (isMacroEntryOverrideExpired(current, now)) {
     MACRO_ENTRY_OVERRIDE = null;
+    clearStoredMacroEntryOverride();
     return null;
   }
+  MACRO_ENTRY_OVERRIDE = cloneMacroEntryOverrideState(current);
   return cloneMacroEntryOverrideState(MACRO_ENTRY_OVERRIDE);
 }
 
@@ -165,6 +197,7 @@ export function isMacroEntryOverrideActive(
 
 export function __resetMacroEntryOverrideForTests(): void {
   MACRO_ENTRY_OVERRIDE = null;
+  __resetPersistentMacroEntryOverrideForTests();
 }
 
 // ─── Phase 2차 C7: Pre-Market Smoke Test Gate ──────────────────────────────────

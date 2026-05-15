@@ -486,6 +486,8 @@ export const USER_DIAGNOSTIC_HINTS_FILE = path.join(DATA_DIR, 'user-diagnostic-h
  * 기록자: state.ts setExecutionModeOverride 만 (단일 진입점).
  */
 export const EXECUTION_MODE_OVERRIDE_FILE = path.join(DATA_DIR, 'execution_mode_override.json');
+/** Operator macro no-new-entry override (R6/VIX/FOMC), time-boxed and persisted for Railway process sharing. */
+export const MACRO_ENTRY_OVERRIDE_FILE = path.join(DATA_DIR, 'macro_entry_override.json');
 /** ADR-458 — Approved Gate Reclassification Dry-Run Ledger (shadow-only, no live order impact). */
 export const GATE_RECLASSIFICATION_DRY_RUN_FILE = path.join(DATA_DIR, 'gate-reclassification-dryrun.json');
 /** ADR-457/458 — Human-edited approval plan source for dry-run consumption. */
