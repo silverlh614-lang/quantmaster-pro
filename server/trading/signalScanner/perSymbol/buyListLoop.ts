@@ -178,6 +178,8 @@ import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
 // ADR-0171 — Sizing-ExposureBudget 진단 로그 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true` 명시 활성화).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
+// PATCH-010 — Shadow Bull Exposure Floor (default OFF, ENV `SHADOW_BULL_EXPOSURE_FLOOR_ENABLED=true` 명시 활성화).
+import { resolveCandidatePositionFloor } from '../../sizing/shadowBullExposureProfile.js';
 import {
   applySupplyHealthToSignal,
   createLearningSampleFromDecision,
@@ -2257,10 +2259,31 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         snapshotAt: new Date().toISOString(),
       };
 
+      // PATCH-010 — Shadow Bull Exposure Floor: R2/R3 불싸이클 Shadow 후보 소액 매수 오류 보정.
+      // 멀티플라이어 누적 (R2_BULL kellyMultiplier ×0.8 × STANDARD tier ×0.6 × MTAS ×0.3~0.5)
+      // 으로 0.2~0.5% 까지 축소된 positionPct 를 레짐별 floor 로 끌어올린다.
+      // kellyBudgetDecider 하드 게이트 통과 뒤 적용 — soft shrink 가 floor 아래로 깎지 못한다.
+      // LIVE 모드는 LIVE_REGIME_EXPOSURE_PROFILE (floor 0 전면) → 현행 동작 100% 보존.
+      // ENV `SHADOW_BULL_EXPOSURE_FLOOR_ENABLED` OFF (default) 시 effectivePositionPct === positionPct (byte-equivalent).
+      const exposureFloor = resolveCandidatePositionFloor({
+        shadowMode: stockShadowMode,
+        regime: ctx.regime,
+        tier: tierDecision.tier,
+        computedPositionPct: positionPct,
+      });
+      const effectivePositionPct = exposureFloor.effectivePositionPct;
+      if (exposureFloor.applied) {
+        console.log(
+          `[AutoTrade/ShadowBullFloor] ${stock.name}(${stock.code}) positionPct ` +
+          `${(positionPct * 100).toFixed(2)}% → ${(effectivePositionPct * 100).toFixed(2)}% ` +
+          `(floor ${(exposureFloor.floorPct * 100).toFixed(1)}%, ${exposureFloor.mode}/${exposureFloor.exposureRegime})`,
+        );
+      }
+
       const { quantity: legacyQuantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets: ctx.totalAssets,
         orderableCash: ctx.mutables.orderableCash.value,
-        positionPct,
+        positionPct: effectivePositionPct,
         price: shadowEntryPrice,
         remainingSlots,
         accountKellyMultiplier: ctx.accountKellyMultiplier,
