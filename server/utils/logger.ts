@@ -7,6 +7,9 @@ export type NoiseCategory =
   | 'KIS_MTAS_DETAIL'
   | 'GATE1_DIAGNOSTIC_DRY_RUN'
   | 'KIS_FIRST_LEGACY_DIAGNOSTIC'
+  // Patch-009 P1 — 프로덕션 진단 로그 게이트.
+  | 'SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC'
+  | 'COMMAND_REGISTRY_DIAGNOSTIC'
   | 'NONE';
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -70,6 +73,10 @@ export function shouldSuppressNoise(category: NoiseCategory): boolean {
       return process.env.LOG_SUPPRESS_GATE_DIAGNOSTIC !== 'false';
     case 'KIS_FIRST_LEGACY_DIAGNOSTIC':
       return process.env.LOG_SUPPRESS_KIS_FIRST_DIAGNOSTIC !== 'false';
+    case 'SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC':
+      return process.env.LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC !== 'false';
+    case 'COMMAND_REGISTRY_DIAGNOSTIC':
+      return process.env.LOG_SUPPRESS_COMMAND_REGISTRY_DIAGNOSTIC !== 'false';
     case 'NONE':
     default:
       return false;
@@ -83,6 +90,8 @@ export interface NoiseCounters {
   kisMtasDetail: number;
   gateDiagnostics: number;
   kisFirstDiagnostics: number;
+  supplySemanticWireDiag: number;
+  commandRegistryDiag: number;
   suppressed: number;
 }
 
@@ -95,6 +104,8 @@ const noiseCounters: NoiseCounters = {
   kisMtasDetail: 0,
   gateDiagnostics: 0,
   kisFirstDiagnostics: 0,
+  supplySemanticWireDiag: 0,
+  commandRegistryDiag: 0,
   suppressed: 0,
 };
 
@@ -118,6 +129,12 @@ function incrementNoiseCounter(category: NoiseCategory, suppressed: boolean): vo
     case 'KIS_FIRST_LEGACY_DIAGNOSTIC':
       noiseCounters.kisFirstDiagnostics++;
       break;
+    case 'SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC':
+      noiseCounters.supplySemanticWireDiag++;
+      break;
+    case 'COMMAND_REGISTRY_DIAGNOSTIC':
+      noiseCounters.commandRegistryDiag++;
+      break;
     case 'NONE':
       break;
   }
@@ -139,6 +156,8 @@ export function resetNoiseCountersForTest(): void {
   noiseCounters.kisMtasDetail = 0;
   noiseCounters.gateDiagnostics = 0;
   noiseCounters.kisFirstDiagnostics = 0;
+  noiseCounters.supplySemanticWireDiag = 0;
+  noiseCounters.commandRegistryDiag = 0;
   noiseCounters.suppressed = 0;
   lastNoiseSummaryEmittedAtMs = 0;
 }
@@ -175,7 +194,7 @@ export function formatNoiseSummary(input: NoiseSummaryInput = getNoiseCounters()
   const counters = { ...getNoiseCounters(), ...input };
   const session = input.session ? ` session=${input.session}` : '';
   const executionImpact = input.executionImpact ? ` executionImpact=${input.executionImpact}` : '';
-  return `[NoiseSummary]${session} suppressed=${counters.suppressed} preEntryWait=${counters.preEntryWait} priceDistance=${counters.priceDistance} kisWsDetail=${counters.kisWsDetail} kisMtasDetail=${counters.kisMtasDetail} gateDiagnostics=${counters.gateDiagnostics} kisFirstDiagnostics=${counters.kisFirstDiagnostics}${executionImpact}`;
+  return `[NoiseSummary]${session} suppressed=${counters.suppressed} preEntryWait=${counters.preEntryWait} priceDistance=${counters.priceDistance} kisWsDetail=${counters.kisWsDetail} kisMtasDetail=${counters.kisMtasDetail} gateDiagnostics=${counters.gateDiagnostics} kisFirstDiagnostics=${counters.kisFirstDiagnostics} supplySemanticWireDiag=${counters.supplySemanticWireDiag} commandRegistryDiag=${counters.commandRegistryDiag}${executionImpact}`;
 }
 
 function getNoiseSummaryIntervalMs(): number {

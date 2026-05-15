@@ -6,6 +6,9 @@ import {
   logNoiseDetail,
   logNoiseSummary,
   resetNoiseCountersForTest,
+  shouldSuppressNoise,
+  recordNoiseSuppressed,
+  formatNoiseSummary,
 } from './utils/logger.js';
 import {
   buildPreEntryWaitDedupeKey,
@@ -187,7 +190,57 @@ describe('log noise reduction', () => {
   it('NoiseSummary는 INFO로 출력된다', () => {
     logNoiseDetail({ category: 'PRE_ENTRY_WAIT', message: 'hidden' });
     logNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
-    expect(console.info).toHaveBeenCalledWith('[NoiseSummary] session=REGULAR suppressed=1 preEntryWait=1 priceDistance=0 kisWsDetail=0 kisMtasDetail=0 gateDiagnostics=0 kisFirstDiagnostics=0 executionImpact=NONE');
+    expect(console.info).toHaveBeenCalledWith('[NoiseSummary] session=REGULAR suppressed=1 preEntryWait=1 priceDistance=0 kisWsDetail=0 kisMtasDetail=0 gateDiagnostics=0 kisFirstDiagnostics=0 supplySemanticWireDiag=0 commandRegistryDiag=0 executionImpact=NONE');
+  });
+
+  // Patch-009 P1 — 프로덕션 진단 로그 게이트 (SUPPLY_SEMANTIC_WIRE / COMMAND_REGISTRY).
+  it('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC은 LOG_LEVEL=info에서 기본 억제된다', () => {
+    expect(shouldSuppressNoise('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC')).toBe(true);
+  });
+
+  it('COMMAND_REGISTRY_DIAGNOSTIC은 LOG_LEVEL=info에서 기본 억제된다', () => {
+    expect(shouldSuppressNoise('COMMAND_REGISTRY_DIAGNOSTIC')).toBe(true);
+  });
+
+  it('LOG_LEVEL=debug일 때 두 진단 카테고리는 억제되지 않는다', () => {
+    vi.stubEnv('LOG_LEVEL', 'debug');
+    expect(shouldSuppressNoise('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC')).toBe(false);
+    expect(shouldSuppressNoise('COMMAND_REGISTRY_DIAGNOSTIC')).toBe(false);
+  });
+
+  it('LOG_SUPPRESS_*=false 명시 시 해당 진단 카테고리는 억제 해제된다', () => {
+    vi.stubEnv('LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC', 'false');
+    vi.stubEnv('LOG_SUPPRESS_COMMAND_REGISTRY_DIAGNOSTIC', 'false');
+    expect(shouldSuppressNoise('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC')).toBe(false);
+    expect(shouldSuppressNoise('COMMAND_REGISTRY_DIAGNOSTIC')).toBe(false);
+  });
+
+  it('진단 카테고리 억제 카운트는 NoiseSummary에 집계된다', () => {
+    recordNoiseSuppressed('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC');
+    recordNoiseSuppressed('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC');
+    recordNoiseSuppressed('COMMAND_REGISTRY_DIAGNOSTIC');
+    const summary = formatNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
+    expect(summary).toContain('supplySemanticWireDiag=2');
+    expect(summary).toContain('commandRegistryDiag=1');
+    expect(summary).toContain('suppressed=3');
+  });
+
+  it('gate1 forensic audit는 SUPPLY_SEMANTIC_WIRE 진단을 중앙 logger 게이트 경유한다', () => {
+    const src = readFileSync(
+      resolve(import.meta.dirname, 'trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.ts'),
+      'utf-8',
+    );
+    expect(src).toMatch(/shouldSuppressNoise\('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC'\)/);
+    expect(src).toMatch(/recordNoiseSuppressed\('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC'\)/);
+  });
+
+  it('commandRegistry 등록 진단 로그는 중앙 logger 게이트 경유한다', () => {
+    const src = readFileSync(
+      resolve(import.meta.dirname, 'telegram/commandRegistry.ts'),
+      'utf-8',
+    );
+    expect(src).toMatch(/shouldSuppressNoise\('COMMAND_REGISTRY_DIAGNOSTIC'\)/);
+    expect(src).toMatch(/recordNoiseSuppressed\('COMMAND_REGISTRY_DIAGNOSTIC'\)/);
   });
 
   it('Trading Engine execution path는 logger patch로 변경되지 않는다', () => {
