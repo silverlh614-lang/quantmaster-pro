@@ -71,15 +71,34 @@ function sampleFromInvestorFields(input: {
   value: PartialKisInvestorFieldsWithCarrier;
 }): InvestorFlowSample {
   const actualRows = input.value.actualInvestorFlowRowCarrier?.actualRows ?? [];
-  const actualInvestorRow = actualRows[0] ?? null;
   const normalizedInvestorRow: Record<string, unknown> = {
     stockCode: input.safeCode,
     symbol: input.safeCode,
+    provider: 'KIS_API',
+    source: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY',
+    providerScope: 'SYMBOL_LEVEL',
+    asOfDate: input.value.tradingDate ?? input.sourceDateKst,
     foreignNetBuy: input.value.foreignNetBuy,
+    foreignNetBuyAmount: input.value.foreignNetBuy,
     institutionNetBuy: input.value.institutionalNetBuy,
     institutionalNetBuy: input.value.institutionalNetBuy,
-    ...(Number.isFinite(input.value.individualNetBuy) ? { individualNetBuy: input.value.individualNetBuy as number } : {}),
+    institutionNetBuyAmount: input.value.institutionalNetBuy,
+    ...(Number.isFinite(input.value.individualNetBuy) ? {
+      individualNetBuy: input.value.individualNetBuy as number,
+      individualNetBuyAmount: input.value.individualNetBuy as number,
+    } : {}),
+    confidence: input.value.actualInvestorFlowRowCarrier ? 'VERIFIED' : 'PARTIAL',
+    providerIssue: false,
+    executionImpact: 'NONE',
+    materialized: true,
+    hasNumericInvestorFields: true,
+    raw: actualRows[0],
+    rawFieldKeys: input.value.actualInvestorFlowRowCarrier?.rawFieldKeys ?? Object.keys(actualRows[0] ?? {}),
   };
+  // PATCH-011 — KIS sometimes materializes only the normalized investor row. Promote it
+  // into the actual/diagnostic carry slots so downstream semantic/gate layers do not
+  // mistake a wrapper-only payload for missing investor data.
+  const actualInvestorRow = actualRows[0] ?? normalizedInvestorRow;
   const semanticInvestorRow: Record<string, unknown> = {
     symbol: input.safeCode,
     provider: 'KIS_API',
@@ -96,19 +115,21 @@ function sampleFromInvestorFields(input: {
     provider: 'KIS_API',
     fetchedAt: new Date().toISOString(),
     tradingDate: input.value.tradingDate ?? input.sourceDateKst,
-    ...(actualInvestorRow ? { actualInvestorRow } : {}),
+    actualInvestorRow,
+    diagnosticActualInvestorRow: actualInvestorRow,
     normalizedInvestorRow,
     semanticInvestorRow,
     supplySemanticRow: semanticInvestorRow,
-    ...(actualRows.length > 0 ? {
-      actualInvestorFlowRows: actualRows,
-      actualInvestorFlowRowCount: actualRows.length,
-      actualInvestorFlowRowSourcePath: input.value.actualInvestorFlowRowCarrier?.rowSourcePath ?? null,
-      actualInvestorFlowFieldKeys: input.value.actualInvestorFlowRowCarrier?.rawFieldKeys ?? [],
-      actualInvestorFlowNumericKeys: input.value.actualInvestorFlowRowCarrier?.numberFieldKeys ?? [],
-      actualInvestorFlowNumericStringKeys: input.value.actualInvestorFlowRowCarrier?.numericStringFieldKeys ?? [],
-      actualInvestorFlowCarried: true,
-    } : {}),
+    actualInvestorFlowRows: actualRows.length > 0 ? actualRows : [normalizedInvestorRow],
+    actualInvestorFlowRowCount: actualRows.length > 0 ? actualRows.length : 1,
+    actualInvestorFlowRowSourcePath: input.value.actualInvestorFlowRowCarrier?.rowSourcePath ?? (actualRows.length > 0 ? null : 'normalizedInvestorRow'),
+    actualInvestorFlowFieldKeys: input.value.actualInvestorFlowRowCarrier?.rawFieldKeys ?? Object.keys(normalizedInvestorRow),
+    actualInvestorFlowNumericKeys: input.value.actualInvestorFlowRowCarrier?.numberFieldKeys ?? ['foreignNetBuy', 'foreignNetBuyAmount', 'institutionNetBuy', 'institutionalNetBuy', 'institutionNetBuyAmount'].filter((key) => Number.isFinite(normalizedInvestorRow[key])),
+    actualInvestorFlowNumericStringKeys: input.value.actualInvestorFlowRowCarrier?.numericStringFieldKeys ?? [],
+    actualInvestorFlowCarried: true,
+    actualInvestorRowProvider: 'KIS_API',
+    actualInvestorRowUseScope: 'DIAGNOSTIC_ONLY',
+    diagnosticActualInvestorRowFromNormalized: actualRows.length === 0,
   };
 }
 

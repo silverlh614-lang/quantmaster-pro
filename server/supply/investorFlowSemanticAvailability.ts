@@ -122,9 +122,18 @@ export function hasNumberLikeField(input: unknown, candidates: readonly string[]
  */
 const ACTUAL_INVESTOR_NUMERIC_ROW_FIELDS: readonly string[] = [
   'foreignNetBuy',
+  'foreignNetBuyAmount',
+  'foreignNetBuyQty',
   'institutionalNetBuy',
   'institutionNetBuy',
+  'institutionNetBuyAmount',
+  'institutionNetBuyQty',
   'individualNetBuy',
+  'individualNetBuyAmount',
+  'individualNetBuyQty',
+  'programNetBuy',
+  'programNetBuyAmount',
+  'programNetBuyQty',
   'frgn_ntby_qty',
   'orgn_ntby_qty',
   'prsn_ntby_qty',
@@ -421,6 +430,7 @@ const INVESTOR_FLOW_WRAPPER_METADATA_KEYS = new Set([
   'semanticRowBreakPoint',
   'actualInvestorFlowRowCarrier',
   'actualInvestorFlowRows',
+  'actualInvestorRow',
   'diagnosticActualInvestorRow',
   'selectedProviderActualInvestorRow',
   'actualInvestorRowProvider',
@@ -459,12 +469,25 @@ const INVESTOR_FLOW_NESTED_PATHS = [
   'input.semanticRow.normalizedRow',
   'input.semanticRow.rows',
   'input.semanticRow.data',
+  'input.actualInvestorRow',
   'input.diagnosticActualInvestorRow',
   'input.selectedProviderActualInvestorRow',
+  'input.normalizedInvestorRow',
+  'input.normalizedRow',
+  'input.row',
+  'input.data.row',
+  'input.result.row',
+  'input.providerPayload.normalizedRow',
+  'input.payload.normalizedRow',
+  'input.supply.actualInvestorRow',
+  'input.supplySemantic.actualInvestorRow',
+  'input.supplySemantic.diagnosticActualInvestorRow',
   'input.actualInvestorFlowRows',
   'input.actualInvestorFlowRowCarrier.actualRows',
+  'input.selectedCandidate.actualInvestorRow',
   'input.selectedCandidate.diagnosticActualInvestorRow',
   'input.selectedCandidate.selectedProviderActualInvestorRow',
+  'input.selectedCandidate.normalizedInvestorRow',
   'input.selectedCandidate.actualInvestorFlowRows',
   'input.selectedCandidate.actualInvestorFlowRowCarrier.actualRows',
   'input.selectedCandidate',
@@ -716,6 +739,8 @@ export function unwrapInvestorFlowRows(input: unknown): InvestorFlowRowsUnwrapDi
 
 const FOREIGN_NET_BUY_ALIASES = [
   'foreignNetBuy',
+  'foreignNetBuyAmount',
+  'foreignNetBuyQty',
   'foreignNetAmount',
   'foreignNetVolume',
   'foreignerNetBuy',
@@ -739,6 +764,10 @@ const FOREIGN_SELL_ALIASES = ['foreignSell', 'foreignSellAmount', 'foreignSellVo
 const INSTITUTIONAL_NET_BUY_ALIASES = [
   'institutionalNetBuy',
   'institutionNetBuy',
+  'institutionNetBuyAmount',
+  'institutionNetBuyQty',
+  'institutionalNetBuyAmount',
+  'institutionalNetBuyQty',
   'instNetBuy',
   'orgNetBuy',
   'orgnNetBuy',
@@ -756,6 +785,8 @@ const INSTITUTIONAL_BUY_ALIASES = ['institutionBuy', 'institutionBuyAmount', 'in
 const INSTITUTIONAL_SELL_ALIASES = ['institutionSell', 'institutionSellAmount', 'institutionSellVolume', 'institutionalSell', 'instSell', 'orgnSell', 'orgn_sell', 'orgn_seln_qty'] as const;
 const INDIVIDUAL_NET_BUY_ALIASES = [
   'individualNetBuy',
+  'individualNetBuyAmount',
+  'individualNetBuyQty',
   'retailNetBuy',
   'prsnNetBuy',
   'indvNetBuy',
@@ -768,7 +799,7 @@ const INDIVIDUAL_NET_BUY_ALIASES = [
 ] as const;
 const INDIVIDUAL_BUY_ALIASES = ['individualBuy', 'individualBuyAmount', 'individualBuyVolume', 'retailBuy', 'prsnBuy', 'indvBuy', 'indv_buy', 'indv_shnu_qty'] as const;
 const INDIVIDUAL_SELL_ALIASES = ['individualSell', 'individualSellAmount', 'individualSellVolume', 'retailSell', 'prsnSell', 'indvSell', 'indv_sell', 'indv_seln_qty'] as const;
-const PROGRAM_NET_BUY_ALIASES = ['programNetBuy'] as const;
+const PROGRAM_NET_BUY_ALIASES = ['programNetBuy', 'programNetBuyAmount', 'programNetBuyQty'] as const;
 const NET_BUY_AMOUNT_ALIASES = ['netBuyAmount', 'netAmount', 'netBuy', 'net_buy'] as const;
 const NET_BUY_VOLUME_ALIASES = ['netBuyVolume', 'netVolume', 'netVol', 'ntby', 'ntby_qty', 'ntby_tr_pbmn'] as const;
 const COMMON_BUY_AMOUNT_ALIASES = ['buyAmount', 'buyVolume', 'buyQty', 'buyQuantity', 'shnu_qty'] as const;

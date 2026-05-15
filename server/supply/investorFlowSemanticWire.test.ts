@@ -70,6 +70,55 @@ describe('evaluateInvestorFlowSemanticAvailabilityV2 flat row', () => {
     expect(result.reason).toBe('ONLY_WRAPPER_OBJECT_SELECTED');
     expect(result.providerIssue).toBe(false);
   });
+
+
+  it('unwraps PATCH-011 actualInvestorRow carrying KIS normalized amount fields', () => {
+    const result = evaluateInvestorFlowSemanticAvailabilityV2({
+      flow: {
+        symbol: '145020',
+        actualInvestorRow: {
+          symbol: '145020',
+          provider: 'KIS_API',
+          foreignNetBuyAmount: 120000000,
+          institutionNetBuyAmount: -50000000,
+          programNetBuyAmount: 30000000,
+          providerIssue: false,
+          executionImpact: 'NONE',
+          confidence: 'VERIFIED',
+        },
+      },
+      symbolMatched: true,
+      providerScope: 'SYMBOL_LEVEL',
+      rawInvestorRowAvailable: true,
+      actualInvestorRowCarried: true,
+    });
+    expect(result.available).toBe(true);
+    expect(result.reason).toBe('AVAILABLE');
+    expect(result.foreignNetBuy).toBe(120000000);
+    expect(result.institutionalNetBuy).toBe(-50000000);
+    expect(result.programNetBuy).toBe(30000000);
+  });
+
+  it('treats all-zero promoted normalized amount fields as ZERO_BUT_MATERIALIZED', () => {
+    const result = evaluateInvestorFlowSemanticAvailabilityV2({
+      flow: {
+        normalizedInvestorRow: {
+          symbol: '452280',
+          provider: 'KIS_API',
+          foreignNetBuyAmount: 0,
+          institutionNetBuyAmount: 0,
+          programNetBuyAmount: 0,
+        },
+      },
+      symbolMatched: true,
+      providerScope: 'SYMBOL_LEVEL',
+      rawInvestorRowAvailable: true,
+      actualInvestorRowCarried: true,
+    });
+    expect(result.available).toBe(true);
+    expect(result.reason).toBe('ZERO_BUT_MATERIALIZED');
+    expect(result.providerIssue).toBe(false);
+  });
 });
 
 describe('buildInvestorFlowFlatRowForGate', () => {

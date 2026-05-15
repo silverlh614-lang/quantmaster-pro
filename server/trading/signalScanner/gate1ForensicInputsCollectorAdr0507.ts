@@ -215,7 +215,7 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
           kisNormalizedRowAvailableAtRouter: healthRecord.kisNormalizedRowAvailableAtRouter as boolean | undefined,
           kisSelectedCandidateCarriesSemanticRow: healthRecord.kisSelectedCandidateCarriesSemanticRow as boolean | undefined,
           forensicInputCarriesSemanticRow: Boolean(selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord.semanticInvestorRow ?? healthRecord.supplySemanticRow ?? healthRecord.semanticRow),
-          forensicInputCarriesActualInvestorRows: (actualInvestorFlowRows?.length ?? 0) > 0,
+          forensicInputCarriesActualInvestorRows: (actualInvestorFlowRows?.length ?? 0) > 0 || Boolean(healthRecord.diagnosticActualInvestorRow),
           semanticRowBreakPoint: (healthRecord.semanticRowBreakPoint as string | undefined) ?? (healthRecord.kisSelectedCandidateCarriesSemanticRow === false ? 'SELECTED_CANDIDATE_METADATA_ONLY' : undefined),
         }
       : undefined;
@@ -239,7 +239,8 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...(actualInvestorFlowNumericKeys ? { actualInvestorFlowNumericKeys } : {}),
       ...(actualInvestorFlowNumericStringKeys ? { actualInvestorFlowNumericStringKeys } : {}),
       ...(actualInvestorFlowCarried !== undefined ? { actualInvestorFlowCarried } : {}),
-      ...((selectedCandidateRecord?.actualInvestorRow ?? (healthRecord?.actualInvestorRow as Record<string, unknown> | undefined) ?? actualInvestorFlowRows?.[0]) ? { actualInvestorRow: (selectedCandidateRecord?.actualInvestorRow ?? healthRecord?.actualInvestorRow ?? actualInvestorFlowRows?.[0]) as Record<string, unknown> } : {}),
+      ...((selectedCandidateRecord?.actualInvestorRow ?? (healthRecord?.actualInvestorRow as Record<string, unknown> | undefined) ?? actualInvestorFlowRows?.[0] ?? healthRecord?.normalizedInvestorRow) ? { actualInvestorRow: (selectedCandidateRecord?.actualInvestorRow ?? healthRecord?.actualInvestorRow ?? actualInvestorFlowRows?.[0] ?? healthRecord?.normalizedInvestorRow) as Record<string, unknown> } : {}),
+      ...((selectedCandidateRecord?.diagnosticActualInvestorRow ?? healthRecord?.diagnosticActualInvestorRow ?? selectedCandidateRecord?.actualInvestorRow ?? healthRecord?.actualInvestorRow ?? healthRecord?.normalizedInvestorRow) ? { diagnosticActualInvestorRow: (selectedCandidateRecord?.diagnosticActualInvestorRow ?? healthRecord?.diagnosticActualInvestorRow ?? selectedCandidateRecord?.actualInvestorRow ?? healthRecord?.actualInvestorRow ?? healthRecord?.normalizedInvestorRow) as Record<string, unknown> } : {}),
       ...((selectedCandidateRecord?.normalizedInvestorRow ?? healthRecord?.normalizedInvestorRow) ? { normalizedInvestorRow: (selectedCandidateRecord?.normalizedInvestorRow ?? healthRecord?.normalizedInvestorRow) as Record<string, unknown> } : {}),
       ...((selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) ? { semanticInvestorRow: (selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...((selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) ? { supplySemanticRow: (selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
@@ -360,16 +361,25 @@ function mergeActualRowCarryAdr0507(
   const selectedCandidate = base?.selectedCandidate && typeof base.selectedCandidate === 'object'
     ? base.selectedCandidate as Record<string, unknown>
     : {};
+  const normalizedPayloadRow = payload.normalizedInvestorRow && typeof payload.normalizedInvestorRow === 'object'
+    ? payload.normalizedInvestorRow as Record<string, unknown>
+    : undefined;
+  const promotedActualRow = payload.actualInvestorRow && typeof payload.actualInvestorRow === 'object'
+    ? payload.actualInvestorRow as Record<string, unknown>
+    : normalizedPayloadRow;
+  const diagnosticPayloadRow = payload.diagnosticActualInvestorRow && typeof payload.diagnosticActualInvestorRow === 'object'
+    ? payload.diagnosticActualInvestorRow as Record<string, unknown>
+    : promotedActualRow;
   const actualRows = stale
     ? undefined
     : Array.isArray(payload.actualInvestorFlowRows)
       ? payload.actualInvestorFlowRows
-      : payload.actualInvestorRow && typeof payload.actualInvestorRow === 'object'
-        ? [payload.actualInvestorRow as Record<string, unknown>]
+      : promotedActualRow
+        ? [promotedActualRow]
         : undefined;
   return {
     ...(base ?? {}),
-    actualInvestorRow: stale ? base?.actualInvestorRow : (payload.actualInvestorRow ?? base?.actualInvestorRow ?? actualRows?.[0]),
+    actualInvestorRow: stale ? base?.actualInvestorRow : (promotedActualRow ?? base?.actualInvestorRow ?? actualRows?.[0]),
     normalizedInvestorRow: payload.normalizedInvestorRow ?? base?.normalizedInvestorRow,
     semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? base?.semanticInvestorRow,
     supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? base?.supplySemanticRow,
@@ -387,7 +397,7 @@ function mergeActualRowCarryAdr0507(
     // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — selectedProvider 와 actual row carry 분리.
     // diagnosticActualInvestorRow 는 selectedProvider 무관하게 carry (DIAGNOSTIC_ONLY scope).
     // stale payload 는 diagnostic row 새로 주장 금지 (base 보존).
-    diagnosticActualInvestorRow: stale ? base?.diagnosticActualInvestorRow : (payload.diagnosticActualInvestorRow ?? base?.diagnosticActualInvestorRow),
+    diagnosticActualInvestorRow: stale ? base?.diagnosticActualInvestorRow : (diagnosticPayloadRow ?? base?.diagnosticActualInvestorRow),
     selectedProviderActualInvestorRow: stale ? base?.selectedProviderActualInvestorRow : (payload.selectedProviderActualInvestorRow ?? base?.selectedProviderActualInvestorRow),
     actualInvestorRowProvider: payload.actualInvestorRowProvider ?? base?.actualInvestorRowProvider,
     actualInvestorRowUseScope: payload.actualInvestorRowUseScope ?? base?.actualInvestorRowUseScope,
@@ -398,7 +408,7 @@ function mergeActualRowCarryAdr0507(
     selectedCandidate: {
       ...selectedCandidate,
       ...(payload.selectedCandidate && typeof payload.selectedCandidate === 'object' ? payload.selectedCandidate as Record<string, unknown> : {}),
-      actualInvestorRow: stale ? selectedCandidate.actualInvestorRow : (payload.actualInvestorRow ?? selectedCandidate.actualInvestorRow ?? actualRows?.[0]),
+      actualInvestorRow: stale ? selectedCandidate.actualInvestorRow : (promotedActualRow ?? selectedCandidate.actualInvestorRow ?? actualRows?.[0]),
       normalizedInvestorRow: payload.normalizedInvestorRow ?? selectedCandidate.normalizedInvestorRow,
       semanticInvestorRow: payload.semanticInvestorRow ?? payload.supplySemanticRow ?? selectedCandidate.semanticInvestorRow,
       supplySemanticRow: payload.supplySemanticRow ?? payload.semanticInvestorRow ?? selectedCandidate.supplySemanticRow,
@@ -411,7 +421,7 @@ function mergeActualRowCarryAdr0507(
       actualInvestorFlowNumericStringKeys: payload.actualInvestorFlowNumericStringKeys ?? payload.selectedActualNumericStringFieldKeys ?? selectedCandidate.actualInvestorFlowNumericStringKeys,
       actualInvestorFlowCarried: stale ? false : (payload.actualInvestorFlowCarried ?? ((actualRows?.length ?? 0) > 0) ?? selectedCandidate.actualInvestorFlowCarried),
       // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — selectedCandidate 레벨에도 carry 분리 전파.
-      diagnosticActualInvestorRow: stale ? selectedCandidate.diagnosticActualInvestorRow : (payload.diagnosticActualInvestorRow ?? selectedCandidate.diagnosticActualInvestorRow),
+      diagnosticActualInvestorRow: stale ? selectedCandidate.diagnosticActualInvestorRow : (diagnosticPayloadRow ?? selectedCandidate.diagnosticActualInvestorRow),
       selectedProviderActualInvestorRow: stale ? selectedCandidate.selectedProviderActualInvestorRow : (payload.selectedProviderActualInvestorRow ?? selectedCandidate.selectedProviderActualInvestorRow),
       actualInvestorRowProvider: payload.actualInvestorRowProvider ?? selectedCandidate.actualInvestorRowProvider,
       actualInvestorRowUseScope: payload.actualInvestorRowUseScope ?? selectedCandidate.actualInvestorRowUseScope,
