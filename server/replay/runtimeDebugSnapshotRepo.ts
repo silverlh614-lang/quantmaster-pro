@@ -1,13 +1,18 @@
-// @responsibility 17:00 KST after-hours runtime debug snapshot 영속 SSOT + frozen supply rows + replay adapter metadata.
+// @responsibility 18:00 KST after-hours runtime debug snapshot 영속 SSOT + frozen supply rows + replay adapter metadata (Patch-003 — 17:00 → 18:00 격상).
 
 /**
- * Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002 — Runtime Debug Snapshot Repo.
+ * Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002/003 — Runtime Debug Snapshot Repo.
  *
- * 사용자 명시 framing (Patch-001):
+ * 사용자 명시 framing (Patch-001, Patch-003 시간 격상):
  *   "17시에 스냅샷을 찍고, 17시에 찍는 스냅샷은 sell only 용이 아니고 장중 스냅샷과
  *    동일하게 취급한다. 17:00에 신규 KIS/KRX/Yahoo/Naver 호출 금지.
  *    저장 대상은 마지막 장중 runtime snapshot/cache/diagnostic state.
  *    replay에서는 SELL_ONLY 의미 부여 금지."
+ *
+ *   Patch-003 격상: 17:00 KST 시점에 직전 scan 미완료로 `getLastScanSummary() null`
+ *   경고 빈도 ↑ → 18:00 KST (장 종료 +2.5h) 로 이동 — scan/learning/reflection cron
+ *   모두 완료 후 forensic/supply 영속 안정화 시점. 위 framing 의 *시간* 만 변경,
+ *   다른 invariant 100% 보존.
  *
  * 사용자 명시 framing (Patch-002):
  *   "스냅샷을 단순 조회용으로만 쓰지 않고, SnapshotInvestorFlowReplayAdapter 를
@@ -15,12 +20,12 @@
  *    merge 경로에 주입할 수 있게 한다. 주말에도 providerCalls=0 상태에서
  *    '수급이 candidate context 에 정상적으로 들어가는지' 검증할 수 있어야 한다."
  *
- * Lifecycle 정책 (사용자 명시 절대 변경 금지):
- *   - 매 평일 17:00 KST 자동 capture (ScheduleClass='TRADING_DAY_ONLY')
+ * Lifecycle 정책 (Patch-003 — 17:00 → 18:00 격상):
+ *   - 매 평일 18:00 KST 자동 capture (ScheduleClass='TRADING_DAY_ONLY')
  *   - **단일 latest overwrite 모델** — FIFO revision 누적 X, latest 1 개만 유지
- *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 평일 17:00 까지 유지
- *   - 다음 평일 17:00 성공 capture 가 직전 latest atomic overwrite
- *   - 금요일 snapshot → 월요일 17:00 capture 가 덮어쓰기 (주말 내내 Fri snapshot 보존)
+ *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 평일 18:00 까지 유지
+ *   - 다음 평일 18:00 성공 capture 가 직전 latest atomic overwrite
+ *   - 금요일 snapshot → 월요일 18:00 capture 가 덮어쓰기 (주말 내내 Fri snapshot 보존)
  *   - 월요일 장 시작 시 금요일 snapshot 삭제 절대 금지 (cron 미존재)
  *   - capture 실패 시 직전 latest 보존 (atomic write tmp→rename + preserveOnFailure)
  *
@@ -32,7 +37,7 @@
  *   5.  executionImpact: 'NONE' literal 강제 (replay 결과는 매매 의사결정 입력 절대 금지)
  *   6.  runtimeStateBasis: 'LATEST_INTRADAY_RUNTIME_STATE' literal 강제
  *   7.  sessionInterpretation: 'INTRADAY_REPLAY_EQUIVALENT' literal 강제 (SELL_ONLY 의미 부여 금지)
- *   8.  captureTimeKst: '17:00' literal 강제
+ *   8.  captureTimeKst: '18:00' literal 강제 (Patch-003 — 17:00 → 18:00)
  *   9.  sellOnlySemanticApplied: false literal 강제
  *   10. priceSemantics: 'REFERENCE_ONLY_NOT_FOR_TRADE_DECISION' literal 강제
  *   11. replayDecisionMode: 'FROZEN_RUNTIME_STATE' literal 강제
@@ -151,7 +156,7 @@ export interface RuntimeDebugSnapshot {
   captureKind: SnapshotCaptureKind;
   timezone: 'Asia/Seoul';
   source: 'RUNTIME_SNAPSHOT';
-  captureTimeKst: '17:00';
+  captureTimeKst: '18:00';
   schemaVersion: 2;
 
   // 절대 invariants (literal types — TypeScript 컴파일 타임 강제)
@@ -378,7 +383,7 @@ export function sanitizeRuntimeDebugSnapshot(
     captureKind: 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT',
     timezone: 'Asia/Seoul',
     source: 'RUNTIME_SNAPSHOT',
-    captureTimeKst: '17:00',
+    captureTimeKst: '18:00',
     schemaVersion: 2,
     replayOnly: true,
     diagnosticOnly: true,
