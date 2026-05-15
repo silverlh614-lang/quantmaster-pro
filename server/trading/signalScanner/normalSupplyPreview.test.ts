@@ -361,3 +361,131 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(pages.every((page) => page.length <= 1300)).toBe(true);
   });
 });
+
+describe('Normal Supply Preview program flow diagnostics', () => {
+  beforeEach(() => {
+    __resetNormalSupplyPreviewForTests();
+  });
+
+  const baseCandidate = (overrides: Record<string, unknown> = {}) => ({
+    code: '123456',
+    name: 'Program Flow Test',
+    preflight: {
+      supplyContext: {
+        symbol: '123456',
+        provider: 'KIS_API',
+        supplyProviderHealth: 'VERIFIED',
+        supplySignal: 'NEUTRAL',
+        providerIssue: false,
+        marketSignal: true,
+        executionImpact: 'NONE',
+        foreignNetBuyAmount: 100,
+        institutionNetBuyAmount: 50,
+        ...overrides,
+      },
+    },
+  });
+
+  it('does not treat missing program flow as bearish or penalized', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'SELL_ONLY',
+      source: 'COMMAND',
+      candidates: [baseCandidate()] as any,
+    });
+
+    expect(preview.candidates[0]?.supplySignal).toBe('ACCUMULATING');
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(false);
+    expect(preview.candidates[0]?.programMissingAsBearish).toBe(false);
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+    expect(preview.fieldAvailability.missingProgramFlowAsBearish).toBe(false);
+  });
+
+  it('maps stock program buy and sell amounts into a diagnostic net buy', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ programBuyAmount: 100, programSellAmount: 40 })] as any,
+    });
+
+    expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(60);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.signal).toBe('BULLISH');
+    expect(preview.fieldAvailability.stockProgramAvailable).toBe(1);
+  });
+
+  it('maps stock program net amount aliases without changing diagnostic-only safety flags', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ programNetAmount: -50 })] as any,
+    });
+
+    expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(-50);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.signal).toBe('BEARISH');
+    expect(preview.candidates[0]?.programFlowDryRun.appliedToLiveScore).toBe(false);
+    expect(preview.executionImpact).toBe('NONE');
+  });
+
+  it('computes active/passive confluence labels for buying, selling, and mixed flow', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [
+        baseCandidate(),
+        baseCandidate({ symbol: '123457', foreignNetBuyAmount: 1, institutionNetBuyAmount: 2, programNetBuy: 3 }),
+        baseCandidate({ symbol: '123458', foreignNetBuyAmount: -1, institutionNetBuyAmount: -2, programNetBuy: -3, supplySignal: 'BEARISH' }),
+        baseCandidate({ symbol: '123459', foreignNetBuyAmount: 1, institutionNetBuyAmount: 2, programNetBuy: -3 }),
+      ] as any,
+    });
+
+    expect(preview.candidates.map((candidate) => candidate.activePassiveConfluence)).toEqual([
+      'ACTIVE_BUYING_ONLY',
+      'ACTIVE_PASSIVE_CONFIRMED_BUY',
+      'ACTIVE_PASSIVE_CONFIRMED_SELL',
+      'MIXED_FLOW',
+    ]);
+  });
+
+  it('separates provider issue from program market signal', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { providerIssue: true, reason: 'KIS_TIMEOUT' },
+      candidates: [baseCandidate()] as any,
+    });
+
+    expect(preview.fieldAvailability.marketProgramSignal).toBe('UNKNOWN');
+    expect(preview.candidates[0]?.programFlow?.marketLevel.providerIssue).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.marketLevel.marketSignal).toBe(false);
+    expect(preview.signalCounts.BEARISH).toBe(0);
+  });
+
+  it('prints full diagnostics and confluence in top and bearish rows', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'SELL_ONLY',
+      source: 'COMMAND',
+      candidates: [
+        baseCandidate(),
+        baseCandidate({
+          symbol: '654321',
+          foreignNetBuyAmount: -100,
+          institutionNetBuyAmount: -50,
+          supplySignal: 'BEARISH',
+        }),
+      ] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview, { maxTopCandidates: 2 }).join('\n');
+    expect(text).toContain('Program Flow Availability');
+    expect(text).toContain('Active/Passive Confluence');
+    expect(text).toContain('Program Flow Diagnostics');
+    expect(text).toContain('activeFlow=외인+기관 동반 순매수');
+    expect(text).toContain('passiveFlow=PROGRAM_FLOW_UNAVAILABLE');
+    expect(text).toContain('confluence=ACTIVE_BUYING_ONLY');
+    expect(text).toContain('confluence=ACTIVE_SELLING_ONLY');
+    expect(text).toContain('programMissingAsBearish=false');
+    expect(text).toContain('programFlowUsedForLiveDecision=false');
+    expect(text).toContain('executionImpact=NONE');
+  });
+});
