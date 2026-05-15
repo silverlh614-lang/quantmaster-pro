@@ -488,4 +488,35 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).toContain('programFlowUsedForLiveDecision=false');
     expect(text).toContain('executionImpact=NONE');
   });
+  it('parses numeric string stock program flow and passive-only confluence without live score impact', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      candidates: [baseCandidate({ foreignNetBuyAmount: 0, institutionNetBuyAmount: 0, programNetBuy: '1,234' })] as any,
+    });
+
+    const candidate = preview.candidates[0]!;
+    expect(candidate.programFlow?.stockLevel.netBuy).toBe(1234);
+    expect(candidate.programFlow?.stockLevel.available).toBe(true);
+    expect(candidate.activePassiveConfluence).toBe('PASSIVE_BUYING_ONLY');
+    expect(candidate.supplyScore).toBe(candidate.programFlowDryRun.currentSupplyScore);
+    expect(candidate.programFlowDryRun.appliedToLiveScore).toBe(false);
+  });
+
+  it('maps market-level program flow aliases as diagnostic-only passive proxy', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { marketProgramNetBuy: 1000, sourceProvider: 'CACHE' },
+      candidates: [baseCandidate()] as any,
+    });
+
+    expect(preview.fieldAvailability.marketProgramAvailable).toBe(true);
+    expect(preview.fieldAvailability.marketProgramSignal).toBe('BULLISH');
+    expect(preview.fieldAvailability.marketProgramSource).toBe('CACHE');
+    expect(preview.fieldAvailability.passiveProxyUsedForLiveDecision).toBe(false);
+    expect(preview.candidates[0]?.activePassiveConfluence).toBe('ACTIVE_PASSIVE_CONFIRMED_BUY');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('WIRE_STOCK_AND_MARKET_PROGRAM_FLOW_FIELDS');
+  });
+
 });
