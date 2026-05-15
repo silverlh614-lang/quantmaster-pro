@@ -287,7 +287,26 @@ function renderInvestorFlowDecision(marker: Marker): string {
   // 회귀 호환 — 외부 호출자가 NEUTRAL 명시 시 (test fixture 등) 기존 텍스트 보존.
   return '판정: KRX/NAVER/CACHE 미연결 — KIS는 진단용, 점수 제외';
 }
-function isAcceptedEmptyRaw(rawDiagLine: string): boolean { return rawDiagLine.includes('rawDiag=MARKET_PROGRAM') && rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY'); }
+// Patch-SUPPLY-HEALTH-EMPTY-ROUTER-DISPATCH-FIX-001 — V2 router (Patch-006/007) 진입 gate 의 매칭 조건을
+// Patch-004 V1 router 본체 (programMarketRouterPatch004.ts:198) 의 3-value 매칭 (ACCEPTED_EMPTY | OUTPUT_EMPTY |
+// FIELD_MISSING) 과 정합. 1-value 만 매칭하던 결함으로 OUTPUT_EMPTY/FIELD_MISSING 응답 시 V2 router 가 dead code
+// 로 빠지고 fallback formatter 가 출력되어 Patch-007 intraday wiring 도 함께 invoke 안 되던 dispatch 결함 차단.
+// ENV `SUPPLY_HEALTH_EMPTY_ROUTER_DISPATCH_FIX_DISABLED=true` (default OFF, ADR-0157 정확 비교) 1줄로 legacy
+// 1-value 매칭 동작 100% 복원.
+export function isEmptyRouterDispatchFixDisabled(): boolean {
+  return process.env.SUPPLY_HEALTH_EMPTY_ROUTER_DISPATCH_FIX_DISABLED === 'true';
+}
+export function isAcceptedEmptyRaw(rawDiagLine: string): boolean {
+  if (!rawDiagLine.includes('rawDiag=MARKET_PROGRAM')) return false;
+  if (isEmptyRouterDispatchFixDisabled()) {
+    return rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY');
+  }
+  return (
+    rawDiagLine.includes('zeroReason=ACCEPTED_EMPTY') ||
+    rawDiagLine.includes('zeroReason=OUTPUT_EMPTY') ||
+    rawDiagLine.includes('zeroReason=FIELD_MISSING')
+  );
+}
 
 function bumpProviderCount(counts: Map<SupplyProvider, number>, provider: SupplyProvider | null): void {
   if (!provider) return;
