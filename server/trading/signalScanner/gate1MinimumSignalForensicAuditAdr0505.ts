@@ -42,6 +42,7 @@ import {
   type SanitizedInvestorFlowSemanticRow,
 } from '../../supply/investorFlowSemanticAvailability.js';
 import type { InvestorRowMaterializationClass } from './investorFlowProviderRouterAdr0477.js';
+import { shouldSuppressNoise, recordNoiseSuppressed } from '../../utils/logger.js';
 
 /* ───────── ENV 우회 SSOT (ADR-0157 정확 비교) ───────── */
 
@@ -1095,7 +1096,16 @@ function buildSupplyScopeAudit(input: {
   const selectedCandidateCarriesSemanticRow = kisFlow?.kisSelectedCandidateCarriesSemanticRow ?? Boolean(input.selectedCandidate?.semanticInvestorRow ?? input.selectedCandidate?.supplySemanticRow ?? kisFlow?.semanticInvestorRow ?? kisFlow?.supplySemanticRow ?? kisFlow?.semanticRow ?? kisFlow?.investorFlowSemanticRow);
   const forensicInputCarriesSemanticRow = kisFlow?.forensicInputCarriesSemanticRow ?? Boolean(semanticRowCandidate);
   const forensicInputCarriesActualInvestorRows = kisFlow?.forensicInputCarriesActualInvestorRows ?? actualInvestorRows.length > 0;
-  const wireDiag = pseudoSymbolSkipped ? { emit: false, suppressedSinceLast: 0 } : shouldEmitSupplySemanticWireDiagLog(trace.symbol);
+  // Patch-009 P1 — 프로덕션 진단 로그 게이트. SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC 은
+  // 평가용 진단(executionImpact=NONE)일 뿐이라 default LOG_LEVEL=info 에서는 종목별
+  // 60s dedup 이 있어도 종목 수 × 2 stage 로 누적된다. 중앙 logger 의 noise 게이트로
+  // 프로덕션에서 억제하고 LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC=false 또는
+  // LOG_LEVEL=debug 시에만 노출. 억제 시 NoiseSummary 카운터에 집계.
+  const wireDiagSuppressed = shouldSuppressNoise('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC');
+  if (wireDiagSuppressed && !pseudoSymbolSkipped) recordNoiseSuppressed('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC');
+  const wireDiag = pseudoSymbolSkipped || wireDiagSuppressed
+    ? { emit: false, suppressedSinceLast: 0 }
+    : shouldEmitSupplySemanticWireDiagLog(trace.symbol);
   if (wireDiag.emit) {
     console.info(
       `[SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC] symbol=${trace.symbol} stage=BEFORE_SEMANTIC_EVAL`

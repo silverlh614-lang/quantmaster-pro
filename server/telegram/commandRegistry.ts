@@ -8,6 +8,7 @@
 // barrel import 하고, 본 모듈을 import 하는 곳에서 그 barrel 도 import 해야 등록 트리거가 동작한다.
 
 import type { TelegramCommand } from './commands/_types.js';
+import { shouldSuppressNoise, recordNoiseSuppressed } from '../utils/logger.js';
 
 class CommandRegistry {
   private readonly byName = new Map<string, TelegramCommand>();
@@ -23,10 +24,15 @@ class CommandRegistry {
       if (this.byName.has(norm)) {
         const existing = this.byName.get(norm)!;
         if (existing === cmd) {
+          // Patch-009 P1 — commandRegistry 진단 로그를 LOG_LEVEL 게이트 경유.
           if (cmd.name === '/scan_blockers') {
-            console.warn(
-              `[commandRegistry] duplicate registration ignored command=${cmd.name} key=${norm} existing=${existing.name}`,
-            );
+            if (shouldSuppressNoise('COMMAND_REGISTRY_DIAGNOSTIC')) {
+              recordNoiseSuppressed('COMMAND_REGISTRY_DIAGNOSTIC');
+            } else {
+              console.warn(
+                `[commandRegistry] duplicate registration ignored command=${cmd.name} key=${norm} existing=${existing.name}`,
+              );
+            }
           }
           continue; // 동일 instance 중복 등록은 무시 (HMR 안전).
         }
@@ -35,10 +41,15 @@ class CommandRegistry {
         throw new Error(message);
       }
       this.byName.set(norm, cmd);
+      // Patch-009 P1 — commandRegistry 진단 로그를 LOG_LEVEL 게이트 경유.
       if (cmd.name === '/scan_blockers') {
-        console.info(
-          `[commandRegistry] registration diagnostic command=${cmd.name} key=${norm} duplicate=false totalKeys=${this.byName.size}`,
-        );
+        if (shouldSuppressNoise('COMMAND_REGISTRY_DIAGNOSTIC')) {
+          recordNoiseSuppressed('COMMAND_REGISTRY_DIAGNOSTIC');
+        } else {
+          console.info(
+            `[commandRegistry] registration diagnostic command=${cmd.name} key=${norm} duplicate=false totalKeys=${this.byName.size}`,
+          );
+        }
       }
     }
   }
