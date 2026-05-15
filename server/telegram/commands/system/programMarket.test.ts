@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const _fetchKisMarketProgramTrade = vi.fn();
 const _loadMacroState = vi.fn();
+const _captureProgramFlowSnapshot = vi.fn();
 
 vi.mock('../../../clients/kisClient/index.js', () => ({
   fetchKisMarketProgramTrade: _fetchKisMarketProgramTrade,
@@ -17,6 +18,10 @@ vi.mock('../../../clients/kisClient/index.js', () => ({
 
 vi.mock('../../../persistence/macroStateRepo.js', () => ({
   loadMacroState: _loadMacroState,
+}));
+
+vi.mock('../../../replay/intradayProgramFlowSnapshotRepo.js', () => ({
+  captureLatestIntradayProgramFlowSnapshotFromRuntimeContext: _captureProgramFlowSnapshot,
 }));
 
 vi.mock('../../commandRegistry.js', () => ({
@@ -30,6 +35,7 @@ beforeEach(async () => {
   vi.resetModules();
   _fetchKisMarketProgramTrade.mockReset();
   _loadMacroState.mockReset();
+  _captureProgramFlowSnapshot.mockReset();
   const mod = await import('./programMarket.cmd.js');
   programMarket = mod.default;
   buildProgramMarketMessage = mod.buildProgramMarketMessage;

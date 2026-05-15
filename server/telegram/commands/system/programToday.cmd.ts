@@ -6,6 +6,7 @@
 // 본 PR 은 *진단 명령* 만 — enrichment/signalScanner wiring 후속 PR.
 
 import { fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
+import { captureLatestIntradayProgramFlowSnapshotFromRuntimeContext } from '../../../replay/intradayProgramFlowSnapshotRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -67,6 +68,7 @@ export async function buildProgramTodayMessage(args: string[]): Promise<string> 
       '  • 잘못된 종목코드 또는 비상장 종목 가능성',
     ].join('\n');
   }
+  captureStockProgramSnapshotBestEffort(data);
 
   const programNetBuyQty = data.programNetBuyQty ?? null;
   const programNetBuyAmount = data.programNetBuyAmount ?? null;
@@ -101,6 +103,27 @@ export async function buildProgramTodayMessage(args: string[]): Promise<string> 
   lines.push(`📡 출처: ${data.source}`);
 
   return lines.join('\n');
+}
+
+function captureStockProgramSnapshotBestEffort(
+  data: NonNullable<Awaited<ReturnType<typeof fetchKisStockProgramTrade>>>,
+): void {
+  captureLatestIntradayProgramFlowSnapshotFromRuntimeContext({
+    stockRows: [{
+      symbol: data.stockCode,
+      normalizedSymbol: data.stockCode,
+      programNetBuyAmount: data.programNetBuyAmount ?? null,
+      programNetVolume: data.programNetBuyQty ?? null,
+      sourceProvider: data.source,
+      dataStatus: data.programNetBuyAmount === undefined || data.programNetBuyAmount === null ? 'MISSING' : 'VERIFIED',
+      providerIssue: false,
+      marketSignal: data.programNetBuyAmount !== undefined && data.programNetBuyAmount !== null,
+      capturedAt: data.fetchedAt,
+      reason: data.programNetBuyAmount === undefined || data.programNetBuyAmount === null
+        ? 'PROGRAM_VALUE_NULL'
+        : 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+    }],
+  });
 }
 
 const programToday: TelegramCommand = {

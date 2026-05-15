@@ -539,6 +539,7 @@ export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-recl
  */
 export const REPLAY_DIR = path.join(DATA_DIR, 'replay');
 export const LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE = path.join(REPLAY_DIR, 'latest-runtime-debug-snapshot.json');
+export const LATEST_INTRADAY_PROGRAM_FLOW_SNAPSHOT_FILE = path.join(REPLAY_DIR, 'latest-intraday-program-flow-snapshot.json');
 
 export function ensureReplayDir(): void {
   ensureDataDir();

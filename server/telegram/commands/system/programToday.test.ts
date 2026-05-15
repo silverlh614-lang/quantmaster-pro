@@ -10,9 +10,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const _fetchKisStockProgramTrade = vi.fn();
+const _captureProgramFlowSnapshot = vi.fn();
 
 vi.mock('../../../clients/kisClient/index.js', () => ({
   fetchKisStockProgramTrade: _fetchKisStockProgramTrade,
+}));
+
+vi.mock('../../../replay/intradayProgramFlowSnapshotRepo.js', () => ({
+  captureLatestIntradayProgramFlowSnapshotFromRuntimeContext: _captureProgramFlowSnapshot,
 }));
 
 vi.mock('../../commandRegistry.js', () => ({
@@ -25,6 +30,7 @@ let buildProgramTodayMessage: typeof import('./programToday.cmd.js').buildProgra
 beforeEach(async () => {
   vi.resetModules();
   _fetchKisStockProgramTrade.mockReset();
+  _captureProgramFlowSnapshot.mockReset();
   const mod = await import('./programToday.cmd.js');
   programToday = mod.default;
   buildProgramTodayMessage = mod.buildProgramTodayMessage;

@@ -1,4 +1,11 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import {
+  __resetIntradayProgramFlowSnapshotRepoForTests,
+  saveLatestIntradayProgramFlowSnapshot,
+} from '../../replay/intradayProgramFlowSnapshotRepo.js';
 import {
   __resetNormalSupplyPreviewForTests,
   classifySupplySignal,
@@ -10,6 +17,21 @@ import {
   persistNormalSupplyPreview,
 } from './normalSupplyPreview.js';
 
+const snapshotTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'normal-supply-preview-'));
+
+beforeEach(() => {
+  process.env.INTRADAY_PROGRAM_FLOW_SNAPSHOT_FILE = path.join(
+    snapshotTestDir,
+    `latest-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+  );
+  __resetIntradayProgramFlowSnapshotRepoForTests();
+  __resetNormalSupplyPreviewForTests();
+});
+
+afterEach(() => {
+  __resetIntradayProgramFlowSnapshotRepoForTests();
+  delete process.env.INTRADAY_PROGRAM_FLOW_SNAPSHOT_FILE;
+});
 
 describe('normalizeProgramFlowValue', () => {
   it.each([
@@ -35,10 +57,6 @@ describe('normalizeProgramFlowValue', () => {
 });
 
 describe('Normal Supply Preview under SELL_ONLY', () => {
-  beforeEach(() => {
-    __resetNormalSupplyPreviewForTests();
-  });
-
   it('persists a diagnostic-only normal supply preview with no execution impact', () => {
     const preview = persistNormalSupplyPreview({
       engineMode: 'SELL_ONLY',
@@ -733,6 +751,69 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.programFlowDiagnostics.upstreamPopulation.stockLevel.carrySuccessCount).toBe(1);
     expect(preview.programFlowDiagnostics.stockProgramRowsAvailable).toBe(1);
     expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+  });
+
+  it('carries stock and market program values from latest intraday program flow snapshot without provider calls', () => {
+    saveLatestIntradayProgramFlowSnapshot({
+      snapshotId: 'ipfs-test',
+      snapshotKind: 'INTRADAY_PROGRAM_FLOW_SNAPSHOT',
+      capturedAt: '2026-05-15T06:00:00.000Z',
+      capturedAtKst: '2026-05-15 15:00:00 KST',
+      marketDate: '2026-05-15',
+      timezone: 'Asia/Seoul',
+      source: 'RUNTIME_PROGRAM_FLOW',
+      replayOnly: true,
+      diagnosticOnly: true,
+      executionImpact: 'NONE',
+      stockRows: [{
+        symbol: '123456',
+        normalizedSymbol: '123456',
+        programNetBuyAmount: 1234,
+        sourceProvider: 'SNAPSHOT',
+        dataStatus: 'VERIFIED',
+        providerIssue: false,
+        marketSignal: true,
+        reason: 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+      }],
+      marketProgram: {
+        available: true,
+        marketProgramNetBuy: 10000,
+        combinedProgramNetBuy: 10000,
+        signal: 'BULLISH',
+        sourceProvider: 'SNAPSHOT',
+        dataStatus: 'VERIFIED',
+        providerIssue: false,
+        marketSignal: true,
+        reason: 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+      },
+      summary: {
+        stockRowsTotal: 1,
+        stockRowsWithProgramValue: 1,
+        marketProgramAvailable: true,
+        providerCallsAdded: 0,
+      },
+      sanitize: {
+        applied: true,
+        rawPayloadStored: false,
+        removedSensitiveFields: [],
+      },
+    });
+
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      marketProgramFlow: { marketProgramNetBuy: null },
+      candidates: [baseCandidate({ programNetBuyAmount: null })] as any,
+    });
+
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(1234);
+    expect(preview.fieldAvailability.marketProgramAvailable).toBe(true);
+    expect(preview.programFlowDiagnostics.upstreamPopulation.stockLevel.carrySource).toBe('LATEST_INTRADAY_PROGRAM_FLOW_SNAPSHOT');
+    expect(preview.programFlowDiagnostics.upstreamPopulation.marketLevel.carrySource).toBe('LATEST_INTRADAY_MARKET_PROGRAM_SNAPSHOT');
+    expect(preview.programFlowDiagnostics.providerCallsAdded).toBe(0);
+    expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
     expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
   });
 

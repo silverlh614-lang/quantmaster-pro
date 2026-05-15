@@ -9,6 +9,7 @@ import { diagnoseKisMarketProgramRaw } from '../../../clients/kisClient/supplyDi
 import { MARKET_PROGRAM_INDEX_CODE } from '../../../clients/kisClient/programMaterializer.js';
 import { routeProgramMarketEmptyWithKrxAggregate } from '../../../clients/krxClient/programMarketRouterPatch006.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
+import { captureLatestIntradayProgramFlowSnapshotFromRuntimeContext } from '../../../replay/intradayProgramFlowSnapshotRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -65,6 +66,7 @@ export async function buildProgramMarketMessage(): Promise<string> {
     lines.push('  • TR ID 검증 — <code>KIS_MARKET_PROGRAM_TRADE_TR_ID</code> ENV 우회');
     lines.push('  • Path 검증 — <code>KIS_MARKET_PROGRAM_TRADE_PATH</code> ENV 우회');
   } else {
+    captureMarketProgramSnapshotBestEffort(live);
     const status = live.marketProgramStatus ?? (live.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO');
     const statusEmoji = status === 'OK_NONZERO' ? '🟢' : status === 'PROVIDER_ERROR' ? '🟡' : '⚪';
 
@@ -156,6 +158,24 @@ export async function buildProgramMarketMessage(): Promise<string> {
   }
 
   return lines.join('\n');
+}
+
+function captureMarketProgramSnapshotBestEffort(
+  live: NonNullable<Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>>,
+): void {
+  captureLatestIntradayProgramFlowSnapshotFromRuntimeContext({
+    marketProgram: {
+      ...live,
+      marketProgramNetBuy: live.programNetBuyAmount,
+      combinedProgramNetBuy: live.programNetBuyAmount,
+      sourceProvider: live.source,
+      dataStatus: live.marketProgramStatus === 'PROVIDER_ERROR' ? 'UNKNOWN' : 'VERIFIED',
+      providerIssue: live.providerIssue === true,
+      marketSignal: live.programNetBuyAmount !== null && live.providerIssue !== true,
+      capturedAt: live.fetchedAt,
+      reason: live.programNetBuyAmount === null ? 'PROGRAM_VALUE_NULL' : 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+    },
+  });
 }
 
 const programMarket: TelegramCommand = {
