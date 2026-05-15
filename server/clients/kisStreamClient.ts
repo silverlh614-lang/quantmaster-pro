@@ -16,6 +16,8 @@
 
 import WebSocket from 'ws';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { shouldSuppressNoise, recordNoiseSuppressed } from '../utils/logger.js';
+import type { NoiseCategory } from '../utils/logger.js';
 
 interface StreamMessageEvent { data: string | Buffer | ArrayBuffer | Buffer[]; }
 interface StreamErrorEvent { error?: { message?: string; code?: string | number }; message?: string; }
@@ -112,10 +114,25 @@ interface StreamEvent {
   detail: string;
 }
 const _eventLog: StreamEvent[] = [];
-function logStreamEvent(event: string, detail: string): void {
+/**
+ * Patch-009 P4 — KIS-WS [LIMIT] 같은 반복 이벤트는 _eventLog ring buffer 에
+ * 항상 기록(구조적 진단 SSOT)하되 console 출력만 LOG_LEVEL 게이트 경유한다.
+ * subscribeStock() 은 장중 종목 수만큼 호출되어 상한 도달 시 [LIMIT] 이 11+ 줄
+ * 누적 — noiseCategory 가 지정되고 억제 대상이면 NoiseSummary 에 집계 후 console
+ * 출력만 생략. 연결 lifecycle 이벤트(CONNECT/OPEN/CLOSE/ERROR 등)는 게이트 없이 출력.
+ */
+function logStreamEvent(
+  event: string,
+  detail: string,
+  options?: { noiseCategory?: NoiseCategory },
+): void {
   const entry: StreamEvent = { ts: new Date().toISOString(), event, detail };
   _eventLog.push(entry);
   if (_eventLog.length > 20) _eventLog.shift();
+  if (options?.noiseCategory && shouldSuppressNoise(options.noiseCategory)) {
+    recordNoiseSuppressed(options.noiseCategory);
+    return;
+  }
   console.log(`[KIS-WS] [${entry.event}] ${entry.detail}`);
 }
 
@@ -502,7 +519,11 @@ export function subscribeStock(stockCode: string): boolean {
   const code = stockCode.padStart(6, '0');
   if (_subscribedCodes.has(code)) return true;
   if (_subscribedCodes.size >= MAX_SUBSCRIPTIONS) {
-    logStreamEvent('LIMIT', `subscribeStock(${code}) 거부 — 이미 상한 ${MAX_SUBSCRIPTIONS} 도달`);
+    logStreamEvent(
+      'LIMIT',
+      `subscribeStock(${code}) 거부 — 이미 상한 ${MAX_SUBSCRIPTIONS} 도달`,
+      { noiseCategory: 'KIS_WS_DETAIL' },
+    );
     return false;
   }
   _subscribedCodes.add(code);

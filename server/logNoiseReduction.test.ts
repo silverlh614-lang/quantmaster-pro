@@ -278,6 +278,35 @@ describe('log noise reduction', () => {
     expect(src).toMatch(/existing\.duplicateSuppressedCount\s*=/);
   });
 
+  // Patch-009 P4 — KIS-WS [LIMIT] 반복 이벤트 로그 집계.
+  it('KIS-WS [LIMIT] 이벤트 console 출력은 KIS_WS_DETAIL 게이트 경유한다', () => {
+    const src = readFileSync(
+      resolve(import.meta.dirname, 'clients/kisStreamClient.ts'),
+      'utf-8',
+    );
+    // logStreamEvent 가 noiseCategory 옵션 시 억제 분기 + recordNoiseSuppressed
+    expect(src).toMatch(/shouldSuppressNoise\(options\.noiseCategory\)/);
+    expect(src).toMatch(/recordNoiseSuppressed\(options\.noiseCategory\)/);
+    // [LIMIT] 호출 site 가 noiseCategory: 'KIS_WS_DETAIL' 전달
+    expect(src).toMatch(/'LIMIT',[\s\S]*?noiseCategory: 'KIS_WS_DETAIL'/);
+    // _eventLog ring buffer push 는 게이트와 무관하게 항상 유지 (구조적 진단 SSOT)
+    expect(src).toMatch(/_eventLog\.push\(entry\)/);
+  });
+
+  it('KIS-WS [LIMIT] 억제 시 _eventLog ring buffer 기록은 유지된다 (subscribeStock 동작 무변경)', () => {
+    const src = readFileSync(
+      resolve(import.meta.dirname, 'clients/kisStreamClient.ts'),
+      'utf-8',
+    );
+    // subscribeStock 의 상한 도달 시 return false 동작 무변경 — 로그만 게이트
+    expect(src).toMatch(/_subscribedCodes\.size >= MAX_SUBSCRIPTIONS[\s\S]*?return false;/);
+    // _eventLog.push 가 noiseCategory 게이트 분기보다 먼저 실행 (항상 기록)
+    const pushIdx = src.indexOf('_eventLog.push(entry)');
+    const gateIdx = src.indexOf('shouldSuppressNoise(options.noiseCategory)');
+    expect(pushIdx).toBeGreaterThan(0);
+    expect(gateIdx).toBeGreaterThan(pushIdx);
+  });
+
   it('Trading Engine execution path는 logger patch로 변경되지 않는다', () => {
     expect(shouldEmitPreEntryWaitLog('engine-path-sentinel', 1_000)).toBe(true);
     expect(console.error).not.toHaveBeenCalled();
