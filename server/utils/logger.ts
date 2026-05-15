@@ -58,6 +58,120 @@ export const logger: Pick<Console, 'debug' | 'info' | 'warn' | 'error'> & { trac
   },
 };
 
+
+export type OperationalLogSeverity = 'debug' | 'info' | 'warn' | 'error';
+
+export type OperationalExecutionImpact =
+  | 'NONE'
+  | 'NEW_BUY_BLOCKED_ONLY'
+  | 'RISK_CONTROL_ONLY'
+  | 'POSITION_EXIT_BLOCKED'
+  | 'LIVE_ORDER_RISK'
+  | string;
+
+export type OperationalEvent = {
+  tag: string;
+  mode?: 'SHADOW' | 'LIVE' | string;
+  executionImpact?: OperationalExecutionImpact;
+  autoAction?: string;
+  engineAlive?: boolean;
+  shadowLearning?: boolean;
+  positionExitAllowed?: boolean;
+  providerIssue?: boolean;
+  newBuyBlocked?: boolean;
+  dataVacuum?: boolean;
+  liveOrderPlaced?: boolean;
+  orderFailed?: boolean;
+  fillFailed?: boolean;
+  closeFailed?: boolean;
+  emergencyStop?: boolean;
+};
+
+export function classifyOperationalSeverity(event: OperationalEvent): OperationalLogSeverity {
+  if (
+    event.emergencyStop === true
+    || event.engineAlive === false
+    || event.positionExitAllowed === false
+    || event.executionImpact === 'POSITION_EXIT_BLOCKED'
+    || event.executionImpact === 'LIVE_ORDER_RISK'
+    || event.orderFailed === true
+    || event.fillFailed === true
+    || event.closeFailed === true
+  ) {
+    return 'error';
+  }
+
+  if (
+    event.executionImpact === 'NEW_BUY_BLOCKED_ONLY'
+    || event.executionImpact === 'RISK_CONTROL_ONLY'
+    || event.providerIssue === true
+  ) {
+    return 'warn';
+  }
+
+  if (
+    event.executionImpact === 'NONE'
+    && event.autoAction === 'NONE'
+  ) {
+    return 'info';
+  }
+
+  return 'info';
+}
+
+export function inferLogClass(tag: string, payload: Record<string, unknown>): string {
+  if (tag.includes('SECTOR')) return 'RISK_OBSERVE';
+  if (tag.includes('KIS')) return payload.providerIssue === true ? 'PROVIDER_ISOLATED' : 'PROVIDER';
+  if (tag.includes('COUNTERFACTUAL')) return 'DIAGNOSTIC';
+  if (tag.includes('NOISE')) return 'NOISE';
+  if (payload.executionImpact === 'POSITION_EXIT_BLOCKED' || payload.executionImpact === 'LIVE_ORDER_RISK') return 'EXECUTION_ERROR';
+  if (payload.executionImpact === 'NONE') return 'TELEMETRY';
+  return 'OPERATIONAL';
+}
+
+export function formatKeyValue(payload: Record<string, unknown>): string {
+  return Object.entries(payload)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => {
+      if (Array.isArray(value)) return `${key}=${value.join(',')}`;
+      if (value instanceof Date) return `${key}=${value.toISOString()}`;
+      if (value !== null && typeof value === 'object') return `${key}=${JSON.stringify(value)}`;
+      return `${key}=${String(value)}`;
+    })
+    .join(' ');
+}
+
+export function logOperationalEvent(
+  tag: string,
+  payload: Omit<OperationalEvent, 'tag'> & Record<string, unknown>,
+  loggerOverride: Pick<Console, 'debug' | 'info' | 'warn' | 'error'> = logger,
+): OperationalLogSeverity {
+  const severity = classifyOperationalSeverity({ tag, ...payload });
+  const normalizedPayload = {
+    ...payload,
+    tag,
+    severity,
+    logClass: inferLogClass(tag, payload),
+  };
+  const message = `[${tag}] ${formatKeyValue(normalizedPayload)}`;
+
+  if (severity === 'error') {
+    loggerOverride.error(message);
+    return severity;
+  }
+  if (severity === 'warn') {
+    loggerOverride.warn(message);
+    return severity;
+  }
+  if (severity === 'debug') {
+    loggerOverride.debug(message);
+    return severity;
+  }
+
+  loggerOverride.info(message);
+  return severity;
+}
+
 export function shouldSuppressNoise(category: NoiseCategory): boolean {
   const current = getCurrentLogLevel();
   if (current === 'trace' || current === 'debug') return false;

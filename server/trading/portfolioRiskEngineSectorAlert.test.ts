@@ -1,14 +1,25 @@
 // @responsibility PATCH-008 섹터 집중도 자동대응 오발동 방지 단위 테스트
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildSectorObserveOnlyAlert,
   buildSectorOverflowAlert,
   calculateExposureMetrics,
   classifySectorType,
   evaluateSectorRiskAutoAction,
+  flushSectorRiskSummaryIfDue,
+  formatSectorRiskSummary,
+  recordSectorRiskSummary,
+  resetSectorRiskSummaryForTest,
+  shouldEmitSectorRiskDetail,
   SECTOR_TIGHT_STOP_RATIO,
   type SectorTighteningMeta,
 } from './portfolioRiskEngine.js';
+
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  resetSectorRiskSummaryForTest();
+});
 
 const baseConfig = {
   maxSectorConcentrationByOpenPositionsPct: 30,
@@ -159,5 +170,100 @@ describe('PATCH-008 sector exposure metrics', () => {
       pnlPct: 6.55,
     };
     expect(target.tightStop).toBe(Math.round(target.currentPrice * SECTOR_TIGHT_STOP_RATIO));
+  });
+});
+
+
+describe('HOTFIX-013 sector risk log normalization', () => {
+  it('production suppresses observe-only concentration details unless verbose flags are enabled', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(shouldEmitSectorRiskDetail({
+      mode: 'SHADOW',
+      canTriggerAutoAction: false,
+      executionImpact: 'NONE',
+    })).toBe(false);
+
+    vi.stubEnv('ENABLE_VERBOSE_RISK_LOGS', 'true');
+    expect(shouldEmitSectorRiskDetail({
+      mode: 'SHADOW',
+      canTriggerAutoAction: false,
+      executionImpact: 'NONE',
+    })).toBe(true);
+  });
+
+  it('LIVE risk-control candidate keeps detailed logging enabled for warn classification', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(shouldEmitSectorRiskDetail({
+      mode: 'LIVE',
+      canTriggerAutoAction: true,
+      executionImpact: 'RISK_CONTROL_ONLY',
+      autoActionTriggered: true,
+    })).toBe(true);
+  });
+
+  it('aggregates observe-only sectors into SECTOR_RISK_SUMMARY info payload', () => {
+    vi.stubEnv('SECTOR_RISK_SUMMARY_INTERVAL_SECONDS', '60');
+    const metrics = calculateExposureMetrics({
+      sectorName: '자동차부품',
+      sectorExposureAmount: 1_451_000,
+      totalOpenPositionExposure: 3_264_000,
+      positionCount: 1,
+      baseCapital: 100_000_000,
+      accountNAV: 100_000_000,
+      config: baseConfig,
+    });
+    const loggerOverride = { info: vi.fn() };
+
+    expect(metrics.sectorType).toBe('INDUSTRY');
+    recordSectorRiskSummary({
+      metrics,
+      mode: 'SHADOW',
+      reasons: [
+        'OPEN_POSITION_CONCENTRATION_ONLY',
+        'INSUFFICIENT_POSITION_COUNT',
+        'SINGLE_POSITION_ARTIFACT',
+        'SMALL_EXPOSURE_ARTIFACT',
+        'INSUFFICIENT_CAPITAL_EXPOSURE',
+        'SHADOW_POSITION_OBSERVE_ONLY',
+        'AUTO_ACTION_DISABLED_FOR_SHADOW',
+      ],
+      autoActionTriggered: false,
+      autoActionBlocked: true,
+    }, 1_000);
+
+    expect(flushSectorRiskSummaryIfDue(30_000, { loggerOverride })).toBe(false);
+    expect(loggerOverride.info).not.toHaveBeenCalled();
+    expect(flushSectorRiskSummaryIfDue(61_000, { loggerOverride })).toBe(true);
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('[SECTOR_RISK_SUMMARY]'));
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('checkedSectors=1'));
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('autoActionBlocked=1'));
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('shadowObserveOnly=1'));
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('executionImpact=NONE'));
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('severity=info'));
+    expect(loggerOverride.info).toHaveBeenCalledWith(expect.stringContaining('logClass=RISK_OBSERVE'));
+  });
+
+  it('formats summary with top reasons and max exposure metrics', () => {
+    const summary = formatSectorRiskSummary({
+      windowStartedAt: 0,
+      checkedSectors: 3,
+      autoActionBlocked: 3,
+      autoActionTriggered: 0,
+      shadowObserveOnly: 3,
+      maxExposureByCapitalPct: 1.53,
+      maxConcentrationByOpenPositionsPct: 46.76,
+      reasons: {
+        SINGLE_SMALL_SHADOW_POSITION_ARTIFACT: 3,
+        AUTO_ACTION_DISABLED_FOR_SHADOW: 3,
+        SMALL_EXPOSURE_ARTIFACT: 3,
+      },
+      sampleSectors: [],
+    });
+
+    expect(summary).toContain('[SECTOR_RISK_SUMMARY]');
+    expect(summary).toContain('window=60s');
+    expect(summary).toContain('maxExposureByCapitalPct=1.53');
+    expect(summary).toContain('maxConcentrationByOpenPositionsPct=46.76');
+    expect(summary).toContain('topReasons=SINGLE_SMALL_SHADOW_POSITION_ARTIFACT:3');
   });
 });

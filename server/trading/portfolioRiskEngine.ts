@@ -26,6 +26,7 @@ import { getTradingMode } from '../state.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
+import { formatKeyValue, logOperationalEvent, logger, type OperationalExecutionImpact } from '../utils/logger.js';
 
 // ─── 설정 상수 ───────────────────────────────────────────────────────────────
 
@@ -113,13 +114,41 @@ const MarketSegmentLabels = new Set([
 ]);
 
 const KnownIndustrySectors = new Set([
-  '반도체', '이차전지', '자동차', '바이오', '금융', '방산', '소프트웨어',
-  '화학', '철강', '유통', '건설', '통신', '에너지', '엔터', '조선',
+  '바이오',
+  '자동차',
+  '자동차부품',
+  '반도체',
+  '전력기기',
+  '전기전자',
+  '기계',
+  '조선',
+  '조선기자재',
+  '화장품',
+  '음식료',
+  '로봇',
+  'AI',
+  '소프트웨어',
+  '게임',
+  '방산',
+  '2차전지',
+  '이차전지',
+  '디스플레이',
+  '건설',
+  '철강',
+  '화학',
+  '금융',
+  '보험',
+  '증권',
+  '유통',
+  '통신',
+  '에너지',
+  '엔터',
 ]);
-const KnownThemeBuckets = new Set(['원전', '전력기기', '로봇', 'AI', '조선']);
+const KnownThemeBuckets = new Set(['원전']);
 const KnownRiskBuckets = new Set(['고베타', '저유동성', '단기급등', '상관고위험']);
 
 export function classifySectorType(label: string): SectorType {
+  if (!label) return 'UNKNOWN';
   if (MarketSegmentLabels.has(label)) return 'MARKET_SEGMENT';
   if (KnownIndustrySectors.has(label)) return 'INDUSTRY';
   if (KnownThemeBuckets.has(label)) return 'THEME';
@@ -234,6 +263,151 @@ export function evaluateSectorRiskAutoAction(input: {
     reasons: Array.from(new Set(reasons)),
     singlePositionRisk: metrics.positionCount === 1 && (exceedsCapitalLimit || exceedsNavLimit),
   };
+}
+
+
+export type SectorRiskSummaryBucket = {
+  windowStartedAt: number;
+  checkedSectors: number;
+  autoActionBlocked: number;
+  autoActionTriggered: number;
+  shadowObserveOnly: number;
+  maxExposureByCapitalPct: number;
+  maxConcentrationByOpenPositionsPct: number;
+  reasons: Record<string, number>;
+  sampleSectors: Array<{
+    sectorName: string;
+    sectorType: string;
+    exposureByBaseCapitalPct: number;
+    concentrationByOpenPositionsPct: number;
+    reason: string;
+  }>;
+};
+
+type SectorRiskSummaryRecord = {
+  metrics: ExposureMetrics;
+  mode: 'LIVE' | 'SHADOW';
+  reasons: SectorRiskReason[];
+  autoActionTriggered: boolean;
+  autoActionBlocked: boolean;
+};
+
+const SECTOR_RISK_SUMMARY_SAMPLE_LIMIT = 5;
+let sectorRiskSummaryBucket: SectorRiskSummaryBucket | null = null;
+
+function getSectorRiskSummaryWindowMs(): number {
+  const seconds = Number(process.env.SECTOR_RISK_SUMMARY_INTERVAL_SECONDS ?? '60');
+  if (!Number.isFinite(seconds) || seconds <= 0) return 60_000;
+  return seconds * 1_000;
+}
+
+function createSectorRiskSummaryBucket(nowMs: number): SectorRiskSummaryBucket {
+  return {
+    windowStartedAt: nowMs,
+    checkedSectors: 0,
+    autoActionBlocked: 0,
+    autoActionTriggered: 0,
+    shadowObserveOnly: 0,
+    maxExposureByCapitalPct: 0,
+    maxConcentrationByOpenPositionsPct: 0,
+    reasons: {},
+    sampleSectors: [],
+  };
+}
+
+function primarySectorRiskReason(reasons: SectorRiskReason[]): string {
+  if (reasons.includes('SINGLE_POSITION_ARTIFACT') && reasons.includes('SMALL_EXPOSURE_ARTIFACT')) {
+    return 'SINGLE_SMALL_SHADOW_POSITION_ARTIFACT';
+  }
+  return reasons[0] ?? 'OPEN_POSITION_CONCENTRATION_ONLY';
+}
+
+export function recordSectorRiskSummary(input: SectorRiskSummaryRecord, nowMs = Date.now()): void {
+  if (sectorRiskSummaryBucket === null) {
+    sectorRiskSummaryBucket = createSectorRiskSummaryBucket(nowMs);
+  }
+
+  const bucket = sectorRiskSummaryBucket;
+  bucket.checkedSectors += 1;
+  if (input.autoActionBlocked) bucket.autoActionBlocked += 1;
+  if (input.autoActionTriggered) bucket.autoActionTriggered += 1;
+  if (input.mode === 'SHADOW' && input.reasons.includes('SHADOW_POSITION_OBSERVE_ONLY')) {
+    bucket.shadowObserveOnly += 1;
+  }
+  bucket.maxExposureByCapitalPct = Math.max(bucket.maxExposureByCapitalPct, input.metrics.exposureByBaseCapitalPct);
+  bucket.maxConcentrationByOpenPositionsPct = Math.max(
+    bucket.maxConcentrationByOpenPositionsPct,
+    input.metrics.concentrationByOpenPositionsPct,
+  );
+  for (const reason of input.reasons) {
+    bucket.reasons[reason] = (bucket.reasons[reason] ?? 0) + 1;
+  }
+  const primaryReason = primarySectorRiskReason(input.reasons);
+  bucket.reasons[primaryReason] = (bucket.reasons[primaryReason] ?? 0) + 1;
+  if (bucket.sampleSectors.length < SECTOR_RISK_SUMMARY_SAMPLE_LIMIT) {
+    bucket.sampleSectors.push({
+      sectorName: input.metrics.sectorName,
+      sectorType: input.metrics.sectorType,
+      exposureByBaseCapitalPct: input.metrics.exposureByBaseCapitalPct,
+      concentrationByOpenPositionsPct: input.metrics.concentrationByOpenPositionsPct,
+      reason: primaryReason,
+    });
+  }
+}
+
+export function formatSectorRiskSummary(bucket: SectorRiskSummaryBucket): string {
+  const topReasons = Object.entries(bucket.reasons)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([reason, count]) => `${reason}:${count}`)
+    .join(',');
+  return `[SECTOR_RISK_SUMMARY] ${formatKeyValue({
+    mode: bucket.shadowObserveOnly > 0 && bucket.autoActionTriggered === 0 ? 'SHADOW' : 'MIXED',
+    window: `${Math.round(getSectorRiskSummaryWindowMs() / 1_000)}s`,
+    checkedSectors: bucket.checkedSectors,
+    autoActionBlocked: bucket.autoActionBlocked,
+    autoActionTriggered: bucket.autoActionTriggered,
+    shadowObserveOnly: bucket.shadowObserveOnly,
+    maxExposureByCapitalPct: bucket.maxExposureByCapitalPct.toFixed(2),
+    maxConcentrationByOpenPositionsPct: bucket.maxConcentrationByOpenPositionsPct.toFixed(2),
+    topReasons,
+    executionImpact: 'NONE',
+    severity: 'info',
+    logClass: 'RISK_OBSERVE',
+  })}`;
+}
+
+export function flushSectorRiskSummaryIfDue(
+  nowMs = Date.now(),
+  options: { force?: boolean; loggerOverride?: Pick<Console, 'info'> } = {},
+): boolean {
+  if (sectorRiskSummaryBucket === null || sectorRiskSummaryBucket.checkedSectors === 0) return false;
+  const windowMs = getSectorRiskSummaryWindowMs();
+  if (!options.force && nowMs - sectorRiskSummaryBucket.windowStartedAt < windowMs) return false;
+  const bucket = sectorRiskSummaryBucket;
+  sectorRiskSummaryBucket = null;
+  (options.loggerOverride ?? logger).info(formatSectorRiskSummary(bucket));
+  return true;
+}
+
+export function resetSectorRiskSummaryForTest(): void {
+  sectorRiskSummaryBucket = null;
+}
+
+export function shouldEmitSectorRiskDetail(input: {
+  mode: 'LIVE' | 'SHADOW';
+  canTriggerAutoAction: boolean;
+  executionImpact: OperationalExecutionImpact;
+  autoActionTriggered?: boolean;
+  manualTrace?: boolean;
+}): boolean {
+  if (process.env.ENABLE_VERBOSE_RISK_LOGS === 'true') return true;
+  if (process.env.ENABLE_SECTOR_RISK_DETAIL_LOG === 'true') return true;
+  if (input.manualTrace === true) return true;
+  if (input.mode === 'LIVE' && input.canTriggerAutoAction) return true;
+  if (input.executionImpact !== 'NONE') return true;
+  if (input.autoActionTriggered === true) return true;
+  return process.env.NODE_ENV !== 'production';
 }
 
 export function buildSectorObserveOnlyAlert(input: {
@@ -669,35 +843,60 @@ export async function runPortfolioRiskCheck(): Promise<void> {
     const decision = evaluateSectorRiskAutoAction({ metrics, mode: sectorMode });
     const posNames = sectorPositions.map(s => s.stockName).join(', ');
 
-    console.warn(
-      `[SECTOR_CONCENTRATION_EVALUATED] ` +
-      `mode=${sectorMode} ` +
-      `sectorName=${metrics.sectorName} ` +
-      `sectorType=${metrics.sectorType} ` +
-      `positionCount=${metrics.positionCount} ` +
-      `sectorExposureAmount=${Math.round(metrics.sectorExposureAmount)} ` +
-      `baseCapital=${Math.round(metrics.baseCapital)} ` +
-      `concentrationByOpenPositionsPct=${metrics.concentrationByOpenPositionsPct.toFixed(2)} ` +
-      `exposureByBaseCapitalPct=${metrics.exposureByBaseCapitalPct.toFixed(2)} ` +
-      `limitByOpenPositionsPct=${DEFAULT_SECTOR_RISK_CONFIG.maxSectorConcentrationByOpenPositionsPct.toFixed(2)} ` +
-      `limitByCapitalPct=${DEFAULT_SECTOR_RISK_CONFIG.maxSectorExposureByCapitalPct.toFixed(2)} ` +
-      `canTriggerAutoAction=${decision.canTriggerAutoAction} ` +
-      `reasons=${decision.reasons.join(',')} ` +
-      `executionImpact=${decision.canTriggerAutoAction ? 'RISK_CONTROL_ONLY' : 'NONE'}`,
-    );
+    const executionImpact: OperationalExecutionImpact = decision.canTriggerAutoAction ? 'RISK_CONTROL_ONLY' : 'NONE';
+    const autoActionTriggered = decision.canTriggerAutoAction && sectorMode === 'LIVE';
+    recordSectorRiskSummary({
+      metrics,
+      mode: sectorMode,
+      reasons: decision.reasons,
+      autoActionTriggered,
+      autoActionBlocked: !decision.canTriggerAutoAction,
+    });
+
+    const emitDetail = shouldEmitSectorRiskDetail({
+      mode: sectorMode,
+      canTriggerAutoAction: decision.canTriggerAutoAction,
+      executionImpact,
+      autoActionTriggered,
+    });
+
+    if (emitDetail) {
+      logOperationalEvent('SECTOR_CONCENTRATION_EVALUATED', {
+        mode: sectorMode,
+        sectorName: metrics.sectorName,
+        sectorType: metrics.sectorType,
+        positionCount: metrics.positionCount,
+        sectorExposureAmount: Math.round(metrics.sectorExposureAmount),
+        baseCapital: Math.round(metrics.baseCapital),
+        concentrationByOpenPositionsPct: metrics.concentrationByOpenPositionsPct.toFixed(2),
+        exposureByBaseCapitalPct: metrics.exposureByBaseCapitalPct.toFixed(2),
+        limitByOpenPositionsPct: DEFAULT_SECTOR_RISK_CONFIG.maxSectorConcentrationByOpenPositionsPct.toFixed(2),
+        limitByCapitalPct: DEFAULT_SECTOR_RISK_CONFIG.maxSectorExposureByCapitalPct.toFixed(2),
+        canTriggerAutoAction: decision.canTriggerAutoAction,
+        reasons: decision.reasons,
+        autoAction: autoActionTriggered ? 'TIGHTEN_TRAILING_STOP_CANDIDATE' : 'NONE',
+        engineAlive: true,
+        shadowLearning: sectorMode === 'SHADOW',
+        positionExitAllowed: true,
+        executionImpact,
+      });
+    }
 
     if (!decision.canTriggerAutoAction) {
-      console.warn(
-        `[SECTOR_AUTO_ACTION_BLOCKED] ` +
-        `reason=${decision.reasons.includes('SINGLE_POSITION_ARTIFACT') && decision.reasons.includes('SMALL_EXPOSURE_ARTIFACT') && sectorMode === 'SHADOW'
-          ? 'SINGLE_SMALL_SHADOW_POSITION_ARTIFACT'
-          : decision.reasons[0] ?? 'OPEN_POSITION_CONCENTRATION_ONLY'} ` +
-        `mode=${sectorMode} ` +
-        `autoAction=NONE ` +
-        `engineAlive=true ` +
-        `shadowLearning=${sectorMode === 'SHADOW'} ` +
-        `positionExitAllowed=true`,
-      );
+      if (emitDetail) {
+        logOperationalEvent('SECTOR_AUTO_ACTION_BLOCKED', {
+          reason: primarySectorRiskReason(decision.reasons),
+          mode: sectorMode,
+          autoAction: 'NONE',
+          engineAlive: true,
+          shadowLearning: sectorMode === 'SHADOW',
+          positionExitAllowed: true,
+          providerIssue: false,
+          newBuyBlocked: false,
+          dataVacuum: false,
+          executionImpact: 'NONE',
+        });
+      }
 
       if (metrics.concentrationByOpenPositionsPct >= DEFAULT_SECTOR_RISK_CONFIG.maxSectorConcentrationByOpenPositionsPct
           && !_alertedSectors.has(metrics.sectorName)) {
@@ -727,6 +926,8 @@ export async function runPortfolioRiskCheck(): Promise<void> {
       ).catch(console.error);
     }
   }
+
+  flushSectorRiskSummaryIfDue();
 
   if (shadowsChanged) {
     const { saveShadowTrades } = await import('../persistence/shadowTradeRepo.js');
