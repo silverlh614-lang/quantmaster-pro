@@ -24,6 +24,7 @@ import type { StopLossPlan } from './entryEngine.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
+import type { KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -134,11 +135,20 @@ export function computeRawPositionPct(gateScore: number): number {
 export interface GateData {
   quote: YahooQuoteExtended | null;
   gate: ServerGateResult | null;
+  /**
+   * ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — KIS actual investor flow row carrier 를
+   * 호출자(buyListLoop / intradayLoop)가 stock.supplyProviderHealth 에 매핑할 수 있도록
+   * fetchGateData 결과에 함께 반환. 호출자는 `applySupplyProviderHealthFromKisFlow(stock, kisFlow)`
+   * SSOT 헬퍼로 mutate. ENV `KIS_FORENSIC_FLOW_WIRING_DISABLED=true` 시 헬퍼가 no-op.
+   */
+  kisFlow: KisInvestorTradeByStockDaily | null;
 }
 
 /**
  * Yahoo + KIS + DART 데이터를 일괄 조회 후 서버 Gate 평가.
  * signalScanner.ts 내에서 4회 중복되던 패턴을 통합.
+ *
+ * ADR-0517: 결과에 kisFlow 포함 — 호출자가 stock.supplyProviderHealth 매핑 가능.
  */
 export async function fetchGateData(
   stockCode: string,
@@ -151,7 +161,7 @@ export async function fetchGateData(
   const quote = await fetchYahooQuoteByCode(stockCode, fetchYahooQuote)
              ?? await fetchKisQuoteFallback(stockCode).catch(() => null);
 
-  if (!quote) return { quote: null, gate: null };
+  if (!quote) return { quote: null, gate: null, kisFlow: null };
 
   const [kisFlow, dartFin] = await Promise.all([
     fetchKisInvestorTradeByStockDaily(stockCode).catch(() => null),
@@ -170,7 +180,7 @@ export async function fetchGateData(
     gate.details.push(...etfBoost.reasons);
   }
 
-  return { quote, gate };
+  return { quote, gate, kisFlow };
 }
 
 // ── Build Buy Trade ─────────────────────────────────────────────────────────────

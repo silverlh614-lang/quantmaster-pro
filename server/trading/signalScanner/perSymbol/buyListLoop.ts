@@ -6,6 +6,8 @@
  */
 
 import { fetchKisInvestorTradeByStockDaily } from '../../../clients/kisClient.js';
+// ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — KIS investor flow → supplyProviderHealth bridge SSOT.
+import { applySupplyProviderHealthFromKisFlow } from '../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
 import { logger, logNoiseDetail } from '../../../utils/logger.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
@@ -638,7 +640,9 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
             // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 추종에도 적용)
             const gateScoreFollow = (stock.gateScore ?? 0) + ctx.volumeClock.scoreBonus;
-            const { gate: reCheckGateFollow, quote: reCheckQuoteFollow } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
+            const { gate: reCheckGateFollow, quote: reCheckQuoteFollow, kisFlow: kisFlowFollow } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
+            // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
+            applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlowFollow);
             const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
             const posPctFollow = computeRawPositionPct(gateScoreFollow) * ctx.kellyMultiplier * mtasFollow;
             // PATCH-010 후속 — Shadow Bull Exposure Floor (PRE_BREAKOUT_FOLLOWTHROUGH 경로).
@@ -945,6 +949,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
                 getDartFinancials(stock.code).catch(() => null),
               ]);
+              // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
+              applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlowPb);
               const reCheckGatePb = evaluateServerGate(reCheckQuotePb, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFinPb, kisFlowPb, ctx.regime);
               const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
               const posPctPb    = computeRawPositionPct(gateScorePb) * ctx.kellyMultiplier * mtasPb;
@@ -1589,6 +1595,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             getDartFinancials(stock.code).catch(() => null),
           ])
         : [null, null];
+      // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
+      applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlow);
       try { recordPipelineStage(ctx.scanCounters, 'PRICE_FETCH', reCheckQuote ? 'PASS' : 'FAIL'); } catch {}
       const reCheckGate = reCheckQuote
         ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
