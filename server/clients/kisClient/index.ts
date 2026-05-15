@@ -75,6 +75,14 @@ export { kisGet, kisPost, realDataKisGet, isKisChartCooldownActive, getKisChartC
 
 // ─── query (시세 조회) ─────────────────────────────────────────────────────
 export { fetchKisInvestorFlow } from './investorFlowStrict.js';
+
+// ─── investor flow → supplyProviderHealth bridge SSOT (ADR-0517) ──────────
+export {
+  buildSupplyProviderHealthFromKisFlow,
+  applySupplyProviderHealthFromKisFlow,
+  isKisForensicFlowWiringDisabled,
+} from './investorFlowSupplyHealthBridge.js';
+export type { SupplyProviderHealthFromKisFlow } from './investorFlowSupplyHealthBridge.js';
 export {
   fetchKisMarketSupply,
   fetchKisStockProgramTrade,

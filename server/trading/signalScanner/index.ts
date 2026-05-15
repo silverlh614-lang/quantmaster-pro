@@ -166,6 +166,11 @@ export async function runAutoSignalScan(
       : {}),
     candidateSnapshots: [
       ...candidates.buyList.map((w: any) => ({
+        // ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — buyListLoop 가 KIS actual investor flow 를
+        // 종목별 fetch 후 stock.supplyProviderHealth 에 매핑한 결과를 forensic collector 로 propagate.
+        // 본 필드 누락 시 mergeSupplyProviderHealth fallback 의 w.supplyProviderHealth 가
+        // candidate snapshot 에 도달하지 못해 forensic semanticAvailable=0/N 결함 재발.
+        supplyProviderHealth: w.supplyProviderHealth,
         symbol: w.code,
         name: w.name,
         stageReached: 'WATCHLIST' as const,
@@ -220,6 +225,8 @@ export async function runAutoSignalScan(
         trend_acceleration: w.trend_acceleration ?? (buildConditionResultsTrace(w) as any)?.trend_acceleration,
       })),
       ...candidates.intradayList.map((w: any) => ({
+        // ADR-0517: intradayLoop 가 매핑한 supplyProviderHealth 를 forensic collector 로 propagate.
+        supplyProviderHealth: w.supplyProviderHealth,
         symbol: w.code,
         name: w.name,
         stageReached: 'WATCHLIST' as const,
