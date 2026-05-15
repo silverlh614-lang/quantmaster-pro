@@ -168,10 +168,14 @@ export function paginateScanBlockersMessage(
   title: string,
   sections: string[],
   maxChars = 3500,
+  // Patch-SUPPLY-DIAG-ACCURACY: 옵셔널 footer (default = 기존 SUPPLY_FULL_FOOTER, 후방호환).
+  // `full` 모드 페이지네이션은 supply-specific footer 가 부적합 → 빈 문자열 전달로 footer 생략.
+  footer: string = SCAN_BLOCKERS_SUPPLY_FULL_FOOTER,
 ): PaginatedMessage[] {
   const nonEmptySections = sections.filter((section) => section.trim().length > 0);
   const headerReserve = buildScanBlockersPageHeader(title, 999, 999).length + 2;
-  const bodyLimit = Math.max(500, maxChars - headerReserve - SCAN_BLOCKERS_SUPPLY_FULL_FOOTER.length - 4);
+  const footerReserve = footer.length > 0 ? footer.length + 4 : 0;
+  const bodyLimit = Math.max(500, maxChars - headerReserve - footerReserve);
   const normalizedSections = nonEmptySections.flatMap((section) => splitOversizedSectionByLine(section, bodyLimit));
   const pages: string[] = [];
   let current = '';
@@ -186,12 +190,14 @@ export function paginateScanBlockersMessage(
   }
   if (current) pages.push(current);
 
-  // 마지막 footer를 포함했을 때 초과하면 footer 전용 page를 추가한다.
-  const last = pages[pages.length - 1] ?? '';
-  if (`${last}\n\n${SCAN_BLOCKERS_SUPPLY_FULL_FOOTER}`.length <= bodyLimit) {
-    pages[pages.length - 1] = `${last}\n\n${SCAN_BLOCKERS_SUPPLY_FULL_FOOTER}`;
-  } else {
-    pages.push(SCAN_BLOCKERS_SUPPLY_FULL_FOOTER);
+  // footer 가 빈 문자열이면 footer 로직 자체 skip (full 모드용 — supply-specific 안내 부적합).
+  if (footer.length > 0) {
+    const last = pages[pages.length - 1] ?? '';
+    if (`${last}\n\n${footer}`.length <= bodyLimit) {
+      pages[pages.length - 1] = `${last}\n\n${footer}`;
+    } else {
+      pages.push(footer);
+    }
   }
 
   const totalPages = pages.length;
