@@ -179,7 +179,7 @@ import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure
 // ADR-0171 — Sizing-ExposureBudget 진단 로그 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true` 명시 활성화).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 // PATCH-010 — Shadow Bull Exposure Floor (default OFF, ENV `SHADOW_BULL_EXPOSURE_FLOOR_ENABLED=true` 명시 활성화).
-import { resolveCandidatePositionFloor } from '../../sizing/shadowBullExposureProfile.js';
+import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 import {
   applySupplyHealthToSignal,
   createLearningSampleFromDecision,
@@ -641,6 +641,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             const { gate: reCheckGateFollow, quote: reCheckQuoteFollow } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
             const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
             const posPctFollow = computeRawPositionPct(gateScoreFollow) * ctx.kellyMultiplier * mtasFollow;
+            // PATCH-010 후속 — Shadow Bull Exposure Floor (PRE_BREAKOUT_FOLLOWTHROUGH 경로).
+            const exposureFloorFollow = resolveCandidatePositionFloor({
+              shadowMode: ctx.shadowMode,
+              regime: ctx.regime,
+              tier: 'STANDARD',
+              computedPositionPct: posPctFollow,
+            });
+            const effPosPctFollow = exposureFloorFollow.effectivePositionPct;
+            if (exposureFloorFollow.applied) {
+              console.log(
+                formatShadowBullFloorLog(exposureFloorFollow, {
+                  stockName: stock.name,
+                  stockCode: stock.code,
+                  computedPositionPct: posPctFollow,
+                  pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+                }),
+              );
+            }
             const remSlots = Math.max(
               1,
               ctx.effectiveMaxPositions
@@ -652,7 +670,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                 - ctx.mutables.reservedSlots.value,
             );
             const { quantity: legacyFullQty } = calculateOrderQuantity({
-              totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: posPctFollow,
+              totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: effPosPctFollow,
               price: followEntryPrice, remainingSlots: remSlots,
               accountKellyMultiplier: ctx.accountKellyMultiplier,
             });
@@ -930,6 +948,25 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               const reCheckGatePb = evaluateServerGate(reCheckQuotePb, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFinPb, kisFlowPb, ctx.regime);
               const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
               const posPctPb    = computeRawPositionPct(gateScorePb) * ctx.kellyMultiplier * mtasPb;
+              // PATCH-010 후속 — Shadow Bull Exposure Floor (PRE_BREAKOUT 30% 선취매 경로).
+              // posPctPb 는 풀 포지션 — floor 보정 후 30% 트랜치 비율은 호출자가 별도 적용.
+              const exposureFloorPb = resolveCandidatePositionFloor({
+                shadowMode: ctx.shadowMode,
+                regime: ctx.regime,
+                tier: 'STANDARD',
+                computedPositionPct: posPctPb,
+              });
+              const effPosPctPb = exposureFloorPb.effectivePositionPct;
+              if (exposureFloorPb.applied) {
+                console.log(
+                  formatShadowBullFloorLog(exposureFloorPb, {
+                    stockName: stock.name,
+                    stockCode: stock.code,
+                    computedPositionPct: posPctPb,
+                    pathLabel: 'PRE_BREAKOUT_30PCT',
+                  }),
+                );
+              }
               const remSlotsPb  = Math.max(
                 1,
                 ctx.effectiveMaxPositions
@@ -941,7 +978,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
                   - ctx.mutables.reservedSlots.value,
               );
               const { quantity: legacyFullPbQty } = calculateOrderQuantity({
-                totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: posPctPb,
+                totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: effPosPctPb,
                 price: pbEntryPrice, remainingSlots: remSlotsPb,
                 accountKellyMultiplier: ctx.accountKellyMultiplier,
               });
@@ -2274,9 +2311,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const effectivePositionPct = exposureFloor.effectivePositionPct;
       if (exposureFloor.applied) {
         console.log(
-          `[AutoTrade/ShadowBullFloor] ${stock.name}(${stock.code}) positionPct ` +
-          `${(positionPct * 100).toFixed(2)}% → ${(effectivePositionPct * 100).toFixed(2)}% ` +
-          `(floor ${(exposureFloor.floorPct * 100).toFixed(1)}%, ${exposureFloor.mode}/${exposureFloor.exposureRegime})`,
+          formatShadowBullFloorLog(exposureFloor, {
+            stockName: stock.name,
+            stockCode: stock.code,
+            computedPositionPct: positionPct,
+          }),
         );
       }
 

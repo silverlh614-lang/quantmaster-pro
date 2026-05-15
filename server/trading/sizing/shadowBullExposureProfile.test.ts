@@ -13,6 +13,7 @@ import {
   isShadowBullExposureFloorEnabled,
   getRegimeExposureProfile,
   resolveCandidatePositionFloor,
+  formatShadowBullFloorLog,
 } from './shadowBullExposureProfile.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -231,23 +232,133 @@ describe('PATCH-010 §5 buyListLoop wiring 정적 가드', () => {
     'utf8',
   );
 
-  it('resolveCandidatePositionFloor import', () => {
+  it('resolveCandidatePositionFloor + formatShadowBullFloorLog import', () => {
     expect(buyListLoopSrc).toMatch(
-      /import\s*\{\s*resolveCandidatePositionFloor\s*\}\s*from\s*'\.\.\/\.\.\/sizing\/shadowBullExposureProfile\.js'/,
+      /import\s*\{[^}]*resolveCandidatePositionFloor[^}]*\}\s*from\s*'\.\.\/\.\.\/sizing\/shadowBullExposureProfile\.js'/,
+    );
+    expect(buyListLoopSrc).toMatch(
+      /import\s*\{[^}]*formatShadowBullFloorLog[^}]*\}\s*from\s*'\.\.\/\.\.\/sizing\/shadowBullExposureProfile\.js'/,
     );
   });
 
-  it('resolveCandidatePositionFloor 호출 — calculateOrderQuantity 활성 경로 wiring', () => {
+  it('메인 buyList 경로 — calculateOrderQuantity 가 effectivePositionPct 사용', () => {
     expect(buyListLoopSrc).toContain('resolveCandidatePositionFloor({');
     expect(buyListLoopSrc).toContain('const effectivePositionPct = exposureFloor.effectivePositionPct;');
-  });
-
-  it('calculateOrderQuantity 가 effectivePositionPct 사용 (positionPct 직접 사용 아님)', () => {
     expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effectivePositionPct/);
   });
 
-  it('ShadowBullFloor 진단 로그 — applied 시에만', () => {
-    expect(buyListLoopSrc).toContain('[AutoTrade/ShadowBullFloor]');
-    expect(buyListLoopSrc).toMatch(/if\s*\(exposureFloor\.applied\)/);
+  it('진단 로그 — formatShadowBullFloorLog SSOT 헬퍼 사용 (inline 문자열 조립 금지)', () => {
+    expect(buyListLoopSrc).toContain('formatShadowBullFloorLog(exposureFloor, {');
+    // inline [AutoTrade/ShadowBullFloor] 문자열 조립이 buyListLoop.ts 에 남아있으면 안 된다 (SSOT 위임).
+    expect(buyListLoopSrc).not.toContain('`[AutoTrade/ShadowBullFloor]');
+  });
+});
+
+describe('PATCH-010 §6 formatShadowBullFloorLog — SSOT 로그 포맷터', () => {
+  it('pathLabel 미전달 — 메인 buyList 경로 (휴젤 시나리오)', () => {
+    process.env[ENV_KEY] = 'true';
+    const result = resolveCandidatePositionFloor({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      tier: 'STANDARD',
+      computedPositionPct: 0.004,
+    });
+    const line = formatShadowBullFloorLog(result, {
+      stockName: '휴젤',
+      stockCode: '145020',
+      computedPositionPct: 0.004,
+    });
+    expect(line).toContain('[AutoTrade/ShadowBullFloor] 휴젤(145020)');
+    expect(line).toContain('positionPct 0.40% → 2.00%');
+    expect(line).toContain('(floor 2.0%, SHADOW/R5_BULL)');
+    expect(line).not.toContain('PRE_BREAKOUT'); // pathLabel 미전달 시 경로 라벨 없음
+  });
+
+  it('ENV OFF — byte-equivalent (effectivePositionPct === computedPositionPct)', () => {
+    const result = resolveCandidatePositionFloor({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      tier: 'STANDARD',
+      computedPositionPct: 0.004,
+    });
+    const line = formatShadowBullFloorLog(result, {
+      stockName: '휴젤',
+      stockCode: '145020',
+      computedPositionPct: 0.004,
+    });
+    expect(line).toContain('positionPct 0.40% → 0.40%'); // 미적용 — 원본 보존
+  });
+
+  it('pathLabel 전달 — 경로 구분 라벨 포함', () => {
+    process.env[ENV_KEY] = 'true';
+    const result = resolveCandidatePositionFloor({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      tier: 'STANDARD',
+      computedPositionPct: 0.005,
+    });
+    const follow = formatShadowBullFloorLog(result, {
+      stockName: '에코프로',
+      stockCode: '086520',
+      computedPositionPct: 0.005,
+      pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',
+    });
+    expect(follow).toContain('PRE_BREAKOUT_FOLLOWTHROUGH positionPct');
+    const intraday = formatShadowBullFloorLog(result, {
+      stockName: '에코프로',
+      stockCode: '086520',
+      computedPositionPct: 0.005,
+      pathLabel: 'INTRADAY',
+    });
+    expect(intraday).toContain('INTRADAY positionPct');
+  });
+});
+
+describe('PATCH-010 §7 PRE_BREAKOUT / INTRADAY 경로 wiring 정적 가드', () => {
+  const buyListLoopSrc = readFileSync(
+    path.join(REPO_ROOT, 'server/trading/signalScanner/perSymbol/buyListLoop.ts'),
+    'utf8',
+  );
+  const intradayLoopSrc = readFileSync(
+    path.join(REPO_ROOT, 'server/trading/signalScanner/perSymbol/intradayLoop.ts'),
+    'utf8',
+  );
+
+  it('PRE_BREAKOUT_FOLLOWTHROUGH 경로 — effPosPctFollow wiring', () => {
+    expect(buyListLoopSrc).toContain('const exposureFloorFollow = resolveCandidatePositionFloor({');
+    expect(buyListLoopSrc).toContain('const effPosPctFollow = exposureFloorFollow.effectivePositionPct;');
+    expect(buyListLoopSrc).toContain("pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',");
+    expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effPosPctFollow/);
+  });
+
+  it('PRE_BREAKOUT 30% 선취매 경로 — effPosPctPb wiring (풀 포지션 floor → 30% 트랜치는 호출자)', () => {
+    expect(buyListLoopSrc).toContain('const exposureFloorPb = resolveCandidatePositionFloor({');
+    expect(buyListLoopSrc).toContain('const effPosPctPb = exposureFloorPb.effectivePositionPct;');
+    expect(buyListLoopSrc).toContain("pathLabel: 'PRE_BREAKOUT_30PCT',");
+    expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effPosPctPb/);
+  });
+
+  it('INTRADAY 경로 — effectivePositionPct wiring + import', () => {
+    expect(intradayLoopSrc).toMatch(
+      /import\s*\{[^}]*resolveCandidatePositionFloor[^}]*formatShadowBullFloorLog[^}]*\}\s*from\s*'\.\.\/\.\.\/sizing\/shadowBullExposureProfile\.js'/,
+    );
+    expect(intradayLoopSrc).toContain('const exposureFloorIntraday = resolveCandidatePositionFloor({');
+    expect(intradayLoopSrc).toContain('const effectivePositionPct = exposureFloorIntraday.effectivePositionPct;');
+    expect(intradayLoopSrc).toContain("pathLabel: 'INTRADAY',");
+    expect(intradayLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effectivePositionPct/);
+  });
+
+  it('3 경로 모두 ctx.shadowMode + STANDARD tier 사용 (PROBING 제외 아님)', () => {
+    // FOLLOWTHROUGH / 30% / INTRADAY 모두 tierDecision 부재 → STANDARD 중립 default.
+    expect(buyListLoopSrc).toMatch(/exposureFloorFollow[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
+    expect(buyListLoopSrc).toMatch(/exposureFloorPb[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
+    expect(intradayLoopSrc).toMatch(/exposureFloorIntraday[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
+  });
+
+  it('3 경로 모두 applied 시에만 진단 로그 (formatShadowBullFloorLog SSOT)', () => {
+    expect(buyListLoopSrc).toMatch(/if\s*\(exposureFloorFollow\.applied\)/);
+    expect(buyListLoopSrc).toMatch(/if\s*\(exposureFloorPb\.applied\)/);
+    expect(intradayLoopSrc).toMatch(/if\s*\(exposureFloorIntraday\.applied\)/);
+    expect(intradayLoopSrc).toContain('formatShadowBullFloorLog(exposureFloorIntraday, {');
   });
 });
