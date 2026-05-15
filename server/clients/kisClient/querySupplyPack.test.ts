@@ -126,7 +126,23 @@ describe('KIS official short/loan/credit read-only sources', () => {
       institutionalNetBuy: 20,
       individualNetBuy: -30,
     });
+    expect(result?.actualRows?.[0]).toMatchObject({
+      foreignNetBuy: 10,
+      institutionNetBuy: 20,
+      institutionalNetBuy: 20,
+      individualNetBuy: -30,
+      frgn_ntby_qty: '10',
+      orgn_ntby_qty: '20',
+      prsn_ntby_qty: '-30',
+    });
     expect(result?.actualInvestorFlowRowCarrier?.actualRows).toHaveLength(1);
+    expect(result?.actualInvestorFlowRowCarrier?.actualRows[0]).toMatchObject({
+      foreignNetBuy: 10,
+      institutionNetBuy: 20,
+      institutionalNetBuy: 20,
+      individualNetBuy: -30,
+    });
+    expect(result?.actualInvestorFlowRowCarrier?.numberFieldKeys).toContain('foreignNetBuy');
     expect(result?.actualInvestorFlowRowCarrier?.numericStringFieldKeys).toContain('frgn_ntby_qty');
     expect(JSON.stringify(result?.actualInvestorFlowRowCarrier)).not.toContain('accountNo');
     expect(_realDataKisGet).toHaveBeenCalledWith(

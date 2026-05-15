@@ -21,6 +21,7 @@ import type {
   KisInvestorTrendEstimate,
   KisInvestorFlow,
   KisInvestorFlowActualRowCarrier,
+  KisInvestorFlowRawRow,
   KisMarketProgramTrade,
   KisSectorIndexDaily,
   KisSectorIndexDailyRow,
@@ -84,8 +85,11 @@ function buildKisActualInvestorFlowRowCarrier(input: {
   row: KisOutput;
   safeCode: string;
   sourcePath: string;
+  foreignNetBuy?: number;
+  institutionalNetBuy?: number;
+  individualNetBuy?: number;
 }): KisInvestorFlowActualRowCarrier {
-  const sanitized: Record<string, unknown> = {};
+  const sanitized: KisInvestorFlowRawRow = {};
   const rawFieldKeys: string[] = [];
   const numericStringFieldKeys: string[] = [];
   const numberFieldKeys: string[] = [];
@@ -101,6 +105,20 @@ function buildKisActualInvestorFlowRowCarrier(input: {
     else if (kind === 'numericString') numericStringFieldKeys.push(key);
     else if (kind === 'placeholder') placeholderFieldKeys.push(key);
   }
+
+  const normalizedPairs: Array<[keyof KisInvestorFlowRawRow, number | undefined]> = [
+    ['foreignNetBuy', input.foreignNetBuy],
+    ['institutionNetBuy', input.institutionalNetBuy],
+    ['institutionalNetBuy', input.institutionalNetBuy],
+    ['individualNetBuy', input.individualNetBuy],
+  ];
+  for (const [key, value] of normalizedPairs) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    sanitized[key] = value;
+    rawFieldKeys.push(String(key));
+    numberFieldKeys.push(String(key));
+  }
+
   return {
     provider: 'KIS_API',
     requestSymbol: input.safeCode,
@@ -1035,6 +1053,14 @@ export async function fetchKisInvestorTradeByStockDaily(
     const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']);
     if (foreignNetBuy === undefined || institutionalNetBuy === undefined) return null;
     logInvestorFlowSelected(rows.length);
+    const actualInvestorFlowRowCarrier = buildKisActualInvestorFlowRowCarrier({
+      row,
+      safeCode,
+      sourcePath: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]',
+      foreignNetBuy,
+      institutionalNetBuy,
+      individualNetBuy,
+    });
     return {
       stockCode: safeCode,
       tradingDate: formatKisYmd(extractKisString(row, ['stck_bsop_date', 'STCK_BSOP_DATE'])),
@@ -1043,11 +1069,8 @@ export async function fetchKisInvestorTradeByStockDaily(
       ...(individualNetBuy !== undefined ? { individualNetBuy } : {}),
       source: 'KIS_API',
       fetchedAt: new Date().toISOString(),
-      actualInvestorFlowRowCarrier: buildKisActualInvestorFlowRowCarrier({
-        row,
-        safeCode,
-        sourcePath: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]',
-      }),
+      actualRows: actualInvestorFlowRowCarrier.actualRows,
+      actualInvestorFlowRowCarrier,
     };
   } catch (e) {
     console.error('[KIS] 종목별 투자자매매동향 일별 조회 실패:', e instanceof Error ? e.message : e);

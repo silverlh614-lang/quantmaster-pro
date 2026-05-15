@@ -147,17 +147,18 @@ async function buildShadowBlock(opts: BlockBuilderOptions): Promise<SanitizedSha
       let todayClosed = 0;
       const kstDate = kstDateString(Date.now());
       for (const t of trades) {
+        const status = String(t.status);
         const isOpen =
-          t.status === 'PENDING' ||
-          t.status === 'ORDER_SUBMITTED' ||
-          t.status === 'PARTIALLY_FILLED' ||
-          t.status === 'ACTIVE' ||
-          t.status === 'EUPHORIA_PARTIAL';
+          status === 'PENDING' ||
+          status === 'ORDER_SUBMITTED' ||
+          status === 'PARTIALLY_FILLED' ||
+          status === 'ACTIVE' ||
+          status === 'EUPHORIA_PARTIAL';
         if (isOpen) open++;
         if ((t as { detachedFromWatchlist?: boolean }).detachedFromWatchlist === true) detached++;
         if (typeof t.signalTime === 'string' && t.signalTime.startsWith(kstDate)) todayCreated++;
         if (
-          (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP' || t.status === 'REVERTED') &&
+          (status === 'HIT_TARGET' || status === 'HIT_STOP' || status === 'REVERTED') &&
           typeof t.signalTime === 'string' &&
           t.signalTime.startsWith(kstDate)
         ) {

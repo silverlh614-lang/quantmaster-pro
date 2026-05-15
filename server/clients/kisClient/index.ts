@@ -24,6 +24,8 @@ export type {
   KisInvestorTradeByStockDaily,
   KisInvestorTrendEstimate,
   KisInvestorFlow,
+  KisInvestorFlowActualRowCarrier,
+  KisInvestorFlowRawRow,
   KisStockProgramTrade,
   KisMarketProgramTrade,
   KisShortSaleRankingRow,
