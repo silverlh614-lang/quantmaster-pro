@@ -29,6 +29,7 @@ import { assertSafeOrder, PreOrderGuardError } from '../trading/preOrderGuard.js
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
+import { buildPreopenOrchestratorCycleKey } from '../utils/preopenDiscoveryGuards.js';
 import {
   acquireShadowAuctionLock,
   buildShadowAuctionOrderKey,
@@ -38,6 +39,8 @@ import {
   saveShadowAuctionOrderOnce,
   sendShadowAuctionTelegramOnce,
 } from '../trading/shadowAuctionIdempotency.js';
+
+const preopenOrchestratorRunningKeys = new Set<string>();
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -470,6 +473,18 @@ export class TradingDayOrchestrator {
 
         // 08:45 이후 한 번만: 토큰 갱신 → 분할 매수 체크 → 사전 스크리닝 → 워치리스트 자동 채우기 → 예약 주문
         if (t >= 845 && !this.hasRan('openAuction')) {
+          const cycleKey = buildPreopenOrchestratorCycleKey();
+          if (preopenOrchestratorRunningKeys.has(cycleKey)) {
+            console.info(
+              `[PREOPEN_ORCHESTRATOR_DUPLICATE_SKIPPED]\n`
+              + `cycleKey=${cycleKey}\n`
+              + `executionImpact=NONE\n`
+              + `marketSignal=false\n`
+              + `providerIssue=false`,
+            );
+            break;
+          }
+          preopenOrchestratorRunningKeys.add(cycleKey);
           console.log('[Orchestrator] 장 전 준비 시작 (KST 08:45+)');
           await refreshKisToken().catch(console.error);
           // Phase 2차 C7 — 스모크 테스트 게이트: 실패 시 LIVE 주문 자동 차단.
@@ -499,6 +514,7 @@ export class TradingDayOrchestrator {
             await preMarketOrderPrep().catch(console.error);
           }
           this.markRan('openAuction');
+          preopenOrchestratorRunningKeys.delete(cycleKey);
         }
         break;
       }

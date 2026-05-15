@@ -12,6 +12,7 @@ import { safePctChange, safePctChangeDetailed, type PriceBase, type PriceSource 
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
 import { fetchKisIntraday } from './kisQuoteAdapter.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
+import { msUntilKstMarketCloseOrMin } from '../../utils/preopenDiscoveryGuards.js';
 
 /**
  * ADR-0028 §모순 보강: Yahoo 응답의 가격 필드 검증 SSOT.
@@ -132,6 +133,75 @@ export interface YahooQuoteExtended {
 // 스크리너·시그널·리포트가 같은 분 안에 동일 심볼을 여러 번 조회하므로
 // 5분 TTL로만 묶어도 호출 수가 대폭 줄어든다. null 은 캐싱하지 않는다(일시 실패 재시도 허용).
 const YAHOO_QUOTE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const YAHOO_STALE_QUARANTINE_MIN_TTL_MS = 6 * 60 * 60 * 1000;
+const YAHOO_STALE_QUARANTINE_DAYS = 5;
+const _yahooStaleQuarantine = new Map<string, { until: number; lastClose: string; staleDays: number; suffix: string }>();
+
+function normalizeYahooQuarantineCode(symbolOrCode: string): string {
+  const m = (symbolOrCode ?? '').match(/^(\d{6})(?:\.K[SQ])?$/);
+  return m ? m[1] : symbolOrCode;
+}
+
+function yahooSuffix(symbol: string): string {
+  return symbol.endsWith('.KQ') ? 'KQ' : symbol.endsWith('.KS') ? 'KS' : '';
+}
+
+export function isYahooStaleQuarantined(symbolOrCode: string): boolean {
+  const key = normalizeYahooQuarantineCode(symbolOrCode);
+  const record = _yahooStaleQuarantine.get(key);
+  if (!record) return false;
+  if (Date.now() >= record.until) {
+    _yahooStaleQuarantine.delete(key);
+    return false;
+  }
+  return true;
+}
+
+export function getYahooStaleQuarantineRemainingMs(symbolOrCode: string): number {
+  const key = normalizeYahooQuarantineCode(symbolOrCode);
+  const record = _yahooStaleQuarantine.get(key);
+  if (!record) return 0;
+  const remaining = record.until - Date.now();
+  if (remaining <= 0) {
+    _yahooStaleQuarantine.delete(key);
+    return 0;
+  }
+  return remaining;
+}
+
+function maybeQuarantineYahooStale(input: {
+  symbol: string;
+  lastCloseIso: string;
+  staleDays: number;
+}): void {
+  if (input.staleDays < YAHOO_STALE_QUARANTINE_DAYS) return;
+  const code = normalizeYahooQuarantineCode(input.symbol);
+  if (!/^\d{6}$/.test(code)) return;
+  const ttlMs = msUntilKstMarketCloseOrMin(YAHOO_STALE_QUARANTINE_MIN_TTL_MS);
+  const existing = _yahooStaleQuarantine.get(code);
+  const until = Date.now() + ttlMs;
+  if (!existing || existing.until < until) {
+    _yahooStaleQuarantine.set(code, {
+      until,
+      lastClose: input.lastCloseIso,
+      staleDays: input.staleDays,
+      suffix: yahooSuffix(input.symbol),
+    });
+    console.warn(
+      `[YAHOO_STALE_QUARANTINED]\n`
+      + `symbol=${code}\n`
+      + `suffix=${yahooSuffix(input.symbol)}\n`
+      + `lastClose=${input.lastCloseIso}\n`
+      + `staleDays=${input.staleDays}\n`
+      + `ttlMs=${ttlMs}\n`
+      + `executionImpact=NONE\n`
+      + `marketSignal=false\n`
+      + `providerIssue=true`,
+    );
+  }
+}
+
 const _yahooQuoteCache = new Map<string, { data: YahooQuoteExtended; ts: number }>();
 
 function buildKisPrimaryQuoteFromIntraday(
@@ -268,6 +338,12 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     };
 
     if (closes.length < 5) return null;
+    const lastCloseIdx = closes.length - 1;
+    const lastCloseIso = isoFromCloseIdx(lastCloseIdx);
+    const staleDays = Math.floor((Date.now() - new Date(lastCloseIso).getTime()) / 86_400_000);
+    if (Number.isFinite(staleDays)) {
+      maybeQuarantineYahooStale({ symbol, lastCloseIso, staleDays });
+    }
 
     // ADR-0235: closeTimestamps 최신성 검증 — 마지막 close 가 7일 이상 stale 이면
     // 응답 폐기. Yahoo 가 거래정지/상장폐지/장기 휴장 종목에 *과거 시계열* 을
