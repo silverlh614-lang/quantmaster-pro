@@ -35,6 +35,7 @@ import './marginBalance.cmd.js';
 import './marginBalanceBackfill.cmd.js';
 import './market.cmd.js';
 import './modeConsistency.cmd.js';
+import './normalSupplyPreview.cmd.js';
 import './operatorActions.cmd.js';
 import './opsStatus.cmd.js';
 import './orchWindow.cmd.js';

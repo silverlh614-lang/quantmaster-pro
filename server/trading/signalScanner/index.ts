@@ -23,6 +23,10 @@ import {
   injectPerSymbolSupplyContext,
   type PerSymbolSupplyInjectionStats,
 } from './injectPerSymbolSupplyContext.js';
+import {
+  deriveNormalSupplyPreviewEngineMode,
+  persistNormalSupplyPreview,
+} from './normalSupplyPreview.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -94,6 +98,20 @@ async function collectPreflightAbortDiagnostics(
       investorFlowRouter: createDefaultInvestorFlowRouter(),
     });
     attachPreflightBlockedPerSymbolSupplyInjection(injected.stats);
+    persistNormalSupplyPreview({
+      engineMode: deriveNormalSupplyPreviewEngineMode({
+        sellOnly: options?.sellOnly,
+        blockedBy: preflightResult?.blockedBy,
+        preflightDecision: preflightResult?.preflightDecision,
+        macroGateState: preflightResult?.diagnosticData?.macroGateState ?? preflightResult?.context?.macroGateState,
+        liveEntryBlockedReason: preflightResult?.context?.liveEntryBlockedReason,
+      }),
+      source: 'PREFLIGHT_ABORT_DIAGNOSTIC',
+      reason: preflightResult?.preflightDecision ?? preflightResult?.blockedBy ?? 'PRE_FLIGHT_BLOCK',
+      preflightDecision: preflightResult?.preflightDecision,
+      candidates: injected.candidates,
+      supplyInjection: injected.stats,
+    });
     console.info('[AutoTrade/Diagnostics] preflight-blocked supply diagnostics collected', {
       blockedBy: preflightResult?.preflightDecision ?? preflightResult?.blockedBy ?? 'PRE_FLIGHT_BLOCK',
       buyList: injected.stats.totalCandidates,
@@ -177,6 +195,26 @@ export async function runAutoSignalScan(
     candidates.buyList = injected.candidates;
     candidates.mainList = injected.candidates;
     perSymbolSupplyInjection = injected.stats;
+    const normalSupplyPreviewAllowed =
+      options?.sellOnly === true ||
+      preflightResult.context?.optSellOnly === true ||
+      preflightResult.context?.macroDiagnosticOnly === true ||
+      preflightResult.context?.diagnosticOnlyLiveBlock === true ||
+      preflightResult.macroGateState?.sellOnlyMode === true ||
+      preflightResult.macroGateState?.diagnosticLiveEntryBlocked === true;
+    if (normalSupplyPreviewAllowed) {
+      persistNormalSupplyPreview({
+        engineMode: deriveNormalSupplyPreviewEngineMode({
+          sellOnly: options?.sellOnly,
+          macroGateState: preflightResult.macroGateState,
+          liveEntryBlockedReason: preflightResult.context?.liveEntryBlockedReason,
+        }),
+        source: 'RUNTIME_DIAGNOSTIC',
+        reason: preflightResult.context?.liveEntryBlockedReason ?? 'diagnostic live-entry block',
+        candidates: injected.candidates,
+        supplyInjection: injected.stats,
+      });
+    }
   } catch (error) {
     console.warn(
       '[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION] failed before evaluation; continuing',

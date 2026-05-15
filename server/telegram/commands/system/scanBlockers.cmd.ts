@@ -19,6 +19,10 @@ import {
   formatTechnicalProviderDegradedSection,
   getLastScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
+import {
+  formatNormalSupplyPreviewSection,
+  getLastNormalSupplyPreview,
+} from '../../../trading/signalScanner/normalSupplyPreview.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 // ADR-0431 — counterfactual ledger 누적 성과 한 줄 요약 (전체 리포트는 /shadow_counterfactual).
 // read-only — counterfactual ledger 만 read, LIVE 매매 무영향.
@@ -840,6 +844,11 @@ const scanBlockers: TelegramCommand = {
       mode === 'full' || mode === 'gate' ? formatAdr0505EmissionDetailBlock(adr0505Diag) : null;
 
     const parts: string[] = [baseMessage];
+    const normalSupplyPreviewSection = formatNormalSupplyPreviewSection(
+      getLastNormalSupplyPreview(),
+      { maxTopCandidates: mode === 'full' ? 5 : 3 },
+    );
+    if (normalSupplyPreviewSection) parts.push(normalSupplyPreviewSection);
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
     if (supplyProviderWarmupSection) parts.push(supplyProviderWarmupSection);
