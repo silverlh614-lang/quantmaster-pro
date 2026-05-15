@@ -14,7 +14,12 @@ import {
   getRegimeExposureProfile,
   resolveCandidatePositionFloor,
   formatShadowBullFloorLog,
+  resolveAccountExposureGap,
+  resolveMinNotionalShares,
+  MIN_CANDIDATE_SHARES,
+  MIN_NOTIONAL_PRICE_CEILING_RATIO,
 } from './shadowBullExposureProfile.js';
+import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +29,33 @@ const ENV_KEY = 'SHADOW_BULL_EXPOSURE_FLOOR_ENABLED';
 
 afterEach(() => {
   delete process.env[ENV_KEY];
+});
+
+/** §8 회귀용 ServerShadowTrade fixture (currentEquityExposure.test.ts 정합 패턴). */
+const buildTrade = (overrides: Partial<ServerShadowTrade>): ServerShadowTrade => ({
+  id: 'test_001',
+  stockCode: '005930',
+  stockName: 'Test',
+  signalTime: '2026-05-02T00:00:00Z',
+  signalPrice: 50_000,
+  shadowEntryPrice: 50_000,
+  quantity: 10,
+  originalQuantity: 10,
+  stopLoss: 46_000,
+  initialStopLoss: 46_000,
+  regimeStopLoss: 46_000,
+  hardStopLoss: 46_000,
+  targetPrice: 60_000,
+  status: 'PENDING',
+  mode: 'SHADOW',
+  entryRegime: 'R3_EARLY',
+  profileType: 'B',
+  watchlistSource: undefined,
+  profitTranches: [],
+  trailingHighWaterMark: 50_000,
+  trailPct: 0.1,
+  trailingEnabled: false,
+  ...overrides,
 });
 
 describe('PATCH-010 §1 프로파일 SSOT 매트릭스', () => {
@@ -360,5 +392,190 @@ describe('PATCH-010 §7 PRE_BREAKOUT / INTRADAY 경로 wiring 정적 가드', ()
     expect(buyListLoopSrc).toMatch(/if\s*\(exposureFloorPb\.applied\)/);
     expect(intradayLoopSrc).toMatch(/if\s*\(exposureFloorIntraday\.applied\)/);
     expect(intradayLoopSrc).toContain('formatShadowBullFloorLog(exposureFloorIntraday, {');
+  });
+});
+
+describe('PATCH-010 §8 resolveAccountExposureGap — 계좌 총 노출 갭 진단 SSOT', () => {
+  it('SHADOW R2_BULL — 활성 1종목 500,000 / 계좌 10,000,000 → currentExposurePct 0.05, underExposed=true', () => {
+    const r = resolveAccountExposureGap({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      accountTotalEquity: 10_000_000,
+      shadows: [buildTrade({ shadowEntryPrice: 50_000, quantity: 10, originalQuantity: 10 })],
+    });
+    expect(r.mode).toBe('SHADOW');
+    expect(r.exposureRegime).toBe('R5_BULL');
+    expect(r.targetExposurePct).toBe(0.85);
+    expect(r.currentExposureAmount).toBe(500_000);
+    expect(r.currentExposurePct).toBeCloseTo(0.05, 6);
+    expect(r.targetExposureAmount).toBe(8_500_000);
+    expect(r.exposureGapAmount).toBe(8_000_000);
+    expect(r.underExposed).toBe(true);
+    expect(r.activeTradeCount).toBe(1);
+    expect(r.diagnosticOnly).toBe(true);
+  });
+
+  it('빈 shadows → currentExposureAmount 0 / underExposed=true', () => {
+    const r = resolveAccountExposureGap({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      accountTotalEquity: 10_000_000,
+      shadows: [],
+    });
+    expect(r.currentExposureAmount).toBe(0);
+    expect(r.currentExposurePct).toBe(0);
+    expect(r.underExposed).toBe(true);
+    expect(r.activeTradeCount).toBe(0);
+  });
+
+  it('closed trade (HIT_STOP) 는 합산 제외 — computeCurrentEquityExposure 위임', () => {
+    const r = resolveAccountExposureGap({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      accountTotalEquity: 10_000_000,
+      shadows: [
+        buildTrade({ id: 'open', status: 'PENDING', shadowEntryPrice: 50_000, quantity: 10, originalQuantity: 10 }),
+        buildTrade({ id: 'closed', status: 'HIT_STOP', shadowEntryPrice: 80_000, quantity: 20, originalQuantity: 20 }),
+      ],
+    });
+    expect(r.currentExposureAmount).toBe(500_000);
+    expect(r.activeTradeCount).toBe(1);
+  });
+
+  it('accountTotalEquity 0 / 비유한값 → currentExposurePct 0 / underExposed=true 보수적 fallback', () => {
+    for (const equity of [0, -1, NaN, Infinity]) {
+      const r = resolveAccountExposureGap({
+        shadowMode: true,
+        regime: 'R2_BULL',
+        accountTotalEquity: equity,
+        shadows: [buildTrade({})],
+      });
+      expect(r.currentExposurePct).toBe(0);
+      expect(r.targetExposureAmount).toBe(0);
+      expect(r.underExposed).toBe(true);
+    }
+  });
+
+  it('LIVE 모드 → LIVE 프로파일 targetExposurePct 사용 (R5_BULL 0.75)', () => {
+    const r = resolveAccountExposureGap({
+      shadowMode: false,
+      regime: 'R2_BULL',
+      accountTotalEquity: 10_000_000,
+      shadows: [],
+    });
+    expect(r.mode).toBe('LIVE');
+    expect(r.targetExposurePct).toBe(0.75);
+  });
+
+  it('over-exposed — current > target → exposureGapAmount 음수 / underExposed=false', () => {
+    const r = resolveAccountExposureGap({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      accountTotalEquity: 1_000_000,
+      // 활성 950,000 (95%) > target 85%
+      shadows: [buildTrade({ shadowEntryPrice: 95_000, quantity: 10, originalQuantity: 10 })],
+    });
+    expect(r.currentExposurePct).toBeCloseTo(0.95, 6);
+    expect(r.exposureGapAmount).toBeLessThan(0);
+    expect(r.underExposed).toBe(false);
+  });
+
+  it('currentPriceMap 전달 시 시가 평가 우선', () => {
+    const r = resolveAccountExposureGap({
+      shadowMode: true,
+      regime: 'R2_BULL',
+      accountTotalEquity: 10_000_000,
+      shadows: [buildTrade({ stockCode: '005930', shadowEntryPrice: 50_000, quantity: 10, originalQuantity: 10 })],
+      currentPriceMap: new Map([['005930', 70_000]]),
+    });
+    expect(r.currentExposureAmount).toBe(700_000); // 시가 70,000 × 10
+  });
+});
+
+describe('PATCH-010 §9 resolveMinNotionalShares — minNotional 보정 진단 SSOT', () => {
+  it('SSOT 상수 — MIN_CANDIDATE_SHARES=1 / MIN_NOTIONAL_PRICE_CEILING_RATIO=0.05', () => {
+    expect(MIN_CANDIDATE_SHARES).toBe(1);
+    expect(MIN_NOTIONAL_PRICE_CEILING_RATIO).toBe(0.05);
+  });
+
+  it('휴젤 시나리오 — price 284,000 budget 200,000 (budget < price) → minNotionalApplied=true, effectiveShares=1', () => {
+    const r = resolveMinNotionalShares({
+      price: 284_000,
+      budgetAmount: 200_000,
+      accountTotalEquity: 100_000_000,
+    });
+    expect(r.rawShares).toBe(0);
+    expect(r.minNotionalApplied).toBe(true);
+    expect(r.effectiveShares).toBe(1);
+    expect(r.skipReason).toBeUndefined();
+  });
+
+  it('rawShares >= 1 → ALREADY_ABOVE_MIN (보정 불필요)', () => {
+    const r = resolveMinNotionalShares({ price: 284_000, budgetAmount: 600_000 });
+    expect(r.rawShares).toBe(2);
+    expect(r.minNotionalApplied).toBe(false);
+    expect(r.effectiveShares).toBe(2);
+    expect(r.skipReason).toBe('ALREADY_ABOVE_MIN');
+  });
+
+  it('budget 정확히 price → rawShares 1 → ALREADY_ABOVE_MIN', () => {
+    const r = resolveMinNotionalShares({ price: 284_000, budgetAmount: 284_000 });
+    expect(r.rawShares).toBe(1);
+    expect(r.skipReason).toBe('ALREADY_ABOVE_MIN');
+  });
+
+  it('초고가주 — price 6,000,000 > 계좌 100,000,000 × 5% ceiling → PRICE_OVER_CEILING (강제 매수 차단)', () => {
+    const r = resolveMinNotionalShares({
+      price: 6_000_000,
+      budgetAmount: 100_000,
+      accountTotalEquity: 100_000_000,
+    });
+    expect(r.rawShares).toBe(0);
+    expect(r.minNotionalApplied).toBe(false);
+    expect(r.effectiveShares).toBe(0);
+    expect(r.skipReason).toBe('PRICE_OVER_CEILING');
+  });
+
+  it('accountTotalEquity 미전달 시 ceiling 검증 생략 → minNotionalApplied=true', () => {
+    const r = resolveMinNotionalShares({ price: 284_000, budgetAmount: 200_000 });
+    expect(r.minNotionalApplied).toBe(true);
+    expect(r.effectiveShares).toBe(1);
+  });
+
+  it('price ceiling 경계 — price === 계좌 × 5% → 보정 적용 (초과 아님)', () => {
+    const r = resolveMinNotionalShares({
+      price: 5_000_000,
+      budgetAmount: 100_000,
+      accountTotalEquity: 100_000_000,
+    });
+    expect(r.minNotionalApplied).toBe(true);
+    expect(r.effectiveShares).toBe(1);
+  });
+
+  it('price/budgetAmount 비유한값 또는 ≤ 0 → INVALID_INPUT', () => {
+    for (const bad of [
+      { price: 0, budgetAmount: 100_000 },
+      { price: -1, budgetAmount: 100_000 },
+      { price: NaN, budgetAmount: 100_000 },
+      { price: 284_000, budgetAmount: 0 },
+      { price: 284_000, budgetAmount: -1 },
+      { price: 284_000, budgetAmount: NaN },
+    ]) {
+      const r = resolveMinNotionalShares(bad);
+      expect(r.skipReason).toBe('INVALID_INPUT');
+      expect(r.minNotionalApplied).toBe(false);
+      expect(r.effectiveShares).toBe(0);
+    }
+  });
+});
+
+describe('PATCH-010 §10 /sizing_debug — index.ts barrel 등록 정적 가드', () => {
+  const indexSrc = readFileSync(
+    path.join(REPO_ROOT, 'server/telegram/commands/system/index.ts'),
+    'utf8',
+  );
+
+  it('sizingDebug.cmd.js barrel 등록', () => {
+    expect(indexSrc).toContain("import './sizingDebug.cmd.js';");
   });
 });
