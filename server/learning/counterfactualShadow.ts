@@ -23,6 +23,7 @@ import fs from 'fs';
 import { COUNTERFACTUAL_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { shouldSuppressNoise, recordNoiseSuppressed } from '../utils/logger.js';
 import {
   SUGGEST_MIN_SAMPLE_COUNTERFACTUAL,
   SUGGEST_COUNTERFACTUAL_RATIO_THRESHOLD,
@@ -158,7 +159,16 @@ export function recordCounterfactualCase(params: {
     existing.duplicateSuppressedAt = now.toISOString();
     existing.duplicateSuppressedCount = (existing.duplicateSuppressedCount ?? 0) + 1;
     saveCounterfactuals(entries);
-    console.info('COUNTERFACTUAL_DUPLICATE_SUPPRESSED', { existingCaseId: existing.id, attemptedKey: counterfactualKey });
+    // Patch-009 P2 — counterfactual 중복 억제는 멱등 upsert 의 정상 동작일 뿐이라
+    // default LOG_LEVEL=info 에서는 종목 수만큼 multi-line JSON 으로 누적된다.
+    // duplicateSuppressedCount 는 entry 에 이미 영속되므로 로그는 중앙 logger
+    // 게이트로 억제하고 LOG_LEVEL=debug 또는 LOG_SUPPRESS_COUNTERFACTUAL_DUPLICATE=false
+    // 시에만 노출. 억제 시 NoiseSummary 카운터에 집계.
+    if (shouldSuppressNoise('COUNTERFACTUAL_DUPLICATE_SUPPRESSED')) {
+      recordNoiseSuppressed('COUNTERFACTUAL_DUPLICATE_SUPPRESSED');
+    } else {
+      console.info('COUNTERFACTUAL_DUPLICATE_SUPPRESSED', { existingCaseId: existing.id, attemptedKey: counterfactualKey });
+    }
     return { entry: existing, created: false, duplicateSuppressed: true, existingCaseId: existing.id, attemptedKey: counterfactualKey };
   }
 

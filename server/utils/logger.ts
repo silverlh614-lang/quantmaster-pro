@@ -10,6 +10,8 @@ export type NoiseCategory =
   // Patch-009 P1 — 프로덕션 진단 로그 게이트.
   | 'SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC'
   | 'COMMAND_REGISTRY_DIAGNOSTIC'
+  // Patch-009 P2 — counterfactual 중복 억제 로그 집계.
+  | 'COUNTERFACTUAL_DUPLICATE_SUPPRESSED'
   | 'NONE';
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -77,6 +79,8 @@ export function shouldSuppressNoise(category: NoiseCategory): boolean {
       return process.env.LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC !== 'false';
     case 'COMMAND_REGISTRY_DIAGNOSTIC':
       return process.env.LOG_SUPPRESS_COMMAND_REGISTRY_DIAGNOSTIC !== 'false';
+    case 'COUNTERFACTUAL_DUPLICATE_SUPPRESSED':
+      return process.env.LOG_SUPPRESS_COUNTERFACTUAL_DUPLICATE !== 'false';
     case 'NONE':
     default:
       return false;
@@ -92,6 +96,7 @@ export interface NoiseCounters {
   kisFirstDiagnostics: number;
   supplySemanticWireDiag: number;
   commandRegistryDiag: number;
+  counterfactualDuplicate: number;
   suppressed: number;
 }
 
@@ -106,6 +111,7 @@ const noiseCounters: NoiseCounters = {
   kisFirstDiagnostics: 0,
   supplySemanticWireDiag: 0,
   commandRegistryDiag: 0,
+  counterfactualDuplicate: 0,
   suppressed: 0,
 };
 
@@ -135,6 +141,9 @@ function incrementNoiseCounter(category: NoiseCategory, suppressed: boolean): vo
     case 'COMMAND_REGISTRY_DIAGNOSTIC':
       noiseCounters.commandRegistryDiag++;
       break;
+    case 'COUNTERFACTUAL_DUPLICATE_SUPPRESSED':
+      noiseCounters.counterfactualDuplicate++;
+      break;
     case 'NONE':
       break;
   }
@@ -158,6 +167,7 @@ export function resetNoiseCountersForTest(): void {
   noiseCounters.kisFirstDiagnostics = 0;
   noiseCounters.supplySemanticWireDiag = 0;
   noiseCounters.commandRegistryDiag = 0;
+  noiseCounters.counterfactualDuplicate = 0;
   noiseCounters.suppressed = 0;
   lastNoiseSummaryEmittedAtMs = 0;
 }
@@ -194,7 +204,7 @@ export function formatNoiseSummary(input: NoiseSummaryInput = getNoiseCounters()
   const counters = { ...getNoiseCounters(), ...input };
   const session = input.session ? ` session=${input.session}` : '';
   const executionImpact = input.executionImpact ? ` executionImpact=${input.executionImpact}` : '';
-  return `[NoiseSummary]${session} suppressed=${counters.suppressed} preEntryWait=${counters.preEntryWait} priceDistance=${counters.priceDistance} kisWsDetail=${counters.kisWsDetail} kisMtasDetail=${counters.kisMtasDetail} gateDiagnostics=${counters.gateDiagnostics} kisFirstDiagnostics=${counters.kisFirstDiagnostics} supplySemanticWireDiag=${counters.supplySemanticWireDiag} commandRegistryDiag=${counters.commandRegistryDiag}${executionImpact}`;
+  return `[NoiseSummary]${session} suppressed=${counters.suppressed} preEntryWait=${counters.preEntryWait} priceDistance=${counters.priceDistance} kisWsDetail=${counters.kisWsDetail} kisMtasDetail=${counters.kisMtasDetail} gateDiagnostics=${counters.gateDiagnostics} kisFirstDiagnostics=${counters.kisFirstDiagnostics} supplySemanticWireDiag=${counters.supplySemanticWireDiag} commandRegistryDiag=${counters.commandRegistryDiag} counterfactualDuplicate=${counters.counterfactualDuplicate}${executionImpact}`;
 }
 
 function getNoiseSummaryIntervalMs(): number {
