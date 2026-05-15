@@ -47,6 +47,8 @@ export type GateDecisionSeverity =
 export type GateDecisionReason =
   | 'EMERGENCY_STOP'
   | 'SELL_ONLY'
+  | 'R4_NEUTRAL'
+  | 'R5_CAUTION'
   | 'R6_DEFENSE'
   | 'VIX_BLOCK'
   | 'FOMC_BLOCK'
@@ -133,6 +135,8 @@ export interface GateDecisionRouterInput {
   riskFlags?: {
     emergencyStop?: boolean;
     sellOnly?: boolean;
+    r4Neutral?: boolean;
+    r5Caution?: boolean;
     r6Defense?: boolean;
     vixBlock?: boolean;
     fomcBlock?: boolean;
@@ -177,6 +181,8 @@ export function deriveGateDecisionRouterResult(
   const rf = input.riskFlags ?? {};
   if (rf.emergencyStop) reasons.push('EMERGENCY_STOP');
   if (rf.sellOnly) reasons.push('SELL_ONLY');
+  if (rf.r4Neutral) reasons.push('R4_NEUTRAL');
+  if (rf.r5Caution) reasons.push('R5_CAUTION');
   if (rf.r6Defense) reasons.push('R6_DEFENSE');
   if (rf.vixBlock) reasons.push('VIX_BLOCK');
   if (rf.fomcBlock) reasons.push('FOMC_BLOCK');
@@ -187,6 +193,8 @@ export function deriveGateDecisionRouterResult(
     const sellOnlyOnly = reasons.length === 1 && reasons[0] === 'SELL_ONLY';
     const macroLiveBlockReasons = new Set<GateDecisionReason>([
       'SELL_ONLY',
+      'R4_NEUTRAL',
+      'R5_CAUTION',
       'R6_DEFENSE',
       'VIX_BLOCK',
       'FOMC_BLOCK',

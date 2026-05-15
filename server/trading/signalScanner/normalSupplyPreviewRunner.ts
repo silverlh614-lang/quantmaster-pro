@@ -37,6 +37,7 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     : deriveNormalSupplyPreviewEngineMode({
         sellOnly: getManualBlockNewBuy() || getManualManageOnly(),
         macroGateState: {
+          regime: macroState?.regime,
           sellOnlyMode: getManualBlockNewBuy() || getManualManageOnly(),
           bearDefenseMode: macroState?.regime === 'R6_DEFENSE',
           vixGatingActive: macroState?.vixGatingActive === true,

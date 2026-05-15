@@ -2726,6 +2726,13 @@ export async function persistScanResults(
   // 위 attribution / sectorEnergy / blockReasons 모두 영속된 *후* 합성 — input 정합 보장.
   // riskFlags 는 macroGateState 에서 발췌 (emergencyStop / sellOnly / r6Defense / VIX / FOMC).
   const macroGate = options.macroGateState;
+  const liveEntryBlockedReason = `${macroGate?.liveEntryBlockedReason ?? ''}`.toUpperCase();
+  const r4LiveEntryBlocked =
+    macroGate?.diagnosticLiveEntryBlocked === true &&
+    liveEntryBlockedReason.includes('R4_NEUTRAL');
+  const r5LiveEntryBlocked =
+    macroGate?.diagnosticLiveEntryBlocked === true &&
+    liveEntryBlockedReason.includes('R5_CAUTION');
   const routerInput = {
     regime: macroGate?.regime,
     gate1Pass: counters.gate1Pass,
@@ -2752,6 +2759,8 @@ export async function persistScanResults(
       ? {
           emergencyStop: macroGate.emergencyStop,
           sellOnly: macroGate.sellOnlyMode || options.sellOnly,
+          r4Neutral: r4LiveEntryBlocked,
+          r5Caution: r5LiveEntryBlocked,
           r6Defense: macroGate.bearDefenseMode || macroGate.regime === 'R6_DEFENSE',
           vixBlock: macroGate.vixGatingActive,
           fomcBlock: macroGate.fomcPhase === 'DAY',

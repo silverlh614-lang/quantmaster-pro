@@ -329,7 +329,7 @@ function getDiagnosticLiveBlockReason(ctx: BuyListLoopContext): string | undefin
 
 function isMacroDiagnosticLiveBlockReason(reason: string | undefined): boolean {
   if (!reason) return false;
-  const macroReasons = new Set(['SELL_ONLY', 'R6_DEFENSE', 'VIX_BLOCK', 'FOMC_BLOCK']);
+  const macroReasons = new Set(['SELL_ONLY', 'R4_NEUTRAL', 'R5_CAUTION', 'R6_DEFENSE', 'VIX_BLOCK', 'FOMC_BLOCK']);
   const parts = reason.split(',').map((part) => part.trim()).filter(Boolean);
   return parts.length > 0 && parts.every((part) => macroReasons.has(part));
 }

@@ -39,6 +39,34 @@ describe('ADR-0425 Gate Decision Router', () => {
     expect(result.reasons).toEqual(expect.arrayContaining(['SELL_ONLY', 'R6_DEFENSE']));
   });
 
+  it('R4/R5 live-entry regime flags are macro live blocks with diagnostics still open', () => {
+    const r4 = deriveGateDecisionRouterResult({
+      riskFlags: { r4Neutral: true },
+    });
+    const r5 = deriveGateDecisionRouterResult({
+      riskFlags: { r5Caution: true },
+    });
+
+    for (const result of [r4, r5]) {
+      expect(result.severity).toBe('MACRO_LIVE_BLOCK');
+      expect(result.liveAllowed).toBe(false);
+      expect(result.paperAllowed).toBe(false);
+      expect(result.shadowAllowed).toBe(true);
+      expect(result.watchAllowed).toBe(true);
+      expect(result.lanes).toEqual(expect.objectContaining({
+        live: false,
+        paper: false,
+        shadow: true,
+        watch: true,
+        learning: true,
+        counterfactual: true,
+      }));
+      expect(result.executionImpact).toBe('NONE');
+    }
+    expect(r4.reasons).toContain('R4_NEUTRAL');
+    expect(r5.reasons).toContain('R5_CAUTION');
+  });
+
   // ────────────────────────────────────────────────────────
   // §H Test 1: emergencyStop → HARD_BLOCK
   // ────────────────────────────────────────────────────────

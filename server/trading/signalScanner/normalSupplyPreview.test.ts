@@ -104,6 +104,10 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
   it('classifies SELL_ONLY and macro live block separately from true hard block', () => {
     expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_SELL_ONLY' })).toBe('SELL_ONLY');
     expect(deriveNormalSupplyPreviewEngineMode({ liveEntryBlockedReason: 'R6_DEFENSE,FOMC_BLOCK' })).toBe('MACRO_LIVE_BLOCK');
+    expect(deriveNormalSupplyPreviewEngineMode({ liveEntryBlockedReason: 'R5_CAUTION' })).toBe('MACRO_LIVE_BLOCK');
+    expect(deriveNormalSupplyPreviewEngineMode({
+      macroGateState: { regime: 'R4_NEUTRAL', diagnosticLiveEntryBlocked: true },
+    })).toBe('MACRO_LIVE_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_HARD_BLOCK' })).toBe('HARD_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_POSITION_FULL' })).toBe('POSITION_FULL');
   });
