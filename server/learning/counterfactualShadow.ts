@@ -59,10 +59,24 @@ export interface CounterfactualEntry {
   hypotheticalTargetPrice?: number;
   hypotheticalStopPrice?: number;
   maxHoldingMinutes?: number;
+  riskRuleId?: string;
+  atr?: number;
+  volatility?: number;
   pricePath?: Array<{ at?: string; timestamp?: string; price?: number; high?: number; low?: number; close?: number }>;
   outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'PENDING_OUTCOME';
   outcomeStatus?: 'PENDING' | 'LABELED' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'EXPIRED' | 'UNRESOLVED';
   outcomeResolvedAt?: string;
+  targetStopRecovered?: boolean;
+  recoverySource?: 'ORIGINAL_SIGNAL_SNAPSHOT' | 'STRATEGY_RISK_RULE' | 'ATR_FALLBACK' | 'DEFAULT_R_MULTIPLE_FALLBACK';
+  recoveryConfidence?: 'RECOVERED' | 'MEDIUM' | 'RECOVERED_LOW';
+  recoveredAt?: string;
+  recoveryRuleId?: string;
+  recoveryNote?: string;
+  sourceConfidence?: 'RECOVERED' | 'MEDIUM' | 'RECOVERED_LOW';
+  labelSource?: 'RECOVERED_TARGET_STOP';
+  diagnosticOnly?: boolean;
+  promotionEligible?: boolean;
+  autoApply?: false;
   duplicateSuppressedAt?: string;
   duplicateSuppressedCount?: number;
 }

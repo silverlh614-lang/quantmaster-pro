@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'fs';
 import { COUNTERFACTUAL_FILE } from '../persistence/paths.js';
-import { collectCounterfactualStatus, counterfactualResolveDryRun, counterfactualResolveRun } from './learningSampleQuality.js';
+import { collectCounterfactualStatus, counterfactualMetadataRepairDryRun, counterfactualMetadataRepairRun, counterfactualResolveDryRun, counterfactualResolveRun } from './learningSampleQuality.js';
 import {
   recordCounterfactual, resolveCounterfactuals, getCounterfactualStats,
   loadCounterfactuals, recordCounterfactualCase,
@@ -95,6 +95,53 @@ describe('counterfactualShadow', () => {
     expect(resolved.stillPending).toBe(0);
     expect(resolved.executionImpact).toBe('NONE');
     expect(resolved.brokerOrdersCreated).toBe(0);
+  });
+
+  it('Counterfactual Target/Stop Backfill v1: repairs missing target/stop and enables recovered diagnostic labels', () => {
+    const signal = new Date('2026-04-22T00:00:00Z');
+    recordCounterfactualCase({
+      stockCode: '035420', stockName: 'NAVER', priceAtSignal: 200_000,
+      gateScore: 5, regime: 'R2_BULL', conditionKeys: [], skipReason: 'GATE_UNDER',
+      sourceCandidateId: 'candidate-missing-target-stop', now: signal,
+      maxHoldingMinutes: 1,
+    });
+    const rows = loadCounterfactuals();
+    rows[0].pricePath = [
+      { at: '2026-04-22T00:02:00Z', price: 203_000, high: 204_000, low: 199_000 },
+      { at: '2026-04-22T00:04:00Z', price: 212_500, high: 212_500, low: 202_000 },
+    ];
+    fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
+
+    const dry = counterfactualMetadataRepairDryRun(new Date('2026-04-22T00:10:00Z'));
+    expect(dry.scannedBuiltUnique).toBe(1);
+    expect(dry.missingTargetPrice).toBe(1);
+    expect(dry.missingStopPrice).toBe(1);
+    expect(dry.recoverableTargetStop).toBe(1);
+    expect(loadCounterfactuals()[0].hypotheticalTargetPrice).toBeUndefined();
+
+    const repaired = counterfactualMetadataRepairRun(new Date('2026-04-22T00:10:00Z'));
+    expect(repaired.bothRecovered).toBe(1);
+    expect(repaired.executionImpact).toBe('NONE');
+    expect(repaired.brokerOrdersCreated).toBe(0);
+    expect(repaired.promotionAllowed).toBe(false);
+    const saved = loadCounterfactuals()[0];
+    expect(saved.hypotheticalTargetPrice).toBeGreaterThan(0);
+    expect(saved.hypotheticalStopPrice).toBeGreaterThan(0);
+    expect(saved.sourceConfidence).not.toBe('HIGH');
+    expect(saved.recoverySource).toBe('DEFAULT_R_MULTIPLE_FALLBACK');
+    expect(saved.diagnosticOnly).toBe(true);
+    expect(saved.promotionEligible).toBe(false);
+    expect(saved.autoApply).toBe(false);
+
+    const resolveDry = counterfactualResolveDryRun(new Date('2026-04-22T00:10:00Z'));
+    expect(resolveDry.missingTargetPrice).toBe(0);
+    expect(resolveDry.missingStopPrice).toBe(0);
+    expect(resolveDry.resolvableNow).toBe(1);
+    expect(resolveDry.quarantined).toBe(0);
+    const resolved = counterfactualResolveRun(new Date('2026-04-22T00:10:00Z'));
+    expect(resolved.labeled).toBe(1);
+    expect(resolved.labelBreakdown.MISSED_WIN).toBe(1);
+    expect(loadCounterfactuals()[0].labelSource).toBe('RECOVERED_TARGET_STOP');
   });
 
   it('resolveCounterfactuals: 30일 경과 시 return30d 채움', async () => {
