@@ -46,6 +46,7 @@ const STRICT_NAME_RE = /^\d{4}-[a-zA-Z][a-zA-Z0-9-]*\.md$/;
 export const INVALID_FILENAME_WHITELIST = Object.freeze(
   new Set([
     '0394-p1.5-execution-terminology-ssot.md', // ADR-0394 P1.5 (`p1.5` 안 `.` 위반, ADR-0159 정합)
+    'numbering-operations.md', // ADR numbering operations note — intentional, no ADR number issued
   ])
 );
 

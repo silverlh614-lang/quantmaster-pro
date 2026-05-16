@@ -27,7 +27,9 @@ describe('PR-KIS-CHART-COOLDOWN — stockScreener wiring 정적 grep 가드', ()
   const src = readFileSync(screenerPath, 'utf-8');
 
   it('C1. isKisChartCooldownActive SSOT import 정합', () => {
-    expect(src).toContain("import { isKisChartCooldownActive } from '../clients/kisClient.js';");
+    // Patch-VITEST-CAT-C-CARRY-OVER-001: grouped import 허용
+    // (origin/main 에서 getKisChartCooldownRemainingMs 와 함께 import 됨)
+    expect(src).toMatch(/import\s*\{[^}]*\bisKisChartCooldownActive\b[^}]*\}\s*from\s*'\.\.\/clients\/kisClient\.js';/);
   });
 
   it("C2. STALE_BASE 분기 진입부에서 isKisChartCooldownActive(stock.code, 'D') 호출", () => {
