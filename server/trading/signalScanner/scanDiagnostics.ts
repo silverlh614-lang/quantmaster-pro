@@ -3220,6 +3220,7 @@ export async function persistScanResults(
         };
       }
     } catch (error) {
+      /* SDS-ignore: KRX parser probe error is converted to diagnostic-only metadata; executionImpact=NONE. */
       krxInvestorDiagnosticAdr0505 = {
         parserStatus: 'PROVIDER_EMPTY_RESPONSE',
         endpointIssueHint: 'ENDPOINT_PARAMETER_ERROR',

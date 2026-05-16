@@ -237,6 +237,7 @@ describe('preOrderGuard — H2 emergencyStop + dailyLossLimit 가드', () => {
       });
       throw new Error('should have thrown');
     } catch (e) {
+      /* SDS-ignore: test intentionally captures expected PreOrderGuardError for reason assertion. */
       expect(e).toBeInstanceOf(PreOrderGuardError);
       expect((e as { reason: string }).reason).toBe('EMERGENCY_STOP_ACTIVE');
     }
@@ -267,6 +268,7 @@ describe('preOrderGuard — H2 emergencyStop + dailyLossLimit 가드', () => {
       });
       throw new Error('should have thrown');
     } catch (e) {
+      /* SDS-ignore: test intentionally captures expected PreOrderGuardError for reason assertion. */
       expect(e).toBeInstanceOf(PreOrderGuardError);
       expect((e as { reason: string }).reason).toBe('EMERGENCY_STOP_ACTIVE');
     }

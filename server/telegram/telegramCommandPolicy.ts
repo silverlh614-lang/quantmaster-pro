@@ -1,4 +1,4 @@
-// @responsibility Telegram command safety policy. Commands present snapshots; they do not evaluate gates or call providers.
+// @responsibility Telegram command safety policy for snapshot-only operator commands.
 
 export type TelegramCommandOperation =
   | 'READ_DECISION_SNAPSHOT'

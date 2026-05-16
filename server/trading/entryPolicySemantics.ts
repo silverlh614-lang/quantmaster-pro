@@ -1,4 +1,4 @@
-// @responsibility User-facing entry policy semantics for macro regime, execution mode, market session, and gate revalidation.
+// @responsibility User-facing entry policy semantics across runtime gate contexts.
 
 export type MacroRegime =
   | 'R1_RISK_ON'

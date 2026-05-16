@@ -574,6 +574,7 @@ export async function fetchInvestorFlowWithPolicy(
       );
     }
   } catch (err) {
+    /* SDS-ignore: provider error is converted to ProviderHealth UNKNOWN_ERROR diagnostic, not MarketSignal. */
     health.push(makeInvestorFlowProviderHealth({
       provider: 'KIS',
       status: 'UNKNOWN_ERROR',
@@ -641,6 +642,7 @@ export async function fetchInvestorFlowWithPolicy(
     }
     pushAttempt(attempts, 'KRX_INVESTOR_FLOW', krx.health.status === 'DISABLED_BY_KIS_FIRST_MODE' ? 'DISABLED_BY_KIS_FIRST_MODE' : krx.offHours ? 'OFF_HOURS' : krx.unavailable ? 'DATA_UNAVAILABLE' : 'NO_OUTPUT', krx.diagnostic);
   } catch (err) {
+    /* SDS-ignore: provider error is converted to ProviderHealth status/reason and attempt diagnostics. */
     health.push(makeInvestorFlowProviderHealth({
       provider: 'KRX',
       status: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'UNKNOWN_ERROR',
@@ -697,6 +699,7 @@ export async function fetchInvestorFlowWithPolicy(
     }));
     pushAttempt(attempts, 'NAVER_INVESTOR_TREND', 'NOT_WIRED', 'NAVER investor trend collector not implemented; modulePath=server/supply/investorFlowRouter.ts#fetchNaverInvestorTrend; wiring=local_stub; runtimeMount=missing; buildArtifactCheck=ensure ADR-0481 collector import is registered');
   } catch (err) {
+    /* SDS-ignore: provider error is converted to ProviderHealth UNKNOWN_ERROR diagnostic, not MarketSignal. */
     health.push(makeInvestorFlowProviderHealth({
       provider: 'NAVER',
       status: 'UNKNOWN_ERROR',
@@ -752,6 +755,7 @@ export async function fetchInvestorFlowWithPolicy(
     }));
     pushAttempt(attempts, 'CACHE', 'CACHE_EMPTY', 'no usable investor-flow cache');
   } catch (err) {
+    /* SDS-ignore: cache fallback error is converted to ProviderHealth UNKNOWN_ERROR diagnostic. */
     health.push(makeInvestorFlowProviderHealth({
       provider: 'CACHE',
       status: 'UNKNOWN_ERROR',

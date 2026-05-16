@@ -110,6 +110,7 @@ export async function runInvestorFlowWarmup(limit = investorFlowWarmupLimit()): 
       if (result.attempts.some((a) => a.status === 'OFF_HOURS')) summary.offHours += 1;
       if (summary.sample.length < 5) summary.sample.push(`${code}:${result.source ?? result.status}:${attempts}`);
     } catch (err) {
+      /* SDS-ignore: warmup item failures are counted in summary.failed and sampled for operator diagnostics. */
       summary.failed += 1;
       if (summary.sample.length < 5) summary.sample.push(`${code}:ERROR:${err instanceof Error ? err.message : String(err)}`);
     }
