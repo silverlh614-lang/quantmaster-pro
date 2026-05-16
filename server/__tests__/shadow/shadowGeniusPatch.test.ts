@@ -33,27 +33,27 @@ function mkCase(patch: Partial<ShadowCase>): ShadowCase {
 describe('Shadow Learning Genius Patch v1', () => {
   it('SELL_ONLY 상태에서도 Shadow case가 생성된다', () => {
     const ledger = new InMemoryShadowCaseLedger();
-    const c = ledger.upsertCase(mkCase({ caseId: 'sell-only', engineMode: 'SELL_ONLY', executionImpact: 'LIVE' }));
+    const c = ledger.upsertCase(mkCase({ caseId: 'sell-only', engineMode: 'SELL_ONLY', executionImpact: 'LIVE_ORDER_ALLOWED' }));
     expect(c.engineMode).toBe('SELL_ONLY');
     expect(c.executionImpact).toBe('NONE');
   });
 
   it('SHADOW_ONLY 상태에서 executionImpact가 항상 NONE이다', () => {
-    const t = transitionShadowState({ caseId: 'c1', to: 'CANDIDATE_DETECTED', reason: 'test', engineMode: 'SHADOW_ONLY', executionImpact: 'LIVE', dataHealth: 'OK', confidenceLevel: 'CALCULATED' });
+    const t = transitionShadowState({ caseId: 'c1', to: 'CANDIDATE_DETECTED', reason: 'test', engineMode: 'SHADOW_ONLY', executionImpact: 'LIVE_ORDER_ALLOWED', dataHealth: 'OK', confidenceLevel: 'CALCULATED' });
     expect(t.ok).toBe(true);
     expect(t.transition.executionImpact).toBe('NONE');
   });
 
   it('HARD_BLOCK 상태에서 live order가 생성되지 않는 것으로 integrity가 강제 감지한다', () => {
     const ledger = new InMemoryShadowCaseLedger();
-    ledger.upsertCase(mkCase({ caseId: 'hard', engineMode: 'HARD_BLOCK', liveOrderCreated: true }));
+    ledger.upsertCase(mkCase({ caseId: 'hard', engineMode: 'OBSERVE_ONLY', liveOrderCreated: true }));
     const issues = inspectShadowIntegrity(ledger);
     expect(issues.find((i) => i.item === 'live_order_created_in_shadow_mode')?.severity).toBe('CRITICAL');
   });
 
   it('blocked buy가 counterfactual case로 저장된다', () => {
     const ledger = new InMemoryShadowCaseLedger();
-    const c = recordBlockedBuy(ledger, { caseId: 'b1', signalId: 's1', symbol: '000660', symbolName: 'SK하이닉스', engineMode: 'HARD_BLOCK', blockedReason: 'risk', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 120 });
+    const c = recordBlockedBuy(ledger, { caseId: 'b1', signalId: 's1', symbol: '000660', symbolName: 'SK하이닉스', engineMode: 'OBSERVE_ONLY', blockedReason: 'risk', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 120 });
     expect(c.counterfactualRecorded).toBe(true);
     expect(c.executionImpact).toBe('NONE');
   });
@@ -66,7 +66,7 @@ describe('Shadow Learning Genius Patch v1', () => {
 
   it('손절가 도달 blocked case가 AVOIDED_LOSS 또는 GOOD_BLOCK으로 라벨링된다', () => {
     const ledger = new InMemoryShadowCaseLedger();
-    recordBlockedBuy(ledger, { caseId: 'b3', signalId: 's3', symbol: '2', symbolName: 'B', engineMode: 'HARD_BLOCK', blockedReason: 'hard', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 120 });
+    recordBlockedBuy(ledger, { caseId: 'b3', signalId: 's3', symbol: '2', symbolName: 'B', engineMode: 'OBSERVE_ONLY', blockedReason: 'hard', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 120 });
     expect(['AVOIDED_LOSS', 'GOOD_BLOCK']).toContain(resolveBlockedOutcome(ledger, 'b3', [{ day: 1, high: 101, low: 89, close: 91 }]));
   });
 
@@ -78,10 +78,10 @@ describe('Shadow Learning Genius Patch v1', () => {
 
   it('executionImpact가 NONE이 아닌 Shadow case는 CRITICAL로 감지된다', () => {
     const ledger = new InMemoryShadowCaseLedger();
-    ledger.upsertCase(mkCase({ caseId: 'impact', engineMode: 'NORMAL', executionImpact: 'LIVE' }));
-    ledger.updateCase('impact', { engineMode: 'SHADOW_ONLY', executionImpact: 'LIVE' });
+    ledger.upsertCase(mkCase({ caseId: 'impact', engineMode: 'NORMAL', executionImpact: 'LIVE_ORDER_ALLOWED' }));
+    ledger.updateCase('impact', { engineMode: 'SHADOW_ONLY', executionImpact: 'LIVE_ORDER_ALLOWED' });
     expect(ledger.getCase('impact')?.executionImpact).toBe('NONE');
-    const raw = mkCase({ caseId: 'raw', engineMode: 'SHADOW_ONLY', executionImpact: 'LIVE' });
+    const raw = mkCase({ caseId: 'raw', engineMode: 'SHADOW_ONLY', executionImpact: 'LIVE_ORDER_ALLOWED' });
     const hacked = { listCases: () => [raw], getCase: () => raw, upsertCase: (x: ShadowCase) => x, updateCase: () => raw, recordTransition: () => undefined, listTransitions: () => [] };
     expect(inspectShadowIntegrity(hacked).find((i) => i.item === 'executionImpact_not_NONE_in_shadow')?.severity).toBe('CRITICAL');
   });

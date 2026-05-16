@@ -30,7 +30,7 @@ function noRepairMarkers(c: ShadowCase): boolean { return !c.repairRunId && !c.b
 export function isFreshShadowEligible(c: ShadowCase, transitions: ShadowStateTransition[] = [], now: Date = new Date()): boolean {
   return today(c.createdAt, now)
     && noRepairMarkers(c)
-    && ['SHADOW', 'SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode)
+    && ['SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode)
     && (hasState(c, transitions, 'SHADOW_ORDER_CREATED') || hasState(c, transitions, 'SHADOW_PAPER_FILLED'))
     && !c.liveOrderCreated
     && !c.brokerOrderCreated
@@ -67,7 +67,7 @@ function issue(item: string, severity: IntegrityIssue['severity'], rows: ShadowC
 export function inspectFreshShadowIntegrity(ledger: ShadowCaseLedgerStore, now: Date = new Date()): IntegrityIssue[] {
   const cases = ledger.listCases();
   const issues: IntegrityIssue[] = [];
-  const freshish = cases.filter((c) => c.cohortType === 'FRESH_SHADOW' || (today(c.createdAt, now) && noRepairMarkers(c) && ['SHADOW', 'SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode) && c.state !== 'QUARANTINED'));
+  const freshish = cases.filter((c) => c.cohortType === 'FRESH_SHADOW' || (today(c.createdAt, now) && noRepairMarkers(c) && ['SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode) && c.state !== 'QUARANTINED'));
   const has = (c: ShadowCase, s: ShadowLifecycleState) => hasState(c, ledger.listTransitions(c.caseId), s);
   issues.push(issue('approved_without_order', 'WARN', freshish.filter((c) => has(c, 'SHADOW_SIGNAL_APPROVED') && !has(c, 'SHADOW_ORDER_CREATED'))));
   issues.push(issue('order_without_fill', 'WARN', freshish.filter((c) => has(c, 'SHADOW_ORDER_CREATED') && !has(c, 'SHADOW_PAPER_FILLED'))));
@@ -96,7 +96,7 @@ export function collectFreshShadowStatus(ledger: ShadowCaseLedgerStore, now: Dat
   const critical = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.severity === 'CRITICAL');
   const countToday = (s: ShadowLifecycleState) => transitions.filter((t) => t.to === s && today(t.timestamp, now)).length + cases.filter((c) => c.state === s && today(c.updatedAt, now) && !transitions.some((t) => t.caseId === c.caseId && t.to === s)).length;
   return {
-    todayFreshCandidates: cases.filter((c) => today(c.createdAt, now) && noRepairMarkers(c) && ['SHADOW', 'SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode)).length,
+    todayFreshCandidates: cases.filter((c) => today(c.createdAt, now) && noRepairMarkers(c) && ['SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode)).length,
     todayFreshApproved: countToday('SHADOW_SIGNAL_APPROVED'),
     todayShadowOrdersCreated: countToday('SHADOW_ORDER_CREATED'),
     todayPaperFilled: countToday('SHADOW_PAPER_FILLED'),
@@ -154,12 +154,12 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   const missingEntryPrice = scanCandidates.filter((c) => !positive(c.entryPriceVirtual)).length;
   const missingTargetStop = scanCandidates.filter((c) => !positive(c.targetPriceVirtual) || !positive(c.stopPriceVirtual)).length;
   const blockedBySellOnly = scanCandidates.filter((c) => c.engineMode === 'SELL_ONLY' || matchesBlock(c, ['SELL_ONLY'])).length;
-  const blockedByHardBlock = scanCandidates.filter((c) => c.engineMode === 'HARD_BLOCK' || matchesBlock(c, ['HARD_BLOCK', 'R6_DEFENSE', 'RISK_LIMIT'])).length;
+  const blockedByHardBlock = scanCandidates.filter((c) => c.engineMode === 'OBSERVE_ONLY' || matchesBlock(c, ['OBSERVE_ONLY', 'R6_DEFENSE', 'RISK_LIMIT'])).length;
   const blockedByNoSignal = Math.max(0, scanCandidates.length - shadowSignalsToday);
   const cohortAssignmentFailures = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.item === 'fresh_case_missing_cohort').reduce((s, i) => s + i.count, 0);
   let nextAction: FreshShadowInletNextAction = 'FRESH_SHADOW_INLET_ACTIVE';
   if (!marketOpen) nextAction = 'MARKET_CLOSED';
-  else if (blockedByHardBlock > 0 || engineMode === 'HARD_BLOCK') nextAction = 'HARD_BLOCK_ACTIVE';
+  else if (blockedByHardBlock > 0 || engineMode === 'OBSERVE_ONLY') nextAction = 'HARD_BLOCK_ACTIVE';
   else if (sellOnlyActive || blockedBySellOnly > 0) nextAction = 'SELL_ONLY_BLOCKED_FRESH_ENTRY';
   else if (scanCandidates.length === 0) nextAction = 'NO_SCAN_CANDIDATES';
   else if (shadowSignalsToday === 0) nextAction = 'NO_SHADOW_SIGNALS';
