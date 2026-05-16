@@ -223,6 +223,14 @@ describe('counterfactualShadow', () => {
       sourceCandidateId: 'eight-day-case', now, maxHoldingMinutes: 8 * 24 * 60,
       hypotheticalTargetPrice: 106, hypotheticalStopPrice: 97,
     });
+    for (const n of [1, 2]) {
+      recordCounterfactualCase({
+        stockCode: `44444${n}`, stockName: `After14Days${n}`, priceAtSignal: 100,
+        gateScore: 5, regime: 'R2_BULL', conditionKeys: [], skipReason: 'GATE_UNDER',
+        sourceCandidateId: `after14-day-case-${n}`, now, maxHoldingMinutes: 20 * 24 * 60,
+        hypotheticalTargetPrice: 106, hypotheticalStopPrice: 97,
+      });
+    }
     const maturity = collectCounterfactualMaturityStatus(now);
     expect(maturity.nearestMaturityAt).toBe('2026-05-24T00:00:00.000Z');
     expect(maturity.remainingMinutesToNearestMaturity).toBe(8 * 24 * 60);
@@ -230,8 +238,12 @@ describe('counterfactualShadow', () => {
     expect(maturity.maturityTimeBasis).toBe('CALENDAR_MINUTES');
     expect(maturity.maturityBucketBreakdown.dueIn2to3CalendarDays).toBe(0);
     expect(maturity.maturityBucketBreakdown.dueIn8to14CalendarDays).toBe(1);
+    expect(maturity.maturityBucketBreakdown.dueAfter14CalendarDays).toBe(2);
     expect((maturity.maturityBucketBreakdown as Record<string, number>).dueIn2to3Days).toBeUndefined();
-    expect(maturity.maturityBucketTop).toBe('dueIn8to14CalendarDays');
+    expect((maturity as unknown as Record<string, unknown>).maturityBucketTop).toBeUndefined();
+    expect(maturity.nearestMaturityBucket).toBe('dueIn8to14CalendarDays');
+    expect(maturity.largestMaturityBucket).toBe('dueAfter14CalendarDays');
+    expect(maturity.largestMaturityBucketCount).toBe(2);
     expect(maturity.bucketSum).toBe(maturity.pendingOutcomeCount);
     expect(maturity.bucketSumMatchesPending).toBe(true);
     expect(maturity.executionImpact).toBe('NONE');

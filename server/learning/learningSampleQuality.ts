@@ -559,9 +559,9 @@ function maturityBucket(m: ReturnType<typeof counterfactualMaturity>, now: Date)
   if (days <= 14) return 'dueIn8to14CalendarDays';
   return 'dueAfter14CalendarDays';
 }
-function topMaturityBucket(buckets: Record<CounterfactualMaturityBucket, number>): string {
+function largestMaturityBucket(buckets: Record<CounterfactualMaturityBucket, number>): { bucket: string; count: number } {
   const top = Object.entries(buckets).sort((a, b) => b[1] - a[1])[0];
-  return top && top[1] > 0 ? top[0] : 'none';
+  return top && top[1] > 0 ? { bucket: top[0], count: top[1] } : { bucket: 'none', count: 0 };
 }
 function aggregateMaturityStatus(counts: { pendingOutcomeCount: number; maturedNowCount: number; waitingCount: number; overdueCount: number; invalidMaturityCount: number }): string {
   if (counts.pendingOutcomeCount === 0) return 'EMPTY';
@@ -578,17 +578,22 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
   let maturedNowCount = 0, waitingCount = 0, overdueCount = 0, invalidMaturityCount = 0;
   let oldestPendingAgeMinutes = 0;
   let nearestMaturityAt: string | undefined;
+  let nearestMaturityBucket: CounterfactualMaturityBucket | undefined;
   let maxHoldingMinutes = 0;
   for (const e of pending) {
     const m = counterfactualMaturity(e, now);
-    bucketBreakdown[maturityBucket(m, now)]++;
+    const bucket = maturityBucket(m, now);
+    bucketBreakdown[bucket]++;
     oldestPendingAgeMinutes = Math.max(oldestPendingAgeMinutes, m.currentAgeMinutes);
     maxHoldingMinutes = Math.max(maxHoldingMinutes, m.maxHoldingMinutes);
     if (m.maturityStatus === 'MATURED') maturedNowCount++;
     else if (m.maturityStatus === 'OVERDUE') { maturedNowCount++; overdueCount++; }
     else if (m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD') waitingCount++;
     else invalidMaturityCount++;
-    if (m.maturityAt && m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD' && (!nearestMaturityAt || new Date(m.maturityAt).getTime() < new Date(nearestMaturityAt).getTime())) nearestMaturityAt = m.maturityAt;
+    if (m.maturityAt && m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD' && (!nearestMaturityAt || new Date(m.maturityAt).getTime() < new Date(nearestMaturityAt).getTime())) {
+      nearestMaturityAt = m.maturityAt;
+      nearestMaturityBucket = bucket;
+    }
   }
   const nextResolveAt = maturedNowCount > 0 ? now.toISOString() : nearestMaturityAt;
   const scheduler = collectCounterfactualResolverSchedulerStatus(now, { nextResolveAt });
@@ -599,6 +604,7 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
   const remainingTradingDaysToNearestMaturity = remainingTradingDaysTo(nearestMaturityAt, now);
   const bucketSum = Object.values(bucketBreakdown).reduce((a, b) => a + b, 0);
   const maturityStatus = aggregateMaturityStatus({ pendingOutcomeCount: pending.length, maturedNowCount, waitingCount, overdueCount, invalidMaturityCount });
+  const largestBucket = largestMaturityBucket(bucketBreakdown);
   return {
     now: now.toISOString(),
     totalBuiltUnique: all.length,
@@ -609,6 +615,7 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
     overdueCount,
     invalidMaturityCount,
     oldestPendingAgeMinutes,
+    nearestMaturityBucket: nearestMaturityBucket ?? (maturedNowCount > 0 ? 'matured' : 'none'),
     nearestMaturityAt,
     remainingMinutesToNearestMaturity,
     remainingCalendarDaysToNearestMaturity,
@@ -617,7 +624,8 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
     nextResolveAt,
     maxHoldingMinutes,
     maturityBucketBreakdown: bucketBreakdown,
-    maturityBucketTop: topMaturityBucket(bucketBreakdown),
+    largestMaturityBucket: largestBucket.bucket,
+    largestMaturityBucketCount: largestBucket.count,
     bucketSum,
     bucketSumMatchesPending: bucketSum === pending.length,
     resolverSchedulerRegistered: scheduler.resolverSchedulerRegistered,
@@ -810,7 +818,7 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
 export function formatCounterfactualBuild(s: ReturnType<typeof counterfactualBuildDryRun> | ReturnType<typeof counterfactualBuildRun> | ReturnType<typeof collectCounterfactualStatus>, title = 'counterfactual_build'): string { return [`🧪 ${title}`, `status=${s.status} candidateCount=${s.candidateCount} eligibleCount=${s.eligibleCount} buildEventCount=${s.buildEventCount}`, `builtUniqueCount=${s.builtUniqueCount} duplicateSuppressedCount=${s.duplicateSuppressedCount} duplicateSuppressionStatus=${s.duplicateSuppressionStatus}`, `labeledCount=${s.labeledCount} pendingOutcomeCount=${s.pendingOutcomeCount} dataInsufficientCount=${s.dataInsufficientCount} quarantinedCount=${s.quarantinedCount} expiredCount=${s.expiredCount} unresolvedCount=${s.unresolvedCount}`, `countInvariantValid=${s.countInvariantValid} metricWarnings=${JSON.stringify(s.metricWarnings)} metricInfos=${JSON.stringify(s.metricInfos)}`, `blocker=${s.blocker} executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
 export function formatCounterfactualResolve(s: ReturnType<typeof counterfactualResolveDryRun>, title = 'counterfactual_resolve'): string { return [`🧪 ${title}`, `resolverStatus=${s.resolverStatus} scannedBuiltUnique=${s.scannedBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount}`, `resolvableNow=${s.resolvableNow} waitingForHoldingPeriod=${s.waitingForHoldingPeriod} expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending}`, `missingEntryPrice=${s.missingEntryPrice} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice} missingPricePath=${s.missingPricePath} missingCreatedAt=${s.missingCreatedAt}`, `labeled=${s.labeled} stillPending=${s.stillPending} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
 export function formatCounterfactualMaturityStatus(s: ReturnType<typeof collectCounterfactualMaturityStatus>, title = 'counterfactual_maturity_status'): string {
-  return [`🧪 ${title}`, `now=${s.now}`, `totalBuiltUnique=${s.totalBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount} maturityStatus=${s.maturityStatus} maturedNowCount=${s.maturedNowCount}`, `waitingCount=${s.waitingCount} overdueCount=${s.overdueCount} invalidMaturityCount=${s.invalidMaturityCount}`, `oldestPendingAgeMinutes=${s.oldestPendingAgeMinutes} nearestMaturityAt=${s.nearestMaturityAt ?? 'N/A'} remainingMinutesToNearestMaturity=${s.remainingMinutesToNearestMaturity ?? 'N/A'} remainingCalendarDaysToNearestMaturity=${s.remainingCalendarDaysToNearestMaturity ?? 'N/A'} remainingTradingDaysToNearestMaturity=${s.remainingTradingDaysToNearestMaturity ?? 'N/A'} maturityTimeBasis=${s.maturityTimeBasis}`, `nextResolveAt=${s.nextResolveAt ?? 'N/A'} maxHoldingMinutes=${s.maxHoldingMinutes} maturityBucketTop=${s.maturityBucketTop}`, `maturityBucketBreakdown=${JSON.stringify(s.maturityBucketBreakdown)}`, `bucketSum=${s.bucketSum} pendingOutcomeCount=${s.pendingOutcomeCount} bucketSumMatchesPending=${s.bucketSumMatchesPending}`, `resolverSchedulerRegistered=${s.resolverSchedulerRegistered} lastRunAt=${s.lastRunAt ?? 'N/A'} nextRunAt=${s.nextRunAt ?? 'N/A'} lastRunLabeled=${s.lastRunLabeled} lastRunStillPending=${s.lastRunStillPending} schedulerStatus=${s.schedulerStatus}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
+  return [`🧪 ${title}`, `now=${s.now}`, `totalBuiltUnique=${s.totalBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount} maturityStatus=${s.maturityStatus} maturedNowCount=${s.maturedNowCount}`, `waitingCount=${s.waitingCount} overdueCount=${s.overdueCount} invalidMaturityCount=${s.invalidMaturityCount}`, `oldestPendingAgeMinutes=${s.oldestPendingAgeMinutes} nearestMaturityBucket=${s.nearestMaturityBucket} nearestMaturityAt=${s.nearestMaturityAt ?? 'N/A'} remainingMinutesToNearestMaturity=${s.remainingMinutesToNearestMaturity ?? 'N/A'} remainingCalendarDaysToNearestMaturity=${s.remainingCalendarDaysToNearestMaturity ?? 'N/A'} remainingTradingDaysToNearestMaturity=${s.remainingTradingDaysToNearestMaturity ?? 'N/A'} maturityTimeBasis=${s.maturityTimeBasis}`, `nextResolveAt=${s.nextResolveAt ?? 'N/A'} maxHoldingMinutes=${s.maxHoldingMinutes} largestMaturityBucket=${s.largestMaturityBucket} largestMaturityBucketCount=${s.largestMaturityBucketCount}`, `maturityBucketBreakdown=${JSON.stringify(s.maturityBucketBreakdown)}`, `bucketSum=${s.bucketSum} pendingOutcomeCount=${s.pendingOutcomeCount} bucketSumMatchesPending=${s.bucketSumMatchesPending}`, `resolverSchedulerRegistered=${s.resolverSchedulerRegistered} lastRunAt=${s.lastRunAt ?? 'N/A'} nextRunAt=${s.nextRunAt ?? 'N/A'} lastRunLabeled=${s.lastRunLabeled} lastRunStillPending=${s.lastRunStillPending} schedulerStatus=${s.schedulerStatus}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
 }
 export function formatCounterfactualDueResolve(s: ReturnType<typeof counterfactualResolveDueDryRun>, title = 'counterfactual_resolve_due'): string {
   return [`🧪 ${title}`, `scannedPending=${s.scannedPending} maturedNowCount=${s.maturedNowCount} resolvableNow=${s.resolvableNow}`, `expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending} waitingForHoldingPeriod=${s.waitingForHoldingPeriod}`, `missingPricePath=${s.missingPricePath} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined} invalidMaturityCount=${s.invalidMaturityCount}`, `labeled=${s.labeled} stillPending=${s.stillPending}`, `expectedLabelBreakdown=${JSON.stringify(s.expectedLabelBreakdown)}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
