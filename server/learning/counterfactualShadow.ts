@@ -59,7 +59,8 @@ export interface CounterfactualEntry {
   hypotheticalTargetPrice?: number;
   hypotheticalStopPrice?: number;
   maxHoldingMinutes?: number;
-  outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK';
+  pricePath?: Array<{ at?: string; timestamp?: string; price?: number; high?: number; low?: number; close?: number }>;
+  outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'PENDING_OUTCOME';
   outcomeStatus?: 'PENDING' | 'LABELED' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'EXPIRED' | 'UNRESOLVED';
   outcomeResolvedAt?: string;
   duplicateSuppressedAt?: string;

@@ -113,6 +113,85 @@ export function collectFreshShadowStatus(ledger: ShadowCaseLedgerStore, now: Dat
     brokerOrdersCreated: fresh.reduce((s, c) => s + (c.brokerOrdersCreated ?? (c.brokerOrderCreated ? 1 : 0)), 0),
   };
 }
+export type FreshShadowInletNextAction =
+  | 'NO_SCAN_CANDIDATES'
+  | 'NO_SHADOW_SIGNALS'
+  | 'SHADOW_SIGNAL_NOT_APPROVED'
+  | 'SHADOW_EXECUTION_NOT_WIRED'
+  | 'PAPER_FILL_NOT_WIRED'
+  | 'COHORT_ASSIGNMENT_FAILED'
+  | 'METADATA_GUARD_REJECTED'
+  | 'SELL_ONLY_BLOCKED_FRESH_ENTRY'
+  | 'HARD_BLOCK_ACTIVE'
+  | 'MARKET_CLOSED'
+  | 'FRESH_SHADOW_INLET_ACTIVE';
+
+function kstMarketOpen(now: Date): boolean {
+  const kst = new Date(now.getTime() + 9 * 3600000);
+  const day = kst.getUTCDay();
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return day >= 1 && day <= 5 && minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
+}
+function matchesBlock(c: ShadowCase, tokens: string[]): boolean {
+  const text = `${c.engineMode} ${c.blockedReason ?? ''} ${c.marketSession ?? ''}`.toUpperCase();
+  return tokens.some((t) => text.includes(t));
+}
+export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now: Date = new Date(), opts: { marketOpen?: boolean; engineMode?: string; sellOnlyActive?: boolean } = {}) {
+  const cases = ledger.listCases();
+  const transitions = ledger.listTransitions();
+  const casesToday = cases.filter((c) => today(c.createdAt, now));
+  const scanCandidates = casesToday.filter((c) => noRepairMarkers(c));
+  const countToday = (s: ShadowLifecycleState) => transitions.filter((t) => t.to === s && today(t.timestamp, now)).length + cases.filter((c) => c.state === s && today(c.updatedAt, now) && !transitions.some((t) => t.caseId === c.caseId && t.to === s)).length;
+  const marketOpen = opts.marketOpen ?? kstMarketOpen(now);
+  const engineMode = opts.engineMode ?? scanCandidates.at(-1)?.engineMode ?? 'UNKNOWN';
+  const sellOnlyActive = opts.sellOnlyActive ?? (engineMode === 'SELL_ONLY');
+  const shadowSignalsToday = countToday('CANDIDATE_DETECTED') + countToday('SHADOW_SIGNAL_APPROVED');
+  const shadowApprovedToday = countToday('SHADOW_SIGNAL_APPROVED');
+  const shadowOrdersCreatedToday = countToday('SHADOW_ORDER_CREATED');
+  const paperFilledToday = countToday('SHADOW_PAPER_FILLED');
+  const positionsOpenedToday = countToday('SHADOW_POSITION_OPENED');
+  const metadataRejectedToday = scanCandidates.filter((c) => !!freshMetadataProblem(c)).length;
+  const missingEntryPrice = scanCandidates.filter((c) => !positive(c.entryPriceVirtual)).length;
+  const missingTargetStop = scanCandidates.filter((c) => !positive(c.targetPriceVirtual) || !positive(c.stopPriceVirtual)).length;
+  const blockedBySellOnly = scanCandidates.filter((c) => c.engineMode === 'SELL_ONLY' || matchesBlock(c, ['SELL_ONLY'])).length;
+  const blockedByHardBlock = scanCandidates.filter((c) => c.engineMode === 'HARD_BLOCK' || matchesBlock(c, ['HARD_BLOCK', 'R6_DEFENSE', 'RISK_LIMIT'])).length;
+  const blockedByNoSignal = Math.max(0, scanCandidates.length - shadowSignalsToday);
+  const cohortAssignmentFailures = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.item === 'fresh_case_missing_cohort').reduce((s, i) => s + i.count, 0);
+  let nextAction: FreshShadowInletNextAction = 'FRESH_SHADOW_INLET_ACTIVE';
+  if (!marketOpen) nextAction = 'MARKET_CLOSED';
+  else if (blockedByHardBlock > 0 || engineMode === 'HARD_BLOCK') nextAction = 'HARD_BLOCK_ACTIVE';
+  else if (sellOnlyActive || blockedBySellOnly > 0) nextAction = 'SELL_ONLY_BLOCKED_FRESH_ENTRY';
+  else if (scanCandidates.length === 0) nextAction = 'NO_SCAN_CANDIDATES';
+  else if (shadowSignalsToday === 0) nextAction = 'NO_SHADOW_SIGNALS';
+  else if (shadowApprovedToday === 0) nextAction = 'SHADOW_SIGNAL_NOT_APPROVED';
+  else if (shadowOrdersCreatedToday === 0) nextAction = 'SHADOW_EXECUTION_NOT_WIRED';
+  else if (paperFilledToday === 0) nextAction = 'PAPER_FILL_NOT_WIRED';
+  else if (cohortAssignmentFailures > 0) nextAction = 'COHORT_ASSIGNMENT_FAILED';
+  else if (metadataRejectedToday > 0) nextAction = 'METADATA_GUARD_REJECTED';
+  return {
+    marketOpen,
+    engineMode,
+    sellOnlyActive,
+    scanCandidatesToday: scanCandidates.length,
+    shadowSignalsToday,
+    shadowApprovedToday,
+    shadowOrdersCreatedToday,
+    paperFilledToday,
+    positionsOpenedToday,
+    metadataRejectedToday,
+    missingEntryPrice,
+    missingTargetStop,
+    blockedBySellOnly,
+    blockedByHardBlock,
+    blockedByNoSignal,
+    cohortAssignmentFailures,
+    blocker: nextAction,
+    nextAction,
+    executionImpact: 'NONE' as const,
+    brokerOrdersCreated: 0 as const,
+    promotionAllowed: false as const,
+  };
+}
 export function collectFreshShadowLifecycle(ledger: ShadowCaseLedgerStore, limit = 5) {
   return ledger.listCases().filter((c) => c.cohortType === 'FRESH_SHADOW' || isFreshShadowEligible(c, ledger.listTransitions(c.caseId))).slice(-limit).reverse().map((c) => {
     const issues = inspectFreshShadowIntegrity(ledger).filter((i) => i.examples.some((e) => e.startsWith(`${c.caseId}:`)));
@@ -144,6 +223,9 @@ export function collectFreshOnlyPromotion(ledger: ShadowCaseLedgerStore, returnF
 }
 export function formatFreshShadowStatus(s: ReturnType<typeof collectFreshShadowStatus>): string {
   return ['🌱 <b>[Fresh Shadow Status]</b>', ...Object.entries(s).map(([k, v]) => `- ${k}: ${typeof v === 'number' ? Number(v.toFixed(4)) : v}`)].join('\n');
+}
+export function formatFreshShadowInletStatus(s: ReturnType<typeof collectFreshShadowInletStatus>): string {
+  return ['Fresh Shadow Inlet Status', ...Object.entries(s).map(([k, v]) => `- ${k}: ${typeof v === 'number' ? Number(v.toFixed(4)) : v}`)].join('\n');
 }
 export function formatFreshShadowLifecycle(rows: ReturnType<typeof collectFreshShadowLifecycle>): string {
   return ['🌿 <b>[Fresh Shadow Lifecycle]</b>', ...rows.map((r) => `- caseId=${r.caseId} symbol=${r.symbol} createdAt=${r.createdAt} currentState=${r.currentState} cohortType=${r.cohortType} transitions=${r.transitions.join('>')} entryPrice=${r.entryPrice ?? 'N/A'} targetPrice=${r.targetPrice ?? 'N/A'} stopPrice=${r.stopPrice ?? 'N/A'} outcomeLabel=${r.outcomeLabel ?? 'N/A'} executionImpact=${r.executionImpact} integrityStatus=${r.integrityStatus}`)].join('\n');

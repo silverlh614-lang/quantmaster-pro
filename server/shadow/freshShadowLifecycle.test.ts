@@ -2,10 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryShadowCaseLedger } from './shadowCaseLedger.js';
 import { transitionShadowState } from './shadowStateMachine.js';
-import { collectFreshOnlyPromotion, formatFreshShadowLifecycle, formatFreshShadowStatus, inspectFreshShadowIntegrity, collectFreshShadowLifecycle, collectFreshShadowStatus } from './freshShadowLifecycle.js';
+import { collectFreshOnlyPromotion, collectFreshShadowInletStatus, formatFreshShadowLifecycle, formatFreshShadowStatus, inspectFreshShadowIntegrity, collectFreshShadowLifecycle, collectFreshShadowStatus } from './freshShadowLifecycle.js';
 import type { ShadowCase, ShadowLifecycleState } from './shadowTypes.js';
 
-const now = new Date('2026-05-14T03:00:00.000Z');
+const now = new Date();
 function base(id: string, patch: Partial<ShadowCase> = {}): ShadowCase {
   return {
     caseId: id,
@@ -93,6 +93,20 @@ describe('Fresh Shadow Lifecycle Activation Patch v1', () => {
     expect(p.freshExpectancyR).toBe('N/A');
     expect(p.freshExpectancyReason).toBe('NO_FRESH_SAMPLE');
     expect(p.blocker).toBe('NO_FRESH_SAMPLE');
+  });
+
+  it('explains fresh=0 inlet blockers without execution impact', () => {
+    const ledger = new InMemoryShadowCaseLedger();
+    const closed = collectFreshShadowInletStatus(ledger, new Date('2026-05-16T03:00:00.000Z'), { marketOpen: false });
+    expect(closed.nextAction).toBe('MARKET_CLOSED');
+    expect(closed.executionImpact).toBe('NONE');
+    expect(closed.brokerOrdersCreated).toBe(0);
+
+    const active = new InMemoryShadowCaseLedger();
+    active.upsertCase(base('candidate-only'));
+    const inlet = collectFreshShadowInletStatus(active, now, { marketOpen: true });
+    expect(inlet.scanCandidatesToday).toBe(1);
+    expect(inlet.nextAction).toBe('SHADOW_SIGNAL_NOT_APPROVED');
   });
 
   it('formats fresh shadow status and lifecycle command output', () => {

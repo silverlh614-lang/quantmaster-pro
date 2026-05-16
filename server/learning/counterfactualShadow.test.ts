@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'fs';
 import { COUNTERFACTUAL_FILE } from '../persistence/paths.js';
-import { collectCounterfactualStatus, counterfactualResolveRun } from './learningSampleQuality.js';
+import { collectCounterfactualStatus, counterfactualResolveDryRun, counterfactualResolveRun } from './learningSampleQuality.js';
 import {
   recordCounterfactual, resolveCounterfactuals, getCounterfactualStats,
   loadCounterfactuals, recordCounterfactualCase,
@@ -62,6 +62,10 @@ describe('counterfactualShadow', () => {
     expect(status.builtUniqueCount).toBe(1);
     expect(status.duplicateSuppressedCount).toBe(1);
     expect(status.countInvariantValid).toBe(true);
+    expect(status.metricWarnings).not.toContain('BUILT_UNIQUE_GT_CANDIDATE');
+    expect(status.metricWarnings).not.toContain('COUNTERFACTUAL_BUILT_GT_CANDIDATE');
+    expect(status.metricInfos).toContain('COUNTERFACTUAL_DUPLICATE_SUPPRESSED:1');
+    expect(status.duplicateSuppressionStatus).toBe('OK');
     expect(status.executionImpact).toBe('NONE');
     expect(status.brokerOrdersCreated).toBe(0);
     expect(status.promotionAllowed).toBe(false);
@@ -76,11 +80,19 @@ describe('counterfactualShadow', () => {
       hypotheticalTargetPrice: 105_000, hypotheticalStopPrice: 98_000, maxHoldingMinutes: 1,
     });
     const rows = loadCounterfactuals();
-    rows[0].return30d = 3;
+    rows[0].pricePath = [
+      { at: '2026-04-22T00:02:00Z', price: 101_000, high: 101_000, low: 99_500 },
+      { at: '2026-04-22T00:03:00Z', price: 105_500, high: 105_500, low: 100_000 },
+    ];
     fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
+    const dry = counterfactualResolveDryRun(new Date('2026-04-22T00:10:00Z'));
+    expect(dry.scannedBuiltUnique).toBe(1);
+    expect(dry.pendingOutcomeCount).toBe(1);
+    expect(dry.expectedLabelable).toBe(1);
     const resolved = counterfactualResolveRun(new Date('2026-04-22T00:10:00Z'));
     expect(resolved.labelBreakdown.MISSED_WIN).toBe(1);
     expect(resolved.labeled).toBe(1);
+    expect(resolved.stillPending).toBe(0);
     expect(resolved.executionImpact).toBe('NONE');
     expect(resolved.brokerOrdersCreated).toBe(0);
   });
