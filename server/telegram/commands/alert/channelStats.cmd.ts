@@ -34,15 +34,34 @@ const channelStats: TelegramCommand = {
     ];
     const lines = categories.map(category => {
       const bucket = stats[category];
-      return `${category}: sent=${bucket.sent}, skipped=${bucket.skipped}, failed=${bucket.failed}, digested=${bucket.digested}`;
+      return [
+        `${category}:`,
+        `emitted=${bucket.emitted}`,
+        `routed=${bucket.routed}`,
+        `sent=${bucket.sent}`,
+        `buffered=${bucket.buffered}`,
+        `skipped=${bucket.skipped}`,
+        `failed=${bucket.failed}`,
+        `digested=${bucket.digested}`,
+        `cooldownSkipped=${bucket.cooldownSkipped}`,
+        `disabledSkipped=${bucket.disabledSkipped}`,
+        `missingChannelSkipped=${bucket.missingChannelSkipped}`,
+        `directDmBypass=${bucket.directDmBypass}`,
+        `lastEventType=${bucket.lastEventType ?? 'N/A'}`,
+        `lastSentAt=${bucket.lastSentAt ?? 'N/A'}`,
+        `lastSkippedReason=${bucket.lastSkippedReason ?? 'N/A'}`,
+      ].join(' ');
     });
     const totalSent = categories.reduce((sum, c) => sum + stats[c].sent, 0);
     const totalFailed = categories.reduce((sum, c) => sum + stats[c].failed, 0);
+    const totalEmitted = categories.reduce((sum, c) => sum + stats[c].emitted, 0);
+    const totalBuffered = categories.reduce((sum, c) => sum + stats[c].buffered, 0);
 
     await reply(
       `📊 <b>[채널 통계 ${dateKey} KST]</b>\n` +
       `${lines.join('\n')}\n` +
-      `total: sent=${totalSent}, failed=${totalFailed}\n` +
+      `total: emitted=${totalEmitted}, sent=${totalSent}, buffered=${totalBuffered}, failed=${totalFailed}\n` +
+      `healthCheckStatus=separate_command:/channel_health\n` +
       `recent keys: ${recentKeys.length > 0 ? recentKeys.join(', ') : '(none)'}`,
     );
   },

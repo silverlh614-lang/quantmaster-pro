@@ -3,6 +3,7 @@
 import './alertHistory.cmd.js';
 import './alertReplay.cmd.js';
 import './channelActivity.cmd.js';
+import './channelFlushStatus.cmd.js';
 import './channelHealth.cmd.js';
 import './channelRoutes.cmd.js';
 import './channelStats.cmd.js';

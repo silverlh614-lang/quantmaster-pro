@@ -152,10 +152,11 @@ describe('commands/watchlist+positions+alert barrels — Phase B1 auto-register'
     }
   });
 
-  it('all ALR commands resolvable (12 keys = 9 cmd objects + 3 aliases)', () => {
+  it('all ALR commands resolvable (13 keys = 10 cmd objects + 3 aliases)', () => {
     for (const name of [
       '/channel_health',
       '/channel_stats',
+      '/channel_flush_status',
       '/alert_replay',
       '/alert_history',
       '/channel_test',

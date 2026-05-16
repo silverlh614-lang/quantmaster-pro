@@ -39,6 +39,7 @@ const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
   'investor_flow_warmup_open',
   'investor_flow_warmup_lunch',
   'investor_flow_warmup_preclose',
+  'system_daily_flush',
 ];
 
 export function startScheduler(): void {

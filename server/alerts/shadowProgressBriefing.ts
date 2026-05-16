@@ -13,7 +13,7 @@
 
 import { loadShadowTrades, aggregateFillStats, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
-import { sendTelegramAlert } from './telegramClient.js';
+import { emitTelegramEvent } from './telegramEventRouter.js';
 import type { DisplayMetric } from './displayMetric.js';
 
 // ── 설정 ──────────────────────────────────────────────────────────────────────
@@ -221,9 +221,12 @@ export function formatShadowProgress(p: ShadowProgress): string {
 export async function sendDailyShadowProgress(): Promise<void> {
   const progress = computeShadowProgress();
   const message = formatShadowProgress(progress);
-  await sendTelegramAlert(message, {
-    priority: 'NORMAL',
+  await emitTelegramEvent({
+    type: 'SHADOW_SUMMARY',
+    message,
+    severity: 'NORMAL',
     dedupeKey: `shadow-progress-${kstDateStr()}`,
+    metadata: { scope: 'daily_shadow_progress' },
   }).catch(console.error);
 }
 
@@ -280,8 +283,9 @@ export function detectSampleStall(now: Date = new Date()): SampleStallResult {
 export async function sendSampleStallAlertIfNeeded(): Promise<boolean> {
   const r = detectSampleStall();
   if (!r.stalled) return false;
-  await sendTelegramAlert(
-    [
+  await emitTelegramEvent({
+    type: 'SHADOW_SUMMARY',
+    message: [
       `⚠️ <b>[Sample Stall]</b> ${r.reason}`,
       `현재 속도: ${r.currentVelocity.toFixed(2)}건/일 (목표 ${r.targetVelocity.toFixed(2)}건/일)`,
       ``,
@@ -291,12 +295,11 @@ export async function sendSampleStallAlertIfNeeded(): Promise<boolean> {
       `· Gemini API 레이트리밋 (비정상 → getRateLimiterStats)`,
       `· KIS 토큰 만료 후 재발급 실패 (비정상 → invalidateKisToken)`,
     ].join('\n'),
-    {
-      priority: 'HIGH',
-      dedupeKey: 'sample-stall',
-      cooldownMs: 24 * 60 * 60 * 1000,  // 1일 쿨다운 (중복 스팸 방지)
-    },
-  ).catch(console.error);
+    severity: 'HIGH',
+    dedupeKey: 'sample-stall',
+    cooldownMs: 24 * 60 * 60 * 1000,  // 1일 쿨다운 (중복 스팸 방지)
+    metadata: { scope: 'sample_stall' },
+  }).catch(console.error);
   return true;
 }
 

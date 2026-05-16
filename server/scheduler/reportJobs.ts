@@ -39,7 +39,7 @@ import { withForcedMarket } from '../utils/forceMarketGuard.js';
 import { runHourlyCanary } from '../learning/mutationCanary.js';
 import { beginUnifiedBriefing, endUnifiedBriefing } from '../alerts/unifiedBriefing.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { flushInfoDailyDigest, flushSystemWeeklySummary } from '../alerts/alertRouter.js';
+import { flushInfoDailyDigest, flushSystemDailyDigest, flushSystemWeeklySummary } from '../alerts/alertRouter.js';
 
 /** 통합 브리핑 래퍼 — 내부 report 함수 호출을 캡처해 단일 composite로 발송. */
 async function runUnifiedBriefing(
@@ -161,6 +161,10 @@ export function registerReportJobs(): void {
 
   // Mutation Canary: 매시간 정각.
   // PR-B-2: ALWAYS_ON — 판단 로직 변경 감시는 24/7.
+  // CH4 JOURNAL daily flush for callers that explicitly request daily_digest.
+  scheduledJob('10 7 * * 1-5', 'TRADING_DAY_ONLY', 'system_daily_flush',
+    () => flushSystemDailyDigest(), { timezone: 'UTC' });
+
   scheduledJob('0 * * * *', 'ALWAYS_ON', 'hourly_canary',
     () => runHourlyCanary(), { timezone: 'UTC' });
 }

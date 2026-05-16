@@ -11,7 +11,11 @@ export type { ChannelSemanticName } from './alertCategories.js';
 const fallbackWarned = new Set<string>();
 const categoryCooldown = new Map<string, number>();
 const infoDailyDigestBuffer: Array<{ at: string; message: string; priority: DispatchPriority }> = [];
+const systemDailyBuffer: Array<{ at: string; message: string; priority: DispatchPriority }> = [];
 const systemWeeklyBuffer: Array<{ at: string; message: string; priority: DispatchPriority }> = [];
+let lastInfoFlushAt: string | undefined;
+let lastSystemDailyFlushAt: string | undefined;
+let lastSystemWeeklyFlushAt: string | undefined;
 
 function warnOnce(key: string, message: string): void {
   if (fallbackWarned.has(key)) return;
@@ -80,6 +84,7 @@ export interface DispatchAlertOptions {
   /** AlertSeverity 별칭 — priority 와 동일 의미. 명시 시 priority 보다 우선. */
   severity?: AlertSeverity;
   dedupeKey?: string;
+  eventType?: string;
   cooldownMs?: number;
   delivery?: 'immediate' | 'daily_digest' | 'weekly_digest';
 }
@@ -169,6 +174,49 @@ function kstDateKey(iso: string): string {
   return new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 }
 
+function nextKstTimeIso(hour: number, minute: number): string {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 3_600_000);
+  const candidateKstMs = Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate(),
+    hour,
+    minute,
+    0,
+    0,
+  );
+  const candidateUtcMs = candidateKstMs - 9 * 3_600_000;
+  const adjustedUtcMs = candidateUtcMs >= now.getTime()
+    ? candidateUtcMs
+    : candidateUtcMs + 24 * 3_600_000;
+  return new Date(adjustedUtcMs).toISOString();
+}
+
+export interface ChannelFlushStatus {
+  infoDailyDigestBufferLength: number;
+  systemDailyBufferLength: number;
+  systemWeeklyBufferLength: number;
+  lastInfoFlushAt?: string;
+  lastSystemDailyFlushAt?: string;
+  lastSystemWeeklyFlushAt?: string;
+  nextScheduledFlushAt: string;
+  flushJobEnabled: boolean;
+}
+
+export function getChannelFlushStatus(): ChannelFlushStatus {
+  return {
+    infoDailyDigestBufferLength: infoDailyDigestBuffer.length,
+    systemDailyBufferLength: systemDailyBuffer.length,
+    systemWeeklyBufferLength: systemWeeklyBuffer.length,
+    lastInfoFlushAt,
+    lastSystemDailyFlushAt,
+    lastSystemWeeklyFlushAt,
+    nextScheduledFlushAt: nextKstTimeIso(16, 10),
+    flushJobEnabled: true,
+  };
+}
+
 export async function flushInfoDailyDigest(): Promise<void> {
   if (infoDailyDigestBuffer.length === 0) return;
   const channelMap = resolveCategoryChannelMap();
@@ -186,7 +234,8 @@ export async function flushInfoDailyDigest(): Promise<void> {
     `count: ${sorted.length}`;
   const msgId = await sendChannelAlertTo(channelId, message, { disableNotification: true });
   if (msgId !== undefined) {
-    incrementChannelStat(AlertCategory.INFO, 'sent');
+    lastInfoFlushAt = new Date().toISOString();
+    incrementChannelStat(AlertCategory.INFO, 'sent', { eventType: 'INFO_DAILY_DIGEST_FLUSH' });
     appendAlertHistory({
       category: AlertCategory.INFO,
       priority: 'LOW',
@@ -197,9 +246,51 @@ export async function flushInfoDailyDigest(): Promise<void> {
       messageId: msgId,
     });
   } else {
-    incrementChannelStat(AlertCategory.INFO, 'failed');
+    incrementChannelStat(AlertCategory.INFO, 'failed', { eventType: 'INFO_DAILY_DIGEST_FLUSH' });
     appendAlertHistory({
       category: AlertCategory.INFO,
+      priority: 'LOW',
+      message,
+      delivery: 'daily_digest',
+      success: false,
+      channelId,
+      error: 'send failed',
+    });
+  }
+}
+
+export async function flushSystemDailyDigest(): Promise<void> {
+  if (systemDailyBuffer.length === 0) return;
+  const channelMap = resolveCategoryChannelMap();
+  const channelId = channelMap[AlertCategory.SYSTEM];
+  if (!channelId) return;
+
+  const sorted = systemDailyBuffer.splice(0).sort((a, b) => a.at.localeCompare(b.at));
+  const date = kstDateKey(sorted[0].at);
+  const lines = sorted.slice(-40).map(item => `- ${toDigestLine(item.message)}`);
+  const message =
+    `* <b>[SYSTEM] Daily Journal ${date} KST</b>\n` +
+    `--------------------\n` +
+    `${lines.join('\n')}\n` +
+    `--------------------\n` +
+    `count: ${sorted.length}`;
+  const msgId = await sendChannelAlertTo(channelId, message, { disableNotification: true });
+  if (msgId !== undefined) {
+    lastSystemDailyFlushAt = new Date().toISOString();
+    incrementChannelStat(AlertCategory.SYSTEM, 'sent', { eventType: 'SYSTEM_DAILY_DIGEST_FLUSH' });
+    appendAlertHistory({
+      category: AlertCategory.SYSTEM,
+      priority: 'LOW',
+      message,
+      delivery: 'daily_digest',
+      success: true,
+      channelId,
+      messageId: msgId,
+    });
+  } else {
+    incrementChannelStat(AlertCategory.SYSTEM, 'failed', { eventType: 'SYSTEM_DAILY_DIGEST_FLUSH' });
+    appendAlertHistory({
+      category: AlertCategory.SYSTEM,
       priority: 'LOW',
       message,
       delivery: 'daily_digest',
@@ -228,7 +319,8 @@ export async function flushSystemWeeklySummary(): Promise<void> {
     `count: ${sorted.length}`;
   const msgId = await sendChannelAlertTo(channelId, message, { disableNotification: true });
   if (msgId !== undefined) {
-    incrementChannelStat(AlertCategory.SYSTEM, 'sent');
+    lastSystemWeeklyFlushAt = new Date().toISOString();
+    incrementChannelStat(AlertCategory.SYSTEM, 'sent', { eventType: 'SYSTEM_WEEKLY_DIGEST_FLUSH' });
     appendAlertHistory({
       category: AlertCategory.SYSTEM,
       priority: 'LOW',
@@ -239,7 +331,7 @@ export async function flushSystemWeeklySummary(): Promise<void> {
       messageId: msgId,
     });
   } else {
-    incrementChannelStat(AlertCategory.SYSTEM, 'failed');
+    incrementChannelStat(AlertCategory.SYSTEM, 'failed', { eventType: 'SYSTEM_WEEKLY_DIGEST_FLUSH' });
     appendAlertHistory({
       category: AlertCategory.SYSTEM,
       priority: 'LOW',
@@ -297,11 +389,21 @@ export async function dispatchAlert(
   message: string,
   options?: DispatchAlertOptions,
 ): Promise<number | undefined> {
+  const priority = resolvePriority(category, options);
+  const statEventType = options?.eventType ?? options?.dedupeKey;
+  incrementChannelStat(category, 'emitted', { eventType: statEventType });
   if (!isCategoryEnabled(category)) {
-    incrementChannelStat(category, 'skipped');
+    incrementChannelStat(category, 'disabledSkipped', {
+      eventType: statEventType,
+      skippedReason: 'category disabled',
+    });
+    incrementChannelStat(category, 'skipped', {
+      eventType: statEventType,
+      skippedReason: 'category disabled',
+    });
     appendAlertHistory({
       category,
-      priority: resolvePriority(category, options),
+      priority,
       message,
       delivery: 'skipped',
       success: false,
@@ -309,11 +411,12 @@ export async function dispatchAlert(
     });
     return;
   }
-  const priority = resolvePriority(category, options);
+  incrementChannelStat(category, 'routed', { eventType: statEventType });
 
-  if (category === AlertCategory.SYSTEM && priority !== 'CRITICAL') {
-    systemWeeklyBuffer.push({ at: new Date().toISOString(), message, priority });
-    incrementChannelStat(category, 'digested');
+  if (category === AlertCategory.SYSTEM && options?.delivery === 'daily_digest') {
+    systemDailyBuffer.push({ at: new Date().toISOString(), message, priority });
+    incrementChannelStat(category, 'buffered', { eventType: statEventType });
+    incrementChannelStat(category, 'digested', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
@@ -326,7 +429,8 @@ export async function dispatchAlert(
 
   if (options?.delivery === 'weekly_digest') {
     systemWeeklyBuffer.push({ at: new Date().toISOString(), message, priority });
-    incrementChannelStat(AlertCategory.SYSTEM, 'digested');
+    incrementChannelStat(AlertCategory.SYSTEM, 'buffered', { eventType: statEventType });
+    incrementChannelStat(AlertCategory.SYSTEM, 'digested', { eventType: statEventType });
     appendAlertHistory({
       category: AlertCategory.SYSTEM,
       priority,
@@ -339,7 +443,8 @@ export async function dispatchAlert(
 
   if (category === AlertCategory.INFO && options?.delivery === 'daily_digest') {
     infoDailyDigestBuffer.push({ at: new Date().toISOString(), message, priority });
-    incrementChannelStat(category, 'digested');
+    incrementChannelStat(category, 'buffered', { eventType: statEventType });
+    incrementChannelStat(category, 'digested', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
@@ -351,7 +456,14 @@ export async function dispatchAlert(
   }
 
   if (!shouldSendByCooldown(category, priority, options)) {
-    incrementChannelStat(category, 'skipped');
+    incrementChannelStat(category, 'cooldownSkipped', {
+      eventType: statEventType,
+      skippedReason: 'cooldown',
+    });
+    incrementChannelStat(category, 'skipped', {
+      eventType: statEventType,
+      skippedReason: 'cooldown',
+    });
     appendAlertHistory({
       category,
       priority,
@@ -370,7 +482,14 @@ export async function dispatchAlert(
       `missing_channel_${category}`,
       `[AlertRouter] ${category} channel is not configured; skipping send.`,
     );
-    incrementChannelStat(category, 'failed');
+    incrementChannelStat(category, 'missingChannelSkipped', {
+      eventType: statEventType,
+      skippedReason: 'channel_id missing',
+    });
+    incrementChannelStat(category, 'skipped', {
+      eventType: statEventType,
+      skippedReason: 'channel_id missing',
+    });
     appendAlertHistory({
       category,
       priority,
@@ -385,7 +504,7 @@ export async function dispatchAlert(
   const disableNotification = resolveVibrationDecision(category, priority, options?.disableNotification);
   const msgId = await sendChannelAlertTo(channelId, message, { disableNotification });
   if (msgId !== undefined) {
-    incrementChannelStat(category, 'sent');
+    incrementChannelStat(category, 'sent', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
@@ -396,7 +515,7 @@ export async function dispatchAlert(
       messageId: msgId,
     });
   } else {
-    incrementChannelStat(category, 'failed');
+    incrementChannelStat(category, 'failed', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,

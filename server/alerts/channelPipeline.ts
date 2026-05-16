@@ -16,12 +16,12 @@
 
 import { escapeHtml } from './telegramClient.js';
 import { dispatchAlert } from './alertRouter.js';
-import { AlertCategory, ChannelSemantic } from './alertCategories.js';
+import { AlertCategory, ChannelSemantic, isCategoryEnabled } from './alertCategories.js';
 import { formatAlert } from './formatAlert.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 
-function isChannelEnabled(): boolean {
-  return process.env.CHANNEL_ENABLED === 'true';
+function isSemanticEnabled(category: AlertCategory): boolean {
+  return isCategoryEnabled(category);
 }
 
 // ── 1. 매수 신호 ─────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ export interface ChannelBuySignalParams {
 }
 
 export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
 
   const modeLabel  = p.mode === 'LIVE' ? 'LIVE 매수 신호' : '[SHADOW] 매수 신호';
   const signalEmoji = p.signalType === 'STRONG_BUY' ? '🔥' : '✅';
@@ -62,7 +62,7 @@ export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promis
     headerEmoji: '🧪',
     bodyLines,
   });
-  await dispatchAlert(AlertCategory.ANALYSIS, message).catch(console.error);
+  await dispatchAlert(ChannelSemantic.SIGNAL, message).catch(console.error);
 }
 
 export async function channelBuyFilled(params: {
@@ -72,7 +72,7 @@ export async function channelBuyFilled(params: {
   quantity: number;
   orderNo: string;
 }): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.EXECUTION)) return;
   const message = formatAlert({
     category: AlertCategory.TRADE,
     eventType: `체결 ${params.stockName} (${params.stockCode})`,
@@ -82,7 +82,7 @@ export async function channelBuyFilled(params: {
       `🧾 주문번호: ${escapeHtml(params.orderNo)}`,
     ],
   });
-  await dispatchAlert(AlertCategory.TRADE, message).catch(console.error);
+  await dispatchAlert(ChannelSemantic.EXECUTION, message).catch(console.error);
 }
 
 export async function channelBuySignal(p: ChannelBuySignalParams): Promise<void> {
@@ -103,7 +103,7 @@ export interface ChannelShadowBuyFilledParams {
 }
 
 export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
     eventType: `[Shadow 체결] ${p.stockName} (${p.stockCode})`,
@@ -115,7 +115,7 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
       `📌 lifecycle: PENDING → ACTIVE (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
     ],
   });
-  await dispatchAlert(AlertCategory.ANALYSIS, message).catch(console.error);
+  await dispatchAlert(ChannelSemantic.SIGNAL, message).catch(console.error);
 }
 
 // ── 2. 매도/청산 신호 ────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ export interface ChannelSellSignalParams {
 }
 
 export async function channelSellSignal(p: ChannelSellSignalParams): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.EXECUTION)) return;
 
   const isProfit = p.pnlPct >= 0;
   const profitEmoji = isProfit
@@ -208,7 +208,7 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
     lines.push(`🔸 잔여 보유: ${remaining}주`);
   }
 
-  await dispatchAlert(AlertCategory.TRADE, lines.join('\n')).catch(console.error);
+  await dispatchAlert(ChannelSemantic.EXECUTION, lines.join('\n')).catch(console.error);
 }
 
 // ── 3. 장 전 시장 브리핑 ─────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ export interface ChannelMarketBriefingParams {
 }
 
 export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.REGIME)) return;
 
   const regimeEmoji: Record<string, string> = {
     R1_TURBO: '🚀', R2_BULL: '📈', R3_EARLY: '🌱',
@@ -254,7 +254,7 @@ export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Pro
     p.aiSummary ? `\n💬 ${escapeHtml(p.aiSummary)}` : '',
   ].filter(Boolean).join('\n');
 
-  await dispatchAlert(AlertCategory.INFO, lines).catch(console.error);
+  await dispatchAlert(ChannelSemantic.REGIME, lines).catch(console.error);
 }
 
 // ── 4. 레짐 변화 경보 ────────────────────────────────────────────────────────
@@ -265,7 +265,7 @@ export async function channelRegimeChange(
   mhs: number,
   reason: string,
 ): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.REGIME)) return;
 
   const arrows: Record<string, string> = {
     R1_TURBO: '🚀', R2_BULL: '📈', R3_EARLY: '🌱',
@@ -278,7 +278,7 @@ export async function channelRegimeChange(
     `${arrows[prevRegime] ?? '?'} ${escapeHtml(prevRegime)} → ${arrows[newRegime] ?? '?'} <b>${escapeHtml(newRegime)}</b>\n` +
     `MHS: ${mhs.toFixed(0)} | ${escapeHtml(reason)}`;
 
-  await dispatchAlert(AlertCategory.INFO, msg).catch(console.error);
+  await dispatchAlert(ChannelSemantic.REGIME, msg).catch(console.error);
 }
 
 // ── 5. 워치리스트 추가 요약 ──────────────────────────────────────────────────
@@ -300,7 +300,7 @@ export async function channelWatchlistAdded(
   stocks: ChannelWatchlistStock[],
   regime: string,
 ): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
   if (stocks.length === 0) return;
 
   // Track B(고신뢰)만 채널 공유 — Track A(후보군)는 노이즈
@@ -328,7 +328,7 @@ export async function channelWatchlistAdded(
     `━━━━━━━━━━━━━━━━\n` +
     `🗺️ 레짐: ${regime}`;
 
-  await dispatchAlert(AlertCategory.ANALYSIS, msg, { disableNotification: true }).catch(console.error);
+  await dispatchAlert(ChannelSemantic.SIGNAL, msg, { disableNotification: true }).catch(console.error);
 }
 
 // ── 5-1. 워치리스트 제거 알림 ───────────────────────────────────────────────
@@ -337,14 +337,14 @@ export async function channelWatchlistRemoved(
   stock: { name: string; code: string },
   remainingCount: number,
 ): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
 
   const msg =
     `🗑️ <b>[워치리스트 제거] ${escapeHtml(stock.name)} (${escapeHtml(stock.code)})</b>\n` +
     `━━━━━━━━━━━━━━━━\n` +
     `📋 잔여 워치리스트: ${remainingCount}개`;
 
-  await dispatchAlert(AlertCategory.ANALYSIS, msg, { disableNotification: true }).catch(console.error);
+  await dispatchAlert(ChannelSemantic.SIGNAL, msg, { disableNotification: true }).catch(console.error);
 }
 
 // ── 5-2. 워치리스트 전체 현황 채널 발송 ─────────────────────────────────────
@@ -352,7 +352,7 @@ export async function channelWatchlistRemoved(
 export async function channelWatchlistSummary(
   watchlist: WatchlistEntry[],
 ): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
   if (watchlist.length === 0) return;
 
   const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -419,16 +419,16 @@ export async function channelWatchlistSummary(
   parts.push('━━━━━━━━━━━━━━━━');
   parts.push('⭐=SWING매수대상 👤=수동 📢=CATALYST 🤖=MOMENTUM');
 
-  await dispatchAlert(AlertCategory.ANALYSIS, parts.join('\n'), { disableNotification: true }).catch(console.error);
+  await dispatchAlert(ChannelSemantic.SIGNAL, parts.join('\n'), { disableNotification: true }).catch(console.error);
 }
 
 // ── 6. 글로벌 스캔 핵심 요약 ─────────────────────────────────────────────────
 
 export async function channelGlobalScan(summary: string): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.REGIME)) return;
 
   const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━\n${escapeHtml(summary)}`;
-  await dispatchAlert(AlertCategory.INFO, msg, {
+  await dispatchAlert(ChannelSemantic.REGIME, msg, {
     disableNotification: true,
     delivery: 'daily_digest',
   }).catch(console.error);
@@ -447,7 +447,7 @@ export interface ChannelPerformanceParams {
 }
 
 export async function channelPerformance(p: ChannelPerformanceParams): Promise<void> {
-  if (!isChannelEnabled()) return;
+  if (!isSemanticEnabled(ChannelSemantic.JOURNAL)) return;
 
   const winRate = p.totalTrades > 0
     ? ((p.winCount / p.totalTrades) * 100).toFixed(0)
