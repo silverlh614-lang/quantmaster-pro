@@ -22,6 +22,7 @@ import {
 } from '../../persistence/shadowTradeRepo.js';
 import type { IncidentEntry } from '../../persistence/incidentLogRepo.js';
 import type { ServerAttributionRecord } from '../../persistence/attributionRepo.js';
+import { classifyTradeLifecycleOutcome, formatTradeLifecycleOutcome } from '../../trading/exitOutcomeClassifier.js';
 
 /**
  * ADR-0130 PR-Fix-1: 직전 N일 reflection 누적 컨텍스트 — Gemini 가 매일 백지 상태에서
@@ -127,8 +128,10 @@ export function formatNarrativeInput(inputs: MainReflectionInputs): string {
       weightedNum += (f.pnlPct ?? 0) * f.qty;
       weightedDen += f.qty;
     }
-    const line = `- [${t.status === 'HIT_TARGET' ? '전량익절' : '전량손절'}:${t.id}] ${t.stockName}(${t.stockCode}) ${pct.toFixed(2)}% ${Math.round(sumPnl).toLocaleString()}원 rule=${t.exitRuleTag ?? 'N/A'}`;
-    if (t.status === 'HIT_TARGET') closedWins.push(line);
+    const lifecycle = classifyTradeLifecycleOutcome(t);
+    const outcomeLabel = formatTradeLifecycleOutcome(lifecycle.tradeLifecycleOutcome).replace(/\s/g, '');
+    const line = `- [${outcomeLabel}:${t.id}] ${t.stockName}(${t.stockCode}) ${pct.toFixed(2)}% ${Math.round(sumPnl).toLocaleString()}원 rule=${t.exitRuleTag ?? 'N/A'} lifecycle=${lifecycle.tradeLifecycleOutcome}`;
+    if (lifecycle.positionWin || lifecycle.tradeLifecycleOutcome === 'BREAKEVEN') closedWins.push(line);
     else closedLosses.push(line);
   }
 

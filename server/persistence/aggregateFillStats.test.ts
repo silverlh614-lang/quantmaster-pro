@@ -257,7 +257,7 @@ describe('aggregateFillStats — ADR-0112 BE 3-way 분류', () => {
     expect(agg.lossFills).toBe(0);
   });
 
-  it('+0.7% (보수적 fallback) → LOSS', () => {
+  it('+0.7% (small positive fallback) is BE, not LOSS', () => {
     const trades = [
       trade({
         id: 'mid',
@@ -268,9 +268,9 @@ describe('aggregateFillStats — ADR-0112 BE 3-way 분류', () => {
       }),
     ];
     const agg = aggregateFillStats(trades);
-    expect(agg.lossFills).toBe(1);
+    expect(agg.lossFills).toBe(0);
     expect(agg.winFills).toBe(0);
-    expect(agg.beFills).toBe(0);
+    expect(agg.beFills).toBe(1);
   });
 
   it('ENV BE_CLASSIFICATION_DISABLED=true → 기존 동작 (beFills=0)', () => {

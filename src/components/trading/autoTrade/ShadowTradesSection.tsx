@@ -8,6 +8,7 @@ import type { ServerShadowTrade } from '../../../api';
 import {
   getWeightedPnlPct, getTotalRealizedPnl, getSellFills,
   getRemainingQty, isPartialPosition, fmtFillTime, fillLabel,
+  classifyUiTradeLifecycleOutcome, tradeLifecycleLabel,
 } from './shadowTradeFills';
 import { EXIT_RULE_SHORT, SUBTYPE_SHORT } from './constants';
 
@@ -231,7 +232,10 @@ function ClosedTab({
           ? sellFills.reduce((s, f) => s + (f.pnlPct ?? 0) * (f.qty ?? 0), 0) / totalSoldQty
           : (t.returnPct ?? 0);
         // 색상 규칙: 실현 PnL 합계 기준 (강제손절 태그가 아니라 총합이 판정)
-        const isWin = sellFills.length > 0 ? realizedPnl > 0 : weightedPnl > 0;
+        const lifecycleOutcome = classifyUiTradeLifecycleOutcome(t);
+        const lifecycleLabel = tradeLifecycleLabel(lifecycleOutcome);
+        const isWin = ['FULL_WIN', 'PARTIAL_WIN', 'WIN_BREAKEVEN', 'SMALL_WIN'].includes(lifecycleOutcome);
+        const isBreakeven = lifecycleOutcome === 'BREAKEVEN';
         const isExpanded = expanded.has(key);
 
         // 청산 구성 — 익절(TP)/손절(SL) 수량 분리
@@ -246,7 +250,7 @@ function ClosedTab({
 
         // 계층화된 태그 요약 — Primary + Subs
         const tagSummary = (() => {
-          const primary = getRemainingQty(t) === 0 ? '전량 청산' : '부분 청산';
+          const primary = getRemainingQty(t) === 0 ? lifecycleLabel : '부분 청산';
           const subSet = new Set<string>();
           for (const f of sellFills) {
             if (f.exitRuleTag) subSet.add(EXIT_RULE_SHORT[f.exitRuleTag] ?? f.exitRuleTag);
@@ -262,7 +266,11 @@ function ClosedTab({
             padding="sm"
             className={cn(
               'text-sm opacity-90 cursor-pointer hover:opacity-100 transition-opacity',
-              isWin ? '!border-green-500/15 !bg-green-500/[0.03]' : '!border-red-500/15 !bg-red-500/[0.03]'
+              isWin
+                ? '!border-green-500/15 !bg-green-500/[0.03]'
+                : isBreakeven
+                  ? '!border-slate-500/15 !bg-slate-500/[0.03]'
+                  : '!border-red-500/15 !bg-red-500/[0.03]'
             )}
             onClick={() => onOpenAudit(t)}
           >
@@ -276,20 +284,24 @@ function ClosedTab({
                     'text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 border',
                     isWin
                       ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                      : 'bg-red-500/10 text-red-400 border-red-500/20'
+                      : isBreakeven
+                        ? 'bg-slate-500/10 text-slate-300 border-slate-500/20'
+                        : 'bg-red-500/10 text-red-400 border-red-500/20'
                   )}>
                     {tagSummary.label}
                   </span>
                 )}
                 {exitComp.tp > 0 && exitComp.sl > 0 && (
                   <span className="text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 border bg-slate-700/40 text-slate-300 border-slate-600/30">
-                    익절 {exitComp.tp}주 + 손절 {exitComp.sl}주
+                    {lifecycleOutcome === 'WIN_BREAKEVEN'
+                      ? `익절 ${exitComp.tp}주 + 본절 ${exitComp.sl}주`
+                      : `익절 ${exitComp.tp}주 + 손절 ${exitComp.sl}주`}
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <div className="text-right">
-                  <p className={cn('font-black font-num text-sm', isWin ? 'text-green-400' : 'text-red-400')}>
+                  <p className={cn('font-black font-num text-sm', isWin ? 'text-green-400' : isBreakeven ? 'text-slate-300' : 'text-red-400')}>
                     {weightedPnl >= 0 ? '+' : ''}{weightedPnl.toFixed(2)}%
                   </p>
                   {realizedPnl !== 0 && (
@@ -319,7 +331,9 @@ function ClosedTab({
             {isExpanded && sellFills.length > 0 && (
               <div className="mt-2 pt-2 space-y-1.5 border-t border-theme-border/20">
                 {sellFills.map((f, fi) => {
-                  const isLoss = (f.pnlPct ?? 0) < 0;
+                  const finalBreakevenFill = lifecycleOutcome === 'WIN_BREAKEVEN' && fi === sellFills.length - 1;
+                  const isLoss = !finalBreakevenFill && (f.pnlPct ?? 0) < 0;
+                  const fillDisplayLabel = finalBreakevenFill ? '본절' : fillLabel(f);
                   const cumPnl = sellFills.slice(0, fi + 1).reduce((s, f2) => s + (f2.pnl ?? 0), 0);
                   return (
                     <div key={f.id ?? fi} className="flex items-center gap-2 text-[11px]">
@@ -328,8 +342,8 @@ function ClosedTab({
                         {f.subType === 'STOP_LOSS' || f.subType === 'EMERGENCY' ? '🔴' : '🟢'}
                       </span>
                       <span className={cn('text-[9px] font-bold px-1 py-0.5 rounded shrink-0',
-                        isLoss ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'
-                      )}>{fillLabel(f)}</span>
+                        isLoss ? 'bg-red-500/20 text-red-400' : finalBreakevenFill ? 'bg-slate-500/20 text-slate-300' : 'bg-green-500/20 text-green-400'
+                      )}>{fillDisplayLabel}</span>
                       <span className="text-theme-text-muted">{f.qty}주 @{f.price?.toLocaleString()}</span>
                       <span className={cn('font-bold font-num ml-auto shrink-0', isLoss ? 'text-red-400' : 'text-green-400')}>
                         {(f.pnlPct ?? 0) >= 0 ? '+' : ''}{(f.pnlPct ?? 0).toFixed(2)}%
@@ -350,7 +364,7 @@ function ClosedTab({
               const winQty = sellFills.filter((f) => (f.pnlPct ?? 0) >= 0).reduce((s, f) => s + (f.qty ?? 0), 0);
               const lossQty = sellFills.filter((f) => (f.pnlPct ?? 0) < 0).reduce((s, f) => s + (f.qty ?? 0), 0);
               const summaryLabel = winQty > 0 && lossQty > 0
-                ? `익절 ${winQty}주 + 손절 ${lossQty}주`
+                ? (lifecycleOutcome === 'WIN_BREAKEVEN' ? `익절 ${winQty}주 + 본절 ${lossQty}주` : `익절 ${winQty}주 + 손절 ${lossQty}주`)
                 : winQty > 0 ? `익절 ${winQty}주` : `손절 ${lossQty}주`;
               return (
                 <div className="mt-2 pt-2 border-t border-slate-700/30 flex justify-between text-[11px]">

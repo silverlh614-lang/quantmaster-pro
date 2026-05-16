@@ -79,6 +79,7 @@ import { getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { isKstWeekend } from '../utils/marketClock.js';
 import { recordReflectionImpactsFromReport } from './reflectionImpactRecorder.js';
 import { isKrxHoliday } from '../trading/krxHolidays.js';
+import { classifyTradeLifecycleOutcome } from '../trading/exitOutcomeClassifier.js';
 
 export interface RunReflectionOptions {
   /** 기준 시각 (테스트 주입용). 기본값: Date.now() */
@@ -284,11 +285,22 @@ export function summarizeTodaysRealizationsForLearning(inputs: ReflectionInputs)
       // ADR-0112 임계 (-0.5~+0.5 BE) 준수. 사용자 4/30 보고: '전량손절 +3.35%' 모순 해소.
       // BE_CLASSIFICATION_DISABLED=true ENV 시 legacy 동작 (status 단독 분기) 복원.
       const beDisabled = process.env.BE_CLASSIFICATION_DISABLED === 'true';
+      const lifecycle = classifyTradeLifecycleOutcome(t);
+      const lifecycleKind = (() => {
+        switch (lifecycle.tradeLifecycleOutcome) {
+          case 'FULL_WIN': return '전량익절';
+          case 'PARTIAL_WIN': return '부분익절종료';
+          case 'WIN_BREAKEVEN': return '부분익절후본절';
+          case 'BREAKEVEN':
+          case 'SMALL_WIN': return '전량본절';
+          case 'SMALL_LOSS':
+          case 'FULL_LOSS': return '전량손절';
+          case 'FORCED_EXIT': return '강제청산';
+        }
+      })();
       const kind = beDisabled
         ? (t.status === 'HIT_TARGET' ? '전량익절' : '전량손절')
-        : (pct >= 1.0 ? '전량익절'
-          : pct >= -0.5 && pct <= 1.0 ? '전량본절'
-          : '전량손절');
+        : lifecycleKind;
       labels.push(`${t.stockName} ${kind} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}% (${Math.round(sumPnl).toLocaleString()}원)`);
     }
   }
@@ -491,7 +503,11 @@ export async function runNightlyReflection(
     }
 
     // ── 5-Why (손절 거래만, 남은 예산 범위 내) ─────────────────────────────
-    const stopLossTrades = inputs.closedTrades.filter((t) => t.status === 'HIT_STOP');
+    const stopLossTrades = inputs.closedTrades.filter((t) => {
+      if (t.status !== 'HIT_STOP') return false;
+      const lifecycle = classifyTradeLifecycleOutcome(t);
+      return lifecycle.tradeLifecycleOutcome !== 'WIN_BREAKEVEN' && lifecycle.tradeLifecycleOutcome !== 'BREAKEVEN';
+    });
     const fiveWhyResults: FiveWhyResult[] = [];
     for (const t of stopLossTrades) {
       const remain = callsBudget - callsSpent;
@@ -530,7 +546,11 @@ export async function runNightlyReflection(
     }
 
     // ── Phase 3 #8 Regret Quantifier — Gemini 호출 없음 ────────────────────
-    const stopTrades = inputs.closedTrades.filter((t) => t.status === 'HIT_STOP');
+    const stopTrades = inputs.closedTrades.filter((t) => {
+      if (t.status !== 'HIT_STOP') return false;
+      const lifecycle = classifyTradeLifecycleOutcome(t);
+      return lifecycle.tradeLifecycleOutcome !== 'WIN_BREAKEVEN' && lifecycle.tradeLifecycleOutcome !== 'BREAKEVEN';
+    });
     if (stopTrades.length > 0) {
       report.regret = await quantifyRegret({ stopLossTrades: stopTrades });
     }

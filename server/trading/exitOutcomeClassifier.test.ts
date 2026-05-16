@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   classifyExitOutcome,
   classifyFillOutcome,
+  classifyTradeLifecycleOutcome,
   EXIT_OUTCOME_THRESHOLDS,
+  formatTradeLifecycleOutcome,
   isBreakEvenClassificationDisabled,
 } from './exitOutcomeClassifier.js';
 
@@ -125,12 +127,12 @@ describe('classifyExitOutcome — 우선순위 SSOT', () => {
     });
   });
 
-  describe('보수적 fallback (우선순위 9) — +0.5 < returnPct < +1.0', () => {
-    it('+0.7% → LOSS (보수적, 표본 미달)', () => {
-      expect(classifyExitOutcome(0.7, 'HARD_STOP')).toBe('LOSS');
+  describe('small positive fallback (우선순위 9) — +0.5 < returnPct < +1.0', () => {
+    it('+0.7% → BE/small gain, not LOSS', () => {
+      expect(classifyExitOutcome(0.7, 'HARD_STOP')).toBe('BE');
     });
-    it('+0.99% → LOSS', () => {
-      expect(classifyExitOutcome(0.99)).toBe('LOSS');
+    it('+0.99% → BE/small gain, not LOSS', () => {
+      expect(classifyExitOutcome(0.99)).toBe('BE');
     });
   });
 
@@ -194,5 +196,93 @@ describe('classifyFillOutcome — fill 단위 휴리스틱', () => {
   it('ENV 우회 시 0% → BE', () => {
     process.env.BE_CLASSIFICATION_DISABLED = 'true';
     expect(classifyFillOutcome(0.0)).toBe('BE');
+  });
+});
+describe('TradeLifecycleOutcome SSOT', () => {
+  const baseTrade = {
+    status: 'HIT_STOP',
+    signalPrice: 10_000,
+    shadowEntryPrice: 10_000,
+    targetPrice: 11_000,
+    quantity: 0,
+    originalQuantity: 10,
+  };
+
+  it('TP1 50% then entry-price final exit is WIN_BREAKEVEN', () => {
+    const c = classifyTradeLifecycleOutcome({
+      ...baseTrade,
+      fills: [
+        { type: 'BUY', qty: 10, price: 10_000, timestamp: '2026-05-01T00:00:00Z' },
+        { type: 'SELL', subType: 'PARTIAL_TP', qty: 5, price: 11_000, pnl: 5_000, pnlPct: 10, timestamp: '2026-05-01T01:00:00Z' },
+        { type: 'SELL', subType: 'STOP_LOSS', qty: 5, price: 10_000, pnl: 0, pnlPct: 0, timestamp: '2026-05-01T02:00:00Z' },
+      ],
+    });
+    expect(c.tradeLifecycleOutcome).toBe('WIN_BREAKEVEN');
+    expect(c.economicWin).toBe(true);
+    expect(c.riskControlSuccess).toBe(true);
+    expect(c.learningTag).toBe('TP1_THEN_BREAKEVEN');
+    expect(c.finalExitReason).toBe('ENTRY_PRICE_STOP_AFTER_TP1');
+    expect(formatTradeLifecycleOutcome(c.tradeLifecycleOutcome)).toBe('부분익절 후 본절 종료');
+  });
+
+  it('no profit-taking and full breakeven is BREAKEVEN', () => {
+    const c = classifyTradeLifecycleOutcome({
+      ...baseTrade,
+      exitOutcome: 'BE',
+      fills: [
+        { type: 'SELL', subType: 'STOP_LOSS', qty: 10, price: 10_000, pnl: 0, pnlPct: 0, timestamp: '2026-05-01T02:00:00Z' },
+      ],
+    });
+    expect(c.tradeLifecycleOutcome).toBe('BREAKEVEN');
+    expect(c.positionWin).toBe(false);
+    expect(c.riskControlSuccess).toBe(true);
+  });
+
+  it('TP1 then lower stop with positive total PnL is PARTIAL_WIN, not WIN_BREAKEVEN', () => {
+    const c = classifyTradeLifecycleOutcome({
+      ...baseTrade,
+      fills: [
+        { type: 'SELL', subType: 'PARTIAL_TP', qty: 5, price: 11_000, pnl: 5_000, pnlPct: 10, timestamp: '2026-05-01T01:00:00Z' },
+        { type: 'SELL', subType: 'STOP_LOSS', qty: 5, price: 9_500, pnl: -2_500, pnlPct: -5, timestamp: '2026-05-01T02:00:00Z' },
+      ],
+    });
+    expect(c.tradeLifecycleOutcome).toBe('PARTIAL_WIN');
+    expect(c.tradeLifecycleOutcome).not.toBe('WIN_BREAKEVEN');
+    expect(c.economicWin).toBe(true);
+  });
+
+  it('no profit-taking and clear stop loss is FULL_LOSS', () => {
+    const c = classifyTradeLifecycleOutcome({
+      ...baseTrade,
+      fills: [
+        { type: 'SELL', subType: 'STOP_LOSS', qty: 10, price: 9_200, pnl: -8_000, pnlPct: -8, timestamp: '2026-05-01T02:00:00Z' },
+      ],
+    });
+    expect(c.tradeLifecycleOutcome).toBe('FULL_LOSS');
+  });
+
+  it('+0.7% final close is never LOSS', () => {
+    const c = classifyTradeLifecycleOutcome({
+      ...baseTrade,
+      status: 'HIT_TARGET',
+      fills: [
+        { type: 'SELL', subType: 'FULL_CLOSE', qty: 10, price: 10_070, pnl: 700, pnlPct: 0.7, timestamp: '2026-05-01T02:00:00Z' },
+      ],
+    });
+    expect(['SMALL_WIN', 'FULL_WIN']).toContain(c.tradeLifecycleOutcome);
+    expect(c.tradeLifecycleOutcome).not.toBe('FULL_LOSS');
+  });
+
+  it('HIT_STOP with PROFIT_PROTECTION, prior TP fill, and near-entry final exit is WIN_BREAKEVEN', () => {
+    const c = classifyTradeLifecycleOutcome({
+      ...baseTrade,
+      stopLossExitType: 'PROFIT_PROTECTION',
+      fills: [
+        { type: 'SELL', subType: 'PARTIAL_TP', qty: 5, price: 11_000, pnl: 5_000, pnlPct: 10, timestamp: '2026-05-01T01:00:00Z' },
+        { type: 'SELL', subType: 'STOP_LOSS', qty: 5, price: 10_010, pnl: 50, pnlPct: 0.1, timestamp: '2026-05-01T02:00:00Z' },
+      ],
+    });
+    expect(c.tradeLifecycleOutcome).toBe('WIN_BREAKEVEN');
+    expect(c.breakevenStopMoved).toBe(true);
   });
 });

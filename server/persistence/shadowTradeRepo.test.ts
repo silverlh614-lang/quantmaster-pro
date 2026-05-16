@@ -135,6 +135,31 @@ describe('computeShadowMonthlyStats', () => {
     expect(stats.profitFactor).toBeCloseTo(1.5, 2);
   });
 
+  it('TP1 후 본절 종료는 WIN_BREAKEVEN으로 월간 통계에 반영하고 lossCount를 늘리지 않는다', () => {
+    const thisMonthISO = `${thisMonth}-16T10:00:00.000Z`;
+    const trade = makeTrade({
+      id: 'TP1BE',
+      status: 'HIT_STOP',
+      entryPrice: 10_000,
+      exitPrice: 10_000,
+      qty: 10,
+      exitTime: thisMonthISO,
+    });
+    trade.fills = [
+      { id: 'TP1BE-b', type: 'BUY', qty: 10, price: 10_000, reason: 'init', timestamp: ymd(-5), status: 'CONFIRMED' },
+      { id: 'TP1BE-tp1', type: 'SELL', subType: 'PARTIAL_TP', qty: 5, price: 11_000, pnl: 5_000, pnlPct: 10, reason: 'tp1', timestamp: thisMonthISO, status: 'CONFIRMED' },
+      { id: 'TP1BE-be', type: 'SELL', subType: 'STOP_LOSS', qty: 5, price: 10_000, pnl: 0, pnlPct: 0, reason: 'entry stop', timestamp: thisMonthISO, status: 'CONFIRMED' },
+    ];
+    repo.saveShadowTrades([trade]);
+
+    const stats = repo.computeShadowMonthlyStats(thisMonth);
+    expect(stats.totalClosed).toBe(1);
+    expect(stats.winBreakevens).toBe(1);
+    expect(stats.losses).toBe(0);
+    expect(stats.economicWinRate).toBe(100);
+    expect(stats.riskControlSuccessRate).toBe(100);
+  });
+
   it('표본 부족 플래그 — 당월 종결 1건', () => {
     const thisMonthISO = `${thisMonth}-05T10:00:00.000Z`;
     repo.saveShadowTrades([

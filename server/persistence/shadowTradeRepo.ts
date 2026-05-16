@@ -12,6 +12,10 @@ import type {
   SupplyHealthSnapshot,
   TradingSignal,
 } from '../learning/supplyHealthLearning.js';
+import {
+  classifyTradeLifecycleOutcome,
+  type TradeLifecycleOutcome,
+} from '../trading/exitOutcomeClassifier.js';
 
 // ─── Fill(체결 이벤트) 모델 ────────────────────────────────────────────────────
 
@@ -475,6 +479,18 @@ export interface ServerShadowTrade {
    * classifyExitOutcome() SSOT 헬퍼 사용 의무.
    */
   exitOutcome?: 'WIN' | 'LOSS' | 'BE';
+  /** Position-level lifecycle SSOT. Prefer this over fill/exit-level exitOutcome in reports and learning. */
+  tradeLifecycleOutcome?: TradeLifecycleOutcome;
+  target1Hit?: boolean;
+  target2Hit?: boolean;
+  breakevenStopMoved?: boolean;
+  finalExitNearEntry?: boolean;
+  finalExitReason?: string;
+  riskControlSuccess?: boolean;
+  economicWin?: boolean;
+  directionalWin?: boolean;
+  fullTargetWin?: boolean;
+  learningTag?: string;
   exitPrice?: number;
   exitTime?: string;
   returnPct?: number;
@@ -879,10 +895,12 @@ export function aggregateFillStats(
         winFills++;
       } else if (Number.isFinite(pnlPct) && pnlPct >= BE_PCT_MIN && pnlPct <= BE_PCT_MAX) {
         beFills++;
+      } else if (Number.isFinite(pnlPct) && pnlPct > 0) {
+        beFills++;
       } else if (pnl < 0 || pnlPct < BE_PCT_MIN) {
         lossFills++;
       } else {
-        // +0.5 < pnlPct < +1.0 보수적 fallback (또는 NaN) → LOSS
+        // +0.5 < pnlPct < +1.0 is a small positive result. Keep it out of LOSS.
         lossFills++;
       }
       weightedNum += pnlPct * f.qty;
@@ -918,6 +936,18 @@ export interface ShadowMonthlyStats {
   totalClosed: number;
   wins: number;
   losses: number;
+  fullWins?: number;
+  partialWins?: number;
+  winBreakevens?: number;
+  breakevens?: number;
+  smallWins?: number;
+  smallLosses?: number;
+  fullLosses?: number;
+  forcedExits?: number;
+  economicWinRate?: number;
+  directionalWinRate?: number;
+  fullTargetWinRate?: number;
+  riskControlSuccessRate?: number;
   /** 0~100 */
   winRate: number;
   /** 단순평균 netPct */
@@ -958,10 +988,22 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
 
   const openPositions = all.filter(t => isOpenShadowStatusStatus(t.status)).length;
 
+  const lifecycle = closed.map(t => classifyTradeLifecycleOutcome(t));
   const returns = closed.map(t => getWeightedPnlPct(t));
-  const wins = returns.filter(r => r > 0).length;
-  const losses = returns.filter(r => r < 0).length;
+  const fullWins = lifecycle.filter(c => c.tradeLifecycleOutcome === 'FULL_WIN').length;
+  const partialWins = lifecycle.filter(c => c.tradeLifecycleOutcome === 'PARTIAL_WIN').length;
+  const winBreakevens = lifecycle.filter(c => c.tradeLifecycleOutcome === 'WIN_BREAKEVEN').length;
+  const breakevens = lifecycle.filter(c => c.tradeLifecycleOutcome === 'BREAKEVEN').length;
+  const smallWins = lifecycle.filter(c => c.tradeLifecycleOutcome === 'SMALL_WIN').length;
+  const smallLosses = lifecycle.filter(c => c.tradeLifecycleOutcome === 'SMALL_LOSS').length;
+  const fullLosses = lifecycle.filter(c => c.tradeLifecycleOutcome === 'FULL_LOSS').length;
+  const forcedExits = lifecycle.filter(c => c.tradeLifecycleOutcome === 'FORCED_EXIT').length;
+  const wins = fullWins + partialWins + winBreakevens + smallWins;
+  const losses = smallLosses + fullLosses + forcedExits;
   const totalClosed = closed.length;
+  const directionalDenominator = fullWins + partialWins + winBreakevens + smallLosses + fullLosses + forcedExits;
+  const riskControlSuccessCount = lifecycle.filter(c => c.riskControlSuccess).length;
+  const economicWins = lifecycle.filter(c => c.economicWin).length;
 
   const avgReturnPct = totalClosed > 0
     ? returns.reduce((s, r) => s + r, 0) / totalClosed
@@ -982,15 +1024,29 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
   //   entryRegime ∈ {R1_TURBO, R2_BULL, R3_EARLY}
   // 을 STRONG_BUY 로 복원하여 SHADOW 졸업 조건 산정이 레거시 구간에서 막히지 않게 한다.
   const sb = closed.filter(t => isStrongBuyTrade(t));
-  const sbWins = sb.filter(t => getWeightedPnlPct(t) > 0).length;
-  const strongBuyWinRate = sb.length > 0 ? (sbWins / sb.length) * 100 : 0;
+  const sbLifecycle = sb.map(t => classifyTradeLifecycleOutcome(t));
+  const sbWins = sbLifecycle.filter(c => c.positionWin).length;
+  const sbLosses = sbLifecycle.filter(c => !c.positionWin && c.tradeLifecycleOutcome !== 'BREAKEVEN').length;
+  const strongBuyWinRate = (sbWins + sbLosses) > 0 ? (sbWins / (sbWins + sbLosses)) * 100 : 0;
 
   return {
     month,
     totalClosed,
     wins,
     losses,
-    winRate: totalClosed > 0 ? (wins / totalClosed) * 100 : 0,
+    fullWins,
+    partialWins,
+    winBreakevens,
+    breakevens,
+    smallWins,
+    smallLosses,
+    fullLosses,
+    forcedExits,
+    economicWinRate: totalClosed > 0 ? (economicWins / totalClosed) * 100 : 0,
+    directionalWinRate: directionalDenominator > 0 ? ((fullWins + partialWins + winBreakevens) / directionalDenominator) * 100 : 0,
+    fullTargetWinRate: totalClosed > 0 ? (fullWins / totalClosed) * 100 : 0,
+    riskControlSuccessRate: totalClosed > 0 ? (riskControlSuccessCount / totalClosed) * 100 : 0,
+    winRate: (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : 0,
     avgReturnPct,
     compoundReturnPct,
     profitFactor,

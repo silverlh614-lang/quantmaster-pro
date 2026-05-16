@@ -23,6 +23,7 @@
  */
 
 import type { ServerShadowTrade, PositionFill } from '../../persistence/shadowTradeRepo.js';
+import { classifyTradeLifecycleOutcome } from '../../trading/exitOutcomeClassifier.js';
 import type { ServerAttributionRecord } from '../../persistence/attributionRepo.js';
 import type { BiasScore, BiasType } from '../reflectionTypes.js';
 
@@ -58,7 +59,11 @@ function clamp01(x: number): number {
 }
 
 function scoreRegretAversion(i: BiasHeatmapInputs): BiasScore {
-  const hitStops = i.closedToday.filter((t) => t.status === 'HIT_STOP');
+  const hitStops = i.closedToday.filter((t) => {
+    if (t.status !== 'HIT_STOP') return false;
+    const lifecycle = classifyTradeLifecycleOutcome(t);
+    return lifecycle.tradeLifecycleOutcome !== 'WIN_BREAKEVEN' && lifecycle.tradeLifecycleOutcome !== 'BREAKEVEN';
+  });
   const delayed = hitStops.filter((t) => t.exitPrice != null && t.stopLoss != null && t.exitPrice < t.stopLoss);
   const score = hitStops.length === 0 ? 0 : clamp01(delayed.length / hitStops.length);
   return {

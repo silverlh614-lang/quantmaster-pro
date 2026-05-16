@@ -34,6 +34,11 @@ import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
 import { loadTomorrowPriming } from '../persistence/reflectionRepo.js';
 import { getRemainingQty, isOpenShadowStatus } from '../trading/signalScanner.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import {
+  classifyTradeLifecycleOutcome,
+  formatTradeLifecycleOutcome,
+  type TradeLifecycleOutcome,
+} from '../trading/exitOutcomeClassifier.js';
 // scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
 // ── 당일 실현 이벤트 집계 SSOT (PR-15) ────────────────────────────────────────
@@ -93,6 +98,13 @@ export interface TodayRealizationStats {
   losses: number;
   /** 전량 청산된 trade 수 (중복 제거) */
   fullClosedCount: number;
+  lifecycleBreakdown: Record<TradeLifecycleOutcome, number>;
+  winBreakevens: number;
+  partialWins: number;
+  breakevens: number;
+  economicWinRate: number;
+  directionalWinRate: number;
+  fullTargetWinRate: number;
   /** 부분매도만 발생한 trade 수 (전량 청산 제외) */
   partialOnlyCount: number;
   /** fill 가중 평균 pnlPct (Σ pnlPct×qty / Σ qty) */
@@ -107,6 +119,25 @@ export function summarizeTodayRealizations(r: TodayRealization[]): TodayRealizat
   const wins = r.filter((x) => (x.fill.pnl ?? 0) > 0).length;
   const losses = r.filter((x) => (x.fill.pnl ?? 0) < 0).length;
   const fullClosedIds = new Set(r.filter((x) => x.isFinalClose).map((x) => x.trade.id));
+  const finalCloseTrades = r
+    .filter((x) => x.isFinalClose)
+    .map((x) => x.trade)
+    .filter((trade, index, arr) => arr.findIndex((other) => other.id === trade.id) === index);
+  const lifecycle = finalCloseTrades.map((trade) => classifyTradeLifecycleOutcome(trade));
+  const lifecycleBreakdown: Record<TradeLifecycleOutcome, number> = {
+    FULL_WIN: 0,
+    PARTIAL_WIN: 0,
+    WIN_BREAKEVEN: 0,
+    BREAKEVEN: 0,
+    SMALL_WIN: 0,
+    SMALL_LOSS: 0,
+    FULL_LOSS: 0,
+    FORCED_EXIT: 0,
+  };
+  for (const c of lifecycle) lifecycleBreakdown[c.tradeLifecycleOutcome]++;
+  const directionalWins = lifecycleBreakdown.FULL_WIN + lifecycleBreakdown.PARTIAL_WIN + lifecycleBreakdown.WIN_BREAKEVEN;
+  const directionalDenominator = directionalWins + lifecycleBreakdown.SMALL_LOSS + lifecycleBreakdown.FULL_LOSS + lifecycleBreakdown.FORCED_EXIT;
+  const economicWins = lifecycle.filter((c) => c.economicWin).length;
   const allTradeIds = new Set(r.map((x) => x.trade.id));
   const partialOnlyCount = [...allTradeIds].filter((id) => !fullClosedIds.has(id)).length;
 
@@ -122,6 +153,13 @@ export function summarizeTodayRealizations(r: TodayRealization[]): TodayRealizat
     wins,
     losses,
     fullClosedCount: fullClosedIds.size,
+    lifecycleBreakdown,
+    winBreakevens: lifecycleBreakdown.WIN_BREAKEVEN,
+    partialWins: lifecycleBreakdown.PARTIAL_WIN,
+    breakevens: lifecycleBreakdown.BREAKEVEN,
+    economicWinRate: finalCloseTrades.length > 0 ? Math.round((economicWins / finalCloseTrades.length) * 100) : 0,
+    directionalWinRate: directionalDenominator > 0 ? Math.round((directionalWins / directionalDenominator) * 100) : 0,
+    fullTargetWinRate: finalCloseTrades.length > 0 ? Math.round((lifecycleBreakdown.FULL_WIN / finalCloseTrades.length) * 100) : 0,
     partialOnlyCount,
     weightedReturnPct,
     totalRealizedKrw,
@@ -222,7 +260,7 @@ export async function generateDailyReport(): Promise<void> {
     ? realizations.map((x) => {
         const icon = (x.fill.pnl ?? 0) >= 0 ? '✅' : '❌';
         const kind = x.isFinalClose
-          ? (x.trade.status === 'HIT_TARGET' ? '전량 익절' : '전량 손절')
+          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
           : '부분매도';
         const pct = (x.fill.pnlPct ?? 0).toFixed(2);
         return `  ${icon} ${x.trade.stockName}(${x.trade.stockCode}) ${kind} ${pct}% · ${x.fill.qty}주`;
@@ -259,6 +297,9 @@ export async function generateDailyReport(): Promise<void> {
     `▶ 실현 이벤트: ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})` +
       (r.partialOnlyCount > 0 ? ` · 부분매도 진행 ${r.partialOnlyCount}건` : '') +
       (r.fullClosedCount > 0 ? ` · 전량 청산 ${r.fullClosedCount}건` : ''),
+    r.fullClosedCount > 0
+      ? `Position lifecycle: FULL_WIN ${r.lifecycleBreakdown.FULL_WIN} / PARTIAL_WIN ${r.partialWins} / WIN_BREAKEVEN ${r.winBreakevens} / BREAKEVEN ${r.breakevens} / LOSS ${r.lifecycleBreakdown.SMALL_LOSS + r.lifecycleBreakdown.FULL_LOSS + r.lifecycleBreakdown.FORCED_EXIT}`
+      : '',
     dailyStatsLine,
     `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
     `▶ 워치리스트: ${watchlist.length}개`,
@@ -274,7 +315,7 @@ export async function generateDailyReport(): Promise<void> {
   const realizedDetail = realizations.length > 0
     ? realizations.map((x) => {
         const kind = x.isFinalClose
-          ? (x.trade.status === 'HIT_TARGET' ? '전량익절' : '전량손절')
+          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
           : '부분익절';
         return `${x.trade.stockName} ${kind} ${(x.fill.pnlPct ?? 0).toFixed(2)}%`;
       }).join(', ')
@@ -845,7 +886,7 @@ export async function sendPostMarketReport(): Promise<void> {
         const ret = x.fill.pnlPct ?? 0;
         const icon = ret >= 0 ? '✅' : '❌';
         const kind = x.isFinalClose
-          ? (x.trade.status === 'HIT_TARGET' ? '전량익절' : '전량손절')
+          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
           : '부분익절';
         return `  ${icon} ${x.trade.stockName} ${kind} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% · ${x.fill.qty}주`;
       }).join('\n')

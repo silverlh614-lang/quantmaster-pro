@@ -9,8 +9,22 @@ import type { ServerShadowTrade } from '../../../api';
 
 type Trade = Pick<ServerShadowTrade, 'fills' | 'status' | 'quantity' | 'returnPct'> & {
   originalQuantity?: number;
+  shadowEntryPrice?: number;
+  signalPrice?: number;
+  stopLossExitType?: string;
+  tradeLifecycleOutcome?: TradeLifecycleOutcome;
 };
 type Fill = NonNullable<ServerShadowTrade['fills']>[number];
+
+export type TradeLifecycleOutcome =
+  | 'FULL_WIN'
+  | 'PARTIAL_WIN'
+  | 'WIN_BREAKEVEN'
+  | 'BREAKEVEN'
+  | 'SMALL_WIN'
+  | 'SMALL_LOSS'
+  | 'FULL_LOSS'
+  | 'FORCED_EXIT';
 
 /** 체결된 매도 fill 의 수량 가중 평균 수익률(%). fills 가 없으면 trade.returnPct 반환. */
 export function getWeightedPnlPct(trade: Trade): number {
@@ -72,4 +86,41 @@ export function fillLabel(f: Fill): string {
   if (st === 'FULL_CLOSE') return '전량익절';
   if (st === 'TRAILING_TP') return '트레일링';
   return '부분익절';
+}
+export function classifyUiTradeLifecycleOutcome(trade: Trade): TradeLifecycleOutcome {
+  if (trade.tradeLifecycleOutcome) return trade.tradeLifecycleOutcome;
+  const sells = getSellFills(trade);
+  const finalSell = sells[sells.length - 1];
+  const priorSells = sells.slice(0, -1);
+  const hasTp = priorSells.some((f) =>
+    f.subType === 'PARTIAL_TP'
+    || f.subType === 'TRAILING_TP'
+    || ((f.pnl ?? 0) > 0 && f.subType !== 'STOP_LOSS' && f.subType !== 'EMERGENCY')
+  ) || sells.some((f) => f.subType === 'PARTIAL_TP' || f.subType === 'TRAILING_TP');
+  const realizedPnl = getTotalRealizedPnl(trade);
+  const weightedPnl = getWeightedPnlPct(trade);
+  const finalPct = typeof finalSell?.pnlPct === 'number' ? finalSell.pnlPct : weightedPnl;
+  const finalNearEntry = finalPct >= -0.5 && finalPct <= 0.5;
+
+  if (hasTp && finalNearEntry && realizedPnl > 0) return 'WIN_BREAKEVEN';
+  if (hasTp && realizedPnl > 0) return 'PARTIAL_WIN';
+  if (trade.status === 'HIT_TARGET' || weightedPnl >= 1) return 'FULL_WIN';
+  if (finalNearEntry && Math.abs(weightedPnl) <= 0.5) return 'BREAKEVEN';
+  if (weightedPnl > 0 || realizedPnl > 0) return 'SMALL_WIN';
+  if (finalSell?.subType === 'EMERGENCY') return 'FORCED_EXIT';
+  if (weightedPnl > -1) return 'SMALL_LOSS';
+  return 'FULL_LOSS';
+}
+
+export function tradeLifecycleLabel(outcome: TradeLifecycleOutcome): string {
+  switch (outcome) {
+    case 'FULL_WIN': return '전량 익절';
+    case 'PARTIAL_WIN': return '부분익절 종료';
+    case 'WIN_BREAKEVEN': return '부분익절 후 본절';
+    case 'BREAKEVEN': return '본절 종료';
+    case 'SMALL_WIN': return '소폭 수익';
+    case 'SMALL_LOSS': return '소손실';
+    case 'FULL_LOSS': return '손절 종료';
+    case 'FORCED_EXIT': return '강제청산';
+  }
 }

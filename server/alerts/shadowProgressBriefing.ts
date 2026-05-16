@@ -15,6 +15,7 @@ import { loadShadowTrades, aggregateFillStats, type ServerShadowTrade } from '..
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { emitTelegramEvent } from './telegramEventRouter.js';
 import type { DisplayMetric } from './displayMetric.js';
+import { classifyTradeLifecycleOutcome } from '../trading/exitOutcomeClassifier.js';
 
 // ── 설정 ──────────────────────────────────────────────────────────────────────
 
@@ -56,16 +57,39 @@ function classifyTradeOutcome(shadows: ServerShadowTrade[]): {
   beCount: number;
   winCount: number;
   lossCount: number;
+  fullWinCount: number;
+  partialWinCount: number;
+  winBreakevenCount: number;
 } {
   const beDisabled = process.env.BE_CLASSIFICATION_DISABLED === 'true';
-  const isBe = (s: ServerShadowTrade): boolean =>
-    !beDisabled
-    && (s.status === 'HIT_TARGET' || s.status === 'HIT_STOP')
-    && (s as { exitOutcome?: string }).exitOutcome === 'BE';
+  const closed = shadows.filter((s) => s.status === 'HIT_TARGET' || s.status === 'HIT_STOP');
+  if (beDisabled) {
+    return {
+      beCount: 0,
+      winCount: closed.filter(s => s.status === 'HIT_TARGET').length,
+      lossCount: closed.filter(s => s.status === 'HIT_STOP').length,
+      fullWinCount: closed.filter(s => s.status === 'HIT_TARGET').length,
+      partialWinCount: 0,
+      winBreakevenCount: 0,
+    };
+  }
+  const classified = closed.map((trade) => classifyTradeLifecycleOutcome(trade));
+  const fullWinCount = classified.filter((c) => c.tradeLifecycleOutcome === 'FULL_WIN').length;
+  const partialWinCount = classified.filter((c) => c.tradeLifecycleOutcome === 'PARTIAL_WIN' || c.tradeLifecycleOutcome === 'SMALL_WIN').length;
+  const winBreakevenCount = classified.filter((c) => c.tradeLifecycleOutcome === 'WIN_BREAKEVEN').length;
+  const beCount = classified.filter((c) => c.tradeLifecycleOutcome === 'BREAKEVEN').length;
+  const lossCount = classified.filter((c) => (
+    c.tradeLifecycleOutcome === 'SMALL_LOSS'
+    || c.tradeLifecycleOutcome === 'FULL_LOSS'
+    || c.tradeLifecycleOutcome === 'FORCED_EXIT'
+  )).length;
   return {
-    beCount:   shadows.filter(isBe).length,
-    winCount:  shadows.filter(s => s.status === 'HIT_TARGET' && !isBe(s)).length,
-    lossCount: shadows.filter(s => s.status === 'HIT_STOP' && !isBe(s)).length,
+    beCount,
+    winCount: fullWinCount + partialWinCount + winBreakevenCount,
+    lossCount,
+    fullWinCount,
+    partialWinCount,
+    winBreakevenCount,
   };
 }
 
@@ -78,6 +102,9 @@ export interface ShadowProgress {
   totalDays:  number;      // SHADOW_MONITORING_DAYS
   /** 전량 청산된 trade 단위 WIN 수 (graduation 샘플 기준, ADR-0129: BE 제외) */
   winCount:   number;
+  fullWinCount?: number;
+  partialWinCount?: number;
+  winBreakevenCount?: number;
   /** 전량 청산된 trade 단위 LOSS 수 (ADR-0129: BE 제외) */
   lossCount:  number;
   /**
@@ -113,7 +140,7 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
   const shadows = loadShadowTrades();
 
   // ADR-0129: BE 분리 SSOT — trade 단위 BE 카운터.
-  const { beCount, winCount, lossCount } = classifyTradeOutcome(shadows);
+  const { beCount, winCount, lossCount, fullWinCount, partialWinCount, winBreakevenCount } = classifyTradeOutcome(shadows);
   const activeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
   const totalSamples = shadows.length;
   // 승률 분모는 WIN + LOSS 만 (BE 제외).
@@ -152,7 +179,7 @@ export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
   return {
     dayElapsed,
     totalDays: SHADOW_MONITORING_DAYS,
-    winCount, lossCount, beCount, activeCount,
+    winCount, lossCount, beCount, fullWinCount, partialWinCount, winBreakevenCount, activeCount,
     totalClosed, totalSamples,
     targetSamples: SHADOW_SAMPLE_TARGET,
     winRatePct,
@@ -195,12 +222,14 @@ export function formatShadowProgress(p: ShadowProgress): string {
   // ADR-0129: trade 단위 BE 라인 — beCount > 0 시에만 노출 (BE_CLASSIFICATION_DISABLED 자연 호환).
   const beTradeCount = p.beCount ?? 0;
   const beTradeLine = beTradeCount > 0 ? `⚪ 종료 본절: ${beTradeCount}건` : '';
+  const winBreakevenLine = (p.winBreakevenCount ?? 0) > 0 ? `✅ WIN_BREAKEVEN: ${p.winBreakevenCount}건 (TP1 후 본절, LOSS 아님)` : '';
   return [
     `📊 <b>[SHADOW 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
     `신규 신호: ${p.newToday}건 | 📊 ${allSamplesMetric.label}: ${allSamplesMetric.value}`,
     ``,
     `✅ ${closedWinRateMetric.label}: ${closedWinRateMetric.value} = ${p.winCount}승 / ${p.totalClosed}종료`,
     `❌ 종료 손실: ${p.lossCount}건`,
+    winBreakevenLine,
     beTradeLine,
     `⏳ 진행 중: ${p.activeCount}건`,
     hasFillRealizations ? `` : '',
@@ -313,7 +342,7 @@ export function _computeProgressFromShadows(
   // computeShadowProgress 의 핵심 로직을 그대로 재사용하되 loadShadowTrades 우회.
   const todayKst = kstDateStr(now);
   // ADR-0129: BE 분리 SSOT — trade 단위 BE 카운터.
-  const { beCount, winCount, lossCount } = classifyTradeOutcome(shadows);
+  const { beCount, winCount, lossCount, fullWinCount, partialWinCount, winBreakevenCount } = classifyTradeOutcome(shadows);
   const activeCount = shadows.filter(s => isOpenShadowStatus(s.status)).length;
   const totalSamples = shadows.length;
   const totalClosed  = winCount + lossCount;
@@ -339,7 +368,7 @@ export function _computeProgressFromShadows(
   const fillAgg = aggregateFillStats(shadows);
   return {
     dayElapsed, totalDays: SHADOW_MONITORING_DAYS,
-    winCount, lossCount, beCount, activeCount, totalClosed, totalSamples,
+    winCount, lossCount, beCount, fullWinCount, partialWinCount, winBreakevenCount, activeCount, totalClosed, totalSamples,
     targetSamples: SHADOW_SAMPLE_TARGET, winRatePct,
     newToday, etaDate, etaDaysRemain,
     fillWins: fillAgg.winFills,

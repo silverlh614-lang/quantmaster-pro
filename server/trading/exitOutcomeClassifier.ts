@@ -18,7 +18,7 @@
  *   6. returnPct ≥ +1.0 → WIN
  *   7. -0.5 ≤ returnPct ≤ +0.5 → BE (휴리스틱)
  *   8. returnPct < -0.5 → LOSS
- *   9. +0.5 < returnPct < +1.0 → LOSS (보수적 — 표본 미달)
+ *   9. +0.5 < returnPct < +1.0 → BE (small positive, never LOSS)
  */
 
 export type ExitOutcome = 'WIN' | 'LOSS' | 'BE';
@@ -84,11 +84,12 @@ export function classifyExitOutcome(
 
   // (7) BE band 휴리스틱 (룰 미명시여도 등락이 본절 영역이면 BE)
   if (isInBeBand(returnPct)) return 'BE';
+  if (returnPct > 0) return 'BE';
 
   // (8) 명백 LOSS
   if (returnPct < EXIT_OUTCOME_THRESHOLDS.LOSS_PCT_MAX) return 'LOSS';
 
-  // (9) +0.5 < returnPct < +1.0 — 보수적 LOSS (표본 미달)
+  // (9) +0.5 < returnPct < +1.0 — small positive, never LOSS.
   return 'LOSS';
 }
 
@@ -104,5 +105,283 @@ export function classifyFillOutcome(pnlPct: number): ExitOutcome {
   if (!isFiniteNumber(pnlPct)) return 'LOSS';
   if (pnlPct >= EXIT_OUTCOME_THRESHOLDS.WIN_PCT_MIN) return 'WIN';
   if (isInBeBand(pnlPct)) return 'BE';
+  if (pnlPct > 0) return 'BE';
   return 'LOSS';
+}
+
+export type TradeLifecycleOutcome =
+  | 'FULL_WIN'
+  | 'PARTIAL_WIN'
+  | 'WIN_BREAKEVEN'
+  | 'BREAKEVEN'
+  | 'SMALL_WIN'
+  | 'SMALL_LOSS'
+  | 'FULL_LOSS'
+  | 'FORCED_EXIT';
+
+export type TradeLifecycleLearningTag =
+  | 'TP1_THEN_BREAKEVEN'
+  | 'PROFIT_PROTECTION_SUCCESS'
+  | 'TRAILING_STOP_TO_ENTRY_SUCCESS'
+  | 'TREND_EXTENSION_FAILED'
+  | 'PARTIAL_PROFIT_PROTECTED'
+  | 'BREAKEVEN_EXIT'
+  | 'SMALL_WIN'
+  | 'SMALL_LOSS'
+  | 'FULL_TARGET_WIN'
+  | 'FULL_STOP_LOSS'
+  | 'FORCED_EXIT';
+
+type LifecycleFillLike = {
+  type?: string;
+  subType?: string;
+  qty?: number;
+  price?: number;
+  pnl?: number;
+  pnlPct?: number;
+  reason?: string;
+  exitRuleTag?: string;
+  timestamp?: string;
+  confirmedAt?: string;
+  status?: string;
+};
+
+export type TradeLifecycleTradeLike = {
+  status?: string;
+  exitOutcome?: ExitOutcome;
+  exitRuleTag?: string;
+  stopLossExitType?: string;
+  signalPrice?: number;
+  shadowEntryPrice?: number;
+  entryPrice?: number;
+  exitPrice?: number;
+  returnPct?: number;
+  targetPrice?: number;
+  quantity?: number;
+  originalQuantity?: number;
+  fills?: LifecycleFillLike[];
+  tradeLifecycleOutcome?: TradeLifecycleOutcome;
+  breakevenStopMoved?: boolean;
+  target1Hit?: boolean;
+  target2Hit?: boolean;
+  finalExitReason?: string;
+};
+
+export interface TradeLifecycleClassification {
+  tradeLifecycleOutcome: TradeLifecycleOutcome;
+  positionWin: boolean;
+  economicWin: boolean;
+  directionalWin: boolean;
+  fullTargetWin: boolean;
+  riskControlSuccess: boolean;
+  learningTag: TradeLifecycleLearningTag;
+  learningTags: TradeLifecycleLearningTag[];
+  finalExitReason: string;
+  target1Hit: boolean;
+  target2Hit: boolean;
+  breakevenStopMoved: boolean;
+  finalExitNearEntry: boolean;
+  finalExitReturnPct: number;
+  realizedPnl: number;
+  weightedPnlPct: number;
+  labelSource: 'TRADE_LIFECYCLE_OUTCOME_SSOT';
+  diagnosticOnly: true;
+}
+
+export interface TradeLifecycleOptions {
+  breakevenBandPct?: number;
+  fullWinPct?: number;
+  smallLossPct?: number;
+}
+
+export const TRADE_LIFECYCLE_DEFAULTS = {
+  breakevenBandPct: 0.5,
+  fullWinPct: 1.0,
+  smallLossPct: -1.0,
+} as const;
+
+function isLifecycleSell(fill: LifecycleFillLike): boolean {
+  return fill.type === 'SELL' && fill.status !== 'REVERTED';
+}
+
+function fillTime(fill: LifecycleFillLike): string {
+  return fill.confirmedAt ?? fill.timestamp ?? '';
+}
+
+function isProfitTakingFill(fill: LifecycleFillLike): boolean {
+  if (!isLifecycleSell(fill)) return false;
+  if (fill.subType === 'PARTIAL_TP' || fill.subType === 'TRAILING_TP' || fill.subType === 'FULL_CLOSE') return true;
+  if (fill.exitRuleTag && WIN_RULE_TAGS.has(fill.exitRuleTag)) return true;
+  return (fill.pnl ?? 0) > 0 && fill.subType !== 'STOP_LOSS' && fill.subType !== 'EMERGENCY';
+}
+
+function finiteOrZero(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function resolveEntryPrice(trade: TradeLifecycleTradeLike): number {
+  return finiteOrZero(trade.shadowEntryPrice) || finiteOrZero(trade.signalPrice) || finiteOrZero(trade.entryPrice);
+}
+
+function resolveRealizedPnl(sells: LifecycleFillLike[]): number {
+  const pnlFills = sells.filter((fill) => typeof fill.pnl === 'number' && Number.isFinite(fill.pnl));
+  if (pnlFills.length === 0) return 0;
+  return pnlFills.reduce((sum, fill) => sum + (fill.pnl ?? 0), 0);
+}
+
+function resolveWeightedPnlPct(trade: TradeLifecycleTradeLike, sells: LifecycleFillLike[]): number {
+  const pctFills = sells.filter((fill) => typeof fill.pnlPct === 'number' && Number.isFinite(fill.pnlPct));
+  const qtySum = pctFills.reduce((sum, fill) => sum + finiteOrZero(fill.qty), 0);
+  if (qtySum > 0) return pctFills.reduce((sum, fill) => sum + (fill.pnlPct ?? 0) * finiteOrZero(fill.qty), 0) / qtySum;
+  if (pctFills.length > 0) return pctFills.reduce((sum, fill) => sum + (fill.pnlPct ?? 0), 0) / pctFills.length;
+  if (typeof trade.returnPct === 'number' && Number.isFinite(trade.returnPct)) return trade.returnPct;
+  return 0;
+}
+
+function resolveFinalExitReturnPct(
+  trade: TradeLifecycleTradeLike,
+  finalSell: LifecycleFillLike | undefined,
+  entryPrice: number,
+): number {
+  if (typeof finalSell?.pnlPct === 'number' && Number.isFinite(finalSell.pnlPct)) return finalSell.pnlPct;
+  if (finalSell?.price && entryPrice > 0) return ((finalSell.price - entryPrice) / entryPrice) * 100;
+  if (typeof trade.returnPct === 'number' && Number.isFinite(trade.returnPct)) return trade.returnPct;
+  if (trade.exitPrice && entryPrice > 0) return ((trade.exitPrice - entryPrice) / entryPrice) * 100;
+  return 0;
+}
+
+function withTags(
+  tradeLifecycleOutcome: TradeLifecycleOutcome,
+  learningTags: TradeLifecycleLearningTag[],
+  finalExitReason: string,
+  facts: Omit<TradeLifecycleClassification,
+    'tradeLifecycleOutcome' | 'positionWin' | 'economicWin' | 'directionalWin' | 'fullTargetWin' |
+    'riskControlSuccess' | 'learningTag' | 'learningTags' | 'finalExitReason' | 'labelSource' | 'diagnosticOnly'>,
+): TradeLifecycleClassification {
+  const economicWin = facts.realizedPnl > 0 || facts.weightedPnlPct > 0;
+  const positionWin = ['FULL_WIN', 'PARTIAL_WIN', 'WIN_BREAKEVEN', 'SMALL_WIN'].includes(tradeLifecycleOutcome);
+  const directionalWin = ['FULL_WIN', 'PARTIAL_WIN', 'WIN_BREAKEVEN'].includes(tradeLifecycleOutcome);
+  const fullTargetWin = tradeLifecycleOutcome === 'FULL_WIN';
+  const riskControlSuccess = ['FULL_WIN', 'PARTIAL_WIN', 'WIN_BREAKEVEN', 'BREAKEVEN', 'SMALL_WIN'].includes(tradeLifecycleOutcome);
+  return {
+    ...facts,
+    tradeLifecycleOutcome,
+    positionWin,
+    economicWin,
+    directionalWin,
+    fullTargetWin,
+    riskControlSuccess,
+    learningTag: learningTags[0] ?? 'BREAKEVEN_EXIT',
+    learningTags,
+    finalExitReason,
+    labelSource: 'TRADE_LIFECYCLE_OUTCOME_SSOT',
+    diagnosticOnly: true,
+  };
+}
+
+export function classifyTradeLifecycleOutcome(
+  trade: TradeLifecycleTradeLike,
+  options: TradeLifecycleOptions = {},
+): TradeLifecycleClassification {
+  const breakevenBandPct = options.breakevenBandPct ?? TRADE_LIFECYCLE_DEFAULTS.breakevenBandPct;
+  const fullWinPct = options.fullWinPct ?? TRADE_LIFECYCLE_DEFAULTS.fullWinPct;
+  const smallLossPct = options.smallLossPct ?? TRADE_LIFECYCLE_DEFAULTS.smallLossPct;
+  const sells = [...(trade.fills ?? []).filter(isLifecycleSell)]
+    .sort((a, b) => fillTime(a).localeCompare(fillTime(b)));
+  const finalSell = sells[sells.length - 1];
+  const priorSells = sells.slice(0, -1);
+  const entryPrice = resolveEntryPrice(trade);
+  const realizedPnl = resolveRealizedPnl(sells);
+  const weightedPnlPct = resolveWeightedPnlPct(trade, sells);
+  const finalExitReturnPct = resolveFinalExitReturnPct(trade, finalSell, entryPrice);
+  const finalExitNearEntry = finalExitReturnPct >= -breakevenBandPct && finalExitReturnPct <= breakevenBandPct;
+  const target1Hit = trade.target1Hit === true
+    || priorSells.some(isProfitTakingFill)
+    || sells.some((fill) => fill.subType === 'PARTIAL_TP' || fill.subType === 'TRAILING_TP');
+  const target2Hit = trade.target2Hit === true || sells.some((fill) => fill.subType === 'FULL_CLOSE' || fill.exitRuleTag === 'TARGET_EXIT');
+  const profitProtection = trade.stopLossExitType === 'PROFIT_PROTECTION';
+  const breakevenStopMoved = trade.breakevenStopMoved === true || (target1Hit && finalExitNearEntry) || profitProtection;
+  const finalExitReason = trade.finalExitReason
+    ?? (target1Hit && finalExitNearEntry ? 'ENTRY_PRICE_STOP_AFTER_TP1'
+      : profitProtection ? 'PROFIT_PROTECTION'
+      : finalSell?.exitRuleTag
+      ?? finalSell?.subType
+      ?? trade.exitRuleTag
+      ?? trade.status
+      ?? 'UNKNOWN');
+  const facts = {
+    target1Hit,
+    target2Hit,
+    breakevenStopMoved,
+    finalExitNearEntry,
+    finalExitReturnPct,
+    realizedPnl,
+    weightedPnlPct,
+  };
+
+  if (sells.length === 0 && trade.exitOutcome === 'BE') {
+    return withTags('BREAKEVEN', ['BREAKEVEN_EXIT'], finalExitReason, facts);
+  }
+
+  if (sells.length === 0 && trade.exitOutcome === 'LOSS' && !(typeof trade.returnPct === 'number' && trade.returnPct > 0)) {
+    return withTags('FULL_LOSS', ['FULL_STOP_LOSS'], finalExitReason, facts);
+  }
+
+  if (
+    sells.length === 0
+    && trade.status === 'HIT_STOP'
+    && trade.exitOutcome !== 'BE'
+    && typeof trade.returnPct !== 'number'
+    && typeof trade.exitPrice !== 'number'
+  ) {
+    return withTags('FULL_LOSS', ['FULL_STOP_LOSS'], finalExitReason, facts);
+  }
+
+  if (target1Hit && finalExitNearEntry && realizedPnl > 0) {
+    return withTags('WIN_BREAKEVEN', [
+      'TP1_THEN_BREAKEVEN',
+      'PROFIT_PROTECTION_SUCCESS',
+      'TRAILING_STOP_TO_ENTRY_SUCCESS',
+      'TREND_EXTENSION_FAILED',
+    ], 'ENTRY_PRICE_STOP_AFTER_TP1', facts);
+  }
+
+  if (target1Hit && realizedPnl > 0) {
+    return withTags('PARTIAL_WIN', ['PARTIAL_PROFIT_PROTECTED'], finalExitReason, facts);
+  }
+
+  if (finalSell?.subType === 'EMERGENCY' && realizedPnl <= 0) {
+    return withTags('FORCED_EXIT', ['FORCED_EXIT'], finalExitReason, facts);
+  }
+
+  if (target2Hit || trade.status === 'HIT_TARGET' || weightedPnlPct >= fullWinPct) {
+    return withTags('FULL_WIN', ['FULL_TARGET_WIN'], finalExitReason, facts);
+  }
+
+  if (finalExitNearEntry && Math.abs(weightedPnlPct) <= breakevenBandPct) {
+    return withTags('BREAKEVEN', ['BREAKEVEN_EXIT'], finalExitReason, facts);
+  }
+
+  if (weightedPnlPct > 0 || realizedPnl > 0) {
+    return withTags('SMALL_WIN', ['SMALL_WIN'], finalExitReason, facts);
+  }
+
+  if (weightedPnlPct > smallLossPct) {
+    return withTags('SMALL_LOSS', ['SMALL_LOSS'], finalExitReason, facts);
+  }
+
+  return withTags('FULL_LOSS', ['FULL_STOP_LOSS'], finalExitReason, facts);
+}
+
+export function formatTradeLifecycleOutcome(outcome: TradeLifecycleOutcome): string {
+  switch (outcome) {
+    case 'FULL_WIN': return '전량 익절';
+    case 'PARTIAL_WIN': return '부분익절 종료';
+    case 'WIN_BREAKEVEN': return '부분익절 후 본절 종료';
+    case 'BREAKEVEN': return '본절 종료';
+    case 'SMALL_WIN': return '소폭 수익 종료';
+    case 'SMALL_LOSS': return '소손실 종료';
+    case 'FULL_LOSS': return '손절 종료';
+    case 'FORCED_EXIT': return '강제청산';
+  }
 }
