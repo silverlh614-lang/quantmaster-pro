@@ -52,7 +52,7 @@ export type DataPromotionSourceType =
   | 'NEWS'
   | 'UNKNOWN';
 
-export type ExecutionImpact = 'NONE' | 'DIAGNOSTIC_ONLY' | 'ADVISORY_ONLY' | 'SCORING_ONLY' | 'ORDER' | 'GATE' | 'BLOCK' | 'UNKNOWN';
+export type DataPromotionExecutionImpact = 'NONE' | 'DIAGNOSTIC_ONLY' | 'ADVISORY_ONLY' | 'SCORING_ONLY' | 'ORDER' | 'GATE' | 'BLOCK' | 'UNKNOWN';
 
 export interface DataPromotionAuditInput {
   dataLineId: string;
@@ -81,7 +81,7 @@ export interface DataPromotionAuditInput {
   executionImpactNonePassed: boolean;
   testCoveragePassed: boolean;
 
-  latestExecutionImpact: ExecutionImpact;
+  latestExecutionImpact: DataPromotionExecutionImpact;
 
   /** Optional schema evidence for OBSERVE → SHADOW_RAW audits. Defaults to true for legacy snapshots. */
   providerHealthFieldPresent?: boolean;
@@ -137,6 +137,7 @@ export interface DataPromotionAuditResult {
   canPromote: boolean;
   recommendedStage: DataLineStage;
 
+  /** Audit result is always non-executing; this is Data Promotion audit impact, not runtime ExecutionImpact. */
   executionImpact: 'NONE';
 }
 

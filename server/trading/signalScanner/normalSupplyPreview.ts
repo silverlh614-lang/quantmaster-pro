@@ -177,7 +177,7 @@ export interface NormalSupplyPreviewCandidate {
   supplySignal: SupplySignal;
   providerIssue: boolean;
   marketSignal: boolean;
-  executionImpact: 'NONE' | 'SCORE_CONFIDENCE_DOWN_ONLY' | 'NEW_BUY_BLOCKED_ONLY' | 'SELL_ONLY' | 'SHADOW_ONLY';
+  executionImpact: PerSymbolSupplyContext['executionImpact'];
   supplyScore: number;
   summary: string;
   reason: string;
@@ -2140,7 +2140,7 @@ function buildMissingContext(symbol: string): PerSymbolSupplyContext {
     supplySignal: 'UNUSABLE',
     providerIssue: true,
     marketSignal: false,
-    executionImpact: 'SCORE_CONFIDENCE_DOWN_ONLY',
+    executionImpact: 'NONE',
     rawStatus: 'SUPPLY_CONTEXT_NOT_INJECTED',
   };
 }

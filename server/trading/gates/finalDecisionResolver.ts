@@ -49,21 +49,16 @@ function collect<T>(items: T[][]): T[] {
   return items.flat();
 }
 
-export const Gate0MacroEvaluator = Object.freeze({
-  fromResult(result: GateResult): GateResult { return { ...result, gateName: 'Gate0Macro' }; },
-});
+export type GateName =
+  | 'Gate0Macro'
+  | 'Gate1Survival'
+  | 'Gate2Growth'
+  | 'Gate3Timing'
+  | 'EnemyChecklist';
 
-export const Gate1SurvivalEvaluator = Object.freeze({
-  fromResult(result: GateResult): GateResult { return { ...result, gateName: 'Gate1Survival' }; },
-});
-
-export const Gate2GrowthEvaluator = Object.freeze({
-  fromResult(result: GateResult): GateResult { return { ...result, gateName: 'Gate2Growth' }; },
-});
-
-export const Gate3TimingEvaluator = Object.freeze({
-  fromResult(result: GateResult): GateResult { return { ...result, gateName: 'Gate3Timing' }; },
-});
+export function asGateResult(gateName: GateName, result: GateResult): GateResult {
+  return { ...result, gateName };
+}
 
 export const EnemyChecklistEvaluator = Object.freeze({
   warningCount(result: GateResult): number { return result.warnings.length; },

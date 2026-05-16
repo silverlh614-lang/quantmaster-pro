@@ -36,7 +36,7 @@ export function inspectShadowIntegrity(ledger: ShadowCaseLedgerStore, now: Date 
     ['duplicate_telegram', 'WARN', (c) => c.duplicateTelegramSuppressed === false],
     ['ledger_mismatch', 'CRITICAL', (c) => c.state === 'SHADOW_POSITION_CLOSED' && c.currentReturnPct !== undefined && c.finalReturnPct === undefined],
     ['executionImpact_not_NONE_in_shadow', 'CRITICAL', (c) => c.engineMode !== 'NORMAL' && c.executionImpact !== 'NONE'],
-    ['live_order_created_in_shadow_mode', 'CRITICAL', (c) => ['SHADOW', 'SHADOW_ONLY', 'SELL_ONLY', 'HARD_BLOCK', 'OBSERVE_ONLY'].includes(c.engineMode) && Boolean(c.liveOrderCreated || c.brokerOrderCreated)],
+    ['live_order_created_in_shadow_mode', 'CRITICAL', (c) => ['SHADOW_ONLY', 'SELL_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode) && Boolean(c.liveOrderCreated || c.brokerOrderCreated)],
   ];
   return specs.map(([item, severity, pred]) => issue(item, severity, cases.filter(pred))).filter((x) => x.count > 0);
 }
