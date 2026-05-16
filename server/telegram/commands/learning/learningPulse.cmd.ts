@@ -1,7 +1,7 @@
 // @responsibility /learning_pulse — LearningPulseDiagnostics v2 + legacy 7영역 snapshot compatibility
 import fs from 'fs';
 import { collectLearningPulseV2 } from '../../../learning/learningPulseDiagnostics.js';
-import { collectCounterfactualStatus, collectLearningCohortConsistencyStatus, collectLearningCohortSummary, counterfactualMetadataRepairDryRun, counterfactualResolveDryRun } from '../../../learning/learningSampleQuality.js';
+import { collectCounterfactualMaturityStatus, collectCounterfactualStatus, collectLearningCohortConsistencyStatus, collectLearningCohortSummary, counterfactualMetadataRepairDryRun, counterfactualResolveDryRun } from '../../../learning/learningSampleQuality.js';
 import { collectFreshOnlyPromotion, collectFreshShadowInletStatus, collectFreshShadowStatus } from '../../../shadow/freshShadowLifecycle.js';
 import { shadowCaseLedger } from '../../../shadow/shadowCaseLedger.js';
 import { ensureGeminiLearningScheduleFresh } from '../../../learning/geminiUtilizationScheduler.js';
@@ -59,6 +59,7 @@ export function collectLearningPulse(now: Date = new Date()) {
   const freshPromotion = collectFreshOnlyPromotion(shadowCaseLedger);
   const counterfactual = collectCounterfactualStatus(now);
   const counterfactualMetadataRepair = counterfactualMetadataRepairDryRun(now);
+  const counterfactualMaturity = collectCounterfactualMaturityStatus(now);
   const counterfactualResolver = counterfactualResolveDryRun(now);
   const cohorts = collectLearningCohortSummary(now);
   const cohortConsistency = collectLearningCohortConsistencyStatus(now);
@@ -68,6 +69,10 @@ export function collectLearningPulse(now: Date = new Date()) {
   const suggestInputSamples = counterfactualLabeledInputSamples;
   const counterfactualSuggestBlocker = counterfactualMetadataRepair.missingTargetPrice + counterfactualMetadataRepair.missingStopPrice > 0
     ? 'COUNTERFACTUAL_METADATA_MISSING'
+    : counterfactual.pendingOutcomeCount > 0 && counterfactualMaturity.maturedNowCount === 0 && suggestInputSamples === 0
+      ? 'WAITING_FOR_COUNTERFACTUAL_MATURITY'
+      : counterfactualMaturity.maturedNowCount > 0 && suggestInputSamples === 0
+        ? (counterfactualResolver.dataInsufficient > 0 || counterfactualResolver.quarantined > 0 ? 'DATA_BLOCKED' : 'COUNTERFACTUAL_RESOLVE_NOT_RUN')
     : suggestInputSamples === 0
       ? 'NO_LABELED_COUNTERFACTUAL_INPUT'
       : v2.suggest.blocker === 'NONE'
@@ -80,7 +85,7 @@ export function collectLearningPulse(now: Date = new Date()) {
   if (!consistencyCheck.counterfactualLabelingConnected) metricWarnings.push('COUNTERFACTUAL_LABELING_DISCONNECTED');
   if (!consistencyCheck.freshMetricNAWhenNoSample) metricWarnings.push('FRESH_EXPECTANCY_ZERO_SAMPLE_SHOWN_AS_ZERO');
   if (!consistencyCheck.counterfactualDuplicateGuardActive) metricWarnings.push('COUNTERFACTUAL_DUPLICATE_GUARD_MISSING');
-  return { ...v2, suggest, consistencyCheck, metricWarnings, metricInfos, v3: collectLearningPulseV3(now), freshShadow, freshShadowInlet, freshPromotion, counterfactual, counterfactualMetadataRepair, counterfactualResolver, cohorts, cohortConsistency, cohortSnapshotStatus: cohortConsistency.snapshotStatus, counterfactualBuiltButUnlabeled, counterfactualLabeledInputSamples, suggestInputSamples, todayKst: new Date(now.getTime() + 9 * 3600000).toISOString().slice(0,10), ghost: { ...v2.ghost, closedRecent7d, closeRatio }, attribution7d: { count: attribution7dCount, target: LEARNING_ATTRIBUTION_TARGET_7D }, weights: { changedFromDefault, sunsetCount, untouched, lastF2WRanAt: f2wTail?.ranAt, lastF2WSkipCount: f2wTail ? f2wTail.adjustments.filter((a: any) => a.action === 'NONE').length : 0, lastF2WTotalRecords: f2wTail?.totalRecords ?? 0 }, suggest7d, diagnosticProposals7d, experimentsActive, gemini: { ...v2.gemini, month: budget.month, callCount: budget.callCount, tokensUsed: budget.tokensUsed, useRatio, schedulerStatus: geminiScheduler.schedulerStatus, lastScheduledAt: geminiScheduler.lastScheduledAt, lastRunAt: geminiScheduler.lastRunAt, nextScheduledAt: geminiScheduler.nextScheduledAt, missedCount: geminiScheduler.missedCount, recommendationOnly: geminiScheduler.recommendationOnly }, geminiScheduler, flags, partialFailure: errors.length > 0 };
+  return { ...v2, suggest, consistencyCheck, metricWarnings, metricInfos, v3: collectLearningPulseV3(now), freshShadow, freshShadowInlet, freshPromotion, counterfactual, counterfactualMetadataRepair, counterfactualMaturity, counterfactualResolver, cohorts, cohortConsistency, cohortSnapshotStatus: cohortConsistency.snapshotStatus, counterfactualBuiltButUnlabeled, counterfactualLabeledInputSamples, suggestInputSamples, todayKst: new Date(now.getTime() + 9 * 3600000).toISOString().slice(0,10), ghost: { ...v2.ghost, closedRecent7d, closeRatio }, attribution7d: { count: attribution7dCount, target: LEARNING_ATTRIBUTION_TARGET_7D }, weights: { changedFromDefault, sunsetCount, untouched, lastF2WRanAt: f2wTail?.ranAt, lastF2WSkipCount: f2wTail ? f2wTail.adjustments.filter((a: any) => a.action === 'NONE').length : 0, lastF2WTotalRecords: f2wTail?.totalRecords ?? 0 }, suggest7d, diagnosticProposals7d, experimentsActive, gemini: { ...v2.gemini, month: budget.month, callCount: budget.callCount, tokensUsed: budget.tokensUsed, useRatio, schedulerStatus: geminiScheduler.schedulerStatus, lastScheduledAt: geminiScheduler.lastScheduledAt, lastRunAt: geminiScheduler.lastRunAt, nextScheduledAt: geminiScheduler.nextScheduledAt, missedCount: geminiScheduler.missedCount, recommendationOnly: geminiScheduler.recommendationOnly }, geminiScheduler, flags, partialFailure: errors.length > 0 };
 }
 function formatLearningPulseMessageBase(s: ReturnType<typeof collectLearningPulse>): string {
   const suggestSignals7d = Object.values(s.suggest7d).reduce((a,b)=>a+b,0);
@@ -91,6 +96,7 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
   const extra = [
     `Fresh Shadow Inlet: blocker=${s.freshShadowInlet.blocker} / nextAction=${s.freshShadowInlet.nextAction} / scanCandidatesToday=${s.freshShadowInlet.scanCandidatesToday} / shadowSignalsToday=${s.freshShadowInlet.shadowSignalsToday} / shadowApprovedToday=${s.freshShadowInlet.shadowApprovedToday} / shadowOrdersCreatedToday=${s.freshShadowInlet.shadowOrdersCreatedToday} / paperFilledToday=${s.freshShadowInlet.paperFilledToday} / executionImpact=${s.freshShadowInlet.executionImpact}`,
     `Counterfactual Metadata Repair: metadataRepairStatus=${s.counterfactualMetadataRepair.metadataRepairStatus} / missingTargetPrice=${s.counterfactualMetadataRepair.missingTargetPrice} / missingStopPrice=${s.counterfactualMetadataRepair.missingStopPrice} / targetStopRecoveredCount=${s.counterfactualMetadataRepair.targetStopRecoveredCount} / recoverySourceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoverySourceBreakdown)} / recoveryConfidenceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoveryConfidenceBreakdown)}`,
+    `Counterfactual Maturity: maturedNowCount=${s.counterfactualMaturity.maturedNowCount} / waitingForHoldingPeriod=${s.counterfactualMaturity.waitingCount} / overdueCount=${s.counterfactualMaturity.overdueCount} / nearestMaturityAt=${s.counterfactualMaturity.nearestMaturityAt ?? 'N/A'} / nextResolveAt=${s.counterfactualMaturity.nextResolveAt ?? 'N/A'} / resolverSchedulerStatus=${s.counterfactualMaturity.schedulerStatus}`,
     `Counterfactual Resolver: resolverStatus=${s.counterfactualResolver.resolverStatus} / scannedBuiltUnique=${s.counterfactualResolver.scannedBuiltUnique} / pendingOutcomeCount=${s.counterfactualResolver.pendingOutcomeCount} / resolvableNow=${s.counterfactualResolver.resolvableNow} / expectedLabelable=${s.counterfactualResolver.expectedLabelable} / expectedStillPending=${s.counterfactualResolver.expectedStillPending} / labelBreakdown=${JSON.stringify(s.counterfactualResolver.labelBreakdown)} / executionImpact=${s.counterfactualResolver.executionImpact}`,
     `Counterfactual Metrics: duplicateSuppressionStatus=${s.counterfactual.duplicateSuppressionStatus} / metricInfos=${JSON.stringify(s.metricInfos)} / metricWarnings=${JSON.stringify(s.metricWarnings)}`,
     `Cohort Snapshot: snapshotStatus=${s.cohortSnapshotStatus} / cohortSumMatchesTotal=${s.cohortConsistency.cohortSumMatchesTotal} / ghostRepairReflectedInPulse=${s.cohortConsistency.ghostRepairReflectedInPulse}`,

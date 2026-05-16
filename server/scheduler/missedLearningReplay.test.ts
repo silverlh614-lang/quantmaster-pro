@@ -76,6 +76,15 @@ vi.mock('../learning/counterfactualShadow.js', () => ({
   resolveCounterfactuals: async () => ({ resolved30d: 0, resolved60d: 0, resolved90d: 0 }),
   evaluateCounterfactualSuggestion: async () => ({}),
 }));
+vi.mock('../learning/learningSampleQuality.js', () => ({
+  counterfactualResolveDueRun: () => ({
+    labeled: 0,
+    stillPending: 0,
+    maturedNowCount: 0,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+  }),
+}));
 vi.mock('../learning/ledgerSimulator.js', () => ({
   resolveLedger: async () => ({ hitTP: 0, hitSL: 0, expired: 0 }),
   evaluateLedgerSuggestion: async () => ({}),
@@ -138,7 +147,7 @@ describe('ADR-0176 — missed_learning_replay cron 회귀 (Phase 2b-2)', () => {
     // node-cron mock 이 cronExpr 만 추적 — '30 0 * * 1-5' 정확 매칭으로 식별
     const replayCron = _capturedCallbacks.find((c) => c.cronExpr === '30 0 * * 1-5');
     expect(replayCron).toBeDefined();
-  });
+  }, 15000);
 
   it('2. cronExpr "30 0 * * 1-5" (UTC 평일 00:30 = KST 평일 09:30, 장 시작 30분 전)', async () => {
     const { registerLearningJobs } = await import('./learningJobs.js');

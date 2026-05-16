@@ -62,6 +62,10 @@ export interface CounterfactualEntry {
   riskRuleId?: string;
   atr?: number;
   volatility?: number;
+  maturityAt?: string;
+  maturityStatus?: 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
+  currentAgeMinutes?: number;
+  remainingMinutesToMaturity?: number;
   pricePath?: Array<{ at?: string; timestamp?: string; price?: number; high?: number; low?: number; close?: number }>;
   outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'PENDING_OUTCOME';
   outcomeStatus?: 'PENDING' | 'LABELED' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'EXPIRED' | 'UNRESOLVED';

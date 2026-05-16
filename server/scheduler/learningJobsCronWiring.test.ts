@@ -148,7 +148,7 @@ describe('ADR-0176 — learningJobs.ts 5 학습 cron `enqueueOnSkip` 옵션 wiri
     const src = loadSource();
     const code = stripComments(src);
     const matches = code.match(/enqueueOnSkip/g) || [];
-    expect(matches.length).toBe(5);
+    expect(matches.length).toBe(7);
   });
 
   // ─── ADR-0176 주석 의무화 ────────────────────────────────────────────────────

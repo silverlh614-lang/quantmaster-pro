@@ -16,7 +16,8 @@ import { refreshGhostPortfolio } from '../learning/ghostPortfolioTracker.js';
 import { learningRepairRun } from '../learning/learningRepairCommand.js';
 import { distillWeeklyKnowledge } from '../learning/silentKnowledgeDistillation.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
-import { resolveCounterfactuals, evaluateCounterfactualSuggestion } from '../learning/counterfactualShadow.js';
+import { evaluateCounterfactualSuggestion } from '../learning/counterfactualShadow.js';
+import { counterfactualResolveDueRun } from '../learning/learningSampleQuality.js';
 import { resolveLedger, evaluateLedgerSuggestion } from '../learning/ledgerSimulator.js';
 import { evaluateKellySurfaceSuggestion } from '../learning/kellySurfaceMap.js';
 import { evaluateRegimeCoverageSuggestion } from '../learning/regimeBalancedSampler.js';
@@ -118,8 +119,8 @@ export function registerLearningJobs(): void {
   // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate).
   scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'counterfactual_resolve', async () => {
     try {
-      const res = await resolveCounterfactuals((code) => fetchCurrentPrice(code).catch(() => null));
-      console.log(`[Counterfactual] resolved d30=${res.resolved30d} d60=${res.resolved60d} d90=${res.resolved90d}`);
+      const res = counterfactualResolveDueRun();
+      console.log(`[Counterfactual] dueResolve labeled=${res.labeled} stillPending=${res.stillPending} maturedNow=${res.maturedNowCount} executionImpact=${res.executionImpact} brokerOrdersCreated=${res.brokerOrdersCreated}`);
     } catch (e) {
       console.error('[Counterfactual] 실행 실패:', e);
     }

@@ -4,9 +4,9 @@ import { runWeeklyMiniBacktest } from './backtestEngine.js';
 import { runNightlyReflection } from './nightlyReflectionEngine.js';
 import { refreshGhostPortfolio } from './ghostPortfolioTracker.js';
 import {
-  resolveCounterfactuals,
   evaluateCounterfactualSuggestion,
 } from './counterfactualShadow.js';
+import { counterfactualResolveDueRun } from './learningSampleQuality.js';
 import {
   resolveLedger,
   evaluateLedgerSuggestion,
@@ -21,7 +21,7 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import type { MissedLearningJobName } from './missedLearningQueue.js';
 
 async function runCounterfactualResolveReplay(): Promise<void> {
-  await resolveCounterfactuals((code) => fetchCurrentPrice(code).catch(() => null));
+  counterfactualResolveDueRun();
   await evaluateCounterfactualSuggestion().catch((e) => {
     console.warn('[MissedLearningReplay][Counterfactual][suggest] failed:', e);
   });

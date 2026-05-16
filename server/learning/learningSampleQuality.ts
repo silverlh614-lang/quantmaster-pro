@@ -4,7 +4,7 @@ import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectio
 import { scanTraceFile } from '../persistence/paths.js';
 import { buildCounterfactualKey, recordCounterfactualCase, loadCounterfactuals, saveCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
-import { appendJson, readJson, LEARNING_COHORT_BACKFILL_RUNS_FILE } from './learningStorage.js';
+import { appendJson, readJson, writeJson, COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE, LEARNING_COHORT_BACKFILL_RUNS_FILE } from './learningStorage.js';
 import type { LearningCohortType, LearningGhostCase, LearningRecoveryConfidence } from './learningTypes.js';
 
 const COHORTS: LearningCohortType[] = ['FRESH_SHADOW', 'BACKLOG_REPAIR', 'GHOST_REPAIR', 'RECOVERED_METADATA', 'QUARANTINED', 'COUNTERFACTUAL_BLOCKED', 'COUNTERFACTUAL_MISSED_WIN', 'COUNTERFACTUAL_AVOIDED_LOSS', 'GHOST_REPAIR_PENDING', 'OPEN_UNRESOLVED'];
@@ -436,6 +436,13 @@ export function counterfactualMetadataRepairRun(now: Date = new Date()) {
 }
 export function counterfactualResolveDryRun(now: Date = new Date()) { return counterfactualResolve(now, false); }
 export function counterfactualResolveRun(now: Date = new Date()) { return counterfactualResolve(now, true); }
+export function counterfactualResolveDueDryRun(now: Date = new Date()) { return counterfactualResolve(now, false, true); }
+export function counterfactualResolveDueRun(now: Date = new Date()) {
+  const result = counterfactualResolve(now, true, true);
+  const maturity = collectCounterfactualMaturityStatus(now);
+  saveCounterfactualResolverSchedulerStatus(now, result, maturity.nextResolveAt);
+  return result;
+}
 function counterfactualCreatedAt(e: CounterfactualEntry): string | undefined {
   return e.signalTime ?? (e as CounterfactualEntry & { createdAt?: string }).createdAt ?? (e.signalDate ? `${e.signalDate}T00:00:00.000Z` : undefined);
 }
@@ -448,6 +455,120 @@ function counterfactualPricePath(e: CounterfactualEntry): Array<{ at?: string; t
 function pathTime(p: { at?: string; timestamp?: string }): number {
   const t = new Date(p.at ?? p.timestamp ?? '').getTime();
   return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
+}
+type CounterfactualMaturityStatus = 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
+type CounterfactualMaturityBucket = 'matured' | 'dueWithin1h' | 'dueToday' | 'dueNextTradingDay' | 'dueIn2to3Days' | 'overdue' | 'invalid';
+function counterfactualMaxHoldingMinutes(e: CounterfactualEntry): number {
+  const explicit = typeof e.maxHoldingMinutes === 'number' && Number.isFinite(e.maxHoldingMinutes) ? e.maxHoldingMinutes : undefined;
+  if (explicit && explicit > 0) return explicit;
+  const reason = String(e.blockedReason ?? e.skipReason ?? '').toUpperCase();
+  if (reason.includes('INTRADAY') || reason.includes('DAYTRADE') || reason.includes('DAY_TRADE')) return 24 * 60;
+  const strategy = String(e.strategyId ?? '').toUpperCase();
+  if (strategy.includes('SWING')) return 5 * 24 * 60;
+  return LEARNING_DEFAULT_MAX_HOLDING_MINUTES;
+}
+function counterfactualMaturity(e: CounterfactualEntry, now: Date) {
+  const createdAt = counterfactualCreatedAt(e);
+  const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+  const maxHoldingMinutes = counterfactualMaxHoldingMinutes(e);
+  if (!Number.isFinite(createdMs)) {
+    return { createdAt, maxHoldingMinutes, maturityAt: undefined, currentAgeMinutes: 0, remainingMinutesToMaturity: null, maturityStatus: 'INVALID_CREATED_AT' as CounterfactualMaturityStatus };
+  }
+  if (!Number.isFinite(maxHoldingMinutes) || maxHoldingMinutes <= 0) {
+    return { createdAt, maxHoldingMinutes, maturityAt: undefined, currentAgeMinutes: Math.max(0, Math.floor((now.getTime() - createdMs) / 60000)), remainingMinutesToMaturity: null, maturityStatus: 'INVALID_MAX_HOLDING' as CounterfactualMaturityStatus };
+  }
+  const maturityMs = createdMs + maxHoldingMinutes * 60000;
+  const currentAgeMinutes = Math.max(0, Math.floor((now.getTime() - createdMs) / 60000));
+  const remainingMinutesToMaturity = Math.max(0, Math.ceil((maturityMs - now.getTime()) / 60000));
+  const overdueMinutes = Math.floor((now.getTime() - maturityMs) / 60000);
+  const maturityStatus: CounterfactualMaturityStatus = overdueMinutes > 24 * 60 ? 'OVERDUE' : now.getTime() >= maturityMs ? 'MATURED' : 'WAITING_FOR_HOLDING_PERIOD';
+  return { createdAt, maxHoldingMinutes, maturityAt: new Date(maturityMs).toISOString(), currentAgeMinutes, remainingMinutesToMaturity, maturityStatus };
+}
+function emptyMaturityBuckets(): Record<CounterfactualMaturityBucket, number> {
+  return { matured: 0, dueWithin1h: 0, dueToday: 0, dueNextTradingDay: 0, dueIn2to3Days: 0, overdue: 0, invalid: 0 };
+}
+function maturityBucket(m: ReturnType<typeof counterfactualMaturity>): CounterfactualMaturityBucket {
+  if (m.maturityStatus === 'OVERDUE') return 'overdue';
+  if (m.maturityStatus === 'MATURED') return 'matured';
+  if (m.maturityStatus === 'INVALID_CREATED_AT' || m.maturityStatus === 'INVALID_MAX_HOLDING') return 'invalid';
+  const remaining = m.remainingMinutesToMaturity ?? Number.POSITIVE_INFINITY;
+  if (remaining <= 60) return 'dueWithin1h';
+  if (remaining <= 24 * 60) return 'dueToday';
+  if (remaining <= 48 * 60) return 'dueNextTradingDay';
+  if (remaining <= 72 * 60) return 'dueIn2to3Days';
+  return 'dueIn2to3Days';
+}
+export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
+  const all = normalizeCounterfactuals();
+  const pending = all.filter((e) => !['LABELED', 'DATA_INSUFFICIENT', 'QUARANTINED', 'EXPIRED', 'UNRESOLVED'].includes(String(e.outcomeStatus)));
+  const bucketBreakdown = emptyMaturityBuckets();
+  let maturedNowCount = 0, waitingCount = 0, overdueCount = 0, invalidMaturityCount = 0;
+  let oldestPendingAgeMinutes = 0;
+  let nearestMaturityAt: string | undefined;
+  let maxHoldingMinutes = 0;
+  for (const e of pending) {
+    const m = counterfactualMaturity(e, now);
+    bucketBreakdown[maturityBucket(m)]++;
+    oldestPendingAgeMinutes = Math.max(oldestPendingAgeMinutes, m.currentAgeMinutes);
+    maxHoldingMinutes = Math.max(maxHoldingMinutes, m.maxHoldingMinutes);
+    if (m.maturityStatus === 'MATURED') maturedNowCount++;
+    else if (m.maturityStatus === 'OVERDUE') { maturedNowCount++; overdueCount++; }
+    else if (m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD') waitingCount++;
+    else invalidMaturityCount++;
+    if (m.maturityAt && m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD' && (!nearestMaturityAt || new Date(m.maturityAt).getTime() < new Date(nearestMaturityAt).getTime())) nearestMaturityAt = m.maturityAt;
+  }
+  const nextResolveAt = maturedNowCount > 0 ? now.toISOString() : nearestMaturityAt;
+  const scheduler = collectCounterfactualResolverSchedulerStatus(now, { nextResolveAt });
+  return {
+    totalBuiltUnique: all.length,
+    pendingOutcomeCount: pending.length,
+    maturedNowCount,
+    waitingCount,
+    overdueCount,
+    invalidMaturityCount,
+    oldestPendingAgeMinutes,
+    nearestMaturityAt,
+    nextResolveAt,
+    maxHoldingMinutes,
+    maturityBucketBreakdown: bucketBreakdown,
+    resolverSchedulerRegistered: scheduler.resolverSchedulerRegistered,
+    lastRunAt: scheduler.lastRunAt,
+    nextRunAt: scheduler.nextRunAt,
+    lastRunLabeled: scheduler.lastRunLabeled,
+    lastRunStillPending: scheduler.lastRunStillPending,
+    schedulerStatus: scheduler.schedulerStatus,
+    executionImpact: 'NONE' as const,
+    brokerOrdersCreated: 0 as const,
+    promotionAllowed: false as const,
+  };
+}
+function collectCounterfactualResolverSchedulerStatus(now: Date, options: { nextResolveAt?: string } = {}) {
+  const state = readJson<{ lastRunAt?: string; nextRunAt?: string; lastRunLabeled?: number; lastRunStillPending?: number; schedulerStatus?: string }>(COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE, {});
+  const optionNextMs = options.nextResolveAt ? new Date(options.nextResolveAt).getTime() : NaN;
+  const fallbackNextRunAt = Number.isFinite(optionNextMs) && optionNextMs > now.getTime()
+    ? options.nextResolveAt!
+    : new Date(now.getTime() + 60 * 60000).toISOString();
+  const nextRunAt = state.nextRunAt && new Date(state.nextRunAt).getTime() > now.getTime() ? state.nextRunAt : fallbackNextRunAt;
+  return {
+    resolverSchedulerRegistered: true,
+    lastRunAt: state.lastRunAt,
+    nextRunAt,
+    lastRunLabeled: state.lastRunLabeled ?? 0,
+    lastRunStillPending: state.lastRunStillPending ?? 0,
+    schedulerStatus: state.schedulerStatus ?? 'REGISTERED',
+  };
+}
+function saveCounterfactualResolverSchedulerStatus(now: Date, result: { labeled: number; stillPending: number }, nextRunAt?: string) {
+  writeJson(COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE, {
+    resolverSchedulerRegistered: true,
+    lastRunAt: now.toISOString(),
+    nextRunAt: nextRunAt ?? new Date(now.getTime() + 60 * 60000).toISOString(),
+    lastRunLabeled: result.labeled,
+    lastRunStillPending: result.stillPending,
+    schedulerStatus: 'OK',
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+  });
 }
 function resolveCounterfactualHit(
   e: CounterfactualEntry,
@@ -471,10 +592,11 @@ function resolveCounterfactualHit(
   }
   return undefined;
 }
-function counterfactualResolve(now: Date, write: boolean) {
+function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
   const all = normalizeCounterfactuals();
   let resolvableNow = 0, labeled = 0, waitingForHoldingPeriod = 0, dataInsufficient = 0, quarantined = 0;
   let missingEntryPrice = 0, missingTargetPrice = 0, missingStopPrice = 0, missingPricePath = 0, missingCreatedAt = 0;
+  let maturedNowCount = 0, invalidMaturityCount = 0;
   const labelBreakdown: Record<string, number> = { MISSED_WIN: 0, BAD_BLOCK: 0, AVOIDED_LOSS: 0, GOOD_BLOCK: 0, NEUTRAL_BLOCK: 0, DATA_INSUFFICIENT: 0, QUARANTINED: 0, PENDING_OUTCOME: 0 };
   const pendingRows = all.filter((e) => !['LABELED', 'DATA_INSUFFICIENT', 'QUARANTINED', 'EXPIRED', 'UNRESOLVED'].includes(String(e.outcomeStatus)));
   for (const e of all) {
@@ -485,10 +607,24 @@ function counterfactualResolve(now: Date, write: boolean) {
     const stop = num(e.hypotheticalStopPrice);
     const createdAt = counterfactualCreatedAt(e);
     const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+    const maturity = counterfactualMaturity(e, now);
     if (!entry) missingEntryPrice++;
     if (!target) missingTargetPrice++;
     if (!stop) missingStopPrice++;
     if (!Number.isFinite(createdMs)) missingCreatedAt++;
+    if (dueOnly && maturity.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD') {
+      waitingForHoldingPeriod++;
+      labelBreakdown.PENDING_OUTCOME++;
+      continue;
+    }
+    if (dueOnly && (maturity.maturityStatus === 'INVALID_CREATED_AT' || maturity.maturityStatus === 'INVALID_MAX_HOLDING')) {
+      invalidMaturityCount++;
+      dataInsufficient++;
+      labelBreakdown.DATA_INSUFFICIENT++;
+      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
+      continue;
+    }
+    if (maturity.maturityStatus === 'MATURED' || maturity.maturityStatus === 'OVERDUE') maturedNowCount++;
     if (!entry || !target || !stop) {
       quarantined++;
       labelBreakdown.QUARANTINED++;
@@ -501,9 +637,14 @@ function counterfactualResolve(now: Date, write: boolean) {
       if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
       continue;
     }
-    const elapsed = Math.floor((now.getTime() - createdMs) / 60000);
-    const maxHold = e.maxHoldingMinutes ?? LEARNING_DEFAULT_MAX_HOLDING_MINUTES;
-    if (elapsed < maxHold) {
+    if (!dueOnly && (maturity.maturityStatus === 'INVALID_CREATED_AT' || maturity.maturityStatus === 'INVALID_MAX_HOLDING')) {
+      invalidMaturityCount++;
+      dataInsufficient++;
+      labelBreakdown.DATA_INSUFFICIENT++;
+      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
+      continue;
+    }
+    if (!dueOnly && maturity.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD') {
       waitingForHoldingPeriod++;
       labelBreakdown.PENDING_OUTCOME++;
       if (write) e.outcomeStatus = 'PENDING';
@@ -525,6 +666,10 @@ function counterfactualResolve(now: Date, write: boolean) {
       e.outcomeLabel = label;
       e.outcomeStatus = 'LABELED';
       e.outcomeResolvedAt = now.toISOString();
+      e.maturityAt = maturity.maturityAt;
+      e.maturityStatus = maturity.maturityStatus;
+      e.currentAgeMinutes = maturity.currentAgeMinutes;
+      e.remainingMinutesToMaturity = maturity.remainingMinutesToMaturity ?? undefined;
       if (e.targetStopRecovered) {
         e.labelSource = 'RECOVERED_TARGET_STOP';
         e.diagnosticOnly = true;
@@ -539,6 +684,8 @@ function counterfactualResolve(now: Date, write: boolean) {
     scannedBuiltUnique: all.length,
     scannedBuilt: all.length,
     pendingOutcomeCount: pendingRows.length,
+    scannedPending: pendingRows.length,
+    maturedNowCount,
     resolvableNow,
     resolvable: resolvableNow,
     waitingForHoldingPeriod,
@@ -549,8 +696,10 @@ function counterfactualResolve(now: Date, write: boolean) {
     missingCreatedAt,
     dataInsufficient,
     quarantined,
+    invalidMaturityCount,
     expectedLabelable: resolvableNow,
     expectedStillPending: waitingForHoldingPeriod,
+    expectedLabelBreakdown: labelBreakdown,
     labeled,
     stillPending: waitingForHoldingPeriod,
     pending: waitingForHoldingPeriod,
@@ -563,6 +712,12 @@ function counterfactualResolve(now: Date, write: boolean) {
 }
 export function formatCounterfactualBuild(s: ReturnType<typeof counterfactualBuildDryRun> | ReturnType<typeof counterfactualBuildRun> | ReturnType<typeof collectCounterfactualStatus>, title = 'counterfactual_build'): string { return [`🧪 ${title}`, `status=${s.status} candidateCount=${s.candidateCount} eligibleCount=${s.eligibleCount} buildEventCount=${s.buildEventCount}`, `builtUniqueCount=${s.builtUniqueCount} duplicateSuppressedCount=${s.duplicateSuppressedCount} duplicateSuppressionStatus=${s.duplicateSuppressionStatus}`, `labeledCount=${s.labeledCount} pendingOutcomeCount=${s.pendingOutcomeCount} dataInsufficientCount=${s.dataInsufficientCount} quarantinedCount=${s.quarantinedCount} expiredCount=${s.expiredCount} unresolvedCount=${s.unresolvedCount}`, `countInvariantValid=${s.countInvariantValid} metricWarnings=${JSON.stringify(s.metricWarnings)} metricInfos=${JSON.stringify(s.metricInfos)}`, `blocker=${s.blocker} executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
 export function formatCounterfactualResolve(s: ReturnType<typeof counterfactualResolveDryRun>, title = 'counterfactual_resolve'): string { return [`🧪 ${title}`, `resolverStatus=${s.resolverStatus} scannedBuiltUnique=${s.scannedBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount}`, `resolvableNow=${s.resolvableNow} waitingForHoldingPeriod=${s.waitingForHoldingPeriod} expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending}`, `missingEntryPrice=${s.missingEntryPrice} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice} missingPricePath=${s.missingPricePath} missingCreatedAt=${s.missingCreatedAt}`, `labeled=${s.labeled} stillPending=${s.stillPending} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
+export function formatCounterfactualMaturityStatus(s: ReturnType<typeof collectCounterfactualMaturityStatus>, title = 'counterfactual_maturity_status'): string {
+  return [`🧪 ${title}`, `totalBuiltUnique=${s.totalBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount} maturedNowCount=${s.maturedNowCount}`, `waitingCount=${s.waitingCount} overdueCount=${s.overdueCount} invalidMaturityCount=${s.invalidMaturityCount}`, `oldestPendingAgeMinutes=${s.oldestPendingAgeMinutes} nearestMaturityAt=${s.nearestMaturityAt ?? 'N/A'} nextResolveAt=${s.nextResolveAt ?? 'N/A'} maxHoldingMinutes=${s.maxHoldingMinutes}`, `maturityBucketBreakdown=${JSON.stringify(s.maturityBucketBreakdown)}`, `resolverSchedulerRegistered=${s.resolverSchedulerRegistered} lastRunAt=${s.lastRunAt ?? 'N/A'} nextRunAt=${s.nextRunAt ?? 'N/A'} lastRunLabeled=${s.lastRunLabeled} lastRunStillPending=${s.lastRunStillPending} schedulerStatus=${s.schedulerStatus}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
+}
+export function formatCounterfactualDueResolve(s: ReturnType<typeof counterfactualResolveDueDryRun>, title = 'counterfactual_resolve_due'): string {
+  return [`🧪 ${title}`, `scannedPending=${s.scannedPending} maturedNowCount=${s.maturedNowCount} resolvableNow=${s.resolvableNow}`, `expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending} waitingForHoldingPeriod=${s.waitingForHoldingPeriod}`, `missingPricePath=${s.missingPricePath} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined} invalidMaturityCount=${s.invalidMaturityCount}`, `labeled=${s.labeled} stillPending=${s.stillPending}`, `expectedLabelBreakdown=${JSON.stringify(s.expectedLabelBreakdown)}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
+}
 export function formatCounterfactualMetadataRepair(s: ReturnType<typeof counterfactualMetadataRepairDryRun> | ReturnType<typeof counterfactualMetadataRepairRun>, title = 'counterfactual_metadata_repair'): string {
   const common = [`🛠 ${title}`, `scannedBuiltUnique=${s.scannedBuiltUnique}`];
   if ('metadataRepairStatus' in s) common.push(`metadataRepairStatus=${s.metadataRepairStatus} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice}`, `recoverableTargetStop=${s.recoverableTargetStop} unrecoverableTargetStop=${s.unrecoverableTargetStop} missingEntryPrice=${s.missingEntryPrice} missingPricePath=${s.missingPricePath}`, `recoveryRuleAvailable=${s.recoveryRuleAvailable} defaultRiskRuleAvailable=${s.defaultRiskRuleAvailable} atrRuleAvailable=${s.atrRuleAvailable} fallbackRMultipleRuleAvailable=${s.fallbackRMultipleRuleAvailable} expectedSourceConfidence=${s.expectedSourceConfidence}`);

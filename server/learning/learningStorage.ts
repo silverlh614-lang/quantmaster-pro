@@ -22,3 +22,4 @@ export const SUGGEST_DIAGNOSTIC_PROPOSALS_FILE = 'suggest_diagnostic_proposals.j
 export const GEMINI_LEARNING_RUNS_FILE = 'gemini_learning_runs.json';
 export const GHOST_CLOSE_RUNS_FILE = 'ghost_close_runs.json';
 export const LEARNING_COHORT_BACKFILL_RUNS_FILE = 'learning_cohort_backfill_runs.json';
+export const COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE = 'counterfactual_resolve_scheduler.json';

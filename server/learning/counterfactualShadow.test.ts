@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'fs';
 import { COUNTERFACTUAL_FILE } from '../persistence/paths.js';
-import { collectCounterfactualStatus, counterfactualMetadataRepairDryRun, counterfactualMetadataRepairRun, counterfactualResolveDryRun, counterfactualResolveRun } from './learningSampleQuality.js';
+import { collectCounterfactualMaturityStatus, collectCounterfactualStatus, counterfactualMetadataRepairDryRun, counterfactualMetadataRepairRun, counterfactualResolveDryRun, counterfactualResolveDueDryRun, counterfactualResolveDueRun, counterfactualResolveRun } from './learningSampleQuality.js';
 import {
   recordCounterfactual, resolveCounterfactuals, getCounterfactualStats,
   loadCounterfactuals, recordCounterfactualCase,
@@ -142,6 +142,54 @@ describe('counterfactualShadow', () => {
     expect(resolved.labeled).toBe(1);
     expect(resolved.labelBreakdown.MISSED_WIN).toBe(1);
     expect(loadCounterfactuals()[0].labelSource).toBe('RECOVERED_TARGET_STOP');
+  });
+
+  it('Counterfactual Maturity Scheduler v1: resolves only matured cases and keeps waiting cases pending', () => {
+    const baseTime = new Date('2026-04-22T00:00:00Z');
+    recordCounterfactualCase({
+      stockCode: '111111', stockName: 'Matured', priceAtSignal: 100,
+      gateScore: 5, regime: 'R2_BULL', conditionKeys: [], skipReason: 'GATE_UNDER',
+      sourceCandidateId: 'matured-case', now: baseTime, maxHoldingMinutes: 1,
+    });
+    recordCounterfactualCase({
+      stockCode: '222222', stockName: 'Waiting', priceAtSignal: 100,
+      gateScore: 5, regime: 'R2_BULL', conditionKeys: [], skipReason: 'GATE_UNDER',
+      sourceCandidateId: 'waiting-case', now: baseTime, maxHoldingMinutes: 60,
+      hypotheticalTargetPrice: 106, hypotheticalStopPrice: 97,
+    });
+    const rows = loadCounterfactuals();
+    rows[0].pricePath = [{ at: '2026-04-22T00:02:00Z', price: 110, high: 110, low: 99 }];
+    rows[1].pricePath = [{ at: '2026-04-22T00:02:00Z', price: 110, high: 110, low: 99 }];
+    fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
+    counterfactualMetadataRepairRun(new Date('2026-04-22T00:10:00Z'));
+
+    const maturity = collectCounterfactualMaturityStatus(new Date('2026-04-22T00:10:00Z'));
+    expect(maturity.totalBuiltUnique).toBe(2);
+    expect(maturity.maturedNowCount).toBe(1);
+    expect(maturity.waitingCount).toBe(1);
+    expect(maturity.nearestMaturityAt).toBeTruthy();
+    expect(maturity.nextResolveAt).toBe('2026-04-22T00:10:00.000Z');
+    expect(new Date(maturity.nextRunAt!).getTime()).toBeGreaterThan(new Date('2026-04-22T00:10:00Z').getTime());
+    expect(maturity.resolverSchedulerRegistered).toBe(true);
+
+    const dueDry = counterfactualResolveDueDryRun(new Date('2026-04-22T00:10:00Z'));
+    expect(dueDry.scannedPending).toBe(2);
+    expect(dueDry.maturedNowCount).toBe(1);
+    expect(dueDry.resolvableNow).toBe(1);
+    expect(dueDry.expectedStillPending).toBe(1);
+    expect(dueDry.waitingForHoldingPeriod).toBe(1);
+
+    const dueRun = counterfactualResolveDueRun(new Date('2026-04-22T00:10:00Z'));
+    expect(dueRun.labeled).toBe(1);
+    expect(dueRun.stillPending).toBe(1);
+    expect(dueRun.labelBreakdown.MISSED_WIN).toBe(1);
+    const saved = loadCounterfactuals();
+    expect(saved.find((e) => e.stockCode === '111111')?.labelSource).toBe('RECOVERED_TARGET_STOP');
+    expect(saved.find((e) => e.stockCode === '111111')?.diagnosticOnly).toBe(true);
+    expect(saved.find((e) => e.stockCode === '222222')?.outcomeStatus).toBe('PENDING');
+    expect(dueRun.executionImpact).toBe('NONE');
+    expect(dueRun.brokerOrdersCreated).toBe(0);
+    expect(dueRun.promotionAllowed).toBe(false);
   });
 
   it('resolveCounterfactuals: 30일 경과 시 return30d 채움', async () => {
