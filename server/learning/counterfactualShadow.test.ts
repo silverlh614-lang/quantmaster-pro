@@ -1,21 +1,28 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'fs';
-import { COUNTERFACTUAL_FILE } from '../persistence/paths.js';
+import path from 'path';
+import { COUNTERFACTUAL_FILE, DATA_DIR } from '../persistence/paths.js';
 import { collectCounterfactualMaturityStatus, collectCounterfactualStatus, counterfactualMetadataRepairDryRun, counterfactualMetadataRepairRun, counterfactualResolveDryRun, counterfactualResolveDueDryRun, counterfactualResolveDueRun, counterfactualResolveRun } from './learningSampleQuality.js';
+import { COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE } from './learningStorage.js';
 import {
   recordCounterfactual, resolveCounterfactuals, getCounterfactualStats,
   loadCounterfactuals, recordCounterfactualCase,
 } from './counterfactualShadow.js';
 
 const _backup = fs.existsSync(COUNTERFACTUAL_FILE) ? fs.readFileSync(COUNTERFACTUAL_FILE, 'utf-8') : null;
+const SCHEDULER_FILE = path.join(DATA_DIR, COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE);
+const _schedulerBackup = fs.existsSync(SCHEDULER_FILE) ? fs.readFileSync(SCHEDULER_FILE, 'utf-8') : null;
 
 function reset() {
   if (fs.existsSync(COUNTERFACTUAL_FILE)) fs.unlinkSync(COUNTERFACTUAL_FILE);
+  if (fs.existsSync(SCHEDULER_FILE)) fs.unlinkSync(SCHEDULER_FILE);
 }
 
 afterAll(() => {
   if (_backup !== null) fs.writeFileSync(COUNTERFACTUAL_FILE, _backup);
   else if (fs.existsSync(COUNTERFACTUAL_FILE)) fs.unlinkSync(COUNTERFACTUAL_FILE);
+  if (_schedulerBackup !== null) fs.writeFileSync(SCHEDULER_FILE, _schedulerBackup);
+  else if (fs.existsSync(SCHEDULER_FILE)) fs.unlinkSync(SCHEDULER_FILE);
 });
 
 describe('counterfactualShadow', () => {
@@ -169,8 +176,10 @@ describe('counterfactualShadow', () => {
     expect(maturity.waitingCount).toBe(1);
     expect(maturity.nearestMaturityAt).toBeTruthy();
     expect(maturity.nextResolveAt).toBe('2026-04-22T00:10:00.000Z');
-    expect(new Date(maturity.nextRunAt!).getTime()).toBeGreaterThan(new Date('2026-04-22T00:10:00Z').getTime());
+    expect(new Date(maturity.nextRunAt!).getTime()).toBeGreaterThanOrEqual(new Date('2026-04-22T00:10:00Z').getTime());
     expect(maturity.resolverSchedulerRegistered).toBe(true);
+    expect(maturity.bucketSum).toBe(maturity.pendingOutcomeCount);
+    expect(maturity.bucketSumMatchesPending).toBe(true);
 
     const dueDry = counterfactualResolveDueDryRun(new Date('2026-04-22T00:10:00Z'));
     expect(dueDry.scannedPending).toBe(2);
@@ -204,6 +213,37 @@ describe('counterfactualShadow', () => {
     expect(res.resolved30d).toBe(1);
     const entries = loadCounterfactuals();
     expect(entries[0].return30d).toBeCloseTo(10, 1);
+  });
+
+  it('Counterfactual Maturity Bucket Accuracy v1: separates calendar buckets and validates scheduler staleness', () => {
+    const now = new Date('2026-05-16T00:00:00Z');
+    recordCounterfactualCase({
+      stockCode: '333333', stockName: 'EightDays', priceAtSignal: 100,
+      gateScore: 5, regime: 'R2_BULL', conditionKeys: [], skipReason: 'GATE_UNDER',
+      sourceCandidateId: 'eight-day-case', now, maxHoldingMinutes: 8 * 24 * 60,
+      hypotheticalTargetPrice: 106, hypotheticalStopPrice: 97,
+    });
+    const maturity = collectCounterfactualMaturityStatus(now);
+    expect(maturity.nearestMaturityAt).toBe('2026-05-24T00:00:00.000Z');
+    expect(maturity.remainingMinutesToNearestMaturity).toBe(8 * 24 * 60);
+    expect(maturity.remainingCalendarDaysToNearestMaturity).toBe(8);
+    expect(maturity.maturityTimeBasis).toBe('CALENDAR_MINUTES');
+    expect(maturity.maturityBucketBreakdown.dueIn2to3CalendarDays).toBe(0);
+    expect(maturity.maturityBucketBreakdown.dueIn8to14CalendarDays).toBe(1);
+    expect((maturity.maturityBucketBreakdown as Record<string, number>).dueIn2to3Days).toBeUndefined();
+    expect(maturity.maturityBucketTop).toBe('dueIn8to14CalendarDays');
+    expect(maturity.bucketSum).toBe(maturity.pendingOutcomeCount);
+    expect(maturity.bucketSumMatchesPending).toBe(true);
+    expect(maturity.executionImpact).toBe('NONE');
+    expect(maturity.brokerOrdersCreated).toBe(0);
+    expect(maturity.promotionAllowed).toBe(false);
+
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(SCHEDULER_FILE, JSON.stringify({ nextRunAt: '2026-05-15T00:00:00.000Z', schedulerStatus: 'SCHEDULED' }, null, 2));
+    const stale = collectCounterfactualMaturityStatus(now);
+    expect(stale.schedulerStatus).toBe('STALE');
+    expect(new Date(stale.nextRunAt!).getTime()).toBeGreaterThanOrEqual(now.getTime());
+    expect(stale.nextRunAt).toBe(stale.nearestMaturityAt);
   });
 
   it('getCounterfactualStats: 빈 데이터 → null', () => {

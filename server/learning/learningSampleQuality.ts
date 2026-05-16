@@ -2,6 +2,7 @@
 import fs from 'fs';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { scanTraceFile } from '../persistence/paths.js';
+import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { buildCounterfactualKey, recordCounterfactualCase, loadCounterfactuals, saveCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
 import { appendJson, readJson, writeJson, COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE, LEARNING_COHORT_BACKFILL_RUNS_FILE } from './learningStorage.js';
@@ -17,6 +18,7 @@ const COUNTERFACTUAL_DEFAULT_TARGET_RETURN_PCT = 6;
 const COUNTERFACTUAL_DEFAULT_STOP_RETURN_PCT = -3;
 const COUNTERFACTUAL_ATR_TARGET_MULTIPLE = 3;
 const COUNTERFACTUAL_ATR_STOP_MULTIPLE = 1.5;
+const MINUTES_PER_CALENDAR_DAY = 24 * 60;
 
 type MaybeEntry = { stockCode?: string; stockName?: string; priceAtSignal?: number; gateScore?: number; regime?: string; conditionKeys?: string[]; skipReason?: string; label?: CounterfactualLabel; signalTime?: string; signalDate?: string };
 
@@ -457,7 +459,18 @@ function pathTime(p: { at?: string; timestamp?: string }): number {
   return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
 }
 type CounterfactualMaturityStatus = 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
-type CounterfactualMaturityBucket = 'matured' | 'dueWithin1h' | 'dueToday' | 'dueNextTradingDay' | 'dueIn2to3Days' | 'overdue' | 'invalid';
+type CounterfactualMaturityBucket =
+  | 'matured'
+  | 'dueWithin1h'
+  | 'dueToday'
+  | 'dueNextTradingDay'
+  | 'dueIn2to3CalendarDays'
+  | 'dueIn4to7CalendarDays'
+  | 'dueIn8to14CalendarDays'
+  | 'dueAfter14CalendarDays'
+  | 'overdue'
+  | 'invalid';
+type CounterfactualMaturityTimeBasis = 'CALENDAR_MINUTES' | 'TRADING_MINUTES' | 'TRADING_DAYS' | 'CALENDAR_DAYS';
 function counterfactualMaxHoldingMinutes(e: CounterfactualEntry): number {
   const explicit = typeof e.maxHoldingMinutes === 'number' && Number.isFinite(e.maxHoldingMinutes) ? e.maxHoldingMinutes : undefined;
   if (explicit && explicit > 0) return explicit;
@@ -485,18 +498,78 @@ function counterfactualMaturity(e: CounterfactualEntry, now: Date) {
   return { createdAt, maxHoldingMinutes, maturityAt: new Date(maturityMs).toISOString(), currentAgeMinutes, remainingMinutesToMaturity, maturityStatus };
 }
 function emptyMaturityBuckets(): Record<CounterfactualMaturityBucket, number> {
-  return { matured: 0, dueWithin1h: 0, dueToday: 0, dueNextTradingDay: 0, dueIn2to3Days: 0, overdue: 0, invalid: 0 };
+  return {
+    matured: 0,
+    dueWithin1h: 0,
+    dueToday: 0,
+    dueNextTradingDay: 0,
+    dueIn2to3CalendarDays: 0,
+    dueIn4to7CalendarDays: 0,
+    dueIn8to14CalendarDays: 0,
+    dueAfter14CalendarDays: 0,
+    overdue: 0,
+    invalid: 0,
+  };
 }
-function maturityBucket(m: ReturnType<typeof counterfactualMaturity>): CounterfactualMaturityBucket {
+function addKstCalendarDays(dateKey: string, days: number): string {
+  const d = new Date(`${dateKey}T03:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return toKstDateKey(d);
+}
+function nextKrxTradingDayAfter(dateKey: string): string | undefined {
+  for (let i = 1; i <= 21; i++) {
+    const d = addKstCalendarDays(dateKey, i);
+    if (isKrxTradingDay(d)) return d;
+  }
+  return undefined;
+}
+function remainingCalendarDays(remainingMinutes: number | null): number | null {
+  return remainingMinutes === null ? null : Math.ceil(remainingMinutes / MINUTES_PER_CALENDAR_DAY);
+}
+function remainingTradingDaysTo(targetIso: string | undefined, now: Date): number | null {
+  if (!targetIso) return null;
+  const targetMs = new Date(targetIso).getTime();
+  if (!Number.isFinite(targetMs)) return null;
+  if (targetMs <= now.getTime()) return 0;
+  const startKey = toKstDateKey(now);
+  const targetKey = toKstDateKey(targetIso);
+  if (!startKey || !targetKey) return null;
+  let count = 0;
+  let cursor = startKey;
+  for (let i = 0; i <= 366 && cursor <= targetKey; i++) {
+    if (cursor !== startKey && isKrxTradingDay(cursor)) count++;
+    cursor = addKstCalendarDays(cursor, 1);
+  }
+  return count;
+}
+function maturityBucket(m: ReturnType<typeof counterfactualMaturity>, now: Date): CounterfactualMaturityBucket {
   if (m.maturityStatus === 'OVERDUE') return 'overdue';
   if (m.maturityStatus === 'MATURED') return 'matured';
   if (m.maturityStatus === 'INVALID_CREATED_AT' || m.maturityStatus === 'INVALID_MAX_HOLDING') return 'invalid';
   const remaining = m.remainingMinutesToMaturity ?? Number.POSITIVE_INFINITY;
   if (remaining <= 60) return 'dueWithin1h';
-  if (remaining <= 24 * 60) return 'dueToday';
-  if (remaining <= 48 * 60) return 'dueNextTradingDay';
-  if (remaining <= 72 * 60) return 'dueIn2to3Days';
-  return 'dueIn2to3Days';
+  const nowKey = toKstDateKey(now);
+  const maturityKey = m.maturityAt ? toKstDateKey(m.maturityAt) : '';
+  if (maturityKey && maturityKey === nowKey) return 'dueToday';
+  const nextTradingDay = nowKey ? nextKrxTradingDayAfter(nowKey) : undefined;
+  if (maturityKey && nextTradingDay && maturityKey === nextTradingDay) return 'dueNextTradingDay';
+  const days = remainingCalendarDays(m.remainingMinutesToMaturity) ?? Number.POSITIVE_INFINITY;
+  if (days <= 3) return 'dueIn2to3CalendarDays';
+  if (days <= 7) return 'dueIn4to7CalendarDays';
+  if (days <= 14) return 'dueIn8to14CalendarDays';
+  return 'dueAfter14CalendarDays';
+}
+function topMaturityBucket(buckets: Record<CounterfactualMaturityBucket, number>): string {
+  const top = Object.entries(buckets).sort((a, b) => b[1] - a[1])[0];
+  return top && top[1] > 0 ? top[0] : 'none';
+}
+function aggregateMaturityStatus(counts: { pendingOutcomeCount: number; maturedNowCount: number; waitingCount: number; overdueCount: number; invalidMaturityCount: number }): string {
+  if (counts.pendingOutcomeCount === 0) return 'EMPTY';
+  if (counts.invalidMaturityCount > 0) return 'INVALID_MATURITY';
+  if (counts.overdueCount > 0) return 'OVERDUE';
+  if (counts.maturedNowCount > 0) return 'MATURED_AVAILABLE';
+  if (counts.waitingCount > 0) return 'WAITING_FOR_HOLDING_PERIOD';
+  return 'UNKNOWN';
 }
 export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
   const all = normalizeCounterfactuals();
@@ -508,7 +581,7 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
   let maxHoldingMinutes = 0;
   for (const e of pending) {
     const m = counterfactualMaturity(e, now);
-    bucketBreakdown[maturityBucket(m)]++;
+    bucketBreakdown[maturityBucket(m, now)]++;
     oldestPendingAgeMinutes = Math.max(oldestPendingAgeMinutes, m.currentAgeMinutes);
     maxHoldingMinutes = Math.max(maxHoldingMinutes, m.maxHoldingMinutes);
     if (m.maturityStatus === 'MATURED') maturedNowCount++;
@@ -519,18 +592,34 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
   }
   const nextResolveAt = maturedNowCount > 0 ? now.toISOString() : nearestMaturityAt;
   const scheduler = collectCounterfactualResolverSchedulerStatus(now, { nextResolveAt });
+  const remainingMinutesToNearestMaturity = nearestMaturityAt
+    ? Math.max(0, Math.ceil((new Date(nearestMaturityAt).getTime() - now.getTime()) / 60000))
+    : null;
+  const remainingCalendarDaysToNearestMaturity = remainingCalendarDays(remainingMinutesToNearestMaturity);
+  const remainingTradingDaysToNearestMaturity = remainingTradingDaysTo(nearestMaturityAt, now);
+  const bucketSum = Object.values(bucketBreakdown).reduce((a, b) => a + b, 0);
+  const maturityStatus = aggregateMaturityStatus({ pendingOutcomeCount: pending.length, maturedNowCount, waitingCount, overdueCount, invalidMaturityCount });
   return {
+    now: now.toISOString(),
     totalBuiltUnique: all.length,
     pendingOutcomeCount: pending.length,
+    maturityStatus,
     maturedNowCount,
     waitingCount,
     overdueCount,
     invalidMaturityCount,
     oldestPendingAgeMinutes,
     nearestMaturityAt,
+    remainingMinutesToNearestMaturity,
+    remainingCalendarDaysToNearestMaturity,
+    remainingTradingDaysToNearestMaturity,
+    maturityTimeBasis: 'CALENDAR_MINUTES' as CounterfactualMaturityTimeBasis,
     nextResolveAt,
     maxHoldingMinutes,
     maturityBucketBreakdown: bucketBreakdown,
+    maturityBucketTop: topMaturityBucket(bucketBreakdown),
+    bucketSum,
+    bucketSumMatchesPending: bucketSum === pending.length,
     resolverSchedulerRegistered: scheduler.resolverSchedulerRegistered,
     lastRunAt: scheduler.lastRunAt,
     nextRunAt: scheduler.nextRunAt,
@@ -544,18 +633,26 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
 }
 function collectCounterfactualResolverSchedulerStatus(now: Date, options: { nextResolveAt?: string } = {}) {
   const state = readJson<{ lastRunAt?: string; nextRunAt?: string; lastRunLabeled?: number; lastRunStillPending?: number; schedulerStatus?: string }>(COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE, {});
+  const nowMs = now.getTime();
   const optionNextMs = options.nextResolveAt ? new Date(options.nextResolveAt).getTime() : NaN;
-  const fallbackNextRunAt = Number.isFinite(optionNextMs) && optionNextMs > now.getTime()
+  const fallbackNextRunAt = Number.isFinite(optionNextMs) && optionNextMs >= nowMs
     ? options.nextResolveAt!
-    : new Date(now.getTime() + 60 * 60000).toISOString();
-  const nextRunAt = state.nextRunAt && new Date(state.nextRunAt).getTime() > now.getTime() ? state.nextRunAt : fallbackNextRunAt;
+    : new Date(nowMs + 60 * 60000).toISOString();
+  const storedNextMs = state.nextRunAt ? new Date(state.nextRunAt).getTime() : NaN;
+  const storedNextIsPast = !!state.nextRunAt && (!Number.isFinite(storedNextMs) || storedNextMs < nowMs);
+  const nextRunAt = fallbackNextRunAt;
+  const schedulerStatus = storedNextIsPast
+    ? 'STALE'
+    : state.nextRunAt
+      ? 'SCHEDULED'
+      : (state.schedulerStatus === 'OK' ? 'SCHEDULED' : state.schedulerStatus ?? 'REGISTERED');
   return {
     resolverSchedulerRegistered: true,
     lastRunAt: state.lastRunAt,
     nextRunAt,
     lastRunLabeled: state.lastRunLabeled ?? 0,
     lastRunStillPending: state.lastRunStillPending ?? 0,
-    schedulerStatus: state.schedulerStatus ?? 'REGISTERED',
+    schedulerStatus,
   };
 }
 function saveCounterfactualResolverSchedulerStatus(now: Date, result: { labeled: number; stillPending: number }, nextRunAt?: string) {
@@ -565,7 +662,7 @@ function saveCounterfactualResolverSchedulerStatus(now: Date, result: { labeled:
     nextRunAt: nextRunAt ?? new Date(now.getTime() + 60 * 60000).toISOString(),
     lastRunLabeled: result.labeled,
     lastRunStillPending: result.stillPending,
-    schedulerStatus: 'OK',
+    schedulerStatus: 'SCHEDULED',
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
   });
@@ -713,7 +810,7 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
 export function formatCounterfactualBuild(s: ReturnType<typeof counterfactualBuildDryRun> | ReturnType<typeof counterfactualBuildRun> | ReturnType<typeof collectCounterfactualStatus>, title = 'counterfactual_build'): string { return [`🧪 ${title}`, `status=${s.status} candidateCount=${s.candidateCount} eligibleCount=${s.eligibleCount} buildEventCount=${s.buildEventCount}`, `builtUniqueCount=${s.builtUniqueCount} duplicateSuppressedCount=${s.duplicateSuppressedCount} duplicateSuppressionStatus=${s.duplicateSuppressionStatus}`, `labeledCount=${s.labeledCount} pendingOutcomeCount=${s.pendingOutcomeCount} dataInsufficientCount=${s.dataInsufficientCount} quarantinedCount=${s.quarantinedCount} expiredCount=${s.expiredCount} unresolvedCount=${s.unresolvedCount}`, `countInvariantValid=${s.countInvariantValid} metricWarnings=${JSON.stringify(s.metricWarnings)} metricInfos=${JSON.stringify(s.metricInfos)}`, `blocker=${s.blocker} executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
 export function formatCounterfactualResolve(s: ReturnType<typeof counterfactualResolveDryRun>, title = 'counterfactual_resolve'): string { return [`🧪 ${title}`, `resolverStatus=${s.resolverStatus} scannedBuiltUnique=${s.scannedBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount}`, `resolvableNow=${s.resolvableNow} waitingForHoldingPeriod=${s.waitingForHoldingPeriod} expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending}`, `missingEntryPrice=${s.missingEntryPrice} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice} missingPricePath=${s.missingPricePath} missingCreatedAt=${s.missingCreatedAt}`, `labeled=${s.labeled} stillPending=${s.stillPending} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n'); }
 export function formatCounterfactualMaturityStatus(s: ReturnType<typeof collectCounterfactualMaturityStatus>, title = 'counterfactual_maturity_status'): string {
-  return [`🧪 ${title}`, `totalBuiltUnique=${s.totalBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount} maturedNowCount=${s.maturedNowCount}`, `waitingCount=${s.waitingCount} overdueCount=${s.overdueCount} invalidMaturityCount=${s.invalidMaturityCount}`, `oldestPendingAgeMinutes=${s.oldestPendingAgeMinutes} nearestMaturityAt=${s.nearestMaturityAt ?? 'N/A'} nextResolveAt=${s.nextResolveAt ?? 'N/A'} maxHoldingMinutes=${s.maxHoldingMinutes}`, `maturityBucketBreakdown=${JSON.stringify(s.maturityBucketBreakdown)}`, `resolverSchedulerRegistered=${s.resolverSchedulerRegistered} lastRunAt=${s.lastRunAt ?? 'N/A'} nextRunAt=${s.nextRunAt ?? 'N/A'} lastRunLabeled=${s.lastRunLabeled} lastRunStillPending=${s.lastRunStillPending} schedulerStatus=${s.schedulerStatus}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
+  return [`🧪 ${title}`, `now=${s.now}`, `totalBuiltUnique=${s.totalBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount} maturityStatus=${s.maturityStatus} maturedNowCount=${s.maturedNowCount}`, `waitingCount=${s.waitingCount} overdueCount=${s.overdueCount} invalidMaturityCount=${s.invalidMaturityCount}`, `oldestPendingAgeMinutes=${s.oldestPendingAgeMinutes} nearestMaturityAt=${s.nearestMaturityAt ?? 'N/A'} remainingMinutesToNearestMaturity=${s.remainingMinutesToNearestMaturity ?? 'N/A'} remainingCalendarDaysToNearestMaturity=${s.remainingCalendarDaysToNearestMaturity ?? 'N/A'} remainingTradingDaysToNearestMaturity=${s.remainingTradingDaysToNearestMaturity ?? 'N/A'} maturityTimeBasis=${s.maturityTimeBasis}`, `nextResolveAt=${s.nextResolveAt ?? 'N/A'} maxHoldingMinutes=${s.maxHoldingMinutes} maturityBucketTop=${s.maturityBucketTop}`, `maturityBucketBreakdown=${JSON.stringify(s.maturityBucketBreakdown)}`, `bucketSum=${s.bucketSum} pendingOutcomeCount=${s.pendingOutcomeCount} bucketSumMatchesPending=${s.bucketSumMatchesPending}`, `resolverSchedulerRegistered=${s.resolverSchedulerRegistered} lastRunAt=${s.lastRunAt ?? 'N/A'} nextRunAt=${s.nextRunAt ?? 'N/A'} lastRunLabeled=${s.lastRunLabeled} lastRunStillPending=${s.lastRunStillPending} schedulerStatus=${s.schedulerStatus}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
 }
 export function formatCounterfactualDueResolve(s: ReturnType<typeof counterfactualResolveDueDryRun>, title = 'counterfactual_resolve_due'): string {
   return [`🧪 ${title}`, `scannedPending=${s.scannedPending} maturedNowCount=${s.maturedNowCount} resolvableNow=${s.resolvableNow}`, `expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending} waitingForHoldingPeriod=${s.waitingForHoldingPeriod}`, `missingPricePath=${s.missingPricePath} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined} invalidMaturityCount=${s.invalidMaturityCount}`, `labeled=${s.labeled} stillPending=${s.stillPending}`, `expectedLabelBreakdown=${JSON.stringify(s.expectedLabelBreakdown)}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
