@@ -376,7 +376,7 @@ describe('/supply_health command', () => {
     expect(msg).toContain('lamp: GRAY');
     expect(msg).toContain('success: N/A');
     expect(msg).toContain('missing: N/A');
-    expect(msg).toContain('scoring=excluded_afterhours');
+    expect(msg).toContain('scoring=excluded_non_trading_day');
     expect(msg).toContain('reason: STOCK_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED');
     expect(msg).toContain('reason: MARKET_PROGRAM_INTRADAY_ONLY_SESSION_CLOSED');
     expect(msg).toContain('providerIssue=false');
