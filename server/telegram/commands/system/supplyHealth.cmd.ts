@@ -9,6 +9,7 @@
 
 import fs from 'fs';
 import { fetchKisMarketProgramTrade, fetchKisStockProgramTrade } from '../../../clients/kisClient/index.js';
+import { isKrxTradingDay } from '../../../calendar/krxTradingCalendar.js';
 import { diagnoseKisMarketProgramRaw, diagnoseKisStockProgramRaw, formatKisRawSupplyDiagnostic } from '../../../clients/kisClient/supplyDiagnostics.js';
 // Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004 — 7-state classifier + KRX/CACHE fallback + Provider Coverage Map SSOT.
 import {
@@ -66,7 +67,7 @@ const ZERO_FILLED_MIN_COUNT = 3;
 const ZERO_FILLED_RATIO_WARN = 0.8;
 const ATTEMPT_REASON_MAX_LEN = 110;
 const PROGRAM_TRADING_SESSION_CLOSED_LOG_COOLDOWN_MS = 5 * 60 * 1000;
-const programTradingSessionClosedLastLog = new Map<'STOCK' | 'MARKET', number>();
+let programTradingSessionGuardLastLog = 0;
 
 // ADR-0421 — DATA_UNAVAILABLE 추가 (NEUTRAL 은 real-data + weak-direction 영역만 보존).
 type Marker = 'OK' | 'STALE' | 'DEGRADED' | 'MISSING' | 'NEUTRAL' | 'DATA_UNAVAILABLE' | 'N/A';
@@ -90,18 +91,30 @@ interface KisOfficialSupplyPackLoad {
 let cache: { message: string; builtAt: number; mode: 'LEGACY' | 'KIS_ONLY_REBUILD' } | null = null;
 
 
-function logProgramTradingSessionClosed(scope: 'STOCK' | 'MARKET', nowMs: number): void {
-  const last = programTradingSessionClosedLastLog.get(scope) ?? 0;
-  if (nowMs - last < PROGRAM_TRADING_SESSION_CLOSED_LOG_COOLDOWN_MS) return;
-  programTradingSessionClosedLastLog.set(scope, nowMs);
+function logProgramTradingSessionGuardSummary(scopes: readonly ('STOCK' | 'MARKET')[], nowMs: number): void {
+  if (scopes.length === 0) return;
+  if (nowMs - programTradingSessionGuardLastLog < PROGRAM_TRADING_SESSION_CLOSED_LOG_COOLDOWN_MS) return;
+  programTradingSessionGuardLastLog = nowMs;
+  const sessionState = resolveProgramTradingSessionState(nowMs);
+  const reason = sessionState === 'NON_TRADING_DAY' ? ' reason=KRX_NON_TRADING_DAY' : '';
+  const scoring = sessionState === 'NON_TRADING_DAY' ? 'excluded_non_trading_day' : 'excluded_afterhours';
   console.info(
-    `[PROGRAM_TRADING_SESSION_CLOSED] scope=${scope} sessionState=CLOSED status=SESSION_CLOSED scoring=excluded_afterhours action=observe providerIssue=false marketSignal=false executionImpact=NONE`,
+    `[PROGRAM_SESSION_GUARD_SUMMARY] sessionState=${sessionState} scopes=[${scopes.join(',')}] ` +
+      `status=SESSION_CLOSED${reason} scoring=${scoring} providerIssue=false marketSignal=false ` +
+      `executionImpact=NONE detailsSuppressed=${scopes.length}`,
   );
 }
 
+function resolveProgramTradingSessionState(nowMs: number): 'CLOSED' | 'NON_TRADING_DAY' {
+  const kstDate = new Date(nowMs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return isKrxTradingDay(kstDate) ? 'CLOSED' : 'NON_TRADING_DAY';
+}
+
 function buildProgramTradingSessionClosedStatus(scope: 'STOCK' | 'MARKET', source: 'KIS_API' | 'NONE', nowMs: number): ChannelStatus {
-  logProgramTradingSessionClosed(scope, nowMs);
   const isStock = scope === 'STOCK';
+  const scoring = resolveProgramTradingSessionState(nowMs) === 'NON_TRADING_DAY'
+    ? 'excluded_non_trading_day'
+    : 'excluded_afterhours';
   return {
     key: isStock ? 'stockProgram' : 'marketProgram',
     title: isStock ? '종목 프로그램매매' : '시장 프로그램매매',
@@ -113,7 +126,7 @@ function buildProgramTradingSessionClosedStatus(scope: 'STOCK' | 'MARKET', sourc
       'success: N/A',
       'missing: N/A',
       'zero-filled 의심: N/A',
-      'scoring=excluded_afterhours',
+      `scoring=${scoring}`,
       'providerIssue=false',
       'marketSignal=false',
       'executionImpact=NONE',
@@ -1146,12 +1159,21 @@ async function collectSupplyHealthChannels(now: Date): Promise<{ channels: Chann
   const targets = selectTopWatchlist(TOP_N);
   const macro = loadMacroStateReadOnly();
   const kis = await loadKisOfficialSupplyPackForSupplyHealth(targets);
+  const investorFlow = await diagnoseInvestorFlow(targets, now, nowMs);
+  const kisOfficialPack = diagnoseLoadedKisOfficialSupplyPack(kis);
+  const stockProgram = await diagnoseStockProgram(targets, nowMs);
+  const marketProgram = await diagnoseMarketProgram(macro, nowMs);
+  const sessionClosedProgramScopes = [
+    stockProgram.lines.some((line) => line.includes('status: SESSION_CLOSED')) ? 'STOCK' as const : null,
+    marketProgram.lines.some((line) => line.includes('status: SESSION_CLOSED')) ? 'MARKET' as const : null,
+  ].filter((scope): scope is 'STOCK' | 'MARKET' => scope !== null);
+  logProgramTradingSessionGuardSummary(sessionClosedProgramScopes, nowMs);
   return {
     channels: [
-      await diagnoseInvestorFlow(targets, now, nowMs),
-      diagnoseLoadedKisOfficialSupplyPack(kis),
-      await diagnoseStockProgram(targets),
-      await diagnoseMarketProgram(macro, nowMs),
+      investorFlow,
+      kisOfficialPack,
+      stockProgram,
+      marketProgram,
       diagnoseFss(macro, nowMs, kis.pack),
       await diagnoseShort(macro, nowMs, kis.pack),
       diagnoseForeignerRatio(targets, nowMs, kis.pack),

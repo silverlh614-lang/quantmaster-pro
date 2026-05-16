@@ -1,7 +1,16 @@
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent';
 export type LogVisibility = 'ALWAYS' | 'SUMMARY' | 'DIAGNOSTIC' | 'TRACE' | 'SILENT_BY_DEFAULT';
 export type LogVerbosity = 'summary' | 'diagnostic' | 'trace';
-export type TraceCategory = 'SUPPLY' | 'GATE' | 'PROGRAM' | 'KIS' | 'KRX' | 'SCHEDULER' | 'BOOT';
+export type TraceCategory =
+  | 'SUPPLY'
+  | 'GATE'
+  | 'PROGRAM'
+  | 'KIS'
+  | 'KRX'
+  | 'SCHEDULER'
+  | 'BOOT'
+  | 'WATCHLIST'
+  | 'KELLY';
 
 export interface TraceRecord {
   traceId: string;

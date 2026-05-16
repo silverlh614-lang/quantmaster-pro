@@ -42,6 +42,7 @@ import {
   fetchKrxIntradayProgramTradeAggregate,
   isKrxIntradayMarketProgramEnabled,
 } from './intradayProgramTradeFetcher.js';
+import { logVisibilityEvent } from '../../utils/logger.js';
 
 /** Patch-006 patch identifier (static grep guard SSOT). */
 export const PATCH_006_IDENTIFIER = 'Patch-MARKET-PROGRAM-TRADING-FALLBACK-RECOVERY-006';
@@ -317,9 +318,18 @@ export async function routeProgramMarketEmptyWithKrxAggregate(
   }
 
   if (!intradaySession) {
-    console.info(
-      `[PROGRAM_TRADING_SESSION_CLOSED] scope=MARKET sessionState=CLOSED status=SESSION_CLOSED scoring=excluded_afterhours action=observe providerIssue=false marketSignal=false executionImpact=NONE reason=${rawZeroReason ?? 'EMPTY'} fallbackAttempted=false`,
-    );
+    logVisibilityEvent({
+      visibility: 'DIAGNOSTIC',
+      category: 'PROGRAM',
+      message:
+        `[PROGRAM_TRADING_SESSION_CLOSED] scope=MARKET sessionState=CLOSED status=SESSION_CLOSED ` +
+        `scoring=excluded_afterhours action=observe providerIssue=false marketSignal=false ` +
+        `executionImpact=NONE reason=${rawZeroReason ?? 'EMPTY'} fallbackAttempted=false`,
+      summary: { scope: 'MARKET', status: 'SESSION_CLOSED', executionImpact: 'NONE' },
+      details: { rawZeroReason: rawZeroReason ?? 'EMPTY', fallbackAttempted: false },
+      level: 'info',
+      executionImpact: 'NONE',
+    });
     return {
       routedStatus: 'SESSION_CLOSED',
       source: 'NONE',

@@ -89,7 +89,7 @@ function parseCommandVerbosity(args: string[]): LogVerbosity | undefined {
 
 function logFullStart(preview: NormalSupplyPreview): void {
   logVisibilityEvent({
-    visibility: 'SUMMARY',
+    visibility: 'DIAGNOSTIC',
     category: 'SUPPLY',
     sourceCommand: '/normal_supply_preview',
     message: `[NORMAL_SUPPLY_PREVIEW_FULL_START] ` +
@@ -109,7 +109,7 @@ function logFullDone(preview: NormalSupplyPreview, pages: number): void {
     preview.signalSourceSplit.bullishFromProviderIssue +
     preview.signalSourceSplit.accumulatingFromProviderIssue;
   logVisibilityEvent({
-    visibility: 'SUMMARY',
+    visibility: 'DIAGNOSTIC',
     category: 'SUPPLY',
     sourceCommand: '/normal_supply_preview',
     message: `[NORMAL_SUPPLY_PREVIEW_FULL_DONE] ` +

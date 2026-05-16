@@ -1,5 +1,5 @@
 // @responsibility buyList candidates per-symbol investor-flow context hydration
-import { logger } from '../../utils/logger.js';
+import { createTraceId, logger, logVisibilityEvent } from '../../utils/logger.js';
 import { fetchInvestorFlowWithPolicy, type InvestorFlowRouteResult } from '../../supply/investorFlowRouter.js';
 import type { SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
 
@@ -399,7 +399,35 @@ function buildStats(
 }
 
 function logStats(stats: PerSymbolSupplyInjectionStats): void {
-  logger.info('[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION]', stats);
+  const traceId = createTraceId('supply_context');
+  logVisibilityEvent({
+    visibility: 'DIAGNOSTIC',
+    category: 'SUPPLY',
+    sourceCommand: '/scan',
+    traceId,
+    message:
+      `[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION_SUMMARY] ` +
+      `totalCandidates=${stats.totalCandidates} requestedSymbols=${stats.requestedSymbols} ` +
+      `receivedResults=${stats.receivedResults} injected=${stats.injected} verified=${stats.verified} ` +
+      `degraded=${stats.degraded} stale=${stats.stale} missing=${stats.missing} unknown=${stats.unknown} ` +
+      `routerConnected=${stats.routerConnected} gateContextConnected=${stats.gateContextConnected} ` +
+      `executionImpact=NONE traceId=${traceId}`,
+    summary: { ...stats, executionImpact: 'NONE' },
+    details: { stats },
+    level: 'info',
+    executionImpact: 'NONE',
+  });
+  logVisibilityEvent({
+    visibility: 'TRACE',
+    category: 'SUPPLY',
+    sourceCommand: '/scan',
+    traceId,
+    message: `[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION] traceId=${traceId} payloadHidden=true executionImpact=NONE`,
+    summary: { totalCandidates: stats.totalCandidates, injected: stats.injected, verified: stats.verified, executionImpact: 'NONE' },
+    details: { stats },
+    level: 'info',
+    executionImpact: 'NONE',
+  });
   logger.info(
     `[AutoTrade/SupplyHealth] preflight context investor-flow connected ` +
       `buyList=${stats.totalCandidates} VERIFIED=${stats.verified} DEGRADED=${stats.degraded} ` +

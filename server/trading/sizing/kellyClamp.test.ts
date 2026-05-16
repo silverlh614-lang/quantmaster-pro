@@ -103,7 +103,7 @@ describe('ADR-0168 §3 호출자 정합 정적 가드 — drift 차단', () => {
   });
 
   it('preflight.ts — applyKellyClamp import 보유', () => {
-    const src = readSrc('server/trading/signalScanner/preflight.ts');
+    const src = readSrc('server/trading/signalScanner/kellyPolicyBlock.ts');
     expect(src).toMatch(/import\s+\{[^}]*\bapplyKellyClamp\b[^}]*\}\s+from\s+['"]\.\.\/sizing\/kellyClamp\.js['"]/);
   });
 
@@ -114,7 +114,8 @@ describe('ADR-0168 §3 호출자 정합 정적 가드 — drift 차단', () => {
 
   it('preflight.ts — kellyMultiplier 산출에 applyKellyClamp 사용', () => {
     const src = readSrc('server/trading/signalScanner/preflight.ts');
-    expect(src).toContain('const kellyMultiplier = applyKellyClamp(rawKelly);');
+    expect(src).toContain('const kellyResult = computeEffectiveKelly({');
+    expect(src).toContain('let kellyMultiplier = kellyResult.effectiveKelly;');
   });
 
   it('signalScanner.ts — 매직 넘버 1.5 직접 clamp 패턴 부재', () => {
@@ -139,7 +140,8 @@ describe('ADR-0168 §3 호출자 정합 정적 가드 — drift 차단', () => {
 
   it('진단 로그 형식 보존 — preflight.ts (KELLY_FLOOR 노출 보존, signalScanner.ts 는 분해 후 진단 로그 부재)', () => {
     const src = readSrc('server/trading/signalScanner/preflight.ts');
-    expect(src).toContain('rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}`');
+    expect(src).toContain('formatKellyPolicyBlockedLog');
+    expect(src).not.toContain('rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}`');
   });
 
   it('signalScanner.ts — KELLY_FLOOR 진단 로그 부재 (preflight 단일 위치, drift 차단)', () => {

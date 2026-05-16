@@ -304,18 +304,20 @@ describe("E. buildWatchlistSaturationMessage — severity 별 메시지", () => 
 
 // ── F. 진단 로그 ────────────────────────────────────────────────────────────
 describe("F. 진단 로그 — sent / suppressed / status", () => {
-  it("formatWatchlistSaturationSentLog → [WATCHLIST_SATURATION_ALERT_SENT] + 불변식 표기", () => {
+  it("formatWatchlistSaturationSentLog → advisory/block log names + 불변식 표기", () => {
     const log = formatWatchlistSaturationSentLog(
       classifyWatchlistSaturation(input(45))!,
       "COOLDOWN_EXPIRED",
     );
-    expect(log).toContain("[WATCHLIST_SATURATION_ALERT_SENT]");
+    expect(log).toContain("[WATCHLIST_SATURATION_ADVISORY]");
+    expect(log).not.toContain("[WATCHLIST_SATURATION_ALERT_SENT]");
     expect(log).toContain("section=MOMENTUM");
     expect(log).toContain("severity=WARNING");
     expect(log).toContain("reason=COOLDOWN_EXPIRED");
     expect(log).toContain("executionImpact=NONE");
     expect(log).toContain("marketSignal=false");
     expect(log).toContain("dataVacuum=false");
+    expect(log).toContain("liveEntryBlocked=false");
     expect(log).toContain("newBuyBlocked=false");
   });
 

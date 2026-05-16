@@ -42,7 +42,6 @@ import { getKellyMultiplier as getIpsKellyMultiplier } from '../kellyDampener.js
 import { computeBiasPositionPenalty } from '../../learning/biasPositionPenalty.js';
 import { computeSafetyGatePolicyFeedback } from '../../learning/safetyGatePolicyFeedback.js';
 import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from '../regimeFomcCombiner.js';
-import { applyKellyClamp, KELLY_FLOOR } from '../sizing/kellyClamp.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -50,7 +49,13 @@ import { evaluateR3CountableScan } from './r3StreakSkipPolicy.js';
 import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../../persistence/conditionWeightsRepo.js';
 import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learningFreshnessGuard.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
-import { formatPreScanSkippedLog, normalizeMacroRegime, resolveMarketSessionState } from '../entryPolicySemantics.js';
+import {
+  formatPreScanSkippedLog,
+  normalizeMacroRegime,
+  resolveMarketSessionState,
+  type EntryBlockReason,
+  type ExecutionMode,
+} from '../entryPolicySemantics.js';
 import type { RunAutoSignalScanOptions } from './index.js';
 import { buildMacroGateState } from './scanDiagnostics.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
@@ -60,6 +65,7 @@ import {
   recordPreflightBlockedScan,
   recordPreflightUniverseLearningSnapshot,
 } from './preflightLearningRecorder.js';
+import { computeEffectiveKelly, formatKellyPolicyBlockedLog } from './kellyPolicyBlock.js';
 
 export function getAccountScaleKellyMultiplier(totalAssets: number): number {
   if (totalAssets >= 300_000_000) return 1.15;
@@ -141,6 +147,35 @@ function appendLiveEntryBlockReason(current: string | undefined, reason: string)
   if (!current) return reason;
   const parts = current.split(',').map((part) => part.trim()).filter(Boolean);
   return parts.includes(reason) ? current : `${current},${reason}`;
+}
+
+function parseEntryBlockReasons(reason: string | undefined): EntryBlockReason[] {
+  if (!reason) return [];
+  const allowed = new Set<EntryBlockReason>([
+    'R6_DEFENSE',
+    'POSITION_FULL',
+    'SELL_ONLY',
+    'SHADOW_ONLY',
+    'OBSERVE_ONLY',
+    'KRX_NON_TRADING_DAY',
+    'MARKET_CLOSED',
+    'PROVIDER_BLOCKING',
+    'DATA_CONFIDENCE_LOW',
+    'RISK_LIMIT',
+  ]);
+  return reason
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part): part is EntryBlockReason => allowed.has(part as EntryBlockReason));
+}
+
+function resolvePreflightExecutionMode(input: {
+  sellOnly: boolean;
+  diagnosticLiveBlock: boolean;
+}): ExecutionMode {
+  if (input.sellOnly) return 'SELL_ONLY';
+  if (input.diagnosticLiveBlock) return 'SHADOW_ONLY';
+  return 'NORMAL';
 }
 
 function applyMacroDiagnosticRegimeConfig(regimeConfig: any): any {
@@ -508,6 +543,30 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating, fomcProximity }) };
   }
 
+  const volumeClock = checkVolumeClockWindow();
+  const todayKstDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayIsKrxTradingDay = isKrxTradingDay(todayKstDate);
+  const r3Countability = evaluateR3CountableScan({
+    todayKstDate,
+    isKrxTradingDay: todayIsKrxTradingDay,
+    volumeClockAllowsEntry: volumeClock.allowEntry,
+    emergencyStop: getEmergencyStop(),
+    manualBlockNewBuy,
+    manualManageOnly,
+    sellOnlyMode: optSellOnly === true,
+    regime: regime ?? 'UNKNOWN',
+    bearDefenseMode: false,
+    vixGatingActive: vixGating.noNewEntry,
+    fomcBlockActive: fomcProximity.noNewEntry,
+    dataStarvedScan: false,
+    frozenQuoteDataQuality: 'OK',
+  });
+  const resolvedMarketSessionState = resolveMarketSessionState({
+    skipReason: r3Countability.skipReason,
+    isKrxTradingDay: todayIsKrxTradingDay,
+    volumeClockAllowsEntry: volumeClock.allowEntry,
+  });
+
   const ipsKelly = getIpsKellyMultiplier();
   const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
   const biasPositionPenalty = computeBiasPositionPenalty();
@@ -529,17 +588,50 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   );
   const regimeFomcCombined = combineRegimeAndFomcKelly(regimeConfig.kellyMultiplier, effectiveFomcKelly, fomcProximity.phase, regime);
   
-  const rawKelly = regimeFomcCombined.value * effectiveVixKelly * ipsKelly * exceptionKellyFactor * accountKellyMultiplier * biasMultiplier * safetyGateMultiplier;
-  const kellyMultiplier = applyKellyClamp(rawKelly);
+  const liveEntryAllowedForKelly =
+    !liveEntryBlockedReason &&
+    optSellOnly !== true &&
+    volumeClock.allowEntry === true &&
+    resolvedMarketSessionState === 'OPEN';
+  const executionModeForKelly = resolvePreflightExecutionMode({
+    sellOnly: optSellOnly === true,
+    diagnosticLiveBlock: Boolean(liveEntryBlockedReason),
+  });
+  const kellyResult = computeEffectiveKelly({
+    baseKelly: regimeFomcCombined.value,
+    vixMultiplier: effectiveVixKelly,
+    ipsMultiplier: ipsKelly,
+    exceptionKellyFactor,
+    accountMultiplier: accountKellyMultiplier,
+    biasMultiplier,
+    safetyGateMultiplier,
+    liveEntryAllowed: liveEntryAllowedForKelly,
+    macroRegime: normalizeMacroRegime(regime),
+    executionMode: executionModeForKelly,
+    marketSessionState: resolvedMarketSessionState,
+    blockReasons: parseEntryBlockReasons(liveEntryBlockedReason),
+    executionImpact: 'NONE',
+  });
+  let rawKelly = kellyResult.rawKelly;
+  let kellyMultiplier = kellyResult.effectiveKelly;
   
   if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
   if (vixGating.kellyMultiplier < 1) console.log(`[AutoTrade] VIX 게이팅 적용 — ${vixGating.reason}`);
   if (fomcProximity.kellyMultiplier !== 1) console.log(`[AutoTrade] FOMC 게이팅 적용 — ${fomcProximity.description}`);
   if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied — x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
   if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied — x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
-  if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
+  if (kellyResult.blockedByPolicy) {
+    console.info(formatKellyPolicyBlockedLog({
+      macroRegime: normalizeMacroRegime(regime),
+      executionMode: executionModeForKelly,
+      marketSessionState: resolvedMarketSessionState,
+      liveEntryAllowed: false,
+      shadowLearningAllowed: true,
+      result: kellyResult,
+    }));
+  } else if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
-      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × VIX(×${effectiveVixKelly.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}${rawKelly < KELLY_FLOOR ? ` → floor ×${KELLY_FLOOR}` : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
+      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × VIX(×${effectiveVixKelly.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' → floor applied' : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
     );
   }
 
@@ -554,6 +646,34 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     ? appendLiveEntryBlockReason(liveEntryBlockedReason, 'POSITION_FULL')
     : liveEntryBlockedReason;
   const diagnosticOnlyLiveBlock = Boolean(liveEntryBlockReason);
+  if (slotResult.isFull && kellyMultiplier !== 0) {
+    const positionFullKellyResult = computeEffectiveKelly({
+      baseKelly: regimeFomcCombined.value,
+      vixMultiplier: effectiveVixKelly,
+      ipsMultiplier: ipsKelly,
+      exceptionKellyFactor,
+      accountMultiplier: accountKellyMultiplier,
+      biasMultiplier,
+      safetyGateMultiplier,
+      liveEntryAllowed: false,
+      macroRegime: normalizeMacroRegime(regime),
+      executionMode: executionModeForKelly,
+      marketSessionState: resolvedMarketSessionState,
+      positionFull: true,
+      blockReasons: parseEntryBlockReasons(liveEntryBlockReason),
+      executionImpact: 'NONE',
+    });
+    rawKelly = positionFullKellyResult.rawKelly;
+    kellyMultiplier = positionFullKellyResult.effectiveKelly;
+    console.info(formatKellyPolicyBlockedLog({
+      macroRegime: normalizeMacroRegime(regime),
+      executionMode: executionModeForKelly,
+      marketSessionState: resolvedMarketSessionState,
+      liveEntryAllowed: false,
+      shadowLearningAllowed: true,
+      result: positionFullKellyResult,
+    }));
+  }
   if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT !== 'true') {
     console.log(`[AutoTrade] POSITION_FULL live entry blocked, diagnostic buyList/gate loop kept (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, regime=${regime}, raw=${slotResult.rawCount})`);
     await recordBlockedDayShadowScan('POSITION_FULL');
@@ -591,7 +711,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     };
   }
 
-  const volumeClock = checkVolumeClockWindow();
   const macroGateState = buildMacroGateState({
     emergencyStop: getEmergencyStop(),
     autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
@@ -640,28 +759,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   //   evaluateR3CountableScan 은 이런 거시 차단일을 R3 streak 누적에서 제외하는 안전망이다.
   // ADR-0401: 영속 latch 와 무관, streak repo 의 24h decay 로 자연 회복.
   // HARD_BLOCK latch (영속, ADR-0120) 는 라인 ~173 에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
-  const todayKstDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const todayIsKrxTradingDay = isKrxTradingDay(todayKstDate);
-  const r3Countability = evaluateR3CountableScan({
-    todayKstDate,
-    isKrxTradingDay: todayIsKrxTradingDay,
-    volumeClockAllowsEntry: volumeClock.allowEntry,
-    emergencyStop: getEmergencyStop(),
-    manualBlockNewBuy,
-    manualManageOnly,
-    sellOnlyMode: optSellOnly === true,
-    regime: regime ?? 'UNKNOWN',
-    bearDefenseMode: false,
-    vixGatingActive: vixGating.noNewEntry,
-    fomcBlockActive: fomcProximity.noNewEntry,
-    dataStarvedScan: false,
-    frozenQuoteDataQuality: 'OK',
-  });
-  const resolvedMarketSessionState = resolveMarketSessionState({
-    skipReason: r3Countability.skipReason,
-    isKrxTradingDay: todayIsKrxTradingDay,
-    volumeClockAllowsEntry: volumeClock.allowEntry,
-  });
   if (r3Countability.countable) {
     const effectiveStreak = getEffectiveR3ViolationStreak();
     if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
@@ -720,7 +817,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   } else {
     // ADR-0419: 비정상 컨텍스트 — SHADOW_ONLY pre-scan 자체 차단 (사용자 명시 절대 원칙).
     // R6/VIX/FOMC 진단일은 buyList/gate 진단을 계속하되 R3 streak 산정에서 제외한다.
-    console.warn(formatPreScanSkippedLog({
+    console.info(formatPreScanSkippedLog({
       macroRegime: normalizeMacroRegime(regime ?? macroState?.regime ?? 'R2_NEUTRAL'),
       executionMode: 'SHADOW_ONLY',
       marketSessionState: resolvedMarketSessionState,

@@ -395,14 +395,27 @@ export function formatWatchlistSaturationSentLog(
   c: WatchlistSaturationClassification,
   emitReason: WatchlistSaturationEmitReason,
 ): string {
+  const hardLimitReached = c.count >= c.hardCap;
+  const logName = c.newBuyBlocked
+    ? 'WATCHLIST_ENTRY_BLOCKED'
+    : c.watchlistIntakeBlocked
+      ? 'WATCHLIST_INTAKE_BLOCKED'
+      : 'WATCHLIST_SATURATION_ADVISORY';
+  const action = c.newBuyBlocked
+    ? 'block_new_entry'
+    : c.watchlistIntakeBlocked
+      ? 'block_watchlist_intake'
+      : c.action;
+  const executionImpact = c.newBuyBlocked ? 'NEW_BUY_BLOCKED_ONLY' : 'NONE';
   return (
-    `[WATCHLIST_SATURATION_ALERT_SENT] section=${c.section} count=${c.count} ` +
-    `severity=${c.severity} action=${c.action} reason=${emitReason} ` +
+    `[${logName}] section=${c.section} count=${c.count} ` +
+    `severity=${c.severity} action=${action} reason=${emitReason} ` +
     `autoCount=${c.autoCount} manualCount=${c.manualCount} autoRatio=${c.autoRatio.toFixed(2)} ` +
+    `softLimitApproaching=${c.count >= c.alertCap} hardLimitReached=${hardLimitReached} ` +
     `remainingToHard=${c.remainingToHard} cleanupTriggered=${c.cleanupTriggered} ` +
     `watchlistIntakeBlocked=${c.watchlistIntakeBlocked} ` +
-    `executionImpact=NONE marketSignal=false providerIssue=false dataVacuum=false ` +
-    `newBuyBlocked=false kisImpact=NONE`
+    `liveEntryBlocked=${c.newBuyBlocked} executionImpact=${executionImpact} ` +
+    `marketSignal=false providerIssue=false dataVacuum=false newBuyBlocked=${c.newBuyBlocked} kisImpact=NONE`
   );
 }
 

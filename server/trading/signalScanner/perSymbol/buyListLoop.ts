@@ -201,9 +201,54 @@ import {
 } from '../../../persistence/gateReclassificationDryRunRepo.js';
 import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
 import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from '../gateConditionResultTrace.js';
+import { normalizeMacroRegime } from '../../entryPolicySemantics.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+}
+
+interface EntryRevalidationSkippedBatchItem {
+  symbol: string;
+  score?: number;
+  reasons: string[];
+}
+
+function flushEntryRevalidationSkippedSummary(
+  items: readonly EntryRevalidationSkippedBatchItem[],
+  ctx: BuyListLoopContext,
+): void {
+  if (items.length === 0) return;
+  const scores = items
+    .map((item) => item.score)
+    .filter((score): score is number => typeof score === 'number' && Number.isFinite(score));
+  const scoreRange = scores.length > 0
+    ? `${Math.min(...scores).toFixed(1)}~${Math.max(...scores).toFixed(1)}`
+    : 'N/A';
+  const reasons = [...new Set(items.flatMap((item) => item.reasons).filter(Boolean))];
+  const symbols = items.map((item) => item.symbol).slice(0, 10).join(',');
+  const detailsSuppressed = Math.max(0, items.length - 10);
+  logVisibilityEvent({
+    visibility: 'SUMMARY',
+    category: 'GATE',
+    sourceCommand: '/scan',
+    message:
+      `[ENTRY_REVALIDATION_SKIPPED_SUMMARY] count=${items.length} ` +
+      `macroRegime=${normalizeMacroRegime(ctx.regime)} executionMode=SHADOW_ONLY ` +
+      `marketSessionState=${ctx.resolvedMarketSessionState ?? 'UNKNOWN'} ` +
+      `liveEntryAllowed=false shadowLearningAllowed=true ` +
+      `blockReasons=[${reasons.length > 0 ? reasons.join(', ') : 'NONE'}] ` +
+      `symbols=${symbols}${detailsSuppressed > 0 ? ` detailsSuppressed=${detailsSuppressed}` : ''} ` +
+      `scoreRange=${scoreRange} requiredGateScore=N/A executionImpact=NONE`,
+    summary: {
+      count: items.length,
+      marketSessionState: ctx.resolvedMarketSessionState ?? 'UNKNOWN',
+      scoreRange,
+      executionImpact: 'NONE',
+    },
+    details: { items },
+    level: 'info',
+    executionImpact: 'NONE',
+  });
 }
 
 function recordSupplyHealthLearningSample(params: {
@@ -379,6 +424,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   // LIVE 모드 호출 site 도 동일 propagate 하나 buyPipeline 측 guard 가 SHADOW 분기에서만 발동.
   const _shadowApprovalCtx = deriveShadowApprovalContext();
   let diagnosticLiveBlockLogged = false;
+  const entryRevalidationSkippedBatch: EntryRevalidationSkippedBatchItem[] = [];
   for (const stock of ctx.buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
     // LIVE 모드 스캔 중에도 MOMENTUM 후보는 실 자본을 쓰지 않고 학습 표본만 남긴다.
@@ -2068,8 +2114,16 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         sectorBoostReason,
       });
       if (!revalResult.proceed) {
+        const policySkipped = revalResult.stageLogValue === 'SKIPPED_POLICY_BLOCK';
+        if (policySkipped) {
+          entryRevalidationSkippedBatch.push({
+            symbol: stock.name,
+            score: reCheckGate?.gateScore,
+            reasons: revalResult.failReasons,
+          });
+        }
         logVisibilityEvent({
-          visibility: revalResult.stageLogValue === 'SKIPPED_POLICY_BLOCK' ? 'DIAGNOSTIC' : 'SUMMARY',
+          visibility: policySkipped ? 'TRACE' : 'SUMMARY',
           message: revalResult.logMessage,
           category: 'GATE',
           sourceCommand: '/scan',
@@ -2766,4 +2820,5 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
   }
+  flushEntryRevalidationSkippedSummary(entryRevalidationSkippedBatch, ctx);
 }
