@@ -617,6 +617,7 @@ describe('Normal Supply Preview program flow diagnostics', () => {
 
     const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
     expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_VALUE_PLACEHOLDER_ONLY');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('CAPTURE_INTRADAY_PROGRAM_FLOW_VALUES');
     expect(text).toContain('Program Passive Proxy Availability');
     expect(text).toContain('stockProgramRowsAvailable: 0/1');
     expect(text).toContain('contextFound: true');
@@ -662,8 +663,8 @@ describe('Normal Supply Preview program flow diagnostics', () => {
 
     expect(preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey).toBe(1);
     expect(preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue).toBe(0);
-    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_VALUE_PLACEHOLDER_ONLY');
-    expect(preview.programFlowDiagnostics.nextAction).toBe('USE_LATEST_INTRADAY_PROGRAM_SNAPSHOT_OR_CACHE');
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_UPSTREAM_SNAPSHOT_CACHE_MISSING');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('INSTALL_INTRADAY_PROGRAM_FLOW_SNAPSHOT_CAPTURE');
     expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
   });
 
@@ -715,8 +716,8 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.programFlowDiagnostics.stockProgramSanitizedSampleTop).toEqual([
       'programNetBuyAmount=null',
     ]);
-    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_UPSTREAM_VALUE_MISSING');
-    expect(preview.programFlowDiagnostics.nextAction).toBe('CAPTURE_INTRADAY_PROGRAM_FLOW_VALUES');
+    expect(preview.programFlowDiagnostics.reason).toBe('PROGRAM_UPSTREAM_SNAPSHOT_CACHE_MISSING');
+    expect(preview.programFlowDiagnostics.nextAction).toBe('INSTALL_INTRADAY_PROGRAM_FLOW_SNAPSHOT_CAPTURE');
     expect(preview.programFlowDiagnostics.stockProgramBreakPoint).toBe('NO_UPSTREAM_PROGRAM_VALUE');
     const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
     expect(text).toContain('stockProgramValueReasonDistribution: PROGRAM_VALUE_NULL=1');
