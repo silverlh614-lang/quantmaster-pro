@@ -78,17 +78,25 @@ describe('ADR-0401 /r3_status 동작 매트릭스', () => {
   it('streak count=2 (R3_EARLY) → WARNING 표시', async () => {
     const repo = await import('../../../persistence/r3ViolationStreakRepo.js');
     const T0 = new Date('2026-05-06T01:00:00.000Z');
-    repo.updateR3ViolationStreak({ violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', scanId: 'A', now: T0 });
-    repo.updateR3ViolationStreak({
-      violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', scanId: 'B',
-      now: new Date(T0.getTime() + 60 * 60_000),
-    });
+    // ADR-0401 24h decay: cmd reads via getEffectiveR3ViolationStreak(now=new Date()).
+    // Freeze system clock within decay window so seeded entries are not invalidated.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(T0.getTime() + 2 * 60 * 60_000));
+    try {
+      repo.updateR3ViolationStreak({ violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', scanId: 'A', now: T0 });
+      repo.updateR3ViolationStreak({
+        violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', scanId: 'B',
+        now: new Date(T0.getTime() + 60 * 60_000),
+      });
 
-    let captured = '';
-    await cmd!.execute({ args: [], reply: async (m: string) => { captured = m; } });
-    expect(captured).toMatch(/누적.*2.*회/);
-    expect(captured).toMatch(/위반.*GATE1_PASS_ZERO/);
-    expect(captured).toMatch(/R3_EARLY/);
+      let captured = '';
+      await cmd!.execute({ args: [], reply: async (m: string) => { captured = m; } });
+      expect(captured).toMatch(/누적.*2.*회/);
+      expect(captured).toMatch(/위반.*GATE1_PASS_ZERO/);
+      expect(captured).toMatch(/R3_EARLY/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('latch 활성 → HARD_BLOCK 메시지 + /r3_unblock 안내', async () => {

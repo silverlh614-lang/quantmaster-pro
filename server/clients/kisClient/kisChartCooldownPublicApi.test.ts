@@ -58,7 +58,13 @@ describe('PR-KIS-CHART-COOLDOWN — public SSOT 시그니처 + barrel 등록', (
   it('A5. barrel index.ts 가 isKisChartCooldownActive re-export', () => {
     const indexPath = resolve(__dirnameLocal, 'index.ts');
     const src = readFileSync(indexPath, 'utf-8');
-    expect(src).toContain("export { kisGet, kisPost, realDataKisGet, isKisChartCooldownActive } from './http.js';");
+    // SSOT-aware multi-token check (export 라인 정합 — kisGet/kisPost/realDataKisGet/
+    // isKisChartCooldownActive 는 필수, 추가 export 인 getKisChartCooldownRemainingMs
+    // 같은 부수 함수가 같은 export 절에 합쳐져도 통과. './http.js' 경유 의무.
+    expect(src).toMatch(/export\s*\{[^}]*\bkisGet\b[^}]*\}\s*from\s*['"]\.\/http\.js['"]/);
+    expect(src).toMatch(/export\s*\{[^}]*\bkisPost\b[^}]*\}\s*from\s*['"]\.\/http\.js['"]/);
+    expect(src).toMatch(/export\s*\{[^}]*\brealDataKisGet\b[^}]*\}\s*from\s*['"]\.\/http\.js['"]/);
+    expect(src).toMatch(/export\s*\{[^}]*\bisKisChartCooldownActive\b[^}]*\}\s*from\s*['"]\.\/http\.js['"]/);
   });
 
   it('A6. KIS 주문 함수 5종 import 0건 (read-only query helper)', () => {
