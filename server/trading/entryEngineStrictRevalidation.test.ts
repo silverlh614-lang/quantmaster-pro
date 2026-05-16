@@ -1,6 +1,7 @@
 // @responsibility ADR-0117 evaluateEntryRevalidation extensionPct strict + DATA_HOLD 회귀
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { evaluateEntryRevalidation } from './entryEngine.js';
+import { formatRequiredScore, resolveMacroRegime } from './entryPolicySemantics.js';
 import { __resetSafePctChangeStrictWarnsForTests } from '../utils/safePctChange.js';
 
 const ORIGINAL_ENV = process.env.DATA_QUALITY_STRICT_DISABLED;
@@ -8,6 +9,57 @@ const ORIGINAL_ENV = process.env.DATA_QUALITY_STRICT_DISABLED;
 beforeEach(() => {
   delete process.env.DATA_QUALITY_STRICT_DISABLED;
   __resetSafePctChangeStrictWarnsForTests();
+});
+
+describe('entry revalidation policy-blocked logging semantics', () => {
+  it('R6_DEFENSE + KRX_NON_TRADING_DAY + POSITION_FULL skips policy-blocked revalidation without exposing /999', () => {
+    const r = evaluateEntryRevalidation({
+      symbol: '005930',
+      currentPrice: 10100,
+      entryPrice: 10000,
+      quoteGateScore: 5.5,
+      quoteSignalType: 'NORMAL',
+      minGateScore: 999,
+      macroRegimeCandidates: ['R3_CAUTION', 'R6_DEFENSE'],
+      executionMode: 'SHADOW_ONLY',
+      marketSessionState: 'NON_TRADING_DAY',
+      blockReasons: ['POSITION_FULL', 'KRX_NON_TRADING_DAY'],
+    });
+
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe('SKIPPED_POLICY_BLOCK');
+    expect(r.requiredGateScore).toBeNull();
+    expect(r.macroRegime).toBe('R6_DEFENSE');
+    expect(r.shadowLearningAllowed).toBe(true);
+    expect(r.executionImpact).toBe('NONE');
+    expect(`${r.reasons.join(' ')} ${r.structuredLog}`).not.toContain('/999');
+    expect(r.structuredLog).toContain('requiredGateScore=N/A');
+    expect(r.structuredLog).toContain('macroRegime=R6_DEFENSE');
+    expect(r.structuredLog).toContain('executionMode=SHADOW_ONLY');
+    expect(r.structuredLog).toContain('marketSessionState=NON_TRADING_DAY');
+  });
+
+  it('resolves mixed R3/R6 macro candidates to a single R6_DEFENSE regime', () => {
+    expect(resolveMacroRegime(['R3_CAUTION', 'R6_DEFENSE'])).toBe('R6_DEFENSE');
+  });
+
+  it('normal live-entry gate revalidation uses real threshold formatting instead of sentinel', () => {
+    const r = evaluateEntryRevalidation({
+      currentPrice: 10100,
+      entryPrice: 10000,
+      quoteGateScore: 6.4,
+      quoteSignalType: 'NORMAL',
+      minGateScore: 7,
+      liveEntryAllowed: true,
+      marketSessionState: 'OPEN',
+    });
+
+    expect(r.status).toBe('FAIL');
+    expect(r.requiredGateScore).toBe(7);
+    expect(formatRequiredScore(r.requiredGateScore, false)).toBe('7');
+    expect(r.reasons.join(' ')).toContain('/7');
+    expect(r.reasons.join(' ')).not.toContain('/999');
+  });
 });
 
 afterEach(() => {

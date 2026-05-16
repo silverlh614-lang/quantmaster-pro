@@ -1,6 +1,7 @@
 // @responsibility liveGate 재검증 결과를 RevalidationStep 시그니처로 분기하는 PoC 단계
 
 import { evaluateEntryRevalidation, getMinGateScore } from '../../entryEngine.js';
+import { INTERNAL_BLOCK_SENTINEL, normalizeMacroRegime, type EntryBlockReason } from '../../entryPolicySemantics.js';
 import { isExecutionRelaxationEnabled } from '../failureClassifier.js';
 import type { RevalidationStepResult } from './types.js';
 
@@ -19,6 +20,11 @@ export interface EntryRevalidationStepInput {
     signalType?: 'STRONG' | 'NORMAL' | 'SKIP';
   } | null;
   regime: string;
+  liveEntryAllowed?: boolean;
+  shadowLearningAllowed?: boolean;
+  executionMode?: 'NORMAL' | 'DEGRADED' | 'SELL_ONLY' | 'SHADOW_ONLY' | 'OBSERVE_ONLY';
+  marketSessionState?: 'OPEN' | 'PRE_MARKET' | 'AFTER_HOURS' | 'CLOSED' | 'NON_TRADING_DAY';
+  blockReasons?: EntryBlockReason[];
   marketElapsedMinutes: number;
   /**
    * ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점.
@@ -61,8 +67,10 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const minGateBase = getMinGateScore(input.regime);
   const relaxedDelta = isExecutionRelaxationEnabled() ? 1 : 0;
   const minGate = Math.max(minGateBase - relaxedDelta, 5);
+  const policyBlockedBySentinel = minGateBase >= INTERNAL_BLOCK_SENTINEL;
 
   const revalidation = evaluateEntryRevalidation({
+    symbol: input.stockName,
     currentPrice: input.currentPrice,
     entryPrice: input.entryPrice,
     quoteGateScore: boostedGateScore,
@@ -72,6 +80,12 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     volume: input.reCheckQuote?.volume,
     avgVolume: input.reCheckQuote?.avgVolume,
     minGateScore: minGate,
+    liveEntryAllowed: input.liveEntryAllowed ?? !policyBlockedBySentinel,
+    shadowLearningAllowed: input.shadowLearningAllowed ?? true,
+    executionMode: input.executionMode ?? (policyBlockedBySentinel ? 'SHADOW_ONLY' : 'NORMAL'),
+    marketSessionState: input.marketSessionState ?? 'OPEN',
+    macroRegime: normalizeMacroRegime(input.regime),
+    blockReasons: input.blockReasons ?? (policyBlockedBySentinel ? ['R6_DEFENSE'] : undefined),
     marketElapsedMinutes: input.marketElapsedMinutes,
   });
 
@@ -82,6 +96,17 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const boostNote = boost !== 0 && input.sectorBoostReason
     ? ` [${input.sectorBoostReason}]`
     : '';
+
+  if (revalidation.status === 'SKIPPED_POLICY_BLOCK') {
+    return {
+      proceed: false,
+      logMessage: revalidation.structuredLog ?? `[ENTRY_REVALIDATION_SKIPPED] symbol=${input.stockName} requiredGateScore=N/A executionImpact=NONE`,
+      failReasons: reasons,
+      stageLogValue: 'SKIPPED_POLICY_BLOCK',
+      dataQuality: revalidation.dataQuality,
+      waitReason: revalidation.waitReason,
+    };
+  }
 
   // ADR-0117: evaluateEntryRevalidation 이 dataQuality + waitReason 반환 시 propagate.
   // 호출자(perSymbolEvaluation) 가 WAIT / DATA_HOLD 분기로 처리.

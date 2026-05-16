@@ -190,3 +190,27 @@ describe('entryRevalidationStep', () => {
     });
   });
 });
+
+describe('entryRevalidationStep policy-blocked semantics', () => {
+  it('SHADOW_ONLY + NON_TRADING_DAY records diagnostic skip while preserving shadow learning', () => {
+    const result = entryRevalidationStep({
+      ...baseInput,
+      reCheckGate: { gateScore: 5.5, signalType: 'NORMAL' },
+      regime: 'R6_DEFENSE',
+      liveEntryAllowed: false,
+      shadowLearningAllowed: true,
+      executionMode: 'SHADOW_ONLY',
+      marketSessionState: 'NON_TRADING_DAY',
+      blockReasons: ['R6_DEFENSE', 'POSITION_FULL', 'KRX_NON_TRADING_DAY'],
+    });
+
+    expect(result.proceed).toBe(false);
+    if (result.proceed) return;
+    expect(result.stageLogValue).toBe('SKIPPED_POLICY_BLOCK');
+    expect(result.logMessage).toContain('[ENTRY_REVALIDATION_SKIPPED]');
+    expect(result.logMessage).toContain('requiredGateScore=N/A');
+    expect(result.logMessage).toContain('shadowLearningAllowed=true');
+    expect(result.logMessage).toContain('executionImpact=NONE');
+    expect(result.logMessage).not.toContain('/999');
+  });
+});

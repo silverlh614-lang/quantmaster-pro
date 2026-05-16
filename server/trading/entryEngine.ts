@@ -20,6 +20,18 @@ import { buildConditionBoostHint } from '../learning/conditionBoostHints.js';
 import { GATE_SCORE_THRESHOLD_BY_REGIME, getEffectiveGateThreshold } from './gateConfig.js';
 import { safePctChange, safePctChangeStrict } from '../utils/safePctChange.js';
 import type { DataQualityInfo, WaitReason } from '../types/dataQuality.js';
+import {
+  formatEntryBlockReasons,
+  formatEntryRevalidationSkippedLog,
+  formatRequiredScore,
+  INTERNAL_BLOCK_SENTINEL,
+  normalizeMacroRegime,
+  resolveMacroRegime,
+  type EntryBlockReason,
+  type ExecutionMode,
+  type MacroRegime,
+  type MarketSessionState,
+} from './entryPolicySemantics.js';
 
 const ENTRY_MIN_GATE_SCORE = 5;
 
@@ -249,6 +261,7 @@ export function reconcileDayOpen(input: DayOpenReconciliationInput): DayOpenReco
 }
 
 interface EntryRevalidationInput {
+  symbol?: string;
   currentPrice: number;
   entryPrice: number;
   quoteGateScore?: number;
@@ -259,6 +272,13 @@ interface EntryRevalidationInput {
   avgVolume?: number;
   /** 아이디어 #7: 레짐 연동 Gate 최솟값 — getMinGateScore(regime)으로 계산 후 전달 */
   minGateScore?: number;
+  liveEntryAllowed?: boolean;
+  shadowLearningAllowed?: boolean;
+  executionMode?: ExecutionMode;
+  marketSessionState?: MarketSessionState;
+  macroRegime?: MacroRegime | string;
+  macroRegimeCandidates?: Array<MacroRegime | string>;
+  blockReasons?: EntryBlockReason[];
   /** 장 시작(09:00 KST) 이후 경과 분 — 거래량 비율을 시간대 비례로 보정 */
   marketElapsedMinutes?: number;
 }
@@ -269,7 +289,20 @@ interface EntryRevalidationInput {
  */
 export interface EntryRevalidationResult {
   ok: boolean;
+  status?: 'PASS' | 'FAIL' | 'SKIPPED_POLICY_BLOCK';
   reasons: string[];
+  actualGateScore?: number;
+  requiredGateScore?: number | null;
+  blockedByPolicy?: boolean;
+  diagnosticOnly?: true;
+  liveEntryAllowed?: boolean;
+  shadowLearningAllowed?: boolean;
+  macroRegime?: MacroRegime;
+  executionMode?: ExecutionMode;
+  marketSessionState?: MarketSessionState;
+  blockReasons?: EntryBlockReason[];
+  executionImpact?: 'NONE';
+  structuredLog?: string;
   /** ADR-0117: sanity 위반 시 격리 메타 (status='OK' 가 아닐 때만 호출자 trade 차단). */
   dataQuality?: DataQualityInfo;
   /** ADR-0117: WAIT 분기 사유 (DATA_HOLD 등). */
@@ -280,8 +313,60 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryR
   const reasons: string[] = [];
 
   const minGate = input.minGateScore ?? ENTRY_MIN_GATE_SCORE;
+  const macroCandidates = [
+    ...(input.macroRegimeCandidates ?? []),
+    ...(input.macroRegime ? [input.macroRegime] : []),
+  ].map(normalizeMacroRegime);
+  if (minGate >= INTERNAL_BLOCK_SENTINEL) macroCandidates.push('R6_DEFENSE');
+  const macroRegime = resolveMacroRegime(macroCandidates);
+  const blockReasons = Array.from(new Set([
+    ...(input.blockReasons ?? []),
+    ...(minGate >= INTERNAL_BLOCK_SENTINEL ? ['R6_DEFENSE' as const] : []),
+  ]));
+  const liveEntryAllowed = input.liveEntryAllowed ?? minGate < INTERNAL_BLOCK_SENTINEL;
+  const executionMode = input.executionMode ?? (liveEntryAllowed ? 'NORMAL' : 'SHADOW_ONLY');
+  const marketSessionState = input.marketSessionState ?? 'OPEN';
+  const shadowLearningAllowed = input.shadowLearningAllowed ?? true;
+  const actualGateScore = input.quoteGateScore ?? 0;
+
+  if (!liveEntryAllowed) {
+    const effectiveBlockReasons = blockReasons.length > 0 ? blockReasons : ['RISK_LIMIT' as const];
+    const structuredLog = formatEntryRevalidationSkippedLog({
+      symbol: input.symbol,
+      actualGateScore,
+      requiredGateScore: null,
+      macroRegime,
+      executionMode,
+      marketSessionState,
+      liveEntryAllowed: false,
+      shadowLearningAllowed,
+      diagnosticOnly: true,
+      blockReasons: effectiveBlockReasons,
+      executionImpact: 'NONE',
+    });
+    return {
+      ok: false,
+      status: 'SKIPPED_POLICY_BLOCK',
+      reasons: [
+        `진입 재검증 스킵: 정책 차단 actualGateScore=${actualGateScore.toFixed(1)} requiredGateScore=${formatRequiredScore(null, true)} blockReasons=${formatEntryBlockReasons(effectiveBlockReasons)}`,
+      ],
+      actualGateScore,
+      requiredGateScore: null,
+      blockedByPolicy: true,
+      diagnosticOnly: true,
+      liveEntryAllowed: false,
+      shadowLearningAllowed,
+      macroRegime,
+      executionMode,
+      marketSessionState,
+      blockReasons: effectiveBlockReasons,
+      executionImpact: 'NONE',
+      structuredLog,
+    };
+  }
+
   if (input.quoteSignalType === 'SKIP' || (input.quoteGateScore ?? minGate) < minGate) {
-    reasons.push(`Gate 재검증 미달 (${(input.quoteGateScore ?? 0).toFixed(1)}/${minGate})`);
+    reasons.push(`Gate 재검증 미달 (${actualGateScore.toFixed(1)}/${formatRequiredScore(minGate, false)})`);
   }
 
   // ADR-0117: extensionPct 산출은 *거래 차단 게이트* — sanity 위반 시 즉시 DATA_HOLD 반환.
@@ -359,7 +444,21 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryR
     }
   }
 
-  return { ok: reasons.length === 0, reasons };
+  return {
+    ok: reasons.length === 0,
+    status: reasons.length === 0 ? 'PASS' : 'FAIL',
+    reasons,
+    actualGateScore,
+    requiredGateScore: minGate,
+    blockedByPolicy: false,
+    liveEntryAllowed: true,
+    shadowLearningAllowed,
+    macroRegime,
+    executionMode,
+    marketSessionState,
+    blockReasons: blockReasons.length > 0 ? blockReasons : ['NONE'],
+    executionImpact: 'NONE',
+  };
 }
 
 // ── Pre-Mortem 체크리스트 생성 ─────────────────────────────────────────────────

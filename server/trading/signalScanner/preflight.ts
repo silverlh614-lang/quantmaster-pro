@@ -50,6 +50,7 @@ import { evaluateR3CountableScan } from './r3StreakSkipPolicy.js';
 import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../../persistence/conditionWeightsRepo.js';
 import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learningFreshnessGuard.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
+import { formatPreScanSkippedLog, normalizeMacroRegime } from '../entryPolicySemantics.js';
 import type { RunAutoSignalScanOptions } from './index.js';
 import { buildMacroGateState } from './scanDiagnostics.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
@@ -713,9 +714,15 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   } else {
     // ADR-0419: 비정상 컨텍스트 — SHADOW_ONLY pre-scan 자체 차단 (사용자 명시 절대 원칙).
     // R6/VIX/FOMC 진단일은 buyList/gate 진단을 계속하되 R3 streak 산정에서 제외한다.
-    console.warn(
-      `[AutoTrade] R3 SHADOW_ONLY pre-scan 자체 skip — ${r3Countability.skipReason ?? 'unknown'} (ADR-0419)`,
-    );
+    console.warn(formatPreScanSkippedLog({
+      macroRegime: normalizeMacroRegime(regime ?? macroState?.regime ?? 'R2_NEUTRAL'),
+      executionMode: 'SHADOW_ONLY',
+      marketSessionState: r3Countability.skipReason === 'KRX_NON_TRADING_DAY' ? 'NON_TRADING_DAY' : 'CLOSED',
+      reason: r3Countability.skipReason ?? 'unknown',
+      liveEntryAllowed: false,
+      shadowLearningAllowed: true,
+      executionImpact: 'NONE',
+    }));
   }
 
   const supplyHealthSnapshot = await captureSupplyHealthSnapshot();
