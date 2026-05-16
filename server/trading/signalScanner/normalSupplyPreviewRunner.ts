@@ -6,15 +6,26 @@ import {
 } from '../../state.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
+import { loadLatestIntradayProgramFlowSnapshot } from '../../replay/intradayProgramFlowSnapshotRepo.js';
 import { selectCandidates } from './candidateSelect.js';
 import {
   createDefaultInvestorFlowRouter,
   injectPerSymbolSupplyContext,
+  normalizeSupplySymbol,
 } from './injectPerSymbolSupplyContext.js';
 // Patch-MARKET-PROGRAM-CARRY-WIRING-001 — Branch B: 기존 2 필드 carry (programNetBuyAmount/
 // programSource) 를 SSOT 위임으로 격상 → 4 필드 (programArbitrageNetBuy/programFetchedAt
 // 추가) 모두 carry. 호출자 측 inline 객체 합성 → SSOT 단일 호출로 drift 차단.
 import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPolicy.js';
+// Patch-PER-STOCK-PROGRAM-FLOW-CARRY-WIRING-001 — Producer 측 후보별 stockProgramFlow
+// 첨부 SSOT. consumer (`normalSupplyPreview.ts:851`) 가 `candidate.stockProgramFlow` 를
+// read-ready 하지만 producer 가 첨부 0건이던 결함 차단. ENV
+// `PER_STOCK_PROGRAM_FLOW_CARRY_WIRING_DISABLED=true` 1줄 즉시 legacy 동작 100% 복원.
+import {
+  buildPerStockProgramFlowCarryMap,
+  isPerStockProgramFlowCarryWiringDisabled,
+  type PerStockProgramFlowCarryPayload,
+} from './perStockProgramFlowCarryWiringPolicy.js';
 import {
   deriveNormalSupplyPreviewEngineMode,
   persistNormalSupplyPreview,
@@ -43,6 +54,28 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     candidates: selected.buyList,
     investorFlowRouter: createDefaultInvestorFlowRouter(),
   });
+  // Patch-PER-STOCK-PROGRAM-FLOW-CARRY-WIRING-001 — Producer 측 후보별 stockProgramFlow
+  // 첨부. ENV `PER_STOCK_PROGRAM_FLOW_CARRY_WIRING_DISABLED=true` 시 빈 Map 으로 단락
+  // → 후보별 첨부 자연 skip (legacy 동작 100% 복원). snapshot 1회 로드 후 symbol-keyed
+  // O(1) lookup. CandidateWithSupplyContext 본체 무수정 invariant 정합 — type cast 패턴.
+  let perStockProgramFlowMap: Map<string, PerStockProgramFlowCarryPayload> = new Map();
+  if (!isPerStockProgramFlowCarryWiringDisabled()) {
+    try {
+      const snapshot = loadLatestIntradayProgramFlowSnapshot();
+      perStockProgramFlowMap = buildPerStockProgramFlowCarryMap(snapshot?.stockRows);
+    } catch {
+      perStockProgramFlowMap = new Map();
+    }
+  }
+  for (const candidate of injected.candidates) {
+    const symbolFromSymbol = normalizeSupplySymbol((candidate as { symbol?: unknown }).symbol);
+    const symbolFromCode = normalizeSupplySymbol((candidate as { code?: unknown }).code);
+    const symbol = symbolFromSymbol || symbolFromCode;
+    if (!symbol) continue;
+    const payload = perStockProgramFlowMap.get(symbol);
+    if (!payload) continue;
+    (candidate as { stockProgramFlow?: PerStockProgramFlowCarryPayload }).stockProgramFlow = payload;
+  }
   const engineMode = getEmergencyStop()
     ? 'HARD_BLOCK'
     : deriveNormalSupplyPreviewEngineMode({
