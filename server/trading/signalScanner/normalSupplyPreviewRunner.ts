@@ -26,6 +26,17 @@ import {
   isPerStockProgramFlowCarryWiringDisabled,
   type PerStockProgramFlowCarryPayload,
 } from './perStockProgramFlowCarryWiringPolicy.js';
+// Patch-SECTOR-CLASSIFICATION-CARRY-WIRING-001 — Producer 측 후보별 sectorClassification
+// 첨부 SSOT. WatchlistEntry.sector (Korean displayName) → SectorKey 12-표준 carry. ENV
+// `SECTOR_CLASSIFICATION_CARRY_WIRING_DISABLED=true` 1줄 즉시 legacy 동작 100% 복원.
+// 사용자 우선순위 #3 — 섹터 분류 carry wiring. sectorEnergyMaster.ts SSOT 본체 무수정
+// (read-only consumer + getSectorByAlias 위임). literal type 컴파일 타임 강제 —
+// executionImpact='NONE' / providerIssue=false / marketSignal=false TypeScript 차단.
+import {
+  buildSectorClassificationCarryMap,
+  isSectorClassificationCarryWiringDisabled,
+  type SectorClassificationCarryPayload,
+} from './sectorClassificationCarryWiringPolicy.js';
 import {
   deriveNormalSupplyPreviewEngineMode,
   persistNormalSupplyPreview,
@@ -75,6 +86,29 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     const payload = perStockProgramFlowMap.get(symbol);
     if (!payload) continue;
     (candidate as { stockProgramFlow?: PerStockProgramFlowCarryPayload }).stockProgramFlow = payload;
+  }
+  // Patch-SECTOR-CLASSIFICATION-CARRY-WIRING-001 — Producer 측 후보별 sectorClassification
+  // 첨부. WatchlistEntry.sector (한국어 displayName) → SectorKey 12-표준 carry. watchlist 재사용
+  // (추가 load 0건). ENV `SECTOR_CLASSIFICATION_CARRY_WIRING_DISABLED=true` 시 빈 Map 으로
+  // 단락 → 후보별 첨부 자연 skip (legacy 동작 100% 복원). sectorEnergyMaster.ts SSOT 본체
+  // 무수정 — read-only consumer + getSectorByAlias 위임. CandidateWithSupplyContext 본체
+  // 무수정 invariant 정합 — type cast 패턴.
+  let sectorClassificationMap: Map<string, SectorClassificationCarryPayload> = new Map();
+  if (!isSectorClassificationCarryWiringDisabled()) {
+    try {
+      sectorClassificationMap = buildSectorClassificationCarryMap(watchlist);
+    } catch {
+      sectorClassificationMap = new Map();
+    }
+  }
+  for (const candidate of injected.candidates) {
+    const symbolFromSymbol = normalizeSupplySymbol((candidate as { symbol?: unknown }).symbol);
+    const symbolFromCode = normalizeSupplySymbol((candidate as { code?: unknown }).code);
+    const symbol = symbolFromSymbol || symbolFromCode;
+    if (!symbol) continue;
+    const payload = sectorClassificationMap.get(symbol);
+    if (!payload) continue;
+    (candidate as { sectorClassification?: SectorClassificationCarryPayload }).sectorClassification = payload;
   }
   const engineMode = getEmergencyStop()
     ? 'HARD_BLOCK'
