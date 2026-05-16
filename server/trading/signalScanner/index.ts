@@ -27,6 +27,10 @@ import {
   deriveNormalSupplyPreviewEngineMode,
   persistNormalSupplyPreview,
 } from './normalSupplyPreview.js';
+// Patch-MARKET-PROGRAM-CARRY-WIRING-001 — Branch A wiring: PREFLIGHT_ABORT_DIAGNOSTIC
+// + RUNTIME_DIAGNOSTIC 의 persistNormalSupplyPreview 호출에 marketProgramFlow 4 필드
+// carry SSOT 위임. 호출자 측 inline ENV 검사 0건 (SSOT 헬퍼 위임 의무).
+import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPolicy.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -111,6 +115,10 @@ async function collectPreflightAbortDiagnostics(
       preflightDecision: preflightResult?.preflightDecision,
       candidates: injected.candidates,
       supplyInjection: injected.stats,
+      // Patch-MARKET-PROGRAM-CARRY-WIRING-001 — Branch A: macroState 4 필드 (programNetBuyAmount/
+      // programArbitrageNetBuy/programFetchedAt/programSource) carry SSOT. ENV disabled / macroState
+      // 부재 시 undefined 자연 fallback. diagnostic-only path (executionImpact='NONE' literal).
+      marketProgramFlow: buildMarketProgramFlowCarryPayload(preflightResult?.context?.macroState),
     });
     console.info('[AutoTrade/Diagnostics] preflight-blocked supply diagnostics collected', {
       blockedBy: preflightResult?.preflightDecision ?? preflightResult?.blockedBy ?? 'PRE_FLIGHT_BLOCK',
@@ -213,6 +221,10 @@ export async function runAutoSignalScan(
         reason: preflightResult.context?.liveEntryBlockedReason ?? 'diagnostic live-entry block',
         candidates: injected.candidates,
         supplyInjection: injected.stats,
+        // Patch-MARKET-PROGRAM-CARRY-WIRING-001 — Branch A: macroState 4 필드 (programNetBuyAmount/
+        // programArbitrageNetBuy/programFetchedAt/programSource) carry SSOT. ENV disabled / macroState
+        // 부재 시 undefined 자연 fallback. diagnostic-only path (executionImpact='NONE' literal).
+        marketProgramFlow: buildMarketProgramFlowCarryPayload(preflightResult.context?.macroState),
       });
     }
   } catch (error) {
