@@ -23,6 +23,8 @@ const { dispatchAlert, getChannelFlushStatus } = await import('./alertRouter.js'
 
 const originalSystemEnabled = process.env.SYSTEM_CHANNEL_ENABLED;
 const originalSystemChannel = process.env.TELEGRAM_SYSTEM_CHANNEL_ID;
+const originalAnalysisEnabled = process.env.ANALYSIS_CHANNEL_ENABLED;
+const originalAnalysisChannel = process.env.TELEGRAM_ANALYSIS_CHANNEL_ID;
 const originalChannelEnabled = process.env.CHANNEL_ENABLED;
 
 beforeEach(() => {
@@ -31,6 +33,8 @@ beforeEach(() => {
   mocks.appendAlertHistory.mockClear();
   process.env.SYSTEM_CHANNEL_ENABLED = 'true';
   process.env.TELEGRAM_SYSTEM_CHANNEL_ID = '-100system';
+  delete process.env.ANALYSIS_CHANNEL_ENABLED;
+  delete process.env.TELEGRAM_ANALYSIS_CHANNEL_ID;
   delete process.env.CHANNEL_ENABLED;
 });
 
@@ -39,6 +43,10 @@ afterEach(() => {
   else process.env.SYSTEM_CHANNEL_ENABLED = originalSystemEnabled;
   if (originalSystemChannel === undefined) delete process.env.TELEGRAM_SYSTEM_CHANNEL_ID;
   else process.env.TELEGRAM_SYSTEM_CHANNEL_ID = originalSystemChannel;
+  if (originalAnalysisEnabled === undefined) delete process.env.ANALYSIS_CHANNEL_ENABLED;
+  else process.env.ANALYSIS_CHANNEL_ENABLED = originalAnalysisEnabled;
+  if (originalAnalysisChannel === undefined) delete process.env.TELEGRAM_ANALYSIS_CHANNEL_ID;
+  else process.env.TELEGRAM_ANALYSIS_CHANNEL_ID = originalAnalysisChannel;
   if (originalChannelEnabled === undefined) delete process.env.CHANNEL_ENABLED;
   else process.env.CHANNEL_ENABLED = originalChannelEnabled;
 });
@@ -68,5 +76,21 @@ describe('alertRouter JOURNAL delivery policy ADR-0466', () => {
     expect(mocks.incrementChannelStat).toHaveBeenCalledWith(AlertCategory.SYSTEM, 'buffered', {
       eventType: 'journal-weekly',
     });
+  });
+
+  it('adds public responsibility disclaimer to ANALYSIS channel messages', async () => {
+    process.env.ANALYSIS_CHANNEL_ENABLED = 'true';
+    process.env.TELEGRAM_ANALYSIS_CHANNEL_ID = '-100analysis';
+
+    await dispatchAlert(AlertCategory.ANALYSIS, 'BUY candidate reference', {
+      severity: 'NORMAL',
+      dedupeKey: 'analysis-disclaimer',
+    });
+
+    expect(mocks.sendChannelAlertTo).toHaveBeenCalledWith(
+      '-100analysis',
+      expect.stringContaining('※ 투자 판단은 각자 책임입니다.'),
+      { disableNotification: true },
+    );
   });
 });

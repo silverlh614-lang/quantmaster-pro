@@ -15,6 +15,7 @@ vi.mock('./alertRouter.js', () => ({
     REGIME: 'INFO',
     JOURNAL: 'SYSTEM',
   },
+  PUBLIC_SIGNAL_DISCLAIMER: '※ 투자 판단은 각자 책임입니다.',
 }));
 
 vi.mock('./telegramClient.js', () => ({
@@ -38,8 +39,20 @@ describe('telegramEventRouter ADR-0466 taxonomy', () => {
     expect(routeTelegramEvent('BUY_SIGNAL')).toBe(ChannelSemantic.SIGNAL);
   });
 
+  it('STRONG_BUY_SIGNAL routes to SIGNAL channel', () => {
+    expect(routeTelegramEvent('STRONG_BUY_SIGNAL')).toBe(ChannelSemantic.SIGNAL);
+  });
+
+  it('SELL_SIGNAL routes to SIGNAL channel', () => {
+    expect(routeTelegramEvent('SELL_SIGNAL')).toBe(ChannelSemantic.SIGNAL);
+  });
+
   it('STOP_LOSS_HIT routes to EXECUTION channel', () => {
     expect(routeTelegramEvent('STOP_LOSS_HIT')).toBe(ChannelSemantic.EXECUTION);
+  });
+
+  it('BUY_FILLED routes to EXECUTION channel', () => {
+    expect(routeTelegramEvent('BUY_FILLED')).toBe(ChannelSemantic.EXECUTION);
   });
 
   it('REGIME_CHANGE routes to REGIME channel', () => {
@@ -71,7 +84,7 @@ describe('telegramEventRouter ADR-0466 taxonomy', () => {
       metadata: { symbol: '005930' },
     });
 
-    expect(mocks.dispatchAlert).toHaveBeenCalledWith(ChannelSemantic.SIGNAL, expect.any(String), {
+    expect(mocks.dispatchAlert).toHaveBeenCalledWith(ChannelSemantic.SIGNAL, expect.stringContaining('※ 투자 판단은 각자 책임입니다.'), {
       severity: 'HIGH',
       dedupeKey: 'STRONG_BUY_SIGNAL:005930',
       eventType: 'STRONG_BUY_SIGNAL',
@@ -80,6 +93,55 @@ describe('telegramEventRouter ADR-0466 taxonomy', () => {
       disableNotification: undefined,
     });
     expect(mocks.sendPrivateAlert).not.toHaveBeenCalled();
+  });
+
+  it('emits SHADOW_BUY_SIGNAL to SIGNAL with order-none and executionImpact fields', async () => {
+    await emitTelegramEvent({
+      type: 'SHADOW_BUY_SIGNAL',
+      message: 'shadow buy candidate',
+      metadata: { symbol: '005930', engineMode: 'SHADOW_ONLY', blockedBy: 'R6_DEFENSE' },
+    });
+
+    const [route, message, options] = mocks.dispatchAlert.mock.calls[0] as unknown as [unknown, string, unknown];
+    expect(route).toBe(ChannelSemantic.SIGNAL);
+    expect(message).toContain('[SHADOW / 주문 없음]');
+    expect(message).toContain('executionImpact=NONE');
+    expect(message).toContain('engineMode=SHADOW_ONLY');
+    expect(message).toContain('blockedBy=R6_DEFENSE');
+    expect(message).toContain('※ 투자 판단은 각자 책임입니다.');
+    expect(options).toMatchObject({
+      severity: 'NORMAL',
+      dedupeKey: 'SHADOW_BUY_SIGNAL:005930',
+      eventType: 'SHADOW_BUY_SIGNAL',
+    });
+  });
+
+  it('emits BUY_FILLED to EXECUTION with actual execution marker', async () => {
+    await emitTelegramEvent({
+      type: 'BUY_FILLED',
+      message: 'filled 005930',
+      metadata: { symbol: '005930' },
+    });
+
+    expect(mocks.dispatchAlert).toHaveBeenCalledWith(
+      ChannelSemantic.EXECUTION,
+      expect.stringContaining('[EXECUTION / 실제 체결]'),
+      expect.objectContaining({ eventType: 'BUY_FILLED' }),
+    );
+  });
+
+  it('emits STOP_LOSS_HIT to EXECUTION with risk execution marker', async () => {
+    await emitTelegramEvent({
+      type: 'STOP_LOSS_HIT',
+      message: 'stop executed',
+      metadata: { symbol: '005930' },
+    });
+
+    expect(mocks.dispatchAlert).toHaveBeenCalledWith(
+      ChannelSemantic.EXECUTION,
+      expect.stringContaining('[RISK / 손절 실행]'),
+      expect.objectContaining({ eventType: 'STOP_LOSS_HIT' }),
+    );
   });
 
   it('swallows dispatch failures to protect trading engine flow', async () => {

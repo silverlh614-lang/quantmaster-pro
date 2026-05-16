@@ -17,6 +17,8 @@ let lastInfoFlushAt: string | undefined;
 let lastSystemDailyFlushAt: string | undefined;
 let lastSystemWeeklyFlushAt: string | undefined;
 
+export const PUBLIC_SIGNAL_DISCLAIMER = '※ 투자 판단은 각자 책임입니다.';
+
 function warnOnce(key: string, message: string): void {
   if (fallbackWarned.has(key)) return;
   fallbackWarned.add(key);
@@ -168,6 +170,12 @@ function stripHtml(text: string): string {
 function toDigestLine(message: string): string {
   const first = stripHtml(message).split('\n').find(line => line.trim().length > 0) ?? '';
   return first.length > 180 ? `${first.slice(0, 180)}...` : first;
+}
+
+function normalizeChannelMessage(category: AlertCategory, message: string): string {
+  if (category !== AlertCategory.ANALYSIS) return message;
+  if (message.includes(PUBLIC_SIGNAL_DISCLAIMER)) return message;
+  return `${message}\n\n${PUBLIC_SIGNAL_DISCLAIMER}`;
 }
 
 function kstDateKey(iso: string): string {
@@ -389,6 +397,7 @@ export async function dispatchAlert(
   message: string,
   options?: DispatchAlertOptions,
 ): Promise<number | undefined> {
+  const routedMessage = normalizeChannelMessage(category, message);
   const priority = resolvePriority(category, options);
   const statEventType = options?.eventType ?? options?.dedupeKey;
   incrementChannelStat(category, 'emitted', { eventType: statEventType });
@@ -404,7 +413,7 @@ export async function dispatchAlert(
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'skipped',
       success: false,
       error: 'category disabled',
@@ -414,13 +423,13 @@ export async function dispatchAlert(
   incrementChannelStat(category, 'routed', { eventType: statEventType });
 
   if (category === AlertCategory.SYSTEM && options?.delivery === 'daily_digest') {
-    systemDailyBuffer.push({ at: new Date().toISOString(), message, priority });
+    systemDailyBuffer.push({ at: new Date().toISOString(), message: routedMessage, priority });
     incrementChannelStat(category, 'buffered', { eventType: statEventType });
     incrementChannelStat(category, 'digested', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'buffered',
       success: true,
     });
@@ -428,13 +437,13 @@ export async function dispatchAlert(
   }
 
   if (options?.delivery === 'weekly_digest') {
-    systemWeeklyBuffer.push({ at: new Date().toISOString(), message, priority });
+    systemWeeklyBuffer.push({ at: new Date().toISOString(), message: routedMessage, priority });
     incrementChannelStat(AlertCategory.SYSTEM, 'buffered', { eventType: statEventType });
     incrementChannelStat(AlertCategory.SYSTEM, 'digested', { eventType: statEventType });
     appendAlertHistory({
       category: AlertCategory.SYSTEM,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'buffered',
       success: true,
     });
@@ -442,13 +451,13 @@ export async function dispatchAlert(
   }
 
   if (category === AlertCategory.INFO && options?.delivery === 'daily_digest') {
-    infoDailyDigestBuffer.push({ at: new Date().toISOString(), message, priority });
+    infoDailyDigestBuffer.push({ at: new Date().toISOString(), message: routedMessage, priority });
     incrementChannelStat(category, 'buffered', { eventType: statEventType });
     incrementChannelStat(category, 'digested', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'buffered',
       success: true,
     });
@@ -467,7 +476,7 @@ export async function dispatchAlert(
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'skipped',
       success: false,
       error: 'cooldown',
@@ -493,7 +502,7 @@ export async function dispatchAlert(
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'immediate',
       success: false,
       error: 'channel_id missing',
@@ -502,13 +511,13 @@ export async function dispatchAlert(
   }
 
   const disableNotification = resolveVibrationDecision(category, priority, options?.disableNotification);
-  const msgId = await sendChannelAlertTo(channelId, message, { disableNotification });
+  const msgId = await sendChannelAlertTo(channelId, routedMessage, { disableNotification });
   if (msgId !== undefined) {
     incrementChannelStat(category, 'sent', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'immediate',
       success: true,
       channelId,
@@ -519,7 +528,7 @@ export async function dispatchAlert(
     appendAlertHistory({
       category,
       priority,
-      message,
+      message: routedMessage,
       delivery: 'immediate',
       success: false,
       channelId,
