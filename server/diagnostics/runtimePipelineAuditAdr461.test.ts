@@ -8,10 +8,26 @@ let mockDryRun: unknown[] = [];
 let mockRollout: { items: unknown[] } | null = null;
 let mockProviderHealth: unknown[] = [];
 
-vi.mock('../trading/signalScanner/scanDiagnostics.js', () => ({ getLastScanSummary: () => mockSummary }));
+vi.mock('../trading/signalScanner/scanDiagnostics.js', () => ({
+  getLastScanSummary: () => mockSummary,
+  // Patch-VITEST-BASELINE-001: scanDiagnostics.ts:374 canonical default — mock must export
+  // this value because runtimePipelineAudit.ts:458 uses it as a non-null fallback.
+  DEFAULT_DATA_PROMOTION_STATUS: {
+    kisInvestorFlow: 'WEIGHTED',
+    sectorEnergy: 'WEIGHTED',
+    dartFinancials: 'ADVISORY',
+    yahooPrice: 'GATED',
+  },
+}));
 vi.mock('../persistence/watchlistRepo.js', () => ({ loadWatchlist: () => mockWatchlist }));
 vi.mock('../persistence/nearMissOutcomeLedger.js', () => ({ getAllNearMissOutcomes: () => mockNearMiss }));
 vi.mock('../persistence/gateReclassificationDryRunRepo.js', () => ({ loadGateReclassificationDryRunRecords: () => mockDryRun }));
+// Patch-VITEST-BASELINE-001: runtimePipelineAudit.ts:322 adds gate1ObservationLedgerCount
+// to dryRunRecordCount; without this mock the test reads real on-disk persisted data
+// (data/gate1-dry-run-observation-ledger.json) and the "dryRunRecordCount === 0" assertion fails.
+vi.mock('../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js', () => ({
+  getGate1DryRunObservationLedgerCount: () => 0,
+}));
 vi.mock('../persistence/gateReclassificationRolloutRepo.js', () => ({ loadGateReclassificationRolloutPlan: () => mockRollout }));
 vi.mock('../supply/investorFlowProviderHealth.js', () => ({ getLastInvestorFlowProviderHealth: () => mockProviderHealth }));
 vi.mock('../state.js', () => ({ getEmergencyStop: () => false, getExecutionMode: () => 'OFF' }));
