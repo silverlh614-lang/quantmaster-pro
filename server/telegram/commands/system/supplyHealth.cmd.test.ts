@@ -44,14 +44,35 @@ describe('/supply_health KIS-first diagnostics', () => {
 
 
   it('renders the eight supply health sections in a fixed independent order', () => {
-    expect(SOURCE).toContain(`await diagnoseInvestorFlow(targets, now, nowMs),
-      diagnoseLoadedKisOfficialSupplyPack(kis),
-      await diagnoseStockProgram(targets),
-      await diagnoseMarketProgram(macro, nowMs),
+    // Architecture refactor (Cat C): first 4 channels extracted to const vars for
+    // sessionClosedProgramScopes detection logic between channels 4↔5, then
+    // referenced by name in the channels[] array. 8 distinct channels + fixed
+    // independent order preserved. Invariant #9/#10 — no runtime weakening, only
+    // const-var extraction for cross-channel session-closed audit.
+    // Channels 1-4: assigned to const vars (single instance only — drift guard).
+    const c1 = SOURCE.match(/const investorFlow = await diagnoseInvestorFlow\(targets, now, nowMs\);/g);
+    expect(c1).not.toBeNull();
+    expect(c1!.length).toBe(1);
+    const c2 = SOURCE.match(/const kisOfficialPack = diagnoseLoadedKisOfficialSupplyPack\(kis\);/g);
+    expect(c2).not.toBeNull();
+    expect(c2!.length).toBe(1);
+    const c3 = SOURCE.match(/const stockProgram = await diagnoseStockProgram\(targets, nowMs\);/g);
+    expect(c3).not.toBeNull();
+    expect(c3!.length).toBe(1);
+    const c4 = SOURCE.match(/const marketProgram = await diagnoseMarketProgram\(macro, nowMs\);/g);
+    expect(c4).not.toBeNull();
+    expect(c4!.length).toBe(1);
+    // Channels[] array contains all 8 in the fixed order (1-4 by name + 5-8 inline).
+    expect(SOURCE).toContain(`channels: [
+      investorFlow,
+      kisOfficialPack,
+      stockProgram,
+      marketProgram,
       diagnoseFss(macro, nowMs, kis.pack),
       await diagnoseShort(macro, nowMs, kis.pack),
       diagnoseForeignerRatio(targets, nowMs, kis.pack),
-      diagnoseMargin(macro, nowMs, kis.pack),`);
+      diagnoseMargin(macro, nowMs, kis.pack),
+    ],`);
     expect(SOURCE).toContain("if (index !== channels.length - 1) lines.push('');");
   });
 
