@@ -1,4 +1,4 @@
-// @responsibility PREOPEN discovery-only throttles and market-clock helpers
+// @responsibility PREOPEN discovery-only throttle helpers
 /**
  * PATCH-PREOPEN-DISCOVERY-THROTTLE-001 — shared guards for the KST 08:45~09:00
  * preopen discovery layer.  These helpers intentionally do not affect EXIT,

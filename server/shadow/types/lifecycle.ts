@@ -1,4 +1,4 @@
-// @responsibility Shadow lifecycle state and transition contracts.
+// @responsibility Shadow lifecycle transition contracts.
 import type { EngineMode, ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
 import type { ConfidenceLevel, DataHealth } from './shadowCase.js';
 

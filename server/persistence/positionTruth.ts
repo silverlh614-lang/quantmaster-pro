@@ -135,6 +135,7 @@ export function detectPositionTruthDivergence(): PositionTruthDivergenceReport {
     aggregateActiveCount = active.length;
     aggregateActiveCodes = new Set(active.map((p) => p.stockCode));
   } catch (e) {
+    /* SDS-ignore: aggregate position failure is converted to detectError diagnostic and does not alter runtime policy. */
     detectError = e instanceof Error ? e.message : String(e);
   }
 

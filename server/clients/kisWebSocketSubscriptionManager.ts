@@ -529,6 +529,7 @@ export function requestKisWsSubscription(
     try {
       subscribeFn(normalizedCode);
     } catch (e) {
+      /* SDS-ignore: non-core subscribe failures are converted to rollback; core watchlist failures are logged below. */
       // subscribe 실패 시 entry 제거 (장중 disconnected 등)
       subscribedMap.delete(normalizedCode);
       if (isCoreWatchlistHighPriorityFailure({ priority, reasons: candidate.reasons })) {
@@ -559,7 +560,8 @@ export function requestKisWsSubscription(
     subscribedMap.delete(evictionTarget.code);
     try {
       unsubscribeFn(evictionTarget.code);
-    } catch {
+    } catch (e) {
+      console.debug('[KIS-WS] best-effort unsubscribe failed during slot eviction; executionImpact=NONE:', e instanceof Error ? e.message : e);
       // unsubscribe 실패는 매수 흐름 차단 안 함
     }
     _stats.evictedCount++;
@@ -578,6 +580,7 @@ export function requestKisWsSubscription(
     try {
       subscribeFn(normalizedCode);
     } catch (e) {
+      /* SDS-ignore: non-core subscribe failures are converted to rollback; core watchlist failures are logged below. */
       subscribedMap.delete(normalizedCode);
       if (isCoreWatchlistHighPriorityFailure({ priority, reasons: candidate.reasons })) {
         appLogger.warn(

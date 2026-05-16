@@ -155,6 +155,7 @@ export async function runShadowFutureReturnWarmup(
             pushSampleFailure(stats, target, result.status, compactFailureDetail(result.body));
           }
         } catch (e) {
+          /* SDS-ignore: warmup fetch failures are counted in stats.failed and sampled in stats.failures. */
           stats.failed += 1;
           const msg = e instanceof Error ? e.message : String(e);
           pushSampleFailure(stats, target, 'ERROR', msg.slice(0, 120));

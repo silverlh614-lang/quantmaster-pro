@@ -1,4 +1,4 @@
-// @responsibility Shadow case data contracts; runtime mode and execution impact come from runtime SSOT.
+// @responsibility Shadow case data contracts with runtime SSOT provenance.
 import type { EngineMode, ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
 import type { ShadowLifecycleState } from './lifecycle.js';
 import type { OutcomeLabel } from './outcome.js';
