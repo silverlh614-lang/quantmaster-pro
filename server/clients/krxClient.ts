@@ -27,7 +27,7 @@
  * 호출자가 날짜를 넘기지 않으면 "직전 영업일" 개념으로 KST 오늘 하루 전을 사용한다.
  */
 
-import { logger } from '../utils/logger.js';
+import { logger, logVisibilityEvent } from '../utils/logger.js';
 
 
 // ADR-0502c Phase 2: `krxGet as _openApiGet` 는 ./krxClient/http.ts 가 단독 import.
@@ -256,20 +256,35 @@ function emitKrxInvestorDetailGuard(input: {
   const elapsed = state ? input.now.getTime() - state.lastEmittedAt : Number.POSITIVE_INFINITY;
   if (!state || elapsed >= INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS) {
     if (state && state.suppressedCount > 0) {
-      console.info(
+      logVisibilityEvent({
+        visibility: 'SUMMARY',
+        category: 'KRX',
+        message:
         `[KRX_ENDPOINT_GUARD_SUPPRESSED] endpoint=${input.endpoint}` +
         ` reason=${input.reason}` +
         ` suppressedCount=${state.suppressedCount}` +
         ' executionImpact=NONE',
-      );
+        summary: { endpoint: input.endpoint, reason: input.reason, suppressedCount: state.suppressedCount, executionImpact: 'NONE' },
+        details: { input },
+        level: 'info',
+        executionImpact: 'NONE',
+      });
     }
-    console.info(
+    logVisibilityEvent({
+      visibility: 'DIAGNOSTIC',
+      category: 'KRX',
+      dedupKey: `KRX_ENDPOINT_GUARDED:${input.reason}:${input.endpoint}:NONE`,
+      message:
       `[KRX_ENDPOINT_GUARDED] endpoint=${input.endpoint}` +
       ` reason=${input.reason}` +
       ` intradaySession=${String(input.intradaySession)}` +
       ` enabled=${String(input.enabled)}` +
       ' providerIssue=false marketSignal=false executionImpact=NONE',
-    );
+      summary: { endpoint: input.endpoint, reason: input.reason, providerIssue: false, marketSignal: false, executionImpact: 'NONE' },
+      details: { input },
+      level: 'info',
+      executionImpact: 'NONE',
+    });
     krxInvestorDetailGuardLogState.set(key, { lastEmittedAt: input.now.getTime(), suppressedCount: 0 });
     return;
   }

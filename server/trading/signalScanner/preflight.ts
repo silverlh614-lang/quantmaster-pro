@@ -50,7 +50,7 @@ import { evaluateR3CountableScan } from './r3StreakSkipPolicy.js';
 import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../../persistence/conditionWeightsRepo.js';
 import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learningFreshnessGuard.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
-import { formatPreScanSkippedLog, normalizeMacroRegime } from '../entryPolicySemantics.js';
+import { formatPreScanSkippedLog, normalizeMacroRegime, resolveMarketSessionState } from '../entryPolicySemantics.js';
 import type { RunAutoSignalScanOptions } from './index.js';
 import { buildMacroGateState } from './scanDiagnostics.js';
 import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
@@ -641,9 +641,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   // ADR-0401: 영속 latch 와 무관, streak repo 의 24h decay 로 자연 회복.
   // HARD_BLOCK latch (영속, ADR-0120) 는 라인 ~173 에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
   const todayKstDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayIsKrxTradingDay = isKrxTradingDay(todayKstDate);
   const r3Countability = evaluateR3CountableScan({
     todayKstDate,
-    isKrxTradingDay: isKrxTradingDay(todayKstDate),
+    isKrxTradingDay: todayIsKrxTradingDay,
     volumeClockAllowsEntry: volumeClock.allowEntry,
     emergencyStop: getEmergencyStop(),
     manualBlockNewBuy,
@@ -655,6 +656,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     fomcBlockActive: fomcProximity.noNewEntry,
     dataStarvedScan: false,
     frozenQuoteDataQuality: 'OK',
+  });
+  const resolvedMarketSessionState = resolveMarketSessionState({
+    skipReason: r3Countability.skipReason,
+    isKrxTradingDay: todayIsKrxTradingDay,
+    volumeClockAllowsEntry: volumeClock.allowEntry,
   });
   if (r3Countability.countable) {
     const effectiveStreak = getEffectiveR3ViolationStreak();
@@ -717,7 +723,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     console.warn(formatPreScanSkippedLog({
       macroRegime: normalizeMacroRegime(regime ?? macroState?.regime ?? 'R2_NEUTRAL'),
       executionMode: 'SHADOW_ONLY',
-      marketSessionState: r3Countability.skipReason === 'KRX_NON_TRADING_DAY' ? 'NON_TRADING_DAY' : 'CLOSED',
+      marketSessionState: resolvedMarketSessionState,
       reason: r3Countability.skipReason ?? 'unknown',
       liveEntryAllowed: false,
       shadowLearningAllowed: true,
@@ -748,6 +754,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       macroEntryOverride,
       sellOnlyExc,
       volumeClock,
+      resolvedMarketSessionState,
       conditionWeights,
       supplyHealthSnapshot,
       shadows,

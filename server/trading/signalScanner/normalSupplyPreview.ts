@@ -10,6 +10,7 @@ import {
   loadLatestIntradayProgramFlowSnapshot,
   type IntradayProgramFlowSnapshot,
 } from '../../replay/intradayProgramFlowSnapshotRepo.js';
+import { createTraceId, logVisibilityEvent } from '../../utils/logger.js';
 
 export const NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE = 'NORMAL_SUPPLY_DIAGNOSTIC' as const;
 export const NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE = 'NORMAL_SUPPLY_DIAGNOSTIC_FULL' as const;
@@ -460,42 +461,59 @@ export interface PersistNormalSupplyPreviewInput<T extends CandidateWithSupplyCo
 
 let lastNormalSupplyPreview: NormalSupplyPreview | null = null;
 
+function logSupplyPreviewTrace(message: string, summary: Record<string, unknown> = {}): void {
+  logVisibilityEvent({
+    visibility: 'TRACE',
+    message,
+    category: 'SUPPLY',
+    sourceCommand: '/normal_supply_preview',
+    summary,
+    details: { message, ...summary },
+    level: 'info',
+    executionImpact: 'NONE',
+  });
+}
+
 export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>(
   input: PersistNormalSupplyPreviewInput<T>,
 ): NormalSupplyPreview {
   const capturedAt = input.capturedAt ?? new Date().toISOString();
-  console.info(
+  logSupplyPreviewTrace(
     `[NORMAL_SUPPLY_PREVIEW_PROGRAM_EVIDENCE_TRACE_START] ` +
       `candidateCount=${input.candidates.length} previewMode=${NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
+    { candidateCount: input.candidates.length, previewMode: NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE },
   );
   const marketProgramFlowRaw = input.marketProgramFlow ?? extractMarketProgramFlowFromCandidates(input.candidates);
   const latestIntradayProgramFlowSnapshot = loadLatestIntradayProgramFlowSnapshot();
-  console.info(
+  logSupplyPreviewTrace(
     `[INTRADAY_PROGRAM_FLOW_CARRY_START] ` +
       `candidateCount=${input.candidates.length} ` +
       `snapshotAvailable=${Boolean(latestIntradayProgramFlowSnapshot)} ` +
       `cacheAvailable=${hasCandidateProgramContainer(input.candidates, ['cache', 'supplySnapshotCache', 'programTradingCache'])} ` +
       `programTradingContextAvailable=${hasCandidateProgramContainer(input.candidates, ['programTrading', 'programDiagnostic', 'stockProgramFlow'])} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
+    { candidateCount: input.candidates.length, snapshotAvailable: Boolean(latestIntradayProgramFlowSnapshot) },
   );
   const programPopulation = buildProgramFlowUpstreamPopulation(
     input.candidates,
     marketProgramFlowRaw,
     latestIntradayProgramFlowSnapshot,
   );
-  console.info(
+  logSupplyPreviewTrace(
     `[NORMAL_SUPPLY_PREVIEW_PROGRAM_UPSTREAM_POPULATION_START] ` +
       `candidateCount=${input.candidates.length} ` +
       `stockProgramNullCount=${programPopulation.trace.stockLevel.programNetBuyAmountNullCount} ` +
       `marketProgramNull=${programPopulation.trace.marketLevel.marketProgramNetBuyNull} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
+    { candidateCount: input.candidates.length, stockProgramNullCount: programPopulation.trace.stockLevel.programNetBuyAmountNullCount },
   );
-  console.info(
+  logSupplyPreviewTrace(
     `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_NORMALIZER_START] ` +
       `candidateCount=${input.candidates.length} stockProgramKeyRows=${countStockProgramKeyRows(input.candidates)} ` +
       `marketProgramContextFound=${Boolean(asRecord(marketProgramFlowRaw))} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
+    { candidateCount: input.candidates.length, stockProgramKeyRows: countStockProgramKeyRows(input.candidates) },
   );
   const marketProgramFlow = normalizeMarketProgramFlow(programPopulation.marketProgramFlowRaw ?? marketProgramFlowRaw);
   const previewCandidates = input.candidates
@@ -559,6 +577,33 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
       accumulatingAllowsShadowTracking: true,
     },
   };
+  const summaryTraceId = createTraceId('supply');
+  logVisibilityEvent({
+    visibility: 'SUMMARY',
+    category: 'SUPPLY',
+    sourceCommand: '/normal_supply_preview',
+    traceId: summaryTraceId,
+    message:
+      `[SUPPLY_PREVIEW_SUMMARY] ` +
+      `mode=${NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE} ` +
+      `candidateCount=${lastNormalSupplyPreview.candidateCount} ` +
+      `injected=${supplyInjection.injected} verified=${healthCounts.VERIFIED} degraded=${healthCounts.DEGRADED} ` +
+      `stale=${healthCounts.STALE} missing=${healthCounts.MISSING} ` +
+      `accumulating=${signalCounts.ACCUMULATING} neutral=${signalCounts.NEUTRAL} bearish=${signalCounts.BEARISH} ` +
+      `programProvider=${programFlowDiagnostics.marketProgramAvailable ? 'AVAILABLE_DIAGNOSTIC_ONLY' : 'EMPTY_DIAGNOSTIC_ONLY'} ` +
+      `providerCallsAdded=0 executionImpact=NONE traceId=${summaryTraceId}`,
+    summary: {
+      candidateCount: lastNormalSupplyPreview.candidateCount,
+      injected: supplyInjection.injected,
+      healthCounts,
+      signalCounts,
+      programProvider: programFlowDiagnostics.marketProgramAvailable ? 'AVAILABLE_DIAGNOSTIC_ONLY' : 'EMPTY_DIAGNOSTIC_ONLY',
+      executionImpact: 'NONE',
+    },
+    details: { preview: lastNormalSupplyPreview },
+    level: 'info',
+    executionImpact: 'NONE',
+  });
   logSupplySignalTierRefinement(lastNormalSupplyPreview);
   logProgramFlowDiagnostics(lastNormalSupplyPreview);
   return lastNormalSupplyPreview;
@@ -569,23 +614,59 @@ export function getLastNormalSupplyPreview(): NormalSupplyPreview | null {
 }
 
 function logSupplySignalTierRefinement(preview: NormalSupplyPreview): void {
-  console.info(
+  logVisibilityEvent({
+    visibility: 'DIAGNOSTIC',
+    category: 'SUPPLY',
+    sourceCommand: '/normal_supply_preview',
+    dedupKey: `SUPPLY_SIGNAL_TIER_REFINEMENT:${preview.candidateCount}:${preview.signalCounts.ACCUMULATING}:NONE`,
+    message:
     `[SUPPLY_SIGNAL_TIER_REFINEMENT] ` +
       `candidateCount=${preview.candidateCount} bullish=${preview.signalCounts.BULLISH} ` +
       `accumulating=${preview.signalCounts.ACCUMULATING} neutral=${preview.signalCounts.NEUTRAL} ` +
       `bearish=${preview.signalCounts.BEARISH} unusable=${preview.signalCounts.UNUSABLE} ` +
       `accumulatingUsedForLiveDecision=false executionImpact=NONE`,
-  );
-  for (const candidate of preview.candidates) {
+    summary: { signalCounts: preview.signalCounts, executionImpact: 'NONE' },
+    details: { candidates: preview.candidates.map((c) => ({ symbol: c.symbol, signal: c.supplySignal, score: c.supplyScore })) },
+    level: 'info',
+    executionImpact: 'NONE',
+  });
+  const accumulating = preview.candidates.filter((candidate) => candidate.supplySignal === 'ACCUMULATING');
+  if (accumulating.length > 0) {
+    const traceId = createTraceId('supply_acc');
+    logVisibilityEvent({
+      visibility: 'SUMMARY',
+      category: 'SUPPLY',
+      sourceCommand: '/normal_supply_preview',
+      traceId,
+      message:
+        `[SUPPLY_ACCUMULATING_SUMMARY] ` +
+        `count=${accumulating.length} topSymbols=${accumulating.slice(0, 5).map((c) => c.name ?? c.symbol).join(',')} ` +
+        `usedForLiveDecision=false shadowTracking=true executionImpact=NONE ` +
+        `detailsSuppressed=${Math.max(0, accumulating.length - 5)} traceId=${traceId}`,
+      summary: { count: accumulating.length, topSymbols: accumulating.slice(0, 5).map((c) => c.symbol), executionImpact: 'NONE' },
+      details: { accumulating },
+      level: 'info',
+      executionImpact: 'NONE',
+    });
+  }
+  for (const candidate of accumulating) {
     if (candidate.supplySignal !== 'ACCUMULATING') continue;
-    console.info(
+    logVisibilityEvent({
+      visibility: 'TRACE',
+      category: 'SUPPLY',
+      sourceCommand: '/normal_supply_preview',
+      message:
       `[SUPPLY_ACCUMULATING_DETECTED] ` +
         `symbol=${candidate.symbol} name=${candidate.name ?? 'n/a'} supplyScore=${candidate.supplyScore} ` +
         `foreignNetBuy=${candidate.foreignNetBuyAmount ?? 'N/A'} ` +
         `institutionNetBuy=${candidate.institutionNetBuyAmount ?? 'N/A'} ` +
         `reason=FOREIGN_AND_INSTITUTION_NET_BUY_BUT_BELOW_BULLISH_THRESHOLD ` +
         `usedForLiveDecision=false shadowTracking=true executionImpact=NONE`,
-    );
+      summary: { symbol: candidate.symbol, supplyScore: candidate.supplyScore, executionImpact: 'NONE' },
+      details: { candidate },
+      level: 'info',
+      executionImpact: 'NONE',
+    });
   }
 }
 
@@ -1047,7 +1128,12 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
   const stockProgramAvailable = preview.fieldAvailability.stockProgramAvailable;
   const marketProgramAvailable = preview.fieldAvailability.marketProgramAvailable;
   const upstream = preview.programFlowDiagnostics.upstreamPopulation;
-  console.info(
+  const traceProgram = (message: string) => logSupplyPreviewTrace(message, {
+    candidateCount: preview.candidateCount,
+    reason: preview.programFlowDiagnostics.reason,
+    nextAction: preview.programFlowDiagnostics.nextAction,
+  });
+  traceProgram(
     `[NORMAL_SUPPLY_PREVIEW_PROGRAM_EVIDENCE_TRACE_DONE] ` +
       `candidateCount=${preview.candidateCount} stockProgramRowsWithAnyProgramKey=${preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey} ` +
       `stockProgramRowsWithNumericProgramValue=${preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue} ` +
@@ -1057,7 +1143,7 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
       `reason=${preview.programFlowDiagnostics.reason} nextAction=${preview.programFlowDiagnostics.nextAction} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
   );
-  console.info(
+  traceProgram(
     `[NORMAL_SUPPLY_PREVIEW_PROGRAM_UPSTREAM_POPULATION_DONE] ` +
       `candidateCount=${preview.candidateCount} carrySource=${upstream.stockLevel.carrySource} ` +
       `carrySuccessCount=${upstream.stockLevel.carrySuccessCount} ` +
@@ -1069,7 +1155,7 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
       `reason=${preview.programFlowDiagnostics.reason} nextAction=${preview.programFlowDiagnostics.nextAction} ` +
       `providerCallsAdded=0 executionImpact=NONE`,
   );
-  console.info(
+  traceProgram(
     `[INTRADAY_PROGRAM_FLOW_CARRY_DONE] ` +
       `candidateCount=${preview.candidateCount} carrySource=${upstream.stockLevel.carrySource} ` +
       `carrySuccessCount=${upstream.stockLevel.carrySuccessCount} ` +
@@ -1082,52 +1168,52 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
       `providerCallsAdded=0 executionImpact=NONE`,
   );
   if (upstream.stockLevel.carrySuccessCount > 0 && upstream.stockLevel.carrySource !== 'CANDIDATE_CONTEXT') {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_CARRIED] ` +
         `scope=STOCK source=${upstream.stockLevel.carrySource} rows=${upstream.stockLevel.carrySuccessCount} ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
-    console.info(
+    traceProgram(
       `[INTRADAY_PROGRAM_FLOW_VALUE_CARRIED] ` +
         `scope=STOCK source=${upstream.stockLevel.carrySource} rows=${upstream.stockLevel.carrySuccessCount} ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
   } else if (upstream.stockLevel.carrySuccessCount === 0 && upstream.stockLevel.programNetBuyAmountFieldCreated) {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_UPSTREAM_VALUE_MISSING] ` +
         `scope=STOCK breakPoint=${upstream.stockLevel.breakPoint} reason=${preview.programFlowDiagnostics.reason} ` +
         `providerCallsAdded=0 executionImpact=NONE`,
     );
-    console.info(
+    traceProgram(
       `[INTRADAY_PROGRAM_FLOW_UPSTREAM_VALUE_MISSING] ` +
         `scope=STOCK breakPoint=${upstream.stockLevel.breakPoint} reason=${preview.programFlowDiagnostics.reason} ` +
         `providerCallsAdded=0 executionImpact=NONE`,
     );
   }
   if (upstream.marketLevel.carrySource !== 'NONE' && upstream.marketLevel.carrySource !== 'PROGRAM_MARKET_CONTEXT') {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_CARRIED] ` +
         `scope=MARKET source=${upstream.marketLevel.carrySource} rows=1 ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
-    console.info(
+    traceProgram(
       `[INTRADAY_PROGRAM_FLOW_VALUE_CARRIED] ` +
         `scope=MARKET source=${upstream.marketLevel.carrySource} rows=1 ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
   } else if (upstream.marketLevel.carrySource === 'NONE' && upstream.marketLevel.marketProgramNetBuyFieldCreated) {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_UPSTREAM_VALUE_MISSING] ` +
         `scope=MARKET breakPoint=${upstream.marketLevel.breakPoint} reason=${preview.programFlowDiagnostics.reason} ` +
         `providerCallsAdded=0 executionImpact=NONE`,
     );
-    console.info(
+    traceProgram(
       `[INTRADAY_PROGRAM_FLOW_UPSTREAM_VALUE_MISSING] ` +
         `scope=MARKET breakPoint=${upstream.marketLevel.breakPoint} reason=${preview.programFlowDiagnostics.reason} ` +
         `providerCallsAdded=0 executionImpact=NONE`,
     );
   }
-  console.info(
+  traceProgram(
     `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_NORMALIZER_DONE] ` +
       `candidateCount=${preview.candidateCount} ` +
       `stockProgramRowsWithAnyProgramKey=${preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey} ` +
@@ -1139,38 +1225,38 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
       `providerCallsAdded=0 executionImpact=NONE`,
   );
   if (stockProgramAvailable > 0) {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_EVIDENCE_FOUND] ` +
         `scope=STOCK fieldKeys=${preview.programFlowDiagnostics.stockProgramFieldKeysTop} ` +
         `numericRows=${preview.programFlowDiagnostics.stockProgramRowsWithNumericProgramValue} ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSED] ` +
         `scope=STOCK field=${preview.programFlowDiagnostics.stockProgramFieldKeysTop} ` +
         `parsedCount=${preview.programFlowDiagnostics.stockProgramRowsWithParsableProgramValue} ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
   } else if (preview.programFlowDiagnostics.stockProgramRowsWithAnyProgramKey > 0) {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSE_FAILED] ` +
         `scope=STOCK reasonTop=${preview.programFlowDiagnostics.stockProgramValueReasonTop} ` +
         `diagnosticOnly=true executionImpact=NONE`,
     );
   }
   if (marketProgramAvailable) {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_EVIDENCE_FOUND] ` +
         `scope=MARKET fieldKeys=${formatList(preview.programFlowDiagnostics.marketProgramNumericFieldsFound)} ` +
         `numericRows=1 diagnosticOnly=true executionImpact=NONE`,
     );
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSED] ` +
         `scope=MARKET field=${formatList(preview.programFlowDiagnostics.marketProgramParsableFieldsFound)} ` +
         `parsedCount=1 diagnosticOnly=true executionImpact=NONE`,
     );
   } else if (preview.programFlowDiagnostics.marketProgramFieldsFound.length > 0) {
-    console.info(
+    traceProgram(
       `[NORMAL_SUPPLY_PREVIEW_PROGRAM_VALUE_PARSE_FAILED] ` +
         `scope=MARKET reasonTop=${preview.programFlowDiagnostics.marketProgramValueReasonTop} ` +
         `diagnosticOnly=true executionImpact=NONE`,

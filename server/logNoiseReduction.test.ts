@@ -7,10 +7,15 @@ import {
   logOperationalEvent,
   logNoiseDetail,
   logNoiseSummary,
+  logVisibilityEvent,
   resetNoiseCountersForTest,
   shouldSuppressNoise,
   recordNoiseSuppressed,
   formatNoiseSummary,
+  formatTraceRecent,
+  formatTraceRecord,
+  getTraceRecord,
+  clearTraceRecords,
 } from './utils/logger.js';
 import {
   buildPreEntryWaitDedupeKey,
@@ -45,7 +50,9 @@ describe('log noise reduction', () => {
     vi.stubEnv('LOG_SUPPRESS_GATE_DIAGNOSTIC', 'true');
     vi.stubEnv('LOG_SUPPRESS_KIS_FIRST_DIAGNOSTIC', 'true');
     vi.stubEnv('NOISE_SUMMARY_ENABLED', 'true');
+    vi.stubEnv('SUPPRESS_DIAGNOSTIC_NOISE', 'true');
     resetNoiseCountersForTest();
+    clearTraceRecords();
     resetPreEntryWaitLogDedupeForTest();
     resetAdrDiagnosticLogRateLimiterForTest();
     __resetKisWsSubscriptionStateForTests();
@@ -239,7 +246,9 @@ describe('log noise reduction', () => {
   it('NoiseSummary는 INFO로 출력된다', () => {
     logNoiseDetail({ category: 'PRE_ENTRY_WAIT', message: 'hidden' });
     logNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
-    expect(console.info).toHaveBeenCalledWith('[NoiseSummary] session=REGULAR suppressed=1 preEntryWait=1 priceDistance=0 kisWsDetail=0 kisMtasDetail=0 gateDiagnostics=0 kisFirstDiagnostics=0 supplySemanticWireDiag=0 commandRegistryDiag=0 counterfactualDuplicate=0 executionImpact=NONE');
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('[NOISE_COMPRESSED] session=REGULAR suppressed=1'));
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('"preEntryWait":1'));
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining('traceAvailable=true'));
   });
 
   // Patch-009 P1 — 프로덕션 진단 로그 게이트 (SUPPLY_SEMANTIC_WIRE / COMMAND_REGISTRY).
@@ -269,8 +278,8 @@ describe('log noise reduction', () => {
     recordNoiseSuppressed('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC');
     recordNoiseSuppressed('COMMAND_REGISTRY_DIAGNOSTIC');
     const summary = formatNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
-    expect(summary).toContain('supplySemanticWireDiag=2');
-    expect(summary).toContain('commandRegistryDiag=1');
+    expect(summary).toContain('"supplySemanticWireDiag":2');
+    expect(summary).toContain('"commandRegistryDiag":1');
     expect(summary).toContain('suppressed=3');
   });
 
@@ -312,7 +321,7 @@ describe('log noise reduction', () => {
     recordNoiseSuppressed('COUNTERFACTUAL_DUPLICATE_SUPPRESSED');
     recordNoiseSuppressed('COUNTERFACTUAL_DUPLICATE_SUPPRESSED');
     const summary = formatNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
-    expect(summary).toContain('counterfactualDuplicate=3');
+    expect(summary).toContain('"counterfactualDuplicate":3');
     expect(summary).toContain('suppressed=3');
   });
 
@@ -379,5 +388,42 @@ describe('log noise reduction', () => {
     vi.stubEnv('LOG_LEVEL', 'silent');
     logger.info('[AutoTrade] 삼성전자(005930) 진입가 이탈 — failCount=3');
     expect(console.info).not.toHaveBeenCalled();
+  });
+  it('visibility logger hides TRACE by default and stores trace buffer for lookup', () => {
+    const result = logVisibilityEvent({
+      visibility: 'TRACE',
+      category: 'SUPPLY',
+      traceId: 'trace_test_1',
+      message: '[SUPPLY_TRACE] hidden',
+      summary: { count: 1 },
+      details: { row: { symbol: '005930' } },
+      executionImpact: 'NONE',
+    });
+    expect(result.emitted).toBe(false);
+    expect(console.info).not.toHaveBeenCalledWith('[SUPPLY_TRACE] hidden');
+    expect(getTraceRecord('trace_test_1')).toBeTruthy();
+    expect(formatTraceRecord(getTraceRecord('trace_test_1'))).toContain('traceId=trace_test_1');
+    expect(formatTraceRecent()).toContain('trace_test_1');
+  });
+
+  it('DIAGNOSTIC visibility is TTL-deduped in summary mode', () => {
+    logVisibilityEvent({
+      visibility: 'DIAGNOSTIC',
+      category: 'GATE',
+      message: '[ENTRY_REVALIDATION_SKIPPED] one',
+      dedupKey: 'ENTRY_REVALIDATION_SKIPPED:R6_DEFENSE:NONE',
+      executionImpact: 'NONE',
+      nowMs: 1_000,
+    });
+    logVisibilityEvent({
+      visibility: 'DIAGNOSTIC',
+      category: 'GATE',
+      message: '[ENTRY_REVALIDATION_SKIPPED] two',
+      dedupKey: 'ENTRY_REVALIDATION_SKIPPED:R6_DEFENSE:NONE',
+      executionImpact: 'NONE',
+      nowMs: 2_000,
+    });
+    expect(console.info).toHaveBeenCalledWith('[ENTRY_REVALIDATION_SKIPPED] one');
+    expect(console.info).not.toHaveBeenCalledWith('[ENTRY_REVALIDATION_SKIPPED] two');
   });
 });

@@ -1,4 +1,17 @@
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent';
+export type LogVisibility = 'ALWAYS' | 'SUMMARY' | 'DIAGNOSTIC' | 'TRACE' | 'SILENT_BY_DEFAULT';
+export type LogVerbosity = 'summary' | 'diagnostic' | 'trace';
+export type TraceCategory = 'SUPPLY' | 'GATE' | 'PROGRAM' | 'KIS' | 'KRX' | 'SCHEDULER' | 'BOOT';
+
+export interface TraceRecord {
+  traceId: string;
+  createdAt: string;
+  sourceCommand?: string;
+  category: TraceCategory;
+  summary: Record<string, unknown>;
+  details: Record<string, unknown>;
+  expiresAt: string;
+}
 
 export type NoiseCategory =
   | 'PRE_ENTRY_WAIT'
@@ -23,6 +36,9 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   silent: 5,
 };
 
+const traceBuffer: TraceRecord[] = [];
+const diagnosticDedup = new Map<string, { lastEmittedAtMs: number; suppressed: number }>();
+
 function normalizeLogLevel(value: string | undefined): LogLevel {
   if (value === 'trace' || value === 'debug' || value === 'info' || value === 'warn' || value === 'error' || value === 'silent') {
     return value;
@@ -34,10 +50,171 @@ export function getCurrentLogLevel(): LogLevel {
   return normalizeLogLevel(process.env.LOG_LEVEL);
 }
 
+export function getLogVerbosity(): LogVerbosity {
+  const raw = String(process.env.LOG_VERBOSITY ?? process.env.DEFAULT_COMMAND_VERBOSITY ?? 'summary').toLowerCase();
+  if (raw === 'trace') return 'trace';
+  if (raw === 'diagnostic' || raw === 'debug' || raw === 'verbose') return 'diagnostic';
+  if (getCurrentLogLevel() === 'trace') return 'trace';
+  if (getCurrentLogLevel() === 'debug') return 'diagnostic';
+  return 'summary';
+}
+
+export async function withLogVerbosity<T>(verbosity: LogVerbosity | undefined, fn: () => Promise<T> | T): Promise<T> {
+  if (!verbosity) return await fn();
+  const previous = process.env.LOG_VERBOSITY;
+  process.env.LOG_VERBOSITY = verbosity;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.LOG_VERBOSITY;
+    else process.env.LOG_VERBOSITY = previous;
+  }
+}
+
+function envBool(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) return defaultValue;
+  return !['false', '0', 'no', 'off'].includes(raw.toLowerCase());
+}
+
+function getNoiseDedupTtlMs(): number {
+  const seconds = Number(process.env.NOISE_DEDUP_TTL_SEC ?? '60');
+  return (Number.isFinite(seconds) && seconds >= 0 ? seconds : 60) * 1000;
+}
+
+function getTraceBufferTtlMs(): number {
+  const minutes = Number(process.env.TRACE_BUFFER_TTL_MIN ?? '30');
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 30) * 60_000;
+}
+
+function pruneTraceBuffer(nowMs = Date.now()): void {
+  for (let i = traceBuffer.length - 1; i >= 0; i--) {
+    const expiresAtMs = new Date(traceBuffer[i].expiresAt).getTime();
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) traceBuffer.splice(i, 1);
+  }
+}
+
+export function createTraceId(prefix = 'trace', now: Date = new Date()): string {
+  const stamp = now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return `${prefix}_${stamp}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function recordTraceRecord(input: Omit<TraceRecord, 'createdAt' | 'expiresAt'> & { createdAt?: string; expiresAt?: string }): TraceRecord | null {
+  if (!envBool('TRACE_BUFFER_ENABLED', true)) return null;
+  const now = new Date();
+  pruneTraceBuffer(now.getTime());
+  const record: TraceRecord = {
+    ...input,
+    createdAt: input.createdAt ?? now.toISOString(),
+    expiresAt: input.expiresAt ?? new Date(now.getTime() + getTraceBufferTtlMs()).toISOString(),
+  };
+  traceBuffer.push(record);
+  if (traceBuffer.length > 500) traceBuffer.splice(0, traceBuffer.length - 500);
+  return record;
+}
+
+export function getRecentTraceRecords(limit = 10): TraceRecord[] {
+  pruneTraceBuffer();
+  return traceBuffer.slice(-Math.max(0, limit)).reverse();
+}
+
+export function getTraceRecord(traceId: string): TraceRecord | undefined {
+  pruneTraceBuffer();
+  return traceBuffer.find((record) => record.traceId === traceId);
+}
+
+export function clearTraceRecords(): number {
+  const count = traceBuffer.length;
+  traceBuffer.length = 0;
+  return count;
+}
+
+export function formatTraceRecent(limit = 10): string {
+  const records = getRecentTraceRecords(limit);
+  if (records.length === 0) return '[TRACE_RECENT] count=0 executionImpact=NONE';
+  return [
+    `[TRACE_RECENT] count=${records.length} executionImpact=NONE`,
+    ...records.map((record) =>
+      `traceId=${record.traceId} category=${record.category} createdAt=${record.createdAt} sourceCommand=${record.sourceCommand ?? 'N/A'} summary=${JSON.stringify(record.summary).slice(0, 500)}`,
+    ),
+  ].join('\n');
+}
+
+export function formatTraceRecord(record: TraceRecord | undefined): string {
+  if (!record) return '[TRACE_SHOW] found=false executionImpact=NONE';
+  return [
+    `[TRACE_SHOW] found=true traceId=${record.traceId} category=${record.category} createdAt=${record.createdAt} expiresAt=${record.expiresAt} executionImpact=NONE`,
+    `summary=${JSON.stringify(record.summary).slice(0, 1500)}`,
+    `details=${JSON.stringify(record.details).slice(0, 2500)}`,
+  ].join('\n');
+}
+
 export function isLogLevelEnabled(level: Exclude<LogLevel, 'silent'>): boolean {
   const current = getCurrentLogLevel();
   if (current === 'silent') return false;
   return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[current];
+}
+
+export function shouldEmitByVisibility(
+  visibility: LogVisibility,
+  options: { dedupKey?: string; nowMs?: number; executionImpact?: unknown } = {},
+): boolean {
+  if (options.executionImpact !== undefined && options.executionImpact !== 'NONE') return true;
+  if (visibility === 'ALWAYS') return true;
+  const verbosity = getLogVerbosity();
+  if (verbosity === 'trace') return visibility !== 'SILENT_BY_DEFAULT';
+  if (visibility === 'SUMMARY') return true;
+  if (visibility === 'TRACE' || visibility === 'SILENT_BY_DEFAULT') return false;
+  if (visibility === 'DIAGNOSTIC') {
+    if (verbosity === 'diagnostic') return true;
+    const dedupKey = options.dedupKey;
+    if (!dedupKey) return false;
+    const nowMs = options.nowMs ?? Date.now();
+    const state = diagnosticDedup.get(dedupKey);
+    if (!state || nowMs - state.lastEmittedAtMs >= getNoiseDedupTtlMs()) {
+      diagnosticDedup.set(dedupKey, { lastEmittedAtMs: nowMs, suppressed: 0 });
+      return true;
+    }
+    state.suppressed++;
+    return false;
+  }
+  return false;
+}
+
+export function logVisibilityEvent(input: {
+  visibility: LogVisibility;
+  message: string;
+  category?: TraceCategory;
+  sourceCommand?: string;
+  traceId?: string;
+  summary?: Record<string, unknown>;
+  details?: Record<string, unknown>;
+  dedupKey?: string;
+  level?: 'debug' | 'info' | 'warn' | 'error';
+  executionImpact?: unknown;
+  loggerOverride?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+  nowMs?: number;
+}): { emitted: boolean; traceId?: string } {
+  const traceId = input.traceId ?? createTraceId(input.category?.toLowerCase() ?? 'trace');
+  if (input.category && (input.details || input.visibility === 'TRACE' || input.visibility === 'SILENT_BY_DEFAULT')) {
+    recordTraceRecord({
+      traceId,
+      sourceCommand: input.sourceCommand,
+      category: input.category,
+      summary: input.summary ?? { message: input.message },
+      details: input.details ?? { message: input.message },
+    });
+  }
+  const emitted = shouldEmitByVisibility(input.visibility, {
+    dedupKey: input.dedupKey,
+    nowMs: input.nowMs,
+    executionImpact: input.executionImpact,
+  });
+  if (!emitted) return { emitted, traceId };
+  const target = input.loggerOverride ?? logger;
+  const level = input.level ?? (input.visibility === 'ALWAYS' ? 'warn' : 'info');
+  target[level](input.message);
+  return { emitted, traceId };
 }
 
 export const logger: Pick<Console, 'debug' | 'info' | 'warn' | 'error'> & { trace: (...args: unknown[]) => void } = {
@@ -318,7 +495,21 @@ export function formatNoiseSummary(input: NoiseSummaryInput = getNoiseCounters()
   const counters = { ...getNoiseCounters(), ...input };
   const session = input.session ? ` session=${input.session}` : '';
   const executionImpact = input.executionImpact ? ` executionImpact=${input.executionImpact}` : '';
-  return `[NoiseSummary]${session} suppressed=${counters.suppressed} preEntryWait=${counters.preEntryWait} priceDistance=${counters.priceDistance} kisWsDetail=${counters.kisWsDetail} kisMtasDetail=${counters.kisMtasDetail} gateDiagnostics=${counters.gateDiagnostics} kisFirstDiagnostics=${counters.kisFirstDiagnostics} supplySemanticWireDiag=${counters.supplySemanticWireDiag} commandRegistryDiag=${counters.commandRegistryDiag} counterfactualDuplicate=${counters.counterfactualDuplicate}${executionImpact}`;
+  const topReasons = Object.fromEntries(
+    Object.entries({
+      preEntryWait: counters.preEntryWait,
+      priceDistance: counters.priceDistance,
+      kisWsDetail: counters.kisWsDetail,
+      kisMtasDetail: counters.kisMtasDetail,
+      gateDiagnostics: counters.gateDiagnostics,
+      kisFirstDiagnostics: counters.kisFirstDiagnostics,
+      supplySemanticWireDiag: counters.supplySemanticWireDiag,
+      commandRegistryDiag: counters.commandRegistryDiag,
+      counterfactualDuplicate: counters.counterfactualDuplicate,
+    }).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]),
+  );
+  const traceId = createTraceId('noise');
+  return `[NOISE_COMPRESSED]${session} suppressed=${counters.suppressed} topReasons=${JSON.stringify(topReasons)}${executionImpact} traceAvailable=true traceId=${traceId}`;
 }
 
 function getNoiseSummaryIntervalMs(): number {
@@ -339,6 +530,15 @@ export function logNoiseSummary(
   nowMs = Date.now(),
 ): void {
   if (!shouldEmitNoiseSummary(nowMs)) return;
+  const counters = { ...getNoiseCounters(), ...input };
+  if ((counters.suppressed ?? 0) <= 0) return;
   lastNoiseSummaryEmittedAtMs = nowMs;
-  loggerOverride.info(formatNoiseSummary(input));
+  const message = formatNoiseSummary(input);
+  recordTraceRecord({
+    traceId: message.match(/traceId=([^\s]+)/)?.[1] ?? createTraceId('noise'),
+    category: 'BOOT',
+    summary: { suppressed: counters.suppressed, session: input.session, executionImpact: input.executionImpact },
+    details: counters,
+  });
+  loggerOverride.info(message);
 }

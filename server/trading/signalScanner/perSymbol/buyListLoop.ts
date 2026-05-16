@@ -8,7 +8,7 @@
 import { fetchKisInvestorTradeByStockDaily } from '../../../clients/kisClient.js';
 // ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — KIS investor flow → supplyProviderHealth bridge SSOT.
 import { applySupplyProviderHealthFromKisFlow } from '../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
-import { logger, logNoiseDetail } from '../../../utils/logger.js';
+import { logger, logNoiseDetail, logVisibilityEvent } from '../../../utils/logger.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
 import type { ServerShadowTrade, EntryKellySnapshot } from '../../../persistence/shadowTradeRepo.js';
@@ -2062,12 +2062,28 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         reCheckQuote,
         reCheckGate,
         regime: ctx.regime,
+        marketSessionState: ctx.resolvedMarketSessionState,
         marketElapsedMinutes: getKstMarketElapsedMinutes(),
         sectorBoost,
         sectorBoostReason,
       });
       if (!revalResult.proceed) {
-        console.log(revalResult.logMessage);
+        logVisibilityEvent({
+          visibility: revalResult.stageLogValue === 'SKIPPED_POLICY_BLOCK' ? 'DIAGNOSTIC' : 'SUMMARY',
+          message: revalResult.logMessage,
+          category: 'GATE',
+          sourceCommand: '/scan',
+          dedupKey: `ENTRY_REVALIDATION:${revalResult.stageLogValue}:${ctx.resolvedMarketSessionState ?? 'UNKNOWN'}:NONE`,
+          summary: {
+            stock: stock.name,
+            stageLogValue: revalResult.stageLogValue,
+            marketSessionState: ctx.resolvedMarketSessionState ?? 'UNKNOWN',
+            executionImpact: 'NONE',
+          },
+          details: { stockCode: stock.code, stockName: stock.name, failReasons: revalResult.failReasons },
+          level: 'info',
+          executionImpact: 'NONE',
+        });
         // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
         // ADR-0115: Gate 재검증 미달은 NON_CRITICAL — failCount 미증가 (default).
         // ENV PRE_BREAKOUT_FAILCOUNT_DISABLED=false 명시 시 ADR-0113 동작 복원.

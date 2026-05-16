@@ -27,6 +27,7 @@ import {
   INTERNAL_BLOCK_SENTINEL,
   normalizeMacroRegime,
   resolveMacroRegime,
+  resolveMarketSessionState,
   type EntryBlockReason,
   type ExecutionMode,
   type MacroRegime,
@@ -325,7 +326,10 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryR
   ]));
   const liveEntryAllowed = input.liveEntryAllowed ?? minGate < INTERNAL_BLOCK_SENTINEL;
   const executionMode = input.executionMode ?? (liveEntryAllowed ? 'NORMAL' : 'SHADOW_ONLY');
-  const marketSessionState = input.marketSessionState ?? 'OPEN';
+  const marketSessionState = resolveMarketSessionState({
+    marketSessionState: input.marketSessionState,
+    skipReason: blockReasons.includes('KRX_NON_TRADING_DAY') ? 'KRX_NON_TRADING_DAY' : undefined,
+  });
   const shadowLearningAllowed = input.shadowLearningAllowed ?? true;
   const actualGateScore = input.quoteGateScore ?? 0;
 

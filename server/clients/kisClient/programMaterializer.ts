@@ -1,6 +1,7 @@
 // @responsibility KIS program trade materialization SSOT for diagnostic consumers.
 
 import type { KisMarketProgramTrade } from './types.js';
+import { logVisibilityEvent } from '../../utils/logger.js';
 
 export const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_TR_ID ?? 'FHPPG04600101';
 export const MARKET_PROGRAM_TRADE_PATH =
@@ -101,10 +102,32 @@ function logMarketProgramStatusDiagnostic(diag: MarketProgramMaterializerDiagnos
     lastMarketProgramStatusLog.lastSelectedBsopHour = diag.selectedBsopHour;
     return;
   }
+  const traceId = `market_program_${new Date(nowMs).toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`;
   if (lastMarketProgramStatusLog && lastMarketProgramStatusLog.suppressedCount > 0) {
-    console.log(`[MARKET_PROGRAM_STATUS_SUPPRESSED] status=${diag.status} suppressedCount=${lastMarketProgramStatusLog.suppressedCount} lastSelectedBsopHour=${lastMarketProgramStatusLog.lastSelectedBsopHour ?? 'NONE'} providerIssue=${diag.providerIssue} executionImpact=${diag.executionImpact}`);
+    logVisibilityEvent({
+      visibility: 'SUMMARY',
+      category: 'PROGRAM',
+      traceId,
+      message: `[MARKET_PROGRAM_STATUS_SUPPRESSED] status=${diag.status} suppressedCount=${lastMarketProgramStatusLog.suppressedCount} lastSelectedBsopHour=${lastMarketProgramStatusLog.lastSelectedBsopHour ?? 'NONE'} providerIssue=${diag.providerIssue} executionImpact=${diag.executionImpact}`,
+      summary: { status: diag.status, suppressedCount: lastMarketProgramStatusLog.suppressedCount, executionImpact: diag.executionImpact },
+      details: { diag },
+      level: 'info',
+      executionImpact: diag.executionImpact,
+    });
   }
-  console.log(`[MARKET_PROGRAM_STATUS] status=${diag.status} rowCount=${diag.rowCount} selectedPath=${diag.selectedPath} selectedBsopHour=${diag.selectedBsopHour ?? 'NONE'} selectedReason=${diag.selectedReason} nonZeroRowCount=${diag.nonZeroRowCount} zeroReason=${diag.zeroReason ?? 'NONE'} parseQuality=${diag.parseQuality} providerIssue=${diag.providerIssue} executionImpact=${diag.executionImpact}`);
+  logVisibilityEvent({
+    visibility: diag.status === 'OK_EMPTY_OUTPUT' ? 'DIAGNOSTIC' : 'SUMMARY',
+    category: 'PROGRAM',
+    traceId,
+    dedupKey: `MARKET_PROGRAM_STATUS:${diag.status}:${diag.zeroReason ?? 'NONE'}:${diag.executionImpact}`,
+    message: diag.status === 'OK_EMPTY_OUTPUT'
+      ? `[MARKET_PROGRAM_SUMMARY] status=EMPTY source=KIS_API scoring=excluded providerIssue=${diag.providerIssue} marketSignal=${diag.marketSignal} executionImpact=${diag.executionImpact} traceId=${traceId}`
+      : `[MARKET_PROGRAM_STATUS] status=${diag.status} rowCount=${diag.rowCount} selectedPath=${diag.selectedPath} selectedBsopHour=${diag.selectedBsopHour ?? 'NONE'} selectedReason=${diag.selectedReason} nonZeroRowCount=${diag.nonZeroRowCount} zeroReason=${diag.zeroReason ?? 'NONE'} parseQuality=${diag.parseQuality} providerIssue=${diag.providerIssue} executionImpact=${diag.executionImpact}`,
+    summary: { status: diag.status, source: 'KIS_API', scoring: diag.scoring, providerIssue: diag.providerIssue, marketSignal: diag.marketSignal, executionImpact: diag.executionImpact },
+    details: { diag },
+    level: 'info',
+    executionImpact: diag.executionImpact,
+  });
   lastMarketProgramStatusLog = { key, loggedAt: nowMs, suppressedCount: 0, lastSelectedBsopHour: diag.selectedBsopHour };
 }
 

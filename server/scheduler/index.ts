@@ -89,6 +89,11 @@ export function startScheduler(): void {
   }
   const registeredMissingFromCatalog = registered.filter((n) => !catalogJobs.includes(n));
   if (registeredMissingFromCatalog.length > 0) {
-    console.warn(`[Scheduler] ⚠️ scheduledJob 등록되었으나 SCHEDULE_CATALOG 에 없는 jobName: ${registeredMissingFromCatalog.join(', ')}`);
+    console.warn(
+      `[SCHEDULER_CATALOG_DRIFT_SUMMARY] ` +
+      `unknownJobCount=${registeredMissingFromCatalog.length} ` +
+      `sample=${registeredMissingFromCatalog.slice(0, 5).join(', ')} ` +
+      `action=observe executionImpact=NONE detailsSuppressed=true`,
+    );
   }
 }

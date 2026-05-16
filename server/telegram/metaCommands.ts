@@ -554,9 +554,10 @@ export function buildBotMenuCommandsExtended(): BotMenuCommand[] {
 
   // Telegram 메뉴는 한도보다 여유 있게 큐레이션한다. 숨긴 명령도 registry 와 /help 로 접근 가능하다.
   if (registryEntries.length > visibleRegistryEntries.length) {
-    console.warn(
-      `[buildBotMenuCommandsExtended] Telegram setMyCommands menu cap ${menuCap} applied ` +
-      `— hidden=${registryEntries.length - visibleRegistryEntries.length} (available via /help).`,
+    console.info(
+      `[TELEGRAM_COMMAND_MENU_CAPPED] visible=${menuCap} ` +
+      `hidden=${registryEntries.length - visibleRegistryEntries.length} ` +
+      `availableViaHelp=true severity=INFO executionImpact=NONE`,
     );
   }
 

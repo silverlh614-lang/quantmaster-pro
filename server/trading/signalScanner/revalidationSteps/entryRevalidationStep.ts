@@ -1,7 +1,7 @@
 // @responsibility liveGate 재검증 결과를 RevalidationStep 시그니처로 분기하는 PoC 단계
 
 import { evaluateEntryRevalidation, getMinGateScore } from '../../entryEngine.js';
-import { INTERNAL_BLOCK_SENTINEL, normalizeMacroRegime, type EntryBlockReason } from '../../entryPolicySemantics.js';
+import { INTERNAL_BLOCK_SENTINEL, normalizeMacroRegime, resolveMarketSessionState, type EntryBlockReason } from '../../entryPolicySemantics.js';
 import { isExecutionRelaxationEnabled } from '../failureClassifier.js';
 import type { RevalidationStepResult } from './types.js';
 
@@ -83,7 +83,7 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     liveEntryAllowed: input.liveEntryAllowed ?? !policyBlockedBySentinel,
     shadowLearningAllowed: input.shadowLearningAllowed ?? true,
     executionMode: input.executionMode ?? (policyBlockedBySentinel ? 'SHADOW_ONLY' : 'NORMAL'),
-    marketSessionState: input.marketSessionState ?? 'OPEN',
+    marketSessionState: resolveMarketSessionState({ marketSessionState: input.marketSessionState }),
     macroRegime: normalizeMacroRegime(input.regime),
     blockReasons: input.blockReasons ?? (policyBlockedBySentinel ? ['R6_DEFENSE'] : undefined),
     marketElapsedMinutes: input.marketElapsedMinutes,

@@ -43,6 +43,23 @@ describe('entry revalidation policy-blocked logging semantics', () => {
     expect(resolveMacroRegime(['R3_CAUTION', 'R6_DEFENSE'])).toBe('R6_DEFENSE');
   });
 
+  it('inherits NON_TRADING_DAY from KRX block reason when entry revalidation omits session state', () => {
+    const r = evaluateEntryRevalidation({
+      symbol: '005930',
+      currentPrice: 10100,
+      entryPrice: 10000,
+      quoteGateScore: 5.5,
+      quoteSignalType: 'NORMAL',
+      minGateScore: 999,
+      macroRegimeCandidates: ['R6_DEFENSE'],
+      executionMode: 'SHADOW_ONLY',
+      blockReasons: ['R6_DEFENSE', 'KRX_NON_TRADING_DAY'],
+    });
+    expect(r.status).toBe('SKIPPED_POLICY_BLOCK');
+    expect(r.marketSessionState).toBe('NON_TRADING_DAY');
+    expect(r.structuredLog).toContain('marketSessionState=NON_TRADING_DAY');
+  });
+
   it('normal live-entry gate revalidation uses real threshold formatting instead of sentinel', () => {
     const r = evaluateEntryRevalidation({
       currentPrice: 10100,

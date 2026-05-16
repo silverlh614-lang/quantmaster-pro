@@ -77,6 +77,19 @@ export function formatEntryBlockReasons(reasons: readonly EntryBlockReason[] | u
   return `[${filtered.length > 0 ? filtered.join(', ') : 'NONE'}]`;
 }
 
+export function resolveMarketSessionState(input: {
+  marketSessionState?: MarketSessionState;
+  skipReason?: string | null;
+  isKrxTradingDay?: boolean;
+  volumeClockAllowsEntry?: boolean;
+  fallback?: MarketSessionState;
+} = {}): MarketSessionState {
+  if (input.marketSessionState) return input.marketSessionState;
+  if (input.skipReason === 'KRX_NON_TRADING_DAY' || input.isKrxTradingDay === false) return 'NON_TRADING_DAY';
+  if (input.volumeClockAllowsEntry === false) return 'CLOSED';
+  return input.fallback ?? 'OPEN';
+}
+
 export function formatEntryRevalidationSkippedLog(input: {
   symbol?: string;
   actualGateScore?: number;
