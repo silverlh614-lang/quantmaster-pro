@@ -37,6 +37,7 @@ import { placeKisMarketBuyOrder, fetchAccountBalance } from '../clients/kisClien
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { markAutoTradeReady, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
+import type { TradeSignalBlockGate } from '../persistence/tradeSignalStatusRepo.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 import { evaluateEnemyAutoBlock } from './enemyAutoBlock.js';
 import { fillMonitor } from './fillMonitor.js';
@@ -342,6 +343,270 @@ export interface CreateBuyTaskParams {
   gateBandStrong?: number;
 }
 
+function rejectBuyTask(
+  p: CreateBuyTaskParams,
+  action: ApprovalAction = 'SKIP',
+): LiveBuyTask {
+  return {
+    approvalPromise: Promise.resolve<ApprovalAction>(action),
+    execute: async () => {
+      p.trade.status = 'REJECTED';
+      p.onRejected?.(p.trade, action);
+    },
+  };
+}
+
+function markSignalBlockedSafe(signalId: string | undefined, gate: TradeSignalBlockGate, reason: string): void {
+  if (!signalId) return;
+  try {
+    markBlocked({ id: signalId, gate, reason });
+  } catch (e) {
+    console.warn(`[TradeSignalStatus] ${gate} markBlocked failed`, e);
+  }
+}
+
+function applyOrderTypeDecisionIfEnabled(p: CreateBuyTaskParams): void {
+  if (!isOrderTypeOptimizerEnabled()) return;
+  try {
+    const decision = decideOrderType({
+      stockCode: p.stockCode,
+      volumeZ: p.volumeZ,
+      priceMomentumPct: p.priceMomentumPct,
+    });
+    p.trade.orderTypeDecision = {
+      orderType: decision.orderType,
+      reason: decision.reason,
+      limitOffsetTicks: decision.limitOffsetTicks,
+      chasePolicy: decision.chasePolicy,
+      decidedAt: new Date().toISOString(),
+    };
+    console.log(
+      `[OrderTypeOptimizer] ${p.stockName}(${p.stockCode}) → ${decision.orderType} — ${decision.reason} (ADR-0186, SHADOW-only 가시화)`,
+    );
+  } catch (e) {
+    console.warn('[OrderTypeOptimizer] decideOrderType failed', e);
+  }
+}
+
+function rejectForManualExitCooldown(
+  p: CreateBuyTaskParams,
+  cooldown: ManualExitCooldownResult,
+): LiveBuyTask {
+  console.warn(
+    `[BuyPipeline] ${p.stockName}(${p.stockCode}) 72h 재매수 냉각 차단 — ` +
+    `마지막 수동 청산: ${cooldown.lastExitAt}, 잔여 ${cooldown.remainingHours}h`,
+  );
+  appendShadowLog({
+    event: 'BUY_BLOCKED_MANUAL_EXIT_COOLDOWN',
+    code: p.stockCode,
+    price: p.currentPrice,
+    lastExitAt: cooldown.lastExitAt,
+    remainingHours: cooldown.remainingHours,
+  });
+  p.trade.status = 'REJECTED';
+  sendTelegramAlert(
+    `🔒 <b>[재매수 냉각]</b> ${p.stockName}(${p.stockCode})\n` +
+    `최근 수동 청산 후 ${cooldown.remainingHours}h 동안 재매수 차단 — 반복 편향 방지 룰.`,
+    { category: 'manual_exit_cooldown', dedupeKey: `cooldown:${p.stockCode}:${cooldown.lastExitAt}` },
+  ).catch(() => { /* noop */ });
+  return {
+    approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
+    execute: async () => {
+      p.onRejected?.(p.trade, 'SKIP');
+    },
+  };
+}
+
+async function buildPreApprovalContext(
+  p: CreateBuyTaskParams,
+  regime: string | undefined,
+  sector: string,
+): Promise<{ enemyCheck: EnemyCheckResult | null; preMortem: string | null }> {
+  const [enemyCheck, preMortem] = await Promise.all([
+    fetchEnemyCheckData(p.stockCode).catch(() => null),
+    p.preMortem !== undefined
+      ? Promise.resolve(p.preMortem)
+      : generatePreMortem({
+          stockCode:   p.stockCode,
+          stockName:   p.stockName,
+          entryPrice:  p.entryPrice,
+          stopLoss:    p.stopLoss,
+          targetPrice: p.targetPrice,
+          regime,
+          sector,
+        }).catch(() => null),
+  ]);
+  return { enemyCheck, preMortem };
+}
+
+function applyPreMortemFields(
+  p: CreateBuyTaskParams,
+  preMortem: string | null,
+  regime: string | undefined,
+  sector: string,
+): void {
+  if (preMortem) {
+    p.trade.preMortem = preMortem;
+  }
+
+  if (!p.trade.preMortemStructured) {
+    p.trade.preMortemStructured = buildPreMortemStructured({
+      entryPrice: p.entryPrice,
+      targetPrice: p.targetPrice,
+      stopLoss: p.stopLoss,
+      regime: p.trade.entryRegime ?? regime ?? 'R4_NEUTRAL',
+      sector,
+      gateScore: p.gateScore,
+      atr14: p.trade.entryATR14,
+      profileType: p.trade.profileType,
+      profitTrancheCount: p.trade.profitTranches?.length ?? 0,
+    });
+  }
+}
+
+function requestApprovalForBuyTask(
+  p: CreateBuyTaskParams,
+  enemyCheck: EnemyCheckResult | null,
+  preMortem: string | null,
+  regime: string | undefined,
+): Promise<ApprovalAction> {
+  return requestBuyApproval({
+    tradeId:     p.trade.id,
+    stockCode:   p.stockCode,
+    stockName:   p.stockName,
+    currentPrice: p.currentPrice,
+    quantity:    p.quantity,
+    stopLoss:    p.stopLoss,
+    targetPrice: p.targetPrice,
+    mode:        p.shadowMode ? 'SHADOW' : 'LIVE',
+    gateScore:   p.gateScore,
+    enemyCheck,
+    regime,
+    preMortem,
+    signalId:    p.signalId,
+    tradeDate:    p.tradeDate,
+    marketSession: p.marketSession,
+    sourceLane:   p.sourceLane,
+    rrr:          p.rrr,
+    mtas:         p.mtas,
+    compressionScore: p.compressionScore,
+    signalType:   p.signalType,
+    gateBandNormal: p.gateBandNormal,
+    gateBandStrong: p.gateBandStrong,
+  });
+}
+
+function describeError(e: unknown): unknown {
+  return e instanceof Error ? e.message : e;
+}
+
+async function executeLiveBuyTask(p: CreateBuyTaskParams): Promise<string | null> {
+  if (getSmokeTestLiveBlocked()) {
+    console.warn(
+      `[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) smoke-test 실패로 LIVE 차단 — ${getSmokeTestLastFailedReason()}`,
+    );
+    p.trade.status = 'REJECTED';
+    p.onRejected?.(p.trade, 'SKIP');
+    return null;
+  }
+
+  if (_inflightBuyOrders.has(p.trade.id)) {
+    console.warn(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 이미 주문 진행 중 — 중복 발사 차단`);
+    p.trade.status = 'REJECTED';
+    p.onRejected?.(p.trade, 'SKIP');
+    return null;
+  }
+  _inflightBuyOrders.add(p.trade.id);
+
+  try {
+    const totalAssets = await fetchAccountBalance().catch(() => null);
+    assertSafeOrder({
+      stockCode:   p.stockCode,
+      stockName:   p.stockName,
+      quantity:    p.quantity,
+      entryPrice:  p.entryPrice,
+      stopLoss:    p.stopLoss,
+      totalAssets,
+    });
+  } catch (e) {
+    console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 사전 가드 차단:`, describeError(e));
+    p.trade.status = 'REJECTED';
+    p.onRejected?.(p.trade, 'SKIP');
+    _inflightBuyOrders.delete(p.trade.id);
+    return null;
+  }
+
+  if (p.signalId) {
+    try {
+      markAutoTradeReady({ id: p.signalId, reason: 'KIS LIVE 주문 직전' });
+    } catch (e) {
+      console.warn('[TradeSignalStatus] LIVE markAutoTradeReady failed', e);
+    }
+  }
+
+  let ordNo: string | null = null;
+  try {
+    ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
+  } catch (e) {
+    console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 주문 API 실패:`, describeError(e));
+    p.trade.status = 'REJECTED';
+    p.onRejected?.(p.trade, 'SKIP');
+    _inflightBuyOrders.delete(p.trade.id);
+    return null;
+  }
+
+  const modeTag = `[BuyPipeline LIVE]`;
+  console.log(`${modeTag} ${p.stockName} 매수 주문 — ODNO: ${ordNo}`);
+  appendShadowLog({ event: p.logEvent, code: p.stockCode, price: p.currentPrice, ordNo });
+
+  if (ordNo) {
+    p.trade.status = 'ORDER_SUBMITTED';
+    fillMonitor.addOrder({
+      ordNo,
+      stockCode:      p.stockCode,
+      stockName:      p.stockName,
+      quantity:       p.quantity,
+      orderPrice:     p.entryPrice,
+      placedAt:       new Date().toISOString(),
+      relatedTradeId: p.trade.id,
+    });
+  } else {
+    p.trade.status = 'REJECTED';
+  }
+  _inflightBuyOrders.delete(p.trade.id);
+  return ordNo;
+}
+
+function executeShadowBuyTask(p: CreateBuyTaskParams): void {
+  console.log(`[BuyPipeline SHADOW] ${p.stockName}(${p.stockCode}) 신호 등록 @${p.currentPrice}`);
+  if (p.signalId) {
+    try {
+      markAutoTradeReady({ id: p.signalId, reason: 'SHADOW 진입 (USER_APPROVED 우회)' });
+    } catch (e) {
+      console.warn('[TradeSignalStatus] SHADOW markAutoTradeReady failed', e);
+    }
+  }
+  appendShadowLog({ event: p.logEvent, ...p.trade });
+}
+
+async function executeBuyTaskApproval(p: CreateBuyTaskParams, approval: ApprovalAction): Promise<void> {
+  if (approval !== 'APPROVE') {
+    const modeLabel = p.shadowMode ? 'SHADOW' : 'LIVE';
+    console.log(`[BuyPipeline ${modeLabel}] ${p.stockName} 매수 ${approval} — 건너뜀`);
+    p.trade.status = 'REJECTED';
+    p.onRejected?.(p.trade, approval);
+    return;
+  }
+
+  const ordNo = p.shadowMode ? null : await executeLiveBuyTask(p);
+  if (p.shadowMode) executeShadowBuyTask(p);
+
+  if (p.trade.status !== 'REJECTED') {
+    await sendTelegramAlert(p.alertMessage).catch(console.error);
+    await p.onApproved(p.trade, ordNo);
+  }
+}
+
 /**
  * 매수 승인 큐 태스크 생성 — SHADOW/LIVE 분기를 통합.
  * 기존에 6회 중복되던 approval + execute 패턴을 1회로 통합.
@@ -360,96 +625,24 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
     console.warn(
       `[BuyPipeline/CodeGuard] invalid KRX code 자동 SKIP — code="${p.stockCode}" name="${p.stockName}" (ADR-0185)`,
     );
-    if (p.signalId) {
-      try {
-        markBlocked({
-          id: p.signalId,
-          gate: 'DATA',
-          reason: `INVALID_KRX_CODE: ${p.stockCode}`,
-        });
-      } catch (e) {
-        console.warn('[TradeSignalStatus] INVALID_KRX_CODE markBlocked failed', e);
-      }
-    }
-    return {
-      approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
-      execute: async () => {
-        p.trade.status = 'REJECTED';
-        p.onRejected?.(p.trade, 'SKIP');
-      },
-    };
+    markSignalBlockedSafe(p.signalId, 'DATA', `INVALID_KRX_CODE: ${p.stockCode}`);
+    return rejectBuyTask(p);
   }
 
   // ADR-0186 (PR-A2-Wiring-1) — Order Type Optimizer 의사결정 가시화.
   // ENV `ORDER_TYPE_OPTIMIZER_ENABLED=true` 명시 시에만 호출. default OFF.
   // **본 PR scope: 영속 + 진단 로그만** — 실제 placeKisMarketBuyOrder 호출 시 orderType
   // 무변경 (LIMIT 그대로). LIVE 매매 본체 영향 0. 후속 PR (A2-Wiring-3) 에서 LIVE 적용.
-  if (isOrderTypeOptimizerEnabled()) {
-    try {
-      const decision = decideOrderType({
-        stockCode: p.stockCode,
-        volumeZ: p.volumeZ,
-        priceMomentumPct: p.priceMomentumPct,
-      });
-      p.trade.orderTypeDecision = {
-        orderType: decision.orderType,
-        reason: decision.reason,
-        limitOffsetTicks: decision.limitOffsetTicks,
-        chasePolicy: decision.chasePolicy,
-        decidedAt: new Date().toISOString(),
-      };
-      console.log(
-        `[OrderTypeOptimizer] ${p.stockName}(${p.stockCode}) → ${decision.orderType} — ${decision.reason} (ADR-0186, SHADOW-only 가시화)`,
-      );
-    } catch (e) {
-      // 의사결정 실패는 매수 흐름 차단 안 함 — try/catch 격리
-      console.warn('[OrderTypeOptimizer] decideOrderType failed', e);
-    }
-  }
+  applyOrderTypeDecisionIfEnabled(p);
 
   // P2 #18 — 수동 청산 후 72h 재매수 냉각 가드. 승인 요청 전에 즉시 차단.
   const cooldown = checkManualExitCooldown(p.stockCode);
   if (cooldown.blocked) {
-    console.warn(
-      `[BuyPipeline] ${p.stockName}(${p.stockCode}) 72h 재매수 냉각 차단 — ` +
-      `마지막 수동 청산: ${cooldown.lastExitAt}, 잔여 ${cooldown.remainingHours}h`,
-    );
-    appendShadowLog({
-      event: 'BUY_BLOCKED_MANUAL_EXIT_COOLDOWN',
-      code: p.stockCode,
-      price: p.currentPrice,
-      lastExitAt: cooldown.lastExitAt,
-      remainingHours: cooldown.remainingHours,
-    });
-    p.trade.status = 'REJECTED';
-    sendTelegramAlert(
-      `🔒 <b>[재매수 냉각]</b> ${p.stockName}(${p.stockCode})\n` +
-      `최근 수동 청산 후 ${cooldown.remainingHours}h 동안 재매수 차단 — 반복 편향 방지 룰.`,
-      { category: 'manual_exit_cooldown', dedupeKey: `cooldown:${p.stockCode}:${cooldown.lastExitAt}` },
-    ).catch(() => { /* noop */ });
-    return {
-      approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
-      execute: async (_a) => {
-        p.onRejected?.(p.trade, 'SKIP');
-      },
-    };
+    return rejectForManualExitCooldown(p, cooldown);
   }
 
   // enemyCheck + preMortem 병렬 생성 (둘 다 외부 호출이고 서로 독립적)
-  const [enemyCheck, preMortem] = await Promise.all([
-    fetchEnemyCheckData(p.stockCode).catch(() => null),
-    p.preMortem !== undefined
-      ? Promise.resolve(p.preMortem)
-      : generatePreMortem({
-          stockCode:   p.stockCode,
-          stockName:   p.stockName,
-          entryPrice:  p.entryPrice,
-          stopLoss:    p.stopLoss,
-          targetPrice: p.targetPrice,
-          regime,
-          sector,
-        }).catch(() => null),
-  ]);
+  const { enemyCheck, preMortem } = await buildPreApprovalContext(p, regime, sector);
 
   // ADR-0078 — Enemy Checklist 자동 차단 (신용잔고율·개인 비중 BLOCK 임계 통과 시)
   const enemyDecision = evaluateEnemyAutoBlock(enemyCheck);
@@ -457,185 +650,14 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
     console.warn(
       `[BuyPipeline] ${p.stockName}(${p.stockCode}) ENEMY 자동 차단 — ${enemyDecision.reason}`,
     );
-    if (p.signalId) {
-      try {
-        markBlocked({ id: p.signalId, gate: 'ENEMY', reason: enemyDecision.reason });
-      } catch (e) {
-        console.warn('[TradeSignalStatus] ENEMY markBlocked failed', e);
-      }
-    }
-    return {
-      approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
-      execute: async () => {
-        p.trade.status = 'REJECTED';
-        p.onRejected?.(p.trade, 'SKIP');
-      },
-    };
+    markSignalBlockedSafe(p.signalId, 'ENEMY', enemyDecision.reason);
+    return rejectBuyTask(p);
   }
 
   // Pre-Mortem을 shadowTrade에 저장 (승인 여부와 무관하게 기록 — 승인 거절 시 복기용)
-  if (preMortem) {
-    p.trade.preMortem = preMortem;
-  }
-
-  // Phase 3-⑫: 구조화된 4필드 Pre-Mortem 은 항상 필수 기록 (deterministic, Gemini 독립).
-  // Gemini free-text 는 사람 복기용이고, structured 는 exitEngine 의 기계 매칭용.
-  if (!p.trade.preMortemStructured) {
-    p.trade.preMortemStructured = buildPreMortemStructured({
-      entryPrice: p.entryPrice,
-      targetPrice: p.targetPrice,
-      stopLoss: p.stopLoss,
-      regime: p.trade.entryRegime ?? regime ?? 'R4_NEUTRAL',
-      sector,
-      gateScore: p.gateScore,
-      atr14: p.trade.entryATR14,
-      profileType: p.trade.profileType,
-      profitTrancheCount: p.trade.profitTranches?.length ?? 0,
-    });
-  }
-
+  applyPreMortemFields(p, preMortem, regime, sector);
   return {
-    approvalPromise: requestBuyApproval({
-      tradeId:     p.trade.id,
-      stockCode:   p.stockCode,
-      stockName:   p.stockName,
-      currentPrice: p.currentPrice,
-      quantity:    p.quantity,
-      stopLoss:    p.stopLoss,
-      targetPrice: p.targetPrice,
-      mode:        p.shadowMode ? 'SHADOW' : 'LIVE',
-      gateScore:   p.gateScore,
-      enemyCheck,
-      regime,
-      preMortem,
-      signalId:    p.signalId, // ADR-0077 — buyApproval callback 이 USER_APPROVED/BLOCKED 영속
-      // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow 모드에서만 dedupe guard 활성화 (LIVE 무영향).
-      // tradeDate + marketSession 모두 전달 시에만 requestBuyApproval 의 pre-flight guard 발동.
-      tradeDate:    p.tradeDate,
-      marketSession: p.marketSession,
-      sourceLane:   p.sourceLane,
-      rrr:          p.rrr,
-      mtas:         p.mtas,
-      compressionScore: p.compressionScore,
-      signalType:   p.signalType,
-      gateBandNormal: p.gateBandNormal,
-      gateBandStrong: p.gateBandStrong,
-    }),
-    execute: async (approval: ApprovalAction) => {
-      if (approval !== 'APPROVE') {
-        const modeLabel = p.shadowMode ? 'SHADOW' : 'LIVE';
-        console.log(`[BuyPipeline ${modeLabel}] ${p.stockName} 매수 ${approval} — 건너뜀`);
-        p.trade.status = 'REJECTED';
-        p.onRejected?.(p.trade, approval);
-        return;
-      }
-
-      let ordNo: string | null = null;
-
-      if (!p.shadowMode) {
-        // LIVE 모드: KIS 실주문
-        // Phase 2차 C7 — 당일 Pre-Market Smoke Test 가 실패했으면 LIVE 경로 완전 차단.
-        if (getSmokeTestLiveBlocked()) {
-          console.warn(
-            `[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) smoke-test 실패로 LIVE 차단 — ${getSmokeTestLastFailedReason()}`,
-          );
-          p.trade.status = 'REJECTED';
-          p.onRejected?.(p.trade, 'SKIP');
-          return;
-        }
-        // 중복 발사 가드 — 동일 trade.id 에 대해 이미 주문이 진행 중이면 즉시 REJECTED.
-        if (_inflightBuyOrders.has(p.trade.id)) {
-          console.warn(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 이미 주문 진행 중 — 중복 발사 차단`);
-          p.trade.status = 'REJECTED';
-          p.onRejected?.(p.trade, 'SKIP');
-          return;
-        }
-        _inflightBuyOrders.add(p.trade.id);
-
-        // Phase 2차 C3 — 주문 직전 Automated Kill Switch 검증.
-        // 포지션 팽창·손절 논리 붕괴·무한 루프 감지 시 여기서 throw → REJECTED.
-        try {
-          const totalAssets = await fetchAccountBalance().catch(() => null);
-          assertSafeOrder({
-            stockCode:   p.stockCode,
-            stockName:   p.stockName,
-            quantity:    p.quantity,
-            entryPrice:  p.entryPrice,
-            stopLoss:    p.stopLoss,
-            totalAssets,
-          });
-        } catch (e) {
-          // PreOrderGuardError — 이미 incident 기록 + EmergencyStop + Telegram 경보 완료.
-          console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 사전 가드 차단:`,
-            e instanceof Error ? e.message : e);
-          p.trade.status = 'REJECTED';
-          p.onRejected?.(p.trade, 'SKIP');
-          _inflightBuyOrders.delete(p.trade.id);
-          return;
-        }
-
-        // ADR-0077 wiring — KIS 실주문 직전 AUTO_TRADE_READY 영속 (영속 실패 시 매매 차단 안 함)
-        if (p.signalId) {
-          try {
-            markAutoTradeReady({ id: p.signalId, reason: 'KIS LIVE 주문 직전' });
-          } catch (e) {
-            console.warn('[TradeSignalStatus] LIVE markAutoTradeReady failed', e);
-          }
-        }
-
-        try {
-          ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
-        } catch (e) {
-          // kisPost 가 재시도 후에도 throw 하는 경우 (네트워크·권한·한도 초과 등).
-          // ordNo 미수신이므로 REJECTED 로 마감하여 다음 스캔에서 새로 시도할 수 있게 한다.
-          console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 주문 API 실패:`, e instanceof Error ? e.message : e);
-          p.trade.status = 'REJECTED';
-          p.onRejected?.(p.trade, 'SKIP');
-          _inflightBuyOrders.delete(p.trade.id);
-          return;
-        }
-
-        const modeTag = `[BuyPipeline LIVE]`;
-        console.log(`${modeTag} ${p.stockName} 매수 주문 — ODNO: ${ordNo}`);
-        appendShadowLog({ event: p.logEvent, code: p.stockCode, price: p.currentPrice, ordNo });
-
-        if (ordNo) {
-          // 상태를 먼저 전이시켜 뒤따르는 fillMonitor 등록 실패가 있어도 중복 주문이 재발사되지
-          // 않도록 한다. addOrder 는 파일 I/O 로만 실패 가능 — 실패해도 KIS 상에는 이미 주문이
-          // 들어간 상태이므로 REJECTED 로 되돌리면 오히려 네이키드 포지션을 만든다.
-          p.trade.status = 'ORDER_SUBMITTED';
-          fillMonitor.addOrder({
-            ordNo,
-            stockCode:      p.stockCode,
-            stockName:      p.stockName,
-            quantity:       p.quantity,
-            orderPrice:     p.entryPrice,
-            placedAt:       new Date().toISOString(),
-            relatedTradeId: p.trade.id,
-          });
-        } else {
-          p.trade.status = 'REJECTED';
-        }
-        _inflightBuyOrders.delete(p.trade.id);
-      } else {
-        // SHADOW 모드
-        console.log(`[BuyPipeline SHADOW] ${p.stockName}(${p.stockCode}) 신호 등록 @${p.currentPrice}`);
-        // ADR-0077 wiring — SHADOW 영속 (RISK_APPROVED → AUTO_TRADE_READY 직접 전이 허용)
-        if (p.signalId) {
-          try {
-            markAutoTradeReady({ id: p.signalId, reason: 'SHADOW 진입 (USER_APPROVED 우회)' });
-          } catch (e) {
-            console.warn('[TradeSignalStatus] SHADOW markAutoTradeReady failed', e);
-          }
-        }
-        appendShadowLog({ event: p.logEvent, ...p.trade });
-      }
-
-      // 공통 후처리
-      if (p.trade.status !== 'REJECTED') {
-        await sendTelegramAlert(p.alertMessage).catch(console.error);
-        await p.onApproved(p.trade, ordNo);
-      }
-    },
+    approvalPromise: requestApprovalForBuyTask(p, enemyCheck, preMortem, regime),
+    execute: (approval: ApprovalAction) => executeBuyTaskApproval(p, approval),
   };
 }
