@@ -1,15 +1,15 @@
-// @responsibility analysis 영역 GateWizard 컴포넌트
+// @responsibility analysis area GateWizard component
 /**
- * GateWizard — 3-Gate 위저드 플로우
+ * GateWizard - 3-Gate decision flow.
  *
- * Quantus의 선형 단계 탐색을 27조건 피라미드에 이식.
- * Gate 1(5 필수) → Gate 2(12→9 통과) → Gate 3(10→7 통과) → 포지션 확정 → 실행
- * 각 Gate를 순서대로 통과해야 다음 단계로 진행 가능.
+ * Visualizes the Quantus-style 27 condition pyramid:
+ * Gate 1 survival filter -> Gate 2 growth verification -> Gate 3 timing
+ * -> position sizing -> execution confirmation.
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Shield, TrendingUp, Clock, Target, Play,
-  Check, Lock, ChevronRight, AlertTriangle, Zap,
+  Check, Lock, ChevronRight, Zap,
   BarChart3, Brain, Eye, Scale, Crosshair,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,8 +24,6 @@ import {
   CONDITION_PASS_THRESHOLD,
 } from '../../constants/gateConfig';
 
-// ── Step Config ─────────────────────────────────────────────────────────────
-
 interface StepDef {
   key: string;
   label: string;
@@ -37,35 +35,83 @@ interface StepDef {
   glowColor: string;
 }
 
+type PositionMode = 'full' | 'half' | 'observation';
+
+interface GateWizardProps {
+  stockName?: string;
+  stockCode?: string;
+  conditionScores?: Record<number, number>;
+  onExecute?: (result: {
+    gate1Passed: boolean;
+    gate2Passed: boolean;
+    gate3Passed: boolean;
+    positionMode: PositionMode;
+    conditionScores: Record<number, number>;
+  }) => void;
+}
+
+interface GateStatus {
+  gate1Passed: boolean;
+  gate2Passed: boolean;
+  gate3Passed: boolean;
+}
+
 const STEPS: StepDef[] = [
   {
-    key: 'gate1', label: 'Gate 1', labelKo: '생존필터',
+    key: 'gate1', label: 'Gate 1', labelKo: 'Survival',
     icon: <Shield className="w-5 h-5" />,
     color: 'text-red-400', bgColor: 'bg-red-500/12', borderColor: 'border-red-500/40', glowColor: 'shadow-[0_0_20px_rgba(239,68,68,0.15)]',
   },
   {
-    key: 'gate2', label: 'Gate 2', labelKo: '성장검증',
+    key: 'gate2', label: 'Gate 2', labelKo: 'Growth',
     icon: <TrendingUp className="w-5 h-5" />,
     color: 'text-amber-400', bgColor: 'bg-amber-500/12', borderColor: 'border-amber-500/40', glowColor: 'shadow-[0_0_20px_rgba(245,158,11,0.15)]',
   },
   {
-    key: 'gate3', label: 'Gate 3', labelKo: '타이밍',
+    key: 'gate3', label: 'Gate 3', labelKo: 'Timing',
     icon: <Clock className="w-5 h-5" />,
     color: 'text-green-400', bgColor: 'bg-green-500/12', borderColor: 'border-green-500/40', glowColor: 'shadow-[0_0_20px_rgba(34,197,94,0.15)]',
   },
   {
-    key: 'position', label: 'Position', labelKo: '포지션 확정',
+    key: 'position', label: 'Position', labelKo: 'Sizing',
     icon: <Target className="w-5 h-5" />,
     color: 'text-blue-400', bgColor: 'bg-blue-500/12', borderColor: 'border-blue-500/40', glowColor: 'shadow-[0_0_20px_rgba(59,130,246,0.15)]',
   },
   {
-    key: 'execute', label: 'Execute', labelKo: '실행',
+    key: 'execute', label: 'Execute', labelKo: 'Confirm',
     icon: <Play className="w-5 h-5" />,
     color: 'text-purple-400', bgColor: 'bg-purple-500/12', borderColor: 'border-purple-500/40', glowColor: 'shadow-[0_0_20px_rgba(168,85,247,0.15)]',
   },
 ];
 
-// ── Condition icon helper ───────────────────────────────────────────────────
+const GATE_PANEL_COPY = [
+  {
+    description: 'All five survival checks must pass before the next gate can open.',
+    ruleText: 'ALL 5 conditions must pass (score >= 5)',
+  },
+  {
+    description: 'At least nine growth and momentum checks must pass to verify signal quality.',
+    ruleText: '9 of 12 conditions must pass (score >= 5)',
+  },
+  {
+    description: 'At least seven timing checks must pass to confirm entry timing.',
+    ruleText: '7 of 10 conditions must pass (score >= 5)',
+  },
+] as const;
+
+const POSITION_OPTIONS: {
+  mode: PositionMode;
+  label: string;
+  desc: string;
+  icon: React.ReactNode;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+}[] = [
+  { mode: 'full', label: 'Full position (100%)', desc: 'All gates passed with maximum conviction', icon: <Zap className="w-5 h-5" />, color: 'text-green-400', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/40' },
+  { mode: 'half', label: 'Half position (50%)', desc: 'Conservative entry with room to scale', icon: <Scale className="w-5 h-5" />, color: 'text-amber-400', bgColor: 'bg-amber-500/10', borderColor: 'border-amber-500/40' },
+  { mode: 'observation', label: 'Observation only', desc: 'Track the setup without execution', icon: <Eye className="w-5 h-5" />, color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/40' },
+];
 
 function getConditionIcon(id: number) {
   const icons: Record<number, React.ReactNode> = {
@@ -78,267 +124,150 @@ function getConditionIcon(id: number) {
   return icons[id] || <Brain className="w-3.5 h-3.5" />;
 }
 
-// ── Types ───────────────────────────────────────────────────────────────────
-
-type PositionMode = 'full' | 'half' | 'observation';
-
-interface GateWizardProps {
-  stockName?: string;
-  stockCode?: string;
-  /** Per-condition scores (0-10) from AI evaluation */
-  conditionScores?: Record<number, number>;
-  /** Called when user clicks Execute */
-  onExecute?: (result: {
-    gate1Passed: boolean;
-    gate2Passed: boolean;
-    gate3Passed: boolean;
-    positionMode: PositionMode;
-    conditionScores: Record<number, number>;
-  }) => void;
+function countPassed(ids: readonly number[], scores: Record<number, number>): number {
+  return ids.filter(id => (scores[id] ?? 0) >= CONDITION_PASS_THRESHOLD).length;
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// COMPONENT
-// ═════════════════════════════════════════════════════════════════════════════
+function canAccessGateStep(stepIndex: number, status: GateStatus): boolean {
+  if (stepIndex === 0) return true;
+  if (stepIndex === 1) return status.gate1Passed;
+  if (stepIndex === 2) return status.gate1Passed && status.gate2Passed;
+  if (stepIndex === 3) return status.gate1Passed && status.gate2Passed && status.gate3Passed;
+  if (stepIndex === 4) return status.gate1Passed && status.gate2Passed && status.gate3Passed;
+  return false;
+}
 
-export function GateWizard({ stockName, stockCode, conditionScores: externalScores, onExecute }: GateWizardProps) {
-  // ── State ─────────────────────────────────────────────────────────────────
-  const [activeStep, setActiveStep] = useState(0);
-  const [scores, setScores] = useState<Record<number, number>>(externalScores || {});
-  const [positionMode, setPositionMode] = useState<PositionMode>('full');
+function isGateStepCompleted(stepIndex: number, status: GateStatus): boolean {
+  if (stepIndex === 0) return status.gate1Passed;
+  if (stepIndex === 1) return status.gate2Passed;
+  if (stepIndex === 2) return status.gate3Passed;
+  return false;
+}
 
-  // Sync external scores when provided
-  React.useEffect(() => {
-    if (externalScores) setScores(externalScores);
-  }, [externalScores]);
-
-  // ── Computed gate results ─────────────────────────────────────────────────
-  const gate1Passed = useMemo(() => {
-    return GATE1_IDS.every(id => (scores[id] ?? 0) >= CONDITION_PASS_THRESHOLD);
-  }, [scores]);
-
-  const gate1Count = useMemo(() => {
-    return GATE1_IDS.filter(id => (scores[id] ?? 0) >= CONDITION_PASS_THRESHOLD).length;
-  }, [scores]);
-
-  const gate2Count = useMemo(() => {
-    return GATE2_IDS.filter(id => (scores[id] ?? 0) >= CONDITION_PASS_THRESHOLD).length;
-  }, [scores]);
-
-  const gate2Passed = useMemo(() => gate2Count >= GATE2_REQUIRED, [gate2Count]);
-
-  const gate3Count = useMemo(() => {
-    return GATE3_IDS.filter(id => (scores[id] ?? 0) >= CONDITION_PASS_THRESHOLD).length;
-  }, [scores]);
-
-  const gate3Passed = useMemo(() => gate3Count >= GATE3_REQUIRED, [gate3Count]);
-
-  // ── Step accessibility ────────────────────────────────────────────────────
-  const canAccessStep = useCallback((stepIndex: number) => {
-    if (stepIndex === 0) return true;
-    if (stepIndex === 1) return gate1Passed;
-    if (stepIndex === 2) return gate1Passed && gate2Passed;
-    if (stepIndex === 3) return gate1Passed && gate2Passed && gate3Passed;
-    if (stepIndex === 4) return gate1Passed && gate2Passed && gate3Passed;
-    return false;
-  }, [gate1Passed, gate2Passed, gate3Passed]);
-
-  const isStepCompleted = useCallback((stepIndex: number) => {
-    if (stepIndex === 0) return gate1Passed;
-    if (stepIndex === 1) return gate2Passed;
-    if (stepIndex === 2) return gate3Passed;
-    return false;
-  }, [gate1Passed, gate2Passed, gate3Passed]);
-
-  // ── Score update handler ──────────────────────────────────────────────────
-  const updateScore = useCallback((id: number, val: number) => {
-    setScores(prev => ({ ...prev, [id]: Math.max(0, Math.min(10, val)) }));
-  }, []);
-
-  // ── Navigate ──────────────────────────────────────────────────────────────
-  const goNext = useCallback(() => {
-    if (activeStep < STEPS.length - 1 && canAccessStep(activeStep + 1)) {
-      setActiveStep(prev => prev + 1);
-    }
-  }, [activeStep, canAccessStep]);
-
-  const goPrev = useCallback(() => {
-    if (activeStep > 0) setActiveStep(prev => prev - 1);
-  }, [activeStep]);
-
-  // ── Render ────────────────────────────────────────────────────────────────
+function StepNavigation({
+  activeStep,
+  canAccessStep,
+  isStepCompleted,
+  onStepChange,
+}: {
+  activeStep: number;
+  canAccessStep: (stepIndex: number) => boolean;
+  isStepCompleted: (stepIndex: number) => boolean;
+  onStepChange: (stepIndex: number) => void;
+}) {
   return (
-    <div className="space-y-5 sm:space-y-6">
-      {/* ─── Top: Step Navigation Bar ──────────────────────────────────── */}
-      <div className="flex items-center gap-0 sm:gap-1 p-2 sm:p-3 bg-[var(--bg-elevated)] rounded-xl sm:rounded-2xl border-2 border-theme-border shadow-[3px_3px_0px_rgba(0,0,0,0.3)] overflow-x-auto no-scrollbar">
-        {STEPS.map((step, idx) => {
-          const accessible = canAccessStep(idx);
-          const completed = isStepCompleted(idx);
-          const active = activeStep === idx;
-
-          return (
-            <React.Fragment key={step.key}>
-              {idx > 0 && (
-                <div className={cn(
-                  'w-4 sm:w-8 h-0.5 shrink-0 rounded-full transition-colors',
-                  completed || (accessible && idx <= activeStep + 1)
-                    ? 'bg-white/20' : 'bg-white/5'
-                )} />
-              )}
-              <button
-                type="button"
-                onClick={() => accessible && setActiveStep(idx)}
-                disabled={!accessible}
-                className={cn(
-                  'flex items-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl transition-all shrink-0',
-                  active && `${step.bgColor} ${step.borderColor} border-2 ${step.glowColor}`,
-                  !active && accessible && 'hover:bg-white/5 border-2 border-transparent',
-                  !active && completed && `border-2 ${step.borderColor} opacity-80`,
-                  !accessible && 'opacity-30 cursor-not-allowed border-2 border-transparent',
-                )}
-              >
-                {completed ? (
-                  <div className={cn('w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center', step.bgColor)}>
-                    <Check className={cn('w-3 h-3 sm:w-3.5 sm:h-3.5', step.color)} />
-                  </div>
-                ) : !accessible ? (
-                  <Lock className="w-4 h-4 text-theme-text-muted" />
-                ) : (
-                  <span className={cn(active ? step.color : 'text-theme-text-muted')}>{step.icon}</span>
-                )}
-                <div className="text-left hidden xs:block">
-                  <span className={cn(
-                    'text-[10px] font-black uppercase tracking-wider block leading-tight',
-                    active ? step.color : completed ? step.color : 'text-theme-text-muted'
-                  )}>
-                    {step.label}
-                  </span>
-                  <span className="text-[8px] font-bold text-theme-text-muted leading-tight">{step.labelKo}</span>
-                </div>
-              </button>
-            </React.Fragment>
-          );
-        })}
-      </div>
-
-      {/* ─── Real-time Gate Progress Strip ─────────────────────────────── */}
-      <div className="flex items-center gap-3 sm:gap-4 px-1">
-        <GateProgressPill label="G1" passed={gate1Count} total={GATE1_IDS.length} required={GATE1_REQUIRED} ok={gate1Passed} color="red" />
-        <GateProgressPill label="G2" passed={gate2Count} total={GATE2_IDS.length} required={GATE2_REQUIRED} ok={gate2Passed} color="amber" />
-        <GateProgressPill label="G3" passed={gate3Count} total={GATE3_IDS.length} required={GATE3_REQUIRED} ok={gate3Passed} color="green" />
-      </div>
-
-      {/* ─── Active Step Panel ─────────────────────────────────────────── */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeStep}
-          initial={{ opacity: 0, x: 40 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -40 }}
-          transition={{ duration: 0.2 }}
-        >
-          {activeStep === 0 && (
-            <GatePanel
-              step={STEPS[0]}
-              conditionIds={[...GATE1_IDS]}
-              scores={scores}
-              onUpdateScore={updateScore}
-              passedCount={gate1Count}
-              requiredCount={GATE1_REQUIRED}
-              gatePassed={gate1Passed}
-              description="5개 필수 생존 조건을 모두 충족해야 다음 Gate로 진행할 수 있습니다. 하나라도 미달 시 투자 불가."
-              ruleText="ALL 5 conditions must pass (score >= 5)"
-            />
-          )}
-          {activeStep === 1 && (
-            <GatePanel
-              step={STEPS[1]}
-              conditionIds={[...GATE2_IDS]}
-              scores={scores}
-              onUpdateScore={updateScore}
-              passedCount={gate2Count}
-              requiredCount={GATE2_REQUIRED}
-              gatePassed={gate2Passed}
-              description="12개 성장·모멘텀 조건 중 9개 이상 통과해야 합니다. 펀더멘털과 수급의 질을 검증합니다."
-              ruleText="9 of 12 conditions must pass (score >= 5)"
-            />
-          )}
-          {activeStep === 2 && (
-            <GatePanel
-              step={STEPS[2]}
-              conditionIds={[...GATE3_IDS]}
-              scores={scores}
-              onUpdateScore={updateScore}
-              passedCount={gate3Count}
-              requiredCount={GATE3_REQUIRED}
-              gatePassed={gate3Passed}
-              description="10개 타이밍·기술적 조건 중 7개 이상 통과해야 합니다. 진입 시점의 정밀도를 확인합니다."
-              ruleText="7 of 10 conditions must pass (score >= 5)"
-            />
-          )}
-          {activeStep === 3 && (
-            <PositionPanel
-              positionMode={positionMode}
-              onChangeMode={setPositionMode}
-              gate1Passed={gate1Passed}
-              gate2Passed={gate2Passed}
-              gate3Passed={gate3Passed}
-              gate1Count={gate1Count}
-              gate2Count={gate2Count}
-              gate3Count={gate3Count}
-              stockName={stockName}
-            />
-          )}
-          {activeStep === 4 && (
-            <ExecutionPanel
-              stockName={stockName}
-              stockCode={stockCode}
-              positionMode={positionMode}
-              onExecute={() => onExecute?.({
-                gate1Passed, gate2Passed, gate3Passed,
-                positionMode, conditionScores: scores,
-              })}
-            />
-          )}
-        </motion.div>
-      </AnimatePresence>
-
-      {/* ─── Bottom Navigation ─────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="md"
-          onClick={goPrev}
-          disabled={activeStep === 0}
-        >
-          이전
-        </Button>
-        <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">
-          {activeStep + 1} / {STEPS.length}
-        </div>
-        {activeStep < STEPS.length - 1 ? (
-          <Button
-            variant={canAccessStep(activeStep + 1) ? 'primary' : 'secondary'}
-            size="md"
-            icon={canAccessStep(activeStep + 1) ? <ChevronRight className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-            onClick={goNext}
-            disabled={!canAccessStep(activeStep + 1)}
-          >
-            {canAccessStep(activeStep + 1) ? '다음' : '잠김'}
-          </Button>
-        ) : (
-          <div />
-        )}
-      </div>
+    <div className="flex items-center gap-0 sm:gap-1 p-2 sm:p-3 bg-[var(--bg-elevated)] rounded-xl sm:rounded-2xl border-2 border-theme-border shadow-[3px_3px_0px_rgba(0,0,0,0.3)] overflow-x-auto no-scrollbar">
+      {STEPS.map((step, idx) => (
+        <StepNavigationItem
+          key={step.key}
+          step={step}
+          index={idx}
+          activeStep={activeStep}
+          accessible={canAccessStep(idx)}
+          completed={isStepCompleted(idx)}
+          onStepChange={onStepChange}
+        />
+      ))}
     </div>
   );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// SUB-COMPONENTS
-// ═════════════════════════════════════════════════════════════════════════════
+function StepNavigationItem({
+  step,
+  index,
+  activeStep,
+  accessible,
+  completed,
+  onStepChange,
+}: {
+  step: StepDef;
+  index: number;
+  activeStep: number;
+  accessible: boolean;
+  completed: boolean;
+  onStepChange: (stepIndex: number) => void;
+}) {
+  const active = activeStep === index;
+  return (
+    <React.Fragment>
+      {index > 0 && (
+        <div className={cn(
+          'w-4 sm:w-8 h-0.5 shrink-0 rounded-full transition-colors',
+          completed || (accessible && index <= activeStep + 1) ? 'bg-white/20' : 'bg-white/5'
+        )} />
+      )}
+      <button
+        type="button"
+        onClick={() => accessible && onStepChange(index)}
+        disabled={!accessible}
+        className={cn(
+          'flex items-center gap-1.5 sm:gap-2.5 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl transition-all shrink-0',
+          active && `${step.bgColor} ${step.borderColor} border-2 ${step.glowColor}`,
+          !active && accessible && 'hover:bg-white/5 border-2 border-transparent',
+          !active && completed && `border-2 ${step.borderColor} opacity-80`,
+          !accessible && 'opacity-30 cursor-not-allowed border-2 border-transparent',
+        )}
+      >
+        <StepStatusIcon step={step} active={active} accessible={accessible} completed={completed} />
+        <div className="text-left hidden xs:block">
+          <span className={cn(
+            'text-[10px] font-black uppercase tracking-wider block leading-tight',
+            active ? step.color : completed ? step.color : 'text-theme-text-muted'
+          )}>
+            {step.label}
+          </span>
+          <span className="text-[8px] font-bold text-theme-text-muted leading-tight">{step.labelKo}</span>
+        </div>
+      </button>
+    </React.Fragment>
+  );
+}
 
-// ── Gate Progress Pill ──────────────────────────────────────────────────────
+function StepStatusIcon({
+  step,
+  active,
+  accessible,
+  completed,
+}: {
+  step: StepDef;
+  active: boolean;
+  accessible: boolean;
+  completed: boolean;
+}) {
+  if (completed) {
+    return (
+      <div className={cn('w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center', step.bgColor)}>
+        <Check className={cn('w-3 h-3 sm:w-3.5 sm:h-3.5', step.color)} />
+      </div>
+    );
+  }
+  if (!accessible) return <Lock className="w-4 h-4 text-theme-text-muted" />;
+  return <span className={cn(active ? step.color : 'text-theme-text-muted')}>{step.icon}</span>;
+}
+
+function GateProgressStrip({
+  gate1Count,
+  gate2Count,
+  gate3Count,
+  gate1Passed,
+  gate2Passed,
+  gate3Passed,
+}: {
+  gate1Count: number;
+  gate2Count: number;
+  gate3Count: number;
+  gate1Passed: boolean;
+  gate2Passed: boolean;
+  gate3Passed: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 sm:gap-4 px-1">
+      <GateProgressPill label="G1" passed={gate1Count} total={GATE1_IDS.length} required={GATE1_REQUIRED} ok={gate1Passed} color="red" />
+      <GateProgressPill label="G2" passed={gate2Count} total={GATE2_IDS.length} required={GATE2_REQUIRED} ok={gate2Passed} color="amber" />
+      <GateProgressPill label="G3" passed={gate3Count} total={GATE3_IDS.length} required={GATE3_REQUIRED} ok={gate3Passed} color="green" />
+    </div>
+  );
+}
 
 function GateProgressPill({ label, passed, total, required, ok, color }: {
   label: string; passed: number; total: number; required: number; ok: boolean;
@@ -372,7 +301,103 @@ function GateProgressPill({ label, passed, total, required, ok, color }: {
   );
 }
 
-// ── Gate Condition Panel ────────────────────────────────────────────────────
+function ActiveStepPanel({
+  activeStep,
+  scores,
+  positionMode,
+  gate1Passed,
+  gate2Passed,
+  gate3Passed,
+  gate1Count,
+  gate2Count,
+  gate3Count,
+  stockName,
+  stockCode,
+  onUpdateScore,
+  onChangeMode,
+  onExecute,
+}: {
+  activeStep: number;
+  scores: Record<number, number>;
+  positionMode: PositionMode;
+  gate1Passed: boolean;
+  gate2Passed: boolean;
+  gate3Passed: boolean;
+  gate1Count: number;
+  gate2Count: number;
+  gate3Count: number;
+  stockName?: string;
+  stockCode?: string;
+  onUpdateScore: (id: number, val: number) => void;
+  onChangeMode: (mode: PositionMode) => void;
+  onExecute: () => void;
+}) {
+  if (activeStep === 0) {
+    return (
+      <GatePanel
+        step={STEPS[0]}
+        conditionIds={[...GATE1_IDS]}
+        scores={scores}
+        onUpdateScore={onUpdateScore}
+        passedCount={gate1Count}
+        requiredCount={GATE1_REQUIRED}
+        gatePassed={gate1Passed}
+        description={GATE_PANEL_COPY[0].description}
+        ruleText={GATE_PANEL_COPY[0].ruleText}
+      />
+    );
+  }
+  if (activeStep === 1) {
+    return (
+      <GatePanel
+        step={STEPS[1]}
+        conditionIds={[...GATE2_IDS]}
+        scores={scores}
+        onUpdateScore={onUpdateScore}
+        passedCount={gate2Count}
+        requiredCount={GATE2_REQUIRED}
+        gatePassed={gate2Passed}
+        description={GATE_PANEL_COPY[1].description}
+        ruleText={GATE_PANEL_COPY[1].ruleText}
+      />
+    );
+  }
+  if (activeStep === 2) {
+    return (
+      <GatePanel
+        step={STEPS[2]}
+        conditionIds={[...GATE3_IDS]}
+        scores={scores}
+        onUpdateScore={onUpdateScore}
+        passedCount={gate3Count}
+        requiredCount={GATE3_REQUIRED}
+        gatePassed={gate3Passed}
+        description={GATE_PANEL_COPY[2].description}
+        ruleText={GATE_PANEL_COPY[2].ruleText}
+      />
+    );
+  }
+  if (activeStep === 3) {
+    return (
+      <PositionPanel
+        positionMode={positionMode}
+        onChangeMode={onChangeMode}
+        gate1Count={gate1Count}
+        gate2Count={gate2Count}
+        gate3Count={gate3Count}
+        stockName={stockName}
+      />
+    );
+  }
+  return (
+    <ExecutionPanel
+      stockName={stockName}
+      stockCode={stockCode}
+      positionMode={positionMode}
+      onExecute={onExecute}
+    />
+  );
+}
 
 function GatePanel({ step, conditionIds, scores, onUpdateScore, passedCount, requiredCount, gatePassed, description, ruleText }: {
   step: StepDef;
@@ -387,7 +412,6 @@ function GatePanel({ step, conditionIds, scores, onUpdateScore, passedCount, req
 }) {
   return (
     <Card padding="lg" className={cn(gatePassed && `${step.borderColor} border-2`)}>
-      {/* Header */}
       <div className="flex items-center justify-between mb-4 sm:mb-6">
         <div className="flex items-center gap-3">
           <div className={cn('w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center', step.bgColor)}>
@@ -408,89 +432,107 @@ function GatePanel({ step, conditionIds, scores, onUpdateScore, passedCount, req
 
       <p className="text-xs text-theme-text-muted font-bold leading-relaxed mb-5 sm:mb-6">{description}</p>
 
-      {/* Condition Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {conditionIds.map((id) => {
-          const cond = ALL_CONDITIONS[id];
-          const score = scores[id] ?? 0;
-          const passed = score >= CONDITION_PASS_THRESHOLD;
-
-          return (
-            <div
-              key={id}
-              className={cn(
-                'flex items-center gap-3 p-3 sm:p-4 rounded-xl border-2 transition-all',
-                passed
-                  ? 'bg-green-500/8 border-green-500/25'
-                  : score > 0
-                  ? 'bg-red-500/5 border-red-500/15'
-                  : 'bg-white/[0.02] border-theme-border'
-              )}
-            >
-              {/* Icon + Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className={cn('shrink-0', passed ? 'text-green-400' : 'text-theme-text-muted')}>
-                    {getConditionIcon(id)}
-                  </span>
-                  <span className="text-[10px] font-black text-theme-text-muted uppercase">{id}</span>
-                  <span className={cn('text-xs font-black truncate', passed ? 'text-green-400' : 'text-theme-text')}>
-                    {cond?.name || `조건 ${id}`}
-                  </span>
-                </div>
-                <p className="text-[9px] text-theme-text-muted font-medium truncate pl-5.5">
-                  {cond?.description || ''}
-                </p>
-              </div>
-
-              {/* Score Input */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <input
-                  type="range"
-                  min={0} max={10}
-                  value={score}
-                  onChange={(e) => onUpdateScore(id, parseInt(e.target.value))}
-                  className={cn(
-                    'w-16 sm:w-20 h-1.5 rounded-full appearance-none cursor-pointer',
-                    passed ? 'bg-green-500/20 accent-green-500' : 'bg-white/10 accent-orange-500',
-                    '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4',
-                    '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer',
-                    passed
-                      ? '[&::-webkit-slider-thumb]:bg-green-500 [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(34,197,94,0.4)]'
-                      : '[&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(249,115,22,0.4)]',
-                  )}
-                />
-                <span className={cn(
-                  'w-7 text-center text-xs font-black font-mono tabular-nums',
-                  passed ? 'text-green-400' : score > 0 ? 'text-orange-400' : 'text-theme-text-muted'
-                )}>
-                  {score}
-                </span>
-                {passed && <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />}
-              </div>
-            </div>
-          );
-        })}
+        {conditionIds.map((id) => (
+          <ConditionRow
+            key={id}
+            id={id}
+            score={scores[id] ?? 0}
+            onUpdateScore={onUpdateScore}
+          />
+        ))}
       </div>
     </Card>
   );
 }
 
-// ── Position Panel ──────────────────────────────────────────────────────────
+function ConditionRow({
+  id,
+  score,
+  onUpdateScore,
+}: {
+  id: number;
+  score: number;
+  onUpdateScore: (id: number, val: number) => void;
+}) {
+  const cond = ALL_CONDITIONS[id];
+  const passed = score >= CONDITION_PASS_THRESHOLD;
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 p-3 sm:p-4 rounded-xl border-2 transition-all',
+        passed
+          ? 'bg-green-500/8 border-green-500/25'
+          : score > 0
+          ? 'bg-red-500/5 border-red-500/15'
+          : 'bg-white/[0.02] border-theme-border'
+      )}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className={cn('shrink-0', passed ? 'text-green-400' : 'text-theme-text-muted')}>
+            {getConditionIcon(id)}
+          </span>
+          <span className="text-[10px] font-black text-theme-text-muted uppercase">{id}</span>
+          <span className={cn('text-xs font-black truncate', passed ? 'text-green-400' : 'text-theme-text')}>
+            {cond?.name || `Condition ${id}`}
+          </span>
+        </div>
+        <p className="text-[9px] text-theme-text-muted font-medium truncate pl-5.5">
+          {cond?.description || ''}
+        </p>
+      </div>
 
-function PositionPanel({ positionMode, onChangeMode, gate1Passed, gate2Passed, gate3Passed, gate1Count, gate2Count, gate3Count, stockName }: {
+      <ScoreSlider id={id} score={score} passed={passed} onUpdateScore={onUpdateScore} />
+    </div>
+  );
+}
+
+function ScoreSlider({
+  id,
+  score,
+  passed,
+  onUpdateScore,
+}: {
+  id: number;
+  score: number;
+  passed: boolean;
+  onUpdateScore: (id: number, val: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <input
+        type="range"
+        min={0} max={10}
+        value={score}
+        onChange={(e) => onUpdateScore(id, parseInt(e.target.value))}
+        className={cn(
+          'w-16 sm:w-20 h-1.5 rounded-full appearance-none cursor-pointer',
+          passed ? 'bg-green-500/20 accent-green-500' : 'bg-white/10 accent-orange-500',
+          '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4',
+          '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer',
+          passed
+            ? '[&::-webkit-slider-thumb]:bg-green-500 [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(34,197,94,0.4)]'
+            : '[&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(249,115,22,0.4)]',
+        )}
+      />
+      <span className={cn(
+        'w-7 text-center text-xs font-black font-mono tabular-nums',
+        passed ? 'text-green-400' : score > 0 ? 'text-orange-400' : 'text-theme-text-muted'
+      )}>
+        {score}
+      </span>
+      {passed && <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />}
+    </div>
+  );
+}
+
+function PositionPanel({ positionMode, onChangeMode, gate1Count, gate2Count, gate3Count, stockName }: {
   positionMode: PositionMode;
   onChangeMode: (m: PositionMode) => void;
-  gate1Passed: boolean; gate2Passed: boolean; gate3Passed: boolean;
   gate1Count: number; gate2Count: number; gate3Count: number;
   stockName?: string;
 }) {
-  const options: { mode: PositionMode; label: string; desc: string; icon: React.ReactNode; color: string; bgColor: string; borderColor: string }[] = [
-    { mode: 'full', label: '풀 포지션 (100%)', desc: '3-Gate 모두 통과 — 최대 확신 매수', icon: <Zap className="w-5 h-5" />, color: 'text-green-400', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/40' },
-    { mode: 'half', label: '절반 포지션 (50%)', desc: '보수적 진입 — 추가 확인 후 증량', icon: <Scale className="w-5 h-5" />, color: 'text-amber-400', bgColor: 'bg-amber-500/10', borderColor: 'border-amber-500/40' },
-    { mode: 'observation', label: '관망 (모니터링)', desc: 'Gate 통과했으나 진입 보류 — 타이밍 대기', icon: <Eye className="w-5 h-5" />, color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/40' },
-  ];
-
   return (
     <Card padding="lg">
       <div className="flex items-center gap-3 mb-6">
@@ -498,54 +540,70 @@ function PositionPanel({ positionMode, onChangeMode, gate1Passed, gate2Passed, g
           <Target className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
         </div>
         <div>
-          <div className="text-base sm:text-lg font-black text-theme-text">포지션 확정</div>
+          <div className="text-base sm:text-lg font-black text-theme-text">Position Sizing</div>
           <span className="text-[10px] font-bold text-theme-text-muted">
-            {stockName ? `${stockName} — ` : ''}Gate 통과 현황: G1 {gate1Count}/5, G2 {gate2Count}/12, G3 {gate3Count}/10
+            {stockName ? `${stockName} ` : ''}Gate status: G1 {gate1Count}/5, G2 {gate2Count}/12, G3 {gate3Count}/10
           </span>
         </div>
       </div>
 
       <div className="space-y-3">
-        {options.map((opt) => (
-          <button
+        {POSITION_OPTIONS.map((opt) => (
+          <PositionOption
             key={opt.mode}
-            type="button"
-            onClick={() => onChangeMode(opt.mode)}
-            className={cn(
-              'w-full text-left p-4 sm:p-5 rounded-xl sm:rounded-2xl border-2 transition-all',
-              positionMode === opt.mode
-                ? `${opt.bgColor} ${opt.borderColor}`
-                : 'bg-white/[0.02] border-theme-border hover:bg-white/[0.04]'
-            )}
-          >
-            <div className="flex items-center gap-3">
-              <span className={positionMode === opt.mode ? opt.color : 'text-theme-text-muted'}>{opt.icon}</span>
-              <div className="flex-1">
-                <span className={cn('text-sm font-black', positionMode === opt.mode ? opt.color : 'text-theme-text')}>{opt.label}</span>
-                <p className="text-[10px] text-theme-text-muted font-bold mt-0.5">{opt.desc}</p>
-              </div>
-              <div className={cn(
-                'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all',
-                positionMode === opt.mode ? `${opt.borderColor} ${opt.bgColor}` : 'border-theme-border'
-              )}>
-                {positionMode === opt.mode && <div className="w-2 h-2 rounded-full bg-white" />}
-              </div>
-            </div>
-          </button>
+            option={opt}
+            selected={positionMode === opt.mode}
+            onSelect={onChangeMode}
+          />
         ))}
       </div>
     </Card>
   );
 }
 
-// ── Execution Panel ─────────────────────────────────────────────────────────
+function PositionOption({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: typeof POSITION_OPTIONS[number];
+  selected: boolean;
+  onSelect: (mode: PositionMode) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(option.mode)}
+      className={cn(
+        'w-full text-left p-4 sm:p-5 rounded-xl sm:rounded-2xl border-2 transition-all',
+        selected
+          ? `${option.bgColor} ${option.borderColor}`
+          : 'bg-white/[0.02] border-theme-border hover:bg-white/[0.04]'
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <span className={selected ? option.color : 'text-theme-text-muted'}>{option.icon}</span>
+        <div className="flex-1">
+          <span className={cn('text-sm font-black', selected ? option.color : 'text-theme-text')}>{option.label}</span>
+          <p className="text-[10px] text-theme-text-muted font-bold mt-0.5">{option.desc}</p>
+        </div>
+        <div className={cn(
+          'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all',
+          selected ? `${option.borderColor} ${option.bgColor}` : 'border-theme-border'
+        )}>
+          {selected && <div className="w-2 h-2 rounded-full bg-white" />}
+        </div>
+      </div>
+    </button>
+  );
+}
 
 function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
   stockName?: string; stockCode?: string;
   positionMode: PositionMode;
   onExecute: () => void;
 }) {
-  const modeLabel = positionMode === 'full' ? '풀 포지션 (100%)' : positionMode === 'half' ? '절반 포지션 (50%)' : '관망 (모니터링)';
+  const modeLabel = positionMode === 'full' ? 'Full position (100%)' : positionMode === 'half' ? 'Half position (50%)' : 'Observation only';
   const modeColor = positionMode === 'full' ? 'text-green-400' : positionMode === 'half' ? 'text-amber-400' : 'text-blue-400';
 
   return (
@@ -555,25 +613,24 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
           <Crosshair className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
         </div>
         <div>
-          <div className="text-base sm:text-lg font-black text-theme-text">실행 확인</div>
-          <span className="text-[10px] font-bold text-theme-text-muted">3-Gate 통과 완료 — 최종 실행 전 확인</span>
+          <div className="text-base sm:text-lg font-black text-theme-text">Execution Confirmation</div>
+          <span className="text-[10px] font-bold text-theme-text-muted">All 3 gates passed. Confirm final action.</span>
         </div>
       </div>
 
-      {/* Summary */}
       <div className="p-4 sm:p-6 bg-white/[0.03] rounded-xl sm:rounded-2xl border border-theme-border mb-6 space-y-3">
         {stockName && (
           <div className="flex justify-between text-sm">
-            <span className="font-black text-theme-text-muted">종목</span>
+            <span className="font-black text-theme-text-muted">Stock</span>
             <span className="font-black text-theme-text">{stockName} {stockCode && <span className="text-theme-text-muted font-mono text-xs">({stockCode})</span>}</span>
           </div>
         )}
         <div className="flex justify-between text-sm">
-          <span className="font-black text-theme-text-muted">Gate 통과</span>
+          <span className="font-black text-theme-text-muted">Gate Pass</span>
           <span className="font-black text-green-400">3 / 3 ALL PASS</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="font-black text-theme-text-muted">포지션</span>
+          <span className="font-black text-theme-text-muted">Position</span>
           <span className={cn('font-black', modeColor)}>{modeLabel}</span>
         </div>
       </div>
@@ -581,7 +638,7 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
       {positionMode === 'observation' ? (
         <div className="p-4 bg-blue-500/10 border border-blue-500/25 rounded-xl text-center">
           <Eye className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-          <p className="text-xs font-black text-blue-400">관망 모드 — 매매일지에 모니터링 등록됩니다</p>
+          <p className="text-xs font-black text-blue-400">Observation mode records monitoring only.</p>
         </div>
       ) : (
         <Button
@@ -591,9 +648,154 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
           onClick={onExecute}
           className="w-full py-4 text-base shadow-[0_8px_30px_rgba(249,115,22,0.3)]"
         >
-          {positionMode === 'full' ? '풀 포지션 매수 실행' : '절반 포지션 매수 실행'}
+          {positionMode === 'full' ? 'Execute full position buy' : 'Execute half position buy'}
         </Button>
       )}
     </Card>
+  );
+}
+
+function WizardBottomNav({
+  activeStep,
+  canAccessStep,
+  onPrev,
+  onNext,
+}: {
+  activeStep: number;
+  canAccessStep: (stepIndex: number) => boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const canGoNext = activeStep < STEPS.length - 1 && canAccessStep(activeStep + 1);
+  return (
+    <div className="flex items-center justify-between">
+      <Button
+        variant="ghost"
+        size="md"
+        onClick={onPrev}
+        disabled={activeStep === 0}
+      >
+        Previous
+      </Button>
+      <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">
+        {activeStep + 1} / {STEPS.length}
+      </div>
+      {activeStep < STEPS.length - 1 ? (
+        <Button
+          variant={canGoNext ? 'primary' : 'secondary'}
+          size="md"
+          icon={canGoNext ? <ChevronRight className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          onClick={onNext}
+          disabled={!canGoNext}
+        >
+          {canGoNext ? 'Next' : 'Locked'}
+        </Button>
+      ) : (
+        <div />
+      )}
+    </div>
+  );
+}
+
+export function GateWizard({ stockName, stockCode, conditionScores: externalScores, onExecute }: GateWizardProps) {
+  const [activeStep, setActiveStep] = useState(0);
+  const [scores, setScores] = useState<Record<number, number>>(externalScores || {});
+  const [positionMode, setPositionMode] = useState<PositionMode>('full');
+
+  React.useEffect(() => {
+    if (externalScores) setScores(externalScores);
+  }, [externalScores]);
+
+  const gate1Count = useMemo(() => countPassed(GATE1_IDS, scores), [scores]);
+  const gate2Count = useMemo(() => countPassed(GATE2_IDS, scores), [scores]);
+  const gate3Count = useMemo(() => countPassed(GATE3_IDS, scores), [scores]);
+  const gateStatus = useMemo(() => ({
+    gate1Passed: gate1Count >= GATE1_REQUIRED,
+    gate2Passed: gate2Count >= GATE2_REQUIRED,
+    gate3Passed: gate3Count >= GATE3_REQUIRED,
+  }), [gate1Count, gate2Count, gate3Count]);
+
+  const canAccessStep = useCallback((stepIndex: number) => {
+    return canAccessGateStep(stepIndex, gateStatus);
+  }, [gateStatus]);
+
+  const isStepCompleted = useCallback((stepIndex: number) => {
+    return isGateStepCompleted(stepIndex, gateStatus);
+  }, [gateStatus]);
+
+  const updateScore = useCallback((id: number, val: number) => {
+    setScores(prev => ({ ...prev, [id]: Math.max(0, Math.min(10, val)) }));
+  }, []);
+
+  const goNext = useCallback(() => {
+    if (activeStep < STEPS.length - 1 && canAccessStep(activeStep + 1)) {
+      setActiveStep(prev => prev + 1);
+    }
+  }, [activeStep, canAccessStep]);
+
+  const goPrev = useCallback(() => {
+    if (activeStep > 0) setActiveStep(prev => prev - 1);
+  }, [activeStep]);
+
+  const handleExecute = useCallback(() => {
+    onExecute?.({
+      ...gateStatus,
+      positionMode,
+      conditionScores: scores,
+    });
+  }, [gateStatus, onExecute, positionMode, scores]);
+
+  return (
+    <div className="space-y-5 sm:space-y-6">
+      <StepNavigation
+        activeStep={activeStep}
+        canAccessStep={canAccessStep}
+        isStepCompleted={isStepCompleted}
+        onStepChange={setActiveStep}
+      />
+
+      <GateProgressStrip
+        gate1Count={gate1Count}
+        gate2Count={gate2Count}
+        gate3Count={gate3Count}
+        gate1Passed={gateStatus.gate1Passed}
+        gate2Passed={gateStatus.gate2Passed}
+        gate3Passed={gateStatus.gate3Passed}
+      />
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeStep}
+          initial={{ opacity: 0, x: 40 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -40 }}
+          transition={{ duration: 0.2 }}
+        >
+          <ActiveStepPanel
+            activeStep={activeStep}
+            scores={scores}
+            positionMode={positionMode}
+            gate1Count={gate1Count}
+            gate2Count={gate2Count}
+            gate3Count={gate3Count}
+            gate1Passed={gateStatus.gate1Passed}
+            gate2Passed={gateStatus.gate2Passed}
+            gate3Passed={gateStatus.gate3Passed}
+            stockName={stockName}
+            stockCode={stockCode}
+            onUpdateScore={updateScore}
+            onChangeMode={setPositionMode}
+            onExecute={handleExecute}
+          />
+        </motion.div>
+      </AnimatePresence>
+
+      <WizardBottomNav
+        activeStep={activeStep}
+        canAccessStep={canAccessStep}
+        onPrev={goPrev}
+        onNext={goNext}
+      />
+    </div>
   );
 }
