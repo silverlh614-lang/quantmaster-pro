@@ -79,8 +79,45 @@ describe('intradayProgramFlowSnapshotRepo', () => {
     }, NOW);
 
     expect(result.status).toBe('SKIPPED');
-    expect(result.reason).toBe('NO_PROGRAM_FLOW_VALUES_IN_RUNTIME_CONTEXT');
+    expect(result.reason).toBe('REGULAR_SESSION_CONTEXT_HAS_FIELDS_BUT_VALUES_NULL');
+    expect(result.marketSession).toBe('REGULAR_SESSION');
+    expect(result.programFlowExpected).toBe(true);
+    expect(result.contextHasProgramFields).toBe(true);
+    expect(result.contextProgramValuesFound).toBe(0);
+    expect(result.contextParsableProgramValuesFound).toBe(0);
+    expect(result.rawPayloadStored).toBe(false);
+    expect(result.providerCallsAdded).toBe(0);
     expect(hasLatestIntradayProgramFlowSnapshot()).toBe(false);
+  });
+
+  it('marks weekend missing program flow as expected empty without provider escalation', () => {
+    const result = captureLatestIntradayProgramFlowSnapshotFromRuntimeContext({
+      stockRows: [{ symbol: '005930', programNetBuyAmount: null }],
+      marketProgram: { marketProgramNetBuy: null },
+    }, new Date('2026-05-16T03:00:00.000Z'));
+
+    expect(result.status).toBe('SKIPPED');
+    expect(result.reason).toBe('WEEKEND_NO_PROGRAM_FLOW_EXPECTED');
+    expect(result.marketSession).toBe('WEEKEND');
+    expect(result.programFlowExpected).toBe(false);
+    expect(result.previousSnapshotPreserved).toBe(true);
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.rawPayloadStored).toBe(false);
+    expect(result.providerCallsAdded).toBe(0);
+  });
+
+  it('distinguishes regular-session unparseable program fields', () => {
+    const result = captureLatestIntradayProgramFlowSnapshotFromRuntimeContext({
+      stockRows: [{ symbol: '005930', programNetBuyAmount: '매수우위' }],
+    }, NOW);
+
+    expect(result.status).toBe('SKIPPED');
+    expect(result.reason).toBe('REGULAR_SESSION_PROGRAM_FIELD_PARSE_FAILED');
+    expect(result.marketSession).toBe('REGULAR_SESSION');
+    expect(result.programFlowExpected).toBe(true);
+    expect(result.contextHasProgramFields).toBe(true);
+    expect(result.contextProgramValuesFound).toBeGreaterThan(0);
+    expect(result.contextParsableProgramValuesFound).toBe(0);
   });
 
   it('merges later stock captures with an existing market snapshot', () => {

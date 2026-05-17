@@ -136,5 +136,6 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     // legacy 2 필드 carry 와 동일하게 normalSupplyPreview 가 extractMarketProgramFlowFromCandidates
     // 또는 latestIntradayProgramFlowSnapshot fallback 으로 대체).
     marketProgramFlow: buildMarketProgramFlowCarryPayload(macroState),
+    marketProgramCarrySource: macroState,
   });
 }

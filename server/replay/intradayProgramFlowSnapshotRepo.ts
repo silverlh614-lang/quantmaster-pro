@@ -6,6 +6,10 @@ import {
   REPLAY_DIR,
   ensureReplayDir,
 } from '../persistence/paths.js';
+import {
+  classifyProgramFlowSession,
+  type ProgramFlowMarketSession,
+} from '../trading/signalScanner/programFlowSessionGuard.js';
 
 export type IntradayProgramFlowSourceProvider = 'KIS_API' | 'KRX_API' | 'CACHE' | 'SNAPSHOT' | 'NONE';
 export type IntradayProgramFlowDataStatus = 'VERIFIED' | 'EMPTY_VALID' | 'STALE' | 'MISSING' | 'UNKNOWN';
@@ -75,6 +79,14 @@ export interface IntradayProgramFlowSnapshotCaptureResult {
   reason?: string;
   previousSnapshotPreserved: true;
   executionImpact: 'NONE';
+  marketSession?: ProgramFlowMarketSession;
+  programFlowExpected?: boolean;
+  contextHasProgramFields?: boolean;
+  contextProgramFieldsFound?: string[];
+  contextProgramValuesFound?: number;
+  contextParsableProgramValuesFound?: number;
+  rawPayloadStored?: false;
+  providerCallsAdded?: 0;
 }
 
 const STOCK_RECORD_CONTAINER_KEYS = [
@@ -203,21 +215,38 @@ export function captureLatestIntradayProgramFlowSnapshotFromRuntimeContext(
   context: unknown,
   now = new Date(),
 ): IntradayProgramFlowSnapshotCaptureResult {
+  const sessionGuard = classifyProgramFlowSession(now);
+  const contextStats = buildProgramFlowRuntimeContextStats(context);
   try {
     const snapshot = mergeWithExistingSnapshot(
       loadLatestIntradayProgramFlowSnapshot(),
       buildIntradayProgramFlowSnapshotFromRuntimeContext(context, now),
     );
     if (snapshot.summary.stockRowsWithProgramValue === 0 && !snapshot.summary.marketProgramAvailable) {
+      const reason = classifyProgramFlowSnapshotSkipReason(sessionGuard, contextStats);
       console.info(
         `[INTRADAY_PROGRAM_FLOW_SNAPSHOT_SKIPPED] ` +
-          `reason=NO_PROGRAM_FLOW_VALUES_IN_RUNTIME_CONTEXT executionImpact=NONE`,
+          `reason=${reason} marketSession=${sessionGuard.marketSession} ` +
+          `programFlowExpected=${sessionGuard.programFlowExpected} ` +
+          `contextHasProgramFields=${contextStats.contextHasProgramFields} ` +
+          `contextProgramFieldsFound=${contextStats.contextProgramFieldsFound.join(',') || 'NONE'} ` +
+          `contextProgramValuesFound=${contextStats.contextProgramValuesFound} ` +
+          `contextParsableProgramValuesFound=${contextStats.contextParsableProgramValuesFound} ` +
+          `previousSnapshotPreserved=true rawPayloadStored=false providerCallsAdded=0 executionImpact=NONE`,
       );
       return {
         status: 'SKIPPED',
-        reason: 'NO_PROGRAM_FLOW_VALUES_IN_RUNTIME_CONTEXT',
+        reason,
         previousSnapshotPreserved: true,
         executionImpact: 'NONE',
+        marketSession: sessionGuard.marketSession,
+        programFlowExpected: sessionGuard.programFlowExpected,
+        contextHasProgramFields: contextStats.contextHasProgramFields,
+        contextProgramFieldsFound: contextStats.contextProgramFieldsFound,
+        contextProgramValuesFound: contextStats.contextProgramValuesFound,
+        contextParsableProgramValuesFound: contextStats.contextParsableProgramValuesFound,
+        rawPayloadStored: false,
+        providerCallsAdded: 0,
       };
     }
     const saved = saveLatestIntradayProgramFlowSnapshot(snapshot);
@@ -227,13 +256,25 @@ export function captureLatestIntradayProgramFlowSnapshotFromRuntimeContext(
         `stockRowsTotal=${saved.summary.stockRowsTotal} ` +
         `stockRowsWithProgramValue=${saved.summary.stockRowsWithProgramValue} ` +
         `marketProgramAvailable=${saved.summary.marketProgramAvailable} ` +
-        `source=RUNTIME_PROGRAM_FLOW providerCallsAdded=0 executionImpact=NONE`,
+        `marketSession=${sessionGuard.marketSession} programFlowExpected=${sessionGuard.programFlowExpected} ` +
+        `contextHasProgramFields=${contextStats.contextHasProgramFields} ` +
+        `contextProgramValuesFound=${contextStats.contextProgramValuesFound} ` +
+        `contextParsableProgramValuesFound=${contextStats.contextParsableProgramValuesFound} ` +
+        `source=RUNTIME_PROGRAM_FLOW rawPayloadStored=false providerCallsAdded=0 executionImpact=NONE`,
     );
     return {
       status: 'CAPTURED',
       snapshot: saved,
       previousSnapshotPreserved: true,
       executionImpact: 'NONE',
+      marketSession: sessionGuard.marketSession,
+      programFlowExpected: sessionGuard.programFlowExpected,
+      contextHasProgramFields: contextStats.contextHasProgramFields,
+      contextProgramFieldsFound: contextStats.contextProgramFieldsFound,
+      contextProgramValuesFound: contextStats.contextProgramValuesFound,
+      contextParsableProgramValuesFound: contextStats.contextParsableProgramValuesFound,
+      rawPayloadStored: false,
+      providerCallsAdded: 0,
     };
   } catch (error) {
     console.warn(
@@ -246,8 +287,60 @@ export function captureLatestIntradayProgramFlowSnapshotFromRuntimeContext(
       reason: error instanceof Error ? error.message : String(error),
       previousSnapshotPreserved: true,
       executionImpact: 'NONE',
+      marketSession: sessionGuard.marketSession,
+      programFlowExpected: sessionGuard.programFlowExpected,
+      contextHasProgramFields: contextStats.contextHasProgramFields,
+      contextProgramFieldsFound: contextStats.contextProgramFieldsFound,
+      contextProgramValuesFound: contextStats.contextProgramValuesFound,
+      contextParsableProgramValuesFound: contextStats.contextParsableProgramValuesFound,
+      rawPayloadStored: false,
+      providerCallsAdded: 0,
     };
   }
+}
+
+interface ProgramFlowRuntimeContextStats {
+  contextHasProgramFields: boolean;
+  contextProgramFieldsFound: string[];
+  contextProgramValuesFound: number;
+  contextParsableProgramValuesFound: number;
+}
+
+function buildProgramFlowRuntimeContextStats(context: unknown): ProgramFlowRuntimeContextStats {
+  const records = collectRecords(context, [...STOCK_RECORD_CONTAINER_KEYS, ...MARKET_RECORD_CONTAINER_KEYS]);
+  const fieldsFound = new Set<string>();
+  let valuesFound = 0;
+  let parsableValuesFound = 0;
+  for (const record of records) {
+    for (const key of PROGRAM_FIELD_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      fieldsFound.add(key);
+      const value = record[key];
+      if (value !== null && value !== undefined && value !== '') valuesFound++;
+      if (normalizeNumberLike(value) !== null) parsableValuesFound++;
+    }
+  }
+  return {
+    contextHasProgramFields: fieldsFound.size > 0,
+    contextProgramFieldsFound: [...fieldsFound].sort(),
+    contextProgramValuesFound: valuesFound,
+    contextParsableProgramValuesFound: parsableValuesFound,
+  };
+}
+
+function classifyProgramFlowSnapshotSkipReason(
+  sessionGuard: ReturnType<typeof classifyProgramFlowSession>,
+  stats: ProgramFlowRuntimeContextStats,
+): string {
+  if (!sessionGuard.programFlowExpected) {
+    if (sessionGuard.marketSession === 'WEEKEND') return 'WEEKEND_NO_PROGRAM_FLOW_EXPECTED';
+    if (sessionGuard.marketSession === 'HOLIDAY') return 'HOLIDAY_NO_PROGRAM_FLOW_EXPECTED';
+    return 'MARKET_CLOSED_NO_PROGRAM_FLOW_EXPECTED';
+  }
+  if (!stats.contextHasProgramFields) return 'REGULAR_SESSION_CONTEXT_HAS_NO_PROGRAM_FIELDS';
+  if (stats.contextProgramValuesFound === 0) return 'REGULAR_SESSION_CONTEXT_HAS_FIELDS_BUT_VALUES_NULL';
+  if (stats.contextParsableProgramValuesFound === 0) return 'REGULAR_SESSION_PROGRAM_FIELD_PARSE_FAILED';
+  return 'REGULAR_SESSION_NO_PROGRAM_FLOW_VALUES';
 }
 
 function mergeWithExistingSnapshot(

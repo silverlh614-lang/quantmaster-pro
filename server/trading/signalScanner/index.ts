@@ -119,6 +119,7 @@ async function collectPreflightAbortDiagnostics(
       // programArbitrageNetBuy/programFetchedAt/programSource) carry SSOT. ENV disabled / macroState
       // 부재 시 undefined 자연 fallback. diagnostic-only path (executionImpact='NONE' literal).
       marketProgramFlow: buildMarketProgramFlowCarryPayload(preflightResult?.context?.macroState),
+      marketProgramCarrySource: preflightResult?.context?.macroState,
     });
     console.info('[AutoTrade/Diagnostics] preflight-blocked supply diagnostics collected', {
       blockedBy: preflightResult?.preflightDecision ?? preflightResult?.blockedBy ?? 'PRE_FLIGHT_BLOCK',
@@ -225,6 +226,7 @@ export async function runAutoSignalScan(
         // programArbitrageNetBuy/programFetchedAt/programSource) carry SSOT. ENV disabled / macroState
         // 부재 시 undefined 자연 fallback. diagnostic-only path (executionImpact='NONE' literal).
         marketProgramFlow: buildMarketProgramFlowCarryPayload(preflightResult.context?.macroState),
+        marketProgramCarrySource: preflightResult.context?.macroState,
       });
     }
   } catch (error) {
