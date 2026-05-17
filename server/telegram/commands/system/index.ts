@@ -49,6 +49,7 @@ import './refreshMacro.cmd.js';
 import './refreshSectorMap.cmd.js';
 import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
+import './regimeTransitionStatus.cmd.js';
 import './rejected.cmd.js';
 import './recentTradesAudit.cmd.js';
 import './runtimeAudit.cmd.js';
