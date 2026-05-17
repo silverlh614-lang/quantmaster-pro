@@ -2,7 +2,6 @@
 import type {
   CandidateWithSupplyContext,
   PerSymbolSupplyContext,
-  PerSymbolSupplyInjectionStats,
   SupplyProviderHealth,
   SupplySignal,
 } from './injectPerSymbolSupplyContext.js';
@@ -28,6 +27,7 @@ import {
   formatStockProgramFieldKeysTop,
 } from './normalSupplyPreview/formatters.js';
 import { buildNormalSupplyFieldAvailability } from './normalSupplyPreview/fieldAvailabilityBuilder.js';
+import { assembleNormalSupplyPreview } from './normalSupplyPreview/previewAssembler.js';
 import {
   NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE,
   NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE,
@@ -69,7 +69,6 @@ import {
 import { normalizeProgramFlowValue } from './normalSupplyPreview/programFlowValueNormalizer.js';
 import type {
   ActivePassiveConfluence,
-  ActivePassiveConfluenceCounts,
   MarketProgramCarryForensicTrace,
   PerStockProgramCarryForensicTrace,
   ProgramFlowCarryValue,
@@ -93,8 +92,6 @@ import type {
   NormalSupplyPreview,
   NormalSupplyPreviewCandidate,
   NormalSupplyPreviewEngineMode,
-  NormalSupplyPreviewSafety,
-  NormalSupplySignalSourceSplit,
   PersistNormalSupplyPreviewInput,
 } from './normalSupplyPreview/types.js';
 
@@ -206,10 +203,6 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
       programPopulation.stockCarryBySymbol.get(candidatePreviewSymbol(candidate)),
     ))
     .filter((candidate): candidate is NormalSupplyPreviewCandidate => candidate !== null);
-  const healthCounts = countHealth(previewCandidates);
-  const signalCounts = countSignals(previewCandidates);
-  const supplyInjection = input.supplyInjection ?? buildSupplyInjectionFromCandidates(previewCandidates);
-  const signalSourceSplit = buildSignalSourceSplit(previewCandidates);
   const programFlowEvidenceTrace = buildProgramFlowEvidenceTrace(
     input.candidates,
     programPopulation.marketProgramFlowRaw ?? marketProgramFlowRaw,
@@ -218,10 +211,6 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
     programPopulation.trace,
   );
   const fieldAvailability = buildNormalSupplyFieldAvailability(previewCandidates, programFlowEvidenceTrace);
-  const topCandidates = [...previewCandidates]
-    .sort((a, b) => b.supplyScore - a.supplyScore || a.symbol.localeCompare(b.symbol))
-    .slice(0, input.topN ?? 5);
-  const activePassiveConfluenceCounts = buildActivePassiveConfluenceCounts(previewCandidates);
   const marketCarryTrace = buildMarketProgramCarryForensicTrace(
     input.marketProgramCarrySource,
     input.marketProgramFlow,
@@ -245,43 +234,22 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
     stockCarryTrace,
   );
 
-  lastNormalSupplyPreview = {
+  lastNormalSupplyPreview = assembleNormalSupplyPreview({
     capturedAt,
     engineMode: input.engineMode,
-    previewMode: NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE,
     source: input.source,
     reason: input.reason,
     preflightDecision: input.preflightDecision,
-    liveExecutionAllowed: false,
-    realOrderAllowed: false,
-    strongBuyAllowed: false,
-    shadowObservableAllowed: true,
-    executionImpact: 'NONE',
-    candidateCount: previewCandidates.length,
-    supplyInjection,
-    healthCounts,
-    signalCounts,
     candidates: previewCandidates,
-    topCandidates,
-    signalSourceSplit,
+    supplyInjection: input.supplyInjection,
     fieldAvailability,
-    activePassiveConfluenceCounts,
     programFlowDiagnostics,
     programFlowEvidenceTrace,
     programFlowUpstreamPopulationTrace: programPopulation.trace,
-    safety: {
-      providerIssueAsBearish: false,
-      unknownPenaltyApplied: false,
-      staleAsBearish: false,
-      missingAsBearish: false,
-      realOrderAllowed: false,
-      accumulatingUsedForLiveDecision: false,
-      accumulatingAllowsStrongBuy: false,
-      accumulatingAllowsWatchlistBoost: true,
-      accumulatingAllowsShadowTracking: true,
-    },
-  };
+    topN: input.topN ?? 5,
+  });
   const summaryTraceId = createTraceId('supply');
+  const { healthCounts, signalCounts, supplyInjection } = lastNormalSupplyPreview;
   logVisibilityEvent({
     visibility: 'SUMMARY',
     category: 'SUPPLY',
@@ -845,13 +813,6 @@ function logProgramFlowDiagnostics(preview: NormalSupplyPreview): void {
     );
   }
 }
-
-function buildActivePassiveConfluenceCounts(candidates: NormalSupplyPreviewCandidate[]): ActivePassiveConfluenceCounts {
-  const counts = Object.fromEntries(CONFLUENCE_LABELS.map((label) => [label, 0])) as ActivePassiveConfluenceCounts;
-  for (const candidate of candidates) counts[candidate.activePassiveConfluence] += 1;
-  return counts;
-}
-
 
 function countStockProgramKeyRows<T extends CandidateWithSupplyContext>(rawCandidates: T[]): number {
   let rows = 0;
@@ -1820,65 +1781,6 @@ export function classifySupplySignal(input: {
   return 'NEUTRAL';
 }
 
-function countHealth(candidates: NormalSupplyPreviewCandidate[]): Record<SupplyProviderHealth, number> {
-  const counts: Record<SupplyProviderHealth, number> = {
-    VERIFIED: 0,
-    DEGRADED: 0,
-    STALE: 0,
-    MISSING: 0,
-    UNKNOWN: 0,
-  };
-  for (const candidate of candidates) counts[candidate.supplyProviderHealth] += 1;
-  return counts;
-}
-
-function countSignals(candidates: NormalSupplyPreviewCandidate[]): Record<SupplySignal, number> {
-  const counts: Record<SupplySignal, number> = {
-    BULLISH: 0,
-    ACCUMULATING: 0,
-    NEUTRAL: 0,
-    BEARISH: 0,
-    UNUSABLE: 0,
-  };
-  for (const candidate of candidates) counts[candidate.supplySignal] += 1;
-  return counts;
-}
-
-function buildSignalSourceSplit(candidates: NormalSupplyPreviewCandidate[]): NormalSupplySignalSourceSplit {
-  const split: NormalSupplySignalSourceSplit = {
-    bullishFromMarketSignal: 0,
-    bullishFromProviderIssue: 0,
-    accumulatingFromMarketSignal: 0,
-    accumulatingFromProviderIssue: 0,
-    bearishFromMarketSignal: 0,
-    bearishFromProviderIssue: 0,
-    neutralFromVerifiedData: 0,
-    unusableFromDataQuality: 0,
-  };
-  for (const candidate of candidates) {
-    if (candidate.supplySignal === 'BULLISH') {
-      if (candidate.providerIssue) split.bullishFromProviderIssue += 1;
-      else if (candidate.marketSignal) split.bullishFromMarketSignal += 1;
-    } else if (candidate.supplySignal === 'ACCUMULATING') {
-      if (candidate.providerIssue) split.accumulatingFromProviderIssue += 1;
-      else if (candidate.marketSignal) split.accumulatingFromMarketSignal += 1;
-    } else if (candidate.supplySignal === 'BEARISH') {
-      if (candidate.providerIssue) split.bearishFromProviderIssue += 1;
-      else if (candidate.marketSignal) split.bearishFromMarketSignal += 1;
-    } else if (candidate.supplySignal === 'NEUTRAL' && candidate.supplyProviderHealth === 'VERIFIED') {
-      split.neutralFromVerifiedData += 1;
-    } else if (
-      candidate.supplySignal === 'UNUSABLE' ||
-      candidate.supplyProviderHealth === 'MISSING' ||
-      candidate.supplyProviderHealth === 'STALE' ||
-      candidate.supplyProviderHealth === 'UNKNOWN'
-    ) {
-      split.unusableFromDataQuality += 1;
-    }
-  }
-  return split;
-}
-
 function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['marketLevel'] {
   const root = asRecord(value);
   if (!root) return { ...PROGRAM_FLOW_NOT_AVAILABLE_MARKET, reason: 'PROGRAM_FLOW_CONTEXT_NOT_FOUND' };
@@ -2093,23 +1995,6 @@ function normalizeProgramSource(value: unknown): ProgramFlowSourceProvider {
   return 'NONE';
 }
 
-
-function buildSupplyInjectionFromCandidates(candidates: NormalSupplyPreviewCandidate[]): PerSymbolSupplyInjectionStats {
-  const health = countHealth(candidates);
-  return {
-    totalCandidates: candidates.length,
-    requestedSymbols: candidates.length,
-    receivedResults: candidates.length,
-    injected: health.VERIFIED,
-    verified: health.VERIFIED,
-    degraded: health.DEGRADED,
-    stale: health.STALE,
-    missing: health.MISSING,
-    unknown: health.UNKNOWN,
-    routerConnected: candidates.length > 0,
-    gateContextConnected: candidates.length > 0,
-  };
-}
 
 function deriveSupplyScore(ctx: PerSymbolSupplyContext): number {
   let score = 50;
