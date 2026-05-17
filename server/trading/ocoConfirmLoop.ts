@@ -98,6 +98,100 @@ async function fetchTodayFills(): Promise<KisFillRow[]> {
 
 type LegKind = 'stop' | 'profit';
 
+function markResolvedLeg(pair: OcoOrderPair, isStop: boolean, nowIso: string): void {
+  if (isStop) {
+    pair.stopStatus = 'FILLED';
+    pair.status = 'STOP_FILLED';
+  } else {
+    pair.profitStatus = 'FILLED';
+    pair.status = 'PROFIT_FILLED';
+  }
+  pair.resolvedAt = nowIso;
+}
+
+async function cancelOppositePendingOrder(pair: OcoOrderPair, isStop: boolean): Promise<void> {
+  const oppositeOrdNo = isStop ? pair.profitOrdNo : pair.stopOrdNo;
+  const oppositePendingField: 'profitStatus' | 'stopStatus' = isStop
+    ? 'profitStatus'
+    : 'stopStatus';
+
+  if (!oppositeOrdNo || pair[oppositePendingField] !== 'PENDING') return;
+
+  const cancelled = await cancelKisOrder(pair.stockCode, oppositeOrdNo, pair.quantity)
+    .catch(() => false);
+  pair[oppositePendingField] = cancelled ? 'CANCELLED' : 'FAILED';
+
+  if (cancelled) {
+    resetOcoCancelFail();
+    return;
+  }
+
+  incrementOcoCancelFail();
+  await sendTelegramAlert(
+    `🚨 <b>[OCO] ${pair.stockName} 반대 주문 취소 실패</b>\n` +
+    `${isStop ? '익절' : '손절'} 주문번호=${oppositeOrdNo}\n` +
+    `네이키드 혹은 중복 체결 리스크 — 수동 확인 필요`,
+    { priority: 'CRITICAL', dedupeKey: `oco-cancel-fail:${pair.id}` },
+  ).catch(console.error);
+}
+
+function recordResolvedLegOnShadow(
+  pair: OcoOrderPair,
+  isStop: boolean,
+  filledQty: number,
+  nowIso: string,
+): void {
+  try {
+    const shadows = loadShadowTrades();
+    const shadow  = shadows.find(s => s.id === pair.id);
+    if (!shadow) return;
+
+    const fillPrice = isStop ? pair.stopPrice : pair.profitPrice;
+    const fillQty   = Math.max(1, filledQty || pair.quantity);
+    const basis     = shadow.shadowEntryPrice ?? pair.entryPrice;
+    const pnl       = (fillPrice - basis) * fillQty;
+    // ADR-0059: stale basis 시 0 fallback — fill.pnlPct 영속화 입력 보호.
+    const pnlPct    = basis ? (safePctChange(fillPrice, basis, { label: `ocoConfirm:${shadow.stockCode}` }) ?? 0) : 0;
+
+    appendFill(shadow, {
+      type: 'SELL',
+      subType: isStop ? 'STOP_LOSS' : 'FULL_CLOSE',
+      qty: fillQty,
+      price: fillPrice,
+      pnl,
+      pnlPct: parseFloat(pnlPct.toFixed(4)),
+      reason: isStop ? 'OCO 손절 확정 (CCLD 30s)' : 'OCO 익절 확정 (CCLD 30s)',
+      exitRuleTag: isStop ? ('HARD_STOP' as any) : ('TARGET_EXIT' as any),
+      timestamp: nowIso,
+      ordNo: (isStop ? pair.stopOrdNo : pair.profitOrdNo) ?? undefined,
+    });
+    const remaining = getRemainingQty(shadow);
+    updateShadow(shadow, {
+      status: remaining === 0 ? (isStop ? 'HIT_STOP' : 'HIT_TARGET') : shadow.status,
+      exitPrice: fillPrice,
+      exitTime: nowIso,
+      quantity: remaining,
+    });
+    saveShadowTrades(shadows);
+    const cumPnL = (shadow.fills ?? [])
+      .filter(f => f.type === 'SELL')
+      .reduce((s, f) => s + (f.pnl ?? 0), 0);
+    appendTradeEvent({
+      positionId: shadow.id,
+      ts: nowIso,
+      type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
+      subType: isStop ? 'HARD_STOP' : 'FULL_CLOSE',
+      quantity: fillQty,
+      price: fillPrice,
+      realizedPnL: pnl,
+      cumRealizedPnL: cumPnL,
+      remainingQty: remaining,
+    });
+  } catch (e) {
+    console.error('[OCO-CCLD] TradeEvent 발행 실패:', e);
+  }
+}
+
 /** 체결이 확인된 한쪽 레그의 상태 전이 + 반대쪽 취소 처리. */
 async function resolveFilledLeg(
   pair: OcoOrderPair,
@@ -107,89 +201,13 @@ async function resolveFilledLeg(
   const nowIso = new Date().toISOString();
   const isStop = legKind === 'stop';
 
-  if (isStop) {
-    pair.stopStatus = 'FILLED';
-    pair.status = 'STOP_FILLED';
-  } else {
-    pair.profitStatus = 'FILLED';
-    pair.status = 'PROFIT_FILLED';
-  }
-  pair.resolvedAt = nowIso;
+  markResolvedLeg(pair, isStop, nowIso);
 
   // 반대 주문 취소 — 실패해도 상태는 남기되 운영자 알림으로 에스컬레이션.
-  const oppositeOrdNo = isStop ? pair.profitOrdNo : pair.stopOrdNo;
-  const oppositePendingField: 'profitStatus' | 'stopStatus' = isStop
-    ? 'profitStatus'
-    : 'stopStatus';
-
-  if (oppositeOrdNo && pair[oppositePendingField] === 'PENDING') {
-    const cancelled = await cancelKisOrder(pair.stockCode, oppositeOrdNo, pair.quantity)
-      .catch(() => false);
-    pair[oppositePendingField] = cancelled ? 'CANCELLED' : 'FAILED';
-
-    if (cancelled) {
-      resetOcoCancelFail();
-    } else {
-      incrementOcoCancelFail();
-      await sendTelegramAlert(
-        `🚨 <b>[OCO] ${pair.stockName} 반대 주문 취소 실패</b>\n` +
-        `${isStop ? '익절' : '손절'} 주문번호=${oppositeOrdNo}\n` +
-        `네이키드 혹은 중복 체결 리스크 — 수동 확인 필요`,
-        { priority: 'CRITICAL', dedupeKey: `oco-cancel-fail:${pair.id}` },
-      ).catch(console.error);
-    }
-  }
+  await cancelOppositePendingOrder(pair, isStop);
 
   // TradeEvent + shadowTrade 업데이트 ─────────────────────────────────────
-  try {
-    const shadows = loadShadowTrades();
-    const shadow  = shadows.find(s => s.id === pair.id);
-    if (shadow) {
-      const fillPrice = isStop ? pair.stopPrice : pair.profitPrice;
-      const fillQty   = Math.max(1, filledQty || pair.quantity);
-      const basis     = shadow.shadowEntryPrice ?? pair.entryPrice;
-      const pnl       = (fillPrice - basis) * fillQty;
-      // ADR-0059: stale basis 시 0 fallback — fill.pnlPct 영속화 입력 보호.
-      const pnlPct    = basis ? (safePctChange(fillPrice, basis, { label: `ocoConfirm:${shadow.stockCode}` }) ?? 0) : 0;
-
-      appendFill(shadow, {
-        type: 'SELL',
-        subType: isStop ? 'STOP_LOSS' : 'FULL_CLOSE',
-        qty: fillQty,
-        price: fillPrice,
-        pnl,
-        pnlPct: parseFloat(pnlPct.toFixed(4)),
-        reason: isStop ? 'OCO 손절 확정 (CCLD 30s)' : 'OCO 익절 확정 (CCLD 30s)',
-        exitRuleTag: isStop ? ('HARD_STOP' as any) : ('TARGET_EXIT' as any),
-        timestamp: nowIso,
-        ordNo: (isStop ? pair.stopOrdNo : pair.profitOrdNo) ?? undefined,
-      });
-      const remaining = getRemainingQty(shadow);
-      updateShadow(shadow, {
-        status: remaining === 0 ? (isStop ? 'HIT_STOP' : 'HIT_TARGET') : shadow.status,
-        exitPrice: fillPrice,
-        exitTime: nowIso,
-        quantity: remaining,
-      });
-      saveShadowTrades(shadows);
-      const cumPnL = (shadow.fills ?? [])
-        .filter(f => f.type === 'SELL')
-        .reduce((s, f) => s + (f.pnl ?? 0), 0);
-      appendTradeEvent({
-        positionId: shadow.id,
-        ts: nowIso,
-        type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
-        subType: isStop ? 'HARD_STOP' : 'FULL_CLOSE',
-        quantity: fillQty,
-        price: fillPrice,
-        realizedPnL: pnl,
-        cumRealizedPnL: cumPnL,
-        remainingQty: remaining,
-      });
-    }
-  } catch (e) {
-    console.error('[OCO-CCLD] TradeEvent 발행 실패:', e);
-  }
+  recordResolvedLegOnShadow(pair, isStop, filledQty, nowIso);
 
   await sendTelegramAlert(
     `${isStop ? '🔴' : '🟢'} <b>[OCO ${isStop ? '손절' : '익절'} 체결 확정]</b> ${pair.stockName}\n` +
