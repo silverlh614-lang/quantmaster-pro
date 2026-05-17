@@ -98,18 +98,31 @@ describe('ADR-0131 — Tier 1 KIS 토큰 6h bucket 변화', () => {
   });
 
   it('kisTokenHours=0 (만료) 시 CRITICAL 알림', async () => {
-    const { runTier1 } = await importHealthLoop();
-    const { collectHealthSnapshot } = await importDiagnostics();
-    (collectHealthSnapshot as ReturnType<typeof vi.fn>)
-      .mockReturnValueOnce({ ...baseSnapshot, kisTokenHours: 12 })
-      .mockReturnValueOnce({ ...baseSnapshot, kisTokenHours: 0 });
+    // Patch-VITEST-CAT-E-BASELINE-002 (test environment isolation):
+    // `kisTokenAlertProfile()` 가 KRX 휴장일/주말 시 priority='NORMAL' 로 자동 downgrade
+    // (ADR-0131 정합 — 휴장일에는 TRADING_CRITICAL 미에스컬레이션). 본 테스트는 CRITICAL
+    // 분기 자체를 검증하므로 `HEALTH_LOOP_CRITICAL_ON_KRX_CLOSED=true` ENV (ADR-0157
+    // 정확 비교) 로 downgrade opt-out → 실행 요일/날짜 무관 deterministic CRITICAL 분기
+    // 도달. 런타임 정책 무수정.
+    const origCriticalOnKrxClosed = process.env.HEALTH_LOOP_CRITICAL_ON_KRX_CLOSED;
+    process.env.HEALTH_LOOP_CRITICAL_ON_KRX_CLOSED = 'true';
+    try {
+      const { runTier1 } = await importHealthLoop();
+      const { collectHealthSnapshot } = await importDiagnostics();
+      (collectHealthSnapshot as ReturnType<typeof vi.fn>)
+        .mockReturnValueOnce({ ...baseSnapshot, kisTokenHours: 12 })
+        .mockReturnValueOnce({ ...baseSnapshot, kisTokenHours: 0 });
 
-    await runTier1();
-    sendTelegramAlertMock.mockClear();
-    await runTier1();
-    expect(sendTelegramAlertMock).toHaveBeenCalled();
-    const opts = sendTelegramAlertMock.mock.calls[0][1] as { priority?: string };
-    expect(opts?.priority).toBe('CRITICAL');
+      await runTier1();
+      sendTelegramAlertMock.mockClear();
+      await runTier1();
+      expect(sendTelegramAlertMock).toHaveBeenCalled();
+      const opts = sendTelegramAlertMock.mock.calls[0][1] as { priority?: string };
+      expect(opts?.priority).toBe('CRITICAL');
+    } finally {
+      if (origCriticalOnKrxClosed === undefined) delete process.env.HEALTH_LOOP_CRITICAL_ON_KRX_CLOSED;
+      else process.env.HEALTH_LOOP_CRITICAL_ON_KRX_CLOSED = origCriticalOnKrxClosed;
+    }
   });
 
   it('bucket 동일 (12h→12h) 시 알림 없음', async () => {
