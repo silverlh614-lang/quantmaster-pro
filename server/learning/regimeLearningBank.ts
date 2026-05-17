@@ -194,8 +194,11 @@ export interface RegimeLearningBank {
     attribution: number;
   };
   byConfidence: Record<string, number>;
+  R1QualityStatus: RegimeLearningQualityStatus;
   R2QualityStatus: RegimeLearningQualityStatus;
   R3QualityStatus: RegimeLearningQualityStatus;
+  R4QualityStatus: RegimeLearningQualityStatus;
+  R5QualityStatus: RegimeLearningQualityStatus;
   R6QualityStatus: RegimeLearningQualityStatus;
   unknownReductionNeeded: boolean;
   recommendationOnly: true;
@@ -868,8 +871,11 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     }
     return acc;
   }, {});
+  const r1 = stats.find((row) => row.regimePhase === 'R1_RECOVERY') ?? buildStatsForPhase('R1_RECOVERY', [], []);
   const r2 = stats.find((row) => row.regimePhase === 'R2_EARLY') ?? buildStatsForPhase('R2_EARLY', [], []);
   const r3 = stats.find((row) => row.regimePhase === 'R3_EXPANSION') ?? buildStatsForPhase('R3_EXPANSION', [], []);
+  const r4 = stats.find((row) => row.regimePhase === 'R4_NEUTRAL') ?? buildStatsForPhase('R4_NEUTRAL', [], []);
+  const r5 = stats.find((row) => row.regimePhase === 'R5_CAUTION') ?? buildStatsForPhase('R5_CAUTION', [], []);
   const r6 = stats.find((row) => row.regimePhase === 'R6_DEFENSE') ?? buildStatsForPhase('R6_DEFENSE', [], []);
   const sourceCounts = {
     freshShadow: cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length,
@@ -902,8 +908,11 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     duplicateCaseCount,
     sourceCounts,
     byConfidence,
+    R1QualityStatus: r1.qualityStatus,
     R2QualityStatus: r2.qualityStatus,
     R3QualityStatus: r3.qualityStatus,
+    R4QualityStatus: r4.qualityStatus,
+    R5QualityStatus: r5.qualityStatus,
     R6QualityStatus: r6.qualityStatus,
     unknownReductionNeeded: unknownRegimeCount > 0,
     recommendationOnly: true,

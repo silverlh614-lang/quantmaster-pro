@@ -90,6 +90,12 @@ describe('Regime Learning Bank', () => {
     expect(r6?.sampleSize).toBe(1);
     expect(r6?.expectancyR).toBe(-0.2);
     expect(r6?.survivorPattern).toContain('R6 survivor pattern');
+    expect(bank.R1QualityStatus).toBe('LOW_SAMPLE');
+    expect(bank.R2QualityStatus).toBe('NO_SAMPLE');
+    expect(bank.R3QualityStatus).toBe('NO_SAMPLE');
+    expect(bank.R4QualityStatus).toBe('NO_SAMPLE');
+    expect(bank.R5QualityStatus).toBe('NO_SAMPLE');
+    expect(bank.R6QualityStatus).toBe('LOW_SAMPLE');
     expect(bank.activeRegime).toBe('R6_DEFENSE');
     expect(bank.promotionAllowed).toBe(false);
     expect(bank.recommendationOnly).toBe(true);
