@@ -5,6 +5,7 @@
  * Trading Engine / Shadow Learning 의미가 아닌 화면 로그 정책이어야 한다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '../utils/logger.js';
 import { __queryTestOnly } from './kisClient/query.js';
 import { __testOnly, resetKisCircuits } from './kisClient.js';
 
@@ -19,7 +20,7 @@ describe('KIS investorFlow selected operational logging', () => {
     vi.setSystemTime(new Date('2026-05-12T03:17:00.000Z'));
     __queryTestOnly.resetInvestorFlowSelectedLogState();
     infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined);
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
@@ -83,7 +84,7 @@ describe('KIS circuit recovery operational logging', () => {
     resetKisCircuits();
     __testOnly.resetRecoveryLogRateLimit();
     infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined);
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
