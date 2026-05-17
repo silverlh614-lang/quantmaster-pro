@@ -421,158 +421,250 @@ async function sendTelegramAlertRaw(
  *
  * 기존 sendTelegramAlert(message) 시그니처 100% 호환.
  */
-export async function sendTelegramAlert(
+interface NoisePolicyApplicationResult {
+  opts?: TelegramAlertOptions;
+  suppressed: boolean;
+}
+
+function applyInferredNoisePolicyToAlert(
   message: string,
   opts?: TelegramAlertOptions,
-): Promise<number | undefined> {
+): NoisePolicyApplicationResult {
   const inferredNoiseEvent = inferNoiseEventFromLegacyAlert(message, opts);
-  if (inferredNoiseEvent) {
-    const baseOpts = opts ?? {};
-    const noise = evaluateAlertNoise(inferredNoiseEvent);
-    if (!noise.shouldSendNow) {
-      if (noise.shouldDigest) {
-        addToDigest(message);
-        appendAlertAudit({
-          at: new Date().toISOString(),
-          tier: 'T3_DIGEST',
-          priority: 'LOW',
-          category: baseOpts.category ?? noise.reason,
-          dedupeKey: baseOpts.dedupeKey ?? noise.dedupeKey,
-          textLen: message.length,
-        });
-      }
-      return undefined;
+  if (!inferredNoiseEvent) return { opts, suppressed: false };
+
+  const baseOpts = opts ?? {};
+  const noise = evaluateAlertNoise(inferredNoiseEvent);
+  if (!noise.shouldSendNow) {
+    if (noise.shouldDigest) {
+      addToDigest(message);
+      appendAlertAudit({
+        at: new Date().toISOString(),
+        tier: 'T3_DIGEST',
+        priority: 'LOW',
+        category: baseOpts.category ?? noise.reason,
+        dedupeKey: baseOpts.dedupeKey ?? noise.dedupeKey,
+        textLen: message.length,
+      });
     }
-    opts = {
+    return { opts: baseOpts, suppressed: true };
+  }
+
+  return {
+    suppressed: false,
+    opts: {
       ...baseOpts,
       priority: baseOpts.priority ?? priorityFromNoiseLevel(noise.level),
       dedupeKey: baseOpts.dedupeKey ?? noise.dedupeKey,
       cooldownMs: baseOpts.cooldownMs ?? noise.ttlSeconds * 1000,
       category: baseOpts.category ?? noise.reason,
-    };
-  }
+    },
+  };
+}
 
-  if (isSuppressedNoiseTelegramAlert(message, opts)) return undefined;
-
-  // invariant/debug 라우팅 가드 — `[INVARIANT]`/`[DEBUG]`/`[TRACE]` 접두 문자열은
-  // 기본 Telegram 알림이 아니라 Railway/debug 로그로만 보낸다.
-  // ENV `TELEGRAM_INVARIANT_ROUTING_DISABLED=true` 로 우회 가능.
+function shouldSuppressByTelegramRoutingGuard(message: string): boolean {
   if (
     !isTelegramInvariantRoutingDisabled() &&
     classifyTelegramRouting(message) === 'RAILWAY_LOG_ONLY'
   ) {
     console.log('[TelegramRoutingGuard] invariant/debug 문자열 — Telegram 발송 생략, 로그 전용:', message.slice(0, 200));
-    return undefined;
+    return true;
   }
+  return false;
+}
 
-  // 티어 의도가 명시된 경우에만 선두 아이콘을 강제한다 — 커맨드 응답은 기존 서식 유지.
+interface TieredAlertPayload {
+  finalMessage: string;
+  hasTierIntent: boolean;
+  tier?: AlertTier;
+}
+
+function buildTieredAlertPayload(
+  message: string,
+  opts?: TelegramAlertOptions,
+): TieredAlertPayload {
   const hasTierIntent = Boolean(opts?.priority || opts?.tier);
   const tier: AlertTier | undefined = hasTierIntent ? deriveTier(opts) : undefined;
-  const finalMessage = tier ? applyTierPrefix(message, tier) : message;
+  return {
+    finalMessage: tier ? applyTierPrefix(message, tier) : message,
+    hasTierIntent,
+    tier,
+  };
+}
 
-  // 통합 브리핑 캡처 모드: T1/CRITICAL 외에는 버퍼로 흡수 후 endUnifiedBriefing이 일괄 발송.
+function captureUnifiedBriefingIfNeeded(
+  finalMessage: string,
+  opts?: TelegramAlertOptions,
+): boolean {
   if (isUnifiedBriefingActive() && !shouldBypassCapture(opts) && !opts?.replyMarkup) {
     const absorbed = captureToUnifiedBriefing(finalMessage, opts?.category ?? inferCategory(opts?.dedupeKey));
     if (absorbed) {
       recordAlertSent(opts);
-      return;
+      return true;
     }
   }
+  return false;
+}
 
-  // T1 ACK 자동 부착: tier=T1이고 replyMarkup이 없으면 [확인] 버튼 자동 생성.
-  // 호출부가 이미 버튼을 달았거나 requireAck=false면 스킵.
-  let effectiveReplyMarkup = opts?.replyMarkup;
-  let ackId: string | undefined;
+interface AckContext {
+  effectiveReplyMarkup?: Record<string, unknown>;
+  wantsAck: boolean;
+  ackId?: string;
+}
+
+async function buildAckContext(
+  tier: AlertTier | undefined,
+  opts?: TelegramAlertOptions,
+): Promise<AckContext> {
   const wantsAck = tier === 'T1_ALARM'
     && !opts?.replyMarkup
     && (opts?.requireAck ?? true);
-  if (wantsAck) {
-    ackId = `ack_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const { buildAckReplyMarkup } = await import('./ackTracker.js');
-    effectiveReplyMarkup = buildAckReplyMarkup(ackId);
+  if (!wantsAck) {
+    return { effectiveReplyMarkup: opts?.replyMarkup, wantsAck: false };
   }
 
-  // LOW 우선순위 (또는 T3 명시): 다이제스트 버퍼로 전환 (replyMarkup 있으면 즉시 발송)
-  const goDigest = (opts?.priority === 'LOW' || opts?.tier === 'T3_DIGEST') && !effectiveReplyMarkup;
-  if (goDigest) {
-    // /digest_off 상태: Telegram 발송은 하지 않고 감사 로그·UI 피드만 남긴다. 참뮌은 /todaylog 로 조회.
-    if (!digestEnabled) {
-      try {
-        const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
-        appendAlertFeed(finalMessage, 'LOW', opts?.dedupeKey);
-      } catch { /* noop */ }
-      appendAlertAudit({
-        at: new Date().toISOString(),
-        tier: 'T3_DIGEST',
-        priority: opts?.priority,
-        category: opts?.category ?? inferCategory(opts?.dedupeKey),
-        dedupeKey: opts?.dedupeKey,
-        textLen: finalMessage.length,
-      });
-      return;
-    }
-    if (shouldSendAlert(opts)) {
-      addToDigest(finalMessage);
-      recordAlertSent(opts);
-      // UI 피드에도 동일 엔트리 누적 (텔레그램 ↔ UI 정보 비대칭 해소).
-      try {
-        const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
-        appendAlertFeed(finalMessage, 'LOW', opts?.dedupeKey);
-      } catch { /* noop — 피드 기록은 best-effort */ }
-      appendAlertAudit({
-        at: new Date().toISOString(),
-        tier: tier ?? 'T3_DIGEST',
-        priority: opts?.priority,
-        category: opts?.category ?? inferCategory(opts?.dedupeKey),
-        dedupeKey: opts?.dedupeKey,
-        textLen: finalMessage.length,
-      });
-    }
-    return;
-  }
+  const ackId = `ack_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const { buildAckReplyMarkup } = await import('./ackTracker.js');
+  return {
+    effectiveReplyMarkup: buildAckReplyMarkup(ackId),
+    wantsAck,
+    ackId,
+  };
+}
 
-  if (!shouldSendAlert(opts)) {
-    console.log(`[Telegram] 쿨다운 중 — 발송 생략 (key=${opts?.dedupeKey})`);
-    return;
-  }
-
-  const msgId = await sendTelegramAlertRaw(finalMessage, effectiveReplyMarkup);
-  recordAlertSent(opts);
+async function appendAlertFeedBestEffort(
+  message: string,
+  priority: AlertPriority,
+  dedupeKey?: string,
+): Promise<void> {
   try {
     const { appendAlertFeed } = await import('../persistence/alertsFeedRepo.js');
-    appendAlertFeed(finalMessage, opts?.priority ?? 'NORMAL', opts?.dedupeKey);
+    appendAlertFeed(message, priority, dedupeKey);
   } catch { /* noop */ }
-  if (hasTierIntent) {
+}
+
+async function handleDigestAlertIfNeeded(
+  finalMessage: string,
+  opts: TelegramAlertOptions | undefined,
+  tier: AlertTier | undefined,
+  effectiveReplyMarkup?: Record<string, unknown>,
+): Promise<boolean> {
+  const goDigest = (opts?.priority === 'LOW' || opts?.tier === 'T3_DIGEST') && !effectiveReplyMarkup;
+  if (!goDigest) return false;
+
+  if (!digestEnabled) {
+    await appendAlertFeedBestEffort(finalMessage, 'LOW', opts?.dedupeKey);
     appendAlertAudit({
       at: new Date().toISOString(),
-      tier: tier!,
+      tier: 'T3_DIGEST',
       priority: opts?.priority,
       category: opts?.category ?? inferCategory(opts?.dedupeKey),
       dedupeKey: opts?.dedupeKey,
       textLen: finalMessage.length,
+    });
+    return true;
+  }
+
+  if (shouldSendAlert(opts)) {
+    addToDigest(finalMessage);
+    recordAlertSent(opts);
+    await appendAlertFeedBestEffort(finalMessage, 'LOW', opts?.dedupeKey);
+    appendAlertAudit({
+      at: new Date().toISOString(),
+      tier: tier ?? 'T3_DIGEST',
+      priority: opts?.priority,
+      category: opts?.category ?? inferCategory(opts?.dedupeKey),
+      dedupeKey: opts?.dedupeKey,
+      textLen: finalMessage.length,
+    });
+  }
+  return true;
+}
+
+async function registerAckIfNeeded(
+  ack: AckContext,
+  msgId: number | undefined,
+  finalMessage: string,
+  opts?: TelegramAlertOptions,
+): Promise<void> {
+  if (!ack.wantsAck || !ack.ackId || msgId === undefined) return;
+
+  try {
+    const { registerPendingAck } = await import('./ackTracker.js');
+    const firstLine = finalMessage.split('\n').find(l => l.trim().length > 0) ?? finalMessage;
+    registerPendingAck({
+      ackId: ack.ackId,
+      messageId: msgId,
+      summary: firstLine.replace(/<[^>]+>/g, '').slice(0, 160),
+      sentAt: Date.now(),
+      category: opts?.category ?? inferCategory(opts?.dedupeKey),
+      dedupeKey: opts?.dedupeKey,
+    });
+  } catch (e: unknown) {
+    console.warn('[Telegram] ACK 등록 실패:', e instanceof Error ? e.message : e);
+  }
+}
+
+async function sendImmediateAlert(
+  payload: TieredAlertPayload,
+  ack: AckContext,
+  opts?: TelegramAlertOptions,
+): Promise<number | undefined> {
+  if (!shouldSendAlert(opts)) {
+    console.log(`[Telegram] 쿨다운 중 — 발송 생략 (key=${opts?.dedupeKey})`);
+    return undefined;
+  }
+
+  const msgId = await sendTelegramAlertRaw(payload.finalMessage, ack.effectiveReplyMarkup);
+  recordAlertSent(opts);
+  await appendAlertFeedBestEffort(payload.finalMessage, opts?.priority ?? 'NORMAL', opts?.dedupeKey);
+  if (payload.hasTierIntent) {
+    appendAlertAudit({
+      at: new Date().toISOString(),
+      tier: payload.tier!,
+      priority: opts?.priority,
+      category: opts?.category ?? inferCategory(opts?.dedupeKey),
+      dedupeKey: opts?.dedupeKey,
+      textLen: payload.finalMessage.length,
       messageId: msgId,
     });
   }
-  // ACK 대기 엔트리 등록 (Telegram 전송 성공 시에만) — 미확인 시 크론이 재발송·이메일 에스컬레이션.
-  if (wantsAck && ackId && msgId !== undefined) {
-    try {
-      const { registerPendingAck } = await import('./ackTracker.js');
-      const firstLine = finalMessage.split('\n').find(l => l.trim().length > 0) ?? finalMessage;
-      registerPendingAck({
-        ackId,
-        messageId: msgId,
-        summary: firstLine.replace(/<[^>]+>/g, '').slice(0, 160),
-        sentAt: Date.now(),
-        category: opts?.category ?? inferCategory(opts?.dedupeKey),
-        dedupeKey: opts?.dedupeKey,
-      });
-    } catch (e: unknown) {
-      console.warn('[Telegram] ACK 등록 실패:', e instanceof Error ? e.message : e);
-    }
-  }
+  await registerAckIfNeeded(ack, msgId, payload.finalMessage, opts);
   return msgId;
 }
 
+/**
+ * Telegram Bot API를 통해 알림 전송 (우선순위 + 중복방지 + 다이제스트 + 티어 아이콘 강제).
+ *
+ * 기존 sendTelegramAlert(message) 시그니처 100% 호환.
+ */
+export async function sendTelegramAlert(
+  message: string,
+  opts?: TelegramAlertOptions,
+): Promise<number | undefined> {
+  const noisePolicy = applyInferredNoisePolicyToAlert(message, opts);
+  if (noisePolicy.suppressed) return undefined;
+  opts = noisePolicy.opts;
+
+  if (isSuppressedNoiseTelegramAlert(message, opts)) return undefined;
+
+  // invariant/debug 라우팅 가드는 Telegram 대신 Railway/debug 로그로만 보낸다.
+  if (shouldSuppressByTelegramRoutingGuard(message)) return undefined;
+
+  const payload = buildTieredAlertPayload(message, opts);
+  if (captureUnifiedBriefingIfNeeded(payload.finalMessage, opts)) return undefined;
+
+  const ack = await buildAckContext(payload.tier, opts);
+  const digestHandled = await handleDigestAlertIfNeeded(
+    payload.finalMessage,
+    opts,
+    payload.tier,
+    ack.effectiveReplyMarkup,
+  );
+  if (digestHandled) return undefined;
+
+  return sendImmediateAlert(payload, ack, opts);
+}
 /**
  * parse_mode 없는 plain text 전용 전송 SSOT.
  *
