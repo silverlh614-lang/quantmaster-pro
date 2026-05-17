@@ -41,6 +41,143 @@ function isAcceptedEmptyMarketProgram(live: Awaited<ReturnType<typeof fetchKisMa
     || live.rowCount === 0;
 }
 
+type LiveMarketProgramTrade = NonNullable<Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>>;
+
+function appendProgramMarketHeader(lines: string[]): void {
+  lines.push('📊 <b>[시장 종합 프로그램 매매]</b>');
+  lines.push('');
+}
+
+function appendProgramMarketKisFailureLines(lines: string[]): void {
+  lines.push('🟡 KIS 실시간 조회 실패');
+  lines.push('');
+  lines.push('💡 <i>운영자 안내</i>:');
+  lines.push('  • <code>KIS_APP_KEY</code> 또는 실계좌 클라이언트 미설정 가능성');
+  lines.push('  • KIS 회로차단 활성 또는 24h 블랙리스트 가능성');
+  lines.push('  • TR ID 검증 — <code>KIS_MARKET_PROGRAM_TRADE_TR_ID</code> ENV 우회');
+  lines.push('  • Path 검증 — <code>KIS_MARKET_PROGRAM_TRADE_PATH</code> ENV 우회');
+}
+
+async function appendAcceptedEmptyProgramMarketDiagnostic(
+  lines: string[],
+  live: LiveMarketProgramTrade,
+): Promise<void> {
+  const rawDiag = await diagnoseKisMarketProgramRaw('LOW');
+  const decision = await routeProgramMarketEmptyWithKrxAggregate({
+    rawDiag: {
+      zeroReason: rawDiag.zeroReason ?? live.zeroReason ?? 'ACCEPTED_EMPTY',
+      outputLength: rawDiag.outputKeys?.length ?? live.rowCount ?? 0,
+      outputKeys: rawDiag.outputKeys,
+      marketCode: MARKET_PROGRAM_INDEX_CODE,
+      trId: rawDiag.trId,
+      endpoint: rawDiag.path,
+    },
+  });
+  const compactSource = decision.routedStatus === 'SHAPE_CANDIDATE' ? 'KRX' : decision.source;
+  const compactReason = decision.routedStatus === 'SHAPE_CANDIDATE'
+    ? 'KRX intraday shape candidate (observe only)'
+    : decision.routedStatus === 'UNSUPPORTED_INTRADAY'
+      ? 'KIS accepted empty + KRX intraday empty'
+      : decision.decisionDetail;
+  lines.push('4. ⚪ 시장 프로그램매매');
+  lines.push(`  status: ${decision.routedStatus}`);
+  lines.push(`  source: ${compactSource}`);
+  lines.push(`  reason: ${compactReason}`);
+  lines.push(`  scoring: ${decision.scoring}`);
+  lines.push('  action: observe');
+  lines.push('  providerIssue: false');
+  lines.push('  marketSignal: false');
+  lines.push('  executionImpact: NONE');
+  lines.push('  detail: /program_market_raw');
+  lines.push('');
+}
+
+function appendProgramMarketFetchedAt(lines: string[], fetchedAt: string): void {
+  try {
+    const kst = new Date(fetchedAt);
+    lines.push(`⏱️ 응답 시각 (KST): ${kst.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })}`);
+  } catch {
+    lines.push(`⏱️ 응답 시각: ${fetchedAt}`);
+  }
+}
+
+function appendProgramMarketStatusLines(
+  lines: string[],
+  live: LiveMarketProgramTrade,
+  status: string,
+  statusEmoji: string,
+): void {
+  lines.push(`${statusEmoji} status: ${status}`);
+  lines.push(`latest: ${live.latest ?? 'N/A'}`);
+  lines.push(`updated: ${live.updated ?? 'N/A'}`);
+  const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
+  const qtyEmoji = liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
+  const qtyLabel = liveQty > 0 ? '시장 프로그램 순매수' : liveQty < 0 ? '시장 프로그램 순매도' : '중립';
+  lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
+  lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
+  lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
+  if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
+    lines.push(`nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`);
+  }
+  if (live.zeroReason) lines.push(`zeroReason: ${live.zeroReason}`);
+  lines.push(`providerIssue=${live.providerIssue ?? false}`);
+  lines.push(`executionImpact=${live.executionImpact ?? 'NONE'}`);
+  lines.push(`판정: ${status === 'OK_NONZERO' ? 'usable' : 'observe / scoring excluded'}`);
+  lines.push(`selectedPath: ${live.selectedPath ?? 'N/A'}`);
+}
+
+function appendProgramMarketArbitrageLines(lines: string[], live: LiveMarketProgramTrade): void {
+  if (live.programArbitrageNetBuy !== null) {
+    lines.push(`📈 차익거래 순매수: ${formatKrwInEokwon(live.programArbitrageNetBuy)}`);
+  } else {
+    lines.push(`📈 차익거래 순매수: <i>미수집</i> (KIS 응답 부재)`);
+  }
+}
+
+async function appendLiveProgramMarketLines(lines: string[], live: LiveMarketProgramTrade): Promise<void> {
+  captureMarketProgramSnapshotBestEffort(live);
+  const status = live.marketProgramStatus ?? (live.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO');
+  const statusEmoji = status === 'OK_NONZERO' ? '🟢' : status === 'PROVIDER_ERROR' ? '🟡' : '⚪';
+
+  lines.push('📡 <b>실시간 (KIS 직접 호출)</b>');
+  if (isAcceptedEmptyMarketProgram(live)) {
+    await appendAcceptedEmptyProgramMarketDiagnostic(lines, live);
+  }
+  appendProgramMarketStatusLines(lines, live, status, statusEmoji);
+  appendProgramMarketArbitrageLines(lines, live);
+  appendProgramMarketFetchedAt(lines, live.fetchedAt);
+}
+
+function appendMacroProgramFetchedAt(lines: string[], fetchedAt: string): void {
+  try {
+    const kst = new Date(fetchedAt);
+    lines.push(`  • 수집 시각 (KST): ${kst.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })}`);
+  } catch {
+    lines.push(`  • 수집 시각: ${fetchedAt}`);
+  }
+}
+
+function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof loadMacroState>): void {
+  lines.push('');
+  lines.push('💾 <b>macroState 영속 (직전 cron)</b>');
+  if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
+    lines.push(`  • 순매수: ${formatEokwonSaved(macro.programNetBuyAmount)}`);
+    if (macro.programArbitrageNetBuy !== undefined) {
+      const arbLabel = macro.programArbitrageNetBuy === null
+        ? '미수집'
+        : formatEokwonSaved(macro.programArbitrageNetBuy);
+      lines.push(`  • 차익: ${arbLabel}`);
+    }
+    if (macro.programFetchedAt) {
+      appendMacroProgramFetchedAt(lines, macro.programFetchedAt);
+    }
+  } else if (macro?.programSource === 'NONE') {
+    lines.push('  • <i>마지막 cron 사이클 KIS 호출 실패</i>');
+  } else {
+    lines.push('  • <i>미수집</i> (cron 1회 미실행 또는 KIS 미연동)');
+  }
+}
+
 /**
  * /program_market 메시지 빌더 SSOT (단위 테스트 가능).
  *
@@ -54,114 +191,21 @@ export async function buildProgramMarketMessage(): Promise<string> {
   const macro = loadMacroState();
 
   const lines: string[] = [];
-  lines.push('📊 <b>[시장 종합 프로그램 매매]</b>');
-  lines.push('');
+  appendProgramMarketHeader(lines);
 
   if (live === null) {
-    lines.push('🟡 KIS 실시간 조회 실패');
-    lines.push('');
-    lines.push('💡 <i>운영자 안내</i>:');
-    lines.push('  • <code>KIS_APP_KEY</code> 또는 실계좌 클라이언트 미설정 가능성');
-    lines.push('  • KIS 회로차단 활성 또는 24h 블랙리스트 가능성');
-    lines.push('  • TR ID 검증 — <code>KIS_MARKET_PROGRAM_TRADE_TR_ID</code> ENV 우회');
-    lines.push('  • Path 검증 — <code>KIS_MARKET_PROGRAM_TRADE_PATH</code> ENV 우회');
+    appendProgramMarketKisFailureLines(lines);
   } else {
-    captureMarketProgramSnapshotBestEffort(live);
-    const status = live.marketProgramStatus ?? (live.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO');
-    const statusEmoji = status === 'OK_NONZERO' ? '🟢' : status === 'PROVIDER_ERROR' ? '🟡' : '⚪';
-
-    lines.push('📡 <b>실시간 (KIS 직접 호출)</b>');
-    if (isAcceptedEmptyMarketProgram(live)) {
-      const rawDiag = await diagnoseKisMarketProgramRaw('LOW');
-      const decision = await routeProgramMarketEmptyWithKrxAggregate({
-        rawDiag: {
-          zeroReason: rawDiag.zeroReason ?? live.zeroReason ?? 'ACCEPTED_EMPTY',
-          outputLength: rawDiag.outputKeys?.length ?? live.rowCount ?? 0,
-          outputKeys: rawDiag.outputKeys,
-          marketCode: MARKET_PROGRAM_INDEX_CODE,
-          trId: rawDiag.trId,
-          endpoint: rawDiag.path,
-        },
-      });
-      const compactSource = decision.routedStatus === 'SHAPE_CANDIDATE' ? 'KRX' : decision.source;
-      const compactReason = decision.routedStatus === 'SHAPE_CANDIDATE'
-        ? 'KRX intraday shape candidate (observe only)'
-        : decision.routedStatus === 'UNSUPPORTED_INTRADAY'
-          ? 'KIS accepted empty + KRX intraday empty'
-          : decision.decisionDetail;
-      lines.push('4. ⚪ 시장 프로그램매매');
-      lines.push(`  status: ${decision.routedStatus}`);
-      lines.push(`  source: ${compactSource}`);
-      lines.push(`  reason: ${compactReason}`);
-      lines.push(`  scoring: ${decision.scoring}`);
-      lines.push('  action: observe');
-      lines.push('  providerIssue: false');
-      lines.push('  marketSignal: false');
-      lines.push('  executionImpact: NONE');
-      lines.push('  detail: /program_market_raw');
-      lines.push('');
-    }
-    lines.push(`${statusEmoji} status: ${status}`);
-    lines.push(`latest: ${live.latest ?? 'N/A'}`);
-    lines.push(`updated: ${live.updated ?? 'N/A'}`);
-    const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
-    const qtyEmoji = liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
-    const qtyLabel = liveQty > 0 ? '시장 프로그램 순매수' : liveQty < 0 ? '시장 프로그램 순매도' : '중립';
-    lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
-    lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
-    lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
-    if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
-      lines.push(`nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`);
-    }
-    if (live.zeroReason) lines.push(`zeroReason: ${live.zeroReason}`);
-    lines.push(`providerIssue=${live.providerIssue ?? false}`);
-    lines.push(`executionImpact=${live.executionImpact ?? 'NONE'}`);
-    lines.push(`판정: ${status === 'OK_NONZERO' ? 'usable' : 'observe / scoring excluded'}`);
-    lines.push(`selectedPath: ${live.selectedPath ?? 'N/A'}`);
-
-    if (live.programArbitrageNetBuy !== null) {
-      lines.push(`📈 차익거래 순매수: ${formatKrwInEokwon(live.programArbitrageNetBuy)}`);
-    } else {
-      lines.push(`📈 차익거래 순매수: <i>미수집</i> (KIS 응답 부재)`);
-    }
-    try {
-      const kst = new Date(live.fetchedAt);
-      lines.push(`⏱️ 응답 시각 (KST): ${kst.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })}`);
-    } catch {
-      lines.push(`⏱️ 응답 시각: ${live.fetchedAt}`);
-    }
+    await appendLiveProgramMarketLines(lines, live);
   }
 
-  // macroState 영속값 비교 진단
-  lines.push('');
-  lines.push('💾 <b>macroState 영속 (직전 cron)</b>');
-  if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
-    lines.push(`  • 순매수: ${formatEokwonSaved(macro.programNetBuyAmount)}`);
-    if (macro.programArbitrageNetBuy !== undefined) {
-      const arbLabel = macro.programArbitrageNetBuy === null
-        ? '미수집'
-        : formatEokwonSaved(macro.programArbitrageNetBuy);
-      lines.push(`  • 차익: ${arbLabel}`);
-    }
-    if (macro.programFetchedAt) {
-      try {
-        const kst = new Date(macro.programFetchedAt);
-        lines.push(`  • 수집 시각 (KST): ${kst.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })}`);
-      } catch {
-        lines.push(`  • 수집 시각: ${macro.programFetchedAt}`);
-      }
-    }
-  } else if (macro?.programSource === 'NONE') {
-    lines.push('  • <i>마지막 cron 사이클 KIS 호출 실패</i>');
-  } else {
-    lines.push('  • <i>미수집</i> (cron 1회 미실행 또는 KIS 미연동)');
-  }
+  appendMacroProgramMarketLines(lines, macro);
 
   return lines.join('\n');
 }
 
 function captureMarketProgramSnapshotBestEffort(
-  live: NonNullable<Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>>,
+  live: LiveMarketProgramTrade,
 ): void {
   captureLatestIntradayProgramFlowSnapshotFromRuntimeContext({
     marketProgram: {
