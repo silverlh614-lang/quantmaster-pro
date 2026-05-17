@@ -11,8 +11,8 @@ import { useAnalysisStore } from '../../stores';
 import { useShadowTradeStore } from '../../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { syncStockPrice } from '../../services/stockService';
-import type { StockRecommendation } from '../../services/stockService';
-import type { EvaluationResult } from '../../types/core';
+import type { MarketOverview, StockRecommendation } from '../../services/stockService';
+import type { EconomicRegimeData, EvaluationResult, ExtendedRegimeData, ROEType } from '../../types/core';
 import { debugLog, debugWarn } from '../../utils/debug';
 
 // Sub-components
@@ -31,9 +31,18 @@ import { MasterRadarChart } from './DeepAnalysisModal/MasterRadarChart';
 import { KeyChecklistOverview } from './DeepAnalysisModal/KeyChecklistOverview';
 import { ScoreAlignmentGrid } from './DeepAnalysisModal/ScoreAlignmentGrid';
 import { buildDeepAnalysisEvaluateInput } from './DeepAnalysisModal/buildEvaluateInput';
+import type { DeepAnalysisEvaluateContext } from './DeepAnalysisModal/buildEvaluateInput';
 import { buildMockShadowSignal } from './DeepAnalysisModal/buildMockShadowSignal';
 
 const KIS_BALANCE_DEFAULT = 100_000_000;
+
+type DeepAnalysisView = 'STANDARD' | 'QUANT';
+
+type DeepAnalysisGlobalIntelContext = Omit<DeepAnalysisEvaluateContext, 'marketOverview' | 'weeklyRsiValues'> & {
+  currentRoeType: ROEType;
+  economicRegimeData: EconomicRegimeData | null;
+  extendedRegimeData: ExtendedRegimeData | null;
+};
 
 interface DeepAnalysisModalProps {
   stock: StockRecommendation | null;
@@ -42,6 +51,211 @@ interface DeepAnalysisModalProps {
   weeklyRsiValues: number[];
   onExportPDF: () => Promise<void>;
   isExporting: boolean;
+}
+
+function DeepAnalysisActionButtons({
+  analysisView,
+  setAnalysisView,
+  onExportPDF,
+  isExporting,
+  onClose,
+}: {
+  analysisView: DeepAnalysisView;
+  setAnalysisView: (v: DeepAnalysisView) => void;
+  onExportPDF: () => Promise<void>;
+  isExporting: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute top-4 right-4 z-[160] flex items-center gap-2 no-print">
+      <AnalysisViewButtons analysisView={analysisView} setAnalysisView={setAnalysisView} />
+      <button
+        onClick={onExportPDF}
+        disabled={isExporting}
+        className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-blue-500 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
+        title="PDF 리포트 저장"
+      >
+        {isExporting ? (
+          <RefreshCw className="w-4 h-4 text-white/50 animate-spin" />
+        ) : (
+          <Download className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
+        )}
+      </button>
+      <button
+        onClick={() => onClose()}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
+        title="닫기"
+      >
+        <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white transition-colors">Close</span>
+        <X className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
+      </button>
+    </div>
+  );
+}
+
+function DeepAnalysisAiSummary({ reason }: { reason: string }) {
+  return (
+    <div className="mb-5 p-4 sm:p-5 rounded-2xl bg-orange-500/5 border border-orange-500/10 flex gap-3 items-start">
+      <Sparkles className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <span className="block text-[10px] font-black text-white/40 uppercase tracking-[0.25em] mb-1.5">AI 분석결과 요약</span>
+        <p className="text-white/90 text-sm sm:text-[15px] leading-relaxed font-bold tracking-tight break-words">
+          {reason}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DeepAnalysisQuantView({
+  stock,
+  marketOverview,
+  globalIntelStore,
+  weeklyRsiValues,
+  onShadowTrade,
+}: {
+  stock: StockRecommendation;
+  marketOverview: MarketOverview | null;
+  globalIntelStore: DeepAnalysisGlobalIntelContext;
+  weeklyRsiValues: number[];
+  onShadowTrade: (code: string, name: string, price: number) => void;
+}) {
+  const {
+    macroEnv,
+    exportRatio,
+    currentRoeType,
+    economicRegimeData,
+    extendedRegimeData,
+    smartMoneyData,
+    exportMomentumData,
+    geoRiskData,
+    creditSpreadData,
+    globalCorrelation,
+    newsFrequencyScores,
+    supplyChainData,
+    financialStressData,
+  } = globalIntelStore;
+
+  return (
+    <QuantDashboard
+      result={evaluateStock(buildDeepAnalysisEvaluateInput(stock, {
+        marketOverview,
+        macroEnv,
+        exportRatio,
+        smartMoneyData,
+        exportMomentumData,
+        geoRiskData,
+        creditSpreadData,
+        extendedRegimeData,
+        economicRegimeData,
+        supplyChainData,
+        financialStressData,
+        newsFrequencyScores,
+        globalCorrelation,
+        weeklyRsiValues,
+      }))}
+      economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
+      currentRoeType={currentRoeType}
+      marketOverview={marketOverview}
+      stockCode={stock?.code}
+      stockName={stock?.name}
+      currentPrice={stock?.currentPrice}
+      onShadowTrade={onShadowTrade}
+    />
+  );
+}
+
+function DeepAnalysisStandardView({
+  stock,
+  deepAnalysisGateSignals,
+}: {
+  stock: StockRecommendation;
+  deepAnalysisGateSignals: Array<{ time: string; type: 'STRONG_BUY' | 'BUY'; label: string }>;
+}) {
+  return (
+    <>
+      <ModalHeader stock={stock} />
+
+      <ScoreAlignmentGrid stock={stock} />
+
+      {/* AI 분석결과 요약 — 한 줄 요약으로 밀도 향상 */}
+      <DeepAnalysisAiSummary reason={stock.reason} />
+
+      {/* Candle Chart with Technical Overlays */}
+      <div className="mb-6">
+        <CandleChart
+          stockCode={stock.code}
+          stockName={stock.name}
+          gateSignals={deepAnalysisGateSignals}
+          height={380}
+        />
+      </div>
+
+      {/* Radar Chart & Checklist Overview */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
+        <MasterRadarChart stock={stock} />
+        <KeyChecklistOverview stock={stock} />
+      </div>
+
+      <MarketPositionSection stock={stock} />
+
+      <AIIntelligenceSection stock={stock} />
+
+      {stock.gateEvaluation && <GateFilterSection stock={stock} />}
+
+      {stock.sellSignals && stock.sellSignals.length > 0 && <SellChecklistSection stock={stock} />}
+
+      {stock.sectorAnalysis && <SectorAnalysisSection stock={stock} />}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-7 space-y-6">
+          <TechnicalAnalysisColumn stock={stock} />
+        </div>
+        <div className="lg:col-span-5 space-y-6">
+          <FundamentalsColumn stock={stock} />
+        </div>
+        <SentimentSection stock={stock} />
+        <RiskChecklistSection stock={stock} />
+      </div>
+    </>
+  );
+}
+
+function DeepAnalysisBody({
+  analysisView,
+  stock,
+  marketOverview,
+  globalIntelStore,
+  weeklyRsiValues,
+  handleShadowTrade,
+  deepAnalysisGateSignals,
+}: {
+  analysisView: DeepAnalysisView;
+  stock: StockRecommendation;
+  marketOverview: MarketOverview | null;
+  globalIntelStore: DeepAnalysisGlobalIntelContext;
+  weeklyRsiValues: number[];
+  handleShadowTrade: (code: string, name: string, price: number) => void;
+  deepAnalysisGateSignals: Array<{ time: string; type: 'STRONG_BUY' | 'BUY'; label: string }>;
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto p-5 md:p-7 custom-scrollbar">
+      {analysisView === 'QUANT' ? (
+        <DeepAnalysisQuantView
+          stock={stock}
+          marketOverview={marketOverview}
+          globalIntelStore={globalIntelStore}
+          weeklyRsiValues={weeklyRsiValues}
+          onShadowTrade={handleShadowTrade}
+        />
+      ) : (
+        <DeepAnalysisStandardView
+          stock={stock}
+          deepAnalysisGateSignals={deepAnalysisGateSignals}
+        />
+      )}
+    </div>
+  );
 }
 
 export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsiValues, onExportPDF, isExporting }: DeepAnalysisModalProps) {
@@ -72,12 +286,6 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   }, [stock?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const globalIntelStore = useGlobalIntelStore();
-  const {
-    macroEnv, exportRatio, currentRoeType,
-    economicRegimeData, extendedRegimeData,
-    smartMoneyData, exportMomentumData, geoRiskData, creditSpreadData,
-    globalCorrelation, newsFrequencyScores, supplyChainData, financialStressData,
-  } = globalIntelStore;
   const { marketOverview } = useMarketStore();
   const { watchlist, setWatchlist } = useRecommendationStore();
   const { setView } = useSettingsStore();
@@ -130,115 +338,23 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
           >
             <AnalysisViewToggle>
             {(analysisView, setAnalysisView) => (<>
-            {/* Action Buttons - Absolute Positioned */}
-            <div className="absolute top-4 right-4 z-[160] flex items-center gap-2 no-print">
-              <AnalysisViewButtons analysisView={analysisView} setAnalysisView={setAnalysisView} />
-              <button
-                onClick={onExportPDF}
-                disabled={isExporting}
-                className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-blue-500 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
-                title="PDF 리포트 저장"
-              >
-                {isExporting ? (
-                  <RefreshCw className="w-4 h-4 text-white/50 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
-                )}
-              </button>
-              <button
-                onClick={() => onClose()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
-                title="닫기"
-              >
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white transition-colors">Close</span>
-                <X className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
-              </button>
-            </div>
+            <DeepAnalysisActionButtons
+              analysisView={analysisView}
+              setAnalysisView={setAnalysisView}
+              onExportPDF={onExportPDF}
+              isExporting={isExporting}
+              onClose={onClose}
+            />
 
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-5 md:p-7 custom-scrollbar">
-              {analysisView === 'QUANT' ? (
-                <QuantDashboard
-                  result={evaluateStock(buildDeepAnalysisEvaluateInput(stock, {
-                    marketOverview,
-                    macroEnv,
-                    exportRatio,
-                    smartMoneyData,
-                    exportMomentumData,
-                    geoRiskData,
-                    creditSpreadData,
-                    extendedRegimeData,
-                    economicRegimeData,
-                    supplyChainData,
-                    financialStressData,
-                    newsFrequencyScores,
-                    globalCorrelation,
-                    weeklyRsiValues,
-                  }))}
-                  economicRegime={extendedRegimeData ?? economicRegimeData ?? undefined}
-                  currentRoeType={currentRoeType}
-                  marketOverview={marketOverview}
-                  stockCode={stock?.code}
-                  stockName={stock?.name}
-                  currentPrice={stock?.currentPrice}
-                  onShadowTrade={handleShadowTrade}
-                />
-              ) : (
-                <>
-                  <ModalHeader stock={stock} />
-
-                  <ScoreAlignmentGrid stock={stock} />
-
-                  {/* AI 분석결과 요약 — 한 줄 요약으로 밀도 향상 */}
-                  <div className="mb-5 p-4 sm:p-5 rounded-2xl bg-orange-500/5 border border-orange-500/10 flex gap-3 items-start">
-                    <Sparkles className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <span className="block text-[10px] font-black text-white/40 uppercase tracking-[0.25em] mb-1.5">AI 분석결과 요약</span>
-                      <p className="text-white/90 text-sm sm:text-[15px] leading-relaxed font-bold tracking-tight break-words">
-                        {stock.reason}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Candle Chart with Technical Overlays */}
-                  <div className="mb-6">
-                    <CandleChart
-                      stockCode={stock.code}
-                      stockName={stock.name}
-                      gateSignals={deepAnalysisGateSignals}
-                      height={380}
-                    />
-                  </div>
-
-                  {/* Radar Chart & Checklist Overview */}
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
-                    <MasterRadarChart stock={stock} />
-                    <KeyChecklistOverview stock={stock} />
-                  </div>
-
-                  <MarketPositionSection stock={stock} />
-
-                  <AIIntelligenceSection stock={stock} />
-
-                  {stock.gateEvaluation && <GateFilterSection stock={stock} />}
-
-                  {stock.sellSignals && stock.sellSignals.length > 0 && <SellChecklistSection stock={stock} />}
-
-                  {stock.sectorAnalysis && <SectorAnalysisSection stock={stock} />}
-
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-7 space-y-6">
-                      <TechnicalAnalysisColumn stock={stock} />
-                    </div>
-                    <div className="lg:col-span-5 space-y-6">
-                      <FundamentalsColumn stock={stock} />
-                    </div>
-                    <SentimentSection stock={stock} />
-                    <RiskChecklistSection stock={stock} />
-                  </div>
-                </>
-              )}
-            </div>
+            <DeepAnalysisBody
+              analysisView={analysisView}
+              stock={stock}
+              marketOverview={marketOverview}
+              globalIntelStore={globalIntelStore}
+              weeklyRsiValues={weeklyRsiValues}
+              handleShadowTrade={handleShadowTrade}
+              deepAnalysisGateSignals={deepAnalysisGateSignals}
+            />
             </>)}
             </AnalysisViewToggle>
 
