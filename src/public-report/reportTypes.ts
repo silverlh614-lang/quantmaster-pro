@@ -7,7 +7,8 @@ export type DataConfidence =
   | 'DEGRADED'
   | 'STALE'
   | 'MISSING'
-  | 'AI_ESTIMATED';
+  | 'AI_ESTIMATED'
+  | 'UNKNOWN';
 
 export type ReportVisibility = 'PUBLIC' | 'PAID' | 'PRIVATE';
 

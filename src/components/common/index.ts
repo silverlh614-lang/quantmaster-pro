@@ -2,6 +2,8 @@
 export { ErrorBoundary } from './ErrorBoundary';
 export { SectionErrorBoundary } from './SectionErrorBoundary';
 export { ConfidenceBadge } from './ConfidenceBadge';
+export { DataConfidenceBadge } from './DataConfidenceBadge';
+export type { DataConfidence, DataConfidenceBadgeProps } from './DataConfidenceBadge';
 export { PriceEditCell } from './PriceEditCell';
 export { SettingsModal } from './SettingsModal';
 export { MasterChecklistModal } from './MasterChecklistModal';

@@ -739,17 +739,7 @@ export function WatchlistCard({
                   DART: {stock.financialUpdatedAt}
                 </span>
               )}
-              {stock.dataSourceType === 'REALTIME' ? (
-                <span className="text-[7px] font-black text-green-500/50 uppercase tracking-[0.1em] flex items-center gap-1">
-                  <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" />
-                  Verified Real-time
-                </span>
-              ) : (
-                <span className="text-[7px] font-black text-orange-500/50 uppercase tracking-[0.1em] flex items-center gap-1">
-                  <div className="w-1 h-1 bg-orange-500 rounded-full" />
-                  AI Estimated
-                </span>
-              )}
+              <ConfidenceBadge type={stock.dataSourceType || 'AI'} />
             </div>
           </div>
         </div>

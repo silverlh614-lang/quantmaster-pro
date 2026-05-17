@@ -1,5 +1,6 @@
-// @responsibility common 영역 ConfidenceBadge 컴포넌트
+// @responsibility legacy data-source badge adapter backed by 전역 DataConfidenceBadge
 import React from 'react';
+import { DataConfidenceBadge, type DataConfidence } from './DataConfidenceBadge';
 
 type DataSourceType = 'AI' | 'REALTIME' | 'YAHOO' | 'STALE';
 
@@ -7,19 +8,21 @@ interface ConfidenceBadgeProps {
   type: DataSourceType;
 }
 
-const BADGE: Record<DataSourceType, { label: string; dotColor: string; className: string }> = {
-  REALTIME: { label: 'KIS실시간', dotColor: 'bg-green-500',  className: 'bg-green-900 text-green-200' },
-  YAHOO:    { label: 'Yahoo',     dotColor: 'bg-yellow-500', className: 'bg-yellow-900 text-yellow-200' },
-  AI:       { label: 'AI추정',    dotColor: 'bg-red-500',    className: 'bg-red-900 text-red-200' },
-  STALE:    { label: '가격지연',   dotColor: 'bg-gray-500',   className: 'bg-gray-800 text-gray-400' },
+const SOURCE_TO_CONFIDENCE: Record<DataSourceType, { confidence: DataConfidence; source: string; label: string }> = {
+  REALTIME: { confidence: 'VERIFIED', source: 'KIS real-time', label: 'KIS 실시간' },
+  YAHOO: { confidence: 'DEGRADED', source: 'Yahoo delayed/API', label: 'Yahoo 참고' },
+  AI: { confidence: 'AI_ESTIMATED', source: 'AI inference', label: 'AI 추정' },
+  STALE: { confidence: 'STALE', source: 'stale price feed', label: '가격 지연' },
 };
 
 export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({ type }) => {
-  const { label, dotColor, className } = BADGE[type] ?? BADGE.STALE;
+  const badge = SOURCE_TO_CONFIDENCE[type] ?? SOURCE_TO_CONFIDENCE.STALE;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap ${className}`}>
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
-      {label}
-    </span>
+    <DataConfidenceBadge
+      confidence={badge.confidence}
+      source={badge.source}
+      label={badge.label}
+      compact
+    />
   );
 };
