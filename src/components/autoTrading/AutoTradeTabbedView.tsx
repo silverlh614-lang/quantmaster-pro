@@ -29,6 +29,7 @@ import { EmergencyActionsPanel } from './EmergencyActionsPanel';
 import { OcoOrdersCard } from '../trading/autoTrade/OcoOrdersCard';
 import { GlobalSignalsPanel } from './GlobalSignalsPanel';
 import { OperatorNoiseCenter } from './OperatorNoiseCenter';
+import { PendingWiringDashboard } from '../operator/PendingWiringDashboard';
 import { useOcoOrdersQuery } from '../../hooks/autoTrade';
 import type { AutoTradingDashboardState } from '../../services/autoTrading/autoTradingTypes';
 import type { GateAuditData } from '../../api';
@@ -133,6 +134,8 @@ export const AutoTradeTabbedView = forwardRef<HTMLDivElement, AutoTradeTabbedVie
             </PageGrid>
             {/* Operator Noise Center — 알림 압축/억제 상태 표시 전용. 실제 alert 정책/라우팅은 변경하지 않음. */}
             <OperatorNoiseCenter />
+            {/* Pending Wiring Dashboard — 미연결 backlog 가시성 전용. 실행·판단 경로는 변경하지 않음. */}
+            <PendingWiringDashboard />
             {/* 진단 탭 하단: ADR·Pre-Market·DXY·섹터 ETF 글로벌 신호 요약 */}
             <GlobalSignalsPanel />
           </div>
