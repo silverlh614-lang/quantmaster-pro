@@ -45,11 +45,21 @@ describe('collectLearningLoopHealth', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llh-'));
     process.env.PERSIST_DATA_DIR = tmpDir;
     vi.resetModules();
+    // Patch-VITEST-CAT-E-BASELINE-005: time isolation 의무.
+    // 결함: server/persistence/reflectionRepo.ts:60 의 loadRecentReflections(days) 가
+    // 호출자로부터 now 를 받지 않고 real new Date() 사용 → 실시간 today 기준
+    // recent-N-day window 산출 → test fixture (2026-04-30~05-02) 가 real today 와
+    // 멀어지면 ALL reflections 가 window 밖 → loaded=0 → INSUFFICIENT_DATA 회귀.
+    // 정합 정정: collectLearningLoopHealth(NOW) 의 NOW 가 reflectionRepo 내부에서도
+    // 작동하도록 system time 자체를 NOW 로 고정 (invariant #10 source inspection 결과).
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
   });
 
   afterEach(() => {
     delete process.env.PERSIST_DATA_DIR;
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
