@@ -109,6 +109,37 @@ describe('Fresh Shadow Lifecycle Activation Patch v1', () => {
     expect(inlet.nextAction).toBe('SHADOW_SIGNAL_NOT_APPROVED');
   });
 
+  it('keeps Fresh Shadow eligible when live entry is blocked by R6 or SELL_ONLY', () => {
+    const r6Ledger = new InMemoryShadowCaseLedger();
+    r6Ledger.upsertCase(base('r6-fresh', {
+      engineMode: 'NORMAL',
+      blockedReason: 'R6_DEFENSE',
+      state: 'SHADOW_ORDER_CREATED',
+      executionImpact: 'NONE',
+      brokerOrdersCreated: 0,
+    }));
+    expect(r6Ledger.getCase('r6-fresh')?.cohortType).toBe('FRESH_SHADOW');
+
+    const sellOnlyLedger = new InMemoryShadowCaseLedger();
+    sellOnlyLedger.upsertCase(base('sell-only-fresh', {
+      engineMode: 'SELL_ONLY',
+      blockedReason: 'SELL_ONLY',
+      state: 'SHADOW_ORDER_CREATED',
+      executionImpact: 'NONE',
+      brokerOrdersCreated: 0,
+    }));
+    expect(sellOnlyLedger.getCase('sell-only-fresh')?.cohortType).toBe('FRESH_SHADOW');
+
+    const inlet = collectFreshShadowInletStatus(r6Ledger, now, { marketOpen: true, engineMode: 'NORMAL' });
+    expect(inlet.nextAction).toBe('LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED');
+    expect(inlet.shadowBuyAllowed).toBe(true);
+    expect(inlet.shadowSellAllowed).toBe(true);
+    expect(inlet.shadowLearningAllowed).toBe(true);
+    expect(inlet.counterfactualAllowed).toBe(true);
+    expect(inlet.executionImpact).toBe('NONE');
+    expect(inlet.brokerOrdersCreated).toBe(0);
+  });
+
   it('formats fresh shadow status and lifecycle command output', () => {
     const ledger = fullLifecycle();
     expect(formatFreshShadowStatus(collectFreshShadowStatus(ledger, now))).toContain('todayFreshCandidates');

@@ -335,7 +335,13 @@ export interface MacroGateState {
   r6ShockLatch?: boolean;
   recoveryBlockedReason?: string;
   liveEntryAllowed?: boolean;
+  liveExitAllowed?: boolean;
+  shadowBuyAllowed?: boolean;
+  shadowSellAllowed?: boolean;
   shadowLearningAllowed?: boolean;
+  counterfactualAllowed?: boolean;
+  diagnosticAllowed?: boolean;
+  brokerOrderAllowed?: boolean;
 }
 
 
@@ -1368,7 +1374,13 @@ export function buildMacroGateState(input: {
   r6ShockLatch?: boolean;
   recoveryBlockedReason?: string;
   liveEntryAllowed?: boolean;
+  liveExitAllowed?: boolean;
+  shadowBuyAllowed?: boolean;
+  shadowSellAllowed?: boolean;
   shadowLearningAllowed?: boolean;
+  counterfactualAllowed?: boolean;
+  diagnosticAllowed?: boolean;
+  brokerOrderAllowed?: boolean;
 }): MacroGateState {
   return {
     emergencyStop: input.emergencyStop,
@@ -1395,7 +1407,13 @@ export function buildMacroGateState(input: {
     r6ShockLatch: input.r6ShockLatch,
     recoveryBlockedReason: input.recoveryBlockedReason,
     liveEntryAllowed: input.liveEntryAllowed,
+    liveExitAllowed: input.liveExitAllowed ?? true,
+    shadowBuyAllowed: input.shadowBuyAllowed ?? true,
+    shadowSellAllowed: input.shadowSellAllowed ?? true,
     shadowLearningAllowed: input.shadowLearningAllowed,
+    counterfactualAllowed: input.counterfactualAllowed ?? true,
+    diagnosticAllowed: input.diagnosticAllowed ?? true,
+    brokerOrderAllowed: input.brokerOrderAllowed ?? input.liveEntryAllowed ?? false,
   };
 }
 
@@ -1765,7 +1783,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
     if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
     if (mg.liveEntryAllowed !== undefined) lines.push(`  • liveEntryAllowed: ${mg.liveEntryAllowed}`);
+    if (mg.liveExitAllowed !== undefined) lines.push(`  • liveExitAllowed: ${mg.liveExitAllowed}`);
+    if (mg.shadowBuyAllowed !== undefined) lines.push(`  • shadowBuyAllowed: ${mg.shadowBuyAllowed}`);
+    if (mg.shadowSellAllowed !== undefined) lines.push(`  • shadowSellAllowed: ${mg.shadowSellAllowed}`);
     if (mg.shadowLearningAllowed !== undefined) lines.push(`  • shadowLearningAllowed: ${mg.shadowLearningAllowed}`);
+    if (mg.counterfactualAllowed !== undefined) lines.push(`  • counterfactualAllowed: ${mg.counterfactualAllowed}`);
+    if (mg.brokerOrderAllowed !== undefined) lines.push(`  • brokerOrderAllowed: ${mg.brokerOrderAllowed}`);
     lines.push(`  • FOMC: ${mg.fomcPhase} (Kelly ×${mg.fomcKellyMultiplier.toFixed(2)}) → 결합 ×${mg.finalKellyMultiplier.toFixed(2)}`);
     if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
     if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);

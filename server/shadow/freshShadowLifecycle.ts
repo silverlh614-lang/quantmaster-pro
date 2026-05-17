@@ -1,5 +1,6 @@
 // @responsibility Fresh shadow lifecycle state transitions.
 import type { ShadowCaseLedgerStore } from './shadowCaseLedger.js';
+import { normalizeRegimeContext } from './regimeContext.js';
 import type { IntegrityIssue, ShadowCase, ShadowLifecycleState, ShadowStateTransition } from './shadowTypes.js';
 
 export const REQUIRED_FRESH_SAMPLES = 100;
@@ -17,6 +18,7 @@ const NORMAL_PATH: ShadowLifecycleState[] = [
 ];
 const CLOSED_LABELS = new Set(['WIN', 'LOSS', 'BREAKEVEN', 'EXPIRED']);
 const REPAIR_COHORTS = new Set(['GHOST_REPAIR', 'BACKLOG_REPAIR', 'RECOVERED_METADATA', 'QUARANTINED']);
+const SHADOW_ALWAYS_ON_ENGINE_MODES = new Set(['NORMAL', 'DEGRADED', 'SELL_ONLY', 'SHADOW_ONLY', 'OBSERVE_ONLY']);
 
 function dayKey(iso: string | undefined, now: Date): string {
   const d = iso ? new Date(iso) : now;
@@ -27,10 +29,13 @@ function positive(n: unknown): n is number { return typeof n === 'number' && Num
 function statesFor(ledger: ShadowCaseLedgerStore, caseId: string): ShadowLifecycleState[] { return ledger.listTransitions(caseId).map((t) => t.to); }
 function hasState(c: ShadowCase, ts: ShadowStateTransition[], s: ShadowLifecycleState): boolean { return c.state === s || ts.some((t) => t.to === s); }
 function noRepairMarkers(c: ShadowCase): boolean { return !c.repairRunId && !c.backfillRunId && c.metadataRecovered !== true; }
+function shadowRuntimeAllowed(c: ShadowCase): boolean {
+  return SHADOW_ALWAYS_ON_ENGINE_MODES.has(c.engineMode);
+}
 export function isFreshShadowEligible(c: ShadowCase, transitions: ShadowStateTransition[] = [], now: Date = new Date()): boolean {
   return today(c.createdAt, now)
     && noRepairMarkers(c)
-    && ['SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode)
+    && shadowRuntimeAllowed(c)
     && (hasState(c, transitions, 'SHADOW_ORDER_CREATED') || hasState(c, transitions, 'SHADOW_PAPER_FILLED'))
     && !c.liveOrderCreated
     && !c.brokerOrderCreated
@@ -45,7 +50,13 @@ export function freshMetadataProblem(c: ShadowCase): 'entryPrice missing' | 'tar
   return undefined;
 }
 export function prepareFreshShadowCase(input: ShadowCase, transitions: ShadowStateTransition[] = [], now: Date = new Date()): ShadowCase {
-  const base: ShadowCase = { ...input, executionImpact: 'NONE', brokerOrdersCreated: input.brokerOrdersCreated ?? 0 };
+  const regimeContext = normalizeRegimeContext(input);
+  const base: ShadowCase = {
+    ...input,
+    ...regimeContext,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: input.brokerOrdersCreated ?? 0,
+  };
   if (!isFreshShadowEligible(base, transitions, now)) return base;
   if (REPAIR_COHORTS.has(base.cohortType ?? '') && base.cohortType !== 'QUARANTINED') return base;
   const missing = freshMetadataProblem(base);
@@ -67,7 +78,7 @@ function issue(item: string, severity: IntegrityIssue['severity'], rows: ShadowC
 export function inspectFreshShadowIntegrity(ledger: ShadowCaseLedgerStore, now: Date = new Date()): IntegrityIssue[] {
   const cases = ledger.listCases();
   const issues: IntegrityIssue[] = [];
-  const freshish = cases.filter((c) => c.cohortType === 'FRESH_SHADOW' || (today(c.createdAt, now) && noRepairMarkers(c) && ['SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode) && c.state !== 'QUARANTINED'));
+  const freshish = cases.filter((c) => c.cohortType === 'FRESH_SHADOW' || (today(c.createdAt, now) && noRepairMarkers(c) && shadowRuntimeAllowed(c) && c.state !== 'QUARANTINED'));
   const has = (c: ShadowCase, s: ShadowLifecycleState) => hasState(c, ledger.listTransitions(c.caseId), s);
   issues.push(issue('approved_without_order', 'WARN', freshish.filter((c) => has(c, 'SHADOW_SIGNAL_APPROVED') && !has(c, 'SHADOW_ORDER_CREATED'))));
   issues.push(issue('order_without_fill', 'WARN', freshish.filter((c) => has(c, 'SHADOW_ORDER_CREATED') && !has(c, 'SHADOW_PAPER_FILLED'))));
@@ -96,7 +107,7 @@ export function collectFreshShadowStatus(ledger: ShadowCaseLedgerStore, now: Dat
   const critical = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.severity === 'CRITICAL');
   const countToday = (s: ShadowLifecycleState) => transitions.filter((t) => t.to === s && today(t.timestamp, now)).length + cases.filter((c) => c.state === s && today(c.updatedAt, now) && !transitions.some((t) => t.caseId === c.caseId && t.to === s)).length;
   return {
-    todayFreshCandidates: cases.filter((c) => today(c.createdAt, now) && noRepairMarkers(c) && ['SHADOW_ONLY', 'OBSERVE_ONLY'].includes(c.engineMode)).length,
+    todayFreshCandidates: cases.filter((c) => today(c.createdAt, now) && noRepairMarkers(c) && shadowRuntimeAllowed(c)).length,
     todayFreshApproved: countToday('SHADOW_SIGNAL_APPROVED'),
     todayShadowOrdersCreated: countToday('SHADOW_ORDER_CREATED'),
     todayPaperFilled: countToday('SHADOW_PAPER_FILLED'),
@@ -123,6 +134,7 @@ export type FreshShadowInletNextAction =
   | 'METADATA_GUARD_REJECTED'
   | 'SELL_ONLY_BLOCKED_FRESH_ENTRY'
   | 'HARD_BLOCK_ACTIVE'
+  | 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED'
   | 'MARKET_CLOSED'
   | 'FRESH_SHADOW_INLET_ACTIVE';
 
@@ -154,14 +166,17 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   const missingEntryPrice = scanCandidates.filter((c) => !positive(c.entryPriceVirtual)).length;
   const missingTargetStop = scanCandidates.filter((c) => !positive(c.targetPriceVirtual) || !positive(c.stopPriceVirtual)).length;
   const blockedBySellOnly = scanCandidates.filter((c) => c.engineMode === 'SELL_ONLY' || matchesBlock(c, ['SELL_ONLY'])).length;
-  const blockedByHardBlock = scanCandidates.filter((c) => c.engineMode === 'OBSERVE_ONLY' || matchesBlock(c, ['OBSERVE_ONLY', 'R6_DEFENSE', 'RISK_LIMIT'])).length;
+  const blockedByHardBlock = scanCandidates.filter((c) => c.engineMode === 'OBSERVE_ONLY' || matchesBlock(c, ['OBSERVE_ONLY', 'R6_DEFENSE', 'RISK_LIMIT', 'HARD_BLOCK'])).length;
+  const liveEntryBlockedShadowAllowed =
+    blockedBySellOnly > 0 ||
+    blockedByHardBlock > 0 ||
+    sellOnlyActive;
   const blockedByNoSignal = Math.max(0, scanCandidates.length - shadowSignalsToday);
   const cohortAssignmentFailures = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.item === 'fresh_case_missing_cohort').reduce((s, i) => s + i.count, 0);
   let nextAction: FreshShadowInletNextAction = 'FRESH_SHADOW_INLET_ACTIVE';
   if (!marketOpen) nextAction = 'MARKET_CLOSED';
-  else if (blockedByHardBlock > 0 || engineMode === 'OBSERVE_ONLY') nextAction = 'HARD_BLOCK_ACTIVE';
-  else if (sellOnlyActive || blockedBySellOnly > 0) nextAction = 'SELL_ONLY_BLOCKED_FRESH_ENTRY';
   else if (scanCandidates.length === 0) nextAction = 'NO_SCAN_CANDIDATES';
+  else if (liveEntryBlockedShadowAllowed) nextAction = 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED';
   else if (shadowSignalsToday === 0) nextAction = 'NO_SHADOW_SIGNALS';
   else if (shadowApprovedToday === 0) nextAction = 'SHADOW_SIGNAL_NOT_APPROVED';
   else if (shadowOrdersCreatedToday === 0) nextAction = 'SHADOW_EXECUTION_NOT_WIRED';
@@ -185,6 +200,12 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
     blockedByHardBlock,
     blockedByNoSignal,
     cohortAssignmentFailures,
+    liveEntryAllowed: false as const,
+    liveExitAllowed: true as const,
+    shadowBuyAllowed: true as const,
+    shadowSellAllowed: true as const,
+    shadowLearningAllowed: true as const,
+    counterfactualAllowed: true as const,
     blocker: nextAction,
     nextAction,
     executionImpact: 'NONE' as const,

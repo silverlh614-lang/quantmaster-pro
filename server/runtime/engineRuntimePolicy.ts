@@ -15,8 +15,16 @@ export type ExecutionImpact =
 
 export interface EngineRuntimePolicy {
   engineMode: EngineMode;
+  liveEntryAllowed: boolean;
+  liveExitAllowed: boolean;
   liveBuyAllowed: boolean;
   liveSellAllowed: boolean;
+  shadowBuyAllowed: boolean;
+  shadowSellAllowed: boolean;
+  shadowLearningAllowed: boolean;
+  counterfactualAllowed: boolean;
+  diagnosticAllowed: boolean;
+  brokerOrderAllowed: boolean;
   shadowAllowed: boolean;
   learningAllowed: boolean;
   executionImpact: ExecutionImpact;
@@ -31,12 +39,22 @@ export interface EngineState {
 
 export interface ResolveEngineRuntimePolicyInput {
   engineMode: EngineMode;
+  macroRegime?: string;
+  marketSessionState?: string;
+  hardBlock?: boolean;
+  positionFull?: boolean;
+  riskLimitReached?: boolean;
   liveBuyGateAllowed?: boolean;
   liveSellGateAllowed?: boolean;
   reasonCodes?: string[];
 }
 
 const SHADOW_LEARNING_ALWAYS_ON = {
+  shadowBuyAllowed: true,
+  shadowSellAllowed: true,
+  shadowLearningAllowed: true,
+  counterfactualAllowed: true,
+  diagnosticAllowed: true,
   shadowAllowed: true,
   learningAllowed: true,
 } as const;
@@ -60,59 +78,107 @@ export const EngineModeManager = Object.freeze({
 });
 
 export const LearningPolicy = Object.freeze({
-  resolve(): Pick<EngineRuntimePolicy, 'shadowAllowed' | 'learningAllowed'> {
+  resolve(): Pick<EngineRuntimePolicy, 'shadowBuyAllowed' | 'shadowSellAllowed' | 'shadowLearningAllowed' | 'counterfactualAllowed' | 'diagnosticAllowed' | 'shadowAllowed' | 'learningAllowed'> {
     return SHADOW_LEARNING_ALWAYS_ON;
   },
 });
 
+function liveEntryPolicyBlocked(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): boolean {
+  return engineMode === 'SELL_ONLY'
+    || engineMode === 'SHADOW_ONLY'
+    || engineMode === 'OBSERVE_ONLY'
+    || input.macroRegime === 'R5_CAUTION'
+    || input.macroRegime === 'R5_CRISIS'
+    || input.macroRegime === 'R6_DEFENSE'
+    || input.marketSessionState === 'NON_TRADING_DAY'
+    || input.marketSessionState === 'CLOSED'
+    || input.hardBlock === true
+    || input.positionFull === true
+    || input.riskLimitReached === true;
+}
+
+function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): string[] {
+  const reasons: string[] = [];
+  if (engineMode === 'SELL_ONLY') reasons.push('SELL_ONLY');
+  if (engineMode === 'SHADOW_ONLY') reasons.push('SHADOW_ONLY');
+  if (engineMode === 'OBSERVE_ONLY') reasons.push('OBSERVE_ONLY');
+  if (input.macroRegime === 'R5_CAUTION') reasons.push('R5_CAUTION');
+  if (input.macroRegime === 'R5_CRISIS') reasons.push('R5_CRISIS');
+  if (input.macroRegime === 'R6_DEFENSE') reasons.push('R6_DEFENSE');
+  if (input.marketSessionState === 'NON_TRADING_DAY') reasons.push('KRX_NON_TRADING_DAY');
+  if (input.marketSessionState === 'CLOSED') reasons.push('MARKET_CLOSED');
+  if (input.hardBlock === true) reasons.push('HARD_BLOCK');
+  if (input.positionFull === true) reasons.push('POSITION_FULL');
+  if (input.riskLimitReached === true) reasons.push('RISK_LIMIT');
+  return reasons;
+}
+
+function buildPolicy(input: {
+  engineMode: EngineMode;
+  liveEntryAllowed: boolean;
+  liveExitAllowed: boolean;
+  executionImpact: ExecutionImpact;
+  reasonCodes: string[];
+}): EngineRuntimePolicy {
+  return {
+    engineMode: input.engineMode,
+    liveEntryAllowed: input.liveEntryAllowed,
+    liveExitAllowed: input.liveExitAllowed,
+    liveBuyAllowed: input.liveEntryAllowed,
+    liveSellAllowed: input.liveExitAllowed,
+    ...LearningPolicy.resolve(),
+    brokerOrderAllowed: input.liveEntryAllowed,
+    executionImpact: input.executionImpact,
+    reasonCodes: uniqueReasons(input.reasonCodes),
+  };
+}
+
 export const ExecutionPolicy = Object.freeze({
   resolve(input: ResolveEngineRuntimePolicyInput): EngineRuntimePolicy {
     const engineMode = EngineModeManager.normalize(input.engineMode);
-    const reasonCodes = uniqueReasons(input.reasonCodes);
+    const policyReasons = liveEntryPolicyReasons(input, engineMode);
+    const reasonCodes = uniqueReasons([...(input.reasonCodes ?? []), ...policyReasons]);
+    const blockedByPolicy = liveEntryPolicyBlocked(input, engineMode);
 
     if (engineMode === 'SELL_ONLY') {
-      return {
+      return buildPolicy({
         engineMode,
-        liveBuyAllowed: false,
-        liveSellAllowed: true,
-        ...LearningPolicy.resolve(),
+        liveEntryAllowed: false,
+        liveExitAllowed: true,
         executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-        reasonCodes: uniqueReasons([...reasonCodes, 'SELL_ONLY']),
-      };
+        reasonCodes,
+      });
     }
 
     if (engineMode === 'SHADOW_ONLY') {
-      return {
+      return buildPolicy({
         engineMode,
-        liveBuyAllowed: false,
-        liveSellAllowed: false,
-        ...LearningPolicy.resolve(),
+        liveEntryAllowed: false,
+        liveExitAllowed: true,
         executionImpact: 'NONE',
-        reasonCodes: uniqueReasons([...reasonCodes, 'SHADOW_ONLY']),
-      };
+        reasonCodes,
+      });
     }
 
     if (engineMode === 'OBSERVE_ONLY') {
-      return {
+      return buildPolicy({
         engineMode,
-        liveBuyAllowed: false,
-        liveSellAllowed: false,
-        ...LearningPolicy.resolve(),
+        liveEntryAllowed: false,
+        liveExitAllowed: true,
         executionImpact: 'NONE',
-        reasonCodes: uniqueReasons([...reasonCodes, 'OBSERVE_ONLY']),
-      };
+        reasonCodes,
+      });
     }
 
-    const liveBuyAllowed = input.liveBuyGateAllowed === true;
+    const liveBuyAllowed = input.liveBuyGateAllowed === true && !blockedByPolicy;
     const liveSellAllowed = input.liveSellGateAllowed !== false;
-    return {
+    return buildPolicy({
       engineMode,
-      liveBuyAllowed,
-      liveSellAllowed,
-      ...LearningPolicy.resolve(),
-      executionImpact: liveBuyAllowed || liveSellAllowed ? 'LIVE_ORDER_ALLOWED' : 'LIVE_ORDER_BLOCKED',
+      liveEntryAllowed: liveBuyAllowed,
+      liveExitAllowed: liveSellAllowed,
+      executionImpact: blockedByPolicy ? 'NEW_BUY_BLOCKED_ONLY' : liveBuyAllowed || liveSellAllowed ? 'LIVE_ORDER_ALLOWED' : 'LIVE_ORDER_BLOCKED',
       reasonCodes,
-    };
+    });
   },
 });
 
@@ -140,4 +206,21 @@ export function applyProviderSignalToEngineState(input: {
     engineAlive: true,
     reasonCodes: uniqueReasons([...input.current.reasonCodes, input.reasonCode ?? 'PROVIDER_ISSUE_ISOLATED']),
   };
+}
+
+export function formatEngineRuntimePolicy(policy: EngineRuntimePolicy): string {
+  return [
+    'Execution Policy:',
+    `liveEntryAllowed=${policy.liveEntryAllowed}`,
+    `liveExitAllowed=${policy.liveExitAllowed}`,
+    `shadowBuyAllowed=${policy.shadowBuyAllowed}`,
+    `shadowSellAllowed=${policy.shadowSellAllowed}`,
+    `shadowLearningAllowed=${policy.shadowLearningAllowed}`,
+    `counterfactualAllowed=${policy.counterfactualAllowed}`,
+    `diagnosticAllowed=${policy.diagnosticAllowed}`,
+    `brokerOrderAllowed=${policy.brokerOrderAllowed}`,
+    `executionImpact=${policy.executionImpact}`,
+    'shadow.executionImpact=NONE',
+    'counterfactual.executionImpact=NONE',
+  ].join('\n');
 }

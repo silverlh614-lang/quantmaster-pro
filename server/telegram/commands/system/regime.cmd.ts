@@ -6,6 +6,7 @@ import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import type { RegimeLevel } from '../../../../src/types/core.js';
+import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../runtime/engineRuntimePolicy.js';
 
 const regime: TelegramCommand = {
   name: '/regime',
@@ -31,6 +32,12 @@ const regime: TelegramCommand = {
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
     const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
     const r6TriggerLine = formatR6TriggerBreakdownLine(regimeDiagnostics.r6TriggerBreakdown);
+    const runtimePolicy = resolveEngineRuntimePolicy({
+      engineMode: 'NORMAL',
+      macroRegime: regimeDiagnostics.effectiveRegime,
+      liveBuyGateAllowed: regimeDiagnostics.effectiveRegime !== 'R6_DEFENSE',
+      reasonCodes: regimeDiagnostics.effectiveRegime === 'R6_DEFENSE' ? ['R6_DEFENSE'] : [],
+    });
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
@@ -47,6 +54,7 @@ const regime: TelegramCommand = {
       `${r6RecoveryLine}\n` +
       `${r6TriggerLine}\n` +
       `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
+      `${formatEngineRuntimePolicy(runtimePolicy)}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
       `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
       `💱 USD/KRW: ${usdKrwLine}\n` +

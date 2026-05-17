@@ -1,5 +1,6 @@
 // @responsibility Shadow case data contracts with runtime SSOT provenance.
 import type { EngineMode, ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
+import type { RegimeConfidence, RegimePhase } from '../regimeContext.js';
 import type { ShadowLifecycleState } from './lifecycle.js';
 import type { OutcomeLabel } from './outcome.js';
 
@@ -50,6 +51,20 @@ export interface ShadowCase {
   outcomeLabel?: OutcomeLabel;
   learningTag?: string;
   regimeTag?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimePhase?: RegimePhase;
+  regimeAtSignal?: RegimePhase | string;
+  regimeAtEntry?: RegimePhase | string;
+  regimeAtExit?: RegimePhase | string;
+  regimeAtOutcome?: RegimePhase | string;
+  r6Trigger?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: RegimeConfidence;
+  conditionTags?: string[];
+  timeWindowTag?: string;
   sectorTag?: string;
   sourceConfidence: SourceConfidence;
   createdAt: string;

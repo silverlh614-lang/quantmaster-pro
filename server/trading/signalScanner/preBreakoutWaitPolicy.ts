@@ -199,9 +199,9 @@ export function evaluatePreBreakoutWait(
       increaseWaitCount: false,
       increaseRecheckFailCount: false,
       kisWsPriorityAdjustment: 'UNSUBSCRIBE_IF_LOW_PRIORITY',
-      shadowLearningAllowed: false,
+      shadowLearningAllowed: true,
       counterfactualLearningAllowed: true,
-      operatorMessage: `${input.symbol} risk rule blocked (R6/EmergencyStop/hard risk).`,
+      operatorMessage: `${input.symbol} risk rule blocked for live entry; Shadow/Counterfactual learning stays always-on.`,
     };
   }
 

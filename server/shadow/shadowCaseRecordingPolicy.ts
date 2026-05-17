@@ -3,6 +3,7 @@
 import type { DataConfidence } from '../data/dataConfidenceRouter.js';
 import type { EngineMode as RuntimeEngineMode, EngineRuntimePolicy } from '../runtime/engineRuntimePolicy.js';
 import type { ShadowCaseLedgerStore } from './shadowCaseLedger.js';
+import { normalizeRegimeContext } from './regimeContext.js';
 import type {
   ConfidenceLevel,
   DataHealth,
@@ -25,6 +26,17 @@ export interface BuildShadowCaseForRuntimeInput {
   symbolName?: string;
   timestamp?: string;
   marketSession: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimeAtSignal?: string;
+  regimeAtEntry?: string;
+  regimeAtExit?: string;
+  regimeAtOutcome?: string;
+  r6Trigger?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'UNKNOWN';
   blockedReason?: string;
   dataProvider?: string;
   dataHealth?: DataConfidence;
@@ -40,6 +52,9 @@ export interface BuildShadowCaseForRuntimeInput {
   horizon3d?: ShadowOutcomeHorizonInput;
   horizon5d?: ShadowOutcomeHorizonInput;
   horizon10d?: ShadowOutcomeHorizonInput;
+  conditionTags?: string[];
+  sectorTag?: string;
+  timeWindowTag?: string;
 }
 
 function toShadowEngineMode(mode: RuntimeEngineMode): ShadowEngineMode {
@@ -66,6 +81,23 @@ function toConfidenceLevel(confidence?: DataConfidence): ConfidenceLevel {
 
 export function buildShadowCaseForRuntime(input: BuildShadowCaseForRuntimeInput): ShadowCase {
   const now = input.timestamp ?? new Date().toISOString();
+  const engineMode = toShadowEngineMode(input.runtimePolicy.engineMode);
+  const regimeContext = normalizeRegimeContext({
+    rawRegime: input.rawRegime,
+    effectiveRegime: input.effectiveRegime,
+    regimeAtSignal: input.regimeAtSignal,
+    regimeAtEntry: input.regimeAtEntry,
+    regimeAtExit: input.regimeAtExit,
+    regimeAtOutcome: input.regimeAtOutcome,
+    r6Trigger: input.r6Trigger,
+    engineMode,
+    marketSession: input.marketSession,
+    sellOnlyActive: input.sellOnlyActive,
+    hardBlockActive: input.hardBlockActive,
+    blockedReason: input.blockedReason ?? input.runtimePolicy.reasonCodes[0],
+    sourceFreshness: input.sourceFreshness,
+    regimeConfidence: input.regimeConfidence,
+  });
   return {
     caseId: input.caseId,
     signalId: input.signalId ?? input.caseId,
@@ -73,15 +105,27 @@ export function buildShadowCaseForRuntime(input: BuildShadowCaseForRuntimeInput)
     symbolName: input.symbolName ?? input.symbol,
     detectedAt: now,
     marketSession: input.marketSession,
-    engineMode: toShadowEngineMode(input.runtimePolicy.engineMode),
+    engineMode,
+    rawRegime: regimeContext.rawRegime,
+    effectiveRegime: regimeContext.effectiveRegime,
+    regimePhase: regimeContext.regimePhase,
+    regimeAtSignal: regimeContext.regimeAtSignal,
+    regimeAtEntry: regimeContext.regimeAtEntry,
+    regimeAtExit: regimeContext.regimeAtExit,
+    regimeAtOutcome: regimeContext.regimeAtOutcome,
+    r6Trigger: regimeContext.r6Trigger,
+    sellOnlyActive: regimeContext.sellOnlyActive,
+    hardBlockActive: regimeContext.hardBlockActive,
+    sourceFreshness: regimeContext.sourceFreshness,
+    regimeConfidence: regimeContext.regimeConfidence,
     blockedReason: input.blockedReason ?? input.runtimePolicy.reasonCodes[0],
     dataProvider: input.dataProvider,
     dataHealth: toDataHealth(input.dataHealth),
     providerHealth: 'OK',
     confidenceLevel: toConfidenceLevel(input.dataHealth),
     expectedDecision: input.expectedDecision,
-    actualDecision: input.actualDecision ?? (input.runtimePolicy.liveBuyAllowed ? 'LIVE_BUY_ALLOWED' : 'LIVE_BUY_BLOCKED'),
-    shadowDecision: input.shadowDecision ?? (input.runtimePolicy.shadowAllowed ? 'SHADOW_TRACK' : undefined),
+    actualDecision: input.actualDecision ?? (input.runtimePolicy.liveEntryAllowed ? 'LIVE_BUY_ALLOWED' : 'LIVE_BUY_BLOCKED'),
+    shadowDecision: input.shadowDecision ?? (input.runtimePolicy.shadowBuyAllowed && input.runtimePolicy.shadowSellAllowed ? 'SHADOW_BUY_SELL_ALLOWED' : 'SHADOW_TRACK'),
     postOutcome: input.postOutcome,
     executionImpact: 'NONE',
     entryPriceVirtual: input.entryPriceVirtual,
@@ -101,10 +145,13 @@ export function buildShadowCaseForRuntime(input: BuildShadowCaseForRuntimeInput)
     virtualCheckedAt10d: input.horizon10d?.checkedAt,
     outcomeLabel: 'ACTIVE',
     learningTag: input.learningTag,
+    conditionTags: input.conditionTags,
+    sectorTag: input.sectorTag,
+    timeWindowTag: input.timeWindowTag,
     sourceConfidence: input.dataHealth === 'VERIFIED' ? 'VERIFIED' : 'FALLBACK',
     createdAt: now,
     updatedAt: now,
-    state: input.runtimePolicy.liveBuyAllowed ? 'DECISION_MADE' : 'LIVE_BLOCKED_SHADOW_ALLOWED',
+    state: input.runtimePolicy.liveEntryAllowed ? 'DECISION_MADE' : 'LIVE_BLOCKED_SHADOW_ALLOWED',
     liveOrderCreated: false,
     brokerOrderCreated: false,
     brokerOrdersCreated: 0,

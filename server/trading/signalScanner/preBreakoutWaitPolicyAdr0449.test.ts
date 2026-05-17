@@ -153,7 +153,7 @@ describe('ADR-0449 — Group D — 결정 트리 우선순위 (사용자 §"결�
     expect(d.reason).toBe('RISK_RULE_BLOCKED');
     expect(d.retryAllowed).toBe(false);
     expect(d.kisWsPriorityAdjustment).toBe('UNSUBSCRIBE_IF_LOW_PRIORITY');
-    expect(d.shadowLearningAllowed).toBe(false);
+    expect(d.shadowLearningAllowed).toBe(true);
     expect(d.counterfactualLearningAllowed).toBe(true);
     expect(d.increaseWaitCount).toBe(false);
   });
@@ -379,7 +379,7 @@ describe('ADR-0449 — Group G — increaseWaitCount / increaseRecheckFailCount 
 describe('ADR-0449 — Group H — shadowLearningAllowed / counterfactualLearningAllowed', () => {
   it('REJECTED → shadowLearning=false / counterfactual=true (학습 가능)', () => {
     const d = evaluatePreBreakoutWait(baseInput({ riskBlocked: true }));
-    expect(d.shadowLearningAllowed).toBe(false);
+    expect(d.shadowLearningAllowed).toBe(true);
     expect(d.counterfactualLearningAllowed).toBe(true);
   });
 

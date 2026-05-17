@@ -3,6 +3,7 @@ import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../runtime/engineRuntimePolicy.js';
 
 function fmt(value: number | undefined): string { return value === undefined ? 'N/A' : value.toFixed(2); }
 
@@ -15,6 +16,12 @@ const r6Forensic: TelegramCommand = {
     const state = diagnostics.transitionState;
     const b = diagnostics.r6TriggerBreakdown;
     const latchAgeMinutes = state.latchTriggeredAt ? Math.max(0, Math.floor((Date.now() - Date.parse(state.latchTriggeredAt)) / 60_000)) : 'N/A';
+    const runtimePolicy = resolveEngineRuntimePolicy({
+      engineMode: 'NORMAL',
+      macroRegime: diagnostics.effectiveRegime,
+      liveBuyGateAllowed: diagnostics.effectiveRegime !== 'R6_DEFENSE',
+      reasonCodes: diagnostics.effectiveRegime === 'R6_DEFENSE' ? ['R6_DEFENSE'] : [],
+    });
     await reply([
       '🧯 <b>[R6 Forensic]</b>', '━━━━━━━━━━━━━━━━',
       `r6Active=${diagnostics.effectiveRegime === 'R6_DEFENSE'}`,
@@ -32,8 +39,7 @@ const r6Forensic: TelegramCommand = {
       `nextRecoveryCheckAt=${state.cooldownUntil ?? 'next fresh macro refresh'}`,
       `cooldownUntil=${state.cooldownUntil ?? 'N/A'}`,
       `confirmations=${state.recoveryConfirmations}/${state.r6RecoveryEvidence.requiredConfirmations}`,
-      `liveEntryAllowed=${diagnostics.effectiveRegime !== 'R6_DEFENSE'}`,
-      'shadowLearningAllowed=true', 'executionImpact=NONE',
+      formatEngineRuntimePolicy(runtimePolicy),
     ].join('\\n'));
   },
 };

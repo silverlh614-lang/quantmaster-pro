@@ -76,8 +76,16 @@ describe('ADR-0425 Gate Decision Router', () => {
     });
     expect(result.severity).toBe('HARD_BLOCK');
     expect(result.liveAllowed).toBe(false);
-    expect(result.shadowAllowed).toBe(false);
-    expect(result.watchAllowed).toBe(false);
+    expect(result.shadowAllowed).toBe(true);
+    expect(result.watchAllowed).toBe(true);
+    expect(result.lanes).toEqual(expect.objectContaining({
+      live: false,
+      paper: false,
+      shadow: true,
+      watch: true,
+      learning: true,
+      counterfactual: true,
+    }));
     expect(result.reasons).toContain('EMERGENCY_STOP');
     expect(result.label).toBe('BLOCK_RISK');
   });
@@ -204,7 +212,7 @@ describe('ADR-0425 Gate Decision Router', () => {
   // ────────────────────────────────────────────────────────
   // §H Test 6: 진짜 기술 미달 우세 → TRUE_WEAKNESS
   // ────────────────────────────────────────────────────────
-  it('§H#6: 진짜 기술 미달 우세 → TRUE_WEAKNESS + Shadow 차단', () => {
+  it('§H#6: 진짜 기술 미달 우세 → TRUE_WEAKNESS + Shadow always-on', () => {
     const result = deriveGateDecisionRouterResult({
       gate1Pass: 10,
       gate2Pass: 0,
@@ -241,8 +249,10 @@ describe('ADR-0425 Gate Decision Router', () => {
     });
     expect(result.severity).toBe('TRUE_WEAKNESS');
     expect(result.liveAllowed).toBe(false);
-    expect(result.shadowAllowed).toBe(false);
+    expect(result.shadowAllowed).toBe(true);
     expect(result.watchAllowed).toBe(true);
+    expect(result.counterfactualLearningAllowed).toBe(true);
+    expect(result.learningShadowAllowed).toBe(true);
     expect(result.reasons).toContain('TRUE_NO_LEADERSHIP');
     expect(result.label).toBe('BLOCK_TRUE_WEAKNESS');
   });

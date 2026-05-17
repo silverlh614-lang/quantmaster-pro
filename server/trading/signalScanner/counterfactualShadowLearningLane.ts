@@ -26,6 +26,7 @@
 import type { GateDecisionRouterResult } from './gateDecisionRouter.js';
 import type { SectorEnergyQualityDiagnostic } from '../../clients/sectorEnergyQualityDiagnostic.js';
 import type { ConditionBlockerBucket } from './freshScanBlockerAttribution.js';
+import { normalizeRegimeContext, type RegimeConfidence, type RegimePhase } from '../../shadow/regimeContext.js';
 
 /**
  * 5-value label union (사용자 §B 정합, 절대 변경 금지).
@@ -78,6 +79,20 @@ export interface CounterfactualShadowLearningCandidate {
   executionShadowAllowed: false;
   virtualAccountImpact: 'NONE';
   regime?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimePhase?: RegimePhase;
+  regimeAtSignal?: RegimePhase | string;
+  regimeAtEntry?: RegimePhase | string;
+  regimeAtExit?: RegimePhase | string;
+  regimeAtOutcome?: RegimePhase | string;
+  r6Trigger?: string;
+  engineMode?: string;
+  marketSession?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: RegimeConfidence;
   scanId?: string;
   createdAtKst: string;
   gate1Passed?: boolean;
@@ -98,6 +113,19 @@ export interface DeriveCounterfactualShadowLearningInput {
   symbol: string;
   name?: string;
   regime?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimeAtSignal?: string;
+  regimeAtEntry?: string;
+  regimeAtExit?: string;
+  regimeAtOutcome?: string;
+  r6Trigger?: string;
+  engineMode?: string;
+  marketSession?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: RegimeConfidence;
   gate1Passed?: boolean;
   gate2Passed?: boolean;
   router?: GateDecisionRouterResult;
@@ -347,6 +375,32 @@ export function deriveCounterfactualShadowLearningCandidate(
         }
       : {};
 
+  const hardBlockActive =
+    emergencyHit ||
+    r6Hit ||
+    vixHit ||
+    fomcHit ||
+    liquidityHit ||
+    rrrHit ||
+    sizingHit ||
+    routerHardBlock;
+  const regimeContext = normalizeRegimeContext({
+    rawRegime: input.rawRegime ?? input.regime,
+    effectiveRegime: input.effectiveRegime ?? input.regime,
+    regimeAtSignal: input.regimeAtSignal,
+    regimeAtEntry: input.regimeAtEntry,
+    regimeAtExit: input.regimeAtExit,
+    regimeAtOutcome: input.regimeAtOutcome,
+    r6Trigger: input.r6Trigger,
+    engineMode: input.engineMode,
+    marketSession: input.marketSession,
+    sellOnlyActive: input.sellOnlyActive ?? sellOnlyHit,
+    hardBlockActive: input.hardBlockActive ?? hardBlockActive,
+    blockedReason: blockedBy[0],
+    sourceFreshness: input.sourceFreshness,
+    regimeConfidence: input.regimeConfidence,
+  });
+
   const candidate: CounterfactualShadowLearningCandidate = {
     symbol: input.symbol,
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -363,6 +417,20 @@ export function deriveCounterfactualShadowLearningCandidate(
     executionShadowAllowed: false,
     virtualAccountImpact: 'NONE',
     ...(input.regime !== undefined ? { regime: input.regime } : {}),
+    rawRegime: regimeContext.rawRegime,
+    effectiveRegime: regimeContext.effectiveRegime,
+    regimePhase: regimeContext.regimePhase,
+    regimeAtSignal: regimeContext.regimeAtSignal,
+    regimeAtEntry: regimeContext.regimeAtEntry,
+    regimeAtExit: regimeContext.regimeAtExit,
+    regimeAtOutcome: regimeContext.regimeAtOutcome,
+    ...(regimeContext.r6Trigger !== undefined ? { r6Trigger: regimeContext.r6Trigger } : {}),
+    ...(input.engineMode !== undefined ? { engineMode: input.engineMode } : {}),
+    ...(input.marketSession !== undefined ? { marketSession: input.marketSession } : {}),
+    sellOnlyActive: regimeContext.sellOnlyActive,
+    hardBlockActive: regimeContext.hardBlockActive,
+    sourceFreshness: regimeContext.sourceFreshness,
+    regimeConfidence: regimeContext.regimeConfidence,
     ...(input.scanId !== undefined ? { scanId: input.scanId } : {}),
     createdAtKst: input.nowKst ?? new Date().toISOString(),
     gate1Passed: input.gate1Passed === true,

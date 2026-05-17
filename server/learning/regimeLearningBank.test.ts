@@ -1,0 +1,181 @@
+import { describe, expect, it } from 'vitest';
+import {
+  collectRegimeLearningBank,
+  formatRegimeLearningDetail,
+  formatRegimeLearningSummary,
+} from './regimeLearningBank.js';
+import type { ShadowCase } from '../shadow/shadowTypes.js';
+import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
+
+function shadow(id: string, patch: Partial<ShadowCase>): ShadowCase {
+  const now = '2026-05-17T00:00:00.000Z';
+  return {
+    caseId: id,
+    signalId: id,
+    symbol: id,
+    symbolName: id,
+    detectedAt: now,
+    marketSession: 'OPEN',
+    engineMode: 'NORMAL',
+    dataHealth: 'OK',
+    providerHealth: 'OK',
+    confidenceLevel: 'VERIFIED',
+    executionImpact: 'NONE',
+    sourceConfidence: 'CALCULATED',
+    createdAt: now,
+    updatedAt: now,
+    ...patch,
+  };
+}
+
+function cf(symbol: string, patch: Partial<CounterfactualShadowLearningLedgerEntry>): CounterfactualShadowLearningLedgerEntry {
+  return {
+    symbol,
+    eventType: 'COUNTERFACTUAL_SHADOW_LEARNING_ENTRY',
+    source: 'ADR-0430',
+    learningOnly: true,
+    provisional: false,
+    executionShadow: false,
+    label: 'R3_COUNTERFACTUAL_UNDER_HARD_BLOCK',
+    reasons: ['LEARNING_ONLY'],
+    blockedBy: ['HARD_BLOCK'],
+    liveAllowed: false,
+    paperAllowed: false,
+    executionShadowAllowed: false,
+    virtualAccountImpact: 'NONE',
+    createdAtKst: '2026-05-17T09:00:00+09:00',
+    ...patch,
+  };
+}
+
+describe('Regime Learning Bank', () => {
+  it('separates R1/R6 Shadow cases into regime-specific stats', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      shadowCases: [
+        shadow('r1-win', {
+          rawRegime: 'R1_TURBO',
+          effectiveRegime: 'R1_TURBO',
+          outcomeLabel: 'WIN',
+          returnR: 1.2,
+          cohortType: 'FRESH_SHADOW',
+          conditionTags: ['RS+FLOW'],
+          sectorTag: '반도체',
+        }),
+        shadow('r6-loss', {
+          rawRegime: 'R6_DEFENSE',
+          effectiveRegime: 'R6_DEFENSE',
+          outcomeLabel: 'LOSS',
+          returnR: -0.2,
+          cohortType: 'FRESH_SHADOW',
+          conditionTags: ['LOW_BETA_SURVIVOR'],
+          sectorTag: '자동차',
+        }),
+      ],
+      counterfactualEntries: [],
+    });
+
+    const r1 = bank.stats.find((s) => s.regimePhase === 'R1_RECOVERY');
+    const r6 = bank.stats.find((s) => s.regimePhase === 'R6_DEFENSE');
+    expect(r1?.sampleSize).toBe(1);
+    expect(r1?.expectancyR).toBe(1.2);
+    expect(r1?.qualityStatus).toBe('LOW_SAMPLE');
+    expect(r1?.reversalPattern).toContain('회복장');
+    expect(r6?.sampleSize).toBe(1);
+    expect(r6?.expectancyR).toBe(-0.2);
+    expect(r6?.survivorPattern).toContain('충격장');
+    expect(bank.activeRegime).toBe('R6_DEFENSE');
+    expect(bank.promotionAllowed).toBe(false);
+    expect(bank.recommendationOnly).toBe(true);
+    expect(bank.brokerOrdersCreated).toBe(0);
+  });
+
+  it('counts SELL_ONLY Shadow samples and HARD_BLOCK counterfactual samples without promotion', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R2_BULL',
+      effectiveRegime: 'R2_BULL',
+      shadowCases: [
+        shadow('sell-only-fresh', {
+          engineMode: 'SELL_ONLY',
+          outcomeLabel: 'BREAKEVEN',
+          cohortType: 'FRESH_SHADOW',
+          returnR: 0,
+        }),
+      ],
+      counterfactualEntries: [
+        cf('cf-hard', {
+          rawRegime: 'R2_BULL',
+          effectiveRegime: 'R2_BULL',
+          hardBlockActive: true,
+          blockedBy: ['HARD_BLOCK'],
+        }),
+      ],
+    });
+
+    expect(bank.stats.find((s) => s.regimePhase === 'SELL_ONLY')?.freshShadowCount).toBe(1);
+    expect(bank.stats.find((s) => s.regimePhase === 'HARD_BLOCK')?.counterfactualCount).toBe(1);
+    expect(bank.stats.every((s) => s.promotionAllowed === false && s.diagnosticOnly === true)).toBe(true);
+  });
+
+  it('marks regime condition attribution as LOW_SAMPLE below 30 samples', () => {
+    const rows = Array.from({ length: 3 }, (_, i) => shadow(`r3-${i}`, {
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      outcomeLabel: i === 0 ? 'LOSS' : 'WIN',
+      returnR: i === 0 ? -0.5 : 0.4,
+      conditionTags: ['VCP_BREAKOUT'],
+    }));
+
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      shadowCases: rows,
+      counterfactualEntries: [],
+    });
+    const r3 = bank.stats.find((s) => s.regimePhase === 'R3_EXPANSION');
+
+    expect(r3?.topPositiveConditions[0]?.conditionId).toBe('VCP_BREAKOUT');
+    expect(r3?.topPositiveConditions[0]?.confidence).toBe('LOW_SAMPLE');
+    expect(r3?.topPositiveConditions[0]?.recommendation).toBe('LOW_SAMPLE_NO_WEIGHT_UPDATE');
+    expect(r3?.breakoutPattern).toContain('확장장');
+  });
+
+  it('formats summary and detail with recommendation-only safety markers', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      shadowCases: [shadow('r6-win', { effectiveRegime: 'R6_DEFENSE', outcomeLabel: 'WIN', returnR: 0.3 })],
+      counterfactualEntries: [cf('cf-r6', { effectiveRegime: 'R6_DEFENSE', rawRegime: 'R6_DEFENSE', blockedBy: ['R6_DEFENSE'] })],
+    });
+
+    const summary = formatRegimeLearningSummary(bank);
+    const detail = formatRegimeLearningDetail('R6_DEFENSE', bank);
+    expect(summary).toContain('Regime Learning Bank');
+    expect(summary).toContain('R6_DEFENSE');
+    expect(summary).toContain('promotionAllowed=false');
+    expect(summary).toContain('liveEntryAllowed=');
+    expect(summary).toContain('brokerOrdersCreated=0');
+    expect(detail).toContain('Regime Learning Detail: R6_DEFENSE');
+    expect(detail).toContain('recommendationOnly=true');
+    expect(detail).toContain('survivorPattern=');
+  });
+
+  it('details R3_EXPANSION with only R3 samples', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      shadowCases: [
+        shadow('r3-win', { effectiveRegime: 'R3_EARLY', outcomeLabel: 'WIN', returnR: 0.7, conditionTags: ['VCP_BREAKOUT'] }),
+        shadow('r6-win', { effectiveRegime: 'R6_DEFENSE', outcomeLabel: 'WIN', returnR: 2.1, conditionTags: ['LOW_BETA_SURVIVOR'] }),
+      ],
+      counterfactualEntries: [],
+    });
+
+    const detail = formatRegimeLearningDetail('R3_EXPANSION', bank);
+    expect(detail).toContain('Regime Learning Detail: R3_EXPANSION');
+    expect(detail).toContain('sampleSize=1');
+    expect(detail).toContain('VCP_BREAKOUT');
+    expect(detail).not.toContain('LOW_BETA_SURVIVOR');
+  });
+});

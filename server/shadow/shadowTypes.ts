@@ -15,4 +15,6 @@ export type {
   ReturnFlowCheck,
   PromotionReport,
   PromotionStatus,
+  RegimeConfidence,
+  RegimePhase,
 } from './types/index.js';

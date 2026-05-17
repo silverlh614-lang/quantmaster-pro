@@ -29,7 +29,12 @@ describe("/scan_blockers R6 forensic macro gate fields", () => {
         r6ShockLatch: true,
         recoveryBlockedReason: "ACTIVE_R6_TRIGGER_PRESENT",
         liveEntryAllowed: false,
+        liveExitAllowed: true,
+        shadowBuyAllowed: true,
+        shadowSellAllowed: true,
         shadowLearningAllowed: true,
+        counterfactualAllowed: true,
+        brokerOrderAllowed: false,
       },
     } as any);
 
@@ -37,6 +42,11 @@ describe("/scan_blockers R6 forensic macro gate fields", () => {
     expect(text).toContain("activeR6Triggers: [KOSPI_INTRADAY_LOW_SHOCK]");
     expect(text).toContain("r6ShockLatch: true");
     expect(text).toContain("liveEntryAllowed: false");
+    expect(text).toContain("liveExitAllowed: true");
+    expect(text).toContain("shadowBuyAllowed: true");
+    expect(text).toContain("shadowSellAllowed: true");
     expect(text).toContain("shadowLearningAllowed: true");
+    expect(text).toContain("counterfactualAllowed: true");
+    expect(text).toContain("brokerOrderAllowed: false");
   });
 });

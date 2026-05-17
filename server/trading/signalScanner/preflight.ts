@@ -374,7 +374,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         r6ShockLatch: regimeDiagnostics.r6ShockLatch,
         recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
         liveEntryAllowed: !macroDiagnosticOnly,
+        liveExitAllowed: true,
+        shadowBuyAllowed: true,
+        shadowSellAllowed: true,
         shadowLearningAllowed: true,
+        counterfactualAllowed: true,
+        diagnosticAllowed: true,
+        brokerOrderAllowed: !macroDiagnosticOnly,
         ...extra,
       },
     });
@@ -745,7 +751,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     r6ShockLatch: regimeDiagnostics.r6ShockLatch,
     recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
     liveEntryAllowed: !diagnosticOnlyLiveBlock,
+    liveExitAllowed: true,
+    shadowBuyAllowed: true,
+    shadowSellAllowed: true,
     shadowLearningAllowed: true,
+    counterfactualAllowed: true,
+    diagnosticAllowed: true,
+    brokerOrderAllowed: !diagnosticOnlyLiveBlock,
   });
 
   if (!volumeClock.allowEntry) {

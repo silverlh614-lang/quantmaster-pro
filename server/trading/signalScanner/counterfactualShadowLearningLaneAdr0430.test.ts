@@ -507,9 +507,10 @@ describe('ADR-0430 — Router learning lane 표시', () => {
       lastTriggerPass: 5,
     });
     expect(result.severity).toBe('FULL_ENTRY_CANDIDATE');
-    expect(result.counterfactualLearningAllowed).toBe(false);
+    expect(result.counterfactualLearningAllowed).toBe(true);
     const text = formatGateDecisionRouterSection(result);
-    expect(text).toContain('learning=❌');
+    expect(text).toContain('learning=✅');
+    expect(text).toContain('counterfactual=✅');
   });
 });
 

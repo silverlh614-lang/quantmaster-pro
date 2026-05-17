@@ -226,15 +226,15 @@ export function deriveGateDecisionRouterResult(
       reasons,
       liveAllowed: false,
       paperAllowed: false,
-      shadowAllowed: false,
-      watchAllowed: false,
+      shadowAllowed: true,
+      watchAllowed: true,
       counterfactualLearningAllowed: learningAllowed,
       learningShadowAllowed: learningAllowed,
       label: 'BLOCK_RISK',
-      lanes: { live: false, paper: false, shadow: false, watch: false, learning: learningAllowed, counterfactual: learningAllowed },
+      lanes: { live: false, paper: false, shadow: true, watch: true, learning: learningAllowed, counterfactual: learningAllowed },
       executionImpact: 'NONE',
       operatorMessage:
-        'Risk hard block: live, paper, shadow, and watch lanes are blocked. Counterfactual learning remains available.',
+        'Risk hard block: live execution is blocked, while Shadow buy/sell, Watch diagnostics, and counterfactual learning stay always-on.',
     };
   }
 
@@ -428,11 +428,11 @@ export function deriveGateDecisionRouterResult(
       reasons,
       liveAllowed: false,
       paperAllowed: false,
-      shadowAllowed: false,
+      shadowAllowed: true,
       watchAllowed: true,
       // ADR-0430 — TRUE_WEAKNESS 도 학습 표본 오염이라 counterfactual 도 차단 (사용자 §C #5 정합).
-      counterfactualLearningAllowed: false,
-      learningShadowAllowed: false,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'BLOCK_TRUE_WEAKNESS',
       operatorMessage:
         '진짜 기술 약세 — trend/vcp/breakout 등 임계 미달 우세. ' +
@@ -460,8 +460,8 @@ export function deriveGateDecisionRouterResult(
       shadowAllowed: true,
       watchAllowed: true,
       // ADR-0430 — Full pass 는 정상 shadow/provisional 경로 사용 (counterfactual 불필요, 사용자 §E).
-      counterfactualLearningAllowed: false,
-      learningShadowAllowed: false,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'FULL_CANDIDATE',
       operatorMessage:
         'Full pass — Gate 1+2+3+lastTrigger 모두 통과. ' +
@@ -481,8 +481,8 @@ export function deriveGateDecisionRouterResult(
       shadowAllowed: true,
       watchAllowed: true,
       // ADR-0430 — REDUCED 는 정상 shadow path 가용, counterfactual 불필요 (사용자 §E).
-      counterfactualLearningAllowed: false,
-      learningShadowAllowed: false,
+      counterfactualLearningAllowed: true,
+      learningShadowAllowed: true,
       label: 'REDUCED_CANDIDATE',
       operatorMessage:
         '부분 pass — Gate1 통과했으나 Gate2/3/lastTrigger 미완. Shadow/Watch 보존.',
@@ -498,11 +498,11 @@ export function deriveGateDecisionRouterResult(
     reasons,
     liveAllowed: false,
     paperAllowed: false,
-    shadowAllowed: false,
+    shadowAllowed: true,
     watchAllowed: true,
     // ADR-0430 — UNKNOWN 은 분류 데이터 부족 → counterfactual 표본 가치 낮음.
-    counterfactualLearningAllowed: false,
-    learningShadowAllowed: false,
+    counterfactualLearningAllowed: true,
+    learningShadowAllowed: true,
     label: 'UNKNOWN',
     operatorMessage: '분류 데이터 부족 — 다음 스캔 후 재검토.',
   };

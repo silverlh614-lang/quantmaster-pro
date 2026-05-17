@@ -1,5 +1,6 @@
 // @responsibility Shadow type barrel. Runtime EngineMode/ExecutionImpact are re-exported from runtime SSOT.
 export type { EngineMode, ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
+export type { RegimeConfidence, RegimePhase } from '../regimeContext.js';
 export type { ShadowLifecycleState, ShadowStateTransition } from './lifecycle.js';
 export type { DataHealth, ProviderHealth, ConfidenceLevel, SourceConfidence, ShadowCase } from './shadowCase.js';
 export type { OutcomeLabel } from './outcome.js';

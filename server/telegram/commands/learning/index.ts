@@ -10,6 +10,7 @@ import './kellySurface.cmd.js';
 import './learningPulse.cmd.js';
 import './learningRepair.cmd.js';
 import './ledger.cmd.js';
+import './regimeLearning.cmd.js';
 import './regimeCoverage.cmd.js';
 import './resetCircuits.cmd.js';
 import './risk.cmd.js';
