@@ -244,107 +244,136 @@ function clearKisTokenDedupe(): void {
   }
 }
 
+type NoisePolicyHandler = (event: AlertNoiseEvent, ts: number) => NoiseDecision;
+
+function handleWatchlistCandidateRejectedCapacity(event: AlertNoiseEvent, ts: number): NoiseDecision {
+  const strong = event.candidateStrength === 'STRONG_BUY' || event.candidateStrength === 'BUY';
+  const key = `WATCHLIST_CAPACITY_REJECT:${event.symbol ?? 'UNKNOWN'}:${event.session ?? 'ANY'}`;
+  if (strong && event.candidateRejectedDueToCapacity) {
+    if (isDedupeActive(key, ts)) return silent(event, 'WATCHLIST_CAPACITY_REJECT_DEDUPED', key, SIX_HOURS);
+    return notice(event, 'WATCHLIST_CAPACITY_REJECTED_STRONG_CANDIDATE', key, SIX_HOURS);
+  }
+  return digest(event, 'WATCHLIST_CAPACITY_REJECTED_DIGEST_ONLY', key, SIX_HOURS);
+}
+
+function handleWatchlistSaturation(event: AlertNoiseEvent, ts: number): NoiseDecision {
+  const key = `WATCHLIST_SATURATION:${event.dedupeHint ?? event.session ?? 'GLOBAL'}`;
+  if (isDedupeActive(key, ts)) return silent(event, 'WATCHLIST_SATURATION_DEDUPED', key, SIX_HOURS);
+  return digest(event, 'WATCHLIST_CAPACITY_DIGEST_ONLY', key, SIX_HOURS);
+}
+
+function handleKisTokenRefreshSuccess(event: AlertNoiseEvent): NoiseDecision {
+  clearKisTokenDedupe();
+  return silent(event, 'KIS_TOKEN_REFRESH_SUCCESS_SILENT', kisTokenKey('REFRESH_SUCCESS', event), ONE_HOUR);
+}
+
+function handleKisTokenExpiry(event: AlertNoiseEvent): NoiseDecision {
+  const key = kisTokenKey('EXPIRY', event);
+  if ((event.tokenExpiresInSeconds ?? Number.POSITIVE_INFINITY) <= 30 * 60 && event.refreshFailed) {
+    return critical(event, 'KIS_TOKEN_30M_REFRESH_FAILED_CRITICAL', key);
+  }
+  if ((event.tokenExpiresInSeconds ?? Number.POSITIVE_INFINITY) <= 12 * 60 * 60) {
+    return silent(event, 'KIS_TOKEN_12H_EXPIRY_SILENT', key, ONE_HOUR);
+  }
+  return silent(event, 'KIS_TOKEN_EXPIRY_NO_ACTION', key, ONE_HOUR);
+}
+
+function handleKisTokenRefreshFailed(event: AlertNoiseEvent): NoiseDecision {
+  const key = kisTokenKey('REFRESH_FAILED', event);
+  if ((event.tokenExpiresInSeconds ?? Number.POSITIVE_INFINITY) <= 30 * 60) {
+    return critical(event, 'KIS_TOKEN_30M_REFRESH_FAILED_CRITICAL', key);
+  }
+  const failures = failureCount(event);
+  if (failures <= 1) return digest(event, 'KIS_TOKEN_REFRESH_FAILED_DIGEST', key, ONE_HOUR);
+  return warning(event, 'KIS_TOKEN_REFRESH_FAILED_STREAK_WARNING', key, ONE_HOUR);
+}
+
+function handleProviderFailure(event: AlertNoiseEvent): NoiseDecision {
+  const provider = event.provider ?? 'UNKNOWN';
+  const key = `PROVIDER_FAILURE:${provider}:${event.providerTier ?? 'NA'}`;
+  const failures = failureCount(event);
+  if (providerExecutionRelevant(event)) return warning(event, 'PROVIDER_EXECUTION_DATA_IMPACT_WARNING', key, ONE_HOUR);
+  if (failures >= 3) return digest(event, 'PROVIDER_FAILURE_STREAK_DIGEST', key, ONE_HOUR);
+  return silent(event, 'PROVIDER_SINGLE_OR_DIAGNOSTIC_FAILURE_SILENT', key, DEFAULT_TTL);
+}
+
+function handleEngineState(event: AlertNoiseEvent): NoiseDecision {
+  const state = event.state ?? 'UNKNOWN';
+  const key = `ENGINE_STATE:${event.dedupeHint ?? 'GLOBAL'}`;
+  const previous = event.previousState ?? lastStateByKey.get(key);
+  lastStateByKey.set(key, state);
+  if ((state === 'SELL_ONLY' || state === 'HARD_BLOCK' || previous === 'SELL_ONLY' || previous === 'HARD_BLOCK') && previous !== state) {
+    return notice(event, 'ENGINE_STATE_TRANSITION_NOTICE', `${key}:${previous ?? 'UNKNOWN'}->${state}`, TRADING_DAY);
+  }
+  return silent(event, 'ENGINE_STATE_MAINTAINED_SUPPRESSED', `${key}:${state}`, TRADING_DAY);
+}
+
+function handleShadowSignal(event: AlertNoiseEvent, ts: number): NoiseDecision {
+  const key = `SHADOW_SIGNAL:${event.symbol ?? 'UNKNOWN'}:${event.strategy ?? 'UNKNOWN'}:${event.session ?? 'ANY'}`;
+  if (isDedupeActive(key, ts)) return silent(event, 'SHADOW_SIGNAL_DEDUPED_EXECUTION_IMPACT_NONE', key, SIX_HOURS);
+  return digest(event, 'SHADOW_SIGNAL_DIGEST_EXECUTION_IMPACT_NONE', key, SIX_HOURS);
+}
+
+function handleSilentOkEvent(event: AlertNoiseEvent): NoiseDecision {
+  return silent(event, `${event.eventType}_SILENT`, `${event.eventType}:${event.dedupeHint ?? event.channel ?? 'GLOBAL'}`, DEFAULT_TTL);
+}
+
+function handleFailureUntilStreak(event: AlertNoiseEvent): NoiseDecision {
+  return failureCount(event) >= 3
+    ? warning(event, `${event.eventType}_STREAK_WARNING`, `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, ONE_HOUR)
+    : digest(event, `${event.eventType}_DIGEST_UNTIL_STREAK`, `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, ONE_HOUR);
+}
+
+function handleTelegramHtmlRetry(event: AlertNoiseEvent): NoiseDecision {
+  const key = `TELEGRAM_TEMPLATE:${event.templateId ?? 'UNKNOWN'}`;
+  if (event.plainRetrySuccess) return silent(event, 'TELEGRAM_HTML_PARSE_RETRY_SUCCESS_SILENT', key, DEFAULT_TTL);
+  if ((event.templateFailureCount ?? 0) >= 2) return digest(event, 'TELEGRAM_TEMPLATE_REPEAT_FAILURE_DIGEST', key, ONE_HOUR);
+  return warning(event, 'TELEGRAM_PLAIN_RETRY_FAILED_WARNING', key, DEFAULT_TTL);
+}
+
+function handleDefaultNoiseEvent(event: AlertNoiseEvent): NoiseDecision {
+  if (event.executionImpact && event.executionImpact !== 'NONE') {
+    return warning(event, 'EXECUTION_IMPACT_EVENT_WARNING', `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, DEFAULT_TTL);
+  }
+  if (String(event.status ?? '').toUpperCase() === 'OK' || String(event.status ?? '').toUpperCase() === 'SUCCESS') {
+    return silent(event, 'SUCCESS_OR_OK_EVENT_SILENT', `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, DEFAULT_TTL);
+  }
+  return notice(event, 'UNCLASSIFIED_EVENT_NOTICE', `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, DEFAULT_TTL);
+}
+
+const ALERT_NOISE_HANDLERS: Record<string, NoisePolicyHandler> = {
+  WATCHLIST_CANDIDATE_REJECTED_CAPACITY: handleWatchlistCandidateRejectedCapacity,
+  WATCHLIST_SATURATION: handleWatchlistSaturation,
+  KIS_TOKEN_REFRESH_SUCCESS: handleKisTokenRefreshSuccess,
+  KIS_TOKEN_EXPIRY: handleKisTokenExpiry,
+  KIS_TOKEN_REFRESH_FAILED: handleKisTokenRefreshFailed,
+  KIS_TOKEN_EXPIRED_IMPACTED: (event) =>
+    critical(event, 'KIS_TOKEN_EXPIRED_EXECUTION_OR_QUERY_IMPACTED', kisTokenKey('EXPIRED_IMPACTED', event)),
+  PROVIDER_RECOVERY: (event) =>
+    notice(event, 'PROVIDER_RECOVERED_NOTICE_ONCE', `PROVIDER_RECOVERY:${event.provider ?? 'UNKNOWN'}`, ONE_HOUR),
+  PROVIDER_FAILURE: handleProviderFailure,
+  ENGINE_STATE: handleEngineState,
+  SHADOW_SIGNAL: handleShadowSignal,
+  SHADOW_EXECUTION_COMPLETED: (event) =>
+    digest(event, 'SHADOW_COMPLETION_JOURNAL_DIGEST_EXECUTION_IMPACT_NONE', `SHADOW_COMPLETION:${event.symbol ?? 'UNKNOWN'}:${event.session ?? 'ANY'}`, DEFAULT_TTL),
+  HEALTH_OK: handleSilentOkEvent,
+  SCHEDULER_OK: handleSilentOkEvent,
+  BACKUP_SUCCESS: handleSilentOkEvent,
+  MAINTENANCE_SUCCESS: handleSilentOkEvent,
+  SCAN_COMPLETED: handleSilentOkEvent,
+  SCAN_EMPTY: handleSilentOkEvent,
+  HEALTH_RECOVERY: (event) =>
+    notice(event, 'HEALTH_RECOVERY_NOTICE_ONCE', `HEALTH_RECOVERY:${event.dedupeHint ?? event.channel ?? 'GLOBAL'}`, ONE_HOUR),
+  HEALTH_FAILURE: handleFailureUntilStreak,
+  BACKUP_FAILURE: handleFailureUntilStreak,
+  TELEGRAM_HTML_RETRY: handleTelegramHtmlRetry,
+};
+
 export function evaluateAlertNoise(event: AlertNoiseEvent): NoiseDecision {
   const ts = nowMs(event);
   prune(ts);
 
-  switch (event.eventType) {
-    case 'WATCHLIST_CANDIDATE_REJECTED_CAPACITY': {
-      const strong = event.candidateStrength === 'STRONG_BUY' || event.candidateStrength === 'BUY';
-      const key = `WATCHLIST_CAPACITY_REJECT:${event.symbol ?? 'UNKNOWN'}:${event.session ?? 'ANY'}`;
-      if (strong && event.candidateRejectedDueToCapacity) {
-        if (isDedupeActive(key, ts)) return silent(event, 'WATCHLIST_CAPACITY_REJECT_DEDUPED', key, SIX_HOURS);
-        return notice(event, 'WATCHLIST_CAPACITY_REJECTED_STRONG_CANDIDATE', key, SIX_HOURS);
-      }
-      return digest(event, 'WATCHLIST_CAPACITY_REJECTED_DIGEST_ONLY', key, SIX_HOURS);
-    }
-    case 'WATCHLIST_SATURATION': {
-      const key = `WATCHLIST_SATURATION:${event.dedupeHint ?? event.session ?? 'GLOBAL'}`;
-      if (isDedupeActive(key, ts)) return silent(event, 'WATCHLIST_SATURATION_DEDUPED', key, SIX_HOURS);
-      return digest(event, 'WATCHLIST_CAPACITY_DIGEST_ONLY', key, SIX_HOURS);
-    }
-    case 'KIS_TOKEN_REFRESH_SUCCESS': {
-      clearKisTokenDedupe();
-      return silent(event, 'KIS_TOKEN_REFRESH_SUCCESS_SILENT', kisTokenKey('REFRESH_SUCCESS', event), ONE_HOUR);
-    }
-    case 'KIS_TOKEN_EXPIRY': {
-      const key = kisTokenKey('EXPIRY', event);
-      if ((event.tokenExpiresInSeconds ?? Number.POSITIVE_INFINITY) <= 30 * 60 && event.refreshFailed) {
-        return critical(event, 'KIS_TOKEN_30M_REFRESH_FAILED_CRITICAL', key);
-      }
-      if ((event.tokenExpiresInSeconds ?? Number.POSITIVE_INFINITY) <= 12 * 60 * 60) {
-        return silent(event, 'KIS_TOKEN_12H_EXPIRY_SILENT', key, ONE_HOUR);
-      }
-      return silent(event, 'KIS_TOKEN_EXPIRY_NO_ACTION', key, ONE_HOUR);
-    }
-    case 'KIS_TOKEN_REFRESH_FAILED': {
-      const key = kisTokenKey('REFRESH_FAILED', event);
-      if ((event.tokenExpiresInSeconds ?? Number.POSITIVE_INFINITY) <= 30 * 60) {
-        return critical(event, 'KIS_TOKEN_30M_REFRESH_FAILED_CRITICAL', key);
-      }
-      const failures = failureCount(event);
-      if (failures <= 1) return digest(event, 'KIS_TOKEN_REFRESH_FAILED_DIGEST', key, ONE_HOUR);
-      return warning(event, 'KIS_TOKEN_REFRESH_FAILED_STREAK_WARNING', key, ONE_HOUR);
-    }
-    case 'KIS_TOKEN_EXPIRED_IMPACTED':
-      return critical(event, 'KIS_TOKEN_EXPIRED_EXECUTION_OR_QUERY_IMPACTED', kisTokenKey('EXPIRED_IMPACTED', event));
-    case 'PROVIDER_RECOVERY':
-      return notice(event, 'PROVIDER_RECOVERED_NOTICE_ONCE', `PROVIDER_RECOVERY:${event.provider ?? 'UNKNOWN'}`, ONE_HOUR);
-    case 'PROVIDER_FAILURE': {
-      const provider = event.provider ?? 'UNKNOWN';
-      const key = `PROVIDER_FAILURE:${provider}:${event.providerTier ?? 'NA'}`;
-      const failures = failureCount(event);
-      if (providerExecutionRelevant(event)) return warning(event, 'PROVIDER_EXECUTION_DATA_IMPACT_WARNING', key, ONE_HOUR);
-      if (failures >= 3) return digest(event, 'PROVIDER_FAILURE_STREAK_DIGEST', key, ONE_HOUR);
-      return silent(event, 'PROVIDER_SINGLE_OR_DIAGNOSTIC_FAILURE_SILENT', key, DEFAULT_TTL);
-    }
-    case 'ENGINE_STATE': {
-      const state = event.state ?? 'UNKNOWN';
-      const key = `ENGINE_STATE:${event.dedupeHint ?? 'GLOBAL'}`;
-      const previous = event.previousState ?? lastStateByKey.get(key);
-      lastStateByKey.set(key, state);
-      if ((state === 'SELL_ONLY' || state === 'HARD_BLOCK' || previous === 'SELL_ONLY' || previous === 'HARD_BLOCK') && previous !== state) {
-        return notice(event, 'ENGINE_STATE_TRANSITION_NOTICE', `${key}:${previous ?? 'UNKNOWN'}->${state}`, TRADING_DAY);
-      }
-      return silent(event, 'ENGINE_STATE_MAINTAINED_SUPPRESSED', `${key}:${state}`, TRADING_DAY);
-    }
-    case 'SHADOW_SIGNAL': {
-      const key = `SHADOW_SIGNAL:${event.symbol ?? 'UNKNOWN'}:${event.strategy ?? 'UNKNOWN'}:${event.session ?? 'ANY'}`;
-      if (isDedupeActive(key, ts)) return silent(event, 'SHADOW_SIGNAL_DEDUPED_EXECUTION_IMPACT_NONE', key, SIX_HOURS);
-      return digest(event, 'SHADOW_SIGNAL_DIGEST_EXECUTION_IMPACT_NONE', key, SIX_HOURS);
-    }
-    case 'SHADOW_EXECUTION_COMPLETED':
-      return digest(event, 'SHADOW_COMPLETION_JOURNAL_DIGEST_EXECUTION_IMPACT_NONE', `SHADOW_COMPLETION:${event.symbol ?? 'UNKNOWN'}:${event.session ?? 'ANY'}`, DEFAULT_TTL);
-    case 'HEALTH_OK':
-    case 'SCHEDULER_OK':
-    case 'BACKUP_SUCCESS':
-    case 'MAINTENANCE_SUCCESS':
-    case 'SCAN_COMPLETED':
-    case 'SCAN_EMPTY':
-      return silent(event, `${event.eventType}_SILENT`, `${event.eventType}:${event.dedupeHint ?? event.channel ?? 'GLOBAL'}`, DEFAULT_TTL);
-    case 'HEALTH_RECOVERY':
-      return notice(event, 'HEALTH_RECOVERY_NOTICE_ONCE', `HEALTH_RECOVERY:${event.dedupeHint ?? event.channel ?? 'GLOBAL'}`, ONE_HOUR);
-    case 'HEALTH_FAILURE':
-    case 'BACKUP_FAILURE':
-      return failureCount(event) >= 3
-        ? warning(event, `${event.eventType}_STREAK_WARNING`, `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, ONE_HOUR)
-        : digest(event, `${event.eventType}_DIGEST_UNTIL_STREAK`, `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, ONE_HOUR);
-    case 'TELEGRAM_HTML_RETRY': {
-      const key = `TELEGRAM_TEMPLATE:${event.templateId ?? 'UNKNOWN'}`;
-      if (event.plainRetrySuccess) return silent(event, 'TELEGRAM_HTML_PARSE_RETRY_SUCCESS_SILENT', key, DEFAULT_TTL);
-      if ((event.templateFailureCount ?? 0) >= 2) return digest(event, 'TELEGRAM_TEMPLATE_REPEAT_FAILURE_DIGEST', key, ONE_HOUR);
-      return warning(event, 'TELEGRAM_PLAIN_RETRY_FAILED_WARNING', key, DEFAULT_TTL);
-    }
-    default: {
-      if (event.executionImpact && event.executionImpact !== 'NONE') {
-        return warning(event, 'EXECUTION_IMPACT_EVENT_WARNING', `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, DEFAULT_TTL);
-      }
-      if (String(event.status ?? '').toUpperCase() === 'OK' || String(event.status ?? '').toUpperCase() === 'SUCCESS') {
-        return silent(event, 'SUCCESS_OR_OK_EVENT_SILENT', `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, DEFAULT_TTL);
-      }
-      return notice(event, 'UNCLASSIFIED_EVENT_NOTICE', `${event.eventType}:${event.dedupeHint ?? 'GLOBAL'}`, DEFAULT_TTL);
-    }
-  }
+  return (ALERT_NOISE_HANDLERS[event.eventType] ?? handleDefaultNoiseEvent)(event, ts);
 }
 
 export function getAlertNoiseStats(now: Date = new Date()): AlertNoiseStats {
