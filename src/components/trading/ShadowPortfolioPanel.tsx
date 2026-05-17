@@ -343,6 +343,165 @@ function ClosedTradeRow({
   );
 }
 
+function deriveShadowKpiItems(account: ShadowAccountState | null): KpiItem[] {
+  if (!account) return [];
+  return [
+    { label: '총 자산', value: fmtKrw(account.totalAssets), status: account.returnPct >= 0 ? 'pass' : 'fail' },
+    {
+      label: '수익률',
+      value: fmtPct(account.returnPct),
+      trend: account.returnPct >= 0 ? 'up' : 'down',
+      status: account.returnPct > 3 ? 'pass' : account.returnPct >= 0 ? 'warn' : 'fail',
+    },
+    { label: '현금', value: fmtKrw(account.cashBalance), status: 'neutral' },
+    { label: '평가액', value: fmtKrw(account.totalInvested), status: account.openPositions.length > 0 ? 'warn' : 'neutral' },
+    {
+      label: '실현손익',
+      value: `${account.realizedPnl >= 0 ? '+' : ''}${fmtKrw(account.realizedPnl)}`,
+      trend: account.realizedPnl > 0 ? 'up' : account.realizedPnl < 0 ? 'down' : 'neutral',
+      status: account.realizedPnl > 0 ? 'pass' : account.realizedPnl < 0 ? 'fail' : 'neutral',
+    },
+    {
+      label: '미실현손익',
+      value: `${account.unrealizedPnl >= 0 ? '+' : ''}${fmtKrw(account.unrealizedPnl)}`,
+      trend: account.unrealizedPnl > 0 ? 'up' : account.unrealizedPnl < 0 ? 'down' : 'neutral',
+      status: account.unrealizedPnl > 0 ? 'pass' : account.unrealizedPnl < 0 ? 'fail' : 'neutral',
+    },
+  ];
+}
+
+function ShadowPortfolioHeader({ account, lastRefresh, loading, onRefresh }: { account: ShadowAccountState | null; lastRefresh: Date | null; loading: boolean; onRefresh: () => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h2 className="text-base sm:text-lg font-black text-theme-text tracking-tight">섀도우 계좌</h2>
+        <p className="text-[10px] sm:text-xs text-theme-text-muted mt-0.5">
+          {account ? `시작원금 ${fmtKrw(account.startingCapital)}` : '포트폴리오 추적'}
+          {lastRefresh && <span className="ml-2">· {fmtRelative(lastRefresh)} 갱신</span>}
+          {isMarketOpen()
+            ? <span className="ml-1 text-green-400/70">· 장중 1분 자동갱신</span>
+            : <span className="ml-1 text-theme-text-muted/60">· 장외</span>}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={loading}
+        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600/50 text-[11px] font-bold text-theme-text-muted hover:text-theme-text hover:border-slate-500 transition-all disabled:opacity-50"
+      >
+        <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+        <span className="hidden sm:inline">{loading ? '갱신 중...' : '새로고침'}</span>
+      </button>
+    </div>
+  );
+}
+
+function ErrorNotice({ error }: { error: string | null }) {
+  if (!error) return null;
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-red-500/30 bg-red-500/[0.06] text-xs text-red-400">
+      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+      <span>{error}</span>
+    </div>
+  );
+}
+
+function InitialLoadingState({ loading, hasAccount }: { loading: boolean; hasAccount: boolean }) {
+  if (!loading || hasAccount) return null;
+  return <div className="flex justify-center py-8"><Spinner /></div>;
+}
+
+function TodayRealizedSummary({ account }: { account: ShadowAccountState }) {
+  if ((account.todaySellFillCount ?? 0) <= 0) return null;
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-slate-700/40 bg-white/[0.015] px-3 py-2 text-xs">
+      <span className="text-theme-text-muted">오늘 {account.todaySellFillCount}건 체결</span>
+      <span className={cn('font-num font-black', (account.todayRealizedPnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400')}>
+        {(account.todayRealizedPnl ?? 0) >= 0 ? '+' : ''}{fmtKrw(account.todayRealizedPnl ?? 0)}
+      </span>
+    </div>
+  );
+}
+
+function OpenPositionsSection({ positions }: { positions: ActivePosition[] }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Wallet className="w-3.5 h-3.5 text-theme-text-muted" />
+        <h3 className="text-xs sm:text-sm font-black uppercase tracking-wide text-theme-text-muted">
+          보유 포지션
+          <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-700/60 text-theme-text text-[10px] normal-case font-bold">{positions.length}</span>
+        </h3>
+      </div>
+      {positions.length === 0 ? (
+        <p className="text-xs text-theme-text-muted py-4 text-center border border-dashed border-slate-700/40 rounded-xl">보유 중인 포지션 없음</p>
+      ) : (
+        <div className="space-y-2">{positions.map(pos => <OpenPositionCard key={pos.tradeId} pos={pos} />)}</div>
+      )}
+    </section>
+  );
+}
+
+function ClosedTradesSection({ trades, expandedTrades, onToggle }: { trades: ClosedTrade[]; expandedTrades: Set<string>; onToggle: (id: string) => void }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <BarChart2 className="w-3.5 h-3.5 text-theme-text-muted" />
+        <h3 className="text-xs sm:text-sm font-black uppercase tracking-wide text-theme-text-muted">
+          거래 내역
+          <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-700/60 text-theme-text text-[10px] normal-case font-bold">{trades.length}</span>
+        </h3>
+      </div>
+      {trades.length === 0 ? (
+        <p className="text-xs text-theme-text-muted py-4 text-center border border-dashed border-slate-700/40 rounded-xl">청산된 거래 없음</p>
+      ) : (
+        <div className="space-y-1.5">
+          {trades.map(trade => <ClosedTradeRow key={trade.tradeId} trade={trade} expanded={expandedTrades.has(trade.tradeId)} onToggle={() => onToggle(trade.tradeId)} />)}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StatisticsSection({ stats }: { stats: AccountStats }) {
+  if (stats.totalTrades <= 0) return null;
+  const items = [
+    { label: '승률', value: `${stats.winRate.toFixed(1)}%`, sub: `${stats.winCount}승 ${stats.lossCount}패`, status: stats.winRate >= 55 ? 'pass' : stats.winRate >= 45 ? 'warn' : 'fail' },
+    { label: '평균 수익', value: `+${stats.avgWinPct.toFixed(2)}%`, sub: '수익 거래 평균', status: 'pass' },
+    { label: '평균 손실', value: `${stats.avgLossPct.toFixed(2)}%`, sub: '손실 거래 평균', status: 'fail' },
+    { label: '기대값', value: fmtPct(stats.expectancy, 2), sub: '거래당 기대 수익률', status: stats.expectancy > 0 ? 'pass' : 'fail' },
+  ];
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Target className="w-3.5 h-3.5 text-theme-text-muted" />
+        <h3 className="text-xs sm:text-sm font-black uppercase tracking-wide text-theme-text-muted">누적 통계</h3>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {items.map((item, i) => (
+          <div key={i} className={cn('border rounded-xl p-3 text-center', item.status === 'pass' ? 'border-green-500/30 bg-green-500/[0.04]' : item.status === 'fail' ? 'border-red-500/25 bg-red-500/[0.03]' : 'border-yellow-500/30 bg-yellow-500/[0.04]')}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">{item.label}</p>
+            <p className={cn('text-base sm:text-lg font-black font-num mt-1', item.status === 'pass' ? 'text-green-400' : item.status === 'fail' ? 'text-red-400' : 'text-yellow-400')}>{item.value}</p>
+            <p className="text-[10px] text-theme-text-muted mt-0.5">{item.sub}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AccountContent({ account, kpiItems, expandedTrades, onToggleTrade }: { account: ShadowAccountState; kpiItems: KpiItem[]; expandedTrades: Set<string>; onToggleTrade: (id: string) => void }) {
+  return (
+    <>
+      <KpiStrip items={kpiItems} className="grid-cols-3 sm:grid-cols-6" />
+      <TodayRealizedSummary account={account} />
+      <OpenPositionsSection positions={account.openPositions} />
+      <ClosedTradesSection trades={account.closedTrades} expandedTrades={expandedTrades} onToggle={onToggleTrade} />
+      <StatisticsSection stats={account.stats} />
+    </>
+  );
+}
+
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 export function ShadowPortfolioPanel() {
   const [account, setAccount] = useState<ShadowAccountState | null>(null);
@@ -391,219 +550,16 @@ export function ShadowPortfolioPanel() {
     });
   }, []);
 
-  // ── KPI 아이템 생성 ──────────────────────────────────────────────────────────
-  const kpiItems: KpiItem[] = account ? [
-    {
-      label: '총 자산',
-      value: fmtKrw(account.totalAssets),
-      status: account.returnPct >= 0 ? 'pass' : 'fail',
-    },
-    {
-      label: '수익률',
-      value: fmtPct(account.returnPct),
-      trend: account.returnPct >= 0 ? 'up' : 'down',
-      status: account.returnPct > 3 ? 'pass' : account.returnPct >= 0 ? 'warn' : 'fail',
-    },
-    {
-      label: '현금',
-      value: fmtKrw(account.cashBalance),
-      status: 'neutral',
-    },
-    {
-      label: '평가액',
-      value: fmtKrw(account.totalInvested),
-      status: account.openPositions.length > 0 ? 'warn' : 'neutral',
-    },
-    {
-      label: '실현손익',
-      value: `${account.realizedPnl >= 0 ? '+' : ''}${fmtKrw(account.realizedPnl)}`,
-      trend: account.realizedPnl > 0 ? 'up' : account.realizedPnl < 0 ? 'down' : 'neutral',
-      status: account.realizedPnl > 0 ? 'pass' : account.realizedPnl < 0 ? 'fail' : 'neutral',
-    },
-    {
-      label: '미실현손익',
-      value: `${account.unrealizedPnl >= 0 ? '+' : ''}${fmtKrw(account.unrealizedPnl)}`,
-      trend: account.unrealizedPnl > 0 ? 'up' : account.unrealizedPnl < 0 ? 'down' : 'neutral',
-      status: account.unrealizedPnl > 0 ? 'pass' : account.unrealizedPnl < 0 ? 'fail' : 'neutral',
-    },
-  ] : [];
+  const kpiItems = deriveShadowKpiItems(account);
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base sm:text-lg font-black text-theme-text tracking-tight">섀도우 계좌</h2>
-          <p className="text-[10px] sm:text-xs text-theme-text-muted mt-0.5">
-            {account ? `시작원금 ${fmtKrw(account.startingCapital)}` : '포트폴리오 추적'}
-            {lastRefresh && (
-              <span className="ml-2">· {fmtRelative(lastRefresh)} 갱신</span>
-            )}
-            {isMarketOpen()
-              ? <span className="ml-1 text-green-400/70">· 장중 1분 자동갱신</span>
-              : <span className="ml-1 text-theme-text-muted/60">· 장외</span>}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => refresh()}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-600/50 text-[11px] font-bold text-theme-text-muted hover:text-theme-text hover:border-slate-500 transition-all disabled:opacity-50"
-        >
-          <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-          <span className="hidden sm:inline">{loading ? '갱신 중...' : '새로고침'}</span>
-        </button>
-      </div>
-
-      {/* 에러 */}
-      {error && (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-red-500/30 bg-red-500/[0.06] text-xs text-red-400">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* 로딩 */}
-      {loading && !account && (
-        <div className="flex justify-center py-8">
-          <Spinner />
-        </div>
-      )}
-
+      <ShadowPortfolioHeader account={account} lastRefresh={lastRefresh} loading={loading} onRefresh={() => refresh()} />
+      <ErrorNotice error={error} />
+      <InitialLoadingState loading={loading} hasAccount={Boolean(account)} />
       {account && (
-        <>
-          {/* KPI Strip */}
-          <KpiStrip items={kpiItems} className="grid-cols-3 sm:grid-cols-6" />
-
-          {/* 오늘(KST) 실현 성과 — 금일 SELL fill이 있을 때만 표시 */}
-          {(account.todaySellFillCount ?? 0) > 0 && (
-            <div className="flex items-center justify-between rounded-xl border border-slate-700/40 bg-white/[0.015] px-3 py-2 text-xs">
-              <span className="text-theme-text-muted">
-                오늘 {account.todaySellFillCount}건 체결
-              </span>
-              <span className={cn(
-                'font-num font-black',
-                (account.todayRealizedPnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400',
-              )}>
-                {(account.todayRealizedPnl ?? 0) >= 0 ? '+' : ''}
-                {fmtKrw(account.todayRealizedPnl ?? 0)}
-              </span>
-            </div>
-          )}
-
-          {/* ── 보유 포지션 ── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="w-3.5 h-3.5 text-theme-text-muted" />
-              <h3 className="text-xs sm:text-sm font-black uppercase tracking-wide text-theme-text-muted">
-                보유 포지션
-                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-700/60 text-theme-text text-[10px] normal-case font-bold">
-                  {account.openPositions.length}
-                </span>
-              </h3>
-            </div>
-            {account.openPositions.length === 0 ? (
-              <p className="text-xs text-theme-text-muted py-4 text-center border border-dashed border-slate-700/40 rounded-xl">
-                보유 중인 포지션 없음
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {account.openPositions.map(pos => (
-                  <OpenPositionCard key={pos.tradeId} pos={pos} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ── 거래 내역 ── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <BarChart2 className="w-3.5 h-3.5 text-theme-text-muted" />
-              <h3 className="text-xs sm:text-sm font-black uppercase tracking-wide text-theme-text-muted">
-                거래 내역
-                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-700/60 text-theme-text text-[10px] normal-case font-bold">
-                  {account.closedTrades.length}
-                </span>
-              </h3>
-            </div>
-            {account.closedTrades.length === 0 ? (
-              <p className="text-xs text-theme-text-muted py-4 text-center border border-dashed border-slate-700/40 rounded-xl">
-                청산된 거래 없음
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                {account.closedTrades.map(trade => (
-                  <ClosedTradeRow
-                    key={trade.tradeId}
-                    trade={trade}
-                    expanded={expandedTrades.has(trade.tradeId)}
-                    onToggle={() => toggleTrade(trade.tradeId)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ── 통계 ── */}
-          {account.stats.totalTrades > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Target className="w-3.5 h-3.5 text-theme-text-muted" />
-                <h3 className="text-xs sm:text-sm font-black uppercase tracking-wide text-theme-text-muted">
-                  누적 통계
-                </h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  {
-                    label: '승률',
-                    value: `${account.stats.winRate.toFixed(1)}%`,
-                    sub: `${account.stats.winCount}승 ${account.stats.lossCount}패`,
-                    status: account.stats.winRate >= 55 ? 'pass' : account.stats.winRate >= 45 ? 'warn' : 'fail',
-                  },
-                  {
-                    label: '평균 수익',
-                    value: `+${account.stats.avgWinPct.toFixed(2)}%`,
-                    sub: '수익 거래 평균',
-                    status: 'pass',
-                  },
-                  {
-                    label: '평균 손실',
-                    value: `${account.stats.avgLossPct.toFixed(2)}%`,
-                    sub: '손실 거래 평균',
-                    status: 'fail',
-                  },
-                  {
-                    label: '기대값',
-                    value: fmtPct(account.stats.expectancy, 2),
-                    sub: '거래당 기대 수익률',
-                    status: account.stats.expectancy > 0 ? 'pass' : 'fail',
-                  },
-                ].map((item, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      'border rounded-xl p-3 text-center',
-                      item.status === 'pass' ? 'border-green-500/30 bg-green-500/[0.04]'
-                        : item.status === 'fail' ? 'border-red-500/25 bg-red-500/[0.03]'
-                        : 'border-yellow-500/30 bg-yellow-500/[0.04]'
-                    )}
-                  >
-                    <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">{item.label}</p>
-                    <p className={cn(
-                      'text-base sm:text-lg font-black font-num mt-1',
-                      item.status === 'pass' ? 'text-green-400'
-                        : item.status === 'fail' ? 'text-red-400'
-                        : 'text-yellow-400'
-                    )}>{item.value}</p>
-                    <p className="text-[10px] text-theme-text-muted mt-0.5">{item.sub}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-        </>
+        <AccountContent account={account} kpiItems={kpiItems} expandedTrades={expandedTrades} onToggleTrade={toggleTrade} />
       )}
     </div>
   );

@@ -10,7 +10,7 @@ import {
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../../services/stockService';
 
-export function GlobalIntelSection() {
+export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
   const [globalMultiSource, setGlobalMultiSource] = useState<GlobalMultiSourceData | null>(null);
   const [multiSourceLoading, setMultiSourceLoading] = useState(false);
 
@@ -571,4 +571,4 @@ export function GlobalIntelSection() {
       </div>
     </>
   );
-}
+});

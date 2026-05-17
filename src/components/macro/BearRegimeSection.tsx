@@ -3,7 +3,7 @@ import React from 'react';
 import { Shield, Activity, CalendarDays, TrendingDown } from 'lucide-react';
 import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 
-export function BearRegimeSection() {
+export const BearRegimeSection = React.memo(function BearRegimeSection() {
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
   const bearSeasonalityResult = useGlobalIntelStore(s => s.bearSeasonalityResult);
@@ -364,4 +364,4 @@ export function BearRegimeSection() {
       )}
     </>
   );
-}
+});
