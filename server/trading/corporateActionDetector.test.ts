@@ -228,14 +228,18 @@ describe('detectCorporateAction — 분류 규칙', () => {
     expect(r.detected).toBe(false);
   });
 
-  it('+100% AND windowDays=5 → 미감지 (1d 윈도우 아님)', () => {
+  // ADR-0301 정합: RIGHTS_DRIFT_MAX 150→80 + |drift|>80% → STRONG drift → SPLIT (windowDays 무관)
+  it('+100% AND windowDays=5 → SPLIT 감지 (ADR-0301 STRONG drift >80%)', () => {
     const r = detectCorporateAction({ driftPct: 100, windowDays: 5 });
-    expect(r.detected).toBe(false);
+    expect(r.detected).toBe(true);
+    expect(r.type).toBe('SPLIT');
   });
 
-  it('+100% AND windowDays 미명시 → 미감지', () => {
+  // ADR-0301 정합: windowDays 미명시여도 STRONG drift >80% → SPLIT
+  it('+100% AND windowDays 미명시 → SPLIT 감지 (ADR-0301 STRONG drift >80%)', () => {
     const r = detectCorporateAction({ driftPct: 100 });
-    expect(r.detected).toBe(false);
+    expect(r.detected).toBe(true);
+    expect(r.type).toBe('SPLIT');
   });
 
   it('+10% (정상) → 미감지', () => {

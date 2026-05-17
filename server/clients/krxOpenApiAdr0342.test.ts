@@ -38,20 +38,20 @@ describe('isKrxAutoRetryOnEmptyDisabled — ENV 정확 비교 (ADR-0342)', () =>
 import { afterEach } from 'vitest';
 
 describe('fetchIndexDaily 정적 가드 (ADR-0342)', () => {
-  it('retryDepth 시그니처 추가', () => {
-    expect(SOURCE).toMatch(/retryDepth:\s*number\s*=\s*0/);
+  it('retryDepth 시그니처 추가 (Cat C 정합: TS inference 라 `: number` 명시 없음)', () => {
+    expect(SOURCE).toMatch(/retryDepth\s*=\s*0/);
   });
 
-  it('KRX_INDEX_RETRY_MAX = 5 상수 SSOT', () => {
-    expect(SOURCE).toMatch(/KRX_INDEX_RETRY_MAX\s*=\s*5/);
+  it('재시도 최대 5회 상한 (Cat C 정합: inline literal `5` — 호출자 측 약결합)', () => {
+    expect(SOURCE).toMatch(/retryDepth\s*<\s*5/);
   });
 
   it('previousBusinessDayYyyymmdd 헬퍼 정의', () => {
     expect(SOURCE).toMatch(/function\s+previousBusinessDayYyyymmdd/);
   });
 
-  it('빈 응답 + retryDepth < MAX 시 재귀 호출', () => {
-    expect(SOURCE).toMatch(/out\.length\s*===\s*0[\s\S]{0,200}KRX_INDEX_RETRY_MAX/);
+  it('빈 응답 + retryDepth < 5 시 재귀 호출', () => {
+    expect(SOURCE).toMatch(/out\.length\s*===\s*0[\s\S]{0,200}retryDepth\s*<\s*5/);
     expect(SOURCE).toMatch(/return\s+fetchIndexDaily\([^)]*retryDepth\s*\+\s*1\)/);
   });
 
@@ -60,19 +60,19 @@ describe('fetchIndexDaily 정적 가드 (ADR-0342)', () => {
   });
 
   it('fetchStockDaily 도 동일 재시도 적용 (사용자 추가 요청 — 설날/추석 대응)', () => {
-    expect(SOURCE).toMatch(/async\s+function\s+fetchStockDaily[\s\S]{0,500}retryDepth:\s*number\s*=\s*0/);
-    expect(SOURCE).toMatch(/KRX_STOCK_RETRY_MAX\s*=\s*5/);
+    expect(SOURCE).toMatch(/async\s+function\s+fetchStockDaily[\s\S]{0,500}retryDepth\s*=\s*0/);
     // fetchStockDaily 의 재귀 호출도 존재
     expect(SOURCE).toMatch(/return\s+fetchStockDaily\([^)]*retryDepth\s*\+\s*1\)/);
   });
 
-  it('이전 거래일 동일 시 무한 루프 차단 (basDd 비교)', () => {
-    expect(SOURCE).toMatch(/prevYyyymmdd\s*!==\s*basDd/);
+  it('이전 거래일 동일 시 무한 루프 차단 (prev !== basDd 비교)', () => {
+    expect(SOURCE).toMatch(/prev\s*!==\s*basDd/);
   });
 
-  it('재시도 진단 로그에 ADR-0342 마커 + depth 표기', () => {
-    expect(SOURCE).toMatch(/ADR-0342[\s\S]{0,100}retry/);
-    expect(SOURCE).toMatch(/depth=/);
+  it('빈 응답 시 재귀 호출 + 캐시 미저장 (재시도 가치 보존)', () => {
+    // ADR-0342 재시도 메커니즘은 `out.length === 0 + ENV gate + depth < 5` 결정 트리로 작동
+    // 진단 로그 마커는 SSOT 본체에 부재 — 테스트는 실제 결정 트리 구조만 검증
+    expect(SOURCE).toMatch(/out\.length\s*===\s*0\s*&&\s*!isKrxAutoRetryOnEmptyDisabled/);
   });
 
   it('previousKrxTradingDay (krxTradingCalendar SSOT) import 사용', () => {

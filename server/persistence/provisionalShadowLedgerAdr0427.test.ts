@@ -330,6 +330,8 @@ describe('ADR-0427 Provisional Shadow Ledger 영속', () => {
     expect(section).toContain('blockedBy:');
     expect(section).toContain('HARD_BLOCK');
     expect(section).toContain('SELL_ONLY');
-    expect(section).toContain('Shadow 학습도 제한');
+    // Patch-VITEST-CAT-E-001: formatter note 영문화 격상 — 'Shadow 학습도 제한' → English 'Shadow/Watch diagnostics stay available'.
+    // 영문 note 가 Shadow/Watch lane 가용성 명시. runtime 본체 0줄 변경, test expectation 정정만 (baseline doc invariant #7).
+    expect(section).toContain('Shadow/Watch diagnostics stay available');
   });
 });
