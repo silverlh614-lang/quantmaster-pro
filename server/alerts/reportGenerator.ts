@@ -715,6 +715,110 @@ async function fetchUsdKrwSnapshot(): Promise<{ rate: number; changePct: number 
   return { rate: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.usdkrw' }) ?? 0 };
 }
 
+type MacroSnapshot = ReturnType<typeof loadMacroState>;
+type WatchlistItem = ReturnType<typeof loadWatchlist>[number];
+type GlobalScanReportSnapshot = ReturnType<typeof loadGlobalScanReport>;
+type GlobalScanSymbol = NonNullable<GlobalScanReportSnapshot>['symbols'][number];
+type GlobalScanSectorAlert = NonNullable<GlobalScanReportSnapshot>['sectorAlerts'][number];
+type UsdKrwSnapshot = Awaited<ReturnType<typeof fetchUsdKrwSnapshot>>;
+
+interface PreMarketGlobalContext {
+  sp500?: GlobalScanSymbol;
+  ndx?: GlobalScanSymbol;
+  vixData?: GlobalScanSymbol;
+  ewy?: GlobalScanSymbol;
+}
+
+function buildPreMarketGlobalContext(globalScan: GlobalScanReportSnapshot): PreMarketGlobalContext {
+  return {
+    sp500:   globalScan?.symbols.find(s => s.symbol === '^GSPC'),
+    ndx:     globalScan?.symbols.find(s => s.symbol === '^IXIC'),
+    vixData: globalScan?.symbols.find(s => s.symbol === '^VIX'),
+    ewy:     globalScan?.symbols.find(s => s.symbol === 'EWY'),
+  };
+}
+
+function formatPreMarketSectorAlerts(alerts: GlobalScanSectorAlert[] | undefined): string {
+  return alerts && alerts.length > 0
+    ? alerts.map(a => `  ${a.direction === 'BULLISH' ? '🟢' : '🔴'} ${a.label} ${fmtPct(a.changePct)} → ${a.koreaSectors}`).join('\n')
+    : '  없음';
+}
+
+function buildPreMarketAiPrompt(
+  macro: MacroSnapshot,
+  global: PreMarketGlobalContext,
+  usdKrw: UsdKrwSnapshot,
+): string {
+  return (
+    `오늘 한국 주식시장 장전 브리핑 (1~2문장).\n` +
+    `데이터: S&P500 ${fmtPct(global.sp500?.changePct)}, 나스닥 ${fmtPct(global.ndx?.changePct)}, ` +
+    `VIX ${global.vixData?.price ?? 'N/A'}, EWY ${fmtPct(global.ewy?.changePct)}, ` +
+    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원(${fmtPct(usdKrw?.changePct)}), ` +
+    `MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}).\n` +
+    `KOSPI 예상 방향 + 핵심 근거를 한국어 2문장으로 답하라.`
+  );
+}
+
+function buildPreMarketPrimingLine(todayKst: string): string {
+  const priming = loadTomorrowPriming();
+  return priming && priming.forDate === todayKst && priming.oneLineLearning
+    ? `\n🌅 <b>오늘의 학습 포인트:</b> ${priming.oneLineLearning}\n`
+    : '';
+}
+
+interface PreMarketTelegramMessageParams {
+  macro: MacroSnapshot;
+  watchlist: WatchlistItem[];
+  global: PreMarketGlobalContext;
+  usdKrw: UsdKrwSnapshot;
+  alertLines: string;
+  aiOneLiner: string | null;
+  primingLine: string;
+}
+
+function formatPreMarketGlobalLines(global: PreMarketGlobalContext): string {
+  return (
+    `<b>🌏 간밤 글로벌</b>\n` +
+    `  S&P500: ${global.sp500?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(global.sp500?.changePct)})\n` +
+    `  나스닥: ${global.ndx?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(global.ndx?.changePct)})\n` +
+    `  VIX: ${global.vixData?.price?.toFixed(1) ?? 'N/A'}\n` +
+    `  EWY: ${fmtPct(global.ewy?.changePct)}\n\n`
+  );
+}
+
+function formatPreMarketMacroLines(macro: MacroSnapshot, usdKrw: UsdKrwSnapshot): string {
+  const yieldLine = macro?.yieldCurve10y2y !== undefined ? `  10Y-2Y: ${macro.yieldCurve10y2y.toFixed(2)}%\n` : '';
+  const crudeLine = macro?.wtiCrude !== undefined ? `  WTI: $${macro.wtiCrude.toFixed(1)}\n` : '';
+  return (
+    `<b>📊 거시 지표</b>\n` +
+    `  MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
+    `  USD/KRW: ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원 (${fmtPct(usdKrw?.changePct)})\n` +
+    yieldLine +
+    crudeLine
+  );
+}
+
+function formatPreMarketWatchlistLine(watchlist: WatchlistItem[]): string {
+  const names = watchlist.length > 0
+    ? ` (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`
+    : '';
+  return `<b>📋 워치리스트</b>: ${watchlist.length}개${names}\n`;
+}
+
+function buildPreMarketTelegramMessage(params: PreMarketTelegramMessageParams): string {
+  const { macro, watchlist, global, usdKrw, alertLines, aiOneLiner, primingLine } = params;
+  return (
+    `🌅 <b>[장전 브리핑] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    primingLine +
+    formatPreMarketGlobalLines(global) +
+    formatPreMarketMacroLines(macro, usdKrw) +
+    `\n<b>🔔 섹터 경보</b>\n${alertLines}\n\n` +
+    formatPreMarketWatchlistLine(watchlist) +
+    (aiOneLiner ? `\n🤖 <b>AI 전망:</b> ${aiOneLiner}` : '')
+  );
+}
+
 /**
  * 장전 시장 브리핑 — 평일 08:30 KST
  * 간밤 글로벌 시장 + 거시 지표 + 오늘 주목할 점을 요약하여 Telegram 발송
@@ -723,60 +827,32 @@ export async function sendPreMarketReport(): Promise<void> {
   const macro      = loadMacroState();
   const watchlist  = loadWatchlist();
   const globalScan = loadGlobalScanReport();
-
-  // 글로벌 지수 (간밤 globalScanAgent 결과 활용)
-  const sp500   = globalScan?.symbols.find(s => s.symbol === '^GSPC');
-  const ndx     = globalScan?.symbols.find(s => s.symbol === '^IXIC');
-  const vixData = globalScan?.symbols.find(s => s.symbol === '^VIX');
-  const ewy     = globalScan?.symbols.find(s => s.symbol === 'EWY');
+  const global = buildPreMarketGlobalContext(globalScan);
 
   // USD/KRW
   const usdKrw = await fetchUsdKrwSnapshot();
 
   // 섹터 경보
-  const alerts = globalScan?.sectorAlerts ?? [];
-  const alertLines = alerts.length > 0
-    ? alerts.map(a => `  ${a.direction === 'BULLISH' ? '🟢' : '🔴'} ${a.label} ${fmtPct(a.changePct)} → ${a.koreaSectors}`).join('\n')
-    : '  없음';
+  const alertLines = formatPreMarketSectorAlerts(globalScan?.sectorAlerts);
 
   // Gemini AI 한줄 브리핑
-  const aiPrompt =
-    `오늘 한국 주식시장 장전 브리핑 (1~2문장).\n` +
-    `데이터: S&P500 ${fmtPct(sp500?.changePct)}, 나스닥 ${fmtPct(ndx?.changePct)}, ` +
-    `VIX ${vixData?.price ?? 'N/A'}, EWY ${fmtPct(ewy?.changePct)}, ` +
-    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원(${fmtPct(usdKrw?.changePct)}), ` +
-    `MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}).\n` +
-    `KOSPI 예상 방향 + 핵심 근거를 한국어 2문장으로 답하라.`;
+  const aiPrompt = buildPreMarketAiPrompt(macro, global, usdKrw);
   const aiOneLiner = await callGemini(aiPrompt, 'pre-market-brief').catch(() => null);
 
   // Nightly Reflection Engine #5 — 어제 반성에서 도출한 1줄 학습 포인트 주입.
   // forDate 가 오늘 KST 와 일치할 때만 표시 (과거 priming 이 누적되어도 stale 노출 방지).
   const todayKst = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); // YYYY-MM-DD
-  const priming = loadTomorrowPriming();
-  const primingLine = priming && priming.forDate === todayKst && priming.oneLineLearning
-    ? `\n🌅 <b>오늘의 학습 포인트:</b> ${priming.oneLineLearning}\n`
-    : '';
+  const primingLine = buildPreMarketPrimingLine(todayKst);
 
-  const msg =
-    `🌅 <b>[장전 브리핑] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━\n` +
-    primingLine +
-    `<b>🌏 간밤 글로벌</b>\n` +
-    `  S&P500: ${sp500?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(sp500?.changePct)})\n` +
-    `  나스닥: ${ndx?.price?.toLocaleString() ?? 'N/A'} (${fmtPct(ndx?.changePct)})\n` +
-    `  VIX: ${vixData?.price?.toFixed(1) ?? 'N/A'}\n` +
-    `  EWY: ${fmtPct(ewy?.changePct)}\n\n` +
-    `<b>📊 거시 지표</b>\n` +
-    `  MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
-    `  USD/KRW: ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원 (${fmtPct(usdKrw?.changePct)})\n` +
-    (macro?.yieldCurve10y2y !== undefined ? `  10Y-2Y: ${macro.yieldCurve10y2y.toFixed(2)}%\n` : '') +
-    (macro?.wtiCrude !== undefined ? `  WTI: $${macro.wtiCrude.toFixed(1)}\n` : '') +
-    `\n<b>🔔 섹터 경보</b>\n${alertLines}\n\n` +
-    `<b>📋 워치리스트</b>: ${watchlist.length}개` +
-    (watchlist.length > 0
-      ? ` (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`
-      : '') + '\n' +
-    (aiOneLiner ? `\n🤖 <b>AI 전망:</b> ${aiOneLiner}` : '');
+  const msg = buildPreMarketTelegramMessage({
+    macro,
+    watchlist,
+    global,
+    usdKrw,
+    alertLines,
+    aiOneLiner,
+    primingLine,
+  });
 
   await sendTelegramAlert(msg).catch(console.error);
 
@@ -786,7 +862,7 @@ export async function sendPreMarketReport(): Promise<void> {
   await channelMarketBriefing({
     regime,
     mhs:            macro?.mhs ?? 0,
-    vkospi:         vixData?.price ?? undefined,
+    vkospi:         global.vixData?.price ?? undefined,
     kospiChange:    macro?.kospiDayReturn,
     usdKrw:         usdKrw?.rate,
     watchlistCount: watchlist.length,
