@@ -28,6 +28,7 @@ import {
 } from './normalSupplyPreview/formatters.js';
 import { buildNormalSupplyFieldAvailability } from './normalSupplyPreview/fieldAvailabilityBuilder.js';
 import { assembleNormalSupplyPreview } from './normalSupplyPreview/previewAssembler.js';
+import { setLatestNormalSupplyPreview } from './normalSupplyPreview/previewStore.js';
 import {
   NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE,
   NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE,
@@ -101,6 +102,10 @@ export {
   NORMAL_SUPPLY_SCORE_THRESHOLDS,
 } from './normalSupplyPreview/constants.js';
 export { normalizeProgramFlowValue } from './normalSupplyPreview/programFlowValueNormalizer.js';
+export {
+  __resetNormalSupplyPreviewForTests,
+  getLastNormalSupplyPreview,
+} from './normalSupplyPreview/previewStore.js';
 export type {
   ActivePassiveConfluence,
   ActivePassiveConfluenceCounts,
@@ -137,8 +142,6 @@ export type {
   NormalSupplySignalSourceSplit,
   PersistNormalSupplyPreviewInput,
 } from './normalSupplyPreview/types.js';
-
-let lastNormalSupplyPreview: NormalSupplyPreview | null = null;
 
 function logSupplyPreviewTrace(message: string, summary: Record<string, unknown> = {}): void {
   logVisibilityEvent({
@@ -234,22 +237,24 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
     stockCarryTrace,
   );
 
-  lastNormalSupplyPreview = assembleNormalSupplyPreview({
-    capturedAt,
-    engineMode: input.engineMode,
-    source: input.source,
-    reason: input.reason,
-    preflightDecision: input.preflightDecision,
-    candidates: previewCandidates,
-    supplyInjection: input.supplyInjection,
-    fieldAvailability,
-    programFlowDiagnostics,
-    programFlowEvidenceTrace,
-    programFlowUpstreamPopulationTrace: programPopulation.trace,
-    topN: input.topN ?? 5,
-  });
+  const preview = setLatestNormalSupplyPreview(
+    assembleNormalSupplyPreview({
+      capturedAt,
+      engineMode: input.engineMode,
+      source: input.source,
+      reason: input.reason,
+      preflightDecision: input.preflightDecision,
+      candidates: previewCandidates,
+      supplyInjection: input.supplyInjection,
+      fieldAvailability,
+      programFlowDiagnostics,
+      programFlowEvidenceTrace,
+      programFlowUpstreamPopulationTrace: programPopulation.trace,
+      topN: input.topN ?? 5,
+    }),
+  );
   const summaryTraceId = createTraceId('supply');
-  const { healthCounts, signalCounts, supplyInjection } = lastNormalSupplyPreview;
+  const { healthCounts, signalCounts, supplyInjection } = preview;
   logVisibilityEvent({
     visibility: 'SUMMARY',
     category: 'SUPPLY',
@@ -258,31 +263,27 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
     message:
       `[SUPPLY_PREVIEW_SUMMARY] ` +
       `mode=${NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE} ` +
-      `candidateCount=${lastNormalSupplyPreview.candidateCount} ` +
+      `candidateCount=${preview.candidateCount} ` +
       `injected=${supplyInjection.injected} verified=${healthCounts.VERIFIED} degraded=${healthCounts.DEGRADED} ` +
       `stale=${healthCounts.STALE} missing=${healthCounts.MISSING} ` +
       `accumulating=${signalCounts.ACCUMULATING} neutral=${signalCounts.NEUTRAL} bearish=${signalCounts.BEARISH} ` +
       `programProvider=${programFlowDiagnostics.marketProgramAvailable ? 'AVAILABLE_DIAGNOSTIC_ONLY' : 'EMPTY_DIAGNOSTIC_ONLY'} ` +
       `providerCallsAdded=0 executionImpact=NONE traceId=${summaryTraceId}`,
     summary: {
-      candidateCount: lastNormalSupplyPreview.candidateCount,
+      candidateCount: preview.candidateCount,
       injected: supplyInjection.injected,
       healthCounts,
       signalCounts,
       programProvider: programFlowDiagnostics.marketProgramAvailable ? 'AVAILABLE_DIAGNOSTIC_ONLY' : 'EMPTY_DIAGNOSTIC_ONLY',
       executionImpact: 'NONE',
     },
-    details: { preview: lastNormalSupplyPreview },
+    details: { preview },
     level: 'info',
     executionImpact: 'NONE',
   });
-  logSupplySignalTierRefinement(lastNormalSupplyPreview);
-  logProgramFlowDiagnostics(lastNormalSupplyPreview);
-  return lastNormalSupplyPreview;
-}
-
-export function getLastNormalSupplyPreview(): NormalSupplyPreview | null {
-  return lastNormalSupplyPreview;
+  logSupplySignalTierRefinement(preview);
+  logProgramFlowDiagnostics(preview);
+  return preview;
 }
 
 function logSupplySignalTierRefinement(preview: NormalSupplyPreview): void {
@@ -1636,10 +1637,6 @@ export function formatNormalSupplyPreviewMissingSection(error?: string): string 
     ...(error ? [`error: ${error}`] : []),
     'nextAction: run /normal_supply_preview or wait for next diagnostic scan',
   ].join('\n');
-}
-
-export function __resetNormalSupplyPreviewForTests(): void {
-  lastNormalSupplyPreview = null;
 }
 
 function toPreviewCandidate(
