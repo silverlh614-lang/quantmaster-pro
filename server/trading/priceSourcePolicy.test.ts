@@ -85,6 +85,21 @@ describe('evaluateDataQuality — 가격 출처 분기', () => {
 });
 
 describe('evaluateDataQuality — 괴리율 분기', () => {
+  // Patch-VITEST-CAT-F-001: ADR-0502 runtime policy migration — yahooDiagnosticOnly default true 면
+  // 모든 kisValid+yahooValid 경로가 status='VALID' 단락 (priceSourcePolicy.ts:132-169). 레거시 discrepancy
+  // 로직 (WARN / INVALID / CORPORATE_ACTION_SUSPECT, line 186-254) 은 YAHOO_PRICE_ROLE='ACTIVE' opt-in 필요.
+  // baseline doc invariant #10 source inspection 결과: Cat C (test stale) 확정, Cat A (regression) 아님.
+  // runtime 본체 0줄 변경, test 측에서 legacy mode env 활성화만 (baseline doc invariant #7).
+  let originalYahooRole: string | undefined;
+  beforeEach(() => {
+    originalYahooRole = process.env.YAHOO_PRICE_ROLE;
+    process.env.YAHOO_PRICE_ROLE = 'ACTIVE';
+  });
+  afterEach(() => {
+    if (originalYahooRole === undefined) delete process.env.YAHOO_PRICE_ROLE;
+    else process.env.YAHOO_PRICE_ROLE = originalYahooRole;
+  });
+
   it('괴리 0% (KIS=Yahoo) → VALID', () => {
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 50000 });
     expect(result.status).toBe('VALID');
@@ -237,6 +252,21 @@ describe('evaluateDataQuality — ENV 우회', () => {
 });
 
 describe('shouldAllowExecution + shouldQuarantine — 호출자 가드 SSOT', () => {
+  // Patch-VITEST-CAT-F-001: ADR-0502 runtime policy migration — yahooDiagnosticOnly default true 면
+  // 모든 kisValid+yahooValid 경로가 status='VALID' 단락 (priceSourcePolicy.ts:132-169). 레거시 discrepancy
+  // 로직 (WARN / INVALID / CORPORATE_ACTION_SUSPECT, line 186-254) 은 YAHOO_PRICE_ROLE='ACTIVE' opt-in 필요.
+  // baseline doc invariant #10 source inspection 결과: Cat C (test stale) 확정, Cat A (regression) 아님.
+  // runtime 본체 0줄 변경, test 측에서 legacy mode env 활성화만 (baseline doc invariant #7).
+  let originalYahooRole: string | undefined;
+  beforeEach(() => {
+    originalYahooRole = process.env.YAHOO_PRICE_ROLE;
+    process.env.YAHOO_PRICE_ROLE = 'ACTIVE';
+  });
+  afterEach(() => {
+    if (originalYahooRole === undefined) delete process.env.YAHOO_PRICE_ROLE;
+    else process.env.YAHOO_PRICE_ROLE = originalYahooRole;
+  });
+
   it('VALID → 매수 허용 + 격리 안 함', () => {
     const result = evaluateDataQuality({ kisPrice: 50000, yahooPrice: 50500 });
     expect(shouldAllowExecution(result)).toBe(true);

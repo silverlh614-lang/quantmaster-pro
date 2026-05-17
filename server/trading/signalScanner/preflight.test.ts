@@ -91,6 +91,14 @@ vi.mock('./counterfactualUniverseLearningWiring.js', () => ({
   buildCandidateSummaries: vi.fn((candidates?: unknown[]) => candidates ?? []),
 }));
 
+// Patch-VITEST-CAT-D-PREFLIGHT-001: preflight.ts 가 isKrxTradingDay(todayKstDate) 를 호출 →
+// 테스트 실행 시점이 주말/휴장일이면 resolvedMarketSessionState='NON_TRADING_DAY' → kellyPolicyBlock 가
+// effectiveKelly=0 + blockedByPolicy=true 강제 → "normal day" 테스트의 0.864 expectation 실패.
+// 테스트 invariant: 항상 거래일로 mock (baseline doc invariant #7 정합 — runtime 본체 무수정, 테스트만 격리).
+vi.mock('../../calendar/krxTradingCalendar.js', () => ({
+  isKrxTradingDay: vi.fn().mockReturnValue(true),
+}));
+
 vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
   REGIME_CONFIGS: {
     R2_BULL: { kellyMultiplier: 0.8, maxPositions: 6, sellOnlyException: { enabled: false } },
