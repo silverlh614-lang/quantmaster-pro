@@ -752,6 +752,23 @@ export function indexRowKey(row: KrxIndexDailyRow, useNameFallback: boolean): st
   return null;
 }
 
+function warnIndexDateCollision(today: KrxIndexDailyRow, past: KrxIndexDailyRow, labelKey: string): void {
+  console.warn(
+    `[SectorEnergy] baseDate 동일 index=${labelKey} name=${today.indexName} ` +
+      `baseDate=${today.baseDate} closeToday=${today.close} closePast=${past.close}. ` +
+      'fetch boundary 또는 과거 기준일 매칭 오류 의심.',
+  );
+}
+
+function warnIndexDigitMismatch(today: KrxIndexDailyRow, past: KrxIndexDailyRow, labelKey: string, ratio: number): void {
+  console.warn(
+    `[SectorEnergy] 자릿수 격차 index=${labelKey} name=${today.indexName} ` +
+      `ratio=${ratio.toFixed(3)} today.close=${today.close} past.close=${past.close} ` +
+      `today.baseDate=${today.baseDate} past.baseDate=${past.baseDate}. ` +
+      'sector index 매칭 오류 의심으로 skip.',
+  );
+}
+
 export function aggregateIndexDeltas(
   todayRows: KrxIndexDailyRow[],
   pastRows: KrxIndexDailyRow[],
@@ -803,10 +820,18 @@ export function aggregateIndexDeltas(
       past = pastByName.get(`${market}:name:${t.indexName}`);
     }
 
-    if (!past || past.close <= 0 || t.close <= 0) continue;
-    if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) continue;
-
     const labelKey = t.indexCode || t.indexName;
+    if (!past || past.close <= 0) continue;
+    if (t.baseDate && past.baseDate && t.baseDate === past.baseDate) {
+      warnIndexDateCollision(t, past, labelKey);
+      continue;
+    }
+    const closeRatio = t.close / past.close;
+    if (t.close <= 0 || closeRatio > 10 || closeRatio < 0.1) {
+      warnIndexDigitMismatch(t, past, labelKey, closeRatio);
+      continue;
+    }
+
     const returnPct = safePctChange(t.close, past.close, { label: `sectorEnergy.return:${labelKey}` });
     if (returnPct === null) continue;
     const volumePct = past.volume > 0
