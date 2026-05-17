@@ -1,4 +1,4 @@
-// @responsibility ADR-0468 Telegram alert noise suppression policy and runtime stats.
+// @responsibility ADR-0468 Telegram alert noise suppression policy.
 
 export type AlertLevel = 'SILENT' | 'DIGEST' | 'NOTICE' | 'WARNING' | 'CRITICAL';
 

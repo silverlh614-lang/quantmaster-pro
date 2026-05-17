@@ -1,4 +1,4 @@
-// @responsibility Adapt internal UI/store snapshots into sanitized public report cards and exports.
+// @responsibility Adapt internal UI/store snapshots into public report cards.
 
 import type { MarketContext, MarketOverview, StockRecommendation } from '../services/stockService';
 import type { ShadowTrade } from '../types/quant';

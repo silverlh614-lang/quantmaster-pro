@@ -1,8 +1,6 @@
 // @responsibility sectorEnergyProvider 외부 클라이언트 모듈
 /**
  * sectorEnergyProvider.ts — KRX 실데이터를 sectorEnergyEngine 입력으로 가공.
- *
- * ADR-0343: public meta builder itself is fallback-aware.
  * ADR-0362: KRX index daily 가 empty 일 때 종목별 KRX 일별거래 + sector map 으로 합성.
  * ADR-0365: data-dbg index rows 는 IDX_IND_CD 없이 IDX_NM 만 올 수 있다.
  * ADR-0369: indexName fallback 은 기본 OFF. 서로 다른 KRX 지수를 이름/정규식으로 잘못
@@ -12,7 +10,6 @@
  * 변화 ±15%·주간 ±30% 초과는 데이터 결함 의심). indexName fallback ENV 활성 시
  * 부팅 1회 console.warn. aggregateIndexDeltas 키 합성 시 indexCode 우선 + indexName
  * 단독 매칭은 fallback OFF 시 호출 0건 보장. 동일 key 중복 silent overwrite 금지
- * (console.warn skip).
  */
 
 import {
@@ -751,7 +748,6 @@ export function indexRowKey(row: KrxIndexDailyRow, useNameFallback: boolean): st
   if (useNameFallback && row.indexName) return `${market}:name:${row.indexName}`;
   return null;
 }
-
 function warnIndexDateCollision(today: KrxIndexDailyRow, past: KrxIndexDailyRow, labelKey: string): void {
   console.warn(
     `[SectorEnergy] baseDate 동일 index=${labelKey} name=${today.indexName} ` +

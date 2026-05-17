@@ -1,10 +1,10 @@
 // @responsibility Regime-specific Shadow Learning Bank (diagnostic/read-only).
-import { loadCounterfactualShadowLearningLedger, type CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
+import { loadCounterfactualShadowLearningLedger } from '../persistence/counterfactualShadowLearningRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { loadAttributionRecords, type ServerAttributionRecord } from '../persistence/attributionRepo.js';
 import { getRegimeDiagnostics } from '../trading/regimeBridge.js';
-import { deriveRegimePhase, isRegimePhase, normalizeRegimeContext, type RegimePhase } from '../shadow/regimeContext.js';
+import { deriveRegimePhase, isRegimePhase, normalizeRegimeContext } from '../shadow/regimeContext.js';
 import { shadowCaseLedger, type ShadowCaseLedgerStore } from '../shadow/shadowCaseLedger.js';
 import type { ShadowCase } from '../shadow/shadowTypes.js';
 import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../runtime/engineRuntimePolicy.js';
@@ -18,375 +18,30 @@ import {
   type RegimeResolvedTransitionState,
 } from './regimeResolvedTransitionStore.js';
 import type { LearningGhostCase } from './learningTypes.js';
+import {
+  REGIME_LEARNING_PHASES,
+  type CollectRegimeLearningInput,
+  type OverfitRisk,
+  type RegimeAttributionConfidence,
+  type RegimeAttributionRecalcResult,
+  type RegimeConditionAttribution,
+  type RegimeConditionDirection,
+  type RegimeCounterfactualEntry,
+  type RegimeExpectancyConfidence,
+  type RegimeLearningBank,
+  type RegimeLearningConsistency,
+  type RegimeLearningQuality,
+  type RegimeLearningQualityStatus,
+  type RegimeLearningStats,
+  type RegimeMaturityByRegime,
+  type RegimePhase,
+  type RegimeResolvedStatus,
+  type RegimeResolvedStatusRow,
+  type RegimeSourceFamilyStats,
+} from './regimeLearningTypes.js';
 
-export { type RegimePhase } from '../shadow/regimeContext.js';
-
-export const REGIME_LEARNING_PHASES: RegimePhase[] = [
-  'R1_RECOVERY',
-  'R2_EARLY',
-  'R3_EXPANSION',
-  'R4_NEUTRAL',
-  'R5_CAUTION',
-  'R6_DEFENSE',
-  'SELL_ONLY',
-  'HARD_BLOCK',
-  'SHADOW_ONLY',
-  'OBSERVE_ONLY',
-  'MARKET_CLOSED',
-  'UNKNOWN',
-];
-
-export type OverfitRisk = 'LOW' | 'MEDIUM' | 'HIGH';
-export type RegimeLearningQualityStatus =
-  | 'NO_SAMPLE'
-  | 'LOW_SAMPLE'
-  | 'LOW_RESOLVED_SAMPLE'
-  | 'PENDING_DOMINATED'
-  | 'LOW_CONFIDENCE'
-  | 'ATTRIBUTION_INSUFFICIENT'
-  | 'LEARNING'
-  | 'DIAGNOSTIC_READY'
-  | 'STABLE_CANDIDATE'
-  | 'OVERFIT_RISK'
-  | 'DATA_QUALITY_LOW';
-
-export type RegimeExpectancyConfidence = 'N/A' | 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH';
-export type RegimeAttributionConfidence = 'INSUFFICIENT' | 'LOW' | 'ENOUGH_FOR_REVIEW';
-
-export type RegimeConditionDirection =
-  | 'ALPHA_DRIVER'
-  | 'RISK_PROTECTOR'
-  | 'FALSE_COMFORT'
-  | 'NOISE'
-  | 'INSUFFICIENT_SAMPLE';
-
-export interface RegimeConditionAttribution {
-  conditionId: string;
-  conditionName: string;
-  regimePhase: RegimePhase;
-  samples: number;
-  highSamples: number;
-  lowSamples: number;
-  winRate: number;
-  expectancyR: number;
-  effect: number | 'N/A';
-  avgReturnR: number;
-  confidence: 'LOW_SAMPLE' | 'LOW_CONFIDENCE' | 'ENOUGH_FOR_REVIEW';
-  minSamplePassed: boolean;
-  overfitFlag: boolean;
-  direction: RegimeConditionDirection;
-  recommendation: string;
-}
-
-export interface RegimeSourceFamilyStats {
-  sampleSize: number;
-  closedCount: number;
-  expectancyR: number;
-}
-
-export interface RegimeLearningQuality {
-  regimePhase: RegimePhase;
-  sampleSize: number;
-  totalSampleSize: number;
-  resolvedSampleSize: number;
-  closedOutcomeCount: number;
-  pendingCounterfactualCount: number;
-  pendingShadowCount: number;
-  pendingOpenCount: number;
-  quarantinedCount: number;
-  attributableSampleSize: number;
-  unresolvedRatio: number;
-  resolvedRatio: number;
-  pendingRatio: number;
-  closedSampleCount: number;
-  labelCompletionRate: number;
-  sourceConfidenceHighRatio: number;
-  unknownRatio: number;
-  dataQualityScore: number;
-  conditionCoverage: number;
-  counterfactualCoverage: number;
-  freshShadowCoverage: number;
-  overfitRisk: OverfitRisk;
-  qualityStatus: RegimeLearningQualityStatus;
-}
-
-export interface RegimeLearningStats {
-  regimePhase: RegimePhase;
-  sampleSize: number;
-  totalSampleSize: number;
-  resolvedSampleSize: number;
-  closedOutcomeCount: number;
-  pendingCounterfactualCount: number;
-  pendingShadowCount: number;
-  pendingOpenCount: number;
-  quarantinedCount: number;
-  attributableSampleSize: number;
-  unresolvedRatio: number;
-  resolvedRatio: number;
-  pendingRatio: number;
-  freshShadowCount: number;
-  counterfactualCount: number;
-  ghostRepairCount: number;
-  closedCount: number;
-  winCount: number;
-  lossCount: number;
-  breakevenCount: number;
-  winRate: number;
-  avgReturnR: number;
-  expectancyR: number;
-  avgMFE: number;
-  avgMAE: number;
-  avgHoldingMinutes: number;
-  labelCompletionRate: number;
-  dataQualityScore: number;
-  sourceConfidenceHighRatio: number;
-  unknownRatio: number;
-  conditionCoverage: number;
-  counterfactualCoverage: number;
-  freshShadowCoverage: number;
-  overfitRisk: OverfitRisk;
-  qualityStatus: RegimeLearningQualityStatus;
-  expectancyConfidence: RegimeExpectancyConfidence;
-  attributionConfidence: RegimeAttributionConfidence;
-  expectancyReason?: 'NO_RESOLVED_SAMPLE';
-  whyNotReliable: string;
-  reliabilityWarning?: string;
-  quality: RegimeLearningQuality;
-  promotionStage: 'SHADOW_SCORE' | 'ADVISORY';
-  promotionAllowed: false;
-  diagnosticOnly: true;
-  recommendationOnly: true;
-  topCondition?: string;
-  worstCondition?: string;
-  bestSector?: string;
-  worstSector?: string;
-  topSector?: string;
-  topPositiveConditions: RegimeConditionAttribution[];
-  topNegativeConditions: RegimeConditionAttribution[];
-  lowSampleConditions: RegimeConditionAttribution[];
-  unstableConditions: RegimeConditionAttribution[];
-  conditionAttributions: RegimeConditionAttribution[];
-  topSectors: Array<{ sector: string; samples: number; expectancyR: number }>;
-  worstSectors: Array<{ sector: string; samples: number; expectancyR: number }>;
-  bestSymbols: Array<{ symbol: string; name: string; returnR: number }>;
-  worstSymbols: Array<{ symbol: string; name: string; returnR: number }>;
-  commonFailureReasons: Array<{ reason: string; count: number }>;
-  counterfactualLabelBreakdown: Record<string, number>;
-  bestConditionCombo?: string;
-  worstConditionCombo?: string;
-  bestPattern?: string;
-  worstPattern?: string;
-  bestTimeWindow?: string;
-  worstTimeWindow?: string;
-  bestMarketSession?: string;
-  commonFailureReason?: string;
-  survivorPattern?: string;
-  earlyLeaderPattern?: string;
-  volumeAccumulationPattern?: string;
-  firstBreakoutPattern?: string;
-  falseStartRisk?: string;
-  trendContinuationPattern?: string;
-  vcpBreakoutPattern?: string;
-  pullbackBuyPattern?: string;
-  overheatBreakoutRisk?: string;
-  breakoutPattern?: string;
-  reversalPattern?: string;
-  chopAvoidancePattern?: string;
-  drawdownDefensePattern?: string;
-  recoverySpeedPattern?: string;
-  supplyRetentionPattern?: string;
-  deadCatBounceRisk?: string;
-  sourceConfidenceBreakdown: Record<string, number>;
-  freshShadowStats: RegimeSourceFamilyStats;
-  ghostRepairStats: RegimeSourceFamilyStats;
-  counterfactualStats: RegimeSourceFamilyStats;
-  outcomeStats: RegimeSourceFamilyStats;
-  attributionStats: RegimeSourceFamilyStats;
-  nextLearningNeed: string;
-  blocker?: string;
-}
-
-export interface RegimeLearningBank {
-  activeRegime: string;
-  rawRegime: string;
-  effectiveRegime: string;
-  shadowLearningAllowed: true;
-  stats: RegimeLearningStats[];
-  bestRegimeByExpectancy?: RegimePhase;
-  worstRegimeByExpectancy?: RegimePhase;
-  activeRegimePhase: RegimePhase;
-  activeRegimeSampleSize: number;
-  activeRegimeTotalSampleSize: number;
-  activeRegimeResolvedSampleSize: number;
-  activeRegimePendingCounterfactualCount: number;
-  activeRegimeAttributableSampleSize: number;
-  activeRegimeExpectancyR: number;
-  activeRegimeTopPattern: string;
-  activeRegimeLearningNeed: string;
-  activeRegimeWhyNotReliable: string;
-  regimeLearningSampleSize: number;
-  regimeAssignedCount: number;
-  unknownRegimeCount: number;
-  unknownRatio: number;
-  activeRegimeQualityStatus: RegimeLearningQualityStatus;
-  regimeBankConsistency: 'OK' | 'MISMATCH';
-  duplicateCaseCount: number;
-  sourceCounts: {
-    freshShadow: number;
-    ghostRepair: number;
-    counterfactual: number;
-    outcome: number;
-    attribution: number;
-  };
-  byConfidence: Record<string, number>;
-  R1QualityStatus: RegimeLearningQualityStatus;
-  R2QualityStatus: RegimeLearningQualityStatus;
-  R3QualityStatus: RegimeLearningQualityStatus;
-  R4QualityStatus: RegimeLearningQualityStatus;
-  R5QualityStatus: RegimeLearningQualityStatus;
-  R6QualityStatus: RegimeLearningQualityStatus;
-  R2ResolvedSampleSize: number;
-  R3ResolvedSampleSize: number;
-  R6ResolvedSampleSize: number;
-  R2PendingCounterfactualCount: number;
-  R3PendingCounterfactualCount: number;
-  R6PendingCounterfactualCount: number;
-  nextRegimeMaturityAt?: string;
-  regimesNeedingAttributionRecalc: string[];
-  regimeLearningNextAction: string;
-  nextRegimeLearningAction: string;
-  unknownReductionNeeded: boolean;
-  recommendationOnly: true;
-  promotionAllowed: false;
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-}
-
-export interface CollectRegimeLearningInput {
-  now?: Date;
-  ledger?: ShadowCaseLedgerStore;
-  shadowCases?: ShadowCase[];
-  counterfactualEntries?: CounterfactualShadowLearningLedgerEntry[];
-  legacyCounterfactualEntries?: CounterfactualEntry[];
-  ghostCases?: LearningGhostCase[];
-  attributionRecords?: ServerAttributionRecord[];
-  includePersistedSources?: boolean;
-  rawRegime?: string;
-  effectiveRegime?: string;
-}
-
-export interface RegimeLearningConsistency {
-  totalLearningCases: number;
-  regimeLearningSampleSize: number;
-  regimeAssignedCount: number;
-  unknownRegimeCount: number;
-  unknownRatio: number;
-  regimeBankSampleCount: number;
-  ghostRepairCountInBank: number;
-  counterfactualCountInBank: number;
-  outcomeCountInBank: number;
-  attributionCountInBank: number;
-  duplicateCaseCount: number;
-  regimeSumMatchesTotal: boolean;
-  byRegime: Record<string, number>;
-  byConfidence: Record<string, number>;
-  metricWarnings: string[];
-  nextAction: string;
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-  promotionAllowed: false;
-}
-
-export interface RegimeMaturityByRegime {
-  regimePhase: RegimePhase;
-  pendingOutcomeCount: number;
-  maturedNowCount: number;
-  dueToday: number;
-  dueNextTradingDay: number;
-  dueIn2to3CalendarDays: number;
-  dueIn4to7CalendarDays: number;
-  dueIn8to14CalendarDays: number;
-  dueAfter14CalendarDays: number;
-  nearestMaturityAt?: string;
-  largestMaturityBucket: string;
-}
-
-export interface RegimeResolvedStatusRow {
-  regimePhase: RegimePhase;
-  totalSampleSize: number;
-  resolvedSampleSize: number;
-  pendingCounterfactualCount: number;
-  pendingMaturityCount: number;
-  dueWithin1d: number;
-  dueWithin3d: number;
-  dueWithin7d: number;
-  nextMaturityAt?: string;
-  nextResolveAt?: string;
-  attributableSampleSize: number;
-  qualityStatus: RegimeLearningQualityStatus;
-  nextAction: string;
-}
-
-export interface RegimeResolvedStatus {
-  rows: RegimeResolvedStatusRow[];
-  maturityByRegime: RegimeMaturityByRegime[];
-  nextRegimeMaturityAt?: string;
-  nextResolveAt?: string;
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-  promotionAllowed: false;
-  recommendationOnly: true;
-}
-
-export interface RegimeAttributionRecalcResult {
-  regimesNeedingRecalc: string[];
-  resolvedDeltaByRegime: Record<string, number>;
-  attributableSampleSizeByRegime: Record<string, number>;
-  stillInsufficientRegimes: string[];
-  expectedConditionUpdates: number;
-  recalculatedRegimes?: string[];
-  skippedLowSampleRegimes?: string[];
-  conditionAttributionUpdated?: number;
-  noWeightUpdate?: true;
-  recommendationOnly: true;
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-  promotionAllowed: false;
-}
-
-type RegimeCounterfactualEntry = CounterfactualShadowLearningLedgerEntry | {
-  label?: string;
-  outcomeLabel?: string;
-  outcomeStatus?: string;
-  createdAt?: string;
-  createdAtKst?: string;
-  signalTime?: string;
-  signalDate?: string;
-  maxHoldingMinutes?: number;
-  maturityAt?: string;
-  blockedBy?: string[];
-  regime?: string;
-  rawRegime?: string;
-  effectiveRegime?: string;
-  regimePhase?: RegimePhase;
-  originalRegimePhase?: RegimePhase;
-  regimeAtSignal?: RegimePhase | string;
-  engineMode?: string;
-  marketSession?: string;
-  sellOnlyActive?: boolean;
-  hardBlockActive?: boolean;
-  blockedReason?: string;
-  skipReason?: string;
-  sourceFreshness?: string;
-  regimeConfidence?: string;
-  regimeRecoveryConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
-  regimeRecoverySource?: string;
-  symbol?: string;
-  stockCode?: string;
-  stockName?: string;
-  counterfactualKey?: string;
-  id?: string;
-};
+export { REGIME_LEARNING_PHASES } from './regimeLearningTypes.js';
+export type * from './regimeLearningTypes.js';
 
 const CLOSED_LABELS = new Set(['WIN', 'LOSS', 'BREAKEVEN', 'EXPIRED']);
 const RESOLVED_LABELS = new Set([
