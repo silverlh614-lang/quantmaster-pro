@@ -402,174 +402,207 @@ export async function runChannelHealthCheck(): Promise<Record<AlertCategory, Cha
   return result;
 }
 
-export async function dispatchAlert(
+function appendSkippedHistory(
+  category: AlertCategory,
+  priority: DispatchPriority,
+  message: string,
+  delivery: 'skipped' | 'immediate',
+  error: string,
+  channelId?: string,
+): void {
+  appendAlertHistory({
+    category,
+    priority,
+    message,
+    delivery,
+    success: false,
+    channelId,
+    error,
+  });
+}
+
+function recordSkippedStat(
+  category: AlertCategory,
+  statName: 'disabledSkipped' | 'cooldownSkipped' | 'missingChannelSkipped',
+  eventType: string | undefined,
+  reason: string,
+): void {
+  incrementChannelStat(category, statName, {
+    eventType,
+    skippedReason: reason,
+  });
+  incrementChannelStat(category, 'skipped', {
+    eventType,
+    skippedReason: reason,
+  });
+}
+
+function bufferAlertHistory(
+  category: AlertCategory,
+  priority: DispatchPriority,
+  message: string,
+): void {
+  appendAlertHistory({
+    category,
+    priority,
+    message,
+    delivery: 'buffered',
+    success: true,
+  });
+}
+
+function bufferDailyAlert(
+  category: AlertCategory,
+  message: string,
+  priority: DispatchPriority,
+  statEventType: string | undefined,
+): boolean {
+  if (category === AlertCategory.SYSTEM) {
+    systemDailyBuffer.push({ at: new Date().toISOString(), message, priority });
+  } else if (category === AlertCategory.INFO) {
+    infoDailyDigestBuffer.push({ at: new Date().toISOString(), message, priority });
+  } else {
+    return false;
+  }
+  incrementChannelStat(category, 'buffered', { eventType: statEventType });
+  incrementChannelStat(category, 'digested', { eventType: statEventType });
+  bufferAlertHistory(category, priority, message);
+  return true;
+}
+
+function bufferWeeklyAlert(
+  message: string,
+  priority: DispatchPriority,
+  statEventType: string | undefined,
+): void {
+  systemWeeklyBuffer.push({ at: new Date().toISOString(), message, priority });
+  incrementChannelStat(AlertCategory.SYSTEM, 'buffered', { eventType: statEventType });
+  incrementChannelStat(AlertCategory.SYSTEM, 'digested', { eventType: statEventType });
+  bufferAlertHistory(AlertCategory.SYSTEM, priority, message);
+}
+
+interface NoiseDispatchResult {
+  handled: boolean;
+  options?: DispatchAlertOptions;
+}
+
+function applyNoisePolicyToDispatch(
   category: AlertCategory,
   message: string,
   options?: DispatchAlertOptions,
-): Promise<number | undefined> {
-  const routedMessage = normalizeChannelMessage(category, message);
-  if (options?.noiseEvent) {
-    const noise = evaluateAlertNoise(options.noiseEvent);
-    const statEventType = options.eventType ?? options.dedupeKey ?? noise.dedupeKey;
-    if (!noise.shouldSendNow) {
-      incrementChannelStat(category, 'emitted', { eventType: statEventType });
-      if (noise.shouldDigest) {
-        const row = { at: new Date().toISOString(), message: routedMessage, priority: 'LOW' as DispatchPriority };
-        if (category === AlertCategory.INFO) infoDailyDigestBuffer.push(row);
-        else systemDailyBuffer.push(row);
-        incrementChannelStat(category, 'buffered', { eventType: statEventType });
-        incrementChannelStat(category, 'digested', { eventType: statEventType });
-        appendAlertHistory({
-          category,
-          priority: 'LOW',
-          message: routedMessage,
-          delivery: 'buffered',
-          success: true,
-        });
-      } else {
-        incrementChannelStat(category, 'skipped', {
-          eventType: statEventType,
-          skippedReason: noise.reason,
-        });
-        appendAlertHistory({
-          category,
-          priority: 'LOW',
-          message: routedMessage,
-          delivery: 'skipped',
-          success: false,
-          error: noise.reason,
-        });
-      }
-      return;
+): NoiseDispatchResult {
+  if (!options?.noiseEvent) return { handled: false, options };
+
+  const noise = evaluateAlertNoise(options.noiseEvent);
+  const statEventType = options.eventType ?? options.dedupeKey ?? noise.dedupeKey;
+  if (!noise.shouldSendNow) {
+    incrementChannelStat(category, 'emitted', { eventType: statEventType });
+    if (noise.shouldDigest) {
+      const row = { at: new Date().toISOString(), message, priority: 'LOW' as DispatchPriority };
+      if (category === AlertCategory.INFO) infoDailyDigestBuffer.push(row);
+      else systemDailyBuffer.push(row);
+      incrementChannelStat(category, 'buffered', { eventType: statEventType });
+      incrementChannelStat(category, 'digested', { eventType: statEventType });
+      bufferAlertHistory(category, 'LOW', message);
+    } else {
+      incrementChannelStat(category, 'skipped', {
+        eventType: statEventType,
+        skippedReason: noise.reason,
+      });
+      appendSkippedHistory(category, 'LOW', message, 'skipped', noise.reason);
     }
-    options = {
+    return { handled: true, options };
+  }
+
+  return {
+    handled: false,
+    options: {
       ...options,
       priority: options.priority ?? priorityFromNoiseLevel(noise.level),
       dedupeKey: options.dedupeKey ?? noise.dedupeKey,
       cooldownMs: options.cooldownMs ?? noise.ttlSeconds * 1000,
       eventType: options.eventType ?? noise.reason,
-    };
-  }
-  const priority = resolvePriority(category, options);
-  const statEventType = options?.eventType ?? options?.dedupeKey;
-  incrementChannelStat(category, 'emitted', { eventType: statEventType });
-  if (!isCategoryEnabled(category)) {
-    incrementChannelStat(category, 'disabledSkipped', {
-      eventType: statEventType,
-      skippedReason: 'category disabled',
-    });
-    incrementChannelStat(category, 'skipped', {
-      eventType: statEventType,
-      skippedReason: 'category disabled',
-    });
-    appendAlertHistory({
-      category,
-      priority,
-      message: routedMessage,
-      delivery: 'skipped',
-      success: false,
-      error: 'category disabled',
-    });
-    return;
-  }
-  incrementChannelStat(category, 'routed', { eventType: statEventType });
+    },
+  };
+}
 
-  if (category === AlertCategory.SYSTEM && options?.delivery === 'daily_digest') {
-    systemDailyBuffer.push({ at: new Date().toISOString(), message: routedMessage, priority });
-    incrementChannelStat(category, 'buffered', { eventType: statEventType });
-    incrementChannelStat(category, 'digested', { eventType: statEventType });
-    appendAlertHistory({
-      category,
-      priority,
-      message: routedMessage,
-      delivery: 'buffered',
-      success: true,
-    });
-    return;
-  }
+function handleDisabledCategory(
+  category: AlertCategory,
+  priority: DispatchPriority,
+  message: string,
+  statEventType: string | undefined,
+): boolean {
+  if (isCategoryEnabled(category)) return false;
+  recordSkippedStat(category, 'disabledSkipped', statEventType, 'category disabled');
+  appendSkippedHistory(category, priority, message, 'skipped', 'category disabled');
+  return true;
+}
 
+function handleBufferedDelivery(
+  category: AlertCategory,
+  message: string,
+  priority: DispatchPriority,
+  options: DispatchAlertOptions | undefined,
+  statEventType: string | undefined,
+): boolean {
   if (options?.delivery === 'weekly_digest') {
-    systemWeeklyBuffer.push({ at: new Date().toISOString(), message: routedMessage, priority });
-    incrementChannelStat(AlertCategory.SYSTEM, 'buffered', { eventType: statEventType });
-    incrementChannelStat(AlertCategory.SYSTEM, 'digested', { eventType: statEventType });
-    appendAlertHistory({
-      category: AlertCategory.SYSTEM,
-      priority,
-      message: routedMessage,
-      delivery: 'buffered',
-      success: true,
-    });
-    return;
+    bufferWeeklyAlert(message, priority, statEventType);
+    return true;
   }
-
-  if (category === AlertCategory.INFO && options?.delivery === 'daily_digest') {
-    infoDailyDigestBuffer.push({ at: new Date().toISOString(), message: routedMessage, priority });
-    incrementChannelStat(category, 'buffered', { eventType: statEventType });
-    incrementChannelStat(category, 'digested', { eventType: statEventType });
-    appendAlertHistory({
-      category,
-      priority,
-      message: routedMessage,
-      delivery: 'buffered',
-      success: true,
-    });
-    return;
+  if (options?.delivery === 'daily_digest') {
+    return bufferDailyAlert(category, message, priority, statEventType);
   }
+  return false;
+}
 
-  if (!shouldSendByCooldown(category, priority, options)) {
-    incrementChannelStat(category, 'cooldownSkipped', {
-      eventType: statEventType,
-      skippedReason: 'cooldown',
-    });
-    incrementChannelStat(category, 'skipped', {
-      eventType: statEventType,
-      skippedReason: 'cooldown',
-    });
-    appendAlertHistory({
-      category,
-      priority,
-      message: routedMessage,
-      delivery: 'skipped',
-      success: false,
-      error: 'cooldown',
-    });
-    return;
-  }
+function handleCooldownSkip(
+  category: AlertCategory,
+  message: string,
+  priority: DispatchPriority,
+  options: DispatchAlertOptions | undefined,
+  statEventType: string | undefined,
+): boolean {
+  if (shouldSendByCooldown(category, priority, options)) return false;
+  recordSkippedStat(category, 'cooldownSkipped', statEventType, 'cooldown');
+  appendSkippedHistory(category, priority, message, 'skipped', 'cooldown');
+  return true;
+}
 
+function resolveDispatchChannel(
+  category: AlertCategory,
+  message: string,
+  priority: DispatchPriority,
+  statEventType: string | undefined,
+): string | undefined {
   const channelMap = resolveCategoryChannelMap();
   const channelId = channelMap[category];
-  if (!channelId) {
-    warnOnce(
-      `missing_channel_${category}`,
-      `[AlertRouter] ${category} channel is not configured; skipping send.`,
-    );
-    incrementChannelStat(category, 'missingChannelSkipped', {
-      eventType: statEventType,
-      skippedReason: 'channel_id missing',
-    });
-    incrementChannelStat(category, 'skipped', {
-      eventType: statEventType,
-      skippedReason: 'channel_id missing',
-    });
-    appendAlertHistory({
-      category,
-      priority,
-      message: routedMessage,
-      delivery: 'immediate',
-      success: false,
-      error: 'channel_id missing',
-    });
-    return;
-  }
+  if (channelId) return channelId;
 
+  warnOnce(
+    `missing_channel_${category}`,
+    `[AlertRouter] ${category} channel is not configured; skipping send.`,
+  );
+  recordSkippedStat(category, 'missingChannelSkipped', statEventType, 'channel_id missing');
+  appendSkippedHistory(category, priority, message, 'immediate', 'channel_id missing');
+  return undefined;
+}
+
+async function sendImmediateDispatch(
+  category: AlertCategory,
+  message: string,
+  priority: DispatchPriority,
+  channelId: string,
+  options: DispatchAlertOptions | undefined,
+  statEventType: string | undefined,
+): Promise<number | undefined> {
   const disableNotification = resolveVibrationDecision(category, priority, options?.disableNotification);
-  const msgId = await sendChannelAlertTo(channelId, routedMessage, { disableNotification });
+  const msgId = await sendChannelAlertTo(channelId, message, { disableNotification });
   if (msgId !== undefined) {
     incrementChannelStat(category, 'sent', { eventType: statEventType });
     appendAlertHistory({
       category,
       priority,
-      message: routedMessage,
+      message,
       delivery: 'immediate',
       success: true,
       channelId,
@@ -577,15 +610,31 @@ export async function dispatchAlert(
     });
   } else {
     incrementChannelStat(category, 'failed', { eventType: statEventType });
-    appendAlertHistory({
-      category,
-      priority,
-      message: routedMessage,
-      delivery: 'immediate',
-      success: false,
-      channelId,
-      error: 'send failed',
-    });
+    appendSkippedHistory(category, priority, message, 'immediate', 'send failed', channelId);
   }
   return msgId;
+}
+
+export async function dispatchAlert(
+  category: AlertCategory,
+  message: string,
+  options?: DispatchAlertOptions,
+): Promise<number | undefined> {
+  const routedMessage = normalizeChannelMessage(category, message);
+  const noiseResult = applyNoisePolicyToDispatch(category, routedMessage, options);
+  if (noiseResult.handled) return undefined;
+  options = noiseResult.options;
+
+  const priority = resolvePriority(category, options);
+  const statEventType = options?.eventType ?? options?.dedupeKey;
+  incrementChannelStat(category, 'emitted', { eventType: statEventType });
+  if (handleDisabledCategory(category, priority, routedMessage, statEventType)) return undefined;
+
+  incrementChannelStat(category, 'routed', { eventType: statEventType });
+  if (handleBufferedDelivery(category, routedMessage, priority, options, statEventType)) return undefined;
+  if (handleCooldownSkip(category, routedMessage, priority, options, statEventType)) return undefined;
+
+  const channelId = resolveDispatchChannel(category, routedMessage, priority, statEventType);
+  if (!channelId) return undefined;
+  return sendImmediateDispatch(category, routedMessage, priority, channelId, options, statEventType);
 }
