@@ -205,7 +205,7 @@ describe('shadowFutureReturnCacheProvider', () => {
   it('uses longer range candidates for 20d horizon with target-date matching', async () => {
     mockedGetSnapshot.mockReturnValue(yahooSnapshot());
     mockedParseYahooChartBody.mockReturnValue([
-      point('2026-06-09', 12000),
+      point('2026-06-08', 12000),
     ]);
     const provider = createShadowFutureReturnCachePriceProvider();
 
