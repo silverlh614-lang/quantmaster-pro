@@ -522,6 +522,129 @@ function calculateWeeklyTotalPnlPct(closed: ServerShadowTrade[]): number {
     : 0;
 }
 
+type WatchlistBriefingEntry = ReturnType<typeof loadWatchlist>[number];
+type WatchlistBriefingQuote = NonNullable<Awaited<ReturnType<typeof fetchYahooQuoteByCode>>>;
+
+const WATCHLIST_REGIME_EMOJI: Record<string, string> = {
+  R1_TURBO: '🟢',
+  R2_BULL: '🟢',
+  R3_EARLY: '🟡',
+  R4_NEUTRAL: '⚪',
+  R5_CAUTION: '🟠',
+  R6_DEFENSE: '🔴',
+};
+
+function buildOpenShadowCodes(): Set<string> {
+  return new Set(
+    loadShadowTrades()
+      .filter((s) => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0)
+      .map((s) => s.stockCode),
+  );
+}
+
+function buildWatchlistBriefingHeader(
+  regime: string,
+  macro: ReturnType<typeof loadMacroState>,
+): string {
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const hh = now.getUTCHours().toString().padStart(2, '0');
+  const mm = now.getUTCMinutes().toString().padStart(2, '0');
+
+  return `🌅 <b>[${hh}:${mm} 장전 브리핑]</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `레짐: <b>${regime}</b> ${WATCHLIST_REGIME_EMOJI[regime] ?? '⚪'}  ` +
+    `MHS: ${macro?.mhs ?? 'N/A'}  ` +
+    `VKOSPI: ${macro?.vkospi?.toFixed(1) ?? 'N/A'}\n` +
+    `━━━━━━━━━━━━━━━━\n`;
+}
+
+function resolveWatchlistGapLabel(quote: WatchlistBriefingQuote): string {
+  if (!quote.prevClose || quote.prevClose <= 0 || !quote.dayOpen || quote.dayOpen <= 0) {
+    return '';
+  }
+  const gapPct = safePctChange(quote.dayOpen, quote.prevClose, {
+    label: 'reportGenerator.gapPct',
+  });
+  if (gapPct === null) return '';
+  if (gapPct >= 4) return `Gap+${gapPct.toFixed(1)}% 과열`;
+  if (gapPct >= 1) return `Gap+${gapPct.toFixed(1)}%`;
+  if (gapPct <= -1) return `Gap${gapPct.toFixed(1)}%`;
+  return '';
+}
+
+function resolveWatchlistEntryStatus(w: WatchlistBriefingEntry, quote: WatchlistBriefingQuote): string {
+  const gate = evaluateServerGate(quote);
+  const cs = gate.compressionScore;
+  const gapLabel = resolveWatchlistGapLabel(quote);
+
+  if (gate.signalType === 'STRONG') {
+    return `진입대기 @${w.entryPrice.toLocaleString()}`;
+  }
+  if (gate.signalType === 'NORMAL') {
+    return `조건 부분충족 (Score ${gate.gateScore.toFixed(1)})`;
+  }
+  if (cs >= 0.4) {
+    return `VCP 압축 중 (CS: ${cs.toFixed(2)})`;
+  }
+
+  let status = `조건 미달`;
+  if (gapLabel) status += ` (${gapLabel})`;
+  return status;
+}
+
+async function buildWatchlistBriefingItemLine(
+  w: WatchlistBriefingEntry,
+  openCodes: Set<string>,
+): Promise<string> {
+  if (openCodes.has(w.code)) {
+    const focusMark = w.isFocus ? '★ ' : '• ';
+    return `${focusMark}${w.name}  보유중 · 대기목록 제외\n`;
+  }
+
+  // Yahoo 시세 조회하여 CS, Gap 판단 (ADR-0443: SSOT 위임, ADR-0241 sanity 자동).
+  const quote = await fetchYahooQuoteByCode(w.code, fetchYahooQuote).catch(() => null);
+  if (quote && quote.price > 0) {
+    const focusMark = w.isFocus ? '★ ' : '• ';
+    return `${focusMark}${w.name}  ${resolveWatchlistEntryStatus(w, quote)}\n`;
+  }
+  return `• ${w.name}  (시세 조회 실패)\n`;
+}
+
+async function buildWatchlistBriefingRows(
+  list: WatchlistBriefingEntry[],
+  openCodes: Set<string>,
+): Promise<string> {
+  if (list.length === 0) return `워치리스트 비어있음\n`;
+
+  let msg = `<b>워치리스트 ${list.length}종목</b>\n`;
+  for (const w of list.slice(0, 8)) {
+    msg += await buildWatchlistBriefingItemLine(w, openCodes);
+  }
+  if (list.length > 8) {
+    msg += `  <i>... 외 ${list.length - 8}종목</i>\n`;
+  }
+  return msg;
+}
+
+function buildWatchlistBriefingFooter(fomc: ReturnType<typeof getFomcProximity>): string {
+  let msg = `━━━━━━━━━━━━━━━━\n`;
+  if (fomc.phase !== 'NORMAL') {
+    msg += `⚠️ 오늘 주의: ${fomc.description}\n`;
+  }
+
+  const kellyNote = fomc.kellyMultiplier !== 1.0
+    ? `Kelly ×${fomc.kellyMultiplier.toFixed(2)} 자동 적용`
+    : null;
+  if (kellyNote) {
+    msg += `📌 ${kellyNote}\n`;
+  }
+
+  if (fomc.phase === 'NORMAL' && !kellyNote) {
+    msg += `<i>오늘도 원칙대로 ✊</i>\n`;
+  }
+  return msg;
+}
+
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
  * 1. 거래 데이터 + MHS + 월간 통계를 Gemini에 주입 (googleSearch 없음)
@@ -647,11 +770,7 @@ export async function generateWeeklyReport(): Promise<void> {
  */
 export async function sendWatchlistBriefing(): Promise<void> {
   const list = loadWatchlist();
-  const openCodes = new Set(
-    loadShadowTrades()
-      .filter((s) => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0)
-      .map((s) => s.stockCode),
-  );
+  const openCodes = buildOpenShadowCodes();
   const macro = loadMacroState();
   const regime = getLiveRegime(macro);
   // v3.1 (2026-04-26): macro snapshot 전달해 우호 환경 완화 일관성 확보.
@@ -665,98 +784,10 @@ export async function sendWatchlistBriefing(): Promise<void> {
       : undefined,
   );
 
-  // 레짐 이모지 맵
-  const regimeEmoji: Record<string, string> = {
-    R1_TURBO: '🟢', R2_BULL: '🟢', R3_EARLY: '🟡',
-    R4_NEUTRAL: '⚪', R5_CAUTION: '🟠', R6_DEFENSE: '🔴',
-  };
-
-  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const hh = now.getUTCHours().toString().padStart(2, '0');
-  const mm = now.getUTCMinutes().toString().padStart(2, '0');
-
-  // ── ① 레짐 헤더 ──────────────────────────────────────────────────────────
-  let msg =
-    `🌅 <b>[${hh}:${mm} 장전 브리핑]</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
-    `레짐: <b>${regime}</b> ${regimeEmoji[regime] ?? '⚪'}  ` +
-    `MHS: ${macro?.mhs ?? 'N/A'}  ` +
-    `VKOSPI: ${macro?.vkospi?.toFixed(1) ?? 'N/A'}\n` +
-    `━━━━━━━━━━━━━━━━\n`;
-
-  // ── ② 워치리스트 종목별 상세 ──────────────────────────────────────────────
-  if (list.length === 0) {
-    msg += `워치리스트 비어있음\n`;
-  } else {
-    msg += `<b>워치리스트 ${list.length}종목</b>\n`;
-    const topItems = list.slice(0, 8);
-    for (const w of topItems) {
-      if (openCodes.has(w.code)) {
-        const focusMark = w.isFocus ? '★ ' : '• ';
-        msg += `${focusMark}${w.name}  보유중 · 대기목록 제외\n`;
-        continue;
-      }
-      // Yahoo 시세 조회하여 CS, Gap 판단 (ADR-0443: SSOT 위임, ADR-0241 sanity 자동).
-      const quote = await fetchYahooQuoteByCode(w.code, fetchYahooQuote).catch(() => null);
-
-      if (quote && quote.price > 0) {
-        const gate = evaluateServerGate(quote);
-        const cs = gate.compressionScore;
-
-        // 갭 판단: 시가 vs 전일종가 — ADR-0059: stale prevClose/dayOpen 시 라벨 미부착.
-        let gapLabel = '';
-        if (quote.prevClose && quote.prevClose > 0 && quote.dayOpen && quote.dayOpen > 0) {
-          const gapPct = safePctChange(quote.dayOpen, quote.prevClose, {
-            label: 'reportGenerator.gapPct',
-          });
-          if (gapPct !== null) {
-            if (gapPct >= 4) gapLabel = `Gap+${gapPct.toFixed(1)}% 과열`;
-            else if (gapPct >= 1) gapLabel = `Gap+${gapPct.toFixed(1)}%`;
-            else if (gapPct <= -1) gapLabel = `Gap${gapPct.toFixed(1)}%`;
-          }
-        }
-
-        // 진입 상태 판단
-        let status: string;
-        if (gate.signalType === 'STRONG') {
-          status = `진입대기 @${w.entryPrice.toLocaleString()}`;
-        } else if (gate.signalType === 'NORMAL') {
-          status = `조건 부분충족 (Score ${gate.gateScore.toFixed(1)})`;
-        } else if (cs >= 0.4) {
-          status = `VCP 압축 중 (CS: ${cs.toFixed(2)})`;
-        } else {
-          status = `조건 미달`;
-          if (gapLabel) status += ` (${gapLabel})`;
-        }
-
-        const focusMark = w.isFocus ? '★ ' : '• ';
-        msg += `${focusMark}${w.name}  ${status}\n`;
-      } else {
-        msg += `• ${w.name}  (시세 조회 실패)\n`;
-      }
-    }
-    if (list.length > 8) {
-      msg += `  <i>... 외 ${list.length - 8}종목</i>\n`;
-    }
-  }
-
-  // ── ③ FOMC / 특이사항 ─────────────────────────────────────────────────────
-  msg += `━━━━━━━━━━━━━━━━\n`;
-  if (fomc.phase !== 'NORMAL') {
-    msg += `⚠️ 오늘 주의: ${fomc.description}\n`;
-  }
-
-  // Kelly 배율 표시
-  const kellyNote = fomc.kellyMultiplier !== 1.0
-    ? `Kelly ×${fomc.kellyMultiplier.toFixed(2)} 자동 적용`
-    : null;
-  if (kellyNote) {
-    msg += `📌 ${kellyNote}\n`;
-  }
-
-  if (fomc.phase === 'NORMAL' && !kellyNote) {
-    msg += `<i>오늘도 원칙대로 ✊</i>\n`;
-  }
+  const msg =
+    buildWatchlistBriefingHeader(regime, macro) +
+    (await buildWatchlistBriefingRows(list, openCodes)) +
+    buildWatchlistBriefingFooter(fomc);
 
   await sendTelegramAlert(msg).catch(console.error);
   console.log('[AutoTrade] 워치리스트 브리핑 완료 (구조화)');
