@@ -233,6 +233,151 @@ export function summarizeTodayBuyEvents(events: TodayBuyEvent[]): TodayBuyEventS
   };
 }
 
+function buildDailyTradeLines(realizations: TodayRealization[]): string {
+  return realizations.length > 0
+    ? realizations.map((x) => {
+        const icon = (x.fill.pnl ?? 0) >= 0 ? '✅' : '❌';
+        const kind = x.isFinalClose
+          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
+          : '부분매도';
+        const pct = (x.fill.pnlPct ?? 0).toFixed(2);
+        return `  ${icon} ${x.trade.stockName}(${x.trade.stockCode}) ${kind} ${pct}% · ${x.fill.qty}주`;
+      }).join('\n')
+    : '  (오늘 실현 이벤트 없음)';
+}
+
+function buildDailyStatsLine(r: TodayRealizationStats): string {
+  const totalReturn = r.weightedReturnPct;
+  return r.realizationCount >= 5
+    ? `▶ 적중률: ${r.winRate}%  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`
+    : `▶ 표본 ${r.realizationCount}건 (통계 ${Math.max(0, 5 - r.realizationCount)}건 더 필요)  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`;
+}
+
+function buildMonthlyLine(stats: ReturnType<typeof getMonthlyStats>): string {
+  return stats.sampleSufficient
+    ? `[월간 ${stats.month}] WIN률 ${stats.winRate.toFixed(1)}% | PF ${
+        stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : 'N/A'
+      } | 평균 ${stats.avgReturn.toFixed(2)}% | 복리 ${stats.compoundReturn.toFixed(2)}%`
+    : `[월간 ${stats.month}] 표본 ${stats.total}건 — 통계 신뢰 위해 5건 이상 필요`;
+}
+
+async function loadDailyShadowLearningLines(
+  stats: ReturnType<typeof getMonthlyStats>,
+): Promise<{ shadowReportLine: string; shadowNarrativeLine: string }> {
+  try {
+    const { buildShadowLearningSummary } = await import('./shadowLearningSummary.js');
+    const summary = buildShadowLearningSummary(stats.compoundReturn ?? 0);
+    return {
+      shadowReportLine: summary.reportLine,
+      shadowNarrativeLine: summary.narrativeLine,
+    };
+  } catch (e) {
+    console.warn('[DailyReport] Shadow 학습 요약 실패:', e instanceof Error ? e.message : e);
+    return { shadowReportLine: '', shadowNarrativeLine: '' };
+  }
+}
+
+function buildDailyBaseReport(params: {
+  today: string;
+  todaySignalsCount: number;
+  r: TodayRealizationStats;
+  macro: ReturnType<typeof loadMacroState>;
+  watchlistCount: number;
+  tradeLines: string;
+  dailyStatsLine: string;
+  monthlyLine: string;
+  shadowReportLine: string;
+}): string {
+  const { today, todaySignalsCount, r, macro, watchlistCount, tradeLines, dailyStatsLine, monthlyLine, shadowReportLine } = params;
+  return [
+    `[QuantMaster Pro] ${today} 자동매매 일일 리포트`,
+    '',
+    `▶ 당일 신호: ${todaySignalsCount}건`,
+    `▶ 실현 이벤트: ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})` +
+      (r.partialOnlyCount > 0 ? ` · 부분매도 진행 ${r.partialOnlyCount}건` : '') +
+      (r.fullClosedCount > 0 ? ` · 전량 청산 ${r.fullClosedCount}건` : ''),
+    r.fullClosedCount > 0
+      ? `Position lifecycle: FULL_WIN ${r.lifecycleBreakdown.FULL_WIN} / PARTIAL_WIN ${r.partialWins} / WIN_BREAKEVEN ${r.winBreakevens} / BREAKEVEN ${r.breakevens} / LOSS ${r.lifecycleBreakdown.SMALL_LOSS + r.lifecycleBreakdown.FULL_LOSS + r.lifecycleBreakdown.FORCED_EXIT}`
+      : '',
+    dailyStatsLine,
+    `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
+    `▶ 워치리스트: ${watchlistCount}개`,
+    shadowReportLine ? `▶ ${shadowReportLine}` : '',
+    '',
+    tradeLines,
+    '',
+    monthlyLine,
+    `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW (가상매매)' : 'LIVE (실매매)'}`,
+  ].filter(Boolean).join('\n');
+}
+
+function buildDailyRealizedDetail(realizations: TodayRealization[]): string {
+  return realizations.length > 0
+    ? realizations.map((x) => {
+        const kind = x.isFinalClose
+          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
+          : '부분익절';
+        return `${x.trade.stockName} ${kind} ${(x.fill.pnlPct ?? 0).toFixed(2)}%`;
+      }).join(', ')
+    : '';
+}
+
+function buildDailyDataBlock(params: {
+  today: string;
+  todaySignalsCount: number;
+  r: TodayRealizationStats;
+  macro: ReturnType<typeof loadMacroState>;
+  watchlist: ReturnType<typeof loadWatchlist>;
+  stats: ReturnType<typeof getMonthlyStats>;
+  realizedDetail: string;
+  shadowNarrativeLine: string;
+}): string {
+  const { today, todaySignalsCount, r, macro, watchlist, stats, realizedDetail, shadowNarrativeLine } = params;
+  const totalReturn = r.weightedReturnPct;
+  return [
+    `날짜: ${today} (KST)`,
+    `거래 모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '[SHADOW] (가상매매 — 실계좌 잔고 아님)' : 'LIVE (실매매)'}`,
+    `당일 신호: ${todaySignalsCount}건 | 실현 이벤트 ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})`,
+    `부분매도 ${r.partialOnlyCount}건 · 전량청산 ${r.fullClosedCount}건`,
+    `일일 P&L(가중 평균): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 원화: ${Math.round(r.totalRealizedKrw).toLocaleString()}원`,
+    `MHS: ${macro?.mhs ?? 'N/A'} | 레짐: ${macro?.regime ?? 'N/A'}`,
+    `워치리스트: ${watchlist.length}개 (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`,
+    `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
+    `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
+    realizedDetail ? `오늘 실현 상세: ${realizedDetail}` : '',
+    shadowNarrativeLine,
+  ].filter(Boolean).join('\n');
+}
+
+function buildDailyGeminiPrompt(dataBlock: string): string {
+  return [
+    '당신은 한국 주식 자동매매 시스템의 일일 리포트 작성 AI입니다.',
+    '아래 오늘의 거래 데이터를 바탕으로 트레이더가 내일 아침 읽을 간결한 한국어 내러티브 리포트를 작성하세요.',
+    '주의: "실현 이벤트" 는 전량 청산뿐 아니라 ACTIVE 포지션의 부분매도(익절)도 포함한다. 손익 방향은 반드시 "일일 P&L(가중 평균)" 의 부호와 "오늘 실현 상세" 의 각 항목 부호를 그대로 따라 서술하라. 부분매도 익절이 있으면 "손실만 있었다" 고 단정 짓지 마라.',
+    '형식: 오늘 요약 2~3문장 + 주목할 점 1~2개 bullet + 내일 주의사항 1~2개 bullet.',
+    '반드시 한국어로, 300자 이내로 작성하세요. 외부 검색은 필요 없습니다.',
+    '',
+    '=== 오늘 데이터 ===',
+    dataBlock,
+  ].join('\n');
+}
+
+function buildDailyTelegramMessage(params: {
+  narrative: string | null;
+  today: string;
+  baseReport: string;
+  totalReturn: number;
+  r: TodayRealizationStats;
+  macro: ReturnType<typeof loadMacroState>;
+}): string {
+  const { narrative, today, baseReport, totalReturn, r, macro } = params;
+  return narrative
+    ? `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${narrative}\n\n` +
+      `<i>P&L ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}% | ` +
+      `WIN ${r.winRate}% (${r.wins}/${r.realizationCount}) | MHS ${macro?.mhs ?? 'N/A'}</i>`
+    : `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${baseReport}`;
+}
+
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
  * 1. 거래 데이터 + MHS + 월간 통계를 Gemini에 주입 (googleSearch 없음)
@@ -255,105 +400,44 @@ export async function generateDailyReport(): Promise<void> {
   const totalReturn = r.weightedReturnPct;
   const watchlist = loadWatchlist();
 
-  // ── 기본 수치 리포트 (이메일 / 폴백용) ────────────────────────────────────────
-  const tradeLines = realizations.length > 0
-    ? realizations.map((x) => {
-        const icon = (x.fill.pnl ?? 0) >= 0 ? '✅' : '❌';
-        const kind = x.isFinalClose
-          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
-          : '부분매도';
-        const pct = (x.fill.pnlPct ?? 0).toFixed(2);
-        return `  ${icon} ${x.trade.stockName}(${x.trade.stockCode}) ${kind} ${pct}% · ${x.fill.qty}주`;
-      }).join('\n')
-    : '  (오늘 실현 이벤트 없음)';
-
-  const dailyStatsLine = r.realizationCount >= 5
-    ? `▶ 적중률: ${r.winRate}%  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`
-    : `▶ 표본 ${r.realizationCount}건 (통계 ${Math.max(0, 5 - r.realizationCount)}건 더 필요)  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`;
-
-  const monthlyLine = stats.sampleSufficient
-    ? `[월간 ${stats.month}] WIN률 ${stats.winRate.toFixed(1)}% | PF ${
-        stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : 'N/A'
-      } | 평균 ${stats.avgReturn.toFixed(2)}% | 복리 ${stats.compoundReturn.toFixed(2)}%`
-    : `[월간 ${stats.month}] 표본 ${stats.total}건 — 통계 신뢰 위해 5건 이상 필요`;
-
-  // ADR-0089 — Shadow 학습 일일 라인 (Rejection alpha 누락 + Top Twin 비교).
-  // 데이터 부족 시 reportLine 빈 문자열 → filter Boolean 으로 자연 생략.
-  let shadowReportLine = '';
-  let shadowNarrativeLine = '';
-  try {
-    const { buildShadowLearningSummary } = await import('./shadowLearningSummary.js');
-    const summary = buildShadowLearningSummary(stats.compoundReturn ?? 0);
-    shadowReportLine = summary.reportLine;
-    shadowNarrativeLine = summary.narrativeLine;
-  } catch (e) {
-    console.warn('[DailyReport] Shadow 학습 요약 실패:', e instanceof Error ? e.message : e);
-  }
-
-  const baseReport = [
-    `[QuantMaster Pro] ${today} 자동매매 일일 리포트`,
-    '',
-    `▶ 당일 신호: ${todaySignals.length}건`,
-    `▶ 실현 이벤트: ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})` +
-      (r.partialOnlyCount > 0 ? ` · 부분매도 진행 ${r.partialOnlyCount}건` : '') +
-      (r.fullClosedCount > 0 ? ` · 전량 청산 ${r.fullClosedCount}건` : ''),
-    r.fullClosedCount > 0
-      ? `Position lifecycle: FULL_WIN ${r.lifecycleBreakdown.FULL_WIN} / PARTIAL_WIN ${r.partialWins} / WIN_BREAKEVEN ${r.winBreakevens} / BREAKEVEN ${r.breakevens} / LOSS ${r.lifecycleBreakdown.SMALL_LOSS + r.lifecycleBreakdown.FULL_LOSS + r.lifecycleBreakdown.FORCED_EXIT}`
-      : '',
-    dailyStatsLine,
-    `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
-    `▶ 워치리스트: ${watchlist.length}개`,
-    shadowReportLine ? `▶ ${shadowReportLine}` : '',
-    '',
+  const tradeLines = buildDailyTradeLines(realizations);
+  const dailyStatsLine = buildDailyStatsLine(r);
+  const monthlyLine = buildMonthlyLine(stats);
+  const { shadowReportLine, shadowNarrativeLine } = await loadDailyShadowLearningLines(stats);
+  const baseReport = buildDailyBaseReport({
+    today,
+    todaySignalsCount: todaySignals.length,
+    r,
+    macro,
+    watchlistCount: watchlist.length,
     tradeLines,
-    '',
+    dailyStatsLine,
     monthlyLine,
-    `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW (가상매매)' : 'LIVE (실매매)'}`,
-  ].filter(Boolean).join('\n');
+    shadowReportLine,
+  });
 
-  // ── Gemini AI 내러티브 생성 (googleSearch 없음 — 비용 절감) ─────────────────
-  const realizedDetail = realizations.length > 0
-    ? realizations.map((x) => {
-        const kind = x.isFinalClose
-          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
-          : '부분익절';
-        return `${x.trade.stockName} ${kind} ${(x.fill.pnlPct ?? 0).toFixed(2)}%`;
-      }).join(', ')
-    : '';
-
-  const dataBlock = [
-    `날짜: ${today} (KST)`,
-    `거래 모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '[SHADOW] (가상매매 — 실계좌 잔고 아님)' : 'LIVE (실매매)'}`,
-    `당일 신호: ${todaySignals.length}건 | 실현 이벤트 ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})`,
-    `부분매도 ${r.partialOnlyCount}건 · 전량청산 ${r.fullClosedCount}건`,
-    `일일 P&L(가중 평균): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 원화: ${Math.round(r.totalRealizedKrw).toLocaleString()}원`,
-    `MHS: ${macro?.mhs ?? 'N/A'} | 레짐: ${macro?.regime ?? 'N/A'}`,
-    `워치리스트: ${watchlist.length}개 (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`,
-    `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
-    `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
-    realizedDetail ? `오늘 실현 상세: ${realizedDetail}` : '',
+  const realizedDetail = buildDailyRealizedDetail(realizations);
+  const dataBlock = buildDailyDataBlock({
+    today,
+    todaySignalsCount: todaySignals.length,
+    r,
+    macro,
+    watchlist,
+    stats,
+    realizedDetail,
     shadowNarrativeLine,
-  ].filter(Boolean).join('\n');
-
-  const geminiPrompt = [
-    '당신은 한국 주식 자동매매 시스템의 일일 리포트 작성 AI입니다.',
-    '아래 오늘의 거래 데이터를 바탕으로 트레이더가 내일 아침 읽을 간결한 한국어 내러티브 리포트를 작성하세요.',
-    '주의: "실현 이벤트" 는 전량 청산뿐 아니라 ACTIVE 포지션의 부분매도(익절)도 포함한다. 손익 방향은 반드시 "일일 P&L(가중 평균)" 의 부호와 "오늘 실현 상세" 의 각 항목 부호를 그대로 따라 서술하라. 부분매도 익절이 있으면 "손실만 있었다" 고 단정 짓지 마라.',
-    '형식: 오늘 요약 2~3문장 + 주목할 점 1~2개 bullet + 내일 주의사항 1~2개 bullet.',
-    '반드시 한국어로, 300자 이내로 작성하세요. 외부 검색은 필요 없습니다.',
-    '',
-    '=== 오늘 데이터 ===',
-    dataBlock,
-  ].join('\n');
-
+  });
+  const geminiPrompt = buildDailyGeminiPrompt(dataBlock);
   const narrative = await callGemini(geminiPrompt, 'report-generator');
 
-  // ── Telegram 발송 (메인 채널) ──────────────────────────────────────────────
-  const telegramMsg = narrative
-    ? `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${narrative}\n\n` +
-      `<i>P&L ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}% | ` +
-      `WIN ${r.winRate}% (${r.wins}/${r.realizationCount}) | MHS ${macro?.mhs ?? 'N/A'}</i>`
-    : `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${baseReport}`;
+  const telegramMsg = buildDailyTelegramMessage({
+    narrative,
+    today,
+    baseReport,
+    totalReturn,
+    r,
+    macro,
+  });
 
   await sendTelegramAlert(telegramMsg).catch(console.error);
 
