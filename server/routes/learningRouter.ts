@@ -46,8 +46,170 @@ import { loadMissedLearningQueue } from '../persistence/missedLearningQueueRepo.
 // (summarizeRejectionShadow 는 위 라인 31 에서 이미 import — entries 제외 summary 전용 endpoint)
 // ADR-0182 — Phase 4-B-2-b3 Counterfactual unresolved stats endpoint
 import { summarizeUnresolvedCounterfactuals } from '../learning/counterfactualShadow.js';
+import { shadowCaseLedger } from '../shadow/shadowCaseLedger.js';
+import type { ShadowCase } from '../shadow/shadowTypes.js';
 
 const router = Router();
+
+type ShadowCaseLibraryCaseType =
+  | 'CASE_SUPPLY_UNSTABLE' | 'CASE_HOLIDAY' | 'CASE_LUNCH_BREAK' | 'CASE_SELL_ONLY'
+  | 'CASE_SHADOW_ONLY' | 'CASE_KRX_DELAY' | 'CASE_KIS_500' | 'CASE_DART_DELAY'
+  | 'CASE_YAHOO_STALE' | 'CASE_MACRO_RISK_OFF' | 'CASE_STRONG_BUY_BLOCKED'
+  | 'CASE_BUYLIST_EMPTY' | 'CASE_WATCHLIST_REFRESHED_BUT_NO_EXECUTION' | 'CASE_DATA_MISSING'
+  | 'CASE_PROVIDER_HEALTH_BAD' | 'CASE_MARKET_SIGNAL_NEUTRAL' | 'CASE_PROGRAM_TRADING_EMPTY'
+  | 'CASE_SCAN_DIAGNOSTIC_SUPPRESSED' | 'CASE_UNKNOWN';
+
+type ShadowCaseLibraryDataHealth = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED' | 'UNKNOWN';
+type ShadowCaseLibraryConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
+type ShadowCaseLibraryOutcome = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'PENDING' | 'INVALIDATED' | 'NOT_TRACKED';
+type ShadowCaseLibraryStatus = 'OPEN' | 'OUTCOME_PENDING' | 'RESOLVED' | 'IGNORED' | 'NEEDS_REVIEW';
+type ShadowCaseLibraryExecutionImpact = 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'SHADOW_ONLY' | 'DEGRADED' | 'BLOCKING';
+
+function hasCaseToken(item: ShadowCase, pattern: RegExp): boolean {
+  return [item.blockedReason, item.learningTag, item.regimeTag, item.marketSession, item.dataProvider, ...(item.conditionTags ?? [])]
+    .filter(Boolean)
+    .some((value) => pattern.test(String(value)));
+}
+
+function deriveLibraryCaseType(item: ShadowCase): ShadowCaseLibraryCaseType {
+  if (item.engineMode === 'SELL_ONLY' || item.sellOnlyActive) return 'CASE_SELL_ONLY';
+  if (item.engineMode === 'SHADOW_ONLY') return 'CASE_SHADOW_ONLY';
+  if (item.hardBlockActive || hasCaseToken(item, /STRONG_BUY_BLOCKED|BUY_BLOCKED/i)) return 'CASE_STRONG_BUY_BLOCKED';
+  if (hasCaseToken(item, /HOLIDAY|NON_TRADING_DAY/i)) return 'CASE_HOLIDAY';
+  if (hasCaseToken(item, /LUNCH/i)) return 'CASE_LUNCH_BREAK';
+  if (hasCaseToken(item, /KIS.*500|KIS_500|PROVIDER_ERROR/i)) return 'CASE_KIS_500';
+  if (hasCaseToken(item, /KRX.*DELAY|KRX_UNAVAILABLE/i)) return 'CASE_KRX_DELAY';
+  if (hasCaseToken(item, /DART.*DELAY/i)) return 'CASE_DART_DELAY';
+  if (hasCaseToken(item, /YAHOO.*STALE/i)) return 'CASE_YAHOO_STALE';
+  if (hasCaseToken(item, /MACRO|RISK_OFF|R5_|R6_/i)) return 'CASE_MACRO_RISK_OFF';
+  if (hasCaseToken(item, /BUYLIST_EMPTY/i)) return 'CASE_BUYLIST_EMPTY';
+  if (hasCaseToken(item, /WATCHLIST.*NO_EXECUTION/i)) return 'CASE_WATCHLIST_REFRESHED_BUT_NO_EXECUTION';
+  if (hasCaseToken(item, /PROGRAM.*EMPTY/i)) return 'CASE_PROGRAM_TRADING_EMPTY';
+  if (hasCaseToken(item, /SCAN.*SUPPRESS/i)) return 'CASE_SCAN_DIAGNOSTIC_SUPPRESSED';
+  if (item.dataHealth === 'EMPTY' || item.dataHealth === 'UNAVAILABLE') return 'CASE_DATA_MISSING';
+  if (item.providerHealth !== 'OK') return 'CASE_PROVIDER_HEALTH_BAD';
+  if (hasCaseToken(item, /SUPPLY.*UNSTABLE|FLOW.*UNSTABLE/i)) return 'CASE_SUPPLY_UNSTABLE';
+  if (hasCaseToken(item, /NEUTRAL/i)) return 'CASE_MARKET_SIGNAL_NEUTRAL';
+  return 'CASE_UNKNOWN';
+}
+
+function mapLibraryDataHealth(value: ShadowCase['dataHealth']): ShadowCaseLibraryDataHealth {
+  if (value === 'OK') return 'VERIFIED';
+  if (value === 'EMPTY' || value === 'UNAVAILABLE' || value === 'CORRUPTED') return 'MISSING';
+  if (value === 'STALE') return 'STALE';
+  if (value === 'DEGRADED') return 'DEGRADED';
+  return 'UNKNOWN';
+}
+
+function mapLibraryConfidence(value: ShadowCase['confidenceLevel']): ShadowCaseLibraryConfidence {
+  if (value === 'VERIFIED' || value === 'CALCULATED') return 'HIGH';
+  if (value === 'FALLBACK') return 'MEDIUM';
+  if (value === 'LOW' || value === 'QUARANTINED') return 'LOW';
+  if (value === 'AI_ESTIMATE') return 'NOT_APPLICABLE';
+  return 'NOT_APPLICABLE';
+}
+
+function mapLibraryExecutionImpact(value: ShadowCase['executionImpact']): ShadowCaseLibraryExecutionImpact {
+  if (value === 'NONE' || value === 'NEW_BUY_BLOCKED_ONLY') return value;
+  if (value === 'LIVE_ORDER_BLOCKED') return 'BLOCKING';
+  return 'DEGRADED';
+}
+
+function mapLibraryOutcome(item: ShadowCase): ShadowCaseLibraryOutcome {
+  const label = item.outcomeLabel ?? item.virtualOutcome10d ?? item.virtualOutcome5d ?? item.virtualOutcome3d ?? item.virtualOutcome1d;
+  if (label === 'WIN' || label === 'MISSED_WIN') return 'WIN';
+  if (label === 'LOSS') return 'LOSS';
+  if (label === 'BREAKEVEN') return 'BREAKEVEN';
+  if (label === 'INVALID' || label === 'DATA_CORRUPTED' || label === 'QUARANTINED') return 'INVALIDATED';
+  if (label === 'ACTIVE' || item.postOutcome === 'PENDING') return 'PENDING';
+  return item.postOutcome ? 'NOT_TRACKED' : 'PENDING';
+}
+
+function mapLibraryStatus(item: ShadowCase, outcome: ShadowCaseLibraryOutcome): ShadowCaseLibraryStatus {
+  if (item.quarantinedReason) return 'NEEDS_REVIEW';
+  if (outcome === 'PENDING') return 'OUTCOME_PENDING';
+  if (outcome === 'NOT_TRACKED') return 'OPEN';
+  if (outcome === 'INVALIDATED') return 'NEEDS_REVIEW';
+  return 'RESOLVED';
+}
+
+function isProviderIssue(item: ShadowCase, caseType: ShadowCaseLibraryCaseType): boolean {
+  return item.providerHealth !== 'OK' || ['CASE_KIS_500', 'CASE_DART_DELAY', 'CASE_YAHOO_STALE', 'CASE_KRX_DELAY', 'CASE_PROVIDER_HEALTH_BAD'].includes(caseType);
+}
+
+function isMarketSignal(item: ShadowCase, caseType: ShadowCaseLibraryCaseType): boolean {
+  return ['CASE_MACRO_RISK_OFF', 'CASE_SUPPLY_UNSTABLE', 'CASE_MARKET_SIGNAL_NEUTRAL', 'CASE_STRONG_BUY_BLOCKED'].includes(caseType)
+    || Boolean(item.regimeTag || item.effectiveRegime || item.marketSession === 'REGULAR');
+}
+
+function toLibraryCase(item: ShadowCase) {
+  const caseType = deriveLibraryCaseType(item);
+  const postOutcome = mapLibraryOutcome(item);
+  return {
+    id: item.caseId,
+    timestamp: item.detectedAt || item.createdAt,
+    symbol: item.symbol,
+    symbolName: item.symbolName,
+    caseType,
+    marketSession: item.marketSession,
+    engineMode: item.engineMode,
+    blockedReason: item.blockedReason,
+    dataProvider: item.dataProvider,
+    dataHealth: mapLibraryDataHealth(item.dataHealth),
+    confidenceLevel: mapLibraryConfidence(item.confidenceLevel),
+    expectedDecision: item.expectedDecision,
+    actualDecision: item.actualDecision,
+    shadowDecision: item.shadowDecision,
+    executionImpact: mapLibraryExecutionImpact(item.executionImpact),
+    providerIssue: isProviderIssue(item, caseType),
+    marketSignal: isMarketSignal(item, caseType),
+    postOutcome,
+    learningTag: item.learningTag ?? item.regimeTag,
+    status: mapLibraryStatus(item, postOutcome),
+    nextAction: item.pendingRetryReason ?? item.quarantinedReason,
+  };
+}
+
+function toLibraryCounterfactual(item: ShadowCase) {
+  return {
+    caseId: item.caseId,
+    symbol: item.symbol,
+    virtualEntryPrice: item.entryPriceVirtual,
+    virtualStopLoss: item.stopPriceVirtual,
+    virtualTargetPrice: item.targetPriceVirtual,
+    currentPrice: item.entryPriceVirtual && item.currentReturnPct !== undefined
+      ? item.entryPriceVirtual * (1 + item.currentReturnPct / 100)
+      : undefined,
+    maxFavorableExcursion: item.mfe,
+    maxAdverseExcursion: item.mae,
+    returnPct: item.finalReturnPct ?? item.currentReturnPct ?? item.virtualReturnPct10d ?? item.virtualReturnPct5d,
+    outcome: mapLibraryOutcome(item),
+    holdingDays: item.holdingMinutes !== undefined ? Math.round(item.holdingMinutes / 1440) : undefined,
+    lesson: item.learningTag ?? item.blockedReason,
+  };
+}
+
+router.get('/shadow-cases', (_req: Request, res: Response) => {
+  try {
+    const cases = shadowCaseLedger.listCases().sort((a, b) => (b.detectedAt || b.createdAt).localeCompare(a.detectedAt || a.createdAt));
+    const latest = cases[0];
+    res.json({
+      status: {
+        shadowLearning: cases.every((item) => item.executionImpact === 'NONE'),
+        engineMode: latest?.engineMode ?? 'OBSERVE_ONLY',
+        executionAllowed: latest?.executionImpact === 'LIVE_ORDER_ALLOWED',
+        shadowAllowed: true,
+        lastCaseAt: latest?.detectedAt ?? latest?.createdAt,
+      },
+      items: cases.map(toLibraryCase),
+      counterfactualOutcomes: cases.filter((item) => item.entryPriceVirtual !== undefined || item.currentReturnPct !== undefined).map(toLibraryCounterfactual),
+    });
+  } catch (e) {
+    console.error('[learningRouter] /shadow-cases 실패:', e);
+    res.status(500).json({ error: 'shadow_cases_failed' });
+  }
+});
+
 
 router.get('/status', (_req: Request, res: Response) => {
   try {

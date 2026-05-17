@@ -9,6 +9,8 @@
  * 하지 않고 동기 사본 유지.
  */
 
+import type { ShadowCaseLibraryResponse } from '../types/shadowCase';
+
 // ── 타입 동기 사본 ──────────────────────────────────────────────────────────────
 
 export interface ClientRejectionShadowEntry {
@@ -140,6 +142,25 @@ export async function fetchShadowAttribution(): Promise<ShadowAttributionRespons
   const r = await fetch(`${BASE_URL}/condition-attribution-shadow`);
   if (!r.ok) throw new Error(`condition-attribution-shadow ${r.status}`);
   return (await r.json()) as ShadowAttributionResponse;
+}
+
+
+export async function fetchShadowCaseLibrary(): Promise<ShadowCaseLibraryResponse> {
+  const r = await fetch(`${BASE_URL}/shadow-cases`);
+  if (r.status === 404) {
+    return {
+      status: {
+        shadowLearning: false,
+        engineMode: 'OBSERVE_ONLY',
+        executionAllowed: false,
+        shadowAllowed: false,
+      },
+      items: [],
+      counterfactualOutcomes: [],
+    };
+  }
+  if (!r.ok) throw new Error(`shadow-cases ${r.status}`);
+  return (await r.json()) as ShadowCaseLibraryResponse;
 }
 
 export const ALL_TWIN_KEYS: ClientTwinKey[] = ['AGGRESSIVE', 'DISCIPLINED', 'EQUAL_WEIGHT'];
