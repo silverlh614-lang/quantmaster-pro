@@ -120,7 +120,7 @@ describe('adjustedKelly — 슬리피지 반영 실효 Kelly 분수', () => {
     expect(kelly).toBeGreaterThanOrEqual(0);
   });
 
-  it('승률 100% + 슬리피지 0: Kelly = (rrr - 0) / rrr = 1.0 미만 (실효 값)', () => {
+  it('전승 가정 + 슬리피지 0: Kelly = (rrr - 0) / rrr = 1.0 미만 (실효 값)', () => {
     // effectiveWinRate = 1 × (1 - 0) = 1
     // (1 × rrr - 0) / rrr = 1
     const kelly = adjustedKelly(1.0, 2.0, 0);

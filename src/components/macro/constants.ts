@@ -51,7 +51,7 @@ export const FUSION_MATRIX: Record<EconomicRegime, Record<ROEType, FusionCell>> 
     2: { phase: '자본경량 긴급 축소', signal: 'SELL', expectedReturn: '-15~-5%', strategy: '상대적 방어력 있으나 시장 공포 시 동반 하락. 최소 비중으로 축소.' },
     3: { phase: '성장주 전면 회피', signal: 'STRONG_SELL', expectedReturn: '-40~-15%', strategy: '위기 시 성장주 밸류에이션 급격 붕괴. Gate 평가 중단, 전량 현금화.' },
     4: { phase: '방산·유틸리티 역발상', signal: 'BUY', expectedReturn: '+5~15%', strategy: '위기 시 정부 지출 확대 수혜. 방산·유틸리티·필수소비재 중심 역발상 매수.' },
-    5: { phase: '즉시 완전 청산', signal: 'STRONG_SELL', expectedReturn: '-60~-30%', strategy: '위기 시 재무 왜곡 기업 파산 위험. 무조건 즉시 청산.' },
+    5: { phase: '즉시 완전 청산', signal: 'STRONG_SELL', expectedReturn: '-60~-30%', strategy: '위기 시 재무 왜곡 기업 파산 위험. 조건 충족 시 즉시 청산.' },
   },
   RANGE_BOUND: {
     1: { phase: '레버리지 제한 진입', signal: 'NEUTRAL', expectedReturn: '-5~+5%', strategy: '박스권 내 레버리지 효과 제한적. 배당 수익 중심 소규모 포지션만.' },

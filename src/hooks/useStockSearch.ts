@@ -31,7 +31,7 @@ export function useStockSearch() {
     setRecommendationSourceStatus(undefined);
     try {
       const data = await getStockRecommendations(filters);
-      if (!data || !data.recommendations) throw new Error("AI 추천 데이터를 불러오지 못했습니다.");
+      if (!data || !data.recommendations) throw new Error("AI 추정 데이터를 불러오지 못했습니다.");
       const avgConfidence = data.recommendations.length > 0 ? Math.round(data.recommendations.reduce((sum: number, s: StockRecommendation) => sum + s.confidenceScore, 0) / data.recommendations.length) : 75;
       const newHistoryItem = { date: new Date().toLocaleDateString(), stocks: data.recommendations.map((s: StockRecommendation) => s.name), hitRate: avgConfidence, strongBuyHitRate: Math.min(99, avgConfidence + 5) };
       const updatedHistory = [newHistoryItem, ...recommendationHistory].slice(0, 10);

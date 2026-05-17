@@ -107,7 +107,7 @@ export async function searchStock(query: string, filters?: {
     7. 모든 수치는 ${now} 기준의 최신 데이터여야 하며, 'priceUpdatedAt' 필드에 해당 가격이 확인된 시각(예: 14:30)을 반드시 기록하라.
 
     ${isMarketSearch ? '현재 시점에서 가장 유망한 종목 최대 10개' : `"${query}" 종목`}에 대해 현재 시점(${now})의 실시간 데이터를 기반으로 '초고도화된 AI 투자 분석 엔진'을 사용하여 가장 정밀한 분석을 수행해줘.
-    ${isMarketSearch ? '각 종목이' : '이 종목이'} 현재 시점에서 얼마나 '확실한' 투자 기회인지 확신도(Confidence Score)와 함께 분석하라.
+    ${isMarketSearch ? '각 종목이' : '이 종목이'} 현재 시점에서 얼마나 '유효한' 투자 기회인지 확신도(Confidence Score)와 함께 분석하라.
 
     응답은 반드시 다음 JSON 배열 형식으로만 해줘 (예: [{...}, {...}]):
     [

@@ -114,7 +114,7 @@ export function evaluateBearScreener(
     name: 'ROE 15% 이상 (탄탄한 실적)',
     passed: true,
     category: 'VALUE_DEPRESSED',
-    description: '강력한 이익 창출 능력을 증명하는 ROE 15% 이상 종목. 주가 하락은 공매도 과잉, 재진입 기회.',
+    description: '뚜렷한 이익 창출 능력을 증명하는 ROE 15% 이상 종목. 주가 하락은 공매도 과잉, 재진입 기회.',
   };
 
   /** 조건 VD2: PER 섹터 평균 이하 — 저평가 매력 */

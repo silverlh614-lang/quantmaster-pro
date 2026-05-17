@@ -20,7 +20,7 @@ const SHORTCUTS: ShortcutRow[] = [
   { keys: ['?'], description: '이 단축키 도움말 열기/닫기' },
   { keys: ['J'], description: '다음 페이지로 이동' },
   { keys: ['K'], description: '이전 페이지로 이동' },
-  { keys: ['G', 'H'], description: '홈 (AI 추천) 으로 이동' },
+  { keys: ['G', 'H'], description: '홈 (AI 추정) 으로 이동' },
   { keys: ['G', 'A'], description: '자동매매 관제실로 이동' },
   { keys: ['G', 'M'], description: '시장 대시보드로 이동' },
   { keys: ['/'], description: '검색창에 포커스' },

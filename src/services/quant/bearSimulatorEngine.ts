@@ -68,7 +68,7 @@ export function evaluateBearModeSimulator(
 
     let recommendation: string;
     if (alphaDifference > 20) {
-      recommendation = `🔴 강력한 전환 신호 — Bear Mode 전환 시 ${alphaDifference.toFixed(1)}%p 알파 획득 가능. 다음 Gate -1 감지 시 D+3 즉시 전환 권고.`;
+      recommendation = `🔴 뚜렷한 전환 신호 — Bear Mode 전환 시 ${alphaDifference.toFixed(1)}%p 알파 획득 가능. 다음 Gate -1 감지 시 D+3 즉시 전환 권고.`;
     } else if (alphaDifference > 0) {
       recommendation = `🟡 유의미한 알파 — ${alphaDifference.toFixed(1)}%p 개선. 시스템 신호를 따르는 것이 직관 대비 유리.`;
     } else {

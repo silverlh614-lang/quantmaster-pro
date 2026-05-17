@@ -31,7 +31,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: '탐색',
     items: [
-      { id: 'DISCOVER', label: 'AI 추천', icon: Search },
+      { id: 'DISCOVER', label: 'AI 추정', icon: Search },
       { id: 'WATCHLIST', label: '관심 목록', icon: Bookmark },
     ],
   },

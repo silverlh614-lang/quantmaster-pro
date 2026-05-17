@@ -299,7 +299,7 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
       `(status=${sourceStatus ?? 'unknown'}, fallback=${fallbackUsed}, budgetExceeded=${budgetExceeded})`
     );
     const reason = budgetExceeded
-      ? 'AI 추천 일일 호출 예산을 초과했습니다. 자정(KST) 이후 자동 복구됩니다.'
+      ? 'AI 추정 일일 호출 예산을 초과했습니다. 자정(KST) 이후 자동 복구됩니다.'
       : '뉴스·정량 스크리닝·Naver/KRX 캐시 폴백이 모두 실패해 universe 후보가 0건입니다. 실존 종목 검증 없이 AI 자체 판단으로 추천을 생성하지 않습니다.';
     if (!warnings.some(w => w.includes(reason.split('.')[0]))) {
       warnings.unshift(reason);
@@ -358,7 +358,7 @@ export async function getMomentumRecommendations(filters?: StockFilters): Promis
     if (universe.filters.minMarketCapBillion) parts.push(`- 시가총액 ${universe.filters.minMarketCapBillion.toLocaleString()}억원 이상`);
     if (universe.filters.volumeTopPercent) parts.push(`- 거래량 상위 ${universe.filters.volumeTopPercent}% 이내 종목만`);
     if (universe.filters.foreignOwned) parts.push('- 외국인 투자 가능 종목(외국인 편입 종목)만');
-    if (parts.length > 0) universePrompt = `\n      [Gate-0: 유니버스 제한]\n      ${parts.join('\n      ')}\n      위 유니버스 조건을 반드시 먼저 적용하라.\n`;
+    if (parts.length > 0) universePrompt = `\n      [Gate-0: 유니버스 제한]\n      ${parts.join('\n      ')}\n      위 유니버스 조건을 우선 적용하라.\n`;
   }
 
   const filterPrompt = filters ? `
@@ -430,7 +430,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
          // ADR-0016 (PR-37): GOOGLE_OK 일 때만 엄격 universe 한정. Tier 2~5 는
          // 학습 지식 확장 허용 — 단, 실존 6자리 코드만이라는 룰은 모든 tier 에서 유지.
          (sourceStatus === 'GOOGLE_OK' || (sourceStatus === undefined && candidates.length > 0 && !fallbackUsed))
-           ? '반드시 위 후보군에 등장한 6자리 종목코드와 한글명을 그대로 사용하라. 임의 생성 금지.'
+           ? '위 후보군에 등장한 6자리 종목코드와 한글명을 그대로 사용하라. 임의 생성 금지.'
            : '실제 한국 상장 종목의 6자리 종목코드와 정확한 한글명만 사용하라. 실존하지 않는 코드/명칭 생성은 엄격히 금지한다. 확신이 없으면 추천을 내지 마라.'
         }
       4. **[corpCode]** 알려진 8자리 DART 고유번호를 'corpCode' 필드에 포함하라. 미상이면 빈 문자열 ""로 두면 enrichment에서 자동 매핑된다.
@@ -441,7 +441,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
          - 하락 반전: 브로드닝 탑, 더블 탑(쌍봉), 트리플 탑, 헤드 앤 숄더(H&S), 라운드 탑, 다이아몬드 탑
       6. **[뉴스 데이터]** 'latestNews' 필드는 빈 배열 []로 두라. 별도 뉴스 파이프라인이 채운다.
       7. **[판단 기준 - STRONG_BUY, BUY, STRONG_SELL, SELL]**
-         - ${mode === 'EARLY_DETECT' ? 'EARLY_DETECT 모드에서는 거래량 마름과 횡보 후 돌파 직전 신호를 가장 높게 평가하라.' : mode === 'SMALL_MID_CAP' ? 'SMALL_MID_CAP 모드에서는 코스닥 중소형주의 거래량 급증과 섹터 후발주 특성을 가장 높게 평가하라.' : 'MOMENTUM 모드에서는 강력한 수급과 추세 강도를 가장 높게 평가하라.'}
+         - ${mode === 'EARLY_DETECT' ? 'EARLY_DETECT 모드에서는 거래량 마름과 횡보 후 돌파 직전 신호를 가장 높게 평가하라.' : mode === 'SMALL_MID_CAP' ? 'SMALL_MID_CAP 모드에서는 코스닥 중소형주의 거래량 급증과 섹터 후발주 특성을 가장 높게 평가하라.' : 'MOMENTUM 모드에서는 뚜렷한 수급과 추세 강도를 가장 높게 평가하라.'}
          [BUY/STRONG_BUY 발동 전 필수 선결 조건 - 하나라도 미충족 시 즉시 HOLD]
         ① Gate 1 전부 통과 필수: cycleVerified, roeType3, riskOnEnvironment, mechanicalStop, notPreviousLeader 중 하나라도 False이면 HOLD.
         ② RRR 최소 기준 필수: BUY 2.0 이상, STRONG_BUY 3.0 이상. 미충족 시 HOLD.
@@ -564,7 +564,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
           "elliottWaveStatus": { "wave": "WAVE_3", "description": "..." },
           "analystRatings": { "strongBuy": 0, "buy": 0, "strongSell": 0, "sell": 0, "consensus": "...", "targetPriceAvg": 0, "targetPriceHigh": 0, "targetPriceLow": 0, "sources": ["..."] },
           "newsSentiment": { "score": 0, "status": "POSITIVE", "summary": "..." },
-          "chartPattern": { "name": "역 헤드 앤 숄더", "type": "REVERSAL_BULLISH", "description": "강력한 바닥 다지기 후 추세 반전 신호", "reliability": 85 },
+          "chartPattern": { "name": "역 헤드 앤 숄더", "type": "REVERSAL_BULLISH", "description": "뚜렷한 바닥 다지기 후 추세 반전 신호", "reliability": 85 },
           "roeAnalysis": { "drivers": ["..."], "historicalTrend": "...", "strategy": "...", "metrics": { "netProfitMargin": 0, "assetTurnover": 0, "equityMultiplier": 0 } },
           "strategicInsight": { "cyclePosition": "NEW_LEADER", "earningsQuality": "...", "policyContext": "..." },
           "marketCap": 0, "marketCapCategory": "LARGE", "correlationGroup": "...",

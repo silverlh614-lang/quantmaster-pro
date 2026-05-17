@@ -38,7 +38,7 @@ function buildUniversePrompt(universe?: UniverseConfig): string {
   }
 
   return parts.length > 0
-    ? `\n[Gate-0: 유니버스 제한]\n${parts.join('\n')}\n위 유니버스 조건을 반드시 먼저 적용하라.\n`
+    ? `\n[Gate-0: 유니버스 제한]\n${parts.join('\n')}\n위 유니버스 조건을 우선 적용하라.\n`
     : '';
 }
 

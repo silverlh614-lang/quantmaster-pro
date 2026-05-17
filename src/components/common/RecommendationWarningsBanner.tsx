@@ -44,28 +44,28 @@ function pickTone(status?: SourceStatus): Tone {
     return {
       border: 'border-slate-500/30', bg: 'bg-slate-500/10',
       badge: 'text-slate-300', iconColor: 'text-slate-300',
-      text: 'text-slate-100/80', Icon: Database, label: 'AI 추천 안내 (스냅샷)',
+      text: 'text-slate-100/80', Icon: Database, label: 'AI 추정 안내 (스냅샷)',
     };
   }
   if (status === 'ERROR' || status === 'NO_MATCHES') {
     return {
       border: 'border-red-500/30', bg: 'bg-red-500/10',
       badge: 'text-red-300', iconColor: 'text-red-400',
-      text: 'text-red-100/80', Icon: AlertCircle, label: 'AI 추천 안내 (오류)',
+      text: 'text-red-100/80', Icon: AlertCircle, label: 'AI 추정 안내 (오류)',
     };
   }
   if (status === 'NOT_CONFIGURED') {
     return {
       border: 'border-slate-500/30', bg: 'bg-slate-500/10',
       badge: 'text-slate-300', iconColor: 'text-slate-300',
-      text: 'text-slate-100/80', Icon: Info, label: 'AI 추천 안내 (설정)',
+      text: 'text-slate-100/80', Icon: Info, label: 'AI 추정 안내 (설정)',
     };
   }
   // 기본 — 노랑 (FALLBACK_QUANT / FALLBACK_NAVER / FALLBACK_SEED / BUDGET_EXCEEDED / 미지정)
   return {
     border: 'border-orange-500/30', bg: 'bg-orange-500/10',
     badge: 'text-orange-300', iconColor: 'text-orange-400',
-    text: 'text-orange-100/80', Icon: AlertTriangle, label: 'AI 추천 안내',
+    text: 'text-orange-100/80', Icon: AlertTriangle, label: 'AI 추정 안내',
   };
 }
 

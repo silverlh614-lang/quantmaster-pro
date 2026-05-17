@@ -694,7 +694,7 @@ export const TradeJournal: React.FC<Props> = ({
                     {sysVsInt.systemEdge > 10
                       ? '시스템 신호를 기계적으로 따르는 것이 명확히 우수합니다. 직관 매수를 줄이세요.'
                       : sysVsInt.systemEdge > 5
-                      ? '시스템이 우위에 있습니다. 직관 매수 시 시스템 신호를 반드시 교차 확인하세요.'
+                      ? '시스템이 우위에 있습니다. 직관 매수 시 시스템 신호를 우선 교차 확인하세요.'
                       : sysVsInt.systemEdge < -10
                       ? '직관이 시스템보다 우수합니다. 시스템 조건 가중치 재조정이 필요합니다.'
                       : sysVsInt.systemEdge < -5
