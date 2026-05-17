@@ -78,58 +78,53 @@ const CHECKLIST_TO_ID: Record<string, number> = {
 
 // ── 실제 값 추출 헬퍼 ────────────────────────────────────────────────────
 
+type ActualValueFormatter = (stock: StockRecommendation) => string | null;
+
+const ACTUAL_VALUE_FORMATTERS: Partial<Record<number, ActualValueFormatter>> = {
+  2: (stock) => stock.momentumRank != null ? `순위 ${stock.momentumRank}위` : null,
+  3: (stock) => stock.roeType ? `ROE 유형 ${stock.roeType}` : null,
+  5: (stock) => stock.marketSentiment?.vkospi != null ? `VKOSPI ${stock.marketSentiment.vkospi.toFixed(1)}` : null,
+  6: (stock) => stock.ichimokuStatus ? `${stock.ichimokuStatus === 'ABOVE_CLOUD' ? '구름 위' : stock.ichimokuStatus === 'INSIDE_CLOUD' ? '구름 안' : '구름 아래'}` : null,
+  10: (stock) => stock.technicalSignals?.maAlignment ? `${stock.technicalSignals.maAlignment === 'BULLISH' ? '정배열' : stock.technicalSignals.maAlignment === 'BEARISH' ? '역배열' : '중립'}` : null,
+  11: (stock) => stock.technicalSignals?.volumeSurge != null ? `${stock.technicalSignals.volumeSurge ? '급증 감지' : '정상'}` : null,
+  13: (stock) => stock.targetPrice ? `목표가 ${stock.targetPrice.toLocaleString()}원` : null,
+  18: (stock) => stock.technicalSignals?.rsi != null ? `RSI ${stock.technicalSignals.rsi.toFixed(0)}` : null,
+  24: (stock) => stock.scores?.momentum != null ? `RS ${stock.scores.momentum.toFixed(1)}` : null,
+  25: (stock) => stock.technicalSignals?.bbWidth != null ? `BB폭 ${stock.technicalSignals.bbWidth.toFixed(2)}` : null,
+};
+
 function getActualValue(conditionId: number, stock: StockRecommendation): string | null {
-  switch (conditionId) {
-    case 2: return stock.momentumRank != null ? `순위 ${stock.momentumRank}위` : null;
-    case 3: return stock.roeType ? `ROE 유형 ${stock.roeType}` : null;
-    case 5: return stock.marketSentiment?.vkospi != null ? `VKOSPI ${stock.marketSentiment.vkospi.toFixed(1)}` : null;
-    case 6: return stock.ichimokuStatus ? `${stock.ichimokuStatus === 'ABOVE_CLOUD' ? '구름 위' : stock.ichimokuStatus === 'INSIDE_CLOUD' ? '구름 안' : '구름 아래'}` : null;
-    case 10: return stock.technicalSignals?.maAlignment ? `${stock.technicalSignals.maAlignment === 'BULLISH' ? '정배열' : stock.technicalSignals.maAlignment === 'BEARISH' ? '역배열' : '중립'}` : null;
-    case 11: return stock.technicalSignals?.volumeSurge != null ? `${stock.technicalSignals.volumeSurge ? '급증 감지' : '정상'}` : null;
-    case 13: return stock.targetPrice ? `목표가 ${stock.targetPrice.toLocaleString()}원` : null;
-    case 18: return stock.technicalSignals?.rsi != null ? `RSI ${stock.technicalSignals.rsi.toFixed(0)}` : null;
-    case 24: return stock.scores?.momentum != null ? `RS ${stock.scores.momentum.toFixed(1)}` : null;
-    case 25: return stock.technicalSignals?.bbWidth != null ? `BB폭 ${stock.technicalSignals.bbWidth.toFixed(2)}` : null;
-    default: return null;
-  }
+  return ACTUAL_VALUE_FORMATTERS[conditionId]?.(stock) ?? null;
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+type GateResult = GateConfig & {
+  passedCount: number;
+  total: number;
+  passed: boolean;
+  passedIds: Set<number>;
+};
 
-interface GateStatusWidgetProps {
-  stock: StockRecommendation;
-}
-
-export function GateStatusWidget({ stock }: GateStatusWidgetProps) {
-  const [expanded, setExpanded] = useState(false);
-
-  // 체크리스트에서 점수 추출 (0~10 스케일로 매핑)
+function buildConditionScores(stock: StockRecommendation): Record<number, number> {
   const scores: Record<number, number> = {};
   if (stock.checklist) {
     for (const [key, val] of Object.entries(stock.checklist)) {
       const id = CHECKLIST_TO_ID[key];
-      if (id != null) {
-        scores[id] = typeof val === 'number' ? val : (val ? 10 : 0);
-      }
+      if (id != null) scores[id] = typeof val === 'number' ? val : (val ? 10 : 0);
     }
   }
-
-  // AI conviction score factors가 있으면 보완
   if (stock.aiConvictionScore?.factors) {
     for (const factor of stock.aiConvictionScore.factors) {
-      // factor score를 0-10으로 정규화
       const normalized = Math.min(10, Math.max(0, factor.score));
-      // 이미 체크리스트에서 설정되지 않은 조건만 보완
       for (const [id, name] of Object.entries(CONDITION_NAMES)) {
-        if (factor.name.includes(name) && scores[Number(id)] == null) {
-          scores[Number(id)] = normalized;
-        }
+        if (factor.name.includes(name) && scores[Number(id)] == null) scores[Number(id)] = normalized;
       }
     }
   }
+  return scores;
+}
 
-  // Gate별 통과 현황 계산
-  const gateResults = GATES.map(gate => {
+function buildGateResults(scores: Record<number, number>): GateResult[] {
+  return GATES.map(gate => {
     const passedIds = gate.ids.filter(id => (scores[id] ?? 0) >= CONDITION_PASS_THRESHOLD);
     return {
       ...gate,
@@ -139,10 +134,35 @@ export function GateStatusWidget({ stock }: GateStatusWidgetProps) {
       passedIds: new Set(passedIds),
     };
   });
+}
 
+function getOverallPercent(scores: Record<number, number>): number {
   const totalPassed = Object.values(scores).filter(v => v >= CONDITION_PASS_THRESHOLD).length;
-  const totalConditions = 27;
-  const overallPercent = Math.round((totalPassed / totalConditions) * 100);
+  return Math.round((totalPassed / 27) * 100);
+}
+
+function getOverallScoreColor(overallPercent: number): string {
+  if (overallPercent >= 70) return 'text-green-400';
+  if (overallPercent >= 50) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function getGateSummaryVariant(gateResults: GateResult[]): 'success' | 'warning' | 'danger' {
+  if (gateResults.every(g => g.passed)) return 'success';
+  if (gateResults.some(g => g.passed)) return 'warning';
+  return 'danger';
+}
+
+interface GateStatusWidgetProps {
+  stock: StockRecommendation;
+}
+
+export function GateStatusWidget({ stock }: GateStatusWidgetProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const scores = buildConditionScores(stock);
+  const gateResults = buildGateResults(scores);
+  const overallPercent = getOverallPercent(scores);
 
   return (
     <div className="glass-3d rounded-xl overflow-hidden">
@@ -174,15 +194,13 @@ export function GateStatusWidget({ stock }: GateStatusWidgetProps) {
         <div className="ml-auto flex items-center gap-2">
           <span className={cn(
             'text-xs font-black font-num',
-            overallPercent >= 70 ? 'text-green-400' :
-            overallPercent >= 50 ? 'text-amber-400' : 'text-red-400'
+            getOverallScoreColor(overallPercent)
           )}>
             {overallPercent}%
           </span>
           <Badge
             variant={
-              gateResults.every(g => g.passed) ? 'success' :
-              gateResults.some(g => g.passed) ? 'warning' : 'danger'
+              getGateSummaryVariant(gateResults)
             }
             size="sm"
           >

@@ -37,44 +37,29 @@ const GATE_META: Record<1 | 2 | 3, { label: string; color: string; bgColor: stri
 
 // ── VKOSPI-based dynamic recommended weights ────────────────────────────────
 
+const WEIGHT_MULTIPLIERS: Record<'extreme' | 'fear' | 'elevated' | 'ultraCalm' | 'calm', Record<number, number>> = {
+  extreme: { 7: 2.0, 23: 2.0, 5: 1.8, 17: 1.5, 2: 0.5, 24: 0.5, 25: 0.6, 18: 0.6 },
+  fear: { 7: 1.5, 23: 1.5, 5: 1.3, 2: 0.7, 24: 0.7 },
+  elevated: { 7: 1.3, 17: 1.2 },
+  ultraCalm: { 2: 1.5, 24: 1.5, 3: 1.3, 14: 1.3, 15: 1.3, 25: 1.3, 7: 0.8 },
+  calm: { 2: 1.2, 24: 1.2 },
+};
+
+function multiplierForVkospi(vkospi: number, id: number): number {
+  if (vkospi >= VKOSPI.EXTREME) return WEIGHT_MULTIPLIERS.extreme[id] ?? 1.0;
+  if (vkospi >= VKOSPI.FEAR) return WEIGHT_MULTIPLIERS.fear[id] ?? 1.0;
+  if (vkospi >= VKOSPI.ELEVATED) return WEIGHT_MULTIPLIERS.elevated[id] ?? 1.0;
+  if (vkospi < 15) return WEIGHT_MULTIPLIERS.ultraCalm[id] ?? 1.0;
+  return WEIGHT_MULTIPLIERS.calm[id] ?? 1.0;
+}
+
 function computeRecommendedWeights(vkospi: number): Record<number, number> {
   const rec: Record<number, number> = {};
-
   for (let id = 1; id <= 27; id++) {
     const base = ALL_CONDITIONS[id]?.baseWeight ?? 1.0;
-    let multiplier = 1.0;
-
-    // VKOSPI regime adjustments
-    if (vkospi >= VKOSPI.EXTREME) {
-      // Crisis: risk management conditions maxed out
-      if (id === 7 || id === 23) multiplier = 2.0;   // stop loss, ICR
-      if (id === 5) multiplier = 1.8;                 // risk-on check
-      if (id === 17) multiplier = 1.5;                // psychological objectivity
-      if (id === 2 || id === 24) multiplier = 0.5;    // momentum less relevant
-      if (id === 25 || id === 18) multiplier = 0.6;   // VCP/Turtle less reliable
-    } else if (vkospi >= VKOSPI.FEAR) {
-      // High volatility: defensive bias
-      if (id === 7 || id === 23) multiplier = 1.5;
-      if (id === 5) multiplier = 1.3;
-      if (id === 2 || id === 24) multiplier = 0.7;
-    } else if (vkospi >= VKOSPI.ELEVATED) {
-      // Cautious
-      if (id === 7) multiplier = 1.3;
-      if (id === 17) multiplier = 1.2;
-    } else if (vkospi < 15) {
-      // Ultra-calm: growth conditions boosted
-      if (id === 2 || id === 24) multiplier = 1.5;    // momentum, RS
-      if (id === 3 || id === 14 || id === 15) multiplier = 1.3; // ROE, earnings
-      if (id === 25) multiplier = 1.3;                // VCP
-      if (id === 7) multiplier = 0.8;                 // less stop-loss pressure
-    } else {
-      // Calm normal
-      if (id === 2 || id === 24) multiplier = 1.2;
-    }
-
+    const multiplier = multiplierForVkospi(vkospi, id);
     rec[id] = Math.round(Math.min(10, Math.max(0.1, base * multiplier)) * 10) / 10;
   }
-
   return rec;
 }
 

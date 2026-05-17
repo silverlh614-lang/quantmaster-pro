@@ -10,6 +10,77 @@ import { cn } from '../../ui/cn';
 import { useRecommendationStore, useGlobalIntelStore, useMarketStore } from '../../stores';
 import { useTradeStore } from '../../stores';
 
+type ConnectionState = 'loading' | 'live' | 'stale' | 'idle';
+type RegimePhase = 'BULL' | 'TRANSITION' | 'BEAR';
+
+const CONNECTION_CONFIG: Record<ConnectionState, { label: string; color: string; icon: React.ReactNode; dot: string }> = {
+  live: { label: 'LIVE', color: 'text-green-400', icon: <Wifi className="w-3 h-3" />, dot: 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' },
+  loading: { label: 'SYNC', color: 'text-blue-400', icon: <RefreshCw className="w-3 h-3 animate-spin" />, dot: 'bg-blue-400 animate-pulse' },
+  stale: { label: 'STALE', color: 'text-amber-400', icon: <Clock className="w-3 h-3" />, dot: 'bg-amber-400' },
+  idle: { label: 'IDLE', color: 'text-theme-text-muted', icon: <WifiOff className="w-3 h-3" />, dot: 'bg-theme-text-muted' },
+};
+
+const PHASE_CONFIG: Record<RegimePhase, { label: string; color: string; dot: string }> = {
+  BULL: { label: 'BULL PHASE', color: 'text-green-400', dot: 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' },
+  TRANSITION: { label: 'TRANSITION', color: 'text-yellow-400', dot: 'bg-yellow-400 shadow-[0_0_6px_rgba(234,179,8,0.6)]' },
+  BEAR: { label: 'BEAR PHASE', color: 'text-red-400', dot: 'bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.6)]' },
+};
+
+function resolveConnectionState(input: {
+  loadingReco: boolean;
+  loadingMarket: boolean;
+  isSyncing: boolean;
+  recommendationCount: number;
+  marketOverview?: { lastUpdated?: string } | null;
+  recoUpdatedAt?: string | null;
+}): ConnectionState {
+  if (input.loadingReco || input.loadingMarket || input.isSyncing) return 'loading';
+  const hasAny = input.recommendationCount > 0 || !!input.marketOverview;
+  if (!hasAny) return 'idle';
+  const ts = input.recoUpdatedAt
+    ? new Date(input.recoUpdatedAt).getTime()
+    : input.marketOverview?.lastUpdated ? new Date(input.marketOverview.lastUpdated).getTime() : NaN;
+  if (!Number.isFinite(ts)) return 'live';
+  return Date.now() - ts > 30 * 60 * 1000 ? 'stale' : 'live';
+}
+
+function getConnectionTitle(connState: ConnectionState): string | undefined {
+  if (connState === 'stale') return '데이터가 30분 이상 갱신되지 않았습니다';
+  if (connState === 'idle') return '아직 데이터를 불러오지 않았습니다';
+  return undefined;
+}
+
+function getPhaseConfig(regime: string): { label: string; color: string; dot: string } {
+  return PHASE_CONFIG[regime as RegimePhase] ?? { label: 'BULL PHASE', color: 'text-green-400', dot: 'bg-green-400' };
+}
+
+function getCashRatio(regime: string, cashWeightPct?: number): number {
+  if (cashWeightPct != null) return cashWeightPct;
+  if (regime === 'BEAR') return 50;
+  if (regime === 'TRANSITION') return 30;
+  return 10;
+}
+
+function getAverageScore(recommendations: Array<{ aiConvictionScore?: { totalScore?: number } }>): number {
+  const scores = recommendations
+    .map(r => r.aiConvictionScore?.totalScore)
+    .filter((s): s is number => s != null);
+  return scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+}
+
+function getPositionColor(positionPct: number): string {
+  if (positionPct >= 70) return 'text-green-400';
+  if (positionPct >= 40) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+function getAverageScoreColor(avgScore: number): string {
+  if (avgScore >= 80) return 'text-green-400';
+  if (avgScore >= 60) return 'text-yellow-400';
+  if (avgScore > 0) return 'text-red-400';
+  return 'text-theme-text-muted';
+}
+
 export function StatusBanner() {
   const { recommendations, watchlist, loading: loadingReco, lastUpdated: recoUpdatedAt } = useRecommendationStore();
   const { tradeRecords } = useTradeStore();
@@ -17,47 +88,31 @@ export function StatusBanner() {
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const marketNeutralResult = useGlobalIntelStore(s => s.marketNeutralResult);
 
-  /** 전체 데이터 연결 상태 — 로딩/최신성/가용성 순으로 판단. */
-  const connState: 'loading' | 'live' | 'stale' | 'idle' = (() => {
-    if (loadingReco || loadingMarket || syncStatus.isSyncing) return 'loading';
-    const hasAny = (recommendations || []).length > 0 || !!marketOverview;
-    if (!hasAny) return 'idle';
-    const ts = recoUpdatedAt
-      ? new Date(recoUpdatedAt).getTime()
-      : marketOverview?.lastUpdated ? new Date(marketOverview.lastUpdated).getTime() : NaN;
-    if (!Number.isFinite(ts)) return 'live';
-    return Date.now() - ts > 30 * 60 * 1000 ? 'stale' : 'live';
-  })();
-  const connCfg = {
-    live: { label: 'LIVE', color: 'text-green-400', icon: <Wifi className="w-3 h-3" />, dot: 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' },
-    loading: { label: 'SYNC', color: 'text-blue-400', icon: <RefreshCw className="w-3 h-3 animate-spin" />, dot: 'bg-blue-400 animate-pulse' },
-    stale: { label: 'STALE', color: 'text-amber-400', icon: <Clock className="w-3 h-3" />, dot: 'bg-amber-400' },
-    idle: { label: 'IDLE', color: 'text-theme-text-muted', icon: <WifiOff className="w-3 h-3" />, dot: 'bg-theme-text-muted' },
-  }[connState];
+  const recommendationRows = recommendations || [];
+  const connState = resolveConnectionState({
+    loadingReco,
+    loadingMarket,
+    isSyncing: syncStatus.isSyncing,
+    recommendationCount: recommendationRows.length,
+    marketOverview,
+    recoUpdatedAt,
+  });
+  const connCfg = CONNECTION_CONFIG[connState];
 
   const regime = bearRegimeResult?.regime ?? 'BULL';
 
-  // Market phase label + color
-  const phaseConfig = {
-    BULL: { label: 'BULL PHASE', color: 'text-green-400', dot: 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' },
-    TRANSITION: { label: 'TRANSITION', color: 'text-yellow-400', dot: 'bg-yellow-400 shadow-[0_0_6px_rgba(234,179,8,0.6)]' },
-    BEAR: { label: 'BEAR PHASE', color: 'text-red-400', dot: 'bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.6)]' },
-  }[regime] ?? { label: 'BULL PHASE', color: 'text-green-400', dot: 'bg-green-400' };
+  const phaseConfig = getPhaseConfig(regime);
 
   // Recommended position based on market neutral / regime
   const cashLeg = marketNeutralResult?.legs?.find(l => l.type === 'CASH');
-  const cashRatio = cashLeg?.weightPct ?? (regime === 'BEAR' ? 50 : regime === 'TRANSITION' ? 30 : 10);
+  const cashRatio = getCashRatio(regime, cashLeg?.weightPct);
   const positionPct = 100 - cashRatio;
 
   // Counts
   const watchlistCount = (watchlist || []).length;
   const openTrades = tradeRecords.filter(t => t.status === 'OPEN').length;
 
-  // Gate average score
-  const scores = (recommendations || [])
-    .map(r => r.aiConvictionScore?.totalScore)
-    .filter((s): s is number => s != null);
-  const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+  const avgScore = getAverageScore(recommendationRows);
 
   return (
     <div className="neo-status-banner no-print" role="banner">
@@ -94,7 +149,7 @@ export function StatusBanner() {
           <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest hidden sm:inline">포지션</span>
           <span className={cn(
             'text-[11px] font-black font-num',
-            positionPct >= 70 ? 'text-green-400' : positionPct >= 40 ? 'text-yellow-400' : 'text-red-400'
+            getPositionColor(positionPct)
           )}>
             {positionPct}%
           </span>
@@ -108,7 +163,7 @@ export function StatusBanner() {
           <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest hidden sm:inline">Gate</span>
           <span className={cn(
             'text-[11px] font-black font-num',
-            avgScore >= 80 ? 'text-green-400' : avgScore >= 60 ? 'text-yellow-400' : avgScore > 0 ? 'text-red-400' : 'text-theme-text-muted'
+            getAverageScoreColor(avgScore)
           )}>
             {avgScore > 0 ? avgScore : '--'}
           </span>
