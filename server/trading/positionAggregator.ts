@@ -154,57 +154,83 @@ function emptyBreakdown(): ExitBreakdown {
   };
 }
 
-// ─── 메인 집계 함수 ───────────────────────────────────────────────────────────
+const REMAINING_QTY_SELL_EVENTS = new Set([
+  'HIT_STOP',
+  'HIT_TARGET',
+  'FULLY_CLOSED_TRANCHES',
+]);
 
-/**
- * 단일 positionId에 대한 집계.
- */
-export function aggregatePosition(
-  positionId: string,
-  logs: any[],
-  snapshot: any | null,
-): PositionSummary {
-  const related = logs
+const FINAL_CLOSE_EVENTS = new Set([
+  'HIT_STOP',
+  'HIT_TARGET',
+  'FULLY_CLOSED_TRANCHES',
+  'CASCADE_STOP_FINAL',
+  'CASCADE_STOP_BLACKLIST',
+]);
+
+function shouldUseRemainingQty(event: string): boolean {
+  return REMAINING_QTY_SELL_EVENTS.has(event);
+}
+
+function isFinalCloseEvent(event: string): boolean {
+  return FINAL_CLOSE_EVENTS.has(event);
+}
+
+function computeWeightedReturnPct(totalRealizedPnL: number, entryPrice: number, originalQuantity: number): number {
+  if (originalQuantity <= 0) return 0;
+  if (entryPrice <= 0) return 0;
+  return (totalRealizedPnL / (entryPrice * originalQuantity)) * 100;
+}
+
+function determineStage(realizedQty: number, originalQuantity: number): PositionStage {
+  if (realizedQty === 0) return 'ENTRY';
+  if (realizedQty < originalQuantity) return 'PARTIAL';
+  return 'CLOSED';
+}
+
+function computeHoldingDays(entryTime: string, closedTime?: string): number {
+  if (!entryTime) return 0;
+  const endTime = closedTime ?? new Date().toISOString();
+  return Math.floor((new Date(endTime).getTime() - new Date(entryTime).getTime()) / 86_400_000);
+}
+
+function shouldReportSnapshotReturnDrift(snapshot: any | null, weightedReturnPct: number): boolean {
+  if (!snapshot) return false;
+  if (snapshot.returnPct === undefined) return false;
+  return Math.abs(snapshot.returnPct - weightedReturnPct) > 0.5;
+}
+
+function valueOr<T>(value: T | null | undefined, defaultValue: T): T {
+  return value ?? defaultValue;
+}
+
+function snapshotOriginalQuantity(snapshot: any): number {
+  return snapshot.originalQuantity ?? snapshot.quantity ?? 0;
+}
+
+function snapshotOnlyStage(status: string | undefined): PositionStage {
+  if (status === 'HIT_STOP') return 'CLOSED';
+  if (status === 'HIT_TARGET') return 'CLOSED';
+  return 'ENTRY';
+}
+
+function canInferExitPrice(log: any, entryPrice: number): boolean {
+  if (log.returnPct === undefined) return false;
+  return entryPrice > 0;
+}
+
+function getRelatedPositionLogs(positionId: string, logs: any[]): any[] {
+  return logs
     .filter((l) => l.id === positionId)
     .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
+}
 
-  if (related.length === 0) {
-    // 스냅샷만 있는 고립 포지션
-    if (snapshot) {
-      return {
-        positionId,
-        stockCode: snapshot.stockCode ?? 'UNKNOWN',
-        stockName: snapshot.stockName ?? 'UNKNOWN',
-        entryPrice: snapshot.shadowEntryPrice ?? 0,
-        entryDate: snapshot.signalTime ?? '',
-        entryRegime: snapshot.entryRegime,
-        profileType: snapshot.profileType,
-        originalQuantity: snapshot.originalQuantity ?? snapshot.quantity ?? 0,
-        stage: snapshot.status === 'HIT_STOP' || snapshot.status === 'HIT_TARGET' ? 'CLOSED' : 'ENTRY',
-        realizedQty: 0,
-        remainingQty: snapshot.quantity ?? 0,
-        totalRealizedPnL: 0,
-        weightedReturnPct: snapshot.returnPct ?? 0,
-        exitEvents: [],
-        exitBreakdown: emptyBreakdown(),
-        holdingDays: 0,
-        entryTime: snapshot.signalTime ?? '',
-        mode: snapshot.mode,
-        snapshotQuantity: snapshot.quantity,
-        snapshotStatus: snapshot.status,
-        snapshotReturnPct: snapshot.returnPct,
-        integrityIssues: ['이벤트 로그 없음 — 스냅샷만 존재 (고립 포지션)'],
-      };
-    }
-    throw new Error(`positionId ${positionId}에 대한 데이터 없음`);
-  }
+function buildInitialSummary(positionId: string, first: any, snapshot: any | null): PositionSummary {
+  const entryPrice = valueOr(first.shadowEntryPrice, 0);
+  const originalQuantity = valueOr(first.originalQuantity, valueOr(first.quantity, 0));
+  const entryTime = valueOr(first.signalTime, valueOr(first.ts, ''));
 
-  const first = related[0];
-  const entryPrice = first.shadowEntryPrice ?? 0;
-  const originalQuantity = first.originalQuantity ?? first.quantity ?? 0;
-  const entryTime = first.signalTime ?? first.ts ?? '';
-
-  const summary: PositionSummary = {
+  return {
     positionId,
     stockCode: first.stockCode ?? 'UNKNOWN',
     stockName: first.stockName ?? 'UNKNOWN',
@@ -228,16 +254,67 @@ export function aggregatePosition(
     snapshotReturnPct: snapshot?.returnPct,
     integrityIssues: [],
   };
+}
+
+// ─── 메인 집계 함수 ───────────────────────────────────────────────────────────
+
+/**
+ * 단일 positionId에 대한 집계.
+ */
+export function aggregatePosition(
+  positionId: string,
+  logs: any[],
+  snapshot: any | null,
+): PositionSummary {
+  const related = getRelatedPositionLogs(positionId, logs);
+
+  if (related.length === 0) {
+    // 스냅샷만 있는 고립 포지션
+    if (snapshot) {
+      return {
+        positionId,
+        stockCode: valueOr(snapshot.stockCode, 'UNKNOWN'),
+        stockName: valueOr(snapshot.stockName, 'UNKNOWN'),
+        entryPrice: valueOr(snapshot.shadowEntryPrice, 0),
+        entryDate: valueOr(snapshot.signalTime, ''),
+        entryRegime: snapshot.entryRegime,
+        profileType: snapshot.profileType,
+        originalQuantity: snapshotOriginalQuantity(snapshot),
+        stage: snapshotOnlyStage(snapshot.status),
+        realizedQty: 0,
+        remainingQty: valueOr(snapshot.quantity, 0),
+        totalRealizedPnL: 0,
+        weightedReturnPct: valueOr(snapshot.returnPct, 0),
+        exitEvents: [],
+        exitBreakdown: emptyBreakdown(),
+        holdingDays: 0,
+        entryTime: valueOr(snapshot.signalTime, ''),
+        mode: snapshot.mode,
+        snapshotQuantity: snapshot.quantity,
+        snapshotStatus: snapshot.status,
+        snapshotReturnPct: snapshot.returnPct,
+        integrityIssues: ['이벤트 로그 없음 — 스냅샷만 존재 (고립 포지션)'],
+      };
+    }
+    throw new Error(`positionId ${positionId}에 대한 데이터 없음`);
+  }
+
+  const first = related[0];
+  const entryPrice = valueOr(first.shadowEntryPrice, 0);
+  const originalQuantity = valueOr(first.originalQuantity, valueOr(first.quantity, 0));
+  const entryTime = valueOr(first.signalTime, valueOr(first.ts, ''));
+
+  const summary = buildInitialSummary(positionId, first, snapshot);
 
   // ── 매도 이벤트 순회 집계 ──
   for (const log of related) {
     if (!SELL_EVENTS.has(log.event)) continue;
 
     // soldQty 결정
-    let soldQty = log.soldQty ?? 0;
+    let soldQty = valueOr(log.soldQty, 0);
     if (soldQty === 0) {
       // HIT_STOP/HIT_TARGET 등 전량 매도 이벤트 — quantity 사용 (매도 전 기록일 경우)
-      if (log.event === 'HIT_STOP' || log.event === 'HIT_TARGET' || log.event === 'FULLY_CLOSED_TRANCHES') {
+      if (shouldUseRemainingQty(log.event)) {
         // 이전까지 매도된 수량을 제외한 잔여 = originalQty - (이전 realizedQty)
         soldQty = originalQuantity - summary.realizedQty;
       }
@@ -251,7 +328,7 @@ export function aggregatePosition(
 
     // exitPrice 결정 — 없으면 returnPct로 역산
     let exitPrice = log.exitPrice;
-    if (exitPrice === undefined && log.returnPct !== undefined && entryPrice > 0) {
+    if (exitPrice === undefined && canInferExitPrice(log, entryPrice)) {
       exitPrice = entryPrice * (1 + log.returnPct / 100);
       summary.integrityIssues.push(
         `${log.event} 에 exitPrice 누락 — returnPct(${log.returnPct})로 역산 (${log.ts})`,
@@ -285,34 +362,20 @@ export function aggregatePosition(
     summary.exitBreakdown[category].pnl += realizedPnL;
 
     // 최종 종료 시각
-    if (['HIT_STOP', 'HIT_TARGET', 'FULLY_CLOSED_TRANCHES', 'CASCADE_STOP_FINAL', 'CASCADE_STOP_BLACKLIST'].includes(log.event)) {
+    if (isFinalCloseEvent(log.event)) {
       summary.closedTime = log.ts;
     }
   }
 
   // ── 후처리 ──
   summary.remainingQty = originalQuantity - summary.realizedQty;
-  summary.weightedReturnPct =
-    originalQuantity > 0 && entryPrice > 0
-      ? (summary.totalRealizedPnL / (entryPrice * originalQuantity)) * 100
-      : 0;
+  summary.weightedReturnPct = computeWeightedReturnPct(summary.totalRealizedPnL, entryPrice, originalQuantity);
 
   // 생애주기 단계 결정
-  if (summary.realizedQty === 0) {
-    summary.stage = 'ENTRY';
-  } else if (summary.realizedQty < originalQuantity) {
-    summary.stage = 'PARTIAL';
-  } else {
-    summary.stage = 'CLOSED';
-  }
+  summary.stage = determineStage(summary.realizedQty, originalQuantity);
 
   // 보유 기간
-  if (entryTime) {
-    const endTime = summary.closedTime ?? new Date().toISOString();
-    summary.holdingDays = Math.floor(
-      (new Date(endTime).getTime() - new Date(entryTime).getTime()) / 86_400_000,
-    );
-  }
+  summary.holdingDays = computeHoldingDays(entryTime, summary.closedTime);
 
   // ── 정합성 검증 ──
   if (summary.stage === 'CLOSED' && summary.realizedQty !== originalQuantity) {
@@ -320,13 +383,10 @@ export function aggregatePosition(
       `CLOSED 상태이나 realizedQty(${summary.realizedQty}) !== originalQuantity(${originalQuantity})`,
     );
   }
-  if (snapshot && snapshot.returnPct !== undefined) {
-    const drift = Math.abs(snapshot.returnPct - summary.weightedReturnPct);
-    if (drift > 0.5) {
+  if (shouldReportSnapshotReturnDrift(snapshot, summary.weightedReturnPct)) {
       summary.integrityIssues.push(
         `snapshot.returnPct(${snapshot.returnPct.toFixed(2)}%) != 가중평균(${summary.weightedReturnPct.toFixed(2)}%) — UI 왜곡 원인`,
       );
-    }
   }
 
   return summary;
