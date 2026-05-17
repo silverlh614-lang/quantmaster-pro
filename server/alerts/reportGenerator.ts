@@ -378,6 +378,150 @@ function buildDailyTelegramMessage(params: {
     : `📊 <b>[QuantMaster] ${today} 일일 리포트</b>\n\n${baseReport}`;
 }
 
+interface WeeklyReportMetrics {
+  weekAgo: number;
+  closed: ServerShadowTrade[];
+  wins: ServerShadowTrade[];
+  losses: ServerShadowTrade[];
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  rrr: number;
+  weekStart: Date;
+  weekEnd: Date;
+}
+
+function buildWeeklyReportMetrics(shadows: ServerShadowTrade[], now: number): WeeklyReportMetrics {
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const week = shadows.filter(s => new Date(s.signalTime).getTime() > weekAgo);
+  const closed = week.filter(s => s.status !== 'ACTIVE' && s.status !== 'PENDING');
+  const wins = closed.filter(s => s.status === 'HIT_TARGET');
+  const losses = closed.filter(s => s.status === 'HIT_STOP');
+  const winRate = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
+  const winReturns = wins.map(s => s.returnPct ?? 0);
+  const lossReturns = losses.map(s => s.returnPct ?? 0);
+  const avgWin = winReturns.length > 0
+    ? winReturns.reduce((a, b) => a + b, 0) / winReturns.length
+    : 0;
+  const avgLoss = lossReturns.length > 0
+    ? Math.abs(lossReturns.reduce((a, b) => a + b, 0) / lossReturns.length)
+    : 0;
+  const rrr = avgLoss > 0 ? avgWin / avgLoss : 0;
+
+  return {
+    weekAgo,
+    closed,
+    wins,
+    losses,
+    winRate,
+    avgWin,
+    avgLoss,
+    rrr,
+    weekStart: new Date(weekAgo + 9 * 60 * 60 * 1000),
+    weekEnd: new Date(now + 9 * 60 * 60 * 1000),
+  };
+}
+
+function fmtWeeklyDate(d: Date): string {
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
+function buildWeeklyAttributionTopLines(weekAgo: number): string {
+  const weeklyAttrRecords = loadAttributionRecords().filter(
+    r => new Date(r.closedAt).getTime() > weekAgo,
+  );
+  if (weeklyAttrRecords.length < 3) return '';
+
+  const ranked = analyzeAttribution(weeklyAttrRecords)
+    .filter(a => a.totalTrades >= 2 && a.avgReturn > 0)
+    .sort((a, b) => (b.avgReturn * b.totalTrades) - (a.avgReturn * a.totalTrades))
+    .slice(0, 3);
+  if (ranked.length === 0) return '';
+
+  let top3Lines = `\n<b>최고 기여 조건 TOP${ranked.length}:</b>\n`;
+  ranked.forEach((a, i) => {
+    const medal = ['🥇', '🥈', '🥉'][i] ?? `${i + 1}위`;
+    top3Lines += `${medal} ${a.conditionName} — 기여 +${a.avgReturn.toFixed(1)}%\n`;
+  });
+  return top3Lines;
+}
+
+function buildWeeklyActionLines(params: {
+  macroNow: ReturnType<typeof loadMacroState>;
+  winRate: number;
+  closedCount: number;
+  rrr: number;
+}): string[] {
+  const { macroNow, winRate, closedCount, rrr } = params;
+  const regimeNow = getLiveRegime(macroNow);
+  const fomc = getFomcProximity(
+    macroNow
+      ? {
+          mhs: macroNow.mhs,
+          regime: regimeNow ?? macroNow.regime,
+          vkospi: macroNow.vkospi,
+        }
+      : undefined,
+  );
+  const actionLines: string[] = [];
+  if (fomc.nextFomcDate) {
+    const daysUntil = fomc.daysUntil ?? 999;
+    if (daysUntil <= 7) {
+      actionLines.push(`⚠️ 이번주 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 진입 규모 축소 권고`);
+    } else if (daysUntil <= 14) {
+      actionLines.push(`📅 2주 내 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 포지션 롤오버 시 유의`);
+    }
+  }
+  if (regimeNow === 'R5_CAUTION' || regimeNow === 'R6_DEFENSE') {
+    actionLines.push(`🔴 현재 레짐 ${regimeNow} — 신규 진입 자제, 기존 포지션 점검 우선`);
+  } else if (regimeNow === 'R1_TURBO' || regimeNow === 'R2_BULL') {
+    actionLines.push(`🟢 현재 레짐 ${regimeNow} — 주도주 집중도 강화, Kelly 배율 정상화`);
+  }
+  if (winRate < 40 && closedCount >= 5) {
+    actionLines.push(`⚠️ 지난주 WIN률 ${winRate}% — 손절 기준·필터 재점검 권고`);
+  }
+  if (rrr < 1.5 && closedCount >= 5) {
+    actionLines.push(`⚠️ RRR ${rrr.toFixed(2)} — 목표가 상향 또는 손절폭 축소 검토`);
+  }
+  return actionLines;
+}
+
+function buildWeeklyActionBlock(actionLines: string[]): string {
+  return actionLines.length > 0
+    ? `\n<b>이번주 액션 아이템:</b>\n${actionLines.map(l => `• ${l}`).join('\n')}\n`
+    : `\n<i>이번주 특이사항 없음 — 기존 운용 원칙 유지.</i>\n`;
+}
+
+function buildWeeklyTelegramMessage(metrics: WeeklyReportMetrics, top3Lines: string, actionBlock: string): string {
+  return `<b>[주간 캘리브레이션] ${fmtWeeklyDate(metrics.weekStart)}~${fmtWeeklyDate(metrics.weekEnd)}</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `거래 ${metrics.closed.length}건: WIN ${metrics.wins.length} / LOSS ${metrics.losses.length}  (WIN률 ${metrics.winRate}%)\n` +
+    `평균 수익: +${metrics.avgWin.toFixed(1)}%  평균 손실: -${metrics.avgLoss.toFixed(1)}%\n` +
+    `RRR 달성: ${metrics.rrr.toFixed(2)} (목표 2.0 ${metrics.rrr >= 2.0 ? '✅' : '⚠️'})\n` +
+    `━━━━━━━━━━━━━━━━` +
+    top3Lines +
+    (top3Lines ? `━━━━━━━━━━━━━━━━` : '') +
+    actionBlock;
+}
+
+function pickBestWeeklyTrade(wins: ServerShadowTrade[]): ServerShadowTrade | undefined {
+  return wins.length > 0
+    ? wins.reduce((a, b) => (a.returnPct ?? 0) > (b.returnPct ?? 0) ? a : b)
+    : undefined;
+}
+
+function pickWorstWeeklyTrade(losses: ServerShadowTrade[]): ServerShadowTrade | undefined {
+  return losses.length > 0
+    ? losses.reduce((a, b) => (a.returnPct ?? 0) < (b.returnPct ?? 0) ? a : b)
+    : undefined;
+}
+
+function calculateWeeklyTotalPnlPct(closed: ServerShadowTrade[]): number {
+  return closed.length > 0
+    ? closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0) / closed.length
+    : 0;
+}
+
 /**
  * 아이디어 9: 일일 리포트 2.0 — Gemini AI 내러티브 리포트
  * 1. 거래 데이터 + MHS + 월간 통계를 Gemini에 주입 (googleSearch 없음)
@@ -461,111 +605,30 @@ export async function generateDailyReport(): Promise<void> {
 export async function generateWeeklyReport(): Promise<void> {
   const shadows = loadShadowTrades();
   const now = Date.now();
-  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const week = shadows.filter(s => new Date(s.signalTime).getTime() > weekAgo);
-  const closed = week.filter(s => s.status !== 'ACTIVE' && s.status !== 'PENDING');
-  const wins = closed.filter(s => s.status === 'HIT_TARGET');
-  const losses = closed.filter(s => s.status === 'HIT_STOP');
-  const winRate = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
-
-  // 평균 수익/손실
-  const winReturns = wins.map(s => s.returnPct ?? 0);
-  const lossReturns = losses.map(s => s.returnPct ?? 0);
-  const avgWin = winReturns.length > 0
-    ? winReturns.reduce((a, b) => a + b, 0) / winReturns.length : 0;
-  const avgLoss = lossReturns.length > 0
-    ? Math.abs(lossReturns.reduce((a, b) => a + b, 0) / lossReturns.length) : 0;
-  const rrr = avgLoss > 0 ? avgWin / avgLoss : 0;
-
-  // 주간 날짜 범위
-  const weekStart = new Date(weekAgo + 9 * 60 * 60 * 1000);
-  const weekEnd = new Date(now + 9 * 60 * 60 * 1000);
-  const fmtDate = (d: Date) =>
-    `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-
-  // ── 귀인 분석: 최고 기여 조건 TOP3 ──────────────────────────────────────────
-  const attrRecords = loadAttributionRecords();
-  const weeklyAttrRecords = attrRecords.filter(
-    r => new Date(r.closedAt).getTime() > weekAgo
-  );
-  let top3Lines = '';
-  if (weeklyAttrRecords.length >= 3) {
-    const analysis = analyzeAttribution(weeklyAttrRecords);
-    const ranked = analysis
-      .filter(a => a.totalTrades >= 2 && a.avgReturn > 0)
-      .sort((a, b) => (b.avgReturn * b.totalTrades) - (a.avgReturn * a.totalTrades))
-      .slice(0, 3);
-
-    if (ranked.length > 0) {
-      top3Lines = `\n<b>최고 기여 조건 TOP${ranked.length}:</b>\n`;
-      ranked.forEach((a, i) => {
-        const medal = ['🥇', '🥈', '🥉'][i] ?? `${i + 1}위`;
-        top3Lines += `${medal} ${a.conditionName} — 기여 +${a.avgReturn.toFixed(1)}%\n`;
-      });
-    }
-  }
+  const metrics = buildWeeklyReportMetrics(shadows, now);
+  const top3Lines = buildWeeklyAttributionTopLines(metrics.weekAgo);
 
   // ── 이번주 액션 아이템 (FOMC + 현재 레짐 기반 narrative) ───────────────────
   // v3.1 (2026-04-26): macro snapshot 전달해 우호 환경 완화 일관성 확보.
   const macroNow = loadMacroState();
-  const regimeNow = getLiveRegime(macroNow);
-  const fomc = getFomcProximity(
-    macroNow
-      ? {
-          mhs: macroNow.mhs,
-          regime: regimeNow ?? macroNow.regime,
-          vkospi: macroNow.vkospi,
-        }
-      : undefined,
-  );
-  const actionLines: string[] = [];
-  if (fomc.nextFomcDate) {
-    const daysUntil = fomc.daysUntil ?? 999;
-    if (daysUntil <= 7) {
-      actionLines.push(`⚠️ 이번주 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 진입 규모 축소 권고`);
-    } else if (daysUntil <= 14) {
-      actionLines.push(`📅 2주 내 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 포지션 롤오버 시 유의`);
-    }
-  }
-  if (regimeNow === 'R5_CAUTION' || regimeNow === 'R6_DEFENSE') {
-    actionLines.push(`🔴 현재 레짐 ${regimeNow} — 신규 진입 자제, 기존 포지션 점검 우선`);
-  } else if (regimeNow === 'R1_TURBO' || regimeNow === 'R2_BULL') {
-    actionLines.push(`🟢 현재 레짐 ${regimeNow} — 주도주 집중도 강화, Kelly 배율 정상화`);
-  }
-  if (winRate < 40 && closed.length >= 5) {
-    actionLines.push(`⚠️ 지난주 WIN률 ${winRate}% — 손절 기준·필터 재점검 권고`);
-  }
-  if (rrr < 1.5 && closed.length >= 5) {
-    actionLines.push(`⚠️ RRR ${rrr.toFixed(2)} — 목표가 상향 또는 손절폭 축소 검토`);
-  }
-  const actionBlock = actionLines.length > 0
-    ? `\n<b>이번주 액션 아이템:</b>\n${actionLines.map(l => `• ${l}`).join('\n')}\n`
-    : `\n<i>이번주 특이사항 없음 — 기존 운용 원칙 유지.</i>\n`;
-
-  // ── 메시지 조립 ──────────────────────────────────────────────────────────────
-  const msg =
-    `<b>[주간 캘리브레이션] ${fmtDate(weekStart)}~${fmtDate(weekEnd)}</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
-    `거래 ${closed.length}건: WIN ${wins.length} / LOSS ${losses.length}  (WIN률 ${winRate}%)\n` +
-    `평균 수익: +${avgWin.toFixed(1)}%  평균 손실: -${avgLoss.toFixed(1)}%\n` +
-    `RRR 달성: ${rrr.toFixed(2)} (목표 2.0 ${rrr >= 2.0 ? '✅' : '⚠️'})\n` +
-    `━━━━━━━━━━━━━━━━` +
-    top3Lines +
-    (top3Lines ? `━━━━━━━━━━━━━━━━` : '') +
-    actionBlock;
+  const actionLines = buildWeeklyActionLines({
+    macroNow,
+    winRate: metrics.winRate,
+    closedCount: metrics.closed.length,
+    rrr: metrics.rrr,
+  });
+  const msg = buildWeeklyTelegramMessage(metrics, top3Lines, buildWeeklyActionBlock(actionLines));
 
   await sendTelegramAlert(msg, { tier: 'T2_REPORT', category: 'weekly_calibration' }).catch(console.error);
 
-  const bestShadow  = wins.length  > 0 ? wins.reduce((a, b)  => (a.returnPct ?? 0) > (b.returnPct ?? 0) ? a : b)  : undefined;
-  const worstShadow = losses.length > 0 ? losses.reduce((a, b) => (a.returnPct ?? 0) < (b.returnPct ?? 0) ? a : b) : undefined;
-  const totalPnlPct = closed.length > 0
-    ? closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0) / closed.length
-    : 0;
+  const bestShadow = pickBestWeeklyTrade(metrics.wins);
+  const worstShadow = pickWorstWeeklyTrade(metrics.losses);
+  const totalPnlPct = calculateWeeklyTotalPnlPct(metrics.closed);
   await channelPerformance({
     period:      'WEEKLY',
-    totalTrades: closed.length,
-    winCount:    wins.length,
-    lossCount:   losses.length,
+    totalTrades: metrics.closed.length,
+    winCount:    metrics.wins.length,
+    lossCount:   metrics.losses.length,
     totalPnlPct,
     bestTrade:   bestShadow  ? { name: bestShadow.stockName,  pnlPct: bestShadow.returnPct  ?? 0 } : undefined,
     worstTrade:  worstShadow ? { name: worstShadow.stockName, pnlPct: worstShadow.returnPct ?? 0 } : undefined,
