@@ -3,6 +3,7 @@
 // master size 로 Tier (1≥2500 / 2≥2000 / 3≥500 / 4~100 SEED) 추정 + 워치리스트 미등록 카운트
 // (/yahoo_health FETCH_FAIL 교차 검증) + per-source health score. 강제 갱신 0건.
 
+// @responsibility Telegram KRX master status command handler.
 import fs from 'fs';
 import {
   getMasterSize,

@@ -1,3 +1,4 @@
+// @responsibility KIS official evidence pack assembly.
 import {
   fetchCurrentPrice,
   fetchKisMarketProgramTrade,

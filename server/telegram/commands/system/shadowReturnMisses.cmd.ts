@@ -1,3 +1,4 @@
+// @responsibility Telegram shadow return miss diagnostics command handler.
 import { loadShadowReturnMissDetails } from '../../../learning/shadowFutureReturnMissDiagnostics.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';

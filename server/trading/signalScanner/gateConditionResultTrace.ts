@@ -1,3 +1,4 @@
+// @responsibility Gate condition result trace type definitions.
 import type { ServerGateResult } from '../../quantFilter.js';
 
 export interface GateConditionResultTrace {

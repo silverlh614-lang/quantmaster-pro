@@ -1,3 +1,4 @@
+// @responsibility Score concordance grid rendering for deep analysis modal.
 import React from 'react';
 import { cn } from '../../../ui/cn';
 import type { StockRecommendation } from '../../../services/stockService';
@@ -87,4 +88,3 @@ export function ScoreAlignmentGrid({ stock }: Props) {
     </div>
   );
 }
-

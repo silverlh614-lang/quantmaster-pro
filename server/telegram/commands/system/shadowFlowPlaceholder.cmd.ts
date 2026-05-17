@@ -1,3 +1,4 @@
+// @responsibility Telegram shadow future return warmup command handler.
 import { loadAndBuildShadowFutureReturnCacheCoverageSummary, loadResolveAndSaveShadowFutureReturnsFromCache } from '../../../learning/shadowFutureReturnCacheProvider.js';
 import { clampShadowReturnWarmupLimit, runShadowFutureReturnWarmup, SHADOW_RETURN_WARMUP_DEFAULT_LIMIT } from '../../../learning/shadowFutureReturnWarmupPlanner.js';
 import { commandRegistry } from '../../commandRegistry.js';

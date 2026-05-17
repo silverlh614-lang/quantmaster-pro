@@ -1,4 +1,6 @@
 /**
+ * @responsibility Telegram display metric shape definitions.
+ *
  * Shared display-only metric schema for Telegram formatter clarity.
  *
  * This type is intentionally presentation-only: it must not become a source

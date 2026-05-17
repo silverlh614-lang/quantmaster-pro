@@ -1,3 +1,4 @@
+// @responsibility Execution policy compatibility re-export.
 export {
   ExecutionPolicy,
   resolveEngineRuntimePolicy,

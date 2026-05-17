@@ -1,3 +1,4 @@
+// @responsibility Sample completion progress bar rendering.
 import React from 'react';
 import { cn } from '../../ui/cn';
 

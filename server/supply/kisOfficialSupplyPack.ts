@@ -1,3 +1,4 @@
+// @responsibility KIS official supply pack assembly.
 import {
   fetchCurrentPrice,
   fetchKisDailyCreditBalance,

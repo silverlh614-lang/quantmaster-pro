@@ -1,3 +1,4 @@
+// @responsibility Recommendation score concordance helpers.
 import { getRegimeGateScoreBand } from '../constants/gateConfig';
 import type { StockRecommendation } from '../services/stock/types';
 

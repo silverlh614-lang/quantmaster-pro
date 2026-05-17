@@ -1,3 +1,4 @@
+// @responsibility KIS investor-flow evidence adapter.
 /** KIS investor-flow evidence adapter. */
 import { fetchKisForeignInstitutionTotal, fetchKisInvestorTradeByStockDaily } from '../clients/kisClient/index.js';
 import { makeInvestorFlowProviderHealth, resolveInvestorFlowSourceDateKst, type InvestorFlowProviderHealth } from './investorFlowProviderHealth.js';

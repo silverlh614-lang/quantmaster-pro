@@ -1,3 +1,4 @@
+// @responsibility Runtime logger type definitions.
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent';
 export type LogVisibility = 'ALWAYS' | 'SUMMARY' | 'DIAGNOSTIC' | 'TRACE' | 'SILENT_BY_DEFAULT';
 export type LogVerbosity = 'summary' | 'diagnostic' | 'trace';

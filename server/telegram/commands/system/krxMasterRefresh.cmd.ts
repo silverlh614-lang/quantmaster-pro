@@ -10,6 +10,7 @@
 // - master 임의 수정 0건 — refreshMultiSourceMaster 단일 통로
 // - AUTO_TRADE_ENABLED / emergencyStop 가드 불필요 (인프라 갱신은 비상 시에도 안전)
 
+// @responsibility Telegram KRX master refresh command handler.
 import { refreshMultiSourceMaster } from '../../../services/multiSourceStockMaster.js';
 import { getMasterSize, getKrxMasterMetadata } from '../../../persistence/krxStockMasterRepo.js';
 import { DEFAULT_KRX_MASTER_GUARD } from '../../../dataQuality/emergencyDataQualityGuards.js';

@@ -1,3 +1,4 @@
+// @responsibility Telegram orchestrator window inspection command handler.
 import { tradingOrchestrator } from '../../../orchestrator/tradingOrchestrator.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
