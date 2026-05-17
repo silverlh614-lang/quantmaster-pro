@@ -5,6 +5,7 @@ import {
   ALL_TWIN_KEYS,
   fetchRejectionShadow,
   fetchShadowAttribution,
+  fetchShadowCaseLibrary,
   fetchTwinPortfolio,
   type ClientRejectionShadowEntry,
   type ClientShadowConditionStat,
@@ -14,6 +15,7 @@ import {
   type TwinPortfolioResponse,
 } from '../api/shadowLearningClient';
 import { SampleProgressBar } from '../components/common/SampleProgressBar';
+import { ShadowCaseLibrary } from '../components/operator/ShadowCaseLibrary';
 
 const STALE_MS = 60_000;
 const REFETCH_MS = 60_000;
@@ -61,9 +63,18 @@ export default function ShadowLearningPage(): React.ReactElement {
     retry: 2,
   });
 
+  const shadowCaseQuery = useQuery({
+    queryKey: ['shadow-learning', 'shadow-cases'],
+    queryFn: fetchShadowCaseLibrary,
+    staleTime: STALE_MS,
+    refetchInterval: REFETCH_MS,
+    retry: 2,
+  });
+
   const rejection = rejectionQuery.data;
   const twin = twinQuery.data;
   const attribution = attributionQuery.data;
+  const shadowCases = shadowCaseQuery.data;
 
   return (
     <div className="space-y-6 p-6">
@@ -81,6 +92,8 @@ export default function ShadowLearningPage(): React.ReactElement {
         <OverStrictCard data={attribution} loading={attributionQuery.isLoading} error={attributionQuery.error} />
         <GoodDefenseCard data={attribution} loading={attributionQuery.isLoading} error={attributionQuery.error} />
       </div>
+
+      <ShadowCaseLibrary data={shadowCases} loading={shadowCaseQuery.isLoading} error={shadowCaseQuery.error} />
     </div>
   );
 }
