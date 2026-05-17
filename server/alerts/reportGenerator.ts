@@ -720,6 +720,7 @@ type WatchlistItem = ReturnType<typeof loadWatchlist>[number];
 type GlobalScanReportSnapshot = ReturnType<typeof loadGlobalScanReport>;
 type GlobalScanSymbol = NonNullable<GlobalScanReportSnapshot>['symbols'][number];
 type GlobalScanSectorAlert = NonNullable<GlobalScanReportSnapshot>['sectorAlerts'][number];
+type KospiSnapshot = Awaited<ReturnType<typeof fetchKospiSnapshot>>;
 type UsdKrwSnapshot = Awaited<ReturnType<typeof fetchUsdKrwSnapshot>>;
 
 interface PreMarketGlobalContext {
@@ -931,6 +932,70 @@ export async function sendIntradayMarketReport(): Promise<void> {
   console.log('[MarketReport] 장중 시장 현황 발송 완료');
 }
 
+function buildPostMarketClosedLines(realizations: TodayRealization[]): string {
+  return realizations.length > 0
+    ? realizations.map(x => {
+        const ret = x.fill.pnlPct ?? 0;
+        const icon = ret >= 0 ? '✅' : '❌';
+        const kind = x.isFinalClose
+          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
+          : '부분익절';
+        return `  ${icon} ${x.trade.stockName} ${kind} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% · ${x.fill.qty}주`;
+      }).join('\n')
+    : '  (오늘 실현 이벤트 없음)';
+}
+
+function buildPostMarketAiPrompt(
+  macro: MacroSnapshot,
+  kospi: KospiSnapshot,
+  usdKrw: UsdKrwSnapshot,
+  r: TodayRealizationStats,
+): string {
+  return (
+    `오늘 한국 주식시장 마감 후 요약 + 내일 전망 (2~3문장).\n` +
+    `데이터: KOSPI ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}, ` +
+    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원, MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}), ` +
+    `오늘 실현 ${r.realizationCount}건 (익 ${r.wins}/손 ${r.losses}) WIN률 ${r.winRate}% P&L(가중) ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}%.\n` +
+    `주의: "실현" 에는 부분매도 익절도 포함되어 있으니 "손실만 있었다" 고 단정 짓지 말고 P&L 가중치 부호와 각 실현 항목 부호를 그대로 따라 서술하라.\n` +
+    `오늘 시장을 1문장으로 요약 + 내일 주의사항 1~2개 bullet으로 한국어 답변하라.`
+  );
+}
+
+interface PostMarketTelegramMessageParams {
+  macro: MacroSnapshot;
+  watchlist: WatchlistItem[];
+  stats: ReturnType<typeof getMonthlyStats>;
+  todaySignalsCount: number;
+  activeCount: number;
+  kospi: KospiSnapshot;
+  usdKrw: UsdKrwSnapshot;
+  r: TodayRealizationStats;
+  closedLines: string;
+  aiOutlook: string | null;
+}
+
+function buildPostMarketTelegramMessage(params: PostMarketTelegramMessageParams): string {
+  const { macro, watchlist, stats, todaySignalsCount, activeCount, kospi, usdKrw, r, closedLines, aiOutlook } = params;
+  return (
+    `🌇 <b>[장마감 요약] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
+    `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
+    `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
+    `<b>📈 당일 거래 결과</b>\n` +
+    `  신호: ${todaySignalsCount}건 | 실현: ${r.realizationCount}건` +
+      (r.partialOnlyCount > 0 ? ` (부분 ${r.partialOnlyCount} · 전량 ${r.fullClosedCount})` : '') + `\n` +
+    `  WIN률: ${r.winRate}% | P&L(가중): ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}% | 실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원\n` +
+    `${closedLines}\n\n` +
+    `<b>💼 보유 포지션</b>: ${activeCount}개\n` +
+    `<b>📋 워치리스트</b>: ${watchlist.length}개\n\n` +
+    `<b>📅 월간 (${stats.month})</b>\n` +
+    `  전체 ${stats.total}건 | WIN률 ${stats.winRate.toFixed(1)}%\n` +
+    `  평균수익 ${stats.avgReturn.toFixed(2)}% | STRONG_BUY ${stats.strongBuyWinRate.toFixed(1)}%\n` +
+    (aiOutlook ? `\n🤖 <b>AI 전망:</b>\n${aiOutlook}` : '')
+  );
+}
+
 /**
  * 장마감 시장 요약 레포트 — 평일 15:35 KST
  * 당일 종합: KOSPI 종가 + 거래 결과 + 포지션 현황 + Gemini AI 내일 전망
@@ -957,44 +1022,24 @@ export async function sendPostMarketReport(): Promise<void> {
   const usdKrw = await fetchUsdKrwSnapshot();
 
   // 실현 이벤트 상세 (부분매도 포함)
-  const closedLines = realizations.length > 0
-    ? realizations.map(x => {
-        const ret = x.fill.pnlPct ?? 0;
-        const icon = ret >= 0 ? '✅' : '❌';
-        const kind = x.isFinalClose
-          ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
-          : '부분익절';
-        return `  ${icon} ${x.trade.stockName} ${kind} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% · ${x.fill.qty}주`;
-      }).join('\n')
-    : '  (오늘 실현 이벤트 없음)';
+  const closedLines = buildPostMarketClosedLines(realizations);
 
   // Gemini AI 내일 전망
-  const aiPrompt =
-    `오늘 한국 주식시장 마감 후 요약 + 내일 전망 (2~3문장).\n` +
-    `데이터: KOSPI ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}, ` +
-    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원, MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}), ` +
-    `오늘 실현 ${r.realizationCount}건 (익 ${r.wins}/손 ${r.losses}) WIN률 ${r.winRate}% P&L(가중) ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}%.\n` +
-    `주의: "실현" 에는 부분매도 익절도 포함되어 있으니 "손실만 있었다" 고 단정 짓지 말고 P&L 가중치 부호와 각 실현 항목 부호를 그대로 따라 서술하라.\n` +
-    `오늘 시장을 1문장으로 요약 + 내일 주의사항 1~2개 bullet으로 한국어 답변하라.`;
+  const aiPrompt = buildPostMarketAiPrompt(macro, kospi, usdKrw, r);
   const aiOutlook = await callGemini(aiPrompt, 'post-market-brief').catch(() => null);
 
-  const msg =
-    `🌇 <b>[장마감 요약] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
-    `━━━━━━━━━━━━━━━━━\n` +
-    `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
-    `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
-    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
-    `<b>📈 당일 거래 결과</b>\n` +
-    `  신호: ${todaySignals.length}건 | 실현: ${r.realizationCount}건` +
-      (r.partialOnlyCount > 0 ? ` (부분 ${r.partialOnlyCount} · 전량 ${r.fullClosedCount})` : '') + `\n` +
-    `  WIN률: ${r.winRate}% | P&L(가중): ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}% | 실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원\n` +
-    `${closedLines}\n\n` +
-    `<b>💼 보유 포지션</b>: ${active.length}개\n` +
-    `<b>📋 워치리스트</b>: ${watchlist.length}개\n\n` +
-    `<b>📅 월간 (${stats.month})</b>\n` +
-    `  전체 ${stats.total}건 | WIN률 ${stats.winRate.toFixed(1)}%\n` +
-    `  평균수익 ${stats.avgReturn.toFixed(2)}% | STRONG_BUY ${stats.strongBuyWinRate.toFixed(1)}%\n` +
-    (aiOutlook ? `\n🤖 <b>AI 전망:</b>\n${aiOutlook}` : '');
+  const msg = buildPostMarketTelegramMessage({
+    macro,
+    watchlist,
+    stats,
+    todaySignalsCount: todaySignals.length,
+    activeCount: active.length,
+    kospi,
+    usdKrw,
+    r,
+    closedLines,
+    aiOutlook,
+  });
 
   await sendTelegramAlert(msg).catch(console.error);
 
