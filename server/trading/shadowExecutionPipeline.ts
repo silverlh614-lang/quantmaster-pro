@@ -199,6 +199,48 @@ const NOT_SHADOW_RESULT_BASE = {
   executionImpact: 'NONE' as const,
 };
 
+function valueOr<T>(value: T | null | undefined, defaultValue: T): T {
+  return value ?? defaultValue;
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function executionNow(input: ExecuteShadowBuyInput): Date {
+  return input.now ?? new Date();
+}
+
+function resolveShadowFillPrice(input: ExecuteShadowBuyInput): number {
+  return input.fillPrice ?? input.trade.shadowEntryPrice;
+}
+
+function isInvalidPaperFillInput(fillPrice: number, quantity: number): boolean {
+  if (!Number.isFinite(fillPrice)) return true;
+  if (fillPrice <= 0) return true;
+  if (!Number.isFinite(quantity)) return true;
+  return quantity <= 0;
+}
+
+function countBuyFills(trade: ServerShadowTrade): number {
+  return (trade.fills ?? []).filter((f) => f.type === 'BUY').length;
+}
+
+function countFills(trade: ServerShadowTrade): number {
+  return (trade.fills ?? []).length;
+}
+
+function latestFillId(trade: ServerShadowTrade): string {
+  const fillsAfter = trade.fills ?? [];
+  const newFill = fillsAfter[fillsAfter.length - 1];
+  return newFill?.id ?? '';
+}
+
+function shouldRefreshOriginalQuantity(trade: ServerShadowTrade, quantity: number): boolean {
+  if (!trade.originalQuantity) return true;
+  return trade.originalQuantity < quantity;
+}
+
 /**
  * Shadow approval → paper-fill SSOT.
  *
@@ -215,7 +257,7 @@ const NOT_SHADOW_RESULT_BASE = {
 export async function executeShadowBuy(
   input: ExecuteShadowBuyInput,
 ): Promise<ShadowExecutionResult> {
-  const now = input.now ?? new Date();
+  const now = executionNow(input);
   const executedAtIso = now.toISOString();
   const tradeId = input.trade.id;
 
@@ -254,14 +296,9 @@ export async function executeShadowBuy(
   }
 
   // 입력 검증
-  const fillPrice = input.fillPrice ?? input.trade.shadowEntryPrice;
+  const fillPrice = resolveShadowFillPrice(input);
   const quantity = input.trade.quantity;
-  if (
-    !Number.isFinite(fillPrice) ||
-    fillPrice <= 0 ||
-    !Number.isFinite(quantity) ||
-    quantity <= 0
-  ) {
+  if (isInvalidPaperFillInput(fillPrice, quantity)) {
     return {
       outcome: 'INVALID_INPUT',
       reason: `fillPrice=${fillPrice} quantity=${quantity} (양수 의무)`,
@@ -276,7 +313,7 @@ export async function executeShadowBuy(
     return {
       outcome: 'ALREADY_FILLED',
       reason: `trade ${tradeId} 이미 paper-fill 완료 (status=${input.trade.status}, fills=${
-        (input.trade.fills ?? []).filter((f) => f.type === 'BUY').length
+        countBuyFills(input.trade)
       })`,
       tradeId,
       executedAtIso,
@@ -287,7 +324,7 @@ export async function executeShadowBuy(
 
   // ─── Paper-fill 실행 ─────────────────────────────────────────────────────
   // 1. INITIAL_BUY fill 추가 (appendFill SSOT 위임 — fill id 자동 부여)
-  const fillsBefore = (input.trade.fills ?? []).length;
+  const fillsBefore = countFills(input.trade);
   appendFill(input.trade, {
     type: 'BUY',
     subType: 'INITIAL_BUY',
@@ -298,17 +335,12 @@ export async function executeShadowBuy(
     status: 'CONFIRMED',
     confirmedAt: executedAtIso,
   });
-  const fillsAfter = input.trade.fills ?? [];
-  const newFill = fillsAfter[fillsAfter.length - 1];
-  const fillId = newFill?.id ?? '';
+  const fillId = latestFillId(input.trade);
 
   // 2. status PENDING → ACTIVE 전이
   const previousStatus = input.trade.status;
   input.trade.status = 'ACTIVE';
-  if (
-    !input.trade.originalQuantity ||
-    input.trade.originalQuantity < quantity
-  ) {
+  if (shouldRefreshOriginalQuantity(input.trade, quantity)) {
     input.trade.originalQuantity = quantity;
   }
 
@@ -324,7 +356,7 @@ export async function executeShadowBuy(
     return {
       outcome: 'PERSIST_FAILED',
       reason: `saveShadowTrades throw — ${
-        err instanceof Error ? err.message : String(err)
+        describeError(err)
       }`,
       tradeId,
       executedAtIso,
@@ -359,7 +391,7 @@ export async function executeShadowBuy(
         fillId,
         tradeId,
         filledAtIso: executedAtIso,
-        signalType: input.trade.profileType ?? 'B',
+        signalType: valueOr(input.trade.profileType, 'B'),
         watchlistSource: input.trade.watchlistSource,
         mode: 'SHADOW',
         liveOrderPlaced: false,
@@ -367,7 +399,7 @@ export async function executeShadowBuy(
     } catch (err) {
       console.warn(
         `[ShadowExecutionPipeline] notifyFilled 실패 (영속은 완료) — ${
-          err instanceof Error ? err.message : String(err)
+          describeError(err)
         }`,
       );
     }
@@ -389,7 +421,7 @@ export async function executeShadowBuy(
   } catch (err) {
     console.warn(
       `[ShadowPositionLifecycle] emitShadowPositionOpened 실패 (paper-fill 완료) — ${
-        err instanceof Error ? err.message : String(err)
+        describeError(err)
       }`,
     );
   }
