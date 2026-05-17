@@ -30,6 +30,7 @@ const regime: TelegramCommand = {
     const liveRegime = regimeDiagnostics.effectiveRegime;
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
     const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
+    const r6TriggerLine = formatR6TriggerBreakdownLine(regimeDiagnostics.r6TriggerBreakdown);
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
@@ -44,6 +45,8 @@ const regime: TelegramCommand = {
       `rawRegime=${regimeDiagnostics.rawRegime}\n` +
       `effectiveRegime=${regimeDiagnostics.effectiveRegime}\n` +
       `${r6RecoveryLine}\n` +
+      `${r6TriggerLine}\n` +
+      `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
       `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
       `💱 USD/KRW: ${usdKrwLine}\n` +
@@ -67,6 +70,11 @@ export function formatR6RecoveryLine(input: {
   const reasons = input.recoveryEvidence.reasons?.join(', ') ?? 'N/A';
   const confirmations = `${input.recoveryEvidence.confirmations ?? 0}/${input.recoveryEvidence.requiredConfirmations ?? 0}`;
   return `r6RecoveryStatus=${input.r6RecoveryStatus} cooldownUntil=${input.cooldownUntil ?? 'N/A'} confirmations=${confirmations} recoveryEvidence=${reasons} transitionReason=${input.transitionReason}`;
+}
+
+export function formatR6TriggerBreakdownLine(input: { activeR6Triggers: string[]; staleR6Triggers: string[]; kospiDayReturn?: number; kospiCloseReturn?: number; kospiIntradayLowReturn?: number; kospiIntradayHighReturn?: number; vkospiDayChange?: number; usdKrwDayChange?: number; triggerFreshness: string; staleCarryForward: boolean; staleBlockedRecovery: boolean }): string {
+  const fmt = (value: number | undefined) => value === undefined ? 'N/A' : value.toFixed(2);
+  return `r6TriggerBreakdown activeR6Triggers=[${input.activeR6Triggers.join(',') || 'none'}] staleR6Triggers=[${input.staleR6Triggers.join(',') || 'none'}] kospiDayReturn=${fmt(input.kospiDayReturn)} kospiCloseReturn=${fmt(input.kospiCloseReturn)} kospiIntradayLowReturn=${fmt(input.kospiIntradayLowReturn)} kospiIntradayHighReturn=${fmt(input.kospiIntradayHighReturn)} vkospiDayChange=${fmt(input.vkospiDayChange)} usdKrwDayChange=${fmt(input.usdKrwDayChange)} triggerFreshness=${input.triggerFreshness} staleCarryForward=${input.staleCarryForward} staleBlockedRecovery=${input.staleBlockedRecovery}`;
 }
 
 /**

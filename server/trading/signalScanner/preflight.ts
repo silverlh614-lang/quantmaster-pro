@@ -370,6 +370,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         macroRegimeEffective: regimeDiagnostics.effectiveRegime,
         r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
         r6RecoveryCooldownUntil: regimeDiagnostics.cooldownUntil,
+        activeR6Triggers: regimeDiagnostics.activeR6Triggers,
+        r6ShockLatch: regimeDiagnostics.r6ShockLatch,
+        recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
+        liveEntryAllowed: !macroDiagnosticOnly,
+        shadowLearningAllowed: true,
         ...extra,
       },
     });
@@ -733,6 +738,14 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     macroEntryOverrideTargets: macroEntryOverride?.targets,
     diagnosticLiveEntryBlocked: diagnosticOnlyLiveBlock,
     liveEntryBlockedReason: liveEntryBlockReason,
+    macroRegimeRaw: regimeDiagnostics.rawRegime,
+    macroRegimeEffective: regimeDiagnostics.effectiveRegime,
+    r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
+    activeR6Triggers: regimeDiagnostics.activeR6Triggers,
+    r6ShockLatch: regimeDiagnostics.r6ShockLatch,
+    recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
+    liveEntryAllowed: !diagnosticOnlyLiveBlock,
+    shadowLearningAllowed: true,
   });
 
   if (!volumeClock.allowEntry) {

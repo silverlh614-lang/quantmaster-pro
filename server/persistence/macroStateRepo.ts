@@ -83,6 +83,14 @@ export interface MacroState {
   kospiAbove60MA?: boolean;         // KOSPI 60일선 위
   kospi20dReturn?: number;          // KOSPI 20일 수익률
   kospiDayReturn?: number;          // KOSPI 당일 수익률
+  /** R6 forensic: KOSPI close-to-prev-close return (%). Defaults to kospiDayReturn if absent. */
+  kospiCloseReturn?: number;
+  /** R6 forensic: KOSPI intraday low return vs previous close (%). */
+  kospiIntradayLowReturn?: number;
+  /** R6 forensic: KOSPI intraday high return vs previous close (%). */
+  kospiIntradayHighReturn?: number;
+  /** R6 forensic: KOSPI trigger source freshness timestamp (ISO). */
+  kospiTriggerSourceUpdatedAt?: string;
   leadingSectorRS?: number;         // 선행 섹터 상대강도 (0~100)
   sectorCycleStage?: 'EARLY' | 'MID' | 'LATE' | 'TURNING'; // 섹터 사이클
   marginBalance5dChange?: number;   // 신용잔고 5일 변화율 (ADR-0139)

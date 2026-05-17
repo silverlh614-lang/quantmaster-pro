@@ -51,6 +51,67 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.r6RecoveryStatus).toBe("IN_R6");
   });
 
+  it("marks KOSPI intraday low shock as active R6 trigger and latches it", () => {
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const shockMacro = macro({
+      mhs: 70,
+      vkospi: 18,
+      vix: 19,
+      kospiIntradayLowReturn: -7.64,
+      kospiCloseReturn: -0.37,
+      kospiDayReturn: -0.37,
+    });
+    const rawRegime = getRawRegime(shockMacro, now);
+    const state = evaluateR6RecoveryTransition(
+      defaultRegimeTransitionState(now.toISOString()),
+      shockMacro,
+      rawRegime,
+      now,
+    );
+
+    expect(rawRegime).toBe("R6_DEFENSE");
+    expect(state.r6TriggerBreakdown.activeR6Triggers).toContain(
+      "KOSPI_INTRADAY_LOW_SHOCK",
+    );
+    expect(state.r6ShockLatch).toBe(true);
+    expect(state.transitionReason).toBe(
+      "RAW_R6_ACTIVE_BY_KOSPI_INTRADAY_LOW_SHOCK",
+    );
+  });
+
+  it("does not increase recovery confirmations before close recovery evidence is eligible", () => {
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "0";
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const previous = {
+      ...defaultRegimeTransitionState(now.toISOString()),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "IN_R6" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_INTRADAY_LOW_SHOCK" as const,
+      sourceUpdatedAt: "2026-05-17T00:00:00.000Z",
+    };
+    const notClosedMacro = macro({
+      updatedAt: "2026-05-17T00:01:00.000Z",
+      kospiCloseReturn: -2.5,
+      kospiDayReturn: -2.5,
+      kospiIntradayLowReturn: -4,
+    });
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      notClosedMacro,
+      "R3_EARLY",
+      new Date("2026-05-17T00:01:00.000Z"),
+    );
+
+    expect(state.effectiveRegime).toBe("R6_DEFENSE");
+    expect(state.recoveryConfirmations).toBe(0);
+    expect(state.recoveryBlockedReason).toBe(
+      "WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION",
+    );
+  });
+
   it("caps an immediate R6 exit to R5 during cooldown even if raw regime is R3", () => {
     process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
     const now = new Date("2026-05-17T00:00:00.000Z");

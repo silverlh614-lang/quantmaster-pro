@@ -11,6 +11,27 @@ export type R6RecoveryStatus =
   | "RECOVERED"
   | "STALE_DATA_BLOCKED";
 
+export type R6TriggerReason =
+  | 'KOSPI_INTRADAY_LOW_SHOCK'
+  | 'KOSPI_CLOSE_SHOCK'
+  | 'VKOSPI_DAY_SPIKE'
+  | 'USDKRW_DAY_SHOCK';
+
+export interface R6TriggerBreakdown {
+  kospiDayReturn?: number;
+  kospiCloseReturn?: number;
+  kospiIntradayLowReturn?: number;
+  kospiIntradayHighReturn?: number;
+  vkospiDayChange?: number;
+  usdKrwDayChange?: number;
+  activeR6Triggers: R6TriggerReason[];
+  staleR6Triggers: R6TriggerReason[];
+  triggerSourceUpdatedAt?: string;
+  triggerFreshness: 'FRESH' | 'STALE' | 'MISSING';
+  staleCarryForward: boolean;
+  staleBlockedRecovery: boolean;
+}
+
 export type RegimeTransitionDirection =
   | "NONE"
   | "UPGRADE"
@@ -46,6 +67,14 @@ export interface RegimeTransitionState {
   cooldownUntil?: string;
   sourceUpdatedAt?: string;
   recoveryConfirmations: number;
+  r6TriggerBreakdown: R6TriggerBreakdown;
+  previousR6Triggers: R6TriggerReason[];
+  r6ShockLatch: boolean;
+  r6ShockLatchReason?: R6TriggerReason;
+  latchTriggeredAt?: string;
+  latchTriggerValue?: number;
+  latchTriggerSource?: string;
+  recoveryBlockedReason?: string;
 }
 
 export function emptyR6RecoveryEvidence(
@@ -65,6 +94,10 @@ export function emptyR6RecoveryEvidence(
   };
 }
 
+export function emptyR6TriggerBreakdown(): R6TriggerBreakdown {
+  return { activeR6Triggers: [], staleR6Triggers: [], triggerFreshness: 'MISSING', staleCarryForward: false, staleBlockedRecovery: false };
+}
+
 export function defaultRegimeTransitionState(
   nowIso = new Date().toISOString(),
 ): RegimeTransitionState {
@@ -80,6 +113,10 @@ export function defaultRegimeTransitionState(
     r6RecoveryEvidence: emptyR6RecoveryEvidence(nowIso),
     sourceUpdatedAt: undefined,
     recoveryConfirmations: 0,
+    r6TriggerBreakdown: emptyR6TriggerBreakdown(),
+    previousR6Triggers: [],
+    r6ShockLatch: false,
+    recoveryBlockedReason: undefined,
   };
 }
 
@@ -92,6 +129,10 @@ function isRegimeLevel(value: unknown): value is RegimeLevel {
     value === "R5_CAUTION" ||
     value === "R6_DEFENSE"
   );
+}
+
+function isR6TriggerReason(value: unknown): value is R6TriggerReason {
+  return value === 'KOSPI_INTRADAY_LOW_SHOCK' || value === 'KOSPI_CLOSE_SHOCK' || value === 'VKOSPI_DAY_SPIKE' || value === 'USDKRW_DAY_SHOCK';
 }
 
 function sanitizeState(value: unknown): RegimeTransitionState | null {
@@ -140,6 +181,16 @@ function sanitizeState(value: unknown): RegimeTransitionState | null {
       typeof record.recoveryConfirmations === "number"
         ? record.recoveryConfirmations
         : 0,
+    r6TriggerBreakdown: record.r6TriggerBreakdown ?? emptyR6TriggerBreakdown(),
+    previousR6Triggers: Array.isArray(record.previousR6Triggers)
+      ? record.previousR6Triggers.filter((trigger): trigger is R6TriggerReason => isR6TriggerReason(trigger))
+      : [],
+    r6ShockLatch: record.r6ShockLatch === true,
+    r6ShockLatchReason: isR6TriggerReason(record.r6ShockLatchReason) ? record.r6ShockLatchReason : undefined,
+    latchTriggeredAt: typeof record.latchTriggeredAt === "string" ? record.latchTriggeredAt : undefined,
+    latchTriggerValue: typeof record.latchTriggerValue === "number" ? record.latchTriggerValue : undefined,
+    latchTriggerSource: typeof record.latchTriggerSource === "string" ? record.latchTriggerSource : undefined,
+    recoveryBlockedReason: typeof record.recoveryBlockedReason === "string" ? record.recoveryBlockedReason : undefined,
   };
 }
 
