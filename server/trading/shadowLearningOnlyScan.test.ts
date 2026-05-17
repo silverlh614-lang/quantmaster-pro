@@ -442,7 +442,7 @@ describe('shadowLearningOnlySignalRepo — round-trip', () => {
 
   it('loadShadowLearningOnlySignals normalizes legacy rows to learningOnly=true and executionImpact=NONE', () => {
     fs.writeFileSync(
-      path.join(tmpDir, 'shadow_learning_only_signals.json'),
+      path.join(tmpDir, 'shadow-learning-only-signals.json'),
       JSON.stringify([
         {
           symbol: '005930',
@@ -568,16 +568,21 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
     return !re.test(src);
   }
 
-  it('signalScanner/preflight.ts — helper single caller + Always-On reason coverage', () => {
+  it('signalScanner/preflight.ts — helper SSOT separation + Always-On reason coverage', () => {
+    // ADR-0173 helper SSOT 분리: preflight.ts 는 recordBlockedDayShadowScan wiring 만,
+    // runShadowLearningOnlyScan 직접 호출 + ../shadowLearningOnlyScan.js import 는
+    // helper 인 preflightLearningRecorder.ts 가 단독 소유. (invariant #9/#10 정합 —
+    // 정책 이동 only, 약화 없음).
     const src = readSrcSafely(
       path.resolve(__dirname, 'signalScanner/preflight.ts'),
     );
     expect(src).not.toBeNull();
     if (src !== null) {
-      expect(src).toMatch(/from ['"]\.\.\/shadowLearningOnlyScan\.js['"]/);
-      const helperCalls = src.match(/runShadowLearningOnlyScan\(/g);
-      expect(helperCalls).not.toBeNull();
-      expect(helperCalls!.length).toBe(1);  // helper 안 단일 호출
+      // preflight.ts 는 shadowLearningOnlyScan.js 를 직접 import 하지 않음
+      expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
+      // preflight.ts 는 runShadowLearningOnlyScan 을 직접 호출하지 않음
+      expect(src).not.toMatch(/runShadowLearningOnlyScan\(/);
+      // recordBlockedDayShadowScan wiring 은 preflight.ts 가 소유 (≥11회)
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
       expect(wiringCalls!.length).toBeGreaterThanOrEqual(11);
@@ -594,6 +599,24 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
         'VOLUME_CLOCK_BLOCK',
         'R3_SANITY_BLOCK',
       ]));
+    }
+  });
+
+  it('signalScanner/preflightLearningRecorder.ts — helper 가 단일 runShadowLearningOnlyScan caller', () => {
+    // ADR-0173 helper SSOT: preflightLearningRecorder.ts 만 runShadowLearningOnlyScan
+    // import + 호출. 다른 호출자 0건 (preflight.ts / entryEngine / buyListLoop /
+    // intradayLoop / exitEngine/** 가드는 별도 it 블록에서 검증).
+    const src = readSrcSafely(
+      path.resolve(__dirname, 'signalScanner/preflightLearningRecorder.ts'),
+    );
+    expect(src).not.toBeNull();
+    if (src !== null) {
+      // helper 는 ../shadowLearningOnlyScan.js 를 import (상대 경로 1 단계 위)
+      expect(src).toMatch(/from ['"]\.\.\/shadowLearningOnlyScan\.js['"]/);
+      // helper 안 runShadowLearningOnlyScan( 호출 ≥1 회
+      const helperCalls = src.match(/runShadowLearningOnlyScan\(/g);
+      expect(helperCalls).not.toBeNull();
+      expect(helperCalls!.length).toBeGreaterThanOrEqual(1);
     }
   });
 

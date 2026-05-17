@@ -113,6 +113,7 @@ export async function buildSectorEnergyFromYahooETF(): Promise<SectorEnergyBuild
         foreignConcentration: 0,   // ETF 한계 — 후속 PR
       });
     } catch (err) {
+      /* SDS-ignore: per-sector ETF fallback errors are returned via skippedReasons diagnostic summary. */
       skippedReasons.push(`${sector}(${etfSymbol}): ${err instanceof Error ? err.message : String(err)}`);
     }
   }

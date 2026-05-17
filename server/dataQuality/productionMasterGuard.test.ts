@@ -74,6 +74,7 @@ describe('productionMasterGuard', () => {
       assertProductionMasterUsable('RECOMMENDATION');
       throw new Error('expected guard to throw');
     } catch (err) {
+      /* SDS-ignore: test intentionally captures the expected guard error for message assertions. */
       const msg = formatProductionMasterBlockedMessage(err);
       expect(msg).toContain('SCAN_ABORTED');
       expect(msg).toContain('KRX_MASTER_TOO_SMALL');

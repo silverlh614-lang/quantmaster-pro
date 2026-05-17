@@ -40,12 +40,31 @@ describe('summarizeShadowBlockedOutcomes', () => {
   it('returns empty summary for empty input', () => {
     const summary = summarizeShadowBlockedOutcomes([]);
 
+    // Patch-VITEST-CAT-E-001: summary schema 11-key 격상 (4→11) — pre-existing baseline 분석 결손 마무리.
+    // 추가된 7 키: byBlockedReasonMacroBlockReason / byBlockedReasonSignalGrade / byDataQualityStatus /
+    //   byMacroBlockReason / bySignalGrade / topFastOverBlocked / policyWatch (relaxCandidates·needMoreData·keepStrictCandidates).
+    // 빈 입력 케이스: policyWatch.needMoreData 만 2-element default (5d + 20d outcomes unavailable),
+    //   나머지 array 필드 모두 [] — runtime 본체 0줄 변경, test expectation 정정만 (baseline doc invariant #7).
     expect(summary).toEqual({
       totalSignals: 0,
       pendingSignals: 0,
       resolvedSignals: 0,
       byBlockedReason: [],
+      byMacroBlockReason: [],
+      bySignalGrade: [],
+      byDataQualityStatus: [],
+      byBlockedReasonMacroBlockReason: [],
+      byBlockedReasonSignalGrade: [],
       topOverBlockedReasons: [],
+      topFastOverBlocked: [],
+      policyWatch: {
+        relaxCandidates: [],
+        needMoreData: [
+          '5d outcomes are not available yet; treat 1d recommendations as watchlist only.',
+          '20d outcomes are not available yet; no medium-term policy change recommended.',
+        ],
+        keepStrictCandidates: [],
+      },
     });
   });
 

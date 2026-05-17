@@ -7,7 +7,7 @@ describe('Gemini learning scheduler stale repair', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-scheduler-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmp-scheduler-test-'));
     process.env.PERSIST_DATA_DIR = tmpDir;
     vi.resetModules();
   });

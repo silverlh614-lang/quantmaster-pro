@@ -448,6 +448,7 @@ export async function buildCounterfactualShadowPerformanceReport(
           });
         }
       } catch (e) {
+        /* SDS-ignore: price-provider errors are converted to returned read-only point diagnostics; executionImpact=NONE. */
         points.push({
           horizon,
           available: false,

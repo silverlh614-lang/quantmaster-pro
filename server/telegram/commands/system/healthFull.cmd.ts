@@ -60,6 +60,7 @@ export function buildHealthFullMessage(): string {
     }
     lines.push('');
   } catch (e) {
+    /* SDS-ignore: command section failure is surfaced inline in the operator health report. */
     lines.push('<b>① R3 Sanity</b>: 조회 실패');
     lines.push('');
   }

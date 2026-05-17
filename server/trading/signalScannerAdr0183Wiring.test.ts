@@ -141,36 +141,46 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
     });
   });
 
-  describe('LIVE 매매 본체 0줄 변경 (early-return 구조 보존)', () => {
+  describe('LIVE 매매 본체 — diagnostic-only marker 보존 (P3/P4 isolation 정합)', () => {
     it('SELL_ONLY early-return 직전 호출 (await updateShadowResults 위에)', () => {
-      // wiring 위치 정합 — recordBlockedDayShadowScan 직후 await updateShadowResults
+      // SELL_ONLY 만 자체 early-return 보유 — wiring 위치 정합
       const sellOnlyBlock = src.split("recordBlockedDayShadowScan('MANUAL_BLOCK')")[1];
       expect(sellOnlyBlock).toBeDefined();
-      const next200 = sellOnlyBlock!.slice(0, 800);
+      const next200 = sellOnlyBlock!.slice(0, 1400);
       expect(next200).toContain('await updateShadowResults(shadows, regime)');
       expect(next200).toContain('saveShadowTrades(shadows)');
-      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
+      // ADR-0367/0433: context: diagnosticContext(...) 옵셔널 인자 허용 (runtime shape 동일)
+      expect(next200).toMatch(
+        /return \{ shouldAbort: true, skipPersist: true(\s*,\s*context:\s*diagnosticContext\(|\s*\})/,
+      );
     });
 
-    it('R6_DEFENSE early-return 직전 호출', () => {
-      const r6Block = src.split("recordBlockedDayShadowScan('RISK_OFF_REGIME')")[1];
-      const next200 = r6Block!.slice(0, 800);
-      expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
+    it('R6_DEFENSE diagnostic-only marker (자체 early-return 없음 — 후속 분기로 위임)', () => {
+      // ADR-0183 Phase 3 Stage A + P3/P4 isolation:
+      // R6_DEFENSE 는 diagnostic-only — 자체 updateShadowResults / early-return 없음
+      // recordBlockedDayShadowScan('RISK_OFF_REGIME') 직전에 diagnostic-only 마커 코멘트 보존
+      const splitParts = src.split("recordBlockedDayShadowScan('RISK_OFF_REGIME')");
+      expect(splitParts.length).toBe(2);
+      const beforeCall = splitParts[0]!.slice(-600);
+      expect(beforeCall).toContain('R6_DEFENSE diagnostic-only live block active; continuing scan diagnostics');
     });
 
-    it('VIX early-return 직전 호출', () => {
-      const vixBlock = src.split("recordBlockedDayShadowScan('VIX_SPIKE')")[1];
-      const next200 = vixBlock!.slice(0, 800);
-      expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
+    it('VIX diagnostic-only marker (자체 early-return 없음 — 후속 분기로 위임)', () => {
+      // ADR-0183 Phase 3 Stage A + P3/P4 isolation:
+      // VIX_BLOCK 은 diagnostic-only — 자체 updateShadowResults / early-return 없음
+      const splitParts = src.split("recordBlockedDayShadowScan('VIX_SPIKE')");
+      expect(splitParts.length).toBe(2);
+      const beforeCall = splitParts[0]!.slice(-600);
+      expect(beforeCall).toContain('VIX_BLOCK diagnostic-only live block active; continuing scan diagnostics');
     });
 
-    it('FOMC early-return 직전 호출', () => {
-      const fomcBlock = src.split("recordBlockedDayShadowScan('FOMC_BLOCK')")[1];
-      const next200 = fomcBlock!.slice(0, 800);
-      expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('return { shouldAbort: true, skipPersist: true }');
+    it('FOMC diagnostic-only marker (자체 early-return 없음 — 후속 분기로 위임)', () => {
+      // ADR-0183 Phase 3 Stage A + P3/P4 isolation:
+      // FOMC_BLOCK 은 diagnostic-only — 자체 updateShadowResults / early-return 없음
+      const splitParts = src.split("recordBlockedDayShadowScan('FOMC_BLOCK')");
+      expect(splitParts.length).toBe(2);
+      const beforeCall = splitParts[0]!.slice(-600);
+      expect(beforeCall).toContain('FOMC_BLOCK diagnostic-only live block active; continuing scan diagnostics');
     });
   });
 

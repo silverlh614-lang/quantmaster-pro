@@ -1,8 +1,8 @@
 // @responsibility Learning Flow Unclog Patch v1 shared types — Ghost/Shadow virtual close, outcome, attribution, diagnostics
+import type { ExecutionImpact } from '../runtime/engineRuntimePolicy.js';
 import type { GhostPosition } from './reflectionTypes.js';
 
 export type LearningCaseKind = 'ghost' | 'shadow';
-export type ExecutionImpact = 'NONE' | 'PAPER' | 'LIVE';
 export type LearningCloseReason =
   | 'VIRTUAL_TAKE_PROFIT'
   | 'VIRTUAL_STOP_LOSS'

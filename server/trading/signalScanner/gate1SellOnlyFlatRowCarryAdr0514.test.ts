@@ -143,6 +143,12 @@ describe('ADR-0514 SELL_ONLY gateSemanticFlatRow carry', () => {
   });
 
   it('adds sellOnlyCarryBreakPoint to WRAPPER semantic wire diagnostics without error logging', () => {
+    // Patch-009 P1: SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC noise category default-suppressed at
+    // LOG_LEVEL=info. 본 테스트는 진단 emission wiring 자체 검증 (forensic builder 가
+    // BEFORE_SEMANTIC_EVAL 라인을 inputShape=WRAPPER 형태로 산출하는지) → noise gate
+    // 우회 의무. ADR-0157 정확 비교 + try/finally 로 cross-test 격리 보장.
+    const prevSuppress = process.env.LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC;
+    process.env.LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC = 'false';
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
@@ -167,6 +173,11 @@ describe('ADR-0514 SELL_ONLY gateSemanticFlatRow carry', () => {
     } finally {
       infoSpy.mockRestore();
       errorSpy.mockRestore();
+      if (prevSuppress === undefined) {
+        delete process.env.LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC;
+      } else {
+        process.env.LOG_SUPPRESS_SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC = prevSuppress;
+      }
     }
   });
 

@@ -5,7 +5,7 @@
  * Phase B/C/D 진입 전에 본 묶음이 통과해야 한다 (commandRegistry validate:* 패턴 정합).
  *
  * DoD 항목:
- * 1. UI_LANG SSOT 7 카테고리 모두 export
+ * 1. UI_LANG SSOT 8 카테고리 모두 export (ADR-0398 sectorEnergy 포함)
  * 2. useUILang() 훅 contract (7 메서드 + raw)
  * 3. tier 5-tier (VERIFIED/EXTERNAL/DELAYED/ESTIMATED/MANUAL) 정합
  * 4. regime 6 RegimeLevel (R1~R6) 정합
@@ -33,11 +33,11 @@ describe('Phase A DoD — UI Language SSOT 종료 선언 (ADR-0094)', () => {
   // ============================================================
   // DoD 1: UI_LANG SSOT 7 카테고리 모두 export
   // ============================================================
-  it('DoD-1: UI_LANG 7 카테고리 모두 export (nav/card/tier/regime/gate/empty/action)', () => {
-    const expectedCategories = ['nav', 'card', 'tier', 'regime', 'gate', 'empty', 'action'];
+  it('DoD-1: UI_LANG 8 카테고리 모두 export (nav/card/tier/regime/gate/empty/action/sectorEnergy)', () => {
+    const expectedCategories = ['nav', 'card', 'tier', 'regime', 'gate', 'empty', 'action', 'sectorEnergy'];
     const actualCategories = Object.keys(UI_LANG);
     expect(actualCategories.sort()).toEqual(expectedCategories.sort());
-    expect(actualCategories.length).toBe(7);
+    expect(actualCategories.length).toBe(8);
   });
 
   // ============================================================

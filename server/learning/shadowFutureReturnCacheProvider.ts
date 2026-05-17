@@ -97,7 +97,9 @@ function rangeCandidatesForHorizon(horizon: ShadowFutureReturnHorizon): string[]
 
 export function symbolCandidatesForShadowFutureReturnCache(symbol: string): string[] {
   const s = symbol.trim();
+  // ADR-0444: legacy shadow snapshot cache candidates stay isolated until yahooSymbolResolver-backed cache migration.
   if (!/^\d{6}$/.test(s)) return [s];
+  // ADR-0444: legacy shadow snapshot cache candidates stay isolated until yahooSymbolResolver-backed cache migration.
   return [`${s}.KS`, `${s}.KQ`, s];
 }
 

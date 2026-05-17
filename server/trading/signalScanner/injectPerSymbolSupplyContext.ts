@@ -1,6 +1,7 @@
 // @responsibility buyList candidates per-symbol investor-flow context hydration
 import { createTraceId, logger, logVisibilityEvent } from '../../utils/logger.js';
 import { fetchInvestorFlowWithPolicy, type InvestorFlowRouteResult } from '../../supply/investorFlowRouter.js';
+import type { ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
 import type { SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
 
 export type SupplyProviderHealth =
@@ -16,13 +17,6 @@ export type SupplySignal =
   | 'NEUTRAL'
   | 'BEARISH'
   | 'UNUSABLE';
-
-export type ExecutionImpact =
-  | 'NONE'
-  | 'SCORE_CONFIDENCE_DOWN_ONLY'
-  | 'NEW_BUY_BLOCKED_ONLY'
-  | 'SELL_ONLY'
-  | 'SHADOW_ONLY';
 
 export interface PerSymbolSupplyContext {
   symbol: string;
@@ -253,7 +247,7 @@ function classifyPerSymbolSupplyContext(params: {
       supplySignal: 'UNUSABLE',
       providerIssue: true,
       marketSignal: false,
-      executionImpact: 'SCORE_CONFIDENCE_DOWN_ONLY',
+      executionImpact: 'NONE',
       fetchedAt: flow.fetchedAt,
       staleReason: flow.staleReason ?? 'STALE_INVESTOR_FLOW',
       rawStatus: flow.rawStatus ?? flow.status,
@@ -268,7 +262,7 @@ function classifyPerSymbolSupplyContext(params: {
       supplySignal: deriveSupplySignal(flow),
       providerIssue: true,
       marketSignal: false,
-      executionImpact: 'SCORE_CONFIDENCE_DOWN_ONLY',
+      executionImpact: 'NONE',
       fetchedAt: flow.fetchedAt ?? now.toISOString(),
       rawStatus: flow.rawStatus ?? flow.status,
     };
@@ -301,7 +295,7 @@ function buildMissingSupplyContext(params: {
     supplySignal: 'UNUSABLE',
     providerIssue: true,
     marketSignal: false,
-    executionImpact: 'SCORE_CONFIDENCE_DOWN_ONLY',
+    executionImpact: 'NONE',
     fetchedAt: params.now.toISOString(),
     rawStatus: params.reason,
   };
@@ -432,6 +426,6 @@ function logStats(stats: PerSymbolSupplyInjectionStats): void {
     `[AutoTrade/SupplyHealth] preflight context investor-flow connected ` +
       `buyList=${stats.totalCandidates} VERIFIED=${stats.verified} DEGRADED=${stats.degraded} ` +
       `STALE=${stats.stale} MISSING=${stats.missing} UNKNOWN=${stats.unknown} ` +
-      `executionImpact=SCORE_CONFIDENCE_DOWN_ONLY engineAlive=true shadowLearning=true`,
+      `executionImpact=NONE engineAlive=true shadowLearning=true`,
   );
 }

@@ -1,7 +1,7 @@
 // @responsibility Shadow case 명시 상태머신 — 불가능 전이는 integrity issue 로 기록
 import type { ConfidenceLevel, DataHealth, EngineMode, ExecutionImpact, ShadowLifecycleState, ShadowStateTransition } from './shadowTypes.js';
 
-const IMPACT_NONE_MODES: ReadonlySet<EngineMode> = new Set(['SHADOW_ONLY', 'SELL_ONLY', 'HARD_BLOCK', 'OBSERVE_ONLY', 'SHADOW']);
+const IMPACT_NONE_MODES: ReadonlySet<EngineMode> = new Set(['SHADOW_ONLY', 'SELL_ONLY', 'OBSERVE_ONLY']);
 
 const ALLOWED: Record<ShadowLifecycleState, readonly ShadowLifecycleState[]> = {
   CANDIDATE_DETECTED: ['SHADOW_SIGNAL_APPROVED', 'GATE_EVALUATED', 'QUARANTINED'],

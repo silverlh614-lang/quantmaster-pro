@@ -68,7 +68,7 @@ describe('injectPerSymbolSupplyContext', () => {
     expect(result[0]!.scoringContext?.supplyContext?.supplyProviderHealth).toBe('MISSING');
     expect(result[0]!.preflight?.supplyContext?.providerIssue).toBe(true);
     expect(result[0]!.preflight?.supplyContext?.marketSignal).toBe(false);
-    expect(result[0]!.preflight?.supplyContext?.executionImpact).toBe('SCORE_CONFIDENCE_DOWN_ONLY');
+    expect(result[0]!.preflight?.supplyContext?.executionImpact).toBe('NONE');
     expect(stats.routerConnected).toBe(false);
     expect(stats.unknown).toBe(0);
   });

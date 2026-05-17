@@ -237,6 +237,7 @@ export async function replayMissedLearningJobs(
       await replayDispatcher(job.jobName);
       success = true;
     } catch (e) {
+      /* SDS-ignore: replay failures are persisted on the queue job failureReason diagnostic field. */
       success = false;
       job.failureReason = e instanceof Error ? e.message : String(e);
     }

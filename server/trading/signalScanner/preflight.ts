@@ -20,7 +20,7 @@ import {
 import { sendTelegramAlert, escapeHtml } from '../../alerts/telegramClient.js';
 import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../regimeBridge.js';
+import { getRegimeDiagnostics } from '../regimeBridge.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import {
@@ -318,7 +318,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   );
 
   const macroState = loadMacroState();
-  const regime      = getLiveRegime(macroState);
+  const regimeDiagnostics = getRegimeDiagnostics(macroState);
+  const regime      = regimeDiagnostics.effectiveRegime;
   let regimeConfig = REGIME_CONFIGS[regime];
   const macroEntryOverride = getMacroEntryOverrideState();
   const r6EntryOverrideActive =
@@ -365,6 +366,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       conditionWeights,
       extra: {
         macroEntryOverride,
+        macroRegimeRaw: regimeDiagnostics.rawRegime,
+        macroRegimeEffective: regimeDiagnostics.effectiveRegime,
+        r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
+        r6RecoveryCooldownUntil: regimeDiagnostics.cooldownUntil,
         ...extra,
       },
     });
