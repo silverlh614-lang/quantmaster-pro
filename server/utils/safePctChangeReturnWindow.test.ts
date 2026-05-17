@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isStaleBase, safePctChangeDetailed, STALENESS_LIMITS_BY_MODE } from './safePctChange.js';
 // ADR-0188 (lint baseline cleanup): `DAILY_STALE_AFTER_DAYS` 정적 export 폐지 후 동적
 // 산출 함수 `currentDailyStaleAfterDays` 사용 (calendar-based 가변 값).
@@ -17,13 +17,22 @@ describe('Yahoo/KRX calendar staleness windows — PR-551/553', () => {
   // 연휴 기간에 module-load 시점이 5/5 이면 limit=3, NOW=5/4 이면 limit=6 → 4.1-day base 가
   // module-박제 limit 로 stale 판정. test isolation — beforeEach 에서 NOW 기반 재박제 후
   // afterEach 에서 module-load 시점 값 복원.
+  //
+  // Patch-VITEST-CAT-E-BASELINE-001 (Cat E test isolation): `safePctChangeDetailed` 가
+  // 내부에서 `isStaleBase(base, opts.mode)` 호출 시 `now` 파라미터 미주입 (default `new Date()`)
+  // → 호출 시점 real time 사용. test fixture NOW (2026-05-04) 와 real time (배포 시각)
+  // 차이로 RECOMMENDATION_RETURN 31.1-day base 가 real-time 기준 stale 판정. fake timers
+  // 로 Date.now() 자체를 NOW 로 박제 → 런타임 정책 무수정 + test 격리.
   let originalDaily: number;
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
     originalDaily = STALENESS_LIMITS_BY_MODE.DAILY;
     installYahooTradingCalendarWindows(NOW);
   });
   afterEach(() => {
     STALENESS_LIMITS_BY_MODE.DAILY = originalDaily;
+    vi.useRealTimers();
   });
 
   it('uses patched calendar windows for daily and recommendation returns', () => {
