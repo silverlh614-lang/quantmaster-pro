@@ -2,6 +2,7 @@
  * @responsibility KIS 토큰 사전 갱신 + TradingDayOrchestrator 1분 틱 cron을 등록하고 하트비트/게이팅을 관리한다.
  */
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { evaluateAlertNoise } from '../alerts/alertNoisePolicy.js';
 import { tradingOrchestrator } from '../orchestrator/tradingOrchestrator.js';
 import { checkDailyLossLimit } from '../emergency.js';
 import { runKillSwitchCheck } from '../trading/killSwitch.js';
@@ -13,6 +14,8 @@ import {
   runFomcDayPreLiquidationAlert,
   liquidateAllForFomc,
 } from '../trading/fomcDayLiquidation.js';
+
+let kisTokenRefreshFailureStreak = 0;
 
 async function runOrchestratorTick(): Promise<void> {
   touchHeartbeat('orchestrator');
@@ -33,16 +36,46 @@ async function forceRefreshKisTokenCron(label: string): Promise<void> {
       `main=${res.main ? 'OK' : 'FAIL'}, realData=${res.realData}`,
     );
     if (!res.main || res.realData === false) {
+      kisTokenRefreshFailureStreak++;
       await sendTelegramAlert(
         `⚠️ <b>[KIS 토큰 강제 갱신 부분 실패]</b>\n` +
         `(${label}) main=${res.main ? '✅' : '❌'}, realData=${res.realData}\n` +
         `수동 확인 필요`,
+        {
+          category: 'kis_token_refresh',
+          noiseEvent: {
+            eventType: 'KIS_TOKEN_REFRESH_FAILED',
+            channel: 'CH4_JOURNAL',
+            consecutiveFailures: kisTokenRefreshFailureStreak,
+            status: 'PARTIAL_FAIL',
+            executionImpact: 'NONE',
+          },
+        },
       ).catch(console.error);
+    } else {
+      kisTokenRefreshFailureStreak = 0;
+      evaluateAlertNoise({
+        eventType: 'KIS_TOKEN_REFRESH_SUCCESS',
+        channel: 'CH4_JOURNAL',
+        status: 'SUCCESS',
+        executionImpact: 'NONE',
+      });
     }
   } catch (e) {
+    kisTokenRefreshFailureStreak++;
     console.error(`[Scheduler] KIS 토큰 강제 갱신 실패 (${label}):`, e);
     await sendTelegramAlert(
       `⚠️ <b>[KIS 토큰 강제 갱신 실패]</b>\n(${label}) — 수동 확인 필요`,
+      {
+        category: 'kis_token_refresh',
+        noiseEvent: {
+          eventType: 'KIS_TOKEN_REFRESH_FAILED',
+          channel: 'CH4_JOURNAL',
+          consecutiveFailures: kisTokenRefreshFailureStreak,
+          status: 'FAIL',
+          executionImpact: 'NONE',
+        },
+      },
     ).catch(console.error);
   }
 }

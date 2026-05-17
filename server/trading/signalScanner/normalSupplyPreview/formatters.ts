@@ -3,7 +3,7 @@ import type {
   ActivePassiveConfluence,
   ProgramFlowDiagnosticsSummary,
   ProgramFlowSignal,
-} from "../normalSupplyPreview.js";
+} from "./programFlowTypes.js";
 
 function escapeHtmlText(value: unknown): string {
   return String(value)

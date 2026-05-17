@@ -3,6 +3,7 @@ import { AlertCategory, ChannelSemantic, isCategoryEnabled, parseChannelMap } fr
 import { sendChannelAlertTo } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
 import { appendAlertHistory } from '../persistence/alertHistoryRepo.js';
+import { evaluateAlertNoise, type AlertLevel, type AlertNoiseEvent } from './alertNoisePolicy.js';
 
 // 채널 시멘틱 이름 re-export — 호출자가 alertRouter 한 곳만 import 하도록.
 export { ChannelSemantic };
@@ -89,6 +90,8 @@ export interface DispatchAlertOptions {
   eventType?: string;
   cooldownMs?: number;
   delivery?: 'immediate' | 'daily_digest' | 'weekly_digest';
+  /** ADR-0468 diagnostic-only noise policy hook. */
+  noiseEvent?: AlertNoiseEvent;
 }
 
 export type DispatchPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
@@ -146,6 +149,13 @@ const COOLDOWN_BY_CATEGORY_PRIORITY: Record<AlertCategory, Record<DispatchPriori
 
 function resolvePriority(category: AlertCategory, options?: DispatchAlertOptions): DispatchPriority {
   return options?.severity ?? options?.priority ?? DEFAULT_PRIORITY_BY_CATEGORY[category];
+}
+
+function priorityFromNoiseLevel(level: AlertLevel): DispatchPriority {
+  if (level === 'CRITICAL') return 'CRITICAL';
+  if (level === 'WARNING') return 'HIGH';
+  if (level === 'NOTICE') return 'NORMAL';
+  return 'LOW';
 }
 
 function shouldSendByCooldown(
@@ -398,6 +408,48 @@ export async function dispatchAlert(
   options?: DispatchAlertOptions,
 ): Promise<number | undefined> {
   const routedMessage = normalizeChannelMessage(category, message);
+  if (options?.noiseEvent) {
+    const noise = evaluateAlertNoise(options.noiseEvent);
+    const statEventType = options.eventType ?? options.dedupeKey ?? noise.dedupeKey;
+    if (!noise.shouldSendNow) {
+      incrementChannelStat(category, 'emitted', { eventType: statEventType });
+      if (noise.shouldDigest) {
+        const row = { at: new Date().toISOString(), message: routedMessage, priority: 'LOW' as DispatchPriority };
+        if (category === AlertCategory.INFO) infoDailyDigestBuffer.push(row);
+        else systemDailyBuffer.push(row);
+        incrementChannelStat(category, 'buffered', { eventType: statEventType });
+        incrementChannelStat(category, 'digested', { eventType: statEventType });
+        appendAlertHistory({
+          category,
+          priority: 'LOW',
+          message: routedMessage,
+          delivery: 'buffered',
+          success: true,
+        });
+      } else {
+        incrementChannelStat(category, 'skipped', {
+          eventType: statEventType,
+          skippedReason: noise.reason,
+        });
+        appendAlertHistory({
+          category,
+          priority: 'LOW',
+          message: routedMessage,
+          delivery: 'skipped',
+          success: false,
+          error: noise.reason,
+        });
+      }
+      return;
+    }
+    options = {
+      ...options,
+      priority: options.priority ?? priorityFromNoiseLevel(noise.level),
+      dedupeKey: options.dedupeKey ?? noise.dedupeKey,
+      cooldownMs: options.cooldownMs ?? noise.ttlSeconds * 1000,
+      eventType: options.eventType ?? noise.reason,
+    };
+  }
   const priority = resolvePriority(category, options);
   const statEventType = options?.eventType ?? options?.dedupeKey;
   incrementChannelStat(category, 'emitted', { eventType: statEventType });

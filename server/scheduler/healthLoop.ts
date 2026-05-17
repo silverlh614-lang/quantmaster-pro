@@ -7,6 +7,7 @@ import fs from 'fs';
 import { scheduledJob } from './scheduleGuard.js';
 import { collectHealthSnapshot, type HealthSnapshot } from '../health/diagnostics.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import type { AlertNoiseEvent } from '../alerts/alertNoisePolicy.js';
 import { HEALTH_LOOP_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 
@@ -112,7 +113,11 @@ export async function alertOnce(
   state: HealthLoopState,
   key: string,
   message: string,
-  options: { priority?: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW'; cooldownMs?: number } = {},
+  options: {
+    priority?: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
+    cooldownMs?: number;
+    noiseEvent?: AlertNoiseEvent;
+  } = {},
   now = new Date(),
 ): Promise<boolean> {
   const today = todayKstYmd(now);
@@ -125,6 +130,7 @@ export async function alertOnce(
       dedupeKey: `health_loop:${key}:${today}`,
       cooldownMs: options.cooldownMs ?? 24 * 3600_000,
       category: 'health_loop',
+      noiseEvent: options.noiseEvent,
     });
   } catch (e) {
     // 텔레그램 실패는 알림 미발송으로 취급 — alertedKeys 미갱신, 다음 cron tick 재시도
@@ -187,7 +193,16 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
       downgradeKrxClosed
         ? `🛠 KIS 토큰 잔여 ${kisHours.toFixed(1)}h — 휴장일 점검\nKRX 휴장일/비거래일이므로 긴급 에스컬레이션 대신 장전 갱신 대상으로 기록합니다.`
         : `🟡 KIS 토큰 잔여 ${kisHours.toFixed(1)}h 진입\n남은 시간이 6시간 단위로 감소했습니다 — 만료 전 갱신 검토.`,
-      { priority: downgradeKrxClosed ? 'NORMAL' : 'HIGH' },
+      {
+        priority: downgradeKrxClosed ? 'NORMAL' : 'HIGH',
+        noiseEvent: {
+          eventType: 'KIS_TOKEN_EXPIRY',
+          channel: 'CH4_JOURNAL',
+          tokenExpiresInSeconds: Math.max(0, Math.round(kisHours * 3600)),
+          status: downgradeKrxClosed ? 'MARKET_CLOSED' : 'EXPIRING',
+          executionImpact: 'NONE',
+        },
+      },
       now,
     );
   } else if (lastBucket !== undefined && kisHours === 0 && lastBucket >= 0) {
@@ -196,7 +211,17 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
       state,
       downgradeKrxClosed ? 'kis_token_expired_maintenance' : 'kis_token_expired',
       `${profile.label}\n${profile.suffix}`,
-      { priority: profile.priority },
+      {
+        priority: profile.priority,
+        noiseEvent: {
+          eventType: 'KIS_TOKEN_EXPIRED_IMPACTED',
+          channel: 'CH1_TRADE',
+          tokenExpiresInSeconds: 0,
+          status: downgradeKrxClosed ? 'EXPIRED_MARKET_CLOSED' : 'EXPIRED',
+          queryImpacted: !downgradeKrxClosed,
+          executionImpact: downgradeKrxClosed ? 'NONE' : 'QUERY_IMPACT',
+        },
+      },
       now,
     );
   }

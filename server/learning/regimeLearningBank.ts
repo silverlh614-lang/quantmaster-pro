@@ -9,7 +9,14 @@ import { shadowCaseLedger, type ShadowCaseLedgerStore } from '../shadow/shadowCa
 import type { ShadowCase } from '../shadow/shadowTypes.js';
 import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../runtime/engineRuntimePolicy.js';
 import { loadCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
+import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES } from './learningConstants.js';
 import { inferLearningCohort, learningEntryPrice } from './learningSampleQuality.js';
+import {
+  loadRegimeResolvedTransitionState,
+  markRegimeAttributionRecalcHandled,
+  type RegimeResolvedTransitionState,
+} from './regimeResolvedTransitionStore.js';
 import type { LearningGhostCase } from './learningTypes.js';
 
 export { type RegimePhase } from '../shadow/regimeContext.js';
@@ -33,12 +40,18 @@ export type OverfitRisk = 'LOW' | 'MEDIUM' | 'HIGH';
 export type RegimeLearningQualityStatus =
   | 'NO_SAMPLE'
   | 'LOW_SAMPLE'
+  | 'LOW_RESOLVED_SAMPLE'
+  | 'PENDING_DOMINATED'
   | 'LOW_CONFIDENCE'
+  | 'ATTRIBUTION_INSUFFICIENT'
   | 'LEARNING'
   | 'DIAGNOSTIC_READY'
   | 'STABLE_CANDIDATE'
   | 'OVERFIT_RISK'
   | 'DATA_QUALITY_LOW';
+
+export type RegimeExpectancyConfidence = 'N/A' | 'VERY_LOW' | 'LOW' | 'MEDIUM' | 'HIGH';
+export type RegimeAttributionConfidence = 'INSUFFICIENT' | 'LOW' | 'ENOUGH_FOR_REVIEW';
 
 export type RegimeConditionDirection =
   | 'ALPHA_DRIVER'
@@ -74,6 +87,17 @@ export interface RegimeSourceFamilyStats {
 export interface RegimeLearningQuality {
   regimePhase: RegimePhase;
   sampleSize: number;
+  totalSampleSize: number;
+  resolvedSampleSize: number;
+  closedOutcomeCount: number;
+  pendingCounterfactualCount: number;
+  pendingShadowCount: number;
+  pendingOpenCount: number;
+  quarantinedCount: number;
+  attributableSampleSize: number;
+  unresolvedRatio: number;
+  resolvedRatio: number;
+  pendingRatio: number;
   closedSampleCount: number;
   labelCompletionRate: number;
   sourceConfidenceHighRatio: number;
@@ -89,6 +113,17 @@ export interface RegimeLearningQuality {
 export interface RegimeLearningStats {
   regimePhase: RegimePhase;
   sampleSize: number;
+  totalSampleSize: number;
+  resolvedSampleSize: number;
+  closedOutcomeCount: number;
+  pendingCounterfactualCount: number;
+  pendingShadowCount: number;
+  pendingOpenCount: number;
+  quarantinedCount: number;
+  attributableSampleSize: number;
+  unresolvedRatio: number;
+  resolvedRatio: number;
+  pendingRatio: number;
   freshShadowCount: number;
   counterfactualCount: number;
   ghostRepairCount: number;
@@ -111,6 +146,11 @@ export interface RegimeLearningStats {
   freshShadowCoverage: number;
   overfitRisk: OverfitRisk;
   qualityStatus: RegimeLearningQualityStatus;
+  expectancyConfidence: RegimeExpectancyConfidence;
+  attributionConfidence: RegimeAttributionConfidence;
+  expectancyReason?: 'NO_RESOLVED_SAMPLE';
+  whyNotReliable: string;
+  reliabilityWarning?: string;
   quality: RegimeLearningQuality;
   promotionStage: 'SHADOW_SCORE' | 'ADVISORY';
   promotionAllowed: false;
@@ -176,9 +216,14 @@ export interface RegimeLearningBank {
   worstRegimeByExpectancy?: RegimePhase;
   activeRegimePhase: RegimePhase;
   activeRegimeSampleSize: number;
+  activeRegimeTotalSampleSize: number;
+  activeRegimeResolvedSampleSize: number;
+  activeRegimePendingCounterfactualCount: number;
+  activeRegimeAttributableSampleSize: number;
   activeRegimeExpectancyR: number;
   activeRegimeTopPattern: string;
   activeRegimeLearningNeed: string;
+  activeRegimeWhyNotReliable: string;
   regimeLearningSampleSize: number;
   regimeAssignedCount: number;
   unknownRegimeCount: number;
@@ -200,6 +245,16 @@ export interface RegimeLearningBank {
   R4QualityStatus: RegimeLearningQualityStatus;
   R5QualityStatus: RegimeLearningQualityStatus;
   R6QualityStatus: RegimeLearningQualityStatus;
+  R2ResolvedSampleSize: number;
+  R3ResolvedSampleSize: number;
+  R6ResolvedSampleSize: number;
+  R2PendingCounterfactualCount: number;
+  R3PendingCounterfactualCount: number;
+  R6PendingCounterfactualCount: number;
+  nextRegimeMaturityAt?: string;
+  regimesNeedingAttributionRecalc: string[];
+  regimeLearningNextAction: string;
+  nextRegimeLearningAction: string;
   unknownReductionNeeded: boolean;
   recommendationOnly: true;
   promotionAllowed: false;
@@ -208,6 +263,7 @@ export interface RegimeLearningBank {
 }
 
 export interface CollectRegimeLearningInput {
+  now?: Date;
   ledger?: ShadowCaseLedgerStore;
   shadowCases?: ShadowCase[];
   counterfactualEntries?: CounterfactualShadowLearningLedgerEntry[];
@@ -241,10 +297,73 @@ export interface RegimeLearningConsistency {
   promotionAllowed: false;
 }
 
+export interface RegimeMaturityByRegime {
+  regimePhase: RegimePhase;
+  pendingOutcomeCount: number;
+  maturedNowCount: number;
+  dueToday: number;
+  dueNextTradingDay: number;
+  dueIn2to3CalendarDays: number;
+  dueIn4to7CalendarDays: number;
+  dueIn8to14CalendarDays: number;
+  dueAfter14CalendarDays: number;
+  nearestMaturityAt?: string;
+  largestMaturityBucket: string;
+}
+
+export interface RegimeResolvedStatusRow {
+  regimePhase: RegimePhase;
+  totalSampleSize: number;
+  resolvedSampleSize: number;
+  pendingCounterfactualCount: number;
+  pendingMaturityCount: number;
+  dueWithin1d: number;
+  dueWithin3d: number;
+  dueWithin7d: number;
+  nextMaturityAt?: string;
+  nextResolveAt?: string;
+  attributableSampleSize: number;
+  qualityStatus: RegimeLearningQualityStatus;
+  nextAction: string;
+}
+
+export interface RegimeResolvedStatus {
+  rows: RegimeResolvedStatusRow[];
+  maturityByRegime: RegimeMaturityByRegime[];
+  nextRegimeMaturityAt?: string;
+  nextResolveAt?: string;
+  executionImpact: 'NONE';
+  brokerOrdersCreated: 0;
+  promotionAllowed: false;
+  recommendationOnly: true;
+}
+
+export interface RegimeAttributionRecalcResult {
+  regimesNeedingRecalc: string[];
+  resolvedDeltaByRegime: Record<string, number>;
+  attributableSampleSizeByRegime: Record<string, number>;
+  stillInsufficientRegimes: string[];
+  expectedConditionUpdates: number;
+  recalculatedRegimes?: string[];
+  skippedLowSampleRegimes?: string[];
+  conditionAttributionUpdated?: number;
+  noWeightUpdate?: true;
+  recommendationOnly: true;
+  executionImpact: 'NONE';
+  brokerOrdersCreated: 0;
+  promotionAllowed: false;
+}
+
 type RegimeCounterfactualEntry = CounterfactualShadowLearningLedgerEntry | {
   label?: string;
   outcomeLabel?: string;
   outcomeStatus?: string;
+  createdAt?: string;
+  createdAtKst?: string;
+  signalTime?: string;
+  signalDate?: string;
+  maxHoldingMinutes?: number;
+  maturityAt?: string;
   blockedBy?: string[];
   regime?: string;
   rawRegime?: string;
@@ -270,6 +389,15 @@ type RegimeCounterfactualEntry = CounterfactualShadowLearningLedgerEntry | {
 };
 
 const CLOSED_LABELS = new Set(['WIN', 'LOSS', 'BREAKEVEN', 'EXPIRED']);
+const RESOLVED_LABELS = new Set([
+  ...CLOSED_LABELS,
+  'MISSED_WIN',
+  'AVOIDED_LOSS',
+  'GOOD_BLOCK',
+  'BAD_BLOCK',
+  'NEUTRAL_BLOCK',
+]);
+const QUARANTINED_LABELS = new Set(['QUARANTINED', 'DATA_INSUFFICIENT', 'DATA_CORRUPTED', 'INVALID']);
 const CF_LABELS = ['MISSED_WIN', 'AVOIDED_LOSS', 'GOOD_BLOCK', 'BAD_BLOCK', 'NEUTRAL_BLOCK', 'DATA_INSUFFICIENT', 'QUARANTINED', 'PENDING_OUTCOME'];
 
 function round(n: number, digits = 4): number {
@@ -362,21 +490,112 @@ function conditionTags(c: ShadowCase): string[] {
   return [];
 }
 
+function isResolvedLabel(label: string | undefined): boolean {
+  return !!label && RESOLVED_LABELS.has(label);
+}
+
+function isQuarantinedCase(c: ShadowCase): boolean {
+  return c.cohortType === 'QUARANTINED'
+    || c.dataHealth === 'CORRUPTED'
+    || c.confidenceLevel === 'QUARANTINED'
+    || !!c.quarantinedReason
+    || QUARANTINED_LABELS.has(c.outcomeLabel ?? '');
+}
+
+function isPendingOpenCase(c: ShadowCase): boolean {
+  return !c.outcomeLabel
+    || c.outcomeLabel === 'ACTIVE'
+    || c.state === 'SHADOW_POSITION_OPENED'
+    || c.state === 'SHADOW_MONITORING';
+}
+
+function isAttributableCase(c: ShadowCase, regimePhase: RegimePhase): boolean {
+  if (!CLOSED_LABELS.has(c.outcomeLabel ?? '')) return false;
+  if (isQuarantinedCase(c)) return false;
+  if (regimePhase !== 'UNKNOWN' && sourceConfidenceOfCase(c) === 'UNKNOWN') return false;
+  return true;
+}
+
 function qualityStatus(input: {
-  sampleSize: number;
-  labelCompletionRate: number;
+  totalSampleSize: number;
+  resolvedSampleSize: number;
+  attributableSampleSize: number;
+  pendingRatio: number;
   dataQualityScore: number;
   sourceConfidenceHighRatio: number;
   overfitRisk: OverfitRisk;
 }): RegimeLearningQualityStatus {
-  if (input.sampleSize === 0) return 'NO_SAMPLE';
-  if (input.sampleSize < 30) return 'LOW_SAMPLE';
-  if (input.sampleSize < 70) return 'LEARNING';
+  if (input.totalSampleSize === 0) return 'NO_SAMPLE';
+  if (input.resolvedSampleSize === 0) return 'LOW_RESOLVED_SAMPLE';
+  if (input.resolvedSampleSize < 30) return 'LOW_RESOLVED_SAMPLE';
+  if (input.attributableSampleSize < 30) return 'ATTRIBUTION_INSUFFICIENT';
+  if (input.pendingRatio > 0.5) return 'PENDING_DOMINATED';
   if (input.sourceConfidenceHighRatio < 0.7) return 'LOW_CONFIDENCE';
-  if (input.labelCompletionRate < 0.8) return 'DATA_QUALITY_LOW';
+  if (input.dataQualityScore < 0.8) return 'DATA_QUALITY_LOW';
   if (input.overfitRisk !== 'LOW') return 'OVERFIT_RISK';
-  if (input.sampleSize >= 100 && input.labelCompletionRate >= 0.95 && input.sourceConfidenceHighRatio >= 0.8) return 'STABLE_CANDIDATE';
+  if (input.totalSampleSize < 70) return 'LEARNING';
+  if (input.totalSampleSize >= 100 && input.resolvedSampleSize >= 100 && input.sourceConfidenceHighRatio >= 0.8) return 'STABLE_CANDIDATE';
   return 'DIAGNOSTIC_READY';
+}
+
+function expectancyConfidence(resolvedReturnSamples: number): RegimeExpectancyConfidence {
+  if (resolvedReturnSamples === 0) return 'N/A';
+  if (resolvedReturnSamples < 30) return 'VERY_LOW';
+  if (resolvedReturnSamples < 70) return 'LOW';
+  if (resolvedReturnSamples < 100) return 'MEDIUM';
+  return 'HIGH';
+}
+
+function attributionConfidence(attributableSampleSize: number): RegimeAttributionConfidence {
+  if (attributableSampleSize < 30) return 'INSUFFICIENT';
+  if (attributableSampleSize < 70) return 'LOW';
+  return 'ENOUGH_FOR_REVIEW';
+}
+
+function reliabilityWarning(
+  regimePhase: RegimePhase,
+  resolvedSampleSize: number,
+  pendingCounterfactualCount: number,
+  totalSampleSize: number,
+): string | undefined {
+  if (regimePhase === 'R2_EARLY' && resolvedSampleSize < 30) return '초기장 조건 귀인 불충분';
+  if (regimePhase === 'R3_EXPANSION' && pct(pendingCounterfactualCount, totalSampleSize) > 0.5) return '확장장 샘플 대부분 counterfactual maturity 대기';
+  if (regimePhase === 'R6_DEFENSE' && resolvedSampleSize === 0) return 'R6 생존 패턴은 아직 라벨링 전';
+  if (regimePhase === 'UNKNOWN') return 'UNKNOWN samples are excluded from promotion metrics';
+  return undefined;
+}
+
+function whyNotReliable(input: {
+  regimePhase: RegimePhase;
+  resolvedSampleSize: number;
+  pendingCounterfactualCount: number;
+  attributableSampleSize: number;
+  sourceConfidenceHighRatio: number;
+  totalSampleSize: number;
+}): string {
+  if (input.totalSampleSize === 0) return 'No samples yet.';
+  if (input.regimePhase === 'UNKNOWN') return 'UNKNOWN samples are excluded from promotion metrics; sourceConfidence=UNKNOWN.';
+  if (input.resolvedSampleSize === 0) return `No resolved ${input.regimePhase} samples yet.`;
+  if (input.resolvedSampleSize < 30) {
+    return `Only ${input.resolvedSampleSize} resolved samples; ${input.pendingCounterfactualCount} counterfactual cases still pending maturity.`;
+  }
+  if (input.attributableSampleSize < 30) return `Only ${input.attributableSampleSize} attributable resolved samples; condition attribution is insufficient.`;
+  if (pct(input.pendingCounterfactualCount, input.totalSampleSize) > 0.5) return `${input.pendingCounterfactualCount} counterfactual cases dominate the bank; wait for maturity.`;
+  if (input.sourceConfidenceHighRatio < 0.7) return `High-confidence source ratio ${input.sourceConfidenceHighRatio} is below 0.7.`;
+  return 'Diagnostic sample quality is usable; recommendationOnly remains true.';
+}
+
+function nextQualityAction(s: Pick<RegimeLearningStats, 'regimePhase' | 'resolvedSampleSize' | 'pendingCounterfactualCount' | 'totalSampleSize' | 'attributableSampleSize' | 'qualityStatus'>): string {
+  if (s.regimePhase === 'UNKNOWN') return 'REDUCE_UNKNOWN';
+  if (s.regimePhase === 'R6_DEFENSE' && s.resolvedSampleSize < 30) return 'COLLECT_R6_FRESH_SHADOW';
+  if (pct(s.pendingCounterfactualCount, s.totalSampleSize) > 0.5) return 'WAIT_COUNTERFACTUAL_MATURITY';
+  if (s.attributableSampleSize < 30) return 'COLLECT_RESOLVED_ATTRIBUTABLE_SAMPLES';
+  if (s.qualityStatus === 'LOW_CONFIDENCE') return 'IMPROVE_REGIME_SOURCE_CONFIDENCE';
+  return 'OBSERVE_DIAGNOSTIC_ONLY';
+}
+
+function formatExpectancy(s: Pick<RegimeLearningStats, 'expectancyR' | 'expectancyReason'>): string {
+  return s.expectancyReason === 'NO_RESOLVED_SAMPLE' ? 'N/A' : String(s.expectancyR);
 }
 
 function patternText(phase: RegimePhase, kind: 'best' | 'worst', seed?: string, sector?: string): string {
@@ -463,10 +682,130 @@ function buildConditionAttribution(
 
 function cfLabel(e: RegimeCounterfactualEntry): string {
   if ('outcomeLabel' in e && e.outcomeLabel) return e.outcomeLabel;
-  if ('label' in e && e.label) return e.label;
+  if ('label' in e && e.label && CF_LABELS.includes(e.label)) return e.label;
   if ('outcomeStatus' in e && e.outcomeStatus === 'QUARANTINED') return 'QUARANTINED';
   if ('outcomeStatus' in e && e.outcomeStatus === 'DATA_INSUFFICIENT') return 'DATA_INSUFFICIENT';
   return 'PENDING_OUTCOME';
+}
+
+function cfCreatedAt(e: RegimeCounterfactualEntry): string | undefined {
+  const row = e as RegimeCounterfactualEntry & {
+    signalTime?: string;
+    createdAt?: string;
+    createdAtKst?: string;
+    signalDate?: string;
+  };
+  return row.signalTime ?? row.createdAt ?? row.createdAtKst ?? (row.signalDate ? `${row.signalDate}T00:00:00.000Z` : undefined);
+}
+
+function cfMaxHoldingMinutes(e: RegimeCounterfactualEntry): number {
+  const row = e as RegimeCounterfactualEntry & { maxHoldingMinutes?: number };
+  return typeof row.maxHoldingMinutes === 'number' && Number.isFinite(row.maxHoldingMinutes) && row.maxHoldingMinutes > 0
+    ? row.maxHoldingMinutes
+    : LEARNING_DEFAULT_MAX_HOLDING_MINUTES;
+}
+
+function addKstDays(dateKey: string, days: number): string {
+  const d = new Date(`${dateKey}T03:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return toKstDateKey(d);
+}
+
+function nextKrxTradingDay(dateKey: string): string | undefined {
+  for (let i = 1; i <= 21; i++) {
+    const key = addKstDays(dateKey, i);
+    if (isKrxTradingDay(key)) return key;
+  }
+  return undefined;
+}
+
+function pendingMaturityAt(e: RegimeCounterfactualEntry): string | undefined {
+  const row = e as RegimeCounterfactualEntry & { maturityAt?: string };
+  if (row.maturityAt) return row.maturityAt;
+  const createdAt = cfCreatedAt(e);
+  const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+  if (!Number.isFinite(createdMs)) return undefined;
+  return new Date(createdMs + cfMaxHoldingMinutes(e) * 60_000).toISOString();
+}
+
+type RegimeMaturityCounterKey =
+  | 'maturedNowCount'
+  | 'dueToday'
+  | 'dueNextTradingDay'
+  | 'dueIn2to3CalendarDays'
+  | 'dueIn4to7CalendarDays'
+  | 'dueIn8to14CalendarDays'
+  | 'dueAfter14CalendarDays';
+
+function maturityBucketFor(iso: string | undefined, now: Date): RegimeMaturityCounterKey | undefined {
+  if (!iso) return undefined;
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return undefined;
+  if (ms <= now.getTime()) return 'maturedNowCount';
+  const nowKey = toKstDateKey(now);
+  const maturityKey = toKstDateKey(iso);
+  if (maturityKey === nowKey) return 'dueToday';
+  const nextTradingDay = nextKrxTradingDay(nowKey);
+  if (nextTradingDay && maturityKey === nextTradingDay) return 'dueNextTradingDay';
+  const days = Math.ceil((ms - now.getTime()) / 86_400_000);
+  if (days <= 3) return 'dueIn2to3CalendarDays';
+  if (days <= 7) return 'dueIn4to7CalendarDays';
+  if (days <= 14) return 'dueIn8to14CalendarDays';
+  return 'dueAfter14CalendarDays';
+}
+
+function emptyMaturityRow(regimePhase: RegimePhase): RegimeMaturityByRegime {
+  return {
+    regimePhase,
+    pendingOutcomeCount: 0,
+    maturedNowCount: 0,
+    dueToday: 0,
+    dueNextTradingDay: 0,
+    dueIn2to3CalendarDays: 0,
+    dueIn4to7CalendarDays: 0,
+    dueIn8to14CalendarDays: 0,
+    dueAfter14CalendarDays: 0,
+    nearestMaturityAt: undefined,
+    largestMaturityBucket: 'none',
+  };
+}
+
+function buildMaturityRows(counterfactuals: RegimeCounterfactualEntry[], now: Date): RegimeMaturityByRegime[] {
+  const rows = new Map<RegimePhase, RegimeMaturityByRegime>();
+  for (const phase of REGIME_LEARNING_PHASES) rows.set(phase, emptyMaturityRow(phase));
+  for (const e of counterfactuals) {
+    if (cfLabel(e) !== 'PENDING_OUTCOME') continue;
+    const phase = phaseForCounterfactual(e);
+    const row = rows.get(phase) ?? emptyMaturityRow(phase);
+    rows.set(phase, row);
+    row.pendingOutcomeCount++;
+    const maturityAt = pendingMaturityAt(e);
+    const bucket = maturityBucketFor(maturityAt, now);
+    if (bucket) row[bucket]++;
+    if (maturityAt && (!row.nearestMaturityAt || new Date(maturityAt).getTime() < new Date(row.nearestMaturityAt).getTime())) {
+      row.nearestMaturityAt = maturityAt;
+    }
+  }
+  for (const row of rows.values()) {
+    const bucketCounts = {
+      maturedNowCount: row.maturedNowCount,
+      dueToday: row.dueToday,
+      dueNextTradingDay: row.dueNextTradingDay,
+      dueIn2to3CalendarDays: row.dueIn2to3CalendarDays,
+      dueIn4to7CalendarDays: row.dueIn4to7CalendarDays,
+      dueIn8to14CalendarDays: row.dueIn8to14CalendarDays,
+      dueAfter14CalendarDays: row.dueAfter14CalendarDays,
+    };
+    const top = Object.entries(bucketCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    row.largestMaturityBucket = top && top[1] > 0 ? top[0] : 'none';
+  }
+  return [...rows.values()].filter((row) => row.pendingOutcomeCount > 0);
+}
+
+function dueWithin(row: RegimeMaturityByRegime, days: 1 | 3 | 7): number {
+  if (days === 1) return row.maturedNowCount + row.dueToday + row.dueNextTradingDay;
+  if (days === 3) return dueWithin(row, 1) + row.dueIn2to3CalendarDays;
+  return dueWithin(row, 3) + row.dueIn4to7CalendarDays;
 }
 
 function buildStatsForPhase(
@@ -475,24 +814,17 @@ function buildStatsForPhase(
   counterfactuals: RegimeCounterfactualEntry[],
 ): RegimeLearningStats {
   const closed = cases.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
+  const resolvedCases = cases.filter((c) => isResolvedLabel(c.outcomeLabel));
+  const attributableCases = cases.filter((c) => isAttributableCase(c, regimePhase));
   const wins = closed.filter((c) => c.outcomeLabel === 'WIN');
   const losses = closed.filter((c) => c.outcomeLabel === 'LOSS');
   const breakevens = closed.filter((c) => c.outcomeLabel === 'BREAKEVEN');
   const returns = closed.map(returnR);
-  const sectorGroups = new Map<string, ShadowCase[]>();
   const failureReasons = new Map<string, number>();
   const cfLabels = new Map<string, number>(CF_LABELS.map((label) => [label, 0]));
-  const timeWindowGroups = new Map<string, ShadowCase[]>();
-  const marketSessionGroups = new Map<string, ShadowCase[]>();
   const sourceConfidenceBreakdown: Record<string, number> = {};
 
   for (const c of cases) {
-    const sector = c.sectorTag ?? 'UNKNOWN';
-    sectorGroups.set(sector, [...(sectorGroups.get(sector) ?? []), c]);
-    const timeWindow = c.timeWindowTag ?? 'UNKNOWN';
-    timeWindowGroups.set(timeWindow, [...(timeWindowGroups.get(timeWindow) ?? []), c]);
-    const session = c.marketSession ?? 'UNKNOWN';
-    marketSessionGroups.set(session, [...(marketSessionGroups.get(session) ?? []), c]);
     if (c.outcomeLabel === 'LOSS' || (c.finalReturnPct ?? 0) < 0) {
       const reason = c.blockedReason ?? c.learningTag ?? 'UNKNOWN';
       failureReasons.set(reason, (failureReasons.get(reason) ?? 0) + 1);
@@ -506,11 +838,40 @@ function buildStatsForPhase(
     sourceConfidenceBreakdown[sourceConfidenceOfCounterfactual(e)] = (sourceConfidenceBreakdown[sourceConfidenceOfCounterfactual(e)] ?? 0) + 1;
   }
 
-  const allSectors = [...sectorGroups.entries()]
+  const counterfactualLabels = counterfactuals.map(cfLabel);
+  const pendingCounterfactualCount = counterfactualLabels.filter((label) => label === 'PENDING_OUTCOME').length;
+  const resolvedCounterfactualCount = counterfactualLabels.filter(isResolvedLabel).length;
+  const quarantinedCounterfactualCount = counterfactualLabels.filter((label) => QUARANTINED_LABELS.has(label)).length;
+  const pendingOpenCount = cases.filter(isPendingOpenCase).length;
+  const quarantinedCaseCount = cases.filter(isQuarantinedCase).length;
+  const pendingShadowCount = cases.filter((c) => !isResolvedLabel(c.outcomeLabel) && !isQuarantinedCase(c) && c.cohortType !== 'COUNTERFACTUAL_BLOCKED').length;
+  const totalSampleSize = cases.length + counterfactuals.length;
+  const sampleSize = totalSampleSize;
+  const resolvedSampleSize = resolvedCases.length + resolvedCounterfactualCount;
+  const closedOutcomeCount = closed.length;
+  const attributableSampleSize = attributableCases.length;
+  const unresolvedRatio = pct(totalSampleSize - resolvedSampleSize, totalSampleSize);
+  const resolvedRatio = pct(resolvedSampleSize, totalSampleSize);
+  const pendingRatio = pct(pendingCounterfactualCount, totalSampleSize);
+  const quarantinedCount = quarantinedCaseCount + quarantinedCounterfactualCount;
+  const attributionSourceRows = attributableCases.length > 0 ? attributableCases : [];
+  const attributionSectorGroups = new Map<string, ShadowCase[]>();
+  const attributionTimeWindowGroups = new Map<string, ShadowCase[]>();
+  const attributionMarketSessionGroups = new Map<string, ShadowCase[]>();
+  for (const c of attributionSourceRows) {
+    const sector = c.sectorTag ?? 'UNKNOWN';
+    attributionSectorGroups.set(sector, [...(attributionSectorGroups.get(sector) ?? []), c]);
+    const timeWindow = c.timeWindowTag ?? 'UNKNOWN';
+    attributionTimeWindowGroups.set(timeWindow, [...(attributionTimeWindowGroups.get(timeWindow) ?? []), c]);
+    const session = c.marketSession ?? 'UNKNOWN';
+    attributionMarketSessionGroups.set(session, [...(attributionMarketSessionGroups.get(session) ?? []), c]);
+  }
+
+  const allSectors = [...attributionSectorGroups.entries()]
     .map(([sector, rows]) => ({ sector, samples: rows.length, expectancyR: round(avg(rows.map(returnR))) }))
     .sort((a, b) => b.expectancyR - a.expectancyR || b.samples - a.samples);
   const sortedReturns = [...closed].sort((a, b) => returnR(b) - returnR(a));
-  const conditionAttributions = buildConditionAttribution(regimePhase, cases);
+  const conditionAttributions = buildConditionAttribution(regimePhase, attributableCases);
   const topPositiveConditions = conditionAttributions
     .filter((c) => c.avgReturnR >= 0 && c.direction !== 'INSUFFICIENT_SAMPLE')
     .sort((a, b) => b.expectancyR - a.expectancyR || b.samples - a.samples)
@@ -521,10 +882,8 @@ function buildStatsForPhase(
     .slice(0, 5);
   const lowSampleConditions = conditionAttributions.filter((c) => c.direction === 'INSUFFICIENT_SAMPLE').slice(0, 10);
   const unstableConditions = conditionAttributions.filter((c) => c.confidence === 'LOW_CONFIDENCE' || c.overfitFlag).slice(0, 10);
-  const closedOrLabeledCount = closed.length + counterfactuals.filter((e) => cfLabel(e) !== 'PENDING_OUTCOME').length;
-  const sampleSize = cases.length + counterfactuals.length;
-  const overfitRisk: OverfitRisk = sampleSize < 30 ? 'HIGH' : sampleSize < 70 ? 'MEDIUM' : 'LOW';
-  const labelCompletionRate = pct(closedOrLabeledCount, sampleSize);
+  const overfitRisk: OverfitRisk = attributableSampleSize < 30 ? 'HIGH' : attributableSampleSize < 70 ? 'MEDIUM' : 'LOW';
+  const labelCompletionRate = resolvedRatio;
   const dataQualityScore = cases.length > 0 ? round(avg(cases.map(scoreDataQuality))) : 1;
   const highConfidenceCount = (sourceConfidenceBreakdown.HIGH ?? 0);
   const sourceConfidenceHighRatio = pct(highConfidenceCount, sampleSize);
@@ -533,11 +892,42 @@ function buildStatsForPhase(
   const conditionCoverage = pct(conditionAttributions.length, Math.max(sampleSize, 1));
   const counterfactualCoverage = pct(counterfactuals.length + cases.filter((c) => c.cohortType === 'COUNTERFACTUAL_BLOCKED' || c.counterfactualRecorded).length, sampleSize);
   const freshShadowCoverage = pct(cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length, sampleSize);
-  const status = qualityStatus({ sampleSize, labelCompletionRate, dataQualityScore, sourceConfidenceHighRatio, overfitRisk });
+  const status = qualityStatus({
+    totalSampleSize,
+    resolvedSampleSize,
+    attributableSampleSize,
+    pendingRatio,
+    dataQualityScore,
+    sourceConfidenceHighRatio,
+    overfitRisk,
+  });
+  const statExpectancyConfidence = expectancyConfidence(closed.length);
+  const statAttributionConfidence = attributionConfidence(attributableSampleSize);
+  const statWhyNotReliable = whyNotReliable({
+    regimePhase,
+    resolvedSampleSize,
+    pendingCounterfactualCount,
+    attributableSampleSize,
+    sourceConfidenceHighRatio,
+    totalSampleSize,
+  });
+  const statReliabilityWarning = reliabilityWarning(regimePhase, resolvedSampleSize, pendingCounterfactualCount, totalSampleSize);
+  const expectancyReason = closed.length === 0 ? 'NO_RESOLVED_SAMPLE' as const : undefined;
   const quality: RegimeLearningQuality = {
     regimePhase,
     sampleSize,
-    closedSampleCount: closed.length,
+    totalSampleSize,
+    resolvedSampleSize,
+    closedOutcomeCount,
+    pendingCounterfactualCount,
+    pendingShadowCount,
+    pendingOpenCount,
+    quarantinedCount,
+    attributableSampleSize,
+    unresolvedRatio,
+    resolvedRatio,
+    pendingRatio,
+    closedSampleCount: closedOutcomeCount,
     labelCompletionRate,
     sourceConfidenceHighRatio,
     unknownRatio,
@@ -548,9 +938,9 @@ function buildStatsForPhase(
     overfitRisk,
     qualityStatus: status,
   };
-  const bestTimeWindow = [...timeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
-  const worstTimeWindow = [...timeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => a.value - b.value)[0]?.key;
-  const bestMarketSession = [...marketSessionGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
+  const bestTimeWindow = [...attributionTimeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
+  const worstTimeWindow = [...attributionTimeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => a.value - b.value)[0]?.key;
+  const bestMarketSession = [...attributionMarketSessionGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
   const bestConditionCombo = topPositiveConditions.slice(0, 2).map((c) => c.conditionId).join('+') || undefined;
   const worstConditionCombo = topNegativeConditions.slice(0, 2).map((c) => c.conditionId).join('+') || undefined;
   const bestSector = allSectors[0]?.sector;
@@ -574,6 +964,17 @@ function buildStatsForPhase(
   return {
     regimePhase,
     sampleSize,
+    totalSampleSize,
+    resolvedSampleSize,
+    closedOutcomeCount,
+    pendingCounterfactualCount,
+    pendingShadowCount,
+    pendingOpenCount,
+    quarantinedCount,
+    attributableSampleSize,
+    unresolvedRatio,
+    resolvedRatio,
+    pendingRatio,
     freshShadowCount: cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length,
     counterfactualCount: cases.filter((c) => c.cohortType === 'COUNTERFACTUAL_BLOCKED' || c.counterfactualRecorded).length + counterfactuals.length,
     ghostRepairCount: cases.filter((c) => c.cohortType === 'GHOST_REPAIR').length,
@@ -596,8 +997,13 @@ function buildStatsForPhase(
     freshShadowCoverage,
     overfitRisk,
     qualityStatus: status,
+    expectancyConfidence: statExpectancyConfidence,
+    attributionConfidence: statAttributionConfidence,
+    expectancyReason,
+    whyNotReliable: statWhyNotReliable,
+    reliabilityWarning: statReliabilityWarning,
     quality,
-    promotionStage: sampleSize >= 30 && labelCompletionRate > 0 ? 'ADVISORY' : 'SHADOW_SCORE',
+    promotionStage: attributableSampleSize >= 30 && labelCompletionRate > 0 ? 'ADVISORY' : 'SHADOW_SCORE',
     promotionAllowed: false,
     diagnosticOnly: true,
     recommendationOnly: true,
@@ -647,7 +1053,14 @@ function buildStatsForPhase(
     counterfactualStats: familyStats(counterfactualRows, counterfactuals.length),
     outcomeStats: familyStats(outcomeRows),
     attributionStats: familyStats(attributionRows),
-    nextLearningNeed: sampleSize < 30 ? 'LOW_SAMPLE' : closed.length === 0 ? 'NEEDS_OUTCOME_LABELS' : 'OBSERVE_AND_COMPARE',
+    nextLearningNeed: nextQualityAction({
+      regimePhase,
+      resolvedSampleSize,
+      pendingCounterfactualCount,
+      totalSampleSize,
+      attributableSampleSize,
+      qualityStatus: status,
+    }),
     blocker: status === 'STABLE_CANDIDATE' ? undefined : status,
   };
 }
@@ -833,6 +1246,7 @@ function collectCases(input: CollectRegimeLearningInput, ledger: ShadowCaseLedge
 }
 
 export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}): RegimeLearningBank {
+  const now = input.now ?? new Date();
   const ledger = input.ledger ?? shadowCaseLedger;
   const { cases, counterfactuals, duplicateCaseCount, attributionCaseCount } = collectCases(input, ledger);
   const diagnostics = input.rawRegime && input.effectiveRegime
@@ -858,7 +1272,7 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
       return buildStatsForPhase(phase, group.cases, group.counterfactuals);
     })
     .filter((s) => s.sampleSize > 0 || s.regimePhase === activeContext.regimePhase);
-  const nonEmpty = stats.filter((s) => s.closedCount > 0);
+  const nonEmpty = stats.filter((s) => s.closedCount > 0 && s.regimePhase !== 'UNKNOWN');
   const best = [...nonEmpty].sort((a, b) => b.expectancyR - a.expectancyR)[0];
   const worst = [...nonEmpty].sort((a, b) => a.expectancyR - b.expectancyR)[0];
   const active = stats.find((s) => s.regimePhase === activeContext.regimePhase) ?? buildStatsForPhase(activeContext.regimePhase, [], []);
@@ -878,6 +1292,17 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const r4 = stats.find((row) => row.regimePhase === 'R4_NEUTRAL') ?? buildStatsForPhase('R4_NEUTRAL', [], []);
   const r5 = stats.find((row) => row.regimePhase === 'R5_CAUTION') ?? buildStatsForPhase('R5_CAUTION', [], []);
   const r6 = stats.find((row) => row.regimePhase === 'R6_DEFENSE') ?? buildStatsForPhase('R6_DEFENSE', [], []);
+  const maturityRows = buildMaturityRows(counterfactuals, now);
+  const nextRegimeMaturityAt = maturityRows
+    .map((row) => row.nearestMaturityAt)
+    .filter((iso): iso is string => !!iso)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+  const transitionState = loadRegimeResolvedTransitionState();
+  const regimesNeedingAttributionRecalc = transitionState.attributionRecalcNeeded
+    ? Object.entries(transitionState.lastResolvedByRegime)
+        .filter(([, count]) => count > 0)
+        .map(([phase]) => phase)
+    : [];
   const sourceCounts = {
     freshShadow: cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length,
     ghostRepair: cases.filter((c) => c.cohortType === 'GHOST_REPAIR').length,
@@ -897,9 +1322,14 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     worstRegimeByExpectancy: worst?.regimePhase,
     activeRegimePhase: activeContext.regimePhase,
     activeRegimeSampleSize: active.sampleSize,
+    activeRegimeTotalSampleSize: active.totalSampleSize,
+    activeRegimeResolvedSampleSize: active.resolvedSampleSize,
+    activeRegimePendingCounterfactualCount: active.pendingCounterfactualCount,
+    activeRegimeAttributableSampleSize: active.attributableSampleSize,
     activeRegimeExpectancyR: active.expectancyR,
     activeRegimeTopPattern: active.bestPattern ?? active.bestConditionCombo ?? active.topSector ?? 'N/A',
     activeRegimeLearningNeed: active.nextLearningNeed,
+    activeRegimeWhyNotReliable: active.whyNotReliable,
     regimeLearningSampleSize,
     regimeAssignedCount,
     unknownRegimeCount,
@@ -915,6 +1345,16 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     R4QualityStatus: r4.qualityStatus,
     R5QualityStatus: r5.qualityStatus,
     R6QualityStatus: r6.qualityStatus,
+    R2ResolvedSampleSize: r2.resolvedSampleSize,
+    R3ResolvedSampleSize: r3.resolvedSampleSize,
+    R6ResolvedSampleSize: r6.resolvedSampleSize,
+    R2PendingCounterfactualCount: r2.pendingCounterfactualCount,
+    R3PendingCounterfactualCount: r3.pendingCounterfactualCount,
+    R6PendingCounterfactualCount: r6.pendingCounterfactualCount,
+    nextRegimeMaturityAt,
+    regimesNeedingAttributionRecalc,
+    regimeLearningNextAction: active.nextLearningNeed,
+    nextRegimeLearningAction: active.nextLearningNeed,
     unknownReductionNeeded: unknownRegimeCount > 0,
     recommendationOnly: true,
     promotionAllowed: false,
@@ -962,6 +1402,186 @@ export function collectRegimeLearningConsistency(bank: RegimeLearningBank = coll
   };
 }
 
+export function collectRegimeResolvedStatus(input: CollectRegimeLearningInput = {}): RegimeResolvedStatus {
+  const now = input.now ?? new Date();
+  const bank = collectRegimeLearningBank(input);
+  const ledger = input.ledger ?? shadowCaseLedger;
+  const { counterfactuals } = collectCases(input, ledger);
+  const maturityRows = buildMaturityRows(counterfactuals, now);
+  const maturityByPhase = new Map(maturityRows.map((row) => [row.regimePhase, row]));
+  const rows = bank.stats
+    .filter((stat) => stat.totalSampleSize > 0 || ['R2_EARLY', 'R3_EXPANSION', 'R6_DEFENSE'].includes(stat.regimePhase))
+    .map((stat) => {
+      const maturity = maturityByPhase.get(stat.regimePhase) ?? emptyMaturityRow(stat.regimePhase);
+      const nextResolveAt = maturity.maturedNowCount > 0 ? now.toISOString() : maturity.nearestMaturityAt;
+      return {
+        regimePhase: stat.regimePhase,
+        totalSampleSize: stat.totalSampleSize,
+        resolvedSampleSize: stat.resolvedSampleSize,
+        pendingCounterfactualCount: stat.pendingCounterfactualCount,
+        pendingMaturityCount: maturity.pendingOutcomeCount,
+        dueWithin1d: dueWithin(maturity, 1),
+        dueWithin3d: dueWithin(maturity, 3),
+        dueWithin7d: dueWithin(maturity, 7),
+        nextMaturityAt: maturity.nearestMaturityAt,
+        nextResolveAt,
+        attributableSampleSize: stat.attributableSampleSize,
+        qualityStatus: stat.qualityStatus,
+        nextAction: nextQualityAction(stat),
+      } satisfies RegimeResolvedStatusRow;
+    });
+  const nextRegimeMaturityAt = maturityRows
+    .map((row) => row.nearestMaturityAt)
+    .filter((iso): iso is string => !!iso)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+  return {
+    rows,
+    maturityByRegime: maturityRows,
+    nextRegimeMaturityAt,
+    nextResolveAt: maturityRows.some((row) => row.maturedNowCount > 0) ? now.toISOString() : nextRegimeMaturityAt,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+    promotionAllowed: false,
+    recommendationOnly: true,
+  };
+}
+
+function collectRegimeAttributionRecalc(
+  input: CollectRegimeLearningInput & { transitionState?: RegimeResolvedTransitionState; run?: boolean; persist?: boolean } = {},
+): RegimeAttributionRecalcResult {
+  const now = input.now ?? new Date();
+  const bank = collectRegimeLearningBank(input);
+  const transitionState = input.transitionState ?? loadRegimeResolvedTransitionState();
+  const regimesNeedingRecalc = transitionState.attributionRecalcNeeded
+    ? Object.entries(transitionState.lastResolvedByRegime)
+        .filter(([, count]) => count > 0)
+        .map(([phase]) => phase)
+    : [];
+  const attributableSampleSizeByRegime: Record<string, number> = {};
+  for (const stat of bank.stats) attributableSampleSizeByRegime[stat.regimePhase] = stat.attributableSampleSize;
+  const stillInsufficientRegimes = regimesNeedingRecalc.filter((phase) => (attributableSampleSizeByRegime[phase] ?? 0) < 30);
+  const recalculatedRegimes = regimesNeedingRecalc.filter((phase) => (attributableSampleSizeByRegime[phase] ?? 0) >= 30);
+  const expectedConditionUpdates = bank.stats
+    .filter((stat) => recalculatedRegimes.includes(stat.regimePhase))
+    .reduce((sum, stat) => sum + stat.conditionAttributions.length, 0);
+  if (input.run && input.persist !== false) {
+    markRegimeAttributionRecalcHandled({
+      now,
+      recalculatedRegimes,
+      skippedLowSampleRegimes: stillInsufficientRegimes,
+    });
+  }
+  return {
+    regimesNeedingRecalc,
+    resolvedDeltaByRegime: transitionState.lastResolvedByRegime,
+    attributableSampleSizeByRegime: Object.fromEntries(
+      regimesNeedingRecalc.map((phase) => [phase, attributableSampleSizeByRegime[phase] ?? 0]),
+    ),
+    stillInsufficientRegimes,
+    expectedConditionUpdates,
+    ...(input.run ? {
+      recalculatedRegimes,
+      skippedLowSampleRegimes: stillInsufficientRegimes,
+      conditionAttributionUpdated: expectedConditionUpdates,
+      noWeightUpdate: true as const,
+    } : {}),
+    recommendationOnly: true,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+    promotionAllowed: false,
+  };
+}
+
+export function regimeAttributionRecalcDryRun(
+  input: CollectRegimeLearningInput & { transitionState?: RegimeResolvedTransitionState } = {},
+): RegimeAttributionRecalcResult {
+  return collectRegimeAttributionRecalc(input);
+}
+
+export function regimeAttributionRecalcRun(
+  input: CollectRegimeLearningInput & { transitionState?: RegimeResolvedTransitionState; persist?: boolean } = {},
+): RegimeAttributionRecalcResult {
+  return collectRegimeAttributionRecalc({ ...input, run: true });
+}
+
+export function formatRegimeResolvedStatus(s: RegimeResolvedStatus = collectRegimeResolvedStatus()): string {
+  return [
+    '<b>[Regime Resolved Status]</b>',
+    ...s.rows.map((row) => [
+      `regimePhase=${row.regimePhase}`,
+      `totalSampleSize=${row.totalSampleSize}`,
+      `resolvedSampleSize=${row.resolvedSampleSize}`,
+      `pendingCounterfactualCount=${row.pendingCounterfactualCount}`,
+      `pendingMaturityCount=${row.pendingMaturityCount}`,
+      `dueWithin1d=${row.dueWithin1d}`,
+      `dueWithin3d=${row.dueWithin3d}`,
+      `dueWithin7d=${row.dueWithin7d}`,
+      `nextMaturityAt=${row.nextMaturityAt ?? 'N/A'}`,
+      `nextResolveAt=${row.nextResolveAt ?? 'N/A'}`,
+      `attributableSampleSize=${row.attributableSampleSize}`,
+      `qualityStatus=${row.qualityStatus}`,
+      `nextAction=${row.nextAction}`,
+    ].join(' / ')),
+    '<b>[Maturity By Regime]</b>',
+    ...s.maturityByRegime.map((row) => [
+      `regimePhase=${row.regimePhase}`,
+      `pendingOutcomeCount=${row.pendingOutcomeCount}`,
+      `maturedNowCount=${row.maturedNowCount}`,
+      `dueToday=${row.dueToday}`,
+      `dueNextTradingDay=${row.dueNextTradingDay}`,
+      `dueIn2to3CalendarDays=${row.dueIn2to3CalendarDays}`,
+      `dueIn4to7CalendarDays=${row.dueIn4to7CalendarDays}`,
+      `dueIn8to14CalendarDays=${row.dueIn8to14CalendarDays}`,
+      `dueAfter14CalendarDays=${row.dueAfter14CalendarDays}`,
+      `nearestMaturityAt=${row.nearestMaturityAt ?? 'N/A'}`,
+      `largestMaturityBucket=${row.largestMaturityBucket}`,
+    ].join(' / ')),
+    `nextRegimeMaturityAt=${s.nextRegimeMaturityAt ?? 'N/A'} nextResolveAt=${s.nextResolveAt ?? 'N/A'}`,
+    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed} recommendationOnly=${s.recommendationOnly}`,
+  ].join('\n');
+}
+
+export function formatRegimeAttributionRecalc(s: RegimeAttributionRecalcResult, title = 'regime_attribution_recalc'): string {
+  return [
+    `<b>[${title}]</b>`,
+    `regimesNeedingRecalc=${JSON.stringify(s.regimesNeedingRecalc)}`,
+    `resolvedDeltaByRegime=${JSON.stringify(s.resolvedDeltaByRegime)}`,
+    `attributableSampleSizeByRegime=${JSON.stringify(s.attributableSampleSizeByRegime)}`,
+    `stillInsufficientRegimes=${JSON.stringify(s.stillInsufficientRegimes)}`,
+    `expectedConditionUpdates=${s.expectedConditionUpdates}`,
+    s.recalculatedRegimes ? `recalculatedRegimes=${JSON.stringify(s.recalculatedRegimes)}` : '',
+    s.skippedLowSampleRegimes ? `skippedLowSampleRegimes=${JSON.stringify(s.skippedLowSampleRegimes)}` : '',
+    s.conditionAttributionUpdated !== undefined ? `conditionAttributionUpdated=${s.conditionAttributionUpdated}` : '',
+    s.noWeightUpdate ? 'noWeightUpdate=true' : '',
+    `recommendationOnly=${s.recommendationOnly}`,
+    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
+  ].filter(Boolean).join('\n');
+}
+
+export function formatRegimeLearningQuality(bank: RegimeLearningBank = collectRegimeLearningBank()): string {
+  const rows = [...bank.stats].sort((a, b) => b.totalSampleSize - a.totalSampleSize);
+  return [
+    '<b>[Regime Learning Quality]</b>',
+    ...rows.map((s) => [
+      `regimePhase=${s.regimePhase}`,
+      `totalSampleSize=${s.totalSampleSize}`,
+      `resolvedSampleSize=${s.resolvedSampleSize}`,
+      `pendingCounterfactualCount=${s.pendingCounterfactualCount}`,
+      `attributableSampleSize=${s.attributableSampleSize}`,
+      `unknownCount=${s.regimePhase === 'UNKNOWN' ? s.totalSampleSize : 0}`,
+      `sourceConfidenceHighRatio=${s.sourceConfidenceHighRatio}`,
+      `resolvedRatio=${s.resolvedRatio}`,
+      `pendingRatio=${s.pendingRatio}`,
+      `qualityStatus=${s.qualityStatus}`,
+      `expectancyConfidence=${s.expectancyConfidence}`,
+      `whyNotReliable=${s.whyNotReliable}`,
+      `nextAction=${nextQualityAction(s)}`,
+    ].join(' / ')),
+    'UNKNOWNPromotionIsolation=UNKNOWN samples are excluded from promotion metrics; UNKNOWN condition attribution is diagnostic-only; UNKNOWN expectancyR is not used for regime learning recommendation; sourceConfidence=UNKNOWN',
+    `executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed}`,
+  ].join('\n');
+}
+
 export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRegimeLearningBank()): string {
   const rows = [...bank.stats].sort((a, b) => b.sampleSize - a.sampleSize);
   return [
@@ -975,7 +1595,8 @@ export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRe
     })),
     `shadowLearningAllowed=${bank.shadowLearningAllowed} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed} executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated}`,
     `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} unknownRatio=${bank.unknownRatio} regimeBankConsistency=${bank.regimeBankConsistency}`,
-    ...rows.map((s) => `${s.regimePhase}: sample=${s.sampleSize} fresh=${s.freshShadowCount} ghostRepair=${s.ghostRepairCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${s.expectancyR} labelCompletionRate=${s.labelCompletionRate} dataQualityScore=${s.dataQualityScore} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),
+    `R2ResolvedSampleSize=${bank.R2ResolvedSampleSize} R2PendingCounterfactual=${bank.R2PendingCounterfactualCount} R3ResolvedSampleSize=${bank.R3ResolvedSampleSize} R3PendingCounterfactual=${bank.R3PendingCounterfactualCount} R6ResolvedSampleSize=${bank.R6ResolvedSampleSize} R6PendingCounterfactual=${bank.R6PendingCounterfactualCount} nextRegimeMaturityAt=${bank.nextRegimeMaturityAt ?? 'N/A'} regimesNeedingAttributionRecalc=${JSON.stringify(bank.regimesNeedingAttributionRecalc)} regimeLearningNextAction=${bank.regimeLearningNextAction}`,
+    ...rows.map((s) => `${s.regimePhase}: totalSampleSize=${s.totalSampleSize} resolvedSampleSize=${s.resolvedSampleSize} pendingCounterfactualCount=${s.pendingCounterfactualCount} attributableSampleSize=${s.attributableSampleSize} fresh=${s.freshShadowCount} ghostRepair=${s.ghostRepairCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${formatExpectancy(s)} expectancyConfidence=${s.expectancyConfidence} resolvedRatio=${s.resolvedRatio} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),
   ].join('\n');
 }
 
@@ -985,16 +1606,34 @@ export function formatRegimeLearningDetail(regime: string, bank: RegimeLearningB
   return [
     `<b>[Regime Learning Detail: ${phase}]</b>`,
     `sampleSize=${s.sampleSize}`,
+    `totalSampleSize=${s.totalSampleSize}`,
+    `resolvedSampleSize=${s.resolvedSampleSize}`,
+    `closedOutcomeCount=${s.closedOutcomeCount}`,
+    `pendingCounterfactualCount=${s.pendingCounterfactualCount}`,
+    `pendingShadowCount=${s.pendingShadowCount}`,
+    `pendingOpenCount=${s.pendingOpenCount}`,
+    `quarantinedCount=${s.quarantinedCount}`,
+    `attributableSampleSize=${s.attributableSampleSize}`,
+    `unresolvedRatio=${s.unresolvedRatio}`,
+    `resolvedRatio=${s.resolvedRatio}`,
     `freshShadowCount=${s.freshShadowCount}`,
     `counterfactualCount=${s.counterfactualCount}`,
     `ghostRepairCount=${s.ghostRepairCount}`,
     `closedCount=${s.closedCount}`,
     `labelBreakdown=${JSON.stringify({ WIN: s.winCount, LOSS: s.lossCount, BREAKEVEN: s.breakevenCount, ...s.counterfactualLabelBreakdown })}`,
-    `expectancyR=${s.expectancyR}`,
+    `expectancyR=${formatExpectancy(s)}`,
+    `expectancyReason=${s.expectancyReason ?? 'OK'}`,
+    `expectancyConfidence=${s.expectancyConfidence}`,
+    `attributionConfidence=${s.attributionConfidence}`,
     `winRate=${round(s.winRate * 100, 1)}%`,
     `avgReturnR=${s.avgReturnR}`,
     `qualityStatus=${s.qualityStatus}`,
+    `whyNotReliable=${s.whyNotReliable}`,
+    `reliabilityWarning=${s.reliabilityWarning ?? 'N/A'}`,
     `sourceConfidenceBreakdown=${JSON.stringify(s.sourceConfidenceBreakdown)}`,
+    phase === 'UNKNOWN'
+      ? 'UNKNOWNPromotionIsolation=UNKNOWN samples are excluded from promotion metrics; UNKNOWN condition attribution is diagnostic-only; UNKNOWN expectancyR is not used for regime learning recommendation; sourceConfidence=UNKNOWN'
+      : '',
     `promotionStage=${s.promotionStage}`,
     `topPositiveConditions=${s.topPositiveConditions.map((c) => `${c.conditionId}:${c.expectancyR}:${c.direction}:${c.confidence}`).join(',') || 'N/A'}`,
     `topNegativeConditions=${s.topNegativeConditions.map((c) => `${c.conditionId}:${c.expectancyR}:${c.direction}:${c.confidence}`).join(',') || 'N/A'}`,
@@ -1029,11 +1668,12 @@ export function formatRegimeLearningDetail(regime: string, bank: RegimeLearningB
     `nextLearningNeed=${s.nextLearningNeed}`,
     'recommendationOnly=true',
     'promotionAllowed=false',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 export function formatRegimeConditionAttribution(regime?: string, bank: RegimeLearningBank = collectRegimeLearningBank()): string {
   const phase = regime ? deriveRegimePhase({ regimePhase: regime, effectiveRegime: regime }) : undefined;
+  const selectedStats = bank.stats.filter((stat) => !phase || stat.regimePhase === phase);
   const rows = bank.stats
     .filter((stat) => !phase || stat.regimePhase === phase)
     .flatMap((stat) => stat.conditionAttributions.map((condition) => ({ stat, condition })))
@@ -1041,6 +1681,8 @@ export function formatRegimeConditionAttribution(regime?: string, bank: RegimeLe
     .slice(0, phase ? 30 : 60);
   return [
     `<b>[Regime Condition Attribution${phase ? `: ${phase}` : ''}]</b>`,
+    ...selectedStats.map((stat) => `regimePhase=${stat.regimePhase} totalSampleSize=${stat.totalSampleSize} resolvedSampleSize=${stat.resolvedSampleSize} attributableSampleSize=${stat.attributableSampleSize} pendingCounterfactualCount=${stat.pendingCounterfactualCount} attributionConfidence=${stat.attributionConfidence} conditionAttributionInput=RESOLVED_ONLY qualityStatus=${stat.qualityStatus}`),
+    rows.length === 0 ? 'conditionRows=N/A reason=NO_ATTRIBUTABLE_RESOLVED_CONDITIONS' : '',
     ...rows.map(({ condition }) => [
       `regimePhase=${condition.regimePhase}`,
       `conditionId=${condition.conditionId}`,
@@ -1059,7 +1701,7 @@ export function formatRegimeConditionAttribution(regime?: string, bank: RegimeLe
     ].join(' / ')),
     'recommendationOnly=true',
     'promotionAllowed=false',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 export function formatRegimeLearningConsistency(s: RegimeLearningConsistency = collectRegimeLearningConsistency()): string {

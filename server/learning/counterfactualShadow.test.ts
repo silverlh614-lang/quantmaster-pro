@@ -4,6 +4,7 @@ import path from 'path';
 import { COUNTERFACTUAL_FILE, DATA_DIR } from '../persistence/paths.js';
 import { collectCounterfactualMaturityStatus, collectCounterfactualStatus, counterfactualMetadataRepairDryRun, counterfactualMetadataRepairRun, counterfactualResolveDryRun, counterfactualResolveDueDryRun, counterfactualResolveDueRun, counterfactualResolveRun } from './learningSampleQuality.js';
 import { COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE } from './learningStorage.js';
+import { loadRegimeResolvedTransitionState, REGIME_RESOLVED_TRANSITION_STATE_FILE } from './regimeResolvedTransitionStore.js';
 import {
   recordCounterfactual, resolveCounterfactuals, getCounterfactualStats,
   loadCounterfactuals, recordCounterfactualCase,
@@ -12,10 +13,13 @@ import {
 const _backup = fs.existsSync(COUNTERFACTUAL_FILE) ? fs.readFileSync(COUNTERFACTUAL_FILE, 'utf-8') : null;
 const SCHEDULER_FILE = path.join(DATA_DIR, COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE);
 const _schedulerBackup = fs.existsSync(SCHEDULER_FILE) ? fs.readFileSync(SCHEDULER_FILE, 'utf-8') : null;
+const REGIME_TRANSITION_FILE = path.join(DATA_DIR, REGIME_RESOLVED_TRANSITION_STATE_FILE);
+const _regimeTransitionBackup = fs.existsSync(REGIME_TRANSITION_FILE) ? fs.readFileSync(REGIME_TRANSITION_FILE, 'utf-8') : null;
 
 function reset() {
   if (fs.existsSync(COUNTERFACTUAL_FILE)) fs.unlinkSync(COUNTERFACTUAL_FILE);
   if (fs.existsSync(SCHEDULER_FILE)) fs.unlinkSync(SCHEDULER_FILE);
+  if (fs.existsSync(REGIME_TRANSITION_FILE)) fs.unlinkSync(REGIME_TRANSITION_FILE);
 }
 
 afterAll(() => {
@@ -23,6 +27,8 @@ afterAll(() => {
   else if (fs.existsSync(COUNTERFACTUAL_FILE)) fs.unlinkSync(COUNTERFACTUAL_FILE);
   if (_schedulerBackup !== null) fs.writeFileSync(SCHEDULER_FILE, _schedulerBackup);
   else if (fs.existsSync(SCHEDULER_FILE)) fs.unlinkSync(SCHEDULER_FILE);
+  if (_regimeTransitionBackup !== null) fs.writeFileSync(REGIME_TRANSITION_FILE, _regimeTransitionBackup);
+  else if (fs.existsSync(REGIME_TRANSITION_FILE)) fs.unlinkSync(REGIME_TRANSITION_FILE);
 });
 
 describe('counterfactualShadow', () => {
@@ -196,6 +202,13 @@ describe('counterfactualShadow', () => {
     expect(saved.find((e) => e.stockCode === '111111')?.labelSource).toBe('RECOVERED_TARGET_STOP');
     expect(saved.find((e) => e.stockCode === '111111')?.diagnosticOnly).toBe(true);
     expect(saved.find((e) => e.stockCode === '222222')?.outcomeStatus).toBe('PENDING');
+    const transition = loadRegimeResolvedTransitionState();
+    expect(transition.lastResolvedCount).toBe(1);
+    expect(transition.lastResolvedByRegime.R2_EARLY).toBe(1);
+    expect(transition.attributionRecalcNeeded).toBe(true);
+    expect(transition.executionImpact).toBe('NONE');
+    expect(transition.brokerOrdersCreated).toBe(0);
+    expect(transition.promotionAllowed).toBe(false);
     expect(dueRun.executionImpact).toBe('NONE');
     expect(dueRun.brokerOrdersCreated).toBe(0);
     expect(dueRun.promotionAllowed).toBe(false);

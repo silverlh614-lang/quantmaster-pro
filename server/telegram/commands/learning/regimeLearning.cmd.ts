@@ -2,10 +2,16 @@
 import {
   collectRegimeLearningBank,
   collectRegimeLearningConsistency,
+  collectRegimeResolvedStatus,
   formatRegimeConditionAttribution,
+  formatRegimeAttributionRecalc,
   formatRegimeLearningConsistency,
   formatRegimeLearningDetail,
+  formatRegimeLearningQuality,
   formatRegimeLearningSummary,
+  formatRegimeResolvedStatus,
+  regimeAttributionRecalcDryRun,
+  regimeAttributionRecalcRun,
 } from '../../../learning/regimeLearningBank.js';
 import {
   formatRegimeLearningBackfillDryRun,
@@ -78,6 +84,17 @@ const regimeLearningConsistency: TelegramCommand = {
   },
 };
 
+const regimeLearningQuality: TelegramCommand = {
+  name: '/regime_learning_quality',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Regime Learning resolved-sample quality diagnostics',
+  async execute({ reply }) {
+    await reply(formatRegimeLearningQuality(collectRegimeLearningBank()));
+  },
+};
+
 const regimeUnknownAnalysisCmd: TelegramCommand = {
   name: '/regime_unknown_analysis',
   category: 'LRN',
@@ -123,22 +140,63 @@ const regimeConditionAttribution: TelegramCommand = {
   },
 };
 
+const regimeResolvedStatus: TelegramCommand = {
+  name: '/regime_resolved_status',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Regime resolved/pending maturity status diagnostics',
+  async execute({ reply }) {
+    await reply(formatRegimeResolvedStatus(collectRegimeResolvedStatus()));
+  },
+};
+
+const regimeAttributionRecalcDryrun: TelegramCommand = {
+  name: '/regime_attribution_recalc_dryrun',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Dry-run regime condition attribution recalculation candidates',
+  async execute({ reply }) {
+    await reply(formatRegimeAttributionRecalc(regimeAttributionRecalcDryRun(), 'regime_attribution_recalc_dryrun'));
+  },
+};
+
+const regimeAttributionRecalcRunCmd: TelegramCommand = {
+  name: '/regime_attribution_recalc_run',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Run diagnostic-only regime condition attribution recalculation',
+  async execute({ reply }) {
+    await reply(formatRegimeAttributionRecalc(regimeAttributionRecalcRun(), 'regime_attribution_recalc_run'));
+  },
+};
+
 commandRegistry.register(regimeLearning);
 commandRegistry.register(regimeLearningDetail);
 commandRegistry.register(regimeLearningBackfillDryrun);
 commandRegistry.register(regimeLearningBackfillRunCmd);
 commandRegistry.register(regimeLearningConsistency);
+commandRegistry.register(regimeLearningQuality);
 commandRegistry.register(regimeUnknownAnalysisCmd);
 commandRegistry.register(regimeUnknownRepairDryrunCmd);
 commandRegistry.register(regimeUnknownRepairRunCmd);
 commandRegistry.register(regimeConditionAttribution);
+commandRegistry.register(regimeResolvedStatus);
+commandRegistry.register(regimeAttributionRecalcDryrun);
+commandRegistry.register(regimeAttributionRecalcRunCmd);
 
 export {
+  regimeAttributionRecalcDryrun,
+  regimeAttributionRecalcRunCmd,
   regimeLearningBackfillDryrun,
   regimeLearningBackfillRunCmd,
   regimeConditionAttribution,
   regimeLearningConsistency,
   regimeLearningDetail,
+  regimeLearningQuality,
+  regimeResolvedStatus,
   regimeUnknownAnalysisCmd,
   regimeUnknownRepairDryrunCmd,
   regimeUnknownRepairRunCmd,

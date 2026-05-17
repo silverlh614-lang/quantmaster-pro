@@ -97,6 +97,7 @@ import {
   htmlFailureSignature,
   TELEGRAM_MAX_MESSAGE_LEN,
 } from './telegramHtmlSanitizer.js';
+import { evaluateAlertNoise, type AlertLevel, type AlertNoiseEvent } from './alertNoisePolicy.js';
 export type { AlertTier } from './alertTiers.js';
 
 interface AlertCooldownEntry {
@@ -134,6 +135,38 @@ export interface TelegramAlertOptions {
    * 명시적으로 false를 설정하면 T1이어도 버튼을 붙이지 않는다 (예: Decision Broker가 자체 3택 사용).
    */
   requireAck?: boolean;
+  /** ADR-0468 diagnostic-only noise policy hook. Existing callers are unchanged unless this is supplied. */
+  noiseEvent?: AlertNoiseEvent;
+}
+
+function priorityFromNoiseLevel(level: AlertLevel): AlertPriority {
+  if (level === 'CRITICAL') return 'CRITICAL';
+  if (level === 'WARNING') return 'HIGH';
+  if (level === 'NOTICE') return 'NORMAL';
+  return 'LOW';
+}
+
+function inferNoiseEventFromLegacyAlert(
+  message: string,
+  opts?: TelegramAlertOptions,
+): AlertNoiseEvent | undefined {
+  if (opts?.noiseEvent) return opts.noiseEvent;
+
+  const upper = `${opts?.category ?? ''} ${opts?.dedupeKey ?? ''} ${message}`.toUpperCase();
+  if (upper.includes('[SHADOW') || upper.includes('SHADOW ONLY') || upper.includes('SHADOW_ONLY')) {
+    return {
+      eventType: upper.includes('STOP') || upper.includes('TARGET') || upper.includes('SELL')
+        ? 'SHADOW_EXECUTION_COMPLETED'
+        : 'SHADOW_SIGNAL',
+      channel: 'CH4_JOURNAL',
+      symbol: opts?.dedupeKey,
+      strategy: opts?.category ?? 'shadow',
+      session: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }),
+      executionImpact: 'NONE',
+    };
+  }
+
+  return undefined;
 }
 
 function shouldSendAlert(opts?: TelegramAlertOptions): boolean {
@@ -326,9 +359,24 @@ async function sendTelegramAlertRaw(
           body: JSON.stringify(plain),
         });
         if (fb.ok) {
+          evaluateAlertNoise({
+            eventType: 'TELEGRAM_HTML_RETRY',
+            channel: 'CH4_JOURNAL',
+            plainRetrySuccess: true,
+            templateId: htmlFailureSignature(text),
+            executionImpact: 'NONE',
+          });
           const fd = await fb.json() as { result?: { message_id?: number } };
           return fd.result?.message_id;
         }
+        evaluateAlertNoise({
+          eventType: 'TELEGRAM_HTML_RETRY',
+          channel: 'CH4_JOURNAL',
+          plainRetrySuccess: false,
+          templateId: htmlFailureSignature(text),
+          templateFailureCount: 1,
+          executionImpact: 'NONE',
+        });
         const fbErr = await fb.text();
         console.error('[Telegram] ❌ plain text 폴백도 실패 (거래는 완료됨):', fbErr.slice(0, 200));
         return;
@@ -377,6 +425,33 @@ export async function sendTelegramAlert(
   message: string,
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
+  const inferredNoiseEvent = inferNoiseEventFromLegacyAlert(message, opts);
+  if (inferredNoiseEvent) {
+    const baseOpts = opts ?? {};
+    const noise = evaluateAlertNoise(inferredNoiseEvent);
+    if (!noise.shouldSendNow) {
+      if (noise.shouldDigest) {
+        addToDigest(message);
+        appendAlertAudit({
+          at: new Date().toISOString(),
+          tier: 'T3_DIGEST',
+          priority: 'LOW',
+          category: baseOpts.category ?? noise.reason,
+          dedupeKey: baseOpts.dedupeKey ?? noise.dedupeKey,
+          textLen: message.length,
+        });
+      }
+      return undefined;
+    }
+    opts = {
+      ...baseOpts,
+      priority: baseOpts.priority ?? priorityFromNoiseLevel(noise.level),
+      dedupeKey: baseOpts.dedupeKey ?? noise.dedupeKey,
+      cooldownMs: baseOpts.cooldownMs ?? noise.ttlSeconds * 1000,
+      category: baseOpts.category ?? noise.reason,
+    };
+  }
+
   if (isSuppressedNoiseTelegramAlert(message, opts)) return undefined;
 
   // invariant/debug 라우팅 가드 — `[INVARIANT]`/`[DEBUG]`/`[TRACE]` 접두 문자열은

@@ -577,6 +577,15 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
         // cooldown 은 우회 (cooldownMs:0). 카테고리 추정용으로만 dedupeKey 전달.
         dedupeKey: "watchlist-momentum-saturation",
         cooldownMs: 0,
+        category: "watchlist_saturation",
+        noiseEvent: {
+          eventType: "WATCHLIST_SATURATION",
+          channel: "CH4_JOURNAL",
+          status: saturation.severity,
+          session: "MOMENTUM",
+          dedupeHint: "MOMENTUM",
+          executionImpact: "NONE",
+        },
       }).catch(console.error);
       recordWatchlistSaturationAlertSent(saturation);
     } else {

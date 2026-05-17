@@ -6,6 +6,7 @@ import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js
 import { buildCounterfactualKey, recordCounterfactualCase, loadCounterfactuals, saveCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
 import { appendJson, readJson, writeJson, COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE, LEARNING_COHORT_BACKFILL_RUNS_FILE } from './learningStorage.js';
+import { recordRegimeResolvedTransition } from './regimeResolvedTransitionStore.js';
 import type { LearningCohortType, LearningGhostCase, LearningRecoveryConfidence } from './learningTypes.js';
 
 const COHORTS: LearningCohortType[] = ['FRESH_SHADOW', 'BACKLOG_REPAIR', 'GHOST_REPAIR', 'RECOVERED_METADATA', 'QUARANTINED', 'COUNTERFACTUAL_BLOCKED', 'COUNTERFACTUAL_MISSED_WIN', 'COUNTERFACTUAL_AVOIDED_LOSS', 'GHOST_REPAIR_PENDING', 'OPEN_UNRESOLVED'];
@@ -474,6 +475,7 @@ export function counterfactualResolveDueRun(now: Date = new Date()) {
   const result = counterfactualResolve(now, true, true);
   const maturity = collectCounterfactualMaturityStatus(now);
   saveCounterfactualResolverSchedulerStatus(now, result, maturity.nextResolveAt);
+  if (result.labeled > 0) recordRegimeResolvedTransition(now, result.labeled);
   return result;
 }
 function counterfactualCreatedAt(e: CounterfactualEntry): string | undefined {

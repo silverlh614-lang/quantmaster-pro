@@ -69,7 +69,18 @@ export function registerMaintenanceJobs(): void {
       console.error('[BackupCeremony] 실패:', e);
       await sendTelegramAlert(
         `⚠️ <b>[Backup Ceremony 실패]</b> ${e instanceof Error ? e.message : String(e)}`,
-        { priority: 'HIGH', dedupeKey: 'backup_ceremony_fail' },
+        {
+          priority: 'HIGH',
+          dedupeKey: 'backup_ceremony_fail',
+          category: 'backup_failure',
+          noiseEvent: {
+            eventType: 'BACKUP_FAILURE',
+            channel: 'CH4_JOURNAL',
+            consecutiveFailures: 1,
+            executionImpact: 'NONE',
+            dedupeHint: 'backup_ceremony',
+          },
+        },
       ).catch(console.error);
     }
   }, { timezone: 'UTC' });
@@ -88,7 +99,18 @@ export function registerMaintenanceJobs(): void {
       console.error('[Backup] 일일 백업 실패:', e);
       await sendTelegramAlert(
         `🚨 <b>[일일 백업 실패]</b>\n오류: ${e instanceof Error ? e.message : String(e)}`,
-        { priority: 'HIGH', dedupeKey: 'daily_backup_fail' },
+        {
+          priority: 'HIGH',
+          dedupeKey: 'daily_backup_fail',
+          category: 'backup_failure',
+          noiseEvent: {
+            eventType: 'BACKUP_FAILURE',
+            channel: 'CH4_JOURNAL',
+            consecutiveFailures: 1,
+            executionImpact: 'NONE',
+            dedupeHint: 'daily_backup',
+          },
+        },
       ).catch(console.error);
     }
   }, { timezone: 'UTC' });

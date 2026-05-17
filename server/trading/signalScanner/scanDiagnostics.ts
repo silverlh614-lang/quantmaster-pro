@@ -3789,7 +3789,17 @@ export async function persistScanResults(
       `- Gate 미달: ${counters.gateMisses}개\n` +
       `- RRR 미달: ${counters.rrrMisses}개\n` +
       `- 진입 성공: 0개\n` +
-      `⚠️ 3회 연속 진입 없음 — 파이프라인 점검 필요`
+      `⚠️ 3회 연속 진입 없음 — 파이프라인 점검 필요`,
+      {
+        category: 'scan_empty',
+        noiseEvent: {
+          eventType: 'SCAN_EMPTY',
+          channel: 'CH4_JOURNAL',
+          consecutiveFailures: 3,
+          executionImpact: 'NONE',
+          dedupeHint: 'zero_entry_scan',
+        },
+      },
     ).catch(console.error);
   }
 

@@ -127,6 +127,17 @@ async function runPipelineHealthCheck(): Promise<void> {
       `실시간호가: ${streamStatus.connected ? `✅ ${streamStatus.subscribedCount}종목` : '❌ 미연결'}\n` +
       `학습엔진: ${learning.status} (평가 ${learning.evalLagLbl} / 캘리브레이션 ${learning.calibLagLbl})${learning.heldLbl}\n` +
       `학습클럭: ${learning.clock.mode} (L4 트리거 ${learning.clock.calibrateTriggerDays}일) — ${learning.clock.reason}`,
+      {
+        category: 'pipeline_health_check',
+        noiseEvent: {
+          eventType: verdict.includes('OK') ? 'HEALTH_OK' : 'HEALTH_FAILURE',
+          channel: 'CH4_JOURNAL',
+          status: verdict,
+          consecutiveFailures: verdict.includes('OK') ? 0 : 1,
+          executionImpact: autoMode === 'LIVE' && kisHours === 0 ? 'QUERY_IMPACT' : 'NONE',
+          dedupeHint: 'pipeline_health_check',
+        },
+      },
     ).catch(console.error);
   } catch (e) {
     console.error('[Scheduler] 파이프라인 헬스체크 전송 실패:', e);

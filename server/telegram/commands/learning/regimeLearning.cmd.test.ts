@@ -3,10 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../../learning/regimeLearningBank.js', () => ({
   collectRegimeLearningBank: vi.fn(() => ({ activeRegime: 'R6_DEFENSE', stats: [] })),
   collectRegimeLearningConsistency: vi.fn(() => ({ regimeSumMatchesTotal: true })),
+  collectRegimeResolvedStatus: vi.fn(() => ({ rows: [] })),
   formatRegimeConditionAttribution: vi.fn(() => 'REGIME_CONDITION_ATTRIBUTION recommendationOnly=true promotionAllowed=false'),
+  formatRegimeAttributionRecalc: vi.fn((_summary: unknown, title: string) => `${title} noWeightUpdate=true recommendationOnly=true executionImpact=NONE`),
   formatRegimeLearningConsistency: vi.fn(() => 'REGIME_CONSISTENCY regimeSumMatchesTotal=true'),
   formatRegimeLearningSummary: vi.fn(() => 'REGIME_SUMMARY recommendationOnly=true promotionAllowed=false'),
   formatRegimeLearningDetail: vi.fn((regime: string) => `REGIME_DETAIL ${regime} recommendationOnly=true promotionAllowed=false`),
+  formatRegimeLearningQuality: vi.fn(() => 'REGIME_QUALITY resolvedSampleSize=3 promotionAllowed=false recommendationOnly=true'),
+  formatRegimeResolvedStatus: vi.fn(() => 'REGIME_RESOLVED_STATUS R3_EXPANSION resolvedSampleSize=3 pendingCounterfactualCount=453 executionImpact=NONE'),
+  regimeAttributionRecalcDryRun: vi.fn(() => ({ regimesNeedingRecalc: ['R3_EXPANSION'] })),
+  regimeAttributionRecalcRun: vi.fn(() => ({ recalculatedRegimes: ['R3_EXPANSION'], noWeightUpdate: true })),
 }));
 
 vi.mock('../../../learning/regimeLearningBackfill.js', () => ({
@@ -37,10 +43,14 @@ describe('/regime_learning commands', () => {
     expect(commandRegistry.resolve('/regime_learning_backfill_dryrun')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_learning_backfill_run')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_learning_consistency')?.category).toBe('LRN');
+    expect(commandRegistry.resolve('/regime_learning_quality')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_unknown_analysis')?.category).toBe('LRN');
     expect(commandRegistry.resolve('/regime_unknown_repair_dryrun')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_unknown_repair_run')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_condition_attribution')?.riskLevel).toBe(0);
+    expect(commandRegistry.resolve('/regime_resolved_status')?.riskLevel).toBe(0);
+    expect(commandRegistry.resolve('/regime_attribution_recalc_dryrun')?.riskLevel).toBe(0);
+    expect(commandRegistry.resolve('/regime_attribution_recalc_run')?.riskLevel).toBe(0);
   });
 
   it('replies with regime learning summary and detail', async () => {
@@ -63,16 +73,29 @@ describe('/regime_learning commands', () => {
     await mod.regimeLearningConsistency.execute({ args: [], reply });
     expect(reply.mock.calls[4][0]).toContain('REGIME_CONSISTENCY');
 
+    await mod.regimeLearningQuality.execute({ args: [], reply });
+    expect(reply.mock.calls[5][0]).toContain('REGIME_QUALITY');
+
     await mod.regimeUnknownAnalysisCmd.execute({ args: [], reply });
-    expect(reply.mock.calls[5][0]).toContain('REGIME_UNKNOWN_ANALYSIS');
+    expect(reply.mock.calls[6][0]).toContain('REGIME_UNKNOWN_ANALYSIS');
 
     await mod.regimeUnknownRepairDryrunCmd.execute({ args: [], reply });
-    expect(reply.mock.calls[6][0]).toContain('REGIME_UNKNOWN_REPAIR_dryrun');
+    expect(reply.mock.calls[7][0]).toContain('REGIME_UNKNOWN_REPAIR_dryrun');
 
     await mod.regimeUnknownRepairRunCmd.execute({ args: [], reply });
-    expect(reply.mock.calls[7][0]).toContain('REGIME_UNKNOWN_REPAIR_run');
+    expect(reply.mock.calls[8][0]).toContain('REGIME_UNKNOWN_REPAIR_run');
 
     await mod.regimeConditionAttribution.execute({ args: ['R3_EXPANSION'], reply });
-    expect(reply.mock.calls[8][0]).toContain('REGIME_CONDITION_ATTRIBUTION');
+    expect(reply.mock.calls[9][0]).toContain('REGIME_CONDITION_ATTRIBUTION');
+
+    await mod.regimeResolvedStatus.execute({ args: [], reply });
+    expect(reply.mock.calls[10][0]).toContain('REGIME_RESOLVED_STATUS');
+
+    await mod.regimeAttributionRecalcDryrun.execute({ args: [], reply });
+    expect(reply.mock.calls[11][0]).toContain('regime_attribution_recalc_dryrun');
+
+    await mod.regimeAttributionRecalcRunCmd.execute({ args: [], reply });
+    expect(reply.mock.calls[12][0]).toContain('regime_attribution_recalc_run');
+    expect(reply.mock.calls[12][0]).toContain('noWeightUpdate=true');
   });
 });
