@@ -8,6 +8,7 @@ import { Card, CardHeader, CardTitle } from '../../ui/card';
 import { Badge } from '../../ui/badge';
 import { cn } from '../../ui/cn';
 import { DataConfidenceBadge } from './DataConfidenceBadge';
+import { DATA_CONFIDENCE_HELP, type DataConfidence } from '../common/DataConfidenceBadge';
 import { savePublicReportSnapshot, toPublicReport } from '../../public-report/reportAdapter';
 import type { ReportVisibility, ViewMode } from '../../public-report/reportTypes';
 import type { MarketContext, MarketOverview, StockRecommendation } from '../../services/stockService';
@@ -42,6 +43,44 @@ async function copyText(text: string, successMessage: string): Promise<void> {
     document.body.removeChild(textarea);
   }
   toast.success(successMessage);
+}
+
+
+const DATA_CONFIDENCE_ORDER: DataConfidence[] = ['VERIFIED', 'DEGRADED', 'STALE', 'MISSING', 'AI_ESTIMATED', 'UNKNOWN'];
+
+function DataTrustLegend() {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Data Trust Visibility</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/55">
+            각 지표가 실계산 데이터인지, 지연/누락 데이터인지, AI 추정값인지 분리해 표시합니다. 배지는 표시 의미만 설명하며 gate·score·STRONG_BUY 판정 로직을 변경하지 않습니다.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 lg:max-w-2xl lg:justify-end">
+          {DATA_CONFIDENCE_ORDER.map((confidence) => (
+            <DataConfidenceBadge key={confidence} confidence={confidence} compact />
+          ))}
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {DATA_CONFIDENCE_ORDER.map((confidence) => {
+          const config = DATA_CONFIDENCE_HELP[confidence];
+          return (
+            <div key={confidence} className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <DataConfidenceBadge confidence={confidence} compact />
+                <span className="text-[9px] font-black uppercase tracking-wider text-white/30">{config.label}</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-white/50">{config.description}</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-white/35">{config.caution}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: 'green' | 'yellow' | 'red' | 'blue' }) {
@@ -138,6 +177,8 @@ export function PublicReportDashboard({
           </div>
         </div>
 
+        <DataTrustLegend />
+
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
           {market && (
             <Card padding="sm" className="xl:col-span-2">
@@ -174,7 +215,11 @@ export function PublicReportDashboard({
             <Card padding="sm" className="xl:col-span-2">
               <CardHeader className="mb-3">
                 <CardTitle>Stock Decision Card</CardTitle>
-                <DataConfidenceBadge confidence={stock.dataConfidenceSummary.overall} />
+                <DataConfidenceBadge
+                  confidence={stock.dataConfidenceSummary.overall}
+                  source="stock decision indicators"
+                  updatedAt={report.reportDate}
+                />
               </CardHeader>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="accent" size="md">{stock.finalDecision}</Badge>
@@ -188,9 +233,9 @@ export function PublicReportDashboard({
                 <Stat label="Gate 3" value={stock.gate3TimingResult} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                <Badge variant="success" size="sm">실계산 {stock.calculatedIndicatorCount}</Badge>
-                <Badge variant="violet" size="sm">AI 추정 {stock.aiEstimatedIndicatorCount}</Badge>
-                <Badge variant="warning" size="sm">누락 {stock.missingIndicatorCount}</Badge>
+                <DataConfidenceBadge confidence="VERIFIED" label={`실계산 ${stock.calculatedIndicatorCount}`} compact showTooltip={false} />
+                <DataConfidenceBadge confidence="AI_ESTIMATED" label={`AI 추정 ${stock.aiEstimatedIndicatorCount}`} compact />
+                <DataConfidenceBadge confidence="MISSING" label={`누락 ${stock.missingIndicatorCount}`} compact />
               </div>
               <p className="mt-4 text-sm leading-relaxed text-white/65">
                 {stock.blockedReasons[0] ?? stock.bullishReasons[0] ?? '조건 기반 판정 리포트입니다.'}
