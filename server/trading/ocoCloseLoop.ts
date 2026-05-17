@@ -194,6 +194,235 @@ export async function registerOcoPair(
   return pair;
 }
 
+type OcoFilledLeg = 'stop' | 'profit';
+type OcoShadowTrade = ReturnType<typeof loadShadowTrades>[number];
+
+interface OcoSurvivalState {
+  stopAlive: boolean;
+  profitAlive: boolean;
+  stopFilled: boolean | string | null;
+  profitFilled: boolean | string | null;
+}
+
+function getOcoSurvivalState(pair: OcoOrderPair, unfilledSet: Set<string>): OcoSurvivalState {
+  const stopAlive = pair.stopOrdNo ? unfilledSet.has(pair.stopOrdNo) : false;
+  const profitAlive = pair.profitOrdNo ? unfilledSet.has(pair.profitOrdNo) : false;
+  return {
+    stopAlive,
+    profitAlive,
+    stopFilled: pair.stopStatus === 'PENDING' && pair.stopOrdNo && !stopAlive,
+    profitFilled: pair.profitStatus === 'PENDING' && pair.profitOrdNo && !profitAlive,
+  };
+}
+
+async function handleBothOcoLegsMissing(pair: OcoOrderPair): Promise<void> {
+  pair.stopStatus = 'FILLED';
+  pair.profitStatus = 'FILLED';
+  pair.status = 'STOP_FILLED';
+  pair.resolvedAt = new Date().toISOString();
+  console.warn(`[OCO] 🚨 ${pair.stockName} 양쪽 주문 모두 미체결 목록 소실`);
+  await sendTelegramAlert(
+    `🚨 <b>[OCO] ${pair.stockName} 양쪽 주문 모두 소실</b>\n` +
+    `손절 ODNO=${pair.stopOrdNo} / 익절 ODNO=${pair.profitOrdNo}\n` +
+    `수동 확인 필요`,
+    { priority: 'CRITICAL' },
+  ).catch(console.error);
+}
+
+function markOcoLegFilled(pair: OcoOrderPair, leg: OcoFilledLeg): void {
+  if (leg === 'stop') {
+    pair.stopStatus = 'FILLED';
+    pair.status = 'STOP_FILLED';
+  } else {
+    pair.profitStatus = 'FILLED';
+    pair.status = 'PROFIT_FILLED';
+  }
+  pair.resolvedAt = new Date().toISOString();
+}
+
+async function cancelOppositeOcoLeg(pair: OcoOrderPair, leg: OcoFilledLeg): Promise<void> {
+  if (leg === 'stop') {
+    if (pair.profitOrdNo && pair.profitStatus === 'PENDING') {
+      const cancelled = await cancelKisOrder(pair.stockCode, pair.profitOrdNo, pair.quantity);
+      pair.profitStatus = cancelled ? 'CANCELLED' : 'FAILED';
+    }
+    return;
+  }
+
+  if (pair.stopOrdNo && pair.stopStatus === 'PENDING') {
+    const cancelled = await cancelKisOrder(pair.stockCode, pair.stopOrdNo, pair.quantity);
+    pair.stopStatus = cancelled ? 'CANCELLED' : 'FAILED';
+  }
+}
+
+function recordOcoStopFill(
+  pair: OcoOrderPair,
+  shadows: OcoShadowTrade[],
+  shadow: OcoShadowTrade,
+  fillPrice: number,
+  fillQty: number,
+  pnl: number,
+  pnlPct: number,
+): void {
+  appendFill(shadow, {
+    type: 'SELL', subType: 'STOP_LOSS', qty: fillQty, price: fillPrice,
+    pnl, pnlPct: parseFloat(pnlPct.toFixed(4)),
+    reason: 'OCO 손절 체결', exitRuleTag: 'HARD_STOP' as any,
+    timestamp: pair.resolvedAt!,
+    ordNo: pair.stopOrdNo ?? undefined,
+  });
+  const remaining = getRemainingQty(shadow);
+  updateShadow(shadow, {
+    status: remaining === 0 ? 'HIT_STOP' : shadow.status,
+    exitPrice: fillPrice,
+    exitTime: pair.resolvedAt,
+    quantity: remaining,
+  });
+  saveShadowTrades(shadows);
+  // PR-4 (ADR-0006) — LIVE OCO STOP_FILLED 전량 청산 시 FULL_CLOSE attribution.
+  // baseline (shadow.entryConditionScores) 부재 시 null 반환 (학습 오염 차단).
+  // try/catch 격리 — attribution 실패가 OCO 정리 흐름 차단 안 함.
+  if (remaining === 0) {
+    try {
+      emitFullCloseAttributionForExit({
+        shadow,
+        exitPrice: fillPrice,
+        returnPct: pnlPct,
+        closedAt: pair.resolvedAt!,
+        exitRuleTag: 'HARD_STOP',
+      });
+    } catch (e) {
+      console.warn(`[ocoCloseLoop:STOP] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+    }
+  }
+  const cumPnL = (shadow.fills ?? [])
+    .filter(f => f.type === 'SELL')
+    .reduce((s, f) => s + (f.pnl ?? 0), 0);
+  appendTradeEvent({
+    positionId: shadow.id,
+    ts: pair.resolvedAt!,
+    type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
+    subType: 'HARD_STOP',
+    quantity: fillQty,
+    price: fillPrice,
+    realizedPnL: pnl,
+    cumRealizedPnL: cumPnL,
+    remainingQty: remaining,
+  });
+  console.log(`[OCO] TradeEvent 발행 완료: ${shadow.stockName} HARD_STOP ${fillQty}주 @${fillPrice}`);
+}
+
+function recordOcoProfitFill(
+  pair: OcoOrderPair,
+  shadows: OcoShadowTrade[],
+  shadow: OcoShadowTrade,
+  fillPrice: number,
+  fillQty: number,
+  pnl: number,
+  pnlPct: number,
+): void {
+  appendFill(shadow, {
+    type: 'SELL', subType: 'FULL_CLOSE', qty: fillQty, price: fillPrice,
+    pnl, pnlPct: parseFloat(pnlPct.toFixed(4)),
+    reason: 'OCO 익절 체결', exitRuleTag: 'TARGET_EXIT' as any,
+    timestamp: pair.resolvedAt!,
+    ordNo: pair.profitOrdNo ?? undefined,
+  });
+  const remaining = getRemainingQty(shadow);
+  updateShadow(shadow, {
+    status: remaining === 0 ? 'HIT_TARGET' : shadow.status,
+    exitPrice: fillPrice,
+    exitTime: pair.resolvedAt,
+    quantity: remaining,
+  });
+  saveShadowTrades(shadows);
+  // PR-4 (ADR-0006) — LIVE OCO PROFIT_FILLED 전량 익절 시 FULL_CLOSE attribution.
+  if (remaining === 0) {
+    try {
+      emitFullCloseAttributionForExit({
+        shadow,
+        exitPrice: fillPrice,
+        returnPct: pnlPct,
+        closedAt: pair.resolvedAt!,
+        exitRuleTag: 'TARGET_EXIT',
+      });
+    } catch (e) {
+      console.warn(`[ocoCloseLoop:PROFIT] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
+    }
+  }
+  const cumPnL = (shadow.fills ?? [])
+    .filter(f => f.type === 'SELL')
+    .reduce((s, f) => s + (f.pnl ?? 0), 0);
+  appendTradeEvent({
+    positionId: shadow.id,
+    ts: pair.resolvedAt!,
+    type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
+    subType: 'FULL_CLOSE',
+    quantity: fillQty,
+    price: fillPrice,
+    realizedPnL: pnl,
+    cumRealizedPnL: cumPnL,
+    remainingQty: remaining,
+  });
+  console.log(`[OCO] TradeEvent 발행 완료: ${shadow.stockName} FULL_CLOSE ${fillQty}주 @${fillPrice}`);
+}
+
+function recordOcoLegFill(pair: OcoOrderPair, leg: OcoFilledLeg): void {
+  try {
+    const shadows = loadShadowTrades();
+    const shadow  = shadows.find(s => s.id === pair.id);
+    if (!shadow) return;
+
+    const isStop = leg === 'stop';
+    const fillPrice = isStop ? pair.stopPrice : pair.profitPrice;
+    const fillQty   = pair.quantity;
+    const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
+    // ADR-0059: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
+    const pnlPct    = shadow.shadowEntryPrice
+      ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
+      : 0;
+
+    if (isStop) {
+      recordOcoStopFill(pair, shadows, shadow, fillPrice, fillQty, pnl, pnlPct);
+    } else {
+      recordOcoProfitFill(pair, shadows, shadow, fillPrice, fillQty, pnl, pnlPct);
+    }
+  } catch (e) {
+    console.error(`[OCO] TradeEvent 발행 실패 (${leg === 'stop' ? '손절' : '익절'}):`, e);
+  }
+}
+
+async function notifyOcoLegFilled(pair: OcoOrderPair, leg: OcoFilledLeg): Promise<void> {
+  if (leg === 'stop') {
+    await sendTelegramAlert(
+      `🔴 <b>[OCO 손절 체결] ${pair.stockName} (${pair.stockCode})</b>\n` +
+      `손절가: ${pair.stopPrice.toLocaleString()}원\n` +
+      `익절 주문(ODNO=${pair.profitOrdNo}) 자동 취소: ${pair.profitStatus}`,
+      { priority: 'HIGH' },
+    ).catch(console.error);
+    return;
+  }
+
+  await sendTelegramAlert(
+    `🟢 <b>[OCO 익절 체결] ${pair.stockName} (${pair.stockCode})</b>\n` +
+    `익절가: ${pair.profitPrice.toLocaleString()}원\n` +
+    `손절 주문(ODNO=${pair.stopOrdNo}) 자동 취소: ${pair.stopStatus}`,
+    { priority: 'HIGH' },
+  ).catch(console.error);
+}
+
+async function handleOcoLegFilled(pair: OcoOrderPair, leg: OcoFilledLeg): Promise<void> {
+  markOcoLegFilled(pair, leg);
+  console.log(
+    leg === 'stop'
+      ? `[OCO] 🔴 ${pair.stockName} 손절 체결 확인 → 익절 주문 취소 중...`
+      : `[OCO] 🟢 ${pair.stockName} 익절 체결 확인 → 손절 주문 취소 중...`,
+  );
+  await cancelOppositeOcoLeg(pair, leg);
+  recordOcoLegFill(pair, leg);
+  await notifyOcoLegFilled(pair, leg);
+}
+
 // ─── 15분 간격 생존 확인 폴링 ─────────────────────────────────────────────────
 
 /**
@@ -233,198 +462,23 @@ export async function pollOcoSurvival(): Promise<void> {
   for (const pair of active) {
     pair.pollCount++;
 
-    const stopAlive = pair.stopOrdNo ? unfilledSet.has(pair.stopOrdNo) : false;
-    const profitAlive = pair.profitOrdNo ? unfilledSet.has(pair.profitOrdNo) : false;
-
-    // 손절 주문이 PENDING이었는데 미체결 목록에 없음 → 체결됨
-    const stopFilled = pair.stopStatus === 'PENDING' && pair.stopOrdNo && !stopAlive;
-    // 익절 주문이 PENDING이었는데 미체결 목록에 없음 → 체결됨
-    const profitFilled = pair.profitStatus === 'PENDING' && pair.profitOrdNo && !profitAlive;
+    const { stopFilled, profitFilled } = getOcoSurvivalState(pair, unfilledSet);
 
     if (stopFilled && profitFilled) {
-      // 양쪽 다 사라짐 — 둘 다 체결되었거나 둘 다 취소됨 (비정상)
-      pair.stopStatus = 'FILLED';
-      pair.profitStatus = 'FILLED';
-      pair.status = 'STOP_FILLED'; // 어느 쪽이든
-      pair.resolvedAt = new Date().toISOString();
+      await handleBothOcoLegsMissing(pair);
       changed = true;
-      console.warn(`[OCO] ⚠️ ${pair.stockName} 양쪽 주문 모두 미체결 목록 소실`);
-      await sendTelegramAlert(
-        `⚠️ <b>[OCO] ${pair.stockName} 양쪽 주문 모두 소실</b>\n` +
-        `손절 ODNO=${pair.stopOrdNo} / 익절 ODNO=${pair.profitOrdNo}\n` +
-        `수동 확인 필요`,
-        { priority: 'CRITICAL' },
-      ).catch(console.error);
       continue;
     }
 
     if (stopFilled) {
-      // ── 손절 체결 → 익절 취소 ──
-      pair.stopStatus = 'FILLED';
-      pair.status = 'STOP_FILLED';
-      pair.resolvedAt = new Date().toISOString();
+      await handleOcoLegFilled(pair, 'stop');
       changed = true;
-
-      console.log(`[OCO] 🔴 ${pair.stockName} 손절 체결 확인 → 익절 주문 취소 중...`);
-
-      if (pair.profitOrdNo && pair.profitStatus === 'PENDING') {
-        const cancelled = await cancelKisOrder(pair.stockCode, pair.profitOrdNo, pair.quantity);
-        pair.profitStatus = cancelled ? 'CANCELLED' : 'FAILED';
-      }
-
-      // ── TradeEvent 발행 (Idea 10) ─────────────────────────────────────────
-      try {
-        const shadows = loadShadowTrades();
-        const shadow  = shadows.find(s => s.id === pair.id);
-        if (shadow) {
-          const fillPrice = pair.stopPrice;
-          const fillQty   = pair.quantity;
-          const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
-          // ADR-0059: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
-          const pnlPct    = shadow.shadowEntryPrice
-            ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
-            : 0;
-          appendFill(shadow, {
-            type: 'SELL', subType: 'STOP_LOSS', qty: fillQty, price: fillPrice,
-            pnl, pnlPct: parseFloat(pnlPct.toFixed(4)),
-            reason: 'OCO 손절 체결', exitRuleTag: 'HARD_STOP' as any,
-            timestamp: pair.resolvedAt!,
-            ordNo: pair.stopOrdNo ?? undefined,
-          });
-          const remaining = getRemainingQty(shadow);
-          updateShadow(shadow, {
-            status: remaining === 0 ? 'HIT_STOP' : shadow.status,
-            exitPrice: fillPrice,
-            exitTime: pair.resolvedAt,
-            quantity: remaining,
-          });
-          saveShadowTrades(shadows);
-          // PR-4 (ADR-0006) — LIVE OCO STOP_FILLED 전량 청산 시 FULL_CLOSE attribution.
-          // baseline (shadow.entryConditionScores) 부재 시 null 반환 (학습 오염 차단).
-          // try/catch 격리 — attribution 실패가 OCO 정리 흐름 차단 안 함.
-          if (remaining === 0) {
-            try {
-              emitFullCloseAttributionForExit({
-                shadow,
-                exitPrice: fillPrice,
-                returnPct: pnlPct,
-                closedAt: pair.resolvedAt!,
-                exitRuleTag: 'HARD_STOP',
-              });
-            } catch (e) {
-              console.warn(`[ocoCloseLoop:STOP] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
-            }
-          }
-          const cumPnL = (shadow.fills ?? [])
-            .filter(f => f.type === 'SELL')
-            .reduce((s, f) => s + (f.pnl ?? 0), 0);
-          appendTradeEvent({
-            positionId: shadow.id,
-            ts: pair.resolvedAt!,
-            type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
-            subType: 'HARD_STOP',
-            quantity: fillQty,
-            price: fillPrice,
-            realizedPnL: pnl,
-            cumRealizedPnL: cumPnL,
-            remainingQty: remaining,
-          });
-          console.log(`[OCO] TradeEvent 발행 완료: ${shadow.stockName} HARD_STOP ${fillQty}주 @${fillPrice}`);
-        }
-      } catch (e) {
-        console.error('[OCO] TradeEvent 발행 실패 (손절):', e);
-      }
-
-      await sendTelegramAlert(
-        `🔴 <b>[OCO 손절 체결] ${pair.stockName} (${pair.stockCode})</b>\n` +
-        `손절가: ${pair.stopPrice.toLocaleString()}원\n` +
-        `익절 주문(ODNO=${pair.profitOrdNo}) 자동 취소: ${pair.profitStatus}`,
-        { priority: 'HIGH' },
-      ).catch(console.error);
       continue;
     }
 
     if (profitFilled) {
-      // ── 익절 체결 → 손절 취소 ──
-      pair.profitStatus = 'FILLED';
-      pair.status = 'PROFIT_FILLED';
-      pair.resolvedAt = new Date().toISOString();
+      await handleOcoLegFilled(pair, 'profit');
       changed = true;
-
-      console.log(`[OCO] 🟢 ${pair.stockName} 익절 체결 확인 → 손절 주문 취소 중...`);
-
-      if (pair.stopOrdNo && pair.stopStatus === 'PENDING') {
-        const cancelled = await cancelKisOrder(pair.stockCode, pair.stopOrdNo, pair.quantity);
-        pair.stopStatus = cancelled ? 'CANCELLED' : 'FAILED';
-      }
-
-      // ── TradeEvent 발행 (Idea 10) ─────────────────────────────────────────
-      try {
-        const shadows = loadShadowTrades();
-        const shadow  = shadows.find(s => s.id === pair.id);
-        if (shadow) {
-          const fillPrice = pair.profitPrice;
-          const fillQty   = pair.quantity;
-          const pnl       = (fillPrice - (shadow.shadowEntryPrice ?? pair.entryPrice)) * fillQty;
-          // ADR-0059: stale shadowEntryPrice 시 0 fallback — fill.pnlPct 영속 보호.
-          const pnlPct    = shadow.shadowEntryPrice
-            ? (safePctChange(fillPrice, shadow.shadowEntryPrice, { label: `ocoClose:${shadow.stockCode}` }) ?? 0)
-            : 0;
-          appendFill(shadow, {
-            type: 'SELL', subType: 'FULL_CLOSE', qty: fillQty, price: fillPrice,
-            pnl, pnlPct: parseFloat(pnlPct.toFixed(4)),
-            reason: 'OCO 익절 체결', exitRuleTag: 'TARGET_EXIT' as any,
-            timestamp: pair.resolvedAt!,
-            ordNo: pair.profitOrdNo ?? undefined,
-          });
-          const remaining = getRemainingQty(shadow);
-          updateShadow(shadow, {
-            status: remaining === 0 ? 'HIT_TARGET' : shadow.status,
-            exitPrice: fillPrice,
-            exitTime: pair.resolvedAt,
-            quantity: remaining,
-          });
-          saveShadowTrades(shadows);
-          // PR-4 (ADR-0006) — LIVE OCO PROFIT_FILLED 전량 익절 시 FULL_CLOSE attribution.
-          if (remaining === 0) {
-            try {
-              emitFullCloseAttributionForExit({
-                shadow,
-                exitPrice: fillPrice,
-                returnPct: pnlPct,
-                closedAt: pair.resolvedAt!,
-                exitRuleTag: 'TARGET_EXIT',
-              });
-            } catch (e) {
-              console.warn(`[ocoCloseLoop:PROFIT] attribution 영속 실패 ${shadow.stockCode}:`, e instanceof Error ? e.message : e);
-            }
-          }
-          const cumPnL = (shadow.fills ?? [])
-            .filter(f => f.type === 'SELL')
-            .reduce((s, f) => s + (f.pnl ?? 0), 0);
-          appendTradeEvent({
-            positionId: shadow.id,
-            ts: pair.resolvedAt!,
-            type: remaining === 0 ? 'FULL_SELL' : 'PARTIAL_SELL',
-            subType: 'FULL_CLOSE',
-            quantity: fillQty,
-            price: fillPrice,
-            realizedPnL: pnl,
-            cumRealizedPnL: cumPnL,
-            remainingQty: remaining,
-          });
-          console.log(`[OCO] TradeEvent 발행 완료: ${shadow.stockName} FULL_CLOSE ${fillQty}주 @${fillPrice}`);
-        }
-      } catch (e) {
-        console.error('[OCO] TradeEvent 발행 실패 (익절):', e);
-      }
-
-      await sendTelegramAlert(
-        `🟢 <b>[OCO 익절 체결] ${pair.stockName} (${pair.stockCode})</b>\n` +
-        `익절가: ${pair.profitPrice.toLocaleString()}원\n` +
-        `손절 주문(ODNO=${pair.stopOrdNo}) 자동 취소: ${pair.stopStatus}`,
-        { priority: 'HIGH' },
-      ).catch(console.error);
       continue;
     }
 
