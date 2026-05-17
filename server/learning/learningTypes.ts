@@ -1,6 +1,7 @@
 // @responsibility Learning Flow Unclog Patch v1 shared types — Ghost/Shadow virtual close, outcome, attribution, diagnostics
 import type { ExecutionImpact } from '../runtime/engineRuntimePolicy.js';
 import type { GhostPosition } from './reflectionTypes.js';
+import type { RegimePhase } from '../shadow/regimeContext.js';
 
 export type LearningCaseKind = 'ghost' | 'shadow';
 export type LearningCloseReason =
@@ -26,6 +27,13 @@ export type LearningCohortType =
   | 'GHOST_REPAIR_PENDING'
   | 'OPEN_UNRESOLVED';
 export type LearningRecoveryConfidence = 'RECOVERED' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+export type RegimeRecoverySource =
+  | 'STORED_CASE_REGIME'
+  | 'MACRO_SNAPSHOT_BY_TIMESTAMP'
+  | 'REGIME_TRANSITION_STATE_BY_TIMESTAMP'
+  | 'R6_TRIGGER_BY_TIMESTAMP'
+  | 'UNKNOWN_FALLBACK';
+export type RegimeRecoveryConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type IntegritySeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type StarvationReason =
   | 'no_close'
@@ -73,6 +81,24 @@ export interface LearningGhostCase extends GhostPosition {
   pendingRetryReason?: string;
   quarantinedReason?: string;
   conditionScores?: Record<number, number>;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimePhase?: RegimePhase;
+  regimeAtSignal?: RegimePhase | string;
+  regimeAtEntry?: RegimePhase | string;
+  regimeAtExit?: RegimePhase | string;
+  regimeAtOutcome?: RegimePhase | string;
+  r6Trigger?: string;
+  engineMode?: string;
+  marketSession?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: string;
+  regimeRecovered?: boolean;
+  regimeRecoverySource?: RegimeRecoverySource;
+  regimeRecoveryConfidence?: RegimeRecoveryConfidence;
+  regimeRecoveredAt?: string;
 }
 
 export interface PriceSnapshot {

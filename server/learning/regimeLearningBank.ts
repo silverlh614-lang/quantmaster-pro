@@ -1,11 +1,16 @@
 // @responsibility Regime-specific Shadow Learning Bank (diagnostic/read-only).
 import { loadCounterfactualShadowLearningLedger, type CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { loadGhostPortfolio } from '../persistence/reflectionRepo.js';
+import { loadAttributionRecords, type ServerAttributionRecord } from '../persistence/attributionRepo.js';
 import { getRegimeDiagnostics } from '../trading/regimeBridge.js';
 import { deriveRegimePhase, isRegimePhase, normalizeRegimeContext, type RegimePhase } from '../shadow/regimeContext.js';
 import { shadowCaseLedger, type ShadowCaseLedgerStore } from '../shadow/shadowCaseLedger.js';
 import type { ShadowCase } from '../shadow/shadowTypes.js';
 import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../runtime/engineRuntimePolicy.js';
+import { loadCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
+import { inferLearningCohort, learningEntryPrice } from './learningSampleQuality.js';
+import type { LearningGhostCase } from './learningTypes.js';
 
 export { type RegimePhase } from '../shadow/regimeContext.js';
 
@@ -110,6 +115,19 @@ export interface RegimeLearningBank {
   activeRegimeExpectancyR: number;
   activeRegimeTopPattern: string;
   activeRegimeLearningNeed: string;
+  regimeLearningSampleSize: number;
+  regimeAssignedCount: number;
+  unknownRegimeCount: number;
+  activeRegimeQualityStatus: RegimeLearningQualityStatus;
+  regimeBankConsistency: 'OK' | 'MISMATCH';
+  duplicateCaseCount: number;
+  sourceCounts: {
+    freshShadow: number;
+    ghostRepair: number;
+    counterfactual: number;
+    outcome: number;
+    attribution: number;
+  };
   recommendationOnly: true;
   promotionAllowed: false;
   executionImpact: 'NONE';
@@ -120,11 +138,57 @@ export interface CollectRegimeLearningInput {
   ledger?: ShadowCaseLedgerStore;
   shadowCases?: ShadowCase[];
   counterfactualEntries?: CounterfactualShadowLearningLedgerEntry[];
+  legacyCounterfactualEntries?: CounterfactualEntry[];
+  ghostCases?: LearningGhostCase[];
+  attributionRecords?: ServerAttributionRecord[];
+  includePersistedSources?: boolean;
   rawRegime?: string;
   effectiveRegime?: string;
 }
 
+export interface RegimeLearningConsistency {
+  totalLearningCases: number;
+  regimeAssignedCount: number;
+  unknownRegimeCount: number;
+  regimeBankSampleCount: number;
+  ghostRepairCountInBank: number;
+  counterfactualCountInBank: number;
+  outcomeCountInBank: number;
+  duplicateCaseCount: number;
+  regimeSumMatchesTotal: boolean;
+  metricWarnings: string[];
+  executionImpact: 'NONE';
+  brokerOrdersCreated: 0;
+  promotionAllowed: false;
+}
+
+type RegimeCounterfactualEntry = CounterfactualShadowLearningLedgerEntry | {
+  label?: string;
+  outcomeLabel?: string;
+  outcomeStatus?: string;
+  blockedBy?: string[];
+  regime?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimePhase?: RegimePhase;
+  regimeAtSignal?: RegimePhase | string;
+  engineMode?: string;
+  marketSession?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  blockedReason?: string;
+  skipReason?: string;
+  sourceFreshness?: string;
+  regimeConfidence?: string;
+  symbol?: string;
+  stockCode?: string;
+  stockName?: string;
+  counterfactualKey?: string;
+  id?: string;
+};
+
 const CLOSED_LABELS = new Set(['WIN', 'LOSS', 'BREAKEVEN', 'EXPIRED']);
+const CF_LABELS = ['MISSED_WIN', 'AVOIDED_LOSS', 'GOOD_BLOCK', 'BAD_BLOCK', 'NEUTRAL_BLOCK', 'DATA_INSUFFICIENT', 'QUARANTINED', 'PENDING_OUTCOME'];
 
 function round(n: number, digits = 4): number {
   return Number.isFinite(n) ? Number(n.toFixed(digits)) : 0;
@@ -179,7 +243,8 @@ function phaseForShadowCase(c: ShadowCase): RegimePhase {
   });
 }
 
-function phaseForCounterfactual(e: CounterfactualShadowLearningLedgerEntry): RegimePhase {
+function phaseForCounterfactual(e: RegimeCounterfactualEntry): RegimePhase {
+  const legacy = e as RegimeCounterfactualEntry & { blockedReason?: string; skipReason?: string };
   return e.regimePhase ?? deriveRegimePhase({
     rawRegime: e.rawRegime ?? e.regime,
     effectiveRegime: e.effectiveRegime ?? e.regime,
@@ -187,7 +252,7 @@ function phaseForCounterfactual(e: CounterfactualShadowLearningLedgerEntry): Reg
     marketSession: e.marketSession,
     sellOnlyActive: e.sellOnlyActive,
     hardBlockActive: e.hardBlockActive,
-    blockedReason: e.blockedBy?.[0],
+    blockedReason: e.blockedBy?.[0] ?? legacy.blockedReason ?? legacy.skipReason,
     sourceFreshness: e.sourceFreshness,
     regimeConfidence: e.regimeConfidence,
   });
@@ -217,26 +282,18 @@ function qualityStatus(input: {
 
 function patternText(phase: RegimePhase, kind: 'best' | 'worst', seed?: string, sector?: string): string {
   const positive = seed || sector || 'N/A';
-  if (phase === 'R6_DEFENSE') {
-    return kind === 'best'
-      ? `충격장 생존 패턴: ${positive} + 상대 낙폭 방어`
-      : `충격장 실패 패턴: ${positive} 부재 + 유동성/회복력 부족`;
-  }
-  if (phase === 'R3_EXPANSION') {
-    return kind === 'best'
-      ? `확장장 돌파 패턴: ${positive}`
-      : `확장장 실패 패턴: 과열/수급 부재 돌파`;
-  }
-  if (phase === 'R1_RECOVERY') {
-    return kind === 'best'
-      ? `회복장 반전 패턴: ${positive}`
-      : `회복장 실패 패턴: 단순 낙폭과대 반등`;
-  }
-  if (phase === 'R4_NEUTRAL') {
-    return kind === 'best'
-      ? `횡보장 회피/생존 패턴: ${positive}`
-      : `횡보장 실패 패턴: 방향성 없는 추격`;
-  }
+  if (phase === 'R6_DEFENSE') return kind === 'best'
+    ? `R6 survivor pattern: ${positive} + relative strength / foreign-flow defense`
+    : `R6 failure pattern: ${positive} with low-liquidity rebound failure`;
+  if (phase === 'R3_EXPANSION') return kind === 'best'
+    ? `R3 breakout pattern: ${positive}`
+    : 'R3 failure pattern: overheated breakout without follow-through';
+  if (phase === 'R1_RECOVERY') return kind === 'best'
+    ? `R1 reversal pattern: ${positive}`
+    : 'R1 failure pattern: weak bounce without accumulation';
+  if (phase === 'R4_NEUTRAL') return kind === 'best'
+    ? `R4 chop-avoidance pattern: ${positive}`
+    : 'R4 failure pattern: chasing directionless breakout';
   return kind === 'best' ? `bestPattern=${positive}` : `worstPattern=${positive}`;
 }
 
@@ -255,8 +312,7 @@ function buildConditionAttribution(
   }
   return [...byCondition.entries()]
     .map(([conditionId, rows]) => {
-      const returns = rows.map(returnR);
-      const avgReturnR = round(avg(returns));
+      const avgReturnR = round(avg(rows.map(returnR)));
       const samples = rows.length;
       return {
         conditionId,
@@ -275,10 +331,18 @@ function buildConditionAttribution(
     .slice(0, 5);
 }
 
+function cfLabel(e: RegimeCounterfactualEntry): string {
+  if ('outcomeLabel' in e && e.outcomeLabel) return e.outcomeLabel;
+  if ('label' in e && e.label) return e.label;
+  if ('outcomeStatus' in e && e.outcomeStatus === 'QUARANTINED') return 'QUARANTINED';
+  if ('outcomeStatus' in e && e.outcomeStatus === 'DATA_INSUFFICIENT') return 'DATA_INSUFFICIENT';
+  return 'PENDING_OUTCOME';
+}
+
 function buildStatsForPhase(
   regimePhase: RegimePhase,
   cases: ShadowCase[],
-  counterfactuals: CounterfactualShadowLearningLedgerEntry[],
+  counterfactuals: RegimeCounterfactualEntry[],
 ): RegimeLearningStats {
   const closed = cases.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
   const wins = closed.filter((c) => c.outcomeLabel === 'WIN');
@@ -287,66 +351,50 @@ function buildStatsForPhase(
   const returns = closed.map(returnR);
   const sectorGroups = new Map<string, ShadowCase[]>();
   const failureReasons = new Map<string, number>();
-  const cfLabels = new Map<string, number>();
-  for (const label of ['MISSED_WIN', 'AVOIDED_LOSS', 'GOOD_BLOCK', 'BAD_BLOCK', 'NEUTRAL_BLOCK', 'DATA_INSUFFICIENT', 'QUARANTINED', 'PENDING_OUTCOME']) {
-    cfLabels.set(label, 0);
-  }
+  const cfLabels = new Map<string, number>(CF_LABELS.map((label) => [label, 0]));
   const timeWindowGroups = new Map<string, ShadowCase[]>();
   const marketSessionGroups = new Map<string, ShadowCase[]>();
 
   for (const c of cases) {
     const sector = c.sectorTag ?? 'UNKNOWN';
-    const rows = sectorGroups.get(sector) ?? [];
-    rows.push(c);
-    sectorGroups.set(sector, rows);
+    sectorGroups.set(sector, [...(sectorGroups.get(sector) ?? []), c]);
     const timeWindow = c.timeWindowTag ?? 'UNKNOWN';
-    const timeRows = timeWindowGroups.get(timeWindow) ?? [];
-    timeRows.push(c);
-    timeWindowGroups.set(timeWindow, timeRows);
-    const sessionRows = marketSessionGroups.get(c.marketSession ?? 'UNKNOWN') ?? [];
-    sessionRows.push(c);
-    marketSessionGroups.set(c.marketSession ?? 'UNKNOWN', sessionRows);
+    timeWindowGroups.set(timeWindow, [...(timeWindowGroups.get(timeWindow) ?? []), c]);
+    const session = c.marketSession ?? 'UNKNOWN';
+    marketSessionGroups.set(session, [...(marketSessionGroups.get(session) ?? []), c]);
     if (c.outcomeLabel === 'LOSS' || (c.finalReturnPct ?? 0) < 0) {
       const reason = c.blockedReason ?? c.learningTag ?? 'UNKNOWN';
       failureReasons.set(reason, (failureReasons.get(reason) ?? 0) + 1);
     }
   }
   for (const e of counterfactuals) {
-    cfLabels.set(e.label, (cfLabels.get(e.label) ?? 0) + 1);
+    const label = cfLabel(e);
+    cfLabels.set(label, (cfLabels.get(label) ?? 0) + 1);
     for (const b of e.blockedBy ?? []) failureReasons.set(b, (failureReasons.get(b) ?? 0) + 1);
   }
 
-  const topSectors = [...sectorGroups.entries()]
-    .map(([sector, rows]) => ({ sector, samples: rows.length, expectancyR: round(avg(rows.map(returnR))) }))
-    .sort((a, b) => b.expectancyR - a.expectancyR || b.samples - a.samples)
-    .slice(0, 5);
   const allSectors = [...sectorGroups.entries()]
     .map(([sector, rows]) => ({ sector, samples: rows.length, expectancyR: round(avg(rows.map(returnR))) }))
     .sort((a, b) => b.expectancyR - a.expectancyR || b.samples - a.samples);
   const sortedReturns = [...closed].sort((a, b) => returnR(b) - returnR(a));
   const topPositiveConditions = buildConditionAttribution(regimePhase, closed, true);
   const topNegativeConditions = buildConditionAttribution(regimePhase, closed, false);
-  const closedOrLabeledCount = closed.length + counterfactuals.filter((e) => Boolean(e.label)).length;
+  const closedOrLabeledCount = closed.length + counterfactuals.filter((e) => cfLabel(e) !== 'PENDING_OUTCOME').length;
   const sampleSize = cases.length + counterfactuals.length;
   const overfitRisk: OverfitRisk = sampleSize < 30 ? 'HIGH' : sampleSize < 70 ? 'MEDIUM' : 'LOW';
   const labelCompletionRate = pct(closedOrLabeledCount, sampleSize);
   const dataQualityScore = round(avg(cases.map(scoreDataQuality)));
   const status = qualityStatus({ sampleSize, labelCompletionRate, dataQualityScore, overfitRisk });
-  const bestTimeWindow = [...timeWindowGroups.entries()]
-    .map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) }))
-    .sort((a, b) => b.value - a.value)[0]?.key;
-  const worstTimeWindow = [...timeWindowGroups.entries()]
-    .map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) }))
-    .sort((a, b) => a.value - b.value)[0]?.key;
-  const bestMarketSession = [...marketSessionGroups.entries()]
-    .map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) }))
-    .sort((a, b) => b.value - a.value)[0]?.key;
+  const bestTimeWindow = [...timeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
+  const worstTimeWindow = [...timeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => a.value - b.value)[0]?.key;
+  const bestMarketSession = [...marketSessionGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
   const bestConditionCombo = topPositiveConditions.slice(0, 2).map((c) => c.conditionId).join('+') || undefined;
   const worstConditionCombo = topNegativeConditions.slice(0, 2).map((c) => c.conditionId).join('+') || undefined;
   const bestSector = allSectors[0]?.sector;
   const worstSector = allSectors.at(-1)?.sector;
   const bestPattern = patternText(regimePhase, 'best', bestConditionCombo, bestSector);
   const worstPattern = patternText(regimePhase, 'worst', worstConditionCombo, worstSector);
+
   return {
     regimePhase,
     sampleSize,
@@ -375,10 +423,10 @@ function buildStatsForPhase(
     worstCondition: topNegativeConditions[0]?.conditionId,
     bestSector,
     worstSector,
-    topSector: topSectors[0]?.sector,
+    topSector: allSectors[0]?.sector,
     topPositiveConditions,
     topNegativeConditions,
-    topSectors,
+    topSectors: allSectors.slice(0, 5),
     bestSymbols: sortedReturns.slice(0, 5).map((c) => ({ symbol: c.symbol, name: c.symbolName, returnR: round(returnR(c)) })),
     worstSymbols: sortedReturns.slice(-5).reverse().map((c) => ({ symbol: c.symbol, name: c.symbolName, returnR: round(returnR(c)) })),
     commonFailureReasons: freqTop(failureReasons).map(({ key, count }) => ({ reason: key, count })),
@@ -400,10 +448,182 @@ function buildStatsForPhase(
   };
 }
 
+function cohortForShadowCase(value: string | undefined): ShadowCase['cohortType'] {
+  if (value === 'FRESH_SHADOW') return 'FRESH_SHADOW';
+  if (value === 'GHOST_REPAIR') return 'GHOST_REPAIR';
+  if (value === 'RECOVERED_METADATA') return 'RECOVERED_METADATA';
+  if (value === 'QUARANTINED') return 'QUARANTINED';
+  if (value === 'COUNTERFACTUAL_BLOCKED' || value === 'COUNTERFACTUAL_MISSED_WIN' || value === 'COUNTERFACTUAL_AVOIDED_LOSS') return 'COUNTERFACTUAL_BLOCKED';
+  return 'BACKLOG_REPAIR';
+}
+
+function ghostCaseId(g: LearningGhostCase): string {
+  const row = g as LearningGhostCase & { tradeId?: string };
+  return row.tradeId ? `trade:${row.tradeId}` : `ghost:${g.id ?? `${g.stockCode}:${g.signalDate}`}`;
+}
+
+function shadowFromGhost(g: LearningGhostCase): ShadowCase {
+  const detectedAt = g.entryAt ?? `${g.signalDate}T00:00:00.000Z`;
+  const conditionTags = Object.keys(g.conditionScores ?? {}).map((id) => `condition:${id}`);
+  const entry = learningEntryPrice(g);
+  return {
+    caseId: ghostCaseId(g),
+    signalId: ghostCaseId(g),
+    symbol: g.stockCode,
+    symbolName: g.stockName,
+    detectedAt,
+    marketSession: g.marketSession ?? 'UNKNOWN',
+    engineMode: (g.engineMode === 'SELL_ONLY' || g.engineMode === 'SHADOW_ONLY' || g.engineMode === 'OBSERVE_ONLY' || g.engineMode === 'DEGRADED') ? g.engineMode : 'NORMAL',
+    blockedReason: g.rejectionReason ?? g.quarantinedReason ?? g.closeReason,
+    dataHealth: g.dataQuality === 'QUARANTINED' ? 'CORRUPTED' : g.dataQuality === 'MISSING' ? 'EMPTY' : g.dataQuality === 'STALE' ? 'STALE' : 'OK',
+    providerHealth: 'OK',
+    confidenceLevel: g.regimeRecoveryConfidence === 'UNKNOWN' ? 'FALLBACK' : g.dataQuality === 'QUARANTINED' ? 'QUARANTINED' : 'CALCULATED',
+    executionImpact: 'NONE',
+    entryPriceVirtual: entry,
+    stopPriceVirtual: g.stopPrice,
+    targetPriceVirtual: g.targetPrice,
+    mfe: g.mfe,
+    mae: g.mae,
+    currentReturnPct: g.currentReturnPct,
+    finalReturnPct: g.finalReturnPct,
+    holdingMinutes: (g as LearningGhostCase & { holdingMinutes?: number }).holdingMinutes,
+    outcomeLabel: g.outcomeLabel,
+    learningTag: g.rejectionReason ?? g.closeReason,
+    rawRegime: g.rawRegime ?? (g as LearningGhostCase & { regime?: string }).regime,
+    effectiveRegime: g.effectiveRegime ?? (g as LearningGhostCase & { regime?: string }).regime,
+    regimePhase: g.regimePhase,
+    regimeAtSignal: g.regimeAtSignal,
+    regimeAtEntry: g.regimeAtEntry,
+    regimeAtExit: g.regimeAtExit,
+    regimeAtOutcome: g.regimeAtOutcome,
+    r6Trigger: g.r6Trigger,
+    sellOnlyActive: g.sellOnlyActive,
+    hardBlockActive: g.hardBlockActive,
+    sourceFreshness: g.sourceFreshness,
+    conditionTags,
+    sourceConfidence: g.regimeRecoveryConfidence === 'UNKNOWN' ? 'UNKNOWN' : 'CALCULATED',
+    createdAt: detectedAt,
+    updatedAt: g.lastUpdatedAt ?? g.closedAt ?? detectedAt,
+    cohortType: cohortForShadowCase(inferLearningCohort(g)),
+    repairRunId: g.repairRunId,
+    pendingRetryReason: g.pendingRetryReason,
+    quarantinedReason: g.quarantinedReason,
+    returnR: g.returnR,
+  };
+}
+
+function shadowFromAttribution(r: ServerAttributionRecord): ShadowCase {
+  const conditionTags = Object.entries(r.conditionScores ?? {})
+    .filter(([, score]) => Number(score) >= 7)
+    .map(([id]) => `condition:${id}`);
+  return {
+    caseId: `trade:${r.tradeId}`,
+    signalId: `trade:${r.tradeId}`,
+    symbol: r.stockCode,
+    symbolName: r.stockName,
+    detectedAt: r.closedAt,
+    marketSession: r.marketSession ?? 'UNKNOWN',
+    engineMode: (r.engineMode === 'SELL_ONLY' || r.engineMode === 'SHADOW_ONLY' || r.engineMode === 'OBSERVE_ONLY' || r.engineMode === 'DEGRADED') ? r.engineMode : 'NORMAL',
+    blockedReason: r.sellReason,
+    dataHealth: 'OK',
+    providerHealth: 'OK',
+    confidenceLevel: 'CALCULATED',
+    executionImpact: 'NONE',
+    finalReturnPct: r.returnPct,
+    holdingMinutes: r.holdingDays * 24 * 60,
+    outcomeLabel: r.returnPct > 0 ? 'WIN' : r.returnPct < 0 ? 'LOSS' : 'BREAKEVEN',
+    learningTag: r.sellReason,
+    rawRegime: r.rawRegime ?? r.entryRegime,
+    effectiveRegime: r.effectiveRegime ?? r.entryRegime,
+    regimePhase: r.regimePhase,
+    regimeAtSignal: r.regimeAtSignal,
+    regimeAtEntry: r.regimeAtEntry,
+    regimeAtExit: r.regimeAtExit,
+    regimeAtOutcome: r.regimeAtOutcome,
+    r6Trigger: r.r6Trigger,
+    sellOnlyActive: r.sellOnlyActive,
+    hardBlockActive: r.hardBlockActive,
+    sourceFreshness: r.sourceFreshness,
+    conditionTags,
+    sourceConfidence: r.regimeRecoveryConfidence === 'UNKNOWN' ? 'UNKNOWN' : 'CALCULATED',
+    createdAt: r.closedAt,
+    updatedAt: r.closedAt,
+    cohortType: 'BACKLOG_REPAIR',
+    returnR: r.returnPct / 100,
+  };
+}
+
+function legacyCounterfactual(e: CounterfactualEntry): RegimeCounterfactualEntry {
+  return {
+    id: e.id,
+    counterfactualKey: e.counterfactualKey,
+    symbol: e.symbol ?? e.stockCode,
+    stockCode: e.stockCode,
+    stockName: e.stockName,
+    regime: e.regime,
+    rawRegime: e.rawRegime,
+    effectiveRegime: e.effectiveRegime,
+    regimePhase: e.regimePhase,
+    regimeAtSignal: e.regimeAtSignal,
+    engineMode: e.engineMode,
+    marketSession: e.marketSession,
+    sellOnlyActive: e.sellOnlyActive,
+    hardBlockActive: e.hardBlockActive,
+    blockedReason: e.blockedReason,
+    skipReason: e.skipReason,
+    blockedBy: [e.blockedReason ?? e.skipReason].filter(Boolean) as string[],
+    outcomeLabel: e.outcomeLabel,
+    outcomeStatus: e.outcomeStatus,
+  };
+}
+
+function shouldReadPersisted(input: CollectRegimeLearningInput): boolean {
+  return input.includePersistedSources ?? (
+    input.shadowCases === undefined
+    && input.counterfactualEntries === undefined
+    && input.legacyCounterfactualEntries === undefined
+    && input.ghostCases === undefined
+    && input.attributionRecords === undefined
+  );
+}
+
+function collectCases(input: CollectRegimeLearningInput, ledger: ShadowCaseLedgerStore) {
+  const includePersisted = shouldReadPersisted(input);
+  const explicitCases = input.shadowCases ?? ledger.listCases();
+  const cases: ShadowCase[] = [...explicitCases];
+  const seen = new Set(cases.map((c) => c.caseId));
+  let duplicateCaseCount = 0;
+  let attributionCaseCount = 0;
+
+  const addCase = (c: ShadowCase, fromAttribution = false) => {
+    if (seen.has(c.caseId)) {
+      duplicateCaseCount++;
+      return;
+    }
+    seen.add(c.caseId);
+    cases.push(c);
+    if (fromAttribution) attributionCaseCount++;
+  };
+
+  const ghosts = input.ghostCases ?? (includePersisted ? (loadGhostPortfolio() as LearningGhostCase[]) : []);
+  for (const g of ghosts) addCase(shadowFromGhost(g));
+
+  const attribution = input.attributionRecords ?? (includePersisted ? loadAttributionRecords() : []);
+  for (const r of attribution) addCase(shadowFromAttribution(r), true);
+
+  const ledgerCounterfactuals = input.counterfactualEntries ?? (includePersisted ? loadCounterfactualShadowLearningLedger() : []);
+  const legacyCounterfactuals = input.legacyCounterfactualEntries ?? (includePersisted ? loadCounterfactuals() : []);
+  const counterfactuals: RegimeCounterfactualEntry[] = [
+    ...ledgerCounterfactuals,
+    ...legacyCounterfactuals.map(legacyCounterfactual),
+  ];
+
+  return { cases, counterfactuals, duplicateCaseCount, attributionCaseCount };
+}
+
 export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}): RegimeLearningBank {
   const ledger = input.ledger ?? shadowCaseLedger;
-  const shadowCases = input.shadowCases ?? ledger.listCases();
-  const counterfactualEntries = input.counterfactualEntries ?? loadCounterfactualShadowLearningLedger();
+  const { cases, counterfactuals, duplicateCaseCount, attributionCaseCount } = collectCases(input, ledger);
   const diagnostics = input.rawRegime && input.effectiveRegime
     ? undefined
     : getRegimeDiagnostics(loadMacroState());
@@ -416,10 +636,10 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeConfidence: diagnostics?.sourceFreshness === 'FRESH' ? 'VERIFIED' : diagnostics?.sourceFreshness,
   });
 
-  const byPhase = new Map<RegimePhase, { cases: ShadowCase[]; counterfactuals: CounterfactualShadowLearningLedgerEntry[] }>();
+  const byPhase = new Map<RegimePhase, { cases: ShadowCase[]; counterfactuals: RegimeCounterfactualEntry[] }>();
   for (const phase of REGIME_LEARNING_PHASES) byPhase.set(phase, { cases: [], counterfactuals: [] });
-  for (const c of shadowCases) byPhase.get(phaseForShadowCase(c))?.cases.push(c);
-  for (const e of counterfactualEntries) byPhase.get(phaseForCounterfactual(e))?.counterfactuals.push(e);
+  for (const c of cases) byPhase.get(phaseForShadowCase(c))?.cases.push(c);
+  for (const e of counterfactuals) byPhase.get(phaseForCounterfactual(e))?.counterfactuals.push(e);
 
   const stats = REGIME_LEARNING_PHASES
     .map((phase) => {
@@ -431,6 +651,18 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const best = [...nonEmpty].sort((a, b) => b.expectancyR - a.expectancyR)[0];
   const worst = [...nonEmpty].sort((a, b) => a.expectancyR - b.expectancyR)[0];
   const active = stats.find((s) => s.regimePhase === activeContext.regimePhase) ?? buildStatsForPhase(activeContext.regimePhase, [], []);
+  const regimeLearningSampleSize = stats.reduce((sum, row) => sum + row.sampleSize, 0);
+  const unknownRegimeCount = stats.find((row) => row.regimePhase === 'UNKNOWN')?.sampleSize ?? 0;
+  const regimeAssignedCount = regimeLearningSampleSize - unknownRegimeCount;
+  const sourceCounts = {
+    freshShadow: cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length,
+    ghostRepair: cases.filter((c) => c.cohortType === 'GHOST_REPAIR').length,
+    counterfactual: cases.filter((c) => c.cohortType === 'COUNTERFACTUAL_BLOCKED' || c.counterfactualRecorded).length + counterfactuals.length,
+    outcome: cases.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? '')).length,
+    attribution: attributionCaseCount,
+  };
+  const phaseSum = stats.reduce((sum, row) => sum + row.sampleSize, 0);
+
   return {
     activeRegime: activeContext.regimePhase,
     rawRegime,
@@ -444,10 +676,39 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     activeRegimeExpectancyR: active.expectancyR,
     activeRegimeTopPattern: active.bestConditionCombo ?? active.topSector ?? 'N/A',
     activeRegimeLearningNeed: active.nextLearningNeed,
+    regimeLearningSampleSize,
+    regimeAssignedCount,
+    unknownRegimeCount,
+    activeRegimeQualityStatus: active.qualityStatus,
+    regimeBankConsistency: phaseSum === regimeLearningSampleSize ? 'OK' : 'MISMATCH',
+    duplicateCaseCount,
+    sourceCounts,
     recommendationOnly: true,
     promotionAllowed: false,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
+  };
+}
+
+export function collectRegimeLearningConsistency(bank: RegimeLearningBank = collectRegimeLearningBank()): RegimeLearningConsistency {
+  const regimeBankSampleCount = bank.stats.reduce((sum, row) => sum + row.sampleSize, 0);
+  const regimeSumMatchesTotal = regimeBankSampleCount === bank.regimeLearningSampleSize;
+  const metricWarnings = regimeSumMatchesTotal ? [] : ['REGIME_BANK_SAMPLE_SUM_MISMATCH'];
+  if (bank.duplicateCaseCount > 0) metricWarnings.push(`DUPLICATE_CASES_SUPPRESSED:${bank.duplicateCaseCount}`);
+  return {
+    totalLearningCases: bank.regimeLearningSampleSize,
+    regimeAssignedCount: bank.regimeAssignedCount,
+    unknownRegimeCount: bank.unknownRegimeCount,
+    regimeBankSampleCount,
+    ghostRepairCountInBank: bank.sourceCounts.ghostRepair,
+    counterfactualCountInBank: bank.sourceCounts.counterfactual,
+    outcomeCountInBank: bank.sourceCounts.outcome,
+    duplicateCaseCount: bank.duplicateCaseCount,
+    regimeSumMatchesTotal,
+    metricWarnings,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+    promotionAllowed: false,
   };
 }
 
@@ -463,7 +724,8 @@ export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRe
       reasonCodes: ['REGIME_LEARNING_DIAGNOSTIC'],
     })),
     `shadowLearningAllowed=${bank.shadowLearningAllowed} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed} executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated}`,
-    ...rows.map((s) => `${s.regimePhase}: sample=${s.sampleSize} fresh=${s.freshShadowCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${s.expectancyR} labelCompletionRate=${s.labelCompletionRate} dataQualityScore=${s.dataQualityScore} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),
+    `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} regimeBankConsistency=${bank.regimeBankConsistency}`,
+    ...rows.map((s) => `${s.regimePhase}: sample=${s.sampleSize} fresh=${s.freshShadowCount} ghostRepair=${s.ghostRepairCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${s.expectancyR} labelCompletionRate=${s.labelCompletionRate} dataQualityScore=${s.dataQualityScore} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),
   ].join('\n');
 }
 
@@ -498,5 +760,15 @@ export function formatRegimeLearningDetail(regime: string, bank: RegimeLearningB
     `nextLearningNeed=${s.nextLearningNeed}`,
     'recommendationOnly=true',
     'promotionAllowed=false',
+  ].join('\n');
+}
+
+export function formatRegimeLearningConsistency(s: RegimeLearningConsistency = collectRegimeLearningConsistency()): string {
+  return [
+    '<b>[Regime Learning Consistency]</b>',
+    `totalLearningCases=${s.totalLearningCases} regimeAssignedCount=${s.regimeAssignedCount} unknownRegimeCount=${s.unknownRegimeCount}`,
+    `regimeBankSampleCount=${s.regimeBankSampleCount} ghostRepairCountInBank=${s.ghostRepairCountInBank} counterfactualCountInBank=${s.counterfactualCountInBank} outcomeCountInBank=${s.outcomeCountInBank}`,
+    `duplicateCaseCount=${s.duplicateCaseCount} regimeSumMatchesTotal=${s.regimeSumMatchesTotal} metricWarnings=${JSON.stringify(s.metricWarnings)}`,
+    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');
 }

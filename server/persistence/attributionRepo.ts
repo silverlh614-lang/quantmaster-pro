@@ -20,6 +20,8 @@
 
 import fs from 'fs';
 import { ATTRIBUTION_FILE, SHADOW_FILE, ensureDataDir } from './paths.js';
+import type { RegimePhase } from '../shadow/regimeContext.js';
+import type { RegimeRecoveryConfidence, RegimeRecoverySource } from '../learning/learningTypes.js';
 
 // ── 스키마 버전 ──────────────────────────────────────────────────────────────
 
@@ -66,6 +68,24 @@ export interface ServerAttributionRecord {
   isWin:           boolean;
   /** 진입 시점 레짐 — 클라이언트에서 전달 시 설정 (optional) */
   entryRegime?:    string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimePhase?: RegimePhase;
+  regimeAtSignal?: RegimePhase | string;
+  regimeAtEntry?: RegimePhase | string;
+  regimeAtExit?: RegimePhase | string;
+  regimeAtOutcome?: RegimePhase | string;
+  r6Trigger?: string;
+  engineMode?: string;
+  marketSession?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: string;
+  regimeRecovered?: boolean;
+  regimeRecoverySource?: RegimeRecoverySource;
+  regimeRecoveryConfidence?: RegimeRecoveryConfidence;
+  regimeRecoveredAt?: string;
   /** 진입 시 캡처된 27개 조건 점수 스냅샷 (conditionId → score 0~10) */
   conditionScores: Record<number, number>;
   holdingDays:     number;

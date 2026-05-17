@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectRegimeLearningBank,
+  collectRegimeLearningConsistency,
   formatRegimeLearningDetail,
   formatRegimeLearningSummary,
 } from './regimeLearningBank.js';
 import type { ShadowCase } from '../shadow/shadowTypes.js';
 import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
+import type { LearningGhostCase } from './learningTypes.js';
+import type { ServerAttributionRecord } from '../persistence/attributionRepo.js';
+import type { CounterfactualEntry } from './counterfactualShadow.js';
 
 function shadow(id: string, patch: Partial<ShadowCase>): ShadowCase {
   const now = '2026-05-17T00:00:00.000Z';
@@ -60,8 +64,8 @@ describe('Regime Learning Bank', () => {
           outcomeLabel: 'WIN',
           returnR: 1.2,
           cohortType: 'FRESH_SHADOW',
-          conditionTags: ['RS+FLOW'],
-          sectorTag: '반도체',
+          conditionTags: ['RS_ACCELERATION'],
+          sectorTag: 'semiconductor',
         }),
         shadow('r6-loss', {
           rawRegime: 'R6_DEFENSE',
@@ -70,7 +74,7 @@ describe('Regime Learning Bank', () => {
           returnR: -0.2,
           cohortType: 'FRESH_SHADOW',
           conditionTags: ['LOW_BETA_SURVIVOR'],
-          sectorTag: '자동차',
+          sectorTag: 'auto',
         }),
       ],
       counterfactualEntries: [],
@@ -81,10 +85,10 @@ describe('Regime Learning Bank', () => {
     expect(r1?.sampleSize).toBe(1);
     expect(r1?.expectancyR).toBe(1.2);
     expect(r1?.qualityStatus).toBe('LOW_SAMPLE');
-    expect(r1?.reversalPattern).toContain('회복장');
+    expect(r1?.reversalPattern).toContain('R1 reversal pattern');
     expect(r6?.sampleSize).toBe(1);
     expect(r6?.expectancyR).toBe(-0.2);
-    expect(r6?.survivorPattern).toContain('충격장');
+    expect(r6?.survivorPattern).toContain('R6 survivor pattern');
     expect(bank.activeRegime).toBe('R6_DEFENSE');
     expect(bank.promotionAllowed).toBe(false);
     expect(bank.recommendationOnly).toBe(true);
@@ -138,7 +142,7 @@ describe('Regime Learning Bank', () => {
     expect(r3?.topPositiveConditions[0]?.conditionId).toBe('VCP_BREAKOUT');
     expect(r3?.topPositiveConditions[0]?.confidence).toBe('LOW_SAMPLE');
     expect(r3?.topPositiveConditions[0]?.recommendation).toBe('LOW_SAMPLE_NO_WEIGHT_UPDATE');
-    expect(r3?.breakoutPattern).toContain('확장장');
+    expect(r3?.breakoutPattern).toContain('R3 breakout pattern');
   });
 
   it('formats summary and detail with recommendation-only safety markers', () => {
@@ -177,5 +181,68 @@ describe('Regime Learning Bank', () => {
     expect(detail).toContain('sampleSize=1');
     expect(detail).toContain('VCP_BREAKOUT');
     expect(detail).not.toContain('LOW_BETA_SURVIVOR');
+  });
+
+  it('connects legacy ghost, counterfactual, outcome, and attribution samples by regime without duplicate outcome counting', () => {
+    const ghost = {
+      id: 'trade-r6',
+      tradeId: 'trade-r6',
+      stockCode: '005930',
+      stockName: 'Samsung',
+      signalPriceKrw: 100,
+      signalDate: '2026-05-17',
+      rejectionReason: 'R6_DEFENSE_BLOCK',
+      trackUntil: '2026-06-17',
+      closed: true,
+      outcomeLabel: 'WIN',
+      returnR: 0.5,
+      caseKind: 'ghost',
+      regimePhase: 'R6_DEFENSE',
+    } as LearningGhostCase & { tradeId: string };
+    const attribution: ServerAttributionRecord = {
+      schemaVersion: 2,
+      tradeId: 'trade-r6',
+      stockCode: '005930',
+      stockName: 'Samsung',
+      closedAt: '2026-05-17T06:00:00.000Z',
+      returnPct: 5,
+      isWin: true,
+      conditionScores: { 1: 9 },
+      holdingDays: 1,
+      regimePhase: 'R6_DEFENSE',
+    };
+    const legacyCf: CounterfactualEntry = {
+      id: 'cf-r3',
+      stockCode: '000660',
+      stockName: 'SK Hynix',
+      signalDate: '2026-05-17',
+      signalTime: '2026-05-17T01:00:00.000Z',
+      priceAtSignal: 100,
+      gateScore: 5,
+      regime: 'R3_EARLY',
+      conditionKeys: ['VCP_BREAKOUT'],
+      skipReason: 'GATE_UNDER',
+      outcomeStatus: 'PENDING',
+    };
+
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      shadowCases: [],
+      counterfactualEntries: [],
+      ghostCases: [ghost],
+      attributionRecords: [attribution],
+      legacyCounterfactualEntries: [legacyCf],
+    });
+    const r6 = bank.stats.find((s) => s.regimePhase === 'R6_DEFENSE');
+    const r3 = bank.stats.find((s) => s.regimePhase === 'R3_EXPANSION');
+    const consistency = collectRegimeLearningConsistency(bank);
+
+    expect(r6?.sampleSize).toBe(1);
+    expect(r6?.ghostRepairCount).toBe(1);
+    expect(r3?.counterfactualCount).toBe(1);
+    expect(bank.duplicateCaseCount).toBe(1);
+    expect(consistency.regimeSumMatchesTotal).toBe(true);
+    expect(consistency.duplicateCaseCount).toBe(1);
   });
 });

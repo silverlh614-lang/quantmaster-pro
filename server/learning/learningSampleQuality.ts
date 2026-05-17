@@ -265,7 +265,8 @@ export function counterfactualBuildRun(now: Date = new Date()) {
   const builtUniqueCount = all.length;
   const totalDuplicateSuppressedCount = dry.duplicateSuppressedCount + duplicateSuppressedCount;
   const inv = counterfactualInvariant({ candidateCount: dry.candidateCount, eligibleCount: dry.eligibleCount, buildEventCount, builtUniqueCount, duplicateSuppressedCount: totalDuplicateSuppressedCount, ...counts });
-  return { ...dry, buildEventCount, builtUniqueCount, duplicateSuppressedCount: totalDuplicateSuppressedCount, ...counts, countInvariantValid: inv.countInvariantValid, metricWarnings: inv.metricWarnings, metricInfos: inv.metricInfos, duplicateSuppressionStatus: inv.duplicateSuppressionStatus, blocker: buildEventCount === 0 ? dry.blocker : 'NONE', built: buildEventCount, pending: counts.pendingOutcomeCount, sampleSize: builtUniqueCount, status: inv.metricWarnings.includes('BUILT_UNIQUE_GT_CANDIDATE') || inv.metricWarnings.includes('COUNTERFACTUAL_COUNT_INVARIANT_BROKEN') ? 'ERROR' : inv.metricWarnings.length ? 'WARN' : 'OK', executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
+  const metadataRepair = counterfactualMetadataRepairDryRun(now);
+  return { ...dry, buildEventCount, builtUniqueCount, duplicateSuppressedCount: totalDuplicateSuppressedCount, ...counts, countInvariantValid: inv.countInvariantValid, metricWarnings: inv.metricWarnings, metricInfos: inv.metricInfos, duplicateSuppressionStatus: inv.duplicateSuppressionStatus, blocker: buildEventCount === 0 ? dry.blocker : 'NONE', built: buildEventCount, pending: counts.pendingOutcomeCount, sampleSize: builtUniqueCount, missingTargetPrice: metadataRepair.missingTargetPrice, missingStopPrice: metadataRepair.missingStopPrice, incrementalRepairStatus: metadataRepair.incrementalRepairStatus, status: inv.metricWarnings.includes('BUILT_UNIQUE_GT_CANDIDATE') || inv.metricWarnings.includes('COUNTERFACTUAL_COUNT_INVARIANT_BROKEN') ? 'ERROR' : inv.metricWarnings.length ? 'WARN' : 'OK', executionImpact: 'NONE' as const, brokerOrdersCreated: 0 as const, promotionAllowed: false as const };
 }
 export function collectCounterfactualStatus(now: Date = new Date()) {
   const dry = counterfactualBuildDryRun(now);
@@ -346,9 +347,10 @@ function mergeCounts(...records: Array<Record<string, number>>): Record<string, 
 }
 export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
   const all = normalizeCounterfactuals();
+  const missingRows = all.filter((e) => !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
   let missingTargetPrice = 0, missingStopPrice = 0, missingEntryPrice = 0, missingPricePath = 0, recoverableTargetStop = 0, unrecoverableTargetStop = 0;
   const plannedRows: CounterfactualEntry[] = [];
-  for (const e of all) {
+  for (const e of missingRows) {
     const targetMissing = !num(e.hypotheticalTargetPrice);
     const stopMissing = !num(e.hypotheticalStopPrice);
     if (targetMissing) missingTargetPrice++;
@@ -369,9 +371,13 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
   const existingBreakdowns = recoveryBreakdowns(existing);
   const expectedSourceConfidence = plannedRows.some((e) => e.recoveryConfidence === 'RECOVERED') ? 'RECOVERED' : plannedRows.some((e) => e.recoveryConfidence === 'MEDIUM') ? 'MEDIUM' : recoverableTargetStop > 0 ? 'RECOVERED_LOW' : 'N/A';
   const metadataRepairStatus = missingTargetPrice + missingStopPrice === 0 ? 'OK' : recoverableTargetStop > 0 ? 'READY_TO_REPAIR' : 'DATA_BLOCKED';
+  const incrementalRepairStatus = missingRows.length === 0 ? 'OK' : recoverableTargetStop > 0 ? 'READY_INCREMENTAL_REPAIR' : 'DATA_BLOCKED';
   return {
     metadataRepairStatus,
+    incrementalRepairStatus,
     scannedBuiltUnique: all.length,
+    lastRunScannedMissing: missingRows.length,
+    lastRunRecovered: 0,
     missingTargetPrice,
     missingStopPrice,
     recoverableTargetStop,
@@ -379,6 +385,7 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
     missingEntryPrice,
     missingPricePath,
     targetStopRecoveredCount: existing.length,
+    totalTargetStopRecovered: existing.length,
     recoveryRuleAvailable: recoverableTargetStop > 0,
     defaultRiskRuleAvailable: true,
     atrRuleAvailable: plannedRows.some((e) => e.recoverySource === 'ATR_FALLBACK'),
@@ -386,6 +393,10 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
     expectedSourceConfidence,
     recoverySourceBreakdown: mergeCounts(existingBreakdowns.recoverySourceBreakdown, planned.recoverySourceBreakdown),
     recoveryConfidenceBreakdown: mergeCounts(existingBreakdowns.recoveryConfidenceBreakdown, planned.recoveryConfidenceBreakdown),
+    cumulativeRecoverySourceBreakdown: existingBreakdowns.recoverySourceBreakdown,
+    cumulativeRecoveryConfidenceBreakdown: existingBreakdowns.recoveryConfidenceBreakdown,
+    lastRunRecoverySourceBreakdown: planned.recoverySourceBreakdown,
+    lastRunRecoveryConfidenceBreakdown: planned.recoveryConfidenceBreakdown,
     executionImpact: 'NONE' as const,
     brokerOrdersCreated: 0 as const,
     promotionAllowed: false as const,
@@ -393,8 +404,10 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
 }
 export function counterfactualMetadataRepairRun(now: Date = new Date()) {
   const all = normalizeCounterfactuals();
+  const missingRows = all.filter((e) => !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
   let targetRecovered = 0, stopRecovered = 0, bothRecovered = 0, unrecoverable = 0;
-  for (const e of all) {
+  const lastRunRows: CounterfactualEntry[] = [];
+  for (const e of missingRows) {
     const targetMissing = !num(e.hypotheticalTargetPrice);
     const stopMissing = !num(e.hypotheticalStopPrice);
     if (!targetMissing && !stopMissing) continue;
@@ -413,6 +426,7 @@ export function counterfactualMetadataRepairRun(now: Date = new Date()) {
     e.diagnosticOnly = true;
     e.promotionEligible = false;
     e.autoApply = false;
+    lastRunRows.push(e);
     if (e.outcomeStatus === 'QUARANTINED') {
       e.outcomeStatus = 'PENDING';
       delete e.outcomeLabel;
@@ -422,15 +436,28 @@ export function counterfactualMetadataRepairRun(now: Date = new Date()) {
   saveCounterfactuals(all);
   const repaired = all.filter((e) => e.targetStopRecovered);
   const breakdowns = recoveryBreakdowns(repaired);
+  const lastRunBreakdowns = recoveryBreakdowns(lastRunRows);
+  const missingTargetPrice = all.filter((e) => !num(e.hypotheticalTargetPrice)).length;
+  const missingStopPrice = all.filter((e) => !num(e.hypotheticalStopPrice)).length;
   return {
     scannedBuiltUnique: all.length,
+    lastRunScannedMissing: missingRows.length,
+    lastRunRecovered: bothRecovered,
     targetRecovered,
     stopRecovered,
     bothRecovered,
     unrecoverable,
     targetStopRecoveredCount: repaired.length,
+    totalTargetStopRecovered: repaired.length,
+    missingTargetPrice,
+    missingStopPrice,
+    incrementalRepairStatus: missingTargetPrice + missingStopPrice === 0 ? 'OK' as const : unrecoverable > 0 ? 'PARTIAL_DATA_BLOCKED' as const : 'READY_INCREMENTAL_REPAIR' as const,
     recoverySourceBreakdown: breakdowns.recoverySourceBreakdown,
     recoveryConfidenceBreakdown: breakdowns.recoveryConfidenceBreakdown,
+    cumulativeRecoverySourceBreakdown: breakdowns.recoverySourceBreakdown,
+    cumulativeRecoveryConfidenceBreakdown: breakdowns.recoveryConfidenceBreakdown,
+    lastRunRecoverySourceBreakdown: lastRunBreakdowns.recoverySourceBreakdown,
+    lastRunRecoveryConfidenceBreakdown: lastRunBreakdowns.recoveryConfidenceBreakdown,
     executionImpact: 'NONE' as const,
     brokerOrdersCreated: 0 as const,
     promotionAllowed: false as const,
@@ -827,6 +854,7 @@ export function formatCounterfactualMetadataRepair(s: ReturnType<typeof counterf
   const common = [`🛠 ${title}`, `scannedBuiltUnique=${s.scannedBuiltUnique}`];
   if ('metadataRepairStatus' in s) common.push(`metadataRepairStatus=${s.metadataRepairStatus} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice}`, `recoverableTargetStop=${s.recoverableTargetStop} unrecoverableTargetStop=${s.unrecoverableTargetStop} missingEntryPrice=${s.missingEntryPrice} missingPricePath=${s.missingPricePath}`, `recoveryRuleAvailable=${s.recoveryRuleAvailable} defaultRiskRuleAvailable=${s.defaultRiskRuleAvailable} atrRuleAvailable=${s.atrRuleAvailable} fallbackRMultipleRuleAvailable=${s.fallbackRMultipleRuleAvailable} expectedSourceConfidence=${s.expectedSourceConfidence}`);
   else common.push(`targetRecovered=${s.targetRecovered} stopRecovered=${s.stopRecovered} bothRecovered=${s.bothRecovered} unrecoverable=${s.unrecoverable} targetStopRecoveredCount=${s.targetStopRecoveredCount}`);
+  common.push(`incrementalRepairStatus=${s.incrementalRepairStatus} lastRunScannedMissing=${s.lastRunScannedMissing} lastRunRecovered=${s.lastRunRecovered} totalTargetStopRecovered=${s.totalTargetStopRecovered}`);
   common.push(`recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`, `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`);
   return common.join('\n');
 }

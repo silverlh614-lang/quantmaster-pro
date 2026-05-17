@@ -24,6 +24,8 @@ import { COUNTERFACTUAL_FILE, ensureDataDir } from '../persistence/paths.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { shouldSuppressNoise, recordNoiseSuppressed } from '../utils/logger.js';
+import type { RegimePhase } from '../shadow/regimeContext.js';
+import type { RegimeRecoveryConfidence, RegimeRecoverySource } from './learningTypes.js';
 import {
   SUGGEST_MIN_SAMPLE_COUNTERFACTUAL,
   SUGGEST_COUNTERFACTUAL_RATIO_THRESHOLD,
@@ -38,6 +40,24 @@ export interface CounterfactualEntry {
   priceAtSignal: number;
   gateScore: number;
   regime: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  regimePhase?: RegimePhase;
+  regimeAtSignal?: RegimePhase | string;
+  regimeAtEntry?: RegimePhase | string;
+  regimeAtExit?: RegimePhase | string;
+  regimeAtOutcome?: RegimePhase | string;
+  r6Trigger?: string;
+  engineMode?: string;
+  marketSession?: string;
+  sellOnlyActive?: boolean;
+  hardBlockActive?: boolean;
+  sourceFreshness?: string;
+  regimeConfidence?: string;
+  regimeRecovered?: boolean;
+  regimeRecoverySource?: RegimeRecoverySource;
+  regimeRecoveryConfidence?: RegimeRecoveryConfidence;
+  regimeRecoveredAt?: string;
   conditionKeys: string[];
   skipReason: string;
   /** 30 거래일 후 수익률 (%) — resolveCounterfactuals 가 채움 */

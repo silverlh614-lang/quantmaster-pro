@@ -3,6 +3,7 @@ import type { EngineMode, ExecutionImpact } from '../../runtime/engineRuntimePol
 import type { RegimeConfidence, RegimePhase } from '../regimeContext.js';
 import type { ShadowLifecycleState } from './lifecycle.js';
 import type { OutcomeLabel } from './outcome.js';
+import type { RegimeRecoveryConfidence, RegimeRecoverySource } from '../../learning/learningTypes.js';
 
 export type DataHealth = 'OK' | 'STALE' | 'DEGRADED' | 'EMPTY' | 'CORRUPTED' | 'UNAVAILABLE';
 export type ProviderHealth = 'OK' | 'KRX_UNAVAILABLE' | 'NAVER_NOT_WIRED' | 'CACHE_EMPTY' | 'PROVIDER_DEGRADED' | 'PROVIDER_ERROR';
@@ -63,6 +64,10 @@ export interface ShadowCase {
   hardBlockActive?: boolean;
   sourceFreshness?: string;
   regimeConfidence?: RegimeConfidence;
+  regimeRecovered?: boolean;
+  regimeRecoverySource?: RegimeRecoverySource;
+  regimeRecoveryConfidence?: RegimeRecoveryConfidence;
+  regimeRecoveredAt?: string;
   conditionTags?: string[];
   timeWindowTag?: string;
   sectorTag?: string;
