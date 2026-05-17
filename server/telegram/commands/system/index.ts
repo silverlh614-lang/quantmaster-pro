@@ -45,10 +45,12 @@ import './programMarket.cmd.js';
 import './programMarketProbe.cmd.js';
 import './programMarketRaw.cmd.js'; // Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004 §J #5 — ADMIN rawDiag dedicated.
 import './programToday.cmd.js';
+import './r6Forensic.cmd.js';
 import './refreshMacro.cmd.js';
 import './refreshSectorMap.cmd.js';
 import './refreshWatchlistSectors.cmd.js';
 import './regime.cmd.js';
+import './regimeTransitionStatus.cmd.js';
 import './rejected.cmd.js';
 import './recentTradesAudit.cmd.js';
 import './runtimeAudit.cmd.js';

@@ -51,6 +51,7 @@ export function tradeEventsFile(yyyymm: string): string {
 }
 export const SHADOW_LOG_FILE         = path.join(DATA_DIR, 'shadow-log.json');
 export const MACRO_STATE_FILE        = path.join(DATA_DIR, 'macro-state.json');
+export const REGIME_TRANSITION_STATE_FILE = path.join(DATA_DIR, 'regime-transition-state.json');
 export const CONDITION_WEIGHTS_FILE  = path.join(DATA_DIR, 'condition-weights.json');
 export const BLACKLIST_FILE          = path.join(DATA_DIR, 'blacklist.json');
 export const FSS_RECORDS_FILE        = path.join(DATA_DIR, 'fss-records.json');

@@ -258,6 +258,9 @@ export interface DailyBar {
   /** Unix epoch seconds (Yahoo 원본 단위) */
   ts: number;
   close: number;
+  open?: number;
+  high?: number;
+  low?: number;
 }
 
 // ── Yahoo health heartbeat (집계 상태 '?' 회피용) ──────────────────────────
@@ -319,13 +322,20 @@ export async function fetchDailyBars(symbol: string, range: string): Promise<Dai
       const data = await res.json();
       const result    = data?.chart?.result?.[0];
       const timestamps: number[]        = result?.timestamp ?? [];
-      const closes: (number | null)[]   = result?.indicators?.quote?.[0]?.close ?? [];
+      const quote = result?.indicators?.quote?.[0] ?? {};
+      const closes: (number | null)[]   = quote.close ?? [];
+      const opens: (number | null)[]    = quote.open ?? [];
+      const highs: (number | null)[]    = quote.high ?? [];
+      const lows: (number | null)[]     = quote.low ?? [];
       const bars: DailyBar[] = [];
       for (let i = 0; i < closes.length; i++) {
         const c  = closes[i];
         const ts = timestamps[i];
         if (c !== null && isFinite(c) && typeof ts === 'number' && isFinite(ts)) {
-          bars.push({ ts, close: c });
+          const open = typeof opens[i] === 'number' && isFinite(opens[i] as number) ? opens[i] as number : undefined;
+          const high = typeof highs[i] === 'number' && isFinite(highs[i] as number) ? highs[i] as number : undefined;
+          const low = typeof lows[i] === 'number' && isFinite(lows[i] as number) ? lows[i] as number : undefined;
+          bars.push({ ts, close: c, open, high, low });
         }
       }
       if (bars.length > 0) {
@@ -473,17 +483,24 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   const computed: Record<string, number | boolean | string | null> = {};
 
   // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
-  const kospi = await fetchCloses('^KS11', '65d');
+  const kospiBars = await fetchDailyBars('^KS11', '65d');
+  const kospi = kospiBars ? kospiBars.map(b => b.close) : null;
   if (kospi && kospi.length >= 22) {
     const last     = kospi[kospi.length - 1];
+    const prev     = kospi[kospi.length - 2];
+    const latestBar = kospiBars?.[kospiBars.length - 1];
     const ma20     = sma(kospi, 20);
     const ma60     = kospi.length >= 62 ? sma(kospi, 60) : null;
     computed.kospiAbove20MA  = last > ma20;
     if (ma60 !== null) computed.kospiAbove60MA = last > ma60;
     computed.kospi20dReturn  = nDayReturn(kospi, 20);
     computed.kospiDayReturn  = kospi.length >= 2
-      ? ((last - kospi[kospi.length - 2]) / kospi[kospi.length - 2]) * 100
+      ? ((last - prev) / prev) * 100
       : 0;
+    computed.kospiCloseReturn = computed.kospiDayReturn;
+    if (prev > 0 && latestBar?.low !== undefined) computed.kospiIntradayLowReturn = ((latestBar.low - prev) / prev) * 100;
+    if (prev > 0 && latestBar?.high !== undefined) computed.kospiIntradayHighReturn = ((latestBar.high - prev) / prev) * 100;
+    computed.kospiTriggerSourceUpdatedAt = new Date().toISOString();
     // ⑧ KOSPI가 MA20 대비 몇 % 위에 있는지 — 레짐 R3 강제 승급 판단용
     computed.kospiAboveMA20Pct = ma20 > 0 ? ((last - ma20) / ma20) * 100 : 0;
     console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, MA20대비=${(computed.kospiAboveMA20Pct as number).toFixed(2)}%, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);

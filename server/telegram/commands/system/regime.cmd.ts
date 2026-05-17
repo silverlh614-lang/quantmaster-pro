@@ -1,7 +1,7 @@
 // @responsibility regime.cmd 텔레그램 모듈
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
 import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -26,8 +26,11 @@ const regime: TelegramCommand = {
     const usdKrwLine = formatUsdKrwLine(macro);
     // ADR-0074: macroState.regime (GREEN/YELLOW/RED) vs getLiveRegime (R1~R6) 두 SSOT 동시 노출.
     // 매매 결정에 실제 사용되는 RegimeLevel + Kelly/maxPositions 정책을 1줄로 요약.
-    const liveRegime = getLiveRegime(macro);
+    const regimeDiagnostics = getRegimeDiagnostics(macro);
+    const liveRegime = regimeDiagnostics.effectiveRegime;
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
+    const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
+    const r6TriggerLine = formatR6TriggerBreakdownLine(regimeDiagnostics.r6TriggerBreakdown);
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
@@ -39,6 +42,11 @@ const regime: TelegramCommand = {
       `${mhsAxisLine}\n` +
       `${regimeEmoji} 매크로: ${macro.regime ?? 'N/A'}\n` +
       `${liveRegimeLine}\n` +
+      `rawRegime=${regimeDiagnostics.rawRegime}\n` +
+      `effectiveRegime=${regimeDiagnostics.effectiveRegime}\n` +
+      `${r6RecoveryLine}\n` +
+      `${r6TriggerLine}\n` +
+      `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
       `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
       `💱 USD/KRW: ${usdKrwLine}\n` +
@@ -46,11 +54,28 @@ const regime: TelegramCommand = {
       `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
       `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
       `${sectorEnergyLine}\n` +
+      `sourceFreshness=${regimeDiagnostics.sourceFreshness}\n` +
       `━━━━━━━━━━━━━━━━\n` +
       freshnessLine,
     );
   },
 };
+
+export function formatR6RecoveryLine(input: {
+  r6RecoveryStatus: string;
+  cooldownUntil?: string;
+  transitionReason: string;
+  recoveryEvidence: { reasons?: string[]; confirmations?: number; requiredConfirmations?: number };
+}): string {
+  const reasons = input.recoveryEvidence.reasons?.join(', ') ?? 'N/A';
+  const confirmations = `${input.recoveryEvidence.confirmations ?? 0}/${input.recoveryEvidence.requiredConfirmations ?? 0}`;
+  return `r6RecoveryStatus=${input.r6RecoveryStatus} cooldownUntil=${input.cooldownUntil ?? 'N/A'} confirmations=${confirmations} recoveryEvidence=${reasons} transitionReason=${input.transitionReason}`;
+}
+
+export function formatR6TriggerBreakdownLine(input: { activeR6Triggers: string[]; staleR6Triggers: string[]; kospiDayReturn?: number; kospiCloseReturn?: number; kospiIntradayLowReturn?: number; kospiIntradayHighReturn?: number; vkospiDayChange?: number; usdKrwDayChange?: number; triggerFreshness: string; staleCarryForward: boolean; staleBlockedRecovery: boolean }): string {
+  const fmt = (value: number | undefined) => value === undefined ? 'N/A' : value.toFixed(2);
+  return `r6TriggerBreakdown activeR6Triggers=[${input.activeR6Triggers.join(',') || 'none'}] staleR6Triggers=[${input.staleR6Triggers.join(',') || 'none'}] kospiDayReturn=${fmt(input.kospiDayReturn)} kospiCloseReturn=${fmt(input.kospiCloseReturn)} kospiIntradayLowReturn=${fmt(input.kospiIntradayLowReturn)} kospiIntradayHighReturn=${fmt(input.kospiIntradayHighReturn)} vkospiDayChange=${fmt(input.vkospiDayChange)} usdKrwDayChange=${fmt(input.usdKrwDayChange)} triggerFreshness=${input.triggerFreshness} staleCarryForward=${input.staleCarryForward} staleBlockedRecovery=${input.staleBlockedRecovery}`;
+}
 
 /**
  * ADR-0075 PR-4 wiring: 강세/소외 섹터 라인 SSOT.

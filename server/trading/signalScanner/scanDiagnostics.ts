@@ -328,6 +328,14 @@ export interface MacroGateState {
   macroEntryOverrideTargets?: string[];
   diagnosticLiveEntryBlocked?: boolean;
   liveEntryBlockedReason?: string;
+  macroRegimeRaw?: string;
+  macroRegimeEffective?: string;
+  r6RecoveryStatus?: string;
+  activeR6Triggers?: string[];
+  r6ShockLatch?: boolean;
+  recoveryBlockedReason?: string;
+  liveEntryAllowed?: boolean;
+  shadowLearningAllowed?: boolean;
 }
 
 
@@ -1353,6 +1361,14 @@ export function buildMacroGateState(input: {
   macroEntryOverrideTargets?: string[];
   diagnosticLiveEntryBlocked?: boolean;
   liveEntryBlockedReason?: string;
+  macroRegimeRaw?: string;
+  macroRegimeEffective?: string;
+  r6RecoveryStatus?: string;
+  activeR6Triggers?: string[];
+  r6ShockLatch?: boolean;
+  recoveryBlockedReason?: string;
+  liveEntryAllowed?: boolean;
+  shadowLearningAllowed?: boolean;
 }): MacroGateState {
   return {
     emergencyStop: input.emergencyStop,
@@ -1372,6 +1388,14 @@ export function buildMacroGateState(input: {
     macroEntryOverrideTargets: input.macroEntryOverrideTargets,
     diagnosticLiveEntryBlocked: input.diagnosticLiveEntryBlocked,
     liveEntryBlockedReason: input.liveEntryBlockedReason,
+    macroRegimeRaw: input.macroRegimeRaw,
+    macroRegimeEffective: input.macroRegimeEffective,
+    r6RecoveryStatus: input.r6RecoveryStatus,
+    activeR6Triggers: input.activeR6Triggers,
+    r6ShockLatch: input.r6ShockLatch,
+    recoveryBlockedReason: input.recoveryBlockedReason,
+    liveEntryAllowed: input.liveEntryAllowed,
+    shadowLearningAllowed: input.shadowLearningAllowed,
   };
 }
 
@@ -1735,6 +1759,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  • emergencyStop: ${mg.emergencyStop ? '<b>ON ⚠️</b>' : 'off'}`);
     lines.push(`  • autoTradeEnabled: ${mg.autoTradeEnabled ? 'on' : '<b>OFF ⚠️</b>'}`);
     lines.push(`  • 레짐: ${mg.regime} (Kelly ×${mg.kellyMultiplierFromRegime.toFixed(2)})`);
+    if (mg.macroRegimeRaw || mg.macroRegimeEffective) lines.push(`  • raw/effective: ${mg.macroRegimeRaw ?? 'UNKNOWN'} → ${mg.macroRegimeEffective ?? mg.regime}`);
+    if (mg.r6RecoveryStatus) lines.push(`  • r6RecoveryStatus: ${mg.r6RecoveryStatus}`);
+    if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);
+    if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
+    if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
+    if (mg.liveEntryAllowed !== undefined) lines.push(`  • liveEntryAllowed: ${mg.liveEntryAllowed}`);
+    if (mg.shadowLearningAllowed !== undefined) lines.push(`  • shadowLearningAllowed: ${mg.shadowLearningAllowed}`);
     lines.push(`  • FOMC: ${mg.fomcPhase} (Kelly ×${mg.fomcKellyMultiplier.toFixed(2)}) → 결합 ×${mg.finalKellyMultiplier.toFixed(2)}`);
     if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
     if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);
