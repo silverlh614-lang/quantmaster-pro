@@ -13,7 +13,10 @@ import { MarketRegimeBanner } from '../components/market/MarketRegimeBanner';
 import { MarketNeutralPanel } from '../components/market/MarketNeutralPanel';
 import { MarketTicker } from '../components/market/MarketTicker';
 import { SectorRotationHeatmap } from '../components/sector/SectorRotationHeatmap';
-import { useGlobalIntelStore, useMarketStore } from '../stores';
+import { PublicReportDashboard } from '../components/publicReport/PublicReportDashboard';
+import { PublicReportModeToggle } from '../components/publicReport/PublicReportModeToggle';
+import { useGlobalIntelStore, useMarketStore, useRecommendationStore, useSettingsStore } from '../stores';
+import { useShadowTradeStore } from '../stores/useShadowTradeStore';
 
 interface MarketOverviewHeaderProps {
   onRefresh: () => void;
@@ -26,33 +29,54 @@ interface MarketOverviewHeaderProps {
  * effect stays in one place.
  */
 export function MarketOverviewHeader({ onRefresh }: MarketOverviewHeaderProps) {
-  const { marketOverview, loadingMarket } = useMarketStore();
+  const { marketOverview, marketContext, loadingMarket } = useMarketStore();
+  const recommendations = useRecommendationStore(s => s.recommendations);
+  const shadowTrades = useShadowTradeStore(s => s.shadowTrades);
+  const { publicReportViewMode, setPublicReportViewMode } = useSettingsStore();
 
   const bearRegimeResult = useGlobalIntelStore(s => s.bearRegimeResult);
   const vkospiTriggerResult = useGlobalIntelStore(s => s.vkospiTriggerResult);
   const inverseGate1Result = useGlobalIntelStore(s => s.inverseGate1Result);
   const marketNeutralResult = useGlobalIntelStore(s => s.marketNeutralResult);
+  const sectorEnergyResult = useGlobalIntelStore(s => s.sectorEnergyResult);
 
   return (
     <>
       <StickyMiniHeader />
       <StatusBanner />
-      <div className="px-4 py-1 flex justify-end">
+      <div className="px-4 py-2 flex flex-wrap items-center justify-end gap-2">
+        <PublicReportModeToggle
+          value={publicReportViewMode}
+          onChange={setPublicReportViewMode}
+        />
         <MarketDataStaleBadge variant="compact" />
       </div>
-      <MarketModeBanner />
-      <MarketRegimeBanner
-        bearRegimeResult={bearRegimeResult}
-        vkospiTriggerResult={vkospiTriggerResult}
-        inverseGate1Result={inverseGate1Result}
-      />
-      <SectorRotationHeatmap />
-      <MarketNeutralPanel marketNeutralResult={marketNeutralResult} />
-      <MarketTicker
-        data={marketOverview}
-        loading={loadingMarket}
-        onRefresh={onRefresh}
-      />
+      {publicReportViewMode === 'OPERATION_MODE' ? (
+        <>
+          <MarketModeBanner />
+          <MarketRegimeBanner
+            bearRegimeResult={bearRegimeResult}
+            vkospiTriggerResult={vkospiTriggerResult}
+            inverseGate1Result={inverseGate1Result}
+          />
+          <SectorRotationHeatmap />
+          <MarketNeutralPanel marketNeutralResult={marketNeutralResult} />
+          <MarketTicker
+            data={marketOverview}
+            loading={loadingMarket}
+            onRefresh={onRefresh}
+          />
+        </>
+      ) : (
+        <PublicReportDashboard
+          viewMode={publicReportViewMode}
+          marketOverview={marketOverview}
+          marketContext={marketContext}
+          recommendations={recommendations}
+          sectorEnergyResult={sectorEnergyResult}
+          shadowTrades={shadowTrades}
+        />
+      )}
     </>
   );
 }

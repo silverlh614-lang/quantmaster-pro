@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 
 export type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE' | 'PORTFOLIO_EXTRACT' | 'RECOMMENDATION_HISTORY' | 'MACRO_INTEL' | 'SHADOW_LEARNING' | 'LEARNING_SANITY';
 export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
+export type PublicReportViewMode = 'OPERATION_MODE' | 'PUBLIC_REPORT_MODE' | 'PAID_PREVIEW_MODE';
 /**
  * 점진적 공개(Progressive disclosure) 모드.
  *  - `simple`: 핵심 KPI + 주요 2개 패널만 표시 (초심자/급하게 확인할 때).
@@ -76,6 +77,8 @@ interface SettingsState {
   // Progressive disclosure — 페이지별 간단/프로 모드
   autoTradeViewMode: ViewDensity;
   setAutoTradeViewMode: (mode: ViewDensity) => void;
+  publicReportViewMode: PublicReportViewMode;
+  setPublicReportViewMode: (mode: PublicReportViewMode) => void;
 
   // 자동매매 관제실 활성 탭 (영속)
   autoTradeActiveTab: AutoTradeTabId;
@@ -145,6 +148,8 @@ export const useSettingsStore = create<SettingsState>()(
       // Progressive disclosure
       autoTradeViewMode: 'simple',
       setAutoTradeViewMode: (autoTradeViewMode) => set({ autoTradeViewMode }),
+      publicReportViewMode: 'OPERATION_MODE',
+      setPublicReportViewMode: (publicReportViewMode) => set({ publicReportViewMode }),
 
       // 자동매매 활성 탭
       autoTradeActiveTab: 'positions',
@@ -170,6 +175,7 @@ export const useSettingsStore = create<SettingsState>()(
         autoSyncEnabled: state.autoSyncEnabled,
         subscribedSectors: state.subscribedSectors,
         autoTradeViewMode: state.autoTradeViewMode,
+        publicReportViewMode: state.publicReportViewMode,
         autoTradeActiveTab: state.autoTradeActiveTab,
         uiVerbosity: state.uiVerbosity,
       }),
