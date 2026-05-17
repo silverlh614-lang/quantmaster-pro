@@ -29,7 +29,7 @@ interface MarketOverviewHeaderProps {
  * effect stays in one place.
  */
 export function MarketOverviewHeader({ onRefresh }: MarketOverviewHeaderProps) {
-  const { marketOverview, marketContext, loadingMarket } = useMarketStore();
+  const { marketOverview, marketContext, loadingMarket, staleFields } = useMarketStore();
   const recommendations = useRecommendationStore(s => s.recommendations);
   const shadowTrades = useShadowTradeStore(s => s.shadowTrades);
   const { publicReportViewMode, setPublicReportViewMode } = useSettingsStore();
@@ -58,6 +58,8 @@ export function MarketOverviewHeader({ onRefresh }: MarketOverviewHeaderProps) {
             bearRegimeResult={bearRegimeResult}
             vkospiTriggerResult={vkospiTriggerResult}
             inverseGate1Result={inverseGate1Result}
+            marketContext={marketContext}
+            staleFields={staleFields}
           />
           <SectorRotationHeatmap />
           <MarketNeutralPanel marketNeutralResult={marketNeutralResult} />

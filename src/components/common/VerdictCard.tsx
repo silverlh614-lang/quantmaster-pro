@@ -34,6 +34,8 @@ import { useUILang } from '../../hooks/useUILang';
 import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 import type { OverallVerdict } from '../../types/ui';
 import type { RegimeLevel } from '../../types/core';
+import type { MarketRegimeView } from '../../lib/marketRegimeViewModel';
+import { getRegimeConfidenceLabel } from '../../lib/marketRegimeViewModel';
 import { TimeBand } from './TimeBand';
 
 type CardVariant = 'default' | 'verdict';
@@ -45,6 +47,8 @@ interface VerdictSlotProps {
   regime?: RegimeLevel;
   /** 만료 도달 시 라벨이 "재검증 대기" 로 자동 전환 */
   expired?: boolean;
+  /** Regime Context 표시 전용. STRONG_BUY/BUY 판정 로직에는 연결하지 않는다. */
+  marketRegimeView?: Pick<MarketRegimeView, 'state' | 'confidence' | 'summary'>;
   className?: string;
 }
 
@@ -56,7 +60,7 @@ const VERDICT_TIER_STYLE: Record<OverallVerdict, { container: string; chip: stri
   AVOID:      { container: 'border-red-500/40 bg-red-900/30',         chip: 'bg-red-500/30 text-red-100 border-red-400/40' },
 };
 
-function VerdictSlot({ verdict, regime, expired, className }: VerdictSlotProps): ReactElement {
+function VerdictSlot({ verdict, regime, expired, marketRegimeView, className }: VerdictSlotProps): ReactElement {
   const t = useUILang();
   const verdictKey: keyof typeof t.raw.card = (() => {
     switch (verdict) {
@@ -70,19 +74,37 @@ function VerdictSlot({ verdict, regime, expired, className }: VerdictSlotProps):
   const style = VERDICT_TIER_STYLE[verdict];
   const label = expired ? '재검증 대기' : t.card(verdictKey);
 
+  const showRegimeContext = marketRegimeView && (verdict === 'STRONG_BUY' || verdict === 'BUY');
+  const lowRegimeConfidence = marketRegimeView?.state === 'UNKNOWN' || marketRegimeView?.confidence === 'LOW' || marketRegimeView?.confidence === 'NOT_AVAILABLE';
   return (
-    <div className={cn('flex items-baseline justify-between gap-2', className)} data-vcard-slot="verdict">
-      <span
-        className={cn('px-2.5 py-1 rounded text-sm font-black border', style.chip)}
-        data-vcard-verdict={verdict}
-        data-vcard-expired={expired ? 'true' : 'false'}
-      >
-        {label}
-      </span>
-      {regime && (
-        <span className="text-xs opacity-70" data-vcard-regime={regime}>
-          {t.regime(regime)}
+    <div className={cn('space-y-1', className)} data-vcard-slot="verdict">
+      <div className="flex items-baseline justify-between gap-2">
+        <span
+          className={cn('px-2.5 py-1 rounded text-sm font-black border', style.chip)}
+          data-vcard-verdict={verdict}
+          data-vcard-expired={expired ? 'true' : 'false'}
+        >
+          {label}
         </span>
+        {regime && (
+          <span className="text-xs opacity-70" data-vcard-regime={regime}>
+            {t.regime(regime)}
+          </span>
+        )}
+      </div>
+      {showRegimeContext && (
+        <div
+          className={cn(
+            'rounded-md border px-2 py-1 text-[11px] leading-snug',
+            lowRegimeConfidence
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+              : 'border-white/10 bg-white/5 text-white/65',
+          )}
+          data-vcard-regime-context={marketRegimeView.state}
+        >
+          Regime Context: <span className="font-black font-num">{marketRegimeView.state}</span> / {getRegimeConfidenceLabel(marketRegimeView.confidence)}
+          {lowRegimeConfidence && <span> — 신호 해석 주의</span>}
+        </div>
       )}
     </div>
   );
