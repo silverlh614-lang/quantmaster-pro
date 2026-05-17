@@ -386,6 +386,8 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
     missingPricePath,
     targetStopRecoveredCount: existing.length,
     totalTargetStopRecovered: existing.length,
+    cumulativeRecovered: existing.length,
+    missingAfterRun: missingTargetPrice + missingStopPrice,
     recoveryRuleAvailable: recoverableTargetStop > 0,
     defaultRiskRuleAvailable: true,
     atrRuleAvailable: plannedRows.some((e) => e.recoverySource === 'ATR_FALLBACK'),
@@ -449,8 +451,10 @@ export function counterfactualMetadataRepairRun(now: Date = new Date()) {
     unrecoverable,
     targetStopRecoveredCount: repaired.length,
     totalTargetStopRecovered: repaired.length,
+    cumulativeRecovered: repaired.length,
     missingTargetPrice,
     missingStopPrice,
+    missingAfterRun: missingTargetPrice + missingStopPrice,
     incrementalRepairStatus: missingTargetPrice + missingStopPrice === 0 ? 'OK' as const : unrecoverable > 0 ? 'PARTIAL_DATA_BLOCKED' as const : 'READY_INCREMENTAL_REPAIR' as const,
     recoverySourceBreakdown: breakdowns.recoverySourceBreakdown,
     recoveryConfidenceBreakdown: breakdowns.recoveryConfidenceBreakdown,
@@ -854,7 +858,7 @@ export function formatCounterfactualMetadataRepair(s: ReturnType<typeof counterf
   const common = [`🛠 ${title}`, `scannedBuiltUnique=${s.scannedBuiltUnique}`];
   if ('metadataRepairStatus' in s) common.push(`metadataRepairStatus=${s.metadataRepairStatus} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice}`, `recoverableTargetStop=${s.recoverableTargetStop} unrecoverableTargetStop=${s.unrecoverableTargetStop} missingEntryPrice=${s.missingEntryPrice} missingPricePath=${s.missingPricePath}`, `recoveryRuleAvailable=${s.recoveryRuleAvailable} defaultRiskRuleAvailable=${s.defaultRiskRuleAvailable} atrRuleAvailable=${s.atrRuleAvailable} fallbackRMultipleRuleAvailable=${s.fallbackRMultipleRuleAvailable} expectedSourceConfidence=${s.expectedSourceConfidence}`);
   else common.push(`targetRecovered=${s.targetRecovered} stopRecovered=${s.stopRecovered} bothRecovered=${s.bothRecovered} unrecoverable=${s.unrecoverable} targetStopRecoveredCount=${s.targetStopRecoveredCount}`);
-  common.push(`incrementalRepairStatus=${s.incrementalRepairStatus} lastRunScannedMissing=${s.lastRunScannedMissing} lastRunRecovered=${s.lastRunRecovered} totalTargetStopRecovered=${s.totalTargetStopRecovered}`);
+  common.push(`incrementalRepairStatus=${s.incrementalRepairStatus} lastRunScannedMissing=${s.lastRunScannedMissing} lastRunRecovered=${s.lastRunRecovered} totalTargetStopRecovered=${s.totalTargetStopRecovered} cumulativeRecovered=${s.cumulativeRecovered} missingAfterRun=${s.missingAfterRun}`);
   common.push(`recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`, `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`);
   return common.join('\n');
 }

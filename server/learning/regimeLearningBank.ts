@@ -221,6 +221,7 @@ export interface CollectRegimeLearningInput {
 
 export interface RegimeLearningConsistency {
   totalLearningCases: number;
+  regimeLearningSampleSize: number;
   regimeAssignedCount: number;
   unknownRegimeCount: number;
   unknownRatio: number;
@@ -940,6 +941,7 @@ export function collectRegimeLearningConsistency(bank: RegimeLearningBank = coll
       : 'OBSERVE_DIAGNOSTIC_ONLY';
   return {
     totalLearningCases: bank.regimeLearningSampleSize,
+    regimeLearningSampleSize: bank.regimeLearningSampleSize,
     regimeAssignedCount: bank.regimeAssignedCount,
     unknownRegimeCount: bank.unknownRegimeCount,
     unknownRatio: bank.unknownRatio,
@@ -1063,7 +1065,7 @@ export function formatRegimeConditionAttribution(regime?: string, bank: RegimeLe
 export function formatRegimeLearningConsistency(s: RegimeLearningConsistency = collectRegimeLearningConsistency()): string {
   return [
     '<b>[Regime Learning Consistency]</b>',
-    `totalLearningCases=${s.totalLearningCases} regimeAssignedCount=${s.regimeAssignedCount} unknownRegimeCount=${s.unknownRegimeCount} unknownRatio=${s.unknownRatio}`,
+    `totalLearningCases=${s.totalLearningCases} regimeLearningSampleSize=${s.regimeLearningSampleSize} regimeAssignedCount=${s.regimeAssignedCount} unknownRegimeCount=${s.unknownRegimeCount} unknownRatio=${s.unknownRatio}`,
     `regimeBankSampleCount=${s.regimeBankSampleCount} ghostRepairCountInBank=${s.ghostRepairCountInBank} counterfactualCountInBank=${s.counterfactualCountInBank} outcomeCountInBank=${s.outcomeCountInBank} attributionCountInBank=${s.attributionCountInBank}`,
     `duplicateCaseCount=${s.duplicateCaseCount} regimeSumMatchesTotal=${s.regimeSumMatchesTotal}`,
     `byRegime=${JSON.stringify(s.byRegime)}`,
