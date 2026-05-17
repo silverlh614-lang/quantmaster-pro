@@ -44,6 +44,7 @@ type RegimeWritableRow = {
   regime?: string;
   entryRegime?: string;
   regimePhase?: RegimePhase;
+  originalRegimePhase?: RegimePhase;
   regimeAtSignal?: RegimePhase | string;
   regimeAtEntry?: RegimePhase | string;
   regimeAtExit?: RegimePhase | string;
@@ -86,8 +87,57 @@ export interface RegimeLearningBackfillInput {
   ghosts?: LearningGhostCase[];
   counterfactuals?: CounterfactualEntry[];
   attributionRecords?: ServerAttributionRecord[];
+  macroSnapshots?: RegimeTimestampSnapshot[];
+  transitionSnapshots?: RegimeTimestampSnapshot[];
   now?: Date;
   write?: boolean;
+}
+
+export type RegimeUnknownReason =
+  | 'MISSING_CREATED_AT'
+  | 'NO_MACRO_SNAPSHOT'
+  | 'NO_TRANSITION_STATE'
+  | 'PRE_REGIME_TRACKING_SAMPLE'
+  | 'AMBIGUOUS_SESSION'
+  | 'CORRUPTED_TIMESTAMP'
+  | 'CASE_TYPE_NOT_SUPPORTED'
+  | 'UNKNOWN_FALLBACK_USED';
+
+export interface RegimeTimestampSnapshot {
+  at: string;
+  rawRegime: string;
+  effectiveRegime?: string;
+}
+
+export interface RegimeUnknownAnalysisResult {
+  unknownTotal: number;
+  unknownBySource: Record<string, number>;
+  unknownByCaseType: Record<string, number>;
+  unknownByDate: Record<string, number>;
+  unknownReasonBreakdown: Record<RegimeUnknownReason, number>;
+  missingTimestampCount: number;
+  missingMacroSnapshotCount: number;
+  missingTransitionStateCount: number;
+  recoverableByNearestSnapshot: number;
+  recoverableByTradingDayRegime: number;
+  recoverableByR6Trigger: number;
+  unrecoverableCount: number;
+  recommendedFix: string;
+  executionImpact: 'NONE';
+  brokerOrdersCreated: 0;
+  promotionAllowed: false;
+}
+
+export interface RegimeUnknownRepairResult {
+  scannedUnknown: number;
+  repaired: number;
+  stillUnknown: number;
+  byRecoveredRegime: Record<string, number>;
+  recoverySourceBreakdown: Record<string, number>;
+  recoveryConfidenceBreakdown: Record<string, number>;
+  executionImpact: 'NONE';
+  brokerOrdersCreated: 0;
+  promotionAllowed: false;
 }
 
 export interface RegimeLearningBackfillDryRunResult {
@@ -273,6 +323,180 @@ function recoverRegime(row: RegimeWritableRow, createdAt?: string): RecoveredReg
   };
 }
 
+function phaseFromSnapshot(snapshot: RegimeTimestampSnapshot): RecoveredRegime {
+  const rawRegime = snapshot.rawRegime || snapshot.effectiveRegime || 'UNKNOWN';
+  const effectiveRegime = snapshot.effectiveRegime || rawRegime;
+  return {
+    rawRegime,
+    effectiveRegime,
+    regimePhase: deriveRegimePhase({ rawRegime, effectiveRegime }),
+    regimeRecovered: true,
+    regimeRecoverySource: 'NEAREST_MACRO_SNAPSHOT',
+    regimeRecoveryConfidence: 'LOW',
+  };
+}
+
+function defaultMacroSnapshots(input: RegimeLearningBackfillInput): RegimeTimestampSnapshot[] {
+  if (input.macroSnapshots) return input.macroSnapshots;
+  const macro = loadMacroState();
+  return macro?.regime && macro.updatedAt
+    ? [{ at: macro.updatedAt, rawRegime: macro.regime, effectiveRegime: macro.regime }]
+    : [];
+}
+
+function defaultTransitionSnapshots(input: RegimeLearningBackfillInput): RegimeTimestampSnapshot[] {
+  if (input.transitionSnapshots) return input.transitionSnapshots;
+  const state = loadRegimeTransitionState();
+  const rows: RegimeTimestampSnapshot[] = [];
+  if (state.lastTransitionAt) {
+    rows.push({ at: state.lastTransitionAt, rawRegime: state.rawRegime, effectiveRegime: state.effectiveRegime });
+  }
+  if (state.enteredR6At) {
+    rows.push({ at: state.enteredR6At, rawRegime: 'R6_DEFENSE', effectiveRegime: 'R6_DEFENSE' });
+  }
+  return rows;
+}
+
+function parseMillis(iso?: string): number {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  return Number.isFinite(t) ? t : NaN;
+}
+
+function dateKey(iso?: string): string {
+  const t = parseMillis(iso);
+  if (!Number.isFinite(t)) return iso ? 'CORRUPTED_TIMESTAMP' : 'MISSING_CREATED_AT';
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+function nearestSnapshot(createdAt: string | undefined, snapshots: RegimeTimestampSnapshot[]): { snapshot: RegimeTimestampSnapshot; exactDate: boolean } | undefined {
+  const createdMs = parseMillis(createdAt);
+  if (!Number.isFinite(createdMs) || snapshots.length === 0) return undefined;
+  const valid = snapshots
+    .map((snapshot) => ({ snapshot, delta: Math.abs(parseMillis(snapshot.at) - createdMs) }))
+    .filter((row) => Number.isFinite(row.delta))
+    .sort((a, b) => a.delta - b.delta);
+  const best = valid[0];
+  if (!best) return undefined;
+  return { snapshot: best.snapshot, exactDate: sameDate(createdAt, best.snapshot.at) };
+}
+
+function sameTradingDaySnapshot(createdAt: string | undefined, snapshots: RegimeTimestampSnapshot[]): RegimeTimestampSnapshot | undefined {
+  return snapshots.find((snapshot) => sameDate(createdAt, snapshot.at));
+}
+
+function marketSessionPhase(row: RegimeWritableRow): RecoveredRegime | undefined {
+  const session = String(row.marketSession ?? row.engineMode ?? '').toUpperCase();
+  const reason = String(row.blockedReason ?? row.rejectionReason ?? row.skipReason ?? row.closeReason ?? '').toUpperCase();
+  if (row.sellOnlyActive === true || session.includes('SELL_ONLY') || reason.includes('SELL_ONLY')) {
+    return {
+      rawRegime: 'SELL_ONLY',
+      effectiveRegime: 'SELL_ONLY',
+      regimePhase: 'SELL_ONLY',
+      regimeRecovered: true,
+      regimeRecoverySource: 'MARKET_SESSION_PHASE',
+      regimeRecoveryConfidence: 'MEDIUM',
+    };
+  }
+  if (row.hardBlockActive === true || session.includes('HARD_BLOCK') || reason.includes('HARD_BLOCK')) {
+    return {
+      rawRegime: 'HARD_BLOCK',
+      effectiveRegime: 'HARD_BLOCK',
+      regimePhase: 'HARD_BLOCK',
+      regimeRecovered: true,
+      regimeRecoverySource: 'MARKET_SESSION_PHASE',
+      regimeRecoveryConfidence: 'MEDIUM',
+    };
+  }
+  if (session.includes('MARKET_CLOSED') || session === 'CLOSED' || session === 'NON_TRADING_DAY') {
+    return {
+      rawRegime: 'MARKET_CLOSED',
+      effectiveRegime: 'MARKET_CLOSED',
+      regimePhase: 'MARKET_CLOSED',
+      regimeRecovered: true,
+      regimeRecoverySource: 'MARKET_SESSION_PHASE',
+      regimeRecoveryConfidence: 'MEDIUM',
+    };
+  }
+  return undefined;
+}
+
+function isUnknownRow(row: RegimeWritableRow): boolean {
+  const phase = String(row.regimePhase ?? '').toUpperCase();
+  return !phase || phase === 'UNKNOWN';
+}
+
+function unknownReason(item: RegimeBackfillRow, macroSnapshots: RegimeTimestampSnapshot[], transitionSnapshots: RegimeTimestampSnapshot[]): RegimeUnknownReason {
+  if (item.row.regimeRecoverySource === 'UNKNOWN_FALLBACK') return 'UNKNOWN_FALLBACK_USED';
+  if (!item.createdAt) return 'MISSING_CREATED_AT';
+  if (!Number.isFinite(parseMillis(item.createdAt))) return 'CORRUPTED_TIMESTAMP';
+  if (String(item.createdAt).slice(0, 4) < '2026') return 'PRE_REGIME_TRACKING_SAMPLE';
+  if (item.target === 'ATTRIBUTION' && !item.row.closedAt) return 'CASE_TYPE_NOT_SUPPORTED';
+  if (!sameTradingDaySnapshot(item.createdAt, macroSnapshots) && !nearestSnapshot(item.createdAt, macroSnapshots)) return 'NO_MACRO_SNAPSHOT';
+  if (!sameTradingDaySnapshot(item.createdAt, transitionSnapshots)) return 'NO_TRANSITION_STATE';
+  const session = String(item.row.marketSession ?? '').toUpperCase();
+  if (!session || session === 'UNKNOWN') return 'AMBIGUOUS_SESSION';
+  return 'UNKNOWN_FALLBACK_USED';
+}
+
+function caseTypeName(item: RegimeBackfillRow): string {
+  if (item.target === 'FRESH_SHADOW') return 'freshShadow';
+  if (item.target === 'GHOST_REPAIR') return 'ghostRepair';
+  if (item.target === 'COUNTERFACTUAL') return 'counterfactual';
+  if (item.target === 'ATTRIBUTION') return 'attribution';
+  if (item.target === 'OPEN_UNRESOLVED') return 'openUnresolved';
+  if (item.target === 'QUARANTINED') return 'quarantined';
+  if (item.target === 'OUTCOME') return 'outcome';
+  return 'unknown';
+}
+
+function recoverUnknownRegime(
+  row: RegimeWritableRow,
+  createdAt: string | undefined,
+  macroSnapshots: RegimeTimestampSnapshot[],
+  transitionSnapshots: RegimeTimestampSnapshot[],
+): RecoveredRegime {
+  if (containsR6Signal(row)) {
+    return {
+      rawRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      regimePhase: 'R6_DEFENSE',
+      regimeRecovered: true,
+      regimeRecoverySource: 'R6_TRIGGER_BY_TIMESTAMP',
+      regimeRecoveryConfidence: 'MEDIUM',
+    };
+  }
+  const nearest = nearestSnapshot(createdAt, macroSnapshots);
+  if (nearest) {
+    const recovered = phaseFromSnapshot(nearest.snapshot);
+    recovered.regimeRecoveryConfidence = nearest.exactDate ? 'HIGH' : 'LOW';
+    recovered.regimeRecoverySource = nearest.exactDate ? 'MACRO_SNAPSHOT_BY_TIMESTAMP' : 'NEAREST_MACRO_SNAPSHOT';
+    return recovered;
+  }
+  const tradingDay = sameTradingDaySnapshot(createdAt, transitionSnapshots);
+  if (tradingDay) {
+    const rawRegime = tradingDay.rawRegime || tradingDay.effectiveRegime || 'UNKNOWN';
+    const effectiveRegime = tradingDay.effectiveRegime || rawRegime;
+    return {
+      rawRegime,
+      effectiveRegime,
+      regimePhase: deriveRegimePhase({ rawRegime, effectiveRegime }),
+      regimeRecovered: true,
+      regimeRecoverySource: 'TRADING_DAY_REGIME',
+      regimeRecoveryConfidence: 'MEDIUM',
+    };
+  }
+  const session = marketSessionPhase(row);
+  if (session) return session;
+  return {
+    rawRegime: 'UNKNOWN',
+    effectiveRegime: 'UNKNOWN',
+    regimePhase: 'UNKNOWN',
+    regimeRecovered: true,
+    regimeRecoverySource: 'UNKNOWN_FALLBACK',
+    regimeRecoveryConfidence: 'UNKNOWN',
+  };
+}
+
 function summarize(input: RegimeLearningBackfillInput, write: boolean): RegimeLearningBackfillRunResult {
   const now = input.now ?? new Date();
   const { ghosts, counterfactuals, attributionRecords, rows } = rowsFromInputs(input);
@@ -367,6 +591,141 @@ export function regimeLearningBackfillRun(input: RegimeLearningBackfillInput = {
   return summarize(input, true);
 }
 
+export function regimeUnknownAnalysis(input: RegimeLearningBackfillInput = {}): RegimeUnknownAnalysisResult {
+  const { rows } = rowsFromInputs(input);
+  const macroSnapshots = defaultMacroSnapshots(input);
+  const transitionSnapshots = defaultTransitionSnapshots(input);
+  const unknownBySource: Record<string, number> = {};
+  const unknownByCaseType: Record<string, number> = {
+    freshShadow: 0,
+    ghostRepair: 0,
+    counterfactual: 0,
+    outcome: 0,
+    attribution: 0,
+    openUnresolved: 0,
+    quarantined: 0,
+  };
+  const unknownByDate: Record<string, number> = {};
+  const unknownReasonBreakdown = {} as Record<RegimeUnknownReason, number>;
+  let unknownTotal = 0;
+  let missingTimestampCount = 0;
+  let missingMacroSnapshotCount = 0;
+  let missingTransitionStateCount = 0;
+  let recoverableByNearestSnapshot = 0;
+  let recoverableByTradingDayRegime = 0;
+  let recoverableByR6Trigger = 0;
+  let unrecoverableCount = 0;
+
+  for (const item of rows) {
+    if (!isUnknownRow(item.row)) continue;
+    unknownTotal++;
+    inc(unknownBySource, item.target);
+    inc(unknownByCaseType, caseTypeName(item));
+    if (isClosedOutcome(item.row)) inc(unknownByCaseType, 'outcome');
+    inc(unknownByDate, dateKey(item.createdAt));
+    const reason = unknownReason(item, macroSnapshots, transitionSnapshots);
+    inc(unknownReasonBreakdown as Record<string, number>, reason);
+    if (!item.createdAt || !Number.isFinite(parseMillis(item.createdAt))) missingTimestampCount++;
+    if (!nearestSnapshot(item.createdAt, macroSnapshots)) missingMacroSnapshotCount++;
+    if (!sameTradingDaySnapshot(item.createdAt, transitionSnapshots)) missingTransitionStateCount++;
+    const recovered = recoverUnknownRegime(item.row, item.createdAt, macroSnapshots, transitionSnapshots);
+    if (recovered.regimeRecoverySource === 'NEAREST_MACRO_SNAPSHOT' || recovered.regimeRecoverySource === 'MACRO_SNAPSHOT_BY_TIMESTAMP') recoverableByNearestSnapshot++;
+    if (recovered.regimeRecoverySource === 'TRADING_DAY_REGIME') recoverableByTradingDayRegime++;
+    if (recovered.regimeRecoverySource === 'R6_TRIGGER_BY_TIMESTAMP') recoverableByR6Trigger++;
+    if (recovered.regimePhase === 'UNKNOWN') unrecoverableCount++;
+  }
+
+  const recommendedFix = unrecoverableCount > 0 && missingTimestampCount > 0
+    ? 'BACKFILL_CREATED_AT_OR_SIGNAL_TIME'
+    : missingMacroSnapshotCount > 0
+      ? 'LOAD_REGIME_SNAPSHOT_HISTORY'
+      : missingTransitionStateCount > 0
+        ? 'LOAD_TRADING_DAY_REGIME_TRANSITIONS'
+        : recoverableByNearestSnapshot + recoverableByTradingDayRegime + recoverableByR6Trigger > 0
+          ? 'RUN_REGIME_UNKNOWN_REPAIR'
+          : 'NO_ACTION';
+
+  return {
+    unknownTotal,
+    unknownBySource,
+    unknownByCaseType,
+    unknownByDate,
+    unknownReasonBreakdown,
+    missingTimestampCount,
+    missingMacroSnapshotCount,
+    missingTransitionStateCount,
+    recoverableByNearestSnapshot,
+    recoverableByTradingDayRegime,
+    recoverableByR6Trigger,
+    unrecoverableCount,
+    recommendedFix,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+    promotionAllowed: false,
+  };
+}
+
+function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean): RegimeUnknownRepairResult {
+  const now = input.now ?? new Date();
+  const { ghosts, counterfactuals, attributionRecords, rows } = rowsFromInputs(input);
+  const macroSnapshots = defaultMacroSnapshots(input);
+  const transitionSnapshots = defaultTransitionSnapshots(input);
+  const byRecoveredRegime: Record<string, number> = {};
+  const recoverySourceBreakdown: Record<string, number> = {};
+  const recoveryConfidenceBreakdown: Record<string, number> = {};
+  let scannedUnknown = 0;
+  let repaired = 0;
+  let stillUnknown = 0;
+
+  for (const item of rows) {
+    if (!isUnknownRow(item.row)) continue;
+    scannedUnknown++;
+    const recovered = recoverUnknownRegime(item.row, item.createdAt, macroSnapshots, transitionSnapshots);
+    inc(byRecoveredRegime, recovered.regimePhase);
+    inc(recoverySourceBreakdown, recovered.regimeRecoverySource);
+    inc(recoveryConfidenceBreakdown, recovered.regimeRecoveryConfidence);
+    if (recovered.regimePhase === 'UNKNOWN') {
+      stillUnknown++;
+      continue;
+    }
+    repaired++;
+    if (!write) continue;
+    item.row.originalRegimePhase = item.row.regimePhase ?? 'UNKNOWN';
+    item.row.rawRegime = recovered.rawRegime;
+    item.row.effectiveRegime = recovered.effectiveRegime;
+    item.row.regimePhase = recovered.regimePhase;
+    item.row.regimeAtSignal = item.row.regimeAtSignal ?? recovered.regimePhase;
+    item.row.regimeRecovered = true;
+    item.row.regimeRecoverySource = recovered.regimeRecoverySource;
+    item.row.regimeRecoveryConfidence = recovered.regimeRecoveryConfidence;
+    item.row.regimeRecoveredAt = now.toISOString();
+  }
+
+  if (write && !input.ghosts) saveGhostPortfolio(ghosts);
+  if (write && !input.counterfactuals) saveCounterfactuals(counterfactuals);
+  if (write && !input.attributionRecords) saveAttributionRecords(attributionRecords);
+
+  return {
+    scannedUnknown,
+    repaired,
+    stillUnknown,
+    byRecoveredRegime,
+    recoverySourceBreakdown,
+    recoveryConfidenceBreakdown,
+    executionImpact: 'NONE',
+    brokerOrdersCreated: 0,
+    promotionAllowed: false,
+  };
+}
+
+export function regimeUnknownRepairDryRun(input: RegimeLearningBackfillInput = {}): RegimeUnknownRepairResult {
+  return regimeUnknownRepair(input, false);
+}
+
+export function regimeUnknownRepairRun(input: RegimeLearningBackfillInput = {}): RegimeUnknownRepairResult {
+  return regimeUnknownRepair(input, true);
+}
+
 export function formatRegimeLearningBackfillDryRun(s: RegimeLearningBackfillDryRunResult): string {
   return [
     '<b>[Regime Learning Backfill Dryrun]</b>',
@@ -382,6 +741,32 @@ export function formatRegimeLearningBackfillRun(s: RegimeLearningBackfillRunResu
     '<b>[Regime Learning Backfill Run]</b>',
     `scannedTotal=${s.scannedTotal} updated=${s.updated} missingRegimePhase=${s.missingRegimePhase}`,
     `byRegime=${JSON.stringify(s.byRegime)} unknownCount=${s.unknownCount}`,
+    `recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`,
+    `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`,
+    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
+  ].join('\n');
+}
+
+export function formatRegimeUnknownAnalysis(s: RegimeUnknownAnalysisResult): string {
+  return [
+    '<b>[Regime UNKNOWN Analysis]</b>',
+    `unknownTotal=${s.unknownTotal}`,
+    `unknownBySource=${JSON.stringify(s.unknownBySource)}`,
+    `unknownByCaseType=${JSON.stringify(s.unknownByCaseType)}`,
+    `unknownByDate=${JSON.stringify(s.unknownByDate)}`,
+    `unknownReasonBreakdown=${JSON.stringify(s.unknownReasonBreakdown)}`,
+    `missingTimestampCount=${s.missingTimestampCount} missingMacroSnapshotCount=${s.missingMacroSnapshotCount} missingTransitionStateCount=${s.missingTransitionStateCount}`,
+    `recoverableByNearestSnapshot=${s.recoverableByNearestSnapshot} recoverableByTradingDayRegime=${s.recoverableByTradingDayRegime} recoverableByR6Trigger=${s.recoverableByR6Trigger} unrecoverableCount=${s.unrecoverableCount}`,
+    `recommendedFix=${s.recommendedFix}`,
+    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
+  ].join('\n');
+}
+
+export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'dryrun' | 'run'): string {
+  return [
+    `<b>[Regime UNKNOWN Repair ${mode}]</b>`,
+    `scannedUnknown=${s.scannedUnknown} repaired=${s.repaired} stillUnknown=${s.stillUnknown}`,
+    `byRecoveredRegime=${JSON.stringify(s.byRecoveredRegime)}`,
     `recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`,
     `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,

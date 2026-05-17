@@ -43,6 +43,7 @@ export interface CounterfactualEntry {
   rawRegime?: string;
   effectiveRegime?: string;
   regimePhase?: RegimePhase;
+  originalRegimePhase?: RegimePhase;
   regimeAtSignal?: RegimePhase | string;
   regimeAtEntry?: RegimePhase | string;
   regimeAtExit?: RegimePhase | string;

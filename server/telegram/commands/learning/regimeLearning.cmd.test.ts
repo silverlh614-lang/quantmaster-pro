@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../../learning/regimeLearningBank.js', () => ({
   collectRegimeLearningBank: vi.fn(() => ({ activeRegime: 'R6_DEFENSE', stats: [] })),
   collectRegimeLearningConsistency: vi.fn(() => ({ regimeSumMatchesTotal: true })),
+  formatRegimeConditionAttribution: vi.fn(() => 'REGIME_CONDITION_ATTRIBUTION recommendationOnly=true promotionAllowed=false'),
   formatRegimeLearningConsistency: vi.fn(() => 'REGIME_CONSISTENCY regimeSumMatchesTotal=true'),
   formatRegimeLearningSummary: vi.fn(() => 'REGIME_SUMMARY recommendationOnly=true promotionAllowed=false'),
   formatRegimeLearningDetail: vi.fn((regime: string) => `REGIME_DETAIL ${regime} recommendationOnly=true promotionAllowed=false`),
@@ -11,8 +12,13 @@ vi.mock('../../../learning/regimeLearningBank.js', () => ({
 vi.mock('../../../learning/regimeLearningBackfill.js', () => ({
   regimeLearningBackfillDryRun: vi.fn(() => ({ scannedTotal: 0 })),
   regimeLearningBackfillRun: vi.fn(() => ({ scannedTotal: 0, updated: 0 })),
+  regimeUnknownAnalysis: vi.fn(() => ({ unknownTotal: 0 })),
+  regimeUnknownRepairDryRun: vi.fn(() => ({ scannedUnknown: 0 })),
+  regimeUnknownRepairRun: vi.fn(() => ({ scannedUnknown: 0 })),
   formatRegimeLearningBackfillDryRun: vi.fn(() => 'REGIME_BACKFILL_DRYRUN executionImpact=NONE brokerOrdersCreated=0'),
   formatRegimeLearningBackfillRun: vi.fn(() => 'REGIME_BACKFILL_RUN executionImpact=NONE brokerOrdersCreated=0 promotionAllowed=false'),
+  formatRegimeUnknownAnalysis: vi.fn(() => 'REGIME_UNKNOWN_ANALYSIS executionImpact=NONE'),
+  formatRegimeUnknownRepair: vi.fn((_s, mode: string) => `REGIME_UNKNOWN_REPAIR_${mode} brokerOrdersCreated=0`),
 }));
 
 describe('/regime_learning commands', () => {
@@ -31,6 +37,10 @@ describe('/regime_learning commands', () => {
     expect(commandRegistry.resolve('/regime_learning_backfill_dryrun')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_learning_backfill_run')?.riskLevel).toBe(0);
     expect(commandRegistry.resolve('/regime_learning_consistency')?.category).toBe('LRN');
+    expect(commandRegistry.resolve('/regime_unknown_analysis')?.category).toBe('LRN');
+    expect(commandRegistry.resolve('/regime_unknown_repair_dryrun')?.riskLevel).toBe(0);
+    expect(commandRegistry.resolve('/regime_unknown_repair_run')?.riskLevel).toBe(0);
+    expect(commandRegistry.resolve('/regime_condition_attribution')?.riskLevel).toBe(0);
   });
 
   it('replies with regime learning summary and detail', async () => {
@@ -52,5 +62,17 @@ describe('/regime_learning commands', () => {
 
     await mod.regimeLearningConsistency.execute({ args: [], reply });
     expect(reply.mock.calls[4][0]).toContain('REGIME_CONSISTENCY');
+
+    await mod.regimeUnknownAnalysisCmd.execute({ args: [], reply });
+    expect(reply.mock.calls[5][0]).toContain('REGIME_UNKNOWN_ANALYSIS');
+
+    await mod.regimeUnknownRepairDryrunCmd.execute({ args: [], reply });
+    expect(reply.mock.calls[6][0]).toContain('REGIME_UNKNOWN_REPAIR_dryrun');
+
+    await mod.regimeUnknownRepairRunCmd.execute({ args: [], reply });
+    expect(reply.mock.calls[7][0]).toContain('REGIME_UNKNOWN_REPAIR_run');
+
+    await mod.regimeConditionAttribution.execute({ args: ['R3_EXPANSION'], reply });
+    expect(reply.mock.calls[8][0]).toContain('REGIME_CONDITION_ATTRIBUTION');
   });
 });

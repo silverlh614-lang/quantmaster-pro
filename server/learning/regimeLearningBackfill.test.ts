@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatRegimeUnknownAnalysis,
   regimeLearningBackfillDryRun,
   regimeLearningBackfillRun,
+  regimeUnknownAnalysis,
+  regimeUnknownRepairDryRun,
+  regimeUnknownRepairRun,
 } from './regimeLearningBackfill.js';
 import type { LearningGhostCase } from './learningTypes.js';
 import type { CounterfactualEntry } from './counterfactualShadow.js';
@@ -75,5 +79,61 @@ describe('Regime Learning backfill', () => {
     expect(result.executionImpact).toBe('NONE');
     expect(result.brokerOrdersCreated).toBe(0);
     expect(result.promotionAllowed).toBe(false);
+  });
+
+  it('analyzes UNKNOWN rows with reason breakdown without mutating data', () => {
+    const ghosts = [
+      ghost({ id: 'unknown-snapshot', regimePhase: 'UNKNOWN', signalDate: '2026-05-17' }),
+      ghost({ id: 'unknown-missing-time', regimePhase: 'UNKNOWN', signalDate: '' }),
+    ];
+
+    const result = regimeUnknownAnalysis({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-05-17T01:00:00.000Z', rawRegime: 'R3_EARLY' }],
+      transitionSnapshots: [],
+    });
+    const msg = formatRegimeUnknownAnalysis(result);
+
+    expect(result.unknownTotal).toBe(2);
+    expect(result.unknownByCaseType.ghostRepair + result.unknownByCaseType.openUnresolved).toBeGreaterThan(0);
+    expect(msg).toContain('unknownReasonBreakdown=');
+    expect(msg).toContain('executionImpact=NONE');
+    expect(ghosts[0].regimePhase).toBe('UNKNOWN');
+  });
+
+  it('UNKNOWN repair dryrun does not mutate and run reduces recoverable UNKNOWN', () => {
+    const ghosts = [
+      ghost({ id: 'unknown-r3', regimePhase: 'UNKNOWN', signalDate: '2026-05-17' }),
+      ghost({ id: 'unknown-r6', regimePhase: 'UNKNOWN', rejectionReason: 'R6_SHOCK_LATCH', signalDate: '2026-04-01' }),
+      ghost({ id: 'unknown-still', regimePhase: 'UNKNOWN', signalDate: '' }),
+    ];
+    const input = {
+      ghosts,
+      counterfactuals: [] as CounterfactualEntry[],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-05-17T01:00:00.000Z', rawRegime: 'R3_EARLY' }],
+      transitionSnapshots: [],
+      now: new Date('2026-05-18T00:00:00.000Z'),
+    };
+
+    const dry = regimeUnknownRepairDryRun(input);
+    expect(dry.scannedUnknown).toBe(3);
+    expect(dry.repaired).toBe(2);
+    expect(ghosts[0].regimePhase).toBe('UNKNOWN');
+
+    const run = regimeUnknownRepairRun(input);
+    expect(run.repaired).toBe(2);
+    expect(run.stillUnknown).toBe(1);
+    expect(ghosts[0].regimePhase).toBe('R3_EXPANSION');
+    expect(ghosts[0].originalRegimePhase).toBe('UNKNOWN');
+    expect(ghosts[0].regimeRecoveryConfidence).toBe('HIGH');
+    expect(ghosts[1].regimePhase).toBe('R6_DEFENSE');
+    expect(ghosts[1].regimeRecoveryConfidence).toBe('MEDIUM');
+    expect(ghosts[2].regimeRecoveryConfidence).toBeUndefined();
+    expect(run.executionImpact).toBe('NONE');
+    expect(run.brokerOrdersCreated).toBe(0);
+    expect(run.promotionAllowed).toBe(false);
   });
 });

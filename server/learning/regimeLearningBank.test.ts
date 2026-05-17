@@ -4,6 +4,7 @@ import {
   collectRegimeLearningConsistency,
   formatRegimeLearningDetail,
   formatRegimeLearningSummary,
+  formatRegimeConditionAttribution,
 } from './regimeLearningBank.js';
 import type { ShadowCase } from '../shadow/shadowTypes.js';
 import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
@@ -139,10 +140,50 @@ describe('Regime Learning Bank', () => {
     });
     const r3 = bank.stats.find((s) => s.regimePhase === 'R3_EXPANSION');
 
-    expect(r3?.topPositiveConditions[0]?.conditionId).toBe('VCP_BREAKOUT');
-    expect(r3?.topPositiveConditions[0]?.confidence).toBe('LOW_SAMPLE');
-    expect(r3?.topPositiveConditions[0]?.recommendation).toBe('LOW_SAMPLE_NO_WEIGHT_UPDATE');
-    expect(r3?.breakoutPattern).toContain('R3 breakout pattern');
+    expect(r3?.lowSampleConditions[0]?.conditionId).toBe('VCP_BREAKOUT');
+    expect(r3?.lowSampleConditions[0]?.confidence).toBe('LOW_SAMPLE');
+    expect(r3?.lowSampleConditions[0]?.direction).toBe('INSUFFICIENT_SAMPLE');
+    expect(r3?.lowSampleConditions[0]?.recommendation).toBe('INSUFFICIENT_SAMPLE_NO_WEIGHT_UPDATE');
+    expect(r3?.breakoutPattern).toContain('R3 trend continuation pattern');
+  });
+
+  it('computes quality status from sample size, label completion, and recovery confidence', () => {
+    const lowSample = collectRegimeLearningBank({
+      rawRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      shadowCases: [shadow('r6-low', { effectiveRegime: 'R6_DEFENSE', outcomeLabel: 'WIN', returnR: 0.1 })],
+      counterfactualEntries: [],
+    }).stats.find((s) => s.regimePhase === 'R6_DEFENSE');
+
+    const learningRows = Array.from({ length: 40 }, (_, i) => shadow(`r3-${i}`, {
+      effectiveRegime: 'R3_EARLY',
+      outcomeLabel: 'WIN',
+      returnR: 0.1,
+    }));
+    const learning = collectRegimeLearningBank({
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      shadowCases: learningRows,
+      counterfactualEntries: [],
+    }).stats.find((s) => s.regimePhase === 'R3_EXPANSION');
+
+    const lowConfidenceRows = Array.from({ length: 80 }, (_, i) => shadow(`r2-low-conf-${i}`, {
+      effectiveRegime: 'R2_BULL',
+      regimeRecoveryConfidence: i < 20 ? 'HIGH' : 'LOW',
+      outcomeLabel: 'WIN',
+      returnR: 0.1,
+    }));
+    const lowConfidence = collectRegimeLearningBank({
+      rawRegime: 'R2_BULL',
+      effectiveRegime: 'R2_BULL',
+      shadowCases: lowConfidenceRows,
+      counterfactualEntries: [],
+    }).stats.find((s) => s.regimePhase === 'R2_EARLY');
+
+    expect(lowSample?.qualityStatus).toBe('LOW_SAMPLE');
+    expect(learning?.qualityStatus).toBe('LEARNING');
+    expect(lowConfidence?.qualityStatus).toBe('LOW_CONFIDENCE');
+    expect(lowConfidence?.sourceConfidenceHighRatio).toBeLessThan(0.7);
   });
 
   it('formats summary and detail with recommendation-only safety markers', () => {
@@ -163,6 +204,23 @@ describe('Regime Learning Bank', () => {
     expect(detail).toContain('Regime Learning Detail: R6_DEFENSE');
     expect(detail).toContain('recommendationOnly=true');
     expect(detail).toContain('survivorPattern=');
+  });
+
+  it('renders R2/R3/R6 regime-specific interpretation layers', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      shadowCases: [
+        shadow('r2', { effectiveRegime: 'R2_BULL', outcomeLabel: 'WIN', returnR: 0.3, conditionTags: ['RS_ACCELERATION'] }),
+        shadow('r3', { effectiveRegime: 'R3_EARLY', outcomeLabel: 'WIN', returnR: 0.4, conditionTags: ['VCP_BREAKOUT'] }),
+        shadow('r6', { effectiveRegime: 'R6_DEFENSE', outcomeLabel: 'WIN', returnR: 0.1, conditionTags: ['LOW_BETA_SURVIVOR'] }),
+      ],
+      counterfactualEntries: [],
+    });
+
+    expect(formatRegimeLearningDetail('R2_EARLY', bank)).toContain('earlyLeaderPattern=R2 early leader pattern');
+    expect(formatRegimeLearningDetail('R3_EXPANSION', bank)).toContain('trendContinuationPattern=R3 trend continuation pattern');
+    expect(formatRegimeLearningDetail('R6_DEFENSE', bank)).toContain('supplyRetentionPattern=');
   });
 
   it('details R3_EXPANSION with only R3 samples', () => {
@@ -244,5 +302,24 @@ describe('Regime Learning Bank', () => {
     expect(bank.duplicateCaseCount).toBe(1);
     expect(consistency.regimeSumMatchesTotal).toBe(true);
     expect(consistency.duplicateCaseCount).toBe(1);
+    expect(consistency.unknownRatio).toBe(0);
+  });
+
+  it('formats condition attribution with insufficient sample and N/A effect for unlabeled rows', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      shadowCases: [
+        shadow('open-r3', { effectiveRegime: 'R3_EARLY', conditionTags: ['VCP_BREAKOUT'] }),
+      ],
+      counterfactualEntries: [],
+    });
+
+    const msg = formatRegimeConditionAttribution('R3_EXPANSION', bank);
+    expect(msg).toContain('conditionId=VCP_BREAKOUT');
+    expect(msg).toContain('direction=INSUFFICIENT_SAMPLE');
+    expect(msg).toContain('effect=N/A');
+    expect(msg).toContain('recommendationOnly=true');
+    expect(msg).toContain('promotionAllowed=false');
   });
 });

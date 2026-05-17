@@ -30,8 +30,11 @@ export type LearningRecoveryConfidence = 'RECOVERED' | 'MEDIUM' | 'LOW' | 'UNKNO
 export type RegimeRecoverySource =
   | 'STORED_CASE_REGIME'
   | 'MACRO_SNAPSHOT_BY_TIMESTAMP'
+  | 'NEAREST_MACRO_SNAPSHOT'
   | 'REGIME_TRANSITION_STATE_BY_TIMESTAMP'
+  | 'TRADING_DAY_REGIME'
   | 'R6_TRIGGER_BY_TIMESTAMP'
+  | 'MARKET_SESSION_PHASE'
   | 'UNKNOWN_FALLBACK';
 export type RegimeRecoveryConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type IntegritySeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
@@ -84,6 +87,7 @@ export interface LearningGhostCase extends GhostPosition {
   rawRegime?: string;
   effectiveRegime?: string;
   regimePhase?: RegimePhase;
+  originalRegimePhase?: RegimePhase;
   regimeAtSignal?: RegimePhase | string;
   regimeAtEntry?: RegimePhase | string;
   regimeAtExit?: RegimePhase | string;

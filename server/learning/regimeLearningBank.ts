@@ -33,21 +33,57 @@ export type OverfitRisk = 'LOW' | 'MEDIUM' | 'HIGH';
 export type RegimeLearningQualityStatus =
   | 'NO_SAMPLE'
   | 'LOW_SAMPLE'
+  | 'LOW_CONFIDENCE'
   | 'LEARNING'
-  | 'STABLE'
+  | 'DIAGNOSTIC_READY'
+  | 'STABLE_CANDIDATE'
   | 'OVERFIT_RISK'
   | 'DATA_QUALITY_LOW';
 
+export type RegimeConditionDirection =
+  | 'ALPHA_DRIVER'
+  | 'RISK_PROTECTOR'
+  | 'FALSE_COMFORT'
+  | 'NOISE'
+  | 'INSUFFICIENT_SAMPLE';
+
 export interface RegimeConditionAttribution {
   conditionId: string;
+  conditionName: string;
   regimePhase: RegimePhase;
   samples: number;
-  effect: number;
+  highSamples: number;
+  lowSamples: number;
+  winRate: number;
+  expectancyR: number;
+  effect: number | 'N/A';
   avgReturnR: number;
-  confidence: 'LOW_SAMPLE' | 'WATCHING' | 'ENOUGH_FOR_REVIEW';
+  confidence: 'LOW_SAMPLE' | 'LOW_CONFIDENCE' | 'ENOUGH_FOR_REVIEW';
   minSamplePassed: boolean;
   overfitFlag: boolean;
+  direction: RegimeConditionDirection;
   recommendation: string;
+}
+
+export interface RegimeSourceFamilyStats {
+  sampleSize: number;
+  closedCount: number;
+  expectancyR: number;
+}
+
+export interface RegimeLearningQuality {
+  regimePhase: RegimePhase;
+  sampleSize: number;
+  closedSampleCount: number;
+  labelCompletionRate: number;
+  sourceConfidenceHighRatio: number;
+  unknownRatio: number;
+  dataQualityScore: number;
+  conditionCoverage: number;
+  counterfactualCoverage: number;
+  freshShadowCoverage: number;
+  overfitRisk: OverfitRisk;
+  qualityStatus: RegimeLearningQualityStatus;
 }
 
 export interface RegimeLearningStats {
@@ -68,8 +104,14 @@ export interface RegimeLearningStats {
   avgHoldingMinutes: number;
   labelCompletionRate: number;
   dataQualityScore: number;
+  sourceConfidenceHighRatio: number;
+  unknownRatio: number;
+  conditionCoverage: number;
+  counterfactualCoverage: number;
+  freshShadowCoverage: number;
   overfitRisk: OverfitRisk;
   qualityStatus: RegimeLearningQualityStatus;
+  quality: RegimeLearningQuality;
   promotionStage: 'SHADOW_SCORE' | 'ADVISORY';
   promotionAllowed: false;
   diagnosticOnly: true;
@@ -81,7 +123,11 @@ export interface RegimeLearningStats {
   topSector?: string;
   topPositiveConditions: RegimeConditionAttribution[];
   topNegativeConditions: RegimeConditionAttribution[];
+  lowSampleConditions: RegimeConditionAttribution[];
+  unstableConditions: RegimeConditionAttribution[];
+  conditionAttributions: RegimeConditionAttribution[];
   topSectors: Array<{ sector: string; samples: number; expectancyR: number }>;
+  worstSectors: Array<{ sector: string; samples: number; expectancyR: number }>;
   bestSymbols: Array<{ symbol: string; name: string; returnR: number }>;
   worstSymbols: Array<{ symbol: string; name: string; returnR: number }>;
   commonFailureReasons: Array<{ reason: string; count: number }>;
@@ -95,9 +141,27 @@ export interface RegimeLearningStats {
   bestMarketSession?: string;
   commonFailureReason?: string;
   survivorPattern?: string;
+  earlyLeaderPattern?: string;
+  volumeAccumulationPattern?: string;
+  firstBreakoutPattern?: string;
+  falseStartRisk?: string;
+  trendContinuationPattern?: string;
+  vcpBreakoutPattern?: string;
+  pullbackBuyPattern?: string;
+  overheatBreakoutRisk?: string;
   breakoutPattern?: string;
   reversalPattern?: string;
   chopAvoidancePattern?: string;
+  drawdownDefensePattern?: string;
+  recoverySpeedPattern?: string;
+  supplyRetentionPattern?: string;
+  deadCatBounceRisk?: string;
+  sourceConfidenceBreakdown: Record<string, number>;
+  freshShadowStats: RegimeSourceFamilyStats;
+  ghostRepairStats: RegimeSourceFamilyStats;
+  counterfactualStats: RegimeSourceFamilyStats;
+  outcomeStats: RegimeSourceFamilyStats;
+  attributionStats: RegimeSourceFamilyStats;
   nextLearningNeed: string;
   blocker?: string;
 }
@@ -118,6 +182,7 @@ export interface RegimeLearningBank {
   regimeLearningSampleSize: number;
   regimeAssignedCount: number;
   unknownRegimeCount: number;
+  unknownRatio: number;
   activeRegimeQualityStatus: RegimeLearningQualityStatus;
   regimeBankConsistency: 'OK' | 'MISMATCH';
   duplicateCaseCount: number;
@@ -128,6 +193,11 @@ export interface RegimeLearningBank {
     outcome: number;
     attribution: number;
   };
+  byConfidence: Record<string, number>;
+  R2QualityStatus: RegimeLearningQualityStatus;
+  R3QualityStatus: RegimeLearningQualityStatus;
+  R6QualityStatus: RegimeLearningQualityStatus;
+  unknownReductionNeeded: boolean;
   recommendationOnly: true;
   promotionAllowed: false;
   executionImpact: 'NONE';
@@ -150,13 +220,18 @@ export interface RegimeLearningConsistency {
   totalLearningCases: number;
   regimeAssignedCount: number;
   unknownRegimeCount: number;
+  unknownRatio: number;
   regimeBankSampleCount: number;
   ghostRepairCountInBank: number;
   counterfactualCountInBank: number;
   outcomeCountInBank: number;
+  attributionCountInBank: number;
   duplicateCaseCount: number;
   regimeSumMatchesTotal: boolean;
+  byRegime: Record<string, number>;
+  byConfidence: Record<string, number>;
   metricWarnings: string[];
+  nextAction: string;
   executionImpact: 'NONE';
   brokerOrdersCreated: 0;
   promotionAllowed: false;
@@ -171,6 +246,7 @@ type RegimeCounterfactualEntry = CounterfactualShadowLearningLedgerEntry | {
   rawRegime?: string;
   effectiveRegime?: string;
   regimePhase?: RegimePhase;
+  originalRegimePhase?: RegimePhase;
   regimeAtSignal?: RegimePhase | string;
   engineMode?: string;
   marketSession?: string;
@@ -180,6 +256,8 @@ type RegimeCounterfactualEntry = CounterfactualShadowLearningLedgerEntry | {
   skipReason?: string;
   sourceFreshness?: string;
   regimeConfidence?: string;
+  regimeRecoveryConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  regimeRecoverySource?: string;
   symbol?: string;
   stockCode?: string;
   stockName?: string;
@@ -229,6 +307,21 @@ function scoreDataQuality(c: ShadowCase): number {
   return 0.5;
 }
 
+function sourceConfidenceOfCase(c: ShadowCase): 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN' {
+  if (c.regimeRecoveryConfidence) return c.regimeRecoveryConfidence;
+  if (phaseForShadowCase(c) === 'UNKNOWN') return 'UNKNOWN';
+  if (c.sourceConfidence === 'VERIFIED' || c.sourceConfidence === 'CALCULATED' || c.confidenceLevel === 'VERIFIED') return 'HIGH';
+  if (c.sourceConfidence === 'EXTERNAL_API') return 'MEDIUM';
+  if (c.sourceConfidence === 'FALLBACK' || c.confidenceLevel === 'LOW' || c.confidenceLevel === 'FALLBACK') return 'LOW';
+  return 'UNKNOWN';
+}
+
+function sourceConfidenceOfCounterfactual(e: RegimeCounterfactualEntry): 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN' {
+  const row = e as RegimeCounterfactualEntry & { regimeRecoveryConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN' };
+  if (row.regimeRecoveryConfidence) return row.regimeRecoveryConfidence;
+  return phaseForCounterfactual(e) === 'UNKNOWN' ? 'UNKNOWN' : 'HIGH';
+}
+
 function phaseForShadowCase(c: ShadowCase): RegimePhase {
   return normalizePhaseValue(c.regimeAtSignal) ?? c.regimePhase ?? deriveRegimePhase({
     rawRegime: c.rawRegime ?? c.regimeTag,
@@ -269,25 +362,30 @@ function qualityStatus(input: {
   sampleSize: number;
   labelCompletionRate: number;
   dataQualityScore: number;
+  sourceConfidenceHighRatio: number;
   overfitRisk: OverfitRisk;
 }): RegimeLearningQualityStatus {
   if (input.sampleSize === 0) return 'NO_SAMPLE';
-  if (input.dataQualityScore > 0 && input.dataQualityScore < 0.8) return 'DATA_QUALITY_LOW';
   if (input.sampleSize < 30) return 'LOW_SAMPLE';
-  if (input.overfitRisk !== 'LOW') return 'OVERFIT_RISK';
   if (input.sampleSize < 70) return 'LEARNING';
-  if (input.sampleSize >= 100 && input.labelCompletionRate >= 0.95) return 'STABLE';
-  return 'LEARNING';
+  if (input.sourceConfidenceHighRatio < 0.7) return 'LOW_CONFIDENCE';
+  if (input.labelCompletionRate < 0.8) return 'DATA_QUALITY_LOW';
+  if (input.overfitRisk !== 'LOW') return 'OVERFIT_RISK';
+  if (input.sampleSize >= 100 && input.labelCompletionRate >= 0.95 && input.sourceConfidenceHighRatio >= 0.8) return 'STABLE_CANDIDATE';
+  return 'DIAGNOSTIC_READY';
 }
 
 function patternText(phase: RegimePhase, kind: 'best' | 'worst', seed?: string, sector?: string): string {
   const positive = seed || sector || 'N/A';
+  if (phase === 'R2_EARLY') return kind === 'best'
+    ? `R2 early leader pattern: ${positive} + volume accumulation / first breakout`
+    : 'R2 failure pattern: false start without follow-through accumulation';
   if (phase === 'R6_DEFENSE') return kind === 'best'
-    ? `R6 survivor pattern: ${positive} + relative strength / foreign-flow defense`
-    : `R6 failure pattern: ${positive} with low-liquidity rebound failure`;
+    ? `R6 survivor pattern: ${positive} + index drawdown defense / supply retention / next-session recovery`
+    : `R6 failure pattern: ${positive} with dead-cat bounce risk and recovery failure`;
   if (phase === 'R3_EXPANSION') return kind === 'best'
-    ? `R3 breakout pattern: ${positive}`
-    : 'R3 failure pattern: overheated breakout without follow-through';
+    ? `R3 trend continuation pattern: ${positive} + VCP breakout / pullback buy confirmation`
+    : 'R3 failure pattern: overheated breakout without supply follow-through';
   if (phase === 'R1_RECOVERY') return kind === 'best'
     ? `R1 reversal pattern: ${positive}`
     : 'R1 failure pattern: weak bounce without accumulation';
@@ -300,9 +398,9 @@ function patternText(phase: RegimePhase, kind: 'best' | 'worst', seed?: string, 
 function buildConditionAttribution(
   regimePhase: RegimePhase,
   cases: ShadowCase[],
-  positive: boolean,
 ): RegimeConditionAttribution[] {
   const byCondition = new Map<string, ShadowCase[]>();
+  const closed = cases.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
   for (const c of cases) {
     for (const tag of conditionTags(c)) {
       const rows = byCondition.get(tag) ?? [];
@@ -312,23 +410,51 @@ function buildConditionAttribution(
   }
   return [...byCondition.entries()]
     .map(([conditionId, rows]) => {
-      const avgReturnR = round(avg(rows.map(returnR)));
+      const highClosed = rows.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
+      const highIds = new Set(rows.map((c) => c.caseId));
+      const lowClosed = closed.filter((c) => !highIds.has(c.caseId));
+      const highSamples = highClosed.length;
+      const lowSamples = lowClosed.length;
+      const highReturns = highClosed.map(returnR);
+      const lowReturns = lowClosed.map(returnR);
+      const avgReturnR = round(avg(highReturns));
+      const lowAvg = round(avg(lowReturns));
+      const effect: number | 'N/A' = highSamples + lowSamples === 0 ? 'N/A' : round(avgReturnR - lowAvg);
       const samples = rows.length;
+      const wins = highClosed.filter((c) => c.outcomeLabel === 'WIN').length;
+      const losses = highClosed.filter((c) => c.outcomeLabel === 'LOSS').length;
+      const winRate = pct(wins, wins + losses);
+      const direction: RegimeConditionDirection =
+        samples < 30 ? 'INSUFFICIENT_SAMPLE'
+          : effect === 'N/A' ? 'NOISE'
+            : avgReturnR > 0 && winRate >= pct(closed.filter((c) => c.outcomeLabel === 'WIN').length, closed.filter((c) => c.outcomeLabel === 'WIN' || c.outcomeLabel === 'LOSS').length) ? 'ALPHA_DRIVER'
+              : avgReturnR >= 0 && effect > 0 ? 'RISK_PROTECTOR'
+                : avgReturnR < 0 && samples >= 30 ? 'FALSE_COMFORT'
+                  : 'NOISE';
+      const confidence = samples < 30 ? 'LOW_SAMPLE' as const : samples < 70 ? 'LOW_CONFIDENCE' as const : 'ENOUGH_FOR_REVIEW' as const;
       return {
         conditionId,
+        conditionName: conditionId.replace(/^condition:/, ''),
         regimePhase,
         samples,
-        effect: avgReturnR,
+        highSamples,
+        lowSamples,
+        winRate,
+        expectancyR: avgReturnR,
+        effect,
         avgReturnR,
-        confidence: samples < 30 ? 'LOW_SAMPLE' as const : samples < 70 ? 'WATCHING' as const : 'ENOUGH_FOR_REVIEW' as const,
+        confidence,
         minSamplePassed: samples >= 30,
         overfitFlag: samples < 30,
-        recommendation: samples < 30 ? 'LOW_SAMPLE_NO_WEIGHT_UPDATE' : samples < 70 ? 'NO_WEIGHT_UPDATE_RECOMMENDATION_ONLY' : 'recommendationOnly',
+        direction,
+        recommendation: samples < 30
+          ? 'INSUFFICIENT_SAMPLE_NO_WEIGHT_UPDATE'
+          : samples < 70
+            ? 'LOW_CONFIDENCE_NO_WEIGHT_UPDATE_RECOMMENDATION_ONLY'
+            : 'recommendationOnly',
       };
     })
-    .filter((r) => positive ? r.avgReturnR >= 0 : r.avgReturnR < 0)
-    .sort((a, b) => positive ? b.avgReturnR - a.avgReturnR : a.avgReturnR - b.avgReturnR)
-    .slice(0, 5);
+    .sort((a, b) => b.samples - a.samples || b.avgReturnR - a.avgReturnR);
 }
 
 function cfLabel(e: RegimeCounterfactualEntry): string {
@@ -354,6 +480,7 @@ function buildStatsForPhase(
   const cfLabels = new Map<string, number>(CF_LABELS.map((label) => [label, 0]));
   const timeWindowGroups = new Map<string, ShadowCase[]>();
   const marketSessionGroups = new Map<string, ShadowCase[]>();
+  const sourceConfidenceBreakdown: Record<string, number> = {};
 
   for (const c of cases) {
     const sector = c.sectorTag ?? 'UNKNOWN';
@@ -366,25 +493,57 @@ function buildStatsForPhase(
       const reason = c.blockedReason ?? c.learningTag ?? 'UNKNOWN';
       failureReasons.set(reason, (failureReasons.get(reason) ?? 0) + 1);
     }
+    sourceConfidenceBreakdown[sourceConfidenceOfCase(c)] = (sourceConfidenceBreakdown[sourceConfidenceOfCase(c)] ?? 0) + 1;
   }
   for (const e of counterfactuals) {
     const label = cfLabel(e);
     cfLabels.set(label, (cfLabels.get(label) ?? 0) + 1);
     for (const b of e.blockedBy ?? []) failureReasons.set(b, (failureReasons.get(b) ?? 0) + 1);
+    sourceConfidenceBreakdown[sourceConfidenceOfCounterfactual(e)] = (sourceConfidenceBreakdown[sourceConfidenceOfCounterfactual(e)] ?? 0) + 1;
   }
 
   const allSectors = [...sectorGroups.entries()]
     .map(([sector, rows]) => ({ sector, samples: rows.length, expectancyR: round(avg(rows.map(returnR))) }))
     .sort((a, b) => b.expectancyR - a.expectancyR || b.samples - a.samples);
   const sortedReturns = [...closed].sort((a, b) => returnR(b) - returnR(a));
-  const topPositiveConditions = buildConditionAttribution(regimePhase, closed, true);
-  const topNegativeConditions = buildConditionAttribution(regimePhase, closed, false);
+  const conditionAttributions = buildConditionAttribution(regimePhase, cases);
+  const topPositiveConditions = conditionAttributions
+    .filter((c) => c.avgReturnR >= 0 && c.direction !== 'INSUFFICIENT_SAMPLE')
+    .sort((a, b) => b.expectancyR - a.expectancyR || b.samples - a.samples)
+    .slice(0, 5);
+  const topNegativeConditions = conditionAttributions
+    .filter((c) => c.avgReturnR < 0 && c.direction !== 'INSUFFICIENT_SAMPLE')
+    .sort((a, b) => a.expectancyR - b.expectancyR || b.samples - a.samples)
+    .slice(0, 5);
+  const lowSampleConditions = conditionAttributions.filter((c) => c.direction === 'INSUFFICIENT_SAMPLE').slice(0, 10);
+  const unstableConditions = conditionAttributions.filter((c) => c.confidence === 'LOW_CONFIDENCE' || c.overfitFlag).slice(0, 10);
   const closedOrLabeledCount = closed.length + counterfactuals.filter((e) => cfLabel(e) !== 'PENDING_OUTCOME').length;
   const sampleSize = cases.length + counterfactuals.length;
   const overfitRisk: OverfitRisk = sampleSize < 30 ? 'HIGH' : sampleSize < 70 ? 'MEDIUM' : 'LOW';
   const labelCompletionRate = pct(closedOrLabeledCount, sampleSize);
-  const dataQualityScore = round(avg(cases.map(scoreDataQuality)));
-  const status = qualityStatus({ sampleSize, labelCompletionRate, dataQualityScore, overfitRisk });
+  const dataQualityScore = cases.length > 0 ? round(avg(cases.map(scoreDataQuality))) : 1;
+  const highConfidenceCount = (sourceConfidenceBreakdown.HIGH ?? 0);
+  const sourceConfidenceHighRatio = pct(highConfidenceCount, sampleSize);
+  const unknownConfidenceCount = (sourceConfidenceBreakdown.UNKNOWN ?? 0);
+  const unknownRatio = pct(unknownConfidenceCount, sampleSize);
+  const conditionCoverage = pct(conditionAttributions.length, Math.max(sampleSize, 1));
+  const counterfactualCoverage = pct(counterfactuals.length + cases.filter((c) => c.cohortType === 'COUNTERFACTUAL_BLOCKED' || c.counterfactualRecorded).length, sampleSize);
+  const freshShadowCoverage = pct(cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length, sampleSize);
+  const status = qualityStatus({ sampleSize, labelCompletionRate, dataQualityScore, sourceConfidenceHighRatio, overfitRisk });
+  const quality: RegimeLearningQuality = {
+    regimePhase,
+    sampleSize,
+    closedSampleCount: closed.length,
+    labelCompletionRate,
+    sourceConfidenceHighRatio,
+    unknownRatio,
+    dataQualityScore,
+    conditionCoverage,
+    counterfactualCoverage,
+    freshShadowCoverage,
+    overfitRisk,
+    qualityStatus: status,
+  };
   const bestTimeWindow = [...timeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
   const worstTimeWindow = [...timeWindowGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => a.value - b.value)[0]?.key;
   const bestMarketSession = [...marketSessionGroups.entries()].map(([key, rows]) => ({ key, value: avg(rows.map(returnR)) })).sort((a, b) => b.value - a.value)[0]?.key;
@@ -394,6 +553,19 @@ function buildStatsForPhase(
   const worstSector = allSectors.at(-1)?.sector;
   const bestPattern = patternText(regimePhase, 'best', bestConditionCombo, bestSector);
   const worstPattern = patternText(regimePhase, 'worst', worstConditionCombo, worstSector);
+  const familyStats = (rows: ShadowCase[], extraSampleSize = 0): RegimeSourceFamilyStats => {
+    const familyClosed = rows.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
+    return {
+      sampleSize: rows.length + extraSampleSize,
+      closedCount: familyClosed.length,
+      expectancyR: round(avg(familyClosed.map(returnR))),
+    };
+  };
+  const freshRows = cases.filter((c) => c.cohortType === 'FRESH_SHADOW');
+  const ghostRows = cases.filter((c) => c.cohortType === 'GHOST_REPAIR');
+  const counterfactualRows = cases.filter((c) => c.cohortType === 'COUNTERFACTUAL_BLOCKED' || c.counterfactualRecorded);
+  const outcomeRows = cases.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
+  const attributionRows = cases.filter((c) => c.cohortType === 'BACKLOG_REPAIR' && c.caseId.startsWith('trade:'));
 
   return {
     regimePhase,
@@ -413,8 +585,14 @@ function buildStatsForPhase(
     avgHoldingMinutes: round(avg(closed.map((c) => c.holdingMinutes ?? 0)), 2),
     labelCompletionRate,
     dataQualityScore,
+    sourceConfidenceHighRatio,
+    unknownRatio,
+    conditionCoverage,
+    counterfactualCoverage,
+    freshShadowCoverage,
     overfitRisk,
     qualityStatus: status,
+    quality,
     promotionStage: sampleSize >= 30 && labelCompletionRate > 0 ? 'ADVISORY' : 'SHADOW_SCORE',
     promotionAllowed: false,
     diagnosticOnly: true,
@@ -426,7 +604,11 @@ function buildStatsForPhase(
     topSector: allSectors[0]?.sector,
     topPositiveConditions,
     topNegativeConditions,
+    lowSampleConditions,
+    unstableConditions,
+    conditionAttributions,
     topSectors: allSectors.slice(0, 5),
+    worstSectors: [...allSectors].reverse().slice(0, 5),
     bestSymbols: sortedReturns.slice(0, 5).map((c) => ({ symbol: c.symbol, name: c.symbolName, returnR: round(returnR(c)) })),
     worstSymbols: sortedReturns.slice(-5).reverse().map((c) => ({ symbol: c.symbol, name: c.symbolName, returnR: round(returnR(c)) })),
     commonFailureReasons: freqTop(failureReasons).map(({ key, count }) => ({ reason: key, count })),
@@ -440,11 +622,29 @@ function buildStatsForPhase(
     bestMarketSession,
     commonFailureReason: freqTop(failureReasons, 1)[0]?.key,
     survivorPattern: regimePhase === 'R6_DEFENSE' ? bestPattern : undefined,
+    earlyLeaderPattern: regimePhase === 'R2_EARLY' ? bestPattern : undefined,
+    volumeAccumulationPattern: regimePhase === 'R2_EARLY' ? `${bestConditionCombo ?? bestSector ?? 'N/A'} + volume accumulation` : undefined,
+    firstBreakoutPattern: regimePhase === 'R2_EARLY' ? `${bestConditionCombo ?? 'N/A'} + first breakout` : undefined,
+    falseStartRisk: regimePhase === 'R2_EARLY' ? worstPattern : undefined,
+    trendContinuationPattern: regimePhase === 'R3_EXPANSION' ? bestPattern : undefined,
+    vcpBreakoutPattern: regimePhase === 'R3_EXPANSION' ? `${bestConditionCombo ?? 'N/A'} + VCP breakout` : undefined,
+    pullbackBuyPattern: regimePhase === 'R3_EXPANSION' ? `${bestSector ?? 'N/A'} pullback confirmation` : undefined,
+    overheatBreakoutRisk: regimePhase === 'R3_EXPANSION' ? worstPattern : undefined,
     breakoutPattern: regimePhase === 'R3_EXPANSION' ? bestPattern : undefined,
     reversalPattern: regimePhase === 'R1_RECOVERY' ? bestPattern : undefined,
     chopAvoidancePattern: regimePhase === 'R4_NEUTRAL' ? bestPattern : undefined,
+    drawdownDefensePattern: regimePhase === 'R6_DEFENSE' ? `${bestSector ?? 'N/A'} relative drawdown defense` : undefined,
+    recoverySpeedPattern: regimePhase === 'R6_DEFENSE' ? `${bestConditionCombo ?? 'N/A'} next-session recovery` : undefined,
+    supplyRetentionPattern: regimePhase === 'R6_DEFENSE' ? `${bestConditionCombo ?? bestSector ?? 'N/A'} supply retention` : undefined,
+    deadCatBounceRisk: regimePhase === 'R6_DEFENSE' ? worstPattern : undefined,
+    sourceConfidenceBreakdown,
+    freshShadowStats: familyStats(freshRows),
+    ghostRepairStats: familyStats(ghostRows),
+    counterfactualStats: familyStats(counterfactualRows, counterfactuals.length),
+    outcomeStats: familyStats(outcomeRows),
+    attributionStats: familyStats(attributionRows),
     nextLearningNeed: sampleSize < 30 ? 'LOW_SAMPLE' : closed.length === 0 ? 'NEEDS_OUTCOME_LABELS' : 'OBSERVE_AND_COMPARE',
-    blocker: status === 'STABLE' ? undefined : status,
+    blocker: status === 'STABLE_CANDIDATE' ? undefined : status,
   };
 }
 
@@ -492,6 +692,7 @@ function shadowFromGhost(g: LearningGhostCase): ShadowCase {
     rawRegime: g.rawRegime ?? (g as LearningGhostCase & { regime?: string }).regime,
     effectiveRegime: g.effectiveRegime ?? (g as LearningGhostCase & { regime?: string }).regime,
     regimePhase: g.regimePhase,
+    originalRegimePhase: g.originalRegimePhase,
     regimeAtSignal: g.regimeAtSignal,
     regimeAtEntry: g.regimeAtEntry,
     regimeAtExit: g.regimeAtExit,
@@ -501,7 +702,8 @@ function shadowFromGhost(g: LearningGhostCase): ShadowCase {
     hardBlockActive: g.hardBlockActive,
     sourceFreshness: g.sourceFreshness,
     conditionTags,
-    sourceConfidence: g.regimeRecoveryConfidence === 'UNKNOWN' ? 'UNKNOWN' : 'CALCULATED',
+    conditionScores: Object.fromEntries(Object.entries(g.conditionScores ?? {}).map(([k, v]) => [String(k), v])),
+    sourceConfidence: g.regimeRecoveryConfidence === 'UNKNOWN' ? 'UNKNOWN' : g.regimeRecoveryConfidence === 'LOW' ? 'FALLBACK' : 'CALCULATED',
     createdAt: detectedAt,
     updatedAt: g.lastUpdatedAt ?? g.closedAt ?? detectedAt,
     cohortType: cohortForShadowCase(inferLearningCohort(g)),
@@ -536,6 +738,7 @@ function shadowFromAttribution(r: ServerAttributionRecord): ShadowCase {
     rawRegime: r.rawRegime ?? r.entryRegime,
     effectiveRegime: r.effectiveRegime ?? r.entryRegime,
     regimePhase: r.regimePhase,
+    originalRegimePhase: r.originalRegimePhase,
     regimeAtSignal: r.regimeAtSignal,
     regimeAtEntry: r.regimeAtEntry,
     regimeAtExit: r.regimeAtExit,
@@ -545,7 +748,8 @@ function shadowFromAttribution(r: ServerAttributionRecord): ShadowCase {
     hardBlockActive: r.hardBlockActive,
     sourceFreshness: r.sourceFreshness,
     conditionTags,
-    sourceConfidence: r.regimeRecoveryConfidence === 'UNKNOWN' ? 'UNKNOWN' : 'CALCULATED',
+    conditionScores: Object.fromEntries(Object.entries(r.conditionScores ?? {}).map(([k, v]) => [String(k), v])),
+    sourceConfidence: r.regimeRecoveryConfidence === 'UNKNOWN' ? 'UNKNOWN' : r.regimeRecoveryConfidence === 'LOW' ? 'FALLBACK' : 'CALCULATED',
     createdAt: r.closedAt,
     updatedAt: r.closedAt,
     cohortType: 'BACKLOG_REPAIR',
@@ -564,6 +768,7 @@ function legacyCounterfactual(e: CounterfactualEntry): RegimeCounterfactualEntry
     rawRegime: e.rawRegime,
     effectiveRegime: e.effectiveRegime,
     regimePhase: e.regimePhase,
+    originalRegimePhase: e.originalRegimePhase,
     regimeAtSignal: e.regimeAtSignal,
     engineMode: e.engineMode,
     marketSession: e.marketSession,
@@ -574,6 +779,8 @@ function legacyCounterfactual(e: CounterfactualEntry): RegimeCounterfactualEntry
     blockedBy: [e.blockedReason ?? e.skipReason].filter(Boolean) as string[],
     outcomeLabel: e.outcomeLabel,
     outcomeStatus: e.outcomeStatus,
+    regimeRecoveryConfidence: e.regimeRecoveryConfidence,
+    regimeRecoverySource: e.regimeRecoverySource,
   };
 }
 
@@ -654,6 +861,16 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const regimeLearningSampleSize = stats.reduce((sum, row) => sum + row.sampleSize, 0);
   const unknownRegimeCount = stats.find((row) => row.regimePhase === 'UNKNOWN')?.sampleSize ?? 0;
   const regimeAssignedCount = regimeLearningSampleSize - unknownRegimeCount;
+  const unknownRatio = pct(unknownRegimeCount, regimeLearningSampleSize);
+  const byConfidence = stats.reduce<Record<string, number>>((acc, row) => {
+    for (const [key, count] of Object.entries(row.sourceConfidenceBreakdown)) {
+      acc[key] = (acc[key] ?? 0) + count;
+    }
+    return acc;
+  }, {});
+  const r2 = stats.find((row) => row.regimePhase === 'R2_EARLY') ?? buildStatsForPhase('R2_EARLY', [], []);
+  const r3 = stats.find((row) => row.regimePhase === 'R3_EXPANSION') ?? buildStatsForPhase('R3_EXPANSION', [], []);
+  const r6 = stats.find((row) => row.regimePhase === 'R6_DEFENSE') ?? buildStatsForPhase('R6_DEFENSE', [], []);
   const sourceCounts = {
     freshShadow: cases.filter((c) => c.cohortType === 'FRESH_SHADOW').length,
     ghostRepair: cases.filter((c) => c.cohortType === 'GHOST_REPAIR').length,
@@ -674,15 +891,21 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     activeRegimePhase: activeContext.regimePhase,
     activeRegimeSampleSize: active.sampleSize,
     activeRegimeExpectancyR: active.expectancyR,
-    activeRegimeTopPattern: active.bestConditionCombo ?? active.topSector ?? 'N/A',
+    activeRegimeTopPattern: active.bestPattern ?? active.bestConditionCombo ?? active.topSector ?? 'N/A',
     activeRegimeLearningNeed: active.nextLearningNeed,
     regimeLearningSampleSize,
     regimeAssignedCount,
     unknownRegimeCount,
+    unknownRatio,
     activeRegimeQualityStatus: active.qualityStatus,
     regimeBankConsistency: phaseSum === regimeLearningSampleSize ? 'OK' : 'MISMATCH',
     duplicateCaseCount,
     sourceCounts,
+    byConfidence,
+    R2QualityStatus: r2.qualityStatus,
+    R3QualityStatus: r3.qualityStatus,
+    R6QualityStatus: r6.qualityStatus,
+    unknownReductionNeeded: unknownRegimeCount > 0,
     recommendationOnly: true,
     promotionAllowed: false,
     executionImpact: 'NONE',
@@ -693,19 +916,35 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
 export function collectRegimeLearningConsistency(bank: RegimeLearningBank = collectRegimeLearningBank()): RegimeLearningConsistency {
   const regimeBankSampleCount = bank.stats.reduce((sum, row) => sum + row.sampleSize, 0);
   const regimeSumMatchesTotal = regimeBankSampleCount === bank.regimeLearningSampleSize;
+  const byRegime = Object.fromEntries(bank.stats.map((row) => [row.regimePhase, row.sampleSize]));
   const metricWarnings = regimeSumMatchesTotal ? [] : ['REGIME_BANK_SAMPLE_SUM_MISMATCH'];
-  if (bank.duplicateCaseCount > 0) metricWarnings.push(`DUPLICATE_CASES_SUPPRESSED:${bank.duplicateCaseCount}`);
+  if (bank.unknownRatio >= 0.25) metricWarnings.push('UNKNOWN_RATIO_HIGH');
+  if ((bank.byConfidence.LOW ?? 0) + (bank.byConfidence.UNKNOWN ?? 0) > 0) metricWarnings.push('LOW_CONFIDENCE_REGIME_BACKFILL');
+  if (bank.duplicateCaseCount > 0) metricWarnings.push('REGIME_SAMPLE_DUPLICATION_SUSPECT');
+  if (bank.sourceCounts.freshShadow === 0) metricWarnings.push('FRESH_SHADOW_ZERO');
+  const r6 = bank.stats.find((row) => row.regimePhase === 'R6_DEFENSE');
+  if (r6 && r6.sampleSize > 0 && r6.sampleSize < 30) metricWarnings.push('R6_LOW_SAMPLE');
+  const nextAction = bank.unknownRatio >= 0.25
+    ? 'RUN_REGIME_UNKNOWN_ANALYSIS'
+    : r6 && r6.sampleSize < 30
+      ? 'COLLECT_R6_SURVIVOR_SAMPLES'
+      : 'OBSERVE_DIAGNOSTIC_ONLY';
   return {
     totalLearningCases: bank.regimeLearningSampleSize,
     regimeAssignedCount: bank.regimeAssignedCount,
     unknownRegimeCount: bank.unknownRegimeCount,
+    unknownRatio: bank.unknownRatio,
     regimeBankSampleCount,
     ghostRepairCountInBank: bank.sourceCounts.ghostRepair,
     counterfactualCountInBank: bank.sourceCounts.counterfactual,
     outcomeCountInBank: bank.sourceCounts.outcome,
+    attributionCountInBank: bank.sourceCounts.attribution,
     duplicateCaseCount: bank.duplicateCaseCount,
     regimeSumMatchesTotal,
+    byRegime,
+    byConfidence: bank.byConfidence,
     metricWarnings,
+    nextAction,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
     promotionAllowed: false,
@@ -724,7 +963,7 @@ export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRe
       reasonCodes: ['REGIME_LEARNING_DIAGNOSTIC'],
     })),
     `shadowLearningAllowed=${bank.shadowLearningAllowed} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed} executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated}`,
-    `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} regimeBankConsistency=${bank.regimeBankConsistency}`,
+    `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} unknownRatio=${bank.unknownRatio} regimeBankConsistency=${bank.regimeBankConsistency}`,
     ...rows.map((s) => `${s.regimePhase}: sample=${s.sampleSize} fresh=${s.freshShadowCount} ghostRepair=${s.ghostRepairCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${s.expectancyR} labelCompletionRate=${s.labelCompletionRate} dataQualityScore=${s.dataQualityScore} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),
   ].join('\n');
 }
@@ -744,13 +983,32 @@ export function formatRegimeLearningDetail(regime: string, bank: RegimeLearningB
     `winRate=${round(s.winRate * 100, 1)}%`,
     `avgReturnR=${s.avgReturnR}`,
     `qualityStatus=${s.qualityStatus}`,
+    `sourceConfidenceBreakdown=${JSON.stringify(s.sourceConfidenceBreakdown)}`,
     `promotionStage=${s.promotionStage}`,
-    `topPositiveConditions=${s.topPositiveConditions.map((c) => `${c.conditionId}:${c.avgReturnR}:${c.confidence}`).join(',') || 'N/A'}`,
-    `topNegativeConditions=${s.topNegativeConditions.map((c) => `${c.conditionId}:${c.avgReturnR}:${c.confidence}`).join(',') || 'N/A'}`,
+    `topPositiveConditions=${s.topPositiveConditions.map((c) => `${c.conditionId}:${c.expectancyR}:${c.direction}:${c.confidence}`).join(',') || 'N/A'}`,
+    `topNegativeConditions=${s.topNegativeConditions.map((c) => `${c.conditionId}:${c.expectancyR}:${c.direction}:${c.confidence}`).join(',') || 'N/A'}`,
+    `lowSampleConditions=${s.lowSampleConditions.map((c) => `${c.conditionId}:${c.samples}`).join(',') || 'N/A'}`,
+    `unstableConditions=${s.unstableConditions.map((c) => `${c.conditionId}:${c.confidence}`).join(',') || 'N/A'}`,
     `topSectors=${s.topSectors.map((x) => `${x.sector}:${x.expectancyR}`).join(',') || 'N/A'}`,
+    `worstSectors=${s.worstSectors.map((x) => `${x.sector}:${x.expectancyR}`).join(',') || 'N/A'}`,
+    `bestTimeWindow=${s.bestTimeWindow ?? 'N/A'}`,
+    `worstTimeWindow=${s.worstTimeWindow ?? 'N/A'}`,
+    `bestMarketSession=${s.bestMarketSession ?? 'N/A'}`,
     `bestPattern=${s.bestPattern ?? 'N/A'}`,
     `worstPattern=${s.worstPattern ?? 'N/A'}`,
+    `earlyLeaderPattern=${s.earlyLeaderPattern ?? 'N/A'}`,
+    `volumeAccumulationPattern=${s.volumeAccumulationPattern ?? 'N/A'}`,
+    `firstBreakoutPattern=${s.firstBreakoutPattern ?? 'N/A'}`,
+    `falseStartRisk=${s.falseStartRisk ?? 'N/A'}`,
+    `trendContinuationPattern=${s.trendContinuationPattern ?? 'N/A'}`,
+    `vcpBreakoutPattern=${s.vcpBreakoutPattern ?? 'N/A'}`,
+    `pullbackBuyPattern=${s.pullbackBuyPattern ?? 'N/A'}`,
+    `overheatBreakoutRisk=${s.overheatBreakoutRisk ?? 'N/A'}`,
     `survivorPattern=${s.survivorPattern ?? 'N/A'}`,
+    `drawdownDefensePattern=${s.drawdownDefensePattern ?? 'N/A'}`,
+    `recoverySpeedPattern=${s.recoverySpeedPattern ?? 'N/A'}`,
+    `supplyRetentionPattern=${s.supplyRetentionPattern ?? 'N/A'}`,
+    `deadCatBounceRisk=${s.deadCatBounceRisk ?? 'N/A'}`,
     `breakoutPattern=${s.breakoutPattern ?? 'N/A'}`,
     `reversalPattern=${s.reversalPattern ?? 'N/A'}`,
     `chopAvoidancePattern=${s.chopAvoidancePattern ?? 'N/A'}`,
@@ -763,12 +1021,45 @@ export function formatRegimeLearningDetail(regime: string, bank: RegimeLearningB
   ].join('\n');
 }
 
+export function formatRegimeConditionAttribution(regime?: string, bank: RegimeLearningBank = collectRegimeLearningBank()): string {
+  const phase = regime ? deriveRegimePhase({ regimePhase: regime, effectiveRegime: regime }) : undefined;
+  const rows = bank.stats
+    .filter((stat) => !phase || stat.regimePhase === phase)
+    .flatMap((stat) => stat.conditionAttributions.map((condition) => ({ stat, condition })))
+    .sort((a, b) => b.condition.samples - a.condition.samples || b.condition.expectancyR - a.condition.expectancyR)
+    .slice(0, phase ? 30 : 60);
+  return [
+    `<b>[Regime Condition Attribution${phase ? `: ${phase}` : ''}]</b>`,
+    ...rows.map(({ condition }) => [
+      `regimePhase=${condition.regimePhase}`,
+      `conditionId=${condition.conditionId}`,
+      `conditionName=${condition.conditionName}`,
+      `samples=${condition.samples}`,
+      `highSamples=${condition.highSamples}`,
+      `lowSamples=${condition.lowSamples}`,
+      `expectancyR=${condition.expectancyR}`,
+      `winRate=${round(condition.winRate * 100, 1)}%`,
+      `effect=${condition.effect}`,
+      `direction=${condition.direction}`,
+      `confidence=${condition.confidence}`,
+      `minSamplePassed=${condition.minSamplePassed}`,
+      `overfitFlag=${condition.overfitFlag}`,
+      `recommendation=${condition.recommendation}`,
+    ].join(' / ')),
+    'recommendationOnly=true',
+    'promotionAllowed=false',
+  ].join('\n');
+}
+
 export function formatRegimeLearningConsistency(s: RegimeLearningConsistency = collectRegimeLearningConsistency()): string {
   return [
     '<b>[Regime Learning Consistency]</b>',
-    `totalLearningCases=${s.totalLearningCases} regimeAssignedCount=${s.regimeAssignedCount} unknownRegimeCount=${s.unknownRegimeCount}`,
-    `regimeBankSampleCount=${s.regimeBankSampleCount} ghostRepairCountInBank=${s.ghostRepairCountInBank} counterfactualCountInBank=${s.counterfactualCountInBank} outcomeCountInBank=${s.outcomeCountInBank}`,
-    `duplicateCaseCount=${s.duplicateCaseCount} regimeSumMatchesTotal=${s.regimeSumMatchesTotal} metricWarnings=${JSON.stringify(s.metricWarnings)}`,
+    `totalLearningCases=${s.totalLearningCases} regimeAssignedCount=${s.regimeAssignedCount} unknownRegimeCount=${s.unknownRegimeCount} unknownRatio=${s.unknownRatio}`,
+    `regimeBankSampleCount=${s.regimeBankSampleCount} ghostRepairCountInBank=${s.ghostRepairCountInBank} counterfactualCountInBank=${s.counterfactualCountInBank} outcomeCountInBank=${s.outcomeCountInBank} attributionCountInBank=${s.attributionCountInBank}`,
+    `duplicateCaseCount=${s.duplicateCaseCount} regimeSumMatchesTotal=${s.regimeSumMatchesTotal}`,
+    `byRegime=${JSON.stringify(s.byRegime)}`,
+    `byConfidence=${JSON.stringify(s.byConfidence)}`,
+    `metricWarnings=${JSON.stringify(s.metricWarnings)} nextAction=${s.nextAction}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');
 }

@@ -2,6 +2,7 @@
 import {
   collectRegimeLearningBank,
   collectRegimeLearningConsistency,
+  formatRegimeConditionAttribution,
   formatRegimeLearningConsistency,
   formatRegimeLearningDetail,
   formatRegimeLearningSummary,
@@ -9,8 +10,13 @@ import {
 import {
   formatRegimeLearningBackfillDryRun,
   formatRegimeLearningBackfillRun,
+  formatRegimeUnknownAnalysis,
+  formatRegimeUnknownRepair,
   regimeLearningBackfillDryRun,
   regimeLearningBackfillRun,
+  regimeUnknownAnalysis,
+  regimeUnknownRepairDryRun,
+  regimeUnknownRepairRun,
 } from '../../../learning/regimeLearningBackfill.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -72,16 +78,69 @@ const regimeLearningConsistency: TelegramCommand = {
   },
 };
 
+const regimeUnknownAnalysisCmd: TelegramCommand = {
+  name: '/regime_unknown_analysis',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Analyze UNKNOWN regime learning samples and recovery blockers',
+  async execute({ reply }) {
+    await reply(formatRegimeUnknownAnalysis(regimeUnknownAnalysis()));
+  },
+};
+
+const regimeUnknownRepairDryrunCmd: TelegramCommand = {
+  name: '/regime_unknown_repair_dryrun',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Dry-run UNKNOWN regime low-confidence repair',
+  async execute({ reply }) {
+    await reply(formatRegimeUnknownRepair(regimeUnknownRepairDryRun(), 'dryrun'));
+  },
+};
+
+const regimeUnknownRepairRunCmd: TelegramCommand = {
+  name: '/regime_unknown_repair_run',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Run UNKNOWN regime repair executionImpact=NONE',
+  async execute({ reply }) {
+    await reply(formatRegimeUnknownRepair(regimeUnknownRepairRun(), 'run'));
+  },
+};
+
+const regimeConditionAttribution: TelegramCommand = {
+  name: '/regime_condition_attribution',
+  category: 'LRN',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'Regime-specific condition attribution diagnostics',
+  usage: '/regime_condition_attribution [regime]',
+  async execute({ args, reply }) {
+    await reply(formatRegimeConditionAttribution(args[0], collectRegimeLearningBank()));
+  },
+};
+
 commandRegistry.register(regimeLearning);
 commandRegistry.register(regimeLearningDetail);
 commandRegistry.register(regimeLearningBackfillDryrun);
 commandRegistry.register(regimeLearningBackfillRunCmd);
 commandRegistry.register(regimeLearningConsistency);
+commandRegistry.register(regimeUnknownAnalysisCmd);
+commandRegistry.register(regimeUnknownRepairDryrunCmd);
+commandRegistry.register(regimeUnknownRepairRunCmd);
+commandRegistry.register(regimeConditionAttribution);
 
 export {
   regimeLearningBackfillDryrun,
   regimeLearningBackfillRunCmd,
+  regimeConditionAttribution,
   regimeLearningConsistency,
   regimeLearningDetail,
+  regimeUnknownAnalysisCmd,
+  regimeUnknownRepairDryrunCmd,
+  regimeUnknownRepairRunCmd,
 };
 export default regimeLearning;

@@ -55,6 +55,7 @@ export interface ShadowCase {
   rawRegime?: string;
   effectiveRegime?: string;
   regimePhase?: RegimePhase;
+  originalRegimePhase?: RegimePhase;
   regimeAtSignal?: RegimePhase | string;
   regimeAtEntry?: RegimePhase | string;
   regimeAtExit?: RegimePhase | string;
@@ -69,6 +70,7 @@ export interface ShadowCase {
   regimeRecoveryConfidence?: RegimeRecoveryConfidence;
   regimeRecoveredAt?: string;
   conditionTags?: string[];
+  conditionScores?: Record<string, number>;
   timeWindowTag?: string;
   sectorTag?: string;
   sourceConfidence: SourceConfidence;
