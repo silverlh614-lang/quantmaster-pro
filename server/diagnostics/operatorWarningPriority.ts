@@ -100,6 +100,48 @@ const WARNING_DEFINITIONS: readonly OperatorWarningDefinition[] = Object.freeze(
     action: 'Review entry caution flags before approving a new buy candidate.',
     reason: 'Enemy checklist warnings are pre-entry risk signals and should outrank diagnostic-only warnings.',
   },
+  {
+    codes: [
+      'PRICE_WARN',
+      'PRICE_SOURCE_WARN',
+      'DATA_QUALITY_WARN',
+      'KIS_YAHOO_DISCREPANCY_WARN',
+    ],
+    priorityRank: 2,
+    domain: 'PRICE_DATA',
+    urgency: 'DATA_TRUST_REVIEW',
+    action: 'Verify the canonical price source before relying on lower-priority diagnostics.',
+    reason: 'Price-source WARN items can still allow execution, but stale or divergent data can distort sizing and entry context.',
+  },
+  {
+    codes: [
+      'WARN_DRIFT',
+      'PRICE_DRIFT_WARN',
+      'SAFE_PCT_CHANGE_WARN_DRIFT',
+    ],
+    priorityRank: 2,
+    domain: 'PRICE_DATA',
+    urgency: 'DATA_TRUST_REVIEW',
+    action: 'Check for stale base price, corporate action, or source mismatch before interpreting the move.',
+    reason: 'A WARN drift is still valid data, but it is close to INVALID drift territory.',
+  },
+  {
+    codes: [
+      'KRX_READINESS_WARN',
+      'MACRO_STALE',
+      'MACRO_UNKNOWN',
+      'YAHOO_READINESS_WARN',
+      'SCAN_READINESS_DATA_WARN',
+      'FRESH_DATA_PARTIAL',
+      'MISSING_DATA_PRESERVED',
+      'STALE_DATA_DOWNGRADED',
+    ],
+    priorityRank: 2,
+    domain: 'PRICE_DATA',
+    urgency: 'DATA_TRUST_REVIEW',
+    action: 'Refresh or inspect the affected provider before treating market-direction diagnostics as reliable.',
+    reason: 'Provider freshness and readiness warnings can contaminate downstream market interpretation if left unresolved.',
+  },
 ]);
 
 const FALLBACK_DEFINITION: OperatorWarningDefinition = Object.freeze({

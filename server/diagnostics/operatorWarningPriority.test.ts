@@ -39,6 +39,34 @@ describe('operator warning priority taxonomy', () => {
     expect(sorted[2].priorityRank).toBe(5);
   });
 
+  it('classifies price and data quality warnings as priority 2', () => {
+    expect(classifyOperatorWarning({ code: 'PRICE_WARN' })).toMatchObject({
+      priorityRank: 2,
+      domain: 'PRICE_DATA',
+      urgency: 'DATA_TRUST_REVIEW',
+    });
+
+    expect(classifyOperatorWarning({ code: 'warn-drift' })).toMatchObject({
+      normalizedCode: 'WARN_DRIFT',
+      priorityRank: 2,
+      domain: 'PRICE_DATA',
+    });
+  });
+
+  it('keeps order-flow warnings above data-trust warnings', () => {
+    const sorted = sortOperatorWarnings([
+      { code: 'MACRO_STALE', count: 10 },
+      { code: 'PENDING_APPROVALS', count: 1 },
+      { code: 'UNKNOWN_LOW_TOUCH', count: 99 },
+    ]);
+
+    expect(sorted.map((warning) => `${warning.priorityRank}:${warning.normalizedCode}`)).toEqual([
+      '1:PENDING_APPROVALS',
+      '2:MACRO_STALE',
+      '5:UNKNOWN_LOW_TOUCH',
+    ]);
+  });
+
   it('formats a compact read-only queue for operator surfaces', () => {
     const text = formatOperatorWarningQueue([
       { code: 'ENEMY_CHECKLIST_CAUTION', source: 'enemyChecklist', count: 1 },
