@@ -58,6 +58,9 @@ export interface NormalSupplyPreviewCandidate {
   shadowTracking: boolean;
   foreignNetBuyAmount?: number;
   institutionNetBuyAmount?: number;
+  stockProgramNetBuyAmount?: number;
+  stockProgramNetBuy?: number;
+  programNetBuy?: number;
   programNetBuyAmount?: number;
   nonProgramNetBuyAmount?: number;
   programFlow?: ProgramFlowDiagnostic;
