@@ -38,6 +38,18 @@ function withPolicyDetails(payload: OperationalWarnPayload): OperationalWarnPayl
   return payload;
 }
 
+export function classifyOperationalWarnLogLevel(payload: OperationalWarnPayload): 'info' | 'warn' | 'error' {
+  if (payload.executionImpact === 'REGIME_DISPLAY_CONFLICT') return 'error';
+  if (payload.executionImpact === 'NONE') {
+    const details = payload.details ?? {};
+    if (details.marketSignal === false || details.reason === 'providerIssue=true marketSignal=false') return 'info';
+    return 'info';
+  }
+  if (payload.executionImpact === 'NEW_BUY_BLOCKED_ONLY') return 'warn';
+  if (payload.code === 'P1_MACRO_STATE_STALE' || payload.code === 'P1_MACRO_REFRESH_JOB_STALLED') return 'warn';
+  return 'warn';
+}
+
 function formatWarnLine(payload: OperationalWarnPayload): string {
   const parts = [
     `[${payload.priority}][${payload.domain}][${payload.code}]`,
@@ -70,7 +82,8 @@ export function emitOperationalWarn(input: OperationalWarnPayload): OperationalW
 
   recordOperationalWarnCount(payload.priority);
   if (shouldPrintRuntime(payload.priority)) {
-    console.warn(formatWarnLine(payload), {
+    const logLevel = classifyOperationalWarnLogLevel(payload);
+    console[logLevel](formatWarnLine(payload), {
       priority: payload.priority,
       domain: payload.domain,
       code: payload.code,
@@ -82,6 +95,7 @@ export function emitOperationalWarn(input: OperationalWarnPayload): OperationalW
       ttlSec: payload.ttlSec,
       details: payload.details,
       correlationId: payload.correlationId,
+      logLevel,
     });
   }
 

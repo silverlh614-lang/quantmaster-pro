@@ -12,17 +12,23 @@ import {
 import { getTopUsage, recordUsage } from '../persistence/commandUsageRepo.js';
 import type { TelegramCommand } from './commands/_types.js';
 
-// 텍스트 명령의 런타임 경계에서도 registry side-effect import 를 보장한다.
-// webhookHandler 의 barrel wiring 이 drift 되어도 /pos, /pnl 등이 NO_HANDLER 로 떨어지지 않게 한다.
-import './commands/system/index.js';
-import './commands/watchlist/index.js';
-import './commands/positions/index.js';
-import './commands/alert/index.js';
-import './commands/learning/index.js';
-import './commands/control/index.js';
-import './commands/trade/index.js';
-import './commands/infra/index.js';
-import './commands/shadow/index.js';
+
+let commandRegistryLoaded = false;
+async function ensureCommandRegistryLoaded(): Promise<void> {
+  if (commandRegistryLoaded) return;
+  await Promise.all([
+    import('./commands/system/index.js'),
+    import('./commands/watchlist/index.js'),
+    import('./commands/positions/index.js'),
+    import('./commands/alert/index.js'),
+    import('./commands/learning/index.js'),
+    import('./commands/control/index.js'),
+    import('./commands/trade/index.js'),
+    import('./commands/infra/index.js'),
+    import('./commands/shadow/index.js'),
+  ]);
+  commandRegistryLoaded = true;
+}
 
 export type TelegramCommandAction =
   | 'POSITION_SUMMARY'
@@ -48,6 +54,20 @@ export interface CommandDispatchContext {
   chatId: string;
   userId?: string;
   reply: (message: string, replyMarkup?: InlineKeyboardMarkup) => Promise<void>;
+}
+
+export function createTelegramCorrelationId(chatId: string, command: string, now: Date = new Date()): string {
+  const stamp = now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  const shortRandom = Math.random().toString(36).slice(2, 6);
+  return `telegram:${chatId}:${command || 'unknown'}:${stamp}:${shortRandom}`;
+}
+
+function logCommandChain(event: string, fields: Record<string, unknown>): void {
+  const body = Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
+    .join(' ');
+  console.info(`[${event}] ${body}`);
 }
 
 const COMMAND_ALIASES = new Map<string, string>([
@@ -117,38 +137,35 @@ export async function dispatchTelegramCommand(ctx: CommandDispatchContext): Prom
   const startedAt = Date.now();
   const parsed = parseTelegramCommand(ctx.rawText);
   const canonical = canonicalizeCommand(parsed.normalized);
+  const correlationId = createTelegramCorrelationId(ctx.chatId, canonical);
 
-  console.info(
-    `[TELEGRAM_COMMAND_RECEIVED] raw=${JSON.stringify(ctx.rawText)} ` +
-    `normalized=${JSON.stringify(parsed.normalized)} chatId=${ctx.chatId} userId=${ctx.userId ?? ''}`,
-  );
+  logCommandChain('TELEGRAM_UPDATE_RECEIVED', { correlationId, raw: ctx.rawText, chatId: ctx.chatId, userId: ctx.userId ?? '' });
+  logCommandChain('COMMAND_NORMALIZED', { correlationId, rawCommand: parsed.normalized, normalized: canonical, args: parsed.args.length });
 
+  if (!commandRegistry.resolve(canonical)) {
+    await ensureCommandRegistryLoaded();
+  }
   const route = await resolveRoute(canonical, ctx.reply);
   if (!route) {
-    console.warn(
-      `[TELEGRAM_COMMAND_UNHANDLED] raw=${JSON.stringify(ctx.rawText)} ` +
-      `normalized=${JSON.stringify(parsed.normalized)} reason=NO_HANDLER`,
-    );
+    console.warn(`[TELEGRAM_COMMAND_UNHANDLED] correlationId=${correlationId} raw=${JSON.stringify(ctx.rawText)} normalized=${JSON.stringify(parsed.normalized)} reason=NO_HANDLER`);
     await ctx.reply('알 수 없는 명령입니다. 아래 메뉴에서 선택하세요.', buildHelpKeyboard());
     return false;
   }
 
-  console.info(
-    `[TELEGRAM_COMMAND_ROUTED] command=${JSON.stringify(canonical)} ` +
-    `action=${route.action} handler=${route.handlerName}`,
-  );
+  logCommandChain('COMMAND_ROUTED', { correlationId, command: canonical, action: route.action, handler: route.handlerName });
 
   try {
-    await route.execute(parsed.args);
+    logCommandChain('SERVICE_CALLED', { correlationId, command: canonical, handler: route.handlerName });
+    await route.execute(parsed.args, correlationId, ctx);
     recordUsage(route.usageName);
     console.info(
-      `[TELEGRAM_COMMAND_RESULT] command=${JSON.stringify(canonical)} ` +
+      `[TELEGRAM_COMMAND_RESULT] correlationId=${correlationId} command=${JSON.stringify(canonical)} ` +
       `success=true elapsedMs=${Date.now() - startedAt}`,
     );
     return true;
   } catch (e) {
     console.error(
-      `[TELEGRAM_COMMAND_RESULT] command=${JSON.stringify(canonical)} ` +
+      `[TELEGRAM_COMMAND_RESULT] correlationId=${correlationId} command=${JSON.stringify(canonical)} ` +
       `success=false elapsedMs=${Date.now() - startedAt}`,
       e,
     );
@@ -163,14 +180,14 @@ async function resolveRoute(
   action: TelegramCommandAction;
   handlerName: string;
   usageName: string;
-  execute: (args: string[]) => Promise<void>;
+  execute: (args: string[], correlationId: string, dispatchContext: CommandDispatchContext) => Promise<void>;
 } | null> {
   if (canonical === '/help') {
     return {
       action: 'HELP_MENU',
       handlerName: 'buildHelpMessage',
       usageName: '/help',
-      execute: async () => reply(buildHelpMessage(), buildHelpKeyboard()),
+      execute: async (_args, correlationId) => { const msg = buildHelpMessage(); logCommandChain('RESPONSE_FORMATTED', { correlationId, command: '/help', bytes: msg.length }); await reply(msg, buildHelpKeyboard()); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: '/help' }); },
     };
   }
 
@@ -179,7 +196,7 @@ async function resolveRoute(
       action: 'ADMIN_HELP',
       handlerName: 'buildAdminHelpMessage',
       usageName: '/admin_help',
-      execute: async () => reply(buildAdminHelpMessage(getTopUsage(5))),
+      execute: async (_args, correlationId) => { const msg = buildAdminHelpMessage(getTopUsage(5)); logCommandChain('RESPONSE_FORMATTED', { correlationId, command: '/admin_help', bytes: msg.length }); await reply(msg); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: '/admin_help' }); },
     };
   }
 
@@ -188,7 +205,7 @@ async function resolveRoute(
       action: ACTION_BY_CANONICAL.get(canonical) ?? 'META_MENU',
       handlerName: 'handleMetaCommand',
       usageName: canonical,
-      execute: async () => handleMetaCommand(canonical, reply),
+      execute: async (_args, correlationId) => { logCommandChain('SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
     };
   }
 
@@ -198,7 +215,7 @@ async function resolveRoute(
       action: ACTION_BY_CANONICAL.get(canonical) ?? 'REGISTRY_COMMAND',
       handlerName: handler.name,
       usageName: handler.name,
-      execute: async (args) => handler.execute({ args, reply }),
+      execute: async (args, correlationId, dispatchContext) => handler.execute({ args, reply, correlationId, chatId: dispatchContext.chatId, userId: dispatchContext.userId, command: canonical }),
     };
   }
 
@@ -208,7 +225,7 @@ async function resolveRoute(
       action: 'META_MENU',
       handlerName: 'handleMetaCommand',
       usageName: canonical,
-      execute: async () => handleMetaCommand(canonical, reply),
+      execute: async (_args, correlationId) => { logCommandChain('SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
     };
   }
 

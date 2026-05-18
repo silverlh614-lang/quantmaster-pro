@@ -7,6 +7,7 @@ import {
   recordWatchlistSaturationAlertSent,
   buildWatchlistSaturationMessage,
   formatWatchlistSaturationSentLog,
+  shouldSendWatchlistSaturationTelegram,
   formatWatchlistSaturationSuppressedLog,
 } from "./watchlistSaturationPolicy.js";
 import { isEmergencyWatchlistCodeGuardEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
@@ -571,22 +572,31 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
       console.log(
         formatWatchlistSaturationSentLog(saturation, saturationDecision.emitReason),
       );
-      void sendTelegramAlert(buildWatchlistSaturationMessage(saturation), {
-        priority: saturation.severity === "CRITICAL" ? "HIGH" : "NORMAL",
-        // cooldown 은 watchlistSaturationPolicy 상태머신이 단독 관리 — telegramClient 의 키 기반
-        // cooldown 은 우회 (cooldownMs:0). 카테고리 추정용으로만 dedupeKey 전달.
-        dedupeKey: "watchlist-momentum-saturation",
-        cooldownMs: 0,
-        category: "watchlist_saturation",
-        noiseEvent: {
-          eventType: "WATCHLIST_SATURATION",
-          channel: "CH4_JOURNAL",
-          status: saturation.severity,
-          session: "MOMENTUM",
-          dedupeHint: "MOMENTUM",
-          executionImpact: "NONE",
-        },
-      }).catch(console.error);
+      if (shouldSendWatchlistSaturationTelegram(saturation)) {
+        void sendTelegramAlert(buildWatchlistSaturationMessage(saturation), {
+          priority: saturation.severity === "CRITICAL" ? "HIGH" : "NORMAL",
+          // cooldown 은 watchlistSaturationPolicy 상태머신이 단독 관리 — telegramClient 의 키 기반
+          // cooldown 은 우회 (cooldownMs:0). 카테고리 추정용으로만 dedupeKey 전달.
+          dedupeKey: "watchlist-momentum-saturation",
+          cooldownMs: 0,
+          category: "watchlist_saturation",
+          noiseEvent: {
+            eventType: "WATCHLIST_SATURATION",
+            channel: "CH4_JOURNAL",
+            status: saturation.severity,
+            session: "MOMENTUM",
+            dedupeHint: "MOMENTUM",
+            executionImpact: "NONE",
+          },
+        }).catch(console.error);
+      } else {
+        console.log(formatWatchlistSaturationSuppressedLog(saturation, {
+          ...saturationDecision,
+          shouldEmit: false,
+          emitReason: null,
+          suppressionReason: "COOLDOWN_ACTIVE",
+        }));
+      }
       recordWatchlistSaturationAlertSent(saturation);
     } else {
       // Telegram 발송 억제 — Railway 에는 compact 로그만.

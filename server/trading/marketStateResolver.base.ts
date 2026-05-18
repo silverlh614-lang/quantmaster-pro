@@ -106,6 +106,7 @@ export interface MacroStateStaleness {
   writeSucceeded?: boolean;
   updatedAtChanged?: boolean;
   executionImpact: 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' | 'REGIME_RELEASE_BLOCKED_ONLY' | 'NONE';
+  refreshJobStalled?: boolean;
 }
 
 export interface MarketStateNowContext {
@@ -622,32 +623,68 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale || freshness === 'POST_CLOSE_VALID' || freshness === 'EOD_SNAPSHOT_VALID' ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
   };
   if (info.stale || info.freshness !== 'FRESH') {
+    const baseDetails = {
+      reason: 'providerIssue=true marketSignal=false',
+      freshness: info.freshness,
+      ageSec: info.ageSec ?? 'N/A',
+      ttlSec: info.ttlSec,
+      softStaleSec: info.softStaleSec,
+      hardStaleSec: info.hardStaleSec,
+      lastRefreshAttemptAt: info.lastRefreshAttemptAt ?? 'N/A',
+      lastRefreshSuccessAt: info.lastRefreshSuccessAt ?? 'N/A',
+      lastRefreshError: info.lastRefreshError ?? 'N/A',
+      refreshJobEnabled: info.refreshJobEnabled ?? 'N/A',
+      refreshJobLastRunAt: info.refreshJobLastRunAt ?? 'N/A',
+      refreshBlockedReason: info.refreshBlockedReason ?? 'NONE',
+      providerUsed: info.providerUsed ?? 'N/A',
+      fallbackUsed: info.fallbackUsed ?? 'N/A',
+      writeSucceeded: info.writeSucceeded ?? 'N/A',
+      updatedAtChanged: info.updatedAtChanged ?? 'N/A',
+      staleReason: info.staleReason,
+      executionImpact: info.executionImpact,
+      providerIssue: true,
+      marketSignal: false,
+    };
     emitMarketStateOperationalWarn({
       code: isRefreshJobStalled(info, now) ? 'P1_MACRO_REFRESH_JOB_STALLED' : 'P1_MACRO_STATE_STALE',
       message: '[MACRO_STATE_STALENESS] macro state is stale or not fresh',
       dedupKey: `macro-state-staleness:${info.freshness}:${info.staleReason}`,
       executionImpact: 'NONE',
-      details: {
-        reason: 'providerIssue=true marketSignal=false',
-        freshness: info.freshness,
-        ageSec: info.ageSec ?? 'N/A',
-        ttlSec: info.ttlSec,
-        softStaleSec: info.softStaleSec,
-        hardStaleSec: info.hardStaleSec,
-        lastRefreshAttemptAt: info.lastRefreshAttemptAt ?? 'N/A',
-        lastRefreshSuccessAt: info.lastRefreshSuccessAt ?? 'N/A',
-        lastRefreshError: info.lastRefreshError ?? 'N/A',
-        refreshJobEnabled: info.refreshJobEnabled ?? 'N/A',
-        refreshJobLastRunAt: info.refreshJobLastRunAt ?? 'N/A',
-        refreshBlockedReason: info.refreshBlockedReason ?? 'NONE',
-        providerUsed: info.providerUsed ?? 'N/A',
-        fallbackUsed: info.fallbackUsed ?? 'N/A',
-        writeSucceeded: info.writeSucceeded ?? 'N/A',
-        updatedAtChanged: info.updatedAtChanged ?? 'N/A',
-        staleReason: info.staleReason,
-        executionImpact: info.executionImpact,
-      },
+      details: baseDetails,
     });
+
+    const refreshJobLastRunMs = info.refreshJobLastRunAt ? Date.parse(info.refreshJobLastRunAt) : NaN;
+    const refreshJobAgeSec = Number.isFinite(refreshJobLastRunMs)
+      ? Math.max(0, Math.floor((now.getTime() - refreshJobLastRunMs) / 1000))
+      : Number.POSITIVE_INFINITY;
+    const refreshBlockedReason = info.refreshBlockedReason ?? 'NONE';
+    const lastRefreshError = info.lastRefreshError ?? 'N/A';
+    const noClearRefreshError = lastRefreshError === 'N/A' || lastRefreshError.trim() === '' || lastRefreshError === 'NONE';
+    if (
+      info.freshness === 'HARD_STALE' &&
+      info.refreshJobEnabled === true &&
+      refreshBlockedReason === 'NONE' &&
+      noClearRefreshError &&
+      refreshJobAgeSec > info.hardStaleSec
+    ) {
+      info.refreshJobStalled = true;
+      emitMarketStateOperationalWarn({
+        code: 'P1_MACRO_REFRESH_JOB_STALLED',
+        message: 'macro refresh job has not run within hard stale threshold',
+        dedupKey: `macro-refresh-job-stalled:${info.refreshJobLastRunAt ?? 'missing'}`,
+        executionImpact: 'NONE',
+        details: {
+          ...baseDetails,
+          reason: 'macro refresh job has not run within hard stale threshold',
+          refreshJobAgeSec,
+          refreshJobStalled: true,
+          executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
+          providerIssue: true,
+          marketSignal: false,
+          shadowLearningAllowed: true,
+        },
+      });
+    }
   }
   return info;
 }
@@ -964,6 +1001,15 @@ export function formatMarketStateNow(
     `- fallbackUsed: ${snapshot.macroState.fallbackUsed ?? 'N/A'}`,
     `- writeSucceeded: ${snapshot.macroState.writeSucceeded ?? 'N/A'}`,
     `- updatedAtChanged: ${snapshot.macroState.updatedAtChanged ?? 'N/A'}`,
+    ...(snapshot.macroState.freshness === 'HARD_STALE' ? [
+      '⚠️ Macro snapshot HARD_STALE',
+      `마지막 갱신: ${snapshot.macroState.updatedAt ?? 'N/A'}`,
+      `경과: ${snapshot.macroState.ageSec ?? 'N/A'}초`,
+      `MHS는 ${snapshot.mhs.toFixed(0)}으로 회복권이나 Macro snapshot이 오래되어 R6 해제는 보류됩니다.`,
+      '분류: Provider freshness issue / Market bearish signal 아님',
+      `executionImpact=${snapshot.macroState.executionImpact}`,
+      `releaseBlockedReason=${snapshot.macroState.freshness === 'HARD_STALE' ? 'MACRO_HARD_STALE' : 'NONE'}`,
+    ] : []),
   ];
 
   if (snapshot.macroState.lastRefreshError) lines.push(`macroState error: ${snapshot.macroState.lastRefreshError}`);

@@ -43,7 +43,12 @@ export interface CommandContext {
   args: string[];
   /** 응답 전송. 인라인 키보드 옵션 동일. */
   reply: CommandReplyFn;
+  correlationId?: string;
+  chatId?: string;
+  userId?: string;
+  command?: string;
 }
+
 
 /**
  * 명령어 정의. 한 파일 = 한 명령어 = 단일 책임.
