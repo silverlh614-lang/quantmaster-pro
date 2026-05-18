@@ -10,6 +10,7 @@ import {
 } from '../r6ForcedExitPolicy.js';
 import { resolveR6ShadowHoldPolicy } from '../../exit/policies/r6ShadowHoldPolicy.js';
 import { resolveR6LiveEmergencyExitPolicy } from '../../exit/policies/r6LiveEmergencyExitPolicy.js';
+import { emitExitOperationalWarn } from '../../exit/exitOperationalWarn.js';
 
 /**
  * @rule R6_EMERGENCY_EXIT
@@ -73,11 +74,18 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
       liveOrderSent: false,
       scheduledForNextOpen: true,
     });
-    console.warn(
-      `[R6_EMERGENCY_EXIT_PENDING_NEXT_OPEN] symbol=${shadow.stockCode} ` +
-      `reason=${liveDecision.reason} pendingIntentId=${liveDecision.pendingIntentId} ` +
-      'executionImpact=NONE liveOrderSent=false',
-    );
+    emitExitOperationalWarn({
+      code: 'P0_LIVE_EXIT_DEFERRED_NON_TRADING',
+      message: 'R6 live exit intent deferred because session guard blocked real order',
+      context: {
+        stockCode: shadow.stockCode,
+        stockName: shadow.stockName,
+        mode: shadow.mode ?? 'LIVE',
+        reason: liveDecision.reason,
+        pendingIntentId: liveDecision.pendingIntentId,
+        executionImpact: 'NONE',
+      },
+    });
     await sendTelegramAlert(
       `[R6 emergency liquidation candidate - exit intent pending] ${shadow.stockName} (${shadow.stockCode})\n` +
       'Off-regular-session guard is active: sell intent only, no live order, no fill, no status mutation.\n' +

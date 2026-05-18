@@ -300,7 +300,13 @@ function applyOrderTypeDecisionIfEnabled(p: CreateBuyTaskParams): void {
       `[OrderTypeOptimizer] ${p.stockName}(${p.stockCode}) → ${decision.orderType} — ${decision.reason} (ADR-0186, SHADOW-only 가시화)`,
     );
   } catch (e) {
-    console.warn('[OrderTypeOptimizer] decideOrderType failed', e);
+    emitOperationalWarn({
+      code: 'P2_BUY_ORDER_TYPE_OPTIMIZER_FAILED',
+      severity: 'P2',
+      message: 'Order type optimizer failed; default buy flow continues',
+      context: { stockCode: p.stockCode, stockName: p.stockName, mode: p.shadowMode ? 'SHADOW' : 'LIVE' },
+      cause: e,
+    });
   }
 }
 
