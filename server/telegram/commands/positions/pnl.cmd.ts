@@ -1,95 +1,53 @@
-// @responsibility pnl.cmd 텔레그램 모듈
-// @responsibility: /pnl — 활성 포지션별 realized + unrealized 분리 표시 (PR-8 fills SSOT 기준).
-import { fetchCurrentPrice } from '../../../clients/kisClient.js';
-import { getRemainingQty, getTotalRealizedPnl } from '../../../persistence/shadowTradeRepo.js';
-import { getShadowTrades } from '../../../orchestrator/tradingOrchestrator.js';
-import { isOpenShadowStatus } from '../../../trading/signalScanner.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
-import { safePctChange } from '../../../utils/safePctChange.js';
-import type { TelegramCommand } from '../_types.js';
+import type { TelegramCommand } from '../../commandTypes.js';
+import {
+  aggregatePnlSources,
+  formatMoney,
+  formatSignedMoney,
+} from './shadowPositionSources.js';
 
-const pnl: TelegramCommand = {
-  name: '/pnl',
-  aliases: ['pnl'],
-  category: 'POS',
-  visibility: 'ADMIN',
-  riskLevel: 0,
-  description: '실시간 포지션별 손익 (실현 + 미실현 분리)',
+const command: TelegramCommand = {
+  name: 'pnl',
+  description: 'Shadow/Virtual 손익 현황',
   async execute({ reply }) {
-    const shadows = getShadowTrades();
-    const active = shadows.filter(s => isOpenShadowStatus(s.status) && getRemainingQty(s) > 0);
-    if (active.length === 0) {
-      await reply('📈 활성 포지션 없음');
-      return;
-    }
+    const snapshot = aggregatePnlSources();
+    const { mode, account, counts, openTrades, closedTrades } = snapshot;
+    const shadowRealizedPnl = account?.realizedPnl ?? 0;
+    const shadowUnrealizedPnl = account?.unrealizedPnl ?? 0;
+    const cumulativeShadowPnl = shadowRealizedPnl + shadowUnrealizedPnl;
+    const lines: string[] = [
+      '📊 <b>손익 현황</b>',
+      `운영 모드: ${escapeHtml(mode.modeLabel)}`,
+      `실거래: ${mode.liveTradingEnabled ? 'ON' : 'OFF'}`,
+      '',
+      `Shadow 실현손익: ${formatSignedMoney(shadowRealizedPnl)}`,
+      `Shadow 평가손익: ${formatSignedMoney(shadowUnrealizedPnl)}`,
+      `Virtual 계좌 총자산: ${formatMoney(account?.totalAssets)}`,
+      `금일 Shadow PnL: ${formatSignedMoney(account?.todayRealizedPnl ?? 0)}`,
+      `누적 Shadow PnL: ${formatSignedMoney(cumulativeShadowPnl)}`,
+      `열린 Shadow 포지션 수: ${counts.shadowOpenCount.toLocaleString('ko-KR')}`,
+      `종료 Shadow 트레이드 수: ${closedTrades.length.toLocaleString('ko-KR')}`,
+      '',
+      mode.liveTradingEnabled ? 'Live PnL: 조회 우선순위 후순위' : 'Live PnL: 비활성 또는 미사용',
+    ];
 
-    let totalUnrealizedPct = 0;
-    let totalRealizedSum = 0;
-    let totalUnrealizedSum = 0;
-    const lines: string[] = [];
-    for (const s of active) {
-      const price = await fetchCurrentPrice(s.stockCode).catch(() => null);
-      if (!price) {
-        lines.push(`• ${escapeHtml(s.stockName)} — 가격 조회 실패`);
-        continue;
-      }
-      const realQty = getRemainingQty(s);
-      const originalQty = s.originalQuantity ?? s.quantity ?? realQty;
-      const realizedPnl = getTotalRealizedPnl(s);
-      // ADR-0059: stale price 시 0 fallback — UI 표기 보호.
-      const unrealizedPct = safePctChange(price, s.shadowEntryPrice, {
-        label: `pnl.cmd:${s.stockCode}`,
-      }) ?? 0;
-      const unrealizedAmt = (price - s.shadowEntryPrice) * realQty;
-      const totalCost = originalQty * s.shadowEntryPrice;
-      const totalPnlAmt = realizedPnl + unrealizedAmt;
-      const totalPct = totalCost > 0 ? (totalPnlAmt / totalCost) * 100 : 0;
-
-      totalUnrealizedPct += unrealizedPct;
-      totalRealizedSum += realizedPnl;
-      totalUnrealizedSum += unrealizedAmt;
-
-      const emoji = totalPct >= 0 ? '🟢' : '🔴';
-      const targetDist = (((s.targetPrice - price) / price) * 100).toFixed(1);
-      const stopDist = (
-        ((price - (s.hardStopLoss ?? s.stopLoss)) / (s.hardStopLoss ?? s.stopLoss)) *
-        100
-      ).toFixed(1);
-      const cacheDrift = s.quantity !== realQty ? ` ⚠️ 캐시 ${s.quantity}주 불일치` : '';
-      const modeTag = s.mode === 'LIVE' ? '' : '[SHADOW] ';
-      const partialSoldQty = originalQty - realQty;
-
-      const realizedLine =
-        partialSoldQty > 0
-          ? `\n   실현: ${realizedPnl >= 0 ? '+' : ''}${Math.round(realizedPnl).toLocaleString()}원 (${partialSoldQty}주 부분매도 누적)`
-          : '';
+    if (openTrades.length > 0) {
+      lines.push('');
+      lines.push('<b>[열린 Shadow 포지션]</b>');
       lines.push(
-        `${emoji} ${modeTag}${escapeHtml(s.stockName)} 총 ${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(1)}%` +
-        ` (${totalPnlAmt >= 0 ? '+' : ''}${Math.round(totalPnlAmt).toLocaleString()}원)${cacheDrift}` +
-        realizedLine +
-        `\n   미실현: ${unrealizedPct >= 0 ? '+' : ''}${unrealizedPct.toFixed(1)}% (잔여 ${realQty}주)` +
-        `\n   목표까지 +${targetDist}% | 손절까지 -${stopDist}%`,
+        ...openTrades.slice(0, 10).map((trade, index) => {
+          const name = escapeHtml(trade.stockName || trade.stockCode);
+          const code = escapeHtml(trade.stockCode);
+          return `${index + 1}. ${name} / ${code} - ${escapeHtml(String(trade.status))}`;
+        }),
       );
     }
-    const avgUnrealizedPct = totalUnrealizedPct / active.length;
-    const hasShadowPnl = active.some(s => s.mode !== 'LIVE');
-    const pnlShadowNote = hasShadowPnl ? '\n⚠️ [SHADOW] 포함 — 실계좌 PnL 아님' : '';
-    const totalSum = totalRealizedSum + totalUnrealizedSum;
-    await reply(
-      `📈 <b>[실시간 PnL] ${active.length}개 포지션</b>\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      `${lines.join('\n')}\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      `실현 누계: ${totalRealizedSum >= 0 ? '+' : ''}${Math.round(totalRealizedSum).toLocaleString()}원 | ` +
-      `미실현 합계: ${totalUnrealizedSum >= 0 ? '+' : ''}${Math.round(totalUnrealizedSum).toLocaleString()}원\n` +
-      `총 손익: ${totalSum >= 0 ? '+' : ''}${Math.round(totalSum).toLocaleString()}원 | ` +
-      `평균 미실현률: ${avgUnrealizedPct >= 0 ? '+' : ''}${avgUnrealizedPct.toFixed(2)}%` +
-      pnlShadowNote,
-    );
+
+    await reply(lines.join('\n'));
   },
 };
 
-commandRegistry.register(pnl);
+commandRegistry.register(command);
 
-export default pnl;
+export default command;
