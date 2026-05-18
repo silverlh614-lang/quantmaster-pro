@@ -13,6 +13,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
 import { setEmergencyStop } from '../state.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import type { OperationalWarnPayload } from '../observability/operationalWarnTypes.js';
 import {
   getCircuitBreakerTrippedAt,
   getCircuitBreakerClearedAt,
@@ -28,6 +29,23 @@ const HOLD_MS = 30 * 60 * 1000;
 const FORCED_DOWNGRADE_MS = 4 * 60 * 60 * 1000;
 
 type ShadowTrade = ReturnType<typeof loadShadowTrades>[number];
+
+async function emitResolverOperationalWarn(payload: OperationalWarnPayload): Promise<void> {
+  const { emitOperationalWarn } = await import('../observability/operationalWarn.js');
+  emitOperationalWarn(payload);
+}
+
+async function emitShadowResolverJobFailed(error: unknown): Promise<void> {
+  const { emitShadowPersistenceWarn } = await import('../persistence/shadow/shadowPersistenceGateway.js');
+  emitShadowPersistenceWarn({
+    code: 'P1_SHADOW_RESOLVER_JOB_FAILED',
+    source: 'ShadowResolverJob',
+    message: 'Shadow resolver job failed; shadow learning/resolution will retry on next tick.',
+    reason: error instanceof Error ? error.message : String(error),
+    learningImpact: 'DELAYED',
+    ttlSec: 60,
+  });
+}
 
 function isKrxClosedShadowResolverSkip(now = new Date()): boolean {
   if (process.env.SHADOW_RESOLVER_ON_KRX_CLOSED === 'true') return false;
@@ -77,7 +95,16 @@ export async function reactToLossStreak(consecLoss: number): Promise<void> {
       `📌 <b>수동 재개 필요</b> — /emergency off 또는 웹훅 명령으로 해제`,
       { priority: 'CRITICAL', dedupeKey: `circuit_breaker:${consecLoss}` },
     ).catch(console.error);
-    console.warn(`[Scheduler] 🛑 서킷브레이커 발동 — 연속손절 ${consecLoss}건, 자동거래 정지`);
+    await emitResolverOperationalWarn({
+      priority: 'P1',
+      domain: 'EXECUTION',
+      code: 'P1_SHADOW_RESOLVER_CIRCUIT_BREAKER_TRIPPED',
+      message: `Shadow resolver tripped circuit breaker after ${consecLoss} consecutive losses.`,
+      executionImpact: 'LIVE_ORDER_BLOCKED',
+      dedupKey: `shadow-resolver:circuit-breaker:${consecLoss}`,
+      ttlSec: 60,
+      details: { reason: 'consecutive-loss-streak', consecLoss },
+    });
     return;
   }
 
@@ -90,7 +117,16 @@ export async function reactToLossStreak(consecLoss: number): Promise<void> {
       `• 레짐 1단계 강제 다운그레이드 (4시간) — 포지션 한도/Kelly 축소`,
       { priority: 'CRITICAL', dedupeKey: `streak_hold:${consecLoss}` },
     ).catch(console.error);
-    console.warn(`[Scheduler] 실시간 연속손절 ${consecLoss}건 — 홀드 + 레짐 다운그레이드`);
+    await emitResolverOperationalWarn({
+      priority: 'P1',
+      domain: 'EXECUTION',
+      code: 'P1_SHADOW_RESOLVER_LOSS_STREAK_HOLD',
+      message: `Shadow resolver applied trading hold after ${consecLoss} consecutive losses.`,
+      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
+      dedupKey: `shadow-resolver:loss-streak-hold:${consecLoss}`,
+      ttlSec: 60,
+      details: { reason: 'consecutive-loss-streak', consecLoss },
+    });
     return;
   }
 
@@ -111,6 +147,7 @@ async function runShadowResolverTick(): Promise<void> {
     saveShadowTrades(shadows);
     await reactToLossStreak(countRecentConsecutiveLosses(shadows));
   } catch (e) {
+    await emitShadowResolverJobFailed(e);
     console.error('[Scheduler] Shadow trade resolution 실패:', e);
   }
 }
