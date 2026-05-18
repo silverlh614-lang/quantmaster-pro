@@ -25,7 +25,7 @@ describe('operator warning priority taxonomy', () => {
 
   it('sorts priority 1 order-flow warnings ahead of unmapped warnings', () => {
     const sorted = sortOperatorWarnings([
-      { code: 'REGIME_SAMPLE_DUPLICATION_SUSPECT', count: 3 },
+      { code: 'UNMAPPED_AUDIT_NOTICE', count: 3 },
       { code: 'PORTFOLIO_RISK_PASS_WARN', count: 1, source: 'portfolioRiskGate' },
       { code: 'PENDING_APPROVALS', count: 2, source: 'oneDecisionResolver' },
     ]);
@@ -33,7 +33,7 @@ describe('operator warning priority taxonomy', () => {
     expect(sorted.map((warning) => warning.normalizedCode)).toEqual([
       'PENDING_APPROVALS',
       'PORTFOLIO_RISK_PASS_WARN',
-      'REGIME_SAMPLE_DUPLICATION_SUSPECT',
+      'UNMAPPED_AUDIT_NOTICE',
     ]);
     expect(sorted[0].priorityRank).toBe(1);
     expect(sorted[2].priorityRank).toBe(5);
@@ -90,7 +90,34 @@ describe('operator warning priority taxonomy', () => {
     expect(sorted.map((warning) => `${warning.priorityRank}:${warning.normalizedCode}`)).toEqual([
       '2:PRICE_WARN',
       '3:DATA_UNAVAILABLE_DOMINANT',
-      '5:REGIME_SAMPLE_DUPLICATION_SUSPECT',
+      '4:REGIME_SAMPLE_DUPLICATION_SUSPECT',
+    ]);
+  });
+
+  it('classifies learning quality and metric warnings as priority 4', () => {
+    expect(classifyOperatorWarning({ code: 'LOW_RESOLVED_SAMPLE' })).toMatchObject({
+      priorityRank: 4,
+      domain: 'LEARNING_METRIC',
+      urgency: 'LEARNING_INTEGRITY_REVIEW',
+    });
+
+    expect(classifyOperatorWarning({ code: 'REGIME_SAMPLE_DUPLICATION_SUSPECT' })).toMatchObject({
+      priorityRank: 4,
+      domain: 'LEARNING_METRIC',
+    });
+  });
+
+  it('keeps learning metric warnings below scan diagnostics but above unmapped audit items', () => {
+    const sorted = sortOperatorWarnings([
+      { code: 'UNKNOWN_AUDIT_NOTICE', count: 20 },
+      { code: 'LOW_CONFIDENCE_REGIME_BACKFILL', count: 5 },
+      { code: 'R3_WARNING_ONLY', count: 1 },
+    ]);
+
+    expect(sorted.map((warning) => `${warning.priorityRank}:${warning.normalizedCode}`)).toEqual([
+      '3:R3_WARNING_ONLY',
+      '4:LOW_CONFIDENCE_REGIME_BACKFILL',
+      '5:UNKNOWN_AUDIT_NOTICE',
     ]);
   });
 
