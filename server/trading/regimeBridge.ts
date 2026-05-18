@@ -28,6 +28,8 @@ import {
   type R6RecoveryEvidence,
   type R6TriggerBreakdown,
   type R6TriggerReason,
+  type R6ShockLatch,
+  type R6StateMachineState,
 } from '../persistence/regimeTransitionStateRepo.js';
 
 // ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
@@ -209,11 +211,78 @@ function latchDecayLevel(previousState: RegimeTransitionState, closeEligible: bo
   return 'WATCH';
 }
 
+function latchDecayPercent(previousState: RegimeTransitionState, closeEligible: boolean, now: Date): number {
+  if (!previousState.r6ShockLatch) return 0;
+  const triggeredAt = previousState.latchTriggeredAt ? Date.parse(previousState.latchTriggeredAt) : NaN;
+  const expiresAt = previousState.latchExpiresAt ? Date.parse(previousState.latchExpiresAt) : NaN;
+  if (!Number.isFinite(triggeredAt) || !Number.isFinite(expiresAt) || expiresAt <= triggeredAt) {
+    return closeEligible ? 60 : 0;
+  }
+  const elapsed = Math.max(0, now.getTime() - triggeredAt);
+  const ttl = Math.max(1, expiresAt - triggeredAt);
+  const timeDecay = Math.round(Math.min(100, (elapsed / ttl) * 100));
+  const releaseAt = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
+  const eligibilityBonus = closeEligible && Number.isFinite(releaseAt) && releaseAt <= now.getTime() ? 60 : 0;
+  return Math.max(previousState.latchDecayPercent ?? 0, Math.min(100, Math.max(timeDecay, eligibilityBonus)));
+}
+
+function buildR6ShockLatchDetail(args: {
+  previousState: RegimeTransitionState;
+  activeShockTrigger?: R6TriggerReason;
+  now: Date;
+  expiresAt?: string;
+  releaseEligibleAt?: string;
+  triggerBreakdown: R6TriggerBreakdown;
+  decayPercent: number;
+  active: boolean;
+  lastExtensionReason?: string;
+}): R6ShockLatch | undefined {
+  const triggerType = args.activeShockTrigger ?? args.previousState.r6ShockLatchReason;
+  const triggeredAt = args.activeShockTrigger ? args.now.toISOString() : args.previousState.latchTriggeredAt;
+  const expiresAt = args.expiresAt ?? args.previousState.latchExpiresAt;
+  const releaseEligibleAt = args.releaseEligibleAt ?? args.previousState.latchReleaseEligibleAt;
+  if (!triggerType || !triggeredAt || !expiresAt || !releaseEligibleAt) return undefined;
+  const severity = args.activeShockTrigger === 'KOSPI_CLOSE_SHOCK'
+    ? Math.abs(args.triggerBreakdown.kospiCloseReturn ?? 0)
+    : args.activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK'
+      ? Math.abs(args.triggerBreakdown.kospiIntradayLowReturn ?? 0)
+      : Math.abs(args.previousState.latchTriggerValue ?? 0);
+  return {
+    active: args.active,
+    triggerType,
+    triggeredAt,
+    expiresAt,
+    severity,
+    decayLevel: args.decayPercent,
+    releaseEligibleAt,
+    lastExtensionReason: args.lastExtensionReason,
+  };
+}
+
+function recoveryWatchEligible(evidence: R6RecoveryEvidence, previousState: RegimeTransitionState, now: Date): boolean {
+  const releaseAt = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
+  return evidence.marketDataFreshnessOk &&
+    evidence.mhsScoreOk &&
+    evidence.kospiDayReturnOk &&
+    evidence.vkospiDayChangeOk &&
+    (!previousState.r6ShockLatch || (Number.isFinite(releaseAt) && releaseAt <= now.getTime()));
+}
+
+function resolveRecoveredStateMachine(rawRegime: RegimeLevel, macroState: MacroState | null): R6StateMachineState {
+  const mhs = macroState?.mhs ?? 0;
+  if (mhs >= 70 && (rawRegime === 'R1_TURBO' || rawRegime === 'R2_BULL' || rawRegime === 'R3_EARLY')) return 'R3_NORMAL';
+  if (mhs >= 65) return 'R4_CAUTION';
+  return 'R5_STABILIZING';
+}
+
 function reasonForActiveR6Trigger(trigger: R6TriggerReason | undefined): string {
   if (trigger === 'KOSPI_INTRADAY_LOW_SHOCK') return 'RAW_R6_ACTIVE_BY_KOSPI_INTRADAY_LOW_SHOCK';
   if (trigger === 'KOSPI_CLOSE_SHOCK') return 'RAW_R6_ACTIVE_BY_KOSPI_CLOSE_RETURN';
   if (trigger === 'VKOSPI_DAY_SPIKE') return 'RAW_R6_ACTIVE_BY_VKOSPI_DAY_CHANGE';
   if (trigger === 'USDKRW_DAY_SHOCK') return 'RAW_R6_ACTIVE_BY_USDKRW_DAY_CHANGE';
+  if (trigger === 'CIRCUIT_BREAKER') return 'RAW_R6_ACTIVE_BY_CIRCUIT_BREAKER';
+  if (trigger === 'BLACK_SWAN') return 'RAW_R6_ACTIVE_BY_BLACK_SWAN';
+  if (trigger === 'MANUAL_KILL_SWITCH') return 'RAW_R6_ACTIVE_BY_MANUAL_KILL_SWITCH';
   return 'RAW_R6_DEFENSE_CONDITION_ACTIVE';
 }
 
@@ -277,37 +346,152 @@ export function evaluateR6RecoveryTransition(
   const nowIso = now.toISOString();
   const requiredConfirmations = envInt('R6_RECOVERY_REQUIRE_CONFIRMATIONS', 2);
   const cooldownMinutes = envInt('R6_RECOVERY_COOLDOWN_MINUTES', 240);
-  const previouslyEffectiveR6 = previousState.effectiveRegime === 'R6_DEFENSE';
+  const previouslyEffectiveR6 = previousState.effectiveRegime === 'R6_DEFENSE' || previousState.r6StateMachineState === 'R6_DEFENSE' || previousState.r6StateMachineState === 'R6_PANIC';
   const activeTriggers = triggerBreakdown.activeR6Triggers;
   const activeShockTrigger = activeTriggers.find((trigger) => trigger === 'KOSPI_INTRADAY_LOW_SHOCK' || trigger === 'KOSPI_CLOSE_SHOCK');
   const shockLatchTriggered = activeShockTrigger !== undefined;
   const closeEligible = closeRecoveryEligible(triggerBreakdown, macroState);
   const latchExpired = isLatchExpired(previousState, now);
-  const decayLevel = latchDecayLevel(previousState, closeEligible, now);
-  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && !closeEligible && activeTriggers.length === 0;
+  const decayPercent = latchDecayPercent(previousState, closeEligible, now);
+  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && (!closeEligible || decayPercent < 60);
+
   if (rawRegime === 'R6_DEFENSE' || activeTriggers.length > 0 || heldByShockLatch) {
     const transitionReason = heldByShockLatch ? 'RAW_R6_HELD_BY_SHOCK_LATCH' : reasonForActiveR6Trigger(activeTriggers[0]);
     const triggerType = activeShockTrigger ?? previousState.r6ShockLatchReason;
     const expiresAt = shockLatchTriggered ? addMs(now, resolveLatchTtlMs(activeShockTrigger)) : previousState.latchExpiresAt;
     const releaseEligibleAt = shockLatchTriggered ? addMs(now, resolveLatchReleaseEligibleMs(activeShockTrigger)) : previousState.latchReleaseEligibleAt;
-    return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: 'R6_DEFENSE', rawRegime: activeTriggers.length > 0 ? 'R6_DEFENSE' : rawRegime, effectiveRegime: 'R6_DEFENSE', enteredR6At: previousState.enteredR6At ?? nowIso, exitedR6At: undefined, lastTransitionAt: previousState.effectiveRegime === 'R6_DEFENSE' ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, 'R6_DEFENSE'), transitionReason, r6RecoveryStatus: 'IN_R6', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: activeTriggers.length > 0 ? activeTriggers : previousState.previousR6Triggers, r6ShockLatch: shockLatchTriggered || (previousState.r6ShockLatch && !latchExpired), r6ShockLatchReason: triggerType, latchTriggeredAt: shockLatchTriggered ? nowIso : previousState.latchTriggeredAt, latchTriggerValue: activeShockTrigger === 'KOSPI_CLOSE_SHOCK' ? triggerBreakdown.kospiCloseReturn : activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK' ? triggerBreakdown.kospiIntradayLowReturn : previousState.latchTriggerValue, latchTriggerSource: activeShockTrigger === 'KOSPI_CLOSE_SHOCK' ? 'macroState.kospiCloseReturn' : activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK' ? 'macroState.kospiIntradayLowReturn' : previousState.latchTriggerSource, latchExpiresAt: expiresAt, latchDecayLevel: shockLatchTriggered ? 'WATCH' : decayLevel, latchReleaseEligibleAt: releaseEligibleAt, recoveryBlockedReason: heldByShockLatch ? 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION' : 'ACTIVE_R6_TRIGGER_PRESENT' };
+    const nextDecayPercent = shockLatchTriggered ? 0 : decayPercent;
+    const panic = activeTriggers.length > 0;
+    const detail = buildR6ShockLatchDetail({
+      previousState,
+      activeShockTrigger,
+      now,
+      expiresAt,
+      releaseEligibleAt,
+      triggerBreakdown,
+      decayPercent: nextDecayPercent,
+      active: shockLatchTriggered || (previousState.r6ShockLatch && !latchExpired),
+      lastExtensionReason: shockLatchTriggered ? 'ACTIVE_R6_TRIGGER_PRESENT' : heldByShockLatch ? 'R6_LATCH_TTL_UNDER_DECAY_THRESHOLD' : undefined,
+    });
+    console.info(
+      '[REGIME_TRANSITION_EVALUATED] ' +
+      `from=${previousState.r6StateMachineState ?? previousState.effectiveRegime} ` +
+      `to=${panic ? 'R6_PANIC' : 'R6_DEFENSE'} ` +
+      `mhs=${macroState?.mhs ?? 'N/A'} ` +
+      `latchDecay=${nextDecayPercent} ` +
+      `macroFresh=${triggerBreakdown.triggerFreshness === 'FRESH'} ` +
+      `lowRetest=${activeTriggers.includes('KOSPI_INTRADAY_LOW_SHOCK')} ` +
+      'decision=R6_HELD',
+    );
+    return {
+      ...previousState,
+      previousRegime: previousState.effectiveRegime,
+      currentRegime: 'R6_DEFENSE',
+      rawRegime,
+      effectiveRegime: 'R6_DEFENSE',
+      enteredR6At: previousState.enteredR6At ?? nowIso,
+      exitedR6At: undefined,
+      lastTransitionAt: previousState.effectiveRegime === 'R6_DEFENSE' ? previousState.lastTransitionAt : nowIso,
+      transitionDirection: transitionDirection(previousState.effectiveRegime, 'R6_DEFENSE'),
+      transitionReason,
+      r6RecoveryStatus: panic ? 'R6_PANIC' : 'R6_DEFENSE',
+      r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations },
+      cooldownUntil: undefined,
+      sourceUpdatedAt: macroState?.updatedAt,
+      recoveryConfirmations: 0,
+      r6TriggerBreakdown: triggerBreakdown,
+      previousR6Triggers: activeTriggers.length > 0 ? activeTriggers : previousState.previousR6Triggers,
+      r6ShockLatch: detail?.active === true,
+      r6ShockLatchDetail: detail,
+      r6StateMachineState: panic ? 'R6_PANIC' : 'R6_DEFENSE',
+      r6ShockLatchReason: triggerType,
+      latchTriggeredAt: detail?.triggeredAt ?? previousState.latchTriggeredAt,
+      latchTriggerValue: activeShockTrigger === 'KOSPI_CLOSE_SHOCK' ? triggerBreakdown.kospiCloseReturn : activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK' ? triggerBreakdown.kospiIntradayLowReturn : previousState.latchTriggerValue,
+      latchTriggerSource: activeShockTrigger === 'KOSPI_CLOSE_SHOCK' ? 'macroState.kospiCloseReturn' : activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK' ? 'macroState.kospiIntradayLowReturn' : previousState.latchTriggerSource,
+      latchExpiresAt: expiresAt,
+      latchDecayLevel: shockLatchTriggered ? 'WATCH' : latchDecayLevel(previousState, closeEligible, now),
+      latchDecayPercent: nextDecayPercent,
+      latchReleaseEligibleAt: releaseEligibleAt,
+      recoveryBlockedReason: heldByShockLatch && !closeEligible ? 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION' : heldByShockLatch ? 'R6_LATCH_TTL_UNDER_DECAY_THRESHOLD' : 'ACTIVE_R6_TRIGGER_PRESENT',
+    };
   }
-  if (previouslyEffectiveR6 || previousState.r6RecoveryStatus === 'COOLDOWN' || previousState.r6RecoveryStatus === 'RECOVERY_CANDIDATE' || previousState.r6RecoveryStatus === 'STALE_DATA_BLOCKED') {
+
+  const recoveryCarryForwardAllowed = previousState.r6ShockLatch || previousState.previousR6Triggers.length > 0 || triggerBreakdown.triggerFreshness === 'FRESH';
+  const inRecoveryFlow = recoveryCarryForwardAllowed && (previouslyEffectiveR6 || previousState.r6RecoveryStatus === 'COOLDOWN' || previousState.r6RecoveryStatus === 'RECOVERY_CANDIDATE' || previousState.r6RecoveryStatus === 'STALE_DATA_BLOCKED' || previousState.r6RecoveryStatus === 'R6_RECOVERY_WATCH' || previousState.r6RecoveryStatus === 'R5_STABILIZING');
+  if (inRecoveryFlow) {
     const sourceChanged = previousState.sourceUpdatedAt !== macroState?.updatedAt;
     const freshAndCloseEligible = triggerBreakdown.triggerFreshness === 'FRESH' && closeEligible;
     const nextConfirmations = previouslyEffectiveR6 ? (freshAndCloseEligible ? 1 : 0) : (sourceChanged && freshAndCloseEligible ? previousState.recoveryConfirmations + 1 : previousState.recoveryConfirmations);
     const cooldownUntil = previousState.cooldownUntil ?? new Date(now.getTime() + cooldownMinutes * 60_000).toISOString();
     const evidence = buildR6RecoveryEvidence(macroState, now, requiredConfirmations, nextConfirmations);
     const recovered = evidenceComplete(evidence) && nextConfirmations >= requiredConfirmations && Date.parse(cooldownUntil) <= now.getTime();
-    const effectiveRegime = recovered ? applyForcedDowngrade(rawRegime) : capRecoveryRegime(applyForcedDowngrade(rawRegime));
     const blockedReason = recoveryBlockedReason(triggerBreakdown, previousState, macroState, cooldownUntil, now) ?? (nextConfirmations < requiredConfirmations ? 'R6_RECOVERY_CONFIRMATION_REQUIRED' : undefined);
-    return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, exitedR6At: previousState.exitedR6At ?? nowIso, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: recovered ? 'R6 recovery confirmed; rawRegime restored as effectiveRegime' : triggerBreakdown.triggerFreshness !== 'FRESH' ? 'R6 recovery blocked by stale or missing market data' : !closeEligible ? 'RAW_R6_RECOVERY_BLOCKED_UNTIL_CLOSE_CONFIRMATION' : 'R6 exited but recovery confirmation/cooldown required', r6RecoveryStatus: recovered ? 'RECOVERED' : triggerBreakdown.triggerFreshness !== 'FRESH' ? 'STALE_DATA_BLOCKED' : Date.parse(cooldownUntil) <= now.getTime() && evidenceComplete(evidence) ? 'RECOVERY_CANDIDATE' : 'COOLDOWN', r6RecoveryEvidence: evidence, cooldownUntil: recovered ? undefined : cooldownUntil, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: nextConfirmations, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: previousState.previousR6Triggers, r6ShockLatch: recovered ? false : (previousState.r6ShockLatch && !isLatchExpired(previousState, now)), r6ShockLatchReason: recovered ? undefined : previousState.r6ShockLatchReason, latchTriggeredAt: recovered ? undefined : previousState.latchTriggeredAt, latchTriggerValue: recovered ? undefined : previousState.latchTriggerValue, latchTriggerSource: recovered ? undefined : previousState.latchTriggerSource, latchExpiresAt: recovered ? undefined : previousState.latchExpiresAt, latchDecayLevel: recovered ? 'NONE' : latchDecayLevel(previousState, closeEligible, now), latchReleaseEligibleAt: recovered ? undefined : previousState.latchReleaseEligibleAt, recoveryBlockedReason: recovered ? undefined : blockedReason };
+    const nextDecayPercent = latchDecayPercent(previousState, closeEligible, now);
+    const latchStillActive = !recovered && previousState.r6ShockLatch && !isLatchExpired(previousState, now);
+    const recoveryWatch = !recovered && recoveryWatchEligible(evidence, previousState, now);
+    const r6StateMachineState: R6StateMachineState = recovered ? (previousState.r6StateMachineState === 'R5_STABILIZING' ? resolveRecoveredStateMachine(rawRegime, macroState) : 'R5_STABILIZING') : recoveryWatch ? 'R6_RECOVERY_WATCH' : 'R6_DEFENSE';
+    const effectiveRegime = recovered ? applyForcedDowngrade(rawRegime) : (recoveryWatch ? capRecoveryRegime(applyForcedDowngrade(rawRegime)) : 'R6_DEFENSE');
+    const status = recovered ? (r6StateMachineState === 'R5_STABILIZING' ? 'R5_STABILIZING' : 'RECOVERED') : triggerBreakdown.triggerFreshness !== 'FRESH' ? 'STALE_DATA_BLOCKED' : recoveryWatch ? 'R6_RECOVERY_WATCH' : Date.parse(cooldownUntil) <= now.getTime() && evidenceComplete(evidence) ? 'RECOVERY_CANDIDATE' : 'COOLDOWN';
+    const decision = r6StateMachineState === 'R6_RECOVERY_WATCH' ? 'TRANSITION_ALLOWED' : recovered ? 'RECOVERED' : 'TRANSITION_BLOCKED';
+    if (previousState.latchDecayPercent !== undefined && nextDecayPercent > previousState.latchDecayPercent) {
+      console.info(`[R6_LATCH_DECAYED] trigger=${previousState.r6ShockLatchReason ?? 'UNKNOWN'} previousDecay=${previousState.latchDecayPercent} newDecay=${nextDecayPercent} reason=NO_ADDITIONAL_LOW_BREAK`);
+    }
+    if (triggerBreakdown.triggerFreshness !== 'FRESH') {
+      console.warn('[R6_RELEASE_BLOCKED] reason=MACRO_STATE_STALE shadowLearningAllowed=true');
+    }
+    if (r6StateMachineState === 'R6_RECOVERY_WATCH') {
+      console.info('[RECOVERY_WATCH_ACTIVE] liveNewBuyAllowed=false shadowLearningAllowed=true shadowCandidateCollection=true');
+    }
+    console.info(
+      '[REGIME_TRANSITION_EVALUATED] ' +
+      `from=${previousState.r6StateMachineState ?? previousState.effectiveRegime} ` +
+      `to=${r6StateMachineState} ` +
+      `mhs=${macroState?.mhs ?? 'N/A'} ` +
+      `latchDecay=${nextDecayPercent} ` +
+      `macroFresh=${triggerBreakdown.triggerFreshness === 'FRESH'} ` +
+      `lowRetest=${activeTriggers.includes('KOSPI_INTRADAY_LOW_SHOCK')} ` +
+      `decision=${decision}`,
+    );
+    const detail = buildR6ShockLatchDetail({ previousState, now, triggerBreakdown, decayPercent: recovered ? 100 : nextDecayPercent, active: latchStillActive });
+    return {
+      ...previousState,
+      previousRegime: previousState.effectiveRegime,
+      currentRegime: effectiveRegime,
+      rawRegime,
+      effectiveRegime,
+      exitedR6At: previousState.exitedR6At ?? nowIso,
+      lastTransitionAt: previousState.effectiveRegime === effectiveRegime && previousState.r6StateMachineState === r6StateMachineState ? previousState.lastTransitionAt : nowIso,
+      transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime),
+      transitionReason: recovered ? 'R6 state machine recovered; rawRegime restored as effectiveRegime' : triggerBreakdown.triggerFreshness !== 'FRESH' ? 'R6 release blocked by macroState stale; shadow remains allowed' : recoveryWatch ? 'R6_DEFENSE eased to R6_RECOVERY_WATCH by state machine' : 'R6 state machine waiting for recovery confirmations/cooldown',
+      r6RecoveryStatus: status,
+      r6RecoveryEvidence: evidence,
+      cooldownUntil: recovered ? undefined : cooldownUntil,
+      sourceUpdatedAt: macroState?.updatedAt,
+      recoveryConfirmations: nextConfirmations,
+      r6TriggerBreakdown: triggerBreakdown,
+      previousR6Triggers: previousState.previousR6Triggers,
+      r6ShockLatch: latchStillActive,
+      r6ShockLatchDetail: recovered ? undefined : detail,
+      r6StateMachineState,
+      r6ShockLatchReason: recovered ? undefined : previousState.r6ShockLatchReason,
+      latchTriggeredAt: recovered ? undefined : previousState.latchTriggeredAt,
+      latchTriggerValue: recovered ? undefined : previousState.latchTriggerValue,
+      latchTriggerSource: recovered ? undefined : previousState.latchTriggerSource,
+      latchExpiresAt: recovered ? undefined : previousState.latchExpiresAt,
+      latchDecayLevel: recovered ? 'NONE' : latchDecayLevel(previousState, closeEligible, now),
+      latchDecayPercent: recovered ? 100 : nextDecayPercent,
+      latchReleaseEligibleAt: recovered ? undefined : previousState.latchReleaseEligibleAt,
+      recoveryBlockedReason: recovered ? undefined : blockedReason,
+    };
   }
+
   const effectiveRegime = applyForcedDowngrade(rawRegime);
-  return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: previousState.effectiveRegime === effectiveRegime ? 'RAW_REGIME_RECONFIRMED' : 'RAW_REGIME_RECLASSIFIED', r6RecoveryStatus: 'NONE', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: [], r6ShockLatch: false, r6ShockLatchReason: undefined, latchTriggeredAt: undefined, latchTriggerValue: undefined, latchTriggerSource: undefined, latchExpiresAt: undefined, latchDecayLevel: 'NONE', latchReleaseEligibleAt: undefined, recoveryBlockedReason: undefined };
+  const r6StateMachineState: R6StateMachineState = effectiveRegime === 'R5_CAUTION' ? 'R4_CAUTION' : 'R3_NORMAL';
+  return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: previousState.effectiveRegime === effectiveRegime ? 'RAW_REGIME_RECONFIRMED' : 'RAW_REGIME_RECLASSIFIED', r6RecoveryStatus: 'NONE', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: [], r6ShockLatch: false, r6ShockLatchDetail: undefined, r6StateMachineState, r6ShockLatchReason: undefined, latchTriggeredAt: undefined, latchTriggerValue: undefined, latchTriggerSource: undefined, latchExpiresAt: undefined, latchDecayLevel: 'NONE', latchDecayPercent: 0, latchReleaseEligibleAt: undefined, recoveryBlockedReason: undefined };
 }
 
 export function getRawRegime(macroState: MacroState | null, now: Date = new Date()): RegimeLevel {
+  if ((macroState as unknown as { regime?: string } | null)?.regime === 'R6_DEFENSE') return 'R6_DEFENSE';
   const triggerBreakdown = buildR6TriggerBreakdown(macroState, now);
   if (triggerBreakdown.activeR6Triggers.length > 0) return 'R6_DEFENSE';
   return macroState ? classifyRegime(buildRegimeVars(macroState)) : 'R4_NEUTRAL';
