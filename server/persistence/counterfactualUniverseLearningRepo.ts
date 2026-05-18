@@ -19,8 +19,9 @@
 //  10. 외부 fetch / axios 호출 0건 (정적 grep 가드)
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE } from './paths.js';
+import { readShadowJson, writeShadowJson } from './shadow/shadowPersistenceGateway.js';
+import { deleteShadowPersistenceFallback } from './shadow/shadowPersistenceFallbackStore.js';
 
 /** FIFO trim 한계 — ADR-0430 ledger 와 동일 (분리 영속이라 격리 카운트). */
 export const COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_MAX = 2000;
@@ -139,31 +140,32 @@ interface LedgerFile {
   entries: CounterfactualUniverseLearningSnapshot[];
 }
 
-function readLedgerFile(): LedgerFile {
-  try {
-    if (!fs.existsSync(COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE)) {
-      return { version: 1, entries: [] };
-    }
-    const raw = fs.readFileSync(COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as LedgerFile).entries)) {
-      return { version: 1, entries: [] };
-    }
-    return parsed as LedgerFile;
-  } catch (e) {
-    console.warn('[CounterfactualUniverseLearningRepo] read 실패 — 빈 ledger fallback', e);
-    return { version: 1, entries: [] };
-  }
+function isLedgerFile(data: unknown): data is LedgerFile {
+  const parsed = data as Partial<LedgerFile> | null;
+  return Boolean(parsed && typeof parsed === 'object' && Array.isArray(parsed.entries));
 }
 
-function atomicWrite(file: LedgerFile): void {
-  const dir = path.dirname(COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const tmp = `${COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE}.tmp.${process.pid}.${Date.now()}`;
-  fs.writeFileSync(tmp, JSON.stringify(file, null, 2), 'utf-8');
-  fs.renameSync(tmp, COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE);
+function readLedgerFile(): LedgerFile {
+  const result = readShadowJson<LedgerFile>({
+    source: 'CounterfactualUniverseLearningRepo',
+    filePath: COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE,
+    emptyValue: { version: 1, entries: [] },
+    validate: isLedgerFile,
+    readFailedCode: 'P1_SHADOW_DB_READ_FAILED',
+  });
+  if (result.kind === 'SUCCESS' || result.kind === 'DEGRADED_FALLBACK') return result.data;
+  return { version: 1, entries: [] };
+}
+
+function atomicWrite(file: LedgerFile): boolean {
+  const result = writeShadowJson({
+    source: 'CounterfactualUniverseLearningRepo',
+    filePath: COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE,
+    data: file,
+    writeFailedCode: 'P1_COUNTERFACTUAL_LEARNING_WRITE_FAILED',
+    queuedCode: 'P1_SHADOW_LEDGER_WRITE_QUEUED',
+  });
+  return result.kind === 'SUCCESS';
 }
 
 /** Read-only loader — UI 진단·텔레그램 명령에서 사용. */
@@ -202,25 +204,20 @@ export function hasExistingUniverseSnapshot(
 export function appendCounterfactualUniverseLearningSnapshot(
   snapshot: CounterfactualUniverseLearningSnapshot,
 ): { recorded: boolean; reason?: string } {
-  try {
-    const ledger = readLedgerFile();
-    const dupKey = `${snapshot.scanId ?? '__NO_SCAN__'}:${snapshot.preflightStage}`;
-    const isDup = ledger.entries.some(
-      (e) => `${e.scanId ?? '__NO_SCAN__'}:${e.preflightStage}` === dupKey && e.scanId === snapshot.scanId,
-    );
-    if (isDup) {
-      return { recorded: false, reason: 'duplicate' };
-    }
-    ledger.entries.push(snapshot);
-    if (ledger.entries.length > COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_MAX) {
-      ledger.entries.splice(0, ledger.entries.length - COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_MAX);
-    }
-    atomicWrite(ledger);
-    return { recorded: true };
-  } catch (e) {
-    console.warn('[CounterfactualUniverseLearningRepo] append 실패 — 격리 (호출자 흐름 보호)', e);
-    return { recorded: false, reason: 'write-failed' };
+  const ledger = readLedgerFile();
+  const dupKey = `${snapshot.scanId ?? '__NO_SCAN__'}:${snapshot.preflightStage}`;
+  const isDup = ledger.entries.some(
+    (e) => `${e.scanId ?? '__NO_SCAN__'}:${e.preflightStage}` === dupKey && e.scanId === snapshot.scanId,
+  );
+  if (isDup) {
+    return { recorded: false, reason: 'duplicate' };
   }
+  ledger.entries.push(snapshot);
+  if (ledger.entries.length > COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_MAX) {
+    ledger.entries.splice(0, ledger.entries.length - COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_MAX);
+  }
+  const persisted = atomicWrite(ledger);
+  return { recorded: true, ...(!persisted ? { reason: 'queued-for-retry' } : {}) };
 }
 
 /**
@@ -312,6 +309,7 @@ export function formatCounterfactualUniverseLearningSummarySection(
 
 /** Test isolation 헬퍼 — 본 ledger 격리. test 외 호출자 0건. */
 export function __resetCounterfactualUniverseLearningLedgerForTests(): void {
+  deleteShadowPersistenceFallback('CounterfactualUniverseLearningRepo');
   try {
     if (fs.existsSync(COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE)) {
       fs.unlinkSync(COUNTERFACTUAL_UNIVERSE_LEARNING_LEDGER_FILE);

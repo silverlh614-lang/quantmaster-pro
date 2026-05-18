@@ -16,8 +16,9 @@
 //   7. eventType:'COUNTERFACTUAL_SHADOW_LEARNING_ENTRY' literal — 분리 마커
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE } from './paths.js';
+import { readShadowJson, writeShadowJson } from './shadow/shadowPersistenceGateway.js';
+import { deleteShadowPersistenceFallback } from './shadow/shadowPersistenceFallbackStore.js';
 import type {
   CounterfactualShadowLearningCandidate,
 } from '../trading/signalScanner/counterfactualShadowLearningLane.js';
@@ -39,29 +40,32 @@ interface LedgerFile {
   entries: CounterfactualShadowLearningLedgerEntry[];
 }
 
-function readLedgerFile(): LedgerFile {
-  try {
-    if (!fs.existsSync(COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE)) {
-      return { version: 1, entries: [] };
-    }
-    const raw = fs.readFileSync(COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.entries)) {
-      return { version: 1, entries: [] };
-    }
-    return parsed as LedgerFile;
-  } catch (e) {
-    console.warn('[CounterfactualShadowLearningRepo] read 실패 — 빈 ledger fallback', e);
-    return { version: 1, entries: [] };
-  }
+function isLedgerFile(data: unknown): data is LedgerFile {
+  const parsed = data as Partial<LedgerFile> | null;
+  return Boolean(parsed && typeof parsed === 'object' && Array.isArray(parsed.entries));
 }
 
-function atomicWrite(file: LedgerFile): void {
-  const dir = path.dirname(COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const tmp = `${COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(file, null, 2), 'utf-8');
-  fs.renameSync(tmp, COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE);
+function readLedgerFile(): LedgerFile {
+  const result = readShadowJson<LedgerFile>({
+    source: 'CounterfactualShadowLearningRepo',
+    filePath: COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE,
+    emptyValue: { version: 1, entries: [] },
+    validate: isLedgerFile,
+    readFailedCode: 'P1_SHADOW_DB_READ_FAILED',
+  });
+  if (result.kind === 'SUCCESS' || result.kind === 'DEGRADED_FALLBACK') return result.data;
+  return { version: 1, entries: [] };
+}
+
+function atomicWrite(file: LedgerFile): boolean {
+  const result = writeShadowJson({
+    source: 'CounterfactualShadowLearningRepo',
+    filePath: COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE,
+    data: file,
+    writeFailedCode: 'P1_COUNTERFACTUAL_LEARNING_WRITE_FAILED',
+    queuedCode: 'P1_SHADOW_LEDGER_WRITE_QUEUED',
+  });
+  return result.kind === 'SUCCESS';
 }
 
 /**
@@ -100,6 +104,7 @@ export function loadCounterfactualShadowLearningLedger(): CounterfactualShadowLe
 
 /** 영속 reset — 테스트 격리 전용. */
 export function __resetCounterfactualShadowLearningLedgerForTests(): void {
+  deleteShadowPersistenceFallback('CounterfactualShadowLearningRepo');
   if (fs.existsSync(COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE)) {
     fs.unlinkSync(COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_FILE);
   }
@@ -112,7 +117,7 @@ export interface AppendCounterfactualShadowLearningInput {
 }
 
 export type AppendCounterfactualShadowLearningResult =
-  | { recorded: true; entry: CounterfactualShadowLearningLedgerEntry }
+  | { recorded: true; entry: CounterfactualShadowLearningLedgerEntry; queued?: boolean }
   | { recorded: false; reason: 'DUPLICATE' | 'PERSIST_ERROR' };
 
 /**
@@ -140,21 +145,13 @@ export function appendCounterfactualShadowLearningEntry(
     ...(scanId !== undefined ? { scanId } : {}),
   };
 
-  try {
-    const file = readLedgerFile();
-    file.entries.push(entry);
-    if (file.entries.length > COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_MAX) {
-      file.entries.splice(0, file.entries.length - COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_MAX);
-    }
-    atomicWrite(file);
-    return { recorded: true, entry };
-  } catch (e) {
-    console.warn(
-      '[CounterfactualShadowLearningRepo] write 실패 — 매수 흐름 무영향',
-      e,
-    );
-    return { recorded: false, reason: 'PERSIST_ERROR' };
+  const file = readLedgerFile();
+  file.entries.push(entry);
+  if (file.entries.length > COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_MAX) {
+    file.entries.splice(0, file.entries.length - COUNTERFACTUAL_SHADOW_LEARNING_LEDGER_MAX);
   }
+  const persisted = atomicWrite(file);
+  return { recorded: true, entry, ...(!persisted ? { queued: true } : {}) };
 }
 
 export interface CounterfactualShadowLearningSummary {

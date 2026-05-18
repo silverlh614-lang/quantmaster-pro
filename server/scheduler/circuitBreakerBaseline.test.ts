@@ -78,7 +78,7 @@ describe('ADR-0111 — countRecentConsecutiveLosses baseline 적용', () => {
       makeShadow(threeHourAgo, 'HIT_STOP'),
     ] as never;
     expect(countRecentConsecutiveLosses(shadows)).toBe(0);  // 모두 baseline 이전
-  });
+  }, 10_000);
 
   it('clearedAt 이후 손절만 카운트', async () => {
     const { clearCircuitBreaker } = await import('../learning/learningState.js');

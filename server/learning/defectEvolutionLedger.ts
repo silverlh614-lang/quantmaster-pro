@@ -12,8 +12,9 @@
  * ENV `DEFECT_EVOLUTION_LEDGER_DISABLED=true` 시 모든 API no-op.
  */
 
-import fs from 'fs';
-import { DEFECT_EVOLUTION_LEDGER_FILE, ensureDataDir } from '../persistence/paths.js';
+import { DEFECT_EVOLUTION_LEDGER_FILE } from '../persistence/paths.js';
+import { readShadowJson, writeShadowJson } from '../persistence/shadow/shadowPersistenceGateway.js';
+import { deleteShadowPersistenceFallback } from '../persistence/shadow/shadowPersistenceFallbackStore.js';
 
 export interface DefectLayer {
   /** 1-indexed 사슬 순서. */
@@ -60,37 +61,39 @@ function isLedgerDisabled(): boolean {
 
 let _store: DefectEvolutionStore | null = null;
 
-function loadStore(): DefectEvolutionStore {
-  if (_store) return _store;
-  ensureDataDir();
-  if (!fs.existsSync(DEFECT_EVOLUTION_LEDGER_FILE)) {
-    _store = { schemaVersion: 1, records: [] };
-    return _store;
-  }
-  try {
-    const raw = fs.readFileSync(DEFECT_EVOLUTION_LEDGER_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as DefectEvolutionStore;
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.records)) {
-      _store = { schemaVersion: 1, records: [] };
-      return _store;
-    }
-    _store = parsed;
-    return _store;
-  } catch {
-    _store = { schemaVersion: 1, records: [] };
-    return _store;
-  }
+function isDefectEvolutionStore(data: unknown): data is DefectEvolutionStore {
+  const parsed = data as Partial<DefectEvolutionStore> | null;
+  return Boolean(parsed && typeof parsed === 'object' && Array.isArray(parsed.records));
 }
 
-function persistStore(store: DefectEvolutionStore): void {
-  ensureDataDir();
+function loadStore(): DefectEvolutionStore {
+  if (_store) return _store;
+  const result = readShadowJson<DefectEvolutionStore>({
+    source: 'DefectEvolutionLedger',
+    filePath: DEFECT_EVOLUTION_LEDGER_FILE,
+    emptyValue: { schemaVersion: 1, records: [] },
+    validate: isDefectEvolutionStore,
+    readFailedCode: 'P1_SHADOW_DB_READ_FAILED',
+  });
+  _store = result.kind === 'SUCCESS' || result.kind === 'DEGRADED_FALLBACK'
+    ? result.data
+    : { schemaVersion: 1, records: [] };
+  return _store;
+}
+
+function persistStore(store: DefectEvolutionStore): boolean {
   // FIFO trim — 가장 오래된 record 부터 제거.
   if (store.records.length > FIFO_LIMIT) {
     store.records = store.records.slice(-FIFO_LIMIT);
   }
-  const tmp = `${DEFECT_EVOLUTION_LEDGER_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf8');
-  fs.renameSync(tmp, DEFECT_EVOLUTION_LEDGER_FILE);
+  const result = writeShadowJson({
+    source: 'DefectEvolutionLedger',
+    filePath: DEFECT_EVOLUTION_LEDGER_FILE,
+    data: store,
+    writeFailedCode: 'P1_DEFECT_EVOLUTION_PERSIST_FAILED',
+    queuedCode: 'P1_SHADOW_LEDGER_WRITE_QUEUED',
+  });
+  return result.kind === 'SUCCESS';
 }
 
 /**
@@ -127,11 +130,7 @@ export function recordDefectEvolution(input: {
   } else {
     store.records.push(record);
   }
-  try {
-    persistStore(store);
-  } catch (e) {
-    console.warn(`[defectEvolutionLedger] persist 실패 (${input.evolutionId}):`, e);
-  }
+  persistStore(store);
   return record;
 }
 
@@ -143,13 +142,8 @@ export function appendLayerToEvolution(evolutionId: string, layer: DefectLayer):
   if (!record) return false;
   record.defectChain.push(layer);
   record.totalLayers = record.defectChain.length;
-  try {
-    persistStore(store);
-    return true;
-  } catch (e) {
-    console.warn(`[defectEvolutionLedger] append 실패 (${evolutionId}):`, e);
-    return false;
-  }
+  persistStore(store);
+  return true;
 }
 
 /** evolution 종결 — RESOLVED 또는 ABANDONED. */
@@ -163,13 +157,8 @@ export function markEvolutionResolved(
   if (!record) return false;
   record.status = status;
   record.resolvedAt = new Date().toISOString();
-  try {
-    persistStore(store);
-    return true;
-  } catch (e) {
-    console.warn(`[defectEvolutionLedger] resolve 실패 (${evolutionId}):`, e);
-    return false;
-  }
+  persistStore(store);
+  return true;
 }
 
 /**
@@ -357,4 +346,5 @@ export function seedFirstIncidentIfEmpty(): boolean {
 /** 테스트 격리. */
 export function __resetDefectEvolutionLedgerForTests(): void {
   _store = null;
+  deleteShadowPersistenceFallback('DefectEvolutionLedger');
 }

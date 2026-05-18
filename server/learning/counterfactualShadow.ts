@@ -19,8 +19,8 @@
  * 본 모듈은 "기록 + 해상도" API만 제공. Gate 를 실제 바꾸지 않는다 (분석용 관측).
  */
 
-import fs from 'fs';
 import { COUNTERFACTUAL_FILE, ensureDataDir } from '../persistence/paths.js';
+import { readShadowJson, writeShadowJson } from '../persistence/shadow/shadowPersistenceGateway.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { shouldSuppressNoise, recordNoiseSuppressed } from '../utils/logger.js';
@@ -148,20 +148,25 @@ export const COUNTERFACTUAL_DAILY_CAP = Number(process.env.COUNTERFACTUAL_DAILY_
 
 function load(): CounterfactualEntry[] {
   ensureDataDir();
-  if (!fs.existsSync(COUNTERFACTUAL_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(COUNTERFACTUAL_FILE, 'utf-8')) as CounterfactualEntry[];
-  } catch {
-    return [];
-  }
+  const result = readShadowJson<CounterfactualEntry[]>({
+    source: 'CounterfactualShadow',
+    filePath: COUNTERFACTUAL_FILE,
+    emptyValue: [],
+    validate: Array.isArray as (data: unknown) => data is CounterfactualEntry[],
+    readFailedCode: 'P1_SHADOW_DB_READ_FAILED',
+  });
+  return result.kind === 'SUCCESS' || result.kind === 'DEGRADED_FALLBACK' ? result.data : [];
 }
 
 export function saveCounterfactuals(entries: CounterfactualEntry[]): void {
   ensureDataDir();
-  fs.writeFileSync(
-    COUNTERFACTUAL_FILE,
-    JSON.stringify(entries.slice(-MAX_RECORDS), null, 2),
-  );
+  writeShadowJson({
+    source: 'CounterfactualShadow',
+    filePath: COUNTERFACTUAL_FILE,
+    data: entries.slice(-MAX_RECORDS),
+    writeFailedCode: 'P1_COUNTERFACTUAL_LEARNING_WRITE_FAILED',
+    queuedCode: 'P1_SHADOW_LEDGER_WRITE_QUEUED',
+  });
 }
 
 export function loadCounterfactuals(): CounterfactualEntry[] {

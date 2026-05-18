@@ -16,8 +16,8 @@
  * 장중 종결 대비 단순 버퍼. 정확도 추구보다는 "세팅 간 상대 비교" 에 최적화.
  */
 
-import fs from 'fs';
 import { LEDGER_FILE, ensureDataDir } from '../persistence/paths.js';
+import { readShadowJson, writeShadowJson } from '../persistence/shadow/shadowPersistenceGateway.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import {
@@ -73,14 +73,25 @@ export const LEDGER_HORIZON_DAYS = Number(process.env.LEDGER_HORIZON_DAYS ?? '90
 
 function load(): LedgerEntry[] {
   ensureDataDir();
-  if (!fs.existsSync(LEDGER_FILE)) return [];
-  try { return JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf-8')) as LedgerEntry[]; }
-  catch { return []; }
+  const result = readShadowJson<LedgerEntry[]>({
+    source: 'ParallelUniverseLedger',
+    filePath: LEDGER_FILE,
+    emptyValue: [],
+    validate: Array.isArray as (data: unknown) => data is LedgerEntry[],
+    readFailedCode: 'P1_SHADOW_DB_READ_FAILED',
+  });
+  return result.kind === 'SUCCESS' || result.kind === 'DEGRADED_FALLBACK' ? result.data : [];
 }
 
 function save(entries: LedgerEntry[]): void {
   ensureDataDir();
-  fs.writeFileSync(LEDGER_FILE, JSON.stringify(entries.slice(-MAX_RECORDS), null, 2));
+  writeShadowJson({
+    source: 'ParallelUniverseLedger',
+    filePath: LEDGER_FILE,
+    data: entries.slice(-MAX_RECORDS),
+    writeFailedCode: 'P1_SHADOW_DB_WRITE_FAILED',
+    queuedCode: 'P1_SHADOW_LEDGER_WRITE_QUEUED',
+  });
 }
 
 export function loadLedgerEntries(): LedgerEntry[] {

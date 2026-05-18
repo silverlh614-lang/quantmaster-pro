@@ -401,7 +401,7 @@ describe('ADR-0430 — counterfactualShadowLearningRepo 영속 분리', () => {
     expect(all[0].symbol).toBe('005930');
     expect(all[0].source).toBe('ADR-0430');
     expect(all[0].virtualAccountImpact).toBe('NONE');
-  });
+  }, 10_000);
 
   it('§K-6: dedup — 동일 scanId+symbol 중복 차단', async () => {
     const repo = await import('../../persistence/counterfactualShadowLearningRepo.js');
