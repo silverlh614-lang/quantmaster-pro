@@ -7,8 +7,17 @@ import {
   formatMultiple,
   formatPercent,
   formatSignedMoney,
+  type PositionPriceSource,
   type TelegramPositionEntry,
 } from './shadowPositionSources.js';
+
+function formatPriceSource(source: PositionPriceSource | undefined): string {
+  if (source === 'REALTIME_WS') return ' (실시간)';
+  if (source === 'KIS_REST') return ' (KIS)';
+  if (source === 'VIRTUAL_ACCOUNT') return ' (Virtual)';
+  if (source === 'ENTRY_PRICE_FALLBACK') return ' (진입가 기준)';
+  return '';
+}
 
 function renderPositionLine(position: TelegramPositionEntry, index: number): string {
   const name = escapeHtml(position.stockName || position.stockCode);
@@ -19,7 +28,7 @@ function renderPositionLine(position: TelegramPositionEntry, index: number): str
     `${index + 1}. <b>${name} / ${code}</b>`,
     `   수량: ${position.qty.toLocaleString('ko-KR')}`,
     `   진입가: ${formatMoney(position.entryPrice)}`,
-    `   현재가: ${formatMoney(position.currentPrice)}`,
+    `   현재가: ${formatMoney(position.currentPrice)}${formatPriceSource(position.currentPriceSource)}`,
     `   평가손익: ${formatSignedMoney(position.unrealizedPnl)} (${formatPercent(position.unrealizedPct)})`,
     `   R multiple: ${formatMultiple(position.rMultiple)}`,
     `   상태: ${status}`,
@@ -35,7 +44,7 @@ const command: TelegramCommand = {
   riskLevel: 0,
   description: '현재 Shadow/Virtual/Live 포지션 현황',
   async execute({ reply }) {
-    const snapshot = aggregatePositionSources();
+    const snapshot = await aggregatePositionSources();
     const { mode, positions, account } = snapshot;
     const lines: string[] = [
       '📌 <b>포지션 현황</b>',
