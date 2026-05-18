@@ -32,6 +32,7 @@
  * └─────────────────────────────────────────────────────────────────┘
  */
 
+import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
 import { logger } from '../utils/logger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
@@ -598,7 +599,7 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
       if (!isBuyableKstWindow()) {
         logger.debug(`${msg} (SELL_ONLY·장외 정상 동작)`);
       } else {
-        console.warn(`${msg} — 매수 구간 연속 빈 스캔, Gate 임계치 점검 필요`);
+        emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Adaptive scheduler observed consecutive empty scans in buyable window.', dedupKey: 'p2:scheduler:adaptive-empty-scans', details: { consecutiveEmptyScans, multiplier } });
         if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {
           // 단일 임계 도달 시점에만 1회 알림 (spam 방지).
           // 단순 경보가 아닌 3택 Decision Broker로 전환 — 운용자가 "도구를 든 판단자"로 서도록.

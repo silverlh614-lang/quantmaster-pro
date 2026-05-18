@@ -12,6 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 import { fetchKisStockProgramTrade } from '../clients/kisClient/index.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 import { loadOpenPositions } from '../persistence/positionTruth.js';
@@ -808,10 +810,10 @@ export async function runProgramAutoCapture(
       status.failureCooldownBySymbol[target.symbol] = new Date(now.getTime() + FAILURE_COOLDOWN_MS).toISOString();
       if (isKisThrottleOrCircuitBreaker(error)) {
         providerAbortReason = error instanceof Error ? error.message : String(error);
-        console.warn(`[ProgramAutoCapture] provider circuit/throttle abort symbol=${target.symbol} reason=${providerAbortReason}`);
+        emitProviderWarn({ source: 'KIS_AUX', code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Program auto-capture provider circuit/throttle abort.', dedupKey: `p2:provider:KIS_AUX:program-autocapture-abort:${target.symbol}`, fallbackUsed: true, details: { symbol: target.symbol, reason: providerAbortReason } });
         break;
       }
-      console.warn(`[ProgramAutoCapture] provider failure symbol=${target.symbol}`, error instanceof Error ? error.message : error);
+      emitProviderWarn({ source: 'KIS_AUX', code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Program auto-capture provider failure.', dedupKey: `p2:provider:KIS_AUX:program-autocapture-failure:${target.symbol}`, fallbackUsed: true, details: { symbol: target.symbol, compactError: compactError(error) } });
     }
 
     if (!data) {
@@ -948,7 +950,7 @@ export async function runProgramAutoCapture(
         executionImpact: 'NONE',
         dedupeHint: `${marketDate}:${slot}`,
       },
-    }).catch((err) => console.warn('[ProgramAutoCapture] telegram summary failed:', err instanceof Error ? err.message : err));
+    }).catch((err) => emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Program auto-capture telegram summary failed.', dedupKey: `p2:scheduler:program-autocapture-telegram:${marketDate}:${slot}`, error: err }));
   }
   return summary;
 }

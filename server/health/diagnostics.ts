@@ -8,6 +8,7 @@
 // 외부 HTTP probe (Yahoo·DART) 는 호출자 선택 — `runExternalProbes()` 별도 함수.
 // 스냅샷 코어는 순수 (외부 fetch 없음) — 단위 테스트 가능.
 
+import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
 import { loadShadowTrades, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 // ADR-0191 §Wiring 3 — Position Truth Divergence 자동 검출 SSOT.
 import {
@@ -331,14 +332,14 @@ export function collectHealthSnapshot(): HealthSnapshot {
  *
  * read-only — `buildSubscriptionDiagnosis` 가 `_subscribedPriorities` 메모리 read 만.
  * ENV `KIS_WS_SUBSCRIPTION_DIAG_DISABLED=true` 시 undefined 반환 (운영자 표시 비활성).
- * throw 시 console.warn + undefined fallback (health 스냅샷 흐름 차단 0).
+ * throw 시 diagnostic warn + undefined fallback (health 스냅샷 흐름 차단 0).
  */
 function safeBuildKisWsSubscriptionDiagnosis(): SubscriptionDiagnosis | undefined {
   try {
     if (isKisWsSubscriptionDiagDisabled()) return undefined;
     return buildSubscriptionDiagnosis();
   } catch (e) {
-    console.warn('[Diagnostics] kis-ws subscription 진단 수집 실패 — undefined fallback:', e);
+    emitDiagnosticWarn({ code: 'P2_DIAGNOSTIC_SUMMARY_DEGRADED', message: 'KIS websocket subscription diagnosis failed; using undefined fallback.', dedupKey: 'p2:diagnostic:kis-ws-subscription', error: e });
     return undefined;
   }
 }
@@ -351,7 +352,7 @@ function safeDetectPositionTruthDivergence(): PositionTruthDivergenceReport | un
   try {
     return detectPositionTruthDivergence();
   } catch (e) {
-    console.warn('[Diagnostics] positionTruthDivergence 검출 실패 — undefined fallback:', e);
+    emitDiagnosticWarn({ code: 'P2_DIAGNOSTIC_SUMMARY_DEGRADED', message: 'Position truth divergence diagnosis failed; using undefined fallback.', dedupKey: 'p2:diagnostic:position-truth-divergence', error: e });
     return undefined;
   }
 }

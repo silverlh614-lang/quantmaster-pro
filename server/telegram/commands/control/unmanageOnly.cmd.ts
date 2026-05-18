@@ -12,6 +12,17 @@ import {
   getManualBlockNewBuy,
   setManualBlockNewBuy,
 } from '../../../state.js';
+import { emitReportSectionWarn } from '../../../observability/reportSectionWarn.js';
+
+function emitUnmanageOnlySectionWarn(message: string, error?: unknown): void {
+  emitReportSectionWarn({
+    section: 'UNMANAGE_ONLY',
+    message: String(message).slice(0, 180),
+    error,
+    dedupKey: `p2:telegram:section:UNMANAGE_ONLY:${String(message).slice(0, 96)}`,
+  });
+}
+
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -37,7 +48,7 @@ const unmanageOnly: TelegramCommand = {
     if (!symmetricDisabled) {
       setManualBlockNewBuy(false);
     }
-    console.warn(
+    emitUnmanageOnlySectionWarn(
       `[TelegramBot] /unmanage_only — 보유만 관리 해제 ` +
       `(${symmetricDisabled ? 'legacy: blockNewBuy 보존' : 'ADR-0193: blockNewBuy 동시 해제'})`,
     );

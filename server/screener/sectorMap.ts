@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SECTOR_MAP as MANUAL_OVERRIDES } from './pipelineHelpers.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 
 const DATA_DIR = process.env.PERSIST_DATA_DIR
   ? path.resolve(process.env.PERSIST_DATA_DIR)
@@ -48,11 +49,11 @@ function loadKrxMap(): Record<string, string> {
     const err = e as NodeJS.ErrnoException;
     if (err.code === 'ENOENT') {
       if (!_missingWarned) {
-        console.warn('[SectorMap] data/krx-sector-map.json 없음 — `npx tsx scripts/updateSectorMap.ts` 실행 필요. 수동 오버라이드만 적용.');
+        emitProviderWarn({ source: 'SECTOR', message: 'KRX sector map missing; manual overrides only.', dedupKey: 'p2:provider:SECTOR:krx-map-missing', fallbackUsed: true, details: { path: KRX_MAP_PATH } });
         _missingWarned = true;
       }
     } else {
-      console.error('[SectorMap] 읽기/파싱 실패:', err.message);
+      emitProviderWarn({ source: 'SECTOR', message: 'KRX sector map read/parse failed; previous cache or empty map used.', dedupKey: 'p2:provider:SECTOR:krx-map-read', fallbackUsed: true, details: { path: KRX_MAP_PATH, compactError: compactError(err) } });
     }
     // 이전 캐시가 있으면 유지, 없으면 빈 객체. mtime 은 0 으로 리셋해서 다음 호출에 재시도.
     _mtimeMs = 0;

@@ -15,6 +15,17 @@ import {
   acknowledgeR3SanityBlock,
 } from '../../../persistence/r3SanityBlockRepo.js';
 import { resetR3ViolationStreakState } from '../../../persistence/r3ViolationStreakRepo.js';
+import { emitReportSectionWarn } from '../../../observability/reportSectionWarn.js';
+
+function emitR3UnblockSectionWarn(message: string, error?: unknown): void {
+  emitReportSectionWarn({
+    section: 'R3_UNBLOCK',
+    message: String(message).slice(0, 180),
+    error,
+    dedupKey: `p2:telegram:section:R3_UNBLOCK:${String(message).slice(0, 96)}`,
+  });
+}
+
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -32,7 +43,7 @@ const r3Unblock: TelegramCommand = {
       try {
         resetR3ViolationStreakState();
       } catch (e) {
-        console.warn('[TelegramBot] /r3_unblock — streak reset 실패 (latch 비활성 분기):', e);
+        emitR3UnblockSectionWarn('[TelegramBot] /r3_unblock — streak reset 실패 (latch 비활성 분기):', e);
       }
       await reply(
         '✅ <b>이미 R3 sanity block 비활성 상태입니다.</b>\n' +
@@ -48,9 +59,9 @@ const r3Unblock: TelegramCommand = {
     try {
       resetR3ViolationStreakState();
     } catch (e) {
-      console.warn('[TelegramBot] /r3_unblock — streak reset 실패:', e);
+      emitR3UnblockSectionWarn('[TelegramBot] /r3_unblock — streak reset 실패:', e);
     }
-    console.warn(
+    emitR3UnblockSectionWarn(
       `[TelegramBot] /r3_unblock — R3 sanity block latch 해제 ` +
       `(${before.violation}, ${before.regime}, triggeredAt=${before.triggeredAt})`,
     );

@@ -11,6 +11,18 @@
  * `SCAN_BLOCKERS_PROVIDER_DEGRADED_DISABLED=true` 시 섹션 미노출.
  */
 import { randomUUID } from 'node:crypto';
+import { emitReportSectionWarn } from '../../../observability/reportSectionWarn.js';
+
+
+function emitScanBlockersSectionWarn(message: string, error?: unknown): void {
+  emitReportSectionWarn({
+    section: 'SCAN_BLOCKERS',
+    code: 'P2_SCAN_BLOCKERS_SECTION_DEGRADED',
+    message: String(message).replace(/^\[scan_blockers\]\s*/, '').slice(0, 180),
+    error,
+    dedupKey: `p2:telegram:section:SCAN_BLOCKERS:${String(message).slice(0, 96)}`,
+  });
+}
 
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -313,7 +325,7 @@ const scanBlockers: TelegramCommand = {
       const watchlist = loadWatchlist();
       degradedSection = formatTechnicalProviderDegradedSection(watchlist);
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] technicalProviderDegraded 섹션 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -340,7 +352,7 @@ const scanBlockers: TelegramCommand = {
         counterfactualLine = formatCounterfactualShadowSummaryLine(cfSummary);
       }
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] counterfactual shadow 요약 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -384,7 +396,7 @@ const scanBlockers: TelegramCommand = {
         promotionLine = formatShadowLearningPromotionSummaryLine(promotionSummary);
       }
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] shadow learning promotion 요약 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -398,7 +410,7 @@ const scanBlockers: TelegramCommand = {
       const universeSummary = summarizeCounterfactualUniverseLearningLedger();
       universeSection = formatCounterfactualUniverseLearningSummarySection(universeSummary);
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] counterfactual universe learning 섹션 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -442,7 +454,7 @@ const scanBlockers: TelegramCommand = {
         }),
       );
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] investor-flow provider health section failed:',
         err,
       );
@@ -462,7 +474,7 @@ const scanBlockers: TelegramCommand = {
         }
       }
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] kis-ws subscription 섹션 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -512,7 +524,7 @@ const scanBlockers: TelegramCommand = {
         );
       }
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] ADR-0446 Phase 2/Sanity compact line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -551,7 +563,7 @@ const scanBlockers: TelegramCommand = {
         executionImpactLine = formatSectorEnergyExecutionImpactCompactLine(decision);
       }
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] ADR-0448 SectorEnergy execution impact line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -566,7 +578,7 @@ const scanBlockers: TelegramCommand = {
       nearMissOutcomeLine = formatNearMissOutcomeDiagnosticLine(summarizeNearMissOutcomeLedger());
       nearMissAnalyticsLine = formatNearMissOutcomeAnalyticsDiagnosticLine();
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] ADR-454b/455 near-miss outcome line 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -590,7 +602,7 @@ const scanBlockers: TelegramCommand = {
         livenessSection = formatEmptyScanLivenessSection(decision, feedback.consecutiveEmptyScans);
       }
     } catch (err) {
-      console.warn(
+      emitScanBlockersSectionWarn(
         '[scan_blockers] ADR-0451 emptyScan liveness section 빌드 실패 (진단 메시지는 baseMessage 만 출력):',
         err,
       );
@@ -602,7 +614,7 @@ const scanBlockers: TelegramCommand = {
         runtimeAuditSection = formatRuntimePipelineAuditSection(buildRuntimePipelineAuditSnapshot());
       }
     } catch (err) {
-      console.warn('[scan_blockers] ADR-461 runtime audit section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-461 runtime audit section failed:', err);
     }
 
     // ADR-0480 — Operator Action Router compact Top 3.
@@ -636,7 +648,7 @@ const scanBlockers: TelegramCommand = {
         });
       }
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0487/0488 fresh data and supply unknown report failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0487/0488 fresh data and supply unknown report failed:', err);
     }
 
     let operatorActionSection: string | null = null;
@@ -651,14 +663,14 @@ const scanBlockers: TelegramCommand = {
       });
       operatorActionSection = safeFormatOperatorActionCompactSectionAdr0480(operatorActionQueue);
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0480 operator action section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0480 operator action section failed:', err);
     }
 
     let supplySnapshotLine: string | null = null;
     try {
       supplySnapshotLine = formatSupplySnapshotCompactAdr0491(summary?.supplySnapshotStoreAdr0491 ?? summarizeSupplySnapshotStoreAdr0491());
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0491 supply snapshot line failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0491 supply snapshot line failed:', err);
     }
 
     let emptyScanRootCauseSectionAdr0500: string | null = null;
@@ -679,7 +691,7 @@ const scanBlockers: TelegramCommand = {
         emptyScanRootCauseSectionAdr0500 = formatEmptyScanRootCauseCompactAdr0500(dashboard, { maxBuckets: 5 });
       }
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0500 empty scan root cause section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0500 empty scan root cause section failed:', err);
     }
 
     let weekendReplaySectionAdr0501: string | null = null;
@@ -704,7 +716,7 @@ const scanBlockers: TelegramCommand = {
         }
       }
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0501 weekend replay section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0501 weekend replay section failed:', err);
     }
 
     let adr0498FreshDataStatusSection: string | null = null;
@@ -715,7 +727,7 @@ const scanBlockers: TelegramCommand = {
       );
       adr0498FreshDataStatusSection = ['ADR-0498 FreshDataStatus normalized', ...adr0498.lines].join('\n');
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0498 fresh data status section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0498 fresh data status section failed:', err);
     }
 
     let supplyCoverageRecoveryLine: string | null = null;
@@ -840,7 +852,7 @@ const scanBlockers: TelegramCommand = {
         ].join('\n');
       }
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0484/0485/0486/0487/0488 supply recovery/readiness/mount/fresh-data/unknown line failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0484/0485/0486/0487/0488 supply recovery/readiness/mount/fresh-data/unknown line failed:', err);
     }
 
     // ADR-0506 — ADR-0505 emission status line (compact for gate / detail for full).
@@ -889,7 +901,7 @@ const scanBlockers: TelegramCommand = {
       const shadowGateAudits = listShadowGateAuditRecords({ hydrateLiveMinimum: true });
       if (shadowGateAudits.length > 0) parts.push(formatShadowGateAuditSection(shadowGateAudits));
     } catch (err) {
-      console.warn('[scan_blockers] Patch-SHADOW-GATE-AUDIT-001 section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] Patch-SHADOW-GATE-AUDIT-001 section failed:', err);
     }
 
     // ADR-0509 — Patch-UNIFIED-GATE-SCORE-KERNEL-AUDIT-001 — Shadow rawGate + Live minSignal
@@ -906,7 +918,7 @@ const scanBlockers: TelegramCommand = {
       const unifiedSection = formatUnifiedGateComparisonSection(snapshots);
       if (unifiedSection) parts.push(unifiedSection);
     } catch (err) {
-      console.warn('[scan_blockers] ADR-0509 Unified Gate runtime section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] ADR-0509 Unified Gate runtime section failed:', err);
     }
 
     // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — KIS RealData provider noise compact health.
@@ -917,7 +929,7 @@ const scanBlockers: TelegramCommand = {
       const realDataHealth = formatKisRealDataHealthSection();
       if (realDataHealth) parts.push(realDataHealth);
     } catch (err) {
-      console.warn('[scan_blockers] Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 section failed:', err);
     }
 
     // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 통계 (runtime/full 모드 노출).
@@ -934,7 +946,7 @@ const scanBlockers: TelegramCommand = {
         parts.push(formatShadowApprovalDedupeSection(dedupStats));
       }
     } catch (err) {
-      console.warn('[scan_blockers] Patch-SHADOW-APPROVAL-DEDUP-001 section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] Patch-SHADOW-APPROVAL-DEDUP-001 section failed:', err);
     }
 
     // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — Shadow execution pipeline summary.
@@ -945,7 +957,7 @@ const scanBlockers: TelegramCommand = {
       const executionSection = formatShadowExecutionPipelineSection();
       if (executionSection) parts.push(executionSection);
     } catch (err) {
-      console.warn('[scan_blockers] Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 section failed:', err);
     }
 
     // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — Shadow position
@@ -957,7 +969,7 @@ const scanBlockers: TelegramCommand = {
       const lifecycleSection = formatShadowPositionLifecycleSection();
       if (lifecycleSection) parts.push(lifecycleSection);
     } catch (err) {
-      console.warn('[scan_blockers] Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 section failed:', err);
     }
 
     // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — KIS RealData circuit breaker state +
@@ -969,7 +981,7 @@ const scanBlockers: TelegramCommand = {
       const providerHealthSection = formatProviderHealthIsolationSection();
       if (providerHealthSection) parts.push(providerHealthSection);
     } catch (err) {
-      console.warn('[scan_blockers] Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 section failed:', err);
+      emitScanBlockersSectionWarn('[scan_blockers] Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 section failed:', err);
     }
 
     // ADR-0506 — ADR-0505 emission: NOT_EMITTED 시 compact line, full 모드에서 detail block.

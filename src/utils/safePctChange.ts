@@ -12,6 +12,8 @@
  * 서버 사본과 동일 시그니처 — 호출자가 server/client 어디에서든 동일하게 사용 가능.
  */
 
+import { debugWarn } from './debug';
+
 const DEFAULT_SANITY_BOUND_PCT = 90;
 const LOG_THROTTLE_MS = 60_000;
 
@@ -42,7 +44,7 @@ export function safePctChange(
       const last = _lastWarnAt.get(label) ?? 0;
       if (now - last >= LOG_THROTTLE_MS) {
         _lastWarnAt.set(label, now);
-        console.warn(
+        debugWarn(
           `[safePctChange] sanity 위반 @${label} — |${result.toFixed(2)}%| > ${bound}% ` +
           `(current=${current}, base=${base}). stale base 또는 데이터 오류 의심.`,
         );
