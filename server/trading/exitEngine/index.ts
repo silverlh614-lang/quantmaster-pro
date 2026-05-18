@@ -63,6 +63,7 @@ import { bearishDivergenceExit } from './rules/bearishDivergenceExit.js';
 import { ma60DeathWatch } from './rules/ma60DeathWatch.js';
 import { stopApproachAlert } from './rules/stopApproachAlert.js';
 import { euphoriaPartialExit } from './rules/euphoriaPartialExit.js';
+import { isShadowR6ForcedExitSuspected } from './r6ForcedExitPolicy.js';
 
 /**
  * 청산 규칙 우선순위 테이블 (entryEngine.ts EXIT_RULE_PRIORITY_TABLE 과 일치).
@@ -208,6 +209,23 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
       }
       // 잔량이 0이면 HIT_STOP으로 전환하고 루프 스킵
       if (shadow.quantity <= 0) {
+        if (isShadowR6ForcedExitSuspected(shadow)) {
+          shadow.needsManualReview = true;
+          shadow.manualReviewReason = 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED';
+          if (before > 0) shadow.quantity = before;
+          appendShadowLog({
+            event: 'R6_SHADOW_FORCED_EXIT_RECONCILE_BLOCKED',
+            ...shadow,
+            reason: 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED',
+            executionImpact: 'NONE',
+            liveOrderSent: false,
+          });
+          console.warn(
+            `[R6_SHADOW_FORCED_EXIT_RECONCILE_BLOCKED] symbol=${shadow.stockCode} ` +
+            'reason=SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED executionImpact=NONE',
+          );
+          continue;
+        }
         shadow.status = 'HIT_STOP';
         shadow.exitTime ??= new Date().toISOString();
         console.log(`[ExitEngine] ⚠️ ${shadow.stockCode} fill 기반 잔량=0 → 강제 HIT_STOP 전환`);

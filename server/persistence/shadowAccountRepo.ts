@@ -12,6 +12,7 @@ import {
 } from './shadowTradeRepo.js';
 import { loadTradingSettings } from './tradingSettingsRepo.js';
 import { RECONCILE_LAST_FILE } from './paths.js';
+import { isShadowR6ForcedExitSuspected } from '../trading/exitEngine/r6ForcedExitPolicy.js';
 
 // ─── 섀도우 계좌 타입 정의 ────────────────────────────────────────────────────
 
@@ -374,6 +375,9 @@ export interface ReconcileDetail {
   stockName: string;
   before: { qty: number; status: string };
   after:  { qty: number; status: string };
+  warning?: string;
+  needsManualReview?: boolean;
+  reason?: string;
 }
 
 export interface ReconcileResult {
@@ -423,6 +427,7 @@ export function reconcileShadowQuantities(
 ): ReconcileResult {
   const dryRun = opts.dryRun === true;
   // dry-run 은 원본을 손대면 안 되므로 deep clone 후 시뮬레이션.
+  const sourceProvided = trades !== undefined;
   const source = trades ?? loadShadowTrades();
   const all = dryRun ? (JSON.parse(JSON.stringify(source)) as ServerShadowTrade[]) : source;
   const result: ReconcileResult = {
@@ -450,6 +455,28 @@ export function reconcileShadowQuantities(
     const shouldBeClosed = t.quantity === 0 && openStatuses.has(t.status);
     const shouldBeOpen   = t.quantity > 0  && closedStatuses.has(t.status); // 잘못 닫힌 경우
     if (shouldBeClosed) {
+      if (isShadowR6ForcedExitSuspected(t)) {
+        t.needsManualReview = true;
+        t.manualReviewReason = 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED';
+        if (before.qty > 0) t.quantity = before.qty;
+        result.fixed++;
+        result.details.push({
+          id: t.id,
+          stockCode: t.stockCode,
+          stockName: t.stockName,
+          before,
+          after: { qty: t.quantity, status: t.status },
+          warning: 'Shadow R6 forced-exit SELL fill suspected; HIT_STOP auto-confirmation blocked.',
+          needsManualReview: true,
+          reason: 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED',
+        });
+        const tag = dryRun ? '[Reconcile:dryRun]' : '[Reconcile]';
+        console.warn(
+          `${tag} [SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED] ${t.stockCode} ${t.stockName}: ` +
+          `qty ${before.qty}->${t.quantity}, status ${before.status}->${t.status}`,
+        );
+        continue;
+      }
       const lastSell = fills.filter(f => f.type === 'SELL').sort((a, b) => a.timestamp.localeCompare(b.timestamp)).pop();
       t.status    = 'HIT_STOP';
       t.exitTime  ??= lastSell?.timestamp ?? new Date().toISOString();
@@ -471,9 +498,11 @@ export function reconcileShadowQuantities(
     console.log(`${tag} ${t.stockCode} ${t.stockName}: qty ${before.qty}→${t.quantity}, status ${before.status}→${t.status}`);
   }
 
-  if (!dryRun && result.fixed > 0) {
+  if (!dryRun && result.fixed > 0 && !sourceProvided) {
     saveShadowTrades(all);
     console.log(`[Reconcile] ✅ ${result.fixed}건 교정 완료`);
+  } else if (!dryRun && result.fixed > 0) {
+    console.log(`[Reconcile] supplied trades ${result.fixed}건 교정 완료 (disk save skipped)`);
   } else if (!dryRun) {
     console.log(`[Reconcile] ✅ ${result.checked}건 이상 없음`);
   } else {

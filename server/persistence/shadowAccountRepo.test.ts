@@ -6,20 +6,28 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeShadowAccount } from './shadowAccountRepo.js';
+import { computeShadowAccount, reconcileShadowQuantities } from './shadowAccountRepo.js';
 
 function makeFill(
   type: 'BUY' | 'SELL',
   qty: number,
   price: number,
-  overrides: { pnl?: number; pnlPct?: number; timestamp?: string; status?: 'CONFIRMED' | 'PROVISIONAL' | 'REVERTED' } = {},
+  overrides: {
+    pnl?: number;
+    pnlPct?: number;
+    timestamp?: string;
+    status?: 'CONFIRMED' | 'PROVISIONAL' | 'REVERTED';
+    reason?: string;
+    exitRuleTag?: string;
+  } = {},
 ): any {
   return {
     id: `f-${Math.random().toString(36).slice(2, 8)}`,
     type,
     qty,
     price,
-    reason: 'test',
+    reason: overrides.reason ?? 'test',
+    exitRuleTag: overrides.exitRuleTag,
     timestamp: overrides.timestamp ?? new Date().toISOString(),
     status: overrides.status ?? 'CONFIRMED',
     ...(type === 'SELL' ? { pnl: overrides.pnl, pnlPct: overrides.pnlPct } : {}),
@@ -128,5 +136,36 @@ describe('computeShadowAccount — 독립 원장 동작', () => {
     expect(acc.startingCapital).toBe(50_000_000);
     expect(acc.cashBalance).toBe(50_000_000 - 500_000);
     expect(acc.totalInvested).toBe(500_000);
+  });
+
+  it('reconcileShadowQuantities는 Shadow R6 emergency SELL fill을 HIT_STOP으로 자동 확정하지 않는다', () => {
+    const trade = makeTrade({
+      id: 'r6-shadow-suspect',
+      stockCode: '017670',
+      stockName: 'SK텔레콤',
+      mode: 'SHADOW',
+      quantity: 1,
+      status: 'ACTIVE',
+      fills: [
+        makeFill('BUY', 1, 99_700),
+        makeFill('SELL', 1, 100_500, {
+          reason: 'R6_EMERGENCY_EXIT',
+          exitRuleTag: 'R6_EMERGENCY_EXIT',
+        }),
+      ],
+    });
+
+    const result = reconcileShadowQuantities([trade], { dryRun: false });
+
+    expect(trade.status).toBe('ACTIVE');
+    expect(trade.quantity).toBe(1);
+    expect(trade.needsManualReview).toBe(true);
+    expect(trade.manualReviewReason).toBe('SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED');
+    expect(result.details[0]).toMatchObject({
+      stockCode: '017670',
+      needsManualReview: true,
+      reason: 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED',
+      after: { qty: 1, status: 'ACTIVE' },
+    });
   });
 });

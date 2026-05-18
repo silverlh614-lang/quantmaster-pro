@@ -8,6 +8,7 @@ import { channelBuyFilled } from '../alerts/channelPipeline.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
 import { appendTradeEvent } from './tradeEventLog.js';
 import { safePctChange } from '../utils/safePctChange.js';
+import { isShadowR6ForcedExitSuspected } from './exitEngine/r6ForcedExitPolicy.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
 
@@ -420,10 +421,19 @@ function correctShadowFill(
   const remainingQty = getRemainingQty(trade);
   let autoClosed = false;
   if (remainingQty === 0 && openStatuses.has(trade.status)) {
-    trade.status = 'HIT_STOP';
-    trade.exitTime ??= new Date().toISOString();
-    trade.exitPrice ??= effectivePrice;
-    autoClosed = true;
+    if (isShadowR6ForcedExitSuspected(trade)) {
+      trade.needsManualReview = true;
+      trade.manualReviewReason = 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED';
+      console.warn(
+        `[R6_SHADOW_FORCED_EXIT_RECONCILE_BLOCKED] symbol=${trade.stockCode} ` +
+        'source=fillMonitor reason=SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED executionImpact=NONE',
+      );
+    } else {
+      trade.status = 'HIT_STOP';
+      trade.exitTime ??= new Date().toISOString();
+      trade.exitPrice ??= effectivePrice;
+      autoClosed = true;
+    }
   }
 
   try {

@@ -695,11 +695,18 @@ export interface ServerShadowTrade {
   detachedFromWatchlistAt?: string;
   /** Shadow/counterfactual entry type marker. Diagnostic-only; never implies a live order. */
   entryType?: 'SHADOW_BUY_SIGNAL' | 'R6_COUNTERFACTUAL_BUY' | 'ACCUMULATION_SHADOW_ENTRY';
+  positionKind?: 'LIVE' | 'SHADOW' | 'VIRTUAL' | 'PAPER';
+  accountKind?: 'KIS_LIVE' | 'VIRTUAL_SHADOW' | 'PAPER_LEDGER';
+  origin?: 'KIS_HOLDING' | 'SHADOW_POSITION_LEDGER' | 'SHADOW_TRADE_REPO' | 'PAPER_TRADE_LEDGER' | 'VIRTUAL_ACCOUNT' | string;
+  source?: string;
   sourceSignal?: 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'BEARISH' | 'UNUSABLE';
   entryReason?: string;
   executionImpact?: 'NONE';
   liveOrderSent?: false;
   riskUnit?: 'R6_COUNTERFACTUAL' | string;
+  needsManualReview?: boolean;
+  manualReviewReason?: string;
+  rollbackReason?: string;
   r6Counterfactual?: {
     tradingDate: string;
     regime: string;

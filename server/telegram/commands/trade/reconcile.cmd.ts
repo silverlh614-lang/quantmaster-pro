@@ -25,17 +25,25 @@ interface ReconcileDetail {
   stockName?: string;
   before: { qty: number; status: string };
   after: { qty: number; status: string };
+  warning?: string;
+  needsManualReview?: boolean;
+  reason?: string;
 }
 
 function formatDetails(details: ReconcileDetail[] | undefined): string {
   if (!details || details.length === 0) return '\n변경 사항 없음';
   const lines = details
     .slice(0, 8)
-    .map(
-      d =>
+    .map((d) => {
+      const warning = d.needsManualReview
+        ? `\n  WARNING: ${escapeHtml(d.reason ?? d.warning ?? 'needs manual review')}`
+        : '';
+      return (
         `• ${escapeHtml(d.stockName ?? '')}(${escapeHtml(d.stockCode)}): ` +
-        `${d.before.qty}주/${escapeHtml(d.before.status)} → ${d.after.qty}주/${escapeHtml(d.after.status)}`,
-    );
+        `${d.before.qty}주/${escapeHtml(d.before.status)} → ${d.after.qty}주/${escapeHtml(d.after.status)}` +
+        warning
+      );
+    });
   const more = details.length > 8 ? `\n...외 ${details.length - 8}건` : '';
   return `\n${lines.join('\n')}${more}`;
 }

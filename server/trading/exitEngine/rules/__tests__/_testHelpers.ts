@@ -67,6 +67,11 @@ export function makeMockCtx(overrides: Partial<ExitContext> = {}): ExitContext {
     regimeStopLoss:   overrides.regimeStopLoss ?? (shadow.regimeStopLoss ?? shadow.stopLoss),
     hardStopLoss:     overrides.hardStopLoss ?? (shadow.hardStopLoss ?? shadow.stopLoss),
     resolvedNow:      overrides.resolvedNow ?? new Set<string>(),
+    marketSessionState: overrides.marketSessionState ?? 'REGULAR',
+    isKrxTradingOpen: overrides.isKrxTradingOpen ?? true,
+    kisOrderAllowed: overrides.kisOrderAllowed ?? true,
+    liveOrderAllowed: overrides.liveOrderAllowed ?? true,
+    now: overrides.now ?? new Date('2026-05-18T01:00:00.000Z'),
   };
 }
 

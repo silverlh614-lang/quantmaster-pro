@@ -94,6 +94,8 @@ export const GLOBAL_SCAN_FILE        = path.join(DATA_DIR, 'global-scan-report.j
 export const NEWS_SUPPLY_FILE        = path.join(DATA_DIR, 'news-supply-log.json');
 /** 마지막 reconcile 결과 — /reconcile last 조회용. dry-run/apply 모두 기록. */
 export const RECONCILE_LAST_FILE     = path.join(DATA_DIR, 'reconcile-last.json');
+/** R6 emergency exits blocked by session guards; re-evaluated at the next regular open. */
+export const PENDING_EMERGENCY_EXIT_FILE = path.join(DATA_DIR, 'pending-emergency-exits.json');
 /** 스케줄러 실행 이력 — /scheduler history 조회용. 최근 N건 in-memory ring. 디스크 저장 X. */
 /** 반실패 패턴 DB — 손절된 포지션 진입 스냅샷 (코사인 유사도 경고 기반) */
 export const FAILURE_PATTERN_FILE    = path.join(DATA_DIR, 'failure-patterns.json');

@@ -24,6 +24,12 @@ export interface ExitContext {
   hardStopLoss: number;
   /** L1 학습 훅 — orchestrator 가 HIT_TARGET/HIT_STOP 전이 후 mutate. */
   resolvedNow: Set<string>;
+  /** R6 forced live exit guard. Defaults to current KST session when omitted. */
+  marketSessionState?: string;
+  isKrxTradingOpen?: boolean;
+  kisOrderAllowed?: boolean;
+  liveOrderAllowed?: boolean;
+  now?: Date;
 }
 
 export interface ExitRuleResult {
