@@ -211,9 +211,9 @@ export function formatShadowBuyAlertTitle(entrySource?: string): string {
 
 export function formatShadowBuyExecutionNotice(entrySource?: string): string {
   if (String(entrySource ?? '').toUpperCase().includes('R6_COUNTERFACTUAL')) {
-    return 'R6_DEFENSE 상태의 반사실 학습용 가상매수\n실주문 아님 / liveOrderSent=false / executionImpact=NONE / sizingSource=LIVE_SIZING_MIRROR';
+    return '[Shadow] R6_DEFENSE 상태의 반사실 학습용 가상매수\n실주문 아님 / liveOrderSent=false / executionImpact=NONE / sizingSource=LIVE_SIZING_MIRROR';
   }
-  return '실주문 아님 / liveOrderSent=false / executionImpact=NONE / sizingSource=LIVE_SIZING_MIRROR';
+  return '[Shadow] 실주문 아님 / liveOrderSent=false / executionImpact=NONE / sizingSource=LIVE_SIZING_MIRROR';
 }
 
 export function formatLiveBuyExecutionNotice(): string {
