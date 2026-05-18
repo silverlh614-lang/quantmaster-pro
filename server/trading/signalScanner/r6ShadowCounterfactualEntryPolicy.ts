@@ -51,6 +51,7 @@ export type R6NoShadowEntryReason =
   | 'POSITION_LIMIT_REACHED'
   | 'SHADOW_ENTRY_DISABLED_BY_ENV'
   | 'R6_COUNTERFACTUAL_DISABLED'
+  | 'R6_COUNTERFACTUAL_ACTIVE_POSITION_DISABLED'
   | 'NO_R6_SHADOW_POLICY'
   | 'NO_ACCUMULATING_CANDIDATES'
   | 'NO_ELIGIBLE_ACCUMULATING_CANDIDATES';
@@ -69,6 +70,8 @@ export interface R6ShadowEntryPolicySummary {
   accumulatingCandidates: number;
   shadowBuySignals: number;
   r6CounterfactualEntries: number;
+  counterfactualLearningEntries?: number;
+  duplicateLearningEntries?: number;
   noShadowEntryReason?: R6NoShadowEntryReason | 'N/A';
   sizingSource?: 'LIVE_SIZING_MIRROR';
   sizingRegime?: ShadowRegimeSizingLevel;
@@ -176,6 +179,10 @@ function maxEntries(): number {
   const parsed = Number(process.env.R6_COUNTERFACTUAL_MAX_ENTRIES ?? DEFAULT_R6_COUNTERFACTUAL_MAX_ENTRIES);
   if (!Number.isFinite(parsed)) return DEFAULT_R6_COUNTERFACTUAL_MAX_ENTRIES;
   return Math.max(1, Math.min(3, Math.floor(parsed)));
+}
+
+function openCounterfactualShadowPositionEnabled(): boolean {
+  return process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED === 'true';
 }
 
 function resolvePolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowPolicyRegime | null {
@@ -330,6 +337,7 @@ function buildCounterfactualLearningCandidate(input: {
   tradingDate: string;
   nowIso: string;
   macroGateState?: MacroGateState;
+  opensShadowPosition: boolean;
 }): CounterfactualShadowLearningCandidate {
   const c = input.selected.candidate;
   const regimePhase = input.regime === 'SELL_ONLY' || input.regime === 'SHADOW_ONLY'
@@ -345,7 +353,7 @@ function buildCounterfactualLearningCandidate(input: {
     source: 'ADR-0430',
     learningOnly: true,
     provisional: false,
-    executionShadow: true,
+    executionShadow: input.opensShadowPosition,
     label: 'R6_COUNTERFACTUAL_BUY',
     reasons: [
       'HARD_BLOCK',
@@ -356,9 +364,9 @@ function buildCounterfactualLearningCandidate(input: {
     ],
     blockedBy: [input.regime],
     liveAllowed: false,
-    paperAllowed: true,
-    executionShadowAllowed: true,
-    virtualAccountImpact: 'SHADOW_ONLY',
+    paperAllowed: input.opensShadowPosition,
+    executionShadowAllowed: input.opensShadowPosition,
+    virtualAccountImpact: input.opensShadowPosition ? 'SHADOW_ONLY' : 'NONE',
     regime: input.regime,
     rawRegime: input.macroGateState?.macroRegimeRaw ?? input.macroGateState?.regime ?? input.regime,
     effectiveRegime: input.macroGateState?.macroRegimeEffective ?? input.regime,
@@ -396,8 +404,8 @@ function buildCounterfactualLearningCandidate(input: {
     passiveFlow: c.passiveFlow,
     programNetBuy: c.stockProgramNetBuyAmount,
     programFlowAtEntry: c.stockProgramNetBuyAmount,
-    paperFillCreated: true,
-    shadowPositionOpened: true,
+    paperFillCreated: input.opensShadowPosition,
+    shadowPositionOpened: input.opensShadowPosition,
   };
 }
 
@@ -600,6 +608,58 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
   const tradingDate = kstDateKey(now);
+  if (!openCounterfactualShadowPositionEnabled()) {
+    let recorded = 0;
+    let duplicate = 0;
+    for (const item of selected) {
+      const symbol = item.candidate.symbol;
+      const scanId = `${tradingDate}:${regime}:R6_COUNTERFACTUAL_BUY`;
+      const result = appendCounterfactualShadowLearningEntry({
+        candidate: buildCounterfactualLearningCandidate({
+          selected: item,
+          regime,
+          tradingDate,
+          nowIso,
+          macroGateState: input.macroGateState,
+          opensShadowPosition: false,
+        }),
+        scanId,
+        scannedAtKst: nowIso,
+      });
+      if (result.recorded) recorded += 1;
+      else if (result.reason === 'DUPLICATE') duplicate += 1;
+      appendShadowLog({
+        event: 'R6_COUNTERFACTUAL_LEARNING_ONLY_RECORDED',
+        symbol,
+        stockName: item.candidate.name ?? symbol,
+        entryType: 'R6_COUNTERFACTUAL_BUY',
+        sourceSignal: 'ACCUMULATING',
+        entryReason: 'R6_COUNTERFACTUAL_RECOVERY_TEST',
+        entryPrice: item.entryPrice,
+        regime,
+        tradingDate,
+        liveOrderSent: false,
+        executionImpact: 'NONE',
+        paperFillCreated: false,
+        shadowPositionOpened: false,
+        approvalRequiredForActiveShadowPosition: true,
+      });
+      console.info(
+        `[R6_COUNTERFACTUAL_LEARNING_ONLY_RECORDED] symbol=${symbol} ` +
+          `entryType=R6_COUNTERFACTUAL_BUY shadowPositionOpened=false ` +
+          `paperFillCreated=false approvalRequiredForActiveShadowPosition=true ` +
+          `executionImpact=NONE`,
+      );
+    }
+    return {
+      ...base,
+      r6CounterfactualEntries: 0,
+      counterfactualLearningEntries: recorded,
+      noShadowEntryReason: 'R6_COUNTERFACTUAL_ACTIVE_POSITION_DISABLED',
+      ...(duplicate > 0 ? { duplicateLearningEntries: duplicate } : {}),
+    };
+  }
+
   const trades = loadShadowTrades();
   const sizingState = buildShadowSizingState(trades);
   const sizingRegime = resolveShadowRegimeSizingLevel({
@@ -696,6 +756,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
         tradingDate,
         nowIso,
         macroGateState: input.macroGateState,
+        opensShadowPosition: true,
       }),
       scanId: `${tradingDate}:${regime}:R6_COUNTERFACTUAL_BUY`,
       scannedAtKst: nowIso,

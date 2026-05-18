@@ -8,6 +8,7 @@ import type { CandidateWithSupplyContext } from './injectPerSymbolSupplyContext.
 let tmpDir = '';
 const originalDataDir = process.env.PERSIST_DATA_DIR;
 const originalMaxEntries = process.env.R6_COUNTERFACTUAL_MAX_ENTRIES;
+const originalOpenPosition = process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'r6-shadow-cf-'));
@@ -21,6 +22,8 @@ afterEach(() => {
   else process.env.PERSIST_DATA_DIR = originalDataDir;
   if (originalMaxEntries === undefined) delete process.env.R6_COUNTERFACTUAL_MAX_ENTRIES;
   else process.env.R6_COUNTERFACTUAL_MAX_ENTRIES = originalMaxEntries;
+  if (originalOpenPosition === undefined) delete process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED;
+  else process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED = originalOpenPosition;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -51,7 +54,71 @@ function accumulatingRawCandidate(
 }
 
 describe('R6_SHADOW_ENTRY_POLICY', () => {
+  it('defaults R6 counterfactual to learning ledger only without opening an ACTIVE Shadow position', async () => {
+    delete process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED;
+    vi.resetModules();
+    const { persistNormalSupplyPreview } = await import('./normalSupplyPreview.js');
+    const { applyR6ShadowCounterfactualEntries } = await import('./r6ShadowCounterfactualEntryPolicy.js');
+    const { loadShadowTrades } = await import('../../persistence/shadowTradeRepo.js');
+    const { loadCounterfactualShadowLearningLedger } = await import('../../persistence/counterfactualShadowLearningRepo.js');
+
+    const rawCandidates = [accumulatingRawCandidate()];
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'MACRO_LIVE_BLOCK',
+      source: 'RUNTIME_DIAGNOSTIC',
+      reason: 'R6_DEFENSE',
+      candidates: rawCandidates,
+      capturedAt: '2026-05-18T03:00:00.000Z',
+    });
+
+    const summary = applyR6ShadowCounterfactualEntries({
+      preview,
+      rawCandidates,
+      macroGateState: {
+        emergencyStop: false,
+        autoTradeEnabled: true,
+        regime: 'R6_DEFENSE',
+        kellyMultiplierFromRegime: 0,
+        fomcPhase: 'NONE',
+        fomcKellyMultiplier: 1,
+        finalKellyMultiplier: 0,
+        vixGatingActive: false,
+        bearDefenseMode: true,
+        mhsBelow30: false,
+        watchlistEmpty: false,
+        sellOnlyMode: false,
+        shadowLearningAllowed: true,
+        diagnosticAllowed: true,
+      },
+      now: new Date('2026-05-18T03:05:00.000Z'),
+    });
+
+    expect(summary).toMatchObject({
+      r6CounterfactualEntries: 0,
+      counterfactualLearningEntries: 1,
+      noShadowEntryReason: 'R6_COUNTERFACTUAL_ACTIVE_POSITION_DISABLED',
+      executionImpact: 'NONE',
+    });
+    expect(loadShadowTrades()).toHaveLength(0);
+    const ledger = loadCounterfactualShadowLearningLedger();
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({
+      symbol: '005930',
+      label: 'R6_COUNTERFACTUAL_BUY',
+      liveAllowed: false,
+      paperAllowed: false,
+      executionShadowAllowed: false,
+      virtualAccountImpact: 'NONE',
+      paperFillCreated: false,
+      shadowPositionOpened: false,
+      executionImpact: 'NONE',
+      liveOrderSent: false,
+    });
+  }, 20_000);
+
   it('creates a SHADOW/PAPER R6 counterfactual entry from ACCUMULATING candidates without live order impact', async () => {
+    process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED = 'true';
+    vi.resetModules();
     const { persistNormalSupplyPreview } = await import('./normalSupplyPreview.js');
     const { applyR6ShadowCounterfactualEntries } = await import('./r6ShadowCounterfactualEntryPolicy.js');
     const { loadShadowTrades } = await import('../../persistence/shadowTradeRepo.js');
