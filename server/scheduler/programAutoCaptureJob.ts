@@ -18,17 +18,20 @@ import { loadOpenPositions } from '../persistence/positionTruth.js';
 import { REPLAY_DIR, ensureReplayDir } from '../persistence/paths.js';
 import {
   buildIntradayProgramFlowSnapshotFromRuntimeContext,
+  captureLatestIntradayProgramFlowSnapshotFromRuntimeContext,
   loadLatestIntradayProgramFlowSnapshot,
   saveLatestIntradayProgramFlowSnapshot,
   type IntradayProgramFlowSnapshot,
   type IntradayProgramFlowStockRow,
 } from '../replay/intradayProgramFlowSnapshotRepo.js';
 import { getEmergencyStop } from '../state.js';
-import { classifyProgramFlowSession } from '../trading/signalScanner/programFlowSessionGuard.js';
+import { classifyProgramFlowSession, type ProgramFlowMarketSession } from '../trading/signalScanner/programFlowSessionGuard.js';
 import { getLastNormalSupplyPreview } from '../trading/signalScanner/normalSupplyPreview/previewStore.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 export type ProgramAutoCaptureSlot = 'MORNING' | 'AFTERNOON';
+export type ProgramAutoCaptureRunMode = 'DIAGNOSTIC_ONLY' | 'MANUAL_RUN_NOW';
+export type ProgramAutoCaptureTargetMode = 'DEFAULT' | 'BEARISH' | 'ACCUMULATING';
 export type ProgramDeltaDirection =
   | 'PROGRAM_BUY_ACCELERATING'
   | 'PROGRAM_BUY_DECELERATING'
@@ -37,6 +40,21 @@ export type ProgramDeltaDirection =
   | 'PROGRAM_REVERSAL_TO_BUY'
   | 'PROGRAM_REVERSAL_TO_SELL'
   | 'PROGRAM_STABLE';
+
+export interface ProgramAutoCaptureRunOptions {
+  limit?: number;
+  targetMode?: ProgramAutoCaptureTargetMode;
+  runMode?: ProgramAutoCaptureRunMode;
+}
+
+export interface ProgramManualCaptureAvailability {
+  manualRunAvailable: boolean;
+  manualRunBlockedReason?: string;
+  currentSession: ProgramFlowMarketSession;
+  currentKstTime: string;
+  currentWindowAllowed: boolean;
+  executionImpact: 'NONE';
+}
 
 export interface ProgramAutoCaptureStatus {
   schedulerEnabled: boolean;
@@ -50,6 +68,7 @@ export interface ProgramAutoCaptureStatus {
   lastRun?: ProgramAutoCaptureRunSummary;
   failureCooldownBySymbol: Record<string, string>;
   completedSlots: Record<string, string[]>;
+  manualCooldownBySymbolSlot: Record<string, string>;
   executionImpact: 'NONE';
 }
 
@@ -58,12 +77,17 @@ export interface ProgramAutoCaptureRunSummary {
   marketDate: string;
   startedAt: string;
   finishedAt: string;
-  mode: 'DIAGNOSTIC_ONLY';
+  mode: ProgramAutoCaptureRunMode;
+  limit: number;
+  targetMode: ProgramAutoCaptureTargetMode;
+  session: ProgramFlowMarketSession;
+  kstTime: string;
   target: number;
   captured: number;
   emptyValid: number;
   failed: number;
   skipped: number;
+  cooldownSkipped: number;
   providerCallsAdded: number;
   snapshotRowsWithValue: number;
   executionImpact: 'NONE';
@@ -90,6 +114,7 @@ const DEFAULT_LIMIT = 10;
 const DEFAULT_MAX_LIMIT = 15;
 const DEFAULT_MIN_INTERVAL_MS = 400;
 const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+const MANUAL_RUN_TTL_MS = 5 * 60 * 1000;
 const STATUS_FILE = path.join(REPLAY_DIR, 'program-auto-capture-status.json');
 
 function envFlag(key: string): boolean {
@@ -99,6 +124,12 @@ function envFlag(key: string): boolean {
 export function isProgramAutoCaptureDisabled(): boolean {
   if (envFlag('PROGRAM_AUTO_CAPTURE_DISABLED')) return true;
   return process.env.PROGRAM_AUTO_CAPTURE_ENABLED !== 'true';
+}
+
+function normalizeCaptureLimit(value: unknown, fallback = DEFAULT_LIMIT): number {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  const base = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(1, Math.min(DEFAULT_MAX_LIMIT, base));
 }
 
 function configuredLimit(): number {
@@ -125,6 +156,7 @@ function emptyStatus(now = new Date()): ProgramAutoCaptureStatus {
     nextScheduledCapture: computeNextProgramAutoCaptureKst(now),
     failureCooldownBySymbol: {},
     completedSlots: {},
+    manualCooldownBySymbolSlot: {},
     executionImpact: 'NONE',
   };
 }
@@ -143,6 +175,7 @@ export function loadProgramAutoCaptureStatus(now = new Date()): ProgramAutoCaptu
       nextScheduledCapture: computeNextProgramAutoCaptureKst(now),
       failureCooldownBySymbol: parsed.failureCooldownBySymbol ?? {},
       completedSlots: parsed.completedSlots ?? {},
+      manualCooldownBySymbolSlot: parsed.manualCooldownBySymbolSlot ?? {},
       executionImpact: 'NONE',
     };
   } catch {
@@ -209,7 +242,17 @@ function classifySupplyBucket(value: unknown): string {
   return String(value ?? '').toUpperCase();
 }
 
-export function selectProgramAutoCaptureTargets(limit = configuredLimit()): Array<{ symbol: string; name?: string }> {
+function targetModeBoost(bucket: string, targetMode: ProgramAutoCaptureTargetMode): number {
+  if (targetMode === 'BEARISH' && bucket.includes('BEARISH')) return 5000;
+  if (targetMode === 'ACCUMULATING' && bucket.includes('ACCUMULATING')) return 5000;
+  return 0;
+}
+
+export function selectProgramAutoCaptureTargets(
+  limit = configuredLimit(),
+  options: { targetMode?: ProgramAutoCaptureTargetMode } = {},
+): Array<{ symbol: string; name?: string }> {
+  const targetMode = options.targetMode ?? 'DEFAULT';
   const watchlist = loadWatchlist();
   const openPositions = loadOpenPositions();
   const latestPreview = getLastNormalSupplyPreview();
@@ -232,7 +275,11 @@ export function selectProgramAutoCaptureTargets(limit = configuredLimit()): Arra
     const priorityBoost = numeric(anyEntry.watchlistPriorityBoost) > 0 ? 300 + numeric(anyEntry.watchlistPriorityBoost) : 0;
     const supplyScore = numeric(anyEntry.supplyScore);
     const bucketRank = bucket.includes('BEARISH') ? 9000 : bucket.includes('ACCUMULATING') ? 8000 : 0;
-    add(entry.code, entry.name, bucketRank + shadowTracking + priorityBoost + supplyScore + scoreWatchlist(entry));
+    add(
+      anyEntry.code ?? anyEntry.stockCode ?? anyEntry.symbol,
+      anyEntry.name ?? anyEntry.stockName,
+      bucketRank + targetModeBoost(bucket, targetMode) + shadowTracking + priorityBoost + supplyScore + scoreWatchlist(entry),
+    );
   }
 
   const previewCandidates = Array.isArray((latestPreview as unknown as { candidates?: unknown[] } | null)?.candidates)
@@ -242,12 +289,16 @@ export function selectProgramAutoCaptureTargets(limit = configuredLimit()): Arra
     const row = item as Record<string, unknown>;
     const bucket = classifySupplyBucket(row.supplySignal ?? row.supplyBucket ?? row.supplyStatus);
     const bucketRank = bucket.includes('BEARISH') ? 7000 : bucket.includes('ACCUMULATING') ? 6500 : 6000;
-    add(row.symbol ?? row.code ?? row.stockCode, row.name ?? row.stockName, bucketRank + numeric(row.supplyScore));
+    add(
+      row.symbol ?? row.code ?? row.stockCode,
+      row.name ?? row.stockName,
+      bucketRank + targetModeBoost(bucket, targetMode) + numeric(row.supplyScore),
+    );
   }
 
   return [...bySymbol.values()]
     .sort((a, b) => b.rank - a.rank || a.seq - b.seq || a.symbol.localeCompare(b.symbol))
-    .slice(0, limit)
+    .slice(0, normalizeCaptureLimit(limit, configuredLimit()))
     .map(({ symbol, name }) => ({ symbol, name }));
 }
 
@@ -260,13 +311,27 @@ function completedKey(marketDate: string, slot: ProgramAutoCaptureSlot): string 
   return `${marketDate}:${slot}`;
 }
 
+function manualCooldownKey(marketDate: string, slot: ProgramAutoCaptureSlot, symbol: string): string {
+  return `${marketDate}:${slot}:${symbol}`;
+}
+
 function hasCompletedSlotSymbol(status: ProgramAutoCaptureStatus, marketDate: string, slot: ProgramAutoCaptureSlot, symbol: string): boolean {
   return (status.completedSlots[completedKey(marketDate, slot)] ?? []).includes(symbol);
+}
+
+function isInManualCooldown(status: ProgramAutoCaptureStatus, marketDate: string, slot: ProgramAutoCaptureSlot, symbol: string, now: Date): boolean {
+  const until = status.manualCooldownBySymbolSlot[manualCooldownKey(marketDate, slot, symbol)];
+  return Boolean(until && Date.parse(until) > now.getTime());
 }
 
 function markCompletedSlotSymbols(status: ProgramAutoCaptureStatus, marketDate: string, slot: ProgramAutoCaptureSlot, symbols: string[]): void {
   const key = completedKey(marketDate, slot);
   status.completedSlots[key] = [...new Set([...(status.completedSlots[key] ?? []), ...symbols])].sort();
+}
+
+function markManualCooldownSymbols(status: ProgramAutoCaptureStatus, marketDate: string, slot: ProgramAutoCaptureSlot, symbols: string[], now: Date): void {
+  const until = new Date(now.getTime() + MANUAL_RUN_TTL_MS).toISOString();
+  for (const symbol of symbols) status.manualCooldownBySymbolSlot[manualCooldownKey(marketDate, slot, symbol)] = until;
 }
 
 function classifyDelta(previous: number | null, current: number | null): ProgramDeltaDirection {
@@ -290,7 +355,10 @@ function stockRowHasProgramValue(row: IntradayProgramFlowStockRow): boolean {
     || typeof row.programNetValue === 'number';
 }
 
-function saveProgramAutoCaptureRows(rows: Array<Record<string, unknown>>, now: Date): IntradayProgramFlowSnapshot {
+function saveProgramAutoCaptureRows(rows: Array<Record<string, unknown>>, now: Date): IntradayProgramFlowSnapshot | null {
+  const captureResult = captureLatestIntradayProgramFlowSnapshotFromRuntimeContext({ stockRows: rows }, now);
+  if (captureResult.snapshot) return captureResult.snapshot;
+
   const incoming = buildIntradayProgramFlowSnapshotFromRuntimeContext({ stockRows: rows }, now);
   const existing = loadLatestIntradayProgramFlowSnapshot();
   if (!existing) return saveLatestIntradayProgramFlowSnapshot(incoming);
@@ -307,11 +375,66 @@ function saveProgramAutoCaptureRows(rows: Array<Record<string, unknown>>, now: D
   });
 }
 
-export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = new Date()): Promise<ProgramAutoCaptureRunSummary> {
+export function resolveProgramAutoCaptureManualAvailability(now = new Date()): ProgramManualCaptureAvailability {
+  const guard = classifyProgramFlowSession(now);
+  let manualRunBlockedReason: string | undefined;
+  if (isProgramAutoCaptureDisabled()) manualRunBlockedReason = 'PROGRAM_AUTO_CAPTURE_DISABLED';
+  else if (getEmergencyStop()) manualRunBlockedReason = 'HARD_BLOCK';
+  else if (!guard.isTradingDay) manualRunBlockedReason = `NON_TRADING_DAY:${guard.marketSession}`;
+  else if (guard.marketSession !== 'REGULAR_SESSION' || !guard.programFlowExpected) {
+    manualRunBlockedReason = `SESSION_BLOCKED:${guard.marketSession}`;
+  }
+  const currentWindowAllowed = guard.isTradingDay && guard.marketSession === 'REGULAR_SESSION' && guard.programFlowExpected;
+  return {
+    manualRunAvailable: manualRunBlockedReason === undefined,
+    manualRunBlockedReason,
+    currentSession: guard.marketSession,
+    currentKstTime: guard.kstTime,
+    currentWindowAllowed,
+    executionImpact: 'NONE',
+  };
+}
+
+export function resolveProgramAutoCaptureSlotForNow(now = new Date()): ProgramAutoCaptureSlot {
+  return kstParts(now).minutes < 12 * 60 ? 'MORNING' : 'AFTERNOON';
+}
+
+export async function runProgramAutoCaptureManual(
+  options: Omit<ProgramAutoCaptureRunOptions, 'runMode'> = {},
+  now = new Date(),
+): Promise<ProgramAutoCaptureRunSummary> {
+  const availability = resolveProgramAutoCaptureManualAvailability(now);
+  if (!availability.manualRunAvailable) {
+    throw new Error(`PROGRAM_CAPTURE_MANUAL_BLOCKED:${availability.manualRunBlockedReason ?? 'UNKNOWN'}`);
+  }
+  return runProgramAutoCapture(resolveProgramAutoCaptureSlotForNow(now), now, {
+    ...options,
+    runMode: 'MANUAL_RUN_NOW',
+  });
+}
+
+function isKisThrottleOrCircuitBreaker(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  return message.includes('429')
+    || message.includes('rate limit')
+    || message.includes('throttle')
+    || message.includes('circuit')
+    || message.includes('blacklist')
+    || message.includes('too many');
+}
+
+export async function runProgramAutoCapture(
+  slot: ProgramAutoCaptureSlot,
+  now = new Date(),
+  options: ProgramAutoCaptureRunOptions = {},
+): Promise<ProgramAutoCaptureRunSummary> {
   const startedAt = now.toISOString();
   const guard = classifyProgramFlowSession(now);
   const { marketDate } = kstParts(now);
   const status = loadProgramAutoCaptureStatus(now);
+  const runMode = options.runMode ?? 'DIAGNOSTIC_ONLY';
+  const limit = normalizeCaptureLimit(options.limit ?? configuredLimit(), configuredLimit());
+  const targetMode = options.targetMode ?? 'DEFAULT';
 
   if (isProgramAutoCaptureDisabled()) throw new Error('PROGRAM_AUTO_CAPTURE_DISABLED');
   if (getEmergencyStop()) throw new Error('HARD_BLOCK_EMERGENCY_STOP_SKIP');
@@ -323,9 +446,28 @@ export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = 
   const previousBySymbol = new Map<string, IntradayProgramFlowStockRow>();
   for (const row of previousSnapshot?.stockRows ?? []) previousBySymbol.set(row.symbol, row);
 
-  const targets = selectProgramAutoCaptureTargets(configuredLimit())
-    .filter((t) => !hasCompletedSlotSymbol(status, marketDate, slot, t.symbol))
-    .filter((t) => !isInFailureCooldown(t.symbol, status, now));
+  const allTargets = selectProgramAutoCaptureTargets(limit, { targetMode });
+  let completedSlotSkipped = 0;
+  let cooldownSkipped = 0;
+  const targets = allTargets
+    .filter((t) => {
+      if (runMode !== 'MANUAL_RUN_NOW' && hasCompletedSlotSymbol(status, marketDate, slot, t.symbol)) {
+        completedSlotSkipped += 1;
+        return false;
+      }
+      return true;
+    })
+    .filter((t) => {
+      if (runMode === 'MANUAL_RUN_NOW' && isInManualCooldown(status, marketDate, slot, t.symbol, now)) {
+        cooldownSkipped += 1;
+        return false;
+      }
+      if (isInFailureCooldown(t.symbol, status, now)) {
+        cooldownSkipped += 1;
+        return false;
+      }
+      return true;
+    });
 
   const rows: Array<Record<string, unknown>> = [];
   const deltas: ProgramAutoCaptureDelta[] = [];
@@ -334,14 +476,31 @@ export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = 
   let emptyValid = 0;
   let failed = 0;
   const failedSymbols: string[] = [];
+  let providerAbortReason = '';
 
   for (const target of targets) {
     providerCallsAdded += 1;
-    const data = await fetchKisStockProgramTrade(target.symbol, 'LOW');
-    if (!data) {
+    let data: Awaited<ReturnType<typeof fetchKisStockProgramTrade>> | null = null;
+    try {
+      data = await fetchKisStockProgramTrade(target.symbol, 'LOW');
+    } catch (error) {
       failed += 1;
       failedSymbols.push(target.symbol);
       status.failureCooldownBySymbol[target.symbol] = new Date(now.getTime() + FAILURE_COOLDOWN_MS).toISOString();
+      if (isKisThrottleOrCircuitBreaker(error)) {
+        providerAbortReason = error instanceof Error ? error.message : String(error);
+        console.warn(`[ProgramAutoCapture] provider circuit/throttle abort symbol=${target.symbol} reason=${providerAbortReason}`);
+        break;
+      }
+      console.warn(`[ProgramAutoCapture] provider failure symbol=${target.symbol}`, error instanceof Error ? error.message : error);
+    }
+
+    if (!data) {
+      if (!failedSymbols.includes(target.symbol)) {
+        failed += 1;
+        failedSymbols.push(target.symbol);
+        status.failureCooldownBySymbol[target.symbol] = new Date(now.getTime() + FAILURE_COOLDOWN_MS).toISOString();
+      }
     } else {
       const current = data.programNetBuyAmount ?? null;
       if (current === null) emptyValid += 1;
@@ -361,6 +520,7 @@ export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = 
         capturedAt: data.fetchedAt,
         reason: current !== null ? 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY' : 'PROGRAM_VALUE_NULL_DIAGNOSTIC_ONLY',
         captureSlot: slot,
+        captureMode: runMode,
         diagnosticOnly: true,
         executionImpact: 'NONE',
       });
@@ -375,16 +535,22 @@ export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = 
         executionImpact: 'NONE',
       });
     }
-    if (providerCallsAdded >= configuredLimit()) break;
+    if (providerCallsAdded >= limit || providerAbortReason) break;
     await sleep(minIntervalMs());
   }
 
+  let savedSnapshot: IntradayProgramFlowSnapshot | null = null;
   if (rows.length > 0) {
-    saveProgramAutoCaptureRows(rows, now);
-    markCompletedSlotSymbols(status, marketDate, slot, rows.map((r) => String(r.symbol)));
+    savedSnapshot = saveProgramAutoCaptureRows(rows, now);
+    const savedSymbols = rows.map((r) => String(r.symbol));
+    if (runMode === 'MANUAL_RUN_NOW') {
+      markManualCooldownSymbols(status, marketDate, slot, savedSymbols, now);
+    } else {
+      markCompletedSlotSymbols(status, marketDate, slot, savedSymbols);
+    }
   }
 
-  const latest = loadLatestIntradayProgramFlowSnapshot();
+  const latest = savedSnapshot ?? loadLatestIntradayProgramFlowSnapshot();
   const valuedRows = rows.filter((r) => typeof r.programNetBuyAmount === 'number') as Array<{ symbol: string; name?: string; programNetBuyAmount: number }>;
   const topProgramBuy = [...valuedRows].filter((r) => r.programNetBuyAmount > 0).sort((a, b) => b.programNetBuyAmount - a.programNetBuyAmount).slice(0, 2);
   const topProgramSell = [...valuedRows].filter((r) => r.programNetBuyAmount < 0).sort((a, b) => a.programNetBuyAmount - b.programNetBuyAmount).slice(0, 2);
@@ -394,12 +560,17 @@ export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = 
     marketDate,
     startedAt,
     finishedAt,
-    mode: 'DIAGNOSTIC_ONLY',
+    mode: runMode,
+    limit,
+    targetMode,
+    session: guard.marketSession,
+    kstTime: guard.kstTime,
     target: targets.length,
     captured,
     emptyValid,
     failed,
-    skipped: selectProgramAutoCaptureTargets(configuredLimit()).length - targets.length,
+    skipped: completedSlotSkipped + cooldownSkipped,
+    cooldownSkipped,
     providerCallsAdded,
     snapshotRowsWithValue: latest?.summary.stockRowsWithProgramValue ?? 0,
     executionImpact: 'NONE',
@@ -416,25 +587,29 @@ export async function runProgramAutoCapture(slot: ProgramAutoCaptureSlot, now = 
   status.lastCapturedCount = captured + emptyValid;
   status.lastFailedCount = failed;
   status.latestSnapshotRowsWithValue = summary.snapshotRowsWithValue;
-  if (slot === 'MORNING') status.lastMorningCaptureAt = finishedAt;
-  else status.lastAfternoonCaptureAt = finishedAt;
+  if (runMode !== 'MANUAL_RUN_NOW') {
+    if (slot === 'MORNING') status.lastMorningCaptureAt = finishedAt;
+    else status.lastAfternoonCaptureAt = finishedAt;
+  }
   status.schedulerEnabled = !isProgramAutoCaptureDisabled();
   status.disabled = isProgramAutoCaptureDisabled();
   status.nextScheduledCapture = computeNextProgramAutoCaptureKst(new Date());
   saveProgramAutoCaptureStatus(status);
 
-  console.log(`[ProgramAutoCapture] slot=${slot} target=${summary.target} captured=${captured} emptyValid=${emptyValid} failed=${failed} providerCallsAdded=${providerCallsAdded} executionImpact=NONE failedSymbols=${failedSymbols.join(',') || 'NONE'}`);
-  await sendTelegramAlert(formatProgramAutoCaptureSummary(summary), {
-    tier: 'T2_REPORT',
-    category: 'program_auto_capture',
-    dedupeKey: `program-auto-capture-${marketDate}-${slot}`,
-    noiseEvent: {
-      eventType: 'PROGRAM_AUTO_CAPTURE',
-      channel: 'CH4_JOURNAL',
-      executionImpact: 'NONE',
-      dedupeHint: `${marketDate}:${slot}`,
-    },
-  }).catch((err) => console.warn('[ProgramAutoCapture] telegram summary failed:', err instanceof Error ? err.message : err));
+  console.log(`[ProgramAutoCapture] mode=${runMode} slot=${slot} target=${summary.target} captured=${captured} emptyValid=${emptyValid} failed=${failed} cooldownSkipped=${cooldownSkipped} providerCallsAdded=${providerCallsAdded} executionImpact=NONE failedSymbols=${failedSymbols.join(',') || 'NONE'} abort=${providerAbortReason || 'NONE'}`);
+  if (runMode !== 'MANUAL_RUN_NOW') {
+    await sendTelegramAlert(formatProgramAutoCaptureSummary(summary), {
+      tier: 'T2_REPORT',
+      category: 'program_auto_capture',
+      dedupeKey: `program-auto-capture-${marketDate}-${slot}`,
+      noiseEvent: {
+        eventType: 'PROGRAM_AUTO_CAPTURE',
+        channel: 'CH4_JOURNAL',
+        executionImpact: 'NONE',
+        dedupeHint: `${marketDate}:${slot}`,
+      },
+    }).catch((err) => console.warn('[ProgramAutoCapture] telegram summary failed:', err instanceof Error ? err.message : err));
+  }
   return summary;
 }
 
@@ -455,10 +630,13 @@ export function formatProgramAutoCaptureSummary(summary: ProgramAutoCaptureRunSu
     '📡 <b>[Program Flow Auto Capture]</b>',
     `slot=${summary.slot}`,
     `mode=${summary.mode}`,
+    `limit=${summary.limit}`,
+    `targetMode=${summary.targetMode}`,
     `target=${summary.target}`,
     `captured=${summary.captured}`,
     `emptyValid=${summary.emptyValid}`,
     `failed=${summary.failed}`,
+    `cooldownSkipped=${summary.cooldownSkipped}`,
     `providerCallsAdded=${summary.providerCallsAdded}`,
     `snapshotRowsWithValue=${summary.snapshotRowsWithValue}`,
     `executionImpact=${summary.executionImpact}`,
@@ -487,7 +665,7 @@ export async function runProgramAutoCaptureScheduled(slot: ProgramAutoCaptureSlo
   if (!guard.isTradingDay || guard.marketSession !== 'REGULAR_SESSION' || !guard.programFlowExpected) {
     return `program_auto_capture_${slot}:session_skip:${guard.marketSession} executionImpact=NONE`;
   }
-  const summary = await runProgramAutoCapture(slot, now);
+  const summary = await runProgramAutoCapture(slot, now, { runMode: 'DIAGNOSTIC_ONLY' });
   return `program_auto_capture_${slot}:captured=${summary.captured} emptyValid=${summary.emptyValid} failed=${summary.failed} executionImpact=NONE`;
 }
 
