@@ -15,7 +15,7 @@ const command: TelegramCommand = {
   riskLevel: 0,
   description: 'Shadow/Virtual 손익 현황',
   async execute({ reply }) {
-    const snapshot = aggregatePnlSources();
+    const snapshot = await aggregatePnlSources();
     const { mode, counts, openTrades, pnl } = snapshot;
     const lines: string[] = [
       '📊 <b>손익 현황</b>',
