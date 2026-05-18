@@ -1,96 +1,75 @@
-// @responsibility pos.cmd 텔레그램 모듈 (ADR-0504 source-validated SSOT 사용).
-/**
- * @responsibility: /pos — 활성 보유 포지션 요약 (모드/상태/잔량/진입가/손절/목표/진입시각).
- *
- * ADR-0504: shadowPositionLedger.getOpenPositions() (5중 가드 — SHADOW_NEAR_BREAKOUT
- * 학습 entry 차단) + buildShadowPositionCardPayload (POSITION_STATUS_CARD) +
- * validatePositionCardPayload (forbidden source 차단) wiring.
- */
-import { getRemainingQty } from '../../../persistence/shadowTradeRepo.js';
-import { getOpenPositions } from '../../../persistence/shadowPositionLedger.js';
-import {
-  buildShadowPositionCardPayload,
-  validatePositionCardPayload,
-} from '../../../alerts/positionCardValidator.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
-import type { TelegramCommand } from '../_types.js';
+import type { TelegramCommand } from '../../commandTypes.js';
+import {
+  aggregatePositionSources,
+  formatMoney,
+  formatMultiple,
+  formatPercent,
+  formatSignedMoney,
+  type TelegramPositionEntry,
+} from './shadowPositionSources.js';
 
-const pos: TelegramCommand = {
-  name: '/pos',
-  aliases: ['/positions', 'pos'],
-  category: 'POS',
-  visibility: 'ADMIN',
-  riskLevel: 0,
-  description: '보유 포지션 요약 (모드/잔량/진입가/손절/목표/진입시각)',
+function renderPositionLine(position: TelegramPositionEntry, index: number): string {
+  const name = escapeHtml(position.stockName || position.stockCode);
+  const code = escapeHtml(position.stockCode);
+  const status = escapeHtml(position.status);
+
+  return [
+    `${index + 1}. <b>${name} / ${code}</b>`,
+    `   수량: ${position.qty.toLocaleString('ko-KR')}`,
+    `   진입가: ${formatMoney(position.entryPrice)}`,
+    `   현재가: ${formatMoney(position.currentPrice)}`,
+    `   평가손익: ${formatSignedMoney(position.unrealizedPnl)} (${formatPercent(position.unrealizedPct)})`,
+    `   R multiple: ${formatMultiple(position.rMultiple)}`,
+    `   상태: ${status}`,
+    `   source: ${position.source}`,
+  ].join('\n');
+}
+
+const command: TelegramCommand = {
+  name: 'pos',
+  description: '현재 Shadow/Virtual/Live 포지션 현황',
   async execute({ reply }) {
-    // ADR-0504: shadowPositionLedger SSOT (학습 entry 5중 가드 차단)
-    const openEntries = getOpenPositions();
-    if (openEntries.length === 0) {
-      await reply('📋 현재 Shadow 보유 포지션 없음');
-      return;
+    const snapshot = aggregatePositionSources();
+    const { mode, positions, account } = snapshot;
+    const lines: string[] = [
+      '📌 <b>포지션 현황</b>',
+      `운영 모드: ${escapeHtml(mode.modeLabel)}`,
+      `실거래: ${mode.liveTradingEnabled ? 'ON' : 'OFF'}`,
+      `Shadow 학습: ${mode.shadowLearningEnabled ? 'ON' : 'OFF'}`,
+      '',
+    ];
+
+    if (positions.length > 0) {
+      lines.push('<b>[SHADOW 보유]</b>');
+      lines.push(...positions.map(renderPositionLine));
+    } else {
+      lines.push('<b>[SHADOW 보유]</b>');
+      lines.push('현재 조회 가능한 Shadow/Virtual/Live 포지션이 없습니다.');
     }
 
-    // ADR-0504: builder + validator (POSITION_STATUS_CARD)
-    const payload = await buildShadowPositionCardPayload({
-      cardType: 'POSITION_STATUS_CARD',
-      positions: openEntries,
-    });
-
-    const validation = validatePositionCardPayload(payload);
-    if (!validation.ok) {
-      console.error('[TelegramPositionCard] /pos invalid payload blocked', {
-        error: validation.error,
-        details: validation.details,
-        mode: payload.mode,
-        executionImpact: payload.executionImpact,
-      });
-      await reply('📋 포지션 데이터 검증 실패 — /health 확인');
-      return;
+    lines.push('');
+    lines.push('<b>[VIRTUAL 계좌]</b>');
+    if (account) {
+      lines.push(`평가금액: ${formatMoney(account.totalInvested + account.unrealizedPnl)}`);
+      lines.push(`현금: ${formatMoney(account.cashBalance)}`);
+      lines.push(`총자산: ${formatMoney(account.totalAssets)}`);
+      lines.push(`당일 손익: ${formatSignedMoney(account.todayRealizedPnl)}`);
+    } else {
+      lines.push('평가금액: N/A');
+      lines.push('현금: N/A');
+      lines.push('총자산: N/A');
+      lines.push('당일 손익: N/A');
     }
 
-    // 카드 렌더 — payload.positions 기준 (lot-aggregate 결과). 진입가/손절/목표는 trade
-    // 본체에서 직접 read (payload 가 currentPrice 만 보유, 기존 메시지 형식 보존).
-    const lines = payload.positions.map((p) => {
-      const entry = openEntries.find((e) => e.trade.stockCode === p.stockCode);
-      const trade = entry?.trade;
-      const isShadow = trade?.mode !== 'LIVE';
-      const modeMark = isShadow ? '🟡' : '🔴';
-      const modeTag = isShadow ? '[SHADOW] ' : '';
-      const statusMark = trade?.status === 'PENDING' ? '⏳' : trade?.status === 'ACTIVE' ? '✅' : '◐';
-      const realQty = trade ? getRemainingQty(trade) : p.qty;
-      const cacheDrift =
-        trade && trade.quantity !== realQty
-          ? ` <i>⚠️ 캐시 ${trade.quantity}주 불일치 — reconcile 권장</i>`
-          : '';
-      const entryPrice = trade?.shadowEntryPrice ?? p.avgEntryPrice ?? 0;
-      const stopLoss = trade?.hardStopLoss ?? trade?.stopLoss ?? 0;
-      const targetPrice = trade?.targetPrice ?? 0;
-      const signalTime = trade?.signalTime ?? p.entryDate ?? '';
-      return (
-        `${modeMark}${statusMark} ${modeTag}<b>${escapeHtml(p.stockName)}</b> (${escapeHtml(p.stockCode)})\n` +
-        `   진입: ${entryPrice.toLocaleString()}원 × ${realQty}주${cacheDrift}\n` +
-        `   손절: ${stopLoss.toLocaleString()}원 | 목표: ${targetPrice.toLocaleString()}원\n` +
-        `   진입시각: ${signalTime ? new Date(signalTime).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : 'N/A'}`
-      );
-    });
+    lines.push('');
+    lines.push(mode.liveTradingEnabled ? 'LIVE 보유: 조회 우선순위 후순위' : 'LIVE 보유: 없음');
 
-    const hasShadow = payload.positions.some((p) => {
-      const entry = openEntries.find((e) => e.trade.stockCode === p.stockCode);
-      return entry?.trade.mode !== 'LIVE';
-    });
-    const shadowNote = hasShadow
-      ? '\n━━━━━━━━━━━━━━━━\n⚠️ 🟡 [SHADOW] 표시 포지션은 가상 — 실계좌 잔고 아님'
-      : '';
-    await reply(
-      `📋 <b>[보유 포지션] ${payload.positions.length}개</b>\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      lines.join('\n━━━━━━━━━━━━━━━━\n') +
-      shadowNote,
-    );
+    await reply(lines.join('\n'));
   },
 };
 
-commandRegistry.register(pos);
+commandRegistry.register(command);
 
-export default pos;
+export default command;
