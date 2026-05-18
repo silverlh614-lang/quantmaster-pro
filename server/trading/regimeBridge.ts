@@ -106,7 +106,7 @@ export interface RegimeDiagnostics {
   transitionReason: string;
   recoveryEvidence: R6RecoveryEvidence;
   transitionState: RegimeTransitionState;
-  sourceFreshness: 'FRESH' | 'STALE' | 'MISSING';
+  sourceFreshness: 'FRESH' | 'SOFT_STALE' | 'HARD_STALE' | 'STALE' | 'MISSING';
   r6TriggerBreakdown: R6TriggerBreakdown;
   activeR6Triggers: R6TriggerReason[];
   previousR6Triggers: R6TriggerReason[];
@@ -136,11 +136,28 @@ function applyForcedDowngrade(regime: RegimeLevel): RegimeLevel {
   return REGIME_ORDER[idx - 1] ?? regime;
 }
 
-function sourceFreshness(macroState: MacroState | null, now: Date): RegimeDiagnostics['sourceFreshness'] {
-  if (!macroState?.updatedAt) return 'MISSING';
-  const updatedAtMs = Date.parse(macroState.updatedAt);
+function macroFreshnessFromUpdatedAt(updatedAt: string | undefined, now: Date): RegimeDiagnostics['sourceFreshness'] {
+  if (!updatedAt) return 'MISSING';
+  const updatedAtMs = Date.parse(updatedAt);
   if (!Number.isFinite(updatedAtMs)) return 'MISSING';
-  return (now.getTime() - updatedAtMs) / 3_600_000 <= 24 ? 'FRESH' : 'STALE';
+  const ageSec = Math.max(0, Math.floor((now.getTime() - updatedAtMs) / 1000));
+  const ttlSec = envInt('MACRO_STATE_TTL_SEC', envInt('MARKET_STATE_SNAPSHOT_TTL_SEC', 300));
+  const softStaleSec = Math.max(ttlSec, envInt('R6_RECOVERY_SOFT_STALE_SEC', 900));
+  if (ageSec <= ttlSec) return 'FRESH';
+  if (ageSec <= softStaleSec) return 'SOFT_STALE';
+  return 'HARD_STALE';
+}
+
+function sourceFreshness(macroState: MacroState | null, now: Date): RegimeDiagnostics['sourceFreshness'] {
+  return macroFreshnessFromUpdatedAt(macroState?.updatedAt, now);
+}
+
+function isFreshEnoughForRecoveryWatch(freshness: RegimeDiagnostics['sourceFreshness']): boolean {
+  return freshness === 'FRESH' || freshness === 'SOFT_STALE';
+}
+
+function isHardStaleForRecovery(freshness: RegimeDiagnostics['sourceFreshness']): boolean {
+  return freshness === 'HARD_STALE' || freshness === 'STALE' || freshness === 'MISSING';
 }
 
 
@@ -149,11 +166,7 @@ function finiteNumber(value: unknown): number | undefined {
 }
 
 function triggerFreshness(macroState: MacroState | null, now: Date): R6TriggerBreakdown['triggerFreshness'] {
-  const updatedAt = macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt;
-  if (!updatedAt) return 'MISSING';
-  const updatedAtMs = Date.parse(updatedAt);
-  if (!Number.isFinite(updatedAtMs)) return 'MISSING';
-  return (now.getTime() - updatedAtMs) / 3_600_000 <= 24 ? 'FRESH' : 'STALE';
+  return macroFreshnessFromUpdatedAt(macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
 }
 
 function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previousState?: RegimeTransitionState): R6TriggerBreakdown {
@@ -172,11 +185,11 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   if (usdKrwDayChange !== undefined && Math.abs(usdKrwDayChange) > 3) detected.push('USDKRW_DAY_SHOCK');
   const activeR6Triggers = freshness === 'FRESH' ? detected : [];
   const staleR6Triggers = freshness === 'FRESH' ? [] : detected;
-  return { kospiDayReturn, kospiCloseReturn, kospiIntradayLowReturn, kospiIntradayHighReturn, vkospiDayChange, usdKrwDayChange, activeR6Triggers, staleR6Triggers, triggerSourceUpdatedAt: macroState.kospiTriggerSourceUpdatedAt ?? macroState.updatedAt, triggerFreshness: freshness, staleCarryForward: freshness !== 'FRESH' && (detected.length > 0 || previousState?.r6ShockLatch === true), staleBlockedRecovery: freshness !== 'FRESH' };
+  return { kospiDayReturn, kospiCloseReturn, kospiIntradayLowReturn, kospiIntradayHighReturn, vkospiDayChange, usdKrwDayChange, activeR6Triggers, staleR6Triggers, triggerSourceUpdatedAt: macroState.kospiTriggerSourceUpdatedAt ?? macroState.updatedAt, triggerFreshness: freshness, staleCarryForward: freshness !== 'FRESH' && (detected.length > 0 || previousState?.r6ShockLatch === true), staleBlockedRecovery: isHardStaleForRecovery(freshness) };
 }
 
 function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroState | null): boolean {
-  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28 && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && breakdown.triggerFreshness === 'FRESH';
+  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28 && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
 }
 
 
@@ -259,9 +272,9 @@ function buildR6ShockLatchDetail(args: {
   };
 }
 
-function recoveryWatchEligible(evidence: R6RecoveryEvidence, previousState: RegimeTransitionState, now: Date): boolean {
+function recoveryWatchEligible(evidence: R6RecoveryEvidence, previousState: RegimeTransitionState, now: Date, triggerFreshnessValue: R6TriggerBreakdown['triggerFreshness']): boolean {
   const releaseAt = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
-  return evidence.marketDataFreshnessOk &&
+  return isFreshEnoughForRecoveryWatch(triggerFreshnessValue) &&
     evidence.mhsScoreOk &&
     evidence.kospiDayReturnOk &&
     evidence.vkospiDayChangeOk &&
@@ -273,6 +286,26 @@ function resolveRecoveredStateMachine(rawRegime: RegimeLevel, macroState: MacroS
   if (mhs >= 70 && (rawRegime === 'R1_TURBO' || rawRegime === 'R2_BULL' || rawRegime === 'R3_EARLY')) return 'R3_NORMAL';
   if (mhs >= 65) return 'R4_CAUTION';
   return 'R5_STABILIZING';
+}
+
+
+function resolveRecoveryBiasScore(macroState: MacroState | null): number {
+  if (!macroState) return -100;
+  const record = macroState as unknown as Record<string, unknown>;
+  for (const key of ['biasScore', 'directionBiasScore', 'preMarketBiasScore', 'marketBiasScore', 'globalBiasScore', 'riskBiasScore', 'bias']) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(-100, Math.min(100, value));
+  }
+  const kospiDay = finiteNumber(macroState.kospiDayReturn) ?? 0;
+  const kospi20d = finiteNumber(macroState.kospi20dReturn) ?? 0;
+  const spx20d = finiteNumber(macroState.spx20dReturn) ?? 0;
+  const foreign5d = finiteNumber(macroState.foreignNetBuy5d) ?? 0;
+  const vkospiDay = finiteNumber(macroState.vkospiDayChange) ?? 0;
+  const usdKrwDay = finiteNumber(macroState.usdKrwDayChange) ?? 0;
+  const dxy5d = finiteNumber(macroState.dxy5dChange) ?? 0;
+  const vix = finiteNumber(macroState.vix) ?? 20;
+  const derived = kospiDay * 12 + kospi20d * 2 + spx20d * 2 + Math.max(-10, Math.min(10, foreign5d / 2500)) - vkospiDay * 1.2 - usdKrwDay * 6 - dxy5d * 2 - Math.max(0, vix - 20) * 1.5;
+  return Math.round(Math.max(-100, Math.min(100, derived)) * 10) / 10;
 }
 
 function reasonForActiveR6Trigger(trigger: R6TriggerReason | undefined): string {
@@ -287,7 +320,7 @@ function reasonForActiveR6Trigger(trigger: R6TriggerReason | undefined): string 
 }
 
 function recoveryBlockedReason(breakdown: R6TriggerBreakdown, previousState: RegimeTransitionState, macroState: MacroState | null, cooldownUntil?: string, now: Date = new Date()): string | undefined {
-  if (breakdown.triggerFreshness !== 'FRESH') return 'STALE_DATA_BLOCKED';
+  if (isHardStaleForRecovery(breakdown.triggerFreshness)) return 'STALE_DATA_BLOCKED';
   if (breakdown.activeR6Triggers.length > 0) return 'ACTIVE_R6_TRIGGER_PRESENT';
   if (previousState.r6ShockLatch && !closeRecoveryEligible(breakdown, macroState)) return 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION';
   if (cooldownUntil && Date.parse(cooldownUntil) > now.getTime()) return 'R6_COOLDOWN_ACTIVE';
@@ -353,7 +386,17 @@ export function evaluateR6RecoveryTransition(
   const closeEligible = closeRecoveryEligible(triggerBreakdown, macroState);
   const latchExpired = isLatchExpired(previousState, now);
   const decayPercent = latchDecayPercent(previousState, closeEligible, now);
-  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && (!closeEligible || decayPercent < 60);
+  const nearReleaseWindowMs = 10 * 60_000;
+  const releaseAtMs = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
+  const releaseReachedOrNear = Number.isFinite(releaseAtMs) && releaseAtMs - now.getTime() <= nearReleaseWindowMs;
+  const biasScore = resolveRecoveryBiasScore(macroState);
+  const panicEasingEligible = previousState.r6StateMachineState === 'R6_PANIC' &&
+    activeTriggers.length === 0 &&
+    (macroState?.mhs ?? 0) >= 60 &&
+    biasScore >= -50 &&
+    isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness) &&
+    releaseReachedOrNear;
+  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && !panicEasingEligible && (!closeEligible || decayPercent < 60);
 
   if (rawRegime === 'R6_DEFENSE' || activeTriggers.length > 0 || heldByShockLatch) {
     const transitionReason = heldByShockLatch ? 'RAW_R6_HELD_BY_SHOCK_LATCH' : reasonForActiveR6Trigger(activeTriggers[0]);
@@ -379,7 +422,7 @@ export function evaluateR6RecoveryTransition(
       `to=${panic ? 'R6_PANIC' : 'R6_DEFENSE'} ` +
       `mhs=${macroState?.mhs ?? 'N/A'} ` +
       `latchDecay=${nextDecayPercent} ` +
-      `macroFresh=${triggerBreakdown.triggerFreshness === 'FRESH'} ` +
+      `macroFreshness=${triggerBreakdown.triggerFreshness} ` +
       `lowRetest=${activeTriggers.includes('KOSPI_INTRADAY_LOW_SHOCK')} ` +
       'decision=R6_HELD',
     );
@@ -428,16 +471,16 @@ export function evaluateR6RecoveryTransition(
     const blockedReason = recoveryBlockedReason(triggerBreakdown, previousState, macroState, cooldownUntil, now) ?? (nextConfirmations < requiredConfirmations ? 'R6_RECOVERY_CONFIRMATION_REQUIRED' : undefined);
     const nextDecayPercent = latchDecayPercent(previousState, closeEligible, now);
     const latchStillActive = !recovered && previousState.r6ShockLatch && !isLatchExpired(previousState, now);
-    const recoveryWatch = !recovered && recoveryWatchEligible(evidence, previousState, now);
+    const recoveryWatch = !recovered && recoveryWatchEligible(evidence, previousState, now, triggerBreakdown.triggerFreshness);
     const r6StateMachineState: R6StateMachineState = recovered ? (previousState.r6StateMachineState === 'R5_STABILIZING' ? resolveRecoveredStateMachine(rawRegime, macroState) : 'R5_STABILIZING') : recoveryWatch ? 'R6_RECOVERY_WATCH' : 'R6_DEFENSE';
     const effectiveRegime = recovered ? applyForcedDowngrade(rawRegime) : (recoveryWatch ? capRecoveryRegime(applyForcedDowngrade(rawRegime)) : 'R6_DEFENSE');
-    const status = recovered ? (r6StateMachineState === 'R5_STABILIZING' ? 'R5_STABILIZING' : 'RECOVERED') : triggerBreakdown.triggerFreshness !== 'FRESH' ? 'STALE_DATA_BLOCKED' : recoveryWatch ? 'R6_RECOVERY_WATCH' : Date.parse(cooldownUntil) <= now.getTime() && evidenceComplete(evidence) ? 'RECOVERY_CANDIDATE' : 'COOLDOWN';
+    const status = recovered ? (r6StateMachineState === 'R5_STABILIZING' ? 'R5_STABILIZING' : 'RECOVERED') : isHardStaleForRecovery(triggerBreakdown.triggerFreshness) ? 'STALE_DATA_BLOCKED' : recoveryWatch ? 'R6_RECOVERY_WATCH' : Date.parse(cooldownUntil) <= now.getTime() && evidenceComplete(evidence) ? 'RECOVERY_CANDIDATE' : 'COOLDOWN';
     const decision = r6StateMachineState === 'R6_RECOVERY_WATCH' ? 'TRANSITION_ALLOWED' : recovered ? 'RECOVERED' : 'TRANSITION_BLOCKED';
     if (previousState.latchDecayPercent !== undefined && nextDecayPercent > previousState.latchDecayPercent) {
       console.info(`[R6_LATCH_DECAYED] trigger=${previousState.r6ShockLatchReason ?? 'UNKNOWN'} previousDecay=${previousState.latchDecayPercent} newDecay=${nextDecayPercent} reason=NO_ADDITIONAL_LOW_BREAK`);
     }
-    if (triggerBreakdown.triggerFreshness !== 'FRESH') {
-      console.warn('[R6_RELEASE_BLOCKED] reason=MACRO_STATE_STALE shadowLearningAllowed=true');
+    if (isHardStaleForRecovery(triggerBreakdown.triggerFreshness)) {
+      console.warn(`[R6_RELEASE_BLOCKED] reason=MACRO_STATE_${triggerBreakdown.triggerFreshness} shadowLearningAllowed=true`);
     }
     if (r6StateMachineState === 'R6_RECOVERY_WATCH') {
       console.info('[RECOVERY_WATCH_ACTIVE] liveNewBuyAllowed=false shadowLearningAllowed=true shadowCandidateCollection=true');
@@ -448,7 +491,7 @@ export function evaluateR6RecoveryTransition(
       `to=${r6StateMachineState} ` +
       `mhs=${macroState?.mhs ?? 'N/A'} ` +
       `latchDecay=${nextDecayPercent} ` +
-      `macroFresh=${triggerBreakdown.triggerFreshness === 'FRESH'} ` +
+      `macroFreshness=${triggerBreakdown.triggerFreshness} ` +
       `lowRetest=${activeTriggers.includes('KOSPI_INTRADAY_LOW_SHOCK')} ` +
       `decision=${decision}`,
     );
@@ -462,7 +505,7 @@ export function evaluateR6RecoveryTransition(
       exitedR6At: previousState.exitedR6At ?? nowIso,
       lastTransitionAt: previousState.effectiveRegime === effectiveRegime && previousState.r6StateMachineState === r6StateMachineState ? previousState.lastTransitionAt : nowIso,
       transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime),
-      transitionReason: recovered ? 'R6 state machine recovered; rawRegime restored as effectiveRegime' : triggerBreakdown.triggerFreshness !== 'FRESH' ? 'R6 release blocked by macroState stale; shadow remains allowed' : recoveryWatch ? 'R6_DEFENSE eased to R6_RECOVERY_WATCH by state machine' : 'R6 state machine waiting for recovery confirmations/cooldown',
+      transitionReason: recovered ? 'R6 state machine recovered; rawRegime restored as effectiveRegime' : isHardStaleForRecovery(triggerBreakdown.triggerFreshness) ? 'R6 release blocked by macroState hard stale; shadow remains allowed' : recoveryWatch ? 'R6_DEFENSE eased to R6_RECOVERY_WATCH by state machine' : 'R6 state machine waiting for recovery confirmations/cooldown',
       r6RecoveryStatus: status,
       r6RecoveryEvidence: evidence,
       cooldownUntil: recovered ? undefined : cooldownUntil,
