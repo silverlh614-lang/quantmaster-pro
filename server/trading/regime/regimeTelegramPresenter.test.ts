@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatRegimeTelegramNow } from './regimeTelegramPresenter.js';
 import type { ResolvedRegimeSnapshot } from './effectiveRegimeSnapshot.js';
 
-function r6Snapshot(): ResolvedRegimeSnapshot {
+function r6Snapshot(overrides: Partial<ResolvedRegimeSnapshot> = {}): ResolvedRegimeSnapshot {
   const marketState = {
     snapshotId: 'mkt_r6',
     asOf: '2026-05-19T00:00:00.000Z',
@@ -11,6 +11,9 @@ function r6Snapshot(): ResolvedRegimeSnapshot {
     biasLabel: 'BEAR',
     mhs: 70,
     mhsLabel: 'GREEN',
+    rawMhs: 70,
+    rawMhsLabel: 'GREEN',
+    mhsDisplayLabel: 'GREEN',
     detectedRegime: 'R3_EARLY',
     rawTrend: 'GREEN',
     riskOverride: 'NONE',
@@ -22,9 +25,11 @@ function r6Snapshot(): ResolvedRegimeSnapshot {
     shadowScanAllowed: true,
     shadowPaperFillAllowed: true,
     executionMode: 'SELL_ONLY',
+    displayRegime: 'R6_DEFENSE',
     displaySeverity: 'DEFENSE',
     displayTitle: 'R6_DEFENSE',
     displayEmoji: 'R6',
+    displayLabel: 'R6 R6_DEFENSE',
     reasonCodes: ['R6_SHOCK_LATCH'],
     stale: false,
     staleSources: [],
@@ -62,6 +67,7 @@ function r6Snapshot(): ResolvedRegimeSnapshot {
       rawRegime: 'R3_EARLY',
       effectiveRegime: 'R6_DEFENSE',
     } as unknown as ResolvedRegimeSnapshot['diagnostics'],
+    ...overrides,
   };
 }
 
@@ -75,4 +81,37 @@ describe('formatRegimeTelegramNow', () => {
     expect(text).not.toContain('MHS: 70 GREEN');
     expect(text).not.toContain('Raw trend: GREEN');
   });
+});
+
+it('prints HARD_STALE macro release block message and provider classification', () => {
+  const snapshot = r6Snapshot({
+    sourceHealth: 'STALE',
+    providerIssue: true,
+    marketSignal: false,
+    macroReleaseBlockMessage: 'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
+    macroReleaseBlockDetails: {
+      ageSec: 3600,
+      lastRefreshAttemptAt: '2026-05-18T06:00:00.000Z',
+      refreshJobLastRunAt: '2026-05-18T05:00:00.000Z',
+      executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
+    },
+    marketState: {
+      ...r6Snapshot().marketState,
+      macroState: {
+        ...r6Snapshot().marketState.macroState,
+        freshness: 'HARD_STALE',
+        ageSec: 3600,
+        lastRefreshAttemptAt: '2026-05-18T06:00:00.000Z',
+        refreshJobLastRunAt: '2026-05-18T05:00:00.000Z',
+        executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
+      },
+    },
+  });
+  const text = formatRegimeTelegramNow(snapshot);
+  expect(text).toContain('providerIssue=true marketSignal=false');
+  expect(text).toContain('MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.');
+  expect(text).toContain('ageSec=3600');
+  expect(text).toContain('lastRefreshAttemptAt=2026-05-18T06:00:00.000Z');
+  expect(text).toContain('refreshJobLastRunAt=2026-05-18T05:00:00.000Z');
+  expect(text).toContain('executionImpact=REGIME_RELEASE_BLOCKED_ONLY');
 });

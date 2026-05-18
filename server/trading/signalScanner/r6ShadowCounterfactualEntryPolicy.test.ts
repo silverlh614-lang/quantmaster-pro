@@ -54,8 +54,8 @@ function accumulatingRawCandidate(
 }
 
 describe('R6_SHADOW_ENTRY_POLICY', () => {
-  it('defaults R6 counterfactual to learning ledger only without opening an ACTIVE Shadow position', async () => {
-    delete process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED;
+  it('keeps R6 counterfactual learning-only only when counterfactualOnly policy is enabled', async () => {
+    process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED = 'false';
     vi.resetModules();
     const { persistNormalSupplyPreview } = await import('./normalSupplyPreview.js');
     const { applyR6ShadowCounterfactualEntries } = await import('./r6ShadowCounterfactualEntryPolicy.js');
@@ -117,7 +117,7 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
   }, 20_000);
 
   it('creates a SHADOW/PAPER R6 counterfactual entry from ACCUMULATING candidates without live order impact', async () => {
-    process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED = 'true';
+    delete process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED;
     vi.resetModules();
     const { persistNormalSupplyPreview } = await import('./normalSupplyPreview.js');
     const { applyR6ShadowCounterfactualEntries } = await import('./r6ShadowCounterfactualEntryPolicy.js');
@@ -134,6 +134,7 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
     });
 
     expect(preview.signalCounts.ACCUMULATING).toBe(1);
+    const logSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const summary = applyR6ShadowCounterfactualEntries({
       preview,
       rawCandidates,
@@ -201,6 +202,7 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
     expect(trades[0].r6Counterfactual?.transitionPath).toEqual(['R6_DEFENSE']);
     expect(trades[0].r6Counterfactual?.mhsAtEntry).toBe(70);
     expect(trades[0].fills?.some((fill) => fill.type === 'BUY' && fill.status === 'CONFIRMED')).toBe(true);
+    expect(trades[0].liveOrderSent).toBe(false);
     const ledger = loadCounterfactualShadowLearningLedger();
     expect(ledger[0]).toMatchObject({
       symbol: '005930',
@@ -214,6 +216,10 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
       liveOrderSent: false,
     });
     expect(ledger[0].supplyScoreAtEntry).toBeGreaterThanOrEqual(70);
+    const joinedLogs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(joinedLogs).toMatch(/\[R6_SHADOW_ENTRY_POLICY_RESOLVED\][\s\S]+\[SHADOW_ORDER_CREATED\][\s\S]+\[SHADOW_PAPER_FILLED\][\s\S]+\[SHADOW_POSITION_OPENED\][\s\S]+\[R6_SHADOW_ACTIVE_RECORDED\]/);
+    expect(joinedLogs).not.toContain('[R6_COUNTERFACTUAL_LEARNING_ONLY_RECORDED]');
+    logSpy.mockRestore();
   }, 20_000);
 
   it('records an explicit noShadowEntryReason instead of silently ending at zero', async () => {

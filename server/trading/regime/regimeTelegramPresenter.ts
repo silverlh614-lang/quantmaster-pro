@@ -20,6 +20,15 @@ function sanitizeR6LegacyLine(line: string, snapshot: ResolvedRegimeSnapshot): s
   return line;
 }
 
+function formatMacroReleaseBlockLines(snapshot: ResolvedRegimeSnapshot): string[] {
+  if (!snapshot.macroReleaseBlockMessage) return [];
+  const details = snapshot.macroReleaseBlockDetails;
+  return [
+    snapshot.macroReleaseBlockMessage,
+    `macroFreshness=${snapshot.marketState.macroState.freshness} ageSec=${details?.ageSec ?? 'N/A'} lastRefreshAttemptAt=${details?.lastRefreshAttemptAt ?? 'N/A'} refreshJobLastRunAt=${details?.refreshJobLastRunAt ?? 'N/A'} executionImpact=${details?.executionImpact ?? snapshot.marketState.macroState.executionImpact}`,
+  ];
+}
+
 function sanitizeLegacyMarketStateText(text: string, snapshot: ResolvedRegimeSnapshot): string {
   if (!isR6Snapshot(snapshot)) return text;
   return text
@@ -39,6 +48,7 @@ export function formatRegimeTelegramNow(
     `Effective regime: ${snapshot.effectiveRegime}`,
     `riskOverride=${snapshot.riskOverride} engineMode=${snapshot.engineMode}`,
     `dataHealth=${snapshot.sourceHealth} providerIssue=${snapshot.providerIssue} marketSignal=${snapshot.marketSignal}`,
+    ...formatMacroReleaseBlockLines(snapshot),
     `conflicts=${snapshot.conflicts.join(',') || 'none'}`,
     '',
   ].join('\n');

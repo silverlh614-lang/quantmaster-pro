@@ -13,6 +13,7 @@
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getTradingMode, getKillSwitchLast } from '../../../state.js';
+import { resolveMarketState } from '../../../trading/marketStateResolver.js';
 
 export type ModeConsistencyState = 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
 
@@ -21,6 +22,12 @@ export interface ModeConsistencyInputs {
   readonly runtimeMode: 'LIVE' | 'PAPER' | 'SHADOW' | 'MANUAL';
   readonly isReal: boolean;
   readonly killSwitch: ReturnType<typeof getKillSwitchLast>;
+  readonly macroReleaseBlock?: {
+    message: string;
+    ageSec?: number;
+    lastRefreshAttemptAt?: string;
+    refreshJobLastRunAt?: string;
+  };
 }
 
 /** 분류 SSOT — ENV/runtime/killSwitch 비교 우선순위. */
@@ -46,6 +53,10 @@ export function formatModeConsistencyMessage(input: ModeConsistencyInputs): stri
     ? `Kill switch:\n  ${input.killSwitch.from} → ${input.killSwitch.to}\n  reason: ${input.killSwitch.reason}\n  at: ${input.killSwitch.at}\n\n`
     : 'Kill switch: 없음\n\n';
 
+  const macroBlockSection = input.macroReleaseBlock
+    ? `Macro release block:\n  ${input.macroReleaseBlock.message}\n  ageSec: ${input.macroReleaseBlock.ageSec ?? 'N/A'}\n  lastRefreshAttemptAt: ${input.macroReleaseBlock.lastRefreshAttemptAt ?? 'N/A'}\n  refreshJobLastRunAt: ${input.macroReleaseBlock.refreshJobLastRunAt ?? 'N/A'}\n\n`
+    : '';
+
   return (
     `🔍 <b>Mode Consistency</b>\n\n` +
     `env AUTO_TRADE_MODE: ${input.envMode}\n` +
@@ -53,6 +64,7 @@ export function formatModeConsistencyMessage(input: ModeConsistencyInputs): stri
     `KIS_IS_REAL: ${input.isReal}\n` +
     `Live order possible: ${liveOrderPossible}\n\n` +
     killSwitchSection +
+    macroBlockSection +
     `상태: ${state}\n${verdict}`
   );
 }
@@ -70,11 +82,22 @@ const modeConsistency: TelegramCommand = {
     const killSwitch = getKillSwitchLast();
     const isReal = process.env.KIS_IS_REAL === 'true';
 
+    const marketState = resolveMarketState();
+    const macroReleaseBlock = marketState.macroState.freshness === 'HARD_STALE'
+      ? {
+        message: 'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
+        ageSec: marketState.macroState.ageSec,
+        lastRefreshAttemptAt: marketState.macroState.lastRefreshAttemptAt,
+        refreshJobLastRunAt: marketState.macroState.refreshJobLastRunAt,
+      }
+      : undefined;
+
     const message = formatModeConsistencyMessage({
       envMode,
       runtimeMode,
       isReal,
       killSwitch,
+      macroReleaseBlock,
     });
 
     await reply(message);

@@ -41,6 +41,16 @@ export interface RegimeSnapshot {
   stale: boolean;
   providerIssue: boolean;
   marketSignal: boolean;
+  displaySeverity?: string;
+  displayLabel?: string;
+  mhsDisplayLabel?: string;
+  macroReleaseBlockMessage?: string;
+  macroReleaseBlockDetails?: {
+    ageSec?: number;
+    lastRefreshAttemptAt?: string;
+    refreshJobLastRunAt?: string;
+    executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY';
+  };
   conflicts: RegimeConflictCode[];
 }
 

@@ -41,6 +41,9 @@ export interface MarketStateSnapshot {
 
   mhs: number;
   mhsLabel: MhsLabel;
+  rawMhs: number;
+  rawMhsLabel: MhsLabel;
+  mhsDisplayLabel: MhsLabel | 'OVERRIDDEN_BY_R6';
 
   detectedRegime: RegimeLevel;
   rawTrend: string;
@@ -55,9 +58,11 @@ export interface MarketStateSnapshot {
   shadowPaperFillAllowed: boolean;
   executionMode: MarketStateExecutionMode;
 
+  displayRegime: EffectiveMarketRegime;
   displaySeverity: DisplaySeverity;
   displayTitle: string;
   displayEmoji: string;
+  displayLabel: string;
   reasonCodes: string[];
 
   stale: boolean;
@@ -357,9 +362,27 @@ function baseDisplaySeverity(
   return 'OK';
 }
 
+function isR6DisplayOverride(snapshot: MarketStateSnapshot): boolean {
+  return snapshot.riskOverride === 'BLACK_SWAN' ||
+    snapshot.riskOverride === 'KOSPI_CRASH' ||
+    snapshot.riskOverride === 'CIRCUIT_BREAKER' ||
+    snapshot.effectiveRegime === 'R6_DEFENSE';
+}
+
 function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot {
   const reasonCodes = new Set(snapshot.reasonCodes);
+  let displayRegime = snapshot.displayRegime;
   let displaySeverity = snapshot.displaySeverity;
+  let liveNewBuyAllowed = snapshot.liveNewBuyAllowed;
+  let mhsDisplayLabel = snapshot.mhsDisplayLabel;
+
+  if (isR6DisplayOverride(snapshot)) {
+    displayRegime = 'R6_DEFENSE';
+    displaySeverity = 'PANIC';
+    liveNewBuyAllowed = false;
+    mhsDisplayLabel = 'OVERRIDDEN_BY_R6';
+    reasonCodes.add('R6_DISPLAY_OVERRIDE');
+  }
 
   if (snapshot.effectiveRegime === 'R6_DEFENSE' && displaySeverity === 'OK') {
     emitMarketStateOperationalWarn({
@@ -396,15 +419,20 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
   }
 
   const { displayTitle, displayEmoji } = resolveDisplayChrome(
-    snapshot.effectiveRegime,
+    displayRegime,
     displaySeverity,
   );
+  const displayLabel = `${displayEmoji} ${displayTitle}`;
 
   return {
     ...snapshot,
+    liveNewBuyAllowed,
+    displayRegime,
     displaySeverity,
     displayTitle,
     displayEmoji,
+    displayLabel,
+    mhsDisplayLabel,
     reasonCodes: Array.from(reasonCodes),
   };
 }
@@ -554,6 +582,14 @@ function resolveHardStaleSec(ttlSec: number): number {
   return Number.isFinite(raw) && raw > 0 ? Math.max(ttlSec, Math.trunc(raw)) : resolveSoftStaleSec(ttlSec);
 }
 
+
+function isRefreshJobStalled(info: MacroStateStaleness, now: Date): boolean {
+  if (info.freshness !== 'HARD_STALE') return false;
+  const lastRunMs = info.refreshJobLastRunAt ? Date.parse(info.refreshJobLastRunAt) : NaN;
+  if (!Number.isFinite(lastRunMs)) return true;
+  return Math.floor((now.getTime() - lastRunMs) / 1000) > info.hardStaleSec;
+}
+
 function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): MacroStateStaleness {
   const asOfMs = Date.parse(asOf);
   const ageSec = Number.isFinite(asOfMs) ? Math.max(0, Math.floor((now.getTime() - asOfMs) / 1000)) : undefined;
@@ -587,7 +623,7 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
   };
   if (info.stale || info.freshness !== 'FRESH') {
     emitMarketStateOperationalWarn({
-      code: 'P1_MACRO_STATE_STALE',
+      code: isRefreshJobStalled(info, now) ? 'P1_MACRO_REFRESH_JOB_STALLED' : 'P1_MACRO_STATE_STALE',
       message: '[MACRO_STATE_STALENESS] macro state is stale or not fresh',
       dedupKey: `macro-state-staleness:${info.freshness}:${info.staleReason}`,
       executionImpact: 'NONE',
@@ -664,9 +700,11 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
     `biasLabel=${snapshot.biasLabel} ` +
     `mhs=${snapshot.mhs.toFixed(0)} ` +
     `mhsLabel=${snapshot.mhsLabel} ` +
+    `mhsDisplayLabel=${snapshot.mhsDisplayLabel} ` +
     `riskOverride=${snapshot.riskOverride} ` +
     `detectedRegime=${snapshot.detectedRegime} ` +
     `effectiveRegime=${snapshot.effectiveRegime} ` +
+    `displayRegime=${snapshot.displayRegime} ` +
     `displaySeverity=${snapshot.displaySeverity} ` +
     `liveNewBuyAllowed=${snapshot.liveNewBuyAllowed} ` +
     `positionManagementAllowed=${snapshot.positionManagementAllowed} ` +
@@ -717,13 +755,18 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
     biasLabel,
     mhs,
     mhsLabel,
+    rawMhs: mhs,
+    rawMhsLabel: mhsLabel,
+    mhsDisplayLabel: mhsLabel,
     detectedRegime,
     rawTrend,
     riskOverride,
     effectiveRegime,
     ...execution,
+    displayRegime: effectiveRegime,
     displaySeverity,
     ...chrome,
+    displayLabel: `${chrome.displayEmoji} ${chrome.displayTitle}`,
     reasonCodes: buildReasonCodes(diagnostics, riskOverride, biasLabel, mhsLabel),
     ...staleness,
     r6Latch: diagnostics.r6ShockLatch || diagnostics.transitionState.r6ShockLatchDetail ? {
@@ -864,10 +907,10 @@ export function formatMarketStateNow(
     legacyOpsTitle(snapshot),
     `${snapshot.displayEmoji} ${snapshot.displayTitle}`,
     '',
-    `MHS: ${snapshot.mhs.toFixed(0)} ${snapshot.mhsLabel} / Bias: ${snapshot.biasLabel} ${snapshot.biasScore.toFixed(1)}`,
+    `MHS: ${snapshot.mhs.toFixed(0)} ${snapshot.mhsDisplayLabel} / Bias: ${snapshot.biasLabel} ${snapshot.biasScore.toFixed(1)}`,
     `MHS ${snapshot.mhs.toFixed(0)} | 활성 ${context.activePositions ?? 0}/${context.maxPositions ?? 'N/A'} | 마지막 신호 ${context.lastSignalLabel ?? 'N/A'}`,
     `Final action: ${snapshot.liveNewBuyAllowed ? 'BUY_ALLOWED' : 'HOLD / Live Buy Blocked'}`,
-    `Raw trend: ${snapshot.rawTrend}`,
+    `Raw trend: ${snapshot.mhsDisplayLabel === 'OVERRIDDEN_BY_R6' ? 'macro_green_overridden_by_R6_DEFENSE' : snapshot.rawTrend}`,
     `Effective state: ${snapshot.effectiveRegime}`,
     `Live buy: ${snapshot.liveNewBuyAllowed ? 'ALLOWED' : 'BLOCKED'}`,
     `Shadow: ${snapshot.shadowScanAllowed ? 'ON' : 'OFF'}`,
@@ -885,6 +928,9 @@ export function formatMarketStateNow(
       ] : []),
       ...((snapshot.macroState.freshness === 'POST_CLOSE_VALID' || snapshot.macroState.freshness === 'EOD_SNAPSHOT_VALID') ? [
         '상태: 장후 snapshot 유효 / 다음 거래일 확인 대기',
+      ] : []),
+      ...(snapshot.macroState.freshness === 'HARD_STALE' ? [
+        'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
       ] : []),
       'R6 latch:',
       `activeR6Triggers: ${formatTriggerList(snapshot.r6Latch.activeTriggers)}`,

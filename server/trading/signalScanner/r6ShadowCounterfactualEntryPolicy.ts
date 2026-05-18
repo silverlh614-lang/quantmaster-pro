@@ -65,6 +65,9 @@ export interface R6ShadowEntryPolicySummary {
   shadowLearningAllowed: boolean;
   shadowScanAllowed: boolean;
   shadowCounterfactualAllowed: boolean;
+  shadowNewBuyAllowed: boolean;
+  shadowPaperFillAllowed: boolean;
+  shadowPositionOpenAllowed: boolean;
   accumulatingEligible: boolean;
   candidateEvaluated: number;
   accumulatingCandidates: number;
@@ -181,8 +184,8 @@ function maxEntries(): number {
   return Math.max(1, Math.min(3, Math.floor(parsed)));
 }
 
-function openCounterfactualShadowPositionEnabled(): boolean {
-  return process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED === 'true';
+function counterfactualOnlyEnabled(): boolean {
+  return process.env.R6_COUNTERFACTUAL_ONLY === 'true' || process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED === 'false';
 }
 
 function resolvePolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowPolicyRegime | null {
@@ -553,6 +556,9 @@ function summaryBase(input: ApplyR6ShadowCounterfactualInput, regime: R6ShadowPo
     shadowLearningAllowed,
     shadowScanAllowed,
     shadowCounterfactualAllowed: Boolean(regime) && shadowLearningAllowed && shadowScanAllowed,
+    shadowNewBuyAllowed: Boolean(regime) && shadowLearningAllowed && shadowScanAllowed,
+    shadowPaperFillAllowed: Boolean(regime) && shadowLearningAllowed && shadowScanAllowed,
+    shadowPositionOpenAllowed: Boolean(regime) && shadowLearningAllowed && shadowScanAllowed && !counterfactualOnlyEnabled(),
     accumulatingEligible: accumulating > 0,
     candidateEvaluated: input.preview.candidateCount,
     accumulatingCandidates: accumulating,
@@ -569,8 +575,10 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   const base = summaryBase(input, regime);
   console.info(
     `[R6_SHADOW_ENTRY_POLICY_RESOLVED] regime=${base.regime} ` +
-      `liveNewBuyAllowed=false shadowCounterfactualAllowed=${base.shadowCounterfactualAllowed} ` +
-      `accumulatingEligible=${base.accumulatingEligible} executionImpact=NONE`,
+      `liveNewBuyAllowed=false shadowScanAllowed=${base.shadowScanAllowed} ` +
+      `shadowLearningAllowed=${base.shadowLearningAllowed} shadowNewBuyAllowed=${base.shadowNewBuyAllowed} ` +
+      `shadowPaperFillAllowed=${base.shadowPaperFillAllowed} shadowPositionOpenAllowed=${base.shadowPositionOpenAllowed} ` +
+      `shadowCounterfactualAllowed=${base.shadowCounterfactualAllowed} accumulatingEligible=${base.accumulatingEligible} executionImpact=NONE`,
   );
 
   if (!regime) return { ...base, noShadowEntryReason: 'NO_R6_SHADOW_POLICY' };
@@ -608,7 +616,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
   const tradingDate = kstDateKey(now);
-  if (!openCounterfactualShadowPositionEnabled()) {
+  if (counterfactualOnlyEnabled()) {
     let recorded = 0;
     let duplicate = 0;
     for (const item of selected) {
@@ -762,7 +770,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       scannedAtKst: nowIso,
     });
     appendShadowLog({
-      event: 'R6_COUNTERFACTUAL_BUY_CREATED',
+      event: 'SHADOW_ORDER_CREATED',
       symbol,
       stockName: item.candidate.name ?? symbol,
       entryType: 'R6_COUNTERFACTUAL_BUY',
@@ -780,12 +788,18 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       sizingRegime,
     });
     console.info(
-      `[R6_COUNTERFACTUAL_BUY_CREATED] symbol=${symbol} ` +
+      `[SHADOW_ORDER_CREATED] symbol=${symbol} ` +
         `entryType=R6_COUNTERFACTUAL_BUY sizingSource=LIVE_SIZING_MIRROR ` +
         `liveOrderSent=false executionImpact=NONE`,
     );
     console.info(
       `[SHADOW_PAPER_FILLED] symbol=${symbol} source=R6_COUNTERFACTUAL_BUY executionImpact=NONE`,
+    );
+    console.info(
+      `[SHADOW_POSITION_OPENED] symbol=${symbol} source=R6_COUNTERFACTUAL_BUY executionImpact=NONE`,
+    );
+    console.info(
+      `[R6_SHADOW_ACTIVE_RECORDED] symbol=${symbol} entryType=R6_COUNTERFACTUAL_BUY shadowPositionOpened=true paperFillCreated=true liveOrderSent=false executionImpact=NONE`,
     );
     created += 1;
   }

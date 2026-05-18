@@ -101,8 +101,20 @@ export function resolveRegimeSnapshot(options: ResolveRegimeSnapshotOptions = {}
       dataHealth,
       sourceHealth,
       stale,
-      providerIssue: sourceHealth !== 'VERIFIED',
+      providerIssue: marketState.macroState.freshness === 'HARD_STALE' || sourceHealth !== 'VERIFIED',
       marketSignal: false,
+      displaySeverity: marketState.displaySeverity,
+      displayLabel: marketState.displayLabel,
+      mhsDisplayLabel: marketState.mhsDisplayLabel,
+      ...(marketState.macroState.freshness === 'HARD_STALE' ? {
+        macroReleaseBlockMessage: 'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
+        macroReleaseBlockDetails: {
+          ageSec: marketState.macroState.ageSec,
+          lastRefreshAttemptAt: marketState.macroState.lastRefreshAttemptAt,
+          refreshJobLastRunAt: marketState.macroState.refreshJobLastRunAt,
+          executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY' as const,
+        },
+      } : {}),
       conflicts: [],
     };
 
