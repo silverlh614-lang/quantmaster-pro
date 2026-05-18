@@ -1,6 +1,7 @@
 // @responsibility Telegram position output formatting.
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import type { PnlSourceSnapshot, TelegramPositionEntry } from './shadowPositionSources.js';
+import type { PositionSourceResult } from './positionSourceTypes.js';
 import {
   formatAccountKind,
   formatPnlKindLabel,
@@ -78,6 +79,40 @@ export function renderPositionLine(position: TelegramPositionEntry, index: numbe
   return lines.join('\n');
 }
 
+export function renderPositionSourceDiagnostics(results?: readonly PositionSourceResult[]): string[] {
+  if (!results || results.length === 0) {
+    return [];
+  }
+
+  const summary = results.map((result) => {
+    if (result.kind === 'SUCCESS') {
+      return `${result.source}:SUCCESS(${result.positions.length})`;
+    }
+    if (result.kind === 'FAILED') {
+      return `${result.source}:FAILED(${result.executionImpact})`;
+    }
+    return `${result.source}:EMPTY`;
+  }).join(' | ');
+  const failures = results.filter((result) => result.kind === 'FAILED');
+  const lines = [
+    '',
+    `<b>[POSITION_SOURCE_DIAGNOSTICS]</b> ${escapeHtml(summary)}`,
+  ];
+
+  if (failures.length > 0) {
+    lines.push(
+      ...failures.map((failure) => {
+        if (failure.kind !== 'FAILED') {
+          return '';
+        }
+        return `[SOURCE_FAILED] ${escapeHtml(failure.source)} reason=${escapeHtml(failure.reason)} impact=${failure.executionImpact}`;
+      }).filter(Boolean),
+    );
+  }
+
+  return lines;
+}
+
 function formatCurrentMode(snapshot: PnlSourceSnapshot): string {
   const effectiveRegime = snapshot.mode.marketState?.effectiveRegime ?? snapshot.mode.modeLabel;
   return `${snapshot.mode.modeLabel} / ${effectiveRegime}`;
@@ -133,6 +168,8 @@ export function renderPnlSummary(snapshot: PnlSourceSnapshot, view: PnlView = 'A
       }),
     );
   }
+
+  lines.push(...renderPositionSourceDiagnostics(snapshot.sourceDiagnostics));
 
   return lines.join('\n');
 }

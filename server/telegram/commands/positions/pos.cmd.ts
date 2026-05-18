@@ -8,7 +8,7 @@ import {
   formatSignedMoney,
   type TelegramPositionEntry,
 } from './shadowPositionSources.js';
-import { renderPositionLine } from './positionOutputFormatters.js';
+import { renderPositionLine, renderPositionSourceDiagnostics } from './positionOutputFormatters.js';
 
 // ADR-0504 compatibility anchors:
 // getOpenPositions shadowPositionLedger 'POSITION_STATUS_CARD' validatePositionCardPayload buildShadowPositionCardPayload
@@ -65,7 +65,9 @@ function createPositionCommand(
         `[보유 포지션] ${visiblePositions.length.toLocaleString('ko-KR')}개`,
       ];
 
-      if (visiblePositions.length > 0) {
+      if (snapshot.sourceAggregate.allFailed) {
+        lines.push('Position query failed: all position sources failed');
+      } else if (visiblePositions.length > 0) {
         lines.push(...visiblePositions.map(renderPositionLine));
       } else {
         lines.push(emptyViewMessage(view));
@@ -90,6 +92,8 @@ function createPositionCommand(
       lines.push('');
       lines.push(mode.liveTradingEnabled ? 'LIVE 보유: 표시 태그 [LIVE] 기준으로 분리됨' : 'LIVE 보유: 없음');
       lines.push('주의: SHADOW/PAPER/VIRTUAL 포지션은 실계좌 보유가 아니며 executionImpact=NONE 입니다.');
+
+      lines.push(...renderPositionSourceDiagnostics(snapshot.sourceDiagnostics));
 
       await reply(lines.join('\n'));
     },
