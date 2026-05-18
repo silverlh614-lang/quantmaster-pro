@@ -41,4 +41,22 @@ describe('buyApprovalPolicy', () => {
       executionFailure: 'NONE',
     });
   });
+
+  it('uses ApprovalDecision as the primary execution decision when provided', () => {
+    expect(resolveBuyApprovalPolicy({
+      mode: 'LIVE',
+      action: 'APPROVE',
+      telegramDelivered: true,
+      approvalDecision: {
+        kind: 'BLOCKED_FOR_APPROVAL_DELIVERY_FAILURE',
+        reason: 'LIVE_DELIVERY_FAILED_BY_DECISION',
+      },
+    })).toMatchObject({
+      decision: 'BLOCKED_FOR_APPROVAL_DELIVERY_FAILURE',
+      normalizedAction: 'SKIP',
+      executionAllowed: false,
+      approvalDeliveryFailed: true,
+      reason: 'LIVE_DELIVERY_FAILED_BY_DECISION',
+    });
+  });
 });
