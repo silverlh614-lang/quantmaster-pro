@@ -7,6 +7,7 @@
  */
 
 import fs from 'fs';
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { KRX_STOCK_MASTER_FILE, ensureDataDir } from './paths.js';
 import { isKstWeekend } from '../utils/marketClock.js';
 
@@ -195,7 +196,7 @@ function loadFromDisk(): StockMasterStore | null {
     if (!Array.isArray(parsed.entries) || typeof parsed.fetchedAt !== 'number') return null;
     return parsed;
   } catch (e) {
-    console.warn('[KrxStockMasterRepo] 디스크 로드 실패:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master disk load failed.', dedupKey: 'p3:krx-master:disk-load', error: e });
     return null;
   }
 }
@@ -205,7 +206,7 @@ function saveToDisk(store: StockMasterStore): void {
   try {
     fs.writeFileSync(KRX_STOCK_MASTER_FILE, JSON.stringify(store, null, 2));
   } catch (e) {
-    console.warn('[KrxStockMasterRepo] 디스크 저장 실패:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master disk save failed.', dedupKey: 'p3:krx-master:disk-save', error: e });
   }
 }
 
@@ -387,14 +388,14 @@ export async function refreshKrxStockMaster(): Promise<boolean> {
       signal: AbortSignal.timeout(10000),
     });
     if (!otpRes.ok) {
-      console.warn(`[KrxStockMasterRepo] OTP 발급 실패: ${otpRes.status}`);
+      emitMaintenanceWarn({ domain: 'PROVIDER', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master OTP request failed.', dedupKey: `p3:krx-master:otp:${otpRes.status}`, details: { status: otpRes.status } });
       return false;
     }
     const otp = (await otpRes.text()).trim();
     // 진단 로그 — 평일 다운로드 시도 시 원인 특정용. OTP 가 빈 문자열이면 원인 확정.
     console.log(`[KrxMaster:diag] OTP status=${otpRes.status} otp.len=${otp.length} otp.head="${otp.slice(0, 40)}"`);
     if (otp.length === 0) {
-      console.warn('[KrxStockMasterRepo] OTP 빈 응답 — fileDn 엔드포인트가 헤더·세션 요구 가능');
+      emitMaintenanceWarn({ domain: 'PROVIDER', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master OTP response was empty.', dedupKey: 'p3:krx-master:otp-empty', details: { detailsSuppressed: true } });
       return false;
     }
 
@@ -405,7 +406,7 @@ export async function refreshKrxStockMaster(): Promise<boolean> {
       signal: AbortSignal.timeout(15000),
     });
     if (!dataRes.ok) {
-      console.warn(`[KrxStockMasterRepo] CSV 다운로드 실패: ${dataRes.status}`);
+      emitMaintenanceWarn({ domain: 'PROVIDER', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master CSV download failed.', dedupKey: `p3:krx-master:csv:${dataRes.status}`, details: { status: dataRes.status } });
       return false;
     }
     const csv = await dataRes.text();
@@ -413,20 +414,20 @@ export async function refreshKrxStockMaster(): Promise<boolean> {
     console.log(`[KrxMaster:diag] CSV status=${dataRes.status} bytes=${csv.length} head="${csv.slice(0, 200).replace(/\n/g, '\\n')}"`);
     const entries = parseKrxMasterCsv(csv);
     if (entries.length === 0) {
-      console.warn(`[KrxStockMasterRepo] CSV 파싱 결과 0건 — 갱신 건너뜀 (bytes=${csv.length})`);
+      emitMaintenanceWarn({ domain: 'DATA', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master CSV parsed zero rows; keeping active cache.', dedupKey: 'p3:krx-master:csv-empty', details: { bytes: csv.length, detailsSuppressed: true } });
       return false;
     }
     // 검증 임계 (ADR-0013) — count >= 2,000 + 코드/시장 비율. 미통과 시 활성 캐시 보존.
     const validation = validateMasterPayload(entries);
     if (!validation.valid) {
-      console.warn(`[KrxStockMasterRepo] 검증 실패 reason=${validation.reason} detail=${validation.detail} — 활성 캐시 보존`);
+      emitMaintenanceWarn({ domain: 'DATA', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master validation failed; keeping active cache.', dedupKey: `p3:krx-master:validation:${validation.reason}`, details: { reason: validation.reason, detail: validation.detail, detailsSuppressed: true } });
       return false;
     }
     setStockMaster(entries);
     console.log(`[KrxStockMasterRepo] ✅ KRX 마스터 ${entries.length}건 갱신`);
     return true;
   } catch (e) {
-    console.warn('[KrxStockMasterRepo] 갱신 실패:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'PROVIDER', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master refresh failed.', dedupKey: 'p3:krx-master:refresh', error: e });
     return false;
   }
 }
@@ -542,7 +543,7 @@ function parseCsvLine(line: string): string[] {
 /** 외부 노출 — KRX CSV 파서 (테스트 가능하도록 분리). HTML 응답 감지 시 빈 배열. */
 export function parseKrxMasterCsv(csv: string): StockMasterEntry[] {
   if (isLikelyHtmlResponse(csv)) {
-    console.warn('[KrxStockMasterRepo] CSV 자리에 HTML 응답 감지 — 파싱 중단');
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master CSV parser detected HTML response.', dedupKey: 'p3:krx-master:html-response', details: { detailsSuppressed: true } });
     return [];
   }
   const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);

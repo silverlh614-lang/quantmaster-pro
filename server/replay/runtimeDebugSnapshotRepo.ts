@@ -50,6 +50,7 @@
  *   18. UNKNOWN 을 임의로 VERIFIED 로 조작 금지 (frozen row 가 없으면 'row missing' 진단)
  */
 
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -355,11 +356,7 @@ function safeReadJson<T>(filePath: string): T | null {
     const raw = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(raw) as T;
   } catch (err) {
-    console.warn(
-      `[RuntimeDebugSnapshotRepo] 손상 JSON 무시 (file=${filePath}): ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_DEBUG_SNAPSHOT_DEGRADED', source: 'DEBUG_REPLAY', message: 'Runtime debug snapshot JSON is corrupt; ignoring snapshot.', dedupKey: `p3:debug-snapshot:read:${path.basename(filePath)}`, error: err, details: { file: path.basename(filePath) } });
     return null;
   }
 }
@@ -462,11 +459,7 @@ export function deleteLatestRuntimeDebugSnapshot(): boolean {
     fs.unlinkSync(LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE);
     return true;
   } catch (err) {
-    console.warn(
-      `[RuntimeDebugSnapshotRepo] delete latest 실패: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_DEBUG_SNAPSHOT_DEGRADED', source: 'DEBUG_REPLAY', message: 'Runtime debug snapshot delete latest failed.', dedupKey: 'p3:debug-snapshot:delete-latest', error: err });
     return false;
   }
 }

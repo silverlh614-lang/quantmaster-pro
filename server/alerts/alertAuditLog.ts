@@ -14,6 +14,7 @@
  * 월이 바뀌면 파일이 자동 롤링되므로 단일 파일이 무한 성장하지 않는다.
  */
 import fs from 'fs';
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { alertAuditFile, ensureDataDir } from '../persistence/paths.js';
 import type { AlertTier } from './alertTiers.js';
 import type { AlertPriority } from './telegramClient.js';
@@ -43,7 +44,7 @@ export function appendAlertAudit(entry: AlertAuditEntry): void {
     fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
   } catch (e: unknown) {
     // best-effort — 실패해도 알림 발송 자체는 성공했으므로 거래 흐름과 무관.
-    console.warn('[AlertAudit] append 실패:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_ALERT_AUDIT_DEGRADED', source: 'ALERT_AUDIT', message: 'Alert audit append failed.', dedupKey: 'p3:alert-audit:append', error: e });
   }
 }
 
@@ -68,7 +69,7 @@ export function readAlertAuditRange(startMs: number, endMs: number): AlertAuditE
         } catch { /* 행 파싱 실패는 무시 */ }
       }
     } catch (e: unknown) {
-      console.warn('[AlertAudit] 읽기 실패:', e instanceof Error ? e.message : e);
+      emitMaintenanceWarn({ domain: 'DATA', code: 'P3_ALERT_AUDIT_DEGRADED', source: 'ALERT_AUDIT', message: 'Alert audit read failed.', dedupKey: `p3:alert-audit:read:${yyyymm}`, error: e });
     }
   }
   return entries;

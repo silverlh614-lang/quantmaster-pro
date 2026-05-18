@@ -14,6 +14,7 @@
  */
 import fs from 'fs';
 
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { ensureDataDir, MARKET_INDICATORS_SNAPSHOT_FILE } from './paths.js';
 
 /** 가격성 단순 숫자 필드 (가격이 있으면 number, 실패 시 null). */
@@ -85,10 +86,7 @@ export function loadMarketIndicatorsSnapshot(): MarketIndicatorsSnapshot {
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
     return parsed as MarketIndicatorsSnapshot;
   } catch (e) {
-    console.warn(
-      '[MarketIndicatorsSnapshot] 손상된 JSON — 빈 객체 fallback:',
-      e instanceof Error ? e.message : e,
-    );
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_CACHE_PERSIST_DEGRADED', source: 'AUX_CACHE', message: 'Market indicators snapshot JSON is corrupt; using empty fallback.', dedupKey: 'p3:cache:market-indicators:load', error: e });
     return {};
   }
 }
@@ -102,10 +100,7 @@ export function saveMarketIndicatorsSnapshot(snapshot: MarketIndicatorsSnapshot)
     fs.renameSync(tmp, MARKET_INDICATORS_SNAPSHOT_FILE);
     return true;
   } catch (e) {
-    console.warn(
-      '[MarketIndicatorsSnapshot] 저장 실패:',
-      e instanceof Error ? e.message : e,
-    );
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_CACHE_PERSIST_DEGRADED', source: 'AUX_CACHE', message: 'Market indicators snapshot save failed.', dedupKey: 'p3:cache:market-indicators:save', error: e });
     try { fs.unlinkSync(tmp); } catch { /* not present */ }
     return false;
   }

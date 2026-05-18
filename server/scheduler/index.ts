@@ -10,7 +10,7 @@
  * 각 파일이 "자기 cron만 등록" 하도록 했다.
  */
 
-import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { registerOrchestratorJobs } from './orchestratorJobs.js';
 import { registerAlertJobs } from './alertJobs.js';
 import { registerReportJobs } from './reportJobs.js';
@@ -72,7 +72,7 @@ export function startScheduler(): void {
   // 기존 부팅 메시지의 "KIS: 실거래" 문구가 실주문 허용으로 오해되지 않도록
   // 실행 모드 / 주문 실행 / KIS 환경을 분리해 추가 보고한다. read-only, best-effort.
   sendStartupExecutionContextAlert().catch((e) => {
-    emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Scheduler startup execution context alert failed.', dedupKey: 'p2:scheduler:startup-context-alert', error: e });
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCHEDULER_DIAGNOSTIC_DEGRADED', source: 'SCHEDULER', message: 'Scheduler startup execution context alert failed.', dedupKey: 'p3:scheduler:startup-context-alert', error: e });
   });
 
   // ── 부팅 검증 (cron 미실행 결함 식별 도구) ─────────────────────────────────
@@ -91,10 +91,10 @@ export function startScheduler(): void {
 
   const catalogMissingFromRegistered = catalogJobs.filter((n) => !registered.includes(n));
   if (catalogMissingFromRegistered.length > 0) {
-    emitDiagnosticWarn({ priority: 'P3', code: 'P3_SCHEDULER_CATALOG_DRIFT', message: 'Schedule catalog contains jobs not registered at runtime.', dedupKey: 'p3:scheduler:catalog-missing-registered', details: { missing: catalogMissingFromRegistered } });
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCHEDULER_CATALOG_DRIFT', source: 'SCHEDULER', message: 'Schedule catalog contains jobs not registered at runtime.', dedupKey: `p3:scheduler:catalog-missing-registered:${catalogMissingFromRegistered.join('|')}`, details: { unknownJobCount: catalogMissingFromRegistered.length, sample: catalogMissingFromRegistered.slice(0, 5), detailsSuppressed: true } });
   }
   const registeredMissingFromCatalog = registered.filter((n) => !catalogJobs.includes(n));
   if (registeredMissingFromCatalog.length > 0) {
-    emitDiagnosticWarn({ priority: 'P3', code: 'P3_SCHEDULER_CATALOG_DRIFT', message: 'Schedule runtime has jobs missing from catalog.', dedupKey: 'p3:scheduler:registered-missing-catalog', details: { unknownJobCount: registeredMissingFromCatalog.length, sample: registeredMissingFromCatalog.slice(0, 5) } });
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCHEDULER_CATALOG_DRIFT', source: 'SCHEDULER', message: 'Schedule runtime has jobs missing from catalog.', dedupKey: `p3:scheduler:registered-missing-catalog:${registeredMissingFromCatalog.join('|')}`, details: { unknownJobCount: registeredMissingFromCatalog.length, sample: registeredMissingFromCatalog.slice(0, 5), detailsSuppressed: true } });
   }
 }

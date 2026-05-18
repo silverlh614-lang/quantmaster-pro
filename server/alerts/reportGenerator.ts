@@ -5,6 +5,7 @@
  * 익절과 이월 청산이 누락되지 않도록 한다 (PR-15).
  */
 // Phase 5-⑩: 이메일 채널 제거 — 모든 리포트는 Telegram 통합 채널로 발송.
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import {
   loadShadowTrades,
   getWeightedPnlPct,
@@ -272,7 +273,7 @@ async function loadDailyShadowLearningLines(
       shadowNarrativeLine: summary.narrativeLine,
     };
   } catch (e) {
-    console.warn('[DailyReport] Shadow 학습 요약 실패:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_REPORT_GENERATOR_DEGRADED', source: 'REPORT_GENERATOR', message: 'Daily report shadow learning summary failed.', dedupKey: 'p3:report-generator:shadow-learning-summary', error: e });
     return { shadowReportLine: '', shadowNarrativeLine: '' };
   }
 }

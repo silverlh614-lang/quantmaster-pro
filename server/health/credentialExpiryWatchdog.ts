@@ -5,6 +5,7 @@
 //
 // 본 PR 은 KRX_API_KEY 1종만 등록 — 향후 KIS APP_KEY / Naver / Gemini 등 추가 가능.
 
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import fs from 'fs';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { CREDENTIAL_EXPIRY_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
@@ -191,10 +192,7 @@ export async function runCredentialWatchdog(now = new Date()): Promise<void> {
         });
         expiredLast[cred.id] = today;
       } catch (e) {
-        console.warn(
-          `[CredentialWatchdog] ${cred.id} 만료 알림 실패:`,
-          e instanceof Error ? e.message : e,
-        );
+        emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_CREDENTIAL_WATCHDOG_NOISY', source: 'CREDENTIAL_WATCHDOG', message: 'Credential expiry alert delivery failed; watchdog remains isolated.', dedupKey: `p3:credential-watchdog:expired:${cred.id}`, error: e, details: { credentialId: cred.id, threshold: t } });
       }
       continue;
     }
@@ -211,10 +209,7 @@ export async function runCredentialWatchdog(now = new Date()): Promise<void> {
       });
       lastThreshold[cred.id] = t;
     } catch (e) {
-      console.warn(
-        `[CredentialWatchdog] ${cred.id} D-${t} 알림 실패:`,
-        e instanceof Error ? e.message : e,
-      );
+      emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_CREDENTIAL_WATCHDOG_NOISY', source: 'CREDENTIAL_WATCHDOG', message: 'Credential threshold alert delivery failed; watchdog remains isolated.', dedupKey: `p3:credential-watchdog:threshold:${cred.id}:${t}`, error: e, details: { credentialId: cred.id, threshold: t } });
     }
   }
 

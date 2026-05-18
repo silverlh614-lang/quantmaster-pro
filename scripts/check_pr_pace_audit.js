@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { scriptWarn } from '../server/observability/scriptWarn.js';
 /**
  * @responsibility ADR-0146 10-PR boundary audit-only PR 룰 자동 모니터링
  *
@@ -265,16 +266,16 @@ function main() {
   }
 
   // boundary 도달
-  console.warn(
+  scriptWarn(
     `[PR Pace Audit] WARN — 10-PR boundary 도달. 현재 PR=#${currentPr}, ` +
       `마지막 audit ${status.lastAuditN0 === null ? '없음' : `N0=${status.lastAuditN0}`}, ` +
       `${status.prsSinceLastAudit ?? currentPr} PR 누적`
   );
-  console.warn('');
-  console.warn('해결: ADR-0146 §"Audit 체크리스트" 5 카테고리 점검 후 audit-only PR 작성');
-  console.warn('  형식: `audit: PR-N0 review (PR-{N0-9}~PR-{N0})` + `_workspace/audit-pr-{N0}/findings.md` 영속');
-  console.warn('');
-  console.warn('면제 사유 (PR-Governance 시리즈 / hot-fix 마지막 / 휴장 기간) 시 본 경고 무시 가능.');
+  scriptWarn('');
+  scriptWarn('해결: ADR-0146 §"Audit 체크리스트" 5 카테고리 점검 후 audit-only PR 작성');
+  scriptWarn('  형식: `audit: PR-N0 review (PR-{N0-9}~PR-{N0})` + `_workspace/audit-pr-{N0}/findings.md` 영속');
+  scriptWarn('');
+  scriptWarn('면제 사유 (PR-Governance 시리즈 / hot-fix 마지막 / 휴장 기간) 시 본 경고 무시 가능.');
 
   // ERROR 종료는 후속 PR 에서 시간 기반 정책 도입 (현재는 WARN only)
   // process.exit(0); — fallthrough OK

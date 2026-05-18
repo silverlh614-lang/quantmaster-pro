@@ -339,7 +339,7 @@ function safeBuildKisWsSubscriptionDiagnosis(): SubscriptionDiagnosis | undefine
     if (isKisWsSubscriptionDiagDisabled()) return undefined;
     return buildSubscriptionDiagnosis();
   } catch (e) {
-    emitDiagnosticWarn({ code: 'P2_DIAGNOSTIC_SUMMARY_DEGRADED', message: 'KIS websocket subscription diagnosis failed; using undefined fallback.', dedupKey: 'p2:diagnostic:kis-ws-subscription', error: e });
+    emitDiagnosticWarn({ priority: 'P3', code: 'P3_DIAGNOSTIC_SUPPRESSED', message: 'KIS websocket subscription diagnosis failed; using undefined fallback.', dedupKey: 'p3:diagnostic:kis-ws-subscription', error: e, details: { section: 'kisWsSubscription' } });
     return undefined;
   }
 }
@@ -352,7 +352,7 @@ function safeDetectPositionTruthDivergence(): PositionTruthDivergenceReport | un
   try {
     return detectPositionTruthDivergence();
   } catch (e) {
-    emitDiagnosticWarn({ code: 'P2_DIAGNOSTIC_SUMMARY_DEGRADED', message: 'Position truth divergence diagnosis failed; using undefined fallback.', dedupKey: 'p2:diagnostic:position-truth-divergence', error: e });
+    emitDiagnosticWarn({ priority: 'P3', code: 'P3_DIAGNOSTIC_SUPPRESSED', message: 'Position truth divergence diagnosis failed; using undefined fallback.', dedupKey: 'p3:diagnostic:position-truth-divergence', error: e, details: { section: 'positionTruthDivergence' } });
     return undefined;
   }
 }

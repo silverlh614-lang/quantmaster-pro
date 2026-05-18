@@ -12,6 +12,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { emitMaintenanceWarn } from '../server/observability/maintenanceWarn.js';
 
 const DATA_DIR = process.env.PERSIST_DATA_DIR
   ? path.resolve(process.env.PERSIST_DATA_DIR)
@@ -289,7 +290,7 @@ async function main(): Promise<void> {
 
   console.log(`[rebuild] 복구 완료: ${diag.positionsRecovered}개 포지션 / ${recoveredEvents.length}개 이벤트`);
   if (diag.positionsFailed > 0) {
-    console.warn(`[rebuild] 복구 실패: ${diag.positionsFailed}개 (→ ${DIAGNOSTIC_FILE})`);
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCRIPT_WARN', source: 'SCRIPT', message: 'Trade event rebuild finished with failed positions.', dedupKey: 'p3:script:rebuild-trade-events:failed', details: { positionsFailed: diag.positionsFailed, diagnosticFile: DIAGNOSTIC_FILE } });
   }
 
   if (!DRY_RUN) {
