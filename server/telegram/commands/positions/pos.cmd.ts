@@ -1,6 +1,6 @@
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
-import type { TelegramCommand } from '../../commandTypes.js';
+import type { TelegramCommand } from '../_types.js';
 import {
   aggregatePositionSources,
   formatMoney,
@@ -28,7 +28,11 @@ function renderPositionLine(position: TelegramPositionEntry, index: number): str
 }
 
 const command: TelegramCommand = {
-  name: 'pos',
+  name: '/pos',
+  aliases: ['pos'],
+  category: 'POS',
+  visibility: 'MENU',
+  riskLevel: 0,
   description: '현재 Shadow/Virtual/Live 포지션 현황',
   async execute({ reply }) {
     const snapshot = aggregatePositionSources();
