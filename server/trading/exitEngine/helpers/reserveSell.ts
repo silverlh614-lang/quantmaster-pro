@@ -95,6 +95,7 @@ export function reserveSellIntent(
     requestedQty: qty,
     reason: String(evtSubType),
     mode,
+    availableQtyOverride: qty,
   });
   if (reservation.kind === 'RESERVED') return reservation;
   return failedReserveSellResult(
@@ -120,7 +121,11 @@ export async function placeReservedSellOrder(
   if (intent.kind !== 'RESERVED') return intent;
 
   const orderRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, qty, orderReason);
-  return reserveSell(shadow, orderRes, fill, evtSubType, flagToClearOnRevert, intent.reservationId);
+  const normalizedOrderRes: SellOrderResult =
+    !orderRes.outcome && shadow.mode !== 'LIVE'
+      ? { ...orderRes, placed: false, outcome: 'SHADOW_ONLY' }
+      : orderRes;
+  return reserveSell(shadow, normalizedOrderRes, fill, evtSubType, flagToClearOnRevert, intent.reservationId);
 }
 
 /**

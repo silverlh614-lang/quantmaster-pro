@@ -141,6 +141,25 @@ describe('sellReservationManager', () => {
     );
   });
 
+  it('uses explicit available quantity fallback for legacy positions without buy fills', () => {
+    const legacy = trade({
+      originalQuantity: undefined,
+      quantity: 0,
+      fills: [],
+    });
+
+    expect(reserveSell({
+      trade: legacy,
+      requestedQty: 10,
+      availableQtyOverride: 10,
+      reason: 'HARD_STOP',
+    })).toEqual({
+      kind: 'RESERVED',
+      reservationId: expect.any(String),
+      reservedQty: 10,
+    });
+  });
+
   it('marks failed reservations rollback-required', () => {
     const t = trade();
     const reserved = reserveSell({ trade: t, requestedQty: 10, reason: 'TAKE_PROFIT' });
