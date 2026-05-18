@@ -15,6 +15,7 @@
 
 import { fetchJsonWithRetry, FetchRetryError } from '../utils/fetchWithRetry.js';
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 
 const DART_BASE = 'https://opendart.fss.or.kr/api';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -65,9 +66,9 @@ async function getCorpCode(stockCode: string): Promise<string | null> {
     return data.corp_code;
   } catch (e) {
     if (e instanceof CircuitOpenError) {
-      console.warn(`[DART/Corp] 서킷 OPEN — ${key} skip`);
+      emitProviderWarn({ source: 'DART', message: 'DART corp-code circuit open; lookup skipped.', dedupKey: `p2:provider:DART:corp-circuit:${key}`, fallbackUsed: true, details: { stockCode: key } });
     } else if (e instanceof FetchRetryError) {
-      console.warn(`[DART/Corp] ${key} 재시도 실패 — ${e.message}`);
+      emitProviderWarn({ source: 'DART', message: 'DART corp-code retry failed.', dedupKey: `p2:provider:DART:corp-retry:${key}`, fallbackUsed: true, details: { stockCode: key, compactError: compactError(e) } });
     } else {
       console.error(`[DART/Corp] ${key} 예상 외 오류:`, e instanceof Error ? e.message : e);
     }
@@ -173,9 +174,9 @@ export async function getDartFinancials(stockCode: string): Promise<DartFinancia
     return result;
   } catch (e) {
     if (e instanceof CircuitOpenError) {
-      console.warn(`[DART/Fin] 서킷 OPEN — ${key} skip`);
+      emitProviderWarn({ source: 'DART', message: 'DART financial circuit open; lookup skipped.', dedupKey: `p2:provider:DART:fin-circuit:${key}`, fallbackUsed: true, details: { stockCode: key } });
     } else if (e instanceof FetchRetryError) {
-      console.warn(`[DART/Fin] ${key} 재시도 실패 — ${e.message}`);
+      emitProviderWarn({ source: 'DART', message: 'DART financial retry failed.', dedupKey: `p2:provider:DART:fin-retry:${key}`, fallbackUsed: true, details: { stockCode: key, compactError: compactError(e) } });
     } else {
       console.error(`[DART/Fin] ${key} 실패:`, e instanceof Error ? e.message : e);
     }

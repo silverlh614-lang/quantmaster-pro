@@ -1,7 +1,7 @@
 // @responsibility stock priceSync 서비스 모듈
 import { enrichStockWithRealData } from './enrichment';
 import { fetchHistoricalData } from './historicalData';
-import { debugLog } from '../../utils/debug';
+import { debugLog, debugWarn } from '../../utils/debug';
 import type { StockRecommendation } from './types';
 
 /**
@@ -125,7 +125,7 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     debugLog(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
     return await enrichStockWithRealData(kisResult);
   } catch (kisErr: any) {
-    console.warn(`[가격동기화] KIS 실패 → Yahoo 시도: ${kisErr.message}`);
+    debugWarn(`[가격동기화] KIS 실패 → Yahoo 시도: ${kisErr.message}`);
   }
 
   // 2순위: Yahoo Finance (/api/historical-data 서버 프록시)
@@ -153,12 +153,12 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
         }
       }
     } catch (yahooErr: any) {
-      console.warn(`[가격동기화] Yahoo ${baseCode}${suffix} 실패: ${yahooErr.message}`);
+      debugWarn(`[가격동기화] Yahoo ${baseCode}${suffix} 실패: ${yahooErr.message}`);
     }
   }
 
   // 3순위: 마지막 알려진 가격 유지
-  console.warn(`[가격동기화] 모든 소스 실패 — STALE 유지: ${stock.name}`);
+  debugWarn(`[가격동기화] 모든 소스 실패 — STALE 유지: ${stock.name}`);
   const stale: StockRecommendation = {
     ...stock,
     dataSourceType: 'STALE',

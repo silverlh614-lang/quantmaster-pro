@@ -8,6 +8,7 @@ import { GoogleGenAI } from '@google/genai';
 import { AI_MODELS } from '../constants.js';
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
 import { buildPersonaPrelude, hasPersonaPrelude } from '../persona/personaIdentity.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 
 // Gemini Flash 모델 (Google Search 지원) — supplyChainAgent 전용
 const SEARCH_MODEL = AI_MODELS.PRIMARY;
@@ -201,10 +202,12 @@ async function recordBudgetUsage(tokens: number): Promise<void> {
   // 90% 도달 → WARN + Telegram (1회만)
   if (!_budgetState.warned && pct >= 90) {
     _budgetState.warned = true;
-    console.warn(
-      `[Gemini/Budget] ⚠️ 월 예산 90% 도달 ` +
-      `($${spentUsd.toFixed(2)}/$${MONTHLY_BUDGET_USD}). 100% 도달 시 호출 차단됨.`,
-    );
+    emitProviderWarn({
+      source: 'GEMINI',
+      message: 'Gemini monthly budget reached 90%; AI calls continue with budget pressure.',
+      dedupKey: `p2:provider:GEMINI:budget-warn:${_budgetState.yyyymm}`,
+      details: { spentUsd: Number(spentUsd.toFixed(2)), monthlyBudgetUsd: MONTHLY_BUDGET_USD, pct: Number(pct.toFixed(1)) },
+    });
     try {
       const { sendTelegramAlert } = await import('../alerts/telegramClient.js');
       await sendTelegramAlert(
@@ -250,12 +253,24 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T | nu
       lastErr = e;
       if (e instanceof CircuitOpenError) {
         setRuntimeState('BLOCKED', label, label, 'CIRCUIT_OPEN');
-        console.warn(`[Gemini] ${label} 서킷 OPEN — 즉시 null 반환 (${e.retryAfterMs}ms 후 회복)`);
+        emitProviderWarn({
+          source: 'GEMINI',
+          message: 'Gemini circuit open; returning null without execution impact.',
+          dedupKey: `p2:provider:GEMINI:circuit:${label}`,
+          fallbackUsed: true,
+          details: { label, retryAfterMs: e.retryAfterMs },
+        });
         return null;
       }
       if (!isTransient(e) || attempt === MAX_RETRIES) break;
       const delay = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.floor(Math.random() * 200);
-      console.warn(`[Gemini] ${label} retry ${attempt + 1}/${MAX_RETRIES} after ${delay}ms`);
+      emitProviderWarn({
+        source: 'GEMINI',
+        message: 'Gemini transient failure retry scheduled.',
+        dedupKey: `p2:provider:GEMINI:retry:${label}`,
+        fallbackUsed: false,
+        details: { label, attempt: attempt + 1, maxRetries: MAX_RETRIES, delayMs: delay, compactError: compactError(e) },
+      });
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -322,12 +337,12 @@ export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {
   const caller = opts.caller ?? 'unknown';
   const label = `callGeminiText[${caller}]`;
   if (!ai) {
-    console.warn('[Gemini] API 키 미설정으로 AI 기능 비활성화');
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini API key missing; AI feature disabled.', dedupKey: `p2:provider:GEMINI:missing-key:${caller}`, fallbackUsed: true, details: { caller } });
     setRuntimeState('BLOCKED', label, caller, 'MISSING_API_KEY');
     return null;
   }
   if (isBudgetBlocked()) {
-    console.warn(`[Gemini] 월예산 HARD_BLOCK 상태로 ${label} 호출 차단`);
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini monthly budget hard block; call skipped.', dedupKey: `p2:provider:GEMINI:budget-block:${caller}`, fallbackUsed: true, details: { caller, label } });
     setRuntimeState('BLOCKED', label, caller, 'BUDGET_BLOCKED');
     return null;
   }
@@ -369,11 +384,11 @@ export async function callGemini(prompt: string, caller = 'unknown'): Promise<st
   });
   const ai = getGeminiClient() as GoogleGenAI;
   if (!ai) {
-    console.warn('[Gemini] API 키 미설정 — AI 기능 비활성화');
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini API key missing; AI feature disabled.', dedupKey: `p2:provider:GEMINI:missing-key:${caller}`, fallbackUsed: true, details: { caller } });
     return null;
   }
   if (isBudgetBlocked()) {
-    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGemini[${caller}] 호출 차단`);
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini monthly budget hard block; callGemini skipped.', dedupKey: `p2:provider:GEMINI:budget-block:${caller}`, fallbackUsed: true, details: { caller } });
     return null;
   }
   return withRetry(`callGemini[${caller}]`, async () => {
@@ -426,11 +441,11 @@ export async function callGeminiInterpret(
   );
   const ai = getGeminiClient() as GoogleGenAI;
   if (!ai) {
-    console.warn('[Gemini] API 키 미설정 — 해석 기능 비활성화');
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini API key missing; interpret feature disabled.', dedupKey: `p2:provider:GEMINI:interpret-missing-key:${caller}`, fallbackUsed: true, details: { caller } });
     return null;
   }
   if (isBudgetBlocked()) {
-    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGeminiInterpret[${caller}] 호출 차단`);
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini monthly budget hard block; interpret call skipped.', dedupKey: `p2:provider:GEMINI:interpret-budget-block:${caller}`, fallbackUsed: true, details: { caller } });
     return null;
   }
   const fullPrompt =
@@ -467,11 +482,11 @@ export async function callGeminiWithSearch(prompt: string, caller = 'search'): P
   });
   const ai = getGeminiClient() as GoogleGenAI;
   if (!ai) {
-    console.warn('[Gemini] API 키 미설정 — 검색 기능 비활성화');
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini API key missing; search feature disabled.', dedupKey: `p2:provider:GEMINI:search-missing-key:${caller}`, fallbackUsed: true, details: { caller } });
     return null;
   }
   if (isBudgetBlocked()) {
-    console.warn(`[Gemini] 월 예산 HARD_BLOCK 상태 — callGeminiWithSearch[${caller}] 호출 차단`);
+    emitProviderWarn({ source: 'GEMINI', message: 'Gemini monthly budget hard block; search call skipped.', dedupKey: `p2:provider:GEMINI:search-budget-block:${caller}`, fallbackUsed: true, details: { caller } });
     return null;
   }
   return withRetry(`callGeminiWithSearch[${caller}]`, async () => {

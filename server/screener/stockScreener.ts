@@ -27,6 +27,7 @@ import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistMa
 
 // ── PR-55 분해 후 모듈 import ───────────────────────────────────────────────
 import { STOCK_UNIVERSE } from './stockUniverse.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 import { type RejectionEntry, setLastRejectionLog } from './rejectionLog.js';
 import {
   fetchYahooQuote,
@@ -119,10 +120,7 @@ export async function preScreenStocks(options?: {
   // 단, 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 설정 시 하이브리드 모드로 조회 가능
   // VTS mock override가 설치된 경우에도 mock 데이터로 순위 TR 실행 허용
   if (!KIS_IS_REAL && !HAS_REAL_DATA_CLIENT && !hasKisClientOverrides()) {
-    console.warn(
-      '[Screener] 모의투자(VTS) 모드 — 순위 TR 미지원. ' +
-      '캐시된 스크리너 결과를 반환합니다. 실계좌 데이터 키 또는 KIS_IS_REAL=true 설정 후 사용 가능.'
-    );
+    emitProviderWarn({ source: 'SCREENER', message: 'VTS mode does not support ranking TR; returning cached screener results.', dedupKey: 'p2:provider:SCREENER:vts-ranking-unsupported', fallbackUsed: true, details: { marketDiv } });
     return getScreenerCache();
   }
 
@@ -525,7 +523,7 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
           markDataQuarantine(s.code, _verifyKis.dataQuality);
         }
       } catch (err) {
-        console.warn(`[autoPopulateWatchlist] verify error (skip): ${s.code} — ${(err as Error).message}`);
+        emitProviderWarn({ source: 'SCREENER', message: 'Watchlist KIS verification failed; continuing auto-populate.', dedupKey: `p2:provider:SCREENER:verify:${s.code}`, fallbackUsed: true, details: { code: s.code, compactError: compactError(err) } });
       }
     }
   }
@@ -597,11 +595,7 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
     let technicalProviderDegraded = false;
     if (quote.dataQuality === 'KIS_PRIMARY_YAHOO_STALE_DETECTED' && !quote.noProviderDegrade) {
       technicalProviderDegraded = true;
-      console.warn(
-        `[AutoPopulate] ${stock.code} ${stock.name} — WATCHLIST_HOLD ` +
-        `(Yahoo↔KIS divergence: ${quote.yahooKisRecovery?.divergencePct.toFixed(1) ?? '?'}%, ` +
-        `KIS price 채택, 시계열 evaluator PROVIDER_DEGRADED 강등). ADR-0411.`,
-      );
+      emitProviderWarn({ source: 'YAHOO', code: 'P2_SCREENER_PROVIDER_DEGRADED', message: 'Yahoo/KIS divergence detected; KIS price adopted and technical provider degraded.', dedupKey: `p2:provider:SCREENER:yahoo-kis-divergence:${stock.code}`, fallbackUsed: true, details: { code: stock.code, name: stock.name, divergencePct: quote.yahooKisRecovery?.divergencePct } });
     }
 
     // ─── ADR-0091 PR-Z4 — Yahoo dataQuality=STALE_BASE 시 KIS 폴백 + 종목 제외 ───
@@ -774,7 +768,7 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
         markDataQuarantine(stock.code, _verifyYahoo.dataQuality);
       }
     } catch (err) {
-      console.warn(`[autoPopulateWatchlist] verify error (skip): ${stock.code} — ${(err as Error).message}`);
+      emitProviderWarn({ source: 'SCREENER', message: 'Watchlist Yahoo verification failed; continuing auto-populate.', dedupKey: `p2:provider:SCREENER:verify:${stock.code}`, fallbackUsed: true, details: { code: stock.code, compactError: compactError(err) } });
     }
 
     // Yahoo rate limit 방지

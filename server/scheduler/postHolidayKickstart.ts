@@ -4,6 +4,7 @@
 // 일반 거래일은 cron 진입 즉시 silent return — 휴장 후 첫 거래일에만 5 check 실행.
 
 import fs from 'fs';
+import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
 import { scheduledJob } from './scheduleGuard.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isTradingDay } from '../utils/marketDayClassifier.js';
@@ -222,10 +223,7 @@ export async function preMarketKickstart(now = new Date()): Promise<void> {
   try {
     snapshot = collectHealthSnapshot();
   } catch (e) {
-    console.warn(
-      '[PostHolidayKickstart] snapshot 수집 실패:',
-      e instanceof Error ? e.message : e,
-    );
+    emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Post-holiday kickstart snapshot collection failed.', dedupKey: 'p2:scheduler:post-holiday:snapshot', error: e });
     return;
   }
 
@@ -245,10 +243,7 @@ export async function preMarketKickstart(now = new Date()): Promise<void> {
       category: 'health_loop',
     });
   } catch (e) {
-    console.warn(
-      '[PostHolidayKickstart] 1차 텔레그램 실패:',
-      e instanceof Error ? e.message : e,
-    );
+    emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Post-holiday kickstart primary telegram failed.', dedupKey: `p2:scheduler:post-holiday:telegram:${date}`, error: e });
   }
 
   const state = loadPostHolidayState();
@@ -273,10 +268,7 @@ export async function preMarketFollowup(now = new Date()): Promise<void> {
   try {
     snapshot = collectHealthSnapshot();
   } catch (e) {
-    console.warn(
-      '[PostHolidayKickstart] followup snapshot 실패:',
-      e instanceof Error ? e.message : e,
-    );
+    emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Post-holiday followup snapshot collection failed.', dedupKey: `p2:scheduler:post-holiday:followup-snapshot:${date}`, error: e });
     return;
   }
 
@@ -291,10 +283,7 @@ export async function preMarketFollowup(now = new Date()): Promise<void> {
       category: 'health_loop',
     });
   } catch (e) {
-    console.warn(
-      '[PostHolidayKickstart] 추적 텔레그램 실패:',
-      e instanceof Error ? e.message : e,
-    );
+    emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Post-holiday followup telegram failed.', dedupKey: `p2:scheduler:post-holiday:followup-telegram:${date}`, error: e });
   }
 
   // 추적 결과로 lastChecks 갱신 (다음 사이클을 위해).

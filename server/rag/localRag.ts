@@ -28,6 +28,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { getGeminiClient, isBudgetBlocked } from '../clients/geminiClient.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 
 const KNOWLEDGE_DIR = path.join(DATA_DIR, 'knowledge');
 const EMBEDDINGS_FILE = path.join(DATA_DIR, 'rag-embeddings.json');
@@ -61,7 +62,7 @@ function loadStore(): EmbeddingsStore {
     _store = JSON.parse(fs.readFileSync(EMBEDDINGS_FILE, 'utf-8')) as EmbeddingsStore;
     return _store;
   } catch (e) {
-    console.warn('[LocalRag] 임베딩 로드 실패 — 빈 상태로 시작:', e instanceof Error ? e.message : e);
+    emitProviderWarn({ source: 'LOCAL_RAG', message: 'Local RAG embedding store load failed; starting empty.', dedupKey: 'p2:provider:LOCAL_RAG:load-store', fallbackUsed: true, details: { compactError: compactError(e) } });
     return (_store = { builtAt: '', model: EMBEDDING_MODEL, chunks: [] });
   }
 }
@@ -98,7 +99,7 @@ async function embedSingle(text: string): Promise<number[] | null> {
   const ai = getGeminiClient();
   if (!ai) return null;
   if (isBudgetBlocked()) {
-    console.warn('[LocalRag] 예산 차단 — 임베딩 생략');
+    emitProviderWarn({ source: 'LOCAL_RAG', message: 'Local RAG embedding skipped by AI budget block.', dedupKey: 'p2:provider:LOCAL_RAG:budget-block', fallbackUsed: true });
     return null;
   }
   try {
@@ -108,7 +109,7 @@ async function embedSingle(text: string): Promise<number[] | null> {
     }).embedContent({ model: EMBEDDING_MODEL, contents: text });
     const vec = res.embedding?.values ?? res.embeddings?.[0]?.values;
     if (!Array.isArray(vec) || vec.length !== EMBEDDING_DIM) {
-      console.warn('[LocalRag] 임베딩 응답 형식 오류 — 차원:', vec?.length);
+      emitProviderWarn({ source: 'LOCAL_RAG', message: 'Local RAG embedding response shape invalid.', dedupKey: 'p2:provider:LOCAL_RAG:invalid-embedding-shape', fallbackUsed: true, details: { dimension: vec?.length } });
       return null;
     }
     return vec;
@@ -158,7 +159,7 @@ export async function buildRagIndex(): Promise<{ added: number; total: number; s
       if (existingIds.has(id)) { skipped++; continue; }
       const embedding = await embedSingle(chunk);
       if (!embedding) {
-        console.warn(`[LocalRag] ${file} 청크 임베딩 실패 — 건너뜀`);
+        emitProviderWarn({ source: 'LOCAL_RAG', message: 'Local RAG chunk embedding failed; chunk skipped.', dedupKey: `p2:provider:LOCAL_RAG:chunk-embedding:${file}`, fallbackUsed: true, details: { file } });
         continue;
       }
       store.chunks.push({ id, source: file, content: chunk, embedding });

@@ -3,6 +3,7 @@ import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse, getCachedAIResponse } from './aiClient';
 import { buildReportBody, compressBodyForToneUp } from '../reports/templateReporter';
 import type { StockRecommendation, MarketContext } from './types';
+import { debugWarn } from '../../utils/debug';
 
 /**
  * (Idea 6) 압축 요약을 받아 톤만 다듬는 가벼운 Gemini 호출.
@@ -29,7 +30,7 @@ export async function aiToneUp(draft: string): Promise<string> {
     return response.text || draft;
   } catch (e) {
     // 톤업은 nice-to-have — 실패 시 원본 그대로 반환 (graceful degradation)
-    console.warn('[reportUtils] aiToneUp 실패, 원본 본문 반환:', e instanceof Error ? e.message : e);
+    debugWarn('[reportUtils] aiToneUp 실패, 원본 본문 반환', e instanceof Error ? e.message : e);
     return draft;
   }
 }

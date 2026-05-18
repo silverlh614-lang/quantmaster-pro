@@ -28,9 +28,9 @@ export function debugLog(label: string, data?: unknown): void {
 export function debugWarn(label: string, data?: unknown): void {
   if (!isDev) return;
   if (data !== undefined) {
-    console.warn(`[WARN] ${label}`, data);
+    console.debug(`[P4][UI][P4_CLIENT_ONLY_WARN] clientOnly=true ${label}`, data);
   } else {
-    console.warn(`[WARN] ${label}`);
+    console.debug(`[P4][UI][P4_CLIENT_ONLY_WARN] clientOnly=true ${label}`);
   }
 }
 

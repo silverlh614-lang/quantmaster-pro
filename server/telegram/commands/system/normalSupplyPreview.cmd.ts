@@ -1,4 +1,16 @@
 // @responsibility /normal_supply_preview diagnostic-only normal-mode supply preview.
+import { emitReportSectionWarn } from '../../../observability/reportSectionWarn.js';
+
+function emitNormalSupplyPreviewWarn(message: string, error?: unknown): void {
+  emitReportSectionWarn({
+    section: 'NORMAL_SUPPLY_PREVIEW',
+    code: 'P2_NORMAL_SUPPLY_PREVIEW_DEGRADED',
+    message: String(message).slice(0, 180),
+    error,
+    dedupKey: `p2:telegram:section:NORMAL_SUPPLY_PREVIEW:${String(message).slice(0, 96)}`,
+  });
+}
+
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import {
@@ -125,7 +137,7 @@ function logFullDone(preview: NormalSupplyPreview, pages: number): void {
     executionImpact: 'NONE',
   });
   if (contamination > 0) {
-    console.warn(
+    emitNormalSupplyPreviewWarn(
       `[NORMAL_SUPPLY_PREVIEW_PROVIDER_SIGNAL_CONTAMINATION] ` +
         `signal=BEARISH|BULLISH|ACCUMULATING providerIssueCount=${contamination} executionImpact=NONE severity=warn`,
     );

@@ -7,6 +7,7 @@
  */
 
 import { tryConsume, getRemaining } from '../persistence/aiCallBudgetRepo.js';
+import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 
 export const KOREAN_FINANCE_WHITELIST = [
   'm.stock.naver.com',
@@ -64,7 +65,7 @@ export async function googleSearch(
   }
 
   if (!tryConsume('google_search', 1)) {
-    console.warn(`[GoogleSearch] 일일 예산 초과 — query 차단: "${query.slice(0, 40)}"`);
+    emitProviderWarn({ source: 'GOOGLE_SEARCH', message: 'Google Search daily budget exceeded; query skipped.', dedupKey: 'p2:provider:GOOGLE_SEARCH:budget-exceeded', fallbackUsed: true, details: { queryPreview: query.slice(0, 40) } });
     return { items: [], totalResults: 0, source: 'BUDGET_EXCEEDED' };
   }
 
@@ -79,7 +80,7 @@ export async function googleSearch(
   try {
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
-      console.warn(`[GoogleSearch] HTTP ${res.status} — query: "${query.slice(0, 40)}"`);
+      emitProviderWarn({ source: 'GOOGLE_SEARCH', message: 'Google Search HTTP response degraded.', dedupKey: `p2:provider:GOOGLE_SEARCH:http:${res.status}`, fallbackUsed: true, details: { status: res.status, queryPreview: query.slice(0, 40) } });
       return { items: [], totalResults: 0, source: 'ERROR' };
     }
     const data = await res.json() as {
@@ -95,7 +96,7 @@ export async function googleSearch(
     const totalResults = Number(data.searchInformation?.totalResults ?? items.length) || items.length;
     return { items, totalResults, source: 'GOOGLE_CSE' };
   } catch (e) {
-    console.warn(`[GoogleSearch] fetch 실패: ${e instanceof Error ? e.message : e}`);
+    emitProviderWarn({ source: 'GOOGLE_SEARCH', message: 'Google Search fetch failed.', dedupKey: 'p2:provider:GOOGLE_SEARCH:fetch-failed', fallbackUsed: true, details: { compactError: compactError(e), queryPreview: query.slice(0, 40) } });
     return { items: [], totalResults: 0, source: 'ERROR' };
   }
 }

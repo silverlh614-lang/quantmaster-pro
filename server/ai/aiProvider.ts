@@ -16,6 +16,7 @@
  */
 
 import { callGemini, callGeminiText } from '../clients/geminiClient.js';
+import { emitProviderWarn } from '../observability/providerWarn.js';
 
 export type ProviderName = 'gemini' | 'openai' | 'groq' | 'self-hosted';
 
@@ -85,7 +86,7 @@ class StubProvider implements AiProvider {
   constructor(public readonly name: ProviderName, private readonly reason: string) {}
   isConfigured(): boolean { return false; }
   async textOnly(): Promise<string | null> {
-    console.warn(`[AiProvider/${this.name}] 미구현: ${this.reason} — null 반환`);
+    emitProviderWarn({ source: 'AI_PROVIDER', message: 'AI provider is not implemented; returning null.', dedupKey: `p2:provider:AI_PROVIDER:stub:${this.name}`, fallbackUsed: true, details: { provider: this.name, reason: this.reason } });
     return null;
   }
 }
@@ -111,7 +112,7 @@ export function getAiProvider(): AiProvider {
       _cached = new StubProvider('self-hosted', 'RunPod Phi-3 14B 엔드포인트 URL 미설정');
       break;
     default:
-      console.warn(`[AiProvider] 알 수 없는 AI_PROVIDER='${name}' — Gemini로 폴백`);
+      emitProviderWarn({ source: 'AI_PROVIDER', message: 'Unknown AI_PROVIDER; falling back to Gemini.', dedupKey: `p2:provider:AI_PROVIDER:unknown:${name}`, fallbackUsed: true, details: { provider: name } });
       _cached = new GeminiProvider();
   }
   return _cached;

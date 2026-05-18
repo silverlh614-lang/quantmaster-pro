@@ -24,6 +24,18 @@ import {
   formatRuntimePipelineAuditCompactLine,
   isRuntimePipelineAuditDisabled,
 } from '../../../diagnostics/runtimePipelineAudit.js';
+import { emitReportSectionWarn } from '../../../observability/reportSectionWarn.js';
+
+function emitLearningStatusSectionWarn(message: string, error?: unknown): void {
+  emitReportSectionWarn({
+    section: 'LEARNING_STATUS',
+    code: 'P2_LEARNING_STATUS_SECTION_DEGRADED',
+    message: String(message).slice(0, 180),
+    error,
+    dedupKey: `p2:telegram:section:LEARNING_STATUS:${String(message).slice(0, 96)}`,
+  });
+}
+
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -54,8 +66,8 @@ const learningStatus: TelegramCommand = {
             if (section) message += `\n\n${section}`;
           }
         } catch (e) {
-          console.warn('[ADR-456] Gate reclassification proposal failed:', e instanceof Error ? e.message : e);
-          console.warn('[ADR-457] Gate reclassification approval plan failed:', e instanceof Error ? e.message : e);
+          emitLearningStatusSectionWarn('[ADR-456] Gate reclassification proposal failed:', e instanceof Error ? e.message : e);
+          emitLearningStatusSectionWarn('[ADR-457] Gate reclassification approval plan failed:', e instanceof Error ? e.message : e);
         }
       }
 
@@ -67,7 +79,7 @@ const learningStatus: TelegramCommand = {
           );
           if (rolloutSection) message += `\n\n${rolloutSection}`;
         } catch (e) {
-          console.warn('[ADR-459] Gate reclassification rollout failed:', e instanceof Error ? e.message : e);
+          emitLearningStatusSectionWarn('[ADR-459] Gate reclassification rollout failed:', e instanceof Error ? e.message : e);
         }
       }
 
@@ -76,7 +88,7 @@ const learningStatus: TelegramCommand = {
           message += `\n\n${formatRuntimePipelineAuditCompactLine(buildRuntimePipelineAuditSnapshot())}`;
         }
       } catch (e) {
-        console.warn('[ADR-461] Runtime audit compact line failed:', e instanceof Error ? e.message : e);
+        emitLearningStatusSectionWarn('[ADR-461] Runtime audit compact line failed:', e instanceof Error ? e.message : e);
       }
 
       await reply(message);
