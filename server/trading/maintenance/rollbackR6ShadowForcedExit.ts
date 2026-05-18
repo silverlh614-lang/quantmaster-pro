@@ -7,6 +7,11 @@ import {
   loadShadowTrades,
   saveShadowTrades,
 } from '../../persistence/shadowTradeRepo.js';
+import {
+  type ServerAttributionRecord,
+  loadAttributionRecords,
+  saveAttributionRecords,
+} from '../../persistence/attributionRepo.js';
 import { R6_FORCED_EXIT_SUSPECT_TAGS } from '../exitEngine/r6ForcedExitPolicy.js';
 
 const DEFAULT_TARGET_CODES = ['017670', '454910'];
@@ -31,11 +36,21 @@ export interface R6ShadowForcedExitRollbackResult {
 
 export interface R6ShadowForcedExitRollbackOptions {
   trades?: ServerShadowTrade[];
+  attributionRecords?: ServerAttributionRecord[];
   now?: Date;
   dryRun?: boolean;
   targetCodes?: string[];
   persist?: boolean;
   appendLog?: boolean;
+}
+
+export interface R6ShadowForcedExitLearningQuarantineResult {
+  dryRun: boolean;
+  targetDate: string;
+  checked: number;
+  quarantined: number;
+  tradeIds: string[];
+  attributionRecordsRemoved: number;
 }
 
 function kstDateString(input: Date | string): string {
@@ -165,3 +180,56 @@ export function rollbackR6ShadowForcedExitPolicyViolations(
 }
 
 export { ROLLBACK_REASON as R6_SHADOW_FORCED_EXIT_ROLLBACK_REASON };
+
+export function quarantineR6ShadowForcedExitLearningSamples(
+  options: R6ShadowForcedExitRollbackOptions = {},
+): R6ShadowForcedExitLearningQuarantineResult {
+  const dryRun = options.dryRun === true;
+  const targetDate = kstDateString(options.now ?? new Date());
+  const targetCodes = new Set(options.targetCodes ?? DEFAULT_TARGET_CODES);
+  const trades = options.trades ?? loadShadowTrades();
+  const tradeIds = new Set<string>();
+
+  for (const trade of trades) {
+    if (!isTargetViolation(trade, targetDate, targetCodes)) continue;
+    tradeIds.add(trade.id);
+    if (!dryRun) {
+      trade.incidentFlag = ROLLBACK_REASON;
+      trade.needsManualReview = true;
+      trade.manualReviewReason = 'SHADOW_R6_FORCED_EXIT_FILL_SUSPECTED';
+      if (options.appendLog !== false) {
+        appendShadowLog({
+          event: 'R6_SHADOW_FORCED_EXIT_LEARNING_QUARANTINE',
+          ...trade,
+          quarantineReason: ROLLBACK_REASON,
+          executionImpact: 'NONE',
+          liveOrderSent: false,
+        });
+      }
+    }
+  }
+
+  const attributionRecords = options.attributionRecords ?? loadAttributionRecords();
+  const keptAttributionRecords = attributionRecords.filter(record => !tradeIds.has(record.tradeId));
+  const attributionRecordsRemoved = attributionRecords.length - keptAttributionRecords.length;
+
+  if (!dryRun && tradeIds.size > 0 && (options.trades === undefined || options.persist)) {
+    saveShadowTrades(trades);
+  }
+  if (!dryRun && attributionRecordsRemoved > 0) {
+    if (options.attributionRecords) {
+      options.attributionRecords.splice(0, options.attributionRecords.length, ...keptAttributionRecords);
+    } else {
+      saveAttributionRecords(keptAttributionRecords);
+    }
+  }
+
+  return {
+    dryRun,
+    targetDate,
+    checked: trades.length,
+    quarantined: tradeIds.size,
+    tradeIds: Array.from(tradeIds),
+    attributionRecordsRemoved,
+  };
+}
