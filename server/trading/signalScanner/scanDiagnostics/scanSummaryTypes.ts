@@ -86,6 +86,8 @@ export interface MacroGateState {
   r6RecoveryStatus?: string;
   activeR6Triggers?: string[];
   r6ShockLatch?: boolean;
+  latchDecayPercent?: number;
+  mhs?: number;
   recoveryBlockedReason?: string;
   liveEntryAllowed?: boolean;
   liveExitAllowed?: boolean;

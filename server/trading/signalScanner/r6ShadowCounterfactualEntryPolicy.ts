@@ -122,6 +122,27 @@ function readNumber(source: unknown, keys: string[]): number | null {
   return null;
 }
 
+function readString(source: unknown, keys: string[]): string | null {
+  if (!source || typeof source !== 'object') return null;
+  const record = source as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function resolveEntryEffectiveState(macroGateState: MacroGateState | undefined, fallback: string): string {
+  return readString(macroGateState, ['r6RecoveryStatus', 'r6StateMachineState', 'macroRegimeEffective', 'regime'])
+    ?? fallback;
+}
+
+function resolveR6LatchDecayAtEntry(macroGateState: MacroGateState | undefined): number | string | undefined {
+  return readNumber(macroGateState, ['latchDecayPercent', 'r6LatchDecayPercent', 'r6LatchDecay'])
+    ?? readString(macroGateState, ['latchDecayLevel', 'r6LatchDecayLevel'])
+    ?? undefined;
+}
+
 function candidatePrice(raw: CandidateWithSupplyContext | undefined): number | null {
   if (!raw) return null;
   return readNumber(raw, [
@@ -315,6 +336,8 @@ function buildCounterfactualLearningCandidate(input: {
     ? input.regime
     : 'R6_DEFENSE';
   const mhs = readNumber(input.macroGateState, ['mhs']);
+  const entryEffectiveState = resolveEntryEffectiveState(input.macroGateState, input.regime);
+  const r6LatchDecayAtEntry = resolveR6LatchDecayAtEntry(input.macroGateState);
   return {
     symbol: c.symbol,
     ...(c.name ? { name: c.name } : {}),
@@ -342,6 +365,10 @@ function buildCounterfactualLearningCandidate(input: {
     regimePhase,
     regimeAtSignal: regimePhase,
     regimeAtEntry: regimePhase,
+    entryRegime: regimePhase,
+    entryEffectiveState,
+    transitionPath: [regimePhase],
+    ...(r6LatchDecayAtEntry !== undefined ? { r6LatchDecayAtEntry } : {}),
     r6Trigger: input.macroGateState?.activeR6Triggers?.join(',') || 'none',
     engineMode: 'SHADOW_ONLY',
     marketSession: 'R6_SHADOW_ENTRY_POLICY',
@@ -360,11 +387,15 @@ function buildCounterfactualLearningCandidate(input: {
     liveOrderSent: false,
     riskUnit: 'R6_COUNTERFACTUAL',
     ...(mhs !== null ? { mhs } : {}),
+    ...(mhs !== null ? { mhsAtEntry: mhs } : {}),
     bias: 'BULL',
+    biasAtEntry: 'BULL',
     supplyScore: c.supplyScore,
+    supplyScoreAtEntry: c.supplyScore,
     activeFlow: c.activeFlow,
     passiveFlow: c.passiveFlow,
     programNetBuy: c.stockProgramNetBuyAmount,
+    programFlowAtEntry: c.stockProgramNetBuyAmount,
     paperFillCreated: true,
     shadowPositionOpened: true,
   };
@@ -387,6 +418,12 @@ function buildShadowTrade(input: {
   const positionAmount = qty * entryPrice;
   const stopLoss = Math.max(1, Math.round(entryPrice * 0.93));
   const targetPrice = Math.max(entryPrice + 1, Math.round(entryPrice * 1.14));
+  const entryEffectiveState = resolveEntryEffectiveState(input.macroGateState, input.regime);
+  const r6LatchDecayAtEntry = resolveR6LatchDecayAtEntry(input.macroGateState);
+  const entryRegime = input.regime === 'SELL_ONLY' || input.regime === 'SHADOW_ONLY'
+    ? input.regime
+    : 'R6_DEFENSE';
+  const mhs = readNumber(input.macroGateState, ['mhs']);
   const trade: ServerShadowTrade = {
     id: `r6cf_${input.tradingDate.replace(/[^0-9]/g, '')}_${c.symbol}_${Date.now()}`,
     stockCode: c.symbol,
@@ -406,7 +443,6 @@ function buildShadowTrade(input: {
     status: 'ACTIVE',
     mode: 'SHADOW',
     sector: getSectorByCode(c.symbol) || undefined,
-    entryRegime: input.regime,
     profileType: 'D',
     watchlistSource: 'INTRADAY',
     profitTranches: [{ price: targetPrice, ratio: 1, taken: false }],
@@ -415,6 +451,14 @@ function buildShadowTrade(input: {
     trailingEnabled: false,
     learningTag: 'R6_COUNTERFACTUAL_RECOVERY_TEST',
     entryType: 'R6_COUNTERFACTUAL_BUY',
+    entryRegime,
+    entryEffectiveState,
+    transitionPath: [entryRegime],
+    ...(r6LatchDecayAtEntry !== undefined ? { r6LatchDecayAtEntry } : {}),
+    ...(mhs !== null ? { mhsAtEntry: mhs } : {}),
+    biasAtEntry: 'BULL',
+    supplyScoreAtEntry: c.supplyScore,
+    programFlowAtEntry: c.stockProgramNetBuyAmount,
     sourceSignal: 'ACCUMULATING',
     entryReason: 'R6_COUNTERFACTUAL_RECOVERY_TEST',
     executionImpact: 'NONE',
@@ -431,7 +475,15 @@ function buildShadowTrade(input: {
     r6Counterfactual: {
       tradingDate: input.tradingDate,
       regime: input.regime,
-      mhs: readNumber(input.macroGateState, ['mhs']),
+      entryRegime,
+      entryEffectiveState,
+      transitionPath: [entryRegime],
+      ...(r6LatchDecayAtEntry !== undefined ? { r6LatchDecayAtEntry } : {}),
+      ...(mhs !== null ? { mhsAtEntry: mhs } : {}),
+      biasAtEntry: 'BULL',
+      supplyScoreAtEntry: c.supplyScore,
+      programFlowAtEntry: c.stockProgramNetBuyAmount,
+      mhs,
       bias: 'BULL',
       supplyScore: c.supplyScore,
       activeFlow: c.activeFlow,

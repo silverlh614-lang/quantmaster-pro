@@ -55,6 +55,7 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
     const { persistNormalSupplyPreview } = await import('./normalSupplyPreview.js');
     const { applyR6ShadowCounterfactualEntries } = await import('./r6ShadowCounterfactualEntryPolicy.js');
     const { loadShadowTrades } = await import('../../persistence/shadowTradeRepo.js');
+    const { loadCounterfactualShadowLearningLedger } = await import('../../persistence/counterfactualShadowLearningRepo.js');
 
     const rawCandidates = [accumulatingRawCandidate()];
     const preview = persistNormalSupplyPreview({
@@ -82,6 +83,9 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
         mhsBelow30: false,
         watchlistEmpty: false,
         sellOnlyMode: false,
+        r6RecoveryStatus: 'R6_CONFIRMATION_WAIT',
+        latchDecayPercent: 0,
+        mhs: 70,
         shadowLearningAllowed: true,
         diagnosticAllowed: true,
       },
@@ -89,7 +93,7 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
     });
 
     expect(summary).toMatchObject({
-      regime: 'R6_DEFENSE',
+      regime: 'R6_CONFIRMATION_WAIT',
       liveNewBuyAllowed: false,
       realOrderAllowed: false,
       strongBuyAllowed: false,
@@ -112,13 +116,37 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
       liveOrderSent: false,
       riskUnit: 'R6_COUNTERFACTUAL',
       sizingSource: 'LIVE_SIZING_MIRROR',
+      entryRegime: 'R6_DEFENSE',
+      entryEffectiveState: 'R6_CONFIRMATION_WAIT',
+      transitionPath: ['R6_DEFENSE'],
+      r6LatchDecayAtEntry: 0,
+      mhsAtEntry: 70,
+      biasAtEntry: 'BULL',
     });
+    expect(trades[0].supplyScoreAtEntry).toBeGreaterThanOrEqual(70);
     const notional = (trades[0].originalQuantity ?? trades[0].quantity) * trades[0].shadowEntryPrice;
     expect(notional).toBeGreaterThan(100_000);
     expect(notional).toBeLessThanOrEqual(10_000_000);
     expect(trades[0].sizingEngineSnapshot?.finalPositionKrw).toBe(notional);
     expect(trades[0].r6Counterfactual?.sizingSource).toBe('LIVE_SIZING_MIRROR');
+    expect(trades[0].r6Counterfactual?.entryRegime).toBe('R6_DEFENSE');
+    expect(trades[0].r6Counterfactual?.entryEffectiveState).toBe('R6_CONFIRMATION_WAIT');
+    expect(trades[0].r6Counterfactual?.transitionPath).toEqual(['R6_DEFENSE']);
+    expect(trades[0].r6Counterfactual?.mhsAtEntry).toBe(70);
     expect(trades[0].fills?.some((fill) => fill.type === 'BUY' && fill.status === 'CONFIRMED')).toBe(true);
+    const ledger = loadCounterfactualShadowLearningLedger();
+    expect(ledger[0]).toMatchObject({
+      symbol: '005930',
+      label: 'R6_COUNTERFACTUAL_BUY',
+      entryRegime: 'R6_DEFENSE',
+      entryEffectiveState: 'R6_CONFIRMATION_WAIT',
+      transitionPath: ['R6_DEFENSE'],
+      mhsAtEntry: 70,
+      biasAtEntry: 'BULL',
+      executionImpact: 'NONE',
+      liveOrderSent: false,
+    });
+    expect(ledger[0].supplyScoreAtEntry).toBeGreaterThanOrEqual(70);
   }, 20_000);
 
   it('records an explicit noShadowEntryReason instead of silently ending at zero', async () => {

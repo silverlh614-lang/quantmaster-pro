@@ -1,7 +1,7 @@
 // @responsibility Learning sample quality metadata recovery diagnostics.
 import fs from 'fs';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
-import { scanTraceFile } from '../persistence/paths.js';
+import { MACRO_STATE_FILE, REGIME_TRANSITION_STATE_FILE, scanTraceFile } from '../persistence/paths.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { buildCounterfactualKey, recordCounterfactualCase, loadCounterfactuals, saveCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
@@ -22,8 +22,17 @@ const COUNTERFACTUAL_ATR_STOP_MULTIPLE = 1.5;
 const MINUTES_PER_CALENDAR_DAY = 24 * 60;
 
 type MaybeEntry = { stockCode?: string; stockName?: string; priceAtSignal?: number; gateScore?: number; regime?: string; conditionKeys?: string[]; skipReason?: string; label?: CounterfactualLabel; signalTime?: string; signalDate?: string };
+type CounterfactualMaturityWindow = '1D' | '3D' | '5D' | 'TARGET_HIT' | 'STOP_HIT' | 'BREAKEVEN' | 'EXPIRED';
+type CurrentRegimeSnapshot = {
+  rawRegime?: string;
+  effectiveRegime?: string;
+  effectiveState?: string;
+  r6RecoveryStatus?: string;
+  r6LatchDecay?: number | string;
+};
 
 function num(v: unknown): number | undefined { return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined; }
+function finiteDiagnosticNumber(v: unknown): number | undefined { return typeof v === 'number' && Number.isFinite(v) ? v : undefined; }
 function avg(xs: number[]): number { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0; }
 function round(n: number, d = 4): number { return Number((Number.isFinite(n) ? n : 0).toFixed(d)); }
 function ageMinutes(iso: string | undefined, now: Date): number { const t = iso ? new Date(iso).getTime() : NaN; return Number.isFinite(t) ? Math.max(0, Math.floor((now.getTime() - t) / 60000)) : 0; }
@@ -32,6 +41,81 @@ export function learningEntryPrice(g: LearningGhostCase): number | undefined { r
 function finalReturnR(g: LearningGhostCase): number | undefined { return typeof g.returnR === 'number' && Number.isFinite(g.returnR) ? g.returnR : undefined; }
 function isCounterfactualLabel(label: unknown): boolean { return ['MISSED_WIN', 'AVOIDED_LOSS', 'GOOD_BLOCK', 'BAD_BLOCK', 'NEUTRAL_BLOCK'].includes(String(label)); }
 export function hasMissingLearningMetadata(g: LearningGhostCase): boolean { return !learningEntryPrice(g) || !num(g.targetPrice) || !num(g.stopPrice); }
+
+function readRawJsonObject(file: string): Record<string, unknown> | undefined {
+  try {
+    if (!fs.existsSync(file)) return undefined;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringFrom(row: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  if (!row) return undefined;
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+function numberOrStringFrom(row: Record<string, unknown> | undefined, keys: string[]): number | string | undefined {
+  if (!row) return undefined;
+  for (const key of keys) {
+    const value = row[key];
+    const n = finiteDiagnosticNumber(value);
+    if (n !== undefined) return n;
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+function currentRegimeSnapshot(): CurrentRegimeSnapshot {
+  const transition = readRawJsonObject(REGIME_TRANSITION_STATE_FILE);
+  if (transition) {
+    return {
+      rawRegime: stringFrom(transition, ['rawRegime', 'previousRegime']),
+      effectiveRegime: stringFrom(transition, ['effectiveRegime', 'currentRegime']),
+      effectiveState: stringFrom(transition, ['r6RecoveryStatus', 'r6StateMachineState', 'effectiveRegime', 'currentRegime']),
+      r6RecoveryStatus: stringFrom(transition, ['r6RecoveryStatus', 'r6StateMachineState']),
+      r6LatchDecay: numberOrStringFrom(transition, ['latchDecayPercent', 'latchDecayLevel']),
+    };
+  }
+  const macro = readRawJsonObject(MACRO_STATE_FILE);
+  return {
+    rawRegime: stringFrom(macro, ['macroRegimeRaw', 'rawRegime', 'regime']),
+    effectiveRegime: stringFrom(macro, ['macroRegimeEffective', 'effectiveRegime', 'regime']),
+    effectiveState: stringFrom(macro, ['r6RecoveryStatus', 'macroRegimeEffective', 'effectiveRegime', 'regime']),
+    r6RecoveryStatus: stringFrom(macro, ['r6RecoveryStatus']),
+    r6LatchDecay: numberOrStringFrom(macro, ['latchDecayPercent', 'r6LatchDecayPercent', 'latchDecayLevel']),
+  };
+}
+
+function appendTransitionPath(existing: string[] | undefined, ...values: Array<string | undefined>): string[] {
+  const out: string[] = [];
+  for (const value of [...(existing ?? []), ...values]) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (!normalized || normalized === 'NONE') continue;
+    if (!out.includes(normalized)) out.push(normalized);
+  }
+  return out;
+}
+
+function meaningfulRegimeState(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed && trimmed !== 'NONE' ? trimmed : undefined;
+}
+
+function counterfactualEntryRegime(e: CounterfactualEntry): string {
+  return e.entryRegime ?? e.regimeAtEntry?.toString() ?? e.regimeAtSignal?.toString() ?? e.regime;
+}
+
+function counterfactualEntryEffectiveState(e: CounterfactualEntry): string {
+  return e.entryEffectiveState ?? e.effectiveRegime ?? counterfactualEntryRegime(e);
+}
 
 function isClosedLifecycle(g: LearningGhostCase): boolean { return g.closed === true || !!g.closedAt || (!!g.closeReason && g.closeReason !== 'QUARANTINED_DATA_MISSING'); }
 function isRepairLinked(g: LearningGhostCase): boolean { return !!g.repairRunId || String(g.id ?? '').includes('repair') || String(g.closeReason ?? '').startsWith('VIRTUAL_'); }
@@ -189,18 +273,32 @@ function candidateKey(c: MaybeEntry, now: Date): string {
   return buildCounterfactualKey({ sourceCandidateId: counterfactualSourceId(c, now), stockCode: c.stockCode, tradingDate, blockedReason: c.skipReason ?? 'BLOCKED_BUY', hypotheticalSide: 'BUY', strategyId: 'default' });
 }
 function normalizeCounterfactuals(rows = loadCounterfactuals()): CounterfactualEntry[] {
-  return rows.map((e) => ({
-    ...e,
-    counterfactualKey: e.counterfactualKey ?? buildCounterfactualKey({ sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`, stockCode: e.stockCode, tradingDate: e.signalDate, blockedReason: e.blockedReason ?? e.skipReason, hypotheticalSide: e.hypotheticalSide ?? 'BUY', strategyId: e.strategyId ?? 'default' }),
-    sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`,
-    symbol: e.symbol ?? e.stockCode,
-    tradingDate: e.tradingDate ?? e.signalDate,
-    blockedReason: e.blockedReason ?? e.skipReason,
-    hypotheticalSide: e.hypotheticalSide ?? 'BUY',
-    strategyId: e.strategyId ?? 'default',
-    hypotheticalEntryPrice: e.hypotheticalEntryPrice ?? e.priceAtSignal,
-    outcomeStatus: e.outcomeStatus ?? (e.outcomeLabel ? 'LABELED' : 'PENDING'),
-  }));
+  return rows.map((e) => {
+    const entryRegime = counterfactualEntryRegime(e);
+    const entryEffectiveState = counterfactualEntryEffectiveState(e);
+    const row = e as CounterfactualEntry & Record<string, unknown>;
+    return {
+      ...e,
+      counterfactualKey: e.counterfactualKey ?? buildCounterfactualKey({ sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`, stockCode: e.stockCode, tradingDate: e.signalDate, blockedReason: e.blockedReason ?? e.skipReason, hypotheticalSide: e.hypotheticalSide ?? 'BUY', strategyId: e.strategyId ?? 'default' }),
+      sourceCandidateId: e.sourceCandidateId ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason}`,
+      symbol: e.symbol ?? e.stockCode,
+      tradingDate: e.tradingDate ?? e.signalDate,
+      blockedReason: e.blockedReason ?? e.skipReason,
+      hypotheticalSide: e.hypotheticalSide ?? 'BUY',
+      strategyId: e.strategyId ?? 'default',
+      hypotheticalEntryPrice: e.hypotheticalEntryPrice ?? e.priceAtSignal,
+      outcomeStatus: e.outcomeStatus ?? (e.outcomeLabel ? 'LABELED' : 'PENDING'),
+      entryRegime,
+      entryEffectiveState,
+      regimeAtEntry: e.regimeAtEntry ?? entryRegime,
+      transitionPath: appendTransitionPath(e.transitionPath, entryRegime),
+      r6LatchDecayAtEntry: e.r6LatchDecayAtEntry ?? numberOrStringFrom(row, ['r6LatchDecay', 'r6LatchDecayPercent', 'latchDecayPercent', 'latchDecayLevel']),
+      mhsAtEntry: e.mhsAtEntry ?? finiteDiagnosticNumber(row.mhs),
+      biasAtEntry: e.biasAtEntry ?? (typeof row.bias === 'string' ? row.bias : undefined),
+      supplyScoreAtEntry: e.supplyScoreAtEntry ?? finiteDiagnosticNumber(row.supplyScore),
+      programFlowAtEntry: e.programFlowAtEntry ?? finiteDiagnosticNumber(row.programNetBuy ?? row.programFlow),
+    };
+  });
 }
 function statusCounts(rows = normalizeCounterfactuals()) {
   const labeledCount = rows.filter((e) => e.outcomeStatus === 'LABELED' && !!e.outcomeLabel).length;
@@ -807,8 +905,100 @@ function resolveCounterfactualHit(
   }
   return undefined;
 }
+
+type CounterfactualResolvedOutcome = {
+  label: CounterfactualLabel;
+  outcomeR: number;
+  maturityWindow: CounterfactualMaturityWindow;
+};
+
+function maturityWindowFromMinutes(minutes: number): CounterfactualMaturityWindow {
+  if (minutes <= MINUTES_PER_CALENDAR_DAY) return '1D';
+  if (minutes <= 3 * MINUTES_PER_CALENDAR_DAY) return '3D';
+  if (minutes <= 5 * MINUTES_PER_CALENDAR_DAY) return '5D';
+  return 'EXPIRED';
+}
+
+function pathPointPrice(p: { price?: number; close?: number }): number | undefined {
+  return num(p.price) ?? num(p.close);
+}
+
+function resolveCounterfactualOutcome(
+  e: CounterfactualEntry,
+  path: Array<{ at?: string; timestamp?: string; price?: number; high?: number; low?: number; close?: number }>,
+  entry: number,
+  target: number,
+  stop: number,
+  now: Date,
+): CounterfactualResolvedOutcome {
+  const longSide = (e.hypotheticalSide ?? 'BUY') === 'BUY';
+  const risk = Math.max(1e-9, Math.abs(entry - stop));
+  const sorted = [...path].sort((a, b) => pathTime(a) - pathTime(b));
+  for (const p of sorted) {
+    const base = pathPointPrice(p);
+    const high = num(p.high) ?? base;
+    const low = num(p.low) ?? base;
+    if (!high || !low) continue;
+    if (longSide) {
+      if (high >= target) {
+        return { label: 'MISSED_WIN', outcomeR: round(Math.abs(target - entry) / risk), maturityWindow: 'TARGET_HIT' };
+      }
+      if (low <= stop) {
+        return { label: 'AVOIDED_LOSS', outcomeR: -1, maturityWindow: 'STOP_HIT' };
+      }
+    } else {
+      if (low <= target) {
+        return { label: 'MISSED_WIN', outcomeR: round(Math.abs(entry - target) / risk), maturityWindow: 'TARGET_HIT' };
+      }
+      if (high >= stop) {
+        return { label: 'AVOIDED_LOSS', outcomeR: -1, maturityWindow: 'STOP_HIT' };
+      }
+    }
+  }
+
+  const finalPoint = sorted.slice().reverse().find((p) => pathPointPrice(p));
+  const finalPrice = finalPoint ? pathPointPrice(finalPoint) : entry;
+  const rawR = finalPrice ? (longSide ? (finalPrice - entry) / risk : (entry - finalPrice) / risk) : 0;
+  const outcomeR = round(rawR);
+  const createdAt = counterfactualCreatedAt(e);
+  const age = ageMinutes(createdAt, now);
+  return {
+    label: resolveCounterfactualHit(e, path, target, stop) ?? 'NEUTRAL_BLOCK',
+    outcomeR,
+    maturityWindow: Math.abs(outcomeR) <= 0.1 ? 'BREAKEVEN' : maturityWindowFromMinutes(age),
+  };
+}
+
+function applyCounterfactualOutcomeRegimeMetadata(
+  e: CounterfactualEntry,
+  snapshot: CurrentRegimeSnapshot,
+  nowIso: string,
+): void {
+  const entryRegime = counterfactualEntryRegime(e);
+  const entryEffectiveState = counterfactualEntryEffectiveState(e);
+  const exitRegime = meaningfulRegimeState(snapshot.r6RecoveryStatus)
+    ?? meaningfulRegimeState(snapshot.effectiveState)
+    ?? meaningfulRegimeState(snapshot.effectiveRegime)
+    ?? e.exitRegime
+    ?? e.regimeAtOutcome?.toString()
+    ?? entryRegime;
+  const transitionPath = appendTransitionPath(e.transitionPath, entryRegime, snapshot.r6RecoveryStatus, snapshot.effectiveState, snapshot.effectiveRegime);
+  e.entryRegime = entryRegime;
+  e.entryEffectiveState = entryEffectiveState;
+  e.regimeAtEntry = e.regimeAtEntry ?? entryRegime;
+  e.exitRegime = exitRegime;
+  e.regimeAtExit = exitRegime;
+  e.regimeAtOutcome = exitRegime;
+  e.transitionPath = transitionPath;
+  e.resolvedAfterRegimeTransition = entryRegime !== exitRegime || transitionPath.some((phase) => phase !== entryRegime);
+  e.resolvedAt = nowIso;
+  e.r6LatchDecayAtEntry = e.r6LatchDecayAtEntry ?? snapshot.r6LatchDecay;
+}
+
 function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
   const all = normalizeCounterfactuals();
+  const regimeSnapshot: CurrentRegimeSnapshot = write ? currentRegimeSnapshot() : {};
+  const nowIso = now.toISOString();
   let resolvableNow = 0, labeled = 0, waitingForHoldingPeriod = 0, dataInsufficient = 0, quarantined = 0;
   let missingEntryPrice = 0, missingTargetPrice = 0, missingStopPrice = 0, missingPricePath = 0, missingCreatedAt = 0;
   let maturedNowCount = 0, invalidMaturityCount = 0;
@@ -836,27 +1026,27 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
       invalidMaturityCount++;
       dataInsufficient++;
       labelBreakdown.DATA_INSUFFICIENT++;
-      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
+      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = nowIso; }
       continue;
     }
     if (maturity.maturityStatus === 'MATURED' || maturity.maturityStatus === 'OVERDUE') maturedNowCount++;
     if (!entry || !target || !stop) {
       quarantined++;
       labelBreakdown.QUARANTINED++;
-      if (write) { e.outcomeStatus = 'QUARANTINED'; e.outcomeLabel = 'QUARANTINED'; e.outcomeResolvedAt = now.toISOString(); }
+      if (write) { e.outcomeStatus = 'QUARANTINED'; e.outcomeLabel = 'QUARANTINED'; e.outcomeResolvedAt = nowIso; }
       continue;
     }
     if (!Number.isFinite(createdMs)) {
       dataInsufficient++;
       labelBreakdown.DATA_INSUFFICIENT++;
-      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
+      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = nowIso; }
       continue;
     }
     if (!dueOnly && (maturity.maturityStatus === 'INVALID_CREATED_AT' || maturity.maturityStatus === 'INVALID_MAX_HOLDING')) {
       invalidMaturityCount++;
       dataInsufficient++;
       labelBreakdown.DATA_INSUFFICIENT++;
-      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
+      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = nowIso; }
       continue;
     }
     if (!dueOnly && maturity.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD') {
@@ -870,21 +1060,25 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
       missingPricePath++;
       dataInsufficient++;
       labelBreakdown.DATA_INSUFFICIENT++;
-      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = now.toISOString(); }
+      if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = nowIso; }
       continue;
     }
     resolvableNow++;
-    const label = resolveCounterfactualHit(e, path, target, stop) ?? 'NEUTRAL_BLOCK';
+    const outcome = resolveCounterfactualOutcome(e, path, entry, target, stop, now);
+    const label = outcome.label;
     labelBreakdown[label] = (labelBreakdown[label] ?? 0) + 1;
     labeled++;
     if (write) {
       e.outcomeLabel = label;
       e.outcomeStatus = 'LABELED';
-      e.outcomeResolvedAt = now.toISOString();
+      e.outcomeResolvedAt = nowIso;
+      e.outcomeR = outcome.outcomeR;
+      e.maturityWindow = outcome.maturityWindow;
       e.maturityAt = maturity.maturityAt;
       e.maturityStatus = maturity.maturityStatus;
       e.currentAgeMinutes = maturity.currentAgeMinutes;
       e.remainingMinutesToMaturity = maturity.remainingMinutesToMaturity ?? undefined;
+      applyCounterfactualOutcomeRegimeMetadata(e, regimeSnapshot, nowIso);
       if (e.targetStopRecovered) {
         e.labelSource = 'RECOVERED_TARGET_STOP';
         e.diagnosticOnly = true;

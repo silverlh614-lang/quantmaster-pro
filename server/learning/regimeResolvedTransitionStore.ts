@@ -32,9 +32,10 @@ export function emptyRegimeResolvedTransitionState(): RegimeResolvedTransitionSt
 }
 
 export function regimePhaseForCounterfactualEntry(entry: CounterfactualEntry): RegimePhase {
+  const entryRegime = entry.entryRegime ?? entry.regimeAtEntry?.toString() ?? entry.regimeAtSignal?.toString();
   return entry.regimePhase ?? deriveRegimePhase({
-    rawRegime: entry.rawRegime ?? entry.regime,
-    effectiveRegime: entry.effectiveRegime ?? entry.regime,
+    rawRegime: entryRegime ?? entry.rawRegime ?? entry.regime,
+    effectiveRegime: entry.entryEffectiveState ?? entryRegime ?? entry.effectiveRegime ?? entry.regime,
     engineMode: entry.engineMode,
     marketSession: entry.marketSession,
     sellOnlyActive: entry.sellOnlyActive,

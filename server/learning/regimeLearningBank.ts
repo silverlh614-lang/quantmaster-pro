@@ -126,9 +126,18 @@ function phaseForShadowCase(c: ShadowCase): RegimePhase {
 
 function phaseForCounterfactual(e: RegimeCounterfactualEntry): RegimePhase {
   const legacy = e as RegimeCounterfactualEntry & { blockedReason?: string; skipReason?: string };
+  const entryPhase = normalizePhaseValue(e.entryRegime)
+    ?? normalizePhaseValue(e.regimeAtEntry)
+    ?? normalizePhaseValue(e.regimeAtSignal);
+  if (entryPhase) return entryPhase;
+  const entryRegime = e.entryRegime ?? e.regimeAtEntry?.toString() ?? e.regimeAtSignal?.toString();
+  const derivedEntryPhase = entryRegime
+    ? deriveRegimePhase({ rawRegime: entryRegime, effectiveRegime: e.entryEffectiveState ?? entryRegime })
+    : undefined;
+  if (derivedEntryPhase && derivedEntryPhase !== 'UNKNOWN') return derivedEntryPhase;
   return e.regimePhase ?? deriveRegimePhase({
-    rawRegime: e.rawRegime ?? e.regime,
-    effectiveRegime: e.effectiveRegime ?? e.regime,
+    rawRegime: entryRegime ?? e.rawRegime ?? e.regime,
+    effectiveRegime: e.entryEffectiveState ?? entryRegime ?? e.effectiveRegime ?? e.regime,
     engineMode: e.engineMode,
     marketSession: e.marketSession,
     sellOnlyActive: e.sellOnlyActive,
@@ -137,6 +146,19 @@ function phaseForCounterfactual(e: RegimeCounterfactualEntry): RegimePhase {
     sourceFreshness: e.sourceFreshness,
     regimeConfidence: e.regimeConfidence,
   });
+}
+
+function counterfactualReturnR(e: RegimeCounterfactualEntry): number | undefined {
+  const row = e as RegimeCounterfactualEntry & {
+    outcomeR?: number;
+    returnR?: number;
+    finalReturnR?: number;
+    currentReturnR?: number;
+  };
+  for (const value of [row.outcomeR, row.returnR, row.finalReturnR, row.currentReturnR]) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return undefined;
 }
 
 function conditionTags(c: ShadowCase): string[] {
@@ -480,7 +502,6 @@ function buildStatsForPhase(
   const wins = closed.filter((c) => c.outcomeLabel === 'WIN');
   const losses = closed.filter((c) => c.outcomeLabel === 'LOSS');
   const breakevens = closed.filter((c) => c.outcomeLabel === 'BREAKEVEN');
-  const returns = closed.map(returnR);
   const failureReasons = new Map<string, number>();
   const cfLabels = new Map<string, number>(CF_LABELS.map((label) => [label, 0]));
   const sourceConfidenceBreakdown: Record<string, number> = {};
@@ -502,6 +523,10 @@ function buildStatsForPhase(
   const counterfactualLabels = counterfactuals.map(cfLabel);
   const pendingCounterfactualCount = counterfactualLabels.filter((label) => label === 'PENDING_OUTCOME').length;
   const resolvedCounterfactualCount = counterfactualLabels.filter(isResolvedLabel).length;
+  const resolvedCounterfactualReturns = counterfactuals
+    .filter((entry) => isResolvedLabel(cfLabel(entry)))
+    .map(counterfactualReturnR)
+    .filter((value): value is number => value !== undefined);
   const quarantinedCounterfactualCount = counterfactualLabels.filter((label) => QUARANTINED_LABELS.has(label)).length;
   const pendingOpenCount = cases.filter(isPendingOpenCase).length;
   const quarantinedCaseCount = cases.filter(isQuarantinedCase).length;
@@ -509,6 +534,7 @@ function buildStatsForPhase(
   const totalSampleSize = cases.length + counterfactuals.length;
   const sampleSize = totalSampleSize;
   const resolvedSampleSize = resolvedCases.length + resolvedCounterfactualCount;
+  const returns = [...closed.map(returnR), ...resolvedCounterfactualReturns];
   const closedOutcomeCount = closed.length;
   const attributableSampleSize = attributableCases.length;
   const unresolvedRatio = pct(totalSampleSize - resolvedSampleSize, totalSampleSize);
@@ -562,7 +588,7 @@ function buildStatsForPhase(
     sourceConfidenceHighRatio,
     overfitRisk,
   });
-  const statExpectancyConfidence = expectancyConfidence(closed.length);
+  const statExpectancyConfidence = expectancyConfidence(returns.length);
   const statAttributionConfidence = attributionConfidence(attributableSampleSize);
   const statWhyNotReliable = whyNotReliable({
     regimePhase,
@@ -573,7 +599,7 @@ function buildStatsForPhase(
     totalSampleSize,
   });
   const statReliabilityWarning = reliabilityWarning(regimePhase, resolvedSampleSize, pendingCounterfactualCount, totalSampleSize);
-  const expectancyReason = closed.length === 0 ? 'NO_RESOLVED_SAMPLE' as const : undefined;
+  const expectancyReason = returns.length === 0 ? 'NO_RESOLVED_SAMPLE' as const : undefined;
   const quality: RegimeLearningQuality = {
     regimePhase,
     sampleSize,
@@ -848,6 +874,19 @@ function legacyCounterfactual(e: CounterfactualEntry): RegimeCounterfactualEntry
     regimePhase: e.regimePhase,
     originalRegimePhase: e.originalRegimePhase,
     regimeAtSignal: e.regimeAtSignal,
+    regimeAtEntry: e.regimeAtEntry,
+    regimeAtExit: e.regimeAtExit,
+    regimeAtOutcome: e.regimeAtOutcome,
+    entryRegime: e.entryRegime,
+    entryEffectiveState: e.entryEffectiveState,
+    exitRegime: e.exitRegime,
+    resolvedAfterRegimeTransition: e.resolvedAfterRegimeTransition,
+    transitionPath: e.transitionPath,
+    r6LatchDecayAtEntry: e.r6LatchDecayAtEntry,
+    mhsAtEntry: e.mhsAtEntry,
+    biasAtEntry: e.biasAtEntry,
+    supplyScoreAtEntry: e.supplyScoreAtEntry,
+    programFlowAtEntry: e.programFlowAtEntry,
     engineMode: e.engineMode,
     marketSession: e.marketSession,
     sellOnlyActive: e.sellOnlyActive,
@@ -857,6 +896,9 @@ function legacyCounterfactual(e: CounterfactualEntry): RegimeCounterfactualEntry
     blockedBy: [e.blockedReason ?? e.skipReason].filter(Boolean) as string[],
     outcomeLabel: e.outcomeLabel,
     outcomeStatus: e.outcomeStatus,
+    outcomeR: e.outcomeR,
+    maturityWindow: e.maturityWindow,
+    resolvedAt: e.resolvedAt ?? e.outcomeResolvedAt,
     regimeRecoveryConfidence: e.regimeRecoveryConfidence,
     regimeRecoverySource: e.regimeRecoverySource,
   };

@@ -530,6 +530,53 @@ describe('Regime Learning Bank', () => {
     expect(formatted).toContain('promotionAllowed=false');
   });
 
+  it('keeps R6 counterfactual samples in their entry regime after later recovery states', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'R5_CAUTION',
+      effectiveRegime: 'R5_CAUTION',
+      shadowCases: [],
+      counterfactualEntries: [
+        cf('cf-r6-resolved-transition', {
+          rawRegime: 'R6_DEFENSE',
+          effectiveRegime: 'R5_CAUTION',
+          entryRegime: 'R6_DEFENSE',
+          entryEffectiveState: 'R6_DEFENSE',
+          exitRegime: 'R5_STABILIZING',
+          resolvedAfterRegimeTransition: true,
+          transitionPath: ['R6_DEFENSE', 'R6_RECOVERY_WATCH', 'R5_STABILIZING'],
+          outcomeLabel: 'MISSED_WIN',
+          outcomeStatus: 'LABELED',
+          outcomeR: 1.2,
+          maturityWindow: 'TARGET_HIT',
+          resolvedAt: '2026-05-18T00:10:00.000Z',
+        } as Partial<CounterfactualShadowLearningLedgerEntry> & Record<string, unknown>),
+        cf('cf-r6-pending-transition', {
+          rawRegime: 'R6_DEFENSE',
+          effectiveRegime: 'R5_CAUTION',
+          entryRegime: 'R6_DEFENSE',
+          entryEffectiveState: 'R6_DEFENSE',
+          transitionPath: ['R6_DEFENSE'],
+          signalTime: '2026-05-18T00:00:00.000Z',
+          maxHoldingMinutes: 3 * 24 * 60,
+        } as Partial<CounterfactualShadowLearningLedgerEntry> & Record<string, unknown>),
+      ],
+    });
+
+    const r6 = bank.stats.find((s) => s.regimePhase === 'R6_DEFENSE');
+    const r5 = bank.stats.find((s) => s.regimePhase === 'R5_CAUTION');
+    expect(r6?.sampleSize).toBe(2);
+    expect(r6?.resolvedSampleSize).toBe(1);
+    expect(r6?.pendingCounterfactualCount).toBe(1);
+    expect(r6?.expectancyR).toBe(1.2);
+    expect(r6?.expectancyReason).toBeUndefined();
+    expect(r5?.sampleSize ?? 0).toBe(0);
+    expect(bank.R6ResolvedSampleSize).toBe(1);
+    expect(bank.R6PendingCounterfactualCount).toBe(1);
+    expect(bank.R6PromotionGateSatisfied).toBe(false);
+    expect(bank.R6PromotionBlocker).toBe('R6_RESOLVED_SAMPLE_LT_100');
+    expect(bank.promotionAllowed).toBe(false);
+  });
+
   it('registers resolved deltas as attribution recalc candidates without weight updates', () => {
     const rows = Array.from({ length: 30 }, (_, i) => shadow(`r3-recalc-${i}`, {
       effectiveRegime: 'R3_EARLY',

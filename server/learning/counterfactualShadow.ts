@@ -48,6 +48,16 @@ export interface CounterfactualEntry {
   regimeAtEntry?: RegimePhase | string;
   regimeAtExit?: RegimePhase | string;
   regimeAtOutcome?: RegimePhase | string;
+  entryRegime?: string;
+  entryEffectiveState?: string;
+  exitRegime?: string;
+  resolvedAfterRegimeTransition?: boolean;
+  transitionPath?: string[];
+  r6LatchDecayAtEntry?: number | string;
+  mhsAtEntry?: number;
+  biasAtEntry?: string;
+  supplyScoreAtEntry?: number;
+  programFlowAtEntry?: number;
   r6Trigger?: string;
   engineMode?: string;
   marketSession?: string;
@@ -91,6 +101,8 @@ export interface CounterfactualEntry {
   outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'PENDING_OUTCOME';
   outcomeStatus?: 'PENDING' | 'LABELED' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'EXPIRED' | 'UNRESOLVED';
   outcomeResolvedAt?: string;
+  outcomeR?: number;
+  maturityWindow?: '1D' | '3D' | '5D' | 'TARGET_HIT' | 'STOP_HIT' | 'BREAKEVEN' | 'EXPIRED' | string;
   entryPriceRecovered?: boolean;
   targetStopRecovered?: boolean;
   recoverySource?: 'ORIGINAL_SIGNAL_SNAPSHOT' | 'STRATEGY_RISK_RULE' | 'ATR_FALLBACK' | 'DEFAULT_R_MULTIPLE_FALLBACK';
@@ -176,6 +188,14 @@ export function recordCounterfactualCase(params: {
   hypotheticalTargetPrice?: number;
   hypotheticalStopPrice?: number;
   maxHoldingMinutes?: number;
+  entryRegime?: string;
+  entryEffectiveState?: string;
+  transitionPath?: string[];
+  r6LatchDecayAtEntry?: number | string;
+  mhsAtEntry?: number;
+  biasAtEntry?: string;
+  supplyScoreAtEntry?: number;
+  programFlowAtEntry?: number;
 }): { entry: CounterfactualEntry | null; created: boolean; duplicateSuppressed: boolean; existingCaseId?: string; attemptedKey?: string } {
   if (!Number.isFinite(params.priceAtSignal) || params.priceAtSignal <= 0) return { entry: null, created: false, duplicateSuppressed: false };
   const now = params.now ?? new Date();
@@ -197,6 +217,15 @@ export function recordCounterfactualCase(params: {
     existing.hypotheticalTargetPrice = params.hypotheticalTargetPrice ?? existing.hypotheticalTargetPrice;
     existing.hypotheticalStopPrice = params.hypotheticalStopPrice ?? existing.hypotheticalStopPrice;
     existing.maxHoldingMinutes = params.maxHoldingMinutes ?? existing.maxHoldingMinutes;
+    existing.entryRegime = existing.entryRegime ?? params.entryRegime ?? existing.regimeAtEntry?.toString() ?? existing.regimeAtSignal?.toString() ?? params.regime;
+    existing.entryEffectiveState = existing.entryEffectiveState ?? params.entryEffectiveState ?? existing.effectiveRegime ?? params.entryRegime ?? params.regime;
+    existing.regimeAtEntry = existing.regimeAtEntry ?? existing.entryRegime;
+    existing.transitionPath = existing.transitionPath ?? params.transitionPath ?? (existing.entryRegime ? [existing.entryRegime] : []);
+    existing.r6LatchDecayAtEntry = existing.r6LatchDecayAtEntry ?? params.r6LatchDecayAtEntry;
+    existing.mhsAtEntry = existing.mhsAtEntry ?? params.mhsAtEntry;
+    existing.biasAtEntry = existing.biasAtEntry ?? params.biasAtEntry;
+    existing.supplyScoreAtEntry = existing.supplyScoreAtEntry ?? params.supplyScoreAtEntry;
+    existing.programFlowAtEntry = existing.programFlowAtEntry ?? params.programFlowAtEntry;
     existing.duplicateSuppressedAt = now.toISOString();
     existing.duplicateSuppressedCount = (existing.duplicateSuppressedCount ?? 0) + 1;
     saveCounterfactuals(entries);
@@ -222,6 +251,15 @@ export function recordCounterfactualCase(params: {
     priceAtSignal: params.priceAtSignal,
     gateScore: params.gateScore,
     regime: params.regime,
+    entryRegime: params.entryRegime ?? params.regime,
+    entryEffectiveState: params.entryEffectiveState ?? params.entryRegime ?? params.regime,
+    regimeAtEntry: params.entryRegime ?? params.regime,
+    transitionPath: params.transitionPath ?? [params.entryRegime ?? params.regime],
+    r6LatchDecayAtEntry: params.r6LatchDecayAtEntry,
+    mhsAtEntry: params.mhsAtEntry,
+    biasAtEntry: params.biasAtEntry,
+    supplyScoreAtEntry: params.supplyScoreAtEntry,
+    programFlowAtEntry: params.programFlowAtEntry,
     conditionKeys: params.conditionKeys,
     skipReason: params.skipReason,
     counterfactualKey,

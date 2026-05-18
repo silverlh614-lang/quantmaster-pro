@@ -30,6 +30,8 @@ export interface MacroGateState {
   mhsBelow30: boolean;
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
+  latchDecayPercent?: number;
+  mhs?: number;
 }
 export function buildMacroGateState
 

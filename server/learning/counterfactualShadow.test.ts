@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { COUNTERFACTUAL_FILE, DATA_DIR } from '../persistence/paths.js';
+import { COUNTERFACTUAL_FILE, DATA_DIR, REGIME_TRANSITION_STATE_FILE } from '../persistence/paths.js';
 import { collectCounterfactualMaturityStatus, collectCounterfactualStatus, counterfactualMetadataRepairDryRun, counterfactualMetadataRepairRun, counterfactualResolveDryRun, counterfactualResolveDueDryRun, counterfactualResolveDueRun, counterfactualResolveRun } from './learningSampleQuality.js';
 import { COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE } from './learningStorage.js';
 import { loadRegimeResolvedTransitionState, REGIME_RESOLVED_TRANSITION_STATE_FILE } from './regimeResolvedTransitionStore.js';
@@ -15,11 +15,13 @@ const SCHEDULER_FILE = path.join(DATA_DIR, COUNTERFACTUAL_RESOLVE_SCHEDULER_FILE
 const _schedulerBackup = fs.existsSync(SCHEDULER_FILE) ? fs.readFileSync(SCHEDULER_FILE, 'utf-8') : null;
 const REGIME_TRANSITION_FILE = path.join(DATA_DIR, REGIME_RESOLVED_TRANSITION_STATE_FILE);
 const _regimeTransitionBackup = fs.existsSync(REGIME_TRANSITION_FILE) ? fs.readFileSync(REGIME_TRANSITION_FILE, 'utf-8') : null;
+const _runtimeRegimeTransitionBackup = fs.existsSync(REGIME_TRANSITION_STATE_FILE) ? fs.readFileSync(REGIME_TRANSITION_STATE_FILE, 'utf-8') : null;
 
 function reset() {
   if (fs.existsSync(COUNTERFACTUAL_FILE)) fs.unlinkSync(COUNTERFACTUAL_FILE);
   if (fs.existsSync(SCHEDULER_FILE)) fs.unlinkSync(SCHEDULER_FILE);
   if (fs.existsSync(REGIME_TRANSITION_FILE)) fs.unlinkSync(REGIME_TRANSITION_FILE);
+  if (fs.existsSync(REGIME_TRANSITION_STATE_FILE)) fs.unlinkSync(REGIME_TRANSITION_STATE_FILE);
 }
 
 afterAll(() => {
@@ -29,6 +31,8 @@ afterAll(() => {
   else if (fs.existsSync(SCHEDULER_FILE)) fs.unlinkSync(SCHEDULER_FILE);
   if (_regimeTransitionBackup !== null) fs.writeFileSync(REGIME_TRANSITION_FILE, _regimeTransitionBackup);
   else if (fs.existsSync(REGIME_TRANSITION_FILE)) fs.unlinkSync(REGIME_TRANSITION_FILE);
+  if (_runtimeRegimeTransitionBackup !== null) fs.writeFileSync(REGIME_TRANSITION_STATE_FILE, _runtimeRegimeTransitionBackup);
+  else if (fs.existsSync(REGIME_TRANSITION_STATE_FILE)) fs.unlinkSync(REGIME_TRANSITION_STATE_FILE);
 });
 
 describe('counterfactualShadow', () => {
@@ -275,6 +279,62 @@ describe('counterfactualShadow', () => {
     expect(res.resolved30d).toBe(1);
     const entries = loadCounterfactuals();
     expect(entries[0].return30d).toBeCloseTo(10, 1);
+  });
+
+  it('R6 counterfactual outcome tracking keeps entry regime after recovery transition', () => {
+    const signal = new Date('2026-05-18T00:00:00Z');
+    recordCounterfactualCase({
+      stockCode: '017670', stockName: 'SK Telecom', priceAtSignal: 50_000,
+      gateScore: 5, regime: 'R6_DEFENSE', conditionKeys: [], skipReason: 'R6_DEFENSE_BLOCK',
+      sourceCandidateId: 'r6-transition-sample', now: signal,
+      hypotheticalTargetPrice: 53_000, hypotheticalStopPrice: 48_500, maxHoldingMinutes: 1,
+      entryRegime: 'R6_DEFENSE',
+      entryEffectiveState: 'R6_DEFENSE',
+      transitionPath: ['R6_DEFENSE', 'R6_RECOVERY_WATCH'],
+      r6LatchDecayAtEntry: 0,
+      mhsAtEntry: 70,
+      biasAtEntry: 'BULL',
+      supplyScoreAtEntry: 77,
+      programFlowAtEntry: 12_300_000,
+    });
+    const rows = loadCounterfactuals();
+    rows[0].pricePath = [
+      { at: '2026-05-18T00:02:00Z', price: 51_000, high: 51_500, low: 49_500 },
+      { at: '2026-05-18T00:04:00Z', price: 53_200, high: 53_200, low: 50_500 },
+    ];
+    fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
+    fs.writeFileSync(REGIME_TRANSITION_STATE_FILE, JSON.stringify({
+      currentRegime: 'R5_CAUTION',
+      rawRegime: 'R5_CAUTION',
+      effectiveRegime: 'R5_CAUTION',
+      r6RecoveryStatus: 'R5_STABILIZING',
+      r6StateMachineState: 'R5_STABILIZING',
+      latchDecayPercent: 40,
+    }, null, 2));
+
+    const resolved = counterfactualResolveDueRun(new Date('2026-05-18T00:10:00Z'));
+    expect(resolved.labeled).toBe(1);
+    expect(resolved.labelBreakdown.MISSED_WIN).toBe(1);
+    const saved = loadCounterfactuals()[0];
+    expect(saved.entryRegime).toBe('R6_DEFENSE');
+    expect(saved.entryEffectiveState).toBe('R6_DEFENSE');
+    expect(saved.exitRegime).toBe('R5_STABILIZING');
+    expect(saved.resolvedAfterRegimeTransition).toBe(true);
+    expect(saved.transitionPath).toEqual(['R6_DEFENSE', 'R6_RECOVERY_WATCH', 'R5_STABILIZING', 'R5_CAUTION']);
+    expect(saved.mhsAtEntry).toBe(70);
+    expect(saved.biasAtEntry).toBe('BULL');
+    expect(saved.supplyScoreAtEntry).toBe(77);
+    expect(saved.programFlowAtEntry).toBe(12_300_000);
+    expect(saved.outcomeR).toBeGreaterThan(0);
+    expect(saved.maturityWindow).toBe('TARGET_HIT');
+    expect(saved.resolvedAt).toBe('2026-05-18T00:10:00.000Z');
+    expect(saved.outcomeResolvedAt).toBe('2026-05-18T00:10:00.000Z');
+
+    const transition = loadRegimeResolvedTransitionState();
+    expect(transition.lastResolvedByRegime.R6_DEFENSE).toBe(1);
+    expect(transition.attributionRecalcNeeded).toBe(true);
+    expect(transition.executionImpact).toBe('NONE');
+    expect(transition.promotionAllowed).toBe(false);
   });
 
   it('Counterfactual Maturity Bucket Accuracy v1: separates calendar buckets and validates scheduler staleness', () => {
