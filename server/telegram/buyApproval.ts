@@ -79,6 +79,38 @@ export function getAutoApproveTimeoutMs(regime?: string): number {
 
 export type ApprovalAction = 'APPROVE' | 'REJECT' | 'SKIP';
 
+export interface BuyApprovalRequestParams {
+  tradeId: string;
+  stockCode: string;
+  stockName: string;
+  currentPrice: number;
+  quantity: number;
+  stopLoss: number;
+  targetPrice: number;
+  mode: 'LIVE' | 'SHADOW';
+  gateScore?: number;
+  enemyCheck?: EnemyCheckResult | null;
+  regime?: string;
+  preMortem?: string | PreMortem | null;
+  signalId?: string;
+  tradeDate?: string;
+  marketSession?: string;
+  sourceLane?: ShadowApprovalSourceLane;
+  rrr?: number;
+  mtas?: number;
+  compressionScore?: number;
+  signalType?: string;
+  gateBandNormal?: number;
+  gateBandStrong?: number;
+}
+
+export interface BuyApprovalRequestResult {
+  action: ApprovalAction;
+  telegramDelivered: boolean;
+  deliveryFailureReason?: string;
+  dedupeBlocked?: boolean;
+}
+
 export function normalizePreMortemForDisplay(preMortem: string | PreMortem | null | undefined): PreMortem | null {
   if (!preMortem) return null;
   if (typeof preMortem !== 'string') return preMortem;
@@ -179,7 +211,7 @@ const pendingApprovals = new Map<string, PendingApproval>();
  *
  * @returns 'APPROVE' | 'REJECT' | 'SKIP'
  */
-export async function requestBuyApproval(params: {
+export async function requestBuyApprovalWithDelivery(params: {
   tradeId: string;
   stockCode: string;
   stockName: string;
@@ -209,7 +241,7 @@ export async function requestBuyApproval(params: {
   signalType?: string;
   gateBandNormal?: number;
   gateBandStrong?: number;
-}): Promise<ApprovalAction> {
+}): Promise<BuyApprovalRequestResult> {
   const {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
@@ -284,7 +316,11 @@ export async function requestBuyApproval(params: {
         });
         // 이미 APPROVED 면 'APPROVE' resolve (caller buyPipeline 의 SHADOW 분기 정상 수행).
         // 그 외 (PENDING/REJECTED/SKIPPED/EXPIRED) 는 'SKIP' — caller 가 onRejected 처리.
-        return existing.state === 'APPROVED' ? 'APPROVE' : 'SKIP';
+        return {
+          action: existing.state === 'APPROVED' ? 'APPROVE' : 'SKIP',
+          telegramDelivered: true,
+          dedupeBlocked: true,
+        };
       }
       // DEDUPED state 도 같은 session 안에서 새 카드 발송 금지.
       if (existing.state === 'DEDUPED') {
@@ -295,7 +331,11 @@ export async function requestBuyApproval(params: {
           approvalCardEmitted: false, approvalState: 'DEDUPED', shadowRecorded: false,
           triggerSource: mapShadowApprovalSourceLaneToAuditTriggerSource(lane), dedupeKey: shadowDedupeKey,
         });
-        return 'SKIP';
+        return {
+          action: 'SKIP',
+          telegramDelivered: true,
+          dedupeBlocked: true,
+        };
       }
     }
     // 새 record 생성 — state='PENDING' 으로 시작. timerId 는 아래에서 setTimeout 후 별도 갱신.
@@ -368,10 +408,14 @@ export async function requestBuyApproval(params: {
   if (!msgId) {
     // 메시지 전송 실패 시 자동 승인
     console.warn(`[BuyApproval] 메시지 전송 실패 — 자동 승인: ${stockName}`);
-    return 'APPROVE';
+    return {
+      action: 'APPROVE',
+      telegramDelivered: false,
+      deliveryFailureReason: 'TELEGRAM_DELIVERY_FAILED',
+    };
   }
 
-  return new Promise<ApprovalAction>((resolve) => {
+  const action = await new Promise<ApprovalAction>((resolve) => {
     // R6 등 타임아웃 0 → 자동 승인 비활성. 타이머 생성하지 않고 수동 승인만 대기.
     const timer = autoApproveDisabled
       ? (setTimeout(() => { /* no-op */ }, 0) as ReturnType<typeof setTimeout>)
@@ -452,6 +496,7 @@ export async function requestBuyApproval(params: {
       }
     }
   });
+  return { action, telegramDelivered: true };
 }
 
 /**
@@ -460,6 +505,11 @@ export async function requestBuyApproval(params: {
  *
  * @returns true if handled, false if not a buy approval callback
  */
+export async function requestBuyApproval(params: BuyApprovalRequestParams): Promise<ApprovalAction> {
+  const result = await requestBuyApprovalWithDelivery(params);
+  return result.action;
+}
+
 export async function handleBuyApprovalCallback(
   callbackQueryId: string,
   data: string,

@@ -104,6 +104,24 @@ function rejectShadow(
   };
 }
 
+function appendShadowExecutorLogSafe(
+  deps: ShadowBuyExecutorDeps,
+  entry: Parameters<typeof appendShadowLog>[0],
+  context: Record<string, unknown>,
+): void {
+  try {
+    deps.appendShadowLog(entry);
+  } catch (error) {
+    emitOperationalWarn({
+      code: 'P2_SHADOW_BUY_LEDGER_LOG_WRITE_FAILED',
+      severity: 'P2',
+      message: 'SHADOW buy executor log write failed; execution lifecycle continues',
+      context,
+      cause: error,
+    });
+  }
+}
+
 export async function executeShadowBuyOrder(
   input: ShadowBuyExecutorInput,
   deps: ShadowBuyExecutorDeps = defaultDeps,
@@ -122,7 +140,15 @@ export async function executeShadowBuyOrder(
     reason: 'SHADOW order creation approved',
   }));
 
-  deps.appendShadowLog({ event: input.logEvent, ...input.trade });
+  appendShadowExecutorLogSafe(
+    deps,
+    { event: input.logEvent, ...input.trade },
+    {
+      tradeId: input.trade.id,
+      stockCode: input.stockCode,
+      event: input.logEvent,
+    },
+  );
   input.stateMachine?.transition('SHADOW_ORDER_CREATED', 'shadow order created');
   console.log(`[SHADOW_ORDER_CREATED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
 
@@ -182,12 +208,16 @@ export async function executeShadowBuyOrder(
     important: false,
   }));
   console.log(`[SHADOW_POSITION_OPENED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
-  deps.appendShadowLog({
+  appendShadowExecutorLogSafe(deps, {
     event: 'SHADOW_LEDGER_RECORDED',
     code: input.stockCode,
     tradeId: input.trade.id,
     outcome: shadowResult.outcome,
     fillId: shadowResult.fillId,
+  }, {
+    tradeId: input.trade.id,
+    stockCode: input.stockCode,
+    event: 'SHADOW_LEDGER_RECORDED',
   });
   console.log(`[SHADOW_LEDGER_RECORDED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
 

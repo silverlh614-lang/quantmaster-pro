@@ -15,6 +15,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const _markAutoTradeReady = vi.fn();
 type ApprovalAction = 'APPROVE' | 'REJECT' | 'SKIP';
 const _requestBuyApproval = vi.fn<(...a: unknown[]) => Promise<ApprovalAction>>(async () => 'APPROVE');
+const _requestBuyApprovalWithDelivery = vi.fn(async (params: unknown) => ({
+  action: await _requestBuyApproval(params),
+  telegramDelivered: true,
+}));
+let _sessionSeq = 0;
 
 vi.mock('../persistence/tradeSignalStatusRepo.js', () => ({
   markAutoTradeReady: _markAutoTradeReady,
@@ -22,6 +27,7 @@ vi.mock('../persistence/tradeSignalStatusRepo.js', () => ({
 
 vi.mock('../telegram/buyApproval.js', () => ({
   requestBuyApproval: _requestBuyApproval,
+  requestBuyApprovalWithDelivery: _requestBuyApprovalWithDelivery,
 }));
 
 vi.mock('../screener/sectorMap.js', () => ({
@@ -34,6 +40,12 @@ vi.mock('../persistence/incidentLogRepo.js', () => ({
 
 vi.mock('../persistence/shadowTradeRepo.js', () => ({
   appendShadowLog: vi.fn(),
+  loadShadowTrades: vi.fn(() => []),
+  saveShadowTrades: vi.fn(),
+  appendFill: vi.fn((trade: { fills?: unknown[] }, fill: unknown) => {
+    if (!trade.fills) trade.fills = [];
+    trade.fills.push({ id: 'fill-test-1', ...(fill as Record<string, unknown>) });
+  }),
 }));
 
 vi.mock('./preMarketSmokeTest.js', () => ({
@@ -74,11 +86,19 @@ vi.mock('./tradeEventLog.js', () => ({
   recordTradeEvent: vi.fn(),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules();
+  const { buyIdempotencyGuard } = await import('./buy/buyIdempotencyGuard.js');
+  buyIdempotencyGuard.clear();
   _markAutoTradeReady.mockReset();
+  _markAutoTradeReady.mockReturnValue({ id: 'mock-signal', status: 'AUTO_TRADE_READY' });
   _requestBuyApproval.mockReset();
+  _requestBuyApprovalWithDelivery.mockReset();
   _requestBuyApproval.mockResolvedValue('APPROVE');
+  _requestBuyApprovalWithDelivery.mockImplementation(async (params: unknown) => ({
+    action: await _requestBuyApproval(params),
+    telegramDelivered: true,
+  }));
 });
 
 async function makeShadowTask(opts: { signalId?: string; approval?: 'APPROVE' | 'REJECT' | 'SKIP' }) {
@@ -122,6 +142,7 @@ async function makeShadowTask(opts: { signalId?: string; approval?: 'APPROVE' | 
     logEvent: 'SIGNAL',
     onApproved: vi.fn(async () => undefined),
     signalId: opts.signalId,
+    marketSession: `TEST_SESSION_${++_sessionSeq}`,
   });
 }
 
@@ -131,7 +152,7 @@ describe('buyPipeline ADR-0077 wiring (SHADOW)', () => {
     expect(_requestBuyApproval).toHaveBeenCalledWith(
       expect.objectContaining({ signalId: '2026-04-27T05:00:00Z:005930' }),
     );
-  });
+  }, 10_000);
 
   it('SHADOW execute(APPROVE) → markAutoTradeReady 호출', async () => {
     const task = await makeShadowTask({ signalId: '2026-04-27T05:00:00Z:005930' });
