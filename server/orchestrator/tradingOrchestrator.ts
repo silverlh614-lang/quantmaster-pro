@@ -28,6 +28,7 @@ import { probePreMarketGap, type GapProbeResult } from '../trading/preMarketGapP
 import { assertSafeOrder, PreOrderGuardError } from '../trading/preOrderGuard.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../trading/regimeBridge.js';
+import { withForcedMarket } from '../utils/forceMarketGuard.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { buildPreopenOrchestratorCycleKey } from '../utils/preopenDiscoveryGuards.js';
 import {
@@ -348,6 +349,15 @@ function resolveState(h: number, m: number, dow: number): TradingState {
   return 'PRE_MARKET';
 }
 
+function isR6DefenseRegime(): boolean {
+  try {
+    return getLiveRegime(loadMacroState()) === 'R6_DEFENSE';
+  } catch (e) {
+    console.warn('[Orchestrator] R6 post-close scan regime check failed:', e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
 export class TradingDayOrchestrator {
   private orch: OrchestratorState;
 
@@ -606,6 +616,24 @@ export class TradingDayOrchestrator {
           console.log('[Orchestrator] 일일 리포트 생성 (KST 16:00+)');
           await generateDailyReport().catch(console.error);
           this.markRan('dailyReport');
+        }
+        if (enabled && t >= 1605 && !this.hasRan('r6PostCloseCandidateScan') && isR6DefenseRegime()) {
+          console.log('[Orchestrator] R6 post-close candidate scan (POST_CLOSE_OBSERVE, executionImpact=NONE)');
+          const shadowsBefore = loadShadowTrades().length;
+          const scanResult = await withForcedMarket(() =>
+            runAutoSignalScan({ candidateScanTrigger: 'POST_CLOSE_OBSERVE' }),
+          ).catch((e) => {
+            console.error('[Orchestrator] R6 post-close candidate scan failed:', e);
+            return {};
+          }) ?? {};
+          const shadowsAfter = loadShadowTrades().length;
+          const newSignals = Math.max(0, shadowsAfter - shadowsBefore);
+          recordScanResult(newSignals, {
+            positionFull: (scanResult as { positionFull?: boolean }).positionFull,
+            engineMode: 'SELL_ONLY',
+            now: new Date(),
+          });
+          this.markRan('r6PostCloseCandidateScan');
         }
         // 16:30+ 한 번만: L2 일일 평가 (evaluateRecommendations + anomaly + first-calib)
         if (t >= 1630 && !this.hasRan('evalRecs')) {

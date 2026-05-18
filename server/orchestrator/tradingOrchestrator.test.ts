@@ -55,7 +55,7 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
       cleanupWatchlist: vi.fn(),
     }));
     vi.doMock('../alerts/reportGenerator.js', () => ({
-      generateDailyReport: vi.fn(),
+      generateDailyReport: vi.fn().mockResolvedValue(undefined),
     }));
     vi.doMock('../learning/recommendationTracker.js', () => ({
       isRealTradeReady: () => false,
@@ -96,6 +96,8 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
   afterEach(() => {
     delete process.env.PERSIST_DATA_DIR;
     delete process.env.AUTO_TRADE_MODE;
+    delete process.env.AUTO_TRADE_ENABLED;
+    vi.useRealTimers();
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
   });
 
@@ -192,5 +194,49 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     await preMarketOrderPrep();
 
     expect(gapSpy).toHaveBeenCalledWith({ stockCode: '005930', entryPrice: 70000 });
+  });
+
+  it('R6 REPORT_ANALYSIS에서 장후 후보 관찰 스캔을 POST_CLOSE_OBSERVE로 1회 실행한다', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-15T07:10:00.000Z')); // 2026-05-15 16:10 KST
+    process.env.AUTO_TRADE_ENABLED = 'true';
+
+    const runAutoSignalScanMock = vi.fn().mockResolvedValue({ positionFull: false });
+    const recordScanResultMock = vi.fn();
+    const withForcedMarketMock = vi.fn(async (fn: () => Promise<unknown> | unknown) => fn());
+
+    vi.doMock('../trading/signalScanner.js', () => ({
+      runAutoSignalScan: runAutoSignalScanMock,
+    }));
+    vi.doMock('./adaptiveScanScheduler.js', () => ({
+      decideScan: () => ({ shouldScan: false, intervalMinutes: 5, reason: '', priority: 'FULL' }),
+      recordScanResult: recordScanResultMock,
+    }));
+    vi.doMock('../utils/forceMarketGuard.js', () => ({
+      withForcedMarket: withForcedMarketMock,
+    }));
+    vi.doMock('../trading/regimeBridge.js', () => ({
+      getLiveRegime: () => 'R6_DEFENSE',
+    }));
+    vi.doMock('../persistence/macroStateRepo.js', () => ({
+      loadMacroState: () => ({ regime: 'R6_DEFENSE', mhs: 25 }),
+    }));
+    vi.doMock('../persistence/shadowTradeRepo.js', () => ({
+      loadShadowTrades: vi.fn().mockReturnValue([]),
+    }));
+
+    const { TradingDayOrchestrator } = await import('./tradingOrchestrator.js');
+    const orchestrator = new TradingDayOrchestrator();
+
+    await orchestrator.tick();
+
+    expect(withForcedMarketMock).toHaveBeenCalledTimes(1);
+    expect(runAutoSignalScanMock).toHaveBeenCalledWith({ candidateScanTrigger: 'POST_CLOSE_OBSERVE' });
+    expect(recordScanResultMock).toHaveBeenCalledWith(0, expect.objectContaining({
+      engineMode: 'SELL_ONLY',
+      positionFull: false,
+      now: expect.any(Date),
+    }));
+    expect(orchestrator._testOnly_getHandlerRanAt()).toHaveProperty('r6PostCloseCandidateScan');
   });
 });

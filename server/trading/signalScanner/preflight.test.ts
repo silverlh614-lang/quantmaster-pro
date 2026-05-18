@@ -23,9 +23,27 @@ vi.mock('../../utils/gatingAlertWindow.js', () => ({
 vi.mock('../../persistence/macroStateRepo.js', () => ({
   loadMacroState: vi.fn(),
 }));
-vi.mock('../regimeBridge.js', () => ({
-  getLiveRegime: vi.fn(),
-}));
+vi.mock('../regimeBridge.js', () => {
+  const getLiveRegime = vi.fn();
+  return {
+    getLiveRegime,
+    getRegimeDiagnostics: vi.fn((macroState: any) => {
+      const effectiveRegime = getLiveRegime(macroState);
+      return {
+        rawRegime: effectiveRegime,
+        effectiveRegime,
+        sourceFreshness: 'FRESH',
+        r6RecoveryStatus: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' : 'NOT_R6',
+        cooldownUntil: null,
+        activeR6Triggers: effectiveRegime === 'R6_DEFENSE' ? ['MHS_LOW'] : [],
+        r6ShockLatch: effectiveRegime === 'R6_DEFENSE',
+        recoveryBlockedReason: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE_ACTIVE' : undefined,
+        r6TriggerBreakdown: { triggerFreshness: 'FRESH' },
+        transitionState: { r6StateMachineState: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' : 'R2_BULL' },
+      };
+    }),
+  };
+});
 vi.mock('../../persistence/watchlistRepo.js', () => ({
   loadWatchlist: vi.fn(),
 }));
@@ -292,6 +310,35 @@ describe('preflight.ts byte-equivalent tests', () => {
     // ADR-0367: recordBlockedDayShadowScan 의 VOLUME_CLOCK_BLOCK 분기가
     // recordPreflightUniverseLearningSnapshot 를 호출 — universe snapshot 기록은 정상 동작.
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      blockedBy: ['VOLUME_CLOCK_BLOCK'],
+    }));
+  });
+
+  it('should keep R6 POST_CLOSE_OBSERVE scans alive after the volume clock closes', async () => {
+    mockedGetLiveRegime.mockReturnValue('R6_DEFENSE');
+    mockedCheckVolumeClockWindow.mockReturnValue({ allowEntry: false, scoreBonus: 0, reason: 'closed' } as ReturnType<typeof checkVolumeClockWindow>);
+
+    const result = await runPreflight({ candidateScanTrigger: 'POST_CLOSE_OBSERVE' });
+
+    expect(result.shouldAbort).toBe(false);
+    expect(result.macroGateState).toEqual(expect.objectContaining({
+      regime: 'R6_DEFENSE',
+      sellOnlyMode: true,
+      diagnosticLiveEntryBlocked: true,
+      liveEntryBlockedReason: 'R6_DEFENSE',
+      liveEntryAllowed: false,
+      brokerOrderAllowed: false,
+    }));
+    expect(result.context).toEqual(expect.objectContaining({
+      watchlist: expect.any(Array),
+      regime: 'R6_DEFENSE',
+      macroDiagnosticOnly: true,
+      liveEntryBlockedReason: 'R6_DEFENSE',
+      volumeClock: expect.objectContaining({ allowEntry: false }),
+    }));
+    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
+    expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'VOLUME_CLOCK_BLOCK' }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['VOLUME_CLOCK_BLOCK'],
     }));
   });

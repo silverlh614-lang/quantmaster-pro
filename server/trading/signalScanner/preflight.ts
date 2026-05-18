@@ -124,6 +124,10 @@ const MACRO_OVERRIDE_ALLOWED_SIGNALS = ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'];
 const DEFAULT_MACRO_DIAGNOSTIC_KELLY_FLOOR = 0.3;
 const DEFAULT_MACRO_DIAGNOSTIC_MAX_POSITIONS_FLOOR = 1;
 
+function isPostCloseObservationScan(options?: RunAutoSignalScanOptions): boolean {
+  return options?.candidateScanTrigger === 'POST_CLOSE_OBSERVE';
+}
+
 function macroEntryOverrideApplies(
   override: MacroEntryOverrideState | null,
   target: MacroEntryOverrideTarget,
@@ -760,26 +764,36 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     brokerOrderAllowed: !diagnosticOnlyLiveBlock,
   });
 
+  const keepPostCloseObservationAlive =
+    isPostCloseObservationScan(options) && macroDiagnosticOnly;
+
   if (!volumeClock.allowEntry) {
     console.log(volumeClock.reason);
-    // ADR-0515 — volumeClock 점심 차단을 ADR-0192(12:00~12:59) 정합 → 허용 구간 09:30~11:59.
-    console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:59, 13:00~15:20 KST)`);
-    await recordBlockedDayShadowScan('VOLUME_CLOCK_BLOCK');
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return {
-      shouldAbort: true,
-      skipPersist: false,
-      diagnosticData: {
-        buyListLength: watchlist.length,
-        intradayBuyListLength: 0,
-        swingListLength: 0,
-        catalystListLength: 0,
-        momentumListLength: watchlist.length,
-        macroGateState,
-      },
-      context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier, volumeClock, macroGateState }),
-    };
+    if (keepPostCloseObservationAlive) {
+      console.info(
+        `[AutoTrade] POST_CLOSE_OBSERVE diagnostic scan continues after close ` +
+        `(liveEntryBlockedReason=${liveEntryBlockReason ?? 'DIAGNOSTIC_ONLY'}, executionImpact=NONE)`,
+      );
+    } else {
+      // ADR-0515 — volumeClock 점심 차단을 ADR-0192(12:00~12:59) 정합 → 허용 구간 09:30~11:59.
+      console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:59, 13:00~15:20 KST)`);
+      await recordBlockedDayShadowScan('VOLUME_CLOCK_BLOCK');
+      await updateShadowResults(shadows, regime);
+      saveShadowTrades(shadows);
+      return {
+        shouldAbort: true,
+        skipPersist: false,
+        diagnosticData: {
+          buyListLength: watchlist.length,
+          intradayBuyListLength: 0,
+          swingListLength: 0,
+          catalystListLength: 0,
+          momentumListLength: watchlist.length,
+          macroGateState,
+        },
+        context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier, volumeClock, macroGateState }),
+      };
+    }
   }
   if (volumeClock.scoreBonus !== 0) {
     console.log(volumeClock.reason);
