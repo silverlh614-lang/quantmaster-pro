@@ -2,7 +2,8 @@
 import fs from 'fs';
 import { PENDING_ORDERS_FILE, PENDING_SELL_ORDERS_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadShadowTrades, saveShadowTrades, appendFill, syncPositionCache, getRemainingQty, revertProvisionalFill } from '../persistence/shadowTradeRepo.js';
-import { kisGet, kisPost, fetchCurrentPrice, KIS_IS_REAL, SELL_TR_ID } from '../clients/kisClient.js';
+import { kisGet, fetchCurrentPrice, KIS_IS_REAL, cancelOrder, submitSellOrder } from '../clients/kisClient.js';
+import type { OrderGatewayResult } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelBuyFilled } from '../alerts/channelPipeline.js';
 import { registerOcoPair } from './ocoCloseLoop.js';
@@ -279,18 +280,16 @@ export class FillMonitor {
     if (pending.length === 0) return;
 
     console.warn(`[FillMonitor] 장 마감 전 미체결 취소 — ${pending.length}건`);
-    const cancelTrId = KIS_IS_REAL ? 'TTTC0803U' : 'VTTC0803U';
-
     for (const order of pending) {
       try {
-        await kisPost(cancelTrId, '/uapi/domestic-stock/v1/trading/order-rvsecncl', {
-          CANO: process.env.KIS_ACCOUNT_NO ?? '',
-          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-          KRX_FWDG_ORD_ORGNO: '', ORGN_ODNO: order.ordNo,
-          ORD_DVSN: '00', RVSE_CNCL_DVSN_CD: '02',
-          ORD_QTY: order.quantity.toString(), ORD_UNPR: '0',
-          QTY_ALL_ORD_YN: 'Y', PDNO: order.stockCode.padStart(6, '0'),
+        const cancelResult = await cancelOrder({
+          stockCode: order.stockCode,
+          ordNo: order.ordNo,
+          quantity: order.quantity,
         });
+        if (cancelResult.kind !== 'CANCEL_SUBMITTED') {
+          throw new Error(cancelResult.kind === 'CANCEL_FAILED' ? cancelResult.reason : cancelResult.kind);
+        }
         order.status = 'CANCELLED';
         updateRelatedTradeStatus(order.relatedTradeId, 'REJECTED');
         console.log(`[FillMonitor] 취소 완료: ${order.stockName} ODNO=${order.ordNo}`);
@@ -391,6 +390,21 @@ function logDeferredSellReissue(order: PendingSellOrder, reason: string): void {
     `[SellFillMonitor] reissue deferred symbol=${order.stockCode} ordNo=${order.ordNo} ` +
     `reason=${reason} executionImpact=EXIT_MONITOR_DEGRADED`,
   );
+}
+
+function gatewayOrderFailureReason(result: OrderGatewayResult): string {
+  switch (result.kind) {
+    case 'SUBMITTED':
+    case 'CANCEL_SUBMITTED':
+      return result.kind;
+    case 'SKIPPED_KIS_NOT_CONFIGURED':
+      return 'KIS_NOT_CONFIGURED';
+    case 'REJECTED':
+    case 'FAILED_RETRYABLE':
+    case 'FAILED_FATAL':
+    case 'CANCEL_FAILED':
+      return result.reason;
+  }
 }
 
 async function applySellReissueAction(
@@ -792,36 +806,26 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number, d
 
   try {
     // 기존 주문 취소 시도
-    const cancelTrId = KIS_IS_REAL ? 'TTTC0803U' : 'VTTC0803U';
-    await kisPost(cancelTrId, '/uapi/domestic-stock/v1/trading/order-rvsecncl', {
-      CANO: process.env.KIS_ACCOUNT_NO ?? '',
-      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-      KRX_FWDG_ORD_ORGNO: '',
-      ORGN_ODNO: order.reissuedOrdNo ?? order.ordNo,
-      ORD_DVSN: '00',
-      RVSE_CNCL_DVSN_CD: '02',
-      ORD_QTY: quantity.toString(),
-      ORD_UNPR: '0',
-      QTY_ALL_ORD_YN: 'Y',
-      PDNO: order.stockCode.padStart(6, '0'),
-    }).catch(() => { /* 이미 취소/체결됐을 수 있음 — 무시 */ });
-
-    // 시장가 매도 즉시 재발행
-    const orderData = await kisPost(SELL_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-      CANO: process.env.KIS_ACCOUNT_NO ?? '',
-      ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-      PDNO: order.stockCode.padStart(6, '0'),
-      ORD_DVSN: '01',   // 시장가
-      ORD_QTY: quantity.toString(),
-      ORD_UNPR: '0',
-      SLL_BUY_DVSN_CD: '01',
-      CTAC_TLNO: '',
-      MGCO_APTM_ODNO: '',
-      ORD_SVR_DVSN_CD: '0',
+    await cancelOrder({
+      stockCode: order.stockCode,
+      ordNo: order.reissuedOrdNo ?? order.ordNo,
+      quantity,
+    }).catch(() => { /* already canceled or filled */ });
+    const orderData = await submitSellOrder({
+      stockCode: order.stockCode,
+      stockName: order.stockName,
+      quantity,
+      orderType: 'MARKET',
+      reason: sellReissueReason(order),
+      orderIntentId: dedupKey,
     });
 
-    const newOrdNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
-    order.reissuedOrdNo = newOrdNo ?? undefined;
+    if (orderData.kind !== 'SUBMITTED') {
+      throw new Error(gatewayOrderFailureReason(orderData));
+    }
+
+    const newOrdNo = orderData.ordNo;
+    order.reissuedOrdNo = newOrdNo;
     order.orderType = 'MARKET';
     // 재발행된 주문을 새로 추적 — pollCount 리셋
     order.pollCount = 0;

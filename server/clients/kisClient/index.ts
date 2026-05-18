@@ -124,3 +124,19 @@ export {
   placeKisTakeProfitLimitOrder,
   cancelKisOrder,
 } from './orders.js';
+
+export {
+  submitBuyOrder,
+  submitSellOrder,
+  submitOcoOrder,
+  cancelOrder,
+  queryOrderStatus,
+} from './orderGateway/kisOrderGateway.js';
+export type {
+  OrderGatewayResult,
+  KisBuyOrderIntent,
+  KisSellOrderIntent,
+  KisOcoOrderIntent,
+  KisCancelOrderIntent,
+  KisOrderStatusQueryIntent,
+} from './orderGateway/kisOrderTypes.js';

@@ -28,7 +28,7 @@ function makeTrade(): ServerShadowTrade {
 function deps(overrides: Partial<LiveBuyExecutorDeps> = {}): LiveBuyExecutorDeps {
   return {
     fetchAccountBalance: vi.fn(async () => 100_000_000),
-    placeKisMarketBuyOrder: vi.fn(async () => 'ORD-1'),
+    submitBuyOrder: vi.fn(async () => ({ kind: 'SUBMITTED' as const, ordNo: 'ORD-1' })),
     assertSafeOrder: vi.fn(),
     appendShadowLog: vi.fn(),
     addFillMonitorOrder: vi.fn(),
@@ -98,7 +98,7 @@ describe('liveBuyExecutor', () => {
     }, d);
 
     expect(result.outcome).toBe('LIVE_REJECTED');
-    expect(d.placeKisMarketBuyOrder).not.toHaveBeenCalled();
+    expect(d.submitBuyOrder).not.toHaveBeenCalled();
     expect(sm.state).toBe('LIVE_REJECTED');
   });
 });
