@@ -34,6 +34,8 @@ afterEach(() => {
   delete process.env.R6_RECOVERY_MAX_IMMEDIATE_REGIME;
   delete process.env.MACRO_STATE_TTL_SEC;
   delete process.env.R6_RECOVERY_SOFT_STALE_SEC;
+
+
 });
 
 describe("R6 Recovery Transition Guard", () => {
@@ -320,4 +322,47 @@ describe("R6 Recovery Transition Guard", () => {
     expect(second.r6StateMachineState).toBe("R5_STABILIZING");
     expect(second.effectiveRegime).toBe("R3_EARLY");
   });
+
+  it("treats same-day post-close macro snapshots as valid but waits for next trading-day confirmation", () => {
+    process.env.MACRO_STATE_TTL_SEC = "300";
+    process.env.R6_RECOVERY_SOFT_STALE_SEC = "900";
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "0";
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-18T06:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_DEFENSE" as const,
+      r6StateMachineState: "R6_DEFENSE" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_CLOSE_SHOCK" as const,
+      latchTriggeredAt: "2026-05-18T06:00:00.000Z",
+      latchExpiresAt: "2026-05-19T06:00:00.000Z",
+      latchReleaseEligibleAt: "2026-05-18T06:30:00.000Z",
+      latchDecayPercent: 0,
+      previousR6Triggers: ["KOSPI_CLOSE_SHOCK" as const],
+      sourceUpdatedAt: "2026-05-18T06:00:00.000Z",
+    };
+
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      macro({
+        updatedAt: "2026-05-18T06:00:00.000Z", // 15:00 KST, same trading date
+        kospiTriggerSourceUpdatedAt: "2026-05-18T06:00:00.000Z",
+        marketSessionState: "POST_CLOSE",
+        kospiCloseReturn: 0.2,
+        kospiDayReturn: 0.2,
+        kospiIntradayLowReturn: -0.5,
+      }),
+      "R3_EARLY",
+      new Date("2026-05-18T07:00:00.000Z"), // 16:00 KST, > 300s TTL
+    );
+
+    expect(state.r6TriggerBreakdown.triggerFreshness).toBe("POST_CLOSE_VALID");
+    expect(state.r6RecoveryStatus).toBe("R6_DEFENSE");
+    expect(state.effectiveRegime).toBe("R6_DEFENSE");
+    expect(state.recoveryBlockedReason).toBe("WAITING_NEXT_TRADING_DAY_CONFIRMATION");
+    expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(false);
+  });
+
 });

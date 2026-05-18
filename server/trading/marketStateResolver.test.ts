@@ -90,4 +90,30 @@ describe('formatMarketStateNow', () => {
     expect(text).toContain('candidateEvaluated: 42');
     expect(text).toContain('buyCandidates: 3');
   });
+
+  it('shows post-close macro snapshot validity while keeping live buy blocked and shadow on', () => {
+    const text = formatMarketStateNow(baseSnapshot({
+      macroState: {
+        stale: false,
+        freshness: 'POST_CLOSE_VALID',
+        ageSec: 1800,
+        ttlSec: 300,
+        softStaleSec: 900,
+        hardStaleSec: 900,
+        staleReason: 'POST_CLOSE_VALID',
+        executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
+      },
+      r6Latch: {
+        ...baseSnapshot().r6Latch!,
+        decayBlockedReason: 'WAITING_NEXT_TRADING_DAY_CONFIRMATION',
+      },
+    }));
+
+    expect(text).toContain('상태: 장후 snapshot 유효 / 다음 거래일 확인 대기');
+    expect(text).toContain('Live buy: BLOCKED');
+    expect(text).toContain('Shadow: ON');
+    expect(text).toContain('- freshness: POST_CLOSE_VALID');
+    expect(text).toContain('decayBlockedReason: WAITING_NEXT_TRADING_DAY_CONFIRMATION');
+  });
+
 });

@@ -9,6 +9,8 @@ export interface MacroState {
   mhs: number;        // Macro Health Score (0~100)
   regime: string;     // 'GREEN' | 'YELLOW' | 'RED'
   updatedAt: string;  // ISO
+  /** Runtime market session associated with the latest successful macro snapshot. */
+  marketSessionState?: string;
   // 아이디어 10: Bear Regime 보조 지표 (optional — 클라이언트에서 전달 시 저장)
   vkospi?: number;                  // 한국 변동성 지수
   foreignFuturesSellDays?: number;  // 외국인 선물 연속 순매도 일수
