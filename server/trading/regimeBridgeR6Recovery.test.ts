@@ -48,7 +48,7 @@ describe("R6 Recovery Transition Guard", () => {
 
     expect(rawRegime).toBe("R6_DEFENSE");
     expect(state.effectiveRegime).toBe("R6_DEFENSE");
-    expect(state.r6RecoveryStatus).toBe("IN_R6");
+    expect(state.r6RecoveryStatus).toBe("R6_PANIC");
   });
 
   it("marks KOSPI intraday low shock as active R6 trigger and latches it", () => {
@@ -74,6 +74,9 @@ describe("R6 Recovery Transition Guard", () => {
       "KOSPI_INTRADAY_LOW_SHOCK",
     );
     expect(state.r6ShockLatch).toBe(true);
+    expect(state.r6ShockLatchDetail?.expiresAt).toBe("2026-05-17T18:00:00.000Z");
+    expect(state.r6ShockLatchDetail?.releaseEligibleAt).toBe("2026-05-17T03:00:00.000Z");
+    expect(state.r6ShockLatchDetail?.decayLevel).toBe(0);
     expect(state.transitionReason).toBe(
       "RAW_R6_ACTIVE_BY_KOSPI_INTRADAY_LOW_SHOCK",
     );
@@ -134,7 +137,7 @@ describe("R6 Recovery Transition Guard", () => {
 
     expect(rawRegime).toBe("R3_EARLY");
     expect(state.effectiveRegime).toBe("R5_CAUTION");
-    expect(state.r6RecoveryStatus).toBe("COOLDOWN");
+    expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
     expect(state.cooldownUntil).toBe("2026-05-17T04:00:00.000Z");
   });
 
@@ -147,6 +150,7 @@ describe("R6 Recovery Transition Guard", () => {
       rawRegime: "R6_DEFENSE" as const,
       effectiveRegime: "R6_DEFENSE" as const,
       r6RecoveryStatus: "IN_R6" as const,
+      previousR6Triggers: ["KOSPI_CLOSE_SHOCK" as const],
     };
     const staleMacro = macro({ updatedAt: "2026-05-15T00:00:00.000Z" });
     const state = evaluateR6RecoveryTransition(
@@ -157,8 +161,41 @@ describe("R6 Recovery Transition Guard", () => {
     );
 
     expect(state.r6RecoveryStatus).toBe("STALE_DATA_BLOCKED");
-    expect(state.effectiveRegime).toBe("R5_CAUTION");
+    expect(state.effectiveRegime).toBe("R6_DEFENSE");
     expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(false);
+  });
+
+
+  it("transitions from R6_DEFENSE to R6_RECOVERY_WATCH after latch release eligibility", () => {
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "2";
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-17T00:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_DEFENSE" as const,
+      r6StateMachineState: "R6_DEFENSE" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_CLOSE_SHOCK" as const,
+      latchTriggeredAt: "2026-05-17T00:00:00.000Z",
+      latchExpiresAt: "2026-05-18T00:00:00.000Z",
+      latchReleaseEligibleAt: "2026-05-17T06:00:00.000Z",
+      latchDecayPercent: 40,
+      sourceUpdatedAt: "2026-05-17T00:00:00.000Z",
+    };
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      macro({ updatedAt: "2026-05-17T06:10:00.000Z", kospiCloseReturn: 0.2 }),
+      "R3_EARLY",
+      new Date("2026-05-17T06:10:00.000Z"),
+    );
+
+    expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
+    expect(state.r6StateMachineState).toBe("R6_RECOVERY_WATCH");
+    expect(state.effectiveRegime).toBe("R5_CAUTION");
+    expect(state.r6ShockLatch).toBe(true);
+    expect(state.latchDecayPercent).toBeGreaterThanOrEqual(60);
   });
 
   it("requires consecutive confirmations before RECOVERED", () => {
@@ -187,7 +224,8 @@ describe("R6 Recovery Transition Guard", () => {
 
     expect(first.r6RecoveryStatus).not.toBe("RECOVERED");
     expect(first.effectiveRegime).toBe("R5_CAUTION");
-    expect(second.r6RecoveryStatus).toBe("RECOVERED");
+    expect(second.r6RecoveryStatus).toBe("R5_STABILIZING");
+    expect(second.r6StateMachineState).toBe("R5_STABILIZING");
     expect(second.effectiveRegime).toBe("R3_EARLY");
   });
 });

@@ -6,6 +6,10 @@ import { ensureDataDir, REGIME_TRANSITION_STATE_FILE } from "./paths.js";
 export type R6RecoveryStatus =
   | "NONE"
   | "IN_R6"
+  | "R6_PANIC"
+  | "R6_DEFENSE"
+  | "R6_RECOVERY_WATCH"
+  | "R5_STABILIZING"
   | "RECOVERY_CANDIDATE"
   | "COOLDOWN"
   | "RECOVERED"
@@ -15,7 +19,30 @@ export type R6TriggerReason =
   | 'KOSPI_INTRADAY_LOW_SHOCK'
   | 'KOSPI_CLOSE_SHOCK'
   | 'VKOSPI_DAY_SPIKE'
-  | 'USDKRW_DAY_SHOCK';
+  | 'USDKRW_DAY_SHOCK'
+  | 'CIRCUIT_BREAKER'
+  | 'BLACK_SWAN'
+  | 'MANUAL_KILL_SWITCH';
+
+export interface R6ShockLatch {
+  active: boolean;
+  triggerType: R6TriggerReason;
+  triggeredAt: string;
+  expiresAt: string;
+  severity: number;
+  /** Percent-style recovery/decay progress: 0=armed, 100=fully expired/releasable. */
+  decayLevel: number;
+  releaseEligibleAt: string;
+  lastExtensionReason?: string;
+}
+
+export type R6StateMachineState =
+  | 'R3_NORMAL'
+  | 'R4_CAUTION'
+  | 'R5_STABILIZING'
+  | 'R6_RECOVERY_WATCH'
+  | 'R6_DEFENSE'
+  | 'R6_PANIC';
 
 export interface R6TriggerBreakdown {
   kospiDayReturn?: number;
@@ -70,6 +97,8 @@ export interface RegimeTransitionState {
   r6TriggerBreakdown: R6TriggerBreakdown;
   previousR6Triggers: R6TriggerReason[];
   r6ShockLatch: boolean;
+  r6ShockLatchDetail?: R6ShockLatch;
+  r6StateMachineState?: R6StateMachineState;
   r6ShockLatchReason?: R6TriggerReason;
   latchTriggeredAt?: string;
   latchTriggerValue?: number;
@@ -77,6 +106,7 @@ export interface RegimeTransitionState {
   /** HOTFIX-5: R6 shock latch is time-bounded and decays instead of persisting forever. */
   latchExpiresAt?: string;
   latchDecayLevel?: 'NONE' | 'WATCH' | 'DECAYING' | 'EXPIRED';
+  latchDecayPercent?: number;
   latchReleaseEligibleAt?: string;
   recoveryBlockedReason?: string;
 }
@@ -120,6 +150,8 @@ export function defaultRegimeTransitionState(
     r6TriggerBreakdown: emptyR6TriggerBreakdown(),
     previousR6Triggers: [],
     r6ShockLatch: false,
+    r6StateMachineState: 'R4_CAUTION',
+    latchDecayPercent: 0,
     recoveryBlockedReason: undefined,
   };
 }
@@ -136,7 +168,36 @@ function isRegimeLevel(value: unknown): value is RegimeLevel {
 }
 
 function isR6TriggerReason(value: unknown): value is R6TriggerReason {
-  return value === 'KOSPI_INTRADAY_LOW_SHOCK' || value === 'KOSPI_CLOSE_SHOCK' || value === 'VKOSPI_DAY_SPIKE' || value === 'USDKRW_DAY_SHOCK';
+  return value === 'KOSPI_INTRADAY_LOW_SHOCK' ||
+    value === 'KOSPI_CLOSE_SHOCK' ||
+    value === 'VKOSPI_DAY_SPIKE' ||
+    value === 'USDKRW_DAY_SHOCK' ||
+    value === 'CIRCUIT_BREAKER' ||
+    value === 'BLACK_SWAN' ||
+    value === 'MANUAL_KILL_SWITCH';
+}
+
+function isR6StateMachineState(value: unknown): value is R6StateMachineState {
+  return value === 'R3_NORMAL' || value === 'R4_CAUTION' || value === 'R5_STABILIZING' || value === 'R6_RECOVERY_WATCH' || value === 'R6_DEFENSE' || value === 'R6_PANIC';
+}
+
+function sanitizeR6ShockLatch(value: unknown): R6ShockLatch | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Partial<R6ShockLatch>;
+  if (!isR6TriggerReason(record.triggerType)) return undefined;
+  if (typeof record.triggeredAt !== 'string' || typeof record.expiresAt !== 'string' || typeof record.releaseEligibleAt !== 'string') return undefined;
+  const severity = typeof record.severity === 'number' && Number.isFinite(record.severity) ? record.severity : 0;
+  const decayLevel = typeof record.decayLevel === 'number' && Number.isFinite(record.decayLevel) ? Math.max(0, Math.min(100, record.decayLevel)) : 0;
+  return {
+    active: record.active === true,
+    triggerType: record.triggerType,
+    triggeredAt: record.triggeredAt,
+    expiresAt: record.expiresAt,
+    severity,
+    decayLevel,
+    releaseEligibleAt: record.releaseEligibleAt,
+    lastExtensionReason: typeof record.lastExtensionReason === 'string' ? record.lastExtensionReason : undefined,
+  };
 }
 
 function sanitizeState(value: unknown): RegimeTransitionState | null {
@@ -190,12 +251,15 @@ function sanitizeState(value: unknown): RegimeTransitionState | null {
       ? record.previousR6Triggers.filter((trigger): trigger is R6TriggerReason => isR6TriggerReason(trigger))
       : [],
     r6ShockLatch: record.r6ShockLatch === true,
+    r6ShockLatchDetail: sanitizeR6ShockLatch(record.r6ShockLatchDetail),
+    r6StateMachineState: isR6StateMachineState(record.r6StateMachineState) ? record.r6StateMachineState : undefined,
     r6ShockLatchReason: isR6TriggerReason(record.r6ShockLatchReason) ? record.r6ShockLatchReason : undefined,
     latchTriggeredAt: typeof record.latchTriggeredAt === "string" ? record.latchTriggeredAt : undefined,
     latchTriggerValue: typeof record.latchTriggerValue === "number" ? record.latchTriggerValue : undefined,
     latchTriggerSource: typeof record.latchTriggerSource === "string" ? record.latchTriggerSource : undefined,
     latchExpiresAt: typeof record.latchExpiresAt === "string" ? record.latchExpiresAt : undefined,
     latchDecayLevel: record.latchDecayLevel === 'WATCH' || record.latchDecayLevel === 'DECAYING' || record.latchDecayLevel === 'EXPIRED' ? record.latchDecayLevel : record.r6ShockLatch === true ? 'WATCH' : 'NONE',
+    latchDecayPercent: typeof record.latchDecayPercent === 'number' && Number.isFinite(record.latchDecayPercent) ? Math.max(0, Math.min(100, record.latchDecayPercent)) : undefined,
     latchReleaseEligibleAt: typeof record.latchReleaseEligibleAt === "string" ? record.latchReleaseEligibleAt : undefined,
     recoveryBlockedReason: typeof record.recoveryBlockedReason === "string" ? record.recoveryBlockedReason : undefined,
   };
