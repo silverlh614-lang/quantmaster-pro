@@ -36,9 +36,13 @@ const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js
 const { addSellOrder } = await import('../../../fillMonitor.js');
 const { appendFill } = await import('../../../../persistence/shadowTradeRepo.js');
 const { appendPendingEmergencyExit } = await import('../../../../persistence/pendingEmergencyExitQueueRepo.js');
+const { sellReservationManager } = await import('../../../exit/sellReservation/sellReservationManager.js');
 
 describe('r6EmergencyExit (R6 30% 1회)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sellReservationManager.__testOnly.clear();
+  });
 
   it('regime != R6 → NO_OP', async () => {
     const shadow = makeMockShadow();
