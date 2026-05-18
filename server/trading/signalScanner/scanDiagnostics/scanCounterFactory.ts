@@ -1,18 +1,7 @@
 // @responsibility Scan counter default construction.
 
-import type { GateLayerAuditAccumulator, ScanCounters } from './scanCounterTypes.js';
-
-export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
-  return {
-    gate1PassCount: 0,
-    gate2PassCount: 0,
-    gate3PassCount: 0,
-    strongBuySuppressedByDataUnavailableCount: 0,
-    gate1BlockReasons: {},
-    gate2BlockReasons: {},
-    gate3BlockReasons: {},
-  };
-}
+import type { ScanCounters } from './scanCounterTypes.js';
+import { createGateLayerAuditAccumulator } from './gateLayerDiagnostics.js';
 
 export function createScanCounters(): ScanCounters {
   return {

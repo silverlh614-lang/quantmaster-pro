@@ -11,52 +11,8 @@ import type { GateScoreCandidateBucket } from '../gateScoreCandidateBucket.js';
 import type { PreBreakoutWaitDecision } from '../preBreakoutWaitPolicy.js';
 import type { ProvisionalShadowCandidate } from '../provisionalShadowLane.js';
 import type { R6ShadowEntryPolicySummary } from '../r6ShadowCounterfactualEntryPolicy.js';
+import type { GateLayerAuditAccumulator } from './gateLayerDiagnostics.js';
 import type { PipelineStageName, PipelineStageStatus } from './scanSummaryTypes.js';
-
-export interface GateScoreHealthSummary {
-  samples: number;
-  rawScoreAvg: number;
-  availableMaxScoreAvg: number;
-  normalizedGateScoreAvg: number;
-  unavailableTop: Array<{ condition: string; count: number }>;
-  thresholdNotMetTop: Array<{ condition: string; count: number }>;
-  providerDegradedTop: Array<{ condition: string; count: number }>;
-  diagnosis:
-    | 'DATA_UNAVAILABLE_DOMINANT'
-    | 'THRESHOLD_NOT_MET_DOMINANT'
-    | 'PROVIDER_DEGRADED_DOMINANT'
-    | 'MIXED'
-    | 'NO_SAMPLES';
-}
-
-export interface GateScoreCandidateBucketSummary {
-  counts: Record<GateScoreCandidateBucket, number>;
-  dataBlockedNearMissTopUnavailable: Array<{ condition: string; count: number }>;
-  probingTopConditions: Array<{ condition: string; count: number }>;
-  totalNearMissLike: number;
-  outcomeLedgerRecorded?: number;
-  outcomeLedgerSkipped?: number;
-}
-
-export interface GateLayerAuditSummary {
-  gate1PassCount: number;
-  gate2PassCount: number;
-  gate3PassCount: number;
-  strongBuySuppressedByDataUnavailableCount: number;
-  topGate1BlockReasons: Array<{ reason: string; count: number }>;
-  topGate2BlockReasons: Array<{ reason: string; count: number }>;
-  topGate3BlockReasons: Array<{ reason: string; count: number }>;
-}
-
-export interface GateLayerAuditAccumulator {
-  gate1PassCount: number;
-  gate2PassCount: number;
-  gate3PassCount: number;
-  strongBuySuppressedByDataUnavailableCount: number;
-  gate1BlockReasons: Record<string, number>;
-  gate2BlockReasons: Record<string, number>;
-  gate3BlockReasons: Record<string, number>;
-}
 
 export interface ScanCounters {
   yahooFails: number;

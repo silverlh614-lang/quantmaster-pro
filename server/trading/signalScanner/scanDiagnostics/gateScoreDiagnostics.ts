@@ -1,16 +1,35 @@
 // @responsibility Gate score diagnostic aggregation.
 
-import type { GateLayerSummary } from '../../../quantFilter.js';
 import {
   classifyGateScoreCandidateBucket,
   type GateScoreCandidateBucket,
 } from '../gateScoreCandidateBucket.js';
-import type {
-  GateLayerAuditSummary,
-  GateScoreCandidateBucketSummary,
-  GateScoreHealthSummary,
-  ScanCounters,
-} from './scanCounterTypes.js';
+import type { ScanCounters } from './scanCounterTypes.js';
+
+export interface GateScoreHealthSummary {
+  samples: number;
+  rawScoreAvg: number;
+  availableMaxScoreAvg: number;
+  normalizedGateScoreAvg: number;
+  unavailableTop: Array<{ condition: string; count: number }>;
+  thresholdNotMetTop: Array<{ condition: string; count: number }>;
+  providerDegradedTop: Array<{ condition: string; count: number }>;
+  diagnosis:
+    | 'DATA_UNAVAILABLE_DOMINANT'
+    | 'THRESHOLD_NOT_MET_DOMINANT'
+    | 'PROVIDER_DEGRADED_DOMINANT'
+    | 'MIXED'
+    | 'NO_SAMPLES';
+}
+
+export interface GateScoreCandidateBucketSummary {
+  counts: Record<GateScoreCandidateBucket, number>;
+  dataBlockedNearMissTopUnavailable: Array<{ condition: string; count: number }>;
+  probingTopConditions: Array<{ condition: string; count: number }>;
+  totalNearMissLike: number;
+  outcomeLedgerRecorded?: number;
+  outcomeLedgerSkipped?: number;
+}
 
 export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -67,43 +86,6 @@ export function accumulateGateScoreHealth(
   for (const condition of result.providerDegradedConditions ?? []) {
     incrementCount(counters.gateScoreProviderDegradedCounts, condition);
   }
-}
-
-function recordLayerBlockReasons(target: Record<string, number>, layer: GateLayerSummary['gate1']): void {
-  for (const key of layer.unavailable) incrementCount(target, `DATA_UNAVAILABLE:${key}`);
-  for (const key of layer.providerDegraded) incrementCount(target, `PROVIDER_DEGRADED:${key}`);
-  for (const key of layer.thresholdNotMet) incrementCount(target, `THRESHOLD_NOT_MET:${key}`);
-}
-
-export function accumulateGateLayerSummary(
-  counters: ScanCounters,
-  summary: GateLayerSummary | null | undefined,
-  signalType?: string,
-): void {
-  if (!summary) return;
-  if (summary.gate1.passed) counters.gateLayerAudit.gate1PassCount += 1;
-  if (summary.gate2.passed) counters.gateLayerAudit.gate2PassCount += 1;
-  if (summary.gate3.passed) counters.gateLayerAudit.gate3PassCount += 1;
-  recordLayerBlockReasons(counters.gateLayerAudit.gate1BlockReasons, summary.gate1);
-  recordLayerBlockReasons(counters.gateLayerAudit.gate2BlockReasons, summary.gate2);
-  recordLayerBlockReasons(counters.gateLayerAudit.gate3BlockReasons, summary.gate3);
-  if (signalType === 'STRONG' && summary.finalPath === 'SHADOW_OBSERVABLE' && (
-    summary.gate1.unavailable.length > 0 || summary.gate2.unavailable.length > 0 || summary.gate3.unavailable.length > 0
-  )) {
-    counters.gateLayerAudit.strongBuySuppressedByDataUnavailableCount += 1;
-  }
-}
-
-export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
-  return {
-    gate1PassCount: counters.gateLayerAudit.gate1PassCount,
-    gate2PassCount: counters.gateLayerAudit.gate2PassCount,
-    gate3PassCount: counters.gateLayerAudit.gate3PassCount,
-    strongBuySuppressedByDataUnavailableCount: counters.gateLayerAudit.strongBuySuppressedByDataUnavailableCount,
-    topGate1BlockReasons: topCounts(counters.gateLayerAudit.gate1BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
-    topGate2BlockReasons: topCounts(counters.gateLayerAudit.gate2BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
-    topGate3BlockReasons: topCounts(counters.gateLayerAudit.gate3BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
-  };
 }
 
 export function accumulateGateScoreCandidateBucket(
@@ -209,21 +191,21 @@ export function formatGateScoreHealthSection(summary?: GateScoreHealthSummary | 
   const raw = summary.rawScoreAvg.toFixed(2);
   const max = summary.availableMaxScoreAvg.toFixed(2);
   const lines = [
-    '?뱤 Gate Score Health (ADR-452)',
-    `  ??raw avg: ${raw}`,
-    `  ??availableMax avg: ${max}`,
-    `  ??normalized avg: ${pct}%`,
-    `  ??diagnosis: ${summary.diagnosis}`,
+    '📊 Gate Score Health (ADR-452)',
+    `  • raw avg: ${raw}`,
+    `  • availableMax avg: ${max}`,
+    `  • normalized avg: ${pct}%`,
+    `  • diagnosis: ${summary.diagnosis}`,
   ];
 
   if (summary.unavailableTop.length > 0) {
-    lines.push(`  ??unavailable top: ${summary.unavailableTop.map((x) => `${x.condition}횞${x.count}`).join(', ')}`);
+    lines.push(`  • unavailable top: ${summary.unavailableTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
   }
   if (summary.thresholdNotMetTop.length > 0) {
-    lines.push(`  ??thresholdNotMet top: ${summary.thresholdNotMetTop.map((x) => `${x.condition}횞${x.count}`).join(', ')}`);
+    lines.push(`  • thresholdNotMet top: ${summary.thresholdNotMetTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
   }
   if (summary.providerDegradedTop.length > 0) {
-    lines.push(`  ??providerDegraded top: ${summary.providerDegradedTop.map((x) => `${x.condition}횞${x.count}`).join(', ')}`);
+    lines.push(`  • providerDegraded top: ${summary.providerDegradedTop.map((x) => `${x.condition}×${x.count}`).join(', ')}`);
   }
 
   return lines.join('\n');
@@ -253,26 +235,26 @@ export function formatGateScoreCandidateBucketSection(
   if (nearMiss + probing + shadowOnly === 0) return null;
 
   const lines = [
-    '?윞 Gate Near-Miss Buckets (ADR-452d)',
-    `  ??DATA_BLOCKED_NEAR_MISS: ${nearMiss}`,
-    `  ??PROBING: ${probing}`,
-    `  ??SHADOW_ONLY: ${shadowOnly}`,
-    '  ??executionImpact: NONE',
-    `  ??outcomeLedger: recorded ${summary.outcomeLedgerRecorded ?? 0}, skipped ${summary.outcomeLedgerSkipped ?? 0} (ADR-454, 3/5/10d)`,
+    '🟡 Gate Near-Miss Buckets (ADR-452d)',
+    `  • DATA_BLOCKED_NEAR_MISS: ${nearMiss}`,
+    `  • PROBING: ${probing}`,
+    `  • SHADOW_ONLY: ${shadowOnly}`,
+    '  • executionImpact: NONE',
+    `  • outcomeLedger: recorded ${summary.outcomeLedgerRecorded ?? 0}, skipped ${summary.outcomeLedgerSkipped ?? 0} (ADR-454, 3/5/10d)`,
   ];
 
   if (summary.dataBlockedNearMissTopUnavailable.length > 0) {
     lines.push(
-      `  ??nearMiss unavailable: ${summary.dataBlockedNearMissTopUnavailable
-        .map((x) => `${x.condition}횞${x.count}`)
+      `  • nearMiss unavailable: ${summary.dataBlockedNearMissTopUnavailable
+        .map((x) => `${x.condition}×${x.count}`)
         .join(', ')}`,
     );
   }
 
   if (summary.probingTopConditions.length > 0) {
     lines.push(
-      `  ??probing blockers: ${summary.probingTopConditions
-        .map((x) => `${x.condition}횞${x.count}`)
+      `  • probing blockers: ${summary.probingTopConditions
+        .map((x) => `${x.condition}×${x.count}`)
         .join(', ')}`,
     );
   }

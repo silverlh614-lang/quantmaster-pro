@@ -39,10 +39,10 @@ import type { SectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from '../sectorE
 import type { SupplySnapshotReplayResultAdr0491 } from '../supplySnapshotStoreReplayAdr0491.js';
 import type { StreakSkipReason } from '../r3StreakSkipPolicy.js';
 import type {
-  GateLayerAuditSummary,
   GateScoreCandidateBucketSummary,
   GateScoreHealthSummary,
-} from './scanCounterTypes.js';
+} from './gateScoreDiagnostics.js';
+import type { GateLayerAuditSummary } from './gateLayerDiagnostics.js';
 
 export interface WaitDistribution {
   dataHold: number;

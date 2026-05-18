@@ -148,10 +148,6 @@ import {
   type GateReclassificationDryRunSummary,
 } from '../../learning/gateReclassificationDryRun.js';
 import {
-  classifyGateScoreCandidateBucket,
-  type GateScoreCandidateBucket,
-} from './gateScoreCandidateBucket.js';
-import {
   buildEntryFilterDecomposition,
   formatEntryFilterDecompositionSection,
   type CandidateSnapshot,
@@ -276,12 +272,12 @@ import {
   buildWaitDistribution,
 } from './scanDiagnostics/scanCounterAccumulators.js';
 import {
-  buildGateLayerAuditSummary,
   buildGateScoreCandidateBucketSummary,
   buildGateScoreHealthSummary,
   formatGateScoreCandidateBucketSection,
   formatGateScoreHealthSection,
 } from './scanDiagnostics/gateScoreDiagnostics.js';
+import { buildGateLayerAuditSummary } from './scanDiagnostics/gateLayerDiagnostics.js';
 import { buildPerStageDropoffSummary } from './scanDiagnostics/pipelineStageDiagnostics.js';
 import { scanDiagnosticNumber, scanDiagnosticString } from './scanDiagnostics/macroScanDiagnostics.js';
 import {
