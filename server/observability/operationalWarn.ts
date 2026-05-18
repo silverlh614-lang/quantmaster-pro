@@ -41,6 +41,7 @@ function withPolicyDetails(payload: OperationalWarnPayload): OperationalWarnPayl
 function formatWarnLine(payload: OperationalWarnPayload): string {
   const parts = [
     `[${payload.priority}][${payload.domain}][${payload.code}]`,
+    `legacy=[${payload.priority}][${payload.code}]`,
     `executionImpact=${payload.executionImpact}`,
     payload.mode ? `mode=${payload.mode}` : undefined,
     payload.symbol ? `symbol=${payload.symbol}` : undefined,
