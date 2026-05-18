@@ -235,6 +235,40 @@ const WARNING_DEFINITIONS: readonly OperatorWarningDefinition[] = Object.freeze(
     action: 'Repair counterfactual accounting before using the samples for learning conclusions.',
     reason: 'Counterfactual invariant warnings threaten sample accounting and must stay below live-flow warnings but above audit-only notices.',
   },
+  {
+    codes: [
+      'PROMOTION_WARN',
+      'ALLOW_WITH_WARNING',
+      'PROMOTION_SCORE_BELOW_RECOMMENDED',
+      'PROVIDER_FAILURE_SEPARATED',
+      'STALE_SNAPSHOT_NOT_MARKET_SIGNAL',
+      'UNSUPPORTED_PROMOTION_PATH',
+    ],
+    priorityRank: 5,
+    domain: 'PROMOTION_DISPLAY',
+    urgency: 'AUDIT_OBSERVE',
+    action: 'Keep the promotion decision auditable and require explicit review before policy escalation.',
+    reason: 'Promotion warnings are audit evidence and should not outrank active execution, data trust, scan, or learning integrity warnings.',
+  },
+  {
+    codes: [
+      'SHADOW_CASE_WARN',
+      'PROVIDER_MARKET_SIGNAL_MIXED',
+      'SHADOW_DATA_MISSING',
+      'SHADOW_DATA_STALE',
+      'CASE_DATA_MISSING',
+      'CASE_PROVIDER_HEALTH_BAD',
+      'CASE_YAHOO_STALE',
+      'CASE_KRX_DELAY',
+      'CASE_KIS_500',
+      'CASE_DART_DELAY',
+    ],
+    priorityRank: 5,
+    domain: 'PROMOTION_DISPLAY',
+    urgency: 'AUDIT_OBSERVE',
+    action: 'Preserve the case as no-impact evidence and split provider metadata from market-signal metadata.',
+    reason: 'Shadow case warnings are display and audit signals unless executionImpact is non-NONE.',
+  },
 ]);
 
 const FALLBACK_DEFINITION: OperatorWarningDefinition = Object.freeze({
