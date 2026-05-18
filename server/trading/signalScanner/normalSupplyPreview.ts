@@ -1063,6 +1063,12 @@ function classifyProgramNetBuyNullRootCause(input: {
   return 'UNKNOWN_DIAGNOSTIC_ONLY';
 }
 
+function marketClosedProgramDataStatus(marketSession: ProgramFlowSessionGuard['marketSession']): string {
+  if (marketSession === 'AFTER_MARKET' || marketSession === 'CLOSING_SESSION') return 'NOT_EXPECTED_AFTER_MARKET';
+  if (marketSession === 'PRE_MARKET' || marketSession === 'WARMUP_SESSION') return 'NOT_EXPECTED_PRE_MARKET';
+  return 'NOT_EXPECTED_MARKET_CLOSED';
+}
+
 function nextActionForForensicRootCause(
   rootCause: ProgramFlowNullRootCause,
   marketCarryTrace: MarketProgramCarryForensicTrace,
@@ -1149,9 +1155,15 @@ function buildProgramFlowDiagnostics(
       ? 'PROGRAM_FLOW_EXPECTED_BUT_VALUE_MISSING_DIAGNOSTIC_ONLY'
       : 'PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED';
   const nextAction = nextActionForForensicRootCause(rootCause, marketCarryTrace, stockCarryTrace, legacyReason);
-  const marketProgramReason = marketCarryTrace.marketProgramBreakPoint === 'KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS'
-    ? 'MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY'
-    : evidenceTrace.marketLevel.result;
+  const marketClosedProgramUnavailable = !sessionGuard.programFlowExpected;
+  const marketProgramReason = marketClosedProgramUnavailable
+    ? 'MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED'
+    : marketCarryTrace.marketProgramBreakPoint === 'KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS'
+      ? 'MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY'
+      : evidenceTrace.marketLevel.result;
+  const marketProgramDataStatus = marketClosedProgramUnavailable
+    ? marketClosedProgramDataStatus(sessionGuard.marketSession)
+    : stringValue((marketProgramFlow as unknown as Record<string, unknown>).marketProgramDataStatus) ?? (marketProgramAvailable ? 'PARSED' : 'MISSING');
   return {
     stockProgramRowsAvailable,
     stockProgramRowsWithAnyProgramKey: stockAny,
@@ -1181,7 +1193,7 @@ function buildProgramFlowDiagnostics(
     marketProgramBreakPoint: marketCarryTrace.marketProgramBreakPoint,
     marketProgramReason,
     marketProgramNetBuyAmount: marketProgramFlow.combinedNetBuy ?? 'N/A',
-    marketProgramDataStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).marketProgramDataStatus) ?? (marketProgramAvailable ? 'PARSED' : 'MISSING'),
+    marketProgramDataStatus,
     kisAttempted: (marketProgramFlow as unknown as Record<string, unknown>).kisAttempted === true,
     kisStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).kisStatus) ?? 'NOT_ATTEMPTED',
     krxFallbackAttempted: (marketProgramFlow as unknown as Record<string, unknown>).krxFallbackAttempted === true,

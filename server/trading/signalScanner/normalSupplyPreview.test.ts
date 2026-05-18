@@ -683,6 +683,61 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).toContain('marketProgramSignal: UNAVAILABLE');
   });
 
+  it('classifies after-market accepted-empty market program as session-based unavailable while carrying stock diagnostics', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T07:31:00.000Z',
+      marketProgramFlow: {
+        available: false,
+        source: 'NONE',
+        sourceProvider: 'NONE',
+        netBuyAmount: null,
+        combinedNetBuy: null,
+        providerIssue: false,
+        signal: 'UNAVAILABLE',
+        marketSignal: false,
+        marketProgramDataStatus: 'ACCEPTED_EMPTY',
+        kisAttempted: true,
+        kisStatus: 'ACCEPTED_EMPTY',
+        krxFallbackAttempted: true,
+        krxFallbackStatus: 'EMPTY',
+        cacheFallbackAttempted: true,
+        cacheStatus: 'MISS',
+        executionImpact: 'NONE',
+        programFlowUsedForLiveDecision: false,
+        passiveProxyUsedForLiveDecision: false,
+        programPenaltyApplied: false,
+      },
+      candidates: [{
+        ...baseCandidate({ programNetBuyAmount: null }),
+        latestIntradayProgramSnapshot: {
+          stockProgramRows: [{ stockCode: '123456', stockProgramNetBuy: '1,234' }],
+        },
+      }] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.programFlowDiagnostics.sessionGuard.marketSession).toBe('AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.sessionGuard.kstTime).toBe('16:31');
+    expect(preview.programFlowDiagnostics.programFlowExpected).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.marketProgramReason).toBe('MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(preview.programFlowDiagnostics.marketProgramBreakPoint).toBe('PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.programFlowDiagnostics.marketProgramProviderIssue).toBe(false);
+    expect(preview.programFlowDiagnostics.providerIssueSuppressedByMarketClosed).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
+    expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(1234);
+    expect(preview.programFlowDiagnostics.stockProgramRowsAvailable).toBe(1);
+    expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+    expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+    expect(text).toContain('marketProgramDataStatus: NOT_EXPECTED_AFTER_MARKET');
+    expect(text).toContain('marketProgramReason=MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+  });
+
   it('traces context found with no program fields to upstream numeric field wiring', () => {
     const preview = persistNormalSupplyPreview({
       engineMode: 'NORMAL',
