@@ -36,6 +36,8 @@ import {
   emitShadowPositionClosed,
   recordShadowLifecycleOutcome,
 } from '../../shadowPositionLifecycle.js';
+import { sellReservationManager } from '../../exit/sellReservation/sellReservationManager.js';
+import type { SellReservationResult } from '../../exit/sellReservation/sellReservationTypes.js';
 
 export type ReserveSellResult =
   | { kind: 'SHADOW';  recorded: true;  remainingQty: number; statusPrefix: string; statusSuffix: string }
@@ -44,6 +46,37 @@ export type ReserveSellResult =
 
 /** PositionFill 중에서 reserveSell 이 내부적으로 채우는 필드는 입력에서 제외한다. */
 export type SellFillInput = Omit<PositionFill, 'id' | 'ordNo' | 'status' | 'confirmedAt' | 'revertedAt' | 'revertReason' | 'flagToClearOnRevert'>;
+
+function reservationFailureReason(result: SellReservationResult): string {
+  switch (result.kind) {
+    case 'FAILED':
+      return result.reason;
+    case 'DUPLICATE_BLOCKED':
+      return `DUPLICATE_BLOCKED:${result.dedupKey}`;
+    case 'INSUFFICIENT_QUANTITY':
+      return `INSUFFICIENT_QUANTITY available=${result.availableQty} requested=${result.requestedQty}`;
+    case 'RESERVED':
+    case 'PENDING':
+      return 'UNKNOWN_RESERVATION_FAILURE';
+  }
+}
+
+function failedReserveSellResult(
+  shadow: ServerShadowTrade,
+  reason: string,
+  statusPrefix = '⚠️ [SELL 예약 실패]',
+): ReserveSellResult {
+  return {
+    kind: 'FAILED',
+    recorded: false,
+    remainingQty: getRemainingQty(shadow),
+    statusPrefix,
+    statusSuffix:
+      `\nSell reservation transaction failed / rollbackRequired=true\n` +
+      `reason=${reason}`,
+    reason,
+  };
+}
 
 /**
  * 매도 Fill 을 세 가지 상태 중 하나로 안전하게 기록한다.
@@ -73,6 +106,38 @@ export function reserveSell(
   }
 
   const isShadow = orderRes.outcome === 'SHADOW_ONLY';
+  const reservation = sellReservationManager.reserveSell({
+    trade: shadow,
+    requestedQty: fill.qty,
+    reason: String(evtSubType),
+    mode: isShadow ? 'SHADOW' : 'LIVE',
+  });
+  if (reservation.kind !== 'RESERVED') {
+    return failedReserveSellResult(
+      shadow,
+      reservationFailureReason(reservation),
+      reservation.kind === 'DUPLICATE_BLOCKED'
+        ? '⚠️ [SELL 중복 예약 차단]'
+        : reservation.kind === 'INSUFFICIENT_QUANTITY'
+          ? '⚠️ [SELL 잔량 부족 차단]'
+          : '⚠️ [SELL 예약 실패]',
+    );
+  }
+
+  if (!isShadow) {
+    const submitted = sellReservationManager.confirmSellSubmitted({
+      reservationId: reservation.reservationId,
+      ordNo: orderRes.ordNo ?? '',
+    });
+    if (submitted.kind !== 'PENDING') {
+      sellReservationManager.releaseReservation({
+        reservationId: reservation.reservationId,
+        reason: reservationFailureReason(submitted),
+      });
+      return failedReserveSellResult(shadow, reservationFailureReason(submitted));
+    }
+  }
+
   const nowIso = new Date().toISOString();
   const now = new Date(nowIso);
 
@@ -177,6 +242,11 @@ export function reserveSell(
         }`,
       );
     }
+
+    sellReservationManager.markSellFilled({
+      reservationId: reservation.reservationId,
+      filledQty: fill.qty,
+    });
 
     return {
       kind: 'SHADOW',

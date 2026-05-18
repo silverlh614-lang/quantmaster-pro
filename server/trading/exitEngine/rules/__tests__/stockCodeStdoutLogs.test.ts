@@ -55,6 +55,7 @@ const { cascadeHalf } = await import('../cascadeHalf.js');
 const { trailingStop } = await import('../trailingStop.js');
 const { legacyTakeProfit } = await import('../legacyTakeProfit.js');
 const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
+const { sellReservationManager } = await import('../../../exit/sellReservation/sellReservationManager.js');
 
 /**
  * 한 청산 규칙 호출 후 console.log spy 에서 [AutoTrade] 라인을 추출.
@@ -71,6 +72,7 @@ describe('exitEngine 청산 규칙 stdout stockCode 포함 (2026-04-27 진단 �
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sellReservationManager.__testOnly.clear();
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -87,14 +89,14 @@ describe('exitEngine 청산 규칙 stdout stockCode 포함 (2026-04-27 진단 �
   });
 
   it('r6EmergencyExit: stockCode 포함', async () => {
-    const shadow = makeMockShadow({ stockCode: '006490', stockName: '인스코비', quantity: 100 });
+    const shadow = makeMockShadow({ stockCode: '006490', stockName: '인스코비', quantity: 100, mode: 'LIVE' });
     await r6EmergencyExit(makeMockCtx({
       shadow, currentPrice: 95, currentRegime: 'R6_DEFENSE' as any,
     }));
     const line = findAutoTradeLogLine(logSpy);
     expect(line).toBeDefined();
     expect(line).toContain('인스코비 (006490)');
-    expect(line).toContain('R6 긴급 청산');
+    expect(line).toContain('R6 emergency liquidation');
   });
 
   it('cascadeFinal: stockCode 포함', async () => {
