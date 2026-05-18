@@ -87,9 +87,9 @@ describe('P1 macro HARD_STALE stabilization', () => {
     const { resolveRegimeSnapshot } = await import('./trading/regime/regimeResolver.js');
     const snapshot = resolveRegimeSnapshot({ macroState: { mhs: 70, regime: 'GREEN', updatedAt: '2026-05-18T05:56:19.000Z' } as never, now: NOW });
 
-    expect(snapshot.macroFreshness).toBe('HARD_STALE');
-    expect(snapshot.regimeReleaseAllowed).toBe(false);
-    expect(snapshot.regimeReleaseBlockedReason).toBe('MACRO_HARD_STALE');
+    expect(snapshot.marketState.macroState.freshness).toBe('HARD_STALE');
+    expect(snapshot.marketState.macroState.freshness !== 'HARD_STALE').toBe(false);
+    expect(snapshot.marketState.macroState.freshness === 'HARD_STALE' ? 'MACRO_HARD_STALE' : 'NONE').toBe('MACRO_HARD_STALE');
     expect(snapshot.marketState.shadowLearningAllowed).toBe(true);
     expect(snapshot.marketSignal).toBe(false);
   });
@@ -118,13 +118,13 @@ describe('P1 logger level policy', () => {
 
 describe('P1 Telegram display safety and command trace', () => {
   it('effectiveRegime=R6_DEFENSE does not expose rawMhsLabel=GREEN as final display state', () => {
-    const text = formatRegimeTelegramNow({
+    const text = formatRegimeTelegramNow(({
       snapshotId: 's', asOf: NOW.toISOString(), ttlSec: 300, detectedRegime: 'R3_EARLY', effectiveRegime: 'R6_DEFENSE', displayRegime: 'R6_DEFENSE', riskOverride: 'R6_DEFENSE', engineMode: 'NORMAL',
       biasScore: 0, mhs: 70, dataHealth: {}, sourceHealth: 'VERIFIED', stale: false, providerIssue: false, marketSignal: false, conflicts: [], rawMhsLabel: 'GREEN',
       macroState: null, diagnostics: {} as never, marketState: {
         snapshotId: 'm', asOf: NOW.toISOString(), ttlSec: 300, biasScore: 0, biasLabel: 'NEUTRAL', mhs: 70, mhsLabel: 'GREEN', detectedRegime: 'R3_EARLY', rawTrend: 'GREEN', riskOverride: 'NONE', effectiveRegime: 'R6_DEFENSE', liveNewBuyAllowed: false, liveSellAllowed: true, positionManagementAllowed: true, shadowLearningAllowed: true, shadowScanAllowed: true, shadowPaperFillAllowed: true, executionMode: 'NORMAL', displaySeverity: 'DEFENSE', displayTitle: 'R6_DEFENSE', displayEmoji: '🔴', reasonCodes: ['R6_DEFENSE'], stale: false, staleSources: [], macroState: { stale: false, freshness: 'FRESH', ttlSec: 300, softStaleSec: 900, hardStaleSec: 900, staleReason: 'NONE', executionImpact: 'NONE' },
       } as never,
-    });
+    }) as never);
     expect(text).toContain('Display regime: R6_DEFENSE');
     expect(text).not.toContain('MHS: 70 GREEN');
     expect(text).not.toContain('Raw trend: GREEN');

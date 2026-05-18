@@ -27,7 +27,10 @@ const regime: TelegramCommand = {
     const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
     const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
     const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
-    console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=/regime snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} detectedRegime=${regimeSnapshot.detectedRegime} effectiveRegime=${regimeSnapshot.effectiveRegime} displayRegime=${regimeSnapshot.displayRegime} riskOverride=${regimeSnapshot.riskOverride} mhs=${regimeSnapshot.mhs ?? 'N/A'} rawMhs=${regimeSnapshot.rawMhsLabel ?? 'N/A'} macroFreshness=${regimeSnapshot.macroFreshness ?? 'N/A'} staleSources=${regimeSnapshot.staleSources?.join(',') || 'none'}`);
+    const macroState = regimeSnapshot.marketState.macroState;
+    const macroFreshness = macroState.freshness;
+    const regimeReleaseBlockedReason = macroFreshness === 'HARD_STALE' ? 'MACRO_HARD_STALE' : macroFreshness === 'MISSING' ? 'MACRO_MISSING' : 'NONE';
+    console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=/regime snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} detectedRegime=${regimeSnapshot.detectedRegime} effectiveRegime=${regimeSnapshot.effectiveRegime} displayRegime=${regimeSnapshot.displayRegime} riskOverride=${regimeSnapshot.riskOverride} mhs=${regimeSnapshot.mhs ?? 'N/A'} rawMhs=${regimeSnapshot.marketState.mhsLabel} macroFreshness=${macroFreshness} staleSources=${regimeSnapshot.marketState.staleSources.join(',') || 'none'}`);
     const resolvedMhsEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : mhsEmoji;
     const resolvedRegimeEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : regimeEmoji;
     const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
@@ -74,7 +77,18 @@ const regime: TelegramCommand = {
       `sourceFreshness=${regimeDiagnostics.sourceFreshness}\n` +
       `━━━━━━━━━━━━━━━━\n` +
       freshnessLine +
-      formatMacroHardStaleGuide(regimeSnapshot);
+      formatMacroHardStaleGuide({
+        macroFreshness,
+        macroAgeSec: macroState.ageSec,
+        macroLastRefreshAttemptAt: macroState.lastRefreshAttemptAt,
+        macroRefreshJobLastRunAt: macroState.refreshJobLastRunAt,
+        mhs: regimeSnapshot.mhs,
+        regimeReleaseAllowed: regimeReleaseBlockedReason === 'NONE',
+        regimeReleaseBlockedReason,
+        providerIssue: regimeSnapshot.providerIssue,
+        marketSignal: regimeSnapshot.marketSignal,
+        executionImpact: macroState.executionImpact,
+      });
     console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=/regime bytes=${message.length}`);
     await reply(message);
     console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/regime`);

@@ -39,9 +39,6 @@ export function formatRegimeTelegramNow(
     `Effective regime: ${snapshot.effectiveRegime}`,
     `riskOverride=${snapshot.riskOverride} engineMode=${snapshot.engineMode}`,
     `dataHealth=${snapshot.sourceHealth} providerIssue=${snapshot.providerIssue} marketSignal=${snapshot.marketSignal}`,
-    `macroFreshness=${snapshot.macroFreshness ?? snapshot.marketState.macroState.freshness} macroAgeSec=${snapshot.macroAgeSec ?? snapshot.marketState.macroState.ageSec ?? 'N/A'}`,
-    `regimeReleaseAllowed=${snapshot.regimeReleaseAllowed ?? true} releaseBlockedReason=${snapshot.regimeReleaseBlockedReason ?? 'NONE'}`,
-    `executionImpact=${snapshot.executionImpact ?? snapshot.marketState.macroState.executionImpact}`,
     `conflicts=${snapshot.conflicts.join(',') || 'none'}`,
     '',
   ].join('\n');

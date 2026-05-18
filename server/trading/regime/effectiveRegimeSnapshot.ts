@@ -41,19 +41,6 @@ export interface RegimeSnapshot {
   stale: boolean;
   providerIssue: boolean;
   marketSignal: boolean;
-  macroFreshness?: string;
-  macroAgeSec?: number;
-  macroLastRefreshAttemptAt?: string;
-  macroRefreshJobLastRunAt?: string;
-  regimeReleaseAllowed?: boolean;
-  regimeReleaseBlockedReason?: string;
-  executionImpact?: string;
-  staleSources?: string[];
-  rawMhsLabel?: string;
-  rawBiasLabel?: string;
-  selectedDisplaySource?: string;
-  correctionApplied?: boolean;
-  userVisibleSafe?: boolean;
   conflicts: RegimeConflictCode[];
 }
 
