@@ -202,9 +202,10 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
       continue;
     }
 
+    const stockCode = normalizeStockCode(holding.stockCode);
     const currentPrice = finitePositive(holding.currentPrice) ?? finitePositive(holding.entryPrice);
     const currentPriceSource = holding.currentPrice !== undefined
-      ? priceLookup.sourceByCode.get(holding.stockCode) ?? 'VIRTUAL_ACCOUNT'
+      ? priceLookup.sourceByCode.get(stockCode) ?? 'VIRTUAL_ACCOUNT'
       : 'ENTRY_PRICE_FALLBACK';
     const unrealizedPnl = computeUnrealizedPnl(currentPrice, holding.entryPrice, holding.remainingQty);
     const unrealizedPct = computeUnrealizedPct(currentPrice, holding.entryPrice);
@@ -212,8 +213,8 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
     positions.push({
       source: 'VirtualAccount',
       tradeId: holding.tradeId,
-      stockCode: holding.stockCode,
-      stockName: holding.stockName || holding.stockCode,
+      stockCode,
+      stockName: holding.stockName || stockCode,
       qty: holding.remainingQty,
       entryPrice: holding.entryPrice,
       currentPrice,
@@ -344,11 +345,12 @@ function normalizeTradePosition(
   accountPosition: ActivePosition | undefined,
   priceLookup: PriceLookupSnapshot,
 ): TelegramPositionEntry {
+  const stockCode = normalizeStockCode(trade.stockCode);
   const entryPrice = finitePositive(trade.shadowEntryPrice) ?? finitePositive(trade.signalPrice) ?? 0;
-  const lookupPrice = finitePositive(accountPosition?.currentPrice) ?? finitePositive(priceLookup.prices[trade.stockCode]);
+  const lookupPrice = finitePositive(accountPosition?.currentPrice) ?? finitePositive(priceLookup.prices[stockCode]);
   const currentPrice = lookupPrice ?? finitePositive(entryPrice);
   const currentPriceSource = lookupPrice !== undefined
-    ? priceLookup.sourceByCode.get(trade.stockCode) ?? 'VIRTUAL_ACCOUNT'
+    ? priceLookup.sourceByCode.get(stockCode) ?? 'VIRTUAL_ACCOUNT'
     : currentPrice !== undefined
       ? 'ENTRY_PRICE_FALLBACK'
       : undefined;
@@ -359,8 +361,8 @@ function normalizeTradePosition(
   return {
     source,
     tradeId: trade.id,
-    stockCode: trade.stockCode,
-    stockName: trade.stockName || trade.stockCode,
+    stockCode,
+    stockName: trade.stockName || stockCode,
     qty,
     entryPrice,
     currentPrice,
@@ -379,8 +381,8 @@ async function resolvePriceLookup(
 ): Promise<PriceLookupSnapshot> {
   const codes = Array.from(new Set(
     trades
-      .map((trade) => trade.stockCode?.padStart(6, '0'))
-      .filter((code): code is string => typeof code === 'string' && code.length > 0),
+      .map((trade) => normalizeStockCode(trade.stockCode))
+      .filter((code): code is string => code.length > 0),
   ));
   const prices: Record<string, number> = {};
   const sourceByCode = new Map<string, PositionPriceSource>();
@@ -418,6 +420,11 @@ async function resolvePriceLookup(
   );
 
   return { prices, sourceByCode };
+}
+
+function normalizeStockCode(code: unknown): string {
+  const raw = String(code ?? '').trim();
+  return raw.length > 0 ? raw.padStart(6, '0') : '';
 }
 
 function finitePositive(value: unknown): number | undefined {
