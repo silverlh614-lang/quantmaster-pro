@@ -24,6 +24,12 @@ import {
   type PositionOrigin,
   type DualPositionDisplayInfo,
 } from '../../positionDisplayTags.js';
+import { aggregatePositionSourceResults } from './positionSourceAggregator.js';
+import type {
+  NormalizedPosition,
+  PositionSourceAggregate,
+  PositionSourceResult,
+} from './positionSourceTypes.js';
 
 const TELEGRAM_OPEN_SHADOW_STATUSES = new Set([
   'OPEN',
@@ -50,6 +56,7 @@ const TELEGRAM_CLOSED_SHADOW_STATUSES = new Set([
 ]);
 
 export type PositionSourceName =
+  | 'ShadowPositionRegistry'
   | 'ShadowPositionLedger'
   | 'ShadowTradeRepo'
   | 'VirtualAccount'
@@ -116,6 +123,8 @@ export interface PositionSourceSnapshot {
   positions: TelegramPositionEntry[];
   account: ShadowAccountState | null;
   counts: PositionSourceCounts;
+  sourceDiagnostics: PositionSourceResult[];
+  sourceAggregate: PositionSourceAggregate;
 }
 
 export interface PnlSourceCounts {
@@ -149,6 +158,8 @@ export interface PnlSourceSnapshot {
   closedTrades: ServerShadowTrade[];
   counts: PnlSourceCounts;
   pnl: ShadowPnlSummary;
+  sourceDiagnostics?: PositionSourceResult[];
+  sourceAggregate?: PositionSourceAggregate;
 }
 
 interface PriceLookupSnapshot {
@@ -194,6 +205,10 @@ export function resolveTelegramPositionMode(): PositionModeSnapshot {
 
 export async function aggregatePositionSources(): Promise<PositionSourceSnapshot> {
   const mode = resolveTelegramPositionMode();
+  const sourceAggregate = await aggregatePositionSourceResults({
+    mode: mode.liveTradingEnabled ? 'LIVE' : 'SHADOW',
+    includeLiveFallback: mode.liveTradingEnabled,
+  });
   const allTrades = loadShadowTrades();
   const displayableShadowTrades = allTrades
     .filter(isShadowLikeTrade)
@@ -294,14 +309,18 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
     seenTradeIds.add(holding.tradeId);
   }
 
+  appendAggregatorOnlyPositions(positions, seenTradeIds, sourceAggregate.positions, mode);
+
   const counts: PositionSourceCounts = {
-    shadowRegistryCount: 0,
+    shadowRegistryCount: countAggregateSourcePositions(sourceAggregate, 'ShadowPositionRegistry'),
     shadowLedgerCount: ledgerEntries.length,
     shadowTradeOpenCount: openRepoTrades.length,
     virtualHoldingCount: account?.openPositions.length ?? 0,
-    paperOpenCount: 0,
+    paperOpenCount: countAggregateSourcePositions(sourceAggregate, 'PaperTradeLedger'),
     internalCount: 0,
-    kisLiveCount: mode.liveTradingEnabled ? 0 : 'SKIPPED',
+    kisLiveCount: isAggregateSourceSkipped(sourceAggregate, 'KISLiveHolding')
+      ? 'SKIPPED'
+      : countAggregateSourcePositions(sourceAggregate, 'KISLiveHolding'),
     totalCount: positions.length,
   };
 
@@ -313,11 +332,22 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
       `kisLiveCount=${counts.kisLiveCount} totalCount=${counts.totalCount}`,
   );
 
-  return { mode, positions: attachDualPositionDisplay(positions), account, counts };
+  return {
+    mode,
+    positions: attachDualPositionDisplay(positions),
+    account,
+    counts,
+    sourceDiagnostics: sourceAggregate.results,
+    sourceAggregate,
+  };
 }
 
 export async function aggregatePnlSources(): Promise<PnlSourceSnapshot> {
   const mode = resolveTelegramPositionMode();
+  const sourceAggregate = await aggregatePositionSourceResults({
+    mode: mode.liveTradingEnabled ? 'LIVE' : 'SHADOW',
+    includeLiveFallback: mode.liveTradingEnabled,
+  });
   const allTrades = loadShadowTrades();
   const shadowTrades = allTrades
     .filter(isShadowLikeTrade)
@@ -350,7 +380,7 @@ export async function aggregatePnlSources(): Promise<PnlSourceSnapshot> {
     shadowRealizedCount,
     shadowOpenCount: openTrades.length,
     virtualAccountAvailable: account != null,
-    paperLedgerCount: 0,
+    paperLedgerCount: countAggregateSourcePositions(sourceAggregate, 'PaperTradeLedger'),
     livePnlSkipped: !mode.liveTradingEnabled,
     totalPnl: pnl.cumulativePnl,
   };
@@ -362,7 +392,16 @@ export async function aggregatePnlSources(): Promise<PnlSourceSnapshot> {
       `totalPnl=${Math.round(counts.totalPnl)}`,
   );
 
-  return { mode, account, openTrades, closedTrades, counts, pnl };
+  return {
+    mode,
+    account,
+    openTrades,
+    closedTrades,
+    counts,
+    pnl,
+    sourceDiagnostics: sourceAggregate.results,
+    sourceAggregate,
+  };
 }
 
 export function formatMoney(value: number | undefined | null): string {
@@ -479,6 +518,129 @@ function normalizeTradePosition(
     rMultiple,
     status: String(trade.status ?? 'OPEN'),
   };
+}
+
+function appendAggregatorOnlyPositions(
+  positions: TelegramPositionEntry[],
+  seenTradeIds: Set<string>,
+  normalizedPositions: NormalizedPosition[],
+  mode: PositionModeSnapshot,
+): void {
+  for (const normalized of normalizedPositions) {
+    const source = normalizeAggregateSourceName(normalized.source);
+    const tradeId = normalized.id ?? `${source}:${normalized.symbol}`;
+    if (seenTradeIds.has(tradeId)) {
+      continue;
+    }
+
+    positions.push(normalizeAggregatedPosition(normalized, source, tradeId, mode));
+    seenTradeIds.add(tradeId);
+  }
+}
+
+function normalizeAggregatedPosition(
+  normalized: NormalizedPosition,
+  source: PositionSourceName,
+  tradeId: string,
+  mode: PositionModeSnapshot,
+): TelegramPositionEntry {
+  const displayContext = buildDisplayContext(mode);
+  const positionKind = normalized.sourceTag as PositionKind;
+  const accountKind = accountKindForSourceTag(normalized.sourceTag);
+  const origin = originForSource(source);
+  const entrySource = source;
+  const liveOrderSent = normalized.sourceTag === 'LIVE';
+  const executionImpact: PositionExecutionImpact = normalized.sourceTag === 'LIVE' ? 'LIVE_POSITION' : 'NONE';
+  const priceSource = normalized.currentPrice !== undefined
+    ? (normalized.sourceTag === 'LIVE' ? 'KIS' : 'CACHE')
+    : 'MISSING';
+  const currentPriceSource = normalized.currentPrice !== undefined
+    ? (normalized.sourceTag === 'LIVE' ? 'KIS_REST' : 'VIRTUAL_ACCOUNT')
+    : 'ENTRY_PRICE_FALLBACK';
+  const entryPrice = finitePositive(normalized.avgPrice) ?? 0;
+
+  return {
+    source,
+    positionKind,
+    accountKind,
+    origin,
+    engineMode: displayContext.engineMode,
+    effectiveRegime: displayContext.effectiveRegime,
+    entrySource,
+    priceSource,
+    pnlKind: positionKind === 'LIVE' ? 'UNREALIZED_LIVE' : 'VIRTUAL_UNREALIZED',
+    liveOrderSent,
+    executionImpact,
+    sizingSource: undefined,
+    displayTags: buildPositionDisplayTags({
+      positionKind,
+      accountKind,
+      origin,
+      engineMode: displayContext.engineMode,
+      effectiveRegime: displayContext.effectiveRegime,
+      entrySource,
+      liveOrderSent,
+      executionImpact,
+    }),
+    tradeId,
+    stockCode: normalized.symbol,
+    stockName: normalized.name || normalized.symbol,
+    qty: normalized.qty,
+    entryPrice,
+    currentPrice: normalized.currentPrice,
+    currentPriceSource,
+    unrealizedPnl: normalized.unrealizedPnl ?? computeUnrealizedPnl(normalized.currentPrice, entryPrice, normalized.qty),
+    unrealizedPct: normalized.unrealizedPnlPct ?? computeUnrealizedPct(normalized.currentPrice, entryPrice),
+    realizedPnl: undefined,
+    rMultiple: undefined,
+    status: normalized.status ?? 'OPEN',
+  };
+}
+
+function normalizeAggregateSourceName(source: unknown): PositionSourceName {
+  const normalized = String(source ?? '');
+  if (
+    normalized === 'ShadowPositionRegistry' ||
+    normalized === 'ShadowPositionLedger' ||
+    normalized === 'ShadowTradeRepo' ||
+    normalized === 'VirtualAccount' ||
+    normalized === 'KISLiveHolding' ||
+    normalized === 'PaperTradeLedger'
+  ) {
+    return normalized;
+  }
+  return 'ShadowTradeRepo';
+}
+
+function accountKindForSourceTag(sourceTag: NormalizedPosition['sourceTag']): AccountKind {
+  if (sourceTag === 'LIVE') return 'KIS_LIVE';
+  if (sourceTag === 'PAPER') return 'PAPER_LEDGER';
+  return 'VIRTUAL_SHADOW';
+}
+
+function originForSource(source: PositionSourceName): PositionOrigin {
+  if (source === 'KISLiveHolding') return 'KIS_HOLDING';
+  if (source === 'PaperTradeLedger') return 'PAPER_TRADE_LEDGER';
+  if (source === 'VirtualAccount') return 'VIRTUAL_ACCOUNT';
+  if (source === 'ShadowTradeRepo') return 'SHADOW_TRADE_REPO';
+  return 'SHADOW_POSITION_LEDGER';
+}
+
+function countAggregateSourcePositions(
+  sourceAggregate: PositionSourceAggregate,
+  source: PositionSourceName,
+): number {
+  const result = sourceAggregate.results.find((item) => item.source === source);
+  return result?.kind === 'SUCCESS' ? result.positions.length : 0;
+}
+
+function isAggregateSourceSkipped(
+  sourceAggregate: PositionSourceAggregate,
+  source: PositionSourceName,
+): boolean {
+  const result = sourceAggregate.results.find((item) => item.source === source);
+  return result?.kind === 'EMPTY' &&
+    (result.diagnostics as { skipped?: unknown } | undefined)?.skipped !== undefined;
 }
 
 function buildDisplayContext(
