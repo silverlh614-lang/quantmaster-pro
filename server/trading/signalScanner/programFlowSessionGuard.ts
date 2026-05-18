@@ -13,6 +13,7 @@ export type ProgramFlowMarketSession =
   | 'REGULAR_SESSION'
   | 'CLOSING_SESSION'
   | 'AFTER_MARKET'
+  | 'POST_CLOSE'
   | 'MARKET_CLOSED'
   | 'UNKNOWN_SESSION';
 

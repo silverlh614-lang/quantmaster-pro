@@ -1072,9 +1072,13 @@ function classifyProgramNetBuyNullRootCause(input: {
 }
 
 function marketClosedProgramDataStatus(marketSession: ProgramFlowSessionGuard['marketSession']): string {
-  if (marketSession === 'AFTER_MARKET' || marketSession === 'CLOSING_SESSION') return 'NOT_EXPECTED_AFTER_MARKET';
+  if (marketSession === 'AFTER_MARKET' || marketSession === 'POST_CLOSE' || marketSession === 'CLOSING_SESSION') return 'NOT_EXPECTED_AFTER_MARKET';
   if (marketSession === 'PRE_MARKET' || marketSession === 'WARMUP_SESSION') return 'NOT_EXPECTED_PRE_MARKET';
   return 'NOT_EXPECTED_MARKET_CLOSED';
+}
+
+function marketClosedProgramReason(): string {
+  return 'MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED';
 }
 
 function nextActionForForensicRootCause(
@@ -1165,7 +1169,7 @@ function buildProgramFlowDiagnostics(
   const nextAction = nextActionForForensicRootCause(rootCause, marketCarryTrace, stockCarryTrace, legacyReason);
   const marketClosedProgramUnavailable = !sessionGuard.programFlowExpected;
   const marketProgramReason = marketClosedProgramUnavailable
-    ? 'MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED'
+    ? marketClosedProgramReason()
     : marketCarryTrace.marketProgramBreakPoint === 'KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS'
       ? 'MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY'
       : evidenceTrace.marketLevel.result;

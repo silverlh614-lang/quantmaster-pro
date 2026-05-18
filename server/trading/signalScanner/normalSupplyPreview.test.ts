@@ -741,7 +741,47 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).toContain('marketProgramBreakPoint: PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
     expect(text).not.toContain('marketProgramBreakPoint: INTRADAY_MARKET_PROGRAM_VALUE_NULL');
     expect(text).toContain('marketProgramDataStatus: NOT_EXPECTED_AFTER_MARKET');
+    expect(text).not.toContain('marketProgramDataStatus: ACCEPTED_EMPTY');
     expect(text).toContain('marketProgramReason=MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(text).not.toContain('marketProgramReason=ONLY_STATUS_NO_NUMERIC');
+    expect(text).not.toContain('marketProgramReason: ONLY_STATUS_NO_NUMERIC');
+  });
+
+  it('classifies after-market status-only market program payload as session-based unavailable', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T07:31:00.000Z',
+      marketProgramFlow: {
+        marketProgramStatus: 'ACCEPTED_EMPTY',
+        sourceProvider: 'NONE',
+        providerIssue: false,
+        executionImpact: 'NONE',
+      },
+      candidates: [baseCandidate({ programNetBuyAmount: null })] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.programFlowDiagnostics.sessionGuard.marketSession).toBe('AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.programFlowExpected).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
+    expect(preview.fieldAvailability.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.marketProgramReason).toBe('MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(preview.fieldAvailability.marketProgramReason).toBe('MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(preview.programFlowDiagnostics.marketProgramBreakPoint).toBe('PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.fieldAvailability.marketProgramBreakPoint).toBe('PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.programFlowDiagnostics.marketProgramProviderIssue).toBe(false);
+    expect(preview.programFlowDiagnostics.providerIssueSuppressedByMarketClosed).toBe(true);
+    expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+    expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+    expect(text).toContain('marketProgramDataStatus: NOT_EXPECTED_AFTER_MARKET');
+    expect(text).toContain('marketProgramReason=MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(text).not.toContain('marketProgramDataStatus: ACCEPTED_EMPTY');
+    expect(text).not.toContain('marketProgramReason=ONLY_STATUS_NO_NUMERIC');
+    expect(text).not.toContain('marketProgramReason: ONLY_STATUS_NO_NUMERIC');
   });
 
   it('does not display source NONE missing market program amount as zero while preserving real zero values', () => {
@@ -1266,6 +1306,10 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.programFlowDiagnostics.nextAction).toBe('RETRY_DURING_REGULAR_SESSION');
     expect(preview.programFlowDiagnostics.providerIssueSuppressedByMarketClosed).toBe(true);
     expect(preview.programFlowDiagnostics.programNetBuyNullRootCause).toBe('SESSION_EXPECTED_EMPTY');
+    expect(preview.programFlowDiagnostics.marketProgramDataStatus).toBe('NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.programFlowDiagnostics.marketProgramReason).toBe('MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(preview.programFlowDiagnostics.marketProgramBreakPoint).toBe('PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.programFlowDiagnostics.marketProgramProviderIssue).toBe(false);
     expect(preview.programFlowDiagnostics.providerCallsAdded).toBe(0);
     expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
     expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
