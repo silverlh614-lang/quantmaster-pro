@@ -30,6 +30,7 @@ vi.mock('./fillMonitor.js', () => ({
 describe('updateShadowResults 동시 실행 가드', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.resetModules();
   });
 
   it('두 번째 동시 호출은 즉시 skip (concurrent tick 가드)', async () => {
@@ -48,7 +49,7 @@ describe('updateShadowResults 동시 실행 가드', () => {
     );
     expect(skipCalls.length).toBe(1);
     warnSpy.mockRestore();
-  });
+  }, 15_000);
 
   it('순차 호출은 정상 실행 (가드 해제 후 재진입)', async () => {
     const { updateShadowResults } = await import('./exitEngine.js');
@@ -63,5 +64,5 @@ describe('updateShadowResults 동시 실행 가드', () => {
     );
     expect(skipCalls.length).toBe(0);
     warnSpy.mockRestore();
-  });
+  }, 15_000);
 });

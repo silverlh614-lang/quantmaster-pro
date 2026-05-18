@@ -33,6 +33,7 @@ export interface ReserveSellTransactionInput {
   requestedQty: number;
   reason: string;
   mode?: SellReservationMode;
+  availableQtyOverride?: number;
   now?: Date;
 }
 
@@ -87,10 +88,15 @@ function provisionalSellQty(trade: ServerShadowTrade): number {
     .reduce((sum, fill) => sum + fill.qty, 0);
 }
 
-function confirmedAvailableQty(trade: ServerShadowTrade): number {
+function confirmedAvailableQty(trade: ServerShadowTrade, fallbackAvailableQty = 0): number {
   const buyQty = activeBuyQty(trade);
   if (buyQty > 0) return Math.max(0, buyQty - confirmedSellQty(trade));
-  return Math.max(0, Math.floor(trade.originalQuantity ?? trade.quantity ?? 0));
+  return Math.max(
+    0,
+    Math.floor(trade.originalQuantity ?? 0),
+    Math.floor(trade.quantity ?? 0),
+    Math.floor(fallbackAvailableQty),
+  );
 }
 
 function pendingReservedQty(trade: ServerShadowTrade, positionId: string): number {
@@ -173,7 +179,7 @@ export const sellReservationManager = {
         return normalizeDuplicateBlocked(dedupKey);
       }
 
-      const availableQty = confirmedAvailableQty(input.trade);
+      const availableQty = confirmedAvailableQty(input.trade, input.availableQtyOverride);
       const reservedQty = pendingReservedQty(input.trade, positionId);
       const quantityGuard = checkSellQuantity({
         availableQty,
