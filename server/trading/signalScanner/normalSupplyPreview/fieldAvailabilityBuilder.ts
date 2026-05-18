@@ -5,6 +5,7 @@ import {
 } from './formatters.js';
 import type {
   ProgramFlowDiagnostic,
+  ProgramFlowDiagnosticsSummary,
   ProgramFlowEvidenceTrace,
 } from './programFlowTypes.js';
 import type {
@@ -26,9 +27,13 @@ const PROGRAM_FLOW_NOT_AVAILABLE_MARKET: ProgramFlowDiagnostic['marketLevel'] = 
 export function buildNormalSupplyFieldAvailability(
   candidates: NormalSupplyPreviewCandidate[],
   evidenceTrace?: ProgramFlowEvidenceTrace,
+  diagnostics?: ProgramFlowDiagnosticsSummary,
 ): NormalSupplyFieldAvailability {
   const marketProgram = candidates.find((candidate) => candidate.programFlow?.marketLevel)?.programFlow?.marketLevel
     ?? PROGRAM_FLOW_NOT_AVAILABLE_MARKET;
+  const marketProgramDataStatus = diagnostics?.marketProgramDataStatus
+    ?? stringField((marketProgram as unknown as Record<string, unknown>).marketProgramDataStatus)
+    ?? (marketProgram.available ? 'PARSED' : 'MISSING');
   const stockProgramAvailable = candidates.filter((candidate) => candidate.programFlow?.stockLevel.available).length;
   return {
     total: candidates.length,
@@ -59,13 +64,16 @@ export function buildNormalSupplyFieldAvailability(
           || evidenceTrace.marketLevel.snapshotContextFound
         )
       : false,
-    marketProgramBreakPoint: evidenceTrace?.marketLevel.breakPoint ?? 'UNKNOWN',
+    marketProgramBreakPoint: diagnostics?.marketProgramBreakPoint ?? evidenceTrace?.marketLevel.breakPoint ?? 'UNKNOWN',
+    marketProgramReason: diagnostics?.marketProgramReason ?? marketProgram.reason ?? evidenceTrace?.marketLevel.result ?? 'N/A',
+    marketProgramDataStatus,
+    marketProgramNetBuyAmount: diagnostics?.marketProgramNetBuyAmount ?? displayMarketProgramNetBuyAmount(marketProgram),
     marketProgramParsableFieldsFound: evidenceTrace?.marketLevel.parsableFieldsFound ?? [],
     marketProgramValueReasonTop: evidenceTrace ? formatReasonDistribution(evidenceTrace.marketLevel.valueReasonDistribution) : 'none',
     marketProgramSanitizedSample: evidenceTrace?.marketLevel.sanitizedSample,
     missingProgramFlowAsBearish: false,
-    marketProgramProviderIssue: marketProgram.providerIssue,
-    marketProgramMarketSignal: marketProgram.marketSignal,
+    marketProgramProviderIssue: diagnostics?.marketProgramProviderIssue ?? marketProgram.providerIssue,
+    marketProgramMarketSignal: diagnostics?.marketProgramMarketSignal ?? marketProgram.marketSignal,
     programPenaltyApplied: false,
     programFlowUsedForLiveDecision: false,
     passiveProxyUsedForLiveDecision: false,
@@ -76,4 +84,15 @@ export function buildNormalSupplyFieldAvailability(
     selectedCandidateCarriesSemanticRow: candidates.filter((candidate) => candidate.selectedCandidateCarriesSemanticRow).length,
     selectedCandidateCarriesActualRow: candidates.filter((candidate) => candidate.selectedCandidateCarriesActualRow).length,
   };
+}
+
+function displayMarketProgramNetBuyAmount(
+  marketProgram: ProgramFlowDiagnostic['marketLevel'],
+): number | 'N/A' {
+  if ((marketProgram.sourceProvider ?? 'NONE') === 'NONE') return 'N/A';
+  return marketProgram.combinedNetBuy ?? 'N/A';
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }

@@ -110,6 +110,9 @@ export interface NormalSupplyFieldAvailability {
   marketProgramSource: ProgramFlowSourceProvider;
   marketProgramContextFound: boolean;
   marketProgramBreakPoint: ProgramFlowEvidenceTrace['marketLevel']['breakPoint'];
+  marketProgramReason: string;
+  marketProgramDataStatus: string;
+  marketProgramNetBuyAmount: number | 'N/A';
   marketProgramParsableFieldsFound: string[];
   marketProgramValueReasonTop: string;
   marketProgramSanitizedSample?: string;

@@ -215,7 +215,6 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
     marketProgramFlow,
     programPopulation.trace,
   );
-  const fieldAvailability = buildNormalSupplyFieldAvailability(previewCandidates, programFlowEvidenceTrace);
   const marketCarryTrace = buildMarketProgramCarryForensicTrace(
     input.marketProgramCarrySource,
     input.marketProgramFlow,
@@ -237,6 +236,11 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
     sessionGuard,
     marketCarryTrace,
     stockCarryTrace,
+  );
+  const fieldAvailability = buildNormalSupplyFieldAvailability(
+    previewCandidates,
+    programFlowEvidenceTrace,
+    programFlowDiagnostics,
   );
 
   const preview = setLatestNormalSupplyPreview(
@@ -887,6 +891,10 @@ function buildMarketProgramCarryForensicTrace(
   const macroRecords = macro ? [macro] : [];
   const payloadRecords = payload ? collectProgramRecords(payload) : [];
   const macroValue = macro ? firstNormalizedProgramValue(macro, ['programNetBuyAmount', 'marketProgramNetBuy']) : undefined;
+  const macroSource = macro ? normalizeProgramSource(macro.programSource ?? macro.sourceProvider ?? macro.source) : 'N/A';
+  const macroValueAmount = macroSource !== 'NONE' && macroValue?.ok && macroValue.value !== undefined
+    ? macroValue.value
+    : undefined;
   const payloadValue = payload ? firstProgramValueNormalization(payloadRecords, MARKET_PROGRAM_NUMERIC_KEYS) : undefined;
   const payloadKeys = payload ? Object.keys(payload).sort() : [];
   const breakPoint = chooseMarketForensicBreakPoint({
@@ -899,9 +907,9 @@ function buildMarketProgramCarryForensicTrace(
   });
   return {
     macroStateFound: Boolean(macro),
-    macroStateProgramSource: macro ? normalizeProgramSource(macro.programSource ?? macro.sourceProvider ?? macro.source) : 'N/A',
-    macroStateProgramNetBuyAmountPresent: Boolean(macroValue?.ok && macroValue.value !== undefined),
-    macroStateProgramNetBuyAmountValue: macroValue?.ok && macroValue.value !== undefined ? macroValue.value : 'N/A',
+    macroStateProgramSource: macroSource,
+    macroStateProgramNetBuyAmountPresent: macroValueAmount !== undefined,
+    macroStateProgramNetBuyAmountValue: macroValueAmount ?? 'N/A',
     macroStateProgramArbitragePresent: macro
       ? normalizeProgramFlowValue(macro.programArbitrageNetBuy ?? macro.programArbitrageNetBuyAmount).ok
       : false,
@@ -1192,7 +1200,7 @@ function buildProgramFlowDiagnostics(
     marketProgramStatusFieldsFound: evidenceTrace.marketLevel.statusFieldsFound,
     marketProgramBreakPoint: marketCarryTrace.marketProgramBreakPoint,
     marketProgramReason,
-    marketProgramNetBuyAmount: marketProgramFlow.combinedNetBuy ?? 'N/A',
+    marketProgramNetBuyAmount: displayMarketProgramNetBuyAmount(marketProgramFlow),
     marketProgramDataStatus,
     kisAttempted: (marketProgramFlow as unknown as Record<string, unknown>).kisAttempted === true,
     kisStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).kisStatus) ?? 'NOT_ATTEMPTED',
@@ -1227,6 +1235,13 @@ function buildProgramFlowDiagnostics(
     nextAction,
     executionImpact: 'NONE',
   };
+}
+
+function displayMarketProgramNetBuyAmount(
+  marketProgramFlow: ProgramFlowDiagnostic['marketLevel'],
+): number | 'N/A' {
+  if ((marketProgramFlow.sourceProvider ?? 'NONE') === 'NONE') return 'N/A';
+  return marketProgramFlow.combinedNetBuy ?? 'N/A';
 }
 
 export function deriveNormalSupplyPreviewEngineMode(input: {

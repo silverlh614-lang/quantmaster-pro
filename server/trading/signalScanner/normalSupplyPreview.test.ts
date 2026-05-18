@@ -724,7 +724,11 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.programFlowDiagnostics.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
     expect(preview.programFlowDiagnostics.marketProgramReason).toBe('MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
     expect(preview.programFlowDiagnostics.marketProgramBreakPoint).toBe('PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.fieldAvailability.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
+    expect(preview.fieldAvailability.marketProgramReason).toBe('MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+    expect(preview.fieldAvailability.marketProgramBreakPoint).toBe(preview.programFlowDiagnostics.marketProgramBreakPoint);
     expect(preview.programFlowDiagnostics.marketProgramProviderIssue).toBe(false);
+    expect(preview.fieldAvailability.marketProgramProviderIssue).toBe(false);
     expect(preview.programFlowDiagnostics.providerIssueSuppressedByMarketClosed).toBe(true);
     expect(preview.candidates[0]?.programFlow?.stockLevel.available).toBe(true);
     expect(preview.candidates[0]?.programFlow?.stockLevel.netBuy).toBe(1234);
@@ -734,8 +738,66 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
     expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
     expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+    expect(text).toContain('marketProgramBreakPoint: PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(text).not.toContain('marketProgramBreakPoint: INTRADAY_MARKET_PROGRAM_VALUE_NULL');
     expect(text).toContain('marketProgramDataStatus: NOT_EXPECTED_AFTER_MARKET');
     expect(text).toContain('marketProgramReason=MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED');
+  });
+
+  it('does not display source NONE missing market program amount as zero while preserving real zero values', () => {
+    const sourceNone = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T07:31:00.000Z',
+      marketProgramCarrySource: {
+        programNetBuyAmount: 0,
+        programSource: 'NONE',
+      },
+      marketProgramFlow: {
+        available: false,
+        source: 'NONE',
+        sourceProvider: 'NONE',
+        netBuyAmount: null,
+        combinedNetBuy: null,
+        providerIssue: false,
+        signal: 'UNAVAILABLE',
+        marketSignal: false,
+        marketProgramDataStatus: 'ACCEPTED_EMPTY',
+        executionImpact: 'NONE',
+      },
+      candidates: [baseCandidate({ programNetBuyAmount: null })] as any,
+    });
+    const sourceNoneText = formatNormalSupplyPreviewFullSections(sourceNone).join('\n');
+    expect(sourceNone.programFlowDiagnostics.marketCarryTrace.macroStateProgramSource).toBe('NONE');
+    expect(sourceNone.programFlowDiagnostics.marketCarryTrace.macroStateProgramNetBuyAmountPresent).toBe(false);
+    expect(sourceNone.programFlowDiagnostics.marketCarryTrace.macroStateProgramNetBuyAmountValue).toBe('N/A');
+    expect(sourceNone.programFlowDiagnostics.marketProgramNetBuyAmount).toBe('N/A');
+    expect(sourceNone.fieldAvailability.marketProgramNetBuyAmount).toBe('N/A');
+    expect(sourceNoneText).toContain('macroStateProgramNetBuyAmountValue=N/A');
+    expect(sourceNoneText).not.toContain('macroStateProgramNetBuyAmountValue=0');
+
+    const realZero = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T01:00:00.000Z',
+      marketProgramCarrySource: {
+        programNetBuyAmount: 0,
+        programSource: 'KIS_API',
+      },
+      marketProgramFlow: {
+        marketProgramNetBuy: 0,
+        sourceProvider: 'KIS_API',
+        executionImpact: 'NONE',
+        providerIssue: false,
+        marketSignal: false,
+      },
+      candidates: [baseCandidate({ programNetBuyAmount: null })] as any,
+    });
+    expect(realZero.programFlowDiagnostics.marketCarryTrace.macroStateProgramSource).toBe('KIS_API');
+    expect(realZero.programFlowDiagnostics.marketCarryTrace.macroStateProgramNetBuyAmountPresent).toBe(true);
+    expect(realZero.programFlowDiagnostics.marketCarryTrace.macroStateProgramNetBuyAmountValue).toBe(0);
+    expect(realZero.programFlowDiagnostics.marketProgramNetBuyAmount).toBe(0);
+    expect(realZero.fieldAvailability.marketProgramNetBuyAmount).toBe(0);
   });
 
   it('traces context found with no program fields to upstream numeric field wiring', () => {
