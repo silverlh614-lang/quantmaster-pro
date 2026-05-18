@@ -93,13 +93,11 @@ export interface KisOrderGatewayDeps {
     trId: string,
     apiPath: string,
     body: Record<string, string>,
-    priorityOrOptions?: unknown,
   ) => Promise<unknown>;
   kisGet: (
     trId: string,
     apiPath: string,
     params: Record<string, string>,
-    priorityOrOptions?: unknown,
   ) => Promise<unknown>;
   isKisConfigured: () => boolean;
   isReal: boolean;
