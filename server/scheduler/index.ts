@@ -27,6 +27,7 @@ import { registerRuntimeDebugSnapshotJob } from './runtimeDebugSnapshotJob.js';
 import { registerHealthLoop } from './healthLoop.js';
 import { registerPostHolidayKickstart } from './postHolidayKickstart.js';
 import { registerInvestorFlowWarmupJobs } from './investorFlowWarmupJob.js';
+import { registerProgramAutoCaptureJobs } from './programAutoCaptureJob.js';
 import { registerCredentialExpiryWatchdog } from '../health/credentialExpiryWatchdog.js';
 import { sendStartupExecutionContextAlert } from '../alerts/startupExecutionContext.js';
 import { getRegisteredJobNames } from './scheduleGuard.js';
@@ -40,6 +41,8 @@ const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
   'investor_flow_warmup_lunch',
   'investor_flow_warmup_preclose',
   'system_daily_flush',
+  'program_auto_capture_morning',
+  'program_auto_capture_afternoon',
 ];
 
 export function startScheduler(): void {
@@ -54,6 +57,7 @@ export function startScheduler(): void {
   registerCredentialExpiryWatchdog();
   registerPostHolidayKickstart();
   registerInvestorFlowWarmupJobs();
+  registerProgramAutoCaptureJobs();
   registerKisStreamJobs();
   registerLearningJobs();
   registerTradeFlowJobs();
