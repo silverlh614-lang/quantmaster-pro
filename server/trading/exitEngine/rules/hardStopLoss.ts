@@ -6,13 +6,12 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { applyTwoBarBepGate } from '../helpers/twoBarBepGate.js';
@@ -120,9 +119,8 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
     }
   }
   console.log(`[AutoTrade] ❌ ${shadow.stockName} (${shadow.stockCode}) 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-  const hardStopRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
   const hardStopTs = new Date().toISOString();
-  const hardStopReserve = reserveSell(shadow, hardStopRes, {
+  const hardStopReserve = await placeReservedSellOrder(shadow, soldQty, 'STOP_LOSS', {
     type: 'SELL', subType: 'STOP_LOSS',
     qty: soldQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,

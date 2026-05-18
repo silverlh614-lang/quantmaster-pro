@@ -6,12 +6,11 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { checkEuphoria } from '../../riskManager.js';
 
 export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleResult> {
@@ -36,9 +35,8 @@ export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleRes
     euphoriaSoldQty: halfQty,
     originalQuantity: shadow.originalQuantity,
   });
-  const euphoriaRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'EUPHORIA');
   const euphoriaTs = new Date().toISOString();
-  const euphoriaReserve = reserveSell(shadow, euphoriaRes, {
+  const euphoriaReserve = await placeReservedSellOrder(shadow, halfQty, 'EUPHORIA', {
     type: 'SELL', subType: 'PARTIAL_TP',
     qty: halfQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,

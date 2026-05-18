@@ -1,11 +1,10 @@
 // @responsibility R6_DEFENSE emergency forced exit for LIVE positions only
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import {
   formatR6ShadowHoldMessage,
 } from '../r6ForcedExitPolicy.js';
@@ -100,9 +99,8 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
   appendShadowLog({ event: 'R6_EMERGENCY_EXIT', ...shadow, soldQty: emergencyQty, returnPct });
   console.log(`[AutoTrade] ${shadow.stockName} (${shadow.stockCode}) R6 emergency liquidation 30% (${emergencyQty} @${currentPrice.toLocaleString()})`);
 
-  const r6Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, emergencyQty, 'STOP_LOSS');
   const r6Ts = new Date().toISOString();
-  const r6Reserve = reserveSell(shadow, r6Res, {
+  const r6Reserve = await placeReservedSellOrder(shadow, emergencyQty, 'STOP_LOSS', {
     type: 'SELL',
     subType: 'EMERGENCY',
     qty: emergencyQty,

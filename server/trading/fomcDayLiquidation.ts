@@ -8,7 +8,7 @@
  *   - runFomcDayMorningAlert(now?)            — 09:00 사전 경보
  *   - runFomcDayPreLiquidationAlert(now?)     — 14:00 30분 전 경보
  *
- * KIS 호출은 reserveSell SSOT 만 경유 — kisClient.placeKisSellOrder 를 호출 후
+ * KIS 호출은 placeReservedSellOrder SSOT 만 경유 — sell reservation 선점 후
  * 결과를 reserveSell 에 위임 (절대 규칙 #2/#4 — kisClient 단일 통로 / autoTradeEngine
  * 외 LIVE 실주문 금지). 청산 자체가 매매 본체이므로 본 모듈이 placeKisSellOrder 를
  * 직접 부르되, fill 회계는 reserveSell 의 PROVISIONAL/CONFIRMED/FAILED 분기를 그대로
@@ -23,8 +23,7 @@ import {
   appendShadowLog,
   type ServerShadowTrade,
 } from '../persistence/shadowTradeRepo.js';
-import { reserveSell } from './exitEngine/helpers/reserveSell.js';
-import { placeKisSellOrder } from '../clients/kisClient.js';
+import { placeReservedSellOrder } from './exitEngine/helpers/reserveSell.js';
 import { addSellOrder } from './fillMonitor.js';
 import { sendPrivateAlert } from '../alerts/telegramClient.js';
 import { getEmergencyStop } from '../state.js';
@@ -146,8 +145,8 @@ export async function liquidateAllForFomc(
     }
 
     try {
-      // exitEngine.r6EmergencyExit 와 동일 패턴: placeKisSellOrder → reserveSell.
-      // SHADOW 모드는 placeKisSellOrder 가 outcome='SHADOW_ONLY' 반환 → reserveSell 이 가상 체결.
+      // exitEngine.r6EmergencyExit 와 동일 패턴: pre-reserve → KIS sell → reserveSell.
+      // SHADOW 모드는 placeReservedSellOrder 가 outcome='SHADOW_ONLY' 반환 → reserveSell 이 가상 체결.
       // LIVE 실패는 outcome='LIVE_FAILED' 반환 → reserveSell 이 status='FAILED' 반환.
       trade.exitRuleTag = 'FOMC_DAY_LIQUIDATION';
       appendShadowLog({
@@ -160,18 +159,12 @@ export async function liquidateAllForFomc(
       // ADR-0104 — FOMC DAY 자동 청산은 'FOMC_DAY_LIQUIDATION' reason 으로 발송 →
       // 텔레그램 메시지가 "🔴 [SHADOW 손절]" 가 아닌 "📅 [SHADOW FOMC 자동청산]" 로 표기.
       // 사용자 보고 (4/29): "수익인 종목도 손실 표현됨" 의 오해 차단.
-      const orderRes = await placeKisSellOrder(
-        trade.stockCode,
-        trade.stockName,
-        qty,
-        'FOMC_DAY_LIQUIDATION',
-      );
-
       const ts = new Date().toISOString();
       const pnl = (0 - trade.shadowEntryPrice) * qty; // 시장가라 실제 체결가 모름 — placeholder
-      const r = reserveSell(
+      const r = await placeReservedSellOrder(
         trade,
-        orderRes,
+        qty,
+        'FOMC_DAY_LIQUIDATION',
         {
           type: 'SELL',
           subType: 'FULL_CLOSE',

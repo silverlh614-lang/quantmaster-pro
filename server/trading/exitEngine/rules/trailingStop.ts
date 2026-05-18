@@ -5,12 +5,11 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
@@ -57,9 +56,8 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
   console.log(`[Shadow Close] TRAILING_PROTECTIVE_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'TRAILING_STOP', ...shadow, soldQty });
   console.log(`[AutoTrade] 📉 ${shadow.stockName} (${shadow.stockCode}) L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
-  const trailRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
   const trailTs = new Date().toISOString();
-  const trailReserve = reserveSell(shadow, trailRes, {
+  const trailReserve = await placeReservedSellOrder(shadow, soldQty, 'TAKE_PROFIT', {
     type: 'SELL', subType: 'TRAILING_TP',
     qty: soldQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,

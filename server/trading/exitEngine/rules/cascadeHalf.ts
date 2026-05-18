@@ -5,11 +5,10 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 
 export async function cascadeHalf(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct } = ctx;
@@ -24,9 +23,8 @@ export async function cascadeHalf(ctx: ExitContext): Promise<ExitRuleResult> {
   shadow.exitRuleTag = 'CASCADE_HALF_SELL';
   appendShadowLog({ event: 'CASCADE_HALF_SELL', ...shadow, soldQty: halfQty, returnPct });
   console.log(`[AutoTrade] 🔶 ${shadow.stockName} (${shadow.stockCode}) Cascade -15% — 반매도 ${halfQty}주 (잔여 ${shadow.quantity - halfQty}주)`);
-  const cascadeHalfRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, halfQty, 'STOP_LOSS');
   const cascadeHalfTs = new Date().toISOString();
-  const cascadeHalfReserve = reserveSell(shadow, cascadeHalfRes, {
+  const cascadeHalfReserve = await placeReservedSellOrder(shadow, halfQty, 'STOP_LOSS', {
     type: 'SELL', subType: 'STOP_LOSS',
     qty: halfQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * halfQty,

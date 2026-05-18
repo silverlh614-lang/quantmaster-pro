@@ -5,12 +5,11 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
@@ -47,9 +46,8 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
   console.log(`[Shadow Close] TARGET_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'HIT_TARGET', ...shadow, soldQty });
   console.log(`[AutoTrade] ✅ ${shadow.stockName} (${shadow.stockCode}) 목표가 달성 +${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-  const targetRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'TAKE_PROFIT');
   const targetTs = new Date().toISOString();
-  const targetReserve = reserveSell(shadow, targetRes, {
+  const targetReserve = await placeReservedSellOrder(shadow, soldQty, 'TAKE_PROFIT', {
     type: 'SELL', subType: 'FULL_CLOSE',
     qty: soldQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,

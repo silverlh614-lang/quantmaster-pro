@@ -22,11 +22,10 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 
 /** 진입 후 본 규칙이 활성화되는 최대 시간 (분). 이 시간 지나면 일반 손절/Cascade 가 담당. */
 export const ENTRY_CIRCUIT_HOLDING_MINUTES_MAX = 60;
@@ -91,9 +90,8 @@ export async function entryCircuitBreaker(ctx: ExitContext): Promise<ExitRuleRes
     `→ ${sellQty}주 즉시 청산 (잔여 ${shadow.quantity - sellQty}주)`,
   );
 
-  const sellRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'STOP_LOSS');
   const ts = new Date().toISOString();
-  const reserve = reserveSell(shadow, sellRes, {
+  const reserve = await placeReservedSellOrder(shadow, sellQty, 'STOP_LOSS', {
     type: 'SELL', subType: 'STOP_LOSS',
     qty: sellQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,

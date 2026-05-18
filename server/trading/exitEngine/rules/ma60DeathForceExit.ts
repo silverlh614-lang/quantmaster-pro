@@ -7,13 +7,12 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { fetchMaFromCloses, isMA60Death, kstBusinessDateStr } from '../helpers/ma60.js';
@@ -65,9 +64,8 @@ export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResu
   console.log(`[Shadow Close] MA60_DEATH_FORCE_EXIT — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'MA60_DEATH_FORCE_EXIT', ...shadow, soldQty });
   console.log(`[AutoTrade] ⚰️ ${shadow.stockName} MA60 죽음 강제 청산 ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);
-  const ma60Res = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
   const ma60Ts = new Date().toISOString();
-  const ma60Reserve = reserveSell(shadow, ma60Res, {
+  const ma60Reserve = await placeReservedSellOrder(shadow, soldQty, 'STOP_LOSS', {
     type: 'SELL', subType: 'EMERGENCY',
     qty: soldQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
