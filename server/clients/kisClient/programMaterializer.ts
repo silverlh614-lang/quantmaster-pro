@@ -93,6 +93,43 @@ const MARKET_PROGRAM_STATUS_SUPPRESS_TTL_MS: Record<string, number> = {
 };
 let lastMarketProgramStatusLog: { key: string; loggedAt: number; suppressedCount: number; lastSelectedBsopHour?: string } | null = null;
 
+const MARKET_PROGRAM_NET_BUY_AMOUNT_KEYS = [
+  'marketProgramNetBuy',
+  'programNetBuy',
+  'programNetBuyAmount',
+  'programNetValue',
+  'totalProgramNetBuy',
+  'totalProgramNetBuyAmount',
+  'kospiProgramNetBuy',
+  'kosdaqProgramNetBuy',
+  'netBuyAmount',
+  'prgmNetBuy',
+  'prgmNetBuyAmount',
+  'whol_smtn_ntby_tr_pbmn',
+  'prgm_ntby_tr_pbmn',
+  'prgm_ntby_tr_pbmn_2',
+  'PRGM_NTBY_TR_PBMN',
+];
+const MARKET_PROGRAM_QTY_KEYS = ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY'];
+const MARKET_PROGRAM_ARBITRAGE_NET_KEYS = [
+  'programArbitrageNetBuyAmount',
+  'arbitrageNetBuy',
+  'arbitrageNetBuyAmount',
+  'arbt_smtn_ntby_tr_pbmn',
+  'arbt_ntby_tr_pbmn',
+  'ARBT_NTBY_TR_PBMN',
+  'arbt_ntby_tr_pbmn_2',
+];
+const MARKET_PROGRAM_NON_ARBITRAGE_NET_KEYS = [
+  'nonArbitrageNetBuy',
+  'nonArbitrageNetBuyAmount',
+  'nabt_smtn_ntby_tr_pbmn',
+  'nabt_ntby_tr_pbmn',
+  'NABT_NTBY_TR_PBMN',
+];
+const MARKET_PROGRAM_BUY_KEYS = ['programBuyAmount', 'marketProgramBuyAmount', 'buyAmount', 'arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn'];
+const MARKET_PROGRAM_SELL_KEYS = ['programSellAmount', 'marketProgramSellAmount', 'sellAmount', 'arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn'];
+
 function logMarketProgramStatusDiagnostic(diag: MarketProgramMaterializerDiagnostics, nowMs = Date.now()): void {
   if (process.env.NODE_ENV === 'test') return;
   const key = `MARKET_PROGRAM_STATUS:${diag.status}:${diag.selectedBsopHour ?? 'NONE'}:${diag.zeroReason ?? 'NONE'}`;
@@ -249,18 +286,26 @@ function compareBsopHourDesc(a: string | undefined, b: string | undefined): numb
 }
 
 export function normalizeMarketProgramRow(raw: KisOutput, index: number): MarketProgramRow {
+  const directSell = firstPresent(raw, MARKET_PROGRAM_SELL_KEYS);
+  const directBuy = firstPresent(raw, MARKET_PROGRAM_BUY_KEYS);
   const arbitrageSell = firstPresent(raw, ['arbt_smtn_seln_tr_pbmn']);
   const arbitrageBuy = firstPresent(raw, ['arbt_smtn_shnu_tr_pbmn']);
   const nonArbitrageSell = firstPresent(raw, ['nabt_smtn_seln_tr_pbmn']);
   const nonArbitrageBuy = firstPresent(raw, ['nabt_smtn_shnu_tr_pbmn']);
-  const arbitrageNet = firstPresent(raw, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2']);
-  const nonArbitrageNet = firstPresent(raw, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']);
-  const wholeNet = firstPresent(raw, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']);
-  const qty = firstPresent(raw, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']);
-  const diagnostics = [arbitrageSell, arbitrageBuy, nonArbitrageSell, nonArbitrageBuy, arbitrageNet, nonArbitrageNet, wholeNet, qty];
-  const programBuyAmount = arbitrageBuy.value + nonArbitrageBuy.value;
-  const programSellAmount = arbitrageSell.value + nonArbitrageSell.value;
-  const programNetBuyAmount = wholeNet.present ? wholeNet.value : arbitrageNet.value + nonArbitrageNet.value;
+  const arbitrageNet = firstPresent(raw, MARKET_PROGRAM_ARBITRAGE_NET_KEYS);
+  const nonArbitrageNet = firstPresent(raw, MARKET_PROGRAM_NON_ARBITRAGE_NET_KEYS);
+  const wholeNet = firstPresent(raw, MARKET_PROGRAM_NET_BUY_AMOUNT_KEYS);
+  const qty = firstPresent(raw, MARKET_PROGRAM_QTY_KEYS);
+  const diagnostics = [directSell, directBuy, arbitrageSell, arbitrageBuy, nonArbitrageSell, nonArbitrageBuy, arbitrageNet, nonArbitrageNet, wholeNet, qty];
+  const programBuyAmount = directBuy.present ? directBuy.value : arbitrageBuy.value + nonArbitrageBuy.value;
+  const programSellAmount = directSell.present ? directSell.value : arbitrageSell.value + nonArbitrageSell.value;
+  const programNetBuyAmount = wholeNet.present
+    ? wholeNet.value
+    : arbitrageNet.present || nonArbitrageNet.present
+      ? arbitrageNet.value + nonArbitrageNet.value
+      : directBuy.present && directSell.present
+        ? directBuy.value - directSell.value
+        : 0;
   const numericValues = [programBuyAmount, programSellAmount, programNetBuyAmount, arbitrageNet.value, nonArbitrageNet.value, qty.value];
   return {
     bsopHour: normalizeBsopHour(raw.bsop_hour),
@@ -373,17 +418,21 @@ export function materializeKisMarketProgramTrade(data: unknown, fetchedAt = new 
     return { parserSource: 'programMaterializer', status: 'FIELD_MISSING', materialized: null, outputPath: path, rowCount: rawRows.length, outputKeys, parsedFields: [], diagnostics };
   }
 
-  const wholeNet = num(row.raw, ['whol_smtn_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn', 'prgm_ntby_tr_pbmn_2', 'PRGM_NTBY_TR_PBMN']);
-  const arbNet = num(row.raw, ['arbt_smtn_ntby_tr_pbmn', 'arbt_ntby_tr_pbmn', 'ARBT_NTBY_TR_PBMN', 'arbt_ntby_tr_pbmn_2']);
-  const nonArbNet = num(row.raw, ['nabt_smtn_ntby_tr_pbmn', 'nabt_ntby_tr_pbmn', 'NABT_NTBY_TR_PBMN']);
-  const computedNet = wholeNet ?? (arbNet !== null || nonArbNet !== null ? (arbNet ?? 0) + (nonArbNet ?? 0) : null);
+  const wholeNet = num(row.raw, MARKET_PROGRAM_NET_BUY_AMOUNT_KEYS);
+  const arbNet = num(row.raw, MARKET_PROGRAM_ARBITRAGE_NET_KEYS);
+  const nonArbNet = num(row.raw, MARKET_PROGRAM_NON_ARBITRAGE_NET_KEYS);
+  const buyAmountForNet = sum(row.raw, MARKET_PROGRAM_BUY_KEYS);
+  const sellAmountForNet = sum(row.raw, MARKET_PROGRAM_SELL_KEYS);
+  const computedNet = wholeNet
+    ?? (arbNet !== null || nonArbNet !== null ? (arbNet ?? 0) + (nonArbNet ?? 0) : null)
+    ?? (buyAmountForNet !== null && sellAmountForNet !== null ? buyAmountForNet - sellAmountForNet : null);
   const parsed = {
-    programNetBuyQty: num(row.raw, ['whol_smtn_ntby_qty', 'prgm_ntby_qty', 'prgm_ntby_qty_2', 'PRGM_NTBY_QTY']),
+    programNetBuyQty: num(row.raw, MARKET_PROGRAM_QTY_KEYS),
     programNetBuyAmount: computedNet,
     programArbitrageNetBuy: arbNet,
     programNonArbitrageNetBuy: nonArbNet,
-    programSellAmount: sum(row.raw, ['arbt_smtn_seln_tr_pbmn', 'nabt_smtn_seln_tr_pbmn']),
-    programBuyAmount: sum(row.raw, ['arbt_smtn_shnu_tr_pbmn', 'nabt_smtn_shnu_tr_pbmn']),
+    programSellAmount: sum(row.raw, MARKET_PROGRAM_SELL_KEYS),
+    programBuyAmount: sum(row.raw, MARKET_PROGRAM_BUY_KEYS),
   };
   const parsedFields = Object.entries(parsed).filter(([, v]) => v !== null).map(([k]) => k);
   const diagStatus: MarketProgramStatus = rows.some((r) => r.hasNonZeroValue) ? 'OK_NONZERO' : 'OK_RAW_ZERO';
@@ -415,7 +464,9 @@ export function materializeKisMarketProgramTrade(data: unknown, fetchedAt = new 
       marketSignal: diagnostics.marketSignal,
       scoring: diagnostics.scoring,
       executionImpact: diagnostics.executionImpact,
-      aggregateDiagnostic: diagnostics as unknown as Record<string, unknown>,
+      rawFieldKeys: outputKeys,
+      parsedFieldName: parsedFields[0],
+      aggregateDiagnostic: { ...diagnostics, outputKeys, parsedFields } as unknown as Record<string, unknown>,
     },
     outputPath: diagnostics.selectedPath,
     rowCount: rawRows.length,
