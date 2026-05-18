@@ -932,12 +932,37 @@ function chooseMarketForensicBreakPoint(input: {
   if (input.macro && normalizeProgramFlowValue(input.macro.programNetBuyAmount).ok && !input.payload) {
     return 'MARKET_PROGRAM_CARRY_PAYLOAD_MISSING';
   }
-  if (input.payload && input.payloadValue && !input.payloadValue.ok) return 'MARKET_PROGRAM_CONSUMER_PARSE_FAILED';
+  if (isAcceptedEmptyKrxEmptyCacheMiss(input.marketProgramFlow)) return 'KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS';
+  if (input.payload && input.payloadValue && isMarketProgramConsumerParseFailure(input.payloadValue)) return 'MARKET_PROGRAM_CONSUMER_PARSE_FAILED';
   const source = input.macro ? normalizeProgramSource(input.macro.programSource ?? input.macro.sourceProvider ?? input.macro.source) : 'NONE';
   if (source === 'NONE' || input.upstream.breakPoint === 'NO_UPSTREAM_MARKET_PROGRAM_VALUE') {
     return 'MARKET_PROGRAM_UPSTREAM_VALUE_MISSING_REGULAR_SESSION';
   }
   return input.upstream.breakPoint;
+}
+
+function isAcceptedEmptyKrxEmptyCacheMiss(marketProgramFlow: ProgramFlowDiagnostic['marketLevel']): boolean {
+  const diagnostics = marketProgramFlow as unknown as Record<string, unknown>;
+  return marketProgramFlow.available === false
+    && marketProgramFlow.sourceProvider === 'NONE'
+    && marketProgramFlow.signal === 'UNAVAILABLE'
+    && marketProgramFlow.providerIssue === false
+    && diagnostics.marketProgramDataStatus === 'ACCEPTED_EMPTY'
+    && diagnostics.kisAttempted === true
+    && diagnostics.kisStatus === 'ACCEPTED_EMPTY'
+    && diagnostics.krxFallbackAttempted === true
+    && diagnostics.krxFallbackStatus === 'EMPTY'
+    && diagnostics.cacheFallbackAttempted === true
+    && diagnostics.cacheStatus === 'MISS';
+}
+
+function isMarketProgramConsumerParseFailure(value: ProgramFlowValueNormalizationResult): boolean {
+  return value.rawKind !== 'null'
+    && value.rawKind !== 'undefined'
+    && value.reason !== 'PROGRAM_VALUE_NULL'
+    && value.reason !== 'PROGRAM_VALUE_EMPTY'
+    && value.reason !== 'PROGRAM_VALUE_NA'
+    && value.reason !== 'PROGRAM_VALUE_PLACEHOLDER';
 }
 
 function buildPerStockProgramCarryForensicTrace<T extends CandidateWithSupplyContext>(
@@ -1124,6 +1149,9 @@ function buildProgramFlowDiagnostics(
       ? 'PROGRAM_FLOW_EXPECTED_BUT_VALUE_MISSING_DIAGNOSTIC_ONLY'
       : 'PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED';
   const nextAction = nextActionForForensicRootCause(rootCause, marketCarryTrace, stockCarryTrace, legacyReason);
+  const marketProgramReason = marketCarryTrace.marketProgramBreakPoint === 'KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS'
+    ? 'MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY'
+    : evidenceTrace.marketLevel.result;
   return {
     stockProgramRowsAvailable,
     stockProgramRowsWithAnyProgramKey: stockAny,
@@ -1151,7 +1179,7 @@ function buildProgramFlowDiagnostics(
     marketProgramSanitizedSample: evidenceTrace.marketLevel.sanitizedSample,
     marketProgramStatusFieldsFound: evidenceTrace.marketLevel.statusFieldsFound,
     marketProgramBreakPoint: marketCarryTrace.marketProgramBreakPoint,
-    marketProgramReason: evidenceTrace.marketLevel.result,
+    marketProgramReason,
     marketProgramNetBuyAmount: marketProgramFlow.combinedNetBuy ?? 'N/A',
     marketProgramDataStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).marketProgramDataStatus) ?? (marketProgramAvailable ? 'PARSED' : 'MISSING'),
     kisAttempted: (marketProgramFlow as unknown as Record<string, unknown>).kisAttempted === true,

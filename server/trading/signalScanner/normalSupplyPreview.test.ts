@@ -630,6 +630,59 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).toContain('passiveProxyUsedForLiveDecision=false');
   });
 
+  it('keeps accepted-empty market program diagnostics out of consumer parse failure', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T01:00:00.000Z',
+      marketProgramFlow: {
+        available: false,
+        source: 'NONE',
+        sourceProvider: 'NONE',
+        netBuyAmount: null,
+        combinedNetBuy: null,
+        providerIssue: false,
+        signal: 'UNAVAILABLE',
+        marketSignal: false,
+        marketProgramDataStatus: 'ACCEPTED_EMPTY',
+        kisAttempted: true,
+        kisStatus: 'ACCEPTED_EMPTY',
+        krxFallbackAttempted: true,
+        krxFallbackStatus: 'EMPTY',
+        cacheFallbackAttempted: true,
+        cacheStatus: 'MISS',
+        executionImpact: 'NONE',
+        programFlowUsedForLiveDecision: false,
+        passiveProxyUsedForLiveDecision: false,
+        programPenaltyApplied: false,
+      },
+      candidates: [baseCandidate()] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.programFlowDiagnostics.marketProgramAvailable).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramSignal).toBe('UNAVAILABLE');
+    expect(preview.programFlowDiagnostics.marketProgramSource).toBe('NONE');
+    expect(preview.programFlowDiagnostics.marketProgramProviderIssue).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramDataStatus).toBe('ACCEPTED_EMPTY');
+    expect(preview.programFlowDiagnostics.kisStatus).toBe('ACCEPTED_EMPTY');
+    expect(preview.programFlowDiagnostics.krxFallbackStatus).toBe('EMPTY');
+    expect(preview.programFlowDiagnostics.cacheStatus).toBe('MISS');
+    expect(preview.programFlowDiagnostics.marketProgramBreakPoint).toBe('KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS');
+    expect(preview.programFlowDiagnostics.marketProgramReason).toBe('MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY');
+    expect(preview.programFlowDiagnostics.marketProgramBreakPoint).not.toBe('MARKET_PROGRAM_CONSUMER_PARSE_FAILED');
+    expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+    expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+    expect(preview.strongBuyAllowed).toBe(false);
+    expect(preview.realOrderAllowed).toBe(false);
+    expect(text).toContain('marketProgramBreakPoint=KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS');
+    expect(text).toContain('marketProgramReason=MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY');
+    expect(text).toContain('marketProgramSignal: UNAVAILABLE');
+  });
+
   it('traces context found with no program fields to upstream numeric field wiring', () => {
     const preview = persistNormalSupplyPreview({
       engineMode: 'NORMAL',
