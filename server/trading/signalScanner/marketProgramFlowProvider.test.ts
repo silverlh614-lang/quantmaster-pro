@@ -77,6 +77,27 @@ describe('resolveMarketProgramFlow diagnostic provider pipeline', () => {
     expect(result.breakPoint).toBe('KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS');
   }, 15000);
 
+  it('classifies present-but-unparseable KIS numeric fields as parse failed instead of accepted empty', async () => {
+    const { resolveMarketProgramFlow } = await import('./marketProgramFlowProvider.js');
+    const result = await resolveMarketProgramFlow({
+      now: NOW,
+      fetchKis: async () => ({
+        programNetBuyAmount: '매수우위',
+        marketProgramStatus: 'OK_EMPTY_OUTPUT',
+        fetchedAt: NOW.toISOString(),
+        source: 'KIS_API',
+        rawFieldKeys: ['programNetBuyAmount'],
+      } as never),
+      fetchKrx: async () => null,
+    });
+
+    expect(result.available).toBe(false);
+    expect(result.providerIssue).toBe(false);
+    expect(result.marketProgramDataStatus).toBe('PARSE_FAILED');
+    expect(result.kisStatus).toBe('PARSE_FAILED');
+    expect(result.breakPoint).toBe('KIS_PARSE_FAILED_KRX_EMPTY_CACHE_MISS');
+  }, 15000);
+
   it('uses KRX fallback and saves a reusable cache snapshot', async () => {
     const { resolveMarketProgramFlow } = await import('./marketProgramFlowProvider.js');
     const result = await resolveMarketProgramFlow({

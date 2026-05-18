@@ -9,7 +9,7 @@ import { logVisibilityEvent } from '../../utils/logger.js';
 
 export type MarketProgramFlowSource = 'KIS_API' | 'KRX_FALLBACK' | 'CACHE' | 'CACHE_STALE' | 'NONE';
 export type MarketProgramFlowStatus = 'MISSING' | 'ACCEPTED_EMPTY' | 'PROVIDER_ERROR' | 'PARSE_FAILED' | 'PARSED';
-export type MarketProgramProviderStatus = 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSED' | 'SUCCESS' | 'EMPTY';
+export type MarketProgramProviderStatus = 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSE_FAILED' | 'PARSED' | 'SUCCESS' | 'EMPTY';
 export type MarketProgramCacheStatus = 'HIT' | 'MISS' | 'STALE';
 
 export interface LastMarketProgramSnapshot {
@@ -36,7 +36,7 @@ export interface MarketProgramFlowResult {
   executionImpact: 'NONE';
   marketProgramDataStatus: MarketProgramFlowStatus;
   kisAttempted: boolean;
-  kisStatus: Extract<MarketProgramProviderStatus, 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSED'>;
+  kisStatus: Extract<MarketProgramProviderStatus, 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSE_FAILED' | 'PARSED'>;
   krxFallbackAttempted: boolean;
   krxFallbackStatus: Extract<MarketProgramProviderStatus, 'NOT_ATTEMPTED' | 'SUCCESS' | 'EMPTY' | 'ERROR'>;
   cacheFallbackAttempted: boolean;
@@ -167,7 +167,13 @@ export async function resolveMarketProgramFlow(options: ResolveMarketProgramFlow
     return result;
   }
 
-  const dataStatus: MarketProgramFlowStatus = kisProviderIssue || krxProviderIssue ? 'PROVIDER_ERROR' : kisStatus === 'ACCEPTED_EMPTY' ? 'ACCEPTED_EMPTY' : 'MISSING';
+  const dataStatus: MarketProgramFlowStatus = kisProviderIssue || krxProviderIssue
+    ? 'PROVIDER_ERROR'
+    : kisStatus === 'PARSE_FAILED'
+      ? 'PARSE_FAILED'
+      : kisStatus === 'ACCEPTED_EMPTY'
+        ? 'ACCEPTED_EMPTY'
+        : 'MISSING';
   const result = resolved({
     available: false,
     source: 'NONE',
@@ -225,8 +231,17 @@ function normalizeKisResult(kis: KisMarketProgramTrade | null): {
   const buy = parseNumber(kis.programBuyAmount ?? (kis as unknown as Record<string, unknown>).buyAmount);
   const sell = parseNumber(kis.programSellAmount ?? (kis as unknown as Record<string, unknown>).sellAmount);
   if (buy !== null && sell !== null) return { available: true, status: 'PARSED', providerIssue: false, netBuyAmount: buy - sell, arbitrageNetBuyAmount: parseNumber(kis.programArbitrageNetBuy), nonArbitrageNetBuyAmount: parseNumber(kis.programNonArbitrageNetBuy), fetchedAt: kis.fetchedAt, parsedFieldName: 'buyAmount-sellAmount', rawFieldKeys };
-  const emptyStatus = kis.marketProgramStatus === 'OK_EMPTY_OUTPUT' || kis.marketProgramStatus === 'MISSING' ? 'ACCEPTED_EMPTY' : 'ERROR';
-  return { available: false, status: emptyStatus, providerIssue: emptyStatus === 'ERROR', netBuyAmount: null, arbitrageNetBuyAmount: null, nonArbitrageNetBuyAmount: null, fetchedAt: kis.fetchedAt, rawFieldKeys };
+  if (candidates.some(([, raw]) => hasPresentUnparsedNumericValue(raw))
+    || hasPresentUnparsedNumericValue(kis.programBuyAmount ?? (kis as unknown as Record<string, unknown>).buyAmount)
+    || hasPresentUnparsedNumericValue(kis.programSellAmount ?? (kis as unknown as Record<string, unknown>).sellAmount)) {
+    return { available: false, status: 'PARSE_FAILED', providerIssue: false, netBuyAmount: null, arbitrageNetBuyAmount: null, nonArbitrageNetBuyAmount: null, fetchedAt: kis.fetchedAt, rawFieldKeys };
+  }
+  return { available: false, status: 'ACCEPTED_EMPTY', providerIssue: false, netBuyAmount: null, arbitrageNetBuyAmount: null, nonArbitrageNetBuyAmount: null, fetchedAt: kis.fetchedAt, rawFieldKeys };
+}
+
+function hasPresentUnparsedNumericValue(raw: unknown): boolean {
+  if (raw === null || raw === undefined || raw === '') return false;
+  return parseNumber(raw) === null;
 }
 
 function normalizeKrxResult(krx: KrxMarketProgramAggregate | null): { available: boolean; netBuyAmount: number | null; arbitrageNetBuyAmount: number | null; nonArbitrageNetBuyAmount: number | null; fetchedAt: string | null; parsedFieldName?: string; rawFieldKeys: string[] } {
