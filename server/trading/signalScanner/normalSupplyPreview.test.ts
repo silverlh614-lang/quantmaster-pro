@@ -764,6 +764,99 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
   });
 
+  it('wires stock-level program net buy snapshot values into candidate context aliases without live impact', () => {
+    saveLatestIntradayProgramFlowSnapshot({
+      snapshotId: 'ipfs-context-alias-test',
+      snapshotKind: 'INTRADAY_PROGRAM_FLOW_SNAPSHOT',
+      capturedAt: '2026-05-15T06:00:00.000Z',
+      capturedAtKst: '2026-05-15 15:00:00 KST',
+      marketDate: '2026-05-15',
+      timezone: 'Asia/Seoul',
+      source: 'RUNTIME_PROGRAM_FLOW',
+      replayOnly: true,
+      diagnosticOnly: true,
+      executionImpact: 'NONE',
+      stockRows: [
+        {
+          symbol: '004020',
+          normalizedSymbol: '004020',
+          name: '현대제철',
+          programNetBuyAmount: -16_044_352_900,
+          sourceProvider: 'SNAPSHOT',
+          dataStatus: 'VERIFIED',
+          providerIssue: false,
+          marketSignal: true,
+          reason: 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+        },
+        {
+          symbol: '017670',
+          normalizedSymbol: '017670',
+          name: 'SK텔레콤',
+          programNetBuyAmount: 3_016_097_650,
+          sourceProvider: 'SNAPSHOT',
+          dataStatus: 'VERIFIED',
+          providerIssue: false,
+          marketSignal: true,
+          reason: 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY',
+        },
+      ],
+      marketProgram: {
+        available: false,
+        marketProgramNetBuy: null,
+        combinedProgramNetBuy: null,
+        signal: 'UNAVAILABLE',
+        sourceProvider: 'NONE',
+        dataStatus: 'MISSING',
+        providerIssue: false,
+        marketSignal: false,
+        reason: 'PROGRAM_FLOW_NOT_WIRED_OR_NOT_AVAILABLE',
+      },
+      summary: {
+        stockRowsTotal: 2,
+        stockRowsWithProgramValue: 2,
+        marketProgramAvailable: false,
+        providerCallsAdded: 0,
+      },
+      sanitize: {
+        applied: true,
+        rawPayloadStored: false,
+        removedSensitiveFields: [],
+      },
+    });
+    const hyundai = { ...baseCandidate({ symbol: '004020', programNetBuyAmount: null }), code: '004020', name: '현대제철' };
+    const skTelecom = { ...baseCandidate({ symbol: '017670', programNetBuyAmount: null }), code: '017670', name: 'SK텔레콤' };
+    const missing = { ...baseCandidate({ symbol: '000660', programNetBuyAmount: null }), code: '000660', name: 'SK하이닉스' };
+
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T01:00:00.000Z',
+      candidates: [hyundai, skTelecom, missing] as any,
+    });
+
+    expect(preview.programFlowDiagnostics.stockCarryTrace.candidateContextProgramNetBuyAmountFieldCreated).toBe(3);
+    expect(preview.programFlowDiagnostics.stockCarryTrace.candidateContextProgramNetBuyAmountNonNull).toBe(2);
+    expect(preview.programFlowDiagnostics.stockCarryTrace.stockProgramBreakPoint).toBe('OK_STOCK_PROGRAM_CONTEXT_WIRED');
+    expect((hyundai as any).stockProgramNetBuyAmount).toBe(-16_044_352_900);
+    expect((hyundai as any).stockProgramNetBuy).toBe(-16_044_352_900);
+    expect((hyundai as any).programNetBuy).toBe(-16_044_352_900);
+    expect((hyundai as any).programNetBuyAmount).toBe(-16_044_352_900);
+    expect((skTelecom as any).stockProgramNetBuyAmount).toBe(3_016_097_650);
+    expect((skTelecom as any).stockProgramNetBuy).toBe(3_016_097_650);
+    expect((skTelecom as any).programNetBuy).toBe(3_016_097_650);
+    expect((skTelecom as any).programNetBuyAmount).toBe(3_016_097_650);
+    expect((missing as any).stockProgramNetBuyAmount).toBeUndefined();
+    expect(preview.candidates.find((candidate) => candidate.symbol === '004020')?.stockProgramNetBuyAmount).toBe(-16_044_352_900);
+    expect(preview.candidates.find((candidate) => candidate.symbol === '017670')?.stockProgramNetBuyAmount).toBe(3_016_097_650);
+    expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.programPenaltyApplied).toBe(false);
+    expect(preview.programFlowDiagnostics.programMissingAsBearish).toBe(false);
+    expect(preview.executionImpact).toBe('NONE');
+    expect(preview.strongBuyAllowed).toBe(false);
+    expect(preview.programFlowDiagnostics.providerCallsAdded).toBe(0);
+  });
+
   it('carries stock and market program values from latest intraday program flow snapshot without provider calls', () => {
     saveLatestIntradayProgramFlowSnapshot({
       snapshotId: 'ipfs-test',
