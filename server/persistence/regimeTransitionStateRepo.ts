@@ -54,7 +54,7 @@ export interface R6TriggerBreakdown {
   activeR6Triggers: R6TriggerReason[];
   staleR6Triggers: R6TriggerReason[];
   triggerSourceUpdatedAt?: string;
-  triggerFreshness: 'FRESH' | 'SOFT_STALE' | 'HARD_STALE' | 'STALE' | 'MISSING';
+  triggerFreshness: 'FRESH' | 'SOFT_STALE' | 'POST_CLOSE_VALID' | 'EOD_SNAPSHOT_VALID' | 'HARD_STALE' | 'STALE' | 'MISSING';
   staleCarryForward: boolean;
   staleBlockedRecovery: boolean;
 }

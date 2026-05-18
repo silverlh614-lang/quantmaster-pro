@@ -27,7 +27,7 @@ export type MarketStateExecutionMode =
   | 'SHADOW_ONLY'
   | 'OBSERVE_ONLY';
 export type DisplaySeverity = 'OK' | 'CAUTION' | 'DEFENSE' | 'PANIC';
-export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY';
+export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY' | 'POST_CLOSE_OBSERVE' | 'DEGRADED_OBSERVE';
 
 export interface MarketStateSnapshot {
   snapshotId: string;
@@ -75,7 +75,7 @@ export interface MarketStateSnapshot {
   };
 }
 
-export type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'HARD_STALE' | 'MISSING';
+export type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'POST_CLOSE_VALID' | 'EOD_SNAPSHOT_VALID' | 'HARD_STALE' | 'MISSING';
 
 export interface MacroStateStaleness {
   stale: boolean;
@@ -461,10 +461,51 @@ function resolveSoftStaleSec(ttlSec: number): number {
   return Number.isFinite(raw) && raw > 0 ? Math.max(ttlSec, Math.trunc(raw)) : Math.max(ttlSec, 900);
 }
 
-function classifyMacroStateFreshness(ageSec: number | undefined, hasValidAsOf: boolean, ttlSec: number): MacroStateFreshness {
+function kstDateKey(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function kstMinutes(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+  return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : -1;
+}
+
+function isPostCloseSession(macro: MacroState | null, now: Date): boolean {
+  const explicit = String((macro as unknown as Record<string, unknown> | null)?.marketSessionState ?? '').toUpperCase();
+  if (['POST_CLOSE', 'AFTER_MARKET', 'AFTER_HOURS', 'CLOSING_AUCTION', 'CLOSED'].includes(explicit)) return true;
+  return kstMinutes(now) >= 15 * 60 + 20;
+}
+
+function isSameKstDate(leftMs: number, right: Date): boolean {
+  return kstDateKey(new Date(leftMs)) === kstDateKey(right);
+}
+
+function classifyMacroStateFreshness(
+  ageSec: number | undefined,
+  hasValidAsOf: boolean,
+  ttlSec: number,
+  macro: MacroState | null,
+  asOfMs: number,
+  now: Date,
+): MacroStateFreshness {
   if (!hasValidAsOf) return 'MISSING';
   if ((ageSec ?? Number.POSITIVE_INFINITY) <= ttlSec) return 'FRESH';
   if ((ageSec ?? Number.POSITIVE_INFINITY) <= resolveSoftStaleSec(ttlSec)) return 'SOFT_STALE';
+  if (macro && isPostCloseSession(macro, now) && isSameKstDate(asOfMs, now)) {
+    return kstMinutes(now) >= 18 * 60 ? 'EOD_SNAPSHOT_VALID' : 'POST_CLOSE_VALID';
+  }
   return 'HARD_STALE';
 }
 
@@ -476,10 +517,10 @@ function resolveHardStaleSec(ttlSec: number): number {
 function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): MacroStateStaleness {
   const asOfMs = Date.parse(asOf);
   const ageSec = Number.isFinite(asOfMs) ? Math.max(0, Math.floor((now.getTime() - asOfMs) / 1000)) : undefined;
-  const freshness = classifyMacroStateFreshness(ageSec, Number.isFinite(asOfMs) && !!macro, ttlSec);
+  const freshness = classifyMacroStateFreshness(ageSec, Number.isFinite(asOfMs) && !!macro, ttlSec, macro, asOfMs, now);
   const softStaleSec = resolveSoftStaleSec(ttlSec);
   const hardStaleSec = resolveHardStaleSec(ttlSec);
-  const stale = freshness !== 'FRESH' || diagnostics.sourceFreshness === 'HARD_STALE' || diagnostics.sourceFreshness === 'STALE' || diagnostics.sourceFreshness === 'MISSING';
+  const stale = freshness !== 'FRESH' && freshness !== 'POST_CLOSE_VALID' && freshness !== 'EOD_SNAPSHOT_VALID' || diagnostics.sourceFreshness === 'HARD_STALE' || diagnostics.sourceFreshness === 'STALE' || diagnostics.sourceFreshness === 'MISSING';
   const staleReason = !macro ? 'MACRO_STATE_MISSING' : !Number.isFinite(asOfMs) ? 'LAST_UPDATED_AT_INVALID' : freshness !== 'FRESH' ? freshness : diagnostics.sourceFreshness !== 'FRESH' ? `REGIME_SOURCE_${diagnostics.sourceFreshness}` : 'NONE';
   const info: MacroStateStaleness = {
     stale,
@@ -502,7 +543,7 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     fallbackUsed: readFallbackUsed(macro),
     writeSucceeded: readBooleanField(macro, ['writeSucceeded', 'macroWriteSucceeded']),
     updatedAtChanged: readBooleanField(macro, ['updatedAtChanged', 'macroUpdatedAtChanged']),
-    executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
+    executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale || freshness === 'POST_CLOSE_VALID' || freshness === 'EOD_SNAPSHOT_VALID' ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
   };
   console.warn(
     '[MACRO_STATE_STALENESS] ' +
@@ -531,8 +572,8 @@ function resolveStaleness(macro: MacroState | null, asOf: string, now: Date, ttl
   const staleSources: string[] = [];
   const macroState = buildMacroStateStaleness(macro, asOf, now, ttlSec, diagnostics);
   if (macroState.stale) staleSources.push('macroState');
-  if (diagnostics.sourceFreshness !== 'FRESH') staleSources.push(`regimeSource:${diagnostics.sourceFreshness}`);
-  if (diagnostics.r6TriggerBreakdown.triggerFreshness !== 'FRESH') {
+  if (diagnostics.sourceFreshness !== 'FRESH' && diagnostics.sourceFreshness !== 'POST_CLOSE_VALID' && diagnostics.sourceFreshness !== 'EOD_SNAPSHOT_VALID') staleSources.push(`regimeSource:${diagnostics.sourceFreshness}`);
+  if (diagnostics.r6TriggerBreakdown.triggerFreshness !== 'FRESH' && diagnostics.r6TriggerBreakdown.triggerFreshness !== 'POST_CLOSE_VALID' && diagnostics.r6TriggerBreakdown.triggerFreshness !== 'EOD_SNAPSHOT_VALID') {
     staleSources.push(`r6Trigger:${diagnostics.r6TriggerBreakdown.triggerFreshness}`);
   }
   return { stale: staleSources.length > 0, staleSources, macroState };
@@ -790,6 +831,9 @@ export function formatMarketStateNow(
     ...(snapshot.r6Latch ? [
       ...(snapshot.effectiveRegime === 'R6_CONFIRMATION_WAIT' ? [
         '상태: 급락 shock 이후 종가/다음 거래일 확인 대기',
+      ] : []),
+      ...((snapshot.macroState.freshness === 'POST_CLOSE_VALID' || snapshot.macroState.freshness === 'EOD_SNAPSHOT_VALID') ? [
+        '상태: 장후 snapshot 유효 / 다음 거래일 확인 대기',
       ] : []),
       'R6 latch:',
       `activeR6Triggers: ${formatTriggerList(snapshot.r6Latch.activeTriggers)}`,

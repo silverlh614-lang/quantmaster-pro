@@ -11,7 +11,7 @@ import type {
 
 export * from './marketStateResolver.base.js';
 
-export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY' | 'R6_RECOVERY_BIAS_CONFIRMATION';
+export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY' | 'R6_RECOVERY_BIAS_CONFIRMATION' | 'POST_CLOSE_OBSERVE' | 'DEGRADED_OBSERVE';
 export type MacroRefreshResult = 'SUCCESS_UPDATED' | 'SUCCESS_NO_CHANGE' | 'FAILED' | 'SKIPPED';
 
 export interface MacroStateStaleness extends BaseMacroStateStaleness {
@@ -91,6 +91,7 @@ function resolveR6LatchDecayBlockedReason(
   const transition = diagnostics.transitionState;
   const decay = transition.latchDecayPercent ?? transition.r6ShockLatchDetail?.decayLevel ?? 0;
   if (!transition.r6ShockLatch) return undefined;
+  if (macroState.freshness === 'POST_CLOSE_VALID' || macroState.freshness === 'EOD_SNAPSHOT_VALID') return 'WAITING_NEXT_TRADING_DAY_CONFIRMATION';
   if (macroState.freshness === 'HARD_STALE' || macroState.freshness === 'MISSING') return 'MACRO_STATE_STALE';
   if (diagnostics.activeR6Triggers.includes('KOSPI_INTRADAY_LOW_SHOCK')) return 'ADDITIONAL_LOW_RETEST';
   if (diagnostics.activeR6Triggers.length > 0) return 'ACTIVE_R6_TRIGGER_PRESENT';
@@ -98,6 +99,7 @@ function resolveR6LatchDecayBlockedReason(
   if (recovery.biasScore < 0) return 'BIAS_NOT_RECOVERED';
   const releaseAt = transition.latchReleaseEligibleAt ? Date.parse(transition.latchReleaseEligibleAt) : NaN;
   if (Number.isFinite(releaseAt) && releaseAt > now.getTime()) return 'WAITING_FOR_RELEASE_ELIGIBLE_AT';
+  if (diagnostics.recoveryBlockedReason === 'WAITING_NEXT_TRADING_DAY_CONFIRMATION') return 'WAITING_NEXT_TRADING_DAY_CONFIRMATION';
   if (diagnostics.recoveryBlockedReason === 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION') return 'WAITING_FOR_CLOSE_CONFIRMATION';
   if (diagnostics.recoveryBlockedReason === 'R6_COOLDOWN_ACTIVE' || diagnostics.r6RecoveryStatus === 'COOLDOWN') return 'R6_COOLDOWN_ACTIVE';
   if (decay < 60) return diagnostics.recoveryBlockedReason ?? 'WAITING_FOR_CLOSE_CONFIRMATION';

@@ -106,7 +106,7 @@ export interface RegimeDiagnostics {
   transitionReason: string;
   recoveryEvidence: R6RecoveryEvidence;
   transitionState: RegimeTransitionState;
-  sourceFreshness: 'FRESH' | 'SOFT_STALE' | 'HARD_STALE' | 'STALE' | 'MISSING';
+  sourceFreshness: 'FRESH' | 'SOFT_STALE' | 'POST_CLOSE_VALID' | 'EOD_SNAPSHOT_VALID' | 'HARD_STALE' | 'STALE' | 'MISSING';
   r6TriggerBreakdown: R6TriggerBreakdown;
   activeR6Triggers: R6TriggerReason[];
   previousR6Triggers: R6TriggerReason[];
@@ -136,7 +136,39 @@ function applyForcedDowngrade(regime: RegimeLevel): RegimeLevel {
   return REGIME_ORDER[idx - 1] ?? regime;
 }
 
-function macroFreshnessFromUpdatedAt(updatedAt: string | undefined, now: Date): RegimeDiagnostics['sourceFreshness'] {
+function kstDateKey(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function kstMinutes(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+  return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : -1;
+}
+
+function isPostCloseSession(macroState: MacroState | null, now: Date): boolean {
+  const explicit = String((macroState as unknown as Record<string, unknown> | null)?.marketSessionState ?? '').toUpperCase();
+  if (['POST_CLOSE', 'AFTER_MARKET', 'AFTER_HOURS', 'CLOSING_AUCTION', 'CLOSED'].includes(explicit)) return true;
+  const minutes = kstMinutes(now);
+  return minutes >= 15 * 60 + 20;
+}
+
+function isSameKstDate(updatedAtMs: number, now: Date): boolean {
+  return kstDateKey(new Date(updatedAtMs)) === kstDateKey(now);
+}
+
+function macroFreshnessFromUpdatedAt(macroState: MacroState | null, updatedAt: string | undefined, now: Date): RegimeDiagnostics['sourceFreshness'] {
   if (!updatedAt) return 'MISSING';
   const updatedAtMs = Date.parse(updatedAt);
   if (!Number.isFinite(updatedAtMs)) return 'MISSING';
@@ -145,11 +177,14 @@ function macroFreshnessFromUpdatedAt(updatedAt: string | undefined, now: Date): 
   const softStaleSec = Math.max(ttlSec, envInt('R6_RECOVERY_SOFT_STALE_SEC', 900));
   if (ageSec <= ttlSec) return 'FRESH';
   if (ageSec <= softStaleSec) return 'SOFT_STALE';
+  if (macroState && isPostCloseSession(macroState, now) && isSameKstDate(updatedAtMs, now)) {
+    return kstMinutes(now) >= 18 * 60 ? 'EOD_SNAPSHOT_VALID' : 'POST_CLOSE_VALID';
+  }
   return 'HARD_STALE';
 }
 
 function sourceFreshness(macroState: MacroState | null, now: Date): RegimeDiagnostics['sourceFreshness'] {
-  return macroFreshnessFromUpdatedAt(macroState?.updatedAt, now);
+  return macroFreshnessFromUpdatedAt(macroState, macroState?.updatedAt, now);
 }
 
 function isFreshEnoughForRecoveryWatch(freshness: RegimeDiagnostics['sourceFreshness']): boolean {
@@ -166,7 +201,7 @@ function finiteNumber(value: unknown): number | undefined {
 }
 
 function triggerFreshness(macroState: MacroState | null, now: Date): R6TriggerBreakdown['triggerFreshness'] {
-  return macroFreshnessFromUpdatedAt(macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
+  return macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
 }
 
 function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previousState?: RegimeTransitionState): R6TriggerBreakdown {
@@ -338,6 +373,7 @@ function reasonForActiveR6Trigger(trigger: R6TriggerReason | undefined): string 
 
 function recoveryBlockedReason(breakdown: R6TriggerBreakdown, previousState: RegimeTransitionState, macroState: MacroState | null, cooldownUntil?: string, now: Date = new Date()): string | undefined {
   if (isHardStaleForRecovery(breakdown.triggerFreshness)) return 'STALE_DATA_BLOCKED';
+  if (breakdown.triggerFreshness === 'POST_CLOSE_VALID' || breakdown.triggerFreshness === 'EOD_SNAPSHOT_VALID') return 'WAITING_NEXT_TRADING_DAY_CONFIRMATION';
   if (breakdown.activeR6Triggers.length > 0) return 'ACTIVE_R6_TRIGGER_PRESENT';
   if (previousState.r6ShockLatch && !closeRecoveryEligible(breakdown, macroState)) return 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION';
   if (cooldownUntil && Date.parse(cooldownUntil) > now.getTime()) return 'R6_COOLDOWN_ACTIVE';
@@ -472,7 +508,7 @@ export function evaluateR6RecoveryTransition(
       latchDecayLevel: shockLatchTriggered ? 'WATCH' : latchDecayLevel(previousState, closeEligible, now),
       latchDecayPercent: nextDecayPercent,
       latchReleaseEligibleAt: releaseEligibleAt,
-      recoveryBlockedReason: heldByShockLatch && !closeEligible ? 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION' : heldByShockLatch ? 'R6_LATCH_TTL_UNDER_DECAY_THRESHOLD' : 'ACTIVE_R6_TRIGGER_PRESENT',
+      recoveryBlockedReason: heldByShockLatch && (triggerBreakdown.triggerFreshness === 'POST_CLOSE_VALID' || triggerBreakdown.triggerFreshness === 'EOD_SNAPSHOT_VALID') ? 'WAITING_NEXT_TRADING_DAY_CONFIRMATION' : heldByShockLatch && !closeEligible ? 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION' : heldByShockLatch ? 'R6_LATCH_TTL_UNDER_DECAY_THRESHOLD' : 'ACTIVE_R6_TRIGGER_PRESENT',
     };
   }
 

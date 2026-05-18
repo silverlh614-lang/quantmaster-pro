@@ -83,11 +83,23 @@ function shouldTriggerRecoveryShadowScan(input: {
   const shadowLearningAllowed = true;
   const shadowScanAllowed = true;
   if (!shadowLearningAllowed || !shadowScanAllowed) return undefined;
+  const postCloseValid = input.diagnostics.sourceFreshness === 'POST_CLOSE_VALID' || input.diagnostics.sourceFreshness === 'EOD_SNAPSHOT_VALID';
+  const degradedObserve = input.diagnostics.sourceFreshness === 'SOFT_STALE';
   const macroFresh = input.diagnostics.sourceFreshness === 'FRESH' && input.diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH';
   const noActiveR6 = input.diagnostics.activeR6Triggers.length === 0;
   const recoveryState = resolveR6RecoveryShadowScanState(input.diagnostics);
   const lastCandidateScanOld = lastR6RecoveryCandidateScanAt === 0 || input.now - lastR6RecoveryCandidateScanAt >= RECOVERY_SHADOW_SCAN_COOLDOWN_MS;
-  if (!recoveryState || !macroFresh || !noActiveR6 || input.mhs < 60 || input.biasScore < 0 || !lastCandidateScanOld) return undefined;
+  if (!recoveryState || !noActiveR6 || !lastCandidateScanOld) return undefined;
+  if (postCloseValid || degradedObserve) {
+    const trigger: ShadowCandidateScanTrigger = postCloseValid ? 'POST_CLOSE_OBSERVE' : 'DEGRADED_OBSERVE';
+    const key = [resolveR6RecoveryScanKey(input.diagnostics, recoveryState), trigger].join(':');
+    if (lastR6RecoveryScanKey === key) return undefined;
+    lastR6RecoveryScanKey = key;
+    lastR6RecoveryCandidateScanAt = input.now;
+    emitShadowCandidateScanTrigger(trigger);
+    return trigger;
+  }
+  if (!macroFresh || input.mhs < 60 || input.biasScore < 0) return undefined;
   const key = resolveR6RecoveryScanKey(input.diagnostics, recoveryState);
   if (lastR6RecoveryScanKey === key) return undefined;
   lastR6RecoveryScanKey = key;
