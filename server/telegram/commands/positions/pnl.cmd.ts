@@ -12,22 +12,19 @@ const command: TelegramCommand = {
   description: 'Shadow/Virtual 손익 현황',
   async execute({ reply }) {
     const snapshot = aggregatePnlSources();
-    const { mode, account, counts, openTrades, closedTrades } = snapshot;
-    const shadowRealizedPnl = account?.realizedPnl ?? 0;
-    const shadowUnrealizedPnl = account?.unrealizedPnl ?? 0;
-    const cumulativeShadowPnl = shadowRealizedPnl + shadowUnrealizedPnl;
+    const { mode, counts, openTrades, pnl } = snapshot;
     const lines: string[] = [
       '📊 <b>손익 현황</b>',
       `운영 모드: ${escapeHtml(mode.modeLabel)}`,
       `실거래: ${mode.liveTradingEnabled ? 'ON' : 'OFF'}`,
       '',
-      `Shadow 실현손익: ${formatSignedMoney(shadowRealizedPnl)}`,
-      `Shadow 평가손익: ${formatSignedMoney(shadowUnrealizedPnl)}`,
-      `Virtual 계좌 총자산: ${formatMoney(account?.totalAssets)}`,
-      `금일 Shadow PnL: ${formatSignedMoney(account?.todayRealizedPnl ?? 0)}`,
-      `누적 Shadow PnL: ${formatSignedMoney(cumulativeShadowPnl)}`,
+      `Shadow 실현손익: ${formatSignedMoney(pnl.realizedPnl)}`,
+      `Shadow 평가손익: ${formatSignedMoney(pnl.unrealizedPnl)}`,
+      `Virtual 계좌 총자산: ${formatMoney(pnl.virtualTotalAssets)}`,
+      `금일 Shadow PnL: ${formatSignedMoney(pnl.todayPnl)}`,
+      `누적 Shadow PnL: ${formatSignedMoney(pnl.cumulativePnl)}`,
       `열린 Shadow 포지션 수: ${counts.shadowOpenCount.toLocaleString('ko-KR')}`,
-      `종료 Shadow 트레이드 수: ${closedTrades.length.toLocaleString('ko-KR')}`,
+      `종료 Shadow 트레이드 수: ${pnl.closedTradeCount.toLocaleString('ko-KR')}`,
       '',
       mode.liveTradingEnabled ? 'Live PnL: 조회 우선순위 후순위' : 'Live PnL: 비활성 또는 미사용',
     ];
