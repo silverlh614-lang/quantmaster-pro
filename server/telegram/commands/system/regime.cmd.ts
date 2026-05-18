@@ -1,7 +1,7 @@
 // @responsibility regime.cmd 텔레그램 모듈
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
+import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
 import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -22,13 +22,16 @@ const regime: TelegramCommand = {
     }
     const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
     const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
+    const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
+    const resolvedMhsEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : mhsEmoji;
+    const resolvedRegimeEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : regimeEmoji;
     const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
     // ADR-0071: USD/KRW 출처 + 격차 표시 — 사용자 신뢰도 즉시 인지
     const usdKrwLine = formatUsdKrwLine(macro);
     // ADR-0074: macroState.regime (GREEN/YELLOW/RED) vs getLiveRegime (R1~R6) 두 SSOT 동시 노출.
     // 매매 결정에 실제 사용되는 RegimeLevel + Kelly/maxPositions 정책을 1줄로 요약.
-    const regimeDiagnostics = getRegimeDiagnostics(macro);
-    const liveRegime = regimeDiagnostics.effectiveRegime;
+    const regimeDiagnostics = regimeSnapshot.diagnostics;
+    const liveRegime = regimeSnapshot.effectiveRegime as RegimeLevel;
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
     const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
     const r6TriggerLine = formatR6TriggerBreakdownLine(regimeDiagnostics.r6TriggerBreakdown);
@@ -45,10 +48,11 @@ const regime: TelegramCommand = {
     await reply(
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
-      `${mhsEmoji} MHS: ${macro.mhs ?? 'N/A'}\n` +
+      `${resolvedMhsEmoji} MHS: ${regimeSnapshot.mhs ?? 'N/A'}\n` +
       `${mhsAxisLine}\n` +
-      `${regimeEmoji} 매크로: ${macro.regime ?? 'N/A'}\n` +
+      `${resolvedRegimeEmoji} 매크로: ${regimeSnapshot.displayRegime}\n` +
       `${liveRegimeLine}\n` +
+      `snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} ttlSec=${regimeSnapshot.ttlSec}\n` +
       `rawRegime=${regimeDiagnostics.rawRegime}\n` +
       `effectiveRegime=${regimeDiagnostics.effectiveRegime}\n` +
       `${r6RecoveryLine}\n` +

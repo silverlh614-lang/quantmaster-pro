@@ -57,6 +57,10 @@ describe('resolveMarketState R6 confirmation wait display', () => {
         },
       }),
     }));
+    vi.doMock('../observability/operationalWarn.js', () => ({
+      defaultWarnTtlSec: () => 60,
+      emitOperationalWarn: vi.fn(),
+    }));
 
     const { resolveMarketState } = await import('./marketStateResolver.js');
     const snapshot = resolveMarketState(now);

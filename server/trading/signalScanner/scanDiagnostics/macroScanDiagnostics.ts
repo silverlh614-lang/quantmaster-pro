@@ -22,6 +22,14 @@ export function buildMacroGateState(input: {
   liveEntryBlockedReason?: string;
   macroRegimeRaw?: string;
   macroRegimeEffective?: string;
+  regimeSnapshotId?: string;
+  regimeSnapshotAsOf?: string;
+  regimeSnapshotTtlSec?: number;
+  displayRegime?: string;
+  riskOverride?: string;
+  engineMode?: string;
+  sourceHealth?: string;
+  regimeConflicts?: string[];
   r6RecoveryStatus?: string;
   activeR6Triggers?: string[];
   r6ShockLatch?: boolean;
@@ -55,6 +63,14 @@ export function buildMacroGateState(input: {
     liveEntryBlockedReason: input.liveEntryBlockedReason,
     macroRegimeRaw: input.macroRegimeRaw,
     macroRegimeEffective: input.macroRegimeEffective,
+    regimeSnapshotId: input.regimeSnapshotId,
+    regimeSnapshotAsOf: input.regimeSnapshotAsOf,
+    regimeSnapshotTtlSec: input.regimeSnapshotTtlSec,
+    displayRegime: input.displayRegime,
+    riskOverride: input.riskOverride,
+    engineMode: input.engineMode,
+    sourceHealth: input.sourceHealth,
+    regimeConflicts: input.regimeConflicts,
     r6RecoveryStatus: input.r6RecoveryStatus,
     activeR6Triggers: input.activeR6Triggers,
     r6ShockLatch: input.r6ShockLatch,

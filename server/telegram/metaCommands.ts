@@ -5,7 +5,9 @@
 import { getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
-import { formatMarketStateNow, RegimeResolver, type ShadowActivitySnapshot } from '../trading/marketStateResolver.js';
+import type { ShadowActivitySnapshot } from '../trading/marketStateResolver.js';
+import { resolveRegimeSnapshot } from '../trading/regime/regimeResolver.js';
+import { formatRegimeTelegramNow } from '../trading/regime/regimeTelegramPresenter.js';
 import { commandRegistry } from './commandRegistry.js';
 
 export interface InlineKeyboardButton {
@@ -215,21 +217,22 @@ export function composeNowVerdict(now: Date = new Date()): string {
   const lastSignalLabel = lastSignalAt > 0
     ? formatKstHm(new Date(lastSignalAt))
     : '없음';
-  const snapshot = RegimeResolver.resolveMarketState(now);
+  const snapshot = resolveRegimeSnapshot({ now });
 
   console.info(
     '[TELEGRAM_RENDER_MARKET_STATE] ' +
     `snapshotId=${snapshot.snapshotId} ` +
     'template=NOW ' +
-    `displayTitle=${snapshot.displayTitle} ` +
-    `severity=${snapshot.displaySeverity}`,
+    `displayRegime=${snapshot.displayRegime} ` +
+    `effectiveRegime=${snapshot.effectiveRegime} ` +
+    `riskOverride=${snapshot.riskOverride}`,
   );
 
-  return formatMarketStateNow(snapshot, {
+  return formatRegimeTelegramNow(snapshot, {
     activePositions: active.length,
     maxPositions,
     lastSignalLabel,
-    shadowActivity: buildShadowActivitySnapshot(shadows, now, snapshot.macroState.freshness),
+    shadowActivity: buildShadowActivitySnapshot(shadows, now, snapshot.marketState.macroState.freshness),
   });
 }
 
