@@ -10,14 +10,9 @@ import { sendTelegramAlert, answerCallbackQuery } from '../alerts/telegramClient
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
-import {
-  buildHelpMessage,
-  handleMetaCommand,
-  parseMetaCallback,
-  type InlineKeyboardMarkup,
-} from './metaCommands.js';
-import { commandRegistry } from './commandRegistry.js';
-import { recordUsage, getTopUsage } from '../persistence/commandUsageRepo.js';
+import { type InlineKeyboardMarkup } from './metaCommands.js';
+import { dispatchTelegramCommand } from './commandRouter.js';
+import { dispatchTelegramCallback } from './callbackRouter.js';
 // commands/* barrel side-effect — 모든 .cmd.ts 가 commandRegistry.register 자기 호출.
 import './commands/system/index.js';
 import './commands/watchlist/index.js';
@@ -28,9 +23,6 @@ import './commands/control/index.js';
 import './commands/trade/index.js';
 import './commands/infra/index.js';
 import './commands/shadow/index.js';
-
-// ADR-0017: 메타 callback → 합성 text 재진입은 1단계만 허용 — 무한 루프 차단 sentinel.
-const META_RECURSIVE_FLAG = '__metaRecursiveInvocation';
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -63,29 +55,20 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       });
     if (overrideHandled) return;
 
-    // ADR-0017: 4번째 라우터 — 메타 명령어 인라인 키보드 버튼 (`meta:<cmd>:<nonce>`)
-    // 사용자가 `/watch` `/positions` 등 메타 메뉴의 하위 버튼을 탭한 경우 해당 legacy
-    // 명령어를 합성 메시지로 재호출한다.
-    const metaParsed = parseMetaCallback(data);
-    if (metaParsed) {
-      await answerCallbackQuery(callbackQueryId, `${metaParsed.targetCmd} 실행 중...`)
-        .catch((e: unknown) => {
-          console.error('[TelegramBot] meta callback ack 실패:', e instanceof Error ? e.message : e);
-        });
-      const syntheticReq = {
-        body: {
-          message: {
-            chat: { id: cbChatId },
-            text: metaParsed.targetCmd,
-          },
-          [META_RECURSIVE_FLAG]: true,
-        },
-      } as unknown as Request;
-      const dummyRes = {
-        sendStatus: () => undefined,
-      } as unknown as Response;
-      await handleTelegramWebhook(syntheticReq, dummyRes).catch((e: unknown) => {
-        console.error('[TelegramBot] meta synthetic invocation 실패:', e instanceof Error ? e.message : e);
+    // 버튼 callback 은 callbackRouter 에서만 처리한다. 텍스트 명령은 아래 commandRouter 로 분리.
+    const callbackReply = async (message: string, replyMarkup?: InlineKeyboardMarkup) => {
+      const opts = replyMarkup
+        ? { replyMarkup: replyMarkup as unknown as Record<string, unknown> }
+        : undefined;
+      await sendTelegramAlert(message, opts).catch(console.error);
+    };
+    const callbackHandled = await dispatchTelegramCallback({ data, reply: callbackReply }).catch((e: unknown) => {
+      console.error('[TelegramBot] callback router 처리 실패:', e instanceof Error ? e.message : e);
+      return false;
+    });
+    if (callbackHandled) {
+      await answerCallbackQuery(callbackQueryId, '실행 완료').catch((e: unknown) => {
+        console.error('[TelegramBot] callback ack 실패:', e instanceof Error ? e.message : e);
       });
       return;
     }
@@ -106,8 +89,8 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
     return;
   }
 
-  const text: string = msg.text.trim();
-  const [cmd, ...args] = text.split(/\s+/);
+  const text: string = msg.text;
+  const userId = msg.from?.id ? String(msg.from.id) : undefined;
 
   const reply = async (message: string, replyMarkup?: InlineKeyboardMarkup) => {
     // sendTelegramAlert 는 replyMarkup 을 Record<string, unknown> 으로 받기 때문에
@@ -118,46 +101,13 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
     await sendTelegramAlert(message, opts).catch(console.error);
   };
 
-  const lower = cmd.toLowerCase();
   try {
-    switch (lower) {
-      case '/help':
-      case '/start': {
-        // ADR-0017 Stage 1+3 — 메타 메뉴 8개 + 개인 Top 5 (사용 이력 ≥1 시 자동 노출).
-        await reply(buildHelpMessage(getTopUsage(5)));
-        recordUsage(lower);
-        break;
-      }
-
-      // ADR-0017 Stage 1 — 메타 명령어 6종. 각 case 는 metaCommands 모듈로 위임만.
-      case '/now':
-      case '/watch':
-      case '/positions':
-      case '/learning':
-      case '/control':
-      case '/admin': {
-        await handleMetaCommand(lower, reply);
-        recordUsage(lower);
-        break;
-      }
-
-
-      default: {
-        // ADR-0017 §Stage 2 Phase A — commands/* 로 이전된 명령은 commandRegistry 에서 처리.
-        const handler = commandRegistry.resolve(lower);
-        if (handler) {
-          await handler.execute({ args, reply });
-          // ADR-0017 §Stage 3 — 정식명(canonical name) 으로 텔레메트리. alias 가 별도 카운터로
-          // 분산되지 않고 동일 핸들러로 집계되도록 handler.name 사용.
-          recordUsage(handler.name);
-          break;
-        }
-        await reply(
-          `❓ 알 수 없는 명령어입니다.\n` +
-          `/help 를 입력하면 사용 가능한 명령어 목록을 볼 수 있습니다.`
-        );
-      }
-    }
+    await dispatchTelegramCommand({
+      rawText: text,
+      chatId,
+      userId,
+      reply,
+    });
   } catch (e) {
     console.error('[TelegramBot] 명령 처리 실패:', e);
   }

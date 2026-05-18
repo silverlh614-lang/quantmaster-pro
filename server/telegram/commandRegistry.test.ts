@@ -147,7 +147,7 @@ describe('commands/watchlist+positions+alert barrels — Phase B1 auto-register'
   });
 
   it('all POS commands resolvable (3 names)', () => {
-    for (const name of ['/pos', '/pnl', '/pending']) {
+    for (const name of ['/pos', '/positions', 'pos', '/pnl', 'pnl', '/pending']) {
       expect(commandRegistry.resolve(name), `missing ${name}`).toBeDefined();
     }
   });

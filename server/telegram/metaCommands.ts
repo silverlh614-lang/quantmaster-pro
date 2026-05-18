@@ -340,6 +340,54 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
   );
 }
 
+
+/** /help 일반 사용자용 버튼형 관제 메뉴. 사용량 통계는 노출하지 않는다. */
+export function buildHelpKeyboard(nonce: string = newNonce()): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📊 포지션', callback_data: 'BTN_POSITION' },
+        { text: '📈 손익', callback_data: 'BTN_PNL' },
+      ],
+      [
+        { text: '/now', callback_data: encodeMetaCallback('/now', nonce) },
+        { text: '/watch', callback_data: encodeMetaCallback('/watch', nonce) },
+      ],
+      [
+        { text: '/control', callback_data: encodeMetaCallback('/control', nonce) },
+        { text: '/admin', callback_data: encodeMetaCallback('/admin', nonce) },
+      ],
+    ],
+  };
+}
+
+/** 관리자 도움말 — command usage Top 5 와 diagnostic/debug 계열 명령을 관리자 화면에만 노출한다. */
+export function buildAdminHelpMessage(topUsage: HelpTopEntry[] = []): string {
+  const topSection = topUsage.length > 0
+    ? `<b>📊 자주 쓰는 명령 Top ${Math.min(topUsage.length, 5)}</b>\n` +
+      topUsage
+        .slice(0, 5)
+        .map((t, i) => `  ${i + 1}. ${t.name} — ${t.count}회`)
+        .join('\n') +
+      `\n\n`
+    : '<b>📊 자주 쓰는 명령 Top 5</b>\n  아직 집계된 사용량이 없습니다.\n\n';
+
+  return (
+    `🔧 <b>QuantMaster Pro 관리자 도움말</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    topSection +
+    `<b>기존 주요 명령어</b>\n` +
+    `  /pos, /positions — 포지션 조회\n` +
+    `  /pnl — 손익 조회\n` +
+    `  /status, /now, /watch, /scan, /scan_blockers — 운영 조회\n` +
+    `\n` +
+    `<b>diagnostic/debug command</b>\n` +
+    `  /health, /market, /scheduler, /channel_stats, /alert_history\n` +
+    `\n` +
+    `<i>command usage stats 는 /admin_help 또는 /admin_stats 에서만 표시됩니다.</i>`
+  );
+}
+
 // ── setMyCommands 자동 동기화 (drift 차단) ───────────────────────────────────
 
 /** Telegram setMyCommands payload 한 항목. command 는 슬래시 없이 lowercase. */
