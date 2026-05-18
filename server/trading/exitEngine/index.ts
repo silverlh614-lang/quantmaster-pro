@@ -64,6 +64,7 @@ import { ma60DeathWatch } from './rules/ma60DeathWatch.js';
 import { stopApproachAlert } from './rules/stopApproachAlert.js';
 import { euphoriaPartialExit } from './rules/euphoriaPartialExit.js';
 import { isShadowR6ForcedExitSuspected } from './r6ForcedExitPolicy.js';
+import { resolveShadowPaperExitSessionPolicy } from '../exit/policies/shadowPaperExitSessionPolicy.js';
 
 /**
  * 청산 규칙 우선순위 테이블 (entryEngine.ts EXIT_RULE_PRIORITY_TABLE 과 일치).
@@ -231,6 +232,32 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
         console.log(`[ExitEngine] ⚠️ ${shadow.stockCode} fill 기반 잔량=0 → 강제 HIT_STOP 전환`);
         continue;
       }
+    }
+
+    const shadowExitSession = resolveShadowPaperExitSessionPolicy({
+      trade: shadow,
+    });
+    if (shadowExitSession.kind === 'DEFER') {
+      shadow.shadowExitDeferredReason = shadowExitSession.reason;
+      shadow.shadowExitDeferredSession = shadowExitSession.marketSessionState;
+      shadow.shadowExitDeferredAt = new Date().toISOString();
+      appendShadowLog({
+        event: 'SHADOW_EXIT_DEFERRED_NON_TRADING',
+        ...shadow,
+        reason: shadowExitSession.reason,
+        guardReason: shadowExitSession.guardReason,
+        marketSessionState: shadowExitSession.marketSessionState,
+        currentRegime,
+        liveOrderSent: false,
+        executionImpact: 'NONE',
+      });
+      console.info(
+        `[SHADOW_EXIT_DEFERRED_NON_TRADING] symbol=${shadow.stockCode} ` +
+        `regime=${currentRegime} marketSessionState=${shadowExitSession.marketSessionState} ` +
+        `reason=${shadowExitSession.guardReason ?? shadowExitSession.reason} ` +
+        'liveOrderSent=false executionImpact=NONE',
+      );
+      continue;
     }
 
     const currentPrice = getRealtimePrice(shadow.stockCode)
