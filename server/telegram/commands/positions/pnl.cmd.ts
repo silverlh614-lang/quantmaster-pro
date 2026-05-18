@@ -1,6 +1,6 @@
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
-import type { TelegramCommand } from '../../commandTypes.js';
+import type { TelegramCommand } from '../_types.js';
 import {
   aggregatePnlSources,
   formatMoney,
@@ -8,7 +8,11 @@ import {
 } from './shadowPositionSources.js';
 
 const command: TelegramCommand = {
-  name: 'pnl',
+  name: '/pnl',
+  aliases: ['pnl'],
+  category: 'POS',
+  visibility: 'MENU',
+  riskLevel: 0,
   description: 'Shadow/Virtual 손익 현황',
   async execute({ reply }) {
     const snapshot = aggregatePnlSources();
