@@ -197,6 +197,7 @@ import { formatShadowPositionLifecycleSection } from '../../../trading/shadowPos
 //   cache + Shadow case recording compact summary. providerIssue=true / marketSignal=false /
 //   executionImpact='NONE' / telegramAllowed=false literal type 강제.
 import { formatProviderHealthIsolationSection } from '../../../clients/kisClient/providerHealthIsolationPatch003.js';
+import { emitScanDiagnosticBuildFailedWarn } from '../../../trading/signalScanner/state/scanDiagnosticSuppressor.js';
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
@@ -210,11 +211,17 @@ const scanBlockers: TelegramCommand = {
     const requestId = randomUUID();
     let replyCount = 0;
 
+    function warnScanBlockersDiagnostic(sourcePath: string, error: unknown, details?: Record<string, unknown>): void {
+      emitScanDiagnosticBuildFailedWarn({
+        sourcePath: `scanBlockers.cmd.${sourcePath}`,
+        error,
+        details: { requestId, ...details },
+      });
+    }
+
     async function replyOnce(message: string): Promise<void> {
       if (replyCount > 0) {
-        console.warn(
-          `[scan_blockers] duplicate reply suppressed requestId=${requestId} replyCount=${replyCount}`,
-        );
+        warnScanBlockersDiagnostic('replyOnce.duplicateSuppressed', 'duplicate reply suppressed', { replyCount });
         return;
       }
       replyCount += 1;
@@ -284,7 +291,7 @@ const scanBlockers: TelegramCommand = {
           unifiedGateCompactLine = formatUnifiedGateCompactLine(snapshots);
         }
       } catch (err) {
-        console.warn('[scan_blockers] ADR-0509 Unified Gate compact line failed:', err);
+        warnScanBlockersDiagnostic('unifiedGateCompactLine', err);
       }
       const finalGateCompact = unifiedGateCompactLine
         ? `${gateCompact}\n${unifiedGateCompactLine}`

@@ -19,6 +19,46 @@ export type PreflightBlockedBy =
   | 'PRE_FLIGHT_BLOCK'
   | 'NO_BUYLIST_ELIGIBLE';
 
+export type PreflightScanEvaluationState =
+  | 'NOT_EVALUATED_SELL_ONLY'
+  | 'NOT_EVALUATED_NON_TRADING_DAY'
+  | 'NOT_EVALUATED_R6_LIVE_BLOCKED'
+  | 'NOT_EVALUATED_DIAGNOSTIC_ONLY'
+  | 'NOT_EVALUATED_OBSERVE_ONLY'
+  | 'EVALUATED_ZERO_SURVIVOR'
+  | 'EVALUATED_DATA_INSUFFICIENT'
+  | 'EVALUATED_GATE_REJECTED'
+  | 'EVALUATED_QUOTE_HYDRATION_FAILED'
+  | 'EVALUATED_PARTIAL'
+  | 'EVALUATED_WITH_SURVIVORS';
+
+export type PreflightScanEvaluationExecutionImpact =
+  | 'NONE'
+  | 'NEW_BUY_BLOCKED_ONLY'
+  | 'SCAN_GATE_DEGRADED';
+
+export interface PreflightScanEvaluationResult {
+  scanId: string;
+  asOf: string;
+  evaluationState: PreflightScanEvaluationState;
+  marketSessionState: string;
+  engineMode: string;
+  effectiveRegime: string;
+  totalCandidates: number;
+  evaluated: number;
+  skipped: number;
+  rejected: number;
+  survivors: number;
+  quoteHydrated: number;
+  quoteHydrationFailed: number;
+  blockReason?: string;
+  breakPoint?: string;
+  sourcePath: string;
+  executionImpact: PreflightScanEvaluationExecutionImpact;
+  shadowLearningAllowed: boolean;
+  diagnostics?: Record<string, unknown>;
+}
+
 export interface PreflightBlockedScanSummary {
   scanId: string;
   timestamp: string;
@@ -35,6 +75,7 @@ export interface PreflightBlockedScanSummary {
   gateSamples: 0;
   executionImpact: 'NONE';
   liveExecutionAllowed: false;
+  scanEvaluation?: PreflightScanEvaluationResult;
   perSymbolSupplyInjection?: PreflightBlockedPerSymbolSupplyInjectionStats;
 }
 
@@ -47,6 +88,7 @@ export interface RecordPreflightBlockedScanSummaryInput {
   candidateSummaryCount: number;
   universeSnapshotRecorded: boolean;
   counterfactualRecorded: boolean;
+  scanEvaluation?: PreflightScanEvaluationResult;
   scanId?: string;
   timestamp?: string;
 }
@@ -99,6 +141,83 @@ function buildScanId(nowIso: string): string {
   return `pbs-${minute}-${rand}`;
 }
 
+function buildPreflightScanEvaluation(input: {
+  summaryScanId: string;
+  timestamp: string;
+  blockedBy: PreflightBlockedBy;
+  preflightDecision?: string;
+  hardBlockSource?: string;
+  hardBlockReason?: string;
+  candidateSummaryCount: number;
+}): PreflightScanEvaluationResult {
+  const joined = [
+    input.blockedBy,
+    input.preflightDecision,
+    input.hardBlockSource,
+    input.hardBlockReason,
+  ].filter(Boolean).join('|').toUpperCase();
+  const totalCandidates = input.candidateSummaryCount;
+  let evaluationState: PreflightScanEvaluationState = 'NOT_EVALUATED_DIAGNOSTIC_ONLY';
+  let blockReason = input.preflightDecision ?? input.blockedBy;
+  let breakPoint = 'PRE_FLIGHT';
+  let executionImpact: PreflightScanEvaluationExecutionImpact = 'NONE';
+  let engineMode = 'NORMAL';
+  let marketSessionState = 'PRE_FLIGHT_BLOCKED';
+  let effectiveRegime = 'UNKNOWN';
+
+  if (input.blockedBy === 'SELL_ONLY' || joined.includes('SELL_ONLY')) {
+    evaluationState = 'NOT_EVALUATED_SELL_ONLY';
+    blockReason = 'SELL_ONLY';
+    breakPoint = 'PRE_FLIGHT_SELL_ONLY';
+    executionImpact = 'NEW_BUY_BLOCKED_ONLY';
+    engineMode = 'SELL_ONLY';
+    marketSessionState = 'SELL_ONLY';
+  } else if (joined.includes('NON_TRADING') || joined.includes('HOLIDAY') || joined.includes('VOLUME_CLOCK')) {
+    evaluationState = 'NOT_EVALUATED_NON_TRADING_DAY';
+    blockReason = joined.includes('VOLUME_CLOCK') ? 'NON_TRADING_TIME' : 'NON_TRADING_DAY';
+    breakPoint = 'SESSION_GUARD';
+    marketSessionState = blockReason;
+  } else if (joined.includes('R6')) {
+    evaluationState = 'NOT_EVALUATED_R6_LIVE_BLOCKED';
+    blockReason = 'R6_DEFENSE';
+    breakPoint = 'REGIME_GUARD';
+    executionImpact = 'NEW_BUY_BLOCKED_ONLY';
+    engineMode = 'DEGRADED';
+    effectiveRegime = 'R6_DEFENSE';
+  } else if (input.blockedBy === 'NO_BUYLIST_ELIGIBLE') {
+    evaluationState = 'EVALUATED_ZERO_SURVIVOR';
+    blockReason = 'NO_BUYLIST_ELIGIBLE';
+    breakPoint = 'CANDIDATE_SELECTION';
+  }
+
+  return {
+    scanId: input.summaryScanId,
+    asOf: input.timestamp,
+    evaluationState,
+    marketSessionState,
+    engineMode,
+    effectiveRegime,
+    totalCandidates,
+    evaluated: 0,
+    skipped: totalCandidates,
+    rejected: 0,
+    survivors: 0,
+    quoteHydrated: 0,
+    quoteHydrationFailed: 0,
+    blockReason,
+    breakPoint,
+    sourcePath: 'preflightBlockedScanSummary.recordPreflightBlockedScanSummary',
+    executionImpact,
+    shadowLearningAllowed: true,
+    diagnostics: {
+      blockedBy: input.blockedBy,
+      preflightDecision: input.preflightDecision,
+      hardBlockSource: input.hardBlockSource,
+      hardBlockReason: input.hardBlockReason,
+    },
+  };
+}
+
 /**
  * preflight abort (buyListLoop 진입 전) 시점에 blocked scan summary 영속 진입점.
  *
@@ -111,22 +230,34 @@ export function recordPreflightBlockedScanSummary(
 ): PreflightBlockedScanSummary {
   const timestamp = input.timestamp ?? new Date().toISOString();
   const rawCount = Number(input.candidateSummaryCount);
+  const candidateSummaryCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+  const scanId = input.scanId ?? buildScanId(timestamp);
+  const hardBlockSource = sanitizeHardBlockSource(input.hardBlockSource);
   const summary: PreflightBlockedScanSummary = {
-    scanId: input.scanId ?? buildScanId(timestamp),
+    scanId,
     timestamp,
     stage: 'BEFORE_BUYLIST_LOOP',
     blockedBy: input.blockedBy,
-    hardBlockSource: sanitizeHardBlockSource(input.hardBlockSource),
+    hardBlockSource,
     hardBlockModule: input.hardBlockModule,
     hardBlockReason: input.hardBlockReason,
     preflightDecision: input.preflightDecision,
-    candidateSummaryCount: Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0,
+    candidateSummaryCount,
     universeSnapshotRecorded: input.universeSnapshotRecorded === true,
     counterfactualRecorded: input.counterfactualRecorded === true,
     buyListLoopEntered: false,
     gateSamples: 0,
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
+    scanEvaluation: input.scanEvaluation ?? buildPreflightScanEvaluation({
+      summaryScanId: scanId,
+      timestamp,
+      blockedBy: input.blockedBy,
+      preflightDecision: input.preflightDecision,
+      hardBlockSource,
+      hardBlockReason: input.hardBlockReason,
+      candidateSummaryCount,
+    }),
   };
   _lastPreflightBlockedScanSummary = summary;
   return summary;
@@ -171,6 +302,13 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   lines.push(`counterfactualRecorded=${summary.counterfactualRecorded}`);
   lines.push(`buyListLoopEntered=${summary.buyListLoopEntered}`);
   lines.push(`executionImpact=${summary.executionImpact}`);
+  if (summary.scanEvaluation) {
+    lines.push(`evaluationState=${summary.scanEvaluation.evaluationState}`);
+    lines.push(`sourcePath=${summary.scanEvaluation.sourcePath}`);
+    lines.push(`breakPoint=${summary.scanEvaluation.breakPoint ?? 'NONE'}`);
+    lines.push(`scanExecutionImpact=${summary.scanEvaluation.executionImpact}`);
+    lines.push(`shadowLearningAllowed=${summary.scanEvaluation.shadowLearningAllowed}`);
+  }
   lines.push('');
   lines.push('📊 <b>Per-Symbol Supply Injection</b>');
   const supplyInjection = summary.perSymbolSupplyInjection;

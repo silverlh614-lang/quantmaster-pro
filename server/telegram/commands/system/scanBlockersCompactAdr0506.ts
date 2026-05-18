@@ -14,6 +14,7 @@
  */
 
 import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
+import { formatScanEvaluationCompactLine } from '../../../trading/signalScanner/state/scanEvaluationState.js';
 import {
   resolveGate1ForensicNextAction,
   type Gate1MinimumSignalForensicSummaryAdr0505,
@@ -578,6 +579,8 @@ export function formatScanBlockersCompactMessage(
   // top empty scan reason
   const emptyScanReason = summary?.emptyScanReason ?? (entries === 0 ? 'EMPTY_SCAN' : 'OK');
   lines.push(`• topReason: ${emptyScanReason}`);
+  const scanEvaluationLine = formatScanEvaluationCompactLine(summary?.scanEvaluation);
+  if (scanEvaluationLine) lines.push(scanEvaluationLine);
 
   // Gate1 survivor count — ScanSummary.gatePassDistribution.gate1Pass (옵셔널).
   const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));
@@ -708,6 +711,8 @@ export function formatScanBlockersGateCompactMessage(
   const candidates = summary?.candidates ?? 0;
   const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));
   const gate2Pass = summary?.gatePassDistribution?.gate2Pass ?? 0;
+  const scanEvaluationLine = formatScanEvaluationCompactLine(summary?.scanEvaluation);
+  if (scanEvaluationLine) lines.push(scanEvaluationLine);
   lines.push(`• Gate1 pass: ${gate1Pass}/${candidates}`);
   lines.push(`• Gate2 pass: ${gate2Pass}/${gate1Pass}`);
   const leadership = summary?.freshGate2Attribution?.leadershipAttribution;

@@ -43,6 +43,7 @@ import type {
   GateScoreHealthSummary,
 } from './gateScoreDiagnostics.js';
 import type { GateLayerAuditSummary } from './gateLayerDiagnostics.js';
+import type { ScanEvaluationResult } from '../state/scanEvaluationState.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -168,6 +169,7 @@ export interface ScanSummary {
   candidateScanTrigger?: ShadowCandidateScanTrigger;
   waitDistribution?: WaitDistribution;
   macroGateState?: MacroGateState;
+  scanEvaluation?: ScanEvaluationResult;
   emptyScanReason?: EmptyScanReason;
   emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
   weekendReplaySummaryAdr0501?: WeekendReplaySummaryAdr0501;
