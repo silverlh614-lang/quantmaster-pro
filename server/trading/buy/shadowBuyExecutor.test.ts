@@ -1,0 +1,131 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
+import { resolveBuyApprovalPolicy } from './buyApprovalPolicy.js';
+import { createBuySignalStateMachine } from './buySignalStateMachine.js';
+import {
+  executeShadowBuyOrder,
+  type ShadowBuyExecutorDeps,
+} from './shadowBuyExecutor.js';
+
+function makeTrade(): ServerShadowTrade {
+  return {
+    id: 'trade-shadow-1',
+    stockCode: '005930',
+    stockName: 'Samsung',
+    signalTime: '2026-05-18T00:00:00.000Z',
+    signalPrice: 70_000,
+    shadowEntryPrice: 70_000,
+    quantity: 3,
+    stopLoss: 65_000,
+    targetPrice: 80_000,
+    status: 'PENDING',
+    mode: 'SHADOW',
+    profitTranches: [],
+  } as ServerShadowTrade;
+}
+
+function deps(overrides: Partial<ShadowBuyExecutorDeps> = {}): ShadowBuyExecutorDeps {
+  return {
+    appendShadowLog: vi.fn(),
+    loadShadowTrades: vi.fn(() => []),
+    executeShadowBuy: vi.fn(async ({ trade }) => {
+      trade.status = 'ACTIVE';
+      trade.fills = [{
+        id: 'fill-1',
+        type: 'BUY',
+        subType: 'INITIAL_BUY',
+        qty: trade.quantity,
+        price: trade.shadowEntryPrice,
+        reason: 'test',
+        timestamp: '2026-05-18T00:00:00.000Z',
+        status: 'CONFIRMED',
+      }];
+      return {
+        outcome: 'EXECUTED' as const,
+        reason: 'ok',
+        tradeId: trade.id,
+        executedAtIso: '2026-05-18T00:00:00.000Z',
+        fillId: 'fill-1',
+        fillPrice: trade.shadowEntryPrice,
+        statusAfter: trade.status,
+        liveOrderPlaced: false as const,
+        executionImpact: 'NONE' as const,
+      };
+    }),
+    recordShadowExecutionOutcome: vi.fn(),
+    notifyFilled: vi.fn(),
+    markAutoTradeReady: vi.fn(() => ({ ok: true, action: 'markAutoTradeReady' as const })),
+    markFilled: vi.fn(() => ({ ok: true, action: 'markFilled' as const, skipped: true })),
+    ...overrides,
+  };
+}
+
+describe('shadowBuyExecutor', () => {
+  it('finishes approved SHADOW execution at SHADOW_POSITION_OPENED', async () => {
+    const trade = makeTrade();
+    const sm = createBuySignalStateMachine({ mode: 'SHADOW' });
+    sm.transition('APPROVAL_REQUESTED', 'requested');
+    sm.transition('APPROVED', 'approved');
+    const d = deps();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const result = await executeShadowBuyOrder({
+      trade,
+      stockCode: '005930',
+      stockName: 'Samsung',
+      currentPrice: 70_000,
+      entryPrice: 70_000,
+      logEvent: 'BUY_SIGNAL',
+      approvalPolicy: resolveBuyApprovalPolicy({
+        mode: 'SHADOW',
+        action: 'APPROVE',
+        telegramDelivered: false,
+      }),
+      stateMachine: sm,
+    }, d);
+
+    expect(result.outcome).toBe('SHADOW_POSITION_OPENED');
+    expect(sm.state).toBe('SHADOW_POSITION_OPENED');
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_EXECUTION_START]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_ORDER_CREATED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_PAPER_FILLED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_POSITION_OPENED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_LEDGER_RECORDED]'));
+    logSpy.mockRestore();
+  });
+
+  it('normalizes paper-fill failure to SHADOW_REJECTED', async () => {
+    const trade = makeTrade();
+    const sm = createBuySignalStateMachine({ mode: 'SHADOW' });
+    sm.transition('APPROVAL_REQUESTED', 'requested');
+    sm.transition('APPROVED', 'approved');
+    const d = deps({
+      executeShadowBuy: vi.fn(async ({ trade: inputTrade }) => ({
+        outcome: 'INVALID_INPUT' as const,
+        reason: 'bad qty',
+        tradeId: inputTrade.id,
+        executedAtIso: '2026-05-18T00:00:00.000Z',
+        liveOrderPlaced: false as const,
+        executionImpact: 'NONE' as const,
+      })),
+    });
+
+    const result = await executeShadowBuyOrder({
+      trade,
+      stockCode: '005930',
+      stockName: 'Samsung',
+      currentPrice: 70_000,
+      entryPrice: 70_000,
+      logEvent: 'BUY_SIGNAL',
+      approvalPolicy: resolveBuyApprovalPolicy({
+        mode: 'SHADOW',
+        action: 'APPROVE',
+        telegramDelivered: true,
+      }),
+      stateMachine: sm,
+    }, d);
+
+    expect(result.outcome).toBe('SHADOW_REJECTED');
+    expect(sm.state).toBe('SHADOW_REJECTED');
+  });
+});
