@@ -144,13 +144,13 @@ export function aggregatePositionSources(): PositionSourceSnapshot {
   const seenTradeIds = new Set<string>();
 
   for (const entry of ledgerEntries) {
-    const tradeId = entry.trade.id ?? `${entry.trade.stockCode}:${entry.trade.entryTime ?? ''}`;
+    const tradeId = entry.trade.id;
     positions.push(normalizeTradePosition(entry.trade, 'ShadowPositionLedger', entry.qty));
     seenTradeIds.add(tradeId);
   }
 
   for (const trade of openRepoTrades) {
-    const tradeId = trade.id ?? `${trade.stockCode}:${trade.entryTime ?? ''}`;
+    const tradeId = trade.id;
     if (seenTradeIds.has(tradeId)) {
       continue;
     }
@@ -280,23 +280,18 @@ function normalizeTradePosition(
   source: PositionSourceName,
   qty: number,
 ): TelegramPositionEntry {
-  const currentPrice = Number.isFinite(trade.currentPrice) ? trade.currentPrice : undefined;
-  const entryPrice = Number(trade.entryPrice ?? 0);
-  const unrealizedPnl = currentPrice != null ? (currentPrice - entryPrice) * qty : undefined;
-  const unrealizedPct = currentPrice != null && entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : undefined;
-  const stopLoss = Number(trade.stopLoss ?? 0);
-  const rMultiple = currentPrice != null && entryPrice > 0 && stopLoss > 0 && entryPrice !== stopLoss
-    ? (currentPrice - entryPrice) / Math.abs(entryPrice - stopLoss)
-    : undefined;
+  const entryPrice = Number(trade.shadowEntryPrice ?? trade.signalPrice ?? 0);
+  const unrealizedPnl = undefined;
+  const unrealizedPct = undefined;
+  const rMultiple = undefined;
 
   return {
     source,
-    tradeId: trade.id ?? `${trade.stockCode}:${trade.entryTime ?? ''}`,
+    tradeId: trade.id,
     stockCode: trade.stockCode,
     stockName: trade.stockName || trade.stockCode,
     qty,
     entryPrice,
-    currentPrice,
     unrealizedPnl,
     unrealizedPct,
     realizedPnl: getTotalRealizedPnl(trade),
