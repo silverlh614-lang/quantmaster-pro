@@ -9,8 +9,34 @@ import { registerOcoPair } from './ocoCloseLoop.js';
 import { appendTradeEvent } from './tradeEventLog.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { isShadowR6ForcedExitSuspected } from './exitEngine/r6ForcedExitPolicy.js';
+import { toKstDateKey, isKrxTradingDay } from '../calendar/krxTradingCalendar.js';
+import { emitOperationalWarn } from './fill/fillOperationalWarn.js';
+import { normalizeFillQueryResult } from './fill/fillQueryNormalizer.js';
+import { decideSellFillMonitorAction } from './fill/sellFillMonitor.js';
+import { markSellReissueFailed } from './fill/sellReissuePolicy.js';
+import type { FillQueryResult } from './fill/fillTypes.js';
+import type { SellFillMonitorAction } from './fill/sellFillMonitor.js';
+import type { MarketSessionState } from './fill/unfilledOrderPolicy.js';
 
 const FILL_POLL_MAX = 10; // 최대 폴링 횟수 (cron 5분 간격 × 10 = 최대 50분 모니터링)
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const KRX_OPEN_MIN = 9 * 60;
+const KRX_CLOSE_MIN = 15 * 60 + 30;
+
+function kstMinuteOfDay(now: Date): number {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
+}
+
+function currentKrxMarketSession(now = new Date()): MarketSessionState {
+  const dateKey = toKstDateKey(now);
+  if (!isKrxTradingDay(dateKey)) return 'HOLIDAY';
+  const minute = kstMinuteOfDay(now);
+  if (minute < KRX_OPEN_MIN) return 'PRE_MARKET';
+  if (minute >= KRX_CLOSE_MIN) return 'AFTER_HOURS';
+  return 'REGULAR';
+}
 
 export interface PendingOrder {
   ordNo: string;           // KIS 주문번호 (ODNO)
@@ -126,6 +152,16 @@ export class FillMonitor {
     } catch (e) {
       // kisGet 내부에서 이미 429/5xx 재시도 수행 후에도 실패한 경우만 도달.
       // 이번 사이클은 건너뛰고 다음 cron(5분 후)에서 재조회 — pollCount 미증가로 만료 방지.
+      emitOperationalWarn({
+        code: 'P0_FILL_QUERY_FAILED',
+        message: 'Buy fill monitor KIS unfilled query failed',
+        context: {
+          side: 'BUY',
+          pendingCount: pending.length,
+          retryable: true,
+        },
+        cause: e,
+      });
       console.error('[FillMonitor] KIS 미체결 조회 실패 — 이번 사이클 스킵:', e instanceof Error ? e.message : e);
       return;
     }
@@ -134,7 +170,15 @@ export class FillMonitor {
     // output=[] (정상 빈 목록)과 구분하지 않으면 전 주문을 '체결됨'으로 오판하여
     // 잘못된 OCO 등록·Telegram 알림을 유발한다. 반드시 이번 사이클을 중단해야 한다.
     if (!data) {
-      console.warn('[FillMonitor] KIS 미체결 응답이 비어 있음 — 전 주문 FILLED 오판 방지 위해 스킵');
+      emitOperationalWarn({
+        code: 'P0_FILL_QUERY_EMPTY',
+        message: 'Buy fill monitor KIS unfilled query returned empty response',
+        context: {
+          side: 'BUY',
+          pendingCount: pending.length,
+          retryable: true,
+        },
+      });
       return;
     }
 
@@ -143,6 +187,7 @@ export class FillMonitor {
 
     for (const order of pending) {
       order.pollCount++;
+      changed = true;
 
       const unfilled = unfilledMap.get(order.ordNo);
 
@@ -294,6 +339,99 @@ export interface PendingSellOrder {
   filledAt?: string;
   relatedTradeId?: string;
   reissuedOrdNo?: string;              // 시장가 재발행 시 새 주문번호
+}
+
+type SellCcldRow = {
+  odno: string;
+  tot_ccld_qty: string;
+  avg_prvs: string;
+  ord_qty: string;
+  sll_buy_dvsn_cd: string;
+};
+
+function sellReissueReason(order: PendingSellOrder): string {
+  return `${order.originalReason}:UNFILLED_MAX_POLL`;
+}
+
+function normalizeSellFillQuery(order: PendingSellOrder, ccld: SellCcldRow | undefined): FillQueryResult {
+  return normalizeFillQueryResult({
+    order: {
+      ordNo: ccld?.odno ?? order.reissuedOrdNo ?? order.ordNo,
+      symbol: order.stockCode,
+      orderQty: order.quantity,
+      side: 'SELL',
+    },
+    raw: { output: ccld ? [ccld] : [] },
+    emptyRetryable: true,
+  });
+}
+
+function decideSellMonitorAction(order: PendingSellOrder, queryResult: FillQueryResult) {
+  const marketSession = currentKrxMarketSession();
+  return decideSellFillMonitorAction({
+    order: {
+      ordNo: order.ordNo,
+      symbol: order.stockCode,
+      orderQty: order.quantity,
+      pollCount: order.pollCount,
+      mode: 'LIVE',
+      reason: sellReissueReason(order),
+    },
+    queryResult,
+    maxPollCount: SELL_POLL_MAX,
+    marketSession,
+    riskMode: 'NORMAL',
+    marketOpen: marketSession === 'REGULAR',
+    liveSellAllowed: KIS_IS_REAL,
+  });
+}
+
+function logDeferredSellReissue(order: PendingSellOrder, reason: string): void {
+  console.log(
+    `[SellFillMonitor] reissue deferred symbol=${order.stockCode} ordNo=${order.ordNo} ` +
+    `reason=${reason} executionImpact=EXIT_MONITOR_DEGRADED`,
+  );
+}
+
+async function applySellReissueAction(
+  order: PendingSellOrder,
+  action: SellFillMonitorAction,
+  fallbackQuantity: number,
+): Promise<boolean> {
+  switch (action.action) {
+    case 'REISSUE_MARKET':
+      await reissueAsMarketOrder(order, action.remainingQty || fallbackQuantity, action.dedupKey);
+      return true;
+    case 'DUPLICATE_REISSUE_BLOCKED':
+      console.log(
+        `[SellFillMonitor] duplicate reissue blocked symbol=${order.stockCode} ordNo=${order.ordNo} ` +
+        `dedupKey=${action.dedupKey} executionImpact=${action.executionImpact}`,
+      );
+      return false;
+    case 'DEFER_MONITOR':
+      logDeferredSellReissue(order, action.reason);
+      return false;
+    case 'MONITOR_DEGRADED':
+      logDeferredSellReissue(order, action.reason);
+      return false;
+    case 'MARK_REJECTED':
+      order.status = 'FAILED';
+      emitOperationalWarn({
+        code: 'P0_SELL_FILL_MONITOR_DEGRADED',
+        message: 'Sell fill monitor rejected reissue request',
+        context: {
+          symbol: order.stockCode,
+          ordNo: order.ordNo,
+          reason: action.reason,
+          executionImpact: action.executionImpact,
+        },
+      });
+      return true;
+    case 'MARK_FILLED':
+    case 'MARK_PARTIAL':
+    case 'WAIT_FOR_FILL':
+      return false;
+  }
 }
 
 /**
@@ -453,6 +591,16 @@ function correctShadowFill(
     trade.status = snapshot.tradeStatus;
     trade.exitTime = snapshot.tradeExitTime;
     trade.exitPrice = snapshot.tradeExitPrice;
+    emitOperationalWarn({
+      code: 'P0_PROVISIONAL_FILL_RECONCILE_FAILED',
+      message: 'Failed to persist reconciled sell fill; rolled back in-memory mutation',
+      context: {
+        symbol: trade.stockCode,
+        ordNo,
+        relatedTradeId,
+      },
+      cause: e,
+    });
     console.error(`[SellFillMonitor] ⚠️ Fill 저장 실패 — 롤백 수행: ${trade.stockCode} ordNo=${ordNo}`, e instanceof Error ? e.message : e);
     return null;
   }
@@ -484,7 +632,7 @@ export async function pollSellFills(): Promise<void> {
 
   // CCLD TR(당일 체결 내역 조회) — 당일 전체 체결 목록에서 매칭
   // priority HIGH: 매도 체결 확인은 최우선 (네이키드 포지션 방지)
-  let ccldData: { output?: { odno: string; tot_ccld_qty: string; avg_prvs: string; ord_qty: string; sll_buy_dvsn_cd: string }[] } | null = null;
+  let ccldData: { output?: SellCcldRow[] } | null = null;
   try {
     ccldData = await kisGet(trId, '/uapi/domestic-stock/v1/trading/inquire-daily-ccld', {
       CANO: process.env.KIS_ACCOUNT_NO ?? '',
@@ -503,6 +651,25 @@ export async function pollSellFills(): Promise<void> {
       CTX_AREA_NK100: '',
     }, 'HIGH');
   } catch (e) {
+    emitOperationalWarn({
+      code: 'P0_FILL_QUERY_FAILED',
+      message: 'Sell fill monitor KIS CCLD query failed',
+      context: {
+        side: 'SELL',
+        pendingCount: pending.length,
+        retryable: true,
+      },
+      cause: e,
+    });
+    emitOperationalWarn({
+      code: 'P0_SELL_FILL_MONITOR_DEGRADED',
+      message: 'Sell fill monitor degraded by CCLD query failure',
+      context: {
+        pendingCount: pending.length,
+        executionImpact: 'EXIT_MONITOR_DEGRADED',
+      },
+      cause: e,
+    });
     console.error('[SellFillMonitor] CCLD 조회 실패 — 이번 사이클 스킵:', e instanceof Error ? e.message : e);
     return;
   }
@@ -511,16 +678,48 @@ export async function pollSellFills(): Promise<void> {
   // null 을 빈 목록으로 취급하면 미체결 매도가 '폴링 만료 → 시장가 재발행' 경로로
   // 잘못 흘러 중복 매도를 유발한다. null 이면 이번 사이클 중단.
   if (!ccldData) {
-    console.warn('[SellFillMonitor] CCLD 응답이 비어 있음 — 중복 재발행 방지 위해 스킵');
+    emitOperationalWarn({
+      code: 'P0_FILL_QUERY_EMPTY',
+      message: 'Sell fill monitor KIS CCLD query returned empty response',
+      context: {
+        side: 'SELL',
+        pendingCount: pending.length,
+        retryable: true,
+      },
+    });
+    emitOperationalWarn({
+      code: 'P0_SELL_FILL_MONITOR_DEGRADED',
+      message: 'Sell fill monitor skipped empty CCLD response',
+      context: {
+        pendingCount: pending.length,
+        executionImpact: 'EXIT_MONITOR_DEGRADED',
+      },
+    });
     return;
   }
 
-  const ccldMap = new Map((ccldData.output ?? []).map(o => [o.odno, o]));
+  const ccldOutput = Array.isArray(ccldData.output) ? ccldData.output : [];
+  if (ccldData.output !== undefined && !Array.isArray(ccldData.output)) {
+    emitOperationalWarn({
+      code: 'P0_FILL_QUERY_FAILED',
+      message: 'Sell fill monitor received malformed CCLD output',
+      context: {
+        side: 'SELL',
+        pendingCount: pending.length,
+        retryable: true,
+      },
+      cause: ccldData.output,
+    });
+  }
+  const ccldMap = new Map(ccldOutput.map(o => [o.odno, o]));
   let changed = false;
 
   for (const order of pending) {
     order.pollCount++;
+    changed = true;
     const ccld = ccldMap.get(order.ordNo) ?? ccldMap.get(order.reissuedOrdNo ?? '');
+    const queryResult = normalizeSellFillQuery(order, ccld);
+    const monitorAction = decideSellMonitorAction(order, queryResult);
 
     if (ccld) {
       const filledQty = Number(ccld.tot_ccld_qty ?? 0);
@@ -567,18 +766,15 @@ export async function pollSellFills(): Promise<void> {
         // 마지막 폴링이면 잔여 수량 시장가 재발행
         if (order.pollCount >= SELL_POLL_MAX) {
           const remainQty = order.quantity - filledQty;
-          await reissueAsMarketOrder(order, remainQty);
-          changed = true;
+          changed = (await applySellReissueAction(order, monitorAction, remainQty)) || changed;
         }
       } else if (order.pollCount >= SELL_POLL_MAX) {
         // 체결 건수 0 + 폴링 만료 → 시장가 재발행
-        await reissueAsMarketOrder(order, order.quantity);
-        changed = true;
+        changed = (await applySellReissueAction(order, monitorAction, order.quantity)) || changed;
       }
     } else if (order.pollCount >= SELL_POLL_MAX) {
       // CCLD에 아예 없음 + 폴링 만료 → 시장가 재발행
-      await reissueAsMarketOrder(order, order.quantity);
-      changed = true;
+      changed = (await applySellReissueAction(order, monitorAction, order.quantity)) || changed;
     } else {
       console.log(`[SellFillMonitor] 미체결 유지 (${order.pollCount}/${SELL_POLL_MAX}): ${order.stockName} ODNO=${order.ordNo}`);
     }
@@ -588,8 +784,11 @@ export async function pollSellFills(): Promise<void> {
 }
 
 /** 미체결 매도 → 시장가 즉시 재발행 */
-async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): Promise<void> {
-  console.warn(`[SellFillMonitor] ⚠️ ${order.stockName} 매도 미체결 (${order.pollCount}회) — 시장가 재발행 ${quantity}주`);
+async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number, dedupKey: string): Promise<void> {
+  console.log(
+    `[SellFillMonitor] market reissue start symbol=${order.stockCode} ordNo=${order.ordNo} ` +
+    `quantity=${quantity} dedupKey=${dedupKey}`,
+  );
 
   try {
     // 기존 주문 취소 시도
@@ -637,6 +836,12 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): 
     ).catch(console.error);
   } catch (err) {
     order.status = 'FAILED';
+    markSellReissueFailed({
+      mode: 'LIVE',
+      symbol: order.stockCode,
+      originalOrdNo: order.ordNo,
+      reason: sellReissueReason(order),
+    }, err);
     console.error(`[SellFillMonitor] 시장가 재발행 실패:`, err instanceof Error ? err.message : err);
 
     // ── PROVISIONAL fill 되돌림 (선반영 수정) ─────────────────────────────
@@ -659,6 +864,16 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number): 
           console.warn(`[SellFillMonitor] ↩️ PROVISIONAL fill 되돌림 — ${order.stockName} ordNo=${order.ordNo}`);
         }
       } catch (revertErr) {
+        emitOperationalWarn({
+          code: 'P0_PROVISIONAL_FILL_RECONCILE_FAILED',
+          message: 'Failed to rollback provisional sell fill after reissue failure',
+          context: {
+            symbol: order.stockCode,
+            ordNo: order.ordNo,
+            relatedTradeId: order.relatedTradeId,
+          },
+          cause: revertErr,
+        });
         console.error('[SellFillMonitor] 되돌림 실패:', revertErr instanceof Error ? revertErr.message : revertErr);
       }
     } else if (alreadyFilled) {

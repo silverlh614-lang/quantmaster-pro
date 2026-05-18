@@ -4,6 +4,7 @@ import { fetchAccountBalance, placeKisMarketBuyOrder } from '../../clients/kisCl
 import { appendShadowLog } from '../../persistence/shadowTradeRepo.js';
 import { assertSafeOrder } from '../preOrderGuard.js';
 import { fillMonitor } from '../fillMonitor.js';
+import type { PendingOrder } from '../fillMonitor.js';
 import { getSmokeTestLastFailedReason, getSmokeTestLiveBlocked } from '../../state.js';
 import type { BuyApprovalPolicyResult } from './buyApprovalPolicy.js';
 import type { BuySignalStateMachine } from './buySignalStateMachine.js';
@@ -38,7 +39,7 @@ export interface LiveBuyExecutorDeps {
   placeKisMarketBuyOrder: typeof placeKisMarketBuyOrder;
   assertSafeOrder: typeof assertSafeOrder;
   appendShadowLog: typeof appendShadowLog;
-  addFillMonitorOrder: typeof fillMonitor.addOrder;
+  addFillMonitorOrder: (order: Omit<PendingOrder, 'pollCount' | 'status'>) => void;
   getSmokeTestLiveBlocked: typeof getSmokeTestLiveBlocked;
   getSmokeTestLastFailedReason: typeof getSmokeTestLastFailedReason;
   markAutoTradeReady: typeof markAutoTradeReady;
@@ -50,7 +51,7 @@ const defaultDeps: LiveBuyExecutorDeps = {
   placeKisMarketBuyOrder,
   assertSafeOrder,
   appendShadowLog,
-  addFillMonitorOrder: fillMonitor.addOrder.bind(fillMonitor),
+  addFillMonitorOrder: (order) => fillMonitor.addOrder(order),
   getSmokeTestLiveBlocked,
   getSmokeTestLastFailedReason,
   markAutoTradeReady,
