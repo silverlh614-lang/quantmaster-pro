@@ -68,7 +68,13 @@ function makeShadow(overrides: Partial<ServerShadowTrade> = {}): ServerShadowTra
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-05-19T01:00:00.000Z'));
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 // ─── ATR 동적 손절 갱신 테스트 ─────────────────────────────────────────────────
@@ -208,5 +214,23 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     await updateShadowResults([shadow], 'R2_BULL');
 
     expect(shadow.hardStopLoss).toBe(45000);
+  });
+
+  it('장외 Shadow paper exit은 손절 조건이어도 청산하지 않고 대기 상태로 남긴다', async () => {
+    vi.setSystemTime(new Date('2026-05-18T15:03:00.000Z'));
+    const shadow = makeShadow({
+      mode: 'SHADOW',
+      hardStopLoss: 45000,
+      stopLoss: 45000,
+    });
+    mockFetchCurrentPrice.mockResolvedValue(40000);
+
+    await updateShadowResults([shadow], 'R6_DEFENSE');
+
+    expect(mockFetchCurrentPrice).not.toHaveBeenCalled();
+    expect(shadow.status).toBe('ACTIVE');
+    expect(shadow.quantity).toBe(10);
+    expect(shadow.shadowExitDeferredReason).toBe('SHADOW_EXIT_DEFERRED_NON_TRADING');
+    expect(shadow.shadowExitDeferredSession).toBe('PRE_MARKET');
   });
 });

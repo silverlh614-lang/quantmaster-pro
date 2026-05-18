@@ -715,6 +715,9 @@ export interface ServerShadowTrade {
   programFlowAtEntry?: number;
   needsManualReview?: boolean;
   manualReviewReason?: string;
+  shadowExitDeferredReason?: string;
+  shadowExitDeferredSession?: string;
+  shadowExitDeferredAt?: string;
   rollbackReason?: string;
   r6Counterfactual?: {
     tradingDate: string;
