@@ -12,11 +12,13 @@ describe('emitOperationalWarn', () => {
     });
 
     expect(spy).toHaveBeenCalledWith(
-      '[P0][P0_BUY_SIGNAL_STUCK] stuck',
+      expect.stringContaining('[P0][EXECUTION][P0_BUY_SIGNAL_STUCK]'),
       expect.objectContaining({
-        severity: 'P0',
+        priority: 'P0',
+        domain: 'EXECUTION',
         code: 'P0_BUY_SIGNAL_STUCK',
-        context: { tradeId: 't1' },
+        executionImpact: 'APPROVAL_FLOW_DEGRADED',
+        details: expect.objectContaining({ context: { tradeId: 't1' } }),
       }),
     );
     spy.mockRestore();

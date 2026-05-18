@@ -64,8 +64,11 @@ describe('sellReissuePolicy', () => {
     reserveSellReissue({ mode: 'LIVE', symbol: '005930', originalOrdNo: 'OD-1', reason: 'R' });
 
     expect(warnSpy).toHaveBeenCalledWith(
-      '[P0][P0_SELL_REISSUE_DUPLICATE_BLOCKED] Duplicate sell market reissue blocked by idempotency guard',
-      expect.objectContaining({ code: 'P0_SELL_REISSUE_DUPLICATE_BLOCKED' }),
+      expect.stringContaining('[P0][EXECUTION][P0_SELL_REISSUE_DUPLICATE_BLOCKED]'),
+      expect.objectContaining({
+        code: 'P0_SELL_REISSUE_DUPLICATE_BLOCKED',
+        executionImpact: 'LIVE_SELL_BLOCKED',
+      }),
     );
     warnSpy.mockRestore();
   });

@@ -1,3 +1,6 @@
+import { emitLegacyOperationalWarn } from '../../../observability/legacyOperationalWarnAdapter.js';
+import type { ExecutionImpact } from '../../../observability/executionImpact.js';
+
 export type KisOrderP0WarnCode =
   | 'P0_KIS_BUY_ORDER_BLOCKED'
   | 'P0_KIS_SELL_ORDER_BLOCKED'
@@ -14,31 +17,15 @@ export interface KisOrderOperationalWarnEvent {
   cause?: unknown;
 }
 
-function severityFor(code: string, explicit?: KisOrderOperationalWarnEvent['severity']): NonNullable<KisOrderOperationalWarnEvent['severity']> {
-  if (explicit) return explicit;
-  if (code.startsWith('P0_')) return 'P0';
-  if (code.startsWith('P1_')) return 'P1';
-  if (code.startsWith('P2_')) return 'P2';
-  return 'P3';
-}
-
-function describeCause(cause: unknown): unknown {
-  if (cause instanceof Error) {
-    return {
-      name: cause.name,
-      message: cause.message,
-      stack: cause.stack,
-    };
-  }
-  return cause;
+function impactForKisCode(code: string, context?: Record<string, unknown>): ExecutionImpact {
+  const orderKind = typeof context?.orderKind === 'string' ? context.orderKind : '';
+  if (code.includes('SELL') || orderKind.includes('SELL')) return 'LIVE_SELL_BLOCKED';
+  return 'LIVE_ORDER_BLOCKED';
 }
 
 export function emitKisOrderOperationalWarn(event: KisOrderOperationalWarnEvent): void {
-  const severity = severityFor(event.code, event.severity);
-  console.warn(`[${severity}][${event.code}] ${event.message}`, {
-    severity,
-    code: event.code,
-    ...(event.context ? { context: event.context } : {}),
-    ...(event.cause !== undefined ? { cause: describeCause(event.cause) } : {}),
+  emitLegacyOperationalWarn(event, {
+    domain: 'EXECUTION',
+    impactForCode: impactForKisCode,
   });
 }
