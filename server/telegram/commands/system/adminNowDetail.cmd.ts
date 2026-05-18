@@ -1,4 +1,4 @@
-// @responsibility Admin NOW detail/debug command — full reasonCodes and market-state diagnostics.
+// @responsibility Admin NOW detail command for reasonCode market-state diagnostics.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
 import { RegimeResolver } from '../../../trading/marketStateResolver.js';

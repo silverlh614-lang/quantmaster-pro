@@ -1,3 +1,4 @@
+// @responsibility Market state resolver base policy derivation.
 import type { RegimeLevel } from '../../src/types/core.js';
 import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import {
