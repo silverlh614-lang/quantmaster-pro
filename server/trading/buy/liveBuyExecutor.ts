@@ -1,6 +1,7 @@
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 import type { ApprovalAction } from '../../telegram/buyApproval.js';
-import { fetchAccountBalance, placeKisMarketBuyOrder } from '../../clients/kisClient.js';
+import { fetchAccountBalance, submitBuyOrder } from '../../clients/kisClient.js';
+import type { OrderGatewayResult } from '../../clients/kisClient.js';
 import { appendShadowLog } from '../../persistence/shadowTradeRepo.js';
 import { assertSafeOrder } from '../preOrderGuard.js';
 import { fillMonitor } from '../fillMonitor.js';
@@ -36,7 +37,7 @@ export interface LiveBuyExecutionResult {
 
 export interface LiveBuyExecutorDeps {
   fetchAccountBalance: typeof fetchAccountBalance;
-  placeKisMarketBuyOrder: typeof placeKisMarketBuyOrder;
+  submitBuyOrder: typeof submitBuyOrder;
   assertSafeOrder: typeof assertSafeOrder;
   appendShadowLog: typeof appendShadowLog;
   addFillMonitorOrder: (order: Omit<PendingOrder, 'pollCount' | 'status'>) => void;
@@ -48,7 +49,7 @@ export interface LiveBuyExecutorDeps {
 
 const defaultDeps: LiveBuyExecutorDeps = {
   fetchAccountBalance,
-  placeKisMarketBuyOrder,
+  submitBuyOrder,
   assertSafeOrder,
   appendShadowLog,
   addFillMonitorOrder: (order) => fillMonitor.addOrder(order),
@@ -62,6 +63,23 @@ const inflightLiveBuyOrders = new Set<string>();
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function describeOrderGatewayResult(result: OrderGatewayResult): string {
+  switch (result.kind) {
+    case 'SUBMITTED':
+      return 'SUBMITTED';
+    case 'CANCEL_SUBMITTED':
+      return 'CANCEL_SUBMITTED';
+    case 'SKIPPED_KIS_NOT_CONFIGURED':
+      return 'SKIPPED_KIS_NOT_CONFIGURED executionImpact=LIVE_ORDER_BLOCKED';
+    case 'REJECTED':
+    case 'FAILED_FATAL':
+      return `${result.kind}: ${result.reason} executionImpact=${result.executionImpact}`;
+    case 'FAILED_RETRYABLE':
+    case 'CANCEL_FAILED':
+      return `${result.kind}: ${result.reason}`;
+  }
 }
 
 function rejectLive(
@@ -156,19 +174,26 @@ export async function executeLiveBuy(
     important: false,
   }));
 
-  let ordNo: string | null = null;
+  let orderResult: OrderGatewayResult;
   try {
-    ordNo = await deps.placeKisMarketBuyOrder(input.stockCode, input.quantity);
+    orderResult = await deps.submitBuyOrder({
+      stockCode: input.stockCode,
+      quantity: input.quantity,
+      orderType: 'MARKET',
+      correlationId: input.signalId,
+      orderIntentId: input.trade.id,
+    });
   } catch (error) {
     inflightLiveBuyOrders.delete(input.trade.id);
-    return rejectLive(input, `LIVE_ORDER_API_THROW: ${describeError(error)}`, statusWrites);
+    return rejectLive(input, `LIVE_ORDER_GATEWAY_THROW: ${describeError(error)}`, statusWrites);
   }
 
-  if (!ordNo) {
+  if (orderResult.kind !== 'SUBMITTED') {
     inflightLiveBuyOrders.delete(input.trade.id);
-    return rejectLive(input, 'LIVE_ORDER_API_RETURNED_EMPTY_ORDER_NO', statusWrites);
+    return rejectLive(input, `LIVE_ORDER_GATEWAY_${describeOrderGatewayResult(orderResult)}`, statusWrites);
   }
 
+  const ordNo = orderResult.ordNo;
   input.trade.status = 'ORDER_SUBMITTED';
   input.stateMachine?.transition('LIVE_ORDER_SUBMITTED', 'KIS live buy order submitted', { ordNo });
   appendLiveShadowLogSafe(deps, input, ordNo);

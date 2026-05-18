@@ -2,7 +2,7 @@
 // server/routes/kisRouter.ts
 // KIS (한국투자증권) API 라우터 — server.ts에서 분리
 import { Router } from 'express';
-import { kisGet, kisPost, realDataKisGet, BUY_TR_ID, CCLD_TR_ID, getKisToken, getKisTokenRemainingHours, HAS_REAL_DATA_CLIENT, getRealDataTokenRemainingHours, isKisBalanceQueryAllowed } from '../clients/kisClient.js';
+import { kisGet, kisPost, realDataKisGet, CCLD_TR_ID, getKisToken, getKisTokenRemainingHours, HAS_REAL_DATA_CLIENT, getRealDataTokenRemainingHours, isKisBalanceQueryAllowed, submitBuyOrder } from '../clients/kisClient.js';
 import { getRanking, type RankingType } from '../clients/kisRankingClient.js';
 import { evaluateProxyPolicy } from './kisProxyPolicy.js';
 
@@ -203,28 +203,20 @@ router.post('/order/test', async (_req: any, res: any) => {
     );
     const currentPrice: string = (priceData as any)?.output?.stck_prpr ?? '0';
 
-    const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-      CANO:            process.env.KIS_ACCOUNT_NO!,
-      ACNT_PRDT_CD:    process.env.KIS_ACCOUNT_PROD ?? '01',
-      PDNO:            '005930',
-      ORD_DVSN:        '01',
-      ORD_QTY:         '1',
-      ORD_UNPR:        '0',
-      SLL_BUY_DVSN_CD: '02',
-      CTAC_TLNO:       '',
-      MGCO_APTM_ODNO:  '',
-      ORD_SVR_DVSN_CD: '0',
+    const orderData = await submitBuyOrder({
+      stockCode: '005930',
+      quantity: 1,
+      orderType: 'MARKET',
+      orderIntentId: 'KIS_ROUTER_TEST_ORDER',
     });
 
-    const rtCd = (orderData as any)?.rt_cd;
-    if (rtCd !== '0') {
-      const msg = (orderData as any)?.msg1 ?? '주문 실패';
-      return res.status(400).json({ rt_cd: rtCd ?? '1', msg1: msg });
+    if (orderData.kind !== 'SUBMITTED') {
+      return res.status(400).json({ rt_cd: '1', msg1: 'reason' in orderData ? orderData.reason : orderData.kind });
     }
 
     res.json({
       rt_cd: '0',
-      output: { ORD_NO: (orderData as any)?.output?.ODNO ?? '' },
+      output: { ORD_NO: orderData.ordNo },
       currentPrice,
     });
   } catch (e: any) {

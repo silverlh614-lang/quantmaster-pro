@@ -3,7 +3,7 @@ import fs from 'fs';
 import { TRANCHE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { kisPost, BUY_TR_ID, fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
+import { submitBuyOrder, fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from './fillMonitor.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
@@ -388,21 +388,17 @@ export class TrancheExecutor {
         }
 
         if (isLive) {
-          const orderData = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-            CANO:         process.env.KIS_ACCOUNT_NO ?? '',
-            ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-            PDNO:         t.stockCode.padStart(6, '0'),
-            ORD_DVSN:     '01', // 시장가
-            ORD_QTY:      t.quantity.toString(),
-            ORD_UNPR:     '0',
-            SLL_BUY_DVSN_CD: '02',
-            CTAC_TLNO: '', MGCO_APTM_ODNO: '', ORD_SVR_DVSN_CD: '0',
-          }).catch(() => null);
+          const orderResult = await submitBuyOrder({
+            stockCode: t.stockCode,
+            quantity: t.quantity,
+            orderType: 'MARKET',
+            orderIntentId: t.id,
+            correlationId: t.parentTradeId,
+          });
 
-          const ordNo = (orderData as { output?: { ODNO?: string } } | null)?.output?.ODNO;
-          if (ordNo) {
+          if (orderResult.kind === 'SUBMITTED') {
             fillMonitor.addOrder({
-              ordNo,
+              ordNo: orderResult.ordNo,
               stockCode:      t.stockCode,
               stockName:      t.stockName,
               quantity:       t.quantity,
@@ -411,7 +407,7 @@ export class TrancheExecutor {
               relatedTradeId: t.parentTradeId,
             });
           }
-          console.log(`[Tranche] LIVE ${t.trancheNumber}차 주문 — ${t.stockName} ${t.quantity}주 ODNO=${ordNo}`);
+          console.log(`[Tranche] LIVE ${t.trancheNumber}차 주문 — ${t.stockName} ${t.quantity}주 result=${orderResult.kind}`);
         }
 
         t.status     = 'EXECUTED';

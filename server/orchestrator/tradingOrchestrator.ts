@@ -4,9 +4,9 @@ import { ORCHESTRATOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js'
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import {
-  BUY_TR_ID,
-  refreshKisToken, kisPost,
+  refreshKisToken,
   fetchAccountBalance,
+  submitBuyOrder,
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
@@ -196,23 +196,18 @@ export async function preMarketOrderPrep(): Promise<void> {
           continue;
         }
 
-        // KIS 지정가 매수 주문 (동시호가)
-        const orderRes = await kisPost(BUY_TR_ID, '/uapi/domestic-stock/v1/trading/order-cash', {
-          CANO:         process.env.KIS_ACCOUNT_NO ?? '',
-          ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
-          PDNO:         stock.code.padStart(6, '0'),
-          ORD_DVSN:     '00', // 지정가
-          ORD_QTY:      quantity.toString(),
-          ORD_UNPR:     stock.entryPrice.toString(),
-        }).catch((e: unknown) => {
-          console.error(`[PreMarket] KIS 주문 오류 ${stock.code}:`, e instanceof Error ? e.message : e);
-          return null;
+        const orderRes = await submitBuyOrder({
+          stockCode: stock.code,
+          quantity,
+          orderType: 'LIMIT',
+          limitPrice: stock.entryPrice,
+          correlationId: tradeDate,
+          orderIntentId: `${auctionSession}:${stock.code}:BUY`,
         });
 
-        const ordNo = (orderRes as { output?: { odno?: string } } | null)?.output?.odno;
-        if (ordNo) {
+        if (orderRes.kind === 'SUBMITTED') {
           fillMonitor.addOrder({
-            ordNo,
+            ordNo: orderRes.ordNo,
             stockCode:      stock.code,
             stockName:      stock.name,
             quantity,
@@ -227,10 +222,10 @@ export async function preMarketOrderPrep(): Promise<void> {
             : 'Gap n/a';
           await sendTelegramAlert(
             `📋 <b>[동시호가 예약 주문]</b>\n` +
-            `종목: ${stock.name} (${stock.code})\n` +
-            `가격: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
-            `GateSnap: ${gateSnapFormatted} | ${gapLine}\n` +
-            `주문번호: ${ordNo}`
+              `종목: ${stock.name} (${stock.code})\n` +
+              `가격: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
+              `GateSnap: ${gateSnapFormatted} | ${gapLine}\n` +
+              `주문번호: ${orderRes.ordNo}`
           ).catch(console.error);
         }
       } else {
