@@ -19,7 +19,7 @@ export type RiskOverride =
   | 'CIRCUIT_BREAKER'
   | 'KOSPI_CRASH'
   | 'MANUAL_KILL_SWITCH';
-export type EffectiveMarketRegime = RegimeLevel | 'R6_PANIC' | 'R6_RECOVERY_WATCH' | 'R5_STABILIZING' | 'R4_CAUTION' | 'R3_NORMAL';
+export type EffectiveMarketRegime = RegimeLevel | 'R6_PANIC' | 'R6_CONFIRMATION_WAIT' | 'R6_RECOVERY_WATCH' | 'R5_STABILIZING' | 'R4_CAUTION' | 'R3_NORMAL';
 export type MarketStateExecutionMode =
   | 'NORMAL'
   | 'DEGRADED'
@@ -69,6 +69,8 @@ export interface MarketStateSnapshot {
     decayLevel: number;
     decayBlockedReason?: string;
     releaseEligibleAt?: string;
+    activeTriggers: string[];
+    previousTriggers: string[];
   };
 }
 
@@ -228,10 +230,20 @@ function resolveRiskOverride(diagnostics: RegimeDiagnostics, macro: MacroState |
   return explicit ?? 'NONE';
 }
 
+function isR6ConfirmationWait(diagnostics: RegimeDiagnostics): boolean {
+  return (
+    diagnostics.activeR6Triggers.length === 0 &&
+    diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH' &&
+    diagnostics.r6ShockLatch === true &&
+    diagnostics.recoveryBlockedReason === 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION'
+  );
+}
+
 function resolveEffectiveRegime(
   diagnostics: RegimeDiagnostics,
   riskOverride: RiskOverride,
 ): EffectiveMarketRegime {
+  if (isR6ConfirmationWait(diagnostics)) return 'R6_CONFIRMATION_WAIT';
   if (diagnostics.r6RecoveryStatus === 'STALE_DATA_BLOCKED') return 'R6_DEFENSE';
   if (diagnostics.transitionState.r6StateMachineState === 'R6_PANIC') return 'R6_PANIC';
   if (diagnostics.transitionState.r6StateMachineState === 'R6_RECOVERY_WATCH') return 'R6_RECOVERY_WATCH';
@@ -250,7 +262,7 @@ function resolveEffectiveRegime(
     riskOverride === 'BLACK_SWAN' ||
     riskOverride === 'CIRCUIT_BREAKER' ||
     riskOverride === 'KOSPI_CRASH';
-  if (hardOverride && !['R6_PANIC', 'R6_DEFENSE', 'R6_RECOVERY_WATCH'].includes(effective)) {
+  if (hardOverride && !['R6_PANIC', 'R6_DEFENSE', 'R6_CONFIRMATION_WAIT', 'R6_RECOVERY_WATCH'].includes(effective)) {
     console.warn(
       '[MARKET_STATE_CONFLICT] type=RISK_OVERRIDE_WITH_NON_R6 ' +
       `riskOverride=${riskOverride} effectiveRegime=${effective} action=FORCE_R6_DEFENSE`,
@@ -270,7 +282,7 @@ function resolveExecution(snapshot: {
   const dataBlocked = getDataIntegrityBlocked();
   const paused = getAutoTradePaused();
   const manualBlock = getManualBlockNewBuy() || getManualManageOnly();
-  const inR6 = snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH' || snapshot.effectiveRegime === 'R5_STABILIZING';
+  const inR6 = snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_CONFIRMATION_WAIT' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH' || snapshot.effectiveRegime === 'R5_STABILIZING';
 
   const liveSellAllowed = !emergency;
   const liveNewBuyAllowed =
@@ -307,6 +319,7 @@ function baseDisplaySeverity(
   if (riskOverride === 'MANUAL_KILL_SWITCH') return 'PANIC';
   if (effectiveRegime === 'R6_PANIC') return 'PANIC';
   if (effectiveRegime === 'R6_DEFENSE') return riskOverride === 'BLACK_SWAN' || riskOverride === 'KOSPI_CRASH' ? 'PANIC' : 'DEFENSE';
+  if (effectiveRegime === 'R6_CONFIRMATION_WAIT') return 'DEFENSE';
   if (effectiveRegime === 'R6_RECOVERY_WATCH') return 'DEFENSE';
   if (effectiveRegime === 'R5_STABILIZING') return 'CAUTION';
   if (riskOverride !== 'NONE') return 'DEFENSE';
@@ -360,6 +373,7 @@ function resolveDisplayChrome(
 ): Pick<MarketStateSnapshot, 'displayTitle' | 'displayEmoji'> {
   if (effectiveRegime === 'R6_PANIC') return { displayTitle: 'R6_PANIC', displayEmoji: '🔴' };
   if (effectiveRegime === 'R6_DEFENSE') return { displayTitle: 'R6_DEFENSE', displayEmoji: '🔴' };
+  if (effectiveRegime === 'R6_CONFIRMATION_WAIT') return { displayTitle: 'R6_CONFIRMATION_WAIT', displayEmoji: '🔴' };
   if (effectiveRegime === 'R6_RECOVERY_WATCH') return { displayTitle: 'R6_RECOVERY_WATCH', displayEmoji: '🟠' };
   if (effectiveRegime === 'R5_STABILIZING') return { displayTitle: 'R5_STABILIZING', displayEmoji: '🟡' };
   if (effectiveRegime === 'R4_CAUTION') return { displayTitle: 'R4_CAUTION', displayEmoji: '🟡' };
@@ -630,6 +644,8 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
       decayLevel: diagnostics.transitionState.r6ShockLatchDetail?.decayLevel ?? diagnostics.transitionState.latchDecayPercent ?? 0,
       decayBlockedReason: resolveR6LatchDecayBlockedReason(diagnostics, staleness.macroState, now),
       releaseEligibleAt: diagnostics.transitionState.r6ShockLatchDetail?.releaseEligibleAt ?? diagnostics.transitionState.latchReleaseEligibleAt,
+      activeTriggers: diagnostics.activeR6Triggers,
+      previousTriggers: diagnostics.previousR6Triggers,
     } : undefined,
   });
 
@@ -700,10 +716,46 @@ function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined):
   ].join('\n');
 }
 
+
+function kstDateParts(iso: string): { dateKey: string; hour: string; minute: string } | undefined {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return undefined;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(ms));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value;
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  const hour = get('hour');
+  const minute = get('minute');
+  if (!year || !month || !day || !hour || !minute) return undefined;
+  return { dateKey: `${year}-${month}-${day}`, hour, minute };
+}
+
+function formatKstTime(iso: string | undefined, baseIso: string): string {
+  if (!iso) return 'N/A';
+  const parts = kstDateParts(iso);
+  if (!parts) return iso;
+  const base = kstDateParts(baseIso);
+  const dayPrefix = base && parts.dateKey > base.dateKey ? 'next day ' : '';
+  return `${dayPrefix}${parts.hour}:${parts.minute} KST`;
+}
+
+function formatTriggerList(triggers: string[] | undefined): string {
+  return triggers && triggers.length > 0 ? triggers.join(',') : 'none';
+}
+
 function legacyOpsTitle(snapshot: MarketStateSnapshot): string {
   if (snapshot.riskOverride === 'MANUAL_KILL_SWITCH') return '🔴 STOP';
   if (snapshot.riskOverride === 'CIRCUIT_BREAKER') return '🔴 BLOCK';
-  if (snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH') return '🟡 HOLD';
+  if (snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_CONFIRMATION_WAIT' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH') return '🟡 HOLD';
   if (!snapshot.liveNewBuyAllowed && snapshot.executionMode === 'DEGRADED') return '🟡 PAUSE';
   return '🟢 OK';
 }
@@ -732,11 +784,20 @@ export function formatMarketStateNow(
     `Shadow paper fill policy: ${snapshot.shadowPaperFillAllowed ? 'ON' : 'OFF'}`,
     '',
     ...(snapshot.r6Latch ? [
+      ...(snapshot.effectiveRegime === 'R6_CONFIRMATION_WAIT' ? [
+        '상태: 급락 shock 이후 종가/다음 거래일 확인 대기',
+      ] : []),
       'R6 latch:',
+      `activeR6Triggers: ${formatTriggerList(snapshot.r6Latch.activeTriggers)}`,
+      `previousR6Triggers: ${formatTriggerList(snapshot.r6Latch.previousTriggers)}`,
       `trigger: ${snapshot.r6Latch.triggerType ?? 'N/A'}`,
       `decay: ${snapshot.r6Latch.decayLevel}%`,
       ...(snapshot.r6Latch.decayLevel === 0 ? [`decayBlockedReason: ${snapshot.r6Latch.decayBlockedReason ?? 'N/A'}`] : []),
-      `releaseEligibleAt: ${snapshot.r6Latch.releaseEligibleAt ?? 'N/A'}`,
+      `releaseEligibleAt: ${formatKstTime(snapshot.r6Latch.releaseEligibleAt, snapshot.asOf)}`,
+      `expiresAt: ${formatKstTime(snapshot.r6Latch.expiresAt, snapshot.asOf)}`,
+      ...(snapshot.effectiveRegime === 'R6_CONFIRMATION_WAIT' ? [
+        '다음 조건: 추가 저점 이탈 없음 + 종가 안정 + macro fresh',
+      ] : []),
       '',
     ] : []),
     'Shadow:',
