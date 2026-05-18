@@ -89,12 +89,22 @@ export interface PnlSourceCounts {
   totalPnl: number;
 }
 
+export interface ShadowPnlSummary {
+  realizedPnl: number;
+  unrealizedPnl: number;
+  todayPnl: number;
+  cumulativePnl: number;
+  virtualTotalAssets: number;
+  closedTradeCount: number;
+}
+
 export interface PnlSourceSnapshot {
   mode: PositionModeSnapshot;
   account: ShadowAccountState | null;
   openTrades: ServerShadowTrade[];
   closedTrades: ServerShadowTrade[];
   counts: PnlSourceCounts;
+  pnl: ShadowPnlSummary;
 }
 
 export function isShadowDisplayOpenStatus(status: unknown): boolean {
@@ -209,14 +219,26 @@ export function aggregatePnlSources(): PnlSourceSnapshot {
   const account = computeAccount(shadowTrades);
   const closedTrades = shadowTrades.filter((trade) => !isQueryableOpenTrade(trade));
   const shadowRealizedCount = shadowTrades.filter((trade) => getTotalRealizedPnl(trade) !== 0 || hasSellFill(trade)).length;
-  const totalPnl = (account?.realizedPnl ?? 0) + (account?.unrealizedPnl ?? 0);
+  const realizedPnl = shadowTrades.reduce((sum, trade) => sum + getTotalRealizedPnl(trade), 0);
+  const unrealizedPnl = account?.unrealizedPnl ?? 0;
+  const todayPnl = sumTodaySellPnl(shadowTrades);
+  const cumulativePnl = realizedPnl + unrealizedPnl;
+  const startingCapital = account?.startingCapital ?? loadTradingSettings().startingCapital;
+  const pnl: ShadowPnlSummary = {
+    realizedPnl,
+    unrealizedPnl,
+    todayPnl,
+    cumulativePnl,
+    virtualTotalAssets: startingCapital + cumulativePnl,
+    closedTradeCount: account?.closedTrades.length ?? closedTrades.length,
+  };
   const counts: PnlSourceCounts = {
     shadowRealizedCount,
     shadowOpenCount: openTrades.length,
     virtualAccountAvailable: account != null,
     paperLedgerCount: 0,
     livePnlSkipped: !mode.liveTradingEnabled,
-    totalPnl,
+    totalPnl: pnl.cumulativePnl,
   };
 
   console.info(
@@ -226,7 +248,7 @@ export function aggregatePnlSources(): PnlSourceSnapshot {
       `totalPnl=${Math.round(counts.totalPnl)}`,
   );
 
-  return { mode, account, openTrades, closedTrades, counts };
+  return { mode, account, openTrades, closedTrades, counts, pnl };
 }
 
 export function formatMoney(value: number | undefined | null): string {
@@ -318,4 +340,29 @@ function isShadowLikeTrade(trade: ServerShadowTrade): boolean {
 
 function hasSellFill(trade: ServerShadowTrade): boolean {
   return Array.isArray(trade.fills) && trade.fills.some((fill) => fill.type === 'SELL');
+}
+
+function sumTodaySellPnl(trades: ServerShadowTrade[]): number {
+  const todayKst = kstDateString(new Date());
+  let total = 0;
+
+  for (const trade of trades) {
+    for (const fill of trade.fills ?? []) {
+      if (fill.type !== 'SELL' || fill.status === 'REVERTED') {
+        continue;
+      }
+      if (kstDateString(new Date(fill.timestamp)) !== todayKst) {
+        continue;
+      }
+
+      total += fill.pnl ?? 0;
+    }
+  }
+
+  return total;
+}
+
+function kstDateString(date: Date): string {
+  const kst = new Date(date.getTime() + 9 * 3_600_000);
+  return kst.toISOString().slice(0, 10);
 }
