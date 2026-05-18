@@ -110,8 +110,11 @@ export function registerReportJobs(): void {
   scheduledJob('0 8 * * 5', 'TRADING_DAY_ONLY', 'weekly_quant_insight',
     () => sendWeeklyQuantInsight(), { timezone: 'UTC' });
 
-  // 시장 지표 자동 갱신 — 평일 08:40 KST + 15:30 KST.
+  // 시장 지표 자동 갱신 — 평일 08:40 KST + 장중 5분 TTL refresh + 15:30 KST.
+  // macro refresh is observation-only and must not be skipped by R6/SELL_ONLY/live-buy blocks.
   scheduledJob('40 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_regime_refresh_morning',
+    () => refreshMarketRegimeVars(), { timezone: 'UTC' });
+  scheduledJob('*/5 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_intraday_ttl',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
   scheduledJob('30 6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_close',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });

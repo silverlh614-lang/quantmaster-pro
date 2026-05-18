@@ -66,11 +66,12 @@ export interface MarketStateSnapshot {
     expiresAt?: string;
     severity?: number;
     decayLevel: number;
+    decayBlockedReason?: string;
     releaseEligibleAt?: string;
   };
 }
 
-export type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'HARD_STALE';
+export type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'HARD_STALE' | 'MISSING';
 
 export interface MacroStateStaleness {
   stale: boolean;
@@ -78,8 +79,15 @@ export interface MacroStateStaleness {
   lastUpdatedAt?: string;
   ageSec?: number;
   ttlSec: number;
+  softStaleSec: number;
+  hardStaleSec: number;
   staleReason: string;
+  lastRefreshAttemptAt?: string;
+  lastRefreshSuccessAt?: string;
   lastRefreshError?: string;
+  refreshJobEnabled?: boolean;
+  refreshBlockedReason?: string;
+  providerUsed?: string;
   provider?: string;
   fallbackUsed?: boolean | string;
   executionImpact: 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' | 'REGIME_RELEASE_BLOCKED_ONLY' | 'NONE';
@@ -103,7 +111,10 @@ export interface ShadowActivitySnapshot {
   openShadowPositions: number;
   lastShadowSignalAt?: string;
   lastBlockReason?: string;
+  candidateScanStatus?: 'RAN' | 'NOT_RUN' | 'SKIPPED';
+  candidateSkipReason?: string;
 }
+
 
 const DEFAULT_TTL_SEC = 300;
 
@@ -408,16 +419,23 @@ function resolveSoftStaleSec(ttlSec: number): number {
 }
 
 function classifyMacroStateFreshness(ageSec: number | undefined, hasValidAsOf: boolean, ttlSec: number): MacroStateFreshness {
-  if (!hasValidAsOf) return 'HARD_STALE';
+  if (!hasValidAsOf) return 'MISSING';
   if ((ageSec ?? Number.POSITIVE_INFINITY) <= ttlSec) return 'FRESH';
   if ((ageSec ?? Number.POSITIVE_INFINITY) <= resolveSoftStaleSec(ttlSec)) return 'SOFT_STALE';
   return 'HARD_STALE';
+}
+
+function resolveHardStaleSec(ttlSec: number): number {
+  const raw = Number(process.env.R6_RECOVERY_HARD_STALE_SEC ?? resolveSoftStaleSec(ttlSec));
+  return Number.isFinite(raw) && raw > 0 ? Math.max(ttlSec, Math.trunc(raw)) : resolveSoftStaleSec(ttlSec);
 }
 
 function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): MacroStateStaleness {
   const asOfMs = Date.parse(asOf);
   const ageSec = Number.isFinite(asOfMs) ? Math.max(0, Math.floor((now.getTime() - asOfMs) / 1000)) : undefined;
   const freshness = classifyMacroStateFreshness(ageSec, Number.isFinite(asOfMs) && !!macro, ttlSec);
+  const softStaleSec = resolveSoftStaleSec(ttlSec);
+  const hardStaleSec = resolveHardStaleSec(ttlSec);
   const stale = freshness !== 'FRESH' || diagnostics.sourceFreshness === 'HARD_STALE' || diagnostics.sourceFreshness === 'STALE' || diagnostics.sourceFreshness === 'MISSING';
   const staleReason = !macro ? 'MACRO_STATE_MISSING' : !Number.isFinite(asOfMs) ? 'LAST_UPDATED_AT_INVALID' : freshness !== 'FRESH' ? freshness : diagnostics.sourceFreshness !== 'FRESH' ? `REGIME_SOURCE_${diagnostics.sourceFreshness}` : 'NONE';
   const info: MacroStateStaleness = {
@@ -426,19 +444,34 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     lastUpdatedAt: macro?.updatedAt,
     ageSec,
     ttlSec,
+    softStaleSec,
+    hardStaleSec,
     staleReason,
+    lastRefreshAttemptAt: readStringField(macro, ['lastRefreshAttemptAt', 'macroLastRefreshAttemptAt']),
+    lastRefreshSuccessAt: readStringField(macro, ['lastRefreshSuccessAt', 'macroLastRefreshSuccessAt']),
     lastRefreshError: readStringField(macro, ['lastRefreshError', 'macroLastRefreshError', 'refreshError']),
-    provider: readStringField(macro, ['provider', 'sourceProvider', 'source', 'refreshProvider']),
+    refreshJobEnabled: (macro as unknown as Record<string, unknown> | null)?.refreshJobEnabled as boolean | undefined,
+    refreshBlockedReason: readStringField(macro, ['refreshBlockedReason', 'macroRefreshBlockedReason']),
+    providerUsed: readStringField(macro, ['providerUsed', 'provider', 'sourceProvider', 'source', 'refreshProvider']),
+    provider: readStringField(macro, ['providerUsed', 'provider', 'sourceProvider', 'source', 'refreshProvider']),
     fallbackUsed: readFallbackUsed(macro),
     executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
   };
   console.warn(
     '[MACRO_STATE_STALENESS] ' +
-    `stale=${info.stale} ` +
+    `freshness=${info.freshness} ` +
     `ageSec=${info.ageSec ?? 'N/A'} ` +
     `ttlSec=${info.ttlSec} ` +
-    `staleReason=${info.staleReason} ` +
+    `softStaleSec=${info.softStaleSec} ` +
+    `hardStaleSec=${info.hardStaleSec} ` +
+    `lastRefreshAttemptAt=${info.lastRefreshAttemptAt ?? 'N/A'} ` +
+    `lastRefreshSuccessAt=${info.lastRefreshSuccessAt ?? 'N/A'} ` +
     `lastRefreshError=${info.lastRefreshError ?? 'N/A'} ` +
+    `refreshJobEnabled=${info.refreshJobEnabled ?? 'N/A'} ` +
+    `refreshBlockedReason=${info.refreshBlockedReason ?? 'NONE'} ` +
+    `providerUsed=${info.providerUsed ?? 'N/A'} ` +
+    `fallbackUsed=${info.fallbackUsed ?? 'N/A'} ` +
+    `staleReason=${info.staleReason} ` +
     `executionImpact=${info.executionImpact}`,
   );
   return info;
@@ -561,6 +594,7 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
       expiresAt: diagnostics.transitionState.r6ShockLatchDetail?.expiresAt ?? diagnostics.transitionState.latchExpiresAt,
       severity: diagnostics.transitionState.r6ShockLatchDetail?.severity ?? diagnostics.transitionState.latchTriggerValue,
       decayLevel: diagnostics.transitionState.r6ShockLatchDetail?.decayLevel ?? diagnostics.transitionState.latchDecayPercent ?? 0,
+      decayBlockedReason: resolveR6LatchDecayBlockedReason(diagnostics, staleness.macroState, now),
       releaseEligibleAt: diagnostics.transitionState.r6ShockLatchDetail?.releaseEligibleAt ?? diagnostics.transitionState.latchReleaseEligibleAt,
     } : undefined,
   });
@@ -572,6 +606,24 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
 export const RegimeResolver = {
   resolveMarketState,
 };
+
+
+function resolveR6LatchDecayBlockedReason(
+  diagnostics: RegimeDiagnostics,
+  macroState: MacroStateStaleness,
+  now: Date,
+): string | undefined {
+  const transition = diagnostics.transitionState;
+  const decay = transition.latchDecayPercent ?? diagnostics.transitionState.r6ShockLatchDetail?.decayLevel ?? 0;
+  if (decay > 0 || !transition.r6ShockLatch) return undefined;
+  if (macroState.freshness === 'HARD_STALE' || macroState.freshness === 'MISSING') return `MACRO_STATE_${macroState.freshness}`;
+  if (diagnostics.activeR6Triggers.includes('KOSPI_INTRADAY_LOW_SHOCK')) return 'ADDITIONAL_LOW_RETEST';
+  if (diagnostics.activeR6Triggers.length > 0) return 'ACTIVE_R6_TRIGGER_PRESENT';
+  const releaseAt = transition.latchReleaseEligibleAt ? Date.parse(transition.latchReleaseEligibleAt) : NaN;
+  if (Number.isFinite(releaseAt) && releaseAt > now.getTime()) return 'RELEASE_ELIGIBLE_NOT_REACHED';
+  if (diagnostics.recoveryBlockedReason === 'R6_COOLDOWN_ACTIVE' || diagnostics.r6RecoveryStatus === 'COOLDOWN') return 'COOLDOWN_ACTIVE';
+  return diagnostics.recoveryBlockedReason ?? 'RELEASE_ELIGIBLE_NOT_REACHED';
+}
 
 function summarizeReasonCodes(reasonCodes: string[]): string {
   const priority = [
@@ -598,10 +650,20 @@ function summarizeReasonCodes(reasonCodes: string[]): string {
 }
 
 function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined): string {
-  if (!activity) return 'Shadow scan: 활동량 N/A';
-  const status = activity.scanAllowed ? '정상' : '차단';
-  const last = activity.lastScanAt ? activity.lastScanAt : '미실행';
-  return `Shadow scan: ${status} / 마지막 ${last} / 후보 평가 ${activity.evaluatedCount}건 / BUY 후보 ${activity.buySignalCount}건 / SELL 체크 ${activity.sellCheckCount}건 / 가상 체결 ${activity.paperFillCount}건 / 보유 ${activity.openShadowPositions}건`;
+  if (!activity) return 'Shadow candidate scan: NOT_RUN\nlastCandidateScanAt: N/A\ncandidateEvaluated: 0\nskipReason: SCHEDULER_NOT_TRIGGERED';
+  const inferredStatus = activity.candidateScanStatus ?? (activity.lastScanAt ? 'RAN' : activity.evaluatedCount > 0 ? 'RAN' : 'NOT_RUN');
+  const last = activity.lastScanAt ? activity.lastScanAt : 'N/A';
+  const skipReason = activity.candidateSkipReason ?? activity.lastBlockReason ?? (activity.evaluatedCount === 0 ? 'SCHEDULER_NOT_TRIGGERED' : undefined);
+  return [
+    `Shadow position management: ${activity.scanAllowed ? 'ON' : 'OFF'} / SELL 체크 ${activity.sellCheckCount}건`,
+    `Shadow candidate scan: ${inferredStatus}`,
+    `lastCandidateScanAt: ${last}`,
+    `candidateEvaluated: ${activity.evaluatedCount}`,
+    ...(inferredStatus === 'RAN' ? [`buyCandidates: ${activity.buySignalCount}`] : []),
+    ...(activity.evaluatedCount === 0 || inferredStatus !== 'RAN' ? [`skipReason: ${skipReason ?? 'SCHEDULER_NOT_TRIGGERED'}`] : []),
+    `paperFillCount: ${activity.paperFillCount}`,
+    `openShadowPositions: ${activity.openShadowPositions}`,
+  ].join('\n');
 }
 
 function legacyOpsTitle(snapshot: MarketStateSnapshot): string {
@@ -632,21 +694,35 @@ export function formatMarketStateNow(
     `실거래 신규 매수: ${snapshot.liveNewBuyAllowed ? '허용' : '차단'}`,
     `기존 포지션 관리: ${snapshot.positionManagementAllowed ? '허용' : '차단'}`,
     `Shadow 학습: ${snapshot.shadowLearningAllowed ? 'ON' : 'OFF'}`,
-    `Shadow scan: ${snapshot.shadowScanAllowed ? 'ON' : 'OFF'} / paper fill: ${snapshot.shadowPaperFillAllowed ? 'ON' : 'OFF'}`,
+    `Shadow policy: ${snapshot.shadowScanAllowed ? 'ON' : 'OFF'}`,
+    `Shadow paper fill policy: ${snapshot.shadowPaperFillAllowed ? 'ON' : 'OFF'}`,
     '',
     ...(snapshot.r6Latch ? [
       'R6 latch:',
       `trigger: ${snapshot.r6Latch.triggerType ?? 'N/A'}`,
       `decay: ${snapshot.r6Latch.decayLevel}%`,
+      ...(snapshot.r6Latch.decayLevel === 0 ? [`decayBlockedReason: ${snapshot.r6Latch.decayBlockedReason ?? 'N/A'}`] : []),
       `releaseEligibleAt: ${snapshot.r6Latch.releaseEligibleAt ?? 'N/A'}`,
       '',
     ] : []),
     'Shadow:',
     formatShadowActivityLine(context.shadowActivity),
-    `데이터 상태: macroState ${snapshot.macroState.freshness} (ageSec=${snapshot.macroState.ageSec ?? 'N/A'}, ttlSec=${snapshot.macroState.ttlSec}, reason=${snapshot.macroState.staleReason})`,
+    'macroState:',
+    `- freshness: ${snapshot.macroState.freshness}`,
+    `- ageSec: ${snapshot.macroState.ageSec ?? 'N/A'}`,
+    `- ttlSec: ${snapshot.macroState.ttlSec}`,
+    `- softStaleSec: ${snapshot.macroState.softStaleSec}`,
+    `- hardStaleSec: ${snapshot.macroState.hardStaleSec}`,
+    `- lastUpdatedAt: ${snapshot.macroState.lastUpdatedAt ?? 'N/A'}`,
+    `- lastRefreshAttemptAt: ${snapshot.macroState.lastRefreshAttemptAt ?? 'N/A'}`,
+    `- lastRefreshSuccessAt: ${snapshot.macroState.lastRefreshSuccessAt ?? 'N/A'}`,
+    `- lastRefreshError: ${snapshot.macroState.lastRefreshError ?? 'N/A'}`,
+    `- refreshJobEnabled: ${snapshot.macroState.refreshJobEnabled ?? 'N/A'}`,
+    `- refreshBlockedReason: ${snapshot.macroState.refreshBlockedReason ?? 'NONE'}`,
+    `- providerUsed: ${snapshot.macroState.providerUsed ?? 'N/A'}`,
+    `- fallbackUsed: ${snapshot.macroState.fallbackUsed ?? 'N/A'}`,
   ];
 
   if (snapshot.macroState.lastRefreshError) lines.push(`macroState error: ${snapshot.macroState.lastRefreshError}`);
   return lines.join('\n');
 }
-

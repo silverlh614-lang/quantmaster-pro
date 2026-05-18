@@ -422,7 +422,16 @@ export interface MacroState {
   };
   /** mhsAxis 마지막 갱신 시각 — `marketDataRefresh` 사이클 종료 시점. */
   mhsAxisUpdatedAt?: string;
+  /** macroState refresh diagnostics — scheduler/manual refresh observability. */
+  lastRefreshAttemptAt?: string;
+  lastRefreshSuccessAt?: string;
+  lastRefreshError?: string;
+  refreshJobEnabled?: boolean;
+  refreshBlockedReason?: string;
+  providerUsed?: string;
+  fallbackUsed?: boolean | string;
 }
+
 
 export function loadMacroState(): MacroState | null {
   ensureDataDir();
