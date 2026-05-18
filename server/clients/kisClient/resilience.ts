@@ -7,6 +7,7 @@
 
 import { logger } from '../../utils/logger.js';
 import { sendTelegramAlert, escapeHtml } from '../../alerts/telegramClient.js';
+import { emitOperationalWarn } from '../../observability/operationalWarn.js';
 import {
   isEndpointBlacklisted as _isBlacklisted,
   recordEndpoint404 as _recordBlacklist404,
@@ -70,6 +71,36 @@ const CIRCUIT_RECOVERY_LOG_RATE_LIMIT_MS = 5 * 60 * 1000;
 
 const _circuitRecoveryLogAt = new Map<string, number>();
 
+function emitKisCircuitOperationalWarn(input: {
+  priority?: 'P1' | 'P2';
+  code: string;
+  message: string;
+  trId?: string;
+  status?: number;
+  reason: string;
+  executionImpact?: 'PROVIDER_CORE_DEGRADED' | 'NONE';
+  ttlSec?: number;
+  details?: Record<string, unknown>;
+}): void {
+  emitOperationalWarn({
+    priority: input.priority ?? 'P1',
+    domain: 'PROVIDER',
+    code: input.code,
+    message: input.message,
+    executionImpact: input.executionImpact ?? 'PROVIDER_CORE_DEGRADED',
+    dedupKey: `kis-circuit:${input.code}:${input.trId ?? 'global'}:${input.status ?? 'na'}`,
+    ttlSec: input.ttlSec ?? 60,
+    details: {
+      reason: input.reason,
+      trId: input.trId,
+      status: input.status,
+      providerIssue: true,
+      marketSignal: false,
+      ...input.details,
+    },
+  });
+}
+
 function _lenient404(): boolean {
   return (process.env.KIS_LENIENT_404 ?? 'false').toLowerCase() === 'true';
 }
@@ -119,7 +150,16 @@ export function _recordCircuitFailure(trId: string, status: number): void {
 
   if (status === 404) {
     if (_lenient404()) {
-      console.warn(`[KIS] ⚠️ 404 (${trId}) — KIS_LENIENT_404 모드: 회로 비활성`);
+      emitKisCircuitOperationalWarn({
+        priority: 'P2',
+        code: 'P2_KIS_LENIENT_404_CIRCUIT_DISABLED',
+        message: 'KIS 404 received with lenient circuit mode enabled.',
+        trId,
+        status,
+        reason: 'lenient-404-circuit-disabled',
+        executionImpact: 'NONE',
+        ttlSec: 300,
+      });
       return;
     }
     state.softFailures += 1;
@@ -128,13 +168,34 @@ export function _recordCircuitFailure(trId: string, status: number): void {
     if (state.softFailures >= CIRCUIT_THRESHOLD_SOFT) {
       state.openUntil = Date.now() + CIRCUIT_COOLDOWN_SOFT_MS;
       state.lastBlockedBy = 'SOFT';
-      console.warn(
-        `[KIS] 🟡 소프트 회로 차단 — ${trId} 404 ${state.softFailures}회 연속, ` +
-        `${CIRCUIT_COOLDOWN_SOFT_MS / 60000}분간 호출 차단 (엔드포인트 일시 불가)`
-      );
+      emitKisCircuitOperationalWarn({
+        code: 'P1_KIS_CIRCUIT_OPEN_CORE',
+        message: 'KIS soft circuit opened after repeated 404 responses.',
+        trId,
+        status,
+        reason: 'soft-circuit-open',
+        details: {
+          softFailures: state.softFailures,
+          cooldownMs: CIRCUIT_COOLDOWN_SOFT_MS,
+        },
+      });
     } else {
       const remaining = CIRCUIT_THRESHOLD_SOFT - state.softFailures;
-      console.warn(`[KIS] 404 (${trId}) — 소프트 카운트 ${state.softFailures}/${CIRCUIT_THRESHOLD_SOFT} (잔여 ${remaining}회)`);
+      emitKisCircuitOperationalWarn({
+        priority: 'P2',
+        code: 'P2_KIS_SOFT_404_COUNT',
+        message: 'KIS 404 soft failure count increased.',
+        trId,
+        status,
+        reason: 'soft-404-count',
+        executionImpact: 'NONE',
+        ttlSec: 300,
+        details: {
+          softFailures: state.softFailures,
+          threshold: CIRCUIT_THRESHOLD_SOFT,
+          remaining,
+        },
+      });
     }
     return;
   }
@@ -144,10 +205,17 @@ export function _recordCircuitFailure(trId: string, status: number): void {
   if (state.hardFailures >= CIRCUIT_THRESHOLD_HARD) {
     state.openUntil = Date.now() + CIRCUIT_COOLDOWN_HARD_MS;
     state.lastBlockedBy = 'HARD';
-    console.warn(
-      `[KIS] 🚨 회로 차단 — ${trId} ${state.hardFailures}회 연속 ${status} 실패, ` +
-      `${CIRCUIT_COOLDOWN_HARD_MS / 60000}분간 호출 차단`
-    );
+    emitKisCircuitOperationalWarn({
+      code: 'P1_KIS_CIRCUIT_OPEN_CORE',
+      message: 'KIS hard circuit opened after repeated provider failures.',
+      trId,
+      status,
+      reason: 'hard-circuit-open',
+      details: {
+        hardFailures: state.hardFailures,
+        cooldownMs: CIRCUIT_COOLDOWN_HARD_MS,
+      },
+    });
   }
 }
 
@@ -248,9 +316,19 @@ export function resetKisCircuits(): number {
   // ADR-0010: 영속 블랙리스트도 함께 청소 (운영자 수동 복구).
   const blacklistCleared = _resetBlacklistAll();
   if (openCount > 0 || blacklistCleared > 0) {
-    console.warn(
-      `[KIS] 🔧 운영자 수동 회로 reset — 회로 ${openCount}개 + 블랙리스트 ${blacklistCleared}개 해제`
-    );
+    emitKisCircuitOperationalWarn({
+      priority: 'P2',
+      code: 'P2_KIS_CIRCUIT_MANUAL_RESET',
+      message: 'KIS circuit breaker was manually reset by operator action.',
+      reason: 'manual-circuit-reset',
+      executionImpact: 'NONE',
+      ttlSec: 300,
+      details: {
+        openCount,
+        blacklistCleared,
+        providerIssue: false,
+      },
+    });
   }
   return openCount;
 }

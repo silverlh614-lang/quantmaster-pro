@@ -23,6 +23,9 @@ import {
 import { getKisOverrides } from './overrides.js';
 import type { KisPostIdempotency, KisPostOptions } from './types.js';
 import { normalizeKisPurpose, shouldGuardKisRealDataPreopen } from '../../utils/preopenDiscoveryGuards.js';
+import { emitOperationalWarn } from '../../observability/operationalWarn.js';
+import { classifyKisRequest, type KisRequestPriority } from './core/kisRequestClassifier.js';
+import { recordKisProviderFailure, recordKisProviderSuccess } from './core/kisProviderHealth.js';
 // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — provider noise classification + per-key
 //   cooldown + suppressed log count. providerIssue=true / marketSignal=false /
 //   executionImpact='NONE' literal type 강제. ENV `KIS_REALDATA_BACKOFF_DISABLED=true`
@@ -45,6 +48,48 @@ import {
   shouldSkipProviderCall,
 } from './providerHealthIsolationPatch003.js';
 
+function warnPriorityForKisRequest(priority: KisRequestPriority): 'P1' | 'P2' | 'P3' | 'P4' {
+  if (priority.startsWith('P0_') || priority.startsWith('P1_')) return 'P1';
+  if (priority === 'P2_AUX_PROVIDER') return 'P2';
+  if (priority === 'P4_TELEMETRY') return 'P4';
+  return 'P3';
+}
+
+function emitKisRealDataOperationalWarn(input: {
+  requestPriority: KisRequestPriority;
+  code: string;
+  message: string;
+  trId: string;
+  apiPath?: string;
+  reason: string;
+  status?: number;
+  symbol?: string;
+  details?: Record<string, unknown>;
+}): void {
+  emitOperationalWarn({
+    priority: warnPriorityForKisRequest(input.requestPriority),
+    domain: 'PROVIDER',
+    code: input.code,
+    message: input.message,
+    executionImpact: input.requestPriority.startsWith('P0_') || input.requestPriority.startsWith('P1_')
+      ? 'PROVIDER_CORE_DEGRADED'
+      : 'NONE',
+    symbol: input.symbol,
+    dedupKey: `kis-realdata:${input.code}:${input.trId}:${input.symbol ?? '*'}:${input.status ?? 'na'}`,
+    ttlSec: input.requestPriority.startsWith('P0_') || input.requestPriority.startsWith('P1_') ? 60 : 600,
+    details: {
+      reason: input.reason,
+      trId: input.trId,
+      apiPath: input.apiPath,
+      status: input.status,
+      providerIssue: input.details?.providerIssue ?? true,
+      marketSignal: false,
+      diagnosticSuppressed: input.requestPriority === 'P3_SCAN_DIAGNOSTIC' || input.requestPriority === 'P4_TELEMETRY',
+      ...input.details,
+    },
+  });
+}
+
 /**
  * 내부 raw GET — 토큰 버킷 없이 직접 호출. 외부에서는 kisGet을 사용할 것.
  *
@@ -57,8 +102,19 @@ import {
 async function _rawKisGet(
   trId: string, apiPath: string, params: Record<string, string>, retriesLeft = 3,
 ): Promise<any> {
+  const classification = classifyKisRequest({
+    method: 'GET',
+    trId,
+    apiPath,
+    purpose: params.__kisPurpose,
+  });
   if (_isCircuitOpen(trId)) {
-    console.warn(`[KIS] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      reason: 'legacy-circuit-open',
+      providerHealth: 'CIRCUIT_OPEN',
+      trId,
+    });
     return null;
   }
 
@@ -78,21 +134,39 @@ async function _rawKisGet(
   const retryAllowed = retriesLeft > 0 && _isKisRetryEnabled();
 
   if (res.status === 401 && retryAllowed) {
-    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도 (${retriesLeft}회 남음)`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      status: res.status,
+      reason: 'auth-refresh-required',
+      providerHealth: 'DEGRADED',
+      trId,
+    });
     invalidateKisToken();
     return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
   }
 
   if (res.status === 429 && retryAllowed) {
     const delay = _kis429DelayMs();
-    console.warn(`[KIS] 429 Rate Limit (${trId}) — ${delay}ms 대기 후 재시도 (${retriesLeft}회 남음)`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      status: res.status,
+      reason: 'rate-limited',
+      providerHealth: 'COOLDOWN',
+      trId,
+    });
     await _kisSleep(delay);
     return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
   }
 
   if (res.status >= 500 && res.status < 600 && retryAllowed) {
     const delay = _kisBackoffDelayMs(retriesLeft);
-    console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      status: res.status,
+      reason: 'server-error-retry',
+      providerHealth: 'COOLDOWN',
+      trId,
+    });
     await _kisSleep(delay);
     return _rawKisGet(trId, apiPath, params, retriesLeft - 1);
   }
@@ -124,8 +198,19 @@ async function _rawKisPost(
   options: { idempotency: KisPostIdempotency } = { idempotency: 'unsafe' },
   retriesLeft = 3,
 ): Promise<any> {
+  const classification = classifyKisRequest({
+    method: 'POST',
+    trId,
+    apiPath,
+    idempotency: options.idempotency,
+  });
   if (_isCircuitOpen(trId)) {
-    console.warn(`[KIS] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      reason: 'legacy-circuit-open',
+      providerHealth: 'CIRCUIT_OPEN',
+      trId,
+    });
     return null;
   }
 
@@ -146,14 +231,26 @@ async function _rawKisPost(
   const retryAllowed = retriesLeft > 0 && _isKisRetryEnabled();
 
   if (res.status === 401 && retryAllowed) {
-    console.warn(`[KIS] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도 (${retriesLeft}회 남음)`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      status: res.status,
+      reason: 'auth-refresh-required',
+      providerHealth: 'DEGRADED',
+      trId,
+    });
     invalidateKisToken();
     return _rawKisPost(trId, apiPath, body, options, retriesLeft - 1);
   }
 
   if (res.status === 429 && retryAllowed) {
     const delay = _kis429DelayMs();
-    console.warn(`[KIS] 429 Rate Limit (${trId}) — ${delay}ms 대기 후 재시도 (${retriesLeft}회 남음)`);
+    recordKisProviderFailure({
+      priority: classification.priority,
+      status: res.status,
+      reason: 'rate-limited',
+      providerHealth: 'COOLDOWN',
+      trId,
+    });
     await _kisSleep(delay);
     return _rawKisPost(trId, apiPath, body, options, retriesLeft - 1);
   }
@@ -172,7 +269,13 @@ async function _rawKisPost(
     }
     if (retryAllowed) {
       const delay = _kisBackoffDelayMs(retriesLeft);
-      console.warn(`[KIS] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기`);
+      recordKisProviderFailure({
+        priority: classification.priority,
+        status: res.status,
+        reason: 'server-error-retry',
+        providerHealth: 'COOLDOWN',
+        trId,
+      });
       await _kisSleep(delay);
       return _rawKisPost(trId, apiPath, body, options, retriesLeft - 1);
     }
@@ -199,7 +302,26 @@ export function kisGet(
   priority: KisApiPriority = 'MEDIUM',
 ) {
   assertModeCompatible(trId, KIS_IS_REAL ? 'LIVE' : 'VTS');
-  return scheduleKisCall(priority, `GET ${trId}`, () => _rawKisGet(trId, apiPath, params));
+  const classification = classifyKisRequest({
+    method: 'GET',
+    trId,
+    apiPath,
+    kisApiPriority: priority,
+    purpose: params.__kisPurpose,
+  });
+  return scheduleKisCall(priority, `GET ${trId}`, async () => {
+    const result = await _rawKisGet(trId, apiPath, params);
+    if (result === null) {
+      recordKisProviderFailure({
+        priority: classification.priority,
+        reason: 'null-or-failed-response',
+        trId,
+      });
+    } else {
+      recordKisProviderSuccess(classification.priority);
+    }
+    return result;
+  });
 }
 
 /**
@@ -219,9 +341,26 @@ export function kisPost(
 ) {
   assertModeCompatible(trId, KIS_IS_REAL ? 'LIVE' : 'VTS');
   const idempotency = options.idempotency ?? 'unsafe';
-  return scheduleKisCall(priority, `POST ${trId}`, () =>
-    _rawKisPost(trId, apiPath, body, { idempotency }),
-  );
+  const classification = classifyKisRequest({
+    method: 'POST',
+    trId,
+    apiPath,
+    kisApiPriority: priority,
+    idempotency,
+  });
+  return scheduleKisCall(priority, `POST ${trId}`, async () => {
+    const result = await _rawKisPost(trId, apiPath, body, { idempotency });
+    if (result === null) {
+      recordKisProviderFailure({
+        priority: classification.priority,
+        reason: 'null-or-failed-response',
+        trId,
+      });
+    } else {
+      recordKisProviderSuccess(classification.priority);
+    }
+    return result;
+  });
 }
 
 // ─── 실계좌 데이터 전용 HTTP 헬퍼 ────────────────────────────────────────────
@@ -392,19 +531,29 @@ export function realDataKisGet(
   if (overrides.realDataKisGet) return overrides.realDataKisGet(trId, apiPath, params);
 
   const purpose = normalizeKisPurpose(params.__kisPurpose);
+  const realDataClassification = classifyKisRequest({
+    method: 'GET',
+    trId,
+    apiPath,
+    kisApiPriority: priority,
+    purpose,
+  });
   if (shouldGuardKisRealDataPreopen({ trId, purpose })) {
-    console.warn(
-      `[KIS_REALDATA_PREOPEN_GUARDED]\n`
-      + `trId=${trId}\n`
-      + `purpose=${purpose}\n`
-      + `reason=PREOPEN_REALDATA_TR_NOT_APPLICABLE\n`
-      + `providerIssue=false\n`
-      + `marketSignal=false\n`
-      + `executionImpact=NONE\n`
-      + `dataVacuum=false\n`
-      + `newBuyBlocked=false\n`
-      + `confidence=NOT_APPLICABLE_PREOPEN`,
-    );
+    emitKisRealDataOperationalWarn({
+      requestPriority: realDataClassification.priority,
+      code: 'P3_KIS_REALDATA_PREOPEN_GUARDED',
+      message: '[KIS_REALDATA_PREOPEN_GUARDED] executionImpact=NONE marketSignal=false dataVacuum=false',
+      trId,
+      apiPath,
+      reason: 'PREOPEN_REALDATA_TR_NOT_APPLICABLE',
+      details: {
+        purpose,
+        providerIssue: false,
+        confidence: 'NOT_APPLICABLE_PREOPEN',
+        dataVacuum: false,
+        newBuyBlocked: false,
+      },
+    });
     return Promise.resolve({
       status: 'NOT_APPLICABLE_PREOPEN',
       reason: 'PREOPEN_REALDATA_TR_NOT_APPLICABLE',
@@ -425,27 +574,48 @@ export function realDataKisGet(
     const chartContext = getKisChartContext(trId, params);
     const chartCooldownKey = chartContext ? kisChartCooldownKey(chartContext) : null;
     if (_isCircuitOpen(trId)) {
-      console.warn(`[KIS-RealData] 회로 차단 상태 — ${trId} 호출 건너뜀 (cooldown 중)`);
+      emitKisRealDataOperationalWarn({
+        requestPriority: realDataClassification.priority,
+        code: realDataClassification.priority.startsWith('P0_') || realDataClassification.priority.startsWith('P1_')
+          ? 'P1_KIS_CIRCUIT_OPEN_CORE'
+          : 'P3_KIS_REALDATA_CIRCUIT_OPEN',
+        message: '[KIS-RealData] circuit open; call skipped during cooldown.',
+        trId,
+        apiPath,
+        reason: 'realdata-circuit-open',
+        details: { providerHealth: 'CIRCUIT_OPEN' },
+      });
       return null;
     }
     if (chartContext && isKisChart5xxCooldownActive(chartContext)) {
       if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_HIT', chartCooldownKey!)) {
-        console.warn(
-          `[KIS_CHART_COOLDOWN_SKIPPED]\n`
-          + `trId=${chartContext.trId}\n`
-          + `symbol=${chartContext.symbol}\n`
-          + `period=${chartContext.period}\n`
-          + `purpose=${chartContext.purpose}\n`
-          + `remainingMs=${getKisChartCooldownRemainingMs(chartContext)}\n`
-          + `newNetworkCall=false\n`
-          + `executionImpact=NONE\n`
-          + `marketSignal=false`,
-        );
+        emitKisRealDataOperationalWarn({
+          requestPriority: realDataClassification.priority,
+          code: 'P3_KIS_CHART_COOLDOWN_SKIPPED',
+          message: '[KIS_CHART_COOLDOWN_SKIPPED] newNetworkCall=false executionImpact=NONE marketSignal=false',
+          trId: chartContext.trId,
+          apiPath,
+          reason: 'chart-cooldown-active',
+          symbol: chartContext.symbol,
+          details: {
+            period: chartContext.period,
+            purpose: chartContext.purpose,
+            remainingMs: getKisChartCooldownRemainingMs(chartContext),
+            newNetworkCall: false,
+          },
+        });
       }
       return null;
     }
     if (!chartContext && isRealData5xxCooldownActive(trId, apiPath)) {
-      console.warn(`[KIS-RealData] 5xx micro-cooldown — ${trId} ${apiPath} 호출 건너뜀`);
+      emitKisRealDataOperationalWarn({
+        requestPriority: realDataClassification.priority,
+        code: 'P3_KIS_REALDATA_MICRO_COOLDOWN',
+        message: '[KIS-RealData] 5xx micro-cooldown; call skipped.',
+        trId,
+        apiPath,
+        reason: 'realdata-5xx-micro-cooldown',
+      });
       return null;
     }
     // Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001 — per-key (endpoint + symbol +
@@ -487,9 +657,18 @@ export function realDataKisGet(
     for (;;) {
       let res = await doFetch(token);
 
-      // 401 감지 → 실계좌 데이터 토큰 강제 무효화 후 1회 재시도
       if (res.status === 401 && retriesLeft > 0) {
-        console.warn(`[KIS-RealData] 401 Unauthorized (${trId}) — 토큰 강제 갱신 후 재시도`);
+        emitKisRealDataOperationalWarn({
+          requestPriority: realDataClassification.priority,
+          code: realDataClassification.priority.startsWith('P0_') || realDataClassification.priority.startsWith('P1_')
+            ? 'P1_KIS_AUTH_REFRESH_FAILED'
+            : 'P3_KIS_REALDATA_AUTH_RETRY',
+          message: '[KIS-RealData] 401 Unauthorized; forcing token refresh before retry.',
+          trId,
+          apiPath,
+          status: res.status,
+          reason: 'realdata-auth-refresh-required',
+        });
         invalidateKisToken();
         token = await refreshRealDataToken();
         retriesLeft -= 1;
@@ -498,7 +677,18 @@ export function realDataKisGet(
 
       if (res.status === 429 && retriesLeft > 0) {
         const delay = _kis429DelayMs();
-        console.warn(`[KIS-RealData] 429 Rate Limit (${trId}) — ${delay}ms 대기 후 재시도 (${retriesLeft}회 남음)`);
+        emitKisRealDataOperationalWarn({
+          requestPriority: realDataClassification.priority,
+          code: realDataClassification.priority.startsWith('P0_') || realDataClassification.priority.startsWith('P1_')
+            ? 'P1_KIS_RATE_LIMITED_CORE'
+            : 'P3_KIS_REALDATA_RATE_LIMITED',
+          message: '[KIS-RealData] 429 Rate Limit; retry will be delayed.',
+          trId,
+          apiPath,
+          status: res.status,
+          reason: 'realdata-rate-limited',
+          details: { delayMs: delay, retriesLeft },
+        });
         await _kisSleep(delay);
         retriesLeft -= 1;
         continue;
@@ -509,22 +699,25 @@ export function realDataKisGet(
         if (chartContext) {
           const cooldownMs = recordKisChartCooldown(chartContext, res.status);
           if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_SET', chartCooldownKey!)) {
-            console.warn(
-              `[KIS_CHART_COOLDOWN_SET]\n`
-              + `trId=${chartContext.trId}\n`
-              + `symbol=${chartContext.symbol}\n`
-              + `period=${chartContext.period}\n`
-              + `purpose=${chartContext.purpose}\n`
-              + `startDate=${chartContext.startDate}\n`
-              + `endDate=${chartContext.endDate}\n`
-              + `status=${res.status}\n`
-              + `providerIssue=true\n`
-              + `marketSignal=false\n`
-              + `executionImpact=NONE\n`
-              + `dataVacuum=false\n`
-              + `newBuyBlocked=false\n`
-              + `cooldownMs=${cooldownMs}`,
-            );
+            emitKisRealDataOperationalWarn({
+              requestPriority: realDataClassification.priority,
+              code: 'P3_KIS_CHART_COOLDOWN_SET',
+              message: '[KIS_CHART_COOLDOWN_SET] providerIssue=true marketSignal=false executionImpact=NONE dataVacuum=false newBuyBlocked=false',
+              trId: chartContext.trId,
+              apiPath,
+              status: res.status,
+              reason: 'chart-provider-cooldown-set',
+              symbol: chartContext.symbol,
+              details: {
+                period: chartContext.period,
+                purpose: chartContext.purpose,
+                startDate: chartContext.startDate,
+                endDate: chartContext.endDate,
+                cooldownMs,
+                dataVacuum: false,
+                newBuyBlocked: false,
+              },
+            });
           }
         } else {
           recordRealData5xxCooldown(trId, apiPath, res.status);
@@ -547,10 +740,18 @@ export function realDataKisGet(
         if (retriesLeft > 0) {
           const delay = _kisBackoffDelayMs(retriesLeft);
           if (noise.shouldEmitDetailLog) {
-            console.warn(
-              `[KIS-RealData] ${res.status} (${trId}) 재시도 ${retriesLeft}회 남음, ${delay}ms 대기 — `
-              + `providerIssue=true marketSignal=false executionImpact=NONE`,
-            );
+            emitKisRealDataOperationalWarn({
+              requestPriority: realDataClassification.priority,
+              code: realDataClassification.priority.startsWith('P0_') || realDataClassification.priority.startsWith('P1_')
+                ? 'P1_KIS_SERVER_ERROR_COOLDOWN'
+                : 'P3_KIS_REALDATA_SERVER_ERROR_COOLDOWN',
+              message: '[KIS-RealData] providerIssue=true marketSignal=false executionImpact=NONE; retry delayed.',
+              trId,
+              apiPath,
+              status: res.status,
+              reason: 'realdata-server-error-retry',
+              details: { delayMs: delay, retriesLeft },
+            });
           } else {
             // 반복 5xx — 상세 로그 suppress + 60s 간격 INFO compact summary 노출.
             //   ENV disabled 시 shouldEmitNow=false (lastSummaryLoggedAt 갱신 안 함).
@@ -575,20 +776,23 @@ export function realDataKisGet(
           });
           recordKisRealDataFailure(classified);
           if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_SET', chartCooldownKey!)) {
-            console.warn(
-              `[KIS_CHART_COOLDOWN_SET]\n`
-              + `trId=${chartContext.trId}\n`
-              + `symbol=${chartContext.symbol}\n`
-              + `period=${chartContext.period}\n`
-              + `purpose=${chartContext.purpose}\n`
-              + `status=${res.status}\n`
-              + `cooldownMs=${cooldownMs}\n`
-              + `providerIssue=true\n`
-              + `marketSignal=false\n`
-              + `executionImpact=NONE\n`
-              + `dataVacuum=false\n`
-              + `newBuyBlocked=false`,
-            );
+            emitKisRealDataOperationalWarn({
+              requestPriority: realDataClassification.priority,
+              code: 'P3_KIS_CHART_COOLDOWN_SET',
+              message: '[KIS_CHART_COOLDOWN_SET] providerIssue=true marketSignal=false executionImpact=NONE dataVacuum=false newBuyBlocked=false',
+              trId: chartContext.trId,
+              apiPath,
+              status: res.status,
+              reason: 'chart-provider-cooldown-set',
+              symbol: chartContext.symbol,
+              details: {
+                period: chartContext.period,
+                purpose: chartContext.purpose,
+                cooldownMs,
+                dataVacuum: false,
+                newBuyBlocked: false,
+              },
+            });
           }
         }
         console.error(`[KIS-RealData] API 오류 ${res.status} (${trId})`);
