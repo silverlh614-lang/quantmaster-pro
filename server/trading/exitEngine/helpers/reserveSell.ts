@@ -66,8 +66,8 @@ export function reserveSell(
       kind: 'FAILED',
       recorded: false,
       remainingQty: getRemainingQty(shadow),
-      statusPrefix: '❌ [주문 실패]',
-      statusSuffix: `\n🚨 실주문 접수 실패 — ${orderRes.failureReason ?? 'unknown'}. 수동 매도/재시도 필요.`,
+      statusPrefix: '❌ [LIVE 주문 실패]',
+      statusSuffix: `\nKIS 실주문 실패 / liveOrderSent=false\n🚨 실주문 접수 실패 — ${orderRes.failureReason ?? 'unknown'}. 수동 매도/재시도 필요.`,
       reason: orderRes.failureReason ?? 'unknown',
     };
   }
@@ -182,16 +182,16 @@ export function reserveSell(
       kind: 'SHADOW',
       recorded: true,
       remainingQty,
-      statusPrefix: '🎭 [SHADOW 가상 체결]',
-      statusSuffix: '\n⚠️ 실주문 없음 · KIS 잔고 불변 (Shadow 모드)',
+      statusPrefix: '🧪 [SHADOW 가상매도]',
+      statusSuffix: '\n실주문 아님 / liveOrderSent=false / executionImpact=NONE\n⚠️ KIS 잔고 불변 (Shadow 모드)',
     };
   }
   return {
     kind: 'PENDING',
     recorded: true,
     remainingQty,
-    statusPrefix: '⏳ [체결 대기]',
-    statusSuffix: `\n⏳ 주문 접수됨 (ODNO ${orderRes.ordNo}) — CCLD 확인 후 최종 확정`,
+    statusPrefix: '⏳ [LIVE 실매도 접수]',
+    statusSuffix: `\nKIS 실주문 / liveOrderSent=true / executionImpact=LIVE_ORDER\n⏳ 주문 접수됨 (ODNO ${orderRes.ordNo}) — CCLD 확인 후 최종 확정`,
     ordNo: orderRes.ordNo as string,
   };
 }

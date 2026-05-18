@@ -33,6 +33,10 @@ import { captureSnapshotsForOpenTrades } from '../../learning/coldstartBootstrap
 import type { RegimeLevel } from '../../../src/types/core.js';
 import { learningOrchestrator } from '../../orchestrator/learningOrchestrator.js';
 import { requestImmediateRescan } from '../../orchestrator/adaptiveScanScheduler.js';
+import {
+  formatShadowBuyAlertTitle,
+  formatShadowBuyExecutionNotice,
+} from '../../telegram/positionDisplayTags.js';
 
 import type { ExitContext, ExitRule } from './types.js';
 // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW 포지션 monitor
@@ -163,11 +167,13 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
       // Shadow 체결 알림 — LIVE의 fillMonitor "✅ 체결 확인"과 동일한 경험 제공
       // 체결 알림 — getRemainingQty SSOT 를 사용해 캐시 드리프트를 방지한다.
       const filledQty = getRemainingQty(shadow) > 0 ? getRemainingQty(shadow) : shadow.quantity;
+      const shadowEntrySource = shadow.entryType ?? shadow.entryReason ?? shadow.riskUnit;
       await sendTelegramAlert(
-        `🎭 <b>[SHADOW 체결]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
+        `${formatShadowBuyAlertTitle(shadowEntrySource)} ${shadow.stockName} (${shadow.stockCode})\n` +
         `진입가: ${shadow.shadowEntryPrice.toLocaleString()}원 × ${filledQty}주\n` +
         `손절: ${shadow.stopLoss.toLocaleString()}원 | 목표: ${shadow.targetPrice.toLocaleString()}원\n` +
-        `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
+        `${formatShadowBuyExecutionNotice(shadowEntrySource)}\n` +
+        `⚠️ SHADOW/PAPER 포지션 — 실계좌 잔고 아님`
       ).catch(console.error);
       appendShadowLog({ event: 'SHADOW_ACTIVATED', ...shadow });
       continue;

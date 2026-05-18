@@ -25,6 +25,11 @@ import {
 import { formatNullableNumber, formatWon } from '../utils/nullableFormatters.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import { markUserApproved, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
+import {
+  formatLiveBuyExecutionNotice,
+  formatShadowBuyAlertTitle,
+  formatShadowBuyExecutionNotice,
+} from './positionDisplayTags.js';
 // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단.
 // diagnostic/dedup only — LIVE 매매 본체 무수정, KIS 주문 함수 import 0.
 import {
@@ -105,8 +110,12 @@ export function buildBuyApprovalMessage(params: {
   preMortem?: string | PreMortem | null;
   timeoutLine: string;
 }): string {
-  const modeEmoji = params.mode === 'LIVE' ? '🔴' : '⚡';
-  const modeLabel = params.mode === 'LIVE' ? 'LIVE' : 'Shadow';
+  const header = params.mode === 'LIVE'
+    ? `✅ <b>[LIVE 실매수 신호]</b>`
+    : formatShadowBuyAlertTitle();
+  const executionNotice = params.mode === 'LIVE'
+    ? formatLiveBuyExecutionNotice()
+    : formatShadowBuyExecutionNotice();
   const risk = params.currentPrice - params.stopLoss;
   const rrrRatio = risk > 0 ? (params.targetPrice - params.currentPrice) / risk : null;
   let enemySummary: string | null = null;
@@ -128,11 +137,12 @@ export function buildBuyApprovalMessage(params: {
     ? `━━━━━━━━━━━━━━━━\n${escapeHtml(preMortemDisplay)}\n`
     : '';
 
-  return `${modeEmoji} <b>[${modeLabel}] ${escapeHtml(params.stockName)} 매수 신호</b>\n`
+  return `${header} ${escapeHtml(params.stockName)} 매수 신호\n`
     + `━━━━━━━━━━━━━━━━\n`
     + `현재가: ${formatWon(params.currentPrice)} × ${params.quantity}주\n`
     + `손절: ${formatWon(params.stopLoss)} | 목표: ${formatWon(params.targetPrice)}\n`
     + `RRR: ${formatNullableNumber(rrrRatio, 2)} | Gate: ${formatNullableNumber(params.gateScore, 2)}\n`
+    + `${executionNotice}\n`
     + enemySection
     + preMortemSection
     + `━━━━━━━━━━━━━━━━\n`
@@ -515,13 +525,16 @@ export async function handleBuyApprovalCallback(
   // (liveOrderPlaced=false / shadowRecorded=true 명시) + LIVE 모드는 기존 메시지 보존.
   const completionMessage =
     pending.mode === 'SHADOW' && action === 'APPROVE'
-      ? `${actionEmoji} <b>[Shadow 승인 처리됨]</b> ${escapeHtml(pending.stockName)}\n` +
+      ? `${actionEmoji} <b>[SHADOW 가상매수 승인 처리됨]</b> ${escapeHtml(pending.stockName)}\n` +
         `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주\n` +
-        `실매수 주문: 없음\n` +
+        `실주문 아님 / liveOrderSent=false / executionImpact=NONE\n` +
         `liveOrderPlaced=false\n` +
         `shadowRecorded=true`
       : `${actionEmoji} <b>[${escapeHtml(pending.stockName)}] ${actionLabel} 처리됨</b>\n` +
-        `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주`;
+        `현재가: ${pending.currentPrice.toLocaleString()}원 × ${pending.quantity}주` +
+        (pending.mode === 'LIVE' && action === 'APPROVE'
+          ? `\n${formatLiveBuyExecutionNotice()}`
+          : '');
 
   await editMessageText(pending.messageId, completionMessage);
 

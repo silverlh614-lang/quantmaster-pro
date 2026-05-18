@@ -1,3 +1,4 @@
+// @responsibility Telegram position source aggregation.
 import { getExecutionMode } from '../../../state.js';
 import { RegimeResolver, type MarketStateSnapshot } from '../../../trading/marketStateResolver.js';
 import { fetchCurrentPrice } from '../../../clients/kisClient.js';
@@ -11,6 +12,18 @@ import {
 } from '../../../persistence/shadowTradeRepo.js';
 import { computeShadowAccount, type ActivePosition, type ShadowAccountState } from '../../../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
+import {
+  attachDualPositionDisplay,
+  buildPositionDisplayTags,
+  type AccountKind,
+  type NormalizedPositionPriceSource,
+  type PnlKind,
+  type PositionEngineMode,
+  type PositionExecutionImpact,
+  type PositionKind,
+  type PositionOrigin,
+  type DualPositionDisplayInfo,
+} from '../../positionDisplayTags.js';
 
 const TELEGRAM_OPEN_SHADOW_STATUSES = new Set([
   'OPEN',
@@ -39,9 +52,11 @@ const TELEGRAM_CLOSED_SHADOW_STATUSES = new Set([
 export type PositionSourceName =
   | 'ShadowPositionLedger'
   | 'ShadowTradeRepo'
-  | 'VirtualAccount';
+  | 'VirtualAccount'
+  | 'KISLiveHolding'
+  | 'PaperTradeLedger';
 
-export type PositionPriceSource =
+export type PositionLookupPriceSource =
   | 'REALTIME_WS'
   | 'KIS_REST'
   | 'VIRTUAL_ACCOUNT'
@@ -49,13 +64,26 @@ export type PositionPriceSource =
 
 export interface TelegramPositionEntry {
   source: PositionSourceName;
+  positionKind: PositionKind;
+  accountKind: AccountKind;
+  origin: PositionOrigin;
+  engineMode: PositionEngineMode;
+  effectiveRegime: string;
+  entrySource: string;
+  priceSource: NormalizedPositionPriceSource;
+  pnlKind: PnlKind;
+  liveOrderSent: boolean;
+  executionImpact: PositionExecutionImpact;
+  displayTags: string[];
+  dualPosition?: DualPositionDisplayInfo;
   tradeId: string;
   stockCode: string;
   stockName: string;
   qty: number;
   entryPrice: number;
   currentPrice?: number;
-  currentPriceSource?: PositionPriceSource;
+  currentPriceSource?: PositionLookupPriceSource;
+  priceAgeSeconds?: number;
   unrealizedPnl?: number;
   unrealizedPct?: number;
   realizedPnl?: number;
@@ -103,6 +131,12 @@ export interface ShadowPnlSummary {
   unrealizedPnl: number;
   todayPnl: number;
   cumulativePnl: number;
+  liveRealizedPnl: number;
+  liveUnrealizedPnl: number;
+  shadowRealizedPnl: number;
+  shadowUnrealizedPnl: number;
+  shadowTodayPnl: number;
+  virtualCash: number;
   virtualTotalAssets: number;
   closedTradeCount: number;
 }
@@ -118,7 +152,7 @@ export interface PnlSourceSnapshot {
 
 interface PriceLookupSnapshot {
   prices: Record<string, number>;
-  sourceByCode: Map<string, PositionPriceSource>;
+  sourceByCode: Map<string, PositionLookupPriceSource>;
 }
 
 export function isShadowDisplayOpenStatus(status: unknown): boolean {
@@ -160,11 +194,13 @@ export function resolveTelegramPositionMode(): PositionModeSnapshot {
 export async function aggregatePositionSources(): Promise<PositionSourceSnapshot> {
   const mode = resolveTelegramPositionMode();
   const allTrades = loadShadowTrades();
-  const shadowTrades = allTrades.filter(isShadowLikeTrade);
+  const displayableShadowTrades = allTrades
+    .filter(isShadowLikeTrade)
+    .filter((trade) => trade.watchlistSource !== 'SHADOW_NEAR_BREAKOUT');
   const ledgerEntries = getShadowLedgerOpenPositions();
-  const openRepoTrades = shadowTrades.filter((trade) => isQueryableOpenTrade(trade));
+  const openRepoTrades = displayableShadowTrades.filter((trade) => isQueryableOpenTrade(trade));
   const priceLookup = await resolvePriceLookup([...ledgerEntries.map((entry) => entry.trade), ...openRepoTrades], 'POSITION');
-  const account = computeAccount(shadowTrades, priceLookup.prices);
+  const account = computeAccount(displayableShadowTrades, priceLookup.prices);
   const accountPositionsByTradeId = new Map((account?.openPositions ?? []).map((position) => [position.tradeId, position]));
   const positions: TelegramPositionEntry[] = [];
   const seenTradeIds = new Set<string>();
@@ -174,6 +210,7 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
     positions.push(normalizeTradePosition(
       entry.trade,
       'ShadowPositionLedger',
+      mode,
       entry.qty,
       accountPositionsByTradeId.get(tradeId),
       priceLookup,
@@ -190,6 +227,7 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
     positions.push(normalizeTradePosition(
       trade,
       'ShadowTradeRepo',
+      mode,
       getRemainingQty(trade),
       accountPositionsByTradeId.get(tradeId),
       priceLookup,
@@ -203,15 +241,43 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
     }
 
     const stockCode = normalizeStockCode(holding.stockCode);
-    const currentPrice = finitePositive(holding.currentPrice) ?? finitePositive(holding.entryPrice);
+    const currentPrice = finitePositive(holding.currentPrice);
     const currentPriceSource = holding.currentPrice !== undefined
       ? priceLookup.sourceByCode.get(stockCode) ?? 'VIRTUAL_ACCOUNT'
       : 'ENTRY_PRICE_FALLBACK';
     const unrealizedPnl = computeUnrealizedPnl(currentPrice, holding.entryPrice, holding.remainingQty);
     const unrealizedPct = computeUnrealizedPct(currentPrice, holding.entryPrice);
+    const displayContext = buildDisplayContext(mode);
+    const priceSource = normalizePriceSource(currentPriceSource);
+    const positionKind: PositionKind = 'VIRTUAL';
+    const accountKind: AccountKind = 'VIRTUAL_SHADOW';
+    const origin: PositionOrigin = 'VIRTUAL_ACCOUNT';
+    const liveOrderSent = false;
+    const executionImpact: PositionExecutionImpact = 'NONE';
+    const entrySource = 'VIRTUAL_ACCOUNT';
 
     positions.push({
       source: 'VirtualAccount',
+      positionKind,
+      accountKind,
+      origin,
+      engineMode: displayContext.engineMode,
+      effectiveRegime: displayContext.effectiveRegime,
+      entrySource,
+      priceSource,
+      pnlKind: 'VIRTUAL_UNREALIZED',
+      liveOrderSent,
+      executionImpact,
+      displayTags: buildPositionDisplayTags({
+        positionKind,
+        accountKind,
+        origin,
+        engineMode: displayContext.engineMode,
+        effectiveRegime: displayContext.effectiveRegime,
+        entrySource,
+        liveOrderSent,
+        executionImpact,
+      }),
       tradeId: holding.tradeId,
       stockCode,
       stockName: holding.stockName || stockCode,
@@ -245,13 +311,15 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
       `kisLiveCount=${counts.kisLiveCount} totalCount=${counts.totalCount}`,
   );
 
-  return { mode, positions, account, counts };
+  return { mode, positions: attachDualPositionDisplay(positions), account, counts };
 }
 
 export async function aggregatePnlSources(): Promise<PnlSourceSnapshot> {
   const mode = resolveTelegramPositionMode();
   const allTrades = loadShadowTrades();
-  const shadowTrades = allTrades.filter(isShadowLikeTrade);
+  const shadowTrades = allTrades
+    .filter(isShadowLikeTrade)
+    .filter((trade) => trade.watchlistSource !== 'SHADOW_NEAR_BREAKOUT');
   const openTrades = shadowTrades.filter((trade) => isQueryableOpenTrade(trade));
   const priceLookup = await resolvePriceLookup(openTrades, 'PNL');
   const account = computeAccount(shadowTrades, priceLookup.prices);
@@ -267,6 +335,12 @@ export async function aggregatePnlSources(): Promise<PnlSourceSnapshot> {
     unrealizedPnl,
     todayPnl,
     cumulativePnl,
+    liveRealizedPnl: 0,
+    liveUnrealizedPnl: 0,
+    shadowRealizedPnl: realizedPnl,
+    shadowUnrealizedPnl: unrealizedPnl,
+    shadowTodayPnl: todayPnl,
+    virtualCash: account?.cashBalance ?? startingCapital,
     virtualTotalAssets: startingCapital + cumulativePnl,
     closedTradeCount: account?.closedTrades.length ?? closedTrades.length,
   };
@@ -341,6 +415,7 @@ function computeAccount(
 function normalizeTradePosition(
   trade: ServerShadowTrade,
   source: PositionSourceName,
+  mode: PositionModeSnapshot,
   qty: number,
   accountPosition: ActivePosition | undefined,
   priceLookup: PriceLookupSnapshot,
@@ -348,18 +423,46 @@ function normalizeTradePosition(
   const stockCode = normalizeStockCode(trade.stockCode);
   const entryPrice = finitePositive(trade.shadowEntryPrice) ?? finitePositive(trade.signalPrice) ?? 0;
   const lookupPrice = finitePositive(accountPosition?.currentPrice) ?? finitePositive(priceLookup.prices[stockCode]);
-  const currentPrice = lookupPrice ?? finitePositive(entryPrice);
+  const currentPrice = lookupPrice;
   const currentPriceSource = lookupPrice !== undefined
     ? priceLookup.sourceByCode.get(stockCode) ?? 'VIRTUAL_ACCOUNT'
-    : currentPrice !== undefined
-      ? 'ENTRY_PRICE_FALLBACK'
-      : undefined;
+    : 'ENTRY_PRICE_FALLBACK';
   const unrealizedPnl = computeUnrealizedPnl(currentPrice, entryPrice, qty);
   const unrealizedPct = computeUnrealizedPct(currentPrice, entryPrice);
   const rMultiple = computeRMultiple(currentPrice, entryPrice, trade.stopLoss);
+  const displayContext = buildDisplayContext(mode, trade);
+  const positionKind: PositionKind = trade.mode === 'LIVE' ? 'LIVE' : 'SHADOW';
+  const accountKind: AccountKind = trade.mode === 'LIVE' ? 'KIS_LIVE' : 'VIRTUAL_SHADOW';
+  const origin = source === 'ShadowPositionLedger'
+    ? 'SHADOW_POSITION_LEDGER'
+    : 'SHADOW_TRADE_REPO';
+  const entrySource = resolveEntrySource(trade, source);
+  const liveOrderSent = trade.mode === 'LIVE' || (trade as { liveOrderSent?: boolean }).liveOrderSent === true;
+  const executionImpact: PositionExecutionImpact = trade.mode === 'LIVE' ? 'LIVE_POSITION' : 'NONE';
+  const priceSource = normalizePriceSource(currentPriceSource);
 
   return {
     source,
+    positionKind,
+    accountKind,
+    origin,
+    engineMode: displayContext.engineMode,
+    effectiveRegime: displayContext.effectiveRegime,
+    entrySource,
+    priceSource,
+    pnlKind: positionKind === 'LIVE' ? 'UNREALIZED_LIVE' : 'VIRTUAL_UNREALIZED',
+    liveOrderSent,
+    executionImpact,
+    displayTags: buildPositionDisplayTags({
+      positionKind,
+      accountKind,
+      origin,
+      engineMode: displayContext.engineMode,
+      effectiveRegime: displayContext.effectiveRegime,
+      entrySource,
+      liveOrderSent,
+      executionImpact,
+    }),
     tradeId: trade.id,
     stockCode,
     stockName: trade.stockName || stockCode,
@@ -375,6 +478,43 @@ function normalizeTradePosition(
   };
 }
 
+function buildDisplayContext(
+  mode: PositionModeSnapshot,
+  trade?: ServerShadowTrade,
+): { engineMode: PositionEngineMode; effectiveRegime: string } {
+  const rawEngineMode = String(mode.marketState?.executionMode ?? mode.modeLabel ?? '').toUpperCase();
+  let engineMode: PositionEngineMode = 'NORMAL';
+  if (rawEngineMode.includes('SELL_ONLY')) engineMode = 'SELL_ONLY';
+  else if (rawEngineMode.includes('SHADOW_ONLY')) engineMode = 'SHADOW_ONLY';
+  else if (rawEngineMode.includes('OBSERVE_ONLY')) engineMode = 'OBSERVE_ONLY';
+  else if (rawEngineMode.includes('DEGRADED')) engineMode = 'DEGRADED';
+  else if (!mode.liveTradingEnabled && mode.shadowLearningEnabled) engineMode = 'SHADOW_ONLY';
+
+  const effectiveRegime =
+    trade?.r6Counterfactual?.regime ??
+    trade?.entryRegime ??
+    mode.marketState?.effectiveRegime ??
+    mode.modeLabel ??
+    engineMode;
+
+  return { engineMode, effectiveRegime };
+}
+
+function resolveEntrySource(trade: ServerShadowTrade, source: PositionSourceName): string {
+  return trade.entryType ??
+    trade.entryReason ??
+    trade.riskUnit ??
+    trade.watchlistSource ??
+    source;
+}
+
+function normalizePriceSource(source: PositionLookupPriceSource | undefined): NormalizedPositionPriceSource {
+  if (source === 'REALTIME_WS' || source === 'KIS_REST') return 'KIS';
+  if (source === 'VIRTUAL_ACCOUNT') return 'CACHE';
+  if (source === 'ENTRY_PRICE_FALLBACK') return 'MISSING';
+  return 'MISSING';
+}
+
 async function resolvePriceLookup(
   trades: ServerShadowTrade[],
   logScope: 'POSITION' | 'PNL',
@@ -385,7 +525,7 @@ async function resolvePriceLookup(
       .filter((code): code is string => code.length > 0),
   ));
   const prices: Record<string, number> = {};
-  const sourceByCode = new Map<string, PositionPriceSource>();
+  const sourceByCode = new Map<string, PositionLookupPriceSource>();
   let realtimeCount = 0;
   let kisRestCount = 0;
   let missingCount = 0;

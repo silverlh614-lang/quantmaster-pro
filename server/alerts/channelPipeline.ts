@@ -19,6 +19,11 @@ import { dispatchAlert } from './alertRouter.js';
 import { AlertCategory, ChannelSemantic, isCategoryEnabled } from './alertCategories.js';
 import { formatAlert } from './formatAlert.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
+import {
+  formatLiveBuyExecutionNotice,
+  formatShadowBuyAlertTitle,
+  formatShadowBuyExecutionNotice,
+} from '../telegram/positionDisplayTags.js';
 
 function isSemanticEnabled(category: AlertCategory): boolean {
   return isCategoryEnabled(category);
@@ -45,7 +50,7 @@ export interface ChannelBuySignalParams {
 export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promise<void> {
   if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
 
-  const modeLabel  = p.mode === 'LIVE' ? 'LIVE 매수 신호' : '[SHADOW] 매수 신호';
+  const modeLabel  = p.mode === 'LIVE' ? '[LIVE 실매수 신호]' : '[SHADOW 가상매수 신호]';
   const signalEmoji = p.signalType === 'STRONG_BUY' ? '🔥' : '✅';
   const bodyLines = [
     `💰 진입가: <b>${p.price.toLocaleString()}원</b> × ${p.quantity}주`,
@@ -54,8 +59,9 @@ export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promis
     `🛡️ 손절: ${p.stopLoss.toLocaleString()}원`,
     `🎯 목표: ${p.targetPrice.toLocaleString()}원`,
     `⚖️ RRR: 1:${p.rrr.toFixed(1)}`,
+    p.mode === 'LIVE' ? formatLiveBuyExecutionNotice() : formatShadowBuyExecutionNotice(),
   ];
-  if (p.mode === 'SHADOW') bodyLines.push('⚠️ SHADOW 모드 — 실계좌 잔고 아님');
+  if (p.mode === 'SHADOW') bodyLines.push('⚠️ SHADOW/PAPER 포지션 — 실계좌 잔고 아님');
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
     eventType: `${modeLabel} ${signalEmoji} ${p.stockName} (${p.stockCode})`,
@@ -75,11 +81,12 @@ export async function channelBuyFilled(params: {
   if (!isSemanticEnabled(ChannelSemantic.EXECUTION)) return;
   const message = formatAlert({
     category: AlertCategory.TRADE,
-    eventType: `체결 ${params.stockName} (${params.stockCode})`,
+    eventType: `[LIVE 실매수 체결] ${params.stockName} (${params.stockCode})`,
     headerEmoji: '📈',
     bodyLines: [
       `💵 체결가: <b>${params.fillPrice.toLocaleString()}원</b> × ${params.quantity}주`,
       `🧾 주문번호: ${escapeHtml(params.orderNo)}`,
+      formatLiveBuyExecutionNotice(),
     ],
   });
   await dispatchAlert(ChannelSemantic.EXECUTION, message).catch(console.error);
@@ -106,12 +113,14 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
   if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
-    eventType: `[Shadow 체결] ${p.stockName} (${p.stockCode})`,
+    eventType: `[SHADOW 가상매수] ${p.stockName} (${p.stockCode})`,
     headerEmoji: '🧾',
     bodyLines: [
+      formatShadowBuyAlertTitle().replace(/<[^>]*>/g, ''),
       `💵 paper-fill: <b>${p.fillPrice.toLocaleString()}원</b> × ${p.quantity}주`,
       `🧾 fillId: ${escapeHtml(p.fillId)}`,
-      `⚠️ SHADOW 모드 — 실주문 0건, executionImpact=NONE`,
+      formatShadowBuyExecutionNotice(),
+      `⚠️ SHADOW 모드 — 실계좌 잔고 아님`,
       `📌 lifecycle: PENDING → ACTIVE (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
     ],
   });

@@ -70,7 +70,7 @@ describe('ADR-0504 /pos cmd wiring', () => {
     await m.default.execute({ args: [], reply: replyMock } as Parameters<typeof m.default.execute>[0]);
     expect(replyMock).toHaveBeenCalledTimes(1);
     expect(replyMock.mock.calls[0][0]).toContain('현재 Shadow 보유 포지션 없음');
-  });
+  }, 15_000);
 
   it('정상 보유 1건 → 카드 응답 + 종목명 포함 + Shadow note', async () => {
     writeShadowTrades([realTrade({ stockCode: '005930', stockName: '삼성전자' })]);

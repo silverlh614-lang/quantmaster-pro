@@ -30,6 +30,18 @@ interface MetaCommandSpec {
 
 const MAX_BUTTONS_PER_ROW = 3;
 
+const META_BUTTON_LABELS: Record<string, string> = {
+  '/pos_shadow': 'Shadow 포지션',
+  '/pos_live': 'Live 포지션',
+  '/pos_all': '전체 포지션',
+  '/pnl_shadow': '가상 손익',
+  '/pnl_live': '실계좌 손익',
+};
+
+function metaButtonText(command: string): string {
+  return META_BUTTON_LABELS[command] ?? command;
+}
+
 export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
   '/watch': {
     title: '👀 워치리스트',
@@ -44,7 +56,8 @@ export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
     title: '📊 포지션·주문',
     description: '보유·실시간 손익·미체결·수동 매도/취소·장부 reconcile 통합 메뉴입니다.',
     rows: [
-      ['/pos', '/pnl'],
+      ['/pos_shadow', '/pos_live', '/pos_all'],
+      ['/pnl_shadow', '/pnl_live'],
       ['/pending', '/cancel'],
       ['/sell', '/adjust_qty', '/reconcile'],
     ],
@@ -100,7 +113,7 @@ export function buildMetaInlineKeyboard(
   return {
     inline_keyboard: spec.rows.map((row) =>
       row.map((cmd) => ({
-        text: cmd,
+        text: metaButtonText(cmd),
         callback_data: encodeMetaCallback(cmd, nonce),
       })),
     ),
