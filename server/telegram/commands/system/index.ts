@@ -1,5 +1,6 @@
 // @responsibility System Telegram command registration barrel.
 
+import './adminNowDetail.cmd.js';
 import './aiStatus.cmd.js';
 import './bugs.cmd.js';
 import './bugCandidates.cmd.js';

@@ -1,0 +1,60 @@
+// @responsibility Admin NOW detail/debug command — full reasonCodes and market-state diagnostics.
+import { loadMacroState } from '../../../persistence/macroStateRepo.js';
+import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
+import { RegimeResolver } from '../../../trading/marketStateResolver.js';
+import { commandRegistry } from '../../commandRegistry.js';
+import type { TelegramCommand } from '../_types.js';
+
+function fmt(value: unknown): string {
+  if (value === undefined || value === null || value === '') return 'N/A';
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(2) : 'N/A';
+  return String(value);
+}
+
+export function formatAdminNowDetail(now: Date = new Date()): string {
+  const macro = loadMacroState();
+  const snapshot = RegimeResolver.resolveMarketState(now);
+  const diagnostics = getRegimeDiagnostics(macro, now);
+  const latch = diagnostics.transitionState;
+  return [
+    '🛠️ <b>[admin_now_detail]</b>',
+    `snapshotId=${snapshot.snapshotId}`,
+    `effectiveRegime=${snapshot.effectiveRegime} detectedRegime=${snapshot.detectedRegime} riskOverride=${snapshot.riskOverride}`,
+    `liveNewBuyAllowed=${snapshot.liveNewBuyAllowed} liveSellAllowed=${snapshot.liveSellAllowed} shadowLearningAllowed=${snapshot.shadowLearningAllowed} executionMode=${snapshot.executionMode}`,
+    `reasonCodes=${snapshot.reasonCodes.join(', ') || 'NONE'}`,
+    '',
+    '<b>macroState</b>',
+    `stale=${snapshot.macroState.stale}`,
+    `lastUpdatedAt=${fmt(snapshot.macroState.lastUpdatedAt)}`,
+    `ageSec=${fmt(snapshot.macroState.ageSec)} ttlSec=${snapshot.macroState.ttlSec}`,
+    `staleReason=${snapshot.macroState.staleReason}`,
+    `lastRefreshError=${fmt(snapshot.macroState.lastRefreshError)}`,
+    `provider=${fmt(snapshot.macroState.provider)} fallbackUsed=${fmt(snapshot.macroState.fallbackUsed)}`,
+    `executionImpact=${snapshot.macroState.executionImpact}`,
+    '',
+    '<b>R6 latch</b>',
+    `r6RecoveryStatus=${diagnostics.r6RecoveryStatus} recoveryBlockedReason=${fmt(diagnostics.recoveryBlockedReason)}`,
+    `r6ShockLatch=${diagnostics.r6ShockLatch} triggerType=${fmt(latch.r6ShockLatchReason)}`,
+    `triggeredAt=${fmt(latch.latchTriggeredAt)} severity=${fmt(latch.latchTriggerValue)}`,
+    `expiresAt=${fmt(latch.latchExpiresAt)} decayLevel=${fmt(latch.latchDecayLevel)} releaseEligibleAt=${fmt(latch.latchReleaseEligibleAt)}`,
+    `activeR6Triggers=${diagnostics.activeR6Triggers.join(',') || 'none'}`,
+    `previousR6Triggers=${diagnostics.previousR6Triggers.join(',') || 'none'}`,
+    `transitionReason=${diagnostics.transitionReason}`,
+  ].join('\n');
+}
+
+const adminNowDetail: TelegramCommand = {
+  name: '/admin_now_detail',
+  aliases: ['/debug_regime', '/debug_market_state'],
+  category: 'SYS',
+  visibility: 'ADMIN',
+  riskLevel: 0,
+  description: 'NOW 상세 진단 (전체 reasonCodes/macroState/R6 latch)',
+  async execute({ reply }) {
+    await reply(formatAdminNowDetail());
+  },
+};
+
+commandRegistry.register(adminNowDetail);
+
+export default adminNowDetail;
