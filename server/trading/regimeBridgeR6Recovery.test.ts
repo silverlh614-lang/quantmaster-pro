@@ -32,6 +32,8 @@ afterEach(() => {
   delete process.env.R6_RECOVERY_COOLDOWN_MINUTES;
   delete process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS;
   delete process.env.R6_RECOVERY_MAX_IMMEDIATE_REGIME;
+  delete process.env.MACRO_STATE_TTL_SEC;
+  delete process.env.R6_RECOVERY_SOFT_STALE_SEC;
 });
 
 describe("R6 Recovery Transition Guard", () => {
@@ -139,6 +141,52 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.effectiveRegime).toBe("R5_CAUTION");
     expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
     expect(state.cooldownUntil).toBe("2026-05-17T04:00:00.000Z");
+  });
+
+
+  it("allows R6_RECOVERY_WATCH but not recovered state while macroState is SOFT_STALE", () => {
+    process.env.MACRO_STATE_TTL_SEC = "300";
+    process.env.R6_RECOVERY_SOFT_STALE_SEC = "900";
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "0";
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-17T00:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_PANIC" as const,
+      r6StateMachineState: "R6_PANIC" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_INTRADAY_LOW_SHOCK" as const,
+      latchTriggeredAt: "2026-05-17T00:00:00.000Z",
+      latchExpiresAt: "2026-05-17T18:00:00.000Z",
+      latchReleaseEligibleAt: "2026-05-17T00:07:00.000Z",
+      latchDecayPercent: 0,
+      previousR6Triggers: ["KOSPI_INTRADAY_LOW_SHOCK" as const],
+      sourceUpdatedAt: "2026-05-17T00:00:00.000Z",
+    };
+    const softStaleMacro = macro({
+      updatedAt: "2026-05-17T00:00:00.000Z",
+      kospiTriggerSourceUpdatedAt: "2026-05-17T00:00:00.000Z",
+      mhs: 70,
+      kospiCloseReturn: 0.2,
+      kospiDayReturn: 0.2,
+      kospiIntradayLowReturn: -0.5,
+      biasScore: -20,
+    } as Partial<MacroState>);
+
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      softStaleMacro,
+      "R3_EARLY",
+      new Date("2026-05-17T00:07:14.000Z"),
+    );
+
+    expect(state.r6TriggerBreakdown.triggerFreshness).toBe("SOFT_STALE");
+    expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
+    expect(state.r6StateMachineState).toBe("R6_RECOVERY_WATCH");
+    expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(false);
+    expect(state.effectiveRegime).toBe("R5_CAUTION");
+    expect(state.latchDecayPercent).toBeGreaterThanOrEqual(60);
   });
 
   it("blocks R6 recovery when market data is stale", () => {

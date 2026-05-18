@@ -17,6 +17,7 @@ import * as state from '../state.js';
 import * as macroRepo from '../persistence/macroStateRepo.js';
 import * as orchestrator from '../orchestrator/tradingOrchestrator.js';
 import * as scanner from '../trading/signalScanner.js';
+import * as regimeRepo from '../persistence/regimeTransitionStateRepo.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // composeNowVerdict 테스트는 외부 모듈을 spy 로 stub. 각 it 마다 reset.
@@ -31,10 +32,15 @@ beforeEach(() => {
   vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({
     regime: 'R3_BULL_TREND',
     mhs: 67,
+    updatedAt: new Date().toISOString(),
   } as ReturnType<typeof macroRepo.loadMacroState>);
   vi.spyOn(orchestrator, 'getShadowTrades').mockReturnValue([]);
   // getLastBuySignalAt 는 미설정 시 0 을 반환한다 (scanDiagnostics.ts SSOT).
   vi.spyOn(scanner, 'getLastBuySignalAt').mockReturnValue(0);
+  vi.spyOn(regimeRepo, 'loadRegimeTransitionState').mockReturnValue(
+    regimeRepo.defaultRegimeTransitionState(new Date().toISOString()),
+  );
+  vi.spyOn(regimeRepo, 'saveRegimeTransitionState').mockReturnValue(undefined);
 });
 
 describe('parseMetaCallback', () => {
@@ -181,9 +187,26 @@ describe('composeNowVerdict — priority chain', () => {
   it('🟢 OK on default normal state', () => {
     const verdict = composeNowVerdict();
     expect(verdict).toContain('🟢 OK');
-    expect(verdict).toContain('R3_BULL_TREND');
+    expect(verdict).toContain('Raw trend: R3_BULL_TREND');
+    expect(verdict).toContain('Effective state:');
     expect(verdict).toContain('MHS 67');
     expect(verdict).toContain('활성 0/8');
+  });
+
+  it('NOW separates raw trend from effective R6 state and explicitly blocks live buy', () => {
+    vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({
+      regime: 'R3_BULL_TREND',
+      mhs: 70,
+      updatedAt: new Date().toISOString(),
+      vkospiDayChange: 31,
+    } as ReturnType<typeof macroRepo.loadMacroState>);
+
+    const verdict = composeNowVerdict();
+
+    expect(verdict).toContain('Raw trend: R3_BULL_TREND');
+    expect(verdict).toMatch(/Effective state: R6_(PANIC|DEFENSE)/);
+    expect(verdict).toContain('Live buy: BLOCKED');
+    expect(verdict).toContain('Shadow: ON');
   });
 
   it('마지막 신호 KST 시각이 포맷되어 노출', () => {

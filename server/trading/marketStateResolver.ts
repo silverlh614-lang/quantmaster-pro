@@ -39,6 +39,7 @@ export interface MarketStateSnapshot {
   mhsLabel: MhsLabel;
 
   detectedRegime: RegimeLevel;
+  rawTrend: string;
   riskOverride: RiskOverride;
   effectiveRegime: EffectiveMarketRegime;
 
@@ -69,8 +70,11 @@ export interface MarketStateSnapshot {
   };
 }
 
+export type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'HARD_STALE';
+
 export interface MacroStateStaleness {
   stale: boolean;
+  freshness: MacroStateFreshness;
   lastUpdatedAt?: string;
   ageSec?: number;
   ttlSec: number;
@@ -78,7 +82,7 @@ export interface MacroStateStaleness {
   lastRefreshError?: string;
   provider?: string;
   fallbackUsed?: boolean | string;
-  executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY' | 'NONE';
+  executionImpact: 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' | 'REGIME_RELEASE_BLOCKED_ONLY' | 'NONE';
 }
 
 export interface MarketStateNowContext {
@@ -230,7 +234,7 @@ function resolveEffectiveRegime(
     riskOverride === 'BLACK_SWAN' ||
     riskOverride === 'CIRCUIT_BREAKER' ||
     riskOverride === 'KOSPI_CRASH';
-  if (hardOverride && effective !== 'R6_PANIC' && effective !== 'R6_DEFENSE' && effective !== 'R6_RECOVERY_WATCH') {
+  if (hardOverride && !['R6_PANIC', 'R6_DEFENSE', 'R6_RECOVERY_WATCH'].includes(effective)) {
     console.warn(
       '[MARKET_STATE_CONFLICT] type=RISK_OVERRIDE_WITH_NON_R6 ' +
       `riskOverride=${riskOverride} effectiveRegime=${effective} action=FORCE_R6_DEFENSE`,
@@ -375,7 +379,7 @@ function resolveAsOf(macro: MacroState | null, now: Date): string {
 }
 
 function resolveTtlSec(): number {
-  const raw = Number(process.env.MARKET_STATE_SNAPSHOT_TTL_SEC ?? DEFAULT_TTL_SEC);
+  const raw = Number(process.env.MACRO_STATE_TTL_SEC ?? process.env.MARKET_STATE_SNAPSHOT_TTL_SEC ?? DEFAULT_TTL_SEC);
   return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : DEFAULT_TTL_SEC;
 }
 
@@ -398,13 +402,27 @@ function readFallbackUsed(source: MacroState | null): boolean | string | undefin
   return sectorFallback && sectorFallback !== 'NONE' ? sectorFallback : false;
 }
 
+function resolveSoftStaleSec(ttlSec: number): number {
+  const raw = Number(process.env.R6_RECOVERY_SOFT_STALE_SEC ?? 900);
+  return Number.isFinite(raw) && raw > 0 ? Math.max(ttlSec, Math.trunc(raw)) : Math.max(ttlSec, 900);
+}
+
+function classifyMacroStateFreshness(ageSec: number | undefined, hasValidAsOf: boolean, ttlSec: number): MacroStateFreshness {
+  if (!hasValidAsOf) return 'HARD_STALE';
+  if ((ageSec ?? Number.POSITIVE_INFINITY) <= ttlSec) return 'FRESH';
+  if ((ageSec ?? Number.POSITIVE_INFINITY) <= resolveSoftStaleSec(ttlSec)) return 'SOFT_STALE';
+  return 'HARD_STALE';
+}
+
 function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): MacroStateStaleness {
   const asOfMs = Date.parse(asOf);
   const ageSec = Number.isFinite(asOfMs) ? Math.max(0, Math.floor((now.getTime() - asOfMs) / 1000)) : undefined;
-  const stale = !Number.isFinite(asOfMs) || (ageSec ?? Number.POSITIVE_INFINITY) > ttlSec || diagnostics.sourceFreshness !== 'FRESH';
-  const staleReason = !macro ? 'MACRO_STATE_MISSING' : !Number.isFinite(asOfMs) ? 'LAST_UPDATED_AT_INVALID' : (ageSec ?? 0) > ttlSec ? 'TTL_EXPIRED' : diagnostics.sourceFreshness !== 'FRESH' ? `REGIME_SOURCE_${diagnostics.sourceFreshness}` : 'NONE';
+  const freshness = classifyMacroStateFreshness(ageSec, Number.isFinite(asOfMs) && !!macro, ttlSec);
+  const stale = freshness !== 'FRESH' || diagnostics.sourceFreshness === 'HARD_STALE' || diagnostics.sourceFreshness === 'STALE' || diagnostics.sourceFreshness === 'MISSING';
+  const staleReason = !macro ? 'MACRO_STATE_MISSING' : !Number.isFinite(asOfMs) ? 'LAST_UPDATED_AT_INVALID' : freshness !== 'FRESH' ? freshness : diagnostics.sourceFreshness !== 'FRESH' ? `REGIME_SOURCE_${diagnostics.sourceFreshness}` : 'NONE';
   const info: MacroStateStaleness = {
     stale,
+    freshness,
     lastUpdatedAt: macro?.updatedAt,
     ageSec,
     ttlSec,
@@ -412,7 +430,7 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     lastRefreshError: readStringField(macro, ['lastRefreshError', 'macroLastRefreshError', 'refreshError']),
     provider: readStringField(macro, ['provider', 'sourceProvider', 'source', 'refreshProvider']),
     fallbackUsed: readFallbackUsed(macro),
-    executionImpact: stale ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
+    executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
   };
   console.warn(
     '[MACRO_STATE_STALENESS] ' +
@@ -485,6 +503,7 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
     `shadowPaperFillAllowed=${snapshot.shadowPaperFillAllowed} ` +
     `stale=${snapshot.stale} ` +
     `staleSources=${snapshot.staleSources.join(',') || 'none'} ` +
+    `macroStateFreshness=${snapshot.macroState.freshness} ` +
     `macroStateStaleReason=${snapshot.macroState.staleReason} ` +
     `macroStateAgeSec=${snapshot.macroState.ageSec ?? 'N/A'}`,
   );
@@ -505,6 +524,7 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
     effectiveRegime = 'R5_STABILIZING';
   }
   const detectedRegime = diagnostics.rawRegime;
+  const rawTrend = readStringField(macro, ['regime', 'rawTrend', 'trend']) ?? detectedRegime;
   const snapshotId = buildSnapshotId({
     asOf,
     mhs,
@@ -526,6 +546,7 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
     mhs,
     mhsLabel,
     detectedRegime,
+    rawTrend,
     riskOverride,
     effectiveRegime,
     ...execution,
@@ -586,7 +607,7 @@ function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined):
 function legacyOpsTitle(snapshot: MarketStateSnapshot): string {
   if (snapshot.riskOverride === 'MANUAL_KILL_SWITCH') return '🔴 STOP';
   if (snapshot.riskOverride === 'CIRCUIT_BREAKER') return '🔴 BLOCK';
-  if (snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE') return '🟡 HOLD';
+  if (snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH') return '🟡 HOLD';
   if (!snapshot.liveNewBuyAllowed && snapshot.executionMode === 'DEGRADED') return '🟡 PAUSE';
   return '🟢 OK';
 }
@@ -600,7 +621,12 @@ export function formatMarketStateNow(
     `${snapshot.displayEmoji} ${snapshot.displayTitle}`,
     '',
     `MHS: ${snapshot.mhs.toFixed(0)} ${snapshot.mhsLabel} / Bias: ${snapshot.biasLabel} ${snapshot.biasScore.toFixed(1)}`,
-    `MHS ${snapshot.mhs.toFixed(0)} | 활성 ${context.activePositions ?? 0}/${context.maxPositions ?? 'N/A'} | 마지막 신호 ${context.lastSignalLabel ?? 'N/A'} | R3_BULL_TREND`,
+    `MHS ${snapshot.mhs.toFixed(0)} | 활성 ${context.activePositions ?? 0}/${context.maxPositions ?? 'N/A'} | 마지막 신호 ${context.lastSignalLabel ?? 'N/A'}`,
+    `Final action: ${snapshot.liveNewBuyAllowed ? 'BUY_ALLOWED' : 'HOLD / Live Buy Blocked'}`,
+    `Raw trend: ${snapshot.rawTrend}`,
+    `Effective state: ${snapshot.effectiveRegime}`,
+    `Live buy: ${snapshot.liveNewBuyAllowed ? 'ALLOWED' : 'BLOCKED'}`,
+    `Shadow: ${snapshot.shadowScanAllowed ? 'ON' : 'OFF'}`,
     `최종 판단: ${snapshot.riskOverride !== 'NONE' ? 'Risk Override 우선' : snapshot.effectiveRegime}`,
     `사유: ${summarizeReasonCodes(snapshot.reasonCodes)}`,
     `실거래 신규 매수: ${snapshot.liveNewBuyAllowed ? '허용' : '차단'}`,
@@ -617,7 +643,7 @@ export function formatMarketStateNow(
     ] : []),
     'Shadow:',
     formatShadowActivityLine(context.shadowActivity),
-    `데이터 상태: macroState ${snapshot.macroState.stale ? 'stale' : 'fresh'} (ageSec=${snapshot.macroState.ageSec ?? 'N/A'}, ttlSec=${snapshot.macroState.ttlSec}, reason=${snapshot.macroState.staleReason})`,
+    `데이터 상태: macroState ${snapshot.macroState.freshness} (ageSec=${snapshot.macroState.ageSec ?? 'N/A'}, ttlSec=${snapshot.macroState.ttlSec}, reason=${snapshot.macroState.staleReason})`,
   ];
 
   if (snapshot.macroState.lastRefreshError) lines.push(`macroState error: ${snapshot.macroState.lastRefreshError}`);
