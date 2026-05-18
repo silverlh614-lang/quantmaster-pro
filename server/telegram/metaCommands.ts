@@ -136,7 +136,7 @@ function toKstHmFromIsoOrLabel(value: string | undefined): string | undefined {
   return value;
 }
 
-function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>, now: Date): ShadowActivitySnapshot {
+function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>, now: Date, macroFreshness?: string): ShadowActivitySnapshot {
   const summary = getLastScanSummary();
   const today = now.toISOString().slice(0, 10);
   const openShadowPositions = shadows.filter((trade) => isOpenShadowStatus((trade as { status?: string }).status) && getRemainingQty(trade) > 0).length;
@@ -149,21 +149,31 @@ function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>
     const at = record.entryTime ?? record.signalTime ?? '';
     return isOpenShadowStatus(record.status) && at.startsWith(today);
   }).length;
-  const lastBlockReason = summary?.macroGateState?.sellOnlyMode
-    ? 'SELL_ONLY'
-    : summary?.emptyScanReason ?? undefined;
+  const macroHardStale = macroFreshness === 'HARD_STALE' || macroFreshness === 'MISSING';
+  const lastBlockReason = macroHardStale
+    ? `MACRO_STATE_${macroFreshness}`
+    : summary?.macroGateState?.sellOnlyMode
+      ? 'SELL_ONLY'
+      : summary?.emptyScanReason ?? undefined;
+  const candidateScanStatus = macroHardStale
+    ? 'SKIPPED'
+    : summary?.time
+      ? 'RAN'
+      : 'NOT_RUN';
 
   return {
     scanAllowed: true,
-    lastScanAt: toKstHmFromIsoOrLabel(summary?.time),
-    evaluatedCount: summary?.candidates ?? 0,
-    candidateCount: summary?.candidates ?? 0,
-    buySignalCount: summary?.entries ?? 0,
+    lastScanAt: macroHardStale ? undefined : toKstHmFromIsoOrLabel(summary?.time),
+    evaluatedCount: macroHardStale ? 0 : summary?.candidates ?? 0,
+    candidateCount: macroHardStale ? 0 : summary?.candidates ?? 0,
+    buySignalCount: macroHardStale ? 0 : summary?.entries ?? 0,
     sellCheckCount: openShadowPositions,
     paperFillCount,
     openShadowPositions,
     lastShadowSignalAt: Number.isFinite(lastShadowSignalAt) ? formatKstHm(new Date(lastShadowSignalAt)) : undefined,
     lastBlockReason,
+    candidateScanStatus,
+    candidateSkipReason: (macroHardStale || (summary?.candidates ?? 0) === 0) ? lastBlockReason : undefined,
   };
 }
 
@@ -202,7 +212,7 @@ export function composeNowVerdict(now: Date = new Date()): string {
     activePositions: active.length,
     maxPositions,
     lastSignalLabel,
-    shadowActivity: buildShadowActivitySnapshot(shadows, now),
+    shadowActivity: buildShadowActivitySnapshot(shadows, now, snapshot.macroState.freshness),
   });
 }
 

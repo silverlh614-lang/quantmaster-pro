@@ -474,13 +474,25 @@ export function computeFssVars(now: Date = new Date()): {
  * 실패한 개별 지표는 기존 값 유지.
  */
 export async function refreshMarketRegimeVars(): Promise<Record<string, number | boolean | string | null>> {
+  const refreshAttemptAt = new Date().toISOString();
   const existing = loadMacroState();
   if (!existing) {
     console.warn('[MarketRefresh] MacroState 없음 — MHS를 먼저 POST /macro/state로 초기화하세요');
     return {};
   }
 
-  const computed: Record<string, number | boolean | string | null> = {};
+  // macro refresh is observational data collection, not trade execution.  It must
+  // continue through R6_DEFENSE / SELL_ONLY / SHADOW_ONLY / OBSERVE_ONLY and when
+  // liveNewBuyAllowed=false; do not gate this path on execution state.
+  saveMacroState({
+    ...existing,
+    lastRefreshAttemptAt: refreshAttemptAt,
+    refreshJobEnabled: true,
+    refreshBlockedReason: 'NONE',
+  });
+
+  try {
+    const computed: Record<string, number | boolean | string | null> = {};
 
   // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
   const kospiBars = await fetchDailyBars('^KS11', '65d');
@@ -905,6 +917,13 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     ...existing,
     ...computed,
     updatedAt: new Date().toISOString(),
+    lastRefreshAttemptAt: refreshAttemptAt,
+    lastRefreshSuccessAt: new Date().toISOString(),
+    lastRefreshError: undefined,
+    refreshJobEnabled: true,
+    refreshBlockedReason: 'NONE',
+    providerUsed: 'MARKET_DATA_REFRESH',
+    fallbackUsed: sectorEnergyQualityDiagnostic?.fallbackUsed && sectorEnergyQualityDiagnostic.fallbackUsed !== 'NONE' ? sectorEnergyQualityDiagnostic.fallbackUsed : false,
     // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
     ...(sectorEnergyResult ? { sectorEnergyResult, sectorEnergyUpdatedAt } : {}),
     // ADR-0454: sectorEnergyInputs writer wiring — ADR-0343 L3 CACHE fallback 의 입력 데이터.
@@ -952,5 +971,19 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   // ── 레짐 전환 감지 + 즉시 알림 ─────────────────────────────────────────────
   await checkAndNotifyRegimeChange(updated as typeof existing).catch(console.error);
 
-  return computed;
+    return computed;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const latest = loadMacroState() ?? existing;
+    saveMacroState({
+      ...latest,
+      lastRefreshAttemptAt: refreshAttemptAt,
+      lastRefreshError: message,
+      refreshJobEnabled: true,
+      refreshBlockedReason: 'REFRESH_THROW',
+      providerUsed: 'MARKET_DATA_REFRESH',
+    });
+    console.warn(`[MarketRefresh] MacroState refresh 실패 — diagnostics persisted reason=REFRESH_THROW error=${message}`);
+    throw e;
+  }
 }
