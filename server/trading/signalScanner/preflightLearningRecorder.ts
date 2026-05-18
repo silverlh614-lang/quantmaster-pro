@@ -194,6 +194,9 @@ function emitPreflightScanEvaluationWarn(summary: PreflightBlockedScanSummary): 
       breakPoint: scanEvaluation.breakPoint,
       sourcePath: scanEvaluation.sourcePath,
       scanId: scanEvaluation.scanId,
+      normalStateMessage: scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 'SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.' : undefined,
+      liveNewBuyAllowed: scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? false : undefined,
+      positionManagementAllowed: scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? true : undefined,
       shadowLearningAllowed: scanEvaluation.shadowLearningAllowed,
     },
   });

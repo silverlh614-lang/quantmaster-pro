@@ -51,8 +51,10 @@ function createPositionCommand(
     visibility,
     riskLevel: 0,
     description,
-    async execute({ reply }) {
+    async execute({ reply, correlationId }) {
+      console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
       const snapshot = await aggregatePositionSources();
+      console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount}`);
       const { mode, positions, account } = snapshot;
       const visiblePositions = filterPositions(positions, view);
       const lines: string[] = [
@@ -95,7 +97,10 @@ function createPositionCommand(
 
       lines.push(...renderPositionSourceDiagnostics(snapshot.sourceDiagnostics));
 
-      await reply(lines.join('\n'));
+      const message = lines.join('\n');
+      console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=${name} finalDisplayedCount=${visiblePositions.length} bytes=${message.length}`);
+      await reply(message);
+      console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=${name}`);
     },
   };
 }

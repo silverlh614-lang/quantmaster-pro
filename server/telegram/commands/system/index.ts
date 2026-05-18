@@ -91,3 +91,5 @@ import './walkForward.cmd.js';
 import './yahooHealthCheck.cmd.js';
 
 export {};
+
+import './debugCommands.cmd.js';

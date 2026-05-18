@@ -2351,7 +2351,8 @@ export function formatGate1MinimumSignalForensicSection(
   lines.push('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
   lines.push(`- evaluationState=${summary.evaluationState} evaluated=${summary.evaluatedCandidateCount}/${summary.totalCandidates} traceOnly=${summary.traceOnlyCandidateCount}`);
   if (summary.evaluationState === 'NOT_EVALUATED_SELL_ONLY') {
-    lines.push('- Gate live evaluation skipped due to SELL_ONLY');
+    lines.push('- SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.');
+    lines.push('- evaluationState=NOT_EVALUATED_SELL_ONLY liveNewBuyAllowed=false positionManagementAllowed=true shadowLearningAllowed=true executionImpact=NEW_BUY_BLOCKED_ONLY');
     lines.push('- Supply row carry diagnostic executed');
     lines.push('- row carry failure is a wiring issue, not a live-entry failure');
   }

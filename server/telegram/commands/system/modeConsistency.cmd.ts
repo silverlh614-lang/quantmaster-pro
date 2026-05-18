@@ -12,7 +12,8 @@
 
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
-import { getTradingMode, getKillSwitchLast } from '../../../state.js';
+import { getTradingMode, getKillSwitchLast, getExecutionMode } from '../../../state.js';
+import { RegimeResolver } from '../../../trading/marketStateResolver.js';
 
 export type ModeConsistencyState = 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
 
@@ -64,11 +65,14 @@ const modeConsistency: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description: 'Mode 일관성 진단 — env/runtime/killSwitch 비교',
-  async execute({ reply }) {
+  async execute({ reply, correlationId }) {
+    console.info(`[REGIME_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=/mode_consistency`);
     const envMode = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
     const runtimeMode = getTradingMode();
     const killSwitch = getKillSwitchLast();
     const isReal = process.env.KIS_IS_REAL === 'true';
+    const marketState = RegimeResolver.resolveMarketState();
+    console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=/mode_consistency engineMode=${runtimeMode} executionMode=${getExecutionMode()} liveNewBuyAllowed=${marketState.liveNewBuyAllowed} shadowLearningAllowed=${marketState.shadowLearningAllowed} shadowScanAllowed=${marketState.shadowScanAllowed} shadowPaperFillAllowed=${marketState.shadowPaperFillAllowed} positionManagementAllowed=${marketState.positionManagementAllowed}`);
 
     const message = formatModeConsistencyMessage({
       envMode,
@@ -77,7 +81,10 @@ const modeConsistency: TelegramCommand = {
       killSwitch,
     });
 
-    await reply(message);
+    const enriched = message + `\n\nengineMode=${runtimeMode}\nexecutionMode=${getExecutionMode()}\nliveNewBuyAllowed=${marketState.liveNewBuyAllowed}\nshadowLearningAllowed=${marketState.shadowLearningAllowed}\nshadowScanAllowed=${marketState.shadowScanAllowed}\nshadowPaperFillAllowed=${marketState.shadowPaperFillAllowed}\npositionManagementAllowed=${marketState.positionManagementAllowed}`;
+    console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=/mode_consistency bytes=${enriched.length}`);
+    await reply(enriched);
+    console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/mode_consistency`);
   },
 };
 

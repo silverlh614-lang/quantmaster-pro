@@ -18,9 +18,14 @@ function createPnlCommand(
     visibility,
     riskLevel: 0,
     description,
-    async execute({ reply }) {
+    async execute({ reply, correlationId }) {
+      console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
       const snapshot = await aggregatePnlSources();
-      await reply(renderPnlSummary(snapshot, view));
+      console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} realizedPnlSource=ShadowTradeRepo unrealizedPnlSource=VirtualAccount virtualEquity=${snapshot.pnl.virtualTotalAssets} virtualCash=${snapshot.pnl.virtualCash} holding=${snapshot.openTrades.length} shadowPnL=${snapshot.counts.shadowRealizedCount + snapshot.counts.shadowOpenCount} livePnL=${snapshot.counts.livePnlSkipped ? 'SKIPPED' : 0}`);
+      const message = renderPnlSummary(snapshot, view);
+      console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=${name} bytes=${message.length}`);
+      await reply(message);
+      console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=${name}`);
     },
   };
 }

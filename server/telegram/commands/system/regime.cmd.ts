@@ -14,15 +14,20 @@ const regime: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description: '매크로 레짐 + 매매 레짐(R1~R6) + MHS + VKOSPI + USD/KRW + Bear방어 현황',
-  async execute({ reply }) {
+  async execute({ reply, correlationId }) {
+    console.info(`[REGIME_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=/regime`);
     const macro = loadMacroState();
     if (!macro) {
-      await reply('❌ 매크로 상태 데이터 없음');
+      const message = '❌ 매크로 상태 데이터 없음';
+      console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=/regime bytes=${message.length}`);
+      await reply(message);
+      console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/regime`);
       return;
     }
     const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
     const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
     const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
+    console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=/regime snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} detectedRegime=${regimeSnapshot.detectedRegime} effectiveRegime=${regimeSnapshot.effectiveRegime} displayRegime=${regimeSnapshot.displayRegime} riskOverride=${regimeSnapshot.riskOverride} mhs=${regimeSnapshot.mhs ?? 'N/A'} rawMhs=${regimeSnapshot.rawMhsLabel ?? 'N/A'} macroFreshness=${regimeSnapshot.macroFreshness ?? 'N/A'} staleSources=${regimeSnapshot.staleSources?.join(',') || 'none'}`);
     const resolvedMhsEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : mhsEmoji;
     const resolvedRegimeEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : regimeEmoji;
     const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
@@ -45,7 +50,7 @@ const regime: TelegramCommand = {
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
     const mhsAxisLine = formatMhsAxisLine(macro);
-    await reply(
+    const message =
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `${resolvedMhsEmoji} MHS: ${regimeSnapshot.mhs ?? 'N/A'}\n` +
@@ -68,10 +73,42 @@ const regime: TelegramCommand = {
       `${sectorEnergyLine}\n` +
       `sourceFreshness=${regimeDiagnostics.sourceFreshness}\n` +
       `━━━━━━━━━━━━━━━━\n` +
-      freshnessLine,
-    );
+      freshnessLine +
+      formatMacroHardStaleGuide(regimeSnapshot);
+    console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=/regime bytes=${message.length}`);
+    await reply(message);
+    console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/regime`);
   },
 };
+
+
+export function formatMacroHardStaleGuide(snapshot: {
+  macroFreshness?: string;
+  macroAgeSec?: number;
+  macroLastRefreshAttemptAt?: string;
+  macroRefreshJobLastRunAt?: string;
+  mhs?: number | null;
+  regimeReleaseAllowed?: boolean;
+  regimeReleaseBlockedReason?: string;
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  executionImpact?: string;
+}): string {
+  if (snapshot.macroFreshness !== 'HARD_STALE') return '';
+  return [
+    '',
+    '⚠️ Macro snapshot HARD_STALE',
+    `마지막 갱신: ${snapshot.macroLastRefreshAttemptAt ?? 'N/A'}`,
+    `refreshJobLastRunAt: ${snapshot.macroRefreshJobLastRunAt ?? 'N/A'}`,
+    `경과: ${snapshot.macroAgeSec ?? 'N/A'}초`,
+    `MHS는 ${snapshot.mhs ?? 'N/A'}으로 회복권이나 Macro snapshot이 오래되어 R6 해제는 보류됩니다.`,
+    `regimeReleaseAllowed=${snapshot.regimeReleaseAllowed ?? false}`,
+    `releaseBlockedReason=${snapshot.regimeReleaseBlockedReason ?? 'MACRO_HARD_STALE'}`,
+    `분류: Provider freshness issue / Market bearish signal 아님`,
+    `providerIssue=${snapshot.providerIssue ?? true} marketSignal=${snapshot.marketSignal ?? false}`,
+    `executionImpact=${snapshot.executionImpact ?? 'REGIME_RELEASE_BLOCKED_ONLY'}`,
+  ].join('\n');
+}
 
 export function formatR6RecoveryLine(input: {
   r6RecoveryStatus: string;

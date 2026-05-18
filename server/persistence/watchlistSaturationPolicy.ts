@@ -428,8 +428,13 @@ export function formatWatchlistSaturationSuppressedLog(
     `[WATCHLIST_SATURATION_ALERT_SUPPRESSED] section=${c.section} count=${c.count} ` +
     `severity=${c.severity} reason=${decision.suppressionReason ?? "UNKNOWN"} ` +
     `lastCount=${decision.lastCount ?? "N/A"} cooldownRemainingMs=${decision.cooldownRemainingMs} ` +
-    `executionImpact=NONE marketSignal=false`
+    `executionImpact=NONE marketSignal=false softLimitApproaching=${c.count >= c.alertCap} telegramSent=false`
   );
+}
+
+
+export function shouldSendWatchlistSaturationTelegram(c: WatchlistSaturationClassification): boolean {
+  return c.count >= c.hardCap || c.cleanupTriggered === true;
 }
 
 /** Railway 진단 로그 — 현재 상태 (발송/억제 무관). */

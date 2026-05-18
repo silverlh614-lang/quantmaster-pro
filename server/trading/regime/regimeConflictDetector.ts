@@ -50,12 +50,17 @@ function warnCodeForConflict(conflict: RegimeConflictCode): string {
 
 export function emitRegimeConflictWarnings(snapshot: RegimeSnapshot): void {
   for (const conflict of snapshot.conflicts) {
+    const correctionApplied = snapshot.correctionApplied === true || (conflict === 'GREEN_WITH_R6' && snapshot.displayRegime === 'R6_DEFENSE');
+    const userVisibleSafe = correctionApplied ? true : snapshot.userVisibleSafe === true;
+    const executionImpact = conflict === 'GREEN_WITH_R6' && correctionApplied && userVisibleSafe
+      ? 'NEW_BUY_BLOCKED_ONLY'
+      : 'REGIME_DISPLAY_CONFLICT';
     emitOperationalWarn({
       priority: 'P1',
       domain: 'REGIME',
       code: warnCodeForConflict(conflict),
       message: `Regime snapshot conflict detected: ${conflict}`,
-      executionImpact: 'REGIME_DISPLAY_CONFLICT',
+      executionImpact,
       mode: snapshot.engineMode,
       regime: snapshot.displayRegime,
       dedupKey: `regime-conflict:${conflict}:${snapshot.displayRegime}:${snapshot.effectiveRegime}`,
@@ -63,9 +68,18 @@ export function emitRegimeConflictWarnings(snapshot: RegimeSnapshot): void {
       details: {
         snapshotId: snapshot.snapshotId,
         asOf: snapshot.asOf,
+        rawMhsLabel: snapshot.rawMhsLabel,
+        rawBiasLabel: snapshot.rawBiasLabel,
         detectedRegime: snapshot.detectedRegime,
         effectiveRegime: snapshot.effectiveRegime,
+        displayRegime: snapshot.displayRegime,
         riskOverride: snapshot.riskOverride,
+        selectedDisplaySource: snapshot.selectedDisplaySource,
+        correctionApplied,
+        userVisibleSafe,
+        remediation: correctionApplied
+          ? 'Display has been corrected to risk override; verify Telegram does not expose GREEN while R6 is active.'
+          : 'Investigate regime presenter/resolver immediately; GREEN may be user-visible during R6.',
         mhs: snapshot.mhs,
         biasScore: snapshot.biasScore,
       },
@@ -94,6 +108,13 @@ export function emitRegimeDataHealthWarnings(snapshot: RegimeSnapshot): void {
       asOf: snapshot.asOf,
       providerIssue: snapshot.providerIssue,
       marketSignal: snapshot.marketSignal,
+      macroFreshness: snapshot.macroFreshness,
+      macroAgeSec: snapshot.macroAgeSec,
+      macroLastRefreshAttemptAt: snapshot.macroLastRefreshAttemptAt,
+      macroRefreshJobLastRunAt: snapshot.macroRefreshJobLastRunAt,
+      regimeReleaseAllowed: snapshot.regimeReleaseAllowed,
+      regimeReleaseBlockedReason: snapshot.regimeReleaseBlockedReason,
+      executionImpact: snapshot.executionImpact,
       issues,
       dataHealth: snapshot.dataHealth,
     },
