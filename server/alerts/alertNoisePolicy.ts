@@ -244,6 +244,24 @@ function clearKisTokenDedupe(): void {
   }
 }
 
+function isAlertNoisePolicyEnforced(): boolean {
+  if (process.env.TELEGRAM_ALERT_NOISE_POLICY === 'disabled') return false;
+  if (process.env.TELEGRAM_ALERT_NOISE_POLICY === 'enforce') return true;
+  if (process.env.ALERT_NOISE_POLICY_ENFORCED === 'true') return true;
+  return process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+}
+
+function passThroughNoiseDecision(event: AlertNoiseEvent): NoiseDecision {
+  return remember({
+    level: 'NOTICE',
+    shouldSendNow: true,
+    shouldDigest: false,
+    reason: 'ALERT_NOISE_POLICY_DISABLED_PASSTHROUGH',
+    dedupeKey: `NOISE_POLICY_DISABLED:${event.eventType}:${event.dedupeHint ?? event.symbol ?? event.templateId ?? event.channel ?? 'GLOBAL'}`,
+    ttlSeconds: 0,
+  }, event);
+}
+
 type NoisePolicyHandler = (event: AlertNoiseEvent, ts: number) => NoiseDecision;
 
 function handleWatchlistCandidateRejectedCapacity(event: AlertNoiseEvent, ts: number): NoiseDecision {
@@ -372,6 +390,10 @@ const ALERT_NOISE_HANDLERS: Record<string, NoisePolicyHandler> = {
 export function evaluateAlertNoise(event: AlertNoiseEvent): NoiseDecision {
   const ts = nowMs(event);
   prune(ts);
+
+  if (!isAlertNoisePolicyEnforced()) {
+    return passThroughNoiseDecision(event);
+  }
 
   return (ALERT_NOISE_HANDLERS[event.eventType] ?? handleDefaultNoiseEvent)(event, ts);
 }
