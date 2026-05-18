@@ -170,6 +170,7 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
   );
   const marketProgramFlowRaw = input.marketProgramFlow ?? extractMarketProgramFlowFromCandidates(input.candidates);
   const latestIntradayProgramFlowSnapshot = loadLatestIntradayProgramFlowSnapshot();
+  wireStockProgramNetBuyContextAliases(input.candidates, latestIntradayProgramFlowSnapshot);
   logSupplyPreviewTrace(
     `[INTRADAY_PROGRAM_FLOW_CARRY_START] ` +
       `candidateCount=${input.candidates.length} ` +
@@ -398,14 +399,14 @@ function buildProgramFlowUpstreamPopulation<T extends CandidateWithSupplyContext
     accumulateStockSourceTrace(trace, sourceRecords.programTrading.all, 'PROGRAM_TRADING');
 
     const selected =
-      toStockCarry('CANDIDATE_CONTEXT', contextRecords, 'KIS_API', [
-        ...STOCK_PROGRAM_NET_AMOUNT_KEYS,
-        ...STOCK_PROGRAM_NET_BUY_KEYS,
-      ]) ??
       toStockCarry('LATEST_INTRADAY_PROGRAM_FLOW_SNAPSHOT', sourceRecords.latestIntradayProgramFlowSnapshot.matched, 'SNAPSHOT') ??
       toStockCarry('LATEST_INTRADAY_PROGRAM_SNAPSHOT', sourceRecords.snapshot.matched, 'SNAPSHOT') ??
       toStockCarry('SUPPLY_SNAPSHOT_CACHE', sourceRecords.cache.matched, 'CACHE') ??
-      toStockCarry('PROGRAM_TRADING_DIAGNOSTIC', sourceRecords.programTrading.matched, 'SNAPSHOT');
+      toStockCarry('PROGRAM_TRADING_DIAGNOSTIC', sourceRecords.programTrading.matched, 'SNAPSHOT') ??
+      toStockCarry('CANDIDATE_CONTEXT', contextRecords, 'KIS_API', [
+        ...STOCK_PROGRAM_NET_AMOUNT_KEYS,
+        ...STOCK_PROGRAM_NET_BUY_KEYS,
+      ]);
 
     if (selected) {
       stockCarryBySymbol.set(symbol, selected);
@@ -466,6 +467,59 @@ function emptyProgramFlowUpstreamPopulationTrace(carryAttempted: boolean): Progr
     providerCallsAdded: 0,
     executionImpact: 'NONE',
   };
+}
+
+const STOCK_PROGRAM_CONTEXT_ALIAS_KEYS = [
+  'stockProgramNetBuyAmount',
+  'stockProgramNetBuy',
+  'programNetBuy',
+  'programNetBuyAmount',
+] as const;
+
+function wireStockProgramNetBuyContextAliases<T extends CandidateWithSupplyContext>(
+  candidates: T[],
+  latestIntradayProgramFlowSnapshot?: IntradayProgramFlowSnapshot | null,
+): void {
+  for (const candidate of candidates) {
+    const symbols = candidateStockProgramMatchSymbols(candidate);
+    if (symbols.length === 0) continue;
+    const snapshotRecords = symbols.flatMap((symbol) =>
+      stockUpstreamSourceRecords(candidate, symbol, latestIntradayProgramFlowSnapshot).latestIntradayProgramFlowSnapshot.matched,
+    );
+    const contextRecords = collectProgramRecordsFromItems([
+      (candidate as Record<string, unknown>).stockProgramFlow,
+      ...snapshotRecords,
+    ]);
+    const normalized = firstOkProgramValueFromRecords(contextRecords, [
+      'stockProgramNetBuyAmount',
+      ...STOCK_PROGRAM_NET_AMOUNT_KEYS,
+      ...STOCK_PROGRAM_NET_BUY_KEYS,
+    ]);
+    if (!normalized) continue;
+
+    const writableCandidate = candidate as Record<string, unknown>;
+    for (const key of STOCK_PROGRAM_CONTEXT_ALIAS_KEYS) {
+      writableCandidate[key] = normalized.value;
+    }
+  }
+}
+
+function candidateStockProgramMatchSymbols(candidate: CandidateWithSupplyContext): string[] {
+  const ctx = candidate.preflight?.supplyContext ?? candidate.supplyContext;
+  return Array.from(new Set([
+    candidatePreviewSymbol(candidate),
+    normalizeStockProgramMatchSymbol((candidate as { symbol?: unknown }).symbol),
+    normalizeStockProgramMatchSymbol((candidate as { code?: unknown }).code),
+    normalizeStockProgramMatchSymbol(ctx?.symbol),
+  ].filter(Boolean)));
+}
+
+function normalizeStockProgramMatchSymbol(value: unknown): string {
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const digits = raw.replace(/[^0-9]/g, '');
+  return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
 }
 
 function candidateProgramContextRecords(
@@ -950,6 +1004,7 @@ function chooseStockForensicBreakPoint(input: {
   if (input.latestSnapshot && input.snapshotRowsWithValue === 0) return 'STOCK_PROGRAM_SNAPSHOT_HAS_NO_VALUES';
   if (input.contextFieldCreated > 0 && input.contextNonNull === 0) return 'CANDIDATE_CONTEXT_FIELD_CREATED_BUT_NULL';
   if (input.consumerParsed === 0) return 'PRODUCER_POPULATION_REQUIRED_REGULAR_SESSION';
+  if (input.contextFieldCreated > 0 && input.contextNonNull > 0 && input.consumerParsed > 0) return 'OK_STOCK_PROGRAM_CONTEXT_WIRED';
   return input.upstream.breakPoint;
 }
 
@@ -1215,6 +1270,9 @@ function toPreviewCandidate(
       : {}),
     foreignNetBuyAmount: supplyContext.foreignNetBuyAmount,
     institutionNetBuyAmount: supplyContext.institutionNetBuyAmount,
+    stockProgramNetBuyAmount: stockProgramFlow.netBuy,
+    stockProgramNetBuy: stockProgramFlow.netBuy,
+    programNetBuy: stockProgramFlow.netBuy,
     programNetBuyAmount: stockProgramFlow.netBuy ?? supplyContext.programNetBuyAmount,
     nonProgramNetBuyAmount: supplyContext.nonProgramNetBuyAmount,
     programFlow,
