@@ -28,6 +28,8 @@ import {
   type PreflightBlockedBy,
   type PreflightBlockedScanSummary,
 } from './preflightBlockedScanSummary.js';
+import { emitOperationalWarn } from '../../observability/operationalWarn.js';
+import type { WarnMode } from '../../observability/operationalWarnTypes.js';
 
 export type PreflightUniverseLearningStage =
   | 'BEFORE_UNIVERSE_BUILD'
@@ -151,6 +153,52 @@ export interface PreflightBlockedScanMeta {
   preflightDecision?: string;
 }
 
+function toWarnMode(value: string | undefined): WarnMode | undefined {
+  switch (value) {
+    case 'LIVE':
+    case 'SHADOW':
+    case 'SHADOW_ONLY':
+    case 'SELL_ONLY':
+    case 'OBSERVE_ONLY':
+    case 'NORMAL':
+    case 'DEGRADED':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function emitPreflightScanEvaluationWarn(summary: PreflightBlockedScanSummary): void {
+  const scanEvaluation = summary.scanEvaluation;
+  if (!scanEvaluation) return;
+  const code =
+    scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY'
+      ? 'P1_SELL_ONLY_EVALUATION_SKIPPED'
+      : scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED'
+        ? 'P1_R6_LIVE_BLOCKED_SHADOW_ALLOWED'
+        : null;
+  if (!code) return;
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'DIAGNOSTIC',
+    code,
+    message: `${scanEvaluation.evaluationState} before buyListLoop`,
+    executionImpact: scanEvaluation.executionImpact,
+    mode: toWarnMode(scanEvaluation.engineMode),
+    regime: scanEvaluation.effectiveRegime,
+    dedupKey: `preflight-scan:${code}:${scanEvaluation.blockReason ?? summary.blockedBy}`,
+    ttlSec: 60,
+    details: {
+      reason: scanEvaluation.blockReason ?? summary.blockedBy,
+      evaluationState: scanEvaluation.evaluationState,
+      breakPoint: scanEvaluation.breakPoint,
+      sourcePath: scanEvaluation.sourcePath,
+      scanId: scanEvaluation.scanId,
+      shadowLearningAllowed: scanEvaluation.shadowLearningAllowed,
+    },
+  });
+}
+
 /**
  * ADR-0367: buyListLoop 진입 전 preflight abort 시 universe learning snapshot + blocked scan summary 동시 영속.
  *
@@ -166,7 +214,7 @@ export async function recordPreflightBlockedScan(
 ): Promise<PreflightBlockedScanSummary | null> {
   try {
     const learningResult = await recordPreflightUniverseLearningSnapshot(learningInput);
-    return recordPreflightBlockedScanSummary({
+    const summary = recordPreflightBlockedScanSummary({
       blockedBy: blockMeta.blockedBy,
       hardBlockSource: blockMeta.hardBlockSource,
       hardBlockModule: blockMeta.hardBlockModule,
@@ -176,8 +224,22 @@ export async function recordPreflightBlockedScan(
       universeSnapshotRecorded: learningResult.recorded,
       counterfactualRecorded: learningResult.recorded,
     });
+    emitPreflightScanEvaluationWarn(summary);
+    return summary;
   } catch (e) {
-    console.warn('[PreflightBlockedScan] blocked scan summary 영속 실패 — 격리 (abort 흐름 보호)', e);
+    emitOperationalWarn({
+      priority: 'P1',
+      domain: 'DIAGNOSTIC',
+      code: 'P1_SCAN_DIAGNOSTIC_BUILD_FAILED',
+      message: 'Preflight blocked scan summary persistence failed',
+      executionImpact: 'NONE',
+      dedupKey: 'preflight-blocked-scan-summary:persist-failed',
+      ttlSec: 300,
+      details: {
+        reason: e instanceof Error ? e.message : String(e),
+        sourcePath: 'preflightLearningRecorder.recordPreflightBlockedScan',
+      },
+    });
     return null;
   }
 }

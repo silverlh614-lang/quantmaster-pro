@@ -284,6 +284,16 @@ import {
   cacheRawToNaverInvestorTrendPointAdr0481,
   cacheRawToSemanticInputAdr0482,
 } from './scanDiagnostics/supplyDiagnostics.js';
+import {
+  buildScanEvaluationResult,
+  formatScanEvaluationSection,
+  type ScanEvaluationResult,
+} from './state/scanEvaluationState.js';
+import {
+  emitScanDiagnosticBuildFailedWarn,
+  emitScanEvaluationWarnings,
+} from './state/scanDiagnosticSuppressor.js';
+import { recordScanCase } from './state/scanCaseRecorder.js';
 export { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 
 let _lastBuySignalAt = 0;
@@ -641,6 +651,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.watchlistEmpty) lines.push(`  • 워치리스트: <b>0개 ⚠️</b>`);
   }
 
+  const scanEvaluationSection = formatScanEvaluationSection(summary.scanEvaluation);
+  if (scanEvaluationSection) {
+    lines.push('');
+    lines.push(scanEvaluationSection);
+  }
+
   if (summary.sectorEnergyQuality !== undefined) {
     lines.push('');
     lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
@@ -862,7 +878,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push(gate1ScoringAlignmentSection);
     }
   } catch (e) {
-    console.warn('[ADR-0472] Gate1ScoringAlignment format failed (base scan summary unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1ScoringAlignmentReport', error: e });
   }
 
   try {
@@ -872,7 +888,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push(positiveSourceWiringSection);
     }
   } catch (e) {
-    console.warn('[ADR-0475] Gate1PositiveSourceWiring format failed (base scan summary unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1PositiveSourceWiringReport', error: e });
   }
 
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
@@ -886,7 +902,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push(investorFlowRouterSection);
     }
   } catch (e) {
-    console.warn('[ADR-0477] InvestorFlowProviderRouter format failed (base scan summary unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatInvestorFlowProviderRouterAdr0477', error: e });
   }
 
   try {
@@ -896,7 +912,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push(dryRunObservationSection);
     }
   } catch (e) {
-    console.warn('[ADR-0476] Gate1DryRunObservation format failed (base scan summary unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1DryRunObservationSummary', error: e });
   }
 
   const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(summary.sectorEnergyQualityDiagnostic);
@@ -1418,6 +1434,7 @@ export interface PersistScanResultsOptions {
   watchlistRefreshedAt?: string;
   watchlistSource?: string;
   macroGateState?: MacroGateState;
+  scanEvaluation?: ScanEvaluationResult;
   candidateScanTrigger?: ShadowCandidateScanTrigger;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
@@ -1497,9 +1514,29 @@ export async function persistScanResults(
 
   const kstNow = new Date(Date.now() + 9 * 3_600_000);
   const timeLabel = kstNow.toISOString().slice(11, 16) + ' KST';
+  const totalCandidates = options.buyListLength + options.intradayBuyListLength;
+  const scanEvaluation = options.scanEvaluation ?? buildScanEvaluationResult({
+    asOf: kstNow.toISOString(),
+    counters,
+    totalCandidates,
+    sellOnly: options.sellOnly,
+    marketSessionState: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+    engineMode: options.macroGateState?.engineMode,
+    effectiveRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime,
+    macroGateState: options.macroGateState,
+    volumeClockAllowsEntry: options.volumeClockAllowsEntry,
+    sourcePath: 'scanDiagnosticsCore.persistScanResults',
+    diagnostics: {
+      buyListLength: options.buyListLength,
+      intradayBuyListLength: options.intradayBuyListLength,
+      swingListLength: options.swingListLength,
+      catalystListLength: options.catalystListLength,
+      momentumListLength: options.momentumListLength,
+    },
+  });
   const summaryDraft: ScanSummary = {
     time: timeLabel,
-    candidates: options.buyListLength + options.intradayBuyListLength,
+    candidates: totalCandidates,
     trackB: options.buyListLength,
     swing: options.swingListLength,
     catalyst: options.catalystListLength,
@@ -1511,6 +1548,7 @@ export async function persistScanResults(
     ...(options.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
     waitDistribution: buildWaitDistribution(counters),
     ...(options.macroGateState ? { macroGateState: options.macroGateState } : {}),
+    scanEvaluation,
     gatePassDistribution: buildGatePassDistribution(counters),
     ...(options.sectorEnergyQuality !== undefined
       ? {
@@ -1558,6 +1596,9 @@ export async function persistScanResults(
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
   // candidates>0 시점에만 build (의미 있는 분해). 빈 buckets 도 NO_CANDIDATES/UNKNOWN
   // diagnosis 자동 분류 — 정상 운영 메시지에 잡음 추가 안 함.
+  recordScanCase(scanEvaluation);
+  emitScanEvaluationWarnings(scanEvaluation);
+
   if (counters.freshConditionBuckets.size > 0) {
     const candidates = options.buyListLength + options.intradayBuyListLength;
     const scanIdLabel = `${kstNow.toISOString().slice(0, 10)}:${timeLabel}`;
@@ -1677,7 +1718,7 @@ export async function persistScanResults(
     summaryDraft.gateDecisionRouter = deriveGateDecisionRouterResult(routerInput);
   } catch (e) {
     // Router 실패가 ScanSummary 영속을 차단해서는 안 됨 — try/catch 격리.
-    console.warn('[GateDecisionRouter] derive 실패 (영속 무영향)', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.deriveGateDecisionRouterResult', error: e });
   }
 
   // ADR-0427 — Provisional Shadow Lane 카운터 → ScanSummary 합성 (옵셔널, 후방호환).
@@ -1727,7 +1768,7 @@ export async function persistScanResults(
       }
     }
   } catch (e) {
-    console.warn('[ProvisionalShadowLane] summarize 실패 (영속 무영향)', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.summarizeProvisionalShadowCandidates', error: e });
   }
 
   // ADR-0430 — Counterfactual Shadow Learning Lane 카운터 → ScanSummary 합성.
@@ -1784,7 +1825,7 @@ export async function persistScanResults(
       }
     }
   } catch (e) {
-    console.warn('[CounterfactualShadowLearning] summarize 실패 (영속 무영향)', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.summarizeCounterfactualShadowLearningCandidates', error: e });
   }
 
   // ADR-0449 — Pre-Breakout WAIT 7-state summary 합성 (옵셔널 후방호환).
@@ -1802,7 +1843,7 @@ export async function persistScanResults(
       });
     }
   } catch (e) {
-    console.warn('[PreBreakoutWaitPolicy] summarize 실패 (영속 무영향)', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.summarizePreBreakoutWaitDecisions', error: e });
   }
 
   // ADR-0452 — Shadow Near-Breakout Entry counters propagate (옵셔널 후방호환).
@@ -1837,7 +1878,7 @@ export async function persistScanResults(
       watchlistSource: options.watchlistSource,
     });
   } catch (e) {
-    console.warn('[ADR-0464] EntryFilterDecomposition build 실패 (영속 무영향)', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildEntryFilterDecomposition', error: e });
   }
 
   // ADR-0467 fallback: when the scan stopped before buyListLoop, Gate1 score
@@ -1868,7 +1909,7 @@ export async function persistScanResults(
       }
     }
   } catch (e) {
-    console.warn('[ADR-0467] PositiveScoreStarvation fallback build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildPositiveScoreStarvationFallbackReport', error: e });
   }
 
   // ADR-0468: score ceiling repair remains dry-run/advisory only. It consumes the
@@ -1898,7 +1939,7 @@ export async function persistScanResults(
       );
     }
   } catch (e) {
-    console.warn('[ADR-0468] Gate1ScoreCeilingRepair build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1ScoreCeilingRepairReport', error: e });
   }
 
   // ADR-0469: root-cause penalty deduplication is advisory only. It checks
@@ -1929,7 +1970,7 @@ export async function persistScanResults(
       );
     }
   } catch (e) {
-    console.warn('[ADR-0469] PenaltyDeduplication build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildPenaltyDeduplicationReport', error: e });
   }
 
   // ADR-0470: risk placement split is dry-run only. It compares Gate1 signal
@@ -1965,7 +2006,7 @@ export async function persistScanResults(
       );
     }
   } catch (e) {
-    console.warn('[ADR-0470] RiskDoubleCount build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildRiskDoubleCountAuditReport', error: e });
   }
 
   // ADR-0471: final diagnostic calibration layer. No threshold or live policy is
@@ -1999,7 +2040,7 @@ export async function persistScanResults(
       );
     }
   } catch (e) {
-    console.warn('[ADR-0471] FinalGate1Calibration build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildFinalGate1CalibrationAuditReport', error: e });
   }
 
   // ADR-0472: component-set alignment and policy promotion candidate. This is
@@ -2035,7 +2076,7 @@ export async function persistScanResults(
       );
     }
   } catch (e) {
-    console.warn('[ADR-0472] Gate1ScoringAlignment build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1ScoringAlignmentReport', error: e });
   }
 
   // ADR-0475: positive source resolver dry-run for watchlist upstream score,
@@ -2072,7 +2113,7 @@ export async function persistScanResults(
       );
     }
   } catch (e) {
-    console.warn('[ADR-0475] Gate1PositiveSourceWiring build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1PositiveSourceWiringReport', error: e });
   }
 
   // ADR-0477: investor-flow provider router wiring. This sits before the
@@ -2347,7 +2388,7 @@ export async function persistScanResults(
       shadowLearning: true,
     });
   } catch (e) {
-    console.warn('[ADR-0477] InvestorFlowProviderRouter build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildInvestorFlowProviderRouteResultAdr0477', error: e });
   }
 
   // ADR-0476: dry-run and near-miss observation ledger. This stores only compact
@@ -2382,7 +2423,7 @@ export async function persistScanResults(
       },
     );
   } catch (e) {
-    console.warn('[ADR-0476] Gate1DryRunObservation build/save failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1DryRunObservation', error: e });
   }
 
   {
@@ -2493,7 +2534,7 @@ export async function persistScanResults(
       supplySnapshotStoreAdr0491: summaryDraft.supplySnapshotStoreAdr0491,
     }));
   } catch (e) {
-    console.warn('[ADR-0486/0487/0488/0491] Supply recovery/runtime/fresh data/SectorEnergy UNKNOWN build failed (engine unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildSupplyRecoveryFreshDataUnknownReports', error: e });
   }
 
   // ADR-0505 — Gate1 Minimum Signal Forensic Audit summary build + per-symbol detail
@@ -2558,10 +2599,7 @@ export async function persistScanResults(
       appendGate1ForensicTrace(scanIdLabel, kstNow.toISOString(), audits);
     }
   } catch (e) {
-    console.warn(
-      '[ADR-0505] Gate1 minimum signal forensic audit build failed (engine unaffected):',
-      e,
-    );
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1MinimumSignalForensicAuditAdr0505', error: e });
   }
 
   // ADR-0500 — Empty Scan Root Cause Dashboard snapshot. Diagnostic-only aggregation;
@@ -2606,7 +2644,7 @@ export async function persistScanResults(
       });
     }
   } catch (e) {
-    console.warn('[ADR-0500/0501] Empty Scan Root Cause / Weekend Replay dashboard build failed (scan decisions unaffected):', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildEmptyScanRootCauseWeekendReplay', error: e });
   }
 
   _lastScanSummary = summaryDraft;
@@ -2740,7 +2778,7 @@ export async function persistScanResults(
       }
     }
   } catch (e) {
-    console.warn('[ADR-0401] R3 Violation State Machine 평가 실패:', e);
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.evaluateR3ViolationState', error: e });
   }
 }
 

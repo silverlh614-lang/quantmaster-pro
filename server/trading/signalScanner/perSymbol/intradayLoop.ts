@@ -26,7 +26,7 @@ import {
   INTRADAY_TARGET_PCT,
 } from '../../../screener/intradayScanner.js';
 import { type ApprovalAction } from '../../../telegram/buyApproval.js';
-import { setLastBuySignalAt } from '../scanDiagnostics.js';
+import { setLastBuySignalAt, recordPipelineStage } from '../scanDiagnostics.js';
 import { getPrice, buildExposureBudgetMacroInput, computeSizingLiquidityInputs } from './helpers.js';
 import type { IntradayLoopContext } from './types.js';
 // ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
@@ -123,7 +123,11 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
 
         try {
           const currentPrice = await getPrice(stock.code);
-          if (!currentPrice) continue;
+          try { recordPipelineStage(ctx.scanCounters, 'PRICE_FETCH', currentPrice ? 'PASS' : 'FAIL'); } catch {}
+          if (!currentPrice) {
+            ctx.scanCounters.yahooFails++;
+            continue;
+          }
 
           // 진입 조건: 현재가가 entryPrice ± 1% 이내 or 돌파
           const nearEntry = Math.abs(currentPrice - stock.entryPrice) / stock.entryPrice <= 0.01;
