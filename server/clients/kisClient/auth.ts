@@ -18,6 +18,7 @@ import {
   clearKisTokens,
   type PersistedToken,
 } from '../../persistence/kisTokenRepo.js';
+import { emitKisAuthPersistenceWarn } from './core/kisAuthManager.js';
 
 function isPersistDisabled(): boolean {
   return process.env.KIS_TOKEN_PERSIST_DISABLED === 'true';
@@ -49,7 +50,10 @@ function hydrateFromDisk(): void {
       console.log('[KIS] 토큰 hydrate (realData) — 재부팅 시 OAuth2 호출 차단 (ADR-0147)');
     }
   } catch (e) {
-    console.warn('[KIS] hydrate 실패 (cron 시점에 자동 갱신 예정):', e);
+    emitKisAuthPersistenceWarn({
+      operation: 'hydrate',
+      reason: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -70,7 +74,11 @@ function persistTokenSafe(slot: 'main' | 'realData', token: string, expiry: numb
   try {
     persistKisToken(slot, persisted);
   } catch (e) {
-    console.warn(`[KIS] 토큰 영속 실패 (${slot}, 메모리 캐시는 유효):`, e);
+    emitKisAuthPersistenceWarn({
+      operation: 'persist',
+      slot,
+      reason: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -152,7 +160,10 @@ export function invalidateKisToken(): void {
     try {
       clearKisTokens();
     } catch (e) {
-      console.warn('[KIS] 디스크 토큰 삭제 실패 (메모리 캐시는 초기화됨):', e);
+      emitKisAuthPersistenceWarn({
+        operation: 'clear',
+        reason: e instanceof Error ? e.message : String(e),
+      });
     }
   }
   console.log('[KIS] 토큰 캐시 + 디스크 영속 강제 초기화 (ADR-0147)');
@@ -219,7 +230,10 @@ export async function forceRefreshKisTokens(): Promise<{ main: boolean; realData
     try {
       clearKisTokens();
     } catch (e) {
-      console.warn('[KIS] 디스크 토큰 삭제 실패 (forceRefresh 진행):', e);
+      emitKisAuthPersistenceWarn({
+        operation: 'clear',
+        reason: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 

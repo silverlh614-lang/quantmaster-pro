@@ -140,3 +140,13 @@ export type {
   KisCancelOrderIntent,
   KisOrderStatusQueryIntent,
 } from './orderGateway/kisOrderTypes.js';
+
+export { kisHttpClient } from './core/kisHttpClient.js';
+export type { KisCoreResult } from './core/kisCoreResultNormalizer.js';
+export {
+  classifyKisRequest,
+  isCoreKisPriority,
+  isDiagnosticKisPriority,
+} from './core/kisRequestClassifier.js';
+export type { KisRequestPriority, KisRequestClassification } from './core/kisRequestClassifier.js';
+export { getKisProviderHealthSnapshot } from './core/kisProviderHealth.js';
