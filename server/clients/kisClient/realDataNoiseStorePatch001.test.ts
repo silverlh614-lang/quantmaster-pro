@@ -382,7 +382,7 @@ describe('Patch-KIS-REALDATA-500 — 정적 grep 안전 invariant', () => {
     expect(src).toContain('if (!chartContext && isRealData5xxCooldownActive(trId, apiPath))');
     expect(src).toContain('if (!chartContext && isKisRealDataCooldownActive({ endpoint: apiPath }))');
     expect(src).toContain("symbol: `${chartContext.symbol}:${chartContext.period}");
-    expect(src).toMatch(new RegExp('if \\(chartContext\\) \\{\\n\\s+return null;\\n\\s+\\}\\n\\s+if \\(retriesLeft > 0\\)'));
+    expect(src).toMatch(new RegExp('if \\(chartContext\\) \\{\\r?\\n\\s+return null;\\r?\\n\\s+\\}\\r?\\n\\s+if \\(retriesLeft > 0\\)'));
   });
 
   it('G7. scanBlockers.cmd wiring — formatKisRealDataHealthSection import + try/catch 격리', () => {
