@@ -21,6 +21,10 @@ vi.mock('./entryEngine.js', () => ({
 
 vi.mock('../telegram/buyApproval.js', () => ({
   requestBuyApproval: vi.fn(() => Promise.resolve('APPROVE')),
+  requestBuyApprovalWithDelivery: vi.fn(() => Promise.resolve({
+    action: 'APPROVE',
+    telegramDelivered: true,
+  })),
 }));
 
 vi.mock('../clients/enemyCheckClient.js', () => ({

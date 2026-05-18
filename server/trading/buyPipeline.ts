@@ -9,7 +9,7 @@ import type {
   SupplyHealthSnapshot,
   TradingSignal,
 } from '../learning/supplyHealthLearning.js';
-import type { ApprovalAction } from '../telegram/buyApproval.js';
+import type { ApprovalAction, BuyApprovalRequestResult } from '../telegram/buyApproval.js';
 import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
@@ -24,32 +24,31 @@ import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
 import { generatePreMortem } from './entryEngine.js';
 import { buildPreMortemStructured } from './preMortemStructured.js';
-import { placeKisMarketBuyOrder, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { channelShadowBuyFilled } from '../alerts/channelPipeline.js';
-import { requestBuyApproval } from '../telegram/buyApproval.js';
-import { markAutoTradeReady, markBlocked } from '../persistence/tradeSignalStatusRepo.js';
+import { requestBuyApprovalWithDelivery } from '../telegram/buyApproval.js';
 import type { TradeSignalBlockGate } from '../persistence/tradeSignalStatusRepo.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 import { evaluateEnemyAutoBlock } from './enemyAutoBlock.js';
-import { fillMonitor } from './fillMonitor.js';
-import { appendShadowLog, loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
-import { assertSafeOrder } from './preOrderGuard.js';
 import { isEmergencyBuyPipelineCodeGuardEnabled } from '../dataQuality/emergencyDataQualityGuards.js';
 import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
-import { getSmokeTestLiveBlocked, getSmokeTestLastFailedReason } from '../state.js';
 import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
 import {
   decideOrderType,
   isOrderTypeOptimizerEnabled,
 } from './orderTypeOptimizer.js';
+import { createBuySignalStateMachine, type BuySignalStateMachine } from './buy/buySignalStateMachine.js';
+import { resolveBuyApprovalPolicy, type BuyApprovalPolicyResult } from './buy/buyApprovalPolicy.js';
 import {
-  executeShadowBuy,
-  recordShadowExecutionOutcome,
-} from './shadowExecutionPipeline.js';
-
-const _inflightBuyOrders = new Set<string>();
+  buyIdempotencyGuard,
+  logBuyDuplicateBlocked,
+  type BuyIdempotencyRecord,
+} from './buy/buyIdempotencyGuard.js';
+import { executeLiveBuy } from './buy/liveBuyExecutor.js';
+import { executeShadowBuyOrder } from './buy/shadowBuyExecutor.js';
+import { markBlocked as writeSignalBlocked, markRejected as writeSignalRejected } from './buy/tradeSignalStatusWriter.js';
+import { emitOperationalWarn } from './buy/operationalWarn.js';
 
 export const MANUAL_EXIT_REBUY_COOLDOWN_MS = 72 * 60 * 60 * 1000;
 
@@ -257,13 +256,29 @@ function rejectBuyTask(
   };
 }
 
-function markSignalBlockedSafe(signalId: string | undefined, gate: TradeSignalBlockGate, reason: string): void {
-  if (!signalId) return;
+function appendShadowLogSafe(
+  entry: Parameters<typeof appendShadowLog>[0],
+  context: Record<string, unknown>,
+): void {
   try {
-    markBlocked({ id: signalId, gate, reason });
+    appendShadowLog(entry);
   } catch (e) {
-    console.warn(`[TradeSignalStatus] ${gate} markBlocked failed`, e);
+    emitOperationalWarn({
+      code: 'P2_BUY_SHADOW_LOG_WRITE_FAILED',
+      severity: 'P2',
+      message: 'buyPipeline shadow log write failed; execution flow continues',
+      context,
+      cause: e,
+    });
   }
+}
+
+function markSignalBlockedSafe(signalId: string | undefined, gate: TradeSignalBlockGate, reason: string): void {
+  writeSignalBlocked({
+    signalId,
+    gate,
+    reason,
+  });
 }
 
 function applyOrderTypeDecisionIfEnabled(p: CreateBuyTaskParams): void {
@@ -297,12 +312,16 @@ function rejectForManualExitCooldown(
     `[BuyPipeline] ${p.stockName}(${p.stockCode}) 72h 재매수 냉각 차단 — ` +
     `마지막 수동 청산: ${cooldown.lastExitAt}, 잔여 ${cooldown.remainingHours}h`,
   );
-  appendShadowLog({
+  appendShadowLogSafe({
     event: 'BUY_BLOCKED_MANUAL_EXIT_COOLDOWN',
     code: p.stockCode,
     price: p.currentPrice,
     lastExitAt: cooldown.lastExitAt,
     remainingHours: cooldown.remainingHours,
+  }, {
+    tradeId: p.trade.id,
+    stockCode: p.stockCode,
+    event: 'BUY_BLOCKED_MANUAL_EXIT_COOLDOWN',
   });
   p.trade.status = 'REJECTED';
   sendTelegramAlert(
@@ -370,8 +389,8 @@ function requestApprovalForBuyTask(
   enemyCheck: EnemyCheckResult | null,
   preMortem: string | null,
   regime: string | undefined,
-): Promise<ApprovalAction> {
-  return requestBuyApproval({
+): Promise<BuyApprovalRequestResult> {
+  return requestBuyApprovalWithDelivery({
     tradeId:     p.trade.id,
     stockCode:   p.stockCode,
     stockName:   p.stockName,
@@ -397,184 +416,206 @@ function requestApprovalForBuyTask(
   });
 }
 
-function describeError(e: unknown): unknown {
-  return e instanceof Error ? e.message : e;
-}
-
-async function executeLiveBuyTask(p: CreateBuyTaskParams): Promise<string | null> {
-  if (getSmokeTestLiveBlocked()) {
-    console.warn(
-      `[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) smoke-test 실패로 LIVE 차단 — ${getSmokeTestLastFailedReason()}`,
-    );
-    p.trade.status = 'REJECTED';
-    p.onRejected?.(p.trade, 'SKIP');
-    return null;
-  }
-
-  if (_inflightBuyOrders.has(p.trade.id)) {
-    console.warn(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 이미 주문 진행 중 — 중복 발사 차단`);
-    p.trade.status = 'REJECTED';
-    p.onRejected?.(p.trade, 'SKIP');
-    return null;
-  }
-  _inflightBuyOrders.add(p.trade.id);
-
-  try {
-    const totalAssets = await fetchAccountBalance().catch(() => null);
-    assertSafeOrder({
-      stockCode:   p.stockCode,
-      stockName:   p.stockName,
-      quantity:    p.quantity,
-      entryPrice:  p.entryPrice,
-      stopLoss:    p.stopLoss,
-      totalAssets,
-    });
-  } catch (e) {
-    console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 사전 가드 차단:`, describeError(e));
-    p.trade.status = 'REJECTED';
-    p.onRejected?.(p.trade, 'SKIP');
-    _inflightBuyOrders.delete(p.trade.id);
-    return null;
-  }
-
-  if (p.signalId) {
-    try {
-      markAutoTradeReady({ id: p.signalId, reason: 'KIS LIVE 주문 직전' });
-    } catch (e) {
-      console.warn('[TradeSignalStatus] LIVE markAutoTradeReady failed', e);
-    }
-  }
-
-  let ordNo: string | null = null;
-  try {
-    ordNo = await placeKisMarketBuyOrder(p.stockCode, p.quantity);
-  } catch (e) {
-    console.error(`[BuyPipeline LIVE] ${p.stockName}(${p.stockCode}) 주문 API 실패:`, describeError(e));
-    p.trade.status = 'REJECTED';
-    p.onRejected?.(p.trade, 'SKIP');
-    _inflightBuyOrders.delete(p.trade.id);
-    return null;
-  }
-
-  const modeTag = `[BuyPipeline LIVE]`;
-  console.log(`${modeTag} ${p.stockName} 매수 주문 — ODNO: ${ordNo}`);
-  appendShadowLog({ event: p.logEvent, code: p.stockCode, price: p.currentPrice, ordNo });
-
-  if (ordNo) {
-    p.trade.status = 'ORDER_SUBMITTED';
-    fillMonitor.addOrder({
-      ordNo,
-      stockCode:      p.stockCode,
-      stockName:      p.stockName,
-      quantity:       p.quantity,
-      orderPrice:     p.entryPrice,
-      placedAt:       new Date().toISOString(),
-      relatedTradeId: p.trade.id,
-    });
-  } else {
-    p.trade.status = 'REJECTED';
-  }
-  _inflightBuyOrders.delete(p.trade.id);
-  return ordNo;
-}
-
-function executeShadowBuyTask(p: CreateBuyTaskParams): void {
-  console.log(`[BuyPipeline SHADOW] ${p.stockName}(${p.stockCode}) 신호 등록 @${p.currentPrice}`);
-  if (p.signalId) {
-    try {
-      markAutoTradeReady({ id: p.signalId, reason: 'SHADOW 진입 (USER_APPROVED 우회)' });
-    } catch (e) {
-      console.warn('[TradeSignalStatus] SHADOW markAutoTradeReady failed', e);
-    }
-  }
-  appendShadowLog({ event: p.logEvent, ...p.trade });
-}
-
 function alignTradeModeWithTaskShadowMode(p: CreateBuyTaskParams): void {
   if (!p.shadowMode || p.trade.mode === 'SHADOW') return;
   const previousMode = p.trade.mode ?? 'undefined';
   p.trade.mode = 'SHADOW';
-  console.warn(
-    `[BuyPipeline SHADOW] ${p.stockName}(${p.stockCode}) task shadowMode=true but trade.mode=${previousMode}; aligned to SHADOW`,
-  );
-  appendShadowLog({
+  emitOperationalWarn({
+    code: 'P2_BUY_SHADOW_MODE_ALIGNED',
+    severity: 'P2',
+    message: 'Buy task shadowMode=true but trade.mode was not SHADOW; aligned before execution',
+    context: {
+      tradeId: p.trade.id,
+      stockCode: p.stockCode,
+      previousMode,
+    },
+  });
+  appendShadowLogSafe({
     event: 'SHADOW_MODE_ALIGNED',
     code: p.stockCode,
     tradeId: p.trade.id,
     previousMode,
     reason: 'buy task shadowMode=true',
+  }, {
+    tradeId: p.trade.id,
+    stockCode: p.stockCode,
+    event: 'SHADOW_MODE_ALIGNED',
   });
 }
 
-function hasConfirmedShadowBuy(trade: ServerShadowTrade): boolean {
-  if (trade.status === 'ACTIVE') return true;
-  return (trade.fills ?? []).some((fill) => fill.type === 'BUY' && fill.status !== 'REVERTED');
+function buildBuyTaskStrategy(p: CreateBuyTaskParams): string {
+  return p.sourceLane ?? p.signalType ?? p.trade.profileType ?? 'DEFAULT';
 }
 
-function mergeTradeForShadowPaperFill(trade: ServerShadowTrade): ServerShadowTrade[] {
-  const allTrades = loadShadowTrades();
-  const existingIndex = allTrades.findIndex((candidate) => candidate.id === trade.id);
-  if (existingIndex >= 0) {
-    allTrades[existingIndex] = trade;
-  } else {
-    allTrades.push(trade);
-  }
-  return allTrades;
+function buildBuyTaskSession(p: CreateBuyTaskParams): string {
+  return p.marketSession ?? p.tradeDate ?? 'UNKNOWN_SESSION';
 }
 
-async function ensureShadowPaperFillAfterApproval(p: CreateBuyTaskParams): Promise<void> {
-  if (!p.shadowMode) return;
-  if (p.trade.mode !== 'SHADOW') return;
-  if (p.trade.status !== 'PENDING') return;
-  if (hasConfirmedShadowBuy(p.trade)) return;
-
-  const result = await executeShadowBuy({
-    trade: p.trade,
-    allTrades: mergeTradeForShadowPaperFill(p.trade),
-    fillPrice: p.entryPrice,
-    approvedAtIso: new Date().toISOString(),
-    notifyFilled: async (filled) => {
-      await channelShadowBuyFilled({
-        stockName: filled.stockName,
-        stockCode: filled.stockCode,
-        fillPrice: filled.fillPrice,
-        quantity: filled.quantity,
-        fillId: filled.fillId,
-        tradeId: filled.tradeId,
-      });
-    },
+function rejectApprovedLifecycle(
+  p: CreateBuyTaskParams,
+  stateMachine: BuySignalStateMachine,
+  approval: ApprovalAction,
+  reason: string,
+  reservation?: BuyIdempotencyRecord,
+): void {
+  const modeState = p.shadowMode ? 'SHADOW_REJECTED' : 'LIVE_REJECTED';
+  stateMachine.transition(modeState, reason);
+  p.trade.status = 'REJECTED';
+  writeSignalRejected({
+    signalId: p.signalId,
+    reason,
+    gate: approval === 'REJECT' ? 'USER_REJECT' : 'OTHER',
+    important: false,
   });
-  recordShadowExecutionOutcome(result.outcome);
-
-  if (result.outcome !== 'EXECUTED' && result.outcome !== 'ALREADY_FILLED') {
-    console.warn(
-      `[BuyPipeline SHADOW] fallback paper-fill skipped for ${p.stockName}(${p.stockCode}) — ${result.outcome}: ${result.reason}`,
-    );
-  }
+  if (reservation) buyIdempotencyGuard.release(reservation.key, 'REJECTED');
+  p.onRejected?.(p.trade, approval);
 }
 
-async function executeBuyTaskApproval(p: CreateBuyTaskParams, approval: ApprovalAction): Promise<void> {
-  if (approval !== 'APPROVE') {
+async function emitApprovalSideEffects(
+  p: CreateBuyTaskParams,
+  ordNo: string | null,
+): Promise<void> {
+  await sendTelegramAlert(p.alertMessage).catch((error) => {
+    emitOperationalWarn({
+      code: 'P2_BUY_APPROVAL_ALERT_DELIVERY_FAILED',
+      severity: 'P2',
+      message: 'Buy approval side-effect alert delivery failed',
+      context: {
+        tradeId: p.trade.id,
+        stockCode: p.stockCode,
+        shadowMode: p.shadowMode,
+      },
+      cause: error,
+    });
+  });
+  await p.onApproved(p.trade, ordNo);
+}
+
+function describeExecutionError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function executeBuyTaskApproval(
+  p: CreateBuyTaskParams,
+  approval: ApprovalAction,
+  stateMachine: BuySignalStateMachine,
+  approvalResultPromise: Promise<BuyApprovalRequestResult>,
+  reservation?: BuyIdempotencyRecord,
+): Promise<void> {
+  let approvalResult: BuyApprovalRequestResult = {
+    action: approval,
+    telegramDelivered: true,
+  };
+  try {
+    approvalResult = await approvalResultPromise;
+  } catch (error) {
+    approvalResult = {
+      action: 'SKIP',
+      telegramDelivered: false,
+      deliveryFailureReason: `BUY_APPROVAL_REQUEST_FAILED: ${describeExecutionError(error)}`,
+    };
+  }
+
+  const policy: BuyApprovalPolicyResult = resolveBuyApprovalPolicy({
+    mode: p.shadowMode ? 'SHADOW' : 'LIVE',
+    action: approval,
+    telegramDelivered: approvalResult.telegramDelivered,
+    deliveryFailureReason: approvalResult.deliveryFailureReason,
+  });
+
+  if (!policy.executionAllowed) {
     const modeLabel = p.shadowMode ? 'SHADOW' : 'LIVE';
-    console.log(`[BuyPipeline ${modeLabel}] ${p.stockName} 매수 ${approval} — 건너뜀`);
-    p.trade.status = 'REJECTED';
-    p.onRejected?.(p.trade, approval);
+    console.log(`[BuyPipeline ${modeLabel}] ${p.stockName} buy ${approval} skipped: ${policy.reason}`);
+    rejectApprovedLifecycle(
+      p,
+      stateMachine,
+      policy.normalizedAction,
+      policy.reason,
+      reservation,
+    );
+    stateMachine.assertSettled({ mode: p.shadowMode ? 'SHADOW' : 'LIVE', reason: policy.reason });
     return;
   }
 
-  const ordNo = p.shadowMode ? null : await executeLiveBuyTask(p);
-  if (p.shadowMode) executeShadowBuyTask(p);
+  stateMachine.transition('APPROVED', policy.reason);
 
-  if (p.trade.status !== 'REJECTED') {
-    await sendTelegramAlert(p.alertMessage).catch(console.error);
-    await p.onApproved(p.trade, ordNo);
-    await ensureShadowPaperFillAfterApproval(p);
+  try {
+    if (p.shadowMode) {
+      const result = await executeShadowBuyOrder({
+        trade: p.trade,
+        stockCode: p.stockCode,
+        stockName: p.stockName,
+        currentPrice: p.currentPrice,
+        entryPrice: p.entryPrice,
+        logEvent: p.logEvent,
+        signalId: p.signalId,
+        approvalPolicy: policy,
+        stateMachine,
+      });
+      if (result.outcome === 'SHADOW_POSITION_OPENED') {
+        if (reservation) buyIdempotencyGuard.markOpen(reservation.key);
+        await emitApprovalSideEffects(p, null);
+      } else {
+        if (reservation) buyIdempotencyGuard.release(reservation.key, 'REJECTED');
+        p.onRejected?.(p.trade, 'SKIP');
+      }
+      return;
+    }
+
+    const result = await executeLiveBuy({
+      trade: p.trade,
+      stockCode: p.stockCode,
+      stockName: p.stockName,
+      quantity: p.quantity,
+      entryPrice: p.entryPrice,
+      stopLoss: p.stopLoss,
+      currentPrice: p.currentPrice,
+      logEvent: p.logEvent,
+      signalId: p.signalId,
+      approvalPolicy: policy,
+      stateMachine,
+    });
+    if (result.outcome === 'LIVE_ORDER_SUBMITTED') {
+      if (reservation) buyIdempotencyGuard.markOpen(reservation.key);
+      await emitApprovalSideEffects(p, result.ordNo);
+    } else {
+      if (reservation) buyIdempotencyGuard.release(reservation.key, 'REJECTED');
+      p.onRejected?.(p.trade, 'SKIP');
+    }
+  } catch (error) {
+    stateMachine.transition('FAILED', `BUY_EXECUTOR_THROW: ${describeExecutionError(error)}`);
+    p.trade.status = 'REJECTED';
+    if (reservation) buyIdempotencyGuard.release(reservation.key, 'REJECTED');
+    emitOperationalWarn({
+      code: p.shadowMode ? 'P0_SHADOW_EXECUTION_STUCK' : 'P0_LIVE_EXECUTION_STUCK',
+      message: 'BUY executor threw before returning a normalized lifecycle result',
+      context: {
+        tradeId: p.trade.id,
+        stockCode: p.stockCode,
+        shadowMode: p.shadowMode,
+        state: stateMachine.state,
+      },
+      cause: error,
+    });
+    p.onRejected?.(p.trade, 'SKIP');
+  } finally {
+    stateMachine.assertSettled({
+      mode: p.shadowMode ? 'SHADOW' : 'LIVE',
+      reason: 'buy task execution completed',
+    });
   }
 }
 
 export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask> {
   const regime = p.regime ?? p.trade.entryRegime;
   const sector = getSectorByCode(p.stockCode);
+  const mode = p.shadowMode ? 'SHADOW' : 'LIVE';
+  const stateMachine = createBuySignalStateMachine({
+    tradeId: p.trade.id,
+    stockCode: p.stockCode,
+    stockName: p.stockName,
+    mode,
+  });
   alignTradeModeWithTaskShadowMode(p);
 
   if (isEmergencyBuyPipelineCodeGuardEnabled() && !normalizeKrxCode(p.stockCode).valid) {
@@ -604,8 +645,40 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
   }
 
   applyPreMortemFields(p, preMortem, regime, sector);
+  const reservation = buyIdempotencyGuard.reserve({
+    mode,
+    symbol: p.stockCode,
+    strategy: buildBuyTaskStrategy(p),
+    session: buildBuyTaskSession(p),
+    side: 'BUY',
+    tradeId: p.trade.id,
+    signalId: p.signalId,
+  });
+  if (!reservation.allowed) {
+    stateMachine.transition('DUPLICATE_BLOCKED', 'pending/open buy signal already exists', {
+      dedupKey: reservation.key,
+    });
+    logBuyDuplicateBlocked(reservation.existing ?? reservation.record);
+    return rejectBuyTask(p, 'SKIP');
+  }
+
+  stateMachine.transition('APPROVAL_REQUESTED', 'buy approval requested', {
+    dedupKey: reservation.key,
+  });
+  const approvalResultPromise = Promise.resolve().then(() => requestApprovalForBuyTask(
+    p,
+    enemyCheck,
+    preMortem,
+    regime,
+  ));
   return {
-    approvalPromise: requestApprovalForBuyTask(p, enemyCheck, preMortem, regime),
-    execute: (approval: ApprovalAction) => executeBuyTaskApproval(p, approval),
+    approvalPromise: approvalResultPromise.then((result) => result.action),
+    execute: (approval: ApprovalAction) => executeBuyTaskApproval(
+      p,
+      approval,
+      stateMachine,
+      approvalResultPromise,
+      reservation.record,
+    ),
   };
 }

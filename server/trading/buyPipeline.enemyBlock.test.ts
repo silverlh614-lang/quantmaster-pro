@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const _markBlocked = vi.fn();
 const _markAutoTradeReady = vi.fn();
-const _requestBuyApproval = vi.fn(async () => 'APPROVE' as const);
+const _requestBuyApproval = vi.fn(async (_params?: unknown) => 'APPROVE' as const);
 const _fetchEnemyCheckData = vi.fn();
 
 vi.mock('../persistence/tradeSignalStatusRepo.js', () => ({
@@ -23,6 +23,10 @@ vi.mock('../persistence/tradeSignalStatusRepo.js', () => ({
 
 vi.mock('../telegram/buyApproval.js', () => ({
   requestBuyApproval: _requestBuyApproval,
+  requestBuyApprovalWithDelivery: vi.fn(async (params: unknown) => ({
+    action: await _requestBuyApproval(params),
+    telegramDelivered: true,
+  })),
 }));
 
 vi.mock('../clients/enemyCheckClient.js', () => ({
@@ -39,6 +43,12 @@ vi.mock('../persistence/incidentLogRepo.js', () => ({
 
 vi.mock('../persistence/shadowTradeRepo.js', () => ({
   appendShadowLog: vi.fn(),
+  loadShadowTrades: vi.fn(() => []),
+  saveShadowTrades: vi.fn(),
+  appendFill: vi.fn((trade: { fills?: unknown[] }, fill: unknown) => {
+    if (!trade.fills) trade.fills = [];
+    trade.fills.push({ id: 'fill-test-1', ...(fill as Record<string, unknown>) });
+  }),
 }));
 
 vi.mock('./preMarketSmokeTest.js', () => ({

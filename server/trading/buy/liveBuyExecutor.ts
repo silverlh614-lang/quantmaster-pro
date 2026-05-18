@@ -8,6 +8,7 @@ import { getSmokeTestLastFailedReason, getSmokeTestLiveBlocked } from '../../sta
 import type { BuyApprovalPolicyResult } from './buyApprovalPolicy.js';
 import type { BuySignalStateMachine } from './buySignalStateMachine.js';
 import { markAutoTradeReady, markOrderPending, type TradeSignalStatusWriteResult } from './tradeSignalStatusWriter.js';
+import { emitOperationalWarn } from './operationalWarn.js';
 
 export type LiveBuyExecutionOutcome = 'LIVE_ORDER_SUBMITTED' | 'LIVE_REJECTED';
 
@@ -77,6 +78,33 @@ function rejectLive(
   };
 }
 
+function appendLiveShadowLogSafe(
+  deps: LiveBuyExecutorDeps,
+  input: LiveBuyExecutorInput,
+  ordNo: string,
+): void {
+  try {
+    deps.appendShadowLog({
+      event: input.logEvent,
+      code: input.stockCode,
+      price: input.currentPrice,
+      ordNo,
+    });
+  } catch (error) {
+    emitOperationalWarn({
+      code: 'P2_LIVE_BUY_SHADOW_LOG_WRITE_FAILED',
+      severity: 'P2',
+      message: 'LIVE buy shadow log write failed after KIS submission; lifecycle continues',
+      context: {
+        tradeId: input.trade.id,
+        stockCode: input.stockCode,
+        ordNo,
+      },
+      cause: error,
+    });
+  }
+}
+
 export async function executeLiveBuy(
   input: LiveBuyExecutorInput,
   deps: LiveBuyExecutorDeps = defaultDeps,
@@ -142,12 +170,7 @@ export async function executeLiveBuy(
 
   input.trade.status = 'ORDER_SUBMITTED';
   input.stateMachine?.transition('LIVE_ORDER_SUBMITTED', 'KIS live buy order submitted', { ordNo });
-  deps.appendShadowLog({
-    event: input.logEvent,
-    code: input.stockCode,
-    price: input.currentPrice,
-    ordNo,
-  });
+  appendLiveShadowLogSafe(deps, input, ordNo);
   deps.addFillMonitorOrder({
     ordNo,
     stockCode: input.stockCode,
