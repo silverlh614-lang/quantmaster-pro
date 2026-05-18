@@ -142,6 +142,50 @@ const WARNING_DEFINITIONS: readonly OperatorWarningDefinition[] = Object.freeze(
     action: 'Refresh or inspect the affected provider before treating market-direction diagnostics as reliable.',
     reason: 'Provider freshness and readiness warnings can contaminate downstream market interpretation if left unresolved.',
   },
+  {
+    codes: [
+      'R3_WARNING',
+      'R3_WARNING_ONLY',
+      'GATE_PASS_DATA_MISSING',
+      'CANDIDATES_ZERO',
+      'GATE1_PASS_ZERO',
+    ],
+    priorityRank: 3,
+    domain: 'SCAN_GATE',
+    urgency: 'DIAGNOSTIC_REVIEW',
+    action: 'Inspect scan blockers and streak state before assuming the market produced no candidates.',
+    reason: 'R3 warning-only states are diagnostic today, but repeated scans can escalate into stronger gate states.',
+  },
+  {
+    codes: [
+      'DATA_BLOCKED_NEAR_MISS',
+      'GATE_SCORE_DATA_BLOCKED_NEAR_MISS',
+      'PROBING',
+      'GATE_SCORE_PROBING',
+      'GATE_SCORE_SHADOW_ONLY',
+    ],
+    priorityRank: 3,
+    domain: 'SCAN_GATE',
+    urgency: 'DIAGNOSTIC_REVIEW',
+    action: 'Preserve near-miss evidence and inspect unavailable or degraded gate conditions.',
+    reason: 'Near-miss gate buckets are diagnostic-only, but they indicate candidates close to executable bands.',
+  },
+  {
+    codes: [
+      'GATE_SCORE_HEALTH_WARN',
+      'DATA_UNAVAILABLE_DOMINANT',
+      'PROVIDER_DEGRADED_DOMINANT',
+      'THRESHOLD_NOT_MET_DOMINANT',
+      'GATE_LAYER_DATA_UNAVAILABLE',
+      'GATE_LAYER_PROVIDER_DEGRADED',
+      'STRONG_BUY_SUPPRESSED_BY_DATA_UNAVAILABLE',
+    ],
+    priorityRank: 3,
+    domain: 'SCAN_GATE',
+    urgency: 'DIAGNOSTIC_REVIEW',
+    action: 'Inspect the dominant gate health cause and top affected conditions.',
+    reason: 'Gate health warnings explain candidate loss and should be reviewed before lower-priority learning warnings.',
+  },
 ]);
 
 const FALLBACK_DEFINITION: OperatorWarningDefinition = Object.freeze({

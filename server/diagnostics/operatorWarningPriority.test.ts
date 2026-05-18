@@ -67,6 +67,33 @@ describe('operator warning priority taxonomy', () => {
     ]);
   });
 
+  it('classifies scan and gate diagnostic warnings as priority 3', () => {
+    expect(classifyOperatorWarning({ code: 'R3_WARNING_ONLY' })).toMatchObject({
+      priorityRank: 3,
+      domain: 'SCAN_GATE',
+      urgency: 'DIAGNOSTIC_REVIEW',
+    });
+
+    expect(classifyOperatorWarning({ code: 'DATA_BLOCKED_NEAR_MISS' })).toMatchObject({
+      priorityRank: 3,
+      domain: 'SCAN_GATE',
+    });
+  });
+
+  it('keeps scan and gate diagnostics below data trust but above unmapped warnings', () => {
+    const sorted = sortOperatorWarnings([
+      { code: 'REGIME_SAMPLE_DUPLICATION_SUSPECT', count: 10 },
+      { code: 'DATA_UNAVAILABLE_DOMINANT', count: 1 },
+      { code: 'PRICE_WARN', count: 1 },
+    ]);
+
+    expect(sorted.map((warning) => `${warning.priorityRank}:${warning.normalizedCode}`)).toEqual([
+      '2:PRICE_WARN',
+      '3:DATA_UNAVAILABLE_DOMINANT',
+      '5:REGIME_SAMPLE_DUPLICATION_SUSPECT',
+    ]);
+  });
+
   it('formats a compact read-only queue for operator surfaces', () => {
     const text = formatOperatorWarningQueue([
       { code: 'ENEMY_CHECKLIST_CAUTION', source: 'enemyChecklist', count: 1 },
