@@ -1,10 +1,9 @@
-// @responsibility watchlist 영역 WatchlistCard 컴포넌트
+// @responsibility watchlist area stock recommendation card UI.
 import React from 'react';
 import {
   TrendingUp, TrendingDown, Bookmark, Star, Award, History, Plus, Zap,
   AlertTriangle, Copy, FileText, Search, ExternalLink, Flame, Target,
-  ShieldCheck, Clock, Newspaper, BarChart3, ChevronRight, Cloud, Crown,
-  Activity,
+  ShieldCheck, Clock, Newspaper, BarChart3, Crown, Activity, Cloud,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
@@ -26,7 +25,6 @@ import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/m
 import { useMarketMode } from '../../hooks/useMarketMode';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
-import type { ConditionId } from '../../types/quant';
 import type { View } from '../../stores/useSettingsStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { classifyScoreConcordance, getQuantGateScore } from '../../utils/recommendationScore';
@@ -54,6 +52,811 @@ export interface WatchlistCardProps {
   onManualPriceUpdate: (stock: StockRecommendation, newPrice: number) => void;
 }
 
+type MarketMode = ReturnType<typeof useMarketMode>;
+type LastTriggerSummary = ReturnType<typeof evaluateLastTrigger>;
+type EnemyChecklistSummary = ReturnType<typeof evaluateEnemyChecklist>;
+type QuantGateScore = ReturnType<typeof getQuantGateScore>;
+type ScoreConcordance = ReturnType<typeof classifyScoreConcordance>;
+
+const cardToneClass = (stock: StockRecommendation, isAllGatesPassed: boolean): string => {
+  if (isRiskAlert(stock)) return '!border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)]';
+  if (isAllGatesPassed) return '!border-yellow-400/60 shadow-[0_0_40px_rgba(250,204,21,0.2)]';
+  return 'shadow-[0_10px_30px_rgba(0,0,0,0.4)]';
+};
+
+const isAllGatesPassedFor = (stock: StockRecommendation): boolean =>
+  stock.gateEvaluation?.isPassed === true ||
+  (stock.gateEvaluation?.gate1Passed === true &&
+    stock.gateEvaluation?.gate2Passed === true &&
+    stock.gateEvaluation?.gate3Passed === true);
+
+const drawdownPct = (stock: StockRecommendation): number =>
+  stock.peakPrice > 0 ? Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) : 0;
+
+const isRiskAlert = (stock: StockRecommendation): boolean =>
+  stock.peakPrice > 0 && drawdownPct(stock) <= -30;
+
+const matchingDartAlerts = (
+  stock: StockRecommendation,
+  dartAlerts: WatchlistCardProps['dartAlerts'],
+) => dartAlerts.filter((alert) => alert.stock_code.replace(/^A/, '') === stock.code);
+
+const naverChartHref = (stock: StockRecommendation): string => {
+  const cleanCode = String(stock.code).replace(/[^0-9]/g, '');
+  return cleanCode.length === 6
+    ? `https://finance.naver.com/item/main.naver?code=${cleanCode}`
+    : `https://search.naver.com/search.naver?query=${encodeURIComponent(`${stock.name} stock chart`)}`;
+};
+
+const formatKrw = (value: number | undefined, fallback = '-'): string =>
+  value && value > 0 ? `₩${value.toLocaleString()}` : fallback;
+
+const buildCardShadowTrade = (
+  stock: StockRecommendation,
+  kisBalance: number,
+) => {
+  const price = stock.currentPrice || stock.entryPrice || 0;
+  const ge = stock.gateEvaluation;
+  const positionSize = ge?.positionSize ?? (stock.type === 'STRONG_BUY' ? 20 : 10);
+  const stopLossPct = price > 0 && stock.stopLoss > 0
+    ? ((stock.stopLoss - price) / price) * 100
+    : -8;
+  const rrr = price > 0 && stock.stopLoss > 0 && stock.targetPrice > 0
+    ? (stock.targetPrice - price) / (price - stock.stopLoss)
+    : 2;
+  const signal = {
+    positionSize,
+    rrr: Math.max(0.5, rrr),
+    lastTrigger: stock.type === 'STRONG_BUY',
+    recommendation: ge?.recommendation ?? (stock.type === 'STRONG_BUY' ? 'strong shadow' : 'shadow'),
+    profile: { stopLoss: Math.min(-1, stopLossPct) },
+  } as any;
+  return buildShadowTrade(signal, stock.code, stock.name, price, kisBalance);
+};
+
+const modeBadgeMeta = (lastUsedMode: string) => {
+  if (lastUsedMode === 'EARLY_DETECT') {
+    return { label: 'Early', icon: Activity, className: 'bg-blue-500/20 border-blue-500/30 text-blue-400' };
+  }
+  if (lastUsedMode === 'MOMENTUM') {
+    return { label: 'Momentum', icon: Zap, className: 'bg-orange-500/20 border-orange-500/30 text-orange-400' };
+  }
+  if (lastUsedMode === 'QUANT_SCREEN') {
+    return { label: 'Quant', icon: Activity, className: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' };
+  }
+  return null;
+};
+
+const marketVariant = (stock: StockRecommendation, marketMode: MarketMode) => {
+  const open = isMarketOpenFor(stock.code);
+  let nextOpenLabel = '';
+  try {
+    nextOpenLabel = formatNextOpenKst(nextOpenAtFor(stock.code));
+  } catch {
+    nextOpenLabel = 'N/A';
+  }
+  if (open) return { label: 'LIVE', tone: 'orange', title: 'Regular-session live price' };
+  if (marketMode === 'WEEKEND_CACHE') return { label: 'Weekend', tone: 'gray', title: `Next open ${nextOpenLabel}` };
+  if (marketMode === 'HOLIDAY_CACHE') return { label: 'Holiday', tone: 'gray', title: `Next open ${nextOpenLabel}` };
+  if (marketMode === 'DEGRADED') return { label: 'Degraded', tone: 'red', title: 'Price source degraded' };
+  return { label: 'Closed', tone: 'blue', title: `Next open ${nextOpenLabel}` };
+};
+
+const toneClasses = (tone: string) => ({
+  wrapper: tone === 'orange'
+    ? 'bg-orange-500/10 border-orange-500/20 group-hover:bg-orange-500/20'
+    : tone === 'blue'
+      ? 'bg-blue-500/10 border-blue-500/20 group-hover:bg-blue-500/15'
+      : tone === 'gray'
+        ? 'bg-slate-500/10 border-slate-500/20 group-hover:bg-slate-500/15'
+        : 'bg-red-500/10 border-red-500/30 group-hover:bg-red-500/15',
+  dot: tone === 'orange'
+    ? 'bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.8)]'
+    : tone === 'blue'
+      ? 'bg-blue-400/80'
+      : tone === 'gray'
+        ? 'bg-slate-400/80'
+        : 'bg-red-400/80',
+  text: tone === 'orange'
+    ? 'text-orange-500'
+    : tone === 'blue'
+      ? 'text-blue-300'
+      : tone === 'gray'
+        ? 'text-slate-300'
+        : 'text-red-300',
+});
+
+const TopBanners = ({
+  stock,
+  view,
+  isAllGatesPassed,
+}: {
+  stock: StockRecommendation;
+  view: string;
+  isAllGatesPassed: boolean;
+}) => (
+  <>
+    {isAllGatesPassed && (
+      <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 uppercase tracking-[0.2em]">
+        <Crown className="w-3.5 h-3.5" />
+        BEST · All Gates Passed
+      </div>
+    )}
+    {view === 'WATCHLIST' && stock.watchedPrice && stock.watchedPrice > 0 && (
+      <WatchedPriceBanner stock={stock} />
+    )}
+    {isRiskAlert(stock) && (
+      <div className="bg-red-500/90 backdrop-blur-md text-[10px] font-black text-white py-2 px-4 flex items-center justify-center gap-2 z-20 animate-pulse uppercase tracking-[0.2em]">
+        <AlertTriangle className="w-3.5 h-3.5" />
+        Risk Alert: -30% Rule Exceeded
+      </div>
+    )}
+  </>
+);
+
+const WatchedPriceBanner = ({ stock }: { stock: StockRecommendation }) => {
+  const diff = stock.currentPrice - (stock.watchedPrice ?? 0);
+  const pct = stock.watchedPrice ? (diff / stock.watchedPrice) * 100 : 0;
+  const isUp = diff >= 0;
+  return (
+    <div className={cn(
+      'flex items-center justify-between px-5 py-3 text-[11px] font-black uppercase tracking-widest',
+      isUp ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400',
+    )}>
+      <div className="flex items-center gap-2">
+        {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+        <span>Since Added</span>
+        <span className="text-base font-black">{isUp ? '+' : ''}{pct.toFixed(2)}%</span>
+      </div>
+      <div className="flex flex-col items-end text-[9px] opacity-60">
+        <span>Added ₩{stock.watchedPrice?.toLocaleString()}</span>
+        <span>{stock.watchedAt}</span>
+      </div>
+    </div>
+  );
+};
+
+const FloatingBadges = ({
+  stock,
+  lastUsedMode,
+  newsFrequencyScores,
+}: {
+  stock: StockRecommendation;
+  lastUsedMode: string;
+  newsFrequencyScores: NewsFrequencyScore[];
+}) => {
+  const mode = modeBadgeMeta(lastUsedMode);
+  const news = newsFrequencyScores.find((score) => score.code === stock.code);
+  const phaseColors: Record<string, string> = {
+    SILENT: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400',
+    EARLY: 'bg-cyan-500/20 border-cyan-500/30 text-cyan-400',
+    GROWING: 'bg-amber-500/20 border-amber-500/30 text-amber-400',
+    CROWDED: 'bg-orange-500/20 border-orange-500/30 text-orange-400',
+    OVERHYPED: 'bg-red-500/20 border-red-500/30 text-red-400',
+  };
+  return (
+    <>
+      {mode && (
+        <div className={cn('absolute top-3 left-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm', mode.className)}>
+          <mode.icon className="w-2.5 h-2.5" />
+          <span className="text-[9px] font-black uppercase tracking-widest">{mode.label}</span>
+        </div>
+      )}
+      {news && (
+        <div className={cn('absolute top-3 right-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm', phaseColors[news.phase] || '')}>
+          <Newspaper className="w-2.5 h-2.5" />
+          <span className="text-[9px] font-black uppercase tracking-widest">News {news.phase} ({news.score})</span>
+        </div>
+      )}
+    </>
+  );
+};
+
+const HeaderSection = ({
+  stock,
+  copiedCode,
+  dartAlerts,
+  isAllGatesPassed,
+  quantGateScore,
+  concordance,
+  onCopy,
+  onDeepAnalysis,
+}: {
+  stock: StockRecommendation;
+  copiedCode: string | null;
+  dartAlerts: WatchlistCardProps['dartAlerts'];
+  isAllGatesPassed: boolean;
+  quantGateScore: QuantGateScore;
+  concordance: ScoreConcordance | null;
+  onCopy: WatchlistCardProps['onCopy'];
+  onDeepAnalysis: WatchlistCardProps['onDeepAnalysis'];
+}) => (
+  <div className="flex flex-col mb-4 sm:mb-6 gap-3 min-w-0">
+    <StockIdentityPanel
+      stock={stock}
+      copiedCode={copiedCode}
+      dartAlerts={dartAlerts}
+      isAllGatesPassed={isAllGatesPassed}
+      quantGateScore={quantGateScore}
+      concordance={concordance}
+      onCopy={onCopy}
+    />
+    <button
+      onClick={(event) => {
+        event.stopPropagation();
+        onDeepAnalysis(stock);
+      }}
+      className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all uppercase tracking-[0.2em] active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
+    >
+      <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover/deep:scale-110 transition-transform" />
+      Deep Analysis
+    </button>
+  </div>
+);
+
+const StockIdentityPanel = ({
+  stock,
+  copiedCode,
+  dartAlerts,
+  isAllGatesPassed,
+  quantGateScore,
+  concordance,
+  onCopy,
+}: {
+  stock: StockRecommendation;
+  copiedCode: string | null;
+  dartAlerts: WatchlistCardProps['dartAlerts'];
+  isAllGatesPassed: boolean;
+  quantGateScore: QuantGateScore;
+  concordance: ScoreConcordance | null;
+  onCopy: WatchlistCardProps['onCopy'];
+}) => {
+  const alerts = matchingDartAlerts(stock, dartAlerts);
+  return (
+    <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
+      <div className="absolute -top-12 -left-12 w-40 h-40 bg-orange-500/5 blur-[80px] rounded-full group-hover/name-area:bg-orange-500/15 transition-all duration-700" />
+      <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-blue-500/5 blur-[80px] rounded-full group-hover/name-area:bg-blue-500/15 transition-all duration-700" />
+      <div className="relative flex flex-col min-w-0">
+        <div className="flex items-start justify-between gap-2 sm:gap-3 min-w-0 mb-2">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+            <div className="relative group/copy min-w-0">
+              <h4
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCopy(stock.name, stock.code);
+                }}
+                className="text-lg sm:text-2xl lg:text-3xl font-black tracking-tighter text-white group-hover:text-orange-500 transition-all duration-300 leading-tight cursor-pointer flex items-center gap-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] break-keep"
+                title="Copy stock name"
+              >
+                {stock.name}
+                <Copy className="w-4 h-4 opacity-0 group-hover/copy:opacity-50 transition-opacity shrink-0" />
+              </h4>
+              <AnimatePresence>
+                {copiedCode === stock.code && (
+                  <motion.span
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute -top-10 left-0 text-[10px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-green-500/30 z-30"
+                  >
+                    Copied!
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </div>
+            <span className="text-[10px] sm:text-[12px] font-black text-white/60 bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border border-white/20 tracking-[0.15em] uppercase shrink-0 shadow-lg backdrop-blur-sm">
+              {stock.code}
+            </span>
+            {alerts.length > 0 && (
+              <div
+                className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1 shrink-0"
+                title={alerts.map((alert) => alert.report_nm).join(', ')}
+              >
+                <FileText className="w-3 h-3" />
+                DART
+              </div>
+            )}
+            {stock.gate && (
+              <div className={cn(
+                'px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0',
+                stock.gate === 1 ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                  stock.gate === 2 ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                    'bg-green-500/20 text-green-400 border-green-500/30',
+              )}>
+                Gate {stock.gate}
+              </div>
+            )}
+            {isAllGatesPassed && (
+              <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
+                <Crown className="w-3 h-3" />
+                BEST
+              </div>
+            )}
+            <div className="shrink-0">
+              <GateMiniIndicator stock={stock} />
+            </div>
+          </div>
+          <AiScoreBlock stock={stock} concordance={concordance} />
+        </div>
+        {stock.aiConvictionScore && (
+          <div className="mt-2 text-[10px] text-orange-300/60">
+            Gemini conviction is diagnostic, not an auto-trade trigger.
+          </div>
+        )}
+        {quantGateScore && (
+          <div className={cn(
+            'mt-2 rounded-xl border px-3 py-2 text-[11px] font-bold',
+            quantGateScore.pass
+              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+              : 'border-red-500/20 bg-red-500/10 text-red-200',
+          )}>
+            AI Score {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
+            {quantGateScore.pass ? 'auto-trade eligible' : 'auto-trade blocked'}{' '}
+            ({quantGateScore.regime.replace(/_.+$/, '')} threshold {quantGateScore.threshold}
+            {quantGateScore.pass ? '' : ' unmet'})
+          </div>
+        )}
+        {stock.chartPattern && (
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur-md">
+              <TrendingUp className={cn('w-3.5 h-3.5', (stock.chartPattern.type || '').includes('BULLISH') ? 'text-green-400' : 'text-red-400')} />
+              <span className="text-[10px] sm:text-[11px] font-black text-blue-400 uppercase tracking-[0.1em]">
+                Pattern: {stock.chartPattern.name}
+              </span>
+            </div>
+          </div>
+        )}
+        {stock.visualReport?.summary && (
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20 backdrop-blur-md">
+              <Zap className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
+              <span className="text-[10px] sm:text-[11px] font-black text-orange-400 uppercase tracking-[0.1em] break-keep">{stock.visualReport.summary}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const AiScoreBlock = ({
+  stock,
+  concordance,
+}: {
+  stock: StockRecommendation;
+  concordance: ScoreConcordance | null;
+}) => (
+  <>
+    {stock.aiConvictionScore && (
+      <div className="flex flex-col items-end shrink-0">
+        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">AI Score</span>
+        <span className={cn(
+          'text-lg sm:text-xl font-black tracking-tighter font-num',
+          stock.aiConvictionScore.totalScore >= 80 ? 'text-orange-500' :
+            stock.aiConvictionScore.totalScore >= 60 ? 'text-blue-400' : 'text-white/60',
+        )}>
+          {stock.aiConvictionScore.totalScore}
+        </span>
+        {concordance && (
+          <span className={cn(
+            'mt-1 rounded-full border px-2 py-0.5 text-[8px] font-black tracking-widest',
+            concordance.tier === 'EXCELLENT' || concordance.tier === 'GOOD'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+              : concordance.tier === 'NEUTRAL'
+                ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                : 'border-red-500/30 bg-red-500/10 text-red-300',
+          )}>
+            {concordance.tier === 'WEAK' || concordance.tier === 'POOR' ? '!' : ''}{concordance.label}
+          </span>
+        )}
+      </div>
+    )}
+  </>
+);
+
+const AiFactorBar = ({ stock }: { stock: StockRecommendation }) => {
+  const factors = stock.aiConvictionScore?.factors || [];
+  const total = stock.aiConvictionScore?.totalScore ?? 0;
+  const g1Count = Math.max(1, Math.ceil(factors.length / 3));
+  const g2Count = Math.max(1, Math.ceil(factors.length / 3));
+  const g1 = factors.slice(0, g1Count).reduce((sum, factor) => sum + factor.score, 0);
+  const g2 = factors.slice(g1Count, g1Count + g2Count).reduce((sum, factor) => sum + factor.score, 0);
+  const g3 = factors.slice(g1Count + g2Count).reduce((sum, factor) => sum + factor.score, 0);
+  const g1Max = g1Count * 10;
+  const g2Max = g2Count * 10;
+  const g3Max = Math.max(1, factors.length - g1Count - g2Count) * 10;
+  return (
+    <>
+      {stock.aiConvictionScore && (
+        <div className="mb-4 sm:mb-6">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">AI Conviction</span>
+            <span className="text-[11px] font-black text-white/70 font-num">{total}/100</span>
+          </div>
+          <div className="gate-bar">
+            <div className="gate-bar-g1 rounded-l-full" style={{ width: `${Math.min((g1 / g1Max) * 33.3, 33.3)}%` }} title={`G1: ${g1}/${g1Max}`} />
+            <div className="gate-bar-g2" style={{ width: `${Math.min((g2 / g2Max) * 33.3, 33.3)}%` }} title={`G2: ${g2}/${g2Max}`} />
+            <div className="gate-bar-g3 rounded-r-full" style={{ width: `${Math.min((g3 / g3Max) * 33.4, 33.4)}%` }} title={`G3: ${g3}/${g3Max}`} />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-1)' }}>G1 {g1}/{g1Max}</span>
+            <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-2)' }}>G2 {g2}/{g2Max}</span>
+            <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-3)' }}>G3 {g3}/{g3Max}</span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+const SignalAndActions = ({
+  stock,
+  kisBalance,
+  isWatched,
+  onAddToBacktest,
+  onToggleWatchlist,
+  onSetTradeRecord,
+  onAddShadowTrade,
+  onSetView,
+}: Pick<WatchlistCardProps, 'stock' | 'kisBalance' | 'isWatched' | 'onAddToBacktest' | 'onToggleWatchlist' | 'onSetTradeRecord' | 'onAddShadowTrade' | 'onSetView'>) => (
+  <div className="flex justify-between items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
+    <div className="flex flex-wrap gap-2 sm:gap-3 items-center min-w-0">
+      <SignalBadge signal={stock.type || 'NEUTRAL'} />
+      {stock.isLeadingSector && (
+        <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(249,115,22,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
+          <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
+          Leading
+        </span>
+      )}
+      {stock.isSectorTopPick && (
+        <span className="bg-blue-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(59,130,246,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
+          <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
+          Top Pick
+        </span>
+      )}
+      <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/10 uppercase tracking-widest backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
+        {stock.relatedSectors?.[0] || 'Market'}
+      </span>
+    </div>
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      <button onClick={(event) => { event.stopPropagation(); onAddToBacktest(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm" title="Add to Backtest">
+        <History className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+      </button>
+      <button onClick={(event) => { event.stopPropagation(); onToggleWatchlist(stock); }} className={cn('p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border active:scale-90 shadow-sm', isWatched(stock.code) ? 'bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]' : 'bg-white/5 border-white/10 text-white/30 hover:text-white/70 hover:bg-white/10')}>
+        <Bookmark className={cn('w-4 h-4 sm:w-4.5 sm:h-4.5', isWatched(stock.code) && 'fill-current')} />
+      </button>
+      <button onClick={(event) => { event.stopPropagation(); onSetTradeRecord(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm" title="Trade record">
+        <Plus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+      </button>
+      {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onAddShadowTrade(buildCardShadowTrade(stock, kisBalance));
+            onSetView('AUTO_TRADE');
+          }}
+          className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 active:scale-90 shadow-sm"
+          title="Register Shadow Trade"
+        >
+          <Zap className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+const DiagnosticsSection = ({
+  stock,
+  lastTriggerSummary,
+  enemyChecklistSummary,
+  onDeepAnalysis,
+}: {
+  stock: StockRecommendation;
+  lastTriggerSummary: LastTriggerSummary;
+  enemyChecklistSummary: EnemyChecklistSummary;
+  onDeepAnalysis: WatchlistCardProps['onDeepAnalysis'];
+}) => (
+  <>
+    <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 sm:gap-3 mb-4 items-start">
+      <div className="flex items-center gap-2 flex-wrap">
+        <DataQualityBadge count={classifyDataQuality(stock)} compact />
+        {stock.dataSourceType && <ConfidenceBadge type={stock.dataSourceType} />}
+        <PriceAlertBadge
+          level={computePriceAlertLevel({ currentPrice: stock.currentPrice, stopLoss: stock.stopLoss, targetPrice: stock.targetPrice })}
+          currentPrice={stock.currentPrice}
+          stopLoss={stock.stopLoss}
+          targetPrice={stock.targetPrice}
+        />
+      </div>
+      <GateStatusCard summary={buildGateCardSummary(stock)} onExpand={() => onDeepAnalysis(stock)} />
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-4">
+      <LastTriggerCard summary={lastTriggerSummary} />
+      <EnemyChecklistCard summary={enemyChecklistSummary} />
+    </div>
+  </>
+);
+
+const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
+  <>
+    <div className="flex items-center justify-between mb-6 sm:mb-8 py-3 sm:py-4 border-y border-white/5 bg-white/[0.02] rounded-xl sm:rounded-2xl px-3 sm:px-4">
+      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+        <Flame className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 shrink-0" />
+        <div className="flex gap-0.5 sm:gap-1 overflow-hidden">
+          {[...Array(10)].map((_, index) => (
+            <div key={index} className={cn('w-1 sm:w-1.5 h-3 sm:h-4 rounded-full transition-all duration-500 shrink-0', index < (stock.hotness ?? 0) ? 'bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.6)]' : 'bg-white/10')} />
+          ))}
+        </div>
+        <span className="text-[9px] sm:text-[11px] font-black text-white/40 ml-1 sm:ml-2 tracking-widest uppercase truncate">Heat</span>
+      </div>
+      <a href={naverChartHref(stock)} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95">
+        <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Chart</span>
+        <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
+      </a>
+    </div>
+    {stock.tranchePlan && (
+      <div className="mb-6 sm:mb-8 bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10 shadow-inner">
+        <div className="flex items-center gap-2 mb-3">
+          <Target className="w-4 h-4 text-orange-500" />
+          <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Automated Tranche Plan</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { id: '1', data: stock.tranchePlan.tranche1 },
+            { id: '2', data: stock.tranchePlan.tranche2 },
+            { id: '3', data: stock.tranchePlan.tranche3 },
+          ].map((tranche) => (
+            <div key={tranche.id} className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">T{tranche.id}</span>
+                <span className="text-[9px] font-black text-orange-500/70">{tranche.data?.size || 0}%</span>
+              </div>
+              <div className="bg-white/5 p-2 rounded-lg border border-white/5">
+                <div className="text-[9px] font-black text-white/60 truncate" title={tranche.data?.trigger || ''}>
+                  {tranche.data?.trigger ? tranche.data.trigger.split(' (')[0] : '-'}
+                </div>
+                <div className="text-[7px] font-bold text-white/20 uppercase tracking-tighter truncate">
+                  {tranche.data?.trigger?.includes('(') ? tranche.data.trigger.split('(')[1].replace(')', '') : 'Trigger'}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </>
+);
+
+const TechnicalHealthGrid = ({ stock }: { stock: StockRecommendation }) => {
+  const items = [
+    {
+      label: 'Conf.',
+      icon: Zap,
+      value: `${stock.confidenceScore}%`,
+      active: !!stock.confidenceScore && stock.confidenceScore >= 90,
+      activeClass: 'bg-green-500/10 border-green-500/20 text-green-400',
+      iconActiveClass: 'text-green-400 fill-current',
+    },
+    {
+      label: 'Mom.',
+      icon: TrendingUp,
+      value: `${stock.momentumRank}%`,
+      active: !!stock.momentumRank && stock.momentumRank <= 5,
+      activeClass: 'bg-red-500/10 border-red-500/20 text-red-400',
+      iconActiveClass: 'text-red-400',
+    },
+    {
+      label: 'Ichi.',
+      icon: Cloud,
+      value: stock.ichimokuStatus?.split('_')[0] || 'N/A',
+      active: stock.ichimokuStatus === 'ABOVE_CLOUD',
+      activeClass: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+      iconActiveClass: 'text-blue-400',
+    },
+    {
+      label: 'Sector',
+      icon: Crown,
+      value: stock.isLeadingSector ? 'LEAD' : 'MAIN',
+      active: !!stock.isLeadingSector,
+      activeClass: 'bg-orange-500/10 border-orange-500/20 text-orange-400',
+      iconActiveClass: 'text-orange-400',
+    },
+  ];
+  return (
+    <div className="grid grid-cols-4 gap-1.5 sm:gap-2 mb-6 sm:mb-8">
+      {items.map((item) => (
+        <div key={item.label} className={cn('rounded-xl sm:rounded-2xl p-1.5 sm:p-2 border flex flex-col items-center justify-center gap-0.5 sm:gap-1 group/stat transition-all shadow-sm min-w-0 h-14 sm:h-16', item.active ? item.activeClass : 'bg-white/5 border-white/5')}>
+          <span className="text-[6px] sm:text-[7px] font-black text-white/20 uppercase tracking-widest truncate w-full text-center">{item.label}</span>
+          <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
+            <item.icon className={cn('w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0', item.active ? item.iconActiveClass : 'text-white/20')} />
+            <span className={cn('text-[9px] sm:text-[10px] font-black tracking-tighter truncate', item.active ? 'text-inherit' : 'text-white/70')}>{item.value}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const PriceStrategySection = ({
+  stock,
+  marketMode,
+  syncingStock,
+  onManualPriceUpdate,
+  onSyncPrice,
+}: Pick<WatchlistCardProps, 'stock' | 'syncingStock' | 'onManualPriceUpdate' | 'onSyncPrice'> & { marketMode: MarketMode }) => {
+  const variant = marketVariant(stock, marketMode);
+  const tone = toneClasses(variant.tone);
+  return (
+    <div className="bg-white/[0.03] border-y border-white/10 p-5 sm:p-8 py-5 sm:py-7 relative">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-4 bg-orange-500 rounded-full" />
+          <span className="text-[10px] sm:text-[11px] font-black text-white/30 uppercase tracking-[0.2em] sm:tracking-[0.25em]">Price Strategy</span>
+        </div>
+        <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-1">
+          <div className={cn('flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all', tone.wrapper)} title={variant.title}>
+            <div className="flex items-center gap-1.5 mr-1">
+              <div className={cn('w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full', tone.dot)} />
+              <span className={cn('text-[7px] sm:text-[8px] font-black uppercase tracking-widest', tone.text)}>{variant.label}</span>
+            </div>
+            <PriceEditCell stockCode={stock.code} currentPrice={stock.currentPrice} syncingStock={syncingStock} onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)} onSync={() => onSyncPrice(stock)} />
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            {stock.priceUpdatedAt && (
+              <span className="text-[7px] sm:text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center gap-1">
+                <Clock className="w-2 h-2" />
+                {stock.priceUpdatedAt}
+              </span>
+            )}
+            {stock.financialUpdatedAt && (
+              <span className="text-[7px] sm:text-[8px] font-black text-blue-400/40 uppercase tracking-widest flex items-center gap-1">
+                <ShieldCheck className="w-2 h-2" />
+                DART: {stock.financialUpdatedAt}
+              </span>
+            )}
+            <ConfidenceBadge type={stock.dataSourceType || 'AI'} />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <PriceBox tone="blue" label="Entry" primary={formatKrw(stock.entryPrice, stock.currentPrice > 0 ? `₩${stock.currentPrice.toLocaleString()}*` : '-')} secondary={stock.entryPrice2 && stock.entryPrice2 > 0 ? `2nd ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="green" label="Target" primary={formatKrw(stock.targetPrice, stock.currentPrice > 0 ? `₩${Math.round(stock.currentPrice * 1.20).toLocaleString()}*` : '-')} secondary={stock.targetPrice2 && stock.targetPrice2 > 0 ? `2nd ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="red" label="Stop" primary={formatKrw(stock.stopLoss, stock.currentPrice > 0 ? `₩${Math.round(stock.currentPrice * 0.93).toLocaleString()}*` : '-')} />
+      </div>
+    </div>
+  );
+};
+
+const PriceBox = ({
+  tone,
+  label,
+  primary,
+  secondary,
+}: {
+  tone: 'blue' | 'green' | 'red';
+  label: string;
+  primary: string;
+  secondary?: string;
+}) => {
+  const classes = {
+    blue: {
+      box: 'bg-blue-500/5 border-blue-500/10 hover:bg-blue-500/10',
+      label: 'text-blue-400/50',
+      primary: 'text-white',
+      secondary: 'text-blue-400/60',
+    },
+    green: {
+      box: 'bg-green-500/5 border-green-500/10 hover:bg-green-500/10',
+      label: 'text-green-400/50',
+      primary: 'text-green-400',
+      secondary: 'text-green-400/60',
+    },
+    red: {
+      box: 'bg-red-500/5 border-red-500/10 hover:bg-red-500/10',
+      label: 'text-red-400/50',
+      primary: 'text-red-400',
+      secondary: 'text-red-400/60',
+    },
+  }[tone];
+  return (
+    <div className={cn('rounded-2xl sm:rounded-3xl p-3 sm:p-5 border flex flex-col items-center justify-center gap-1.5 sm:gap-2 group/price transition-all shadow-sm min-w-0', classes.box)}>
+      <span className={cn('text-[7px] sm:text-[9px] font-black uppercase tracking-widest truncate w-full text-center', classes.label)}>{label}</span>
+      <span className={cn('text-xs sm:text-base font-black tracking-tighter truncate font-num', classes.primary)}>{primary}</span>
+      {secondary && <span className={cn('text-[10px] sm:text-sm font-black tracking-tighter truncate', classes.secondary)}>{secondary}</span>}
+    </div>
+  );
+};
+
+const FooterInsights = ({ stock }: { stock: StockRecommendation }) => (
+  <div className="p-5 sm:p-8 pt-5 sm:pt-7 flex-1 flex flex-col justify-between">
+    <div className="space-y-6 sm:space-y-8">
+      <InsightRow icon={ShieldCheck} tone="blue" title="Economic Moat" badge={stock.economicMoat?.type || 'NONE'} badgeActive={stock.economicMoat?.type !== 'NONE'} description={stock.economicMoat?.description} />
+      <InsightRow icon={Zap} tone="yellow" title="Catalyst Analysis" badge={stock.checklist?.catalystAnalysis ? 'PASSED' : 'PENDING'} badgeActive={!!stock.checklist?.catalystAnalysis} description={stock.catalystDetail?.description || 'No catalyst memo yet.'} extra={stock.catalystSummary} />
+      <ValuationRow stock={stock} />
+      {stock.latestNews && stock.latestNews.length > 0 && <LatestNews stock={stock} />}
+    </div>
+  </div>
+);
+
+const InsightRow = ({
+  icon: Icon,
+  tone,
+  title,
+  badge,
+  badgeActive,
+  description,
+  extra,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  tone: 'blue' | 'yellow';
+  title: string;
+  badge: string;
+  badgeActive: boolean;
+  description?: string;
+  extra?: string;
+}) => (
+  <div className="flex items-start gap-4 sm:gap-5">
+    <div className={cn('w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl border flex items-center justify-center shrink-0 shadow-sm transition-all', tone === 'blue' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-yellow-500/10 border-yellow-500/20')}>
+      <Icon className={cn('w-5 h-5 sm:w-6 sm:h-6', tone === 'blue' ? 'text-blue-400' : 'text-yellow-400')} />
+    </div>
+    <div className="min-w-0 flex-1">
+      <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">{title}</span>
+      <div className="space-y-1.5 sm:space-y-2">
+        <div className="flex items-center gap-2">
+          <span className={cn('text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg sm:rounded-xl shadow-sm inline-block', badgeActive ? (tone === 'blue' ? 'bg-blue-500 text-white' : 'bg-yellow-500 text-black') : 'bg-white/10 text-white/40')}>{badge}</span>
+          {extra && <span className="text-[10px] sm:text-[11px] font-black text-yellow-400/80 truncate">{extra}</span>}
+        </div>
+        <p className="text-[11px] sm:text-[12px] text-white/50 font-bold italic leading-relaxed break-words">{description}</p>
+      </div>
+    </div>
+  </div>
+);
+
+const ValuationRow = ({ stock }: { stock: StockRecommendation }) => (
+  <div className="flex items-start gap-4 sm:gap-5">
+    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 shadow-sm">
+      <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
+    </div>
+    <div className="min-w-0 flex-1">
+      <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <ValuationCell label="P/E" value={stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'} />
+        <ValuationCell label="P/B" value={stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'} />
+        <ValuationCell label="EPS" value={`${(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}${stock.valuation?.epsGrowth ?? 0}%`} valueClass={(stock.valuation?.epsGrowth ?? 0) > 0 ? 'text-green-400' : (stock.valuation?.epsGrowth ?? 0) < 0 ? 'text-red-400' : 'text-white/50'} />
+      </div>
+    </div>
+  </div>
+);
+
+const ValuationCell = ({ label, value, valueClass = 'text-white/80' }: { label: string; value: string; valueClass?: string }) => (
+  <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
+    <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">{label}</span>
+    <span className={cn('text-xs sm:text-sm font-black truncate block font-num', valueClass)}>{value}</span>
+  </div>
+);
+
+const LatestNews = ({ stock }: { stock: StockRecommendation }) => (
+  <div className="flex items-start gap-4 sm:gap-5 group/news">
+    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 shadow-sm group-hover/news:bg-orange-500/20 transition-all">
+      <Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
+    </div>
+    <div className="min-w-0 flex-1">
+      <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Latest News</span>
+      <div className="space-y-2">
+        {(stock.latestNews || []).slice(0, 5).map((news, index) => (
+          <a key={index} href={`https://www.google.com/search?q=${encodeURIComponent(`${news.headline || ''} ${stock.name || ''}`)}`} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex flex-col gap-1 p-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl transition-all group/news-item cursor-pointer">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] sm:text-[12px] font-bold text-white/80 group-hover/news-item:text-orange-400 transition-colors line-clamp-2 leading-tight">{news.headline}</span>
+              <ExternalLink className="w-3 h-3 text-white/20 shrink-0" />
+            </div>
+            <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">{news.date}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
 export function WatchlistCard({
   stock,
   idx,
@@ -76,32 +879,14 @@ export function WatchlistCard({
   onSyncPrice,
   onManualPriceUpdate,
 }: WatchlistCardProps) {
-  const isAllGatesPassed =
-    stock.gateEvaluation?.isPassed === true ||
-    (stock.gateEvaluation?.gate1Passed === true &&
-      stock.gateEvaluation?.gate2Passed === true &&
-      stock.gateEvaluation?.gate3Passed === true);
-
-  // ADR-0016 (PR-37): 시장 모드 5분류 SSOT — LIVE / 장외 / 주말 / 공휴일 / 다중실패.
-  // 카드 가격 영역 라벨(주황 LIVE / 파랑 장외 / 회색 주말·공휴일) 분기에 사용.
+  const isAllGatesPassed = isAllGatesPassedFor(stock);
   const marketMode = useMarketMode();
-
-  // PR-D (ADR-0031): 라스트 트리거 + Enemy 체크리스트 — store 에서 macroEnv 직접 읽기
-  const macroEnv = useGlobalIntelStore(s => s.macroEnv);
+  const macroEnv = useGlobalIntelStore((state) => state.macroEnv);
   const recentPositiveDisclosure = dartAlerts.some(
-    a => a.stock_code.replace(/^A/, '') === stock.code && a.sentiment === 'POSITIVE',
+    (alert) => alert.stock_code.replace(/^A/, '') === stock.code && alert.sentiment === 'POSITIVE',
   );
-  const lastTriggerSummary = evaluateLastTrigger({
-    stock,
-    vkospi: macroEnv?.vkospi,
-    recentPositiveDisclosure,
-  });
-  const enemyChecklistSummary = evaluateEnemyChecklist({
-    stock,
-    // marginBalance5dChange / weeklyRsi 는 종목별 인프라가 후속 PR — 현재 undefined 안전 fallback
-    marginBalance5dChange: undefined,
-    weeklyRsi: undefined,
-  });
+  const lastTriggerSummary = evaluateLastTrigger({ stock, vkospi: macroEnv?.vkospi, recentPositiveDisclosure });
+  const enemyChecklistSummary = evaluateEnemyChecklist({ stock, marginBalance5dChange: undefined, weeklyRsi: undefined });
   const quantGateScore = getQuantGateScore(stock);
   const aiScore = stock.aiConvictionScore?.totalScore ?? null;
   const concordance = aiScore !== null && quantGateScore
@@ -119,805 +904,51 @@ export function WatchlistCard({
       transition={{ delay: idx * 0.05 }}
       onClick={() => onDetailStock(stock)}
       className={cn(
-        "glass-3d card-3d rounded-2xl sm:rounded-3xl p-0 transition-all duration-500 relative overflow-hidden flex flex-col h-full group border-theme-border hover:border-white/20 cursor-pointer",
-        stock.peakPrice > 0 && Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) <= -30
-          ? "!border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.15)]"
-          : isAllGatesPassed
-            ? "!border-yellow-400/60 shadow-[0_0_40px_rgba(250,204,21,0.2)]"
-            : "shadow-[0_10px_30px_rgba(0,0,0,0.4)]"
+        'glass-3d card-3d rounded-2xl sm:rounded-3xl p-0 transition-all duration-500 relative overflow-hidden flex flex-col h-full group border-theme-border hover:border-white/20 cursor-pointer',
+        cardToneClass(stock, isAllGatesPassed),
       )}
     >
-      {/* All-Gates-Passed Golden Banner */}
-      {isAllGatesPassed && (
-        <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 uppercase tracking-[0.2em]">
-          <Crown className="w-3.5 h-3.5" />
-          BEST · 전 Gate 통과
-        </div>
-      )}
-
-      {/* 관심종목 추가 시점 대비 등락 배지 */}
-      {view === 'WATCHLIST' && stock.watchedPrice && stock.watchedPrice > 0 && (() => {
-        const diff = stock.currentPrice - stock.watchedPrice;
-        const pct = ((diff / stock.watchedPrice) * 100);
-        const isUp = diff >= 0;
-        return (
-          <div className={cn(
-            "flex items-center justify-between px-5 py-3 text-[11px] font-black uppercase tracking-widest",
-            isUp ? "bg-red-500/20 text-red-400" : "bg-blue-500/20 text-blue-400"
-          )}>
-            <div className="flex items-center gap-2">
-              {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-              <span>추가 대비</span>
-              <span className="text-base font-black">
-                {isUp ? '+' : ''}{pct.toFixed(2)}%
-              </span>
-            </div>
-            <div className="flex flex-col items-end text-[9px] opacity-60">
-              <span>추가가 ₩{stock.watchedPrice.toLocaleString()}</span>
-              <span>{stock.watchedAt}</span>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Risk Alert Badge */}
-      {stock.peakPrice > 0 && Math.round((stock.currentPrice / stock.peakPrice - 1) * 100) <= -30 && (
-        <div className="bg-red-500/90 backdrop-blur-md text-[10px] font-black text-white py-2 px-4 flex items-center justify-center gap-2 z-20 animate-pulse uppercase tracking-[0.2em]">
-          <AlertTriangle className="w-3.5 h-3.5" />
-          Risk Alert: -30% Rule Exceeded
-        </div>
-      )}
-
-      {/* Mode Badge */}
-      {lastUsedMode === 'EARLY_DETECT' && (
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-blue-500/20 border border-blue-500/30 px-2 py-1 rounded-lg backdrop-blur-sm">
-          <Activity className="w-2.5 h-2.5 text-blue-400" />
-          <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">선행</span>
-        </div>
-      )}
-      {lastUsedMode === 'MOMENTUM' && (
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-orange-500/20 border border-orange-500/30 px-2 py-1 rounded-lg backdrop-blur-sm">
-          <Zap className="w-2.5 h-2.5 text-orange-400 fill-current" />
-          <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest">모멘텀</span>
-        </div>
-      )}
-      {lastUsedMode === 'QUANT_SCREEN' && (
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-emerald-500/20 border border-emerald-500/30 px-2 py-1 rounded-lg backdrop-blur-sm">
-          <Activity className="w-2.5 h-2.5 text-emerald-400" />
-          <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">정량발굴</span>
-        </div>
-      )}
-
-      {/* News Frequency Contrarian Badge */}
-      {(() => {
-        const nfs = newsFrequencyScores.find(n => n.code === stock.code);
-        if (!nfs) return null;
-        const phaseColors: Record<string, string> = {
-          SILENT: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400',
-          EARLY: 'bg-cyan-500/20 border-cyan-500/30 text-cyan-400',
-          GROWING: 'bg-amber-500/20 border-amber-500/30 text-amber-400',
-          CROWDED: 'bg-orange-500/20 border-orange-500/30 text-orange-400',
-          OVERHYPED: 'bg-red-500/20 border-red-500/30 text-red-400',
-        };
-        const phaseLabels: Record<string, string> = {
-          SILENT: '미인지', EARLY: '초기', GROWING: '관심↑', CROWDED: '과밀', OVERHYPED: '과열',
-        };
-        return (
-          <div className={`absolute top-3 right-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm ${phaseColors[nfs.phase] || ''}`}>
-            <Newspaper className="w-2.5 h-2.5" />
-            <span className="text-[9px] font-black uppercase tracking-widest">
-              뉴스 {phaseLabels[nfs.phase] || nfs.phase} ({nfs.score})
-            </span>
-          </div>
-        );
-      })()}
-
-      {/* Card Header */}
+      <TopBanners stock={stock} view={view} isAllGatesPassed={isAllGatesPassed} />
+      <FloatingBadges stock={stock} lastUsedMode={lastUsedMode} newsFrequencyScores={newsFrequencyScores} />
       <div className="p-5 sm:p-8 pb-4 sm:pb-6 bg-gradient-to-b from-white/[0.03] to-transparent">
-        {/* Name and Code Row */}
-        <div className="flex flex-col mb-4 sm:mb-6 gap-3 min-w-0">
-          <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-xl sm:rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
-            <div className="absolute -top-12 -left-12 w-40 h-40 bg-orange-500/5 blur-[80px] rounded-full group-hover/name-area:bg-orange-500/15 transition-all duration-700" />
-            <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-blue-500/5 blur-[80px] rounded-full group-hover/name-area:bg-blue-500/15 transition-all duration-700" />
-
-            <div className="relative flex flex-col min-w-0">
-              <div className="flex items-start justify-between gap-2 sm:gap-3 min-w-0 mb-2">
-                <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
-                  <div className="relative group/copy min-w-0">
-                    <h4
-                      onClick={(e) => { e.stopPropagation(); onCopy(stock.name, stock.code); }}
-                      className="text-lg sm:text-2xl lg:text-3xl font-black tracking-tighter text-white group-hover:text-orange-500 transition-all duration-300 leading-tight cursor-pointer flex items-center gap-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] break-keep"
-                      title="종목명 복사"
-                    >
-                      {stock.name}
-                      <Copy className="w-4 h-4 opacity-0 group-hover/copy:opacity-50 transition-opacity shrink-0" />
-                    </h4>
-                    <AnimatePresence>
-                      {copiedCode === stock.code && (
-                        <motion.span
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          className="absolute -top-10 left-0 text-[10px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-green-500/30 z-30"
-                        >
-                          Copied!
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                  <span className="text-[10px] sm:text-[12px] font-black text-white/60 bg-white/10 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl border border-white/20 tracking-[0.15em] uppercase shrink-0 shadow-lg backdrop-blur-sm">
-                    {stock.code}
-                  </span>
-                  {dartAlerts.some(a => a.stock_code.replace(/^A/, '') === stock.code) && (
-                    <div
-                      className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1 shrink-0"
-                      title={dartAlerts.filter(a => a.stock_code.replace(/^A/, '') === stock.code).map(a => a.report_nm).join(', ')}
-                    >
-                      <FileText className="w-3 h-3" />
-                      DART
-                    </div>
-                  )}
-                  {stock.gate && (
-                    <div className={cn(
-                      "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0",
-                      stock.gate === 1 ? "bg-red-500/20 text-red-400 border-red-500/30" :
-                      stock.gate === 2 ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
-                      "bg-green-500/20 text-green-400 border-green-500/30"
-                    )}>
-                      Gate {stock.gate}
-                    </div>
-                  )}
-                  {isAllGatesPassed && (
-                    <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
-                      <Crown className="w-3 h-3" />
-                      BEST
-                    </div>
-                  )}
-
-                  {/* ADR-0055 PR-Z7: 4-Gate 미니 인디케이터 (즉시 인지) */}
-                  <div className="shrink-0">
-                    <GateMiniIndicator stock={stock} />
-                  </div>
-                </div>
-
-                {stock.aiConvictionScore && (
-                  <div className="flex flex-col items-end shrink-0">
-                    <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">AI Score</span>
-                    <span className={cn(
-                      "text-lg sm:text-xl font-black tracking-tighter font-num",
-                      stock.aiConvictionScore.totalScore >= 80 ? "text-orange-500" :
-                      stock.aiConvictionScore.totalScore >= 60 ? "text-blue-400" : "text-white/60"
-                    )}>
-                      {stock.aiConvictionScore.totalScore}
-                    </span>
-                    {concordance && (
-                      <span className={cn(
-                        "mt-1 rounded-full border px-2 py-0.5 text-[8px] font-black tracking-widest",
-                        concordance.tier === 'EXCELLENT' || concordance.tier === 'GOOD'
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                          : concordance.tier === 'NEUTRAL'
-                            ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                            : "border-red-500/30 bg-red-500/10 text-red-300"
-                      )}>
-                        {concordance.tier === 'WEAK' || concordance.tier === 'POOR' ? '⚠ ' : ''}{concordance.label}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {stock.aiConvictionScore && (
-                <div className="mt-2 text-[10px] text-orange-300/60">
-                  ⓘ Gemini 정성 평가 — 자동매매 진입 기준 아님
-                </div>
-              )}
-              {quantGateScore && (
-                <div className={cn(
-                  "mt-2 rounded-xl border px-3 py-2 text-[11px] font-bold",
-                  quantGateScore.pass
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
-                    : "border-red-500/20 bg-red-500/10 text-red-200"
-                )}>
-                  AI Score {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
-                  {quantGateScore.pass ? '✅ 자동매매 진입 가능' : '❌ 자동매매 진입 불가'}{' '}
-                  ({quantGateScore.regime.replace(/_.+$/, '')} 임계 {quantGateScore.threshold}
-                  {quantGateScore.pass ? '' : ' 미달'})
-                </div>
-              )}
-
-              {stock.chartPattern && (
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="flex items-center gap-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur-md">
-                    <TrendingUp className={cn("w-3.5 h-3.5",
-                      (stock.chartPattern.type || '').includes('BULLISH') ? "text-green-400" : "text-red-400"
-                    )} />
-                    <span className="text-[10px] sm:text-[11px] font-black text-blue-400 uppercase tracking-[0.1em]">
-                      Pattern: {stock.chartPattern.name}
-                    </span>
-                  </div>
-                </div>
-              )}
-              {stock.visualReport?.summary && (
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="flex items-center gap-2 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20 backdrop-blur-md">
-                    <Zap className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-                    <span className="text-[10px] sm:text-[11px] font-black text-orange-400 uppercase tracking-[0.1em] break-keep">{stock.visualReport.summary}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeepAnalysis(stock);
-            }}
-            className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all uppercase tracking-[0.2em] active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
-          >
-            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover/deep:scale-110 transition-transform" />
-            Deep Analysis
-          </button>
-        </div>
-
-        {/* AI qualitative factor bar */}
-        {stock.aiConvictionScore && (() => {
-          const factors = stock.aiConvictionScore.factors || [];
-          const total = stock.aiConvictionScore.totalScore;
-          // Distribute factors across 3 gates: first ~33%, next ~33%, rest
-          const g1Count = Math.max(1, Math.ceil(factors.length / 3));
-          const g2Count = Math.max(1, Math.ceil(factors.length / 3));
-          const g1 = factors.slice(0, g1Count).reduce((sum, f) => sum + f.score, 0);
-          const g2 = factors.slice(g1Count, g1Count + g2Count).reduce((sum, f) => sum + f.score, 0);
-          const g3 = factors.slice(g1Count + g2Count).reduce((sum, f) => sum + f.score, 0);
-          const g1Max = g1Count * 10;
-          const g2Max = g2Count * 10;
-          const g3Max = Math.max(1, factors.length - g1Count - g2Count) * 10;
-          return (
-            <div className="mb-4 sm:mb-6">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">AI 정성 평가</span>
-                <span className="text-[11px] font-black text-white/70 font-num">
-                  {total}/100
-                </span>
-              </div>
-              <div className="gate-bar">
-                <div
-                  className="gate-bar-g1 rounded-l-full"
-                  style={{ width: `${Math.min(g1 / g1Max * 33.3, 33.3)}%` }}
-                  title={`G1: ${g1}/${g1Max}`}
-                />
-                <div
-                  className="gate-bar-g2"
-                  style={{ width: `${Math.min(g2 / g2Max * 33.3, 33.3)}%` }}
-                  title={`G2: ${g2}/${g2Max}`}
-                />
-                <div
-                  className="gate-bar-g3 rounded-r-full"
-                  style={{ width: `${Math.min(g3 / g3Max * 33.4, 33.4)}%` }}
-                  title={`G3: ${g3}/${g3Max}`}
-                />
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-1)' }}>
-                  G1 {g1}/{g1Max}
-                </span>
-                <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-2)' }}>
-                  G2 {g2}/{g2Max}
-                </span>
-                <span className="text-[8px] font-black font-num" style={{ color: 'var(--gate-3)' }}>
-                  G3 {g3}/{g3Max}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Signal and Action Row */}
-        <div className="flex justify-between items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <div className="flex flex-wrap gap-2 sm:gap-3 items-center min-w-0">
-            {/* Signal Badge (Idea 3: Pulsing Dot + Color Glow) */}
-            <SignalBadge signal={stock.type || 'NEUTRAL'} />
-
-            {stock.isLeadingSector && (
-              <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(249,115,22,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
-                <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
-                Leading
-              </span>
-            )}
-            {stock.isSectorTopPick && (
-              <span className="bg-blue-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(59,130,246,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
-                <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
-                Top Pick
-              </span>
-            )}
-            <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/10 uppercase tracking-widest backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
-              {stock.relatedSectors?.[0] || 'Market'}
-            </span>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); onAddToBacktest(stock); }}
-              className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm"
-              title="Add to Backtest"
-            >
-              <History className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onToggleWatchlist(stock); }}
-              className={cn(
-                "p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border active:scale-90 shadow-sm",
-                isWatched(stock.code)
-                  ? "bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]"
-                  : "bg-white/5 border-white/10 text-white/30 hover:text-white/70 hover:bg-white/10"
-              )}
-            >
-              <Bookmark className={cn("w-4 h-4 sm:w-4.5 sm:h-4.5", isWatched(stock.code) && "fill-current")} />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSetTradeRecord(stock);
-              }}
-              className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm"
-              title="매수 기록"
-            >
-              <Plus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-            </button>
-            {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const totalAssets = kisBalance;
-                  const price = stock.currentPrice || stock.entryPrice || 0;
-                  // 실제 퀀트 엔진 평가 결과 사용, 없으면 보수적 기본값
-                  const ge = stock.gateEvaluation;
-                  const positionSize = ge?.positionSize ?? (stock.type === 'STRONG_BUY' ? 20 : 10);
-                  const stopLossPct = price > 0 && stock.stopLoss > 0
-                    ? ((stock.stopLoss - price) / price) * 100
-                    : -8;
-                  const rrr = price > 0 && stock.stopLoss > 0 && stock.targetPrice > 0
-                    ? (stock.targetPrice - price) / (price - stock.stopLoss)
-                    : 2;
-                  const signal = {
-                    positionSize,
-                    rrr: Math.max(0.5, rrr),
-                    lastTrigger: stock.type === 'STRONG_BUY',
-                    recommendation: ge?.recommendation ?? (stock.type === 'STRONG_BUY' ? '풀 포지션' : '절반 포지션'),
-                    profile: { stopLoss: Math.min(-1, stopLossPct) },
-                  } as any;
-                  const trade = buildShadowTrade(signal, stock.code, stock.name, price, totalAssets);
-                  onAddShadowTrade(trade);
-                  onSetView('AUTO_TRADE');
-                }}
-                className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 active:scale-90 shadow-sm"
-                title="Shadow Trading 등록"
-              >
-                <Zap className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Data Quality + Price Alert + Gate 0~3 통과 카드 — ADR-0028 PR-A + ADR-0030 PR-C */}
-        <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-2 sm:gap-3 mb-4 items-start">
-          <div className="flex items-center gap-2 flex-wrap">
-            <DataQualityBadge count={classifyDataQuality(stock)} compact />
-            {stock.dataSourceType && <ConfidenceBadge type={stock.dataSourceType} />}
-            <PriceAlertBadge
-              level={computePriceAlertLevel({
-                currentPrice: stock.currentPrice,
-                stopLoss: stock.stopLoss,
-                targetPrice: stock.targetPrice,
-              })}
-              currentPrice={stock.currentPrice}
-              stopLoss={stock.stopLoss}
-              targetPrice={stock.targetPrice}
-            />
-          </div>
-          <GateStatusCard
-            summary={buildGateCardSummary(stock)}
-            onExpand={() => onDeepAnalysis(stock)}
-          />
-        </div>
-
-        {/* Last Trigger + Enemy Checklist — ADR-0031 PR-D */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-4">
-          <LastTriggerCard summary={lastTriggerSummary} />
-          <EnemyChecklistCard summary={enemyChecklistSummary} />
-        </div>
-
-        {/* External Links & Market Heat */}
-        <div className="flex items-center justify-between mb-6 sm:mb-8 py-3 sm:py-4 border-y border-white/5 bg-white/[0.02] rounded-xl sm:rounded-2xl px-3 sm:px-4">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-              <Flame className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 shrink-0" />
-              <div className="flex gap-0.5 sm:gap-1 overflow-hidden">
-                {[...Array(10)].map((_, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "w-1 sm:w-1.5 h-3 sm:h-4 rounded-full transition-all duration-500 shrink-0",
-                      i < stock.hotness ? "bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.6)]" : "bg-white/10"
-                    )}
-                  />
-                ))}
-              </div>
-              <span className="text-[9px] sm:text-[11px] font-black text-white/40 ml-1 sm:ml-2 tracking-widest uppercase truncate">Heat</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <a
-              href={(() => {
-                const cleanCode = String(stock.code).replace(/[^0-9]/g, '');
-                return cleanCode.length === 6
-                  ? `https://finance.naver.com/item/main.naver?code=${cleanCode}`
-                  : `https://search.naver.com/search.naver?query=${encodeURIComponent(stock.name + ' 주가 차트')}`;
-              })()}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95"
-            >
-              <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Chart</span>
-              <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
-            </a>
-          </div>
-        </div>
-
-        {/* Automated Tranche Plan Section */}
-        {stock.tranchePlan && (
-          <div className="mb-6 sm:mb-8 bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10 shadow-inner">
-            <div className="flex items-center gap-2 mb-3">
-              <Target className="w-4 h-4 text-orange-500" />
-              <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Automated Tranche Plan</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: '1', data: stock.tranchePlan.tranche1 },
-                { id: '2', data: stock.tranchePlan.tranche2 },
-                { id: '3', data: stock.tranchePlan.tranche3 },
-              ].map((t) => (
-                <div key={t.id} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">T{t.id}</span>
-                    <span className="text-[9px] font-black text-orange-500/70">{t.data?.size || 0}%</span>
-                  </div>
-                  <div className="bg-white/5 p-2 rounded-lg border border-white/5">
-                    <div className="text-[9px] font-black text-white/60 truncate" title={t.data?.trigger || ''}>
-                      {t.data?.trigger ? t.data.trigger.split(' (')[0] : '-'}
-                    </div>
-                    <div className="text-[7px] font-bold text-white/20 uppercase tracking-tighter truncate">
-                      {t.data?.trigger?.includes('(') ? t.data.trigger.split('(')[1].replace(')', '') : 'Trigger'}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Technical Health Section */}
-        <div className="grid grid-cols-4 gap-1.5 sm:gap-2 mb-6 sm:mb-8">
-          <div className={cn(
-            "rounded-xl sm:rounded-2xl p-1.5 sm:p-2 border flex flex-col items-center justify-center gap-0.5 sm:gap-1 group/stat transition-all shadow-sm min-w-0 h-14 sm:h-16",
-            stock.confidenceScore && stock.confidenceScore >= 90 ? "bg-green-500/10 border-green-500/20" : "bg-white/5 border-white/5"
-          )}>
-            <span className="text-[6px] sm:text-[7px] font-black text-white/20 uppercase tracking-widest truncate w-full text-center">Conf.</span>
-            <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
-              <Zap className={cn("w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0", stock.confidenceScore && stock.confidenceScore >= 90 ? "text-green-400 fill-current" : "text-white/20")} />
-              <span className={cn("text-[9px] sm:text-[10px] font-black tracking-tighter truncate", stock.confidenceScore && stock.confidenceScore >= 90 ? "text-green-400" : "text-white/70")}>
-                {stock.confidenceScore}%
-              </span>
-            </div>
-          </div>
-          <div className={cn(
-            "rounded-xl sm:rounded-2xl p-1.5 sm:p-2 border flex flex-col items-center justify-center gap-0.5 sm:gap-1 group/stat transition-all shadow-sm min-w-0 h-14 sm:h-16",
-            stock.momentumRank && stock.momentumRank <= 5 ? "bg-red-500/10 border-red-500/20" : "bg-white/5 border-white/5"
-          )}>
-            <span className="text-[6px] sm:text-[7px] font-black text-white/20 uppercase tracking-widest truncate w-full text-center">Mom.</span>
-            <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
-              <TrendingUp className={cn("w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0", stock.momentumRank && stock.momentumRank <= 5 ? "text-red-400" : "text-white/20")} />
-              <span className={cn("text-[9px] sm:text-[10px] font-black tracking-tighter truncate", stock.momentumRank && stock.momentumRank <= 5 ? "text-red-400" : "text-white/70")}>
-                {stock.momentumRank}%
-              </span>
-            </div>
-          </div>
-          <div className={cn(
-            "rounded-xl sm:rounded-2xl p-1.5 sm:p-2 border flex flex-col items-center justify-center gap-0.5 sm:gap-1 group/stat transition-all shadow-sm min-w-0 h-14 sm:h-16",
-            stock.ichimokuStatus === 'ABOVE_CLOUD' ? "bg-blue-500/10 border-blue-500/20" : "bg-white/5 border-white/5"
-          )}>
-            <span className="text-[6px] sm:text-[7px] font-black text-white/20 uppercase tracking-widest truncate w-full text-center">Ichi.</span>
-            <div className="flex items-center justify-center gap-0.5 sm:gap-1 min-w-0 w-full">
-              <Cloud className={cn("w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0", stock.ichimokuStatus === 'ABOVE_CLOUD' ? "text-blue-400" : "text-white/20")} />
-              <span className={cn("text-[7px] sm:text-[8px] font-black text-center tracking-tight leading-tight truncate", stock.ichimokuStatus === 'ABOVE_CLOUD' ? "text-blue-400" : "text-white/70")}>
-                {stock.ichimokuStatus?.split('_')[0] || 'N/A'}
-              </span>
-            </div>
-          </div>
-          <div className={cn(
-            "rounded-xl sm:rounded-2xl p-1.5 sm:p-2 border flex flex-col items-center justify-center gap-0.5 sm:gap-1 group/stat transition-all shadow-sm min-w-0 h-14 sm:h-16",
-            stock.isLeadingSector ? "bg-orange-500/10 border-orange-500/20" : "bg-white/5 border-white/5"
-          )}>
-            <span className="text-[6px] sm:text-[7px] font-black text-white/20 uppercase tracking-widest truncate w-full text-center">Sector</span>
-            <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
-              <Crown className={cn("w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0", stock.isLeadingSector ? "text-orange-400" : "text-white/20")} />
-              <span className={cn("text-[9px] sm:text-[10px] font-black tracking-tighter truncate", stock.isLeadingSector ? "text-orange-400" : "text-white/70")}>
-                {stock.isLeadingSector ? 'LEAD' : 'MAIN'}
-              </span>
-            </div>
-          </div>
-        </div>
+        <HeaderSection
+          stock={stock}
+          copiedCode={copiedCode}
+          dartAlerts={dartAlerts}
+          isAllGatesPassed={isAllGatesPassed}
+          quantGateScore={quantGateScore}
+          concordance={concordance}
+          onCopy={onCopy}
+          onDeepAnalysis={onDeepAnalysis}
+        />
+        <AiFactorBar stock={stock} />
+        <SignalAndActions
+          stock={stock}
+          kisBalance={kisBalance}
+          isWatched={isWatched}
+          onAddToBacktest={onAddToBacktest}
+          onToggleWatchlist={onToggleWatchlist}
+          onSetTradeRecord={onSetTradeRecord}
+          onAddShadowTrade={onAddShadowTrade}
+          onSetView={onSetView}
+        />
+        <DiagnosticsSection
+          stock={stock}
+          lastTriggerSummary={lastTriggerSummary}
+          enemyChecklistSummary={enemyChecklistSummary}
+          onDeepAnalysis={onDeepAnalysis}
+        />
+        <ExternalLinksAndPlan stock={stock} />
+        <TechnicalHealthGrid stock={stock} />
       </div>
-
-      {/* Price Strategy Section */}
-      <div className="bg-white/[0.03] border-y border-white/10 p-5 sm:p-8 py-5 sm:py-7 relative">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-4 bg-orange-500 rounded-full" />
-            <span className="text-[10px] sm:text-[11px] font-black text-white/30 uppercase tracking-[0.2em] sm:tracking-[0.25em]">Price Strategy</span>
-          </div>
-          <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-1">
-            {(() => {
-              // ADR-0016 (PR-37): 시장 모드 5분류 → 라벨/색 분기 SSOT.
-              // 가격이 stale 캐시일 때 "LIVE" 를 그대로 띄워 잘못된 신뢰를 주던 문제 해소.
-              // 자동매매 quota 와 무관하게 사용자 카드 시각 표기 정합성 보장.
-              const open = isMarketOpenFor(stock.code);
-              let nextOpenLabel = '';
-              try { nextOpenLabel = formatNextOpenKst(nextOpenAtFor(stock.code)); } catch { /* noop */ }
-              type Variant = { label: string; tone: 'orange' | 'blue' | 'gray' | 'red'; pulse: boolean; title: string };
-              const variant: Variant = (() => {
-                if (open) {
-                  return { label: 'LIVE', tone: 'orange', pulse: true, title: '장중 실시간' };
-                }
-                if (marketMode === 'WEEKEND_CACHE') {
-                  return { label: '주말', tone: 'gray', pulse: false, title: `주말 — 다음 개장 ${nextOpenLabel}` };
-                }
-                if (marketMode === 'HOLIDAY_CACHE') {
-                  return { label: '공휴일', tone: 'gray', pulse: false, title: `공휴일 — 다음 개장 ${nextOpenLabel}` };
-                }
-                if (marketMode === 'DEGRADED') {
-                  return { label: '⚠️ 다중 실패', tone: 'red', pulse: false, title: '외부 소스 다중 실패 — 데이터 신뢰도 낮음' };
-                }
-                return { label: '장외', tone: 'blue', pulse: false, title: `장외 — 다음 개장 ${nextOpenLabel}` };
-              })();
-              const wrapperCn = (() => {
-                if (variant.tone === 'orange') return 'bg-orange-500/10 border-orange-500/20 group-hover:bg-orange-500/20';
-                if (variant.tone === 'blue') return 'bg-blue-500/10 border-blue-500/20 group-hover:bg-blue-500/15';
-                if (variant.tone === 'gray') return 'bg-slate-500/10 border-slate-500/20 group-hover:bg-slate-500/15';
-                return 'bg-red-500/10 border-red-500/30 group-hover:bg-red-500/15';
-              })();
-              const dotCn = (() => {
-                if (variant.tone === 'orange') return 'bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.8)]';
-                if (variant.tone === 'blue') return 'bg-blue-400/80';
-                if (variant.tone === 'gray') return 'bg-slate-400/80';
-                return 'bg-red-400/80';
-              })();
-              const textCn = (() => {
-                if (variant.tone === 'orange') return 'text-orange-500';
-                if (variant.tone === 'blue') return 'text-blue-300';
-                if (variant.tone === 'gray') return 'text-slate-300';
-                return 'text-red-300';
-              })();
-              return (
-                <div
-                  className={cn(
-                    "flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all",
-                    wrapperCn,
-                  )}
-                  title={variant.title}
-                >
-                  <div className="flex items-center gap-1.5 mr-1">
-                    <div className={cn("w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full", dotCn)} />
-                    <span className={cn("text-[7px] sm:text-[8px] font-black uppercase tracking-widest", textCn)}>
-                      {variant.label}
-                    </span>
-                  </div>
-                  <PriceEditCell
-                    stockCode={stock.code}
-                    currentPrice={stock.currentPrice}
-                    syncingStock={syncingStock}
-                    onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)}
-                    onSync={() => onSyncPrice(stock)}
-                  />
-                </div>
-              );
-            })()}
-            <div className="flex items-center gap-2 mt-1">
-              {stock.priceUpdatedAt && (
-                <span className="text-[7px] sm:text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center gap-1">
-                  <Clock className="w-2 h-2" />
-                  {stock.priceUpdatedAt}
-                </span>
-              )}
-              {stock.financialUpdatedAt && (
-                <span className="text-[7px] sm:text-[8px] font-black text-blue-400/40 uppercase tracking-widest flex items-center gap-1">
-                  <ShieldCheck className="w-2 h-2" />
-                  DART: {stock.financialUpdatedAt}
-                </span>
-              )}
-              <ConfidenceBadge type={stock.dataSourceType || 'AI'} />
-            </div>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
-          <div className="bg-blue-500/5 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-blue-500/10 flex flex-col items-center justify-center gap-1.5 sm:gap-2 group/price hover:bg-blue-500/10 transition-all shadow-sm min-w-0">
-            <span className="text-[7px] sm:text-[9px] font-black text-blue-400/50 uppercase tracking-widest truncate w-full text-center">Entry</span>
-            <div className="flex flex-col items-center min-w-0">
-              <div className="flex items-baseline gap-0.5 sm:gap-1 min-w-0">
-                <span className="text-[8px] sm:text-[10px] font-black text-blue-400/30 uppercase shrink-0">1st</span>
-                <span className="text-xs sm:text-base font-black text-white tracking-tighter truncate font-num">
-                  {stock.entryPrice && stock.entryPrice > 0
-                    ? `₩${stock.entryPrice?.toLocaleString() || '0'}`
-                    : stock.currentPrice > 0
-                      ? `₩${stock.currentPrice?.toLocaleString() || '0'}*`
-                      : '-'}
-                </span>
-              </div>
-              {stock.entryPrice2 && stock.entryPrice2 > 0 && (
-                <div className="flex items-baseline gap-1 opacity-60">
-                  <span className="text-[7px] sm:text-[9px] font-black text-blue-400/30 uppercase shrink-0">2nd</span>
-                  <span className="text-[10px] sm:text-sm font-black text-white/60 tracking-tighter truncate">₩{stock.entryPrice2?.toLocaleString() || '0'}</span>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="bg-green-500/5 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-green-500/10 flex flex-col items-center justify-center gap-1.5 sm:gap-2 group/price hover:bg-green-500/10 transition-all shadow-sm min-w-0">
-            <span className="text-[7px] sm:text-[9px] font-black text-green-400/50 uppercase tracking-widest truncate w-full text-center">Target</span>
-            <div className="flex flex-col items-center min-w-0">
-              <div className="flex items-baseline gap-0.5 sm:gap-1 min-w-0">
-                <span className="text-[8px] sm:text-[10px] font-black text-green-400/30 uppercase shrink-0">1st</span>
-                <span className="text-xs sm:text-base font-black text-green-400 tracking-tighter truncate font-num">
-                  {stock.targetPrice && stock.targetPrice > 0
-                    ? `₩${stock.targetPrice.toLocaleString()}`
-                    : stock.currentPrice > 0
-                      ? `₩${Math.round(stock.currentPrice * 1.20).toLocaleString()}*`
-                      : '-'}
-                </span>
-              </div>
-              {stock.targetPrice2 && stock.targetPrice2 > 0 && (
-                <div className="flex items-baseline gap-1 opacity-60">
-                  <span className="text-[7px] sm:text-[9px] font-black text-green-400/30 uppercase shrink-0">2nd</span>
-                  <span className="text-[10px] sm:text-sm font-black text-green-400/60 tracking-tighter truncate">₩{stock.targetPrice2.toLocaleString()}</span>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="bg-red-500/5 rounded-2xl sm:rounded-3xl p-3 sm:p-5 border border-red-500/10 flex flex-col items-center justify-center gap-1 sm:gap-1.5 group/price hover:bg-red-500/10 transition-all shadow-sm min-w-0">
-            <span className="text-[7px] sm:text-[9px] font-black text-red-400/50 uppercase tracking-widest truncate w-full text-center">Stop</span>
-            <span className="text-xs sm:text-base font-black text-red-400 tracking-tighter truncate font-num">
-              {stock.stopLoss && stock.stopLoss > 0
-                ? `₩${stock.stopLoss.toLocaleString()}`
-                : stock.currentPrice > 0
-                  ? `₩${Math.round(stock.currentPrice * 0.93).toLocaleString()}*`
-                  : '-'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer Section */}
-      <div className="p-5 sm:p-8 pt-5 sm:pt-7 flex-1 flex flex-col justify-between">
-        <div className="space-y-6 sm:space-y-8">
-          {/* Economic Moat */}
-          <div className="flex items-start gap-4 sm:gap-5 group/moat">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 shadow-sm group-hover/moat:bg-blue-500/20 transition-all">
-              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Economic Moat</span>
-              <div className="space-y-1.5 sm:space-y-2">
-                <span className={cn(
-                  "text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg sm:rounded-xl shadow-sm inline-block",
-                  stock.economicMoat?.type !== 'NONE' ? "bg-blue-500 text-white" : "bg-white/10 text-white/40"
-                )}>
-                  {stock.economicMoat?.type || 'NONE'}
-                </span>
-                <p className="text-[11px] sm:text-[12px] text-white/50 font-bold italic leading-relaxed break-words">
-                  {stock.economicMoat?.description}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Catalyst Analysis */}
-          <div className="flex items-start gap-4 sm:gap-5 group/catalyst">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center shrink-0 shadow-sm group-hover/catalyst:bg-yellow-500/20 transition-all">
-              <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Catalyst Analysis</span>
-              <div className="space-y-1.5 sm:space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    "text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg sm:rounded-xl shadow-sm inline-block",
-                    stock.checklist?.catalystAnalysis ? "bg-yellow-500 text-black" : "bg-white/10 text-white/40"
-                  )}>
-                    {stock.checklist?.catalystAnalysis ? 'PASSED' : 'PENDING'}
-                  </span>
-                  {stock.catalystSummary && (
-                    <span className="text-[10px] sm:text-[11px] font-black text-yellow-400/80 truncate">
-                      {stock.catalystSummary}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] sm:text-[12px] text-white/50 font-bold italic leading-relaxed break-words">
-                  {stock.catalystDetail?.description || '발굴된 촉매제가 없습니다.'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Valuation */}
-          <div className="flex items-start gap-4 sm:gap-5 group/val">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 shadow-sm group-hover/val:bg-orange-500/20 transition-all">
-              <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
-                  <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">P/E</span>
-                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">
-                    {stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'}
-                  </span>
-                </div>
-                <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
-                  <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">P/B</span>
-                  <span className="text-xs sm:text-sm font-black text-white/80 truncate block font-num">
-                    {stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'}
-                  </span>
-                </div>
-                <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
-                  <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">EPS</span>
-                  <span className={cn(
-                    "text-xs sm:text-sm font-black truncate block font-num",
-                    (stock.valuation?.epsGrowth ?? 0) > 0 ? "text-green-400" :
-                    (stock.valuation?.epsGrowth ?? 0) < 0 ? "text-red-400" : "text-white/50"
-                  )}>
-                    {(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}{stock.valuation?.epsGrowth ?? 0}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Latest News Section */}
-          {stock.latestNews && stock.latestNews.length > 0 && (
-            <div className="flex items-start gap-4 sm:gap-5 group/news">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 shadow-sm group-hover/news:bg-orange-500/20 transition-all">
-                <Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Latest News</span>
-                <div className="space-y-2">
-                  {(stock.latestNews || []).slice(0, 5).map((news, i) => (
-                    <a
-                      key={i}
-                      href={`https://www.google.com/search?q=${encodeURIComponent((news.headline || '') + ' ' + (stock.name || ''))}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex flex-col gap-1 p-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl transition-all group/news-item cursor-pointer"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] sm:text-[12px] font-bold text-white/80 group-hover/news-item:text-orange-400 transition-colors line-clamp-2 leading-tight">
-                          {news.headline}
-                        </span>
-                        <ExternalLink className="w-3 h-3 text-white/20 shrink-0" />
-                      </div>
-                      <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">{news.date}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <PriceStrategySection
+        stock={stock}
+        marketMode={marketMode}
+        syncingStock={syncingStock}
+        onManualPriceUpdate={onManualPriceUpdate}
+        onSyncPrice={onSyncPrice}
+      />
+      <FooterInsights stock={stock} />
     </motion.div>
   );
 }
