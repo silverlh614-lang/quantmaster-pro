@@ -11,6 +11,7 @@ import type { TelegramCommand } from '../_types.js';
 
 const pnl: TelegramCommand = {
   name: '/pnl',
+  aliases: ['pnl'],
   category: 'POS',
   visibility: 'ADMIN',
   riskLevel: 0,

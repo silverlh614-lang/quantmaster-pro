@@ -18,6 +18,7 @@ import type { TelegramCommand } from '../_types.js';
 
 const pos: TelegramCommand = {
   name: '/pos',
+  aliases: ['/positions', 'pos'],
   category: 'POS',
   visibility: 'ADMIN',
   riskLevel: 0,
