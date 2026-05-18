@@ -35,7 +35,8 @@
 import { logger } from '../utils/logger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { getLiveRegime, getRegimeDiagnostics, type RegimeDiagnostics } from '../trading/regimeBridge.js';
+import type { ShadowCandidateScanTrigger, BiasLabel } from '../trading/marketStateResolver.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { sendEmptyScanDecisionBroker, sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getEffectiveGateThreshold } from '../trading/gateConfig.js';
@@ -66,6 +67,7 @@ export interface ScanDecision {
   intervalMinutes: number;
   reason:          string;
   priority:        'SELL_ONLY' | 'FULL' | 'SKIP';
+  candidateScanTrigger?: ShadowCandidateScanTrigger;
   /**
    * ADR-0451 — Empty Scan Liveness Policy 결정 결과 (옵셔널, 후방호환).
    * REGULAR session + emptyScanStreak 만으로 SELL_ONLY 강제하지 않음을 호출자에 노출.
@@ -115,6 +117,8 @@ let lastVkospikSpikeAt = 0;  // ms timestamp
  */
 let immediateRescanRequested = false;
 let lastLunchBlockSeenAt     = 0;  // 11:30~13:00 구간 진입 최근 시각 (점심 해제 감지용)
+let lastR6ConfirmationScanKey: string | null = null;
+let lastBiasLabel: BiasLabel | null = null;
 
 /**
  * 외부 모듈(exitEngine 등)이 "지금 즉시 다음 tick 부터 스캔하라" 고 요청할 수 있는 훅.
@@ -157,6 +161,84 @@ const REGIME_MULTIPLIER: Record<string, number> = {
 const VKOSPI_SPIKE_THRESHOLD  = 5;           // %
 const VKOSPI_SPIKE_COOLDOWN   = 30 * 60_000; // 30분
 
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function resolveSchedulerBiasScore(macroState: Record<string, unknown> | null | undefined): number {
+  if (!macroState) return 0;
+  for (const key of ['biasScore', 'directionBiasScore', 'preMarketBiasScore', 'marketBiasScore', 'globalBiasScore', 'riskBiasScore', 'bias']) {
+    const explicit = finiteNumber(macroState[key]);
+    if (explicit !== undefined) return Math.max(-100, Math.min(100, explicit));
+  }
+  return 0;
+}
+
+function resolveSchedulerBiasLabel(score: number): BiasLabel {
+  if (score <= -20) return 'BEAR';
+  if (score >= 20) return 'BULL';
+  return 'NEUTRAL';
+}
+
+function isR6ConfirmationWaitDiagnostics(diagnostics: RegimeDiagnostics): boolean {
+  return diagnostics.activeR6Triggers.length === 0 &&
+    diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH' &&
+    diagnostics.r6ShockLatch === true &&
+    diagnostics.recoveryBlockedReason === 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION';
+}
+
+function resolveR6ConfirmationScanKey(diagnostics: RegimeDiagnostics): string {
+  return diagnostics.transitionState.latchTriggeredAt ??
+    diagnostics.transitionState.r6ShockLatchDetail?.triggeredAt ??
+    diagnostics.transitionState.latchReleaseEligibleAt ??
+    diagnostics.transitionState.latchExpiresAt ??
+    'R6_CONFIRMATION_WAIT';
+}
+
+function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): void {
+  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE liveNewBuyAllowed=false realOrderAllowed=false strongBuyAllowed=false`;
+  console.info(line);
+  sendTelegramAlert(
+    `🧪 <b>[Shadow candidate scan trigger]</b>
+` +
+    `trigger: <code>${trigger}</code>
+` +
+    `executionImpact: <code>NONE</code>
+` +
+    `liveNewBuyAllowed=false / realOrderAllowed=false / strongBuyAllowed=false`,
+    { priority: 'NORMAL', dedupeKey: `shadow_candidate_scan:${trigger}`, cooldownMs: 30 * 60_000 },
+  ).catch(console.error);
+}
+
+function shouldTriggerRecoveryShadowScan(input: {
+  diagnostics: RegimeDiagnostics;
+  macroState: Record<string, unknown> | null | undefined;
+  mhs: number;
+  biasLabel: BiasLabel;
+  now: number;
+}): ShadowCandidateScanTrigger | undefined {
+  const shadowLearningAllowed = true;
+  const shadowScanAllowed = true;
+  if (!shadowLearningAllowed || !shadowScanAllowed) return undefined;
+  const macroFresh = input.diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH';
+  const noActiveR6 = input.diagnostics.activeR6Triggers.length === 0;
+  if (isR6ConfirmationWaitDiagnostics(input.diagnostics) && macroFresh && noActiveR6) {
+    const key = resolveR6ConfirmationScanKey(input.diagnostics);
+    if (lastR6ConfirmationScanKey !== key) {
+      lastR6ConfirmationScanKey = key;
+      emitShadowCandidateScanTrigger('R6_CONFIRMATION_WAIT');
+      return 'R6_CONFIRMATION_WAIT';
+    }
+  }
+
+  const recoveredFromBear = lastBiasLabel === 'BEAR' && (input.biasLabel === 'BULL' || input.biasLabel === 'NEUTRAL');
+  if (recoveredFromBear && input.mhs >= 60 && macroFresh && noActiveR6) {
+    emitShadowCandidateScanTrigger('BIAS_RECOVERY');
+    return 'BIAS_RECOVERY';
+  }
+  return undefined;
+}
+
 // ── 메인 결정 함수 ────────────────────────────────────────────────────────────
 
 /**
@@ -171,7 +253,18 @@ export function decideScan(): ScanDecision {
   const t          = h * 100 + m;
 
   const macroState = loadMacroState();
-  const regime     = getLiveRegime(macroState);
+  const regimeDiagnostics = getRegimeDiagnostics(macroState);
+  const regime     = regimeDiagnostics.effectiveRegime ?? getLiveRegime(macroState);
+  const biasScore = resolveSchedulerBiasScore(macroState as Record<string, unknown> | null);
+  const biasLabel = resolveSchedulerBiasLabel(biasScore);
+  const recoveryShadowTrigger = shouldTriggerRecoveryShadowScan({
+    diagnostics: regimeDiagnostics,
+    macroState: macroState as Record<string, unknown> | null,
+    mhs: macroState?.mhs ?? 0,
+    biasLabel,
+    now,
+  });
+  lastBiasLabel = biasLabel;
   const shadows    = loadShadowTrades();
 
   // signalScanner 와 동일한 기준으로 세어야 slot-adj 이 실제 스캐너의 판단과 일치한다.
@@ -188,6 +281,18 @@ export function decideScan(): ScanDecision {
   const rawRegimeMax = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
   const convictionCap = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
   const maxPositions = Math.max(0, Math.min(convictionCap, rawRegimeMax));
+
+  if (recoveryShadowTrigger) {
+    lastScanAt = now;
+    immediateRescanRequested = false;
+    return {
+      shouldScan: true,
+      intervalMinutes: 0,
+      reason: `${recoveryShadowTrigger} — shadow candidate scan (executionImpact=NONE, live buy blocked)`,
+      priority: 'FULL',
+      candidateScanTrigger: recoveryShadowTrigger,
+    };
+  }
 
   // ── 1. VKOSPI 급등 감지 → 즉시 SELL_ONLY 강제 실행 ──────────────────────
   const vkospiDayChange = macroState?.vkospiDayChange ?? 0;
@@ -568,4 +673,6 @@ export function resetScanState(): void {
   consecutiveEmptyScans    = 0;
   immediateRescanRequested = false;
   lastLunchBlockSeenAt     = 0;
+  lastR6ConfirmationScanKey = null;
+  lastBiasLabel             = null;
 }

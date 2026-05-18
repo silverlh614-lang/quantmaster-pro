@@ -173,6 +173,7 @@ function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>
     lastShadowSignalAt: Number.isFinite(lastShadowSignalAt) ? formatKstHm(new Date(lastShadowSignalAt)) : undefined,
     lastBlockReason,
     candidateScanStatus,
+    candidateScanTrigger: summary?.candidateScanTrigger ?? (summary?.time ? 'SCHEDULED' : undefined),
     candidateSkipReason: (macroHardStale || (summary?.candidates ?? 0) === 0) ? lastBlockReason : undefined,
   };
 }

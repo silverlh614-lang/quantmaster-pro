@@ -27,6 +27,7 @@ export type MarketStateExecutionMode =
   | 'SHADOW_ONLY'
   | 'OBSERVE_ONLY';
 export type DisplaySeverity = 'OK' | 'CAUTION' | 'DEFENSE' | 'PANIC';
+export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY';
 
 export interface MarketStateSnapshot {
   snapshotId: string;
@@ -119,6 +120,7 @@ export interface ShadowActivitySnapshot {
   lastShadowSignalAt?: string;
   lastBlockReason?: string;
   candidateScanStatus?: 'RAN' | 'NOT_RUN' | 'SKIPPED';
+  candidateScanTrigger?: ShadowCandidateScanTrigger;
   candidateSkipReason?: string;
 }
 
@@ -700,16 +702,18 @@ function summarizeReasonCodes(reasonCodes: string[]): string {
 }
 
 function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined): string {
-  if (!activity) return 'Shadow candidate scan: NOT_RUN\nlastCandidateScanAt: N/A\ncandidateEvaluated: 0\nskipReason: SCHEDULER_NOT_TRIGGERED';
+  if (!activity) return 'Shadow candidate scan: NOT_RUN\ntrigger: SCHEDULED\nlastCandidateScanAt: N/A\ncandidateEvaluated: 0\nbuyCandidates: 0\nskipReason: SCHEDULER_NOT_TRIGGERED';
   const inferredStatus = activity.candidateScanStatus ?? (activity.lastScanAt ? 'RAN' : activity.evaluatedCount > 0 ? 'RAN' : 'NOT_RUN');
+  const trigger = activity.candidateScanTrigger ?? 'SCHEDULED';
   const last = activity.lastScanAt ? activity.lastScanAt : 'N/A';
   const skipReason = activity.candidateSkipReason ?? activity.lastBlockReason ?? (activity.evaluatedCount === 0 ? 'SCHEDULER_NOT_TRIGGERED' : undefined);
   return [
     `Shadow position management: ${activity.scanAllowed ? 'ON' : 'OFF'} / SELL 체크 ${activity.sellCheckCount}건`,
     `Shadow candidate scan: ${inferredStatus}`,
+    `trigger: ${trigger}`,
     `lastCandidateScanAt: ${last}`,
     `candidateEvaluated: ${activity.evaluatedCount}`,
-    ...(inferredStatus === 'RAN' ? [`buyCandidates: ${activity.buySignalCount}`] : []),
+    `buyCandidates: ${activity.buySignalCount}`,
     ...(activity.evaluatedCount === 0 || inferredStatus !== 'RAN' ? [`skipReason: ${skipReason ?? 'SCHEDULER_NOT_TRIGGERED'}`] : []),
     `paperFillCount: ${activity.paperFillCount}`,
     `openShadowPositions: ${activity.openShadowPositions}`,
