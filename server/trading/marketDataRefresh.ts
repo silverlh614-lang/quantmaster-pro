@@ -25,7 +25,10 @@ import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { appendFssDetailRecord } from '../persistence/fssDetailRepo.js';
 import { isFssMappingEnabled, mapPassiveActive } from '../persistence/fssMappingPolicy.js';
 import { fetchInvestorTradingDetail } from '../clients/krxClient.js';
-import { checkAndNotifyRegimeChange, getRegimeDiagnostics } from './regimeBridge.js';
+import { checkAndNotifyRegimeChange } from './regimeBridge.js';
+import { resolveRegimeSnapshot } from './regime/regimeResolver.js';
+import { classifyMacroDataHealth, listMacroDataHealthIssues, summarizeMacroDataHealth } from './regime/macroDataHealthRouter.js';
+import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
@@ -43,13 +46,13 @@ type MacroRefreshReason = 'SCHEDULED' | 'MANUAL' | 'R6_RECOVERY_CHECK';
 function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
   try {
     const macro = loadMacroState();
-    const diagnostics = getRegimeDiagnostics(macro, now);
-    const r6State = diagnostics.transitionState.r6StateMachineState ?? diagnostics.effectiveRegime;
+    const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro, now });
+    const r6State = regimeSnapshot.diagnostics.transitionState.r6StateMachineState ?? regimeSnapshot.effectiveRegime;
     return {
       marketSession: process.env.MARKET_SESSION ?? process.env.NODE_ENV ?? 'UNKNOWN',
-      engineMode: diagnostics.effectiveRegime,
+      engineMode: regimeSnapshot.engineMode,
       r6State,
-      sellOnly: diagnostics.effectiveRegime === 'R6_DEFENSE' || diagnostics.effectiveRegime === 'R5_CAUTION',
+      sellOnly: regimeSnapshot.effectiveRegime === 'R6_DEFENSE' || regimeSnapshot.effectiveRegime === 'R5_CAUTION',
     };
   } catch (e) {
     return {
@@ -87,25 +90,87 @@ function logMacroRefreshSuccess(input: { updatedAt: string; mhs?: number; vkospi
 function logMacroRefreshFailed(input: { error: unknown; provider: string; fallbackUsed?: boolean | string }): void {
   const errorName = input.error instanceof Error ? input.error.name : 'Error';
   const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
-  console.warn(
-    '[MACRO_REFRESH_FAILED] ' +
-    `errorName=${errorName} ` +
-    `errorMessage=${errorMessage} ` +
-    `provider=${input.provider} ` +
-    `fallbackUsed=${input.fallbackUsed ?? 'N/A'} ` +
-    'executionImpact=REGIME_RECOVERY_BLOCKED_ONLY',
-  );
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'DATA',
+    code: 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    message: '[MACRO_REFRESH_FAILED] macro provider refresh failed',
+    executionImpact: 'NONE',
+    mode: 'DEGRADED',
+    dedupKey: `macro-refresh-failed:${input.provider}:${errorName}`,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: {
+      reason: 'providerIssue=true marketSignal=false',
+      errorName,
+      errorMessage,
+      provider: input.provider,
+      fallbackUsed: input.fallbackUsed ?? 'N/A',
+    },
+  });
 }
 
 function logMacroRefreshSkipped(reason: string): void {
   const ctx = macroRefreshRuntimeContext();
-  console.warn(
-    '[MACRO_REFRESH_SKIPPED] ' +
-    `reason=${reason} ` +
-    `engineMode=${ctx.engineMode} ` +
-    `r6State=${ctx.r6State} ` +
-    'shouldNotSkipInR6=true',
-  );
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'DATA',
+    code: 'P1_MACRO_STATE_STALE',
+    message: '[MACRO_REFRESH_SKIPPED] macro refresh skipped',
+    executionImpact: 'NONE',
+    mode: ctx.sellOnly ? 'SELL_ONLY' : 'DEGRADED',
+    dedupKey: `macro-refresh-skipped:${reason}:${ctx.r6State}`,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: {
+      reason,
+      engineMode: ctx.engineMode,
+      r6State: ctx.r6State,
+      shouldNotSkipInR6: true,
+      providerIssue: true,
+      marketSignal: false,
+    },
+  });
+}
+
+function emitMacroDataHealthSummary(updated: unknown): void {
+  const dataHealth = classifyMacroDataHealth(updated as Parameters<typeof classifyMacroDataHealth>[0]);
+  const sourceHealth = summarizeMacroDataHealth(dataHealth);
+  const issues = listMacroDataHealthIssues(dataHealth);
+  if (issues.length === 0) return;
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'DATA',
+    code: sourceHealth === 'STALE' ? 'P1_MACRO_STATE_STALE' : 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    message: `[MACRO_DATA_HEALTH] sourceHealth=${sourceHealth}`,
+    executionImpact: 'NONE',
+    mode: 'DEGRADED',
+    dedupKey: `macro-data-health:${sourceHealth}:${issues.join('|')}`,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: {
+      reason: 'providerIssue=true marketSignal=false',
+      sourceHealth,
+      issues,
+      dataHealth,
+    },
+  });
+}
+
+function emitMarketDataProviderWarn(reason: string, details: Record<string, unknown> = {}): void {
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'DATA',
+    code: 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    message: `[MarketRefresh] ${reason}`,
+    executionImpact: 'NONE',
+    mode: 'DEGRADED',
+    dedupKey: `market-refresh-provider:${reason}`,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: {
+      reason: 'providerIssue=true marketSignal=false',
+      providerIssue: true,
+      marketSignal: false,
+      ...details,
+    },
+  });
 }
 
 /**
@@ -549,7 +614,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   const existing = loadMacroState();
   if (!existing) {
     logMacroRefreshSkipped('MACRO_STATE_MISSING');
-    console.warn('[MarketRefresh] MacroState 없음 — MHS를 먼저 POST /macro/state로 초기화하세요');
+    emitMarketDataProviderWarn('MACRO_STATE_MISSING', {
+      action: 'POST /macro/state required before refresh',
+    });
     return {};
   }
 
@@ -592,7 +659,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     computed.kospiAboveMA20Pct = ma20 > 0 ? ((last - ma20) / ma20) * 100 : 0;
     console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, MA20대비=${(computed.kospiAboveMA20Pct as number).toFixed(2)}%, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);
   } else {
-    console.warn('[MarketRefresh] KOSPI 데이터 부족 또는 실패');
+    emitMarketDataProviderWarn('KOSPI_DATA_INSUFFICIENT');
   }
 
   // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────
@@ -627,7 +694,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       ).catch(console.error);
     }
   } else {
-    console.warn(`[MarketRefresh] USD/KRW 양 소스 모두 실패: ${xs.message}`);
+    emitMarketDataProviderWarn('USD_KRW_ALL_SOURCES_FAILED', {
+      error: xs.message,
+    });
   }
 
   // ── ⑦ S&P500 (^GSPC) 20일 ────────────────────────────────────────────────
@@ -636,7 +705,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     computed.spx20dReturn = nDayReturn(spx, Math.min(20, spx.length - 1));
     console.log(`[MarketRefresh] SPX: 20d=${(computed.spx20dReturn as number).toFixed(2)}%`);
   } else {
-    console.warn('[MarketRefresh] SPX 데이터 부족 또는 실패');
+    emitMarketDataProviderWarn('SPX_DATA_INSUFFICIENT');
   }
 
   // ── ⑦ DXY (DX-Y.NYB) 5일 ────────────────────────────────────────────────
@@ -645,7 +714,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     computed.dxy5dChange = nDayReturn(dxy, Math.min(5, dxy.length - 1));
     console.log(`[MarketRefresh] DXY: 5d=${(computed.dxy5dChange as number).toFixed(2)}%`);
   } else {
-    console.warn('[MarketRefresh] DXY 데이터 부족 또는 실패');
+    emitMarketDataProviderWarn('DXY_DATA_INSUFFICIENT');
   }
 
   // ── ③ FSS 수급 (서버 로컬 레코드) ────────────────────────────────────────
@@ -707,7 +776,10 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     );
   } else {
     computed.programSource = 'NONE';
-    console.warn('[MarketRefresh] KIS 시장 프로그램 매매 조회 실패 — programSource=NONE, 기존 값 보존');
+    emitMarketDataProviderWarn('PROGRAM_TRADING_QUERY_FAILED', {
+      programSource: 'NONE',
+      carryForward: true,
+    });
   }
 
   // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
@@ -723,7 +795,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         `(source=${shortResult.source})${shortResult.ratio > 8 ? ' ⚠ R5_CAUTION 보조' : ''}`,
     );
   } else {
-    console.warn('[MarketRefresh] KRX 공매도 조회 실패 — 기존 값 유지');
+    emitMarketDataProviderWarn('SHORT_SELLING_QUERY_FAILED', {
+      carryForward: true,
+    });
   }
 
   // ── ⑥-b ADR-0139: ECOS 신용공여잔액 5영업일 변화율 ───────────────────────
@@ -740,7 +814,10 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     );
   } else {
     computed.marginBalanceSource = 'NONE';
-    console.warn('[MarketRefresh] ECOS 신용공여 조회 실패 — marginBalanceSource=NONE, 기존 값 보존');
+    emitMarketDataProviderWarn('MARGIN_BALANCE_QUERY_FAILED', {
+      marginBalanceSource: 'NONE',
+      carryForward: true,
+    });
   }
 
   // ── ⑥-c ADR-0141 Stage 1: KRX 11분류 raw 데이터 영속 ───────────────────
@@ -785,20 +862,22 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
               (mapped.unmatched.length > 0 ? ` (unmatched: ${mapped.unmatched.join(',')})` : ''),
             );
           } catch (e) {
-            console.warn(
-              `[MarketRefresh] FSS 매핑 적용 실패 — ${e instanceof Error ? e.message : e}`,
-            );
+            emitMarketDataProviderWarn('FSS_MAPPING_FAILED', {
+              error: e instanceof Error ? e.message : String(e),
+            });
           }
         }
       } else {
         computed.fssDetailSource = 'NONE';
-        console.warn('[MarketRefresh] FSS 11분류 응답 빈 배열 — 기존 영속 보존');
+        emitMarketDataProviderWarn('FSS_DETAIL_EMPTY_RESPONSE', {
+          carryForward: true,
+        });
       }
     } catch (e) {
       computed.fssDetailSource = 'NONE';
-      console.warn(
-        `[MarketRefresh] FSS 11분류 조회 실패 — ${e instanceof Error ? e.message : e}`,
-      );
+      emitMarketDataProviderWarn('FSS_DETAIL_QUERY_FAILED', {
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -849,7 +928,10 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       ` | axis 금리=${idx.axis.interestRate} 유동성=${idx.axis.liquidity} 경기=${idx.axis.economy} 리스크=${idx.axis.risk}`,
     );
   } catch (e) {
-    console.warn('[MarketRefresh] MHS 자체 계산 실패 — 기존 MHS 유지:', e instanceof Error ? e.message : e);
+    emitMarketDataProviderWarn('MHS_COMPUTE_FAILED', {
+      error: e instanceof Error ? e.message : String(e),
+      carryForward: true,
+    });
   }
 
   // ── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT 영속 ─────────────
@@ -970,7 +1052,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       );
     }
   } catch (e) {
-    console.warn('[MarketRefresh] sectorEnergy 갱신 실패:', e instanceof Error ? e.message : e);
+    emitMarketDataProviderWarn('SECTOR_ENERGY_REFRESH_FAILED', {
+      error: e instanceof Error ? e.message : String(e),
+    });
     sectorEnergyDataQuality = 'FAILED';
     sectorEnergyReasons = ['buildSectorEnergyInputsWithMeta throw'];
   }
@@ -1046,6 +1130,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     fssRecordsAge: fssRecordsAgeSnapshot,
   };
   saveMacroState(updated as typeof existing);
+  emitMacroDataHealthSummary(updated);
   logMacroRefreshSuccess({ updatedAt, mhs: updated.mhs, vkospi: updated.vkospi, kospiDayReturn: updated.kospiDayReturn, writeSucceeded: true });
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
 
@@ -1068,7 +1153,21 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       updatedAtChanged: false,
     });
     logMacroRefreshFailed({ error: e, provider: 'MARKET_DATA_REFRESH', fallbackUsed: latest?.fallbackUsed });
-    console.warn(`[MarketRefresh] MacroState refresh 실패 — diagnostics persisted reason=REFRESH_THROW error=${message}`);
+    emitOperationalWarn({
+      priority: 'P1',
+      domain: 'DATA',
+      code: 'P1_MACRO_DATA_HEALTH_DEGRADED',
+      message: '[MarketRefresh] MacroState refresh failed and diagnostics were persisted',
+      executionImpact: 'NONE',
+      mode: 'DEGRADED',
+      dedupKey: 'market-refresh:refresh-throw',
+      ttlSec: defaultWarnTtlSec('P1'),
+      details: {
+        reason: 'providerIssue=true marketSignal=false',
+        error: message,
+        refreshBlockedReason: 'REFRESH_THROW',
+      },
+    });
     throw e;
   }
 }

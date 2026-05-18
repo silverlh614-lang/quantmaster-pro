@@ -43,6 +43,26 @@ import { DXY_MONITOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { logNewsSupplyEvent } from '../learning/newsSupplyLogger.js';
 import { dispatchAlert } from './alertRouter.js';
 import { AlertCategory } from './alertCategories.js';
+import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
+
+function emitDxyProviderWarn(reason: string, details: Record<string, unknown> = {}): void {
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'DATA',
+    code: 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    message: `[DxyMonitor] ${reason}`,
+    executionImpact: 'NONE',
+    mode: 'DEGRADED',
+    dedupKey: `dxy-provider:${reason}`,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: {
+      reason: 'providerIssue=true marketSignal=false',
+      providerIssue: true,
+      marketSignal: false,
+      ...details,
+    },
+  });
+}
 
 // ── 임계값 ────────────────────────────────────────────────────────────────────
 
@@ -196,7 +216,10 @@ export async function runDxyMonitor(): Promise<DxyAlertReport | null> {
   ]);
 
   if (!dxyCloses || dxyCloses.length < 6) {
-    console.warn('[DxyMonitor] DXY 데이터 부족 — 스킵');
+    emitDxyProviderWarn('DXY_DATA_INSUFFICIENT', {
+      source: 'DX-Y.NYB',
+      availableCount: dxyCloses?.length ?? 0,
+    });
     return null;
   }
 
@@ -211,6 +234,13 @@ export async function runDxyMonitor(): Promise<DxyAlertReport | null> {
     krwChange: krwCloses ? nDayPct(krwCloses, 1) : null,
     ewyChange: ewyCloses ? nDayPct(ewyCloses, 1) : null,
   };
+
+  if (!krwCloses || !ewyCloses) {
+    emitDxyProviderWarn('DXY_CROSS_CHECK_DATA_PARTIAL', {
+      krwAvailable: Boolean(krwCloses),
+      ewyAvailable: Boolean(ewyCloses),
+    });
+  }
 
   const abs1d   = Math.abs(change1d);
   const abs5d   = Math.abs(change5d);
@@ -330,7 +360,10 @@ export async function runDxyIntradayMonitor(): Promise<DxyIntradayAlert | null> 
     // ALPHA_VANTAGE_API_KEY 미설정이면 fallback 자체가 없으므로 info 로 1회 안내.
     const avConfigured = Boolean(process.env.ALPHA_VANTAGE_API_KEY?.trim());
     if (avConfigured) {
-      console.warn('[DxyIntraday] 데이터 소스 모두 실패 (Yahoo + Alpha Vantage) — 스킵');
+      emitDxyProviderWarn('DXY_INTRADAY_ALL_PROVIDERS_FAILED', {
+        yahoo: 'FAILED',
+        alphaVantage: 'FAILED',
+      });
     } else {
       console.log('[DxyIntraday] Yahoo 리딩 없음 & ALPHA_VANTAGE_API_KEY 미설정 — 스킵');
     }
@@ -391,7 +424,9 @@ export async function runDxyIntradayMonitor(): Promise<DxyIntradayAlert | null> 
   console.log(`[DxyIntraday] ✉️ ${direction} 알림 전송 — ${sign}${reading.changeWindowPct.toFixed(2)}% (${reading.windowMinutes}m)`);
 
   // 인트라데이 임계 돌파 시 일봉 기준 모니터도 강제 트리거 — 교차 검증 + 학습 DB 기록
-  void runDxyMonitor().catch(e => console.warn('[DxyIntraday] runDxyMonitor 강제 트리거 실패:', e instanceof Error ? e.message : e));
+  void runDxyMonitor().catch((e) => emitDxyProviderWarn('DXY_MONITOR_TRIGGER_FAILED', {
+    error: e instanceof Error ? e.message : String(e),
+  }));
 
   return alert;
 }

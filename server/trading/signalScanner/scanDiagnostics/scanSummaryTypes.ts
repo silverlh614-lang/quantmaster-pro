@@ -83,6 +83,14 @@ export interface MacroGateState {
   liveEntryBlockedReason?: string;
   macroRegimeRaw?: string;
   macroRegimeEffective?: string;
+  regimeSnapshotId?: string;
+  regimeSnapshotAsOf?: string;
+  regimeSnapshotTtlSec?: number;
+  displayRegime?: string;
+  riskOverride?: string;
+  engineMode?: string;
+  sourceHealth?: string;
+  regimeConflicts?: string[];
   r6RecoveryStatus?: string;
   activeR6Triggers?: string[];
   r6ShockLatch?: boolean;

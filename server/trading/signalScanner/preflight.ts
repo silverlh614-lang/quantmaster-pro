@@ -18,9 +18,10 @@ import {
   type MacroEntryOverrideTarget,
 } from '../../state.js';
 import { sendTelegramAlert, escapeHtml } from '../../alerts/telegramClient.js';
+import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
 import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
-import { getRegimeDiagnostics } from '../regimeBridge.js';
+import { resolveRegimeSnapshot } from '../regime/regimeResolver.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import {
@@ -240,15 +241,54 @@ function formatMacroEntryOverrideLog(override: MacroEntryOverrideState): string 
   return `targets=${override.targets.join(',')} expiresAt=${override.expiresAt} reason=${override.reason}`;
 }
 
+function emitPreflightOperationalWarn(input: {
+  code: string;
+  domain?: 'REGIME' | 'DATA' | 'PROVIDER' | 'DIAGNOSTIC';
+  message: string;
+  dedupKey: string;
+  executionImpact?: 'LIVE_ORDER_BLOCKED' | 'SCAN_GATE_DEGRADED' | 'NONE';
+  details?: Record<string, unknown>;
+}): void {
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: input.domain ?? 'REGIME',
+    code: input.code,
+    message: input.message,
+    executionImpact: input.executionImpact ?? (input.domain === 'DATA' || input.domain === 'PROVIDER' ? 'NONE' : 'SCAN_GATE_DEGRADED'),
+    mode: 'DEGRADED',
+    dedupKey: input.dedupKey,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: {
+      reason: input.domain === 'DATA' || input.domain === 'PROVIDER'
+        ? 'providerIssue=true marketSignal=false'
+        : 'preflight gate changed runtime behavior',
+      ...input.details,
+    },
+  });
+}
+
 export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<any> {
   if (!process.env.KIS_APP_KEY) {
-    console.warn('[AutoTrade] KIS_APP_KEY 미설정 — 스캔 건너뜀');
+    emitPreflightOperationalWarn({
+      code: 'P1_PREFLIGHT_KIS_CONFIG_MISSING',
+      domain: 'PROVIDER',
+      message: '[AutoTrade] KIS_APP_KEY missing; scan skipped',
+      dedupKey: 'preflight:kis-config-missing',
+      executionImpact: 'LIVE_ORDER_BLOCKED',
+      details: { providerIssue: true, marketSignal: false },
+    });
     await recordBlockedDayShadowScan('KIS_CONFIG_MISSING');
     let watchlistForLearning: WatchlistEntry[] = [];
     try {
       watchlistForLearning = loadWatchlist();
     } catch (e) {
-      console.warn('[CounterfactualUniverseLearning] KIS 설정 누락 snapshot용 watchlist 로드 실패 — 빈 universe로 기록', e);
+      emitPreflightOperationalWarn({
+        code: 'P1_MACRO_DATA_HEALTH_DEGRADED',
+        domain: 'DATA',
+        message: '[CounterfactualUniverseLearning] watchlist load failed for KIS config missing snapshot',
+        dedupKey: 'preflight:kis-config-missing:watchlist-load-failed',
+        details: { error: e instanceof Error ? e.message : String(e) },
+      });
     }
     await recordPreflightUniverseLearningSnapshot({
       stage: 'BEFORE_UNIVERSE_BUILD',
@@ -267,7 +307,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const manualManageOnly = getManualManageOnly();
   if ((manualBlockNewBuy || manualManageOnly) && !optSellOnly) {
     const reason = manualManageOnly ? '보유만 관리 모드' : '신규 매수 차단';
-    console.warn(`[AutoTrade] UI 수동 가드 활성 (${reason}) — sellOnly 로 승격`);
+    emitPreflightOperationalWarn({
+      code: 'P1_PREFLIGHT_MANUAL_GUARD_SELL_ONLY',
+      domain: 'DIAGNOSTIC',
+      message: '[AutoTrade] UI manual guard promoted preflight to sellOnly',
+      dedupKey: `preflight:manual-guard:${reason}`,
+      details: { guardReason: reason },
+    });
     optSellOnly = true;
   }
 
@@ -322,17 +368,24 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   );
 
   const macroState = loadMacroState();
-  const regimeDiagnostics = getRegimeDiagnostics(macroState);
-  const regime      = regimeDiagnostics.effectiveRegime;
+  const regimeSnapshot = resolveRegimeSnapshot({ macroState });
+  const regimeDiagnostics = regimeSnapshot.diagnostics;
+  const regime = regimeSnapshot.effectiveRegime as keyof typeof REGIME_CONFIGS;
   let regimeConfig = REGIME_CONFIGS[regime];
   const macroEntryOverride = getMacroEntryOverrideState();
   const r6EntryOverrideActive =
     regime === 'R6_DEFENSE' && macroEntryOverrideApplies(macroEntryOverride, 'R6_DEFENSE');
   if (r6EntryOverrideActive) {
     regimeConfig = applyMacroEntryOverrideRegimeConfig(regimeConfig, macroEntryOverride!);
-    console.warn(
-      `[AutoTrade] OPERATOR_MACRO_ENTRY_OVERRIDE applied for R6_DEFENSE — ${formatMacroEntryOverrideLog(macroEntryOverride!)}`,
-    );
+    emitPreflightOperationalWarn({
+      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
+      message: '[AutoTrade] OPERATOR_MACRO_ENTRY_OVERRIDE applied for R6_DEFENSE',
+      dedupKey: 'preflight:operator-macro-entry-override:r6',
+      details: {
+        override: formatMacroEntryOverrideLog(macroEntryOverride!),
+        regimeSnapshotId: regimeSnapshot.snapshotId,
+      },
+    });
     await sendTelegramAlert(
       `⚠️ <b>[Operator Macro Entry Override]</b>\n` +
       `R6_DEFENSE 신규 진입 차단을 운영자 명령으로 우회합니다.\n` +
@@ -370,6 +423,15 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       conditionWeights,
       extra: {
         macroEntryOverride,
+        regimeSnapshotId: regimeSnapshot.snapshotId,
+        regimeSnapshotAsOf: regimeSnapshot.asOf,
+        regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
+        displayRegime: regimeSnapshot.displayRegime,
+        riskOverride: regimeSnapshot.riskOverride,
+        engineMode: regimeSnapshot.engineMode,
+        dataHealth: regimeSnapshot.dataHealth,
+        sourceHealth: regimeSnapshot.sourceHealth,
+        regimeConflicts: regimeSnapshot.conflicts,
         macroRegimeRaw: regimeDiagnostics.rawRegime,
         macroRegimeEffective: regimeDiagnostics.effectiveRegime,
         r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
@@ -394,7 +456,17 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     if (isR3SanityAckTokenValid(r3SanityBlock, process.env.R3_SANITY_OPERATOR_ACK)) {
       acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
     } else {
-      console.warn(`[AutoTrade] R3 sanity block active — 신규 매수 차단 (${r3SanityBlock.violation}, ${r3SanityBlock.regime})`);
+      emitPreflightOperationalWarn({
+        code: 'P1_REGIME_CONFLICT',
+        domain: 'REGIME',
+        message: '[AutoTrade] R3 sanity block active; live entry blocked',
+        dedupKey: `preflight:r3-sanity:block:${r3SanityBlock.violation}:${r3SanityBlock.regime}`,
+        details: {
+          violation: r3SanityBlock.violation,
+          regime: r3SanityBlock.regime,
+          triggeredAt: r3SanityBlock.triggeredAt,
+        },
+      });
       await sendTelegramAlert(
         `🚨 <b>[R3 Sanity Block Active]</b>\n신규 매수 차단 + shadow-only 전환 유지\n위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
         `즉시 해제: <code>/r3_unblock</code> (텔레그램, ADR-0195)\n` +
@@ -475,22 +547,43 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
     await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] 신규 진입 전면 차단</b>\nMHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`).catch(console.error);
-    console.warn(`[AutoTrade] R6_DEFENSE (MHS=${macroState?.mhs}) — 신규 진입 전면 차단`);
-    console.warn(`[AutoTrade] R6_DEFENSE diagnostic-only live block active; continuing scan diagnostics`);
+    emitPreflightOperationalWarn({
+      code: 'P1_GREEN_WITH_R6_BLOCKED',
+      message: '[AutoTrade] R6_DEFENSE live entry blocked; diagnostics continue',
+      dedupKey: `preflight:r6-defense:block:${regimeSnapshot.snapshotId}`,
+      details: {
+        mhs: macroState?.mhs ?? 'N/A',
+        regimeSnapshotId: regimeSnapshot.snapshotId,
+        displayRegime: regimeSnapshot.displayRegime,
+        effectiveRegime: regimeSnapshot.effectiveRegime,
+      },
+    });
     await recordBlockedDayShadowScan('RISK_OFF_REGIME');
   }
   if (regime === 'R6_DEFENSE' && r6EntryOverrideActive) {
-    console.warn(
-      `[AutoTrade] R6_DEFENSE no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE — ` +
-      `kellyFloor=${macroEntryOverride?.kellyFloor}, maxPositionsFloor=${macroEntryOverride?.maxPositionsFloor}`,
-    );
+    emitPreflightOperationalWarn({
+      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
+      message: '[AutoTrade] R6_DEFENSE no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE',
+      dedupKey: 'preflight:r6-defense:operator-bypass',
+      details: {
+        kellyFloor: macroEntryOverride?.kellyFloor,
+        maxPositionsFloor: macroEntryOverride?.maxPositionsFloor,
+        regimeSnapshotId: regimeSnapshot.snapshotId,
+      },
+    });
   }
 
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
   if (vixGating.noNewEntry && !vixEntryOverrideActive) {
     markMacroDiagnosticLiveBlock('VIX_BLOCK');
-    console.warn(`[AutoTrade] VIX 게이팅 — 신규 진입 중단: ${vixGating.reason}`);
+    emitPreflightOperationalWarn({
+      code: 'P1_REGIME_CONFLICT',
+      domain: 'REGIME',
+      message: '[AutoTrade] VIX gating blocked new entries',
+      dedupKey: `preflight:vix-block:${vixGating.reason}`,
+      details: { vixReason: vixGating.reason, regimeSnapshotId: regimeSnapshot.snapshotId },
+    });
     const session = getGatingAlertSession();
     if (session) {
       const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -498,14 +591,23 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         dedupeKey: `vix_gating_block:${kstDateStr}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
-    console.warn(`[AutoTrade] VIX_BLOCK diagnostic-only live block active; continuing scan diagnostics`);
+    emitPreflightOperationalWarn({
+      code: 'P1_REGIME_CONFLICT',
+      domain: 'REGIME',
+      message: '[AutoTrade] VIX_BLOCK diagnostic-only live block active; continuing scan diagnostics',
+      dedupKey: 'preflight:vix-block:diagnostic-only',
+      details: { regimeSnapshotId: regimeSnapshot.snapshotId },
+    });
     await recordBlockedDayShadowScan('VIX_SPIKE');
   }
   if (vixGating.noNewEntry && vixEntryOverrideActive) {
-    console.warn(
-      `[AutoTrade] VIX no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE — ` +
-      `${formatMacroEntryOverrideLog(macroEntryOverride!)}`,
-    );
+    emitPreflightOperationalWarn({
+      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
+      domain: 'REGIME',
+      message: '[AutoTrade] VIX no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE',
+      dedupKey: 'preflight:vix-block:operator-bypass',
+      details: { override: formatMacroEntryOverrideLog(macroEntryOverride!) },
+    });
   }
 
   const fomcProximity = getFomcProximity(
@@ -514,26 +616,52 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const fomcEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'FOMC_BLOCK');
   if (fomcProximity.noNewEntry && !fomcEntryOverrideActive) {
     markMacroDiagnosticLiveBlock('FOMC_BLOCK');
-    console.warn(`[AutoTrade] FOMC 게이팅 — 신규 진입 차단: ${fomcProximity.description}`);
+    emitPreflightOperationalWarn({
+      code: 'P1_REGIME_CONFLICT',
+      domain: 'REGIME',
+      message: '[AutoTrade] FOMC gating blocked new entries',
+      dedupKey: `preflight:fomc-block:${fomcProximity.nextFomcDate ?? 'unknown'}`,
+      details: { description: fomcProximity.description, regimeSnapshotId: regimeSnapshot.snapshotId },
+    });
     const session = getGatingAlertSession();
     if (session) {
       await sendTelegramAlert(`📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n${fomcProximity.description}\n포지션 모니터링만 수행합니다.`, {
         dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
-    console.warn(`[AutoTrade] FOMC_BLOCK diagnostic-only live block active; continuing scan diagnostics`);
+    emitPreflightOperationalWarn({
+      code: 'P1_REGIME_CONFLICT',
+      domain: 'REGIME',
+      message: '[AutoTrade] FOMC_BLOCK diagnostic-only live block active; continuing scan diagnostics',
+      dedupKey: 'preflight:fomc-block:diagnostic-only',
+      details: { regimeSnapshotId: regimeSnapshot.snapshotId },
+    });
     await recordBlockedDayShadowScan('FOMC_BLOCK');
   }
   if (fomcProximity.noNewEntry && fomcEntryOverrideActive) {
-    console.warn(
-      `[AutoTrade] FOMC no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE — ` +
-      `${formatMacroEntryOverrideLog(macroEntryOverride!)}`,
-    );
+    emitPreflightOperationalWarn({
+      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
+      domain: 'REGIME',
+      message: '[AutoTrade] FOMC no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE',
+      dedupKey: 'preflight:fomc-block:operator-bypass',
+      details: { override: formatMacroEntryOverrideLog(macroEntryOverride!) },
+    });
   }
 
   if (isDataStarvedScan()) {
     const snap = getCompletenessSnapshot();
-    console.warn(`[AutoTrade] 데이터 빈곤 스캔 차단 — MTAS실패 ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`);
+    emitPreflightOperationalWarn({
+      code: 'P1_MACRO_DATA_HEALTH_DEGRADED',
+      domain: 'DATA',
+      message: '[AutoTrade] data-starved scan blocked',
+      dedupKey: 'preflight:data-starved-scan',
+      details: {
+        mtasFailRate: snap.mtasFailRate,
+        dartNullRate: snap.dartNullRate,
+        mtasAttempts: snap.mtasAttempts,
+        dartAttempts: snap.dartAttempts,
+      },
+    });
     await sendTelegramAlert(`🧪 <b>[데이터 빈곤 스캔] 신규 진입 보류</b>\nMTAS 실패 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n표본: M${snap.mtasAttempts} · D${snap.dartAttempts}\n빈 스캔과 구분되는 "데이터 부재" 상태 — 원천 데이터 점검 후 복귀`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
     await recordBlockedDayShadowScan('DATA_STARVED');
     // ADR-0433: data-starved preflight abort universe snapshot.
@@ -750,6 +878,14 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     liveEntryBlockedReason: liveEntryBlockReason,
     macroRegimeRaw: regimeDiagnostics.rawRegime,
     macroRegimeEffective: regimeDiagnostics.effectiveRegime,
+    regimeSnapshotId: regimeSnapshot.snapshotId,
+    regimeSnapshotAsOf: regimeSnapshot.asOf,
+    regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
+    displayRegime: regimeSnapshot.displayRegime,
+    riskOverride: regimeSnapshot.riskOverride,
+    engineMode: regimeSnapshot.engineMode,
+    sourceHealth: regimeSnapshot.sourceHealth,
+    regimeConflicts: regimeSnapshot.conflicts,
     r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
     activeR6Triggers: regimeDiagnostics.activeR6Triggers,
     r6ShockLatch: regimeDiagnostics.r6ShockLatch,
@@ -808,10 +944,17 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
       const profile = getR3SanityProfile(effectiveStreak.regime);
       if (effectiveStreak.consecutiveCount >= profile.shadowOnlyAt) {
-        console.warn(
-          `[AutoTrade] R3 SHADOW_ONLY ephemeral block — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} ` +
-          `(${effectiveStreak.violation}, ${effectiveStreak.regime}) — ADR-0401/0419`,
-        );
+        emitPreflightOperationalWarn({
+          code: 'P1_REGIME_CONFLICT',
+          domain: 'REGIME',
+          message: '[AutoTrade] R3 SHADOW_ONLY ephemeral block active',
+          dedupKey: `preflight:r3-shadow-only:${effectiveStreak.violation}:${effectiveStreak.regime}:${effectiveStreak.consecutiveCount}`,
+          details: {
+            streak: `${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt}`,
+            violation: effectiveStreak.violation,
+            regime: effectiveStreak.regime,
+          },
+        });
         await sendTelegramAlert(
           `⚫️ <b>[R3 Sanity — SHADOW_ONLY pre-scan]</b>\n` +
           `직전 스캔 누적 ${effectiveStreak.consecutiveCount}회 (임계 ${profile.shadowOnlyAt}) — ` +

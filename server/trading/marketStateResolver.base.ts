@@ -11,6 +11,7 @@ import {
 } from '../state.js';
 import { getRegimeDiagnostics, type RegimeDiagnostics } from './regimeBridge.js';
 import { getJobMetrics } from '../scheduler/scheduleCatalog.js';
+import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 
 export type BiasLabel = 'BULL' | 'NEUTRAL' | 'BEAR';
 export type MhsLabel = 'GREEN' | 'YELLOW' | 'RED';
@@ -130,6 +131,26 @@ export interface ShadowActivitySnapshot {
 
 
 const DEFAULT_TTL_SEC = 300;
+
+function emitMarketStateOperationalWarn(input: {
+  code: string;
+  message: string;
+  dedupKey: string;
+  executionImpact?: 'REGIME_DISPLAY_CONFLICT' | 'NONE';
+  details?: Record<string, unknown>;
+}): void {
+  emitOperationalWarn({
+    priority: 'P1',
+    domain: 'REGIME',
+    code: input.code,
+    message: input.message,
+    executionImpact: input.executionImpact ?? 'REGIME_DISPLAY_CONFLICT',
+    mode: 'DEGRADED',
+    dedupKey: input.dedupKey,
+    ttlSec: defaultWarnTtlSec('P1'),
+    details: input.details,
+  });
+}
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -269,10 +290,12 @@ function resolveEffectiveRegime(
     riskOverride === 'CIRCUIT_BREAKER' ||
     riskOverride === 'KOSPI_CRASH';
   if (hardOverride && !['R6_PANIC', 'R6_DEFENSE', 'R6_CONFIRMATION_WAIT', 'R6_RECOVERY_WATCH'].includes(effective)) {
-    console.warn(
-      '[MARKET_STATE_CONFLICT] type=RISK_OVERRIDE_WITH_NON_R6 ' +
-      `riskOverride=${riskOverride} effectiveRegime=${effective} action=FORCE_R6_DEFENSE`,
-    );
+    emitMarketStateOperationalWarn({
+      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
+      message: '[MARKET_STATE_CONFLICT] type=RISK_OVERRIDE_WITH_NON_R6 action=FORCE_R6_DEFENSE',
+      dedupKey: `market-state:risk-override-non-r6:${riskOverride}:${effective}`,
+      details: { riskOverride, effectiveRegime: effective },
+    });
     effective = 'R6_DEFENSE';
   }
 
@@ -339,19 +362,32 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
   let displaySeverity = snapshot.displaySeverity;
 
   if (snapshot.effectiveRegime === 'R6_DEFENSE' && displaySeverity === 'OK') {
-    console.warn(
-      '[MARKET_STATE_CONFLICT] type=GREEN_WITH_R6 action=FORCE_DEFENSE_DISPLAY ' +
-      `snapshotId=${snapshot.snapshotId}`,
-    );
+    emitMarketStateOperationalWarn({
+      code: 'P1_GREEN_WITH_R6_BLOCKED',
+      message: '[MARKET_STATE_CONFLICT] type=GREEN_WITH_R6 action=FORCE_DEFENSE_DISPLAY',
+      dedupKey: `market-state:green-with-r6:${snapshot.snapshotId}`,
+      details: {
+        snapshotId: snapshot.snapshotId,
+        effectiveRegime: snapshot.effectiveRegime,
+        displaySeverity,
+      },
+    });
     displaySeverity = 'DEFENSE';
     reasonCodes.add('GREEN_WITH_R6_FORCED_DEFENSE');
   }
 
   if (snapshot.riskOverride !== 'NONE' && snapshot.mhsLabel === 'GREEN') {
-    console.warn(
-      '[MHS_RISK_OVERRIDE_CONFLICT] action=RISK_OVERRIDE_PRIORITY ' +
-      `snapshotId=${snapshot.snapshotId} riskOverride=${snapshot.riskOverride} mhs=${snapshot.mhs}`,
-    );
+    emitMarketStateOperationalWarn({
+      code: 'P1_MHS_BIAS_CONFLICT',
+      message: '[MHS_RISK_OVERRIDE_CONFLICT] action=RISK_OVERRIDE_PRIORITY',
+      dedupKey: `market-state:mhs-risk-override:${snapshot.riskOverride}:${snapshot.mhs}`,
+      details: {
+        snapshotId: snapshot.snapshotId,
+        riskOverride: snapshot.riskOverride,
+        mhs: snapshot.mhs,
+        mhsLabel: snapshot.mhsLabel,
+      },
+    });
     reasonCodes.add('MHS_GREEN_BUT_RISK_OVERRIDE_PRIORITY');
   }
 
@@ -549,26 +585,34 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     updatedAtChanged: readBooleanField(macro, ['updatedAtChanged', 'macroUpdatedAtChanged']),
     executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale || freshness === 'POST_CLOSE_VALID' || freshness === 'EOD_SNAPSHOT_VALID' ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
   };
-  console.warn(
-    '[MACRO_STATE_STALENESS] ' +
-    `freshness=${info.freshness} ` +
-    `ageSec=${info.ageSec ?? 'N/A'} ` +
-    `ttlSec=${info.ttlSec} ` +
-    `softStaleSec=${info.softStaleSec} ` +
-    `hardStaleSec=${info.hardStaleSec} ` +
-    `lastRefreshAttemptAt=${info.lastRefreshAttemptAt ?? 'N/A'} ` +
-    `lastRefreshSuccessAt=${info.lastRefreshSuccessAt ?? 'N/A'} ` +
-    `lastRefreshError=${info.lastRefreshError ?? 'N/A'} ` +
-    `refreshJobEnabled=${info.refreshJobEnabled ?? 'N/A'} ` +
-    `refreshJobLastRunAt=${info.refreshJobLastRunAt ?? 'N/A'} ` +
-    `refreshBlockedReason=${info.refreshBlockedReason ?? 'NONE'} ` +
-    `providerUsed=${info.providerUsed ?? 'N/A'} ` +
-    `fallbackUsed=${info.fallbackUsed ?? 'N/A'} ` +
-    `writeSucceeded=${info.writeSucceeded ?? 'N/A'} ` +
-    `updatedAtChanged=${info.updatedAtChanged ?? 'N/A'} ` +
-    `staleReason=${info.staleReason} ` +
-    `executionImpact=${info.executionImpact}`,
-  );
+  if (info.stale || info.freshness !== 'FRESH') {
+    emitMarketStateOperationalWarn({
+      code: 'P1_MACRO_STATE_STALE',
+      message: '[MACRO_STATE_STALENESS] macro state is stale or not fresh',
+      dedupKey: `macro-state-staleness:${info.freshness}:${info.staleReason}`,
+      executionImpact: 'NONE',
+      details: {
+        reason: 'providerIssue=true marketSignal=false',
+        freshness: info.freshness,
+        ageSec: info.ageSec ?? 'N/A',
+        ttlSec: info.ttlSec,
+        softStaleSec: info.softStaleSec,
+        hardStaleSec: info.hardStaleSec,
+        lastRefreshAttemptAt: info.lastRefreshAttemptAt ?? 'N/A',
+        lastRefreshSuccessAt: info.lastRefreshSuccessAt ?? 'N/A',
+        lastRefreshError: info.lastRefreshError ?? 'N/A',
+        refreshJobEnabled: info.refreshJobEnabled ?? 'N/A',
+        refreshJobLastRunAt: info.refreshJobLastRunAt ?? 'N/A',
+        refreshBlockedReason: info.refreshBlockedReason ?? 'NONE',
+        providerUsed: info.providerUsed ?? 'N/A',
+        fallbackUsed: info.fallbackUsed ?? 'N/A',
+        writeSucceeded: info.writeSucceeded ?? 'N/A',
+        updatedAtChanged: info.updatedAtChanged ?? 'N/A',
+        staleReason: info.staleReason,
+        executionImpact: info.executionImpact,
+      },
+    });
+  }
   return info;
 }
 

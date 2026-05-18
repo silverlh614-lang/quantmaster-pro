@@ -4,6 +4,7 @@ import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { getRemainingQty } from '../../../persistence/shadowTradeRepo.js';
 import { getShadowTrades } from '../../../orchestrator/tradingOrchestrator.js';
 import { collectHealthSnapshot } from '../../../health/diagnostics.js';
+import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -15,6 +16,7 @@ const status: TelegramCommand = {
   description: '시스템 현황 요약 (모드/비상정지/MHS/활성 포지션/오늘 결산)',
   async execute({ reply }) {
     const macro = loadMacroState();
+    const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
     const shadows = getShadowTrades();
     const snapshot = collectHealthSnapshot();
 
@@ -43,8 +45,10 @@ const status: TelegramCommand = {
       autoTradeMode: snapshot.autoTradeMode,
       autoTradeEnabled: snapshot.autoTradeEnabled,
       emergencyStop: snapshot.emergencyStop,
-      mhs: macro?.mhs,
-      regime: macro?.regime,
+      mhs: regimeSnapshot.mhs ?? undefined,
+      regime: regimeSnapshot.displayRegime,
+      effectiveRegime: regimeSnapshot.effectiveRegime,
+      regimeSnapshotId: regimeSnapshot.snapshotId,
       activeCount: active.length,
       maxPositions: parseInt(process.env.MAX_CONVICTION_POSITIONS ?? '8', 10),
       closedCount: closed.length,
@@ -74,6 +78,8 @@ export interface StatusInputs {
   emergencyStop: boolean;
   mhs: number | undefined;
   regime: string | undefined;
+  effectiveRegime?: string;
+  regimeSnapshotId?: string;
   activeCount: number;
   maxPositions: number;
   closedCount: number;
@@ -124,6 +130,8 @@ export function formatStatusMessage(s: StatusInputs): string {
     `모드: ${modeLabel}${enabledMark}\n` +
     `비상정지: ${s.emergencyStop ? '🔴 ON' : '🟢 OFF'}\n` +
     `MHS: ${mhsLabel} (${regimeLabel})\n` +
+    (s.effectiveRegime ? `effectiveRegime=${s.effectiveRegime}\n` : '') +
+    (s.regimeSnapshotId ? `regimeSnapshotId=${s.regimeSnapshotId}\n` : '') +
     `활성 포지션: ${s.activeCount}/${s.maxPositions}\n` +
     `워치리스트: ${s.watchlistCount}개\n` +
     `오늘 결산: ${s.closedCount}건 (P&L ${pnlSign}${s.pnlSum.toFixed(2)}%)\n` +

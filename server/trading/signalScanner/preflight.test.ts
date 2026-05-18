@@ -9,6 +9,9 @@ vi.mock('../../state.js', () => ({
   getManualBlockNewBuy: vi.fn().mockReturnValue(false),
   getManualManageOnly: vi.fn().mockReturnValue(false),
   getEmergencyStop: vi.fn().mockReturnValue(false),
+  getDataIntegrityBlocked: vi.fn().mockReturnValue(false),
+  getAutoTradePaused: vi.fn().mockReturnValue(false),
+  getExecutionMode: vi.fn().mockReturnValue('LIVE'),
   // ADR-0392 P0-B — preflight 가 getTradingMode() 사용 → mock 추가.
   getTradingMode: vi.fn().mockReturnValue('SHADOW'),
   getMacroEntryOverrideState: vi.fn().mockReturnValue(null),
