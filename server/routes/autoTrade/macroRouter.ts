@@ -72,7 +72,7 @@ router.get('/macro/state', (_req: any, res: any) => {
 /** 시장 지표 자동 갱신 — KOSPI/SPX/DXY/USD-KRW Yahoo Finance + FSS 수급 계산 */
 router.get('/macro/refresh', async (_req: any, res: any) => {
   try {
-    const computed = await refreshMarketRegimeVars();
+    const computed = await refreshMarketRegimeVars('MANUAL');
     res.json({ ok: true, computed, updatedAt: new Date().toISOString() });
   } catch (err) {
     console.error('[MacroRefresh] 오류:', err);

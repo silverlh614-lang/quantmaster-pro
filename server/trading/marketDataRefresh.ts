@@ -25,7 +25,7 @@ import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { appendFssDetailRecord } from '../persistence/fssDetailRepo.js';
 import { isFssMappingEnabled, mapPassiveActive } from '../persistence/fssMappingPolicy.js';
 import { fetchInvestorTradingDetail } from '../clients/krxClient.js';
-import { checkAndNotifyRegimeChange } from './regimeBridge.js';
+import { checkAndNotifyRegimeChange, getRegimeDiagnostics } from './regimeBridge.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
@@ -37,6 +37,76 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { evaluateSectorEnergy } from '../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorEnergyInputs, buildSectorEnergyInputsWithMeta } from '../clients/sectorEnergyProvider.js';
 import { deriveSectorCycle } from './sectorCycleClassifier.js';
+
+type MacroRefreshReason = 'SCHEDULED' | 'MANUAL' | 'R6_RECOVERY_CHECK';
+
+function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
+  try {
+    const macro = loadMacroState();
+    const diagnostics = getRegimeDiagnostics(macro, now);
+    const r6State = diagnostics.transitionState.r6StateMachineState ?? diagnostics.effectiveRegime;
+    return {
+      marketSession: process.env.MARKET_SESSION ?? process.env.NODE_ENV ?? 'UNKNOWN',
+      engineMode: diagnostics.effectiveRegime,
+      r6State,
+      sellOnly: diagnostics.effectiveRegime === 'R6_DEFENSE' || diagnostics.effectiveRegime === 'R5_CAUTION',
+    };
+  } catch (e) {
+    return {
+      marketSession: process.env.MARKET_SESSION ?? process.env.NODE_ENV ?? 'UNKNOWN',
+      engineMode: 'UNKNOWN',
+      r6State: 'UNKNOWN',
+      sellOnly: false,
+    };
+  }
+}
+
+function logMacroRefreshStarted(reason: MacroRefreshReason): void {
+  const ctx = macroRefreshRuntimeContext();
+  console.info(
+    '[MACRO_REFRESH_STARTED] ' +
+    `reason=${reason} ` +
+    `marketSession=${ctx.marketSession} ` +
+    `engineMode=${ctx.engineMode} ` +
+    `r6State=${ctx.r6State} ` +
+    `sellOnly=${ctx.sellOnly}`,
+  );
+}
+
+function logMacroRefreshSuccess(input: { updatedAt: string; mhs?: number; vkospi?: number; kospiDayReturn?: number; writeSucceeded: boolean }): void {
+  console.info(
+    '[MACRO_REFRESH_SUCCESS] ' +
+    `updatedAt=${input.updatedAt} ` +
+    `mhs=${input.mhs ?? 'N/A'} ` +
+    `vkospi=${input.vkospi ?? 'N/A'} ` +
+    `kospiDayReturn=${input.kospiDayReturn ?? 'N/A'} ` +
+    `writeSucceeded=${input.writeSucceeded}`,
+  );
+}
+
+function logMacroRefreshFailed(input: { error: unknown; provider: string; fallbackUsed?: boolean | string }): void {
+  const errorName = input.error instanceof Error ? input.error.name : 'Error';
+  const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
+  console.warn(
+    '[MACRO_REFRESH_FAILED] ' +
+    `errorName=${errorName} ` +
+    `errorMessage=${errorMessage} ` +
+    `provider=${input.provider} ` +
+    `fallbackUsed=${input.fallbackUsed ?? 'N/A'} ` +
+    'executionImpact=REGIME_RECOVERY_BLOCKED_ONLY',
+  );
+}
+
+function logMacroRefreshSkipped(reason: string): void {
+  const ctx = macroRefreshRuntimeContext();
+  console.warn(
+    '[MACRO_REFRESH_SKIPPED] ' +
+    `reason=${reason} ` +
+    `engineMode=${ctx.engineMode} ` +
+    `r6State=${ctx.r6State} ` +
+    'shouldNotSkipInR6=true',
+  );
+}
 
 /**
  * FRED API — 최신 유효 관측값 조회 (최근 5건 중 '.' 제외 첫 번째).
@@ -473,10 +543,12 @@ export function computeFssVars(now: Date = new Date()): {
  * 시장 지표를 Yahoo Finance + FSS에서 계산해 MacroState에 MERGE 저장.
  * 실패한 개별 지표는 기존 값 유지.
  */
-export async function refreshMarketRegimeVars(): Promise<Record<string, number | boolean | string | null>> {
+export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<Record<string, number | boolean | string | null>> {
   const refreshAttemptAt = new Date().toISOString();
+  logMacroRefreshStarted(reason);
   const existing = loadMacroState();
   if (!existing) {
+    logMacroRefreshSkipped('MACRO_STATE_MISSING');
     console.warn('[MarketRefresh] MacroState 없음 — MHS를 먼저 POST /macro/state로 초기화하세요');
     return {};
   }
@@ -488,7 +560,10 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     ...existing,
     lastRefreshAttemptAt: refreshAttemptAt,
     refreshJobEnabled: true,
+    refreshJobLastRunAt: refreshAttemptAt,
     refreshBlockedReason: 'NONE',
+    writeSucceeded: true,
+    updatedAtChanged: false,
   });
 
   try {
@@ -913,15 +988,20 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
   }
 
   // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
+  const updatedAt = new Date().toISOString();
+  const updatedAtChanged = updatedAt !== existing.updatedAt;
   const updated = {
     ...existing,
     ...computed,
-    updatedAt: new Date().toISOString(),
+    updatedAt,
     lastRefreshAttemptAt: refreshAttemptAt,
     lastRefreshSuccessAt: new Date().toISOString(),
     lastRefreshError: undefined,
     refreshJobEnabled: true,
+    refreshJobLastRunAt: refreshAttemptAt,
     refreshBlockedReason: 'NONE',
+    writeSucceeded: true,
+    updatedAtChanged,
     providerUsed: 'MARKET_DATA_REFRESH',
     fallbackUsed: sectorEnergyQualityDiagnostic?.fallbackUsed && sectorEnergyQualityDiagnostic.fallbackUsed !== 'NONE' ? sectorEnergyQualityDiagnostic.fallbackUsed : false,
     // sectorEnergyResult 가 갱신됐을 때만 덮어쓰기 — 실패 시 이전 값 보존.
@@ -966,6 +1046,7 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
     fssRecordsAge: fssRecordsAgeSnapshot,
   };
   saveMacroState(updated as typeof existing);
+  logMacroRefreshSuccess({ updatedAt, mhs: updated.mhs, vkospi: updated.vkospi, kospiDayReturn: updated.kospiDayReturn, writeSucceeded: true });
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
 
   // ── 레짐 전환 감지 + 즉시 알림 ─────────────────────────────────────────────
@@ -980,9 +1061,13 @@ export async function refreshMarketRegimeVars(): Promise<Record<string, number |
       lastRefreshAttemptAt: refreshAttemptAt,
       lastRefreshError: message,
       refreshJobEnabled: true,
+      refreshJobLastRunAt: refreshAttemptAt,
       refreshBlockedReason: 'REFRESH_THROW',
       providerUsed: 'MARKET_DATA_REFRESH',
+      writeSucceeded: false,
+      updatedAtChanged: false,
     });
+    logMacroRefreshFailed({ error: e, provider: 'MARKET_DATA_REFRESH', fallbackUsed: latest?.fallbackUsed });
     console.warn(`[MarketRefresh] MacroState refresh 실패 — diagnostics persisted reason=REFRESH_THROW error=${message}`);
     throw e;
   }

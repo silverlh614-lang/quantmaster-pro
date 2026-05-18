@@ -9,6 +9,7 @@ import {
   getManualManageOnly,
 } from '../state.js';
 import { getRegimeDiagnostics, type RegimeDiagnostics } from './regimeBridge.js';
+import { getJobMetrics } from '../scheduler/scheduleCatalog.js';
 
 export type BiasLabel = 'BULL' | 'NEUTRAL' | 'BEAR';
 export type MhsLabel = 'GREEN' | 'YELLOW' | 'RED';
@@ -77,6 +78,7 @@ export interface MacroStateStaleness {
   stale: boolean;
   freshness: MacroStateFreshness;
   lastUpdatedAt?: string;
+  updatedAt?: string;
   ageSec?: number;
   ttlSec: number;
   softStaleSec: number;
@@ -86,10 +88,13 @@ export interface MacroStateStaleness {
   lastRefreshSuccessAt?: string;
   lastRefreshError?: string;
   refreshJobEnabled?: boolean;
+  refreshJobLastRunAt?: string;
   refreshBlockedReason?: string;
   providerUsed?: string;
   provider?: string;
   fallbackUsed?: boolean | string;
+  writeSucceeded?: boolean;
+  updatedAtChanged?: boolean;
   executionImpact: 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' | 'REGIME_RELEASE_BLOCKED_ONLY' | 'NONE';
 }
 
@@ -413,6 +418,28 @@ function readFallbackUsed(source: MacroState | null): boolean | string | undefin
   return sectorFallback && sectorFallback !== 'NONE' ? sectorFallback : false;
 }
 
+
+function resolveMacroRefreshJobLastRunAt(macro: MacroState | null): string | undefined {
+  const explicit = readStringField(macro, ['refreshJobLastRunAt', 'macroRefreshJobLastRunAt']);
+  if (explicit) return explicit;
+  const candidates = [
+    getJobMetrics('market_regime_refresh_intraday_ttl')?.lastSuccessAt,
+    getJobMetrics('market_regime_refresh_close')?.lastSuccessAt,
+    getJobMetrics('market_regime_refresh_morning')?.lastSuccessAt,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+  return candidates.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
+function readBooleanField(source: MacroState | null, keys: string[]): boolean | undefined {
+  const record = source as unknown as Record<string, unknown> | null;
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'boolean') return value;
+  }
+  return undefined;
+}
+
 function resolveSoftStaleSec(ttlSec: number): number {
   const raw = Number(process.env.R6_RECOVERY_SOFT_STALE_SEC ?? 900);
   return Number.isFinite(raw) && raw > 0 ? Math.max(ttlSec, Math.trunc(raw)) : Math.max(ttlSec, 900);
@@ -442,6 +469,7 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     stale,
     freshness,
     lastUpdatedAt: macro?.updatedAt,
+    updatedAt: macro?.updatedAt,
     ageSec,
     ttlSec,
     softStaleSec,
@@ -451,10 +479,13 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     lastRefreshSuccessAt: readStringField(macro, ['lastRefreshSuccessAt', 'macroLastRefreshSuccessAt']),
     lastRefreshError: readStringField(macro, ['lastRefreshError', 'macroLastRefreshError', 'refreshError']),
     refreshJobEnabled: (macro as unknown as Record<string, unknown> | null)?.refreshJobEnabled as boolean | undefined,
+    refreshJobLastRunAt: resolveMacroRefreshJobLastRunAt(macro),
     refreshBlockedReason: readStringField(macro, ['refreshBlockedReason', 'macroRefreshBlockedReason']),
     providerUsed: readStringField(macro, ['providerUsed', 'provider', 'sourceProvider', 'source', 'refreshProvider']),
     provider: readStringField(macro, ['providerUsed', 'provider', 'sourceProvider', 'source', 'refreshProvider']),
     fallbackUsed: readFallbackUsed(macro),
+    writeSucceeded: readBooleanField(macro, ['writeSucceeded', 'macroWriteSucceeded']),
+    updatedAtChanged: readBooleanField(macro, ['updatedAtChanged', 'macroUpdatedAtChanged']),
     executionImpact: freshness === 'SOFT_STALE' ? 'LIVE_BUY_BLOCKED_RECOVERY_WATCH_ALLOWED' : stale ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
   };
   console.warn(
@@ -468,9 +499,12 @@ function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: D
     `lastRefreshSuccessAt=${info.lastRefreshSuccessAt ?? 'N/A'} ` +
     `lastRefreshError=${info.lastRefreshError ?? 'N/A'} ` +
     `refreshJobEnabled=${info.refreshJobEnabled ?? 'N/A'} ` +
+    `refreshJobLastRunAt=${info.refreshJobLastRunAt ?? 'N/A'} ` +
     `refreshBlockedReason=${info.refreshBlockedReason ?? 'NONE'} ` +
     `providerUsed=${info.providerUsed ?? 'N/A'} ` +
     `fallbackUsed=${info.fallbackUsed ?? 'N/A'} ` +
+    `writeSucceeded=${info.writeSucceeded ?? 'N/A'} ` +
+    `updatedAtChanged=${info.updatedAtChanged ?? 'N/A'} ` +
     `staleReason=${info.staleReason} ` +
     `executionImpact=${info.executionImpact}`,
   );
@@ -713,14 +747,17 @@ export function formatMarketStateNow(
     `- ttlSec: ${snapshot.macroState.ttlSec}`,
     `- softStaleSec: ${snapshot.macroState.softStaleSec}`,
     `- hardStaleSec: ${snapshot.macroState.hardStaleSec}`,
-    `- lastUpdatedAt: ${snapshot.macroState.lastUpdatedAt ?? 'N/A'}`,
+    `- updatedAt: ${snapshot.macroState.updatedAt ?? 'N/A'}`,
     `- lastRefreshAttemptAt: ${snapshot.macroState.lastRefreshAttemptAt ?? 'N/A'}`,
     `- lastRefreshSuccessAt: ${snapshot.macroState.lastRefreshSuccessAt ?? 'N/A'}`,
     `- lastRefreshError: ${snapshot.macroState.lastRefreshError ?? 'N/A'}`,
     `- refreshJobEnabled: ${snapshot.macroState.refreshJobEnabled ?? 'N/A'}`,
+    `- refreshJobLastRunAt: ${snapshot.macroState.refreshJobLastRunAt ?? 'N/A'}`,
     `- refreshBlockedReason: ${snapshot.macroState.refreshBlockedReason ?? 'NONE'}`,
     `- providerUsed: ${snapshot.macroState.providerUsed ?? 'N/A'}`,
     `- fallbackUsed: ${snapshot.macroState.fallbackUsed ?? 'N/A'}`,
+    `- writeSucceeded: ${snapshot.macroState.writeSucceeded ?? 'N/A'}`,
+    `- updatedAtChanged: ${snapshot.macroState.updatedAtChanged ?? 'N/A'}`,
   ];
 
   if (snapshot.macroState.lastRefreshError) lines.push(`macroState error: ${snapshot.macroState.lastRefreshError}`);
