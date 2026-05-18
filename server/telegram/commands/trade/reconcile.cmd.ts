@@ -13,6 +13,10 @@ import {
   reconcileLivePositions,
   formatLiveReconcileResult,
 } from '../../../trading/liveReconciler.js';
+import {
+  quarantineR6CounterfactualActivePositions,
+  type R6CounterfactualQuarantineResult,
+} from '../../../trading/maintenance/quarantineR6CounterfactualPositions.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -46,6 +50,27 @@ function formatDetails(details: ReconcileDetail[] | undefined): string {
     });
   const more = details.length > 8 ? `\n...외 ${details.length - 8}건` : '';
   return `\n${lines.join('\n')}${more}`;
+}
+
+function formatR6CounterfactualQuarantineResult(result: R6CounterfactualQuarantineResult): string {
+  const mode = result.dryRun ? 'DRY-RUN' : 'APPLY';
+  const lines = result.items.slice(0, 8).map((item) => (
+    `- ${escapeHtml(item.stockName)}(${escapeHtml(item.stockCode)}): ` +
+    `${item.before.remainingQty}주 ${escapeHtml(item.before.status)} -> ` +
+    `${item.after.remainingQty}주 ${escapeHtml(item.after.status)} ` +
+    `(revertedBuyFills=${item.revertedBuyFillCount})`
+  ));
+  const more = result.items.length > 8 ? `\n...외 ${result.items.length - 8}건` : '';
+  const body = lines.length > 0 ? `\n${lines.join('\n')}${more}` : '\n변경 후보 없음';
+  const tail = result.dryRun && result.quarantined > 0
+    ? '\n\n적용: <code>/reconcile r6cf apply</code>'
+    : '';
+  return (
+    `<b>[R6 counterfactual quarantine ${mode}]</b>\n` +
+    `검사 ${result.checked}건 | 격리${result.dryRun ? ' 후보' : ''}: ${result.quarantined}건` +
+    body +
+    tail
+  );
 }
 
 const reconcile: TelegramCommand = {
@@ -160,6 +185,23 @@ const reconcile: TelegramCommand = {
       } catch (e) {
         console.error('[TelegramBot] /reconcile live 실패:', e);
         await reply('❌ /reconcile live 실패 — 서버 로그를 확인하세요.');
+      }
+      return;
+    }
+
+    if (sub === 'r6cf' || sub === 'r6_counterfactual') {
+      const r6cfApply = (args[1] ?? '').toLowerCase() === 'apply';
+      await reply(
+        r6cfApply
+          ? '<b>[R6 counterfactual quarantine APPLY]</b> 승인 없이 열린 ACTIVE Shadow 편입을 철회합니다...'
+          : '<b>[R6 counterfactual quarantine DRY-RUN]</b> 승인 없이 열린 ACTIVE Shadow 편입 후보를 점검합니다...',
+      );
+      try {
+        const result = quarantineR6CounterfactualActivePositions({ dryRun: !r6cfApply });
+        await reply(formatR6CounterfactualQuarantineResult(result));
+      } catch (e) {
+        console.error('[TelegramBot] /reconcile r6cf 실패:', e);
+        await reply('R6 counterfactual quarantine 실패 — 서버 로그를 확인하세요.');
       }
       return;
     }
