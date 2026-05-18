@@ -33,7 +33,7 @@ export function recordPendingExitIntent(
   const appendIntent = deps.appendPendingEmergencyExit ?? appendPendingEmergencyExit;
 
   try {
-    const row: PendingEmergencyExit = appendIntent({
+    const row: PendingEmergencyExit | undefined = appendIntent({
       tradeId: input.tradeId,
       stockCode: input.stockCode,
       stockName: input.stockName,
@@ -49,12 +49,13 @@ export function recordPendingExitIntent(
       liveOrderAllowed: input.liveOrderAllowed,
       createdAt: input.createdAt,
     });
+    const pendingIntentId = row?.id ?? `${input.tradeId}:${input.stockCode}:PENDING_EXIT_INTENT:${input.createdAt ?? 'unknown'}`;
 
     emitExitOperationalWarn({
       code: 'P0_LIVE_EXIT_DEFERRED_NON_TRADING',
       message: 'Live exit intent deferred outside regular trading session',
       context: {
-        pendingIntentId: row.id,
+        pendingIntentId,
         tradeId: input.tradeId,
         stockCode: input.stockCode,
         qty: input.qty,
@@ -66,7 +67,7 @@ export function recordPendingExitIntent(
     return {
       kind: 'LIVE_SELL_DEFERRED',
       reason: input.reason,
-      pendingIntentId: row.id,
+      pendingIntentId,
     };
   } catch (error) {
     emitExitOperationalWarn({

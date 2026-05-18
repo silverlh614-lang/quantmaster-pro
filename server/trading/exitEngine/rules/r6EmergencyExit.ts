@@ -4,14 +4,13 @@ import { NO_OP } from '../types.js';
 import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
-import { appendPendingEmergencyExit } from '../../../persistence/pendingEmergencyExitQueueRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { reserveSell } from '../helpers/reserveSell.js';
 import {
   formatR6ShadowHoldMessage,
-  resolveR6LiveForcedExitSession,
-  shouldSkipR6ForcedExitForShadow,
 } from '../r6ForcedExitPolicy.js';
+import { resolveR6ShadowHoldPolicy } from '../../exit/policies/r6ShadowHoldPolicy.js';
+import { resolveR6LiveEmergencyExitPolicy } from '../../exit/policies/r6LiveEmergencyExitPolicy.js';
 
 /**
  * @rule R6_EMERGENCY_EXIT
@@ -28,28 +27,34 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
     return NO_OP;
   }
 
-  const shadowSkip = shouldSkipR6ForcedExitForShadow(shadow);
-  if (shadowSkip.skip) {
+  const shadowHold = resolveR6ShadowHoldPolicy({
+    trade: shadow,
+    currentRegime,
+  });
+  if (shadowHold.kind === 'SHADOW_HOLD_R6_DEFENSE') {
     const message = formatR6ShadowHoldMessage(shadow);
     appendShadowLog({
       event: 'R6_EMERGENCY_EXIT_SKIPPED_SHADOW',
       ...shadow,
-      reason: shadowSkip.reason,
-      detail: shadowSkip.detail,
+      reason: shadowHold.reason,
+      detail: 'shadow_hold_policy',
       executionImpact: 'NONE',
       liveOrderSent: false,
       message,
     });
     console.info(
       `[R6_EMERGENCY_EXIT_SKIPPED_SHADOW] symbol=${shadow.stockCode} ` +
-      `reason=${shadowSkip.reason} detail=${shadowSkip.detail ?? 'n/a'} ` +
+      `reason=${shadowHold.reason} detail=shadow_hold_policy ` +
       'executionImpact=NONE liveOrderSent=false',
     );
     return NO_OP;
   }
 
-  const emergencyQty = Math.max(1, Math.floor(shadow.quantity * 0.30));
-  const session = resolveR6LiveForcedExitSession({
+  const liveDecision = resolveR6LiveEmergencyExitPolicy({
+    trade: shadow,
+    currentRegime,
+    currentPrice,
+    returnPct,
     marketSessionState: ctx.marketSessionState,
     isKrxTradingOpen: ctx.isKrxTradingOpen,
     kisOrderAllowed: ctx.kisOrderAllowed,
@@ -57,48 +62,38 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
     now: ctx.now,
   });
 
-  if (!session.allowed) {
-    const createdAt = (ctx.now ?? new Date()).toISOString();
-    appendPendingEmergencyExit({
-      tradeId: shadow.id,
-      stockCode: shadow.stockCode,
-      stockName: shadow.stockName,
-      qty: emergencyQty,
-      currentPrice,
-      returnPct,
-      regime: currentRegime,
-      reason: 'SESSION_GUARDED_R6_EMERGENCY_EXIT',
-      guardReason: session.reason ?? 'UNKNOWN',
-      marketSessionState: session.marketSessionState,
-      isKrxTradingOpen: session.isKrxTradingOpen,
-      kisOrderAllowed: session.kisOrderAllowed,
-      liveOrderAllowed: session.liveOrderAllowed,
-      createdAt,
-    });
+  if (liveDecision.kind === 'LIVE_SELL_DEFERRED') {
     appendShadowLog({
       event: 'R6_EMERGENCY_EXIT_PENDING_NEXT_OPEN',
       ...shadow,
-      pendingQty: emergencyQty,
-      guardReason: session.reason,
-      marketSessionState: session.marketSessionState,
+      pendingQty: Math.max(1, Math.floor(shadow.quantity * 0.30)),
+      pendingIntentId: liveDecision.pendingIntentId,
+      guardReason: liveDecision.reason,
+      marketSessionState: ctx.marketSessionState ?? 'UNKNOWN',
       executionImpact: 'NONE',
       liveOrderSent: false,
       scheduledForNextOpen: true,
     });
     console.warn(
       `[R6_EMERGENCY_EXIT_PENDING_NEXT_OPEN] symbol=${shadow.stockCode} ` +
-      `reason=${session.reason ?? 'UNKNOWN'} marketSessionState=${session.marketSessionState} ` +
+      `reason=${liveDecision.reason} pendingIntentId=${liveDecision.pendingIntentId} ` +
       'executionImpact=NONE liveOrderSent=false',
     );
     await sendTelegramAlert(
-      `[R6 emergency liquidation candidate] ${shadow.stockName} (${shadow.stockCode})\n` +
-      'Off-regular-session guard is active: no live order, no fill, no status mutation.\n' +
+      `[R6 emergency liquidation candidate - exit intent pending] ${shadow.stockName} (${shadow.stockCode})\n` +
+      'Off-regular-session guard is active: sell intent only, no live order, no fill, no status mutation.\n' +
       'Scheduled for next regular open re-check.\n' +
-      `marketSessionState=${session.marketSessionState} / executionImpact=NONE`,
+      `pendingIntentId=${liveDecision.pendingIntentId} / executionImpact=NONE`,
       { priority: 'HIGH' },
     ).catch(console.error);
     return NO_OP;
   }
+
+  if (liveDecision.kind !== 'LIVE_SELL_INTENT') {
+    return NO_OP;
+  }
+
+  const emergencyQty = liveDecision.qty;
 
   shadow.exitRuleTag = 'R6_EMERGENCY_EXIT';
   shadow.r6EmergencySold = true;

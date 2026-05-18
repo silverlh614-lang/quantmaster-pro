@@ -62,7 +62,7 @@ export function resolveR6LiveEmergencyExitPolicy(
         regime: currentRegime,
         reason: 'SESSION_GUARDED_R6_EMERGENCY_EXIT',
         guardReason: session.reason ?? 'SESSION_NOT_OPEN',
-        marketSessionState: session.marketSessionState,
+        marketSessionState: input.marketSessionState ?? session.marketSessionState,
         isKrxTradingOpen: session.isKrxTradingOpen,
         kisOrderAllowed: session.kisOrderAllowed,
         liveOrderAllowed: session.liveOrderAllowed,
