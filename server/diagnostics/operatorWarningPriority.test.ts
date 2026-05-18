@@ -121,6 +121,37 @@ describe('operator warning priority taxonomy', () => {
     ]);
   });
 
+  it('classifies promotion and shadow display warnings as priority 5 audit items', () => {
+    expect(classifyOperatorWarning({ code: 'ALLOW_WITH_WARNING' })).toMatchObject({
+      priorityRank: 5,
+      domain: 'PROMOTION_DISPLAY',
+      urgency: 'AUDIT_OBSERVE',
+    });
+
+    expect(classifyOperatorWarning({ code: 'PROVIDER_MARKET_SIGNAL_MIXED' })).toMatchObject({
+      priorityRank: 5,
+      domain: 'PROMOTION_DISPLAY',
+    });
+  });
+
+  it('sorts the complete warning ladder from P1 through P5', () => {
+    const sorted = sortOperatorWarnings([
+      { code: 'ALLOW_WITH_WARNING' },
+      { code: 'LOW_RESOLVED_SAMPLE' },
+      { code: 'DATA_BLOCKED_NEAR_MISS' },
+      { code: 'WARN_DRIFT' },
+      { code: 'PENDING_APPROVALS' },
+    ]);
+
+    expect(sorted.map((warning) => `${warning.priorityRank}:${warning.normalizedCode}`)).toEqual([
+      '1:PENDING_APPROVALS',
+      '2:WARN_DRIFT',
+      '3:DATA_BLOCKED_NEAR_MISS',
+      '4:LOW_RESOLVED_SAMPLE',
+      '5:ALLOW_WITH_WARNING',
+    ]);
+  });
+
   it('formats a compact read-only queue for operator surfaces', () => {
     const text = formatOperatorWarningQueue([
       { code: 'ENEMY_CHECKLIST_CAUTION', source: 'enemyChecklist', count: 1 },
