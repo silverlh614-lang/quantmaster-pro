@@ -26,7 +26,7 @@ function readBudgetFor(now: Date) { try { if (fs.existsSync(REFLECTION_BUDGET_FI
 function recent(iso: string | undefined, days: number, now: Date) { const t = iso ? new Date(iso).getTime() : NaN; return Number.isFinite(t) && t >= now.getTime() - days * 86400000; }
 const activeStates = new Set(['PROPOSED','AUTO_STARTED','AWAIT_APPROVAL','RUNNING']);
 function counterfactualMetadataMissingCount(repair: ReturnType<typeof counterfactualMetadataRepairDryRun>): number {
-  return Math.max(repair.missingTargetPrice, repair.missingStopPrice);
+  return Math.max(repair.missingEntryPrice, repair.missingTargetPrice, repair.missingStopPrice);
 }
 function splitCounterfactualSuggestBlockers(input: {
   builtButUnlabeled: number;
@@ -47,6 +47,37 @@ function splitCounterfactualSuggestBlockers(input: {
   else if (input.labeledInputSamples === 0) primaryBlocker = 'NO_LABELED_COUNTERFACTUAL_INPUT';
   else if (input.legacyBlocker !== 'NONE') primaryBlocker = 'BELOW_STRATEGY_THRESHOLD';
   return { primaryBlocker, secondaryBlockers };
+}
+function counterfactualLearningLane(input: {
+  activeRegime: string;
+  pendingOutcomeCount: number;
+  labeledCount: number;
+  r6PendingCount: number;
+}): string {
+  if (input.activeRegime === 'R6_DEFENSE' && (input.r6PendingCount > 0 || input.pendingOutcomeCount > 0 || input.labeledCount > 0)) return 'R6_COUNTERFACTUAL_ENTRY_ACTIVE';
+  if (input.pendingOutcomeCount > 0 || input.labeledCount > 0) return 'COUNTERFACTUAL_ENTRY_ACTIVE';
+  return 'FRESH_SHADOW_ONLY';
+}
+function deriveNoFreshReason(input: {
+  freshSampleSize: number;
+  activeRegime: string;
+  r6PendingCount: number;
+  pendingOutcomeCount: number;
+  labeledCount: number;
+  maturedNowCount: number;
+  metadataMissingCount: number;
+  freshInletBlocker: string;
+  todayFreshCandidates: number;
+}): string {
+  if (input.freshSampleSize > 0) return 'N/A';
+  if (input.activeRegime === 'R6_DEFENSE' && input.r6PendingCount > 0 && input.maturedNowCount === 0) return 'R6_COUNTERFACTUAL_PENDING_MATURITY';
+  if (input.activeRegime === 'R6_DEFENSE' && input.r6PendingCount > 0 && input.maturedNowCount > 0) return 'R6_COUNTERFACTUAL_MATURED_RESOLVE_DUE';
+  if (input.metadataMissingCount > 0) return 'COUNTERFACTUAL_METADATA_REPAIR_REQUIRED_ENTRY_TARGET_STOP';
+  if (input.pendingOutcomeCount > 0) return 'COUNTERFACTUAL_PENDING_OUTCOME';
+  if (input.labeledCount > 0) return 'COUNTERFACTUAL_LABELED_INPUT_AVAILABLE';
+  if (input.todayFreshCandidates === 0) return 'NO_FRESH_SHADOW_CANDIDATES_TODAY';
+  if (input.freshInletBlocker && input.freshInletBlocker !== 'FRESH_SHADOW_INLET_ACTIVE') return input.freshInletBlocker;
+  return 'FRESH_SHADOW_SAMPLE_ZERO_UNKNOWN';
 }
 export function collectLearningPulse(now: Date = new Date()) {
   const errors: string[] = [];
@@ -96,6 +127,23 @@ export function collectLearningPulse(now: Date = new Date()) {
   const suggestInputSamples = counterfactualLabeledInputSamples;
   const counterfactualMetadataMissing = counterfactualMetadataMissingCount(counterfactualMetadataRepair);
   const counterfactualWaitingForMaturity = counterfactualMaturity.waitingCount;
+  const shadowLearningLane = counterfactualLearningLane({
+    activeRegime: regimeLearning.activeRegime,
+    pendingOutcomeCount: counterfactual.pendingOutcomeCount,
+    labeledCount: counterfactual.labeledCount,
+    r6PendingCount: regimeLearning.R6PendingCounterfactualCount,
+  });
+  const noFreshReason = deriveNoFreshReason({
+    freshSampleSize: freshPromotion.freshSampleSize,
+    activeRegime: regimeLearning.activeRegime,
+    r6PendingCount: regimeLearning.R6PendingCounterfactualCount,
+    pendingOutcomeCount: counterfactual.pendingOutcomeCount,
+    labeledCount: counterfactual.labeledCount,
+    maturedNowCount: counterfactualMaturity.maturedNowCount,
+    metadataMissingCount: counterfactualMetadataMissing,
+    freshInletBlocker: freshShadowInlet.blocker,
+    todayFreshCandidates: freshShadow.todayFreshCandidates,
+  });
   const blockerSplit = splitCounterfactualSuggestBlockers({
     builtButUnlabeled: counterfactualBuiltButUnlabeled,
     labeledInputSamples: counterfactualLabeledInputSamples,
@@ -112,7 +160,7 @@ export function collectLearningPulse(now: Date = new Date()) {
   if (!consistencyCheck.counterfactualLabelingConnected) metricWarnings.push('COUNTERFACTUAL_LABELING_DISCONNECTED');
   if (!consistencyCheck.freshMetricNAWhenNoSample) metricWarnings.push('FRESH_EXPECTANCY_ZERO_SAMPLE_SHOWN_AS_ZERO');
   if (!consistencyCheck.counterfactualDuplicateGuardActive) metricWarnings.push('COUNTERFACTUAL_DUPLICATE_GUARD_MISSING');
-  return { ...v2, suggest, consistencyCheck, metricWarnings, metricInfos, v3: collectLearningPulseV3(now), freshShadow, freshShadowInlet, freshPromotion, counterfactual, counterfactualMetadataRepair, counterfactualMaturity, counterfactualResolver, regimeLearning, regimeLearningConsistency, cohorts, cohortConsistency, cohortSnapshotStatus: cohortConsistency.snapshotStatus, counterfactualBuiltButUnlabeled, counterfactualLabeledInputSamples, counterfactualWaitingForMaturity, counterfactualMetadataMissing, suggestInputSamples, todayKst: new Date(now.getTime() + 9 * 3600000).toISOString().slice(0,10), ghost: { ...v2.ghost, closedRecent7d, closeRatio }, attribution7d: { count: attribution7dCount, target: LEARNING_ATTRIBUTION_TARGET_7D }, weights: { changedFromDefault, sunsetCount, untouched, lastF2WRanAt: f2wTail?.ranAt, lastF2WSkipCount: f2wTail ? f2wTail.adjustments.filter((a: any) => a.action === 'NONE').length : 0, lastF2WTotalRecords: f2wTail?.totalRecords ?? 0 }, suggest7d, diagnosticProposals7d, experimentsActive, gemini: { ...v2.gemini, month: budget.month, callCount: budget.callCount, tokensUsed: budget.tokensUsed, useRatio, schedulerStatus: geminiScheduler.schedulerStatus, lastScheduledAt: geminiScheduler.lastScheduledAt, lastRunAt: geminiScheduler.lastRunAt, nextScheduledAt: geminiScheduler.nextScheduledAt, missedCount: geminiScheduler.missedCount, recommendationOnly: geminiScheduler.recommendationOnly }, geminiScheduler, flags, partialFailure: errors.length > 0 };
+  return { ...v2, suggest, consistencyCheck, metricWarnings, metricInfos, v3: collectLearningPulseV3(now), freshShadow, freshShadowInlet, freshPromotion, noFreshReason, shadowLearningLane, counterfactual, counterfactualMetadataRepair, counterfactualMaturity, counterfactualResolver, regimeLearning, regimeLearningConsistency, cohorts, cohortConsistency, cohortSnapshotStatus: cohortConsistency.snapshotStatus, counterfactualBuiltButUnlabeled, counterfactualLabeledInputSamples, counterfactualWaitingForMaturity, counterfactualMetadataMissing, suggestInputSamples, todayKst: new Date(now.getTime() + 9 * 3600000).toISOString().slice(0,10), ghost: { ...v2.ghost, closedRecent7d, closeRatio }, attribution7d: { count: attribution7dCount, target: LEARNING_ATTRIBUTION_TARGET_7D }, weights: { changedFromDefault, sunsetCount, untouched, lastF2WRanAt: f2wTail?.ranAt, lastF2WSkipCount: f2wTail ? f2wTail.adjustments.filter((a: any) => a.action === 'NONE').length : 0, lastF2WTotalRecords: f2wTail?.totalRecords ?? 0 }, suggest7d, diagnosticProposals7d, experimentsActive, gemini: { ...v2.gemini, month: budget.month, callCount: budget.callCount, tokensUsed: budget.tokensUsed, useRatio, schedulerStatus: geminiScheduler.schedulerStatus, lastScheduledAt: geminiScheduler.lastScheduledAt, lastRunAt: geminiScheduler.lastRunAt, nextScheduledAt: geminiScheduler.nextScheduledAt, missedCount: geminiScheduler.missedCount, recommendationOnly: geminiScheduler.recommendationOnly }, geminiScheduler, flags, partialFailure: errors.length > 0 };
 }
 function formatLearningPulseMessageBase(s: ReturnType<typeof collectLearningPulse>): string {
   const suggestSignals7d = Object.values(s.suggest7d).reduce((a,b)=>a+b,0);
@@ -131,8 +179,9 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
   const extra = [
     formatEngineRuntimePolicy(runtimePolicy),
     `Fresh Shadow Inlet: blocker=${s.freshShadowInlet.blocker} / nextAction=${s.freshShadowInlet.nextAction} / scanCandidatesToday=${s.freshShadowInlet.scanCandidatesToday} / shadowSignalsToday=${s.freshShadowInlet.shadowSignalsToday} / shadowApprovedToday=${s.freshShadowInlet.shadowApprovedToday} / shadowOrdersCreatedToday=${s.freshShadowInlet.shadowOrdersCreatedToday} / paperFilledToday=${s.freshShadowInlet.paperFilledToday} / executionImpact=${s.freshShadowInlet.executionImpact}`,
+    `Fresh Shadow Zero Detail: freshSampleSize=${s.freshPromotion.freshSampleSize} / noFreshReason=${s.noFreshReason} / shadowLearningLane=${s.shadowLearningLane} / R6CounterfactualPending=${s.regimeLearning.R6PendingCounterfactualCount} / R6ResolvedSampleGate=${s.regimeLearning.R6ResolvedSampleSize}/${s.regimeLearning.R6ResolvedPromotionMin} / R6PromotionBlocker=${s.regimeLearning.R6PromotionBlocker}`,
     `Regime Learning v6: activeRegime=${s.regimeLearning.activeRegime} / rawRegime=${s.regimeLearning.rawRegime} / effectiveRegime=${s.regimeLearning.effectiveRegime} / shadowLearningAllowed=${s.regimeLearning.shadowLearningAllowed} / regimeLearningSampleSize=${s.regimeLearning.regimeLearningSampleSize} / regimeAssignedCount=${s.regimeLearning.regimeAssignedCount} / unknownRegimeCount=${s.regimeLearning.unknownRegimeCount} / unknownRatio=${s.regimeLearning.unknownRatio} / bestRegimeByExpectancy=${s.regimeLearning.bestRegimeByExpectancy ?? 'N/A'} / worstRegimeByExpectancy=${s.regimeLearning.worstRegimeByExpectancy ?? 'N/A'} / activeRegimeSampleSize=${s.regimeLearning.activeRegimeSampleSize} / activeRegimeTotalSampleSize=${s.regimeLearning.activeRegimeTotalSampleSize} / activeRegimeResolvedSampleSize=${s.regimeLearning.activeRegimeResolvedSampleSize} / activeRegimePendingCounterfactualCount=${s.regimeLearning.activeRegimePendingCounterfactualCount} / activeRegimeAttributableSampleSize=${s.regimeLearning.activeRegimeAttributableSampleSize} / activeRegimeExpectancyR=${activeRegimeExpectancyR} / activeRegimeQualityStatus=${s.regimeLearning.activeRegimeQualityStatus} / activeRegimeWhyNotReliable=${s.regimeLearning.activeRegimeWhyNotReliable} / activeRegimeTopPattern=${s.regimeLearning.activeRegimeTopPattern} / activeRegimeLearningNeed=${s.regimeLearning.activeRegimeLearningNeed} / R1QualityStatus=${s.regimeLearning.R1QualityStatus} / R2QualityStatus=${s.regimeLearning.R2QualityStatus} / R3QualityStatus=${s.regimeLearning.R3QualityStatus} / R4QualityStatus=${s.regimeLearning.R4QualityStatus} / R5QualityStatus=${s.regimeLearning.R5QualityStatus} / R6QualityStatus=${s.regimeLearning.R6QualityStatus} / R2ResolvedSampleSize=${s.regimeLearning.R2ResolvedSampleSize} / R2PendingCounterfactual=${s.regimeLearning.R2PendingCounterfactualCount} / R3ResolvedSampleSize=${s.regimeLearning.R3ResolvedSampleSize} / R3PendingCounterfactual=${s.regimeLearning.R3PendingCounterfactualCount} / R6ResolvedSampleSize=${s.regimeLearning.R6ResolvedSampleSize} / R6PendingCounterfactual=${s.regimeLearning.R6PendingCounterfactualCount} / nextRegimeMaturityAt=${s.regimeLearning.nextRegimeMaturityAt ?? 'N/A'} / regimesNeedingAttributionRecalc=${JSON.stringify(s.regimeLearning.regimesNeedingAttributionRecalc)} / regimeLearningNextAction=${s.regimeLearning.regimeLearningNextAction} / nextRegimeLearningAction=${s.regimeLearning.nextRegimeLearningAction} / unknownReductionNeeded=${s.regimeLearning.unknownReductionNeeded} / regimeBankConsistency=${s.regimeLearning.regimeBankConsistency} / recommendationOnly=${s.regimeLearning.recommendationOnly} / promotionAllowed=${s.regimeLearning.promotionAllowed}`,
-    `Counterfactual Metadata Repair: metadataRepairStatus=${s.counterfactualMetadataRepair.metadataRepairStatus} / missingTargetPrice=${s.counterfactualMetadataRepair.missingTargetPrice} / missingStopPrice=${s.counterfactualMetadataRepair.missingStopPrice} / totalTargetStopRecovered=${s.counterfactualMetadataRepair.totalTargetStopRecovered} / targetStopRecoveredCount=${s.counterfactualMetadataRepair.targetStopRecoveredCount} / cumulativeRecovered=${s.counterfactualMetadataRepair.cumulativeRecovered} / lastRunScannedMissing=${s.counterfactualMetadataRepair.lastRunScannedMissing} / lastRunRecovered=${s.counterfactualMetadataRepair.lastRunRecovered} / missingAfterRun=${s.counterfactualMetadataRepair.missingAfterRun} / incrementalRepairStatus=${s.counterfactualMetadataRepair.incrementalRepairStatus} / recoverySourceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoverySourceBreakdown)} / recoveryConfidenceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoveryConfidenceBreakdown)}`,
+    `Counterfactual Metadata Repair: metadataRepairStatus=${s.counterfactualMetadataRepair.metadataRepairStatus} / missingEntryPrice=${s.counterfactualMetadataRepair.missingEntryPrice} / recoverableEntry=${s.counterfactualMetadataRepair.recoverableEntry} / missingTargetPrice=${s.counterfactualMetadataRepair.missingTargetPrice} / missingStopPrice=${s.counterfactualMetadataRepair.missingStopPrice} / totalTargetStopRecovered=${s.counterfactualMetadataRepair.totalTargetStopRecovered} / targetStopRecoveredCount=${s.counterfactualMetadataRepair.targetStopRecoveredCount} / cumulativeRecovered=${s.counterfactualMetadataRepair.cumulativeRecovered} / lastRunScannedMissing=${s.counterfactualMetadataRepair.lastRunScannedMissing} / lastRunRecovered=${s.counterfactualMetadataRepair.lastRunRecovered} / missingAfterRun=${s.counterfactualMetadataRepair.missingAfterRun} / missingMetadataAfterRun=${s.counterfactualMetadataRepair.missingMetadataAfterRun} / incrementalRepairStatus=${s.counterfactualMetadataRepair.incrementalRepairStatus} / recoverySourceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoverySourceBreakdown)} / recoveryConfidenceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoveryConfidenceBreakdown)}`,
     `Suggest Blockers: counterfactualBuiltButUnlabeled=${s.counterfactualBuiltButUnlabeled} / counterfactualLabeledInputSamples=${s.counterfactualLabeledInputSamples} / counterfactualWaitingForMaturity=${s.counterfactualWaitingForMaturity} / counterfactualMetadataMissing=${s.counterfactualMetadataMissing} / suggestInputSamples=${s.suggestInputSamples} / primaryBlocker=${s.suggest.primaryBlocker} / secondaryBlockers=${JSON.stringify(s.suggest.secondaryBlockers)} / status=${s.suggest.status}`,
     `Counterfactual Maturity: maturityStatus=${s.counterfactualMaturity.maturityStatus} / maturedNowCount=${s.counterfactualMaturity.maturedNowCount} / waitingForHoldingPeriod=${s.counterfactualMaturity.waitingCount} / overdueCount=${s.counterfactualMaturity.overdueCount} / nearestMaturityBucket=${s.counterfactualMaturity.nearestMaturityBucket} / nearestMaturityAt=${s.counterfactualMaturity.nearestMaturityAt ?? 'N/A'} / remainingCalendarDays=${s.counterfactualMaturity.remainingCalendarDaysToNearestMaturity ?? 'N/A'} / remainingTradingDays=${s.counterfactualMaturity.remainingTradingDaysToNearestMaturity ?? 'N/A'} / largestMaturityBucket=${s.counterfactualMaturity.largestMaturityBucket} / largestMaturityBucketCount=${s.counterfactualMaturity.largestMaturityBucketCount} / nextResolveAt=${s.counterfactualMaturity.nextResolveAt ?? 'N/A'} / bucketSumMatchesPending=${s.counterfactualMaturity.bucketSumMatchesPending} / resolverSchedulerStatus=${s.counterfactualMaturity.schedulerStatus}`,
     `Counterfactual Resolver: resolverStatus=${s.counterfactualResolver.resolverStatus} / scannedBuiltUnique=${s.counterfactualResolver.scannedBuiltUnique} / pendingOutcomeCount=${s.counterfactualResolver.pendingOutcomeCount} / resolvableNow=${s.counterfactualResolver.resolvableNow} / expectedLabelable=${s.counterfactualResolver.expectedLabelable} / expectedStillPending=${s.counterfactualResolver.expectedStillPending} / labelBreakdown=${JSON.stringify(s.counterfactualResolver.labelBreakdown)} / executionImpact=${s.counterfactualResolver.executionImpact}`,

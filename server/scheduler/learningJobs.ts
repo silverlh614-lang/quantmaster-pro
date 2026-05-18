@@ -120,7 +120,7 @@ export function registerLearningJobs(): void {
   scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'counterfactual_resolve', async () => {
     try {
       const res = counterfactualResolveDueRun();
-      console.log(`[Counterfactual] dueResolve labeled=${res.labeled} stillPending=${res.stillPending} maturedNow=${res.maturedNowCount} executionImpact=${res.executionImpact} brokerOrdersCreated=${res.brokerOrdersCreated}`);
+      console.log(`[Counterfactual] dueResolve labeled=${res.labeled} stillPending=${res.stillPending} maturedNow=${res.maturedNowCount} metadataRepairedBeforeResolve=${res.metadataRepairedBeforeResolve} metadataEntryRecoveredBeforeResolve=${res.metadataEntryRecoveredBeforeResolve} executionImpact=${res.executionImpact} brokerOrdersCreated=${res.brokerOrdersCreated}`);
     } catch (e) {
       console.error('[Counterfactual] 실행 실패:', e);
     }

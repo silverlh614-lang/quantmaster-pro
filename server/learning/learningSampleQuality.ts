@@ -289,12 +289,37 @@ type CounterfactualTargetStopPlan = {
   ruleId: string;
   note: string;
 };
+type CounterfactualEntryPricePlan = {
+  entry: number;
+  source: CounterfactualRecoverySource;
+  confidence: CounterfactualRecoveryConfidence;
+  ruleId: string;
+  note: string;
+};
 function priceField(e: CounterfactualEntry, keys: string[]): number | undefined {
   const row = e as CounterfactualEntry & Record<string, unknown>;
   for (const key of keys) {
     const value = num(row[key]);
     if (value) return value;
   }
+  return undefined;
+}
+function counterfactualIdentity(e: CounterfactualEntry): string {
+  return e.counterfactualKey ?? e.id ?? `${e.stockCode}:${e.signalDate}:${e.blockedReason ?? e.skipReason ?? 'BLOCKED'}`;
+}
+function rawMissingEntryIdentities(rows: CounterfactualEntry[]): Set<string> {
+  return new Set(rows.filter((e) => !num(e.hypotheticalEntryPrice)).map(counterfactualIdentity));
+}
+function entryPricePlan(e: CounterfactualEntry): CounterfactualEntryPricePlan | undefined {
+  const direct = num(e.hypotheticalEntryPrice);
+  if (direct) return { entry: direct, source: 'ORIGINAL_SIGNAL_SNAPSHOT', confidence: 'RECOVERED', ruleId: 'counterfactual-entry-present', note: 'Entry price already present.' };
+  const signal = num(e.priceAtSignal);
+  if (signal) return { entry: signal, source: 'ORIGINAL_SIGNAL_SNAPSHOT', confidence: 'RECOVERED', ruleId: 'price-at-signal-entry-recovery', note: 'Recovered hypothetical entry from priceAtSignal; diagnostic-only.' };
+  const original = priceField(e, ['originalEntryPrice', 'signalEntryPrice', 'entryPriceSnapshot', 'entryPrice', 'entryPriceVirtual']);
+  if (original) return { entry: original, source: 'ORIGINAL_SIGNAL_SNAPSHOT', confidence: 'RECOVERED', ruleId: 'original-entry-price-snapshot', note: 'Recovered from stored entry snapshot; diagnostic-only.' };
+  const path = counterfactualPricePath(e).sort((a, b) => pathTime(a) - pathTime(b)).find((p) => num(p.price) ?? num(p.close));
+  const pathEntry = path ? num(path.price) ?? num(path.close) : undefined;
+  if (pathEntry) return { entry: pathEntry, source: 'DEFAULT_R_MULTIPLE_FALLBACK', confidence: 'RECOVERED_LOW', ruleId: 'price-path-entry-fallback', note: 'Recovered from first available price path point; diagnostic-only and excluded from promotion.' };
   return undefined;
 }
 function atrValue(e: CounterfactualEntry, entry: number): number | undefined {
@@ -347,16 +372,23 @@ function mergeCounts(...records: Array<Record<string, number>>): Record<string, 
   return out;
 }
 export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
-  const all = normalizeCounterfactuals();
-  const missingRows = all.filter((e) => !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
-  let missingTargetPrice = 0, missingStopPrice = 0, missingEntryPrice = 0, missingPricePath = 0, recoverableTargetStop = 0, unrecoverableTargetStop = 0;
+  const raw = loadCounterfactuals();
+  const missingEntryIds = rawMissingEntryIdentities(raw);
+  const all = normalizeCounterfactuals(raw);
+  const missingRows = all.filter((e) => missingEntryIds.has(counterfactualIdentity(e)) || !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
+  let missingTargetPrice = 0, missingStopPrice = 0, missingEntryPrice = 0, missingPricePath = 0, recoverableEntry = 0, unrecoverableEntry = 0, recoverableTargetStop = 0, unrecoverableTargetStop = 0;
   const plannedRows: CounterfactualEntry[] = [];
   for (const e of missingRows) {
     const targetMissing = !num(e.hypotheticalTargetPrice);
     const stopMissing = !num(e.hypotheticalStopPrice);
+    const entryMissing = missingEntryIds.has(counterfactualIdentity(e)) || !num(e.hypotheticalEntryPrice ?? e.priceAtSignal);
     if (targetMissing) missingTargetPrice++;
     if (stopMissing) missingStopPrice++;
-    if (!num(e.hypotheticalEntryPrice ?? e.priceAtSignal)) missingEntryPrice++;
+    if (entryMissing) {
+      missingEntryPrice++;
+      if (entryPricePlan(e)) recoverableEntry++;
+      else unrecoverableEntry++;
+    }
     if (counterfactualPricePath(e).length === 0) missingPricePath++;
     if (!targetMissing && !stopMissing) continue;
     const plan = buildCounterfactualTargetStopPlan(e);
@@ -384,11 +416,14 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
     recoverableTargetStop,
     unrecoverableTargetStop,
     missingEntryPrice,
+    recoverableEntry,
+    unrecoverableEntry,
     missingPricePath,
     targetStopRecoveredCount: existing.length,
     totalTargetStopRecovered: existing.length,
     cumulativeRecovered: existing.length,
     missingAfterRun: missingTargetPrice + missingStopPrice,
+    missingMetadataAfterRun: missingTargetPrice + missingStopPrice + missingEntryPrice,
     recoveryRuleAvailable: recoverableTargetStop > 0,
     defaultRiskRuleAvailable: true,
     atrRuleAvailable: plannedRows.some((e) => e.recoverySource === 'ATR_FALLBACK'),
@@ -406,14 +441,44 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
   };
 }
 export function counterfactualMetadataRepairRun(now: Date = new Date()) {
-  const all = normalizeCounterfactuals();
-  const missingRows = all.filter((e) => !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
-  let targetRecovered = 0, stopRecovered = 0, bothRecovered = 0, unrecoverable = 0;
+  const raw = loadCounterfactuals();
+  const missingEntryIds = rawMissingEntryIdentities(raw);
+  const all = normalizeCounterfactuals(raw);
+  const missingRows = all.filter((e) => missingEntryIds.has(counterfactualIdentity(e)) || !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
+  let entryRecovered = 0, targetRecovered = 0, stopRecovered = 0, bothRecovered = 0, unrecoverableEntry = 0, unrecoverable = 0;
   const lastRunRows: CounterfactualEntry[] = [];
   for (const e of missingRows) {
+    const entryMissing = missingEntryIds.has(counterfactualIdentity(e)) || !num(e.hypotheticalEntryPrice ?? e.priceAtSignal);
     const targetMissing = !num(e.hypotheticalTargetPrice);
     const stopMissing = !num(e.hypotheticalStopPrice);
-    if (!targetMissing && !stopMissing) continue;
+    let changed = false;
+    if (entryMissing) {
+      const plan = entryPricePlan(e);
+      if (plan) {
+        e.hypotheticalEntryPrice = plan.entry;
+        if (!num(e.priceAtSignal)) e.priceAtSignal = plan.entry;
+        e.entryPriceRecovered = true;
+        e.recoverySource = plan.source;
+        e.recoveryConfidence = plan.confidence;
+        e.sourceConfidence = plan.confidence;
+        e.recoveredAt = now.toISOString();
+        e.recoveryRuleId = plan.ruleId;
+        e.recoveryNote = plan.note;
+        entryRecovered++;
+        changed = true;
+      } else {
+        unrecoverableEntry++;
+      }
+    }
+    if (!targetMissing && !stopMissing) {
+      if (changed) {
+        e.diagnosticOnly = true;
+        e.promotionEligible = false;
+        e.autoApply = false;
+        lastRunRows.push(e);
+      }
+      continue;
+    }
     const plan = buildCounterfactualTargetStopPlan(e);
     if (!plan) { unrecoverable++; continue; }
     if (targetMissing) { e.hypotheticalTargetPrice = plan.target; targetRecovered++; }
@@ -442,21 +507,26 @@ export function counterfactualMetadataRepairRun(now: Date = new Date()) {
   const lastRunBreakdowns = recoveryBreakdowns(lastRunRows);
   const missingTargetPrice = all.filter((e) => !num(e.hypotheticalTargetPrice)).length;
   const missingStopPrice = all.filter((e) => !num(e.hypotheticalStopPrice)).length;
+  const missingEntryPrice = all.filter((e) => !num(e.hypotheticalEntryPrice)).length;
   return {
     scannedBuiltUnique: all.length,
     lastRunScannedMissing: missingRows.length,
-    lastRunRecovered: bothRecovered,
+    lastRunRecovered: bothRecovered + entryRecovered,
+    entryRecovered,
     targetRecovered,
     stopRecovered,
     bothRecovered,
+    unrecoverableEntry,
     unrecoverable,
     targetStopRecoveredCount: repaired.length,
     totalTargetStopRecovered: repaired.length,
     cumulativeRecovered: repaired.length,
+    missingEntryPrice,
     missingTargetPrice,
     missingStopPrice,
     missingAfterRun: missingTargetPrice + missingStopPrice,
-    incrementalRepairStatus: missingTargetPrice + missingStopPrice === 0 ? 'OK' as const : unrecoverable > 0 ? 'PARTIAL_DATA_BLOCKED' as const : 'READY_INCREMENTAL_REPAIR' as const,
+    missingMetadataAfterRun: missingEntryPrice + missingTargetPrice + missingStopPrice,
+    incrementalRepairStatus: missingEntryPrice + missingTargetPrice + missingStopPrice === 0 ? 'OK' as const : unrecoverable + unrecoverableEntry > 0 ? 'PARTIAL_DATA_BLOCKED' as const : 'READY_INCREMENTAL_REPAIR' as const,
     recoverySourceBreakdown: breakdowns.recoverySourceBreakdown,
     recoveryConfidenceBreakdown: breakdowns.recoveryConfidenceBreakdown,
     cumulativeRecoverySourceBreakdown: breakdowns.recoverySourceBreakdown,
@@ -472,11 +542,18 @@ export function counterfactualResolveDryRun(now: Date = new Date()) { return cou
 export function counterfactualResolveRun(now: Date = new Date()) { return counterfactualResolve(now, true); }
 export function counterfactualResolveDueDryRun(now: Date = new Date()) { return counterfactualResolve(now, false, true); }
 export function counterfactualResolveDueRun(now: Date = new Date()) {
+  const repair = counterfactualMetadataRepairRun(now);
   const result = counterfactualResolve(now, true, true);
   const maturity = collectCounterfactualMaturityStatus(now);
   saveCounterfactualResolverSchedulerStatus(now, result, maturity.nextResolveAt);
   if (result.labeled > 0) recordRegimeResolvedTransition(now, result.labeled);
-  return result;
+  return {
+    ...result,
+    metadataRepairStatus: repair.incrementalRepairStatus,
+    metadataRepairedBeforeResolve: repair.lastRunRecovered,
+    metadataEntryRecoveredBeforeResolve: repair.entryRecovered,
+    metadataTargetStopRecoveredBeforeResolve: repair.bothRecovered,
+  };
 }
 function counterfactualCreatedAt(e: CounterfactualEntry): string | undefined {
   return e.signalTime ?? (e as CounterfactualEntry & { createdAt?: string }).createdAt ?? (e.signalDate ? `${e.signalDate}T00:00:00.000Z` : undefined);
@@ -853,14 +930,14 @@ export function formatCounterfactualResolve(s: ReturnType<typeof counterfactualR
 export function formatCounterfactualMaturityStatus(s: ReturnType<typeof collectCounterfactualMaturityStatus>, title = 'counterfactual_maturity_status'): string {
   return [`🧪 ${title}`, `now=${s.now}`, `totalBuiltUnique=${s.totalBuiltUnique} pendingOutcomeCount=${s.pendingOutcomeCount} maturityStatus=${s.maturityStatus} maturedNowCount=${s.maturedNowCount}`, `waitingCount=${s.waitingCount} overdueCount=${s.overdueCount} invalidMaturityCount=${s.invalidMaturityCount}`, `oldestPendingAgeMinutes=${s.oldestPendingAgeMinutes} nearestMaturityBucket=${s.nearestMaturityBucket} nearestMaturityAt=${s.nearestMaturityAt ?? 'N/A'} remainingMinutesToNearestMaturity=${s.remainingMinutesToNearestMaturity ?? 'N/A'} remainingCalendarDaysToNearestMaturity=${s.remainingCalendarDaysToNearestMaturity ?? 'N/A'} remainingTradingDaysToNearestMaturity=${s.remainingTradingDaysToNearestMaturity ?? 'N/A'} maturityTimeBasis=${s.maturityTimeBasis}`, `nextResolveAt=${s.nextResolveAt ?? 'N/A'} maxHoldingMinutes=${s.maxHoldingMinutes} largestMaturityBucket=${s.largestMaturityBucket} largestMaturityBucketCount=${s.largestMaturityBucketCount}`, `maturityBucketBreakdown=${JSON.stringify(s.maturityBucketBreakdown)}`, `bucketSum=${s.bucketSum} pendingOutcomeCount=${s.pendingOutcomeCount} bucketSumMatchesPending=${s.bucketSumMatchesPending}`, `resolverSchedulerRegistered=${s.resolverSchedulerRegistered} lastRunAt=${s.lastRunAt ?? 'N/A'} nextRunAt=${s.nextRunAt ?? 'N/A'} lastRunLabeled=${s.lastRunLabeled} lastRunStillPending=${s.lastRunStillPending} schedulerStatus=${s.schedulerStatus}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
 }
-export function formatCounterfactualDueResolve(s: ReturnType<typeof counterfactualResolveDueDryRun>, title = 'counterfactual_resolve_due'): string {
+export function formatCounterfactualDueResolve(s: ReturnType<typeof counterfactualResolveDueDryRun> | ReturnType<typeof counterfactualResolveDueRun>, title = 'counterfactual_resolve_due'): string {
   return [`🧪 ${title}`, `scannedPending=${s.scannedPending} maturedNowCount=${s.maturedNowCount} resolvableNow=${s.resolvableNow}`, `expectedLabelable=${s.expectedLabelable} expectedStillPending=${s.expectedStillPending} waitingForHoldingPeriod=${s.waitingForHoldingPeriod}`, `missingPricePath=${s.missingPricePath} dataInsufficient=${s.dataInsufficient} quarantined=${s.quarantined} invalidMaturityCount=${s.invalidMaturityCount}`, `labeled=${s.labeled} stillPending=${s.stillPending}`, `expectedLabelBreakdown=${JSON.stringify(s.expectedLabelBreakdown)}`, `labelBreakdown=${JSON.stringify(s.labelBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`].join('\n');
 }
 export function formatCounterfactualMetadataRepair(s: ReturnType<typeof counterfactualMetadataRepairDryRun> | ReturnType<typeof counterfactualMetadataRepairRun>, title = 'counterfactual_metadata_repair'): string {
   const common = [`🛠 ${title}`, `scannedBuiltUnique=${s.scannedBuiltUnique}`];
-  if ('metadataRepairStatus' in s) common.push(`metadataRepairStatus=${s.metadataRepairStatus} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice}`, `recoverableTargetStop=${s.recoverableTargetStop} unrecoverableTargetStop=${s.unrecoverableTargetStop} missingEntryPrice=${s.missingEntryPrice} missingPricePath=${s.missingPricePath}`, `recoveryRuleAvailable=${s.recoveryRuleAvailable} defaultRiskRuleAvailable=${s.defaultRiskRuleAvailable} atrRuleAvailable=${s.atrRuleAvailable} fallbackRMultipleRuleAvailable=${s.fallbackRMultipleRuleAvailable} expectedSourceConfidence=${s.expectedSourceConfidence}`);
-  else common.push(`targetRecovered=${s.targetRecovered} stopRecovered=${s.stopRecovered} bothRecovered=${s.bothRecovered} unrecoverable=${s.unrecoverable} targetStopRecoveredCount=${s.targetStopRecoveredCount}`);
-  common.push(`incrementalRepairStatus=${s.incrementalRepairStatus} lastRunScannedMissing=${s.lastRunScannedMissing} lastRunRecovered=${s.lastRunRecovered} totalTargetStopRecovered=${s.totalTargetStopRecovered} cumulativeRecovered=${s.cumulativeRecovered} missingAfterRun=${s.missingAfterRun}`);
+  if ('metadataRepairStatus' in s) common.push(`metadataRepairStatus=${s.metadataRepairStatus} missingTargetPrice=${s.missingTargetPrice} missingStopPrice=${s.missingStopPrice}`, `recoverableTargetStop=${s.recoverableTargetStop} unrecoverableTargetStop=${s.unrecoverableTargetStop} missingEntryPrice=${s.missingEntryPrice} recoverableEntry=${s.recoverableEntry} unrecoverableEntry=${s.unrecoverableEntry} missingPricePath=${s.missingPricePath}`, `recoveryRuleAvailable=${s.recoveryRuleAvailable} defaultRiskRuleAvailable=${s.defaultRiskRuleAvailable} atrRuleAvailable=${s.atrRuleAvailable} fallbackRMultipleRuleAvailable=${s.fallbackRMultipleRuleAvailable} expectedSourceConfidence=${s.expectedSourceConfidence}`);
+  else common.push(`entryRecovered=${s.entryRecovered} targetRecovered=${s.targetRecovered} stopRecovered=${s.stopRecovered} bothRecovered=${s.bothRecovered} unrecoverableEntry=${s.unrecoverableEntry} unrecoverable=${s.unrecoverable} targetStopRecoveredCount=${s.targetStopRecoveredCount} missingEntryPrice=${s.missingEntryPrice}`);
+  common.push(`incrementalRepairStatus=${s.incrementalRepairStatus} lastRunScannedMissing=${s.lastRunScannedMissing} lastRunRecovered=${s.lastRunRecovered} totalTargetStopRecovered=${s.totalTargetStopRecovered} cumulativeRecovered=${s.cumulativeRecovered} missingAfterRun=${s.missingAfterRun} missingMetadataAfterRun=${s.missingMetadataAfterRun}`);
   common.push(`recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`, `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`);
   return common.join('\n');
 }

@@ -236,6 +236,9 @@ export interface RegimeLearningBank {
   R2ResolvedSampleSize: number;
   R3ResolvedSampleSize: number;
   R6ResolvedSampleSize: number;
+  R6ResolvedPromotionMin: number;
+  R6PromotionGateSatisfied: boolean;
+  R6PromotionBlocker: string;
   R2PendingCounterfactualCount: number;
   R3PendingCounterfactualCount: number;
   R6PendingCounterfactualCount: number;

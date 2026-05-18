@@ -157,6 +157,55 @@ describe('counterfactualShadow', () => {
     expect(loadCounterfactuals()[0].labelSource).toBe('RECOVERED_TARGET_STOP');
   });
 
+  it('Counterfactual Metadata Repair: recovers missing hypothetical entry price before labeling', () => {
+    const signal = new Date('2026-04-22T00:00:00Z');
+    recordCounterfactualCase({
+      stockCode: '066570', stockName: 'LG전자', priceAtSignal: 100_000,
+      gateScore: 5, regime: 'R6_DEFENSE', conditionKeys: [], skipReason: 'R6_DEFENSE_BLOCK',
+      sourceCandidateId: 'missing-entry-case', now: signal,
+      hypotheticalTargetPrice: 106_000, hypotheticalStopPrice: 97_000, maxHoldingMinutes: 1,
+    });
+    const rows = loadCounterfactuals();
+    delete rows[0].hypotheticalEntryPrice;
+    rows[0].pricePath = [{ at: '2026-04-22T00:02:00Z', price: 107_000, high: 107_000, low: 99_000 }];
+    fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
+
+    const dry = counterfactualMetadataRepairDryRun(new Date('2026-04-22T00:10:00Z'));
+    expect(dry.missingEntryPrice).toBe(1);
+    expect(dry.recoverableEntry).toBe(1);
+
+    const repaired = counterfactualMetadataRepairRun(new Date('2026-04-22T00:10:00Z'));
+    expect(repaired.entryRecovered).toBe(1);
+    expect(repaired.missingEntryPrice).toBe(0);
+    const saved = loadCounterfactuals()[0];
+    expect(saved.hypotheticalEntryPrice).toBe(100_000);
+    expect(saved.entryPriceRecovered).toBe(true);
+    expect(saved.diagnosticOnly).toBe(true);
+    expect(saved.promotionEligible).toBe(false);
+    expect(saved.autoApply).toBe(false);
+  });
+
+  it('Counterfactual due resolve runs metadata repair first so matured R6 entries can be labeled', () => {
+    const signal = new Date('2026-04-22T00:00:00Z');
+    recordCounterfactualCase({
+      stockCode: '017670', stockName: 'SK텔레콤', priceAtSignal: 50_000,
+      gateScore: 5, regime: 'R6_DEFENSE', conditionKeys: [], skipReason: 'R6_DEFENSE_BLOCK',
+      sourceCandidateId: 'r6-matured-missing-target-stop', now: signal, maxHoldingMinutes: 1,
+    });
+    const rows = loadCounterfactuals();
+    rows[0].pricePath = [{ at: '2026-04-22T00:02:00Z', price: 53_500, high: 53_500, low: 49_500 }];
+    fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
+
+    const dueRun = counterfactualResolveDueRun(new Date('2026-04-22T00:10:00Z'));
+    expect(dueRun.metadataRepairedBeforeResolve).toBeGreaterThan(0);
+    expect(dueRun.metadataTargetStopRecoveredBeforeResolve).toBe(1);
+    expect(dueRun.labeled).toBe(1);
+    expect(dueRun.labelBreakdown.MISSED_WIN).toBe(1);
+    expect(loadCounterfactuals()[0].outcomeStatus).toBe('LABELED');
+    expect(dueRun.executionImpact).toBe('NONE');
+    expect(dueRun.promotionAllowed).toBe(false);
+  });
+
   it('Counterfactual Maturity Scheduler v1: resolves only matured cases and keeps waiting cases pending', () => {
     const baseTime = new Date('2026-04-22T00:00:00Z');
     recordCounterfactualCase({

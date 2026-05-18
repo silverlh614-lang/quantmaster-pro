@@ -101,6 +101,10 @@ describe('Regime Learning Bank', () => {
     expect(bank.R4QualityStatus).toBe('NO_SAMPLE');
     expect(bank.R5QualityStatus).toBe('NO_SAMPLE');
     expect(bank.R6QualityStatus).toBe('LOW_RESOLVED_SAMPLE');
+    expect(bank.R6ResolvedSampleSize).toBe(1);
+    expect(bank.R6ResolvedPromotionMin).toBe(100);
+    expect(bank.R6PromotionGateSatisfied).toBe(false);
+    expect(bank.R6PromotionBlocker).toBe('R6_RESOLVED_SAMPLE_LT_100');
     expect(bank.activeRegime).toBe('R6_DEFENSE');
     expect(bank.promotionAllowed).toBe(false);
     expect(bank.recommendationOnly).toBe(true);

@@ -54,6 +54,7 @@ const RESOLVED_LABELS = new Set([
 ]);
 const QUARANTINED_LABELS = new Set(['QUARANTINED', 'DATA_INSUFFICIENT', 'DATA_CORRUPTED', 'INVALID']);
 const CF_LABELS = ['MISSED_WIN', 'AVOIDED_LOSS', 'GOOD_BLOCK', 'BAD_BLOCK', 'NEUTRAL_BLOCK', 'DATA_INSUFFICIENT', 'QUARANTINED', 'PENDING_OUTCOME'];
+export const R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION = 100;
 
 function round(n: number, digits = 4): number {
   return Number.isFinite(n) ? Number(n.toFixed(digits)) : 0;
@@ -230,6 +231,9 @@ function whyNotReliable(input: {
 }): string {
   if (input.totalSampleSize === 0) return 'No samples yet.';
   if (input.regimePhase === 'UNKNOWN') return 'UNKNOWN samples are excluded from promotion metrics; sourceConfidence=UNKNOWN.';
+  if (input.regimePhase === 'R6_DEFENSE' && input.resolvedSampleSize < R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION) {
+    return `Only ${input.resolvedSampleSize}/${R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION} resolved R6 samples; ${input.pendingCounterfactualCount} counterfactual cases still pending maturity.`;
+  }
   if (input.resolvedSampleSize === 0) return `No resolved ${input.regimePhase} samples yet.`;
   if (input.resolvedSampleSize < 30) {
     return `Only ${input.resolvedSampleSize} resolved samples; ${input.pendingCounterfactualCount} counterfactual cases still pending maturity.`;
@@ -242,7 +246,9 @@ function whyNotReliable(input: {
 
 function nextQualityAction(s: Pick<RegimeLearningStats, 'regimePhase' | 'resolvedSampleSize' | 'pendingCounterfactualCount' | 'totalSampleSize' | 'attributableSampleSize' | 'qualityStatus'>): string {
   if (s.regimePhase === 'UNKNOWN') return 'REDUCE_UNKNOWN';
-  if (s.regimePhase === 'R6_DEFENSE' && s.resolvedSampleSize < 30) return 'COLLECT_R6_FRESH_SHADOW';
+  if (s.regimePhase === 'R6_DEFENSE' && s.resolvedSampleSize < R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION) {
+    return s.pendingCounterfactualCount > 0 ? 'WAIT_R6_COUNTERFACTUAL_MATURITY' : 'COLLECT_R6_COUNTERFACTUAL_ENTRY';
+  }
   if (pct(s.pendingCounterfactualCount, s.totalSampleSize) > 0.5) return 'WAIT_COUNTERFACTUAL_MATURITY';
   if (s.attributableSampleSize < 30) return 'COLLECT_RESOLVED_ATTRIBUTABLE_SAMPLES';
   if (s.qualityStatus === 'LOW_CONFIDENCE') return 'IMPROVE_REGIME_SOURCE_CONFIDENCE';
@@ -1003,6 +1009,9 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     R2ResolvedSampleSize: r2.resolvedSampleSize,
     R3ResolvedSampleSize: r3.resolvedSampleSize,
     R6ResolvedSampleSize: r6.resolvedSampleSize,
+    R6ResolvedPromotionMin: R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION,
+    R6PromotionGateSatisfied: r6.resolvedSampleSize >= R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION,
+    R6PromotionBlocker: r6.resolvedSampleSize >= R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION ? 'NONE' : 'R6_RESOLVED_SAMPLE_LT_100',
     R2PendingCounterfactualCount: r2.pendingCounterfactualCount,
     R3PendingCounterfactualCount: r3.pendingCounterfactualCount,
     R6PendingCounterfactualCount: r6.pendingCounterfactualCount,

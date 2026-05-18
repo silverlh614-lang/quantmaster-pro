@@ -32,6 +32,11 @@ describe('Learning Pulse regime resolved-sample fields', () => {
     expect(msg).toContain('R3PendingCounterfactual=');
     expect(msg).toContain('R6ResolvedSampleSize=');
     expect(msg).toContain('R6PendingCounterfactual=');
+    expect(msg).toContain('Fresh Shadow Zero Detail:');
+    expect(msg).toContain('noFreshReason=');
+    expect(msg).toContain('shadowLearningLane=');
+    expect(msg).toContain('R6ResolvedSampleGate=');
+    expect(msg).toContain('R6PromotionBlocker=');
     expect(msg).toContain('nextRegimeMaturityAt=');
     expect(msg).toContain('regimesNeedingAttributionRecalc=');
     expect(msg).toContain('regimeLearningNextAction=');

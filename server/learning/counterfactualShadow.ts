@@ -91,6 +91,7 @@ export interface CounterfactualEntry {
   outcomeLabel?: 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'PENDING_OUTCOME';
   outcomeStatus?: 'PENDING' | 'LABELED' | 'DATA_INSUFFICIENT' | 'QUARANTINED' | 'EXPIRED' | 'UNRESOLVED';
   outcomeResolvedAt?: string;
+  entryPriceRecovered?: boolean;
   targetStopRecovered?: boolean;
   recoverySource?: 'ORIGINAL_SIGNAL_SNAPSHOT' | 'STRATEGY_RISK_RULE' | 'ATR_FALLBACK' | 'DEFAULT_R_MULTIPLE_FALLBACK';
   recoveryConfidence?: 'RECOVERED' | 'MEDIUM' | 'RECOVERED_LOW';
