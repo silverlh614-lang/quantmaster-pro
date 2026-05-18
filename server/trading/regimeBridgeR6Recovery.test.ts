@@ -144,7 +144,7 @@ describe("R6 Recovery Transition Guard", () => {
   });
 
 
-  it("allows R6_RECOVERY_WATCH but not recovered state while macroState is SOFT_STALE", () => {
+  it("allows R6_RECOVERY_WATCH with recovery freshness accepted while macroState is SOFT_STALE", () => {
     process.env.MACRO_STATE_TTL_SEC = "300";
     process.env.R6_RECOVERY_SOFT_STALE_SEC = "900";
     process.env.R6_RECOVERY_COOLDOWN_MINUTES = "0";
@@ -184,7 +184,7 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.r6TriggerBreakdown.triggerFreshness).toBe("SOFT_STALE");
     expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
     expect(state.r6StateMachineState).toBe("R6_RECOVERY_WATCH");
-    expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(false);
+    expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(true);
     expect(state.effectiveRegime).toBe("R5_CAUTION");
     expect(state.latchDecayPercent).toBeGreaterThanOrEqual(60);
   });

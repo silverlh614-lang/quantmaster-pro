@@ -427,10 +427,14 @@ export interface MacroState {
   lastRefreshSuccessAt?: string;
   lastRefreshError?: string;
   refreshJobEnabled?: boolean;
+  refreshJobLastRunAt?: string;
   refreshBlockedReason?: string;
   providerUsed?: string;
   fallbackUsed?: boolean | string;
+  writeSucceeded?: boolean;
+  updatedAtChanged?: boolean;
 }
+
 
 
 export function loadMacroState(): MacroState | null {

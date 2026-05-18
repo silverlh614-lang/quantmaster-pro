@@ -340,7 +340,7 @@ function buildR6RecoveryEvidence(
     kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
     vkospiOk: (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28,
-    marketDataFreshnessOk: freshness === 'FRESH',
+    marketDataFreshnessOk: isFreshEnoughForRecoveryWatch(freshness),
     confirmations,
     requiredConfirmations,
     reasons: [],
@@ -459,11 +459,11 @@ export function evaluateR6RecoveryTransition(
     };
   }
 
-  const recoveryCarryForwardAllowed = previousState.r6ShockLatch || previousState.previousR6Triggers.length > 0 || triggerBreakdown.triggerFreshness === 'FRESH';
+  const recoveryCarryForwardAllowed = previousState.r6ShockLatch || previousState.previousR6Triggers.length > 0 || isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness);
   const inRecoveryFlow = recoveryCarryForwardAllowed && (previouslyEffectiveR6 || previousState.r6RecoveryStatus === 'COOLDOWN' || previousState.r6RecoveryStatus === 'RECOVERY_CANDIDATE' || previousState.r6RecoveryStatus === 'STALE_DATA_BLOCKED' || previousState.r6RecoveryStatus === 'R6_RECOVERY_WATCH' || previousState.r6RecoveryStatus === 'R5_STABILIZING');
   if (inRecoveryFlow) {
     const sourceChanged = previousState.sourceUpdatedAt !== macroState?.updatedAt;
-    const freshAndCloseEligible = triggerBreakdown.triggerFreshness === 'FRESH' && closeEligible;
+    const freshAndCloseEligible = isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness) && closeEligible;
     const nextConfirmations = previouslyEffectiveR6 ? (freshAndCloseEligible ? 1 : 0) : (sourceChanged && freshAndCloseEligible ? previousState.recoveryConfirmations + 1 : previousState.recoveryConfirmations);
     const cooldownUntil = previousState.cooldownUntil ?? new Date(now.getTime() + cooldownMinutes * 60_000).toISOString();
     const evidence = buildR6RecoveryEvidence(macroState, now, requiredConfirmations, nextConfirmations);
