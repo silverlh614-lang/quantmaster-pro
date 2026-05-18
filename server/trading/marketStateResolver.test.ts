@@ -10,6 +10,9 @@ function baseSnapshot(overrides: Partial<MarketStateSnapshot> = {}): MarketState
     biasLabel: 'BEAR',
     mhs: 70,
     mhsLabel: 'GREEN',
+    rawMhs: 70,
+    rawMhsLabel: 'GREEN',
+    mhsDisplayLabel: 'GREEN',
     detectedRegime: 'R4_NEUTRAL',
     rawTrend: 'GREEN',
     riskOverride: 'NONE',
@@ -21,9 +24,11 @@ function baseSnapshot(overrides: Partial<MarketStateSnapshot> = {}): MarketState
     shadowScanAllowed: true,
     shadowPaperFillAllowed: true,
     executionMode: 'SELL_ONLY',
+    displayRegime: 'R6_CONFIRMATION_WAIT',
     displaySeverity: 'DEFENSE',
     displayTitle: 'R6_CONFIRMATION_WAIT',
     displayEmoji: '🔴',
+    displayLabel: '🔴 R6_CONFIRMATION_WAIT',
     reasonCodes: ['R6_SHOCK_LATCH', 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION'],
     stale: false,
     staleSources: [],
@@ -114,6 +119,37 @@ describe('formatMarketStateNow', () => {
     expect(text).toContain('Shadow: ON');
     expect(text).toContain('- freshness: POST_CLOSE_VALID');
     expect(text).toContain('decayBlockedReason: WAITING_NEXT_TRADING_DAY_CONFIRMATION');
+  });
+
+  it('shows HARD_STALE macro release block details while keeping Shadow learning on', () => {
+    const text = formatMarketStateNow(baseSnapshot({
+      effectiveRegime: 'R6_DEFENSE',
+      displayRegime: 'R6_DEFENSE',
+      displaySeverity: 'PANIC',
+      displayTitle: 'R6_DEFENSE',
+      displayLabel: '🔴 R6_DEFENSE',
+      mhsDisplayLabel: 'OVERRIDDEN_BY_R6',
+      macroState: {
+        stale: true,
+        freshness: 'HARD_STALE',
+        ageSec: 3600,
+        ttlSec: 300,
+        softStaleSec: 900,
+        hardStaleSec: 900,
+        staleReason: 'HARD_STALE',
+        lastRefreshAttemptAt: '2026-05-18T06:00:00.000Z',
+        refreshJobLastRunAt: '2026-05-18T05:00:00.000Z',
+        executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
+      },
+      shadowLearningAllowed: true,
+    }));
+
+    expect(text).toContain('MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.');
+    expect(text).toContain('- freshness: HARD_STALE');
+    expect(text).toContain('- ageSec: 3600');
+    expect(text).toContain('- lastRefreshAttemptAt: 2026-05-18T06:00:00.000Z');
+    expect(text).toContain('- refreshJobLastRunAt: 2026-05-18T05:00:00.000Z');
+    expect(text).toContain('Shadow 학습: ON');
   });
 
 });

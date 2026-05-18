@@ -28,7 +28,7 @@ describe('regimeConflictDetector', () => {
   it('detects high MHS/R6 display conflicts without allowing GREEN display', () => {
     const conflicts = detectRegimeConflicts(snapshot());
 
-    expect(conflicts).toContain('GREEN_WITH_R6');
+    expect(conflicts).not.toContain('GREEN_WITH_R6');
     expect(conflicts).toContain('MHS_BIAS_CONFLICT');
     expect(conflicts).not.toContain('DISPLAY_REGIME_CONFLICT');
   });

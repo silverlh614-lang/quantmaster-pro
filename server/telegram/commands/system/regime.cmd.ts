@@ -35,6 +35,9 @@ const regime: TelegramCommand = {
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
     const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
     const r6TriggerLine = formatR6TriggerBreakdownLine(regimeDiagnostics.r6TriggerBreakdown);
+    const macroReleaseBlockLine = regimeSnapshot.macroReleaseBlockMessage
+      ? `${regimeSnapshot.macroReleaseBlockMessage} ageSec=${regimeSnapshot.macroReleaseBlockDetails?.ageSec ?? 'N/A'} lastRefreshAttemptAt=${regimeSnapshot.macroReleaseBlockDetails?.lastRefreshAttemptAt ?? 'N/A'} refreshJobLastRunAt=${regimeSnapshot.macroReleaseBlockDetails?.refreshJobLastRunAt ?? 'N/A'}`
+      : undefined;
     const runtimePolicy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
       macroRegime: regimeDiagnostics.effectiveRegime,
@@ -57,6 +60,7 @@ const regime: TelegramCommand = {
       `effectiveRegime=${regimeDiagnostics.effectiveRegime}\n` +
       `${r6RecoveryLine}\n` +
       `${r6TriggerLine}\n` +
+      `${macroReleaseBlockLine ? `${macroReleaseBlockLine}\n` : ''}` +
       `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
       `${formatEngineRuntimePolicy(runtimePolicy)}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +

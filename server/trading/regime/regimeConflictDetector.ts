@@ -18,7 +18,7 @@ export function detectRegimeConflicts(snapshot: RegimeSnapshot): RegimeConflictC
   const conflicts = new Set<RegimeConflictCode>();
   const r6Active = snapshot.riskOverride === 'R6_DEFENSE' || isR6Regime(snapshot.effectiveRegime);
 
-  if (r6Active && (displayLooksGreen(snapshot.displayRegime) || (snapshot.mhs ?? 0) >= 60)) {
+  if (r6Active && displayLooksGreen(snapshot.displayRegime)) {
     conflicts.add('GREEN_WITH_R6');
   }
 
