@@ -74,6 +74,10 @@ export interface RegimeTransitionState {
   latchTriggeredAt?: string;
   latchTriggerValue?: number;
   latchTriggerSource?: string;
+  /** HOTFIX-5: R6 shock latch is time-bounded and decays instead of persisting forever. */
+  latchExpiresAt?: string;
+  latchDecayLevel?: 'NONE' | 'WATCH' | 'DECAYING' | 'EXPIRED';
+  latchReleaseEligibleAt?: string;
   recoveryBlockedReason?: string;
 }
 
@@ -190,6 +194,9 @@ function sanitizeState(value: unknown): RegimeTransitionState | null {
     latchTriggeredAt: typeof record.latchTriggeredAt === "string" ? record.latchTriggeredAt : undefined,
     latchTriggerValue: typeof record.latchTriggerValue === "number" ? record.latchTriggerValue : undefined,
     latchTriggerSource: typeof record.latchTriggerSource === "string" ? record.latchTriggerSource : undefined,
+    latchExpiresAt: typeof record.latchExpiresAt === "string" ? record.latchExpiresAt : undefined,
+    latchDecayLevel: record.latchDecayLevel === 'WATCH' || record.latchDecayLevel === 'DECAYING' || record.latchDecayLevel === 'EXPIRED' ? record.latchDecayLevel : record.r6ShockLatch === true ? 'WATCH' : 'NONE',
+    latchReleaseEligibleAt: typeof record.latchReleaseEligibleAt === "string" ? record.latchReleaseEligibleAt : undefined,
     recoveryBlockedReason: typeof record.recoveryBlockedReason === "string" ? record.recoveryBlockedReason : undefined,
   };
 }

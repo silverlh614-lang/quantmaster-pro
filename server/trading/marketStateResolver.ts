@@ -18,7 +18,7 @@ export type RiskOverride =
   | 'CIRCUIT_BREAKER'
   | 'KOSPI_CRASH'
   | 'MANUAL_KILL_SWITCH';
-export type EffectiveMarketRegime = RegimeLevel | 'R6_RECOVERY_WATCH';
+export type EffectiveMarketRegime = RegimeLevel | 'R6_RECOVERY_WATCH' | 'R5_STABILIZING';
 export type MarketStateExecutionMode =
   | 'NORMAL'
   | 'DEGRADED'
@@ -54,12 +54,39 @@ export interface MarketStateSnapshot {
 
   stale: boolean;
   staleSources: string[];
+  macroState: MacroStateStaleness;
+}
+
+export interface MacroStateStaleness {
+  stale: boolean;
+  lastUpdatedAt?: string;
+  ageSec?: number;
+  ttlSec: number;
+  staleReason: string;
+  lastRefreshError?: string;
+  provider?: string;
+  fallbackUsed?: boolean | string;
+  executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY' | 'NONE';
 }
 
 export interface MarketStateNowContext {
   activePositions?: number;
   maxPositions?: number;
   lastSignalLabel?: string;
+  shadowActivity?: ShadowActivitySnapshot;
+}
+
+export interface ShadowActivitySnapshot {
+  scanAllowed: boolean;
+  lastScanAt?: string;
+  evaluatedCount: number;
+  candidateCount: number;
+  buySignalCount: number;
+  sellCheckCount: number;
+  paperFillCount: number;
+  openShadowPositions: number;
+  lastShadowSignalAt?: string;
+  lastBlockReason?: string;
 }
 
 const DEFAULT_TTL_SEC = 300;
@@ -173,11 +200,11 @@ function resolveEffectiveRegime(
   diagnostics: RegimeDiagnostics,
   riskOverride: RiskOverride,
 ): EffectiveMarketRegime {
+  if (diagnostics.r6RecoveryStatus === 'STALE_DATA_BLOCKED') return 'R6_DEFENSE';
   let effective: EffectiveMarketRegime = diagnostics.effectiveRegime;
   const recoveryActive =
     diagnostics.r6RecoveryStatus === 'COOLDOWN' ||
-    diagnostics.r6RecoveryStatus === 'RECOVERY_CANDIDATE' ||
-    diagnostics.r6RecoveryStatus === 'STALE_DATA_BLOCKED';
+    diagnostics.r6RecoveryStatus === 'RECOVERY_CANDIDATE';
   if (recoveryActive && diagnostics.effectiveRegime !== 'R6_DEFENSE') {
     effective = 'R6_RECOVERY_WATCH';
   }
@@ -206,7 +233,7 @@ function resolveExecution(snapshot: {
   const dataBlocked = getDataIntegrityBlocked();
   const paused = getAutoTradePaused();
   const manualBlock = getManualBlockNewBuy() || getManualManageOnly();
-  const inR6 = snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH';
+  const inR6 = snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH' || snapshot.effectiveRegime === 'R5_STABILIZING';
 
   const liveSellAllowed = !emergency;
   const liveNewBuyAllowed =
@@ -240,6 +267,7 @@ function baseDisplaySeverity(
   if (riskOverride === 'MANUAL_KILL_SWITCH') return 'PANIC';
   if (effectiveRegime === 'R6_DEFENSE') return riskOverride === 'BLACK_SWAN' || riskOverride === 'KOSPI_CRASH' ? 'PANIC' : 'DEFENSE';
   if (effectiveRegime === 'R6_RECOVERY_WATCH') return 'DEFENSE';
+  if (effectiveRegime === 'R5_STABILIZING') return 'CAUTION';
   if (riskOverride !== 'NONE') return 'DEFENSE';
   if (mhsLabel === 'RED') return 'CAUTION';
   if (mhsLabel === 'YELLOW') return 'CAUTION';
@@ -291,6 +319,7 @@ function resolveDisplayChrome(
 ): Pick<MarketStateSnapshot, 'displayTitle' | 'displayEmoji'> {
   if (effectiveRegime === 'R6_DEFENSE') return { displayTitle: 'R6_DEFENSE', displayEmoji: '🔴' };
   if (effectiveRegime === 'R6_RECOVERY_WATCH') return { displayTitle: 'R6_RECOVERY_WATCH', displayEmoji: '🟠' };
+  if (effectiveRegime === 'R5_STABILIZING') return { displayTitle: 'R5_STABILIZING', displayEmoji: '🟡' };
   if (severity === 'PANIC') return { displayTitle: effectiveRegime, displayEmoji: '🔴' };
   if (severity === 'DEFENSE') return { displayTitle: effectiveRegime, displayEmoji: '🟠' };
   if (severity === 'CAUTION') return { displayTitle: effectiveRegime, displayEmoji: '🟡' };
@@ -326,15 +355,62 @@ function resolveTtlSec(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : DEFAULT_TTL_SEC;
 }
 
-function resolveStaleness(asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): { stale: boolean; staleSources: string[] } {
-  const staleSources: string[] = [];
+function readStringField(source: MacroState | null, keys: string[]): string | undefined {
+  const record = source as unknown as Record<string, unknown> | null;
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function readFallbackUsed(source: MacroState | null): boolean | string | undefined {
+  const record = source as unknown as Record<string, unknown> | null;
+  if (!record) return undefined;
+  const direct = record.fallbackUsed;
+  if (typeof direct === 'boolean' || typeof direct === 'string') return direct;
+  const sectorFallback = source?.sectorEnergyQualityDiagnostic?.fallbackUsed;
+  return sectorFallback && sectorFallback !== 'NONE' ? sectorFallback : false;
+}
+
+function buildMacroStateStaleness(macro: MacroState | null, asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): MacroStateStaleness {
   const asOfMs = Date.parse(asOf);
-  if (!Number.isFinite(asOfMs) || now.getTime() - asOfMs > ttlSec * 1000) staleSources.push('macroState');
+  const ageSec = Number.isFinite(asOfMs) ? Math.max(0, Math.floor((now.getTime() - asOfMs) / 1000)) : undefined;
+  const stale = !Number.isFinite(asOfMs) || (ageSec ?? Number.POSITIVE_INFINITY) > ttlSec || diagnostics.sourceFreshness !== 'FRESH';
+  const staleReason = !macro ? 'MACRO_STATE_MISSING' : !Number.isFinite(asOfMs) ? 'LAST_UPDATED_AT_INVALID' : (ageSec ?? 0) > ttlSec ? 'TTL_EXPIRED' : diagnostics.sourceFreshness !== 'FRESH' ? `REGIME_SOURCE_${diagnostics.sourceFreshness}` : 'NONE';
+  const info: MacroStateStaleness = {
+    stale,
+    lastUpdatedAt: macro?.updatedAt,
+    ageSec,
+    ttlSec,
+    staleReason,
+    lastRefreshError: readStringField(macro, ['lastRefreshError', 'macroLastRefreshError', 'refreshError']),
+    provider: readStringField(macro, ['provider', 'sourceProvider', 'source', 'refreshProvider']),
+    fallbackUsed: readFallbackUsed(macro),
+    executionImpact: stale ? 'REGIME_RELEASE_BLOCKED_ONLY' : 'NONE',
+  };
+  console.warn(
+    '[MACRO_STATE_STALENESS] ' +
+    `stale=${info.stale} ` +
+    `ageSec=${info.ageSec ?? 'N/A'} ` +
+    `ttlSec=${info.ttlSec} ` +
+    `staleReason=${info.staleReason} ` +
+    `lastRefreshError=${info.lastRefreshError ?? 'N/A'} ` +
+    `executionImpact=${info.executionImpact}`,
+  );
+  return info;
+}
+
+function resolveStaleness(macro: MacroState | null, asOf: string, now: Date, ttlSec: number, diagnostics: RegimeDiagnostics): { stale: boolean; staleSources: string[]; macroState: MacroStateStaleness } {
+  const staleSources: string[] = [];
+  const macroState = buildMacroStateStaleness(macro, asOf, now, ttlSec, diagnostics);
+  if (macroState.stale) staleSources.push('macroState');
   if (diagnostics.sourceFreshness !== 'FRESH') staleSources.push(`regimeSource:${diagnostics.sourceFreshness}`);
   if (diagnostics.r6TriggerBreakdown.triggerFreshness !== 'FRESH') {
     staleSources.push(`r6Trigger:${diagnostics.r6TriggerBreakdown.triggerFreshness}`);
   }
-  return { stale: staleSources.length > 0, staleSources };
+  return { stale: staleSources.length > 0, staleSources, macroState };
 }
 
 function stableHash(input: string): string {
@@ -381,7 +457,9 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
     `liveNewBuyAllowed=${snapshot.liveNewBuyAllowed} ` +
     `shadowLearningAllowed=${snapshot.shadowLearningAllowed} ` +
     `stale=${snapshot.stale} ` +
-    `staleSources=${snapshot.staleSources.join(',') || 'none'}`,
+    `staleSources=${snapshot.staleSources.join(',') || 'none'} ` +
+    `macroStateStaleReason=${snapshot.macroState.staleReason} ` +
+    `macroStateAgeSec=${snapshot.macroState.ageSec ?? 'N/A'}`,
   );
 }
 
@@ -395,7 +473,10 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
   const biasScore = resolveBiasScore(macro);
   const biasLabel = resolveBiasLabel(biasScore);
   const riskOverride = resolveRiskOverride(diagnostics, macro);
-  const effectiveRegime = resolveEffectiveRegime(diagnostics, riskOverride);
+  let effectiveRegime = resolveEffectiveRegime(diagnostics, riskOverride);
+  if (effectiveRegime === 'R6_RECOVERY_WATCH' && diagnostics.r6RecoveryStatus === 'RECOVERY_CANDIDATE' && mhs >= 65 && biasScore >= -20 && !diagnostics.r6ShockLatch) {
+    effectiveRegime = 'R5_STABILIZING';
+  }
   const detectedRegime = diagnostics.rawRegime;
   const snapshotId = buildSnapshotId({
     asOf,
@@ -405,7 +486,7 @@ export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot 
     detectedRegime,
     effectiveRegime,
   });
-  const staleness = resolveStaleness(asOf, now, ttlSec, diagnostics);
+  const staleness = resolveStaleness(macro, asOf, now, ttlSec, diagnostics);
   const displaySeverity = baseDisplaySeverity(effectiveRegime, riskOverride, mhsLabel);
   const chrome = resolveDisplayChrome(effectiveRegime, displaySeverity);
   const execution = resolveExecution({ effectiveRegime, riskOverride });
@@ -435,40 +516,56 @@ export const RegimeResolver = {
   resolveMarketState,
 };
 
+function summarizeReasonCodes(reasonCodes: string[]): string {
+  const priority = [
+    'R6_SHOCK_LATCH',
+    'ACTIVE_R6_TRIGGER_PRESENT',
+    'KOSPI_CLOSE_SHOCK',
+    'KOSPI_INTRADAY_LOW_SHOCK',
+    'BIAS_BEAR',
+    'MHS_GREEN_BIAS_BEAR_DIVERGENCE',
+    'STALE_DATA_BLOCKED',
+  ];
+  const labels: Record<string, string> = {
+    R6_SHOCK_LATCH: 'KOSPI 급락 latch',
+    ACTIVE_R6_TRIGGER_PRESENT: 'R6 trigger 활성',
+    KOSPI_CLOSE_SHOCK: 'KOSPI 종가 급락',
+    KOSPI_INTRADAY_LOW_SHOCK: 'KOSPI 장중 저점 충격',
+    BIAS_BEAR: 'Bias 약세',
+    MHS_GREEN_BIAS_BEAR_DIVERGENCE: 'MHS/Bias 괴리',
+    STALE_DATA_BLOCKED: 'macroState stale',
+  };
+  const picked = priority.filter((code) => reasonCodes.includes(code)).slice(0, 3);
+  const fallback = reasonCodes.filter((code) => code !== 'NONE').slice(0, 3 - picked.length);
+  return [...picked, ...fallback].map((code) => labels[code] ?? code).join(', ') || '특이사항 없음';
+}
+
+function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined): string {
+  if (!activity) return 'Shadow scan: 활동량 N/A';
+  const status = activity.scanAllowed ? '정상' : '차단';
+  const last = activity.lastScanAt ? activity.lastScanAt : '미실행';
+  return `Shadow scan: ${status} / 마지막 ${last} / 후보 평가 ${activity.evaluatedCount}건 / BUY 후보 ${activity.buySignalCount}건 / SELL 체크 ${activity.sellCheckCount}건 / 가상 체결 ${activity.paperFillCount}건 / 보유 ${activity.openShadowPositions}건`;
+}
+
 export function formatMarketStateNow(
   snapshot: MarketStateSnapshot,
   context: MarketStateNowContext = {},
 ): string {
   const lines: string[] = [
     `${snapshot.displayEmoji} ${snapshot.displayTitle}`,
-    `snapshotId: ${snapshot.snapshotId}`,
-    `asOf: ${snapshot.asOf}`,
-    `MHS: ${snapshot.mhs.toFixed(0)} / ${snapshot.mhsLabel} | Bias: ${snapshot.biasLabel} ${snapshot.biasScore.toFixed(1)}`,
-    `최종 레짐: ${snapshot.effectiveRegime} | 감지 레짐: ${snapshot.detectedRegime}`,
+    '',
+    `MHS: ${snapshot.mhs.toFixed(0)} ${snapshot.mhsLabel} / Bias: ${snapshot.biasLabel} ${snapshot.biasScore.toFixed(1)}`,
+    `최종 판단: ${snapshot.riskOverride !== 'NONE' ? 'Risk Override 우선' : snapshot.effectiveRegime}`,
+    `사유: ${summarizeReasonCodes(snapshot.reasonCodes)}`,
+    `실거래 신규 매수: ${snapshot.liveNewBuyAllowed ? '허용' : '차단'}`,
+    `기존 포지션 관리: ${snapshot.liveSellAllowed ? '허용' : '차단'}`,
+    `Shadow 학습: ${snapshot.shadowLearningAllowed ? 'ON' : 'OFF'}`,
+    '',
+    formatShadowActivityLine(context.shadowActivity),
+    `데이터 상태: macroState ${snapshot.macroState.stale ? 'stale' : 'fresh'} (ageSec=${snapshot.macroState.ageSec ?? 'N/A'}, ttlSec=${snapshot.macroState.ttlSec}, reason=${snapshot.macroState.staleReason})`,
   ];
 
-  if (snapshot.riskOverride !== 'NONE' && snapshot.mhsLabel === 'GREEN') {
-    lines.push('해석: MHS는 양호하나 Risk Override 우선');
-  } else if (snapshot.mhsLabel === 'GREEN' && snapshot.biasLabel === 'BEAR') {
-    lines.push('해석: 건강도는 양호하나 단기 방향성은 약세');
-  } else if (snapshot.biasLabel === 'BEAR') {
-    lines.push('단기 방향성: BEAR');
-  }
-
-  lines.push(`사유: ${snapshot.reasonCodes.join(', ') || 'NONE'}`);
-  lines.push(`실거래 신규 매수: ${snapshot.liveNewBuyAllowed ? '허용' : '차단'}`);
-  lines.push(`기존 포지션 관리: ${snapshot.liveSellAllowed ? '허용' : '차단'}`);
-  lines.push(`Shadow 학습: ${snapshot.shadowLearningAllowed ? 'ON' : 'OFF'}`);
-  lines.push(`실행 모드: ${snapshot.executionMode}`);
-
-  const activePositions = context.activePositions ?? 0;
-  const maxPositions = context.maxPositions ?? Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
-  const lastSignalLabel = context.lastSignalLabel ?? '없음';
-  lines.push(`활성 ${activePositions}/${maxPositions} | 마지막 신호 ${lastSignalLabel}`);
-
-  if (snapshot.stale) {
-    lines.push(`데이터 stale: ${snapshot.staleSources.join(', ')}`);
-  }
-
+  if (snapshot.macroState.lastRefreshError) lines.push(`macroState error: ${snapshot.macroState.lastRefreshError}`);
   return lines.join('\n');
 }
+

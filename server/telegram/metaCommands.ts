@@ -4,8 +4,8 @@
 
 import { getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
-import { getLastBuySignalAt } from '../trading/signalScanner.js';
-import { formatMarketStateNow, RegimeResolver } from '../trading/marketStateResolver.js';
+import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
+import { formatMarketStateNow, RegimeResolver, type ShadowActivitySnapshot } from '../trading/marketStateResolver.js';
 import { commandRegistry } from './commandRegistry.js';
 
 export interface InlineKeyboardButton {
@@ -124,6 +124,49 @@ export function parseMetaCallback(
   return { targetCmd: '/' + cmd, nonce };
 }
 
+
+function isOpenShadowStatus(status: unknown): boolean {
+  return status === 'PENDING' || status === 'ORDER_SUBMITTED' || status === 'PARTIALLY_FILLED' || status === 'ACTIVE' || status === 'EUPHORIA_PARTIAL';
+}
+
+function toKstHmFromIsoOrLabel(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return formatKstHm(new Date(parsed));
+  return value;
+}
+
+function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>, now: Date): ShadowActivitySnapshot {
+  const summary = getLastScanSummary();
+  const today = now.toISOString().slice(0, 10);
+  const openShadowPositions = shadows.filter((trade) => isOpenShadowStatus((trade as { status?: string }).status) && getRemainingQty(trade) > 0).length;
+  const lastShadowSignalAt = shadows
+    .map((trade) => Date.parse(String((trade as { signalTime?: string }).signalTime ?? '')))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  const paperFillCount = shadows.filter((trade) => {
+    const record = trade as { status?: string; entryTime?: string; signalTime?: string };
+    const at = record.entryTime ?? record.signalTime ?? '';
+    return isOpenShadowStatus(record.status) && at.startsWith(today);
+  }).length;
+  const lastBlockReason = summary?.macroGateState?.sellOnlyMode
+    ? 'SELL_ONLY'
+    : summary?.emptyScanReason ?? undefined;
+
+  return {
+    scanAllowed: true,
+    lastScanAt: toKstHmFromIsoOrLabel(summary?.time),
+    evaluatedCount: summary?.candidates ?? 0,
+    candidateCount: summary?.candidates ?? 0,
+    buySignalCount: summary?.entries ?? 0,
+    sellCheckCount: openShadowPositions,
+    paperFillCount,
+    openShadowPositions,
+    lastShadowSignalAt: Number.isFinite(lastShadowSignalAt) ? formatKstHm(new Date(lastShadowSignalAt)) : undefined,
+    lastBlockReason,
+  };
+}
+
 export function composeNowVerdict(now: Date = new Date()): string {
   const shadows = getShadowTrades();
   const active = shadows.filter((s) => {
@@ -159,6 +202,7 @@ export function composeNowVerdict(now: Date = new Date()): string {
     activePositions: active.length,
     maxPositions,
     lastSignalLabel,
+    shadowActivity: buildShadowActivitySnapshot(shadows, now),
   });
 }
 
