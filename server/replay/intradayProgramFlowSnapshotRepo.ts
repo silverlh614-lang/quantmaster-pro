@@ -30,6 +30,10 @@ export interface IntradayProgramFlowStockRow {
   marketSignal: boolean;
   capturedAt?: string;
   reason?: string;
+  captureSlot?: string;
+  captureMode?: string;
+  diagnosticOnly?: true;
+  executionImpact?: 'NONE';
 }
 
 export interface IntradayProgramFlowMarketSnapshot {
@@ -476,6 +480,10 @@ function buildStockRowFromRecord(
     marketSignal,
     capturedAt: safeOptionalString(firstValue(record, ['capturedAt', 'fetchedAt', 'updatedAt'])) ?? capturedAt,
     reason: netAmount !== null ? 'PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY' : 'PROGRAM_VALUE_NULL',
+    captureSlot: safeOptionalString(firstValue(record, ['captureSlot'])),
+    captureMode: safeOptionalString(firstValue(record, ['captureMode'])),
+    diagnosticOnly: true,
+    executionImpact: 'NONE',
   };
 }
 
@@ -542,6 +550,10 @@ function sanitizeStockRows(rows: IntradayProgramFlowStockRow[]): IntradayProgram
       marketSignal: row.marketSignal === true && row.providerIssue !== true,
       capturedAt: safeOptionalString(row.capturedAt),
       reason: safeOptionalString(row.reason),
+      captureSlot: safeOptionalString(row.captureSlot),
+      captureMode: safeOptionalString(row.captureMode),
+      diagnosticOnly: true,
+      executionImpact: 'NONE',
     };
     if (!sanitized.marketSignal && hasStockProgramValue(sanitized) && !sanitized.providerIssue) sanitized.marketSignal = true;
     const existing = bySymbol.get(symbol);

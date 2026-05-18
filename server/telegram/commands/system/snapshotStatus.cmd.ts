@@ -10,7 +10,7 @@
  *   - `isRuntimeDebugSnapshotCaptureDisabled()` ENV gate 상태 표시
  *   - `LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE` 영속 파일 존재 + mtime + size 표시
  *   - `loadLatestRuntimeDebugSnapshot()` schema 유효성 확인 (정상 load 여부)
- *   - 다음 18:00 KST capture 예정 시각 산출 + age 노출
+ *   - 다음 15:30 KST capture 예정 시각 산출 + age 노출
  *   - capture 결손 4 분기 원인 안내 (ENV / 부팅 직후 / 휴장일 / cron 실패)
  *
  * 절대 invariants:
@@ -25,11 +25,11 @@
  * 출력 형식 (compact, ≤2000 chars):
  *   📊 [Snapshot Status] runtime debug capture 인프라 진단
  *   • ENV: RUNTIME_DEBUG_SNAPSHOT_DISABLED = false (default, 활성)
- *   • Cron: 18:00 KST 평일 (TRADING_DAY_ONLY)
+ *   • Cron: 15:30 KST 평일 (TRADING_DAY_ONLY)
  *   • 파일 경로: data/replay/latest-runtime-debug-snapshot.json
  *   • 파일 상태: ✅ 존재 | ❌ 부재
  *   • 마지막 capture: MM/DD HH:mm KST (N시간 M분 전)
- *   • 다음 capture: MM/DD 18:00 KST (Nh 후)
+ *   • 다음 capture: MM/DD 15:30 KST (Nh 후)
  *   • Schema 유효성: ✅ OK | ⚠️ PARTIAL | ❌ INVALID
  *   • 결손 시 운영자 안내 4 분기 (ENV / 부팅 직후 / 휴장일 / cron 실패)
  *   • 절대 invariants: replayOnly=true · executionImpact=NONE · providerCalls=0
@@ -47,7 +47,7 @@ import {
 import { isRuntimeDebugSnapshotCaptureDisabled } from '../../../replay/runtimeDebugSnapshotCapture.js';
 
 // ============================================================================
-// 시간 헬퍼 — KST 변환 + age 산출 + 다음 18:00 KST 계산
+// 시간 헬퍼 — KST 변환 + age 산출 + 다음 15:30 KST 계산
 // ============================================================================
 
 /** UTC ms → KST "MM/DD HH:mm" 형식 (Asia/Seoul = UTC+9, DST 미적용). */
@@ -75,7 +75,7 @@ function formatAge(targetMs: number | undefined, nowMs: number): string {
   return ` (${days}일 ${hours % 24}시간 전)`;
 }
 
-/** 다음 평일 18:00 KST 산출 — 토/일은 다음 월요일로 건너뜀. */
+/** 다음 평일 15:30 KST 산출 — 토/일은 다음 월요일로 건너뜀. */
 export function computeNextCaptureKstMs(nowMs: number): number {
   const kstMs = nowMs + 9 * 60 * 60 * 1000;
   const kstDate = new Date(kstMs);
@@ -86,13 +86,13 @@ export function computeNextCaptureKstMs(nowMs: number): number {
   const minute = kstDate.getUTCMinutes();
   const dayOfWeek = kstDate.getUTCDay(); // 0=일, 1=월, ..., 6=토
 
-  // 오늘 18:00 KST (UTC = KST - 9h)
-  const today18Kst = Date.UTC(year, month, day, 18, 0, 0) - 9 * 60 * 60 * 1000;
+  // 오늘 15:30 KST (UTC = KST - 9h)
+  const today1530Kst = Date.UTC(year, month, day, 15, 30, 0) - 9 * 60 * 60 * 1000;
 
-  // 오늘이 평일이고 18:00 이전이면 오늘 18:00, 그 외엔 다음 평일
-  const beforeToday18 = hour < 18 || (hour === 18 && minute === 0);
-  if (dayOfWeek >= 1 && dayOfWeek <= 5 && beforeToday18) {
-    return today18Kst;
+  // 오늘이 평일이고 15:30 이전이면 오늘 15:30, 그 외엔 다음 평일
+  const beforeToday1530 = hour < 15 || (hour === 15 && minute <= 30);
+  if (dayOfWeek >= 1 && dayOfWeek <= 5 && beforeToday1530) {
+    return today1530Kst;
   }
 
   // 다음 평일까지 일자 증가
@@ -102,7 +102,7 @@ export function computeNextCaptureKstMs(nowMs: number): number {
     daysToAdd += 1;
     nextDayOfWeek = (dayOfWeek + daysToAdd) % 7;
   }
-  return Date.UTC(year, month, day + daysToAdd, 18, 0, 0) - 9 * 60 * 60 * 1000;
+  return Date.UTC(year, month, day + daysToAdd, 15, 30, 0) - 9 * 60 * 60 * 1000;
 }
 
 /** 다음 capture 까지 남은 시간 — "Nh M분 후" 형식. */
@@ -167,7 +167,7 @@ export function formatSnapshotStatusMessage(input: SnapshotStatusInput): string 
   }
 
   // Cron 일정
-  lines.push('• Cron: 18:00 KST 평일 (TRADING_DAY_ONLY, KRX 휴장일 자동 silent skip)');
+  lines.push('• Cron: 15:30 KST 평일 (TRADING_DAY_ONLY, KRX 휴장일 자동 silent skip)');
 
   // 파일 경로
   lines.push(`• 파일 경로: ${input.filePath}`);
@@ -205,7 +205,7 @@ export function formatSnapshotStatusMessage(input: SnapshotStatusInput): string 
   if (!input.fileExists && !input.envDisabled) {
     lines.push('');
     lines.push('🔍 파일 부재 원인 분석:');
-    lines.push('  1. 부팅 직후 — 첫 18:00 KST capture 전');
+    lines.push('  1. 부팅 직후 — 첫 15:30 KST capture 전');
     lines.push('  2. 컨테이너 재시작 — 영속 디렉토리 초기화');
     lines.push('  3. KRX 휴장일 — TRADING_DAY_ONLY ScheduleClass 자동 skip');
     lines.push('  4. cron 실패 — /cron_status 진단 권장');
@@ -216,10 +216,10 @@ export function formatSnapshotStatusMessage(input: SnapshotStatusInput): string 
   lines.push('🔒 절대 invariants:');
   lines.push('  • replayOnly=true · executionImpact=NONE (매매 의사결정 입력 아님)');
   lines.push('  • providerCalls=0 (replay 시 KIS/KRX/Yahoo/Naver 호출 0건)');
-  lines.push('  • SINGLE_LATEST_OVERWRITE (다음 18:00 capture 가 덮어쓰기)');
+  lines.push('  • SINGLE_LATEST_OVERWRITE (다음 15:30 capture 가 덮어쓰기)');
 
   // Lifecycle invariant
-  lines.push('  • 다음 거래일 09:00 개장 시 초기화 ❌ (다음 평일 18:00 capture overwrite)');
+  lines.push('  • 다음 거래일 09:00 개장 시 초기화 ❌ (다음 평일 15:30 capture overwrite)');
 
   // 사용법
   lines.push('');
@@ -240,7 +240,7 @@ const snapshotStatusCommand: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description:
-    '18:00 KST runtime debug snapshot capture 인프라 진단 (ENV / cron / 파일 / age, read-only).',
+    '15:30 KST runtime debug snapshot capture 인프라 진단 (ENV / cron / 파일 / age, read-only).',
   usage: '/snapshot_status',
   async execute({ reply }) {
     try {

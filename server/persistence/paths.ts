@@ -499,7 +499,7 @@ export const GATE_RECLASSIFICATION_APPROVAL_PLAN_FILE = path.join(DATA_DIR, 'gat
 export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-reclassification-rollout.json');
 
 /**
- * Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002 — 17:00 KST runtime debug snapshot 영속 SSOT.
+ * Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002 — 15:30 KST runtime debug snapshot 영속 SSOT.
  *
  * 사용자 명시 framing (Patch-001):
  *   "어차피 장 종료 이후에 찍는 스냅샷도 크게 다르지 않다.
@@ -512,11 +512,11 @@ export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-recl
  *    merge 경로에 주입할 수 있게 한다."
  *
  * Lifecycle 정책 (사용자 명시 절대 변경 금지):
- *   - 매 평일 17:00 KST 자동 capture (ScheduleClass='TRADING_DAY_ONLY' KRX 휴장일 silent skip)
+ *   - 매 평일 15:30 KST 자동 capture (ScheduleClass='TRADING_DAY_ONLY' KRX 휴장일 silent skip)
  *   - **단일 latest overwrite 모델** — FIFO revision 누적 X, latest 1 개만 유지
- *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 평일 17:00 까지 유지
- *   - 다음 평일 17:00 성공 capture 가 직전 latest 를 atomic overwrite
- *   - 금요일 17:00 snapshot → 월요일 17:00 capture 가 덮어쓰기 (주말 내내 Fri snapshot 보존)
+ *   - **다음 거래일 개장 시 초기화 안 함** — snapshot 은 다음 평일 15:30 까지 유지
+ *   - 다음 평일 15:30 성공 capture 가 직전 latest 를 atomic overwrite
+ *   - 금요일 15:30 snapshot → 월요일 15:30 capture 가 덮어쓰기 (주말 내내 Fri snapshot 보존)
  *   - 월요일 장 시작 시 금요일 snapshot 삭제 절대 금지 (cron 미존재)
  *   - capture 실패 시 직전 latest 보존 (atomic write + preserve-on-failure)
  *
@@ -531,7 +531,7 @@ export const GATE_RECLASSIFICATION_ROLLOUT_FILE = path.join(DATA_DIR, 'gate-recl
  *   3. executionImpact: 'NONE' literal type 강제
  *   4. replayOnly: true literal 강제
  *   5. diagnosticOnly: true literal 강제
- *   6. sellOnlySemanticApplied: false literal 강제 (17:00 = 장중 runtime state 동일 취급)
+ *   6. sellOnlySemanticApplied: false literal 강제 (15:30 = 장중 runtime state 동일 취급)
  *   7. priceSemantics: 'REFERENCE_ONLY_NOT_FOR_TRADE_DECISION' literal 강제
  *   8. providerCallsAllowed: false literal 강제 (replay mode)
  *   9. 외부 API 호출 0건 (영속 read/write 만, KIS/KRX/Yahoo/Naver 신규 호출 금지)

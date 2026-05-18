@@ -27,6 +27,7 @@ import {
   deriveNormalSupplyPreviewEngineMode,
   persistNormalSupplyPreview,
 } from './normalSupplyPreview.js';
+import { applyR6ShadowCounterfactualEntries } from './r6ShadowCounterfactualEntryPolicy.js';
 // Patch-MARKET-PROGRAM-CARRY-WIRING-001 — Branch A wiring: PREFLIGHT_ABORT_DIAGNOSTIC
 // + RUNTIME_DIAGNOSTIC 의 persistNormalSupplyPreview 호출에 marketProgramFlow 4 필드
 // carry SSOT 위임. 호출자 측 inline ENV 검사 0건 (SSOT 헬퍼 위임 의무).
@@ -90,6 +91,7 @@ function buildConditionResultsTraceArray(w: any) {
 async function collectPreflightAbortDiagnostics(
   preflightResult: any,
   options?: RunAutoSignalScanOptions,
+  counters?: ReturnType<typeof createScanCounters>,
 ): Promise<PerSymbolSupplyInjectionStats | undefined> {
   const context = preflightResult?.context;
   if (!Array.isArray(context?.watchlist) || context.watchlist.length === 0) {
@@ -103,7 +105,7 @@ async function collectPreflightAbortDiagnostics(
       investorFlowRouter: createDefaultInvestorFlowRouter(),
     });
     attachPreflightBlockedPerSymbolSupplyInjection(injected.stats);
-    persistNormalSupplyPreview({
+    const preview = persistNormalSupplyPreview({
       engineMode: deriveNormalSupplyPreviewEngineMode({
         sellOnly: options?.sellOnly,
         blockedBy: preflightResult?.blockedBy,
@@ -122,6 +124,14 @@ async function collectPreflightAbortDiagnostics(
       marketProgramFlow: buildMarketProgramFlowCarryPayload(preflightResult?.context?.macroState),
       marketProgramCarrySource: preflightResult?.context?.macroState,
     });
+    if (counters) {
+      counters.r6ShadowEntryPolicy = applyR6ShadowCounterfactualEntries({
+        preview,
+        rawCandidates: injected.candidates,
+        macroGateState: preflightResult?.diagnosticData?.macroGateState ?? preflightResult?.context?.macroGateState,
+        shadowScanAllowed: true,
+      });
+    }
     console.info('[AutoTrade/Diagnostics] preflight-blocked supply diagnostics collected', {
       blockedBy: preflightResult?.preflightDecision ?? preflightResult?.blockedBy ?? 'PRE_FLIGHT_BLOCK',
       buyList: injected.stats.totalCandidates,
@@ -165,7 +175,7 @@ export async function runAutoSignalScan(
   // 1. Preflight (거시/시스템 환경 평가 및 게이팅)
   const preflightResult = await runPreflight(options);
   if (preflightResult.shouldAbort) {
-    const preflightAbortSupplyInjection = await collectPreflightAbortDiagnostics(preflightResult, options);
+    const preflightAbortSupplyInjection = await collectPreflightAbortDiagnostics(preflightResult, options, counters);
     if (!preflightResult.skipPersist) {
       // ADR-0187: preflight abort 경로도 sectorEnergy meta carry-over (정상 경로와 정합).
       // ADR-0423: sectorEnergyQualityDiagnostic 도 함께 carry-over (옵셔널, 후방호환).
@@ -215,7 +225,7 @@ export async function runAutoSignalScan(
       preflightResult.macroGateState?.sellOnlyMode === true ||
       preflightResult.macroGateState?.diagnosticLiveEntryBlocked === true;
     if (normalSupplyPreviewAllowed) {
-      persistNormalSupplyPreview({
+      const preview = persistNormalSupplyPreview({
         engineMode: deriveNormalSupplyPreviewEngineMode({
           sellOnly: options?.sellOnly,
           macroGateState: preflightResult.macroGateState,
@@ -230,6 +240,12 @@ export async function runAutoSignalScan(
         // 부재 시 undefined 자연 fallback. diagnostic-only path (executionImpact='NONE' literal).
         marketProgramFlow: buildMarketProgramFlowCarryPayload(preflightResult.context?.macroState),
         marketProgramCarrySource: preflightResult.context?.macroState,
+      });
+      counters.r6ShadowEntryPolicy = applyR6ShadowCounterfactualEntries({
+        preview,
+        rawCandidates: injected.candidates,
+        macroGateState: preflightResult.macroGateState,
+        shadowScanAllowed: true,
       });
     }
   } catch (error) {

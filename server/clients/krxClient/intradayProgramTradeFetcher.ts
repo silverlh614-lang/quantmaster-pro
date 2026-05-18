@@ -32,6 +32,7 @@ import {
   type KrxMarketProgramRow,
   type KrxMarketProgramAggregate,
 } from './programTradeFetcher.js';
+import { classifyProgramFlowSession } from '../../trading/signalScanner/programFlowSessionGuard.js';
 
 /** Patch-007 patch identifier (static grep guard SSOT). */
 export const PATCH_007_INTRADAY_IDENTIFIER = 'Patch-KRX-INTRADAY-MARKET-PROGRAM-WIRING-001';
@@ -104,6 +105,73 @@ export interface KrxIntradayShapeProbe {
   numericFieldCandidates: string[];
   firstRowSample: Record<string, unknown> | null;
   bld: string;
+  guardedStatus?: 'SESSION_CLOSED_NOT_APPLICABLE';
+  scoring?: 'excluded_afterhours';
+  source?: 'DIAGNOSTIC_SKIPPED';
+  providerIssue?: false;
+  marketSignal?: false;
+  executionImpact?: 'NONE';
+  marketCode?: KrxMarketProgramCode;
+  traceId?: string;
+}
+
+const MDCSTAT00301_GUARD_DEDUP_MS = 60_000;
+const mdcstat00301GuardLastLogAt = new Map<string, number>();
+
+function endpointFromBld(bld: string): string {
+  return bld.split('/').filter(Boolean).pop() ?? bld;
+}
+
+function isMdcstat00301Bld(bld: string): boolean {
+  return endpointFromBld(bld) === 'MDCSTAT00301';
+}
+
+function shouldGuardMdcstat00301(nowMs: number, bld: string): ReturnType<typeof classifyProgramFlowSession> | null {
+  if (!isMdcstat00301Bld(bld)) return null;
+  const guard = classifyProgramFlowSession(new Date(nowMs));
+  if (guard.programFlowExpected && guard.marketSession === 'REGULAR_SESSION') return null;
+  return guard;
+}
+
+function emitMdcstat00301GuardLog(input: {
+  market: KrxMarketProgramCode;
+  bld: string;
+  nowMs: number;
+  sessionState: string;
+  intradaySession: boolean;
+}): void {
+  const endpoint = endpointFromBld(input.bld);
+  const traceId = `MDCSTAT00301:${input.market}:${new Date(input.nowMs).toISOString().slice(0, 10)}`;
+  const status = 'SESSION_CLOSED_NOT_APPLICABLE';
+  const key = `${endpoint}:${status}:${traceId}:NONE:${input.market}`;
+  const last = mdcstat00301GuardLastLogAt.get(key) ?? 0;
+  if (last > 0 && input.nowMs - last < MDCSTAT00301_GUARD_DEDUP_MS) return;
+  mdcstat00301GuardLastLogAt.set(key, input.nowMs);
+  console.info(
+    `[KRX_ENDPOINT_GUARDED] endpoint=${endpoint} marketCode=${input.market} ` +
+      `reason=${status} sessionState=${input.sessionState} intradaySession=${input.intradaySession} ` +
+      `status=${status} scoring=excluded_afterhours providerIssue=false marketSignal=false ` +
+      `source=DIAGNOSTIC_SKIPPED httpStatus=NONE traceId=${traceId} executionImpact=NONE`,
+  );
+}
+
+function guardedShapeProbe(input: {
+  bld: string;
+  market: KrxMarketProgramCode;
+  nowMs: number;
+}): KrxIntradayShapeProbe {
+  const traceId = `MDCSTAT00301:${input.market}:${new Date(input.nowMs).toISOString().slice(0, 10)}`;
+  return {
+    ...emptyShapeProbe(input.bld),
+    guardedStatus: 'SESSION_CLOSED_NOT_APPLICABLE',
+    scoring: 'excluded_afterhours',
+    source: 'DIAGNOSTIC_SKIPPED',
+    providerIssue: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    marketCode: input.market,
+    traceId,
+  };
 }
 
 export function probeKrxIntradayProgramTradeShape(payload: unknown, bld = getKrxIntradayMarketProgramBld()): KrxIntradayShapeProbe {
@@ -200,10 +268,22 @@ function extractLatestMarketRow(rows: KrxRowRaw[], market: KrxMarketProgramCode)
 
 export async function probeKrxIntradayProgramTradeSingleShape(
   market: KrxMarketProgramCode,
+  nowMs: number = Date.now(),
 ): Promise<KrxIntradayShapeProbe> {
   const bld = getKrxIntradayMarketProgramBld();
   if (!isKrxIntradayMarketProgramEnabled()) {
     return emptyShapeProbe(bld);
+  }
+  const guard = shouldGuardMdcstat00301(nowMs, bld);
+  if (guard) {
+    emitMdcstat00301GuardLog({
+      market,
+      bld,
+      nowMs,
+      sessionState: guard.marketSession,
+      intradaySession: guard.programFlowExpected,
+    });
+    return guardedShapeProbe({ bld, market, nowMs });
   }
   try {
     const raw = await krxPost(bld, { mktId: KRX_MARKET_PROGRAM_CODE_MAP[market] }, { bypassTimeWindow: true });
@@ -233,9 +313,21 @@ function emptyShapeProbe(bld = getKrxIntradayMarketProgramBld()): KrxIntradaySha
 
 async function fetchKrxIntradayProgramTradeSingleWithProbe(
   market: KrxMarketProgramCode,
+  nowMs: number = Date.now(),
 ): Promise<IntradaySingleFetchResult> {
   const bld = getKrxIntradayMarketProgramBld();
   if (!isKrxIntradayMarketProgramEnabled()) return { row: null, shapeProbe: emptyShapeProbe(bld) };
+  const guard = shouldGuardMdcstat00301(nowMs, bld);
+  if (guard) {
+    emitMdcstat00301GuardLog({
+      market,
+      bld,
+      nowMs,
+      sessionState: guard.marketSession,
+      intradaySession: guard.programFlowExpected,
+    });
+    return { row: null, shapeProbe: guardedShapeProbe({ bld, market, nowMs }) };
+  }
   const params: Record<string, string> = {
     mktId: KRX_MARKET_PROGRAM_CODE_MAP[market],
   };
@@ -267,8 +359,9 @@ async function fetchKrxIntradayProgramTradeSingleWithProbe(
  */
 export async function fetchKrxIntradayProgramTradeSingle(
   market: KrxMarketProgramCode,
+  nowMs: number = Date.now(),
 ): Promise<KrxMarketProgramRow | null> {
-  return (await fetchKrxIntradayProgramTradeSingleWithProbe(market)).row;
+  return (await fetchKrxIntradayProgramTradeSingleWithProbe(market, nowMs)).row;
 }
 
 /**
@@ -298,8 +391,8 @@ export async function fetchKrxIntradayProgramTradeAggregate(
 
   const marketsAttempted: KrxMarketProgramCode[] = ['KOSPI', 'KOSDAQ'];
   const [kospiSingle, kosdaqSingle] = await Promise.all([
-    fetchKrxIntradayProgramTradeSingleWithProbe('KOSPI'),
-    fetchKrxIntradayProgramTradeSingleWithProbe('KOSDAQ'),
+    fetchKrxIntradayProgramTradeSingleWithProbe('KOSPI', nowMs),
+    fetchKrxIntradayProgramTradeSingleWithProbe('KOSDAQ', nowMs),
   ]);
   const kospiResult = kospiSingle.row;
   const kosdaqResult = kosdaqSingle.row;

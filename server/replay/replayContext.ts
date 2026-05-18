@@ -26,7 +26,7 @@
 export type ReplayMode =
   | 'NONE'
   | 'MARKET_CLOSE_SNAPSHOT' // legacy — Patch-001 시기 호환 (현재 사용 0, 후속 PR 에서 제거 검토)
-  | 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT'; // Patch-002 — 17:00 KST runtime debug snapshot replay
+  | 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT'; // Patch-002 — 15:30 KST runtime debug snapshot replay
 
 export interface ReplayContext {
   readonly mode: ReplayMode;

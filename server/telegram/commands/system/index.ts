@@ -79,7 +79,7 @@ import './shadowWalkForward.cmd.js';
 import './shortBackfill.cmd.js';
 import './signalStatus.cmd.js';
 import './sizingDebug.cmd.js'; // PATCH-010 §"/sizing_debug" — 사이징 룰 read-only 진단.
-import './snapshotLatest.cmd.js'; // Patch-SNAPSHOT-LATEST-CMD-001 — 18:00 KST runtime debug snapshot read-only.
+import './snapshotLatest.cmd.js'; // Patch-SNAPSHOT-LATEST-CMD-001 — 15:30 KST runtime debug snapshot read-only.
 import './snapshotStatus.cmd.js'; // Patch-SNAPSHOT-STATUS-CMD-001 — runtime debug snapshot 인프라 진단.
 import './status.cmd.js';
 import './supplyHealth.cmd.js';

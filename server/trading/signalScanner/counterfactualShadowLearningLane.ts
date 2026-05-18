@@ -38,7 +38,10 @@ export type CounterfactualShadowLearningLabel =
   | 'R3_COUNTERFACTUAL_UNDER_HARD_BLOCK'
   | 'R3_COUNTERFACTUAL_DATA_DEGRADED'
   | 'R3_COUNTERFACTUAL_GATE2_NOT_CONFIRMED'
-  | 'COUNTERFACTUAL_BLOCKED_BUY';
+  | 'COUNTERFACTUAL_BLOCKED_BUY'
+  | 'SHADOW_BUY_SIGNAL'
+  | 'R6_COUNTERFACTUAL_BUY'
+  | 'ACCUMULATION_SHADOW_ENTRY';
 
 /** 12-value reason union (사용자 §B 정합, 절대 변경 금지). */
 export type CounterfactualShadowLearningReason =
@@ -53,7 +56,9 @@ export type CounterfactualShadowLearningReason =
   | 'GATE2_NOT_CONFIRMED'
   | 'TRUE_WEAKNESS'
   | 'NO_HARD_RISK_BYPASS_ATTEMPT'
-  | 'LEARNING_ONLY';
+  | 'LEARNING_ONLY'
+  | 'ACCUMULATING'
+  | 'R6_RECOVERY_OBSERVE';
 
 /**
  * Counterfactual Shadow Learning 후보 schema (사용자 §B 정합).
@@ -70,14 +75,14 @@ export interface CounterfactualShadowLearningCandidate {
   source: 'ADR-0430';
   learningOnly: true;
   provisional: false;
-  executionShadow: false;
+  executionShadow: boolean;
   label: CounterfactualShadowLearningLabel;
   reasons: CounterfactualShadowLearningReason[];
   blockedBy: string[];
   liveAllowed: false;
-  paperAllowed: false;
-  executionShadowAllowed: false;
-  virtualAccountImpact: 'NONE';
+  paperAllowed: boolean;
+  executionShadowAllowed: boolean;
+  virtualAccountImpact: 'NONE' | 'SHADOW_ONLY';
   regime?: string;
   rawRegime?: string;
   effectiveRegime?: string;
@@ -100,6 +105,20 @@ export interface CounterfactualShadowLearningCandidate {
   routerSeverity?: string;
   routerLabel?: string;
   entryPriceHint?: number;
+  entryType?: 'SHADOW_BUY_SIGNAL' | 'R6_COUNTERFACTUAL_BUY' | 'ACCUMULATION_SHADOW_ENTRY';
+  sourceSignal?: 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'BEARISH' | 'UNUSABLE';
+  entryReason?: string;
+  executionImpact?: 'NONE';
+  liveOrderSent?: false;
+  riskUnit?: 'R6_COUNTERFACTUAL' | string;
+  mhs?: number;
+  bias?: string;
+  supplyScore?: number;
+  activeFlow?: string;
+  passiveFlow?: string;
+  programNetBuy?: number;
+  paperFillCreated?: boolean;
+  shadowPositionOpened?: boolean;
   sectorEnergySnapshot?: {
     dataQuality?: string;
     indexCodeCoverage?: number;

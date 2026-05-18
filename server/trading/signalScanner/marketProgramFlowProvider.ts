@@ -6,9 +6,17 @@ import { fetchKrxIntradayProgramTradeAggregate } from '../../clients/krxClient/i
 import type { KrxMarketProgramAggregate } from '../../clients/krxClient/programTradeFetcher.js';
 import { DATA_DIR } from '../../persistence/paths.js';
 import { logVisibilityEvent } from '../../utils/logger.js';
+import { classifyProgramFlowSession } from './programFlowSessionGuard.js';
 
 export type MarketProgramFlowSource = 'KIS_API' | 'KRX_FALLBACK' | 'CACHE' | 'CACHE_STALE' | 'NONE';
-export type MarketProgramFlowStatus = 'MISSING' | 'ACCEPTED_EMPTY' | 'PROVIDER_ERROR' | 'PARSE_FAILED' | 'PARSED';
+export type MarketProgramFlowStatus =
+  | 'MISSING'
+  | 'ACCEPTED_EMPTY'
+  | 'PROVIDER_ERROR'
+  | 'PARSE_FAILED'
+  | 'PARSED'
+  | 'AFTER_MARKET_ZERO_PLACEHOLDER'
+  | 'EOD_MARKET_PROGRAM_VALID';
 export type MarketProgramProviderStatus = 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSE_FAILED' | 'PARSED' | 'SUCCESS' | 'EMPTY';
 export type MarketProgramCacheStatus = 'HIT' | 'MISS' | 'STALE';
 
@@ -29,7 +37,7 @@ export interface MarketProgramFlowResult {
   nonArbitrageNetBuyAmount: number | null;
   fetchedAt: string | null;
   providerIssue: boolean;
-  marketSignal: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN';
+  marketSignal: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN' | 'UNAVAILABLE';
   parsedFieldName?: string;
   rawFieldKeys?: string[];
   breakPoint: string;
@@ -68,10 +76,33 @@ export async function resolveMarketProgramFlow(options: ResolveMarketProgramFlow
     logProviderAttempt('KIS_API');
     try {
       const kis = await (options.fetchKis ?? fetchKisMarketProgramTrade)();
-      const kisParsed = normalizeKisResult(kis);
+      const kisParsed = normalizeKisResult(kis, now);
       kisStatus = kisParsed.status;
       kisProviderIssue = kisParsed.providerIssue;
       logProviderResult('KIS_API', kisStatus, kisParsed.rawFieldKeys, kisParsed.parsedFieldName, kisParsed.netBuyAmount);
+      if (kisParsed.zeroPlaceholder) {
+        const result = resolved({
+          available: false,
+          source: 'KIS_API',
+          netBuyAmount: null,
+          arbitrageNetBuyAmount: null,
+          nonArbitrageNetBuyAmount: null,
+          fetchedAt: kisParsed.fetchedAt,
+          providerIssue: false,
+          parsedFieldName: kisParsed.parsedFieldName,
+          rawFieldKeys: kisParsed.rawFieldKeys,
+          breakPoint: 'AFTER_MARKET_ZERO_PLACEHOLDER',
+          marketProgramDataStatus: 'AFTER_MARKET_ZERO_PLACEHOLDER',
+          kisAttempted: true,
+          kisStatus,
+          krxFallbackAttempted: false,
+          krxFallbackStatus,
+          cacheFallbackAttempted: false,
+          cacheStatus: 'MISS',
+        });
+        logResolved(result);
+        return result;
+      }
       if (kisParsed.available) {
         const result = resolved({
           available: true,
@@ -84,7 +115,7 @@ export async function resolveMarketProgramFlow(options: ResolveMarketProgramFlow
           parsedFieldName: kisParsed.parsedFieldName,
           rawFieldKeys: kisParsed.rawFieldKeys,
           breakPoint: 'OK_MARKET_PROGRAM_WIRED',
-          marketProgramDataStatus: 'PARSED',
+          marketProgramDataStatus: kisParsed.eodSnapshotValid ? 'EOD_MARKET_PROGRAM_VALID' : 'PARSED',
           kisAttempted: true,
           kisStatus,
           krxFallbackAttempted: false,
@@ -195,7 +226,7 @@ export async function resolveMarketProgramFlow(options: ResolveMarketProgramFlow
   return result;
 }
 
-function normalizeKisResult(kis: KisMarketProgramTrade | null): {
+function normalizeKisResult(kis: KisMarketProgramTrade | null, now: Date): {
   available: boolean;
   status: MarketProgramFlowResult['kisStatus'];
   providerIssue: boolean;
@@ -205,6 +236,8 @@ function normalizeKisResult(kis: KisMarketProgramTrade | null): {
   fetchedAt: string | null;
   parsedFieldName?: string;
   rawFieldKeys: string[];
+  zeroPlaceholder?: boolean;
+  eodSnapshotValid?: boolean;
 } {
   if (!kis) return { available: false, status: 'ACCEPTED_EMPTY', providerIssue: false, netBuyAmount: null, arbitrageNetBuyAmount: null, nonArbitrageNetBuyAmount: null, fetchedAt: null, rawFieldKeys: [] };
   const rawFieldKeys = Array.from(new Set([...(kis.rawFieldKeys ?? []), ...Object.keys(kis), ...Object.keys(kis.aggregateDiagnostic ?? {})])).sort();
@@ -226,17 +259,126 @@ function normalizeKisResult(kis: KisMarketProgramTrade | null): {
   ];
   for (const [key, raw] of candidates) {
     const parsed = parseNumber(raw);
-    if (parsed !== null) return { available: true, status: 'PARSED', providerIssue: false, netBuyAmount: parsed, arbitrageNetBuyAmount: parseNumber(kis.programArbitrageNetBuy), nonArbitrageNetBuyAmount: parseNumber(kis.programNonArbitrageNetBuy), fetchedAt: kis.fetchedAt, parsedFieldName: key, rawFieldKeys };
+    if (parsed !== null) {
+      const arbitrageNetBuyAmount = parseNumber(kis.programArbitrageNetBuy);
+      const nonArbitrageNetBuyAmount = parseNumber(kis.programNonArbitrageNetBuy);
+      const eodSnapshotValid = isExplicitEodMarketProgramSnapshot(kis) && isFetchedAtRegularOrPostClose(kis.fetchedAt);
+      if (isMarketClosedZeroPlaceholder({ kis, now, values: [parsed, arbitrageNetBuyAmount, nonArbitrageNetBuyAmount], eodSnapshotValid })) {
+        return {
+          available: false,
+          status: 'PARSED',
+          providerIssue: false,
+          netBuyAmount: null,
+          arbitrageNetBuyAmount: null,
+          nonArbitrageNetBuyAmount: null,
+          fetchedAt: kis.fetchedAt,
+          parsedFieldName: key,
+          rawFieldKeys,
+          zeroPlaceholder: true,
+        };
+      }
+      return {
+        available: true,
+        status: 'PARSED',
+        providerIssue: false,
+        netBuyAmount: parsed,
+        arbitrageNetBuyAmount,
+        nonArbitrageNetBuyAmount,
+        fetchedAt: kis.fetchedAt,
+        parsedFieldName: key,
+        rawFieldKeys,
+        eodSnapshotValid,
+      };
+    }
   }
   const buy = parseNumber(kis.programBuyAmount ?? (kis as unknown as Record<string, unknown>).buyAmount);
   const sell = parseNumber(kis.programSellAmount ?? (kis as unknown as Record<string, unknown>).sellAmount);
-  if (buy !== null && sell !== null) return { available: true, status: 'PARSED', providerIssue: false, netBuyAmount: buy - sell, arbitrageNetBuyAmount: parseNumber(kis.programArbitrageNetBuy), nonArbitrageNetBuyAmount: parseNumber(kis.programNonArbitrageNetBuy), fetchedAt: kis.fetchedAt, parsedFieldName: 'buyAmount-sellAmount', rawFieldKeys };
+  if (buy !== null && sell !== null) {
+    const netBuyAmount = buy - sell;
+    const arbitrageNetBuyAmount = parseNumber(kis.programArbitrageNetBuy);
+    const nonArbitrageNetBuyAmount = parseNumber(kis.programNonArbitrageNetBuy);
+    const eodSnapshotValid = isExplicitEodMarketProgramSnapshot(kis) && isFetchedAtRegularOrPostClose(kis.fetchedAt);
+    if (isMarketClosedZeroPlaceholder({ kis, now, values: [netBuyAmount, buy, sell, arbitrageNetBuyAmount, nonArbitrageNetBuyAmount], eodSnapshotValid })) {
+      return {
+        available: false,
+        status: 'PARSED',
+        providerIssue: false,
+        netBuyAmount: null,
+        arbitrageNetBuyAmount: null,
+        nonArbitrageNetBuyAmount: null,
+        fetchedAt: kis.fetchedAt,
+        parsedFieldName: 'buyAmount-sellAmount',
+        rawFieldKeys,
+        zeroPlaceholder: true,
+      };
+    }
+    return {
+      available: true,
+      status: 'PARSED',
+      providerIssue: false,
+      netBuyAmount,
+      arbitrageNetBuyAmount,
+      nonArbitrageNetBuyAmount,
+      fetchedAt: kis.fetchedAt,
+      parsedFieldName: 'buyAmount-sellAmount',
+      rawFieldKeys,
+      eodSnapshotValid,
+    };
+  }
   if (candidates.some(([, raw]) => hasPresentUnparsedNumericValue(raw))
     || hasPresentUnparsedNumericValue(kis.programBuyAmount ?? (kis as unknown as Record<string, unknown>).buyAmount)
     || hasPresentUnparsedNumericValue(kis.programSellAmount ?? (kis as unknown as Record<string, unknown>).sellAmount)) {
     return { available: false, status: 'PARSE_FAILED', providerIssue: false, netBuyAmount: null, arbitrageNetBuyAmount: null, nonArbitrageNetBuyAmount: null, fetchedAt: kis.fetchedAt, rawFieldKeys };
   }
   return { available: false, status: 'ACCEPTED_EMPTY', providerIssue: false, netBuyAmount: null, arbitrageNetBuyAmount: null, nonArbitrageNetBuyAmount: null, fetchedAt: kis.fetchedAt, rawFieldKeys };
+}
+
+function isMarketClosedZeroPlaceholder(input: {
+  kis: KisMarketProgramTrade;
+  now: Date;
+  values: Array<number | null>;
+  eodSnapshotValid: boolean;
+}): boolean {
+  if (input.eodSnapshotValid) return false;
+  const session = classifyProgramFlowSession(input.now);
+  if (session.programFlowExpected) return false;
+  if (session.marketSession !== 'AFTER_MARKET' && session.marketSession !== 'POST_CLOSE' && session.marketSession !== 'MARKET_CLOSED') {
+    return false;
+  }
+  if (input.kis.source !== 'KIS_API') return false;
+  const numericValues = input.values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return numericValues.length > 0 && numericValues.every((value) => value === 0);
+}
+
+function isExplicitEodMarketProgramSnapshot(kis: KisMarketProgramTrade): boolean {
+  const record = kis as unknown as Record<string, unknown>;
+  const diagnostic = kis.aggregateDiagnostic ?? {};
+  const tokens = [
+    record.snapshotKind,
+    record.snapshotType,
+    record.marketProgramDataStatus,
+    record.dataStatus,
+    record.sourceFreshness,
+    diagnostic.snapshotKind,
+    diagnostic.snapshotType,
+    diagnostic.marketProgramDataStatus,
+    diagnostic.dataStatus,
+    diagnostic.sourceFreshness,
+  ].map((value) => String(value ?? '').toUpperCase());
+  return record.eodSnapshot === true ||
+    record.isEodSnapshot === true ||
+    diagnostic.eodSnapshot === true ||
+    diagnostic.isEodSnapshot === true ||
+    tokens.some((token) => token.includes('EOD_MARKET_PROGRAM_VALID') || token.includes('EOD_SNAPSHOT'));
+}
+
+function isFetchedAtRegularOrPostClose(fetchedAt: string | null | undefined): boolean {
+  if (!fetchedAt) return false;
+  const date = new Date(fetchedAt);
+  if (!Number.isFinite(date.getTime())) return false;
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return minutes >= 9 * 60 + 10 && minutes <= 15 * 60 + 40;
 }
 
 function hasPresentUnparsedNumericValue(raw: unknown): boolean {
@@ -250,7 +392,7 @@ function normalizeKrxResult(krx: KrxMarketProgramAggregate | null): { available:
 }
 
 function resolved(input: Omit<MarketProgramFlowResult, 'marketSignal' | 'executionImpact' | 'programFlowUsedForLiveDecision' | 'passiveProxyUsedForLiveDecision' | 'programPenaltyApplied'>): MarketProgramFlowResult {
-  return { ...input, marketSignal: input.available && input.netBuyAmount !== null ? signalFromNetBuy(input.netBuyAmount) : 'UNKNOWN', executionImpact: 'NONE', programFlowUsedForLiveDecision: false, passiveProxyUsedForLiveDecision: false, programPenaltyApplied: false };
+  return { ...input, marketSignal: input.available && input.netBuyAmount !== null ? signalFromNetBuy(input.netBuyAmount) : 'UNAVAILABLE', executionImpact: 'NONE', programFlowUsedForLiveDecision: false, passiveProxyUsedForLiveDecision: false, programPenaltyApplied: false };
 }
 
 function signalFromNetBuy(value: number): MarketProgramFlowResult['marketSignal'] {

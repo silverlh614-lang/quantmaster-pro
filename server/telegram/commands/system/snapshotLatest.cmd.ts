@@ -1,11 +1,11 @@
-// @responsibility /snapshot_latest 텔레그램 명령 — 18:00 KST runtime debug snapshot read-only 진단 (Patch-001/002/003 후속).
+// @responsibility /snapshot_latest 텔레그램 명령 — 15:30 KST runtime debug snapshot read-only 진단 (Patch-001/002/003 후속).
 /**
  * Patch-SNAPSHOT-LATEST-CMD-001 — `/snapshot_latest` read-only 명령.
  *
  * 사용자 명시 framing (Patch-001/002/003 lifecycle 정합 직접 인용):
  *   "장 종료 후에도 패치를 계속 검증하려면 장중 상태를 재현할 수 있는 snapshot이 필요.
  *    장 종료 후 KIS/KRX/Yahoo/Naver를 새로 호출하면 장중 데이터와 다른 empty/stale/
- *    session-closed 값이 섞여 원인 분석이 왜곡됨. 18:00 KST에 자동으로 replay snapshot을
+ *    session-closed 값이 섞여 원인 분석이 왜곡됨. 15:30 KST에 자동으로 replay snapshot을
  *    저장하고, 장 종료 후 Telegram 명령으로 호출/재현할 수 있게 한다."
  *
  * 본 명령의 책임:
@@ -14,7 +14,7 @@
  *     sectorEnergy / programTrading / shadow / counterfactual / providerDiagnostics)
  *   - frozenSupplyRows 카운트 + selectedProvider 분포 (Patch-002)
  *   - SnapshotInvestorFlowReplayAdapter 메타 표시 (Patch-002)
- *   - lifecycle 안내 (다음 거래일 09:00 개장 시 초기화 안 함, 다음 평일 18:00 capture overwrite)
+ *   - lifecycle 안내 (다음 거래일 09:00 개장 시 초기화 안 함, 다음 평일 15:30 capture overwrite)
  *
  * 절대 invariants:
  *   - read-only (영속 read + 메모리 read-only, KIS/KRX/Yahoo/Naver outbound 0건)
@@ -25,7 +25,7 @@
  *   - `formatSnapshotLatestMessage` 는 순수 함수 (단위 테스트 가능, nowMs 옵셔널 주입)
  *
  * 출력 형식 (compact, ≤2000 chars):
- *   📸 [Snapshot] 18:00 KST after-hours runtime debug
+ *   📸 [Snapshot] 15:30 KST market-close runtime debug
  *   • snapshotId / capturedAt KST + age
  *   • status: CAPTURED|PARTIAL_CAPTURED + missing[]
  *   • invariants: replayOnly=true · executionImpact=NONE · INTRADAY_REPLAY_EQUIVALENT · providerCalls=0
@@ -33,7 +33,7 @@
  *   📊 ProgramTrading / 🌑 Shadow / 🔮 Counterfactual / 📡 Provider 9 source 압축
  *   • frozenSupplyRows N개 + selectedProvider 분포 (있을 때만)
  *   • replayAdapter meta (있을 때만)
- *   • lifecycle: 다음 거래일 09:00 개장 시 초기화 ❌ · 다음 평일 18:00 capture overwrite
+ *   • lifecycle: 다음 거래일 09:00 개장 시 초기화 ❌ · 다음 평일 15:30 capture overwrite
  *   • 사용법: /snapshot_latest /snap
  */
 
@@ -252,7 +252,7 @@ function formatReplayAdapterLine(snapshot: RuntimeDebugSnapshot): string | null 
  *
  * 절대 invariants:
  *   - snapshot 정상 시 `replayOnly=true` + `executionImpact=NONE` 마커 항상 노출
- *   - snapshot null 시 4 원인 안내 (부팅 직후 / 첫 평일 18:00 capture 전 / cron 비활성 / capture 실패)
+ *   - snapshot null 시 4 원인 안내 (부팅 직후 / 첫 평일 15:30 capture 전 / cron 비활성 / capture 실패)
  *   - 9 source 옵셔널 블록 부재 시 표기 안 함 (잡음 차단)
  *   - 사용자 명시 lifecycle 정합: "다음 거래일 09:00 개장 시 초기화 ❌"
  */
@@ -262,10 +262,10 @@ export function formatSnapshotLatestMessage(
 ): string {
   if (!snapshot) {
     return [
-      `📸 <b>[Snapshot] 18:00 KST snapshot 부재</b>`,
+      `📸 <b>[Snapshot] 15:30 KST snapshot 부재</b>`,
       ``,
       `원인 후보:`,
-      `  • 부팅 직후 — 첫 평일 18:00 capture 전`,
+      `  • 부팅 직후 — 첫 평일 15:30 capture 전`,
       `  • 직전 평일 cron 비활성 (ENV <code>RUNTIME_DEBUG_SNAPSHOT_DISABLED=true</code>)`,
       `  • 직전 평일 capture 실패 (PERSIST_FAILED)`,
       `  • Railway 컨테이너 재시작 + <code>data/replay/</code> 영속 손실`,
@@ -273,7 +273,7 @@ export function formatSnapshotLatestMessage(
       `확인:`,
       `  • <code>/cron_status</code> — runtime_debug_snapshot_capture cron 작동`,
       `  • ENV <code>RUNTIME_DEBUG_SNAPSHOT_DISABLED</code> 미설정 또는 <code>=false</code>`,
-      `  • 다음 평일 18:00 KST 대기 (장 종료 +2.5h)`,
+      `  • 다음 평일 15:30 KST 대기 (장마감 기준)`,
       ``,
       `ℹ️ 사용법: <code>/snapshot_latest</code> · <code>/snap</code>`,
     ].join('\n');
@@ -282,7 +282,7 @@ export function formatSnapshotLatestMessage(
   const lines: string[] = [];
 
   // Header
-  lines.push(`📸 <b>[Snapshot] 18:00 KST after-hours runtime debug</b>`);
+  lines.push(`📸 <b>[Snapshot] 15:30 KST market-close runtime debug</b>`);
   lines.push(``);
 
   // Identity
@@ -346,7 +346,7 @@ export function formatSnapshotLatestMessage(
   // Lifecycle (사용자 명시 invariant 정합 — "다음 거래일 09:00 개장 시 초기화 ❌")
   lines.push(``);
   lines.push(
-    `<b>lifecycle:</b> 다음 거래일 09:00 개장 시 초기화 ❌ · 다음 평일 18:00 capture 가 overwrite`
+    `<b>lifecycle:</b> 다음 거래일 09:00 개장 시 초기화 ❌ · 다음 평일 15:30 capture 가 overwrite`
   );
 
   // Sanitize / retention (사용자 명시 — 민감정보 0건 + 단일 latest overwrite 확인)
@@ -373,7 +373,7 @@ const snapshotLatest: TelegramCommand = {
   visibility: 'ADMIN',
   riskLevel: 0,
   description:
-    '18:00 KST after-hours runtime debug snapshot 진단 (replayOnly · executionImpact=NONE)',
+    '15:30 KST market-close runtime debug snapshot 진단 (replayOnly · executionImpact=NONE)',
   async execute({ reply }) {
     try {
       const snapshot = loadLatestRuntimeDebugSnapshot();

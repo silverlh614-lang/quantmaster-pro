@@ -784,6 +784,59 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).not.toContain('marketProgramReason: ONLY_STATUS_NO_NUMERIC');
   });
 
+  it('classifies after-market KIS zero market program payload as placeholder diagnostic-only, not realtime NEUTRAL', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T07:31:00.000Z',
+      marketProgramFlow: {
+        available: true,
+        source: 'KIS_API',
+        sourceProvider: 'KIS_API',
+        netBuyAmount: 0,
+        marketProgramNetBuy: 0,
+        combinedNetBuy: 0,
+        arbitrageNetBuyAmount: 0,
+        nonArbitrageNetBuyAmount: 0,
+        providerIssue: false,
+        signal: 'NEUTRAL',
+        marketSignal: true,
+        marketProgramDataStatus: 'PARSED',
+        fetchedAt: '2026-05-15T07:31:00.000Z',
+        executionImpact: 'NONE',
+        programFlowUsedForLiveDecision: false,
+        passiveProxyUsedForLiveDecision: false,
+        programPenaltyApplied: false,
+      },
+      candidates: [baseCandidate({ programNetBuyAmount: null })] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.programFlowDiagnostics.sessionGuard.marketSession).toBe('AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.programFlowExpected).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramAvailable).toBe(false);
+    expect(preview.fieldAvailability.marketProgramAvailable).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramSignal).toBe('UNAVAILABLE');
+    expect(preview.fieldAvailability.marketProgramSignal).toBe('UNAVAILABLE');
+    expect(preview.programFlowDiagnostics.marketProgramMarketSignal).toBe(false);
+    expect(preview.fieldAvailability.marketProgramMarketSignal).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramSource).toBe('KIS_API');
+    expect(preview.programFlowDiagnostics.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
+    expect(preview.fieldAvailability.marketProgramDataStatus).toBe('NOT_EXPECTED_AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.marketProgramReason).toBe('AFTER_MARKET_ZERO_PLACEHOLDER');
+    expect(preview.fieldAvailability.marketProgramReason).toBe('AFTER_MARKET_ZERO_PLACEHOLDER');
+    expect(preview.programFlowDiagnostics.marketProgramNetBuyAmount).toBe('N/A');
+    expect(preview.fieldAvailability.marketProgramNetBuyAmount).toBe('N/A');
+    expect(preview.programFlowDiagnostics.programFlowUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.passiveProxyUsedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+    expect(text).toContain('marketProgramDataStatus: NOT_EXPECTED_AFTER_MARKET');
+    expect(text).toContain('marketProgramReason=AFTER_MARKET_ZERO_PLACEHOLDER');
+    expect(text).toContain('marketProgramSignal: UNAVAILABLE');
+    expect(text).not.toContain('marketProgramSignal: NEUTRAL');
+    expect(text).not.toContain('marketProgramNetBuyAmount: 0');
+  });
+
   it('does not display source NONE missing market program amount as zero while preserving real zero values', () => {
     const sourceNone = persistNormalSupplyPreview({
       engineMode: 'NORMAL',

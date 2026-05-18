@@ -175,6 +175,9 @@ function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>
     candidateScanStatus,
     candidateScanTrigger: summary?.candidateScanTrigger ?? (summary?.time ? 'SCHEDULED' : undefined),
     candidateSkipReason: (macroHardStale || (summary?.candidates ?? 0) === 0) ? lastBlockReason : undefined,
+    accumulatingCandidates: summary?.r6ShadowEntryPolicy?.accumulatingCandidates,
+    r6CounterfactualEntries: summary?.r6ShadowEntryPolicy?.r6CounterfactualEntries,
+    noShadowEntryReason: summary?.r6ShadowEntryPolicy?.noShadowEntryReason,
   };
 }
 

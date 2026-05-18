@@ -95,10 +95,13 @@ describe('Patch-007 isKrxIntradayMarketProgramEnabled ENV gate', () => {
 
 describe('Patch-007 fetchKrxIntradayProgramTradeSingle', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(INTRADAY_NOW_MS));
     mockKrxPost.mockReset();
     process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED = 'true'; // 테스트는 활성화된 상태로
   });
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED;
   });
 
@@ -183,14 +186,24 @@ describe('Patch-007 fetchKrxIntradayProgramTradeSingle', () => {
     const [endpoint] = mockKrxPost.mock.calls[0];
     expect(endpoint).toBe(KRX_BLD_MARKET_PROGRAM_INTRADAY);
   });
+  it('AFTER_MARKET MDCSTAT00301 session guard skips real HTTP request', async () => {
+    vi.setSystemTime(new Date('2026-05-18T07:40:00Z')); // 16:40 KST
+    mockKrxPost.mockResolvedValue({ output: [{ PRGM_NTBY_TRPMN: '100' }] });
+    const r = await fetchKrxIntradayProgramTradeSingle('KOSPI');
+    expect(r).toBeNull();
+    expect(mockKrxPost).not.toHaveBeenCalled();
+  });
 });
 
 describe('Patch-007 fetchKrxIntradayProgramTradeAggregate', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(INTRADAY_NOW_MS));
     mockKrxPost.mockReset();
     process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED = 'true';
   });
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.KRX_INTRADAY_MARKET_PROGRAM_ENABLED;
   });
 

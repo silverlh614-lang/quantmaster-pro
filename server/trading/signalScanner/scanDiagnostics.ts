@@ -138,6 +138,7 @@ import {
   formatCounterfactualShadowLearningSection,
   summarizeCounterfactualShadowLearningCandidates,
 } from './counterfactualShadowLearningLane.js';
+import type { R6ShadowEntryPolicySummary } from './r6ShadowCounterfactualEntryPolicy.js';
 // ADR-0436 — Gate Eligibility Split 진단 섹션 (별도 파일, ADR-0133 1500줄 한계).
 import { formatGateEligibilitySplitSection } from './gateEligibilitySection.js';
 import {
@@ -510,6 +511,8 @@ export interface ScanSummary {
    * /scan_blockers 에 Counterfactual Shadow Learning 섹션 자동 노출.
    */
   counterfactualShadowLearning?: CounterfactualShadowSectionInput;
+  /** R6 recovery counterfactual paper entries created from ACCUMULATING supply candidates. */
+  r6ShadowEntryPolicy?: R6ShadowEntryPolicySummary;
   /**
    * ADR-0464 — Entry Filter Conservatism Decomposition snapshot.
    * Candidate-level blocker traces, counterfactual entry traces, Kelly multiplier
@@ -729,6 +732,8 @@ export interface ScanCounters {
   counterfactualShadowSkipReasons: Record<string, number>;
   /** Top blockedBy / dominant label 합성을 위한 후보 누적. */
   counterfactualShadowCandidates: CounterfactualShadowLearningCandidate[];
+  /** R6 shadow counterfactual entry summary; live order path remains blocked. */
+  r6ShadowEntryPolicy?: R6ShadowEntryPolicySummary;
   /**
    * ADR-0436 — Gate Eligibility Split 카운터 (옵셔널, 후방호환).
    *
@@ -2101,6 +2106,19 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // ADR-0430 — Counterfactual Shadow Learning Lane.
   // SELL_ONLY/HARD_BLOCK 시점 학습 표본 분리 표시. ADR-0427 provisional 다음 노출.
   // 매매 정책 변경 0건 — 학습 ledger 진단만.
+  if (summary.r6ShadowEntryPolicy) {
+    const r6 = summary.r6ShadowEntryPolicy;
+    lines.push('');
+    lines.push('Shadow Learning:');
+    lines.push(`  candidateEvaluated=${r6.candidateEvaluated}`);
+    lines.push(`  accumulatingCandidates=${r6.accumulatingCandidates}`);
+    lines.push(`  shadowBuySignals=${r6.shadowBuySignals}`);
+    lines.push(`  r6CounterfactualEntries=${r6.r6CounterfactualEntries}`);
+    lines.push(`  noShadowEntryReason=${r6.noShadowEntryReason ?? 'N/A'}`);
+    lines.push('  liveNewBuyAllowed=false realOrderAllowed=false strongBuyAllowed=false');
+    lines.push('  executionImpact=NONE');
+  }
+
   const counterfactualSection = formatCounterfactualShadowLearningSection(
     summary.counterfactualShadowLearning,
   );
@@ -2943,6 +2961,10 @@ export async function persistScanResults(
   //   buyListLoop 가 후보별 evaluatePreBreakoutWait 결과를 counters.preBreakoutWaitDecisions
   //   에 push → 본 시점에서 합산. decisions 빈 배열 시 summary 미영속 (운영자 noise 차단).
   //   try/catch 격리 — 합성 실패가 ScanSummary 영속을 차단하지 않음.
+  if (counters.r6ShadowEntryPolicy) {
+    summaryDraft.r6ShadowEntryPolicy = counters.r6ShadowEntryPolicy;
+  }
+
   try {
     if (counters.preBreakoutWaitDecisions.length > 0) {
       summaryDraft.preBreakoutWaitSummary = summarizePreBreakoutWaitDecisions({

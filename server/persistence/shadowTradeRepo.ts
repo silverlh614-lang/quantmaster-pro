@@ -693,6 +693,26 @@ export interface ServerShadowTrade {
   detachedFromWatchlist?: boolean;
   /** detachedFromWatchlist=true 최초 부착 KST ISO 타임스탬프. */
   detachedFromWatchlistAt?: string;
+  /** Shadow/counterfactual entry type marker. Diagnostic-only; never implies a live order. */
+  entryType?: 'SHADOW_BUY_SIGNAL' | 'R6_COUNTERFACTUAL_BUY' | 'ACCUMULATION_SHADOW_ENTRY';
+  sourceSignal?: 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'BEARISH' | 'UNUSABLE';
+  entryReason?: string;
+  executionImpact?: 'NONE';
+  liveOrderSent?: false;
+  riskUnit?: 'R6_COUNTERFACTUAL' | string;
+  r6Counterfactual?: {
+    tradingDate: string;
+    regime: string;
+    mhs?: number | null;
+    bias?: string;
+    supplyScore?: number;
+    activeFlow?: string;
+    passiveFlow?: string;
+    programNetBuy?: number;
+    entryType: 'R6_COUNTERFACTUAL_BUY';
+    liveOrderSent: false;
+    executionImpact: 'NONE';
+  };
 }
 
 // ─── Manual Exit Context ──────────────────────────────────────────────────────

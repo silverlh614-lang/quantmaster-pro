@@ -31,6 +31,7 @@ import { scheduledJob } from './scheduleGuard.js';
 
 export type ProgramAutoCaptureSlot = 'MORNING' | 'AFTERNOON';
 export type ProgramAutoCaptureRunMode = 'DIAGNOSTIC_ONLY' | 'MANUAL_RUN_NOW';
+export type ProgramAutoCaptureMode = 'PRIORITY_ROTATION';
 export type ProgramAutoCaptureTargetMode = 'DEFAULT' | 'BEARISH' | 'ACCUMULATING';
 export type ProgramDeltaDirection =
   | 'PROGRAM_BUY_ACCELERATING'
@@ -45,6 +46,7 @@ export interface ProgramAutoCaptureRunOptions {
   limit?: number;
   targetMode?: ProgramAutoCaptureTargetMode;
   runMode?: ProgramAutoCaptureRunMode;
+  minIntervalMsOverride?: number;
 }
 
 export interface ProgramManualCaptureAvailability {
@@ -59,6 +61,16 @@ export interface ProgramManualCaptureAvailability {
 export interface ProgramAutoCaptureStatus {
   schedulerEnabled: boolean;
   disabled: boolean;
+  mode: ProgramAutoCaptureMode;
+  watchlistTargetSize: number;
+  watchlistSize: number;
+  todayCoverage: number;
+  morningCoverage: number;
+  afternoonCoverage: number;
+  dailyProviderCalls: number;
+  dailyProviderHardCap: number;
+  providerCallLimitPerRun: number;
+  providerHardCapPerRun: number;
   lastMorningCaptureAt?: string;
   lastAfternoonCaptureAt?: string;
   lastCapturedCount: number;
@@ -69,6 +81,7 @@ export interface ProgramAutoCaptureStatus {
   failureCooldownBySymbol: Record<string, string>;
   completedSlots: Record<string, string[]>;
   manualCooldownBySymbolSlot: Record<string, string>;
+  dailyProviderCallsByDate: Record<string, number>;
   executionImpact: 'NONE';
 }
 
@@ -77,11 +90,16 @@ export interface ProgramAutoCaptureRunSummary {
   marketDate: string;
   startedAt: string;
   finishedAt: string;
-  mode: ProgramAutoCaptureRunMode;
+  mode: ProgramAutoCaptureMode;
+  runMode: ProgramAutoCaptureRunMode;
   limit: number;
+  providerHardCapPerRun: number;
+  dailyProviderHardCap: number;
   targetMode: ProgramAutoCaptureTargetMode;
   session: ProgramFlowMarketSession;
   kstTime: string;
+  watchlistSize: number;
+  watchlistTargetSize: number;
   target: number;
   captured: number;
   emptyValid: number;
@@ -89,9 +107,18 @@ export interface ProgramAutoCaptureRunSummary {
   skipped: number;
   cooldownSkipped: number;
   providerCallsAdded: number;
+  dailyProviderCalls: number;
+  todayCoverage: number;
+  morningCoverage: number;
+  afternoonCoverage: number;
+  newlyCaptured: number;
+  recaptured: number;
+  remainingNotCaptured: number;
   snapshotRowsWithValue: number;
   executionImpact: 'NONE';
   liveDecision: false;
+  programFlowUsedForLiveDecision: false;
+  passiveProxyUsedForLiveDecision: false;
   strongBuyAllowed: false;
   programPenaltyApplied: false;
   programMissingAsBearish: false;
@@ -110,8 +137,10 @@ export interface ProgramAutoCaptureDelta {
   executionImpact: 'NONE';
 }
 
-const DEFAULT_LIMIT = 10;
-const DEFAULT_MAX_LIMIT = 15;
+const DEFAULT_WATCHLIST_TARGET_SIZE = 50;
+const DEFAULT_LIMIT = 30;
+const DEFAULT_MAX_LIMIT = 50;
+const DEFAULT_DAILY_HARD_CAP = 100;
 const DEFAULT_MIN_INTERVAL_MS = 400;
 const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 const MANUAL_RUN_TTL_MS = 5 * 60 * 1000;
@@ -126,30 +155,65 @@ export function isProgramAutoCaptureDisabled(): boolean {
   return process.env.PROGRAM_AUTO_CAPTURE_ENABLED !== 'true';
 }
 
+function configuredMode(): ProgramAutoCaptureMode {
+  return process.env.PROGRAM_AUTO_CAPTURE_MODE === 'PRIORITY_ROTATION'
+    ? 'PRIORITY_ROTATION'
+    : 'PRIORITY_ROTATION';
+}
+
+function configuredWatchlistTargetSize(): number {
+  const raw = Number.parseInt(process.env.PROGRAM_AUTO_CAPTURE_WATCHLIST_TARGET_SIZE ?? String(DEFAULT_WATCHLIST_TARGET_SIZE), 10);
+  return Number.isFinite(raw) ? Math.max(1, Math.min(DEFAULT_WATCHLIST_TARGET_SIZE, raw)) : DEFAULT_WATCHLIST_TARGET_SIZE;
+}
+
+function configuredProviderHardCapPerRun(): number {
+  const raw = Number.parseInt(process.env.PROGRAM_AUTO_CAPTURE_MAX_LIMIT ?? String(DEFAULT_MAX_LIMIT), 10);
+  return Number.isFinite(raw) ? Math.max(1, Math.min(DEFAULT_MAX_LIMIT, raw)) : DEFAULT_MAX_LIMIT;
+}
+
+function configuredDailyHardCap(): number {
+  const raw = Number.parseInt(process.env.PROGRAM_AUTO_CAPTURE_DAILY_HARD_CAP ?? String(DEFAULT_DAILY_HARD_CAP), 10);
+  return Number.isFinite(raw) ? Math.max(1, Math.min(DEFAULT_DAILY_HARD_CAP, raw)) : DEFAULT_DAILY_HARD_CAP;
+}
+
 function normalizeCaptureLimit(value: unknown, fallback = DEFAULT_LIMIT): number {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   const base = Number.isFinite(parsed) ? parsed : fallback;
-  return Math.max(1, Math.min(DEFAULT_MAX_LIMIT, base));
+  return Math.max(1, Math.min(configuredProviderHardCapPerRun(), base));
 }
 
 function configuredLimit(): number {
-  const maxRaw = Number.parseInt(process.env.PROGRAM_AUTO_CAPTURE_MAX_LIMIT ?? String(DEFAULT_MAX_LIMIT), 10);
-  const max = Number.isFinite(maxRaw) ? Math.max(1, Math.min(DEFAULT_MAX_LIMIT, maxRaw)) : DEFAULT_MAX_LIMIT;
   const limitRaw = Number.parseInt(process.env.PROGRAM_AUTO_CAPTURE_LIMIT ?? String(DEFAULT_LIMIT), 10);
   const limit = Number.isFinite(limitRaw) ? Math.max(1, limitRaw) : DEFAULT_LIMIT;
-  return Math.min(max, limit);
+  return Math.min(configuredProviderHardCapPerRun(), limit);
 }
 
 function minIntervalMs(): number {
   const raw = Number.parseInt(process.env.PROGRAM_AUTO_CAPTURE_MIN_INTERVAL_MS ?? String(DEFAULT_MIN_INTERVAL_MS), 10);
   if (!Number.isFinite(raw)) return DEFAULT_MIN_INTERVAL_MS;
-  return Math.max(300, Math.min(500, raw));
+  return Math.max(DEFAULT_MIN_INTERVAL_MS, Math.min(1_000, raw));
+}
+
+function statusFilePath(): string {
+  return process.env.PROGRAM_AUTO_CAPTURE_STATUS_FILE
+    ? path.resolve(process.env.PROGRAM_AUTO_CAPTURE_STATUS_FILE)
+    : STATUS_FILE;
 }
 
 function emptyStatus(now = new Date()): ProgramAutoCaptureStatus {
-  return {
+  return refreshProgramAutoCaptureStatusCoverage({
     schedulerEnabled: !isProgramAutoCaptureDisabled(),
     disabled: isProgramAutoCaptureDisabled(),
+    mode: configuredMode(),
+    watchlistTargetSize: configuredWatchlistTargetSize(),
+    watchlistSize: 0,
+    todayCoverage: 0,
+    morningCoverage: 0,
+    afternoonCoverage: 0,
+    dailyProviderCalls: 0,
+    dailyProviderHardCap: configuredDailyHardCap(),
+    providerCallLimitPerRun: configuredLimit(),
+    providerHardCapPerRun: configuredProviderHardCapPerRun(),
     lastCapturedCount: 0,
     lastFailedCount: 0,
     latestSnapshotRowsWithValue: loadLatestIntradayProgramFlowSnapshot()?.summary.stockRowsWithProgramValue ?? 0,
@@ -157,37 +221,52 @@ function emptyStatus(now = new Date()): ProgramAutoCaptureStatus {
     failureCooldownBySymbol: {},
     completedSlots: {},
     manualCooldownBySymbolSlot: {},
+    dailyProviderCallsByDate: {},
     executionImpact: 'NONE',
-  };
+  }, now);
 }
 
 export function loadProgramAutoCaptureStatus(now = new Date()): ProgramAutoCaptureStatus {
   ensureReplayDir();
   try {
-    if (!fs.existsSync(STATUS_FILE)) return emptyStatus(now);
-    const parsed = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')) as Partial<ProgramAutoCaptureStatus>;
-    return {
+    const filePath = statusFilePath();
+    if (!fs.existsSync(filePath)) return emptyStatus(now);
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<ProgramAutoCaptureStatus>;
+    return refreshProgramAutoCaptureStatusCoverage({
       ...emptyStatus(now),
       ...parsed,
       schedulerEnabled: !isProgramAutoCaptureDisabled(),
       disabled: isProgramAutoCaptureDisabled(),
+      mode: configuredMode(),
       latestSnapshotRowsWithValue: loadLatestIntradayProgramFlowSnapshot()?.summary.stockRowsWithProgramValue ?? parsed.latestSnapshotRowsWithValue ?? 0,
       nextScheduledCapture: computeNextProgramAutoCaptureKst(now),
       failureCooldownBySymbol: parsed.failureCooldownBySymbol ?? {},
       completedSlots: parsed.completedSlots ?? {},
       manualCooldownBySymbolSlot: parsed.manualCooldownBySymbolSlot ?? {},
+      dailyProviderCallsByDate: parsed.dailyProviderCallsByDate ?? {},
+      dailyProviderHardCap: configuredDailyHardCap(),
+      providerCallLimitPerRun: configuredLimit(),
+      providerHardCapPerRun: configuredProviderHardCapPerRun(),
       executionImpact: 'NONE',
-    };
+    }, now);
   } catch {
     return emptyStatus(now);
   }
 }
 
-function saveProgramAutoCaptureStatus(status: ProgramAutoCaptureStatus): ProgramAutoCaptureStatus {
+function saveProgramAutoCaptureStatus(status: ProgramAutoCaptureStatus, now = new Date()): ProgramAutoCaptureStatus {
   ensureReplayDir();
-  const sanitized: ProgramAutoCaptureStatus = { ...status, executionImpact: 'NONE' };
-  fs.writeFileSync(`${STATUS_FILE}.tmp`, JSON.stringify(sanitized, null, 2));
-  fs.renameSync(`${STATUS_FILE}.tmp`, STATUS_FILE);
+  const filePath = statusFilePath();
+  const sanitized: ProgramAutoCaptureStatus = refreshProgramAutoCaptureStatusCoverage({
+    ...status,
+    mode: configuredMode(),
+    dailyProviderHardCap: configuredDailyHardCap(),
+    providerCallLimitPerRun: configuredLimit(),
+    providerHardCapPerRun: configuredProviderHardCapPerRun(),
+    executionImpact: 'NONE',
+  }, now);
+  fs.writeFileSync(`${filePath}.tmp`, JSON.stringify(sanitized, null, 2));
+  fs.renameSync(`${filePath}.tmp`, filePath);
   return sanitized;
 }
 
@@ -197,6 +276,60 @@ function kstParts(now: Date): { marketDate: string; time: string; minutes: numbe
   const hh = kst.getUTCHours();
   const mm = kst.getUTCMinutes();
   return { marketDate, time: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`, minutes: hh * 60 + mm };
+}
+
+function currentWatchlistSymbols(): Set<string> {
+  const symbols = new Set<string>();
+  for (const entry of loadWatchlist()) {
+    const symbol = normalizeSymbol((entry as unknown as Record<string, unknown>).code ?? (entry as unknown as Record<string, unknown>).stockCode ?? (entry as unknown as Record<string, unknown>).symbol);
+    if (symbol) symbols.add(symbol);
+  }
+  return symbols;
+}
+
+function symbolsForSlot(status: Pick<ProgramAutoCaptureStatus, 'completedSlots'>, marketDate: string, slot: ProgramAutoCaptureSlot): Set<string> {
+  return new Set(status.completedSlots[completedKey(marketDate, slot)] ?? []);
+}
+
+function symbolsCapturedToday(status: Pick<ProgramAutoCaptureStatus, 'completedSlots'>, marketDate: string): Set<string> {
+  return new Set([
+    ...symbolsForSlot(status, marketDate, 'MORNING'),
+    ...symbolsForSlot(status, marketDate, 'AFTERNOON'),
+  ]);
+}
+
+function countWatchlistIntersection(symbols: Set<string>, watchlistSymbols: Set<string>): number {
+  let count = 0;
+  for (const symbol of symbols) if (watchlistSymbols.has(symbol)) count += 1;
+  return count;
+}
+
+function refreshProgramAutoCaptureStatusCoverage(
+  status: ProgramAutoCaptureStatus,
+  now: Date,
+): ProgramAutoCaptureStatus {
+  const { marketDate } = kstParts(now);
+  const watchlistSymbols = currentWatchlistSymbols();
+  const morningSymbols = symbolsForSlot(status, marketDate, 'MORNING');
+  const afternoonSymbols = symbolsForSlot(status, marketDate, 'AFTERNOON');
+  const todaySymbols = symbolsCapturedToday(status, marketDate);
+  const dailyProviderCallsByDate = status.dailyProviderCallsByDate ?? {};
+  const dailyProviderCalls = dailyProviderCallsByDate[marketDate] ?? status.dailyProviderCalls ?? 0;
+  return {
+    ...status,
+    mode: configuredMode(),
+    watchlistTargetSize: configuredWatchlistTargetSize(),
+    watchlistSize: watchlistSymbols.size,
+    todayCoverage: countWatchlistIntersection(todaySymbols, watchlistSymbols),
+    morningCoverage: countWatchlistIntersection(morningSymbols, watchlistSymbols),
+    afternoonCoverage: countWatchlistIntersection(afternoonSymbols, watchlistSymbols),
+    dailyProviderCalls,
+    dailyProviderCallsByDate,
+    dailyProviderHardCap: configuredDailyHardCap(),
+    providerCallLimitPerRun: configuredLimit(),
+    providerHardCapPerRun: configuredProviderHardCapPerRun(),
+    executionImpact: 'NONE',
+  };
 }
 
 export function computeNextProgramAutoCaptureKst(now = new Date()): string {
@@ -248,58 +381,233 @@ function targetModeBoost(bucket: string, targetMode: ProgramAutoCaptureTargetMod
   return 0;
 }
 
+export interface ProgramAutoCaptureTarget {
+  symbol: string;
+  name?: string;
+  rank: number;
+  reasons: string[];
+  alreadyCapturedToday: boolean;
+  recaptureAllowed: boolean;
+}
+
+interface ProgramAutoCaptureTargetSelectionOptions {
+  targetMode?: ProgramAutoCaptureTargetMode;
+  slot?: ProgramAutoCaptureSlot;
+  status?: ProgramAutoCaptureStatus;
+  marketDate?: string;
+  previousSnapshot?: IntradayProgramFlowSnapshot | null;
+}
+
+function recordSignals(record: Record<string, unknown>): {
+  bucket: string;
+  supplyScore: number;
+  foreignNetBuy: number;
+  institutionNetBuy: number;
+  priorityBoost: number;
+  shadowTracking: boolean;
+  highVolatility: boolean;
+  activePassiveConfirmed: boolean;
+} {
+  const bucket = classifySupplyBucket(
+    record.supplySignal
+      ?? record.supplyBucket
+      ?? record.supplyStatus
+      ?? record.semanticSignal
+      ?? record.signal
+      ?? record.state,
+  );
+  const supplyScore = numeric(record.supplyScore ?? record.supplyConfluenceScore ?? record.totalSmartMoneyNetBuy);
+  const foreignNetBuy = numeric(record.foreignNetBuy ?? record.foreignNetBuyAmount ?? record.foreign);
+  const institutionNetBuy = numeric(record.institutionNetBuy ?? record.institutionNetBuyAmount ?? record.institution);
+  const priorityBoost = numeric(record.watchlistPriorityBoost ?? record.watchlistPriorityScore);
+  const volatility = Math.max(
+    Math.abs(numeric(record.volatility)),
+    Math.abs(numeric(record.atrPct)),
+    Math.abs(numeric(record.atrRate)),
+    Math.abs(numeric((record.symbolFeatures as Record<string, unknown> | undefined)?.atrPct)),
+  );
+  return {
+    bucket,
+    supplyScore,
+    foreignNetBuy,
+    institutionNetBuy,
+    priorityBoost,
+    shadowTracking: record.shadowTracking === true,
+    highVolatility: volatility >= 5,
+    activePassiveConfirmed: bucket.includes('ACTIVE') || bucket.includes('PASSIVE') || bucket.includes('CONFIRMED'),
+  };
+}
+
+function addSignalReasons(
+  row: { rank: number; reasons: Set<string> },
+  signals: ReturnType<typeof recordSignals>,
+  targetMode: ProgramAutoCaptureTargetMode,
+): void {
+  if (signals.bucket.includes('BEARISH')) {
+    row.rank += 900_000 + targetModeBoost(signals.bucket, targetMode);
+    row.reasons.add('BEARISH');
+  }
+  if (signals.bucket.includes('ACCUMULATING')) {
+    row.rank += 800_000 + targetModeBoost(signals.bucket, targetMode);
+    row.reasons.add('ACCUMULATING');
+  }
+  if (signals.foreignNetBuy !== 0 && signals.institutionNetBuy !== 0 && Math.sign(signals.foreignNetBuy) === Math.sign(signals.institutionNetBuy)) {
+    row.rank += 700_000 + Math.min(99_999, Math.abs(signals.foreignNetBuy) + Math.abs(signals.institutionNetBuy));
+    row.reasons.add('DUAL_ACTIVE_FLOW');
+  }
+  if (Math.abs(signals.supplyScore) >= 70) {
+    row.rank += 600_000 + Math.min(99_999, Math.abs(signals.supplyScore));
+    row.reasons.add('SUPPLY_SCORE_EXTREME');
+  }
+  if (signals.shadowTracking) {
+    row.rank += 500_000;
+    row.reasons.add('SHADOW_TRACKING');
+  }
+  if (signals.priorityBoost > 0) {
+    row.rank += 400_000 + Math.min(99_999, signals.priorityBoost);
+    row.reasons.add('WATCHLIST_PRIORITY_BOOST');
+  }
+  if (signals.activePassiveConfirmed) {
+    row.rank += 250_000;
+    row.reasons.add('ACTIVE_PASSIVE_CONFIRMED');
+  }
+  if (signals.highVolatility) {
+    row.rank += 200_000;
+    row.reasons.add('HIGH_VOLATILITY');
+  }
+}
+
+function previousExtremeSymbols(snapshot: IntradayProgramFlowSnapshot | null | undefined): Set<string> {
+  return new Set((snapshot?.stockRows ?? [])
+    .filter((row) => typeof row.programNetBuyAmount === 'number')
+    .sort((a, b) => Math.abs((b.programNetBuyAmount as number) ?? 0) - Math.abs((a.programNetBuyAmount as number) ?? 0))
+    .slice(0, 10)
+    .map((row) => row.symbol));
+}
+
+function previousDeltaExtremeSymbols(status: ProgramAutoCaptureStatus | undefined): Set<string> {
+  return new Set((status?.lastRun?.deltas ?? [])
+    .filter((delta) => typeof delta.deltaProgramNetBuyAmount === 'number')
+    .sort((a, b) => Math.abs((b.deltaProgramNetBuyAmount as number) ?? 0) - Math.abs((a.deltaProgramNetBuyAmount as number) ?? 0))
+    .slice(0, 10)
+    .map((delta) => delta.symbol));
+}
+
 export function selectProgramAutoCaptureTargets(
   limit = configuredLimit(),
-  options: { targetMode?: ProgramAutoCaptureTargetMode } = {},
-): Array<{ symbol: string; name?: string }> {
+  options: ProgramAutoCaptureTargetSelectionOptions = {},
+): ProgramAutoCaptureTarget[] {
   const targetMode = options.targetMode ?? 'DEFAULT';
+  const slot = options.slot ?? 'MORNING';
+  const status = options.status;
+  const marketDate = options.marketDate ?? kstParts(new Date()).marketDate;
   const watchlist = loadWatchlist();
   const openPositions = loadOpenPositions();
   const latestPreview = getLastNormalSupplyPreview();
-  const bySymbol = new Map<string, { symbol: string; name?: string; rank: number; seq: number }>();
+  const previousSnapshot = options.previousSnapshot ?? loadLatestIntradayProgramFlowSnapshot();
+  const previousExtremes = previousExtremeSymbols(previousSnapshot);
+  const deltaExtremes = previousDeltaExtremeSymbols(status);
+  const capturedToday = status ? symbolsCapturedToday(status, marketDate) : new Set<string>();
+  const sameSlotCaptured = status ? symbolsForSlot(status, marketDate, slot) : new Set<string>();
+  const bySymbol = new Map<string, { symbol: string; name?: string; rank: number; seq: number; reasons: Set<string> }>();
   let seq = 0;
-  const add = (symbolRaw: unknown, name: unknown, rank: number): void => {
+  const add = (symbolRaw: unknown, name: unknown, rank: number, reasons: string[] = []): void => {
     const symbol = normalizeSymbol(symbolRaw);
     if (!symbol) return;
     const current = bySymbol.get(symbol);
-    const row = { symbol, name: typeof name === 'string' ? name : undefined, rank, seq: seq++ };
-    if (!current || row.rank > current.rank) bySymbol.set(symbol, row);
+    const row = current ?? { symbol, name: typeof name === 'string' ? name : undefined, rank: 0, seq: seq++, reasons: new Set<string>() };
+    row.rank = Math.max(row.rank, rank);
+    if (!row.name && typeof name === 'string') row.name = name;
+    for (const reason of reasons) row.reasons.add(reason);
+    bySymbol.set(symbol, row);
   };
 
-  for (const p of openPositions) add(p.stockCode, p.stockName, 10000);
+  for (const p of openPositions) add(p.stockCode, p.stockName, 1_000_000, ['HELD_POSITION']);
 
   for (const entry of watchlist) {
     const anyEntry = entry as unknown as Record<string, unknown>;
-    const bucket = classifySupplyBucket(anyEntry.supplySignal ?? anyEntry.supplyBucket ?? anyEntry.supplyStatus);
-    const shadowTracking = anyEntry.shadowTracking === true ? 400 : 0;
-    const priorityBoost = numeric(anyEntry.watchlistPriorityBoost) > 0 ? 300 + numeric(anyEntry.watchlistPriorityBoost) : 0;
-    const supplyScore = numeric(anyEntry.supplyScore);
-    const bucketRank = bucket.includes('BEARISH') ? 9000 : bucket.includes('ACCUMULATING') ? 8000 : 0;
-    add(
-      anyEntry.code ?? anyEntry.stockCode ?? anyEntry.symbol,
-      anyEntry.name ?? anyEntry.stockName,
-      bucketRank + targetModeBoost(bucket, targetMode) + shadowTracking + priorityBoost + supplyScore + scoreWatchlist(entry),
-    );
+    const symbol = normalizeSymbol(anyEntry.code ?? anyEntry.stockCode ?? anyEntry.symbol);
+    if (!symbol) continue;
+    add(symbol, anyEntry.name ?? anyEntry.stockName, scoreWatchlist(entry), ['WATCHLIST']);
+    const row = bySymbol.get(symbol);
+    if (row) addSignalReasons(row, recordSignals(anyEntry), targetMode);
   }
 
   const previewCandidates = Array.isArray((latestPreview as unknown as { candidates?: unknown[] } | null)?.candidates)
     ? ((latestPreview as unknown as { candidates: unknown[] }).candidates)
     : [];
   for (const item of previewCandidates) {
-    const row = item as Record<string, unknown>;
-    const bucket = classifySupplyBucket(row.supplySignal ?? row.supplyBucket ?? row.supplyStatus);
-    const bucketRank = bucket.includes('BEARISH') ? 7000 : bucket.includes('ACCUMULATING') ? 6500 : 6000;
+    const record = item as Record<string, unknown>;
+    const symbol = normalizeSymbol(record.symbol ?? record.code ?? record.stockCode);
+    if (!symbol) continue;
     add(
-      row.symbol ?? row.code ?? row.stockCode,
-      row.name ?? row.stockName,
-      bucketRank + targetModeBoost(bucket, targetMode) + numeric(row.supplyScore),
+      symbol,
+      record.name ?? record.stockName,
+      300_000 + numeric(record.supplyScore),
+      ['LATEST_PREVIEW_CANDIDATE'],
     );
+    const row = bySymbol.get(symbol);
+    if (row) addSignalReasons(row, recordSignals(record), targetMode);
   }
 
-  return [...bySymbol.values()]
-    .sort((a, b) => b.rank - a.rank || a.seq - b.seq || a.symbol.localeCompare(b.symbol))
-    .slice(0, normalizeCaptureLimit(limit, configuredLimit()))
-    .map(({ symbol, name }) => ({ symbol, name }));
+  for (const [symbol, row] of bySymbol) {
+    if (previousExtremes.has(symbol)) {
+      row.rank += 350_000;
+      row.reasons.add('PREVIOUS_PROGRAM_FLOW_EXTREME');
+    }
+    if (deltaExtremes.has(symbol)) {
+      row.rank += 300_000;
+      row.reasons.add('PREVIOUS_SLOT_DELTA_ABS_TOP');
+    }
+    if (!capturedToday.has(symbol)) {
+      row.rank += slot === 'AFTERNOON' ? 2_000_000 : 100_000;
+      row.reasons.add('NOT_CAPTURED_TODAY');
+    }
+  }
+
+  const normalizedLimit = normalizeCaptureLimit(limit, configuredLimit());
+  const rows = [...bySymbol.values()]
+    .filter((row) => !sameSlotCaptured.has(row.symbol))
+    .map((row): ProgramAutoCaptureTarget => {
+      const alreadyCapturedToday = capturedToday.has(row.symbol);
+      const recaptureAllowed = row.reasons.has('HELD_POSITION')
+        || row.reasons.has('PREVIOUS_PROGRAM_FLOW_EXTREME')
+        || row.reasons.has('PREVIOUS_SLOT_DELTA_ABS_TOP')
+        || row.reasons.has('ACTIVE_PASSIVE_CONFIRMED')
+        || row.reasons.has('HIGH_VOLATILITY')
+        || row.reasons.has('SHADOW_TRACKING');
+      return {
+        symbol: row.symbol,
+        name: row.name,
+        rank: row.rank,
+        reasons: [...row.reasons].sort(),
+        alreadyCapturedToday,
+        recaptureAllowed,
+      };
+    });
+
+  const byRank = (a: ProgramAutoCaptureTarget, b: ProgramAutoCaptureTarget): number =>
+    b.rank - a.rank || a.symbol.localeCompare(b.symbol);
+  if (slot !== 'AFTERNOON') {
+    return rows.sort(byRank).slice(0, normalizedLimit);
+  }
+
+  const held = rows.filter((row) => row.reasons.includes('HELD_POSITION')).sort(byRank);
+  const notCaptured = rows
+    .filter((row) => !row.alreadyCapturedToday && !row.reasons.includes('HELD_POSITION'))
+    .sort(byRank);
+  const recapture = rows
+    .filter((row) => row.alreadyCapturedToday && row.recaptureAllowed && !row.reasons.includes('HELD_POSITION'))
+    .sort(byRank);
+  const selected = new Map<string, ProgramAutoCaptureTarget>();
+  for (const group of [held, notCaptured, recapture]) {
+    for (const row of group) {
+      if (selected.size >= normalizedLimit) break;
+      selected.set(row.symbol, row);
+    }
+    if (selected.size >= normalizedLimit) break;
+  }
+  return [...selected.values()];
 }
 
 function isInFailureCooldown(symbol: string, status: ProgramAutoCaptureStatus, now: Date): boolean {
@@ -433,7 +741,12 @@ export async function runProgramAutoCapture(
   const { marketDate } = kstParts(now);
   const status = loadProgramAutoCaptureStatus(now);
   const runMode = options.runMode ?? 'DIAGNOSTIC_ONLY';
-  const limit = normalizeCaptureLimit(options.limit ?? configuredLimit(), configuredLimit());
+  const requestedLimit = normalizeCaptureLimit(options.limit ?? configuredLimit(), configuredLimit());
+  const dailyProviderHardCap = configuredDailyHardCap();
+  const providerHardCapPerRun = configuredProviderHardCapPerRun();
+  const dailyCallsBefore = status.dailyProviderCallsByDate[marketDate] ?? status.dailyProviderCalls ?? 0;
+  const remainingDailyCalls = Math.max(0, dailyProviderHardCap - dailyCallsBefore);
+  const limit = Math.min(requestedLimit, providerHardCapPerRun, remainingDailyCalls);
   const targetMode = options.targetMode ?? 'DEFAULT';
 
   if (isProgramAutoCaptureDisabled()) throw new Error('PROGRAM_AUTO_CAPTURE_DISABLED');
@@ -446,12 +759,16 @@ export async function runProgramAutoCapture(
   const previousBySymbol = new Map<string, IntradayProgramFlowStockRow>();
   for (const row of previousSnapshot?.stockRows ?? []) previousBySymbol.set(row.symbol, row);
 
-  const allTargets = selectProgramAutoCaptureTargets(limit, { targetMode });
+  const coverageBefore = symbolsCapturedToday(status, marketDate);
+  const watchlistSymbols = currentWatchlistSymbols();
+  const allTargets = limit > 0
+    ? selectProgramAutoCaptureTargets(limit, { targetMode, slot, status, marketDate, previousSnapshot })
+    : [];
   let completedSlotSkipped = 0;
   let cooldownSkipped = 0;
   const targets = allTargets
     .filter((t) => {
-      if (runMode !== 'MANUAL_RUN_NOW' && hasCompletedSlotSymbol(status, marketDate, slot, t.symbol)) {
+      if (hasCompletedSlotSymbol(status, marketDate, slot, t.symbol)) {
         completedSlotSkipped += 1;
         return false;
       }
@@ -476,10 +793,12 @@ export async function runProgramAutoCapture(
   let emptyValid = 0;
   let failed = 0;
   const failedSymbols: string[] = [];
+  const attemptedSymbols: string[] = [];
   let providerAbortReason = '';
 
   for (const target of targets) {
     providerCallsAdded += 1;
+    attemptedSymbols.push(target.symbol);
     let data: Awaited<ReturnType<typeof fetchKisStockProgramTrade>> | null = null;
     try {
       data = await fetchKisStockProgramTrade(target.symbol, 'LOW');
@@ -536,35 +855,47 @@ export async function runProgramAutoCapture(
       });
     }
     if (providerCallsAdded >= limit || providerAbortReason) break;
-    await sleep(minIntervalMs());
+    await sleep(options.minIntervalMsOverride ?? minIntervalMs());
   }
 
   let savedSnapshot: IntradayProgramFlowSnapshot | null = null;
   if (rows.length > 0) {
     savedSnapshot = saveProgramAutoCaptureRows(rows, now);
-    const savedSymbols = rows.map((r) => String(r.symbol));
-    if (runMode === 'MANUAL_RUN_NOW') {
-      markManualCooldownSymbols(status, marketDate, slot, savedSymbols, now);
-    } else {
-      markCompletedSlotSymbols(status, marketDate, slot, savedSymbols);
-    }
+  }
+  if (runMode === 'MANUAL_RUN_NOW' && attemptedSymbols.length > 0) {
+    markManualCooldownSymbols(status, marketDate, slot, attemptedSymbols, now);
+  }
+  if (attemptedSymbols.length > 0) {
+    markCompletedSlotSymbols(status, marketDate, slot, attemptedSymbols);
   }
 
   const latest = savedSnapshot ?? loadLatestIntradayProgramFlowSnapshot();
   const valuedRows = rows.filter((r) => typeof r.programNetBuyAmount === 'number') as Array<{ symbol: string; name?: string; programNetBuyAmount: number }>;
-  const topProgramBuy = [...valuedRows].filter((r) => r.programNetBuyAmount > 0).sort((a, b) => b.programNetBuyAmount - a.programNetBuyAmount).slice(0, 2);
-  const topProgramSell = [...valuedRows].filter((r) => r.programNetBuyAmount < 0).sort((a, b) => a.programNetBuyAmount - b.programNetBuyAmount).slice(0, 2);
+  const topProgramBuy = [...valuedRows].filter((r) => r.programNetBuyAmount > 0).sort((a, b) => b.programNetBuyAmount - a.programNetBuyAmount).slice(0, 5);
+  const topProgramSell = [...valuedRows].filter((r) => r.programNetBuyAmount < 0).sort((a, b) => a.programNetBuyAmount - b.programNetBuyAmount).slice(0, 5);
   const finishedAt = new Date().toISOString();
+  status.dailyProviderCallsByDate[marketDate] = dailyCallsBefore + providerCallsAdded;
+  const coverageAfter = symbolsCapturedToday(status, marketDate);
+  const newlyCaptured = attemptedSymbols.filter((symbol) => !coverageBefore.has(symbol)).length;
+  const recaptured = attemptedSymbols.filter((symbol) => coverageBefore.has(symbol)).length;
+  const todayCoverage = countWatchlistIntersection(coverageAfter, watchlistSymbols);
+  const morningCoverage = countWatchlistIntersection(symbolsForSlot(status, marketDate, 'MORNING'), watchlistSymbols);
+  const afternoonCoverage = countWatchlistIntersection(symbolsForSlot(status, marketDate, 'AFTERNOON'), watchlistSymbols);
   const summary: ProgramAutoCaptureRunSummary = {
     slot,
     marketDate,
     startedAt,
     finishedAt,
-    mode: runMode,
+    mode: configuredMode(),
+    runMode,
     limit,
+    providerHardCapPerRun,
+    dailyProviderHardCap,
     targetMode,
     session: guard.marketSession,
     kstTime: guard.kstTime,
+    watchlistSize: watchlistSymbols.size,
+    watchlistTargetSize: configuredWatchlistTargetSize(),
     target: targets.length,
     captured,
     emptyValid,
@@ -572,9 +903,18 @@ export async function runProgramAutoCapture(
     skipped: completedSlotSkipped + cooldownSkipped,
     cooldownSkipped,
     providerCallsAdded,
+    dailyProviderCalls: dailyCallsBefore + providerCallsAdded,
+    todayCoverage,
+    morningCoverage,
+    afternoonCoverage,
+    newlyCaptured,
+    recaptured,
+    remainingNotCaptured: Math.max(0, watchlistSymbols.size - todayCoverage),
     snapshotRowsWithValue: latest?.summary.stockRowsWithProgramValue ?? 0,
     executionImpact: 'NONE',
     liveDecision: false,
+    programFlowUsedForLiveDecision: false,
+    passiveProxyUsedForLiveDecision: false,
     strongBuyAllowed: false,
     programPenaltyApplied: false,
     programMissingAsBearish: false,
@@ -594,7 +934,7 @@ export async function runProgramAutoCapture(
   status.schedulerEnabled = !isProgramAutoCaptureDisabled();
   status.disabled = isProgramAutoCaptureDisabled();
   status.nextScheduledCapture = computeNextProgramAutoCaptureKst(new Date());
-  saveProgramAutoCaptureStatus(status);
+  saveProgramAutoCaptureStatus(status, now);
 
   console.log(`[ProgramAutoCapture] mode=${runMode} slot=${slot} target=${summary.target} captured=${captured} emptyValid=${emptyValid} failed=${failed} cooldownSkipped=${cooldownSkipped} providerCallsAdded=${providerCallsAdded} executionImpact=NONE failedSymbols=${failedSymbols.join(',') || 'NONE'} abort=${providerAbortReason || 'NONE'}`);
   if (runMode !== 'MANUAL_RUN_NOW') {
@@ -630,16 +970,31 @@ export function formatProgramAutoCaptureSummary(summary: ProgramAutoCaptureRunSu
     '📡 <b>[Program Flow Auto Capture]</b>',
     `slot=${summary.slot}`,
     `mode=${summary.mode}`,
+    `runMode=${summary.runMode}`,
+    `watchlistSize=${summary.watchlistSize}`,
     `limit=${summary.limit}`,
     `targetMode=${summary.targetMode}`,
     `target=${summary.target}`,
     `captured=${summary.captured}`,
     `emptyValid=${summary.emptyValid}`,
     `failed=${summary.failed}`,
+    `todayCoverage=${summary.todayCoverage}/${summary.watchlistSize}`,
+    `dailyProviderCalls=${summary.dailyProviderCalls}/${summary.dailyProviderHardCap}`,
     `cooldownSkipped=${summary.cooldownSkipped}`,
     `providerCallsAdded=${summary.providerCallsAdded}`,
     `snapshotRowsWithValue=${summary.snapshotRowsWithValue}`,
     `executionImpact=${summary.executionImpact}`,
+    '',
+    'Coverage:',
+    `newlyCaptured=${summary.newlyCaptured}`,
+    `recaptured=${summary.recaptured}`,
+    `remainingNotCaptured=${summary.remainingNotCaptured}`,
+    '',
+    'Delta:',
+    `buyAccelerating=${summary.deltas.filter((d) => d.deltaDirection === 'PROGRAM_BUY_ACCELERATING').length}`,
+    `sellAccelerating=${summary.deltas.filter((d) => d.deltaDirection === 'PROGRAM_SELL_ACCELERATING').length}`,
+    `reversalToBuy=${summary.deltas.filter((d) => d.deltaDirection === 'PROGRAM_REVERSAL_TO_BUY').length}`,
+    `reversalToSell=${summary.deltas.filter((d) => d.deltaDirection === 'PROGRAM_REVERSAL_TO_SELL').length}`,
     '',
     'Top Program Buy:',
     buy,
@@ -649,9 +1004,12 @@ export function formatProgramAutoCaptureSummary(summary: ProgramAutoCaptureRunSu
     '',
     'Safety:',
     `liveDecision=${summary.liveDecision}`,
+    `programFlowUsedForLiveDecision=${summary.programFlowUsedForLiveDecision}`,
+    `passiveProxyUsedForLiveDecision=${summary.passiveProxyUsedForLiveDecision}`,
     `strongBuyAllowed=${summary.strongBuyAllowed}`,
     `programPenaltyApplied=${summary.programPenaltyApplied}`,
     `programMissingAsBearish=${summary.programMissingAsBearish}`,
+    'normal_supply_preview_providerCalls=0',
     '',
     'nextAction=/normal_supply_preview full',
   ].join('\n');

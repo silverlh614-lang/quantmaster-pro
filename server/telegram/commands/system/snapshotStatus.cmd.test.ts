@@ -10,13 +10,13 @@ import type { RuntimeDebugSnapshot } from '../../../replay/runtimeDebugSnapshotR
 
 function makeMinimalSnapshot(overrides: Partial<RuntimeDebugSnapshot> = {}): RuntimeDebugSnapshot {
   const base: RuntimeDebugSnapshot = {
-    snapshotId: 'snap-2026-05-15-18',
-    capturedAt: '2026-05-15T09:00:00.000Z',
+    snapshotId: 'snap-2026-05-15-1530',
+    capturedAt: '2026-05-15T06:30:00.000Z',
     marketDate: '2026-05-15',
     captureKind: 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT',
     timezone: 'Asia/Seoul',
     source: 'RUNTIME_SNAPSHOT',
-    captureTimeKst: '18:00',
+    captureTimeKst: '15:30',
     schemaVersion: 2,
     replayOnly: true,
     diagnosticOnly: true,
@@ -146,7 +146,7 @@ describe('Patch-SNAPSHOT-STATUS-CMD-001: /snapshot_status 명령', () => {
         snapshot: null,
         nowMs: Date.parse('2026-05-15T09:30:00.000Z'),
       });
-      expect(msg).toMatch(/부팅 직후|첫 18:00/);
+      expect(msg).toMatch(/부팅 직후|첫 15:30/);
       expect(msg).toMatch(/컨테이너 재시작|영속 디렉토리/);
       expect(msg).toMatch(/휴장일|TRADING_DAY_ONLY/);
       expect(msg).toMatch(/cron 실패|\/cron_status/);
@@ -183,8 +183,8 @@ describe('Patch-SNAPSHOT-STATUS-CMD-001: /snapshot_status 명령', () => {
   describe('E. 파일 존재 — mtime + size + age 표시', () => {
     it('mtimeMs + sizeBytes + 분 단위 age', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
-      const captureMs = Date.parse('2026-05-15T09:00:00.000Z'); // 18:00 KST
-      const nowMs = Date.parse('2026-05-15T09:15:00.000Z'); // 15분 후
+      const captureMs = Date.parse('2026-05-15T06:30:00.000Z'); // 15:30 KST
+      const nowMs = Date.parse('2026-05-15T06:45:00.000Z'); // 15분 후
       const msg = mod.formatSnapshotStatusMessage({
         envDisabled: false,
         filePath: '/data/replay/latest-runtime-debug-snapshot.json',
@@ -196,14 +196,14 @@ describe('Patch-SNAPSHOT-STATUS-CMD-001: /snapshot_status 명령', () => {
       });
       expect(msg).toMatch(/✅ 존재/);
       expect(msg).toMatch(/12\.1 KB|12\.[0-9]+ KB/);
-      expect(msg).toMatch(/05\/15 18:00 KST/);
+      expect(msg).toMatch(/05\/15 15:30 KST/);
       expect(msg).toMatch(/\(15분 전\)/);
     });
 
     it('2시간 30분 전', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
-      const captureMs = Date.parse('2026-05-15T09:00:00.000Z');
-      const nowMs = Date.parse('2026-05-15T11:30:00.000Z');
+      const captureMs = Date.parse('2026-05-15T06:30:00.000Z');
+      const nowMs = Date.parse('2026-05-15T09:00:00.000Z');
       const msg = mod.formatSnapshotStatusMessage({
         envDisabled: false,
         filePath: '/data/replay/latest-runtime-debug-snapshot.json',
@@ -289,49 +289,49 @@ describe('Patch-SNAPSHOT-STATUS-CMD-001: /snapshot_status 명령', () => {
   // ────────────────────────────────────────────────────────────────────────
   // G. 다음 capture 시각 계산
   // ────────────────────────────────────────────────────────────────────────
-  describe('G. computeNextCaptureKstMs — 다음 18:00 KST 평일', () => {
-    it('월요일 09:00 KST → 같은 날 18:00 KST', async () => {
+  describe('G. computeNextCaptureKstMs — 다음 15:30 KST 평일', () => {
+    it('월요일 09:00 KST → 같은 날 15:30 KST', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
       // 2026-05-11 = 월요일, 00:00 UTC = 09:00 KST
       const monMorning = Date.parse('2026-05-11T00:00:00.000Z');
       const next = mod.computeNextCaptureKstMs(monMorning);
-      const expected = Date.parse('2026-05-11T09:00:00.000Z'); // 18:00 KST 같은 날
+      const expected = Date.parse('2026-05-11T06:30:00.000Z'); // 15:30 KST 같은 날
       expect(next).toBe(expected);
     });
 
-    it('월요일 19:00 KST → 다음 화요일 18:00 KST', async () => {
+    it('월요일 19:00 KST → 다음 화요일 15:30 KST', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
       // 2026-05-11 19:00 KST = 10:00 UTC
       const monEvening = Date.parse('2026-05-11T10:00:00.000Z');
       const next = mod.computeNextCaptureKstMs(monEvening);
-      const expected = Date.parse('2026-05-12T09:00:00.000Z'); // 화요일 18:00 KST
+      const expected = Date.parse('2026-05-12T06:30:00.000Z'); // 화요일 15:30 KST
       expect(next).toBe(expected);
     });
 
-    it('금요일 19:00 KST → 다음 월요일 18:00 KST (주말 건너뜀)', async () => {
+    it('금요일 19:00 KST → 다음 월요일 15:30 KST (주말 건너뜀)', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
       // 2026-05-15 = 금요일, 10:00 UTC = 19:00 KST
       const friEvening = Date.parse('2026-05-15T10:00:00.000Z');
       const next = mod.computeNextCaptureKstMs(friEvening);
-      const expected = Date.parse('2026-05-18T09:00:00.000Z'); // 월요일 18:00 KST
+      const expected = Date.parse('2026-05-18T06:30:00.000Z'); // 월요일 15:30 KST
       expect(next).toBe(expected);
     });
 
-    it('토요일 12:00 KST → 다음 월요일 18:00 KST', async () => {
+    it('토요일 12:00 KST → 다음 월요일 15:30 KST', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
       // 2026-05-16 = 토요일, 03:00 UTC = 12:00 KST
       const satNoon = Date.parse('2026-05-16T03:00:00.000Z');
       const next = mod.computeNextCaptureKstMs(satNoon);
-      const expected = Date.parse('2026-05-18T09:00:00.000Z'); // 월요일 18:00 KST
+      const expected = Date.parse('2026-05-18T06:30:00.000Z'); // 월요일 15:30 KST
       expect(next).toBe(expected);
     });
 
-    it('일요일 22:00 KST → 다음 월요일 18:00 KST', async () => {
+    it('일요일 22:00 KST → 다음 월요일 15:30 KST', async () => {
       const mod = await import('./snapshotStatus.cmd.js');
       // 2026-05-17 = 일요일, 13:00 UTC = 22:00 KST
       const sunNight = Date.parse('2026-05-17T13:00:00.000Z');
       const next = mod.computeNextCaptureKstMs(sunNight);
-      const expected = Date.parse('2026-05-18T09:00:00.000Z'); // 월요일 18:00 KST
+      const expected = Date.parse('2026-05-18T06:30:00.000Z'); // 월요일 15:30 KST
       expect(next).toBe(expected);
     });
   });
@@ -367,7 +367,7 @@ describe('Patch-SNAPSHOT-STATUS-CMD-001: /snapshot_status 명령', () => {
         nowMs: Date.parse('2026-05-15T09:30:00.000Z'),
       });
       expect(msg).toMatch(/09:00 개장 시 초기화\s*❌/);
-      expect(msg).toMatch(/18:00 capture overwrite/);
+      expect(msg).toMatch(/15:30 capture overwrite/);
     });
   });
 

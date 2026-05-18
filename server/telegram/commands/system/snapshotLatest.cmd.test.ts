@@ -5,18 +5,18 @@ import * as fs from 'fs';
 import type { RuntimeDebugSnapshot } from '../../../replay/runtimeDebugSnapshotRepo.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fixtures — 18 literal invariants TypeScript 컴파일 타임 강제 정합 통과.
+// Fixtures — 15:30 literal invariants TypeScript 컴파일 타임 강제 정합 통과.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function makeMinimalSnapshot(overrides: Partial<RuntimeDebugSnapshot> = {}): RuntimeDebugSnapshot {
   const base: RuntimeDebugSnapshot = {
-    snapshotId: 'snap-2026-05-15-18',
-    capturedAt: '2026-05-15T09:00:00.000Z', // KST 18:00
+    snapshotId: 'snap-2026-05-15-1530',
+    capturedAt: '2026-05-15T06:30:00.000Z', // KST 15:30
     marketDate: '2026-05-15',
     captureKind: 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT',
     timezone: 'Asia/Seoul',
     source: 'RUNTIME_SNAPSHOT',
-    captureTimeKst: '18:00',
+    captureTimeKst: '15:30',
     schemaVersion: 2,
     replayOnly: true,
     diagnosticOnly: true,
@@ -108,12 +108,12 @@ describe('Patch-SNAPSHOT-LATEST-CMD-001: /snapshot_latest 명령', () => {
       expect(msg).toMatch(/PERSIST_FAILED|컨테이너 재시작|영속 손실/);
     });
 
-    it('null 입력 시 운영자 확인 안내 (cron + ENV + 다음 평일 18:00)', async () => {
+    it('null 입력 시 운영자 확인 안내 (cron + ENV + 다음 평일 15:30)', async () => {
       const mod = await import('./snapshotLatest.cmd.js');
       const msg = mod.formatSnapshotLatestMessage(null);
       expect(msg).toMatch(/\/cron_status/);
       expect(msg).toMatch(/runtime_debug_snapshot_capture/);
-      expect(msg).toMatch(/18:00 KST/);
+      expect(msg).toMatch(/15:30 KST/);
     });
   });
 
@@ -135,8 +135,8 @@ describe('Patch-SNAPSHOT-LATEST-CMD-001: /snapshot_latest 명령', () => {
       const mod = await import('./snapshotLatest.cmd.js');
       const snap = makeMinimalSnapshot();
       const msg = mod.formatSnapshotLatestMessage(snap);
-      expect(msg).toMatch(/snap-2026-05-15-18/);
-      expect(msg).toMatch(/05\/15 18:00 KST/); // capturedAt 2026-05-15T09:00 UTC = 18:00 KST
+      expect(msg).toMatch(/snap-2026-05-15-1530/);
+      expect(msg).toMatch(/05\/15 15:30 KST/); // capturedAt 2026-05-15T06:30 UTC = 15:30 KST
       expect(msg).toMatch(/2026-05-15/); // marketDate
     });
   });
@@ -172,24 +172,24 @@ describe('Patch-SNAPSHOT-LATEST-CMD-001: /snapshot_latest 명령', () => {
   describe('F. age — 분/시간/일 분기 + clock skew 안전', () => {
     it('15분 전 — "(15분 전)" 표시', async () => {
       const mod = await import('./snapshotLatest.cmd.js');
-      const snap = makeMinimalSnapshot({ capturedAt: '2026-05-15T09:00:00.000Z' });
-      const nowMs = Date.parse('2026-05-15T09:15:00.000Z');
+      const snap = makeMinimalSnapshot({ capturedAt: '2026-05-15T06:30:00.000Z' });
+      const nowMs = Date.parse('2026-05-15T06:45:00.000Z');
       const msg = mod.formatSnapshotLatestMessage(snap, nowMs);
       expect(msg).toMatch(/\(15분 전\)/);
     });
 
     it('2시간 30분 전 — "(2시간 30분 전)" 표시', async () => {
       const mod = await import('./snapshotLatest.cmd.js');
-      const snap = makeMinimalSnapshot({ capturedAt: '2026-05-15T09:00:00.000Z' });
-      const nowMs = Date.parse('2026-05-15T11:30:00.000Z');
+      const snap = makeMinimalSnapshot({ capturedAt: '2026-05-15T06:30:00.000Z' });
+      const nowMs = Date.parse('2026-05-15T09:00:00.000Z');
       const msg = mod.formatSnapshotLatestMessage(snap, nowMs);
       expect(msg).toMatch(/\(2시간 30분 전\)/);
     });
 
     it('2일 전 — "(2일 ...)" 표시', async () => {
       const mod = await import('./snapshotLatest.cmd.js');
-      const snap = makeMinimalSnapshot({ capturedAt: '2026-05-13T09:00:00.000Z' });
-      const nowMs = Date.parse('2026-05-15T09:00:00.000Z');
+      const snap = makeMinimalSnapshot({ capturedAt: '2026-05-13T06:30:00.000Z' });
+      const nowMs = Date.parse('2026-05-15T06:30:00.000Z');
       const msg = mod.formatSnapshotLatestMessage(snap, nowMs);
       expect(msg).toMatch(/\(2일/);
     });
@@ -381,7 +381,7 @@ describe('Patch-SNAPSHOT-LATEST-CMD-001: /snapshot_latest 명령', () => {
       const snap = makeMinimalSnapshot();
       const msg = mod.formatSnapshotLatestMessage(snap);
       expect(msg).toMatch(/다음 거래일.*09:00.*초기화.*❌/);
-      expect(msg).toMatch(/다음 평일 18:00 capture.*overwrite/);
+      expect(msg).toMatch(/다음 평일 15:30 capture.*overwrite/);
     });
 
     it('retention 정책 — SINGLE_LATEST_OVERWRITE + sanitize=true + rawPayload=false', async () => {

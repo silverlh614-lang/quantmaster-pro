@@ -200,7 +200,7 @@ export function persistNormalSupplyPreview<T extends CandidateWithSupplyContext>
       `providerCallsAdded=0 executionImpact=NONE`,
     { candidateCount: input.candidates.length, stockProgramKeyRows: countStockProgramKeyRows(input.candidates) },
   );
-  const marketProgramFlow = normalizeMarketProgramFlow(programPopulation.marketProgramFlowRaw ?? marketProgramFlowRaw);
+  const marketProgramFlow = normalizeMarketProgramFlow(programPopulation.marketProgramFlowRaw ?? marketProgramFlowRaw, sessionGuard);
   const previewCandidates = input.candidates
     .map((candidate) => toPreviewCandidate(
       candidate,
@@ -1168,8 +1168,11 @@ function buildProgramFlowDiagnostics(
       : 'PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED';
   const nextAction = nextActionForForensicRootCause(rootCause, marketCarryTrace, stockCarryTrace, legacyReason);
   const marketClosedProgramUnavailable = !sessionGuard.programFlowExpected;
+  const afterMarketZeroPlaceholder = isAfterMarketZeroPlaceholderDiagnostic(marketProgramFlow);
   const marketProgramReason = marketClosedProgramUnavailable
-    ? marketClosedProgramReason()
+    ? afterMarketZeroPlaceholder
+      ? 'AFTER_MARKET_ZERO_PLACEHOLDER'
+      : marketClosedProgramReason()
     : marketCarryTrace.marketProgramBreakPoint === 'KIS_ACCEPTED_EMPTY_KRX_EMPTY_CACHE_MISS'
       ? 'MARKET_PROGRAM_EMPTY_VALID_DIAGNOSTIC_ONLY'
       : evidenceTrace.marketLevel.result;
@@ -1239,6 +1242,13 @@ function buildProgramFlowDiagnostics(
     nextAction,
     executionImpact: 'NONE',
   };
+}
+
+function isAfterMarketZeroPlaceholderDiagnostic(marketProgramFlow: ProgramFlowDiagnostic['marketLevel']): boolean {
+  const diagnostics = marketProgramFlow as unknown as Record<string, unknown>;
+  return marketProgramFlow.reason === 'AFTER_MARKET_ZERO_PLACEHOLDER' ||
+    diagnostics.marketProgramDataStatus === 'AFTER_MARKET_ZERO_PLACEHOLDER' ||
+    diagnostics.breakPoint === 'AFTER_MARKET_ZERO_PLACEHOLDER';
 }
 
 function displayMarketProgramNetBuyAmount(
@@ -1431,7 +1441,10 @@ export function classifySupplySignal(input: {
   return 'NEUTRAL';
 }
 
-function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['marketLevel'] {
+function normalizeMarketProgramFlow(
+  value: unknown,
+  sessionGuard?: ProgramFlowSessionGuard,
+): ProgramFlowDiagnostic['marketLevel'] {
   const root = asRecord(value);
   if (!root) return { ...PROGRAM_FLOW_NOT_AVAILABLE_MARKET, reason: 'PROGRAM_FLOW_CONTEXT_NOT_FOUND' };
   const records = collectProgramRecords(root);
@@ -1503,6 +1516,24 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
   }
   const selectedValue = combinedResult ?? kospiResult ?? kosdaqResult ?? buyAmountResult ?? sellAmountResult;
   const signal = providerIssue ? 'UNKNOWN' : explicitSignal ?? marketSignalFromNetBuy(derivedCombined);
+  if (isAfterMarketZeroPlaceholderProgramFlow({ sessionGuard, records, sourceProvider, derivedCombined })) {
+    const placeholderDiagnostics: Record<string, unknown> = {
+      marketProgramDataStatus: 'AFTER_MARKET_ZERO_PLACEHOLDER',
+    };
+    return {
+      ...PROGRAM_FLOW_NOT_AVAILABLE_MARKET,
+      sourceProvider,
+      providerIssue: false,
+      marketSignal: false,
+      signal: 'UNAVAILABLE',
+      reason: 'AFTER_MARKET_ZERO_PLACEHOLDER',
+      valueIssue: false,
+      valueReason: selectedValue?.reason,
+      sanitizedSample: selectedValue?.sanitizedSample,
+      ...diagnosticCarry,
+      ...placeholderDiagnostics,
+    };
+  }
   return {
     available: true,
     ...(kospiNetBuy !== undefined ? { kospiNetBuy } : {}),
@@ -1520,6 +1551,69 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
     diagnosticOnly: true,
     executionImpact: 'NONE',
   };
+}
+
+function isAfterMarketZeroPlaceholderProgramFlow(input: {
+  sessionGuard?: ProgramFlowSessionGuard;
+  records: Record<string, unknown>[];
+  sourceProvider: ProgramFlowSourceProvider;
+  derivedCombined: number;
+}): boolean {
+  const { sessionGuard, records, sourceProvider, derivedCombined } = input;
+  if (!sessionGuard || sessionGuard.programFlowExpected) return false;
+  if (sessionGuard.marketSession !== 'AFTER_MARKET' && sessionGuard.marketSession !== 'POST_CLOSE' && sessionGuard.marketSession !== 'MARKET_CLOSED') {
+    return false;
+  }
+  if (sourceProvider !== 'KIS_API') return false;
+  if (derivedCombined !== 0) return false;
+  if (hasExplicitEodMarketProgramSnapshot(records) && hasRegularOrPostCloseFetchedAt(records)) return false;
+  const numericValues = collectMarketProgramNumericValues(records);
+  return numericValues.length > 0 && numericValues.every((value) => value === 0);
+}
+
+function collectMarketProgramNumericValues(records: Record<string, unknown>[]): number[] {
+  const values: number[] = [];
+  for (const record of records) {
+    for (const key of MARKET_PROGRAM_NUMERIC_KEYS) {
+      const normalized = firstNormalizedProgramValue(record, [key]);
+      if (normalized?.ok && normalized.value !== undefined) values.push(normalized.value);
+    }
+  }
+  return values;
+}
+
+function hasExplicitEodMarketProgramSnapshot(records: Record<string, unknown>[]): boolean {
+  for (const record of records) {
+    const tokens = [
+      record.snapshotKind,
+      record.snapshotType,
+      record.marketProgramDataStatus,
+      record.dataStatus,
+      record.sourceFreshness,
+      asRecord(record.aggregateDiagnostic)?.snapshotKind,
+      asRecord(record.aggregateDiagnostic)?.snapshotType,
+      asRecord(record.aggregateDiagnostic)?.marketProgramDataStatus,
+      asRecord(record.aggregateDiagnostic)?.dataStatus,
+      asRecord(record.aggregateDiagnostic)?.sourceFreshness,
+    ].map((value) => String(value ?? '').toUpperCase());
+    if (record.eodSnapshot === true || record.isEodSnapshot === true) return true;
+    if (asRecord(record.aggregateDiagnostic)?.eodSnapshot === true || asRecord(record.aggregateDiagnostic)?.isEodSnapshot === true) return true;
+    if (tokens.some((token) => token.includes('EOD_MARKET_PROGRAM_VALID') || token.includes('EOD_SNAPSHOT'))) return true;
+  }
+  return false;
+}
+
+function hasRegularOrPostCloseFetchedAt(records: Record<string, unknown>[]): boolean {
+  for (const record of records) {
+    const fetchedAt = stringValue(firstValueFromRecords([record], ['fetchedAt', 'programFetchedAt', 'capturedAt', 'updatedAt', 'latest']));
+    if (!fetchedAt) continue;
+    const date = new Date(fetchedAt);
+    if (!Number.isFinite(date.getTime())) continue;
+    const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+    const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+    if (minutes >= 9 * 60 + 10 && minutes <= 15 * 60 + 40) return true;
+  }
+  return false;
 }
 
 

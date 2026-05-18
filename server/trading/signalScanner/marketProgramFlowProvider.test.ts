@@ -56,6 +56,67 @@ describe('resolveMarketProgramFlow diagnostic provider pipeline', () => {
     expect(result.programPenaltyApplied).toBe(false);
   }, 15000);
 
+  it('classifies after-market KIS 0/0/0 payload as placeholder unavailable', async () => {
+    const { resolveMarketProgramFlow } = await import('./marketProgramFlowProvider.js');
+    const afterMarket = new Date('2026-05-15T07:31:00.000Z');
+    const result = await resolveMarketProgramFlow({
+      now: afterMarket,
+      fetchKis: async () => ({
+        programNetBuyQty: 0,
+        programNetBuyAmount: 0,
+        programArbitrageNetBuy: 0,
+        programNonArbitrageNetBuy: 0,
+        fetchedAt: afterMarket.toISOString(),
+        source: 'KIS_API',
+        marketProgramStatus: 'OK_RAW_ZERO',
+        selectedReason: 'LATEST_ROW_ALL_ZERO',
+        rawFieldKeys: ['programNetBuyAmount', 'programArbitrageNetBuy', 'programNonArbitrageNetBuy'],
+      }),
+      fetchKrx: async () => { throw new Error('KRX should not be called for after-market placeholder zero'); },
+    });
+
+    expect(result.available).toBe(false);
+    expect(result.source).toBe('KIS_API');
+    expect(result.netBuyAmount).toBeNull();
+    expect(result.arbitrageNetBuyAmount).toBeNull();
+    expect(result.nonArbitrageNetBuyAmount).toBeNull();
+    expect(result.marketSignal).toBe('UNAVAILABLE');
+    expect(result.marketProgramDataStatus).toBe('AFTER_MARKET_ZERO_PLACEHOLDER');
+    expect(result.breakPoint).toBe('AFTER_MARKET_ZERO_PLACEHOLDER');
+    expect(result.providerIssue).toBe(false);
+    expect(result.krxFallbackAttempted).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.programFlowUsedForLiveDecision).toBe(false);
+  }, 15000);
+
+  it('allows explicit EOD zero snapshots only when fetched at regular or immediate post-close time', async () => {
+    const { resolveMarketProgramFlow } = await import('./marketProgramFlowProvider.js');
+    const result = await resolveMarketProgramFlow({
+      now: new Date('2026-05-15T07:31:00.000Z'),
+      fetchKis: async () => ({
+        programNetBuyQty: 0,
+        programNetBuyAmount: 0,
+        programArbitrageNetBuy: 0,
+        programNonArbitrageNetBuy: 0,
+        fetchedAt: '2026-05-15T06:25:00.000Z',
+        source: 'KIS_API',
+        marketProgramStatus: 'OK_RAW_ZERO',
+        selectedReason: 'LATEST_ROW_ALL_ZERO',
+        rawFieldKeys: ['programNetBuyAmount'],
+        aggregateDiagnostic: { snapshotKind: 'EOD_MARKET_PROGRAM_SNAPSHOT', eodSnapshot: true },
+      }),
+      fetchKrx: async () => { throw new Error('KRX should not be called for valid EOD zero'); },
+    });
+
+    expect(result.available).toBe(true);
+    expect(result.source).toBe('KIS_API');
+    expect(result.netBuyAmount).toBe(0);
+    expect(result.marketSignal).toBe('NEUTRAL');
+    expect(result.marketProgramDataStatus).toBe('EOD_MARKET_PROGRAM_VALID');
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.programFlowUsedForLiveDecision).toBe(false);
+  }, 15000);
+
   it('tries KRX and cache after accepted-empty KIS without marking accepted-empty as provider issue', async () => {
     const { resolveMarketProgramFlow } = await import('./marketProgramFlowProvider.js');
     const result = await resolveMarketProgramFlow({

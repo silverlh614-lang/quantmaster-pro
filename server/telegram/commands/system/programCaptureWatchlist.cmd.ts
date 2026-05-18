@@ -9,8 +9,8 @@ import {
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 15;
+const DEFAULT_LIMIT = 30;
+const MAX_LIMIT = 50;
 
 interface ParsedProgramCaptureArgs {
   limit: number;
@@ -86,18 +86,27 @@ function formatProgramCaptureWatchlistSummary(summary: ProgramAutoCaptureRunSumm
   return [
     '📡 <b>[Program Capture Watchlist]</b>',
     `mode=${summary.mode}`,
+    `runMode=${summary.runMode}`,
     `session=${summary.session}`,
     `time=${summary.kstTime} KST`,
+    `watchlistSize=${summary.watchlistSize}`,
     `limit=${summary.limit}`,
     `targetMode=${summary.targetMode}`,
     `target=${summary.target}`,
     `captured=${summary.captured}`,
     `emptyValid=${summary.emptyValid}`,
     `failed=${summary.failed}`,
+    `todayCoverage=${summary.todayCoverage}/${summary.watchlistSize}`,
+    `dailyProviderCalls=${summary.dailyProviderCalls}/${summary.dailyProviderHardCap}`,
     `cooldownSkipped=${summary.cooldownSkipped}`,
     `providerCallsAdded=${summary.providerCallsAdded}`,
     `latestSnapshotRowsWithValue=${summary.snapshotRowsWithValue}`,
     `executionImpact=${summary.executionImpact}`,
+    '',
+    'Coverage:',
+    `newlyCaptured=${summary.newlyCaptured}`,
+    `recaptured=${summary.recaptured}`,
+    `remainingNotCaptured=${summary.remainingNotCaptured}`,
     '',
     'Top Program Buy:',
     formatProgramRows(summary.topProgramBuy),

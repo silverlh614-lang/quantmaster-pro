@@ -1,17 +1,16 @@
-// @responsibility 18:00 KST after-hours runtime debug snapshot ESM-safe capture orchestrator SSOT (Patch-003 — 17:00 → 18:00 격상).
+// @responsibility 15:30 KST market-close runtime debug snapshot ESM-safe capture orchestrator SSOT.
 
 /**
  * Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002/003 — Runtime Debug Snapshot Capture.
  *
  * 사용자 명시 framing (Patch-001 §A, Patch-003 시간 격상):
- *   "17시에 스냅샷을 찍고, 17시에 찍는 스냅샷은 sell only 용이 아니고 장중 스냅샷과
- *    동일하게 취급한다. 17:00에 신규 KIS/KRX/Yahoo/Naver 호출 금지.
+ *   "15:30에 스냅샷을 찍고, 15:30에 찍는 스냅샷은 sell only 용이 아니고 장중 스냅샷과
+ *    동일하게 취급한다. 15:30에 신규 KIS/KRX/Yahoo/Naver 호출 금지.
  *    저장 대상은 마지막 장중 runtime snapshot/cache/diagnostic state.
  *    replay에서는 SELL_ONLY 의미 부여 금지."
  *
- * Patch-003 격상 사유: 17:00 KST 시점에 일부 평일에 직전 scan 미완료로
- * `getLastScanSummary() null` 경고 발생 빈도 ↑ → 18:00 KST (장 종료 +2.5h) 로 이동.
- * scan + learning + reflection cron 모두 완료 후 forensic / supply 영속 안정화 시점.
+ * 현재 capture 기준: 15:30 KST 장마감 스냅샷. 장후 KIS/KRX 400/500 가능성을 피하고
+ * 추천종목 탐색의 frozen supply 기준으로 사용한다.
  *
  * 사용자 명시 framing (Patch-002 §B/C):
  *   "스냅샷을 단순 조회용으로만 쓰지 않고, SnapshotInvestorFlowReplayAdapter 를
@@ -125,8 +124,8 @@ async function buildRuntimeBlock(
     async () => {
       const state = await import('../state.js');
       return {
-        marketSession: 'REGULAR', // 18:00 — runtimeStateBasis=LATEST_INTRADAY_RUNTIME_STATE (Patch-003)
-        sellOnly: false, // 사용자 명시 절대 invariant: 18:00 snapshot 은 SELL_ONLY 아님
+        marketSession: 'REGULAR', // 15:30 snapshot uses LATEST_INTRADAY_RUNTIME_STATE.
+        sellOnly: false, // 15:30 snapshot is an intraday replay basis, not SELL_ONLY.
         engineAlive: true,
         shadowLearningEnabled: true,
         emergencyStop: state.getEmergencyStop(),
@@ -503,9 +502,9 @@ export interface CaptureRuntimeDebugSnapshotResult {
 }
 
 /**
- * 18:00 KST after-hours runtime debug snapshot 자동 capture + 영속 (Patch-003 — 17:00 → 18:00).
+ * 15:30 KST market-close runtime debug snapshot 자동 capture + 영속.
  *
- * 호출자 (18:00 cron) 가 본 함수 호출 → 외부 API 호출 0건으로 9 source 모두
+ * 호출자 (15:30 cron) 가 본 함수 호출 → 외부 API 호출 0건으로 9 source 모두
  * sanitized snapshot assembly → frozen supply rows 추출 → replay adapter
  * metadata 첨부 → `saveLatestRuntimeDebugSnapshot` 단일 latest overwrite.
  *
@@ -513,7 +512,7 @@ export interface CaptureRuntimeDebugSnapshotResult {
  * missingSections[]. Capture 자체는 throw 안 함 (매매 흐름 보호).
  *
  * 사용자 명시 lifecycle:
- *   - 매 평일 18:00 성공 capture 시 직전 latest atomic overwrite
+ *   - 매 평일 15:30 성공 capture 시 직전 latest atomic overwrite
  *   - capture 실패 시 직전 latest 보존 (`saveLatestRuntimeDebugSnapshot` 가 tmp→rename)
  *   - 다음 거래일 09:00 개장 시 초기화 절대 금지 — 본 capture 만이 cleanup 트리거
  */

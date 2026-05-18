@@ -122,6 +122,9 @@ export interface ShadowActivitySnapshot {
   candidateScanStatus?: 'RAN' | 'NOT_RUN' | 'SKIPPED';
   candidateScanTrigger?: ShadowCandidateScanTrigger;
   candidateSkipReason?: string;
+  accumulatingCandidates?: number;
+  r6CounterfactualEntries?: number;
+  noShadowEntryReason?: string;
 }
 
 
@@ -754,7 +757,10 @@ function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined):
     `trigger: ${trigger}`,
     `lastCandidateScanAt: ${last}`,
     `candidateEvaluated: ${activity.evaluatedCount}`,
+    ...(activity.accumulatingCandidates !== undefined ? [`accumulatingCandidates: ${activity.accumulatingCandidates}`] : []),
     `buyCandidates: ${activity.buySignalCount}`,
+    ...(activity.r6CounterfactualEntries !== undefined ? [`r6CounterfactualEntries: ${activity.r6CounterfactualEntries}`] : []),
+    ...(activity.noShadowEntryReason !== undefined ? [`noShadowEntryReason: ${activity.noShadowEntryReason}`] : []),
     ...(activity.evaluatedCount === 0 || inferredStatus !== 'RAN' ? [`skipReason: ${skipReason ?? 'SCHEDULER_NOT_TRIGGERED'}`] : []),
     `paperFillCount: ${activity.paperFillCount}`,
     `openShadowPositions: ${activity.openShadowPositions}`,
