@@ -63,6 +63,7 @@ export function renderPositionLine(position: TelegramPositionEntry, index: numbe
     `   modeTag: [${position.positionKind}]`,
     `   liveOrderSent: ${position.liveOrderSent}`,
     `   executionImpact: ${position.executionImpact}`,
+    `   sizingSource: ${position.sizingSource ?? 'N/A'}`,
   ];
 
   if (position.dualPosition) {

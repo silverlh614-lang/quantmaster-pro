@@ -8,13 +8,11 @@ import type { CandidateWithSupplyContext } from './injectPerSymbolSupplyContext.
 let tmpDir = '';
 const originalDataDir = process.env.PERSIST_DATA_DIR;
 const originalMaxEntries = process.env.R6_COUNTERFACTUAL_MAX_ENTRIES;
-const originalNominal = process.env.R6_COUNTERFACTUAL_NOMINAL_KRW;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'r6-shadow-cf-'));
   process.env.PERSIST_DATA_DIR = tmpDir;
   process.env.R6_COUNTERFACTUAL_MAX_ENTRIES = '3';
-  process.env.R6_COUNTERFACTUAL_NOMINAL_KRW = '100000';
   vi.resetModules();
 });
 
@@ -23,8 +21,6 @@ afterEach(() => {
   else process.env.PERSIST_DATA_DIR = originalDataDir;
   if (originalMaxEntries === undefined) delete process.env.R6_COUNTERFACTUAL_MAX_ENTRIES;
   else process.env.R6_COUNTERFACTUAL_MAX_ENTRIES = originalMaxEntries;
-  if (originalNominal === undefined) delete process.env.R6_COUNTERFACTUAL_NOMINAL_KRW;
-  else process.env.R6_COUNTERFACTUAL_NOMINAL_KRW = originalNominal;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -99,6 +95,7 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
       strongBuyAllowed: false,
       r6CounterfactualEntries: 1,
       noShadowEntryReason: 'N/A',
+      sizingSource: 'LIVE_SIZING_MIRROR',
       executionImpact: 'NONE',
     });
 
@@ -114,7 +111,13 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
       executionImpact: 'NONE',
       liveOrderSent: false,
       riskUnit: 'R6_COUNTERFACTUAL',
+      sizingSource: 'LIVE_SIZING_MIRROR',
     });
+    const notional = (trades[0].originalQuantity ?? trades[0].quantity) * trades[0].shadowEntryPrice;
+    expect(notional).toBeGreaterThan(100_000);
+    expect(notional).toBeLessThanOrEqual(10_000_000);
+    expect(trades[0].sizingEngineSnapshot?.finalPositionKrw).toBe(notional);
+    expect(trades[0].r6Counterfactual?.sizingSource).toBe('LIVE_SIZING_MIRROR');
     expect(trades[0].fills?.some((fill) => fill.type === 'BUY' && fill.status === 'CONFIRMED')).toBe(true);
   }, 20_000);
 

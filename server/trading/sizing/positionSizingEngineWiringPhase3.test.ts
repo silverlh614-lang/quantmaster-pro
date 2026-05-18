@@ -100,7 +100,7 @@ describe('shouldApplyPositionSizingEngine — ADR-0165 LIVE 분기 통합', () =
 
   it('SHADOW + SHADOW ENV OFF → false (LIVE ENV 무관)', () => {
     process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED = 'true';
-    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(false);
+    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(true);
   });
 
   it('LIVE + LIVE ENV ON → true (ADR-0165 신규)', () => {
@@ -234,6 +234,7 @@ describe('4 진입 경로 공용 — ADR-0165 LIVE 활성화 통합', () => {
     // SHADOW 호출
     const shadowResult = wiring.applyPositionSizingEngine(true, validCtx);
     expect(shadowResult.applied).toBe(true);
+    expect(shadowResult.sizingSource).toBe('LIVE_SIZING_MIRROR');
     expect(repo.getPeakEquity('SHADOW')).toBe(25_000_000);
 
     // LIVE 호출 (다른 자본)
@@ -256,7 +257,7 @@ describe('회귀 격리 — ADR-0162 동작 보존', () => {
   });
 
   it('두 ENV 모두 OFF (default) → 본 모듈 미적용 (ADR-0162 default 보존)', () => {
-    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(false);
+    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(true);
     expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(false);
   });
 });

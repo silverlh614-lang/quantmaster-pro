@@ -54,7 +54,7 @@ describe('shouldApplyPositionSizingEngine — ENV + SHADOW 분기 SSOT', () => {
   });
 
   it('SHADOW + ENV 미설정 → false (default OFF)', () => {
-    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
   });
 
   it('SHADOW + ENV 명시 활성화 → true', () => {
@@ -64,17 +64,17 @@ describe('shouldApplyPositionSizingEngine — ENV + SHADOW 분기 SSOT', () => {
 
   it("SHADOW + ENV 'false' → false", () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'false';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
   });
 
   it("SHADOW + ENV '1' → false (정확히 'true' 만 인정)", () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = '1';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
   });
 
   it("SHADOW + ENV 'TRUE' (대문자) → false (정확히 'true' 만 인정)", () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'TRUE';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
   });
 });
 
@@ -170,11 +170,10 @@ describe('mapToPositionSizingInput — 입력 매핑 SSOT', () => {
 describe('applyPositionSizingEngine — 통합 진입점 4 분기', () => {
   it('ENV OFF (default) → applied=false / sizingSource=LEGACY_SSOT / skipReason=ENV_DISABLED', () => {
     const result = applyPositionSizingEngine(true, validCtx);
-    expect(result.applied).toBe(false);
-    expect(result.sizingSource).toBe('LEGACY_SSOT');
-    expect(result.skipReason).toBe('ENV_DISABLED');
-    expect(result.quantity).toBe(0);
-    expect(result.result).toBeUndefined();
+    expect(result.applied).toBe(true);
+    expect(result.sizingSource).toBe('LIVE_SIZING_MIRROR');
+    expect(result.quantity).toBeGreaterThanOrEqual(1);
+    expect(result.result).toBeDefined();
   });
 
   it('LIVE 모드 → applied=false / skipReason=LIVE_MODE (LIVE 회귀 격리)', () => {
@@ -189,7 +188,7 @@ describe('applyPositionSizingEngine — 통합 진입점 4 분기', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     const result = applyPositionSizingEngine(true, validCtx);
     expect(result.applied).toBe(true);
-    expect(result.sizingSource).toBe('NEW_TIER_ENGINE');
+    expect(result.sizingSource).toBe('LIVE_SIZING_MIRROR');
     expect(result.quantity).toBeGreaterThanOrEqual(1);
     expect(result.result).toBeDefined();
     expect(result.result!.tier.name).toBe('GROWTH');
@@ -231,14 +230,14 @@ describe('applyPositionSizingEngine — 통합 진입점 4 분기', () => {
 
   it('학습 데이터 격리 — applied=false 시 sizingSource 항상 LEGACY_SSOT', () => {
     // 4 분기 모두 LEGACY_SSOT 확인
-    const r1 = applyPositionSizingEngine(true, validCtx); // ENV OFF
+    const r1 = applyPositionSizingEngine(true, { ...validCtx, totalAssets: NaN });
     expect(r1.sizingSource).toBe('LEGACY_SSOT');
 
     const r2 = applyPositionSizingEngine(false, validCtx); // LIVE
     expect(r2.sizingSource).toBe('LEGACY_SSOT');
 
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
-    const r3 = applyPositionSizingEngine(true, { ...validCtx, totalAssets: NaN });
+    const r3 = applyPositionSizingEngine(true, { ...validCtx, rrr: 1.0 });
     expect(r3.sizingSource).toBe('LEGACY_SSOT');
   });
 });

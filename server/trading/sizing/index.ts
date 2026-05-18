@@ -56,3 +56,14 @@ export {
   type PositionSizingInput,
   type PositionSizingResult,
 } from './positionSizingEngine.js';
+
+export {
+  SHADOW_REGIME_SIZING_POLICIES,
+  calculateShadowRegimeSizing,
+  resolveShadowRegimeSizingLevel,
+  type ShadowRegimeSizingLevel,
+  type ShadowRegimeSizingPolicy,
+  type ShadowRegimeSizingResult,
+  type ShadowRegimeSizingBlockReason,
+  type ShadowSizingSource,
+} from './shadowRegimeSizingPolicy.js';

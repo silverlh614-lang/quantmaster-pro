@@ -21,6 +21,7 @@ function entry(overrides: Partial<TelegramPositionEntry> = {}): TelegramPosition
     pnlKind: 'VIRTUAL_UNREALIZED',
     liveOrderSent: false,
     executionImpact: 'NONE',
+    sizingSource: 'LIVE_SIZING_MIRROR',
     displayTags: [],
     tradeId: 't1',
     stockCode: '017670',
@@ -72,7 +73,8 @@ describe('Position display tags', () => {
       effectiveRegime: 'R6_DEFENSE',
     });
     const text = renderPositionLine(r6, 0);
-    expect(text).toContain('[SHADOW · R6_COUNTERFACTUAL · 실주문없음]');
+    expect(text).toContain('[SHADOW · R6_DEFENSE · R6_COUNTERFACTUAL · 실주문없음]');
+    expect(text).toContain('sizingSource: LIVE_SIZING_MIRROR');
     expect(text).toContain('[가상손익]');
   });
 

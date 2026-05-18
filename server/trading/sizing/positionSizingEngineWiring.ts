@@ -51,7 +51,7 @@ import type { RegimeLevel } from '../../../src/types/core.js';
  */
 export function shouldApplyPositionSizingEngine(shadowMode: boolean): boolean {
   if (shadowMode) {
-    return process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY === 'true';
+    return true;
   }
   // LIVE 모드 — ADR-0165 활성화 정책
   return isLivePositionSizingEngineEnabled();
@@ -172,7 +172,7 @@ export interface ApplyPositionSizingResult {
   /** 적용 시 계산된 quantity (주식 수) — applied=false 면 0 */
   quantity: number;
   /** 사이징 marker — 호출자가 trade 영속에 부착 */
-  sizingSource: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT';
+  sizingSource: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT' | 'LIVE_SIZING_MIRROR';
   /** 적용 시 본 모듈 결과 — 운영자 검증/스냅샷 영속용 */
   result?: PositionSizingResult;
   /** 미적용 사유 (진단 로그용) */
@@ -254,7 +254,7 @@ export function applyPositionSizingEngine(
   return {
     applied: true,
     quantity,
-    sizingSource: 'NEW_TIER_ENGINE',
+    sizingSource: shadowMode ? 'LIVE_SIZING_MIRROR' : 'NEW_TIER_ENGINE',
     result,
   };
 }

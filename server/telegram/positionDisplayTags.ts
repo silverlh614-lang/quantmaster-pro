@@ -104,14 +104,23 @@ export function normalizePositionContextTag(input: {
   return 'NORMAL';
 }
 
+function normalizeEffectiveRegimeDisplayTag(effectiveRegime?: string): string | null {
+  const regime = String(effectiveRegime ?? '').trim().toUpperCase();
+  if (!regime || regime === 'NORMAL') return null;
+  const normalized = regime.replace(/[^A-Z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function buildPositionDisplayTags(input: PositionDisplayTagInput): string[] {
   if (input.dualPosition) {
     return ['DUAL: LIVE+SHADOW'];
   }
 
   const tags: string[] = [input.positionKind];
+  const effectiveRegimeTag = normalizeEffectiveRegimeDisplayTag(input.effectiveRegime);
+  if (effectiveRegimeTag) tags.push(effectiveRegimeTag);
   const context = normalizePositionContextTag(input);
-  if (context !== 'NORMAL') tags.push(context);
+  if (context !== 'NORMAL' && context !== effectiveRegimeTag) tags.push(context);
 
   if (input.liveOrderSent) {
     tags.push('실주문');
@@ -202,9 +211,9 @@ export function formatShadowBuyAlertTitle(entrySource?: string): string {
 
 export function formatShadowBuyExecutionNotice(entrySource?: string): string {
   if (String(entrySource ?? '').toUpperCase().includes('R6_COUNTERFACTUAL')) {
-    return 'R6_DEFENSE 상태의 반사실 학습용 가상매수\n실주문 아님 / liveOrderSent=false / executionImpact=NONE';
+    return 'R6_DEFENSE 상태의 반사실 학습용 가상매수\n실주문 아님 / liveOrderSent=false / executionImpact=NONE / sizingSource=LIVE_SIZING_MIRROR';
   }
-  return '실주문 아님 / liveOrderSent=false / executionImpact=NONE';
+  return '실주문 아님 / liveOrderSent=false / executionImpact=NONE / sizingSource=LIVE_SIZING_MIRROR';
 }
 
 export function formatLiveBuyExecutionNotice(): string {

@@ -645,11 +645,11 @@ export interface ServerShadowTrade {
    * 학습 데이터 격리 — `attribution`/`failurePatternDB` 가 본 marker 로 두 SSOT 결과 분리 분석 가능.
    * LIVE 모드는 본 PR 영향 0 — 영속 marker 도 LEGACY_SSOT 또는 부재.
    */
-  sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT';
+  sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT' | 'LIVE_SIZING_MIRROR';
   /**
    * ADR-0162 — 본 모듈 사이징 적용 시 진입 시점 결정 스냅샷 (운영자 검증용).
    * 6 티어 매트릭스 + 7축 배수 + 차단 사유 영속. 기존 `entryKellySnapshot` 와 별도 영속 (책임 분리).
-   * `sizingSource='NEW_TIER_ENGINE'` 일 때만 채워짐.
+   * `sizingSource='NEW_TIER_ENGINE'` 또는 `LIVE_SIZING_MIRROR` 일 때 채워짐.
    */
   sizingEngineSnapshot?: {
     tierName: string;
@@ -712,6 +712,12 @@ export interface ServerShadowTrade {
     entryType: 'R6_COUNTERFACTUAL_BUY';
     liveOrderSent: false;
     executionImpact: 'NONE';
+    sizingSource?: 'LIVE_SIZING_MIRROR';
+    liveSizingEngineBudget?: number;
+    finalShadowBudget?: number;
+    regimeMaxSymbols?: number;
+    regimeMaxPositionPct?: number;
+    regimeTotalExposureCap?: number;
   };
 }
 

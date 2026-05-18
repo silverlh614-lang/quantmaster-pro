@@ -8,7 +8,17 @@ import {
   type ServerShadowTrade,
 } from '../../persistence/shadowTradeRepo.js';
 import { appendCounterfactualShadowLearningEntry } from '../../persistence/counterfactualShadowLearningRepo.js';
+import { computeShadowAccount } from '../../persistence/shadowAccountRepo.js';
+import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
+import {
+  calculateShadowRegimeSizing,
+  computeFinalPosition,
+  resolveShadowRegimeSizingLevel,
+  type PositionSizingResult,
+  type ShadowRegimeSizingLevel,
+  type ShadowRegimeSizingResult,
+} from '../sizing/index.js';
 import type { MacroGateState } from './scanDiagnostics.js';
 import type {
   CandidateWithSupplyContext,
@@ -60,6 +70,8 @@ export interface R6ShadowEntryPolicySummary {
   shadowBuySignals: number;
   r6CounterfactualEntries: number;
   noShadowEntryReason?: R6NoShadowEntryReason | 'N/A';
+  sizingSource?: 'LIVE_SIZING_MIRROR';
+  sizingRegime?: ShadowRegimeSizingLevel;
   executionImpact: 'NONE';
 }
 
@@ -77,8 +89,14 @@ interface SelectedCandidate {
   rankScore: number;
 }
 
+interface ShadowSizingState {
+  totalShadowEquity: number;
+  availableVirtualCash: number;
+  currentShadowExposure: number;
+  openShadowSymbols: Set<string>;
+}
+
 const DEFAULT_R6_COUNTERFACTUAL_MAX_ENTRIES = 3;
-const DEFAULT_R6_COUNTERFACTUAL_NOMINAL_KRW = 100_000;
 
 function kstDateKey(now: Date): string {
   return new Date(now.getTime() + 9 * 60 * 60_000).toISOString().slice(0, 10);
@@ -139,12 +157,6 @@ function maxEntries(): number {
   return Math.max(1, Math.min(3, Math.floor(parsed)));
 }
 
-function nominalKrw(): number {
-  const parsed = Number(process.env.R6_COUNTERFACTUAL_NOMINAL_KRW ?? DEFAULT_R6_COUNTERFACTUAL_NOMINAL_KRW);
-  if (!Number.isFinite(parsed)) return DEFAULT_R6_COUNTERFACTUAL_NOMINAL_KRW;
-  return Math.max(10_000, Math.floor(parsed));
-}
-
 function resolvePolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowPolicyRegime | null {
   const macro = input.macroGateState;
   const status = macro?.r6RecoveryStatus;
@@ -202,6 +214,93 @@ function hasDuplicateEntry(params: {
       meta?.regime === params.regime
     );
   });
+}
+
+function buildShadowSizingState(trades: ServerShadowTrade[]): ShadowSizingState {
+  const startingCapital = loadTradingSettings().startingCapital;
+  const fallbackEquity = Number.isFinite(startingCapital) && startingCapital > 0 ? startingCapital : 100_000_000;
+  try {
+    const shadowTrades = trades.filter((trade) => trade.mode !== 'LIVE');
+    const account = computeShadowAccount(shadowTrades, fallbackEquity, {});
+    return {
+      totalShadowEquity: account.totalAssets > 0 ? account.totalAssets : fallbackEquity,
+      availableVirtualCash: account.cashBalance,
+      currentShadowExposure: account.openPositions.reduce((sum, position) => sum + position.investedCash, 0),
+      openShadowSymbols: new Set(account.openPositions.map((position) => normalizeSymbol(position.stockCode))),
+    };
+  } catch (error) {
+    console.warn('[R6_COUNTERFACTUAL_SIZING_ACCOUNT_WARN]', error);
+    return {
+      totalShadowEquity: fallbackEquity,
+      availableVirtualCash: fallbackEquity,
+      currentShadowExposure: 0,
+      openShadowSymbols: new Set<string>(),
+    };
+  }
+}
+
+function computeLiveSizingMirrorResult(input: {
+  totalShadowEquity: number;
+  entryPrice: number;
+}): PositionSizingResult {
+  const stopLoss = Math.max(1, Math.round(input.entryPrice * 0.93));
+  const stopLossPct = Math.max(0.001, (input.entryPrice - stopLoss) / input.entryPrice);
+  const accountEquity = Math.max(1, Math.floor(input.totalShadowEquity));
+  return computeFinalPosition({
+    accountEquity,
+    peakEquity: accountEquity,
+    signalGrade: 'BUY',
+    stopLossPct,
+    regimeMultiplier: 1.0,
+    confidenceMultiplier: 1.0,
+    rrrMultiplier: 1.0,
+    correlationMultiplier: 1.0,
+    lossStreakState: {
+      consecutiveLosses: 0,
+      lastLossDate: null,
+      coolOffUntil: null,
+    },
+    avgDailyVolume20d: 1_000_000_000_000_000,
+    marketCap: 1_000_000_000_000_000,
+    isAdminStock: false,
+    isInvestmentWarning: false,
+    currentSectorWeight: 0,
+    isNormalRegime: true,
+    rrrAbove2_5: true,
+    enemyChecklistPassed: true,
+    highDataReliability: true,
+    gate1AllPassed: true,
+    notInDowntrend: true,
+  });
+}
+
+function buildSizingSnapshot(input: {
+  result: PositionSizingResult;
+  decision: ShadowRegimeSizingResult;
+  positionAmount: number;
+  totalShadowEquity: number;
+  nowIso: string;
+}): ServerShadowTrade['sizingEngineSnapshot'] {
+  const totalShadowEquity = Math.max(1, input.totalShadowEquity);
+  return {
+    tierName: input.result.tier.name,
+    basePct: input.result.basePct,
+    finalPositionPct: input.positionAmount / totalShadowEquity,
+    finalPositionKrw: input.positionAmount,
+    drawdownMultiplier: input.result.drawdownMultiplier,
+    lossStreakMultiplier: input.result.lossStreakMultiplier,
+    liquidityMultiplier: input.result.liquidityMultiplier,
+    sectorExposureMultiplier: input.result.sectorExposureMultiplier,
+    expectedStopLossDamagePct: input.result.expectedStopLossDamagePct,
+    signalPriorityApplied: input.result.signalPriorityApplied,
+    adjustmentReasons: [
+      ...input.result.adjustmentReasons,
+      `sizingSource=${input.decision.sizingSource}`,
+      `regimeCap=${input.decision.policy.level}`,
+      `cappedBy=${input.decision.cappedBy.join(',') || 'NONE'}`,
+    ],
+    snapshotAt: input.nowIso,
+  };
 }
 
 function buildCounterfactualLearningCandidate(input: {
@@ -277,10 +376,15 @@ function buildShadowTrade(input: {
   tradingDate: string;
   nowIso: string;
   macroGateState?: MacroGateState;
+  sizingDecision: ShadowRegimeSizingResult;
+  sizingEngineResult: PositionSizingResult;
+  totalShadowEquity: number;
+  qty: number;
 }): ServerShadowTrade {
   const c = input.selected.candidate;
   const entryPrice = input.selected.entryPrice;
-  const qty = Math.max(1, Math.floor(nominalKrw() / entryPrice));
+  const qty = input.qty;
+  const positionAmount = qty * entryPrice;
   const stopLoss = Math.max(1, Math.round(entryPrice * 0.93));
   const targetPrice = Math.max(entryPrice + 1, Math.round(entryPrice * 1.14));
   const trade: ServerShadowTrade = {
@@ -316,6 +420,14 @@ function buildShadowTrade(input: {
     executionImpact: 'NONE',
     liveOrderSent: false,
     riskUnit: 'R6_COUNTERFACTUAL',
+    sizingSource: 'LIVE_SIZING_MIRROR',
+    sizingEngineSnapshot: buildSizingSnapshot({
+      result: input.sizingEngineResult,
+      decision: input.sizingDecision,
+      positionAmount,
+      totalShadowEquity: input.totalShadowEquity,
+      nowIso: input.nowIso,
+    }),
     r6Counterfactual: {
       tradingDate: input.tradingDate,
       regime: input.regime,
@@ -328,6 +440,12 @@ function buildShadowTrade(input: {
       entryType: 'R6_COUNTERFACTUAL_BUY',
       liveOrderSent: false,
       executionImpact: 'NONE',
+      sizingSource: 'LIVE_SIZING_MIRROR',
+      liveSizingEngineBudget: input.sizingDecision.liveSizingEngineBudget,
+      finalShadowBudget: positionAmount,
+      regimeMaxSymbols: input.sizingDecision.policy.maxSymbols,
+      regimeMaxPositionPct: input.sizingDecision.policy.maxPositionPct,
+      regimeTotalExposureCap: input.sizingDecision.policy.totalExposureCap,
     },
   };
   appendFill(trade, {
@@ -431,8 +549,16 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   const nowIso = now.toISOString();
   const tradingDate = kstDateKey(now);
   const trades = loadShadowTrades();
+  const sizingState = buildShadowSizingState(trades);
+  const sizingRegime = resolveShadowRegimeSizingLevel({
+    regime,
+    effectiveRegime: input.macroGateState?.macroRegimeEffective ?? input.macroGateState?.regime ?? regime,
+    r6RecoveryStatus: input.macroGateState?.r6RecoveryStatus,
+    engineMode: input.preview.engineMode,
+  });
   let created = 0;
   let duplicateBlocked = 0;
+  let positionBlocked = 0;
 
   for (const item of selected) {
     const symbol = item.candidate.symbol;
@@ -451,9 +577,49 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       continue;
     }
 
+    const liveSizingEngineResult = computeLiveSizingMirrorResult({
+      totalShadowEquity: sizingState.totalShadowEquity,
+      entryPrice: item.entryPrice,
+    });
+    const sizingDecision = calculateShadowRegimeSizing({
+      regimeLevel: sizingRegime,
+      liveSizingEngineBudget: liveSizingEngineResult.blocked ? 0 : liveSizingEngineResult.finalPosition,
+      totalShadowEquity: sizingState.totalShadowEquity,
+      currentShadowExposure: sizingState.currentShadowExposure,
+      availableVirtualCash: sizingState.availableVirtualCash,
+      openShadowSymbolCount: sizingState.openShadowSymbols.size,
+    });
+    const qty = Math.floor(sizingDecision.finalShadowBudget / item.entryPrice);
+
+    if (!sizingDecision.allowed || qty < 1) {
+      positionBlocked += 1;
+      if (sizingDecision.blockReason === 'REGIME_SHADOW_SLOT_BLOCKED') {
+        console.info(
+          `[REGIME_SHADOW_SLOT_BLOCKED] symbol=${symbol} regime=${regime} sizingRegime=${sizingRegime} ` +
+            `maxSymbols=${sizingDecision.policy.maxSymbols} openShadowSymbols=${sizingState.openShadowSymbols.size} ` +
+            `executionImpact=NONE`,
+        );
+      } else {
+        console.info(
+          `[REGIME_SHADOW_BUDGET_BLOCKED] symbol=${symbol} regime=${regime} sizingRegime=${sizingRegime} ` +
+            `reason=${sizingDecision.blockReason ?? 'QUANTITY_BELOW_ONE'} ` +
+            `liveSizingEngineBudget=${Math.round(sizingDecision.liveSizingEngineBudget)} ` +
+            `finalShadowBudget=${Math.round(sizingDecision.finalShadowBudget)} ` +
+            `executionImpact=NONE`,
+        );
+      }
+      continue;
+    }
+
     console.info(
       `[R6_COUNTERFACTUAL_CANDIDATE_SELECTED] symbol=${symbol} ` +
         `supplyScore=${item.candidate.supplyScore} signal=ACCUMULATING reason=R6_RECOVERY_OBSERVE executionImpact=NONE`,
+    );
+    console.info(
+      `[SHADOW_LIVE_SIZING_MIRROR] symbol=${symbol} regime=${regime} sizingRegime=${sizingRegime} ` +
+        `liveSizingEngineBudget=${Math.round(sizingDecision.liveSizingEngineBudget)} ` +
+        `finalShadowBudget=${Math.round(qty * item.entryPrice)} qty=${qty} ` +
+        `sizingSource=LIVE_SIZING_MIRROR liveOrderSent=false executionImpact=NONE`,
     );
     const trade = buildShadowTrade({
       selected: item,
@@ -461,8 +627,16 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       tradingDate,
       nowIso,
       macroGateState: input.macroGateState,
+      sizingDecision,
+      sizingEngineResult: liveSizingEngineResult,
+      totalShadowEquity: sizingState.totalShadowEquity,
+      qty,
     });
     trades.push(trade);
+    const positionAmount = qty * item.entryPrice;
+    sizingState.currentShadowExposure += positionAmount;
+    sizingState.availableVirtualCash = Math.max(0, sizingState.availableVirtualCash - positionAmount);
+    sizingState.openShadowSymbols.add(normalizeSymbol(symbol));
     appendCounterfactualShadowLearningEntry({
       candidate: buildCounterfactualLearningCandidate({
         selected: item,
@@ -487,10 +661,15 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       tradingDate,
       liveOrderSent: false,
       executionImpact: 'NONE',
+      sizingSource: 'LIVE_SIZING_MIRROR',
+      liveSizingEngineBudget: sizingDecision.liveSizingEngineBudget,
+      finalShadowBudget: positionAmount,
+      sizingRegime,
     });
     console.info(
       `[R6_COUNTERFACTUAL_BUY_CREATED] symbol=${symbol} ` +
-        `entryType=R6_COUNTERFACTUAL_BUY liveOrderSent=false executionImpact=NONE`,
+        `entryType=R6_COUNTERFACTUAL_BUY sizingSource=LIVE_SIZING_MIRROR ` +
+        `liveOrderSent=false executionImpact=NONE`,
     );
     console.info(
       `[SHADOW_PAPER_FILLED] symbol=${symbol} source=R6_COUNTERFACTUAL_BUY executionImpact=NONE`,
@@ -504,12 +683,16 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       ...base,
       r6CounterfactualEntries: created,
       noShadowEntryReason: 'N/A',
+      sizingSource: 'LIVE_SIZING_MIRROR',
+      sizingRegime,
     };
   }
 
   const reason: R6NoShadowEntryReason = duplicateBlocked > 0
     ? 'DUPLICATE_OPEN_POSITION'
-    : 'NO_ELIGIBLE_ACCUMULATING_CANDIDATES';
+    : positionBlocked > 0
+      ? 'POSITION_LIMIT_REACHED'
+      : 'NO_ELIGIBLE_ACCUMULATING_CANDIDATES';
   console.info(
     `[NO_SHADOW_ENTRY_REASON] candidateCount=${base.candidateEvaluated} ` +
       `accumulating=${base.accumulatingCandidates} reason=${reason} executionImpact=NONE`,

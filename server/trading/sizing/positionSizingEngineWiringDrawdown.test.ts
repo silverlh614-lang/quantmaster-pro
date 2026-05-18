@@ -132,8 +132,9 @@ describe('applyPositionSizingEngine — peakEquity 자동 갱신 hook (ADR-0164)
   it('ENV OFF → 자동 갱신 hook 미실행 (영속 0 유지)', () => {
     // ENV 미설정
     expect(repo.getPeakEquity('SHADOW')).toBe(0);
-    wiring.applyPositionSizingEngine(true, validCtx);
-    expect(repo.getPeakEquity('SHADOW')).toBe(0); // 미갱신 (ENV OFF)
+    const result = wiring.applyPositionSizingEngine(true, validCtx);
+    expect(result.sizingSource).toBe('LIVE_SIZING_MIRROR');
+    expect(repo.getPeakEquity('SHADOW')).toBe(15_000_000);
   });
 
   it('LIVE 모드 → 자동 갱신 hook 미실행 (LIVE 회귀 격리)', () => {

@@ -148,7 +148,7 @@ export interface BuildBuyTradeParams {
   entryATR14?: number;
   entryKellySnapshot?: EntryKellySnapshot;
   entryConditionScores?: Record<number, number>;
-  sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT';
+  sizingSource?: 'NEW_TIER_ENGINE' | 'LEGACY_SSOT' | 'LIVE_SIZING_MIRROR';
   sizingEngineSnapshot?: ServerShadowTrade['sizingEngineSnapshot'];
   rawSignal?: TradingSignal;
   finalSignal?: TradingSignal;

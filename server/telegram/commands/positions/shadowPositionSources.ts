@@ -74,6 +74,7 @@ export interface TelegramPositionEntry {
   pnlKind: PnlKind;
   liveOrderSent: boolean;
   executionImpact: PositionExecutionImpact;
+  sizingSource?: string;
   displayTags: string[];
   dualPosition?: DualPositionDisplayInfo;
   tradeId: string;
@@ -268,6 +269,7 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
       pnlKind: 'VIRTUAL_UNREALIZED',
       liveOrderSent,
       executionImpact,
+      sizingSource: undefined,
       displayTags: buildPositionDisplayTags({
         positionKind,
         accountKind,
@@ -453,6 +455,7 @@ function normalizeTradePosition(
     pnlKind: positionKind === 'LIVE' ? 'UNREALIZED_LIVE' : 'VIRTUAL_UNREALIZED',
     liveOrderSent,
     executionImpact,
+    sizingSource: trade.sizingSource,
     displayTags: buildPositionDisplayTags({
       positionKind,
       accountKind,
