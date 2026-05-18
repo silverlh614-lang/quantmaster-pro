@@ -12,6 +12,18 @@ import {
 import { getTopUsage, recordUsage } from '../persistence/commandUsageRepo.js';
 import type { TelegramCommand } from './commands/_types.js';
 
+// 텍스트 명령의 런타임 경계에서도 registry side-effect import 를 보장한다.
+// webhookHandler 의 barrel wiring 이 drift 되어도 /pos, /pnl 등이 NO_HANDLER 로 떨어지지 않게 한다.
+import './commands/system/index.js';
+import './commands/watchlist/index.js';
+import './commands/positions/index.js';
+import './commands/alert/index.js';
+import './commands/learning/index.js';
+import './commands/control/index.js';
+import './commands/trade/index.js';
+import './commands/infra/index.js';
+import './commands/shadow/index.js';
+
 export type TelegramCommandAction =
   | 'POSITION_SUMMARY'
   | 'PNL_SUMMARY'
