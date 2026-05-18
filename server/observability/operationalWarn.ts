@@ -1,4 +1,4 @@
-// @responsibility Unified operational warning emitter with priority, impact, and dedup.
+// @responsibility Unified operational warning emitter with priority impact dedup.
 
 import type { OperationalWarnEmission, OperationalWarnPayload, WarnPriority } from './operationalWarnTypes.js';
 import { shouldEmitWarn } from './warnDedupStore.js';
@@ -17,7 +17,7 @@ export function defaultWarnTtlSec(priority: WarnPriority): number {
 }
 
 function shouldPrintRuntime(priority: WarnPriority): boolean {
-  if (priority === 'P4' || priority === 'P5') return process.env.OPERATIONAL_WARN_DEBUG === 'true';
+  if (priority === 'P3' || priority === 'P4' || priority === 'P5') return process.env.OPERATIONAL_WARN_DEBUG === 'true';
   return true;
 }
 

@@ -1,3 +1,4 @@
+import { scriptWarn } from '../server/observability/scriptWarn.js';
 /**
  * check_responsibility.js  —  SRP Assertion Doc Header
  *
@@ -103,9 +104,9 @@ function main() {
   }
 
   if (warnings.length > 0) {
-    console.warn(`\n[SRP][WARN] 길이 초과 등 경고 ${warnings.length}건`);
+    scriptWarn(`\n[SRP][WARN] 길이 초과 등 경고 ${warnings.length}건`);
     for (const { f, tag, problems } of warnings.slice(0, 20)) {
-      console.warn(`  ${f}\n    "${tag}"\n    · ${problems.join('\n    · ')}`);
+      scriptWarn(`  ${f}\n    "${tag}"\n    · ${problems.join('\n    · ')}`);
     }
   }
 

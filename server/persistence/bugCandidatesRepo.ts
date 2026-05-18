@@ -7,6 +7,7 @@
 //   4. KIS 주문 함수 import 절대 금지 (분석/진단 전용).
 
 import fs from 'fs';
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { BUG_CANDIDATES_FILE, ensureDataDir } from './paths.js';
 
 export type BugCandidateStatus = 'NEW' | 'REVIEWED' | 'DISMISSED' | 'PROMOTED';
@@ -54,7 +55,7 @@ export function loadBugCandidates(): BugCandidate[] {
     if (!Array.isArray(parsed)) return [];
     return (parsed as unknown[]).filter(isValidCandidate);
   } catch (err) {
-    console.warn('[BugCandidatesRepo] 손상 JSON, 빈 배열 fallback:', err instanceof Error ? err.message : err);
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_CACHE_PERSIST_DEGRADED', source: 'AUX_CACHE', message: 'Bug candidates JSON is corrupt; using empty fallback.', dedupKey: 'p3:cache:bug-candidates:load', error: err });
     return [];
   }
 }
@@ -84,7 +85,7 @@ export function saveBugCandidates(candidates: BugCandidate[]): void {
     fs.writeFileSync(tmp, JSON.stringify(trimmed, null, 2), 'utf-8');
     fs.renameSync(tmp, BUG_CANDIDATES_FILE);
   } catch (err) {
-    console.warn('[BugCandidatesRepo] 저장 실패:', err instanceof Error ? err.message : err);
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_CACHE_PERSIST_DEGRADED', source: 'AUX_CACHE', message: 'Bug candidates save failed.', dedupKey: 'p3:cache:bug-candidates:save', error: err });
     try { fs.unlinkSync(tmp); } catch { /* ignore */ }
   }
 }

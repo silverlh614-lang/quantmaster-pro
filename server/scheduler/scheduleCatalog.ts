@@ -5,6 +5,8 @@
  * 기록해 /scheduler history 에서 조회 가능하다.
  */
 
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
+
 export interface ScheduleEntry {
   timeKst: string;
   label: string;
@@ -174,7 +176,7 @@ function loadPersistedMetricsOnce(): void {
       console.log(`[Boot] JobMetrics 복원: ${restored}개 cron (디스크 → 메모리)`);
     }
   } catch (e) {
-    console.warn('[Boot] JobMetrics 복원 실패 — 빈 메모리로 시작:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCHEDULER_CATALOG_DRIFT', source: 'SCHEDULE_CATALOG', message: 'JobMetrics restore failed; starting with empty in-memory metrics.', dedupKey: 'p3:schedule-catalog:metrics-restore', error: e, details: { detailsSuppressed: true } });
   }
 }
 
@@ -189,7 +191,7 @@ function flushMetricsImmediate(): void {
     for (const [k, v] of _metricsByJob) snapshot[k] = { ...v };
     saveJobMetrics(snapshot);
   } catch (e) {
-    console.warn('[scheduleCatalog] JobMetrics 즉시 영속화 실패:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCHEDULER_CATALOG_DRIFT', source: 'SCHEDULE_CATALOG', message: 'JobMetrics immediate persistence failed.', dedupKey: 'p3:schedule-catalog:metrics-flush-immediate', error: e, details: { detailsSuppressed: true } });
   }
 }
 
@@ -202,7 +204,7 @@ function schedulePersistMetrics(): void {
       for (const [k, v] of _metricsByJob) snapshot[k] = { ...v };
       saveJobMetrics(snapshot);
     } catch (e) {
-      console.warn('[scheduleCatalog] JobMetrics 영속화 실패:', e instanceof Error ? e.message : e);
+      emitMaintenanceWarn({ domain: 'DIAGNOSTIC', code: 'P3_SCHEDULER_CATALOG_DRIFT', source: 'SCHEDULE_CATALOG', message: 'JobMetrics debounced persistence failed.', dedupKey: 'p3:schedule-catalog:metrics-flush-debounced', error: e, details: { detailsSuppressed: true } });
     }
   }, PERSISTENCE_DEBOUNCE_MS);
   // 프로세스 종료 차단 안 함

@@ -21,6 +21,7 @@
 
 import fs from 'fs';
 import { createHash } from 'crypto';
+import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { AI_CACHE_FILE, ensureDataDir } from './paths.js';
 
 export interface AiCacheEntry<T = unknown> {
@@ -51,7 +52,7 @@ function ensureLoaded(): AiCacheStore {
     _cache = JSON.parse(raw) as AiCacheStore;
     return _cache;
   } catch (e) {
-    console.warn('[AiCacheRepo] 로드 실패 — 빈 캐시로 시작:', e instanceof Error ? e.message : e);
+    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_CACHE_PERSIST_DEGRADED', source: 'AUX_CACHE', message: 'AiCache load failed; starting with empty cache.', dedupKey: 'p3:cache:ai-cache:load', error: e });
     return (_cache = {});
   }
 }

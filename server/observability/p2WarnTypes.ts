@@ -1,4 +1,4 @@
-// @responsibility Shared P2 warning contracts for auxiliary providers, reports, diagnostics, and UI.
+// @responsibility Shared warning contracts for auxiliary operational diagnostics.
 
 export type ProviderWarnSource =
   | 'GEMINI'
@@ -61,7 +61,13 @@ export const P2_WARN_CODES = [
 export const P3_WARN_CODES = [
   'P3_SCRIPT_WARN',
   'P3_SCHEDULER_CATALOG_DRIFT',
+  'P3_SCHEDULER_DIAGNOSTIC_DEGRADED',
   'P3_DIAGNOSTIC_SUPPRESSED',
   'P3_CACHE_PERSIST_DEGRADED',
+  'P3_DEBUG_SNAPSHOT_DEGRADED',
+  'P3_ALERT_AUDIT_DEGRADED',
+  'P3_REPORT_GENERATOR_DEGRADED',
+  'P3_CREDENTIAL_WATCHDOG_NOISY',
+  'P3_KRX_MASTER_REPO_DEGRADED',
   'P3_DOC_ONLY_WARN',
 ] as const;

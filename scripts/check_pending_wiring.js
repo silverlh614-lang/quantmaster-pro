@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { scriptWarn } from '../server/observability/scriptWarn.js';
 /**
  * @responsibility PENDING_WIRING.md ↔ INDEX.md / 백로그 SSOT 정합 + SLA 자동 만료 정적 검증
  *
@@ -644,9 +645,9 @@ function main() {
 
   // WARN 만 있고 FAIL 부재 시 informational 모드
   if (fails.length === 0 && warns.length > 0) {
-    console.warn(`[PendingWiring] WARN — ${warns.length}건 SLA 임박 (informational, EXIT=0):`);
-    for (const w of warns.slice(0, 20)) console.warn(`  ⚠️  ${w.message}`);
-    if (warns.length > 20) console.warn(`  ... ${warns.length - 20}건 더`);
+    scriptWarn(`[PendingWiring] WARN — ${warns.length}건 SLA 임박 (informational, EXIT=0):`);
+    for (const w of warns.slice(0, 20)) scriptWarn(`  ⚠️  ${w.message}`);
+    if (warns.length > 20) scriptWarn(`  ... ${warns.length - 20}건 더`);
     return;
   }
 
@@ -662,9 +663,9 @@ function main() {
     if (msgs.length > 10) console.error(`    ... ${msgs.length - 10}건 더`);
   }
   if (warns.length > 0) {
-    console.warn(`  [H_SLA_WARN] ${warns.length}건 (informational):`);
-    for (const w of warns.slice(0, 5)) console.warn(`    ⚠️  ${w.message}`);
-    if (warns.length > 5) console.warn(`    ... ${warns.length - 5}건 더`);
+    scriptWarn(`  [H_SLA_WARN] ${warns.length}건 (informational):`);
+    for (const w of warns.slice(0, 5)) scriptWarn(`    ⚠️  ${w.message}`);
+    if (warns.length > 5) scriptWarn(`    ... ${warns.length - 5}건 더`);
   }
   console.error('');
   console.error(

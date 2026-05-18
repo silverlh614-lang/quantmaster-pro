@@ -1,7 +1,8 @@
-// @responsibility Compact scheduler and diagnostic warning wrapper.
+// @responsibility Compact diagnostic warning wrapper for scheduler probes.
 
 import { emitOperationalWarn } from './operationalWarn.js';
 import { recordP2WarnSummary } from './p2WarnSummary.js';
+import { emitDiagnosticSuppressedWarn } from './diagnosticSuppressor.js';
 import type { OperationalWarnEmission, WarnPriority } from './operationalWarnTypes.js';
 import { compactError } from './providerWarn.js';
 
@@ -16,6 +17,15 @@ export interface DiagnosticWarnInput {
 
 export function emitDiagnosticWarn(input: DiagnosticWarnInput): OperationalWarnEmission {
   const priority = input.priority ?? 'P2';
+  if (priority === 'P3') {
+    return emitDiagnosticSuppressedWarn({
+      code: input.code ?? 'P3_DIAGNOSTIC_SUPPRESSED',
+      message: input.message,
+      dedupKey: input.dedupKey ?? `p3:diagnostic:${input.code ?? 'P3_DIAGNOSTIC_SUPPRESSED'}`,
+      error: input.error,
+      details: input.details,
+    });
+  }
   const code = input.code ?? (priority === 'P2' ? 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED' : 'P3_DIAGNOSTIC_SUPPRESSED');
   const emission = emitOperationalWarn({
     priority,

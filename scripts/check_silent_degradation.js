@@ -1,3 +1,4 @@
+import { scriptWarn } from '../server/observability/scriptWarn.js';
 /**
  * check_silent_degradation.js — Silent Degradation 정적 검출 SSOT
  *
@@ -247,7 +248,7 @@ function main() {
 
   for (const schemaPath of SCHEMA_FILES) {
     if (!existsSync(schemaPath)) {
-      console.warn(`[SilentDegradation] WARN — schema 파일 부재: ${schemaPath}`);
+      scriptWarn(`[SilentDegradation] WARN — schema 파일 부재: ${schemaPath}`);
       continue;
     }
 
