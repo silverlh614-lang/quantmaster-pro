@@ -1,5 +1,7 @@
 import { getExecutionMode } from '../../../state.js';
 import { RegimeResolver, type MarketStateSnapshot } from '../../../trading/marketStateResolver.js';
+import { fetchCurrentPrice } from '../../../clients/kisClient.js';
+import { getRealtimePrice } from '../../../clients/kisStreamClient.js';
 import { getOpenPositions as getShadowLedgerOpenPositions } from '../../../persistence/shadowPositionLedger.js';
 import {
   getRemainingQty,
@@ -7,7 +9,7 @@ import {
   loadShadowTrades,
   type ServerShadowTrade,
 } from '../../../persistence/shadowTradeRepo.js';
-import { computeShadowAccount, type ShadowAccountState } from '../../../persistence/shadowAccountRepo.js';
+import { computeShadowAccount, type ActivePosition, type ShadowAccountState } from '../../../persistence/shadowAccountRepo.js';
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
 
 const TELEGRAM_OPEN_SHADOW_STATUSES = new Set([
@@ -39,6 +41,12 @@ export type PositionSourceName =
   | 'ShadowTradeRepo'
   | 'VirtualAccount';
 
+export type PositionPriceSource =
+  | 'REALTIME_WS'
+  | 'KIS_REST'
+  | 'VIRTUAL_ACCOUNT'
+  | 'ENTRY_PRICE_FALLBACK';
+
 export interface TelegramPositionEntry {
   source: PositionSourceName;
   tradeId: string;
@@ -47,6 +55,7 @@ export interface TelegramPositionEntry {
   qty: number;
   entryPrice: number;
   currentPrice?: number;
+  currentPriceSource?: PositionPriceSource;
   unrealizedPnl?: number;
   unrealizedPct?: number;
   realizedPnl?: number;
@@ -107,6 +116,11 @@ export interface PnlSourceSnapshot {
   pnl: ShadowPnlSummary;
 }
 
+interface PriceLookupSnapshot {
+  prices: Record<string, number>;
+  sourceByCode: Map<string, PositionPriceSource>;
+}
+
 export function isShadowDisplayOpenStatus(status: unknown): boolean {
   const normalized = String(status ?? '').trim().toUpperCase();
   if (normalized.length === 0 || TELEGRAM_CLOSED_SHADOW_STATUSES.has(normalized)) {
@@ -143,19 +157,27 @@ export function resolveTelegramPositionMode(): PositionModeSnapshot {
   };
 }
 
-export function aggregatePositionSources(): PositionSourceSnapshot {
+export async function aggregatePositionSources(): Promise<PositionSourceSnapshot> {
   const mode = resolveTelegramPositionMode();
   const allTrades = loadShadowTrades();
   const shadowTrades = allTrades.filter(isShadowLikeTrade);
   const ledgerEntries = getShadowLedgerOpenPositions();
   const openRepoTrades = shadowTrades.filter((trade) => isQueryableOpenTrade(trade));
-  const account = computeAccount(shadowTrades);
+  const priceLookup = await resolvePriceLookup([...ledgerEntries.map((entry) => entry.trade), ...openRepoTrades], 'POSITION');
+  const account = computeAccount(shadowTrades, priceLookup.prices);
+  const accountPositionsByTradeId = new Map((account?.openPositions ?? []).map((position) => [position.tradeId, position]));
   const positions: TelegramPositionEntry[] = [];
   const seenTradeIds = new Set<string>();
 
   for (const entry of ledgerEntries) {
     const tradeId = entry.trade.id;
-    positions.push(normalizeTradePosition(entry.trade, 'ShadowPositionLedger', entry.qty));
+    positions.push(normalizeTradePosition(
+      entry.trade,
+      'ShadowPositionLedger',
+      entry.qty,
+      accountPositionsByTradeId.get(tradeId),
+      priceLookup,
+    ));
     seenTradeIds.add(tradeId);
   }
 
@@ -165,7 +187,13 @@ export function aggregatePositionSources(): PositionSourceSnapshot {
       continue;
     }
 
-    positions.push(normalizeTradePosition(trade, 'ShadowTradeRepo', getRemainingQty(trade)));
+    positions.push(normalizeTradePosition(
+      trade,
+      'ShadowTradeRepo',
+      getRemainingQty(trade),
+      accountPositionsByTradeId.get(tradeId),
+      priceLookup,
+    ));
     seenTradeIds.add(tradeId);
   }
 
@@ -174,6 +202,13 @@ export function aggregatePositionSources(): PositionSourceSnapshot {
       continue;
     }
 
+    const currentPrice = finitePositive(holding.currentPrice) ?? finitePositive(holding.entryPrice);
+    const currentPriceSource = holding.currentPrice !== undefined
+      ? priceLookup.sourceByCode.get(holding.stockCode) ?? 'VIRTUAL_ACCOUNT'
+      : 'ENTRY_PRICE_FALLBACK';
+    const unrealizedPnl = computeUnrealizedPnl(currentPrice, holding.entryPrice, holding.remainingQty);
+    const unrealizedPct = computeUnrealizedPct(currentPrice, holding.entryPrice);
+
     positions.push({
       source: 'VirtualAccount',
       tradeId: holding.tradeId,
@@ -181,9 +216,10 @@ export function aggregatePositionSources(): PositionSourceSnapshot {
       stockName: holding.stockName || holding.stockCode,
       qty: holding.remainingQty,
       entryPrice: holding.entryPrice,
-      currentPrice: holding.currentPrice,
-      unrealizedPnl: holding.unrealizedPnl,
-      unrealizedPct: holding.unrealizedPct,
+      currentPrice,
+      currentPriceSource,
+      unrealizedPnl,
+      unrealizedPct,
       status: 'OPEN',
     });
     seenTradeIds.add(holding.tradeId);
@@ -211,12 +247,13 @@ export function aggregatePositionSources(): PositionSourceSnapshot {
   return { mode, positions, account, counts };
 }
 
-export function aggregatePnlSources(): PnlSourceSnapshot {
+export async function aggregatePnlSources(): Promise<PnlSourceSnapshot> {
   const mode = resolveTelegramPositionMode();
   const allTrades = loadShadowTrades();
   const shadowTrades = allTrades.filter(isShadowLikeTrade);
   const openTrades = shadowTrades.filter((trade) => isQueryableOpenTrade(trade));
-  const account = computeAccount(shadowTrades);
+  const priceLookup = await resolvePriceLookup(openTrades, 'PNL');
+  const account = computeAccount(shadowTrades, priceLookup.prices);
   const closedTrades = shadowTrades.filter((trade) => !isQueryableOpenTrade(trade));
   const shadowRealizedCount = shadowTrades.filter((trade) => getTotalRealizedPnl(trade) !== 0 || hasSellFill(trade)).length;
   const realizedPnl = shadowTrades.reduce((sum, trade) => sum + getTotalRealizedPnl(trade), 0);
@@ -287,10 +324,13 @@ export function formatMultiple(value: number | undefined | null): string {
   return `${(value as number).toFixed(2)}R`;
 }
 
-function computeAccount(trades: ServerShadowTrade[]): ShadowAccountState | null {
+function computeAccount(
+  trades: ServerShadowTrade[],
+  currentPrices: Record<string, number> = {},
+): ShadowAccountState | null {
   try {
     const settings = loadTradingSettings();
-    return computeShadowAccount(trades, settings.startingCapital);
+    return computeShadowAccount(trades, settings.startingCapital, currentPrices);
   } catch (error) {
     console.warn('[VIRTUAL_ACCOUNT_COMPUTE_WARN]', error);
     return null;
@@ -301,11 +341,20 @@ function normalizeTradePosition(
   trade: ServerShadowTrade,
   source: PositionSourceName,
   qty: number,
+  accountPosition: ActivePosition | undefined,
+  priceLookup: PriceLookupSnapshot,
 ): TelegramPositionEntry {
-  const entryPrice = Number(trade.shadowEntryPrice ?? trade.signalPrice ?? 0);
-  const unrealizedPnl = undefined;
-  const unrealizedPct = undefined;
-  const rMultiple = undefined;
+  const entryPrice = finitePositive(trade.shadowEntryPrice) ?? finitePositive(trade.signalPrice) ?? 0;
+  const lookupPrice = finitePositive(accountPosition?.currentPrice) ?? finitePositive(priceLookup.prices[trade.stockCode]);
+  const currentPrice = lookupPrice ?? finitePositive(entryPrice);
+  const currentPriceSource = lookupPrice !== undefined
+    ? priceLookup.sourceByCode.get(trade.stockCode) ?? 'VIRTUAL_ACCOUNT'
+    : currentPrice !== undefined
+      ? 'ENTRY_PRICE_FALLBACK'
+      : undefined;
+  const unrealizedPnl = computeUnrealizedPnl(currentPrice, entryPrice, qty);
+  const unrealizedPct = computeUnrealizedPct(currentPrice, entryPrice);
+  const rMultiple = computeRMultiple(currentPrice, entryPrice, trade.stopLoss);
 
   return {
     source,
@@ -314,12 +363,97 @@ function normalizeTradePosition(
     stockName: trade.stockName || trade.stockCode,
     qty,
     entryPrice,
+    currentPrice,
+    currentPriceSource,
     unrealizedPnl,
     unrealizedPct,
     realizedPnl: getTotalRealizedPnl(trade),
     rMultiple,
     status: String(trade.status ?? 'OPEN'),
   };
+}
+
+async function resolvePriceLookup(
+  trades: ServerShadowTrade[],
+  logScope: 'POSITION' | 'PNL',
+): Promise<PriceLookupSnapshot> {
+  const codes = Array.from(new Set(
+    trades
+      .map((trade) => trade.stockCode?.padStart(6, '0'))
+      .filter((code): code is string => typeof code === 'string' && code.length > 0),
+  ));
+  const prices: Record<string, number> = {};
+  const sourceByCode = new Map<string, PositionPriceSource>();
+  let realtimeCount = 0;
+  let kisRestCount = 0;
+  let missingCount = 0;
+
+  for (const code of codes) {
+    const realtime = finitePositive(getRealtimePrice(code));
+    if (realtime !== undefined) {
+      prices[code] = realtime;
+      sourceByCode.set(code, 'REALTIME_WS');
+      realtimeCount += 1;
+      continue;
+    }
+
+    const restPrice = await fetchCurrentPrice(code).catch((error) => {
+      console.warn(`[${logScope}_PRICE_LOOKUP_WARN] code=${code} source=KIS_REST`, error instanceof Error ? error.message : error);
+      return null;
+    });
+    const normalizedRestPrice = finitePositive(restPrice);
+    if (normalizedRestPrice !== undefined) {
+      prices[code] = normalizedRestPrice;
+      sourceByCode.set(code, 'KIS_REST');
+      kisRestCount += 1;
+      continue;
+    }
+
+    missingCount += 1;
+  }
+
+  console.info(
+    `[${logScope}_PRICE_SOURCE_COUNTS] requested=${codes.length} realtime=${realtimeCount} ` +
+      `kisRest=${kisRestCount} entryFallback=${missingCount} missing=${missingCount}`,
+  );
+
+  return { prices, sourceByCode };
+}
+
+function finitePositive(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function computeUnrealizedPnl(
+  currentPrice: number | undefined,
+  entryPrice: number,
+  qty: number,
+): number | undefined {
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(entryPrice) || !Number.isFinite(qty)) {
+    return undefined;
+  }
+  return ((currentPrice as number) - entryPrice) * qty;
+}
+
+function computeUnrealizedPct(currentPrice: number | undefined, entryPrice: number): number | undefined {
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(entryPrice) || entryPrice <= 0) {
+    return undefined;
+  }
+  return (((currentPrice as number) / entryPrice) - 1) * 100;
+}
+
+function computeRMultiple(
+  currentPrice: number | undefined,
+  entryPrice: number,
+  stopLoss: number | undefined,
+): number | undefined {
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(entryPrice) || !Number.isFinite(stopLoss)) {
+    return undefined;
+  }
+  const riskPerShare = entryPrice - (stopLoss as number);
+  if (riskPerShare <= 0) return undefined;
+  return ((currentPrice as number) - entryPrice) / riskPerShare;
 }
 
 function isQueryableOpenTrade(trade: ServerShadowTrade): boolean {
