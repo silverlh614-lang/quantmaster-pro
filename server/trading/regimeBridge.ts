@@ -224,19 +224,36 @@ function latchDecayLevel(previousState: RegimeTransitionState, closeEligible: bo
   return 'WATCH';
 }
 
-function latchDecayPercent(previousState: RegimeTransitionState, closeEligible: boolean, now: Date): number {
+function latchDecayPercent(
+  previousState: RegimeTransitionState,
+  closeEligible: boolean,
+  now: Date,
+  recoveryContext?: { triggerBreakdown: R6TriggerBreakdown; macroState: MacroState | null; biasScore: number },
+): number {
   if (!previousState.r6ShockLatch) return 0;
   const triggeredAt = previousState.latchTriggeredAt ? Date.parse(previousState.latchTriggeredAt) : NaN;
   const expiresAt = previousState.latchExpiresAt ? Date.parse(previousState.latchExpiresAt) : NaN;
+  let baseDecay: number;
   if (!Number.isFinite(triggeredAt) || !Number.isFinite(expiresAt) || expiresAt <= triggeredAt) {
-    return closeEligible ? 60 : 0;
+    baseDecay = closeEligible ? 60 : 0;
+  } else {
+    const elapsed = Math.max(0, now.getTime() - triggeredAt);
+    const ttl = Math.max(1, expiresAt - triggeredAt);
+    const timeDecay = Math.round(Math.min(100, (elapsed / ttl) * 100));
+    const releaseAt = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
+    const eligibilityBonus = closeEligible && Number.isFinite(releaseAt) && releaseAt <= now.getTime() ? 60 : 0;
+    baseDecay = Math.min(100, Math.max(timeDecay, eligibilityBonus));
   }
-  const elapsed = Math.max(0, now.getTime() - triggeredAt);
-  const ttl = Math.max(1, expiresAt - triggeredAt);
-  const timeDecay = Math.round(Math.min(100, (elapsed / ttl) * 100));
-  const releaseAt = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
-  const eligibilityBonus = closeEligible && Number.isFinite(releaseAt) && releaseAt <= now.getTime() ? 60 : 0;
-  return Math.max(previousState.latchDecayPercent ?? 0, Math.min(100, Math.max(timeDecay, eligibilityBonus)));
+
+  const contextualFloor = recoveryContext &&
+    recoveryContext.triggerBreakdown.triggerFreshness === 'FRESH' &&
+    (recoveryContext.macroState?.mhs ?? 0) >= 65 &&
+    recoveryContext.biasScore >= 0 &&
+    recoveryContext.triggerBreakdown.activeR6Triggers.length === 0
+      ? closeEligible ? 60 : 30
+      : 0;
+
+  return Math.max(previousState.latchDecayPercent ?? 0, baseDecay, contextualFloor);
 }
 
 function buildR6ShockLatchDetail(args: {
@@ -385,11 +402,11 @@ export function evaluateR6RecoveryTransition(
   const shockLatchTriggered = activeShockTrigger !== undefined;
   const closeEligible = closeRecoveryEligible(triggerBreakdown, macroState);
   const latchExpired = isLatchExpired(previousState, now);
-  const decayPercent = latchDecayPercent(previousState, closeEligible, now);
+  const biasScore = resolveRecoveryBiasScore(macroState);
+  const decayPercent = latchDecayPercent(previousState, closeEligible, now, { triggerBreakdown, macroState, biasScore });
   const nearReleaseWindowMs = 10 * 60_000;
   const releaseAtMs = previousState.latchReleaseEligibleAt ? Date.parse(previousState.latchReleaseEligibleAt) : NaN;
   const releaseReachedOrNear = Number.isFinite(releaseAtMs) && releaseAtMs - now.getTime() <= nearReleaseWindowMs;
-  const biasScore = resolveRecoveryBiasScore(macroState);
   const panicEasingEligible = previousState.r6StateMachineState === 'R6_PANIC' &&
     activeTriggers.length === 0 &&
     (macroState?.mhs ?? 0) >= 60 &&
@@ -469,7 +486,7 @@ export function evaluateR6RecoveryTransition(
     const evidence = buildR6RecoveryEvidence(macroState, now, requiredConfirmations, nextConfirmations);
     const recovered = evidenceComplete(evidence) && nextConfirmations >= requiredConfirmations && Date.parse(cooldownUntil) <= now.getTime();
     const blockedReason = recoveryBlockedReason(triggerBreakdown, previousState, macroState, cooldownUntil, now) ?? (nextConfirmations < requiredConfirmations ? 'R6_RECOVERY_CONFIRMATION_REQUIRED' : undefined);
-    const nextDecayPercent = latchDecayPercent(previousState, closeEligible, now);
+    const nextDecayPercent = latchDecayPercent(previousState, closeEligible, now, { triggerBreakdown, macroState, biasScore });
     const latchStillActive = !recovered && previousState.r6ShockLatch && !isLatchExpired(previousState, now);
     const recoveryWatch = !recovered && recoveryWatchEligible(evidence, previousState, now, triggerBreakdown.triggerFreshness);
     const r6StateMachineState: R6StateMachineState = recovered ? (previousState.r6StateMachineState === 'R5_STABILIZING' ? resolveRecoveredStateMachine(rawRegime, macroState) : 'R5_STABILIZING') : recoveryWatch ? 'R6_RECOVERY_WATCH' : 'R6_DEFENSE';

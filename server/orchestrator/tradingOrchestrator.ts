@@ -574,9 +574,9 @@ export class TradingDayOrchestrator {
 
         let scanResult: { positionFull?: boolean } = {};
         if (decision.priority === 'SELL_ONLY') {
-          scanResult = await runAutoSignalScan({ sellOnly: true }).catch(() => ({})) ?? {};
+          scanResult = await runAutoSignalScan({ sellOnly: true, candidateScanTrigger: decision.candidateScanTrigger }).catch(() => ({})) ?? {};
         } else {
-          scanResult = await runAutoSignalScan().catch(() => ({})) ?? {};
+          scanResult = await runAutoSignalScan({ candidateScanTrigger: decision.candidateScanTrigger }).catch(() => ({})) ?? {};
         }
 
         const shadowsAfter = loadShadowTrades().length;

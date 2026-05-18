@@ -31,6 +31,7 @@ import {
 // + RUNTIME_DIAGNOSTIC 의 persistNormalSupplyPreview 호출에 marketProgramFlow 4 필드
 // carry SSOT 위임. 호출자 측 inline ENV 검사 0건 (SSOT 헬퍼 위임 의무).
 import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPolicy.js';
+import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -145,6 +146,7 @@ async function collectPreflightAbortDiagnostics(
 export interface RunAutoSignalScanOptions {
   sellOnly?: boolean;
   forceBuyCodes?: string[];
+  candidateScanTrigger?: ShadowCandidateScanTrigger;
 }
 
 export interface RunAutoSignalScanResult {
@@ -179,6 +181,7 @@ export async function runAutoSignalScan(
       await persistScanResults(counters, {
         sellOnly: options?.sellOnly,
         ...preflightResult.diagnosticData,
+        ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
         ...(preflightAbortSupplyInjection ? { perSymbolSupplyInjection: preflightAbortSupplyInjection } : {}),
         ...(abortMacro?.sectorEnergyDataQuality !== undefined ? {
           sectorEnergyQuality: abortMacro.sectorEnergyDataQuality,
@@ -267,6 +270,7 @@ export async function runAutoSignalScan(
     sellOnly: options?.sellOnly,
     ...candidates.lengths,
     ...(perSymbolSupplyInjection ? { perSymbolSupplyInjection } : {}),
+    ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
     macroGateState: preflightResult.macroGateState,
     ...(macro?.sectorEnergyDataQuality !== undefined ? {
       sectorEnergyQuality: macro.sectorEnergyDataQuality,

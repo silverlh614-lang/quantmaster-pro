@@ -67,4 +67,27 @@ describe('formatMarketStateNow', () => {
     expect(text).toContain('expiresAt: next day 08:18 KST');
     expect(text).toContain('다음 조건: 추가 저점 이탈 없음 + 종가 안정 + macro fresh');
   });
+
+  it('prints candidate scan status, trigger, candidates, and skip reason fields', () => {
+    const text = formatMarketStateNow(baseSnapshot(), {
+      shadowActivity: {
+        scanAllowed: true,
+        lastScanAt: '16:05 KST',
+        evaluatedCount: 42,
+        candidateCount: 42,
+        buySignalCount: 3,
+        sellCheckCount: 1,
+        paperFillCount: 2,
+        openShadowPositions: 1,
+        candidateScanStatus: 'RAN',
+        candidateScanTrigger: 'R6_CONFIRMATION_WAIT',
+      },
+    });
+
+    expect(text).toContain('Shadow candidate scan: RAN');
+    expect(text).toContain('trigger: R6_CONFIRMATION_WAIT');
+    expect(text).toContain('lastCandidateScanAt: 16:05 KST');
+    expect(text).toContain('candidateEvaluated: 42');
+    expect(text).toContain('buyCandidates: 3');
+  });
 });

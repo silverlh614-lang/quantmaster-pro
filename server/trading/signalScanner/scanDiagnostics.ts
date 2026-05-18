@@ -11,6 +11,7 @@
  */
 
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
+import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 import { getNoiseCounters, logger, logNoiseDetail, logNoiseSummary } from '../../utils/logger.js';
 import {
   buildEmptyScanRootCauseEventsFromStringsAdr0500,
@@ -403,6 +404,7 @@ export interface ScanSummary {
   gateMisses: number;
   rrrMisses: number;
   entries: number;
+  candidateScanTrigger?: ShadowCandidateScanTrigger;
   waitDistribution?: WaitDistribution;
   macroGateState?: MacroGateState;
   emptyScanReason?: EmptyScanReason;
@@ -2568,6 +2570,7 @@ export interface PersistScanResultsOptions {
   watchlistRefreshedAt?: string;
   watchlistSource?: string;
   macroGateState?: MacroGateState;
+  candidateScanTrigger?: ShadowCandidateScanTrigger;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
   sectorEnergyReasons?: string[];
@@ -2657,6 +2660,7 @@ export async function persistScanResults(
     gateMisses: counters.gateMisses,
     rrrMisses: counters.rrrMisses,
     entries: counters.entries,
+    ...(options.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
     waitDistribution: buildWaitDistribution(counters),
     ...(options.macroGateState ? { macroGateState: options.macroGateState } : {}),
     gatePassDistribution: buildGatePassDistribution(counters),

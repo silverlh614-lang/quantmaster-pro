@@ -1,4 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { recordScanResult, getScanFeedbackState, resetScanState } from './adaptiveScanScheduler.js';
 
 function kstTime(hour: number, minute: number): Date {
@@ -7,6 +9,7 @@ function kstTime(hour: number, minute: number): Date {
 
 const buyAllowedNow = kstTime(10, 0);
 const trueEmptyOpts = { now: buyAllowedNow, engineMode: 'NORMAL' as const };
+const schedulerSource = fs.readFileSync(path.resolve(__dirname, 'adaptiveScanScheduler.ts'), 'utf-8');
 
 describe('recordScanResult — 피드백 루프', () => {
   beforeEach(() => {
@@ -106,5 +109,16 @@ describe('recordScanResult — ADR-452b empty scan taxonomy wiring', () => {
   it('positionFull=true이면 기존처럼 streak를 증가시키지 않는다', () => {
     recordScanResult(0, { now: kstTime(10, 0), engineMode: 'NORMAL', positionFull: true });
     expect(getScanFeedbackState().consecutiveEmptyScans).toBe(0);
+  });
+});
+
+
+describe('R6 confirmation/recovery shadow scan trigger wiring', () => {
+  it('routes R6 confirmation wait and bias recovery triggers to FULL shadow candidate scans', () => {
+    expect(schedulerSource).toContain("emitShadowCandidateScanTrigger('R6_CONFIRMATION_WAIT')");
+    expect(schedulerSource).toContain("emitShadowCandidateScanTrigger('BIAS_RECOVERY')");
+    expect(schedulerSource).toContain("priority: 'FULL'");
+    expect(schedulerSource).toContain('candidateScanTrigger: recoveryShadowTrigger');
+    expect(schedulerSource).toContain('executionImpact=NONE liveNewBuyAllowed=false realOrderAllowed=false strongBuyAllowed=false');
   });
 });
