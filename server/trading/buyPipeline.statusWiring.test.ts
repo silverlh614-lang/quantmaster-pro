@@ -60,6 +60,7 @@ vi.mock('./killSwitch.js', () => ({
 vi.mock('../clients/kisClient.js', () => ({
   fetchAccountBalance: async () => 100_000_000,
   placeKisMarketBuyOrder: async () => 'ORD-123',
+  submitBuyOrder: async () => ({ kind: 'SUBMITTED', ordNo: 'ORD-123' }),
 }));
 
 vi.mock('./fillMonitor.js', () => ({

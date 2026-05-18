@@ -521,6 +521,8 @@ async function executeBuyTaskApproval(
     action: approval,
     telegramDelivered: approvalResult.telegramDelivered,
     deliveryFailureReason: approvalResult.deliveryFailureReason,
+    approvalDecision: approvalResult.approvalDecision,
+    normalizedApproval: approvalResult.normalizedApproval,
   });
 
   if (!policy.executionAllowed) {

@@ -10,7 +10,6 @@
  */
 
 import {
-  sendTelegramAlert,
   answerCallbackQuery,
   editMessageText,
   escapeHtml,
@@ -30,6 +29,14 @@ import {
   formatShadowBuyAlertTitle,
   formatShadowBuyExecutionNotice,
 } from './positionDisplayTags.js';
+import { deliverApprovalRequest } from './approval/approvalDeliveryService.js';
+import { resolveLiveApprovalPolicy } from './approval/liveApprovalPolicy.js';
+import { resolveShadowApprovalPolicy } from './approval/shadowApprovalPolicy.js';
+import type {
+  ApprovalDecision,
+  ApprovalDeliveryResult,
+  NormalizedApprovalDecision,
+} from './approval/approvalTypes.js';
 // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단.
 // diagnostic/dedup only — LIVE 매매 본체 무수정, KIS 주문 함수 import 0.
 import {
@@ -109,6 +116,14 @@ export interface BuyApprovalRequestResult {
   telegramDelivered: boolean;
   deliveryFailureReason?: string;
   dedupeBlocked?: boolean;
+  approvalDecision?: ApprovalDecision;
+  normalizedApproval?: NormalizedApprovalDecision;
+  deliveryResult?: ApprovalDeliveryResult;
+  approvalDeliveryFailed?: boolean;
+  approvalRejected?: boolean;
+  approvalExpired?: boolean;
+  executionFailed?: boolean;
+  statusWriteFailed?: boolean;
 }
 
 export function normalizePreMortemForDisplay(preMortem: string | PreMortem | null | undefined): PreMortem | null {
@@ -204,6 +219,51 @@ interface PendingApproval {
 
 /** 대기 중인 승인 요청 (tradeId → PendingApproval) */
 const pendingApprovals = new Map<string, PendingApproval>();
+
+const SYNTHETIC_DELIVERED_APPROVAL: ApprovalDeliveryResult = {
+  kind: 'DELIVERED',
+  messageId: 'deduped',
+};
+
+function resolveApprovalPolicyForMode(
+  mode: 'LIVE' | 'SHADOW',
+  action: ApprovalAction,
+  delivery: ApprovalDeliveryResult,
+  reason?: string,
+): NormalizedApprovalDecision {
+  return mode === 'LIVE'
+    ? resolveLiveApprovalPolicy({ action, delivery, reason })
+    : resolveShadowApprovalPolicy({ action, delivery, reason });
+}
+
+function buildApprovalRequestResult(input: {
+  mode: 'LIVE' | 'SHADOW';
+  action: ApprovalAction;
+  delivery: ApprovalDeliveryResult;
+  dedupeBlocked?: boolean;
+  reason?: string;
+}): BuyApprovalRequestResult {
+  const normalizedApproval = resolveApprovalPolicyForMode(
+    input.mode,
+    input.action,
+    input.delivery,
+    input.reason,
+  );
+  return {
+    action: normalizedApproval.action,
+    telegramDelivered: input.delivery.kind === 'DELIVERED',
+    ...(input.delivery.kind === 'DELIVERY_FAILED' ? { deliveryFailureReason: input.delivery.reason } : {}),
+    ...(input.dedupeBlocked !== undefined ? { dedupeBlocked: input.dedupeBlocked } : {}),
+    approvalDecision: normalizedApproval.decision,
+    normalizedApproval,
+    deliveryResult: input.delivery,
+    approvalDeliveryFailed: normalizedApproval.approvalDeliveryFailed,
+    approvalRejected: normalizedApproval.approvalRejected,
+    approvalExpired: normalizedApproval.approvalExpired,
+    executionFailed: normalizedApproval.executionFailed,
+    statusWriteFailed: normalizedApproval.statusWriteFailed,
+  };
+}
 
 /**
  * 매수 신호 알림을 인라인 키보드와 함께 전송하고, 사용자 응답을 기다린다.
@@ -316,11 +376,15 @@ export async function requestBuyApprovalWithDelivery(params: {
         });
         // 이미 APPROVED 면 'APPROVE' resolve (caller buyPipeline 의 SHADOW 분기 정상 수행).
         // 그 외 (PENDING/REJECTED/SKIPPED/EXPIRED) 는 'SKIP' — caller 가 onRejected 처리.
-        return {
+        return buildApprovalRequestResult({
+          mode,
           action: existing.state === 'APPROVED' ? 'APPROVE' : 'SKIP',
-          telegramDelivered: true,
+          delivery: SYNTHETIC_DELIVERED_APPROVAL,
           dedupeBlocked: true,
-        };
+          reason: existing.state === 'APPROVED'
+            ? 'DUPLICATE_REQUEST_ALREADY_APPROVED'
+            : 'DUPLICATE_APPROVAL_REQUEST_BLOCKED',
+        });
       }
       // DEDUPED state 도 같은 session 안에서 새 카드 발송 금지.
       if (existing.state === 'DEDUPED') {
@@ -331,11 +395,13 @@ export async function requestBuyApprovalWithDelivery(params: {
           approvalCardEmitted: false, approvalState: 'DEDUPED', shadowRecorded: false,
           triggerSource: mapShadowApprovalSourceLaneToAuditTriggerSource(lane), dedupeKey: shadowDedupeKey,
         });
-        return {
+        return buildApprovalRequestResult({
+          mode,
           action: 'SKIP',
-          telegramDelivered: true,
+          delivery: SYNTHETIC_DELIVERED_APPROVAL,
           dedupeBlocked: true,
-        };
+          reason: 'DUPLICATE_APPROVAL_REQUEST_DEDUPED',
+        });
       }
     }
     // 새 record 생성 — state='PENDING' 으로 시작. timerId 는 아래에서 setTimeout 후 별도 갱신.
@@ -399,21 +465,33 @@ export async function requestBuyApprovalWithDelivery(params: {
     ]],
   };
 
-  const msgId = await sendTelegramAlert(message, {
-    priority: 'HIGH',
-    dedupeKey: `buy_approval:${stockCode}`,
-    replyMarkup,
+  const deliveryResult = await deliverApprovalRequest({
+    message,
+    options: {
+      priority: 'HIGH',
+      dedupeKey: `buy_approval:${stockCode}`,
+      replyMarkup,
+    },
   });
 
-  if (!msgId) {
-    // 메시지 전송 실패 시 자동 승인
-    console.warn(`[BuyApproval] 메시지 전송 실패 — 자동 승인: ${stockName}`);
-    return {
+  if (deliveryResult.kind === 'DELIVERY_FAILED') {
+    if (mode === 'SHADOW' && shadowDedupeKey) {
+      markShadowApprovalAutoApproved(shadowDedupeKey);
+      markShadowGateAuditApprovalState({
+        dedupeKey: shadowDedupeKey,
+        approvalState: 'APPROVED',
+        shadowRecorded: true,
+        triggerSource: 'SHADOW_APPROVAL_CARD',
+      });
+    }
+    return buildApprovalRequestResult({
+      mode,
       action: 'APPROVE',
-      telegramDelivered: false,
-      deliveryFailureReason: 'TELEGRAM_DELIVERY_FAILED',
-    };
+      delivery: deliveryResult,
+    });
   }
+
+  const msgId = Number(deliveryResult.messageId);
 
   const action = await new Promise<ApprovalAction>((resolve) => {
     // R6 등 타임아웃 0 → 자동 승인 비활성. 타이머 생성하지 않고 수동 승인만 대기.
@@ -496,7 +574,11 @@ export async function requestBuyApprovalWithDelivery(params: {
       }
     }
   });
-  return { action, telegramDelivered: true };
+  return buildApprovalRequestResult({
+    mode,
+    action,
+    delivery: deliveryResult,
+  });
 }
 
 /**
