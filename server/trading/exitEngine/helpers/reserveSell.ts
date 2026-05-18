@@ -16,7 +16,7 @@
  * Telegram 메시지는 3-상태 접두어를 붙여 운영자가 실주문 여부를 즉시 구분하도록 한다.
  */
 
-import type { SellOrderResult } from '../../../clients/kisClient.js';
+import { placeKisSellOrder, type SellOrderResult } from '../../../clients/kisClient.js';
 import {
   type ServerShadowTrade,
   type PositionFill,
@@ -46,6 +46,12 @@ export type ReserveSellResult =
 
 /** PositionFill 중에서 reserveSell 이 내부적으로 채우는 필드는 입력에서 제외한다. */
 export type SellFillInput = Omit<PositionFill, 'id' | 'ordNo' | 'status' | 'confirmedAt' | 'revertedAt' | 'revertReason' | 'flagToClearOnRevert'>;
+
+type KisSellReason = Parameters<typeof placeKisSellOrder>[3];
+
+export type ReserveSellIntentResult =
+  | { kind: 'RESERVED'; reservationId: string; reservedQty: number }
+  | ReserveSellResult;
 
 function reservationFailureReason(result: SellReservationResult): string {
   switch (result.kind) {
@@ -78,6 +84,45 @@ function failedReserveSellResult(
   };
 }
 
+export function reserveSellIntent(
+  shadow: ServerShadowTrade,
+  qty: number,
+  evtSubType: TradeEvent['subType'],
+  mode: 'LIVE' | 'SHADOW' = shadow.mode === 'LIVE' ? 'LIVE' : 'SHADOW',
+): ReserveSellIntentResult {
+  const reservation = sellReservationManager.reserveSell({
+    trade: shadow,
+    requestedQty: qty,
+    reason: String(evtSubType),
+    mode,
+  });
+  if (reservation.kind === 'RESERVED') return reservation;
+  return failedReserveSellResult(
+    shadow,
+    reservationFailureReason(reservation),
+    reservation.kind === 'DUPLICATE_BLOCKED'
+      ? '?좑툘 [SELL 以묐났 ?덉빟 李⑤떒]'
+      : reservation.kind === 'INSUFFICIENT_QUANTITY'
+        ? '?좑툘 [SELL ?붾웾 遺議?李⑤떒]'
+        : '?좑툘 [SELL ?덉빟 ?ㅽ뙣]',
+  );
+}
+
+export async function placeReservedSellOrder(
+  shadow: ServerShadowTrade,
+  qty: number,
+  orderReason: KisSellReason,
+  fill: SellFillInput,
+  evtSubType: TradeEvent['subType'],
+  flagToClearOnRevert?: PositionFill['flagToClearOnRevert'],
+): Promise<ReserveSellResult> {
+  const intent = reserveSellIntent(shadow, qty, evtSubType);
+  if (intent.kind !== 'RESERVED') return intent;
+
+  const orderRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, qty, orderReason);
+  return reserveSell(shadow, orderRes, fill, evtSubType, flagToClearOnRevert, intent.reservationId);
+}
+
 /**
  * 매도 Fill 을 세 가지 상태 중 하나로 안전하게 기록한다.
  * Fill SSOT (fills 배열) 에 PROVISIONAL/CONFIRMED/REVERTED 라벨을 부여하여
@@ -92,8 +137,15 @@ export function reserveSell(
   fill: SellFillInput,
   evtSubType: TradeEvent['subType'],
   flagToClearOnRevert?: PositionFill['flagToClearOnRevert'],
+  reservationId?: string,
 ): ReserveSellResult {
   if (orderRes.outcome === 'LIVE_FAILED') {
+    if (reservationId) {
+      sellReservationManager.releaseReservation({
+        reservationId,
+        reason: orderRes.failureReason ?? 'LIVE_ORDER_FAILED',
+      });
+    }
     // 실주문 접수 실패 — Fill 기록 스킵. 호출측이 중복 방지 플래그/상태를 롤백한다.
     return {
       kind: 'FAILED',
@@ -106,12 +158,14 @@ export function reserveSell(
   }
 
   const isShadow = orderRes.outcome === 'SHADOW_ONLY';
-  const reservation = sellReservationManager.reserveSell({
+  const reservation = reservationId
+    ? { kind: 'RESERVED' as const, reservationId, reservedQty: fill.qty }
+    : sellReservationManager.reserveSell({
     trade: shadow,
     requestedQty: fill.qty,
     reason: String(evtSubType),
     mode: isShadow ? 'SHADOW' : 'LIVE',
-  });
+    });
   if (reservation.kind !== 'RESERVED') {
     return failedReserveSellResult(
       shadow,

@@ -5,14 +5,13 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { addToBlacklist } from '../../../persistence/blacklistRepo.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers/rollbackFullClose.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
@@ -50,9 +49,8 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   console.log(`[Shadow Close] CASCADE_FINAL — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: isBlacklistStep ? 'CASCADE_STOP_BLACKLIST' : 'CASCADE_STOP_FINAL', ...shadow, soldQty });
   console.log(`[AutoTrade] ❌ ${shadow.stockName} (${shadow.stockCode}) Cascade ${returnPct.toFixed(2)}% — 전량 청산${isBlacklistStep ? ' + 블랙리스트 180일' : ''}`);
-  const cascadeFinalRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, soldQty, 'STOP_LOSS');
   const cascadeFinalTs = new Date().toISOString();
-  const cascadeFinalReserve = reserveSell(shadow, cascadeFinalRes, {
+  const cascadeFinalReserve = await placeReservedSellOrder(shadow, soldQty, 'STOP_LOSS', {
     type: 'SELL', subType: 'STOP_LOSS',
     qty: soldQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * soldQty,
@@ -69,9 +67,9 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
       { priority: 'CRITICAL', dedupeKey: `cascade_final_fail:${shadow.stockCode}` },
     ).catch(console.error);
   }
-  if (cascadeFinalRes.placed && cascadeFinalRes.ordNo) {
+  if (cascadeFinalReserve.kind === 'PENDING') {
     addSellOrder({
-      ordNo: cascadeFinalRes.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
+      ordNo: cascadeFinalReserve.ordNo, stockCode: shadow.stockCode, stockName: shadow.stockName,
       quantity: soldQty, originalReason: 'STOP_LOSS',
       placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
     });

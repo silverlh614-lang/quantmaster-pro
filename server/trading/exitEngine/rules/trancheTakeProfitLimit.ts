@@ -6,12 +6,11 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 
 export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRuleResult> {
@@ -31,10 +30,9 @@ export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRule
       shadow.exitRuleTag = 'LIMIT_TRANCHE_TAKE_PROFIT';
       appendShadowLog({ event: 'PROFIT_TRANCHE', ...shadow, soldQty: sellQty, tranchePrice: t.price, returnPct });
       console.log(`[AutoTrade] 📈 ${shadow.stockName} L3 분할 익절 ${(t.ratio * 100).toFixed(0)}% (${sellQty}주) @${currentPrice.toLocaleString()}`);
-      const trancheRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
       const trancheTs  = new Date().toISOString();
       const trancheIdx = shadow.profitTranches?.filter(x => x.taken && x !== t).length ?? 0;
-      const trancheReserve = reserveSell(shadow, trancheRes, {
+      const trancheReserve = await placeReservedSellOrder(shadow, sellQty, 'TAKE_PROFIT', {
         type: 'SELL', subType: 'PARTIAL_TP',
         qty: sellQty, price: currentPrice,
         pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,

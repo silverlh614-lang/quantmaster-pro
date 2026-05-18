@@ -8,12 +8,11 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { placeKisSellOrder } from '../../../clients/kisClient.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
-import { reserveSell } from '../helpers/reserveSell.js';
+import { placeReservedSellOrder } from '../helpers/reserveSell.js';
 
 export async function rrrCollapseExit(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, returnPct, hardStopLoss } = ctx;
@@ -33,9 +32,8 @@ export async function rrrCollapseExit(ctx: ExitContext): Promise<ExitRuleResult>
   shadow.exitRuleTag = 'RRR_COLLAPSE_PARTIAL';
   appendShadowLog({ event: 'RRR_COLLAPSE_PARTIAL', ...shadow, soldQty: sellQty, liveRRR, returnPct, exitPrice: currentPrice });
   console.log(`[AutoTrade] 📊 ${shadow.stockName} RRR 붕괴 (${liveRRR.toFixed(2)}) — 50% 익절 ${sellQty}주 @${currentPrice.toLocaleString()}`);
-  const rrrRes = await placeKisSellOrder(shadow.stockCode, shadow.stockName, sellQty, 'TAKE_PROFIT');
   const rrrTs = new Date().toISOString();
-  const rrrReserve = reserveSell(shadow, rrrRes, {
+  const rrrReserve = await placeReservedSellOrder(shadow, sellQty, 'TAKE_PROFIT', {
     type: 'SELL', subType: 'PARTIAL_TP',
     qty: sellQty, price: currentPrice,
     pnl: (currentPrice - shadow.shadowEntryPrice) * sellQty,

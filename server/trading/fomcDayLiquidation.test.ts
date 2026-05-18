@@ -26,6 +26,7 @@ vi.mock('../clients/kisClient.js', () => ({
 
 vi.mock('./exitEngine/helpers/reserveSell.js', () => ({
   reserveSell: vi.fn(),
+  placeReservedSellOrder: vi.fn(),
 }));
 
 vi.mock('../alerts/telegramClient.js', () => ({
@@ -89,7 +90,7 @@ import {
   runFomcDayPreLiquidationAlert,
 } from './fomcDayLiquidation.js';
 import { placeKisSellOrder } from '../clients/kisClient.js';
-import { reserveSell } from './exitEngine/helpers/reserveSell.js';
+import { placeReservedSellOrder as reserveSell } from './exitEngine/helpers/reserveSell.js';
 import { sendPrivateAlert } from '../alerts/telegramClient.js';
 import { addSellOrder } from './fillMonitor.js';
 import {
@@ -225,7 +226,7 @@ describe('liquidateAllForFomc — 활성 포지션 처리', () => {
     expect(r.successCount).toBe(2);
     expect(r.failedCount).toBe(0);
     expect(reserveSell).toHaveBeenCalledTimes(2);
-    expect(placeKisSellOrder).toHaveBeenCalledTimes(2);
+    expect(reserveSell).toHaveBeenCalledTimes(2);
     expect(syncPositionCache).toHaveBeenCalledTimes(2);
     expect(addSellOrder).not.toHaveBeenCalled(); // SHADOW 는 LIVE 폴링 등록 미수행
     // attribution 부착 검증
@@ -288,7 +289,7 @@ describe('liquidateAllForFomc — 활성 포지션 처리', () => {
   it('placeKisSellOrder throw → 결과 status=FAILED + reason=Error 메시지', async () => {
     const t1 = makeMockTrade();
     vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
-    vi.mocked(placeKisSellOrder).mockRejectedValueOnce(new Error('네트워크 오류'));
+    vi.mocked(reserveSell).mockRejectedValueOnce(new Error('네트워크 오류'));
 
     const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
     expect(r.failedCount).toBe(1);

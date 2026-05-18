@@ -80,9 +80,8 @@ describe('hardStopLoss BEP_PROTECTION wiring (ADR-0085 PR-B1-1, 정적 가드)',
     expect(HARDSTOP_SRC).toMatch(/BEP_TWO_BAR_LIVE_ENABLED/);
   });
 
-  it('기존 청산 본체 보존 — placeKisSellOrder + reserveSell + emitFullCloseAttributionForExit', () => {
-    expect(HARDSTOP_SRC).toMatch(/placeKisSellOrder\s*\(/);
-    expect(HARDSTOP_SRC).toMatch(/reserveSell\s*\(/);
+  it('기존 청산 본체 보존 — placeReservedSellOrder + emitFullCloseAttributionForExit', () => {
+    expect(HARDSTOP_SRC).toMatch(/placeReservedSellOrder\s*\(/);
     expect(HARDSTOP_SRC).toMatch(/emitFullCloseAttributionForExit\s*\(/);
   });
 
