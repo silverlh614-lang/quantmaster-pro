@@ -5,7 +5,7 @@ import type {
 } from '../programFlowSessionGuard.js';
 
 export type ProgramFlowSignal = 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN' | 'UNAVAILABLE';
-export type ProgramFlowSourceProvider = 'KIS_API' | 'KRX_API' | 'CACHE' | 'SNAPSHOT' | 'NONE';
+export type ProgramFlowSourceProvider = 'KIS_API' | 'KRX_API' | 'KRX_FALLBACK' | 'CACHE' | 'CACHE_STALE' | 'SNAPSHOT' | 'NONE';
 export type ProgramFlowStockCarrySource =
   | 'CANDIDATE_CONTEXT'
   | 'LATEST_INTRADAY_PROGRAM_FLOW_SNAPSHOT'
@@ -321,6 +321,17 @@ export interface ProgramFlowDiagnosticsSummary {
   marketProgramStatusFieldsFound: string[];
   marketProgramBreakPoint: ProgramFlowEvidenceTrace['marketLevel']['breakPoint'];
   marketProgramReason: string;
+  marketProgramNetBuyAmount: number | 'N/A';
+  marketProgramDataStatus: string;
+  kisAttempted: boolean;
+  kisStatus: string;
+  krxFallbackAttempted: boolean;
+  krxFallbackStatus: string;
+  cacheFallbackAttempted: boolean;
+  cacheStatus: string;
+  marketProgramFetchedAt: string | 'N/A';
+  marketProgramParsedFieldName: string | 'N/A';
+  marketProgramRawFieldKeys: string[];
   upstreamPopulation: ProgramFlowUpstreamPopulationTrace;
   sessionGuard: ProgramFlowSessionGuard;
   marketCarryTrace: MarketProgramCarryForensicTrace;

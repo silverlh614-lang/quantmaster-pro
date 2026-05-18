@@ -42,16 +42,20 @@ const PROGRAM_FIELD_KEYS = [
   ...STOCK_PROGRAM_SELL_KEYS,
   ...STOCK_PROGRAM_NET_AMOUNT_KEYS,
   ...STOCK_PROGRAM_NET_BUY_KEYS,
-  'kospiProgramNetBuy', 'kosdaqProgramNetBuy', 'marketProgramNetBuy', 'combinedProgramNetBuy',
-  'marketProgramNetAmount', 'programMarketNetBuy', 'programMarketSignal', 'stockProgramStatus',
+  'kospiProgramNetBuy', 'kosdaqProgramNetBuy', 'marketProgramNetBuy', 'programNetValue', 'totalProgramNetBuy',
+  'totalProgramNetBuyAmount', 'netBuyAmount', 'prgmNetBuy', 'prgmNetBuyAmount', 'combinedProgramNetBuy',
+  'marketProgramNetAmount', 'programMarketNetBuy', 'programArbitrageNetBuyAmount', 'arbitrageNetBuy',
+  'arbitrageNetBuyAmount', 'nonArbitrageNetBuy', 'nonArbitrageNetBuyAmount', 'programMarketSignal', 'stockProgramStatus',
   'marketProgramStatus', 'combinedNetBuy', 'kospiNetBuy', 'kosdaqNetBuy', 'status', 'reason',
 ];
 
 export const MARKET_PROGRAM_NUMERIC_KEYS = [
-  'kospiProgramNetBuy', 'kosdaqProgramNetBuy', 'marketProgramNetBuy', 'combinedProgramNetBuy',
+  'kospiProgramNetBuy', 'kosdaqProgramNetBuy', 'marketProgramNetBuy', 'programNetValue', 'totalProgramNetBuy',
+  'totalProgramNetBuyAmount', 'netBuyAmount', 'prgmNetBuy', 'prgmNetBuyAmount', 'combinedProgramNetBuy',
   'marketProgramNetAmount', 'programMarketNetBuy', 'combinedNetBuy', 'kospiNetBuy', 'kosdaqNetBuy',
   'programTrading.combinedNetBuy', 'programTrading.kospiNetBuy', 'programTrading.kosdaqNetBuy',
   'programNetBuy', 'programNetBuyAmount', 'programNetAmount', 'program_net_buy', 'program_net_amount',
+  'programArbitrageNetBuyAmount', 'arbitrageNetBuy', 'arbitrageNetBuyAmount', 'nonArbitrageNetBuy', 'nonArbitrageNetBuyAmount',
   'programBuyAmount', 'marketProgramBuyAmount', 'programSellAmount', 'marketProgramSellAmount',
 ];
 const MARKET_PROGRAM_STATUS_KEYS = [

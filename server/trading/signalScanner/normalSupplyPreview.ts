@@ -1152,6 +1152,19 @@ function buildProgramFlowDiagnostics(
     marketProgramStatusFieldsFound: evidenceTrace.marketLevel.statusFieldsFound,
     marketProgramBreakPoint: marketCarryTrace.marketProgramBreakPoint,
     marketProgramReason: evidenceTrace.marketLevel.result,
+    marketProgramNetBuyAmount: marketProgramFlow.combinedNetBuy ?? 'N/A',
+    marketProgramDataStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).marketProgramDataStatus) ?? (marketProgramAvailable ? 'PARSED' : 'MISSING'),
+    kisAttempted: (marketProgramFlow as unknown as Record<string, unknown>).kisAttempted === true,
+    kisStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).kisStatus) ?? 'NOT_ATTEMPTED',
+    krxFallbackAttempted: (marketProgramFlow as unknown as Record<string, unknown>).krxFallbackAttempted === true,
+    krxFallbackStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).krxFallbackStatus) ?? 'NOT_ATTEMPTED',
+    cacheFallbackAttempted: (marketProgramFlow as unknown as Record<string, unknown>).cacheFallbackAttempted === true,
+    cacheStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).cacheStatus) ?? 'MISS',
+    marketProgramFetchedAt: stringValue((marketProgramFlow as unknown as Record<string, unknown>).fetchedAt) ?? stringValue((marketProgramFlow as unknown as Record<string, unknown>).programFetchedAt) ?? 'N/A',
+    marketProgramParsedFieldName: stringValue((marketProgramFlow as unknown as Record<string, unknown>).parsedFieldName) ?? 'N/A',
+    marketProgramRawFieldKeys: Array.isArray((marketProgramFlow as unknown as Record<string, unknown>).rawFieldKeys)
+      ? ((marketProgramFlow as unknown as Record<string, unknown>).rawFieldKeys as unknown[]).filter((key): key is string => typeof key === 'string')
+      : [],
     upstreamPopulation: upstream,
     sessionGuard,
     marketCarryTrace,
@@ -1370,6 +1383,14 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
     'combinedNetBuy',
     'combinedProgramNetBuy',
     'marketProgramNetBuy',
+    'programNetValue',
+    'totalProgramNetBuy',
+    'totalProgramNetBuyAmount',
+    'kospiProgramNetBuy',
+    'kosdaqProgramNetBuy',
+    'netBuyAmount',
+    'prgmNetBuy',
+    'prgmNetBuyAmount',
     'marketProgramNetAmount',
     'programMarketNetBuy',
     'programNetBuy',
@@ -1390,9 +1411,22 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
   const sourceProvider = normalizeProgramSource(firstValueFromRecords(records, ['sourceProvider', 'provider', 'programSource', 'source']));
   const explicitSignal = normalizeProgramFlowSignal(firstValueFromRecords(records, ['programMarketSignal', 'marketProgramSignal', 'signal']));
   const status = stringValue(firstValueFromRecords(records, ['stockProgramStatus', 'marketProgramStatus', 'status']));
+  const diagnosticCarry = pickMarketProgramProviderDiagnostics(root);
   const derivedCombined = combined
     ?? (kospiNetBuy !== undefined || kosdaqNetBuy !== undefined ? (kospiNetBuy ?? 0) + (kosdaqNetBuy ?? 0) : undefined)
     ?? (buyAmount !== undefined && sellAmount !== undefined ? buyAmount - sellAmount : undefined);
+  if (sourceProvider === 'CACHE_STALE') {
+    return {
+      ...PROGRAM_FLOW_NOT_AVAILABLE_MARKET,
+      sourceProvider,
+      providerIssue,
+      marketSignal: false,
+      signal: 'UNKNOWN',
+      reason: 'MARKET_PROGRAM_CACHE_STALE_DIAGNOSTIC_ONLY',
+      valueIssue: false,
+      ...diagnosticCarry,
+    };
+  }
   if (derivedCombined === undefined) {
     const unavailableByStatus = status ? /UNAVAILABLE|MISSING|UNSUPPORTED|EMPTY|NONE/i.test(status) : false;
     return {
@@ -1405,10 +1439,11 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
       valueIssue: Boolean(firstValueFailure),
       valueReason: firstValueFailure?.reason,
       sanitizedSample: firstValueFailure?.sanitizedSample,
+      ...diagnosticCarry,
     };
   }
   const selectedValue = combinedResult ?? kospiResult ?? kosdaqResult ?? buyAmountResult ?? sellAmountResult;
-  const signal = providerIssue ? 'UNKNOWN' : explicitSignal ?? signalFromNetBuy(derivedCombined);
+  const signal = providerIssue ? 'UNKNOWN' : explicitSignal ?? marketSignalFromNetBuy(derivedCombined);
   return {
     available: true,
     ...(kospiNetBuy !== undefined ? { kospiNetBuy } : {}),
@@ -1422,9 +1457,24 @@ function normalizeMarketProgramFlow(value: unknown): ProgramFlowDiagnostic['mark
     valueIssue: false,
     valueReason: selectedValue?.reason,
     sanitizedSample: selectedValue?.sanitizedSample,
+    ...diagnosticCarry,
     diagnosticOnly: true,
     executionImpact: 'NONE',
   };
+}
+
+
+function pickMarketProgramProviderDiagnostics(root: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    'marketProgramDataStatus', 'kisAttempted', 'kisStatus', 'krxFallbackAttempted', 'krxFallbackStatus',
+    'cacheFallbackAttempted', 'cacheStatus', 'fetchedAt', 'parsedFieldName', 'rawFieldKeys',
+    'programFlowUsedForLiveDecision', 'passiveProxyUsedForLiveDecision', 'programPenaltyApplied',
+  ];
+  const carried: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(root, key)) carried[key] = root[key];
+  }
+  return carried;
 }
 
 function extractStockProgramFlow(
@@ -1548,6 +1598,13 @@ function selectPassiveProxySignal(
   return 'UNAVAILABLE';
 }
 
+
+function marketSignalFromNetBuy(value: number): ProgramFlowSignal {
+  if (value >= 1000) return 'BULLISH';
+  if (value <= -1000) return 'BEARISH';
+  return 'NEUTRAL';
+}
+
 function signalFromNetBuy(value: number): ProgramFlowSignal {
   if (value > 0) return 'BULLISH';
   if (value < 0) return 'BEARISH';
@@ -1567,7 +1624,9 @@ function normalizeProgramFlowSignal(value: unknown): ProgramFlowSignal | undefin
 
 function normalizeProgramSource(value: unknown): ProgramFlowSourceProvider {
   if (value === 'KIS_API') return 'KIS_API';
+  if (value === 'KRX_FALLBACK') return 'KRX_FALLBACK';
   if (value === 'KRX_API' || value === 'KRX' || value === 'KRX_INVESTOR_FLOW') return 'KRX_API';
+  if (value === 'CACHE_STALE') return 'CACHE_STALE';
   if (value === 'CACHE') return 'CACHE';
   if (value === 'SNAPSHOT') return 'SNAPSHOT';
   return 'NONE';

@@ -17,6 +17,7 @@ import {
 // programSource) 를 SSOT 위임으로 격상 → 4 필드 (programArbitrageNetBuy/programFetchedAt
 // 추가) 모두 carry. 호출자 측 inline 객체 합성 → SSOT 단일 호출로 drift 차단.
 import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPolicy.js';
+import { resolveMarketProgramFlow } from './marketProgramFlowProvider.js';
 // Patch-PER-STOCK-PROGRAM-FLOW-CARRY-WIRING-001 — Producer 측 후보별 stockProgramFlow
 // 첨부 SSOT. consumer (`normalSupplyPreview.ts:851`) 가 `candidate.stockProgramFlow` 를
 // read-ready 하지만 producer 가 첨부 0건이던 결함 차단. ENV
@@ -123,6 +124,7 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
         },
       });
 
+  const liveMarketProgramFlow = await resolveMarketProgramFlow().catch(() => undefined);
   return persistNormalSupplyPreview({
     engineMode,
     source: 'COMMAND',
@@ -135,7 +137,7 @@ export async function collectNormalSupplyPreviewFromWatchlist(params: {
     // 이지만 default OFF 이므로 즉시 활성. ENV ON 시 marketProgramFlow 인자 미전달 처리되어
     // legacy 2 필드 carry 와 동일하게 normalSupplyPreview 가 extractMarketProgramFlowFromCandidates
     // 또는 latestIntradayProgramFlowSnapshot fallback 으로 대체).
-    marketProgramFlow: buildMarketProgramFlowCarryPayload(macroState),
+    marketProgramFlow: liveMarketProgramFlow ?? buildMarketProgramFlowCarryPayload(macroState),
     marketProgramCarrySource: macroState,
   });
 }

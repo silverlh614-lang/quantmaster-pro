@@ -97,6 +97,8 @@ export interface KisMarketProgramTrade {
   marketSignal?: boolean;
   scoring?: 'enabled' | 'excluded' | 'limited' | 'neutral';
   executionImpact?: 'NONE';
+  rawFieldKeys?: string[];
+  parsedFieldName?: string;
   aggregateDiagnostic?: Record<string, unknown>;
 }
 
