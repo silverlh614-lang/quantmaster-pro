@@ -1,0 +1,15 @@
+// @responsibility Shared operational execution impact taxonomy.
+
+export type ExecutionImpact =
+  | 'LIVE_ORDER_BLOCKED'
+  | 'LIVE_SELL_BLOCKED'
+  | 'EXIT_MONITOR_DEGRADED'
+  | 'POSITION_QUERY_DEGRADED'
+  | 'SHADOW_POSITION_AT_RISK'
+  | 'SHADOW_LEARNING_DEGRADED'
+  | 'SHADOW_EXECUTION_DEGRADED'
+  | 'APPROVAL_FLOW_DEGRADED'
+  | 'REGIME_DISPLAY_CONFLICT'
+  | 'SCAN_GATE_DEGRADED'
+  | 'PROVIDER_CORE_DEGRADED'
+  | 'NONE';
