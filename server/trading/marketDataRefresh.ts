@@ -827,6 +827,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         blockRegimeUsage: true,
       },
       rawNonZero,
+      combinedSource: ((marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined)?.combinedSource as string | undefined) ?? 'UNKNOWN',
+      splitAvailable: Boolean((marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined)?.splitAvailable),
+      combinedOnly: Boolean((marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined)?.combinedOnly),
       rowBreakdown: {
         kospi: {
           outputLength: marketProgram.kospiDiagnostics?.rowCount ?? 0,
@@ -849,7 +852,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
           unitCandidates: buildUnitCandidates(marketProgram.kosdaqNetBuyAmount ?? null),
         },
         combined: {
-          outputLength: marketProgram.rowCount ?? 0,
+          outputLength: (marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0),
           nonZeroRows: marketProgram.nonZeroRowCount ?? 0,
           selectedBsopHour: marketProgram.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: rawWhole,

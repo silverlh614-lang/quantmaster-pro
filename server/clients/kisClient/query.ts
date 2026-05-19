@@ -477,6 +477,34 @@ export async function fetchKisStockProgramTrade(
   }
 }
 
+
+function extractMarketProgramRows(data: unknown): Record<string, unknown>[] {
+  if (!data || typeof data !== 'object') return [];
+  const rec = data as Record<string, unknown>;
+  const out = rec.output;
+  if (Array.isArray(out)) return out.filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === 'object');
+  if (out && typeof out === 'object') return [out as Record<string, unknown>];
+  return [];
+}
+
+function getLatestByBsopHour(rows: Record<string, unknown>[]): Record<string, unknown> | null {
+  if (rows.length === 0) return null;
+  return rows.reduce<Record<string, unknown> | null>((best, row) => {
+    const hour = String(row.bsop_hour ?? '');
+    if (!best) return row;
+    return hour > String(best.bsop_hour ?? '') ? row : best;
+  }, null);
+}
+
+function readNum(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const n = Number(v.replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 // ─── ADR-0138 (정정 ADR-0144): 시장 종합 프로그램 매매 추이 ───────────────────
 // 사용자 12 아이디어 #4 — 시장 단위 프로그램 자금 흐름 (코스피 전체).
 // ADR-0137 종목별 데이터와 *별도* — 시장 방향성 신호 (regime 가중치 입력).
@@ -524,13 +552,53 @@ export async function fetchKisMarketProgramTrade(
     }
     const kospi = materializeKisMarketProgramTrade(kospiData);
     const kosdaq = materializeKisMarketProgramTrade(kosdaqData);
+    const kospiRows = extractMarketProgramRows(kospiData);
+    const kosdaqRows = extractMarketProgramRows(kosdaqData);
+    const kospiSelected = getLatestByBsopHour(kospiRows);
+    const kosdaqSelected = getLatestByBsopHour(kosdaqRows);
+    const combinedRows = [...kospiRows, ...kosdaqRows];
+    const combinedSelected = getLatestByBsopHour(combinedRows);
+    const splitAvailable = kospiRows.length > 0 || kosdaqRows.length > 0;
+    const combinedOnly = !splitAvailable;
+
+    console.log('[KIS_MARKET_PROGRAM_KOSPI_FETCH_RESULT]', JSON.stringify({
+      requested: true,
+      marketClassCode: 'K',
+      responseCode: (kospiData as Record<string, unknown> | null)?.rt_cd ?? null,
+      msgCd: (kospiData as Record<string, unknown> | null)?.msg_cd ?? null,
+      outputLength: kospiRows.length,
+      firstRowBsopHour: kospiRows[0]?.bsop_hour ?? null,
+      lastRowBsopHour: kospiRows[kospiRows.length - 1]?.bsop_hour ?? null,
+      selectedBsopHour: kospiSelected?.bsop_hour ?? null,
+      selectedRawWholeNetBuy: readNum(kospiSelected?.whol_smtn_ntby_tr_pbmn),
+    }));
+    console.log('[KIS_MARKET_PROGRAM_KOSDAQ_FETCH_RESULT]', JSON.stringify({
+      requested: true,
+      marketClassCode: 'Q',
+      responseCode: (kosdaqData as Record<string, unknown> | null)?.rt_cd ?? null,
+      msgCd: (kosdaqData as Record<string, unknown> | null)?.msg_cd ?? null,
+      outputLength: kosdaqRows.length,
+      firstRowBsopHour: kosdaqRows[0]?.bsop_hour ?? null,
+      lastRowBsopHour: kosdaqRows[kosdaqRows.length - 1]?.bsop_hour ?? null,
+      selectedBsopHour: kosdaqSelected?.bsop_hour ?? null,
+      selectedRawWholeNetBuy: readNum(kosdaqSelected?.whol_smtn_ntby_tr_pbmn),
+    }));
+    console.log('[KIS_MARKET_PROGRAM_COMBINED_RESULT]', JSON.stringify({
+      kospiOutputLength: kospiRows.length,
+      kosdaqOutputLength: kosdaqRows.length,
+      combinedOutputLength: combinedRows.length,
+      combinedNonZeroRows: combinedRows.filter((r) => (readNum(r.whol_smtn_ntby_tr_pbmn) ?? 0) !== 0).length,
+      splitAvailable,
+      combinedOnly,
+    }));
+
     const pick = kospi.materialized ?? kosdaq.materialized;
     if (pick) {
       const k = kospi.materialized;
       const q = kosdaq.materialized;
       return {
         ...pick,
-        programNetBuyQty: (k?.programNetBuyQty ?? 0) + (q?.programNetBuyQty ?? 0),
+        programNetBuyQty: (k?.programNetBuyQty ?? q?.programNetBuyQty ?? null) === null ? null : ((k?.programNetBuyQty ?? 0) + (q?.programNetBuyQty ?? 0)),
         programNetBuyAmount: (k?.programNetBuyAmount ?? 0) + (q?.programNetBuyAmount ?? 0),
         programArbitrageNetBuy: (k?.programArbitrageNetBuy ?? 0) + (q?.programArbitrageNetBuy ?? 0),
         programNonArbitrageNetBuy: (k?.programNonArbitrageNetBuy ?? 0) + (q?.programNonArbitrageNetBuy ?? 0),
@@ -540,6 +608,14 @@ export async function fetchKisMarketProgramTrade(
           kospi: kospi.diagnostics,
           kosdaq: kosdaq.diagnostics,
           finalStatus: k && q ? 'VERIFIED' : 'PARTIAL_VERIFIED',
+          splitAvailable,
+          combinedOnly,
+          combinedSource: 'KOSPI_PLUS_KOSDAQ',
+          rowBreakdownBundle: {
+            kospi: { requested: true, marketClassCode: 'K', responseCode: String((kospiData as Record<string, unknown> | null)?.rt_cd ?? ''), outputLength: kospiRows.length, rows: kospiRows, selectedRow: kospiSelected, selectedBsopHour: kospiSelected ? String(kospiSelected.bsop_hour ?? '') : null },
+            kosdaq: { requested: true, marketClassCode: 'Q', responseCode: String((kosdaqData as Record<string, unknown> | null)?.rt_cd ?? ''), outputLength: kosdaqRows.length, rows: kosdaqRows, selectedRow: kosdaqSelected, selectedBsopHour: kosdaqSelected ? String(kosdaqSelected.bsop_hour ?? '') : null },
+            combined: { rows: combinedRows, outputLength: combinedRows.length, nonZeroRows: combinedRows.filter((r) => (readNum(r.whol_smtn_ntby_tr_pbmn) ?? 0) !== 0).length, selectedRow: combinedSelected, selectedBsopHour: combinedSelected ? String(combinedSelected.bsop_hour ?? '') : null },
+          },
         },
       };
     }
