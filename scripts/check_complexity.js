@@ -91,6 +91,25 @@ const BASELINE_TECHNICAL_DEBT = [
   //   baseline. 본 PR 은 호출자 (normalSupplyPreviewRunner.ts) 만 수정 — 본체 무수정.
   //   분해 작업은 별도 ADR 후속 PR. ADR-0502c 패턴 정합으로 카탈로그 등재.
   'server/trading/signalScanner/normalSupplyPreview.ts',
+  // Patch-ACMA-BASELINE-DIAGNOSTIC-MODULES-001 (2026-05-19) — 3 진단 모듈 사전 baseline.
+  //   origin/main pre-existing baseline (`git show origin/main:<file> | wc -l` 동일 재현 확정):
+  //     - server/quant/gate2Diagnostics.ts (2068 LoC) — Gate2 데이터 wiring 진단 SSOT.
+  //       Patch Gate2 wiring/KIS investor flow/DART financial/benchmark/sector leader/program
+  //       trade/regression snapshots/consolidated renderer 8건 patch 누적.
+  //     - server/learning/regimeLearningBackfill.ts (1826 LoC) — 레짐 학습 backfill 진단.
+  //       Patch LRN regime source inventory/snapshot reconstruction/daily fallback scan/
+  //       ratio failure cohort 4건 patch 누적.
+  //     - server/learning/regimeLearningBank.ts (1656 LoC) — 레짐별 Shadow Learning Bank.
+  //       PR #1115 (clean regime warning state, split promotion blockers) + LRN regime
+  //       source inventory 등 누적.
+  //   3 파일 모두 @responsibility 헤더에 *진단 전용* 명시 — 자동 매매 본체 무관 (KIS/KRX/
+  //   Yahoo/Naver outbound 0건, executionImpact='NONE', read-only consumer). ADR-0502c +
+  //   ADR-0367 + Patch-MARKET-PROGRAM-CARRY-WIRING-001 패턴 정합으로 카탈로그 등재 →
+  //   거버넌스 정합 (validate:complexity EXIT=0) 회복. 분해 작업은 각 파일별 별도 ADR
+  //   후속 PR 시리즈로 진행 (책임 단위 SSOT 분리 + import 정합 + 회귀 테스트 의무).
+  'server/quant/gate2Diagnostics.ts',
+  'server/learning/regimeLearningBackfill.ts',
+  'server/learning/regimeLearningBank.ts',
 ];
 
 function isBaseline(file) {
