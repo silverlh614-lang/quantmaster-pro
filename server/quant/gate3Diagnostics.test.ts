@@ -5,7 +5,7 @@ import {
   type ServerGateResult,
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
-import { normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
+import { normalizeGate3PriceStructure, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
 
 type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -67,6 +67,59 @@ function run(q: YahooQuoteExtended): ServerGateResult {
 }
 
 describe('Gate3 diagnostics wiring', () => {
+  it('price structure: turtle breakout pass/high20d', () => {
+    const ps = normalizeGate3PriceStructure({
+      quote: quote({ currentPrice: 10_500, high20d: 10_000, high60d: 12_000, low20d: 8_500 }) as any,
+    });
+    expect(ps.turtle.status).toBe('PASS');
+    expect([20, 60]).toContain(ps.turtle.period);
+    expect(ps.breakout.breakoutType).toBe('HIGH_20D');
+    expect(ps.breakout.breakoutGapPct).toBeCloseTo(0.05, 6);
+    expect(ps.status).toBe('VERIFIED');
+    expect(ps.marketSignal).toBe(false);
+  });
+
+  it('price structure: high20d missing is MISSING not FAIL', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ high20d: undefined, high60d: undefined }) as any });
+    expect(ps.turtle.status).toBe('MISSING');
+    expect(ps.missingFields).toContain('high20d');
+    expect(ps.turtle.status).not.toBe('FAIL');
+    expect(ps.marketSignal).toBe(false);
+  });
+
+  it('price structure: fallback to price', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ currentPrice: undefined, price: 9999 }) as any });
+    expect(ps.currentPrice).toBe(9999);
+    expect(ps.priceFieldUsed).toBe('price');
+    expect(ps.notes).toContain('PRICE_FALLBACK_USED');
+  });
+
+  it('price structure: all price fields missing', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ currentPrice: undefined, price: undefined, close: undefined }) as any });
+    expect(ps.currentPrice).toBeNull();
+    expect(ps.breakout.status).toBe('MISSING');
+    expect(ps.marketSignal).toBe(false);
+  });
+
+  it('price structure: pullback drawdown calc', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ currentPrice: 9000, high60d: 10000 }) as any });
+    expect(ps.pullback.drawdownFromHigh60dPct).toBeCloseTo(-0.1, 6);
+    expect(ps.pullback.available).toBe(true);
+    expect(ps.marketSignal).toBe(false);
+  });
+
+  it('price structure: range 20d calc', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ high20d: 10_000, low20d: 8_000 }) as any });
+    expect(ps.rangeStructure.range20dPct).toBeCloseTo(0.25, 6);
+    expect(ps.rangeStructure.available).toBe(true);
+  });
+
+  it('price structure: extended chase advisory only', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ currentPrice: 10_950, high20d: 10_000 }) as any });
+    expect(ps.breakout.breakoutGapPct).toBeCloseTo(0.095, 6);
+    expect(ps.notes).toContain('BREAKOUT_EXTENDED_CHASE_RISK');
+  });
+
   it('normal breakout volume inputs are verified', () => {
     const gate3 = run(quote()).gateLayerSummary!.gate3 as any;
     const vt = gate3.externalDataCoverage.volumeTiming;
@@ -136,5 +189,15 @@ describe('Gate3 diagnostics wiring', () => {
     expect(vt.dataGranularity).toBe('DAILY');
     expect(vt.notes).toContain('INTRADAY_NOT_FETCHED');
     expect(vt.marketSignal).toBe(false);
+  });
+
+  it('diagnostic-only invariance for score fields', () => {
+    const before = run(quote());
+    const after = run(quote());
+    expect(after.rawScore).toBe(before.rawScore);
+    expect(after.gateScore).toBe(before.gateScore);
+    expect(after.normalizedGateScore).toBe(before.normalizedGateScore);
+    expect(after.signalType).toBe(before.signalType);
+    expect(after.positionPct).toBe(before.positionPct);
   });
 });
