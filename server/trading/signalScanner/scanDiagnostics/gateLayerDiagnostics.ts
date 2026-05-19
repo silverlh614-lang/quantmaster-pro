@@ -12,6 +12,17 @@ export interface GateLayerAuditSummary {
   topGate1BlockReasons: Array<{ reason: string; count: number }>;
   topGate2BlockReasons: Array<{ reason: string; count: number }>;
   topGate3BlockReasons: Array<{ reason: string; count: number }>;
+  gate1Survival?: Gate1SurvivalAuditSummary;
+}
+
+export interface Gate1SurvivalAuditSummary {
+  samples: number;
+  quoteFreshness: Record<string, number>;
+  quoteCoverageConfidence: Record<string, number>;
+  marketSession: Record<string, number>;
+  shadowMode: Record<string, number>;
+  liveBuyBlockedCount: number;
+  shadowAllowedCount: number;
 }
 
 export interface GateLayerAuditAccumulator {
@@ -22,6 +33,7 @@ export interface GateLayerAuditAccumulator {
   gate1BlockReasons: Record<string, number>;
   gate2BlockReasons: Record<string, number>;
   gate3BlockReasons: Record<string, number>;
+  gate1Survival: Gate1SurvivalAuditSummary;
 }
 
 export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
@@ -33,6 +45,15 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
     gate1BlockReasons: {},
     gate2BlockReasons: {},
     gate3BlockReasons: {},
+    gate1Survival: {
+      samples: 0,
+      quoteFreshness: {},
+      quoteCoverageConfidence: {},
+      marketSession: {},
+      shadowMode: {},
+      liveBuyBlockedCount: 0,
+      shadowAllowedCount: 0,
+    },
   };
 }
 
@@ -59,9 +80,20 @@ export function accumulateGateLayerSummary(
   )) {
     counters.gateLayerAudit.strongBuySuppressedByDataUnavailableCount += 1;
   }
+  const survival = summary.gate1.survival;
+  if (survival) {
+    counters.gateLayerAudit.gate1Survival.samples += 1;
+    incrementCount(counters.gateLayerAudit.gate1Survival.quoteFreshness, survival.quoteFreshness.status);
+    incrementCount(counters.gateLayerAudit.gate1Survival.quoteCoverageConfidence, survival.kisOfficialQuoteCoverage.confidence);
+    incrementCount(counters.gateLayerAudit.gate1Survival.marketSession, survival.marketSessionCompatibility.session);
+    incrementCount(counters.gateLayerAudit.gate1Survival.shadowMode, survival.shadowEligibility.mode);
+    if (!survival.marketSessionCompatibility.liveBuyAllowed) counters.gateLayerAudit.gate1Survival.liveBuyBlockedCount += 1;
+    if (survival.marketSessionCompatibility.shadowAllowed || survival.shadowEligibility.allowed) counters.gateLayerAudit.gate1Survival.shadowAllowedCount += 1;
+  }
 }
 
 export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
+  const survival = counters.gateLayerAudit.gate1Survival;
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,
     gate2PassCount: counters.gateLayerAudit.gate2PassCount,
@@ -70,5 +102,26 @@ export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAud
     topGate1BlockReasons: topCounts(counters.gateLayerAudit.gate1BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
     topGate2BlockReasons: topCounts(counters.gateLayerAudit.gate2BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
     topGate3BlockReasons: topCounts(counters.gateLayerAudit.gate3BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
+    ...(survival.samples > 0 ? { gate1Survival: { ...survival } } : {}),
   };
+}
+
+function topKey(counts: Record<string, number>): string {
+  const [top] = topCounts(counts);
+  return top ? `${top.condition}:${top.count}` : 'none';
+}
+
+export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSummary | null | undefined): string | null {
+  if (!summary || summary.samples <= 0) return null;
+  return [
+    '<b>Gate1 Survival Diagnostic</b>',
+    `  samples: ${summary.samples}`,
+    `  quoteFreshness: ${topKey(summary.quoteFreshness)}`,
+    `  quoteCoverageConfidence: ${topKey(summary.quoteCoverageConfidence)}`,
+    `  marketSession: ${topKey(summary.marketSession)}`,
+    `  shadowMode: ${topKey(summary.shadowMode)}`,
+    `  liveBuyBlockedOnly/advisory: ${summary.liveBuyBlockedCount}`,
+    `  shadowAllowed: ${summary.shadowAllowedCount}`,
+    '  executionImpact: NONE for shadow; scoringImpact: NONE',
+  ].join('\n');
 }

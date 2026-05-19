@@ -277,7 +277,7 @@ import {
   formatGateScoreCandidateBucketSection,
   formatGateScoreHealthSection,
 } from './scanDiagnostics/gateScoreDiagnostics.js';
-import { buildGateLayerAuditSummary } from './scanDiagnostics/gateLayerDiagnostics.js';
+import { buildGateLayerAuditSummary, formatGate1SurvivalAuditSection } from './scanDiagnostics/gateLayerDiagnostics.js';
 import { buildPerStageDropoffSummary } from './scanDiagnostics/pipelineStageDiagnostics.js';
 import { scanDiagnosticNumber, scanDiagnosticString } from './scanDiagnostics/macroScanDiagnostics.js';
 import {
@@ -835,6 +835,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   // ADR-458 — Approved Gate Reclassification Dry-Run (shadow-only, executionImpact NONE).
+  const gate1SurvivalSection = formatGate1SurvivalAuditSection(summary.gateLayerAudit?.gate1Survival);
+  if (gate1SurvivalSection) {
+    lines.push('');
+    lines.push(gate1SurvivalSection);
+  }
+
   const gateReclassificationDryRunSection = formatGateReclassificationDryRunSection(summary.gateReclassificationDryRun);
   if (gateReclassificationDryRunSection) {
     lines.push('');

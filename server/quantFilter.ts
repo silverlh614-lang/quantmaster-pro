@@ -51,6 +51,67 @@ export interface Gate1SourceCoverage {
   allExternalDataAvailable: boolean;
 }
 
+export type Gate1SurvivalExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED_ONLY' | 'DIAGNOSTIC_ONLY';
+
+export type Gate1QuoteFreshnessStatus = 'OK' | 'STALE' | 'MISSING' | 'UNKNOWN';
+export type Gate1TradabilityStatus = 'TRADABLE' | 'HALTED' | 'WARNING' | 'MANAGEMENT' | 'UNKNOWN';
+export type Gate1TradabilitySource = 'KIS_OFFICIAL' | 'QMP_MASTER' | 'UNKNOWN';
+export type Gate1LiquidityFloorStatus = 'PASS' | 'FAIL' | 'UNKNOWN';
+export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNCH' | 'SELL_ONLY' | 'CLOSED' | 'UNKNOWN';
+export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
+export type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
+export type Gate1ShadowEligibilityMode = 'NORMAL_SHADOW' | 'DEGRADED_SHADOW' | 'OBSERVE_ONLY';
+
+export interface Gate1SurvivalDiagnostic {
+  quoteFreshness: {
+    status: Gate1QuoteFreshnessStatus;
+    asOf: string | null;
+    ageSec: number | null;
+    provider: string | null;
+    executionImpact: Gate1SurvivalExecutionImpact;
+    providerIssue: boolean;
+    marketSignal: false;
+  };
+  tradability: {
+    status: Gate1TradabilityStatus;
+    source: Gate1TradabilitySource;
+    reason: string | null;
+    executionImpact: Gate1SurvivalExecutionImpact;
+  };
+  liquidityFloor: {
+    status: Gate1LiquidityFloorStatus;
+    volume: number | null;
+    tradingValue: number | null;
+    threshold: {
+      minVolume: number | null;
+      minTradingValue: number | null;
+    };
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  };
+  marketSessionCompatibility: {
+    session: Gate1MarketSession;
+    liveBuyAllowed: boolean;
+    shadowAllowed: boolean;
+    reason: string | null;
+  };
+  kisOfficialQuoteCoverage: {
+    source: Gate1QuoteCoverageSource;
+    requiredFields: string[];
+    presentFields: string[];
+    missingFields: string[];
+    allRequiredFieldsPresent: boolean;
+    confidence: Gate1QuoteCoverageConfidence;
+    providerIssue: boolean;
+    marketSignal: false;
+  };
+  shadowEligibility: {
+    allowed: boolean;
+    mode: Gate1ShadowEligibilityMode;
+    executionImpact: 'NONE';
+    reason: string | null;
+  };
+}
+
 export interface GateLayerBucket {
   fired: string[];
   unavailable: string[];
@@ -61,6 +122,7 @@ export interface GateLayerBucket {
   availableMaxScore: number;
   wiring?: Gate1WiringDiagnostic[];
   sourceCoverage?: Gate1SourceCoverage;
+  survival?: Gate1SurvivalDiagnostic;
 }
 
 export interface GateLayerSummary {
@@ -180,6 +242,27 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
 
 const CONDITION_WEIGHT_MIN = 0.1;
 const CONDITION_WEIGHT_MAX = 2.0;
+const GATE1_SURVIVAL_STALE_AFTER_SEC = 15 * 60;
+const GATE1_SURVIVAL_MIN_VOLUME = 10_000;
+const GATE1_SURVIVAL_MIN_TRADING_VALUE = 100_000_000;
+
+type QuoteRecord = YahooQuoteExtended & Record<string, unknown>;
+
+const GATE1_SURVIVAL_QUOTE_FIELD_ALIASES: ReadonlyArray<{ field: string; aliases: readonly string[] }> = [
+  { field: 'quote.price', aliases: ['price', 'currentPrice', 'regularMarketPrice'] },
+  { field: 'quote.volume', aliases: ['volume', 'regularMarketVolume', 'acmlVol', 'acml_vol'] },
+  { field: 'quote.dayHigh', aliases: ['dayHigh', 'high', 'regularMarketDayHigh', 'highPrice'] },
+  { field: 'quote.dayLow', aliases: ['dayLow', 'low', 'regularMarketDayLow', 'lowPrice'] },
+  { field: 'quote.changePercent', aliases: ['changePercent', 'changeRate', 'prdyCtrt', 'prdy_ctrt'] },
+  { field: 'quote.tradingValue', aliases: ['tradingValue', 'tradeValue', 'accTradePrice', 'acmlTrPbmn', 'acml_tr_pbmn'] },
+  { field: 'quote.marketDivCode', aliases: ['marketDivCode', 'marketCode', 'fidCondMrktDivCode', 'fid_cond_mrkt_div_code'] },
+  { field: 'quote.symbol', aliases: ['symbol', 'code', 'stockCode', 'ticker'] },
+  { field: 'quote.ma5', aliases: ['ma5'] },
+  { field: 'quote.ma20', aliases: ['ma20'] },
+  { field: 'quote.ma60', aliases: ['ma60'] },
+  { field: 'quote.ma60TrendUp', aliases: ['ma60TrendUp'] },
+  { field: 'quote.weeklyRSI', aliases: ['weeklyRSI'] },
+];
 
 /** Gate condition → 3-layer diagnostic SSOT. Live thresholds/weights are not derived from this map. */
 export const GATE_CONDITION_LAYER_MAP: Record<ConditionKey, GateLayerName> = {
@@ -223,6 +306,280 @@ function emptyGate1SourceCoverage(): Gate1SourceCoverage {
     missingExternalData: [],
     allDeclaredInputsAvailable: true,
     allExternalDataAvailable: true,
+  };
+}
+
+function hasQuoteValue(quote: QuoteRecord, aliases: readonly string[]): boolean {
+  return aliases.some(alias => Object.prototype.hasOwnProperty.call(quote, alias) && quote[alias] != null);
+}
+
+function firstQuoteValue(quote: QuoteRecord, aliases: readonly string[]): unknown {
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(quote, alias) && quote[alias] != null) return quote[alias];
+  }
+  return undefined;
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function positiveNumberOrNull(value: unknown): number | null {
+  const n = finiteNumberOrNull(value);
+  return n != null && n > 0 ? n : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function boolValue(value: unknown): boolean {
+  return value === true || value === 'true' || value === 'Y' || value === '1' || value === 1;
+}
+
+function inferQuoteProviderLabel(quote: QuoteRecord): string | null {
+  const priceMetadata = quote.priceMetadata as { source?: unknown } | undefined;
+  return stringOrNull(priceMetadata?.source)
+    ?? stringOrNull(quote.quoteProvider)
+    ?? stringOrNull(quote.provider)
+    ?? stringOrNull(quote.source)
+    ?? stringOrNull(quote.priceProvider);
+}
+
+function inferQuoteCoverageSource(quote: QuoteRecord): Gate1QuoteCoverageSource {
+  const provider = (inferQuoteProviderLabel(quote) ?? '').toUpperCase();
+  const priceProvider = String(quote.priceProvider ?? '').toUpperCase();
+  const dataQuality = String(quote.dataQuality ?? '').toUpperCase();
+  if (provider.includes('KIS') || priceProvider.includes('KIS')) return 'KIS_OFFICIAL';
+  if (provider.includes('QMP')) return 'QMP_QUOTE';
+  if (provider.includes('YAHOO') || priceProvider.includes('YAHOO')) return 'YAHOO';
+  if (provider.includes('CACHE') || priceProvider.includes('CACHE') || dataQuality.includes('CACHE')) return 'CACHE';
+  return 'UNKNOWN';
+}
+
+function buildGate1QuoteCoverage(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'] {
+  const q = quote as QuoteRecord;
+  const requiredFields = GATE1_SURVIVAL_QUOTE_FIELD_ALIASES.map(item => item.field);
+  const presentFields: string[] = [];
+  const missingFields: string[] = [];
+  for (const item of GATE1_SURVIVAL_QUOTE_FIELD_ALIASES) {
+    if (hasQuoteValue(q, item.aliases)) presentFields.push(item.field);
+    else missingFields.push(item.field);
+  }
+
+  const source = inferQuoteCoverageSource(q);
+  const allRequiredFieldsPresent = missingFields.length === 0;
+  const dataQuality = String(q.dataQuality ?? '').toUpperCase();
+  const providerLabel = (inferQuoteProviderLabel(q) ?? '').toUpperCase();
+  const confidence: Gate1QuoteCoverageConfidence = providerLabel.includes('AI')
+    ? 'AI_ESTIMATED'
+    : dataQuality.includes('STALE') || q.yahooDerivedIndicatorsReliable === false
+      ? 'STALE'
+      : presentFields.length === 0 || (missingFields.includes('quote.price') && missingFields.includes('quote.volume'))
+        ? 'MISSING'
+        : !allRequiredFieldsPresent
+          ? 'DEGRADED'
+          : source === 'UNKNOWN'
+            ? 'DEGRADED'
+            : 'VERIFIED';
+
+  return {
+    source,
+    requiredFields,
+    presentFields,
+    missingFields,
+    allRequiredFieldsPresent,
+    confidence,
+    providerIssue: confidence !== 'VERIFIED',
+    marketSignal: false,
+  };
+}
+
+function buildGate1QuoteFreshness(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['quoteFreshness'] {
+  const q = quote as QuoteRecord;
+  const price = positiveNumberOrNull(firstQuoteValue(q, ['price', 'currentPrice', 'regularMarketPrice']));
+  const volume = positiveNumberOrNull(firstQuoteValue(q, ['volume', 'regularMarketVolume', 'acmlVol', 'acml_vol']));
+  const priceMetadata = q.priceMetadata as { asOf?: unknown; source?: unknown } | undefined;
+  const asOf = stringOrNull(priceMetadata?.asOf)
+    ?? stringOrNull(q.asOf)
+    ?? stringOrNull(q.updatedAt)
+    ?? stringOrNull(q.fetchedAt)
+    ?? stringOrNull(q.screenedAt);
+  const provider = inferQuoteProviderLabel(q);
+  const asOfMs = asOf ? new Date(asOf).getTime() : NaN;
+  const ageSec = Number.isFinite(asOfMs)
+    ? Math.max(0, Math.floor((Date.now() - asOfMs) / 1000))
+    : null;
+
+  let status: Gate1QuoteFreshnessStatus;
+  if (price == null || volume == null) status = 'MISSING';
+  else if (!asOf || ageSec == null) status = 'UNKNOWN';
+  else if (String(q.dataQuality ?? '').includes('STALE') || ageSec > GATE1_SURVIVAL_STALE_AFTER_SEC) status = 'STALE';
+  else status = 'OK';
+
+  const executionImpact: Gate1SurvivalExecutionImpact = status === 'OK'
+    ? 'NONE'
+    : status === 'STALE' || status === 'MISSING'
+      ? 'LIVE_BUY_BLOCKED_ONLY'
+      : 'DIAGNOSTIC_ONLY';
+
+  return {
+    status,
+    asOf,
+    ageSec,
+    provider,
+    executionImpact,
+    providerIssue: status !== 'OK',
+    marketSignal: false,
+  };
+}
+
+function buildGate1Tradability(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['tradability'] {
+  const q = quote as QuoteRecord;
+  const source: Gate1TradabilitySource = boolValue(q.kisOfficialTradability)
+    ? 'KIS_OFFICIAL'
+    : Object.prototype.hasOwnProperty.call(q, 'isHighRisk')
+      ? 'QMP_MASTER'
+      : 'UNKNOWN';
+
+  let status: Gate1TradabilityStatus = 'UNKNOWN';
+  let reason: string | null = null;
+
+  if (boolValue(q.tradingHalted) || boolValue(q.halted) || boolValue(q.tradeStop)) {
+    status = 'HALTED';
+    reason = 'TRADING_HALTED';
+  } else if (boolValue(q.managementIssue) || boolValue(q.managementStock) || boolValue(q.isManagement)) {
+    status = 'MANAGEMENT';
+    reason = 'MANAGEMENT_STOCK';
+  } else if (
+    boolValue(q.investmentWarning)
+    || boolValue(q.investmentCaution)
+    || boolValue(q.investmentRisk)
+    || boolValue(q.cleanupTrading)
+    || q.isHighRisk === true
+  ) {
+    status = 'WARNING';
+    reason = 'INVESTMENT_WARNING_OR_HIGH_RISK';
+  } else if (source !== 'UNKNOWN') {
+    status = 'TRADABLE';
+  }
+
+  const executionImpact: Gate1SurvivalExecutionImpact = status === 'TRADABLE'
+    ? 'NONE'
+    : status === 'UNKNOWN'
+      ? 'DIAGNOSTIC_ONLY'
+      : 'LIVE_BUY_BLOCKED_ONLY';
+
+  return { status, source, reason, executionImpact };
+}
+
+function buildGate1LiquidityFloor(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['liquidityFloor'] {
+  const q = quote as QuoteRecord;
+  const volume = positiveNumberOrNull(firstQuoteValue(q, ['volume', 'regularMarketVolume', 'acmlVol', 'acml_vol']));
+  const price = positiveNumberOrNull(firstQuoteValue(q, ['price', 'currentPrice', 'regularMarketPrice']));
+  const explicitTradingValue = positiveNumberOrNull(firstQuoteValue(q, ['tradingValue', 'tradeValue', 'accTradePrice', 'acmlTrPbmn', 'acml_tr_pbmn']));
+  const tradingValue = explicitTradingValue ?? (price != null && volume != null ? price * volume : null);
+
+  const status: Gate1LiquidityFloorStatus = volume == null || tradingValue == null
+    ? 'UNKNOWN'
+    : volume >= GATE1_SURVIVAL_MIN_VOLUME && tradingValue >= GATE1_SURVIVAL_MIN_TRADING_VALUE
+      ? 'PASS'
+      : 'FAIL';
+
+  return {
+    status,
+    volume,
+    tradingValue,
+    threshold: {
+      minVolume: GATE1_SURVIVAL_MIN_VOLUME,
+      minTradingValue: GATE1_SURVIVAL_MIN_TRADING_VALUE,
+    },
+    executionImpact: status === 'PASS' ? 'NONE' : 'DIAGNOSTIC_ONLY',
+  };
+}
+
+function normalizeGate1MarketSession(value: unknown): Gate1MarketSession {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (!raw) return 'UNKNOWN';
+  if (raw === 'REGULAR' || raw === 'OPEN' || raw === 'MARKET_OPEN') return 'REGULAR';
+  if (raw === 'PREMARKET' || raw === 'PRE_MARKET' || raw === 'PREOPEN' || raw === 'PRE_OPEN') return 'PREMARKET';
+  if (raw === 'AFTERMARKET' || raw === 'AFTER_MARKET' || raw === 'AFTER_HOURS') return 'AFTERMARKET';
+  if (raw === 'LUNCH' || raw === 'MIDDAY_BREAK') return 'LUNCH';
+  if (raw === 'SELL_ONLY') return 'SELL_ONLY';
+  if (raw === 'CLOSED' || raw === 'NON_TRADING_DAY' || raw === 'MARKET_CLOSED') return 'CLOSED';
+  return 'UNKNOWN';
+}
+
+function buildGate1MarketSessionCompatibility(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['marketSessionCompatibility'] {
+  const q = quote as QuoteRecord;
+  const session = normalizeGate1MarketSession(
+    q.marketSession
+      ?? q.marketSessionState
+      ?? q.session
+      ?? q.tradingSession
+      ?? q.engineMode,
+  );
+  const liveBuyAllowed = session === 'REGULAR';
+  const shadowAllowed = true;
+  const reason = session === 'UNKNOWN'
+    ? 'MARKET_SESSION_UNKNOWN'
+    : liveBuyAllowed
+      ? null
+      : `${session}_LIVE_BUY_NOT_ALLOWED_DIAGNOSTIC`;
+  return { session, liveBuyAllowed, shadowAllowed, reason };
+}
+
+function buildGate1ShadowEligibility(input: {
+  freshness: Gate1SurvivalDiagnostic['quoteFreshness'];
+  coverage: Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'];
+  marketSession: Gate1SurvivalDiagnostic['marketSessionCompatibility'];
+}): Gate1SurvivalDiagnostic['shadowEligibility'] {
+  if (input.coverage.confidence === 'MISSING' || input.freshness.status === 'MISSING') {
+    return {
+      allowed: true,
+      mode: 'DEGRADED_SHADOW',
+      executionImpact: 'NONE',
+      reason: 'QUOTE_PAYLOAD_DEGRADED_MARKET_SIGNAL_FALSE',
+    };
+  }
+  if (input.marketSession.session === 'CLOSED') {
+    return {
+      allowed: true,
+      mode: 'OBSERVE_ONLY',
+      executionImpact: 'NONE',
+      reason: 'MARKET_CLOSED_SHADOW_RECORDING_ALLOWED',
+    };
+  }
+  if (input.coverage.confidence === 'DEGRADED' || input.coverage.confidence === 'STALE' || input.freshness.status === 'STALE') {
+    return {
+      allowed: true,
+      mode: 'DEGRADED_SHADOW',
+      executionImpact: 'NONE',
+      reason: 'PROVIDER_OR_FRESHNESS_DEGRADED_MARKET_SIGNAL_FALSE',
+    };
+  }
+  return { allowed: true, mode: 'NORMAL_SHADOW', executionImpact: 'NONE', reason: null };
+}
+
+function buildGate1SurvivalDiagnostic(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic {
+  const quoteFreshness = buildGate1QuoteFreshness(quote);
+  const tradability = buildGate1Tradability(quote);
+  const liquidityFloor = buildGate1LiquidityFloor(quote);
+  const marketSessionCompatibility = buildGate1MarketSessionCompatibility(quote);
+  const kisOfficialQuoteCoverage = buildGate1QuoteCoverage(quote);
+  const shadowEligibility = buildGate1ShadowEligibility({
+    freshness: quoteFreshness,
+    coverage: kisOfficialQuoteCoverage,
+    marketSession: marketSessionCompatibility,
+  });
+  return {
+    quoteFreshness,
+    tradability,
+    liquidityFloor,
+    marketSessionCompatibility,
+    kisOfficialQuoteCoverage,
+    shadowEligibility,
   };
 }
 
@@ -602,6 +959,7 @@ export function evaluateServerGate(
   }
 
   const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType);
+  gateLayerSummary.gate1.survival = buildGate1SurvivalDiagnostic(quote);
   const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);
 
   return {

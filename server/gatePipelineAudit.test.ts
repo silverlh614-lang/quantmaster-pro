@@ -48,40 +48,54 @@ function quote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended 
 }
 
 function gate1OnlyQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended {
-  return quote({
-    price: 100,
-    changePercent: 0,
-    rsi14: 30,
-    rsi5dAgo: 30,
-    return5d: 0,
-    return20d: 0,
-    ma5: 110,
-    ma20: 100,
-    ma60: 90,
-    ma60TrendUp: true,
-    weeklyRSI: 55,
-    volume: 100,
-    avgVolume: 1000,
-    high5d: 0,
-    high20d: 200,
-    high60d: 200,
-    bbWidthCurrent: 1,
-    bbWidth20dAvg: 1,
-    atr: 1,
-    atr20avg: 2,
-    atr5d: 1,
-    vol5dAvg: 1,
-    vol20dAvg: 1,
-    per: 999,
-    macdHistogram: -1,
-    macd5dHistAgo: 0,
-    dailyVolumeDrying: false,
-    monthlyAboveEMA12: false,
-    monthlyEMARising: false,
-    weeklyAboveCloud: false,
-    weeklyLaggingSpanUp: false,
+  return {
+    ...quote({
+      price: 100,
+      changePercent: 0,
+      rsi14: 30,
+      rsi5dAgo: 30,
+      return5d: 0,
+      return20d: 0,
+      ma5: 110,
+      ma20: 100,
+      ma60: 90,
+      ma60TrendUp: true,
+      weeklyRSI: 55,
+      volume: 200_000,
+      avgVolume: 1_000_000,
+      high5d: 0,
+      high20d: 200,
+      high60d: 200,
+      bbWidthCurrent: 1,
+      bbWidth20dAvg: 1,
+      atr: 1,
+      atr20avg: 2,
+      atr5d: 1,
+      vol5dAvg: 1,
+      vol20dAvg: 1,
+      per: 999,
+      macdHistogram: -1,
+      macd5dHistAgo: 0,
+      dailyVolumeDrying: false,
+      monthlyAboveEMA12: false,
+      monthlyEMARising: false,
+      weeklyAboveCloud: false,
+      weeklyLaggingSpanUp: false,
+    }),
+    dayHigh: 105,
+    dayLow: 95,
+    tradingValue: 200_000_000,
+    marketDivCode: 'J',
+    symbol: '005930',
+    priceProvider: 'KIS_PRICE',
+    priceMetadata: {
+      value: 100,
+      asOf: new Date().toISOString(),
+      source: 'KIS_REALTIME',
+    },
+    marketSession: 'REGULAR',
     ...overrides,
-  });
+  } as YahooQuoteExtended;
 }
 
 describe('Gate pipeline integrity audit', () => {
@@ -134,6 +148,29 @@ describe('Gate pipeline integrity audit', () => {
     });
   });
 
+  it('adds Gate1 survival diagnostics for complete quote inputs without touching score semantics', () => {
+    const result = evaluateServerGate(gate1OnlyQuote(), DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.8, 5);
+    expect(result.rawScore).toBeCloseTo(2.8, 5);
+    expect(result.gateScore).toBe(result.rawScore);
+
+    const survival = result.gateLayerSummary?.gate1.survival;
+    expect(survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(true);
+    expect(survival?.kisOfficialQuoteCoverage.confidence).toBe('VERIFIED');
+    expect(survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
+    expect(survival?.shadowEligibility).toMatchObject({
+      allowed: true,
+      mode: 'NORMAL_SHADOW',
+      executionImpact: 'NONE',
+    });
+    expect(survival?.marketSessionCompatibility).toMatchObject({
+      session: 'REGULAR',
+      liveBuyAllowed: true,
+      shadowAllowed: true,
+    });
+  });
+
   it('reports missing weeklyRSI in Gate1 source coverage without changing raw score semantics', () => {
     const missingWeekly = gate1OnlyQuote() as Partial<YahooQuoteExtended>;
     delete missingWeekly.weeklyRSI;
@@ -163,6 +200,68 @@ describe('Gate pipeline integrity audit', () => {
       quoteInputs: ['quote.weeklyRSI'],
       missingInputs: ['quote.weeklyRSI'],
       dataPath: 'QUOTE_ONLY',
+    });
+
+    expect(gate1?.survival?.kisOfficialQuoteCoverage.missingFields).toContain('quote.weeklyRSI');
+    expect(gate1?.survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(false);
+    expect(gate1?.survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
+  });
+
+  it('reports missing price/volume as provider freshness or quote coverage degradation while keeping shadow enabled', () => {
+    const missingQuotePayload = gate1OnlyQuote() as Partial<YahooQuoteExtended>;
+    delete missingQuotePayload.price;
+    delete missingQuotePayload.volume;
+    missingQuotePayload.high60d = 0;
+    const result = evaluateServerGate(missingQuotePayload as YahooQuoteExtended, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.8, 5);
+    expect(result.rawScore).toBeCloseTo(2.8, 5);
+
+    const survival = result.gateLayerSummary?.gate1.survival;
+    expect(survival?.quoteFreshness.status).toBe('MISSING');
+    expect(survival?.quoteFreshness.marketSignal).toBe(false);
+    expect(['DIAGNOSTIC_ONLY', 'LIVE_BUY_BLOCKED_ONLY']).toContain(survival?.quoteFreshness.executionImpact);
+    expect(survival?.kisOfficialQuoteCoverage.confidence).toBe('MISSING');
+    expect(survival?.kisOfficialQuoteCoverage.missingFields).toEqual(
+      expect.arrayContaining(['quote.price', 'quote.volume']),
+    );
+    expect(survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
+    expect(survival?.shadowEligibility).toMatchObject({
+      allowed: true,
+      mode: 'DEGRADED_SHADOW',
+      executionImpact: 'NONE',
+    });
+  });
+
+  it('keeps shadow allowed during SELL_ONLY while live buy is diagnostically disallowed', () => {
+    const q = { ...gate1OnlyQuote(), marketSession: 'SELL_ONLY' } as YahooQuoteExtended;
+    const result = evaluateServerGate(q, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.8, 5);
+    expect(result.rawScore).toBeCloseTo(2.8, 5);
+    expect(result.gateLayerSummary?.gate1.survival?.marketSessionCompatibility).toMatchObject({
+      session: 'SELL_ONLY',
+      liveBuyAllowed: false,
+      shadowAllowed: true,
+    });
+    expect(result.gateLayerSummary?.gate1.survival?.shadowEligibility.allowed).toBe(true);
+  });
+
+  it('keeps closed-session shadow recording observable without changing score semantics', () => {
+    const q = { ...gate1OnlyQuote(), marketSession: 'CLOSED' } as YahooQuoteExtended;
+    const result = evaluateServerGate(q, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.8, 5);
+    expect(result.rawScore).toBeCloseTo(2.8, 5);
+    expect(result.gateLayerSummary?.gate1.survival?.marketSessionCompatibility).toMatchObject({
+      session: 'CLOSED',
+      liveBuyAllowed: false,
+      shadowAllowed: true,
+    });
+    expect(result.gateLayerSummary?.gate1.survival?.shadowEligibility).toMatchObject({
+      allowed: true,
+      mode: 'OBSERVE_ONLY',
+      executionImpact: 'NONE',
     });
   });
 
