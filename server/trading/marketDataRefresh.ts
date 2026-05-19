@@ -44,6 +44,32 @@ import { deriveSectorCycle } from './sectorCycleClassifier.js';
 
 type MacroRefreshReason = 'SCHEDULED' | 'MANUAL' | 'R6_RECOVERY_CHECK';
 type ProgramMarketRawUnitAssumption = 'UNVERIFIED' | 'KRW' | 'KRW_1K' | 'KRW_1M';
+type ProgramMarketFinalStatus = 'OFFICIAL_PARAMS_VERIFIED' | 'SNAPSHOT_INCONSISTENT';
+
+function buildProgramMarketSnapshotId(now = new Date()): string {
+  const ymd = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const hms = now.toISOString().slice(11, 19).replace(/:/g, '');
+  const random6 = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+  return `mpg_${ymd}_${hms}_${random6}`;
+}
+
+function hasSnapshotInvariantViolation(input: {
+  kospiLen: number;
+  kosdaqLen: number;
+  combinedLen: number;
+  combinedNonZero: number;
+  combinedSource: string;
+  rawTopFirstBsopHour?: string | null;
+  selectedBsopHour?: string | null;
+}): { violated: boolean; reason: string; snapshotMismatch: boolean } {
+  const snapshotMismatch = !!(input.rawTopFirstBsopHour && input.selectedBsopHour && input.rawTopFirstBsopHour !== input.selectedBsopHour);
+  if (input.combinedNonZero > input.combinedLen) return { violated: true, reason: 'combinedNonZeroRows exceeds combinedOutputLength', snapshotMismatch };
+  if (input.combinedLen === 0 && input.combinedNonZero !== 0) return { violated: true, reason: 'combinedOutputLength is 0 but nonZeroRows is non-zero', snapshotMismatch };
+  if (input.kospiLen === 0 && input.kosdaqLen === 0 && input.combinedSource === 'KOSPI_PLUS_KOSDAQ') return { violated: true, reason: 'empty split rows cannot be KOSPI_PLUS_KOSDAQ', snapshotMismatch };
+  if (input.combinedSource === 'KOSPI_PLUS_KOSDAQ' && input.combinedLen !== (input.kospiLen + input.kosdaqLen)) return { violated: true, reason: 'combined length does not match split sum', snapshotMismatch };
+  if (snapshotMismatch) return { violated: true, reason: 'raw top bsop_hour differs from selected bsop_hour', snapshotMismatch };
+  return { violated: false, reason: 'NONE', snapshotMismatch };
+}
 
 function formatEokAmount(value: number | null, unitAssumption: ProgramMarketRawUnitAssumption): string {
   if (value === null || !Number.isFinite(value)) return 'N/A';
@@ -805,11 +831,25 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       kospiRequested: true, kosdaqRequested: true, kospiOutputLength: kospiLen, kosdaqOutputLength: kosdaqLen,
       combinedOutputLength: combinedLen, combinedMatchesSplit: combinedLen === (kospiLen + kosdaqLen), upstreamHint: String(agg.combinedSource ?? ''),
     });
-    const splitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ';
+    const combinedNonZero = enforceRowInvariant((marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0), marketProgram.nonZeroRowCount ?? 0);
+    const invariants = hasSnapshotInvariantViolation({
+      kospiLen,
+      kosdaqLen,
+      combinedLen,
+      combinedNonZero,
+      combinedSource,
+      rawTopFirstBsopHour: String((agg as any)?.firstRowSample?.bsop_hour ?? ''),
+      selectedBsopHour: marketProgram.selectedBsopHour ?? '',
+    });
+    const finalStatus: ProgramMarketFinalStatus = invariants.violated ? 'SNAPSHOT_INCONSISTENT' : 'OFFICIAL_PARAMS_VERIFIED';
+    const resolvedCombinedSource = invariants.violated ? 'UNKNOWN' : combinedSource;
+    const splitAvailable = !invariants.violated && resolvedCombinedSource === 'KOSPI_PLUS_KOSDAQ';
     const combinedOnly = !splitAvailable;
+    const snapshotId = buildProgramMarketSnapshotId();
     computed.programMarket = {
       status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
-      finalStatus: 'OFFICIAL_PARAMS_VERIFIED',
+      snapshotId,
+      finalStatus,
       source: marketProgram.source ?? 'KIS_API',
       paramMode: 'OFFICIAL',
       asOfKst: marketProgram.fetchedAt,
@@ -832,7 +872,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       unit: { rawUnitAssumption: 'UNVERIFIED', displayUnit: 'EOK_KRW', mappingConfidence: 'UNIT_UNVERIFIED' },
       unitCandidates: buildUnitCandidates(rawWhole),
       policy: {
-        scoring: 'shadow_only',
+        scoring: invariants.violated ? 'excluded' : 'shadow_only',
         useForExecution: false,
         useForShadow: true,
         executionImpact: 'NONE',
@@ -842,9 +882,11 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         blockRegimeUsage: true,
       },
       rawNonZero,
-      combinedSource,
+      combinedSource: resolvedCombinedSource,
       splitAvailable,
       combinedOnly,
+      snapshotMismatch: invariants.snapshotMismatch,
+      inconsistencyReason: invariants.violated ? invariants.reason : null,
       aggregateDiagnostic: agg as any,
       rowBreakdown: {
         kospi: {
@@ -869,7 +911,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         },
         combined: {
           outputLength: (marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0),
-          nonZeroRows: enforceRowInvariant((marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0), marketProgram.nonZeroRowCount ?? 0),
+          nonZeroRows: combinedNonZero,
           selectedBsopHour: marketProgram.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: rawWhole,
           rawArbitrageNetBuy: rawArb,
@@ -879,9 +921,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         },
       },
     };
-    const snapshotId = `pm_${Date.now()}`;
-    (computed.programMarket as any).snapshotId = snapshotId;
-    (computed.programMarket as any).snapshotSource = combinedSource;
+    (computed.programMarket as any).snapshotSource = resolvedCombinedSource;
     const structured = `snapshotId=${snapshotId} selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} selectedDisplayUnitAssumption=UNVERIFIED rawUnitAssumption=UNVERIFIED mappingConfidence=UNIT_UNVERIFIED scoring=shadow_only useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`; 
     console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
