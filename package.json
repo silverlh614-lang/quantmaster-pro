@@ -36,6 +36,7 @@
     "validate:bug-ledger": "node scripts/check_bug_ledger.js",
     "validate:yahooSymbolResolver": "node scripts/check_yahoo_symbol_resolver.js",
     "validate:kisOfficialRegistry": "node scripts/check_kis_official_endpoint_registry.js",
+    "diagnose:kisInquireInvestorTrid": "tsx scripts/compare_kis_inquire_investor_trid.ts",
     "build:exit-catalog": "node scripts/generate_exit_rules_catalog.js",
     "validate:exit-catalog": "node scripts/generate_exit_rules_catalog.js --check",
     "validate:all": "npm run validate:gemini && npm run validate:complexity && npm run validate:sds && npm run validate:exposure && npm run validate:responsibility && npm run validate:boundary && npm run validate:channelBoundary && npm run check:learning-boundary && npm run validate:sensitiveAlerts && npm run validate:marketOverviewBoundary && npm run validate:yahooRange && npm run validate:uiLanguage && npm run validate:dataTrust && npm run validate:silentDegradation && npm run validate:adrBaselinePolicy && npm run validate:adrIndex && npm run validate:pendingWiring && npm run validate:prPaceAudit && npm run validate:yahooSymbolResolver",
