@@ -35,6 +35,16 @@ const REQUIRED_KEYS = [
   'inquireDailyCcld',
   'orderCash',
   'orderRvsecncl',
+  'rankingVolume',
+  'rankingFluctuation',
+  'rankingMarketCap',
+  'rankingInvestor',
+  'inquirePsblRvsecncl',
+  'inquireTimeItemConclusion',
+  'inquirePsblOrder',
+  'orderCredit',
+  'quotationInvestorLegacy',
+  'rankingNewHighLow',
 ];
 
 const REQUIRED_PATHS = [
@@ -61,9 +71,19 @@ const REQUIRED_PATHS = [
   '/uapi/domestic-stock/v1/trading/inquire-daily-ccld',
   '/uapi/domestic-stock/v1/trading/order-cash',
   '/uapi/domestic-stock/v1/trading/order-rvsecncl',
+  '/uapi/domestic-stock/v1/ranking/volume',
+  '/uapi/domestic-stock/v1/ranking/fluctuation',
+  '/uapi/domestic-stock/v1/ranking/market-cap',
+  '/uapi/domestic-stock/v1/ranking/investor',
+  '/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl',
+  '/uapi/domestic-stock/v1/quotations/inquire-time-itemconclusion',
+  '/uapi/domestic-stock/v1/trading/inquire-psbl-order',
+  '/uapi/domestic-stock/v1/trading/order-credit',
+  '/uapi/domestic-stock/v1/quotations/investor',
+  '/uapi/domestic-stock/v1/ranking/new-high-low',
 ];
 
-const ORDER_KEYS = new Set(['orderCash', 'orderRvsecncl']);
+const ORDER_KEYS = new Set(['orderCash', 'orderRvsecncl', 'orderCredit']);
 
 function fail(message) {
   console.error(`❌ ${message}`);
