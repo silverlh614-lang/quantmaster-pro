@@ -58,6 +58,18 @@ function savePending(): void {
 
 /** T1 경보 전송 직후 ACK 대기 엔트리를 등록한다. */
 export function registerPendingAck(entry: Omit<T1AckEntry, 'resendCount' | 'escalated'>): void {
+  // 동일 경보(dedupeKey/category) 미확인 엔트리가 남아 있으면 최신 건으로 교체한다.
+  // 운영자 관점에서 [확인] 대상은 "현재 활성 경보 1건"이면 충분하며,
+  // 과거 엔트리를 누적하면 sweep 재발송이 연쇄 발생해 노이즈가 커진다.
+  if (entry.dedupeKey) {
+    for (const [existingAckId, existing] of Object.entries(pending)) {
+      if (existingAckId === entry.ackId) continue;
+      if (existing.dedupeKey === entry.dedupeKey) {
+        delete pending[existingAckId];
+      }
+    }
+  }
+
   pending[entry.ackId] = { ...entry, resendCount: 0, escalated: false };
   savePending();
 }
