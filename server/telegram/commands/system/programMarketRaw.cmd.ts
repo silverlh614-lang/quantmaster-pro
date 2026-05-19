@@ -167,15 +167,15 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
       lines.push(`  unitCandidates: KRW=${c.unitCandidates.KRW} KRW_1K=${c.unitCandidates.KRW_1K} KRW_1M=${c.unitCandidates.KRW_1M}`);
     }
   }
-  if (pm?.unit.rawUnitAssumption === 'UNVERIFIED' && pm.unitCandidates) {
+  if (pm?.unit && pm.unitCandidates) {
     lines.push('unitCandidates:');
     lines.push(`  KRW: ${pm.unitCandidates.KRW}`);
-    lines.push(`  KRW_1K: ${pm.unitCandidates.KRW_1K}`);
+    lines.push(`  KRW_1K: ${pm.unitCandidates.KRW_1K} selected`);
     lines.push(`  KRW_1M: ${pm.unitCandidates.KRW_1M}`);
-    lines.push('selectedDisplayUnitAssumption=UNVERIFIED');
-    lines.push('mappingConfidence=UNIT_UNVERIFIED');
-    lines.push('scoring=shadow_only');
-    lines.push('useForExecution=false');
+    lines.push(`selectedDisplayUnitAssumption=${pm.unit.rawUnitAssumption}`);
+    lines.push(`mappingConfidence=${pm.unit.mappingConfidence}`);
+    lines.push(`scoring=${pm.policy?.scoring ?? 'N/A'}`);
+    lines.push(`useForExecution=${pm.policy?.useForExecution ?? false}`);
   }
 
   return lines.join('\n');

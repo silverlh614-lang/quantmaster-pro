@@ -28,7 +28,8 @@ vi.mock('../../../clients/kisClient/supplyDiagnostics.js', () => ({
 vi.mock('../../../persistence/macroStateRepo.js', () => ({
   loadMacroState: vi.fn(() => ({
     programMarket: {
-      unit: { rawUnitAssumption: 'UNVERIFIED' },
+      unit: { rawUnitAssumption: 'KRW_1K', mappingConfidence: 'MAPPING_VERIFIED' },
+      policy: { scoring: 'advisory', useForExecution: false },
       unitCandidates: { KRW: '-0.02억원', KRW_1K: '-16.88억원', KRW_1M: '-16,879.44억원' },
       rowBreakdown: {
         kospi: { outputLength: 11, nonZeroRows: 15, selectedBsopHour: '153000', rawWholeNetBuy: -1000, rawArbitrageNetBuy: null, rawNonArbitrageNetBuy: null, displayWholeNetBuy: '-0.01억원', unitCandidates: { KRW: '-0.01억원', KRW_1K: '-0.10억원', KRW_1M: '-100.00억원' } },
@@ -68,7 +69,10 @@ describe('/program_market_raw — Patch-004 §J #5', () => {
     expect(msg).toContain('KOSDAQ: N/A (split unavailable)');
     expect(msg).toContain('COMBINED: outputLength=30 nonZeroRows=30');
     expect(msg).toContain('unitCandidates:');
-    expect(msg).toContain('KRW_1K: -16.88억원');
+    expect(msg).toContain('KRW_1K: -16.88억원 selected');
+    expect(msg).toContain('selectedDisplayUnitAssumption=KRW_1K');
+    expect(msg).toContain('mappingConfidence=MAPPING_VERIFIED');
+    expect(msg).toContain('scoring=advisory');
     expect(msg).toContain('useForExecution=false');
     expect(msg).toContain('providerIssue=false');
     expect(msg).toContain('marketSignal=false');
