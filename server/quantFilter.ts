@@ -167,13 +167,17 @@ export interface GateLayerBucket {
   sourceCoverage?: Gate1SourceCoverage | Gate2SourceCoverage;
   survival?: Gate1SurvivalDiagnostic;
   consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic | Gate2ConsolidatedDiagnostic;
-  externalDataCoverage?: Gate2ExternalDataCoverage;
+  externalDataCoverage?: unknown;
 }
 
 export interface GateLayerSummary {
   gate1: GateLayerBucket;
   gate2: GateLayerBucket;
-  gate3: GateLayerBucket;
+  gate3: GateLayerBucket & {
+    wiring?: Gate3WiringDiagnostic[];
+    sourceCoverage?: Gate3SourceCoverage;
+    externalDataCoverage?: Gate3ExternalDataCoverage;
+  };
   finalPath: GateFinalPath;
   primaryBlockReason?: string;
 }
@@ -700,7 +704,7 @@ function buildGateLayerSummary(
   const summary: GateLayerSummary = {
     gate1: { ...emptyGateLayerBucket(), wiring: [], sourceCoverage: emptyGate1SourceCoverage() },
     gate2: emptyGateLayerBucket(),
-    gate3: emptyGateLayerBucket(),
+    gate3: emptyGateLayerBucket() as GateLayerSummary['gate3'],
     finalPath: 'WATCHLIST_ONLY',
   };
 
@@ -743,7 +747,7 @@ function buildGateLayerSummary(
   summary.gate2.consolidatedDiagnostic = buildGate2ConsolidatedDiagnostic({
     gate2: {
       sourceCoverage: summary.gate2.sourceCoverage as Gate2SourceCoverage,
-      externalDataCoverage: summary.gate2.externalDataCoverage,
+      externalDataCoverage: summary.gate2.externalDataCoverage as Gate2ExternalDataCoverage | undefined,
     },
     evaluationStage: gate2ExternalCoverageInput?.evaluationStage,
   });
