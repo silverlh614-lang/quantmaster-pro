@@ -189,6 +189,36 @@ describe('buildProgramMarketMessage', () => {
     expect(msg).toContain('단위: 천원 기준 확정');
     expect(msg).toContain('표시: 억원 환산');
   });
+
+  it('일반 화면 selectedNetBuy/direction은 combined.displayWholeNetBuy를 우선 사용한다', async () => {
+    _fetchKisMarketProgramTrade.mockResolvedValue({
+      programNetBuyQty: -2848179,
+      programNetBuyAmount: -2_848_179,
+      programArbitrageNetBuy: 102_000,
+      programNonArbitrageNetBuy: -2_950_179,
+      fetchedAt: '2026-05-01T03:00:00.000Z',
+      source: 'KIS_API',
+    });
+    _loadMacroState.mockReturnValue({
+      programSource: 'KIS_API',
+      programMarket: {
+        finalStatus: 'MAPPING_VERIFIED',
+        combinedSource: 'KOSPI_PLUS_KOSDAQ',
+        unit: { rawUnitAssumption: 'KRW_1K', mappingConfidence: 'MAPPING_VERIFIED' },
+        rowBreakdown: { combined: { displayWholeNetBuy: '-28.48억원', outputLength: 30, nonZeroRows: 30 } },
+        display: { wholeNetBuy: '-28.48억원', arbitrageNetBuy: '+1.02억원', nonArbitrageNetBuy: '-29.51억원' },
+      },
+    });
+    const msg = await buildProgramMarketMessage();
+    expect(msg).toContain('시장 프로그램 순매도: -28.48억원');
+    expect(msg).toContain('selectedNetBuy: -28.48억원');
+    expect(msg).toContain('📈 차익거래 순매수: +1.02억원');
+    expect(msg).toContain('비차익 순매수: -29.51억원');
+    expect(msg).not.toContain('selectedNetBuy: -0.03억원');
+    expect(msg).not.toContain('UNIT_UNVERIFIED');
+    expect(msg).toContain('useForExecution: false');
+    expect(msg).toContain('executionImpact: NONE');
+  });
 describe('programMarket.cmd execute', () => {
   it('정상 실행 시 reply 한 번 호출 + 헤더 포함', async () => {
     _fetchKisMarketProgramTrade.mockResolvedValue({
