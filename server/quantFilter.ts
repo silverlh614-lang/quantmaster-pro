@@ -930,12 +930,18 @@ export function evaluateServerGate(
   quote: YahooQuoteExtended,
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
   kospi20dReturn?: number,
-  dartFin?: DartFinancials | null,
+  dartFin?: Gate2ExternalCoverageInput['dartFin'],
   kisFlow?: Gate2ExternalCoverageInput['kisFlow'],
   regime?: RegimeLevel | string,
   evaluationStage?: Gate2EvaluationStage | null,
 ): ServerGateResult {
-  const run = defaultRegistry.run({ quote, weights, kospi20dReturn, dartFin, kisFlow: kisFlow as KisInvestorFlow | null | undefined });
+  const run = defaultRegistry.run({
+    quote,
+    weights,
+    kospi20dReturn,
+    dartFin: dartFin as DartFinancials | null | undefined,
+    kisFlow: kisFlow as KisInvestorFlow | null | undefined,
+  });
   let score = run.totalScore;
   const details = [...run.details];
   const conditionKeys = [...run.conditionKeys];

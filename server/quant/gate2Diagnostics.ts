@@ -14,6 +14,12 @@ import type {
   KisInvestorFlowRawFieldCoverage,
   QmpInvestorFlow,
 } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
+import type {
+  DartFinancialConfidence,
+  DartFinancialProviderStatus,
+  DartFinancialRawFieldCoverage,
+  QmpDartFinancials,
+} from '../clients/dartFinancialNormalizer.js';
 
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
 
@@ -110,16 +116,32 @@ export interface Gate2ExternalDataCoverage {
   dartFinancials: {
     required: boolean;
     available: boolean;
-    provider: 'DART' | 'CACHE' | 'UNKNOWN';
+    provider: 'DART' | 'DART_CACHE' | 'QMP_CACHE' | 'UNKNOWN';
+    providerStatus: DartFinancialProviderStatus | null;
+    dataConfidence: DartFinancialConfidence | null;
     status: Gate2ExternalProviderStatus;
     fields: {
+      operatingCashFlow: boolean;
+      netIncome: boolean;
       ocfRatio: boolean;
-      roe?: boolean;
-      opmAcceleration?: boolean;
-      interestCoverageRatio?: boolean;
+      roe: boolean;
+      opm: boolean;
+      opmYoYDelta: boolean;
+      marginAcceleration: boolean;
+      interestCoverageRatio: boolean;
     };
+    ocfRatio: number | null;
+    roe: number | null;
+    opm: number | null;
+    opmYoYDelta: number | null;
+    marginAcceleration: number | null;
+    interestCoverageRatio: number | null;
+    missingFields: string[];
+    rawFieldCoverage: DartFinancialRawFieldCoverage;
+    stageNotFetched: boolean;
     providerIssue: boolean;
     marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
   };
   benchmark: {
     required: boolean;
@@ -136,7 +158,7 @@ export interface Gate2ExternalDataCoverage {
 
 export interface Gate2ExternalCoverageInput {
   kisFlow?: KisInvestorFlow | QmpInvestorFlow | null;
-  dartFin?: DartFinancials | null;
+  dartFin?: DartFinancials | QmpDartFinancials | null;
   kospi20dReturn?: number | null;
   evaluationStage?: Gate2EvaluationStage | null;
 }
@@ -480,6 +502,98 @@ function providerIssueForKisStatus(required: boolean, status: Gate2ExternalProvi
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
+function dartProviderStatus(value: unknown): DartFinancialProviderStatus | null {
+  if (!isRecord(value)) return null;
+  const raw = String(value.providerStatus ?? '').toUpperCase();
+  const allowed: DartFinancialProviderStatus[] = [
+    'OK_WITH_DATA',
+    'OK_EMPTY',
+    'HTTP_ERROR',
+    'DART_ERROR_CODE',
+    'RATE_LIMITED',
+    'FIELD_MISSING',
+    'PARSE_ERROR',
+    'STALE_CACHE',
+    'UNKNOWN_ERROR',
+  ];
+  if ((allowed as string[]).includes(raw)) return raw as DartFinancialProviderStatus;
+  return null;
+}
+
+function dartConfidence(value: unknown): DartFinancialConfidence | null {
+  if (!isRecord(value)) return null;
+  const raw = String(value.dataConfidence ?? value.confidence ?? '').toUpperCase();
+  const allowed: DartFinancialConfidence[] = ['VERIFIED', 'DEGRADED', 'STALE', 'MISSING', 'EMPTY_VALID', 'AI_ESTIMATED'];
+  if ((allowed as string[]).includes(raw)) return raw as DartFinancialConfidence;
+  return null;
+}
+
+function gate2StatusFromDartProviderStatus(status: DartFinancialProviderStatus | null, confidence: DartFinancialConfidence | null): Gate2ExternalProviderStatus | null {
+  if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
+  if (confidence === 'VERIFIED') return 'VERIFIED';
+  if (confidence === 'STALE') return 'STALE';
+  if (confidence === 'MISSING') return 'MISSING';
+  if (confidence === 'DEGRADED' || confidence === 'AI_ESTIMATED') return 'DEGRADED';
+  if (status === 'OK_WITH_DATA') return 'VERIFIED';
+  if (status === 'OK_EMPTY') return 'EMPTY_VALID';
+  if (status === 'STALE_CACHE') return 'STALE';
+  if (status === 'FIELD_MISSING' || status === 'PARSE_ERROR') return 'DEGRADED';
+  if (status === 'HTTP_ERROR' || status === 'DART_ERROR_CODE' || status === 'RATE_LIMITED' || status === 'UNKNOWN_ERROR') return 'DEGRADED';
+  return null;
+}
+
+function dartProviderFromMetadata(value: unknown): Gate2ExternalDataCoverage['dartFinancials']['provider'] {
+  if (!isRecord(value)) return 'UNKNOWN';
+  const raw = String(value.provider ?? value.source ?? value.dataSource ?? '').toUpperCase();
+  if (raw.includes('DART_CACHE')) return 'DART_CACHE';
+  if (raw.includes('QMP_CACHE') || raw === 'CACHE') return 'QMP_CACHE';
+  if (raw.includes('DART')) return 'DART';
+  return 'UNKNOWN';
+}
+
+function dartRawFieldCoverage(value: unknown, missingFields: string[], legacyRequiredField: boolean): DartFinancialRawFieldCoverage {
+  const record = isRecord(value) ? value : {};
+  const embedded = record.rawFieldCoverage;
+  if (isRecord(embedded)) {
+    return {
+      requiredFields: Array.isArray(embedded.requiredFields) ? embedded.requiredFields.map(String) : ['operatingCashFlow', 'netIncome'],
+      presentFields: Array.isArray(embedded.presentFields) ? embedded.presentFields.map(String) : [],
+      missingFields: Array.isArray(embedded.missingFields) ? embedded.missingFields.map(String) : missingFields,
+      allRequiredFieldsPresent: embedded.allRequiredFieldsPresent === true,
+    };
+  }
+  const requiredFields = legacyRequiredField ? ['ocfRatio'] : ['operatingCashFlow', 'netIncome'];
+  return {
+    requiredFields,
+    presentFields: requiredFields.filter(field => !missingFields.includes(field)),
+    missingFields,
+    allRequiredFieldsPresent: missingFields.length === 0,
+  };
+}
+
+function resolveDartStatus(input: {
+  required: boolean;
+  ocfAvailable: boolean;
+  missing: boolean;
+  dartFin: Gate2ExternalCoverageInput['dartFin'];
+  evaluationStage?: Gate2EvaluationStage | null;
+}): Gate2ExternalProviderStatus {
+  if (!input.required) return 'UNKNOWN';
+  if (!input.dartFin) {
+    return input.evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING';
+  }
+  const metadataStatus = gate2StatusFromDartProviderStatus(dartProviderStatus(input.dartFin), dartConfidence(input.dartFin))
+    ?? statusFromMetadata(input.dartFin);
+  if (metadataStatus && metadataStatus !== 'VERIFIED') return metadataStatus;
+  if (input.ocfAvailable && !input.missing) return 'VERIFIED';
+  return 'DEGRADED';
+}
+
+function providerIssueForDartStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
+  if (!required) return false;
+  return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
+}
+
 function resolveStatus(required: boolean, available: boolean, missing: boolean, metadata: unknown): Gate2ExternalProviderStatus {
   if (!required) return 'UNKNOWN';
   const metadataStatus = statusFromMetadata(metadata);
@@ -506,12 +620,29 @@ export function buildGate2ExternalDataCoverage(
     individualNetBuy: kisIndividualNetBuy != null,
   };
   const kisMissingFields = ['foreignNetBuy', 'institutionalNetBuy'].filter(field => kisFields[field as 'foreignNetBuy' | 'institutionalNetBuy'] !== true);
+  const dartRecord: Record<string, unknown> = isRecord(input.dartFin) ? input.dartFin : {};
+  const dartOcfRatio = numberOrNull(dartRecord.ocfRatio);
+  const dartRoe = numberOrNull(dartRecord.roe);
+  const dartOpm = numberOrNull(dartRecord.opm);
+  const dartOpmYoYDelta = numberOrNull(dartRecord.opmYoYDelta);
+  const dartMarginAcceleration = numberOrNull(dartRecord.marginAcceleration);
+  const dartInterestCoverageRatio = numberOrNull(dartRecord.interestCoverageRatio);
+  const dartOperatingCashFlow = numberOrNull(dartRecord.operatingCashFlow);
+  const dartNetIncome = numberOrNull(dartRecord.netIncome);
+  const dartLegacyRequiredField = dartOcfRatio != null && dartOperatingCashFlow == null && dartNetIncome == null && !isRecord(dartRecord.rawFieldCoverage);
   const dartFields = {
     ocfRatio: fieldAvailable(wiring, 'ctx.dartFin.ocfRatio') || fieldAvailable(wiring, 'dartFin.ocfRatio'),
-    roe: input.dartFin != null && typeof (input.dartFin as unknown as Record<string, unknown>).roe === 'number',
-    opmAcceleration: input.dartFin != null && typeof (input.dartFin as unknown as Record<string, unknown>).opmAcceleration === 'number',
-    interestCoverageRatio: input.dartFin != null && typeof (input.dartFin as unknown as Record<string, unknown>).interestCoverageRatio === 'number',
+    operatingCashFlow: dartOperatingCashFlow != null,
+    netIncome: dartNetIncome != null,
+    roe: dartRoe != null,
+    opm: dartOpm != null,
+    opmYoYDelta: dartOpmYoYDelta != null,
+    marginAcceleration: dartMarginAcceleration != null,
+    interestCoverageRatio: dartInterestCoverageRatio != null,
   };
+  const dartMissingFields = dartLegacyRequiredField
+    ? []
+    : ['operatingCashFlow', 'netIncome'].filter(field => dartFields[field as 'operatingCashFlow' | 'netIncome'] !== true);
   const benchmarkFields = {
     kospi20dReturn: fieldAvailable(wiring, 'ctx.kospi20dReturn') || typeof input.kospi20dReturn === 'number' && Number.isFinite(input.kospi20dReturn),
   };
@@ -525,13 +656,21 @@ export function buildGate2ExternalDataCoverage(
     evaluationStage: input.evaluationStage,
   });
   const kisAvailable = kisFieldsAvailable && !externalMissing(wiring, 'KIS_INVESTOR_FLOW') && kisStatus === 'VERIFIED';
-  const dartAvailable = dartRequired && dartFields.ocfRatio && !externalMissing(wiring, 'DART_FINANCIALS');
+  const dartStatus = resolveDartStatus({
+    required: dartRequired,
+    ocfAvailable: dartFields.ocfRatio,
+    missing: externalMissing(wiring, 'DART_FINANCIALS'),
+    dartFin: input.dartFin,
+    evaluationStage: input.evaluationStage,
+  });
+  const dartAvailable = dartRequired && dartFields.ocfRatio && !externalMissing(wiring, 'DART_FINANCIALS') && dartStatus === 'VERIFIED';
   const benchmarkAvailable = benchmarkRequired && benchmarkFields.kospi20dReturn && !externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN');
-  const dartStatus = resolveStatus(dartRequired, dartAvailable, externalMissing(wiring, 'DART_FINANCIALS'), input.dartFin);
   const benchmarkStatus = resolveStatus(benchmarkRequired, benchmarkAvailable, externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN'), null);
   const kisEndpoint = kisEndpointMetadata(input.kisFlow);
   const kisProviderStatusValue = kisProviderStatus(input.kisFlow);
   const kisDataConfidence = kisConfidence(input.kisFlow);
+  const dartProviderStatusValue = dartProviderStatus(input.dartFin);
+  const dartDataConfidence = dartConfidence(input.dartFin);
 
   return {
     kisInvestorFlow: {
@@ -559,11 +698,23 @@ export function buildGate2ExternalDataCoverage(
     dartFinancials: {
       required: dartRequired,
       available: dartAvailable,
-      provider: providerFromMetadata(input.dartFin, { verified: dartRequired && input.dartFin ? 'DART' : 'UNKNOWN', cache: 'CACHE', unknown: 'UNKNOWN' }) as Gate2ExternalDataCoverage['dartFinancials']['provider'],
+      provider: dartProviderFromMetadata(input.dartFin),
+      providerStatus: dartProviderStatusValue,
+      dataConfidence: dartDataConfidence,
       status: dartStatus,
       fields: dartFields,
-      providerIssue: dartRequired && dartStatus !== 'VERIFIED',
+      ocfRatio: dartOcfRatio,
+      roe: dartRoe,
+      opm: dartOpm,
+      opmYoYDelta: dartOpmYoYDelta,
+      marginAcceleration: dartMarginAcceleration,
+      interestCoverageRatio: dartInterestCoverageRatio,
+      missingFields: dartMissingFields,
+      rawFieldCoverage: dartRawFieldCoverage(input.dartFin, dartMissingFields, dartLegacyRequiredField),
+      stageNotFetched: dartStatus === 'STAGE_NOT_FETCHED',
+      providerIssue: providerIssueForDartStatus(dartRequired, dartStatus),
       marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
     },
     benchmark: {
       required: benchmarkRequired,
@@ -625,6 +776,39 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
     `foreign=${formatSigned(kis.foreignNetBuy)}`,
     `inst=${formatSigned(kis.institutionalNetBuy)}`,
     supply,
+    ...(issue ? [issue] : []),
+    'marketSignal=false',
+  ].join(' | ');
+}
+
+function formatRatio(value: number | null, suffix = ''): string {
+  return value == null ? 'null' : `${value.toFixed(2)}${suffix}`;
+}
+
+export function formatGate2DartFinancialsCompactDiagnostic(
+  externalDataCoverage?: Gate2ExternalDataCoverage | null,
+): string | null {
+  const dart = externalDataCoverage?.dartFinancials;
+  if (!dart || !dart.required) return null;
+  const issue = dart.status === 'MISSING'
+    ? 'issue=DART_FINANCIALS_MISSING'
+    : dart.status === 'STAGE_NOT_FETCHED'
+      ? 'stage=DISCOVERY_GATE'
+      : dart.status === 'DEGRADED'
+        ? 'providerIssue=true'
+        : null;
+  const earningsQuality = dart.status === 'VERIFIED'
+    ? 'earnings_quality=available'
+    : dart.status === 'STAGE_NOT_FETCHED'
+      ? 'earnings_quality=not_yet_evaluated'
+      : 'earnings_quality=unavailable';
+  return [
+    `Gate2 DART: ${dart.status}`,
+    `OCF/NI=${formatRatio(dart.ocfRatio)}`,
+    `ROE=${formatRatio(dart.roe)}`,
+    `OPM=${formatRatio(dart.opm)}`,
+    `ICR=${formatRatio(dart.interestCoverageRatio, 'x')}`,
+    earningsQuality,
     ...(issue ? [issue] : []),
     'marketSignal=false',
   ].join(' | ');

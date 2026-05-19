@@ -4,7 +4,11 @@ import type { GateLayerSummary } from '../../../quantFilter.js';
 import type { Gate2ExternalDataCoverage, Gate2SourceCoverage } from '../../../quant/gate2Diagnostics.js';
 import type { ScanCounters } from './scanCounterTypes.js';
 import { incrementCount, topCounts } from './gateScoreDiagnostics.js';
-import { formatGate2CompactDiagnostic, formatGate2KisInvestorFlowCompactDiagnostic } from '../../../quant/gate2Diagnostics.js';
+import {
+  formatGate2CompactDiagnostic,
+  formatGate2DartFinancialsCompactDiagnostic,
+  formatGate2KisInvestorFlowCompactDiagnostic,
+} from '../../../quant/gate2Diagnostics.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -44,6 +48,7 @@ export interface Gate2CoverageAuditSummary {
   primaryIssue: Record<string, number>;
   compactText: Record<string, number>;
   kisFlowCompactText: Record<string, number>;
+  dartCompactText: Record<string, number>;
   providerIssueCount: number;
 }
 
@@ -93,6 +98,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       primaryIssue: {},
       compactText: {},
       kisFlowCompactText: {},
+      dartCompactText: {},
       providerIssueCount: 0,
     },
   };
@@ -155,6 +161,8 @@ export function accumulateGateLayerSummary(
     if (compact) incrementCount(counters.gateLayerAudit.gate2Coverage.compactText, compact);
     const kisFlowCompact = formatGate2KisInvestorFlowCompactDiagnostic(gate2External);
     if (kisFlowCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.kisFlowCompactText, kisFlowCompact);
+    const dartCompact = formatGate2DartFinancialsCompactDiagnostic(gate2External);
+    if (dartCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.dartCompactText, dartCompact);
     if (
       gate2External.kisInvestorFlow.providerIssue
       || gate2External.dartFinancials.providerIssue
@@ -226,6 +234,7 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  providerIssueCount: ${summary.providerIssueCount}`,
     `  compactText: ${topLabel(summary.compactText)}`,
     `  kisFlow: ${topLabel(summary.kisFlowCompactText)}`,
+    `  dart: ${topLabel(summary.dartCompactText)}`,
     '  marketSignal: false; diagnosticOnly: true',
   ].join('\n');
 }

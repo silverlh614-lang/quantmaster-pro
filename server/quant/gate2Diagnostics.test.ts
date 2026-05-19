@@ -9,9 +9,15 @@ import {
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
 import type { KisInvestorFlow } from '../clients/kisClient.js';
 import type { DartFinancials } from '../clients/dartFinancialClient.js';
+import { normalizeDartFinancials, type QmpDartFinancials } from '../clients/dartFinancialNormalizer.js';
 import { KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS } from '../clients/kisClient/kisOfficialEndpointRegistry.js';
 import { normalizeKisInvestorFlow, type QmpInvestorFlow } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
-import { formatGate2CompactDiagnostic, formatGate2KisInvestorFlowCompactDiagnostic, type Gate2EvaluationStage } from './gate2Diagnostics.js';
+import {
+  formatGate2CompactDiagnostic,
+  formatGate2DartFinancialsCompactDiagnostic,
+  formatGate2KisInvestorFlowCompactDiagnostic,
+  type Gate2EvaluationStage,
+} from './gate2Diagnostics.js';
 
 type QuotePatch = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -83,7 +89,7 @@ function dartFin(overrides: Partial<DartFinancials> = {}): DartFinancials {
 function evaluateGate2(input: {
   quote?: YahooQuoteExtended;
   kisFlow?: KisInvestorFlow | QmpInvestorFlow | null;
-  dartFin?: DartFinancials | null;
+  dartFin?: DartFinancials | QmpDartFinancials | null;
   kospi20dReturn?: number;
   evaluationStage?: Gate2EvaluationStage | null;
 } = {}): ServerGateResult {
@@ -91,7 +97,7 @@ function evaluateGate2(input: {
     input.quote ?? gate2Quote(),
     DEFAULT_CONDITION_WEIGHTS,
     input.kospi20dReturn,
-    input.dartFin === undefined ? dartFin() : input.dartFin,
+    (input.dartFin === undefined ? dartFin() : input.dartFin) as never,
     (input.kisFlow === undefined ? kisFlow() : input.kisFlow) as never,
     undefined,
     input.evaluationStage,
@@ -176,6 +182,56 @@ describe('Gate2 wiring diagnostics', () => {
     });
   });
 
+  it('normalizes DART financial raw output without creating market signal', () => {
+    const normalized = normalizeDartFinancials({
+      symbol: '005930',
+      corpCode: '00126380',
+      reportDate: '2026-05-19',
+      fiscalYear: '2025',
+      quarter: 'ANNUAL',
+      raw: {
+        revenue: '1000000000000',
+        operatingIncome: '123000000000',
+        netIncome: '100000000000',
+        operatingCashFlow: '140000000000',
+        interestExpense: '14642857143',
+        totalEquity: '537634408602',
+        totalAssets: '2000000000000',
+      },
+      previousYearComparable: {
+        revenue: '900000000000',
+        operatingIncome: '90000000000',
+      },
+    });
+
+    expect(normalized).toMatchObject({
+      symbol: '005930',
+      corpCode: '00126380',
+      reportDate: '2026-05-19',
+      revenue: 1_000_000_000_000,
+      operatingIncome: 123_000_000_000,
+      netIncome: 100_000_000_000,
+      operatingCashFlow: 140_000_000_000,
+      source: 'DART',
+      providerStatus: 'OK_WITH_DATA',
+      dataConfidence: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
+    expect(normalized.ocfRatio).toBeCloseTo(1.4, 5);
+    expect(normalized.roe).toBeCloseTo(0.186, 3);
+    expect(normalized.opm).toBeCloseTo(0.123, 5);
+    expect(normalized.interestCoverageRatio).toBeCloseTo(8.4, 2);
+    expect(normalized.marginAcceleration).toBeCloseTo((123 / 90 - 1) - (1000 / 900 - 1), 5);
+    expect(normalized.rawFieldCoverage).toMatchObject({
+      requiredFields: ['operatingCashFlow', 'netIncome'],
+      presentFields: ['operatingCashFlow', 'netIncome'],
+      missingFields: [],
+      allRequiredFieldsPresent: true,
+    });
+  });
+
   it('reports all Gate2 declared inputs and external data as available', () => {
     const result = evaluateGate2({ kospi20dReturn: 5 });
     const gate2 = result.gateLayerSummary!.gate2;
@@ -196,7 +252,7 @@ describe('Gate2 wiring diagnostics', () => {
     });
     expect(gate2.externalDataCoverage).toMatchObject({
       kisInvestorFlow: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY' },
-      dartFinancials: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false },
+      dartFinancials: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY' },
       benchmark: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false },
     });
     expect(gate2.wiring?.find(item => item.key === 'relative_strength')).toMatchObject({
@@ -251,6 +307,139 @@ describe('Gate2 wiring diagnostics', () => {
       status: 'DATA_UNAVAILABLE',
       dartInputs: ['ctx.dartFin.ocfRatio'],
       missingExternalData: ['DART_FINANCIALS'],
+      marketSignal: false,
+    });
+  });
+
+  it('links normalized DART financial metadata into externalDataCoverage', () => {
+    const normalized = normalizeDartFinancials({
+      symbol: '005930',
+      raw: {
+        revenue: '1000000000000',
+        operatingIncome: '123000000000',
+        netIncome: '100000000000',
+        operatingCashFlow: '140000000000',
+        interestExpense: '14642857143',
+        totalEquity: '537634408602',
+      },
+    });
+    const normal = evaluateGate2({ kospi20dReturn: 5, dartFin: dartFin({ ocfRatio: 1.4 }) });
+    const result = evaluateGate2({ kospi20dReturn: 5, dartFin: normalized });
+    const gate2 = result.gateLayerSummary!.gate2;
+
+    expect(pickCoreDecisionFields(result)).toEqual(pickCoreDecisionFields(normal));
+    expect(gate2.externalDataCoverage?.dartFinancials).toMatchObject({
+      provider: 'DART',
+      providerStatus: 'OK_WITH_DATA',
+      dataConfidence: 'VERIFIED',
+      status: 'VERIFIED',
+      fields: {
+        operatingCashFlow: true,
+        netIncome: true,
+        ocfRatio: true,
+        roe: true,
+        opm: true,
+        interestCoverageRatio: true,
+      },
+      missingFields: [],
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
+    expect(gate2.externalDataCoverage?.dartFinancials.ocfRatio).toBeCloseTo(1.4, 5);
+    expect(gate2.wiring?.find(item => item.key === 'earnings_quality')).toMatchObject({
+      inputs: ['ctx.dartFin.ocfRatio'],
+      dartInputs: ['ctx.dartFin.ocfRatio'],
+      missingInputs: [],
+      requiredExternalData: ['DART_FINANCIALS'],
+      missingExternalData: [],
+      dataPath: 'DART',
+      providerIssue: false,
+      marketSignal: false,
+      diagnosticOnly: true,
+    });
+  });
+
+  it('treats DART OK_EMPTY as empty valid diagnostic rather than bearish fundamentals', () => {
+    const normalized = normalizeDartFinancials({
+      symbol: '005930',
+      raw: { status: '000', list: [] },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, dartFin: normalized });
+
+    expect(result.gateLayerSummary?.gate2.externalDataCoverage?.dartFinancials).toMatchObject({
+      providerStatus: 'OK_EMPTY',
+      dataConfidence: 'EMPTY_VALID',
+      status: 'EMPTY_VALID',
+      available: false,
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(result.gateLayerSummary?.gate2.wiring?.find(item => item.key === 'earnings_quality')).toMatchObject({
+      missingExternalData: ['DART_FINANCIALS'],
+      marketSignal: false,
+    });
+  });
+
+  it('reports DART FIELD_MISSING raw coverage without converting it to market signal', () => {
+    const normalized = normalizeDartFinancials({
+      symbol: '005930',
+      raw: { netIncome: '100000000000' },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, dartFin: normalized });
+    const dart = result.gateLayerSummary?.gate2.externalDataCoverage?.dartFinancials;
+
+    expect(normalized.providerStatus).toBe('FIELD_MISSING');
+    expect(normalized.ocfRatio).toBeNull();
+    expect(dart).toMatchObject({
+      status: 'DEGRADED',
+      missingFields: ['operatingCashFlow'],
+      providerIssue: true,
+      marketSignal: false,
+    });
+    expect(dart?.rawFieldCoverage.missingFields).toContain('operatingCashFlow');
+  });
+
+  it('reports DART PARSE_ERROR without throwing or creating market signal', () => {
+    const normalized = normalizeDartFinancials({
+      symbol: '005930',
+      raw: { operatingCashFlow: 'abc', netIncome: 'N/A' },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, dartFin: normalized });
+
+    expect(normalized.providerStatus).toBe('PARSE_ERROR');
+    expect(result.gateLayerSummary?.gate2.externalDataCoverage?.dartFinancials).toMatchObject({
+      status: 'DEGRADED',
+      providerIssue: true,
+      marketSignal: false,
+    });
+  });
+
+  it('keeps DART interest coverage null when interest expense is zero', () => {
+    const normalized = normalizeDartFinancials({
+      symbol: '005930',
+      raw: {
+        operatingIncome: '100000000000',
+        interestExpense: '0',
+        operatingCashFlow: '140000000000',
+        netIncome: '100000000000',
+      },
+    });
+
+    expect(normalized.interestCoverageRatio).toBeNull();
+    expect(normalized.marketSignal).toBe(false);
+  });
+
+  it('keeps DART stage-not-fetched separate from provider degradation', () => {
+    const result = evaluateGate2({ kospi20dReturn: 5, dartFin: null, evaluationStage: 'DISCOVERY_GATE' });
+    const dart = result.gateLayerSummary?.gate2.externalDataCoverage?.dartFinancials;
+
+    expect(dart).toMatchObject({
+      required: true,
+      available: false,
+      status: 'STAGE_NOT_FETCHED',
+      stageNotFetched: true,
+      providerIssue: false,
       marketSignal: false,
     });
   });
@@ -470,6 +659,27 @@ describe('Gate2 wiring diagnostics', () => {
     expect(text).toContain('Gate2 KIS Flow: VERIFIED');
     expect(text).toContain('endpoint=INQUIRE_INVESTOR');
     expect(text).toContain('foreign=+1200000000');
+    expect(text).toContain('marketSignal=false');
+  });
+
+  it('formats Gate2 DART compact diagnostic', () => {
+    const result = evaluateGate2({
+      kospi20dReturn: 5,
+      dartFin: normalizeDartFinancials({
+        symbol: '005930',
+        raw: {
+          operatingCashFlow: '140000000000',
+          netIncome: '100000000000',
+          operatingIncome: '84000000000',
+          interestExpense: '10000000000',
+        },
+      }),
+    });
+    const text = formatGate2DartFinancialsCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
+
+    expect(text).toContain('Gate2 DART: VERIFIED');
+    expect(text).toContain('OCF/NI=1.40');
+    expect(text).toContain('ICR=8.40x');
     expect(text).toContain('marketSignal=false');
   });
 });
