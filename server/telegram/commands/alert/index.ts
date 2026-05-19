@@ -3,6 +3,10 @@
 import './alertHistory.cmd.js';
 import './alertNoiseStats.cmd.js';
 import './alertReplay.cmd.js';
+import './alertStats.cmd.js';
+import './alertSearch.cmd.js';
+import './omitted.cmd.js';
+import './alertInbox.cmd.js';
 import './channelActivity.cmd.js';
 import './channelFlushStatus.cmd.js';
 import './channelHealth.cmd.js';

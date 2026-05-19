@@ -3,6 +3,7 @@ import { AlertCategory, ChannelSemantic, isCategoryEnabled, parseChannelMap } fr
 import { sendChannelAlertTo } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
 import { appendAlertHistory } from '../persistence/alertHistoryRepo.js';
+import { updateNotificationLedgerState } from '../persistence/notificationLedgerRepo.js';
 import { evaluateAlertNoise, type AlertLevel, type AlertNoiseEvent } from './alertNoisePolicy.js';
 
 // 채널 시멘틱 이름 re-export — 호출자가 alertRouter 한 곳만 import 하도록.
@@ -92,6 +93,7 @@ export interface DispatchAlertOptions {
   delivery?: 'immediate' | 'daily_digest' | 'weekly_digest';
   /** ADR-0468 diagnostic-only noise policy hook. */
   noiseEvent?: AlertNoiseEvent;
+  ledgerId?: string;
 }
 
 export type DispatchPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
@@ -456,6 +458,7 @@ function bufferDailyAlert(
   message: string,
   priority: DispatchPriority,
   statEventType: string | undefined,
+  options?: DispatchAlertOptions,
 ): boolean {
   if (category === AlertCategory.SYSTEM) {
     systemDailyBuffer.push({ at: new Date().toISOString(), message, priority });
@@ -531,6 +534,7 @@ function handleDisabledCategory(
   priority: DispatchPriority,
   message: string,
   statEventType: string | undefined,
+  options?: DispatchAlertOptions,
 ): boolean {
   if (isCategoryEnabled(category)) return false;
   recordSkippedStat(category, 'disabledSkipped', statEventType, 'category disabled');
@@ -550,7 +554,8 @@ function handleBufferedDelivery(
     return true;
   }
   if (options?.delivery === 'daily_digest') {
-    return bufferDailyAlert(category, message, priority, statEventType);
+    const buffered = bufferDailyAlert(category, message, priority, statEventType);
+    return buffered;
   }
   return false;
 }
@@ -628,7 +633,7 @@ export async function dispatchAlert(
   const priority = resolvePriority(category, options);
   const statEventType = options?.eventType ?? options?.dedupeKey;
   incrementChannelStat(category, 'emitted', { eventType: statEventType });
-  if (handleDisabledCategory(category, priority, routedMessage, statEventType)) return undefined;
+  if (handleDisabledCategory(category, priority, routedMessage, statEventType, options)) return undefined;
 
   incrementChannelStat(category, 'routed', { eventType: statEventType });
   if (handleBufferedDelivery(category, routedMessage, priority, options, statEventType)) return undefined;

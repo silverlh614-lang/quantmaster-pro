@@ -84,14 +84,11 @@ describe('telegramEventRouter ADR-0466 taxonomy', () => {
       metadata: { symbol: '005930' },
     });
 
-    expect(mocks.dispatchAlert).toHaveBeenCalledWith(ChannelSemantic.SIGNAL, expect.stringContaining('※ 투자 판단은 각자 책임입니다.'), {
+    expect(mocks.dispatchAlert).toHaveBeenCalledWith(ChannelSemantic.SIGNAL, expect.stringContaining('※ 투자 판단은 각자 책임입니다.'), expect.objectContaining({
       severity: 'HIGH',
       dedupeKey: 'STRONG_BUY_SIGNAL:005930',
       eventType: 'STRONG_BUY_SIGNAL',
-      cooldownMs: undefined,
-      delivery: undefined,
-      disableNotification: undefined,
-    });
+    }));
     expect(mocks.sendPrivateAlert).not.toHaveBeenCalled();
   });
 

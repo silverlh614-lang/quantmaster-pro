@@ -9,6 +9,7 @@ import {
 import { AlertCategory } from './alertCategories.js';
 import { sendPrivateAlert, type TelegramAlertOptions } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
+import { appendNotificationLedger, updateNotificationLedgerState } from '../persistence/notificationLedgerRepo.js';
 
 export type TelegramEventType =
   | 'BUY_SIGNAL'
@@ -221,6 +222,8 @@ function executionPrefix(type: TelegramEventType): string | null {
 }
 
 export async function emitTelegramEvent(event: TelegramEvent): Promise<number | undefined> {
+  const eventId = `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await appendNotificationLedger({ id: eventId, at: new Date().toISOString(), source: 'emitTelegramEvent', eventType: event.type, channelSemantic: routeTelegramEvent(event.type), deliveryState: 'CREATED', message: event.message, dedupeKey: event.dedupeKey, cooldownMs: event.cooldownMs, metadata: event.metadata });
   const route = routeTelegramEvent(event.type);
   const severity = event.severity ?? DEFAULT_SEVERITY[event.type];
   const dedupeKey = buildDedupeKey(event);
@@ -235,7 +238,9 @@ export async function emitTelegramEvent(event: TelegramEvent): Promise<number | 
         cooldownMs: event.cooldownMs,
         category: event.type,
       };
-      return await sendPrivateAlert(event.message, options);
+      const msgId = await sendPrivateAlert(event.message, options);
+      await updateNotificationLedgerState(eventId, { at: new Date().toISOString(), eventType: event.type, deliveryState: msgId !== undefined ? 'PRIVATE_SENT' : 'FAILED', success: msgId !== undefined, messageId: msgId });
+      return msgId;
     }
 
     const routedMessage = route === ChannelSemantic.SIGNAL
@@ -245,6 +250,7 @@ export async function emitTelegramEvent(event: TelegramEvent): Promise<number | 
         : event.message;
 
     return await dispatchAlert(route, routedMessage, {
+      ledgerId: eventId,
       severity,
       dedupeKey,
       eventType: event.type,
@@ -253,6 +259,7 @@ export async function emitTelegramEvent(event: TelegramEvent): Promise<number | 
       disableNotification: event.disableNotification,
     });
   } catch (error) {
+    await updateNotificationLedgerState(eventId, { at: new Date().toISOString(), eventType: event.type, deliveryState: 'FAILED', success: false, error: error instanceof Error ? error.message : String(error) });
     console.error(
       `[TELEGRAM_EVENT_ROUTER_FAILED] eventType=${event.type} route=${route} executionImpact=NONE reason=${
         error instanceof Error ? error.message : String(error)

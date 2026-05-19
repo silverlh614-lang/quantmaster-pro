@@ -1,59 +1,26 @@
-// @responsibility alertReplay.cmd 텔레그램 모듈
-// @responsibility: /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM] — alertHistoryRepo 에서 id 조회 후 dispatchAlert 재발송.
 import { findAlertHistoryById } from '../../../persistence/alertHistoryRepo.js';
-import { AlertCategory } from '../../../alerts/alertCategories.js';
-import { dispatchAlert } from '../../../alerts/alertRouter.js';
-import { escapeHtml } from '../../../alerts/telegramClient.js';
+import { sendPrivateAlert, escapeHtml } from '../../../alerts/telegramClient.js';
+import { queryNotificationLedger } from '../../../persistence/notificationLedgerRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
 const alertReplay: TelegramCommand = {
-  name: '/alert_replay',
-  category: 'ALR',
-  visibility: 'ADMIN',
-  riskLevel: 1,
-  description: '알림 ID 재전송 (카테고리 선택)',
-  usage: '/alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM]',
-  async execute({ args, reply }) {
+  name: '/alert_replay', category: 'ALR', visibility: 'ADMIN', riskLevel: 1,
+  description: '알림 ID를 PRIVATE DM으로 재표시', usage: '/alert_replay <id>',
+  async execute({ args, reply, chatId }) {
     const id = (args[0] ?? '').trim();
-    const categoryRaw = (args[1] ?? '').trim().toUpperCase();
-    if (!id) {
-      await reply('❌ 사용법: /alert_replay <id> [TRADE|ANALYSIS|INFO|SYSTEM]');
+    if (!id) return reply('❌ 사용법: /alert_replay <id>');
+    if (chatId && process.env.TELEGRAM_CHAT_ID && chatId !== process.env.TELEGRAM_CHAT_ID) {
+      await reply('❌ /alert_replay 는 PRIVATE DM 에서만 허용됩니다.');
       return;
     }
-
-    const history = findAlertHistoryById(id);
-    if (!history) {
-      await reply(`❌ alert id not found: ${escapeHtml(id)}`);
-      return;
-    }
-
-    const targetCategory = categoryRaw
-      ? (Object.values(AlertCategory).includes(categoryRaw as AlertCategory)
-          ? (categoryRaw as AlertCategory)
-          : null)
-      : history.category;
-
-    if (!targetCategory) {
-      await reply('❌ category must be one of TRADE, ANALYSIS, INFO, SYSTEM');
-      return;
-    }
-
-    const replayMessage = `${history.message}\n\n<i>[replay: ${escapeHtml(id)}]</i>`;
-    const msgId = await dispatchAlert(targetCategory, replayMessage, {
-      priority: history.priority,
-      dedupeKey: `replay:${id}:${Date.now()}`,
-      delivery: 'immediate',
-    }).catch(() => undefined);
-
-    await reply(
-      msgId !== undefined
-        ? `✅ replay sent: ${escapeHtml(id)} -> ${targetCategory} (message_id: ${msgId})`
-        : `❌ replay failed: ${escapeHtml(id)} -> ${targetCategory}`,
-    );
+    const rows = await queryNotificationLedger({ keyword: id });
+    const hit = rows.find(r => r.id === id);
+    const body = hit?.message ?? findAlertHistoryById(id)?.message;
+    if (!body) return reply(`❌ alert id not found: ${escapeHtml(id)}`);
+    const msgId = await sendPrivateAlert(`${body}\n\n<i>[replay: ${escapeHtml(id)}]</i>`, { dedupeKey: `replay:${id}:${Date.now()}`, category: 'PRIVATE' }).catch(() => undefined);
+    await reply(msgId !== undefined ? `✅ private replay sent: ${escapeHtml(id)} (message_id: ${msgId})` : `❌ replay failed: ${escapeHtml(id)}`);
   },
 };
-
 commandRegistry.register(alertReplay);
-
 export default alertReplay;
