@@ -107,6 +107,10 @@ interface AlertCooldownEntry {
 
 const alertCooldown = new Map<string, AlertCooldownEntry>();
 
+const telegramIdempotency = new Map<string, number>();
+const telegramSenderRegistry = new Set<string>();
+const telegramInstanceId = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+
 const COOLDOWN_BY_PRIORITY: Record<AlertPriority, number> = {
   CRITICAL: 0,           // 항상 발송 (비상정지·손절)
   HIGH:     60_000,      // 1분 쿨다운
@@ -500,6 +504,7 @@ function captureUnifiedBriefingIfNeeded(
     const absorbed = captureToUnifiedBriefing(finalMessage, opts?.category ?? inferCategory(opts?.dedupeKey));
     if (absorbed) {
       recordAlertSent(opts);
+  telegramIdempotency.set(idempotencyKey, Date.now());
       return true;
     }
   }
@@ -610,6 +615,21 @@ async function sendImmediateAlert(
   ack: AckContext,
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
+  const channelId = process.env.TELEGRAM_CHAT_ID ?? 'default';
+  const senderKey = `${channelId}`;
+  if (!telegramSenderRegistry.has(senderKey)) {
+    telegramSenderRegistry.add(senderKey);
+    console.log(`[TELEGRAM_SENDER_REGISTERED] instanceId=${telegramInstanceId} channelId=${channelId} alreadyRegistered=false`);
+  } else {
+    console.log(`[TELEGRAM_SENDER_DUPLICATE_BLOCKED] instanceId=${telegramInstanceId} channelId=${channelId} reason=ALREADY_REGISTERED`);
+  }
+  const msgHash = Buffer.from(payload.finalMessage).toString('base64').slice(0, 16);
+  const idempotencyKey = `${channelId}:${opts?.category ?? 'UNKNOWN'}:${opts?.dedupeKey ?? 'NO_KEY'}:${msgHash}`;
+  const last = telegramIdempotency.get(idempotencyKey);
+  if (last && Date.now() - last < 10 * 60 * 1000) {
+    console.log(`[TELEGRAM_IDEMPOTENCY_SUPPRESSED] channelId=${channelId} alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE messageHash=${msgHash} ttl=10m telegramSent=false`);
+    return undefined;
+  }
   if (!shouldSendAlert(opts)) {
     console.log(`[Telegram] 쿨다운 중 — 발송 생략 (key=${opts?.dedupeKey})`);
     return undefined;

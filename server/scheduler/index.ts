@@ -37,6 +37,10 @@ import { SCHEDULE_CATALOG, getAllJobMetrics } from './scheduleCatalog.js';
 // PR-598: investor-flow warm-up cron 은 PR-597 에서 실제 scheduledJob 등록이 먼저 들어갔다.
 // scheduleCatalog.ts 는 대형 SSOT 파일이라 별도 리팩터 전까지 boot catalog 검증에서
 // 확장 catalog 로 합산해 "등록됐으나 catalog 없음" 오탐을 제거한다.
+
+let schedulerSingletonRunning = false;
+const schedulerInstanceId = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+
 const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
   'investor_flow_warmup_open',
   'investor_flow_warmup_lunch',
@@ -47,6 +51,14 @@ const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
 ];
 
 export function startScheduler(): void {
+  if (schedulerSingletonRunning) {
+    console.log('[SCHEDULER_DUPLICATE_BLOCKED] scheduler=RegimeMonitorScheduler reason=ALREADY_RUNNING telegramSent=false');
+    console.log('[SCHEDULER_DUPLICATE_BLOCKED] scheduler=MarketScanScheduler reason=ALREADY_RUNNING telegramSent=false');
+    return;
+  }
+  schedulerSingletonRunning = true;
+  console.log(`[SCHEDULER_SINGLETON_ACQUIRED] scheduler=RegimeMonitorScheduler instanceId=${schedulerInstanceId}`);
+  console.log(`[SCHEDULER_SINGLETON_ACQUIRED] scheduler=MarketScanScheduler instanceId=${schedulerInstanceId}`);
   registerOrchestratorJobs();
   registerAlertJobs();
   registerReportJobs();
