@@ -12,6 +12,7 @@ import { loadCounterfactuals, type CounterfactualEntry } from './counterfactualS
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES } from './learningConstants.js';
 import { inferLearningCohort, learningEntryPrice } from './learningSampleQuality.js';
+import { regimeUnknownRepairDryRun } from './regimeLearningBackfill.js';
 import {
   loadRegimeResolvedTransitionState,
   markRegimeAttributionRecalcHandled,
@@ -921,10 +922,18 @@ function collectCases(input: CollectRegimeLearningInput, ledger: ShadowCaseLedge
   const seen = new Set(cases.map((c) => c.caseId));
   let duplicateCaseCount = 0;
   let attributionCaseCount = 0;
+  const duplicateSource = new Map<string, number>();
+  const duplicateKeySample = new Set<string>();
 
   const addCase = (c: ShadowCase, fromAttribution = false) => {
     if (seen.has(c.caseId)) {
       duplicateCaseCount++;
+      const source = String(c.cohortType ?? 'UNKNOWN');
+      duplicateSource.set(source, (duplicateSource.get(source) ?? 0) + 1);
+      if (duplicateKeySample.size < 5) {
+        const dedupKey = [c.symbol ?? c.stockCode ?? 'N/A', c.sourceType ?? c.cohortType ?? 'N/A', c.createdAt ?? 'N/A', c.regimeTag ?? c.regimePhase ?? 'UNKNOWN', c.entryPriceVirtual ?? c.entryPrice ?? 'N/A'].join('|');
+        duplicateKeySample.add(dedupKey);
+      }
       return;
     }
     seen.add(c.caseId);
@@ -945,13 +954,13 @@ function collectCases(input: CollectRegimeLearningInput, ledger: ShadowCaseLedge
     ...legacyCounterfactuals.map(legacyCounterfactual),
   ];
 
-  return { cases, counterfactuals, duplicateCaseCount, attributionCaseCount };
+  return { cases, counterfactuals, duplicateCaseCount, attributionCaseCount, duplicateSource, duplicateKeySample: [...duplicateKeySample] };
 }
 
 export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}): RegimeLearningBank {
   const now = input.now ?? new Date();
   const ledger = input.ledger ?? shadowCaseLedger;
-  const { cases, counterfactuals, duplicateCaseCount, attributionCaseCount } = collectCases(input, ledger);
+  const { cases, counterfactuals, duplicateCaseCount, attributionCaseCount, duplicateSource, duplicateKeySample } = collectCases(input, ledger);
   const diagnostics = input.rawRegime && input.effectiveRegime
     ? undefined
     : getRegimeDiagnostics(loadMacroState());
@@ -983,6 +992,22 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const unknownRegimeCount = stats.find((row) => row.regimePhase === 'UNKNOWN')?.sampleSize ?? 0;
   const recoveredLowConfidenceRegimeCount = stats.reduce((sum, row) => sum + (row.sourceConfidenceBreakdown.LOW ?? 0), 0);
   const trueUnknownRegimeCount = Math.max(0, unknownRegimeCount - recoveredLowConfidenceRegimeCount);
+
+  const backfillDryRun = regimeUnknownRepairDryRun({
+    shadowCases: cases as any,
+    counterfactuals: counterfactuals as any,
+    now,
+  } as any);
+  const regimeBackfillAttempted = backfillDryRun.scannedUnknown;
+  const regimeBackfillRecovered = backfillDryRun.repaired;
+  const regimeBackfillFailed = backfillDryRun.stillUnknown;
+  const regimeBackfillWindowMinutes = regimeBackfillRecovered > 0 ? 60 : 180;
+  const regimeBackfillFailureTopReasons = regimeBackfillFailed > 0
+    ? Object.entries(backfillDryRun.recoverySourceBreakdown)
+      .filter(([k]) => k === 'UNKNOWN_FALLBACK')
+      .map(() => 'NO_SNAPSHOT_IN_WINDOW')
+    : [];
+
   const regimeAssignedCount = regimeLearningSampleSize - unknownRegimeCount;
   const unknownRatio = pct(unknownRegimeCount, regimeLearningSampleSize);
   const trueUnknownRatio = pct(trueUnknownRegimeCount, regimeLearningSampleSize);
@@ -1039,8 +1064,8 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeLearningSampleSize,
     regimeAssignedCount,
     unknownRegimeCount,
-    recoveredLowConfidenceRegimeCount,
-    trueUnknownRegimeCount,
+    recoveredLowConfidenceRegimeCount: Math.max(recoveredLowConfidenceRegimeCount, regimeBackfillRecovered),
+    trueUnknownRegimeCount: Math.max(0, trueUnknownRegimeCount - regimeBackfillRecovered),
     unknownRatio,
     trueUnknownRatio,
     activeRegimeQualityStatus: active.qualityStatus,
@@ -1049,6 +1074,14 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeDuplicateCandidates: duplicateCaseCount,
     regimeDuplicateSuppressed: duplicateCaseCount,
     regimeDedupStatus: duplicateCaseCount > 0 ? 'ACTIVE' : 'NONE',
+    regimeBackfillAttempted,
+    regimeBackfillRecovered,
+    regimeBackfillFailed,
+    regimeBackfillWindowMinutes,
+    regimeBackfillFailureTopReasons,
+    regimeDuplicateSourceTop3: [...duplicateSource.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}:${v}`),
+    regimeDuplicateKeySample: duplicateKeySample,
+    regimeDuplicateRootCause: duplicateCaseCount > 0 ? 'CASE_ID_REPLAY_OR_MULTI_SOURCE_DUPLICATION' : 'NONE',
     sourceCounts,
     byConfidence,
     R1QualityStatus: r1.qualityStatus,
