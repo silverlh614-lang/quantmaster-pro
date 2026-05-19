@@ -154,7 +154,10 @@ function appendProgramMarketStatusLines(
   lines.push('executionImpact: NONE');
   lines.push('useForExecution: false');
   lines.push('useForShadow: true');
-  if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
+  const combinedRows = macro?.programMarket?.rowBreakdown?.combined;
+  if (combinedRows) {
+    lines.push(`nonZeroRows: ${combinedRows.nonZeroRows}/${combinedRows.outputLength}`);
+  } else if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
     lines.push(`nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`);
   }
   if (status === 'OK_NONZERO') {
