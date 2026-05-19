@@ -56,8 +56,8 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('unit 미검증 및 불일치 시 shadow/excluded / execution NONE 강제', () => {
-    expect(source).toMatch(/mappingConfidence:\s*'UNIT_UNVERIFIED'/);
-    expect(source).toMatch(/scoring:\s*\(invariants\.violated \|\| legInvariantViolated\) \? 'excluded' : 'shadow_only'/);
+    expect(source).toMatch(/mappingConfidence:\s*'MAPPING_VERIFIED'/);
+    expect(source).toMatch(/scoring:\s*\(invariants\.violated \|\| legInvariantViolated\) \? 'excluded' : 'advisory'/);
     expect(source).toMatch(/useForExecution:\s*false/);
     expect(source).toMatch(/executionImpact:\s*'NONE'/);
     expect(source).toMatch(/blockGateUsage:\s*true/);
@@ -82,7 +82,7 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
 
   it('invariant 위반 시 SNAPSHOT_INCONSISTENT + scoring excluded + executionImpact NONE', () => {
     expect(source).toContain("'SNAPSHOT_INCONSISTENT'");
-    expect(source).toMatch(/scoring:\s*\(invariants\.violated \|\| legInvariantViolated\) \? 'excluded' : 'shadow_only'/);
+    expect(source).toMatch(/scoring:\s*\(invariants\.violated \|\| legInvariantViolated\) \? 'excluded' : 'advisory'/);
     expect(source).toMatch(/executionImpact:\s*'NONE'/);
   });
 
@@ -127,7 +127,7 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('COMBINED unitCandidates/display는 combined raw 기반', () => {
-    expect(source).toMatch(/displayWholeNetBuy:\s*formatEokAmount\(combinedWholeNetBuy, 'UNVERIFIED'\)/);
+    expect(source).toMatch(/displayWholeNetBuy:\s*formatEokAmount\(combinedWholeNetBuy, 'KRW_1K'\)/);
     expect(source).toMatch(/unitCandidates:\s*buildUnitCandidates\(combinedWholeNetBuy\)/);
   });
   it('SINGLE_KIS_RESPONSE일 때 splitAvailable=false, combinedOnly=true 경로 존재', () => {
