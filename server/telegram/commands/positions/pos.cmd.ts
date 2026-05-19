@@ -9,6 +9,7 @@ import {
   type TelegramPositionEntry,
 } from './shadowPositionSources.js';
 import { renderPositionLine, renderPositionSourceDiagnostics } from './positionOutputFormatters.js';
+import { isEngineBlockQueryException, resolvePositionSource } from '../../../positions/positionSourceResolver.js';
 
 // ADR-0504 compatibility anchors:
 // getOpenPositions shadowPositionLedger 'POSITION_STATUS_CARD' validatePositionCardPayload buildShadowPositionCardPayload
@@ -53,9 +54,20 @@ function createPositionCommand(
     description,
     async execute({ reply, correlationId }) {
       console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
+      try {
       const snapshot = await aggregatePositionSources();
       console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount}`);
       const { mode, positions, account } = snapshot;
+      const resolution = resolvePositionSource({
+        engineMode: mode.modeLabel,
+        liveCount: typeof snapshot.counts.kisLiveCount === 'number' ? snapshot.counts.kisLiveCount : 0,
+        shadowCount: snapshot.counts.shadowRegistryCount + snapshot.counts.shadowLedgerCount + snapshot.counts.shadowTradeOpenCount,
+        paperCount: snapshot.counts.paperOpenCount,
+        virtualCount: snapshot.counts.virtualHoldingCount,
+      });
+      if (isEngineBlockQueryException(mode.modeLabel)) {
+        console.info(`[TELEGRAM_QUERY_ALLOWED_DESPITE_ENGINE_BLOCK] engineMode=${mode.modeLabel} command=${name} executionImpact=NONE queryOnly=true tradeBlockedIgnoredForQuery=true`);
+      }
       const visiblePositions = filterPositions(positions, view);
       const lines: string[] = [
         '📌 <b>포지션 현황</b>',
@@ -96,11 +108,16 @@ function createPositionCommand(
       lines.push('주의: SHADOW/PAPER/VIRTUAL 포지션은 실계좌 보유가 아니며 executionImpact=NONE 입니다.');
 
       lines.push(...renderPositionSourceDiagnostics(snapshot.sourceDiagnostics));
+      lines.push(`resolver: ${resolution.selectedSource} (${resolution.reason})`);
 
       const message = lines.join('\n');
       console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=${name} finalDisplayedCount=${visiblePositions.length} bytes=${message.length}`);
       await reply(message);
       console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=${name}`);
+      } catch (error) {
+        console.error(`[TELEGRAM_POS_QUERY_FAILED] correlationId=${correlationId ?? 'N/A'} command=${name}`, error);
+        await reply('포지션 조회 중 일부 데이터 소스 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      }
     },
   };
 }
