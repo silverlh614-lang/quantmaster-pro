@@ -60,6 +60,14 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
     expect(source).toMatch(/scoring:\s*'shadow_only'/);
     expect(source).toMatch(/useForExecution:\s*false/);
     expect(source).toMatch(/executionImpact:\s*'NONE'/);
+    expect(source).toMatch(/blockGateUsage:\s*true/);
+    expect(source).toMatch(/blockRegimeUsage:\s*true/);
+  });
+
+  it('unitCandidates 3종(KRW/KRW_1K/KRW_1M) 계산 helper 존재', () => {
+    expect(source).toMatch(/function buildUnitCandidates/);
+    expect(source).toMatch(/KRW_1K:\s*formatEokAmount\(rawValue === null \? null : rawValue \* 1000/);
+    expect(source).toMatch(/KRW_1M:\s*formatEokAmount\(rawValue === null \? null : rawValue \* 1_000_000/);
   });
 
   it('raw non-zero 보존 + structured 로그 태그 추가', () => {

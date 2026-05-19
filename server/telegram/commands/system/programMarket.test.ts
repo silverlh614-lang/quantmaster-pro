@@ -178,6 +178,7 @@ describe('buildProgramMarketMessage', () => {
         raw: { wholeNetBuyTradeAmount: -1687944, arbitrageNetBuyTradeAmount: 46866, nonArbitrageNetBuyTradeAmount: -1734809 },
         display: { wholeNetBuy: '-0.02억원', arbitrageNetBuy: '0.01억원 미만', nonArbitrageNetBuy: '-0.02억원' },
         unit: { rawUnitAssumption: 'UNVERIFIED', mappingConfidence: 'UNIT_UNVERIFIED' },
+        unitCandidates: { KRW: '-0.02억원', KRW_1K: '-17.54억원', KRW_1M: '-17,540.85억원' },
       },
     });
     const msg = await buildProgramMarketMessage();
@@ -185,6 +186,11 @@ describe('buildProgramMarketMessage', () => {
     expect(msg).toContain('• 차익: 0.01억원 미만');
     expect(msg).toContain('• 비차익: -0.02억원');
     expect(msg).not.toContain('• 순매수: 0억원');
+    expect(msg).toContain('단위 후보');
+    expect(msg).toContain('원 기준: -0.02억원');
+    expect(msg).toContain('천원 기준: -17.54억원');
+    expect(msg).toContain('백만원 기준: -17,540.85억원');
+    expect(msg).toContain('현재 적용: UNVERIFIED / shadow_only');
   });
 describe('programMarket.cmd execute', () => {
   it('정상 실행 시 reply 한 번 호출 + 헤더 포함', async () => {

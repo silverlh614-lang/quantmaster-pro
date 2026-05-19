@@ -54,6 +54,14 @@ function formatEokAmount(value: number | null, unitAssumption: ProgramMarketRawU
   return `${sign}${displayEok.toFixed(2)}억원`;
 }
 
+function buildUnitCandidates(rawValue: number | null): { KRW: string; KRW_1K: string; KRW_1M: string } {
+  return {
+    KRW: formatEokAmount(rawValue, 'UNVERIFIED'),
+    KRW_1K: formatEokAmount(rawValue === null ? null : rawValue * 1000, 'UNVERIFIED'),
+    KRW_1M: formatEokAmount(rawValue === null ? null : rawValue * 1_000_000, 'UNVERIFIED'),
+  };
+}
+
 function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
   try {
     const macro = loadMacroState();
@@ -807,11 +815,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         nonArbitrageNetBuy: formatEokAmount(rawNonArb, 'UNVERIFIED'),
       },
       unit: { rawUnitAssumption: 'UNVERIFIED', displayUnit: 'EOK_KRW', mappingConfidence: 'UNIT_UNVERIFIED' },
-      unitCandidates: {
-        KRW: formatEokAmount(rawWhole, 'UNVERIFIED'),
-        KRW_1K: formatEokAmount(rawWhole === null ? null : rawWhole * 1000, 'UNVERIFIED'),
-        KRW_1M: formatEokAmount(rawWhole === null ? null : rawWhole * 1_000_000, 'UNVERIFIED'),
-      },
+      unitCandidates: buildUnitCandidates(rawWhole),
       policy: {
         scoring: 'shadow_only',
         useForExecution: false,
@@ -819,6 +823,8 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         executionImpact: 'NONE',
         providerIssue: false,
         marketSignal: false,
+        blockGateUsage: true,
+        blockRegimeUsage: true,
       },
       rawNonZero,
       rowBreakdown: {
@@ -827,21 +833,30 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
           nonZeroRows: marketProgram.kospiDiagnostics?.nonZeroRowCount ?? 0,
           selectedBsopHour: marketProgram.kospiDiagnostics?.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: marketProgram.kospiNetBuyAmount ?? null,
+          rawArbitrageNetBuy: null,
+          rawNonArbitrageNetBuy: null,
           displayWholeNetBuy: formatEokAmount(marketProgram.kospiNetBuyAmount ?? null, 'UNVERIFIED'),
+          unitCandidates: buildUnitCandidates(marketProgram.kospiNetBuyAmount ?? null),
         },
         kosdaq: {
           outputLength: marketProgram.kosdaqDiagnostics?.rowCount ?? 0,
           nonZeroRows: marketProgram.kosdaqDiagnostics?.nonZeroRowCount ?? 0,
           selectedBsopHour: marketProgram.kosdaqDiagnostics?.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: marketProgram.kosdaqNetBuyAmount ?? null,
+          rawArbitrageNetBuy: null,
+          rawNonArbitrageNetBuy: null,
           displayWholeNetBuy: formatEokAmount(marketProgram.kosdaqNetBuyAmount ?? null, 'UNVERIFIED'),
+          unitCandidates: buildUnitCandidates(marketProgram.kosdaqNetBuyAmount ?? null),
         },
         combined: {
           outputLength: marketProgram.rowCount ?? 0,
           nonZeroRows: marketProgram.nonZeroRowCount ?? 0,
           selectedBsopHour: marketProgram.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: rawWhole,
+          rawArbitrageNetBuy: rawArb,
+          rawNonArbitrageNetBuy: rawNonArb,
           displayWholeNetBuy: formatEokAmount(rawWhole, 'UNVERIFIED'),
+          unitCandidates: buildUnitCandidates(rawWhole),
         },
       },
     };
