@@ -140,6 +140,7 @@ import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
 import { runShadowLearningOnlyScan } from '../shadowLearningOnlyScan.js';
 import { recordCounterfactualUniverseLearningSnapshot } from './counterfactualUniverseLearningWiring.js';
+import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 
 const mockedFetchAccountBalance = vi.mocked(fetchAccountBalance);
 const mockedGetManualBlockNewBuy = vi.mocked(getManualBlockNewBuy);
@@ -154,6 +155,7 @@ const mockedComputeSlotConsumption = vi.mocked(computeSlotConsumption);
 const mockedCheckVolumeClockWindow = vi.mocked(checkVolumeClockWindow);
 const mockedRunShadowLearningOnlyScan = vi.mocked(runShadowLearningOnlyScan);
 const mockedRecordCounterfactualUniverseLearningSnapshot = vi.mocked(recordCounterfactualUniverseLearningSnapshot);
+const mockedSendTelegramAlert = vi.mocked(sendTelegramAlert);
 
 describe('preflight.ts byte-equivalent tests', () => {
   const originalEnv = { ...process.env };
@@ -161,6 +163,7 @@ describe('preflight.ts byte-equivalent tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedRunShadowLearningOnlyScan.mockResolvedValue(undefined as any);
+    mockedSendTelegramAlert.mockResolvedValue(123);
     process.env.KIS_APP_KEY = 'test-key';
     process.env.AUTO_TRADE_MODE = 'SHADOW';
 
@@ -239,6 +242,12 @@ describe('preflight.ts byte-equivalent tests', () => {
       macroDiagnosticOnly: true,
       liveEntryBlockedReason: 'R6_DEFENSE',
     }));
+    expect(mockedSendTelegramAlert).toHaveBeenCalledWith(
+      expect.stringContaining('[R6_DEFENSE]'),
+      expect.objectContaining({
+        dedupeKey: expect.stringMatching(/^REGIME_STATUS:R6_DEFENSE:BLACK_SWAN:/),
+      }),
+    );
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['R6_DEFENSE'],

@@ -628,7 +628,7 @@ async function sendImmediateAlert(
   if (!telegramSenderRegistry.has(senderKey)) {
     telegramSenderRegistry.add(senderKey);
     console.log(`[TELEGRAM_SENDER_REGISTERED] instanceId=${telegramInstanceId} channelId=${channelId} alreadyRegistered=false`);
-  } else {
+  } else if (process.env.TELEGRAM_SENDER_DEBUG === 'true') {
     console.log(`[TELEGRAM_SENDER_DUPLICATE_BLOCKED] instanceId=${telegramInstanceId} channelId=${channelId} reason=ALREADY_REGISTERED`);
   }
   const msgHash = Buffer.from(payload.finalMessage).toString('base64').slice(0, 16);

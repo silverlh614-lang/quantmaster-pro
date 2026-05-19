@@ -426,4 +426,14 @@ describe('log noise reduction', () => {
     expect(console.info).toHaveBeenCalledWith('[ENTRY_REVALIDATION_SKIPPED] one');
     expect(console.info).not.toHaveBeenCalledWith('[ENTRY_REVALIDATION_SKIPPED] two');
   });
+
+  it('Telegram sender duplicate registry log is debug-gated', () => {
+    const src = readFileSync(
+      resolve(process.cwd(), 'server/alerts/telegramClient.ts'),
+      'utf-8',
+    );
+
+    expect(src).toContain("process.env.TELEGRAM_SENDER_DEBUG === 'true'");
+    expect(src).toContain('TELEGRAM_SENDER_DUPLICATE_BLOCKED');
+  });
 });

@@ -423,6 +423,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     macroDiagnosticOnly = true;
   };
   if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
+    markMacroDiagnosticLiveBlock('R6_DEFENSE');
     const channelId = process.env.TELEGRAM_CHAT_ID ?? 'default';
     const snapshot: RegimeStatusSnapshot = {
       effectiveRegime: 'R6_DEFENSE',
@@ -445,16 +446,20 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     if (sameState) {
       console.log(`[REGIME_ALERT_DEDUP_SUPPRESSED] alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE reason=UNCHANGED_REGIME_STATE dedupKey=${dedupKey} lastSentAt=${new Date().toISOString()} currentSnapshotId=${snapshot.snapshotId} previousSnapshotId=${previous.snapshotId} telegramSent=false`);
     } else {
-      if (previous?.effectiveRegime !== 'R6_DEFENSE') {
-        console.log(`[REGIME_ALERT_SENT] alertType=REGIME_STATUS transition=${previous?.effectiveRegime ?? 'NONE'}->R6_DEFENSE mhs=${macroState?.mhs ?? 'N/A'} riskOverride=BLACK_SWAN telegramSent=true`);
-      }
-      await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] Live 신규 진입 차단</b>
+      const shouldLogTransition = previous?.effectiveRegime !== 'R6_DEFENSE';
+      const msgId = await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] Live 신규 진입 차단</b>
 MHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지
 Live Buy: BLOCKED
 Shadow: ON — 방어 비중으로 탐색/학습 유지
 기존 포지션: 모니터링 유지`, {
-        dedupeKey,
-      }).catch(console.error);
+        dedupeKey: dedupKey,
+      }).catch((cause) => {
+        console.error('[REGIME_ALERT_SEND_FAILED] alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE', cause);
+        return undefined;
+      });
+      if (shouldLogTransition) {
+        console.log(`[REGIME_ALERT_SENT] alertType=REGIME_STATUS transition=${previous?.effectiveRegime ?? 'NONE'}->R6_DEFENSE mhs=${macroState?.mhs ?? 'N/A'} riskOverride=BLACK_SWAN telegramSent=${msgId !== undefined}`);
+      }
       regimeStatusByChannel.set(channelId, snapshot);
     }
     emitPreflightOperationalWarn({
@@ -482,6 +487,9 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
       },
     });
   }
+  const sellOnlyExc = optSellOnly
+    ? evaluateSellOnlyException(regimeConfig, macroState)
+    : { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'sellOnly-disabled' };
 
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
@@ -556,6 +564,72 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
       dedupKey: 'preflight:fomc-block:operator-bypass',
       details: { override: formatMacroEntryOverrideLog(macroEntryOverride!) },
     });
+  }
+  const diagnosticContext = (extra: Record<string, unknown> = {}) => ({
+    shadowMode,
+    totalAssets,
+    orderableCash,
+    activeHoldingValue,
+    regime,
+    regimeConfig,
+    macroState,
+    conditionWeights,
+    shadows,
+    watchlist,
+    optSellOnly,
+    macroDiagnosticOnly,
+    liveEntryBlockedReason,
+    macroEntryOverride,
+    ...extra,
+  });
+
+  const r3SanityBlock = loadR3SanityBlockState();
+  const r3SanityAckToken = process.env.R3_SANITY_ACK_TOKEN;
+  if (r3SanityBlock.active && isR3SanityAckTokenValid(r3SanityBlock, r3SanityAckToken)) {
+    acknowledgeR3SanityBlock('preflight_env_ack');
+  } else if (r3SanityBlock.active) {
+    emitPreflightOperationalWarn({
+      code: 'P1_R3_SANITY_BLOCK_ACTIVE',
+      domain: 'REGIME',
+      message: '[AutoTrade] R3 sanity persistent block active',
+      dedupKey: `preflight:r3-sanity-block:${r3SanityBlock.violation}:${r3SanityBlock.regime}`,
+      details: {
+        violation: r3SanityBlock.violation,
+        regime: r3SanityBlock.regime,
+        triggeredAt: r3SanityBlock.triggeredAt,
+      },
+    });
+    await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
+    await recordPreflightBlockedScan(
+      {
+        stage: 'AFTER_UNIVERSE_BUILD',
+        primaryReason: 'HARD_BLOCK',
+        watchlist,
+        regime,
+        marketSnapshot: {
+          emergencyStop: getEmergencyStop(),
+          regime: regime ?? macroState?.regime,
+          vkospiLevel: macroState?.vkospi,
+        },
+        notes: [
+          `R3 sanity persistent block active: ${r3SanityBlock.violation} (${r3SanityBlock.regime})`,
+        ],
+      },
+      {
+        blockedBy: 'HARD_BLOCK',
+        hardBlockSource: 'R3_SANITY_BLOCK',
+        hardBlockModule: 'r3SanityBlockRepo',
+        hardBlockReason: `${r3SanityBlock.violation} (${r3SanityBlock.regime})`,
+        preflightDecision: 'ABORT_HARD_BLOCK',
+      },
+    );
+    await updateShadowResults(shadows, regime);
+    saveShadowTrades(shadows);
+    return {
+      shouldAbort: true,
+      skipPersist: true,
+      context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity }),
+    };
   }
 
   if (isDataStarvedScan()) {

@@ -411,6 +411,7 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
       code: userVisibleSafe ? 'P1_MHS_BIAS_OVERRIDDEN_BY_R6' : 'P1_MHS_BIAS_CONFLICT',
       message: '[MHS_RISK_OVERRIDE_CONFLICT] action=RISK_OVERRIDE_PRIORITY',
       dedupKey: `market-state:mhs-risk-override:${snapshot.riskOverride}:${snapshot.mhs}`,
+      executionImpact: userVisibleSafe ? 'NONE' : 'REGIME_DISPLAY_CONFLICT',
       details: {
         snapshotId: snapshot.snapshotId,
         rawMhs: snapshot.mhs,
