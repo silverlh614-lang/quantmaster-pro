@@ -5,15 +5,26 @@ import { buildMarketProgramTradeTodayParams, materializeKisMarketProgramTrade, p
 const NOW = new Date('2026-05-15T01:00:00.000Z'); // 10:00 KST
 
 describe('PATCH-007 market program materializer', () => {
-  it('builds OFFICIAL params as J/K and J/Q without legacy keys', () => {
+  it('builds OFFICIAL params with all official keys and empty optional values', () => {
     const kospi = buildMarketProgramTradeTodayParams('K');
     const kosdaq = buildMarketProgramTradeTodayParams('Q');
-    expect(kospi).toEqual({ FID_COND_MRKT_DIV_CODE: 'J', FID_MRKT_CLS_CODE: 'K' });
-    expect(kosdaq).toEqual({ FID_COND_MRKT_DIV_CODE: 'J', FID_MRKT_CLS_CODE: 'Q' });
-    expect(kospi).not.toHaveProperty('FID_INPUT_ISCD');
-    expect(kospi).not.toHaveProperty('FID_SCTN_CLS_CODE');
-    expect(kospi).not.toHaveProperty('FID_INPUT_HOUR_1');
-    expect(kospi).not.toHaveProperty('FID_COND_MRKT_DIV_CODE1');
+    expect(Object.keys(kospi)).toEqual([
+      'FID_COND_MRKT_DIV_CODE',
+      'FID_MRKT_CLS_CODE',
+      'FID_SCTN_CLS_CODE',
+      'FID_INPUT_ISCD',
+      'FID_COND_MRKT_DIV_CODE1',
+      'FID_INPUT_HOUR_1',
+    ]);
+    expect(Object.keys(kosdaq)).toEqual(Object.keys(kospi));
+    expect(kospi.FID_MRKT_CLS_CODE).toBe('K');
+    expect(kosdaq.FID_MRKT_CLS_CODE).toBe('Q');
+    expect(kospi.FID_INPUT_ISCD).toBe('');
+    expect(kosdaq.FID_INPUT_ISCD).toBe('');
+    expect(new URLSearchParams(kospi).toString()).toContain('FID_SCTN_CLS_CODE=');
+    expect(new URLSearchParams(kospi).toString()).toContain('FID_INPUT_ISCD=');
+    expect(new URLSearchParams(kospi).toString()).toContain('FID_COND_MRKT_DIV_CODE1=');
+    expect(new URLSearchParams(kospi).toString()).toContain('FID_INPUT_HOUR_1=');
   });
   it('output[0] zero and output[1] non-zero selects latest non-zero row', () => {
     const result = materializeKisMarketProgramTrade({

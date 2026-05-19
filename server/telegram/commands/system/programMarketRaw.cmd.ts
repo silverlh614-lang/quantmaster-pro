@@ -5,7 +5,7 @@
 
 import { diagnoseKisMarketProgramRaw } from '../../../clients/kisClient/supplyDiagnostics.js';
 import { formatProgramMarketRawDiag } from '../../../clients/kisClient/programMarketRouterPatch004.js';
-import { MARKET_PROGRAM_INDEX_CODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH } from '../../../clients/kisClient/programMaterializer.js';
+import { MARKET_PROGRAM_PARAM_MODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, buildMarketProgramTradeTodayParams } from '../../../clients/kisClient/programMaterializer.js';
 import { fetchKrxIntradayProgramTradeAggregate, getKrxIntradayMarketProgramBld, isKrxIntradayMarketProgramEnabled } from '../../../clients/krxClient/intradayProgramTradeFetcher.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -26,7 +26,7 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
   const lines = formatProgramMarketRawDiag({
     endpoint: rawDiag.path ?? MARKET_PROGRAM_TRADE_PATH,
     trId: rawDiag.trId ?? MARKET_PROGRAM_TRADE_TR_ID,
-    marketCode: MARKET_PROGRAM_INDEX_CODE,
+    marketCode: undefined,
     queryParams: undefined, // sanitized — raw query 노출 안 함 (token 위험)
     httpStatus: rawDiag.ok ? 200 : undefined,
     responseCode: rawDiag.zeroReason ?? undefined,
@@ -64,6 +64,21 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     lines.push('krxIntradayConfidence: DISABLED');
     lines.push('operatorHint: set KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true and optionally KRX_BLD_MARKET_PROGRAM_INTRADAY for shape verification');
   }
+  const kospiParams = buildMarketProgramTradeTodayParams('K');
+  const kosdaqParams = buildMarketProgramTradeTodayParams('Q');
+  const serializerProbe = new URLSearchParams(kospiParams).toString();
+  const droppedEmpty = !serializerProbe.includes('FID_SCTN_CLS_CODE=')
+    || !serializerProbe.includes('FID_INPUT_ISCD=')
+    || !serializerProbe.includes('FID_COND_MRKT_DIV_CODE1=')
+    || !serializerProbe.includes('FID_INPUT_HOUR_1=');
+  const missingField = typeof rawDiag.rootSample?.msg1 === 'string'
+    ? (rawDiag.rootSample.msg1.match(/\[([^\]]+)\]/)?.[1] ?? 'N/A')
+    : 'N/A';
+  lines.push(`paramMode: ${MARKET_PROGRAM_PARAM_MODE}`);
+  lines.push(`kospiRequestParams: ${JSON.stringify(kospiParams)}`);
+  lines.push(`kosdaqRequestParams: ${JSON.stringify(kosdaqParams)}`);
+  lines.push(`requestSerializerDroppedEmptyFields: ${droppedEmpty}`);
+  lines.push(`missingFieldFromKisError: ${missingField}`);
   lines.push('zeroReason: KIS_ACCEPTED_EMPTY_IS_NOT_BEARISH');
   lines.push('executionImpact=NONE, providerIssue=false, marketSignal=false, scoring=excluded until mapping verified');
   return lines.join('\n');

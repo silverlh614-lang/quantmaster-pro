@@ -44,7 +44,10 @@ describe('/program_market_raw — Patch-004 §J #5', () => {
     const msg = await buildProgramMarketRawMessage();
     expect(msg).toContain('Program Market Raw Diagnostic');
     expect(msg).toContain('trId: FHPPG04600101');
-    expect(msg).toContain('marketCode: 0001');
+    expect(msg).toContain('marketCode: N/A');
+    expect(msg).toContain('paramMode: OFFICIAL');
+    expect(msg).toContain('requestSerializerDroppedEmptyFields: false');
+    expect(msg).toContain('kospiRequestParams:');
     expect(msg).toContain('zeroReason: ACCEPTED_EMPTY');
     expect(msg).toContain('executionImpact=NONE');
     expect(msg).toContain('providerIssue=false');
