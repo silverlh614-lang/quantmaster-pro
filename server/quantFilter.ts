@@ -22,6 +22,35 @@ export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
 export type GateFinalPath = 'LIVE_ELIGIBLE' | 'SHADOW_OBSERVABLE' | 'WATCHLIST_ONLY' | 'BLOCKED';
 
+export type Gate1WiringStatus =
+  | 'FIRED'
+  | 'THRESHOLD_NOT_MET'
+  | 'DATA_UNAVAILABLE'
+  | 'PROVIDER_DEGRADED'
+  | 'ERROR';
+
+export type GateLayerDataPath = 'QUOTE_ONLY' | 'KIS' | 'DART' | 'MIXED' | 'UNKNOWN';
+
+export interface Gate1WiringDiagnostic {
+  key: string;
+  layer: 'gate1';
+  status: Gate1WiringStatus;
+  inputs: string[];
+  quoteInputs: string[];
+  missingInputs: string[];
+  dataPath: GateLayerDataPath;
+}
+
+export interface Gate1SourceCoverage {
+  conditionCount: number;
+  quoteInputCount: number;
+  externalRequiredData: string[];
+  missingInputs: string[];
+  missingExternalData: string[];
+  allDeclaredInputsAvailable: boolean;
+  allExternalDataAvailable: boolean;
+}
+
 export interface GateLayerBucket {
   fired: string[];
   unavailable: string[];
@@ -30,6 +59,8 @@ export interface GateLayerBucket {
   passed: boolean;
   score: number;
   availableMaxScore: number;
+  wiring?: Gate1WiringDiagnostic[];
+  sourceCoverage?: Gate1SourceCoverage;
 }
 
 export interface GateLayerSummary {
@@ -78,11 +109,15 @@ export interface ServerGateResult {
    */
   outputs?: Array<{
     key: string;
+    inputs?: readonly string[];
     output: { score: number; status?: string; detail?: string } | null;
     context?: {
       requiredData: string[];
       availableData: Record<string, boolean>;
       hadRequiredData: boolean;
+      quoteInputs?: string[];
+      inputAvailability?: Record<string, boolean>;
+      missingInputs?: string[];
     };
   }>;
   /**
@@ -179,8 +214,106 @@ function emptyGateLayerBucket(): GateLayerBucket {
   };
 }
 
+function emptyGate1SourceCoverage(): Gate1SourceCoverage {
+  return {
+    conditionCount: 0,
+    quoteInputCount: 0,
+    externalRequiredData: [],
+    missingInputs: [],
+    missingExternalData: [],
+    allDeclaredInputsAvailable: true,
+    allExternalDataAvailable: true,
+  };
+}
+
 function layerForCondition(key: string): GateLayerName {
   return (GATE_CONDITION_LAYER_MAP as Record<string, GateLayerName>)[key] ?? 'gate3';
+}
+
+function addUnique(target: string[], value: string): void {
+  if (!target.includes(value)) target.push(value);
+}
+
+function dataPathForInputs(inputs: readonly string[]): GateLayerDataPath {
+  const hasQuote = inputs.some(input => input.startsWith('quote.'));
+  const hasKis = inputs.some(input => input.startsWith('ctx.kisFlow.'));
+  const hasDart = inputs.some(input => input.startsWith('ctx.dartFin.'));
+  const hasOtherCtx = inputs.some(input => (
+    input.startsWith('ctx.')
+    && !input.startsWith('ctx.kisFlow.')
+    && !input.startsWith('ctx.dartFin.')
+  ));
+  const sourceCount = [hasQuote, hasKis, hasDart, hasOtherCtx].filter(Boolean).length;
+  if (sourceCount === 0) return 'UNKNOWN';
+  if (sourceCount > 1) return 'MIXED';
+  if (hasQuote) return 'QUOTE_ONLY';
+  if (hasKis) return 'KIS';
+  if (hasDart) return 'DART';
+  return 'UNKNOWN';
+}
+
+function toGate1WiringStatus(status: GateOutputStatus): Gate1WiringStatus {
+  if (status === 'FIRED'
+    || status === 'DATA_UNAVAILABLE'
+    || status === 'PROVIDER_DEGRADED'
+    || status === 'ERROR') {
+    return status;
+  }
+  return 'THRESHOLD_NOT_MET';
+}
+
+function buildGate1WiringDiagnostic(
+  item: NonNullable<ServerGateResult['outputs']>[number],
+  status: GateOutputStatus,
+): Gate1WiringDiagnostic {
+  const inputs = [...(item.inputs ?? [])];
+  const quoteInputs = item.context?.quoteInputs
+    ? [...item.context.quoteInputs]
+    : inputs.filter(input => input.startsWith('quote.'));
+  return {
+    key: item.key,
+    layer: 'gate1',
+    status: toGate1WiringStatus(status),
+    inputs,
+    quoteInputs,
+    missingInputs: [...(item.context?.missingInputs ?? [])],
+    dataPath: dataPathForInputs(inputs),
+  };
+}
+
+function buildGate1SourceCoverage(outputs: NonNullable<ServerGateResult['outputs']>): Gate1SourceCoverage {
+  const quoteInputs: string[] = [];
+  const externalRequiredData: string[] = [];
+  const missingInputs: string[] = [];
+  const missingExternalData: string[] = [];
+  let conditionCount = 0;
+
+  for (const item of outputs) {
+    if (layerForCondition(item.key) !== 'gate1') continue;
+    conditionCount += 1;
+
+    const declaredInputs = [...(item.inputs ?? [])];
+    const declaredQuoteInputs = item.context?.quoteInputs
+      ? item.context.quoteInputs
+      : declaredInputs.filter(input => input.startsWith('quote.'));
+    for (const input of declaredQuoteInputs) addUnique(quoteInputs, input);
+    for (const input of item.context?.missingInputs ?? []) addUnique(missingInputs, input);
+
+    for (const key of item.context?.requiredData ?? []) {
+      addUnique(externalRequiredData, key);
+      if (item.context?.availableData?.[key] !== true) addUnique(missingExternalData, key);
+    }
+  }
+
+  return {
+    conditionCount,
+    quoteInputCount: quoteInputs.length,
+    externalRequiredData,
+    missingInputs,
+    missingExternalData,
+    allDeclaredInputsAvailable: missingInputs.length === 0,
+    allExternalDataAvailable: missingExternalData.length === 0,
+  };
 }
 
 function buildGateLayerSummary(
@@ -189,17 +322,21 @@ function buildGateLayerSummary(
   signalType: ServerGateResult['signalType'],
 ): GateLayerSummary {
   const summary: GateLayerSummary = {
-    gate1: emptyGateLayerBucket(),
+    gate1: { ...emptyGateLayerBucket(), wiring: [], sourceCoverage: emptyGate1SourceCoverage() },
     gate2: emptyGateLayerBucket(),
     gate3: emptyGateLayerBucket(),
     finalPath: 'WATCHLIST_ONLY',
   };
 
   for (const item of outputs) {
-    const layer = summary[layerForCondition(item.key)];
+    const layerName = layerForCondition(item.key);
+    const layer = summary[layerName];
     const status = inferOutputStatus(item.output, item.context?.hadRequiredData);
     const score = item.output && Number.isFinite(item.output.score) ? Math.max(0, item.output.score) : 0;
     const baseWeight = conditionWeightFor(weights, item.key);
+    if (layerName === 'gate1') {
+      summary.gate1.wiring?.push(buildGate1WiringDiagnostic(item, status));
+    }
 
     if (status === 'DATA_UNAVAILABLE' || status === 'ERROR') {
       layer.unavailable.push(item.key);
@@ -216,6 +353,8 @@ function buildGateLayerSummary(
       layer.score += score;
     }
   }
+
+  summary.gate1.sourceCoverage = buildGate1SourceCoverage(outputs);
 
   for (const layer of [summary.gate1, summary.gate2, summary.gate3]) {
     layer.passed = layer.unavailable.length === 0 && layer.providerDegraded.length === 0 && layer.thresholdNotMet.length === 0 && layer.fired.length > 0;

@@ -81,6 +81,12 @@ export interface EvaluatorRunContext {
   availableData: Record<string, boolean>;
   /** 모든 requiredData 가 가용한가. requiredData 가 비었으면 항상 true. */
   hadRequiredData: boolean;
+  /** Declared quote.* inputs used by this evaluator. Diagnostic-only. */
+  quoteInputs: string[];
+  /** Declared input presence snapshot. Diagnostic-only; never participates in scoring. */
+  inputAvailability: Record<string, boolean>;
+  /** Declared inputs whose payload value is null/undefined or absent. Diagnostic-only. */
+  missingInputs: string[];
 }
 
 export interface ConditionRunResult {
@@ -97,6 +103,7 @@ export interface ConditionRunResult {
    */
   outputs: {
     key: ConditionKey;
+    inputs?: readonly EvaluatorInput[];
     output: ConditionEvalOutput | null;
     context?: EvaluatorRunContext;
   }[];
@@ -154,6 +161,40 @@ export function isExternalDataAvailable(ctx: ConditionEvalContext, key: string):
   return Boolean(value);
 }
 
+function hasPresentPath(root: unknown, path: readonly string[]): boolean {
+  let current = root;
+  for (const segment of path) {
+    if (current == null || (typeof current !== 'object' && typeof current !== 'function')) return false;
+    if (!Object.prototype.hasOwnProperty.call(current, segment)) return false;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current != null;
+}
+
+/**
+ * Diagnostic-only declared input presence check.
+ *
+ * This intentionally does not feed hadRequiredData or evaluator decisions.
+ */
+export function isDeclaredInputAvailable(ctx: ConditionEvalContext, input: EvaluatorInput): boolean {
+  if (input.startsWith('quote.')) {
+    return hasPresentPath(ctx.quote, input.slice('quote.'.length).split('.'));
+  }
+  if (input.startsWith('ctx.kisFlow.')) {
+    return hasPresentPath(ctx.kisFlow, input.slice('ctx.kisFlow.'.length).split('.'));
+  }
+  if (input.startsWith('ctx.dartFin.')) {
+    return hasPresentPath(ctx.dartFin, input.slice('ctx.dartFin.'.length).split('.'));
+  }
+  if (input === 'ctx.kospi20dReturn') {
+    return ctx.kospi20dReturn != null;
+  }
+  if (input.startsWith('ctx.')) {
+    return hasPresentPath(ctx, input.slice('ctx.'.length).split('.'));
+  }
+  return false;
+}
+
 /**
  * ADR-0418 — evaluator 의 `inputs` 메타로부터 `EvaluatorRunContext` 자동 도출 SSOT.
  *
@@ -177,7 +218,13 @@ export function deriveEvaluatorContext(
   const hadRequiredData = requiredData.length === 0
     ? true
     : requiredData.every(k => availableData[k]);
-  return { requiredData, availableData, hadRequiredData };
+  const quoteInputs = evaluator.inputs.filter(input => input.startsWith('quote.'));
+  const inputAvailability: Record<string, boolean> = {};
+  for (const input of evaluator.inputs) {
+    inputAvailability[input] = isDeclaredInputAvailable(ctx, input);
+  }
+  const missingInputs = evaluator.inputs.filter(input => !inputAvailability[input]);
+  return { requiredData, availableData, hadRequiredData, quoteInputs, inputAvailability, missingInputs };
 }
 
 export class ConditionRegistry {
@@ -250,7 +297,7 @@ export class ConditionRegistry {
           detail: `Yahoo 시계열 신뢰성 손상 (dataQuality=${dataQualityLabel}) — PROVIDER_DEGRADED`,
           status: 'PROVIDER_DEGRADED',
         };
-        outputs.push({ key: ev.key, output: out, context: evalContext });
+        outputs.push({ key: ev.key, inputs: ev.inputs, output: out, context: evalContext });
         // PROVIDER_DEGRADED 는 score / details / conditionKeys 미합산 (아래 분기와 동일).
         continue;
       }
@@ -270,7 +317,7 @@ export class ConditionRegistry {
           `[ConditionRegistry] evaluator ${ev.key} 예외 — ERROR status 로 변환 (ADR-0388): ${errMsg}`,
         );
       }
-      outputs.push({ key: ev.key, output: out, context: evalContext });
+      outputs.push({ key: ev.key, inputs: ev.inputs, output: out, context: evalContext });
       if (!out) continue;
       // ADR-0388: ERROR status 는 score / details / conditionKeys 모두 제외.
       if (out.status === 'ERROR') continue;

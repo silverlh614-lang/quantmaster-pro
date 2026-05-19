@@ -47,6 +47,43 @@ function quote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended 
   } as YahooQuoteExtended;
 }
 
+function gate1OnlyQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended {
+  return quote({
+    price: 100,
+    changePercent: 0,
+    rsi14: 30,
+    rsi5dAgo: 30,
+    return5d: 0,
+    return20d: 0,
+    ma5: 110,
+    ma20: 100,
+    ma60: 90,
+    ma60TrendUp: true,
+    weeklyRSI: 55,
+    volume: 100,
+    avgVolume: 1000,
+    high5d: 0,
+    high20d: 200,
+    high60d: 200,
+    bbWidthCurrent: 1,
+    bbWidth20dAvg: 1,
+    atr: 1,
+    atr20avg: 2,
+    atr5d: 1,
+    vol5dAvg: 1,
+    vol20dAvg: 1,
+    per: 999,
+    macdHistogram: -1,
+    macd5dHistAgo: 0,
+    dailyVolumeDrying: false,
+    monthlyAboveEMA12: false,
+    monthlyEMARising: false,
+    weeklyAboveCloud: false,
+    weeklyLaggingSpanUp: false,
+    ...overrides,
+  });
+}
+
 describe('Gate pipeline integrity audit', () => {
   it('maps server gate conditions into Gate 1/2/3 diagnostic layers', () => {
     expect(GATE_CONDITION_LAYER_MAP.ma_alignment).toBe('gate1');
@@ -65,6 +102,68 @@ describe('Gate pipeline integrity audit', () => {
     expect(result.gateLayerSummary).toBeDefined();
     expect(result.gateLayerSummary?.gate1.availableMaxScore).toBeGreaterThan(0);
     expect(result.gateLayerSummary?.gate3.fired.length).toBeGreaterThan(0);
+  });
+
+  it('adds Gate1 wiring and source coverage for complete quote inputs', () => {
+    const result = evaluateServerGate(gate1OnlyQuote(), DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.8, 5);
+    expect(result.rawScore).toBeCloseTo(2.8, 5);
+    expect(result.gateScore).toBe(result.rawScore);
+
+    const gate1 = result.gateLayerSummary?.gate1;
+    expect(gate1?.sourceCoverage).toMatchObject({
+      conditionCount: 3,
+      quoteInputCount: 5,
+      externalRequiredData: [],
+      missingInputs: [],
+      missingExternalData: [],
+      allDeclaredInputsAvailable: true,
+      allExternalDataAvailable: true,
+    });
+
+    const maAlignment = gate1?.wiring?.find(item => item.key === 'ma_alignment');
+    expect(maAlignment).toMatchObject({
+      key: 'ma_alignment',
+      layer: 'gate1',
+      status: 'FIRED',
+      inputs: ['quote.ma5', 'quote.ma20', 'quote.ma60'],
+      quoteInputs: ['quote.ma5', 'quote.ma20', 'quote.ma60'],
+      missingInputs: [],
+      dataPath: 'QUOTE_ONLY',
+    });
+  });
+
+  it('reports missing weeklyRSI in Gate1 source coverage without changing raw score semantics', () => {
+    const missingWeekly = gate1OnlyQuote() as Partial<YahooQuoteExtended>;
+    delete missingWeekly.weeklyRSI;
+    const result = evaluateServerGate(missingWeekly as YahooQuoteExtended, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.0, 5);
+    expect(result.rawScore).toBeCloseTo(2.0, 5);
+    expect(result.gateScore).toBe(result.rawScore);
+
+    const gate1 = result.gateLayerSummary?.gate1;
+    expect(gate1?.sourceCoverage).toMatchObject({
+      conditionCount: 3,
+      quoteInputCount: 5,
+      externalRequiredData: [],
+      missingInputs: ['quote.weeklyRSI'],
+      missingExternalData: [],
+      allDeclaredInputsAvailable: false,
+      allExternalDataAvailable: true,
+    });
+
+    const weekly = gate1?.wiring?.find(item => item.key === 'weekly_rsi_zone');
+    expect(weekly).toMatchObject({
+      key: 'weekly_rsi_zone',
+      layer: 'gate1',
+      status: 'THRESHOLD_NOT_MET',
+      inputs: ['quote.weeklyRSI'],
+      quoteInputs: ['quote.weeklyRSI'],
+      missingInputs: ['quote.weeklyRSI'],
+      dataPath: 'QUOTE_ONLY',
+    });
   });
 
   it('KIS flow unavailable keeps live false, shadow observable true, and no execution impact field', () => {
