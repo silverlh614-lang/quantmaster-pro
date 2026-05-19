@@ -133,9 +133,29 @@ export interface Gate3ExternalDataCoverage {
     provider: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'CACHE' | 'UNKNOWN';
     status: Gate3CoverageStatus;
     fields: Record<string, boolean>;
+    values: {
+      currentPrice: Numeric;
+      priceFieldUsed: 'price' | 'currentPrice' | 'close' | 'UNKNOWN';
+      high5d: Numeric;
+      high20d: Numeric;
+      high60d: Numeric;
+      low20d: Numeric;
+      low60d: Numeric;
+      breakoutGapPct: Numeric;
+      drawdownFromHigh60dPct: Numeric;
+      range20dPct: Numeric;
+      boxWidthPct: Numeric;
+    };
+    breakout: Gate3PriceStructureDiagnostic['breakout'];
+    turtle: Gate3PriceStructureDiagnostic['turtle'];
+    pullback: Gate3PriceStructureDiagnostic['pullback'];
+    rangeStructure: Gate3PriceStructureDiagnostic['rangeStructure'];
     providerIssue: boolean;
     calculationIssue: boolean;
     marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    missingFields: string[];
+    notes: string[];
   };
   volumeStructure: {
     required: true;
@@ -172,6 +192,60 @@ export interface Gate3ExternalDataCoverage {
     missingFields: string[];
     notes: string[];
   };
+}
+export interface Gate3PriceStructureDiagnostic {
+  status: Gate3CoverageStatus;
+  currentPrice: Numeric;
+  priceFieldUsed: 'price' | 'currentPrice' | 'close' | 'UNKNOWN';
+  high5d: Numeric;
+  high20d: Numeric;
+  high60d: Numeric;
+  low20d: Numeric;
+  low60d: Numeric;
+  breakout: {
+    available: boolean;
+    status: 'PASS' | 'FAIL' | 'MISSING' | 'UNKNOWN';
+    breakoutType: 'HIGH_5D' | 'HIGH_20D' | 'HIGH_60D' | 'BOX_BREAKOUT' | 'NONE' | 'UNKNOWN';
+    breakoutPrice: Numeric;
+    breakoutGapPct: Numeric;
+    reason: string | null;
+  };
+  turtle: {
+    available: boolean;
+    status: 'PASS' | 'FAIL' | 'MISSING' | 'UNKNOWN';
+    period: 20 | 55 | 60 | null;
+    thresholdPrice: Numeric;
+    currentPrice: Numeric;
+    distanceToBreakoutPct: Numeric;
+    reason: string | null;
+  };
+  pullback: {
+    available: boolean;
+    status: 'PASS' | 'FAIL' | 'MISSING' | 'UNKNOWN';
+    high60d: Numeric;
+    currentPrice: Numeric;
+    drawdownFromHigh60dPct: Numeric;
+    drawdownFromHigh20dPct: Numeric;
+    supportReference: 'MA20' | 'MA60' | 'FIB_382' | 'FIB_500' | 'FIB_618' | 'BOX_TOP' | 'UNKNOWN';
+    reason: string | null;
+  };
+  rangeStructure: {
+    available: boolean;
+    status: 'COMPRESSED' | 'EXPANDED' | 'NORMAL' | 'MISSING' | 'UNKNOWN';
+    range20dPct: Numeric;
+    range60dPct: Numeric;
+    boxTop: Numeric;
+    boxBottom: Numeric;
+    boxWidthPct: Numeric;
+    reason: string | null;
+  };
+  source: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'KIS_OFFICIAL' | 'CACHE' | 'UNKNOWN';
+  providerIssue: boolean;
+  calculationIssue: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  missingFields: string[];
+  notes: string[];
 }
 
 const TECH = /(rsi|macd|bb|bollinger|atr|ma\d*|ichimoku)/i;
@@ -383,6 +457,70 @@ export function normalizeGate3VolumeTiming(input: {
   };
 }
 
+export function normalizeGate3PriceStructure(input: {
+  quote?: Record<string, unknown> | null;
+  indicators?: Record<string, unknown> | null;
+  evaluationStage?: 'DISCOVERY_GATE' | 'REFRESHED_GATE' | 'ENTRY_RECHECK_GATE' | 'UNKNOWN';
+}): Gate3PriceStructureDiagnostic {
+  const quote = input.quote ?? {};
+  const notes: string[] = [];
+  const missingFields: string[] = [];
+  const pickCurrent = (): { value: Numeric; field: Gate3PriceStructureDiagnostic['priceFieldUsed'] } => {
+    const cp = asFinite(quote.currentPrice); if (cp != null) return { value: cp, field: 'currentPrice' };
+    const p = asFinite(quote.price); if (p != null) { notes.push('PRICE_FALLBACK_USED'); return { value: p, field: 'price' }; }
+    const c = asFinite(quote.close); if (c != null) { notes.push('CLOSE_FALLBACK_USED'); return { value: c, field: 'close' }; }
+    return { value: null, field: 'UNKNOWN' };
+  };
+  const { value: currentPrice, field: priceFieldUsed } = pickCurrent();
+  if (currentPrice == null) missingFields.push('currentPrice');
+  const high5d = asFinite(quote.high5d);
+  const high20d = asFinite(quote.high20d);
+  const high60d = asFinite(quote.high60d);
+  const low20d = asFinite(quote.low20d);
+  const low60d = asFinite(quote.low60d);
+  const boxTop = asFinite(quote.boxTop);
+  const boxBottom = asFinite(quote.boxBottom);
+  if (high20d == null) missingFields.push('high20d');
+  if (high60d == null) missingFields.push('high60d');
+  const pickBreakout = (): { breakoutType: Gate3PriceStructureDiagnostic['breakout']['breakoutType']; price: Numeric } => {
+    if (high20d != null) return { breakoutType: 'HIGH_20D', price: high20d };
+    if (high60d != null) return { breakoutType: 'HIGH_60D', price: high60d };
+    if (high5d != null) return { breakoutType: 'HIGH_5D', price: high5d };
+    if (boxTop != null) return { breakoutType: 'BOX_BREAKOUT', price: boxTop };
+    return { breakoutType: 'UNKNOWN', price: null };
+  };
+  const breakoutBasis = pickBreakout();
+  const breakoutGapPct = currentPrice != null && breakoutBasis.price != null && breakoutBasis.price > 0
+    ? (currentPrice - breakoutBasis.price) / breakoutBasis.price
+    : null;
+  const breakout: Gate3PriceStructureDiagnostic['breakout'] = breakoutGapPct == null
+    ? { available: false, status: 'MISSING', breakoutType: breakoutBasis.breakoutType, breakoutPrice: breakoutBasis.price, breakoutGapPct, reason: 'INPUT_MISSING' }
+    : { available: true, status: breakoutGapPct >= 0 ? 'PASS' : 'FAIL', breakoutType: breakoutBasis.breakoutType, breakoutPrice: breakoutBasis.price, breakoutGapPct, reason: null };
+  if (breakoutGapPct != null && breakoutGapPct > 0.08) notes.push('BREAKOUT_EXTENDED_CHASE_RISK');
+  const turtlePeriod: 20 | 55 | 60 | null = high20d != null ? 20 : high60d != null ? 60 : null;
+  const turtleThreshold = turtlePeriod === 20 ? high20d : turtlePeriod === 60 ? high60d : null;
+  const distanceToBreakoutPct = currentPrice != null && turtleThreshold != null && turtleThreshold > 0
+    ? (currentPrice - turtleThreshold) / turtleThreshold
+    : null;
+  const turtle: Gate3PriceStructureDiagnostic['turtle'] = distanceToBreakoutPct == null
+    ? { available: false, status: 'MISSING', period: turtlePeriod, thresholdPrice: turtleThreshold, currentPrice, distanceToBreakoutPct, reason: 'INPUT_MISSING' }
+    : { available: true, status: distanceToBreakoutPct >= 0 ? 'PASS' : 'FAIL', period: turtlePeriod, thresholdPrice: turtleThreshold, currentPrice, distanceToBreakoutPct, reason: null };
+  const drawdownFromHigh60dPct = currentPrice != null && high60d != null && high60d > 0 ? (currentPrice - high60d) / high60d : null;
+  const drawdownFromHigh20dPct = currentPrice != null && high20d != null && high20d > 0 ? (currentPrice - high20d) / high20d : null;
+  const pullback: Gate3PriceStructureDiagnostic['pullback'] =
+    drawdownFromHigh60dPct == null && drawdownFromHigh20dPct == null
+      ? { available: false, status: 'MISSING', high60d, currentPrice, drawdownFromHigh60dPct, drawdownFromHigh20dPct, supportReference: 'UNKNOWN', reason: 'INPUT_MISSING' }
+      : { available: true, status: 'PASS', high60d, currentPrice, drawdownFromHigh60dPct, drawdownFromHigh20dPct, supportReference: 'UNKNOWN', reason: null };
+  const range20dPct = high20d != null && low20d != null && low20d > 0 ? (high20d - low20d) / low20d : null;
+  const range60dPct = high60d != null && low60d != null && low60d > 0 ? (high60d - low60d) / low60d : null;
+  const boxWidthPct = boxTop != null && boxBottom != null && boxBottom > 0 ? (boxTop - boxBottom) / boxBottom : null;
+  const rangeStructure: Gate3PriceStructureDiagnostic['rangeStructure'] = range20dPct == null && range60dPct == null
+    ? { available: false, status: 'MISSING', range20dPct, range60dPct, boxTop, boxBottom, boxWidthPct, reason: 'INPUT_MISSING' }
+    : { available: true, status: 'NORMAL', range20dPct, range60dPct, boxTop, boxBottom, boxWidthPct, reason: null };
+  const status: Gate3CoverageStatus = missingFields.length === 0 ? 'VERIFIED' : currentPrice == null ? 'DEGRADED' : 'PARTIAL';
+  return { status, currentPrice, priceFieldUsed, high5d, high20d, high60d, low20d, low60d, breakout, turtle, pullback, rangeStructure, source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY', missingFields: unique(missingFields), notes: unique(notes) };
+}
+
 export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): Gate3ExternalDataCoverage {
   const resolveStatus = (fields: Record<string, boolean>, required: boolean): { available: boolean; status: Gate3CoverageStatus } => {
     const values = Object.values(fields);
@@ -402,13 +540,20 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     ma20: hasFinite(quote, 'ma20'),
     ma60: hasFinite(quote, 'ma60'),
   };
+  const priceDiag = normalizeGate3PriceStructure({ quote });
   const priceFields = {
+    currentPrice: hasFinite(quote, 'currentPrice'),
+    price: hasFinite(quote, 'price'),
+    close: hasFinite(quote, 'close'),
     high5d: hasFinite(quote, 'high5d'),
     high20d: hasFinite(quote, 'high20d'),
     high60d: hasFinite(quote, 'high60d'),
     low20d: hasFinite(quote, 'low20d'),
     low60d: hasFinite(quote, 'low60d'),
-    currentPrice: hasFinite(quote, 'currentPrice') || hasFinite(quote, 'price'),
+    boxTop: hasFinite(quote, 'boxTop'),
+    boxBottom: hasFinite(quote, 'boxBottom'),
+    range20dPct: priceDiag.rangeStructure.range20dPct != null,
+    range60dPct: priceDiag.rangeStructure.range60dPct != null,
   };
   const volumeFields = {
     volume: hasFinite(quote, 'volume'),
@@ -461,13 +606,33 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     },
     priceStructure: {
       required: true,
-      available: priceState.available,
+      available: priceDiag.status === 'VERIFIED' || priceDiag.status === 'PARTIAL',
       provider: 'UNKNOWN',
-      status: priceState.status,
+      status: priceDiag.status,
       fields: priceFields,
+      values: {
+        currentPrice: priceDiag.currentPrice,
+        priceFieldUsed: priceDiag.priceFieldUsed,
+        high5d: priceDiag.high5d,
+        high20d: priceDiag.high20d,
+        high60d: priceDiag.high60d,
+        low20d: priceDiag.low20d,
+        low60d: priceDiag.low60d,
+        breakoutGapPct: priceDiag.breakout.breakoutGapPct,
+        drawdownFromHigh60dPct: priceDiag.pullback.drawdownFromHigh60dPct,
+        range20dPct: priceDiag.rangeStructure.range20dPct,
+        boxWidthPct: priceDiag.rangeStructure.boxWidthPct,
+      },
+      breakout: priceDiag.breakout,
+      turtle: priceDiag.turtle,
+      pullback: priceDiag.pullback,
+      rangeStructure: priceDiag.rangeStructure,
       providerIssue: false,
-      calculationIssue: priceState.status === 'CALCULATION_MISSING' || priceState.status === 'MISSING',
+      calculationIssue: priceDiag.calculationIssue,
       marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      missingFields: priceDiag.missingFields,
+      notes: priceDiag.notes,
     },
     volumeStructure: {
       required: true,
