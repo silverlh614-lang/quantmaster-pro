@@ -125,8 +125,9 @@ function appendProgramMarketStatusLines(
   lines.push(`updated: ${live.updated ?? 'N/A'}`);
   const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
   const macro = loadMacroState();
-  const combinedSource = macro?.programMarket?.combinedSource ?? 'UNKNOWN';
-  const snapshotId = (macro?.programMarket as any)?.snapshotId ?? 'N/A';
+  const finalStatus = (macro?.programMarket as any)?.finalStatus ?? 'UNKNOWN';
+  const combinedSource = finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'UNKNOWN' : (macro?.programMarket?.combinedSource ?? 'UNKNOWN');
+  const snapshotId = (macro?.programMarket as any)?.snapshotId;
   const mappingConfidence = macro?.programMarket?.unit?.mappingConfidence ?? 'UNIT_UNVERIFIED';
   const isCandidateOnly = mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN';
   const qtyEmoji = isCandidateOnly ? '🟡' : liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
@@ -136,8 +137,8 @@ function appendProgramMarketStatusLines(
   lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
   lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
   lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
-  lines.push(`finalStatus: ${status === 'OK_NONZERO' ? 'OFFICIAL_PARAMS_VERIFIED' : status}`);
-  lines.push('scoring: shadow_only');
+  lines.push(`finalStatus: ${finalStatus === 'UNKNOWN' ? (status === 'OK_NONZERO' ? 'OFFICIAL_PARAMS_VERIFIED' : status) : finalStatus}`);
+  lines.push(`scoring: ${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'excluded' : 'shadow_only'}`);
   if (isCandidateOnly) {
     lines.push(`confidence: LOW`);
     const sourceLabel = combinedSource === 'KOSPI_PLUS_KOSDAQ'
@@ -147,7 +148,8 @@ function appendProgramMarketStatusLines(
         : combinedSource === 'CACHE'
           ? 'SOURCE_CACHE'
           : 'SOURCE_UNKNOWN';
-    lines.push(`reason: ${mappingConfidence === 'UNIT_UNVERIFIED' ? 'UNIT_UNVERIFIED' : 'MAPPING_VERIFIED'} + ${sourceLabel}`);
+    const reasonSource = finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'SNAPSHOT_INCONSISTENT' : sourceLabel;
+    lines.push(`reason: ${mappingConfidence === 'UNIT_UNVERIFIED' ? 'UNIT_UNVERIFIED' : 'MAPPING_VERIFIED'} + ${reasonSource}`);
   }
   lines.push('executionImpact: NONE');
   lines.push('useForExecution: false');
@@ -162,7 +164,7 @@ function appendProgramMarketStatusLines(
   }
   lines.push(`providerIssue=${live.providerIssue ?? false}`);
   lines.push(`executionImpact=${live.executionImpact ?? 'NONE'}`);
-  lines.push(`판정: ${status === 'OK_NONZERO' ? 'usable' : 'observe / scoring excluded'}`);
+  lines.push(`판정: ${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'observe only' : (status === 'OK_NONZERO' ? 'usable' : 'observe / scoring excluded')}`);
   lines.push(`selectedPath: ${live.selectedPath ?? 'N/A'}`);
 }
 

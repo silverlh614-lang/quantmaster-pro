@@ -55,9 +55,9 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
     expect(source).toMatch(/차익 미수집/);
   });
 
-  it('unit 미검증 시 shadow_only / execution NONE 강제', () => {
+  it('unit 미검증 및 불일치 시 shadow/excluded / execution NONE 강제', () => {
     expect(source).toMatch(/mappingConfidence:\s*'UNIT_UNVERIFIED'/);
-    expect(source).toMatch(/scoring:\s*'shadow_only'/);
+    expect(source).toMatch(/scoring:\s*invariants\.violated \? 'excluded' : 'shadow_only'/);
     expect(source).toMatch(/useForExecution:\s*false/);
     expect(source).toMatch(/executionImpact:\s*'NONE'/);
     expect(source).toMatch(/blockGateUsage:\s*true/);
@@ -74,6 +74,20 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
     expect(source).toMatch(/rawNonZero/);
     expect(source).toContain('[PROGRAM_MARKET_RAW_NONZERO_PRESERVED]');
     expect(source).toContain('[PROGRAM_MARKET_REGIME_DECOUPLED]');
+  });
+
+  it('snapshotId 항상 생성 포맷 (mpg_yyyymmdd_HHmmss_random6)', () => {
+    expect(source).toMatch(/mpg_\$\{ymd\}_\$\{hms\}_\$\{random6\}/);
+  });
+
+  it('invariant 위반 시 SNAPSHOT_INCONSISTENT + scoring excluded + executionImpact NONE', () => {
+    expect(source).toMatch(/const finalStatus:\s*ProgramMarketFinalStatus = invariants\.violated \? 'SNAPSHOT_INCONSISTENT'/);
+    expect(source).toMatch(/scoring:\s*invariants\.violated \? 'excluded' : 'shadow_only'/);
+    expect(source).toMatch(/executionImpact:\s*'NONE'/);
+  });
+
+  it('KOSPI/KOSDAQ 0행이면 KOSPI_PLUS_KOSDAQ 금지 invariant 존재', () => {
+    expect(source).toMatch(/empty split rows cannot be KOSPI_PLUS_KOSDAQ/);
   });
 });
 

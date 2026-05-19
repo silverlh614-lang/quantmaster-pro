@@ -104,12 +104,22 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     }
   }
 
-  lines.push(`snapshotId=${(pm as any)?.snapshotId ?? 'N/A'}`);
-  lines.push(`snapshotSource=${(pm as any)?.snapshotSource ?? (pm as any)?.combinedSource ?? 'UNKNOWN'}`);
+  const snapshotId = (pm as any)?.snapshotId;
+  const finalStatus = (pm as any)?.finalStatus ?? 'UNKNOWN';
+  lines.push(`snapshotId=${snapshotId ?? 'SNAPSHOT_MISSING'}`);
+  lines.push(`snapshotSource=${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'UNKNOWN' : ((pm as any)?.snapshotSource ?? (pm as any)?.combinedSource ?? 'UNKNOWN')}`);
   if (pm?.rowBreakdown) {
     lines.push('');
     lines.push('rowBreakdown:');
-    if (pm.splitAvailable) {
+    if (finalStatus === 'SNAPSHOT_INCONSISTENT') {
+      lines.push('status: SNAPSHOT_INCONSISTENT');
+      lines.push(`reason: ${(pm as any)?.inconsistencyReason ?? 'snapshot invariant violated'}`);
+      lines.push('KOSPI: N/A');
+      lines.push('KOSDAQ: N/A');
+      lines.push('COMBINED: N/A');
+      lines.push('scoring: excluded');
+      lines.push('executionImpact: NONE');
+    } else if (pm.splitAvailable) {
       for (const [name, row] of Object.entries(pm.rowBreakdown)) {
         lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
         lines.push(`  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`);
