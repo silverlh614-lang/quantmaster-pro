@@ -1,7 +1,5 @@
 // @responsibility Admin NOW detail command for reasonCode market-state diagnostics.
-import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
-import { RegimeResolver } from '../../../trading/marketStateResolver.js';
+import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -12,9 +10,9 @@ function fmt(value: unknown): string {
 }
 
 export function formatAdminNowDetail(now: Date = new Date()): string {
-  const macro = loadMacroState();
-  const snapshot = RegimeResolver.resolveMarketState(now);
-  const diagnostics = getRegimeDiagnostics(macro, now);
+  const resolved = resolveRegimeSnapshot({ now });
+  const snapshot = resolved.marketState;
+  const diagnostics = resolved.diagnostics;
   const latch = diagnostics.transitionState;
   return [
     '🛠️ <b>[admin_now_detail]</b>',

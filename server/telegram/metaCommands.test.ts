@@ -203,10 +203,34 @@ describe('composeNowVerdict — priority chain', () => {
 
     const verdict = composeNowVerdict();
 
-    expect(verdict).toContain('Raw trend: R3_BULL_TREND');
+    expect(verdict).toContain('Raw trend: macro_green_overridden_by_R6_DEFENSE');
     expect(verdict).toMatch(/Effective state: R6_(PANIC|DEFENSE)/);
     expect(verdict).toContain('Live buy: BLOCKED');
     expect(verdict).toContain('Shadow: ON');
+  });
+
+  it('NOW renders market state and diagnostics from one macro snapshot, not mixed cache reads', () => {
+    const now = new Date('2026-05-19T06:00:00.000Z');
+    vi.spyOn(macroRepo, 'loadMacroState')
+      .mockReturnValueOnce({
+        regime: 'R3_BULL_TREND',
+        mhs: 70,
+        updatedAt: now.toISOString(),
+        vkospiDayChange: 31,
+      } as ReturnType<typeof macroRepo.loadMacroState>)
+      .mockReturnValue({
+        regime: 'R3_BULL_TREND',
+        mhs: 67,
+        updatedAt: now.toISOString(),
+      } as ReturnType<typeof macroRepo.loadMacroState>);
+
+    const verdict = composeNowVerdict(now);
+
+    expect(verdict).toMatch(/Effective state: R6_(PANIC|DEFENSE)/);
+    expect(verdict).toContain('Live buy: BLOCKED');
+    expect(verdict).not.toContain('Effective state: R3_NORMAL');
+    expect(verdict).not.toContain('BUY_ALLOWED');
+    expect(macroRepo.loadMacroState).toHaveBeenCalledTimes(1);
   });
 
   it('마지막 신호 KST 시각이 포맷되어 노출', () => {

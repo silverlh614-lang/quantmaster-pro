@@ -135,6 +135,11 @@ export interface ShadowActivitySnapshot {
   noShadowEntryReason?: string;
 }
 
+export interface ResolveMarketStateOptions {
+  macroState?: MacroState | null;
+  diagnostics?: RegimeDiagnostics;
+}
+
 
 const DEFAULT_TTL_SEC = 300;
 
@@ -775,9 +780,9 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
   );
 }
 
-export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot {
-  const macro = loadMacroState();
-  const diagnostics = getRegimeDiagnostics(macro, now);
+export function resolveMarketState(now: Date = new Date(), options: ResolveMarketStateOptions = {}): MarketStateSnapshot {
+  const macro = options.macroState !== undefined ? options.macroState : loadMacroState();
+  const diagnostics = options.diagnostics ?? getRegimeDiagnostics(macro, now);
   const ttlSec = resolveTtlSec();
   const asOf = resolveAsOf(macro, now);
   const mhs = finiteNumber(macro?.mhs) ?? 50;

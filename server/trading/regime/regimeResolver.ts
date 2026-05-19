@@ -78,8 +78,8 @@ export function resolveRegimeSnapshot(options: ResolveRegimeSnapshotOptions = {}
   const macroState = options.macroState !== undefined ? options.macroState : loadMacroState();
 
   try {
-    const marketState = resolveMarketState(now);
     const diagnostics = getRegimeDiagnostics(macroState, now);
+    const marketState = resolveMarketState(now, { macroState, diagnostics });
     const effectiveRegime = diagnostics.effectiveRegime;
     const riskOverride = resolveRiskOverride(marketState, effectiveRegime);
     const displayRegime = resolveDisplayRegime({ riskOverride, marketState, effectiveRegime });

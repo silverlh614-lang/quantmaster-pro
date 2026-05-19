@@ -6,6 +6,7 @@ import type {
   MarketStateSnapshot as BaseMarketStateSnapshot,
   MarketStateNowContext as BaseMarketStateNowContext,
   MacroStateStaleness as BaseMacroStateStaleness,
+  ResolveMarketStateOptions as BaseResolveMarketStateOptions,
   ShadowActivitySnapshot as BaseShadowActivitySnapshot,
 } from './marketStateResolver.base.js';
 
@@ -126,10 +127,10 @@ function enrichSnapshot(snapshot: BaseMarketStateSnapshot, macro: MacroState | n
   return enriched;
 }
 
-export function resolveMarketState(now: Date = new Date()): MarketStateSnapshot {
-  const macro = loadMacroState();
-  const snapshot = base.resolveMarketState(now);
-  const diagnostics = getRegimeDiagnostics(macro, now);
+export function resolveMarketState(now: Date = new Date(), options: BaseResolveMarketStateOptions = {}): MarketStateSnapshot {
+  const macro = options.macroState !== undefined ? options.macroState : loadMacroState();
+  const diagnostics = options.diagnostics ?? getRegimeDiagnostics(macro, now);
+  const snapshot = base.resolveMarketState(now, { macroState: macro, diagnostics });
   return enrichSnapshot(snapshot, macro, diagnostics, now);
 }
 
