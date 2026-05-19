@@ -89,16 +89,34 @@ function buildUnitCandidates(rawValue: number | null): { KRW: string; KRW_1K: st
   };
 }
 
-function normalizeRowBreakdownLeg(input: {
-  outputLength: number;
-  nonZeroRows: number;
-  selectedBsopHour: string | null | undefined;
-  rawWholeNetBuy: number | null;
-  rawArbitrageNetBuy: number | null;
-  rawNonArbitrageNetBuy: number | null;
+function parseKisNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const normalized = value.replace(/[,\s]/g, '').trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function selectLatestByBsopHour(rows: Array<Record<string, unknown>>): Record<string, unknown> | null {
+  if (!rows.length) return null;
+  return rows.reduce<Record<string, unknown> | null>((best, row) => {
+    const cur = String(row.bsop_hour ?? '');
+    if (!best) return row;
+    const prev = String(best.bsop_hour ?? '');
+    return cur >= prev ? row : best;
+  }, null);
+}
+
+function normalizeMarketProgramLeg(leg: {
+  rows: Array<Record<string, unknown>>;
+  selectedRow?: Record<string, unknown> | null;
 }): {
+  rows: Array<Record<string, unknown>>;
+  unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string } | null;
   outputLength: number;
   nonZeroRows: number;
+  selectedRow: Record<string, unknown> | null;
   selectedBsopHour: string | null;
   rawWholeNetBuy: number | null;
   rawArbitrageNetBuy: number | null;
@@ -107,33 +125,40 @@ function normalizeRowBreakdownLeg(input: {
   invariantViolated: boolean;
   invariantReason: string | null;
 } {
-  const outputLength = Math.max(0, Number(input.outputLength || 0));
-  const nonZeroRows = enforceRowInvariant(outputLength, input.nonZeroRows);
-  const selectedBsopHour = input.selectedBsopHour ? String(input.selectedBsopHour) : null;
-  const selectedRowExists = selectedBsopHour !== null;
-  const hasAnyRaw = input.rawWholeNetBuy !== null || input.rawArbitrageNetBuy !== null || input.rawNonArbitrageNetBuy !== null;
-  if (outputLength === 0) {
+  const rows = Array.isArray(leg.rows) ? leg.rows : [];
+  const outputLength = rows.length;
+  const nonZeroRows = rows.filter((r) => (parseKisNumber(r.whol_smtn_ntby_tr_pbmn) ?? 0) !== 0).length;
+  if (rows.length === 0) {
     return {
-      outputLength: 0, nonZeroRows: 0, selectedBsopHour: null,
-      rawWholeNetBuy: null, rawArbitrageNetBuy: null, rawNonArbitrageNetBuy: null,
+      rows,
+      selectedRow: null,
+      outputLength: 0,
+      nonZeroRows: 0,
+      selectedBsopHour: null,
+      rawWholeNetBuy: null,
+      rawArbitrageNetBuy: null,
+      rawNonArbitrageNetBuy: null,
       displayWholeNetBuy: 'N/A',
-      invariantViolated: hasAnyRaw || selectedRowExists,
-      invariantReason: hasAnyRaw ? 'raw exists while outputLength=0' : (selectedRowExists ? 'selectedRow exists while outputLength=0' : null),
+      unitCandidates: null,
+      invariantViolated: false,
+      invariantReason: null,
     };
   }
-  if (!selectedRowExists) {
-    return {
-      outputLength, nonZeroRows, selectedBsopHour: null,
-      rawWholeNetBuy: null, rawArbitrageNetBuy: input.rawArbitrageNetBuy, rawNonArbitrageNetBuy: input.rawNonArbitrageNetBuy,
-      displayWholeNetBuy: 'N/A',
-      invariantViolated: input.rawWholeNetBuy !== null,
-      invariantReason: input.rawWholeNetBuy !== null ? 'selectedRow is null but rawWholeNetBuy exists' : null,
-    };
-  }
+  const selectedRow = selectLatestByBsopHour(rows);
+  const rawWholeNetBuy = parseKisNumber(selectedRow?.whol_smtn_ntby_tr_pbmn);
+  const rawArbitrageNetBuy = parseKisNumber(selectedRow?.arbt_smtn_ntby_tr_pbmn);
+  const rawNonArbitrageNetBuy = parseKisNumber(selectedRow?.nabt_smtn_ntby_tr_pbmn);
   return {
-    outputLength, nonZeroRows, selectedBsopHour,
-    rawWholeNetBuy: input.rawWholeNetBuy, rawArbitrageNetBuy: input.rawArbitrageNetBuy, rawNonArbitrageNetBuy: input.rawNonArbitrageNetBuy,
-    displayWholeNetBuy: formatEokAmount(input.rawWholeNetBuy, 'UNVERIFIED'),
+    rows,
+    selectedRow,
+    outputLength,
+    nonZeroRows: enforceRowInvariant(outputLength, nonZeroRows),
+    selectedBsopHour: selectedRow ? String(selectedRow.bsop_hour ?? '') : null,
+    rawWholeNetBuy,
+    rawArbitrageNetBuy,
+    rawNonArbitrageNetBuy,
+    displayWholeNetBuy: formatEokAmount(rawWholeNetBuy, 'UNVERIFIED'),
+    unitCandidates: buildUnitCandidates(rawWholeNetBuy),
     invariantViolated: false,
     invariantReason: null,
   };
@@ -881,32 +906,13 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       kospiRequested: true, kosdaqRequested: true, kospiOutputLength: kospiLen, kosdaqOutputLength: kosdaqLen,
       combinedOutputLength: combinedLen, combinedMatchesSplit: combinedLen === (kospiLen + kosdaqLen), upstreamHint: String(agg.combinedSource ?? ''),
     });
-    const combinedNonZero = enforceRowInvariant((marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0), marketProgram.nonZeroRowCount ?? 0);
     const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ';
-    const kospiLeg = normalizeRowBreakdownLeg({
-      outputLength: provisionalSplitAvailable ? (marketProgram.kospiDiagnostics?.rowCount ?? 0) : 0,
-      nonZeroRows: marketProgram.kospiDiagnostics?.nonZeroRowCount ?? 0,
-      selectedBsopHour: provisionalSplitAvailable ? (marketProgram.kospiDiagnostics?.selectedBsopHour ?? null) : null,
-      rawWholeNetBuy: provisionalSplitAvailable ? (marketProgram.kospiNetBuyAmount ?? null) : null,
-      rawArbitrageNetBuy: null,
-      rawNonArbitrageNetBuy: null,
-    });
-    const kosdaqLeg = normalizeRowBreakdownLeg({
-      outputLength: provisionalSplitAvailable ? (marketProgram.kosdaqDiagnostics?.rowCount ?? 0) : 0,
-      nonZeroRows: marketProgram.kosdaqDiagnostics?.nonZeroRowCount ?? 0,
-      selectedBsopHour: provisionalSplitAvailable ? (marketProgram.kosdaqDiagnostics?.selectedBsopHour ?? null) : null,
-      rawWholeNetBuy: provisionalSplitAvailable ? (marketProgram.kosdaqNetBuyAmount ?? null) : null,
-      rawArbitrageNetBuy: null,
-      rawNonArbitrageNetBuy: null,
-    });
-    const combinedLeg = normalizeRowBreakdownLeg({
-      outputLength: (marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0),
-      nonZeroRows: combinedNonZero,
-      selectedBsopHour: marketProgram.selectedBsopHour ?? null,
-      rawWholeNetBuy: rawWhole,
-      rawArbitrageNetBuy: rawArb,
-      rawNonArbitrageNetBuy: rawNonArb,
-    });
+    const kospiRows = provisionalSplitAvailable ? (((bundle.kospi as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
+    const kosdaqRows = provisionalSplitAvailable ? (((bundle.kosdaq as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
+    const combinedRows = (((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? [...kospiRows, ...kosdaqRows]);
+    const kospiLeg = normalizeMarketProgramLeg({ rows: kospiRows });
+    const kosdaqLeg = normalizeMarketProgramLeg({ rows: kosdaqRows });
+    const combinedLeg = normalizeMarketProgramLeg({ rows: combinedRows });
     const invariants = hasSnapshotInvariantViolation({
       kospiLen,
       kosdaqLen,
@@ -916,8 +922,16 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       rawTopFirstBsopHour: String((agg as any)?.firstRowSample?.bsop_hour ?? ''),
       selectedBsopHour: combinedLeg.selectedBsopHour ?? '',
     });
-    const legInvariantViolated = kospiLeg.invariantViolated || kosdaqLeg.invariantViolated || combinedLeg.invariantViolated;
-    const legInvariantReason = kospiLeg.invariantReason ?? kosdaqLeg.invariantReason ?? combinedLeg.invariantReason;
+    const rowInvariantViolation = [kospiLeg, kosdaqLeg, combinedLeg].find((leg) => (
+      leg.outputLength === 0
+      && (leg.selectedBsopHour !== null
+        || leg.rawWholeNetBuy !== null
+        || leg.rawArbitrageNetBuy !== null
+        || leg.rawNonArbitrageNetBuy !== null
+        || leg.displayWholeNetBuy !== 'N/A')
+    ) || (leg.rawWholeNetBuy !== null && leg.outputLength === 0));
+    const legInvariantViolated = kospiLeg.invariantViolated || kosdaqLeg.invariantViolated || combinedLeg.invariantViolated || Boolean(rowInvariantViolation);
+    const legInvariantReason = rowInvariantViolation ? 'RAW_EXISTS_WITH_EMPTY_ROWS' : (kospiLeg.invariantReason ?? kosdaqLeg.invariantReason ?? combinedLeg.invariantReason);
     const finalStatus: ProgramMarketFinalStatus = (invariants.violated || legInvariantViolated) ? 'SNAPSHOT_INCONSISTENT' : 'OFFICIAL_PARAMS_VERIFIED';
     const resolvedCombinedSource = (invariants.violated || legInvariantViolated) ? 'UNKNOWN' : combinedSource;
     const splitAvailable = !(invariants.violated || legInvariantViolated) && resolvedCombinedSource === 'KOSPI_PLUS_KOSDAQ';
@@ -966,9 +980,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       inconsistencyReason: (invariants.violated || legInvariantViolated) ? (legInvariantReason ?? invariants.reason) : null,
       aggregateDiagnostic: agg as any,
       rowBreakdown: {
-        kospi: { outputLength: kospiLeg.outputLength, nonZeroRows: kospiLeg.nonZeroRows, selectedBsopHour: kospiLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kospiLeg.rawWholeNetBuy, rawArbitrageNetBuy: kospiLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kospiLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kospiLeg.displayWholeNetBuy, unitCandidates: buildUnitCandidates(kospiLeg.rawWholeNetBuy) },
-        kosdaq: { outputLength: kosdaqLeg.outputLength, nonZeroRows: kosdaqLeg.nonZeroRows, selectedBsopHour: kosdaqLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kosdaqLeg.rawWholeNetBuy, rawArbitrageNetBuy: kosdaqLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kosdaqLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kosdaqLeg.displayWholeNetBuy, unitCandidates: buildUnitCandidates(kosdaqLeg.rawWholeNetBuy) },
-        combined: { outputLength: combinedLeg.outputLength, nonZeroRows: combinedLeg.nonZeroRows, selectedBsopHour: combinedLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: combinedLeg.rawWholeNetBuy, rawArbitrageNetBuy: combinedLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: combinedLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: combinedLeg.displayWholeNetBuy, unitCandidates: buildUnitCandidates(combinedLeg.rawWholeNetBuy) },
+        kospi: { outputLength: kospiLeg.outputLength, nonZeroRows: kospiLeg.nonZeroRows, selectedBsopHour: kospiLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kospiLeg.rawWholeNetBuy, rawArbitrageNetBuy: kospiLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kospiLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kospiLeg.displayWholeNetBuy, unitCandidates: kospiLeg.unitCandidates },
+        kosdaq: { outputLength: kosdaqLeg.outputLength, nonZeroRows: kosdaqLeg.nonZeroRows, selectedBsopHour: kosdaqLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kosdaqLeg.rawWholeNetBuy, rawArbitrageNetBuy: kosdaqLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kosdaqLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kosdaqLeg.displayWholeNetBuy, unitCandidates: kosdaqLeg.unitCandidates },
+        combined: { outputLength: combinedLeg.outputLength, nonZeroRows: combinedLeg.nonZeroRows, selectedBsopHour: combinedLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: combinedLeg.rawWholeNetBuy, rawArbitrageNetBuy: combinedLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: combinedLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: combinedLeg.displayWholeNetBuy, unitCandidates: combinedLeg.unitCandidates },
       },
     };
     (computed.programMarket as any).snapshotSource = resolvedCombinedSource;
