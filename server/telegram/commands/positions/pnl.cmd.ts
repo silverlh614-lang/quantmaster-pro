@@ -3,6 +3,7 @@ import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand, CommandVisibility } from '../_types.js';
 import { aggregatePnlSources } from './shadowPositionSources.js';
 import { renderPnlSummary, type PnlView } from './positionOutputFormatters.js';
+import { isEngineBlockQueryException, resolvePositionSource } from '../../../positions/positionSourceResolver.js';
 
 function createPnlCommand(
   name: string,
@@ -20,12 +21,27 @@ function createPnlCommand(
     description,
     async execute({ reply, correlationId }) {
       console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
+      try {
       const snapshot = await aggregatePnlSources();
       console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} realizedPnlSource=ShadowTradeRepo unrealizedPnlSource=VirtualAccount virtualEquity=${snapshot.pnl.virtualTotalAssets} virtualCash=${snapshot.pnl.virtualCash} holding=${snapshot.openTrades.length} shadowPnL=${snapshot.counts.shadowRealizedCount + snapshot.counts.shadowOpenCount} livePnL=${snapshot.counts.livePnlSkipped ? 'SKIPPED' : 0}`);
-      const message = renderPnlSummary(snapshot, view);
+      const resolution = resolvePositionSource({
+        engineMode: snapshot.mode.modeLabel,
+        liveCount: 0,
+        shadowCount: snapshot.counts.shadowOpenCount,
+        paperCount: snapshot.counts.paperLedgerCount,
+        virtualCount: snapshot.counts.virtualAccountAvailable ? 1 : 0,
+      });
+      if (isEngineBlockQueryException(snapshot.mode.modeLabel)) {
+        console.info(`[TELEGRAM_QUERY_ALLOWED_DESPITE_ENGINE_BLOCK] engineMode=${snapshot.mode.modeLabel} command=${name} executionImpact=NONE queryOnly=true tradeBlockedIgnoredForQuery=true`);
+      }
+      const message = `${renderPnlSummary(snapshot, view)}\nsourceResolver: ${resolution.selectedSource} (${resolution.reason})`;
       console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=${name} bytes=${message.length}`);
       await reply(message);
       console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=${name}`);
+      } catch (error) {
+        console.error(`[TELEGRAM_PNL_QUERY_FAILED] correlationId=${correlationId ?? 'N/A'} command=${name}`, error);
+        await reply('손익 조회 중 일부 데이터 소스 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      }
     },
   };
 }

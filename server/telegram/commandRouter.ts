@@ -140,7 +140,7 @@ export async function dispatchTelegramCommand(ctx: CommandDispatchContext): Prom
   const correlationId = createTelegramCorrelationId(ctx.chatId, canonical);
 
   logCommandChain('TELEGRAM_UPDATE_RECEIVED', { correlationId, raw: ctx.rawText, chatId: ctx.chatId, userId: ctx.userId ?? '' });
-  logCommandChain('COMMAND_NORMALIZED', { correlationId, rawCommand: parsed.normalized, normalized: canonical, args: parsed.args.length });
+  logCommandChain('TELEGRAM_COMMAND_NORMALIZED', { correlationId, rawCommand: parsed.normalized, normalized: canonical, args: parsed.args.length });
 
   if (!commandRegistry.resolve(canonical)) {
     await ensureCommandRegistryLoaded();
@@ -152,10 +152,10 @@ export async function dispatchTelegramCommand(ctx: CommandDispatchContext): Prom
     return false;
   }
 
-  logCommandChain('COMMAND_ROUTED', { correlationId, command: canonical, action: route.action, handler: route.handlerName });
+  logCommandChain('TELEGRAM_COMMAND_ROUTED', { correlationId, command: canonical, action: route.action, handler: route.handlerName });
 
   try {
-    logCommandChain('SERVICE_CALLED', { correlationId, command: canonical, handler: route.handlerName });
+    logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, handler: route.handlerName });
     await route.execute(parsed.args, correlationId, ctx);
     recordUsage(route.usageName);
     console.info(
@@ -205,7 +205,7 @@ async function resolveRoute(
       action: ACTION_BY_CANONICAL.get(canonical) ?? 'META_MENU',
       handlerName: 'handleMetaCommand',
       usageName: canonical,
-      execute: async (_args, correlationId) => { logCommandChain('SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
+      execute: async (_args, correlationId) => { logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
     };
   }
 
@@ -225,7 +225,7 @@ async function resolveRoute(
       action: 'META_MENU',
       handlerName: 'handleMetaCommand',
       usageName: canonical,
-      execute: async (_args, correlationId) => { logCommandChain('SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
+      execute: async (_args, correlationId) => { logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
     };
   }
 
