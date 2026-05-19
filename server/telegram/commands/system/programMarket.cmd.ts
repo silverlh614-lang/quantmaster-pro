@@ -132,14 +132,18 @@ function appendProgramMarketStatusLines(
     : finalStatus;
   const snapshotId = (macro?.programMarket as any)?.snapshotId;
   const mappingConfidence = macro?.programMarket?.unit?.mappingConfidence ?? 'UNIT_UNVERIFIED';
+  const snapshotDisplay = macro?.programMarket?.display;
+  const selectedNetBuyDisplay = macro?.programMarket?.rowBreakdown?.combined?.displayWholeNetBuy
+    ?? snapshotDisplay?.wholeNetBuy
+    ?? formatKrwInEokwon(live.programNetBuyAmount);
   const isCandidateOnly = combinedSource === 'UNKNOWN';
   const qtyEmoji = isCandidateOnly ? '🟡' : liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
   const qtyLabel = isCandidateOnly
     ? `시장 프로그램 방향 후보: ${liveQty > 0 ? '순매수' : liveQty < 0 ? '순매도' : '중립'}`
     : (liveQty > 0 ? '시장 프로그램 순매수' : liveQty < 0 ? '시장 프로그램 순매도' : '중립');
   if (finalStatus !== 'SNAPSHOT_INCONSISTENT') {
-    lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
-    lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
+    lines.push(`${qtyEmoji} ${qtyLabel}: ${selectedNetBuyDisplay}`);
+    lines.push(`selectedNetBuy: ${selectedNetBuyDisplay}`);
   }
   lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
   lines.push(`${statusEmoji} displayStatus: ${displayStatus}`);
@@ -177,10 +181,18 @@ function appendProgramMarketStatusLines(
 }
 
 function appendProgramMarketArbitrageLines(lines: string[], live: LiveMarketProgramTrade): void {
-  if (live.programArbitrageNetBuy !== null) {
+  const snapshotDisplay = loadMacroState()?.programMarket?.display;
+  if (snapshotDisplay?.arbitrageNetBuy) {
+    lines.push(`📈 차익거래 순매수: ${snapshotDisplay.arbitrageNetBuy}`);
+  } else if (live.programArbitrageNetBuy !== null) {
     lines.push(`📈 차익거래 순매수: ${formatKrwInEokwon(live.programArbitrageNetBuy)}`);
   } else {
     lines.push(`📈 차익거래 순매수: <i>미수집</i> (KIS 응답 부재)`);
+  }
+  if (snapshotDisplay?.nonArbitrageNetBuy) {
+    lines.push(`비차익 순매수: ${snapshotDisplay.nonArbitrageNetBuy}`);
+  } else if (live.programNonArbitrageNetBuy !== null && live.programNonArbitrageNetBuy !== undefined) {
+    lines.push(`비차익 순매수: ${formatKrwInEokwon(live.programNonArbitrageNetBuy)}`);
   }
 }
 
