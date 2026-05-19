@@ -1088,7 +1088,7 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
     }
   }
   if (write) saveCounterfactuals(all);
-  const resolverStatus = labeled > 0 ? 'LABELED' : resolvableNow > 0 ? 'READY_TO_LABEL' : waitingForHoldingPeriod > 0 ? 'WAITING_FOR_HOLDING_PERIOD' : dataInsufficient > 0 || quarantined > 0 ? 'DATA_BLOCKED' : 'NO_PENDING_OUTCOME';
+  const resolverStatus = labeled > 0 ? 'LABELED' : resolvableNow > 0 ? 'READY_TO_LABEL' : waitingForHoldingPeriod > 0 ? 'WAITING_NORMAL' : dataInsufficient > 0 || quarantined > 0 ? 'DATA_BLOCKED' : 'NO_PENDING_OUTCOME';
   return {
     scannedBuiltUnique: all.length,
     scannedBuilt: all.length,
@@ -1149,4 +1149,3 @@ export function formatLearningCohortSummary(s: ReturnType<typeof collectLearning
 export function formatMetadataRepairDryRun(s: ReturnType<typeof learningMetadataRepairDryRun>): string { return [`🛠 learning_metadata_repair_dryrun`, `scanned=${s.scanned} missingEntryPrice=${s.missingEntryPrice} missingTargetStop=${s.missingTargetStop} missingPriceData=${s.missingPriceData}`, `recoverableEntry=${s.recoverableEntry} recoverableTargetStop=${s.recoverableTargetStop} unrecoverable=${s.unrecoverable}`, `proposedRecoverySource=${JSON.stringify(s.proposedRecoverySource)} expectedCohortAfterRepair=${s.expectedCohortAfterRepair}`, `executionImpact=${s.executionImpact}`].join('\n'); }
 export function formatMetadataRepairRun(s: ReturnType<typeof learningMetadataRepairRun>): string { return [`🛠 learning_metadata_repair_run`, `scanned=${s.scanned} entryRecovered=${s.entryRecovered} targetStopRecovered=${s.targetStopRecovered} priceDataRecovered=${s.priceDataRecovered}`, `movedToRecoveredMetadata=${s.movedToRecoveredMetadata} stillQuarantined=${s.stillQuarantined} unrecoverable=${s.unrecoverable}`, `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} livePositionTouched=${s.livePositionTouched}`].join('\n'); }
 export function formatLearningHoldingOutliers(s: ReturnType<typeof collectLearningHoldingOutliers>): string { return [`⏱ learning_holding_outliers`, `total=${s.total} outlierCount=${s.outlierCount} maxHoldingMinutes=${s.maxHoldingMinutes}`, `avgHoldingFresh=${s.avgHoldingFresh} avgHoldingBacklog=${s.avgHoldingBacklog}`, `excludedFromPromotion=${s.excludedFromPromotion} examples=${JSON.stringify(s.examples)}`, `executionImpact=${s.executionImpact}`].join('\n'); }
-

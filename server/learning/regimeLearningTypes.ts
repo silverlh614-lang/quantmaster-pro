@@ -215,10 +215,16 @@ export interface RegimeLearningBank {
   regimeLearningSampleSize: number;
   regimeAssignedCount: number;
   unknownRegimeCount: number;
+  recoveredLowConfidenceRegimeCount: number;
+  trueUnknownRegimeCount: number;
   unknownRatio: number;
+  trueUnknownRatio: number;
   activeRegimeQualityStatus: RegimeLearningQualityStatus;
   regimeBankConsistency: 'OK' | 'MISMATCH';
   duplicateCaseCount: number;
+  regimeDuplicateCandidates: number;
+  regimeDuplicateSuppressed: number;
+  regimeDedupStatus: 'NONE' | 'ACTIVE';
   sourceCounts: {
     freshShadow: number;
     ghostRepair: number;
@@ -272,6 +278,7 @@ export interface RegimeLearningConsistency {
   regimeAssignedCount: number;
   unknownRegimeCount: number;
   unknownRatio: number;
+  trueUnknownRatio: number;
   regimeBankSampleCount: number;
   ghostRepairCountInBank: number;
   counterfactualCountInBank: number;
