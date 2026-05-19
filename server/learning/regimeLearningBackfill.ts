@@ -25,6 +25,7 @@ import type {
 
 export type RegimeLearningBackfillTarget =
   | 'GHOST_REPAIR'
+  | 'BACKLOG_REPAIR'
   | 'FRESH_SHADOW'
   | 'COUNTERFACTUAL'
   | 'OUTCOME'
@@ -39,6 +40,15 @@ type RegimeBackfillRow = {
 };
 
 type RegimeWritableRow = {
+  id?: string;
+  caseId?: string;
+  signalId?: string;
+  tradeId?: string;
+  counterfactualKey?: string;
+  symbol?: string;
+  stockCode?: string;
+  cohortType?: string;
+  sourceType?: string;
   rawRegime?: string;
   effectiveRegime?: string;
   regime?: string;
@@ -67,7 +77,14 @@ type RegimeWritableRow = {
   outcomeLabel?: string;
   closed?: boolean;
   closedAt?: string;
+  createdAt?: string;
+  detectedAt?: string;
+  updatedAt?: string;
   entryAt?: string;
+  entryPrice?: number;
+  entryPriceVirtual?: number;
+  hypotheticalEntryPrice?: number;
+  priceAtSignal?: number;
   signalTime?: string;
   signalDate?: string;
   lastUpdatedAt?: string;
@@ -89,9 +106,31 @@ export interface RegimeLearningBackfillInput {
   attributionRecords?: ServerAttributionRecord[];
   macroSnapshots?: RegimeTimestampSnapshot[];
   transitionSnapshots?: RegimeTimestampSnapshot[];
+  shadowCases?: RegimeWritableRow[];
   now?: Date;
   write?: boolean;
 }
+
+export type RegimeBackfillFailureReason =
+  | 'NO_SNAPSHOT_IN_WINDOW'
+  | 'MISSING_SAMPLE_TIMESTAMP'
+  | 'SNAPSHOT_REPO_EMPTY'
+  | 'TIMEZONE_MISMATCH_SUSPECT'
+  | 'INVALID_TIMESTAMP'
+  | 'DUPLICATE_SUPPRESSED_BEFORE_BACKFILL'
+  | 'SOURCE_LANE_EXCLUDED'
+  | 'UNKNOWN_ERROR';
+
+export type RegimeBackfillTimestampSource =
+  | 'SIGNAL_TIME'
+  | 'ENTRY_AT'
+  | 'DETECTED_AT'
+  | 'CREATED_AT'
+  | 'CLOSED_AT'
+  | 'UPDATED_AT'
+  | 'LAST_UPDATED_AT'
+  | 'SIGNAL_DATE'
+  | 'MISSING';
 
 export type RegimeUnknownReason =
   | 'MISSING_CREATED_AT'
@@ -130,11 +169,17 @@ export interface RegimeUnknownAnalysisResult {
 
 export interface RegimeUnknownRepairResult {
   scannedUnknown: number;
+  attemptedUnique: number;
+  attemptedDuplicates: number;
   repaired: number;
   stillUnknown: number;
   byRecoveredRegime: Record<string, number>;
   recoverySourceBreakdown: Record<string, number>;
   recoveryConfidenceBreakdown: Record<string, number>;
+  failureReasonBreakdown: Record<RegimeBackfillFailureReason, number>;
+  failureBySourceLane: Record<string, number>;
+  failureByTimestampSource: Record<RegimeBackfillTimestampSource, number>;
+  failureSampleKeys: string[];
   executionImpact: 'NONE';
   brokerOrdersCreated: 0;
   promotionAllowed: false;
@@ -172,9 +217,24 @@ function inc(record: Record<string, number>, key: string | undefined, amount = 1
 function timestampOf(row: RegimeWritableRow): string | undefined {
   return row.signalTime
     ?? row.entryAt
+    ?? row.detectedAt
+    ?? row.createdAt
     ?? row.closedAt
+    ?? row.updatedAt
     ?? row.lastUpdatedAt
     ?? (row.signalDate ? `${row.signalDate}T00:00:00.000Z` : undefined);
+}
+
+function timestampSourceOf(row: RegimeWritableRow): RegimeBackfillTimestampSource {
+  if (row.signalTime) return 'SIGNAL_TIME';
+  if (row.entryAt) return 'ENTRY_AT';
+  if (row.detectedAt) return 'DETECTED_AT';
+  if (row.createdAt) return 'CREATED_AT';
+  if (row.closedAt) return 'CLOSED_AT';
+  if (row.updatedAt) return 'UPDATED_AT';
+  if (row.lastUpdatedAt) return 'LAST_UPDATED_AT';
+  if (row.signalDate) return 'SIGNAL_DATE';
+  return 'MISSING';
 }
 
 function isClosedOutcome(row: RegimeWritableRow): boolean {
@@ -185,7 +245,21 @@ function isClosedOutcome(row: RegimeWritableRow): boolean {
 
 function ghostTarget(row: LearningGhostCase): RegimeLearningBackfillTarget {
   if (row.quarantinedReason || row.outcomeLabel === 'QUARANTINED') return 'QUARANTINED';
+  if (row.cohortType === 'BACKLOG_REPAIR') return 'BACKLOG_REPAIR';
+  if (row.cohortType === 'FRESH_SHADOW') return 'FRESH_SHADOW';
+  if (row.cohortType === 'GHOST_REPAIR') return 'GHOST_REPAIR';
   if (isClosedOutcome(row)) return row.caseKind === 'shadow' ? 'FRESH_SHADOW' : 'GHOST_REPAIR';
+  return 'OPEN_UNRESOLVED';
+}
+
+function shadowTarget(row: RegimeWritableRow): RegimeLearningBackfillTarget {
+  const cohort = String(row.cohortType ?? row.sourceType ?? '').toUpperCase();
+  if (cohort === 'BACKLOG_REPAIR') return 'BACKLOG_REPAIR';
+  if (cohort === 'GHOST_REPAIR') return 'GHOST_REPAIR';
+  if (cohort === 'FRESH_SHADOW') return 'FRESH_SHADOW';
+  if (cohort === 'QUARANTINED') return 'QUARANTINED';
+  if (cohort.includes('COUNTERFACTUAL')) return 'COUNTERFACTUAL';
+  if (isClosedOutcome(row)) return 'OUTCOME';
   return 'OPEN_UNRESOLVED';
 }
 
@@ -198,7 +272,9 @@ function rowsFromInputs(input: RegimeLearningBackfillInput): {
   const ghosts = input.ghosts ?? (loadGhostPortfolio() as LearningGhostCase[]);
   const counterfactuals = input.counterfactuals ?? loadCounterfactuals();
   const attributionRecords = input.attributionRecords ?? loadAttributionRecords();
+  const shadowCases = input.shadowCases ?? [];
   const rows: RegimeBackfillRow[] = [
+    ...shadowCases.map((row) => ({ target: shadowTarget(row), row, createdAt: timestampOf(row) })),
     ...ghosts.map((row) => ({ target: ghostTarget(row), row, createdAt: timestampOf(row) })),
     ...counterfactuals.map((row) => ({ target: 'COUNTERFACTUAL' as const, row, createdAt: timestampOf(row) })),
     ...attributionRecords.map((row) => ({ target: 'ATTRIBUTION' as const, row, createdAt: timestampOf(row) })),
@@ -441,6 +517,7 @@ function unknownReason(item: RegimeBackfillRow, macroSnapshots: RegimeTimestampS
 function caseTypeName(item: RegimeBackfillRow): string {
   if (item.target === 'FRESH_SHADOW') return 'freshShadow';
   if (item.target === 'GHOST_REPAIR') return 'ghostRepair';
+  if (item.target === 'BACKLOG_REPAIR') return 'backlogRepair';
   if (item.target === 'COUNTERFACTUAL') return 'counterfactual';
   if (item.target === 'ATTRIBUTION') return 'attribution';
   if (item.target === 'OPEN_UNRESOLVED') return 'openUnresolved';
@@ -495,6 +572,67 @@ function recoverUnknownRegime(
     regimeRecoverySource: 'UNKNOWN_FALLBACK',
     regimeRecoveryConfidence: 'UNKNOWN',
   };
+}
+
+function normalizedTimestamp(iso: string | undefined): string {
+  const t = parseMillis(iso);
+  return Number.isFinite(t) ? new Date(t).toISOString() : (iso ? 'INVALID_TIMESTAMP' : 'MISSING_TIMESTAMP');
+}
+
+function entryPriceForKey(row: RegimeWritableRow): string {
+  const value = row.entryPriceVirtual ?? row.hypotheticalEntryPrice ?? row.entryPrice ?? row.priceAtSignal;
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : 'NO_ENTRY_PRICE';
+}
+
+function originalCaseId(row: RegimeWritableRow): string {
+  return String(row.caseId ?? row.id ?? row.tradeId ?? row.counterfactualKey ?? row.signalId ?? 'NO_CASE_ID');
+}
+
+function backfillAttemptKey(item: RegimeBackfillRow): string {
+  return [
+    item.row.symbol ?? item.row.stockCode ?? 'NO_SYMBOL',
+    item.target,
+    normalizedTimestamp(item.createdAt),
+    entryPriceForKey(item.row),
+    originalCaseId(item.row),
+  ].join('|');
+}
+
+function snapshotRepoEmpty(macroSnapshots: RegimeTimestampSnapshot[], transitionSnapshots: RegimeTimestampSnapshot[]): boolean {
+  return macroSnapshots.length === 0 && transitionSnapshots.length === 0;
+}
+
+function classifyBackfillFailure(
+  item: RegimeBackfillRow,
+  macroSnapshots: RegimeTimestampSnapshot[],
+  transitionSnapshots: RegimeTimestampSnapshot[],
+): RegimeBackfillFailureReason {
+  const reason = unknownReason(item, macroSnapshots, transitionSnapshots);
+  if (reason === 'MISSING_CREATED_AT') return 'MISSING_SAMPLE_TIMESTAMP';
+  if (reason === 'CORRUPTED_TIMESTAMP') return 'INVALID_TIMESTAMP';
+  if (reason === 'CASE_TYPE_NOT_SUPPORTED') return 'SOURCE_LANE_EXCLUDED';
+  if (reason === 'AMBIGUOUS_SESSION') return 'TIMEZONE_MISMATCH_SUSPECT';
+  if (reason === 'NO_MACRO_SNAPSHOT' || reason === 'NO_TRANSITION_STATE' || reason === 'PRE_REGIME_TRACKING_SAMPLE') {
+    return snapshotRepoEmpty(macroSnapshots, transitionSnapshots) ? 'SNAPSHOT_REPO_EMPTY' : 'NO_SNAPSHOT_IN_WINDOW';
+  }
+  if (reason === 'UNKNOWN_FALLBACK_USED') return 'NO_SNAPSHOT_IN_WINDOW';
+  return 'UNKNOWN_ERROR';
+}
+
+function recordFailure(
+  item: RegimeBackfillRow,
+  failureReason: RegimeBackfillFailureReason,
+  failureReasonBreakdown: Record<RegimeBackfillFailureReason, number>,
+  failureBySourceLane: Record<string, number>,
+  failureByTimestampSource: Record<RegimeBackfillTimestampSource, number>,
+  failureSampleKeys: string[],
+): void {
+  inc(failureReasonBreakdown as Record<string, number>, failureReason);
+  inc(failureBySourceLane, item.target);
+  inc(failureByTimestampSource as Record<string, number>, timestampSourceOf(item.row));
+  if (failureSampleKeys.length < 10) {
+    failureSampleKeys.push(`${failureReason}:${backfillAttemptKey(item)}`);
+  }
 }
 
 function summarize(input: RegimeLearningBackfillInput, write: boolean): RegimeLearningBackfillRunResult {
@@ -599,6 +737,7 @@ export function regimeUnknownAnalysis(input: RegimeLearningBackfillInput = {}): 
   const unknownByCaseType: Record<string, number> = {
     freshShadow: 0,
     ghostRepair: 0,
+    backlogRepair: 0,
     counterfactual: 0,
     outcome: 0,
     attribution: 0,
@@ -673,19 +812,50 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   const byRecoveredRegime: Record<string, number> = {};
   const recoverySourceBreakdown: Record<string, number> = {};
   const recoveryConfidenceBreakdown: Record<string, number> = {};
+  const failureReasonBreakdown = {} as Record<RegimeBackfillFailureReason, number>;
+  const failureBySourceLane: Record<string, number> = {};
+  const failureByTimestampSource = {} as Record<RegimeBackfillTimestampSource, number>;
+  const failureSampleKeys: string[] = [];
+  const seenAttemptKeys = new Set<string>();
   let scannedUnknown = 0;
+  let attemptedUnique = 0;
+  let attemptedDuplicates = 0;
   let repaired = 0;
   let stillUnknown = 0;
 
   for (const item of rows) {
     if (!isUnknownRow(item.row)) continue;
     scannedUnknown++;
+    const attemptKey = backfillAttemptKey(item);
+    if (seenAttemptKeys.has(attemptKey)) {
+      attemptedDuplicates++;
+      stillUnknown++;
+      recordFailure(
+        item,
+        'DUPLICATE_SUPPRESSED_BEFORE_BACKFILL',
+        failureReasonBreakdown,
+        failureBySourceLane,
+        failureByTimestampSource,
+        failureSampleKeys,
+      );
+      continue;
+    }
+    seenAttemptKeys.add(attemptKey);
+    attemptedUnique++;
     const recovered = recoverUnknownRegime(item.row, item.createdAt, macroSnapshots, transitionSnapshots);
     inc(byRecoveredRegime, recovered.regimePhase);
     inc(recoverySourceBreakdown, recovered.regimeRecoverySource);
     inc(recoveryConfidenceBreakdown, recovered.regimeRecoveryConfidence);
     if (recovered.regimePhase === 'UNKNOWN') {
       stillUnknown++;
+      recordFailure(
+        item,
+        classifyBackfillFailure(item, macroSnapshots, transitionSnapshots),
+        failureReasonBreakdown,
+        failureBySourceLane,
+        failureByTimestampSource,
+        failureSampleKeys,
+      );
       continue;
     }
     repaired++;
@@ -707,11 +877,17 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
 
   return {
     scannedUnknown,
+    attemptedUnique,
+    attemptedDuplicates,
     repaired,
     stillUnknown,
     byRecoveredRegime,
     recoverySourceBreakdown,
     recoveryConfidenceBreakdown,
+    failureReasonBreakdown,
+    failureBySourceLane,
+    failureByTimestampSource,
+    failureSampleKeys,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
     promotionAllowed: false,
@@ -765,10 +941,14 @@ export function formatRegimeUnknownAnalysis(s: RegimeUnknownAnalysisResult): str
 export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'dryrun' | 'run'): string {
   return [
     `<b>[Regime UNKNOWN Repair ${mode}]</b>`,
-    `scannedUnknown=${s.scannedUnknown} repaired=${s.repaired} stillUnknown=${s.stillUnknown}`,
+    `scannedUnknown=${s.scannedUnknown} attemptedUnique=${s.attemptedUnique} attemptedDuplicates=${s.attemptedDuplicates} repaired=${s.repaired} stillUnknown=${s.stillUnknown}`,
     `byRecoveredRegime=${JSON.stringify(s.byRecoveredRegime)}`,
     `recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`,
     `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`,
+    `failureReasonBreakdown=${JSON.stringify(s.failureReasonBreakdown)}`,
+    `failureBySourceLane=${JSON.stringify(s.failureBySourceLane)}`,
+    `failureByTimestampSource=${JSON.stringify(s.failureByTimestampSource)}`,
+    `failureSampleKeys=${JSON.stringify(s.failureSampleKeys)}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');
 }

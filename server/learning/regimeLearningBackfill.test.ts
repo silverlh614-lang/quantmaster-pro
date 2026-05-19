@@ -120,7 +120,13 @@ describe('Regime Learning backfill', () => {
 
     const dry = regimeUnknownRepairDryRun(input);
     expect(dry.scannedUnknown).toBe(3);
+    expect(dry.attemptedUnique).toBe(3);
+    expect(dry.attemptedDuplicates).toBe(0);
     expect(dry.repaired).toBe(2);
+    expect(dry.failureReasonBreakdown.MISSING_SAMPLE_TIMESTAMP).toBe(1);
+    expect(dry.failureBySourceLane.GHOST_REPAIR).toBe(1);
+    expect(dry.failureByTimestampSource.MISSING).toBe(1);
+    expect(dry.failureSampleKeys[0]).toContain('MISSING_SAMPLE_TIMESTAMP');
     expect(ghosts[0].regimePhase).toBe('UNKNOWN');
 
     const run = regimeUnknownRepairRun(input);
@@ -135,5 +141,24 @@ describe('Regime Learning backfill', () => {
     expect(run.executionImpact).toBe('NONE');
     expect(run.brokerOrdersCreated).toBe(0);
     expect(run.promotionAllowed).toBe(false);
+  });
+
+  it('records duplicate-suppressed attempts as explicit failure reasons', () => {
+    const duplicateA = ghost({ id: 'dup', regimePhase: 'UNKNOWN', signalDate: '' });
+    const duplicateB = ghost({ id: 'dup', regimePhase: 'UNKNOWN', signalDate: '' });
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts: [duplicateA, duplicateB],
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [],
+      transitionSnapshots: [],
+    });
+
+    expect(dry.scannedUnknown).toBe(2);
+    expect(dry.attemptedUnique).toBe(1);
+    expect(dry.attemptedDuplicates).toBe(1);
+    expect(dry.stillUnknown).toBe(2);
+    expect(dry.failureReasonBreakdown.DUPLICATE_SUPPRESSED_BEFORE_BACKFILL).toBe(1);
   });
 });

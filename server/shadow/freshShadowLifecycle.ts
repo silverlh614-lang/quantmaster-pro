@@ -135,10 +135,12 @@ export type FreshShadowInletNextAction =
   | 'SELL_ONLY_BLOCKED_FRESH_ENTRY'
   | 'HARD_BLOCK_ACTIVE'
   | 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED'
+  | 'MARKET_CLOSED'
   | 'QUEUE_NEXT_OPEN_SHADOW_SCAN'
   | 'AFTER_HOURS_OBSERVE'
   | 'AFTER_HOURS_SYNTHETIC_LANE_ACTIVE'
   | 'FRESH_SHADOW_INLET_ACTIVE';
+export type NextOpenShadowScanStatus = 'SCHEDULED' | 'RUNNING' | 'COMPLETED' | 'MISSED';
 
 function kstMarketOpen(now: Date): boolean {
   const kst = new Date(now.getTime() + 9 * 3600000);
@@ -172,6 +174,13 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   const shadowOrdersCreatedToday = countToday('SHADOW_ORDER_CREATED');
   const paperFilledToday = countToday('SHADOW_PAPER_FILLED');
   const positionsOpenedToday = countToday('SHADOW_POSITION_OPENED');
+  const scanStartedTransition = transitions
+    .filter((t) => ['CANDIDATE_DETECTED', 'SHADOW_SIGNAL_APPROVED', 'SHADOW_ORDER_CREATED'].includes(t.to) && today(t.timestamp, now))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[0];
+  const scanStartedCase = casesToday
+    .filter((c) => ['CANDIDATE_DETECTED', 'SHADOW_SIGNAL_APPROVED', 'SHADOW_ORDER_CREATED', 'SHADOW_PAPER_FILLED'].includes(String(c.state ?? '')))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
+  const lastShadowScanStartedAt = scanStartedTransition?.timestamp ?? scanStartedCase?.createdAt;
   const metadataRejectedToday = scanCandidates.filter((c) => !!freshMetadataProblem(c)).length;
   const missingEntryPrice = scanCandidates.filter((c) => !positive(c.entryPriceVirtual)).length;
   const missingTargetStop = scanCandidates.filter((c) => !positive(c.targetPriceVirtual) || !positive(c.stopPriceVirtual)).length;
@@ -184,7 +193,7 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   const blockedByNoSignal = Math.max(0, scanCandidates.length - shadowSignalsToday);
   const cohortAssignmentFailures = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.item === 'fresh_case_missing_cohort').reduce((s, i) => s + i.count, 0);
   let nextAction: FreshShadowInletNextAction = 'FRESH_SHADOW_INLET_ACTIVE';
-  if (!marketOpen) nextAction = scanCandidates.length > 0 ? 'QUEUE_NEXT_OPEN_SHADOW_SCAN' : 'AFTER_HOURS_OBSERVE';
+  if (!marketOpen) nextAction = scanCandidates.length > 0 ? 'QUEUE_NEXT_OPEN_SHADOW_SCAN' : 'MARKET_CLOSED';
   else if (scanCandidates.length === 0) nextAction = 'NO_SCAN_CANDIDATES';
   else if (liveEntryBlockedShadowAllowed) nextAction = 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED';
   else if (shadowSignalsToday === 0) nextAction = 'NO_SHADOW_SIGNALS';
@@ -193,6 +202,33 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   else if (paperFilledToday === 0) nextAction = 'PAPER_FILL_NOT_WIRED';
   else if (cohortAssignmentFailures > 0) nextAction = 'COHORT_ASSIGNMENT_FAILED';
   else if (metadataRejectedToday > 0) nextAction = 'METADATA_GUARD_REJECTED';
+  const queuedNextOpenShadowScan = nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN' || nextAction === 'MARKET_CLOSED';
+  const nextOpenShadowScanStatus: NextOpenShadowScanStatus = queuedNextOpenShadowScan
+    ? 'SCHEDULED'
+    : lastShadowScanStartedAt
+      ? (shadowOrdersCreatedToday > 0 || paperFilledToday > 0 || positionsOpenedToday > 0 ? 'COMPLETED' : 'RUNNING')
+      : marketOpen && scanCandidates.length > 0
+        ? 'MISSED'
+        : 'SCHEDULED';
+  const lastShadowScanResult = nextOpenShadowScanStatus === 'MISSED'
+    ? 'NO_SCAN_LOG_AFTER_NEXT_OPEN'
+    : shadowOrdersCreatedToday > 0
+      ? 'SHADOW_ORDER_CREATED'
+      : shadowApprovedToday > 0
+        ? 'SHADOW_SIGNAL_EVALUATED'
+        : shadowSignalsToday > 0
+          ? 'SHADOW_CANDIDATES_SCANNED'
+          : queuedNextOpenShadowScan
+            ? 'SHADOW_SCAN_SCHEDULED'
+            : 'NO_SHADOW_RESULT';
+  const nextOpenShadowScanLogEvents = [
+    queuedNextOpenShadowScan ? 'SHADOW_SCAN_SCHEDULED' : undefined,
+    lastShadowScanStartedAt ? 'SHADOW_SCAN_STARTED' : undefined,
+    lastShadowScanStartedAt ? 'SHADOW_CANDIDATES_SCANNED' : undefined,
+    shadowApprovedToday > 0 ? 'SHADOW_SIGNAL_EVALUATED' : undefined,
+    shadowOrdersCreatedToday > 0 ? 'SHADOW_ORDER_CREATED' : undefined,
+  ].filter((value): value is string => !!value);
+  const warning = nextOpenShadowScanStatus === 'MISSED' ? 'NEXT_OPEN_SHADOW_SCAN_MISSED' : undefined;
   return {
     marketOpen,
     engineMode,
@@ -218,9 +254,15 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
     counterfactualAllowed: true as const,
     liveBlocker: marketOpen ? 'NONE' as const : 'MARKET_CLOSED' as const,
     shadowInletStatus: nextAction,
-    queuedNextOpenShadowScan: nextAction === 'AFTER_HOURS_OBSERVE' || nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN',
-    nextShadowScanAt: (nextAction === 'AFTER_HOURS_OBSERVE' || nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN') ? nextKstOpen(now) : undefined,
-    nextShadowScanReason: (nextAction === 'AFTER_HOURS_OBSERVE' || nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN') ? 'MARKET_CLOSED_LIVE_ONLY' : undefined,
+    queuedNextOpenShadowScan,
+    nextShadowScanAt: queuedNextOpenShadowScan ? nextKstOpen(now) : undefined,
+    nextShadowScanReason: queuedNextOpenShadowScan ? 'MARKET_CLOSED_LIVE_ONLY' : undefined,
+    nextOpenShadowScanStatus,
+    lastShadowScanStartedAt,
+    lastShadowScanCandidateCount: lastShadowScanStartedAt ? scanCandidates.length : 0,
+    lastShadowScanResult,
+    nextOpenShadowScanLogEvents,
+    warning,
     blocker: nextAction,
     nextAction,
     executionImpact: 'NONE' as const,

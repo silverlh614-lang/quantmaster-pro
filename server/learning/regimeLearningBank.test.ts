@@ -646,4 +646,53 @@ describe('Regime Learning Bank', () => {
     expect(bank.bestRegimeByExpectancy).toBe('R3_EXPANSION');
     expect(formatRegimeLearningDetail('UNKNOWN', bank)).toContain('UNKNOWNPromotionIsolation=');
   });
+
+  it('computes trueUnknownRatio after recovered low-confidence regime samples', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'UNKNOWN',
+      effectiveRegime: 'UNKNOWN',
+      shadowCases: [
+        shadow('unknown-1', {
+          effectiveRegime: 'UNKNOWN',
+          regimePhase: 'UNKNOWN',
+          sourceConfidence: 'UNKNOWN',
+          detectedAt: '',
+          createdAt: '',
+          updatedAt: '',
+        }),
+        shadow('unknown-2', {
+          effectiveRegime: 'UNKNOWN',
+          regimePhase: 'UNKNOWN',
+          sourceConfidence: 'UNKNOWN',
+          detectedAt: '',
+          createdAt: '',
+          updatedAt: '',
+        }),
+        shadow('recovered-low', {
+          effectiveRegime: 'UNKNOWN',
+          regimePhase: 'UNKNOWN',
+          sourceConfidence: 'FALLBACK',
+          regimeRecoveryConfidence: 'LOW',
+          detectedAt: '',
+          createdAt: '',
+          updatedAt: '',
+        }),
+        shadow('r3', {
+          effectiveRegime: 'R3_EARLY',
+          regimePhase: 'R3_EXPANSION',
+        }),
+      ],
+      counterfactualEntries: [],
+    });
+
+    expect(bank.regimeLearningSampleSize).toBe(4);
+    expect(bank.unknownRegimeCount).toBe(3);
+    expect(bank.recoveredLowConfidenceRegimeCount).toBe(1);
+    expect(bank.trueUnknownRegimeCount).toBe(2);
+    expect(bank.unknownRatioRaw).toBe(0.75);
+    expect(bank.recoveredLowConfidenceRegimeRatio).toBe(0.25);
+    expect(bank.trueUnknownRatio).toBe(0.5);
+    expect(bank.regimeRatioDenominator).toBe('regimeLearningSampleSize');
+    expect(bank.regimeRatioDenominatorValue).toBe(4);
+  });
 });

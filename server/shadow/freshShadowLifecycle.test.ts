@@ -99,6 +99,8 @@ describe('Fresh Shadow Lifecycle Activation Patch v1', () => {
     const ledger = new InMemoryShadowCaseLedger();
     const closed = collectFreshShadowInletStatus(ledger, new Date('2026-05-16T03:00:00.000Z'), { marketOpen: false });
     expect(closed.nextAction).toBe('MARKET_CLOSED');
+    expect(closed.nextOpenShadowScanStatus).toBe('SCHEDULED');
+    expect(closed.lastShadowScanResult).toBe('SHADOW_SCAN_SCHEDULED');
     expect(closed.executionImpact).toBe('NONE');
     expect(closed.brokerOrdersCreated).toBe(0);
 
@@ -107,6 +109,7 @@ describe('Fresh Shadow Lifecycle Activation Patch v1', () => {
     const inlet = collectFreshShadowInletStatus(active, now, { marketOpen: true });
     expect(inlet.scanCandidatesToday).toBe(1);
     expect(inlet.nextAction).toBe('SHADOW_SIGNAL_NOT_APPROVED');
+    expect(inlet.nextOpenShadowScanStatus).not.toBe('MISSED');
   });
 
   it('keeps Fresh Shadow eligible when live entry is blocked by R6 or SELL_ONLY', () => {
