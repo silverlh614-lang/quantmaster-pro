@@ -1095,6 +1095,14 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const regimeSnapshotReconstructionFailedDates = backfillDryRun.snapshotReconstructionFailedDates ?? [];
   const regimeSnapshotReconstructionSourceBreakdown = backfillDryRun.snapshotReconstructionSourceBreakdown ?? {};
   const regimeSnapshotReconstructionConfidenceBreakdown = backfillDryRun.snapshotReconstructionConfidenceBreakdown ?? {};
+  const regimeSourceInventoryByDate = backfillDryRun.sourceInventoryByDate ?? {};
+  const regimeSourceInventoryTopAvailable = backfillDryRun.sourceInventoryTopAvailable ?? [];
+  const regimeSourceInventoryMissingSources = backfillDryRun.sourceInventoryMissingSources ?? {};
+  const regimeSourceInventoryAuditStatus = backfillDryRun.sourceInventoryAuditStatus ?? 'NO_MISSING_DATES';
+  const regimeSnapshotReconstructionPriorityDate = backfillDryRun.snapshotReconstructionPriorityDate ?? '2026-05-13';
+  const priorityDateReconstructionStatus = backfillDryRun.priorityDateReconstructionStatus ?? 'NOT_ATTEMPTED';
+  const priorityDateRecoveredSampleCount = backfillDryRun.priorityDateRecoveredSampleCount ?? 0;
+  const priorityDateFailureReason = backfillDryRun.priorityDateFailureReason ?? 'NOT_ATTEMPTED';
   const regimeBackfillFailureSampleKeys = backfillDryRun.failureSampleKeys ?? [];
   const recoveredLowConfidenceRegimeCountAdjusted = Math.max(recoveredLowConfidenceRegimeCount, regimeBackfillRecovered);
   const trueUnknownRegimeCount = Math.max(0, unknownRegimeCount - recoveredLowConfidenceRegimeCountAdjusted);
@@ -1111,6 +1119,11 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const unknownRatioRaw = unknownRatio;
   const recoveredLowConfidenceRegimeRatio = pct(recoveredLowConfidenceRegimeCountAdjusted, regimeLearningSampleSize);
   const trueUnknownRatio = pct(trueUnknownRegimeCount, regimeLearningSampleSize);
+  const postReconstructionTrueUnknownRatio = trueUnknownRatio;
+  const regimePromotionStillBlocked = trueUnknownRatio >= 0.20;
+  const regimePromotionBlockReason = regimePromotionStillBlocked
+    ? 'REGIME_PROMOTION_BLOCKED_TRUE_UNKNOWN_RATIO_HIGH'
+    : 'NONE';
   const byConfidence = stats.reduce<Record<string, number>>((acc, row) => {
     for (const [key, count] of Object.entries(row.sourceConfidenceBreakdown)) {
       acc[key] = (acc[key] ?? 0) + count;
@@ -1205,6 +1218,17 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeSnapshotReconstructionFailedDates,
     regimeSnapshotReconstructionSourceBreakdown,
     regimeSnapshotReconstructionConfidenceBreakdown,
+    regimeSourceInventoryByDate,
+    regimeSourceInventoryTopAvailable,
+    regimeSourceInventoryMissingSources,
+    regimeSourceInventoryAuditStatus,
+    regimeSnapshotReconstructionPriorityDate,
+    priorityDateReconstructionStatus,
+    priorityDateRecoveredSampleCount,
+    priorityDateFailureReason,
+    postReconstructionTrueUnknownRatio,
+    regimePromotionStillBlocked,
+    regimePromotionBlockReason,
     regimeBackfillFailureSampleKeys,
     regimeDuplicateSourceTop3: [...duplicateSource.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}:${v}`),
     regimeDuplicateKeySample: duplicateKeySample,
@@ -1472,7 +1496,7 @@ export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRe
     })),
     `shadowLearningAllowed=${bank.shadowLearningAllowed} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed} executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated}`,
     `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} unknownRatioRaw=${bank.unknownRatioRaw} recoveredLowConfidenceRegimeCount=${bank.recoveredLowConfidenceRegimeCount} recoveredLowConfidenceRegimeRatio=${bank.recoveredLowConfidenceRegimeRatio} trueUnknownRegimeCount=${bank.trueUnknownRegimeCount} trueUnknownRatio=${bank.trueUnknownRatio} regimeRatioDenominator=${bank.regimeRatioDenominator} regimeRatioDenominatorValue=${bank.regimeRatioDenominatorValue} regimeBankConsistency=${bank.regimeBankConsistency}`,
-    `regimeBackfillTargetUnknownCount=${bank.regimeBackfillTargetUnknownCount} regimeBackfillAttemptedTotal=${bank.regimeBackfillAttemptedTotal} regimeBackfillAttemptedUnique=${bank.regimeBackfillAttemptedUnique} regimeBackfillAttemptedDuplicates=${bank.regimeBackfillAttemptedDuplicates} attemptedOverTargetReason=${bank.attemptedOverTargetReason} regimeBackfillRecovered=${bank.regimeBackfillRecovered} regimeBackfillFailed=${bank.regimeBackfillFailed} regimeBackfillRecoveredBySource=${JSON.stringify(bank.regimeBackfillRecoveredBySource)} regimeBackfillRecoveredByConfidence=${JSON.stringify(bank.regimeBackfillRecoveredByConfidence)} regimeBackfillFailedAfterDailyFallback=${bank.regimeBackfillFailedAfterDailyFallback} regimeBackfillFailureTopReasonsAfterDailyFallback=${JSON.stringify(bank.regimeBackfillFailureTopReasonsAfterDailyFallback)} regimeBackfillFailureTopReasons=${JSON.stringify(bank.regimeBackfillFailureTopReasons)} regimeBackfillFailureBySourceLane=${JSON.stringify(bank.regimeBackfillFailureBySourceLane)} regimeBackfillFailureByTimestampSource=${JSON.stringify(bank.regimeBackfillFailureByTimestampSource)} regimeBackfillFailureByTradingDate=${JSON.stringify(bank.regimeBackfillFailureByTradingDate)} regimeSnapshotCoverageByTradingDate=${JSON.stringify(bank.regimeSnapshotCoverageByTradingDate)} missingRegimeSnapshotDates=${JSON.stringify(bank.missingRegimeSnapshotDates)} dailyRegimeFallbackStatus=${bank.dailyRegimeFallbackStatus} regimeSnapshotReconstructionAttemptedDates=${JSON.stringify(bank.regimeSnapshotReconstructionAttemptedDates)} regimeSnapshotReconstructionSucceededDates=${JSON.stringify(bank.regimeSnapshotReconstructionSucceededDates)} regimeSnapshotReconstructionFailedDates=${JSON.stringify(bank.regimeSnapshotReconstructionFailedDates)} regimeSnapshotReconstructionSourceBreakdown=${JSON.stringify(bank.regimeSnapshotReconstructionSourceBreakdown)} regimeSnapshotReconstructionConfidenceBreakdown=${JSON.stringify(bank.regimeSnapshotReconstructionConfidenceBreakdown)} regimeBackfillFailureSampleKeys=${JSON.stringify(bank.regimeBackfillFailureSampleKeys)}`,
+    `regimeBackfillTargetUnknownCount=${bank.regimeBackfillTargetUnknownCount} regimeBackfillAttemptedTotal=${bank.regimeBackfillAttemptedTotal} regimeBackfillAttemptedUnique=${bank.regimeBackfillAttemptedUnique} regimeBackfillAttemptedDuplicates=${bank.regimeBackfillAttemptedDuplicates} attemptedOverTargetReason=${bank.attemptedOverTargetReason} regimeBackfillRecovered=${bank.regimeBackfillRecovered} regimeBackfillFailed=${bank.regimeBackfillFailed} regimeBackfillRecoveredBySource=${JSON.stringify(bank.regimeBackfillRecoveredBySource)} regimeBackfillRecoveredByConfidence=${JSON.stringify(bank.regimeBackfillRecoveredByConfidence)} regimeBackfillFailedAfterDailyFallback=${bank.regimeBackfillFailedAfterDailyFallback} regimeBackfillFailureTopReasonsAfterDailyFallback=${JSON.stringify(bank.regimeBackfillFailureTopReasonsAfterDailyFallback)} regimeBackfillFailureTopReasons=${JSON.stringify(bank.regimeBackfillFailureTopReasons)} regimeBackfillFailureBySourceLane=${JSON.stringify(bank.regimeBackfillFailureBySourceLane)} regimeBackfillFailureByTimestampSource=${JSON.stringify(bank.regimeBackfillFailureByTimestampSource)} regimeBackfillFailureByTradingDate=${JSON.stringify(bank.regimeBackfillFailureByTradingDate)} regimeSnapshotCoverageByTradingDate=${JSON.stringify(bank.regimeSnapshotCoverageByTradingDate)} missingRegimeSnapshotDates=${JSON.stringify(bank.missingRegimeSnapshotDates)} dailyRegimeFallbackStatus=${bank.dailyRegimeFallbackStatus} regimeSnapshotReconstructionAttemptedDates=${JSON.stringify(bank.regimeSnapshotReconstructionAttemptedDates)} regimeSnapshotReconstructionSucceededDates=${JSON.stringify(bank.regimeSnapshotReconstructionSucceededDates)} regimeSnapshotReconstructionFailedDates=${JSON.stringify(bank.regimeSnapshotReconstructionFailedDates)} regimeSnapshotReconstructionSourceBreakdown=${JSON.stringify(bank.regimeSnapshotReconstructionSourceBreakdown)} regimeSnapshotReconstructionConfidenceBreakdown=${JSON.stringify(bank.regimeSnapshotReconstructionConfidenceBreakdown)} regimeSourceInventoryByDate=${JSON.stringify(bank.regimeSourceInventoryByDate)} regimeSourceInventoryTopAvailable=${JSON.stringify(bank.regimeSourceInventoryTopAvailable)} regimeSourceInventoryMissingSources=${JSON.stringify(bank.regimeSourceInventoryMissingSources)} regimeSourceInventoryAuditStatus=${bank.regimeSourceInventoryAuditStatus} regimeSnapshotReconstructionPriorityDate=${bank.regimeSnapshotReconstructionPriorityDate} priorityDateReconstructionStatus=${bank.priorityDateReconstructionStatus} priorityDateRecoveredSampleCount=${bank.priorityDateRecoveredSampleCount} priorityDateFailureReason=${bank.priorityDateFailureReason} postReconstructionTrueUnknownRatio=${bank.postReconstructionTrueUnknownRatio} regimePromotionStillBlocked=${bank.regimePromotionStillBlocked} regimePromotionBlockReason=${bank.regimePromotionBlockReason} regimeBackfillFailureSampleKeys=${JSON.stringify(bank.regimeBackfillFailureSampleKeys)}`,
     `regimeDuplicatePreventedAtSource=${bank.regimeDuplicatePreventedAtSource} regimeDuplicateSuppressedAfterInsert=${bank.regimeDuplicateSuppressedAfterInsert} regimeDuplicateRootCause=${bank.regimeDuplicateRootCause}`,
     `R2ResolvedSampleSize=${bank.R2ResolvedSampleSize} R2PendingCounterfactual=${bank.R2PendingCounterfactualCount} R3ResolvedSampleSize=${bank.R3ResolvedSampleSize} R3PendingCounterfactual=${bank.R3PendingCounterfactualCount} R6ResolvedSampleSize=${bank.R6ResolvedSampleSize} R6PendingCounterfactual=${bank.R6PendingCounterfactualCount} nextRegimeMaturityAt=${bank.nextRegimeMaturityAt ?? 'N/A'} regimesNeedingAttributionRecalc=${JSON.stringify(bank.regimesNeedingAttributionRecalc)} regimeLearningNextAction=${bank.regimeLearningNextAction}`,
     ...rows.map((s) => `${s.regimePhase}: totalSampleSize=${s.totalSampleSize} resolvedSampleSize=${s.resolvedSampleSize} pendingCounterfactualCount=${s.pendingCounterfactualCount} attributableSampleSize=${s.attributableSampleSize} fresh=${s.freshShadowCount} ghostRepair=${s.ghostRepairCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${formatExpectancy(s)} expectancyConfidence=${s.expectancyConfidence} resolvedRatio=${s.resolvedRatio} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),

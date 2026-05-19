@@ -227,7 +227,18 @@ describe('Regime Learning backfill', () => {
     expect(dry.snapshotCoverageByTradingDate['2026-04-30'].sameDayDaily).toBe(0);
     expect(dry.missingRegimeSnapshotDates).toEqual(['2026-04-30']);
     expect(dry.dailyRegimeFallbackStatus).toBe('NO_DAILY_SNAPSHOT_FOR_DATE');
-    expect(dry.failureReasonBreakdownAfterDailyFallback.NO_SNAPSHOT_IN_WINDOW).toBe(1);
+    expect(dry.failureReasonBreakdownAfterDailyFallback.NO_RECONSTRUCTION_SOURCE_FOR_DATE).toBe(1);
+    expect(dry.sourceInventoryByDate['2026-04-30']).toMatchObject({
+      telegramPulseArchive: 0,
+      regimeResolverDecisionLog: 0,
+      marketMacroSnapshotLog: 0,
+      riskOverrideEventLog: 0,
+      r6TriggerLog: 0,
+      effectiveRegimeTransitionLog: 0,
+      executionPolicySnapshotLog: 0,
+      learningPulseArchive: 0,
+      railwayAppLogArchive: 0,
+    });
   });
 
   it('reconstructs missing daily regime snapshots from resolver logs before final backfill', () => {
@@ -254,13 +265,23 @@ describe('Regime Learning backfill', () => {
     expect(dry.snapshotReconstructionAttemptedDates).toEqual(['2026-05-13']);
     expect(dry.snapshotReconstructionSucceededDates).toEqual(['2026-05-13']);
     expect(dry.snapshotReconstructionFailedDates).toEqual([]);
-    expect(dry.snapshotReconstructionSourceBreakdown.REGIME_RESOLVER_LOG).toBe(1);
+    expect(dry.snapshotReconstructionSourceBreakdown.REGIME_RESOLVER_DECISION_LOG).toBe(1);
     expect(dry.snapshotReconstructionConfidenceBreakdown.RECOVERED_MEDIUM).toBe(1);
+    expect(dry.sourceInventoryByDate['2026-05-13']).toMatchObject({
+      regimeResolverDecisionLog: 1,
+    });
+    expect(dry.sourceInventoryTopAvailable).toContain('regimeResolverDecisionLog:1');
+    expect(dry.sourceInventoryMissingSources['2026-05-13']).not.toContain('regimeResolverDecisionLog');
+    expect(dry.sourceInventoryAuditStatus).toBe('PRIORITY_SOURCE_AVAILABLE');
+    expect(dry.snapshotReconstructionPriorityDate).toBe('2026-05-13');
+    expect(dry.priorityDateReconstructionStatus).toBe('SUCCESS');
+    expect(dry.priorityDateRecoveredSampleCount).toBe(1);
+    expect(dry.priorityDateFailureReason).toBe('NONE');
     expect(dry.reconstructedDailySnapshots[0]).toMatchObject({
       tradingDate: '2026-05-13',
       rawRegime: 'R3_EARLY',
       effectiveRegime: 'R3_EARLY',
-      source: 'REGIME_RESOLVER_LOG',
+      source: 'REGIME_RESOLVER_DECISION_LOG',
       confidence: 'RECOVERED_MEDIUM',
       reconstructed: true,
       executionImpact: 'NONE',
@@ -304,8 +325,46 @@ describe('Regime Learning backfill', () => {
     expect(dry.snapshotReconstructionAttemptedDates).toEqual(['2026-05-13', '2026-04-30', '2026-05-15', '2026-05-12']);
     expect(dry.snapshotReconstructionSucceededDates).toEqual(['2026-05-13', '2026-04-30', '2026-05-15']);
     expect(dry.snapshotReconstructionFailedDates).toEqual(['2026-05-12']);
-    expect(dry.snapshotReconstructionSourceBreakdown.MARKET_MACRO_SNAPSHOT).toBe(1);
-    expect(dry.snapshotReconstructionSourceBreakdown.R6_TRIGGER_EVENT).toBe(1);
-    expect(dry.snapshotReconstructionSourceBreakdown.RISK_OVERRIDE_LOG).toBe(1);
+    expect(dry.snapshotReconstructionSourceBreakdown.MARKET_MACRO_SNAPSHOT_LOG).toBe(1);
+    expect(dry.snapshotReconstructionSourceBreakdown.R6_TRIGGER_LOG).toBe(1);
+    expect(dry.snapshotReconstructionSourceBreakdown.RISK_OVERRIDE_EVENT_LOG).toBe(1);
+    expect(dry.sourceInventoryAuditStatus).toBe('PRIORITY_SOURCE_AVAILABLE');
+    expect(dry.sourceInventoryByDate['2026-05-13'].marketMacroSnapshotLog).toBe(1);
+    expect(dry.sourceInventoryByDate['2026-05-12']).toMatchObject({
+      telegramPulseArchive: 0,
+      regimeResolverDecisionLog: 0,
+      marketMacroSnapshotLog: 0,
+      riskOverrideEventLog: 0,
+      r6TriggerLog: 0,
+      effectiveRegimeTransitionLog: 0,
+      executionPolicySnapshotLog: 0,
+      learningPulseArchive: 0,
+      railwayAppLogArchive: 0,
+    });
+  });
+
+  it('marks priority date unrecoverable when source inventory has no reliable source', () => {
+    const ghosts = [
+      ghost({ id: 'missing-0513-nosource', regimePhase: 'UNKNOWN', signalDate: '2026-05-13' }),
+    ];
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [],
+      transitionSnapshots: [],
+      dailyRegimeSnapshots: [],
+      pulseArchiveSnapshots: [],
+    });
+
+    expect(dry.snapshotReconstructionAttemptedDates).toEqual(['2026-05-13']);
+    expect(dry.snapshotReconstructionFailedDates).toEqual(['2026-05-13']);
+    expect(dry.sourceInventoryAuditStatus).toBe('PRIORITY_SOURCE_MISSING');
+    expect(dry.priorityDateReconstructionStatus).toBe('UNRECOVERABLE');
+    expect(dry.priorityDateRecoveredSampleCount).toBe(0);
+    expect(dry.priorityDateFailureReason).toBe('UNRECOVERABLE_MISSING_REGIME_SOURCE');
+    expect(dry.failureReasonBreakdownAfterDailyFallback.NO_RECONSTRUCTION_SOURCE_FOR_DATE).toBe(1);
+    expect(dry.failureSampleKeys[0]).toContain('NO_RECONSTRUCTION_SOURCE_FOR_DATE');
   });
 });

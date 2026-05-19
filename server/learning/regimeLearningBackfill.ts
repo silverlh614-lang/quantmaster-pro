@@ -120,6 +120,7 @@ export interface RegimeLearningBackfillInput {
 
 export type RegimeBackfillFailureReason =
   | 'NO_SNAPSHOT_IN_WINDOW'
+  | 'NO_RECONSTRUCTION_SOURCE_FOR_DATE'
   | 'MISSING_SAMPLE_TIMESTAMP'
   | 'SNAPSHOT_REPO_EMPTY'
   | 'TIMEZONE_MISMATCH_SUSPECT'
@@ -179,13 +180,36 @@ export interface RegimeSnapshotCoverage {
 
 export type RegimeSnapshotReconstructionSource =
   | 'TELEGRAM_PULSE_ARCHIVE'
-  | 'REGIME_RESOLVER_LOG'
-  | 'MARKET_MACRO_SNAPSHOT'
-  | 'R6_TRIGGER_EVENT'
-  | 'RISK_OVERRIDE_LOG'
-  | 'RAW_REGIME_PLUS_OVERRIDE';
+  | 'REGIME_RESOLVER_DECISION_LOG'
+  | 'MARKET_MACRO_SNAPSHOT_LOG'
+  | 'R6_TRIGGER_LOG'
+  | 'RISK_OVERRIDE_EVENT_LOG'
+  | 'EFFECTIVE_REGIME_TRANSITION_LOG'
+  | 'EXECUTION_POLICY_SNAPSHOT_LOG'
+  | 'LEARNING_PULSE_ARCHIVE'
+  | 'RAILWAY_APP_LOG_ARCHIVE';
 
 export type RegimeSnapshotReconstructionConfidence = 'RECOVERED_LOW' | 'RECOVERED_MEDIUM';
+export type RegimeSourceInventoryAuditStatus =
+  | 'NO_MISSING_DATES'
+  | 'PRIORITY_SOURCE_AVAILABLE'
+  | 'PRIORITY_SOURCE_MISSING'
+  | 'PARTIAL_SOURCE_AVAILABLE'
+  | 'NO_SOURCES_AVAILABLE';
+
+export type PriorityDateReconstructionStatus = 'SUCCESS' | 'FAILED' | 'UNRECOVERABLE' | 'NOT_ATTEMPTED';
+
+export interface RegimeSourceInventoryRow {
+  telegramPulseArchive: number;
+  regimeResolverDecisionLog: number;
+  marketMacroSnapshotLog: number;
+  riskOverrideEventLog: number;
+  r6TriggerLog: number;
+  effectiveRegimeTransitionLog: number;
+  executionPolicySnapshotLog: number;
+  learningPulseArchive: number;
+  railwayAppLogArchive: number;
+}
 
 export interface RegimeSnapshotReconstructionLogEntry {
   tradingDate?: string;
@@ -248,6 +272,14 @@ export interface RegimeUnknownRepairResult {
   snapshotReconstructionSourceBreakdown: Record<string, number>;
   snapshotReconstructionConfidenceBreakdown: Record<string, number>;
   reconstructedDailySnapshots: RegimeDailySnapshot[];
+  sourceInventoryByDate: Record<string, RegimeSourceInventoryRow>;
+  sourceInventoryTopAvailable: string[];
+  sourceInventoryMissingSources: Record<string, string[]>;
+  sourceInventoryAuditStatus: RegimeSourceInventoryAuditStatus;
+  snapshotReconstructionPriorityDate: string;
+  priorityDateReconstructionStatus: PriorityDateReconstructionStatus;
+  priorityDateRecoveredSampleCount: number;
+  priorityDateFailureReason: string;
   failureSampleKeys: string[];
   executionImpact: 'NONE';
   brokerOrdersCreated: 0;
@@ -605,14 +637,42 @@ function defaultPulseArchiveSnapshots(input: RegimeLearningBackfillInput): Regim
 }
 
 const RECONSTRUCTION_PRIORITY_DATES = ['2026-05-13', '2026-04-30', '2026-05-15', '2026-05-19'];
+const REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE = '2026-05-13';
 const RECONSTRUCTION_SOURCE_PRIORITY: RegimeSnapshotReconstructionSource[] = [
+  'REGIME_RESOLVER_DECISION_LOG',
+  'EFFECTIVE_REGIME_TRANSITION_LOG',
+  'R6_TRIGGER_LOG',
+  'RISK_OVERRIDE_EVENT_LOG',
+  'EXECUTION_POLICY_SNAPSHOT_LOG',
+  'LEARNING_PULSE_ARCHIVE',
   'TELEGRAM_PULSE_ARCHIVE',
-  'REGIME_RESOLVER_LOG',
-  'MARKET_MACRO_SNAPSHOT',
-  'R6_TRIGGER_EVENT',
-  'RISK_OVERRIDE_LOG',
-  'RAW_REGIME_PLUS_OVERRIDE',
+  'MARKET_MACRO_SNAPSHOT_LOG',
+  'RAILWAY_APP_LOG_ARCHIVE',
 ];
+
+const SOURCE_INVENTORY_KEYS: Array<keyof RegimeSourceInventoryRow> = [
+  'telegramPulseArchive',
+  'regimeResolverDecisionLog',
+  'marketMacroSnapshotLog',
+  'riskOverrideEventLog',
+  'r6TriggerLog',
+  'effectiveRegimeTransitionLog',
+  'executionPolicySnapshotLog',
+  'learningPulseArchive',
+  'railwayAppLogArchive',
+];
+
+const SOURCE_TO_INVENTORY_KEY: Record<RegimeSnapshotReconstructionSource, keyof RegimeSourceInventoryRow> = {
+  TELEGRAM_PULSE_ARCHIVE: 'telegramPulseArchive',
+  REGIME_RESOLVER_DECISION_LOG: 'regimeResolverDecisionLog',
+  MARKET_MACRO_SNAPSHOT_LOG: 'marketMacroSnapshotLog',
+  RISK_OVERRIDE_EVENT_LOG: 'riskOverrideEventLog',
+  R6_TRIGGER_LOG: 'r6TriggerLog',
+  EFFECTIVE_REGIME_TRANSITION_LOG: 'effectiveRegimeTransitionLog',
+  EXECUTION_POLICY_SNAPSHOT_LOG: 'executionPolicySnapshotLog',
+  LEARNING_PULSE_ARCHIVE: 'learningPulseArchive',
+  RAILWAY_APP_LOG_ARCHIVE: 'railwayAppLogArchive',
+};
 
 type ReconstructionCandidate = {
   tradingDate: string;
@@ -625,7 +685,9 @@ type ReconstructionCandidate = {
 };
 
 function reconstructionConfidenceForSource(source: RegimeSnapshotReconstructionSource): RegimeSnapshotReconstructionConfidence {
-  return source === 'REGIME_RESOLVER_LOG' || source === 'R6_TRIGGER_EVENT'
+  return source === 'REGIME_RESOLVER_DECISION_LOG'
+    || source === 'EFFECTIVE_REGIME_TRANSITION_LOG'
+    || source === 'R6_TRIGGER_LOG'
     ? 'RECOVERED_MEDIUM'
     : 'RECOVERED_LOW';
 }
@@ -661,6 +723,20 @@ function tokenFromText(text: string, keys: string[]): string | undefined {
   return undefined;
 }
 
+function normalizeReconstructionSourceHint(value: string | undefined): RegimeSnapshotReconstructionSource | undefined {
+  const source = String(value ?? '').trim().toUpperCase();
+  if (!source) return undefined;
+  if (source === 'REGIME_RESOLVER_LOG') return 'REGIME_RESOLVER_DECISION_LOG';
+  if (source === 'MARKET_MACRO_SNAPSHOT') return 'MARKET_MACRO_SNAPSHOT_LOG';
+  if (source === 'R6_TRIGGER_EVENT') return 'R6_TRIGGER_LOG';
+  if (source === 'RISK_OVERRIDE_LOG' || source === 'RAW_REGIME_PLUS_OVERRIDE') return 'RISK_OVERRIDE_EVENT_LOG';
+  if (source === 'REGIME_TRANSITION_STATE_BY_TIMESTAMP') return 'EFFECTIVE_REGIME_TRANSITION_LOG';
+  if (source === 'PULSE_ARCHIVE_ALERT_HISTORY') return 'LEARNING_PULSE_ARCHIVE';
+  if (source === 'TELEGRAM_ALERT_HISTORY') return 'TELEGRAM_PULSE_ARCHIVE';
+  if (source in SOURCE_TO_INVENTORY_KEY) return source as RegimeSnapshotReconstructionSource;
+  return undefined;
+}
+
 function dateFromText(text: string, fallback?: string): string | undefined {
   const pulseDate = text.match(/Learning Pulse[^\n]*(20\d{2}-\d{2}-\d{2})/)?.[1];
   if (isDateKey(pulseDate)) return pulseDate;
@@ -669,30 +745,40 @@ function dateFromText(text: string, fallback?: string): string | undefined {
   return tradingDateKey(fallback);
 }
 
-function sourceFromText(text: string, hintedSource?: string): RegimeSnapshotReconstructionSource | undefined {
+function sourcesFromText(text: string, hintedSource?: string): RegimeSnapshotReconstructionSource[] {
   const haystack = `${hintedSource ?? ''} ${text}`.toUpperCase();
-  if (haystack.includes('LEARNING PULSE') || haystack.includes('REGIME LEARNING')) return 'TELEGRAM_PULSE_ARCHIVE';
-  if (haystack.includes('REGIMERESOLVER') || haystack.includes('COMMAND=/REGIME') || haystack.includes('SOURCE_QUERY_RESULT')) return 'REGIME_RESOLVER_LOG';
-  if (haystack.includes('R6_TRIGGER') || haystack.includes('ACTIVER6TRIGGERS') || haystack.includes('R6SHOCKLATCH') || haystack.includes('REGIME_ALERT')) return 'R6_TRIGGER_EVENT';
-  if (haystack.includes('MACRO') || haystack.includes('MARKETSTATE') || haystack.includes('MHS') || haystack.includes('SCAN_TRACE')) return 'MARKET_MACRO_SNAPSHOT';
-  if (haystack.includes('RISKOVERRIDE=')) return 'RISK_OVERRIDE_LOG';
-  return undefined;
+  const sources = new Set<RegimeSnapshotReconstructionSource>();
+  const hinted = normalizeReconstructionSourceHint(hintedSource);
+  if (hinted) sources.add(hinted);
+  if (haystack.includes('TELEGRAM')) sources.add('TELEGRAM_PULSE_ARCHIVE');
+  if (haystack.includes('LEARNING PULSE') || haystack.includes('REGIME LEARNING')) sources.add('LEARNING_PULSE_ARCHIVE');
+  if (haystack.includes('REGIMERESOLVER') || haystack.includes('COMMAND=/REGIME') || haystack.includes('SOURCE_QUERY_RESULT')) sources.add('REGIME_RESOLVER_DECISION_LOG');
+  if (haystack.includes('EFFECTIVEREGIME TRANSITION') || haystack.includes('EFFECTIVE_REGIME_TRANSITION') || haystack.includes('LASTTRANSITIONAT') || haystack.includes('TRANSITIONDIRECTION') || haystack.includes('REGIME_TRANSITION')) sources.add('EFFECTIVE_REGIME_TRANSITION_LOG');
+  if (haystack.includes('R6_TRIGGER') || haystack.includes('ACTIVER6TRIGGERS') || haystack.includes('R6SHOCKLATCH') || haystack.includes('REGIME_ALERT') || haystack.includes('R6_DEFENSE_BLOCK')) sources.add('R6_TRIGGER_LOG');
+  if (haystack.includes('RISK_OVERRIDE') || haystack.includes('RISK OVERRIDE')) sources.add('RISK_OVERRIDE_EVENT_LOG');
+  if (haystack.includes('ENGINE RUNTIME POLICY') || haystack.includes('EXECUTIONPOLICY') || haystack.includes('EXECUTION POLICY') || haystack.includes('LIVEBUYPOLICY') || haystack.includes('SHADOWPOLICY') || haystack.includes('EXECUTIONMODE') || haystack.includes('LIVEENTRYALLOWED')) sources.add('EXECUTION_POLICY_SNAPSHOT_LOG');
+  if (haystack.includes('MACRO') || haystack.includes('MARKETSTATE') || haystack.includes('MHS') || haystack.includes('SCAN_TRACE')) sources.add('MARKET_MACRO_SNAPSHOT_LOG');
+  if (haystack.includes('RAILWAY')) sources.add('RAILWAY_APP_LOG_ARCHIVE');
+  return [...sources];
+}
+
+function primarySourceFromText(text: string, hintedSource?: string): RegimeSnapshotReconstructionSource | undefined {
+  const sources = sourcesFromText(text, hintedSource);
+  return RECONSTRUCTION_SOURCE_PRIORITY.find((source) => sources.includes(source));
 }
 
 function candidateFromText(text: string, fallbackDate?: string, hintedSource?: string): ReconstructionCandidate | undefined {
   const tradingDate = dateFromText(text, fallbackDate);
   if (!tradingDate) return undefined;
   const rawRegime = tokenFromText(text, ['rawRegime', 'detectedRegime', 'macroRegimeRaw', 'raw']);
-  const effectiveRegime = tokenFromText(text, ['effectiveRegime', 'macroRegimeEffective', 'displayRegime', 'regime']);
+  const effectiveRegime = tokenFromText(text, ['effectiveRegime', 'macroRegimeEffective', 'displayRegime', 'activeRegime', 'regime']);
   const riskOverride = tokenFromText(text, ['riskOverride']);
-  let source = sourceFromText(text, hintedSource)
-    ?? (rawRegime && riskOverride ? 'RAW_REGIME_PLUS_OVERRIDE' : undefined);
-  if (source === 'RISK_OVERRIDE_LOG' && rawRegime && riskOverride) source = 'RAW_REGIME_PLUS_OVERRIDE';
+  const source = primarySourceFromText(text, hintedSource)
+    ?? (riskOverride ? 'RISK_OVERRIDE_EVENT_LOG' : undefined);
   if (!source) return undefined;
-  const resolvedEffective = source === 'RAW_REGIME_PLUS_OVERRIDE' && riskOverride
-    ? riskOverride
-    : effectiveRegime ?? riskOverride ?? rawRegime;
-  const resolvedRaw = rawRegime ?? effectiveRegime ?? riskOverride;
+  const hasR6Signal = sourcesFromText(text, hintedSource).includes('R6_TRIGGER_LOG');
+  const resolvedEffective = effectiveRegime ?? riskOverride ?? (hasR6Signal ? 'R6_DEFENSE' : undefined) ?? rawRegime;
+  const resolvedRaw = rawRegime ?? effectiveRegime ?? riskOverride ?? (hasR6Signal ? 'R6_DEFENSE' : undefined);
   if (!resolvedRaw || !resolvedEffective) return undefined;
   return {
     tradingDate,
@@ -719,14 +805,95 @@ function candidatesFromScanTraceDate(tradingDate: string): ReconstructionCandida
   }
 }
 
+function emptySourceInventoryRow(): RegimeSourceInventoryRow {
+  return {
+    telegramPulseArchive: 0,
+    regimeResolverDecisionLog: 0,
+    marketMacroSnapshotLog: 0,
+    riskOverrideEventLog: 0,
+    r6TriggerLog: 0,
+    effectiveRegimeTransitionLog: 0,
+    executionPolicySnapshotLog: 0,
+    learningPulseArchive: 0,
+    railwayAppLogArchive: 0,
+  };
+}
+
+function addSourceInventoryFromText(
+  inventory: Record<string, RegimeSourceInventoryRow>,
+  text: string,
+  fallbackDate?: string,
+  hintedSource?: string,
+): void {
+  const tradingDate = dateFromText(text, fallbackDate);
+  if (!tradingDate) return;
+  const row = inventory[tradingDate] ?? emptySourceInventoryRow();
+  for (const source of sourcesFromText(text, hintedSource)) {
+    row[SOURCE_TO_INVENTORY_KEY[source]] += 1;
+  }
+  inventory[tradingDate] = row;
+}
+
+function sourceInventoryTotal(row: RegimeSourceInventoryRow | undefined): number {
+  if (!row) return 0;
+  return SOURCE_INVENTORY_KEYS.reduce((sum, key) => sum + (row[key] ?? 0), 0);
+}
+
+function buildSourceInventory(input: {
+  attemptedDates: string[];
+  candidates: ReconstructionCandidate[];
+  rawInventory: Record<string, RegimeSourceInventoryRow>;
+}): {
+  byDate: Record<string, RegimeSourceInventoryRow>;
+  topAvailable: string[];
+  missingSources: Record<string, string[]>;
+  auditStatus: RegimeSourceInventoryAuditStatus;
+} {
+  const byDate: Record<string, RegimeSourceInventoryRow> = {};
+  const attempted = new Set(input.attemptedDates);
+  for (const date of input.attemptedDates) byDate[date] = { ...(input.rawInventory[date] ?? emptySourceInventoryRow()) };
+  for (const candidate of input.candidates) {
+    if (!attempted.has(candidate.tradingDate)) continue;
+    const row = byDate[candidate.tradingDate] ?? emptySourceInventoryRow();
+    const key = SOURCE_TO_INVENTORY_KEY[candidate.source];
+    if ((row[key] ?? 0) === 0) row[key] = 1;
+    byDate[candidate.tradingDate] = row;
+  }
+  const sourceTotals: Record<string, number> = {};
+  const missingSources: Record<string, string[]> = {};
+  for (const date of input.attemptedDates) {
+    const row = byDate[date] ?? emptySourceInventoryRow();
+    byDate[date] = row;
+    missingSources[date] = SOURCE_INVENTORY_KEYS.filter((key) => (row[key] ?? 0) === 0);
+    for (const key of SOURCE_INVENTORY_KEYS) sourceTotals[key] = (sourceTotals[key] ?? 0) + (row[key] ?? 0);
+  }
+  const topAvailable = Object.entries(sourceTotals)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([source, count]) => `${source}:${count}`);
+  const priorityRow = byDate[REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE];
+  const auditStatus: RegimeSourceInventoryAuditStatus = input.attemptedDates.length === 0
+    ? 'NO_MISSING_DATES'
+    : input.attemptedDates.includes(REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE)
+      ? sourceInventoryTotal(priorityRow) > 0
+        ? 'PRIORITY_SOURCE_AVAILABLE'
+        : 'PRIORITY_SOURCE_MISSING'
+      : topAvailable.length > 0
+        ? 'PARTIAL_SOURCE_AVAILABLE'
+        : 'NO_SOURCES_AVAILABLE';
+  return { byDate, topAvailable, missingSources, auditStatus };
+}
+
 function reconstructionCandidatesFromInput(
   input: RegimeLearningBackfillInput,
   attemptedDates: string[],
   pulseArchiveSnapshots: RegimeDailySnapshot[],
   macroSnapshots: RegimeTimestampSnapshot[],
   transitionSnapshots: RegimeTimestampSnapshot[],
-): ReconstructionCandidate[] {
+): { candidates: ReconstructionCandidate[]; rawInventory: Record<string, RegimeSourceInventoryRow> } {
   const candidates: ReconstructionCandidate[] = [];
+  const rawInventory: Record<string, RegimeSourceInventoryRow> = {};
   for (const snapshot of pulseArchiveSnapshots) {
     if (!snapshot.tradingDate) continue;
     const rawRegime = cleanRegimeToken(snapshot.rawRegime);
@@ -737,10 +904,11 @@ function reconstructionCandidatesFromInput(
       rawRegime,
       effectiveRegime,
       riskOverride: snapshot.riskOverride,
-      source: 'TELEGRAM_PULSE_ARCHIVE',
+      source: normalizeReconstructionSourceHint(snapshot.source) ?? 'LEARNING_PULSE_ARCHIVE',
       confidence: 'RECOVERED_LOW',
       at: snapshot.at,
     });
+    addSourceInventoryFromText(rawInventory, `Learning Pulse rawRegime=${rawRegime} effectiveRegime=${effectiveRegime}`, snapshot.at ?? snapshot.tradingDate, snapshot.source ?? 'LEARNING_PULSE_ARCHIVE');
   }
   for (const entry of input.reconstructionLogEntries ?? []) {
     const text = [
@@ -750,33 +918,39 @@ function reconstructionCandidatesFromInput(
       entry.riskOverride ? `riskOverride=${entry.riskOverride}` : undefined,
       entry.tradingDate,
     ].filter(Boolean).join(' ');
+    addSourceInventoryFromText(rawInventory, text, entry.at ?? entry.tradingDate, entry.source);
     const candidate = candidateFromText(text, entry.at ?? entry.tradingDate, entry.source);
     if (candidate) candidates.push(candidate);
   }
   for (const entry of getRecentAlertHistory(1000)) {
+    addSourceInventoryFromText(rawInventory, entry.message ?? '', entry.at, 'TELEGRAM_PULSE_ARCHIVE');
     const candidate = candidateFromText(entry.message ?? '', entry.at, 'TELEGRAM_ALERT_HISTORY');
     if (candidate) candidates.push(candidate);
   }
   for (const date of attemptedDates) {
+    const file = scanTraceFile(date.replace(/-/g, ''));
+    if (fs.existsSync(file)) addSourceInventoryFromText(rawInventory, `scan_trace ${date} MARKET_MACRO_SNAPSHOT`, date, 'MARKET_MACRO_SNAPSHOT_LOG');
     candidates.push(...candidatesFromScanTraceDate(date));
   }
   for (const snapshot of macroSnapshots) {
+    addSourceInventoryFromText(rawInventory, `macroRegimeRaw=${snapshot.rawRegime} macroRegimeEffective=${snapshot.effectiveRegime ?? snapshot.rawRegime}`, snapshot.at, 'MARKET_MACRO_SNAPSHOT_LOG');
     const candidate = candidateFromText(
       `macroRegimeRaw=${snapshot.rawRegime} macroRegimeEffective=${snapshot.effectiveRegime ?? snapshot.rawRegime}`,
       snapshot.at,
-      'MARKET_MACRO_SNAPSHOT',
+      'MARKET_MACRO_SNAPSHOT_LOG',
     );
     if (candidate) candidates.push(candidate);
   }
   for (const snapshot of transitionSnapshots) {
+    addSourceInventoryFromText(rawInventory, `rawRegime=${snapshot.rawRegime} effectiveRegime=${snapshot.effectiveRegime ?? snapshot.rawRegime} lastTransitionAt=${snapshot.at}`, snapshot.at, 'EFFECTIVE_REGIME_TRANSITION_LOG');
     const candidate = candidateFromText(
       `rawRegime=${snapshot.rawRegime} effectiveRegime=${snapshot.effectiveRegime ?? snapshot.rawRegime}`,
       snapshot.at,
-      'REGIME_RESOLVER_LOG',
+      'EFFECTIVE_REGIME_TRANSITION_LOG',
     );
     if (candidate) candidates.push(candidate);
   }
-  return candidates;
+  return { candidates, rawInventory };
 }
 
 function bestReconstructionCandidate(candidates: ReconstructionCandidate[]): ReconstructionCandidate | undefined {
@@ -1060,7 +1234,10 @@ function classifyBackfillFailure(
   transitionSnapshots: RegimeTimestampSnapshot[],
   dailySnapshots: RegimeDailySnapshot[] = [],
   pulseArchiveSnapshots: RegimeDailySnapshot[] = [],
+  noReconstructionSourceDates: Set<string> = new Set(),
 ): RegimeBackfillFailureReason {
+  const tradingDate = tradingDateKey(item.createdAt);
+  if (tradingDate && noReconstructionSourceDates.has(tradingDate)) return 'NO_RECONSTRUCTION_SOURCE_FOR_DATE';
   const reason = unknownReason(item, macroSnapshots, transitionSnapshots);
   if (reason === 'MISSING_CREATED_AT') return 'MISSING_SAMPLE_TIMESTAMP';
   if (reason === 'CORRUPTED_TIMESTAMP') return 'INVALID_TIMESTAMP';
@@ -1314,15 +1491,24 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
     initialDailySnapshots,
     pulseArchiveSnapshots,
   );
+  const reconstructionInputs = reconstructionCandidatesFromInput(
+    input,
+    reconstructionAttemptDates,
+    pulseArchiveSnapshots,
+    macroSnapshots,
+    transitionSnapshots,
+  );
+  const sourceInventory = buildSourceInventory({
+    attemptedDates: reconstructionAttemptDates,
+    candidates: reconstructionInputs.candidates,
+    rawInventory: reconstructionInputs.rawInventory,
+  });
+  const noReconstructionSourceDates = new Set(
+    reconstructionAttemptDates.filter((date) => sourceInventoryTotal(sourceInventory.byDate[date]) === 0),
+  );
   const reconstruction = reconstructDailySnapshotsForDates({
     attemptedDates: reconstructionAttemptDates,
-    candidates: reconstructionCandidatesFromInput(
-      input,
-      reconstructionAttemptDates,
-      pulseArchiveSnapshots,
-      macroSnapshots,
-      transitionSnapshots,
-    ),
+    candidates: reconstructionInputs.candidates,
     reconstructedAt: now.toISOString(),
   });
   const dailySnapshots = uniqueDailySnapshots([...initialDailySnapshots, ...reconstruction.snapshots]);
@@ -1343,6 +1529,7 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   let attemptedDuplicates = 0;
   let repaired = 0;
   let stillUnknown = 0;
+  let priorityDateRecoveredSampleCount = 0;
 
   for (const item of rows) {
     if (!isUnknownRow(item.row)) continue;
@@ -1388,7 +1575,7 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
       stillUnknown++;
       recordFailure(
         item,
-        classifyBackfillFailure(item, macroSnapshots, transitionSnapshots, dailySnapshots, pulseArchiveSnapshots),
+        classifyBackfillFailure(item, macroSnapshots, transitionSnapshots, dailySnapshots, pulseArchiveSnapshots, noReconstructionSourceDates),
         failureReasonBreakdown,
         failureBySourceLane,
         failureByTimestampSource,
@@ -1398,6 +1585,7 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
       continue;
     }
     repaired++;
+    if (tradingDate === REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE) priorityDateRecoveredSampleCount++;
     inc(recoveredBySource, recovered.regimeRecoverySource);
     inc(recoveredByConfidence, recoveredConfidenceLabel(recovered.regimeRecoveryConfidence));
     if (!write) continue;
@@ -1430,6 +1618,20 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
       : dailyFallbackRecovered > 0
         ? 'USED_DAILY_FALLBACK'
         : 'OK';
+  const priorityDateReconstructionStatus: PriorityDateReconstructionStatus = !reconstruction.attemptedDates.includes(REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE)
+    ? 'NOT_ATTEMPTED'
+    : reconstruction.succeededDates.includes(REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE)
+      ? 'SUCCESS'
+      : noReconstructionSourceDates.has(REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE)
+        ? 'UNRECOVERABLE'
+        : 'FAILED';
+  const priorityDateFailureReason = priorityDateReconstructionStatus === 'SUCCESS'
+    ? 'NONE'
+    : priorityDateReconstructionStatus === 'UNRECOVERABLE'
+      ? 'UNRECOVERABLE_MISSING_REGIME_SOURCE'
+      : priorityDateReconstructionStatus === 'NOT_ATTEMPTED'
+        ? 'NOT_ATTEMPTED'
+        : 'RECONSTRUCTION_FAILED';
 
   return {
     scannedUnknown,
@@ -1457,6 +1659,14 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
     snapshotReconstructionSourceBreakdown: reconstruction.sourceBreakdown,
     snapshotReconstructionConfidenceBreakdown: reconstruction.confidenceBreakdown,
     reconstructedDailySnapshots: reconstruction.snapshots,
+    sourceInventoryByDate: sourceInventory.byDate,
+    sourceInventoryTopAvailable: sourceInventory.topAvailable,
+    sourceInventoryMissingSources: sourceInventory.missingSources,
+    sourceInventoryAuditStatus: sourceInventory.auditStatus,
+    snapshotReconstructionPriorityDate: REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE,
+    priorityDateReconstructionStatus,
+    priorityDateRecoveredSampleCount,
+    priorityDateFailureReason,
     failureSampleKeys,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
@@ -1531,6 +1741,14 @@ export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'd
     `snapshotReconstructionFailedDates=${JSON.stringify(s.snapshotReconstructionFailedDates)}`,
     `snapshotReconstructionSourceBreakdown=${JSON.stringify(s.snapshotReconstructionSourceBreakdown)}`,
     `snapshotReconstructionConfidenceBreakdown=${JSON.stringify(s.snapshotReconstructionConfidenceBreakdown)}`,
+    `sourceInventoryByDate=${JSON.stringify(s.sourceInventoryByDate)}`,
+    `sourceInventoryTopAvailable=${JSON.stringify(s.sourceInventoryTopAvailable)}`,
+    `sourceInventoryMissingSources=${JSON.stringify(s.sourceInventoryMissingSources)}`,
+    `sourceInventoryAuditStatus=${s.sourceInventoryAuditStatus}`,
+    `snapshotReconstructionPriorityDate=${s.snapshotReconstructionPriorityDate}`,
+    `priorityDateReconstructionStatus=${s.priorityDateReconstructionStatus}`,
+    `priorityDateRecoveredSampleCount=${s.priorityDateRecoveredSampleCount}`,
+    `priorityDateFailureReason=${s.priorityDateFailureReason}`,
     `failureSampleKeys=${JSON.stringify(s.failureSampleKeys)}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');

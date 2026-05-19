@@ -10,6 +10,9 @@ import type {
   DailyRegimeFallbackStatus,
   RegimeDailySnapshot,
   RegimeSnapshotReconstructionLogEntry,
+  RegimeSourceInventoryAuditStatus,
+  RegimeSourceInventoryRow,
+  PriorityDateReconstructionStatus,
   RegimeSnapshotCoverage,
 } from './regimeLearningBackfill.js';
 
@@ -262,6 +265,17 @@ export interface RegimeLearningBank {
   regimeSnapshotReconstructionFailedDates: string[];
   regimeSnapshotReconstructionSourceBreakdown: Record<string, number>;
   regimeSnapshotReconstructionConfidenceBreakdown: Record<string, number>;
+  regimeSourceInventoryByDate: Record<string, RegimeSourceInventoryRow>;
+  regimeSourceInventoryTopAvailable: string[];
+  regimeSourceInventoryMissingSources: Record<string, string[]>;
+  regimeSourceInventoryAuditStatus: RegimeSourceInventoryAuditStatus;
+  regimeSnapshotReconstructionPriorityDate: string;
+  priorityDateReconstructionStatus: PriorityDateReconstructionStatus;
+  priorityDateRecoveredSampleCount: number;
+  priorityDateFailureReason: string;
+  postReconstructionTrueUnknownRatio: number;
+  regimePromotionStillBlocked: boolean;
+  regimePromotionBlockReason: string;
   regimeBackfillFailureSampleKeys: string[];
   regimeDuplicateSourceTop3: string[];
   regimeDuplicateKeySample: string[];
