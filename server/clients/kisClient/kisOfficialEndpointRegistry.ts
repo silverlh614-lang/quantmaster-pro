@@ -249,6 +249,7 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'credit',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/ranking/credit-balance',
+    trId: 'FHKST17010000',
     requiredParams: ['FID_COND_MRKT_DIV_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DELAYED',

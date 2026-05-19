@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "validate:gemini": "node scripts/validate_gemini_calls.js",
     "validate:complexity": "node scripts/check_complexity.js",
     "validate:sds": "node scripts/silent_degradation_sentinel.js",
