@@ -381,6 +381,7 @@ export function buildGate1ConsolidatedDiagnostic(input: {
 
   const providerIssue = survival.quoteFreshness.providerIssue === true
     || survival.kisOfficialQuoteCoverage.providerIssue === true
+    || survival.tradability.providerIssue === true
     || survival.liquidityFloor.providerIssue === true
     || survival.shadowEligibility.providerIssue === true
     || (tradabilityStatus === 'UNKNOWN' && stringOrNull(tradability.source) === 'UNKNOWN');

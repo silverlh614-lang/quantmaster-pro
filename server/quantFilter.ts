@@ -75,6 +75,9 @@ export type Gate1SurvivalExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED_ONLY' | 'D
 export type Gate1QuoteFreshnessStatus = 'OK' | 'STALE' | 'MISSING' | 'UNKNOWN';
 export type Gate1TradabilityStatus = 'TRADABLE' | 'HALTED' | 'WARNING' | 'MANAGEMENT' | 'UNKNOWN';
 export type Gate1TradabilitySource = 'KIS_OFFICIAL' | 'QMP_MASTER' | 'UNKNOWN';
+export type Gate1TradabilityMarket = 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'PREFERRED' | 'UNKNOWN';
+export type Gate1TradabilityStockType = 'COMMON' | 'PREFERRED' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'OTHER' | 'UNKNOWN';
+export type Gate1TradabilitySourceStatus = 'VERIFIED' | 'STALE' | 'MISSING' | 'DEGRADED' | 'UNKNOWN';
 export type Gate1LiquidityFloorStatus = Gate1LiquidityFloorStatusValue;
 export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNCH' | 'SELL_ONLY' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
 export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
@@ -94,14 +97,21 @@ export interface Gate1SurvivalDiagnostic {
   };
   tradability: {
     status: Gate1TradabilityStatus;
+    tradable?: boolean | null;
+    market?: Gate1TradabilityMarket;
+    stockType?: Gate1TradabilityStockType;
     source: Gate1TradabilitySource;
+    sourceStatus?: Gate1TradabilitySourceStatus;
     reason: string | null;
+    providerIssue?: boolean;
+    marketSignal?: false;
     executionImpact: Gate1SurvivalExecutionImpact;
   };
   liquidityFloor: Gate1LiquidityFloorDiagnostic;
   marketSessionCompatibility: {
     session: Gate1MarketSession;
     liveBuyAllowed: boolean;
+    liveSellAllowed?: boolean;
     shadowAllowed: boolean;
     reason: string | null;
   };
@@ -343,6 +353,27 @@ function boolValue(value: unknown): boolean {
   return value === true || value === 'true' || value === 'Y' || value === '1' || value === 1;
 }
 
+function normalizeGate1TradabilityMarket(value: unknown): Gate1TradabilityMarket {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (raw === 'KOSPI' || raw === 'KOSDAQ' || raw === 'KONEX' || raw === 'ETF' || raw === 'ETN' || raw === 'REIT' || raw === 'SPAC' || raw === 'PREFERRED') {
+    return raw;
+  }
+  return 'UNKNOWN';
+}
+
+function normalizeGate1StockType(value: unknown, quote: QuoteRecord, source: Gate1TradabilitySource): Gate1TradabilityStockType {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (raw === 'COMMON' || raw === 'PREFERRED' || raw === 'ETF' || raw === 'ETN' || raw === 'REIT' || raw === 'SPAC' || raw === 'OTHER') {
+    return raw;
+  }
+  if (boolValue(quote.preferred) || boolValue(quote.isPreferred)) return 'PREFERRED';
+  if (boolValue(quote.etf) || boolValue(quote.isEtf)) return 'ETF';
+  if (boolValue(quote.etn) || boolValue(quote.isEtn)) return 'ETN';
+  if (boolValue(quote.reit) || boolValue(quote.isReit)) return 'REIT';
+  if (boolValue(quote.spac) || boolValue(quote.isSpac)) return 'SPAC';
+  return source === 'UNKNOWN' ? 'UNKNOWN' : 'COMMON';
+}
+
 function inferQuoteProviderLabel(quote: QuoteRecord): string | null {
   const priceMetadata = quote.priceMetadata as { source?: unknown } | undefined;
   return stringOrNull(priceMetadata?.source)
@@ -461,8 +492,25 @@ function buildGate1Tradability(quote: YahooQuoteExtended): Gate1SurvivalDiagnost
     : status === 'UNKNOWN'
       ? 'DIAGNOSTIC_ONLY'
       : 'LIVE_BUY_BLOCKED_ONLY';
+  const tradable = status === 'TRADABLE'
+    ? true
+    : status === 'UNKNOWN'
+      ? null
+      : false;
+  const sourceStatus: Gate1TradabilitySourceStatus = source === 'UNKNOWN' ? 'MISSING' : 'VERIFIED';
 
-  return { status, source, reason, executionImpact };
+  return {
+    status,
+    tradable,
+    market: normalizeGate1TradabilityMarket(q.market),
+    stockType: normalizeGate1StockType(q.stockType, q, source),
+    source,
+    sourceStatus,
+    reason,
+    providerIssue: source === 'UNKNOWN',
+    marketSignal: false,
+    executionImpact,
+  };
 }
 
 function buildGate1LiquidityFloor(
@@ -498,13 +546,14 @@ function buildGate1MarketSessionCompatibility(quote: YahooQuoteExtended): Gate1S
       ?? q.engineMode,
   );
   const liveBuyAllowed = session === 'REGULAR';
+  const liveSellAllowed = session !== 'CLOSED' && session !== 'HOLIDAY' && session !== 'UNKNOWN';
   const shadowAllowed = true;
   const reason = session === 'UNKNOWN'
     ? 'MARKET_SESSION_UNKNOWN'
     : liveBuyAllowed
       ? null
       : `${session}_LIVE_BUY_NOT_ALLOWED_DIAGNOSTIC`;
-  return { session, liveBuyAllowed, shadowAllowed, reason };
+  return { session, liveBuyAllowed, liveSellAllowed, shadowAllowed, reason };
 }
 
 function buildGate1ShadowEligibility(input: {
