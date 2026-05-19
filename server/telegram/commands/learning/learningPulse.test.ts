@@ -128,7 +128,7 @@ describe('collectLearningPulse — 7영역 SSOT 수집', () => {
     expect(snap.flags).toEqual(expect.arrayContaining([
       expect.stringContaining('sample_starvation'),
       expect.stringContaining('suggest_silence'),
-      expect.stringContaining('gemini_underuse'),
+      expect.stringContaining('gemini_scheduler_warning'),
     ]));
     // ghost_close_blocker 는 open<100 이라 미발동
     expect(snap.flags.some((f) => f.includes('ghost_close_blocker'))).toBe(false);
@@ -243,7 +243,7 @@ describe('collectLearningPulse — 7영역 SSOT 수집', () => {
     expect(snap.experimentsActive).toBe(3);
   });
 
-  it('11. Gemini 호출률 — callCount=20/22 → 91% (gemini_underuse 미발동)', async () => {
+  it('11. Gemini 호출률 — callCount=20/22 → 91% (gemini_scheduler_warning 미발동)', async () => {
     const month = NOW.toISOString().slice(0, 7);
     writeJson(path.join(tmpDir, 'reflection-budget.json'), {
       month, tokensUsed: 50000, callCount: 20,
@@ -252,17 +252,17 @@ describe('collectLearningPulse — 7영역 SSOT 수집', () => {
     const snap = collectLearningPulse(NOW);
     expect(snap.gemini.callCount).toBe(20);
     expect(snap.gemini.useRatio).toBeCloseTo(20 / 22, 2);
-    expect(snap.flags.some((f) => f.includes('gemini_underuse'))).toBe(false);
+    expect(snap.flags.some((f) => f.includes('gemini_scheduler_warning'))).toBe(false);
   });
 
-  it('12. Gemini 호출률 < 80% → gemini_underuse 발동', async () => {
+  it('12. Gemini 호출률 < 80% → gemini_scheduler_warning 발동', async () => {
     const month = NOW.toISOString().slice(0, 7);
     writeJson(path.join(tmpDir, 'reflection-budget.json'), {
       month, tokensUsed: 10000, callCount: 10,
     });
     const { collectLearningPulse } = await import('./learningPulse.cmd.js');
     const snap = collectLearningPulse(NOW);
-    expect(snap.flags.some((f) => f.includes('gemini_underuse'))).toBe(true);
+    expect(snap.flags.some((f) => f.includes('gemini_scheduler_warning'))).toBe(true);
   });
 
   it('13. F2W 손상 JSON → graceful (errors 누적, partialFailure=true)', async () => {

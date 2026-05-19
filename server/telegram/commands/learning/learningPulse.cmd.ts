@@ -36,17 +36,19 @@ function splitCounterfactualSuggestBlockers(input: {
   maturedNowCount: number;
   resolverDataBlocked: boolean;
   legacyBlocker: string;
+  unknownRatio: number;
+  activeRegimeResolvedSampleSize: number;
 }) {
   const secondaryBlockers: string[] = [];
   if (input.metadataMissingCount > 0) secondaryBlockers.push(`COUNTERFACTUAL_METADATA_MISSING_${input.metadataMissingCount}`);
-  const metadataMostlyMissing = input.builtButUnlabeled > 0 && input.metadataMissingCount / input.builtButUnlabeled >= 0.5;
-  let primaryBlocker = 'NONE';
-  if (input.metadataMissingCount > 0 && metadataMostlyMissing) primaryBlocker = 'COUNTERFACTUAL_METADATA_MISSING';
-  else if (input.pendingOutcomeCount > 0 && input.labeledInputSamples === 0 && input.maturedNowCount === 0) primaryBlocker = 'WAITING_FOR_COUNTERFACTUAL_MATURITY';
-  else if (input.maturedNowCount > 0 && input.labeledInputSamples === 0) primaryBlocker = input.resolverDataBlocked ? 'DATA_BLOCKED' : 'COUNTERFACTUAL_RESOLVE_NOT_RUN';
-  else if (input.labeledInputSamples === 0) primaryBlocker = 'NO_LABELED_COUNTERFACTUAL_INPUT';
-  else if (input.legacyBlocker !== 'NONE') primaryBlocker = 'BELOW_STRATEGY_THRESHOLD';
-  return { primaryBlocker, secondaryBlockers };
+  if (input.labeledInputSamples === 0) secondaryBlockers.push('NO_LABELED_COUNTERFACTUAL');
+  if (input.pendingOutcomeCount > 0 && input.maturedNowCount === 0) secondaryBlockers.push('WAITING_FOR_COUNTERFACTUAL_MATURITY');
+  if (input.activeRegimeResolvedSampleSize < 20) secondaryBlockers.push('LOW_RESOLVED_REGIME_SAMPLE');
+  if (input.unknownRatio >= 0.3) secondaryBlockers.push('UNKNOWN_RATIO_HIGH');
+  if (input.labeledInputSamples === 0 && input.builtButUnlabeled === 0) secondaryBlockers.push('NO_FRESH_SAMPLE');
+  if (!secondaryBlockers.length && input.legacyBlocker !== 'NONE') secondaryBlockers.push('UNKNOWN_BLOCKER_FALLBACK');
+  const primaryBlocker = secondaryBlockers[0] ?? 'NONE';
+  return { primaryBlocker, secondaryBlockers: [...new Set(secondaryBlockers)] };
 }
 function counterfactualLearningLane(input: {
   activeRegime: string;
@@ -109,7 +111,7 @@ export function collectLearningPulse(now: Date = new Date()) {
   if (open >= PULSE_THRESHOLDS.GHOST_OPEN_BLOCKER_MIN && closeRatio < PULSE_THRESHOLDS.GHOST_CLOSE_RATIO_THRESHOLD) flags.push(`ghost_close_blocker (${open}건 적체)`);
   if (attribution7dCount < PULSE_THRESHOLDS.ATTRIBUTION_TARGET_7D) flags.push(`sample_starvation (attribution ${attribution7dCount}/${PULSE_THRESHOLDS.ATTRIBUTION_TARGET_7D}/7d)`);
   if (Object.values(suggest7d).reduce((a,b)=>a+b,0) + diagnosticProposals7d < PULSE_THRESHOLDS.SUGGEST_SILENCE_THRESHOLD) flags.push('suggest_silence (4 채널 모두 7일 0건)');
-  if (useRatio < PULSE_THRESHOLDS.GEMINI_USE_RATIO_TARGET) flags.push(`gemini_underuse (호출률 ${(useRatio * 100).toFixed(0)}% < 80%)`);
+  if (useRatio < PULSE_THRESHOLDS.GEMINI_USE_RATIO_TARGET) flags.push(`gemini_scheduler_warning (호출률 ${(useRatio * 100).toFixed(0)}% < 80%, executionImpact=NONE, promotionImpact=NONE)`);
   const freshShadow = collectFreshShadowStatus(shadowCaseLedger, now);
   const freshShadowInlet = collectFreshShadowInletStatus(shadowCaseLedger, now);
   const freshPromotion = collectFreshOnlyPromotion(shadowCaseLedger);
@@ -152,10 +154,12 @@ export function collectLearningPulse(now: Date = new Date()) {
     maturedNowCount: counterfactualMaturity.maturedNowCount,
     resolverDataBlocked: counterfactualResolver.dataInsufficient > 0 || counterfactualResolver.quarantined > 0,
     legacyBlocker: v2.suggest.blocker,
+    unknownRatio: regimeLearning.unknownRatio,
+    activeRegimeResolvedSampleSize: regimeLearning.activeRegimeResolvedSampleSize,
   });
   const suggest = { ...v2.suggest, counterfactualBuiltButUnlabeled, counterfactualLabeledInputSamples, counterfactualWaitingForMaturity, counterfactualMetadataMissing, suggestInputSamples, primaryBlocker: blockerSplit.primaryBlocker, secondaryBlockers: blockerSplit.secondaryBlockers, blocker: blockerSplit.primaryBlocker, status: 'DIAGNOSTIC_ONLY', autoApply: false };
   const consistencyCheck = { ...(v2 as any).consistencyCheck, counterfactualCountInvariantValid: counterfactual.countInvariantValid, counterfactualUniqueNotGreaterThanCandidate: counterfactual.builtUniqueCount <= counterfactual.candidateCount, freshMetricNAWhenNoSample: freshPromotion.freshSampleSize > 0 || freshPromotion.freshExpectancyR === 'N/A', counterfactualLabelingConnected: counterfactual.labeledCount > 0 || counterfactual.pendingOutcomeCount + counterfactual.dataInsufficientCount + counterfactual.quarantinedCount > 0, counterfactualDuplicateGuardActive: counterfactual.duplicateSuppressionStatus === 'OK', cohortSumMatchesTotal: cohortConsistency.cohortSumMatchesTotal, ghostRepairReflectedInPulse: cohortConsistency.ghostRepairReflectedInPulse, regimeSumMatchesTotal: regimeLearningConsistency.regimeSumMatchesTotal };
-  const metricWarnings = [...(counterfactual.metricWarnings ?? []), ...cohortConsistency.metricWarnings, ...regimeLearningConsistency.metricWarnings];
+  const metricWarnings = [...(counterfactual.metricWarnings ?? []).filter((w) => w !== 'WAITING_FOR_HOLDING_PERIOD'), ...cohortConsistency.metricWarnings, ...regimeLearningConsistency.metricWarnings];
   const metricInfos = [...(counterfactual.metricInfos ?? []), ...cohortConsistency.metricInfos];
   if (!consistencyCheck.counterfactualLabelingConnected) metricWarnings.push('COUNTERFACTUAL_LABELING_DISCONNECTED');
   if (!consistencyCheck.freshMetricNAWhenNoSample) metricWarnings.push('FRESH_EXPECTANCY_ZERO_SAMPLE_SHOWN_AS_ZERO');
