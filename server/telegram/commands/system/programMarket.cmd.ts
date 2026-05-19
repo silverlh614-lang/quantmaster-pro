@@ -84,7 +84,7 @@ async function appendAcceptedEmptyProgramMarketDiagnostic(
   lines.push(`  source: ${compactSource}`);
   lines.push(`  reason: ${compactReason}`);
   lines.push(`  scoring: ${decision.scoring}`);
-  lines.push('  action: observe');
+  lines.push(`  action: ${decision.routedStatus === 'PARAM_MISMATCH' ? 'fix_params' : 'observe'}`);
   lines.push('  providerIssue: false');
   lines.push('  marketSignal: false');
   lines.push('  executionImpact: NONE');

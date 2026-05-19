@@ -176,6 +176,10 @@ export function buildMarketProgramTradeTodayParams(marketClassCode: 'K' | 'Q'): 
     return {
       FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
       FID_MRKT_CLS_CODE: marketClassCode,
+      FID_SCTN_CLS_CODE: '',
+      FID_INPUT_ISCD: '',
+      FID_COND_MRKT_DIV_CODE1: '',
+      FID_INPUT_HOUR_1: '',
     };
   }
   return {
