@@ -64,18 +64,54 @@ function warnCodeForConflict(conflict: RegimeConflictCode): string {
   }
 }
 
+function resolveMhsBiasConflictSeverity(snapshot: RegimeSnapshot): {
+  code: string;
+  executionImpact: string;
+  correctionApplied: boolean;
+  userVisibleSafe: boolean;
+} {
+  const extra = snapshot as RegimeSnapshot & {
+    liveNewBuyAllowed?: boolean;
+    telegramDisplayRegime?: string;
+  };
+  const riskOverride = snapshot.riskOverride;
+  const safeOverride = riskOverride === 'BLACK_SWAN' || riskOverride === 'R6_DEFENSE';
+  const displaySafe = snapshot.displayRegime === 'R6_DEFENSE';
+  const mhsSafe = snapshot.mhsDisplayLabel === 'OVERRIDDEN_BY_R6';
+  const liveBlocked = extra.liveNewBuyAllowed === false;
+  const telegramDisplayRegime = extra.telegramDisplayRegime ?? snapshot.displayRegime;
+  const telegramSafe = telegramDisplayRegime === 'R6_DEFENSE';
+  const userVisibleSafe = safeOverride && displaySafe && mhsSafe && liveBlocked && telegramSafe;
+  if (userVisibleSafe) {
+    return {
+      code: 'P1_MHS_BIAS_OVERRIDDEN_BY_R6',
+      executionImpact: 'NONE',
+      correctionApplied: true,
+      userVisibleSafe: true,
+    };
+  }
+  return {
+    code: 'P1_MHS_BIAS_CONFLICT',
+    executionImpact: 'REGIME_DISPLAY_CONFLICT',
+    correctionApplied: false,
+    userVisibleSafe: false,
+  };
+}
+
 export function emitRegimeConflictWarnings(snapshot: RegimeSnapshot): void {
   for (const conflict of snapshot.conflicts) {
     const extra = snapshot as RegimeSnapshot & RegimeConflictRemediationFields;
     const correctionApplied = extra.correctionApplied === true || (conflict === 'GREEN_WITH_R6' && snapshot.displayRegime === 'R6_DEFENSE');
     const userVisibleSafe = correctionApplied ? true : extra.userVisibleSafe === true;
-    const executionImpact = conflict === 'GREEN_WITH_R6' && correctionApplied && userVisibleSafe
-      ? 'NEW_BUY_BLOCKED_ONLY'
-      : 'REGIME_DISPLAY_CONFLICT';
+    const mhsBiasSeverity = conflict === 'MHS_BIAS_CONFLICT' ? resolveMhsBiasConflictSeverity(snapshot) : null;
+    const executionImpact = mhsBiasSeverity?.executionImpact ??
+      (conflict === 'GREEN_WITH_R6' && correctionApplied && userVisibleSafe
+        ? 'NEW_BUY_BLOCKED_ONLY'
+        : 'REGIME_DISPLAY_CONFLICT');
     emitOperationalWarn({
       priority: 'P1',
       domain: 'REGIME',
-      code: warnCodeForConflict(conflict),
+      code: mhsBiasSeverity?.code ?? warnCodeForConflict(conflict),
       message: `Regime snapshot conflict detected: ${conflict}`,
       executionImpact,
       mode: snapshot.engineMode,
@@ -85,19 +121,23 @@ export function emitRegimeConflictWarnings(snapshot: RegimeSnapshot): void {
       details: {
         snapshotId: snapshot.snapshotId,
         asOf: snapshot.asOf,
+        rawMhs: snapshot.mhs,
         rawMhsLabel: extra.rawMhsLabel,
-        rawBiasLabel: extra.rawBiasLabel,
+        mhsDisplayLabel: snapshot.mhsDisplayLabel,
+        biasLabel: extra.rawBiasLabel,
         detectedRegime: snapshot.detectedRegime,
         effectiveRegime: snapshot.effectiveRegime,
         displayRegime: snapshot.displayRegime,
+        displaySeverity: snapshot.displaySeverity,
         riskOverride: snapshot.riskOverride,
+        liveNewBuyAllowed: (snapshot as RegimeSnapshot & { liveNewBuyAllowed?: boolean }).liveNewBuyAllowed,
+        telegramDisplayRegime: (snapshot as RegimeSnapshot & { telegramDisplayRegime?: string }).telegramDisplayRegime ?? snapshot.displayRegime,
         selectedDisplaySource: extra.selectedDisplaySource,
-        correctionApplied,
-        userVisibleSafe,
+        correctionApplied: mhsBiasSeverity?.correctionApplied ?? correctionApplied,
+        userVisibleSafe: mhsBiasSeverity?.userVisibleSafe ?? userVisibleSafe,
         remediation: correctionApplied
           ? 'Display has been corrected to risk override; verify Telegram does not expose GREEN while R6 is active.'
           : 'Investigate regime presenter/resolver immediately; GREEN may be user-visible during R6.',
-        mhs: snapshot.mhs,
         biasScore: snapshot.biasScore,
       },
     });
@@ -109,23 +149,35 @@ export function emitRegimeDataHealthWarnings(snapshot: RegimeSnapshot): void {
   if (issues.length === 0) return;
 
   const stale = snapshot.stale || issues.some((issue) => issue.endsWith(':STALE'));
+  const macroState = (snapshot.dataHealth?.macroState ?? '').toUpperCase();
+  const macroStateStale = macroState === 'HARD_STALE' || macroState === 'SOFT_STALE';
+  const staleSources = issues
+    .filter((issue) => issue.endsWith(':STALE'))
+    .map((issue) => issue.split(':')[0]);
+  const code = macroStateStale
+    ? 'P1_MACRO_STATE_STALE'
+    : stale
+      ? 'P1_REGIME_DATA_HEALTH_STALE'
+      : 'P1_MACRO_DATA_HEALTH_DEGRADED';
   const extra = snapshot as RegimeSnapshot & RegimeConflictRemediationFields;
   emitOperationalWarn({
     priority: 'P1',
     domain: 'DATA',
-    code: stale ? 'P1_MACRO_STATE_STALE' : 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    code,
     message: `Regime macro data health is ${snapshot.sourceHealth}`,
     executionImpact: 'NONE',
     mode: snapshot.engineMode,
     regime: snapshot.displayRegime,
     dedupKey: `regime-data-health:${snapshot.sourceHealth}:${issues.join('|')}`,
     ttlSec: defaultWarnTtlSec('P1'),
-    details: {
+      details: {
       reason: 'providerIssue=true marketSignal=false',
       snapshotId: snapshot.snapshotId,
       asOf: snapshot.asOf,
       providerIssue: snapshot.providerIssue,
       marketSignal: snapshot.marketSignal,
+      staleSources,
+      macroState,
       macroFreshness: extra.macroFreshness,
       macroAgeSec: extra.macroAgeSec,
       macroLastRefreshAttemptAt: extra.macroLastRefreshAttemptAt,

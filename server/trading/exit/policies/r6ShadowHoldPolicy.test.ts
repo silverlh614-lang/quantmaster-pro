@@ -19,7 +19,7 @@ describe('r6ShadowHoldPolicy', () => {
   });
 
   it('blocks R6 Shadow force exit and keeps learning markers', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const trade = shadowTrade();
 
     expect(resolveR6ShadowHoldPolicy({
@@ -37,9 +37,9 @@ describe('r6ShadowHoldPolicy', () => {
       liveOrderSent: false,
       executionImpact: 'NONE',
     });
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('[P0][P0_R6_SHADOW_FORCE_EXIT_BLOCKED]'),
-      expect.objectContaining({ code: 'P0_R6_SHADOW_FORCE_EXIT_BLOCKED' }),
+    expect(info).toHaveBeenCalledWith(
+      expect.stringContaining('[P2][P2_R6_SHADOW_FORCE_EXIT_EXCLUDED]'),
+      expect.objectContaining({ code: 'P2_R6_SHADOW_FORCE_EXIT_EXCLUDED' }),
     );
   });
 
