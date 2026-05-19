@@ -28,7 +28,7 @@ export type MarketProgramStatus =
 export type MarketProgramMaterializerStatus = MarketProgramStatus | 'OK' | 'ACCEPTED_EMPTY' | 'TRUE_EMPTY' | 'FIELD_MISSING';
 
 export type MarketProgramSelectedReason =
-  | 'LATEST_NON_ZERO_ROW'
+  | 'LATEST_BY_BSOP_HOUR'
   | 'LATEST_ROW_ALL_ZERO'
   | 'NO_VALID_ROW'
   | 'EMPTY_OUTPUT';
@@ -357,12 +357,12 @@ export function selectMarketProgramRow(rows: MarketProgramRow[], nowKst: Date): 
     .filter((r) => isNotFutureBsopHour(r.bsopHour, nowKst))
     .sort((a, b) => compareBsopHourDesc(a.bsopHour, b.bsopHour));
   const candidateRows = validTimeRows.length > 0 ? validTimeRows : rows.slice().sort((a, b) => b.index - a.index);
-  const nonZeroRows = candidateRows.filter((r) => r.hasNonZeroValue);
   const latestRow = candidateRows[0] ?? null;
-  if (nonZeroRows.length > 0) {
-    return { selectedRow: nonZeroRows[0], selectedReason: 'LATEST_NON_ZERO_ROW', nonZeroRowCount: nonZeroRows.length, latestRow };
+  const nonZeroRows = candidateRows.filter((r) => r.hasNonZeroValue);
+  if (latestRow?.hasNonZeroValue) {
+    return { selectedRow: latestRow, selectedReason: 'LATEST_BY_BSOP_HOUR', nonZeroRowCount: nonZeroRows.length, latestRow };
   }
-  return { selectedRow: latestRow, selectedReason: 'LATEST_ROW_ALL_ZERO', nonZeroRowCount: 0, latestRow };
+  return { selectedRow: latestRow, selectedReason: 'LATEST_ROW_ALL_ZERO', nonZeroRowCount: nonZeroRows.length, latestRow };
 }
 
 export function aggregateMarketProgramRows(rows: MarketProgramRow[]): MarketProgramAggregateDiagnostic {
@@ -400,11 +400,13 @@ function buildDiagnostics(status: MarketProgramStatus, rows: MarketProgramRow[],
     selectedBsopHour,
     selectedReason: selected.selectedReason,
     latestRowBsopHour: selected.latestRow?.bsopHour,
-    zeroReason: finalStatus === 'OK_RAW_ZERO' ? 'RAW_ZERO_ALL_ROWS' : finalStatus === 'OK_EMPTY_OUTPUT' ? 'EMPTY_OUTPUT' : finalStatus === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : undefined,
+    zeroReason: finalStatus === 'OK_NONZERO' || finalStatus === 'OK_PARSE_PARTIAL'
+      ? undefined
+      : finalStatus === 'OK_RAW_ZERO' ? 'RAW_ZERO_ALL_ROWS' : finalStatus === 'OK_EMPTY_OUTPUT' ? 'EMPTY_OUTPUT' : finalStatus === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : undefined,
     parseQuality: finalStatus === 'OK_NONZERO' ? 'OK' : finalStatus === 'OK_RAW_ZERO' ? 'OK_ZERO_VALUE' : finalStatus === 'OK_EMPTY_OUTPUT' ? 'EMPTY' : finalStatus === 'OK_PARSE_PARTIAL' ? 'PARTIAL' : finalStatus === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' : 'MISSING',
     providerIssue,
     marketSignal: finalStatus === 'OK_NONZERO',
-    scoring: finalStatus === 'OK_NONZERO' ? 'enabled' : finalStatus === 'OK_PARSE_PARTIAL' ? 'limited' : 'excluded',
+    scoring: finalStatus === 'OK_NONZERO' || finalStatus === 'OK_PARSE_PARTIAL' ? 'limited' : 'excluded',
     executionImpact: 'NONE',
     latest: selectedBsopHour ? formatBsopHour(selectedBsopHour).replace(/:00$/, '') : 'N/A',
     updated: updatedFromBsopHour(selectedBsopHour, now),
