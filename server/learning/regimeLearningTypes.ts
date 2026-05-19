@@ -224,7 +224,15 @@ export interface RegimeLearningBank {
   duplicateCaseCount: number;
   regimeDuplicateCandidates: number;
   regimeDuplicateSuppressed: number;
+  regimeDuplicateSourceTop3: Array<{ source: string; count: number }>;
+  regimeDuplicateKeySample: string[];
+  regimeDuplicateRootCause: string;
   regimeDedupStatus: 'NONE' | 'ACTIVE';
+  regimeBackfillAttempted: number;
+  regimeBackfillRecovered: number;
+  regimeBackfillFailed: number;
+  regimeBackfillWindowMinutes: number;
+  regimeBackfillFailureTopReasons: Array<{ reason: string; count: number }>;
   sourceCounts: {
     freshShadow: number;
     ghostRepair: number;

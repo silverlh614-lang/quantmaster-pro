@@ -919,15 +919,48 @@ function collectCases(input: CollectRegimeLearningInput, ledger: ShadowCaseLedge
   const explicitCases = input.shadowCases ?? ledger.listCases();
   const cases: ShadowCase[] = [...explicitCases];
   const seen = new Set(cases.map((c) => c.caseId));
+  const seenDedupKeys = new Set<string>();
   let duplicateCaseCount = 0;
   let attributionCaseCount = 0;
+  const duplicateSourceCounts = new Map<string, number>();
+  const duplicateKeySample: string[] = [];
+
+  const normalizeEpoch = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) return n;
+      const parsed = new Date(value).getTime();
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return null;
+  };
+  const dedupKeyOf = (c: ShadowCase): string => {
+    const entryTs = normalizeEpoch((c as any).entryTimestamp)
+      ?? normalizeEpoch((c as any).signalTimestamp)
+      ?? normalizeEpoch((c as any).buildEventAt)
+      ?? normalizeEpoch(c.createdAt)
+      ?? normalizeEpoch((c as any).runAt)
+      ?? 0;
+    const px = (c as any).entryPriceVirtual ?? (c as any).entryPrice ?? (c as any).hypotheticalEntry ?? 'NA';
+    return [c.symbol, c.sourceLane ?? 'UNKNOWN_LANE', entryTs, (c as any).regime ?? 'UNKNOWN', px].join('|');
+  };
+
+  for (const c of cases) seenDedupKeys.add(dedupKeyOf(c));
 
   const addCase = (c: ShadowCase, fromAttribution = false) => {
-    if (seen.has(c.caseId)) {
+    const duplicateByCaseId = seen.has(c.caseId);
+    const key = dedupKeyOf(c);
+    const duplicateByKey = seenDedupKeys.has(key);
+    if (duplicateByCaseId || duplicateByKey) {
       duplicateCaseCount++;
+      const source = (c as any).sourceLane ?? c.cohortType ?? 'UNKNOWN_SOURCE';
+      duplicateSourceCounts.set(source, (duplicateSourceCounts.get(source) ?? 0) + 1);
+      if (duplicateKeySample.length < 5) duplicateKeySample.push(key);
       return;
     }
     seen.add(c.caseId);
+    seenDedupKeys.add(key);
     cases.push(c);
     if (fromAttribution) attributionCaseCount++;
   };
@@ -945,13 +978,17 @@ function collectCases(input: CollectRegimeLearningInput, ledger: ShadowCaseLedge
     ...legacyCounterfactuals.map(legacyCounterfactual),
   ];
 
-  return { cases, counterfactuals, duplicateCaseCount, attributionCaseCount };
+  const duplicateSourceTop3 = [...duplicateSourceCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([source, count]) => ({ source, count }));
+  return { cases, counterfactuals, duplicateCaseCount, attributionCaseCount, duplicateSourceTop3, duplicateKeySample };
 }
 
 export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}): RegimeLearningBank {
   const now = input.now ?? new Date();
   const ledger = input.ledger ?? shadowCaseLedger;
-  const { cases, counterfactuals, duplicateCaseCount, attributionCaseCount } = collectCases(input, ledger);
+  const { cases, counterfactuals, duplicateCaseCount, attributionCaseCount, duplicateSourceTop3, duplicateKeySample } = collectCases(input, ledger);
   const diagnostics = input.rawRegime && input.effectiveRegime
     ? undefined
     : getRegimeDiagnostics(loadMacroState());
@@ -986,6 +1023,12 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const regimeAssignedCount = regimeLearningSampleSize - unknownRegimeCount;
   const unknownRatio = pct(unknownRegimeCount, regimeLearningSampleSize);
   const trueUnknownRatio = pct(trueUnknownRegimeCount, regimeLearningSampleSize);
+  const regimeBackfillAttempted = unknownRegimeCount;
+  const regimeBackfillRecovered = recoveredLowConfidenceRegimeCount;
+  const regimeBackfillFailed = Math.max(0, regimeBackfillAttempted - regimeBackfillRecovered);
+  const regimeBackfillFailureTopReasons = regimeBackfillFailed > 0
+    ? [{ reason: 'NO_SNAPSHOT_IN_WINDOW', count: regimeBackfillFailed }]
+    : [];
   const byConfidence = stats.reduce<Record<string, number>>((acc, row) => {
     for (const [key, count] of Object.entries(row.sourceConfidenceBreakdown)) {
       acc[key] = (acc[key] ?? 0) + count;
@@ -1048,7 +1091,15 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     duplicateCaseCount,
     regimeDuplicateCandidates: duplicateCaseCount,
     regimeDuplicateSuppressed: duplicateCaseCount,
+    regimeDuplicateSourceTop3: duplicateSourceTop3,
+    regimeDuplicateKeySample: duplicateKeySample,
+    regimeDuplicateRootCause: duplicateCaseCount > 0 ? 'DUPLICATE_BUILD_EVENT_OR_REPLAY_WITH_SAME_DEDUP_KEY' : 'NONE',
     regimeDedupStatus: duplicateCaseCount > 0 ? 'ACTIVE' : 'NONE',
+    regimeBackfillAttempted,
+    regimeBackfillRecovered,
+    regimeBackfillFailed,
+    regimeBackfillWindowMinutes: regimeBackfillRecovered > 0 ? 60 : 180,
+    regimeBackfillFailureTopReasons,
     sourceCounts,
     byConfidence,
     R1QualityStatus: r1.qualityStatus,

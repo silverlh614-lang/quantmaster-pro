@@ -196,6 +196,8 @@ export function collectLearningCohortConsistencyStatus(now: Date = new Date()) {
   const lastSnapshotTotal = typeof last?.scanned === 'number' ? last.scanned : lastAfterTotal;
   const snapshotStale = !!last && (lastSnapshotTotal !== summary.totalSamples || (ageHours ?? 0) > 24);
   const snapshotStatus = !last ? 'COHORT_BACKFILL_SNAPSHOT_MISSING' : snapshotStale ? 'COHORT_BACKFILL_SNAPSHOT_STALE' : 'OK';
+  const cohortSnapshotAgeSec = Number.isFinite(lastRunMs) ? Math.max(0, Math.floor((now.getTime() - lastRunMs) / 1000)) : -1;
+  const cohortSnapshotMaxAgeSec = 24 * 3600;
   return {
     totalSamples: summary.totalSamples,
     byCohortTotal,
@@ -203,6 +205,10 @@ export function collectLearningCohortConsistencyStatus(now: Date = new Date()) {
     ghostRepairReflectedInPulse: cohortSumMatchesTotal,
     lastCohortBackfillRunAt: lastRunAt,
     lastCohortBackfillSnapshotTotal: lastSnapshotTotal,
+    cohortSnapshotAgeSec,
+    cohortSnapshotMaxAgeSec,
+    cohortSnapshotRefreshedAt: snapshotStatus === 'OK' ? lastRunAt : undefined,
+    cohortSnapshotRefreshStatus: snapshotStatus === 'OK' ? 'FRESH' : 'BACKFILL_JOB_NOT_RUN',
     snapshotStatus,
     metricWarnings: cohortSumMatchesTotal ? [] : ['COHORT_AGGREGATE_SUM_MISMATCH'],
     metricInfos: snapshotStatus === 'COHORT_BACKFILL_SNAPSHOT_STALE' ? ['COHORT_BACKFILL_SNAPSHOT_STALE'] : [],
