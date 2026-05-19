@@ -981,8 +981,11 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const active = stats.find((s) => s.regimePhase === activeContext.regimePhase) ?? buildStatsForPhase(activeContext.regimePhase, [], []);
   const regimeLearningSampleSize = stats.reduce((sum, row) => sum + row.sampleSize, 0);
   const unknownRegimeCount = stats.find((row) => row.regimePhase === 'UNKNOWN')?.sampleSize ?? 0;
+  const recoveredLowConfidenceRegimeCount = stats.reduce((sum, row) => sum + (row.sourceConfidenceBreakdown.LOW ?? 0), 0);
+  const trueUnknownRegimeCount = Math.max(0, unknownRegimeCount - recoveredLowConfidenceRegimeCount);
   const regimeAssignedCount = regimeLearningSampleSize - unknownRegimeCount;
   const unknownRatio = pct(unknownRegimeCount, regimeLearningSampleSize);
+  const trueUnknownRatio = pct(trueUnknownRegimeCount, regimeLearningSampleSize);
   const byConfidence = stats.reduce<Record<string, number>>((acc, row) => {
     for (const [key, count] of Object.entries(row.sourceConfidenceBreakdown)) {
       acc[key] = (acc[key] ?? 0) + count;
@@ -1036,10 +1039,16 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeLearningSampleSize,
     regimeAssignedCount,
     unknownRegimeCount,
+    recoveredLowConfidenceRegimeCount,
+    trueUnknownRegimeCount,
     unknownRatio,
+    trueUnknownRatio,
     activeRegimeQualityStatus: active.qualityStatus,
     regimeBankConsistency: phaseSum === regimeLearningSampleSize ? 'OK' : 'MISMATCH',
     duplicateCaseCount,
+    regimeDuplicateCandidates: duplicateCaseCount,
+    regimeDuplicateSuppressed: duplicateCaseCount,
+    regimeDedupStatus: duplicateCaseCount > 0 ? 'ACTIVE' : 'NONE',
     sourceCounts,
     byConfidence,
     R1QualityStatus: r1.qualityStatus,
@@ -1091,6 +1100,7 @@ export function collectRegimeLearningConsistency(bank: RegimeLearningBank = coll
     regimeAssignedCount: bank.regimeAssignedCount,
     unknownRegimeCount: bank.unknownRegimeCount,
     unknownRatio: bank.unknownRatio,
+    trueUnknownRatio: bank.trueUnknownRatio,
     regimeBankSampleCount,
     ghostRepairCountInBank: bank.sourceCounts.ghostRepair,
     counterfactualCountInBank: bank.sourceCounts.counterfactual,

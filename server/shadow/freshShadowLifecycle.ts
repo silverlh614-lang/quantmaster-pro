@@ -151,6 +151,14 @@ function matchesBlock(c: ShadowCase, tokens: string[]): boolean {
   return tokens.some((t) => text.includes(t));
 }
 export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now: Date = new Date(), opts: { marketOpen?: boolean; engineMode?: string; sellOnlyActive?: boolean } = {}) {
+  const nextKstOpen = (base: Date): string => {
+    const kstNow = new Date(base.getTime() + 9 * 3600000);
+    const next = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate(), 0, 0, 0));
+    next.setUTCDate(next.getUTCDate() + 1);
+    while ([0, 6].includes(next.getUTCDay())) next.setUTCDate(next.getUTCDate() + 1);
+    next.setUTCHours(0, 0, 0, 0); // 09:00 KST == 00:00 UTC
+    return next.toISOString();
+  };
   const cases = ledger.listCases();
   const transitions = ledger.listTransitions();
   const casesToday = cases.filter((c) => today(c.createdAt, now));
@@ -210,6 +218,9 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
     counterfactualAllowed: true as const,
     liveBlocker: marketOpen ? 'NONE' as const : 'MARKET_CLOSED' as const,
     shadowInletStatus: nextAction,
+    queuedNextOpenShadowScan: nextAction === 'AFTER_HOURS_OBSERVE' || nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN',
+    nextShadowScanAt: (nextAction === 'AFTER_HOURS_OBSERVE' || nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN') ? nextKstOpen(now) : undefined,
+    nextShadowScanReason: (nextAction === 'AFTER_HOURS_OBSERVE' || nextAction === 'QUEUE_NEXT_OPEN_SHADOW_SCAN') ? 'MARKET_CLOSED_LIVE_ONLY' : undefined,
     blocker: nextAction,
     nextAction,
     executionImpact: 'NONE' as const,
