@@ -188,6 +188,16 @@ export function buildMarketProgramTradeTodayParams(marketClassCode: 'K' | 'Q'): 
   };
 }
 
+/**
+ * Backward-compatible wrapper for existing call-sites.
+ * Default OFFICIAL path maps to KOSPI(J/K) single-market probe shape.
+ */
+export function buildMarketProgramParams(): Record<string, string> {
+  const marketClassCode: 'K' | 'Q' =
+    MARKET_PROGRAM_KOSPI_CLASS_CODE === 'Q' ? 'Q' : 'K';
+  return buildMarketProgramTradeTodayParams(marketClassCode);
+}
+
 function rowsAt(data: unknown): { path: string; rows: KisOutput[] } {
   const root = data as { output?: unknown; output1?: unknown; output2?: unknown } | null;
   for (const key of ['output', 'output1', 'output2'] as const) {
