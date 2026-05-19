@@ -81,6 +81,43 @@ export interface MacroState {
   programArbitrageNetBuy?: number | null;
   programFetchedAt?: string;
   programSource?: 'KIS_API' | 'NONE';
+  programMarket?: {
+    status: 'OK_NONZERO' | 'OK_RAW_ZERO' | 'OK_EMPTY_OUTPUT' | 'PROVIDER_ERROR' | 'UNSUPPORTED_INTRADAY' | string;
+    finalStatus: string;
+    source: 'KIS_API' | 'KRX_API' | 'CACHE' | 'NONE' | string;
+    paramMode: 'OFFICIAL' | 'LEGACY' | string;
+    asOfKst: string;
+    selectedBsopHour: string;
+    selectedReason: 'LATEST_BY_BSOP_HOUR' | 'LATEST_ROW_ALL_ZERO' | 'EMPTY_OUTPUT' | 'NO_VALID_ROW' | string;
+    raw: {
+      wholeNetBuyTradeAmount: number | null;
+      arbitrageNetBuyTradeAmount: number | null;
+      nonArbitrageNetBuyTradeAmount: number | null;
+      arbitrageSellAmount: number | null;
+      nonArbitrageSellAmount: number | null;
+      arbitrageBuyAmount: number | null;
+      nonArbitrageBuyAmount: number | null;
+    };
+    display: {
+      wholeNetBuy: string;
+      arbitrageNetBuy: string;
+      nonArbitrageNetBuy: string;
+    };
+    unit: {
+      rawUnitAssumption: 'UNVERIFIED' | 'KRW' | 'KRW_1K' | 'KRW_1M';
+      displayUnit: 'EOK_KRW';
+      mappingConfidence: 'UNIT_UNVERIFIED' | 'MAPPING_VERIFIED';
+    };
+    policy: {
+      scoring: 'excluded' | 'shadow_only' | 'advisory' | 'weighted';
+      useForExecution: false;
+      useForShadow: true;
+      executionImpact: 'NONE';
+      providerIssue: false;
+      marketSignal: false;
+    };
+    rawNonZero?: boolean;
+  };
   kospiAbove20MA?: boolean;         // KOSPI 20일선 위
   kospiAbove60MA?: boolean;         // KOSPI 60일선 위
   kospi20dReturn?: number;          // KOSPI 20일 수익률
