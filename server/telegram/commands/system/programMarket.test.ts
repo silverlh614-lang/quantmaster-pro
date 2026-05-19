@@ -167,6 +167,25 @@ describe('buildProgramMarketMessage', () => {
   });
 });
 
+
+  it('macroState summary는 display 값을 그대로 사용 (raw non-zero/0.01억원 미만 보존)', async () => {
+    _fetchKisMarketProgramTrade.mockResolvedValue(null);
+    _loadMacroState.mockReturnValue({
+      programSource: 'KIS_API',
+      programNetBuyAmount: 0,
+      programArbitrageNetBuy: 0,
+      programMarket: {
+        raw: { wholeNetBuyTradeAmount: -1687944, arbitrageNetBuyTradeAmount: 46866, nonArbitrageNetBuyTradeAmount: -1734809 },
+        display: { wholeNetBuy: '-0.02억원', arbitrageNetBuy: '0.01억원 미만', nonArbitrageNetBuy: '-0.02억원' },
+        unit: { rawUnitAssumption: 'UNVERIFIED', mappingConfidence: 'UNIT_UNVERIFIED' },
+      },
+    });
+    const msg = await buildProgramMarketMessage();
+    expect(msg).toContain('• 순매수: -0.02억원');
+    expect(msg).toContain('• 차익: 0.01억원 미만');
+    expect(msg).toContain('• 비차익: -0.02억원');
+    expect(msg).not.toContain('• 순매수: 0억원');
+  });
 describe('programMarket.cmd execute', () => {
   it('정상 실행 시 reply 한 번 호출 + 헤더 포함', async () => {
     _fetchKisMarketProgramTrade.mockResolvedValue({

@@ -108,6 +108,16 @@ export interface MacroState {
       displayUnit: 'EOK_KRW';
       mappingConfidence: 'UNIT_UNVERIFIED' | 'MAPPING_VERIFIED';
     };
+    unitCandidates?: {
+      KRW: string;
+      KRW_1K: string;
+      KRW_1M: string;
+    };
+    rowBreakdown?: {
+      kospi: { outputLength: number; nonZeroRows: number; selectedBsopHour: string; rawWholeNetBuy: number | null; displayWholeNetBuy: string };
+      kosdaq: { outputLength: number; nonZeroRows: number; selectedBsopHour: string; rawWholeNetBuy: number | null; displayWholeNetBuy: string };
+      combined: { outputLength: number; nonZeroRows: number; selectedBsopHour: string; rawWholeNetBuy: number | null; displayWholeNetBuy: string };
+    };
     policy: {
       scoring: 'excluded' | 'shadow_only' | 'advisory' | 'weighted';
       useForExecution: false;
