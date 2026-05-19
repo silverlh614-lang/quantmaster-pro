@@ -1,8 +1,10 @@
 // @responsibility Regime Learning Bank backfill diagnostics for legacy learning samples.
+import fs from 'fs';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadRegimeTransitionState } from '../persistence/regimeTransitionStateRepo.js';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { getRecentAlertHistory } from '../persistence/alertHistoryRepo.js';
+import { scanTraceFile } from '../persistence/paths.js';
 import {
   loadAttributionRecords,
   saveAttributionRecords,
@@ -110,6 +112,7 @@ export interface RegimeLearningBackfillInput {
   dailyRegimeSnapshots?: RegimeDailySnapshot[];
   pulseArchiveSnapshots?: RegimeDailySnapshot[];
   pulseArchiveRegimeSnapshots?: RegimeDailySnapshot[];
+  reconstructionLogEntries?: RegimeSnapshotReconstructionLogEntry[];
   shadowCases?: RegimeWritableRow[];
   now?: Date;
   write?: boolean;
@@ -158,7 +161,12 @@ export interface RegimeDailySnapshot {
   at?: string;
   rawRegime: string;
   effectiveRegime?: string;
+  riskOverride?: string;
   source?: string;
+  confidence?: RegimeSnapshotReconstructionConfidence;
+  reconstructed?: boolean;
+  reconstructedAt?: string;
+  executionImpact?: 'NONE';
 }
 
 export interface RegimeSnapshotCoverage {
@@ -166,6 +174,27 @@ export interface RegimeSnapshotCoverage {
   sameDayDaily: number;
   previousTradingDayClose: number;
   pulseArchiveSameDate: number;
+  reconstructedDaily: number;
+}
+
+export type RegimeSnapshotReconstructionSource =
+  | 'TELEGRAM_PULSE_ARCHIVE'
+  | 'REGIME_RESOLVER_LOG'
+  | 'MARKET_MACRO_SNAPSHOT'
+  | 'R6_TRIGGER_EVENT'
+  | 'RISK_OVERRIDE_LOG'
+  | 'RAW_REGIME_PLUS_OVERRIDE';
+
+export type RegimeSnapshotReconstructionConfidence = 'RECOVERED_LOW' | 'RECOVERED_MEDIUM';
+
+export interface RegimeSnapshotReconstructionLogEntry {
+  tradingDate?: string;
+  at?: string;
+  message?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  riskOverride?: string;
+  source?: string;
 }
 
 export type DailyRegimeFallbackStatus =
@@ -213,6 +242,12 @@ export interface RegimeUnknownRepairResult {
   snapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage>;
   missingRegimeSnapshotDates: string[];
   dailyRegimeFallbackStatus: DailyRegimeFallbackStatus;
+  snapshotReconstructionAttemptedDates: string[];
+  snapshotReconstructionSucceededDates: string[];
+  snapshotReconstructionFailedDates: string[];
+  snapshotReconstructionSourceBreakdown: Record<string, number>;
+  snapshotReconstructionConfidenceBreakdown: Record<string, number>;
+  reconstructedDailySnapshots: RegimeDailySnapshot[];
   failureSampleKeys: string[];
   executionImpact: 'NONE';
   brokerOrdersCreated: 0;
@@ -569,6 +604,231 @@ function defaultPulseArchiveSnapshots(input: RegimeLearningBackfillInput): Regim
   return uniqueDailySnapshots(rows);
 }
 
+const RECONSTRUCTION_PRIORITY_DATES = ['2026-05-13', '2026-04-30', '2026-05-15', '2026-05-19'];
+const RECONSTRUCTION_SOURCE_PRIORITY: RegimeSnapshotReconstructionSource[] = [
+  'TELEGRAM_PULSE_ARCHIVE',
+  'REGIME_RESOLVER_LOG',
+  'MARKET_MACRO_SNAPSHOT',
+  'R6_TRIGGER_EVENT',
+  'RISK_OVERRIDE_LOG',
+  'RAW_REGIME_PLUS_OVERRIDE',
+];
+
+type ReconstructionCandidate = {
+  tradingDate: string;
+  rawRegime: string;
+  effectiveRegime: string;
+  riskOverride?: string;
+  source: RegimeSnapshotReconstructionSource;
+  confidence: RegimeSnapshotReconstructionConfidence;
+  at?: string;
+};
+
+function reconstructionConfidenceForSource(source: RegimeSnapshotReconstructionSource): RegimeSnapshotReconstructionConfidence {
+  return source === 'REGIME_RESOLVER_LOG' || source === 'R6_TRIGGER_EVENT'
+    ? 'RECOVERED_MEDIUM'
+    : 'RECOVERED_LOW';
+}
+
+function recoveryConfidenceFromDailySnapshot(snapshot: RegimeDailySnapshot, fallback: RegimeRecoveryConfidence): RegimeRecoveryConfidence {
+  if (snapshot.confidence === 'RECOVERED_MEDIUM') return 'MEDIUM';
+  if (snapshot.confidence === 'RECOVERED_LOW') return 'LOW';
+  return fallback;
+}
+
+function reconstructionDateRank(date: string): number {
+  const idx = RECONSTRUCTION_PRIORITY_DATES.indexOf(date);
+  return idx >= 0 ? idx : RECONSTRUCTION_PRIORITY_DATES.length;
+}
+
+function sortReconstructionDates(dates: Iterable<string>): string[] {
+  return [...new Set([...dates].filter(isDateKey))]
+    .sort((a, b) => reconstructionDateRank(a) - reconstructionDateRank(b) || a.localeCompare(b));
+}
+
+function cleanRegimeToken(value: string | undefined): string | undefined {
+  const token = String(value ?? '').trim().replace(/^["'<]+|[,"')>\]]+$/g, '').toUpperCase();
+  if (!token || token === 'NONE' || token === 'UNKNOWN' || token === 'N/A' || token === 'NULL' || token === 'UNDEFINED') return undefined;
+  return token;
+}
+
+function tokenFromText(text: string, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const match = text.match(new RegExp(`${key}=([A-Za-z0-9_]+)`));
+    const token = cleanRegimeToken(match?.[1]);
+    if (token) return token;
+  }
+  return undefined;
+}
+
+function dateFromText(text: string, fallback?: string): string | undefined {
+  const pulseDate = text.match(/Learning Pulse[^\n]*(20\d{2}-\d{2}-\d{2})/)?.[1];
+  if (isDateKey(pulseDate)) return pulseDate;
+  const anyDate = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1];
+  if (isDateKey(anyDate)) return anyDate;
+  return tradingDateKey(fallback);
+}
+
+function sourceFromText(text: string, hintedSource?: string): RegimeSnapshotReconstructionSource | undefined {
+  const haystack = `${hintedSource ?? ''} ${text}`.toUpperCase();
+  if (haystack.includes('LEARNING PULSE') || haystack.includes('REGIME LEARNING')) return 'TELEGRAM_PULSE_ARCHIVE';
+  if (haystack.includes('REGIMERESOLVER') || haystack.includes('COMMAND=/REGIME') || haystack.includes('SOURCE_QUERY_RESULT')) return 'REGIME_RESOLVER_LOG';
+  if (haystack.includes('R6_TRIGGER') || haystack.includes('ACTIVER6TRIGGERS') || haystack.includes('R6SHOCKLATCH') || haystack.includes('REGIME_ALERT')) return 'R6_TRIGGER_EVENT';
+  if (haystack.includes('MACRO') || haystack.includes('MARKETSTATE') || haystack.includes('MHS') || haystack.includes('SCAN_TRACE')) return 'MARKET_MACRO_SNAPSHOT';
+  if (haystack.includes('RISKOVERRIDE=')) return 'RISK_OVERRIDE_LOG';
+  return undefined;
+}
+
+function candidateFromText(text: string, fallbackDate?: string, hintedSource?: string): ReconstructionCandidate | undefined {
+  const tradingDate = dateFromText(text, fallbackDate);
+  if (!tradingDate) return undefined;
+  const rawRegime = tokenFromText(text, ['rawRegime', 'detectedRegime', 'macroRegimeRaw', 'raw']);
+  const effectiveRegime = tokenFromText(text, ['effectiveRegime', 'macroRegimeEffective', 'displayRegime', 'regime']);
+  const riskOverride = tokenFromText(text, ['riskOverride']);
+  let source = sourceFromText(text, hintedSource)
+    ?? (rawRegime && riskOverride ? 'RAW_REGIME_PLUS_OVERRIDE' : undefined);
+  if (source === 'RISK_OVERRIDE_LOG' && rawRegime && riskOverride) source = 'RAW_REGIME_PLUS_OVERRIDE';
+  if (!source) return undefined;
+  const resolvedEffective = source === 'RAW_REGIME_PLUS_OVERRIDE' && riskOverride
+    ? riskOverride
+    : effectiveRegime ?? riskOverride ?? rawRegime;
+  const resolvedRaw = rawRegime ?? effectiveRegime ?? riskOverride;
+  if (!resolvedRaw || !resolvedEffective) return undefined;
+  return {
+    tradingDate,
+    rawRegime: resolvedRaw,
+    effectiveRegime: resolvedEffective,
+    riskOverride,
+    source,
+    confidence: reconstructionConfidenceForSource(source),
+    at: fallbackDate,
+  };
+}
+
+function candidatesFromScanTraceDate(tradingDate: string): ReconstructionCandidate[] {
+  const file = scanTraceFile(tradingDate.replace(/-/g, ''));
+  if (!fs.existsSync(file)) return [];
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const rows = Array.isArray(raw) ? raw : [raw];
+    return rows
+      .map((row) => candidateFromText(JSON.stringify(row), tradingDate, 'SCAN_TRACE MARKET_MACRO_SNAPSHOT'))
+      .filter((candidate): candidate is ReconstructionCandidate => !!candidate);
+  } catch {
+    return [];
+  }
+}
+
+function reconstructionCandidatesFromInput(
+  input: RegimeLearningBackfillInput,
+  attemptedDates: string[],
+  pulseArchiveSnapshots: RegimeDailySnapshot[],
+  macroSnapshots: RegimeTimestampSnapshot[],
+  transitionSnapshots: RegimeTimestampSnapshot[],
+): ReconstructionCandidate[] {
+  const candidates: ReconstructionCandidate[] = [];
+  for (const snapshot of pulseArchiveSnapshots) {
+    if (!snapshot.tradingDate) continue;
+    const rawRegime = cleanRegimeToken(snapshot.rawRegime);
+    const effectiveRegime = cleanRegimeToken(snapshot.effectiveRegime ?? snapshot.rawRegime);
+    if (!rawRegime || !effectiveRegime) continue;
+    candidates.push({
+      tradingDate: snapshot.tradingDate,
+      rawRegime,
+      effectiveRegime,
+      riskOverride: snapshot.riskOverride,
+      source: 'TELEGRAM_PULSE_ARCHIVE',
+      confidence: 'RECOVERED_LOW',
+      at: snapshot.at,
+    });
+  }
+  for (const entry of input.reconstructionLogEntries ?? []) {
+    const text = [
+      entry.message,
+      entry.rawRegime ? `rawRegime=${entry.rawRegime}` : undefined,
+      entry.effectiveRegime ? `effectiveRegime=${entry.effectiveRegime}` : undefined,
+      entry.riskOverride ? `riskOverride=${entry.riskOverride}` : undefined,
+      entry.tradingDate,
+    ].filter(Boolean).join(' ');
+    const candidate = candidateFromText(text, entry.at ?? entry.tradingDate, entry.source);
+    if (candidate) candidates.push(candidate);
+  }
+  for (const entry of getRecentAlertHistory(1000)) {
+    const candidate = candidateFromText(entry.message ?? '', entry.at, 'TELEGRAM_ALERT_HISTORY');
+    if (candidate) candidates.push(candidate);
+  }
+  for (const date of attemptedDates) {
+    candidates.push(...candidatesFromScanTraceDate(date));
+  }
+  for (const snapshot of macroSnapshots) {
+    const candidate = candidateFromText(
+      `macroRegimeRaw=${snapshot.rawRegime} macroRegimeEffective=${snapshot.effectiveRegime ?? snapshot.rawRegime}`,
+      snapshot.at,
+      'MARKET_MACRO_SNAPSHOT',
+    );
+    if (candidate) candidates.push(candidate);
+  }
+  for (const snapshot of transitionSnapshots) {
+    const candidate = candidateFromText(
+      `rawRegime=${snapshot.rawRegime} effectiveRegime=${snapshot.effectiveRegime ?? snapshot.rawRegime}`,
+      snapshot.at,
+      'REGIME_RESOLVER_LOG',
+    );
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+function bestReconstructionCandidate(candidates: ReconstructionCandidate[]): ReconstructionCandidate | undefined {
+  return [...candidates].sort((a, b) => {
+    const sourceRank = RECONSTRUCTION_SOURCE_PRIORITY.indexOf(a.source) - RECONSTRUCTION_SOURCE_PRIORITY.indexOf(b.source);
+    return sourceRank || String(b.at ?? '').localeCompare(String(a.at ?? ''));
+  })[0];
+}
+
+function reconstructDailySnapshotsForDates(input: {
+  attemptedDates: string[];
+  candidates: ReconstructionCandidate[];
+  reconstructedAt: string;
+}): {
+  snapshots: RegimeDailySnapshot[];
+  attemptedDates: string[];
+  succeededDates: string[];
+  failedDates: string[];
+  sourceBreakdown: Record<string, number>;
+  confidenceBreakdown: Record<string, number>;
+} {
+  const attemptedDates = sortReconstructionDates(input.attemptedDates);
+  const snapshots: RegimeDailySnapshot[] = [];
+  const succeededDates: string[] = [];
+  const failedDates: string[] = [];
+  const sourceBreakdown: Record<string, number> = {};
+  const confidenceBreakdown: Record<string, number> = {};
+  for (const date of attemptedDates) {
+    const best = bestReconstructionCandidate(input.candidates.filter((candidate) => candidate.tradingDate === date));
+    if (!best) {
+      failedDates.push(date);
+      continue;
+    }
+    snapshots.push({
+      tradingDate: date,
+      at: best.at,
+      rawRegime: best.rawRegime,
+      effectiveRegime: best.effectiveRegime,
+      riskOverride: best.riskOverride,
+      source: best.source,
+      confidence: best.confidence,
+      reconstructed: true,
+      reconstructedAt: input.reconstructedAt,
+      executionImpact: 'NONE',
+    });
+    succeededDates.push(date);
+    inc(sourceBreakdown, best.source);
+    inc(confidenceBreakdown, best.confidence);
+  }
+  return { snapshots, attemptedDates, succeededDates, failedDates, sourceBreakdown, confidenceBreakdown };
+}
+
 function parseMillis(iso?: string): number {
   const t = iso ? new Date(iso).getTime() : NaN;
   return Number.isFinite(t) ? t : NaN;
@@ -611,7 +871,8 @@ function sameTradingDaySnapshot(createdAt: string | undefined, snapshots: Regime
 function sameDayDailySnapshot(createdAt: string | undefined, snapshots: RegimeDailySnapshot[]): RegimeDailySnapshot | undefined {
   const tradingDate = tradingDateKey(createdAt);
   if (!tradingDate) return undefined;
-  return snapshots.find((snapshot) => snapshot.tradingDate === tradingDate);
+  const sameDay = snapshots.filter((snapshot) => snapshot.tradingDate === tradingDate);
+  return sameDay.find((snapshot) => snapshot.reconstructed !== true) ?? sameDay[0];
 }
 
 function previousTradingDayCloseSnapshot(createdAt: string | undefined, snapshots: RegimeDailySnapshot[]): RegimeDailySnapshot | undefined {
@@ -630,9 +891,10 @@ function snapshotCoverageForTradingDate(
 ): RegimeSnapshotCoverage {
   return {
     intradayNearest60m: macroSnapshots.filter((snapshot) => tradingDateKey(snapshot.at) === tradingDate).length,
-    sameDayDaily: dailySnapshots.filter((snapshot) => snapshot.tradingDate === tradingDate).length,
-    previousTradingDayClose: dailySnapshots.some((snapshot) => snapshot.tradingDate && snapshot.tradingDate < tradingDate) ? 1 : 0,
+    sameDayDaily: dailySnapshots.filter((snapshot) => snapshot.tradingDate === tradingDate && snapshot.reconstructed !== true).length,
+    previousTradingDayClose: dailySnapshots.some((snapshot) => snapshot.tradingDate && snapshot.tradingDate < tradingDate && snapshot.reconstructed !== true) ? 1 : 0,
     pulseArchiveSameDate: pulseArchiveSnapshots.filter((snapshot) => snapshot.tradingDate === tradingDate).length,
+    reconstructedDaily: dailySnapshots.filter((snapshot) => snapshot.tradingDate === tradingDate && snapshot.reconstructed === true).length,
   };
 }
 
@@ -726,11 +988,15 @@ function recoverUnknownRegime(
   }
   const sameDayDaily = sameDayDailySnapshot(createdAt, dailySnapshots);
   if (sameDayDaily) {
-    return phaseFromSnapshot(sameDayDaily, 'SAME_DAY_DAILY_REGIME', 'LOW');
+    return phaseFromSnapshot(
+      sameDayDaily,
+      sameDayDaily.reconstructed ? 'RECONSTRUCTED_DAILY_REGIME' : 'SAME_DAY_DAILY_REGIME',
+      recoveryConfidenceFromDailySnapshot(sameDayDaily, 'LOW'),
+    );
   }
   const previousClose = previousTradingDayCloseSnapshot(createdAt, dailySnapshots);
   if (previousClose) {
-    return phaseFromSnapshot(previousClose, 'PREVIOUS_TRADING_DAY_CLOSE', 'LOW');
+    return phaseFromSnapshot(previousClose, 'PREVIOUS_TRADING_DAY_CLOSE', recoveryConfidenceFromDailySnapshot(previousClose, 'LOW'));
   }
   const pulseArchive = sameDayDailySnapshot(createdAt, pulseArchiveSnapshots);
   if (pulseArchive) {
@@ -830,6 +1096,31 @@ function recoveredConfidenceLabel(confidence: RegimeRecoveryConfidence): string 
   if (confidence === 'MEDIUM') return 'RECOVERED_MEDIUM';
   if (confidence === 'LOW') return 'RECOVERED_LOW';
   return 'UNKNOWN';
+}
+
+function collectInitialMissingReconstructionDates(
+  rows: RegimeBackfillRow[],
+  macroSnapshots: RegimeTimestampSnapshot[],
+  transitionSnapshots: RegimeTimestampSnapshot[],
+  dailySnapshots: RegimeDailySnapshot[],
+  pulseArchiveSnapshots: RegimeDailySnapshot[],
+): string[] {
+  const missing = new Set<string>();
+  for (const item of rows) {
+    if (!isUnknownRow(item.row)) continue;
+    const tradingDate = tradingDateKey(item.createdAt);
+    if (!tradingDate) continue;
+    const recovered = recoverUnknownRegime(
+      item.row,
+      item.createdAt,
+      macroSnapshots,
+      transitionSnapshots,
+      dailySnapshots,
+      pulseArchiveSnapshots,
+    );
+    if (recovered.regimePhase === 'UNKNOWN') missing.add(tradingDate);
+  }
+  return sortReconstructionDates(missing);
 }
 
 function summarize(input: RegimeLearningBackfillInput, write: boolean): RegimeLearningBackfillRunResult {
@@ -971,6 +1262,7 @@ export function regimeUnknownAnalysis(input: RegimeLearningBackfillInput = {}): 
       || recovered.regimeRecoverySource === 'NEAREST_MACRO_SNAPSHOT'
       || recovered.regimeRecoverySource === 'MACRO_SNAPSHOT_BY_TIMESTAMP') recoverableByNearestSnapshot++;
     if (recovered.regimeRecoverySource === 'SAME_DAY_DAILY_REGIME'
+      || recovered.regimeRecoverySource === 'RECONSTRUCTED_DAILY_REGIME'
       || recovered.regimeRecoverySource === 'PREVIOUS_TRADING_DAY_CLOSE'
       || recovered.regimeRecoverySource === 'PULSE_ARCHIVE_SAME_DATE'
       || recovered.regimeRecoverySource === 'TRADING_DAY_REGIME') recoverableByTradingDayRegime++;
@@ -1013,8 +1305,27 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   const { ghosts, counterfactuals, attributionRecords, rows } = rowsFromInputs(input);
   const macroSnapshots = defaultMacroSnapshots(input);
   const transitionSnapshots = defaultTransitionSnapshots(input);
-  const dailySnapshots = defaultDailyRegimeSnapshots(input, macroSnapshots, transitionSnapshots);
+  const initialDailySnapshots = defaultDailyRegimeSnapshots(input, macroSnapshots, transitionSnapshots);
   const pulseArchiveSnapshots = defaultPulseArchiveSnapshots(input);
+  const reconstructionAttemptDates = collectInitialMissingReconstructionDates(
+    rows,
+    macroSnapshots,
+    transitionSnapshots,
+    initialDailySnapshots,
+    pulseArchiveSnapshots,
+  );
+  const reconstruction = reconstructDailySnapshotsForDates({
+    attemptedDates: reconstructionAttemptDates,
+    candidates: reconstructionCandidatesFromInput(
+      input,
+      reconstructionAttemptDates,
+      pulseArchiveSnapshots,
+      macroSnapshots,
+      transitionSnapshots,
+    ),
+    reconstructedAt: now.toISOString(),
+  });
+  const dailySnapshots = uniqueDailySnapshots([...initialDailySnapshots, ...reconstruction.snapshots]);
   const byRecoveredRegime: Record<string, number> = {};
   const recoverySourceBreakdown: Record<string, number> = {};
   const recoveryConfidenceBreakdown: Record<string, number> = {};
@@ -1140,6 +1451,12 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
     snapshotCoverageByTradingDate,
     missingRegimeSnapshotDates,
     dailyRegimeFallbackStatus,
+    snapshotReconstructionAttemptedDates: reconstruction.attemptedDates,
+    snapshotReconstructionSucceededDates: reconstruction.succeededDates,
+    snapshotReconstructionFailedDates: reconstruction.failedDates,
+    snapshotReconstructionSourceBreakdown: reconstruction.sourceBreakdown,
+    snapshotReconstructionConfidenceBreakdown: reconstruction.confidenceBreakdown,
+    reconstructedDailySnapshots: reconstruction.snapshots,
     failureSampleKeys,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
@@ -1209,6 +1526,11 @@ export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'd
     `snapshotCoverageByTradingDate=${JSON.stringify(s.snapshotCoverageByTradingDate)}`,
     `missingRegimeSnapshotDates=${JSON.stringify(s.missingRegimeSnapshotDates)}`,
     `dailyRegimeFallbackStatus=${s.dailyRegimeFallbackStatus}`,
+    `snapshotReconstructionAttemptedDates=${JSON.stringify(s.snapshotReconstructionAttemptedDates)}`,
+    `snapshotReconstructionSucceededDates=${JSON.stringify(s.snapshotReconstructionSucceededDates)}`,
+    `snapshotReconstructionFailedDates=${JSON.stringify(s.snapshotReconstructionFailedDates)}`,
+    `snapshotReconstructionSourceBreakdown=${JSON.stringify(s.snapshotReconstructionSourceBreakdown)}`,
+    `snapshotReconstructionConfidenceBreakdown=${JSON.stringify(s.snapshotReconstructionConfidenceBreakdown)}`,
     `failureSampleKeys=${JSON.stringify(s.failureSampleKeys)}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');

@@ -229,4 +229,83 @@ describe('Regime Learning backfill', () => {
     expect(dry.dailyRegimeFallbackStatus).toBe('NO_DAILY_SNAPSHOT_FOR_DATE');
     expect(dry.failureReasonBreakdownAfterDailyFallback.NO_SNAPSHOT_IN_WINDOW).toBe(1);
   });
+
+  it('reconstructs missing daily regime snapshots from resolver logs before final backfill', () => {
+    const ghosts = [
+      ghost({ id: 'missing-0513', regimePhase: 'UNKNOWN', signalDate: '2026-05-13' }),
+    ];
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-05-20T00:00:00.000Z', rawRegime: 'R4_NEUTRAL' }],
+      transitionSnapshots: [],
+      dailyRegimeSnapshots: [],
+      pulseArchiveSnapshots: [],
+      reconstructionLogEntries: [{
+        at: '2026-05-13T06:00:00.000Z',
+        source: 'REGIME_RESOLVER_LOG',
+        message: '[SOURCE_QUERY_RESULT] command=/regime detectedRegime=R3_EARLY effectiveRegime=R3_EARLY riskOverride=NONE',
+      }],
+      now: new Date('2026-05-19T12:00:00.000Z'),
+    });
+
+    expect(dry.snapshotReconstructionAttemptedDates).toEqual(['2026-05-13']);
+    expect(dry.snapshotReconstructionSucceededDates).toEqual(['2026-05-13']);
+    expect(dry.snapshotReconstructionFailedDates).toEqual([]);
+    expect(dry.snapshotReconstructionSourceBreakdown.REGIME_RESOLVER_LOG).toBe(1);
+    expect(dry.snapshotReconstructionConfidenceBreakdown.RECOVERED_MEDIUM).toBe(1);
+    expect(dry.reconstructedDailySnapshots[0]).toMatchObject({
+      tradingDate: '2026-05-13',
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      source: 'REGIME_RESOLVER_LOG',
+      confidence: 'RECOVERED_MEDIUM',
+      reconstructed: true,
+      executionImpact: 'NONE',
+    });
+    expect(dry.repaired).toBe(1);
+    expect(dry.failedAfterDailyFallback).toBe(0);
+    expect(dry.recoveredBySource.RECONSTRUCTED_DAILY_REGIME).toBe(1);
+    expect(dry.recoveredByConfidence.RECOVERED_MEDIUM).toBe(1);
+    expect(dry.snapshotCoverageByTradingDate['2026-05-13']).toMatchObject({
+      intradayNearest60m: 0,
+      sameDayDaily: 0,
+      previousTradingDayClose: 0,
+      pulseArchiveSameDate: 0,
+      reconstructedDaily: 1,
+    });
+  });
+
+  it('prioritizes reconstruction dates before lower-impact missing days', () => {
+    const ghosts = [
+      ghost({ id: 'missing-0512', regimePhase: 'UNKNOWN', signalDate: '2026-05-12' }),
+      ghost({ id: 'missing-0430', regimePhase: 'UNKNOWN', signalDate: '2026-04-30' }),
+      ghost({ id: 'missing-0515', regimePhase: 'UNKNOWN', signalDate: '2026-05-15' }),
+      ghost({ id: 'missing-0513', regimePhase: 'UNKNOWN', signalDate: '2026-05-13' }),
+    ];
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-05-20T00:00:00.000Z', rawRegime: 'R4_NEUTRAL' }],
+      transitionSnapshots: [],
+      dailyRegimeSnapshots: [],
+      pulseArchiveSnapshots: [],
+      reconstructionLogEntries: [
+        { tradingDate: '2026-05-13', source: 'MARKET_MACRO_SNAPSHOT', rawRegime: 'R3_EARLY', effectiveRegime: 'R3_EARLY' },
+        { tradingDate: '2026-04-30', source: 'R6_TRIGGER_EVENT', rawRegime: 'R6_DEFENSE', effectiveRegime: 'R6_DEFENSE' },
+        { tradingDate: '2026-05-15', source: 'RISK_OVERRIDE_LOG', riskOverride: 'R5_CAUTION' },
+      ],
+    });
+
+    expect(dry.snapshotReconstructionAttemptedDates).toEqual(['2026-05-13', '2026-04-30', '2026-05-15', '2026-05-12']);
+    expect(dry.snapshotReconstructionSucceededDates).toEqual(['2026-05-13', '2026-04-30', '2026-05-15']);
+    expect(dry.snapshotReconstructionFailedDates).toEqual(['2026-05-12']);
+    expect(dry.snapshotReconstructionSourceBreakdown.MARKET_MACRO_SNAPSHOT).toBe(1);
+    expect(dry.snapshotReconstructionSourceBreakdown.R6_TRIGGER_EVENT).toBe(1);
+    expect(dry.snapshotReconstructionSourceBreakdown.RISK_OVERRIDE_LOG).toBe(1);
+  });
 });

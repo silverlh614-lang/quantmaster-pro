@@ -9,6 +9,7 @@ import type { LearningGhostCase } from './learningTypes.js';
 import type {
   DailyRegimeFallbackStatus,
   RegimeDailySnapshot,
+  RegimeSnapshotReconstructionLogEntry,
   RegimeSnapshotCoverage,
 } from './regimeLearningBackfill.js';
 
@@ -256,6 +257,11 @@ export interface RegimeLearningBank {
   regimeSnapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage>;
   missingRegimeSnapshotDates: string[];
   dailyRegimeFallbackStatus: DailyRegimeFallbackStatus;
+  regimeSnapshotReconstructionAttemptedDates: string[];
+  regimeSnapshotReconstructionSucceededDates: string[];
+  regimeSnapshotReconstructionFailedDates: string[];
+  regimeSnapshotReconstructionSourceBreakdown: Record<string, number>;
+  regimeSnapshotReconstructionConfidenceBreakdown: Record<string, number>;
   regimeBackfillFailureSampleKeys: string[];
   regimeDuplicateSourceTop3: string[];
   regimeDuplicateKeySample: string[];
@@ -305,6 +311,7 @@ export interface CollectRegimeLearningInput {
   dailyRegimeSnapshots?: RegimeDailySnapshot[];
   pulseArchiveSnapshots?: RegimeDailySnapshot[];
   pulseArchiveRegimeSnapshots?: RegimeDailySnapshot[];
+  reconstructionLogEntries?: RegimeSnapshotReconstructionLogEntry[];
   includePersistedSources?: boolean;
   rawRegime?: string;
   effectiveRegime?: string;

@@ -695,4 +695,50 @@ describe('Regime Learning Bank', () => {
     expect(bank.regimeRatioDenominator).toBe('regimeLearningSampleSize');
     expect(bank.regimeRatioDenominatorValue).toBe(4);
   });
+
+  it('reduces true UNKNOWN after reconstructed daily regime snapshot recovery', () => {
+    const bank = collectRegimeLearningBank({
+      rawRegime: 'UNKNOWN',
+      effectiveRegime: 'UNKNOWN',
+      shadowCases: [
+        shadow('unknown-reconstruct-0513', {
+          effectiveRegime: 'UNKNOWN',
+          regimePhase: 'UNKNOWN',
+          sourceConfidence: 'UNKNOWN',
+          detectedAt: '2026-05-13T00:00:00.000Z',
+          createdAt: '2026-05-13T00:00:00.000Z',
+          updatedAt: '2026-05-13T00:00:00.000Z',
+        }),
+        shadow('unknown-still-0512', {
+          effectiveRegime: 'UNKNOWN',
+          regimePhase: 'UNKNOWN',
+          sourceConfidence: 'UNKNOWN',
+          detectedAt: '2026-05-12T00:00:00.000Z',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        }),
+      ],
+      counterfactualEntries: [],
+      dailyRegimeSnapshots: [],
+      pulseArchiveSnapshots: [],
+      reconstructionLogEntries: [{
+        at: '2026-05-13T06:00:00.000Z',
+        source: 'REGIME_RESOLVER_LOG',
+        message: '[SOURCE_QUERY_RESULT] command=/regime detectedRegime=R3_EARLY effectiveRegime=R3_EARLY riskOverride=NONE',
+      }],
+    });
+
+    expect(bank.regimeLearningSampleSize).toBe(2);
+    expect(bank.unknownRegimeCount).toBe(2);
+    expect(bank.regimeBackfillRecovered).toBe(1);
+    expect(bank.recoveredLowConfidenceRegimeCount).toBe(1);
+    expect(bank.trueUnknownRegimeCount).toBe(1);
+    expect(bank.trueUnknownRatio).toBe(0.5);
+    expect(bank.regimeSnapshotReconstructionAttemptedDates).toEqual(['2026-05-13', '2026-05-12']);
+    expect(bank.regimeSnapshotReconstructionSucceededDates).toEqual(['2026-05-13']);
+    expect(bank.regimeSnapshotReconstructionFailedDates).toEqual(['2026-05-12']);
+    expect(bank.regimeSnapshotReconstructionSourceBreakdown.REGIME_RESOLVER_LOG).toBe(1);
+    expect(bank.regimeSnapshotReconstructionConfidenceBreakdown.RECOVERED_MEDIUM).toBe(1);
+    expect(bank.regimeSnapshotCoverageByTradingDate['2026-05-13'].reconstructedDaily).toBe(1);
+  });
 });
