@@ -89,6 +89,22 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   it('KOSPI/KOSDAQ 0행이면 KOSPI_PLUS_KOSDAQ 금지 invariant 존재', () => {
     expect(source).toMatch(/empty split rows cannot be KOSPI_PLUS_KOSDAQ/);
   });
+
+  it('rows=[] 불변식: selected/raw/display 강제 null\/N\\/A', () => {
+    expect(source).toMatch(/if \(rows\.length === 0\)/);
+    expect(source).toMatch(/selectedBsopHour:\s*null/);
+    expect(source).toMatch(/rawWholeNetBuy:\s*null/);
+    expect(source).toMatch(/displayWholeNetBuy:\s*'N\/A'/);
+  });
+
+  it('rows=0인데 raw 존재 시 SNAPSHOT_INCONSISTENT 사유 RAW_EXISTS_WITH_EMPTY_ROWS', () => {
+    expect(source).toMatch(/RAW_EXISTS_WITH_EMPTY_ROWS/);
+    expect(source).toMatch(/leg\.rawWholeNetBuy !== null && leg\.outputLength === 0/);
+  });
+
+  it('split 0\/0이면 combinedSource KOSPI_PLUS_KOSDAQ 불가', () => {
+    expect(source).toMatch(/if \(input\.kospiLen === 0 && input\.kosdaqLen === 0 && input\.combinedSource === 'KOSPI_PLUS_KOSDAQ'\)/);
+  });
 });
 
 describe('marketDataRefresh ADR-0138 정합성', () => {
