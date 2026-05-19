@@ -44,7 +44,12 @@ import { deriveSectorCycle } from './sectorCycleClassifier.js';
 
 type MacroRefreshReason = 'SCHEDULED' | 'MANUAL' | 'R6_RECOVERY_CHECK';
 type ProgramMarketRawUnitAssumption = 'UNVERIFIED' | 'KRW' | 'KRW_1K' | 'KRW_1M';
-type ProgramMarketFinalStatus = 'OFFICIAL_PARAMS_VERIFIED' | 'SNAPSHOT_INCONSISTENT';
+type ProgramMarketFinalStatus =
+  | 'OFFICIAL_PARAMS_VERIFIED'
+  | 'SINGLE_RESPONSE_VERIFIED'
+  | 'SNAPSHOT_INCONSISTENT'
+  | 'UNIT_UNVERIFIED'
+  | 'MAPPING_VERIFIED';
 
 function buildProgramMarketSnapshotId(now = new Date()): string {
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -901,15 +906,19 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     const bc = (bundle.combined as Record<string, unknown> | undefined) ?? {};
     const kospiLen = Number(bk.outputLength ?? marketProgram.kospiDiagnostics?.rowCount ?? 0);
     const kosdaqLen = Number(bq.outputLength ?? marketProgram.kosdaqDiagnostics?.rowCount ?? 0);
-    const combinedLen = Number(bc.outputLength ?? (kospiLen + kosdaqLen));
+    const kisRawOutput = (((agg as any)?.output as Array<Record<string, unknown>> | undefined) ?? []);
+    const combinedLen = Number(bc.outputLength ?? kisRawOutput.length ?? (kospiLen + kosdaqLen));
     const combinedSource = resolveCombinedSource({
       kospiRequested: true, kosdaqRequested: true, kospiOutputLength: kospiLen, kosdaqOutputLength: kosdaqLen,
       combinedOutputLength: combinedLen, combinedMatchesSplit: combinedLen === (kospiLen + kosdaqLen), upstreamHint: String(agg.combinedSource ?? ''),
     });
-    const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ';
+    const hasSplitRows = (kospiLen + kosdaqLen) > 0 && combinedLen === (kospiLen + kosdaqLen);
+    const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ' && hasSplitRows;
     const kospiRows = provisionalSplitAvailable ? (((bundle.kospi as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
     const kosdaqRows = provisionalSplitAvailable ? (((bundle.kosdaq as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
-    const combinedRows = (((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? [...kospiRows, ...kosdaqRows]);
+    const combinedRows = provisionalSplitAvailable
+      ? ((((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? [...kospiRows, ...kosdaqRows]))
+      : ((((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? kisRawOutput));
     const kospiLeg = normalizeMarketProgramLeg({ rows: kospiRows });
     const kosdaqLeg = normalizeMarketProgramLeg({ rows: kosdaqRows });
     const combinedLeg = normalizeMarketProgramLeg({ rows: combinedRows });
@@ -932,13 +941,16 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     ) || (leg.rawWholeNetBuy !== null && leg.outputLength === 0));
     const legInvariantViolated = kospiLeg.invariantViolated || kosdaqLeg.invariantViolated || combinedLeg.invariantViolated || Boolean(rowInvariantViolation);
     const legInvariantReason = rowInvariantViolation ? 'RAW_EXISTS_WITH_EMPTY_ROWS' : (kospiLeg.invariantReason ?? kosdaqLeg.invariantReason ?? combinedLeg.invariantReason);
-    const finalStatus: ProgramMarketFinalStatus = (invariants.violated || legInvariantViolated) ? 'SNAPSHOT_INCONSISTENT' : 'OFFICIAL_PARAMS_VERIFIED';
+    const finalStatus: ProgramMarketFinalStatus = (invariants.violated || legInvariantViolated)
+      ? 'SNAPSHOT_INCONSISTENT'
+      : (provisionalSplitAvailable ? 'OFFICIAL_PARAMS_VERIFIED' : 'SINGLE_RESPONSE_VERIFIED');
     const resolvedCombinedSource = (invariants.violated || legInvariantViolated) ? 'UNKNOWN' : combinedSource;
     const splitAvailable = !(invariants.violated || legInvariantViolated) && resolvedCombinedSource === 'KOSPI_PLUS_KOSDAQ';
     const combinedOnly = !splitAvailable;
     const snapshotId = buildProgramMarketSnapshotId();
     computed.programMarket = {
       status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
+      rawStatus: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
       snapshotId,
       finalStatus,
       source: marketProgram.source ?? 'KIS_API',

@@ -106,6 +106,9 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
 
   const snapshotId = (pm as any)?.snapshotId;
   const finalStatus = (pm as any)?.finalStatus ?? 'UNKNOWN';
+  const rawStatus = (pm as any)?.rawStatus ?? (pm as any)?.status ?? 'UNKNOWN';
+  lines.push(`displayStatus=${finalStatus}`);
+  lines.push(`rawStatus=${rawStatus}`);
   lines.push(`snapshotId=${snapshotId ?? 'SNAPSHOT_MISSING'}`);
   lines.push(`snapshotSource=${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'UNKNOWN' : ((pm as any)?.snapshotSource ?? (pm as any)?.combinedSource ?? 'UNKNOWN')}`);
   if (pm?.rowBreakdown) {
@@ -114,6 +117,8 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     if (finalStatus === 'SNAPSHOT_INCONSISTENT') {
       lines.push('status: SNAPSHOT_INCONSISTENT');
       lines.push(`reason: ${(pm as any)?.inconsistencyReason ?? 'snapshot invariant violated'}`);
+      lines.push(`rawStatus: ${rawStatus}`);
+      lines.push('판정: observe only');
       lines.push('KOSPI: N/A');
       lines.push('KOSDAQ: N/A');
       lines.push('COMBINED: N/A');
@@ -125,10 +130,14 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
         lines.push(`  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`);
       }
     } else {
+      lines.push(`combinedSource: ${(pm as any)?.combinedSource ?? 'UNKNOWN'}`);
+      lines.push(`splitAvailable: ${pm.splitAvailable ?? false}`);
+      lines.push(`combinedOnly: ${pm.combinedOnly ?? true}`);
       lines.push(`KOSPI: N/A (split unavailable)`);
       lines.push(`KOSDAQ: N/A (split unavailable)`);
       const c = pm.rowBreakdown.combined;
       lines.push(`COMBINED: outputLength=${c.outputLength} nonZeroRows=${c.nonZeroRows} selectedBsopHour=${c.selectedBsopHour} rawWholeNetBuy=${c.rawWholeNetBuy}`);
+      lines.push(`  unitCandidates: KRW=${c.unitCandidates.KRW} KRW_1K=${c.unitCandidates.KRW_1K} KRW_1M=${c.unitCandidates.KRW_1M}`);
     }
   }
   if (pm?.unit.rawUnitAssumption === 'UNVERIFIED' && pm.unitCandidates) {

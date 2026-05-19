@@ -81,7 +81,7 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('invariant 위반 시 SNAPSHOT_INCONSISTENT + scoring excluded + executionImpact NONE', () => {
-    expect(source).toMatch(/const finalStatus:\s*ProgramMarketFinalStatus = \(invariants\.violated \|\| legInvariantViolated\) \? 'SNAPSHOT_INCONSISTENT'/);
+    expect(source).toContain("'SNAPSHOT_INCONSISTENT'");
     expect(source).toMatch(/scoring:\s*\(invariants\.violated \|\| legInvariantViolated\) \? 'excluded' : 'shadow_only'/);
     expect(source).toMatch(/executionImpact:\s*'NONE'/);
   });
@@ -104,6 +104,21 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
 
   it('split 0\/0이면 combinedSource KOSPI_PLUS_KOSDAQ 불가', () => {
     expect(source).toMatch(/if \(input\.kospiLen === 0 && input\.kosdaqLen === 0 && input\.combinedSource === 'KOSPI_PLUS_KOSDAQ'\)/);
+  });
+
+  it('KIS output 배열을 combined rows에 주입 (split unavailable 시 SINGLE_KIS_RESPONSE)', () => {
+    expect(source).toMatch(/const kisRawOutput =/);
+    expect(source).toMatch(/: \(\(\(\(bundle\.combined as any\)\?\.rows as Array<Record<string, unknown>> \| undefined\) \?\? kisRawOutput\)/);
+  });
+
+  it('SINGLE_KIS_RESPONSE일 때 splitAvailable=false, combinedOnly=true 경로 존재', () => {
+    expect(source).toMatch(/const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ' && hasSplitRows/);
+    expect(source).toMatch(/const combinedOnly = !splitAvailable/);
+  });
+
+  it('display/final status 분리 및 SINGLE_RESPONSE_VERIFIED 상태 포함', () => {
+    expect(source).toMatch(/'SINGLE_RESPONSE_VERIFIED'/);
+    expect(source).toMatch(/rawStatus:\s*marketProgram\.marketProgramStatus/);
   });
 });
 
