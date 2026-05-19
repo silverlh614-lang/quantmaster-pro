@@ -45,9 +45,16 @@ export type R6ShadowPolicyRegime =
   | 'SHADOW_ONLY';
 
 export type R6NoShadowEntryReason =
+  | 'DUPLICATE_SAME_SYMBOL_OPEN'
+  | 'DUPLICATE_SAME_SYMBOL_PENDING'
+  | 'STALE_DEDUP_LOCK'
+  | 'MAX_R6_SHADOW_POSITION_REACHED'
+  | 'R6_CONFIRMATION_WAIT'
+  | 'ENTRY_SCORE_BELOW_THRESHOLD'
+  | 'NO_BUY_CANDIDATE'
+  | 'MARKET_SESSION_BLOCKED'
   | 'ALL_ACCUMULATING_FAILED_MIN_LIQUIDITY'
   | 'PRICE_DATA_MISSING'
-  | 'DUPLICATE_OPEN_POSITION'
   | 'POSITION_LIMIT_REACHED'
   | 'SHADOW_ENTRY_DISABLED_BY_ENV'
   | 'R6_COUNTERFACTUAL_DISABLED'
@@ -76,6 +83,24 @@ export interface R6ShadowEntryPolicySummary {
   counterfactualLearningEntries?: number;
   duplicateLearningEntries?: number;
   noShadowEntryReason?: R6NoShadowEntryReason | 'N/A';
+  noShadowEntryReasons?: Array<R6NoShadowEntryReason | 'N/A'>;
+  buyCandidates?: number;
+  shadowDedupCounts?: {
+    registryOpenCount: number;
+    ledgerOpenCount: number;
+    tradeRepoOpenCount: number;
+    tradeRepoPendingCount: number;
+    paperLedgerOpenCount: number;
+    virtualHoldingCount: number;
+    finalOpenShadowPositions: number;
+  };
+  accumulatingToBuyBlockReasons?: {
+    scoreBelowThreshold: number;
+    confirmationWait: number;
+    duplicateSameSymbol: number;
+    capReached: number;
+    marketClosed: number;
+  };
   sizingSource?: 'LIVE_SIZING_MIRROR';
   sizingRegime?: ShadowRegimeSizingLevel;
   executionImpact: 'NONE';
@@ -234,17 +259,19 @@ function hasDuplicateEntry(params: {
   entryType: R6ShadowEntryType;
   tradingDate: string;
   regime: R6ShadowPolicyRegime;
-}): boolean {
-  return params.trades.some((trade) => {
-    if (trade.stockCode !== params.symbol) return false;
-    if (isOpenShadowHolding(trade)) return true;
+}): 'DUPLICATE_SAME_SYMBOL_OPEN' | 'DUPLICATE_SAME_SYMBOL_PENDING' | 'STALE_DEDUP_LOCK' | null {
+  for (const trade of params.trades) {
+    if (trade.stockCode !== params.symbol) continue;
+    if (isOpenShadowHolding(trade)) return 'DUPLICATE_SAME_SYMBOL_OPEN';
+    if (trade.mode === 'SHADOW' && trade.status === 'PENDING') return 'DUPLICATE_SAME_SYMBOL_PENDING';
     const meta = trade.r6Counterfactual;
-    return (
+    if (
       trade.entryType === params.entryType &&
       meta?.tradingDate === params.tradingDate &&
       meta?.regime === params.regime
-    );
-  });
+    ) return 'STALE_DEDUP_LOCK';
+  }
+  return null;
 }
 
 function buildShadowSizingState(trades: ServerShadowTrade[]): ShadowSizingState {
@@ -563,6 +590,7 @@ function summaryBase(input: ApplyR6ShadowCounterfactualInput, regime: R6ShadowPo
     candidateEvaluated: input.preview.candidateCount,
     accumulatingCandidates: accumulating,
     shadowBuySignals: input.preview.signalCounts.BULLISH ?? 0,
+    buyCandidates: input.preview.signalCounts.BUY ?? 0,
     r6CounterfactualEntries: 0,
     executionImpact: 'NONE',
   };
@@ -679,20 +707,36 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   let created = 0;
   let duplicateBlocked = 0;
   let positionBlocked = 0;
+  let duplicatePendingBlocked = 0;
+  let staleDedupBlocked = 0;
+  let capReached = 0;
+  let noBuyCandidate = 0;
+  const dedupCounts = {
+    registryOpenCount: 0,
+    ledgerOpenCount: 0,
+    tradeRepoOpenCount: trades.filter(isOpenShadowHolding).length,
+    tradeRepoPendingCount: trades.filter((t) => t.mode === 'SHADOW' && t.status === 'PENDING').length,
+    paperLedgerOpenCount: 0,
+    virtualHoldingCount: 0,
+    finalOpenShadowPositions: sizingState.openShadowSymbols.size,
+  };
 
   for (const item of selected) {
     const symbol = item.candidate.symbol;
-    if (hasDuplicateEntry({
+    const duplicateReason = hasDuplicateEntry({
       trades,
       symbol,
       entryType: 'R6_COUNTERFACTUAL_BUY',
       tradingDate,
       regime,
-    })) {
-      duplicateBlocked += 1;
+    });
+    if (duplicateReason) {
+      if (duplicateReason === 'DUPLICATE_SAME_SYMBOL_OPEN') duplicateBlocked += 1;
+      else if (duplicateReason === 'DUPLICATE_SAME_SYMBOL_PENDING') duplicatePendingBlocked += 1;
+      else staleDedupBlocked += 1;
       console.info(
         `[SHADOW_COUNTERFACTUAL_DUPLICATE_BLOCKED] symbol=${symbol} ` +
-          `entryType=R6_COUNTERFACTUAL_BUY tradingDate=${tradingDate} regime=${regime} executionImpact=NONE`,
+          `entryType=R6_COUNTERFACTUAL_BUY tradingDate=${tradingDate} regime=${regime} reason=${duplicateReason} executionImpact=NONE`,
       );
       continue;
     }
@@ -713,6 +757,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
 
     if (!sizingDecision.allowed || qty < 1) {
       positionBlocked += 1;
+      capReached += 1;
       if (sizingDecision.blockReason === 'REGIME_SHADOW_SLOT_BLOCKED') {
         console.info(
           `[REGIME_SHADOW_SLOT_BLOCKED] symbol=${symbol} regime=${regime} sizingRegime=${sizingRegime} ` +
@@ -816,13 +861,32 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   }
 
   const reason: R6NoShadowEntryReason = duplicateBlocked > 0
-    ? 'DUPLICATE_OPEN_POSITION'
-    : positionBlocked > 0
-      ? 'POSITION_LIMIT_REACHED'
-      : 'NO_ELIGIBLE_ACCUMULATING_CANDIDATES';
+    ? 'DUPLICATE_SAME_SYMBOL_OPEN'
+    : duplicatePendingBlocked > 0
+      ? 'DUPLICATE_SAME_SYMBOL_PENDING'
+      : staleDedupBlocked > 0
+        ? 'STALE_DEDUP_LOCK'
+        : (base.buyCandidates ?? 0) <= 0
+          ? 'NO_BUY_CANDIDATE'
+          : positionBlocked > 0
+            ? 'MAX_R6_SHADOW_POSITION_REACHED'
+            : 'NO_ELIGIBLE_ACCUMULATING_CANDIDATES';
+  noBuyCandidate = (base.buyCandidates ?? 0) <= 0 ? 1 : 0;
   console.info(
     `[NO_SHADOW_ENTRY_REASON] candidateCount=${base.candidateEvaluated} ` +
       `accumulating=${base.accumulatingCandidates} reason=${reason} executionImpact=NONE`,
   );
-  return { ...base, noShadowEntryReason: reason };
+  return {
+    ...base,
+    noShadowEntryReason: reason,
+    noShadowEntryReasons: [reason],
+    shadowDedupCounts: dedupCounts,
+    accumulatingToBuyBlockReasons: {
+      scoreBelowThreshold: Math.max(0, base.accumulatingCandidates - (base.buyCandidates ?? 0)),
+      confirmationWait: regime === 'R6_CONFIRMATION_WAIT' ? 1 : 0,
+      duplicateSameSymbol: duplicateBlocked + duplicatePendingBlocked + staleDedupBlocked,
+      capReached,
+      marketClosed: input.preview.engineMode === 'SELL_ONLY' ? 1 : 0,
+    },
+  };
 }
