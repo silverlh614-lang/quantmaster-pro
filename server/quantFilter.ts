@@ -52,6 +52,14 @@ import {
   type Gate2SourceCoverage,
   type Gate2WiringDiagnostic,
 } from './quant/gate2Diagnostics.js';
+import {
+  buildGate3ExternalDataCoverage,
+  buildGate3SourceCoverage,
+  buildGate3WiringDiagnostics,
+  type Gate3ExternalDataCoverage,
+  type Gate3SourceCoverage,
+  type Gate3WiringDiagnostic,
+} from './quant/gate3Diagnostics.js';
 
 export type { Gate1MarketSession } from './quant/gate1MarketSession.js';
 
@@ -155,17 +163,21 @@ export interface GateLayerBucket {
   passed: boolean;
   score: number;
   availableMaxScore: number;
-  wiring?: Array<Gate1WiringDiagnostic | Gate2WiringDiagnostic>;
-  sourceCoverage?: Gate1SourceCoverage | Gate2SourceCoverage;
+  wiring?: unknown;
+  sourceCoverage?: unknown;
   survival?: Gate1SurvivalDiagnostic;
   consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic | Gate2ConsolidatedDiagnostic;
-  externalDataCoverage?: Gate2ExternalDataCoverage;
+  externalDataCoverage?: unknown;
 }
 
 export interface GateLayerSummary {
   gate1: GateLayerBucket;
   gate2: GateLayerBucket;
-  gate3: GateLayerBucket;
+  gate3: GateLayerBucket & {
+    wiring?: Gate3WiringDiagnostic[];
+    sourceCoverage?: Gate3SourceCoverage;
+    externalDataCoverage?: Gate3ExternalDataCoverage;
+  };
   finalPath: GateFinalPath;
   primaryBlockReason?: string;
 }
@@ -727,6 +739,11 @@ function buildGateLayerSummary(
   summary.gate2.wiring = gate2Wiring;
   summary.gate2.sourceCoverage = buildGate2SourceCoverage(gate2Wiring);
   summary.gate2.externalDataCoverage = buildGate2ExternalDataCoverage(gate2Wiring, gate2ExternalCoverageInput);
+  const gate3Wiring = buildGate3WiringDiagnostics({ outputs, layerMap: GATE_CONDITION_LAYER_MAP });
+  summary.gate3.wiring = gate3Wiring;
+  summary.gate3.sourceCoverage = buildGate3SourceCoverage(gate3Wiring);
+  summary.gate3.externalDataCoverage = buildGate3ExternalDataCoverage(gate2ExternalCoverageInput.quote as Record<string, unknown> ?? {});
+
   summary.gate2.consolidatedDiagnostic = buildGate2ConsolidatedDiagnostic({
     gate2: {
       sourceCoverage: summary.gate2.sourceCoverage as Gate2SourceCoverage,
