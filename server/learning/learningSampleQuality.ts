@@ -666,7 +666,7 @@ function pathTime(p: { at?: string; timestamp?: string }): number {
   const t = new Date(p.at ?? p.timestamp ?? '').getTime();
   return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
 }
-type CounterfactualMaturityStatus = 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
+type CounterfactualMaturityStatus = 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE_RESOLUTION' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
 type CounterfactualMaturityBucket =
   | 'matured'
   | 'dueWithin1h'
@@ -702,7 +702,7 @@ function counterfactualMaturity(e: CounterfactualEntry, now: Date) {
   const currentAgeMinutes = Math.max(0, Math.floor((now.getTime() - createdMs) / 60000));
   const remainingMinutesToMaturity = Math.max(0, Math.ceil((maturityMs - now.getTime()) / 60000));
   const overdueMinutes = Math.floor((now.getTime() - maturityMs) / 60000);
-  const maturityStatus: CounterfactualMaturityStatus = overdueMinutes > 24 * 60 ? 'OVERDUE' : now.getTime() >= maturityMs ? 'MATURED' : 'WAITING_FOR_HOLDING_PERIOD';
+  const maturityStatus: CounterfactualMaturityStatus = overdueMinutes > 24 * 60 ? 'OVERDUE_RESOLUTION' : now.getTime() >= maturityMs ? 'MATURED' : 'WAITING_FOR_HOLDING_PERIOD';
   return { createdAt, maxHoldingMinutes, maturityAt: new Date(maturityMs).toISOString(), currentAgeMinutes, remainingMinutesToMaturity, maturityStatus };
 }
 function emptyMaturityBuckets(): Record<CounterfactualMaturityBucket, number> {
@@ -751,7 +751,7 @@ function remainingTradingDaysTo(targetIso: string | undefined, now: Date): numbe
   return count;
 }
 function maturityBucket(m: ReturnType<typeof counterfactualMaturity>, now: Date): CounterfactualMaturityBucket {
-  if (m.maturityStatus === 'OVERDUE') return 'overdue';
+  if (m.maturityStatus === 'OVERDUE_RESOLUTION') return 'overdue';
   if (m.maturityStatus === 'MATURED') return 'matured';
   if (m.maturityStatus === 'INVALID_CREATED_AT' || m.maturityStatus === 'INVALID_MAX_HOLDING') return 'invalid';
   const remaining = m.remainingMinutesToMaturity ?? Number.POSITIVE_INFINITY;
@@ -773,10 +773,10 @@ function largestMaturityBucket(buckets: Record<CounterfactualMaturityBucket, num
 }
 function aggregateMaturityStatus(counts: { pendingOutcomeCount: number; maturedNowCount: number; waitingCount: number; overdueCount: number; invalidMaturityCount: number }): string {
   if (counts.pendingOutcomeCount === 0) return 'EMPTY';
-  if (counts.invalidMaturityCount > 0) return 'INVALID_MATURITY';
-  if (counts.overdueCount > 0) return 'OVERDUE';
-  if (counts.maturedNowCount > 0) return 'MATURED_AVAILABLE';
-  if (counts.waitingCount > 0) return 'WAITING_FOR_HOLDING_PERIOD';
+  if (counts.invalidMaturityCount > 0) return 'RESOLVER_FAILED';
+  if (counts.overdueCount > 0) return 'OVERDUE_RESOLUTION';
+  if (counts.maturedNowCount > 0) return 'MATURABLE_NOW';
+  if (counts.waitingCount > 0) return 'WAITING_NORMAL';
   return 'UNKNOWN';
 }
 export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
@@ -795,7 +795,7 @@ export function collectCounterfactualMaturityStatus(now: Date = new Date()) {
     oldestPendingAgeMinutes = Math.max(oldestPendingAgeMinutes, m.currentAgeMinutes);
     maxHoldingMinutes = Math.max(maxHoldingMinutes, m.maxHoldingMinutes);
     if (m.maturityStatus === 'MATURED') maturedNowCount++;
-    else if (m.maturityStatus === 'OVERDUE') { maturedNowCount++; overdueCount++; }
+    else if (m.maturityStatus === 'OVERDUE_RESOLUTION') { maturedNowCount++; overdueCount++; }
     else if (m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD') waitingCount++;
     else invalidMaturityCount++;
     if (m.maturityAt && m.maturityStatus === 'WAITING_FOR_HOLDING_PERIOD' && (!nearestMaturityAt || new Date(m.maturityAt).getTime() < new Date(nearestMaturityAt).getTime())) {
@@ -1029,7 +1029,7 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
       if (write) { e.outcomeStatus = 'DATA_INSUFFICIENT'; e.outcomeLabel = 'DATA_INSUFFICIENT'; e.outcomeResolvedAt = nowIso; }
       continue;
     }
-    if (maturity.maturityStatus === 'MATURED' || maturity.maturityStatus === 'OVERDUE') maturedNowCount++;
+    if (maturity.maturityStatus === 'MATURED' || maturity.maturityStatus === 'OVERDUE_RESOLUTION') maturedNowCount++;
     if (!entry || !target || !stop) {
       quarantined++;
       labelBreakdown.QUARANTINED++;

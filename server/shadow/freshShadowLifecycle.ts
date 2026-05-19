@@ -135,7 +135,8 @@ export type FreshShadowInletNextAction =
   | 'SELL_ONLY_BLOCKED_FRESH_ENTRY'
   | 'HARD_BLOCK_ACTIVE'
   | 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED'
-  | 'MARKET_CLOSED'
+  | 'QUEUE_NEXT_OPEN_SHADOW_SCAN'
+  | 'AFTER_HOURS_OBSERVE'
   | 'AFTER_HOURS_SYNTHETIC_LANE_ACTIVE'
   | 'FRESH_SHADOW_INLET_ACTIVE';
 
@@ -175,7 +176,7 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   const blockedByNoSignal = Math.max(0, scanCandidates.length - shadowSignalsToday);
   const cohortAssignmentFailures = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.item === 'fresh_case_missing_cohort').reduce((s, i) => s + i.count, 0);
   let nextAction: FreshShadowInletNextAction = 'FRESH_SHADOW_INLET_ACTIVE';
-  if (!marketOpen) nextAction = scanCandidates.length > 0 ? 'AFTER_HOURS_SYNTHETIC_LANE_ACTIVE' : 'MARKET_CLOSED';
+  if (!marketOpen) nextAction = scanCandidates.length > 0 ? 'QUEUE_NEXT_OPEN_SHADOW_SCAN' : 'AFTER_HOURS_OBSERVE';
   else if (scanCandidates.length === 0) nextAction = 'NO_SCAN_CANDIDATES';
   else if (liveEntryBlockedShadowAllowed) nextAction = 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED';
   else if (shadowSignalsToday === 0) nextAction = 'NO_SHADOW_SIGNALS';
@@ -207,6 +208,8 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
     shadowSellAllowed: true as const,
     shadowLearningAllowed: true as const,
     counterfactualAllowed: true as const,
+    liveBlocker: marketOpen ? 'NONE' as const : 'MARKET_CLOSED' as const,
+    shadowInletStatus: nextAction,
     blocker: nextAction,
     nextAction,
     executionImpact: 'NONE' as const,
@@ -244,6 +247,14 @@ export function collectFreshOnlyPromotion(ledger: ShadowCaseLedgerStore, returnF
   const labelDen = fresh.filter((c) => c.state === 'SHADOW_POSITION_CLOSED' || c.state === 'OUTCOME_LABELED' || CLOSED_LABELS.has(c.outcomeLabel ?? '')).length;
   const freshExpectancyR = freshExecuted.length === 0 ? 'N/A' as const : avg(closed.map(retR));
   const blockers = freshExecuted.length === 0 ? ['NO_FRESH_SAMPLE'] : freshExecuted.length < REQUIRED_FRESH_SAMPLES ? ['FRESH_SAMPLE_SIZE_LT_100'] : [];
+  const advisoryEligible = closed.length > 0;
+  const shadowWeightEligible = freshExecuted.length >= 30;
+  const coreEligible = freshExecuted.length >= REQUIRED_FRESH_SAMPLES;
+  const promotionTier =
+    coreEligible ? 'CORE_PROMOTION'
+      : shadowWeightEligible ? 'SHADOW_WEIGHT_UPDATE'
+        : advisoryEligible ? 'ADVISORY_WEIGHT_UPDATE'
+          : 'DIAGNOSTIC_SUGGESTION';
   return {
     basis: 'FRESH_ONLY' as const,
     freshSampleSize: freshExecuted.length,
@@ -257,7 +268,7 @@ export function collectFreshOnlyPromotion(ledger: ShadowCaseLedgerStore, returnF
     freshLabelCompletionRate: rate(closed.length, labelDen, 1),
     requiredFreshSamples: REQUIRED_FRESH_SAMPLES,
     promotionAllowed: false,
-    promotionTier: freshExecuted.length >= REQUIRED_FRESH_SAMPLES ? 'CORE_PROMOTION' as const : 'NO_PROMOTION' as const,
+    promotionTier: promotionTier as 'DIAGNOSTIC_SUGGESTION' | 'ADVISORY_WEIGHT_UPDATE' | 'SHADOW_WEIGHT_UPDATE' | 'CORE_PROMOTION',
     blocker: blockers[0] ?? 'PROMOTION_DISABLED_UNTIL_MANUAL_REVIEW',
     blockers,
   };
