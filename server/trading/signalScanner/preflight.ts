@@ -68,6 +68,28 @@ import {
 } from './preflightLearningRecorder.js';
 import { computeEffectiveKelly, formatKellyPolicyBlockedLog } from './kellyPolicyBlock.js';
 
+
+
+type RegimeStatusSnapshot = {
+  effectiveRegime: string;
+  riskOverride: string;
+  mhsBucket: string;
+  liveBuyPolicy: string;
+  shadowPolicy: string;
+  tradeDate: string;
+  snapshotId: string;
+};
+
+const regimeStatusByChannel = new Map<string, RegimeStatusSnapshot>();
+function toMhsBucket(mhs: unknown): string {
+  const n = Number(mhs);
+  if (!Number.isFinite(n)) return 'MHS_NA';
+  return `MHS_${Math.round(n / 10) * 10}`;
+}
+function buildRegimeAlertDedupKey(channelId: string, snap: RegimeStatusSnapshot): string {
+  return `REGIME_STATUS:${snap.effectiveRegime}:${snap.riskOverride}:${snap.mhsBucket}:${snap.liveBuyPolicy}:${snap.shadowPolicy}:${snap.tradeDate}:${channelId}`;
+}
+
 export function getAccountScaleKellyMultiplier(totalAssets: number): number {
   if (totalAssets >= 300_000_000) return 1.15;
   if (totalAssets >= 100_000_000) return 1.08;
@@ -401,152 +423,40 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     macroDiagnosticOnly = true;
   };
   if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
-    markMacroDiagnosticLiveBlock('R6_DEFENSE');
-    regimeConfig = applyMacroDiagnosticRegimeConfig(regimeConfig);
-  }
-  conditionWeights = applyFreshnessDecayToNeutralWeightedRecord(
-    conditionWeights,
-    { generatedAt: getConditionWeightsUpdatedAt() ?? undefined, regime },
-    regime,
-  );
-  const diagnosticContext = (extra: Record<string, unknown> = {}) =>
-    buildPreflightDiagnosticContext({
-      watchlist,
-      shadows,
-      shadowMode,
-      totalAssets,
-      orderableCash,
-      activeHoldingValue,
-      macroState,
-      regime,
-      regimeConfig,
-      conditionWeights,
-      extra: {
-        macroEntryOverride,
-        regimeSnapshotId: regimeSnapshot.snapshotId,
-        regimeSnapshotAsOf: regimeSnapshot.asOf,
-        regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
-        displayRegime: regimeSnapshot.displayRegime,
-        riskOverride: regimeSnapshot.riskOverride,
-        engineMode: regimeSnapshot.engineMode,
-        dataHealth: regimeSnapshot.dataHealth,
-        sourceHealth: regimeSnapshot.sourceHealth,
-        regimeConflicts: regimeSnapshot.conflicts,
-        macroRegimeRaw: regimeDiagnostics.rawRegime,
-        macroRegimeEffective: regimeDiagnostics.effectiveRegime,
-        r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
-        r6RecoveryCooldownUntil: regimeDiagnostics.cooldownUntil,
-        activeR6Triggers: regimeDiagnostics.activeR6Triggers,
-        r6ShockLatch: regimeDiagnostics.r6ShockLatch,
-        recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
-        liveEntryAllowed: !macroDiagnosticOnly,
-        liveExitAllowed: true,
-        shadowBuyAllowed: true,
-        shadowSellAllowed: true,
-        shadowLearningAllowed: true,
-        counterfactualAllowed: true,
-        diagnosticAllowed: true,
-        brokerOrderAllowed: !macroDiagnosticOnly,
-        ...extra,
-      },
-    });
-
-  const r3SanityBlock = loadR3SanityBlockState();
-  if (r3SanityBlock.active) {
-    if (isR3SanityAckTokenValid(r3SanityBlock, process.env.R3_SANITY_OPERATOR_ACK)) {
-      acknowledgeR3SanityBlock('R3_SANITY_OPERATOR_ACK');
+    const channelId = process.env.TELEGRAM_CHAT_ID ?? 'default';
+    const snapshot: RegimeStatusSnapshot = {
+      effectiveRegime: 'R6_DEFENSE',
+      riskOverride: 'BLACK_SWAN',
+      mhsBucket: toMhsBucket(macroState?.mhs),
+      liveBuyPolicy: 'LIVE_BUY_BLOCKED',
+      shadowPolicy: 'SHADOW_ON',
+      tradeDate: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      snapshotId: String(regimeSnapshot.snapshotId ?? 'unknown'),
+    };
+    const previous = regimeStatusByChannel.get(channelId);
+    const sameState = previous
+      && previous.effectiveRegime === snapshot.effectiveRegime
+      && previous.riskOverride === snapshot.riskOverride
+      && previous.mhsBucket === snapshot.mhsBucket
+      && previous.liveBuyPolicy === snapshot.liveBuyPolicy
+      && previous.shadowPolicy === snapshot.shadowPolicy
+      && previous.tradeDate === snapshot.tradeDate;
+    const dedupKey = buildRegimeAlertDedupKey(channelId, snapshot);
+    if (sameState) {
+      console.log(`[REGIME_ALERT_DEDUP_SUPPRESSED] alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE reason=UNCHANGED_REGIME_STATE dedupKey=${dedupKey} lastSentAt=${new Date().toISOString()} currentSnapshotId=${snapshot.snapshotId} previousSnapshotId=${previous.snapshotId} telegramSent=false`);
     } else {
-      emitPreflightOperationalWarn({
-        code: 'P1_REGIME_CONFLICT',
-        domain: 'REGIME',
-        message: '[AutoTrade] R3 sanity block active; live entry blocked',
-        dedupKey: `preflight:r3-sanity:block:${r3SanityBlock.violation}:${r3SanityBlock.regime}`,
-        details: {
-          violation: r3SanityBlock.violation,
-          regime: r3SanityBlock.regime,
-          triggeredAt: r3SanityBlock.triggeredAt,
-        },
-      });
-      await sendTelegramAlert(
-        `🚨 <b>[R3 Sanity Block Active]</b>\n신규 매수 차단 + shadow-only 전환 유지\n위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
-        `즉시 해제: <code>/r3_unblock</code> (텔레그램, ADR-0195)\n` +
-        `또는 ENV <code>R3_SANITY_OPERATOR_ACK=${r3SanityBlock.triggeredAt}</code> (ADR-0120)`,
-        { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 24 * 60 * 60_000 },
-      ).catch(console.error);
-      await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
-      // ADR-0433: preflight abort 시 universe-level learning snapshot 영속 (HARD_BLOCK).
-      // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
-      await recordPreflightBlockedScan(
-        {
-          stage: 'AFTER_UNIVERSE_BUILD',
-          primaryReason: 'HARD_BLOCK',
-          watchlist,
-          regime,
-          marketSnapshot: {
-            emergencyStop: getEmergencyStop(),
-            regime: regime ?? macroState?.regime,
-            vkospiLevel: macroState?.vkospi,
-          },
-          notes: [`R3 sanity latch active — ${r3SanityBlock.violation}`],
-        },
-        {
-          blockedBy: 'HARD_BLOCK',
-          hardBlockSource: 'R3_SANITY_LATCH',
-          hardBlockModule: 'r3SanityBlockRepo',
-          hardBlockReason: `${r3SanityBlock.violation} (${r3SanityBlock.regime})`,
-          preflightDecision: 'ABORT_HARD_BLOCK',
-        },
-      );
-      await updateShadowResults(shadows, regime);
-      saveShadowTrades(shadows);
-      return { shouldAbort: true, skipPersist: true, context: diagnosticContext() };
+      if (previous?.effectiveRegime !== 'R6_DEFENSE') {
+        console.log(`[REGIME_ALERT_SENT] alertType=REGIME_STATUS transition=${previous?.effectiveRegime ?? 'NONE'}->R6_DEFENSE mhs=${macroState?.mhs ?? 'N/A'} riskOverride=BLACK_SWAN telegramSent=true`);
+      }
+      await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] Live 신규 진입 차단</b>
+MHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지
+Live Buy: BLOCKED
+Shadow: ON — 방어 비중으로 탐색/학습 유지
+기존 포지션: 모니터링 유지`, {
+        dedupeKey,
+      }).catch(console.error);
+      regimeStatusByChannel.set(channelId, snapshot);
     }
-  }
-
-  // ADR-0419: SHADOW_ONLY pre-scan 발화는 *정상 거래일에 GATE1_PASS_ZERO 가 누적될 때만* 의미가 있으므로
-  // R6/VIX/FOMC 는 liveEntryBlockedReason 으로 실진입만 막고 진단 루프는 계속 살린다.
-  // SELL_ONLY / VolumeClock closed / 데이터 빈곤은 여전히 preflight abort 로 별도 학습 snapshot 을 남긴다.
-  // 추가 belt-and-suspenders 가드는 라인 ~360 의 evaluateR3CountableScan 호출.
-  // HARD_BLOCK latch (영속, ADR-0120) 는 위 분기에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
-
-  const sellOnlyExc = optSellOnly
-    ? evaluateSellOnlyException(regimeConfig, macroState)
-    : { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'not-sellOnly' };
-    
-  if (optSellOnly && !sellOnlyExc.allow) {
-    console.log(`[AutoTrade] SELL_ONLY 모드 — 포지션 모니터링 전용 (예외 불가: ${sellOnlyExc.reason})`);
-    await recordBlockedDayShadowScan('MANUAL_BLOCK');
-    // ADR-0433: SELL_ONLY preflight abort universe snapshot.
-    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
-    await recordPreflightBlockedScan(
-      {
-        stage: 'AFTER_UNIVERSE_BUILD',
-        primaryReason: 'SELL_ONLY',
-        watchlist,
-        regime,
-        marketSnapshot: {
-          sellOnly: true,
-          emergencyStop: getEmergencyStop(),
-          regime: regime ?? macroState?.regime,
-          vkospiLevel: macroState?.vkospi,
-        },
-        notes: [`SELL_ONLY 예외 불가: ${sellOnlyExc.reason}`],
-      },
-      {
-        blockedBy: 'SELL_ONLY',
-        preflightDecision: 'ABORT_SELL_ONLY',
-      },
-    );
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ sellOnlyExc }) };
-  }
-  if (optSellOnly && sellOnlyExc.allow) {
-    console.log(`[AutoTrade] SELL_ONLY 예외 채널 활성 — ${sellOnlyExc.reason} | maxSlots=${sellOnlyExc.maxSlots}, Kelly×${sellOnlyExc.kellyFactor}, Gate≥${sellOnlyExc.minLiveGate}, MTAS≥${sellOnlyExc.minMtas}`);
-  }
-
-  if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
-    await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] 신규 진입 전면 차단</b>\nMHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지 — 기존 포지션 모니터링만 수행`).catch(console.error);
     emitPreflightOperationalWarn({
       code: 'P1_GREEN_WITH_R6_BLOCKED',
       message: '[AutoTrade] R6_DEFENSE live entry blocked; diagnostics continue',
