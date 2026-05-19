@@ -23,6 +23,11 @@ export interface Gate1SurvivalAuditSummary {
   marketSession: Record<string, number>;
   shadowMode: Record<string, number>;
   shadowExecutionImpact: Record<string, number>;
+  consolidatedHealth: Record<string, number>;
+  consolidatedPrimaryIssue: Record<string, number>;
+  consolidatedOperatorAction: Record<string, number>;
+  consolidatedExecutionImpact: Record<string, number>;
+  consolidatedCompactText: Record<string, number>;
   liveBuyBlockedCount: number;
   shadowAllowedCount: number;
 }
@@ -55,6 +60,11 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       marketSession: {},
       shadowMode: {},
       shadowExecutionImpact: {},
+      consolidatedHealth: {},
+      consolidatedPrimaryIssue: {},
+      consolidatedOperatorAction: {},
+      consolidatedExecutionImpact: {},
+      consolidatedCompactText: {},
       liveBuyBlockedCount: 0,
       shadowAllowedCount: 0,
     },
@@ -96,6 +106,14 @@ export function accumulateGateLayerSummary(
     if (!survival.marketSessionCompatibility.liveBuyAllowed) counters.gateLayerAudit.gate1Survival.liveBuyBlockedCount += 1;
     if (survival.marketSessionCompatibility.shadowAllowed || survival.shadowEligibility.allowed) counters.gateLayerAudit.gate1Survival.shadowAllowedCount += 1;
   }
+  const consolidated = summary.gate1.consolidatedDiagnostic;
+  if (consolidated) {
+    incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedHealth, consolidated.health);
+    incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedPrimaryIssue, consolidated.primaryIssue ?? 'none');
+    incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedOperatorAction, consolidated.operatorAction);
+    incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedExecutionImpact, consolidated.executionImpact);
+    incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedCompactText, consolidated.compactText);
+  }
 }
 
 export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
@@ -117,6 +135,11 @@ function topKey(counts: Record<string, number>): string {
   return top ? `${top.condition}:${top.count}` : 'none';
 }
 
+function topLabel(counts: Record<string, number>): string {
+  const [top] = topCounts(counts);
+  return top ? top.condition : 'none';
+}
+
 export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSummary | null | undefined): string | null {
   if (!summary || summary.samples <= 0) return null;
   return [
@@ -128,6 +151,11 @@ export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSumma
     `  marketSession: ${topKey(summary.marketSession)}`,
     `  shadowMode: ${topKey(summary.shadowMode)}`,
     `  shadowExecutionImpact: ${topKey(summary.shadowExecutionImpact)}`,
+    `  consolidatedHealth: ${topKey(summary.consolidatedHealth)}`,
+    `  primaryIssue: ${topKey(summary.consolidatedPrimaryIssue)}`,
+    `  operatorAction: ${topKey(summary.consolidatedOperatorAction)}`,
+    `  consolidatedExecutionImpact: ${topKey(summary.consolidatedExecutionImpact)}`,
+    `  compactText: ${topLabel(summary.consolidatedCompactText)}`,
     `  liveBuyBlockedOnly/advisory: ${summary.liveBuyBlockedCount}`,
     `  shadowAllowed: ${summary.shadowAllowedCount}`,
     '  executionImpact: NONE for shadow; scoringImpact: NONE',

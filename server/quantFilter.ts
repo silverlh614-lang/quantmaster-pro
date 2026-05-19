@@ -32,6 +32,10 @@ import {
   type Gate1ShadowEligibilityDiagnostic,
   type Gate1ShadowEligibilityMode as Gate1ShadowEligibilityModeValue,
 } from './quant/gate1ShadowEligibility.js';
+import {
+  buildGate1ConsolidatedDiagnostic,
+  type Gate1ConsolidatedDiagnostic,
+} from './quant/gate1ConsolidatedDiagnostic.js';
 
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
@@ -133,6 +137,7 @@ export interface GateLayerBucket {
   wiring?: Gate1WiringDiagnostic[];
   sourceCoverage?: Gate1SourceCoverage;
   survival?: Gate1SurvivalDiagnostic;
+  consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic;
 }
 
 export interface GateLayerSummary {
@@ -925,6 +930,7 @@ export function evaluateServerGate(
 
   const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType);
   gateLayerSummary.gate1.survival = buildGate1SurvivalDiagnostic(quote);
+  gateLayerSummary.gate1.consolidatedDiagnostic = buildGate1ConsolidatedDiagnostic({ gate1: gateLayerSummary.gate1 });
   const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);
 
   return {

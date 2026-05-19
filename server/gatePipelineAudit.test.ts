@@ -63,6 +63,7 @@ function gate1OnlyQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuote
       weeklyRSI: 55,
       volume: 200_000,
       avgVolume: 1_000_000,
+      avgVolume20d: 1_000_000,
       high5d: 0,
       high20d: 200,
       high60d: 200,
@@ -81,10 +82,11 @@ function gate1OnlyQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuote
       monthlyEMARising: false,
       weeklyAboveCloud: false,
       weeklyLaggingSpanUp: false,
-    }),
+    } as Partial<YahooQuoteExtended> & Record<string, unknown>),
     dayHigh: 105,
     dayLow: 95,
-    tradingValue: 200_000_000,
+    tradingValue: 2_000_000_000,
+    avgTradingValue20d: 1_000_000_000,
     marketDivCode: 'J',
     symbol: '005930',
     priceProvider: 'KIS_PRICE',
@@ -93,6 +95,7 @@ function gate1OnlyQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuote
       asOf: new Date().toISOString(),
       source: 'KIS_REALTIME',
     },
+    isHighRisk: false,
     marketSession: 'REGULAR',
     ...overrides,
   } as YahooQuoteExtended;
@@ -190,6 +193,17 @@ describe('Gate pipeline integrity audit', () => {
       liveBuyAllowed: true,
       shadowAllowed: true,
     });
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic).toMatchObject({
+      health: 'OK',
+      primaryIssue: null,
+      operatorAction: 'NONE',
+      liveBuyAllowed: true,
+      shadowAllowed: true,
+      caseRecordingAllowed: true,
+      marketSignal: false,
+      executionImpact: 'NONE',
+    });
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic?.compactText).toContain('Gate1: OK');
   });
 
   it('adds Gate1 liquidity PASS diagnostics without changing score semantics', () => {
@@ -261,6 +275,13 @@ describe('Gate pipeline integrity audit', () => {
     expect(gate1?.survival?.kisOfficialQuoteCoverage.gate1DeclaredMissingInputs).toContain('quote.weeklyRSI');
     expect(gate1?.survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(true);
     expect(gate1?.survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
+    expect(gate1?.consolidatedDiagnostic).toMatchObject({
+      health: 'DEGRADED',
+      primaryIssue: 'GATE1_INPUT_MISSING',
+      operatorAction: 'REVIEW_GATE1_INPUTS',
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
   });
 
   it('reports missing price/volume as provider freshness or quote coverage degradation while keeping shadow enabled', () => {
@@ -300,6 +321,12 @@ describe('Gate pipeline integrity audit', () => {
       caseRecordingAllowed: true,
       shadowExecutionImpact: 'NONE',
     });
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic).toMatchObject({
+      health: 'DEGRADED',
+      primaryIssue: 'QUOTE_COVERAGE_DEGRADED',
+      operatorAction: 'CHECK_QUOTE_PROVIDER',
+      marketSignal: false,
+    });
   });
 
   it('keeps shadow allowed during SELL_ONLY while live buy is diagnostically disallowed', () => {
@@ -321,6 +348,14 @@ describe('Gate pipeline integrity audit', () => {
       counterfactualLearningAllowed: true,
       caseRecordingAllowed: true,
     });
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic).toMatchObject({
+      health: 'BLOCKED_LIVE_ONLY',
+      primaryIssue: 'LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED',
+      operatorAction: 'CHECK_SESSION_POLICY',
+      executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
+      marketSignal: false,
+    });
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic?.compactText).toContain('shadow=ON');
   });
 
   it('keeps closed-session shadow recording observable without changing score semantics', () => {
@@ -394,6 +429,8 @@ describe('Gate pipeline integrity audit', () => {
     expect(audit.strongBuySuppressedByDataUnavailableCount).toBeGreaterThanOrEqual(1);
     expect(audit.gate1Survival?.liquidityStatus).toBeDefined();
     expect(audit.gate1Survival?.shadowExecutionImpact).toBeDefined();
+    expect(audit.gate1Survival?.consolidatedHealth).toBeDefined();
+    expect(audit.gate1Survival?.consolidatedOperatorAction).toBeDefined();
     expect(gate.normalizedGateScore).not.toBe(gate.gateScore);
   });
 
