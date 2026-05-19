@@ -126,6 +126,24 @@ interface ShadowSizingState {
   currentShadowExposure: number;
   openShadowSymbols: Set<string>;
 }
+interface ShadowDedupSourceCounts {
+  openShadowPositions: number;
+  pendingShadowOrders: number;
+  paperOpenCount: number;
+  virtualHoldingCount: number;
+}
+
+interface StaleDedupLockContext {
+  lockAgeSec: number;
+  lockCreatedAt: string;
+  lockKey: string;
+  symbol: string;
+  strategy: string;
+  side: 'BUY';
+  session: string;
+  configuredTtlSec: number;
+  sourceCounts: ShadowDedupSourceCounts;
+}
 
 const DEFAULT_R6_COUNTERFACTUAL_MAX_ENTRIES = 3;
 
@@ -137,6 +155,23 @@ function normalizeSymbol(value: unknown): string {
   if (typeof value !== 'string') return '';
   const digits = value.replace(/[^0-9]/g, '');
   return digits.length >= 6 ? digits.slice(-6) : digits;
+}
+
+function getConfiguredDedupTtlSec(): number {
+  const raw = Number(process.env.R6_SHADOW_DEDUP_TTL_SEC ?? '86400');
+  if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+  return 86400;
+}
+
+function countShadowDedupSources(trades: ServerShadowTrade[]): ShadowDedupSourceCounts {
+  const openShadowPositions = trades.filter((trade) => isOpenShadowHolding(trade)).length;
+  const pendingShadowOrders = trades.filter((trade) => trade.mode === 'SHADOW' && trade.status === 'PENDING').length;
+  return {
+    openShadowPositions,
+    pendingShadowOrders,
+    paperOpenCount: openShadowPositions,
+    virtualHoldingCount: openShadowPositions,
+  };
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -259,19 +294,38 @@ function hasDuplicateEntry(params: {
   entryType: R6ShadowEntryType;
   tradingDate: string;
   regime: R6ShadowPolicyRegime;
-}): 'DUPLICATE_SAME_SYMBOL_OPEN' | 'DUPLICATE_SAME_SYMBOL_PENDING' | 'STALE_DEDUP_LOCK' | null {
+}): { reason: 'DUPLICATE_SAME_SYMBOL_OPEN' | 'DUPLICATE_SAME_SYMBOL_PENDING' | 'STALE_DEDUP_LOCK' | null; staleLock?: StaleDedupLockContext } {
   for (const trade of params.trades) {
     if (trade.stockCode !== params.symbol) continue;
-    if (isOpenShadowHolding(trade)) return 'DUPLICATE_SAME_SYMBOL_OPEN';
-    if (trade.mode === 'SHADOW' && trade.status === 'PENDING') return 'DUPLICATE_SAME_SYMBOL_PENDING';
+    if (isOpenShadowHolding(trade)) return { reason: 'DUPLICATE_SAME_SYMBOL_OPEN' };
+    if (trade.mode === 'SHADOW' && trade.status === 'PENDING') return { reason: 'DUPLICATE_SAME_SYMBOL_PENDING' };
     const meta = trade.r6Counterfactual;
     if (
       trade.entryType === params.entryType &&
       meta?.tradingDate === params.tradingDate &&
       meta?.regime === params.regime
-    ) return 'STALE_DEDUP_LOCK';
+    ) {
+      const lockCreatedAt = trade.updatedAt ?? trade.createdAt ?? new Date(0).toISOString();
+      const lockAgeSec = Math.max(0, Math.floor((params.now.getTime() - new Date(lockCreatedAt).getTime()) / 1000));
+      const sourceCounts = countShadowDedupSources(params.trades);
+      const configuredTtlSec = getConfiguredDedupTtlSec();
+      return {
+        reason: 'STALE_DEDUP_LOCK',
+        staleLock: {
+          lockAgeSec,
+          lockCreatedAt,
+          lockKey: `${params.entryType}:${params.symbol}:${params.tradingDate}:${params.regime}`,
+          symbol: params.symbol,
+          strategy: params.entryType,
+          side: 'BUY',
+          session: params.tradingDate,
+          configuredTtlSec,
+          sourceCounts,
+        },
+      };
+    }
   }
-  return null;
+  return { reason: null };
 }
 
 function buildShadowSizingState(trades: ServerShadowTrade[]): ShadowSizingState {
@@ -729,14 +783,41 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       entryType: 'R6_COUNTERFACTUAL_BUY',
       tradingDate,
       regime,
+      now,
     });
-    if (duplicateReason) {
-      if (duplicateReason === 'DUPLICATE_SAME_SYMBOL_OPEN') duplicateBlocked += 1;
-      else if (duplicateReason === 'DUPLICATE_SAME_SYMBOL_PENDING') duplicatePendingBlocked += 1;
+    if (duplicateReason.reason) {
+      if (duplicateReason.reason === 'DUPLICATE_SAME_SYMBOL_OPEN') duplicateBlocked += 1;
+      else if (duplicateReason.reason === 'DUPLICATE_SAME_SYMBOL_PENDING') duplicatePendingBlocked += 1;
       else staleDedupBlocked += 1;
+      if (duplicateReason.staleLock) {
+        const stale = duplicateReason.staleLock;
+        const c = stale.sourceCounts;
+        console.info(
+          `[SHADOW_DEDUP_LOCK_CHECK] lockAgeSec=${stale.lockAgeSec} lockCreatedAt=${stale.lockCreatedAt} ` +
+          `lockKey=${stale.lockKey} symbol=${stale.symbol} strategy=${stale.strategy} side=${stale.side} session=${stale.session} ` +
+          `openShadowPositions=${c.openShadowPositions} pendingShadowOrders=${c.pendingShadowOrders} ` +
+          `paperOpenCount=${c.paperOpenCount} virtualHoldingCount=${c.virtualHoldingCount} configuredTtlSec=${stale.configuredTtlSec} executionImpact=NONE`,
+        );
+        const shouldClear = c.openShadowPositions === 0 && c.pendingShadowOrders === 0 && c.paperOpenCount === 0
+          && c.virtualHoldingCount === 0 && stale.lockAgeSec > stale.configuredTtlSec;
+        if (shouldClear) {
+          const target = trades.find((trade) => trade.stockCode === symbol && trade.entryType === 'R6_COUNTERFACTUAL_BUY' && trade.r6Counterfactual?.tradingDate === tradingDate && trade.r6Counterfactual?.regime === regime);
+          if (target) {
+            target.entryType = 'SHADOW_BUY_SIGNAL';
+            delete target.r6Counterfactual;
+            console.info(
+              `[SHADOW_DEDUP_STALE_LOCK_CLEARED] symbol=${symbol} lockKey=${stale.lockKey} lockAgeSec=${stale.lockAgeSec} configuredTtlSec=${stale.configuredTtlSec} executionImpact=NONE`,
+            );
+            staleDedupBlocked = Math.max(0, staleDedupBlocked - 1);
+            continue;
+          }
+        }
+      }
       console.info(
         `[SHADOW_COUNTERFACTUAL_DUPLICATE_BLOCKED] symbol=${symbol} ` +
-          `entryType=R6_COUNTERFACTUAL_BUY tradingDate=${tradingDate} regime=${regime} reason=${duplicateReason} executionImpact=NONE`,
+          `entryType=R6_COUNTERFACTUAL_BUY tradingDate=${tradingDate} regime=${regime} reason=${duplicateReason.reason} ` +
+          `open=${dedupCounts.tradeRepoOpenCount} pending=${dedupCounts.tradeRepoPendingCount} ` +
+          `paperOpen=${dedupCounts.paperLedgerOpenCount} virtualHolding=${dedupCounts.virtualHoldingCount} executionImpact=NONE`,
       );
       continue;
     }
