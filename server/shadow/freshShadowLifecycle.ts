@@ -136,6 +136,7 @@ export type FreshShadowInletNextAction =
   | 'HARD_BLOCK_ACTIVE'
   | 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED'
   | 'MARKET_CLOSED'
+  | 'AFTER_HOURS_SYNTHETIC_LANE_ACTIVE'
   | 'FRESH_SHADOW_INLET_ACTIVE';
 
 function kstMarketOpen(now: Date): boolean {
@@ -174,7 +175,7 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
   const blockedByNoSignal = Math.max(0, scanCandidates.length - shadowSignalsToday);
   const cohortAssignmentFailures = inspectFreshShadowIntegrity(ledger, now).filter((i) => i.item === 'fresh_case_missing_cohort').reduce((s, i) => s + i.count, 0);
   let nextAction: FreshShadowInletNextAction = 'FRESH_SHADOW_INLET_ACTIVE';
-  if (!marketOpen) nextAction = 'MARKET_CLOSED';
+  if (!marketOpen) nextAction = scanCandidates.length > 0 ? 'AFTER_HOURS_SYNTHETIC_LANE_ACTIVE' : 'MARKET_CLOSED';
   else if (scanCandidates.length === 0) nextAction = 'NO_SCAN_CANDIDATES';
   else if (liveEntryBlockedShadowAllowed) nextAction = 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED';
   else if (shadowSignalsToday === 0) nextAction = 'NO_SHADOW_SIGNALS';
@@ -211,6 +212,8 @@ export function collectFreshShadowInletStatus(ledger: ShadowCaseLedgerStore, now
     executionImpact: 'NONE' as const,
     brokerOrdersCreated: 0 as const,
     promotionAllowed: false as const,
+    promotionLane: marketOpen ? 'FRESH_SHADOW_EXECUTED' as const : 'FRESH_SYNTHETIC_AFTER_HOURS' as const,
+    promotionTier: 'NO_PROMOTION' as const,
   };
 }
 export function collectFreshShadowLifecycle(ledger: ShadowCaseLedgerStore, limit = 5) {
@@ -234,13 +237,30 @@ export function collectFreshShadowLifecycle(ledger: ShadowCaseLedgerStore, limit
 }
 export function collectFreshOnlyPromotion(ledger: ShadowCaseLedgerStore, returnFlowHitRate = 1) {
   const fresh = ledger.listCases().filter((c) => c.cohortType === 'FRESH_SHADOW');
+  const freshExecuted = fresh.filter((c) => c.marketSession !== 'AFTER_HOURS_SYNTHETIC' && c.marketSession !== 'NEXT_OPEN_SIMULATION');
   const closed = fresh.filter((c) => CLOSED_LABELS.has(c.outcomeLabel ?? ''));
   const wins = closed.filter((c) => c.outcomeLabel === 'WIN');
   const losses = closed.filter((c) => c.outcomeLabel === 'LOSS');
   const labelDen = fresh.filter((c) => c.state === 'SHADOW_POSITION_CLOSED' || c.state === 'OUTCOME_LABELED' || CLOSED_LABELS.has(c.outcomeLabel ?? '')).length;
-  const freshExpectancyR = fresh.length === 0 ? 'N/A' as const : avg(closed.map(retR));
-  const blockers = fresh.length === 0 ? ['NO_FRESH_SAMPLE'] : fresh.length < REQUIRED_FRESH_SAMPLES ? ['FRESH_SAMPLE_SIZE_LT_100'] : [];
-  return { basis: 'FRESH_ONLY' as const, freshSampleSize: fresh.length, freshClosedSampleSize: closed.length, freshWinRate: rate(wins.length, wins.length + losses.length), freshExpectancyR, freshExpectancyReason: fresh.length === 0 ? 'NO_FRESH_SAMPLE' as const : undefined, freshReturnFlowHitRate: returnFlowHitRate, freshLabelCompletionRate: rate(closed.length, labelDen, 1), requiredFreshSamples: REQUIRED_FRESH_SAMPLES, promotionAllowed: false, blocker: blockers[0] ?? 'PROMOTION_DISABLED_UNTIL_MANUAL_REVIEW', blockers };
+  const freshExpectancyR = freshExecuted.length === 0 ? 'N/A' as const : avg(closed.map(retR));
+  const blockers = freshExecuted.length === 0 ? ['NO_FRESH_SAMPLE'] : freshExecuted.length < REQUIRED_FRESH_SAMPLES ? ['FRESH_SAMPLE_SIZE_LT_100'] : [];
+  return {
+    basis: 'FRESH_ONLY' as const,
+    freshSampleSize: freshExecuted.length,
+    freshExecutedSampleSize: freshExecuted.length,
+    freshSyntheticAfterHoursSampleSize: Math.max(0, fresh.length - freshExecuted.length),
+    freshClosedSampleSize: closed.length,
+    freshWinRate: rate(wins.length, wins.length + losses.length),
+    freshExpectancyR,
+    freshExpectancyReason: freshExecuted.length === 0 ? 'NO_FRESH_SAMPLE' as const : undefined,
+    freshReturnFlowHitRate: returnFlowHitRate,
+    freshLabelCompletionRate: rate(closed.length, labelDen, 1),
+    requiredFreshSamples: REQUIRED_FRESH_SAMPLES,
+    promotionAllowed: false,
+    promotionTier: freshExecuted.length >= REQUIRED_FRESH_SAMPLES ? 'CORE_PROMOTION' as const : 'NO_PROMOTION' as const,
+    blocker: blockers[0] ?? 'PROMOTION_DISABLED_UNTIL_MANUAL_REVIEW',
+    blockers,
+  };
 }
 export function formatFreshShadowStatus(s: ReturnType<typeof collectFreshShadowStatus>): string {
   return ['🌱 <b>[Fresh Shadow Status]</b>', ...Object.entries(s).map(([k, v]) => `- ${k}: ${typeof v === 'number' ? Number(v.toFixed(4)) : v}`)].join('\n');
