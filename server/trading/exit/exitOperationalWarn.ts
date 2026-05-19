@@ -6,7 +6,7 @@ export type ExitP0WarnCode =
   | 'P0_LIVE_EXIT_BLOCKED'
   | 'P0_LIVE_EXIT_DEFERRED_NON_TRADING'
   | 'P0_R6_LIVE_EXIT_POLICY_FAILED'
-  | 'P0_R6_SHADOW_FORCE_EXIT_BLOCKED'
+  | 'P2_R6_SHADOW_FORCE_EXIT_EXCLUDED'
   | 'P0_EXIT_SESSION_GUARD_FAILED'
   | 'P0_PENDING_EXIT_INTENT_FAILED';
 
@@ -19,7 +19,7 @@ export interface ExitOperationalWarnEvent {
 }
 
 function impactForExitCode(code: string): ExecutionImpact {
-  if (code === 'P0_R6_SHADOW_FORCE_EXIT_BLOCKED') return 'NONE';
+  if (code === 'P2_R6_SHADOW_FORCE_EXIT_EXCLUDED') return 'NONE';
   if (code.includes('DEFERRED_NON_TRADING')) return 'NONE';
   if (code.includes('LIVE_EXIT') || code.includes('PENDING_EXIT')) return 'LIVE_SELL_BLOCKED';
   if (code.includes('SELL_')) return 'LIVE_SELL_BLOCKED';

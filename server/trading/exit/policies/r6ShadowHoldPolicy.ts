@@ -34,7 +34,7 @@ export function resolveR6ShadowHoldPolicy(input: R6ShadowHoldPolicyInput): ExitD
   candidate.executionImpact = 'NONE';
 
   emitExitOperationalWarn({
-    code: 'P0_R6_SHADOW_FORCE_EXIT_BLOCKED',
+    code: 'P2_R6_SHADOW_FORCE_EXIT_EXCLUDED',
     message: 'R6 Shadow force-exit blocked; Shadow learning continues',
     context: {
       tradeId: input.trade.id,
