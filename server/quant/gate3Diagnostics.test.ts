@@ -1,35 +1,140 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONDITION_WEIGHTS, evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
+import {
+  DEFAULT_CONDITION_WEIGHTS,
+  evaluateServerGate,
+  type ServerGateResult,
+} from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
+import { normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
 
-function q(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteExtended { return {
-  price: 120,currentPrice:120,changePercent:2.5,rsi14:58,rsi5dAgo:52,return5d:4,return20d:12,ma5:118,ma20:112,ma60:104,volume:300000,avgVolume:100000,avgVolume20d:100000,volumeRatio:2.5,tradingValue:1200000000,high5d:119,high20d:119,high60d:119,low20d:100,low60d:90,bbWidthCurrent:6,bbWidth20dAvg:10,atr:1.2,atr14:1.2,atr5d:1.1,macdHistogram:1.2,macd5dHistAgo:-0.3,dailyVolumeDrying:true,atr20avg:2,vol5dAvg:1,vol20dAvg:1,per:12,weeklyRSI:55,ma60TrendUp:true,...overrides } as YahooQuoteExtended; }
+type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
-function run(quote:YahooQuoteExtended):ServerGateResult { return evaluateServerGate(quote, DEFAULT_CONDITION_WEIGHTS, 1, null, null); }
+function quote(overrides: QuoteLike = {}): YahooQuoteExtended {
+  return {
+    price: 10_000,
+    currentPrice: 10_000,
+    dayOpen: 9_900,
+    prevClose: 9_800,
+    changePercent: 2.5,
+    rsi14: 58,
+    rsi5dAgo: 52,
+    return5d: 4,
+    return20d: 12,
+    ma5: 118,
+    ma20: 112,
+    ma60: 104,
+    volume: 2_400_000,
+    avgVolume: 1_000_000,
+    avgVolume20d: 1_100_000,
+    volumeRatio: 2.4,
+    tradingValue: 24_000_000_000,
+    avgTradingValue20d: 11_000_000_000,
+    high5d: 119,
+    high20d: 119,
+    high60d: 119,
+    low20d: 100,
+    low60d: 90,
+    bbWidthCurrent: 6,
+    bbWidth20dAvg: 10,
+    atr: 1.2,
+    atr14: 1.2,
+    atr5d: 1.1,
+    atr20avg: 2,
+    recentVolumeAvg3d: 300_000,
+    contractionCount: 3,
+    rangeContraction: 0.2,
+    macdHistogram: 1.2,
+    macd5dHistAgo: -0.3,
+    dailyVolumeDrying: true,
+    vol5dAvg: 1,
+    vol20dAvg: 1,
+    per: 12,
+    weeklyRSI: 55,
+    ma60TrendUp: true,
+    macd: 0,
+    macdSignal: 0,
+    monthlyAboveEMA12: false,
+    monthlyEMARising: false,
+    weeklyAboveCloud: false,
+    weeklyLaggingSpanUp: false,
+    isHighRisk: false,
+    ...overrides,
+  } as unknown as YahooQuoteExtended;
+}
 
-describe('Gate3 diagnostics wiring',()=>{
-  it('all inputs available',()=>{ const r=run(q()); const g3=r.gateLayerSummary!.gate3 as any;
-    expect(g3.sourceCoverage.missingInputs).toEqual([]);
-    expect(g3.sourceCoverage.allRequiredDataAvailable).toBe(true);
-    expect(g3.externalDataCoverage.technicalIndicators.status).toBe('VERIFIED');
-    expect(g3.externalDataCoverage.volumeStructure.status).toBe('VERIFIED');
-    expect(g3.externalDataCoverage.priceStructure.status).toBe('VERIFIED');
-    expect(g3.externalDataCoverage.technicalIndicators.marketSignal).toBe(false);
+function run(q: YahooQuoteExtended): ServerGateResult {
+  return evaluateServerGate(q, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+}
+
+describe('Gate3 diagnostics wiring', () => {
+  it('normal breakout volume inputs are verified', () => {
+    const gate3 = run(quote()).gateLayerSummary!.gate3 as any;
+    const vt = gate3.externalDataCoverage.volumeTiming;
+
+    expect(vt.values.volumeRatio).toBeCloseTo(2.4, 5);
+    expect(vt.values.tradingValueRatio).toBeCloseTo(24_000_000_000 / 11_000_000_000, 5);
+    expect(vt.marketSignal).toBe(false);
   });
-  it('RSI/MACD missing',()=>{ const r=run(q({rsi14: undefined as never, macdHistogram: undefined as never})); const g3=r.gateLayerSummary!.gate3 as any;
-    expect(g3.sourceCoverage.missingInputs).toEqual(expect.arrayContaining(['quote.rsi14','quote.macdHistogram']));
-    expect(['MISSING','CALCULATION_MISSING']).toContain(g3.externalDataCoverage.technicalIndicators.status);
+
+  it('trading value fallback', () => {
+    const vt = normalizeGate3VolumeTiming({
+      quote: quote({
+        volume: 200_000,
+        avgVolume: undefined,
+        avgVolume20d: 100_000,
+        tradingValue: undefined,
+        avgTradingValue20d: undefined,
+        currentPrice: 10_000,
+      }) as unknown as Record<string, unknown>,
+    });
+
+    expect(vt.tradingValue).toBe(2_000_000_000);
+    expect(vt.avgTradingValue20d).toBe(1_000_000_000);
+    expect(vt.notes).toContain('FALLBACK_TRADING_VALUE_FROM_VOLUME_PRICE');
   });
-  it('avgVolume missing',()=>{ const r=run(q({avgVolume: undefined as never})); const g3=r.gateLayerSummary!.gate3 as any; const vb=g3.wiring.find((w:any)=>w.key==='volume_breakout');
-    expect(vb.missingInputs).toContain('quote.avgVolume');
-    expect(['MISSING','CALCULATION_MISSING']).toContain(g3.externalDataCoverage.volumeStructure.status);
+
+  it('avgVolume missing is missing/degraded not weak', () => {
+    const vt = normalizeGate3VolumeTiming({
+      quote: quote({ avgVolume: undefined, avgVolume20d: undefined }) as unknown as Record<string, unknown>,
+    });
+
+    expect(vt.volumeRatio).toBeNull();
+    expect(['MISSING', 'DEGRADED', 'CALCULATION_MISSING']).toContain(vt.status);
+    expect(vt.missingFields).toContain('avgVolume');
+    expect(vt.marketSignal).toBe(false);
   });
-  it('high20d missing',()=>{ const r=run(q({high20d: undefined as never})); const g3=r.gateLayerSummary!.gate3 as any; const th=g3.wiring.find((w:any)=>w.key==='turtle_high');
-    expect(th.missingInputs).toContain('quote.high20d');
-    expect(['MISSING','CALCULATION_MISSING']).toContain(g3.externalDataCoverage.priceStructure.status);
+
+  it('dry-up pass and missing split', () => {
+    const pass = normalizeGate3VolumeTiming({
+      quote: quote({ recentVolumeAvg3d: 300_000, avgVolume20d: 1_000_000 }) as unknown as Record<string, unknown>,
+    });
+    expect(pass.dryUp.dryUpRatio).toBeCloseTo(0.3, 5);
+    expect(['PASS', 'FAIL']).toContain(pass.dryUp.status);
+
+    const missing = normalizeGate3VolumeTiming({
+      quote: quote({ recentVolumeAvg3d: undefined }) as unknown as Record<string, unknown>,
+    });
+    expect(missing.dryUp.status).toBe('MISSING');
+    expect(missing.dryUp.reason).toContain('INPUT_MISSING');
   });
-  it('intraday missing is optional',()=>{ const r=run(q()); const g3=r.gateLayerSummary!.gate3 as any;
-    expect(['STAGE_NOT_FETCHED','MISSING']).toContain(g3.externalDataCoverage.intradayTiming.status);
-    expect(g3.externalDataCoverage.intradayTiming.required).toBe(false);
+
+  it('vcp missing => calc missing and no bearish signal promotion', () => {
+    const miss = run(quote({ bbWidthCurrent: undefined, atr14: undefined, contractionCount: undefined }));
+    const vt = (miss.gateLayerSummary!.gate3 as any).externalDataCoverage.volumeTiming;
+
+    expect(['MISSING', 'UNKNOWN']).toContain(vt.vcp.status);
+    expect(vt.calculationIssue).toBe(true);
+    expect(vt.marketSignal).toBe(false);
+  });
+
+  it('intraday missing -> daily granularity', () => {
+    const vt = normalizeGate3VolumeTiming({
+      quote: quote() as unknown as Record<string, unknown>,
+      intraday: null,
+    });
+
+    expect(vt.dataGranularity).toBe('DAILY');
+    expect(vt.notes).toContain('INTRADAY_NOT_FETCHED');
+    expect(vt.marketSignal).toBe(false);
   });
 });

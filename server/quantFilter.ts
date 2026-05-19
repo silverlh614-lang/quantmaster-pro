@@ -163,8 +163,8 @@ export interface GateLayerBucket {
   passed: boolean;
   score: number;
   availableMaxScore: number;
-  wiring?: unknown;
-  sourceCoverage?: unknown;
+  wiring?: Array<Gate1WiringDiagnostic | Gate2WiringDiagnostic | Gate3WiringDiagnostic>;
+  sourceCoverage?: Gate1SourceCoverage | Gate2SourceCoverage;
   survival?: Gate1SurvivalDiagnostic;
   consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic | Gate2ConsolidatedDiagnostic;
   externalDataCoverage?: unknown;
@@ -704,7 +704,7 @@ function buildGateLayerSummary(
   const summary: GateLayerSummary = {
     gate1: { ...emptyGateLayerBucket(), wiring: [], sourceCoverage: emptyGate1SourceCoverage() },
     gate2: emptyGateLayerBucket(),
-    gate3: emptyGateLayerBucket(),
+    gate3: emptyGateLayerBucket() as GateLayerSummary['gate3'],
     finalPath: 'WATCHLIST_ONLY',
   };
 
@@ -740,14 +740,14 @@ function buildGateLayerSummary(
   summary.gate2.sourceCoverage = buildGate2SourceCoverage(gate2Wiring);
   summary.gate2.externalDataCoverage = buildGate2ExternalDataCoverage(gate2Wiring, gate2ExternalCoverageInput);
   const gate3Wiring = buildGate3WiringDiagnostics({ outputs, layerMap: GATE_CONDITION_LAYER_MAP });
-  summary.gate3.wiring = gate3Wiring;
-  summary.gate3.sourceCoverage = buildGate3SourceCoverage(gate3Wiring);
-  summary.gate3.externalDataCoverage = buildGate3ExternalDataCoverage(gate2ExternalCoverageInput.quote as Record<string, unknown> ?? {});
+  (summary.gate3 as unknown as { wiring?: Gate3WiringDiagnostic[] }).wiring = gate3Wiring;
+  (summary.gate3 as unknown as { sourceCoverage?: Gate3SourceCoverage }).sourceCoverage = buildGate3SourceCoverage(gate3Wiring);
+  (summary.gate3 as unknown as { externalDataCoverage?: Gate3ExternalDataCoverage }).externalDataCoverage = buildGate3ExternalDataCoverage(gate2ExternalCoverageInput.quote as Record<string, unknown> ?? {});
 
   summary.gate2.consolidatedDiagnostic = buildGate2ConsolidatedDiagnostic({
     gate2: {
       sourceCoverage: summary.gate2.sourceCoverage as Gate2SourceCoverage,
-      externalDataCoverage: summary.gate2.externalDataCoverage,
+      externalDataCoverage: summary.gate2.externalDataCoverage as Gate2ExternalDataCoverage | undefined,
     },
     evaluationStage: gate2ExternalCoverageInput?.evaluationStage,
   });
