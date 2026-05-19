@@ -401,15 +401,29 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
   }
 
   if (snapshot.riskOverride !== 'NONE' && snapshot.mhsLabel === 'GREEN') {
+    const userVisibleSafe = displayRegime === 'R6_DEFENSE' && mhsDisplayLabel === 'OVERRIDDEN_BY_R6' && liveNewBuyAllowed === false;
     emitMarketStateOperationalWarn({
       code: 'P1_MHS_BIAS_CONFLICT',
       message: '[MHS_RISK_OVERRIDE_CONFLICT] action=RISK_OVERRIDE_PRIORITY',
       dedupKey: `market-state:mhs-risk-override:${snapshot.riskOverride}:${snapshot.mhs}`,
+      executionImpact: userVisibleSafe ? 'NONE' : 'REGIME_DISPLAY_CONFLICT',
       details: {
         snapshotId: snapshot.snapshotId,
+        rawMhs: snapshot.mhs,
+        rawMhsLabel: snapshot.mhsLabel,
+        mhsDisplayLabel,
+        biasScore: snapshot.biasScore,
+        biasLabel: snapshot.biasLabel,
         riskOverride: snapshot.riskOverride,
-        mhs: snapshot.mhs,
-        mhsLabel: snapshot.mhsLabel,
+        detectedRegime: snapshot.detectedRegime,
+        effectiveRegime: snapshot.effectiveRegime,
+        displayRegime,
+        displaySeverity,
+        liveNewBuyAllowed,
+        telegramDisplayRegime: displayRegime,
+        correctionApplied: true,
+        userVisibleSafe,
+        selectedDisplaySource: 'R6_OVERRIDE',
       },
     });
     reasonCodes.add('MHS_GREEN_BUT_RISK_OVERRIDE_PRIORITY');

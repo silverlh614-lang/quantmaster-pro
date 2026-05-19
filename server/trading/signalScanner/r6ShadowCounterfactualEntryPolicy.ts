@@ -134,7 +134,8 @@ interface ShadowDedupSourceCounts {
 }
 
 interface StaleDedupLockContext {
-  lockAgeSec: number;
+  lockAgeSec: number | null;
+  invalidTimestamp: boolean;
   lockCreatedAt: string;
   lockKey: string;
   symbol: string;
@@ -248,12 +249,25 @@ function counterfactualOnlyEnabled(): boolean {
   return process.env.R6_COUNTERFACTUAL_ONLY === 'true' || process.env.R6_COUNTERFACTUAL_OPEN_POSITION_ENABLED === 'false';
 }
 
+function isUsableRegime(value: unknown): value is string {
+  return typeof value === 'string' && value !== '' && value !== 'NONE' && value !== 'UNKNOWN';
+}
+
 function resolvePolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowPolicyRegime | null {
   const macro = input.macroGateState;
   const status = macro?.r6RecoveryStatus;
-  if (status === 'R6_CONFIRMATION_WAIT') return 'R6_CONFIRMATION_WAIT';
-  if (status === 'R6_RECOVERY_WATCH') return 'R6_RECOVERY_WATCH';
-  if (macro?.regime === 'R6_DEFENSE' || macro?.bearDefenseMode === true) return 'R6_DEFENSE';
+  const inputRegime = readString(macro, ['regime']);
+  const effective = readString(macro, ['macroRegimeEffective', 'effectiveRegime']);
+  const display = readString(macro, ['displayRegime']);
+  const override = readString(macro, ['riskOverride']);
+  const resolvedRegime = isUsableRegime(inputRegime) ? inputRegime : (effective ?? display ?? 'UNKNOWN');
+  if ((inputRegime === 'NONE' || inputRegime === 'UNKNOWN') && (isUsableRegime(effective) || isUsableRegime(display) || override === 'R6_DEFENSE' || override === 'BLACK_SWAN')) {
+    console.warn(`[P1_REGIME_CONTEXT_MISSING_FOR_SHADOW_POLICY] inputRegime=${inputRegime} fallbackEffectiveRegime=${effective ?? 'UNKNOWN'} fallbackDisplayRegime=${display ?? 'UNKNOWN'} riskOverride=${override ?? 'NONE'} correctionApplied=true executionImpact=NONE`);
+  }
+  if (override === 'R6_DEFENSE' || override === 'BLACK_SWAN') return 'R6_DEFENSE';
+  if (status === 'R6_CONFIRMATION_WAIT' || resolvedRegime === 'R6_CONFIRMATION_WAIT') return 'R6_CONFIRMATION_WAIT';
+  if (status === 'R6_RECOVERY_WATCH' || resolvedRegime === 'R6_RECOVERY_WATCH') return 'R6_RECOVERY_WATCH';
+  if (resolvedRegime === 'R6_DEFENSE' || macro?.bearDefenseMode === true) return 'R6_DEFENSE';
   if (input.preview.reason?.includes('R6_CONFIRMATION_WAIT')) return 'R6_CONFIRMATION_WAIT';
   if (input.preview.reason?.includes('R6_RECOVERY_WATCH')) return 'R6_RECOVERY_WATCH';
   if (input.preview.reason?.includes('R6_DEFENSE')) return 'R6_DEFENSE';
@@ -294,6 +308,7 @@ function hasDuplicateEntry(params: {
   entryType: R6ShadowEntryType;
   tradingDate: string;
   regime: R6ShadowPolicyRegime;
+  now: Date;
 }): { reason: 'DUPLICATE_SAME_SYMBOL_OPEN' | 'DUPLICATE_SAME_SYMBOL_PENDING' | 'STALE_DEDUP_LOCK' | null; staleLock?: StaleDedupLockContext } {
   for (const trade of params.trades) {
     if (trade.stockCode !== params.symbol) continue;
@@ -305,15 +320,19 @@ function hasDuplicateEntry(params: {
       meta?.tradingDate === params.tradingDate &&
       meta?.regime === params.regime
     ) {
-      const lockCreatedAt = trade.updatedAt ?? trade.createdAt ?? new Date(0).toISOString();
-      const lockAgeSec = Math.max(0, Math.floor((params.now.getTime() - new Date(lockCreatedAt).getTime()) / 1000));
+      const createdAtMs = readNumber(trade.r6Counterfactual, ['createdAtMs']) ?? readNumber(trade, ['updatedAtMs', 'createdAtMs']);
+      const createdAtIso = readString(trade.r6Counterfactual, ['createdAtIso']) ?? trade.updatedAt ?? trade.createdAt ?? new Date(0).toISOString();
+      const parsedMs = Date.parse(createdAtIso);
+      const invalidTimestamp = !createdAtMs || createdAtMs <= 0 || !Number.isFinite(parsedMs) || createdAtIso.startsWith('1970-01-01');
+      const lockAgeSec = invalidTimestamp ? null : Math.max(0, Math.floor((params.now.getTime() - parsedMs) / 1000));
       const sourceCounts = countShadowDedupSources(params.trades);
       const configuredTtlSec = getConfiguredDedupTtlSec();
       return {
         reason: 'STALE_DEDUP_LOCK',
         staleLock: {
           lockAgeSec,
-          lockCreatedAt,
+          invalidTimestamp,
+          lockCreatedAt: createdAtIso,
           lockKey: `${params.entryType}:${params.symbol}:${params.tradingDate}:${params.regime}`,
           symbol: params.symbol,
           strategy: params.entryType,
@@ -567,6 +586,8 @@ function buildShadowTrade(input: {
     r6Counterfactual: {
       tradingDate: input.tradingDate,
       regime: input.regime,
+      createdAtMs: Date.now(),
+      createdAtIso: input.nowIso,
       entryRegime,
       entryEffectiveState,
       transitionPath: [entryRegime],
@@ -793,21 +814,22 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
         const stale = duplicateReason.staleLock;
         const c = stale.sourceCounts;
         console.info(
-          `[SHADOW_DEDUP_LOCK_CHECK] lockAgeSec=${stale.lockAgeSec} lockCreatedAt=${stale.lockCreatedAt} ` +
+          `[SHADOW_DEDUP_LOCK_CHECK] lockAgeSec=${stale.lockAgeSec ?? 'null'} invalidTimestamp=${stale.invalidTimestamp} lockCreatedAt=${stale.lockCreatedAt} ` +
           `lockKey=${stale.lockKey} symbol=${stale.symbol} strategy=${stale.strategy} side=${stale.side} session=${stale.session} ` +
           `openShadowPositions=${c.openShadowPositions} pendingShadowOrders=${c.pendingShadowOrders} ` +
           `paperOpenCount=${c.paperOpenCount} virtualHoldingCount=${c.virtualHoldingCount} configuredTtlSec=${stale.configuredTtlSec} executionImpact=NONE`,
         );
-        const shouldClear = c.openShadowPositions === 0 && c.pendingShadowOrders === 0 && c.paperOpenCount === 0
-          && c.virtualHoldingCount === 0 && stale.lockAgeSec > stale.configuredTtlSec;
+        const noOpenOrPending = c.openShadowPositions === 0 && c.pendingShadowOrders === 0 && c.paperOpenCount === 0
+          && c.virtualHoldingCount === 0;
+        const shouldClear = noOpenOrPending && (stale.invalidTimestamp || ((stale.lockAgeSec ?? 0) > stale.configuredTtlSec));
         if (shouldClear) {
           const target = trades.find((trade) => trade.stockCode === symbol && trade.entryType === 'R6_COUNTERFACTUAL_BUY' && trade.r6Counterfactual?.tradingDate === tradingDate && trade.r6Counterfactual?.regime === regime);
           if (target) {
             target.entryType = 'SHADOW_BUY_SIGNAL';
             delete target.r6Counterfactual;
-            console.info(
-              `[SHADOW_DEDUP_STALE_LOCK_CLEARED] symbol=${symbol} lockKey=${stale.lockKey} lockAgeSec=${stale.lockAgeSec} configuredTtlSec=${stale.configuredTtlSec} executionImpact=NONE`,
-            );
+            const event = stale.invalidTimestamp ? 'SHADOW_DEDUP_INVALID_TIMESTAMP_LOCK_CLEARED' : 'SHADOW_DEDUP_STALE_LOCK_CLEARED';
+            const reason = stale.invalidTimestamp ? 'INVALID_TIMESTAMP_AND_NO_OPEN_OR_PENDING_POSITION' : 'TTL_EXPIRED_AND_NO_OPEN_OR_PENDING_POSITION';
+            console.info(`[${event}] symbol=${symbol} lockKey=${stale.lockKey} createdAtIso=${stale.lockCreatedAt} reason=${reason} executionImpact=NONE`);
             staleDedupBlocked = Math.max(0, staleDedupBlocked - 1);
             continue;
           }
