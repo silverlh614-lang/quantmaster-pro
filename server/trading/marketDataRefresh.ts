@@ -30,6 +30,7 @@ import { resolveRegimeSnapshot } from './regime/regimeResolver.js';
 import { classifyMacroDataHealth, listMacroDataHealthIssues, summarizeMacroDataHealth } from './regime/macroDataHealthRouter.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
+import { enforceRowInvariant, resolveCombinedSource } from './programMarketSnapshot.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
@@ -793,8 +794,17 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     const rawNonArb = marketProgram.programNonArbitrageNetBuy ?? null;
     const rawNonZero = [rawWhole, rawArb, rawNonArb].some((v) => typeof v === 'number' && v !== 0);
     const agg = (marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined) ?? {};
-    const aggSource = String(agg.combinedSource ?? 'UNKNOWN');
-    const combinedSource = (['KOSPI_PLUS_KOSDAQ','SINGLE_KIS_RESPONSE','CACHE','UNKNOWN'].includes(aggSource) ? aggSource : 'UNKNOWN') as 'KOSPI_PLUS_KOSDAQ'|'SINGLE_KIS_RESPONSE'|'CACHE'|'UNKNOWN';
+    const bundle = (agg.rowBreakdownBundle as Record<string, unknown> | undefined) ?? {};
+    const bk = (bundle.kospi as Record<string, unknown> | undefined) ?? {};
+    const bq = (bundle.kosdaq as Record<string, unknown> | undefined) ?? {};
+    const bc = (bundle.combined as Record<string, unknown> | undefined) ?? {};
+    const kospiLen = Number(bk.outputLength ?? marketProgram.kospiDiagnostics?.rowCount ?? 0);
+    const kosdaqLen = Number(bq.outputLength ?? marketProgram.kosdaqDiagnostics?.rowCount ?? 0);
+    const combinedLen = Number(bc.outputLength ?? (kospiLen + kosdaqLen));
+    const combinedSource = resolveCombinedSource({
+      kospiRequested: true, kosdaqRequested: true, kospiOutputLength: kospiLen, kosdaqOutputLength: kosdaqLen,
+      combinedOutputLength: combinedLen, combinedMatchesSplit: combinedLen === (kospiLen + kosdaqLen), upstreamHint: String(agg.combinedSource ?? ''),
+    });
     const splitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ';
     const combinedOnly = !splitAvailable;
     computed.programMarket = {
@@ -839,7 +849,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       rowBreakdown: {
         kospi: {
           outputLength: splitAvailable ? (marketProgram.kospiDiagnostics?.rowCount ?? 0) : -1,
-          nonZeroRows: marketProgram.kospiDiagnostics?.nonZeroRowCount ?? 0,
+          nonZeroRows: enforceRowInvariant(splitAvailable ? (marketProgram.kospiDiagnostics?.rowCount ?? 0) : 0, marketProgram.kospiDiagnostics?.nonZeroRowCount ?? 0),
           selectedBsopHour: marketProgram.kospiDiagnostics?.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: marketProgram.kospiNetBuyAmount ?? null,
           rawArbitrageNetBuy: null,
@@ -849,7 +859,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         },
         kosdaq: {
           outputLength: splitAvailable ? (marketProgram.kosdaqDiagnostics?.rowCount ?? 0) : -1,
-          nonZeroRows: marketProgram.kosdaqDiagnostics?.nonZeroRowCount ?? 0,
+          nonZeroRows: enforceRowInvariant(splitAvailable ? (marketProgram.kosdaqDiagnostics?.rowCount ?? 0) : 0, marketProgram.kosdaqDiagnostics?.nonZeroRowCount ?? 0),
           selectedBsopHour: marketProgram.kosdaqDiagnostics?.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: marketProgram.kosdaqNetBuyAmount ?? null,
           rawArbitrageNetBuy: null,
@@ -859,7 +869,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         },
         combined: {
           outputLength: (marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0),
-          nonZeroRows: marketProgram.nonZeroRowCount ?? 0,
+          nonZeroRows: enforceRowInvariant((marketProgram.kospiDiagnostics?.rowCount ?? 0) + (marketProgram.kosdaqDiagnostics?.rowCount ?? 0), marketProgram.nonZeroRowCount ?? 0),
           selectedBsopHour: marketProgram.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: rawWhole,
           rawArbitrageNetBuy: rawArb,
@@ -869,7 +879,10 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         },
       },
     };
-    const structured = `selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} selectedDisplayUnitAssumption=UNVERIFIED rawUnitAssumption=UNVERIFIED mappingConfidence=UNIT_UNVERIFIED scoring=shadow_only useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
+    const snapshotId = `pm_${Date.now()}`;
+    (computed.programMarket as any).snapshotId = snapshotId;
+    (computed.programMarket as any).snapshotSource = combinedSource;
+    const structured = `snapshotId=${snapshotId} selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} selectedDisplayUnitAssumption=UNVERIFIED rawUnitAssumption=UNVERIFIED mappingConfidence=UNIT_UNVERIFIED scoring=shadow_only useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`; 
     console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_MACROSTATE_PERSISTED] ${structured}`);

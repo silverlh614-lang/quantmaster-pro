@@ -104,6 +104,8 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     }
   }
 
+  lines.push(`snapshotId=${(pm as any)?.snapshotId ?? 'N/A'}`);
+  lines.push(`snapshotSource=${(pm as any)?.snapshotSource ?? (pm as any)?.combinedSource ?? 'UNKNOWN'}`);
   if (pm?.rowBreakdown) {
     lines.push('');
     lines.push('rowBreakdown:');
