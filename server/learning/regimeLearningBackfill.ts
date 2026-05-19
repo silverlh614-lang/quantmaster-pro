@@ -280,6 +280,15 @@ export interface RegimeUnknownRepairResult {
   priorityDateReconstructionStatus: PriorityDateReconstructionStatus;
   priorityDateRecoveredSampleCount: number;
   priorityDateFailureReason: string;
+  telegramArchiveCountByDate: Record<string, number>;
+  telegramArchiveRegimePatternMatchedByDate: Record<string, number>;
+  telegramArchiveEffectiveRegimeExtractedByDate: Record<string, number>;
+  telegramArchiveRejectedNoRegimeByDate: Record<string, number>;
+  telegramArchiveParseFailureTopReasons: string[];
+  priorityDateTelegramArchiveCount: number;
+  priorityDateRegimePatternMatched: number;
+  priorityDateEffectiveRegimeExtracted: number;
+  priorityDateTelegramParseFailureReason: string;
   failureSampleKeys: string[];
   executionImpact: 'NONE';
   brokerOrdersCreated: 0;
@@ -723,6 +732,26 @@ function tokenFromText(text: string, keys: string[]): string | undefined {
   return undefined;
 }
 
+function parseTelegramRegimeSignal(text: string): { rawRegime?: string; effectiveRegime?: string; riskOverride?: string; matched: boolean; failureReason?: string } {
+  const normalized = text.replace(/\s+/g, ' ');
+  const rawRegime = tokenFromText(normalized, ['rawRegime', 'detectedRegime']);
+  const explicitEffective = tokenFromText(normalized, ['effectiveRegime', 'activeRegime', 'displayRegime', 'regime']);
+  const riskOverride = tokenFromText(normalized, ['riskOverride']);
+  const literalRegime = normalized.match(/\bR[1-6]_[A-Z_]+\b/)?.[0];
+  const koreanDisplay = /레짐\s*GREEN/i.test(normalized) ? 'GREEN' : undefined;
+  const blockDefense = /R6_DEFENSE.*(차단|BLOCK|Blocked)/i.test(normalized) ? 'R6_DEFENSE' : undefined;
+  const shadowBlocked = /Shadow\s*ON\s*\/\s*Live Buy Blocked/i.test(normalized) ? 'R6_DEFENSE' : undefined;
+  const effectiveRegime = explicitEffective ?? blockDefense ?? shadowBlocked ?? literalRegime ?? koreanDisplay ?? rawRegime;
+  const matched = Boolean(rawRegime || explicitEffective || riskOverride || literalRegime || koreanDisplay || blockDefense || shadowBlocked);
+  return {
+    rawRegime: rawRegime ?? literalRegime ?? effectiveRegime,
+    effectiveRegime,
+    riskOverride,
+    matched,
+    failureReason: matched ? undefined : 'TELEGRAM_ARCHIVE_FOUND_BUT_NO_REGIME_PATTERN',
+  };
+}
+
 function normalizeReconstructionSourceHint(value: string | undefined): RegimeSnapshotReconstructionSource | undefined {
   const source = String(value ?? '').trim().toUpperCase();
   if (!source) return undefined;
@@ -770,9 +799,10 @@ function primarySourceFromText(text: string, hintedSource?: string): RegimeSnaps
 function candidateFromText(text: string, fallbackDate?: string, hintedSource?: string): ReconstructionCandidate | undefined {
   const tradingDate = dateFromText(text, fallbackDate);
   if (!tradingDate) return undefined;
-  const rawRegime = tokenFromText(text, ['rawRegime', 'detectedRegime', 'macroRegimeRaw', 'raw']);
-  const effectiveRegime = tokenFromText(text, ['effectiveRegime', 'macroRegimeEffective', 'displayRegime', 'activeRegime', 'regime']);
-  const riskOverride = tokenFromText(text, ['riskOverride']);
+  const parsedTelegram = /TELEGRAM/i.test(`${hintedSource ?? ''} ${text}`) ? parseTelegramRegimeSignal(text) : undefined;
+  const rawRegime = parsedTelegram?.rawRegime ?? tokenFromText(text, ['rawRegime', 'detectedRegime', 'macroRegimeRaw', 'raw']);
+  const effectiveRegime = parsedTelegram?.effectiveRegime ?? tokenFromText(text, ['effectiveRegime', 'macroRegimeEffective', 'displayRegime', 'activeRegime', 'regime']);
+  const riskOverride = parsedTelegram?.riskOverride ?? tokenFromText(text, ['riskOverride']);
   const source = primarySourceFromText(text, hintedSource)
     ?? (riskOverride ? 'RISK_OVERRIDE_EVENT_LOG' : undefined);
   if (!source) return undefined;
@@ -1523,6 +1553,11 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   const failureByTradingDate: Record<string, number> = {};
   const snapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage> = {};
   const failureSampleKeys: string[] = [];
+  const telegramArchiveCountByDate: Record<string, number> = {};
+  const telegramArchiveRegimePatternMatchedByDate: Record<string, number> = {};
+  const telegramArchiveEffectiveRegimeExtractedByDate: Record<string, number> = {};
+  const telegramArchiveRejectedNoRegimeByDate: Record<string, number> = {};
+  const telegramArchiveParseFailureReasonCounts: Record<string, number> = {};
   const seenAttemptKeys = new Set<string>();
   let scannedUnknown = 0;
   let attemptedUnique = 0;
@@ -1530,6 +1565,20 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   let repaired = 0;
   let stillUnknown = 0;
   let priorityDateRecoveredSampleCount = 0;
+
+  for (const entry of getRecentAlertHistory(1000)) {
+    const date = tradingDateKey(entry.at);
+    if (!date) continue;
+    inc(telegramArchiveCountByDate, date);
+    const parsed = parseTelegramRegimeSignal(entry.message ?? '');
+    if (!parsed.matched) {
+      inc(telegramArchiveRejectedNoRegimeByDate, date);
+      inc(telegramArchiveParseFailureReasonCounts, parsed.failureReason ?? 'TELEGRAM_ARCHIVE_PARSE_FAILED');
+      continue;
+    }
+    inc(telegramArchiveRegimePatternMatchedByDate, date);
+    if (parsed.effectiveRegime) inc(telegramArchiveEffectiveRegimeExtractedByDate, date);
+  }
 
   for (const item of rows) {
     if (!isUnknownRow(item.row)) continue;
@@ -1631,7 +1680,11 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
       ? 'UNRECOVERABLE_MISSING_REGIME_SOURCE'
       : priorityDateReconstructionStatus === 'NOT_ATTEMPTED'
         ? 'NOT_ATTEMPTED'
-        : 'RECONSTRUCTION_FAILED';
+        : 'TELEGRAM_ARCHIVE_PARSE_FAILED';
+  const telegramArchiveParseFailureTopReasons = Object.entries(telegramArchiveParseFailureReasonCounts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 5)
+    .map(([reason, count]) => `${reason}:${count}`);
 
   return {
     scannedUnknown,
@@ -1667,6 +1720,15 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
     priorityDateReconstructionStatus,
     priorityDateRecoveredSampleCount,
     priorityDateFailureReason,
+    telegramArchiveCountByDate,
+    telegramArchiveRegimePatternMatchedByDate,
+    telegramArchiveEffectiveRegimeExtractedByDate,
+    telegramArchiveRejectedNoRegimeByDate,
+    telegramArchiveParseFailureTopReasons,
+    priorityDateTelegramArchiveCount: telegramArchiveCountByDate[REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE] ?? 0,
+    priorityDateRegimePatternMatched: telegramArchiveRegimePatternMatchedByDate[REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE] ?? 0,
+    priorityDateEffectiveRegimeExtracted: telegramArchiveEffectiveRegimeExtractedByDate[REGIME_SNAPSHOT_RECONSTRUCTION_PRIORITY_DATE] ?? 0,
+    priorityDateTelegramParseFailureReason: telegramArchiveParseFailureTopReasons[0]?.split(':')[0] ?? 'NONE',
     failureSampleKeys,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
@@ -1749,6 +1811,15 @@ export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'd
     `priorityDateReconstructionStatus=${s.priorityDateReconstructionStatus}`,
     `priorityDateRecoveredSampleCount=${s.priorityDateRecoveredSampleCount}`,
     `priorityDateFailureReason=${s.priorityDateFailureReason}`,
+    `telegramArchiveCountByDate=${JSON.stringify(s.telegramArchiveCountByDate)}`,
+    `telegramArchiveRegimePatternMatchedByDate=${JSON.stringify(s.telegramArchiveRegimePatternMatchedByDate)}`,
+    `telegramArchiveEffectiveRegimeExtractedByDate=${JSON.stringify(s.telegramArchiveEffectiveRegimeExtractedByDate)}`,
+    `telegramArchiveRejectedNoRegimeByDate=${JSON.stringify(s.telegramArchiveRejectedNoRegimeByDate)}`,
+    `telegramArchiveParseFailureTopReasons=${JSON.stringify(s.telegramArchiveParseFailureTopReasons)}`,
+    `priorityDateTelegramArchiveCount=${s.priorityDateTelegramArchiveCount}`,
+    `priorityDateRegimePatternMatched=${s.priorityDateRegimePatternMatched}`,
+    `priorityDateEffectiveRegimeExtracted=${s.priorityDateEffectiveRegimeExtracted}`,
+    `priorityDateTelegramParseFailureReason=${s.priorityDateTelegramParseFailureReason}`,
     `failureSampleKeys=${JSON.stringify(s.failureSampleKeys)}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');
