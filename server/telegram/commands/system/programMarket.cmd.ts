@@ -132,7 +132,7 @@ function appendProgramMarketStatusLines(
     : finalStatus;
   const snapshotId = (macro?.programMarket as any)?.snapshotId;
   const mappingConfidence = macro?.programMarket?.unit?.mappingConfidence ?? 'UNIT_UNVERIFIED';
-  const isCandidateOnly = mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN';
+  const isCandidateOnly = combinedSource === 'UNKNOWN';
   const qtyEmoji = isCandidateOnly ? '🟡' : liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
   const qtyLabel = isCandidateOnly
     ? `시장 프로그램 방향 후보: ${liveQty > 0 ? '순매수' : liveQty < 0 ? '순매도' : '중립'}`
@@ -145,18 +145,17 @@ function appendProgramMarketStatusLines(
   lines.push(`${statusEmoji} displayStatus: ${displayStatus}`);
   lines.push(`finalStatus: ${displayStatus}`);
   lines.push(`scoring: ${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'excluded' : 'advisory'}`);
-  if (isCandidateOnly) {
-    lines.push(`confidence: LOW`);
-    const sourceLabel = combinedSource === 'KOSPI_PLUS_KOSDAQ'
-      ? 'SOURCE_KOSPI_PLUS_KOSDAQ'
-      : combinedSource === 'SINGLE_KIS_RESPONSE'
-        ? 'SINGLE_KIS_RESPONSE'
-        : combinedSource === 'CACHE'
-          ? 'SOURCE_CACHE'
-          : 'SOURCE_UNKNOWN';
-    const reasonSource = finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'SNAPSHOT_INCONSISTENT' : sourceLabel;
-    lines.push(`reason: ${mappingConfidence === 'UNIT_UNVERIFIED' ? 'UNIT_UNVERIFIED' : 'MAPPING_VERIFIED'} + ${reasonSource}`);
-  }
+  const sourceLabel = combinedSource === 'KOSPI_PLUS_KOSDAQ'
+    ? 'SOURCE_KOSPI_PLUS_KOSDAQ'
+    : combinedSource === 'SINGLE_KIS_RESPONSE'
+      ? 'SINGLE_KIS_RESPONSE'
+      : combinedSource === 'CACHE'
+        ? 'SOURCE_CACHE'
+        : 'SOURCE_UNKNOWN';
+  const reasonSource = finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'SNAPSHOT_INCONSISTENT' : sourceLabel;
+  lines.push(`confidence: ${isCandidateOnly ? 'LOW' : 'MEDIUM'}`);
+  lines.push(`unit: ${macro?.programMarket?.unit.rawUnitAssumption ?? 'N/A'} / ${mappingConfidence}`);
+  lines.push(`reason: ${mappingConfidence} + ${reasonSource}`);
   lines.push('executionImpact: NONE');
   lines.push('useForExecution: false');
   lines.push('useForShadow: true');
@@ -255,12 +254,12 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
         lines.push('  • 단위: 천원 기준 확정');
         lines.push('  • 표시: 억원 환산');
       }
-      if (macro.programMarket.unit.rawUnitAssumption === 'UNVERIFIED' && macro.programMarket.unitCandidates) {
+      if (macro.programMarket.unitCandidates) {
         lines.push('  • 단위 후보:');
         lines.push(`    - 원 기준: ${macro.programMarket.unitCandidates.KRW}`);
         lines.push(`    - 천원 기준: ${macro.programMarket.unitCandidates.KRW_1K}`);
         lines.push(`    - 백만원 기준: ${macro.programMarket.unitCandidates.KRW_1M}`);
-        lines.push('    현재 적용: UNVERIFIED / shadow_only');
+        lines.push(`    현재 적용: ${macro.programMarket.unit.rawUnitAssumption} / ${macro.programMarket.policy?.scoring ?? 'N/A'}`);
       }
     }
   } else if (macro?.programSource === 'NONE') {

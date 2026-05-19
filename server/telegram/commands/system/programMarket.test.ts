@@ -186,7 +186,6 @@ describe('buildProgramMarketMessage', () => {
     expect(msg).toContain('• 차익: +0.86억원');
     expect(msg).toContain('• 비차익: -28.59억원');
     expect(msg).not.toContain('• 순매수: 0억원');
-    expect(msg).not.toContain('단위 후보');
     expect(msg).toContain('단위: 천원 기준 확정');
     expect(msg).toContain('표시: 억원 환산');
   });
