@@ -107,6 +107,33 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
   const snapshotId = (pm as any)?.snapshotId;
   const finalStatus = (pm as any)?.finalStatus ?? 'UNKNOWN';
   const rawStatus = (pm as any)?.rawStatus ?? (pm as any)?.status ?? 'UNKNOWN';
+  const probeFirstRowBsopHour = (rawDiag.sample?.bsop_hour ?? rawDiag.sample?.stck_bsop_date) as string | undefined;
+  const probeFirstRowRawWhole = (rawDiag.sample?.whol_smtn_ntby_tr_pbmn ?? rawDiag.sample?.whol_smtn_ntby_tr_pbmn1) as string | number | undefined;
+  const persistedSelectedBsopHour = (pm?.rowBreakdown?.combined?.selectedBsopHour ?? pm?.selectedBsopHour ?? 'N/A') as string;
+  const probeSnapshotDifferent = Boolean(probeFirstRowBsopHour && persistedSelectedBsopHour && probeFirstRowBsopHour !== persistedSelectedBsopHour);
+
+  lines.push('');
+  lines.push('Current KIS Probe:');
+  lines.push(`- requestedAt: ${requestedAt}`);
+  lines.push(`- firstRowBsopHour: ${probeFirstRowBsopHour ?? 'N/A'}`);
+  lines.push(`- firstRowRawWhole: ${probeFirstRowRawWhole ?? 'N/A'}`);
+  lines.push('- source: direct_probe');
+  lines.push('- usedForMacroState: false');
+
+  lines.push('');
+  lines.push('Persisted Snapshot:');
+  lines.push(`- snapshotId: ${snapshotId ?? 'SNAPSHOT_MISSING'}`);
+  lines.push(`- asOf: ${(pm as any)?.asOfKst ?? macro?.updatedAt ?? 'N/A'}`);
+  lines.push(`- requestedAt: ${(pm as any)?.asOfKst ?? macro?.updatedAt ?? 'N/A'}`);
+  lines.push(`- selectedBsopHour: ${persistedSelectedBsopHour}`);
+  lines.push(`- KOSPI rows: ${pm?.rowBreakdown?.kospi?.outputLength ?? 0}`);
+  lines.push(`- KOSDAQ rows: ${pm?.rowBreakdown?.kosdaq?.outputLength ?? 0}`);
+  lines.push(`- COMBINED rows: ${pm?.rowBreakdown?.combined?.outputLength ?? 0}`);
+  lines.push(`- rawWhole: ${pm?.rowBreakdown?.combined?.rawWholeNetBuy ?? 'N/A'}`);
+  lines.push(`- source: macroState_snapshot`);
+  lines.push(`- scoring: ${pm?.policy?.scoring ?? 'N/A'}`);
+  lines.push(`- probeSnapshotDifferent: ${probeSnapshotDifferent}`);
+
   lines.push(`displayStatus=${finalStatus}`);
   lines.push(`rawStatus=${rawStatus}`);
   lines.push(`snapshotId=${snapshotId ?? 'SNAPSHOT_MISSING'}`);

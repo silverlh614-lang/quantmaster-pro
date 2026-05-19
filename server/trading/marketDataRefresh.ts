@@ -72,7 +72,9 @@ function hasSnapshotInvariantViolation(input: {
   if (input.combinedLen === 0 && input.combinedNonZero !== 0) return { violated: true, reason: 'combinedOutputLength is 0 but nonZeroRows is non-zero', snapshotMismatch };
   if (input.kospiLen === 0 && input.kosdaqLen === 0 && input.combinedSource === 'KOSPI_PLUS_KOSDAQ') return { violated: true, reason: 'empty split rows cannot be KOSPI_PLUS_KOSDAQ', snapshotMismatch };
   if (input.combinedSource === 'KOSPI_PLUS_KOSDAQ' && input.combinedLen !== (input.kospiLen + input.kosdaqLen)) return { violated: true, reason: 'combined length does not match split sum', snapshotMismatch };
-  if (snapshotMismatch) return { violated: true, reason: 'raw top bsop_hour differs from selected bsop_hour', snapshotMismatch };
+  // snapshotMismatch 는 "동일 스냅샷 불변식 위반"이 아니라
+  // "direct probe vs persisted snapshot 시각 차이" 관측치로만 사용한다.
+  // (raw diagnostic 용 probe 와 macroState snapshot 분리 정책)
   return { violated: false, reason: 'NONE', snapshotMismatch };
 }
 
