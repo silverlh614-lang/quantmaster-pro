@@ -35,7 +35,7 @@ import { isTradingDay } from '../../utils/marketDayClassifier.js';
 import {
   MARKET_PROGRAM_TRADE_TR_ID,
   MARKET_PROGRAM_TRADE_PATH,
-  buildMarketProgramParams,
+  buildMarketProgramTradeTodayParams,
   materializeKisMarketProgramTrade,
 } from './programMaterializer.js';
 import { classifyInvestorFlowPayload, classifyShortPayload } from './payloadValidators.js';
@@ -502,21 +502,48 @@ export async function fetchKisMarketProgramTrade(
   if (overrides.fetchKisMarketProgramTrade) return overrides.fetchKisMarketProgramTrade();
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
   try {
-    const data = await realDataKisGet(
+    const [kospiData, kosdaqData] = await Promise.all([
+      realDataKisGet(
       MARKET_PROGRAM_TRADE_TR_ID,
       MARKET_PROGRAM_TRADE_PATH,
-      buildMarketProgramParams(),
+      buildMarketProgramTradeTodayParams('K'),
       priority,
-    );
+    ),
+      realDataKisGet(
+        MARKET_PROGRAM_TRADE_TR_ID,
+        MARKET_PROGRAM_TRADE_PATH,
+        buildMarketProgramTradeTodayParams('Q'),
+        priority,
+      ),
+    ]);
     // [임시 진단 도구 — 5/4 영업일 검증 후 제거 예정]
     // 사용자 P1 #4 (DEBUG_PROGRAM_RAW ENV 우회) — 응답 필드 키 미스매치 vs 휴장일 효과 구분.
     // 정상 검증 후 별도 PR 로 본 블록 제거 의무.
     if (process.env.DEBUG_PROGRAM_RAW === 'true') {
-      console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify(data));
+      console.log('[DEBUG_PROGRAM_RAW] market', JSON.stringify({ kospiData, kosdaqData }));
     }
-
-    const result = materializeKisMarketProgramTrade(data);
-    if (result.materialized) return result.materialized;
+    const kospi = materializeKisMarketProgramTrade(kospiData);
+    const kosdaq = materializeKisMarketProgramTrade(kosdaqData);
+    const pick = kospi.materialized ?? kosdaq.materialized;
+    if (pick) {
+      const k = kospi.materialized;
+      const q = kosdaq.materialized;
+      return {
+        ...pick,
+        programNetBuyQty: (k?.programNetBuyQty ?? 0) + (q?.programNetBuyQty ?? 0),
+        programNetBuyAmount: (k?.programNetBuyAmount ?? 0) + (q?.programNetBuyAmount ?? 0),
+        programArbitrageNetBuy: (k?.programArbitrageNetBuy ?? 0) + (q?.programArbitrageNetBuy ?? 0),
+        programNonArbitrageNetBuy: (k?.programNonArbitrageNetBuy ?? 0) + (q?.programNonArbitrageNetBuy ?? 0),
+        marketProgramStatus: k && q ? 'OK_NONZERO' : 'OK_PARSE_PARTIAL',
+        aggregateDiagnostic: {
+          paramMode: process.env.KIS_MARKET_PROGRAM_PARAM_MODE ?? 'OFFICIAL',
+          kospi: kospi.diagnostics,
+          kosdaq: kosdaq.diagnostics,
+          finalStatus: k && q ? 'VERIFIED' : 'PARTIAL_VERIFIED',
+        },
+      };
+    }
+    const result = kospi.diagnostics?.status === 'PROVIDER_ERROR' ? kospi : kosdaq;
     if (result.diagnostics && ['OK_EMPTY_OUTPUT', 'PROVIDER_ERROR'].includes(result.diagnostics.status)) {
       return {
         programNetBuyQty: null,

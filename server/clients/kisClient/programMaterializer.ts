@@ -8,6 +8,9 @@ export const MARKET_PROGRAM_TRADE_PATH =
   process.env.KIS_MARKET_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
 export const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
+export const MARKET_PROGRAM_PARAM_MODE = (process.env.KIS_MARKET_PROGRAM_PARAM_MODE ?? 'OFFICIAL').toUpperCase() === 'LEGACY' ? 'LEGACY' : 'OFFICIAL';
+export const MARKET_PROGRAM_KOSPI_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_KOSPI_CLASS_CODE ?? 'K';
+export const MARKET_PROGRAM_KOSDAQ_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_KOSDAQ_CLASS_CODE ?? 'Q';
 export const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
 export const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
 export const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
@@ -168,7 +171,13 @@ function logMarketProgramStatusDiagnostic(diag: MarketProgramMaterializerDiagnos
   lastMarketProgramStatusLog = { key, loggedAt: nowMs, suppressedCount: 0, lastSelectedBsopHour: diag.selectedBsopHour };
 }
 
-export function buildMarketProgramParams(): Record<string, string> {
+export function buildMarketProgramTradeTodayParams(marketClassCode: 'K' | 'Q'): Record<string, string> {
+  if (MARKET_PROGRAM_PARAM_MODE === 'OFFICIAL') {
+    return {
+      FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
+      FID_MRKT_CLS_CODE: marketClassCode,
+    };
+  }
   return {
     FID_COND_MRKT_DIV_CODE: MARKET_PROGRAM_DIV_CODE,
     FID_COND_MRKT_DIV_CODE1: MARKET_PROGRAM_DIV_CODE,
