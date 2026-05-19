@@ -1,8 +1,10 @@
 // @responsibility debug 유틸 함수 모듈
 /**
  * Global debug logging utility for QuantMaster Pro.
- * Only outputs in development mode to keep production console clean.
+ * P4 debug warnings are client-only and isolated from server operational warnings.
  */
+
+import { clientWarn } from './clientWarn';
 
 const isDev = typeof process !== 'undefined'
   ? process.env.NODE_ENV === 'development'
@@ -23,15 +25,16 @@ export function debugLog(label: string, data?: unknown): void {
 }
 
 /**
- * Debug warning - for "silent failure" situations (e.g. missing data, null returns).
+ * Debug warning - client-only P4 warning for UI/debug-panel visibility.
  */
 export function debugWarn(label: string, data?: unknown): void {
-  if (!isDev) return;
-  if (data !== undefined) {
-    console.debug(`[P4][UI][P4_CLIENT_ONLY_WARN] clientOnly=true ${label}`, data);
-  } else {
-    console.debug(`[P4][UI][P4_CLIENT_ONLY_WARN] clientOnly=true ${label}`);
-  }
+  clientWarn({
+    domain: 'CLIENT_DEBUG',
+    code: 'P4_CLIENT_DEBUG_WARN',
+    message: label,
+    dedupKey: `debug:${label}`,
+    details: data === undefined ? undefined : { data },
+  });
 }
 
 /**

@@ -12,12 +12,35 @@
  * 서버 사본과 동일 시그니처 — 호출자가 server/client 어디에서든 동일하게 사용 가능.
  */
 
-import { debugWarn } from './debug';
+import { clientWarn } from './clientWarn';
 
 const DEFAULT_SANITY_BOUND_PCT = 90;
 const LOG_THROTTLE_MS = 60_000;
 
 const _lastWarnAt = new Map<string, number>();
+
+function warnSafePctDegraded(reason: string, current: number, base: number, opts: SafePctChangeOptions): void {
+  if (opts.silent) return;
+  const label = opts.label ?? 'unknown';
+  const warnKey = `${label}:${reason}`;
+  const now = Date.now();
+  const last = _lastWarnAt.get(warnKey) ?? 0;
+  if (now - last < LOG_THROTTLE_MS) return;
+  _lastWarnAt.set(warnKey, now);
+  clientWarn({
+    domain: 'CLIENT_DATA',
+    code: 'P4_CLIENT_SAFE_PCT_CHANGE_DEGRADED',
+    message: `[safePctChange] ${reason} @${label} — 화면 표시용 % fallback(null) 반환`,
+    dedupKey: `safePctChange:${warnKey}`,
+    details: {
+      current,
+      base,
+      clientOnly: true,
+      executionImpact: 'NONE',
+      serverImpact: 'NONE',
+    },
+  });
+}
 
 export interface SafePctChangeOptions {
   sanityBoundPct?: number;
@@ -30,11 +53,20 @@ export function safePctChange(
   base: number,
   opts: SafePctChangeOptions = {},
 ): number | null {
-  if (!Number.isFinite(base) || base <= 0) return null;
-  if (!Number.isFinite(current) || current < 0) return null;
+  if (!Number.isFinite(base) || base <= 0) {
+    warnSafePctDegraded('invalid denominator', current, base, opts);
+    return null;
+  }
+  if (!Number.isFinite(current) || current < 0) {
+    warnSafePctDegraded('invalid numerator', current, base, opts);
+    return null;
+  }
 
   const result = ((current - base) / base) * 100;
-  if (!Number.isFinite(result)) return null;
+  if (!Number.isFinite(result)) {
+    warnSafePctDegraded('non-finite result', current, base, opts);
+    return null;
+  }
 
   const bound = opts.sanityBoundPct ?? DEFAULT_SANITY_BOUND_PCT;
   if (Math.abs(result) > bound) {
@@ -44,10 +76,21 @@ export function safePctChange(
       const last = _lastWarnAt.get(label) ?? 0;
       if (now - last >= LOG_THROTTLE_MS) {
         _lastWarnAt.set(label, now);
-        debugWarn(
-          `[safePctChange] sanity 위반 @${label} — |${result.toFixed(2)}%| > ${bound}% ` +
-          `(current=${current}, base=${base}). stale base 또는 데이터 오류 의심.`,
-        );
+        clientWarn({
+          domain: 'CLIENT_DATA',
+          code: 'P4_CLIENT_SAFE_PCT_CHANGE_DEGRADED',
+          message: `[safePctChange] sanity 위반 @${label} — 화면 표시용 % fallback(null) 반환`,
+          dedupKey: `safePctChange:${label}`,
+          details: {
+            resultPct: result,
+            sanityBoundPct: bound,
+            current,
+            base,
+            clientOnly: true,
+            executionImpact: 'NONE',
+            serverImpact: 'NONE',
+          },
+        });
       }
     }
     return null;

@@ -1,4 +1,5 @@
 // @responsibility Service Worker 등록·해제 헬퍼 — 가격 알림 백그라운드 표시 (PR-L)
+import { clientWarn } from './clientWarn';
 
 const SW_PATH = '/service-worker.js';
 
@@ -19,7 +20,13 @@ export async function registerPriceAlertServiceWorker(): Promise<boolean> {
     _registration = reg;
     return true;
   } catch (e) {
-    console.warn('[ServiceWorker] 등록 실패 — Notification API fallback', e);
+    clientWarn({
+      domain: 'UI',
+      code: 'P4_CLIENT_DEBUG_WARN',
+      message: '[ServiceWorker] 등록 실패 — Notification API fallback',
+      dedupKey: 'serviceWorker:registration-failed',
+      details: { error: e instanceof Error ? e.message : String(e) },
+    });
     _registration = null;
     return false;
   }

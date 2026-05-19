@@ -24,6 +24,7 @@ import { useGlobalIntelStore } from '../../stores/useGlobalIntelStore';
 import type { StockRecommendation } from './types';
 import type { TranchePlan } from '../../types/quant';
 import { getQuantGateScore } from '../../utils/recommendationScore';
+import { clientWarn } from '../../utils/clientWarn';
 
 interface KrxValuation {
   per: number;
@@ -667,7 +668,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
           leadingStocks: await enrichLeadingStocksMarketCap(enriched.sectorAnalysis.leadingStocks),
         };
       } catch (e) {
-        console.warn(`[enrichment] leadingStocks marketCap 보강 실패 (${stock.name}):`, e);
+        clientWarn({
+          domain: 'CLIENT_DATA',
+          code: 'P4_CLIENT_DATA_STALE',
+          message: `[enrichment] leadingStocks marketCap 보강 실패 — UI 보조 데이터 degraded`,
+          dedupKey: `enrichment:leadingStocksMarketCap:${stock.code ?? stock.name}`,
+          details: { stockName: stock.name, stockCode: stock.code, error: e instanceof Error ? e.message : String(e) },
+        });
       }
     }
 
