@@ -86,12 +86,16 @@ const REQUIRED_PATHS = [
 const ORDER_KEYS = new Set(['orderCash', 'orderRvsecncl', 'orderCredit']);
 
 function fail(message) {
-  console.error(`❌ ${message}`);
+  console.error(`[FAIL] ${message}`);
   process.exitCode = 1;
 }
 
 function warn(message) {
-  console.warn(`⚠️ ${message}`);
+  console.warn(`[WARN] ${message}`);
+}
+
+function info(message) {
+  console.log(`[INFO] ${message}`);
 }
 
 function readText(filePath) {
@@ -181,7 +185,7 @@ function scanOfficialExamples(root, registryPaths) {
     }
   }
 
-  const trIds = ['FHKST01010100', 'FHKST01010900', 'FHPTJ04160001', 'FHPST04830000', 'HHPST074500C0', 'FHPST04760000', 'FHKST03010100'];
+  const trIds = ['FHKST01010100', 'FHKST01010900', 'FHPTJ04160001', 'FHPST04830000', 'HHPST074500C0', 'FHPST04760000', 'FHKST17010000', 'FHKST03010100'];
   for (const trId of trIds) {
     if (!officialText.includes(trId)) {
       if (trId === 'FHKST01010900' && officialText.includes('FHKST01010300')) {
@@ -230,9 +234,9 @@ function main() {
   }
 
   if (src.includes('FHKST01010300')) {
-    warn('Known drift warning: FHKST01010300 appears in registry text. P0 must not auto-replace existing QMP code.');
+    info('Known non-blocking drift: legacy FHKST01010300 appears in registry notes. Do not auto-replace existing QMP code.');
   } else {
-    warn('Known drift warning: existing QMP code may use FHKST01010300 while registry pins inquire-investor to FHKST01010900.');
+    info('Known non-blocking drift: runtime code may still use legacy investor TR_ID while registry pins inquire-investor to FHKST01010900.');
   }
 
   const codePaths = parseCodePaths();
@@ -248,7 +252,7 @@ function main() {
   }
 
   if (process.exitCode) process.exit(1);
-  console.log('✅ KIS official endpoint registry check completed');
+  console.log('[OK] KIS official endpoint registry check completed');
 }
 
 main();
