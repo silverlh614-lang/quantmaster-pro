@@ -198,6 +198,15 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
     if (macro.programFetchedAt) {
       appendMacroProgramFetchedAt(lines, macro.programFetchedAt);
     }
+    if (macro.programMarket) {
+      lines.push(`  • combinedSource: ${macro.programMarket.combinedSource ?? 'UNKNOWN'}`);
+      lines.push(`  • splitAvailable: ${macro.programMarket.splitAvailable ?? false}`);
+      if (macro.programMarket.rowBreakdown) {
+        lines.push(`  • combined rows: ${macro.programMarket.rowBreakdown.combined.outputLength}`);
+        lines.push(`  • KOSPI rows: ${macro.programMarket.rowBreakdown.kospi.outputLength}`);
+        lines.push(`  • KOSDAQ rows: ${macro.programMarket.rowBreakdown.kosdaq.outputLength}`);
+      }
+    }
     if (macro.programMarket?.raw) {
       lines.push(`  • raw whole: ${macro.programMarket.raw.wholeNetBuyTradeAmount ?? 'N/A'}`);
       lines.push(`  • raw arbitrage: ${macro.programMarket.raw.arbitrageNetBuyTradeAmount ?? 'N/A'}`);

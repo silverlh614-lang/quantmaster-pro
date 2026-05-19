@@ -113,6 +113,9 @@ export interface MacroState {
       KRW_1K: string;
       KRW_1M: string;
     };
+    combinedSource?: 'KOSPI_PLUS_KOSDAQ' | 'SINGLE_RESPONSE' | 'CACHE' | 'UNKNOWN' | string;
+    splitAvailable?: boolean;
+    combinedOnly?: boolean;
     rowBreakdown?: {
       kospi: {
         outputLength: number; nonZeroRows: number; selectedBsopHour: string;
