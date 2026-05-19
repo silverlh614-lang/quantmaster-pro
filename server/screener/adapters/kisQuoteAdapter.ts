@@ -16,6 +16,59 @@ import { recordMtasAttempt } from '../dataCompletenessTracker.js';
 import { calcRSI, calcRSI14, calcEMAArr, calcMACD } from './_indicators.js';
 import { logger as appLogger, logNoiseDetail } from '../../utils/logger.js';
 import type { YahooQuoteExtended } from './yahooQuoteAdapter.js';
+import {
+  normalizeKisOfficialQuotePayload,
+  type KisOfficialQuoteConfidence,
+  type KisProviderStatus,
+  type NormalizedKisOfficialQuote,
+} from '../../clients/kisClient/kisOfficialQuoteMapper.js';
+
+export interface KisIntradayQuote {
+  price: number;
+  dayOpen: number;
+  prevClose: number;
+  volume: number;
+  high?: number | null;
+  low?: number | null;
+  changePercent?: number | null;
+  tradingValue?: number | null;
+  asOf?: string | null;
+  provider?: 'KIS_OFFICIAL';
+  providerStatus?: KisProviderStatus;
+  dataConfidence?: KisOfficialQuoteConfidence;
+  marketDivCode?: string | null;
+  symbol?: string | null;
+  kisOfficialQuote?: NormalizedKisOfficialQuote;
+}
+
+function attachKisOfficialQuoteFields(
+  quote: YahooQuoteExtended,
+  normalized: NormalizedKisOfficialQuote,
+): YahooQuoteExtended {
+  const q = quote as YahooQuoteExtended & Record<string, unknown>;
+  q.currentPrice = normalized.currentPrice ?? q.price;
+  q.open = normalized.open ?? q.dayOpen;
+  if (normalized.high != null) {
+    q.high = normalized.high;
+    q.dayHigh = normalized.high;
+  }
+  if (normalized.low != null) {
+    q.low = normalized.low;
+    q.dayLow = normalized.low;
+  }
+  if (normalized.tradingValue != null) q.tradingValue = normalized.tradingValue;
+  if (normalized.marketDivCode != null) q.marketDivCode = normalized.marketDivCode;
+  if (normalized.symbol != null) q.symbol = normalized.symbol;
+  if (normalized.asOf != null) q.asOf = normalized.asOf;
+  q.provider = 'KIS_OFFICIAL';
+  q.quoteProvider = 'KIS_OFFICIAL';
+  q.providerStatus = normalized.providerStatus;
+  q.dataConfidence = normalized.dataConfidence;
+  q.kisOfficialQuote = normalized;
+  q.kisOfficialEndpoint = '/uapi/domestic-stock/v1/quotations/inquire-price';
+  q.kisOfficialTrId = 'FHKST01010100';
+  return q;
+}
 
 /**
  * KIS 일봉 캔들(FHKST03010100) OHLCV로부터 YahooQuoteExtended 호환
@@ -225,9 +278,18 @@ function buildExtendedFromKisDaily(
 export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExtended | null> {
   if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
   try {
+    const safeCode = code.padStart(6, '0');
+    const fetchedAt = new Date().toISOString();
     const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
       FID_COND_MRKT_DIV_CODE: 'J',
-      FID_INPUT_ISCD: code.padStart(6, '0'),
+      FID_INPUT_ISCD: safeCode,
+    });
+    const officialCoverage = normalizeKisOfficialQuotePayload(data, {
+      symbol: safeCode,
+      marketDivCode: 'J',
+      fetchedAt,
+      actualPath: '/uapi/domestic-stock/v1/quotations/inquire-price',
+      actualTrId: 'FHKST01010100',
     });
     const out = (data as { output?: Record<string, string> } | null)?.output;
     if (!out) return null;
@@ -248,10 +310,13 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
     // 일봉 120봉 조회 → 기술적 지표 풀 산출. 실패/부족 시 보수적 0값 폴백.
     const candles = await fetchKisDailyCandles(code).catch(() => [] as KisChartCandle[]);
     if (candles.length >= 20) {
-      return buildExtendedFromKisDaily(candles, live);
+      return attachKisOfficialQuoteFields(
+        buildExtendedFromKisDaily(candles, live),
+        officialCoverage.normalizedQuote,
+      );
     }
 
-    return {
+    return attachKisOfficialQuoteFields({
       price, dayOpen, prevClose, changePercent,
       volume,
       // 일봉 데이터 부족 — 보수적 0값 (Gate 통과 불가)
@@ -269,7 +334,7 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
       weeklyAboveCloud: false, weeklyLaggingSpanUp: false,
       dailyVolumeDrying: false,
       isHighRisk: false,
-    };
+    }, officialCoverage.normalizedQuote);
   } catch (e) {
     console.error(`[fetchKisQuoteFallback] ${code}:`, e instanceof Error ? e.message : e);
     return null;
@@ -282,17 +347,21 @@ export async function fetchKisQuoteFallback(code: string): Promise<YahooQuoteExt
  * 보정하기 위해 사용한다. Yahoo 전체 Quote를 대체하지 않고 dayOpen/prevClose만
  * 덮어쓰는 용도이므로 히스토리 지표는 포함하지 않는다.
  */
-export async function fetchKisIntraday(code: string): Promise<{
-  price: number;
-  dayOpen: number;
-  prevClose: number;
-  volume: number;
-} | null> {
+export async function fetchKisIntraday(code: string): Promise<KisIntradayQuote | null> {
   if (!HAS_REAL_DATA_CLIENT && !process.env.KIS_APP_KEY) return null;
   try {
+    const safeCode = code.padStart(6, '0');
+    const fetchedAt = new Date().toISOString();
     const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
       FID_COND_MRKT_DIV_CODE: 'J',
-      FID_INPUT_ISCD: code.padStart(6, '0'),
+      FID_INPUT_ISCD: safeCode,
+    });
+    const officialCoverage = normalizeKisOfficialQuotePayload(data, {
+      symbol: safeCode,
+      marketDivCode: 'J',
+      fetchedAt,
+      actualPath: '/uapi/domestic-stock/v1/quotations/inquire-price',
+      actualTrId: 'FHKST01010100',
     });
     const out = (data as { output?: Record<string, string> } | null)?.output;
     if (!out) return null;
@@ -307,7 +376,23 @@ export async function fetchKisIntraday(code: string): Promise<{
     const prdyChange = signStr === '5' || signStr === '4' ? -Math.abs(prdyVrss) : Math.abs(prdyVrss);
     const prevClose  = price - prdyChange || price;
 
-    return { price, dayOpen, prevClose, volume };
+    return {
+      price,
+      dayOpen,
+      prevClose,
+      volume,
+      high: officialCoverage.normalizedQuote.high,
+      low: officialCoverage.normalizedQuote.low,
+      changePercent: officialCoverage.normalizedQuote.changePercent,
+      tradingValue: officialCoverage.normalizedQuote.tradingValue,
+      asOf: officialCoverage.normalizedQuote.asOf,
+      provider: 'KIS_OFFICIAL',
+      providerStatus: officialCoverage.providerStatus,
+      dataConfidence: officialCoverage.confidence,
+      marketDivCode: officialCoverage.normalizedQuote.marketDivCode,
+      symbol: officialCoverage.normalizedQuote.symbol,
+      kisOfficialQuote: officialCoverage.normalizedQuote,
+    };
   } catch (e) {
     console.error(`[fetchKisIntraday] ${code}:`, e instanceof Error ? e.message : e);
     return null;

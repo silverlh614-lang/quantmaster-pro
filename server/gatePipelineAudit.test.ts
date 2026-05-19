@@ -157,6 +157,15 @@ describe('Gate pipeline integrity audit', () => {
 
     const survival = result.gateLayerSummary?.gate1.survival;
     expect(survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(true);
+    expect(survival?.kisOfficialQuoteCoverage).toMatchObject({
+      source: 'KIS_OFFICIAL',
+      endpoint: '/uapi/domestic-stock/v1/quotations/inquire-price',
+      trId: 'FHKST01010100',
+      requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
+      requiredFields: ['currentPrice', 'volume', 'high', 'low', 'changePercent', 'tradingValue'],
+      providerStatus: 'OK_WITH_DATA',
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
     expect(survival?.kisOfficialQuoteCoverage.confidence).toBe('VERIFIED');
     expect(survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
     expect(survival?.shadowEligibility).toMatchObject({
@@ -202,8 +211,8 @@ describe('Gate pipeline integrity audit', () => {
       dataPath: 'QUOTE_ONLY',
     });
 
-    expect(gate1?.survival?.kisOfficialQuoteCoverage.missingFields).toContain('quote.weeklyRSI');
-    expect(gate1?.survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(false);
+    expect(gate1?.survival?.kisOfficialQuoteCoverage.gate1DeclaredMissingInputs).toContain('quote.weeklyRSI');
+    expect(gate1?.survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(true);
     expect(gate1?.survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
   });
 
@@ -220,10 +229,11 @@ describe('Gate pipeline integrity audit', () => {
     const survival = result.gateLayerSummary?.gate1.survival;
     expect(survival?.quoteFreshness.status).toBe('MISSING');
     expect(survival?.quoteFreshness.marketSignal).toBe(false);
-    expect(['DIAGNOSTIC_ONLY', 'LIVE_BUY_BLOCKED_ONLY']).toContain(survival?.quoteFreshness.executionImpact);
+    expect(survival?.quoteFreshness.executionImpact).toBe('DIAGNOSTIC_ONLY');
     expect(survival?.kisOfficialQuoteCoverage.confidence).toBe('MISSING');
+    expect(survival?.kisOfficialQuoteCoverage.providerStatus).toBe('FIELD_MISSING');
     expect(survival?.kisOfficialQuoteCoverage.missingFields).toEqual(
-      expect.arrayContaining(['quote.price', 'quote.volume']),
+      expect.arrayContaining(['currentPrice', 'volume']),
     );
     expect(survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
     expect(survival?.shadowEligibility).toMatchObject({

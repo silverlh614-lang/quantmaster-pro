@@ -488,6 +488,17 @@ export const KIS_OFFICIAL_ENDPOINTS = {
   },
 } as const satisfies Record<string, KisOfficialEndpointSpec>;
 
+export const KIS_OFFICIAL_INQUIRE_PRICE_ENDPOINT = {
+  key: 'INQUIRE_PRICE',
+  name: '주식현재가 시세',
+  path: KIS_OFFICIAL_ENDPOINTS.inquirePrice.path,
+  trId: KIS_OFFICIAL_ENDPOINTS.inquirePrice.trId ?? 'FHKST01010100',
+  method: KIS_OFFICIAL_ENDPOINTS.inquirePrice.method,
+  requiredParams: [...KIS_OFFICIAL_ENDPOINTS.inquirePrice.requiredParams],
+  dataDomain: 'DOMESTIC_STOCK_QUOTE',
+  source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+} as const;
+
 function buildKisOfficialEndpointsByPath(): Record<string, KisOfficialEndpointSpec> {
   const byPath: Record<string, KisOfficialEndpointSpec> = {};
   for (const spec of Object.values(KIS_OFFICIAL_ENDPOINTS)) {

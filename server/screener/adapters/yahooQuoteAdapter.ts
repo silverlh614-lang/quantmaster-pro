@@ -206,10 +206,24 @@ const _yahooQuoteCache = new Map<string, { data: YahooQuoteExtended; ts: number 
 
 function buildKisPrimaryQuoteFromIntraday(
   symbol: string,
-  kis: { price: number; dayOpen: number; prevClose: number; volume: number },
+  kis: {
+    price: number;
+    dayOpen: number;
+    prevClose: number;
+    volume: number;
+    high?: number | null;
+    low?: number | null;
+    changePercent?: number | null;
+    tradingValue?: number | null;
+    asOf?: string | null;
+    providerStatus?: string;
+    dataConfidence?: string;
+    marketDivCode?: string | null;
+    kisOfficialQuote?: unknown;
+  },
 ): YahooQuoteExtended {
   const changePercent = kis.prevClose > 0 ? ((kis.price - kis.prevClose) / kis.prevClose) * 100 : 0;
-  const quote: YahooQuoteExtended = {
+  const quote: YahooQuoteExtended & Record<string, unknown> = {
     price: Math.round(kis.price),
     dayOpen: Math.round(kis.dayOpen > 0 ? kis.dayOpen : kis.price),
     prevClose: Math.round(kis.prevClose > 0 ? kis.prevClose : kis.price),
@@ -252,7 +266,7 @@ function buildKisPrimaryQuoteFromIntraday(
     isHighRisk: false,
     priceMetadata: {
       value: kis.price,
-      asOf: new Date().toISOString(),
+      asOf: kis.asOf ?? new Date().toISOString(),
       source: 'KIS_REALTIME',
     },
     dataQuality: 'KIS_PRIMARY',
@@ -261,6 +275,27 @@ function buildKisPrimaryQuoteFromIntraday(
     noProviderDegrade: true,
     priceProvider: 'KIS_PRICE',
   };
+  quote.currentPrice = kis.price;
+  quote.open = kis.dayOpen;
+  if (kis.high != null) {
+    quote.high = kis.high;
+    quote.dayHigh = kis.high;
+  }
+  if (kis.low != null) {
+    quote.low = kis.low;
+    quote.dayLow = kis.low;
+  }
+  if (kis.tradingValue != null) quote.tradingValue = kis.tradingValue;
+  quote.provider = 'KIS_OFFICIAL';
+  quote.quoteProvider = 'KIS_OFFICIAL';
+  quote.providerStatus = kis.providerStatus;
+  quote.dataConfidence = kis.dataConfidence;
+  quote.marketDivCode = kis.marketDivCode ?? 'J';
+  quote.symbol = normalizeYahooQuarantineCode(symbol);
+  quote.kisOfficialQuote = kis.kisOfficialQuote;
+  quote.kisOfficialEndpoint = '/uapi/domestic-stock/v1/quotations/inquire-price';
+  quote.kisOfficialTrId = 'FHKST01010100';
+  if (kis.asOf != null) quote.asOf = kis.asOf;
   _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
   return quote;
 }
@@ -695,7 +730,7 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
     const zeroVolDays10 = recent10Vol.filter(v => v === 0).length;
     const isHighRisk = zeroVolDays5 >= 5 || zeroVolDays10 >= 8;
 
-    const quote: YahooQuoteExtended = {
+    const quote: YahooQuoteExtended & Record<string, unknown> = {
       price: Math.round(price), changePercent, volume, avgVolume,
       dayOpen: Math.round(dayOpen),
       // prevClose 가 null 이면 0 표기 (changePercent 는 이미 0). UI/메시지 표시용 안전 fallback.
@@ -760,6 +795,29 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       // ADR-0411: KIS recovery 진단 메타 — 미적용 시 undefined.
       yahooKisRecovery: yahooKisRecoveryMeta,
     };
+    if (kisPriceFresh && kisSnap) {
+      quote.currentPrice = kisSnap.price;
+      quote.open = kisSnap.dayOpen;
+      if (kisSnap.high != null) {
+        quote.high = kisSnap.high;
+        quote.dayHigh = kisSnap.high;
+      }
+      if (kisSnap.low != null) {
+        quote.low = kisSnap.low;
+        quote.dayLow = kisSnap.low;
+      }
+      if (kisSnap.tradingValue != null) quote.tradingValue = kisSnap.tradingValue;
+      quote.provider = 'KIS_OFFICIAL';
+      quote.quoteProvider = 'KIS_OFFICIAL';
+      quote.providerStatus = kisSnap.providerStatus;
+      quote.dataConfidence = kisSnap.dataConfidence;
+      quote.marketDivCode = kisSnap.marketDivCode ?? 'J';
+      quote.symbol = normalizeYahooQuarantineCode(symbol);
+      quote.kisOfficialQuote = kisSnap.kisOfficialQuote;
+      quote.kisOfficialEndpoint = '/uapi/domestic-stock/v1/quotations/inquire-price';
+      quote.kisOfficialTrId = 'FHKST01010100';
+      if (kisSnap.asOf != null) quote.asOf = kisSnap.asOf;
+    }
     _yahooQuoteCache.set(symbol, { data: quote, ts: Date.now() });
     return quote;
   } catch (e) {

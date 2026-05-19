@@ -17,6 +17,11 @@ import { getVixConservativeMode } from './state.js';
 import { isTradingHeld } from './learning/learningState.js';
 import { getRegimeGateBand } from './trading/gateConfig.js';
 import { defaultRegistry, calculateCompressionScore } from './quant/conditions/index.js';
+import {
+  buildKisOfficialQuoteCoverageFromQuote,
+  type KisOfficialDriftDiagnostic,
+  type KisProviderStatus,
+} from './clients/kisClient/kisOfficialQuoteMapper.js';
 
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
@@ -61,6 +66,7 @@ export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNC
 export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
 export type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
 export type Gate1ShadowEligibilityMode = 'NORMAL_SHADOW' | 'DEGRADED_SHADOW' | 'OBSERVE_ONLY';
+export type Gate1KisProviderStatus = KisProviderStatus;
 
 export interface Gate1SurvivalDiagnostic {
   quoteFreshness: {
@@ -96,13 +102,21 @@ export interface Gate1SurvivalDiagnostic {
   };
   kisOfficialQuoteCoverage: {
     source: Gate1QuoteCoverageSource;
+    endpoint: string;
+    trId: string;
+    requiredParams: string[];
     requiredFields: string[];
     presentFields: string[];
     missingFields: string[];
     allRequiredFieldsPresent: boolean;
+    providerStatus: Gate1KisProviderStatus;
     confidence: Gate1QuoteCoverageConfidence;
     providerIssue: boolean;
     marketSignal: false;
+    executionImpact: Gate1SurvivalExecutionImpact;
+    asOf: string | null;
+    gate1DeclaredMissingInputs: string[];
+    driftDiagnostics: KisOfficialDriftDiagnostic[];
   };
   shadowEligibility: {
     allowed: boolean;
@@ -248,15 +262,7 @@ const GATE1_SURVIVAL_MIN_TRADING_VALUE = 100_000_000;
 
 type QuoteRecord = YahooQuoteExtended & Record<string, unknown>;
 
-const GATE1_SURVIVAL_QUOTE_FIELD_ALIASES: ReadonlyArray<{ field: string; aliases: readonly string[] }> = [
-  { field: 'quote.price', aliases: ['price', 'currentPrice', 'regularMarketPrice'] },
-  { field: 'quote.volume', aliases: ['volume', 'regularMarketVolume', 'acmlVol', 'acml_vol'] },
-  { field: 'quote.dayHigh', aliases: ['dayHigh', 'high', 'regularMarketDayHigh', 'highPrice'] },
-  { field: 'quote.dayLow', aliases: ['dayLow', 'low', 'regularMarketDayLow', 'lowPrice'] },
-  { field: 'quote.changePercent', aliases: ['changePercent', 'changeRate', 'prdyCtrt', 'prdy_ctrt'] },
-  { field: 'quote.tradingValue', aliases: ['tradingValue', 'tradeValue', 'accTradePrice', 'acmlTrPbmn', 'acml_tr_pbmn'] },
-  { field: 'quote.marketDivCode', aliases: ['marketDivCode', 'marketCode', 'fidCondMrktDivCode', 'fid_cond_mrkt_div_code'] },
-  { field: 'quote.symbol', aliases: ['symbol', 'code', 'stockCode', 'ticker'] },
+const GATE1_DECLARED_CONDITION_FIELD_ALIASES: ReadonlyArray<{ field: string; aliases: readonly string[] }> = [
   { field: 'quote.ma5', aliases: ['ma5'] },
   { field: 'quote.ma20', aliases: ['ma20'] },
   { field: 'quote.ma60', aliases: ['ma60'] },
@@ -347,66 +353,50 @@ function inferQuoteProviderLabel(quote: QuoteRecord): string | null {
     ?? stringOrNull(quote.priceProvider);
 }
 
-function inferQuoteCoverageSource(quote: QuoteRecord): Gate1QuoteCoverageSource {
-  const provider = (inferQuoteProviderLabel(quote) ?? '').toUpperCase();
-  const priceProvider = String(quote.priceProvider ?? '').toUpperCase();
-  const dataQuality = String(quote.dataQuality ?? '').toUpperCase();
-  if (provider.includes('KIS') || priceProvider.includes('KIS')) return 'KIS_OFFICIAL';
-  if (provider.includes('QMP')) return 'QMP_QUOTE';
-  if (provider.includes('YAHOO') || priceProvider.includes('YAHOO')) return 'YAHOO';
-  if (provider.includes('CACHE') || priceProvider.includes('CACHE') || dataQuality.includes('CACHE')) return 'CACHE';
-  return 'UNKNOWN';
-}
-
 function buildGate1QuoteCoverage(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'] {
   const q = quote as QuoteRecord;
-  const requiredFields = GATE1_SURVIVAL_QUOTE_FIELD_ALIASES.map(item => item.field);
-  const presentFields: string[] = [];
-  const missingFields: string[] = [];
-  for (const item of GATE1_SURVIVAL_QUOTE_FIELD_ALIASES) {
-    if (hasQuoteValue(q, item.aliases)) presentFields.push(item.field);
-    else missingFields.push(item.field);
-  }
-
-  const source = inferQuoteCoverageSource(q);
-  const allRequiredFieldsPresent = missingFields.length === 0;
-  const dataQuality = String(q.dataQuality ?? '').toUpperCase();
-  const providerLabel = (inferQuoteProviderLabel(q) ?? '').toUpperCase();
-  const confidence: Gate1QuoteCoverageConfidence = providerLabel.includes('AI')
-    ? 'AI_ESTIMATED'
-    : dataQuality.includes('STALE') || q.yahooDerivedIndicatorsReliable === false
-      ? 'STALE'
-      : presentFields.length === 0 || (missingFields.includes('quote.price') && missingFields.includes('quote.volume'))
-        ? 'MISSING'
-        : !allRequiredFieldsPresent
-          ? 'DEGRADED'
-          : source === 'UNKNOWN'
-            ? 'DEGRADED'
-            : 'VERIFIED';
+  const coverage = buildKisOfficialQuoteCoverageFromQuote(q);
+  const gate1DeclaredMissingInputs = GATE1_DECLARED_CONDITION_FIELD_ALIASES
+    .filter(item => !hasQuoteValue(q, item.aliases))
+    .map(item => item.field);
 
   return {
-    source,
-    requiredFields,
-    presentFields,
-    missingFields,
-    allRequiredFieldsPresent,
-    confidence,
-    providerIssue: confidence !== 'VERIFIED',
+    source: coverage.source,
+    endpoint: coverage.endpoint,
+    trId: coverage.trId,
+    requiredParams: [...coverage.requiredParams],
+    requiredFields: [...coverage.requiredFields],
+    presentFields: [...coverage.presentFields],
+    missingFields: [...coverage.missingFields],
+    allRequiredFieldsPresent: coverage.allRequiredFieldsPresent,
+    providerStatus: coverage.providerStatus,
+    confidence: coverage.confidence,
+    providerIssue: coverage.providerIssue,
     marketSignal: false,
+    executionImpact: coverage.executionImpact,
+    asOf: coverage.asOf,
+    gate1DeclaredMissingInputs,
+    driftDiagnostics: [...coverage.driftDiagnostics],
   };
 }
 
-function buildGate1QuoteFreshness(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['quoteFreshness'] {
+function buildGate1QuoteFreshness(
+  quote: YahooQuoteExtended,
+  coverage: Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'],
+): Gate1SurvivalDiagnostic['quoteFreshness'] {
   const q = quote as QuoteRecord;
   const price = positiveNumberOrNull(firstQuoteValue(q, ['price', 'currentPrice', 'regularMarketPrice']));
   const volume = positiveNumberOrNull(firstQuoteValue(q, ['volume', 'regularMarketVolume', 'acmlVol', 'acml_vol']));
   const priceMetadata = q.priceMetadata as { asOf?: unknown; source?: unknown } | undefined;
-  const asOf = stringOrNull(priceMetadata?.asOf)
+  const asOf = coverage.asOf
+    ?? stringOrNull(priceMetadata?.asOf)
     ?? stringOrNull(q.asOf)
     ?? stringOrNull(q.updatedAt)
     ?? stringOrNull(q.fetchedAt)
     ?? stringOrNull(q.screenedAt);
-  const provider = inferQuoteProviderLabel(q);
+  const provider = coverage.source === 'KIS_OFFICIAL'
+    ? 'KIS_OFFICIAL'
+    : inferQuoteProviderLabel(q);
   const asOfMs = asOf ? new Date(asOf).getTime() : NaN;
   const ageSec = Number.isFinite(asOfMs)
     ? Math.max(0, Math.floor((Date.now() - asOfMs) / 1000))
@@ -420,8 +410,10 @@ function buildGate1QuoteFreshness(quote: YahooQuoteExtended): Gate1SurvivalDiagn
 
   const executionImpact: Gate1SurvivalExecutionImpact = status === 'OK'
     ? 'NONE'
-    : status === 'STALE' || status === 'MISSING'
-      ? 'LIVE_BUY_BLOCKED_ONLY'
+    : coverage.source === 'KIS_OFFICIAL'
+      ? 'DIAGNOSTIC_ONLY'
+      : status === 'STALE' || status === 'MISSING'
+        ? 'LIVE_BUY_BLOCKED_ONLY'
       : 'DIAGNOSTIC_ONLY';
 
   return {
@@ -563,11 +555,11 @@ function buildGate1ShadowEligibility(input: {
 }
 
 function buildGate1SurvivalDiagnostic(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic {
-  const quoteFreshness = buildGate1QuoteFreshness(quote);
+  const kisOfficialQuoteCoverage = buildGate1QuoteCoverage(quote);
+  const quoteFreshness = buildGate1QuoteFreshness(quote, kisOfficialQuoteCoverage);
   const tradability = buildGate1Tradability(quote);
   const liquidityFloor = buildGate1LiquidityFloor(quote);
   const marketSessionCompatibility = buildGate1MarketSessionCompatibility(quote);
-  const kisOfficialQuoteCoverage = buildGate1QuoteCoverage(quote);
   const shadowEligibility = buildGate1ShadowEligibility({
     freshness: quoteFreshness,
     coverage: kisOfficialQuoteCoverage,
