@@ -3,6 +3,17 @@
 import type { ConditionKey, GateLayerName, ServerGateResult } from '../quantFilter.js';
 import type { KisInvestorFlow } from '../clients/kisClient.js';
 import type { DartFinancials } from '../clients/dartFinancialClient.js';
+import {
+  KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS,
+} from '../clients/kisClient/kisOfficialEndpointRegistry.js';
+import type {
+  KisInvestorFlowConfidence,
+  KisInvestorFlowDriftDiagnostic,
+  KisInvestorFlowEndpointKey,
+  KisInvestorFlowProviderStatus,
+  KisInvestorFlowRawFieldCoverage,
+  QmpInvestorFlow,
+} from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
 
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
 
@@ -62,23 +73,39 @@ export type Gate2ExternalProviderStatus =
   | 'VERIFIED'
   | 'DEGRADED'
   | 'MISSING'
+  | 'EMPTY_VALID'
   | 'STALE'
   | 'STAGE_NOT_FETCHED'
   | 'UNKNOWN';
+
+export type Gate2EvaluationStage = 'DISCOVERY_GATE' | 'REFRESHED_GATE' | 'ENTRY_RECHECK_GATE' | string;
 
 export interface Gate2ExternalDataCoverage {
   kisInvestorFlow: {
     required: boolean;
     available: boolean;
     provider: 'KIS_OFFICIAL' | 'KIS_API' | 'CACHE' | 'UNKNOWN';
+    endpointKey: KisInvestorFlowEndpointKey | 'UNKNOWN';
+    endpoint: string | null;
+    trId: string | null;
+    providerStatus: KisInvestorFlowProviderStatus | null;
+    dataConfidence: KisInvestorFlowConfidence | null;
     status: Gate2ExternalProviderStatus;
     fields: {
       foreignNetBuy: boolean;
       institutionalNetBuy: boolean;
-      individualNetBuy?: boolean;
+      individualNetBuy: boolean;
     };
+    foreignNetBuy: number | null;
+    institutionalNetBuy: number | null;
+    individualNetBuy: number | null;
+    missingFields: string[];
+    rawFieldCoverage: KisInvestorFlowRawFieldCoverage;
+    driftDiagnostics: KisInvestorFlowDriftDiagnostic[];
+    stageNotFetched: boolean;
     providerIssue: boolean;
     marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
   };
   dartFinancials: {
     required: boolean;
@@ -108,9 +135,10 @@ export interface Gate2ExternalDataCoverage {
 }
 
 export interface Gate2ExternalCoverageInput {
-  kisFlow?: KisInvestorFlow | null;
+  kisFlow?: KisInvestorFlow | QmpInvestorFlow | null;
   dartFin?: DartFinancials | null;
   kospi20dReturn?: number | null;
+  evaluationStage?: Gate2EvaluationStage | null;
 }
 
 const GATE2_STATUS_SET = new Set<Gate2WiringStatus>([
@@ -295,13 +323,26 @@ function externalMissing(wiring: readonly Gate2WiringDiagnostic[], label: string
   return wiring.some(item => item.missingExternalData.includes(label));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function statusFromMetadata(value: unknown): Gate2ExternalProviderStatus | null {
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const record = value;
   const raw = String(record.providerStatus ?? record.sourceStatus ?? record.status ?? record.dataQuality ?? '').toUpperCase();
   if (raw.includes('VERIFIED') || raw === 'OK' || raw === 'OK_WITH_DATA') return 'VERIFIED';
   if (raw.includes('STALE')) return 'STALE';
-  if (raw.includes('MISSING') || raw === 'OK_EMPTY') return 'MISSING';
+  if (raw === 'OK_EMPTY' || raw.includes('EMPTY_VALID')) return 'EMPTY_VALID';
+  if (raw.includes('MISSING')) return 'MISSING';
   if (raw.includes('DEGRADED') || raw.includes('ERROR') || raw.includes('RATE_LIMIT') || raw.includes('TOKEN')) return 'DEGRADED';
   return null;
 }
@@ -317,6 +358,126 @@ function providerFromMetadata(value: unknown, defaults: { verified: string; cach
   if (raw.includes('KOSPI') || raw.includes('INDEX')) return 'KOSPI_INDEX';
   if (raw.includes('QMP')) return 'QMP_MACRO';
   return defaults.verified;
+}
+
+function normalizeKisEndpointKey(value: unknown): KisInvestorFlowEndpointKey | 'UNKNOWN' {
+  const raw = String(value ?? '').toUpperCase();
+  if (raw === 'INQUIRE_INVESTOR' || raw === 'INQUIREINVESTOR') return 'INQUIRE_INVESTOR';
+  if (raw === 'INVESTOR_TRADE_BY_STOCK_DAILY' || raw === 'INVESTORTRADEBYSTOCKDAILY') return 'INVESTOR_TRADE_BY_STOCK_DAILY';
+  return 'UNKNOWN';
+}
+
+function kisProviderStatus(value: unknown): KisInvestorFlowProviderStatus | null {
+  if (!isRecord(value)) return null;
+  const raw = String(value.providerStatus ?? '').toUpperCase();
+  const allowed: KisInvestorFlowProviderStatus[] = [
+    'OK_WITH_DATA',
+    'OK_EMPTY',
+    'HTTP_ERROR',
+    'KIS_ERROR_CODE',
+    'TOKEN_EXPIRED',
+    'RATE_LIMITED',
+    'FIELD_MISSING',
+    'PARSE_ERROR',
+    'UNKNOWN_ERROR',
+  ];
+  if ((allowed as string[]).includes(raw)) return raw as KisInvestorFlowProviderStatus;
+  return null;
+}
+
+function kisConfidence(value: unknown): KisInvestorFlowConfidence | null {
+  if (!isRecord(value)) return null;
+  const raw = String(value.dataConfidence ?? value.confidence ?? '').toUpperCase();
+  const allowed: KisInvestorFlowConfidence[] = ['VERIFIED', 'DEGRADED', 'STALE', 'MISSING', 'EMPTY_VALID', 'AI_ESTIMATED'];
+  if ((allowed as string[]).includes(raw)) return raw as KisInvestorFlowConfidence;
+  return null;
+}
+
+function gate2StatusFromKisProviderStatus(status: KisInvestorFlowProviderStatus | null, confidence: KisInvestorFlowConfidence | null): Gate2ExternalProviderStatus | null {
+  if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
+  if (confidence === 'VERIFIED') return 'VERIFIED';
+  if (confidence === 'STALE') return 'STALE';
+  if (confidence === 'MISSING') return 'MISSING';
+  if (confidence === 'DEGRADED' || confidence === 'AI_ESTIMATED') return 'DEGRADED';
+  if (status === 'OK_WITH_DATA') return 'VERIFIED';
+  if (status === 'OK_EMPTY') return 'EMPTY_VALID';
+  if (status === 'FIELD_MISSING' || status === 'PARSE_ERROR') return 'DEGRADED';
+  if (status === 'HTTP_ERROR' || status === 'KIS_ERROR_CODE' || status === 'TOKEN_EXPIRED' || status === 'RATE_LIMITED' || status === 'UNKNOWN_ERROR') return 'DEGRADED';
+  return null;
+}
+
+function kisEndpointMetadata(value: unknown): {
+  endpointKey: KisInvestorFlowEndpointKey | 'UNKNOWN';
+  endpoint: string | null;
+  trId: string | null;
+  driftDiagnostics: KisInvestorFlowDriftDiagnostic[];
+} {
+  const record = isRecord(value) ? value : {};
+  const endpointKey = normalizeKisEndpointKey(record.endpointKey ?? record.sourceKind);
+  const spec = endpointKey === 'UNKNOWN' ? null : KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS[endpointKey];
+  const endpoint = stringOrNull(record.endpoint ?? record.actualPath ?? record.path) ?? spec?.path ?? null;
+  const trId = stringOrNull(record.trId ?? record.actualTrId) ?? spec?.trId ?? null;
+  const existingDrift = Array.isArray(record.driftDiagnostics)
+    ? record.driftDiagnostics.filter(isRecord) as unknown as KisInvestorFlowDriftDiagnostic[]
+    : [];
+  if (existingDrift.length > 0 || !spec || !endpoint || !trId) return { endpointKey, endpoint, trId, driftDiagnostics: existingDrift };
+  if (endpoint === spec.path && trId === spec.trId) return { endpointKey, endpoint, trId, driftDiagnostics: [] };
+  return {
+    endpointKey,
+    endpoint,
+    trId,
+    driftDiagnostics: [{
+      type: 'KIS_OFFICIAL_DRIFT_DETECTED',
+      api: endpointKey as KisInvestorFlowEndpointKey,
+      expectedPath: spec.path,
+      actualPath: endpoint,
+      expectedTrId: spec.trId,
+      actualTrId: trId,
+      action: 'DO_NOT_AUTO_REPLACE_REQUIRE_REVIEW',
+    }],
+  };
+}
+
+function kisRawFieldCoverage(value: unknown, missingFields: string[]): KisInvestorFlowRawFieldCoverage {
+  const record = isRecord(value) ? value : {};
+  const embedded = record.rawFieldCoverage;
+  if (isRecord(embedded)) {
+    return {
+      requiredFields: Array.isArray(embedded.requiredFields) ? embedded.requiredFields.map(String) : ['foreignNetBuy', 'institutionalNetBuy'],
+      presentFields: Array.isArray(embedded.presentFields) ? embedded.presentFields.map(String) : [],
+      missingFields: Array.isArray(embedded.missingFields) ? embedded.missingFields.map(String) : missingFields,
+      allRequiredFieldsPresent: embedded.allRequiredFieldsPresent === true,
+    };
+  }
+  return {
+    requiredFields: ['foreignNetBuy', 'institutionalNetBuy'],
+    presentFields: ['foreignNetBuy', 'institutionalNetBuy'].filter(field => !missingFields.includes(field)),
+    missingFields,
+    allRequiredFieldsPresent: missingFields.length === 0,
+  };
+}
+
+function resolveKisStatus(input: {
+  required: boolean;
+  fieldsAvailable: boolean;
+  missing: boolean;
+  kisFlow: Gate2ExternalCoverageInput['kisFlow'];
+  evaluationStage?: Gate2EvaluationStage | null;
+}): Gate2ExternalProviderStatus {
+  if (!input.required) return 'UNKNOWN';
+  if (!input.kisFlow) {
+    return input.evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING';
+  }
+  const metadataStatus = gate2StatusFromKisProviderStatus(kisProviderStatus(input.kisFlow), kisConfidence(input.kisFlow))
+    ?? statusFromMetadata(input.kisFlow);
+  if (metadataStatus && metadataStatus !== 'VERIFIED') return metadataStatus;
+  if (input.fieldsAvailable && !input.missing) return 'VERIFIED';
+  return 'DEGRADED';
+}
+
+function providerIssueForKisStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
+  if (!required) return false;
+  return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
 function resolveStatus(required: boolean, available: boolean, missing: boolean, metadata: unknown): Gate2ExternalProviderStatus {
@@ -335,11 +496,16 @@ export function buildGate2ExternalDataCoverage(
   const dartRequired = requiredExternal(wiring, 'DART_FINANCIALS');
   const benchmarkRequired = requiredExternal(wiring, 'BENCHMARK_KOSPI_20D_RETURN');
 
+  const kisRecord: Record<string, unknown> = isRecord(input.kisFlow) ? input.kisFlow : {};
+  const kisForeignNetBuy = numberOrNull(kisRecord.foreignNetBuy);
+  const kisInstitutionalNetBuy = numberOrNull(kisRecord.institutionalNetBuy ?? kisRecord.institutionNetBuy);
+  const kisIndividualNetBuy = numberOrNull(kisRecord.individualNetBuy);
   const kisFields = {
-    foreignNetBuy: fieldAvailable(wiring, 'ctx.kisFlow.foreignNetBuy') || fieldAvailable(wiring, 'kisFlow.foreignNetBuy'),
-    institutionalNetBuy: fieldAvailable(wiring, 'ctx.kisFlow.institutionalNetBuy') || fieldAvailable(wiring, 'kisFlow.institutionalNetBuy'),
-    individualNetBuy: input.kisFlow != null && typeof (input.kisFlow as unknown as Record<string, unknown>).individualNetBuy === 'number',
+    foreignNetBuy: fieldAvailable(wiring, 'ctx.kisFlow.foreignNetBuy') || fieldAvailable(wiring, 'kisFlow.foreignNetBuy') || kisForeignNetBuy != null,
+    institutionalNetBuy: fieldAvailable(wiring, 'ctx.kisFlow.institutionalNetBuy') || fieldAvailable(wiring, 'kisFlow.institutionalNetBuy') || kisInstitutionalNetBuy != null,
+    individualNetBuy: kisIndividualNetBuy != null,
   };
+  const kisMissingFields = ['foreignNetBuy', 'institutionalNetBuy'].filter(field => kisFields[field as 'foreignNetBuy' | 'institutionalNetBuy'] !== true);
   const dartFields = {
     ocfRatio: fieldAvailable(wiring, 'ctx.dartFin.ocfRatio') || fieldAvailable(wiring, 'dartFin.ocfRatio'),
     roe: input.dartFin != null && typeof (input.dartFin as unknown as Record<string, unknown>).roe === 'number',
@@ -350,22 +516,45 @@ export function buildGate2ExternalDataCoverage(
     kospi20dReturn: fieldAvailable(wiring, 'ctx.kospi20dReturn') || typeof input.kospi20dReturn === 'number' && Number.isFinite(input.kospi20dReturn),
   };
 
-  const kisAvailable = kisRequired && kisFields.foreignNetBuy && kisFields.institutionalNetBuy && !externalMissing(wiring, 'KIS_INVESTOR_FLOW');
+  const kisFieldsAvailable = kisRequired && kisFields.foreignNetBuy && kisFields.institutionalNetBuy;
+  const kisStatus = resolveKisStatus({
+    required: kisRequired,
+    fieldsAvailable: kisFieldsAvailable,
+    missing: externalMissing(wiring, 'KIS_INVESTOR_FLOW'),
+    kisFlow: input.kisFlow,
+    evaluationStage: input.evaluationStage,
+  });
+  const kisAvailable = kisFieldsAvailable && !externalMissing(wiring, 'KIS_INVESTOR_FLOW') && kisStatus === 'VERIFIED';
   const dartAvailable = dartRequired && dartFields.ocfRatio && !externalMissing(wiring, 'DART_FINANCIALS');
   const benchmarkAvailable = benchmarkRequired && benchmarkFields.kospi20dReturn && !externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN');
-  const kisStatus = resolveStatus(kisRequired, kisAvailable, externalMissing(wiring, 'KIS_INVESTOR_FLOW'), input.kisFlow);
   const dartStatus = resolveStatus(dartRequired, dartAvailable, externalMissing(wiring, 'DART_FINANCIALS'), input.dartFin);
   const benchmarkStatus = resolveStatus(benchmarkRequired, benchmarkAvailable, externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN'), null);
+  const kisEndpoint = kisEndpointMetadata(input.kisFlow);
+  const kisProviderStatusValue = kisProviderStatus(input.kisFlow);
+  const kisDataConfidence = kisConfidence(input.kisFlow);
 
   return {
     kisInvestorFlow: {
       required: kisRequired,
       available: kisAvailable,
       provider: providerFromMetadata(input.kisFlow, { verified: kisRequired && input.kisFlow ? 'KIS_API' : 'UNKNOWN', cache: 'CACHE', unknown: 'UNKNOWN' }) as Gate2ExternalDataCoverage['kisInvestorFlow']['provider'],
+      endpointKey: kisEndpoint.endpointKey,
+      endpoint: kisEndpoint.endpoint,
+      trId: kisEndpoint.trId,
+      providerStatus: kisProviderStatusValue,
+      dataConfidence: kisDataConfidence,
       status: kisStatus,
       fields: kisFields,
-      providerIssue: kisRequired && kisStatus !== 'VERIFIED',
+      foreignNetBuy: kisForeignNetBuy,
+      institutionalNetBuy: kisInstitutionalNetBuy,
+      individualNetBuy: kisIndividualNetBuy,
+      missingFields: kisMissingFields,
+      rawFieldCoverage: kisRawFieldCoverage(input.kisFlow, kisMissingFields),
+      driftDiagnostics: kisEndpoint.driftDiagnostics,
+      stageNotFetched: kisStatus === 'STAGE_NOT_FETCHED',
+      providerIssue: providerIssueForKisStatus(kisRequired, kisStatus),
       marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
     },
     dartFinancials: {
       required: dartRequired,
@@ -404,6 +593,39 @@ export function formatGate2CompactDiagnostic(input: {
     `Benchmark=${external.benchmark.status}`,
     `unavailable=${source.missingExternalData.length}`,
     ...(issue ? [`issue=${issue}`] : []),
+    'marketSignal=false',
+  ].join(' | ');
+}
+
+function formatSigned(value: number | null): string {
+  if (value == null) return 'null';
+  return value > 0 ? `+${value}` : String(value);
+}
+
+export function formatGate2KisInvestorFlowCompactDiagnostic(
+  externalDataCoverage?: Gate2ExternalDataCoverage | null,
+): string | null {
+  const kis = externalDataCoverage?.kisInvestorFlow;
+  if (!kis || !kis.required) return null;
+  const issue = kis.status === 'MISSING'
+    ? 'issue=KIS_INVESTOR_FLOW_MISSING'
+    : kis.status === 'STAGE_NOT_FETCHED'
+      ? 'stage=DISCOVERY_GATE'
+      : kis.status === 'DEGRADED'
+        ? 'providerIssue=true'
+        : null;
+  const supply = kis.status === 'VERIFIED'
+    ? 'supply=supported'
+    : kis.status === 'STAGE_NOT_FETCHED'
+      ? 'supply=not_yet_evaluated'
+      : 'supply=unavailable';
+  return [
+    `Gate2 KIS Flow: ${kis.status}`,
+    `endpoint=${kis.endpointKey}`,
+    `foreign=${formatSigned(kis.foreignNetBuy)}`,
+    `inst=${formatSigned(kis.institutionalNetBuy)}`,
+    supply,
+    ...(issue ? [issue] : []),
     'marketSignal=false',
   ].join(' | ');
 }

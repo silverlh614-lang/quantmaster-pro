@@ -40,6 +40,7 @@ import {
   buildGate2ExternalDataCoverage,
   buildGate2SourceCoverage,
   buildGate2WiringDiagnostics,
+  type Gate2EvaluationStage,
   type Gate2ExternalDataCoverage,
   type Gate2ExternalCoverageInput,
   type Gate2SourceCoverage,
@@ -930,10 +931,11 @@ export function evaluateServerGate(
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
   kospi20dReturn?: number,
   dartFin?: DartFinancials | null,
-  kisFlow?: KisInvestorFlow | null,
+  kisFlow?: Gate2ExternalCoverageInput['kisFlow'],
   regime?: RegimeLevel | string,
+  evaluationStage?: Gate2EvaluationStage | null,
 ): ServerGateResult {
-  const run = defaultRegistry.run({ quote, weights, kospi20dReturn, dartFin, kisFlow });
+  const run = defaultRegistry.run({ quote, weights, kospi20dReturn, dartFin, kisFlow: kisFlow as KisInvestorFlow | null | undefined });
   let score = run.totalScore;
   const details = [...run.details];
   const conditionKeys = [...run.conditionKeys];
@@ -992,7 +994,7 @@ export function evaluateServerGate(
     }
   }
 
-  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType, { kisFlow, dartFin, kospi20dReturn });
+  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType, { kisFlow, dartFin, kospi20dReturn, evaluationStage });
   gateLayerSummary.gate1.survival = buildGate1SurvivalDiagnostic(quote);
   gateLayerSummary.gate1.consolidatedDiagnostic = buildGate1ConsolidatedDiagnostic({ gate1: gateLayerSummary.gate1 });
   const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);

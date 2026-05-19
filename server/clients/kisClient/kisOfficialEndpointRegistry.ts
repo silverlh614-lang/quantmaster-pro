@@ -74,7 +74,7 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
     trId: 'FHPTJ04160001',
-    requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
+    requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD', 'FID_INPUT_DATE_1', 'FID_ORG_ADJ_PRC', 'FID_ETC_CLS_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DAILY',
     defaultUseScope: 'ADVISORY',
@@ -497,6 +497,33 @@ export const KIS_OFFICIAL_INQUIRE_PRICE_ENDPOINT = {
   requiredParams: [...KIS_OFFICIAL_ENDPOINTS.inquirePrice.requiredParams],
   dataDomain: 'DOMESTIC_STOCK_QUOTE',
   source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+} as const;
+
+export const KIS_OFFICIAL_INQUIRE_INVESTOR_ENDPOINT = {
+  key: 'INQUIRE_INVESTOR',
+  name: 'stock current price investor',
+  path: KIS_OFFICIAL_ENDPOINTS.inquireInvestor.path,
+  trId: KIS_OFFICIAL_ENDPOINTS.inquireInvestor.trId ?? 'FHKST01010900',
+  method: KIS_OFFICIAL_ENDPOINTS.inquireInvestor.method,
+  requiredParams: [...KIS_OFFICIAL_ENDPOINTS.inquireInvestor.requiredParams],
+  dataDomain: 'DOMESTIC_STOCK_INVESTOR_FLOW',
+  source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+} as const;
+
+export const KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT = {
+  key: 'INVESTOR_TRADE_BY_STOCK_DAILY',
+  name: 'investor trade by stock daily',
+  path: KIS_OFFICIAL_ENDPOINTS.investorTradeByStockDaily.path,
+  trId: KIS_OFFICIAL_ENDPOINTS.investorTradeByStockDaily.trId ?? 'FHPTJ04160001',
+  method: KIS_OFFICIAL_ENDPOINTS.investorTradeByStockDaily.method,
+  requiredParams: [...KIS_OFFICIAL_ENDPOINTS.investorTradeByStockDaily.requiredParams],
+  dataDomain: 'DOMESTIC_STOCK_INVESTOR_FLOW_DAILY',
+  source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+} as const;
+
+export const KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS = {
+  INQUIRE_INVESTOR: KIS_OFFICIAL_INQUIRE_INVESTOR_ENDPOINT,
+  INVESTOR_TRADE_BY_STOCK_DAILY: KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT,
 } as const;
 
 function buildKisOfficialEndpointsByPath(): Record<string, KisOfficialEndpointSpec> {

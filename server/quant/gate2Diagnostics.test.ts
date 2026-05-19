@@ -9,7 +9,9 @@ import {
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
 import type { KisInvestorFlow } from '../clients/kisClient.js';
 import type { DartFinancials } from '../clients/dartFinancialClient.js';
-import { formatGate2CompactDiagnostic } from './gate2Diagnostics.js';
+import { KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS } from '../clients/kisClient/kisOfficialEndpointRegistry.js';
+import { normalizeKisInvestorFlow, type QmpInvestorFlow } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
+import { formatGate2CompactDiagnostic, formatGate2KisInvestorFlowCompactDiagnostic, type Gate2EvaluationStage } from './gate2Diagnostics.js';
 
 type QuotePatch = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -80,16 +82,19 @@ function dartFin(overrides: Partial<DartFinancials> = {}): DartFinancials {
 
 function evaluateGate2(input: {
   quote?: YahooQuoteExtended;
-  kisFlow?: KisInvestorFlow | null;
+  kisFlow?: KisInvestorFlow | QmpInvestorFlow | null;
   dartFin?: DartFinancials | null;
   kospi20dReturn?: number;
+  evaluationStage?: Gate2EvaluationStage | null;
 } = {}): ServerGateResult {
   return evaluateServerGate(
     input.quote ?? gate2Quote(),
     DEFAULT_CONDITION_WEIGHTS,
     input.kospi20dReturn,
     input.dartFin === undefined ? dartFin() : input.dartFin,
-    input.kisFlow === undefined ? kisFlow() : input.kisFlow,
+    (input.kisFlow === undefined ? kisFlow() : input.kisFlow) as never,
+    undefined,
+    input.evaluationStage,
   );
 }
 
@@ -107,6 +112,70 @@ function pickCoreDecisionFields(result: ServerGateResult) {
 }
 
 describe('Gate2 wiring diagnostics', () => {
+  it('exposes official KIS investor-flow endpoint registry', () => {
+    expect(KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS.INQUIRE_INVESTOR).toMatchObject({
+      key: 'INQUIRE_INVESTOR',
+      path: '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      trId: 'FHKST01010900',
+      requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
+      dataDomain: 'DOMESTIC_STOCK_INVESTOR_FLOW',
+      source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+    });
+    expect(KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS.INVESTOR_TRADE_BY_STOCK_DAILY).toMatchObject({
+      key: 'INVESTOR_TRADE_BY_STOCK_DAILY',
+      path: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
+      trId: 'FHPTJ04160001',
+      requiredParams: [
+        'FID_COND_MRKT_DIV_CODE',
+        'FID_INPUT_ISCD',
+        'FID_INPUT_DATE_1',
+        'FID_ORG_ADJ_PRC',
+        'FID_ETC_CLS_CODE',
+      ],
+      dataDomain: 'DOMESTIC_STOCK_INVESTOR_FLOW_DAILY',
+    });
+  });
+
+  it('normalizes KIS official investor-flow raw output without creating market signal', () => {
+    const normalized = normalizeKisInvestorFlow({
+      symbol: '005930',
+      endpointKey: 'INQUIRE_INVESTOR',
+      raw: {
+        rt_cd: '0',
+        output: [{
+          stck_bsop_date: '20260519',
+          frgn_ntby_qty: '1200000000',
+          orgn_ntby_qty: '800000000',
+          prsn_ntby_qty: '-2000000000',
+        }],
+      },
+      fetchedAt: '2026-05-19T09:31:00+09:00',
+    });
+
+    expect(normalized).toMatchObject({
+      symbol: '005930',
+      tradeDate: '2026-05-19',
+      foreignNetBuy: 1_200_000_000,
+      institutionalNetBuy: 800_000_000,
+      individualNetBuy: -2_000_000_000,
+      source: 'KIS_OFFICIAL',
+      endpointKey: 'INQUIRE_INVESTOR',
+      endpoint: '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      trId: 'FHKST01010900',
+      providerStatus: 'OK_WITH_DATA',
+      dataConfidence: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
+    expect(normalized.rawFieldCoverage).toMatchObject({
+      requiredFields: ['foreignNetBuy', 'institutionalNetBuy'],
+      presentFields: ['foreignNetBuy', 'institutionalNetBuy'],
+      missingFields: [],
+      allRequiredFieldsPresent: true,
+    });
+  });
+
   it('reports all Gate2 declared inputs and external data as available', () => {
     const result = evaluateGate2({ kospi20dReturn: 5 });
     const gate2 = result.gateLayerSummary!.gate2;
@@ -126,7 +195,7 @@ describe('Gate2 wiring diagnostics', () => {
       diagnosticOnly: true,
     });
     expect(gate2.externalDataCoverage).toMatchObject({
-      kisInvestorFlow: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false },
+      kisInvestorFlow: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY' },
       dartFinancials: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false },
       benchmark: { status: 'VERIFIED', available: true, providerIssue: false, marketSignal: false },
     });
@@ -242,6 +311,139 @@ describe('Gate2 wiring diagnostics', () => {
     });
   });
 
+  it('links normalized KIS official flow metadata into externalDataCoverage', () => {
+    const normalized = normalizeKisInvestorFlow({
+      symbol: '005930',
+      endpointKey: 'INVESTOR_TRADE_BY_STOCK_DAILY',
+      raw: {
+        output2: [{
+          stck_bsop_date: '20260519',
+          frgn_ntby_qty: '1200000000',
+          orgn_ntby_qty: '800000000',
+          prsn_ntby_qty: '-2000000000',
+        }],
+      },
+    });
+    const normal = evaluateGate2({ kospi20dReturn: 5, kisFlow: kisFlow({ foreignNetBuy: 1_200_000_000, institutionalNetBuy: 800_000_000, individualNetBuy: -2_000_000_000 }) });
+    const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: normalized });
+    const gate2 = result.gateLayerSummary!.gate2;
+
+    expect(pickCoreDecisionFields(result)).toEqual(pickCoreDecisionFields(normal));
+    expect(gate2.externalDataCoverage?.kisInvestorFlow).toMatchObject({
+      provider: 'KIS_OFFICIAL',
+      endpointKey: 'INVESTOR_TRADE_BY_STOCK_DAILY',
+      endpoint: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
+      trId: 'FHPTJ04160001',
+      providerStatus: 'OK_WITH_DATA',
+      dataConfidence: 'VERIFIED',
+      status: 'VERIFIED',
+      fields: { foreignNetBuy: true, institutionalNetBuy: true, individualNetBuy: true },
+      foreignNetBuy: 1_200_000_000,
+      institutionalNetBuy: 800_000_000,
+      individualNetBuy: -2_000_000_000,
+      missingFields: [],
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
+    expect(gate2.wiring?.find(item => item.key === 'supply_confluence')).toMatchObject({
+      kisInputs: ['ctx.kisFlow.institutionalNetBuy', 'ctx.kisFlow.foreignNetBuy'],
+      missingInputs: [],
+      requiredExternalData: ['KIS_INVESTOR_FLOW'],
+      missingExternalData: [],
+      dataPath: 'KIS',
+      providerIssue: false,
+      marketSignal: false,
+      diagnosticOnly: true,
+    });
+  });
+
+  it('treats KIS OK_EMPTY as empty valid diagnostic rather than bearish flow', () => {
+    const normalized = normalizeKisInvestorFlow({
+      symbol: '005930',
+      endpointKey: 'INQUIRE_INVESTOR',
+      raw: { rt_cd: '0', output: [] },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: normalized });
+
+    expect(result.gateLayerSummary?.gate2.externalDataCoverage?.kisInvestorFlow).toMatchObject({
+      providerStatus: 'OK_EMPTY',
+      dataConfidence: 'EMPTY_VALID',
+      status: 'EMPTY_VALID',
+      available: false,
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(result.gateLayerSummary?.gate2.wiring?.find(item => item.key === 'supply_confluence')).toMatchObject({
+      missingExternalData: ['KIS_INVESTOR_FLOW'],
+      marketSignal: false,
+    });
+  });
+
+  it('reports KIS FIELD_MISSING raw coverage without converting it to market signal', () => {
+    const normalized = normalizeKisInvestorFlow({
+      symbol: '005930',
+      endpointKey: 'INQUIRE_INVESTOR',
+      raw: {
+        output: [{
+          orgn_ntby_qty: '800000000',
+          prsn_ntby_qty: '-800000000',
+        }],
+      },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: normalized });
+    const kis = result.gateLayerSummary?.gate2.externalDataCoverage?.kisInvestorFlow;
+
+    expect(normalized.providerStatus).toBe('FIELD_MISSING');
+    expect(kis).toMatchObject({
+      status: 'DEGRADED',
+      missingFields: ['foreignNetBuy'],
+      providerIssue: true,
+      marketSignal: false,
+    });
+    expect(kis?.rawFieldCoverage.missingFields).toContain('foreignNetBuy');
+  });
+
+  it('keeps stage-not-fetched separate from KIS provider degradation', () => {
+    const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: null, evaluationStage: 'DISCOVERY_GATE' });
+    const kis = result.gateLayerSummary?.gate2.externalDataCoverage?.kisInvestorFlow;
+
+    expect(kis).toMatchObject({
+      required: true,
+      available: false,
+      status: 'STAGE_NOT_FETCHED',
+      stageNotFetched: true,
+      providerIssue: false,
+      marketSignal: false,
+    });
+  });
+
+  it('reports KIS official drift without auto-replacing runtime endpoint', () => {
+    const normalized = normalizeKisInvestorFlow({
+      symbol: '005930',
+      endpointKey: 'INQUIRE_INVESTOR',
+      actualPath: '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      actualTrId: 'FHKST01010300',
+      raw: {
+        output: [{
+          frgn_ntby_qty: '1',
+          orgn_ntby_qty: '2',
+        }],
+      },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: normalized });
+
+    expect(result.gateLayerSummary?.gate2.externalDataCoverage?.kisInvestorFlow.driftDiagnostics).toEqual([{
+      type: 'KIS_OFFICIAL_DRIFT_DETECTED',
+      api: 'INQUIRE_INVESTOR',
+      expectedPath: '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      actualPath: '/uapi/domestic-stock/v1/quotations/inquire-investor',
+      expectedTrId: 'FHKST01010900',
+      actualTrId: 'FHKST01010300',
+      action: 'DO_NOT_AUTO_REPLACE_REQUIRE_REVIEW',
+    }]);
+  });
+
   it('formats Gate2 scan diagnostics without changing execution policy', () => {
     const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: null });
     const text = formatGate2CompactDiagnostic({
@@ -251,6 +453,23 @@ describe('Gate2 wiring diagnostics', () => {
 
     expect(text).toContain('Gate2: DEGRADED');
     expect(text).toContain('KIS=MISSING');
+    expect(text).toContain('marketSignal=false');
+  });
+
+  it('formats Gate2 KIS investor-flow compact diagnostic', () => {
+    const result = evaluateGate2({
+      kospi20dReturn: 5,
+      kisFlow: normalizeKisInvestorFlow({
+        symbol: '005930',
+        endpointKey: 'INQUIRE_INVESTOR',
+        raw: { output: [{ frgn_ntby_qty: '1200000000', orgn_ntby_qty: '800000000' }] },
+      }),
+    });
+    const text = formatGate2KisInvestorFlowCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
+
+    expect(text).toContain('Gate2 KIS Flow: VERIFIED');
+    expect(text).toContain('endpoint=INQUIRE_INVESTOR');
+    expect(text).toContain('foreign=+1200000000');
     expect(text).toContain('marketSignal=false');
   });
 });

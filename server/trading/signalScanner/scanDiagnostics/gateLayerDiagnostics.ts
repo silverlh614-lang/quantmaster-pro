@@ -4,7 +4,7 @@ import type { GateLayerSummary } from '../../../quantFilter.js';
 import type { Gate2ExternalDataCoverage, Gate2SourceCoverage } from '../../../quant/gate2Diagnostics.js';
 import type { ScanCounters } from './scanCounterTypes.js';
 import { incrementCount, topCounts } from './gateScoreDiagnostics.js';
-import { formatGate2CompactDiagnostic } from '../../../quant/gate2Diagnostics.js';
+import { formatGate2CompactDiagnostic, formatGate2KisInvestorFlowCompactDiagnostic } from '../../../quant/gate2Diagnostics.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -43,6 +43,7 @@ export interface Gate2CoverageAuditSummary {
   benchmarkStatus: Record<string, number>;
   primaryIssue: Record<string, number>;
   compactText: Record<string, number>;
+  kisFlowCompactText: Record<string, number>;
   providerIssueCount: number;
 }
 
@@ -91,6 +92,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       benchmarkStatus: {},
       primaryIssue: {},
       compactText: {},
+      kisFlowCompactText: {},
       providerIssueCount: 0,
     },
   };
@@ -151,6 +153,8 @@ export function accumulateGateLayerSummary(
     incrementCount(counters.gateLayerAudit.gate2Coverage.primaryIssue, gate2Source.providerIssues[0] ?? gate2Source.missingExternalData[0] ?? 'none');
     const compact = formatGate2CompactDiagnostic({ sourceCoverage: gate2Source, externalDataCoverage: gate2External });
     if (compact) incrementCount(counters.gateLayerAudit.gate2Coverage.compactText, compact);
+    const kisFlowCompact = formatGate2KisInvestorFlowCompactDiagnostic(gate2External);
+    if (kisFlowCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.kisFlowCompactText, kisFlowCompact);
     if (
       gate2External.kisInvestorFlow.providerIssue
       || gate2External.dartFinancials.providerIssue
@@ -221,6 +225,7 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  primaryIssue: ${topKey(summary.primaryIssue)}`,
     `  providerIssueCount: ${summary.providerIssueCount}`,
     `  compactText: ${topLabel(summary.compactText)}`,
+    `  kisFlow: ${topLabel(summary.kisFlowCompactText)}`,
     '  marketSignal: false; diagnosticOnly: true',
   ].join('\n');
 }
