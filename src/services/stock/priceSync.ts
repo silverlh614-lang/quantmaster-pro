@@ -1,7 +1,8 @@
 // @responsibility stock priceSync 서비스 모듈
 import { enrichStockWithRealData } from './enrichment';
 import { fetchHistoricalData } from './historicalData';
-import { debugLog, debugWarn } from '../../utils/debug';
+import { debugLog } from '../../utils/debug';
+import { clientWarn } from '../../utils/clientWarn';
 import type { StockRecommendation } from './types';
 
 /**
@@ -125,7 +126,13 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     debugLog(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
     return await enrichStockWithRealData(kisResult);
   } catch (kisErr: any) {
-    debugWarn(`[가격동기화] KIS 실패 → Yahoo 시도: ${kisErr.message}`);
+    clientWarn({
+      domain: 'PRICE_SYNC',
+      code: 'P4_PRICE_SYNC_DEGRADED',
+      message: `[가격동기화] KIS UI 가격 동기화 실패 → Yahoo 표시 가격 시도`,
+      dedupKey: `priceSync:kis:${stock.code}`,
+      details: { stockCode: stock.code, stockName: stock.name, error: kisErr instanceof Error ? kisErr.message : String(kisErr) },
+    });
   }
 
   // 2순위: Yahoo Finance (/api/historical-data 서버 프록시)
@@ -153,12 +160,24 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
         }
       }
     } catch (yahooErr: any) {
-      debugWarn(`[가격동기화] Yahoo ${baseCode}${suffix} 실패: ${yahooErr.message}`);
+      clientWarn({
+        domain: 'PRICE_SYNC',
+        code: 'P4_PRICE_SYNC_DEGRADED',
+        message: `[가격동기화] Yahoo UI 가격 동기화 실패`,
+        dedupKey: `priceSync:yahoo:${baseCode}${suffix}`,
+        details: { symbol: `${baseCode}${suffix}`, stockCode: stock.code, stockName: stock.name, error: yahooErr instanceof Error ? yahooErr.message : String(yahooErr) },
+      });
     }
   }
 
   // 3순위: 마지막 알려진 가격 유지
-  debugWarn(`[가격동기화] 모든 소스 실패 — STALE 유지: ${stock.name}`);
+  clientWarn({
+    domain: 'PRICE_SYNC',
+    code: 'P4_PRICE_SYNC_DEGRADED',
+    message: `[가격동기화] 모든 UI 가격 소스 실패 — 화면에 STALE 가격 유지`,
+    dedupKey: `priceSync:stale:${stock.code}`,
+    details: { stockCode: stock.code, stockName: stock.name, dataSourceType: 'STALE' },
+  });
   const stale: StockRecommendation = {
     ...stock,
     dataSourceType: 'STALE',

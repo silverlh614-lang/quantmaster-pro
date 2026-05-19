@@ -8,6 +8,7 @@
 
 import type { KISOrderParams, PendingOrder } from '../../types/quant';
 import { debugLog } from '../../utils/debug';
+import { clientWarn } from '../../utils/clientWarn';
 import { placeKISOrder } from './orderExecution';
 
 /** 한국 장 최적 매수 시간대 여부 확인 (KST 10:00~11:30, 13:00~14:00) */
@@ -51,7 +52,13 @@ export async function placeKISOrderWithFilter(
       reason: '장중 타임 필터 - 유효 시간대(10:00~11:30, 13:00~14:00) 대기 중',
     };
     pendingOrderQueue.push(pending);
-    console.warn(`[타임 필터] ${stockName} 주문 큐 등록 (${pending.reason})`);
+    clientWarn({
+      domain: 'TIME_FILTER',
+      code: 'P4_CLIENT_TIME_FILTER_DEGRADED',
+      message: `[타임 필터] UI 시간 필터로 주문 큐 표시 (${pending.reason})`,
+      dedupKey: `timeFilter:queued:${params.PDNO}`,
+      details: { stockName, productCode: params.PDNO, queuedAt: pending.queuedAt },
+    });
     return { status: 'QUEUED', reason: pending.reason };
   }
 

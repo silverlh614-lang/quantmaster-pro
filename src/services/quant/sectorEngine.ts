@@ -5,6 +5,7 @@ import {
   OverheatedSectorMatch,
   SectorOverheatResult,
 } from '../../types/quant';
+import { clientWarn } from '../../utils/clientWarn';
 
 // ─── 아이디어 7: 섹터 과열 감지 + 인버스 ETF 자동 매칭 ──────────────────────────
 
@@ -70,7 +71,13 @@ export function evaluateSectorOverheat(
 
     const etfInfo = SECTOR_INVERSE_ETF_MAP[sector.name];
     if (!etfInfo) {
-      console.warn(`[SectorOverheat] ETF 매핑 없음: ${sector.name} — 인버스 ETF 수동 확인 필요`);
+      clientWarn({
+        domain: 'CLIENT_DATA',
+        code: 'P4_CLIENT_DATA_STALE',
+        message: `[SectorOverheat] ETF 매핑 없음 — 인버스 ETF UI 표시 수동 확인 필요`,
+        dedupKey: `sectorOverheat:missingEtf:${sector.name}`,
+        details: { sectorName: sector.name },
+      });
     }
     const inverseEtf = etfInfo?.etf ?? `${sector.name} 인버스 ETF (수동 확인 필요)`;
     const inverseEtfCode = etfInfo?.code ?? '-';

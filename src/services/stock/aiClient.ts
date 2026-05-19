@@ -1,6 +1,7 @@
 // @responsibility stock aiClient 서비스 모듈
 import { GoogleGenAI } from "@google/genai";
 import { debugLog } from '../../utils/debug';
+import { clientWarn } from '../../utils/clientWarn';
 
 // ─── AI Client & 유틸리티 ──────────────────────────────────────────────────────
 // stockService.ts에서 추출된 AI 클라이언트, 캐시, 재시도, JSON 파서 모듈
@@ -278,7 +279,13 @@ export async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 20
 
     if ((isServerError || isXhrError || isAiError) && retries > 0) {
       const waitTime = delay;
-      console.warn(`Transient error hit (${message || status || code}). Retrying in ${waitTime}ms... (${retries} retries left)`);
+      clientWarn({
+        domain: 'CLIENT_DATA',
+        code: 'P4_CLIENT_DATA_STALE',
+        message: `AI 클라이언트 일시 오류 — UI 데이터 재시도 대기 (${waitTime}ms)`,
+        dedupKey: `aiClient:transient:${message || status || code || 'unknown'}`,
+        details: { message, status, code, retriesLeft: retries, waitTime },
+      });
       await new Promise(resolve => setTimeout(resolve, waitTime));
       return withRetry(fn, retries - 1, waitTime * 1.5);
     }

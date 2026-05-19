@@ -232,11 +232,11 @@ export async function placeAndConfirmOrder(
   // 타임아웃 — 잔량 취소
   if (lastFilled === 0) {
     await cancelOrder(orderId, params.PDNO, params.ORD_QTY).catch(console.error);
-    console.warn(`[체결확인] ⏱ 타임아웃 — 주문 취소 완료`);
+    console.error(`[P1_CANDIDATE][체결확인] ⏱ 타임아웃 — 주문 취소 완료`);
     return 'TIMEOUT';
   }
 
   // 부분 체결 상태에서 타임아웃
-  console.warn(`[체결확인] ⚠ 부분 체결(${lastFilled}주) 후 타임아웃`);
+  console.error(`[P1_CANDIDATE][체결확인] 부분 체결(${lastFilled}주) 후 타임아웃 — 주문/체결 상태 확인 필요`);
   return 'PARTIAL';
 }

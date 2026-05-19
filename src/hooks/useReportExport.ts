@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf';
 import { generateReportSummary } from '../services/stockService';
 import { useRecommendationStore, useMarketStore, useAnalysisStore, useSettingsStore } from '../stores';
 import { debugLog } from '../utils/debug';
+import { clientWarn } from '../utils/clientWarn';
 
 export function useReportExport() {
   const { recommendations, searchResults } = useRecommendationStore();
@@ -243,7 +244,12 @@ export function useReportExport() {
       const isRateLimit = message.includes('429') || status === 429 || code === 429 || status === 'RESOURCE_EXHAUSTED' || message.includes('quota');
       
       if (isRateLimit) {
-        console.warn('AI 요약 생성 할당량 초과');
+        clientWarn({
+          domain: 'REPORT_RENDER',
+          code: 'P4_STOCK_REPORT_RENDER_DEGRADED',
+          message: 'AI 요약 생성 할당량 초과 — 리포트 export UI 요약 섹션 degraded',
+          dedupKey: 'reportExport:ai-summary-rate-limit',
+        });
         toast.error('API 할당량 초과: 잠시 후 다시 시도해 주세요.');
       } else {
         console.error('요약 생성 실패:', err);

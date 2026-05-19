@@ -8,6 +8,7 @@
 
 import type { ConditionId } from '../../types/quant';
 import { debugLog } from '../../utils/debug';
+import { clientWarn } from '../../utils/clientWarn';
 
 /**
  * 거래 종료 시 호출 — 27조건 점수 × 수익/손실 결과를 귀인 스토어에 누적
@@ -50,6 +51,12 @@ export async function pushAttributionToServer(payload: {
     });
     debugLog(`[귀인 분석] 서버 전송 완료 — ${payload.stockName} (${payload.returnPct.toFixed(2)}%)`);
   } catch (err) {
-    console.warn('[귀인 분석] 서버 전송 실패 (비치명적):', err);
+    clientWarn({
+      domain: 'CLIENT_DATA',
+      code: 'P4_CLIENT_DATA_STALE',
+      message: '[귀인 분석] 서버 전송 실패 — 사후 분석 UI 데이터 stale 가능',
+      dedupKey: `attribution:server-post:${payload.stockCode ?? payload.stockName}`,
+      details: { stockName: payload.stockName, error: err instanceof Error ? err.message : String(err) },
+    });
   }
 }

@@ -18,7 +18,7 @@
  * Inflight coalescing: 동시 호출이 진행 중인 fetch 에 편승 — Gemini API 중복 호출 차단.
  */
 
-import { debugWarn } from '../../utils/debug';
+import { clientWarn } from '../../utils/clientWarn';
 
 /** 60초 fresh — 같은 화면 내 빠른 재로드 시 fetch 회피. */
 export const FRESH_TTL_MS = 60_000;
@@ -91,7 +91,13 @@ function ensureBackgroundRefresh(
       return raw;
     })
     .catch(e => {
-      debugWarn('[marketOverviewCache] SWR refresh failed', e instanceof Error ? e.message : e);
+      clientWarn({
+        domain: 'MARKET_OVERVIEW_CACHE',
+        code: 'P4_MARKET_OVERVIEW_CACHE_DEGRADED',
+        message: '[marketOverviewCache] 브라우저 SWR refresh 실패 — stale 화면 캐시 유지',
+        dedupKey: 'marketOverviewCache:swrRefresh',
+        details: { error: e instanceof Error ? e.message : String(e) },
+      });
       // stale 그대로 살려둠 — 다음 호출에서 재시도
       throw e;
     })

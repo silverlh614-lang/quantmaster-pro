@@ -8,6 +8,7 @@
 
 import type { Gate0Result } from '../../types/core';
 import type { MacroEnvironment } from '../../types/macro';
+import { clientWarn } from '../../utils/clientWarn';
 
 /**
  * Gate 0 평가 완료 후 서버 MacroState에 동기화.
@@ -52,6 +53,12 @@ export async function syncGate0ToServer(
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    console.warn('[MacroSync] 서버 동기화 실패 (비치명적):', err);
+    clientWarn({
+      domain: 'CLIENT_DATA',
+      code: 'P4_CLIENT_DATA_STALE',
+      message: '[MacroSync] 서버 동기화 실패 — 클라이언트 거시 표시 데이터와 서버 상태가 일시 불일치할 수 있음',
+      dedupKey: 'macroSync:server-state',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    });
   }
 }

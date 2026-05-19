@@ -25,6 +25,7 @@ import { computeFSS } from '../services/quant/fssEngine';
 import { evaluateMarketRegimeClassifier } from '../services/quant/marketRegimeClassifier';
 import { syncGate0ToServer } from '../services/autoTrading';
 import { getStaleTime, PERSIST_GC_TIME } from '../utils/cacheConfig';
+import { clientWarn } from '../utils/clientWarn';
 
 /**
  * 모듈 레벨 레이트 리미터.
@@ -132,7 +133,15 @@ export function useBatchGlobalIntel() {
           setMarketRegimeClassifierResult(evaluateMarketRegimeClassifier(classifierInput));
 
           // 서버 MacroState 동기화 — classifyRegime() 파이프라인 공급
-          syncGate0ToServer(data.macro, g0).catch(console.warn);
+          syncGate0ToServer(data.macro, g0).catch((err) => {
+            clientWarn({
+              domain: 'CLIENT_DATA',
+              code: 'P4_CLIENT_DATA_STALE',
+              message: '[useBatchGlobalIntel] Gate0 서버 동기화 실패 — 클라이언트 표시 데이터만 stale 가능',
+              dedupKey: 'globalIntel:gate0-sync',
+              details: { error: err instanceof Error ? err.message : String(err) },
+            });
+          });
         } catch (evalErr) {
           console.error('[useBatchGlobalIntel] 매크로 평가 실패 (비치명적):', evalErr);
         }

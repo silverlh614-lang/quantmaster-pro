@@ -19,6 +19,7 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { EngineStatus } from '../../api';
 import { AUTO_TRADE_KEYS } from './queryKeys';
+import { clientWarn } from '../../utils/clientWarn';
 
 export interface UseEngineStreamOptions {
   /** 스트림 URL. 기본 `/api/auto-trade/engine/stream`. */
@@ -46,7 +47,13 @@ export function useEngineStream(opts: UseEngineStreamOptions = {}): void {
         if ((payload as unknown as { kind?: string }).kind === 'welcome') return;
         qc.setQueryData<EngineStatus>(AUTO_TRADE_KEYS.engineStatus, payload);
       } catch (err) {
-        console.warn('[engine-stream] parse fail:', err);
+        clientWarn({
+          domain: 'CLIENT_DATA',
+          code: 'P4_CLIENT_DATA_STALE',
+          message: '[engine-stream] 엔진 상태 SSE payload 파싱 실패 — 기존 UI 캐시 유지',
+          dedupKey: 'engine-stream:parse-fail',
+          details: { error: err instanceof Error ? err.message : String(err) },
+        });
       }
     };
 

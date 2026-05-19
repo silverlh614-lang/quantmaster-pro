@@ -19,6 +19,7 @@ import type {
   SectorOrderIntelligence,
 } from '../../types/quant';
 import type { EconomicRegime } from '../../types/core';
+import { clientWarn } from '../../utils/clientWarn';
 
 // ─── 배치 통합 호출 (12개 → 3개 압축) ─────────────────────────────────────────
 //
@@ -496,7 +497,13 @@ export async function getBatchSectorIntel(): Promise<BatchSectorIntelResult> {
       debugLog('[getBatchSectorIntel] ECOS 수출 수집 완료', { latestYoY, ma3m });
     }
   } catch (e) {
-    console.warn('[getBatchSectorIntel] ECOS 수출 수집 실패:', e);
+    clientWarn({
+      domain: 'CLIENT_DATA',
+      code: 'P4_CLIENT_DATA_STALE',
+      message: '[getBatchSectorIntel] ECOS 수출 수집 실패 — 섹터 인텔 표시 데이터 stale 가능',
+      dedupKey: 'batchSectorIntel:ecos-export',
+      details: { error: e instanceof Error ? e.message : String(e) },
+    });
   }
 
   const phaseAPrompt = ecosExport
