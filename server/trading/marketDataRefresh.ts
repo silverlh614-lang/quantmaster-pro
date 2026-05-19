@@ -190,6 +190,11 @@ function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; 
   }
 }
 
+function sumNullablePair(left: number | null, right: number | null): number | null {
+  if (left === null && right === null) return null;
+  return (left ?? 0) + (right ?? 0);
+}
+
 function logMacroRefreshStarted(reason: MacroRefreshReason): void {
   const ctx = macroRefreshRuntimeContext();
   console.info(
@@ -922,6 +927,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     const kospiLeg = normalizeMarketProgramLeg({ rows: kospiRows });
     const kosdaqLeg = normalizeMarketProgramLeg({ rows: kosdaqRows });
     const combinedLeg = normalizeMarketProgramLeg({ rows: combinedRows });
+    const combinedWholeNetBuy = sumNullablePair(kospiLeg.rawWholeNetBuy, kosdaqLeg.rawWholeNetBuy);
+    const combinedArbitrageNetBuy = sumNullablePair(kospiLeg.rawArbitrageNetBuy, kosdaqLeg.rawArbitrageNetBuy);
+    const combinedNonArbitrageNetBuy = sumNullablePair(kospiLeg.rawNonArbitrageNetBuy, kosdaqLeg.rawNonArbitrageNetBuy);
     const invariants = hasSnapshotInvariantViolation({
       kospiLen,
       kosdaqLen,
@@ -994,7 +1002,16 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       rowBreakdown: {
         kospi: { outputLength: kospiLeg.outputLength, nonZeroRows: kospiLeg.nonZeroRows, selectedBsopHour: kospiLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kospiLeg.rawWholeNetBuy, rawArbitrageNetBuy: kospiLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kospiLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kospiLeg.displayWholeNetBuy, unitCandidates: kospiLeg.unitCandidates },
         kosdaq: { outputLength: kosdaqLeg.outputLength, nonZeroRows: kosdaqLeg.nonZeroRows, selectedBsopHour: kosdaqLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kosdaqLeg.rawWholeNetBuy, rawArbitrageNetBuy: kosdaqLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kosdaqLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kosdaqLeg.displayWholeNetBuy, unitCandidates: kosdaqLeg.unitCandidates },
-        combined: { outputLength: combinedLeg.outputLength, nonZeroRows: combinedLeg.nonZeroRows, selectedBsopHour: combinedLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: combinedLeg.rawWholeNetBuy, rawArbitrageNetBuy: combinedLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: combinedLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: combinedLeg.displayWholeNetBuy, unitCandidates: combinedLeg.unitCandidates },
+        combined: {
+          outputLength: combinedLeg.outputLength,
+          nonZeroRows: combinedLeg.nonZeroRows,
+          selectedBsopHour: marketProgram.selectedBsopHour ?? combinedLeg.selectedBsopHour ?? 'N/A',
+          rawWholeNetBuy: combinedWholeNetBuy,
+          rawArbitrageNetBuy: combinedArbitrageNetBuy,
+          rawNonArbitrageNetBuy: combinedNonArbitrageNetBuy,
+          displayWholeNetBuy: formatEokAmount(combinedWholeNetBuy, 'UNVERIFIED'),
+          unitCandidates: buildUnitCandidates(combinedWholeNetBuy),
+        },
       },
     };
     (computed.programMarket as any).snapshotSource = resolvedCombinedSource;
