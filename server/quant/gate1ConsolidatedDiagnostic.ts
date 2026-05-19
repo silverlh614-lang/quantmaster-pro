@@ -187,9 +187,16 @@ function buildSections(gate1: Gate1Bucket): Gate1ConsolidatedDiagnosticSections 
     ],
     session: [
       `session=${stringOrNull(session.session) ?? 'UNKNOWN'}`,
+      `engineMode=${stringOrNull(session.engineMode) ?? 'UNKNOWN'}`,
       `liveBuyAllowed=${boolText(boolOrNull(session.liveBuyAllowed))}`,
+      `liveSellAllowed=${boolText(boolOrNull(session.liveSellAllowed))}`,
       `shadowAllowed=${boolText(boolOrNull(session.shadowAllowed))}`,
+      `observeAllowed=${boolText(boolOrNull(session.observeAllowed))}`,
+      `caseRecordingAllowed=${boolText(boolOrNull(session.caseRecordingAllowed))}`,
+      `matchedWindow=${stringOrNull(asRecord(session.sellOnlyWindow).matchedWindow) ?? 'none'}`,
       `reason=${stringOrNull(session.reason) ?? 'none'}`,
+      `marketSignal=false`,
+      `executionImpact=${stringOrNull(session.executionImpact) ?? 'DIAGNOSTIC_ONLY'}`,
     ],
     shadow: [
       `mode=${stringOrNull(shadow.mode) ?? 'UNKNOWN'}`,
@@ -279,7 +286,7 @@ function buildTelegramText(input: {
     `Quote: ${input.quoteSource} ${input.quoteConfidence}${input.quoteMissingFields.length > 0 ? ` missing=${compactList(input.quoteMissingFields)}` : ''}`,
     `Tradability: ${input.tradabilityStatus} / ${input.market} / ${input.stockType}`,
     `Liquidity: ${input.liquidityStatus} / tradingValue=${formatKrw(input.tradingValue)}`,
-    `Live: buy=${boolText(input.liveBuyAllowed)} | Shadow: scan=${boolText(input.shadowScanAllowed)} signal=${boolText(input.shadowSignalAllowed)} paper=${boolText(input.paperOrderAllowed)} case=${onOff(input.caseRecordingAllowed)}`,
+    `Session: ${input.sessionName} | Live: buy=${boolText(input.liveBuyAllowed)} | Shadow: scan=${boolText(input.shadowScanAllowed)} signal=${boolText(input.shadowSignalAllowed)} paper=${boolText(input.paperOrderAllowed)} case=${onOff(input.caseRecordingAllowed)}`,
     `marketSignal=false | executionImpact=${input.executionImpact}`,
   ];
   return lines.slice(0, 8).join('\n');
@@ -383,6 +390,7 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     || survival.kisOfficialQuoteCoverage.providerIssue === true
     || survival.tradability.providerIssue === true
     || survival.liquidityFloor.providerIssue === true
+    || survival.marketSessionCompatibility.providerIssue === true
     || survival.shadowEligibility.providerIssue === true
     || (tradabilityStatus === 'UNKNOWN' && stringOrNull(tradability.source) === 'UNKNOWN');
 

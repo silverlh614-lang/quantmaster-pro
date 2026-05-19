@@ -67,9 +67,24 @@ function baseGate1(): GateLayerSummary['gate1'] {
       },
       marketSessionCompatibility: {
         session: 'REGULAR',
+        engineMode: 'NORMAL',
         liveBuyAllowed: true,
+        liveSellAllowed: true,
         shadowAllowed: true,
+        observeAllowed: true,
+        caseRecordingAllowed: true,
         reason: null,
+        timeKst: '2026-05-19T10:15:00+09:00',
+        tradingDate: '2026-05-19',
+        sellOnlyWindow: {
+          active: false,
+          matchedWindow: null,
+        },
+        source: 'MARKET_CLOCK',
+        sourceStatus: 'VERIFIED',
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'DIAGNOSTIC_ONLY',
       },
       kisOfficialQuoteCoverage: {
         source: 'KIS_OFFICIAL',
@@ -136,9 +151,24 @@ describe('Gate1 consolidated diagnostic renderer', () => {
     const gate1 = baseGate1();
     gate1.survival!.marketSessionCompatibility = {
       session: 'SELL_ONLY',
+      engineMode: 'SELL_ONLY',
       liveBuyAllowed: false,
+      liveSellAllowed: true,
       shadowAllowed: true,
+      observeAllowed: true,
+      caseRecordingAllowed: true,
       reason: 'SELL_ONLY_WINDOW_OPENING_0900_0930',
+      timeKst: '2026-05-19T09:10:00+09:00',
+      tradingDate: '2026-05-19',
+      sellOnlyWindow: {
+        active: true,
+        matchedWindow: 'OPENING_0900_0930',
+      },
+      source: 'QMP_SESSION',
+      sourceStatus: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
     };
     gate1.survival!.shadowEligibility = {
       ...gate1.survival!.shadowEligibility,

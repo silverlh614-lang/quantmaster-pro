@@ -28,6 +28,10 @@ import {
   type Gate1LiquidityFloorStatus as Gate1LiquidityFloorStatusValue,
 } from './quant/gate1LiquidityFloor.js';
 import {
+  normalizeMarketSessionForGate1,
+  type Gate1MarketSessionCompatibilityDiagnostic,
+} from './quant/gate1MarketSession.js';
+import {
   normalizeShadowEligibilityForGate1,
   type Gate1ShadowEligibilityDiagnostic,
   type Gate1ShadowEligibilityMode as Gate1ShadowEligibilityModeValue,
@@ -46,6 +50,8 @@ import {
   type Gate2SourceCoverage,
   type Gate2WiringDiagnostic,
 } from './quant/gate2Diagnostics.js';
+
+export type { Gate1MarketSession } from './quant/gate1MarketSession.js';
 
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
@@ -89,7 +95,6 @@ export type Gate1TradabilityMarket = 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'ETF' | 'ETN
 export type Gate1TradabilityStockType = 'COMMON' | 'PREFERRED' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'OTHER' | 'UNKNOWN';
 export type Gate1TradabilitySourceStatus = 'VERIFIED' | 'STALE' | 'MISSING' | 'DEGRADED' | 'UNKNOWN';
 export type Gate1LiquidityFloorStatus = Gate1LiquidityFloorStatusValue;
-export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNCH' | 'SELL_ONLY' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
 export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
 export type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
 export type Gate1ShadowEligibilityMode = Gate1ShadowEligibilityModeValue;
@@ -118,13 +123,7 @@ export interface Gate1SurvivalDiagnostic {
     executionImpact: Gate1SurvivalExecutionImpact;
   };
   liquidityFloor: Gate1LiquidityFloorDiagnostic;
-  marketSessionCompatibility: {
-    session: Gate1MarketSession;
-    liveBuyAllowed: boolean;
-    liveSellAllowed?: boolean;
-    shadowAllowed: boolean;
-    reason: string | null;
-  };
+  marketSessionCompatibility: Gate1MarketSessionCompatibilityDiagnostic;
   kisOfficialQuoteCoverage: {
     source: Gate1QuoteCoverageSource;
     endpoint: string;
@@ -534,37 +533,16 @@ function buildGate1LiquidityFloor(
   });
 }
 
-function normalizeGate1MarketSession(value: unknown): Gate1MarketSession {
-  const raw = String(value ?? '').trim().toUpperCase();
-  if (!raw) return 'UNKNOWN';
-  if (raw === 'REGULAR' || raw === 'OPEN' || raw === 'MARKET_OPEN') return 'REGULAR';
-  if (raw === 'PREMARKET' || raw === 'PRE_MARKET' || raw === 'PREOPEN' || raw === 'PRE_OPEN') return 'PREMARKET';
-  if (raw === 'AFTERMARKET' || raw === 'AFTER_MARKET' || raw === 'AFTER_HOURS') return 'AFTERMARKET';
-  if (raw === 'LUNCH' || raw === 'MIDDAY_BREAK') return 'LUNCH';
-  if (raw === 'SELL_ONLY') return 'SELL_ONLY';
-  if (raw === 'HOLIDAY') return 'HOLIDAY';
-  if (raw === 'CLOSED' || raw === 'NON_TRADING_DAY' || raw === 'MARKET_CLOSED') return 'CLOSED';
-  return 'UNKNOWN';
-}
-
 function buildGate1MarketSessionCompatibility(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['marketSessionCompatibility'] {
   const q = quote as QuoteRecord;
-  const session = normalizeGate1MarketSession(
-    q.marketSession
-      ?? q.marketSessionState
-      ?? q.session
-      ?? q.tradingSession
-      ?? q.engineMode,
-  );
-  const liveBuyAllowed = session === 'REGULAR';
-  const liveSellAllowed = session !== 'CLOSED' && session !== 'HOLIDAY' && session !== 'UNKNOWN';
-  const shadowAllowed = true;
-  const reason = session === 'UNKNOWN'
-    ? 'MARKET_SESSION_UNKNOWN'
-    : liveBuyAllowed
-      ? null
-      : `${session}_LIVE_BUY_NOT_ALLOWED_DIAGNOSTIC`;
-  return { session, liveBuyAllowed, liveSellAllowed, shadowAllowed, reason };
+  return normalizeMarketSessionForGate1({
+    now: q.now ?? q.currentTime ?? q.timeKst ?? q.marketTimeKst ?? q.asOf ?? q.fetchedAt,
+    engineMode: q.engineMode ?? q.executionMode ?? q.runtimeEngineMode,
+    marketSession: q.marketSession ?? q.marketSessionState ?? q.session ?? q.tradingSession,
+    matchedWindow: q.matchedWindow ?? q.sellOnlyWindow,
+    marketClock: q.marketClock,
+    kisHolidayStatus: q.kisHolidayStatus ?? q.holidayStatus,
+  });
 }
 
 function buildGate1ShadowEligibility(input: {
