@@ -277,7 +277,11 @@ import {
   formatGateScoreCandidateBucketSection,
   formatGateScoreHealthSection,
 } from './scanDiagnostics/gateScoreDiagnostics.js';
-import { buildGateLayerAuditSummary, formatGate1SurvivalAuditSection } from './scanDiagnostics/gateLayerDiagnostics.js';
+import {
+  buildGateLayerAuditSummary,
+  formatGate1SurvivalAuditSection,
+  formatGate2CoverageAuditSection,
+} from './scanDiagnostics/gateLayerDiagnostics.js';
 import { buildPerStageDropoffSummary } from './scanDiagnostics/pipelineStageDiagnostics.js';
 import { scanDiagnosticNumber, scanDiagnosticString } from './scanDiagnostics/macroScanDiagnostics.js';
 import {
@@ -839,6 +843,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (gate1SurvivalSection) {
     lines.push('');
     lines.push(gate1SurvivalSection);
+  }
+  const gate2CoverageSection = formatGate2CoverageAuditSection(summary.gateLayerAudit?.gate2Coverage);
+  if (gate2CoverageSection) {
+    lines.push('');
+    lines.push(gate2CoverageSection);
   }
 
   const gateReclassificationDryRunSection = formatGateReclassificationDryRunSection(summary.gateReclassificationDryRun);

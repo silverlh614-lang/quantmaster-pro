@@ -1,8 +1,10 @@
 // @responsibility Gate layer audit diagnostic aggregation.
 
 import type { GateLayerSummary } from '../../../quantFilter.js';
+import type { Gate2ExternalDataCoverage, Gate2SourceCoverage } from '../../../quant/gate2Diagnostics.js';
 import type { ScanCounters } from './scanCounterTypes.js';
 import { incrementCount, topCounts } from './gateScoreDiagnostics.js';
+import { formatGate2CompactDiagnostic } from '../../../quant/gate2Diagnostics.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -13,6 +15,7 @@ export interface GateLayerAuditSummary {
   topGate2BlockReasons: Array<{ reason: string; count: number }>;
   topGate3BlockReasons: Array<{ reason: string; count: number }>;
   gate1Survival?: Gate1SurvivalAuditSummary;
+  gate2Coverage?: Gate2CoverageAuditSummary;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -32,6 +35,17 @@ export interface Gate1SurvivalAuditSummary {
   shadowAllowedCount: number;
 }
 
+export interface Gate2CoverageAuditSummary {
+  samples: number;
+  inputState: Record<string, number>;
+  kisStatus: Record<string, number>;
+  dartStatus: Record<string, number>;
+  benchmarkStatus: Record<string, number>;
+  primaryIssue: Record<string, number>;
+  compactText: Record<string, number>;
+  providerIssueCount: number;
+}
+
 export interface GateLayerAuditAccumulator {
   gate1PassCount: number;
   gate2PassCount: number;
@@ -41,6 +55,7 @@ export interface GateLayerAuditAccumulator {
   gate2BlockReasons: Record<string, number>;
   gate3BlockReasons: Record<string, number>;
   gate1Survival: Gate1SurvivalAuditSummary;
+  gate2Coverage: Gate2CoverageAuditSummary;
 }
 
 export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
@@ -67,6 +82,16 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       consolidatedCompactText: {},
       liveBuyBlockedCount: 0,
       shadowAllowedCount: 0,
+    },
+    gate2Coverage: {
+      samples: 0,
+      inputState: {},
+      kisStatus: {},
+      dartStatus: {},
+      benchmarkStatus: {},
+      primaryIssue: {},
+      compactText: {},
+      providerIssueCount: 0,
     },
   };
 }
@@ -114,10 +139,31 @@ export function accumulateGateLayerSummary(
     incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedExecutionImpact, consolidated.executionImpact);
     incrementCount(counters.gateLayerAudit.gate1Survival.consolidatedCompactText, consolidated.compactText);
   }
+  const gate2Source = summary.gate2.sourceCoverage as Gate2SourceCoverage | undefined;
+  const gate2External = summary.gate2.externalDataCoverage as Gate2ExternalDataCoverage | undefined;
+  if (gate2Source && gate2External) {
+    counters.gateLayerAudit.gate2Coverage.samples += 1;
+    const inputState = gate2Source.allDeclaredInputsAvailable && gate2Source.allExternalDataAvailable ? 'OK' : 'DEGRADED';
+    incrementCount(counters.gateLayerAudit.gate2Coverage.inputState, inputState);
+    incrementCount(counters.gateLayerAudit.gate2Coverage.kisStatus, gate2External.kisInvestorFlow.status);
+    incrementCount(counters.gateLayerAudit.gate2Coverage.dartStatus, gate2External.dartFinancials.status);
+    incrementCount(counters.gateLayerAudit.gate2Coverage.benchmarkStatus, gate2External.benchmark.status);
+    incrementCount(counters.gateLayerAudit.gate2Coverage.primaryIssue, gate2Source.providerIssues[0] ?? gate2Source.missingExternalData[0] ?? 'none');
+    const compact = formatGate2CompactDiagnostic({ sourceCoverage: gate2Source, externalDataCoverage: gate2External });
+    if (compact) incrementCount(counters.gateLayerAudit.gate2Coverage.compactText, compact);
+    if (
+      gate2External.kisInvestorFlow.providerIssue
+      || gate2External.dartFinancials.providerIssue
+      || gate2External.benchmark.providerIssue
+    ) {
+      counters.gateLayerAudit.gate2Coverage.providerIssueCount += 1;
+    }
+  }
 }
 
 export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
   const survival = counters.gateLayerAudit.gate1Survival;
+  const gate2Coverage = counters.gateLayerAudit.gate2Coverage;
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,
     gate2PassCount: counters.gateLayerAudit.gate2PassCount,
@@ -127,6 +173,7 @@ export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAud
     topGate2BlockReasons: topCounts(counters.gateLayerAudit.gate2BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
     topGate3BlockReasons: topCounts(counters.gateLayerAudit.gate3BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
     ...(survival.samples > 0 ? { gate1Survival: { ...survival } } : {}),
+    ...(gate2Coverage.samples > 0 ? { gate2Coverage: { ...gate2Coverage } } : {}),
   };
 }
 
@@ -159,5 +206,21 @@ export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSumma
     `  liveBuyBlockedOnly/advisory: ${summary.liveBuyBlockedCount}`,
     `  shadowAllowed: ${summary.shadowAllowedCount}`,
     '  executionImpact: NONE for shadow; scoringImpact: NONE',
+  ].join('\n');
+}
+
+export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSummary | null | undefined): string | null {
+  if (!summary || summary.samples <= 0) return null;
+  return [
+    '<b>Gate2 Wiring Diagnostic</b>',
+    `  samples: ${summary.samples}`,
+    `  inputState: ${topKey(summary.inputState)}`,
+    `  KIS: ${topKey(summary.kisStatus)}`,
+    `  DART: ${topKey(summary.dartStatus)}`,
+    `  Benchmark: ${topKey(summary.benchmarkStatus)}`,
+    `  primaryIssue: ${topKey(summary.primaryIssue)}`,
+    `  providerIssueCount: ${summary.providerIssueCount}`,
+    `  compactText: ${topLabel(summary.compactText)}`,
+    '  marketSignal: false; diagnosticOnly: true',
   ].join('\n');
 }

@@ -36,6 +36,15 @@ import {
   buildGate1ConsolidatedDiagnostic,
   type Gate1ConsolidatedDiagnostic,
 } from './quant/gate1ConsolidatedDiagnostic.js';
+import {
+  buildGate2ExternalDataCoverage,
+  buildGate2SourceCoverage,
+  buildGate2WiringDiagnostics,
+  type Gate2ExternalDataCoverage,
+  type Gate2ExternalCoverageInput,
+  type Gate2SourceCoverage,
+  type Gate2WiringDiagnostic,
+} from './quant/gate2Diagnostics.js';
 
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
@@ -144,10 +153,11 @@ export interface GateLayerBucket {
   passed: boolean;
   score: number;
   availableMaxScore: number;
-  wiring?: Gate1WiringDiagnostic[];
-  sourceCoverage?: Gate1SourceCoverage;
+  wiring?: Array<Gate1WiringDiagnostic | Gate2WiringDiagnostic>;
+  sourceCoverage?: Gate1SourceCoverage | Gate2SourceCoverage;
   survival?: Gate1SurvivalDiagnostic;
   consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic;
+  externalDataCoverage?: Gate2ExternalDataCoverage;
 }
 
 export interface GateLayerSummary {
@@ -696,6 +706,7 @@ function buildGateLayerSummary(
   outputs: NonNullable<ServerGateResult['outputs']>,
   weights: ConditionWeights,
   signalType: ServerGateResult['signalType'],
+  gate2ExternalCoverageInput: Gate2ExternalCoverageInput = {},
 ): GateLayerSummary {
   const summary: GateLayerSummary = {
     gate1: { ...emptyGateLayerBucket(), wiring: [], sourceCoverage: emptyGate1SourceCoverage() },
@@ -731,6 +742,10 @@ function buildGateLayerSummary(
   }
 
   summary.gate1.sourceCoverage = buildGate1SourceCoverage(outputs);
+  const gate2Wiring = buildGate2WiringDiagnostics(outputs, GATE_CONDITION_LAYER_MAP);
+  summary.gate2.wiring = gate2Wiring;
+  summary.gate2.sourceCoverage = buildGate2SourceCoverage(gate2Wiring);
+  summary.gate2.externalDataCoverage = buildGate2ExternalDataCoverage(gate2Wiring, gate2ExternalCoverageInput);
 
   for (const layer of [summary.gate1, summary.gate2, summary.gate3]) {
     layer.passed = layer.unavailable.length === 0 && layer.providerDegraded.length === 0 && layer.thresholdNotMet.length === 0 && layer.fired.length > 0;
@@ -977,7 +992,7 @@ export function evaluateServerGate(
     }
   }
 
-  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType);
+  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType, { kisFlow, dartFin, kospi20dReturn });
   gateLayerSummary.gate1.survival = buildGate1SurvivalDiagnostic(quote);
   gateLayerSummary.gate1.consolidatedDiagnostic = buildGate1ConsolidatedDiagnostic({ gate1: gateLayerSummary.gate1 });
   const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);
