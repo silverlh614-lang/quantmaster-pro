@@ -126,6 +126,7 @@ function appendProgramMarketStatusLines(
   const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
   const macro = loadMacroState();
   const combinedSource = macro?.programMarket?.combinedSource ?? 'UNKNOWN';
+  const snapshotId = (macro?.programMarket as any)?.snapshotId ?? 'N/A';
   const mappingConfidence = macro?.programMarket?.unit?.mappingConfidence ?? 'UNIT_UNVERIFIED';
   const isCandidateOnly = mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN';
   const qtyEmoji = isCandidateOnly ? '🟡' : liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
@@ -139,7 +140,14 @@ function appendProgramMarketStatusLines(
   lines.push('scoring: shadow_only');
   if (isCandidateOnly) {
     lines.push(`confidence: LOW`);
-    lines.push(`reason: ${mappingConfidence === 'UNIT_UNVERIFIED' ? 'UNIT_UNVERIFIED' : 'MAPPING_VERIFIED'} + ${combinedSource === 'UNKNOWN' ? 'SOURCE_UNKNOWN' : `SOURCE_${combinedSource}`}`);
+    const sourceLabel = combinedSource === 'KOSPI_PLUS_KOSDAQ'
+      ? 'SOURCE_KOSPI_PLUS_KOSDAQ'
+      : combinedSource === 'SINGLE_KIS_RESPONSE'
+        ? 'SINGLE_KIS_RESPONSE'
+        : combinedSource === 'CACHE'
+          ? 'SOURCE_CACHE'
+          : 'SOURCE_UNKNOWN';
+    lines.push(`reason: ${mappingConfidence === 'UNIT_UNVERIFIED' ? 'UNIT_UNVERIFIED' : 'MAPPING_VERIFIED'} + ${sourceLabel}`);
   }
   lines.push('executionImpact: NONE');
   lines.push('useForExecution: false');
@@ -209,7 +217,10 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
       appendMacroProgramFetchedAt(lines, macro.programFetchedAt);
     }
     if (macro.programMarket) {
+      lines.push(`  • snapshotId: ${(macro.programMarket as any).snapshotId ?? 'N/A'}`);
       lines.push(`  • combinedSource: ${macro.programMarket.combinedSource ?? 'UNKNOWN'}`);
+      lines.push(`  • splitAvailable: ${macro.programMarket.splitAvailable ?? false}`);
+      lines.push(`  • combinedOnly: ${macro.programMarket.combinedOnly ?? true}`);
       lines.push(`  • splitAvailable: ${macro.programMarket.splitAvailable ?? false}`);
       if (macro.programMarket.rowBreakdown) {
         lines.push(`  • combined rows: ${macro.programMarket.rowBreakdown.combined.outputLength}`);
