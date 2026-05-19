@@ -115,6 +115,8 @@ export type Gate2ExternalProviderStatus =
 
 export type Gate2EvaluationStage = 'DISCOVERY_GATE' | 'REFRESHED_GATE' | 'ENTRY_RECHECK_GATE' | string;
 
+export type Gate2RiskPressure = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
+
 export interface Gate2ExternalDataCoverage {
   kisInvestorFlow: {
     required: boolean;
@@ -259,6 +261,35 @@ export interface Gate2ExternalDataCoverage {
     executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
     marketSignal: false;
   };
+  riskFlow: {
+    required: false;
+    available: boolean;
+    provider: 'KIS_OFFICIAL' | 'KIS_API' | 'KRX_CACHE' | 'QMP_CACHE' | 'CACHE' | 'UNKNOWN';
+    status: Gate2ExternalProviderStatus;
+    fields: {
+      shortPressure: boolean;
+      loanPressure: boolean;
+      creditOverheat: boolean;
+    };
+    values: {
+      shortSaleIncreaseRate: number | null;
+      loanIncreaseRate: number | null;
+      creditIncreaseRate: number | null;
+      creditBalanceRatio: number | null;
+    };
+    interpretation: {
+      shortPressure: Gate2RiskPressure;
+      loanPressure: Gate2RiskPressure;
+      creditOverheat: Gate2RiskPressure;
+      overallRisk: Gate2RiskPressure;
+    };
+    notes: string[];
+    stageNotFetched: boolean;
+    providerIssue: boolean;
+    marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    diagnosticOnly: true;
+  };
   sectorCycle: {
     required: boolean;
     available: boolean;
@@ -344,9 +375,68 @@ export interface Gate2ExternalCoverageInput {
     marketProgram?: QmpProgramFlow | null;
     stockProgram?: QmpProgramFlow | null;
   } | null;
+  riskFlow?: unknown;
   sectorThemeCycle?: QmpSectorThemeCycle | unknown | null;
   sectorEnergyResult?: unknown;
   evaluationStage?: Gate2EvaluationStage | null;
+}
+
+export type Gate2ConsolidatedHealth = 'OK' | 'WARN' | 'DEGRADED' | 'CONFLICT' | 'STAGE_NOT_FETCHED' | 'UNKNOWN';
+
+export type Gate2ConsolidatedOperatorAction =
+  | 'NONE'
+  | 'WAIT_FOR_ENTRY_RECHECK'
+  | 'CHECK_KIS_INVESTOR_FLOW'
+  | 'CHECK_DART_FINANCIALS'
+  | 'CHECK_BENCHMARK_PROVIDER'
+  | 'CHECK_PROGRAM_FLOW_SCOPE'
+  | 'CHECK_RISK_FLOW'
+  | 'REVIEW_SECTOR_CYCLE'
+  | 'REVIEW_SIGNAL_CONFLICT'
+  | 'REVIEW_GATE2_INPUTS';
+
+export type Gate2SignalAlignment =
+  | 'BULLISH'
+  | 'BEARISH'
+  | 'NEUTRAL'
+  | 'UNAVAILABLE'
+  | 'RISK_HIGH'
+  | 'LOW'
+  | 'LEADER'
+  | 'CROWDED'
+  | 'LAGGARD'
+  | 'UNKNOWN';
+
+export interface Gate2ConsolidatedDiagnostic {
+  health: Gate2ConsolidatedHealth;
+  summary: string;
+  primaryIssue: string | null;
+  operatorAction: Gate2ConsolidatedOperatorAction;
+  dataReadiness: {
+    inputs: Gate2ExternalProviderStatus | 'OK' | 'DEGRADED';
+    kisInvestorFlow: Gate2ExternalProviderStatus;
+    dartFinancials: Gate2ExternalProviderStatus;
+    benchmark: Gate2ExternalProviderStatus;
+    programTrade: Gate2ExternalProviderStatus;
+    riskFlow: Gate2ExternalProviderStatus;
+    sectorCycle: Gate2ExternalProviderStatus;
+  };
+  signalAlignment: {
+    supply: Gate2SignalAlignment;
+    financials: Gate2SignalAlignment;
+    relativeStrength: Gate2SignalAlignment;
+    passiveFlow: Gate2SignalAlignment;
+    riskFlow: Gate2SignalAlignment;
+    sectorCycle: Gate2SignalAlignment;
+  };
+  conflictFlags: string[];
+  missingCriticalData: string[];
+  providerIssues: string[];
+  marketSignal: false;
+  providerIssue: boolean;
+  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  diagnosticOnly: true;
+  compactText: string;
 }
 
 const GATE2_STATUS_SET = new Set<Gate2WiringStatus>([
@@ -877,6 +967,103 @@ function programProviderFromFlows(
   return 'UNKNOWN';
 }
 
+function normalizeRiskPressure(value: unknown): Gate2RiskPressure {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (raw === 'HIGH' || raw === 'RISK_HIGH' || raw === 'OVERHEATED' || raw === 'BLOCK') return 'HIGH';
+  if (raw === 'MEDIUM' || raw === 'MID' || raw === 'WARN') return 'MEDIUM';
+  if (raw === 'LOW' || raw === 'OK' || raw === 'NORMAL') return 'LOW';
+  return 'UNKNOWN';
+}
+
+function pressureFromValue(value: number | null): Gate2RiskPressure {
+  if (value == null) return 'UNKNOWN';
+  const abs = Math.abs(value);
+  if (abs >= 20) return 'HIGH';
+  if (abs >= 10) return 'MEDIUM';
+  return 'LOW';
+}
+
+function maxRiskPressure(values: readonly Gate2RiskPressure[]): Gate2RiskPressure {
+  if (values.includes('HIGH')) return 'HIGH';
+  if (values.includes('MEDIUM')) return 'MEDIUM';
+  if (values.includes('LOW')) return 'LOW';
+  return 'UNKNOWN';
+}
+
+function riskProviderFromMetadata(value: unknown): Gate2ExternalDataCoverage['riskFlow']['provider'] {
+  if (!isRecord(value)) return 'UNKNOWN';
+  const raw = String(value.provider ?? value.source ?? value.dataSource ?? '').toUpperCase();
+  if (raw.includes('KIS_OFFICIAL')) return 'KIS_OFFICIAL';
+  if (raw.includes('KIS')) return 'KIS_API';
+  if (raw.includes('KRX')) return 'KRX_CACHE';
+  if (raw.includes('QMP')) return 'QMP_CACHE';
+  if (raw.includes('CACHE')) return 'CACHE';
+  return 'UNKNOWN';
+}
+
+function buildGate2RiskFlowCoverage(
+  riskFlow: unknown,
+  evaluationStage?: Gate2EvaluationStage | null,
+): Gate2ExternalDataCoverage['riskFlow'] {
+  const record = isRecord(riskFlow) ? riskFlow : {};
+  const interpretation = isRecord(record.interpretation) ? record.interpretation : {};
+  const shortSaleIncreaseRate = numberOrNull(record.shortSaleIncreaseRate ?? record.shortIncreaseRate ?? record.shortPressureValue);
+  const loanIncreaseRate = numberOrNull(record.loanIncreaseRate ?? record.loanPressureValue);
+  const creditIncreaseRate = numberOrNull(record.creditIncreaseRate ?? record.creditOverheatValue);
+  const creditBalanceRatio = numberOrNull(record.creditBalanceRatio ?? record.creditRate);
+  const shortPressure = normalizeRiskPressure(interpretation.shortPressure ?? record.shortPressure) !== 'UNKNOWN'
+    ? normalizeRiskPressure(interpretation.shortPressure ?? record.shortPressure)
+    : pressureFromValue(shortSaleIncreaseRate);
+  const loanPressure = normalizeRiskPressure(interpretation.loanPressure ?? record.loanPressure) !== 'UNKNOWN'
+    ? normalizeRiskPressure(interpretation.loanPressure ?? record.loanPressure)
+    : pressureFromValue(loanIncreaseRate);
+  const creditOverheat = normalizeRiskPressure(interpretation.creditOverheat ?? record.creditOverheat) !== 'UNKNOWN'
+    ? normalizeRiskPressure(interpretation.creditOverheat ?? record.creditOverheat)
+    : maxRiskPressure([pressureFromValue(creditIncreaseRate), creditBalanceRatio != null && creditBalanceRatio >= 8 ? 'MEDIUM' : pressureFromValue(null)]);
+  const overallRisk = normalizeRiskPressure(interpretation.overallRisk ?? record.overallRisk) !== 'UNKNOWN'
+    ? normalizeRiskPressure(interpretation.overallRisk ?? record.overallRisk)
+    : maxRiskPressure([shortPressure, loanPressure, creditOverheat]);
+  const metadataStatus = statusFromMetadata(riskFlow);
+  const status: Gate2ExternalProviderStatus = !riskFlow
+    ? evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING'
+    : metadataStatus ?? (overallRisk !== 'UNKNOWN' ? 'VERIFIED' : 'UNKNOWN');
+  const providerIssue = Boolean(riskFlow) && !['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED', 'MISSING'].includes(status);
+  const notes = unique([
+    ...(overallRisk === 'HIGH' ? ['RISK_FLOW_HIGH_DIAGNOSTIC_ONLY'] : []),
+    ...(status === 'STAGE_NOT_FETCHED' ? ['RISK_FLOW_STAGE_NOT_FETCHED_NOT_PROVIDER_ERROR'] : []),
+  ]);
+
+  return {
+    required: false,
+    available: status === 'VERIFIED' || status === 'PARTIAL',
+    provider: riskProviderFromMetadata(riskFlow),
+    status,
+    fields: {
+      shortPressure: shortPressure !== 'UNKNOWN',
+      loanPressure: loanPressure !== 'UNKNOWN',
+      creditOverheat: creditOverheat !== 'UNKNOWN',
+    },
+    values: {
+      shortSaleIncreaseRate,
+      loanIncreaseRate,
+      creditIncreaseRate,
+      creditBalanceRatio,
+    },
+    interpretation: {
+      shortPressure,
+      loanPressure,
+      creditOverheat,
+      overallRisk,
+    },
+    notes,
+    stageNotFetched: status === 'STAGE_NOT_FETCHED',
+    providerIssue,
+    marketSignal: false,
+    executionImpact: 'DIAGNOSTIC_ONLY',
+    diagnosticOnly: true,
+  };
+}
+
 function gate2StatusFromSectorThemeCycle(
   providerStatus: SectorThemeCycleProviderStatus | null,
   confidence: SectorThemeCycleConfidence | null,
@@ -1018,6 +1205,7 @@ export function buildGate2ExternalDataCoverage(
     ...(marketProgramFlow && stockProgramStatus === 'STAGE_NOT_FETCHED' ? ['MARKET_PROGRAM_ONLY_STOCK_PROGRAM_NOT_FETCHED'] : []),
     ...(!scopeSeparationValid ? ['SCOPE_MISMATCH_MARKET_DATA_USED_AS_STOCK_FLOW'] : []),
   ]);
+  const riskFlowCoverage = buildGate2RiskFlowCoverage(input.riskFlow, input.evaluationStage);
 
   const kisFieldsAvailable = kisRequired && kisFields.foreignNetBuy && kisFields.institutionalNetBuy;
   const kisStatus = resolveKisStatus({
@@ -1178,6 +1366,7 @@ export function buildGate2ExternalDataCoverage(
       executionImpact: 'DIAGNOSTIC_ONLY',
       marketSignal: false,
     },
+    riskFlow: riskFlowCoverage,
     sectorCycle: {
       required: false,
       available: sectorThemeCycleDiagnostic.sector != null && ['VERIFIED', 'PARTIAL'].includes(sectorCycleStatus),
@@ -1242,6 +1431,235 @@ export function buildGate2ExternalDataCoverage(
   };
 }
 
+function gate2StageNotFetched(external: Gate2ExternalDataCoverage): boolean {
+  return external.kisInvestorFlow.status === 'STAGE_NOT_FETCHED'
+    && external.dartFinancials.status === 'STAGE_NOT_FETCHED'
+    && external.benchmark.status === 'STAGE_NOT_FETCHED';
+}
+
+function alignmentFromSigned(value: number | null): Gate2SignalAlignment {
+  if (value == null) return 'UNAVAILABLE';
+  if (value > 0) return 'BULLISH';
+  if (value < 0) return 'BEARISH';
+  return 'NEUTRAL';
+}
+
+function supplyAlignment(kis: Gate2ExternalDataCoverage['kisInvestorFlow']): Gate2SignalAlignment {
+  if (kis.status !== 'VERIFIED') return 'UNAVAILABLE';
+  if ((kis.foreignNetBuy ?? 0) > 0 && (kis.institutionalNetBuy ?? 0) > 0) return 'BULLISH';
+  if ((kis.foreignNetBuy ?? 0) < 0 && (kis.institutionalNetBuy ?? 0) < 0) return 'BEARISH';
+  return 'NEUTRAL';
+}
+
+function financialAlignment(dart: Gate2ExternalDataCoverage['dartFinancials']): Gate2SignalAlignment {
+  if (dart.status !== 'VERIFIED') return 'UNAVAILABLE';
+  const ocfOk = dart.ocfRatio != null && dart.ocfRatio >= 1;
+  const roeOk = dart.roe == null || dart.roe > 0;
+  const opmOk = dart.opm == null || dart.opm > 0;
+  if (ocfOk && roeOk && opmOk) return 'BULLISH';
+  if (dart.ocfRatio != null && dart.ocfRatio < 1) return 'BEARISH';
+  return 'NEUTRAL';
+}
+
+function relativeStrengthAlignment(benchmark: Gate2ExternalDataCoverage['benchmark']): Gate2SignalAlignment {
+  if (benchmark.status !== 'VERIFIED') return 'UNAVAILABLE';
+  return alignmentFromSigned(benchmark.values.relativeReturn20d);
+}
+
+function passiveFlowAlignment(program: Gate2ExternalDataCoverage['programTrade']): Gate2SignalAlignment {
+  if (!program.scopeSeparationValid) return 'UNAVAILABLE';
+  if (program.stockProgram.status !== 'VERIFIED') return 'UNAVAILABLE';
+  return alignmentFromSigned(program.stockProgram.values.programNetBuyAmount);
+}
+
+function riskFlowAlignment(risk: Gate2ExternalDataCoverage['riskFlow']): Gate2SignalAlignment {
+  if (risk.interpretation.overallRisk === 'HIGH') return 'RISK_HIGH';
+  if (risk.interpretation.overallRisk === 'LOW') return 'LOW';
+  if (risk.status === 'STAGE_NOT_FETCHED' || risk.status === 'MISSING') return 'UNAVAILABLE';
+  return 'UNKNOWN';
+}
+
+function sectorCycleAlignment(external: Gate2ExternalDataCoverage): Gate2SignalAlignment {
+  const leaderPhase = external.leaderCycle.leaderCyclePhase;
+  const attention = external.leaderCycle.attentionPhase;
+  if (leaderPhase === 'LATE_CROWDED' || attention === 'CROWDED' || attention === 'OVERHYPED') return 'CROWDED';
+  if (leaderPhase === 'LAGGARD' || leaderPhase === 'EX_LEADER') return 'LAGGARD';
+  if (leaderPhase === 'EARLY_LEADER' || leaderPhase === 'MID_LEADER') return 'LEADER';
+  if (external.sectorCycle.status === 'MISSING' || external.sectorCycle.status === 'STAGE_NOT_FETCHED') return 'UNAVAILABLE';
+  return 'UNKNOWN';
+}
+
+function gate2ProviderIssues(source: Gate2SourceCoverage | undefined, external: Gate2ExternalDataCoverage): string[] {
+  return unique([
+    ...(source?.providerIssues ?? []),
+    ...(external.kisInvestorFlow.providerIssue ? ['KIS_INVESTOR_FLOW_PROVIDER_ISSUE'] : []),
+    ...(external.dartFinancials.providerIssue ? ['DART_FINANCIALS_PROVIDER_ISSUE'] : []),
+    ...(external.benchmark.providerIssue ? ['BENCHMARK_PROVIDER_ISSUE'] : []),
+    ...(external.programTrade.marketProgram.providerIssue || external.programTrade.stockProgram.providerIssue ? ['PROGRAM_TRADE_PROVIDER_ISSUE'] : []),
+    ...(external.riskFlow.providerIssue ? ['RISK_FLOW_PROVIDER_ISSUE'] : []),
+    ...(external.sectorCycle.providerIssue ? ['SECTOR_CYCLE_PROVIDER_ISSUE'] : []),
+  ]);
+}
+
+function missingCriticalDataFor(source: Gate2SourceCoverage | undefined, external: Gate2ExternalDataCoverage): string[] {
+  return unique([
+    ...(source?.missingExternalData ?? []),
+    ...(external.kisInvestorFlow.status === 'MISSING' || external.kisInvestorFlow.status === 'DEGRADED' ? ['KIS_INVESTOR_FLOW'] : []),
+    ...(external.dartFinancials.status === 'MISSING' || external.dartFinancials.status === 'DEGRADED' || external.dartFinancials.status === 'EMPTY_VALID' ? ['DART_FINANCIALS'] : []),
+    ...(external.benchmark.status === 'MISSING' || external.benchmark.status === 'DEGRADED' ? ['BENCHMARK_20D_RETURN'] : []),
+  ]);
+}
+
+function buildGate2Summary(health: Gate2ConsolidatedHealth, primaryIssue: string | null): string {
+  if (health === 'OK') return 'Gate2 diagnostics OK; supply, financials, benchmark, and advisory context are available.';
+  if (health === 'STAGE_NOT_FETCHED') return 'Gate2 external data is intentionally not fetched at discovery stage.';
+  if (health === 'CONFLICT') return 'Gate2 diagnostic signals conflict; review before interpreting the score.';
+  if (primaryIssue) return `Gate2 diagnostic issue: ${primaryIssue}.`;
+  return 'Gate2 diagnostics are advisory; scoring and execution policy are unchanged.';
+}
+
+export function buildGate2ConsolidatedDiagnostic(input: {
+  gate2: {
+    sourceCoverage?: Gate2SourceCoverage;
+    externalDataCoverage?: Gate2ExternalDataCoverage;
+  } | null | undefined;
+}): Gate2ConsolidatedDiagnostic {
+  const source = input.gate2?.sourceCoverage;
+  const external = input.gate2?.externalDataCoverage;
+  if (!source || !external) {
+    return {
+      health: 'UNKNOWN',
+      summary: buildGate2Summary('UNKNOWN', 'GATE2_DIAGNOSTIC_MISSING'),
+      primaryIssue: 'GATE2_DIAGNOSTIC_MISSING',
+      operatorAction: 'REVIEW_GATE2_INPUTS',
+      dataReadiness: {
+        inputs: 'UNKNOWN',
+        kisInvestorFlow: 'UNKNOWN',
+        dartFinancials: 'UNKNOWN',
+        benchmark: 'UNKNOWN',
+        programTrade: 'UNKNOWN',
+        riskFlow: 'UNKNOWN',
+        sectorCycle: 'UNKNOWN',
+      },
+      signalAlignment: {
+        supply: 'UNKNOWN',
+        financials: 'UNKNOWN',
+        relativeStrength: 'UNKNOWN',
+        passiveFlow: 'UNKNOWN',
+        riskFlow: 'UNKNOWN',
+        sectorCycle: 'UNKNOWN',
+      },
+      conflictFlags: [],
+      missingCriticalData: [],
+      providerIssues: [],
+      marketSignal: false,
+      providerIssue: true,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      diagnosticOnly: true,
+      compactText: 'Gate2: UNKNOWN | issue=GATE2_DIAGNOSTIC_MISSING | action=REVIEW_GATE2_INPUTS | marketSignal=false',
+    };
+  }
+
+  const signalAlignment = {
+    supply: supplyAlignment(external.kisInvestorFlow),
+    financials: financialAlignment(external.dartFinancials),
+    relativeStrength: relativeStrengthAlignment(external.benchmark),
+    passiveFlow: passiveFlowAlignment(external.programTrade),
+    riskFlow: riskFlowAlignment(external.riskFlow),
+    sectorCycle: sectorCycleAlignment(external),
+  };
+  const conflictFlags = unique([
+    ...(signalAlignment.supply === 'BULLISH' && signalAlignment.financials === 'BULLISH' && signalAlignment.relativeStrength === 'BEARISH' ? ['RS_CONFLICT'] : []),
+    ...(signalAlignment.supply === 'BULLISH' && signalAlignment.sectorCycle === 'LAGGARD' ? ['SECTOR_CONFLICT'] : []),
+  ]);
+  const missingCriticalData = missingCriticalDataFor(source, external);
+  const stageNotFetched = gate2StageNotFetched(external);
+  const providerIssues = stageNotFetched ? [] : gate2ProviderIssues(source, external);
+
+  let health: Gate2ConsolidatedHealth = 'OK';
+  let primaryIssue: string | null = null;
+  let operatorAction: Gate2ConsolidatedOperatorAction = 'NONE';
+
+  if (stageNotFetched) {
+    health = 'STAGE_NOT_FETCHED';
+    primaryIssue = 'GATE2_STAGE_NOT_FETCHED';
+    operatorAction = 'WAIT_FOR_ENTRY_RECHECK';
+  } else if (!external.programTrade.scopeSeparationValid) {
+    health = 'DEGRADED';
+    primaryIssue = 'PROGRAM_FLOW_SCOPE_MISMATCH';
+    operatorAction = 'CHECK_PROGRAM_FLOW_SCOPE';
+  } else if (external.kisInvestorFlow.status === 'MISSING' || external.kisInvestorFlow.status === 'DEGRADED') {
+    health = 'DEGRADED';
+    primaryIssue = 'KIS_INVESTOR_FLOW_UNAVAILABLE';
+    operatorAction = 'CHECK_KIS_INVESTOR_FLOW';
+  } else if (external.dartFinancials.status === 'MISSING' || external.dartFinancials.status === 'DEGRADED' || external.dartFinancials.status === 'EMPTY_VALID') {
+    health = 'DEGRADED';
+    primaryIssue = 'DART_FINANCIALS_UNAVAILABLE';
+    operatorAction = 'CHECK_DART_FINANCIALS';
+  } else if (external.benchmark.status === 'MISSING' || external.benchmark.status === 'DEGRADED') {
+    health = 'DEGRADED';
+    primaryIssue = 'BENCHMARK_UNAVAILABLE';
+    operatorAction = 'CHECK_BENCHMARK_PROVIDER';
+  } else if (conflictFlags.length > 0) {
+    health = 'CONFLICT';
+    primaryIssue = 'GATE2_SIGNAL_CONFLICT';
+    operatorAction = 'REVIEW_SIGNAL_CONFLICT';
+  } else if (signalAlignment.riskFlow === 'RISK_HIGH') {
+    health = 'WARN';
+    primaryIssue = 'RISK_FLOW_HIGH_DIAGNOSTIC_ONLY';
+    operatorAction = 'CHECK_RISK_FLOW';
+  } else if (signalAlignment.sectorCycle === 'CROWDED') {
+    health = 'WARN';
+    primaryIssue = 'SECTOR_CYCLE_CROWDED_DIAGNOSTIC_ONLY';
+    operatorAction = 'REVIEW_SECTOR_CYCLE';
+  } else if (!source.allDeclaredInputsAvailable || !source.allExternalDataAvailable) {
+    health = 'DEGRADED';
+    primaryIssue = 'GATE2_INPUT_MISSING';
+    operatorAction = 'REVIEW_GATE2_INPUTS';
+  }
+
+  const programStatus = external.programTrade.stockProgram.status !== 'STAGE_NOT_FETCHED'
+    ? external.programTrade.stockProgram.status
+    : external.programTrade.marketProgram.status;
+  const compactText = [
+    `Gate2: ${health}`,
+    ...(primaryIssue ? [`issue=${primaryIssue}`] : []),
+    `KIS=${external.kisInvestorFlow.status}`,
+    `DART=${external.dartFinancials.status}`,
+    `Benchmark=${external.benchmark.status}`,
+    `Program=${programStatus}`,
+    `Risk=${external.riskFlow.interpretation.overallRisk}`,
+    `Sector=${signalAlignment.sectorCycle}`,
+    ...(operatorAction !== 'NONE' ? [`action=${operatorAction}`] : []),
+    'marketSignal=false',
+  ].join(' | ');
+
+  return {
+    health,
+    summary: buildGate2Summary(health, primaryIssue),
+    primaryIssue,
+    operatorAction,
+    dataReadiness: {
+      inputs: source.allDeclaredInputsAvailable && source.allExternalDataAvailable ? 'OK' : 'DEGRADED',
+      kisInvestorFlow: external.kisInvestorFlow.status,
+      dartFinancials: external.dartFinancials.status,
+      benchmark: external.benchmark.status,
+      programTrade: programStatus,
+      riskFlow: external.riskFlow.status,
+      sectorCycle: external.sectorCycle.status,
+    },
+    signalAlignment,
+    conflictFlags,
+    missingCriticalData,
+    providerIssues,
+    marketSignal: false,
+    providerIssue: providerIssues.length > 0,
+    executionImpact: health === 'OK' ? 'NONE' : 'DIAGNOSTIC_ONLY',
+    diagnosticOnly: true,
+    compactText,
+  };
+}
+
 export function formatGate2CompactDiagnostic(input: {
   sourceCoverage?: Gate2SourceCoverage | null;
   externalDataCoverage?: Gate2ExternalDataCoverage | null;
@@ -1257,6 +1675,7 @@ export function formatGate2CompactDiagnostic(input: {
     `DART=${external.dartFinancials.status}`,
     `Benchmark=${external.benchmark.status}`,
     `Program=${external.programTrade.stockProgram.status}/${external.programTrade.marketProgram.status}`,
+    `Risk=${external.riskFlow.status}`,
     `Sector=${external.sectorCycle.status}`,
     `Leader=${external.leaderCycle.leaderCyclePhase}`,
     `unavailable=${source.missingExternalData.length}`,

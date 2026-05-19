@@ -42,8 +42,10 @@ import {
 } from './quant/gate1ConsolidatedDiagnostic.js';
 import {
   buildGate2ExternalDataCoverage,
+  buildGate2ConsolidatedDiagnostic,
   buildGate2SourceCoverage,
   buildGate2WiringDiagnostics,
+  type Gate2ConsolidatedDiagnostic,
   type Gate2EvaluationStage,
   type Gate2ExternalDataCoverage,
   type Gate2ExternalCoverageInput,
@@ -156,7 +158,7 @@ export interface GateLayerBucket {
   wiring?: Array<Gate1WiringDiagnostic | Gate2WiringDiagnostic>;
   sourceCoverage?: Gate1SourceCoverage | Gate2SourceCoverage;
   survival?: Gate1SurvivalDiagnostic;
-  consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic;
+  consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic | Gate2ConsolidatedDiagnostic;
   externalDataCoverage?: Gate2ExternalDataCoverage;
 }
 
@@ -725,6 +727,12 @@ function buildGateLayerSummary(
   summary.gate2.wiring = gate2Wiring;
   summary.gate2.sourceCoverage = buildGate2SourceCoverage(gate2Wiring);
   summary.gate2.externalDataCoverage = buildGate2ExternalDataCoverage(gate2Wiring, gate2ExternalCoverageInput);
+  summary.gate2.consolidatedDiagnostic = buildGate2ConsolidatedDiagnostic({
+    gate2: {
+      sourceCoverage: summary.gate2.sourceCoverage as Gate2SourceCoverage,
+      externalDataCoverage: summary.gate2.externalDataCoverage,
+    },
+  });
 
   for (const layer of [summary.gate1, summary.gate2, summary.gate3]) {
     layer.passed = layer.unavailable.length === 0 && layer.providerDegraded.length === 0 && layer.thresholdNotMet.length === 0 && layer.fired.length > 0;

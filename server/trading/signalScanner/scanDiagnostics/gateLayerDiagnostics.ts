@@ -203,6 +203,7 @@ export function accumulateGateLayerSummary(
       || gate2External.benchmark.providerIssue
       || gate2External.programTrade.marketProgram.providerIssue
       || gate2External.programTrade.stockProgram.providerIssue
+      || gate2External.riskFlow.providerIssue
       || gate2External.sectorCycle.providerIssue
       || gate2External.leaderCycle.providerIssue
     ) {

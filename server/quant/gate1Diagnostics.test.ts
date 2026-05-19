@@ -8,7 +8,10 @@ import {
   type ServerGateResult,
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
-import { buildGate1ConsolidatedDiagnostic } from './gate1ConsolidatedDiagnostic.js';
+import {
+  buildGate1ConsolidatedDiagnostic,
+  type Gate1ConsolidatedDiagnostic,
+} from './gate1ConsolidatedDiagnostic.js';
 import { normalizeShadowEligibilityForGate1 } from './gate1ShadowEligibility.js';
 
 type QuotePatch = Partial<YahooQuoteExtended> & Record<string, unknown>;
@@ -135,7 +138,7 @@ function pickCoreDecisionFields(result: ServerGateResult) {
 
 function sanitizeGate1DiagnosticForSnapshot(gate1: GateLayerSummary['gate1']) {
   const survival = gate1.survival!;
-  const consolidated = gate1.consolidatedDiagnostic!;
+  const consolidated = gate1.consolidatedDiagnostic! as Gate1ConsolidatedDiagnostic;
   return {
     sourceCoverage: gate1.sourceCoverage,
     quoteFreshness: {
