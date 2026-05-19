@@ -929,16 +929,17 @@ function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsuffici
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
-  kospi20dReturn?: number,
+  kospi20dReturn?: number | null,
   dartFin?: Gate2ExternalCoverageInput['dartFin'],
   kisFlow?: Gate2ExternalCoverageInput['kisFlow'],
   regime?: RegimeLevel | string,
   evaluationStage?: Gate2EvaluationStage | null,
+  gate2ExternalDiagnostics?: Partial<Gate2ExternalCoverageInput>,
 ): ServerGateResult {
   const run = defaultRegistry.run({
     quote,
     weights,
-    kospi20dReturn,
+    kospi20dReturn: kospi20dReturn ?? undefined,
     dartFin: dartFin as DartFinancials | null | undefined,
     kisFlow: kisFlow as KisInvestorFlow | null | undefined,
   });
@@ -1000,7 +1001,14 @@ export function evaluateServerGate(
     }
   }
 
-  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType, { kisFlow, dartFin, kospi20dReturn, evaluationStage });
+  const gateLayerSummary = buildGateLayerSummary(run.outputs, weights, signalType, {
+    ...gate2ExternalDiagnostics,
+    kisFlow,
+    dartFin,
+    kospi20dReturn,
+    evaluationStage,
+    quote,
+  });
   gateLayerSummary.gate1.survival = buildGate1SurvivalDiagnostic(quote);
   gateLayerSummary.gate1.consolidatedDiagnostic = buildGate1ConsolidatedDiagnostic({ gate1: gateLayerSummary.gate1 });
   const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);

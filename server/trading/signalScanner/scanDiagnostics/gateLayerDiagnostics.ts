@@ -6,6 +6,7 @@ import type { ScanCounters } from './scanCounterTypes.js';
 import { incrementCount, topCounts } from './gateScoreDiagnostics.js';
 import {
   formatGate2CompactDiagnostic,
+  formatGate2BenchmarkCompactDiagnostic,
   formatGate2DartFinancialsCompactDiagnostic,
   formatGate2KisInvestorFlowCompactDiagnostic,
 } from '../../../quant/gate2Diagnostics.js';
@@ -49,6 +50,7 @@ export interface Gate2CoverageAuditSummary {
   compactText: Record<string, number>;
   kisFlowCompactText: Record<string, number>;
   dartCompactText: Record<string, number>;
+  benchmarkCompactText: Record<string, number>;
   providerIssueCount: number;
 }
 
@@ -99,6 +101,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       compactText: {},
       kisFlowCompactText: {},
       dartCompactText: {},
+      benchmarkCompactText: {},
       providerIssueCount: 0,
     },
   };
@@ -163,6 +166,8 @@ export function accumulateGateLayerSummary(
     if (kisFlowCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.kisFlowCompactText, kisFlowCompact);
     const dartCompact = formatGate2DartFinancialsCompactDiagnostic(gate2External);
     if (dartCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.dartCompactText, dartCompact);
+    const benchmarkCompact = formatGate2BenchmarkCompactDiagnostic(gate2External);
+    if (benchmarkCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.benchmarkCompactText, benchmarkCompact);
     if (
       gate2External.kisInvestorFlow.providerIssue
       || gate2External.dartFinancials.providerIssue
@@ -235,6 +240,7 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  compactText: ${topLabel(summary.compactText)}`,
     `  kisFlow: ${topLabel(summary.kisFlowCompactText)}`,
     `  dart: ${topLabel(summary.dartCompactText)}`,
+    `  benchmark: ${topLabel(summary.benchmarkCompactText)}`,
     '  marketSignal: false; diagnosticOnly: true',
   ].join('\n');
 }

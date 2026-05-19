@@ -10,9 +10,16 @@ import type { YahooQuoteExtended } from '../screener/stockScreener.js';
 import type { KisInvestorFlow } from '../clients/kisClient.js';
 import type { DartFinancials } from '../clients/dartFinancialClient.js';
 import { normalizeDartFinancials, type QmpDartFinancials } from '../clients/dartFinancialNormalizer.js';
+import {
+  normalizeBenchmarkReturnForGate2,
+  selectBenchmarkForSymbol,
+  type BenchmarkMarket,
+  type QmpBenchmarkReturn,
+} from '../clients/benchmarkReturnNormalizer.js';
 import { KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS } from '../clients/kisClient/kisOfficialEndpointRegistry.js';
 import { normalizeKisInvestorFlow, type QmpInvestorFlow } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
 import {
+  formatGate2BenchmarkCompactDiagnostic,
   formatGate2CompactDiagnostic,
   formatGate2DartFinancialsCompactDiagnostic,
   formatGate2KisInvestorFlowCompactDiagnostic,
@@ -90,7 +97,10 @@ function evaluateGate2(input: {
   quote?: YahooQuoteExtended;
   kisFlow?: KisInvestorFlow | QmpInvestorFlow | null;
   dartFin?: DartFinancials | QmpDartFinancials | null;
-  kospi20dReturn?: number;
+  kospi20dReturn?: number | null;
+  kosdaq20dReturn?: number | null;
+  market?: BenchmarkMarket | string | null;
+  benchmarkReturn?: QmpBenchmarkReturn | null;
   evaluationStage?: Gate2EvaluationStage | null;
 } = {}): ServerGateResult {
   return evaluateServerGate(
@@ -101,6 +111,11 @@ function evaluateGate2(input: {
     (input.kisFlow === undefined ? kisFlow() : input.kisFlow) as never,
     undefined,
     input.evaluationStage,
+    {
+      kosdaq20dReturn: input.kosdaq20dReturn,
+      market: input.market,
+      benchmarkReturn: input.benchmarkReturn,
+    },
   );
 }
 
@@ -242,7 +257,7 @@ describe('Gate2 wiring diagnostics', () => {
       kisInputCount: 2,
       dartInputCount: 1,
       benchmarkInputCount: 1,
-      requiredExternalData: ['BENCHMARK_KOSPI_20D_RETURN', 'KIS_INVESTOR_FLOW', 'DART_FINANCIALS'],
+      requiredExternalData: ['BENCHMARK_20D_RETURN', 'KIS_INVESTOR_FLOW', 'DART_FINANCIALS'],
       missingInputs: [],
       missingExternalData: [],
       allDeclaredInputsAvailable: true,
@@ -448,7 +463,7 @@ describe('Gate2 wiring diagnostics', () => {
     const result = evaluateGate2({ kospi20dReturn: undefined });
     const gate2 = result.gateLayerSummary!.gate2;
 
-    expect(gate2.sourceCoverage?.missingExternalData).toContain('BENCHMARK_KOSPI_20D_RETURN');
+    expect(gate2.sourceCoverage?.missingExternalData).toContain('BENCHMARK_20D_RETURN');
     expect(gate2.externalDataCoverage?.benchmark).toMatchObject({
       required: true,
       available: false,
@@ -458,10 +473,167 @@ describe('Gate2 wiring diagnostics', () => {
     });
     expect(gate2.wiring?.find(item => item.key === 'relative_strength')).toMatchObject({
       benchmarkInputs: ['ctx.kospi20dReturn'],
-      missingExternalData: ['BENCHMARK_KOSPI_20D_RETURN'],
+      missingExternalData: ['BENCHMARK_20D_RETURN'],
       dataPath: 'QUOTE_BENCHMARK',
       marketSignal: false,
     });
+  });
+
+  it('selects and normalizes KOSPI benchmark return diagnostics', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '005930', return20d: 0.124 } as QuotePatch),
+      kospi20dReturn: 0.031,
+      market: 'KOSPI',
+    });
+    const benchmark = result.gateLayerSummary?.gate2.externalDataCoverage?.benchmark;
+
+    expect(selectBenchmarkForSymbol({ symbol: '005930', market: 'KOSPI' })).toMatchObject({
+      benchmarkKey: 'KOSPI',
+      reason: 'MARKET_KOSPI_DEFAULT_BENCHMARK',
+    });
+    expect(benchmark).toMatchObject({
+      status: 'VERIFIED',
+      available: true,
+      market: 'KOSPI',
+      benchmarkKey: 'KOSPI',
+      fields: {
+        stockReturn20d: true,
+        benchmarkReturn20d: true,
+        relativeReturn20d: true,
+        kospi20dReturn: true,
+      },
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
+    expect(benchmark?.values.stockReturn20d).toBe(0.124);
+    expect(benchmark?.values.benchmarkReturn20d).toBe(0.031);
+    expect(benchmark?.values.relativeReturn20d).toBeCloseTo(0.093, 6);
+    expect(result.gateLayerSummary?.gate2.wiring?.find(item => item.key === 'relative_strength')?.missingInputs).toEqual([]);
+  });
+
+  it('normalizes KOSDAQ benchmark return diagnostics without changing the current KOSPI formula', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '035720', return20d: 0.182 } as QuotePatch),
+      kospi20dReturn: 0.031,
+      kosdaq20dReturn: 0.047,
+      market: 'KOSDAQ',
+    });
+    const benchmark = result.gateLayerSummary?.gate2.externalDataCoverage?.benchmark;
+
+    expect(benchmark).toMatchObject({
+      status: 'VERIFIED',
+      market: 'KOSDAQ',
+      benchmarkKey: 'KOSDAQ',
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(benchmark?.values.stockReturn20d).toBe(0.182);
+    expect(benchmark?.values.benchmarkReturn20d).toBe(0.047);
+    expect(benchmark?.values.relativeReturn20d).toBeCloseTo(0.135, 6);
+    expect(benchmark?.notes).toContain('CURRENT_GATE2_FORMULA_STILL_USES_CTX_KOSPI20D_RETURN');
+  });
+
+  it('keeps benchmark missing as data coverage rather than weak relative strength', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '005930', return20d: 0.12 } as QuotePatch),
+      kospi20dReturn: null,
+      kosdaq20dReturn: null,
+      market: 'KOSPI',
+    });
+    const benchmark = result.gateLayerSummary?.gate2.externalDataCoverage?.benchmark;
+
+    expect(benchmark).toMatchObject({
+      status: 'MISSING',
+      available: false,
+      missingFields: ['benchmarkReturn20d'],
+      values: {
+        stockReturn20d: 0.12,
+        benchmarkReturn20d: null,
+        relativeReturn20d: null,
+      },
+      providerIssue: true,
+      marketSignal: false,
+    });
+  });
+
+  it('keeps stock return missing separate from benchmark provider state', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '005930', return20d: undefined } as QuotePatch),
+      kospi20dReturn: 0.03,
+      market: 'KOSPI',
+    });
+    const benchmark = result.gateLayerSummary?.gate2.externalDataCoverage?.benchmark;
+
+    expect(benchmark?.missingFields).toContain('stockReturn20d');
+    expect(benchmark).toMatchObject({
+      values: {
+        stockReturn20d: null,
+        benchmarkReturn20d: 0.03,
+        relativeReturn20d: null,
+      },
+      marketSignal: false,
+    });
+  });
+
+  it('warns when KOSDAQ benchmark falls back to the current KOSPI formula input', () => {
+    const normal = evaluateGate2({
+      quote: gate2Quote({ symbol: '035720', return20d: 0.18 } as QuotePatch),
+      kospi20dReturn: 0.03,
+      market: 'KOSDAQ',
+    });
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '035720', return20d: 0.18 } as QuotePatch),
+      kospi20dReturn: 0.03,
+      kosdaq20dReturn: null,
+      market: 'KOSDAQ',
+    });
+    const benchmark = result.gateLayerSummary?.gate2.externalDataCoverage?.benchmark;
+
+    expect(pickCoreDecisionFields(result)).toEqual(pickCoreDecisionFields(normal));
+    expect(benchmark?.notes).toContain('KOSDAQ_BENCHMARK_MISSING_KOSPI_FALLBACK_DIAGNOSTIC_ONLY');
+    expect(benchmark?.notes).toContain('SYMBOL_MARKET_KOSDAQ_BUT_CURRENT_FORMULA_USES_KOSPI_BENCHMARK_FALLBACK');
+    expect(benchmark).toMatchObject({
+      market: 'KOSDAQ',
+      benchmarkKey: 'KOSDAQ',
+      values: {
+        benchmarkReturn20d: 0.03,
+      },
+      marketSignal: false,
+    });
+  });
+
+  it('keeps benchmark stage-not-fetched separate from provider degradation', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '005930', return20d: 0.12 } as QuotePatch),
+      kospi20dReturn: null,
+      market: 'KOSPI',
+      evaluationStage: 'DISCOVERY_GATE',
+    });
+    const benchmark = result.gateLayerSummary?.gate2.externalDataCoverage?.benchmark;
+
+    expect(benchmark).toMatchObject({
+      required: true,
+      available: false,
+      status: 'STAGE_NOT_FETCHED',
+      stageNotFetched: true,
+      providerIssue: false,
+      marketSignal: false,
+    });
+  });
+
+  it('normalizes benchmark raw values without replacing null with zero', () => {
+    const normalized = normalizeBenchmarkReturnForGate2({
+      symbol: '005930',
+      market: 'KOSPI',
+      stockReturn20d: null,
+      kospi20dReturn: 0,
+    });
+
+    expect(normalized.stockReturn).toBeNull();
+    expect(normalized.benchmarkReturn).toBe(0);
+    expect(normalized.relativeReturn).toBeNull();
+    expect(normalized.marketSignal).toBe(false);
   });
 
   it('reports quote PER missing in Gate2 wiring without throwing', () => {
@@ -680,6 +852,22 @@ describe('Gate2 wiring diagnostics', () => {
     expect(text).toContain('Gate2 DART: VERIFIED');
     expect(text).toContain('OCF/NI=1.40');
     expect(text).toContain('ICR=8.40x');
+    expect(text).toContain('marketSignal=false');
+  });
+
+  it('formats Gate2 benchmark compact diagnostic', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '035720', return20d: 0.182 } as QuotePatch),
+      kospi20dReturn: 0.031,
+      kosdaq20dReturn: 0.047,
+      market: 'KOSDAQ',
+    });
+    const text = formatGate2BenchmarkCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
+
+    expect(text).toContain('Gate2 Benchmark: VERIFIED');
+    expect(text).toContain('market=KOSDAQ');
+    expect(text).toContain('benchmark=KOSDAQ');
+    expect(text).toContain('RS=+13.50%');
     expect(text).toContain('marketSignal=false');
   });
 });

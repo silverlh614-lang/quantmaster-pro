@@ -20,6 +20,16 @@ import type {
   DartFinancialRawFieldCoverage,
   QmpDartFinancials,
 } from '../clients/dartFinancialNormalizer.js';
+import {
+  normalizeBenchmarkReturnForGate2,
+  type BenchmarkConfidence,
+  type BenchmarkKey,
+  type BenchmarkMarket,
+  type BenchmarkProviderStatus,
+  type BenchmarkRawFieldCoverage,
+  type BenchmarkReturnSource,
+  type QmpBenchmarkReturn,
+} from '../clients/benchmarkReturnNormalizer.js';
 
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
 
@@ -146,13 +156,32 @@ export interface Gate2ExternalDataCoverage {
   benchmark: {
     required: boolean;
     available: boolean;
-    provider: 'KOSPI_INDEX' | 'QMP_MACRO' | 'CACHE' | 'UNKNOWN';
+    provider: BenchmarkReturnSource;
+    providerStatus: BenchmarkProviderStatus | null;
+    dataConfidence: BenchmarkConfidence | null;
     status: Gate2ExternalProviderStatus;
+    market: BenchmarkMarket;
+    benchmarkKey: BenchmarkKey;
+    period: '20D';
     fields: {
+      stockReturn20d: boolean;
+      benchmarkReturn20d: boolean;
+      relativeReturn20d: boolean;
       kospi20dReturn: boolean;
+      kosdaq20dReturn: boolean;
     };
+    values: {
+      stockReturn20d: number | null;
+      benchmarkReturn20d: number | null;
+      relativeReturn20d: number | null;
+    };
+    missingFields: string[];
+    rawFieldCoverage: BenchmarkRawFieldCoverage;
+    stageNotFetched: boolean;
     providerIssue: boolean;
     marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    notes: string[];
   };
 }
 
@@ -160,6 +189,12 @@ export interface Gate2ExternalCoverageInput {
   kisFlow?: KisInvestorFlow | QmpInvestorFlow | null;
   dartFin?: DartFinancials | QmpDartFinancials | null;
   kospi20dReturn?: number | null;
+  kosdaq20dReturn?: number | null;
+  quote?: unknown;
+  stockMaster?: unknown;
+  market?: BenchmarkMarket | string | null;
+  benchmarkReturn?: QmpBenchmarkReturn | null;
+  benchmarkRaw?: unknown;
   evaluationStage?: Gate2EvaluationStage | null;
 }
 
@@ -197,13 +232,14 @@ function isBenchmarkInput(input: string): boolean {
 function externalLabelForInput(input: string): string | null {
   if (isKisInput(input)) return 'KIS_INVESTOR_FLOW';
   if (isDartInput(input)) return 'DART_FINANCIALS';
-  if (isBenchmarkInput(input)) return 'BENCHMARK_KOSPI_20D_RETURN';
+  if (isBenchmarkInput(input)) return 'BENCHMARK_20D_RETURN';
   return null;
 }
 
 function contextKeyForExternal(label: string): string | null {
   if (label === 'KIS_INVESTOR_FLOW') return 'kisFlow';
   if (label === 'DART_FINANCIALS') return 'dartFin';
+  if (label === 'BENCHMARK_20D_RETURN') return 'kospi20dReturn';
   if (label === 'BENCHMARK_KOSPI_20D_RETURN') return 'kospi20dReturn';
   return null;
 }
@@ -594,12 +630,47 @@ function providerIssueForDartStatus(required: boolean, status: Gate2ExternalProv
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
-function resolveStatus(required: boolean, available: boolean, missing: boolean, metadata: unknown): Gate2ExternalProviderStatus {
-  if (!required) return 'UNKNOWN';
-  const metadataStatus = statusFromMetadata(metadata);
+function gate2StatusFromBenchmarkProviderStatus(
+  status: BenchmarkProviderStatus | null,
+  confidence: BenchmarkConfidence | null,
+): Gate2ExternalProviderStatus | null {
+  if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
+  if (confidence === 'VERIFIED') return 'VERIFIED';
+  if (confidence === 'STALE') return 'STALE';
+  if (confidence === 'MISSING') return 'MISSING';
+  if (confidence === 'DEGRADED' || confidence === 'AI_ESTIMATED') return 'DEGRADED';
+  if (status === 'OK_WITH_DATA') return 'VERIFIED';
+  if (status === 'OK_EMPTY') return 'EMPTY_VALID';
+  if (status === 'STALE_CACHE') return 'STALE';
+  if (status === 'FIELD_MISSING') return 'MISSING';
+  if (status === 'PARSE_ERROR' || status === 'HTTP_ERROR' || status === 'PROVIDER_ERROR' || status === 'RATE_LIMITED' || status === 'UNKNOWN_ERROR') return 'DEGRADED';
+  return null;
+}
+
+function resolveBenchmarkStatus(input: {
+  required: boolean;
+  benchmark: QmpBenchmarkReturn;
+  missing: boolean;
+  evaluationStage?: Gate2EvaluationStage | null;
+}): Gate2ExternalProviderStatus {
+  if (!input.required) return 'UNKNOWN';
+  const fieldsAvailable = input.benchmark.stockReturn != null && input.benchmark.benchmarkReturn != null;
+  if (!fieldsAvailable && input.evaluationStage === 'DISCOVERY_GATE') return 'STAGE_NOT_FETCHED';
+  const metadataStatus = gate2StatusFromBenchmarkProviderStatus(input.benchmark.providerStatus, input.benchmark.dataConfidence);
   if (metadataStatus && metadataStatus !== 'VERIFIED') return metadataStatus;
-  if (available && !missing) return 'VERIFIED';
+  if (fieldsAvailable && !input.missing) return 'VERIFIED';
   return 'MISSING';
+}
+
+function providerIssueForBenchmarkStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
+  if (!required) return false;
+  return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
+}
+
+function quoteSymbol(input: Gate2ExternalCoverageInput): string {
+  const quote = isRecord(input.quote) ? input.quote : {};
+  const stockMaster = isRecord(input.stockMaster) ? input.stockMaster : {};
+  return stringOrNull(quote.symbol ?? quote.code ?? stockMaster.symbol ?? stockMaster.code) ?? 'UNKNOWN';
 }
 
 export function buildGate2ExternalDataCoverage(
@@ -608,7 +679,8 @@ export function buildGate2ExternalDataCoverage(
 ): Gate2ExternalDataCoverage {
   const kisRequired = requiredExternal(wiring, 'KIS_INVESTOR_FLOW');
   const dartRequired = requiredExternal(wiring, 'DART_FINANCIALS');
-  const benchmarkRequired = requiredExternal(wiring, 'BENCHMARK_KOSPI_20D_RETURN');
+  const benchmarkRequired = requiredExternal(wiring, 'BENCHMARK_20D_RETURN')
+    || requiredExternal(wiring, 'BENCHMARK_KOSPI_20D_RETURN');
 
   const kisRecord: Record<string, unknown> = isRecord(input.kisFlow) ? input.kisFlow : {};
   const kisForeignNetBuy = numberOrNull(kisRecord.foreignNetBuy);
@@ -643,8 +715,23 @@ export function buildGate2ExternalDataCoverage(
   const dartMissingFields = dartLegacyRequiredField
     ? []
     : ['operatingCashFlow', 'netIncome'].filter(field => dartFields[field as 'operatingCashFlow' | 'netIncome'] !== true);
+  const benchmarkDiagnostic = input.benchmarkReturn ?? normalizeBenchmarkReturnForGate2({
+    symbol: quoteSymbol(input),
+    market: input.market,
+    quote: input.quote,
+    stockMaster: input.stockMaster,
+    benchmarkRaw: input.benchmarkRaw,
+    kospi20dReturn: input.kospi20dReturn,
+    kosdaq20dReturn: input.kosdaq20dReturn,
+    period: '20D',
+    evaluationStage: input.evaluationStage,
+  });
   const benchmarkFields = {
+    stockReturn20d: benchmarkDiagnostic.stockReturn != null,
+    benchmarkReturn20d: benchmarkDiagnostic.benchmarkReturn != null,
+    relativeReturn20d: benchmarkDiagnostic.relativeReturn != null,
     kospi20dReturn: fieldAvailable(wiring, 'ctx.kospi20dReturn') || typeof input.kospi20dReturn === 'number' && Number.isFinite(input.kospi20dReturn),
+    kosdaq20dReturn: typeof input.kosdaq20dReturn === 'number' && Number.isFinite(input.kosdaq20dReturn),
   };
 
   const kisFieldsAvailable = kisRequired && kisFields.foreignNetBuy && kisFields.institutionalNetBuy;
@@ -664,8 +751,19 @@ export function buildGate2ExternalDataCoverage(
     evaluationStage: input.evaluationStage,
   });
   const dartAvailable = dartRequired && dartFields.ocfRatio && !externalMissing(wiring, 'DART_FINANCIALS') && dartStatus === 'VERIFIED';
-  const benchmarkAvailable = benchmarkRequired && benchmarkFields.kospi20dReturn && !externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN');
-  const benchmarkStatus = resolveStatus(benchmarkRequired, benchmarkAvailable, externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN'), null);
+  const benchmarkStatus = resolveBenchmarkStatus({
+    required: benchmarkRequired,
+    benchmark: benchmarkDiagnostic,
+    missing: externalMissing(wiring, 'BENCHMARK_20D_RETURN')
+      || externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN'),
+    evaluationStage: input.evaluationStage,
+  });
+  const benchmarkAvailable = benchmarkRequired
+    && benchmarkFields.stockReturn20d
+    && benchmarkFields.benchmarkReturn20d
+    && !externalMissing(wiring, 'BENCHMARK_20D_RETURN')
+    && !externalMissing(wiring, 'BENCHMARK_KOSPI_20D_RETURN')
+    && benchmarkStatus === 'VERIFIED';
   const kisEndpoint = kisEndpointMetadata(input.kisFlow);
   const kisProviderStatusValue = kisProviderStatus(input.kisFlow);
   const kisDataConfidence = kisConfidence(input.kisFlow);
@@ -719,11 +817,31 @@ export function buildGate2ExternalDataCoverage(
     benchmark: {
       required: benchmarkRequired,
       available: benchmarkAvailable,
-      provider: benchmarkRequired && typeof input.kospi20dReturn === 'number' && Number.isFinite(input.kospi20dReturn) ? 'KOSPI_INDEX' : 'UNKNOWN',
+      provider: benchmarkDiagnostic.source,
+      providerStatus: benchmarkDiagnostic.providerStatus,
+      dataConfidence: benchmarkDiagnostic.dataConfidence,
       status: benchmarkStatus,
+      market: benchmarkDiagnostic.market,
+      benchmarkKey: benchmarkDiagnostic.benchmarkKey,
+      period: '20D',
       fields: benchmarkFields,
-      providerIssue: benchmarkRequired && benchmarkStatus !== 'VERIFIED',
+      values: {
+        stockReturn20d: benchmarkDiagnostic.stockReturn,
+        benchmarkReturn20d: benchmarkDiagnostic.benchmarkReturn,
+        relativeReturn20d: benchmarkDiagnostic.relativeReturn,
+      },
+      missingFields: benchmarkDiagnostic.rawFieldCoverage?.missingFields ?? [],
+      rawFieldCoverage: benchmarkDiagnostic.rawFieldCoverage ?? {
+        requiredFields: ['stockReturn20d', 'benchmarkReturn20d'],
+        presentFields: [],
+        missingFields: ['stockReturn20d', 'benchmarkReturn20d'],
+        allRequiredFieldsPresent: false,
+      },
+      stageNotFetched: benchmarkStatus === 'STAGE_NOT_FETCHED',
+      providerIssue: providerIssueForBenchmarkStatus(benchmarkRequired, benchmarkStatus),
       marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      notes: benchmarkDiagnostic.notes,
     },
   };
 }
@@ -785,6 +903,13 @@ function formatRatio(value: number | null, suffix = ''): string {
   return value == null ? 'null' : `${value.toFixed(2)}${suffix}`;
 }
 
+function formatPercentPoint(value: number | null): string {
+  if (value == null) return 'null';
+  const displayValue = Math.abs(value) <= 1 ? value * 100 : value;
+  const signed = displayValue > 0 ? `+${displayValue.toFixed(2)}` : displayValue.toFixed(2);
+  return `${signed}%`;
+}
+
 export function formatGate2DartFinancialsCompactDiagnostic(
   externalDataCoverage?: Gate2ExternalDataCoverage | null,
 ): string | null {
@@ -810,6 +935,34 @@ export function formatGate2DartFinancialsCompactDiagnostic(
     `ICR=${formatRatio(dart.interestCoverageRatio, 'x')}`,
     earningsQuality,
     ...(issue ? [issue] : []),
+    'marketSignal=false',
+  ].join(' | ');
+}
+
+export function formatGate2BenchmarkCompactDiagnostic(
+  externalDataCoverage?: Gate2ExternalDataCoverage | null,
+): string | null {
+  const benchmark = externalDataCoverage?.benchmark;
+  if (!benchmark || !benchmark.required) return null;
+  const issue = benchmark.status === 'MISSING'
+    ? 'issue=BENCHMARK_20D_RETURN_MISSING'
+    : benchmark.status === 'STAGE_NOT_FETCHED'
+      ? 'stage=DISCOVERY_GATE'
+      : benchmark.status === 'DEGRADED'
+        ? 'providerIssue=true'
+        : null;
+  const warning = benchmark.notes.some(note => note.includes('KOSDAQ_BENCHMARK_MISSING') || note.includes('KOSPI_FALLBACK'))
+    ? 'note=benchmark_mismatch_possible'
+    : null;
+  return [
+    `Gate2 Benchmark: ${benchmark.status}`,
+    `market=${benchmark.market}`,
+    `benchmark=${warning ? 'KOSPI_FALLBACK' : benchmark.benchmarkKey}`,
+    `stock20d=${formatPercentPoint(benchmark.values.stockReturn20d)}`,
+    `bench20d=${formatPercentPoint(benchmark.values.benchmarkReturn20d)}`,
+    `RS=${formatPercentPoint(benchmark.values.relativeReturn20d)}`,
+    ...(issue ? [issue] : []),
+    ...(warning ? [warning] : []),
     'marketSignal=false',
   ].join(' | ');
 }
