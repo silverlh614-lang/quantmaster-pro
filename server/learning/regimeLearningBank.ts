@@ -1105,7 +1105,19 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const priorityDateFailureReason = backfillDryRun.priorityDateFailureReason ?? 'NOT_ATTEMPTED';
   const regimeBackfillFailureSampleKeys = backfillDryRun.failureSampleKeys ?? [];
   const recoveredLowConfidenceRegimeCountAdjusted = Math.max(recoveredLowConfidenceRegimeCount, regimeBackfillRecovered);
+  const recoveredFromOriginalUnknownCount = Math.min(unknownRegimeCount, recoveredLowConfidenceRegimeCountAdjusted);
+  const recoveredFromAdditionalRepairLaneCount = Math.max(0, recoveredLowConfidenceRegimeCountAdjusted - recoveredFromOriginalUnknownCount);
+  const recoveredTotalCount = recoveredLowConfidenceRegimeCountAdjusted;
   const trueUnknownRegimeCount = Math.max(0, unknownRegimeCount - recoveredLowConfidenceRegimeCountAdjusted);
+  const excludedLanes = ['QUARANTINED', 'BACKLOG_REPAIR'];
+  const regimeBackfillFailedExcludedByLane = Object.fromEntries(
+    excludedLanes
+      .filter((lane) => (regimeBackfillFailureBySourceLane[lane] ?? 0) > 0)
+      .map((lane) => [lane, regimeBackfillFailureBySourceLane[lane]])
+  );
+  const regimeBackfillFailedExcludedCount = Object.values(regimeBackfillFailedExcludedByLane).reduce((sum, count) => sum + count, 0);
+  const regimeBackfillFailedPromotionEligibleCount = Math.max(0, regimeBackfillFailed - regimeBackfillFailedExcludedCount);
+  const regimeBackfillFailedExcludedReason = regimeBackfillFailedExcludedCount > 0 ? 'NON_PROMOTION_LANE_OR_QUARANTINED' : 'NONE';
   const attemptedOverTargetReason = regimeBackfillAttemptedTotal > regimeBackfillTargetUnknownCount
     ? regimeBackfillAttemptedDuplicates > 0
       ? 'INCLUDES_DUPLICATE_OR_REPLAYED_CASES'
@@ -1124,6 +1136,14 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const regimePromotionBlockReason = regimePromotionStillBlocked
     ? 'REGIME_PROMOTION_BLOCKED_TRUE_UNKNOWN_RATIO_HIGH'
     : 'NONE';
+  const regimePromotionAllowedForDiagnostic = true;
+  const regimePromotionAllowedForAdvisory = true;
+  const corePromotionAllowed = false;
+  const corePromotionBlocker = 'NO_FRESH_SAMPLE';
+  const suggestPromotionBlocker = 'NO_LABELED_COUNTERFACTUAL';
+  const primaryLearningBlocker = suggestPromotionBlocker;
+  const secondaryLearningBlockers = ['NO_FRESH_SAMPLE', 'WAITING_FOR_COUNTERFACTUAL_MATURITY', 'LOW_CONFIDENCE_REGIME_BACKFILL'];
+  const nextRequiredEvent = 'COUNTERFACTUAL_MATURITY_OR_NEXT_OPEN_SHADOW_SCAN';
   const byConfidence = stats.reduce<Record<string, number>>((acc, row) => {
     for (const [key, count] of Object.entries(row.sourceConfidenceBreakdown)) {
       acc[key] = (acc[key] ?? 0) + count;
@@ -1182,6 +1202,9 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     unknownRatio,
     unknownRatioRaw,
     recoveredLowConfidenceRegimeRatio,
+    recoveredFromOriginalUnknownCount,
+    recoveredFromAdditionalRepairLaneCount,
+    recoveredTotalCount,
     trueUnknownRatio,
     regimeRatioDenominator: 'regimeLearningSampleSize',
     regimeRatioDenominatorValue: regimeLearningSampleSize,
@@ -1201,6 +1224,10 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeBackfillAttempted,
     regimeBackfillRecovered,
     regimeBackfillFailed,
+    regimeBackfillFailedPromotionEligibleCount,
+    regimeBackfillFailedExcludedCount,
+    regimeBackfillFailedExcludedByLane,
+    regimeBackfillFailedExcludedReason,
     regimeBackfillWindowMinutes,
     regimeBackfillRecoveredBySource,
     regimeBackfillRecoveredByConfidence,
@@ -1229,6 +1256,14 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     postReconstructionTrueUnknownRatio,
     regimePromotionStillBlocked,
     regimePromotionBlockReason,
+    regimePromotionAllowedForDiagnostic,
+    regimePromotionAllowedForAdvisory,
+    corePromotionAllowed,
+    corePromotionBlocker,
+    suggestPromotionBlocker,
+    primaryLearningBlocker,
+    secondaryLearningBlockers,
+    nextRequiredEvent,
     regimeBackfillFailureSampleKeys,
     regimeDuplicateSourceTop3: [...duplicateSource.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}:${v}`),
     regimeDuplicateKeySample: duplicateKeySample,
@@ -1267,8 +1302,8 @@ export function collectRegimeLearningConsistency(bank: RegimeLearningBank = coll
   const regimeSumMatchesTotal = regimeBankSampleCount === bank.regimeLearningSampleSize;
   const byRegime = Object.fromEntries(bank.stats.map((row) => [row.regimePhase, row.sampleSize]));
   const metricWarnings = regimeSumMatchesTotal ? [] : ['REGIME_BANK_SAMPLE_SUM_MISMATCH'];
-  if (bank.unknownRatio >= 0.25) metricWarnings.push('UNKNOWN_RATIO_HIGH');
-  if (bank.trueUnknownRatio >= 0.20) metricWarnings.push('REGIME_PROMOTION_BLOCKED_TRUE_UNKNOWN_RATIO_HIGH');
+  if (bank.trueUnknownRatio > 0.25) metricWarnings.push('UNKNOWN_RATIO_HIGH');
+  if (bank.trueUnknownRatio > 0.20) metricWarnings.push('REGIME_PROMOTION_BLOCKED_TRUE_UNKNOWN_RATIO_HIGH');
   if ((bank.byConfidence.LOW ?? 0) + (bank.byConfidence.UNKNOWN ?? 0) > 0) metricWarnings.push('LOW_CONFIDENCE_REGIME_BACKFILL');
   if (bank.duplicateCaseCount > 0) metricWarnings.push('REGIME_SAMPLE_DUPLICATION_SUSPECT');
   if (bank.sourceCounts.freshShadow === 0) metricWarnings.push('FRESH_SHADOW_ZERO');

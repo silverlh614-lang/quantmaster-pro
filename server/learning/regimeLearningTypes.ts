@@ -229,6 +229,9 @@ export interface RegimeLearningBank {
   unknownRatio: number;
   unknownRatioRaw: number;
   recoveredLowConfidenceRegimeRatio: number;
+  recoveredFromOriginalUnknownCount: number;
+  recoveredFromAdditionalRepairLaneCount: number;
+  recoveredTotalCount: number;
   trueUnknownRatio: number;
   regimeRatioDenominator: 'regimeLearningSampleSize';
   regimeRatioDenominatorValue: number;
@@ -248,6 +251,10 @@ export interface RegimeLearningBank {
   regimeBackfillAttempted: number;
   regimeBackfillRecovered: number;
   regimeBackfillFailed: number;
+  regimeBackfillFailedPromotionEligibleCount: number;
+  regimeBackfillFailedExcludedCount: number;
+  regimeBackfillFailedExcludedByLane: Record<string, number>;
+  regimeBackfillFailedExcludedReason: string;
   regimeBackfillWindowMinutes: number;
   regimeBackfillRecoveredBySource: Record<string, number>;
   regimeBackfillRecoveredByConfidence: Record<string, number>;
@@ -276,6 +283,14 @@ export interface RegimeLearningBank {
   postReconstructionTrueUnknownRatio: number;
   regimePromotionStillBlocked: boolean;
   regimePromotionBlockReason: string;
+  regimePromotionAllowedForDiagnostic: boolean;
+  regimePromotionAllowedForAdvisory: boolean;
+  corePromotionAllowed: boolean;
+  corePromotionBlocker: string;
+  suggestPromotionBlocker: string;
+  primaryLearningBlocker: string;
+  secondaryLearningBlockers: string[];
+  nextRequiredEvent: string;
   regimeBackfillFailureSampleKeys: string[];
   regimeDuplicateSourceTop3: string[];
   regimeDuplicateKeySample: string[];
