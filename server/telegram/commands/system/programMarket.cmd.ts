@@ -31,6 +31,16 @@ function formatEokwonSaved(eokwon: number | null | undefined): string {
   return `${sign}${eokwon.toFixed(1)}억원`;
 }
 
+
+function isDisplayRoundedZero(display: string): boolean {
+  const v = display.trim();
+  return v === '0억원' || v === '+0.00억원' || v === '-0.00억원';
+}
+
+function hasRawNonZeroValue(value: number | null | undefined): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value !== 0;
+}
+
 function isAcceptedEmptyMarketProgram(live: Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>): boolean {
   if (!live) return false;
   const status = live.marketProgramStatus ?? '';
@@ -173,13 +183,18 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
   lines.push('');
   lines.push('💾 <b>macroState 영속 (직전 cron)</b>');
   if (macro?.programSource === 'KIS_API' && macro.programNetBuyAmount !== undefined) {
-    lines.push(`  • 순매수: ${formatEokwonSaved(macro.programNetBuyAmount)}`);
-    if (macro.programArbitrageNetBuy !== undefined) {
-      const arbLabel = macro.programArbitrageNetBuy === null
-        ? '미수집'
-        : formatEokwonSaved(macro.programArbitrageNetBuy);
-      lines.push(`  • 차익: ${arbLabel}`);
-    }
+    const display = macro.programMarket?.display;
+    const raw = macro.programMarket?.raw;
+    const summaryWhole = display?.wholeNetBuy ?? formatEokwonSaved(macro.programNetBuyAmount);
+    const summaryArb = display?.arbitrageNetBuy ?? (macro.programArbitrageNetBuy === null ? '미수집' : formatEokwonSaved(macro.programArbitrageNetBuy));
+    const summaryNonArb = display?.nonArbitrageNetBuy;
+    lines.push(`  • 순매수: ${summaryWhole}`);
+    lines.push(`  • 차익: ${summaryArb}`);
+    if (summaryNonArb) lines.push(`  • 비차익: ${summaryNonArb}`);
+    const rawNonZeroWarning = (hasRawNonZeroValue(raw?.wholeNetBuyTradeAmount) && isDisplayRoundedZero(summaryWhole))
+      || (hasRawNonZeroValue(raw?.arbitrageNetBuyTradeAmount) && isDisplayRoundedZero(summaryArb))
+      || (hasRawNonZeroValue(raw?.nonArbitrageNetBuyTradeAmount) && Boolean(summaryNonArb) && isDisplayRoundedZero(summaryNonArb));
+    if (rawNonZeroWarning) lines.push('  • rawNonZeroWarning: true');
     if (macro.programFetchedAt) {
       appendMacroProgramFetchedAt(lines, macro.programFetchedAt);
     }

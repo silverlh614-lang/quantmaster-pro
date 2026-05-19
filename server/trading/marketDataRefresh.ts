@@ -807,6 +807,11 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         nonArbitrageNetBuy: formatEokAmount(rawNonArb, 'UNVERIFIED'),
       },
       unit: { rawUnitAssumption: 'UNVERIFIED', displayUnit: 'EOK_KRW', mappingConfidence: 'UNIT_UNVERIFIED' },
+      unitCandidates: {
+        KRW: formatEokAmount(rawWhole, 'UNVERIFIED'),
+        KRW_1K: formatEokAmount(rawWhole === null ? null : rawWhole * 1000, 'UNVERIFIED'),
+        KRW_1M: formatEokAmount(rawWhole === null ? null : rawWhole * 1_000_000, 'UNVERIFIED'),
+      },
       policy: {
         scoring: 'shadow_only',
         useForExecution: false,
@@ -816,8 +821,31 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         marketSignal: false,
       },
       rawNonZero,
+      rowBreakdown: {
+        kospi: {
+          outputLength: marketProgram.kospiDiagnostics?.rowCount ?? 0,
+          nonZeroRows: marketProgram.kospiDiagnostics?.nonZeroRowCount ?? 0,
+          selectedBsopHour: marketProgram.kospiDiagnostics?.selectedBsopHour ?? 'N/A',
+          rawWholeNetBuy: marketProgram.kospiNetBuyAmount ?? null,
+          displayWholeNetBuy: formatEokAmount(marketProgram.kospiNetBuyAmount ?? null, 'UNVERIFIED'),
+        },
+        kosdaq: {
+          outputLength: marketProgram.kosdaqDiagnostics?.rowCount ?? 0,
+          nonZeroRows: marketProgram.kosdaqDiagnostics?.nonZeroRowCount ?? 0,
+          selectedBsopHour: marketProgram.kosdaqDiagnostics?.selectedBsopHour ?? 'N/A',
+          rawWholeNetBuy: marketProgram.kosdaqNetBuyAmount ?? null,
+          displayWholeNetBuy: formatEokAmount(marketProgram.kosdaqNetBuyAmount ?? null, 'UNVERIFIED'),
+        },
+        combined: {
+          outputLength: marketProgram.rowCount ?? 0,
+          nonZeroRows: marketProgram.nonZeroRowCount ?? 0,
+          selectedBsopHour: marketProgram.selectedBsopHour ?? 'N/A',
+          rawWholeNetBuy: rawWhole,
+          displayWholeNetBuy: formatEokAmount(rawWhole, 'UNVERIFIED'),
+        },
+      },
     };
-    const structured = `selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} rawUnitAssumption=UNVERIFIED mappingConfidence=UNIT_UNVERIFIED scoring=shadow_only useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
+    const structured = `selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} selectedDisplayUnitAssumption=UNVERIFIED rawUnitAssumption=UNVERIFIED mappingConfidence=UNIT_UNVERIFIED scoring=shadow_only useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
     console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_MACROSTATE_PERSISTED] ${structured}`);

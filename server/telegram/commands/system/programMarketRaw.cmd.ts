@@ -7,6 +7,7 @@ import { diagnoseKisMarketProgramRaw } from '../../../clients/kisClient/supplyDi
 import { formatProgramMarketRawDiag } from '../../../clients/kisClient/programMarketRouterPatch004.js';
 import { MARKET_PROGRAM_PARAM_MODE, MARKET_PROGRAM_TRADE_TR_ID, MARKET_PROGRAM_TRADE_PATH, buildMarketProgramTradeTodayParams } from '../../../clients/kisClient/programMaterializer.js';
 import { fetchKrxIntradayProgramTradeAggregate, getKrxIntradayMarketProgramBld, isKrxIntradayMarketProgramEnabled } from '../../../clients/krxClient/intradayProgramTradeFetcher.js';
+import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -81,6 +82,27 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
   lines.push(`missingFieldFromKisError: ${missingField}`);
   lines.push(`zeroReason: ${rawDiag.zeroReason === 'NON_ZERO' ? 'NON_ZERO' : (rawDiag.zeroReason ?? 'N/A')}`);
   lines.push('executionImpact=NONE, providerIssue=false, marketSignal=false, scoring=excluded until mapping verified');
+
+  const macro = loadMacroState();
+  const pm = macro?.programMarket;
+  if (pm?.rowBreakdown) {
+    lines.push('');
+    lines.push('rowBreakdown:');
+    for (const [name, row] of Object.entries(pm.rowBreakdown)) {
+      lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
+    }
+  }
+  if (pm?.unit.rawUnitAssumption === 'UNVERIFIED' && pm.unitCandidates) {
+    lines.push('unitCandidates:');
+    lines.push(`  KRW: ${pm.unitCandidates.KRW}`);
+    lines.push(`  KRW_1K: ${pm.unitCandidates.KRW_1K}`);
+    lines.push(`  KRW_1M: ${pm.unitCandidates.KRW_1M}`);
+    lines.push('selectedDisplayUnitAssumption=UNVERIFIED');
+    lines.push('mappingConfidence=UNIT_UNVERIFIED');
+    lines.push('scoring=shadow_only');
+    lines.push('useForExecution=false');
+  }
+
   return lines.join('\n');
 }
 
