@@ -174,6 +174,16 @@ describe('Gate pipeline integrity audit', () => {
       allowed: true,
       mode: 'NORMAL_SHADOW',
       executionImpact: 'NONE',
+      shadowScanAllowed: true,
+      shadowSignalAllowed: true,
+      paperOrderAllowed: true,
+      virtualFillAllowed: true,
+      positionLifecycleAllowed: true,
+      counterfactualLearningAllowed: true,
+      caseRecordingAllowed: true,
+      liveExecutionImpact: 'NONE',
+      shadowExecutionImpact: 'NONE',
+      marketSignal: false,
     });
     expect(survival?.marketSessionCompatibility).toMatchObject({
       session: 'REGULAR',
@@ -282,8 +292,13 @@ describe('Gate pipeline integrity audit', () => {
     });
     expect(survival?.shadowEligibility).toMatchObject({
       allowed: true,
-      mode: 'DEGRADED_SHADOW',
+      mode: 'COUNTERFACTUAL_ONLY',
       executionImpact: 'NONE',
+      paperOrderAllowed: false,
+      virtualFillAllowed: false,
+      counterfactualLearningAllowed: true,
+      caseRecordingAllowed: true,
+      shadowExecutionImpact: 'NONE',
     });
   });
 
@@ -299,6 +314,13 @@ describe('Gate pipeline integrity audit', () => {
       shadowAllowed: true,
     });
     expect(result.gateLayerSummary?.gate1.survival?.shadowEligibility.allowed).toBe(true);
+    expect(result.gateLayerSummary?.gate1.survival?.shadowEligibility).toMatchObject({
+      mode: 'NORMAL_SHADOW',
+      liveExecutionImpact: 'LIVE_BUY_BLOCKED_ONLY',
+      shadowExecutionImpact: 'NONE',
+      counterfactualLearningAllowed: true,
+      caseRecordingAllowed: true,
+    });
   });
 
   it('keeps closed-session shadow recording observable without changing score semantics', () => {
@@ -316,6 +338,11 @@ describe('Gate pipeline integrity audit', () => {
       allowed: true,
       mode: 'OBSERVE_ONLY',
       executionImpact: 'NONE',
+      paperOrderAllowed: false,
+      virtualFillAllowed: false,
+      counterfactualLearningAllowed: true,
+      caseRecordingAllowed: true,
+      shadowExecutionImpact: 'NONE',
     });
   });
 
@@ -366,6 +393,7 @@ describe('Gate pipeline integrity audit', () => {
     const audit = buildGateLayerAuditSummary(counters);
     expect(audit.strongBuySuppressedByDataUnavailableCount).toBeGreaterThanOrEqual(1);
     expect(audit.gate1Survival?.liquidityStatus).toBeDefined();
+    expect(audit.gate1Survival?.shadowExecutionImpact).toBeDefined();
     expect(gate.normalizedGateScore).not.toBe(gate.gateScore);
   });
 

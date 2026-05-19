@@ -27,6 +27,11 @@ import {
   type Gate1LiquidityFloorDiagnostic,
   type Gate1LiquidityFloorStatus as Gate1LiquidityFloorStatusValue,
 } from './quant/gate1LiquidityFloor.js';
+import {
+  normalizeShadowEligibilityForGate1,
+  type Gate1ShadowEligibilityDiagnostic,
+  type Gate1ShadowEligibilityMode as Gate1ShadowEligibilityModeValue,
+} from './quant/gate1ShadowEligibility.js';
 
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
@@ -67,10 +72,10 @@ export type Gate1QuoteFreshnessStatus = 'OK' | 'STALE' | 'MISSING' | 'UNKNOWN';
 export type Gate1TradabilityStatus = 'TRADABLE' | 'HALTED' | 'WARNING' | 'MANAGEMENT' | 'UNKNOWN';
 export type Gate1TradabilitySource = 'KIS_OFFICIAL' | 'QMP_MASTER' | 'UNKNOWN';
 export type Gate1LiquidityFloorStatus = Gate1LiquidityFloorStatusValue;
-export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNCH' | 'SELL_ONLY' | 'CLOSED' | 'UNKNOWN';
+export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNCH' | 'SELL_ONLY' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
 export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
 export type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
-export type Gate1ShadowEligibilityMode = 'NORMAL_SHADOW' | 'DEGRADED_SHADOW' | 'OBSERVE_ONLY';
+export type Gate1ShadowEligibilityMode = Gate1ShadowEligibilityModeValue;
 export type Gate1KisProviderStatus = KisProviderStatus;
 
 export interface Gate1SurvivalDiagnostic {
@@ -114,12 +119,7 @@ export interface Gate1SurvivalDiagnostic {
     gate1DeclaredMissingInputs: string[];
     driftDiagnostics: KisOfficialDriftDiagnostic[];
   };
-  shadowEligibility: {
-    allowed: boolean;
-    mode: Gate1ShadowEligibilityMode;
-    executionImpact: 'NONE';
-    reason: string | null;
-  };
+  shadowEligibility: Gate1ShadowEligibilityDiagnostic;
 }
 
 export interface GateLayerBucket {
@@ -478,6 +478,7 @@ function normalizeGate1MarketSession(value: unknown): Gate1MarketSession {
   if (raw === 'AFTERMARKET' || raw === 'AFTER_MARKET' || raw === 'AFTER_HOURS') return 'AFTERMARKET';
   if (raw === 'LUNCH' || raw === 'MIDDAY_BREAK') return 'LUNCH';
   if (raw === 'SELL_ONLY') return 'SELL_ONLY';
+  if (raw === 'HOLIDAY') return 'HOLIDAY';
   if (raw === 'CLOSED' || raw === 'NON_TRADING_DAY' || raw === 'MARKET_CLOSED') return 'CLOSED';
   return 'UNKNOWN';
 }
@@ -502,35 +503,25 @@ function buildGate1MarketSessionCompatibility(quote: YahooQuoteExtended): Gate1S
 }
 
 function buildGate1ShadowEligibility(input: {
+  quote: YahooQuoteExtended;
   freshness: Gate1SurvivalDiagnostic['quoteFreshness'];
   coverage: Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'];
+  tradability: Gate1SurvivalDiagnostic['tradability'];
+  liquidityFloor: Gate1SurvivalDiagnostic['liquidityFloor'];
   marketSession: Gate1SurvivalDiagnostic['marketSessionCompatibility'];
 }): Gate1SurvivalDiagnostic['shadowEligibility'] {
-  if (input.coverage.confidence === 'MISSING' || input.freshness.status === 'MISSING') {
-    return {
-      allowed: true,
-      mode: 'DEGRADED_SHADOW',
-      executionImpact: 'NONE',
-      reason: 'QUOTE_PAYLOAD_DEGRADED_MARKET_SIGNAL_FALSE',
-    };
-  }
-  if (input.marketSession.session === 'CLOSED') {
-    return {
-      allowed: true,
-      mode: 'OBSERVE_ONLY',
-      executionImpact: 'NONE',
-      reason: 'MARKET_CLOSED_SHADOW_RECORDING_ALLOWED',
-    };
-  }
-  if (input.coverage.confidence === 'DEGRADED' || input.coverage.confidence === 'STALE' || input.freshness.status === 'STALE') {
-    return {
-      allowed: true,
-      mode: 'DEGRADED_SHADOW',
-      executionImpact: 'NONE',
-      reason: 'PROVIDER_OR_FRESHNESS_DEGRADED_MARKET_SIGNAL_FALSE',
-    };
-  }
-  return { allowed: true, mode: 'NORMAL_SHADOW', executionImpact: 'NONE', reason: null };
+  const q = input.quote as QuoteRecord;
+  return normalizeShadowEligibilityForGate1({
+    engineMode: stringOrNull(q.engineMode)
+      ?? stringOrNull(q.executionMode)
+      ?? stringOrNull(q.runtimeEngineMode),
+    marketSessionCompatibility: input.marketSession,
+    quoteCoverage: input.coverage,
+    quoteFreshness: input.freshness,
+    tradability: input.tradability,
+    liquidityFloor: input.liquidityFloor,
+    alwaysOnKernelEnabled: true,
+  });
 }
 
 function buildGate1SurvivalDiagnostic(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic {
@@ -540,8 +531,11 @@ function buildGate1SurvivalDiagnostic(quote: YahooQuoteExtended): Gate1SurvivalD
   const liquidityFloor = buildGate1LiquidityFloor(quote, kisOfficialQuoteCoverage);
   const marketSessionCompatibility = buildGate1MarketSessionCompatibility(quote);
   const shadowEligibility = buildGate1ShadowEligibility({
+    quote,
     freshness: quoteFreshness,
     coverage: kisOfficialQuoteCoverage,
+    tradability,
+    liquidityFloor,
     marketSession: marketSessionCompatibility,
   });
   return {

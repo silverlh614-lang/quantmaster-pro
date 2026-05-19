@@ -22,6 +22,7 @@ export interface Gate1SurvivalAuditSummary {
   liquidityStatus: Record<string, number>;
   marketSession: Record<string, number>;
   shadowMode: Record<string, number>;
+  shadowExecutionImpact: Record<string, number>;
   liveBuyBlockedCount: number;
   shadowAllowedCount: number;
 }
@@ -53,6 +54,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       liquidityStatus: {},
       marketSession: {},
       shadowMode: {},
+      shadowExecutionImpact: {},
       liveBuyBlockedCount: 0,
       shadowAllowedCount: 0,
     },
@@ -90,6 +92,7 @@ export function accumulateGateLayerSummary(
     incrementCount(counters.gateLayerAudit.gate1Survival.liquidityStatus, survival.liquidityFloor.status);
     incrementCount(counters.gateLayerAudit.gate1Survival.marketSession, survival.marketSessionCompatibility.session);
     incrementCount(counters.gateLayerAudit.gate1Survival.shadowMode, survival.shadowEligibility.mode);
+    incrementCount(counters.gateLayerAudit.gate1Survival.shadowExecutionImpact, survival.shadowEligibility.shadowExecutionImpact ?? 'NONE');
     if (!survival.marketSessionCompatibility.liveBuyAllowed) counters.gateLayerAudit.gate1Survival.liveBuyBlockedCount += 1;
     if (survival.marketSessionCompatibility.shadowAllowed || survival.shadowEligibility.allowed) counters.gateLayerAudit.gate1Survival.shadowAllowedCount += 1;
   }
@@ -124,6 +127,7 @@ export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSumma
     `  liquidityFloor: ${topKey(summary.liquidityStatus)}`,
     `  marketSession: ${topKey(summary.marketSession)}`,
     `  shadowMode: ${topKey(summary.shadowMode)}`,
+    `  shadowExecutionImpact: ${topKey(summary.shadowExecutionImpact)}`,
     `  liveBuyBlockedOnly/advisory: ${summary.liveBuyBlockedCount}`,
     `  shadowAllowed: ${summary.shadowAllowedCount}`,
     '  executionImpact: NONE for shadow; scoringImpact: NONE',
