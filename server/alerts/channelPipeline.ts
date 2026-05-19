@@ -14,7 +14,7 @@
  *   🔒 개인 : 잔고/자산, 비상정지, 손절 접근 경보, 오류, 내부 디버그
  */
 
-import { escapeHtml } from './telegramClient.js';
+import { escapeHtml, sendPrivateAlert } from './telegramClient.js';
 import { dispatchAlert } from './alertRouter.js';
 import { AlertCategory, ChannelSemantic, isCategoryEnabled } from './alertCategories.js';
 import { formatAlert } from './formatAlert.js';
@@ -69,6 +69,35 @@ export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promis
     bodyLines,
   });
   await dispatchAlert(ChannelSemantic.SIGNAL, message).catch(console.error);
+
+  if (p.mode === 'SHADOW') {
+    const dedupeKey = `SHADOW_BUY_SIGNAL:${p.stockCode}:${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })}:${p.price}:${p.quantity}`;
+    const tokenConfigured = Boolean(process.env.TELEGRAM_BOT_TOKEN);
+    const chatIdMasked = process.env.TELEGRAM_CHAT_ID
+      ? `${process.env.TELEGRAM_CHAT_ID.slice(0, 3)}***${process.env.TELEGRAM_CHAT_ID.slice(-2)}`
+      : 'unset';
+    console.log(
+      `[PRIVATE_ALERT_CONFIG_DIAG] TELEGRAM_BOT_TOKEN configured=${tokenConfigured} ` +
+      `TELEGRAM_CHAT_ID configured=${Boolean(process.env.TELEGRAM_CHAT_ID)} chatIdMasked=${chatIdMasked} ` +
+      `eventType=SHADOW_BUY_SIGNAL stock=${p.stockName} code=${p.stockCode} tradeId=NA`,
+    );
+
+    const privateMessage =
+      `🧪 [SHADOW 가상매수 신호]\n` +
+      `종목: ${p.stockName} (${p.stockCode})\n` +
+      `진입가: ${p.price.toLocaleString()}원 × ${p.quantity}주\n` +
+      `Gate: ${p.gateScore.toFixed(1)}\n` +
+      `RRR: 1:${p.rrr.toFixed(1)}\n` +
+      `liveOrderPlaced=false\n` +
+      `executionImpact=NONE\n` +
+      `실계좌 주문 아님`;
+    await sendPrivateAlert(privateMessage, {
+      priority: 'HIGH',
+      category: 'SHADOW_BUY_SIGNAL',
+      dedupeKey,
+      cooldownMs: 24 * 60 * 60 * 1000,
+    }).catch(console.error);
+  }
 }
 
 export async function channelBuyFilled(params: {
@@ -110,7 +139,7 @@ export interface ChannelShadowBuyFilledParams {
 }
 
 export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): Promise<void> {
-  if (!isSemanticEnabled(ChannelSemantic.EXECUTION)) return;
+  const dedupeKey = `SHADOW_PAPER_FILLED:${p.stockCode}:${p.tradeId}:${p.fillId}`;
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
     eventType: `[SHADOW 가상매수] ${p.stockName} (${p.stockCode})`,
@@ -124,7 +153,70 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
       `📌 lifecycle: PENDING → ACTIVE (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
     ],
   });
-  await dispatchAlert(ChannelSemantic.EXECUTION, message).catch(console.error);
+  if (!isSemanticEnabled(ChannelSemantic.EXECUTION)) {
+    console.warn(
+      `[SHADOW_BUY_CHANNEL_ALERT_SKIPPED] reason=EXECUTION_CHANNEL_DISABLED ` +
+      `semantic=EXECUTION category=TRADE stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId} fillId=${p.fillId}`,
+    );
+  } else {
+    const channelMessageId = await dispatchAlert(ChannelSemantic.EXECUTION, message, {
+      severity: 'HIGH',
+      eventType: 'SHADOW_PAPER_FILLED',
+      dedupeKey,
+      cooldownMs: 24 * 60 * 60 * 1000,
+    });
+    if (channelMessageId) {
+      console.log(
+        `[SHADOW_BUY_CHANNEL_ALERT_SENT] stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId} fillId=${p.fillId} messageId=${channelMessageId}`,
+      );
+    } else {
+      console.warn(
+        `[SHADOW_BUY_CHANNEL_ALERT_NOT_SENT] stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId} fillId=${p.fillId} reason=DISPATCH_RETURNED_UNDEFINED`,
+      );
+    }
+  }
+
+  const tokenConfigured = Boolean(process.env.TELEGRAM_BOT_TOKEN);
+  const chatIdMasked = process.env.TELEGRAM_CHAT_ID
+    ? `${process.env.TELEGRAM_CHAT_ID.slice(0, 3)}***${process.env.TELEGRAM_CHAT_ID.slice(-2)}`
+    : 'unset';
+  console.log(
+    `[PRIVATE_ALERT_CONFIG_DIAG] TELEGRAM_BOT_TOKEN configured=${tokenConfigured} ` +
+    `TELEGRAM_CHAT_ID configured=${Boolean(process.env.TELEGRAM_CHAT_ID)} chatIdMasked=${chatIdMasked} ` +
+    `eventType=SHADOW_PAPER_FILLED stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId}`,
+  );
+
+  const privateMessage =
+    `🧾 [SHADOW 가상 체결]\n` +
+    `${p.stockName} (${p.stockCode})\n` +
+    `paper-fill: ${p.fillPrice.toLocaleString()}원 × ${p.quantity}주\n` +
+    `fillId: ${p.fillId}\n` +
+    `tradeId: ${p.tradeId}\n` +
+    `liveOrderPlaced=false\n` +
+    `executionImpact=NONE\n` +
+    `실계좌 주문 아님`;
+
+  await sendPrivateAlert(privateMessage, {
+    priority: 'HIGH',
+    category: 'SHADOW_PAPER_FILLED',
+    dedupeKey,
+    cooldownMs: 24 * 60 * 60 * 1000,
+  }).then((messageId) => {
+    if (messageId) {
+      console.log(
+        `[SHADOW_BUY_PRIVATE_ALERT_SENT] stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId} fillId=${p.fillId} messageId=${messageId}`,
+      );
+    } else {
+      console.warn(
+        `[SHADOW_BUY_PRIVATE_ALERT_NOT_SENT] stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId} fillId=${p.fillId} reason=PRIVATE_SEND_RETURNED_UNDEFINED`,
+      );
+    }
+  }).catch((error) => {
+    console.error(
+      `[SHADOW_BUY_PRIVATE_ALERT_FAILED] stock=${p.stockName} code=${p.stockCode} tradeId=${p.tradeId} fillId=${p.fillId}`,
+      error,
+    );
+  });
 }
 
 // ── 2. 매도/청산 신호 ────────────────────────────────────────────────────────
@@ -506,4 +598,3 @@ export async function channelPerformance(p: ChannelPerformanceParams): Promise<v
   // SYSTEM 카테고리는 alertRouter 가 weekly_digest 버퍼로 자동 분류.
   await dispatchAlert(ChannelSemantic.JOURNAL, lines).catch(console.error);
 }
-
