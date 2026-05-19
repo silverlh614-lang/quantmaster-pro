@@ -10,6 +10,7 @@ import {
   formatGate2DartFinancialsCompactDiagnostic,
   formatGate2KisInvestorFlowCompactDiagnostic,
   formatGate2LeaderCycleCompactDiagnostic,
+  formatGate2ProgramTradeCompactDiagnostic,
   formatGate2SectorCycleCompactDiagnostic,
 } from '../../../quant/gate2Diagnostics.js';
 
@@ -48,6 +49,7 @@ export interface Gate2CoverageAuditSummary {
   kisStatus: Record<string, number>;
   dartStatus: Record<string, number>;
   benchmarkStatus: Record<string, number>;
+  programTradeStatus: Record<string, number>;
   sectorCycleStatus: Record<string, number>;
   leaderCyclePhase: Record<string, number>;
   primaryIssue: Record<string, number>;
@@ -55,6 +57,7 @@ export interface Gate2CoverageAuditSummary {
   kisFlowCompactText: Record<string, number>;
   dartCompactText: Record<string, number>;
   benchmarkCompactText: Record<string, number>;
+  programTradeCompactText: Record<string, number>;
   sectorCycleCompactText: Record<string, number>;
   leaderCycleCompactText: Record<string, number>;
   providerIssueCount: number;
@@ -103,6 +106,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       kisStatus: {},
       dartStatus: {},
       benchmarkStatus: {},
+      programTradeStatus: {},
       sectorCycleStatus: {},
       leaderCyclePhase: {},
       primaryIssue: {},
@@ -110,6 +114,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       kisFlowCompactText: {},
       dartCompactText: {},
       benchmarkCompactText: {},
+      programTradeCompactText: {},
       sectorCycleCompactText: {},
       leaderCycleCompactText: {},
       providerIssueCount: 0,
@@ -169,6 +174,12 @@ export function accumulateGateLayerSummary(
     incrementCount(counters.gateLayerAudit.gate2Coverage.kisStatus, gate2External.kisInvestorFlow.status);
     incrementCount(counters.gateLayerAudit.gate2Coverage.dartStatus, gate2External.dartFinancials.status);
     incrementCount(counters.gateLayerAudit.gate2Coverage.benchmarkStatus, gate2External.benchmark.status);
+    incrementCount(
+      counters.gateLayerAudit.gate2Coverage.programTradeStatus,
+      gate2External.programTrade.stockProgram.status !== 'STAGE_NOT_FETCHED'
+        ? gate2External.programTrade.stockProgram.status
+        : gate2External.programTrade.marketProgram.status,
+    );
     incrementCount(counters.gateLayerAudit.gate2Coverage.sectorCycleStatus, gate2External.sectorCycle.status);
     incrementCount(counters.gateLayerAudit.gate2Coverage.leaderCyclePhase, gate2External.leaderCycle.leaderCyclePhase);
     incrementCount(counters.gateLayerAudit.gate2Coverage.primaryIssue, gate2Source.providerIssues[0] ?? gate2Source.missingExternalData[0] ?? 'none');
@@ -180,6 +191,8 @@ export function accumulateGateLayerSummary(
     if (dartCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.dartCompactText, dartCompact);
     const benchmarkCompact = formatGate2BenchmarkCompactDiagnostic(gate2External);
     if (benchmarkCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.benchmarkCompactText, benchmarkCompact);
+    const programTradeCompact = formatGate2ProgramTradeCompactDiagnostic(gate2External);
+    if (programTradeCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.programTradeCompactText, programTradeCompact);
     const sectorCycleCompact = formatGate2SectorCycleCompactDiagnostic(gate2External);
     if (sectorCycleCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.sectorCycleCompactText, sectorCycleCompact);
     const leaderCycleCompact = formatGate2LeaderCycleCompactDiagnostic(gate2External);
@@ -188,6 +201,8 @@ export function accumulateGateLayerSummary(
       gate2External.kisInvestorFlow.providerIssue
       || gate2External.dartFinancials.providerIssue
       || gate2External.benchmark.providerIssue
+      || gate2External.programTrade.marketProgram.providerIssue
+      || gate2External.programTrade.stockProgram.providerIssue
       || gate2External.sectorCycle.providerIssue
       || gate2External.leaderCycle.providerIssue
     ) {
@@ -253,6 +268,7 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  KIS: ${topKey(summary.kisStatus)}`,
     `  DART: ${topKey(summary.dartStatus)}`,
     `  Benchmark: ${topKey(summary.benchmarkStatus)}`,
+    `  ProgramTrade: ${topKey(summary.programTradeStatus)}`,
     `  SectorCycle: ${topKey(summary.sectorCycleStatus)}`,
     `  LeaderCycle: ${topKey(summary.leaderCyclePhase)}`,
     `  primaryIssue: ${topKey(summary.primaryIssue)}`,
@@ -261,6 +277,7 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  kisFlow: ${topLabel(summary.kisFlowCompactText)}`,
     `  dart: ${topLabel(summary.dartCompactText)}`,
     `  benchmark: ${topLabel(summary.benchmarkCompactText)}`,
+    `  programTrade: ${topLabel(summary.programTradeCompactText)}`,
     `  sectorCycle: ${topLabel(summary.sectorCycleCompactText)}`,
     `  leaderCycle: ${topLabel(summary.leaderCycleCompactText)}`,
     '  marketSignal: false; diagnosticOnly: true',

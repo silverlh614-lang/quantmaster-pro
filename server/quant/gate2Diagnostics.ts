@@ -15,6 +15,13 @@ import type {
   QmpInvestorFlow,
 } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
 import type {
+  KisProgramFlowDriftDiagnostic,
+  KisProgramFlowRawFieldCoverage,
+  KisProgramTradeConfidence,
+  KisProgramTradeProviderStatus,
+  QmpProgramFlow,
+} from '../clients/kisClient/kisOfficialProgramFlowMapper.js';
+import type {
   DartFinancialConfidence,
   DartFinancialProviderStatus,
   DartFinancialRawFieldCoverage,
@@ -195,6 +202,63 @@ export interface Gate2ExternalDataCoverage {
     executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
     notes: string[];
   };
+  programTrade: {
+    required: false;
+    available: boolean;
+    provider: 'KIS_OFFICIAL' | 'KIS_API' | 'CACHE' | 'UNKNOWN';
+    marketProgram: {
+      available: boolean;
+      endpointKey: 'COMP_PROGRAM_TRADE_TODAY' | 'UNKNOWN';
+      endpoint: string | null;
+      trId: string | null;
+      providerStatus: KisProgramTradeProviderStatus | null;
+      dataConfidence: KisProgramTradeConfidence | null;
+      status: Gate2ExternalProviderStatus;
+      scope: 'MARKET';
+      fields: {
+        programNetBuyAmount: boolean;
+        arbitrageNetBuyAmount: boolean;
+        nonArbitrageNetBuyAmount: boolean;
+      };
+      values: {
+        programNetBuyAmount: number | null;
+        arbitrageNetBuyAmount: number | null;
+        nonArbitrageNetBuyAmount: number | null;
+      };
+      rawFieldCoverage: KisProgramFlowRawFieldCoverage;
+      driftDiagnostics: KisProgramFlowDriftDiagnostic[];
+      stageNotFetched: boolean;
+      providerIssue: boolean;
+      marketSignal: false;
+    };
+    stockProgram: {
+      available: boolean;
+      endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY' | 'UNKNOWN';
+      endpoint: string | null;
+      trId: string | null;
+      providerStatus: KisProgramTradeProviderStatus | null;
+      dataConfidence: KisProgramTradeConfidence | null;
+      status: Gate2ExternalProviderStatus;
+      scope: 'STOCK';
+      fields: {
+        programNetBuyAmount: boolean;
+        programNetBuyVolume: boolean;
+      };
+      values: {
+        programNetBuyAmount: number | null;
+        programNetBuyVolume: number | null;
+      };
+      rawFieldCoverage: KisProgramFlowRawFieldCoverage;
+      driftDiagnostics: KisProgramFlowDriftDiagnostic[];
+      stageNotFetched: boolean;
+      providerIssue: boolean;
+      marketSignal: false;
+    };
+    scopeSeparationValid: boolean;
+    notes: string[];
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    marketSignal: false;
+  };
   sectorCycle: {
     required: boolean;
     available: boolean;
@@ -276,6 +340,10 @@ export interface Gate2ExternalCoverageInput {
   market?: BenchmarkMarket | string | null;
   benchmarkReturn?: QmpBenchmarkReturn | null;
   benchmarkRaw?: unknown;
+  programTrade?: {
+    marketProgram?: QmpProgramFlow | null;
+    stockProgram?: QmpProgramFlow | null;
+  } | null;
   sectorThemeCycle?: QmpSectorThemeCycle | unknown | null;
   sectorEnergyResult?: unknown;
   evaluationStage?: Gate2EvaluationStage | null;
@@ -750,6 +818,65 @@ function providerIssueForBenchmarkStatus(required: boolean, status: Gate2Externa
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
+function gate2StatusFromProgramProviderStatus(
+  status: KisProgramTradeProviderStatus | null,
+  confidence: KisProgramTradeConfidence | null,
+): Gate2ExternalProviderStatus | null {
+  if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
+  if (confidence === 'VERIFIED') return 'VERIFIED';
+  if (confidence === 'STALE') return 'STALE';
+  if (confidence === 'MISSING') return 'MISSING';
+  if (confidence === 'DEGRADED' || confidence === 'AI_ESTIMATED') return 'DEGRADED';
+  if (status === 'OK_WITH_DATA') return 'VERIFIED';
+  if (status === 'OK_EMPTY') return 'EMPTY_VALID';
+  if (status === 'FIELD_MISSING' || status === 'PARSE_ERROR') return 'DEGRADED';
+  if (status === 'HTTP_ERROR' || status === 'KIS_ERROR_CODE' || status === 'TOKEN_EXPIRED' || status === 'RATE_LIMITED' || status === 'UNKNOWN_ERROR') return 'DEGRADED';
+  return null;
+}
+
+function programStageStatus(value: QmpProgramFlow | null | undefined, evaluationStage?: Gate2EvaluationStage | null): Gate2ExternalProviderStatus {
+  if (value) {
+    return gate2StatusFromProgramProviderStatus(value.providerStatus, value.dataConfidence)
+      ?? statusFromMetadata(value)
+      ?? 'UNKNOWN';
+  }
+  return evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING';
+}
+
+function providerIssueForProgramStatus(status: Gate2ExternalProviderStatus): boolean {
+  return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
+}
+
+function providerIssueForOptionalProgramFlow(
+  value: QmpProgramFlow | null | undefined,
+  status: Gate2ExternalProviderStatus,
+  scopeValid: boolean,
+): boolean {
+  if (!scopeValid) return true;
+  if (!value) return false;
+  return providerIssueForProgramStatus(status);
+}
+
+function programRawFieldCoverage(value: QmpProgramFlow | null | undefined, requiredFields: string[]): KisProgramFlowRawFieldCoverage {
+  return value?.rawFieldCoverage ?? {
+    requiredFields,
+    presentFields: [],
+    missingFields: requiredFields,
+    allRequiredFieldsPresent: false,
+  };
+}
+
+function programProviderFromFlows(
+  marketProgram: QmpProgramFlow | null | undefined,
+  stockProgram: QmpProgramFlow | null | undefined,
+): Gate2ExternalDataCoverage['programTrade']['provider'] {
+  const sources = [marketProgram?.source, stockProgram?.source].filter(Boolean).map(String);
+  if (sources.includes('KIS_OFFICIAL')) return 'KIS_OFFICIAL';
+  if (sources.includes('KIS_API')) return 'KIS_API';
+  if (sources.includes('CACHE')) return 'CACHE';
+  return 'UNKNOWN';
+}
+
 function gate2StatusFromSectorThemeCycle(
   providerStatus: SectorThemeCycleProviderStatus | null,
   confidence: SectorThemeCycleConfidence | null,
@@ -866,6 +993,31 @@ export function buildGate2ExternalDataCoverage(
     stockVsSectorReturn20d: sectorThemeCycleDiagnostic.stockVsSectorReturn20d != null,
     stockVsSectorReturn60d: sectorThemeCycleDiagnostic.stockVsSectorReturn60d != null,
   };
+  const marketProgramFlow = input.programTrade?.marketProgram ?? null;
+  const stockProgramFlow = input.programTrade?.stockProgram ?? null;
+  const marketProgramScopeValid = !marketProgramFlow || marketProgramFlow.scope === 'MARKET';
+  const stockProgramScopeValid = !stockProgramFlow || stockProgramFlow.scope === 'STOCK';
+  const scopeSeparationValid = marketProgramScopeValid && stockProgramScopeValid;
+  const marketProgramBaseStatus = programStageStatus(marketProgramFlow, input.evaluationStage);
+  const stockProgramBaseStatus = programStageStatus(stockProgramFlow, input.evaluationStage);
+  const marketProgramStatus = marketProgramScopeValid ? marketProgramBaseStatus : 'DEGRADED';
+  const stockProgramStatus = stockProgramScopeValid ? stockProgramBaseStatus : 'DEGRADED';
+  const marketProgramFields = {
+    programNetBuyAmount: marketProgramFlow?.programNetBuyAmount != null,
+    arbitrageNetBuyAmount: marketProgramFlow?.arbitrageNetBuyAmount != null,
+    nonArbitrageNetBuyAmount: marketProgramFlow?.nonArbitrageNetBuyAmount != null,
+  };
+  const stockProgramFields = {
+    programNetBuyAmount: stockProgramFlow?.programNetBuyAmount != null,
+    programNetBuyVolume: stockProgramFlow?.programNetBuyVolume != null,
+  };
+  const programTradeNotes = unique([
+    ...(marketProgramFlow ? ['MARKET_PROGRAM_TRADE_IS_CONTEXT_ONLY_NOT_STOCK_SIGNAL'] : []),
+    ...(stockProgramStatus === 'VERIFIED' ? ['STOCK_PROGRAM_TRADE_AVAILABLE_FOR_SYMBOL'] : []),
+    ...(marketProgramStatus === 'EMPTY_VALID' || stockProgramStatus === 'EMPTY_VALID' ? ['PROGRAM_TRADE_EMPTY_VALID_NOT_BEARISH'] : []),
+    ...(marketProgramFlow && stockProgramStatus === 'STAGE_NOT_FETCHED' ? ['MARKET_PROGRAM_ONLY_STOCK_PROGRAM_NOT_FETCHED'] : []),
+    ...(!scopeSeparationValid ? ['SCOPE_MISMATCH_MARKET_DATA_USED_AS_STOCK_FLOW'] : []),
+  ]);
 
   const kisFieldsAvailable = kisRequired && kisFields.foreignNetBuy && kisFields.institutionalNetBuy;
   const kisStatus = resolveKisStatus({
@@ -976,6 +1128,56 @@ export function buildGate2ExternalDataCoverage(
       executionImpact: 'DIAGNOSTIC_ONLY',
       notes: benchmarkDiagnostic.notes,
     },
+    programTrade: {
+      required: false,
+      available: marketProgramStatus === 'VERIFIED' || stockProgramStatus === 'VERIFIED',
+      provider: programProviderFromFlows(marketProgramFlow, stockProgramFlow),
+      marketProgram: {
+        available: marketProgramScopeValid && marketProgramStatus === 'VERIFIED',
+        endpointKey: marketProgramFlow?.endpointKey === 'COMP_PROGRAM_TRADE_TODAY' ? 'COMP_PROGRAM_TRADE_TODAY' : 'UNKNOWN',
+        endpoint: marketProgramFlow?.endpoint ?? null,
+        trId: marketProgramFlow?.trId ?? null,
+        providerStatus: marketProgramFlow?.providerStatus ?? null,
+        dataConfidence: marketProgramFlow?.dataConfidence ?? null,
+        status: marketProgramStatus,
+        scope: 'MARKET',
+        fields: marketProgramFields,
+        values: {
+          programNetBuyAmount: marketProgramFlow?.programNetBuyAmount ?? null,
+          arbitrageNetBuyAmount: marketProgramFlow?.arbitrageNetBuyAmount ?? null,
+          nonArbitrageNetBuyAmount: marketProgramFlow?.nonArbitrageNetBuyAmount ?? null,
+        },
+        rawFieldCoverage: programRawFieldCoverage(marketProgramFlow, ['programNetBuyAmount']),
+        driftDiagnostics: marketProgramFlow?.driftDiagnostics ?? [],
+        stageNotFetched: marketProgramStatus === 'STAGE_NOT_FETCHED',
+        providerIssue: providerIssueForOptionalProgramFlow(marketProgramFlow, marketProgramStatus, marketProgramScopeValid),
+        marketSignal: false,
+      },
+      stockProgram: {
+        available: stockProgramScopeValid && stockProgramStatus === 'VERIFIED',
+        endpointKey: stockProgramFlow?.endpointKey === 'PROGRAM_TRADE_BY_STOCK_DAILY' ? 'PROGRAM_TRADE_BY_STOCK_DAILY' : 'UNKNOWN',
+        endpoint: stockProgramFlow?.endpoint ?? null,
+        trId: stockProgramFlow?.trId ?? null,
+        providerStatus: stockProgramFlow?.providerStatus ?? null,
+        dataConfidence: stockProgramFlow?.dataConfidence ?? null,
+        status: stockProgramStatus,
+        scope: 'STOCK',
+        fields: stockProgramFields,
+        values: {
+          programNetBuyAmount: stockProgramFlow?.programNetBuyAmount ?? null,
+          programNetBuyVolume: stockProgramFlow?.programNetBuyVolume ?? null,
+        },
+        rawFieldCoverage: programRawFieldCoverage(stockProgramFlow, ['programNetBuyAmount']),
+        driftDiagnostics: stockProgramFlow?.driftDiagnostics ?? [],
+        stageNotFetched: stockProgramStatus === 'STAGE_NOT_FETCHED',
+        providerIssue: providerIssueForOptionalProgramFlow(stockProgramFlow, stockProgramStatus, stockProgramScopeValid),
+        marketSignal: false,
+      },
+      scopeSeparationValid,
+      notes: programTradeNotes,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      marketSignal: false,
+    },
     sectorCycle: {
       required: false,
       available: sectorThemeCycleDiagnostic.sector != null && ['VERIFIED', 'PARTIAL'].includes(sectorCycleStatus),
@@ -1054,6 +1256,7 @@ export function formatGate2CompactDiagnostic(input: {
     `KIS=${external.kisInvestorFlow.status}`,
     `DART=${external.dartFinancials.status}`,
     `Benchmark=${external.benchmark.status}`,
+    `Program=${external.programTrade.stockProgram.status}/${external.programTrade.marketProgram.status}`,
     `Sector=${external.sectorCycle.status}`,
     `Leader=${external.leaderCycle.leaderCyclePhase}`,
     `unavailable=${source.missingExternalData.length}`,
@@ -1159,6 +1362,62 @@ export function formatGate2BenchmarkCompactDiagnostic(
     `RS=${formatPercentPoint(benchmark.values.relativeReturn20d)}`,
     ...(issue ? [issue] : []),
     ...(warning ? [warning] : []),
+    'marketSignal=false',
+  ].join(' | ');
+}
+
+export function formatGate2ProgramTradeCompactDiagnostic(
+  externalDataCoverage?: Gate2ExternalDataCoverage | null,
+): string | null {
+  const program = externalDataCoverage?.programTrade;
+  if (!program) return null;
+  if (!program.scopeSeparationValid) {
+    return [
+      'Gate2 Program: DEGRADED',
+      'issue=SCOPE_MISMATCH_MARKET_DATA_USED_AS_STOCK_FLOW',
+      'action=REVIEW_PROGRAM_FLOW_SCOPE',
+      'marketSignal=false',
+    ].join(' | ');
+  }
+  const stockStatus = program.stockProgram.status;
+  const marketStatus = program.marketProgram.status;
+  if (stockStatus === 'EMPTY_VALID' || marketStatus === 'EMPTY_VALID') {
+    return [
+      'Gate2 Program: EMPTY_VALID',
+      'issue=NO_PROGRAM_OUTPUT',
+      'not_bearish',
+      'marketSignal=false',
+    ].join(' | ');
+  }
+  if (stockStatus === 'VERIFIED') {
+    return [
+      'Gate2 Program: VERIFIED',
+      `stockProgram=${formatSigned(program.stockProgram.values.programNetBuyAmount)}`,
+      program.marketProgram.status === 'VERIFIED' ? 'marketProgram=context' : `marketProgram=${program.marketProgram.status}`,
+      'scope=OK',
+      'marketSignal=false',
+    ].join(' | ');
+  }
+  if (marketStatus === 'VERIFIED') {
+    return [
+      'Gate2 Program: WARN',
+      'marketProgram=VERIFIED',
+      `stockProgram=${stockStatus}`,
+      'note=market_context_only',
+      'marketSignal=false',
+    ].join(' | ');
+  }
+  if (program.marketProgram.providerIssue || program.stockProgram.providerIssue) {
+    return [
+      'Gate2 Program: DEGRADED',
+      'providerIssue=true',
+      'reason=KIS_PROGRAM_PROVIDER',
+      'marketSignal=false',
+    ].join(' | ');
+  }
+  return [
+    `Gate2 Program: ${stockStatus}`,
+    `marketProgram=${marketStatus}`,
     'marketSignal=false',
   ].join(' | ');
 }

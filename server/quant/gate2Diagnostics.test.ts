@@ -20,14 +20,19 @@ import {
   normalizeSectorThemeCycleForGate2,
   type QmpSectorThemeCycle,
 } from '../clients/sectorThemeLeaderCycleNormalizer.js';
-import { KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS } from '../clients/kisClient/kisOfficialEndpointRegistry.js';
+import {
+  KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS,
+  KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS,
+} from '../clients/kisClient/kisOfficialEndpointRegistry.js';
 import { normalizeKisInvestorFlow, type QmpInvestorFlow } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
+import { normalizeKisProgramFlow, type QmpProgramFlow } from '../clients/kisClient/kisOfficialProgramFlowMapper.js';
 import {
   formatGate2BenchmarkCompactDiagnostic,
   formatGate2CompactDiagnostic,
   formatGate2DartFinancialsCompactDiagnostic,
   formatGate2KisInvestorFlowCompactDiagnostic,
   formatGate2LeaderCycleCompactDiagnostic,
+  formatGate2ProgramTradeCompactDiagnostic,
   formatGate2SectorCycleCompactDiagnostic,
   type Gate2EvaluationStage,
 } from './gate2Diagnostics.js';
@@ -107,6 +112,10 @@ function evaluateGate2(input: {
   kosdaq20dReturn?: number | null;
   market?: BenchmarkMarket | string | null;
   benchmarkReturn?: QmpBenchmarkReturn | null;
+  programTrade?: {
+    marketProgram?: QmpProgramFlow | null;
+    stockProgram?: QmpProgramFlow | null;
+  } | null;
   sectorThemeCycle?: QmpSectorThemeCycle | Record<string, unknown> | null;
   sectorEnergyResult?: unknown;
   stockMaster?: unknown;
@@ -124,6 +133,7 @@ function evaluateGate2(input: {
       kosdaq20dReturn: input.kosdaq20dReturn,
       market: input.market,
       benchmarkReturn: input.benchmarkReturn,
+      programTrade: input.programTrade,
       sectorThemeCycle: input.sectorThemeCycle,
       sectorEnergyResult: input.sectorEnergyResult,
       stockMaster: input.stockMaster,
@@ -166,6 +176,27 @@ describe('Gate2 wiring diagnostics', () => {
         'FID_ETC_CLS_CODE',
       ],
       dataDomain: 'DOMESTIC_STOCK_INVESTOR_FLOW_DAILY',
+    });
+  });
+
+  it('exposes official KIS program-trade endpoint registry', () => {
+    expect(KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS.COMP_PROGRAM_TRADE_TODAY).toMatchObject({
+      key: 'COMP_PROGRAM_TRADE_TODAY',
+      path: '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
+      trId: 'FHPPG04600101',
+      requiredParams: ['FID_COND_MRKT_DIV_CODE'],
+      dataDomain: 'MARKET_PROGRAM_TRADE',
+      scope: 'MARKET',
+      source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+    });
+    expect(KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS.PROGRAM_TRADE_BY_STOCK_DAILY).toMatchObject({
+      key: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      path: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+      trId: 'FHPPG04650201',
+      requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD', 'FID_INPUT_DATE_1'],
+      dataDomain: 'STOCK_PROGRAM_TRADE',
+      scope: 'STOCK',
+      source: 'KIS_OFFICIAL_OPEN_TRADING_API',
     });
   });
 
@@ -648,6 +679,179 @@ describe('Gate2 wiring diagnostics', () => {
     expect(normalized.marketSignal).toBe(false);
   });
 
+  it('normalizes KIS stock-level program flow into Gate2 passive-flow diagnostics', () => {
+    const stockProgram = normalizeKisProgramFlow({
+      symbol: '5930',
+      endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      raw: {
+        output: [{
+          stck_bsop_date: '20260519',
+          whol_smtn_ntby_tr_pbmn: '420000000',
+          whol_smtn_ntby_qty: '12000',
+        }],
+      },
+    });
+    const normal = evaluateGate2({ kospi20dReturn: 5 });
+    const result = evaluateGate2({ kospi20dReturn: 5, programTrade: { stockProgram } });
+    const program = result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade;
+
+    expect(pickCoreDecisionFields(result)).toEqual(pickCoreDecisionFields(normal));
+    expect(stockProgram).toMatchObject({
+      symbol: '005930',
+      scope: 'STOCK',
+      programNetBuyAmount: 420_000_000,
+      providerStatus: 'OK_WITH_DATA',
+      dataConfidence: 'VERIFIED',
+      marketSignal: false,
+    });
+    expect(program?.stockProgram).toMatchObject({
+      available: true,
+      endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      endpoint: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+      trId: 'FHPPG04650201',
+      status: 'VERIFIED',
+      scope: 'STOCK',
+      fields: { programNetBuyAmount: true, programNetBuyVolume: true },
+      values: { programNetBuyAmount: 420_000_000, programNetBuyVolume: 12_000 },
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(program).toMatchObject({
+      required: false,
+      available: true,
+      provider: 'KIS_OFFICIAL',
+      scopeSeparationValid: true,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
+    expect(program?.notes).toContain('STOCK_PROGRAM_TRADE_AVAILABLE_FOR_SYMBOL');
+  });
+
+  it('keeps market-level program trade as context-only when stock program is not fetched', () => {
+    const marketProgram = normalizeKisProgramFlow({
+      endpointKey: 'COMP_PROGRAM_TRADE_TODAY',
+      raw: {
+        output: [{
+          whol_smtn_ntby_tr_pbmn: '1000000000',
+          arbt_smtn_ntby_tr_pbmn: '400000000',
+          nabt_smtn_ntby_tr_pbmn: '600000000',
+        }],
+      },
+    });
+    const result = evaluateGate2({
+      kospi20dReturn: 5,
+      evaluationStage: 'DISCOVERY_GATE',
+      programTrade: { marketProgram, stockProgram: null },
+    });
+    const program = result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade;
+
+    expect(program?.marketProgram).toMatchObject({
+      available: true,
+      status: 'VERIFIED',
+      scope: 'MARKET',
+      fields: {
+        programNetBuyAmount: true,
+        arbitrageNetBuyAmount: true,
+        nonArbitrageNetBuyAmount: true,
+      },
+      values: {
+        programNetBuyAmount: 1_000_000_000,
+        arbitrageNetBuyAmount: 400_000_000,
+        nonArbitrageNetBuyAmount: 600_000_000,
+      },
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(program?.stockProgram).toMatchObject({
+      available: false,
+      status: 'STAGE_NOT_FETCHED',
+      stageNotFetched: true,
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(program?.scopeSeparationValid).toBe(true);
+    expect(program?.notes).toContain('MARKET_PROGRAM_TRADE_IS_CONTEXT_ONLY_NOT_STOCK_SIGNAL');
+    expect(program?.notes).toContain('MARKET_PROGRAM_ONLY_STOCK_PROGRAM_NOT_FETCHED');
+  });
+
+  it('treats KIS program OK_EMPTY as empty valid rather than bearish flow', () => {
+    const stockProgram = normalizeKisProgramFlow({
+      symbol: '005930',
+      endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      raw: { rt_cd: '0', output: [] },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, programTrade: { stockProgram } });
+    const program = result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade;
+
+    expect(stockProgram.providerStatus).toBe('OK_EMPTY');
+    expect(program?.stockProgram).toMatchObject({
+      status: 'EMPTY_VALID',
+      available: false,
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(program?.notes).toContain('PROGRAM_TRADE_EMPTY_VALID_NOT_BEARISH');
+  });
+
+  it('detects program flow scope mismatch without changing Gate2 scores', () => {
+    const marketProgram = normalizeKisProgramFlow({
+      endpointKey: 'COMP_PROGRAM_TRADE_TODAY',
+      raw: { output: [{ whol_smtn_ntby_tr_pbmn: '1000000000' }] },
+    });
+    const normal = evaluateGate2({ kospi20dReturn: 5 });
+    const result = evaluateGate2({
+      kospi20dReturn: 5,
+      programTrade: { stockProgram: marketProgram },
+    });
+    const program = result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade;
+
+    expect(pickCoreDecisionFields(result)).toEqual(pickCoreDecisionFields(normal));
+    expect(program?.scopeSeparationValid).toBe(false);
+    expect(program?.stockProgram).toMatchObject({
+      status: 'DEGRADED',
+      available: false,
+      providerIssue: true,
+      marketSignal: false,
+    });
+    expect(program?.notes).toContain('SCOPE_MISMATCH_MARKET_DATA_USED_AS_STOCK_FLOW');
+  });
+
+  it('keeps KIS program provider degradation separate from marketSignal', () => {
+    const stockProgram = normalizeKisProgramFlow({
+      symbol: '005930',
+      endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      raw: { httpStatus: 500 },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, programTrade: { stockProgram } });
+    const program = result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade;
+
+    expect(stockProgram.providerStatus).toBe('HTTP_ERROR');
+    expect(program?.stockProgram).toMatchObject({
+      status: 'DEGRADED',
+      providerIssue: true,
+      marketSignal: false,
+    });
+    expect(program?.marketSignal).toBe(false);
+  });
+
+  it('keeps program trade stage-not-fetched separate from provider degradation', () => {
+    const result = evaluateGate2({ kospi20dReturn: 5, evaluationStage: 'DISCOVERY_GATE', programTrade: null });
+    const program = result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade;
+
+    expect(program?.marketProgram).toMatchObject({
+      status: 'STAGE_NOT_FETCHED',
+      stageNotFetched: true,
+      providerIssue: false,
+      marketSignal: false,
+    });
+    expect(program?.stockProgram).toMatchObject({
+      status: 'STAGE_NOT_FETCHED',
+      stageNotFetched: true,
+      providerIssue: false,
+      marketSignal: false,
+    });
+  });
+
   it('normalizes Gate2 sector/theme/leader-cycle diagnostics without changing scores', () => {
     const quote = gate2Quote({ symbol: '035720', return20d: 0.182, return60d: 0.41 } as QuotePatch);
     const normal = evaluateGate2({ quote, kospi20dReturn: 0.031, kosdaq20dReturn: 0.047, market: 'KOSDAQ' });
@@ -926,6 +1130,29 @@ describe('Gate2 wiring diagnostics', () => {
     }]);
   });
 
+  it('reports KIS official program trade drift without auto-replacing runtime endpoint', () => {
+    const stockProgram = normalizeKisProgramFlow({
+      symbol: '005930',
+      endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      actualPath: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+      actualTrId: 'FHPPG04650000',
+      raw: {
+        output: [{ whol_smtn_ntby_tr_pbmn: '420000000' }],
+      },
+    });
+    const result = evaluateGate2({ kospi20dReturn: 5, programTrade: { stockProgram } });
+
+    expect(result.gateLayerSummary?.gate2.externalDataCoverage?.programTrade.stockProgram.driftDiagnostics).toEqual([{
+      type: 'KIS_OFFICIAL_DRIFT_DETECTED',
+      api: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+      expectedPath: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+      actualPath: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
+      expectedTrId: 'FHPPG04650201',
+      actualTrId: 'FHPPG04650000',
+      action: 'DO_NOT_AUTO_REPLACE_REQUIRE_REVIEW',
+    }]);
+  });
+
   it('formats Gate2 scan diagnostics without changing execution policy', () => {
     const result = evaluateGate2({ kospi20dReturn: 5, kisFlow: null });
     const text = formatGate2CompactDiagnostic({
@@ -989,6 +1216,25 @@ describe('Gate2 wiring diagnostics', () => {
     expect(text).toContain('market=KOSDAQ');
     expect(text).toContain('benchmark=KOSDAQ');
     expect(text).toContain('RS=+13.50%');
+    expect(text).toContain('marketSignal=false');
+  });
+
+  it('formats Gate2 program trade compact diagnostic', () => {
+    const result = evaluateGate2({
+      kospi20dReturn: 5,
+      programTrade: {
+        stockProgram: normalizeKisProgramFlow({
+          symbol: '005930',
+          endpointKey: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+          raw: { output: [{ whol_smtn_ntby_tr_pbmn: '420000000' }] },
+        }),
+      },
+    });
+    const text = formatGate2ProgramTradeCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
+
+    expect(text).toContain('Gate2 Program: VERIFIED');
+    expect(text).toContain('stockProgram=+420000000');
+    expect(text).toContain('scope=OK');
     expect(text).toContain('marketSignal=false');
   });
 

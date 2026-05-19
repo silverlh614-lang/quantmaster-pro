@@ -140,7 +140,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'program',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily',
-    requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
+    trId: 'FHPPG04650201',
+    requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD', 'FID_INPUT_DATE_1'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DAILY',
     defaultUseScope: 'ADVISORY',
@@ -153,6 +154,7 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'market_program',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
+    trId: 'FHPPG04600101',
     requiredParams: ['FID_COND_MRKT_DIV_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_INTRADAY',
@@ -524,6 +526,35 @@ export const KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT = {
 export const KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS = {
   INQUIRE_INVESTOR: KIS_OFFICIAL_INQUIRE_INVESTOR_ENDPOINT,
   INVESTOR_TRADE_BY_STOCK_DAILY: KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT,
+} as const;
+
+export const KIS_OFFICIAL_COMP_PROGRAM_TRADE_TODAY_ENDPOINT = {
+  key: 'COMP_PROGRAM_TRADE_TODAY',
+  name: 'market program trade aggregate today',
+  path: KIS_OFFICIAL_ENDPOINTS.compProgramTradeToday.path,
+  trId: KIS_OFFICIAL_ENDPOINTS.compProgramTradeToday.trId ?? 'FHPPG04600101',
+  method: KIS_OFFICIAL_ENDPOINTS.compProgramTradeToday.method,
+  requiredParams: [...KIS_OFFICIAL_ENDPOINTS.compProgramTradeToday.requiredParams],
+  dataDomain: 'MARKET_PROGRAM_TRADE',
+  scope: 'MARKET',
+  source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+} as const;
+
+export const KIS_OFFICIAL_PROGRAM_TRADE_BY_STOCK_DAILY_ENDPOINT = {
+  key: 'PROGRAM_TRADE_BY_STOCK_DAILY',
+  name: 'program trade by stock daily',
+  path: KIS_OFFICIAL_ENDPOINTS.programTradeByStockDaily.path,
+  trId: KIS_OFFICIAL_ENDPOINTS.programTradeByStockDaily.trId ?? 'FHPPG04650201',
+  method: KIS_OFFICIAL_ENDPOINTS.programTradeByStockDaily.method,
+  requiredParams: [...KIS_OFFICIAL_ENDPOINTS.programTradeByStockDaily.requiredParams],
+  dataDomain: 'STOCK_PROGRAM_TRADE',
+  scope: 'STOCK',
+  source: 'KIS_OFFICIAL_OPEN_TRADING_API',
+} as const;
+
+export const KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS = {
+  COMP_PROGRAM_TRADE_TODAY: KIS_OFFICIAL_COMP_PROGRAM_TRADE_TODAY_ENDPOINT,
+  PROGRAM_TRADE_BY_STOCK_DAILY: KIS_OFFICIAL_PROGRAM_TRADE_BY_STOCK_DAILY_ENDPOINT,
 } as const;
 
 function buildKisOfficialEndpointsByPath(): Record<string, KisOfficialEndpointSpec> {
