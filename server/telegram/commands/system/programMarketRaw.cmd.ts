@@ -85,12 +85,38 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
 
   const macro = loadMacroState();
   const pm = macro?.programMarket;
+
+  const aggregate = (pm as any)?.aggregateDiagnostic;
+  const kospiResp = aggregate?.kospiResponse;
+  const kosdaqResp = aggregate?.kosdaqResponse;
+  if (kospiResp) {
+    lines.push('');
+    lines.push('KIS KOSPI Response:');
+    for (const k of ['requested','marketClassCode','httpStatus','responseCode','msgCd','msg1','outputLength','outputKeys','firstRowSample','firstRowBsopHour','lastRowBsopHour','selectedBsopHour','selectedRawWholeNetBuy','zeroReason']) {
+      lines.push(`- ${k}: ${typeof kospiResp[k] === 'object' ? JSON.stringify(kospiResp[k]) : (kospiResp[k] ?? 'N/A')}`);
+    }
+  }
+  if (kosdaqResp) {
+    lines.push('');
+    lines.push('KIS KOSDAQ Response:');
+    for (const k of ['requested','marketClassCode','httpStatus','responseCode','msgCd','msg1','outputLength','outputKeys','firstRowSample','firstRowBsopHour','lastRowBsopHour','selectedBsopHour','selectedRawWholeNetBuy','zeroReason']) {
+      lines.push(`- ${k}: ${typeof kosdaqResp[k] === 'object' ? JSON.stringify(kosdaqResp[k]) : (kosdaqResp[k] ?? 'N/A')}`);
+    }
+  }
+
   if (pm?.rowBreakdown) {
     lines.push('');
     lines.push('rowBreakdown:');
-    for (const [name, row] of Object.entries(pm.rowBreakdown)) {
-      lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
-      lines.push(`  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`);
+    if (pm.splitAvailable) {
+      for (const [name, row] of Object.entries(pm.rowBreakdown)) {
+        lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
+        lines.push(`  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`);
+      }
+    } else {
+      lines.push(`KOSPI: N/A (split unavailable)`);
+      lines.push(`KOSDAQ: N/A (split unavailable)`);
+      const c = pm.rowBreakdown.combined;
+      lines.push(`COMBINED: outputLength=${c.outputLength} nonZeroRows=${c.nonZeroRows} selectedBsopHour=${c.selectedBsopHour} rawWholeNetBuy=${c.rawWholeNetBuy}`);
     }
   }
   if (pm?.unit.rawUnitAssumption === 'UNVERIFIED' && pm.unitCandidates) {
