@@ -94,7 +94,7 @@ export interface CounterfactualEntry {
   atr?: number;
   volatility?: number;
   maturityAt?: string;
-  maturityStatus?: 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
+  maturityStatus?: 'MATURED' | 'WAITING_FOR_HOLDING_PERIOD' | 'OVERDUE_RESOLUTION' | 'INVALID_CREATED_AT' | 'INVALID_MAX_HOLDING';
   currentAgeMinutes?: number;
   remainingMinutesToMaturity?: number;
   pricePath?: Array<{ at?: string; timestamp?: string; price?: number; high?: number; low?: number; close?: number }>;
