@@ -134,8 +134,9 @@ interface ShadowDedupSourceCounts {
 }
 
 interface StaleDedupLockContext {
-  lockAgeSec: number;
+  lockAgeSec: number | null;
   lockCreatedAt: string;
+  invalidTimestamp: boolean;
   lockKey: string;
   symbol: string;
   strategy: string;
@@ -253,7 +254,10 @@ function resolvePolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowP
   const status = macro?.r6RecoveryStatus;
   if (status === 'R6_CONFIRMATION_WAIT') return 'R6_CONFIRMATION_WAIT';
   if (status === 'R6_RECOVERY_WATCH') return 'R6_RECOVERY_WATCH';
-  if (macro?.regime === 'R6_DEFENSE' || macro?.bearDefenseMode === true) return 'R6_DEFENSE';
+  const rawRegime = (macro?.regime ?? '').toString();
+  const normalizedRawRegime = rawRegime && rawRegime !== 'NONE' && rawRegime !== 'UNKNOWN' ? rawRegime : '';
+  if (normalizedRawRegime === 'R6_DEFENSE') return 'R6_DEFENSE';
+  if (macro?.bearDefenseMode === true) return 'R6_DEFENSE';
   if (input.preview.reason?.includes('R6_CONFIRMATION_WAIT')) return 'R6_CONFIRMATION_WAIT';
   if (input.preview.reason?.includes('R6_RECOVERY_WATCH')) return 'R6_RECOVERY_WATCH';
   if (input.preview.reason?.includes('R6_DEFENSE')) return 'R6_DEFENSE';
@@ -305,15 +309,21 @@ function hasDuplicateEntry(params: {
       meta?.tradingDate === params.tradingDate &&
       meta?.regime === params.regime
     ) {
-      const lockCreatedAt = trade.updatedAt ?? trade.createdAt ?? new Date(0).toISOString();
-      const lockAgeSec = Math.max(0, Math.floor((params.now.getTime() - new Date(lockCreatedAt).getTime()) / 1000));
+      const createdAtIso = readString(trade.r6Counterfactual, ['createdAtIso']) ?? trade.updatedAt ?? trade.createdAt ?? '';
+      const createdAtMs = readNumber(trade.r6Counterfactual, ['createdAtMs']);
+      const parsedMs = Number.isFinite(Date.parse(createdAtIso)) ? Date.parse(createdAtIso) : null;
+      const invalidTimestamp = !createdAtIso || createdAtIso.startsWith('1970-01-01') || (createdAtMs !== null && createdAtMs <= 0) || (createdAtMs === null && parsedMs === null);
+      const lockAgeSec = invalidTimestamp
+        ? null
+        : Math.max(0, Math.floor((params.now.getTime() - ((createdAtMs && createdAtMs > 0) ? createdAtMs : (parsedMs ?? params.now.getTime()))) / 1000));
       const sourceCounts = countShadowDedupSources(params.trades);
       const configuredTtlSec = getConfiguredDedupTtlSec();
       return {
         reason: 'STALE_DEDUP_LOCK',
         staleLock: {
           lockAgeSec,
-          lockCreatedAt,
+          lockCreatedAt: createdAtIso || '1970-01-01T00:00:00.000Z',
+          invalidTimestamp,
           lockKey: `${params.entryType}:${params.symbol}:${params.tradingDate}:${params.regime}`,
           symbol: params.symbol,
           strategy: params.entryType,
@@ -587,6 +597,8 @@ function buildShadowTrade(input: {
       sizingSource: 'LIVE_SIZING_MIRROR',
       liveSizingEngineBudget: input.sizingDecision.liveSizingEngineBudget,
       finalShadowBudget: positionAmount,
+      createdAtMs: Date.now(),
+      createdAtIso: input.nowIso,
       regimeMaxSymbols: input.sizingDecision.policy.maxSymbols,
       regimeMaxPositionPct: input.sizingDecision.policy.maxPositionPct,
       regimeTotalExposureCap: input.sizingDecision.policy.totalExposureCap,
@@ -655,6 +667,12 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
 ): R6ShadowEntryPolicySummary {
   const regime = resolvePolicyRegime(input);
   const base = summaryBase(input, regime);
+  if (base.regime === 'NONE' && (input.macroGateState?.r6RecoveryStatus || input.macroGateState?.bearDefenseMode)) {
+    console.warn(
+      `[P1_REGIME_CONTEXT_MISSING_FOR_SHADOW_POLICY] inputRegime=NONE fallbackEffectiveRegime=${input.macroGateState?.r6RecoveryStatus ?? 'UNKNOWN'} ` +
+      `fallbackDisplayRegime=${input.macroGateState?.regime ?? 'UNKNOWN'} riskOverride=${input.macroGateState?.regime ?? 'N/A'} correctionApplied=true executionImpact=NONE`,
+    );
+  }
   console.info(
     `[R6_SHADOW_ENTRY_POLICY_RESOLVED] regime=${base.regime} ` +
       `liveNewBuyAllowed=false shadowScanAllowed=${base.shadowScanAllowed} ` +
@@ -793,20 +811,20 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
         const stale = duplicateReason.staleLock;
         const c = stale.sourceCounts;
         console.info(
-          `[SHADOW_DEDUP_LOCK_CHECK] lockAgeSec=${stale.lockAgeSec} lockCreatedAt=${stale.lockCreatedAt} ` +
+          `[SHADOW_DEDUP_LOCK_CHECK] lockAgeSec=${stale.lockAgeSec ?? 'null'} invalidTimestamp=${stale.invalidTimestamp} lockCreatedAt=${stale.lockCreatedAt} ` +
           `lockKey=${stale.lockKey} symbol=${stale.symbol} strategy=${stale.strategy} side=${stale.side} session=${stale.session} ` +
           `openShadowPositions=${c.openShadowPositions} pendingShadowOrders=${c.pendingShadowOrders} ` +
           `paperOpenCount=${c.paperOpenCount} virtualHoldingCount=${c.virtualHoldingCount} configuredTtlSec=${stale.configuredTtlSec} executionImpact=NONE`,
         );
         const shouldClear = c.openShadowPositions === 0 && c.pendingShadowOrders === 0 && c.paperOpenCount === 0
-          && c.virtualHoldingCount === 0 && stale.lockAgeSec > stale.configuredTtlSec;
+          && c.virtualHoldingCount === 0 && (stale.invalidTimestamp || ((stale.lockAgeSec ?? 0) > stale.configuredTtlSec));
         if (shouldClear) {
           const target = trades.find((trade) => trade.stockCode === symbol && trade.entryType === 'R6_COUNTERFACTUAL_BUY' && trade.r6Counterfactual?.tradingDate === tradingDate && trade.r6Counterfactual?.regime === regime);
           if (target) {
             target.entryType = 'SHADOW_BUY_SIGNAL';
             delete target.r6Counterfactual;
             console.info(
-              `[SHADOW_DEDUP_STALE_LOCK_CLEARED] symbol=${symbol} lockKey=${stale.lockKey} lockAgeSec=${stale.lockAgeSec} configuredTtlSec=${stale.configuredTtlSec} executionImpact=NONE`,
+              `[SHADOW_DEDUP_INVALID_TIMESTAMP_LOCK_CLEARED] symbol=${symbol} lockKey=${stale.lockKey} createdAtIso=${stale.lockCreatedAt} reason=INVALID_TIMESTAMP_AND_NO_OPEN_OR_PENDING_POSITION executionImpact=NONE`,
             );
             staleDedupBlocked = Math.max(0, staleDedupBlocked - 1);
             continue;

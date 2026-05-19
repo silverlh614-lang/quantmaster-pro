@@ -247,7 +247,7 @@ function logMacroRefreshSkipped(reason: string): void {
   emitOperationalWarn({
     priority: 'P1',
     domain: 'DATA',
-    code: 'P1_MACRO_STATE_STALE',
+    code: 'P1_REGIME_DATA_HEALTH_STALE',
     message: '[MACRO_REFRESH_SKIPPED] macro refresh skipped',
     executionImpact: 'NONE',
     mode: ctx.sellOnly ? 'SELL_ONLY' : 'DEGRADED',
@@ -269,10 +269,14 @@ function emitMacroDataHealthSummary(updated: unknown): void {
   const sourceHealth = summarizeMacroDataHealth(dataHealth);
   const issues = listMacroDataHealthIssues(dataHealth);
   if (issues.length === 0) return;
+  const staleOnlyShortSelling = issues.length > 0 && issues.every((issue) => issue === 'shortSelling:STALE');
+  const hasMacroStateStale = issues.some((issue) => issue.startsWith('macroState:STALE') || issue.startsWith('macroState:HARD_STALE'));
   emitOperationalWarn({
     priority: 'P1',
     domain: 'DATA',
-    code: sourceHealth === 'STALE' ? 'P1_MACRO_STATE_STALE' : 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    code: sourceHealth === 'STALE'
+      ? (hasMacroStateStale ? 'P1_MACRO_STATE_STALE' : (staleOnlyShortSelling ? 'P1_SHORT_SELLING_DATA_STALE' : 'P1_REGIME_DATA_HEALTH_STALE'))
+      : 'P1_MACRO_DATA_HEALTH_DEGRADED',
     message: `[MACRO_DATA_HEALTH] sourceHealth=${sourceHealth}`,
     executionImpact: 'NONE',
     mode: 'DEGRADED',
