@@ -732,6 +732,7 @@ function buildGateLayerSummary(
       sourceCoverage: summary.gate2.sourceCoverage as Gate2SourceCoverage,
       externalDataCoverage: summary.gate2.externalDataCoverage,
     },
+    evaluationStage: gate2ExternalCoverageInput?.evaluationStage,
   });
 
   for (const layer of [summary.gate1, summary.gate2, summary.gate3]) {
