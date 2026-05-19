@@ -16,6 +16,10 @@ import {
   type BenchmarkMarket,
   type QmpBenchmarkReturn,
 } from '../clients/benchmarkReturnNormalizer.js';
+import {
+  normalizeSectorThemeCycleForGate2,
+  type QmpSectorThemeCycle,
+} from '../clients/sectorThemeLeaderCycleNormalizer.js';
 import { KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS } from '../clients/kisClient/kisOfficialEndpointRegistry.js';
 import { normalizeKisInvestorFlow, type QmpInvestorFlow } from '../clients/kisClient/kisOfficialInvestorFlowMapper.js';
 import {
@@ -23,6 +27,8 @@ import {
   formatGate2CompactDiagnostic,
   formatGate2DartFinancialsCompactDiagnostic,
   formatGate2KisInvestorFlowCompactDiagnostic,
+  formatGate2LeaderCycleCompactDiagnostic,
+  formatGate2SectorCycleCompactDiagnostic,
   type Gate2EvaluationStage,
 } from './gate2Diagnostics.js';
 
@@ -101,6 +107,9 @@ function evaluateGate2(input: {
   kosdaq20dReturn?: number | null;
   market?: BenchmarkMarket | string | null;
   benchmarkReturn?: QmpBenchmarkReturn | null;
+  sectorThemeCycle?: QmpSectorThemeCycle | Record<string, unknown> | null;
+  sectorEnergyResult?: unknown;
+  stockMaster?: unknown;
   evaluationStage?: Gate2EvaluationStage | null;
 } = {}): ServerGateResult {
   return evaluateServerGate(
@@ -115,6 +124,9 @@ function evaluateGate2(input: {
       kosdaq20dReturn: input.kosdaq20dReturn,
       market: input.market,
       benchmarkReturn: input.benchmarkReturn,
+      sectorThemeCycle: input.sectorThemeCycle,
+      sectorEnergyResult: input.sectorEnergyResult,
+      stockMaster: input.stockMaster,
     },
   );
 }
@@ -636,6 +648,115 @@ describe('Gate2 wiring diagnostics', () => {
     expect(normalized.marketSignal).toBe(false);
   });
 
+  it('normalizes Gate2 sector/theme/leader-cycle diagnostics without changing scores', () => {
+    const quote = gate2Quote({ symbol: '035720', return20d: 0.182, return60d: 0.41 } as QuotePatch);
+    const normal = evaluateGate2({ quote, kospi20dReturn: 0.031, kosdaq20dReturn: 0.047, market: 'KOSDAQ' });
+    const result = evaluateGate2({
+      quote,
+      kospi20dReturn: 0.031,
+      kosdaq20dReturn: 0.047,
+      market: 'KOSDAQ',
+      sectorThemeCycle: {
+        sector: 'Internet Platform',
+        industry: 'Software',
+        themeTags: ['AI', 'Platform'],
+        sectorReturn20d: 0.11,
+        sectorReturn60d: 0.28,
+        benchmarkReturn60d: 0.08,
+        isCurrentLeadingSector: true,
+        isPreviousCycleLeader: false,
+        newsFrequency30d: 7,
+        source: 'KRX_SECTOR_INDEX',
+      },
+    });
+    const external = result.gateLayerSummary?.gate2.externalDataCoverage;
+
+    expect(pickCoreDecisionFields(result)).toEqual(pickCoreDecisionFields(normal));
+    expect(external?.sectorCycle).toMatchObject({
+      required: false,
+      available: true,
+      provider: 'KRX_SECTOR_INDEX',
+      status: 'VERIFIED',
+      sector: 'Internet Platform',
+      industry: 'Software',
+      themeTags: ['AI', 'Platform'],
+      market: 'KOSDAQ',
+      fields: {
+        sector: true,
+        themeTags: true,
+        sectorReturn20d: true,
+        benchmarkReturn20d: true,
+        sectorRelativeReturn20d: true,
+        stockVsSectorReturn20d: true,
+      },
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      diagnosticOnly: true,
+    });
+    expect(external?.sectorCycle.values.sectorRelativeReturn20d).toBeCloseTo(0.063, 6);
+    expect(external?.sectorCycle.values.stockVsSectorReturn20d).toBeCloseTo(0.072, 6);
+    expect(external?.leaderCycle).toMatchObject({
+      required: false,
+      available: true,
+      status: 'VERIFIED',
+      leaderCyclePhase: 'MID_LEADER',
+      isCurrentLeadingSector: true,
+      isSectorLeader: true,
+      isNewLeaderCandidate: true,
+      attentionPhase: 'GROWING',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      diagnosticOnly: true,
+    });
+  });
+
+  it('keeps missing sector/theme data as coverage issue rather than bearish signal', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '005930', return20d: 0.12 } as QuotePatch),
+      kospi20dReturn: 0.03,
+      market: 'KOSPI',
+      sectorThemeCycle: null,
+    });
+    const external = result.gateLayerSummary?.gate2.externalDataCoverage;
+
+    expect(external?.sectorCycle).toMatchObject({
+      status: 'MISSING',
+      available: false,
+      providerIssue: true,
+      marketSignal: false,
+    });
+    expect(external?.sectorCycle.missingFields).toContain('sector');
+    expect(external?.leaderCycle).toMatchObject({
+      status: 'MISSING',
+      leaderCyclePhase: 'UNKNOWN',
+      providerIssue: true,
+      marketSignal: false,
+    });
+  });
+
+  it('classifies crowded leader-cycle diagnostics without using news frequency as a score signal', () => {
+    const normalized = normalizeSectorThemeCycleForGate2({
+      symbol: '005930',
+      market: 'KOSPI',
+      quote: gate2Quote({ symbol: '005930', return20d: 0.18 } as QuotePatch),
+      sectorThemeCycle: {
+        sector: 'Semiconductor',
+        sectorReturn20d: 0.1,
+        benchmarkReturn20d: 0.03,
+        isCurrentLeadingSector: true,
+        isSectorLeader: true,
+        newsFrequency30d: 35,
+      },
+    });
+
+    expect(normalized.attentionPhase).toBe('OVERHYPED');
+    expect(normalized.leaderCyclePhase).toBe('LATE_CROWDED');
+    expect(normalized.marketSignal).toBe(false);
+    expect(normalized.executionImpact).toBe('DIAGNOSTIC_ONLY');
+  });
+
   it('reports quote PER missing in Gate2 wiring without throwing', () => {
     const quote = gate2Quote() as QuotePatch;
     delete quote.per;
@@ -869,5 +990,32 @@ describe('Gate2 wiring diagnostics', () => {
     expect(text).toContain('benchmark=KOSDAQ');
     expect(text).toContain('RS=+13.50%');
     expect(text).toContain('marketSignal=false');
+  });
+
+  it('formats Gate2 sector and leader-cycle compact diagnostics', () => {
+    const result = evaluateGate2({
+      quote: gate2Quote({ symbol: '035720', return20d: 0.18 } as QuotePatch),
+      kospi20dReturn: 0.03,
+      kosdaq20dReturn: 0.05,
+      market: 'KOSDAQ',
+      sectorThemeCycle: {
+        sector: 'Internet Platform',
+        themeTags: ['AI'],
+        sectorReturn20d: 0.1,
+        isCurrentLeadingSector: true,
+        isSectorLeader: true,
+        newsCrowdingScore: 0.5,
+      },
+    });
+    const sectorText = formatGate2SectorCycleCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
+    const leaderText = formatGate2LeaderCycleCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
+
+    expect(sectorText).toContain('Gate2 Sector Cycle: VERIFIED');
+    expect(sectorText).toContain('sector=Internet Platform');
+    expect(sectorText).toContain('marketSignal=false');
+    expect(leaderText).toContain('Gate2 Leader Cycle: VERIFIED');
+    expect(leaderText).toContain('phase=MID_LEADER');
+    expect(leaderText).toContain('attention=GROWING');
+    expect(leaderText).toContain('marketSignal=false');
   });
 });

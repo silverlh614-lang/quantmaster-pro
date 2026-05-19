@@ -9,6 +9,8 @@ import {
   formatGate2BenchmarkCompactDiagnostic,
   formatGate2DartFinancialsCompactDiagnostic,
   formatGate2KisInvestorFlowCompactDiagnostic,
+  formatGate2LeaderCycleCompactDiagnostic,
+  formatGate2SectorCycleCompactDiagnostic,
 } from '../../../quant/gate2Diagnostics.js';
 
 export interface GateLayerAuditSummary {
@@ -46,11 +48,15 @@ export interface Gate2CoverageAuditSummary {
   kisStatus: Record<string, number>;
   dartStatus: Record<string, number>;
   benchmarkStatus: Record<string, number>;
+  sectorCycleStatus: Record<string, number>;
+  leaderCyclePhase: Record<string, number>;
   primaryIssue: Record<string, number>;
   compactText: Record<string, number>;
   kisFlowCompactText: Record<string, number>;
   dartCompactText: Record<string, number>;
   benchmarkCompactText: Record<string, number>;
+  sectorCycleCompactText: Record<string, number>;
+  leaderCycleCompactText: Record<string, number>;
   providerIssueCount: number;
 }
 
@@ -97,11 +103,15 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       kisStatus: {},
       dartStatus: {},
       benchmarkStatus: {},
+      sectorCycleStatus: {},
+      leaderCyclePhase: {},
       primaryIssue: {},
       compactText: {},
       kisFlowCompactText: {},
       dartCompactText: {},
       benchmarkCompactText: {},
+      sectorCycleCompactText: {},
+      leaderCycleCompactText: {},
       providerIssueCount: 0,
     },
   };
@@ -159,6 +169,8 @@ export function accumulateGateLayerSummary(
     incrementCount(counters.gateLayerAudit.gate2Coverage.kisStatus, gate2External.kisInvestorFlow.status);
     incrementCount(counters.gateLayerAudit.gate2Coverage.dartStatus, gate2External.dartFinancials.status);
     incrementCount(counters.gateLayerAudit.gate2Coverage.benchmarkStatus, gate2External.benchmark.status);
+    incrementCount(counters.gateLayerAudit.gate2Coverage.sectorCycleStatus, gate2External.sectorCycle.status);
+    incrementCount(counters.gateLayerAudit.gate2Coverage.leaderCyclePhase, gate2External.leaderCycle.leaderCyclePhase);
     incrementCount(counters.gateLayerAudit.gate2Coverage.primaryIssue, gate2Source.providerIssues[0] ?? gate2Source.missingExternalData[0] ?? 'none');
     const compact = formatGate2CompactDiagnostic({ sourceCoverage: gate2Source, externalDataCoverage: gate2External });
     if (compact) incrementCount(counters.gateLayerAudit.gate2Coverage.compactText, compact);
@@ -168,10 +180,16 @@ export function accumulateGateLayerSummary(
     if (dartCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.dartCompactText, dartCompact);
     const benchmarkCompact = formatGate2BenchmarkCompactDiagnostic(gate2External);
     if (benchmarkCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.benchmarkCompactText, benchmarkCompact);
+    const sectorCycleCompact = formatGate2SectorCycleCompactDiagnostic(gate2External);
+    if (sectorCycleCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.sectorCycleCompactText, sectorCycleCompact);
+    const leaderCycleCompact = formatGate2LeaderCycleCompactDiagnostic(gate2External);
+    if (leaderCycleCompact) incrementCount(counters.gateLayerAudit.gate2Coverage.leaderCycleCompactText, leaderCycleCompact);
     if (
       gate2External.kisInvestorFlow.providerIssue
       || gate2External.dartFinancials.providerIssue
       || gate2External.benchmark.providerIssue
+      || gate2External.sectorCycle.providerIssue
+      || gate2External.leaderCycle.providerIssue
     ) {
       counters.gateLayerAudit.gate2Coverage.providerIssueCount += 1;
     }
@@ -235,12 +253,16 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  KIS: ${topKey(summary.kisStatus)}`,
     `  DART: ${topKey(summary.dartStatus)}`,
     `  Benchmark: ${topKey(summary.benchmarkStatus)}`,
+    `  SectorCycle: ${topKey(summary.sectorCycleStatus)}`,
+    `  LeaderCycle: ${topKey(summary.leaderCyclePhase)}`,
     `  primaryIssue: ${topKey(summary.primaryIssue)}`,
     `  providerIssueCount: ${summary.providerIssueCount}`,
     `  compactText: ${topLabel(summary.compactText)}`,
     `  kisFlow: ${topLabel(summary.kisFlowCompactText)}`,
     `  dart: ${topLabel(summary.dartCompactText)}`,
     `  benchmark: ${topLabel(summary.benchmarkCompactText)}`,
+    `  sectorCycle: ${topLabel(summary.sectorCycleCompactText)}`,
+    `  leaderCycle: ${topLabel(summary.leaderCycleCompactText)}`,
     '  marketSignal: false; diagnosticOnly: true',
   ].join('\n');
 }

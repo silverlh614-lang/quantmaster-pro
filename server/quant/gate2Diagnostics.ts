@@ -30,6 +30,17 @@ import {
   type BenchmarkReturnSource,
   type QmpBenchmarkReturn,
 } from '../clients/benchmarkReturnNormalizer.js';
+import {
+  normalizeSectorThemeCycleForGate2,
+  type AttentionPhase,
+  type LeaderCyclePhase,
+  type QmpSectorThemeCycle,
+  type SectorCycleMarket,
+  type SectorThemeCycleConfidence,
+  type SectorThemeCycleProviderStatus,
+  type SectorThemeCycleRawFieldCoverage,
+  type SectorThemeCycleSource,
+} from '../clients/sectorThemeLeaderCycleNormalizer.js';
 
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
 
@@ -87,6 +98,7 @@ export interface Gate2SourceCoverage {
 
 export type Gate2ExternalProviderStatus =
   | 'VERIFIED'
+  | 'PARTIAL'
   | 'DEGRADED'
   | 'MISSING'
   | 'EMPTY_VALID'
@@ -183,6 +195,75 @@ export interface Gate2ExternalDataCoverage {
     executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
     notes: string[];
   };
+  sectorCycle: {
+    required: boolean;
+    available: boolean;
+    provider: SectorThemeCycleSource;
+    providerStatus: SectorThemeCycleProviderStatus | null;
+    dataConfidence: SectorThemeCycleConfidence | null;
+    status: Gate2ExternalProviderStatus;
+    symbol: string;
+    sector: string | null;
+    industry: string | null;
+    themeTags: string[];
+    market: SectorCycleMarket;
+    fields: {
+      sector: boolean;
+      industry: boolean;
+      themeTags: boolean;
+      sectorReturn20d: boolean;
+      sectorReturn60d: boolean;
+      benchmarkReturn20d: boolean;
+      benchmarkReturn60d: boolean;
+      sectorRelativeReturn20d: boolean;
+      sectorRelativeReturn60d: boolean;
+      stockReturn20d: boolean;
+      stockReturn60d: boolean;
+      stockVsSectorReturn20d: boolean;
+      stockVsSectorReturn60d: boolean;
+    };
+    values: {
+      sectorReturn20d: number | null;
+      sectorReturn60d: number | null;
+      benchmarkReturn20d: number | null;
+      benchmarkReturn60d: number | null;
+      sectorRelativeReturn20d: number | null;
+      sectorRelativeReturn60d: number | null;
+      stockReturn20d: number | null;
+      stockReturn60d: number | null;
+      stockVsSectorReturn20d: number | null;
+      stockVsSectorReturn60d: number | null;
+      sectorRank20d: number | null;
+      sectorRank60d: number | null;
+      sectorPercentile20d: number | null;
+      sectorPercentile60d: number | null;
+    };
+    missingFields: string[];
+    rawFieldCoverage: SectorThemeCycleRawFieldCoverage;
+    providerIssue: boolean;
+    marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    diagnosticOnly: true;
+    notes: string[];
+  };
+  leaderCycle: {
+    required: boolean;
+    available: boolean;
+    status: Gate2ExternalProviderStatus;
+    leaderCyclePhase: LeaderCyclePhase;
+    isCurrentLeadingSector: boolean | null;
+    isSectorLeader: boolean | null;
+    isPreviousCycleLeader: boolean | null;
+    isNewLeaderCandidate: boolean | null;
+    newsFrequency30d: number | null;
+    newsCrowdingScore: number | null;
+    attentionPhase: AttentionPhase;
+    providerIssue: boolean;
+    marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    diagnosticOnly: true;
+    notes: string[];
+  };
 }
 
 export interface Gate2ExternalCoverageInput {
@@ -195,6 +276,8 @@ export interface Gate2ExternalCoverageInput {
   market?: BenchmarkMarket | string | null;
   benchmarkReturn?: QmpBenchmarkReturn | null;
   benchmarkRaw?: unknown;
+  sectorThemeCycle?: QmpSectorThemeCycle | unknown | null;
+  sectorEnergyResult?: unknown;
   evaluationStage?: Gate2EvaluationStage | null;
 }
 
@@ -667,6 +750,28 @@ function providerIssueForBenchmarkStatus(required: boolean, status: Gate2Externa
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
+function gate2StatusFromSectorThemeCycle(
+  providerStatus: SectorThemeCycleProviderStatus | null,
+  confidence: SectorThemeCycleConfidence | null,
+): Gate2ExternalProviderStatus {
+  if (confidence === 'VERIFIED') return 'VERIFIED';
+  if (confidence === 'PARTIAL') return 'PARTIAL';
+  if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
+  if (confidence === 'STALE') return 'STALE';
+  if (confidence === 'MISSING') return 'MISSING';
+  if (confidence === 'DEGRADED' || confidence === 'AI_ESTIMATED') return 'DEGRADED';
+  if (providerStatus === 'OK_WITH_DATA') return 'VERIFIED';
+  if (providerStatus === 'PARTIAL_WITH_DATA') return 'PARTIAL';
+  if (providerStatus === 'OK_EMPTY') return 'EMPTY_VALID';
+  if (providerStatus === 'STALE_CACHE') return 'STALE';
+  if (providerStatus === 'FIELD_MISSING') return 'MISSING';
+  return providerStatus ? 'DEGRADED' : 'UNKNOWN';
+}
+
+function providerIssueForSectorStatus(status: Gate2ExternalProviderStatus): boolean {
+  return !['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
+}
+
 function quoteSymbol(input: Gate2ExternalCoverageInput): string {
   const quote = isRecord(input.quote) ? input.quote : {};
   const stockMaster = isRecord(input.stockMaster) ? input.stockMaster : {};
@@ -732,6 +837,34 @@ export function buildGate2ExternalDataCoverage(
     relativeReturn20d: benchmarkDiagnostic.relativeReturn != null,
     kospi20dReturn: fieldAvailable(wiring, 'ctx.kospi20dReturn') || typeof input.kospi20dReturn === 'number' && Number.isFinite(input.kospi20dReturn),
     kosdaq20dReturn: typeof input.kosdaq20dReturn === 'number' && Number.isFinite(input.kosdaq20dReturn),
+  };
+  const sectorThemeCycleDiagnostic = normalizeSectorThemeCycleForGate2({
+    symbol: quoteSymbol(input),
+    quote: input.quote,
+    stockMaster: input.stockMaster,
+    sectorThemeCycle: input.sectorThemeCycle,
+    sectorEnergyResult: input.sectorEnergyResult,
+    benchmarkReturn20d: benchmarkDiagnostic.benchmarkReturn,
+    market: input.market,
+  });
+  const sectorCycleStatus = gate2StatusFromSectorThemeCycle(
+    sectorThemeCycleDiagnostic.providerStatus,
+    sectorThemeCycleDiagnostic.dataConfidence,
+  );
+  const sectorCycleFields = {
+    sector: sectorThemeCycleDiagnostic.sector != null,
+    industry: sectorThemeCycleDiagnostic.industry != null,
+    themeTags: sectorThemeCycleDiagnostic.themeTags.length > 0,
+    sectorReturn20d: sectorThemeCycleDiagnostic.sectorReturn20d != null,
+    sectorReturn60d: sectorThemeCycleDiagnostic.sectorReturn60d != null,
+    benchmarkReturn20d: sectorThemeCycleDiagnostic.benchmarkReturn20d != null,
+    benchmarkReturn60d: sectorThemeCycleDiagnostic.benchmarkReturn60d != null,
+    sectorRelativeReturn20d: sectorThemeCycleDiagnostic.sectorRelativeReturn20d != null,
+    sectorRelativeReturn60d: sectorThemeCycleDiagnostic.sectorRelativeReturn60d != null,
+    stockReturn20d: sectorThemeCycleDiagnostic.stockReturn20d != null,
+    stockReturn60d: sectorThemeCycleDiagnostic.stockReturn60d != null,
+    stockVsSectorReturn20d: sectorThemeCycleDiagnostic.stockVsSectorReturn20d != null,
+    stockVsSectorReturn60d: sectorThemeCycleDiagnostic.stockVsSectorReturn60d != null,
   };
 
   const kisFieldsAvailable = kisRequired && kisFields.foreignNetBuy && kisFields.institutionalNetBuy;
@@ -843,6 +976,67 @@ export function buildGate2ExternalDataCoverage(
       executionImpact: 'DIAGNOSTIC_ONLY',
       notes: benchmarkDiagnostic.notes,
     },
+    sectorCycle: {
+      required: false,
+      available: sectorThemeCycleDiagnostic.sector != null && ['VERIFIED', 'PARTIAL'].includes(sectorCycleStatus),
+      provider: sectorThemeCycleDiagnostic.source,
+      providerStatus: sectorThemeCycleDiagnostic.providerStatus,
+      dataConfidence: sectorThemeCycleDiagnostic.dataConfidence,
+      status: sectorCycleStatus,
+      symbol: sectorThemeCycleDiagnostic.symbol,
+      sector: sectorThemeCycleDiagnostic.sector,
+      industry: sectorThemeCycleDiagnostic.industry,
+      themeTags: sectorThemeCycleDiagnostic.themeTags,
+      market: sectorThemeCycleDiagnostic.market,
+      fields: sectorCycleFields,
+      values: {
+        sectorReturn20d: sectorThemeCycleDiagnostic.sectorReturn20d,
+        sectorReturn60d: sectorThemeCycleDiagnostic.sectorReturn60d,
+        benchmarkReturn20d: sectorThemeCycleDiagnostic.benchmarkReturn20d,
+        benchmarkReturn60d: sectorThemeCycleDiagnostic.benchmarkReturn60d,
+        sectorRelativeReturn20d: sectorThemeCycleDiagnostic.sectorRelativeReturn20d,
+        sectorRelativeReturn60d: sectorThemeCycleDiagnostic.sectorRelativeReturn60d,
+        stockReturn20d: sectorThemeCycleDiagnostic.stockReturn20d,
+        stockReturn60d: sectorThemeCycleDiagnostic.stockReturn60d,
+        stockVsSectorReturn20d: sectorThemeCycleDiagnostic.stockVsSectorReturn20d,
+        stockVsSectorReturn60d: sectorThemeCycleDiagnostic.stockVsSectorReturn60d,
+        sectorRank20d: sectorThemeCycleDiagnostic.sectorRank20d,
+        sectorRank60d: sectorThemeCycleDiagnostic.sectorRank60d,
+        sectorPercentile20d: sectorThemeCycleDiagnostic.sectorPercentile20d,
+        sectorPercentile60d: sectorThemeCycleDiagnostic.sectorPercentile60d,
+      },
+      missingFields: sectorThemeCycleDiagnostic.rawFieldCoverage?.missingFields ?? [],
+      rawFieldCoverage: sectorThemeCycleDiagnostic.rawFieldCoverage ?? {
+        requiredFields: ['sector', 'stockReturn20d', 'sectorReturn20d'],
+        presentFields: [],
+        missingFields: ['sector', 'stockReturn20d', 'sectorReturn20d'],
+        allRequiredFieldsPresent: false,
+      },
+      providerIssue: providerIssueForSectorStatus(sectorCycleStatus),
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      diagnosticOnly: true,
+      notes: sectorThemeCycleDiagnostic.notes ?? [],
+    },
+    leaderCycle: {
+      required: false,
+      available: sectorThemeCycleDiagnostic.leaderCyclePhase !== 'UNKNOWN'
+        && ['VERIFIED', 'PARTIAL'].includes(sectorCycleStatus),
+      status: sectorCycleStatus,
+      leaderCyclePhase: sectorThemeCycleDiagnostic.leaderCyclePhase,
+      isCurrentLeadingSector: sectorThemeCycleDiagnostic.isCurrentLeadingSector,
+      isSectorLeader: sectorThemeCycleDiagnostic.isSectorLeader,
+      isPreviousCycleLeader: sectorThemeCycleDiagnostic.isPreviousCycleLeader,
+      isNewLeaderCandidate: sectorThemeCycleDiagnostic.isNewLeaderCandidate,
+      newsFrequency30d: sectorThemeCycleDiagnostic.newsFrequency30d,
+      newsCrowdingScore: sectorThemeCycleDiagnostic.newsCrowdingScore,
+      attentionPhase: sectorThemeCycleDiagnostic.attentionPhase,
+      providerIssue: providerIssueForSectorStatus(sectorCycleStatus),
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      diagnosticOnly: true,
+      notes: sectorThemeCycleDiagnostic.notes ?? [],
+    },
   };
 }
 
@@ -860,6 +1054,8 @@ export function formatGate2CompactDiagnostic(input: {
     `KIS=${external.kisInvestorFlow.status}`,
     `DART=${external.dartFinancials.status}`,
     `Benchmark=${external.benchmark.status}`,
+    `Sector=${external.sectorCycle.status}`,
+    `Leader=${external.leaderCycle.leaderCyclePhase}`,
     `unavailable=${source.missingExternalData.length}`,
     ...(issue ? [`issue=${issue}`] : []),
     'marketSignal=false',
@@ -963,6 +1159,46 @@ export function formatGate2BenchmarkCompactDiagnostic(
     `RS=${formatPercentPoint(benchmark.values.relativeReturn20d)}`,
     ...(issue ? [issue] : []),
     ...(warning ? [warning] : []),
+    'marketSignal=false',
+  ].join(' | ');
+}
+
+export function formatGate2SectorCycleCompactDiagnostic(
+  externalDataCoverage?: Gate2ExternalDataCoverage | null,
+): string | null {
+  const sector = externalDataCoverage?.sectorCycle;
+  if (!sector) return null;
+  const issue = sector.status === 'MISSING'
+    ? 'issue=SECTOR_THEME_CYCLE_MISSING'
+    : sector.status === 'DEGRADED'
+      ? 'providerIssue=true'
+      : sector.status === 'PARTIAL'
+        ? 'issue=SECTOR_THEME_CYCLE_PARTIAL'
+        : null;
+  return [
+    `Gate2 Sector Cycle: ${sector.status}`,
+    `sector=${sector.sector ?? 'UNKNOWN'}`,
+    `theme=${sector.themeTags.length > 0 ? sector.themeTags.slice(0, 3).join('/') : 'UNKNOWN'}`,
+    `sector20d=${formatPercentPoint(sector.values.sectorReturn20d)}`,
+    `sectorRS20d=${formatPercentPoint(sector.values.sectorRelativeReturn20d)}`,
+    `stockVsSector20d=${formatPercentPoint(sector.values.stockVsSectorReturn20d)}`,
+    ...(issue ? [issue] : []),
+    'marketSignal=false',
+  ].join(' | ');
+}
+
+export function formatGate2LeaderCycleCompactDiagnostic(
+  externalDataCoverage?: Gate2ExternalDataCoverage | null,
+): string | null {
+  const leader = externalDataCoverage?.leaderCycle;
+  if (!leader) return null;
+  return [
+    `Gate2 Leader Cycle: ${leader.status}`,
+    `phase=${leader.leaderCyclePhase}`,
+    `currentSector=${leader.isCurrentLeadingSector}`,
+    `sectorLeader=${leader.isSectorLeader}`,
+    `attention=${leader.attentionPhase}`,
+    `news30d=${leader.newsFrequency30d ?? 'null'}`,
     'marketSignal=false',
   ].join(' | ');
 }
