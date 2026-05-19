@@ -111,6 +111,25 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
     expect(source).toMatch(/: \(\(\(\(bundle\.combined as any\)\?\.rows as Array<Record<string, unknown>> \| undefined\) \?\? kisRawOutput\)/);
   });
 
+
+
+  it('rowBreakdown COMBINED raw는 snapshot.combined 합산값(sumNullablePair) 사용', () => {
+    expect(source).toMatch(/const combinedWholeNetBuy = sumNullablePair\(kospiLeg\.rawWholeNetBuy, kosdaqLeg\.rawWholeNetBuy\)/);
+    expect(source).toMatch(/const combinedArbitrageNetBuy = sumNullablePair\(kospiLeg\.rawArbitrageNetBuy, kosdaqLeg\.rawArbitrageNetBuy\)/);
+    expect(source).toMatch(/const combinedNonArbitrageNetBuy = sumNullablePair\(kospiLeg\.rawNonArbitrageNetBuy, kosdaqLeg\.rawNonArbitrageNetBuy\)/);
+    expect(source).toMatch(/rowBreakdown:\s*\{[\s\S]*combined:\s*\{[\s\S]*rawWholeNetBuy:\s*combinedWholeNetBuy,[\s\S]*rawArbitrageNetBuy:\s*combinedArbitrageNetBuy,[\s\S]*rawNonArbitrageNetBuy:\s*combinedNonArbitrageNetBuy,/);
+  });
+
+  it('rowBreakdown COMBINED는 KOSDAQ/loop 마지막 leg 직접 재사용 금지', () => {
+    expect(source).not.toMatch(/rowBreakdown:\s*\{[\s\S]*combined:\s*\{[\s\S]*rawWholeNetBuy:\s*kosdaqLeg\.rawWholeNetBuy/);
+    expect(source).not.toMatch(/rowBreakdown:\s*\{[\s\S]*combined:\s*\{[\s\S]*rawArbitrageNetBuy:\s*kosdaqLeg\.rawArbitrageNetBuy/);
+    expect(source).not.toMatch(/rowBreakdown:\s*\{[\s\S]*combined:\s*\{[\s\S]*rawNonArbitrageNetBuy:\s*kosdaqLeg\.rawNonArbitrageNetBuy/);
+  });
+
+  it('COMBINED unitCandidates/display는 combined raw 기반', () => {
+    expect(source).toMatch(/displayWholeNetBuy:\s*formatEokAmount\(combinedWholeNetBuy, 'UNVERIFIED'\)/);
+    expect(source).toMatch(/unitCandidates:\s*buildUnitCandidates\(combinedWholeNetBuy\)/);
+  });
   it('SINGLE_KIS_RESPONSE일 때 splitAvailable=false, combinedOnly=true 경로 존재', () => {
     expect(source).toMatch(/const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ' && hasSplitRows/);
     expect(source).toMatch(/const combinedOnly = !splitAvailable/);
