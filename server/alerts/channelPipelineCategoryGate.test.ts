@@ -151,7 +151,8 @@ describe('channelPipeline category-specific enable gates', () => {
 
     expect(mocks.dispatchAlert).not.toHaveBeenCalled();
     expect(mocks.sendPrivateAlert).toHaveBeenCalledTimes(1);
-    expect(mocks.sendPrivateAlert.mock.calls[0][1]).toMatchObject({
+    const privateCall = mocks.sendPrivateAlert.mock.calls[0] as unknown[];
+    expect(privateCall[1]).toMatchObject({
       category: 'SHADOW_PAPER_FILLED',
       dedupeKey: 'SHADOW_PAPER_FILLED:000001:TRADE-1:FILL-1',
     });
@@ -171,11 +172,13 @@ describe('channelPipeline category-specific enable gates', () => {
 
     expect(mocks.dispatchAlert).toHaveBeenCalledTimes(1);
     expect(mocks.sendPrivateAlert).toHaveBeenCalledTimes(1);
-    expect(mocks.dispatchAlert.mock.calls[0][2]).toMatchObject({
+    const dispatchCall = mocks.dispatchAlert.mock.calls[0] as unknown[];
+    const privateCall = mocks.sendPrivateAlert.mock.calls[0] as unknown[];
+    expect(dispatchCall[2]).toMatchObject({
       eventType: 'SHADOW_PAPER_FILLED',
       dedupeKey: 'SHADOW_PAPER_FILLED:000001:TRADE-2:FILL-2',
     });
-    expect(mocks.sendPrivateAlert.mock.calls[0][1]).toMatchObject({
+    expect(privateCall[1]).toMatchObject({
       dedupeKey: 'SHADOW_PAPER_FILLED:000001:TRADE-2:FILL-2',
     });
   });

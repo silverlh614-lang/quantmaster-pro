@@ -227,13 +227,13 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
     const raw = macro.programMarket?.raw;
     const summaryWhole = display?.wholeNetBuy ?? formatEokwonSaved(macro.programNetBuyAmount);
     const summaryArb = display?.arbitrageNetBuy ?? (macro.programArbitrageNetBuy === null ? '미수집' : formatEokwonSaved(macro.programArbitrageNetBuy));
-    const summaryNonArb = display?.nonArbitrageNetBuy;
+    const summaryNonArb = display?.nonArbitrageNetBuy ?? null;
     lines.push(`  • 순매수: ${summaryWhole}`);
     lines.push(`  • 차익: ${summaryArb}`);
     if (summaryNonArb) lines.push(`  • 비차익: ${summaryNonArb}`);
     const rawNonZeroWarning = (hasRawNonZeroValue(raw?.wholeNetBuyTradeAmount) && isDisplayRoundedZero(summaryWhole))
       || (hasRawNonZeroValue(raw?.arbitrageNetBuyTradeAmount) && isDisplayRoundedZero(summaryArb))
-      || (hasRawNonZeroValue(raw?.nonArbitrageNetBuyTradeAmount) && Boolean(summaryNonArb) && isDisplayRoundedZero(summaryNonArb));
+      || (hasRawNonZeroValue(raw?.nonArbitrageNetBuyTradeAmount) && summaryNonArb !== null && isDisplayRoundedZero(summaryNonArb));
     if (rawNonZeroWarning) lines.push('  • rawNonZeroWarning: true');
     if (macro.programFetchedAt) {
       appendMacroProgramFetchedAt(lines, macro.programFetchedAt);

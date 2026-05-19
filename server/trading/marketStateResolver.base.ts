@@ -407,7 +407,7 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
 
   if (snapshot.riskOverride !== 'NONE' && snapshot.mhsLabel === 'GREEN') {
     const userVisibleSafe = (
-      (snapshot.riskOverride === 'BLACK_SWAN' || snapshot.riskOverride === 'R6_DEFENSE') &&
+      snapshot.riskOverride === 'BLACK_SWAN' &&
       displayRegime === 'R6_DEFENSE' &&
       mhsDisplayLabel === 'OVERRIDDEN_BY_R6' &&
       liveNewBuyAllowed === false

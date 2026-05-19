@@ -722,6 +722,8 @@ export interface ServerShadowTrade {
   r6Counterfactual?: {
     tradingDate: string;
     regime: string;
+    createdAtMs?: number;
+    createdAtIso?: string;
     entryRegime?: string;
     entryEffectiveState?: string;
     exitRegime?: string;

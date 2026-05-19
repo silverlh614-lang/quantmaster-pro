@@ -81,12 +81,16 @@ export interface KisMarketProgramTrade {
   programNonArbitrageNetBuy?: number | null;
   programSellAmount?: number | null;
   programBuyAmount?: number | null;
+  programArbitrageSellAmount?: number | null;
+  programNonArbitrageSellAmount?: number | null;
+  programArbitrageBuyAmount?: number | null;
+  programNonArbitrageBuyAmount?: number | null;
   fetchedAt: string;
   source: 'KIS_API';
   marketProgramStatus?: 'OK_NONZERO' | 'OK_RAW_ZERO' | 'OK_EMPTY_OUTPUT' | 'OK_PARSE_PARTIAL' | 'PROVIDER_ERROR' | 'STALE_CACHE' | 'MISSING';
   selectedPath?: string;
   selectedBsopHour?: string;
-  selectedReason?: 'LATEST_NON_ZERO_ROW' | 'LATEST_ROW_ALL_ZERO' | 'NO_VALID_ROW' | 'EMPTY_OUTPUT';
+  selectedReason?: 'LATEST_BY_BSOP_HOUR' | 'LATEST_NON_ZERO_ROW' | 'LATEST_ROW_ALL_ZERO' | 'NO_VALID_ROW' | 'EMPTY_OUTPUT';
   rowCount?: number;
   nonZeroRowCount?: number;
   latest?: string;
@@ -99,6 +103,8 @@ export interface KisMarketProgramTrade {
   executionImpact?: 'NONE';
   rawFieldKeys?: string[];
   parsedFieldName?: string;
+  kospiDiagnostics?: { rowCount?: number; [key: string]: unknown };
+  kosdaqDiagnostics?: { rowCount?: number; [key: string]: unknown };
   aggregateDiagnostic?: Record<string, unknown>;
 }
 

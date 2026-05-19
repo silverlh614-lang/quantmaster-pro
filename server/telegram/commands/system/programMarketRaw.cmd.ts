@@ -154,7 +154,9 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     } else if (pm.splitAvailable) {
       for (const [name, row] of Object.entries(pm.rowBreakdown)) {
         lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
-        lines.push(`  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`);
+        lines.push(row.unitCandidates
+          ? `  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`
+          : '  unitCandidates: N/A');
       }
     } else {
       lines.push(`combinedSource: ${(pm as any)?.combinedSource ?? 'UNKNOWN'}`);

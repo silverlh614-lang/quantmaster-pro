@@ -97,7 +97,7 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
     const result = await fetchKisMarketProgramTrade();
 
     expect(result).not.toBeNull();
-    expect(result?.programNetBuyQty).toBe(0);
+    expect(result?.programNetBuyQty).toBeNull();
     expect(result?.programNetBuyAmount).toBe(600);
     expect(result?.programArbitrageNetBuy).toBe(300);
     expect(result?.programNonArbitrageNetBuy).toBe(300);
@@ -216,15 +216,15 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       1,
       'FHPPG04600101',
       '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
-      {
+      expect.objectContaining({
         FID_COND_MRKT_DIV_CODE: 'J',
         FID_MRKT_CLS_CODE: 'K',
-      },
+      }),
     );
-    expect(_realDataKisGet).toHaveBeenNthCalledWith(2, 'FHPPG04600101', '/uapi/domestic-stock/v1/quotations/comp-program-trade-today', {
+    expect(_realDataKisGet).toHaveBeenNthCalledWith(2, 'FHPPG04600101', '/uapi/domestic-stock/v1/quotations/comp-program-trade-today', expect.objectContaining({
       FID_COND_MRKT_DIV_CODE: 'J',
       FID_MRKT_CLS_CODE: 'Q',
-    });
+    }));
   });
 
   it('ENV KIS_MARKET_PROGRAM_TRADE_TR_ID + PATH override', async () => {

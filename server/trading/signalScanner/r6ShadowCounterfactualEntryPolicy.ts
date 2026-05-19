@@ -22,6 +22,7 @@ import {
 import type { MacroGateState } from './scanDiagnostics.js';
 import type {
   CandidateWithSupplyContext,
+  SupplySignal,
 } from './injectPerSymbolSupplyContext.js';
 import type {
   NormalSupplyPreview,
@@ -298,6 +299,7 @@ function hasDuplicateEntry(params: {
   entryType: R6ShadowEntryType;
   tradingDate: string;
   regime: R6ShadowPolicyRegime;
+  now: Date;
 }): { reason: 'DUPLICATE_SAME_SYMBOL_OPEN' | 'DUPLICATE_SAME_SYMBOL_PENDING' | 'STALE_DEDUP_LOCK' | null; staleLock?: StaleDedupLockContext } {
   for (const trade of params.trades) {
     if (trade.stockCode !== params.symbol) continue;
@@ -309,7 +311,8 @@ function hasDuplicateEntry(params: {
       meta?.tradingDate === params.tradingDate &&
       meta?.regime === params.regime
     ) {
-      const createdAtIso = readString(trade.r6Counterfactual, ['createdAtIso']) ?? trade.updatedAt ?? trade.createdAt ?? '';
+      const legacyTimestamps = trade as ServerShadowTrade & { updatedAt?: string; createdAt?: string };
+      const createdAtIso = readString(trade.r6Counterfactual, ['createdAtIso']) ?? legacyTimestamps.updatedAt ?? legacyTimestamps.createdAt ?? '';
       const createdAtMs = readNumber(trade.r6Counterfactual, ['createdAtMs']);
       const parsedMs = Number.isFinite(Date.parse(createdAtIso)) ? Date.parse(createdAtIso) : null;
       const invalidTimestamp = !createdAtIso || createdAtIso.startsWith('1970-01-01') || (createdAtMs !== null && createdAtMs <= 0) || (createdAtMs === null && parsedMs === null);
@@ -656,7 +659,7 @@ function summaryBase(input: ApplyR6ShadowCounterfactualInput, regime: R6ShadowPo
     candidateEvaluated: input.preview.candidateCount,
     accumulatingCandidates: accumulating,
     shadowBuySignals: input.preview.signalCounts.BULLISH ?? 0,
-    buyCandidates: input.preview.signalCounts.BUY ?? 0,
+    buyCandidates: (input.preview.signalCounts as Partial<Record<SupplySignal | 'BUY', number>>).BUY ?? 0,
     r6CounterfactualEntries: 0,
     executionImpact: 'NONE',
   };

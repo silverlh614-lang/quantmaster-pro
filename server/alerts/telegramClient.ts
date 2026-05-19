@@ -512,7 +512,6 @@ function captureUnifiedBriefingIfNeeded(
     const absorbed = captureToUnifiedBriefing(finalMessage, opts?.category ?? inferCategory(opts?.dedupeKey));
     if (absorbed) {
       recordAlertSent(opts);
-  telegramIdempotency.set(idempotencyKey, Date.now());
       return true;
     }
   }

@@ -19,7 +19,7 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { loadMacroState, saveMacroState } from '../persistence/macroStateRepo.js';
+import { loadMacroState, saveMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import { loadFssRecords, getFssRecordsAge, upsertFssRecord } from '../persistence/fssRepo.js';
 import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
 import { appendFssDetailRecord } from '../persistence/fssDetailRepo.js';
@@ -50,6 +50,7 @@ type ProgramMarketFinalStatus =
   | 'SNAPSHOT_INCONSISTENT'
   | 'UNIT_UNVERIFIED'
   | 'MAPPING_VERIFIED';
+type MarketRefreshComputed = Partial<MacroState>;
 
 function buildProgramMarketSnapshotId(now = new Date()): string {
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -745,7 +746,7 @@ export function computeFssVars(now: Date = new Date()): {
  * 시장 지표를 Yahoo Finance + FSS에서 계산해 MacroState에 MERGE 저장.
  * 실패한 개별 지표는 기존 값 유지.
  */
-export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<Record<string, number | boolean | string | null>> {
+export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<MarketRefreshComputed> {
   const refreshAttemptAt = new Date().toISOString();
   logMacroRefreshStarted(reason);
   const existing = loadMacroState();
@@ -771,7 +772,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   });
 
   try {
-    const computed: Record<string, number | boolean | string | null> = {};
+    const computed: MarketRefreshComputed = {};
 
   // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
   const kospiBars = await fetchDailyBars('^KS11', '65d');
@@ -962,7 +963,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     const splitAvailable = !(invariants.violated || legInvariantViolated) && resolvedCombinedSource === 'KOSPI_PLUS_KOSDAQ';
     const combinedOnly = !splitAvailable;
     const snapshotId = buildProgramMarketSnapshotId();
-    computed.programMarket = {
+    const programMarketSnapshot: NonNullable<MacroState['programMarket']> = {
       status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
       rawStatus: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
       snapshotId,
@@ -1020,20 +1021,21 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         },
       },
     };
-    (computed.programMarket as any).snapshotSource = resolvedCombinedSource;
-    const structured = `snapshotId=${snapshotId} selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} selectedDisplayUnitAssumption=KRW_1K rawUnitAssumption=KRW_1K mappingConfidence=MAPPING_VERIFIED scoring=advisory useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`; 
+    programMarketSnapshot.snapshotSource = resolvedCombinedSource;
+    computed.programMarket = programMarketSnapshot;
+    const structured = `snapshotId=${snapshotId} selectedBsopHour=${programMarketSnapshot.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${programMarketSnapshot.display.wholeNetBuy} selectedDisplayUnitAssumption=KRW_1K rawUnitAssumption=KRW_1K mappingConfidence=MAPPING_VERIFIED scoring=advisory useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
     console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
     console.log(`[PROGRAM_MARKET_MACROSTATE_PERSISTED] ${structured}`);
     if (rawNonZero) console.log(`[PROGRAM_MARKET_RAW_NONZERO_PRESERVED] ${structured}`);
     console.log(`[PROGRAM_MARKET_EXECUTION_IMPACT_NONE] ${structured}`);
     console.log(`[PROGRAM_MARKET_REGIME_DECOUPLED] ${structured}`);
-    const srcLog = `kospiOutputLength=${marketProgram.kospiDiagnostics?.rowCount ?? 0} kosdaqOutputLength=${marketProgram.kosdaqDiagnostics?.rowCount ?? 0} combinedOutputLength=${computed.programMarket.rowBreakdown.combined.outputLength} combinedSource=${combinedSource} splitAvailable=${splitAvailable} combinedOnly=${combinedOnly} mappingConfidence=${computed.programMarket.unit.mappingConfidence} scoring=${computed.programMarket.policy.scoring} useForExecution=${computed.programMarket.policy.useForExecution} executionImpact=${computed.programMarket.policy.executionImpact}`;
+    const srcLog = `kospiOutputLength=${marketProgram.kospiDiagnostics?.rowCount ?? 0} kosdaqOutputLength=${marketProgram.kosdaqDiagnostics?.rowCount ?? 0} combinedOutputLength=${programMarketSnapshot.rowBreakdown?.combined.outputLength ?? 0} combinedSource=${combinedSource} splitAvailable=${splitAvailable} combinedOnly=${combinedOnly} mappingConfidence=${programMarketSnapshot.unit.mappingConfidence} scoring=${programMarketSnapshot.policy.scoring} useForExecution=${programMarketSnapshot.policy.useForExecution} executionImpact=${programMarketSnapshot.policy.executionImpact}`;
     console.log(`[KIS_MARKET_PROGRAM_KOSPI_RESPONSE] ${srcLog}`);
     console.log(`[KIS_MARKET_PROGRAM_KOSDAQ_RESPONSE] ${srcLog}`);
     console.log(`[KIS_MARKET_PROGRAM_COMBINED_SOURCE_RESOLVED] ${srcLog}`);
     if (!splitAvailable) console.log(`[PROGRAM_MARKET_SPLIT_UNAVAILABLE] ${srcLog}`);
-    if (computed.programMarket.unit.mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN') console.log(`[PROGRAM_MARKET_SIGNAL_CANDIDATE_ONLY] ${srcLog}`);
+    if (programMarketSnapshot.unit.mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN') console.log(`[PROGRAM_MARKET_SIGNAL_CANDIDATE_ONLY] ${srcLog}`);
     console.log(
       `[MarketRefresh] KIS 시장 프로그램 매매: ` +
       `${eokwon >= 0 ? '+' : ''}${eokwon.toFixed(1)}억원` +

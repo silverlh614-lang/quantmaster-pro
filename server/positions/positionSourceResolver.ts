@@ -46,7 +46,7 @@ export function resolvePositionSource(input: ResolvePositionSourceInput): Positi
   if (input.shadowCount > 0) return { ...input, engineMode, mode, selectedSource: 'SHADOW_POSITION_REGISTRY', reason: 'Shadow positions available; prefer shadow source for query commands.' };
   if (input.paperCount > 0) return { ...input, engineMode, mode, selectedSource: 'PAPER_TRADE_LEDGER', reason: 'Shadow registry empty; fallback to paper trade ledger.' };
   if (input.virtualCount > 0) return { ...input, engineMode, mode, selectedSource: 'VIRTUAL_ACCOUNT', reason: 'Shadow and paper empty; fallback to virtual account holdings.' };
-  if (input.liveCount > 0) return { ...input, engineMode, mode: mode === 'SHADOW_ONLY' ? 'COMBINED' : mode, selectedSource: 'LIVE_KIS_HOLDINGS', reason: 'No shadow holdings available; use live holdings.' };
+  if (input.liveCount > 0) return { ...input, engineMode, mode, selectedSource: 'LIVE_KIS_HOLDINGS', reason: 'No shadow holdings available; use live holdings.' };
   return { ...input, engineMode, mode, selectedSource: 'NONE', reason: 'No available holdings in shadow/paper/virtual/live sources.' };
 }
 

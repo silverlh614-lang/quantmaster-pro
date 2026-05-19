@@ -9,7 +9,11 @@ import {
 import { AlertCategory } from './alertCategories.js';
 import { sendPrivateAlert, type TelegramAlertOptions } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
-import { appendNotificationLedger, updateNotificationLedgerState } from '../persistence/notificationLedgerRepo.js';
+import {
+  appendNotificationLedger,
+  updateNotificationLedgerState,
+  type NotificationLedgerEntry,
+} from '../persistence/notificationLedgerRepo.js';
 
 export type TelegramEventType =
   | 'BUY_SIGNAL'
@@ -161,6 +165,14 @@ export function routeTelegramEvent(type: TelegramEventType): TelegramEventRoute 
   return ChannelSemantic.JOURNAL;
 }
 
+function notificationLedgerSemantic(route: TelegramEventRoute): NotificationLedgerEntry['channelSemantic'] {
+  if (route === 'PRIVATE') return 'PRIVATE';
+  if (route === ChannelSemantic.EXECUTION) return 'EXECUTION';
+  if (route === ChannelSemantic.SIGNAL) return 'SIGNAL';
+  if (route === ChannelSemantic.REGIME) return 'REGIME';
+  return 'JOURNAL';
+}
+
 function buildDedupeKey(event: TelegramEvent): string {
   if (event.dedupeKey) return event.dedupeKey;
   const keyParts = [
@@ -223,8 +235,19 @@ function executionPrefix(type: TelegramEventType): string | null {
 
 export async function emitTelegramEvent(event: TelegramEvent): Promise<number | undefined> {
   const eventId = `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await appendNotificationLedger({ id: eventId, at: new Date().toISOString(), source: 'emitTelegramEvent', eventType: event.type, channelSemantic: routeTelegramEvent(event.type), deliveryState: 'CREATED', message: event.message, dedupeKey: event.dedupeKey, cooldownMs: event.cooldownMs, metadata: event.metadata });
   const route = routeTelegramEvent(event.type);
+  await appendNotificationLedger({
+    id: eventId,
+    at: new Date().toISOString(),
+    source: 'emitTelegramEvent',
+    eventType: event.type,
+    channelSemantic: notificationLedgerSemantic(route),
+    deliveryState: 'CREATED',
+    message: event.message,
+    dedupeKey: event.dedupeKey,
+    cooldownMs: event.cooldownMs,
+    metadata: event.metadata,
+  });
   const severity = event.severity ?? DEFAULT_SEVERITY[event.type];
   const dedupeKey = buildDedupeKey(event);
 

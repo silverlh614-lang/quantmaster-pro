@@ -356,7 +356,7 @@ export function selectMarketProgramRow(rows: MarketProgramRow[], nowKst: Date): 
     .filter((r) => isValidBsopHour(r.bsopHour))
     .filter((r) => isNotFutureBsopHour(r.bsopHour, nowKst))
     .sort((a, b) => compareBsopHourDesc(a.bsopHour, b.bsopHour));
-  const candidateRows = validTimeRows.length > 0 ? validTimeRows : rows.slice().sort((a, b) => b.index - a.index);
+  const candidateRows = validTimeRows.length > 0 ? validTimeRows : rows.slice();
   const latestRow = candidateRows[0] ?? null;
   const nonZeroRows = candidateRows.filter((r) => r.hasNonZeroValue);
   if (latestRow?.hasNonZeroValue) {

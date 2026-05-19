@@ -83,6 +83,8 @@ export interface MacroState {
   programSource?: 'KIS_API' | 'NONE';
   programMarket?: {
     status: 'OK_NONZERO' | 'OK_RAW_ZERO' | 'OK_EMPTY_OUTPUT' | 'PROVIDER_ERROR' | 'UNSUPPORTED_INTRADAY' | string;
+    rawStatus?: string;
+    snapshotId?: string;
     finalStatus: string;
     source: 'KIS_API' | 'KRX_API' | 'CACHE' | 'NONE' | string;
     paramMode: 'OFFICIAL' | 'LEGACY' | string;
@@ -114,18 +116,22 @@ export interface MacroState {
       KRW_1M: string;
     };
     combinedSource?: 'KOSPI_PLUS_KOSDAQ' | 'SINGLE_RESPONSE' | 'CACHE' | 'UNKNOWN' | string;
+    snapshotSource?: 'KOSPI_PLUS_KOSDAQ' | 'SINGLE_RESPONSE' | 'CACHE' | 'UNKNOWN' | string;
     splitAvailable?: boolean;
     combinedOnly?: boolean;
+    snapshotMismatch?: boolean;
+    inconsistencyReason?: string | null;
+    aggregateDiagnostic?: Record<string, unknown>;
     rowBreakdown?: {
       kospi: {
         outputLength: number; nonZeroRows: number; selectedBsopHour: string;
         rawWholeNetBuy: number | null; rawArbitrageNetBuy: number | null; rawNonArbitrageNetBuy: number | null;
-        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string };
+        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string } | null;
       };
       kosdaq: {
         outputLength: number; nonZeroRows: number; selectedBsopHour: string;
         rawWholeNetBuy: number | null; rawArbitrageNetBuy: number | null; rawNonArbitrageNetBuy: number | null;
-        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string };
+        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string } | null;
       };
       combined: {
         outputLength: number; nonZeroRows: number; selectedBsopHour: string;

@@ -1,5 +1,6 @@
 // @responsibility Detect and emit operational warnings for regime snapshot conflicts.
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
+import type { ExecutionImpact } from '../../observability/executionImpact.js';
 import type { RegimeConflictCode, RegimeSnapshot } from './effectiveRegimeSnapshot.js';
 
 type RegimeConflictRemediationFields = {
@@ -66,7 +67,7 @@ function warnCodeForConflict(conflict: RegimeConflictCode): string {
 
 function resolveMhsBiasConflictSeverity(snapshot: RegimeSnapshot): {
   code: string;
-  executionImpact: string;
+  executionImpact: ExecutionImpact;
   correctionApplied: boolean;
   userVisibleSafe: boolean;
 } {
@@ -75,7 +76,7 @@ function resolveMhsBiasConflictSeverity(snapshot: RegimeSnapshot): {
     telegramDisplayRegime?: string;
   };
   const riskOverride = snapshot.riskOverride;
-  const safeOverride = riskOverride === 'BLACK_SWAN' || riskOverride === 'R6_DEFENSE';
+  const safeOverride = riskOverride === 'R6_DEFENSE';
   const displaySafe = snapshot.displayRegime === 'R6_DEFENSE';
   const mhsSafe = snapshot.mhsDisplayLabel === 'OVERRIDDEN_BY_R6';
   const liveBlocked = extra.liveNewBuyAllowed === false;
