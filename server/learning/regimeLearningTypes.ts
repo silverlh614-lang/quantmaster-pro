@@ -225,6 +225,14 @@ export interface RegimeLearningBank {
   regimeDuplicateCandidates: number;
   regimeDuplicateSuppressed: number;
   regimeDedupStatus: 'NONE' | 'ACTIVE';
+  regimeBackfillAttempted: number;
+  regimeBackfillRecovered: number;
+  regimeBackfillFailed: number;
+  regimeBackfillWindowMinutes: number;
+  regimeBackfillFailureTopReasons: string[];
+  regimeDuplicateSourceTop3: string[];
+  regimeDuplicateKeySample: string[];
+  regimeDuplicateRootCause: string;
   sourceCounts: {
     freshShadow: number;
     ghostRepair: number;
