@@ -110,7 +110,7 @@ export interface ChannelShadowBuyFilledParams {
 }
 
 export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): Promise<void> {
-  if (!isSemanticEnabled(ChannelSemantic.SIGNAL)) return;
+  if (!isSemanticEnabled(ChannelSemantic.EXECUTION)) return;
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
     eventType: `[SHADOW 가상매수] ${p.stockName} (${p.stockCode})`,
@@ -124,7 +124,7 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
       `📌 lifecycle: PENDING → ACTIVE (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
     ],
   });
-  await dispatchAlert(ChannelSemantic.SIGNAL, message).catch(console.error);
+  await dispatchAlert(ChannelSemantic.EXECUTION, message).catch(console.error);
 }
 
 // ── 2. 매도/청산 신호 ────────────────────────────────────────────────────────
