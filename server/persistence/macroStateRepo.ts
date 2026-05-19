@@ -114,9 +114,21 @@ export interface MacroState {
       KRW_1M: string;
     };
     rowBreakdown?: {
-      kospi: { outputLength: number; nonZeroRows: number; selectedBsopHour: string; rawWholeNetBuy: number | null; displayWholeNetBuy: string };
-      kosdaq: { outputLength: number; nonZeroRows: number; selectedBsopHour: string; rawWholeNetBuy: number | null; displayWholeNetBuy: string };
-      combined: { outputLength: number; nonZeroRows: number; selectedBsopHour: string; rawWholeNetBuy: number | null; displayWholeNetBuy: string };
+      kospi: {
+        outputLength: number; nonZeroRows: number; selectedBsopHour: string;
+        rawWholeNetBuy: number | null; rawArbitrageNetBuy: number | null; rawNonArbitrageNetBuy: number | null;
+        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string };
+      };
+      kosdaq: {
+        outputLength: number; nonZeroRows: number; selectedBsopHour: string;
+        rawWholeNetBuy: number | null; rawArbitrageNetBuy: number | null; rawNonArbitrageNetBuy: number | null;
+        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string };
+      };
+      combined: {
+        outputLength: number; nonZeroRows: number; selectedBsopHour: string;
+        rawWholeNetBuy: number | null; rawArbitrageNetBuy: number | null; rawNonArbitrageNetBuy: number | null;
+        displayWholeNetBuy: string; unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string };
+      };
     };
     policy: {
       scoring: 'excluded' | 'shadow_only' | 'advisory' | 'weighted';
@@ -125,6 +137,8 @@ export interface MacroState {
       executionImpact: 'NONE';
       providerIssue: false;
       marketSignal: false;
+      blockGateUsage?: true;
+      blockRegimeUsage?: true;
     };
     rawNonZero?: boolean;
   };

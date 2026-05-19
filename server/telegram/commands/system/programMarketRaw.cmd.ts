@@ -89,7 +89,8 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     lines.push('');
     lines.push('rowBreakdown:');
     for (const [name, row] of Object.entries(pm.rowBreakdown)) {
-      lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
+      lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
+      lines.push(`  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`);
     }
   }
   if (pm?.unit.rawUnitAssumption === 'UNVERIFIED' && pm.unitCandidates) {

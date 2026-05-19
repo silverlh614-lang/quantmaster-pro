@@ -205,6 +205,13 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
       lines.push(`  • display whole: ${macro.programMarket.display.wholeNetBuy}`);
       lines.push(`  • unitAssumption: ${macro.programMarket.unit.rawUnitAssumption}`);
       lines.push(`  • mappingConfidence: ${macro.programMarket.unit.mappingConfidence}`);
+      if (macro.programMarket.unit.rawUnitAssumption === 'UNVERIFIED' && macro.programMarket.unitCandidates) {
+        lines.push('  • 단위 후보:');
+        lines.push(`    - 원 기준: ${macro.programMarket.unitCandidates.KRW}`);
+        lines.push(`    - 천원 기준: ${macro.programMarket.unitCandidates.KRW_1K}`);
+        lines.push(`    - 백만원 기준: ${macro.programMarket.unitCandidates.KRW_1M}`);
+        lines.push('    현재 적용: UNVERIFIED / shadow_only');
+      }
     }
   } else if (macro?.programSource === 'NONE') {
     lines.push('  • <i>마지막 cron 사이클 KIS 호출 실패</i>');
