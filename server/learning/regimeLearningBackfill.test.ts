@@ -134,7 +134,8 @@ describe('Regime Learning backfill', () => {
     expect(run.stillUnknown).toBe(1);
     expect(ghosts[0].regimePhase).toBe('R3_EXPANSION');
     expect(ghosts[0].originalRegimePhase).toBe('UNKNOWN');
-    expect(ghosts[0].regimeRecoveryConfidence).toBe('HIGH');
+    expect(ghosts[0].regimeRecoverySource).toBe('INTRADAY_NEAREST_60M');
+    expect(ghosts[0].regimeRecoveryConfidence).toBe('MEDIUM');
     expect(ghosts[1].regimePhase).toBe('R6_DEFENSE');
     expect(ghosts[1].regimeRecoveryConfidence).toBe('MEDIUM');
     expect(ghosts[2].regimeRecoveryConfidence).toBeUndefined();
@@ -160,5 +161,72 @@ describe('Regime Learning backfill', () => {
     expect(dry.attemptedDuplicates).toBe(1);
     expect(dry.stillUnknown).toBe(2);
     expect(dry.failureReasonBreakdown.DUPLICATE_SUPPRESSED_BEFORE_BACKFILL).toBe(1);
+  });
+
+  it('recovers UNKNOWN rows from same-day daily regime fallback after intraday window misses', () => {
+    const ghosts = [
+      ghost({ id: 'daily-0430', regimePhase: 'UNKNOWN', signalDate: '2026-04-30' }),
+    ];
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-04-30T03:00:00.000Z', rawRegime: 'R6_DEFENSE' }],
+      transitionSnapshots: [],
+      dailyRegimeSnapshots: [{ tradingDate: '2026-04-30', rawRegime: 'R3_EARLY', effectiveRegime: 'R3_EARLY' }],
+    });
+
+    expect(dry.repaired).toBe(1);
+    expect(dry.stillUnknown).toBe(0);
+    expect(dry.recoveredBySource.SAME_DAY_DAILY_REGIME).toBe(1);
+    expect(dry.recoveredByConfidence.RECOVERED_LOW).toBe(1);
+    expect(dry.failedAfterDailyFallback).toBe(0);
+    expect(dry.failureReasonBreakdown.NO_SNAPSHOT_IN_WINDOW).toBeUndefined();
+    expect(dry.dailyRegimeFallbackStatus).toBe('USED_DAILY_FALLBACK');
+  });
+
+  it('falls back to previous trading day close when same-day daily snapshot is missing', () => {
+    const ghosts = [
+      ghost({ id: 'prev-close-0501', regimePhase: 'UNKNOWN', signalDate: '2026-05-01' }),
+    ];
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-05-02T00:00:00.000Z', rawRegime: 'R4_NEUTRAL' }],
+      transitionSnapshots: [],
+      dailyRegimeSnapshots: [{ tradingDate: '2026-04-30', rawRegime: 'R2_EARLY', effectiveRegime: 'R2_EARLY' }],
+    });
+
+    expect(dry.repaired).toBe(1);
+    expect(dry.recoveredBySource.PREVIOUS_TRADING_DAY_CLOSE).toBe(1);
+    expect(dry.recoveredByConfidence.RECOVERED_LOW).toBe(1);
+    expect(dry.snapshotCoverageByTradingDate['2026-05-01'].previousTradingDayClose).toBe(1);
+  });
+
+  it('records 2026-04-30 coverage gaps when daily fallback still cannot recover', () => {
+    const ghosts = [
+      ghost({ id: 'missing-0430', regimePhase: 'UNKNOWN', signalDate: '2026-04-30' }),
+    ];
+
+    const dry = regimeUnknownRepairDryRun({
+      ghosts,
+      counterfactuals: [],
+      attributionRecords: [],
+      macroSnapshots: [{ at: '2026-05-02T00:00:00.000Z', rawRegime: 'R4_NEUTRAL' }],
+      transitionSnapshots: [],
+      dailyRegimeSnapshots: [],
+      pulseArchiveSnapshots: [],
+    });
+
+    expect(dry.repaired).toBe(0);
+    expect(dry.failedAfterDailyFallback).toBe(1);
+    expect(dry.failureByTradingDate['2026-04-30']).toBe(1);
+    expect(dry.snapshotCoverageByTradingDate['2026-04-30'].sameDayDaily).toBe(0);
+    expect(dry.missingRegimeSnapshotDates).toEqual(['2026-04-30']);
+    expect(dry.dailyRegimeFallbackStatus).toBe('NO_DAILY_SNAPSHOT_FOR_DATE');
+    expect(dry.failureReasonBreakdownAfterDailyFallback.NO_SNAPSHOT_IN_WINDOW).toBe(1);
   });
 });

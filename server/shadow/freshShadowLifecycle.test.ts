@@ -98,9 +98,13 @@ describe('Fresh Shadow Lifecycle Activation Patch v1', () => {
   it('explains fresh=0 inlet blockers without execution impact', () => {
     const ledger = new InMemoryShadowCaseLedger();
     const closed = collectFreshShadowInletStatus(ledger, new Date('2026-05-16T03:00:00.000Z'), { marketOpen: false });
-    expect(closed.nextAction).toBe('MARKET_CLOSED');
+    expect(closed.marketSession).toBe('CLOSED');
+    expect(closed.liveBlocker).toBe('MARKET_CLOSED');
+    expect(closed.nextAction).toBe('AFTER_HOURS_OBSERVE');
+    expect(closed.shadowInletStatus).toBe('AFTER_HOURS_OBSERVE');
     expect(closed.nextOpenShadowScanStatus).toBe('SCHEDULED');
     expect(closed.lastShadowScanResult).toBe('SHADOW_SCAN_SCHEDULED');
+    expect(closed.counterfactualAllowed).toBe(true);
     expect(closed.executionImpact).toBe('NONE');
     expect(closed.brokerOrdersCreated).toBe(0);
 

@@ -1053,6 +1053,9 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     counterfactuals: counterfactuals as any,
     ghosts: [],
     attributionRecords: [],
+    dailyRegimeSnapshots: input.dailyRegimeSnapshots,
+    pulseArchiveSnapshots: input.pulseArchiveSnapshots,
+    pulseArchiveRegimeSnapshots: input.pulseArchiveRegimeSnapshots,
     now,
   } as any);
   const regimeBackfillTargetUnknownCount = unknownRegimeCount;
@@ -1062,7 +1065,7 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const regimeBackfillAttempted = regimeBackfillAttemptedTotal;
   const regimeBackfillRecovered = backfillDryRun.repaired;
   const regimeBackfillFailed = backfillDryRun.stillUnknown;
-  const regimeBackfillWindowMinutes = regimeBackfillRecovered > 0 ? 60 : 180;
+  const regimeBackfillWindowMinutes = 60;
   const regimeBackfillFailureTopReasons = Object.entries(backfillDryRun.failureReasonBreakdown ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -1072,6 +1075,20 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   }
   const regimeBackfillFailureBySourceLane = backfillDryRun.failureBySourceLane ?? {};
   const regimeBackfillFailureByTimestampSource = backfillDryRun.failureByTimestampSource ?? {};
+  const regimeBackfillRecoveredBySource = backfillDryRun.recoveredBySource ?? {};
+  const regimeBackfillRecoveredByConfidence = backfillDryRun.recoveredByConfidence ?? {};
+  const regimeBackfillFailedAfterDailyFallback = backfillDryRun.failedAfterDailyFallback ?? regimeBackfillFailed;
+  const regimeBackfillFailureTopReasonsAfterDailyFallback = Object.entries(backfillDryRun.failureReasonBreakdownAfterDailyFallback ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([reason, count]) => `${reason}:${count}`);
+  if (regimeBackfillFailedAfterDailyFallback > 0 && regimeBackfillFailureTopReasonsAfterDailyFallback.length === 0) {
+    regimeBackfillFailureTopReasonsAfterDailyFallback.push(`UNKNOWN_ERROR:${regimeBackfillFailedAfterDailyFallback}`);
+  }
+  const regimeBackfillFailureByTradingDate = backfillDryRun.failureByTradingDate ?? {};
+  const regimeSnapshotCoverageByTradingDate = backfillDryRun.snapshotCoverageByTradingDate ?? {};
+  const missingRegimeSnapshotDates = backfillDryRun.missingRegimeSnapshotDates ?? [];
+  const dailyRegimeFallbackStatus = backfillDryRun.dailyRegimeFallbackStatus ?? 'OK';
   const regimeBackfillFailureSampleKeys = backfillDryRun.failureSampleKeys ?? [];
   const recoveredLowConfidenceRegimeCountAdjusted = Math.max(recoveredLowConfidenceRegimeCount, regimeBackfillRecovered);
   const trueUnknownRegimeCount = Math.max(0, unknownRegimeCount - recoveredLowConfidenceRegimeCountAdjusted);
@@ -1166,9 +1183,17 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     regimeBackfillRecovered,
     regimeBackfillFailed,
     regimeBackfillWindowMinutes,
+    regimeBackfillRecoveredBySource,
+    regimeBackfillRecoveredByConfidence,
+    regimeBackfillFailedAfterDailyFallback,
+    regimeBackfillFailureTopReasonsAfterDailyFallback,
     regimeBackfillFailureTopReasons,
     regimeBackfillFailureBySourceLane,
     regimeBackfillFailureByTimestampSource,
+    regimeBackfillFailureByTradingDate,
+    regimeSnapshotCoverageByTradingDate,
+    missingRegimeSnapshotDates,
+    dailyRegimeFallbackStatus,
     regimeBackfillFailureSampleKeys,
     regimeDuplicateSourceTop3: [...duplicateSource.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}:${v}`),
     regimeDuplicateKeySample: duplicateKeySample,
@@ -1436,7 +1461,7 @@ export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRe
     })),
     `shadowLearningAllowed=${bank.shadowLearningAllowed} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed} executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated}`,
     `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} unknownRatioRaw=${bank.unknownRatioRaw} recoveredLowConfidenceRegimeCount=${bank.recoveredLowConfidenceRegimeCount} recoveredLowConfidenceRegimeRatio=${bank.recoveredLowConfidenceRegimeRatio} trueUnknownRegimeCount=${bank.trueUnknownRegimeCount} trueUnknownRatio=${bank.trueUnknownRatio} regimeRatioDenominator=${bank.regimeRatioDenominator} regimeRatioDenominatorValue=${bank.regimeRatioDenominatorValue} regimeBankConsistency=${bank.regimeBankConsistency}`,
-    `regimeBackfillTargetUnknownCount=${bank.regimeBackfillTargetUnknownCount} regimeBackfillAttemptedTotal=${bank.regimeBackfillAttemptedTotal} regimeBackfillAttemptedUnique=${bank.regimeBackfillAttemptedUnique} regimeBackfillAttemptedDuplicates=${bank.regimeBackfillAttemptedDuplicates} attemptedOverTargetReason=${bank.attemptedOverTargetReason} regimeBackfillRecovered=${bank.regimeBackfillRecovered} regimeBackfillFailed=${bank.regimeBackfillFailed} regimeBackfillFailureTopReasons=${JSON.stringify(bank.regimeBackfillFailureTopReasons)} regimeBackfillFailureBySourceLane=${JSON.stringify(bank.regimeBackfillFailureBySourceLane)} regimeBackfillFailureByTimestampSource=${JSON.stringify(bank.regimeBackfillFailureByTimestampSource)} regimeBackfillFailureSampleKeys=${JSON.stringify(bank.regimeBackfillFailureSampleKeys)}`,
+    `regimeBackfillTargetUnknownCount=${bank.regimeBackfillTargetUnknownCount} regimeBackfillAttemptedTotal=${bank.regimeBackfillAttemptedTotal} regimeBackfillAttemptedUnique=${bank.regimeBackfillAttemptedUnique} regimeBackfillAttemptedDuplicates=${bank.regimeBackfillAttemptedDuplicates} attemptedOverTargetReason=${bank.attemptedOverTargetReason} regimeBackfillRecovered=${bank.regimeBackfillRecovered} regimeBackfillFailed=${bank.regimeBackfillFailed} regimeBackfillRecoveredBySource=${JSON.stringify(bank.regimeBackfillRecoveredBySource)} regimeBackfillRecoveredByConfidence=${JSON.stringify(bank.regimeBackfillRecoveredByConfidence)} regimeBackfillFailedAfterDailyFallback=${bank.regimeBackfillFailedAfterDailyFallback} regimeBackfillFailureTopReasonsAfterDailyFallback=${JSON.stringify(bank.regimeBackfillFailureTopReasonsAfterDailyFallback)} regimeBackfillFailureTopReasons=${JSON.stringify(bank.regimeBackfillFailureTopReasons)} regimeBackfillFailureBySourceLane=${JSON.stringify(bank.regimeBackfillFailureBySourceLane)} regimeBackfillFailureByTimestampSource=${JSON.stringify(bank.regimeBackfillFailureByTimestampSource)} regimeBackfillFailureByTradingDate=${JSON.stringify(bank.regimeBackfillFailureByTradingDate)} regimeSnapshotCoverageByTradingDate=${JSON.stringify(bank.regimeSnapshotCoverageByTradingDate)} missingRegimeSnapshotDates=${JSON.stringify(bank.missingRegimeSnapshotDates)} dailyRegimeFallbackStatus=${bank.dailyRegimeFallbackStatus} regimeBackfillFailureSampleKeys=${JSON.stringify(bank.regimeBackfillFailureSampleKeys)}`,
     `regimeDuplicatePreventedAtSource=${bank.regimeDuplicatePreventedAtSource} regimeDuplicateSuppressedAfterInsert=${bank.regimeDuplicateSuppressedAfterInsert} regimeDuplicateRootCause=${bank.regimeDuplicateRootCause}`,
     `R2ResolvedSampleSize=${bank.R2ResolvedSampleSize} R2PendingCounterfactual=${bank.R2PendingCounterfactualCount} R3ResolvedSampleSize=${bank.R3ResolvedSampleSize} R3PendingCounterfactual=${bank.R3PendingCounterfactualCount} R6ResolvedSampleSize=${bank.R6ResolvedSampleSize} R6PendingCounterfactual=${bank.R6PendingCounterfactualCount} nextRegimeMaturityAt=${bank.nextRegimeMaturityAt ?? 'N/A'} regimesNeedingAttributionRecalc=${JSON.stringify(bank.regimesNeedingAttributionRecalc)} regimeLearningNextAction=${bank.regimeLearningNextAction}`,
     ...rows.map((s) => `${s.regimePhase}: totalSampleSize=${s.totalSampleSize} resolvedSampleSize=${s.resolvedSampleSize} pendingCounterfactualCount=${s.pendingCounterfactualCount} attributableSampleSize=${s.attributableSampleSize} fresh=${s.freshShadowCount} ghostRepair=${s.ghostRepairCount} counterfactual=${s.counterfactualCount} closed=${s.closedCount} winRate=${round(s.winRate * 100, 1)}% expectancyR=${formatExpectancy(s)} expectancyConfidence=${s.expectancyConfidence} resolvedRatio=${s.resolvedRatio} qualityStatus=${s.qualityStatus} topCondition=${s.topCondition ?? 'N/A'} topSector=${s.topSector ?? 'N/A'} blocker=${s.blocker ?? 'NONE'}`),

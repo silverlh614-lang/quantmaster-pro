@@ -6,6 +6,11 @@ import type { ShadowCase } from '../shadow/shadowTypes.js';
 import type { RegimePhase } from '../shadow/regimeContext.js';
 import type { CounterfactualEntry } from './counterfactualShadow.js';
 import type { LearningGhostCase } from './learningTypes.js';
+import type {
+  DailyRegimeFallbackStatus,
+  RegimeDailySnapshot,
+  RegimeSnapshotCoverage,
+} from './regimeLearningBackfill.js';
 
 export { type RegimePhase } from '../shadow/regimeContext.js';
 
@@ -240,9 +245,17 @@ export interface RegimeLearningBank {
   regimeBackfillRecovered: number;
   regimeBackfillFailed: number;
   regimeBackfillWindowMinutes: number;
+  regimeBackfillRecoveredBySource: Record<string, number>;
+  regimeBackfillRecoveredByConfidence: Record<string, number>;
+  regimeBackfillFailedAfterDailyFallback: number;
+  regimeBackfillFailureTopReasonsAfterDailyFallback: string[];
   regimeBackfillFailureTopReasons: string[];
   regimeBackfillFailureBySourceLane: Record<string, number>;
   regimeBackfillFailureByTimestampSource: Record<string, number>;
+  regimeBackfillFailureByTradingDate: Record<string, number>;
+  regimeSnapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage>;
+  missingRegimeSnapshotDates: string[];
+  dailyRegimeFallbackStatus: DailyRegimeFallbackStatus;
   regimeBackfillFailureSampleKeys: string[];
   regimeDuplicateSourceTop3: string[];
   regimeDuplicateKeySample: string[];
@@ -289,6 +302,9 @@ export interface CollectRegimeLearningInput {
   legacyCounterfactualEntries?: CounterfactualEntry[];
   ghostCases?: LearningGhostCase[];
   attributionRecords?: ServerAttributionRecord[];
+  dailyRegimeSnapshots?: RegimeDailySnapshot[];
+  pulseArchiveSnapshots?: RegimeDailySnapshot[];
+  pulseArchiveRegimeSnapshots?: RegimeDailySnapshot[];
   includePersistedSources?: boolean;
   rawRegime?: string;
   effectiveRegime?: string;

@@ -2,6 +2,7 @@
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadRegimeTransitionState } from '../persistence/regimeTransitionStateRepo.js';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
+import { getRecentAlertHistory } from '../persistence/alertHistoryRepo.js';
 import {
   loadAttributionRecords,
   saveAttributionRecords,
@@ -106,6 +107,9 @@ export interface RegimeLearningBackfillInput {
   attributionRecords?: ServerAttributionRecord[];
   macroSnapshots?: RegimeTimestampSnapshot[];
   transitionSnapshots?: RegimeTimestampSnapshot[];
+  dailyRegimeSnapshots?: RegimeDailySnapshot[];
+  pulseArchiveSnapshots?: RegimeDailySnapshot[];
+  pulseArchiveRegimeSnapshots?: RegimeDailySnapshot[];
   shadowCases?: RegimeWritableRow[];
   now?: Date;
   write?: boolean;
@@ -148,6 +152,28 @@ export interface RegimeTimestampSnapshot {
   effectiveRegime?: string;
 }
 
+export interface RegimeDailySnapshot {
+  tradingDate?: string;
+  date?: string;
+  at?: string;
+  rawRegime: string;
+  effectiveRegime?: string;
+  source?: string;
+}
+
+export interface RegimeSnapshotCoverage {
+  intradayNearest60m: number;
+  sameDayDaily: number;
+  previousTradingDayClose: number;
+  pulseArchiveSameDate: number;
+}
+
+export type DailyRegimeFallbackStatus =
+  | 'NO_UNKNOWN_SAMPLES'
+  | 'OK'
+  | 'USED_DAILY_FALLBACK'
+  | 'NO_DAILY_SNAPSHOT_FOR_DATE';
+
 export interface RegimeUnknownAnalysisResult {
   unknownTotal: number;
   unknownBySource: Record<string, number>;
@@ -176,9 +202,17 @@ export interface RegimeUnknownRepairResult {
   byRecoveredRegime: Record<string, number>;
   recoverySourceBreakdown: Record<string, number>;
   recoveryConfidenceBreakdown: Record<string, number>;
+  recoveredBySource: Record<string, number>;
+  recoveredByConfidence: Record<string, number>;
+  failedAfterDailyFallback: number;
+  failureReasonBreakdownAfterDailyFallback: Record<RegimeBackfillFailureReason, number>;
   failureReasonBreakdown: Record<RegimeBackfillFailureReason, number>;
   failureBySourceLane: Record<string, number>;
   failureByTimestampSource: Record<RegimeBackfillTimestampSource, number>;
+  failureByTradingDate: Record<string, number>;
+  snapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage>;
+  missingRegimeSnapshotDates: string[];
+  dailyRegimeFallbackStatus: DailyRegimeFallbackStatus;
   failureSampleKeys: string[];
   executionImpact: 'NONE';
   brokerOrdersCreated: 0;
@@ -399,7 +433,14 @@ function recoverRegime(row: RegimeWritableRow, createdAt?: string): RecoveredReg
   };
 }
 
-function phaseFromSnapshot(snapshot: RegimeTimestampSnapshot): RecoveredRegime {
+const REGIME_BACKFILL_INTRADAY_WINDOW_MINUTES = 60;
+const REGIME_BACKFILL_INTRADAY_WINDOW_MS = REGIME_BACKFILL_INTRADAY_WINDOW_MINUTES * 60 * 1000;
+
+function phaseFromSnapshot(
+  snapshot: RegimeTimestampSnapshot | RegimeDailySnapshot,
+  source: RegimeRecoverySource = 'NEAREST_MACRO_SNAPSHOT',
+  confidence: RegimeRecoveryConfidence = 'LOW',
+): RecoveredRegime {
   const rawRegime = snapshot.rawRegime || snapshot.effectiveRegime || 'UNKNOWN';
   const effectiveRegime = snapshot.effectiveRegime || rawRegime;
   return {
@@ -407,8 +448,8 @@ function phaseFromSnapshot(snapshot: RegimeTimestampSnapshot): RecoveredRegime {
     effectiveRegime,
     regimePhase: deriveRegimePhase({ rawRegime, effectiveRegime }),
     regimeRecovered: true,
-    regimeRecoverySource: 'NEAREST_MACRO_SNAPSHOT',
-    regimeRecoveryConfidence: 'LOW',
+    regimeRecoverySource: source,
+    regimeRecoveryConfidence: confidence,
   };
 }
 
@@ -431,6 +472,101 @@ function defaultTransitionSnapshots(input: RegimeLearningBackfillInput): RegimeT
     rows.push({ at: state.enteredR6At, rawRegime: 'R6_DEFENSE', effectiveRegime: 'R6_DEFENSE' });
   }
   return rows;
+}
+
+function isDateKey(value: string | undefined): value is string {
+  return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function tradingDateKey(iso?: string): string | undefined {
+  const key = dateKey(iso);
+  return isDateKey(key) ? key : undefined;
+}
+
+function normalizeDailySnapshot(snapshot: RegimeDailySnapshot): RegimeDailySnapshot | undefined {
+  const tradingDate = snapshot.tradingDate ?? snapshot.date ?? tradingDateKey(snapshot.at);
+  const rawRegime = snapshot.rawRegime || snapshot.effectiveRegime;
+  if (!isDateKey(tradingDate) || !rawRegime) return undefined;
+  return {
+    ...snapshot,
+    tradingDate,
+    rawRegime,
+    effectiveRegime: snapshot.effectiveRegime || rawRegime,
+  };
+}
+
+function uniqueDailySnapshots(snapshots: RegimeDailySnapshot[]): RegimeDailySnapshot[] {
+  const byKey = new Map<string, RegimeDailySnapshot>();
+  for (const snapshot of snapshots) {
+    const normalized = normalizeDailySnapshot(snapshot);
+    if (!normalized?.tradingDate) continue;
+    const key = [
+      normalized.tradingDate,
+      normalized.source ?? 'DAILY',
+      normalized.rawRegime,
+      normalized.effectiveRegime ?? normalized.rawRegime,
+    ].join('|');
+    byKey.set(key, normalized);
+  }
+  return [...byKey.values()].sort((a, b) => {
+    const dateCmp = String(a.tradingDate).localeCompare(String(b.tradingDate));
+    return dateCmp || String(a.at ?? '').localeCompare(String(b.at ?? ''));
+  });
+}
+
+function dailySnapshotsFromIntraday(snapshots: RegimeTimestampSnapshot[], source = 'INTRADAY_ROLLUP'): RegimeDailySnapshot[] {
+  const latestByDate = new Map<string, RegimeDailySnapshot>();
+  for (const snapshot of snapshots) {
+    const tradingDate = tradingDateKey(snapshot.at);
+    if (!tradingDate) continue;
+    const previous = latestByDate.get(tradingDate);
+    if (previous?.at && snapshot.at.localeCompare(previous.at) < 0) continue;
+    latestByDate.set(tradingDate, {
+      tradingDate,
+      at: snapshot.at,
+      rawRegime: snapshot.rawRegime,
+      effectiveRegime: snapshot.effectiveRegime ?? snapshot.rawRegime,
+      source,
+    });
+  }
+  return [...latestByDate.values()];
+}
+
+function defaultDailyRegimeSnapshots(
+  input: RegimeLearningBackfillInput,
+  macroSnapshots: RegimeTimestampSnapshot[],
+  transitionSnapshots: RegimeTimestampSnapshot[],
+): RegimeDailySnapshot[] {
+  if (input.dailyRegimeSnapshots) return uniqueDailySnapshots(input.dailyRegimeSnapshots);
+  return uniqueDailySnapshots([
+    ...dailySnapshotsFromIntraday(macroSnapshots, 'MACRO_SNAPSHOT_DAILY_ROLLUP'),
+    ...dailySnapshotsFromIntraday(transitionSnapshots, 'REGIME_TRANSITION_DAILY_ROLLUP'),
+  ]);
+}
+
+function defaultPulseArchiveSnapshots(input: RegimeLearningBackfillInput): RegimeDailySnapshot[] {
+  const explicit = input.pulseArchiveSnapshots ?? input.pulseArchiveRegimeSnapshots;
+  if (explicit) return uniqueDailySnapshots(explicit);
+  const rows: RegimeDailySnapshot[] = [];
+  for (const entry of getRecentAlertHistory(1000)) {
+    const message = entry.message ?? '';
+    if (!/Learning Pulse|Regime Learning/i.test(message)) continue;
+    const effectiveRegime = message.match(/effectiveRegime=([A-Za-z0-9_]+)/)?.[1]
+      ?? message.match(/activeRegime=([A-Za-z0-9_]+)/)?.[1];
+    if (!effectiveRegime || effectiveRegime === 'UNKNOWN') continue;
+    const rawRegime = message.match(/rawRegime=([A-Za-z0-9_]+)/)?.[1] ?? effectiveRegime;
+    const tradingDate = message.match(/Learning Pulse[^\n]*(20\d{2}-\d{2}-\d{2})/)?.[1]
+      ?? tradingDateKey(entry.at);
+    if (!isDateKey(tradingDate)) continue;
+    rows.push({
+      tradingDate,
+      at: entry.at,
+      rawRegime,
+      effectiveRegime,
+      source: 'PULSE_ARCHIVE_ALERT_HISTORY',
+    });
+  }
+  return uniqueDailySnapshots(rows);
 }
 
 function parseMillis(iso?: string): number {
@@ -456,8 +592,48 @@ function nearestSnapshot(createdAt: string | undefined, snapshots: RegimeTimesta
   return { snapshot: best.snapshot, exactDate: sameDate(createdAt, best.snapshot.at) };
 }
 
+function nearestIntradaySnapshotWithin60m(
+  createdAt: string | undefined,
+  snapshots: RegimeTimestampSnapshot[],
+): RegimeTimestampSnapshot | undefined {
+  const createdMs = parseMillis(createdAt);
+  if (!Number.isFinite(createdMs) || snapshots.length === 0) return undefined;
+  return snapshots
+    .map((snapshot) => ({ snapshot, delta: Math.abs(parseMillis(snapshot.at) - createdMs) }))
+    .filter((row) => Number.isFinite(row.delta) && row.delta <= REGIME_BACKFILL_INTRADAY_WINDOW_MS)
+    .sort((a, b) => a.delta - b.delta)[0]?.snapshot;
+}
+
 function sameTradingDaySnapshot(createdAt: string | undefined, snapshots: RegimeTimestampSnapshot[]): RegimeTimestampSnapshot | undefined {
   return snapshots.find((snapshot) => sameDate(createdAt, snapshot.at));
+}
+
+function sameDayDailySnapshot(createdAt: string | undefined, snapshots: RegimeDailySnapshot[]): RegimeDailySnapshot | undefined {
+  const tradingDate = tradingDateKey(createdAt);
+  if (!tradingDate) return undefined;
+  return snapshots.find((snapshot) => snapshot.tradingDate === tradingDate);
+}
+
+function previousTradingDayCloseSnapshot(createdAt: string | undefined, snapshots: RegimeDailySnapshot[]): RegimeDailySnapshot | undefined {
+  const tradingDate = tradingDateKey(createdAt);
+  if (!tradingDate) return undefined;
+  return snapshots
+    .filter((snapshot) => snapshot.tradingDate && snapshot.tradingDate < tradingDate)
+    .sort((a, b) => String(b.tradingDate).localeCompare(String(a.tradingDate)) || String(b.at ?? '').localeCompare(String(a.at ?? '')))[0];
+}
+
+function snapshotCoverageForTradingDate(
+  tradingDate: string,
+  macroSnapshots: RegimeTimestampSnapshot[],
+  dailySnapshots: RegimeDailySnapshot[],
+  pulseArchiveSnapshots: RegimeDailySnapshot[],
+): RegimeSnapshotCoverage {
+  return {
+    intradayNearest60m: macroSnapshots.filter((snapshot) => tradingDateKey(snapshot.at) === tradingDate).length,
+    sameDayDaily: dailySnapshots.filter((snapshot) => snapshot.tradingDate === tradingDate).length,
+    previousTradingDayClose: dailySnapshots.some((snapshot) => snapshot.tradingDate && snapshot.tradingDate < tradingDate) ? 1 : 0,
+    pulseArchiveSameDate: pulseArchiveSnapshots.filter((snapshot) => snapshot.tradingDate === tradingDate).length,
+  };
 }
 
 function marketSessionPhase(row: RegimeWritableRow): RecoveredRegime | undefined {
@@ -531,6 +707,8 @@ function recoverUnknownRegime(
   createdAt: string | undefined,
   macroSnapshots: RegimeTimestampSnapshot[],
   transitionSnapshots: RegimeTimestampSnapshot[],
+  dailySnapshots: RegimeDailySnapshot[] = [],
+  pulseArchiveSnapshots: RegimeDailySnapshot[] = [],
 ): RecoveredRegime {
   if (containsR6Signal(row)) {
     return {
@@ -542,28 +720,28 @@ function recoverUnknownRegime(
       regimeRecoveryConfidence: 'MEDIUM',
     };
   }
-  const nearest = nearestSnapshot(createdAt, macroSnapshots);
-  if (nearest) {
-    const recovered = phaseFromSnapshot(nearest.snapshot);
-    recovered.regimeRecoveryConfidence = nearest.exactDate ? 'HIGH' : 'LOW';
-    recovered.regimeRecoverySource = nearest.exactDate ? 'MACRO_SNAPSHOT_BY_TIMESTAMP' : 'NEAREST_MACRO_SNAPSHOT';
-    return recovered;
+  const intradayNearest = nearestIntradaySnapshotWithin60m(createdAt, macroSnapshots);
+  if (intradayNearest) {
+    return phaseFromSnapshot(intradayNearest, 'INTRADAY_NEAREST_60M', 'MEDIUM');
   }
-  const tradingDay = sameTradingDaySnapshot(createdAt, transitionSnapshots);
-  if (tradingDay) {
-    const rawRegime = tradingDay.rawRegime || tradingDay.effectiveRegime || 'UNKNOWN';
-    const effectiveRegime = tradingDay.effectiveRegime || rawRegime;
-    return {
-      rawRegime,
-      effectiveRegime,
-      regimePhase: deriveRegimePhase({ rawRegime, effectiveRegime }),
-      regimeRecovered: true,
-      regimeRecoverySource: 'TRADING_DAY_REGIME',
-      regimeRecoveryConfidence: 'MEDIUM',
-    };
+  const sameDayDaily = sameDayDailySnapshot(createdAt, dailySnapshots);
+  if (sameDayDaily) {
+    return phaseFromSnapshot(sameDayDaily, 'SAME_DAY_DAILY_REGIME', 'LOW');
+  }
+  const previousClose = previousTradingDayCloseSnapshot(createdAt, dailySnapshots);
+  if (previousClose) {
+    return phaseFromSnapshot(previousClose, 'PREVIOUS_TRADING_DAY_CLOSE', 'LOW');
+  }
+  const pulseArchive = sameDayDailySnapshot(createdAt, pulseArchiveSnapshots);
+  if (pulseArchive) {
+    return phaseFromSnapshot(pulseArchive, 'PULSE_ARCHIVE_SAME_DATE', 'LOW');
   }
   const session = marketSessionPhase(row);
-  if (session) return session;
+  if (session && session.regimePhase !== 'MARKET_CLOSED') return session;
+  const tradingDay = sameTradingDaySnapshot(createdAt, transitionSnapshots);
+  if (tradingDay) {
+    return phaseFromSnapshot(tradingDay, 'TRADING_DAY_REGIME', 'MEDIUM');
+  }
   return {
     rawRegime: 'UNKNOWN',
     effectiveRegime: 'UNKNOWN',
@@ -598,14 +776,24 @@ function backfillAttemptKey(item: RegimeBackfillRow): string {
   ].join('|');
 }
 
-function snapshotRepoEmpty(macroSnapshots: RegimeTimestampSnapshot[], transitionSnapshots: RegimeTimestampSnapshot[]): boolean {
-  return macroSnapshots.length === 0 && transitionSnapshots.length === 0;
+function snapshotRepoEmpty(
+  macroSnapshots: RegimeTimestampSnapshot[],
+  transitionSnapshots: RegimeTimestampSnapshot[],
+  dailySnapshots: RegimeDailySnapshot[] = [],
+  pulseArchiveSnapshots: RegimeDailySnapshot[] = [],
+): boolean {
+  return macroSnapshots.length === 0
+    && transitionSnapshots.length === 0
+    && dailySnapshots.length === 0
+    && pulseArchiveSnapshots.length === 0;
 }
 
 function classifyBackfillFailure(
   item: RegimeBackfillRow,
   macroSnapshots: RegimeTimestampSnapshot[],
   transitionSnapshots: RegimeTimestampSnapshot[],
+  dailySnapshots: RegimeDailySnapshot[] = [],
+  pulseArchiveSnapshots: RegimeDailySnapshot[] = [],
 ): RegimeBackfillFailureReason {
   const reason = unknownReason(item, macroSnapshots, transitionSnapshots);
   if (reason === 'MISSING_CREATED_AT') return 'MISSING_SAMPLE_TIMESTAMP';
@@ -613,7 +801,7 @@ function classifyBackfillFailure(
   if (reason === 'CASE_TYPE_NOT_SUPPORTED') return 'SOURCE_LANE_EXCLUDED';
   if (reason === 'AMBIGUOUS_SESSION') return 'TIMEZONE_MISMATCH_SUSPECT';
   if (reason === 'NO_MACRO_SNAPSHOT' || reason === 'NO_TRANSITION_STATE' || reason === 'PRE_REGIME_TRACKING_SAMPLE') {
-    return snapshotRepoEmpty(macroSnapshots, transitionSnapshots) ? 'SNAPSHOT_REPO_EMPTY' : 'NO_SNAPSHOT_IN_WINDOW';
+    return snapshotRepoEmpty(macroSnapshots, transitionSnapshots, dailySnapshots, pulseArchiveSnapshots) ? 'SNAPSHOT_REPO_EMPTY' : 'NO_SNAPSHOT_IN_WINDOW';
   }
   if (reason === 'UNKNOWN_FALLBACK_USED') return 'NO_SNAPSHOT_IN_WINDOW';
   return 'UNKNOWN_ERROR';
@@ -625,14 +813,23 @@ function recordFailure(
   failureReasonBreakdown: Record<RegimeBackfillFailureReason, number>,
   failureBySourceLane: Record<string, number>,
   failureByTimestampSource: Record<RegimeBackfillTimestampSource, number>,
+  failureByTradingDate: Record<string, number>,
   failureSampleKeys: string[],
 ): void {
   inc(failureReasonBreakdown as Record<string, number>, failureReason);
   inc(failureBySourceLane, item.target);
   inc(failureByTimestampSource as Record<string, number>, timestampSourceOf(item.row));
+  inc(failureByTradingDate, tradingDateKey(item.createdAt) ?? dateKey(item.createdAt));
   if (failureSampleKeys.length < 10) {
     failureSampleKeys.push(`${failureReason}:${backfillAttemptKey(item)}`);
   }
+}
+
+function recoveredConfidenceLabel(confidence: RegimeRecoveryConfidence): string {
+  if (confidence === 'HIGH') return 'RECOVERED_HIGH';
+  if (confidence === 'MEDIUM') return 'RECOVERED_MEDIUM';
+  if (confidence === 'LOW') return 'RECOVERED_LOW';
+  return 'UNKNOWN';
 }
 
 function summarize(input: RegimeLearningBackfillInput, write: boolean): RegimeLearningBackfillRunResult {
@@ -733,6 +930,8 @@ export function regimeUnknownAnalysis(input: RegimeLearningBackfillInput = {}): 
   const { rows } = rowsFromInputs(input);
   const macroSnapshots = defaultMacroSnapshots(input);
   const transitionSnapshots = defaultTransitionSnapshots(input);
+  const dailySnapshots = defaultDailyRegimeSnapshots(input, macroSnapshots, transitionSnapshots);
+  const pulseArchiveSnapshots = defaultPulseArchiveSnapshots(input);
   const unknownBySource: Record<string, number> = {};
   const unknownByCaseType: Record<string, number> = {
     freshShadow: 0,
@@ -765,11 +964,16 @@ export function regimeUnknownAnalysis(input: RegimeLearningBackfillInput = {}): 
     const reason = unknownReason(item, macroSnapshots, transitionSnapshots);
     inc(unknownReasonBreakdown as Record<string, number>, reason);
     if (!item.createdAt || !Number.isFinite(parseMillis(item.createdAt))) missingTimestampCount++;
-    if (!nearestSnapshot(item.createdAt, macroSnapshots)) missingMacroSnapshotCount++;
+    if (!nearestIntradaySnapshotWithin60m(item.createdAt, macroSnapshots)) missingMacroSnapshotCount++;
     if (!sameTradingDaySnapshot(item.createdAt, transitionSnapshots)) missingTransitionStateCount++;
-    const recovered = recoverUnknownRegime(item.row, item.createdAt, macroSnapshots, transitionSnapshots);
-    if (recovered.regimeRecoverySource === 'NEAREST_MACRO_SNAPSHOT' || recovered.regimeRecoverySource === 'MACRO_SNAPSHOT_BY_TIMESTAMP') recoverableByNearestSnapshot++;
-    if (recovered.regimeRecoverySource === 'TRADING_DAY_REGIME') recoverableByTradingDayRegime++;
+    const recovered = recoverUnknownRegime(item.row, item.createdAt, macroSnapshots, transitionSnapshots, dailySnapshots, pulseArchiveSnapshots);
+    if (recovered.regimeRecoverySource === 'INTRADAY_NEAREST_60M'
+      || recovered.regimeRecoverySource === 'NEAREST_MACRO_SNAPSHOT'
+      || recovered.regimeRecoverySource === 'MACRO_SNAPSHOT_BY_TIMESTAMP') recoverableByNearestSnapshot++;
+    if (recovered.regimeRecoverySource === 'SAME_DAY_DAILY_REGIME'
+      || recovered.regimeRecoverySource === 'PREVIOUS_TRADING_DAY_CLOSE'
+      || recovered.regimeRecoverySource === 'PULSE_ARCHIVE_SAME_DATE'
+      || recovered.regimeRecoverySource === 'TRADING_DAY_REGIME') recoverableByTradingDayRegime++;
     if (recovered.regimeRecoverySource === 'R6_TRIGGER_BY_TIMESTAMP') recoverableByR6Trigger++;
     if (recovered.regimePhase === 'UNKNOWN') unrecoverableCount++;
   }
@@ -809,12 +1013,18 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   const { ghosts, counterfactuals, attributionRecords, rows } = rowsFromInputs(input);
   const macroSnapshots = defaultMacroSnapshots(input);
   const transitionSnapshots = defaultTransitionSnapshots(input);
+  const dailySnapshots = defaultDailyRegimeSnapshots(input, macroSnapshots, transitionSnapshots);
+  const pulseArchiveSnapshots = defaultPulseArchiveSnapshots(input);
   const byRecoveredRegime: Record<string, number> = {};
   const recoverySourceBreakdown: Record<string, number> = {};
   const recoveryConfidenceBreakdown: Record<string, number> = {};
+  const recoveredBySource: Record<string, number> = {};
+  const recoveredByConfidence: Record<string, number> = {};
   const failureReasonBreakdown = {} as Record<RegimeBackfillFailureReason, number>;
   const failureBySourceLane: Record<string, number> = {};
   const failureByTimestampSource = {} as Record<RegimeBackfillTimestampSource, number>;
+  const failureByTradingDate: Record<string, number> = {};
+  const snapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage> = {};
   const failureSampleKeys: string[] = [];
   const seenAttemptKeys = new Set<string>();
   let scannedUnknown = 0;
@@ -826,6 +1036,15 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   for (const item of rows) {
     if (!isUnknownRow(item.row)) continue;
     scannedUnknown++;
+    const tradingDate = tradingDateKey(item.createdAt);
+    if (tradingDate && !snapshotCoverageByTradingDate[tradingDate]) {
+      snapshotCoverageByTradingDate[tradingDate] = snapshotCoverageForTradingDate(
+        tradingDate,
+        macroSnapshots,
+        dailySnapshots,
+        pulseArchiveSnapshots,
+      );
+    }
     const attemptKey = backfillAttemptKey(item);
     if (seenAttemptKeys.has(attemptKey)) {
       attemptedDuplicates++;
@@ -836,13 +1055,21 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
         failureReasonBreakdown,
         failureBySourceLane,
         failureByTimestampSource,
+        failureByTradingDate,
         failureSampleKeys,
       );
       continue;
     }
     seenAttemptKeys.add(attemptKey);
     attemptedUnique++;
-    const recovered = recoverUnknownRegime(item.row, item.createdAt, macroSnapshots, transitionSnapshots);
+    const recovered = recoverUnknownRegime(
+      item.row,
+      item.createdAt,
+      macroSnapshots,
+      transitionSnapshots,
+      dailySnapshots,
+      pulseArchiveSnapshots,
+    );
     inc(byRecoveredRegime, recovered.regimePhase);
     inc(recoverySourceBreakdown, recovered.regimeRecoverySource);
     inc(recoveryConfidenceBreakdown, recovered.regimeRecoveryConfidence);
@@ -850,15 +1077,18 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
       stillUnknown++;
       recordFailure(
         item,
-        classifyBackfillFailure(item, macroSnapshots, transitionSnapshots),
+        classifyBackfillFailure(item, macroSnapshots, transitionSnapshots, dailySnapshots, pulseArchiveSnapshots),
         failureReasonBreakdown,
         failureBySourceLane,
         failureByTimestampSource,
+        failureByTradingDate,
         failureSampleKeys,
       );
       continue;
     }
     repaired++;
+    inc(recoveredBySource, recovered.regimeRecoverySource);
+    inc(recoveredByConfidence, recoveredConfidenceLabel(recovered.regimeRecoveryConfidence));
     if (!write) continue;
     item.row.originalRegimePhase = item.row.regimePhase ?? 'UNKNOWN';
     item.row.rawRegime = recovered.rawRegime;
@@ -875,6 +1105,21 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
   if (write && !input.counterfactuals) saveCounterfactuals(counterfactuals);
   if (write && !input.attributionRecords) saveAttributionRecords(attributionRecords);
 
+  const missingRegimeSnapshotDates = Object.keys(failureByTradingDate)
+    .filter(isDateKey)
+    .filter((date) => (snapshotCoverageByTradingDate[date]?.sameDayDaily ?? 0) === 0)
+    .sort();
+  const dailyFallbackRecovered = (recoveredBySource.SAME_DAY_DAILY_REGIME ?? 0)
+    + (recoveredBySource.PREVIOUS_TRADING_DAY_CLOSE ?? 0)
+    + (recoveredBySource.PULSE_ARCHIVE_SAME_DATE ?? 0);
+  const dailyRegimeFallbackStatus: DailyRegimeFallbackStatus = scannedUnknown === 0
+    ? 'NO_UNKNOWN_SAMPLES'
+    : missingRegimeSnapshotDates.length > 0
+      ? 'NO_DAILY_SNAPSHOT_FOR_DATE'
+      : dailyFallbackRecovered > 0
+        ? 'USED_DAILY_FALLBACK'
+        : 'OK';
+
   return {
     scannedUnknown,
     attemptedUnique,
@@ -884,9 +1129,17 @@ function regimeUnknownRepair(input: RegimeLearningBackfillInput, write: boolean)
     byRecoveredRegime,
     recoverySourceBreakdown,
     recoveryConfidenceBreakdown,
+    recoveredBySource,
+    recoveredByConfidence,
+    failedAfterDailyFallback: stillUnknown,
+    failureReasonBreakdownAfterDailyFallback: failureReasonBreakdown,
     failureReasonBreakdown,
     failureBySourceLane,
     failureByTimestampSource,
+    failureByTradingDate,
+    snapshotCoverageByTradingDate,
+    missingRegimeSnapshotDates,
+    dailyRegimeFallbackStatus,
     failureSampleKeys,
     executionImpact: 'NONE',
     brokerOrdersCreated: 0,
@@ -945,9 +1198,17 @@ export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'd
     `byRecoveredRegime=${JSON.stringify(s.byRecoveredRegime)}`,
     `recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`,
     `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`,
+    `recoveredBySource=${JSON.stringify(s.recoveredBySource)}`,
+    `recoveredByConfidence=${JSON.stringify(s.recoveredByConfidence)}`,
+    `failedAfterDailyFallback=${s.failedAfterDailyFallback}`,
+    `failureReasonBreakdownAfterDailyFallback=${JSON.stringify(s.failureReasonBreakdownAfterDailyFallback)}`,
     `failureReasonBreakdown=${JSON.stringify(s.failureReasonBreakdown)}`,
     `failureBySourceLane=${JSON.stringify(s.failureBySourceLane)}`,
     `failureByTimestampSource=${JSON.stringify(s.failureByTimestampSource)}`,
+    `failureByTradingDate=${JSON.stringify(s.failureByTradingDate)}`,
+    `snapshotCoverageByTradingDate=${JSON.stringify(s.snapshotCoverageByTradingDate)}`,
+    `missingRegimeSnapshotDates=${JSON.stringify(s.missingRegimeSnapshotDates)}`,
+    `dailyRegimeFallbackStatus=${s.dailyRegimeFallbackStatus}`,
     `failureSampleKeys=${JSON.stringify(s.failureSampleKeys)}`,
     `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
   ].join('\n');
