@@ -272,7 +272,9 @@ function emitMacroDataHealthSummary(updated: unknown): void {
   emitOperationalWarn({
     priority: 'P1',
     domain: 'DATA',
-    code: sourceHealth === 'STALE' ? 'P1_MACRO_STATE_STALE' : 'P1_MACRO_DATA_HEALTH_DEGRADED',
+    code: sourceHealth === 'STALE'
+      ? (issues.every((i) => i.startsWith('shortSelling:')) ? 'P1_SHORT_SELLING_DATA_STALE' : 'P1_REGIME_DATA_HEALTH_STALE')
+      : 'P1_MACRO_DATA_HEALTH_DEGRADED',
     message: `[MACRO_DATA_HEALTH] sourceHealth=${sourceHealth}`,
     executionImpact: 'NONE',
     mode: 'DEGRADED',
