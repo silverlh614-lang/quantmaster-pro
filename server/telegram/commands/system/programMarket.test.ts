@@ -64,7 +64,7 @@ describe('buildProgramMarketMessage', () => {
     const msg = await buildProgramMarketMessage();
     expect(msg).toContain('실시간 (KIS 직접 호출)');
     expect(msg).toContain('🟢');
-    expect(msg).toContain('시장 프로그램 순매수');
+    expect(msg).toContain('시장 프로그램 방향 후보: 순매수');
     expect(msg).toContain('+50.00억원');
     expect(msg).toContain('+10.00억원');  // 차익 1_000_000_000원 = 10억원
     expect(msg).toContain('macroState 영속');
@@ -82,8 +82,8 @@ describe('buildProgramMarketMessage', () => {
     });
     _loadMacroState.mockReturnValue(null);
     const msg = await buildProgramMarketMessage();
-    expect(msg).toContain('🔴');
-    expect(msg).toContain('시장 프로그램 순매도');
+    expect(msg).toContain('🟡');
+    expect(msg).toContain('시장 프로그램 방향 후보: 순매도');
     expect(msg).toContain('-75.00억원');
     expect(msg).toContain('-20.00억원');
   });

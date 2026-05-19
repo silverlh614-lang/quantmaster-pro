@@ -64,10 +64,9 @@ describe('/program_market_raw — Patch-004 §J #5', () => {
     expect(msg).toContain('kospiRequestParams:');
     expect(msg).toContain('zeroReason: ACCEPTED_EMPTY');
     expect(msg).toContain('executionImpact=NONE');
-    expect(msg).toContain('KOSPI: outputLength=11 nonZeroRows=15');
-    expect(msg).toContain('KOSDAQ: outputLength=19 nonZeroRows=15');
+    expect(msg).toContain('KOSPI: N/A (split unavailable)');
+    expect(msg).toContain('KOSDAQ: N/A (split unavailable)');
     expect(msg).toContain('COMBINED: outputLength=30 nonZeroRows=30');
-    expect(msg).toContain('rawArbitrageNetBuy=46866');
     expect(msg).toContain('unitCandidates:');
     expect(msg).toContain('KRW_1K: -16.88억원');
     expect(msg).toContain('useForExecution=false');

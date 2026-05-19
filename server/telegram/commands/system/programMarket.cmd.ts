@@ -124,13 +124,23 @@ function appendProgramMarketStatusLines(
   lines.push(`latest: ${live.latest ?? 'N/A'}`);
   lines.push(`updated: ${live.updated ?? 'N/A'}`);
   const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
-  const qtyEmoji = liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
-  const qtyLabel = liveQty > 0 ? '시장 프로그램 순매수' : liveQty < 0 ? '시장 프로그램 순매도' : '중립';
+  const macro = loadMacroState();
+  const combinedSource = macro?.programMarket?.combinedSource ?? 'UNKNOWN';
+  const mappingConfidence = macro?.programMarket?.unit?.mappingConfidence ?? 'UNIT_UNVERIFIED';
+  const isCandidateOnly = mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN';
+  const qtyEmoji = isCandidateOnly ? '🟡' : liveQty > 0 ? '🟢' : liveQty < 0 ? '🔴' : '⚪';
+  const qtyLabel = isCandidateOnly
+    ? `시장 프로그램 방향 후보: ${liveQty > 0 ? '순매수' : liveQty < 0 ? '순매도' : '중립'}`
+    : (liveQty > 0 ? '시장 프로그램 순매수' : liveQty < 0 ? '시장 프로그램 순매도' : '중립');
   lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
   lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
   lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
   lines.push(`finalStatus: ${status === 'OK_NONZERO' ? 'OFFICIAL_PARAMS_VERIFIED' : status}`);
   lines.push('scoring: shadow_only');
+  if (isCandidateOnly) {
+    lines.push(`confidence: LOW`);
+    lines.push(`reason: ${mappingConfidence === 'UNIT_UNVERIFIED' ? 'UNIT_UNVERIFIED' : 'MAPPING_VERIFIED'} + ${combinedSource === 'UNKNOWN' ? 'SOURCE_UNKNOWN' : `SOURCE_${combinedSource}`}`);
+  }
   lines.push('executionImpact: NONE');
   lines.push('useForExecution: false');
   lines.push('useForShadow: true');
@@ -203,8 +213,13 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
       lines.push(`  • splitAvailable: ${macro.programMarket.splitAvailable ?? false}`);
       if (macro.programMarket.rowBreakdown) {
         lines.push(`  • combined rows: ${macro.programMarket.rowBreakdown.combined.outputLength}`);
-        lines.push(`  • KOSPI rows: ${macro.programMarket.rowBreakdown.kospi.outputLength}`);
-        lines.push(`  • KOSDAQ rows: ${macro.programMarket.rowBreakdown.kosdaq.outputLength}`);
+        if (macro.programMarket.splitAvailable) {
+          lines.push(`  • KOSPI rows: ${macro.programMarket.rowBreakdown.kospi.outputLength}`);
+          lines.push(`  • KOSDAQ rows: ${macro.programMarket.rowBreakdown.kosdaq.outputLength}`);
+        } else {
+          lines.push('  • KOSPI rows: N/A (split unavailable)');
+          lines.push('  • KOSDAQ rows: N/A (split unavailable)');
+        }
       }
     }
     if (macro.programMarket?.raw) {

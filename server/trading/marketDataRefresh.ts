@@ -792,6 +792,11 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     const rawArb = marketProgram.programArbitrageNetBuy;
     const rawNonArb = marketProgram.programNonArbitrageNetBuy ?? null;
     const rawNonZero = [rawWhole, rawArb, rawNonArb].some((v) => typeof v === 'number' && v !== 0);
+    const agg = (marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined) ?? {};
+    const aggSource = String(agg.combinedSource ?? 'UNKNOWN');
+    const combinedSource = (['KOSPI_PLUS_KOSDAQ','SINGLE_KIS_RESPONSE','CACHE','UNKNOWN'].includes(aggSource) ? aggSource : 'UNKNOWN') as 'KOSPI_PLUS_KOSDAQ'|'SINGLE_KIS_RESPONSE'|'CACHE'|'UNKNOWN';
+    const splitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ';
+    const combinedOnly = !splitAvailable;
     computed.programMarket = {
       status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
       finalStatus: 'OFFICIAL_PARAMS_VERIFIED',
@@ -827,12 +832,13 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         blockRegimeUsage: true,
       },
       rawNonZero,
-      combinedSource: ((marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined)?.combinedSource as string | undefined) ?? 'UNKNOWN',
-      splitAvailable: Boolean((marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined)?.splitAvailable),
-      combinedOnly: Boolean((marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined)?.combinedOnly),
+      combinedSource,
+      splitAvailable,
+      combinedOnly,
+      aggregateDiagnostic: agg as any,
       rowBreakdown: {
         kospi: {
-          outputLength: marketProgram.kospiDiagnostics?.rowCount ?? 0,
+          outputLength: splitAvailable ? (marketProgram.kospiDiagnostics?.rowCount ?? 0) : -1,
           nonZeroRows: marketProgram.kospiDiagnostics?.nonZeroRowCount ?? 0,
           selectedBsopHour: marketProgram.kospiDiagnostics?.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: marketProgram.kospiNetBuyAmount ?? null,
@@ -842,7 +848,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
           unitCandidates: buildUnitCandidates(marketProgram.kospiNetBuyAmount ?? null),
         },
         kosdaq: {
-          outputLength: marketProgram.kosdaqDiagnostics?.rowCount ?? 0,
+          outputLength: splitAvailable ? (marketProgram.kosdaqDiagnostics?.rowCount ?? 0) : -1,
           nonZeroRows: marketProgram.kosdaqDiagnostics?.nonZeroRowCount ?? 0,
           selectedBsopHour: marketProgram.kosdaqDiagnostics?.selectedBsopHour ?? 'N/A',
           rawWholeNetBuy: marketProgram.kosdaqNetBuyAmount ?? null,
@@ -870,6 +876,12 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     if (rawNonZero) console.log(`[PROGRAM_MARKET_RAW_NONZERO_PRESERVED] ${structured}`);
     console.log(`[PROGRAM_MARKET_EXECUTION_IMPACT_NONE] ${structured}`);
     console.log(`[PROGRAM_MARKET_REGIME_DECOUPLED] ${structured}`);
+    const srcLog = `kospiOutputLength=${marketProgram.kospiDiagnostics?.rowCount ?? 0} kosdaqOutputLength=${marketProgram.kosdaqDiagnostics?.rowCount ?? 0} combinedOutputLength=${computed.programMarket.rowBreakdown.combined.outputLength} combinedSource=${combinedSource} splitAvailable=${splitAvailable} combinedOnly=${combinedOnly} mappingConfidence=${computed.programMarket.unit.mappingConfidence} scoring=${computed.programMarket.policy.scoring} useForExecution=${computed.programMarket.policy.useForExecution} executionImpact=${computed.programMarket.policy.executionImpact}`;
+    console.log(`[KIS_MARKET_PROGRAM_KOSPI_RESPONSE] ${srcLog}`);
+    console.log(`[KIS_MARKET_PROGRAM_KOSDAQ_RESPONSE] ${srcLog}`);
+    console.log(`[KIS_MARKET_PROGRAM_COMBINED_SOURCE_RESOLVED] ${srcLog}`);
+    if (!splitAvailable) console.log(`[PROGRAM_MARKET_SPLIT_UNAVAILABLE] ${srcLog}`);
+    if (computed.programMarket.unit.mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN') console.log(`[PROGRAM_MARKET_SIGNAL_CANDIDATE_ONLY] ${srcLog}`);
     console.log(
       `[MarketRefresh] KIS 시장 프로그램 매매: ` +
       `${eokwon >= 0 ? '+' : ''}${eokwon.toFixed(1)}억원` +
