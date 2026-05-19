@@ -8,6 +8,7 @@ import {
   volumeBreakoutEvaluator,
   volumeSurgeEvaluator,
   vcpEvaluator,
+  weeklyRsiZoneEvaluator,
 } from './evaluators';
 import { evaluateServerGate, DEFAULT_CONDITION_WEIGHTS } from '../../quantFilter';
 import type { YahooQuoteExtended } from '../../screener/stockScreener';
@@ -88,6 +89,43 @@ describe('ConditionRegistry — 등록/실행', () => {
     });
     expect(high.totalScore).toBe(2.0); // 상한 clamp
     expect(low.totalScore).toBe(0.1);  // 하한 clamp
+  });
+
+  it('run: evaluator inputs and quote input availability snapshot are attached', () => {
+    const reg = new ConditionRegistry().register(maAlignmentEvaluator);
+    const r = reg.run({
+      quote: quote({ ma5: 110, ma20: 100, ma60: 90 }),
+      weights: DEFAULT_CONDITION_WEIGHTS,
+    });
+
+    const out = r.outputs[0];
+    expect(out.inputs).toEqual(['quote.ma5', 'quote.ma20', 'quote.ma60']);
+    expect(out.context?.quoteInputs).toEqual(['quote.ma5', 'quote.ma20', 'quote.ma60']);
+    expect(out.context?.inputAvailability).toMatchObject({
+      'quote.ma5': true,
+      'quote.ma20': true,
+      'quote.ma60': true,
+    });
+    expect(out.context?.missingInputs).toEqual([]);
+    expect(out.context?.hadRequiredData).toBe(true);
+  });
+
+  it('run: missing quote input is diagnostic-only and does not change hadRequiredData', () => {
+    const missingWeekly = quote() as Partial<YahooQuoteExtended>;
+    delete missingWeekly.weeklyRSI;
+    const reg = new ConditionRegistry().register(weeklyRsiZoneEvaluator);
+    const r = reg.run({
+      quote: missingWeekly as YahooQuoteExtended,
+      weights: DEFAULT_CONDITION_WEIGHTS,
+    });
+
+    const out = r.outputs[0];
+    expect(out.inputs).toEqual(['quote.weeklyRSI']);
+    expect(out.context?.quoteInputs).toEqual(['quote.weeklyRSI']);
+    expect(out.context?.inputAvailability?.['quote.weeklyRSI']).toBe(false);
+    expect(out.context?.missingInputs).toEqual(['quote.weeklyRSI']);
+    expect(out.context?.hadRequiredData).toBe(true);
+    expect(out.output).toBeNull();
   });
 });
 
