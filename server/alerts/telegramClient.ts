@@ -323,7 +323,13 @@ async function sendTelegramAlertRaw(
 ): Promise<number | undefined> {
   const token  = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
+  if (!token || !chatId) {
+    console.warn(
+      `[TELEGRAM_PRIVATE_SEND_SKIPPED] reason=MISSING_CONFIG ` +
+      `botTokenConfigured=${Boolean(token)} chatIdConfigured=${Boolean(chatId)}`,
+    );
+    return undefined;
+  }
 
   /**
    * 단일 청크를 전송한다. 전송 전 sanitizeTelegramHtml 로 비허용 태그/stray `<` 를
@@ -385,7 +391,9 @@ async function sendTelegramAlertRaw(
         console.error('[Telegram] ❌ plain text 폴백도 실패 (거래는 완료됨):', fbErr.slice(0, 200));
         return;
       }
-      console.error('[Telegram] ❌ 전송 실패 (거래는 완료됨):', err.slice(0, 200));
+      console.error(
+        `[TELEGRAM_PRIVATE_SEND_FAILED] status=${res.status} body=${err.slice(0, 300)}`,
+      );
       return;
     }
     const data = await res.json() as { result?: { message_id?: number } };

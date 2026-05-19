@@ -3,17 +3,26 @@ import { AlertCategory, ChannelSemantic } from './alertCategories.js';
 
 const mocks = vi.hoisted(() => ({
   dispatchAlert: vi.fn(async () => 1),
+  sendPrivateAlert: vi.fn(async () => 11),
 }));
 
 vi.mock('./alertRouter.js', () => ({
   dispatchAlert: mocks.dispatchAlert,
 }));
+vi.mock('./telegramClient.js', async () => {
+  const actual = await vi.importActual<typeof import('./telegramClient.js')>('./telegramClient.js');
+  return {
+    ...actual,
+    sendPrivateAlert: mocks.sendPrivateAlert,
+  };
+});
 
 const {
   channelBuySignalEmitted,
   channelSellSignal,
   channelMarketBriefing,
   channelPerformance,
+  channelShadowBuyFilled,
 } = await import('./channelPipeline.js');
 
 const ENV_KEYS = [
@@ -28,6 +37,7 @@ const originalEnv = new Map<string, string | undefined>();
 
 beforeEach(() => {
   mocks.dispatchAlert.mockClear();
+  mocks.sendPrivateAlert.mockClear();
   for (const key of ENV_KEYS) {
     originalEnv.set(key, process.env[key]);
     delete process.env[key];
@@ -127,5 +137,46 @@ describe('channelPipeline category-specific enable gates', () => {
     });
 
     expect(mocks.dispatchAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('shadow paper-fill: channel disabled still sends private alert', async () => {
+    await channelShadowBuyFilled({
+      stockName: 'TEST',
+      stockCode: '000001',
+      fillPrice: 1000,
+      quantity: 2,
+      fillId: 'FILL-1',
+      tradeId: 'TRADE-1',
+    });
+
+    expect(mocks.dispatchAlert).not.toHaveBeenCalled();
+    expect(mocks.sendPrivateAlert).toHaveBeenCalledTimes(1);
+    expect(mocks.sendPrivateAlert.mock.calls[0][1]).toMatchObject({
+      category: 'SHADOW_PAPER_FILLED',
+      dedupeKey: 'SHADOW_PAPER_FILLED:000001:TRADE-1:FILL-1',
+    });
+  });
+
+  it('shadow paper-fill: trade channel enabled dispatches and sends private alert with same dedupeKey', async () => {
+    process.env.TRADE_CHANNEL_ENABLED = 'true';
+
+    await channelShadowBuyFilled({
+      stockName: 'TEST',
+      stockCode: '000001',
+      fillPrice: 1000,
+      quantity: 2,
+      fillId: 'FILL-2',
+      tradeId: 'TRADE-2',
+    });
+
+    expect(mocks.dispatchAlert).toHaveBeenCalledTimes(1);
+    expect(mocks.sendPrivateAlert).toHaveBeenCalledTimes(1);
+    expect(mocks.dispatchAlert.mock.calls[0][2]).toMatchObject({
+      eventType: 'SHADOW_PAPER_FILLED',
+      dedupeKey: 'SHADOW_PAPER_FILLED:000001:TRADE-2:FILL-2',
+    });
+    expect(mocks.sendPrivateAlert.mock.calls[0][1]).toMatchObject({
+      dedupeKey: 'SHADOW_PAPER_FILLED:000001:TRADE-2:FILL-2',
+    });
   });
 });
