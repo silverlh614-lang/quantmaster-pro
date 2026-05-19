@@ -50,7 +50,8 @@
     "test:runtime": "vitest run server/trading server/clients/kisClient server/orchestrator",
     "test:telegram": "vitest run server/telegram",
     "test:scanner": "vitest run server/trading/signalScanner server/screener",
-    "test:changed": "vitest run --changed"
+    "test:changed": "vitest run --changed",
+    "audit:kisSupplyWiring": "tsx scripts/audit_kis_supply_wiring.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
