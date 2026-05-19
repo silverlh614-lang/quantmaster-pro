@@ -42,6 +42,17 @@ import { getSectorEnergyInputs, buildSectorEnergyInputsWithMeta } from '../clien
 import { deriveSectorCycle } from './sectorCycleClassifier.js';
 
 type MacroRefreshReason = 'SCHEDULED' | 'MANUAL' | 'R6_RECOVERY_CHECK';
+type ProgramMarketRawUnitAssumption = 'UNVERIFIED' | 'KRW' | 'KRW_1K' | 'KRW_1M';
+
+function formatEokAmount(value: number | null, unitAssumption: ProgramMarketRawUnitAssumption): string {
+  if (value === null || !Number.isFinite(value)) return 'N/A';
+  const divisor = unitAssumption === 'KRW_1K' ? 100_000 : unitAssumption === 'KRW_1M' ? 100 : 100_000_000;
+  const displayEok = value / divisor;
+  if (value === 0) return '0억원';
+  if (Math.abs(displayEok) < 0.01) return value < 0 ? '-0.01억원 미만' : '0.01억원 미만';
+  const sign = displayEok > 0 ? '+' : '';
+  return `${sign}${displayEok.toFixed(2)}억원`;
+}
 
 function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
   try {
@@ -769,6 +780,50 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     computed.programArbitrageNetBuy = arbEokwon;
     computed.programFetchedAt = marketProgram.fetchedAt;
     computed.programSource = 'KIS_API';
+    const rawWhole = marketProgram.programNetBuyAmount;
+    const rawArb = marketProgram.programArbitrageNetBuy;
+    const rawNonArb = marketProgram.programNonArbitrageNetBuy ?? null;
+    const rawNonZero = [rawWhole, rawArb, rawNonArb].some((v) => typeof v === 'number' && v !== 0);
+    computed.programMarket = {
+      status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
+      finalStatus: 'OFFICIAL_PARAMS_VERIFIED',
+      source: marketProgram.source ?? 'KIS_API',
+      paramMode: 'OFFICIAL',
+      asOfKst: marketProgram.fetchedAt,
+      selectedBsopHour: marketProgram.selectedBsopHour ?? '',
+      selectedReason: marketProgram.selectedReason ?? 'LATEST_BY_BSOP_HOUR',
+      raw: {
+        wholeNetBuyTradeAmount: rawWhole,
+        arbitrageNetBuyTradeAmount: rawArb,
+        nonArbitrageNetBuyTradeAmount: rawNonArb,
+        arbitrageSellAmount: marketProgram.programArbitrageSellAmount ?? null,
+        nonArbitrageSellAmount: marketProgram.programNonArbitrageSellAmount ?? null,
+        arbitrageBuyAmount: marketProgram.programArbitrageBuyAmount ?? null,
+        nonArbitrageBuyAmount: marketProgram.programNonArbitrageBuyAmount ?? null,
+      },
+      display: {
+        wholeNetBuy: formatEokAmount(rawWhole, 'UNVERIFIED'),
+        arbitrageNetBuy: formatEokAmount(rawArb, 'UNVERIFIED'),
+        nonArbitrageNetBuy: formatEokAmount(rawNonArb, 'UNVERIFIED'),
+      },
+      unit: { rawUnitAssumption: 'UNVERIFIED', displayUnit: 'EOK_KRW', mappingConfidence: 'UNIT_UNVERIFIED' },
+      policy: {
+        scoring: 'shadow_only',
+        useForExecution: false,
+        useForShadow: true,
+        executionImpact: 'NONE',
+        providerIssue: false,
+        marketSignal: false,
+      },
+      rawNonZero,
+    };
+    const structured = `selectedBsopHour=${computed.programMarket.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${computed.programMarket.display.wholeNetBuy} rawUnitAssumption=UNVERIFIED mappingConfidence=UNIT_UNVERIFIED scoring=shadow_only useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
+    console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
+    console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
+    console.log(`[PROGRAM_MARKET_MACROSTATE_PERSISTED] ${structured}`);
+    if (rawNonZero) console.log(`[PROGRAM_MARKET_RAW_NONZERO_PRESERVED] ${structured}`);
+    console.log(`[PROGRAM_MARKET_EXECUTION_IMPACT_NONE] ${structured}`);
+    console.log(`[PROGRAM_MARKET_REGIME_DECOUPLED] ${structured}`);
     console.log(
       `[MarketRefresh] KIS 시장 프로그램 매매: ` +
       `${eokwon >= 0 ? '+' : ''}${eokwon.toFixed(1)}억원` +

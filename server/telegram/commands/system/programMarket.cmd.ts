@@ -45,7 +45,7 @@ function isAcceptedEmptyMarketProgram(live: Awaited<ReturnType<typeof fetchKisMa
 type LiveMarketProgramTrade = NonNullable<Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>>;
 
 function appendProgramMarketHeader(lines: string[]): void {
-  lines.push('📊 <b>[시장 종합 프로그램 매매]</b>');
+  lines.push('📊 <b>[Market Program]</b> (시장 종합 프로그램 매매)');
   lines.push('');
 }
 
@@ -108,6 +108,7 @@ function appendProgramMarketStatusLines(
   status: string,
   statusEmoji: string,
 ): void {
+  lines.push('programMarketImpact: NONE');
   lines.push(`${statusEmoji} status: ${status}`);
   lines.push(`source: ${live.source ?? 'KIS_API'}`);
   lines.push(`latest: ${live.latest ?? 'N/A'}`);
@@ -121,6 +122,8 @@ function appendProgramMarketStatusLines(
   lines.push(`finalStatus: ${status === 'OK_NONZERO' ? 'OFFICIAL_PARAMS_VERIFIED' : status}`);
   lines.push('scoring: shadow_only');
   lines.push('executionImpact: NONE');
+  lines.push('useForExecution: false');
+  lines.push('useForShadow: true');
   if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
     lines.push(`nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`);
   }
@@ -179,6 +182,14 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
     }
     if (macro.programFetchedAt) {
       appendMacroProgramFetchedAt(lines, macro.programFetchedAt);
+    }
+    if (macro.programMarket?.raw) {
+      lines.push(`  • raw whole: ${macro.programMarket.raw.wholeNetBuyTradeAmount ?? 'N/A'}`);
+      lines.push(`  • raw arbitrage: ${macro.programMarket.raw.arbitrageNetBuyTradeAmount ?? 'N/A'}`);
+      lines.push(`  • raw nonArbitrage: ${macro.programMarket.raw.nonArbitrageNetBuyTradeAmount ?? 'N/A'}`);
+      lines.push(`  • display whole: ${macro.programMarket.display.wholeNetBuy}`);
+      lines.push(`  • unitAssumption: ${macro.programMarket.unit.rawUnitAssumption}`);
+      lines.push(`  • mappingConfidence: ${macro.programMarket.unit.mappingConfidence}`);
     }
   } else if (macro?.programSource === 'NONE') {
     lines.push('  • <i>마지막 cron 사이클 KIS 호출 실패</i>');

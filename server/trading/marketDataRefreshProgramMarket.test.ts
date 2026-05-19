@@ -54,6 +54,19 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
     expect(source).toMatch(/KIS 시장 프로그램 매매/);
     expect(source).toMatch(/차익 미수집/);
   });
+
+  it('unit 미검증 시 shadow_only / execution NONE 강제', () => {
+    expect(source).toMatch(/mappingConfidence:\s*'UNIT_UNVERIFIED'/);
+    expect(source).toMatch(/scoring:\s*'shadow_only'/);
+    expect(source).toMatch(/useForExecution:\s*false/);
+    expect(source).toMatch(/executionImpact:\s*'NONE'/);
+  });
+
+  it('raw non-zero 보존 + structured 로그 태그 추가', () => {
+    expect(source).toMatch(/rawNonZero/);
+    expect(source).toContain('[PROGRAM_MARKET_RAW_NONZERO_PRESERVED]');
+    expect(source).toContain('[PROGRAM_MARKET_REGIME_DECOUPLED]');
+  });
 });
 
 describe('marketDataRefresh ADR-0138 정합성', () => {
