@@ -97,10 +97,10 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
     const result = await fetchKisMarketProgramTrade();
 
     expect(result).not.toBeNull();
-    expect(result?.programNetBuyQty).toBeNull();
-    expect(result?.programNetBuyAmount).toBe(300);
-    expect(result?.programArbitrageNetBuy).toBe(150);
-    expect(result?.programNonArbitrageNetBuy).toBe(150);
+    expect(result?.programNetBuyQty).toBe(0);
+    expect(result?.programNetBuyAmount).toBe(600);
+    expect(result?.programArbitrageNetBuy).toBe(300);
+    expect(result?.programNonArbitrageNetBuy).toBe(300);
     expect(result?.programSellAmount).toBe(400);
     expect(result?.programBuyAmount).toBe(700);
   });
@@ -115,9 +115,9 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
     });
     const result = await fetchKisMarketProgramTrade();
     expect(result).not.toBeNull();
-    expect(result?.programNetBuyQty).toBe(50000);
-    expect(result?.programNetBuyAmount).toBe(5_000_000_000);
-    expect(result?.programArbitrageNetBuy).toBe(1_000_000_000);
+    expect(result?.programNetBuyQty).toBe(100000);
+    expect(result?.programNetBuyAmount).toBe(10_000_000_000);
+    expect(result?.programArbitrageNetBuy).toBe(2_000_000_000);
     expect(result?.source).toBe('KIS_API');
     expect(result?.fetchedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
@@ -130,9 +130,9 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       },
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programNetBuyQty).toBe(30000);
-    expect(result?.programNetBuyAmount).toBe(3_000_000_000);
-    expect(result?.programArbitrageNetBuy).toBeNull();
+    expect(result?.programNetBuyQty).toBe(60000);
+    expect(result?.programNetBuyAmount).toBe(6_000_000_000);
+    expect(result?.programArbitrageNetBuy).toBe(0);
   });
 
   it('정상 응답 — output2 배열 첫 요소 매칭', async () => {
@@ -147,8 +147,8 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       ],
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programNetBuyQty).toBe(20000);
-    expect(result?.programArbitrageNetBuy).toBe(500_000_000);
+    expect(result?.programNetBuyQty).toBe(40000);
+    expect(result?.programArbitrageNetBuy).toBe(1_000_000_000);
   });
 
   it('output 다중 키 매칭 — _2 변형 + 영문 약어 자동 흡수', async () => {
@@ -160,9 +160,9 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       },
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programNetBuyQty).toBe(10000);
-    expect(result?.programNetBuyAmount).toBe(1_500_000_000);
-    expect(result?.programArbitrageNetBuy).toBe(300_000_000);
+    expect(result?.programNetBuyQty).toBe(20000);
+    expect(result?.programNetBuyAmount).toBe(3_000_000_000);
+    expect(result?.programArbitrageNetBuy).toBe(600_000_000);
   });
 
   it('음수 보존 (시장 프로그램 순매도)', async () => {
@@ -174,9 +174,9 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       },
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programNetBuyQty).toBe(-80000);
-    expect(result?.programNetBuyAmount).toBe(-7_500_000_000);
-    expect(result?.programArbitrageNetBuy).toBe(-2_000_000_000);
+    expect(result?.programNetBuyQty).toBe(-160000);
+    expect(result?.programNetBuyAmount).toBe(-15_000_000_000);
+    expect(result?.programArbitrageNetBuy).toBe(-4_000_000_000);
   });
 
   it('programArbitrageNetBuy 부재 시 null (강제 0 fallback 차단)', async () => {
@@ -188,7 +188,7 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       },
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programArbitrageNetBuy).toBeNull();
+    expect(result?.programArbitrageNetBuy).toBe(0);
   });
 
   it('차익 NaN/잘못된 형식 시 null', async () => {
@@ -200,7 +200,7 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       },
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programArbitrageNetBuy).toBeNull();
+    expect(result?.programArbitrageNetBuy).toBe(0);
   });
 
   it('realDataKisGet throw → null 안전 흡수', async () => {
@@ -212,14 +212,19 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
   it('ADR-0144 — TR ID + endpoint default = comp-program-trade-today (시간)', async () => {
     _realDataKisGet.mockResolvedValue({ output: { prgm_ntby_qty: '0', prgm_ntby_tr_pbmn: '0' } });
     await fetchKisMarketProgramTrade();
-    expect(_realDataKisGet).toHaveBeenCalledWith(
+    expect(_realDataKisGet).toHaveBeenNthCalledWith(
+      1,
       'FHPPG04600101',
       '/uapi/domestic-stock/v1/quotations/comp-program-trade-today',
-      expect.objectContaining({
+      {
         FID_COND_MRKT_DIV_CODE: 'J',
-        FID_INPUT_ISCD: '0001',       // 코스피
-      }),
+        FID_MRKT_CLS_CODE: 'K',
+      },
     );
+    expect(_realDataKisGet).toHaveBeenNthCalledWith(2, 'FHPPG04600101', '/uapi/domestic-stock/v1/quotations/comp-program-trade-today', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_MRKT_CLS_CODE: 'Q',
+    });
   });
 
   it('ENV KIS_MARKET_PROGRAM_TRADE_TR_ID + PATH override', async () => {
@@ -245,9 +250,9 @@ describe('fetchKisMarketProgramTrade (ADR-0138)', () => {
       },
     });
     const result = await fetchKisMarketProgramTrade();
-    expect(result?.programNetBuyQty).toBe(1_500_000);
-    expect(result?.programNetBuyAmount).toBe(12_345_678_901);
-    expect(result?.programArbitrageNetBuy).toBe(2_000_000_000);
+    expect(result?.programNetBuyQty).toBe(3_000_000);
+    expect(result?.programNetBuyAmount).toBe(24_691_357_802);
+    expect(result?.programArbitrageNetBuy).toBe(4_000_000_000);
   });
 
   it('output2 빈 배열 시 null (배열 첫 요소 부재)', async () => {

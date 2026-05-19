@@ -1,10 +1,20 @@
 // @responsibility PATCH-007 시장 프로그램매매 row selection/status regression tests.
 import { describe, expect, it } from 'vitest';
-import { materializeKisMarketProgramTrade, parseKisNumber } from './programMaterializer.js';
+import { buildMarketProgramTradeTodayParams, materializeKisMarketProgramTrade, parseKisNumber } from './programMaterializer.js';
 
 const NOW = new Date('2026-05-15T01:00:00.000Z'); // 10:00 KST
 
 describe('PATCH-007 market program materializer', () => {
+  it('builds OFFICIAL params as J/K and J/Q without legacy keys', () => {
+    const kospi = buildMarketProgramTradeTodayParams('K');
+    const kosdaq = buildMarketProgramTradeTodayParams('Q');
+    expect(kospi).toEqual({ FID_COND_MRKT_DIV_CODE: 'J', FID_MRKT_CLS_CODE: 'K' });
+    expect(kosdaq).toEqual({ FID_COND_MRKT_DIV_CODE: 'J', FID_MRKT_CLS_CODE: 'Q' });
+    expect(kospi).not.toHaveProperty('FID_INPUT_ISCD');
+    expect(kospi).not.toHaveProperty('FID_SCTN_CLS_CODE');
+    expect(kospi).not.toHaveProperty('FID_INPUT_HOUR_1');
+    expect(kospi).not.toHaveProperty('FID_COND_MRKT_DIV_CODE1');
+  });
   it('output[0] zero and output[1] non-zero selects latest non-zero row', () => {
     const result = materializeKisMarketProgramTrade({
       rt_cd: '0',
