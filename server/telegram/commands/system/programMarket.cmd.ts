@@ -144,7 +144,7 @@ function appendProgramMarketStatusLines(
   lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
   lines.push(`${statusEmoji} displayStatus: ${displayStatus}`);
   lines.push(`finalStatus: ${displayStatus}`);
-  lines.push(`scoring: ${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'excluded' : 'shadow_only'}`);
+  lines.push(`scoring: ${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'excluded' : 'advisory'}`);
   if (isCandidateOnly) {
     lines.push(`confidence: LOW`);
     const sourceLabel = combinedSource === 'KOSPI_PLUS_KOSDAQ'
@@ -251,6 +251,10 @@ function appendMacroProgramMarketLines(lines: string[], macro: ReturnType<typeof
       lines.push(`  • display whole: ${macro.programMarket.display.wholeNetBuy}`);
       lines.push(`  • unitAssumption: ${macro.programMarket.unit.rawUnitAssumption}`);
       lines.push(`  • mappingConfidence: ${macro.programMarket.unit.mappingConfidence}`);
+      if (macro.programMarket.unit.mappingConfidence === 'MAPPING_VERIFIED') {
+        lines.push('  • 단위: 천원 기준 확정');
+        lines.push('  • 표시: 억원 환산');
+      }
       if (macro.programMarket.unit.rawUnitAssumption === 'UNVERIFIED' && macro.programMarket.unitCandidates) {
         lines.push('  • 단위 후보:');
         lines.push(`    - 원 기준: ${macro.programMarket.unitCandidates.KRW}`);
