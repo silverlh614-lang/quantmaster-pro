@@ -17,9 +17,10 @@ import type { TelegramCommand } from '../_types.js';
 function formatKrwInEokwon(amountWon: number | null | undefined): string {
   if (amountWon === null || amountWon === undefined || !Number.isFinite(amountWon)) return 'N/A';
   const eokwon = amountWon / 100_000_000;
-  if (Math.abs(eokwon) < 0.05) return '0억원';
+  if (amountWon !== 0 && Math.abs(eokwon) < 0.01) return '0.01억원 미만';
+  if (amountWon !== 0 && eokwon.toFixed(2) === '0.00') return `약 0억원(raw: ${amountWon})`;
   const sign = eokwon > 0 ? '+' : '';
-  return `${sign}${eokwon.toFixed(1)}억원`;
+  return `${sign}${eokwon.toFixed(2)}억원`;
 }
 
 /** macroState 영속값(이미 억원 단위) 포맷. */
@@ -108,6 +109,7 @@ function appendProgramMarketStatusLines(
   statusEmoji: string,
 ): void {
   lines.push(`${statusEmoji} status: ${status}`);
+  lines.push(`source: ${live.source ?? 'KIS_API'}`);
   lines.push(`latest: ${live.latest ?? 'N/A'}`);
   lines.push(`updated: ${live.updated ?? 'N/A'}`);
   const liveQty = live.programNetBuyQty ?? live.programNetBuyAmount ?? 0;
@@ -116,10 +118,17 @@ function appendProgramMarketStatusLines(
   lines.push(`${qtyEmoji} ${qtyLabel}: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
   lines.push(`selectedNetBuy: ${formatKrwInEokwon(live.programNetBuyAmount)}`);
   lines.push(`selectedReason: ${live.selectedReason ?? 'N/A'}`);
+  lines.push(`finalStatus: ${status === 'OK_NONZERO' ? 'OFFICIAL_PARAMS_VERIFIED' : status}`);
+  lines.push('scoring: shadow_only');
+  lines.push('executionImpact: NONE');
   if (live.rowCount !== undefined || live.nonZeroRowCount !== undefined) {
     lines.push(`nonZeroRows: ${live.nonZeroRowCount ?? 0}/${live.rowCount ?? 0}`);
   }
-  if (live.zeroReason) lines.push(`zeroReason: ${live.zeroReason}`);
+  if (status === 'OK_NONZERO') {
+    lines.push('zeroReason: NON_ZERO');
+  } else if (live.zeroReason) {
+    lines.push(`zeroReason: ${live.zeroReason}`);
+  }
   lines.push(`providerIssue=${live.providerIssue ?? false}`);
   lines.push(`executionImpact=${live.executionImpact ?? 'NONE'}`);
   lines.push(`판정: ${status === 'OK_NONZERO' ? 'usable' : 'observe / scoring excluded'}`);

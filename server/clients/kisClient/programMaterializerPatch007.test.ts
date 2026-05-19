@@ -39,7 +39,7 @@ describe('PATCH-007 market program materializer', () => {
     expect(result.status).toBe('OK_NONZERO');
     expect(result.outputPath).toBe('output[1]');
     expect(result.diagnostics?.selectedPath).toBe('output[1]');
-    expect(result.diagnostics?.selectedReason).toBe('LATEST_NON_ZERO_ROW');
+    expect(result.diagnostics?.selectedReason).toBe('LATEST_BY_BSOP_HOUR');
     expect(result.materialized?.programNetBuyAmount).toBe(120_000_000);
     expect(result.diagnostics?.providerIssue).toBe(false);
     expect(result.diagnostics?.executionImpact).toBe('NONE');
@@ -97,5 +97,18 @@ describe('PATCH-007 market program materializer', () => {
     expect(parseKisNumber('1,234,000,000')).toBe(1_234_000_000);
     expect(result.materialized?.programNetBuyAmount).toBe(1_234_000_000);
     expect(result.diagnostics?.parseQuality).toBe('OK');
+  });
+
+  it('selects latest by bsop_hour even when output[0] is newer non-zero ordering mismatch', () => {
+    const result = materializeKisMarketProgramTrade({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      output: [
+        { bsop_hour: '090000', whol_smtn_ntby_tr_pbmn: '100' },
+        { bsop_hour: '100300', whol_smtn_ntby_tr_pbmn: '-1303641' },
+      ],
+    }, '2026-05-15T01:10:00.000Z', new Date('2026-05-15T01:10:00.000Z'));
+    expect(result.materialized?.programNetBuyAmount).toBe(-1303641);
+    expect(result.outputPath).toBe('output[1]');
   });
 });

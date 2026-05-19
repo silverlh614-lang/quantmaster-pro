@@ -79,7 +79,7 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
   lines.push(`kosdaqRequestParams: ${JSON.stringify(kosdaqParams)}`);
   lines.push(`requestSerializerDroppedEmptyFields: ${droppedEmpty}`);
   lines.push(`missingFieldFromKisError: ${missingField}`);
-  lines.push('zeroReason: KIS_ACCEPTED_EMPTY_IS_NOT_BEARISH');
+  lines.push(`zeroReason: ${rawDiag.zeroReason === 'NON_ZERO' ? 'NON_ZERO' : (rawDiag.zeroReason ?? 'N/A')}`);
   lines.push('executionImpact=NONE, providerIssue=false, marketSignal=false, scoring=excluded until mapping verified');
   return lines.join('\n');
 }
