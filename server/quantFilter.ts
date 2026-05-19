@@ -22,6 +22,11 @@ import {
   type KisOfficialDriftDiagnostic,
   type KisProviderStatus,
 } from './clients/kisClient/kisOfficialQuoteMapper.js';
+import {
+  normalizeLiquidityFloorForGate1,
+  type Gate1LiquidityFloorDiagnostic,
+  type Gate1LiquidityFloorStatus as Gate1LiquidityFloorStatusValue,
+} from './quant/gate1LiquidityFloor.js';
 
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
@@ -61,7 +66,7 @@ export type Gate1SurvivalExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED_ONLY' | 'D
 export type Gate1QuoteFreshnessStatus = 'OK' | 'STALE' | 'MISSING' | 'UNKNOWN';
 export type Gate1TradabilityStatus = 'TRADABLE' | 'HALTED' | 'WARNING' | 'MANAGEMENT' | 'UNKNOWN';
 export type Gate1TradabilitySource = 'KIS_OFFICIAL' | 'QMP_MASTER' | 'UNKNOWN';
-export type Gate1LiquidityFloorStatus = 'PASS' | 'FAIL' | 'UNKNOWN';
+export type Gate1LiquidityFloorStatus = Gate1LiquidityFloorStatusValue;
 export type Gate1MarketSession = 'REGULAR' | 'PREMARKET' | 'AFTERMARKET' | 'LUNCH' | 'SELL_ONLY' | 'CLOSED' | 'UNKNOWN';
 export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
 export type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
@@ -84,16 +89,7 @@ export interface Gate1SurvivalDiagnostic {
     reason: string | null;
     executionImpact: Gate1SurvivalExecutionImpact;
   };
-  liquidityFloor: {
-    status: Gate1LiquidityFloorStatus;
-    volume: number | null;
-    tradingValue: number | null;
-    threshold: {
-      minVolume: number | null;
-      minTradingValue: number | null;
-    };
-    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
-  };
+  liquidityFloor: Gate1LiquidityFloorDiagnostic;
   marketSessionCompatibility: {
     session: Gate1MarketSession;
     liveBuyAllowed: boolean;
@@ -257,8 +253,6 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
 const CONDITION_WEIGHT_MIN = 0.1;
 const CONDITION_WEIGHT_MAX = 2.0;
 const GATE1_SURVIVAL_STALE_AFTER_SEC = 15 * 60;
-const GATE1_SURVIVAL_MIN_VOLUME = 10_000;
-const GATE1_SURVIVAL_MIN_TRADING_VALUE = 100_000_000;
 
 type QuoteRecord = YahooQuoteExtended & Record<string, unknown>;
 
@@ -466,29 +460,14 @@ function buildGate1Tradability(quote: YahooQuoteExtended): Gate1SurvivalDiagnost
   return { status, source, reason, executionImpact };
 }
 
-function buildGate1LiquidityFloor(quote: YahooQuoteExtended): Gate1SurvivalDiagnostic['liquidityFloor'] {
-  const q = quote as QuoteRecord;
-  const volume = positiveNumberOrNull(firstQuoteValue(q, ['volume', 'regularMarketVolume', 'acmlVol', 'acml_vol']));
-  const price = positiveNumberOrNull(firstQuoteValue(q, ['price', 'currentPrice', 'regularMarketPrice']));
-  const explicitTradingValue = positiveNumberOrNull(firstQuoteValue(q, ['tradingValue', 'tradeValue', 'accTradePrice', 'acmlTrPbmn', 'acml_tr_pbmn']));
-  const tradingValue = explicitTradingValue ?? (price != null && volume != null ? price * volume : null);
-
-  const status: Gate1LiquidityFloorStatus = volume == null || tradingValue == null
-    ? 'UNKNOWN'
-    : volume >= GATE1_SURVIVAL_MIN_VOLUME && tradingValue >= GATE1_SURVIVAL_MIN_TRADING_VALUE
-      ? 'PASS'
-      : 'FAIL';
-
-  return {
-    status,
-    volume,
-    tradingValue,
-    threshold: {
-      minVolume: GATE1_SURVIVAL_MIN_VOLUME,
-      minTradingValue: GATE1_SURVIVAL_MIN_TRADING_VALUE,
-    },
-    executionImpact: status === 'PASS' ? 'NONE' : 'DIAGNOSTIC_ONLY',
-  };
+function buildGate1LiquidityFloor(
+  quote: YahooQuoteExtended,
+  coverage: Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'],
+): Gate1SurvivalDiagnostic['liquidityFloor'] {
+  return normalizeLiquidityFloorForGate1({
+    quote: quote as QuoteRecord,
+    quoteCoverage: coverage,
+  });
 }
 
 function normalizeGate1MarketSession(value: unknown): Gate1MarketSession {
@@ -558,7 +537,7 @@ function buildGate1SurvivalDiagnostic(quote: YahooQuoteExtended): Gate1SurvivalD
   const kisOfficialQuoteCoverage = buildGate1QuoteCoverage(quote);
   const quoteFreshness = buildGate1QuoteFreshness(quote, kisOfficialQuoteCoverage);
   const tradability = buildGate1Tradability(quote);
-  const liquidityFloor = buildGate1LiquidityFloor(quote);
+  const liquidityFloor = buildGate1LiquidityFloor(quote, kisOfficialQuoteCoverage);
   const marketSessionCompatibility = buildGate1MarketSessionCompatibility(quote);
   const shadowEligibility = buildGate1ShadowEligibility({
     freshness: quoteFreshness,

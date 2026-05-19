@@ -168,6 +168,8 @@ describe('Gate pipeline integrity audit', () => {
     });
     expect(survival?.kisOfficialQuoteCoverage.confidence).toBe('VERIFIED');
     expect(survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
+    expect(survival?.liquidityFloor.marketSignal).toBe(false);
+    expect(survival?.liquidityFloor.executionImpact).toBe('DIAGNOSTIC_ONLY');
     expect(survival?.shadowEligibility).toMatchObject({
       allowed: true,
       mode: 'NORMAL_SHADOW',
@@ -177,6 +179,41 @@ describe('Gate pipeline integrity audit', () => {
       session: 'REGULAR',
       liveBuyAllowed: true,
       shadowAllowed: true,
+    });
+  });
+
+  it('adds Gate1 liquidity PASS diagnostics without changing score semantics', () => {
+    const q = gate1OnlyQuote({
+      currentPrice: 12_000,
+      volume: 1_000_000,
+      avgVolume20d: 800_000,
+      tradingValue: 12_000_000_000,
+      avgTradingValue20d: 9_600_000_000,
+    } as Partial<YahooQuoteExtended>);
+    const result = evaluateServerGate(q, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
+
+    expect(result.gateScore).toBeCloseTo(2.8, 5);
+    expect(result.rawScore).toBeCloseTo(2.8, 5);
+    expect(result.gateScore).toBe(result.rawScore);
+
+    expect(result.gateLayerSummary?.gate1.survival?.liquidityFloor).toMatchObject({
+      status: 'PASS',
+      volume: 1_000_000,
+      avgVolume20d: 800_000,
+      tradingValue: 12_000_000_000,
+      avgTradingValue20d: 9_600_000_000,
+      currentPrice: 12_000,
+      checks: {
+        volumePass: true,
+        tradingValuePass: true,
+        avgVolumePass: true,
+        avgTradingValuePass: true,
+      },
+      source: 'KIS_OFFICIAL',
+      sourceStatus: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
     });
   });
 
@@ -236,6 +273,13 @@ describe('Gate pipeline integrity audit', () => {
       expect.arrayContaining(['currentPrice', 'volume']),
     );
     expect(survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
+    expect(survival?.liquidityFloor).toMatchObject({
+      status: 'MISSING',
+      reason: 'LIQUIDITY_INPUT_MISSING',
+      providerIssue: true,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    });
     expect(survival?.shadowEligibility).toMatchObject({
       allowed: true,
       mode: 'DEGRADED_SHADOW',
@@ -321,6 +365,7 @@ describe('Gate pipeline integrity audit', () => {
     accumulateGateLayerSummary(counters, gate.gateLayerSummary, 'STRONG');
     const audit = buildGateLayerAuditSummary(counters);
     expect(audit.strongBuySuppressedByDataUnavailableCount).toBeGreaterThanOrEqual(1);
+    expect(audit.gate1Survival?.liquidityStatus).toBeDefined();
     expect(gate.normalizedGateScore).not.toBe(gate.gateScore);
   });
 

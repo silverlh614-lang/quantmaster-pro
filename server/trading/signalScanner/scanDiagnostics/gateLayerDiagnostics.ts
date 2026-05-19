@@ -19,6 +19,7 @@ export interface Gate1SurvivalAuditSummary {
   samples: number;
   quoteFreshness: Record<string, number>;
   quoteCoverageConfidence: Record<string, number>;
+  liquidityStatus: Record<string, number>;
   marketSession: Record<string, number>;
   shadowMode: Record<string, number>;
   liveBuyBlockedCount: number;
@@ -49,6 +50,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       samples: 0,
       quoteFreshness: {},
       quoteCoverageConfidence: {},
+      liquidityStatus: {},
       marketSession: {},
       shadowMode: {},
       liveBuyBlockedCount: 0,
@@ -85,6 +87,7 @@ export function accumulateGateLayerSummary(
     counters.gateLayerAudit.gate1Survival.samples += 1;
     incrementCount(counters.gateLayerAudit.gate1Survival.quoteFreshness, survival.quoteFreshness.status);
     incrementCount(counters.gateLayerAudit.gate1Survival.quoteCoverageConfidence, survival.kisOfficialQuoteCoverage.confidence);
+    incrementCount(counters.gateLayerAudit.gate1Survival.liquidityStatus, survival.liquidityFloor.status);
     incrementCount(counters.gateLayerAudit.gate1Survival.marketSession, survival.marketSessionCompatibility.session);
     incrementCount(counters.gateLayerAudit.gate1Survival.shadowMode, survival.shadowEligibility.mode);
     if (!survival.marketSessionCompatibility.liveBuyAllowed) counters.gateLayerAudit.gate1Survival.liveBuyBlockedCount += 1;
@@ -118,6 +121,7 @@ export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSumma
     `  samples: ${summary.samples}`,
     `  quoteFreshness: ${topKey(summary.quoteFreshness)}`,
     `  quoteCoverageConfidence: ${topKey(summary.quoteCoverageConfidence)}`,
+    `  liquidityFloor: ${topKey(summary.liquidityStatus)}`,
     `  marketSession: ${topKey(summary.marketSession)}`,
     `  shadowMode: ${topKey(summary.shadowMode)}`,
     `  liveBuyBlockedOnly/advisory: ${summary.liveBuyBlockedCount}`,
