@@ -2349,7 +2349,7 @@ export function formatGate1MinimumSignalForensicSection(
 
   const lines: string[] = [];
   lines.push('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
-  lines.push(`- evaluationState=${summary.evaluationState} evaluated=${summary.evaluatedCandidateCount}/${summary.totalCandidates} traceOnly=${summary.traceOnlyCandidateCount}`);
+  lines.push(`- evaluationState=${summary.evaluationState} diagnosticEvaluated=${summary.evaluatedCandidateCount}/${summary.totalCandidates} traceOnly=${summary.traceOnlyCandidateCount}`);
   if (summary.evaluationState === 'NOT_EVALUATED_SELL_ONLY') {
     lines.push('- SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.');
     lines.push('- evaluationState=NOT_EVALUATED_SELL_ONLY liveNewBuyAllowed=false positionManagementAllowed=true shadowLearningAllowed=true executionImpact=NEW_BUY_BLOCKED_ONLY');
@@ -2376,9 +2376,13 @@ export function formatGate1MinimumSignalForensicSection(
   const m = summary.missingPositiveSourceCounts;
   const missingParts: string[] = [];
   if (m.watchlistUpstreamMissing > 0) missingParts.push(`watchlist=${m.watchlistUpstreamMissing}`);
-  if (m.relativeStrengthMissing > 0) missingParts.push(`rs=${m.relativeStrengthMissing}`);
-  if (m.breakoutStructureMissing > 0) missingParts.push(`breakout=${m.breakoutStructureMissing}`);
-  if (missingParts.length > 0) lines.push(`- missing: ${missingParts.join(' ')}`);
+  if (missingParts.length > 0) lines.push(`- Gate1Missing: ${missingParts.join(' ')}`);
+  const gate2MissingParts: string[] = [];
+  if (m.relativeStrengthMissing > 0) gate2MissingParts.push(`rs=${m.relativeStrengthMissing}`);
+  if (gate2MissingParts.length > 0) lines.push(`- Gate2Missing: ${gate2MissingParts.join(' ')}`);
+  const gate3MissingParts: string[] = [];
+  if (m.breakoutStructureMissing > 0) gate3MissingParts.push(`breakout=${m.breakoutStructureMissing}`);
+  if (gate3MissingParts.length > 0) lines.push(`- Gate3Missing: ${gate3MissingParts.join(' ')}`);
 
   // penalties — 1개 이상일 때만 표시
   const p = summary.penaltyCounts;
@@ -2400,7 +2404,7 @@ export function formatGate1MinimumSignalForensicSection(
   if (warnParts.length > 0) lines.push(`- supplyScopeWarnings: ${warnParts.join(' ')}`);
 
   lines.push(
-    `- supplySemantic: available=${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates} diagnosticAvailable=${summary.supplyDiagnosticAvailable ?? 0}/${summary.totalCandidates}`,
+    `- supplySemanticCoverage=${summary.supplySemanticAvailable ?? 0}/${summary.totalCandidates} supplyDiagnosticRows=${summary.supplyDiagnosticAvailable ?? 0}/${summary.totalCandidates} semanticUnavailable=${Math.max(0, summary.totalCandidates - (summary.supplySemanticAvailable ?? 0))} marketSignal=false`,
   );
   const pseudoSkipped = summary.semanticReasonDistribution?.DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL ?? 0;
   if (pseudoSkipped > 0) {
