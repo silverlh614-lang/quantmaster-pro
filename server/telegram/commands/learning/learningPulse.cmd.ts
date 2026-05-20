@@ -37,7 +37,7 @@ function classifyCohortRefreshFailure(error: unknown): CohortSnapshotRefreshFail
   if (msg.includes('ENOENT') || msg.includes('REPO')) return 'COHORT_REPO_UNAVAILABLE';
   return 'UNKNOWN_ERROR';
 }
-function counterfactualMetadataMissingCount(repair: ReturnType<typeof counterfactualMetadataRepairDryRun>): number {
+function counterfactualMetadataMissingCount(repair: ReturnType<typeof counterfactualMetadataRepairDryRun> | ReturnType<typeof counterfactualMetadataRepairRun>): number {
   return Math.max(repair.missingEntryPrice, repair.missingTargetPrice, repair.missingStopPrice);
 }
 function splitCounterfactualSuggestBlockers(input: {

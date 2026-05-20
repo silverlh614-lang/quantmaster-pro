@@ -176,7 +176,9 @@ export interface GateLayerBucket {
 
 export interface GateLayerSummary {
   gate1: GateLayerBucket;
-  gate2: GateLayerBucket;
+  gate2: GateLayerBucket & {
+    externalDataCoverage?: Gate2ExternalDataCoverage;
+  };
   gate3: GateLayerBucket & {
     wiring?: Gate3WiringDiagnostic[];
     sourceCoverage?: Gate3SourceCoverage;
@@ -707,7 +709,7 @@ function buildGateLayerSummary(
 ): GateLayerSummary {
   const summary: GateLayerSummary = {
     gate1: { ...emptyGateLayerBucket(), wiring: [], sourceCoverage: emptyGate1SourceCoverage() },
-    gate2: emptyGateLayerBucket(),
+    gate2: emptyGateLayerBucket() as GateLayerSummary['gate2'],
     gate3: emptyGateLayerBucket() as GateLayerSummary['gate3'],
     finalPath: 'WATCHLIST_ONLY',
   };

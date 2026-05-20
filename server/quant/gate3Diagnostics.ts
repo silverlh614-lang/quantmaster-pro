@@ -961,7 +961,7 @@ export function normalizeGate3Pullback(input: {
   const distanceToMa20Pct = pctDistance(currentPrice, ma20);
   const distanceToMa60Pct = pctDistance(currentPrice, ma60);
   const maCandidates = [{ key: 'MA20' as const, distance: distanceToMa20Pct }, { key: 'MA60' as const, distance: distanceToMa60Pct }].filter(item => item.distance != null);
-  const nearestMa = maCandidates.sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
+  const nearestMa = maCandidates.sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!)).at(0);
   const nearestSupport = nearestMa?.key ?? (ma20 == null && ma60 == null ? 'UNKNOWN' : 'NONE');
   const nearestMaDistance = nearestMa?.distance ?? null;
   const maStatus: Gate3PullbackDiagnostic['movingAverageSupport']['status'] = nearestMaDistance == null ? 'MISSING' : nearestMaDistance < -0.03 ? 'BROKEN' : Math.abs(nearestMaDistance) <= 0.03 ? 'SUPPORT_NEAR' : 'EXTENDED';
@@ -973,7 +973,7 @@ export function normalizeGate3Pullback(input: {
   const fib500 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.5 : null;
   const fib618 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.618 : null;
   const fibCandidates = [{ key: 'FIB_382' as const, value: fib382 }, { key: 'FIB_500' as const, value: fib500 }, { key: 'FIB_618' as const, value: fib618 }].filter(item => item.value != null && currentPrice != null);
-  const nearestFibCandidate = fibCandidates.map(item => ({ key: item.key, value: item.value, distance: pctDistance(currentPrice, item.value) })).sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
+  const nearestFibCandidate = fibCandidates.map(item => ({ key: item.key, value: item.value, distance: pctDistance(currentPrice, item.value) })).sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!)).at(0);
   const nearestFib = nearestFibCandidate?.key ?? (canCalculateFib ? 'NONE' : 'UNKNOWN');
   const distanceToNearestFibPct = nearestFibCandidate?.distance ?? null;
   const fibStatus: Gate3PullbackDiagnostic['fibonacci']['status'] = distanceToNearestFibPct == null ? 'MISSING' : distanceToNearestFibPct < -0.03 ? 'BROKEN' : Math.abs(distanceToNearestFibPct) <= 0.03 ? 'SUPPORT_NEAR' : 'EXTENDED';
@@ -1000,7 +1000,7 @@ export function normalizeGate3Pullback(input: {
       : boxStatus === 'RETEST_NEAR' ? 'BOX_TOP'
         : recentSwingLow != null && currentPrice != null && Math.abs(pctDistance(currentPrice, recentSwingLow) ?? Infinity) <= 0.03 ? 'SWING_LOW'
           : 'NONE';
-  if (supportReference === 'NONE' || supportReference === 'UNKNOWN') notes.push('SUPPORT_REFERENCE_UNKNOWN');
+  if (supportReference === 'NONE') notes.push('SUPPORT_REFERENCE_UNKNOWN');
 
   const subStatuses = [swingStatus, maStatus, fibStatus, boxStatus, pullbackQualityStatus] as string[];
   const allMissing = subStatuses.every(status => status === 'MISSING' || status === 'UNKNOWN');
