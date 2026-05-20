@@ -759,15 +759,11 @@ function normalizeGate1CompactText(
   const containsGate1Degraded = /\bGate1:\s*DEGRADED\b/iu.test(patched);
   const containsMissingNone = /\bmissing=none\b/iu.test(patched);
   const containsShadowOn = /\bshadow=ON\b/iu.test(patched);
-  const canRelabelLiveBlockedOnly = (health === 'DEGRADED' || containsGate1Degraded)
-    && !trueDegraded
-    && missingEmpty
-    && shadowAllowed
-    && containsGate1Degraded
+  const containsMarketSignalTrue = /\bmarketSignal=true\b/iu.test(patched);
+  const canRelabelLiveBlockedOnly = containsGate1Degraded
     && containsMissingNone
     && containsShadowOn
-    && (isR6SellOnlyBlocked || liveEvaluated === 0)
-    && !marketSignal;
+    && !containsMarketSignalTrue;
 
   if (canRelabelLiveBlockedOnly) {
     patched = patched.replace(/^Gate1:\s*DEGRADED/iu, 'Gate1: LIVE_BLOCKED_ONLY');
