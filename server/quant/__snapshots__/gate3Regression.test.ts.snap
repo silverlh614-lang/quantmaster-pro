@@ -1,0 +1,77 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Gate3 regression fixture snapshot / diagnostic invariance > baseline fixture snapshot 1`] = `
+{
+  "consolidatedDiagnostic": {
+    "executionImpact": "DIAGNOSTIC_ONLY",
+    "health": "DEGRADED",
+    "marketSignal": false,
+    "operatorAction": "REVIEW_GATE3_INPUTS",
+    "primaryIssue": "GATE3_INPUT_MISSING",
+    "timingAlignment": {
+      "falseBreakoutRisk": "HIGH",
+      "intraday": "DIAGNOSTIC_ONLY",
+      "momentum": "CONFIRMED",
+      "priceBreakout": "CONFIRMED",
+      "pullback": "DIAGNOSTIC_ONLY",
+      "volume": "CONFIRMED",
+    },
+  },
+  "externalDataCoverage": {
+    "executionImpactMatrix": {
+      "falseBreakout": "DIAGNOSTIC_ONLY",
+      "intradayTiming": "DIAGNOSTIC_ONLY",
+      "momentumIndicators": "DIAGNOSTIC_ONLY",
+      "priceStructure": "DIAGNOSTIC_ONLY",
+      "pullbackSupport": "DIAGNOSTIC_ONLY",
+      "technicalIndicators": null,
+      "volumeStructure": null,
+      "volumeTiming": "DIAGNOSTIC_ONLY",
+    },
+    "marketSignalMatrix": {
+      "falseBreakout": false,
+      "intradayTiming": false,
+      "momentumIndicators": false,
+      "priceStructure": false,
+      "pullbackSupport": false,
+      "technicalIndicators": false,
+      "volumeStructure": false,
+      "volumeTiming": false,
+    },
+    "sections": [
+      "falseBreakout",
+      "intradayTiming",
+      "momentumIndicators",
+      "priceStructure",
+      "pullbackSupport",
+      "technicalIndicators",
+      "volumeStructure",
+      "volumeTiming",
+    ],
+    "statusMatrix": {
+      "falseBreakout": "WARN",
+      "intradayTiming": "PARTIAL",
+      "momentumIndicators": "PARTIAL",
+      "priceStructure": "VERIFIED",
+      "pullbackSupport": "PARTIAL",
+      "technicalIndicators": "CALCULATION_MISSING",
+      "volumeStructure": "VERIFIED",
+      "volumeTiming": "VERIFIED",
+    },
+  },
+  "sourceCoverage": {
+    "allDeclaredInputsAvailable": false,
+    "allRequiredDataAvailable": true,
+    "calculationIssues": [
+      "vcp",
+    ],
+    "diagnosticOnly": true,
+    "marketSignal": false,
+    "missingInputs": [
+      "quote.vol5dAvg",
+      "quote.vol20dAvg",
+      "quote.ma5",
+    ],
+  },
+}
+`;
