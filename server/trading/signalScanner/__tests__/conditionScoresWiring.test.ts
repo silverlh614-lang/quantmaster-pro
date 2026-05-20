@@ -76,7 +76,7 @@ describe('PR-F-2 wiring — conditionScores 전달', () => {
     // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
     const { readFileSync } = await import('fs');
     const src = readFileSync(
-      'server/trading/signalScanner/perSymbol/buyListLoop.ts',
+      'server/trading/signalScanner/perSymbol/steps/entryRevalidationGate.ts',
       'utf-8',
     );
     expect(src).toContain('buildEntryConditionScores');

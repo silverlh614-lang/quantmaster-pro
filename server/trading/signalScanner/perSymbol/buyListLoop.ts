@@ -16,11 +16,9 @@ import { applySupplyProviderHealthFromKisFlow } from '../../../clients/kisClient
 import { logger, logNoiseDetail, logVisibilityEvent } from '../../../utils/logger.js';
 import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
-import type { ServerShadowTrade, EntryKellySnapshot } from '../../../persistence/shadowTradeRepo.js';
-import { appendShadowLog } from '../../../persistence/shadowTradeRepo.js';
+import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
 import type { WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { isBlacklisted } from '../../../persistence/blacklistRepo.js';
-import { loadKellyDampenerState } from '../../kellyDampener.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { channelBuySignalEmitted } from '../../../alerts/channelPipeline.js';
 import {
@@ -36,70 +34,46 @@ import {
   canReserveBanditProbingSlot,
   type BanditDecision,
 } from '../../../learning/probingBandit.js';
-import { checkFailurePattern } from '../../../learning/failurePatternDB.js';
 import { buildEntryConditionScores } from '../../../learning/entryConditionScores.js';
-import { evaluateCorrelationGate } from '../../correlationSlotGate.js';
-import { recordCounterfactual, COUNTERFACTUAL_DAILY_CAP } from '../../../learning/counterfactualShadow.js';
 import { recordUniverseEntries } from '../../../learning/ledgerSimulator.js';
 import { computeSlotConsumption } from '../../slotAccounting.js';
 // ADR-0068 (PR-R): Shadow Learning Hooks — PR-L (Rejection Tracker) + PR-M (Twin Portfolio) wiring
-import { recordRejection } from '../../../learning/rejectionShadowTracker.js';
 import { recordTwinEntries } from '../../../learning/counterfactualTwinPortfolio.js';
 import type { FullRegimeConfig } from '../../../../src/types/core.js';
 import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { addRecommendation } from '../../../learning/recommendationTracker.js';
 import { recordAiCandidate, buildSignalId } from '../../../persistence/tradeSignalStatusRepo.js';
-import { getAccountRiskBudget, computeRiskAdjustedSize, FRACTIONAL_KELLY_CAP } from '../../accountRiskBudget.js';
 import { evaluateServerGate } from '../../../quantFilter.js';
-import {
-  applyEntryPriceDrift,
-  CATALYST_POSITION_FACTOR, CATALYST_FIXED_STOP_PCT,
-} from '../../../screener/watchlistManager.js';
-import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../../../screener/stockScreener.js';
+import { fetchYahooQuote, fetchKisQuoteFallback } from '../../../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../../../screener/adapters/yahooSymbolResolver.js';
 import { fillMonitor } from '../../fillMonitor.js';
 import { trancheExecutor } from '../../trancheExecutor.js';
 import { ENTRY_GATES_PHASE_B } from '../entryGates/index.js';
 import {
-  entryRevalidationStep,
-  kisIntradayCorrectionStep as runKisIntradayCorrectionStep,
   yahooAvailabilityStep,
   mtasGateStep,
   sellOnlyExceptionStep,
 } from '../revalidationSteps/index.js';
-import {
-  applySectorScoreBoost,
-  classifySectorTier,
-  describeSectorBoost,
-} from '../../sectorScoreBoost.js';
 // ADR-0400: STRONG_BUY 4 조건 OR confidence gate wiring (ADR-0398 dead code 종결).
 import {
   evaluateSectorEnergyStrongBuyGate,
   isSectorEnergyStrongBuyGateWiringDisabled,
 } from '../../sectorEnergyStrongBuyGate.js';
-import { evaluateDataQualityFromStock } from '../../priceSourcePolicy.js';
 import {
-  sizingTierDecider,
-  kellyBudgetDecider,
   stopLossPolicyResolver,
 } from '../sizingDeciders/index.js';
 import { applyApprovalReservation } from '../approvalQueue/index.js';
 import {
-  isEntryPriceAutoCorrectDisabled,
-  isPreBreakoutFailCountDisabled,
   shouldIncrementFailCount,
 } from '../failureClassifier.js';
 // ADR-0128 §Wiring 1+2 — DataHoldRolePolicy SSOT 위임 + verifyStockIncremental BUY_CANDIDATE.
 import { verifyStockIncremental } from '../../../data/dataVerificationIncremental.js';
-import { resolveDataHoldAction } from '../../../data/dataHoldRolePolicy.js';
 // ADR-0191 §Wiring 2 — 자기 보유 가드 SSOT (positionTruth) — 동일 종목 12회 매수 (물타기) 차단.
-import { loadOpenPositions } from '../../../persistence/positionTruth.js';
 import {
   isOpenShadowStatus,
   buildStopLossPlan,
   formatStopLossBreakdown,
   calculateOrderQuantity,
-  getKstMarketElapsedMinutes,
 } from '../../entryEngine.js';
 import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { checkCooldownRelease } from '../../regretAsymmetryFilter.js';
@@ -134,13 +108,7 @@ import {
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
   accumulateGateEligibility,
-  accumulateGateScoreCandidateBucket,
-  accumulateGateScoreHealth,
-  accumulateGateLayerSummary,
   recordPipelineStage,
-  accumulateNearMissOutcomeLedgerWrite,
-  accumulateGateReclassificationDryRun,
-  accumulatePositiveScoreStarvation,
 } from '../scanDiagnostics.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
@@ -149,8 +117,6 @@ import { classifyGateEligibility } from '../gateEligibilityClassifier.js';
 // ADR-0427 — R3_EARLY Provisional Shadow Lane wiring.
 //   ADR-0426 SSOT (deriveR3ProvisionalShadowCandidate) 호출 + provisionalShadowLedger 영속.
 //   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. Gate1 survivor 분기 직후 try/catch 격리.
-import { deriveR3ProvisionalShadowCandidate } from '../provisionalShadowLane.js';
-import { recordR3ProvisionalShadowCandidate } from '../../../persistence/provisionalShadowLedger.js';
 // ADR-0430 — Counterfactual Shadow Learning Lane (SELL_ONLY/HARD_BLOCK fallback).
 //   ADR-0427 provisional null 반환 시점 (HARD_BLOCK 등) 에 학습 전용 record 영속.
 //   별도 ledger (counterfactual-shadow-learning-ledger.json), virtual account 무관,
@@ -172,7 +138,7 @@ import {
   recordShadowExecutionOutcome,
 } from '../../shadowExecutionPipeline.js';
 import { channelShadowBuyFilled } from '../../../alerts/channelPipeline.js';
-import { getPrice, FAILURE_BLOCK_THRESHOLD_PCT, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
+import { getPrice, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0516 — Watchlist Tier 정책: KIS REST 호출 빈도 차등화 SSOT.
 //   MOMENTUM_PASSIVE / KIS_LOAD_STATE=RED 등 tier 정책이 REST fallback 을 차단하면
@@ -194,28 +160,18 @@ import {
   type TradingSignal,
 } from '../../../learning/supplyHealthLearning.js';
 import { appendLearningSample } from '../../../persistence/learningSampleRepo.js';
-import { recordNearMissOutcome } from '../../../persistence/nearMissOutcomeLedger.js';
-import {
-  evaluateGateReclassificationDryRun,
-  isGateReclassificationDryRunDisabled,
-} from '../../../learning/gateReclassificationDryRun.js';
-import { loadGateReclassificationApprovalPlan } from '../../../learning/gateReclassificationApprovalPlan.js';
-import {
-  buildGateReclassificationDryRunId,
-  upsertGateReclassificationDryRunRecord,
-} from '../../../persistence/gateReclassificationDryRunRepo.js';
-import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
-import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from '../gateConditionResultTrace.js';
 import { normalizeMacroRegime } from '../../entryPolicySemantics.js';
+import { checkEntryPriceDrift } from './steps/entryPriceDrift.js';
+import { kisIntradayCorrectionStep } from './steps/kisIntradayCorrection.js';
+import { provisionalShadowLaneDerive } from './steps/provisionalShadowLane.js';
+import {
+  handleEntryRevalidationGate,
+  type EntryRevalidationSkippedBatchItem,
+} from './steps/entryRevalidationGate.js';
+import { sizingTierDeciderFinal } from './steps/sizingTierDecider.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
-}
-
-interface EntryRevalidationSkippedBatchItem {
-  symbol: string;
-  score?: number;
-  reasons: string[];
 }
 
 function flushEntryRevalidationSkippedSummary(
@@ -573,143 +529,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.warn(`[TwinPortfolio] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
       }
 
-      // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
-      async function checkEntryPriceDrift(
-        ctx: BuyListLoopContext,
-        stock: WatchlistEntry,
-        currentPrice: number,
-      ): Promise<'SKIP' | 'CONTINUE'> {
-      const driftAction = applyEntryPriceDrift(stock, currentPrice);
-      // ADR-0117: DATA_HOLD — drift sanity 위반 (60~150% 추정) → 거래 차단 게이트.
-      // ADR-0128 §Decision §1: BUY_CANDIDATE role SSOT 위임. dataQuality 영속 본체는 보존.
-      // entry.entryPrice 갱신 금지 + isDataQuarantined=true + dataQuality 영속.
-      // failCount 미증가 (NON_CRITICAL — 다음 사이클 재시도 가능).
-      if (driftAction === 'DATA_HOLD') {
-        const action = resolveDataHoldAction('BUY_CANDIDATE');
-        const absDriftPct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
-        const reason = `[watchlistManager.drift:${stock.code}] sanity violation absPct=${absDriftPct.toFixed(2)}% > 90% current=${currentPrice}, base=${stock.entryPrice}`;
-        // BUY_CANDIDATE 의 uiMarker='NONE' 이지만 보수적으로 영속 마커 유지 (다음 batch 가 정리)
-        if (action.blockBuy) {
-          stock.isDataQuarantined = true;
-          stock.dataQuality = {
-            status: 'STALE_BASE_OR_SPLIT_ADJUSTMENT',
-            reason,
-            current: currentPrice,
-            base: stock.entryPrice,
-            source: 'KIS_REALTIME',
-            context: `watchlistManager.drift:${stock.code}`,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-        ctx.mutables.watchlistMutated.value = true;
-        console.warn(`[WatchlistManager] drift update skipped: ${reason}`);
-        // ADR-0128 §Decision §1: action.reason SSOT 정합 (운영자 진단 텍스트).
-        console.log(`[AutoTrade] ${stock.name}(${stock.code}) → WAIT / DATA_HOLD / ${action.reason}`);
-        stageLog.drift = 'DATA_HOLD';
-        ctx.scanCounters.waitDataHold++;  // ADR-0118
-        pushTrace();
-        return 'SKIP';
-      }
-      // ADR-0115: drift > 150% Corporate Action 의심 — RAW immutable 원칙 준수.
-      // entryPrice 자동 재설정 *제거* (ADR-0113 의 자동 보정 정책 폐기).
-      // 사용자 절대 원칙: "RAW PRICE 는 절대 수정 금지."
-      // 처리: 진단 텔레그램 + universe 제외 (다음 영업일 운영자 검토 후 수동 재진입).
-      // ENV ENTRY_PRICE_AUTO_CORRECT_DISABLED=false 명시 시에만 ADR-0113 동작 복원.
-      if (driftAction === 'CORPORATE_ACTION') {
-        const oldEntry = stock.entryPrice;
-        const driftPctText = (((currentPrice - oldEntry) / oldEntry) * 100).toFixed(1);
-        if (isEntryPriceAutoCorrectDisabled()) {
-          // 정책 적용 (default) — entryPrice 보존 + universe 제외.
-          console.warn(
-            `[AutoTrade] 🔧 ${stock.name}(${stock.code}) Corporate Action 의심 ` +
-            `(drift ${driftPctText}%) — entryPrice ${oldEntry.toLocaleString()} 보존 (RAW immutable, ADR-0115). ` +
-            `universe 제외 + DART 조회 권고.`,
-          );
-          try {
-            const { sendTelegramAlert } = await import('../../../alerts/telegramClient.js');
-            await sendTelegramAlert(
-              `🔧 <b>[Corporate Action 의심 — universe 제외]</b> ${stock.name} (${stock.code})\n` +
-              `━━━━━━━━━━━━━━━━\n` +
-              `• drift: ${driftPctText}% (분할/병합/권리락 추정)\n` +
-              `• entryPrice <b>${oldEntry.toLocaleString()}원 보존</b> (RAW immutable, ADR-0115)\n` +
-              `• 처리: 워치리스트에서 제외 (다음 영업일 운영자 검토 후 수동 entryPrice 갱신 또는 새 진입)\n` +
-              `• 권고: DART 공시 확인 (분할/병합/권리락)`,
-              {
-                priority: 'HIGH',
-                dedupeKey: `corp_action_immutable:${stock.code}`,
-                cooldownMs: 24 * 60 * 60 * 1000,
-              },
-            ).catch(() => undefined);
-          } catch (e) {
-            console.warn('[CorporateAction] 텔레그램 알림 실패:', e instanceof Error ? e.message : e);
-          }
-          // universe 제외 (REMOVE 동작과 동일)
-          const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
-          if (idx >= 0) { ctx.watchlist.splice(idx, 1); ctx.mutables.watchlistMutated.value = true; }
-          stageLog.drift = 'CORPORATE_ACTION_REMOVE';
-        } else {
-          // 레거시 ADR-0113 동작 (ENV ENTRY_PRICE_AUTO_CORRECT_DISABLED=false 명시 시에만)
-          stock.entryPrice = currentPrice;
-          stock.corporateActionAdjusted = true;
-          stock.corporateActionAdjustedAt = new Date().toISOString();
-          ctx.mutables.watchlistMutated.value = true;
-          console.warn(
-            `[AutoTrade] 🔧 ${stock.name}(${stock.code}) Corporate Action 의심 ` +
-            `(drift ${driftPctText}%) — entryPrice ${oldEntry.toLocaleString()} → ` +
-            `${currentPrice.toLocaleString()} 자동 보정 (ADR-0113 레거시 동작, ENV 우회).`,
-          );
-          try {
-            const { sendTelegramAlert } = await import('../../../alerts/telegramClient.js');
-            await sendTelegramAlert(
-              `🔧 <b>[Corporate Action 의심 — 자동 보정]</b> ${stock.name} (${stock.code})\n` +
-              `━━━━━━━━━━━━━━━━\n` +
-              `• drift: ${driftPctText}% (분할/병합/권리락 추정)\n` +
-              `• entryPrice 자동 보정: ${oldEntry.toLocaleString()} → ${currentPrice.toLocaleString()}\n` +
-              `• 권고: DART 공시 확인 (분할/병합/권리락) 후 워치리스트 검토`,
-              {
-                priority: 'HIGH',
-                dedupeKey: `corp_action:${stock.code}`,
-                cooldownMs: 24 * 60 * 60 * 1000,
-              },
-            ).catch(() => undefined);
-          } catch (e) {
-            console.warn('[CorporateAction] 텔레그램 알림 실패:', e instanceof Error ? e.message : e);
-          }
-          stageLog.drift = 'CORPORATE_ACTION';
-        }
-        ctx.scanCounters.waitDriftCorpAction++;  // ADR-0118
-        pushTrace();
-        return 'SKIP';
-      }
-      if (driftAction === 'REMOVE') {
-        const driftPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
-        console.log(
-          `[AutoTrade] ${stock.name}(${stock.code}) entryPrice 드리프트 제거 — ` +
-          `현재가 ${currentPrice.toLocaleString()} vs entryPrice ${stock.entryPrice.toLocaleString()} (+${driftPct}%)`,
-        );
-        const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
-        if (idx >= 0) { ctx.watchlist.splice(idx, 1); ctx.mutables.watchlistMutated.value = true; }
-        stageLog.drift = 'REMOVE';
-        ctx.scanCounters.waitDriftRemove++;  // ADR-0118
-        pushTrace();
-        return 'SKIP';
-      }
-      if (driftAction === 'UPDATE') {
-        const oldEntry = stock.entryPrice;
-        stock.entryPrice = currentPrice;
-        ctx.mutables.watchlistMutated.value = true;
-        console.log(
-          `[AutoTrade] ${stock.name}(${stock.code}) entryPrice 트레일 업 — ` +
-          `${oldEntry.toLocaleString()} → ${currentPrice.toLocaleString()} (+10% 이상 드리프트)`,
-        );
-        stageLog.drift = 'UPDATE';
-        pushTrace();
-        return 'SKIP'; // 이번 스캔에서는 진입 시도하지 않음 (갱신 직후 안정화 대기)
-      }
-      return 'CONTINUE';
-      }
-
-      const entryPriceDriftResult = await checkEntryPriceDrift(ctx, stock, currentPrice);
+      const entryPriceDriftResult = await checkEntryPriceDrift(ctx, stock, currentPrice, stageLog, pushTrace);
       if (entryPriceDriftResult === 'SKIP') continue;
 
       // 당일 날짜 (재진입 방지 + PRE_BREAKOUT 추종 중복 방지 공통 사용)
@@ -1688,161 +1508,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 워치리스트 stale gateScore 대신 실시간 evaluateServerGate 결과를 포지션 사이징에 반영
       // 아이디어 9: KIS API로 MTAS 월봉/주봉 보강 (매수 결정 직전 정확도 향상)
       // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
-      const reCheckQuoteRef: { value: Awaited<ReturnType<typeof enrichQuoteWithKisMTAS>> | null } = { value: null };
-      async function kisIntradayCorrectionStep(
-        ctx: BuyListLoopContext,
-        stock: WatchlistEntry,
-        currentPrice: number,
-      ): Promise<ReturnType<typeof evaluateServerGate>> {
-      const reCheckQuoteRaw = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
-                           ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
-      reCheckQuoteRef.value = reCheckQuoteRaw
-        ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
-        : null;
-      const reCheckQuote = reCheckQuoteRef.value;
-
-      // ── ADR-0031 PR-60: kisIntradayCorrectionStep mutating step ─────────
-      // Yahoo Finance의 regularMarketOpen이 한국 장중 부정확한 경우가 빈번하여
-      // KIS 현재가 API(FHKST01010100)로 dayOpen·prevClose를 항상 덮어쓴다.
-      // step 이 reCheckQuote 참조를 직접 mutate, caller 는 logMessages 만 출력.
-      const kisCorrection = await runKisIntradayCorrectionStep({
-        stockCode: stock.code,
-        reCheckQuote,
-      });
-      for (const msg of kisCorrection.logMessages) console.log(msg);
-
-      const [kisFlow, dartFin] = reCheckQuote
-        ? await Promise.all([
-            fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
-            getDartFinancials(stock.code).catch(() => null),
-          ])
-        : [null, null];
-      // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
-      applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlow);
-      try { recordPipelineStage(ctx.scanCounters, 'PRICE_FETCH', reCheckQuote ? 'PASS' : 'FAIL'); } catch {}
-      const reCheckGate = reCheckQuote
-        ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
-        : null;
-      try {
-        recordPipelineStage(ctx.scanCounters, 'SERVER_GATE_EVALUATED', reCheckGate ? 'PASS' : 'SKIPPED');
-        recordPipelineStage(ctx.scanCounters, 'GATE_LAYER_SUMMARY_BUILT', reCheckGate?.gateLayerSummary ? 'PASS' : 'SKIPPED');
-      } catch {}
-      if (reCheckGate) {
-        const conditionResultsTrace = projectGateOutputsToConditionResultsTrace(reCheckGate.outputs);
-        const conditionResults = conditionResultsTraceToMap(conditionResultsTrace);
-        Object.assign(stock, {
-          gateEvaluation: {
-            ...reCheckGate.gateEvaluation,
-            rawScore: reCheckGate.rawScore,
-            availableMaxScore: reCheckGate.availableMaxScore,
-            normalizedGateScore: reCheckGate.normalizedGateScore,
-            conditionKeys: reCheckGate.conditionKeys,
-            outputs: reCheckGate.outputs,
-          },
-          conditionResultsTrace,
-          ...(conditionResults ? { conditionResults } : {}),
-          conditionKeys: reCheckGate.conditionKeys,
-          gateRawScore: reCheckGate.rawScore,
-          normalizedGateScore: reCheckGate.normalizedGateScore,
-          availableMaxScore: reCheckGate.availableMaxScore,
-        });
-      }
-      // ADR-452c — Gate Score Health 진단 누적. 표시 전용이며 live decision/Kelly/KIS 주문에는 미사용.
-      try {
-        accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);
-        accumulateGateLayerSummary(ctx.scanCounters, reCheckGate?.gateLayerSummary, reCheckGate?.signalType);
-      } catch (e) {
-        console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
-      }
-      try {
-        if (reCheckGate) {
-          const band = getRegimeGateBand(ctx.regime);
-          accumulatePositiveScoreStarvation(
-            ctx.scanCounters,
-            buildGate1ScoreStarvationTraceFromGateResult({
-              symbol: stock.code,
-              name: stock.name,
-              requiredScore: band.strong,
-              gateResult: reCheckGate,
-              watchlistScore: stock.gateScore,
-              upstreamScore: stock.gateScore,
-            }),
-          );
-        }
-      } catch (e) {
-        console.warn('[ADR-0467] positive score starvation audit failed:', e instanceof Error ? e.message : e);
-      }
-      // ADR-452d/454 — Gate near-miss bucket 진단 누적 + Outcome Ledger 영속.
-      // executionImpact=NONE, live decision/Kelly/KIS 주문 미사용. DATA_BLOCKED_NEAR_MISS /
-      // PROBING / SHADOW_ONLY 만 3/5/10영업일 사후 성과 관측 대상으로 기록한다.
-      try {
-        const band = getRegimeGateBand(ctx.regime);
-        const bucketDecision = accumulateGateScoreCandidateBucket(ctx.scanCounters, reCheckGate, band.normal);
-        if (
-          bucketDecision &&
-          reCheckGate &&
-          (bucketDecision.bucket === 'DATA_BLOCKED_NEAR_MISS' ||
-            bucketDecision.bucket === 'PROBING' ||
-            bucketDecision.bucket === 'SHADOW_ONLY')
-        ) {
-          const outcome = recordNearMissOutcome({
-            stockCode: stock.code,
-            stockName: stock.name,
-            signalDate: kstDecisionDate(),
-            signalPriceKrw: currentPrice,
-            bucket: bucketDecision.bucket,
-            diagnosticReason: bucketDecision.reason,
-            gateScore: reCheckGate.gateScore,
-            rawScore: reCheckGate.rawScore,
-            availableMaxScore: reCheckGate.availableMaxScore,
-            normalizedGateScore: reCheckGate.normalizedGateScore,
-            normalThreshold: band.normal,
-            unavailableConditions: reCheckGate.unavailableConditions,
-            thresholdNotMetConditions: reCheckGate.thresholdNotMetConditions,
-            providerDegradedConditions: reCheckGate.providerDegradedConditions,
-          });
-          accumulateNearMissOutcomeLedgerWrite(ctx.scanCounters, outcome);
-        }
-
-        // ADR-458 — APPROVED Gate 재분류 Dry-Run. Shadow/diagnostic ledger only.
-        // live Gate threshold/Kelly/KIS 주문/signalType/position sizing 은 변경하지 않는다.
-        if (!isGateReclassificationDryRunDisabled() && bucketDecision && reCheckGate) {
-          const approvedItems = loadGateReclassificationApprovalPlan().items
-            .filter((item) => item.status === 'APPROVED');
-          const observedDateKst = kstDecisionDate();
-          const dryRun = evaluateGateReclassificationDryRun({
-            code: stock.code,
-            name: stock.name,
-            gateScore: reCheckGate.gateScore,
-            rawScore: reCheckGate.rawScore,
-            availableMaxScore: reCheckGate.availableMaxScore,
-            normalizedGateScore: reCheckGate.normalizedGateScore,
-            unavailableConditions: reCheckGate.unavailableConditions ?? [],
-            thresholdNotMetConditions: reCheckGate.thresholdNotMetConditions ?? [],
-            providerDegradedConditions: reCheckGate.providerDegradedConditions ?? [],
-            originalBucket: bucketDecision.bucket,
-            approvedItems,
-          });
-
-          if (dryRun.dryRunDecision !== 'NO_CHANGE') {
-            upsertGateReclassificationDryRunRecord({
-              ...dryRun,
-              id: buildGateReclassificationDryRunId(stock.code, observedDateKst, dryRun.dryRunDecision),
-              observedAt: new Date().toISOString(),
-              observedDateKst,
-              status: 'OUTCOME_PENDING',
-            });
-            accumulateGateReclassificationDryRun(ctx.scanCounters, dryRun);
-          }
-        }
-      } catch (e) {
-        console.warn('[ADR-454/458] near-miss outcome or gate reclassification dry-run failed (live flow unaffected):', e instanceof Error ? e.message : e);
-      }
-      return reCheckGate as ReturnType<typeof evaluateServerGate>;
-      }
-
-      const reCheckGate = await kisIntradayCorrectionStep(ctx, stock, currentPrice);
-      const reCheckQuote = reCheckQuoteRef.value;
+      const { gateResult: reCheckGate, reCheckQuote } = await kisIntradayCorrectionStep(ctx, stock, currentPrice);
 
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
@@ -1968,59 +1634,6 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 시점에만 후보 생성. try/catch 격리 — 영속 실패가 매수 흐름 차단 안 함.
       // KIS 주문 함수 5종 import 0건 (정적 grep 가드). LIVE 매매 본체 0줄 변경.
       try {
-        async function provisionalShadowLaneDerive(
-          ctx: BuyListLoopContext,
-          stock: WatchlistEntry,
-          routerResult: ReturnType<typeof deriveGateDecisionRouterResult>,
-        ): Promise<void> {
-          const macroState = ctx.macroState;
-          const candidate = deriveR3ProvisionalShadowCandidate({
-            symbol: stock.code,
-            name: stock.name,
-            regime: ctx.regime,
-            gate1Passed: true,
-            gate2Passed: false,
-            router: routerResult,
-            // macroState.sectorEnergyQualityDiagnostic 의 reasons 가 `string[]` 영속 schema —
-            // SectorEnergyQualityReason union 과 byte-equivalent 로 cast 안전.
-            sectorEnergyDiagnostic: macroState?.sectorEnergyQualityDiagnostic as
-              Parameters<typeof deriveR3ProvisionalShadowCandidate>[0]['sectorEnergyDiagnostic'],
-            riskFlags: {
-              // buyListLoop 진입 자체가 sellOnly 미활성 이므로 — preflight 가 사전 차단.
-              sellOnly: false,
-              r6Defense: false,
-            },
-            nowKst: new Date().toISOString(),
-          });
-          if (candidate !== null) {
-            ctx.scanCounters.provisionalShadowEligible += 1;
-            ctx.scanCounters.provisionalShadowCandidates.push(candidate);
-            const recordResult = recordR3ProvisionalShadowCandidate({
-              candidate,
-              scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
-              scannedAtKst: new Date().toISOString(),
-              metadata: {
-                ...(macroState?.sectorEnergyDataQuality !== undefined
-                  ? { sectorEnergyDataQuality: String(macroState.sectorEnergyDataQuality) }
-                  : {}),
-                ...(typeof macroState?.sectorEnergyConfidence === 'number'
-                  ? { sectorEnergyConfidence: macroState.sectorEnergyConfidence }
-                  : {}),
-                ...(routerResult.reasons.length > 0
-                  ? { routerReasons: routerResult.reasons.map(String) }
-                  : {}),
-              },
-            });
-            if (recordResult.recorded) {
-              ctx.scanCounters.provisionalShadowCreated += 1;
-            } else {
-              ctx.scanCounters.provisionalShadowSkipped += 1;
-              const reason = recordResult.reason;
-              ctx.scanCounters.provisionalShadowSkipReasons[reason] =
-                (ctx.scanCounters.provisionalShadowSkipReasons[reason] ?? 0) + 1;
-            }
-          }
-        }
         if (ctx.regime === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
           // 종목별 Router 결과 — 매크로 게이트 + Gate2 미통과 (gate2Pass=0 가정,
           // gate2Passed=false literal). Router 호출은 후보 단위 lightweight (외부 호출 0).
@@ -2125,126 +1738,16 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 가 영속되어 있으면 stock.sector 의 LEADING/LAGGING 분류 결과를 quoteGateScore 에
       // 가산. macroState.sectorEnergyResult 부재 시 boost=0 — 기존 동작과 동일.
       // ADR-0125 (PR-1): dataQuality 4값 분기 추가 — STALE/FAILED 시 boost=0 강제.
-      async function handleEntryRevalidationGate(
-        ctx: BuyListLoopContext,
-        stock: WatchlistEntry,
-        gateResult: ReturnType<typeof evaluateServerGate>,
-        conditionScores: ReturnType<typeof buildEntryConditionScores>,
-      ): Promise<'SKIP' | 'CONTINUE'> {
-      const sectorEnergyResult = ctx.macroState?.sectorEnergyResult ?? null;
-      const sectorEnergyDataQuality = ctx.macroState?.sectorEnergyDataQuality;
-      const sectorBoost = applySectorScoreBoost(stock.sector, sectorEnergyResult, ctx.regime, sectorEnergyDataQuality);
-      const sectorBoostReason = sectorBoost !== 0 && stock.sector && sectorEnergyResult
-        ? describeSectorBoost(
-            stock.sector,
-            sectorBoost,
-            classifySectorTier(stock.sector, sectorEnergyResult),
-            ctx.regime,
-          )
-        : undefined;
-
-      const revalResult = entryRevalidationStep({
-        stockName: stock.name,
-        currentPrice: currentPrice!,
-        entryPrice: stock.entryPrice,
-        reCheckQuote,
-        reCheckGate: gateResult,
-        regime: ctx.regime,
-        marketSessionState: ctx.resolvedMarketSessionState,
-        marketElapsedMinutes: getKstMarketElapsedMinutes(),
-        sectorBoost,
-        sectorBoostReason,
-      });
-      if (!revalResult.proceed) {
-        const policySkipped = revalResult.stageLogValue === 'SKIPPED_POLICY_BLOCK';
-        if (policySkipped) {
-          entryRevalidationSkippedBatch.push({
-            symbol: stock.name,
-            score: gateResult?.gateScore,
-            reasons: revalResult.failReasons,
-          });
-        }
-        logVisibilityEvent({
-          visibility: policySkipped ? 'TRACE' : 'SUMMARY',
-          message: revalResult.logMessage,
-          category: 'GATE',
-          sourceCommand: '/scan',
-          dedupKey: `ENTRY_REVALIDATION:${revalResult.stageLogValue}:${ctx.resolvedMarketSessionState ?? 'UNKNOWN'}:NONE`,
-          summary: {
-            stock: stock.name,
-            stageLogValue: revalResult.stageLogValue,
-            marketSessionState: ctx.resolvedMarketSessionState ?? 'UNKNOWN',
-            executionImpact: 'NONE',
-          },
-          details: { stockCode: stock.code, stockName: stock.name, failReasons: revalResult.failReasons },
-          level: 'info',
-          executionImpact: 'NONE',
-        });
-        // BUG-07 fix: MANUAL 종목도 entryFailCount 추적 — 반복 실패 시 자동 제거 대상에 포함
-        // ADR-0115: Gate 재검증 미달은 NON_CRITICAL — failCount 미증가 (default).
-        // ENV PRE_BREAKOUT_FAILCOUNT_DISABLED=false 명시 시 ADR-0113 동작 복원.
-        if (shouldIncrementFailCount('GATE_REVALIDATION_FAIL')) {
-          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-          ctx.mutables.watchlistMutated.value = true;
-        }
-        ctx.scanCounters.gateMisses++;
-        // ADR-0118: WAIT 사유 분류 — DATA_HOLD 와 일반 Gate 미달 분리.
-        if (revalResult.waitReason === 'DATA_HOLD') {
-          ctx.scanCounters.waitDataHold++;
-        } else {
-          ctx.scanCounters.waitGateFail++;
-        }
-        stageLog.gate = revalResult.stageLogValue;
-        pushTrace();
-
-        // Idea 4 — Counterfactual Shadow: 탈락 후보 상위 N 개를 가상 진입으로 기록.
-        // 같은 날 동일 종목 중복은 자동 스킵 (멱등). I/O 실패가 실 매매 경로를 멈추지 않도록 try/catch.
-        if (ctx.scanCounters.counterfactualRecordedToday < COUNTERFACTUAL_DAILY_CAP) {
-          try {
-            const recorded = recordCounterfactual({
-              stockCode: stock.code,
-              stockName: stock.name,
-              priceAtSignal: currentPrice!,
-              gateScore: stock.gateScore ?? 0,
-              regime: ctx.regime,
-              conditionKeys: stock.conditionKeys ?? [],
-              skipReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
-            });
-            if (recorded) ctx.scanCounters.counterfactualRecordedToday++;
-          } catch (e) {
-            console.warn(`[Counterfactual] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
-          }
-        }
-
-        // ADR-0068 (PR-R): Rejection Tracker 학습 hook — Gate 14~17 near-miss 만 추적.
-        // gateScore 가 임계 (REJECTION_NEAR_MISS_MIN/MAX) 밖이면 모듈이 자동 silent skip.
-        // try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
-        // ADR-0087 PR-F-2: conditionScores 전달 — Over-Strict / Good Defense 분류 입력.
-        try {
-          const kstDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
-          const rejectionConditionScores = conditionScores || buildEntryConditionScores(stock.conditionKeys);
-          recordRejection({
-            stockCode: stock.code,
-            stockName: stock.name,
-            signalDate: kstDate,
-            signalPriceKrw: currentPrice!,
-            gateScore: stock.gateScore ?? 0,
-            rejectionReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
-            conditionScores: rejectionConditionScores,
-          });
-        } catch (e) {
-          console.warn(`[RejectionShadow] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
-        }
-        return 'SKIP';
-      }
-      return 'CONTINUE';
-      }
-
       const entryRevalidationResult = await handleEntryRevalidationGate(
         ctx,
         stock,
         reCheckGate as ReturnType<typeof evaluateServerGate>,
         buildEntryConditionScores(stock.conditionKeys),
+        currentPrice,
+        reCheckQuote,
+        stageLog,
+        pushTrace,
+        entryRevalidationSkippedBatch,
       );
       if (entryRevalidationResult === 'SKIP') continue;
 
@@ -2323,180 +1826,21 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // Yahoo 괴리 검증 → DataQualityInfo 합성 → sizingTier BLOCKED 트리거.
       // ENV PRICE_SOURCE_POLICY_EXECUTION_GATE_DISABLED=true 시 무력화.
       // WatchlistEntry 는 priceKrw 필드가 옵셔널 미선언 — inline cast 로 후방호환.
-      let tierDecision = undefined as unknown as Extract<ReturnType<typeof sizingTierDecider>, { ok: true }>['tierDecision'];
-      let positionPct = 0;
-      let remainingSlots = 1;
-      let confidenceModifier = 1;
-      let grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' = 'BUY';
-      async function sizingTierDeciderFinal(
-        ctx: BuyListLoopContext,
-        stock: WatchlistEntry,
-        currentPrice: number,
-        gateResult: ReturnType<typeof evaluateServerGate>,
-      ): Promise<{ shouldSkip: boolean; kellySnapshot?: EntryKellySnapshot }> {
-      const priceSourceDataQuality = evaluateDataQualityFromStock(
-        { priceKrw: (stock as { priceKrw?: number | null }).priceKrw ?? null },
-        currentPrice,
-        `final-candidate:${stock.code}`,
-      );
-      // 기존 stock.dataQuality (drift sanity ADR-0117) 와 priceSourceDataQuality (PR-2)
-      // OR 결합 — 어느 한쪽이라도 차단 분류면 BLOCKED. 우선순위: drift sanity > priceSource.
-      const mergedDataQuality = stock.dataQuality ?? priceSourceDataQuality;
-
-      const tierResult = sizingTierDecider({
-        stockName: stock.name,
+      const sizingFinalResult = await sizingTierDeciderFinal(ctx, stock, currentPrice, reCheckGate, {
         liveGateScore,
-        reCheckGate: gateResult,
-        regime: ctx.regime,
-        macroState: ctx.macroState,
-        banditDecision: ctx.banditDecision,
-        probingReservedSlots: ctx.mutables.probingReservedSlots.value,
-        dataQuality: mergedDataQuality,
-      });
-      if (!tierResult.ok) {
-        console.log(tierResult.logMessage);
-        // ADR-0118: sizingTier BLOCKED — DATA_QUARANTINE / 티어 미달 / PROBING 포화 모두 카운트.
-        ctx.scanCounters.waitSizingBlocked++;
-        return { shouldSkip: true };
-      }
-      tierDecision = tierResult.tierDecision;
-      for (const msg of tierResult.logMessages) console.log(msg);
-
-      // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
-      // CATALYST 섹션은 표준의 60%로 축소 — 촉매 신호는 단기 고리스크이므로 손실 제한
-      const mtasMultiplier = computeMtasMultiplier(gateResult.mtas);
-      const sectionFactor = stock.section === 'CATALYST' ? CATALYST_POSITION_FACTOR : 1.0;
-      positionPct =
-        computeRawPositionPct(gateScore) * ctx.kellyMultiplier * mtasMultiplier * sectionFactor * tierDecision.kellyFactor;
-
-      if (gateResult) {
-        console.log(
-          `[AutoTrade] ${stock.name} 타점 판단 — ` +
-          `liveGate: ${liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
-          `MTAS: ${gateResult.mtas.toFixed(1)}/10 (×${mtasMultiplier}) | ` +
-          `CS: ${gateResult.compressionScore.toFixed(2)} | ` +
-          `tier: ${tierDecision.tier}(×${tierDecision.kellyFactor}) | ` +
-          `posPct: ${(positionPct * 100).toFixed(1)}%`
-        );
-      }
-      // 사전 점검·루프 점검과 동일 기준으로 잔여 슬롯을 산정한다:
-      //   - ctx.effectiveMaxPositions(SELL_ONLY 예외 캡 반영) 사용
-      //   - 같은 tick 안에서 이미 큐에 쌓인 ctx.mutables.reservedSlots.value 차감
-      // 기존 로직은 ctx.regimeConfig.maxPositions - currentActive 만 봐서 sizing 분모가 과대평가되어
-      // 예산 분할이 느슨해지고, SELL_ONLY 예외 시 max 캡이 무시되는 부작용이 있었다.
-      remainingSlots = Math.max(
-        1,
-        ctx.effectiveMaxPositions - currentActive - ctx.mutables.reservedSlots.value,
-      );
-
-      // Idea 7 — Pre-Mortem Failure DB 능동 필터.
-      // preMortemStructured 에서 invalidation id 가 3회 이상 반복 손절로 이어진 패턴이
-      // failurePatternRepo 로 자동 승급됐다면, 이 후보의 진입 조건 벡터와 비교해
-      // 유사도 ≥ 85% 인 패턴이 있을 경우 진입을 차단한다. LIVE 경로 전용 —
-      // MOMENTUM Shadow 는 학습 표본이 목적이므로 이 게이트를 건너뛴다.
-      if (!isMomentumShadow) {
-        const candidateScores = buildEntryConditionScores(stock.conditionKeys);
-        const failureWarning = checkFailurePattern(candidateScores, undefined, ctx.regime);
-        if (failureWarning.hasWarning && failureWarning.maxSimilarity >= FAILURE_BLOCK_THRESHOLD_PCT) {
-          console.log(
-            `[AutoTrade/FailureDB] ${stock.name}(${stock.code}) 진입 차단 — ${failureWarning.message}`,
-          );
-          appendShadowLog({
-            event: 'BLOCKED_FAILURE_PATTERN',
-            code: stock.code,
-            maxSimilarity: failureWarning.maxSimilarity,
-            similarCount: failureWarning.similarCount,
-            topMatches: failureWarning.topMatches.map(m =>
-              `${m.stockCode}(${m.similarity}%, ${m.returnPct.toFixed(1)}%)`,
-            ),
-          });
-          return { shouldSkip: true };
-        }
-
-        // Idea 5 — Correlation-Aware Slot Allocation.
-        // 기존 포지션과 후보의 섹터 기반 평균 상관이 임계 이상이면 신규 진입 차단.
-        // 실 진입 경로(LIVE) 만 게이팅. Shadow 학습 경로는 샘플 다양성 보존을 위해 통과.
-        const corrGate = evaluateCorrelationGate({
-          candidateCode: stock.code,
-          candidateSector: stock.sector,
-          trades: ctx.shadows,
-        });
-        if (!corrGate.allowed) {
-          console.log(`[AutoTrade/CorrGate] ${stock.name}(${stock.code}) 진입 차단 — ${corrGate.reason}`);
-          appendShadowLog({
-            event: 'BLOCKED_CORRELATION',
-            code: stock.code,
-            avgCorrelation: Number(corrGate.avgCorrelation.toFixed(3)),
-            effectiveIndependentCount: Number(corrGate.effectiveIndependentCount.toFixed(2)),
-          });
-          return { shouldSkip: true };
-        }
-
-        // ADR-0191 §Wiring 2 — 자기 보유 가드 (belt-and-suspenders).
-        // L921 의 `alreadyTraded` 가드 위에 positionTruth SSOT 기반 2중 안전망.
-        // 동일 종목 12회 매수 (물타기) 시스템 차단 — 페르소나 9번 (보유 효과 경계) 정반대 차단.
-        // ENV `BUY_LIST_SELF_HOLDING_GUARD_DISABLED=true` 우회 (default OFF).
-        if (process.env.BUY_LIST_SELF_HOLDING_GUARD_DISABLED !== 'true') {
-          const openPositions = loadOpenPositions();
-          const alreadyHeld = openPositions.some(p => p.stockCode === stock.code);
-          if (alreadyHeld) {
-            console.log(
-              `[AutoTrade/SelfHoldingGuard] ${stock.name}(${stock.code}) 이미 보유 중 — 물타기 차단 (ADR-0191)`,
-            );
-            appendShadowLog({
-              event: 'BLOCKED_SELF_HOLDING',
-              code: stock.code,
-            });
-            return { shouldSkip: true };
-          }
-        }
-      }
-
-      // ── ADR-0031 PR-63: kellyBudgetDecider — 계좌 리스크 + Fractional Kelly ─
-      // sizingTier × kellyDampener × accountScale 까지 누적된 positionPct 에
-      // 다시 한 번 "신호 등급별 캡 + 동시 R 잔여 + 일일 손실 잔여" 를 강제한다.
-      grade =
-        tierDecision.tier === 'PROBING' ? 'PROBING'
-        : isStrongBuy ? 'STRONG_BUY'
-        : 'BUY';
-      const kellyResult = kellyBudgetDecider({
-        stockName: stock.name,
+        gateScore,
         shadowEntryPrice,
-        stopLoss: stock.stopLoss,
-        signalGrade: grade,
-        positionPct,
-        mtas: gateResult.mtas,
-        totalAssets: ctx.totalAssets,
-        shadows: ctx.shadows,
+        currentActive,
+        isMomentumShadow,
+        isStrongBuy,
       });
-      if (!kellyResult.ok) {
-        console.log(kellyResult.logMessage);
-        return { shouldSkip: true };
-      }
-      const { budget, sized, confidenceModifier: resolvedConfidenceModifier } = kellyResult;
-      confidenceModifier = resolvedConfidenceModifier;
-      for (const msg of kellyResult.logMessages) console.log(msg);
-
-      // Idea 1 — 진입 시점 Kelly 의사결정 스냅샷 동결.
-      // buildBuyTrade 가 이 값을 trade 객체에 귀속시켜 이후 /kelly 헬스 카드·사후 복기에서 단일 참조점으로 쓴다.
-      const entryKellySnapshot: EntryKellySnapshot = {
-        tier: tierDecision.tier,
-        signalGrade: grade,
-        rawKellyMultiplier: positionPct,
-        effectiveKelly: sized.effectiveKelly,
-        fractionalCap: FRACTIONAL_KELLY_CAP[grade],
-        ipsAtEntry: loadKellyDampenerState().ips,
-        regimeAtEntry: ctx.regime,
-        accountRiskBudgetPctAtEntry: budget.openRiskPct,
-        confidenceModifier,
-        snapshotAt: new Date().toISOString(),
-      };
-      return { shouldSkip: false, kellySnapshot: entryKellySnapshot };
-      }
-
-      const sizingFinalResult = await sizingTierDeciderFinal(ctx, stock, currentPrice, reCheckGate);
       if (sizingFinalResult.shouldSkip) continue;
       const entryKellySnapshot = sizingFinalResult.kellySnapshot!;
+      const tierDecision = sizingFinalResult.tierDecision!;
+      const positionPct = sizingFinalResult.positionPct!;
+      const remainingSlots = sizingFinalResult.remainingSlots!;
+      const confidenceModifier = sizingFinalResult.confidenceModifier!;
+      const grade = sizingFinalResult.grade!;
 
       // PATCH-010 — Shadow Bull Exposure Floor: R2/R3 불싸이클 Shadow 후보 소액 매수 오류 보정.
       // 멀티플라이어 누적 (R2_BULL kellyMultiplier ×0.8 × STANDARD tier ×0.6 × MTAS ×0.3~0.5)
