@@ -83,13 +83,11 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     });
   });
 
-  it('prints Gate1/Gate2 compactText from fullDiagnostic/renderedSections when basic summary lacks direct diagnostics', () => {
+  it('prints Gate1/Gate2 compactText from fullDiagnostic/current gate diagnostics when basic summary lacks direct diagnostics', () => {
     const summary = baseSummary({
-      renderedSections: {
-        gate1Survival: {
-          compactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | quote=VERIFIED | tradable=TRADABLE | liquidity=PASS | session=AFTERMARKET | shadow=ON',
-        },
-      },
+      gate1SurvivalDiagnostic: {
+        compactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | quote=VERIFIED | tradable=TRADABLE | liquidity=PASS | session=AFTERMARKET | shadow=ON',
+      } as unknown as Record<string, unknown>,
       fullDiagnostic: {
         gateLayerSummary: {
           gate2: {
@@ -99,7 +97,7 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
           },
         },
       },
-    } as Partial<ScanSummary>);
+    } as unknown as Partial<ScanSummary>);
 
     const text = formatScanBlockersCompactMessage(summary);
 
@@ -230,15 +228,17 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
         liveExecutionAllowed: false,
         policyPromotionMode: 'SHADOW_ONLY',
       } as unknown as ScanSummary['gate1MinimumSignalForensicAdr0505'],
+      gate1SurvivalDiagnostic: {
+        compactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | quote=VERIFIED | tradable=TRADABLE | liquidity=PASS | session=CLOSED | shadow=ON',
+      } as unknown as Record<string, unknown>,
       gateDiagnostics: {
-        gate1CompactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | session=CLOSED | shadow=ON',
         gate2CompactText: 'Gate2: DATA_INCOMPLETE | issue=DART_FINANCIALS_UNAVAILABLE | marketSignal=false',
         gate3CompactText: 'Gate3: DIAGNOSTIC_ONLY | marketSignal=false',
         marketSignal: false,
         diagnosticOnly: true,
         source: 'consolidatedDiagnostic',
       },
-    } as Partial<ScanSummary>);
+    } as unknown as Partial<ScanSummary>);
     const before = {
       rawScore: (summary as unknown as Record<string, unknown>).rawScore,
       gateScore: (summary as unknown as Record<string, unknown>).gateScore,
@@ -322,14 +322,19 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
 
   it('reports GateDiag Payload Carry source details for full mode debug', () => {
     const summary = baseSummary({
+      gate1SurvivalDiagnostic: {
+        compactText: 'Gate1: LIVE_BLOCKED_ONLY | quote=VERIFIED | shadow=ON',
+        quoteCoverageConfidence: 'VERIFIED',
+        missingFields: [],
+        shadowMode: 'NORMAL_SHADOW',
+      } as unknown as Record<string, unknown>,
       gateDiagnostics: {
-        gate1CompactText: 'Gate1: LIVE_BLOCKED_ONLY',
         gate2CompactText: 'Gate2: DATA_INCOMPLETE',
         marketSignal: false,
         diagnosticOnly: true,
         source: 'consolidatedDiagnostic',
       },
-    });
+    } as unknown as Partial<ScanSummary>);
 
     const lookup = resolveScanBlockersGateDiagCompactLookup(summary);
     const debug = formatGateDiagPayloadCarryDebugSection(summary);
@@ -338,6 +343,54 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     expect(debug).toContain('gate1CompactCarried=true');
     expect(debug).toContain('gate2CompactSource=summary.gateDiagnostics');
     expect(debug).toContain('gate3CompactSource=fallback');
+    expect(debug).toContain('selectedSource=summary.gateDiagnostics');
+    expect(debug).toContain('quoteCoverageConfidence=VERIFIED');
+    expect(debug).toContain('missingFields=none');
+  });
+
+  it('removes quote coverage degraded issue when missing is none and quote coverage is verified', () => {
+    const summary = baseSummary({
+      gateLayerSummary: {
+        gate1: {
+          consolidatedDiagnostic: {
+            compactText: 'Gate1: DEGRADED | issue=QUOTE_COVERAGE_DEGRADED | missing=none | quote=VERIFIED | shadow=COUNTERFACTUAL_ONLY',
+          },
+        },
+      },
+      gate1SurvivalDiagnostic: {
+        quoteCoverageConfidence: 'VERIFIED',
+        missingFields: [],
+        shadowMode: 'NORMAL_SHADOW',
+      } as unknown as Record<string, unknown>,
+      macroGateState: ({ shadowLearningAllowed: true } as unknown as ScanSummary['macroGateState']),
+    } as unknown as Partial<ScanSummary>);
+
+    const text = formatScanBlockersCompactMessage(summary);
+    expect(text).not.toContain('issue=QUOTE_COVERAGE_DEGRADED');
+    expect(text).toContain('shadow=ON');
+  });
+
+  it('prefers live blocked only label under sell-only closed session with shadow on', () => {
+    const summary = baseSummary({
+      gateLayerSummary: {
+        gate1: {
+          consolidatedDiagnostic: {
+            compactText: 'Gate1: DEGRADED | inputs=OK | quote=VERIFIED | tradable=TRADABLE | liquidity=PASS | session=CLOSED | shadow=COUNTERFACTUAL_ONLY',
+          },
+        },
+      },
+      macroGateState: ({ shadowLearningAllowed: true } as unknown as ScanSummary['macroGateState']),
+      gate1SurvivalDiagnostic: {
+        quoteCoverageConfidence: 'VERIFIED',
+        missingFields: [],
+        shadowMode: 'NORMAL_SHADOW',
+      } as unknown as Record<string, unknown>,
+    } as unknown as Partial<ScanSummary>);
+
+    const text = formatScanBlockersCompactMessage(summary);
+    expect(text).toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
+    expect(text).toContain('issue=LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED');
+    expect(text).not.toContain('shadow=COUNTERFACTUAL_ONLY');
   });
 
   it('does not mutate score or execution decision fields while formatting', () => {
@@ -346,7 +399,7 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
       gateScore: 7.5,
       signalType: 'SKIP',
       positionPct: 0,
-    } as Partial<ScanSummary>);
+    } as unknown as Partial<ScanSummary>);
     const before = {
       rawScore: (summary as unknown as Record<string, unknown>).rawScore,
       gateScore: (summary as unknown as Record<string, unknown>).gateScore,
