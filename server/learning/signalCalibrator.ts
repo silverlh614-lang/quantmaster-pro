@@ -11,6 +11,17 @@ import {
   type PromptConditionBoost,
 } from '../persistence/promptBoostRepo.js';
 import { appendWeightSnapshot } from '../persistence/weightHistoryRepo.js';
+import { applyAttributionCalibrationGuardrail, type CalibrationSource, type DataConfidence, type EngineMode } from './attributionCalibrationGuardrail.js';
+import fs from 'fs';
+import { DATA_DIR } from '../persistence/paths.js';
+
+
+function persistCandidateWeights(regime: string, updates: Record<string, number>): void {
+  const safe = regime.replace(/[^A-Za-z0-9_]/g, '_');
+  const file = `${DATA_DIR}/condition-weights-${safe}.candidate.json`;
+  const prev = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
+  fs.writeFileSync(file, JSON.stringify({ ...prev, ...updates }, null, 2));
+}
 
 /**
  * 월간 귀인 분석 기반 캘리브레이션.
@@ -108,10 +119,28 @@ export async function calibrateSignalWeights(): Promise<void> {
     }
 
     if (Math.abs(next - prev) > 0.01) {
-      weights[key] = parseFloat(next.toFixed(2));
+      const guard = applyAttributionCalibrationGuardrail({
+        conditionKey: key,
+        regime: 'GLOBAL',
+        sampleSize: attr.totalTrades,
+        winRate: attr.winRate * 100,
+        sharpe: attr.sharpe,
+        monthsUnderperforming: attr.recommendation === 'DECREASE_WEIGHT' || attr.recommendation === 'SUSPEND' ? 1 : 0,
+        dataConfidence: 'VERIFIED' as DataConfidence,
+        executionMode: 'NORMAL' as EngineMode,
+        source: 'LIVE' as CalibrationSource,
+        currentWeight: prev,
+        proposedWeight: next,
+      });
+      if (guard.coreWritable) {
+        weights[key] = guard.approvedWeight;
+      }
+      if (guard.candidateWritable) {
+        persistCandidateWeights('GLOBAL', { [key]: guard.approvedWeight });
+      }
       adjustments.push(
-        `${attr.conditionName}: ${prev.toFixed(2)}→${next.toFixed(2)} ` +
-        `(WIN률 ${(attr.winRate * 100).toFixed(0)}%, Sharpe ${attr.sharpe.toFixed(2)}, ${attr.recentTrend})`,
+        `${attr.conditionName}: ${prev.toFixed(2)}→${guard.approvedWeight.toFixed(2)} ` +
+        `(WIN률 ${(attr.winRate * 100).toFixed(0)}%, Sharpe ${attr.sharpe.toFixed(2)}, ${attr.recentTrend}, ${guard.decision})`,
       );
     }
   }
@@ -165,6 +194,7 @@ export async function calibrateSignalWeights(): Promise<void> {
     .map((a) => `  • ${a.conditionName}: ${a.recentTrend} (최근 ${(a.recentWinRate * 100).toFixed(0)}% vs 이전 ${(a.historicalWinRate * 100).toFixed(0)}%)`)
     .join('\n');
 
+  const probationOnlyCount = adjustments.filter((a) => a.includes('PROBATION_ONLY')).length;
   await sendTelegramAlert(
     `🔬 <b>[귀인 분석 월간 리포트] ${month}</b>\n\n` +
     `📊 분석 레코드: ${records.length}건\n\n` +
@@ -183,7 +213,10 @@ export async function calibrateSignalWeights(): Promise<void> {
     (boostAdjustments.length > 0
       ? `\n\n🧠 <b>Gemini 프롬프트 boost 조정 ${boostAdjustments.length}건 (클라이언트 조건)</b>\n` +
         boostAdjustments.slice(0, 5).join('\n')
-      : '')
+      : '') +
+    `\n\n🧯 <b>Calibration Safety</b>\n━━━━━━━━━━━━━━━━\n` +
+    `• CORE 반영: ${adjustments.length - probationOnlyCount}건\n` +
+    `• PROBATION_ONLY: ${probationOnlyCount}건`
   ).catch(console.error);
 }
 
