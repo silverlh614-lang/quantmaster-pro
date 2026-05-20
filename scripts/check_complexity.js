@@ -87,7 +87,6 @@ const BASELINE_TECHNICAL_DEBT = [
   //   supplyHealth/aggregation 등 다층 wiring 누적으로 1500 초과 origin/main pre-existing
   //   baseline. 본 PR 은 호출자 (normalSupplyPreviewRunner.ts) 만 수정 — 본체 무수정.
   //   분해 작업은 별도 ADR 후속 PR. ADR-0502c 패턴 정합으로 카탈로그 등재.
-  'server/trading/signalScanner/normalSupplyPreview.ts',
   // Patch-ACMA-BASELINE-DIAGNOSTIC-MODULES-001 (2026-05-19) — 3 진단 모듈 사전 baseline.
   //   origin/main pre-existing baseline (`git show origin/main:<file> | wc -l` 동일 재현 확정):
   //     - server/quant/gate2Diagnostics.ts (2068 LoC) — Gate2 데이터 wiring 진단 SSOT.
