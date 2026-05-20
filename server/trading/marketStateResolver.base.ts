@@ -17,6 +17,10 @@ import {
   normalizeR6LatchDisplay,
   NOW_POST_CLOSE_POLICY_LABEL,
 } from '../telegram/nowDisplayNormalizer.js';
+import {
+  resolveShadowAlwaysOnPolicy,
+  type ShadowAlwaysOnPolicyResult,
+} from '../shadow/shadowAlwaysOnPolicy.js';
 
 export type BiasLabel = 'BULL' | 'NEUTRAL' | 'BEAR';
 export type MhsLabel = 'GREEN' | 'YELLOW' | 'RED';
@@ -60,6 +64,7 @@ export interface MarketStateSnapshot {
   positionManagementAllowed: boolean;
   shadowLearningAllowed: boolean;
   shadowScanAllowed: boolean;
+  shadowSignalAllowed?: boolean;
   shadowPaperFillAllowed: boolean;
   executionMode: MarketStateExecutionMode;
 
@@ -321,7 +326,7 @@ function resolveEffectiveRegime(
 function resolveExecution(snapshot: {
   effectiveRegime: EffectiveMarketRegime;
   riskOverride: RiskOverride;
-}): Pick<MarketStateSnapshot, 'liveNewBuyAllowed' | 'liveSellAllowed' | 'positionManagementAllowed' | 'shadowLearningAllowed' | 'shadowScanAllowed' | 'shadowPaperFillAllowed' | 'executionMode'> {
+}): Pick<MarketStateSnapshot, 'liveNewBuyAllowed' | 'liveSellAllowed' | 'positionManagementAllowed' | 'shadowLearningAllowed' | 'shadowScanAllowed' | 'shadowSignalAllowed' | 'shadowPaperFillAllowed' | 'executionMode'> {
   const baseMode = getExecutionMode();
   const emergency = getEmergencyStop();
   const dataBlocked = getDataIntegrityBlocked();
@@ -344,16 +349,99 @@ function resolveExecution(snapshot: {
   else if (dataBlocked || paused || manualBlock) executionMode = 'DEGRADED';
   else if (baseMode === 'OFF') executionMode = 'SHADOW_ONLY';
   else executionMode = 'NORMAL';
+  const shadowPolicy = resolveShadowAlwaysOnPolicy({
+    engineMode: inR6 ? 'R6_DEFENSE' : executionMode,
+    effectiveRegime: snapshot.effectiveRegime,
+    riskOverrideActive: snapshot.riskOverride !== 'NONE',
+    liveExecutionAllowed: liveNewBuyAllowed,
+    realOrderAllowed: liveNewBuyAllowed,
+  });
 
   return {
     liveNewBuyAllowed,
     liveSellAllowed,
     positionManagementAllowed: liveSellAllowed,
-    shadowLearningAllowed: true,
-    shadowScanAllowed: true,
-    shadowPaperFillAllowed: true,
+    shadowLearningAllowed: shadowPolicy.shadowLearningAllowed,
+    shadowScanAllowed: shadowPolicy.shadowScanAllowed,
+    shadowSignalAllowed: shadowPolicy.shadowSignalAllowed,
+    shadowPaperFillAllowed: shadowPolicy.shadowPaperFillAllowed,
     executionMode,
   };
+}
+
+function resolveShadowPolicyEngineMode(snapshot: Pick<MarketStateSnapshot, 'effectiveRegime' | 'executionMode'>): string {
+  const regime = snapshot.effectiveRegime;
+  if (regime === 'R6_PANIC' || regime === 'R6_DEFENSE' || regime === 'R6_CONFIRMATION_WAIT' || regime === 'R6_RECOVERY_WATCH') {
+    return 'R6_DEFENSE';
+  }
+  return snapshot.executionMode;
+}
+
+export function resolveMarketStateShadowPolicy(
+  snapshot: Pick<MarketStateSnapshot, 'effectiveRegime' | 'riskOverride' | 'executionMode' | 'liveNewBuyAllowed' | 'liveSellAllowed'>,
+): ShadowAlwaysOnPolicyResult {
+  return resolveShadowAlwaysOnPolicy({
+    engineMode: resolveShadowPolicyEngineMode(snapshot),
+    effectiveRegime: snapshot.effectiveRegime,
+    riskOverrideActive: snapshot.riskOverride !== 'NONE',
+    liveExecutionAllowed: snapshot.liveNewBuyAllowed,
+    realOrderAllowed: snapshot.liveNewBuyAllowed,
+  });
+}
+
+function logShadowAlwaysOnPolicy(snapshot: MarketStateSnapshot): void {
+  const policy = resolveMarketStateShadowPolicy(snapshot);
+  const engineMode = resolveShadowPolicyEngineMode(snapshot);
+  console.info(
+    '[SHADOW_ALWAYS_ON_POLICY_RESOLVED] ' +
+    `engineMode=${engineMode} ` +
+    `liveBuyAllowed=${policy.liveBuyAllowed} ` +
+    `shadowScanAllowed=${policy.shadowScanAllowed} ` +
+    `shadowSignalAllowed=${policy.shadowSignalAllowed} ` +
+    `shadowPaperFillAllowed=${policy.shadowPaperFillAllowed} ` +
+    `shadowLearningAllowed=${policy.shadowLearningAllowed} ` +
+    `counterfactualAllowed=${policy.counterfactualAllowed} ` +
+    `executionImpact=${policy.executionImpact} ` +
+    `reason=${policy.reason}`,
+  );
+
+  const displayMismatches: string[] = [];
+  if (snapshot.shadowScanAllowed !== policy.shadowScanAllowed) displayMismatches.push('shadowScanAllowed');
+  if (snapshot.shadowSignalAllowed !== undefined && snapshot.shadowSignalAllowed !== policy.shadowSignalAllowed) displayMismatches.push('shadowSignalAllowed');
+  if (snapshot.shadowLearningAllowed !== policy.shadowLearningAllowed) displayMismatches.push('shadowLearningAllowed');
+  if (snapshot.shadowPaperFillAllowed !== policy.shadowPaperFillAllowed) displayMismatches.push('shadowPaperFillAllowed');
+  if (displayMismatches.length > 0) {
+    console.warn(
+      '[SHADOW_POLICY_DISPLAY_MISMATCH] ' +
+      `snapshotId=${snapshot.snapshotId} ` +
+      `engineMode=${engineMode} ` +
+      `fields=${displayMismatches.join(',')}`,
+    );
+  }
+
+  const blockedComponent = [
+    ['shadowScanAllowed', policy.shadowScanAllowed],
+    ['shadowSignalAllowed', policy.shadowSignalAllowed],
+    ['shadowPaperFillAllowed', policy.shadowPaperFillAllowed],
+    ['shadowLearningAllowed', policy.shadowLearningAllowed],
+    ['counterfactualAllowed', policy.counterfactualAllowed],
+  ].find(([, allowed]) => allowed !== true)?.[0];
+  if (blockedComponent) {
+    console.warn(
+      '[SHADOW_ALWAYS_ON_VIOLATION] ' +
+      `engineMode=${engineMode} ` +
+      `blockedComponent=${blockedComponent} ` +
+      `reason=${policy.reason}`,
+    );
+  }
+
+  if (engineMode === 'R6_DEFENSE') {
+    if (policy.shadowScanAllowed) console.info('[SHADOW_SCAN_ALLOWED_UNDER_R6]');
+    if (policy.shadowSignalAllowed) console.info('[SHADOW_SIGNAL_ALLOWED_UNDER_R6]');
+    if (policy.shadowPaperFillAllowed) console.info('[SHADOW_PAPER_FILL_ALLOWED_UNDER_R6]');
+    if (policy.shadowLearningAllowed) console.info('[SHADOW_LEARNING_ALLOWED_UNDER_R6]');
+    if (policy.counterfactualAllowed) console.info('[COUNTERFACTUAL_ALLOWED_UNDER_R6]');
+  }
 }
 
 function baseDisplaySeverity(
@@ -776,6 +864,7 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
     `positionManagementAllowed=${snapshot.positionManagementAllowed} ` +
     `shadowLearningAllowed=${snapshot.shadowLearningAllowed} ` +
     `shadowScanAllowed=${snapshot.shadowScanAllowed} ` +
+    `shadowSignalAllowed=${snapshot.shadowSignalAllowed ?? 'N/A'} ` +
     `shadowPaperFillAllowed=${snapshot.shadowPaperFillAllowed} ` +
     `stale=${snapshot.stale} ` +
     `staleSources=${snapshot.staleSources.join(',') || 'none'} ` +
@@ -783,6 +872,7 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
     `macroStateStaleReason=${snapshot.macroState.staleReason} ` +
     `macroStateAgeSec=${snapshot.macroState.ageSec ?? 'N/A'}`,
   );
+  logShadowAlwaysOnPolicy(snapshot);
 }
 
 export function resolveMarketState(now: Date = new Date(), options: ResolveMarketStateOptions = {}): MarketStateSnapshot {
