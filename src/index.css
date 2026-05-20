@@ -929,7 +929,7 @@
     color: #333 !important;
   }
 
-  .bg-white\/5, .bg-white\/10, .bg-white\/\[0.03\], .bg-orange-500\/5 {
+  .bg-white\/5, .bg-white\/10, .bg-white\/\[0\.03\], .bg-orange-500\/5 {
     background: #f9f9f9 !important;
     border-color: #eee !important;
   }

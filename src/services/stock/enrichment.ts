@@ -168,7 +168,6 @@ async function fetchKrxValuation(code: string): Promise<KrxValuation | null> {
   if (!/^\d{6}$/.test(baseCode)) return null;
   if (_valuationCache.has(baseCode)) return _valuationCache.get(baseCode) ?? null;
   try {
-    const { fetchAiUniverseSnapshot } = await import('../../api/aiUniverseClient');
     const data = await fetchAiUniverseSnapshot(baseCode);
     if (!data) { _valuationCache.set(baseCode, null); return null; }
     const result: KrxValuation = {

@@ -5,7 +5,7 @@ import { useSettingsStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 import type { PriceAlertLevel } from '../types/ui';
 import { computePriceAlertLevel, isActionableAlert } from '../utils/priceAlertLevel';
-import { getPriceAlertRegistration } from '../utils/serviceWorkerRegistration';
+import { getPriceAlertRegistration, registerPriceAlertServiceWorker } from '../utils/serviceWorkerRegistration';
 
 /** 같은 종목 + 같은 alertLevel 알림이 5분 내 반복되지 않도록 dedupe 한다. */
 export const ALERT_COOLDOWN_MS = 5 * 60_000;
@@ -169,7 +169,6 @@ export async function requestPriceAlertPermission(): Promise<'granted' | 'denied
   // PR-L: 권한 granted 시 SW 도 시도 (등록 실패해도 알림 전송엔 무영향)
   const ensureSwRegistered = async () => {
     try {
-      const { registerPriceAlertServiceWorker } = await import('../utils/serviceWorkerRegistration');
       await registerPriceAlertServiceWorker();
     } catch { /* SDS-ignore: SW 등록 실패는 로그만 — Notification API fallback */ }
   };
