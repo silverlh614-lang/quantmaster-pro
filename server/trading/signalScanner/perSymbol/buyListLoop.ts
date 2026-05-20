@@ -3,6 +3,7 @@
  * ADR-0019: entry revalidation gate block extracted from evaluateBuyList.
  * ADR-0019: sizing tier final decision block extracted from evaluateBuyList.
  * ADR-0019: R3 provisional shadow lane derive block extracted from evaluateBuyList.
+ * ADR-0019: entry price drift check block extracted from evaluateBuyList.
  *
  * ADR-0134 (PR-Refactor-2) — perSymbolEvaluation.ts 분해 시 evaluateBuyList 격리.
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
@@ -572,6 +573,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       }
 
       // ── entryPrice 드리프트 체크: 현재가가 10% 이상 올랐으면 갱신/제거 ─────
+      async function checkEntryPriceDrift(
+        ctx: BuyListLoopContext,
+        stock: WatchlistEntry,
+        currentPrice: number,
+      ): Promise<'SKIP' | 'CONTINUE'> {
       const driftAction = applyEntryPriceDrift(stock, currentPrice);
       // ADR-0117: DATA_HOLD — drift sanity 위반 (60~150% 추정) → 거래 차단 게이트.
       // ADR-0128 §Decision §1: BUY_CANDIDATE role SSOT 위임. dataQuality 영속 본체는 보존.
@@ -601,7 +607,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stageLog.drift = 'DATA_HOLD';
         ctx.scanCounters.waitDataHold++;  // ADR-0118
         pushTrace();
-        continue;
+        return 'SKIP';
       }
       // ADR-0115: drift > 150% Corporate Action 의심 — RAW immutable 원칙 준수.
       // entryPrice 자동 재설정 *제거* (ADR-0113 의 자동 보정 정책 폐기).
@@ -672,7 +678,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         }
         ctx.scanCounters.waitDriftCorpAction++;  // ADR-0118
         pushTrace();
-        continue;
+        return 'SKIP';
       }
       if (driftAction === 'REMOVE') {
         const driftPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
@@ -685,7 +691,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stageLog.drift = 'REMOVE';
         ctx.scanCounters.waitDriftRemove++;  // ADR-0118
         pushTrace();
-        continue;
+        return 'SKIP';
       }
       if (driftAction === 'UPDATE') {
         const oldEntry = stock.entryPrice;
@@ -697,8 +703,13 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         );
         stageLog.drift = 'UPDATE';
         pushTrace();
-        continue; // 이번 스캔에서는 진입 시도하지 않음 (갱신 직후 안정화 대기)
+        return 'SKIP'; // 이번 스캔에서는 진입 시도하지 않음 (갱신 직후 안정화 대기)
       }
+      return 'CONTINUE';
+      }
+
+      const entryPriceDriftResult = await checkEntryPriceDrift(ctx, stock, currentPrice);
+      if (entryPriceDriftResult === 'SKIP') continue;
 
       // 당일 날짜 (재진입 방지 + PRE_BREAKOUT 추종 중복 방지 공통 사용)
       const today = new Date().toISOString().split('T')[0];
