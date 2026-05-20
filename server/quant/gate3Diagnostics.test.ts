@@ -5,7 +5,7 @@ import {
   type ServerGateResult,
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
-import { buildGate3ExternalDataCoverage, normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3Pullback, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
+import { buildGate3ExternalDataCoverage, normalizeGate3FalseBreakout, normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3Pullback, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
 
 type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -335,5 +335,45 @@ describe('Gate3 diagnostics wiring', () => {
     expect(coverage.pullbackSupport.fields.currentPrice).toBe(true);
     expect(coverage.pullbackSupport.movingAverageSupport.nearestSupport).toBe('MA20');
     expect(coverage.pullbackSupport.marketSignal).toBe(false);
+  });
+
+  it('false breakout: low risk diagnostic stays marketSignal false', () => {
+    const fb = normalizeGate3FalseBreakout({ quote: quote({ close: 10_200, currentPrice: 10_250, high20d: 10_000, high: 10_250, previousHigh: 10_200, previousPeakRsi: 55, previousPeakMacdHist: 0.8, ma20: 10_050, boxTop: 10_000, volume: 3_000_000, avgVolume: 1_000_000, tradingValue: 30_000_000_000, avgTradingValue20d: 10_000_000_000 }) as any });
+
+    expect(fb.falseBreakout.status).toBe('LOW_RISK');
+    expect(fb.divergence.status).toBe('NONE');
+    expect(fb.exhaustion.status).toBe('NORMAL');
+    expect(fb.marketSignal).toBe(false);
+  });
+
+  it('false breakout: high risk is advisory only', () => {
+    const fb = normalizeGate3FalseBreakout({ quote: quote({ close: 9_500, currentPrice: 9_800, high20d: 9_700, avgVolume: 10_000_000, volume: 200_000, tradingValue: 2_000_000_000, avgTradingValue20d: 50_000_000_000 }) as any });
+
+    expect(fb.falseBreakout.status).toBe('HIGH_RISK');
+    expect(fb.notes).toContain('FALSE_BREAKOUT_WATCH_DIAGNOSTIC_ONLY');
+    expect(fb.executionImpact).toBe('DIAGNOSTIC_ONLY');
+    expect(fb.marketSignal).toBe(false);
+  });
+
+  it('false breakout: divergence and previous peak missing are separated', () => {
+    const rsiBear = normalizeGate3FalseBreakout({ quote: quote({ high: 10_500, previousHigh: 10_000, rsi14: 62, previousPeakRsi: 75 }) as any });
+    expect(rsiBear.divergence.status).toBe('RSI_BEARISH');
+
+    const macdBear = normalizeGate3FalseBreakout({ quote: quote({ high: 10_500, previousHigh: 10_000, macdHistogram: 0.3, previousPeakMacdHist: 1.1 }) as any });
+    expect(macdBear.divergence.status).toBe('MACD_BEARISH');
+
+    const missing = normalizeGate3FalseBreakout({ quote: quote({ previousPeakRsi: undefined, previousPeakMacdHist: undefined }) as any });
+    expect(['MISSING', 'UNKNOWN']).toContain(missing.divergence.status);
+    expect(missing.divergence.status).not.toBe('NONE');
+    expect(missing.marketSignal).toBe(false);
+  });
+
+  it('externalDataCoverage exposes falseBreakout without score or market signal promotion', () => {
+    const coverage = buildGate3ExternalDataCoverage(quote({ currentPrice: 10_250, close: 10_200, high20d: 10_000, high: 10_250, previousHigh: 10_200, previousPeakRsi: 55, previousPeakMacdHist: 0.8, ma20: 10_050, boxTop: 10_000, volume: 3_000_000, avgVolume: 1_000_000, tradingValue: 30_000_000_000, avgTradingValue20d: 10_000_000_000 }) as any);
+
+    expect(coverage.falseBreakout.required).toBe(false);
+    expect(coverage.falseBreakout.fields.breakoutPrice).toBe(true);
+    expect(coverage.falseBreakout.falseBreakout.status).toBe('LOW_RISK');
+    expect(coverage.falseBreakout.marketSignal).toBe(false);
   });
 });
