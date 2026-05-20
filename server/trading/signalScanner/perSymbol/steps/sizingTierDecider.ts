@@ -1,5 +1,7 @@
 /**
  * @responsibility ADR-0019 final sizing tier decision extracted from buyListLoop.
+ * ADR-0191 keeps the self-holding guard here after extraction.
+ * Persona 9: 보유 효과 boundary blocks duplicate live averaging entries.
  */
 
 import type { EntryKellySnapshot } from '../../../../persistence/shadowTradeRepo.js';
@@ -135,7 +137,7 @@ export async function sizingTierDeciderFinal(
       const alreadyHeld = openPositions.some(p => p.stockCode === stock.code);
       if (alreadyHeld) {
         console.log(
-          `[AutoTrade/SelfHoldingGuard] ${stock.name}(${stock.code}) ?대? 蹂댁쑀 以???臾쇳?湲?李⑤떒 (ADR-0191)`,
+          `[AutoTrade/SelfHoldingGuard] ${stock.name}(${stock.code}) 이미 보유 중 — 물타기 차단 (ADR-0191)`,
         );
         appendShadowLog({
           event: 'BLOCKED_SELF_HOLDING',

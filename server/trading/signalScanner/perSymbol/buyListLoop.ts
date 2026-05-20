@@ -19,8 +19,6 @@ import type { MacroState } from '../../../persistence/macroStateRepo.js';
 import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
 import type { WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import { isBlacklisted } from '../../../persistence/blacklistRepo.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
-import { channelBuySignalEmitted } from '../../../alerts/channelPipeline.js';
 import {
   RRR_MIN_THRESHOLD, MAX_SECTOR_CONCENTRATION,
   calcRRR,
@@ -35,7 +33,6 @@ import {
   type BanditDecision,
 } from '../../../learning/probingBandit.js';
 import { buildEntryConditionScores } from '../../../learning/entryConditionScores.js';
-import { recordUniverseEntries } from '../../../learning/ledgerSimulator.js';
 import { computeSlotConsumption } from '../../slotAccounting.js';
 // ADR-0068 (PR-R): Shadow Learning Hooks — PR-L (Rejection Tracker) + PR-M (Twin Portfolio) wiring
 import { recordTwinEntries } from '../../../learning/counterfactualTwinPortfolio.js';
@@ -47,8 +44,6 @@ import { evaluateServerGate } from '../../../quantFilter.js';
 import { fetchYahooQuote, fetchKisQuoteFallback } from '../../../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../../../screener/adapters/yahooSymbolResolver.js';
 import { fillMonitor } from '../../fillMonitor.js';
-import { trancheExecutor } from '../../trancheExecutor.js';
-import { ENTRY_GATES_PHASE_B } from '../entryGates/index.js';
 import {
   yahooAvailabilityStep,
   mtasGateStep,
@@ -62,7 +57,6 @@ import {
 import {
   stopLossPolicyResolver,
 } from '../sizingDeciders/index.js';
-import { applyApprovalReservation } from '../approvalQueue/index.js';
 import {
   shouldIncrementFailCount,
 } from '../failureClassifier.js';
@@ -104,7 +98,6 @@ import {
   type LiveBuyTask,
 } from '../../buyPipeline.js';
 import {
-  setLastBuySignalAt,
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
   accumulateGateEligibility,
@@ -113,7 +106,6 @@ import {
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
 //   실제 매수 흐름 변경 0 (counterfactual ledger wiring 은 후속 PR scope).
-import { classifyGateEligibility } from '../gateEligibilityClassifier.js';
 // ADR-0427 — R3_EARLY Provisional Shadow Lane wiring.
 //   ADR-0426 SSOT (deriveR3ProvisionalShadowCandidate) 호출 + provisionalShadowLedger 영속.
 //   LIVE 매매 본체 0줄 변경, KIS 주문 import 0건. Gate1 survivor 분기 직후 try/catch 격리.
@@ -121,8 +113,6 @@ import { classifyGateEligibility } from '../gateEligibilityClassifier.js';
 //   ADR-0427 provisional null 반환 시점 (HARD_BLOCK 등) 에 학습 전용 record 영속.
 //   별도 ledger (counterfactual-shadow-learning-ledger.json), virtual account 무관,
 //   KIS 주문 함수 import 0건. learning-only 마커 명시.
-import { deriveCounterfactualShadowLearningCandidate } from '../counterfactualShadowLearningLane.js';
-import { appendCounterfactualShadowLearningEntry } from '../../../persistence/counterfactualShadowLearningRepo.js';
 import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
 import { getRegimeGateBand } from '../../gateConfig.js';
 // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단 SSOT.
@@ -169,6 +159,10 @@ import {
   type EntryRevalidationSkippedBatchItem,
 } from './steps/entryRevalidationGate.js';
 import { sizingTierDeciderFinal } from './steps/sizingTierDecider.js';
+import { phaseEntryGate } from './steps/entryGateChain.js';
+import { gateEligibilitySplit } from './steps/gateEligibilitySplit.js';
+import { counterfactualShadowLearning } from './steps/counterfactualShadowLane.js';
+import { handleApprovalQueue } from './steps/approvalQueue.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -1469,37 +1463,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       );
       if (hasPendingPreMarketOrder) continue;
 
-      // ── ADR-0030 PR-57+58: Phase B EntryGate Chain (7 게이트) ─────────────
-      // cooldown / blacklist / addBuyBlock / rrr / sectorConcentration /
-      // sectorPreGuard / portfolioRisk 모두 byte-equivalent 추출. 후속 PR 잔여:
-      // liveGateRevalidation (다단계 revalidation pipeline) + kellyBudget
-      // (Kelly 사이징) — pure gate 패턴에 부적합, 별도 ADR 예정.
-      let _gateBlocked = false;
-      for (const gate of ENTRY_GATES_PHASE_B) {
-        const result = await gate({
-          stock, shadows: ctx.shadows, scanCounters: ctx.scanCounters,
-          watchlist: ctx.watchlist, mutables: ctx.mutables,
-          currentPrice, totalAssets: ctx.totalAssets, kellyMultiplier: ctx.kellyMultiplier,
-        });
-        if (result.pass) {
-          if (result.passLogMessage) console.log(result.passLogMessage);
-          if (result.passWarnMessage) console.warn(result.passWarnMessage);
-          continue;
-        }
-        // FAIL
-        console.log(result.logMessage);
-        if (result.counter) ctx.scanCounters[result.counter] += 1;
-        if (result.stageLog) stageLog[result.stageLog.key] = result.stageLog.value;
-        if (result.pushTrace) pushTrace();
-        if (result.telegramMessage) {
-          await sendTelegramAlert(result.telegramMessage).catch(console.error);
-        }
-        _gateBlocked = true;
-        break;
-      }
-      if (_gateBlocked) continue;
-      // 원본은 RRR PASS 시 stageLog.rrr='PASS' 만 별도로 기록 — 게이트 통과 후 동등 처리.
-      stageLog.rrr = 'PASS';
+      const entryGateResult = await phaseEntryGate(ctx, stock, currentPrice, stageLog, pushTrace);
+      if (entryGateResult === 'SKIP') continue;
 
       const slippage = getExecutionCostConfig().slippageRate;
       const shadowEntryPrice = Math.round(currentPrice * (1 + slippage));
@@ -1555,78 +1520,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         }
       }
 
-      // ── ADR-0436 — Gate Eligibility Split classify + accumulate ──────────
-      // 사용자 §7 — 분류 layer 만, LIVE 매매 본체 0줄 변경. classifyGateEligibility
-      // 결과를 ScanCounters 6 카운터에 누적 → ScanSummary propagate → /scan_blockers
-      // 진단 + EmptyScanPostmortem KEEP_COUNTERFACTUAL_LEARNING / PATCH_PROVIDER 분기.
-      //
-      // 핵심 원칙 (사용자 명시 절대 변경 금지):
-      //   - 실매수 후보 0 ≠ 학습/관측 후보 0
-      //   - SHADOW_OBSERVABLE_PASS 는 절대 실매수 자동 승격 금지 (분류 only)
-      //   - DATA_UNAVAILABLE 은 failed 가 아니다 + DATA_UNAVAILABLE 은 PASS 도 아니다
-      //
-      // Counterfactual ledger 자동 영속 wiring 은 본 PR scope 외 — ScanCounters
-      // 카운터 증가만, 실제 영속은 ADR-0430 counterfactualShadowLearningRepo 후속 PR.
-      try {
-        // 가격/code 기본 valid 검증 입력 (fatal 분기)
-        const priceValid = typeof currentPrice === 'number' && currentPrice > 0;
-        const codeValid = /^[0-9]{6}$/.test(stock.code);
-        // 신호 등급 — gateScore 기반 폴백 (WatchlistEntry 에는 명시 등급 부재).
-        //   gateScore ≥ 9 → STRONG_BUY (PR-13 정합 임계) / ≥ 5 → BUY / 그 외 undefined.
-        //   shadowObservable 후보성 평가 입력 — 절대 자동 매수 결정 입력 아님.
-        const buySignalThreshold = 5;
-        const strongBuySignalThreshold = 9;
-        const signalGrade: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'NEUTRAL' | undefined =
-          typeof stock.gateScore === 'number' && stock.gateScore >= strongBuySignalThreshold
-            ? 'STRONG_BUY'
-            : typeof stock.gateScore === 'number' && stock.gateScore >= buySignalThreshold
-              ? 'BUY'
-              : undefined;
-        // sectorEnergyDataQuality 영속 union 그대로 전달
-        const sectorEnergyDataQualityCast = ctx.macroState?.sectorEnergyDataQuality as
-          | 'OK' | 'PARTIAL' | 'STALE' | 'PARTIAL_VOLUME' | 'DEGRADED' | 'FAILED' | undefined;
-        // priceData degraded — Yahoo↔KIS 괴리 (ADR-0411) marker
-        const priceDataDegraded =
-          (stock as { technicalProviderDegraded?: boolean }).technicalProviderDegraded === true;
-        // 후보성 — Gate1 survivor 폴백 (사용자 §C 정합)
-        const hasTechnicalSetup = isGate1Survivor;
-        const eligibility = classifyGateEligibility({
-          currentPrice,
-          stockCode: stock.code,
-          // DATA_UNAVAILABLE 분기 — reCheckGate.outputs 의 status 검사 (ADR-0416 정합)
-          supplyDataUnavailable: reCheckGate?.outputs?.some(
-            (o) =>
-              o.key === 'supply_confluence' &&
-              (o.output as { status?: string } | null)?.status === 'DATA_UNAVAILABLE',
-          ),
-          investorFlowProviderUnavailable: reCheckGate?.outputs?.some(
-            (o) =>
-              (o.key === 'supply_confluence' || o.key === 'investor_flow') &&
-              (o.output as { status?: string } | null)?.status === 'PROVIDER_DEGRADED',
-          ),
-          earningsDataUnavailable: reCheckGate?.outputs?.some(
-            (o) =>
-              o.key === 'earnings_quality' &&
-              (o.output as { status?: string } | null)?.status === 'DATA_UNAVAILABLE',
-          ),
-          sectorEnergyDataQuality: sectorEnergyDataQualityCast,
-          priceDataDegraded,
-          // hard 차단 분기 — buyListLoop 진입은 preflight 통과 후이므로 모두 false (universe-level
-          //   macro/risk block 은 ADR-0183 / preflight 에서 이미 차단)
-          macroBlocked: false,
-          riskBlocked: false,
-          trueGateFail: false,
-          insufficientScore: false,
-          dataStarved: false,
-          hasFatalDefect: !priceValid || !codeValid,
-          signalGrade,
-          hasTechnicalSetup,
-        });
-        accumulateGateEligibility(ctx.scanCounters, eligibility);
-        recordPipelineStage(ctx.scanCounters, 'GATE_ELIGIBILITY_CLASSIFIED', eligibility.liveEligible ? 'PASS' : eligibility.shadowObservable ? 'SHADOW_ONLY' : 'BLOCKED');
-      } catch (e) {
-        console.warn('[Adr0436GateEligibility] classify 실패 — 매수 흐름 무영향:', e);
-      }
+      gateEligibilitySplit(ctx, stock, currentPrice, reCheckGate, isGate1Survivor);
 
       // ── ADR-0427 — R3_EARLY Provisional Shadow Lane wiring ──────────────
       // ADR-0426 SSOT (deriveR3ProvisionalShadowCandidate) 호출 + provisionalShadowLedger
@@ -1661,73 +1555,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.warn('[Adr0427ProvisionalShadow] wiring 실패 — 매수 흐름 무영향:', e);
       }
 
-      // ── ADR-0430 — Counterfactual Shadow Learning Lane wiring ─────────────
-      // SELL_ONLY/HARD_BLOCK 시점에도 Shadow Learning 은 365일 살아있다. 단,
-      // 실매수/가상계좌 체결/일반 shadow 는 차단 유지. 별도 ledger 영속만.
-      //
-      // 우선순위 (사용자 §J 정합):
-      //   1. FULL/normal shadow path (정상 매수)
-      //   2. Provisional shadow path (ADR-0426 SOFT_DEGRADE 보존)
-      //   3. Counterfactual learning-only path (본 PR — HARD_BLOCK fallback)
-      //
-      // SSOT 자체에서 SOFT_DEGRADE/WATCH_ONLY/REDUCED/FULL 시점에 null 반환하므로
-      // 우선순위 자동 enforcement. buyListLoop 진입은 이미 sellOnly=false 라
-      // *종목별* HARD_BLOCK (SIZING_BLOCKED 등) 시점에만 본 wiring 가 발화.
-      // 진정한 universe-level SELL_ONLY wiring 은 후속 PR scope (preflight pre-abort).
-      //
-      // try/catch 격리 — 영속 throw 가 매수 흐름 차단 안 함. KIS 주문 함수
-      // 5종 import 0건 (정적 grep 가드). LIVE 매매 본체 0줄 변경.
-      try {
-        if (ctx.regime === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
-          const macroStateCf = ctx.macroState;
-          const cfRouterResult = deriveGateDecisionRouterResult({
-            regime: ctx.regime,
-            gate1Pass: 1,
-            gate2Pass: 0,
-            riskFlags: {
-              sellOnly: false,
-              r6Defense: false,
-            },
-            sectorEnergyDiagnostic: macroStateCf?.sectorEnergyQualityDiagnostic as
-              Parameters<typeof deriveCounterfactualShadowLearningCandidate>[0]['sectorEnergyDiagnostic'],
-          });
-          const cfCandidate = deriveCounterfactualShadowLearningCandidate({
-            symbol: stock.code,
-            name: stock.name,
-            regime: ctx.regime,
-            gate1Passed: true,
-            gate2Passed: false,
-            router: cfRouterResult,
-            sectorEnergyDiagnostic: macroStateCf?.sectorEnergyQualityDiagnostic as
-              Parameters<typeof deriveCounterfactualShadowLearningCandidate>[0]['sectorEnergyDiagnostic'],
-            riskFlags: {
-              sellOnly: false,
-              r6Defense: false,
-            },
-            scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
-            nowKst: new Date().toISOString(),
-          });
-          if (cfCandidate !== null) {
-            ctx.scanCounters.counterfactualShadowEligible += 1;
-            ctx.scanCounters.counterfactualShadowCandidates.push(cfCandidate);
-            const cfRecordResult = appendCounterfactualShadowLearningEntry({
-              candidate: cfCandidate,
-              scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
-              scannedAtKst: new Date().toISOString(),
-            });
-            if (cfRecordResult.recorded) {
-              ctx.scanCounters.counterfactualShadowCreated += 1;
-            } else {
-              ctx.scanCounters.counterfactualShadowSkipped += 1;
-              const reason = cfRecordResult.reason;
-              ctx.scanCounters.counterfactualShadowSkipReasons[reason] =
-                (ctx.scanCounters.counterfactualShadowSkipReasons[reason] ?? 0) + 1;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Adr0430CounterfactualShadow] wiring 실패 — 매수 흐름 무영향:', e);
-      }
+      await counterfactualShadowLearning(ctx, stock, reCheckGate, isGate1Survivor);
 
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
       // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
@@ -2111,125 +1939,34 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.warn('[TradeSignalStatus] main buyList recordAiCandidate failed', e);
       }
 
-      // ─── SHADOW/LIVE 통합 승인 큐 등록 ──────────────────────────────────────
-      ctx.scanCounters.entries++;
-      setLastBuySignalAt(Date.now());
-      stageLog.buy = stockShadowMode ? 'SHADOW' : 'LIVE'; pushTrace();
-
-      const modeEmoji = stockShadowMode ? '⚡' : '🚀';
-      const modeLabel = isMomentumShadow ? 'Shadow(학습)' : stockShadowMode ? 'Shadow' : 'LIVE';
-      const trancheLabel = isFinalStrongBuy ? ` (1차/${execQty}주, 총${supplyAdjustedFinalQuantity}주)` : '';
-      const gateLabel = `Gate ${liveGateScore.toFixed(1)} | MTAS ${reCheckGate.mtas.toFixed(0)}/10 | CS ${reCheckGate.compressionScore.toFixed(2)}`;
-      const slBreakdown = formatStopLossBreakdown(stopLossPlan);
-      const mainAlertMsg =
-        `${modeEmoji} <b>[${modeLabel}] 매수 ${stockShadowMode ? '신호' : '주문'}${isFinalStrongBuy ? ' — 분할 1차' : ''}</b>\n` +
-        `종목: ${stock.name} (${stock.code})\n` +
-        `현재가: ${currentPrice.toLocaleString()}원 × ${execQty}주${isFinalStrongBuy ? ` (총${supplyAdjustedFinalQuantity}주)` : ''}\n` +
-        `📊 ${gateLabel}\n` +
-        `손절: ${slBreakdown} | 목표: ${stock.targetPrice.toLocaleString()}원`;
-
-      const _rrr = stock.rrr, _sector = stock.sector;
-      if (diagnosticLiveBlockReason && !macroDiagnosticLiveBlock) {
-        suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
-        continue;
-      }
-
-      ctx.mutables.liveBuyQueue.push(await createBuyTask({
-        trade, stockCode: stock.code, stockName: stock.name,
-        currentPrice, quantity: execQty, entryPrice: shadowEntryPrice,
-        stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-        gateScore, shadowMode: stockShadowMode, effectiveBudget: effectiveBudgetAfterHealth,
-        alertMessage: mainAlertMsg,
-        logEvent: isMomentumShadow ? 'MOMENTUM_SHADOW_SIGNAL' : (stockShadowMode ? 'SIGNAL' : 'ORDER'),
-        signalId: buildSignalId(_signalTimeMain, stock.code), // ADR-0077
-        // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate (LIVE 모드는 buyPipeline 측 guard 가 SHADOW 분기에서만 발동).
-        tradeDate: _shadowApprovalCtx.tradeDate,
-        marketSession: _shadowApprovalCtx.marketSession,
-        sourceLane: 'SHADOW',
-        rrr: _rrr,
-        mtas: reCheckGate.mtas,
-        compressionScore: reCheckGate.compressionScore,
-        signalType: isFinalStrongBuy ? 'STRONG_BUY' : 'BUY',
-        gateBandNormal: getRegimeGateBand(ctx.regime).normal,
-        gateBandStrong: getRegimeGateBand(ctx.regime).strong,
-        onApproved: async (t) => {
-          ctx.shadows.push(t);
-          // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — SHADOW paper-fill 영속.
-          // ctx.shadows.push(t) 직후 즉시 saveShadowTrades 영속 + status PENDING→ACTIVE.
-          // SSOT 가 mode 검사 (LIVE 는 NOT_SHADOW skip), 멱등 (이미 ACTIVE 시 skip),
-          // 영속 실패 시 status 롤백, [Shadow 체결] Telegram 1회 발송 보장.
-          // LIVE 매매 본체 0줄 변경 — LIVE path 는 fillMonitor + placeKisMarketBuyOrder SSOT 그대로.
-          if (stockShadowMode) {
-            try {
-              const _r = await executeShadowBuy({
-                trade: t,
-                allTrades: ctx.shadows,
-                fillPrice: shadowEntryPrice,
-                notifyFilled: async (n) => {
-                  await channelShadowBuyFilled({
-                    stockName: n.stockName,
-                    stockCode: n.stockCode,
-                    fillPrice: n.fillPrice,
-                    quantity: n.quantity,
-                    fillId: n.fillId,
-                    tradeId: n.tradeId,
-                  });
-                },
-              });
-              recordShadowExecutionOutcome(_r.outcome);
-            } catch (e) {
-              console.warn('[ShadowExecutionPipeline] 메인 buyList 영속 실패 (매매 흐름 보호):', e);
-            }
-          }
-          await channelBuySignalEmitted({
-            mode: stockShadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
-            price: currentPrice, quantity: execQty, gateScore: liveGateScore,
-            mtas: reCheckGate.mtas, cs: reCheckGate.compressionScore,
-            stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-            rrr: _rrr ?? 0, signalType: isFinalStrongBuy ? 'STRONG_BUY' : 'BUY',
-            sector: _sector,
-          }).catch(console.error);
-
-          // Idea 2 — Parallel Universe Ledger: 승인된 엔트리에 대해 A/B/C 3 세팅을 동시에 가상체결 기록.
-          // 실 진입 = Universe A 와 동형. B/C 는 학습 표본. LIVE/Shadow 양쪽 모두 기록.
-          try {
-            recordUniverseEntries({
-              stockCode: stock.code,
-              stockName: stock.name,
-              entryPrice: shadowEntryPrice,
-              regime: ctx.regime,
-              signalGrade: grade,
-            });
-          } catch (e) {
-            console.warn(`[Ledger] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
-          }
-
-          // BUG #3 fix — ctx.mutables.orderableCash.value 는 큐 푸시 시점에 이미 예약/차감됨.
-          // onApproved 에서는 "예약 확정" 만 수행 (추가 차감 없음).
-          // ctx.mutables.reservedBudgets 는 그대로 두고, 롤백 경로만 참조.
-          if (isFinalStrongBuy && supplyAdjustedFinalQuantity > 1 && !isMomentumShadow) {
-            // MOMENTUM Shadow 는 분할 매수 스케줄 제외 (진입 자체가 관찰 표본)
-            trancheExecutor.scheduleTranches({
-              parentTradeId: t.id, stockCode: stock.code, stockName: stock.name,
-              totalQuantity: supplyAdjustedFinalQuantity, firstQuantity: execQty,
-              entryPrice: shadowEntryPrice, stopLoss: stopLossPlan.hardStopLoss,
-              targetPrice: stock.targetPrice,
-            });
-          }
-        },
-      }));
-      // ── ADR-0031 PR-65: applyApprovalReservation commit 단계 SSOT ───────
-      // 8개 mutable 필드 (reservedSlots / probingReservedSlots / reservedTiers /
-      // reservedIsMomentum / reservedBudgets / orderableCash / pendingSectorValue /
-      // reservedSectorValues) 동시 갱신을 단일 헬퍼로 캡슐화 — 슬롯 예약 롤백 SSOT.
-      applyApprovalReservation({
-        mutables: ctx.mutables,
+      const approvalQueueResult = await handleApprovalQueue({
+        ctx,
+        stock,
+        currentPrice,
+        stockShadowMode,
         isMomentumShadow,
-        tier: tierDecision.tier,
-        effectiveBudget: effectiveBudgetAfterHealth,
-        stockCode: stock.code,
-        stockSector: stock.sector,
+        isFinalStrongBuy,
+        execQty,
+        supplyAdjustedFinalQuantity,
+        effectiveBudgetAfterHealth,
+        trade,
+        shadowEntryPrice,
+        stopLossPlan,
+        gateScore,
+        liveGateScore,
+        reCheckGate,
+        finalSignalLevel,
+        shadowApprovalCtx: _shadowApprovalCtx,
+        diagnosticLiveBlockReason,
+        macroDiagnosticLiveBlock,
+        stageLog,
+        pushTrace,
+        grade,
+        tierDecision,
+        signalTimeMain: _signalTimeMain,
+        suppressDiagnosticLiveBuyTask,
       });
+      if (approvalQueueResult === 'SKIP') continue;
     } catch (err: unknown) {
       console.error(`[AutoTrade] ${stock.code} 스캔 실패:`, err instanceof Error ? err.message : err);
     }
