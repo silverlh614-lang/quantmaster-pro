@@ -77,7 +77,6 @@ const BASELINE_TECHNICAL_DEBT = [
   //     - investorFlowProviderRouterAdr0477.ts (1694 LoC) — ADR-0477 router 본체
   //     - minimumSignalScoreTrace.ts (1520 LoC) — ADR-0466 score 분해
   //   각각 분해 PR 머지 시 본 카탈로그에서 정식 제거.
-  'server/trading/signalScanner/investorFlowProviderRouterAdr0477.ts',
   'server/trading/signalScanner/minimumSignalScoreTrace.ts',
   // ADR-0367 (2026-05-14) — gate1MinimumSignalForensicAuditAdr0505.ts 2317 LoC.
   //   ADR-0505 본체(~430 LoC) 가 #944~#953 KIS investor row carry / forensic mapper
