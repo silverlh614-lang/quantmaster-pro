@@ -5,7 +5,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
@@ -64,13 +64,16 @@ export async function legacyTakeProfit(ctx: ExitContext): Promise<ExitRuleResult
     // BUG #7 fix — 상태 롤백. 다음 tick 에 목표가 조건 재평가.
     rollbackFullCloseOnFailure(shadow, targetSnapshot, 'TARGET_EXIT', targetReserve.reason);
   }
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'TARGET_HIT',
+    message:
     `✅ <b>${targetReserve.statusPrefix} [목표가 달성]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
     `청산가: ${currentPrice.toLocaleString()}원\n` +
     `수익률: +${returnPct.toFixed(2)}%` +
     targetReserve.statusSuffix,
-    targetReserve.kind === 'FAILED' ? { priority: 'CRITICAL' } : undefined,
-  ).catch(console.error);
+    severity: targetReserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH',
+    metadata: { symbol: shadow.stockCode },
+  }).catch(console.error);
   await channelSellSignal({
     stockName:   shadow.stockName,
     stockCode:   shadow.stockCode,

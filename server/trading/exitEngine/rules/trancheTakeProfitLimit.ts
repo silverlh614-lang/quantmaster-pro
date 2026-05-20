@@ -6,7 +6,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
@@ -54,13 +54,16 @@ export async function trancheTakeProfitLimit(ctx: ExitContext): Promise<ExitRule
           });
         }
       }
-      await sendTelegramAlert(
+      await emitTelegramEvent({
+        type: 'PARTIAL_EXIT',
+        message:
         `📈 <b>${trancheReserve.statusPrefix} [L3 분할 익절]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
         `트랜치: ${(t.ratio * 100).toFixed(0)}% × ${sellQty}주 @${currentPrice.toLocaleString()}원\n` +
         `수익률: +${returnPct.toFixed(2)}% | 잔여: ${trancheReserve.remainingQty}주` +
         trancheReserve.statusSuffix,
-        trancheReserve.kind === 'FAILED' ? { priority: 'HIGH' } : undefined,
-      ).catch(console.error);
+        severity: trancheReserve.kind === 'FAILED' ? 'HIGH' : 'NORMAL',
+        metadata: { symbol: shadow.stockCode },
+      }).catch(console.error);
       await channelSellSignal({
         stockName:   shadow.stockName,
         stockCode:   shadow.stockCode,

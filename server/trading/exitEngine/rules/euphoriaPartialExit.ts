@@ -6,7 +6,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
@@ -47,12 +47,15 @@ export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleRes
   if (euphoriaReserve.kind === 'FAILED') {
     // 실주문 접수 실패 — status 롤백 (다음 기회에 EUPHORIA 재평가 허용)
     shadow.status = prevStatus;
-    await sendTelegramAlert(
+    await emitTelegramEvent({
+      type: 'PARTIAL_EXIT',
+      message:
       `🚨 <b>${euphoriaReserve.statusPrefix} [과열 부분매도 실패]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
       `${halfQty}주 @${currentPrice.toLocaleString()}원` +
       euphoriaReserve.statusSuffix,
-      { priority: 'CRITICAL' },
-    ).catch(console.error);
+      severity: 'CRITICAL',
+      metadata: { symbol: shadow.stockCode },
+    }).catch(console.error);
   } else {
     syncPositionCache(shadow);
     if (euphoriaReserve.kind === 'PENDING') {
@@ -62,13 +65,16 @@ export async function euphoriaPartialExit(ctx: ExitContext): Promise<ExitRuleRes
         placedAt: new Date().toISOString(), relatedTradeId: shadow.id,
       });
     }
-    await sendTelegramAlert(
+    await emitTelegramEvent({
+      type: 'PARTIAL_EXIT',
+      message:
       `🌡️ <b>${euphoriaReserve.statusPrefix} [과열 부분매도]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
       `신호 ${euphoria.count}개 — 50% 매도 ${halfQty}주 @${currentPrice.toLocaleString()}원\n` +
       `수익: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | 잔여: ${euphoriaReserve.remainingQty}주` +
       euphoriaReserve.statusSuffix,
-      { priority: 'HIGH', dedupeKey: `euphoria:${shadow.stockCode}` },
-    ).catch(console.error);
+      severity: 'NORMAL',
+      metadata: { symbol: shadow.stockCode },
+    }).catch(console.error);
     await channelSellSignal({
       stockName:   shadow.stockName,
       stockCode:   shadow.stockCode,

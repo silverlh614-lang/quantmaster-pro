@@ -5,7 +5,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
@@ -74,13 +74,16 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
     // BUG #7 fix — 상태 롤백. 다음 tick 에 트레일링 재평가.
     rollbackFullCloseOnFailure(shadow, trailSnapshot, 'TRAILING_PROTECTIVE_STOP', trailReserve.reason);
   }
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'STOP_LOSS_HIT',
+    message:
     `📉 <b>${trailReserve.statusPrefix} [L3 트레일링 스톱]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
     `고점: ${shadow.trailingHighWaterMark.toLocaleString()}원 → 청산: ${currentPrice.toLocaleString()}원\n` +
     `최종 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%` +
     trailReserve.statusSuffix,
-    trailReserve.kind === 'FAILED' ? { priority: 'CRITICAL' } : undefined,
-  ).catch(console.error);
+    severity: trailReserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH',
+    metadata: { symbol: shadow.stockCode },
+  }).catch(console.error);
   await channelSellSignal({
     stockName:   shadow.stockName,
     stockCode:   shadow.stockCode,

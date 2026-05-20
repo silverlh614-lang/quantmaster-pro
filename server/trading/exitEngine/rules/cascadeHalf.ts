@@ -5,7 +5,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { placeReservedSellOrder } from '../helpers/reserveSell.js';
@@ -46,11 +46,14 @@ export async function cascadeHalf(ctx: ExitContext): Promise<ExitRuleResult> {
       });
     }
   }
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'PARTIAL_EXIT',
+    message:
     `🔶 <b>${cascadeHalfReserve.statusPrefix} [Cascade -15%] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
     `손실 ${returnPct.toFixed(1)}% — 반매도 ${halfQty}주 (잔여 ${cascadeHalfReserve.remainingQty}주)` +
     cascadeHalfReserve.statusSuffix,
-    cascadeHalfReserve.kind === 'FAILED' ? { priority: 'HIGH' } : undefined,
-  ).catch(console.error);
+    severity: cascadeHalfReserve.kind === 'FAILED' ? 'HIGH' : 'NORMAL',
+    metadata: { symbol: shadow.stockCode },
+  }).catch(console.error);
   return { skipRest: true };
 }

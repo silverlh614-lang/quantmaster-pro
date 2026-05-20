@@ -7,7 +7,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
@@ -82,13 +82,17 @@ export async function ma60DeathForceExit(ctx: ExitContext): Promise<ExitRuleResu
     // BUG #7 fix — 상태 롤백으로 DB/KIS 괴리 제거. 다음 스캔에서 자동 재시도.
     rollbackFullCloseOnFailure(shadow, ma60Snapshot, 'MA60_DEATH_FORCE_EXIT', ma60Reserve.reason);
   }
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'SELL_FILLED',
+    message:
     `⚰️ <b>${ma60Reserve.statusPrefix} [MA60 강제 청산]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
     `60일선 역배열 5영업일 유예 만료 — 전량 강제 청산\n` +
     `${soldQty}주 @${currentPrice.toLocaleString()}원 | 수익률: ${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}%` +
     ma60Reserve.statusSuffix,
-    { priority: 'CRITICAL', dedupeKey: `ma60_force:${shadow.stockCode}` },
-  ).catch(console.error);
+    severity: 'CRITICAL',
+    metadata: { symbol: shadow.stockCode },
+    dedupeKey: `ma60_force:${shadow.stockCode}`,
+  }).catch(console.error);
   await channelSellSignal({
     stockName:   shadow.stockName,
     stockCode:   shadow.stockCode,

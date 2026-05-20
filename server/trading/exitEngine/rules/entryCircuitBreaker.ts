@@ -22,7 +22,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { placeReservedSellOrder } from '../helpers/reserveSell.js';
@@ -116,17 +116,18 @@ export async function entryCircuitBreaker(ctx: ExitContext): Promise<ExitRuleRes
     }
   }
 
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'PARTIAL_EXIT',
+    message:
     `🚨 <b>${reserve.statusPrefix} [Entry Circuit Breaker]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
     `진입 ${holdingMinutes.toFixed(0)}분 만에 ${returnPct.toFixed(2)}% 급락 — 50% 즉시 청산\n` +
     `${sellQty}주 @ ${currentPrice.toLocaleString()}원 (잔여 ${reserve.remainingQty}주)\n` +
     `⚙ 추가 매수 차단 + 학습 격리 (ENTRY_CIRCUIT_BREAKER)` +
     reserve.statusSuffix,
-    {
-      priority: reserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH',
-      dedupeKey: `entry_circuit_breaker:${shadow.stockCode}`,
-    },
-  ).catch(console.error);
+    severity: 'CRITICAL',
+    metadata: { symbol: shadow.stockCode },
+    dedupeKey: `ecb:${shadow.stockCode}`,
+  }).catch(console.error);
 
   return { skipRest: true };
 }

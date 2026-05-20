@@ -6,7 +6,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
@@ -55,13 +55,16 @@ export async function bearishDivergenceExit(ctx: ExitContext): Promise<ExitRuleR
       });
     }
   }
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'PARTIAL_EXIT',
+    message:
     `📉 <b>${divReserve.statusPrefix} [하락 다이버전스]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
     `주가 신고가·RSI 고점 낮아짐 — 30% 부분 익절\n` +
     `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}% | 잔여: ${divReserve.remainingQty}주` +
     divReserve.statusSuffix,
-    { priority: divReserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH', dedupeKey: `divergence:${shadow.stockCode}` },
-  ).catch(console.error);
+    severity: 'NORMAL',
+    metadata: { symbol: shadow.stockCode },
+  }).catch(console.error);
   if (divReserve.recorded) {
     await channelSellSignal({
       stockName:   shadow.stockName,

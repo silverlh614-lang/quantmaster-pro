@@ -8,7 +8,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { appendShadowLog, syncPositionCache } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
@@ -54,14 +54,17 @@ export async function rrrCollapseExit(ctx: ExitContext): Promise<ExitRuleResult>
       });
     }
   }
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'PARTIAL_EXIT',
+    message:
     `📊 <b>${rrrReserve.statusPrefix} [RRR 붕괴 경보]</b> ${shadow.stockName} (${shadow.stockCode})\n` +
     `잔여 RRR: ${liveRRR.toFixed(2)} (< 1.0) — 좀비 포지션 50% 익절\n` +
     `${sellQty}주 @${currentPrice.toLocaleString()}원 | 수익: +${returnPct.toFixed(2)}%\n` +
     `목표: ${shadow.targetPrice.toLocaleString()}원 | 손절: ${hardStopLoss.toLocaleString()}원 | 잔여: ${rrrReserve.remainingQty}주` +
     rrrReserve.statusSuffix,
-    { priority: rrrReserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH', dedupeKey: `rrr_collapse:${shadow.stockCode}` },
-  ).catch(console.error);
+    severity: 'NORMAL',
+    metadata: { symbol: shadow.stockCode },
+  }).catch(console.error);
   if (rrrReserve.recorded) {
     await channelSellSignal({
       stockName:   shadow.stockName,

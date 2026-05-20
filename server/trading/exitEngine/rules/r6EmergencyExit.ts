@@ -1,7 +1,7 @@
 // @responsibility R6_DEFENSE emergency forced exit for LIVE positions only
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { appendShadowLog, syncPositionCache, buildExitAttribution } from '../../../persistence/shadowTradeRepo.js';
 import { addSellOrder } from '../../fillMonitor.js';
 import { placeReservedSellOrder } from '../helpers/reserveSell.js';
@@ -86,13 +86,16 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
         executionImpact: 'NONE',
       },
     });
-    await sendTelegramAlert(
+    await emitTelegramEvent({
+      type: 'SELL_WATCH',
+      message:
       `[R6 emergency liquidation candidate - exit intent pending] ${shadow.stockName} (${shadow.stockCode})\n` +
       'Off-regular-session guard is active: sell intent only, no live order, no fill, no status mutation.\n' +
       'Scheduled for next regular open re-check.\n' +
       `pendingIntentId=${liveDecision.pendingIntentId} / executionImpact=NONE`,
-      { priority: 'HIGH' },
-    ).catch(console.error);
+      severity: 'HIGH',
+      metadata: { symbol: shadow.stockCode },
+    }).catch(console.error);
     return NO_OP;
   }
 
@@ -138,13 +141,16 @@ export async function r6EmergencyExit(ctx: ExitContext): Promise<ExitRuleResult>
     }
   }
 
-  await sendTelegramAlert(
+  await emitTelegramEvent({
+    type: 'STOP_LOSS_HIT',
+    message:
     `${r6Reserve.statusPrefix} [R6 emergency liquidation] ${shadow.stockName} (${shadow.stockCode})\n` +
     `Black-swan detected: 30% live liquidation ${emergencyQty} @${currentPrice.toLocaleString()}\n` +
     `returnPct=${returnPct > 0 ? '+' : ''}${returnPct.toFixed(2)}% | remaining=${r6Reserve.remainingQty}\n` +
     r6Reserve.statusSuffix,
-    { priority: r6Reserve.kind === 'FAILED' ? 'CRITICAL' : 'HIGH' },
-  ).catch(console.error);
+    severity: 'CRITICAL',
+    metadata: { symbol: shadow.stockCode },
+  }).catch(console.error);
 
   if (shadow.quantity <= 0) return { skipRest: true };
   return NO_OP;

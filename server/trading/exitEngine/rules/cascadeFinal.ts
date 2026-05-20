@@ -5,7 +5,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
@@ -60,12 +60,16 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   if (cascadeFinalReserve.kind === 'FAILED') {
     // BUG #7 fix — 상태 롤백 + CRITICAL 알림.
     rollbackFullCloseOnFailure(shadow, cascadeSnapshot, 'CASCADE_FINAL', cascadeFinalReserve.reason);
-    await sendTelegramAlert(
+    await emitTelegramEvent({
+      type: 'STOP_LOSS_HIT',
+      message:
       `🚨 <b>${cascadeFinalReserve.statusPrefix} [캐스케이드 전량청산] (상태 롤백)</b> ${shadow.stockName}` +
       cascadeFinalReserve.statusSuffix +
       `\n⚙ 다음 스캔에서 자동 재시도 — 블랙리스트 적용도 재평가.`,
-      { priority: 'CRITICAL', dedupeKey: `cascade_final_fail:${shadow.stockCode}` },
-    ).catch(console.error);
+      severity: 'CRITICAL',
+      metadata: { symbol: shadow.stockCode },
+      dedupeKey: `cascade_final_fail:${shadow.stockCode}`,
+    }).catch(console.error);
   }
   if (cascadeFinalReserve.kind === 'PENDING') {
     addSellOrder({
@@ -94,10 +98,14 @@ export async function cascadeFinal(ctx: ExitContext): Promise<ExitRuleResult> {
   // 다음 스캔에서 재시도가 일어나므로 블랙리스트도 그 시점에 재평가된다.
   if (isBlacklistStep && cascadeFinalReserve.kind !== 'FAILED') {
     addToBlacklist(shadow.stockCode, shadow.stockName, `Cascade ${returnPct.toFixed(1)}%`);
-    await sendTelegramAlert(
+    await emitTelegramEvent({
+      type: 'SELL_FILLED',
+      message:
       `🚫 <b>[블랙리스트] ${shadow.stockName} (${shadow.stockCode})</b>\n` +
-      `손실 ${returnPct.toFixed(1)}% → 180일 재진입 금지`
-    ).catch(console.error);
+      `손실 ${returnPct.toFixed(1)}% → 180일 재진입 금지`,
+      severity: 'HIGH',
+      metadata: { symbol: shadow.stockCode },
+    }).catch(console.error);
   }
   return { skipRest: true };
 }

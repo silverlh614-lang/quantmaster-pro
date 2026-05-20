@@ -6,7 +6,7 @@
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
-import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { channelSellSignal } from '../../../alerts/channelPipeline.js';
 import { sendStopLossTransparencyReport } from '../../../alerts/stopLossTransparencyReport.js';
 import { appendShadowLog, updateShadow } from '../../../persistence/shadowTradeRepo.js';
@@ -136,13 +136,17 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
   } else if (hardStopReserve.kind === 'FAILED') {
     // BUG #7 fix — 상태 롤백 + CRITICAL 알림. 다음 스캔에서 규칙 재평가.
     rollbackFullCloseOnFailure(shadow, hardStopSnapshot, 'HARD_STOP', hardStopReserve.reason);
-    await sendTelegramAlert(
+    await emitTelegramEvent({
+      type: 'STOP_LOSS_HIT',
+      message:
       `🚨 <b>${hardStopReserve.statusPrefix} [하드 스톱] (상태 롤백)</b> ${shadow.stockName} (${shadow.stockCode})\n` +
       `${stopLossExitType} 손절 ${soldQty}주 @${currentPrice.toLocaleString()}원` +
       hardStopReserve.statusSuffix +
       `\n⚙ shadow 는 ACTIVE 로 복귀 — 다음 스캔 사이클에서 자동 재시도.`,
-      { priority: 'CRITICAL', dedupeKey: `hard_stop_fail:${shadow.stockCode}` },
-    ).catch(console.error);
+      severity: 'CRITICAL',
+      metadata: { symbol: shadow.stockCode },
+      dedupeKey: `hard_stop:${shadow.stockCode}`,
+    }).catch(console.error);
   }
   await channelSellSignal({
     stockName:   shadow.stockName,
