@@ -1,0 +1,148 @@
+/**
+ * @responsibility ADR-0464 symbol feature builder.
+ */
+
+import type {
+  MacroGateState,
+  WaitDistribution,
+  GatePassDistribution,
+} from "../scanDiagnostics.js";
+import {
+  buildMinimumSignalScoreTrace,
+  buildMinSignalScoreDecompositionReport,
+  buildRiskPenaltyTrace,
+  buildSignalScoreCalibrationResults,
+  buildSoftFailAccumulationTrace,
+  buildUnknownDataTreatmentAudit,
+  type MinimumSignalScoreTrace,
+  type MinSignalScoreDecompositionReport,
+  type RiskPenaltyTrace,
+  type SignalScoreCalibrationResult,
+  type SoftFailAccumulationTrace,
+  type UnknownDataTreatmentAudit,
+} from "../minimumSignalScoreTrace.js";
+import {
+  buildEntryDecisionLedgerScoreCeilingRepairSummaryFromScore,
+  type EntryDecisionLedgerScoreCeilingRepairSummary,
+} from "../gate1ScoreCeilingRepair.js";
+import {
+  buildEntryDecisionLedgerPenaltyDedupSummaryFromScore,
+  type EntryDecisionLedgerPenaltyDedupSummary,
+} from "../gate1PenaltyDeduplication.js";
+import {
+  buildEntryDecisionLedgerRiskDoubleCountSummaryFromScore,
+  type EntryDecisionLedgerRiskDoubleCountSummary,
+} from "../gate1RiskDoubleCount.js";
+import {
+  buildEntryDecisionLedgerFinalCalibrationSummaryFromScore,
+  type EntryDecisionLedgerFinalCalibrationSummary,
+} from "../gate1FinalCalibration.js";
+import {
+  buildEntryDecisionLedgerPositiveSourceWiringSummaryFromScore,
+  type EntryDecisionLedgerPositiveSourceWiringSummary,
+} from "../gate1PositiveSourceWiringAdr0475.js";
+import {
+  resolveWatchlistUpstreamScore,
+  type ResolvedWatchlistUpstreamScore,
+} from "../watchlistUpstreamScoreResolver.js";
+import type { GateConditionResultTrace } from "../gateConditionResultTrace.js";
+import type { SanitizedInvestorFlowSemanticRow } from "../../../supply/investorFlowSemanticAvailability.js";
+import type { CandidateSnapshot, Gate1SymbolFeatures } from './types.js';
+
+export function finiteFeature(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+export function quoteFeature(c: CandidateSnapshot, key: string): number | undefined {
+  const quote = c.quote;
+  if (!quote || typeof quote !== "object") return undefined;
+  return finiteFeature((quote as Record<string, unknown>)[key]);
+}
+
+export function buildSymbolFeatures(
+  c: CandidateSnapshot,
+): Gate1SymbolFeatures | undefined {
+  const provided = c.symbolFeatures ?? {};
+  const features: Gate1SymbolFeatures = {
+    ...provided,
+    price:
+      provided.price ??
+      finiteFeature(c.price) ??
+      finiteFeature(c.currentPrice) ??
+      quoteFeature(c, "price") ??
+      quoteFeature(c, "currentPrice"),
+    currentPrice:
+      ((provided as Record<string, unknown>).currentPrice as number | undefined) ??
+      finiteFeature(c.currentPrice) ??
+      quoteFeature(c, "currentPrice") ??
+      quoteFeature(c, "price"),
+    high5d:
+      ((provided as Record<string, unknown>).high5d as number | undefined) ??
+      finiteFeature(c.high5d) ??
+      quoteFeature(c, "high5d"),
+    high20d:
+      ((provided as Record<string, unknown>).high20d as number | undefined) ??
+      finiteFeature(c.high20d) ??
+      quoteFeature(c, "high20d"),
+    high60:
+      ((provided as Record<string, unknown>).high60 as number | undefined) ??
+      finiteFeature(c.high60) ??
+      quoteFeature(c, "high60"),
+    volumeRatio:
+      ((provided as Record<string, unknown>).volumeRatio as number | undefined) ??
+      finiteFeature(c.volumeRatio) ??
+      quoteFeature(c, "volumeRatio"),
+    ma20: provided.ma20 ?? finiteFeature(c.ma20) ?? quoteFeature(c, "ma20"),
+    ma60: provided.ma60 ?? finiteFeature(c.ma60) ?? quoteFeature(c, "ma60"),
+    return5d:
+      provided.return5d ??
+      finiteFeature(c.return5d) ??
+      quoteFeature(c, "return5d"),
+    return20d:
+      provided.return20d ??
+      finiteFeature(c.return20d) ??
+      quoteFeature(c, "return20d"),
+    volume:
+      provided.volume ?? finiteFeature(c.volume) ?? quoteFeature(c, "volume"),
+    avgVolume:
+      provided.avgVolume ??
+      finiteFeature(c.avgVolume) ??
+      quoteFeature(c, "avgVolume"),
+    projectedVolume:
+      provided.projectedVolume ?? finiteFeature(c.projectedVolume),
+    rsi14: provided.rsi14 ?? finiteFeature(c.rsi14) ?? quoteFeature(c, "rsi14"),
+    atr: provided.atr ?? finiteFeature(c.atr) ?? quoteFeature(c, "atr"),
+    atr20avg:
+      provided.atr20avg ??
+      finiteFeature(c.atr20avg) ??
+      quoteFeature(c, "atr20avg"),
+    kospi20dReturn:
+      provided.kospi20dReturn ??
+      finiteFeature(c.kospi20dReturn) ??
+      quoteFeature(c, "kospi20dReturn"),
+    sector:
+      provided.sector ??
+      (typeof (c as unknown as Record<string, unknown>).sector === "string"
+        ? (c as unknown as Record<string, string>).sector
+        : undefined),
+    gateScore: provided.gateScore ?? finiteFeature(c.gateScore),
+    stage1Score: provided.stage1Score ?? finiteFeature(c.stage1Score),
+    stage2Score: provided.stage2Score ?? finiteFeature(c.stage2Score),
+    totalGateScore: provided.totalGateScore ?? finiteFeature(c.totalGateScore),
+    watchlistPriorityScore:
+      provided.watchlistPriorityScore ??
+      finiteFeature(c.priorityScore) ??
+      finiteFeature(c.watchlistScore) ??
+      finiteFeature(c.watchlistUpstreamScore),
+  };
+  const watchlistScore = resolveWatchlistUpstreamScore({
+    ...c,
+    symbolFeatures: { ...provided, ...features },
+  });
+  features.watchlistScore = watchlistScore;
+  return Object.values(features).some((value) => value !== undefined)
+    ? features
+    : undefined;
+}
