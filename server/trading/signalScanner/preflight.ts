@@ -811,7 +811,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     await recordBlockedDayShadowScan('POSITION_FULL');
   }
 
-  if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT === 'true') {
+  if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT === 'true' && !shadowMode) {
     console.log(`[AutoTrade] 최대 동시 포지션 도달 (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}, raw=${slotResult.rawCount}) — 신규 진입 스킵`);
     await recordBlockedDayShadowScan('POSITION_FULL');
     // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
@@ -887,7 +887,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   const keepPostCloseObservationAlive =
     isPostCloseObservationScan(options) && macroDiagnosticOnly;
 
-  if (!volumeClock.allowEntry) {
+  if (!volumeClock.allowEntry && !shadowMode) {
     console.log(volumeClock.reason);
     if (keepPostCloseObservationAlive) {
       console.info(
@@ -915,6 +915,10 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
       };
     }
   }
+  if (!volumeClock.allowEntry && shadowMode) {
+    console.log(`[AutoTrade] volumeClock 차단 SHADOW — Shadow 학습 계속 (${volumeClock.reason})`);
+  }
+
   if (volumeClock.scoreBonus !== 0) {
     console.log(volumeClock.reason);
   }
