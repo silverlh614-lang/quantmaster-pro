@@ -315,14 +315,14 @@ describe('preflight blocked display relabel patch', () => {
     });
 
     const regularSection = formatPreflightBlockedScanSection(regularR6);
-    expect(regularSection).toContain('marketSessionState=REGULAR');
-    expect(regularSection).toContain('entryBlockMode=R6_DEFENSE');
+    expect(regularSection).toContain('marketSessionState=SELL_ONLY');
+    expect(regularSection).toContain('entryBlockMode=R6_DEFENSE_SELL_ONLY');
     expect(regularSection).toContain('engineModeDisplay=DEFENSE_LIVE_BLOCK');
     expect(regularSection).toContain('liveEntryAllowed=false');
-    expect(regularSection).toContain('displayEvaluationState=LIVE_ENTRY_SKIPPED_R6_DEFENSE');
-    expect(regularSection).toContain('displayBreakPoint=PRE_FLIGHT_R6_DEFENSE');
+    expect(regularSection).toContain('displayEvaluationState=LIVE_ENTRY_SKIPPED_R6_SELL_ONLY');
+    expect(regularSection).toContain('displayBreakPoint=PRE_FLIGHT_R6_SELL_ONLY');
     expect(regularSection).toContain('liveEntryEvaluation=SKIPPED_R6_DEFENSE');
-    expect(regularSection).toContain('topReason=LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE');
+    expect(regularSection).toContain('topReason=R6_DEFENSE_SELL_ONLY');
     expect(regularSection).not.toContain('topReason=MARKET_WEAK');
     expect(regularSection).toContain('  • Gate3Diag: G3 OK');
 
@@ -344,8 +344,8 @@ describe('preflight blocked display relabel patch', () => {
     expect(sellOnlySection).toContain('entryBlockMode=SELL_ONLY');
     expect(sellOnlySection).toContain('displayEvaluationState=NOT_EVALUATED_SELL_ONLY');
     expect(sellOnlySection).toContain('displayBreakPoint=PRE_FLIGHT_SELL_ONLY');
-    expect(sellOnlySection).toContain('topReason=SELL_ONLY_TIME_WINDOW');
-    expect(sellOnlySection).toContain('  • Gate3Diag: NOT_EVALUATED_SELL_ONLY | timingDiagnosticPreserved=true | marketSignal=false');
+    expect(sellOnlySection).toContain('topReason=SELL_ONLY_OR_AFTERMARKET');
+    expect(sellOnlySection).toContain('Gate3Diag: DIAGNOSTIC_ONLY | liveTimingSkippedBy=SELL_ONLY_OR_AFTERMARKET | compactTextMissing=true | marketSignal=false');
 
     const sellOnlyR6 = recordPreflightBlockedScanSummary({
       blockedBy: 'PRE_FLIGHT_BLOCK',
@@ -365,5 +365,6 @@ describe('preflight blocked display relabel patch', () => {
     expect(sellOnlyR6Section).toContain('displayEvaluationState=LIVE_ENTRY_SKIPPED_R6_SELL_ONLY');
     expect(sellOnlyR6Section).toContain('displayBreakPoint=PRE_FLIGHT_R6_SELL_ONLY');
     expect(sellOnlyR6Section).toContain('topReason=R6_DEFENSE_SELL_ONLY');
+    expect(sellOnlyR6Section).toContain('Gate3Diag: DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false');
   });
 });

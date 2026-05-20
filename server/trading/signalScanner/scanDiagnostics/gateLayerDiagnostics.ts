@@ -24,6 +24,29 @@ export interface GateLayerAuditSummary {
   topGate3BlockReasons: Array<{ reason: string; count: number }>;
   gate1Survival?: Gate1SurvivalAuditSummary;
   gate2Coverage?: Gate2CoverageAuditSummary;
+  gate3Consolidated?: Gate3ConsolidatedAuditSummary;
+}
+
+export interface GateDiagnosticCarrySummary {
+  gate1CompactText?: string;
+  gate2CompactText?: string;
+  gate3CompactText?: string;
+  gate1Health?: string;
+  gate2Health?: string;
+  gate3Health?: string;
+  gate1PrimaryIssue?: string;
+  gate2PrimaryIssue?: string;
+  gate3PrimaryIssue?: string;
+  marketSignal: false;
+  diagnosticOnly: true;
+  source: 'consolidatedDiagnostic';
+}
+
+export interface Gate3ConsolidatedAuditSummary {
+  samples: number;
+  health: Record<string, number>;
+  primaryIssue: Record<string, number>;
+  compactText: Record<string, number>;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -73,6 +96,7 @@ export interface GateLayerAuditAccumulator {
   gate3BlockReasons: Record<string, number>;
   gate1Survival: Gate1SurvivalAuditSummary;
   gate2Coverage: Gate2CoverageAuditSummary;
+  gate3Consolidated: Gate3ConsolidatedAuditSummary;
 }
 
 export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
@@ -118,6 +142,12 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       sectorCycleCompactText: {},
       leaderCycleCompactText: {},
       providerIssueCount: 0,
+    },
+    gate3Consolidated: {
+      samples: 0,
+      health: {},
+      primaryIssue: {},
+      compactText: {},
     },
   };
 }
@@ -210,6 +240,15 @@ export function accumulateGateLayerSummary(
       counters.gateLayerAudit.gate2Coverage.providerIssueCount += 1;
     }
   }
+  const gate3Consolidated = summary.gate3.consolidatedDiagnostic as Record<string, unknown> | undefined;
+  if (gate3Consolidated) {
+    counters.gateLayerAudit.gate3Consolidated.samples += 1;
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.health, String(gate3Consolidated.health ?? 'UNKNOWN'));
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.primaryIssue, String(gate3Consolidated.primaryIssue ?? 'none'));
+    if (typeof gate3Consolidated.compactText === 'string' && gate3Consolidated.compactText.length > 0) {
+      incrementCount(counters.gateLayerAudit.gate3Consolidated.compactText, gate3Consolidated.compactText);
+    }
+  }
 }
 
 export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
@@ -225,6 +264,9 @@ export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAud
     topGate3BlockReasons: topCounts(counters.gateLayerAudit.gate3BlockReasons).map(({ condition, count }) => ({ reason: condition, count })),
     ...(survival.samples > 0 ? { gate1Survival: { ...survival } } : {}),
     ...(gate2Coverage.samples > 0 ? { gate2Coverage: { ...gate2Coverage } } : {}),
+    ...(counters.gateLayerAudit.gate3Consolidated.samples > 0
+      ? { gate3Consolidated: { ...counters.gateLayerAudit.gate3Consolidated } }
+      : {}),
   };
 }
 
@@ -236,6 +278,41 @@ function topKey(counts: Record<string, number>): string {
 function topLabel(counts: Record<string, number>): string {
   const [top] = topCounts(counts);
   return top ? top.condition : 'none';
+}
+
+function topCarryLabel(counts: Record<string, number> | undefined): string | undefined {
+  if (!counts) return undefined;
+  const top = topLabel(counts);
+  return top === 'none' ? undefined : top;
+}
+
+export function buildGateDiagnosticCarrySummary(
+  summary: GateLayerAuditSummary,
+): GateDiagnosticCarrySummary {
+  const gate1CompactText = topCarryLabel(summary.gate1Survival?.consolidatedCompactText);
+  const gate2CompactText = topCarryLabel(summary.gate2Coverage?.compactText);
+  const gate3CompactText = topCarryLabel(summary.gate3Consolidated?.compactText);
+  const gate1Health = topCarryLabel(summary.gate1Survival?.consolidatedHealth);
+  const gate2Health = topCarryLabel(summary.gate2Coverage?.inputState);
+  const gate3Health = topCarryLabel(summary.gate3Consolidated?.health);
+  const gate1PrimaryIssue = topCarryLabel(summary.gate1Survival?.consolidatedPrimaryIssue);
+  const gate2PrimaryIssue = topCarryLabel(summary.gate2Coverage?.primaryIssue);
+  const gate3PrimaryIssue = topCarryLabel(summary.gate3Consolidated?.primaryIssue);
+
+  return {
+    ...(gate1CompactText ? { gate1CompactText } : {}),
+    ...(gate2CompactText ? { gate2CompactText } : {}),
+    ...(gate3CompactText ? { gate3CompactText } : {}),
+    ...(gate1Health ? { gate1Health } : {}),
+    ...(gate2Health ? { gate2Health } : {}),
+    ...(gate3Health ? { gate3Health } : {}),
+    ...(gate1PrimaryIssue ? { gate1PrimaryIssue } : {}),
+    ...(gate2PrimaryIssue ? { gate2PrimaryIssue } : {}),
+    ...(gate3PrimaryIssue ? { gate3PrimaryIssue } : {}),
+    marketSignal: false,
+    diagnosticOnly: true,
+    source: 'consolidatedDiagnostic',
+  };
 }
 
 export function formatGate1SurvivalAuditSection(summary: Gate1SurvivalAuditSummary | null | undefined): string | null {

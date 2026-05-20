@@ -302,11 +302,32 @@ function resolveSessionWindowState(timestamp: string | undefined): 'SELL_ONLY' |
   return inWindow ? 'SELL_ONLY' : 'REGULAR';
 }
 
+function resolveDisplayMarketSessionState(scanEvaluation: PreflightScanEvaluationResult): string {
+  const explicit = String(scanEvaluation.marketSessionState ?? '').toUpperCase();
+  if (explicit === 'SELL_ONLY' || explicit === 'AFTERMARKET' || explicit === 'AFTER_MARKET') {
+    return explicit;
+  }
+  const blockReason = String(scanEvaluation.blockReason ?? '').toUpperCase();
+  if (blockReason.includes('AFTERMARKET') || blockReason.includes('AFTER_MARKET')) return 'AFTERMARKET';
+  if (blockReason.includes('SELL_ONLY')) return 'SELL_ONLY';
+  return resolveSessionWindowState(scanEvaluation.asOf);
+}
+
 function resolveEntryBlockMode(scanEvaluation: PreflightScanEvaluationResult | undefined): string {
   if (!scanEvaluation) return 'UNKNOWN';
-  const isSellOnly = scanEvaluation.marketSessionState === 'SELL_ONLY';
+  const marketSession = String(scanEvaluation.marketSessionState ?? '').toUpperCase();
+  const blockReason = String(scanEvaluation.blockReason ?? '').toUpperCase();
+  const engineMode = String(scanEvaluation.engineMode ?? '').toUpperCase();
+  const isSellOnly = marketSession === 'SELL_ONLY'
+    || marketSession === 'AFTERMARKET'
+    || marketSession === 'AFTER_MARKET'
+    || engineMode === 'SELL_ONLY'
+    || blockReason.includes('SELL_ONLY')
+    || blockReason.includes('AFTERMARKET')
+    || blockReason.includes('AFTER_MARKET');
   const isR6 = scanEvaluation.effectiveRegime === 'R6_DEFENSE'
     || scanEvaluation.blockReason === 'R6_DEFENSE'
+    || scanEvaluation.blockReason === 'R6_DEFENSE_SELL_ONLY'
     || scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_DEFENSE'
     || scanEvaluation.evaluationState === 'LIVE_ENTRY_SKIPPED_R6_DEFENSE';
   if (isSellOnly && isR6) return 'R6_DEFENSE_SELL_ONLY';
@@ -319,7 +340,7 @@ function resolveTopReason(scanEvaluation: PreflightScanEvaluationResult | undefi
   if (!scanEvaluation) return 'UNKNOWN';
   if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
   if (entryBlockMode === 'R6_DEFENSE') return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
-  if (entryBlockMode === 'SELL_ONLY') return 'SELL_ONLY_TIME_WINDOW';
+  if (entryBlockMode === 'SELL_ONLY') return 'SELL_ONLY_OR_AFTERMARKET';
   return scanEvaluation.blockReason ?? 'UNKNOWN';
 }
 
@@ -361,13 +382,16 @@ function resolveGate3Diagnostic(scanEvaluation: PreflightScanEvaluationResult, e
   const diagnostic = scanEvaluation.diagnostics as Record<string, unknown> | undefined;
   const gate3CompactText = typeof diagnostic?.gate3CompactText === 'string' ? diagnostic.gate3CompactText : null;
   if (gate3CompactText) return gate3CompactText;
-  if (entryBlockMode === 'SELL_ONLY' || entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
-    return 'NOT_EVALUATED_SELL_ONLY | timingDiagnosticPreserved=true | marketSignal=false';
+  if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false';
   }
   if (entryBlockMode === 'R6_DEFENSE') {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | marketSignal=false';
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | compactTextMissing=true | marketSignal=false';
   }
-  return 'UNAVAILABLE | fallback=true | timingCoverage=unknown | marketSignal=false';
+  if (entryBlockMode === 'SELL_ONLY') {
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=SELL_ONLY_OR_AFTERMARKET | compactTextMissing=true | marketSignal=false';
+  }
+  return 'UNAVAILABLE | reason=GATE3_CONSOLIDATED_DIAGNOSTIC_NOT_CARRIED | fallback=true | marketSignal=false';
 }
 
 /** /scan_blockers baseMessage 용 plain key=value 섹션 (사용자 §"기대 출력" 정합). */
@@ -389,7 +413,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   lines.push(`executionImpact=${summary.executionImpact}`);
   if (summary.scanEvaluation) {
     const scanEvaluation = summary.scanEvaluation;
-    const marketSessionState = resolveSessionWindowState(scanEvaluation.asOf);
+    const marketSessionState = resolveDisplayMarketSessionState(scanEvaluation);
     const entryBlockMode = resolveEntryBlockMode({ ...scanEvaluation, marketSessionState });
     const { displayEvaluationState, displayBreakPoint, liveEntryEvaluation } = resolveDisplayEvaluation(scanEvaluation, entryBlockMode);
     const liveEvaluated = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.evaluated;

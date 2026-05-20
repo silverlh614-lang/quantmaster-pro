@@ -278,6 +278,7 @@ import {
   formatGateScoreHealthSection,
 } from './scanDiagnostics/gateScoreDiagnostics.js';
 import {
+  buildGateDiagnosticCarrySummary,
   buildGateLayerAuditSummary,
   formatGate1SurvivalAuditSection,
   formatGate2CoverageAuditSection,
@@ -1530,6 +1531,7 @@ export async function persistScanResults(
   const kstNow = new Date(Date.now() + 9 * 3_600_000);
   const timeLabel = kstNow.toISOString().slice(11, 16) + ' KST';
   const totalCandidates = options.buyListLength + options.intradayBuyListLength;
+  const gateLayerAudit = buildGateLayerAuditSummary(counters);
   const scanEvaluation = options.scanEvaluation ?? buildScanEvaluationResult({
     asOf: kstNow.toISOString(),
     counters,
@@ -1594,7 +1596,8 @@ export async function persistScanResults(
     gateScoreHealth: buildGateScoreHealthSummary(counters),
     // ADR-452d — diagnostic-only near-miss bucket summary (executionImpact NONE).
     gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
-    gateLayerAudit: buildGateLayerAuditSummary(counters),
+    gateLayerAudit,
+    gateDiagnostics: buildGateDiagnosticCarrySummary(gateLayerAudit),
     dataPromotionStatus: DEFAULT_DATA_PROMOTION_STATUS,
     perStageDropoffSummary: buildPerStageDropoffSummary(counters),
     // ADR-458 — dry-run only approved reclassification impact summary.

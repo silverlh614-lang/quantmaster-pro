@@ -42,7 +42,7 @@ import type {
   GateScoreCandidateBucketSummary,
   GateScoreHealthSummary,
 } from './gateScoreDiagnostics.js';
-import type { GateLayerAuditSummary } from './gateLayerDiagnostics.js';
+import type { GateDiagnosticCarrySummary, GateLayerAuditSummary } from './gateLayerDiagnostics.js';
 import type { ScanEvaluationResult } from '../state/scanEvaluationState.js';
 
 export interface WaitDistribution {
@@ -216,6 +216,7 @@ export interface ScanSummary {
   gateScoreHealth?: GateScoreHealthSummary;
   gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
   gateLayerAudit?: GateLayerAuditSummary;
+  gateDiagnostics?: GateDiagnosticCarrySummary;
   dataPromotionStatus?: DataPromotionStatus;
   perStageDropoffSummary?: PipelineStageDropoffSummary[];
   gateReclassificationDryRun?: GateReclassificationDryRunSummary;

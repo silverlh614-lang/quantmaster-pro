@@ -541,6 +541,146 @@ function isGate1NotEvaluatedState(state: string | undefined): boolean {
   return state === 'PARTIAL_TRACE_ONLY' || Boolean(state?.startsWith('NOT_EVALUATED_'));
 }
 
+type GateDiagCompactSource =
+  | 'summary.gateLayerSummary'
+  | 'summary.gateDiagnostics'
+  | 'fullDiagnostic'
+  | 'renderedSection'
+  | 'fallback';
+
+interface GateDiagCompactLookup {
+  gate1: { text: string; source: GateDiagCompactSource; carried: boolean };
+  gate2: { text: string; source: GateDiagCompactSource; carried: boolean };
+  gate3: { text: string; source: GateDiagCompactSource; carried: boolean };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readNestedString(root: unknown, path: readonly string[]): string | undefined {
+  let cursor: unknown = root;
+  for (const key of path) {
+    const record = asRecord(cursor);
+    if (!record) return undefined;
+    cursor = record[key];
+  }
+  return typeof cursor === 'string' && cursor.trim().length > 0 ? cursor : undefined;
+}
+
+function isR6DefenseSummary(summary: ScanSummary | null | undefined): boolean {
+  const macro = summary?.macroGateState;
+  const scanEvaluation = summary?.scanEvaluation;
+  return scanEvaluation?.effectiveRegime === 'R6_DEFENSE'
+    || macro?.macroRegimeEffective === 'R6_DEFENSE'
+    || macro?.riskOverride === 'R6_DEFENSE'
+    || macro?.regime === 'R6_DEFENSE'
+    || String(scanEvaluation?.blockReason ?? macro?.liveEntryBlockedReason ?? '').includes('R6_DEFENSE');
+}
+
+function isSellOnlyOrAftermarketSummary(summary: ScanSummary | null | undefined): boolean {
+  const state = String(summary?.scanEvaluation?.marketSessionState ?? '').toUpperCase();
+  const engineMode = String(summary?.scanEvaluation?.engineMode ?? summary?.macroGateState?.engineMode ?? '').toUpperCase();
+  const blockReason = String(summary?.scanEvaluation?.blockReason ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
+  return summary?.macroGateState?.sellOnlyMode === true
+    || engineMode === 'SELL_ONLY'
+    || state === 'SELL_ONLY'
+    || state === 'AFTERMARKET'
+    || state === 'AFTER_MARKET'
+    || blockReason.includes('SELL_ONLY')
+    || blockReason.includes('AFTERMARKET')
+    || blockReason.includes('AFTER_MARKET');
+}
+
+function resolveGate3Fallback(summary: ScanSummary | null | undefined): string {
+  const r6 = isR6DefenseSummary(summary);
+  const sellOnlyOrAftermarket = isSellOnlyOrAftermarketSummary(summary);
+  if (r6 && sellOnlyOrAftermarket) {
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false';
+  }
+  if (r6) {
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | compactTextMissing=true | marketSignal=false';
+  }
+  if (sellOnlyOrAftermarket) {
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=SELL_ONLY_OR_AFTERMARKET | compactTextMissing=true | marketSignal=false';
+  }
+  return 'UNAVAILABLE | reason=GATE3_CONSOLIDATED_DIAGNOSTIC_NOT_CARRIED | fallback=true | marketSignal=false';
+}
+
+function compactLookup(
+  text: string | undefined,
+  source: GateDiagCompactSource,
+): { text: string; source: GateDiagCompactSource; carried: boolean } | null {
+  if (!text) return null;
+  return { text, source, carried: source !== 'fallback' };
+}
+
+export function resolveScanBlockersGateDiagCompactLookup(
+  summary: ScanSummary | null | undefined,
+): GateDiagCompactLookup {
+  const root = summary as unknown as Record<string, unknown> | undefined;
+  const fullDiagnostic = root?.fullDiagnostic;
+  const gate1 = compactLookup(
+    readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']),
+    'summary.gateLayerSummary',
+  )
+    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
+    ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
+    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSection')
+    ?? { text: 'UNAVAILABLE | fallback=true | marketSignal=false', source: 'fallback', carried: false };
+
+  const gate2 = compactLookup(
+    readNestedString(summary, ['gateLayerSummary', 'gate2', 'consolidatedDiagnostic', 'compactText']),
+    'summary.gateLayerSummary',
+  )
+    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate2CompactText']), 'summary.gateDiagnostics')
+    ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate2', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
+    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate2Wiring', 'compactText']), 'renderedSection')
+    ?? { text: 'UNAVAILABLE | fallback=true | marketSignal=false', source: 'fallback', carried: false };
+
+  const gate3 = compactLookup(
+    readNestedString(summary, ['gateLayerSummary', 'gate3', 'consolidatedDiagnostic', 'compactText']),
+    'summary.gateLayerSummary',
+  )
+    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate3CompactText']), 'summary.gateDiagnostics')
+    ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate3', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
+    ?? { text: resolveGate3Fallback(summary), source: 'fallback', carried: false };
+
+  return { gate1, gate2, gate3 };
+}
+
+export function resolveScanBlockersTopReason(summary: ScanSummary | null | undefined): string {
+  const scanEvaluation = summary?.scanEvaluation;
+  const macro = summary?.macroGateState;
+  const blockReason = String(scanEvaluation?.blockReason ?? macro?.liveEntryBlockedReason ?? '').toUpperCase();
+  const effectiveRegime = scanEvaluation?.effectiveRegime ?? macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN';
+  const liveEntryAllowed = macro?.liveEntryAllowed;
+  const r6 = effectiveRegime === 'R6_DEFENSE' || macro?.riskOverride === 'R6_DEFENSE' || blockReason.includes('R6_DEFENSE');
+  const sellOnlyOrAftermarket = isSellOnlyOrAftermarketSummary(summary);
+
+  if (blockReason === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
+  if (r6 && sellOnlyOrAftermarket) return 'R6_DEFENSE_SELL_ONLY';
+  if (effectiveRegime === 'R6_DEFENSE' && liveEntryAllowed === false) return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
+  if (r6 && scanEvaluation?.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED') return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
+  if (sellOnlyOrAftermarket && !r6) return 'SELL_ONLY_OR_AFTERMARKET';
+  return summary?.emptyScanReason ?? ((summary?.entries ?? 0) === 0 ? 'EMPTY_SCAN' : 'OK');
+}
+
+export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | null | undefined): string {
+  const lookup = resolveScanBlockersGateDiagCompactLookup(summary);
+  return [
+    'GateDiag Payload Carry:',
+    `- gate1CompactCarried=${lookup.gate1.carried}`,
+    `- gate2CompactCarried=${lookup.gate2.carried}`,
+    `- gate3CompactCarried=${lookup.gate3.carried}`,
+    `- gate1CompactSource=${lookup.gate1.source}`,
+    `- gate2CompactSource=${lookup.gate2.source}`,
+    `- gate3CompactSource=${lookup.gate3.source}`,
+  ].join('\n');
+}
+
 /**
  * Compact summary — 사용자 명시 §B 형식 (15~25줄 이내, ≤2000자 권장).
  * 운영 핵심 판단만 노출.
@@ -577,8 +717,8 @@ export function formatScanBlockersCompactMessage(
   lines.push(`• candidates: ${candidates} / entries: ${entries}`);
 
   // top empty scan reason
-  const emptyScanReason = summary?.emptyScanReason ?? (entries === 0 ? 'EMPTY_SCAN' : 'OK');
-  lines.push(`• topReason: ${emptyScanReason}`);
+  const topReason = resolveScanBlockersTopReason(summary);
+  lines.push(`• topReason: ${topReason}`);
   const scanEvaluationLine = formatScanEvaluationCompactLine(summary?.scanEvaluation);
   if (scanEvaluationLine) lines.push(scanEvaluationLine);
 
@@ -659,13 +799,10 @@ export function formatScanBlockersCompactMessage(
 
 
   lines.push('🧩 Gate Diagnostic');
-  const seDiag = summary?.scanEvaluation?.diagnostics as Record<string, unknown> | undefined;
-  const gate1Diag = typeof seDiag?.gate1CompactText === 'string' ? seDiag.gate1CompactText : 'UNAVAILABLE | fallback=true | marketSignal=false';
-  const gate2Diag = typeof seDiag?.gate2CompactText === 'string' ? seDiag.gate2CompactText : 'UNAVAILABLE | fallback=true | marketSignal=false';
-  const gate3Diag = typeof seDiag?.gate3CompactText === 'string' ? seDiag.gate3CompactText : 'UNAVAILABLE | fallback=true | timingCoverage=unknown | marketSignal=false';
-  lines.push(`• Gate1Diag: ${gate1Diag}`);
-  lines.push(`• Gate2Diag: ${gate2Diag}`);
-  lines.push(`• Gate3Diag: ${gate3Diag}`);
+  const gateDiag = resolveScanBlockersGateDiagCompactLookup(summary);
+  lines.push(`• Gate1Diag: ${gateDiag.gate1.text}`);
+  lines.push(`• Gate2Diag: ${gateDiag.gate2.text}`);
+  lines.push(`• Gate3Diag: ${gateDiag.gate3.text}`);
 
   // dominant blocker (waitDistribution top reason)
   const wd = (summary as { waitDistribution?: Record<string, number> })?.waitDistribution;

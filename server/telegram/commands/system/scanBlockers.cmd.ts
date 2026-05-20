@@ -171,6 +171,7 @@ import {
   deriveAdr0505EmissionStatus,
   formatAdr0505EmissionCompactLine,
   formatAdr0505EmissionDetailBlock,
+  formatGateDiagPayloadCarryDebugSection,
   formatScanBlockersCompactMessage,
   formatScanBlockersGateCompactMessage,
   SCAN_BLOCKERS_GATE_COMPACT_LENGTH_BUDGET,
@@ -233,7 +234,11 @@ const scanBlockers: TelegramCommand = {
 
     async function replyOnce(message: string): Promise<void> {
       if (replyCount > 0) {
-        warnScanBlockersDiagnostic('replyOnce.duplicateSuppressed', 'duplicate reply suppressed', { replyCount });
+        warnScanBlockersDiagnostic(
+          'replyOnce.duplicateSuppressed',
+          `duplicate reply suppressed requestId=${requestId} replyCount=${replyCount}`,
+          { replyCount },
+        );
         return;
       }
       replyCount += 1;
@@ -1020,7 +1025,8 @@ const scanBlockers: TelegramCommand = {
     // 사용자 보고 — `/scan_blockers full` 출력이 truncate 되어 정밀한 root cause 가 전달 안 됨 → pagination 으로 차단.
     if (mode === 'full') {
       const fullHeader = '🔬 <b>[scan_blockers full mode]</b>';
-      const finalFull = [fullHeader, ...parts].join('\n');
+      const fullParts = [fullHeader, ...parts, formatGateDiagPayloadCarryDebugSection(summary)];
+      const finalFull = fullParts.join('\n');
       if (finalFull.length <= SCAN_BLOCKERS_LENGTH_BUDGET.full) {
         logCommand('single');
         await replyOnce(finalFull);
@@ -1028,7 +1034,7 @@ const scanBlockers: TelegramCommand = {
       }
       const pages = paginateScanBlockersMessage(
         '🔬 [scan_blockers full mode]',
-        [fullHeader, ...parts],
+        fullParts,
         3500,
         '',
       );
