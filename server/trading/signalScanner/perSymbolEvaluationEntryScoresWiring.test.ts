@@ -9,6 +9,8 @@ const __dirname  = path.dirname(__filename);
 // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
 const SOURCE =
   fs.readFileSync(path.join(__dirname, 'perSymbol/buyListLoop.ts'), 'utf-8') + '\n' +
+  fs.readFileSync(path.join(__dirname, 'perSymbol/steps/preBreakoutFollowthrough.ts'), 'utf-8') + '\n' +
+  fs.readFileSync(path.join(__dirname, 'perSymbol/steps/preBreakoutEntry.ts'), 'utf-8') + '\n' +
   fs.readFileSync(path.join(__dirname, 'perSymbol/intradayLoop.ts'), 'utf-8');
 
 describe('perSymbolEvaluation 4 매수 site entryConditionScores 정적 wiring (PR-1)', () => {
@@ -54,10 +56,10 @@ describe('perSymbolEvaluation 4 매수 site entryConditionScores 정적 wiring (
     expect(baselineMarkers.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('회귀 차단 — buildBuyTrade 호출이 6건 (4 entry site + 2 ADR-0452 Shadow Near-Breakout WAIT site)', () => {
+  it('회귀 차단 — buildBuyTrade 호출이 5건 (4 entry site + ADR-0452 Shadow Near-Breakout helper)', () => {
     const callsiteMatches = SOURCE.match(/buildBuyTrade\(/g) ?? [];
-    // 라인 109 (import) 는 매치 안됨 (괄호 부재). 4 entry site + 2 shadow near-breakout site = 6.
-    // ADR-0452 wiring 으로 PRE_BREAKOUT_MISS / ENTRY_PRICE_DEVIATION 두 WAIT site 가 추가됨.
-    expect(callsiteMatches.length).toBe(6);
+    // 라인 109 (import) 는 매치 안됨 (괄호 부재). 4 entry site + 1 shared shadow near-breakout helper = 5.
+    // ADR-0452 wiring 은 PRE_BREAKOUT_MISS / ENTRY_PRICE_DEVIATION 양쪽에서 shared helper 를 호출한다.
+    expect(callsiteMatches.length).toBe(5);
   });
 });

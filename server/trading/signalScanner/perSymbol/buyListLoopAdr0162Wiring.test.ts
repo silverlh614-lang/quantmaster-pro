@@ -11,11 +11,15 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const SOURCE_PATH = join(process.cwd(), 'server/trading/signalScanner/perSymbol/buyListLoop.ts');
-const SOURCE = readFileSync(SOURCE_PATH, 'utf-8');
+const MAIN_SOURCE = readFileSync(SOURCE_PATH, 'utf-8');
+const SOURCE =
+  MAIN_SOURCE + '\n' +
+  readFileSync(join(process.cwd(), 'server/trading/signalScanner/perSymbol/steps/preBreakoutFollowthroughBudget.ts'), 'utf-8') + '\n' +
+  readFileSync(join(process.cwd(), 'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts'), 'utf-8');
 
 describe('ADR-0162 Phase 2-D wiring 정적 가드 — buyListLoop.ts', () => {
   it('applyPositionSizingEngine import 정확 1건', () => {
-    const matches = SOURCE.match(/import\s*\{[^}]*applyPositionSizingEngine[^}]*\}\s*from\s*['"][^'"]*positionSizingEngineWiring/g);
+    const matches = MAIN_SOURCE.match(/import\s*\{[^}]*applyPositionSizingEngine[^}]*\}\s*from\s*['"][^'"]*positionSizingEngineWiring/g);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBe(1);
   });

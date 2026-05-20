@@ -5,44 +5,32 @@
  * ADR-0019: R3 provisional shadow lane derive block extracted from evaluateBuyList.
  * ADR-0019: entry price drift check block extracted from evaluateBuyList.
  * ADR-0019: KIS intraday correction gate block extracted from evaluateBuyList.
+ * ADR-0019: pre-breakout followthrough/entry blocks extracted from evaluateBuyList.
  *
  * ADR-0134 (PR-Refactor-2) — perSymbolEvaluation.ts 분해 시 evaluateBuyList 격리.
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
  */
 
-import { fetchKisInvestorTradeByStockDaily } from '../../../clients/kisClient.js';
-// ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — KIS investor flow → supplyProviderHealth bridge SSOT.
-import { applySupplyProviderHealthFromKisFlow } from '../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
 import { logger, logNoiseDetail, logVisibilityEvent } from '../../../utils/logger.js';
-import type { MacroState } from '../../../persistence/macroStateRepo.js';
 
-import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
 import type { WatchlistEntry } from '../../../persistence/watchlistRepo.js';
-import { isBlacklisted } from '../../../persistence/blacklistRepo.js';
 import {
-  RRR_MIN_THRESHOLD, MAX_SECTOR_CONCENTRATION,
-  calcRRR,
+  MAX_SECTOR_CONCENTRATION,
 } from '../../riskManager.js';
 import { evaluatePortfolioRisk } from '../../portfolioRiskEngine.js';
 import { checkSectorExposureBefore } from '../../preOrderGuard.js';
-import { getSectorByCode } from '../../../screener/sectorMap.js';
 import { getExecutionCostConfig } from '../../executionCosts.js';
 import { classifySizingTier, PROBING_MAX_SLOTS } from '../../sizingTier.js';
 import {
   canReserveBanditProbingSlot,
-  type BanditDecision,
 } from '../../../learning/probingBandit.js';
 import { buildEntryConditionScores } from '../../../learning/entryConditionScores.js';
 import { computeSlotConsumption } from '../../slotAccounting.js';
 // ADR-0068 (PR-R): Shadow Learning Hooks — PR-L (Rejection Tracker) + PR-M (Twin Portfolio) wiring
 import { recordTwinEntries } from '../../../learning/counterfactualTwinPortfolio.js';
-import type { FullRegimeConfig } from '../../../../src/types/core.js';
-import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { addRecommendation } from '../../../learning/recommendationTracker.js';
 import { recordAiCandidate, buildSignalId } from '../../../persistence/tradeSignalStatusRepo.js';
 import { evaluateServerGate } from '../../../quantFilter.js';
-import { fetchYahooQuote, fetchKisQuoteFallback } from '../../../screener/stockScreener.js';
-import { fetchYahooQuoteByCode } from '../../../screener/adapters/yahooSymbolResolver.js';
 import { fillMonitor } from '../../fillMonitor.js';
 import {
   yahooAvailabilityStep,
@@ -65,37 +53,15 @@ import { verifyStockIncremental } from '../../../data/dataVerificationIncrementa
 // ADR-0191 §Wiring 2 — 자기 보유 가드 SSOT (positionTruth) — 동일 종목 12회 매수 (물타기) 차단.
 import {
   isOpenShadowStatus,
-  buildStopLossPlan,
-  formatStopLossBreakdown,
   calculateOrderQuantity,
 } from '../../entryEngine.js';
-import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { checkCooldownRelease } from '../../regretAsymmetryFilter.js';
-import { detectPreBreakoutAccumulation } from '../../preBreakoutAccumulationDetector.js';
-// ADR-0449 — Pre-Breakout WAIT 7-state Liveness Policy.
-import { evaluatePreBreakoutWait } from '../preBreakoutWaitPolicy.js';
 import { getKstIntradaySession } from '../emptyScanTaxonomy.js';
-// ADR-0450 — Pre-Breakout WAIT decision → KIS-WS priority routing SSOT.
-import { routePreBreakoutWaitToKisWs } from '../preBreakoutKisWsPriorityRouting.js';
-
-// ADR-0452 — Shadow Entry Liveness for Near-Breakout Candidates SSOT.
-//   Live 매수 조건 무변경 + Shadow virtual buy 만 near-breakout 후보에 허용.
-//   executionImpact: 'NONE' literal type 강제.
-import {
-  evaluateShadowNearBreakoutEntry,
-  type ShadowNearBreakoutBlockReason,
-} from '../shadowNearBreakoutEntryPolicy.js';
-import { saveShadowTrades } from '../../../persistence/shadowTradeRepo.js';
-// ADR-0450 — KIS-WS subscription priority queue 단일 진입점 (ADR-0437).
-import { requestKisWsSubscription } from '../../../clients/kisWebSocketSubscriptionManager.js';
-import { getDartFinancials } from '../../../clients/dartFinancialClient.js';
 import {
   computeMtasMultiplier,
   computeRawPositionPct,
-  fetchGateData,
   buildBuyTrade,
   createBuyTask,
-  type LiveBuyTask,
 } from '../../buyPipeline.js';
 import {
   accumulateFreshConditionOutputs,
@@ -114,7 +80,6 @@ import {
 //   별도 ledger (counterfactual-shadow-learning-ledger.json), virtual account 무관,
 //   KIS 주문 함수 import 0건. learning-only 마커 명시.
 import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
-import { getRegimeGateBand } from '../../gateConfig.js';
 // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단 SSOT.
 //   evaluateBuyList 진입부 1회 deriveShadowApprovalContext() 호출 → 모든 createBuyTask 에 propagate.
 //   LIVE 모드 무영향 (SHADOW 모드 + tradeDate + marketSession 모두 전달 시 buyPipeline / buyApproval 측 guard 활성).
@@ -123,11 +88,6 @@ import { deriveShadowApprovalContext } from '../../../telegram/shadowApprovalDed
 //   onApproved 콜백이 ctx.shadows.push 만 하고 saveShadowTrades 미호출하던 결함 차단.
 //   status PENDING → ACTIVE 전이 + INITIAL_BUY fill 영속 + [Shadow 체결] Telegram + 멱등 가드.
 //   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향 (mode='LIVE' 시 NOT_SHADOW skip).
-import {
-  executeShadowBuy,
-  recordShadowExecutionOutcome,
-} from '../../shadowExecutionPipeline.js';
-import { channelShadowBuyFilled } from '../../../alerts/channelPipeline.js';
 import { getPrice, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0516 — Watchlist Tier 정책: KIS REST 호출 빈도 차등화 SSOT.
@@ -163,6 +123,8 @@ import { phaseEntryGate } from './steps/entryGateChain.js';
 import { gateEligibilitySplit } from './steps/gateEligibilitySplit.js';
 import { counterfactualShadowLearning } from './steps/counterfactualShadowLane.js';
 import { handleApprovalQueue } from './steps/approvalQueue.js';
+import { preBreakoutFollowthrough } from './steps/preBreakoutFollowthrough.js';
+import { preBreakoutEntry } from './steps/preBreakoutEntry.js';
 
 function kstDecisionDate(): string {
   return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -530,292 +492,19 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const today = new Date().toISOString().split('T')[0];
 
       // ── Pre-Breakout: 선취매 포지션 확인 → 돌파 추종 실행 ──────────────────
-      const activePreBreakout = ctx.shadows.find(
-        s => s.stockCode === stock.code &&
-             s.watchlistSource === 'PRE_BREAKOUT' &&
-             isOpenShadowStatus(s.status)
-      );
-
-      if (activePreBreakout) {
-        if (currentPrice >= stock.entryPrice) {
-          // 돌파 확인! 나머지 70% 추종 매수 실행
-          const followAlreadyDone = ctx.shadows.some(
-            s => s.stockCode === stock.code &&
-                 s.watchlistSource === 'PRE_BREAKOUT_FOLLOWTHROUGH' &&
-                 (isOpenShadowStatus(s.status) || s.signalTime.startsWith(today))
-          );
-          if (!followAlreadyDone && !isBlacklisted(stock.code)) {
-            const slippage = getExecutionCostConfig().slippageRate;
-            const followEntryPrice = Math.round(currentPrice * (1 + slippage));
-
-            // BUG-08 fix: 추종 매수 시 새 진입가 기준 RRR 재검증
-            const followRRR = calcRRR(followEntryPrice, stock.targetPrice, stock.stopLoss);
-            if (followRRR < RRR_MIN_THRESHOLD) {
-              console.log(
-                `[PreBreakout] ${stock.name}(${stock.code}) 추종 RRR ${followRRR.toFixed(2)} < ${RRR_MIN_THRESHOLD} — 추종 매수 제외`
-              );
-              continue;
-            }
-
-            // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 추종에도 적용)
-            const gateScoreFollow = (stock.gateScore ?? 0) + ctx.volumeClock.scoreBonus;
-            const { gate: reCheckGateFollow, quote: reCheckQuoteFollow, kisFlow: kisFlowFollow } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
-            // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
-            applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlowFollow);
-            const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
-            const posPctFollow = computeRawPositionPct(gateScoreFollow) * ctx.kellyMultiplier * mtasFollow;
-            // PATCH-010 후속 — Shadow Bull Exposure Floor (PRE_BREAKOUT_FOLLOWTHROUGH 경로).
-            const exposureFloorFollow = resolveCandidatePositionFloor({
-              shadowMode: ctx.shadowMode,
-              regime: ctx.regime,
-              tier: 'STANDARD',
-              computedPositionPct: posPctFollow,
-            });
-            const effPosPctFollow = exposureFloorFollow.effectivePositionPct;
-            if (exposureFloorFollow.applied) {
-              console.log(
-                formatShadowBullFloorLog(exposureFloorFollow, {
-                  stockName: stock.name,
-                  stockCode: stock.code,
-                  computedPositionPct: posPctFollow,
-                  pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',
-                }),
-              );
-            }
-            const remSlots = Math.max(
-              1,
-              ctx.effectiveMaxPositions
-                - ctx.shadows.filter(s =>
-                    isOpenShadowStatus(s.status) &&
-                    s.watchlistSource !== 'INTRADAY' &&
-                    s.watchlistSource !== 'PRE_BREAKOUT',
-                  ).length
-                - ctx.mutables.reservedSlots.value,
-            );
-            const { quantity: legacyFullQty } = calculateOrderQuantity({
-              totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: effPosPctFollow,
-              price: followEntryPrice, remainingSlots: remSlots,
-              accountKellyMultiplier: ctx.accountKellyMultiplier,
-            });
-            // ── ADR-0163 (Phase 2-D Extension): PRE_BREAKOUT_FOLLOWTHROUGH 경로 wiring ──
-            // STRONG_BUY 매핑 (추세 추격 = 돌파 확정 후) + ENV+SHADOW 활성 시 본 모듈 override.
-            // ADR-0172: reCheckQuoteFollow 실데이터로 유동성·섹터 입력 교체.
-            const _sizingInputFollow = computeSizingLiquidityInputs(
-              reCheckQuoteFollow ?? null,
-              stock.code,
-              stock.sector,
-              ctx.shadows,
-            );
-            const sizingApplyFollow = applyPositionSizingEngine(ctx.shadowMode, {
-              totalAssets: ctx.totalAssets, shadowEntryPrice: followEntryPrice, stopLoss: stock.stopLoss,
-              signalGrade: 'STRONG_BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
-              rrr: stock.rrr ?? 0,
-              marketCap: 1_000_000_000_000_000,  // marketCap 미노출 — universe 차단 회피 유지
-              avgDailyVolume20d: _sizingInputFollow.avgDailyVolume20d,   // ADR-0172
-              currentSectorWeight: _sizingInputFollow.currentSectorWeight, // ADR-0172
-              isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
-              enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
-              notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
-            });
-            const fullQty = sizingApplyFollow.applied ? sizingApplyFollow.quantity : legacyFullQty;
-            const sizingSourceFollow = sizingApplyFollow.sizingSource;
-            const sizingEngineSnapshotFollow = sizingApplyFollow.applied && sizingApplyFollow.result ? {
-              tierName: sizingApplyFollow.result.tier.name, basePct: sizingApplyFollow.result.basePct,
-              finalPositionPct: sizingApplyFollow.result.finalPositionPct, finalPositionKrw: sizingApplyFollow.result.finalPosition,
-              drawdownMultiplier: sizingApplyFollow.result.drawdownMultiplier, lossStreakMultiplier: sizingApplyFollow.result.lossStreakMultiplier,
-              liquidityMultiplier: sizingApplyFollow.result.liquidityMultiplier, sectorExposureMultiplier: sizingApplyFollow.result.sectorExposureMultiplier,
-              expectedStopLossDamagePct: sizingApplyFollow.result.expectedStopLossDamagePct,
-              signalPriorityApplied: sizingApplyFollow.result.signalPriorityApplied,
-              adjustmentReasons: sizingApplyFollow.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
-            } : undefined;
-            if (sizingApplyFollow.applied) {
-              console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT_FOLLOWTHROUGH) → tier=${sizingEngineSnapshotFollow!.tierName} qty=${fullQty} (legacy=${legacyFullQty})`);
-            }
-            const followQtyRaw = Math.max(1, Math.ceil(fullQty * 0.7));
-            // ── ADR-0166: PRE_BREAKOUT_FOLLOWTHROUGH 노출 예산 cap (default OFF) ──
-            const exposureCapFollow = applyExposureBudgetCap({
-              rawQuantity: followQtyRaw,
-              shadowEntryPrice: followEntryPrice,
-              accountEquity: ctx.totalAssets,
-              currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
-              currentCashAmount: ctx.mutables.orderableCash.value,
-              regime: ctx.regime,
-              isAddOnBuy: false,  // 추세 추격 = 신규 진입
-              macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
-            });
-            const followQty = exposureCapFollow.applied ? exposureCapFollow.finalQuantity : followQtyRaw;
-            if (exposureCapFollow.applied && exposureCapFollow.capResult?.cappedByExposureBudget) {
-              // ADR-0171 — 10 필드 SSOT formatter (verbose ENV ON 시 6 신규 필드 노출, default 4 필드).
-              console.log(formatExposureBudgetLog({
-                stockCode: stock.code,
-                stockName: stock.name,
-                pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',
-                rawQuantity: followQtyRaw,
-                finalQuantity: followQty,
-                budget: exposureCapFollow.budget,
-                capResult: exposureCapFollow.capResult,
-              }));
-            }
-            const followHealth = applyBuySupplyHealthPolicy({
-              stockCode: stock.code,
-              stockName: stock.name,
-              currentPrice,
-              rawSignal: 'STRONG_BUY',
-              rawScore: gateScoreFollow,
-              requestedSize: followQty,
-              shadowMode: ctx.shadowMode,
-              ctx,
-            });
-            if (followHealth.blocked) continue;
-            const followFinalQty = followHealth.finalQuantity;
-            if (followFinalQty < 1) continue;  // exposure cap 으로 0 차단 시 진입 스킵
-            const profile    = stock.profileType ?? 'B';
-            const profileKey = `profile${profile}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
-            const regimeStopRate = REGIME_CONFIGS[ctx.regime].stopLoss[profileKey];
-            const followATR14 = reCheckQuoteFollow?.atr ?? 0;
-            const stopLossPlan = buildStopLossPlan({
-              entryPrice: followEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate, atr14: followATR14, regime: ctx.regime,
-            });
-            const followSymbolCtx: SymbolExitContext = {
-              // PRE_BREAKOUT 추세 추격 진입은 본질적으로 LEADER 성격(돌파 후 추세 보유 우선).
-              profileType: stock.section === 'CATALYST' ? 'CATALYST' : 'LEADER',
-              sector: stock.sector,
-              watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
-            };
-            const adaptiveFollowProfitTargets = getAdaptiveProfitTargets(ctx.regime, ctx.macroState, followSymbolCtx);
-            const limitTranches = adaptiveFollowProfitTargets.targets.filter(t => t.type === 'LIMIT' && t.trigger !== null);
-            const trailTarget   = adaptiveFollowProfitTargets.targets.find(t => t.type === 'TRAILING');
-            const followTrade = buildBuyTrade({
-              idPrefix: 'srv_pbf', stockCode: stock.code, stockName: stock.name,
-              currentPrice, shadowEntryPrice: followEntryPrice, quantity: followFinalQty,
-              stopLossPlan, targetPrice: stock.targetPrice, shadowMode: followHealth.shadowMode, regime: ctx.regime,
-              profileType: profile, watchlistSource: 'PRE_BREAKOUT_FOLLOWTHROUGH',
-              profitTranches: limitTranches.map(t => ({ price: followEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
-              trailPct: Math.max(0.05, Math.min(0.14, (trailTarget?.trailPct ?? 0.10) + adaptiveFollowProfitTargets.trailPctAdjust)), entryATR14: followATR14,
-              // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
-              entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT_FOLLOWTHROUGH']),
-              // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
-              sizingSource: sizingSourceFollow, sizingEngineSnapshot: sizingEngineSnapshotFollow,
-              rawSignal: 'STRONG_BUY',
-              finalSignal: followHealth.finalSignal,
-              dataConfidence: followHealth.healthDecision?.dataConfidence,
-              dataQualityBucket: followHealth.healthDecision?.dataQualityBucket,
-              supplyHealthSnapshot: ctx.supplyHealthSnapshot,
-              wasDowngradedBySupplyHealth: followHealth.healthDecision?.wasDowngradedBySupplyHealth,
-              downgradeReasons: followHealth.healthDecision?.downgradeReasons,
-            });
-
-            ctx.shadows.push(followTrade);
-
-            // ADR-0128 §Wiring 1A: 당일 신규 매수 후보 incremental 검증 (BUY_CANDIDATE role).
-            // VERIFICATION_QUEUE_DISABLED=true 시 회로 통과. try/catch 격리 — verify throw 가 매매 흐름 차단 안 함.
-            let _verifyOkFollow = true;
-            try {
-              const _verifyResultFollow = await verifyStockIncremental(stock.code, 'BUY_CANDIDATE');
-              if (!_verifyResultFollow.verified && _verifyResultFollow.action?.blockBuy) {
-                _verifyOkFollow = false;
-                console.log(`[AutoTrade] ${stock.name}(${stock.code}) → DATA_HOLD / ${_verifyResultFollow.reason} / ${_verifyResultFollow.source}`);
-              }
-            } catch (err) {
-              console.warn(`[AutoTrade] verifyStockIncremental error (안전 통과): ${stock.code} — ${(err as Error).message}`);
-            }
-            if (!_verifyOkFollow) continue;
-
-            const _signalTimeFollow = new Date().toISOString();
-            addRecommendation({
-              stockCode: stock.code, stockName: stock.name, signalTime: _signalTimeFollow,
-              priceAtRecommend: currentPrice, stopLoss: stopLossPlan.hardStopLoss,
-              targetPrice: stock.targetPrice, kellyPct: Math.round(posPctFollow * 100),
-              gateScore: gateScoreFollow, signalType: 'BUY',
-              conditionKeys: ['PRE_BREAKOUT_FOLLOWTHROUGH'], entryRegime: ctx.regime,
-            });
-            // ADR-0077 wiring — AI_CANDIDATE 영속 (영속 실패 시 매매 차단 안 함)
-            try {
-              recordAiCandidate({
-                signalTimeIso: _signalTimeFollow,
-                stockCode: stock.code,
-                stockName: stock.name,
-                recommendationType: 'BUY',
-                signalGateScore: gateScoreFollow,
-                reason: '선취매 추종 BUY 진입 후보',
-              });
-            } catch (e) {
-              console.warn('[TradeSignalStatus] PRE_BREAKOUT_FOLLOWTHROUGH recordAiCandidate failed', e);
-            }
-
-            const alertMsg =
-              `🚀 <b>[선취매 추종] ${stock.name} (${stock.code})</b>\n` +
-              `돌파 확인 @${currentPrice.toLocaleString()}원 — 나머지 70% 집행\n` +
-              `주문가: ${followEntryPrice.toLocaleString()}원 × ${followFinalQty}주\n` +
-              `손절: ${formatStopLossBreakdown(stopLossPlan)} | 목표: ${stock.targetPrice.toLocaleString()}원`;
-
-            if (diagnosticLiveBlockReason && !macroDiagnosticLiveBlock) {
-              suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
-              continue;
-            }
-
-            ctx.mutables.liveBuyQueue.push(await createBuyTask({
-              trade: followTrade, stockCode: stock.code, stockName: stock.name,
-              currentPrice, quantity: followFinalQty, entryPrice: followEntryPrice,
-              stopLoss: stopLossPlan.hardStopLoss, targetPrice: stock.targetPrice,
-              gateScore: gateScoreFollow, shadowMode: macroDiagnosticLiveBlock ? true : followHealth.shadowMode, effectiveBudget: followFinalQty * followEntryPrice,
-              alertMessage: alertMsg, logEvent: 'PRE_BREAKOUT_FOLLOWTHROUGH',
-              signalId: buildSignalId(_signalTimeFollow, stock.code), // ADR-0077
-              // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate.
-              tradeDate: _shadowApprovalCtx.tradeDate,
-              marketSession: _shadowApprovalCtx.marketSession,
-              sourceLane: 'SHADOW',
-              rrr: stock.rrr,
-              mtas: reCheckGateFollow?.mtas,
-              compressionScore: reCheckGateFollow?.compressionScore,
-              signalType: 'PRE_BREAKOUT_FOLLOWTHROUGH',
-              gateBandNormal: getRegimeGateBand(ctx.regime).normal,
-              gateBandStrong: getRegimeGateBand(ctx.regime).strong,
-              onApproved: async () => {
-                ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice);
-                // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — SHADOW paper-fill 영속.
-                // followTrade 는 위 ctx.shadows.push() 로 이미 등록됨. SSOT 가 멱등 + LIVE 차단.
-                if (followHealth.shadowMode) {
-                  try {
-                    const _r = await executeShadowBuy({
-                      trade: followTrade,
-                      allTrades: ctx.shadows,
-                      fillPrice: followEntryPrice,
-                      notifyFilled: async (n) => {
-                        await channelShadowBuyFilled({
-                          stockName: n.stockName,
-                          stockCode: n.stockCode,
-                          fillPrice: n.fillPrice,
-                          quantity: n.quantity,
-                          fillId: n.fillId,
-                          tradeId: n.tradeId,
-                        });
-                      },
-                    });
-                    recordShadowExecutionOutcome(_r.outcome);
-                  } catch (e) {
-                    console.warn('[ShadowExecutionPipeline] PRE_BREAKOUT_FOLLOWTHROUGH 영속 실패 (매매 흐름 보호):', e);
-                  }
-                }
-              },
-            }));
-            // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
-            ctx.mutables.reservedSlots.value++;
-            ctx.mutables.reservedTiers.push('OTHER');
-            {
-              const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
-              const _val = followFinalQty * followEntryPrice;
-              ctx.mutables.pendingSectorValue.set(_sec, (ctx.mutables.pendingSectorValue.get(_sec) ?? 0) + _val);
-              ctx.mutables.reservedSectorValues.push({ sector: _sec, value: _val });
-            }
-          } else {
-            console.log(`[PreBreakout] ${stock.name}(${stock.code}) 추종 매수 이미 실행됨 — 스킵`);
-          }
-        } else {
-          console.log(`[PreBreakout] ${stock.name}(${stock.code}) 선취매 보유 중 @${activePreBreakout.shadowEntryPrice.toLocaleString()} — 돌파 대기`);
-        }
-        continue; // 선취매 포지션이 있으면 일반 진입 로직 건너뜀
-      }
+      const followthroughResult = await preBreakoutFollowthrough({
+        ctx,
+        stock,
+        currentPrice,
+        today,
+        stockShadowMode,
+        diagnosticLiveBlockReason,
+        macroDiagnosticLiveBlock,
+        shadowApprovalCtx: _shadowApprovalCtx,
+        applyBuySupplyHealthPolicy,
+        suppressDiagnosticLiveBuyTask,
+      });
+      if (followthroughResult === 'SKIP') continue;
 
       // 진입 조건: 현재가가 entryPrice 부근 도달
       // MANUAL 종목은 사용자 확신이 높으므로 ±2%, AUTO 종목은 ±1%
@@ -826,620 +515,25 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 상승 모멘텀: 현재가가 entry 이상
       const breakout = currentPrice >= stock.entryPrice;
 
-      // ── Pre-Breakout 매집 감지 (진입가 미도달 + 손절선 위) ─────────────────
-      if (!nearEntry && !breakout && aboveStop) {
-        const priceDiffPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
-        ctx.scanCounters.preBreakoutPriceDistance++;
-        logNoiseDetail({
-          category: 'PRE_BREAKOUT_PRICE_DISTANCE',
-          message: `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달 — ` +
-            `현재가 ${currentPrice.toLocaleString()} vs 진입가 ${stock.entryPrice.toLocaleString()} (${priceDiffPct}%, 기준 ±${(nearEntryThreshold * 100).toFixed(0)}%) → Pre-Breakout 판별 ` +
-            `actionable=false executionImpact=NONE telegram=false`,
-        });
-        // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
-        const reCheckQuotePb = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
-                            ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
-        if (
-          reCheckQuotePb != null &&
-          (reCheckQuotePb.recentCloses10d?.length ?? 0) >= 5 &&
-          (reCheckQuotePb.recentVolumes10d?.length ?? 0) >= 4 &&
-          (reCheckQuotePb.recentHighs10d?.length ?? 0) >= 6 &&
-          (reCheckQuotePb.recentLows10d?.length ?? 0) >= 6
-        ) {
-          const accumResult = detectPreBreakoutAccumulation({
-            recentCloses:         reCheckQuotePb.recentCloses10d!,
-            recentVolumes:        reCheckQuotePb.recentVolumes10d!,
-            avgVolume20d:         reCheckQuotePb.avgVolume,
-            recentHighs:          reCheckQuotePb.recentHighs10d!,
-            recentLows:           reCheckQuotePb.recentLows10d!,
-            atrRatio:             reCheckQuotePb.price > 0 ? reCheckQuotePb.atr / reCheckQuotePb.price : 0.02,
-            foreignNetBuy5d:      ctx.macroState?.foreignNetBuy5d ?? 0,
-            institutionalNetBuy5d: 0,
-          });
-
-          if (accumResult.isAccumulating) {
-            // 당일 이미 선취매 진행 여부 확인
-            const pbAlreadyToday = ctx.shadows.some(
-              s => s.stockCode === stock.code &&
-                   s.watchlistSource === 'PRE_BREAKOUT' &&
-                   s.signalTime.startsWith(today)
-            );
-            if (!pbAlreadyToday && !isBlacklisted(stock.code)) {
-              const slippage = getExecutionCostConfig().slippageRate;
-              const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
-              const gateScorePb = (stock.gateScore ?? 0) + ctx.volumeClock.scoreBonus;
-              // BUG-05 fix: MTAS 기반 포지션 조정 (Pre-Breakout 선취매에도 적용)
-              const [kisFlowPb, dartFinPb] = await Promise.all([
-                fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
-                getDartFinancials(stock.code).catch(() => null),
-              ]);
-              // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
-              applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlowPb);
-              const reCheckGatePb = evaluateServerGate(reCheckQuotePb, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFinPb, kisFlowPb, ctx.regime);
-              const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
-              const posPctPb    = computeRawPositionPct(gateScorePb) * ctx.kellyMultiplier * mtasPb;
-              // PATCH-010 후속 — Shadow Bull Exposure Floor (PRE_BREAKOUT 30% 선취매 경로).
-              // posPctPb 는 풀 포지션 — floor 보정 후 30% 트랜치 비율은 호출자가 별도 적용.
-              const exposureFloorPb = resolveCandidatePositionFloor({
-                shadowMode: ctx.shadowMode,
-                regime: ctx.regime,
-                tier: 'STANDARD',
-                computedPositionPct: posPctPb,
-              });
-              const effPosPctPb = exposureFloorPb.effectivePositionPct;
-              if (exposureFloorPb.applied) {
-                console.log(
-                  formatShadowBullFloorLog(exposureFloorPb, {
-                    stockName: stock.name,
-                    stockCode: stock.code,
-                    computedPositionPct: posPctPb,
-                    pathLabel: 'PRE_BREAKOUT_30PCT',
-                  }),
-                );
-              }
-              const remSlotsPb  = Math.max(
-                1,
-                ctx.effectiveMaxPositions
-                  - ctx.shadows.filter(s =>
-                      isOpenShadowStatus(s.status) &&
-                      s.watchlistSource !== 'INTRADAY' &&
-                      s.watchlistSource !== 'PRE_BREAKOUT',
-                    ).length
-                  - ctx.mutables.reservedSlots.value,
-              );
-              const { quantity: legacyFullPbQty } = calculateOrderQuantity({
-                totalAssets: ctx.totalAssets, orderableCash: ctx.mutables.orderableCash.value, positionPct: effPosPctPb,
-                price: pbEntryPrice, remainingSlots: remSlotsPb,
-                accountKellyMultiplier: ctx.accountKellyMultiplier,
-              });
-              // ── ADR-0163 (Phase 2-D Extension): PRE_BREAKOUT 30% 선취매 경로 wiring ──
-              // BUY 매핑 (선취매 = 사전 진입, 보수적) + 30% 비율은 호출자 측 보존.
-              // ADR-0172: reCheckQuotePb 실데이터로 유동성·섹터 입력 교체.
-              const _sizingInputPb = computeSizingLiquidityInputs(
-                reCheckQuotePb ?? null,
-                stock.code,
-                stock.sector,
-                ctx.shadows,
-              );
-              const sizingApplyPb = applyPositionSizingEngine(ctx.shadowMode, {
-                totalAssets: ctx.totalAssets, shadowEntryPrice: pbEntryPrice, stopLoss: stock.stopLoss,
-                signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
-                rrr: stock.rrr ?? 0,
-                marketCap: 1_000_000_000_000_000,  // marketCap 미노출 — universe 차단 회피 유지
-                avgDailyVolume20d: _sizingInputPb.avgDailyVolume20d,   // ADR-0172
-                currentSectorWeight: _sizingInputPb.currentSectorWeight, // ADR-0172
-                isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
-                enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
-                notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
-              });
-              const fullPbQty = sizingApplyPb.applied ? sizingApplyPb.quantity : legacyFullPbQty;
-              const sizingSourcePb = sizingApplyPb.sizingSource;
-              const sizingEngineSnapshotPb = sizingApplyPb.applied && sizingApplyPb.result ? {
-                tierName: sizingApplyPb.result.tier.name, basePct: sizingApplyPb.result.basePct,
-                finalPositionPct: sizingApplyPb.result.finalPositionPct, finalPositionKrw: sizingApplyPb.result.finalPosition,
-                drawdownMultiplier: sizingApplyPb.result.drawdownMultiplier, lossStreakMultiplier: sizingApplyPb.result.lossStreakMultiplier,
-                liquidityMultiplier: sizingApplyPb.result.liquidityMultiplier, sectorExposureMultiplier: sizingApplyPb.result.sectorExposureMultiplier,
-                expectedStopLossDamagePct: sizingApplyPb.result.expectedStopLossDamagePct,
-                signalPriorityApplied: sizingApplyPb.result.signalPriorityApplied,
-                adjustmentReasons: sizingApplyPb.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
-              } : undefined;
-              if (sizingApplyPb.applied) {
-                console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT 30%) → tier=${sizingEngineSnapshotPb!.tierName} qty=${fullPbQty} (legacy=${legacyFullPbQty})`);
-              }
-              const pbQtyRaw = Math.max(1, Math.floor(fullPbQty * 0.3)); // 30% 선취매
-              // ── ADR-0166: PRE_BREAKOUT 30% 선취매 노출 예산 cap (default OFF) ──
-              const exposureCapPb = applyExposureBudgetCap({
-                rawQuantity: pbQtyRaw,
-                shadowEntryPrice: pbEntryPrice,
-                accountEquity: ctx.totalAssets,
-                currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
-                currentCashAmount: ctx.mutables.orderableCash.value,
-                regime: ctx.regime,
-                isAddOnBuy: false,  // 선취매 = 신규 진입 (사전 진입)
-                macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
-              });
-              const pbQty = exposureCapPb.applied ? exposureCapPb.finalQuantity : pbQtyRaw;
-              if (exposureCapPb.applied && exposureCapPb.capResult?.cappedByExposureBudget) {
-                // ADR-0171 — 10 필드 SSOT formatter.
-                console.log(formatExposureBudgetLog({
-                  stockCode: stock.code,
-                  stockName: stock.name,
-                  pathLabel: 'PRE_BREAKOUT 30%',
-                  rawQuantity: pbQtyRaw,
-                  finalQuantity: pbQty,
-                  budget: exposureCapPb.budget,
-                  capResult: exposureCapPb.capResult,
-                }));
-              }
-
-              const pbHealth = applyBuySupplyHealthPolicy({
-                stockCode: stock.code,
-                stockName: stock.name,
-                currentPrice,
-                rawSignal: 'BUY',
-                rawScore: gateScorePb,
-                requestedSize: pbQty,
-                shadowMode: ctx.shadowMode,
-                ctx,
-              });
-              if (pbHealth.blocked) continue;
-              const pbFinalQty = pbHealth.finalQuantity;
-
-              if (pbFinalQty >= 1) {
-                const profilePb = stock.profileType ?? 'B';
-                const profileKeyPb = `profile${profilePb}` as 'profileA' | 'profileB' | 'profileC' | 'profileD';
-                const regimeStopRatePb = REGIME_CONFIGS[ctx.regime].stopLoss[profileKeyPb];
-                const pbATR14 = reCheckQuotePb?.atr ?? 0;
-                const stopLossPlanPb = buildStopLossPlan({
-                  entryPrice: pbEntryPrice, fixedStopLoss: stock.stopLoss, regimeStopRate: regimeStopRatePb, atr14: pbATR14, regime: ctx.regime,
-                });
-                const adaptivePreBreakoutTargets = getAdaptiveProfitTargets(ctx.regime, ctx.macroState);
-                const limitTranchesPb = adaptivePreBreakoutTargets.targets.filter(t => t.type === 'LIMIT' && t.trigger !== null);
-                const trailTargetPb   = adaptivePreBreakoutTargets.targets.find(t => t.type === 'TRAILING');
-                const pbTrade = buildBuyTrade({
-                  idPrefix: 'srv_pb', stockCode: stock.code, stockName: stock.name,
-                  currentPrice, shadowEntryPrice: pbEntryPrice, quantity: pbFinalQty, originalQuantity: fullPbQty,
-                  stopLossPlan: stopLossPlanPb, targetPrice: stock.targetPrice, shadowMode: pbHealth.shadowMode, regime: ctx.regime,
-                  profileType: profilePb, watchlistSource: 'PRE_BREAKOUT',
-                  profitTranches: limitTranchesPb.map(t => ({ price: pbEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false })),
-                  trailPct: Math.max(0.05, Math.min(0.14, (trailTargetPb?.trailPct ?? 0.10) + adaptivePreBreakoutTargets.trailPctAdjust)), entryATR14: pbATR14,
-                  // ADR-0006 PR-19 baseline (PR-1) — entryConditionScores 영속.
-                  entryConditionScores: buildEntryConditionScores(['PRE_BREAKOUT']),
-                  // ADR-0163 Phase 2-D Extension — sizingSource marker + 스냅샷 영속.
-                  sizingSource: sizingSourcePb, sizingEngineSnapshot: sizingEngineSnapshotPb,
-                  rawSignal: 'BUY',
-                  finalSignal: pbHealth.finalSignal,
-                  dataConfidence: pbHealth.healthDecision?.dataConfidence,
-                  dataQualityBucket: pbHealth.healthDecision?.dataQualityBucket,
-                  supplyHealthSnapshot: ctx.supplyHealthSnapshot,
-                  wasDowngradedBySupplyHealth: pbHealth.healthDecision?.wasDowngradedBySupplyHealth,
-                  downgradeReasons: pbHealth.healthDecision?.downgradeReasons,
-                });
-
-                ctx.shadows.push(pbTrade);
-
-                // ADR-0128 §Wiring 1A: 당일 신규 매수 후보 incremental 검증 (BUY_CANDIDATE role).
-                let _verifyOkPb = true;
-                try {
-                  const _verifyResultPb = await verifyStockIncremental(stock.code, 'BUY_CANDIDATE');
-                  if (!_verifyResultPb.verified && _verifyResultPb.action?.blockBuy) {
-                    _verifyOkPb = false;
-                    console.log(`[AutoTrade] ${stock.name}(${stock.code}) → DATA_HOLD / ${_verifyResultPb.reason} / ${_verifyResultPb.source}`);
-                  }
-                } catch (err) {
-                  console.warn(`[AutoTrade] verifyStockIncremental error (안전 통과): ${stock.code} — ${(err as Error).message}`);
-                }
-                if (!_verifyOkPb) continue;
-
-                const _signalTimePb = new Date().toISOString();
-                addRecommendation({
-                  stockCode: stock.code, stockName: stock.name, signalTime: _signalTimePb,
-                  priceAtRecommend: currentPrice, stopLoss: stopLossPlanPb.hardStopLoss,
-                  targetPrice: stock.targetPrice, kellyPct: Math.round(posPctPb * 100),
-                  gateScore: gateScorePb, signalType: 'BUY',
-                  conditionKeys: ['PRE_BREAKOUT'], entryRegime: ctx.regime,
-                });
-                // ADR-0077 wiring — AI_CANDIDATE 영속
-                try {
-                  recordAiCandidate({
-                    signalTimeIso: _signalTimePb,
-                    stockCode: stock.code,
-                    stockName: stock.name,
-                    recommendationType: 'BUY',
-                    signalGateScore: gateScorePb,
-                    reason: 'PRE_BREAKOUT 매집 감지 30% 선취매',
-                  });
-                } catch (e) {
-                  console.warn('[TradeSignalStatus] PRE_BREAKOUT recordAiCandidate failed', e);
-                }
-
-                console.log(`[PreBreakout] ${stock.name}(${stock.code}) 매집 감지 — 30% 선취매 @${pbEntryPrice} (${pbFinalQty}주/${fullPbQty}주)`);
-                console.log(`[PreBreakout] ${accumResult.summary}`);
-
-                const pbAlertMsg =
-                  `🔍 <b>[선취매 진입] ${stock.name} (${stock.code})</b>\n` +
-                  `매집 감지 — ${accumResult.summary}\n` +
-                  `현재가: ${currentPrice.toLocaleString()}원 × ${pbFinalQty}주 (30% / 총 ${fullPbQty}주)\n` +
-                  `손절: ${formatStopLossBreakdown(stopLossPlanPb)} | 목표: ${stock.targetPrice.toLocaleString()}원\n` +
-                  `⚡ 돌파 확인 시 나머지 70%(${fullPbQty - pbFinalQty}주) 추가 집행`;
-
-                if (diagnosticLiveBlockReason && !macroDiagnosticLiveBlock) {
-                  suppressDiagnosticLiveBuyTask(ctx, stock, diagnosticLiveBlockReason);
-                  continue;
-                }
-
-                ctx.mutables.liveBuyQueue.push(await createBuyTask({
-                  trade: pbTrade, stockCode: stock.code, stockName: stock.name,
-                  currentPrice, quantity: pbFinalQty, entryPrice: pbEntryPrice,
-                  stopLoss: stopLossPlanPb.hardStopLoss, targetPrice: stock.targetPrice,
-                  gateScore: gateScorePb, shadowMode: macroDiagnosticLiveBlock ? true : pbHealth.shadowMode, effectiveBudget: pbFinalQty * pbEntryPrice,
-                  alertMessage: pbAlertMsg, logEvent: 'PRE_BREAKOUT_ENTRY',
-                  signalId: buildSignalId(_signalTimePb, stock.code), // ADR-0077
-                  // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe propagate.
-                  tradeDate: _shadowApprovalCtx.tradeDate,
-                  marketSession: _shadowApprovalCtx.marketSession,
-                  sourceLane: 'SHADOW',
-                  rrr: stock.rrr,
-                  mtas: reCheckGatePb?.mtas,
-                  compressionScore: reCheckGatePb?.compressionScore,
-                  signalType: 'PRE_BREAKOUT_SHADOW_ALLOWED',
-                  gateBandNormal: getRegimeGateBand(ctx.regime).normal,
-                  gateBandStrong: getRegimeGateBand(ctx.regime).strong,
-                  onApproved: async () => {
-                    ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - pbFinalQty * pbEntryPrice);
-                    // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — SHADOW paper-fill 영속.
-                    // pbTrade 는 위 ctx.shadows.push() 로 이미 등록됨. SSOT 가 멱등 + LIVE 차단.
-                    if (pbHealth.shadowMode) {
-                      try {
-                        const _r = await executeShadowBuy({
-                          trade: pbTrade,
-                          allTrades: ctx.shadows,
-                          fillPrice: pbEntryPrice,
-                          notifyFilled: async (n) => {
-                            await channelShadowBuyFilled({
-                              stockName: n.stockName,
-                              stockCode: n.stockCode,
-                              fillPrice: n.fillPrice,
-                              quantity: n.quantity,
-                              fillId: n.fillId,
-                              tradeId: n.tradeId,
-                            });
-                          },
-                        });
-                        recordShadowExecutionOutcome(_r.outcome);
-                      } catch (e) {
-                        console.warn('[ShadowExecutionPipeline] PRE_BREAKOUT_ENTRY 영속 실패 (매매 흐름 보호):', e);
-                      }
-                    }
-                  },
-                }));
-                // Phase 1 ①: 큐 푸시 시점에 슬롯·섹터 예약 기록 (플러시 후 실패 시 롤백)
-                ctx.mutables.reservedSlots.value++;
-                ctx.mutables.reservedTiers.push('OTHER');
-                {
-                  const _sec = stock.sector || getSectorByCode(stock.code) || '미분류';
-                  const _val = pbFinalQty * pbEntryPrice;
-                  ctx.mutables.pendingSectorValue.set(_sec, (ctx.mutables.pendingSectorValue.get(_sec) ?? 0) + _val);
-                  ctx.mutables.reservedSectorValues.push({ sector: _sec, value: _val });
-                }
-              }
-            }
-          }
-        }
-        // ADR-0115: pre-breakout 미도달은 NON_CRITICAL — failCount 미증가, WAIT 상태
-        // 사용자 18단계 §10 "Pre-breakout 조건 완화" — REJECT 가 아니라 HOLD/WAIT.
-        // ENV PRE_BREAKOUT_FAILCOUNT_DISABLED=false 명시 시 ADR-0113 동작 복원.
-        if (shouldIncrementFailCount('PRE_BREAKOUT_MISS')) {
-          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-          ctx.mutables.watchlistMutated.value = true;
-          logger.debug(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — failCount=${stock.entryFailCount}`);
-        } else {
-          logPreEntryWaitDebug({
-            stockName: stock.name,
-            stockCode: stock.code,
-            entryPrice: stock.entryPrice,
-            reason: 'PRE_BREAKOUT_MISS',
-            message: `[AutoTrade] ${stock.name}(${stock.code}) 진입가 미도달(pre-breakout) — WAIT (ADR-0115 — failCount 미증가)`,
-          });
-        }
-        ctx.scanCounters.waitPreBreakout++;  // ADR-0118
-        // ADR-0449 — Pre-Breakout WAIT 7-state 분류 + 영속 누적.
-        try {
-          const decision = evaluatePreBreakoutWait({
-            symbol: stock.code,
-            name: stock.name,
-            currentPrice,
-            entryPrice: stock.entryPrice,
-            priceDistancePct: Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100),
-            volumeRatio: undefined,
-            gate1Passed: undefined,
-            recheckPassed: undefined,
-            waitCount: stock.waitCount,
-            recheckFailCount: stock.recheckFailCount,
-            lastWaitAt: stock.lastWaitAt,
-            shadowObservable: undefined,
-            liveEligible: undefined,
-            riskBlocked: false,
-            quoteStale: false,
-          });
-          ctx.scanCounters.preBreakoutWaitDecisions.push(decision);
-          if (decision.increaseWaitCount) {
-            stock.waitCount = (stock.waitCount ?? 0) + 1;
-            stock.lastWaitAt = new Date().toISOString();
-            ctx.mutables.watchlistMutated.value = true;
-          }
-          // ADR-0450 — KIS-WS priority routing: WAIT_RETRY_ELIGIBLE → 850 격상 / 먼·약한·탈락 →
-          //   300/250 격하. WATCHLIST priority=500 만 반복되던 후보가 진입 직전 후보면 850 으로
-          //   재구독되어 30 슬롯에서 우선순위 확보.
-          try {
-            const routing = routePreBreakoutWaitToKisWs(decision);
-            if (routing.shouldRequestSubscription) {
-              requestKisWsSubscription(
-                {
-                  code: stock.code,
-                  name: stock.name,
-                  priority: routing.priorityHint,
-                  reasons: [routing.reason],
-                  entryCandidate: decision.state === 'WAIT_RETRY_ELIGIBLE',
-                  shadowObservable: decision.shadowLearningAllowed,
-                
-                },
-                {},
-              );
-            }
-          } catch (e) {
-            // ADR-0450 routing/요청 실패가 매수 흐름 차단 안 함 — try/catch 격리.
-            console.warn(`[ADR-0450] pre-breakout KIS-WS routing 실패 ${stock.code}:`, e);
-          }
-          // ADR-0452 — Shadow Near-Breakout Entry: Live WAIT 후보 중 near-breakout 학습
-          //   가치가 큰 후보를 Shadow virtual buy 로 기록. Live 주문 / Paper 주문 / approval
-          //   queue 모두 연결 금지. executionImpact: NONE literal type 강제.
-          //   try/catch 격리 — 분류 실패가 매수 흐름 차단 안 함.
-          try {
-            const todayKst = new Date().toISOString().split('T')[0];
-            const distancePct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
-            const alreadyHasOpenShadow = ctx.shadows.some(
-              (s) => s.stockCode === stock.code && isOpenShadowStatus(s.status),
-            );
-            const alreadyEnteredToday = ctx.shadows.some(
-              (s) =>
-                s.stockCode === stock.code &&
-                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
-                s.signalTime.startsWith(todayKst),
-            );
-            const dailyCreatedCount = ctx.shadows.filter(
-              (s) =>
-                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
-                s.signalTime.startsWith(todayKst),
-            ).length;
-            const shadowDecision = evaluateShadowNearBreakoutEntry({
-              symbol: stock.code,
-              name: stock.name,
-              currentPrice,
-              entryPrice: stock.entryPrice,
-              stopLoss: stock.stopLoss,
-              targetPrice: stock.targetPrice,
-              priceDistancePct: distancePct,
-              gate1Passed: undefined,
-              liveGateScore: stock.gateScore,
-              conditionsPassed: undefined,
-              recheckPassed: undefined,
-              volumeRatio: undefined,
-              preBreakoutState: decision.state,
-              shadowMode: stockShadowMode,
-              riskBlocked: false,
-              quoteStale: false,
-              alreadyHasOpenShadow,
-              alreadyEnteredToday,
-              dailyCreatedCount,
-            });
-            if (shadowDecision.allowed && shadowDecision.createShadowTrade) {
-              // executionImpact NONE 보장 — buildBuyTrade 는 ServerShadowTrade 객체만 생성,
-              // KIS / approval queue / orderExecutor / trancheExecutor 호출 0건 (정적 grep 가드).
-              const stopLossPlanShadow = {
-                hardStopLoss: stock.stopLoss,
-                initialStopLoss: stock.stopLoss,
-                regimeStopLoss: stock.stopLoss,
-                stopLossPct: ((currentPrice - stock.stopLoss) / currentPrice) * 100,
-                stopLossKrw: currentPrice - stock.stopLoss,
-                breakdown: { initial: stock.stopLoss, regime: stock.stopLoss, atr: null, hard: stock.stopLoss },
-              };
-              const shadowTrade = buildBuyTrade({
-                idPrefix: 'shadow-near-breakout',
-                stockCode: stock.code,
-                stockName: stock.name,
-                currentPrice,
-                shadowEntryPrice: currentPrice,
-                quantity: 1,
-                originalQuantity: 1,
-                stopLossPlan: stopLossPlanShadow,
-                targetPrice: stock.targetPrice,
-                shadowMode: true,
-                regime: ctx.regime,
-                profileType: 'B',
-                watchlistSource: 'SHADOW_NEAR_BREAKOUT',
-                profitTranches: [],
-                trailPct: 5,
-              });
-              ctx.shadows.push(shadowTrade);
-              saveShadowTrades(ctx.shadows);
-              ctx.scanCounters.shadowNearBreakoutCreated = (ctx.scanCounters.shadowNearBreakoutCreated ?? 0) + 1;
-              console.log(
-                `[ShadowNearBreakout] created ${stock.code} current=${currentPrice} entry=${stock.entryPrice} ` +
-                `distance=${distancePct.toFixed(1)}% cause=${shadowDecision.cause} executionImpact=NONE`,
-              );
-            } else if (!shadowDecision.allowed && shadowDecision.blockReason) {
-              ctx.scanCounters.shadowNearBreakoutBlocked = (ctx.scanCounters.shadowNearBreakoutBlocked ?? 0) + 1;
-              const reasons = ctx.scanCounters.shadowNearBreakoutBlockReasons ?? {};
-              const key: ShadowNearBreakoutBlockReason = shadowDecision.blockReason;
-              reasons[key] = (reasons[key] ?? 0) + 1;
-              ctx.scanCounters.shadowNearBreakoutBlockReasons = reasons;
-            }
-          } catch (e) {
-            console.warn(`[ADR-0452] pre-breakout shadow near-breakout 분류 실패 ${stock.code}:`, e);
-          }
-        } catch (e) {
-          // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
-          console.warn(`[ADR-0449] pre-breakout WAIT 분류 실패 ${stock.code}:`, e);
-        }
-        continue; // 진입가 미도달 — 일반 진입 로직 건너뜀
-      }
-
-      // C4 수정: 명시적 진입 조건 체크 (INTRADAY 경로와 동일한 방어 패턴)
-      // (!nearEntry && !breakout) 케이스는 위 pre-breakout 블록이 처리하지만,
-      // 방어적 가드를 명시하여 미래 코드 변경 시 조건 없는 진입을 차단한다.
-      // ADR-0115: 진입가 이탈도 NON_CRITICAL (ENTRY_PRICE_DEVIATION) — WAIT.
-      if (!(nearEntry || breakout)) {
-        if (shouldIncrementFailCount('ENTRY_PRICE_DEVIATION')) {
-          stock.entryFailCount = (stock.entryFailCount ?? 0) + 1;
-          ctx.mutables.watchlistMutated.value = true;
-          logger.info(`[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — failCount=${stock.entryFailCount}`);
-        } else {
-          logPreEntryWaitDebug({
-            stockName: stock.name,
-            stockCode: stock.code,
-            entryPrice: stock.entryPrice,
-            reason: 'ENTRY_PRICE_DEVIATION',
-            message: `[AutoTrade] ${stock.name}(${stock.code}) 진입가 이탈 — WAIT (ADR-0115 — failCount 미증가)`,
-          });
-        }
-        ctx.scanCounters.waitPreBreakout++;  // ADR-0118 (entry deviation 도 pre-breakout 분류로 통합 카운트)
-        // ADR-0449 — 진입가 이탈 (PRICE_DISTANCE_TOO_FAR 등) 7-state 분류 + 영속 누적.
-        try {
-          const decision = evaluatePreBreakoutWait({
-            symbol: stock.code,
-            name: stock.name,
-            currentPrice,
-            entryPrice: stock.entryPrice,
-            priceDistancePct: Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100),
-            volumeRatio: undefined,
-            gate1Passed: undefined,
-            recheckPassed: undefined,
-            waitCount: stock.waitCount,
-            recheckFailCount: stock.recheckFailCount,
-            lastWaitAt: stock.lastWaitAt,
-            shadowObservable: undefined,
-            liveEligible: undefined,
-            riskBlocked: false,
-            quoteStale: false,
-          });
-          ctx.scanCounters.preBreakoutWaitDecisions.push(decision);
-          if (decision.increaseWaitCount) {
-            stock.waitCount = (stock.waitCount ?? 0) + 1;
-            stock.lastWaitAt = new Date().toISOString();
-            ctx.mutables.watchlistMutated.value = true;
-          }
-          // ADR-0450 — KIS-WS priority routing: ENTRY_PRICE_DEVIATION 분기도 동일 매핑.
-          try {
-            const routing = routePreBreakoutWaitToKisWs(decision);
-            if (routing.shouldRequestSubscription) {
-              requestKisWsSubscription(
-                {
-                  code: stock.code,
-                  name: stock.name,
-                  priority: routing.priorityHint,
-                  reasons: [routing.reason],
-                  entryCandidate: decision.state === 'WAIT_RETRY_ELIGIBLE',
-                  shadowObservable: decision.shadowLearningAllowed,
-                
-                },
-                {},
-              );
-            }
-          } catch (e) {
-            // ADR-0450 routing/요청 실패가 매수 흐름 차단 안 함 — try/catch 격리.
-            console.warn(`[ADR-0450] entry deviation KIS-WS routing 실패 ${stock.code}:`, e);
-          }
-          // ADR-0452 — Shadow Near-Breakout Entry: ENTRY_PRICE_DEVIATION 분기 동일 wiring.
-          //   Live WAIT 후보 중 학습 가치 큰 후보를 Shadow virtual buy 로 기록.
-          //   try/catch 격리 — 분류 실패가 매수 흐름 차단 안 함.
-          try {
-            const todayKst = new Date().toISOString().split('T')[0];
-            const distancePct = Math.abs(((currentPrice - stock.entryPrice) / stock.entryPrice) * 100);
-            const alreadyHasOpenShadow = ctx.shadows.some(
-              (s) => s.stockCode === stock.code && isOpenShadowStatus(s.status),
-            );
-            const alreadyEnteredToday = ctx.shadows.some(
-              (s) =>
-                s.stockCode === stock.code &&
-                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
-                s.signalTime.startsWith(todayKst),
-            );
-            const dailyCreatedCount = ctx.shadows.filter(
-              (s) =>
-                s.watchlistSource === 'SHADOW_NEAR_BREAKOUT' &&
-                s.signalTime.startsWith(todayKst),
-            ).length;
-            const shadowDecision = evaluateShadowNearBreakoutEntry({
-              symbol: stock.code,
-              name: stock.name,
-              currentPrice,
-              entryPrice: stock.entryPrice,
-              stopLoss: stock.stopLoss,
-              targetPrice: stock.targetPrice,
-              priceDistancePct: distancePct,
-              gate1Passed: undefined,
-              liveGateScore: stock.gateScore,
-              conditionsPassed: undefined,
-              recheckPassed: undefined,
-              volumeRatio: undefined,
-              preBreakoutState: decision.state,
-              shadowMode: stockShadowMode,
-              riskBlocked: false,
-              quoteStale: false,
-              alreadyHasOpenShadow,
-              alreadyEnteredToday,
-              dailyCreatedCount,
-            });
-            if (shadowDecision.allowed && shadowDecision.createShadowTrade) {
-              const stopLossPlanShadow = {
-                hardStopLoss: stock.stopLoss,
-                initialStopLoss: stock.stopLoss,
-                regimeStopLoss: stock.stopLoss,
-                stopLossPct: ((currentPrice - stock.stopLoss) / currentPrice) * 100,
-                stopLossKrw: currentPrice - stock.stopLoss,
-                breakdown: { initial: stock.stopLoss, regime: stock.stopLoss, atr: null, hard: stock.stopLoss },
-              };
-              const shadowTrade = buildBuyTrade({
-                idPrefix: 'shadow-near-breakout',
-                stockCode: stock.code,
-                stockName: stock.name,
-                currentPrice,
-                shadowEntryPrice: currentPrice,
-                quantity: 1,
-                originalQuantity: 1,
-                stopLossPlan: stopLossPlanShadow,
-                targetPrice: stock.targetPrice,
-                shadowMode: true,
-                regime: ctx.regime,
-                profileType: 'B',
-                watchlistSource: 'SHADOW_NEAR_BREAKOUT',
-                profitTranches: [],
-                trailPct: 5,
-              });
-              ctx.shadows.push(shadowTrade);
-              saveShadowTrades(ctx.shadows);
-              ctx.scanCounters.shadowNearBreakoutCreated = (ctx.scanCounters.shadowNearBreakoutCreated ?? 0) + 1;
-              console.log(
-                `[ShadowNearBreakout] created ${stock.code} current=${currentPrice} entry=${stock.entryPrice} ` +
-                `distance=${distancePct.toFixed(1)}% cause=${shadowDecision.cause} executionImpact=NONE`,
-              );
-            } else if (!shadowDecision.allowed && shadowDecision.blockReason) {
-              ctx.scanCounters.shadowNearBreakoutBlocked = (ctx.scanCounters.shadowNearBreakoutBlocked ?? 0) + 1;
-              const reasons = ctx.scanCounters.shadowNearBreakoutBlockReasons ?? {};
-              const key: ShadowNearBreakoutBlockReason = shadowDecision.blockReason;
-              reasons[key] = (reasons[key] ?? 0) + 1;
-              ctx.scanCounters.shadowNearBreakoutBlockReasons = reasons;
-            }
-          } catch (e) {
-            console.warn(`[ADR-0452] entry deviation shadow near-breakout 분류 실패 ${stock.code}:`, e);
-          }
-        } catch (e) {
-          // ADR-0449 분류 실패가 매수 흐름 차단 안 함 — try/catch 격리.
-          console.warn(`[ADR-0449] entry deviation WAIT 분류 실패 ${stock.code}:`, e);
-        }
-        continue;
-      }
+      // ── Pre-Breakout 매집/선취매/WAIT 처리 ────────────────────────────────
+      const preBreakoutEntryResult = await preBreakoutEntry({
+        ctx,
+        stock,
+        currentPrice,
+        nearEntry,
+        breakout,
+        aboveStop,
+        nearEntryThreshold,
+        today,
+        stockShadowMode,
+        diagnosticLiveBlockReason,
+        macroDiagnosticLiveBlock,
+        shadowApprovalCtx: _shadowApprovalCtx,
+        applyBuySupplyHealthPolicy,
+        suppressDiagnosticLiveBuyTask,
+        logPreEntryWaitDebug,
+      });
+      if (preBreakoutEntryResult === 'SKIP') continue;
 
       if (!aboveStop) {
         console.log(
