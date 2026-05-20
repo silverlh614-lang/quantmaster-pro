@@ -1,5 +1,7 @@
 /**
  * @responsibility 메인 buyList 루프 — Gate·RRR·liveGate·failure·corr·sizing·cooldown 평가
+ * ADR-0019: entry revalidation gate block extracted from evaluateBuyList.
+ * ADR-0019: sizing tier final decision block extracted from evaluateBuyList.
  *
  * ADR-0134 (PR-Refactor-2) — perSymbolEvaluation.ts 분해 시 evaluateBuyList 격리.
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
@@ -2089,6 +2091,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 가 영속되어 있으면 stock.sector 의 LEADING/LAGGING 분류 결과를 quoteGateScore 에
       // 가산. macroState.sectorEnergyResult 부재 시 boost=0 — 기존 동작과 동일.
       // ADR-0125 (PR-1): dataQuality 4값 분기 추가 — STALE/FAILED 시 boost=0 강제.
+      async function handleEntryRevalidationGate(
+        ctx: BuyListLoopContext,
+        stock: WatchlistEntry,
+        gateResult: ReturnType<typeof evaluateServerGate>,
+        conditionScores: ReturnType<typeof buildEntryConditionScores>,
+      ): Promise<'SKIP' | 'CONTINUE'> {
       const sectorEnergyResult = ctx.macroState?.sectorEnergyResult ?? null;
       const sectorEnergyDataQuality = ctx.macroState?.sectorEnergyDataQuality;
       const sectorBoost = applySectorScoreBoost(stock.sector, sectorEnergyResult, ctx.regime, sectorEnergyDataQuality);
@@ -2103,10 +2111,10 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       const revalResult = entryRevalidationStep({
         stockName: stock.name,
-        currentPrice,
+        currentPrice: currentPrice!,
         entryPrice: stock.entryPrice,
         reCheckQuote,
-        reCheckGate,
+        reCheckGate: gateResult,
         regime: ctx.regime,
         marketSessionState: ctx.resolvedMarketSessionState,
         marketElapsedMinutes: getKstMarketElapsedMinutes(),
@@ -2118,7 +2126,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         if (policySkipped) {
           entryRevalidationSkippedBatch.push({
             symbol: stock.name,
-            score: reCheckGate?.gateScore,
+            score: gateResult?.gateScore,
             reasons: revalResult.failReasons,
           });
         }
@@ -2162,7 +2170,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             const recorded = recordCounterfactual({
               stockCode: stock.code,
               stockName: stock.name,
-              priceAtSignal: currentPrice,
+              priceAtSignal: currentPrice!,
               gateScore: stock.gateScore ?? 0,
               regime: ctx.regime,
               conditionKeys: stock.conditionKeys ?? [],
@@ -2180,21 +2188,31 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         // ADR-0087 PR-F-2: conditionScores 전달 — Over-Strict / Good Defense 분류 입력.
         try {
           const kstDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
-          const conditionScores = buildEntryConditionScores(stock.conditionKeys);
+          const rejectionConditionScores = conditionScores || buildEntryConditionScores(stock.conditionKeys);
           recordRejection({
             stockCode: stock.code,
             stockName: stock.name,
             signalDate: kstDate,
-            signalPriceKrw: currentPrice,
+            signalPriceKrw: currentPrice!,
             gateScore: stock.gateScore ?? 0,
             rejectionReason: `entryRevalidation:${revalResult.failReasons.join(',')}`,
-            conditionScores,
+            conditionScores: rejectionConditionScores,
           });
         } catch (e) {
           console.warn(`[RejectionShadow] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
         }
-        continue;
+        return 'SKIP';
       }
+      return 'CONTINUE';
+      }
+
+      const entryRevalidationResult = await handleEntryRevalidationGate(
+        ctx,
+        stock,
+        reCheckGate as ReturnType<typeof evaluateServerGate>,
+        buildEntryConditionScores(stock.conditionKeys),
+      );
+      if (entryRevalidationResult === 'SKIP') continue;
 
       // ── ADR-0031 PR-61: yahooAvailabilityStep RevalidationStep ──────────
       // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
@@ -2271,6 +2289,17 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // Yahoo 괴리 검증 → DataQualityInfo 합성 → sizingTier BLOCKED 트리거.
       // ENV PRICE_SOURCE_POLICY_EXECUTION_GATE_DISABLED=true 시 무력화.
       // WatchlistEntry 는 priceKrw 필드가 옵셔널 미선언 — inline cast 로 후방호환.
+      let tierDecision = undefined as unknown as Extract<ReturnType<typeof sizingTierDecider>, { ok: true }>['tierDecision'];
+      let positionPct = 0;
+      let remainingSlots = 1;
+      let confidenceModifier = 1;
+      let grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' = 'BUY';
+      async function sizingTierDeciderFinal(
+        ctx: BuyListLoopContext,
+        stock: WatchlistEntry,
+        currentPrice: number,
+        gateResult: ReturnType<typeof evaluateServerGate>,
+      ): Promise<{ shouldSkip: boolean; kellySnapshot?: EntryKellySnapshot }> {
       const priceSourceDataQuality = evaluateDataQualityFromStock(
         { priceKrw: (stock as { priceKrw?: number | null }).priceKrw ?? null },
         currentPrice,
@@ -2283,7 +2312,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       const tierResult = sizingTierDecider({
         stockName: stock.name,
         liveGateScore,
-        reCheckGate,
+        reCheckGate: gateResult,
         regime: ctx.regime,
         macroState: ctx.macroState,
         banditDecision: ctx.banditDecision,
@@ -2294,24 +2323,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.log(tierResult.logMessage);
         // ADR-0118: sizingTier BLOCKED — DATA_QUARANTINE / 티어 미달 / PROBING 포화 모두 카운트.
         ctx.scanCounters.waitSizingBlocked++;
-        continue;
+        return { shouldSkip: true };
       }
-      const tierDecision = tierResult.tierDecision;
+      tierDecision = tierResult.tierDecision;
       for (const msg of tierResult.logMessages) console.log(msg);
 
       // 포지션 사이징: 실시간 Gate 결과 연동 (buyPipeline 헬퍼 사용)
       // CATALYST 섹션은 표준의 60%로 축소 — 촉매 신호는 단기 고리스크이므로 손실 제한
-      const mtasMultiplier = computeMtasMultiplier(reCheckGate.mtas);
+      const mtasMultiplier = computeMtasMultiplier(gateResult.mtas);
       const sectionFactor = stock.section === 'CATALYST' ? CATALYST_POSITION_FACTOR : 1.0;
-      const positionPct =
+      positionPct =
         computeRawPositionPct(gateScore) * ctx.kellyMultiplier * mtasMultiplier * sectionFactor * tierDecision.kellyFactor;
 
-      if (reCheckGate) {
+      if (gateResult) {
         console.log(
           `[AutoTrade] ${stock.name} 타점 판단 — ` +
           `liveGate: ${liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
-          `MTAS: ${reCheckGate.mtas.toFixed(1)}/10 (×${mtasMultiplier}) | ` +
-          `CS: ${reCheckGate.compressionScore.toFixed(2)} | ` +
+          `MTAS: ${gateResult.mtas.toFixed(1)}/10 (×${mtasMultiplier}) | ` +
+          `CS: ${gateResult.compressionScore.toFixed(2)} | ` +
           `tier: ${tierDecision.tier}(×${tierDecision.kellyFactor}) | ` +
           `posPct: ${(positionPct * 100).toFixed(1)}%`
         );
@@ -2321,7 +2350,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       //   - 같은 tick 안에서 이미 큐에 쌓인 ctx.mutables.reservedSlots.value 차감
       // 기존 로직은 ctx.regimeConfig.maxPositions - currentActive 만 봐서 sizing 분모가 과대평가되어
       // 예산 분할이 느슨해지고, SELL_ONLY 예외 시 max 캡이 무시되는 부작용이 있었다.
-      const remainingSlots = Math.max(
+      remainingSlots = Math.max(
         1,
         ctx.effectiveMaxPositions - currentActive - ctx.mutables.reservedSlots.value,
       );
@@ -2347,7 +2376,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               `${m.stockCode}(${m.similarity}%, ${m.returnPct.toFixed(1)}%)`,
             ),
           });
-          continue;
+          return { shouldSkip: true };
         }
 
         // Idea 5 — Correlation-Aware Slot Allocation.
@@ -2366,7 +2395,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             avgCorrelation: Number(corrGate.avgCorrelation.toFixed(3)),
             effectiveIndependentCount: Number(corrGate.effectiveIndependentCount.toFixed(2)),
           });
-          continue;
+          return { shouldSkip: true };
         }
 
         // ADR-0191 §Wiring 2 — 자기 보유 가드 (belt-and-suspenders).
@@ -2384,7 +2413,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
               event: 'BLOCKED_SELF_HOLDING',
               code: stock.code,
             });
-            continue;
+            return { shouldSkip: true };
           }
         }
       }
@@ -2392,7 +2421,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ── ADR-0031 PR-63: kellyBudgetDecider — 계좌 리스크 + Fractional Kelly ─
       // sizingTier × kellyDampener × accountScale 까지 누적된 positionPct 에
       // 다시 한 번 "신호 등급별 캡 + 동시 R 잔여 + 일일 손실 잔여" 를 강제한다.
-      const grade: 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD' =
+      grade =
         tierDecision.tier === 'PROBING' ? 'PROBING'
         : isStrongBuy ? 'STRONG_BUY'
         : 'BUY';
@@ -2402,15 +2431,16 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stopLoss: stock.stopLoss,
         signalGrade: grade,
         positionPct,
-        mtas: reCheckGate.mtas,
+        mtas: gateResult.mtas,
         totalAssets: ctx.totalAssets,
         shadows: ctx.shadows,
       });
       if (!kellyResult.ok) {
         console.log(kellyResult.logMessage);
-        continue;
+        return { shouldSkip: true };
       }
-      const { budget, sized, confidenceModifier } = kellyResult;
+      const { budget, sized, confidenceModifier: resolvedConfidenceModifier } = kellyResult;
+      confidenceModifier = resolvedConfidenceModifier;
       for (const msg of kellyResult.logMessages) console.log(msg);
 
       // Idea 1 — 진입 시점 Kelly 의사결정 스냅샷 동결.
@@ -2427,6 +2457,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         confidenceModifier,
         snapshotAt: new Date().toISOString(),
       };
+      return { shouldSkip: false, kellySnapshot: entryKellySnapshot };
+      }
+
+      const sizingFinalResult = await sizingTierDeciderFinal(ctx, stock, currentPrice, reCheckGate);
+      if (sizingFinalResult.shouldSkip) continue;
+      const entryKellySnapshot = sizingFinalResult.kellySnapshot!;
 
       // PATCH-010 — Shadow Bull Exposure Floor: R2/R3 불싸이클 Shadow 후보 소액 매수 오류 보정.
       // 멀티플라이어 누적 (R2_BULL kellyMultiplier ×0.8 × STANDARD tier ×0.6 × MTAS ×0.3~0.5)
