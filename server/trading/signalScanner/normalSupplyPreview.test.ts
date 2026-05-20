@@ -109,6 +109,54 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).not.toContain('Signal Source Split');
   });
 
+  it('formats compact ACCUMULATING promotion block reason without changing live policy', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'SELL_ONLY',
+      source: 'COMMAND',
+      candidates: [
+        {
+          code: '011210',
+          name: '현대위아',
+          preflight: {
+            supplyContext: {
+              symbol: '011210',
+              provider: 'KIS_API',
+              supplyProviderHealth: 'VERIFIED',
+              supplySignal: 'NEUTRAL',
+              providerIssue: false,
+              marketSignal: true,
+              executionImpact: 'NONE',
+              foreignNetBuyAmount: 100,
+              institutionNetBuyAmount: 50,
+            },
+          },
+        },
+      ] as any,
+    });
+
+    const section = formatNormalSupplyPreviewSection(preview, { maxTopCandidates: 1 });
+    expect(section).toContain('📌 수급 해석 요약');
+    expect(section).toContain('- 데이터 상태: VERIFIED 1/1 정상');
+    expect(section).toContain('- Active 매수 후보: 1개');
+    expect(section).toContain('- 최고 수급점수: 77');
+    expect(section).toContain('- BULLISH 기준: 80');
+    expect(section).toContain('- 현재 판정: ACCUMULATING');
+    expect(section).toContain('- 미승격 사유: supplyScore 77 < bullishThreshold 80');
+    expect(section).toContain('- 실거래 차단: SELL_ONLY');
+    expect(section).toContain('- 허용 동작: Shadow 관찰 / Watchlist Boost');
+    expect(section).toContain('- executionImpact: NONE');
+    expect(section).toContain('1. 011210 현대위아');
+    expect(section).toContain('activeFlow=외인+기관 동반 순매수');
+    expect(section).toContain('supplyScore=77/80');
+    expect(section).toContain('signal=ACCUMULATING');
+    expect(section).toContain('promotionBlocked=BELOW_BULLISH_THRESHOLD');
+    expect(section).toContain('liveDecision=BLOCKED_BY_SELL_ONLY_OR_MACRO_LIVE_BLOCK');
+    expect(section).toContain('shadowObservable=true');
+    expect(section).toContain('executionImpact=NONE');
+    expect(preview.liveExecutionAllowed).toBe(false);
+    expect(preview.realOrderAllowed).toBe(false);
+  });
+
   it('classifies SELL_ONLY and macro live block separately from true hard block', () => {
     expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_SELL_ONLY' })).toBe('SELL_ONLY');
     expect(deriveNormalSupplyPreviewEngineMode({ liveEntryBlockedReason: 'R6_DEFENSE,FOMC_BLOCK' })).toBe('MACRO_LIVE_BLOCK');

@@ -249,6 +249,9 @@ export function formatNormalSupplyPreviewSection(
 ): string | null {
   if (!preview) return null;
   const maxTop = options.maxTopCandidates ?? 5;
+  const top = preview.topCandidates[0];
+  const activeBuyCount = countActiveBuyCandidates(preview.candidates);
+  const bullishThreshold = NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold;
   const lines: string[] = [];
   lines.push('🧪 <b>Normal Supply Preview under SELL_ONLY (ADR-0518)</b>');
   lines.push('━━━━━━━━━━━━━━━━');
@@ -280,15 +283,23 @@ export function formatNormalSupplyPreviewSection(
   lines.push(`  BEARISH: ${preview.signalCounts.BEARISH}`);
   lines.push(`  UNUSABLE: ${preview.signalCounts.UNUSABLE}`);
   lines.push('');
+  lines.push('📌 수급 해석 요약');
+  lines.push(`- 데이터 상태: VERIFIED ${preview.healthCounts.VERIFIED}/${preview.candidateCount} 정상`);
+  lines.push(`- Active 매수 후보: ${activeBuyCount}개`);
+  lines.push(`- 최고 수급점수: ${top?.supplyScore ?? 'N/A'}`);
+  lines.push(`- BULLISH 기준: ${bullishThreshold}`);
+  lines.push(`- 현재 판정: ${top?.supplySignal ?? 'N/A'}`);
+  lines.push(`- 미승격 사유: ${formatPromotionBlockedReason(top)}`);
+  lines.push(`- 실거래 차단: ${formatLiveDecisionBlockReason(preview)}`);
+  lines.push('- 허용 동작: Shadow 관찰 / Watchlist Boost');
+  lines.push(`- executionImpact: ${preview.executionImpact}`);
+  lines.push('');
   lines.push('상위 수급 후보:');
   if (preview.topCandidates.length === 0) {
     lines.push('  none');
   } else {
     preview.topCandidates.slice(0, maxTop).forEach((candidate, index) => {
-      const name = candidate.name ? ` ${candidate.name}` : '';
-      lines.push(
-        `${index + 1}. ${candidate.symbol}${name} / ${candidate.summary} / supplyScore ${candidate.supplyScore}`,
-      );
+      lines.push(formatCompactCandidateDetail(candidate, index + 1, preview));
     });
   }
   lines.push('');
@@ -296,6 +307,70 @@ export function formatNormalSupplyPreviewSection(
   lines.push('SELL_ONLY 또는 macro live block 상태에서는 신규 매수는 차단됩니다.');
   lines.push('본 결과는 정상모드 기준 수급 진단이며 주문 영향 없습니다.');
   return lines.join('\n');
+}
+
+function countActiveBuyCandidates(candidates: NormalSupplyPreviewCandidate[]): number {
+  return candidates.filter((candidate) =>
+    (candidate.foreignNetBuyAmount ?? 0) > 0 || (candidate.institutionNetBuyAmount ?? 0) > 0
+  ).length;
+}
+
+function formatPromotionBlockedReason(candidate: NormalSupplyPreviewCandidate | undefined): string {
+  if (!candidate) return 'N/A';
+  const bullishThreshold = NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold;
+  if (candidate.supplySignal === 'ACCUMULATING' && candidate.supplyScore < bullishThreshold) {
+    return `supplyScore ${candidate.supplyScore} < bullishThreshold ${bullishThreshold}`;
+  }
+  if (candidate.supplySignal === 'BULLISH') return 'none';
+  return `not ACCUMULATING top signal (${candidate.supplySignal})`;
+}
+
+function formatPromotionBlockedCode(candidate: NormalSupplyPreviewCandidate): string {
+  if (
+    candidate.supplySignal === 'ACCUMULATING' &&
+    candidate.supplyScore < NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold
+  ) {
+    return 'BELOW_BULLISH_THRESHOLD';
+  }
+  return candidate.supplySignal === 'BULLISH' ? 'NONE' : 'NOT_BULLISH_SIGNAL';
+}
+
+function formatLiveDecisionBlockReason(preview: NormalSupplyPreview): string {
+  if (preview.engineMode === 'SELL_ONLY') return 'SELL_ONLY';
+  if (preview.engineMode === 'MACRO_LIVE_BLOCK') return 'macro live block';
+  if (!preview.liveExecutionAllowed) return 'SELL_ONLY 또는 macro live block';
+  return 'none';
+}
+
+function formatCompactLiveDecision(preview: NormalSupplyPreview): string {
+  return preview.liveExecutionAllowed ? 'LIVE_DECISION_ALLOWED' : 'BLOCKED_BY_SELL_ONLY_OR_MACRO_LIVE_BLOCK';
+}
+
+function formatCompactActiveFlow(candidate: NormalSupplyPreviewCandidate): string {
+  const foreign = candidate.foreignNetBuyAmount ?? 0;
+  const institution = candidate.institutionNetBuyAmount ?? 0;
+  if (foreign > 0 && institution > 0) return '외인+기관 동반 순매수';
+  if (foreign > 0) return '외인 순매수';
+  if (institution > 0) return '기관 순매수';
+  return candidate.activeFlow;
+}
+
+function formatCompactCandidateDetail(
+  candidate: NormalSupplyPreviewCandidate,
+  rank: number,
+  preview: NormalSupplyPreview,
+): string {
+  const name = candidate.name ? ` ${candidate.name}` : '';
+  return [
+    `${rank}. ${candidate.symbol}${name}`,
+    `   activeFlow=${escapePreviewHtmlText(formatCompactActiveFlow(candidate))}`,
+    `   supplyScore=${candidate.supplyScore}/${NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold}`,
+    `   signal=${candidate.supplySignal}`,
+    `   promotionBlocked=${formatPromotionBlockedCode(candidate)}`,
+    `   liveDecision=${formatCompactLiveDecision(preview)}`,
+    `   shadowObservable=${preview.shadowObservableAllowed}`,
+    `   executionImpact=${preview.executionImpact}`,
+  ].join('\n');
 }
 
 export function formatNormalSupplyPreviewFullSections(
