@@ -756,19 +756,21 @@ function normalizeGate1CompactText(
     || shadowCounterfactualOnly
     || tradabilityBlocked
     || marketSignal;
-  const becameIssueFree = !/\bissue=/iu.test(patched);
-  const canRelabelLiveBlockedOnly = (health === 'DEGRADED' || /^Gate1:\s*DEGRADED/iu.test(patched))
+  const containsGate1Degraded = /\bGate1:\s*DEGRADED\b/iu.test(patched);
+  const containsMissingNone = /\bmissing=none\b/iu.test(patched);
+  const containsShadowOn = /\bshadow=ON\b/iu.test(patched);
+  const canRelabelLiveBlockedOnly = (health === 'DEGRADED' || containsGate1Degraded)
     && !trueDegraded
     && missingEmpty
     && shadowAllowed
-    && (liveBlockedSession || isR6SellOnlyBlocked || liveEvaluated === 0)
-    && !marketSignal
-    && becameIssueFree;
+    && containsGate1Degraded
+    && containsMissingNone
+    && containsShadowOn
+    && (isR6SellOnlyBlocked || liveEvaluated === 0)
+    && !marketSignal;
 
   if (canRelabelLiveBlockedOnly) {
     patched = patched.replace(/^Gate1:\s*DEGRADED/iu, 'Gate1: LIVE_BLOCKED_ONLY');
-    if (!/\bissue=/iu.test(patched)) patched += ' | issue=LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED';
-    if (!/\baction=/iu.test(patched)) patched += ' | action=CHECK_SESSION_POLICY';
   }
 
   const shadowMode = String(gate1Survival?.shadowMode ?? '').toUpperCase();
