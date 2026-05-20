@@ -2,6 +2,14 @@
 
 - **Status**: Accepted (2026-04-26, PoC scope: 1 step only — entryRevalidationStep)
 - **Owner**: server-refactor-orchestrator (engine-dev)
+
+## ADR-0019 Step Completion Note (2026-05-20)
+
+- **Status**: Completed.
+- **Scope**: `server/trading/signalScanner/perSymbol/buyListLoop.ts` extraction pass.
+- **Extracted blocks**: `checkEntryPriceDrift`, `kisIntradayCorrectionStep`, `handleEntryRevalidationGate`, `sizingTierDeciderFinal`, `provisionalShadowLaneDerive`.
+- **Verification**: `npx tsc -p tsconfig.server.json --noEmit`; `npx vitest run server/trading/signalScanner/__tests__/conditionScoresWiring.test.ts server/trading/signalScanner/perSymbolEvaluationEntryScoresWiring.test.ts server/trading/signalScanner/revalidationSteps/__tests__/kisIntradayCorrectionStep.test.ts`.
+- **Invariant**: extraction-only; trading score, gate condition, live/shadow execution policy, and R6 behavior unchanged.
 - **Continues**: ADR-0030 (EntryGate Chain Phase B PoC + Phase B 확장 — 7 gates 추출 완료)
 
 ## Context
