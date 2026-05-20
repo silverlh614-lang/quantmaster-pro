@@ -211,6 +211,23 @@ export interface Gate3ExternalDataCoverage {
     missingFields: string[];
     notes: string[];
   };
+  falseBreakout: {
+    required: false;
+    available: boolean;
+    status: Gate3FalseBreakoutDiagnostic['status'];
+    fields: Record<string, boolean>;
+    values: Record<string, Numeric>;
+    falseBreakout: Gate3FalseBreakoutDiagnostic['falseBreakout'];
+    divergence: Gate3FalseBreakoutDiagnostic['divergence'];
+    exhaustion: Gate3FalseBreakoutDiagnostic['exhaustion'];
+    retestQuality: Gate3FalseBreakoutDiagnostic['retestQuality'];
+    providerIssue: boolean;
+    calculationIssue: boolean;
+    marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    missingFields: string[];
+    notes: string[];
+  };
   momentumIndicators: {
     required: true;
     available: boolean;
@@ -280,6 +297,47 @@ export interface Gate3PullbackDiagnostic {
   };
   supportReference: 'MA20' | 'MA60' | 'FIB_382' | 'FIB_500' | 'FIB_618' | 'BOX_TOP' | 'SWING_LOW' | 'NONE' | 'UNKNOWN';
   source: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'CACHE' | 'UNKNOWN';
+  providerIssue: boolean;
+  calculationIssue: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  missingFields: string[];
+  notes: string[];
+}
+
+export interface Gate3FalseBreakoutDiagnostic {
+  status: 'VERIFIED' | 'PARTIAL' | 'WARN' | 'DEGRADED' | 'MISSING' | 'CALCULATION_MISSING' | 'UNKNOWN';
+  falseBreakout: {
+    status: 'LOW_RISK' | 'WATCH' | 'HIGH_RISK' | 'MISSING' | 'UNKNOWN';
+    priceBreakoutConfirmed: boolean | null;
+    volumeConfirmed: boolean | null;
+    closeAboveBreakout: boolean | null;
+    wickRejection: boolean | null;
+    failedRetest: boolean | null;
+    reason: string | null;
+  };
+  divergence: {
+    status: 'NONE' | 'RSI_BEARISH' | 'MACD_BEARISH' | 'BOTH_BEARISH' | 'MISSING' | 'UNKNOWN';
+    priceHigherHigh: boolean | null;
+    rsiLowerHigh: boolean | null;
+    macdLowerHigh: boolean | null;
+    currentHigh: Numeric; previousHigh: Numeric; currentRsi: Numeric; previousPeakRsi: Numeric; currentMacdHist: Numeric; previousPeakMacdHist: Numeric;
+    reason: string | null;
+  };
+  exhaustion: {
+    status: 'NORMAL' | 'WATCH' | 'EXHAUSTED' | 'MISSING' | 'UNKNOWN';
+    rsiOverheated: boolean | null;
+    volumeClimax: boolean | null;
+    extendedFromBreakout: boolean | null;
+    extendedFromMa20: boolean | null;
+    gapUpExhaustion: boolean | null;
+    reason: string | null;
+  };
+  retestQuality: {
+    status: 'GOOD' | 'WEAK' | 'FAILED' | 'MISSING' | 'UNKNOWN';
+    boxTop: Numeric; currentPrice: Numeric; closePrice: Numeric; distanceToBoxTopPct: Numeric; retestHeld: boolean | null; reason: string | null;
+  };
+  source: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'KIS_MINUTE_CHART' | 'CACHE' | 'UNKNOWN';
   providerIssue: boolean;
   calculationIssue: boolean;
   marketSignal: false;
@@ -877,6 +935,106 @@ export function normalizeGate3Pullback(input: {
   };
 }
 
+export function normalizeGate3FalseBreakout(input: {
+  quote?: Record<string, unknown> | null;
+  priceStructure?: Gate3PriceStructureDiagnostic | null;
+  volumeTiming?: Gate3VolumeTimingDiagnostic | null;
+  momentumIndicators?: { rsi14?: Numeric; macdHistogram?: Numeric } | null;
+  pullbackSupport?: { ma20?: Numeric; boxTop?: Numeric } | null;
+  previousPeaks?: { previousHigh?: Numeric; previousPeakRsi?: Numeric; previousPeakMacdHist?: Numeric } | null;
+}): Gate3FalseBreakoutDiagnostic {
+  const quote = input.quote ?? {};
+  const priceStructure = input.priceStructure ?? normalizeGate3PriceStructure({ quote });
+  const volumeTiming = input.volumeTiming ?? normalizeGate3VolumeTiming({ quote });
+  const notes: string[] = ['DO_NOT_HARD_BLOCK_FROM_DIAGNOSTIC'];
+  const missingFields: string[] = [];
+  const currentPrice = priceStructure.currentPrice ?? asFinite(quote.currentPrice) ?? asFinite(quote.price) ?? asFinite(quote.close);
+  const closePrice = asFinite(quote.close) ?? currentPrice;
+  const highPrice = asFinite(quote.highPrice) ?? asFinite(quote.high) ?? asFinite(quote.dayHigh);
+  const breakoutPrice = priceStructure.breakout.breakoutPrice ?? asFinite(quote.breakoutPrice) ?? asFinite(quote.high20d);
+  const breakoutGapPct = priceStructure.breakout.breakoutGapPct ?? asFinite(quote.breakoutGapPct);
+  const boxTop = input.pullbackSupport?.boxTop ?? priceStructure.rangeStructure.boxTop ?? asFinite(quote.boxTop);
+  const ma20 = input.pullbackSupport?.ma20 ?? asFinite(quote.ma20);
+  const rsi14 = input.momentumIndicators?.rsi14 ?? asFinite(quote.rsi14);
+  const macdHistogram = input.momentumIndicators?.macdHistogram ?? asFinite(quote.macdHistogram);
+  const volumeRatio = volumeTiming.volumeRatio ?? asFinite(quote.volumeRatio);
+  const priceBreakoutConfirmed = breakoutPrice == null ? null : priceStructure.breakout.status === 'PASS';
+  const volumeConfirmed = volumeTiming.breakoutVolume.status === 'MISSING' ? null : volumeTiming.breakoutVolume.status === 'PASS';
+  const closeAboveBreakout = closePrice != null && breakoutPrice != null ? closePrice > breakoutPrice : null;
+  const wickRejection = highPrice != null && closePrice != null && highPrice > 0 ? ((highPrice - closePrice) / highPrice) >= 0.03 : null;
+  const failedRetest = currentPrice != null && (boxTop ?? breakoutPrice) != null ? currentPrice < (boxTop ?? breakoutPrice)! : null;
+  const fbStatus: Gate3FalseBreakoutDiagnostic['falseBreakout']['status'] =
+    breakoutPrice == null ? 'MISSING'
+      : priceBreakoutConfirmed && volumeConfirmed && closeAboveBreakout !== false && failedRetest !== true ? 'LOW_RISK'
+        : priceBreakoutConfirmed && (volumeConfirmed === false || closeAboveBreakout === false || failedRetest === true) ? 'HIGH_RISK'
+          : 'WATCH';
+  if (fbStatus !== 'LOW_RISK' && fbStatus !== 'MISSING') notes.push('FALSE_BREAKOUT_WATCH_DIAGNOSTIC_ONLY');
+
+  const previousHigh = input.previousPeaks?.previousHigh ?? asFinite(quote.previousHigh);
+  const previousPeakRsi = input.previousPeaks?.previousPeakRsi ?? asFinite(quote.previousPeakRsi);
+  const previousPeakMacdHist = input.previousPeaks?.previousPeakMacdHist ?? asFinite(quote.previousPeakMacdHist);
+  const currentHigh = highPrice ?? currentPrice;
+  const priceHigherHigh = currentHigh != null && previousHigh != null ? currentHigh > previousHigh : null;
+  const rsiLowerHigh = rsi14 != null && previousPeakRsi != null ? rsi14 < previousPeakRsi : null;
+  const macdLowerHigh = macdHistogram != null && previousPeakMacdHist != null ? macdHistogram < previousPeakMacdHist : null;
+  let divStatus: Gate3FalseBreakoutDiagnostic['divergence']['status'] = 'UNKNOWN';
+  if (previousPeakRsi == null && previousPeakMacdHist == null) divStatus = 'MISSING';
+  else if (priceHigherHigh && rsiLowerHigh && macdLowerHigh) divStatus = 'BOTH_BEARISH';
+  else if (priceHigherHigh && rsiLowerHigh) divStatus = 'RSI_BEARISH';
+  else if (priceHigherHigh && macdLowerHigh) divStatus = 'MACD_BEARISH';
+  else if (priceHigherHigh != null) divStatus = 'NONE';
+  if (divStatus === 'RSI_BEARISH' || divStatus === 'BOTH_BEARISH') notes.push('RSI_DIVERGENCE_DIAGNOSTIC_ONLY');
+  if (divStatus === 'MACD_BEARISH' || divStatus === 'BOTH_BEARISH') notes.push('MACD_DIVERGENCE_DIAGNOSTIC_ONLY');
+
+  const rsiOverheated = rsi14 != null ? rsi14 >= 80 : null;
+  const volumeClimax = volumeRatio != null && breakoutGapPct != null ? (volumeRatio >= 3 && breakoutGapPct >= 0.04) : null;
+  const extendedFromBreakout = breakoutGapPct != null ? breakoutGapPct >= 0.06 : null;
+  const extendedFromMa20 = currentPrice != null && ma20 != null && ma20 > 0 ? ((currentPrice - ma20) / ma20) >= 0.1 : null;
+  const gapUpPct = asFinite(quote.gapUpPct);
+  const gapUpExhaustion = gapUpPct != null && wickRejection != null ? (gapUpPct >= 0.03 && wickRejection) : null;
+  const exhausted = [rsiOverheated, volumeClimax, extendedFromBreakout, extendedFromMa20, gapUpExhaustion].filter(v => v === true).length;
+  const exStatus: Gate3FalseBreakoutDiagnostic['exhaustion']['status'] = rsi14 == null && volumeRatio == null && breakoutGapPct == null ? 'MISSING' : exhausted >= 2 ? 'EXHAUSTED' : exhausted === 1 ? 'WATCH' : 'NORMAL';
+  if (exStatus === 'EXHAUSTED' || exStatus === 'WATCH') notes.push('EXHAUSTION_RISK_DIAGNOSTIC_ONLY');
+
+  const refTop = boxTop ?? breakoutPrice;
+  const distPct = currentPrice != null && refTop != null && refTop > 0 ? (currentPrice - refTop) / refTop : null;
+  const retestHeld = distPct != null ? distPct >= 0 : null;
+  const rtStatus: Gate3FalseBreakoutDiagnostic['retestQuality']['status'] = refTop == null || currentPrice == null ? 'MISSING' : distPct! < -0.01 ? 'FAILED' : distPct! < 0 ? 'WEAK' : 'GOOD';
+
+  const missingCandidates: Array<[string, Numeric]> = [
+    ['currentPrice', currentPrice],
+    ['breakoutPrice', breakoutPrice],
+    ['volumeRatio', volumeRatio],
+    ['highPrice', highPrice],
+    ['rsi14', rsi14],
+    ['macdHistogram', macdHistogram],
+    ['previousHigh', previousHigh],
+    ['previousPeakRsi', previousPeakRsi],
+    ['previousPeakMacdHist', previousPeakMacdHist],
+    ['boxTop', boxTop],
+    ['ma20', ma20],
+  ];
+  for (const [field, value] of missingCandidates) {
+    if (value == null) missingFields.push(field);
+  }
+
+  const subStatuses = [fbStatus, divStatus, exStatus, rtStatus] as string[];
+  const allMissing = subStatuses.every(status => status === 'MISSING');
+  const anyMissing = subStatuses.includes('MISSING') || missingFields.length > 0;
+  const hasWarning = fbStatus === 'HIGH_RISK' || divStatus.includes('BEARISH') || exStatus === 'EXHAUSTED';
+  const status: Gate3FalseBreakoutDiagnostic['status'] = allMissing ? 'MISSING' : hasWarning ? 'WARN' : anyMissing ? 'PARTIAL' : 'VERIFIED';
+
+  return {
+    status,
+    falseBreakout: { status: fbStatus, priceBreakoutConfirmed, volumeConfirmed, closeAboveBreakout, wickRejection, failedRetest, reason: null },
+    divergence: { status: divStatus, priceHigherHigh, rsiLowerHigh, macdLowerHigh, currentHigh, previousHigh, currentRsi: rsi14, previousPeakRsi, currentMacdHist: macdHistogram, previousPeakMacdHist, reason: null },
+    exhaustion: { status: exStatus, rsiOverheated, volumeClimax, extendedFromBreakout, extendedFromMa20, gapUpExhaustion, reason: null },
+    retestQuality: { status: rtStatus, boxTop: refTop, currentPrice, closePrice, distanceToBoxTopPct: distPct, retestHeld, reason: null },
+    source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY',
+    missingFields: unique(missingFields), notes: unique(notes),
+  };
+}
+
 export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): Gate3ExternalDataCoverage {
   const resolveStatus = (fields: Record<string, boolean>, required: boolean): { available: boolean; status: Gate3CoverageStatus } => {
     const values = Object.values(fields);
@@ -950,6 +1108,13 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     rangeContraction: volumeTiming.vcp.rangeContraction != null,
     contractionCount: volumeTiming.vcp.contractionCount != null,
   };
+  const falseBreakoutDiag = normalizeGate3FalseBreakout({
+    quote,
+    priceStructure: priceDiag,
+    volumeTiming,
+    momentumIndicators: { rsi14: momentumDiag.rsi.rsi14, macdHistogram: momentumDiag.macd.macdHistogram },
+    pullbackSupport: { ma20: pullbackDiag.movingAverageSupport.ma20, boxTop: pullbackDiag.boxRetest.boxTop },
+  });
 
   return {
     technicalIndicators: {
@@ -1089,6 +1254,53 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       executionImpact: 'DIAGNOSTIC_ONLY',
       missingFields: volumeTiming.missingFields,
       notes: volumeTiming.notes,
+    },
+    falseBreakout: {
+      required: false,
+      available: falseBreakoutDiag.status !== 'MISSING',
+      status: falseBreakoutDiag.status,
+      fields: {
+        currentPrice: falseBreakoutDiag.retestQuality.currentPrice != null,
+        closePrice: falseBreakoutDiag.retestQuality.closePrice != null,
+        highPrice: falseBreakoutDiag.divergence.currentHigh != null,
+        breakoutPrice: priceDiag.breakout.breakoutPrice != null,
+        breakoutGapPct: priceDiag.breakout.breakoutGapPct != null,
+        volumeRatio: volumeTiming.volumeRatio != null,
+        tradingValueRatio: volumeTiming.tradingValueRatio != null,
+        rsi14: falseBreakoutDiag.divergence.currentRsi != null,
+        macdHistogram: falseBreakoutDiag.divergence.currentMacdHist != null,
+        previousHigh: falseBreakoutDiag.divergence.previousHigh != null,
+        previousPeakRsi: falseBreakoutDiag.divergence.previousPeakRsi != null,
+        previousPeakMacdHist: falseBreakoutDiag.divergence.previousPeakMacdHist != null,
+        boxTop: falseBreakoutDiag.retestQuality.boxTop != null,
+        ma20: pullbackDiag.movingAverageSupport.ma20 != null,
+      },
+      values: {
+        currentPrice: falseBreakoutDiag.retestQuality.currentPrice,
+        closePrice: falseBreakoutDiag.retestQuality.closePrice,
+        highPrice: falseBreakoutDiag.divergence.currentHigh,
+        breakoutPrice: priceDiag.breakout.breakoutPrice,
+        breakoutGapPct: priceDiag.breakout.breakoutGapPct,
+        volumeRatio: volumeTiming.volumeRatio,
+        tradingValueRatio: volumeTiming.tradingValueRatio,
+        rsi14: falseBreakoutDiag.divergence.currentRsi,
+        macdHistogram: falseBreakoutDiag.divergence.currentMacdHist,
+        previousHigh: falseBreakoutDiag.divergence.previousHigh,
+        previousPeakRsi: falseBreakoutDiag.divergence.previousPeakRsi,
+        previousPeakMacdHist: falseBreakoutDiag.divergence.previousPeakMacdHist,
+        boxTop: falseBreakoutDiag.retestQuality.boxTop,
+        ma20: pullbackDiag.movingAverageSupport.ma20,
+      },
+      falseBreakout: falseBreakoutDiag.falseBreakout,
+      divergence: falseBreakoutDiag.divergence,
+      exhaustion: falseBreakoutDiag.exhaustion,
+      retestQuality: falseBreakoutDiag.retestQuality,
+      providerIssue: false,
+      calculationIssue: falseBreakoutDiag.calculationIssue,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      missingFields: falseBreakoutDiag.missingFields,
+      notes: falseBreakoutDiag.notes,
     },
     momentumIndicators: {
       required: true,
