@@ -289,7 +289,7 @@ export function attachPreflightBlockedPerSymbolSupplyInjection(
 
 function resolveEntryBlockMode(scanEvaluation: PreflightScanEvaluationResult | undefined): string {
   if (!scanEvaluation) return 'UNKNOWN';
-  const isSellOnly = scanEvaluation.marketSessionState === 'SELL_ONLY' || scanEvaluation.engineMode === 'SELL_ONLY';
+  const isSellOnly = scanEvaluation.marketSessionState === 'SELL_ONLY';
   const isR6 = scanEvaluation.effectiveRegime === 'R6_DEFENSE'
     || scanEvaluation.blockReason === 'R6_DEFENSE'
     || scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_DEFENSE'
@@ -304,7 +304,55 @@ function resolveTopReason(scanEvaluation: PreflightScanEvaluationResult | undefi
   if (!scanEvaluation) return 'UNKNOWN';
   if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
   if (entryBlockMode === 'R6_DEFENSE') return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
+  if (entryBlockMode === 'SELL_ONLY') return 'SELL_ONLY_TIME_WINDOW';
   return scanEvaluation.blockReason ?? 'UNKNOWN';
+}
+
+
+function resolveDisplayEvaluation(scanEvaluation: PreflightScanEvaluationResult, entryBlockMode: string): {
+  displayEvaluationState: string;
+  displayBreakPoint: string;
+  liveEntryEvaluation: string;
+} {
+  if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
+    return {
+      displayEvaluationState: 'LIVE_ENTRY_SKIPPED_R6_SELL_ONLY',
+      displayBreakPoint: 'PRE_FLIGHT_R6_SELL_ONLY',
+      liveEntryEvaluation: 'SKIPPED_R6_DEFENSE',
+    };
+  }
+  if (entryBlockMode === 'SELL_ONLY') {
+    return {
+      displayEvaluationState: 'NOT_EVALUATED_SELL_ONLY',
+      displayBreakPoint: 'PRE_FLIGHT_SELL_ONLY',
+      liveEntryEvaluation: 'SKIPPED_SELL_ONLY',
+    };
+  }
+  if (entryBlockMode === 'R6_DEFENSE') {
+    return {
+      displayEvaluationState: 'LIVE_ENTRY_SKIPPED_R6_DEFENSE',
+      displayBreakPoint: 'PRE_FLIGHT_R6_DEFENSE',
+      liveEntryEvaluation: 'SKIPPED_R6_DEFENSE',
+    };
+  }
+  return {
+    displayEvaluationState: scanEvaluation.evaluationState,
+    displayBreakPoint: scanEvaluation.breakPoint ?? 'NONE',
+    liveEntryEvaluation: 'EVALUATED_OR_APPLICABLE',
+  };
+}
+
+function resolveGate3Diagnostic(scanEvaluation: PreflightScanEvaluationResult, entryBlockMode: string): string {
+  const diagnostic = scanEvaluation.diagnostics as Record<string, unknown> | undefined;
+  const gate3CompactText = typeof diagnostic?.gate3CompactText === 'string' ? diagnostic.gate3CompactText : null;
+  if (gate3CompactText) return gate3CompactText;
+  if (entryBlockMode === 'SELL_ONLY' || entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
+    return 'NOT_EVALUATED_SELL_ONLY | timingDiagnosticPreserved=true | marketSignal=false';
+  }
+  if (entryBlockMode === 'R6_DEFENSE') {
+    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | marketSignal=false';
+  }
+  return 'UNAVAILABLE | fallback=true | timingCoverage=unknown | marketSignal=false';
 }
 
 /** /scan_blockers baseMessage 용 plain key=value 섹션 (사용자 §"기대 출력" 정합). */
@@ -326,15 +374,17 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   lines.push(`executionImpact=${summary.executionImpact}`);
   if (summary.scanEvaluation) {
     const scanEvaluation = summary.scanEvaluation;
-    const marketSessionState = scanEvaluation.marketSessionState === 'SELL_ONLY' ? 'SELL_ONLY' : 'REGULAR';
+    const marketSessionState = scanEvaluation.marketSessionState;
     const entryBlockMode = resolveEntryBlockMode(scanEvaluation);
-    const liveEntryEvaluation = entryBlockMode === 'SELL_ONLY' ? 'SKIPPED_SELL_ONLY' : entryBlockMode.startsWith('R6_DEFENSE') ? 'SKIPPED_R6_DEFENSE' : 'EVALUATED_OR_APPLICABLE';
+    const { displayEvaluationState, displayBreakPoint, liveEntryEvaluation } = resolveDisplayEvaluation(scanEvaluation, entryBlockMode);
     const liveEvaluated = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.evaluated;
     const liveSurvivors = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.survivors;
     const topReason = resolveTopReason(scanEvaluation, entryBlockMode);
 
     lines.push(`marketSessionState=${marketSessionState}`);
     lines.push(`entryBlockMode=${entryBlockMode}`);
+    lines.push(`engineModeDisplay=${entryBlockMode.startsWith('R6_DEFENSE') ? 'DEFENSE_LIVE_BLOCK' : scanEvaluation.engineMode}`);
+    lines.push(`liveEntryAllowed=${entryBlockMode === 'NONE'}`);
     lines.push(`liveEntryEvaluation=${liveEntryEvaluation}`);
     lines.push(`diagnosticEvaluation=PARTIAL`);
     lines.push(`liveEvaluated=${liveEvaluated}`);
@@ -342,8 +392,10 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push(`liveSurvivors=${liveSurvivors}`);
     lines.push(`diagnosticSurvivors=${scanEvaluation.survivors}`);
     lines.push(`evaluationState=${scanEvaluation.evaluationState}`);
+    lines.push(`displayEvaluationState=${displayEvaluationState}`);
     lines.push(`sourcePath=${scanEvaluation.sourcePath}`);
     lines.push(`breakPoint=${scanEvaluation.breakPoint ?? 'NONE'}`);
+    lines.push(`displayBreakPoint=${displayBreakPoint}`);
     lines.push(`reason=${scanEvaluation.blockReason ?? 'NONE'}`);
     lines.push(`topReason=${topReason}`);
     lines.push(`scanExecutionImpact=${scanEvaluation.executionImpact}`);
@@ -366,7 +418,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push('🧩 Gate Diagnostic');
     lines.push(`  • Gate1Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate1CompactText ?? 'REGULAR_R6_BLOCKED | liveBuy=false | shadow=ON | marketSignal=false'}`);
     lines.push(`  • Gate2Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate2CompactText ?? 'DIAGNOSTIC_ONLY | liveEntrySkippedBy=R6_DEFENSE | marketSignal=false'}`);
-    lines.push(`  • Gate3Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate3CompactText ?? 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | marketSignal=false'}`);
+    lines.push(`  • Gate3Diag: ${resolveGate3Diagnostic(scanEvaluation, entryBlockMode)}`);
     lines.push('Shadow:');
     lines.push('allowed=true');
     lines.push('learning=true');
