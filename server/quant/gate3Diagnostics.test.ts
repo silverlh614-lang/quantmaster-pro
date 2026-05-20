@@ -5,7 +5,7 @@ import {
   type ServerGateResult,
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
-import { normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
+import { buildGate3ExternalDataCoverage, normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3Pullback, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
 
 type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -247,5 +247,93 @@ describe('Gate3 diagnostics wiring', () => {
     const md = normalizeGate3Momentum({ quote: quote({ macdHistogram: -0.5, macd5dHistAgo: -0.2 }) as any });
     expect(['BEARISH', 'WEAKENING']).toContain(md.macd.status);
     expect(md.marketSignal).toBe(false);
+  });
+
+  it('pullback support: normal MA pullback uses nearest MA20 support', () => {
+    const pb = normalizeGate3Pullback({
+      quote: quote({ currentPrice: 9_800, price: 9_800, ma20: 9_700, ma60: 9_000, high20d: 10_500, high60d: 11_000, low20d: 8_500, low60d: 8_000 }) as any,
+    });
+
+    expect(pb.movingAverageSupport.nearestSupport).toBe('MA20');
+    expect(pb.movingAverageSupport.distanceToMa20Pct).toBeCloseTo(100 / 9_700, 5);
+    expect(pb.pullbackQuality.status).toBe('HEALTHY_PULLBACK');
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('pullback support: calculates Fibonacci levels and nearest fib', () => {
+    const pb = normalizeGate3Pullback({
+      quote: quote({ recentSwingHigh: 11_000, recentSwingLow: 9_000, currentPrice: 10_200, price: 10_200 }) as any,
+    });
+
+    expect(pb.fibonacci.fib382).toBeCloseTo(10_236, 5);
+    expect(pb.fibonacci.fib500).toBeCloseTo(10_000, 5);
+    expect(pb.fibonacci.fib618).toBeCloseTo(9_764, 5);
+    expect(pb.fibonacci.nearestFib).toBe('FIB_382');
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('pullback support: missing Fibonacci inputs are missing, not support failure', () => {
+    const pb = normalizeGate3Pullback({ quote: { currentPrice: 10_200, recentSwingHigh: 11_000 } as any });
+
+    expect(pb.fibonacci.status).toBe('MISSING');
+    expect(pb.fibonacci.reason).toBe('INPUT_MISSING');
+    expect(pb.notes).toContain('FIB_INPUT_MISSING_NOT_FAIL');
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('pullback support: missing MA inputs are not trend broken', () => {
+    const pb = normalizeGate3Pullback({
+      quote: { currentPrice: 9_800, high20d: 10_500, high60d: 11_000, low20d: 8_500, low60d: 8_000, recentSwingHigh: 11_000, recentSwingLow: 8_000 } as any,
+    });
+
+    expect(pb.movingAverageSupport.status).toBe('MISSING');
+    expect(pb.notes).toContain('MA_INPUT_MISSING_NOT_TREND_BROKEN');
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('pullback support: missing pullback inputs are unavailable, not failed', () => {
+    const pb = normalizeGate3Pullback({ quote: { high20d: 10_500 } as any });
+
+    expect(pb.pullbackQuality.status).toBe('MISSING');
+    expect(pb.missingFields).toContain('currentPrice');
+    expect(pb.missingFields).toContain('high60d');
+    expect(pb.notes).toContain('PULLBACK_INPUT_MISSING_NOT_FAIL');
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('pullback support: box retest distance is diagnostic only', () => {
+    const pb = normalizeGate3Pullback({
+      quote: { currentPrice: 10_100, boxTop: 10_000, boxBottom: 9_000, high20d: 10_500, high60d: 11_000, low20d: 8_500, low60d: 8_000 } as any,
+    });
+
+    expect(pb.boxRetest.distanceToBoxTopPct).toBeCloseTo(0.01, 5);
+    expect(pb.boxRetest.status).toBe('RETEST_NEAR');
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('pullback support: extended chase stays advisory and does not affect scoring', () => {
+    const q = quote({ currentPrice: 11_000, price: 11_000, high20d: 10_000, high60d: 10_500, low20d: 8_000, low60d: 7_500, ma20: 9_500, ma60: 9_000 }) as any;
+    const pb = normalizeGate3Pullback({ quote: q });
+    const before = run(q);
+    const after = run(q);
+
+    expect(pb.pullbackQuality.status).toBe('EXTENDED_CHASE');
+    expect(pb.executionImpact).toBe('DIAGNOSTIC_ONLY');
+    expect(pb.notes).toContain('EXTENDED_CHASE_DIAGNOSTIC_ONLY');
+    expect(after.rawScore).toBe(before.rawScore);
+    expect(after.gateScore).toBe(before.gateScore);
+    expect(after.normalizedGateScore).toBe(before.normalizedGateScore);
+    expect(after.signalType).toBe(before.signalType);
+    expect(after.positionPct).toBe(before.positionPct);
+    expect(pb.marketSignal).toBe(false);
+  });
+
+  it('externalDataCoverage exposes pullbackSupport without market signal promotion', () => {
+    const coverage = buildGate3ExternalDataCoverage(quote({ currentPrice: 9_800, price: 9_800, ma20: 9_700, ma60: 9_000, high20d: 10_500, high60d: 11_000, low20d: 8_500, low60d: 8_000, boxTop: 10_000, boxBottom: 9_000 }) as any);
+
+    expect(coverage.pullbackSupport.required).toBe(false);
+    expect(coverage.pullbackSupport.fields.currentPrice).toBe(true);
+    expect(coverage.pullbackSupport.movingAverageSupport.nearestSupport).toBe('MA20');
+    expect(coverage.pullbackSupport.marketSignal).toBe(false);
   });
 });
