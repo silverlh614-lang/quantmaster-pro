@@ -657,6 +657,16 @@ export function formatScanBlockersCompactMessage(
     lines.push(`• ${firstLine}`);
   }
 
+
+  lines.push('🧩 Gate Diagnostic');
+  const seDiag = summary?.scanEvaluation?.diagnostics as Record<string, unknown> | undefined;
+  const gate1Diag = typeof seDiag?.gate1CompactText === 'string' ? seDiag.gate1CompactText : 'UNAVAILABLE | fallback=true | marketSignal=false';
+  const gate2Diag = typeof seDiag?.gate2CompactText === 'string' ? seDiag.gate2CompactText : 'UNAVAILABLE | fallback=true | marketSignal=false';
+  const gate3Diag = typeof seDiag?.gate3CompactText === 'string' ? seDiag.gate3CompactText : 'UNAVAILABLE | fallback=true | timingCoverage=unknown | marketSignal=false';
+  lines.push(`• Gate1Diag: ${gate1Diag}`);
+  lines.push(`• Gate2Diag: ${gate2Diag}`);
+  lines.push(`• Gate3Diag: ${gate3Diag}`);
+
   // dominant blocker (waitDistribution top reason)
   const wd = (summary as { waitDistribution?: Record<string, number> })?.waitDistribution;
   if (wd) {
