@@ -743,21 +743,32 @@ function normalizeGate1CompactText(
   const entryBlockMode = String(scanEvaluation?.entryBlockMode ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
   const liveBlockedSession = ['R6_DEFENSE_SELL_ONLY', 'SELL_ONLY', 'CLOSED', 'AFTERMARKET', 'AFTER_MARKET'].includes(session ?? '');
   const isR6SellOnlyBlocked = entryBlockMode === 'R6_DEFENSE_SELL_ONLY' || topReason === 'R6_DEFENSE_SELL_ONLY';
+  const liveEvaluated = Number(scanEvaluation?.liveEvaluated ?? Number.NaN);
+  const marketSignal = Boolean(summary?.gateDiagnostics?.marketSignal);
+  const hasMissingQuoteCoreField = missingFields.some((field) => ['currentprice', 'price', 'volume', 'quote', 'fetchedat']
+    .includes(String(field).toLowerCase()));
+  const quoteCoverageDegraded = quoteCoverageConfidence === 'DEGRADED' || quoteCoverageConfidence === 'MISSING';
+  const shadowCounterfactualOnly = shadow === 'COUNTERFACTUAL_ONLY';
+  const tradabilityBlocked = tradable === 'HALTED' || tradable === 'SUSPENDED';
+  const trueDegraded = hasMissingQuoteCoreField
+    || quoteCoverageDegraded
+    || quoteHydratedFailed > 0
+    || shadowCounterfactualOnly
+    || tradabilityBlocked
+    || marketSignal;
   const becameIssueFree = !/\bissue=/iu.test(patched);
-  if ((health === 'DEGRADED' || /^Gate1:\s*DEGRADED/iu.test(patched))
-      && (liveBlockedSession || isR6SellOnlyBlocked)
-      && verified
-      && tradable === 'TRADABLE'
-      && liquidity === 'PASS'
-      && shadowAllowed
-      && becameIssueFree) {
+  const canRelabelLiveBlockedOnly = (health === 'DEGRADED' || /^Gate1:\s*DEGRADED/iu.test(patched))
+    && !trueDegraded
+    && missingEmpty
+    && shadowAllowed
+    && (liveBlockedSession || isR6SellOnlyBlocked || liveEvaluated === 0)
+    && !marketSignal
+    && becameIssueFree;
+
+  if (canRelabelLiveBlockedOnly) {
     patched = patched.replace(/^Gate1:\s*DEGRADED/iu, 'Gate1: LIVE_BLOCKED_ONLY');
     if (!/\bissue=/iu.test(patched)) patched += ' | issue=LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED';
     if (!/\baction=/iu.test(patched)) patched += ' | action=CHECK_SESSION_POLICY';
-  } else if ((health === 'DEGRADED' || /^Gate1:\s*DEGRADED/iu.test(patched))
-    && verified
-    && becameIssueFree) {
-    patched = patched.replace(/^Gate1:\s*DEGRADED/iu, 'Gate1: OK');
   }
 
   const shadowMode = String(gate1Survival?.shadowMode ?? '').toUpperCase();
