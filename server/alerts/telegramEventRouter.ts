@@ -211,6 +211,23 @@ function decorateExecutionMessage(event: TelegramEvent): string {
   return prefix ? `${prefix}\n${event.message}` : event.message;
 }
 
+function decorateRegimeMessage(event: TelegramEvent): string {
+  if (event.type === 'REGIME_CHANGE' && !event.message.includes('[레짐 전환]')) {
+    return `🔄 <b>[레짐 전환]</b>\n${event.message}`;
+  }
+  return event.message;
+}
+
+function decorateJournalMessage(event: TelegramEvent): string {
+  if (
+    (event.type === 'PERFORMANCE_REPORT' || event.type === 'LEARNING_REPORT') &&
+    !event.message.includes('━━━')
+  ) {
+    return `${event.message}\n━━━━━━━━━━━━━━━━\n<i>/learning_status 로 상세 확인</i>`;
+  }
+  return event.message;
+}
+
 function executionPrefix(type: TelegramEventType): string | null {
   switch (type) {
     case 'BUY_FILLED':
@@ -270,7 +287,11 @@ export async function emitTelegramEvent(event: TelegramEvent): Promise<number | 
       ? decorateSignalMessage(event)
       : route === ChannelSemantic.EXECUTION
         ? decorateExecutionMessage(event)
-        : event.message;
+        : route === ChannelSemantic.REGIME
+          ? decorateRegimeMessage(event)
+          : route === ChannelSemantic.JOURNAL
+            ? decorateJournalMessage(event)
+            : event.message;
 
     return await dispatchAlert(route, routedMessage, {
       ledgerId: eventId,

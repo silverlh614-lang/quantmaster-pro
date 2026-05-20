@@ -212,10 +212,42 @@ function toDigestLine(message: string): string {
   return first.length > 180 ? `${first.slice(0, 180)}...` : first;
 }
 
+/**
+ * ChannelMessageFormatter — 채널 성격에 맞는 포맷 표준화 SSOT
+ * CH1 EXECUTION : 즉각 행동용 — 태그 접두어 보장
+ * CH2 SIGNAL    : 투자 판단용 — 면책 문구 보장
+ * CH3 REGIME    : 매크로 컨텍스트 — 🌐 접두어 + 시간 스탬프
+ * CH4 JOURNAL   : 복기용 조용히 — 📒 접두어
+ */
 function normalizeChannelMessage(category: AlertCategory, message: string): string {
-  if (category !== AlertCategory.ANALYSIS) return message;
-  if (message.includes(PUBLIC_SIGNAL_DISCLAIMER)) return message;
-  return `${message}\n\n${PUBLIC_SIGNAL_DISCLAIMER}`;
+  switch (category) {
+    case AlertCategory.TRADE:
+      if (/^\[?(EXECUTION|RISK|ORDER|SHADOW)/.test(message)) return message;
+      if (message.startsWith('⚡')) return message;
+      return `⚡ ${message}`;
+
+    case AlertCategory.ANALYSIS:
+      if (message.includes(PUBLIC_SIGNAL_DISCLAIMER)) return message;
+      return `${message}\n\n${PUBLIC_SIGNAL_DISCLAIMER}`;
+
+    case AlertCategory.INFO: {
+      if (message.startsWith('🌐')) return message;
+      const kstHHMM = new Date().toLocaleTimeString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      return `🌐 <i>[${kstHHMM} KST]</i> ${message}`;
+    }
+
+    case AlertCategory.SYSTEM:
+      if (message.startsWith('📒')) return message;
+      return `📒 ${message}`;
+
+    default:
+      return message;
+  }
 }
 
 function kstDateKey(iso: string): string {
