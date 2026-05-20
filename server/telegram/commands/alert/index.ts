@@ -8,6 +8,7 @@ import './alertSearch.cmd.js';
 import './omitted.cmd.js';
 import './alertInbox.cmd.js';
 import './channelActivity.cmd.js';
+import './chStatus.cmd.js';
 import './channelFlushStatus.cmd.js';
 import './channelHealth.cmd.js';
 import './channelRoutes.cmd.js';

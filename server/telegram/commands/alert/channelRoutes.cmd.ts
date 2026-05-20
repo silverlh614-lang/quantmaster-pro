@@ -153,7 +153,7 @@ function formatChannelRoutes(args: string[] = []): string {
 
 const channelRoutes: TelegramCommand = {
   name: '/channel_routes',
-  aliases: ['/alert_routes', '/channel_status'],
+  aliases: ['/alert_routes'],
   category: 'ALR',
   visibility: 'ADMIN',
   riskLevel: 0,
