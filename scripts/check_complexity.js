@@ -84,7 +84,6 @@ const BASELINE_TECHNICAL_DEBT = [
   //   ADR-0505 본체(~430 LoC) 가 #944~#953 KIS investor row carry / forensic mapper
   //   누적 PR 로 1500 초과 — origin/main 에 이미 누적된 사전 baseline. ADR-0502c 패턴 정합
   //   (카탈로그 등재로 거버넌스 정합 회복). 분해 작업은 별도 ADR 후속 PR.
-  'server/trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.ts',
   // Patch-MARKET-PROGRAM-CARRY-WIRING-001 (2026-05-16) — normalSupplyPreview.ts 3101 LoC.
   //   ADR-0492 normal-supply preview SSOT 본체 — provider router/forensic/snapshot adapter/
   //   supplyHealth/aggregation 등 다층 wiring 누적으로 1500 초과 origin/main pre-existing
