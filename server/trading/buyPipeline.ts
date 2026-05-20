@@ -24,7 +24,7 @@ import { computeEtfSectorBoost } from '../alerts/globalScanAgent.js';
 import { getSectorByCode } from '../screener/sectorMap.js';
 import { generatePreMortem } from './entryEngine.js';
 import { buildPreMortemStructured } from './preMortemStructured.js';
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { emitTelegramEvent } from '../alerts/telegramEventRouter.js';
 import { requestBuyApprovalWithDelivery } from '../telegram/buyApproval.js';
 import type { TradeSignalBlockGate } from '../persistence/tradeSignalStatusRepo.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
@@ -330,11 +330,15 @@ function rejectForManualExitCooldown(
     event: 'BUY_BLOCKED_MANUAL_EXIT_COOLDOWN',
   });
   p.trade.status = 'REJECTED';
-  sendTelegramAlert(
+  emitTelegramEvent({
+    type: 'ORDER_REJECTED',
+    message:
     `🔒 <b>[재매수 냉각]</b> ${p.stockName}(${p.stockCode})\n` +
     `최근 수동 청산 후 ${cooldown.remainingHours}h 동안 재매수 차단 — 반복 편향 방지 룰.`,
-    { category: 'manual_exit_cooldown', dedupeKey: `cooldown:${p.stockCode}:${cooldown.lastExitAt}` },
-  ).catch(() => { /* noop */ });
+    severity: 'NORMAL',
+    dedupeKey: `cooldown:${p.stockCode}:${cooldown.lastExitAt}`,
+    metadata: { symbol: p.stockCode },
+  }).catch(() => { /* noop */ });
   return {
     approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
     execute: async () => {
@@ -481,7 +485,18 @@ async function emitApprovalSideEffects(
   p: CreateBuyTaskParams,
   ordNo: string | null,
 ): Promise<void> {
-  await sendTelegramAlert(p.alertMessage).catch((error) => {
+  await emitTelegramEvent({
+    type: p.shadowMode
+      ? (p.signalType === 'STRONG_BUY' ? 'SHADOW_BUY_SIGNAL' : 'SHADOW_BUY_SIGNAL')
+      : (p.signalType === 'STRONG_BUY' ? 'STRONG_BUY_SIGNAL' : 'BUY_SIGNAL'),
+    message: p.alertMessage,
+    severity: p.signalType === 'STRONG_BUY' ? 'HIGH' : 'NORMAL',
+    metadata: {
+      symbol: p.stockCode,
+      engineMode: p.shadowMode ? 'SHADOW' : 'LIVE',
+      blockedBy: p.shadowMode ? 'SHADOW_MODE' : undefined,
+    },
+  }).catch((error) => {
     emitOperationalWarn({
       code: 'P2_BUY_APPROVAL_ALERT_DELIVERY_FAILED',
       severity: 'P2',
