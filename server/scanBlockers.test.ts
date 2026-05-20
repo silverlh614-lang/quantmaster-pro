@@ -365,7 +365,10 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
       scanEvaluation: {
         gate1Pass: 3,
       } as unknown as ScanSummary['scanEvaluation'],
-      macroGateState: ({ shadowLearningAllowed: true } as unknown as ScanSummary['macroGateState']),
+      macroGateState: ({
+        shadowLearningAllowed: true,
+        liveEntryBlockedReason: 'R6_DEFENSE_SELL_ONLY',
+      } as unknown as ScanSummary['macroGateState']),
     } as unknown as Partial<ScanSummary>);
 
     const text = formatScanBlockersCompactMessage(summary);
@@ -391,9 +394,56 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     } as unknown as Partial<ScanSummary>);
 
     const text = formatScanBlockersCompactMessage(summary);
-    expect(text).toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
-    expect(text).toContain('issue=LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED');
+    expect(text).toContain('Gate1Diag: Gate1: DEGRADED');
+    expect(text).not.toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
     expect(text).not.toContain('shadow=COUNTERFACTUAL_ONLY');
+  });
+
+
+  it('relabels degraded to LIVE_BLOCKED_ONLY for R6 live blocked with shadow on and no missing fields', () => {
+    const summary = baseSummary({
+      gateLayerSummary: {
+        gate1: {
+          consolidatedDiagnostic: {
+            compactText: 'Gate1: DEGRADED | missing=none | shadow=ON',
+          },
+        },
+      },
+      scanEvaluation: {
+        entryBlockMode: 'R6_DEFENSE_SELL_ONLY',
+        liveEvaluated: 0,
+      } as unknown as ScanSummary['scanEvaluation'],
+      gate1SurvivalDiagnostic: {
+        quoteCoverageConfidence: 'VERIFIED',
+        missingFields: [],
+      } as unknown as Record<string, unknown>,
+      gateDiagnostics: { marketSignal: false } as unknown as ScanSummary['gateDiagnostics'],
+      macroGateState: ({ shadowLearningAllowed: true } as unknown as ScanSummary['macroGateState']),
+    } as unknown as Partial<ScanSummary>);
+
+    const text = formatScanBlockersCompactMessage(summary);
+    expect(text).toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
+    expect(text).not.toContain('Gate1Diag: Gate1: DEGRADED');
+  });
+
+  it('keeps DEGRADED when missing includes currentPrice', () => {
+    const summary = baseSummary({
+      gateLayerSummary: {
+        gate1: {
+          consolidatedDiagnostic: {
+            compactText: 'Gate1: DEGRADED | missing=currentPrice | shadow=ON',
+          },
+        },
+      },
+      gate1SurvivalDiagnostic: {
+        quoteCoverageConfidence: 'VERIFIED',
+        missingFields: ['currentPrice'],
+      } as unknown as Record<string, unknown>,
+      macroGateState: ({ shadowLearningAllowed: true } as unknown as ScanSummary['macroGateState']),
+    } as unknown as Partial<ScanSummary>);
+
+    const text = formatScanBlockersCompactMessage(summary);
+    expect(text).toContain('Gate1Diag: Gate1: DEGRADED');
   });
 
   it('does not mutate score or execution decision fields while formatting', () => {
