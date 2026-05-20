@@ -104,7 +104,6 @@ const BASELINE_TECHNICAL_DEBT = [
   //   ADR-0367 + Patch-MARKET-PROGRAM-CARRY-WIRING-001 패턴 정합으로 카탈로그 등재 →
   //   거버넌스 정합 (validate:complexity EXIT=0) 회복. 분해 작업은 각 파일별 별도 ADR
   //   후속 PR 시리즈로 진행 (책임 단위 SSOT 분리 + import 정합 + 회귀 테스트 의무).
-  'server/quant/gate2Diagnostics.ts',
   'server/learning/regimeLearningBackfill.ts',
   'server/learning/regimeLearningBank.ts',
 ];
