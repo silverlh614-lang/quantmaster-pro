@@ -8,6 +8,7 @@ import {
   buildNowKeyboard,
   composeNowVerdict,
   encodeMetaCallback,
+  ensureNowReplyPayload,
   handleMetaCommand,
   parseMetaCallback,
   type InlineKeyboardMarkup,
@@ -265,6 +266,8 @@ describe('handleMetaCommand', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].text).toContain('[NOW]');
     expect(calls[0].text).toContain('Live Buy:');
+    expect(calls[0].text).not.toContain('rawData:');
+    expect(calls[0].text).not.toContain('macroState:');
     expect(calls[0].markup?.inline_keyboard[0]).toHaveLength(3);
   });
 
@@ -275,7 +278,12 @@ describe('handleMetaCommand', () => {
     expect(calls[0].text).toContain('[NOW DEBUG]');
     expect(calls[0].text).toContain('DEBUG VIEW - raw fields included');
     expect(calls[0].text).toContain('rawData:');
+    expect(calls[0].text.trim().length).toBeGreaterThan(0);
     expect(calls[0].markup?.inline_keyboard[0]).toHaveLength(3);
+  });
+
+  it('guards /now_debug against empty renderer payloads', () => {
+    expect(ensureNowReplyPayload('', { mode: 'DEBUG', includeRaw: true })).toContain('NOW DEBUG render failed');
   });
 
   it('/watch sends registry title + inline keyboard', async () => {
@@ -311,12 +319,13 @@ describe('buildNowKeyboard', () => {
 });
 
 describe('buildHelpMessage', () => {
-  it('contains all 8 meta menu entries (/help /status /now /watch /positions /learning /control /admin)', () => {
+  it('contains compact NOW and debug NOW help entries', () => {
     const help = buildHelpMessage();
     for (const cmd of [
       '/help',
       '/status',
       '/now',
+      '/now_debug',
       '/watch',
       '/positions',
       '/learning',

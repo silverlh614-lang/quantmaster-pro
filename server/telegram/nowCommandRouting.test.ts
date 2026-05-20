@@ -28,6 +28,7 @@ vi.mock('../persistence/commandUsageRepo.js', () => ({
 import {
   canonicalizeCommand,
   dispatchTelegramCommand,
+  normalizeCommand,
   resolveCommandAction,
 } from './commandRouter.js';
 
@@ -50,6 +51,18 @@ describe('NOW command routing', () => {
     );
   });
 
+  it('routes /now as MARKET_NOW compact mode', async () => {
+    const reply = vi.fn(async () => undefined);
+
+    await dispatchTelegramCommand({ rawText: '/now', chatId: '1', userId: '2', reply });
+
+    expect(metaMocks.handleMetaCommand).toHaveBeenCalledWith(
+      '/now',
+      reply,
+      { nowRenderOptions: { mode: 'COMPACT', includeRaw: false } },
+    );
+  });
+
   it('routes /now --debug to NOW debug mode without changing the canonical command', async () => {
     const reply = vi.fn(async () => undefined);
 
@@ -60,5 +73,23 @@ describe('NOW command routing', () => {
       reply,
       { nowRenderOptions: { mode: 'DEBUG', includeRaw: true } },
     );
+  });
+
+  it('routes /now debug to NOW debug mode', async () => {
+    const reply = vi.fn(async () => undefined);
+
+    await dispatchTelegramCommand({ rawText: '/now debug', chatId: '1', userId: '2', reply });
+
+    expect(metaMocks.handleMetaCommand).toHaveBeenCalledWith(
+      '/now',
+      reply,
+      { nowRenderOptions: { mode: 'DEBUG', includeRaw: true } },
+    );
+  });
+
+  it('keeps now_debug intact during command normalization', () => {
+    expect(normalizeCommand('/NOW_DEBUG')).toBe('/now_debug');
+    expect(canonicalizeCommand('now_debug')).toBe('/now_debug');
+    expect(canonicalizeCommand('now')).toBe('/now');
   });
 });

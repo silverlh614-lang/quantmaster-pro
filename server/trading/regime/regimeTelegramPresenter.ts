@@ -6,9 +6,14 @@ import { normalizeNowDisplay, normalizeR6LatchDisplay } from '../../telegram/now
 export type NowRenderMode = 'COMPACT' | 'DEBUG';
 
 export interface NowRenderOptions {
-  mode?: NowRenderMode;
-  includeRaw?: boolean;
+  mode: NowRenderMode;
+  includeRaw: boolean;
 }
+
+export type NowRenderOptionsInput = Partial<NowRenderOptions>;
+
+export const NOW_COMPACT_RENDER_OPTIONS: NowRenderOptions = { mode: 'COMPACT', includeRaw: false };
+export const NOW_DEBUG_RENDER_OPTIONS: NowRenderOptions = { mode: 'DEBUG', includeRaw: true };
 
 function isR6Snapshot(snapshot: ResolvedRegimeSnapshot): boolean {
   return snapshot.riskOverride === 'R6_DEFENSE' ||
@@ -45,8 +50,12 @@ function sanitizeLegacyMarketStateText(text: string, snapshot: ResolvedRegimeSna
     .join('\n');
 }
 
-function resolveNowRenderMode(options: NowRenderOptions = {}): NowRenderMode {
-  return options.mode ?? (options.includeRaw ? 'DEBUG' : 'COMPACT');
+export function normalizeNowRenderOptions(options: NowRenderOptionsInput = {}): NowRenderOptions {
+  const mode = options.mode ?? (options.includeRaw ? 'DEBUG' : 'COMPACT');
+  return {
+    mode,
+    includeRaw: mode === 'DEBUG' || options.includeRaw === true,
+  };
 }
 
 function formatKstDateTime(value: string | undefined): string {
@@ -195,10 +204,14 @@ function formatRegimeTelegramNowDebug(
     `riskOverride=${snapshot.riskOverride} engineMode=${snapshot.engineMode}`,
     `Data: ${display.dataLine}`,
     `Data note: ${display.dataExplanation}`,
+    'rawData:',
     `rawData: dataHealth=${snapshot.sourceHealth} providerIssue=${snapshot.providerIssue} marketSignal=${snapshot.marketSignal}`,
     ...formatMacroReleaseBlockLines(snapshot),
     `conflicts=${display.conflictLabel}`,
     ...(display.notes.length > 0 ? [`displayWarnings=${display.notes.join(',')}`] : []),
+    'R6 latch raw:',
+    'Shadow raw:',
+    'macroState raw:',
     '',
   ].join('\n');
   return header + legacy;
@@ -207,9 +220,9 @@ function formatRegimeTelegramNowDebug(
 export function formatRegimeTelegramNow(
   snapshot: ResolvedRegimeSnapshot,
   context: MarketStateNowContext = {},
-  options: NowRenderOptions = {},
+  options: NowRenderOptionsInput = NOW_COMPACT_RENDER_OPTIONS,
 ): string {
-  return resolveNowRenderMode(options) === 'DEBUG'
+  return normalizeNowRenderOptions(options).mode === 'DEBUG'
     ? formatRegimeTelegramNowDebug(snapshot, context)
     : formatRegimeTelegramNowCompact(snapshot, context);
 }

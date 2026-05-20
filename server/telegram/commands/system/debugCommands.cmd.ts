@@ -21,7 +21,7 @@ function canonicalizeDebugCommand(command: string): string {
   return command;
 }
 
-const BUILTIN_COMMANDS = new Set(['/help', '/admin_help', '/now', '/watch', '/learning', '/control', '/admin']);
+const BUILTIN_COMMANDS = new Set(['/help', '/admin_help', '/now', '/now_debug', '/watch', '/learning', '/control', '/admin']);
 
 const ping: TelegramCommand = {
   name: '/ping',

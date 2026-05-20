@@ -7,7 +7,14 @@ import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import type { ShadowActivitySnapshot } from '../trading/marketStateResolver.js';
 import { resolveRegimeSnapshot } from '../trading/regime/regimeResolver.js';
-import { formatRegimeTelegramNow, type NowRenderMode, type NowRenderOptions } from '../trading/regime/regimeTelegramPresenter.js';
+import {
+  formatRegimeTelegramNow,
+  normalizeNowRenderOptions,
+  NOW_COMPACT_RENDER_OPTIONS,
+  NOW_DEBUG_RENDER_OPTIONS,
+  type NowRenderOptions,
+  type NowRenderOptionsInput,
+} from '../trading/regime/regimeTelegramPresenter.js';
 import { commandRegistry } from './commandRegistry.js';
 
 export interface InlineKeyboardButton {
@@ -25,7 +32,7 @@ export type MetaReplyFn = (
 ) => Promise<void>;
 
 export interface MetaCommandOptions {
-  nowRenderOptions?: NowRenderOptions;
+  nowRenderOptions?: NowRenderOptionsInput;
 }
 
 interface MetaCommandSpec {
@@ -200,11 +207,20 @@ function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>
   };
 }
 
-function resolveNowRenderMode(options: NowRenderOptions = {}): NowRenderMode {
-  return options.mode ?? (options.includeRaw ? 'DEBUG' : 'COMPACT');
+const NOW_DEBUG_EMPTY_PAYLOAD_MESSAGE =
+  '⚠️ NOW DEBUG render failed: empty payload. Snapshot resolver returned no content.';
+
+export function ensureNowReplyPayload(text: string | null | undefined, options: NowRenderOptions): string {
+  if (typeof text === 'string' && text.trim().length > 0) return text;
+  if (options.mode === 'DEBUG') {
+    console.error(`[TELEGRAM_NOW_DEBUG_EMPTY_PAYLOAD] mode=${options.mode}`);
+    return NOW_DEBUG_EMPTY_PAYLOAD_MESSAGE;
+  }
+  console.error(`[TELEGRAM_NOW_EMPTY_PAYLOAD] mode=${options.mode}`);
+  return '⚠️ NOW render failed: empty payload. Snapshot resolver returned no content.';
 }
 
-export function composeNowVerdict(now: Date = new Date(), options: NowRenderOptions = {}): string {
+export function composeNowVerdict(now: Date = new Date(), options: NowRenderOptionsInput = NOW_COMPACT_RENDER_OPTIONS): string {
   const shadows = getShadowTrades();
   const active = shadows.filter((s) => {
     const status = (s as { status?: string }).status;
@@ -226,7 +242,7 @@ export function composeNowVerdict(now: Date = new Date(), options: NowRenderOpti
     ? formatKstHm(new Date(lastSignalAt))
     : '없음';
   const snapshot = resolveRegimeSnapshot({ now });
-  const mode = resolveNowRenderMode(options);
+  const renderOptions = normalizeNowRenderOptions(options);
 
   console.info(
     '[TELEGRAM_RENDER_MARKET_STATE] ' +
@@ -236,14 +252,14 @@ export function composeNowVerdict(now: Date = new Date(), options: NowRenderOpti
     `effectiveRegime=${snapshot.effectiveRegime} ` +
     `riskOverride=${snapshot.riskOverride}`,
   );
-  console.info(`[TELEGRAM_NOW_RENDERED] mode=${mode} snapshotId=${snapshot.snapshotId}`);
+  console.info(`[TELEGRAM_NOW_RENDERED] mode=${renderOptions.mode} snapshotId=${snapshot.snapshotId}`);
 
   return formatRegimeTelegramNow(snapshot, {
     activePositions: active.length,
     maxPositions,
     lastSignalLabel,
     shadowActivity: buildShadowActivitySnapshot(shadows, now, snapshot.marketState.macroState.freshness),
-  }, { ...options, mode, includeRaw: mode === 'DEBUG' || options.includeRaw === true });
+  }, renderOptions);
 }
 
 function formatKstHm(d: Date): string {
@@ -259,14 +275,11 @@ export async function handleMetaCommand(
   options: MetaCommandOptions = {},
 ): Promise<void> {
   if (name === '/now' || name === '/now_debug') {
-    const mode: NowRenderMode = name === '/now_debug'
-      ? 'DEBUG'
-      : resolveNowRenderMode(options.nowRenderOptions);
-    await reply(composeNowVerdict(new Date(), {
-      ...options.nowRenderOptions,
-      mode,
-      includeRaw: mode === 'DEBUG' || options.nowRenderOptions?.includeRaw === true,
-    }), buildNowKeyboard());
+    const renderOptions = name === '/now_debug'
+      ? NOW_DEBUG_RENDER_OPTIONS
+      : normalizeNowRenderOptions(options.nowRenderOptions ?? NOW_COMPACT_RENDER_OPTIONS);
+    const text = composeNowVerdict(new Date(), renderOptions);
+    await reply(ensureNowReplyPayload(text, renderOptions), buildNowKeyboard());
     return;
   }
 

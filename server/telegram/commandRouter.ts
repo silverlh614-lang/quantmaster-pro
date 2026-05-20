@@ -11,6 +11,10 @@ import {
 } from './metaCommands.js';
 import { getTopUsage, recordUsage } from '../persistence/commandUsageRepo.js';
 import type { TelegramCommand } from './commands/_types.js';
+import {
+  NOW_COMPACT_RENDER_OPTIONS,
+  NOW_DEBUG_RENDER_OPTIONS,
+} from '../trading/regime/regimeTelegramPresenter.js';
 
 
 let commandRegistryLoaded = false;
@@ -82,6 +86,7 @@ const COMMAND_ALIASES = new Map<string, string>([
   ['/admin_stats', '/admin_help'],
   ['/status', '/status'],
   ['/now', '/now'],
+  ['now', '/now'],
   ['/now_debug', '/now_debug'],
   ['now_debug', '/now_debug'],
   ['/watch', '/watch'],
@@ -101,6 +106,11 @@ const ACTION_BY_CANONICAL = new Map<string, TelegramCommandAction>([
   ['/scan', 'SCAN'],
   ['/scan_blockers', 'SCAN_BLOCKERS'],
 ]);
+
+function isNowDebugArg(arg: string): boolean {
+  const normalized = arg.trim().toLowerCase();
+  return normalized === '--debug' || normalized === 'debug';
+}
 
 /**
  * Telegram text 첫 토큰을 실행 가능한 command key 로 정규화한다.
@@ -203,18 +213,36 @@ async function resolveRoute(
     };
   }
 
-  if (canonical === '/now' || canonical === '/now_debug' || canonical === '/watch') {
+  if (canonical === '/now' || canonical === '/now_debug') {
     return {
       action: ACTION_BY_CANONICAL.get(canonical) ?? 'META_MENU',
       handlerName: 'handleMetaCommand',
       usageName: canonical,
-      execute: async (args, correlationId) => {
-        const debugNow = canonical === '/now_debug' || (canonical === '/now' && args.some((arg) => arg.toLowerCase() === '--debug'));
+      execute: async (args, correlationId, dispatchContext) => {
+        const debugNow = canonical === '/now_debug' || (canonical === '/now' && args.some(isNowDebugArg));
         const metaCommand = canonical === '/now_debug' ? '/now_debug' : canonical;
+        const mode = debugNow ? 'DEBUG' : 'COMPACT';
+        const nowRenderOptions = debugNow ? NOW_DEBUG_RENDER_OPTIONS : NOW_COMPACT_RENDER_OPTIONS;
         logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' });
-        await handleMetaCommand(metaCommand, reply, debugNow ? { nowRenderOptions: { mode: 'DEBUG', includeRaw: true } } : undefined);
+        logCommandChain('TELEGRAM_COMMAND_ROUTED', {
+          correlationId,
+          command: metaCommand.replace(/^\//, ''),
+          handler: 'handleNow',
+          mode,
+          raw: dispatchContext.rawText,
+        });
+        await handleMetaCommand(metaCommand, reply, { nowRenderOptions });
         logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical });
       },
+    };
+  }
+
+  if (canonical === '/watch') {
+    return {
+      action: ACTION_BY_CANONICAL.get(canonical) ?? 'META_MENU',
+      handlerName: 'handleMetaCommand',
+      usageName: canonical,
+      execute: async (_args, correlationId) => { logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
     };
   }
 

@@ -158,6 +158,10 @@ describe('formatRegimeTelegramNow', () => {
 
     expect(text).toContain('[NOW DEBUG]');
     expect(text).toContain('DEBUG VIEW - raw fields included');
+    expect(text).toContain('rawData:');
+    expect(text).toContain('R6 latch raw:');
+    expect(text).toContain('Shadow raw:');
+    expect(text).toContain('macroState raw:');
     expect(text).toContain('rawData: dataHealth=STALE providerIssue=true marketSignal=false');
     expect(text).toContain('conflicts=none - provider issue isolated from market signal');
     expect(text).toContain('macroState:');
