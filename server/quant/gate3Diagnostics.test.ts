@@ -5,7 +5,7 @@ import {
   type ServerGateResult,
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
-import { buildGate3ExternalDataCoverage, normalizeGate3FalseBreakout, normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3Pullback, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
+import { buildGate3ExternalDataCoverage, normalizeGate3FalseBreakout, normalizeGate3IntradayTiming, normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3Pullback, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
 
 type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -189,6 +189,52 @@ describe('Gate3 diagnostics wiring', () => {
     expect(vt.dataGranularity).toBe('DAILY');
     expect(vt.notes).toContain('INTRADAY_NOT_FETCHED');
     expect(vt.marketSignal).toBe(false);
+  });
+
+  it('intraday timing: normal intraday input is verified', () => {
+    const now = new Date('2026-05-20T01:00:00.000Z');
+    const diag = normalizeGate3IntradayTiming({
+      now,
+      quote: quote({ fetchedAt: new Date(now.getTime() - 3_000).toISOString(), dayOpen: 9_900, currentPrice: 10_000 }) as unknown as Record<string, unknown>,
+      intraday: { lastTickAt: new Date(now.getTime() - 2_000).toISOString(), price: 10_000, volume: 1000, expectedVolumeByNow: 1_000_000, actualVolume: 2_000_000, vwap: 9_950 },
+      minuteBars: [{ at: new Date(now.getTime() - 60_000).toISOString(), close: 10_000 }],
+    });
+
+    expect(diag.dataMode).toBe('MIXED');
+    expect(diag.quoteFreshness.status).toBe('FRESH');
+    expect(diag.lastTick.status).toBe('FRESH');
+    expect(diag.minuteChart.status).toBe('VERIFIED');
+    expect(diag.volumeClock.status).toBe('AHEAD');
+    expect(diag.marketSignal).toBe(false);
+  });
+
+  it('intraday timing: eod only is stage not fetched and not fail', () => {
+    const now = new Date('2026-05-20T01:00:00.000Z');
+    const diag = normalizeGate3IntradayTiming({
+      now,
+      quote: quote({ asOf: new Date(now.getTime() - 10_000).toISOString() }) as unknown as Record<string, unknown>,
+      intraday: null,
+      minuteBars: null,
+    });
+
+    expect(diag.dataMode).toBe('EOD_ONLY');
+    expect(['MISSING', 'STAGE_NOT_FETCHED']).toContain(diag.status);
+    expect(diag.notes).toContain('INTRADAY_NOT_FETCHED_EOD_ONLY');
+    expect(diag.marketSignal).toBe(false);
+  });
+
+  it('intraday timing: stale last tick is freshness issue only', () => {
+    const now = new Date('2026-05-20T01:00:00.000Z');
+    const diag = normalizeGate3IntradayTiming({
+      now,
+      quote: quote({ fetchedAt: new Date(now.getTime() - 3_000).toISOString() }) as unknown as Record<string, unknown>,
+      intraday: { lastTickAt: new Date(now.getTime() - 180_000).toISOString() },
+      minuteBars: [],
+    });
+
+    expect(diag.lastTick.status).toBe('STALE');
+    expect(diag.freshnessIssue).toBe(true);
+    expect(diag.marketSignal).toBe(false);
   });
 
   it('diagnostic-only invariance for score fields', () => {
