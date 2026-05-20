@@ -192,6 +192,48 @@ export interface Gate3ExternalDataCoverage {
     missingFields: string[];
     notes: string[];
   };
+  momentumIndicators: {
+    required: true;
+    available: boolean;
+    status: Gate3CoverageStatus;
+    fields: Record<string, boolean>;
+    values: Record<string, Numeric>;
+    rsi: Gate3MomentumDiagnostic['rsi'];
+    macd: Gate3MomentumDiagnostic['macd'];
+    shortMomentum: Gate3MomentumDiagnostic['shortMomentum'];
+    overheat: Gate3MomentumDiagnostic['overheat'];
+    providerIssue: boolean;
+    calculationIssue: boolean;
+    marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    missingFields: string[];
+    notes: string[];
+  };
+}
+export interface Gate3MomentumDiagnostic {
+  status: Gate3CoverageStatus;
+  rsi: {
+    rsi14: Numeric; rsi5dAgo: Numeric; rsiDelta5d: Numeric;
+    status: 'BULLISH' | 'NEUTRAL' | 'OVERBOUGHT' | 'WEAK' | 'MISSING' | 'UNKNOWN';
+    available: boolean; reason: string | null;
+  };
+  macd: {
+    macdHistogram: Numeric; macd5dHistAgo: Numeric; macdHistDelta5d: Numeric;
+    status: 'BULLISH' | 'IMPROVING' | 'WEAKENING' | 'BEARISH' | 'MISSING' | 'UNKNOWN';
+    available: boolean; reason: string | null;
+  };
+  shortMomentum: {
+    changePercent: Numeric; return5d: Numeric; return20d: Numeric; acceleration5dVs20d: Numeric;
+    status: 'BULLISH' | 'NEUTRAL' | 'WEAK' | 'MISSING' | 'UNKNOWN';
+    available: boolean; reason: string | null;
+  };
+  overheat: {
+    status: 'NORMAL' | 'WATCH' | 'OVERHEATED' | 'MISSING' | 'UNKNOWN';
+    rsiOverheated: boolean | null; priceExtensionOverheated: boolean | null; notes: string[];
+  };
+  source: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'CACHE' | 'UNKNOWN';
+  providerIssue: boolean; calculationIssue: boolean; marketSignal: false;
+  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY'; missingFields: string[]; notes: string[];
 }
 export interface Gate3PriceStructureDiagnostic {
   status: Gate3CoverageStatus;
@@ -280,7 +322,11 @@ export function buildGate3WiringDiagnostics(input: {
       const priceStructureInputs = unique(inputs.filter(i => PRICE.test(i)));
       const missingInputs = unique([...(item.context?.missingInputs ?? [])]);
       const requiredData = unique([...(item.context?.requiredData ?? [])]);
-      const missingRequiredData = requiredData.filter(key => item.context?.availableData?.[key] !== true);
+      const inferredRequiredData = item.key === 'momentum' ? ['MOMENTUM_INDICATORS']
+        : item.key === 'rsi_zone' ? ['RSI_INDICATORS']
+          : item.key === 'macd_bull' ? ['MACD_INDICATORS'] : [];
+      const mergedRequiredData = unique([...requiredData, ...inferredRequiredData]);
+      const missingRequiredData = mergedRequiredData.filter(key => item.context?.availableData?.[key] !== true);
 
       const domains = [quoteInputs, technicalInputs, intradayInputs, volumeInputs, priceStructureInputs]
         .filter(group => group.length > 0).length;
@@ -304,7 +350,7 @@ export function buildGate3WiringDiagnostics(input: {
         priceStructureInputs,
         missingInputs,
         availableInputs: inputs.filter(i => !missingInputs.includes(i)),
-        requiredData,
+        requiredData: mergedRequiredData,
         missingRequiredData,
         dataPath,
         providerIssue: status === 'PROVIDER_DEGRADED' || missingRequiredData.length > 0,
@@ -313,6 +359,55 @@ export function buildGate3WiringDiagnostics(input: {
         diagnosticOnly: true,
       };
     });
+}
+
+export function normalizeGate3Momentum(input: {
+  quote?: Record<string, unknown> | null;
+  indicators?: Record<string, unknown> | null;
+  priceStructure?: Gate3PriceStructureDiagnostic | null;
+}): Gate3MomentumDiagnostic {
+  const quote = input.quote ?? {};
+  const indicators = input.indicators ?? {};
+  const pick = (k: string): Numeric => asFinite(quote[k]) ?? asFinite(indicators[k]);
+  const missingFields: string[] = [];
+  const notes: string[] = [];
+  const rsi14 = pick('rsi14'); const rsi5dAgo = pick('rsi5dAgo');
+  const rsiDelta5d = rsi14 != null && rsi5dAgo != null ? rsi14 - rsi5dAgo : null;
+  if (rsi14 == null) missingFields.push('rsi14');
+  if (rsi5dAgo == null) missingFields.push('rsi5dAgo');
+  const rsiStatus = rsi14 == null ? 'MISSING' : rsi14 >= 80 ? 'OVERBOUGHT' : rsi14 >= 55 ? 'BULLISH' : rsi14 >= 45 ? 'NEUTRAL' : 'WEAK';
+  const macdHistogram = pick('macdHistogram'); const macd5dHistAgo = pick('macd5dHistAgo');
+  const macdHistDelta5d = macdHistogram != null && macd5dHistAgo != null ? macdHistogram - macd5dHistAgo : null;
+  if (macdHistogram == null) missingFields.push('macdHistogram');
+  if (macd5dHistAgo == null) missingFields.push('macd5dHistAgo');
+  const macdStatus = macdHistogram == null ? 'MISSING'
+    : macdHistogram < 0 ? (macdHistDelta5d != null && macdHistDelta5d < 0 ? 'BEARISH' : 'WEAKENING')
+      : (macdHistDelta5d != null && macdHistDelta5d > 0 ? 'IMPROVING' : 'BULLISH');
+  const changePercent = pick('changePercent'); const return5d = pick('return5d'); const return20d = pick('return20d');
+  const acceleration5dVs20d = return5d != null && return20d != null ? return5d - (return20d / 4) : null;
+  if (changePercent == null) missingFields.push('changePercent');
+  if (return5d == null) missingFields.push('return5d');
+  if (return20d == null) missingFields.push('return20d');
+  const smStatus = return5d == null ? 'MISSING' : return5d > 0 ? 'BULLISH' : return5d < 0 ? 'WEAK' : 'NEUTRAL';
+  const breakoutGapPct = input.priceStructure?.breakout.breakoutGapPct ?? null;
+  const rsiOverheated = rsi14 == null ? null : rsi14 >= 80;
+  const priceExtensionOverheated = breakoutGapPct == null ? null : breakoutGapPct > 0.08;
+  const overheatNotes: string[] = [];
+  let overheat: Gate3MomentumDiagnostic['overheat']['status'] = 'NORMAL';
+  if (rsi14 == null && breakoutGapPct == null) overheat = 'MISSING';
+  else if (rsi14 != null && rsi14 >= 80 || priceExtensionOverheated) { overheat = 'OVERHEATED'; overheatNotes.push('RSI_OVERHEAT_DIAGNOSTIC_ONLY', 'MOMENTUM_OVERHEAT_DIAGNOSTIC_ONLY', 'DO_NOT_HARD_BLOCK_FROM_DIAGNOSTIC'); }
+  else if (rsi14 != null && rsi14 >= 70) { overheat = 'WATCH'; overheatNotes.push('MOMENTUM_EXTENSION_WATCH'); }
+  const status: Gate3CoverageStatus = missingFields.length === 0 ? 'VERIFIED' : missingFields.length <= 2 ? 'PARTIAL' : 'DEGRADED';
+  notes.push(...overheatNotes);
+  return {
+    status,
+    rsi: { rsi14, rsi5dAgo, rsiDelta5d, status: rsiStatus, available: rsi14 != null, reason: rsi14 == null ? 'INPUT_MISSING' : null },
+    macd: { macdHistogram, macd5dHistAgo, macdHistDelta5d, status: macdStatus, available: macdHistogram != null, reason: macdHistogram == null ? 'INPUT_MISSING' : null },
+    shortMomentum: { changePercent, return5d, return20d, acceleration5dVs20d, status: smStatus, available: return5d != null, reason: return5d == null ? 'INPUT_MISSING' : null },
+    overheat: { status: overheat, rsiOverheated, priceExtensionOverheated, notes: unique(overheatNotes) },
+    source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY',
+    missingFields: unique(missingFields), notes: unique(notes),
+  };
 }
 
 export function buildGate3SourceCoverage(wiring: Gate3WiringDiagnostic[]): Gate3SourceCoverage {
@@ -541,6 +636,7 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     ma60: hasFinite(quote, 'ma60'),
   };
   const priceDiag = normalizeGate3PriceStructure({ quote });
+  const momentumDiag = normalizeGate3Momentum({ quote, indicators: quote, priceStructure: priceDiag });
   const priceFields = {
     currentPrice: hasFinite(quote, 'currentPrice'),
     price: hasFinite(quote, 'price'),
@@ -680,6 +776,31 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       executionImpact: 'DIAGNOSTIC_ONLY',
       missingFields: volumeTiming.missingFields,
       notes: volumeTiming.notes,
+    },
+    momentumIndicators: {
+      required: true,
+      available: momentumDiag.status === 'VERIFIED' || momentumDiag.status === 'PARTIAL',
+      status: momentumDiag.status,
+      fields: {
+        rsi14: momentumDiag.rsi.rsi14 != null,
+        rsi5dAgo: momentumDiag.rsi.rsi5dAgo != null,
+        rsiDelta5d: momentumDiag.rsi.rsiDelta5d != null,
+        macdHistogram: momentumDiag.macd.macdHistogram != null,
+        macd5dHistAgo: momentumDiag.macd.macd5dHistAgo != null,
+        macdHistDelta5d: momentumDiag.macd.macdHistDelta5d != null,
+        changePercent: momentumDiag.shortMomentum.changePercent != null,
+        return5d: momentumDiag.shortMomentum.return5d != null,
+        return20d: momentumDiag.shortMomentum.return20d != null,
+        acceleration5dVs20d: momentumDiag.shortMomentum.acceleration5dVs20d != null,
+      },
+      values: {
+        rsi14: momentumDiag.rsi.rsi14, rsi5dAgo: momentumDiag.rsi.rsi5dAgo, rsiDelta5d: momentumDiag.rsi.rsiDelta5d,
+        macdHistogram: momentumDiag.macd.macdHistogram, macd5dHistAgo: momentumDiag.macd.macd5dHistAgo, macdHistDelta5d: momentumDiag.macd.macdHistDelta5d,
+        changePercent: momentumDiag.shortMomentum.changePercent, return5d: momentumDiag.shortMomentum.return5d, return20d: momentumDiag.shortMomentum.return20d, acceleration5dVs20d: momentumDiag.shortMomentum.acceleration5dVs20d,
+      },
+      rsi: momentumDiag.rsi, macd: momentumDiag.macd, shortMomentum: momentumDiag.shortMomentum, overheat: momentumDiag.overheat,
+      providerIssue: false, calculationIssue: momentumDiag.calculationIssue, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY',
+      missingFields: momentumDiag.missingFields, notes: momentumDiag.notes,
     },
   };
 }
