@@ -24,6 +24,7 @@ import {
   formatStockProgramFieldKeysTop,
 } from './normalSupplyPreview/formatters.js';
 import { buildNormalSupplyFieldAvailability } from './normalSupplyPreview/fieldAvailabilityBuilder.js';
+import { resolveProgramFlowAfterMarketDisplay } from './normalSupplyPreview/programFlowAfterMarketDisplay.js';
 import { assembleNormalSupplyPreview } from './normalSupplyPreview/previewAssembler.js';
 import { setLatestNormalSupplyPreview } from './normalSupplyPreview/previewStore.js';
 import {
@@ -98,6 +99,9 @@ export {
 } from './normalSupplyPreview/constants.js';
 export { normalizeProgramFlowValue } from './normalSupplyPreview/programFlowValueNormalizer.js';
 export {
+  resolveProgramFlowAfterMarketDisplay,
+} from './normalSupplyPreview/programFlowAfterMarketDisplay.js';
+export {
   buildNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewMissingSection,
@@ -120,6 +124,7 @@ export type {
   ProgramFlowMarketCarrySource,
   ProgramFlowMarketEvidenceBreakPoint,
   ProgramFlowMarketEvidenceResult,
+  ProgramFlowMarketProgramDisplayStatus,
   ProgramFlowNullRootCause,
   ProgramFlowSignal,
   ProgramFlowSourceProvider,
@@ -1179,6 +1184,25 @@ function buildProgramFlowDiagnostics(
   const marketProgramDataStatus = marketClosedProgramUnavailable
     ? marketClosedProgramDataStatus(sessionGuard.marketSession)
     : stringValue((marketProgramFlow as unknown as Record<string, unknown>).marketProgramDataStatus) ?? (marketProgramAvailable ? 'PARSED' : 'MISSING');
+  const marketProgramProviderIssue = sessionGuard.programFlowExpected
+    ? marketProgramFlow.providerIssue || evidenceTrace.marketLevel.result === 'SESSION_CLOSED_DIAGNOSTIC_ONLY'
+    : false;
+  const marketProgramMarketSignal = marketProgramFlow.marketSignal;
+  const kisStatus = stringValue((marketProgramFlow as unknown as Record<string, unknown>).kisStatus) ?? 'NOT_ATTEMPTED';
+  const marketProgramStatus = resolveProgramFlowAfterMarketDisplay({
+    marketSession: sessionGuard.marketSession,
+    programFlowExpected: sessionGuard.programFlowExpected,
+    marketProgramAvailable,
+    kisStatus,
+    marketProgramDataStatus,
+    marketProgramProviderIssue,
+    marketProgramMarketSignal,
+    marketProgramBreakPoint: marketCarryTrace.marketProgramBreakPoint,
+    marketProgramReason,
+    programFlowUsedForLiveDecision: false,
+    passiveProxyUsedForLiveDecision: false,
+    executionImpact: 'NONE',
+  });
   return {
     stockProgramRowsAvailable,
     stockProgramRowsWithAnyProgramKey: stockAny,
@@ -1193,10 +1217,8 @@ function buildProgramFlowDiagnostics(
     marketProgramAvailable,
     marketProgramSignal: marketProgramFlow.signal,
     marketProgramSource: marketProgramFlow.sourceProvider ?? 'NONE',
-    marketProgramProviderIssue: sessionGuard.programFlowExpected
-      ? marketProgramFlow.providerIssue || evidenceTrace.marketLevel.result === 'SESSION_CLOSED_DIAGNOSTIC_ONLY'
-      : false,
-    marketProgramMarketSignal: marketProgramFlow.marketSignal,
+    marketProgramProviderIssue,
+    marketProgramMarketSignal,
     marketProgramContextFound: evidenceTrace.marketLevel.fieldsFound.length > 0 || evidenceTrace.marketLevel.programTradingContextFound || evidenceTrace.marketLevel.programMarketRouterResultFound || evidenceTrace.marketLevel.programTodayContextFound || evidenceTrace.marketLevel.cacheContextFound || evidenceTrace.marketLevel.snapshotContextFound,
     marketProgramFieldsFound: evidenceTrace.marketLevel.fieldsFound,
     marketProgramNumericFieldsFound: evidenceTrace.marketLevel.numericFieldsFound,
@@ -1209,8 +1231,9 @@ function buildProgramFlowDiagnostics(
     marketProgramReason,
     marketProgramNetBuyAmount: displayMarketProgramNetBuyAmount(marketProgramFlow),
     marketProgramDataStatus,
+    marketProgramStatus,
     kisAttempted: (marketProgramFlow as unknown as Record<string, unknown>).kisAttempted === true,
-    kisStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).kisStatus) ?? 'NOT_ATTEMPTED',
+    kisStatus,
     krxFallbackAttempted: (marketProgramFlow as unknown as Record<string, unknown>).krxFallbackAttempted === true,
     krxFallbackStatus: stringValue((marketProgramFlow as unknown as Record<string, unknown>).krxFallbackStatus) ?? 'NOT_ATTEMPTED',
     cacheFallbackAttempted: (marketProgramFlow as unknown as Record<string, unknown>).cacheFallbackAttempted === true,

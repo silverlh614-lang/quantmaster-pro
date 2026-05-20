@@ -10,6 +10,7 @@ import type {
   ProgramFlowDiagnosticsSummary,
   ProgramFlowDryRunDiagnostic,
   ProgramFlowEvidenceTrace,
+  ProgramFlowMarketProgramDisplayStatus,
   ProgramFlowSignal,
   ProgramFlowSourceProvider,
   ProgramFlowUpstreamPopulationTrace,
@@ -112,6 +113,7 @@ export interface NormalSupplyFieldAvailability {
   marketProgramBreakPoint: ProgramFlowEvidenceTrace['marketLevel']['breakPoint'];
   marketProgramReason: string;
   marketProgramDataStatus: string;
+  marketProgramStatus: ProgramFlowMarketProgramDisplayStatus;
   marketProgramNetBuyAmount: number | 'N/A';
   marketProgramParsableFieldsFound: string[];
   marketProgramValueReasonTop: string;

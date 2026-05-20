@@ -390,6 +390,40 @@ describe('/supply_health command', () => {
     expect(marketProgramMock.mock.calls.some((args) => args[0] === 'MEDIUM')).toBe(false);
   });
 
+  it('장후 KIS 시장 프로그램 데이터가 있으면 diagnostic-only parsed 상태로 표시한다', async () => {
+    writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
+    writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));
+    writeJson(path.join(tmpDir, 'macro-state.json'), {
+      mhs: 50,
+      regime: 'R4_NEUTRAL',
+      updatedAt: '2026-05-15T07:55:00.000Z',
+      programSource: 'KIS_API',
+      programNetBuyAmount: -120_000_000,
+      programFetchedAt: '2026-05-15T07:27:00.000Z',
+    });
+    investorMock.mockResolvedValue({ foreignNetBuy: 1, institutionalNetBuy: 1, individualNetBuy: -2, source: 'KIS_API' });
+    stockProgramMock.mockResolvedValue(null);
+    marketProgramMock.mockResolvedValue(null);
+    const { mod } = await importCommand();
+
+    const msg = await mod.buildSupplyHealthMessage(new Date('2026-05-15T08:00:00.000Z'));
+
+    expect(msg).toContain('displayBreakPoint: PROGRAM_FLOW_AVAILABLE_OUTSIDE_LIVE_WINDOW');
+    expect(msg).toContain('displayReason: DATA_PARSED_BUT_DIAGNOSTIC_ONLY_OUTSIDE_LIVE_WINDOW');
+    expect(msg).toContain('dataParsed: true');
+    expect(msg).toContain('dataAvailable: true');
+    expect(msg).toContain('providerIssue=false');
+    expect(msg).toContain('marketSignal: BEARISH');
+    expect(msg).toContain('liveDecision: NOT_USED_OUTSIDE_LIVE_WINDOW');
+    expect(msg).toContain('shadowUse: DIAGNOSTIC_ONLY');
+    expect(msg).toContain('programFlowUsedForLiveDecision=false');
+    expect(msg).toContain('passiveProxyUsedForLiveDecision=false');
+    expect(msg).toContain('executionImpact=NONE');
+    expect(msg).not.toContain('provider 장애');
+    expect(stockProgramMock.mock.calls.some((args) => args[1] === 'MEDIUM')).toBe(false);
+    expect(marketProgramMock.mock.calls.some((args) => args[0] === 'MEDIUM')).toBe(false);
+  });
+
   it('하단 상세는 8채널 고정 순서로 출력', async () => {
     writeJson(path.join(tmpDir, 'watchlist.json'), makeWatchlist(10));
     writeInvestorFlowCache(tmpDir, Array.from({ length: 10 }, (_, i) => String(100001 + i)));

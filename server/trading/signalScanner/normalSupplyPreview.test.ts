@@ -708,6 +708,54 @@ describe('Normal Supply Preview program flow diagnostics', () => {
     expect(text).not.toContain('marketProgramReason: ONLY_STATUS_NO_NUMERIC');
   });
 
+  it('displays parsed after-market market program data as outside live window diagnostic-only', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'NORMAL',
+      source: 'COMMAND',
+      capturedAt: '2026-05-15T07:31:00.000Z',
+      marketProgramFlow: {
+        available: true,
+        source: 'KIS_API',
+        sourceProvider: 'KIS_API',
+        netBuyAmount: -120_000_000,
+        marketProgramNetBuy: -120_000_000,
+        combinedNetBuy: -120_000_000,
+        providerIssue: false,
+        signal: 'BEARISH',
+        marketSignal: true,
+        marketProgramDataStatus: 'PARSED',
+        kisStatus: 'PARSED',
+        fetchedAt: '2026-05-15T07:27:00.000Z',
+        executionImpact: 'NONE',
+        programFlowUsedForLiveDecision: false,
+        passiveProxyUsedForLiveDecision: false,
+        programPenaltyApplied: false,
+      },
+      candidates: [baseCandidate({ programNetBuyAmount: null })] as any,
+    });
+
+    const text = formatNormalSupplyPreviewFullSections(preview).join('\n');
+    expect(preview.programFlowDiagnostics.sessionGuard.marketSession).toBe('AFTER_MARKET');
+    expect(preview.programFlowDiagnostics.programFlowExpected).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramAvailable).toBe(true);
+    expect(preview.programFlowDiagnostics.marketProgramSignal).toBe('BEARISH');
+    expect(preview.programFlowDiagnostics.marketProgramProviderIssue).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramStatus.rawBreakPoint).toBe('PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED');
+    expect(preview.programFlowDiagnostics.marketProgramStatus.displayBreakPoint).toBe('PROGRAM_FLOW_AVAILABLE_OUTSIDE_LIVE_WINDOW');
+    expect(preview.programFlowDiagnostics.marketProgramStatus.displayReason).toBe('DATA_PARSED_BUT_DIAGNOSTIC_ONLY_OUTSIDE_LIVE_WINDOW');
+    expect(preview.programFlowDiagnostics.marketProgramStatus.programDataParsed).toBe(true);
+    expect(preview.programFlowDiagnostics.marketProgramStatus.usedForLiveDecision).toBe(false);
+    expect(preview.programFlowDiagnostics.marketProgramStatus.usedForShadow).toBe(true);
+    expect(preview.programFlowDiagnostics.executionImpact).toBe('NONE');
+    expect(text).toContain('marketProgramStatus:');
+    expect(text).toContain('displayBreakPoint: PROGRAM_FLOW_AVAILABLE_OUTSIDE_LIVE_WINDOW');
+    expect(text).toContain('displayReason: DATA_PARSED_BUT_DIAGNOSTIC_ONLY_OUTSIDE_LIVE_WINDOW');
+    expect(text).toContain('liveDecision: NOT_USED_OUTSIDE_LIVE_WINDOW');
+    expect(text).toContain('shadowUse: DIAGNOSTIC_ONLY');
+    expect(text).toContain('executionImpact: NONE');
+    expect(text).not.toContain('provider 장애');
+  });
+
   it('classifies after-market KIS zero market program payload as placeholder diagnostic-only, not realtime NEUTRAL', () => {
     const preview = persistNormalSupplyPreview({
       engineMode: 'NORMAL',

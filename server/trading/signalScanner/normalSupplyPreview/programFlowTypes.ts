@@ -281,6 +281,20 @@ export interface MarketProgramCarryForensicTrace {
   marketProgramBreakPoint: ProgramFlowMarketEvidenceBreakPoint;
 }
 
+export interface ProgramFlowMarketProgramDisplayStatus {
+  rawBreakPoint: string;
+  displayBreakPoint: string;
+  rawReason: string;
+  displayReason: string;
+  programDataParsed: boolean;
+  programDataAvailable: boolean;
+  outsideLiveWindow: boolean;
+  diagnosticOnly: boolean;
+  usedForLiveDecision: boolean;
+  usedForShadow: boolean;
+  userMessage: string;
+}
+
 export interface PerStockProgramCarryForensicTrace {
   latestSnapshotFound: boolean;
   latestSnapshotCapturedAt: string | 'N/A';
@@ -325,6 +339,7 @@ export interface ProgramFlowDiagnosticsSummary {
   marketProgramReason: string;
   marketProgramNetBuyAmount: number | 'N/A';
   marketProgramDataStatus: string;
+  marketProgramStatus: ProgramFlowMarketProgramDisplayStatus;
   kisAttempted: boolean;
   kisStatus: string;
   krxFallbackAttempted: boolean;

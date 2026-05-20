@@ -2,6 +2,7 @@
 import type {
   ActivePassiveConfluence,
   ProgramFlowDiagnosticsSummary,
+  ProgramFlowMarketProgramDisplayStatus,
   ProgramFlowSignal,
 } from "./programFlowTypes.js";
 import {
@@ -89,6 +90,54 @@ export function formatAvailabilityLine(
 export function formatAmount(value: number | undefined): string {
   if (value === undefined || !Number.isFinite(value)) return "N/A";
   return Math.trunc(value).toLocaleString("en-US");
+}
+
+function formatMarketProgramStatusLines(
+  status: ProgramFlowMarketProgramDisplayStatus,
+  input: {
+    providerIssue: boolean;
+    marketSignal: ProgramFlowSignal;
+    currentSession: string;
+    liveWindow: string;
+    executionImpact: string;
+  },
+): string[] {
+  return [
+    `rawBreakPoint: ${status.rawBreakPoint}`,
+    `displayBreakPoint: ${status.displayBreakPoint}`,
+    `rawReason: ${status.rawReason}`,
+    `displayReason: ${status.displayReason}`,
+    `dataParsed: ${status.programDataParsed}`,
+    `dataAvailable: ${status.programDataAvailable}`,
+    `providerIssue: ${input.providerIssue}`,
+    `marketSignal: ${input.marketSignal}`,
+    `liveWindow: ${input.liveWindow}`,
+    `currentSession: ${input.currentSession}`,
+    `liveDecision: ${status.usedForLiveDecision ? 'USED_FOR_LIVE_DECISION' : status.outsideLiveWindow ? 'NOT_USED_OUTSIDE_LIVE_WINDOW' : 'NOT_USED_FOR_LIVE_DECISION'}`,
+    `shadowUse: ${status.usedForShadow ? 'DIAGNOSTIC_ONLY' : 'NOT_USED'}`,
+    `diagnosticOnly: ${status.diagnosticOnly}`,
+    `executionImpact: ${input.executionImpact}`,
+    `message: ${escapePreviewHtmlText(status.userMessage)}`,
+  ];
+}
+
+function legacyMarketProgramStatus(
+  rawBreakPoint: string,
+  rawReason: string,
+): ProgramFlowMarketProgramDisplayStatus {
+  return {
+    rawBreakPoint,
+    displayBreakPoint: rawBreakPoint,
+    rawReason,
+    displayReason: rawReason,
+    programDataParsed: false,
+    programDataAvailable: false,
+    outsideLiveWindow: false,
+    diagnosticOnly: true,
+    usedForLiveDecision: false,
+    usedForShadow: false,
+    userMessage: '시장 프로그램매매 display status가 없는 legacy payload입니다. raw breakpoint/reason을 그대로 표시합니다.',
+  };
 }
 
 export function nextActionForProgramReason(
@@ -264,6 +313,14 @@ export function buildNormalSupplyPreviewFullSections(
 ): string[] {
   const thresholds = NORMAL_SUPPLY_SCORE_THRESHOLDS;
   const top = preview.topCandidates[0];
+  const diagnosticsMarketProgramStatus =
+    preview.programFlowDiagnostics.marketProgramStatus ??
+    legacyMarketProgramStatus(
+      preview.programFlowDiagnostics.marketProgramBreakPoint,
+      preview.programFlowDiagnostics.marketProgramReason,
+    );
+  const fieldMarketProgramStatus =
+    preview.fieldAvailability.marketProgramStatus ?? diagnosticsMarketProgramStatus;
   const contamination =
     preview.signalSourceSplit.bearishFromProviderIssue +
     preview.signalSourceSplit.bullishFromProviderIssue +
@@ -340,6 +397,9 @@ export function buildNormalSupplyPreviewFullSections(
     `  marketProgramBreakPoint: ${preview.fieldAvailability.marketProgramBreakPoint}`,
     `  marketProgramReason: ${preview.fieldAvailability.marketProgramReason}`,
     `  marketProgramDataStatus: ${preview.fieldAvailability.marketProgramDataStatus}`,
+    `  marketProgramDisplayBreakPoint: ${fieldMarketProgramStatus.displayBreakPoint}`,
+    `  marketProgramDisplayReason: ${fieldMarketProgramStatus.displayReason}`,
+    `  marketProgramUserMessage: ${escapePreviewHtmlText(fieldMarketProgramStatus.userMessage)}`,
     `  marketProgramNetBuyAmount: ${preview.fieldAvailability.marketProgramNetBuyAmount}`,
     `  marketProgramParsableFieldsFound: ${formatList(preview.fieldAvailability.marketProgramParsableFieldsFound)}`,
     `  marketProgramValueReasonTop: ${preview.fieldAvailability.marketProgramValueReasonTop}`,
@@ -528,6 +588,15 @@ export function buildNormalSupplyPreviewFullSections(
     `    marketProgramReason=${preview.programFlowDiagnostics.marketProgramReason}`,
     `    reason=${preview.programFlowDiagnostics.reason}`,
     `    nextAction=${preview.programFlowDiagnostics.nextAction}`,
+    '',
+    '  marketProgramStatus:',
+    ...formatMarketProgramStatusLines(diagnosticsMarketProgramStatus, {
+      providerIssue: preview.programFlowDiagnostics.marketProgramProviderIssue,
+      marketSignal: preview.programFlowDiagnostics.marketProgramSignal,
+      currentSession: preview.programFlowDiagnostics.sessionGuard.marketSession,
+      liveWindow: preview.programFlowDiagnostics.recheckWindowKST,
+      executionImpact: preview.programFlowDiagnostics.executionImpact,
+    }).map((line) => `    ${line}`),
     '',
     `  marketProgramAvailable: ${preview.programFlowDiagnostics.marketProgramAvailable}`,
     `  marketProgramSignal: ${preview.programFlowDiagnostics.marketProgramSignal}`,

@@ -26,6 +26,8 @@ import {
   isProgramTradingIntradaySession,
   type ProgramMarketRoutingDecisionV2,
 } from '../../../clients/krxClient/programMarketRouterPatch006.js';
+import { classifyProgramFlowSession } from '../../../trading/signalScanner/programFlowSessionGuard.js';
+import { resolveProgramFlowAfterMarketDisplay } from '../../../trading/signalScanner/normalSupplyPreview/programFlowAfterMarketDisplay.js';
 import { MARKET_PROGRAM_INDEX_CODE } from '../../../clients/kisClient/programMaterializer.js';
 import { FSS_RECORDS_FILE, MACRO_STATE_FILE } from '../../../persistence/paths.js';
 import { loadForeignerRatioSeries } from '../../../persistence/foreignerRatioRepo.js';
@@ -700,8 +702,70 @@ function isV2Decision(d: ProgramMarketRoutingDecision | ProgramMarketRoutingDeci
   return 'patch006Activated' in d;
 }
 
+function marketProgramSignalFromAmount(value: number): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
+  if (value > 0) return 'BULLISH';
+  if (value < 0) return 'BEARISH';
+  return 'NEUTRAL';
+}
+
+function buildAfterMarketParsedMarketProgramStatus(macro: MacroState | null, nowMs: number): ChannelStatus | null {
+  if (macro?.programSource !== 'KIS_API' || typeof macro.programNetBuyAmount !== 'number') return null;
+  const sessionGuard = classifyProgramFlowSession(new Date(nowMs));
+  if (
+    sessionGuard.marketSession !== 'AFTER_MARKET' &&
+    sessionGuard.marketSession !== 'CLOSING_SESSION' &&
+    sessionGuard.marketSession !== 'POST_CLOSE'
+  ) return null;
+
+  const signal = marketProgramSignalFromAmount(macro.programNetBuyAmount);
+  const display = resolveProgramFlowAfterMarketDisplay({
+    marketSession: sessionGuard.marketSession,
+    programFlowExpected: false,
+    marketProgramAvailable: true,
+    kisStatus: 'PARSED',
+    marketProgramDataStatus: macro.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO',
+    marketProgramProviderIssue: false,
+    marketProgramMarketSignal: signal !== 'NEUTRAL',
+    marketProgramBreakPoint: 'PROGRAM_FLOW_NOT_EXPECTED_MARKET_CLOSED',
+    marketProgramReason: 'MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED',
+    programFlowUsedForLiveDecision: false,
+    passiveProxyUsedForLiveDecision: false,
+    executionImpact: 'NONE',
+  });
+  return {
+    key: 'marketProgram',
+    title: '시장 프로그램매매',
+    marker: signal === 'NEUTRAL' ? 'NEUTRAL' : 'OK',
+    lines: [
+      'source: KIS_API',
+      `status: ${macro.programNetBuyAmount === 0 ? 'OK_RAW_ZERO' : 'OK_NONZERO'} / PARSED`,
+      `latest: ${formatEokwon(macro.programNetBuyAmount)}`,
+      `updated: ${formatAgo(elapsedMs(macro.programFetchedAt, nowMs))}`,
+      `rawBreakPoint: ${display.rawBreakPoint}`,
+      `displayBreakPoint: ${display.displayBreakPoint}`,
+      `rawReason: ${display.rawReason}`,
+      `displayReason: ${display.displayReason}`,
+      `dataParsed: ${display.programDataParsed}`,
+      `dataAvailable: ${display.programDataAvailable}`,
+      'providerIssue=false',
+      `marketSignal: ${signal}`,
+      `liveWindow: ${sessionGuard.recheckWindowKST}`,
+      `currentSession: ${sessionGuard.marketSession}`,
+      'liveDecision: NOT_USED_OUTSIDE_LIVE_WINDOW',
+      'shadowUse: DIAGNOSTIC_ONLY',
+      'programFlowUsedForLiveDecision=false',
+      'passiveProxyUsedForLiveDecision=false',
+      'executionImpact=NONE',
+      `message: ${display.userMessage}`,
+      '상세: /program_market',
+    ],
+  };
+}
+
 async function diagnoseMarketProgram(macro: MacroState | null, nowMs: number): Promise<ChannelStatus> {
   if (!isProgramTradingIntradaySession(nowMs)) {
+    const afterMarketParsed = buildAfterMarketParsedMarketProgramStatus(macro, nowMs);
+    if (afterMarketParsed) return afterMarketParsed;
     return buildProgramTradingSessionClosedStatus('MARKET', macro?.programSource === 'KIS_API' ? 'KIS_API' : 'NONE', nowMs);
   }
   const rawDiag = await diagnoseKisMarketProgramRaw('HIGH');

@@ -3,6 +3,7 @@ import {
   formatList,
   formatReasonDistribution,
 } from './formatters.js';
+import { resolveProgramFlowAfterMarketDisplay } from './programFlowAfterMarketDisplay.js';
 import type {
   ProgramFlowDiagnostic,
   ProgramFlowDiagnosticsSummary,
@@ -34,6 +35,24 @@ export function buildNormalSupplyFieldAvailability(
   const marketProgramDataStatus = diagnostics?.marketProgramDataStatus
     ?? stringField((marketProgram as unknown as Record<string, unknown>).marketProgramDataStatus)
     ?? (marketProgram.available ? 'PARSED' : 'MISSING');
+  const marketProgramBreakPoint = diagnostics?.marketProgramBreakPoint ?? evidenceTrace?.marketLevel.breakPoint ?? 'UNKNOWN';
+  const marketProgramReason = diagnostics?.marketProgramReason ?? marketProgram.reason ?? evidenceTrace?.marketLevel.result ?? 'N/A';
+  const marketProgramProviderIssue = diagnostics?.marketProgramProviderIssue ?? marketProgram.providerIssue;
+  const marketProgramMarketSignal = diagnostics?.marketProgramMarketSignal ?? marketProgram.marketSignal;
+  const marketProgramStatus = diagnostics?.marketProgramStatus ?? resolveProgramFlowAfterMarketDisplay({
+    marketSession: diagnostics?.sessionGuard.marketSession,
+    programFlowExpected: diagnostics?.programFlowExpected,
+    marketProgramAvailable: marketProgram.available,
+    kisStatus: diagnostics?.kisStatus,
+    marketProgramDataStatus,
+    marketProgramProviderIssue,
+    marketProgramMarketSignal,
+    marketProgramBreakPoint,
+    marketProgramReason,
+    programFlowUsedForLiveDecision: false,
+    passiveProxyUsedForLiveDecision: false,
+    executionImpact: 'NONE',
+  });
   const stockProgramAvailable = candidates.filter((candidate) => candidate.programFlow?.stockLevel.available).length;
   return {
     total: candidates.length,
@@ -64,16 +83,17 @@ export function buildNormalSupplyFieldAvailability(
           || evidenceTrace.marketLevel.snapshotContextFound
         )
       : false,
-    marketProgramBreakPoint: diagnostics?.marketProgramBreakPoint ?? evidenceTrace?.marketLevel.breakPoint ?? 'UNKNOWN',
-    marketProgramReason: diagnostics?.marketProgramReason ?? marketProgram.reason ?? evidenceTrace?.marketLevel.result ?? 'N/A',
+    marketProgramBreakPoint,
+    marketProgramReason,
     marketProgramDataStatus,
+    marketProgramStatus,
     marketProgramNetBuyAmount: diagnostics?.marketProgramNetBuyAmount ?? displayMarketProgramNetBuyAmount(marketProgram),
     marketProgramParsableFieldsFound: evidenceTrace?.marketLevel.parsableFieldsFound ?? [],
     marketProgramValueReasonTop: evidenceTrace ? formatReasonDistribution(evidenceTrace.marketLevel.valueReasonDistribution) : 'none',
     marketProgramSanitizedSample: evidenceTrace?.marketLevel.sanitizedSample,
     missingProgramFlowAsBearish: false,
-    marketProgramProviderIssue: diagnostics?.marketProgramProviderIssue ?? marketProgram.providerIssue,
-    marketProgramMarketSignal: diagnostics?.marketProgramMarketSignal ?? marketProgram.marketSignal,
+    marketProgramProviderIssue,
+    marketProgramMarketSignal,
     programPenaltyApplied: false,
     programFlowUsedForLiveDecision: false,
     passiveProxyUsedForLiveDecision: false,
