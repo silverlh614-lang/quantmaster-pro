@@ -475,6 +475,10 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
   const all = normalizeCounterfactuals(raw);
   const missingRows = all.filter((e) => missingEntryIds.has(counterfactualIdentity(e)) || !num(e.hypotheticalTargetPrice) || !num(e.hypotheticalStopPrice));
   let missingTargetPrice = 0, missingStopPrice = 0, missingEntryPrice = 0, missingPricePath = 0, recoverableEntry = 0, unrecoverableEntry = 0, recoverableTargetStop = 0, unrecoverableTargetStop = 0;
+  const counterfactualMetadataMissingByField: Record<string, number> = {};
+  const counterfactualMetadataMissingBySourceLane: Record<string, number> = {};
+  const counterfactualMetadataMissingSampleKeys: string[] = [];
+  let counterfactualMetadataMissingFirstSeenAt: string | undefined;
   const plannedRows: CounterfactualEntry[] = [];
   for (const e of missingRows) {
     const targetMissing = !num(e.hypotheticalTargetPrice);
@@ -482,11 +486,26 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
     const entryMissing = missingEntryIds.has(counterfactualIdentity(e)) || !num(e.hypotheticalEntryPrice ?? e.priceAtSignal);
     if (targetMissing) missingTargetPrice++;
     if (stopMissing) missingStopPrice++;
+    if (targetMissing) counterfactualMetadataMissingByField.MISSING_TARGET_PRICE = (counterfactualMetadataMissingByField.MISSING_TARGET_PRICE ?? 0) + 1;
+    if (stopMissing) counterfactualMetadataMissingByField.MISSING_STOP_PRICE = (counterfactualMetadataMissingByField.MISSING_STOP_PRICE ?? 0) + 1;
     if (entryMissing) {
       missingEntryPrice++;
+      counterfactualMetadataMissingByField.MISSING_ENTRY_PRICE = (counterfactualMetadataMissingByField.MISSING_ENTRY_PRICE ?? 0) + 1;
       if (entryPricePlan(e)) recoverableEntry++;
       else unrecoverableEntry++;
     }
+    if (!e.signalTime) counterfactualMetadataMissingByField.MISSING_SIGNAL_TIMESTAMP = (counterfactualMetadataMissingByField.MISSING_SIGNAL_TIMESTAMP ?? 0) + 1;
+    if (!(e as any).regime) counterfactualMetadataMissingByField.MISSING_REGIME = (counterfactualMetadataMissingByField.MISSING_REGIME ?? 0) + 1;
+    if (!e.blockedReason) counterfactualMetadataMissingByField.MISSING_BLOCK_REASON = (counterfactualMetadataMissingByField.MISSING_BLOCK_REASON ?? 0) + 1;
+    if (!(e as any).sourceLane) counterfactualMetadataMissingByField.MISSING_SOURCE_LANE = (counterfactualMetadataMissingByField.MISSING_SOURCE_LANE ?? 0) + 1;
+    if (!(e as any).maxHoldingMinutes) counterfactualMetadataMissingByField.MISSING_HOLDING_PERIOD_RULE = (counterfactualMetadataMissingByField.MISSING_HOLDING_PERIOD_RULE ?? 0) + 1;
+    if (!e.symbol) counterfactualMetadataMissingByField.MISSING_SYMBOL = (counterfactualMetadataMissingByField.MISSING_SYMBOL ?? 0) + 1;
+    if (!e.strategyId) counterfactualMetadataMissingByField.MISSING_STRATEGY_ID = (counterfactualMetadataMissingByField.MISSING_STRATEGY_ID ?? 0) + 1;
+    const lane = String((e as any).sourceLane ?? 'UNKNOWN');
+    counterfactualMetadataMissingBySourceLane[lane] = (counterfactualMetadataMissingBySourceLane[lane] ?? 0) + 1;
+    if (counterfactualMetadataMissingSampleKeys.length < 10) counterfactualMetadataMissingSampleKeys.push(counterfactualIdentity(e));
+    const seenAt = e.signalTime ?? (e as any).createdAt;
+    if (seenAt && (!counterfactualMetadataMissingFirstSeenAt || seenAt < counterfactualMetadataMissingFirstSeenAt)) counterfactualMetadataMissingFirstSeenAt = seenAt;
     if (counterfactualPricePath(e).length === 0) missingPricePath++;
     if (!targetMissing && !stopMissing) continue;
     const plan = buildCounterfactualTargetStopPlan(e);
@@ -529,6 +548,10 @@ export function counterfactualMetadataRepairDryRun(now: Date = new Date()) {
     expectedSourceConfidence,
     recoverySourceBreakdown: mergeCounts(existingBreakdowns.recoverySourceBreakdown, planned.recoverySourceBreakdown),
     recoveryConfidenceBreakdown: mergeCounts(existingBreakdowns.recoveryConfidenceBreakdown, planned.recoveryConfidenceBreakdown),
+    counterfactualMetadataMissingByField,
+    counterfactualMetadataMissingBySourceLane,
+    counterfactualMetadataMissingSampleKeys,
+    counterfactualMetadataMissingFirstSeenAt: counterfactualMetadataMissingFirstSeenAt ?? null,
     cumulativeRecoverySourceBreakdown: existingBreakdowns.recoverySourceBreakdown,
     cumulativeRecoveryConfidenceBreakdown: existingBreakdowns.recoveryConfidenceBreakdown,
     lastRunRecoverySourceBreakdown: planned.recoverySourceBreakdown,
