@@ -707,21 +707,30 @@ function normalizeGate1CompactText(
   const liquidity = parseCompactValue(text, 'liquidity')?.toUpperCase();
 
   const root = summary as unknown as Record<string, unknown> | undefined;
+  const scanEvaluation = asRecord(root?.scanEvaluation);
   const gate1Survival = asRecord(root?.gate1SurvivalDiagnostic);
   const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? '').toUpperCase();
   const missingFields = Array.isArray(gate1Survival?.missingFields) ? gate1Survival?.missingFields : [];
+  const quoteHydratedFailed = Number(gate1Survival?.quoteHydratedFailed ?? 0);
+  const gate1Pass = Number(scanEvaluation?.gate1Pass ?? 0);
   const missingEmpty = missing === 'none' || missing === '' || missingFields.length === 0;
   const verified = quote === 'VERIFIED' || quoteCoverageConfidence === 'VERIFIED';
+  const quoteDegradedGuard = missingEmpty && verified && quoteHydratedFailed === 0 && gate1Pass > 0;
+  const shadowAllowed = summary?.macroGateState?.shadowLearningAllowed === true
+    || summary?.scanEvaluation?.shadowLearningAllowed === true
+    || String(scanEvaluation?.shadowMode ?? '').toUpperCase() === 'NORMAL_SHADOW';
 
   let patched = text;
-  if (issue === 'QUOTE_COVERAGE_DEGRADED' && missingEmpty && verified) {
+  if (issue === 'QUOTE_COVERAGE_DEGRADED' && quoteDegradedGuard) {
     patched = patched.replace(/\s*\|\s*issue=QUOTE_COVERAGE_DEGRADED/iu, '');
   }
 
+  const topReason = resolveScanBlockersTopReason(summary);
+  const entryBlockMode = String(scanEvaluation?.entryBlockMode ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
   const liveBlockedSession = ['R6_DEFENSE_SELL_ONLY', 'SELL_ONLY', 'CLOSED', 'AFTERMARKET', 'AFTER_MARKET'].includes(session ?? '');
-  const shadowAllowed = summary?.macroGateState?.shadowLearningAllowed === true || summary?.scanEvaluation?.shadowLearningAllowed === true;
+  const isR6SellOnlyBlocked = entryBlockMode === 'R6_DEFENSE_SELL_ONLY' || topReason === 'R6_DEFENSE_SELL_ONLY';
   if ((health === 'DEGRADED' || /^Gate1:\s*DEGRADED/iu.test(patched))
-      && liveBlockedSession
+      && (liveBlockedSession || isR6SellOnlyBlocked)
       && verified
       && tradable === 'TRADABLE'
       && liquidity === 'PASS'
@@ -732,7 +741,11 @@ function normalizeGate1CompactText(
   }
 
   const shadowMode = String(gate1Survival?.shadowMode ?? '').toUpperCase();
-  if (shadow === 'COUNTERFACTUAL_ONLY' && shadowAllowed && shadowMode === 'NORMAL_SHADOW') {
+  const counterfactualAllowed = missingFields.some((field) => ['currentprice', 'price'].includes(String(field).toLowerCase()))
+    || quote === 'MISSING'
+    || tradable === 'HALTED'
+    || tradable === 'SUSPENDED';
+  if (shadow === 'COUNTERFACTUAL_ONLY' && shadowAllowed && (shadowMode === 'NORMAL_SHADOW' || !counterfactualAllowed)) {
     patched = patched.replace(/\bshadow=COUNTERFACTUAL_ONLY\b/giu, 'shadow=ON');
   }
   return patched;
@@ -750,13 +763,10 @@ export function resolveScanBlockersGateDiagCompactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']),
     'summary.gateLayerSummary',
   )
-    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
     ?? compactLookup(readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']), 'summary.gate1SurvivalDiagnostic')
-    ?? compactLookup(readNestedString(summary, ['gate1Survival', 'compactText']), 'summary.gate1Survival')
-    ?? compactLookup(readNestedString(summary, ['adr0505', 'gate1SurvivalDiagnostic', 'compactText']), 'summary.adr0505.gate1SurvivalDiagnostic')
+    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
     ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
     ?? compactLookup(readNestedString(fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText']), 'fullDiagnostic')
-    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSections.gate1Survival')
     ?? { text: gate1Fallback, source: 'fallback', carried: false };
   gate1.text = normalizeGate1CompactText(gate1.text, summary);
 
@@ -803,10 +813,27 @@ export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | nu
   const selectedHealth = /^Gate1:\s*([^|]+)/iu.exec(gate1Text)?.[1]?.trim() ?? 'UNKNOWN';
   const selectedIssue = parseCompactValue(gate1Text, 'issue') ?? 'none';
   const root = summary as unknown as Record<string, unknown> | undefined;
+  const scanEvaluation = asRecord(root?.scanEvaluation);
   const gate1Survival = asRecord(root?.gate1SurvivalDiagnostic);
   const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? 'UNKNOWN');
   const missingFields = (Array.isArray(gate1Survival?.missingFields) ? gate1Survival.missingFields : []).join(',') || 'none';
   const shadowMode = String(gate1Survival?.shadowMode ?? 'UNKNOWN');
+  const issueUpper = selectedIssue.toUpperCase();
+  const missingText = parseCompactValue(gate1Text, 'missing')?.toLowerCase() ?? '';
+  const missingEmpty = missingText === 'none' || missingText === '' || missingFields === 'none';
+  const quoteHydratedFailed = Number(gate1Survival?.quoteHydratedFailed ?? 0);
+  const gate1Pass = Number(scanEvaluation?.gate1Pass ?? 0);
+  const guardedQuoteDegraded = issueUpper === 'QUOTE_COVERAGE_DEGRADED'
+    && missingEmpty
+    && String(quoteCoverageConfidence).toUpperCase() === 'VERIFIED'
+    && quoteHydratedFailed === 0
+    && gate1Pass > 0;
+  const guardedCounterfactualOnly = /\bshadow=COUNTERFACTUAL_ONLY\b/iu.test(gate1Text)
+    && (
+      summary?.macroGateState?.shadowLearningAllowed === true
+      || summary?.scanEvaluation?.shadowLearningAllowed === true
+      || String(scanEvaluation?.shadowMode ?? '').toUpperCase() === 'NORMAL_SHADOW'
+    );
   const fullCompact = readNestedString(root?.fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText'])
     ?? readNestedString(root?.fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText'])
     ?? readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']);
@@ -832,6 +859,8 @@ export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | nu
     `- quoteCoverageConfidence=${quoteCoverageConfidence}`,
     `- missingFields=${missingFields}`,
     `- shadowMode=${shadowMode}`,
+    `- guardedQuoteDegraded=${guardedQuoteDegraded}`,
+    `- guardedCounterfactualOnly=${guardedCounterfactualOnly}`,
     ...(warning ? [`- warning=${warning}`] : []),
   ].join('\n');
 }

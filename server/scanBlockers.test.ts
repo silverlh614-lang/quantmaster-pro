@@ -362,6 +362,9 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
         missingFields: [],
         shadowMode: 'NORMAL_SHADOW',
       } as unknown as Record<string, unknown>,
+      scanEvaluation: {
+        gate1Pass: 3,
+      } as unknown as ScanSummary['scanEvaluation'],
       macroGateState: ({ shadowLearningAllowed: true } as unknown as ScanSummary['macroGateState']),
     } as unknown as Partial<ScanSummary>);
 
