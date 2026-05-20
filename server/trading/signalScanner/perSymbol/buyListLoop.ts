@@ -4,6 +4,7 @@
  * ADR-0019: sizing tier final decision block extracted from evaluateBuyList.
  * ADR-0019: R3 provisional shadow lane derive block extracted from evaluateBuyList.
  * ADR-0019: entry price drift check block extracted from evaluateBuyList.
+ * ADR-0019: KIS intraday correction gate block extracted from evaluateBuyList.
  *
  * ADR-0134 (PR-Refactor-2) — perSymbolEvaluation.ts 분해 시 evaluateBuyList 격리.
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
@@ -61,7 +62,7 @@ import { trancheExecutor } from '../../trancheExecutor.js';
 import { ENTRY_GATES_PHASE_B } from '../entryGates/index.js';
 import {
   entryRevalidationStep,
-  kisIntradayCorrectionStep,
+  kisIntradayCorrectionStep as runKisIntradayCorrectionStep,
   yahooAvailabilityStep,
   mtasGateStep,
   sellOnlyExceptionStep,
@@ -1687,17 +1688,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 워치리스트 stale gateScore 대신 실시간 evaluateServerGate 결과를 포지션 사이징에 반영
       // 아이디어 9: KIS API로 MTAS 월봉/주봉 보강 (매수 결정 직전 정확도 향상)
       // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
+      const reCheckQuoteRef: { value: Awaited<ReturnType<typeof enrichQuoteWithKisMTAS>> | null } = { value: null };
+      async function kisIntradayCorrectionStep(
+        ctx: BuyListLoopContext,
+        stock: WatchlistEntry,
+        currentPrice: number,
+      ): Promise<ReturnType<typeof evaluateServerGate>> {
       const reCheckQuoteRaw = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
                            ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
-      const reCheckQuote = reCheckQuoteRaw
+      reCheckQuoteRef.value = reCheckQuoteRaw
         ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)
         : null;
+      const reCheckQuote = reCheckQuoteRef.value;
 
       // ── ADR-0031 PR-60: kisIntradayCorrectionStep mutating step ─────────
       // Yahoo Finance의 regularMarketOpen이 한국 장중 부정확한 경우가 빈번하여
       // KIS 현재가 API(FHKST01010100)로 dayOpen·prevClose를 항상 덮어쓴다.
       // step 이 reCheckQuote 참조를 직접 mutate, caller 는 logMessages 만 출력.
-      const kisCorrection = await kisIntradayCorrectionStep({
+      const kisCorrection = await runKisIntradayCorrectionStep({
         stockCode: stock.code,
         reCheckQuote,
       });
@@ -1830,6 +1838,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       } catch (e) {
         console.warn('[ADR-454/458] near-miss outcome or gate reclassification dry-run failed (live flow unaffected):', e instanceof Error ? e.message : e);
       }
+      return reCheckGate as ReturnType<typeof evaluateServerGate>;
+      }
+
+      const reCheckGate = await kisIntradayCorrectionStep(ctx, stock, currentPrice);
+      const reCheckQuote = reCheckQuoteRef.value;
+
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
       //   GATE1_PASS_ZERO 발생 시 운영자에게 *조건별 분해* 제공. last 7 days 누적
