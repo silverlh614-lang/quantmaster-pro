@@ -5,7 +5,7 @@ import {
   type ServerGateResult,
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
-import { normalizeGate3PriceStructure, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
+import { normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
 
 type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -199,5 +199,53 @@ describe('Gate3 diagnostics wiring', () => {
     expect(after.normalizedGateScore).toBe(before.normalizedGateScore);
     expect(after.signalType).toBe(before.signalType);
     expect(after.positionPct).toBe(before.positionPct);
+  });
+
+  it('momentum normal: computes RSI/MACD deltas and verified', () => {
+    const md = normalizeGate3Momentum({
+      quote: quote({ rsi14: 62, rsi5dAgo: 54, macdHistogram: 0.8, macd5dHistAgo: 0.2, return5d: 0.062, return20d: 0.12, changePercent: 2.4 }) as any,
+    });
+    expect(md.rsi.rsiDelta5d).toBeCloseTo(8, 8);
+    expect(md.macd.macdHistDelta5d).toBeCloseTo(0.6, 8);
+    expect(['BULLISH', 'NEUTRAL']).toContain(md.rsi.status);
+    expect(['IMPROVING', 'BULLISH']).toContain(md.macd.status);
+    expect(md.status).toBe('VERIFIED');
+    expect(md.marketSignal).toBe(false);
+  });
+
+  it('momentum: rsi missing is missing not weak', () => {
+    const md = normalizeGate3Momentum({ quote: quote({ rsi14: undefined }) as any });
+    expect(md.rsi.status).toBe('MISSING');
+    expect(md.missingFields).toContain('rsi14');
+    expect(md.marketSignal).toBe(false);
+  });
+
+  it('momentum: macd missing marks missing fields', () => {
+    const md = normalizeGate3Momentum({ quote: quote({ macdHistogram: undefined, macd5dHistAgo: undefined }) as any });
+    expect(md.macd.status).toBe('MISSING');
+    expect(md.missingFields).toContain('macdHistogram');
+    expect(md.missingFields).toContain('macd5dHistAgo');
+    expect(md.marketSignal).toBe(false);
+  });
+
+  it('momentum: return5d missing is missing not weak', () => {
+    const md = normalizeGate3Momentum({ quote: quote({ return5d: undefined }) as any });
+    expect(md.shortMomentum.status).toBe('MISSING');
+    expect(md.missingFields).toContain('return5d');
+    expect(md.shortMomentum.status).not.toBe('WEAK');
+  });
+
+  it('momentum: overheat advisory only', () => {
+    const ps = normalizeGate3PriceStructure({ quote: quote({ currentPrice: 10_950, high20d: 10_000 }) as any });
+    const md = normalizeGate3Momentum({ quote: quote({ rsi14: 82 }) as any, priceStructure: ps });
+    expect(md.overheat.status).toBe('OVERHEATED');
+    expect(md.notes).toContain('RSI_OVERHEAT_DIAGNOSTIC_ONLY');
+    expect(md.marketSignal).toBe(false);
+  });
+
+  it('momentum: negative macd classified bearish/weakening only', () => {
+    const md = normalizeGate3Momentum({ quote: quote({ macdHistogram: -0.5, macd5dHistAgo: -0.2 }) as any });
+    expect(['BEARISH', 'WEAKENING']).toContain(md.macd.status);
+    expect(md.marketSignal).toBe(false);
   });
 });
