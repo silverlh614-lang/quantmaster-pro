@@ -40,6 +40,10 @@ import {
   formatTradeLifecycleOutcome,
   type TradeLifecycleOutcome,
 } from '../trading/exitOutcomeClassifier.js';
+import {
+  resolveCanonicalTradeOutcomeFromShadowTrade,
+  describeCanonicalTradeOutcome,
+} from '../trading/canonicalTradeOutcomeResolver.js';
 // scanTracer 요약은 scanReviewReport.ts(16:40) 로 이관되어 이 파일에서는 더 이상 직접 사용하지 않는다.
 
 // ── 당일 실현 이벤트 집계 SSOT (PR-15) ────────────────────────────────────────
@@ -242,7 +246,8 @@ function buildDailyTradeLines(realizations: TodayRealization[]): string {
           ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
           : '부분매도';
         const pct = (x.fill.pnlPct ?? 0).toFixed(2);
-        return `  ${icon} ${x.trade.stockName}(${x.trade.stockCode}) ${kind} ${pct}% · ${x.fill.qty}주`;
+        const canonical = x.isFinalClose ? ` | canonical=${formatCanonicalOutcomeShort(x.trade)}` : '';
+        return `  ${icon} ${x.trade.stockName}(${x.trade.stockCode}) ${kind} ${pct}% · ${x.fill.qty}주${canonical}`;
       }).join('\n')
     : '  (오늘 실현 이벤트 없음)';
 }
@@ -252,6 +257,16 @@ function buildDailyStatsLine(r: TodayRealizationStats): string {
   return r.realizationCount >= 5
     ? `▶ 적중률: ${r.winRate}%  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`
     : `▶ 표본 ${r.realizationCount}건 (통계 ${Math.max(0, 5 - r.realizationCount)}건 더 필요)  |  일일 P&L(가중): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 ${Math.round(r.totalRealizedKrw).toLocaleString()}원`;
+}
+
+function formatCanonicalOutcomeShort(trade: ServerShadowTrade): string {
+  const outcome = resolveCanonicalTradeOutcomeFromShadowTrade(trade);
+  return `${outcome.outcome} / ${outcome.winRateBucket} / ${outcome.returnR >= 0 ? '+' : ''}${outcome.returnR.toFixed(2)}R / ${outcome.exitPath}`;
+}
+
+function formatCanonicalOutcomeExplanation(trade: ServerShadowTrade): string {
+  const outcome = resolveCanonicalTradeOutcomeFromShadowTrade(trade);
+  return describeCanonicalTradeOutcome(outcome.outcome);
 }
 
 function buildMonthlyLine(stats: ReturnType<typeof getMonthlyStats>): string {
@@ -318,7 +333,8 @@ function buildDailyRealizedDetail(realizations: TodayRealization[]): string {
         const kind = x.isFinalClose
           ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
           : '부분익절';
-        return `${x.trade.stockName} ${kind} ${(x.fill.pnlPct ?? 0).toFixed(2)}%`;
+        const canonical = x.isFinalClose ? ` / canonical=${formatCanonicalOutcomeShort(x.trade)}` : '';
+        return `${x.trade.stockName} ${kind} ${(x.fill.pnlPct ?? 0).toFixed(2)}%${canonical}`;
       }).join(', ')
     : '';
 }
@@ -1119,7 +1135,10 @@ function buildPostMarketClosedLines(realizations: TodayRealization[]): string {
         const kind = x.isFinalClose
           ? formatTradeLifecycleOutcome(classifyTradeLifecycleOutcome(x.trade).tradeLifecycleOutcome)
           : '부분익절';
-        return `  ${icon} ${x.trade.stockName} ${kind} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% · ${x.fill.qty}주`;
+        const canonical = x.isFinalClose
+          ? `\n    canonical=${formatCanonicalOutcomeShort(x.trade)}\n    note=${formatCanonicalOutcomeExplanation(x.trade)}`
+          : '';
+        return `  ${icon} ${x.trade.stockName} ${kind} ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% · ${x.fill.qty}주${canonical}`;
       }).join('\n')
     : '  (오늘 실현 이벤트 없음)';
 }

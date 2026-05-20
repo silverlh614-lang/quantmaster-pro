@@ -31,7 +31,10 @@ import {
   type ExperimentalCondition,
 } from '../persistence/experimentalConditionRepo.js';
 import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
-import { bucketAttributionEvidence } from './attributionEvidenceAggregator.js';
+import {
+  bucketAttributionEvidence,
+  isAttributionEvidenceWin,
+} from './attributionEvidenceAggregator.js';
 import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -89,9 +92,7 @@ function evidenceTime(record: AttributionEvidenceRecord): string {
 }
 
 function evidenceIsWin(record: AttributionEvidenceRecord): boolean {
-  return record.winLoss === 'WIN'
-    || record.winLoss === 'PARTIAL_WIN'
-    || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
+  return isAttributionEvidenceWin(record);
 }
 
 // ── 공개 API ──────────────────────────────────────────────────────────────────

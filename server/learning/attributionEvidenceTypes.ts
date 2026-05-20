@@ -1,5 +1,11 @@
 // @responsibility Attribution Evidence Ledger shared types.
 
+import type {
+  ExitPath,
+  TradeOutcome,
+  WinRateBucket,
+} from '../trading/canonicalTradeOutcomeResolver.js';
+
 export type AttributionSampleSource =
   | 'LIVE'
   | 'SHADOW'
@@ -94,6 +100,10 @@ export interface AttributionEvidenceRecord {
   maxAdverseExcursionR?: number;
 
   winLoss?: AttributionWinLoss;
+  canonicalOutcome?: TradeOutcome;
+  winRateBucket?: WinRateBucket;
+  exitPath?: ExitPath;
+  learningTags?: string[];
 
   blockedReason?: string;
   providerIssue?: boolean;

@@ -62,6 +62,36 @@ function monthFromTradeDate(tradeDate: string | undefined): string {
   return /^\d{4}-\d{2}/.test(tradeDate ?? '') ? tradeDate!.slice(0, 7) : new Date().toISOString().slice(0, 7);
 }
 
+function legacyWinLossFromCanonical(
+  input: Pick<AttributionEvidenceRecord, 'canonicalOutcome' | 'winRateBucket'>,
+): AttributionEvidenceRecord['winLoss'] | undefined {
+  if (input.winRateBucket === 'WIN_FULL') return 'WIN';
+  if (input.winRateBucket === 'WIN_PARTIAL') return 'PARTIAL_WIN';
+  if (input.winRateBucket === 'BREAKEVEN') return 'BREAKEVEN';
+  if (input.winRateBucket === 'LOSS') return 'LOSS';
+  if (input.winRateBucket === 'EXCLUDED') return 'INVALID';
+  if (
+    input.canonicalOutcome === 'FULL_WIN'
+    || input.canonicalOutcome === 'FORCED_EXIT_WIN'
+  ) return 'WIN';
+  if (
+    input.canonicalOutcome === 'PARTIAL_WIN'
+    || input.canonicalOutcome === 'PARTIAL_WIN_BREAKEVEN'
+  ) return 'PARTIAL_WIN';
+  if (
+    input.canonicalOutcome === 'BREAKEVEN'
+    || input.canonicalOutcome === 'FORCED_EXIT_BREAKEVEN'
+  ) return 'BREAKEVEN';
+  if (
+    input.canonicalOutcome === 'FULL_LOSS'
+    || input.canonicalOutcome === 'PARTIAL_LOSS'
+    || input.canonicalOutcome === 'FORCED_EXIT_LOSS'
+  ) return 'LOSS';
+  if (input.canonicalOutcome === 'PENDING') return 'PENDING';
+  if (input.canonicalOutcome === 'INVALID') return 'INVALID';
+  return undefined;
+}
+
 export function loadAttributionEvidenceForMonth(month: string): AttributionEvidenceRecord[] {
   ensureAttributionEvidenceLedgerDir();
   const file = attributionEvidenceLedgerFile(month);
@@ -91,6 +121,7 @@ export function upsertAttributionEvidenceRecord(
   const candidate: AttributionEvidenceRecord = {
     ...input,
     evidenceId,
+    winLoss: input.winLoss ?? legacyWinLossFromCanonical(input),
     eligibility: input.eligibility ?? 'EXCLUDED',
     createdAt: previous?.createdAt ?? input.createdAt ?? now,
     updatedAt: now,

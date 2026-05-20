@@ -16,6 +16,7 @@ import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { emitTelegramEvent } from './telegramEventRouter.js';
 import type { DisplayMetric } from './displayMetric.js';
 import { classifyTradeLifecycleOutcome } from '../trading/exitOutcomeClassifier.js';
+import { resolveCanonicalTradeOutcomeFromShadowTrade } from '../trading/canonicalTradeOutcomeResolver.js';
 
 // ── 설정 ──────────────────────────────────────────────────────────────────────
 
@@ -73,16 +74,24 @@ function classifyTradeOutcome(shadows: ServerShadowTrade[]): {
       winBreakevenCount: 0,
     };
   }
-  const classified = closed.map((trade) => classifyTradeLifecycleOutcome(trade));
-  const fullWinCount = classified.filter((c) => c.tradeLifecycleOutcome === 'FULL_WIN').length;
-  const partialWinCount = classified.filter((c) => c.tradeLifecycleOutcome === 'PARTIAL_WIN' || c.tradeLifecycleOutcome === 'SMALL_WIN').length;
-  const winBreakevenCount = classified.filter((c) => c.tradeLifecycleOutcome === 'WIN_BREAKEVEN').length;
-  const beCount = classified.filter((c) => c.tradeLifecycleOutcome === 'BREAKEVEN').length;
+  const canonicalReady = closed.filter((trade) => (trade.fills?.length ?? 0) > 0 || typeof trade.returnPct === 'number');
+  const legacyOnly = closed.filter((trade) => !canonicalReady.includes(trade));
+  const canonical = canonicalReady.map((trade) => resolveCanonicalTradeOutcomeFromShadowTrade(trade));
+  const classified = legacyOnly.map((trade) => classifyTradeLifecycleOutcome(trade));
+  const fullWinCount = classified.filter((c) => c.tradeLifecycleOutcome === 'FULL_WIN').length
+    + canonical.filter((c) => c.winRateBucket === 'WIN_FULL').length;
+  const partialWinCount = classified.filter((c) => c.tradeLifecycleOutcome === 'PARTIAL_WIN' || c.tradeLifecycleOutcome === 'SMALL_WIN').length
+    + canonical.filter((c) => c.outcome === 'PARTIAL_WIN' || c.outcome === 'FORCED_EXIT_WIN').length;
+  const winBreakevenCount = classified.filter((c) => c.tradeLifecycleOutcome === 'WIN_BREAKEVEN').length
+    + canonical.filter((c) => c.outcome === 'PARTIAL_WIN_BREAKEVEN').length;
+  const beCount = classified.filter((c) => c.tradeLifecycleOutcome === 'BREAKEVEN').length
+    + canonical.filter((c) => c.winRateBucket === 'BREAKEVEN').length;
   const lossCount = classified.filter((c) => (
     c.tradeLifecycleOutcome === 'SMALL_LOSS'
     || c.tradeLifecycleOutcome === 'FULL_LOSS'
     || c.tradeLifecycleOutcome === 'FORCED_EXIT'
-  )).length;
+  )).length
+    + canonical.filter((c) => c.winRateBucket === 'LOSS').length;
   return {
     beCount,
     winCount: fullWinCount + partialWinCount + winBreakevenCount,
@@ -222,7 +231,7 @@ export function formatShadowProgress(p: ShadowProgress): string {
   // ADR-0129: trade 단위 BE 라인 — beCount > 0 시에만 노출 (BE_CLASSIFICATION_DISABLED 자연 호환).
   const beTradeCount = p.beCount ?? 0;
   const beTradeLine = beTradeCount > 0 ? `⚪ 종료 본절: ${beTradeCount}건` : '';
-  const winBreakevenLine = (p.winBreakevenCount ?? 0) > 0 ? `✅ WIN_BREAKEVEN: ${p.winBreakevenCount}건 (TP1 후 본절, LOSS 아님)` : '';
+  const winBreakevenLine = (p.winBreakevenCount ?? 0) > 0 ? `✅ PARTIAL_WIN_BREAKEVEN: ${p.winBreakevenCount}건 (legacy WIN_BREAKEVEN, TP1 후 본절, LOSS 아님)` : '';
   return [
     `📊 <b>[SHADOW 진행률 Day ${p.dayElapsed}/${p.totalDays}]</b>`,
     `신규 신호: ${p.newToday}건 | 📊 ${allSamplesMetric.label}: ${allSamplesMetric.value}`,

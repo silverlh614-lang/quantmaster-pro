@@ -19,7 +19,9 @@ import {
   bucketAttributionEvidence,
   computeConditionPerformance,
   filterAttributionRecordsByEvidence,
+  formatOutcomeQualityBlock,
   formatEvidenceHygieneBlock,
+  summarizeAttributionOutcomeQuality,
   summarizeAttributionBuckets,
 } from './attributionEvidenceAggregator.js';
 import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
@@ -75,6 +77,10 @@ export async function calibrateSignalWeights(): Promise<void> {
   const evidenceRecords = loadAttributionEvidenceForMonth(month);
   const evidenceBuckets = bucketAttributionEvidence(evidenceRecords);
   const evidenceSummary = summarizeAttributionBuckets(evidenceBuckets);
+  const outcomeQualitySummary = summarizeAttributionOutcomeQuality([
+    ...evidenceBuckets.coreEligible,
+    ...evidenceBuckets.pending,
+  ]);
   const records = filterAttributionRecordsByEvidence(allRecords, evidenceBuckets.coreEligible);
   const shadowEvidenceReport = formatEvidenceInsight('👤 Shadow attribution Top 3 (shadowOnly)', evidenceBuckets.shadowOnly);
   const counterfactualEvidenceReport = formatEvidenceInsight('🧪 Counterfactual attribution Top 3 (counterfactualOnly)', evidenceBuckets.counterfactualOnly);
@@ -91,6 +97,7 @@ export async function calibrateSignalWeights(): Promise<void> {
     await sendTelegramAlert(
       `🔬 <b>[귀인 분석 월간 리포트] ${month}</b>\n\n`
       + `${formatEvidenceHygieneBlock(evidenceSummary)}\n\n`
+      + `${formatOutcomeQualityBlock(outcomeQualitySummary)}\n\n`
       + `${shadowEvidenceReport}\n\n`
       + `${counterfactualEvidenceReport}\n\n`
       + `CORE eligible attribution samples are insufficient (${records.length}/10). Active condition weights were not changed.`,
@@ -240,6 +247,7 @@ export async function calibrateSignalWeights(): Promise<void> {
   await sendTelegramAlert(
     `🔬 <b>[귀인 분석 월간 리포트] ${month}</b>\n\n` +
     `${formatEvidenceHygieneBlock(evidenceSummary)}\n\n` +
+    `${formatOutcomeQualityBlock(outcomeQualitySummary)}\n\n` +
     `${shadowEvidenceReport}\n\n` +
     `${counterfactualEvidenceReport}\n\n` +
     `📊 분석 레코드: ${records.length}건 (CORE eligible)\n\n` +

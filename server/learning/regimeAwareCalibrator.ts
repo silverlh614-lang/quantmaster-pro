@@ -23,7 +23,10 @@ import {
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { timeWeight, calcConditionSharpe, latePenaltyForServerKey } from './signalCalibrator.js';
 import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
-import { bucketAttributionEvidence } from './attributionEvidenceAggregator.js';
+import {
+  bucketAttributionEvidence,
+  isAttributionEvidenceWin,
+} from './attributionEvidenceAggregator.js';
 import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
 /** R6_DEFENSE 포함 전체 레짐 레벨 */
@@ -52,9 +55,7 @@ function evidenceTime(record: AttributionEvidenceRecord): string {
 }
 
 function evidenceIsWin(record: AttributionEvidenceRecord): boolean {
-  return record.winLoss === 'WIN'
-    || record.winLoss === 'PARTIAL_WIN'
-    || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
+  return isAttributionEvidenceWin(record);
 }
 
 /**

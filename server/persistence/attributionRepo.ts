@@ -32,6 +32,11 @@ import type {
   DataConfidence as AttributionDataConfidence,
   EngineMode as AttributionEngineMode,
 } from '../learning/attributionEvidenceTypes.js';
+import type {
+  ExitPath,
+  TradeOutcome,
+  WinRateBucket,
+} from '../trading/canonicalTradeOutcomeResolver.js';
 
 // ── 스키마 버전 ──────────────────────────────────────────────────────────────
 
@@ -121,6 +126,10 @@ export interface ServerAttributionRecord {
   returnR?: number;
   maxFavorableExcursionR?: number;
   maxAdverseExcursionR?: number;
+  canonicalOutcome?: TradeOutcome;
+  winRateBucket?: WinRateBucket;
+  exitPath?: ExitPath;
+  learningTags?: string[];
   /**
    * 아이디어 5 (Phase 3): EXPIRED 이후 60/90일 재평가에서 targetPrice 달성.
    * true 면 타이밍 조건(20 터틀, 21 피보나치, 22 엘리엇, 26 다이버전스)의
@@ -217,6 +226,25 @@ function inferConditionKeys(record: ServerAttributionRecord): string[] {
 }
 
 function inferWinLoss(record: ServerAttributionRecord): AttributionEvidenceRecord['winLoss'] {
+  if (record.winRateBucket === 'WIN_FULL') return 'WIN';
+  if (record.winRateBucket === 'WIN_PARTIAL') return 'PARTIAL_WIN';
+  if (record.winRateBucket === 'BREAKEVEN') return 'BREAKEVEN';
+  if (record.winRateBucket === 'LOSS') return 'LOSS';
+  if (record.winRateBucket === 'EXCLUDED') return 'INVALID';
+  if (
+    record.canonicalOutcome === 'FULL_WIN'
+    || record.canonicalOutcome === 'PARTIAL_WIN'
+    || record.canonicalOutcome === 'PARTIAL_WIN_BREAKEVEN'
+    || record.canonicalOutcome === 'FORCED_EXIT_WIN'
+  ) return record.canonicalOutcome === 'FULL_WIN' ? 'WIN' : 'PARTIAL_WIN';
+  if (record.canonicalOutcome === 'BREAKEVEN' || record.canonicalOutcome === 'FORCED_EXIT_BREAKEVEN') return 'BREAKEVEN';
+  if (
+    record.canonicalOutcome === 'FULL_LOSS'
+    || record.canonicalOutcome === 'PARTIAL_LOSS'
+    || record.canonicalOutcome === 'FORCED_EXIT_LOSS'
+  ) return 'LOSS';
+  if (record.canonicalOutcome === 'PENDING') return 'PENDING';
+  if (record.canonicalOutcome === 'INVALID') return 'INVALID';
   if (!Number.isFinite(record.returnPct)) return 'INVALID';
   if (record.returnPct > 0.2) return 'WIN';
   if (record.returnPct < -0.2) return 'LOSS';
@@ -255,6 +283,10 @@ function recordEvidenceForAttributionRecord(record: ServerAttributionRecord): vo
       maxFavorableExcursionR: record.maxFavorableExcursionR,
       maxAdverseExcursionR: record.maxAdverseExcursionR,
       winLoss: inferWinLoss(record),
+      canonicalOutcome: record.canonicalOutcome,
+      winRateBucket: record.winRateBucket,
+      exitPath: record.exitPath,
+      learningTags: record.learningTags,
       blockedReason: record.blockedReason,
       providerIssue: record.providerIssue,
       providerName: record.providerName,

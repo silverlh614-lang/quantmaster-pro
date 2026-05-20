@@ -36,6 +36,7 @@ import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvide
 import {
   bucketAttributionEvidence,
   filterAttributionRecordsByEvidence,
+  isAttributionEvidenceWin,
 } from './attributionEvidenceAggregator.js';
 import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
@@ -78,9 +79,7 @@ function evidenceTime(record: AttributionEvidenceRecord): string {
 }
 
 function evidenceIsWin(record: AttributionEvidenceRecord): boolean {
-  return record.winLoss === 'WIN'
-    || record.winLoss === 'PARTIAL_WIN'
-    || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
+  return isAttributionEvidenceWin(record);
 }
 
 /**
