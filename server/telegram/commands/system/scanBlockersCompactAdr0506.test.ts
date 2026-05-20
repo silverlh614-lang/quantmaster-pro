@@ -17,6 +17,7 @@ import {
   formatScanBlockersGateCompactMessage,
   paginateScanBlockersMessage,
   parseScanBlockersMode,
+  resolveScanBlockersGateDiagCompactLookup,
   SCAN_BLOCKERS_ALLOWED_MODES,
   SCAN_BLOCKERS_LENGTH_BUDGET,
   SCAN_BLOCKERS_USAGE_HINT,
@@ -322,7 +323,7 @@ describe('formatScanBlockersCompactMessage', () => {
     const out = formatScanBlockersCompactMessage(summary);
     expect(out).toContain('SELL_ONLY');
     expect(out).toContain('candidates: 50');
-    expect(out).toContain('Gate1: 0/50');
+    expect(out).toContain('Gate1Diagnostic: pass=0/50');
     expect(out).toContain('KIS_API');
     expect(out).toContain('PARTIAL');
     expect(out).toContain('coverage 2/11');
@@ -351,6 +352,25 @@ describe('formatScanBlockersCompactMessage', () => {
   it('SCAN_BLOCKERS_USAGE_HINT 마지막 줄 포함', () => {
     const out = formatScanBlockersCompactMessage(null);
     expect(out.split('\n').pop()).toBe(SCAN_BLOCKERS_USAGE_HINT);
+  });
+});
+
+describe('resolveScanBlockersGateDiagCompactLookup', () => {
+  it('SELL_ONLY + shadow=NORMAL_SHADOW + missing=none 인 DEGRADED는 LIVE_BLOCKED_ONLY로 정규화', () => {
+    const summary = {
+      candidates: 17,
+      macroGateState: { sellOnlyMode: true, liveEntryBlockedReason: 'R6_DEFENSE_SELL_ONLY' },
+      gateDiagnostics: {
+        marketSignal: false,
+        gate1CompactText: 'Gate1: DEGRADED | missing=none | shadow=NORMAL_SHADOW | issue=SESSION_POLICY',
+      },
+      scanEvaluation: {
+        entryBlockMode: 'R6_DEFENSE_SELL_ONLY',
+      },
+    } as unknown as ScanSummary;
+
+    const resolved = resolveScanBlockersGateDiagCompactLookup(summary);
+    expect(resolved.gate1.text).toContain('Gate1: LIVE_BLOCKED_ONLY');
   });
 });
 

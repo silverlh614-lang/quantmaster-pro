@@ -758,7 +758,7 @@ function normalizeGate1CompactText(
     || marketSignal;
   const containsGate1Degraded = /\bGate1:\s*DEGRADED\b/iu.test(patched);
   const containsMissingNone = /\bmissing=none\b/iu.test(patched);
-  const containsShadowOn = /\bshadow=ON\b/iu.test(patched);
+  const containsShadowOn = /\bshadow=(ON|NORMAL_SHADOW)\b/iu.test(patched);
   const containsMarketSignalTrue = /\bmarketSignal=true\b/iu.test(patched);
   const canRelabelLiveBlockedOnly = containsGate1Degraded
     && containsMissingNone
