@@ -21,6 +21,8 @@ export type PreflightBlockedBy =
 
 export type PreflightScanEvaluationState =
   | 'NOT_EVALUATED_SELL_ONLY'
+  | 'NOT_EVALUATED_R6_DEFENSE'
+  | 'LIVE_ENTRY_SKIPPED_R6_DEFENSE'
   | 'NOT_EVALUATED_NON_TRADING_DAY'
   | 'NOT_EVALUATED_R6_LIVE_BLOCKED'
   | 'NOT_EVALUATED_DIAGNOSTIC_ONLY'
@@ -178,9 +180,9 @@ function buildPreflightScanEvaluation(input: {
     breakPoint = 'SESSION_GUARD';
     marketSessionState = blockReason;
   } else if (joined.includes('R6')) {
-    evaluationState = 'NOT_EVALUATED_R6_LIVE_BLOCKED';
+    evaluationState = 'NOT_EVALUATED_R6_DEFENSE';
     blockReason = 'R6_DEFENSE';
-    breakPoint = 'REGIME_GUARD';
+    breakPoint = 'PRE_FLIGHT_R6_DEFENSE';
     executionImpact = 'NEW_BUY_BLOCKED_ONLY';
     engineMode = 'DEGRADED';
     effectiveRegime = 'R6_DEFENSE';
@@ -285,6 +287,26 @@ export function attachPreflightBlockedPerSymbolSupplyInjection(
   };
 }
 
+function resolveEntryBlockMode(scanEvaluation: PreflightScanEvaluationResult | undefined): string {
+  if (!scanEvaluation) return 'UNKNOWN';
+  const isSellOnly = scanEvaluation.marketSessionState === 'SELL_ONLY' || scanEvaluation.engineMode === 'SELL_ONLY';
+  const isR6 = scanEvaluation.effectiveRegime === 'R6_DEFENSE'
+    || scanEvaluation.blockReason === 'R6_DEFENSE'
+    || scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_DEFENSE'
+    || scanEvaluation.evaluationState === 'LIVE_ENTRY_SKIPPED_R6_DEFENSE';
+  if (isSellOnly && isR6) return 'R6_DEFENSE_SELL_ONLY';
+  if (isSellOnly) return 'SELL_ONLY';
+  if (isR6) return 'R6_DEFENSE';
+  return 'NONE';
+}
+
+function resolveTopReason(scanEvaluation: PreflightScanEvaluationResult | undefined, entryBlockMode: string): string {
+  if (!scanEvaluation) return 'UNKNOWN';
+  if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
+  if (entryBlockMode === 'R6_DEFENSE') return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
+  return scanEvaluation.blockReason ?? 'UNKNOWN';
+}
+
 /** /scan_blockers baseMessage 용 plain key=value 섹션 (사용자 §"기대 출력" 정합). */
 export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanSummary): string {
   const lines: string[] = [];
@@ -303,11 +325,54 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   lines.push(`buyListLoopEntered=${summary.buyListLoopEntered}`);
   lines.push(`executionImpact=${summary.executionImpact}`);
   if (summary.scanEvaluation) {
-    lines.push(`evaluationState=${summary.scanEvaluation.evaluationState}`);
-    lines.push(`sourcePath=${summary.scanEvaluation.sourcePath}`);
-    lines.push(`breakPoint=${summary.scanEvaluation.breakPoint ?? 'NONE'}`);
-    lines.push(`scanExecutionImpact=${summary.scanEvaluation.executionImpact}`);
-    lines.push(`shadowLearningAllowed=${summary.scanEvaluation.shadowLearningAllowed}`);
+    const scanEvaluation = summary.scanEvaluation;
+    const marketSessionState = scanEvaluation.marketSessionState === 'SELL_ONLY' ? 'SELL_ONLY' : 'REGULAR';
+    const entryBlockMode = resolveEntryBlockMode(scanEvaluation);
+    const liveEntryEvaluation = entryBlockMode === 'SELL_ONLY' ? 'SKIPPED_SELL_ONLY' : entryBlockMode.startsWith('R6_DEFENSE') ? 'SKIPPED_R6_DEFENSE' : 'EVALUATED_OR_APPLICABLE';
+    const liveEvaluated = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.evaluated;
+    const liveSurvivors = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.survivors;
+    const topReason = resolveTopReason(scanEvaluation, entryBlockMode);
+
+    lines.push(`marketSessionState=${marketSessionState}`);
+    lines.push(`entryBlockMode=${entryBlockMode}`);
+    lines.push(`liveEntryEvaluation=${liveEntryEvaluation}`);
+    lines.push(`diagnosticEvaluation=PARTIAL`);
+    lines.push(`liveEvaluated=${liveEvaluated}`);
+    lines.push(`diagnosticEvaluated=${scanEvaluation.evaluated}`);
+    lines.push(`liveSurvivors=${liveSurvivors}`);
+    lines.push(`diagnosticSurvivors=${scanEvaluation.survivors}`);
+    lines.push(`evaluationState=${scanEvaluation.evaluationState}`);
+    lines.push(`sourcePath=${scanEvaluation.sourcePath}`);
+    lines.push(`breakPoint=${scanEvaluation.breakPoint ?? 'NONE'}`);
+    lines.push(`reason=${scanEvaluation.blockReason ?? 'NONE'}`);
+    lines.push(`topReason=${topReason}`);
+    lines.push(`scanExecutionImpact=${scanEvaluation.executionImpact}`);
+    lines.push(`shadowLearningAllowed=${scanEvaluation.shadowLearningAllowed}`);
+    lines.push(`DiagnosticMinScore: n/a`);
+    lines.push(`DiagnosticDominant: n/a`);
+    lines.push(`DiagnosticPenalty: n/a`);
+    lines.push(`LivePenalty: ${entryBlockMode.startsWith('R6_DEFENSE') ? 'NOT_APPLIED_R6_DEFENSE' : 'n/a'}`);
+    lines.push('RegimeOverride:');
+    lines.push(`  rawRegime=${scanEvaluation.diagnostics?.rawRegime ?? 'UNKNOWN'}`);
+    lines.push(`  effectiveRegime=${scanEvaluation.effectiveRegime}`);
+    lines.push(`  overrideReason=${entryBlockMode.startsWith('R6_DEFENSE') ? 'RISK_DEFENSE' : 'NONE'}`);
+    lines.push('  note=Live entry is blocked by effective defensive regime; this is not a fresh Gate1/2/3 failure.');
+    lines.push('Gate1Live: skipped');
+    lines.push(`Gate1Diagnostic: pass=0/${scanEvaluation.totalCandidates}`);
+    lines.push('Gate2Live: skipped');
+    lines.push(`Gate2Diagnostic: pass=0 trueFailed=0 unavailable=0 watchPreserved=${scanEvaluation.evaluated} shadowPreserved=${scanEvaluation.evaluated}`);
+    lines.push('Gate3Live: skipped');
+    lines.push(`Gate3Diagnostic: preBreakoutWait=${scanEvaluation.skipped}`);
+    lines.push('🧩 Gate Diagnostic');
+    lines.push(`  • Gate1Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate1CompactText ?? 'REGULAR_R6_BLOCKED | liveBuy=false | shadow=ON | marketSignal=false'}`);
+    lines.push(`  • Gate2Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate2CompactText ?? 'DIAGNOSTIC_ONLY | liveEntrySkippedBy=R6_DEFENSE | marketSignal=false'}`);
+    lines.push(`  • Gate3Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate3CompactText ?? 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | marketSignal=false'}`);
+    lines.push('Shadow:');
+    lines.push('allowed=true');
+    lines.push('learning=true');
+    lines.push('counterfactual=true');
+    lines.push('caseRecording=true');
+    lines.push('shadowExecutionImpact=NONE');
   }
   lines.push('');
   lines.push('📊 <b>Per-Symbol Supply Injection</b>');
