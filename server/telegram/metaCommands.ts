@@ -7,7 +7,7 @@ import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
 import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
 import type { ShadowActivitySnapshot } from '../trading/marketStateResolver.js';
 import { resolveRegimeSnapshot } from '../trading/regime/regimeResolver.js';
-import { formatRegimeTelegramNow } from '../trading/regime/regimeTelegramPresenter.js';
+import { formatRegimeTelegramNow, type NowRenderMode, type NowRenderOptions } from '../trading/regime/regimeTelegramPresenter.js';
 import { commandRegistry } from './commandRegistry.js';
 
 export interface InlineKeyboardButton {
@@ -23,6 +23,10 @@ export type MetaReplyFn = (
   text: string,
   replyMarkup?: InlineKeyboardMarkup,
 ) => Promise<void>;
+
+export interface MetaCommandOptions {
+  nowRenderOptions?: NowRenderOptions;
+}
 
 interface MetaCommandSpec {
   title: string;
@@ -196,7 +200,11 @@ function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>
   };
 }
 
-export function composeNowVerdict(now: Date = new Date()): string {
+function resolveNowRenderMode(options: NowRenderOptions = {}): NowRenderMode {
+  return options.mode ?? (options.includeRaw ? 'DEBUG' : 'COMPACT');
+}
+
+export function composeNowVerdict(now: Date = new Date(), options: NowRenderOptions = {}): string {
   const shadows = getShadowTrades();
   const active = shadows.filter((s) => {
     const status = (s as { status?: string }).status;
@@ -218,6 +226,7 @@ export function composeNowVerdict(now: Date = new Date()): string {
     ? formatKstHm(new Date(lastSignalAt))
     : '없음';
   const snapshot = resolveRegimeSnapshot({ now });
+  const mode = resolveNowRenderMode(options);
 
   console.info(
     '[TELEGRAM_RENDER_MARKET_STATE] ' +
@@ -227,13 +236,14 @@ export function composeNowVerdict(now: Date = new Date()): string {
     `effectiveRegime=${snapshot.effectiveRegime} ` +
     `riskOverride=${snapshot.riskOverride}`,
   );
+  console.info(`[TELEGRAM_NOW_RENDERED] mode=${mode} snapshotId=${snapshot.snapshotId}`);
 
   return formatRegimeTelegramNow(snapshot, {
     activePositions: active.length,
     maxPositions,
     lastSignalLabel,
     shadowActivity: buildShadowActivitySnapshot(shadows, now, snapshot.marketState.macroState.freshness),
-  });
+  }, { ...options, mode, includeRaw: mode === 'DEBUG' || options.includeRaw === true });
 }
 
 function formatKstHm(d: Date): string {
@@ -246,9 +256,17 @@ function formatKstHm(d: Date): string {
 export async function handleMetaCommand(
   name: string,
   reply: MetaReplyFn,
+  options: MetaCommandOptions = {},
 ): Promise<void> {
-  if (name === '/now') {
-    await reply(`⚡ <b>[NOW]</b>\n${composeNowVerdict()}`, buildNowKeyboard());
+  if (name === '/now' || name === '/now_debug') {
+    const mode: NowRenderMode = name === '/now_debug'
+      ? 'DEBUG'
+      : resolveNowRenderMode(options.nowRenderOptions);
+    await reply(composeNowVerdict(new Date(), {
+      ...options.nowRenderOptions,
+      mode,
+      includeRaw: mode === 'DEBUG' || options.nowRenderOptions?.includeRaw === true,
+    }), buildNowKeyboard());
     return;
   }
 
@@ -302,9 +320,10 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
     `🤖 <b>QuantMaster Pro 봇</b>\n` +
     `━━━━━━━━━━━━━━━━\n` +
     topSection +
-    `<b>📌 자주 쓰는 메뉴 (8개)</b>\n` +
+    `<b>📌 자주 쓰는 메뉴 (9개)</b>\n` +
     `  /status — 시스템 현황 요약\n` +
     `  /now — "지금 매수해도 되나?" 1줄 판단\n` +
+    `  /now_debug — NOW raw detail\n` +
     `  /watch — 워치리스트 통합 메뉴\n` +
     `  /positions — 포지션·손익·미체결 통합\n` +
     `  /learning — 학습·Kelly·서킷·리스크 통합\n` +

@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { formatRegimeTelegramNow } from './regimeTelegramPresenter.js';
 import type { ResolvedRegimeSnapshot } from './effectiveRegimeSnapshot.js';
+import type { MarketStateNowContext } from '../marketStateResolver.js';
 
 function r6Snapshot(overrides: Partial<ResolvedRegimeSnapshot> = {}): ResolvedRegimeSnapshot {
   const marketState = {
     snapshotId: 'mkt_r6',
     asOf: '2026-05-19T00:00:00.000Z',
     ttlSec: 300,
-    biasScore: -25,
-    biasLabel: 'BEAR',
+    biasScore: 22.4,
+    biasLabel: 'BULL',
     mhs: 70,
     mhsLabel: 'GREEN',
     rawMhs: 70,
@@ -35,12 +36,32 @@ function r6Snapshot(overrides: Partial<ResolvedRegimeSnapshot> = {}): ResolvedRe
     staleSources: [],
     macroState: {
       stale: false,
-      freshness: 'FRESH',
+      freshness: 'POST_CLOSE_VALID',
+      ageSec: 6332,
       ttlSec: 300,
       softStaleSec: 900,
       hardStaleSec: 900,
       staleReason: 'NONE',
+      updatedAt: '2026-05-19T06:00:00.000Z',
+      lastRefreshAttemptAt: '2026-05-19T06:00:00.000Z',
+      lastRefreshSuccessAt: '2026-05-19T06:00:00.000Z',
+      refreshJobLastRunAt: '2026-05-19T06:00:00.000Z',
+      fallbackUsed: false,
+      writeSucceeded: true,
+      updatedAtChanged: false,
       executionImpact: 'NONE',
+    },
+    r6Latch: {
+      active: true,
+      triggerType: 'KOSPI_INTRADAY_LOW_SHOCK',
+      triggeredAt: '2026-05-19T05:00:00.000Z',
+      expiresAt: '2026-05-19T18:25:00.000Z',
+      severity: 1,
+      decayLevel: 0,
+      decayBlockedReason: 'WAITING_NEXT_TRADING_DAY_CONFIRMATION',
+      releaseEligibleAt: '2026-05-19T03:25:00.000Z',
+      activeTriggers: [],
+      previousTriggers: ['KOSPI_INTRADAY_LOW_SHOCK', 'KOSPI_CLOSE_SHOCK'],
     },
   } as unknown as ResolvedRegimeSnapshot['marketState'];
 
@@ -53,14 +74,14 @@ function r6Snapshot(overrides: Partial<ResolvedRegimeSnapshot> = {}): ResolvedRe
     displayRegime: 'R6_DEFENSE',
     riskOverride: 'R6_DEFENSE',
     engineMode: 'SELL_ONLY',
-    biasScore: -25,
+    biasScore: 22.4,
     mhs: 70,
-    dataHealth: { macroState: 'VERIFIED' },
-    sourceHealth: 'VERIFIED',
-    stale: false,
-    providerIssue: false,
+    dataHealth: { macroState: 'STALE' },
+    sourceHealth: 'STALE',
+    stale: true,
+    providerIssue: true,
     marketSignal: false,
-    conflicts: ['GREEN_WITH_R6', 'MHS_BIAS_CONFLICT'],
+    conflicts: [],
     macroState: null,
     marketState,
     diagnostics: {
@@ -71,70 +92,80 @@ function r6Snapshot(overrides: Partial<ResolvedRegimeSnapshot> = {}): ResolvedRe
   };
 }
 
-describe('formatRegimeTelegramNow', () => {
-  it('uses displayRegime and masks GREEN/OK status text while R6 is active', () => {
-    const text = formatRegimeTelegramNow(r6Snapshot());
+const shadowContext: MarketStateNowContext = {
+  activePositions: 2,
+  maxPositions: 8,
+  lastSignalLabel: '15:10 KST',
+  shadowActivity: {
+    scanAllowed: true,
+    evaluatedCount: 0,
+    candidateCount: 0,
+    buySignalCount: 0,
+    sellCheckCount: 3,
+    paperFillCount: 1,
+    openShadowPositions: 3,
+    candidateScanStatus: 'NOT_RUN',
+    candidateScanTrigger: 'SCHEDULED',
+    candidateSkipReason: 'SCHEDULER_NOT_TRIGGERED',
+  },
+};
 
+describe('formatRegimeTelegramNow', () => {
+  it('renders compact NOW by default without raw detail fields', () => {
+    const text = formatRegimeTelegramNow(r6Snapshot(), shadowContext);
+
+    expect(text).toContain('[NOW]');
     expect(text).toContain('Display regime: R6_DEFENSE');
     expect(text).toContain('Effective regime: R6_DEFENSE');
-    expect(text).toContain('riskOverride=R6_DEFENSE');
-    expect(text).not.toContain('MHS: 70 GREEN');
-    expect(text).not.toContain('Raw trend: GREEN');
+    expect(text).toContain('Live Buy: BLOCKED');
+    expect(text).toContain('Shadow: ON');
+    expect(text).toContain('MHS: 70 OVERRIDDEN_BY_R6');
+    expect(text).toContain('providerIssue isolated');
+    expect(text).toContain('candidate scan: DEFERRED_POST_CLOSE');
+    expect(text).toContain('raw detail: /now_debug');
+    expect(text).not.toContain('rawData:');
+    expect(text).not.toContain('macroState:');
+    expect(text).not.toContain('writeSucceeded');
+    expect(text).not.toContain('updatedAtChanged');
+    expect(text).not.toContain('fallbackUsed');
+    expect(text).not.toContain('activeR6Triggers:');
+    expect(text).not.toContain('previousR6Triggers:');
+    expect(text).not.toContain('candidateEvaluated');
   });
-});
 
-it('prints HARD_STALE macro release block message and provider classification', () => {
-  const snapshot = r6Snapshot({
-    sourceHealth: 'STALE',
-    providerIssue: true,
-    marketSignal: false,
-    macroReleaseBlockMessage: 'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
-    macroReleaseBlockDetails: {
-      ageSec: 3600,
-      lastRefreshAttemptAt: '2026-05-18T06:00:00.000Z',
-      refreshJobLastRunAt: '2026-05-18T05:00:00.000Z',
-      executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
-    },
-    marketState: {
-      ...r6Snapshot().marketState,
-      macroState: {
-        ...r6Snapshot().marketState.macroState,
-        freshness: 'HARD_STALE',
+  it('keeps R6 latch summary in compact NOW without raw latch internals', () => {
+    const text = formatRegimeTelegramNow(r6Snapshot(), shadowContext);
+
+    expect(text).toContain('R6 latch:');
+    expect(text).toContain('state: COOLDOWN_WAITING_CONFIRMATION');
+    expect(text).toContain('retained: KOSPI_INTRADAY_LOW_SHOCK, KOSPI_CLOSE_SHOCK');
+    expect(text).toContain('releaseEligibleAt: 12:25 KST');
+    expect(text).not.toContain('decayBlockedReason');
+    expect(text).not.toContain('trigger: KOSPI_INTRADAY_LOW_SHOCK');
+  });
+
+  it('renders DEBUG mode with rawData, macroState and release block details', () => {
+    const snapshot = r6Snapshot({
+      macroReleaseBlockMessage: 'Macro snapshot is HARD_STALE, R6 release is deferred.',
+      macroReleaseBlockDetails: {
         ageSec: 3600,
         lastRefreshAttemptAt: '2026-05-18T06:00:00.000Z',
         refreshJobLastRunAt: '2026-05-18T05:00:00.000Z',
         executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
       },
-    },
-  });
-  const text = formatRegimeTelegramNow(snapshot);
-  expect(text).toContain('providerIssue=true marketSignal=false');
-  expect(text).toContain('MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.');
-  expect(text).toContain('ageSec=3600');
-  expect(text).toContain('lastRefreshAttemptAt=2026-05-18T06:00:00.000Z');
-  expect(text).toContain('refreshJobLastRunAt=2026-05-18T05:00:00.000Z');
-  expect(text).toContain('executionImpact=REGIME_RELEASE_BLOCKED_ONLY');
-});
+    });
+    const text = formatRegimeTelegramNow(snapshot, shadowContext, { mode: 'DEBUG', includeRaw: true });
 
-it('renders post-close provider issue as isolated display data instead of a conflict', () => {
-  const snapshot = r6Snapshot({
-    sourceHealth: 'STALE',
-    providerIssue: true,
-    marketSignal: false,
-    conflicts: [],
-    marketState: {
-      ...r6Snapshot().marketState,
-      macroState: {
-        ...r6Snapshot().marketState.macroState,
-        freshness: 'POST_CLOSE_VALID',
-        ageSec: 6332,
-        ttlSec: 300,
-        hardStaleSec: 900,
-      },
-    },
+    expect(text).toContain('[NOW DEBUG]');
+    expect(text).toContain('DEBUG VIEW - raw fields included');
+    expect(text).toContain('rawData: dataHealth=STALE providerIssue=true marketSignal=false');
+    expect(text).toContain('conflicts=none - provider issue isolated from market signal');
+    expect(text).toContain('macroState:');
+    expect(text).toContain('writeSucceeded');
+    expect(text).toContain('updatedAtChanged');
+    expect(text).toContain('activeR6Triggers:');
+    expect(text).toContain('previousR6Triggers:');
+    expect(text).toContain('Macro snapshot is HARD_STALE, R6 release is deferred.');
+    expect(text).toContain('refreshJobLastRunAt=2026-05-18T05:00:00.000Z');
   });
-  const text = formatRegimeTelegramNow(snapshot);
-  expect(text).toContain('Data: POST_CLOSE_STALE_VALID / providerIssue isolated / marketSignal=false');
-  expect(text).toContain('conflicts=none - provider issue isolated from market signal');
-  expect(text).toContain('rawData: dataHealth=STALE providerIssue=true marketSignal=false');
 });

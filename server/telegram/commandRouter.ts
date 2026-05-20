@@ -82,6 +82,8 @@ const COMMAND_ALIASES = new Map<string, string>([
   ['/admin_stats', '/admin_help'],
   ['/status', '/status'],
   ['/now', '/now'],
+  ['/now_debug', '/now_debug'],
+  ['now_debug', '/now_debug'],
   ['/watch', '/watch'],
   ['/scan', '/scan'],
   ['/scan_blockers', '/scan_blockers'],
@@ -94,6 +96,7 @@ const ACTION_BY_CANONICAL = new Map<string, TelegramCommandAction>([
   ['/admin_help', 'ADMIN_HELP'],
   ['/status', 'SYSTEM_STATUS'],
   ['/now', 'MARKET_NOW'],
+  ['/now_debug', 'MARKET_NOW'],
   ['/watch', 'WATCHLIST_MENU'],
   ['/scan', 'SCAN'],
   ['/scan_blockers', 'SCAN_BLOCKERS'],
@@ -200,12 +203,18 @@ async function resolveRoute(
     };
   }
 
-  if (canonical === '/now' || canonical === '/watch') {
+  if (canonical === '/now' || canonical === '/now_debug' || canonical === '/watch') {
     return {
       action: ACTION_BY_CANONICAL.get(canonical) ?? 'META_MENU',
       handlerName: 'handleMetaCommand',
       usageName: canonical,
-      execute: async (_args, correlationId) => { logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' }); await handleMetaCommand(canonical, reply); logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical }); },
+      execute: async (args, correlationId) => {
+        const debugNow = canonical === '/now_debug' || (canonical === '/now' && args.some((arg) => arg.toLowerCase() === '--debug'));
+        const metaCommand = canonical === '/now_debug' ? '/now_debug' : canonical;
+        logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' });
+        await handleMetaCommand(metaCommand, reply, debugNow ? { nowRenderOptions: { mode: 'DEBUG', includeRaw: true } } : undefined);
+        logCommandChain('TELEGRAM_REPLY_SENT', { correlationId, command: canonical });
+      },
     };
   }
 

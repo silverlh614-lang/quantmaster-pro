@@ -163,17 +163,19 @@ describe('composeNowVerdict — priority chain', () => {
     vi.spyOn(state, 'getEmergencyStop').mockReturnValue(true);
     vi.spyOn(state, 'getDataIntegrityBlocked').mockReturnValue(true); // also blocked
     vi.spyOn(state, 'getAutoTradePaused').mockReturnValue(true); // also paused
-    expect(composeNowVerdict()).toContain('🔴 STOP');
+    const verdict = composeNowVerdict();
+    expect(verdict).toContain('[NOW]');
+    expect(verdict).toContain('Live Buy: BLOCKED');
   });
 
   it('🔴 BLOCK when only data integrity blocked', () => {
     vi.spyOn(state, 'getDataIntegrityBlocked').mockReturnValue(true);
-    expect(composeNowVerdict()).toContain('🔴 BLOCK');
+    expect(composeNowVerdict()).toContain('Live Buy: BLOCKED');
   });
 
   it('🟡 PAUSE when only soft pause set', () => {
     vi.spyOn(state, 'getAutoTradePaused').mockReturnValue(true);
-    expect(composeNowVerdict()).toContain('🟡 PAUSE');
+    expect(composeNowVerdict()).toContain('Live Buy: BLOCKED');
   });
 
   it('🟡 HOLD when regime = R6_DEFENSE', () => {
@@ -181,16 +183,17 @@ describe('composeNowVerdict — priority chain', () => {
       regime: 'R6_DEFENSE',
       mhs: 25,
     } as ReturnType<typeof macroRepo.loadMacroState>);
-    expect(composeNowVerdict()).toContain('🟡 HOLD');
+    expect(composeNowVerdict()).toContain('R6_DEFENSE / HOLD');
   });
 
   it('🟢 OK on default normal state', () => {
     const verdict = composeNowVerdict();
-    expect(verdict).toContain('🟢 OK');
-    expect(verdict).toContain('Raw trend: R3_BULL_TREND');
-    expect(verdict).toContain('Effective state:');
-    expect(verdict).toContain('MHS 67');
-    expect(verdict).toContain('활성 0/8');
+    expect(verdict).toContain('[NOW]');
+    expect(verdict).toContain('Display regime:');
+    expect(verdict).toContain('Effective regime:');
+    expect(verdict).toContain('MHS: 67');
+    expect(verdict).not.toContain('Raw trend:');
+    expect(verdict).not.toContain('macroState:');
   });
 
   it('NOW separates raw trend from effective R6 state and explicitly blocks live buy', () => {
@@ -203,9 +206,9 @@ describe('composeNowVerdict — priority chain', () => {
 
     const verdict = composeNowVerdict();
 
-    expect(verdict).toContain('Raw trend: macro_green_overridden_by_R6_DEFENSE');
-    expect(verdict).toMatch(/Effective state: R6_(PANIC|DEFENSE)/);
-    expect(verdict).toContain('Live buy: BLOCKED');
+    expect(verdict).not.toContain('Raw trend:');
+    expect(verdict).toMatch(/Effective regime: R6_(PANIC|DEFENSE)/);
+    expect(verdict).toContain('Live Buy: BLOCKED');
     expect(verdict).toContain('Shadow: ON');
   });
 
@@ -226,9 +229,9 @@ describe('composeNowVerdict — priority chain', () => {
 
     const verdict = composeNowVerdict(now);
 
-    expect(verdict).toMatch(/Effective state: R6_(PANIC|DEFENSE)/);
-    expect(verdict).toContain('Live buy: BLOCKED');
-    expect(verdict).not.toContain('Effective state: R3_NORMAL');
+    expect(verdict).toMatch(/Effective regime: R6_(PANIC|DEFENSE)/);
+    expect(verdict).toContain('Live Buy: BLOCKED');
+    expect(verdict).not.toContain('Effective regime: R3_NORMAL');
     expect(verdict).not.toContain('BUY_ALLOWED');
     expect(macroRepo.loadMacroState).toHaveBeenCalledTimes(1);
   });
@@ -238,7 +241,7 @@ describe('composeNowVerdict — priority chain', () => {
     vi.spyOn(scanner, 'getLastBuySignalAt').mockReturnValue(
       new Date('2026-04-25T00:23:00Z').getTime(),
     );
-    expect(composeNowVerdict()).toContain('09:23 KST');
+    expect(composeNowVerdict(new Date(), { mode: 'DEBUG', includeRaw: true })).toContain('09:23 KST');
   });
 });
 
@@ -261,7 +264,17 @@ describe('handleMetaCommand', () => {
     await handleMetaCommand('/now', fn);
     expect(calls).toHaveLength(1);
     expect(calls[0].text).toContain('[NOW]');
-    expect(calls[0].text).toContain('🟢 OK');
+    expect(calls[0].text).toContain('Live Buy:');
+    expect(calls[0].markup?.inline_keyboard[0]).toHaveLength(3);
+  });
+
+  it('/now_debug sends raw detail view + 3-button shortcut keyboard', async () => {
+    const { fn, calls } = captureReply();
+    await handleMetaCommand('/now_debug', fn);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].text).toContain('[NOW DEBUG]');
+    expect(calls[0].text).toContain('DEBUG VIEW - raw fields included');
+    expect(calls[0].text).toContain('rawData:');
     expect(calls[0].markup?.inline_keyboard[0]).toHaveLength(3);
   });
 
