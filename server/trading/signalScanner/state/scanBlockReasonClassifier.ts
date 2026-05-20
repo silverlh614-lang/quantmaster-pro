@@ -58,9 +58,10 @@ export function classifyScanBlockReason(
     input.macroGateState?.sellOnlyMode === true ||
     input.engineMode === 'SELL_ONLY';
   if (sellOnly) {
+    const r6SellOnly = input.effectiveRegime === 'R6_DEFENSE' || input.macroGateState?.riskOverride === 'R6_DEFENSE';
     return {
       evaluationState: 'NOT_EVALUATED_SELL_ONLY',
-      blockReason: 'SELL_ONLY',
+      blockReason: r6SellOnly ? 'R6_DEFENSE_SELL_ONLY' : 'SELL_ONLY',
       breakPoint: 'PRE_FLIGHT_SELL_ONLY',
       executionImpact: 'NEW_BUY_BLOCKED_ONLY',
       shadowLearningAllowed: true,
