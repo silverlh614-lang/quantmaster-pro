@@ -372,15 +372,17 @@ function formatCompactCandidateDetail(
     `   promotionBlocked=${formatPromotionBlockedCode(candidate)}`,
     `   liveDecision=${formatCompactLiveDecision(preview)}`,
     `   shadowObservable=${preview.shadowObservableAllowed}`,
-    `   watchlistBoost=${formatWatchlistBoost(candidate)}`,
+    ...formatWatchlistBoostLines(candidate),
     `   watchlistPriorityBoost=${candidate.watchlistPriorityBoost}`,
     `   executionImpact=${preview.executionImpact}`,
   ].join('\n');
 }
 
-function formatWatchlistBoost(candidate: NormalSupplyPreviewCandidate): number | 'N/A' {
+function formatWatchlistBoostLines(candidate: NormalSupplyPreviewCandidate): string[] {
   const withOptionalBoost = candidate as NormalSupplyPreviewCandidate & { watchlistBoost?: number };
-  return typeof withOptionalBoost.watchlistBoost === 'number' ? withOptionalBoost.watchlistBoost : 'N/A';
+  if (typeof withOptionalBoost.watchlistBoost !== 'number') return [];
+  const boostState = candidate.watchlistPriorityBoost > 0 ? 'APPLIED' : 'NONE';
+  return [`   watchlistBoost=${boostState}`];
 }
 
 export function formatNormalSupplyPreviewFullSections(
