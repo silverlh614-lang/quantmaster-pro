@@ -287,6 +287,21 @@ export function attachPreflightBlockedPerSymbolSupplyInjection(
   };
 }
 
+
+function resolveSessionWindowState(timestamp: string | undefined): 'SELL_ONLY' | 'REGULAR' {
+  if (!timestamp) return 'REGULAR';
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return 'REGULAR';
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const hh = kst.getUTCHours();
+  const mm = kst.getUTCMinutes();
+  const mins = hh * 60 + mm;
+  const inWindow = (mins >= 9 * 60 && mins <= 9 * 60 + 30)
+    || (mins >= 12 * 60 && mins <= 12 * 60 + 59)
+    || (mins >= 15 * 60 + 20 && mins <= 15 * 60 + 30);
+  return inWindow ? 'SELL_ONLY' : 'REGULAR';
+}
+
 function resolveEntryBlockMode(scanEvaluation: PreflightScanEvaluationResult | undefined): string {
   if (!scanEvaluation) return 'UNKNOWN';
   const isSellOnly = scanEvaluation.marketSessionState === 'SELL_ONLY';
@@ -374,8 +389,8 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   lines.push(`executionImpact=${summary.executionImpact}`);
   if (summary.scanEvaluation) {
     const scanEvaluation = summary.scanEvaluation;
-    const marketSessionState = scanEvaluation.marketSessionState;
-    const entryBlockMode = resolveEntryBlockMode(scanEvaluation);
+    const marketSessionState = resolveSessionWindowState(scanEvaluation.asOf);
+    const entryBlockMode = resolveEntryBlockMode({ ...scanEvaluation, marketSessionState });
     const { displayEvaluationState, displayBreakPoint, liveEntryEvaluation } = resolveDisplayEvaluation(scanEvaluation, entryBlockMode);
     const liveEvaluated = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.evaluated;
     const liveSurvivors = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.survivors;
@@ -403,7 +418,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push(`DiagnosticMinScore: n/a`);
     lines.push(`DiagnosticDominant: n/a`);
     lines.push(`DiagnosticPenalty: n/a`);
-    lines.push(`LivePenalty: ${entryBlockMode.startsWith('R6_DEFENSE') ? 'NOT_APPLIED_R6_DEFENSE' : 'n/a'}`);
+    lines.push(`LivePenalty: ${entryBlockMode.startsWith('R6_DEFENSE') ? 'NOT_APPLIED_R6_DEFENSE' : (entryBlockMode === 'SELL_ONLY' ? 'NOT_APPLIED_SELL_ONLY' : 'n/a')}`);
     lines.push('RegimeOverride:');
     lines.push(`  rawRegime=${scanEvaluation.diagnostics?.rawRegime ?? 'UNKNOWN'}`);
     lines.push(`  effectiveRegime=${scanEvaluation.effectiveRegime}`);
@@ -416,8 +431,19 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push('Gate3Live: skipped');
     lines.push(`Gate3Diagnostic: preBreakoutWait=${scanEvaluation.skipped}`);
     lines.push('🧩 Gate Diagnostic');
-    lines.push(`  • Gate1Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate1CompactText ?? 'REGULAR_R6_BLOCKED | liveBuy=false | shadow=ON | marketSignal=false'}`);
-    lines.push(`  • Gate2Diag: ${(scanEvaluation.diagnostics as Record<string, unknown> | undefined)?.gate2CompactText ?? 'DIAGNOSTIC_ONLY | liveEntrySkippedBy=R6_DEFENSE | marketSignal=false'}`);
+        const diag = (scanEvaluation.diagnostics as Record<string, unknown> | undefined);
+    const gate1Fallback = entryBlockMode === 'SELL_ONLY'
+      ? 'SELL_ONLY | liveBuy=false | shadow=ON | marketSignal=false'
+      : (entryBlockMode.startsWith('R6_DEFENSE')
+        ? 'REGULAR_R6_BLOCKED | liveBuy=false | shadow=ON | marketSignal=false'
+        : 'UNAVAILABLE | fallback=true | marketSignal=false');
+    const gate2Fallback = entryBlockMode === 'SELL_ONLY'
+      ? 'NOT_EVALUATED_SELL_ONLY | marketSignal=false'
+      : (entryBlockMode.startsWith('R6_DEFENSE')
+        ? 'DIAGNOSTIC_ONLY | liveEntrySkippedBy=R6_DEFENSE | marketSignal=false'
+        : 'UNAVAILABLE | fallback=true | marketSignal=false');
+    lines.push(`  • Gate1Diag: ${diag?.gate1CompactText ?? gate1Fallback}`);
+    lines.push(`  • Gate2Diag: ${diag?.gate2CompactText ?? gate2Fallback}`);
     lines.push(`  • Gate3Diag: ${resolveGate3Diagnostic(scanEvaluation, entryBlockMode)}`);
     lines.push('Shadow:');
     lines.push('allowed=true');
