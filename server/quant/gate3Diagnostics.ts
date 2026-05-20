@@ -2,7 +2,6 @@
 import type { GateLayerName, ServerGateResult } from '../quantFilter.js';
 
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
-
 type Numeric = number | null;
 
 export type Gate3WiringStatus =
@@ -189,11 +188,24 @@ export interface Gate3ExternalDataCoverage {
   intradayTiming: {
     required: false;
     available: boolean;
-    provider: 'KIS_MINUTE_CHART' | 'KIS_REALTIME' | 'QMP_CACHE' | 'UNKNOWN';
+    provider: Gate3IntradayTimingDiagnostic['source'];
     status: Gate3CoverageStatus;
+    dataMode: Gate3IntradayTimingDiagnostic['dataMode'];
     fields: Record<string, boolean>;
+    values: Record<string, Numeric>;
+    quoteFreshness: Gate3IntradayTimingDiagnostic['quoteFreshness'];
+    lastTick: Gate3IntradayTimingDiagnostic['lastTick'];
+    minuteChart: Gate3IntradayTimingDiagnostic['minuteChart'];
+    volumeClock: Gate3IntradayTimingDiagnostic['volumeClock'];
+    intradayMomentum: Gate3IntradayTimingDiagnostic['intradayMomentum'];
+    sessionCompatibility: Gate3IntradayTimingDiagnostic['sessionCompatibility'];
     providerIssue: boolean;
+    freshnessIssue: boolean;
+    calculationIssue: boolean;
     marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    missingFields: string[];
+    notes: string[];
   };
   volumeTiming: {
     required: true;
@@ -246,6 +258,7 @@ export interface Gate3ExternalDataCoverage {
     notes: string[];
   };
 }
+
 export interface Gate3PullbackDiagnostic {
   status: Gate3CoverageStatus;
   currentPrice: Numeric;
@@ -321,7 +334,12 @@ export interface Gate3FalseBreakoutDiagnostic {
     priceHigherHigh: boolean | null;
     rsiLowerHigh: boolean | null;
     macdLowerHigh: boolean | null;
-    currentHigh: Numeric; previousHigh: Numeric; currentRsi: Numeric; previousPeakRsi: Numeric; currentMacdHist: Numeric; previousPeakMacdHist: Numeric;
+    currentHigh: Numeric;
+    previousHigh: Numeric;
+    currentRsi: Numeric;
+    previousPeakRsi: Numeric;
+    currentMacdHist: Numeric;
+    previousPeakMacdHist: Numeric;
     reason: string | null;
   };
   exhaustion: {
@@ -335,7 +353,12 @@ export interface Gate3FalseBreakoutDiagnostic {
   };
   retestQuality: {
     status: 'GOOD' | 'WEAK' | 'FAILED' | 'MISSING' | 'UNKNOWN';
-    boxTop: Numeric; currentPrice: Numeric; closePrice: Numeric; distanceToBoxTopPct: Numeric; retestHeld: boolean | null; reason: string | null;
+    boxTop: Numeric;
+    currentPrice: Numeric;
+    closePrice: Numeric;
+    distanceToBoxTopPct: Numeric;
+    retestHeld: boolean | null;
+    reason: string | null;
   };
   source: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'KIS_MINUTE_CHART' | 'CACHE' | 'UNKNOWN';
   providerIssue: boolean;
@@ -345,6 +368,68 @@ export interface Gate3FalseBreakoutDiagnostic {
   missingFields: string[];
   notes: string[];
 }
+
+export interface Gate3IntradayTimingDiagnostic {
+  status: Gate3CoverageStatus;
+  dataMode: 'INTRADAY' | 'EOD_ONLY' | 'MIXED' | 'UNKNOWN';
+  quoteFreshness: {
+    lastQuoteAt: string | null;
+    ageSec: Numeric;
+    status: 'FRESH' | 'STALE' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  lastTick: {
+    lastTickAt: string | null;
+    ageSec: Numeric;
+    price: Numeric;
+    volume: Numeric;
+    status: 'FRESH' | 'STALE' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  minuteChart: {
+    available: boolean;
+    barCount: Numeric;
+    interval: '1m' | '3m' | '5m' | '10m' | 'UNKNOWN';
+    latestBarAt: string | null;
+    latestBarAgeSec: Numeric;
+    status: 'VERIFIED' | 'STALE' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  volumeClock: {
+    available: boolean;
+    sessionProgressPct: Numeric;
+    expectedVolumeByNow: Numeric;
+    actualVolume: Numeric;
+    volumePaceRatio: Numeric;
+    status: 'AHEAD' | 'ON_PACE' | 'BEHIND' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  intradayMomentum: {
+    openToNowReturn: Numeric;
+    vwap: Numeric;
+    priceVsVwapPct: Numeric;
+    highIntraday: Numeric;
+    lowIntraday: Numeric;
+    intradayRangePct: Numeric;
+    status: 'BULLISH' | 'NEUTRAL' | 'WEAK' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  sessionCompatibility: {
+    session: 'PREMARKET' | 'REGULAR' | 'SELL_ONLY' | 'LUNCH' | 'AFTERMARKET' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
+    liveBuyAllowed: boolean | null;
+    shadowAllowed: boolean | null;
+    reason: string | null;
+  };
+  source: 'KIS_REALTIME' | 'KIS_MINUTE_CHART' | 'KIS_OFFICIAL' | 'QMP_CACHE' | 'YAHOO' | 'UNKNOWN';
+  providerIssue: boolean;
+  freshnessIssue: boolean;
+  calculationIssue: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  missingFields: string[];
+  notes: string[];
+}
+
 export interface Gate3MomentumDiagnostic {
   status: Gate3CoverageStatus;
   rsi: {
@@ -370,6 +455,7 @@ export interface Gate3MomentumDiagnostic {
   providerIssue: boolean; calculationIssue: boolean; marketSignal: false;
   executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY'; missingFields: string[]; notes: string[];
 }
+
 export interface Gate3PriceStructureDiagnostic {
   status: Gate3CoverageStatus;
   currentPrice: Numeric;
@@ -434,6 +520,17 @@ const unique = (values: string[]): string[] => [...new Set(values.filter(Boolean
 const asFinite = (value: unknown): Numeric => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const hasFinite = (source: Record<string, unknown>, key: string): boolean => asFinite(source[key]) != null;
 const pctDistance = (value: Numeric, reference: Numeric): Numeric => value != null && reference != null && reference > 0 ? (value - reference) / reference : null;
+const asRecord = (value: unknown): Record<string, unknown> => (value != null && typeof value === 'object' ? value as Record<string, unknown> : {});
+const toIsoOrNull = (value: unknown): string | null => {
+  if (value == null) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+const ageSecFromNow = (now: Date, at: string | null): Numeric => {
+  if (!at) return null;
+  const time = new Date(at).getTime();
+  return Number.isNaN(time) ? null : Math.max(0, Math.floor((now.getTime() - time) / 1000));
+};
 
 function normalizeGate3Status(output: GateEvaluatorOutput): Gate3WiringStatus {
   const raw = output.output?.status
@@ -617,38 +714,12 @@ export function normalizeGate3VolumeTiming(input: {
   const vcpMissing = [bbWidth, atr14, contractionCount].some(v => v == null);
 
   const vcp: Gate3VolumeTimingDiagnostic['vcp'] = vcpMissing
-    ? {
-      available: false,
-      status: 'MISSING',
-      bbWidth,
-      bbWidthPercentile,
-      atr14,
-      atrContraction,
-      rangeContraction,
-      contractionCount,
-      reason: 'INPUT_MISSING',
-    }
-    : {
-      available: true,
-      status: (bbWidth as number) <= 10 && (atr14 as number) > 0 ? 'PASS' : 'FAIL',
-      bbWidth,
-      bbWidthPercentile,
-      atr14,
-      atrContraction,
-      rangeContraction,
-      contractionCount,
-      reason: null,
-    };
+    ? { available: false, status: 'MISSING', bbWidth, bbWidthPercentile, atr14, atrContraction, rangeContraction, contractionCount, reason: 'INPUT_MISSING' }
+    : { available: true, status: (bbWidth as number) <= 10 && (atr14 as number) > 0 ? 'PASS' : 'FAIL', bbWidth, bbWidthPercentile, atr14, atrContraction, rangeContraction, contractionCount, reason: null };
 
   const breakoutVolume: Gate3VolumeTimingDiagnostic['breakoutVolume'] = volumeRatio == null || tradingValueRatio == null
     ? { available: false, status: 'MISSING', volumeRatio, tradingValueRatio, reason: 'INPUT_MISSING' }
-    : {
-      available: true,
-      status: volumeRatio >= 2 || tradingValueRatio >= 2 ? 'PASS' : 'FAIL',
-      volumeRatio,
-      tradingValueRatio,
-      reason: null,
-    };
+    : { available: true, status: volumeRatio >= 2 || tradingValueRatio >= 2 ? 'PASS' : 'FAIL', volumeRatio, tradingValueRatio, reason: null };
 
   const dataGranularity: Gate3VolumeTimingDiagnostic['dataGranularity'] = intraday
     ? (volume != null ? 'MIXED' : 'INTRADAY')
@@ -665,22 +736,121 @@ export function normalizeGate3VolumeTiming(input: {
     ? (vcp.status === 'MISSING' ? 'CALCULATION_MISSING' : 'DEGRADED')
     : (breakoutVolume.status === 'PASS' || dryUp.status === 'PASS' || vcp.status === 'PASS' ? 'VERIFIED' : 'PARTIAL');
 
+  return { status, volume, avgVolume, avgVolume20d, volumeRatio, tradingValue, avgTradingValue20d, tradingValueRatio, dryUp, vcp, breakoutVolume, dataGranularity, source: 'UNKNOWN', providerIssue: false, calculationIssue: status === 'CALCULATION_MISSING', marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY', missingFields: unique(missingFields), notes: unique(notes) };
+}
+
+export function normalizeGate3IntradayTiming(input: {
+  quote?: Record<string, unknown> | null;
+  intraday?: Record<string, unknown> | null;
+  minuteBars?: Record<string, unknown>[] | null;
+  marketSession?: Record<string, unknown> | null;
+  volumeTiming?: Gate3VolumeTimingDiagnostic | null;
+  now?: Date;
+  evaluationStage?: 'DISCOVERY_GATE' | 'REFRESHED_GATE' | 'ENTRY_RECHECK_GATE' | 'UNKNOWN';
+}): Gate3IntradayTimingDiagnostic {
+  const now = input.now ?? new Date();
+  const quote = asRecord(input.quote);
+  const intraday = asRecord(input.intraday);
+  const marketSession = asRecord(input.marketSession);
+  const minuteBars = Array.isArray(input.minuteBars) ? input.minuteBars : [];
+  const missingFields: string[] = [];
+  const notes: string[] = [];
+
+  const quoteAt = toIsoOrNull(quote.asOf ?? quote.fetchedAt ?? quote.lastUpdatedAt);
+  const quoteAgeSec = ageSecFromNow(now, quoteAt);
+  const quoteFreshness: Gate3IntradayTimingDiagnostic['quoteFreshness'] = quoteAt == null
+    ? { lastQuoteAt: null, ageSec: null, status: 'MISSING', reason: 'QUOTE_TIME_MISSING' }
+    : quoteAgeSec != null && quoteAgeSec <= 30
+      ? { lastQuoteAt: quoteAt, ageSec: quoteAgeSec, status: 'FRESH', reason: null }
+      : { lastQuoteAt: quoteAt, ageSec: quoteAgeSec, status: 'STALE', reason: 'QUOTE_STALE' };
+
+  const lastTickAt = toIsoOrNull(intraday.lastTickAt ?? quote.lastTickAt);
+  const lastTickAgeSec = ageSecFromNow(now, lastTickAt);
+  const lastTickPrice = asFinite(intraday.price ?? intraday.lastTickPrice ?? quote.lastTickPrice);
+  const lastTickVolume = asFinite(intraday.volume ?? intraday.lastTickVolume ?? quote.lastTickVolume);
+  const lastTick: Gate3IntradayTimingDiagnostic['lastTick'] = lastTickAt == null
+    ? { lastTickAt: null, ageSec: null, price: lastTickPrice, volume: lastTickVolume, status: 'MISSING', reason: 'LAST_TICK_MISSING' }
+    : lastTickAgeSec != null && lastTickAgeSec <= 30
+      ? { lastTickAt, ageSec: lastTickAgeSec, price: lastTickPrice, volume: lastTickVolume, status: 'FRESH', reason: null }
+      : { lastTickAt, ageSec: lastTickAgeSec, price: lastTickPrice, volume: lastTickVolume, status: 'STALE', reason: 'LAST_TICK_STALE_NOT_BEARISH' };
+
+  const latestBar = minuteBars.length > 0 ? asRecord(minuteBars[minuteBars.length - 1]) : {};
+  const latestBarAt = toIsoOrNull(latestBar.at ?? latestBar.timestamp ?? latestBar.time);
+  const latestBarAgeSec = ageSecFromNow(now, latestBarAt);
+  const minuteChart: Gate3IntradayTimingDiagnostic['minuteChart'] = minuteBars.length === 0
+    ? { available: false, barCount: 0, interval: 'UNKNOWN', latestBarAt: null, latestBarAgeSec: null, status: 'MISSING', reason: 'MINUTE_BARS_MISSING' }
+    : latestBarAgeSec != null && latestBarAgeSec <= 180
+      ? { available: true, barCount: minuteBars.length, interval: '1m', latestBarAt, latestBarAgeSec, status: 'VERIFIED', reason: null }
+      : { available: true, barCount: minuteBars.length, interval: '1m', latestBarAt, latestBarAgeSec, status: 'STALE', reason: 'MINUTE_BARS_STALE' };
+
+  const sessionProgressPct = asFinite(intraday.sessionProgressPct ?? quote.sessionProgressPct);
+  const expectedVolumeByNow = asFinite(intraday.expectedVolumeByNow ?? quote.expectedVolumeByNow);
+  const actualVolume = asFinite(intraday.actualVolume ?? intraday.cumulativeVolume ?? quote.volume);
+  const volumePaceRatio = expectedVolumeByNow != null && expectedVolumeByNow > 0 && actualVolume != null ? actualVolume / expectedVolumeByNow : null;
+  const volumeClock: Gate3IntradayTimingDiagnostic['volumeClock'] = expectedVolumeByNow == null
+    ? { available: false, sessionProgressPct, expectedVolumeByNow, actualVolume, volumePaceRatio: null, status: 'MISSING', reason: 'VOLUME_CLOCK_MISSING_NOT_VOLUME_WEAK' }
+    : { available: true, sessionProgressPct, expectedVolumeByNow, actualVolume, volumePaceRatio, status: volumePaceRatio != null && volumePaceRatio >= 1.2 ? 'AHEAD' : volumePaceRatio != null && volumePaceRatio >= 0.8 ? 'ON_PACE' : 'BEHIND', reason: null };
+
+  const currentPrice = asFinite(quote.currentPrice ?? quote.price);
+  const dayOpen = asFinite(quote.dayOpen ?? intraday.open);
+  const vwap = asFinite(intraday.vwap ?? quote.vwap);
+  const highIntraday = asFinite(intraday.highIntraday ?? quote.high);
+  const lowIntraday = asFinite(intraday.lowIntraday ?? quote.low);
+  const openToNowReturn = currentPrice != null && dayOpen != null && dayOpen !== 0 ? (currentPrice - dayOpen) / dayOpen : null;
+  const priceVsVwapPct = currentPrice != null && vwap != null && vwap !== 0 ? (currentPrice - vwap) / vwap : null;
+  const intradayRangePct = highIntraday != null && lowIntraday != null && lowIntraday !== 0 ? (highIntraday - lowIntraday) / lowIntraday : null;
+  const intradayMomentum: Gate3IntradayTimingDiagnostic['intradayMomentum'] = {
+    openToNowReturn,
+    vwap,
+    priceVsVwapPct,
+    highIntraday,
+    lowIntraday,
+    intradayRangePct,
+    status: openToNowReturn == null && priceVsVwapPct == null ? 'MISSING' : (openToNowReturn ?? 0) > 0 || (priceVsVwapPct ?? 0) > 0 ? 'BULLISH' : 'WEAK',
+    reason: openToNowReturn == null && priceVsVwapPct == null ? 'INTRADAY_MOMENTUM_INPUT_MISSING' : null,
+  };
+
+  const session = String(marketSession.session ?? 'UNKNOWN') as Gate3IntradayTimingDiagnostic['sessionCompatibility']['session'];
+  const liveBuyAllowed = typeof marketSession.liveBuyAllowed === 'boolean' ? marketSession.liveBuyAllowed : null;
+  const shadowAllowed = typeof marketSession.shadowAllowed === 'boolean' ? marketSession.shadowAllowed : null;
+  const sessionCompatibility: Gate3IntradayTimingDiagnostic['sessionCompatibility'] = {
+    session,
+    liveBuyAllowed,
+    shadowAllowed,
+    reason: session === 'SELL_ONLY' ? 'SELL_ONLY_LIVE_BLOCKED_SHADOW_ALLOWED' : null,
+  };
+
+  const hasIntraday = minuteBars.length > 0 || lastTick.status !== 'MISSING';
+  const hasEod = quoteAt != null;
+  const dataMode: Gate3IntradayTimingDiagnostic['dataMode'] = hasIntraday && hasEod ? 'MIXED' : hasIntraday ? 'INTRADAY' : hasEod ? 'EOD_ONLY' : 'UNKNOWN';
+  if (dataMode === 'EOD_ONLY') notes.push('INTRADAY_NOT_FETCHED_EOD_ONLY');
+  if (lastTick.status === 'STALE') notes.push('LAST_TICK_STALE_NOT_BEARISH');
+  if (volumeClock.status === 'MISSING') notes.push('VOLUME_CLOCK_MISSING_NOT_VOLUME_WEAK');
+  notes.push('DO_NOT_HARD_BLOCK_FROM_INTRADAY_DIAGNOSTIC');
+  if (quoteAt == null) missingFields.push('quoteAsOf');
+  if (lastTickAt == null) missingFields.push('lastTickAt');
+  if (minuteBars.length === 0) missingFields.push('minuteBars');
+
+  const freshnessIssue = quoteFreshness.status === 'STALE' || lastTick.status === 'STALE' || minuteChart.status === 'STALE';
+  const calculationIssue = volumeClock.status === 'MISSING' || intradayMomentum.status === 'MISSING';
+  const status: Gate3CoverageStatus = dataMode === 'EOD_ONLY'
+    ? 'STAGE_NOT_FETCHED'
+    : freshnessIssue ? 'STALE'
+      : missingFields.length > 0 ? 'PARTIAL' : 'VERIFIED';
+
   return {
     status,
-    volume,
-    avgVolume,
-    avgVolume20d,
-    volumeRatio,
-    tradingValue,
-    avgTradingValue20d,
-    tradingValueRatio,
-    dryUp,
-    vcp,
-    breakoutVolume,
-    dataGranularity,
-    source: 'UNKNOWN',
+    dataMode,
+    quoteFreshness,
+    lastTick,
+    minuteChart,
+    volumeClock,
+    intradayMomentum,
+    sessionCompatibility,
+    source: minuteBars.length > 0 ? 'KIS_MINUTE_CHART' : lastTick.status !== 'MISSING' ? 'KIS_REALTIME' : quoteAt != null ? 'KIS_OFFICIAL' : 'UNKNOWN',
     providerIssue: false,
-    calculationIssue: status === 'CALCULATION_MISSING',
+    freshnessIssue,
+    calculationIssue,
     marketSignal: false,
     executionImpact: 'DIAGNOSTIC_ONLY',
     missingFields: unique(missingFields),
@@ -721,27 +891,22 @@ export function normalizeGate3PriceStructure(input: {
     return { breakoutType: 'UNKNOWN', price: null };
   };
   const breakoutBasis = pickBreakout();
-  const breakoutGapPct = currentPrice != null && breakoutBasis.price != null && breakoutBasis.price > 0
-    ? (currentPrice - breakoutBasis.price) / breakoutBasis.price
-    : null;
+  const breakoutGapPct = currentPrice != null && breakoutBasis.price != null && breakoutBasis.price > 0 ? (currentPrice - breakoutBasis.price) / breakoutBasis.price : null;
   const breakout: Gate3PriceStructureDiagnostic['breakout'] = breakoutGapPct == null
     ? { available: false, status: 'MISSING', breakoutType: breakoutBasis.breakoutType, breakoutPrice: breakoutBasis.price, breakoutGapPct, reason: 'INPUT_MISSING' }
     : { available: true, status: breakoutGapPct >= 0 ? 'PASS' : 'FAIL', breakoutType: breakoutBasis.breakoutType, breakoutPrice: breakoutBasis.price, breakoutGapPct, reason: null };
   if (breakoutGapPct != null && breakoutGapPct > 0.08) notes.push('BREAKOUT_EXTENDED_CHASE_RISK');
   const turtlePeriod: 20 | 55 | 60 | null = high20d != null ? 20 : high60d != null ? 60 : null;
   const turtleThreshold = turtlePeriod === 20 ? high20d : turtlePeriod === 60 ? high60d : null;
-  const distanceToBreakoutPct = currentPrice != null && turtleThreshold != null && turtleThreshold > 0
-    ? (currentPrice - turtleThreshold) / turtleThreshold
-    : null;
+  const distanceToBreakoutPct = currentPrice != null && turtleThreshold != null && turtleThreshold > 0 ? (currentPrice - turtleThreshold) / turtleThreshold : null;
   const turtle: Gate3PriceStructureDiagnostic['turtle'] = distanceToBreakoutPct == null
     ? { available: false, status: 'MISSING', period: turtlePeriod, thresholdPrice: turtleThreshold, currentPrice, distanceToBreakoutPct, reason: 'INPUT_MISSING' }
     : { available: true, status: distanceToBreakoutPct >= 0 ? 'PASS' : 'FAIL', period: turtlePeriod, thresholdPrice: turtleThreshold, currentPrice, distanceToBreakoutPct, reason: null };
   const drawdownFromHigh60dPct = currentPrice != null && high60d != null && high60d > 0 ? (currentPrice - high60d) / high60d : null;
   const drawdownFromHigh20dPct = currentPrice != null && high20d != null && high20d > 0 ? (currentPrice - high20d) / high20d : null;
-  const pullback: Gate3PriceStructureDiagnostic['pullback'] =
-    drawdownFromHigh60dPct == null && drawdownFromHigh20dPct == null
-      ? { available: false, status: 'MISSING', high60d, currentPrice, drawdownFromHigh60dPct, drawdownFromHigh20dPct, supportReference: 'UNKNOWN', reason: 'INPUT_MISSING' }
-      : { available: true, status: 'PASS', high60d, currentPrice, drawdownFromHigh60dPct, drawdownFromHigh20dPct, supportReference: 'UNKNOWN', reason: null };
+  const pullback: Gate3PriceStructureDiagnostic['pullback'] = drawdownFromHigh60dPct == null && drawdownFromHigh20dPct == null
+    ? { available: false, status: 'MISSING', high60d, currentPrice, drawdownFromHigh60dPct, drawdownFromHigh20dPct, supportReference: 'UNKNOWN', reason: 'INPUT_MISSING' }
+    : { available: true, status: 'PASS', high60d, currentPrice, drawdownFromHigh60dPct, drawdownFromHigh20dPct, supportReference: 'UNKNOWN', reason: null };
   const range20dPct = high20d != null && low20d != null && low20d > 0 ? (high20d - low20d) / low20d : null;
   const range60dPct = high60d != null && low60d != null && low60d > 0 ? (high60d - low60d) / low60d : null;
   const boxWidthPct = boxTop != null && boxBottom != null && boxBottom > 0 ? (boxTop - boxBottom) / boxBottom : null;
@@ -792,24 +957,14 @@ export function normalizeGate3Pullback(input: {
   if (boxBottom == null) missingFields.push('boxBottom');
 
   const swingAvailable = recentSwingHigh != null && recentSwingLow != null;
-  const swingStatus: Gate3PullbackDiagnostic['swing']['status'] = swingAvailable
-    ? (explicitSwingHigh != null && explicitSwingLow != null ? 'VERIFIED' : 'PARTIAL')
-    : (recentSwingHigh == null && recentSwingLow == null ? 'MISSING' : 'PARTIAL');
-
+  const swingStatus: Gate3PullbackDiagnostic['swing']['status'] = swingAvailable ? (explicitSwingHigh != null && explicitSwingLow != null ? 'VERIFIED' : 'PARTIAL') : (recentSwingHigh == null && recentSwingLow == null ? 'MISSING' : 'PARTIAL');
   const distanceToMa20Pct = pctDistance(currentPrice, ma20);
   const distanceToMa60Pct = pctDistance(currentPrice, ma60);
-  const maCandidates = [
-    { key: 'MA20' as const, distance: distanceToMa20Pct },
-    { key: 'MA60' as const, distance: distanceToMa60Pct },
-  ].filter(item => item.distance != null);
+  const maCandidates = [{ key: 'MA20' as const, distance: distanceToMa20Pct }, { key: 'MA60' as const, distance: distanceToMa60Pct }].filter(item => item.distance != null);
   const nearestMa = maCandidates.sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
   const nearestSupport = nearestMa?.key ?? (ma20 == null && ma60 == null ? 'UNKNOWN' : 'NONE');
   const nearestMaDistance = nearestMa?.distance ?? null;
-  const maStatus: Gate3PullbackDiagnostic['movingAverageSupport']['status'] = nearestMaDistance == null
-    ? 'MISSING'
-    : nearestMaDistance < -0.03 ? 'BROKEN'
-      : Math.abs(nearestMaDistance) <= 0.03 ? 'SUPPORT_NEAR'
-        : 'EXTENDED';
+  const maStatus: Gate3PullbackDiagnostic['movingAverageSupport']['status'] = nearestMaDistance == null ? 'MISSING' : nearestMaDistance < -0.03 ? 'BROKEN' : Math.abs(nearestMaDistance) <= 0.03 ? 'SUPPORT_NEAR' : 'EXTENDED';
   if (maStatus === 'MISSING') notes.push('MA_INPUT_MISSING_NOT_TREND_BROKEN');
 
   const swingRange = recentSwingHigh != null && recentSwingLow != null ? recentSwingHigh - recentSwingLow : null;
@@ -817,43 +972,23 @@ export function normalizeGate3Pullback(input: {
   const fib382 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.382 : null;
   const fib500 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.5 : null;
   const fib618 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.618 : null;
-  const fibCandidates = [
-    { key: 'FIB_382' as const, value: fib382 },
-    { key: 'FIB_500' as const, value: fib500 },
-    { key: 'FIB_618' as const, value: fib618 },
-  ].filter(item => item.value != null && currentPrice != null);
-  const nearestFibCandidate = fibCandidates
-    .map(item => ({ key: item.key, value: item.value, distance: pctDistance(currentPrice, item.value) }))
-    .sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
+  const fibCandidates = [{ key: 'FIB_382' as const, value: fib382 }, { key: 'FIB_500' as const, value: fib500 }, { key: 'FIB_618' as const, value: fib618 }].filter(item => item.value != null && currentPrice != null);
+  const nearestFibCandidate = fibCandidates.map(item => ({ key: item.key, value: item.value, distance: pctDistance(currentPrice, item.value) })).sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
   const nearestFib = nearestFibCandidate?.key ?? (canCalculateFib ? 'NONE' : 'UNKNOWN');
   const distanceToNearestFibPct = nearestFibCandidate?.distance ?? null;
-  const fibStatus: Gate3PullbackDiagnostic['fibonacci']['status'] = distanceToNearestFibPct == null
-    ? 'MISSING'
-    : distanceToNearestFibPct < -0.03 ? 'BROKEN'
-      : Math.abs(distanceToNearestFibPct) <= 0.03 ? 'SUPPORT_NEAR'
-        : 'EXTENDED';
+  const fibStatus: Gate3PullbackDiagnostic['fibonacci']['status'] = distanceToNearestFibPct == null ? 'MISSING' : distanceToNearestFibPct < -0.03 ? 'BROKEN' : Math.abs(distanceToNearestFibPct) <= 0.03 ? 'SUPPORT_NEAR' : 'EXTENDED';
   if (fibStatus === 'MISSING') notes.push('FIB_INPUT_MISSING_NOT_FAIL');
   if (fibStatus === 'SUPPORT_NEAR') notes.push('FIB_SUPPORT_NEAR_DIAGNOSTIC_ONLY');
 
   const distanceToBoxTopPct = pctDistance(currentPrice, boxTop);
-  const boxStatus: Gate3PullbackDiagnostic['boxRetest']['status'] = distanceToBoxTopPct == null
-    ? 'MISSING'
-    : distanceToBoxTopPct >= 0 && distanceToBoxTopPct <= 0.03 ? 'RETEST_NEAR'
-      : distanceToBoxTopPct > 0.03 ? 'ABOVE_BOX'
-        : boxBottom != null && currentPrice != null && currentPrice < boxBottom ? 'BROKEN_BOX'
-          : 'INSIDE_BOX';
+  const boxStatus: Gate3PullbackDiagnostic['boxRetest']['status'] = distanceToBoxTopPct == null ? 'MISSING' : distanceToBoxTopPct >= 0 && distanceToBoxTopPct <= 0.03 ? 'RETEST_NEAR' : distanceToBoxTopPct > 0.03 ? 'ABOVE_BOX' : boxBottom != null && currentPrice != null && currentPrice < boxBottom ? 'BROKEN_BOX' : 'INSIDE_BOX';
   if (boxStatus === 'MISSING') notes.push('BOX_RETEST_INPUT_MISSING_NOT_FAIL');
 
   const drawdownFromHigh20dPct = priceStructure.pullback.drawdownFromHigh20dPct ?? pctDistance(currentPrice, high20d);
   const drawdownFromHigh60dPct = priceStructure.pullback.drawdownFromHigh60dPct ?? pctDistance(currentPrice, high60d);
   const pullbackReferenceHigh = explicitSwingHigh ?? high20d ?? high60d;
   const pullbackPct = pctDistance(currentPrice, pullbackReferenceHigh);
-  const pullbackQualityStatus: Gate3PullbackDiagnostic['pullbackQuality']['status'] = pullbackPct == null
-    ? 'MISSING'
-    : pullbackPct > 0.08 ? 'EXTENDED_CHASE'
-      : pullbackPct > -0.02 ? 'TOO_SHALLOW'
-        : pullbackPct >= -0.15 ? 'HEALTHY_PULLBACK'
-          : 'TOO_DEEP';
+  const pullbackQualityStatus: Gate3PullbackDiagnostic['pullbackQuality']['status'] = pullbackPct == null ? 'MISSING' : pullbackPct > 0.08 ? 'EXTENDED_CHASE' : pullbackPct > -0.02 ? 'TOO_SHALLOW' : pullbackPct >= -0.15 ? 'HEALTHY_PULLBACK' : 'TOO_DEEP';
   if (pullbackQualityStatus === 'MISSING') notes.push('PULLBACK_INPUT_MISSING_NOT_FAIL');
   if (pullbackQualityStatus === 'EXTENDED_CHASE') notes.push('EXTENDED_CHASE_DIAGNOSTIC_ONLY');
   if (pullbackQualityStatus === 'TOO_DEEP') notes.push('TOO_DEEP_PULLBACK_DIAGNOSTIC_ONLY');
@@ -870,68 +1005,18 @@ export function normalizeGate3Pullback(input: {
   const subStatuses = [swingStatus, maStatus, fibStatus, boxStatus, pullbackQualityStatus] as string[];
   const allMissing = subStatuses.every(status => status === 'MISSING' || status === 'UNKNOWN');
   const degraded = currentPrice == null || swingStatus === 'MISSING' || pullbackQualityStatus === 'MISSING';
-  const status: Gate3CoverageStatus = allMissing
-    ? 'MISSING'
-    : degraded ? 'DEGRADED'
-      : missingFields.length > 0 ? 'PARTIAL' : 'VERIFIED';
+  const status: Gate3CoverageStatus = allMissing ? 'MISSING' : degraded ? 'DEGRADED' : missingFields.length > 0 ? 'PARTIAL' : 'VERIFIED';
 
   return {
     status,
     currentPrice,
-    swing: {
-      recentSwingHigh,
-      recentSwingLow,
-      high20d,
-      high60d,
-      low20d,
-      low60d,
-      available: swingAvailable,
-      status: swingStatus,
-      reason: swingAvailable ? null : 'INPUT_MISSING',
-    },
-    movingAverageSupport: {
-      ma20,
-      ma60,
-      distanceToMa20Pct,
-      distanceToMa60Pct,
-      nearestSupport,
-      status: maStatus,
-      available: maStatus !== 'MISSING',
-      reason: maStatus === 'MISSING' ? 'INPUT_MISSING' : null,
-    },
-    fibonacci: {
-      fib382,
-      fib500,
-      fib618,
-      nearestFib,
-      distanceToNearestFibPct,
-      status: fibStatus,
-      available: fibStatus !== 'MISSING',
-      reason: fibStatus === 'MISSING' ? 'INPUT_MISSING' : null,
-    },
-    boxRetest: {
-      boxTop,
-      boxBottom,
-      distanceToBoxTopPct,
-      status: boxStatus,
-      available: boxStatus !== 'MISSING',
-      reason: boxStatus === 'MISSING' ? 'INPUT_MISSING' : null,
-    },
-    pullbackQuality: {
-      drawdownFromHigh20dPct,
-      drawdownFromHigh60dPct,
-      pullbackPct,
-      status: pullbackQualityStatus,
-      reason: pullbackQualityStatus === 'MISSING' ? 'INPUT_MISSING' : null,
-    },
+    swing: { recentSwingHigh, recentSwingLow, high20d, high60d, low20d, low60d, available: swingAvailable, status: swingStatus, reason: swingAvailable ? null : 'INPUT_MISSING' },
+    movingAverageSupport: { ma20, ma60, distanceToMa20Pct, distanceToMa60Pct, nearestSupport, status: maStatus, available: maStatus !== 'MISSING', reason: maStatus === 'MISSING' ? 'INPUT_MISSING' : null },
+    fibonacci: { fib382, fib500, fib618, nearestFib, distanceToNearestFibPct, status: fibStatus, available: fibStatus !== 'MISSING', reason: fibStatus === 'MISSING' ? 'INPUT_MISSING' : null },
+    boxRetest: { boxTop, boxBottom, distanceToBoxTopPct, status: boxStatus, available: boxStatus !== 'MISSING', reason: boxStatus === 'MISSING' ? 'INPUT_MISSING' : null },
+    pullbackQuality: { drawdownFromHigh20dPct, drawdownFromHigh60dPct, pullbackPct, status: pullbackQualityStatus, reason: pullbackQualityStatus === 'MISSING' ? 'INPUT_MISSING' : null },
     supportReference,
-    source: 'UNKNOWN',
-    providerIssue: false,
-    calculationIssue: missingFields.length > 0,
-    marketSignal: false,
-    executionImpact: 'DIAGNOSTIC_ONLY',
-    missingFields: unique(missingFields),
-    notes: unique(notes),
+    source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY', missingFields: unique(missingFields), notes: unique(notes),
   };
 }
 
@@ -963,11 +1048,7 @@ export function normalizeGate3FalseBreakout(input: {
   const closeAboveBreakout = closePrice != null && breakoutPrice != null ? closePrice > breakoutPrice : null;
   const wickRejection = highPrice != null && closePrice != null && highPrice > 0 ? ((highPrice - closePrice) / highPrice) >= 0.03 : null;
   const failedRetest = currentPrice != null && (boxTop ?? breakoutPrice) != null ? currentPrice < (boxTop ?? breakoutPrice)! : null;
-  const fbStatus: Gate3FalseBreakoutDiagnostic['falseBreakout']['status'] =
-    breakoutPrice == null ? 'MISSING'
-      : priceBreakoutConfirmed && volumeConfirmed && closeAboveBreakout !== false && failedRetest !== true ? 'LOW_RISK'
-        : priceBreakoutConfirmed && (volumeConfirmed === false || closeAboveBreakout === false || failedRetest === true) ? 'HIGH_RISK'
-          : 'WATCH';
+  const fbStatus: Gate3FalseBreakoutDiagnostic['falseBreakout']['status'] = breakoutPrice == null ? 'MISSING' : priceBreakoutConfirmed && volumeConfirmed && closeAboveBreakout !== false && failedRetest !== true ? 'LOW_RISK' : priceBreakoutConfirmed && (volumeConfirmed === false || closeAboveBreakout === false || failedRetest === true) ? 'HIGH_RISK' : 'WATCH';
   if (fbStatus !== 'LOW_RISK' && fbStatus !== 'MISSING') notes.push('FALSE_BREAKOUT_WATCH_DIAGNOSTIC_ONLY');
 
   const previousHigh = input.previousPeaks?.previousHigh ?? asFinite(quote.previousHigh);
@@ -1001,19 +1082,7 @@ export function normalizeGate3FalseBreakout(input: {
   const retestHeld = distPct != null ? distPct >= 0 : null;
   const rtStatus: Gate3FalseBreakoutDiagnostic['retestQuality']['status'] = refTop == null || currentPrice == null ? 'MISSING' : distPct! < -0.01 ? 'FAILED' : distPct! < 0 ? 'WEAK' : 'GOOD';
 
-  const missingCandidates: Array<[string, Numeric]> = [
-    ['currentPrice', currentPrice],
-    ['breakoutPrice', breakoutPrice],
-    ['volumeRatio', volumeRatio],
-    ['highPrice', highPrice],
-    ['rsi14', rsi14],
-    ['macdHistogram', macdHistogram],
-    ['previousHigh', previousHigh],
-    ['previousPeakRsi', previousPeakRsi],
-    ['previousPeakMacdHist', previousPeakMacdHist],
-    ['boxTop', boxTop],
-    ['ma20', ma20],
-  ];
+  const missingCandidates: Array<[string, Numeric]> = [['currentPrice', currentPrice], ['breakoutPrice', breakoutPrice], ['volumeRatio', volumeRatio], ['highPrice', highPrice], ['rsi14', rsi14], ['macdHistogram', macdHistogram], ['previousHigh', previousHigh], ['previousPeakRsi', previousPeakRsi], ['previousPeakMacdHist', previousPeakMacdHist], ['boxTop', boxTop], ['ma20', ma20]];
   for (const [field, value] of missingCandidates) {
     if (value == null) missingFields.push(field);
   }
@@ -1030,8 +1099,7 @@ export function normalizeGate3FalseBreakout(input: {
     divergence: { status: divStatus, priceHigherHigh, rsiLowerHigh, macdLowerHigh, currentHigh, previousHigh, currentRsi: rsi14, previousPeakRsi, currentMacdHist: macdHistogram, previousPeakMacdHist, reason: null },
     exhaustion: { status: exStatus, rsiOverheated, volumeClimax, extendedFromBreakout, extendedFromMa20, gapUpExhaustion, reason: null },
     retestQuality: { status: rtStatus, boxTop: refTop, currentPrice, closePrice, distanceToBoxTopPct: distPct, retestHeld, reason: null },
-    source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY',
-    missingFields: unique(missingFields), notes: unique(notes),
+    source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY', missingFields: unique(missingFields), notes: unique(notes),
   };
 }
 
@@ -1057,6 +1125,14 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
   const priceDiag = normalizeGate3PriceStructure({ quote });
   const pullbackDiag = normalizeGate3Pullback({ quote, priceStructure: priceDiag, indicators: quote });
   const momentumDiag = normalizeGate3Momentum({ quote, indicators: quote, priceStructure: priceDiag });
+  const volumeTiming = normalizeGate3VolumeTiming({ quote });
+  const intradayTiming = normalizeGate3IntradayTiming({
+    quote,
+    intraday: asRecord(quote.intraday),
+    minuteBars: Array.isArray(quote.minuteBars) ? quote.minuteBars as Record<string, unknown>[] : null,
+    marketSession: asRecord(quote.marketSession),
+    volumeTiming,
+  });
   const priceFields = {
     currentPrice: hasFinite(quote, 'currentPrice'),
     price: hasFinite(quote, 'price'),
@@ -1079,18 +1155,23 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     tradingValue: hasFinite(quote, 'tradingValue'),
   };
   const intradayFields = {
-    intradayVolume: hasFinite(quote, 'intradayVolume'),
-    intradayVolumeRatio: hasFinite(quote, 'intradayVolumeRatio'),
-    volumeClock: quote.volumeClock != null,
-    lastTickAt: quote.lastTickAt != null,
+    quoteAsOf: intradayTiming.quoteFreshness.lastQuoteAt != null,
+    lastQuoteAt: intradayTiming.quoteFreshness.lastQuoteAt != null,
+    lastTickAt: intradayTiming.lastTick.lastTickAt != null,
+    lastTickPrice: intradayTiming.lastTick.price != null,
+    lastTickVolume: intradayTiming.lastTick.volume != null,
+    minuteBars: (intradayTiming.minuteChart.barCount ?? 0) > 0,
+    latestBarAt: intradayTiming.minuteChart.latestBarAt != null,
+    sessionProgressPct: intradayTiming.volumeClock.sessionProgressPct != null,
+    expectedVolumeByNow: intradayTiming.volumeClock.expectedVolumeByNow != null,
+    actualVolume: intradayTiming.volumeClock.actualVolume != null,
+    volumePaceRatio: intradayTiming.volumeClock.volumePaceRatio != null,
+    vwap: intradayTiming.intradayMomentum.vwap != null,
+    priceVsVwapPct: intradayTiming.intradayMomentum.priceVsVwapPct != null,
   };
 
   const technicalState = resolveStatus(technicalFields, true);
-  const priceState = resolveStatus(priceFields, true);
   const volumeState = resolveStatus(volumeFields, true);
-  const intradayState = resolveStatus(intradayFields, false);
-
-  const volumeTiming = normalizeGate3VolumeTiming({ quote });
   const volumeTimingFields = {
     volume: volumeTiming.volume != null,
     avgVolume: volumeTiming.avgVolume != null,
@@ -1117,35 +1198,14 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
   });
 
   return {
-    technicalIndicators: {
-      required: true,
-      available: technicalState.available,
-      provider: 'UNKNOWN',
-      status: technicalState.status,
-      fields: technicalFields,
-      providerIssue: false,
-      calculationIssue: technicalState.status === 'CALCULATION_MISSING' || technicalState.status === 'MISSING',
-      marketSignal: false,
-    },
+    technicalIndicators: { required: true, available: technicalState.available, provider: 'UNKNOWN', status: technicalState.status, fields: technicalFields, providerIssue: false, calculationIssue: technicalState.status === 'CALCULATION_MISSING' || technicalState.status === 'MISSING', marketSignal: false },
     priceStructure: {
       required: true,
       available: priceDiag.status === 'VERIFIED' || priceDiag.status === 'PARTIAL',
       provider: 'UNKNOWN',
       status: priceDiag.status,
       fields: priceFields,
-      values: {
-        currentPrice: priceDiag.currentPrice,
-        priceFieldUsed: priceDiag.priceFieldUsed,
-        high5d: priceDiag.high5d,
-        high20d: priceDiag.high20d,
-        high60d: priceDiag.high60d,
-        low20d: priceDiag.low20d,
-        low60d: priceDiag.low60d,
-        breakoutGapPct: priceDiag.breakout.breakoutGapPct,
-        drawdownFromHigh60dPct: priceDiag.pullback.drawdownFromHigh60dPct,
-        range20dPct: priceDiag.rangeStructure.range20dPct,
-        boxWidthPct: priceDiag.rangeStructure.boxWidthPct,
-      },
+      values: { currentPrice: priceDiag.currentPrice, priceFieldUsed: priceDiag.priceFieldUsed, high5d: priceDiag.high5d, high20d: priceDiag.high20d, high60d: priceDiag.high60d, low20d: priceDiag.low20d, low60d: priceDiag.low60d, breakoutGapPct: priceDiag.breakout.breakoutGapPct, drawdownFromHigh60dPct: priceDiag.pullback.drawdownFromHigh60dPct, range20dPct: priceDiag.rangeStructure.range20dPct, boxWidthPct: priceDiag.rangeStructure.boxWidthPct },
       breakout: priceDiag.breakout,
       turtle: priceDiag.turtle,
       pullback: priceDiag.pullback,
@@ -1161,40 +1221,8 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       required: false,
       available: pullbackDiag.status !== 'MISSING',
       status: pullbackDiag.status,
-      fields: {
-        currentPrice: pullbackDiag.currentPrice != null,
-        recentSwingHigh: pullbackDiag.swing.recentSwingHigh != null,
-        recentSwingLow: pullbackDiag.swing.recentSwingLow != null,
-        high20d: pullbackDiag.swing.high20d != null,
-        high60d: pullbackDiag.swing.high60d != null,
-        low20d: pullbackDiag.swing.low20d != null,
-        low60d: pullbackDiag.swing.low60d != null,
-        ma20: pullbackDiag.movingAverageSupport.ma20 != null,
-        ma60: pullbackDiag.movingAverageSupport.ma60 != null,
-        fib382: pullbackDiag.fibonacci.fib382 != null,
-        fib500: pullbackDiag.fibonacci.fib500 != null,
-        fib618: pullbackDiag.fibonacci.fib618 != null,
-        boxTop: pullbackDiag.boxRetest.boxTop != null,
-        boxBottom: pullbackDiag.boxRetest.boxBottom != null,
-        supportReference: pullbackDiag.supportReference !== 'NONE' && pullbackDiag.supportReference !== 'UNKNOWN',
-      },
-      values: {
-        currentPrice: pullbackDiag.currentPrice,
-        recentSwingHigh: pullbackDiag.swing.recentSwingHigh,
-        recentSwingLow: pullbackDiag.swing.recentSwingLow,
-        high20d: pullbackDiag.swing.high20d,
-        high60d: pullbackDiag.swing.high60d,
-        low20d: pullbackDiag.swing.low20d,
-        low60d: pullbackDiag.swing.low60d,
-        ma20: pullbackDiag.movingAverageSupport.ma20,
-        ma60: pullbackDiag.movingAverageSupport.ma60,
-        fib382: pullbackDiag.fibonacci.fib382,
-        fib500: pullbackDiag.fibonacci.fib500,
-        fib618: pullbackDiag.fibonacci.fib618,
-        drawdownFromHigh20dPct: pullbackDiag.pullbackQuality.drawdownFromHigh20dPct,
-        drawdownFromHigh60dPct: pullbackDiag.pullbackQuality.drawdownFromHigh60dPct,
-        pullbackPct: pullbackDiag.pullbackQuality.pullbackPct,
-      },
+      fields: { currentPrice: pullbackDiag.currentPrice != null, recentSwingHigh: pullbackDiag.swing.recentSwingHigh != null, recentSwingLow: pullbackDiag.swing.recentSwingLow != null, high20d: pullbackDiag.swing.high20d != null, high60d: pullbackDiag.swing.high60d != null, low20d: pullbackDiag.swing.low20d != null, low60d: pullbackDiag.swing.low60d != null, ma20: pullbackDiag.movingAverageSupport.ma20 != null, ma60: pullbackDiag.movingAverageSupport.ma60 != null, fib382: pullbackDiag.fibonacci.fib382 != null, fib500: pullbackDiag.fibonacci.fib500 != null, fib618: pullbackDiag.fibonacci.fib618 != null, boxTop: pullbackDiag.boxRetest.boxTop != null, boxBottom: pullbackDiag.boxRetest.boxBottom != null, supportReference: pullbackDiag.supportReference !== 'NONE' && pullbackDiag.supportReference !== 'UNKNOWN' },
+      values: { currentPrice: pullbackDiag.currentPrice, recentSwingHigh: pullbackDiag.swing.recentSwingHigh, recentSwingLow: pullbackDiag.swing.recentSwingLow, high20d: pullbackDiag.swing.high20d, high60d: pullbackDiag.swing.high60d, low20d: pullbackDiag.swing.low20d, low60d: pullbackDiag.swing.low60d, ma20: pullbackDiag.movingAverageSupport.ma20, ma60: pullbackDiag.movingAverageSupport.ma60, fib382: pullbackDiag.fibonacci.fib382, fib500: pullbackDiag.fibonacci.fib500, fib618: pullbackDiag.fibonacci.fib618, drawdownFromHigh20dPct: pullbackDiag.pullbackQuality.drawdownFromHigh20dPct, drawdownFromHigh60dPct: pullbackDiag.pullbackQuality.drawdownFromHigh60dPct, pullbackPct: pullbackDiag.pullbackQuality.pullbackPct },
       swing: pullbackDiag.swing,
       movingAverageSupport: pullbackDiag.movingAverageSupport,
       fibonacci: pullbackDiag.fibonacci,
@@ -1208,43 +1236,35 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       missingFields: pullbackDiag.missingFields,
       notes: pullbackDiag.notes,
     },
-    volumeStructure: {
-      required: true,
-      available: volumeState.available,
-      provider: 'UNKNOWN',
-      status: volumeState.status,
-      fields: volumeFields,
-      providerIssue: false,
-      calculationIssue: volumeState.status === 'CALCULATION_MISSING' || volumeState.status === 'MISSING',
-      marketSignal: false,
-    },
+    volumeStructure: { required: true, available: volumeState.available, provider: 'UNKNOWN', status: volumeState.status, fields: volumeFields, providerIssue: false, calculationIssue: volumeState.status === 'CALCULATION_MISSING' || volumeState.status === 'MISSING', marketSignal: false },
     intradayTiming: {
       required: false,
-      available: intradayState.available,
-      provider: 'UNKNOWN',
-      status: intradayState.status,
+      available: intradayTiming.status === 'VERIFIED' || intradayTiming.status === 'PARTIAL' || intradayTiming.status === 'STALE',
+      provider: intradayTiming.source,
+      status: intradayTiming.status,
+      dataMode: intradayTiming.dataMode,
       fields: intradayFields,
-      providerIssue: false,
+      values: { quoteAgeSec: intradayTiming.quoteFreshness.ageSec, lastTickAgeSec: intradayTiming.lastTick.ageSec, minuteBarCount: intradayTiming.minuteChart.barCount, latestBarAgeSec: intradayTiming.minuteChart.latestBarAgeSec, sessionProgressPct: intradayTiming.volumeClock.sessionProgressPct, expectedVolumeByNow: intradayTiming.volumeClock.expectedVolumeByNow, actualVolume: intradayTiming.volumeClock.actualVolume, volumePaceRatio: intradayTiming.volumeClock.volumePaceRatio, openToNowReturn: intradayTiming.intradayMomentum.openToNowReturn, priceVsVwapPct: intradayTiming.intradayMomentum.priceVsVwapPct },
+      quoteFreshness: intradayTiming.quoteFreshness,
+      lastTick: intradayTiming.lastTick,
+      minuteChart: intradayTiming.minuteChart,
+      volumeClock: intradayTiming.volumeClock,
+      intradayMomentum: intradayTiming.intradayMomentum,
+      sessionCompatibility: intradayTiming.sessionCompatibility,
+      providerIssue: intradayTiming.providerIssue,
+      freshnessIssue: intradayTiming.freshnessIssue,
+      calculationIssue: intradayTiming.calculationIssue,
       marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      missingFields: intradayTiming.missingFields,
+      notes: intradayTiming.notes,
     },
     volumeTiming: {
       required: true,
       available: volumeTiming.status === 'VERIFIED' || volumeTiming.status === 'PARTIAL',
       status: volumeTiming.status,
       fields: volumeTimingFields,
-      values: {
-        volume: volumeTiming.volume,
-        avgVolume: volumeTiming.avgVolume,
-        avgVolume20d: volumeTiming.avgVolume20d,
-        volumeRatio: volumeTiming.volumeRatio,
-        tradingValue: volumeTiming.tradingValue,
-        avgTradingValue20d: volumeTiming.avgTradingValue20d,
-        tradingValueRatio: volumeTiming.tradingValueRatio,
-        dryUpRatio: volumeTiming.dryUp.dryUpRatio,
-        bbWidth: volumeTiming.vcp.bbWidth,
-        atr14: volumeTiming.vcp.atr14,
-        contractionCount: volumeTiming.vcp.contractionCount,
-      },
+      values: { volume: volumeTiming.volume, avgVolume: volumeTiming.avgVolume, avgVolume20d: volumeTiming.avgVolume20d, volumeRatio: volumeTiming.volumeRatio, tradingValue: volumeTiming.tradingValue, avgTradingValue20d: volumeTiming.avgTradingValue20d, tradingValueRatio: volumeTiming.tradingValueRatio, dryUpRatio: volumeTiming.dryUp.dryUpRatio, bbWidth: volumeTiming.vcp.bbWidth, atr14: volumeTiming.vcp.atr14, contractionCount: volumeTiming.vcp.contractionCount },
       dryUp: volumeTiming.dryUp,
       vcp: volumeTiming.vcp,
       breakoutVolume: volumeTiming.breakoutVolume,
@@ -1259,38 +1279,8 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       required: false,
       available: falseBreakoutDiag.status !== 'MISSING',
       status: falseBreakoutDiag.status,
-      fields: {
-        currentPrice: falseBreakoutDiag.retestQuality.currentPrice != null,
-        closePrice: falseBreakoutDiag.retestQuality.closePrice != null,
-        highPrice: falseBreakoutDiag.divergence.currentHigh != null,
-        breakoutPrice: priceDiag.breakout.breakoutPrice != null,
-        breakoutGapPct: priceDiag.breakout.breakoutGapPct != null,
-        volumeRatio: volumeTiming.volumeRatio != null,
-        tradingValueRatio: volumeTiming.tradingValueRatio != null,
-        rsi14: falseBreakoutDiag.divergence.currentRsi != null,
-        macdHistogram: falseBreakoutDiag.divergence.currentMacdHist != null,
-        previousHigh: falseBreakoutDiag.divergence.previousHigh != null,
-        previousPeakRsi: falseBreakoutDiag.divergence.previousPeakRsi != null,
-        previousPeakMacdHist: falseBreakoutDiag.divergence.previousPeakMacdHist != null,
-        boxTop: falseBreakoutDiag.retestQuality.boxTop != null,
-        ma20: pullbackDiag.movingAverageSupport.ma20 != null,
-      },
-      values: {
-        currentPrice: falseBreakoutDiag.retestQuality.currentPrice,
-        closePrice: falseBreakoutDiag.retestQuality.closePrice,
-        highPrice: falseBreakoutDiag.divergence.currentHigh,
-        breakoutPrice: priceDiag.breakout.breakoutPrice,
-        breakoutGapPct: priceDiag.breakout.breakoutGapPct,
-        volumeRatio: volumeTiming.volumeRatio,
-        tradingValueRatio: volumeTiming.tradingValueRatio,
-        rsi14: falseBreakoutDiag.divergence.currentRsi,
-        macdHistogram: falseBreakoutDiag.divergence.currentMacdHist,
-        previousHigh: falseBreakoutDiag.divergence.previousHigh,
-        previousPeakRsi: falseBreakoutDiag.divergence.previousPeakRsi,
-        previousPeakMacdHist: falseBreakoutDiag.divergence.previousPeakMacdHist,
-        boxTop: falseBreakoutDiag.retestQuality.boxTop,
-        ma20: pullbackDiag.movingAverageSupport.ma20,
-      },
+      fields: { currentPrice: falseBreakoutDiag.retestQuality.currentPrice != null, closePrice: falseBreakoutDiag.retestQuality.closePrice != null, highPrice: falseBreakoutDiag.divergence.currentHigh != null, breakoutPrice: priceDiag.breakout.breakoutPrice != null, breakoutGapPct: priceDiag.breakout.breakoutGapPct != null, volumeRatio: volumeTiming.volumeRatio != null, tradingValueRatio: volumeTiming.tradingValueRatio != null, rsi14: falseBreakoutDiag.divergence.currentRsi != null, macdHistogram: falseBreakoutDiag.divergence.currentMacdHist != null, previousHigh: falseBreakoutDiag.divergence.previousHigh != null, previousPeakRsi: falseBreakoutDiag.divergence.previousPeakRsi != null, previousPeakMacdHist: falseBreakoutDiag.divergence.previousPeakMacdHist != null, boxTop: falseBreakoutDiag.retestQuality.boxTop != null, ma20: pullbackDiag.movingAverageSupport.ma20 != null },
+      values: { currentPrice: falseBreakoutDiag.retestQuality.currentPrice, closePrice: falseBreakoutDiag.retestQuality.closePrice, highPrice: falseBreakoutDiag.divergence.currentHigh, breakoutPrice: priceDiag.breakout.breakoutPrice, breakoutGapPct: priceDiag.breakout.breakoutGapPct, volumeRatio: volumeTiming.volumeRatio, tradingValueRatio: volumeTiming.tradingValueRatio, rsi14: falseBreakoutDiag.divergence.currentRsi, macdHistogram: falseBreakoutDiag.divergence.currentMacdHist, previousHigh: falseBreakoutDiag.divergence.previousHigh, previousPeakRsi: falseBreakoutDiag.divergence.previousPeakRsi, previousPeakMacdHist: falseBreakoutDiag.divergence.previousPeakMacdHist, boxTop: falseBreakoutDiag.retestQuality.boxTop, ma20: pullbackDiag.movingAverageSupport.ma20 },
       falseBreakout: falseBreakoutDiag.falseBreakout,
       divergence: falseBreakoutDiag.divergence,
       exhaustion: falseBreakoutDiag.exhaustion,
@@ -1306,26 +1296,18 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       required: true,
       available: momentumDiag.status === 'VERIFIED' || momentumDiag.status === 'PARTIAL',
       status: momentumDiag.status,
-      fields: {
-        rsi14: momentumDiag.rsi.rsi14 != null,
-        rsi5dAgo: momentumDiag.rsi.rsi5dAgo != null,
-        rsiDelta5d: momentumDiag.rsi.rsiDelta5d != null,
-        macdHistogram: momentumDiag.macd.macdHistogram != null,
-        macd5dHistAgo: momentumDiag.macd.macd5dHistAgo != null,
-        macdHistDelta5d: momentumDiag.macd.macdHistDelta5d != null,
-        changePercent: momentumDiag.shortMomentum.changePercent != null,
-        return5d: momentumDiag.shortMomentum.return5d != null,
-        return20d: momentumDiag.shortMomentum.return20d != null,
-        acceleration5dVs20d: momentumDiag.shortMomentum.acceleration5dVs20d != null,
-      },
-      values: {
-        rsi14: momentumDiag.rsi.rsi14, rsi5dAgo: momentumDiag.rsi.rsi5dAgo, rsiDelta5d: momentumDiag.rsi.rsiDelta5d,
-        macdHistogram: momentumDiag.macd.macdHistogram, macd5dHistAgo: momentumDiag.macd.macd5dHistAgo, macdHistDelta5d: momentumDiag.macd.macdHistDelta5d,
-        changePercent: momentumDiag.shortMomentum.changePercent, return5d: momentumDiag.shortMomentum.return5d, return20d: momentumDiag.shortMomentum.return20d, acceleration5dVs20d: momentumDiag.shortMomentum.acceleration5dVs20d,
-      },
-      rsi: momentumDiag.rsi, macd: momentumDiag.macd, shortMomentum: momentumDiag.shortMomentum, overheat: momentumDiag.overheat,
-      providerIssue: false, calculationIssue: momentumDiag.calculationIssue, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY',
-      missingFields: momentumDiag.missingFields, notes: momentumDiag.notes,
+      fields: { rsi14: momentumDiag.rsi.rsi14 != null, rsi5dAgo: momentumDiag.rsi.rsi5dAgo != null, rsiDelta5d: momentumDiag.rsi.rsiDelta5d != null, macdHistogram: momentumDiag.macd.macdHistogram != null, macd5dHistAgo: momentumDiag.macd.macd5dHistAgo != null, macdHistDelta5d: momentumDiag.macd.macdHistDelta5d != null, changePercent: momentumDiag.shortMomentum.changePercent != null, return5d: momentumDiag.shortMomentum.return5d != null, return20d: momentumDiag.shortMomentum.return20d != null, acceleration5dVs20d: momentumDiag.shortMomentum.acceleration5dVs20d != null },
+      values: { rsi14: momentumDiag.rsi.rsi14, rsi5dAgo: momentumDiag.rsi.rsi5dAgo, rsiDelta5d: momentumDiag.rsi.rsiDelta5d, macdHistogram: momentumDiag.macd.macdHistogram, macd5dHistAgo: momentumDiag.macd.macd5dHistAgo, macdHistDelta5d: momentumDiag.macd.macdHistDelta5d, changePercent: momentumDiag.shortMomentum.changePercent, return5d: momentumDiag.shortMomentum.return5d, return20d: momentumDiag.shortMomentum.return20d, acceleration5dVs20d: momentumDiag.shortMomentum.acceleration5dVs20d },
+      rsi: momentumDiag.rsi,
+      macd: momentumDiag.macd,
+      shortMomentum: momentumDiag.shortMomentum,
+      overheat: momentumDiag.overheat,
+      providerIssue: false,
+      calculationIssue: momentumDiag.calculationIssue,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      missingFields: momentumDiag.missingFields,
+      notes: momentumDiag.notes,
     },
   };
 }
