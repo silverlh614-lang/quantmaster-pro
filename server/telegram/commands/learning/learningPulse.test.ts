@@ -290,6 +290,10 @@ describe('formatLearningPulseMessage', () => {
     const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
     const msg = formatLearningPulseMessage(collectLearningPulse(NOW));
     expect(msg).toContain('🩺 Learning Pulse');
+    expect(msg).toContain('🛡️ SafetyGate:');
+    expect(msg).toContain('📐 ShadowLiveDelta:');
+    expect(msg).toContain('🌿 FreshnessGuard:');
+    expect(msg).toContain('💾 PulseArchive:');
     expect(msg).toContain('👻 Ghost Portfolio');
     expect(msg).toContain('📊 Attribution');
     expect(msg).toContain('⚖️ Condition Weights');
@@ -332,7 +336,16 @@ describe('formatLearningPulseMessage', () => {
 });
 
 describe('cmd 메타데이터', () => {
-  beforeEach(() => vi.resetModules());
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-cmd-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    vi.resetModules();
+  });
+  afterEach(() => {
+    delete process.env.PERSIST_DATA_DIR;
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+  });
 
   it('1. name + alias /lp + LRN + riskLevel=0 + ADMIN', async () => {
     const mod = await import('./learningPulse.cmd.js');
@@ -358,6 +371,9 @@ describe('cmd 메타데이터', () => {
     await mod.default.execute({ args: [], reply });
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toContain('🩺 Learning Pulse');
+    const archivePath = path.join(tmpDir, 'learningPulseArchive.jsonl');
+    expect(fs.existsSync(archivePath)).toBe(true);
+    expect(fs.readFileSync(archivePath, 'utf-8').trim().split('\n')).toHaveLength(1);
   });
 
   it('4. execute throw graceful', async () => {

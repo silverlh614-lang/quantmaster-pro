@@ -517,6 +517,7 @@ describe('호출자 0건 정적 grep 가드 — Phase 2a dead code', () => {
         m.endsWith('safetyGateAttribution.test.ts') ||
         m.endsWith('learningRouter.ts') ||
         m.endsWith('learningSanityDashboardRouter.test.ts') ||
+        m.endsWith('nightlyReflectionEngine.ts') ||
         m.endsWith('missedLearningReplayDispatcher.ts') ||
         m.endsWith('safetyGatePolicyFeedback.ts'),
     );

@@ -617,6 +617,7 @@ describe('호출자 정적 grep 가드 — 허용된 learning/reporting 경로�
         m.endsWith('shadowVsLiveDelta.ts') ||
         m.endsWith('shadowVsLiveDelta.test.ts') ||
         m.endsWith('missedLearningReplayDispatcher.ts') ||
+        m.endsWith('nightlyReflectionEngine.ts') ||
         m.endsWith('learningRouter.ts') ||
         m.endsWith('learningSanityDashboardRouter.test.ts'),
     );

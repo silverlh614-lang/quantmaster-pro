@@ -739,6 +739,132 @@ export async function runNightlyReflection(
     console.error('[NightlyReflection] Telegram 발송 실패:', e instanceof Error ? e.message : e);
   });
 
+  // Phase 3-A: ReflectionInjectionBus - A11/A12/A13 activation.
+  if (process.env.LEARNING_FRESHNESS_GUARD_ENABLED === 'true') {
+    try {
+      const { applyFreshnessDecay, ageDaysFromDateLike } = await import('./learningFreshnessGuard.js');
+      const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
+      const currentRegime = loadMacroState()?.regime;
+      const freshnessLessons = [
+        ...buildRecentReflectionContexts(date, 7).map((lesson) => ({
+          weight: 1,
+          ageDays: ageDaysFromDateLike(lesson.date, now) ?? 0,
+          regime: undefined as string | undefined,
+        })),
+        ...(report.conditionConfession ?? []).map(() => ({
+          weight: 1,
+          ageDays: ageDaysFromDateLike(date, now) ?? 0,
+          regime: currentRegime,
+        })),
+        ...loadBiasHeatmap().flatMap((entry) =>
+          entry.scores.map(() => ({
+            weight: 1,
+            ageDays: ageDaysFromDateLike(entry.date, now) ?? 0,
+            regime: undefined as string | undefined,
+          })),
+        ),
+        ...(report.counterfactual ? [{
+          weight: 1,
+          ageDays: ageDaysFromDateLike(date, now) ?? 0,
+          regime: currentRegime,
+        }] : []),
+        ...inputs.attributionToday.map((lesson) => ({
+          weight: 1,
+          ageDays: ageDaysFromDateLike(lesson.closedAt, now) ?? 0,
+          regime: lesson.regimeAtOutcome
+            ?? lesson.regimeAtExit
+            ?? lesson.regimeAtEntry
+            ?? lesson.effectiveRegime
+            ?? lesson.rawRegime
+            ?? lesson.entryRegime,
+        })),
+      ];
+      const decayedCount = freshnessLessons
+        .map((lesson) => applyFreshnessDecay(lesson, currentRegime, now))
+        .filter((lesson, index) => lesson.weight !== freshnessLessons[index].weight)
+        .length;
+      recordReflectionInjectionBusRun('freshnessGuard', {
+        enabled: true,
+        status: 'ACTIVE',
+        lastRunAt: now.toISOString(),
+        sampleSize: freshnessLessons.length,
+        decayedCount,
+      });
+    } catch (e: unknown) {
+      console.warn('[ReflectionInjectionBus][FreshnessGuard] failed (non-fatal):', e instanceof Error ? e.message : e);
+      try {
+        const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
+        recordReflectionInjectionBusRun('freshnessGuard', {
+          enabled: true,
+          status: 'ERROR',
+          lastRunAt: now.toISOString(),
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } catch (recordError: unknown) {
+        console.warn('[ReflectionInjectionBus][FreshnessGuard] error record failed (non-fatal):', recordError);
+      }
+    }
+  }
+
+  if (process.env.SAFETY_GATE_ATTRIBUTION_ENABLED === 'true') {
+    try {
+      const { computeSafetyGateAttribution } = await import('./safetyGateAttribution.js');
+      const { loadShadowLearningOnlySignals } = await import('../persistence/shadowLearningOnlySignalRepo.js');
+      const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
+      const result = computeSafetyGateAttribution(loadShadowLearningOnlySignals());
+      recordReflectionInjectionBusRun('safetyGate', {
+        enabled: true,
+        status: 'ACTIVE',
+        lastRunAt: now.toISOString(),
+        sampleSize: result.reduce((sum, item) => sum + item.sampleSize, 0),
+      });
+    } catch (e: unknown) {
+      console.warn('[ReflectionInjectionBus][SafetyGate] failed (non-fatal):', e instanceof Error ? e.message : e);
+      try {
+        const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
+        recordReflectionInjectionBusRun('safetyGate', {
+          enabled: true,
+          status: 'ERROR',
+          lastRunAt: now.toISOString(),
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } catch (recordError: unknown) {
+        console.warn('[ReflectionInjectionBus][SafetyGate] error record failed (non-fatal):', recordError);
+      }
+    }
+  }
+
+  if (process.env.SHADOW_LIVE_DELTA_REPORT_ENABLED === 'true') {
+    try {
+      const { computeShadowVsLiveDelta } = await import('./shadowVsLiveDelta.js');
+      const { loadShadowLearningOnlySignals } = await import('../persistence/shadowLearningOnlySignalRepo.js');
+      const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
+      const result = computeShadowVsLiveDelta({
+        shadowSignals: loadShadowLearningOnlySignals(),
+        liveTrades: loadShadowTrades(),
+      });
+      recordReflectionInjectionBusRun('shadowLiveDelta', {
+        enabled: true,
+        status: 'ACTIVE',
+        lastRunAt: now.toISOString(),
+        sampleSize: result.reduce((sum, item) => sum + item.sampleSize, 0),
+      });
+    } catch (e: unknown) {
+      console.warn('[ReflectionInjectionBus][ShadowLiveDelta] failed (non-fatal):', e instanceof Error ? e.message : e);
+      try {
+        const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
+        recordReflectionInjectionBusRun('shadowLiveDelta', {
+          enabled: true,
+          status: 'ERROR',
+          lastRunAt: now.toISOString(),
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } catch (recordError: unknown) {
+        console.warn('[ReflectionInjectionBus][ShadowLiveDelta] error record failed (non-fatal):', recordError);
+      }
+    }
+  }
+
   return { date, mode, executed: true, report, tokensUsed };
 }
 
