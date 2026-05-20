@@ -341,6 +341,10 @@ export function buildGate1ConsolidatedDiagnostic(input: {
   const liveBuyAllowed = boolOrNull(session.liveBuyAllowed);
   const shadowAllowed = boolOrNull(shadow.allowed) ?? boolOrNull(session.shadowAllowed);
   const caseRecordingAllowed = boolOrNull(shadow.caseRecordingAllowed);
+  const quoteProviderDegraded = hasQuoteProviderDegradation(quoteCoverage, quoteFreshness);
+  const quoteDegradedWithoutMissingFields = quoteProviderDegraded
+    && quoteMissingFields.length === 0
+    && quoteConfidence !== 'MISSING';
 
   let health: Gate1ConsolidatedHealth = 'OK';
   let primaryIssue: string | null = null;
@@ -350,7 +354,11 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     health = 'DEGRADED';
     primaryIssue = 'SHADOW_DISABLED_UNEXPECTED';
     operatorAction = 'CHECK_SHADOW_KERNEL';
-  } else if (hasQuoteProviderDegradation(quoteCoverage, quoteFreshness)) {
+  } else if (liveBuyAllowed === false && shadowAllowed === true && quoteDegradedWithoutMissingFields) {
+    health = 'BLOCKED_LIVE_ONLY';
+    primaryIssue = 'LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED';
+    operatorAction = 'CHECK_SESSION_POLICY';
+  } else if (quoteProviderDegraded) {
     health = 'DEGRADED';
     primaryIssue = 'QUOTE_COVERAGE_DEGRADED';
     operatorAction = 'CHECK_QUOTE_PROVIDER';
