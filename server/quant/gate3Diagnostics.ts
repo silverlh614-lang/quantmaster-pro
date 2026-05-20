@@ -157,6 +157,25 @@ export interface Gate3ExternalDataCoverage {
     missingFields: string[];
     notes: string[];
   };
+  pullbackSupport: {
+    required: false;
+    available: boolean;
+    status: Gate3PullbackDiagnostic['status'];
+    fields: Record<string, boolean>;
+    values: Record<string, Numeric>;
+    swing: Gate3PullbackDiagnostic['swing'];
+    movingAverageSupport: Gate3PullbackDiagnostic['movingAverageSupport'];
+    fibonacci: Gate3PullbackDiagnostic['fibonacci'];
+    boxRetest: Gate3PullbackDiagnostic['boxRetest'];
+    pullbackQuality: Gate3PullbackDiagnostic['pullbackQuality'];
+    supportReference: Gate3PullbackDiagnostic['supportReference'];
+    providerIssue: boolean;
+    calculationIssue: boolean;
+    marketSignal: false;
+    executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+    missingFields: string[];
+    notes: string[];
+  };
   volumeStructure: {
     required: true;
     available: boolean;
@@ -209,6 +228,64 @@ export interface Gate3ExternalDataCoverage {
     missingFields: string[];
     notes: string[];
   };
+}
+export interface Gate3PullbackDiagnostic {
+  status: Gate3CoverageStatus;
+  currentPrice: Numeric;
+  swing: {
+    recentSwingHigh: Numeric;
+    recentSwingLow: Numeric;
+    high20d: Numeric;
+    high60d: Numeric;
+    low20d: Numeric;
+    low60d: Numeric;
+    available: boolean;
+    status: 'VERIFIED' | 'PARTIAL' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  movingAverageSupport: {
+    ma20: Numeric;
+    ma60: Numeric;
+    distanceToMa20Pct: Numeric;
+    distanceToMa60Pct: Numeric;
+    nearestSupport: 'MA20' | 'MA60' | 'NONE' | 'UNKNOWN';
+    status: 'SUPPORT_NEAR' | 'EXTENDED' | 'BROKEN' | 'MISSING' | 'UNKNOWN';
+    available: boolean;
+    reason: string | null;
+  };
+  fibonacci: {
+    fib382: Numeric;
+    fib500: Numeric;
+    fib618: Numeric;
+    nearestFib: 'FIB_382' | 'FIB_500' | 'FIB_618' | 'NONE' | 'UNKNOWN';
+    distanceToNearestFibPct: Numeric;
+    status: 'SUPPORT_NEAR' | 'EXTENDED' | 'BROKEN' | 'MISSING' | 'UNKNOWN';
+    available: boolean;
+    reason: string | null;
+  };
+  boxRetest: {
+    boxTop: Numeric;
+    boxBottom: Numeric;
+    distanceToBoxTopPct: Numeric;
+    status: 'RETEST_NEAR' | 'ABOVE_BOX' | 'INSIDE_BOX' | 'BROKEN_BOX' | 'MISSING' | 'UNKNOWN';
+    available: boolean;
+    reason: string | null;
+  };
+  pullbackQuality: {
+    drawdownFromHigh20dPct: Numeric;
+    drawdownFromHigh60dPct: Numeric;
+    pullbackPct: Numeric;
+    status: 'HEALTHY_PULLBACK' | 'TOO_SHALLOW' | 'TOO_DEEP' | 'EXTENDED_CHASE' | 'MISSING' | 'UNKNOWN';
+    reason: string | null;
+  };
+  supportReference: 'MA20' | 'MA60' | 'FIB_382' | 'FIB_500' | 'FIB_618' | 'BOX_TOP' | 'SWING_LOW' | 'NONE' | 'UNKNOWN';
+  source: 'QMP_INDICATORS' | 'YAHOO' | 'KIS_CHART' | 'CACHE' | 'UNKNOWN';
+  providerIssue: boolean;
+  calculationIssue: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  missingFields: string[];
+  notes: string[];
 }
 export interface Gate3MomentumDiagnostic {
   status: Gate3CoverageStatus;
@@ -293,11 +370,12 @@ export interface Gate3PriceStructureDiagnostic {
 const TECH = /(rsi|macd|bb|bollinger|atr|ma\d*|ichimoku)/i;
 const INTRA = /(intraday|minute|realtime|volumeClock|lastTick)/i;
 const VOL = /(volume|avgVolume|volumeRatio|dry|tradingValue)/i;
-const PRICE = /(high\d+d|low\d+d|breakout|pullback|range|currentPrice|price$)/i;
+const PRICE = /(high\d+d|low\d+d|breakout|pullback|range|currentPrice|price$|swing|fib|box)/i;
 
 const unique = (values: string[]): string[] => [...new Set(values.filter(Boolean))];
 const asFinite = (value: unknown): Numeric => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const hasFinite = (source: Record<string, unknown>, key: string): boolean => asFinite(source[key]) != null;
+const pctDistance = (value: Numeric, reference: Numeric): Numeric => value != null && reference != null && reference > 0 ? (value - reference) / reference : null;
 
 function normalizeGate3Status(output: GateEvaluatorOutput): Gate3WiringStatus {
   const raw = output.output?.status
@@ -616,6 +694,189 @@ export function normalizeGate3PriceStructure(input: {
   return { status, currentPrice, priceFieldUsed, high5d, high20d, high60d, low20d, low60d, breakout, turtle, pullback, rangeStructure, source: 'UNKNOWN', providerIssue: false, calculationIssue: missingFields.length > 0, marketSignal: false, executionImpact: 'DIAGNOSTIC_ONLY', missingFields: unique(missingFields), notes: unique(notes) };
 }
 
+export function normalizeGate3Pullback(input: {
+  quote?: Record<string, unknown> | null;
+  priceStructure?: Gate3PriceStructureDiagnostic | null;
+  indicators?: Record<string, unknown> | null;
+  evaluationStage?: 'DISCOVERY_GATE' | 'REFRESHED_GATE' | 'ENTRY_RECHECK_GATE' | 'UNKNOWN';
+}): Gate3PullbackDiagnostic {
+  const quote = input.quote ?? {};
+  const indicators = input.indicators ?? {};
+  const priceStructure = input.priceStructure ?? normalizeGate3PriceStructure({ quote, indicators });
+  const pick = (key: string): Numeric => asFinite(quote[key]) ?? asFinite(indicators[key]);
+  const notes: string[] = ['DO_NOT_HARD_BLOCK_FROM_DIAGNOSTIC'];
+  const missingFields: string[] = [];
+
+  const currentPrice = priceStructure.currentPrice ?? pick('currentPrice') ?? pick('price') ?? pick('close');
+  const high20d = priceStructure.high20d ?? pick('high20d');
+  const high60d = priceStructure.high60d ?? pick('high60d');
+  const low20d = priceStructure.low20d ?? pick('low20d');
+  const low60d = priceStructure.low60d ?? pick('low60d');
+  const explicitSwingHigh = pick('recentSwingHigh') ?? pick('swingHigh');
+  const explicitSwingLow = pick('recentSwingLow') ?? pick('swingLow');
+  const recentSwingHigh = explicitSwingHigh ?? high20d ?? high60d;
+  const recentSwingLow = explicitSwingLow ?? low20d ?? low60d;
+  const ma20 = pick('ma20');
+  const ma60 = pick('ma60');
+  const boxTop = priceStructure.rangeStructure.boxTop ?? pick('boxTop');
+  const boxBottom = priceStructure.rangeStructure.boxBottom ?? pick('boxBottom');
+
+  if (currentPrice == null) missingFields.push('currentPrice');
+  if (high20d == null) missingFields.push('high20d');
+  if (high60d == null) missingFields.push('high60d');
+  if (low20d == null) missingFields.push('low20d');
+  if (low60d == null) missingFields.push('low60d');
+  if (recentSwingHigh == null) missingFields.push('recentSwingHigh');
+  if (recentSwingLow == null) missingFields.push('recentSwingLow');
+  if (ma20 == null) missingFields.push('ma20');
+  if (ma60 == null) missingFields.push('ma60');
+  if (boxTop == null) missingFields.push('boxTop');
+  if (boxBottom == null) missingFields.push('boxBottom');
+
+  const swingAvailable = recentSwingHigh != null && recentSwingLow != null;
+  const swingStatus: Gate3PullbackDiagnostic['swing']['status'] = swingAvailable
+    ? (explicitSwingHigh != null && explicitSwingLow != null ? 'VERIFIED' : 'PARTIAL')
+    : (recentSwingHigh == null && recentSwingLow == null ? 'MISSING' : 'PARTIAL');
+
+  const distanceToMa20Pct = pctDistance(currentPrice, ma20);
+  const distanceToMa60Pct = pctDistance(currentPrice, ma60);
+  const maCandidates = [
+    { key: 'MA20' as const, distance: distanceToMa20Pct },
+    { key: 'MA60' as const, distance: distanceToMa60Pct },
+  ].filter(item => item.distance != null);
+  const nearestMa = maCandidates.sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
+  const nearestSupport = nearestMa?.key ?? (ma20 == null && ma60 == null ? 'UNKNOWN' : 'NONE');
+  const nearestMaDistance = nearestMa?.distance ?? null;
+  const maStatus: Gate3PullbackDiagnostic['movingAverageSupport']['status'] = nearestMaDistance == null
+    ? 'MISSING'
+    : nearestMaDistance < -0.03 ? 'BROKEN'
+      : Math.abs(nearestMaDistance) <= 0.03 ? 'SUPPORT_NEAR'
+        : 'EXTENDED';
+  if (maStatus === 'MISSING') notes.push('MA_INPUT_MISSING_NOT_TREND_BROKEN');
+
+  const swingRange = recentSwingHigh != null && recentSwingLow != null ? recentSwingHigh - recentSwingLow : null;
+  const canCalculateFib = recentSwingHigh != null && recentSwingLow != null && swingRange != null && swingRange > 0;
+  const fib382 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.382 : null;
+  const fib500 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.5 : null;
+  const fib618 = canCalculateFib ? recentSwingHigh! - swingRange! * 0.618 : null;
+  const fibCandidates = [
+    { key: 'FIB_382' as const, value: fib382 },
+    { key: 'FIB_500' as const, value: fib500 },
+    { key: 'FIB_618' as const, value: fib618 },
+  ].filter(item => item.value != null && currentPrice != null);
+  const nearestFibCandidate = fibCandidates
+    .map(item => ({ key: item.key, value: item.value, distance: pctDistance(currentPrice, item.value) }))
+    .sort((a, b) => Math.abs(a.distance!) - Math.abs(b.distance!))[0];
+  const nearestFib = nearestFibCandidate?.key ?? (canCalculateFib ? 'NONE' : 'UNKNOWN');
+  const distanceToNearestFibPct = nearestFibCandidate?.distance ?? null;
+  const fibStatus: Gate3PullbackDiagnostic['fibonacci']['status'] = distanceToNearestFibPct == null
+    ? 'MISSING'
+    : distanceToNearestFibPct < -0.03 ? 'BROKEN'
+      : Math.abs(distanceToNearestFibPct) <= 0.03 ? 'SUPPORT_NEAR'
+        : 'EXTENDED';
+  if (fibStatus === 'MISSING') notes.push('FIB_INPUT_MISSING_NOT_FAIL');
+  if (fibStatus === 'SUPPORT_NEAR') notes.push('FIB_SUPPORT_NEAR_DIAGNOSTIC_ONLY');
+
+  const distanceToBoxTopPct = pctDistance(currentPrice, boxTop);
+  const boxStatus: Gate3PullbackDiagnostic['boxRetest']['status'] = distanceToBoxTopPct == null
+    ? 'MISSING'
+    : distanceToBoxTopPct >= 0 && distanceToBoxTopPct <= 0.03 ? 'RETEST_NEAR'
+      : distanceToBoxTopPct > 0.03 ? 'ABOVE_BOX'
+        : boxBottom != null && currentPrice != null && currentPrice < boxBottom ? 'BROKEN_BOX'
+          : 'INSIDE_BOX';
+  if (boxStatus === 'MISSING') notes.push('BOX_RETEST_INPUT_MISSING_NOT_FAIL');
+
+  const drawdownFromHigh20dPct = priceStructure.pullback.drawdownFromHigh20dPct ?? pctDistance(currentPrice, high20d);
+  const drawdownFromHigh60dPct = priceStructure.pullback.drawdownFromHigh60dPct ?? pctDistance(currentPrice, high60d);
+  const pullbackReferenceHigh = explicitSwingHigh ?? high20d ?? high60d;
+  const pullbackPct = pctDistance(currentPrice, pullbackReferenceHigh);
+  const pullbackQualityStatus: Gate3PullbackDiagnostic['pullbackQuality']['status'] = pullbackPct == null
+    ? 'MISSING'
+    : pullbackPct > 0.08 ? 'EXTENDED_CHASE'
+      : pullbackPct > -0.02 ? 'TOO_SHALLOW'
+        : pullbackPct >= -0.15 ? 'HEALTHY_PULLBACK'
+          : 'TOO_DEEP';
+  if (pullbackQualityStatus === 'MISSING') notes.push('PULLBACK_INPUT_MISSING_NOT_FAIL');
+  if (pullbackQualityStatus === 'EXTENDED_CHASE') notes.push('EXTENDED_CHASE_DIAGNOSTIC_ONLY');
+  if (pullbackQualityStatus === 'TOO_DEEP') notes.push('TOO_DEEP_PULLBACK_DIAGNOSTIC_ONLY');
+
+  const supportReference: Gate3PullbackDiagnostic['supportReference'] = maStatus === 'SUPPORT_NEAR' && nearestSupport !== 'NONE' && nearestSupport !== 'UNKNOWN'
+    ? nearestSupport
+    : fibStatus === 'SUPPORT_NEAR' && nearestFib !== 'NONE' && nearestFib !== 'UNKNOWN'
+      ? nearestFib
+      : boxStatus === 'RETEST_NEAR' ? 'BOX_TOP'
+        : recentSwingLow != null && currentPrice != null && Math.abs(pctDistance(currentPrice, recentSwingLow) ?? Infinity) <= 0.03 ? 'SWING_LOW'
+          : 'NONE';
+  if (supportReference === 'NONE' || supportReference === 'UNKNOWN') notes.push('SUPPORT_REFERENCE_UNKNOWN');
+
+  const subStatuses = [swingStatus, maStatus, fibStatus, boxStatus, pullbackQualityStatus] as string[];
+  const allMissing = subStatuses.every(status => status === 'MISSING' || status === 'UNKNOWN');
+  const degraded = currentPrice == null || swingStatus === 'MISSING' || pullbackQualityStatus === 'MISSING';
+  const status: Gate3CoverageStatus = allMissing
+    ? 'MISSING'
+    : degraded ? 'DEGRADED'
+      : missingFields.length > 0 ? 'PARTIAL' : 'VERIFIED';
+
+  return {
+    status,
+    currentPrice,
+    swing: {
+      recentSwingHigh,
+      recentSwingLow,
+      high20d,
+      high60d,
+      low20d,
+      low60d,
+      available: swingAvailable,
+      status: swingStatus,
+      reason: swingAvailable ? null : 'INPUT_MISSING',
+    },
+    movingAverageSupport: {
+      ma20,
+      ma60,
+      distanceToMa20Pct,
+      distanceToMa60Pct,
+      nearestSupport,
+      status: maStatus,
+      available: maStatus !== 'MISSING',
+      reason: maStatus === 'MISSING' ? 'INPUT_MISSING' : null,
+    },
+    fibonacci: {
+      fib382,
+      fib500,
+      fib618,
+      nearestFib,
+      distanceToNearestFibPct,
+      status: fibStatus,
+      available: fibStatus !== 'MISSING',
+      reason: fibStatus === 'MISSING' ? 'INPUT_MISSING' : null,
+    },
+    boxRetest: {
+      boxTop,
+      boxBottom,
+      distanceToBoxTopPct,
+      status: boxStatus,
+      available: boxStatus !== 'MISSING',
+      reason: boxStatus === 'MISSING' ? 'INPUT_MISSING' : null,
+    },
+    pullbackQuality: {
+      drawdownFromHigh20dPct,
+      drawdownFromHigh60dPct,
+      pullbackPct,
+      status: pullbackQualityStatus,
+      reason: pullbackQualityStatus === 'MISSING' ? 'INPUT_MISSING' : null,
+    },
+    supportReference,
+    source: 'UNKNOWN',
+    providerIssue: false,
+    calculationIssue: missingFields.length > 0,
+    marketSignal: false,
+    executionImpact: 'DIAGNOSTIC_ONLY',
+    missingFields: unique(missingFields),
+    notes: unique(notes),
+  };
+}
+
 export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): Gate3ExternalDataCoverage {
   const resolveStatus = (fields: Record<string, boolean>, required: boolean): { available: boolean; status: Gate3CoverageStatus } => {
     const values = Object.values(fields);
@@ -636,6 +897,7 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     ma60: hasFinite(quote, 'ma60'),
   };
   const priceDiag = normalizeGate3PriceStructure({ quote });
+  const pullbackDiag = normalizeGate3Pullback({ quote, priceStructure: priceDiag, indicators: quote });
   const momentumDiag = normalizeGate3Momentum({ quote, indicators: quote, priceStructure: priceDiag });
   const priceFields = {
     currentPrice: hasFinite(quote, 'currentPrice'),
@@ -729,6 +991,57 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       executionImpact: 'DIAGNOSTIC_ONLY',
       missingFields: priceDiag.missingFields,
       notes: priceDiag.notes,
+    },
+    pullbackSupport: {
+      required: false,
+      available: pullbackDiag.status !== 'MISSING',
+      status: pullbackDiag.status,
+      fields: {
+        currentPrice: pullbackDiag.currentPrice != null,
+        recentSwingHigh: pullbackDiag.swing.recentSwingHigh != null,
+        recentSwingLow: pullbackDiag.swing.recentSwingLow != null,
+        high20d: pullbackDiag.swing.high20d != null,
+        high60d: pullbackDiag.swing.high60d != null,
+        low20d: pullbackDiag.swing.low20d != null,
+        low60d: pullbackDiag.swing.low60d != null,
+        ma20: pullbackDiag.movingAverageSupport.ma20 != null,
+        ma60: pullbackDiag.movingAverageSupport.ma60 != null,
+        fib382: pullbackDiag.fibonacci.fib382 != null,
+        fib500: pullbackDiag.fibonacci.fib500 != null,
+        fib618: pullbackDiag.fibonacci.fib618 != null,
+        boxTop: pullbackDiag.boxRetest.boxTop != null,
+        boxBottom: pullbackDiag.boxRetest.boxBottom != null,
+        supportReference: pullbackDiag.supportReference !== 'NONE' && pullbackDiag.supportReference !== 'UNKNOWN',
+      },
+      values: {
+        currentPrice: pullbackDiag.currentPrice,
+        recentSwingHigh: pullbackDiag.swing.recentSwingHigh,
+        recentSwingLow: pullbackDiag.swing.recentSwingLow,
+        high20d: pullbackDiag.swing.high20d,
+        high60d: pullbackDiag.swing.high60d,
+        low20d: pullbackDiag.swing.low20d,
+        low60d: pullbackDiag.swing.low60d,
+        ma20: pullbackDiag.movingAverageSupport.ma20,
+        ma60: pullbackDiag.movingAverageSupport.ma60,
+        fib382: pullbackDiag.fibonacci.fib382,
+        fib500: pullbackDiag.fibonacci.fib500,
+        fib618: pullbackDiag.fibonacci.fib618,
+        drawdownFromHigh20dPct: pullbackDiag.pullbackQuality.drawdownFromHigh20dPct,
+        drawdownFromHigh60dPct: pullbackDiag.pullbackQuality.drawdownFromHigh60dPct,
+        pullbackPct: pullbackDiag.pullbackQuality.pullbackPct,
+      },
+      swing: pullbackDiag.swing,
+      movingAverageSupport: pullbackDiag.movingAverageSupport,
+      fibonacci: pullbackDiag.fibonacci,
+      boxRetest: pullbackDiag.boxRetest,
+      pullbackQuality: pullbackDiag.pullbackQuality,
+      supportReference: pullbackDiag.supportReference,
+      providerIssue: pullbackDiag.providerIssue,
+      calculationIssue: pullbackDiag.calculationIssue,
+      marketSignal: false,
+      executionImpact: pullbackDiag.executionImpact,
+      missingFields: pullbackDiag.missingFields,
+      notes: pullbackDiag.notes,
     },
     volumeStructure: {
       required: true,
