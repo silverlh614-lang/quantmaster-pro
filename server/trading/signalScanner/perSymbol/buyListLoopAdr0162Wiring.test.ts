@@ -14,6 +14,7 @@ const SOURCE_PATH = join(process.cwd(), 'server/trading/signalScanner/perSymbol/
 const MAIN_SOURCE = readFileSync(SOURCE_PATH, 'utf-8');
 const SOURCE =
   MAIN_SOURCE + '\n' +
+  readFileSync(join(process.cwd(), 'server/trading/signalScanner/perSymbol/steps/exposureBudgetCap.ts'), 'utf-8') + '\n' +
   readFileSync(join(process.cwd(), 'server/trading/signalScanner/perSymbol/steps/preBreakoutFollowthroughBudget.ts'), 'utf-8') + '\n' +
   readFileSync(join(process.cwd(), 'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts'), 'utf-8');
 

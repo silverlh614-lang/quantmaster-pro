@@ -11,7 +11,7 @@
  * signalScanner.ts L528~L1456 (929줄) 와 100% 동작 일치 (byte-equivalent 이주).
  */
 
-import { logger, logNoiseDetail, logVisibilityEvent } from '../../../utils/logger.js';
+import { logNoiseDetail, logVisibilityEvent } from '../../../utils/logger.js';
 
 import type { WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import {
@@ -25,9 +25,6 @@ import {
   canReserveBanditProbingSlot,
 } from '../../../learning/probingBandit.js';
 import { buildEntryConditionScores } from '../../../learning/entryConditionScores.js';
-import { computeSlotConsumption } from '../../slotAccounting.js';
-// ADR-0068 (PR-R): Shadow Learning Hooks — PR-L (Rejection Tracker) + PR-M (Twin Portfolio) wiring
-import { recordTwinEntries } from '../../../learning/counterfactualTwinPortfolio.js';
 import { addRecommendation } from '../../../learning/recommendationTracker.js';
 import { recordAiCandidate, buildSignalId } from '../../../persistence/tradeSignalStatusRepo.js';
 import { evaluateServerGate } from '../../../quantFilter.js';
@@ -83,33 +80,23 @@ import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
 // Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow approval 중복 발송 차단 SSOT.
 //   evaluateBuyList 진입부 1회 deriveShadowApprovalContext() 호출 → 모든 createBuyTask 에 propagate.
 //   LIVE 모드 무영향 (SHADOW 모드 + tradeDate + marketSession 모두 전달 시 buyPipeline / buyApproval 측 guard 활성).
-import { deriveShadowApprovalContext } from '../../../telegram/shadowApprovalDedupeStore.js';
 // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — Shadow approval 직후 paper-fill 영속 SSOT.
 //   onApproved 콜백이 ctx.shadows.push 만 하고 saveShadowTrades 미호출하던 결함 차단.
 //   status PENDING → ACTIVE 전이 + INITIAL_BUY fill 영속 + [Shadow 체결] Telegram + 멱등 가드.
 //   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향 (mode='LIVE' 시 NOT_SHADOW skip).
-import { getPrice, getAdaptiveProfitTargets, buildExposureBudgetMacroInput, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
+import { getAdaptiveProfitTargets, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0516 — Watchlist Tier 정책: KIS REST 호출 빈도 차등화 SSOT.
 //   MOMENTUM_PASSIVE / KIS_LOAD_STATE=RED 등 tier 정책이 REST fallback 을 차단하면
 //   getPrice 가 null 반환 → FAIL 아닌 SKIP_TIER_PASSIVE_NO_REST 로 처리 (DATA_VACUUM /
 //   providerIssue / marketSignal / NEW_BUY_BLOCKED 으로 격상 금지).
-import { resolveWatchlistKisPolicy } from '../../watchlistKisTierPolicy.js';
 // ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
-import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
-// ADR-0167 — currentEquityExposureAmount 정확 산출 SSOT (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true` 활성화).
-import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
-// ADR-0171 — Sizing-ExposureBudget 진단 로그 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true` 명시 활성화).
-import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
+import { applyPositionSizingEngine } from '../../sizing/positionSizingEngineWiring.js';
 // PATCH-010 — Shadow Bull Exposure Floor (default OFF, ENV `SHADOW_BULL_EXPOSURE_FLOOR_ENABLED=true` 명시 활성화).
 import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 import {
-  applySupplyHealthToSignal,
-  createLearningSampleFromDecision,
-  determineExecutionMode,
   type TradingSignal,
 } from '../../../learning/supplyHealthLearning.js';
-import { appendLearningSample } from '../../../persistence/learningSampleRepo.js';
 import { normalizeMacroRegime } from '../../entryPolicySemantics.js';
 import { checkEntryPriceDrift } from './steps/entryPriceDrift.js';
 import { kisIntradayCorrectionStep } from './steps/kisIntradayCorrection.js';
@@ -125,10 +112,15 @@ import { counterfactualShadowLearning } from './steps/counterfactualShadowLane.j
 import { handleApprovalQueue } from './steps/approvalQueue.js';
 import { preBreakoutFollowthrough } from './steps/preBreakoutFollowthrough.js';
 import { preBreakoutEntry } from './steps/preBreakoutEntry.js';
-
-function kstDecisionDate(): string {
-  return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
-}
+import { exposureBudgetCap } from './steps/exposureBudgetCap.js';
+import {
+  applyBuySupplyHealthPolicy,
+  supplyHealthRouting,
+} from './steps/supplyHealthRouting.js';
+import {
+  createBuyListLoopRunState,
+  loopInitializer,
+} from './steps/loopInitializer.js';
 
 function flushEntryRevalidationSkippedSummary(
   items: readonly EntryRevalidationSkippedBatchItem[],
@@ -168,93 +160,6 @@ function flushEntryRevalidationSkippedSummary(
   });
 }
 
-function recordSupplyHealthLearningSample(params: {
-  stockCode: string;
-  stockName: string;
-  currentPrice: number;
-  rawSignal: TradingSignal;
-  rawScore: number;
-  requestedSize: number;
-  ctx: BuyListLoopContext;
-}): void {
-  const snapshot = params.ctx.supplyHealthSnapshot;
-  if (!snapshot) return;
-  try {
-    appendLearningSample(createLearningSampleFromDecision({
-      symbol: params.stockCode,
-      name: params.stockName,
-      market: 'UNKNOWN',
-      date: kstDecisionDate(),
-      currentPrice: params.currentPrice,
-      rawSignal: params.rawSignal,
-      rawScore: params.rawScore,
-      positionSize: params.requestedSize,
-      supplyHealthSnapshot: snapshot,
-    }));
-  } catch (e) {
-    console.warn('[SupplyHealthLearning] sample append failed:', e);
-  }
-}
-
-function applyBuySupplyHealthPolicy(params: {
-  stockCode: string;
-  stockName: string;
-  currentPrice: number;
-  rawSignal: TradingSignal;
-  rawScore: number;
-  requestedSize: number;
-  shadowMode: boolean;
-  ctx: BuyListLoopContext;
-}): {
-  blocked: boolean;
-  shadowMode: boolean;
-  finalQuantity: number;
-  finalSignal: TradingSignal;
-  healthDecision?: ReturnType<typeof applySupplyHealthToSignal>;
-} {
-  const snapshot = params.ctx.supplyHealthSnapshot;
-  if (!snapshot) {
-    return {
-      blocked: false,
-      shadowMode: params.shadowMode,
-      finalQuantity: params.requestedSize,
-      finalSignal: params.rawSignal,
-    };
-  }
-
-  const healthDecision = applySupplyHealthToSignal({
-    rawSignal: params.rawSignal,
-    rawScore: params.rawScore,
-    positionSize: params.requestedSize,
-    supplyHealthSnapshot: snapshot,
-  });
-  recordSupplyHealthLearningSample(params);
-  const executionMode = determineExecutionMode({
-    rawSignal: params.rawSignal,
-    finalSignal: healthDecision.finalSignal,
-    dataConfidence: healthDecision.dataConfidence,
-    overallStatus: snapshot.summary.overallStatus,
-    wasDowngradedBySupplyHealth: healthDecision.wasDowngradedBySupplyHealth,
-  });
-  if (executionMode === 'BLOCKED' || executionMode === 'WATCHLIST') {
-    console.log(`[AutoTrade/SupplyHealth] ${params.stockName}(${params.stockCode}) ${executionMode} by supply_health`);
-    return {
-      blocked: true,
-      shadowMode: params.shadowMode,
-      finalQuantity: 0,
-      finalSignal: healthDecision.finalSignal,
-      healthDecision,
-    };
-  }
-  return {
-    blocked: false,
-    shadowMode: executionMode === 'SHADOW' ? true : params.shadowMode,
-    finalQuantity: Math.max(0, Math.floor(healthDecision.positionSizeAfterHealth ?? params.requestedSize)),
-    finalSignal: healthDecision.finalSignal,
-    healthDecision,
-  };
-}
-
 const PRE_ENTRY_WAIT_DEDUPE_MS = 30 * 60 * 1000;
 const preEntryWaitLogLastEmittedAt = new Map<string, number>();
 
@@ -281,19 +186,6 @@ export function shouldEmitPreEntryWaitLog(
   if (last > 0 && nowMs - last < dedupeMs) return false;
   preEntryWaitLogLastEmittedAt.set(key, nowMs);
   return true;
-}
-
-function getDiagnosticLiveBlockReason(ctx: BuyListLoopContext): string | undefined {
-  const reason = ctx.liveEntryBlockedReason?.trim();
-  if (reason) return reason;
-  return ctx.positionFullDiagnosticOnly ? 'POSITION_FULL' : undefined;
-}
-
-function isMacroDiagnosticLiveBlockReason(reason: string | undefined): boolean {
-  if (!reason) return false;
-  const macroReasons = new Set(['SELL_ONLY', 'R4_NEUTRAL', 'R5_CAUTION', 'R6_DEFENSE', 'VIX_BLOCK', 'FOMC_BLOCK']);
-  const parts = reason.split(',').map((part) => part.trim()).filter(Boolean);
-  return parts.length > 0 && parts.every((part) => macroReasons.has(part));
 }
 
 function suppressDiagnosticLiveBuyTask(
@@ -339,8 +231,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   // Patch-SHADOW-APPROVAL-DEDUP-001 — 본 스캔 사이클 SSOT 컨텍스트 (tradeDate + marketSession).
   // SHADOW 모드 createBuyTask 호출 시 buyPipeline → requestBuyApproval 가 이 두 필드로 dedupeKey 생성.
   // LIVE 모드 호출 site 도 동일 propagate 하나 buyPipeline 측 guard 가 SHADOW 분기에서만 발동.
-  const _shadowApprovalCtx = deriveShadowApprovalContext();
-  let diagnosticLiveBlockLogged = false;
+  const loopRunState = createBuyListLoopRunState();
   const entryRevalidationSkippedBatch: EntryRevalidationSkippedBatchItem[] = [];
   for (const stock of ctx.buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
@@ -349,142 +240,30 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     const isMomentumShadow = stock.section === 'MOMENTUM';
     let stockShadowMode = ctx.shadowMode || isMomentumShadow;
 
-    // 아이디어 7: 루프 내에서도 포지션 수 재확인 (같은 스캔 중 복수 진입 방지)
-    // BUG-09 정합성: 사전 점검(activeSwingCount)이 PRE_BREAKOUT(30% 선취매)을 제외하는 것과
-    // 동일 기준을 적용해야 한다. 루프 내에서만 PRE_BREAKOUT을 포함하면 사전 점검은 "여유 있음",
-    // 루프는 "만석"이라 판정해 보유 슬롯이 남았음에도 매수가 전혀 발생하지 않는 무성 실패가 난다.
-    //
-    // ADR-0080 PR-S1: 게이트 비교는 자본 가중 슬롯(consumed) 사용 — 30% 잔존 5개 = 1.5 슬롯
-    // 점유로 환산해 만재 차단을 회피. 단, sizing 분모(line ~902 remainingSlots)는 PR-S2 까지
-    // currentActive(rawCount) 유지 — 분할 비율 영향이라 shadow mode 1주 검증 후 분리 적용.
-    const slotResult = computeSlotConsumption(ctx.shadows, ctx.effectiveMaxPositions);
-    const currentActive = slotResult.rawCount;        // sizing 분모용 (PR-S2 후속 변경 대상)
-    const totalCommitted = slotResult.consumed + ctx.mutables.reservedSlots.value;
-    const diagnosticLiveBlockReason = getDiagnosticLiveBlockReason(ctx);
-    const macroDiagnosticLiveBlock = isMacroDiagnosticLiveBlockReason(diagnosticLiveBlockReason);
-    if (!isMomentumShadow && macroDiagnosticLiveBlock) {
-      stockShadowMode = true;
+    const loopInit = await loopInitializer({
+      ctx,
+      stock,
+      isMomentumShadow,
+      initialStockShadowMode: stockShadowMode,
+      diagnosticLiveBlockLogged: loopRunState.diagnosticLiveBlockLogged,
+    });
+    loopRunState.diagnosticLiveBlockLogged = loopInit.diagnosticLiveBlockLogged;
+    if (loopInit.action !== 'CONTINUE') {
+      if (loopInit.action === 'BREAK') break;
+      continue;
     }
-    if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && !diagnosticLiveBlockReason) {
-      // MOMENTUM Shadow 는 LIVE 슬롯 한도에 귀속되지 않으므로 이 가드를 건너뛴다.
-      console.log(
-        `[AutoTrade] 최대 포지션 도달 (활성 ${slotResult.consumed.toFixed(2)} + 예약 ${ctx.mutables.reservedSlots.value} = ${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions}${ctx.sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${ctx.regime}, raw=${slotResult.rawCount}) — 나머지 종목 스킵`,
-      );
-      break;
-    }
-    if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && diagnosticLiveBlockReason) {
-      stockShadowMode = true;
-      if (!diagnosticLiveBlockLogged) {
-        console.log(
-          `[AutoTrade] ${diagnosticLiveBlockReason} diagnostic-only path active — live buy tasks suppressed while gate diagnostics continue (${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions})`,
-        );
-        diagnosticLiveBlockLogged = true;
-      }
-    } else if (!isMomentumShadow && macroDiagnosticLiveBlock && !diagnosticLiveBlockLogged) {
-      console.log(
-        `[AutoTrade] ${diagnosticLiveBlockReason} macro diagnostic path active — live buy tasks routed to shadow while gate diagnostics continue`,
-      );
-      diagnosticLiveBlockLogged = true;
-    }
+
+    const {
+      currentActive,
+      currentPrice,
+      stageLog,
+      pushTrace,
+      diagnosticLiveBlockReason,
+      macroDiagnosticLiveBlock,
+    } = loopInit;
+    stockShadowMode = loopInit.stockShadowMode;
 
     try {
-      const stageLog: Record<string, string> = {};
-      const pushTrace = () => ctx.scanCounters.pendingTraces.push({
-        ts: new Date().toISOString().slice(11, 19),
-        stock: stock.code,
-        name:  stock.name,
-        stages: { ...stageLog },
-      });
-
-      // ADR-0516 — Watchlist Tier 정책으로 KIS REST 호출 빈도 차등화.
-      //   - 보유 종목(shadows 활성) → OPEN_POSITION (REST 항상 허용, P0 보호)
-      //   - force buy → ENTRY_CANDIDATE 격상 (P0 보호 — 무성 실패 차단)
-      //   - SWING/CATALYST → REST 허용 / MOMENTUM 상위 N개만 REST 허용
-      //   - MOMENTUM_PASSIVE / KIS RED → REST 차단 (WS 실시간 가격은 그대로 사용)
-      const isHeldPosition = ctx.shadows.some(
-        (s) => s.stockCode === stock.code && isOpenShadowStatus(s.status),
-      );
-      const kisTierPolicy = resolveWatchlistKisPolicy({
-        section: stock.section,
-        gateScore: stock.gateScore,
-        stage2Score: stock.stage2Score,
-        momentumRank: (stock as { momentumRank?: number }).momentumRank,
-        isOpenPosition: isHeldPosition,
-        isForceBuy: (stock as { isForceBuy?: boolean }).isForceBuy,
-      });
-      const currentPrice = await getPrice(stock.code, {
-        section: stock.section,
-        gateScore: stock.gateScore,
-        stage2Score: stock.stage2Score,
-        isOpenPosition: isHeldPosition,
-        allowRestFallback: kisTierPolicy.allowRestPrice,
-        restTtlMs: kisTierPolicy.priceTtlMs,
-        pricePurpose: 'BUY_EVAL',
-        stockName: stock.name,
-      });
-      if (!currentPrice) {
-        // ADR-0516 — tier 정책 REST 차단으로 가격 미확보 시 FAIL 아닌 SKIP.
-        // DATA_VACUUM / providerIssue / marketSignal / NEW_BUY_BLOCKED 으로 격상 금지.
-        // Shadow learning 은 계속되나 MOMENTUM_PASSIVE 후보는 이번 사이클 표본을 건너뛴다.
-        if (!kisTierPolicy.allowRestPrice) {
-          stageLog.price = 'SKIP_TIER_PASSIVE_NO_REST';
-          ctx.scanCounters.waitTierRestSuppressed =
-            (ctx.scanCounters.waitTierRestSuppressed ?? 0) + 1;
-          if (process.env.WATCHLIST_KIS_TIER_DEBUG === 'true') {
-            console.debug(
-              `[WATCHLIST_KIS_TIER] symbol=${stock.code} section=${stock.section ?? '?'} ` +
-                `tier=${kisTierPolicy.tier} allowRestPrice=false reason=${kisTierPolicy.reason} ` +
-                `executionImpact=NONE marketSignal=false`,
-            );
-          }
-          pushTrace();
-          continue;
-        }
-        stageLog.price = 'FAIL';
-        pushTrace();
-        continue;
-      }
-      stageLog.price = 'PASS';
-
-      // ADR-0120 (PR-B): Gate 1/2/3 통과 카운터 누적 — emptyScanClassifier
-      // NO_LEADERSHIP / NO_TIMING 분기 입력 데이터 제공 + R3 Sanity Check 입력.
-      // stock.gateEvaluation 은 enrichment 단계에서 사전 산출된 값 (StockRecommendation
-      // 에 정의되어 있으나 WatchlistEntry 에는 부재). inline cast 로 영속 schema
-      // 변경 회피. try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
-      //
-      // GateEvaluation 미영속 구 watchlist 항목은 gate1Unknown 으로만 집계한다.
-      try {
-        const ge = stock.gateEvaluation;
-        if (ge?.gate1Passed === true) {
-          ctx.scanCounters.gate1Pass++;
-        } else if (!ge) {
-          ctx.scanCounters.gate1Unknown++;
-        }
-        if (ge?.gate2Passed === true) ctx.scanCounters.gate2Pass++;
-        if (ge?.gate3Passed === true) ctx.scanCounters.gate3Pass++;
-      } catch (e) {
-        console.warn('[ADR-0120] Gate pass 카운터 누적 실패:', e);
-      }
-
-      // ADR-0068 (PR-R): Twin Portfolio 학습 hook — 모든 candidate 를 3 Twin 정책 평가.
-      // recordTwinEntries 가 Gate Score 별 정책 (AGGRESSIVE ≥14 / DISCIPLINED ≥22 /
-      // EQUAL_WEIGHT ≥18) 평가 후 통과한 Twin 만 영속. 멱등 dupKey 로 중복 차단.
-      // try/catch 격리 — throw 시 LIVE 매매 흐름 무중단.
-      try {
-        const kstDate = new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
-        recordTwinEntries({
-          stockCode: stock.code,
-          stockName: stock.name,
-          signalDate: kstDate,
-          gateScore: stock.gateScore ?? 0,
-          entryPrice: currentPrice,
-          // PR-R 본 PR scope: 0.10 균등 weight (sizingDecider 결과 입력은 후속 wiring)
-          kellyWeight: 0.10,
-        });
-      } catch (e) {
-        console.warn(`[TwinPortfolio] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
-      }
-
       const entryPriceDriftResult = await checkEntryPriceDrift(ctx, stock, currentPrice, stageLog, pushTrace);
       if (entryPriceDriftResult === 'SKIP') continue;
 
@@ -500,7 +279,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stockShadowMode,
         diagnosticLiveBlockReason,
         macroDiagnosticLiveBlock,
-        shadowApprovalCtx: _shadowApprovalCtx,
+        shadowApprovalCtx: loopRunState.shadowApprovalCtx,
         applyBuySupplyHealthPolicy,
         suppressDiagnosticLiveBuyTask,
       });
@@ -528,7 +307,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stockShadowMode,
         diagnosticLiveBlockReason,
         macroDiagnosticLiveBlock,
-        shadowApprovalCtx: _shadowApprovalCtx,
+        shadowApprovalCtx: loopRunState.shadowApprovalCtx,
         applyBuySupplyHealthPolicy,
         suppressDiagnosticLiveBuyTask,
         logPreEntryWaitDebug,
@@ -831,31 +610,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
 
       const baseQuantity = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
 
-      // ── ADR-0166 (Phase 2-D Exposure Budget): 레짐별 총 노출 예산 cap ──
-      // 활성 조건: ENV `POSITION_SIZING_EXPOSURE_BUDGET_ENABLED=true` (default OFF).
-      // ENV OFF 시 baseQuantity 그대로 (회귀 위험 격리).
-      const exposureCapMain = applyExposureBudgetCap({
-        rawQuantity: baseQuantity,
-        shadowEntryPrice,
-        accountEquity: ctx.totalAssets,
-        currentEquityExposureAmount: resolveCurrentEquityExposure(ctx.totalAssets, ctx.mutables.orderableCash.value, ctx.shadows),
-        currentCashAmount: ctx.mutables.orderableCash.value,
-        regime: ctx.regime,
-        isAddOnBuy: false,  // 메인 buyList = 신규 진입
-        macro: buildExposureBudgetMacroInput(ctx.macroState),  // ADR-0170 §M4 — R1_DEFENSIVE 자동 격상
-      });
-      const finalQuantity = exposureCapMain.applied ? exposureCapMain.finalQuantity : baseQuantity;
-      if (exposureCapMain.applied && exposureCapMain.capResult?.cappedByExposureBudget) {
-        // ADR-0171 — 10 필드 SSOT formatter (메인 buyList = pathLabel 미전달, regime 노출 4 필드 default).
-        console.log(formatExposureBudgetLog({
-          stockCode: stock.code,
-          stockName: stock.name,
-          rawQuantity: baseQuantity,
-          finalQuantity,
-          budget: exposureCapMain.budget,
-          capResult: exposureCapMain.capResult,
-        }));
-      }
+      const finalQuantity = exposureBudgetCap(ctx, stock, shadowEntryPrice, baseQuantity);
       const sizingSource = sizingApply.sizingSource;
       const sizingEngineSnapshot = sizingApply.applied && sizingApply.result ? {
         tierName:               sizingApply.result.tier.name,
@@ -884,56 +639,23 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} → skip ${sizingApply.skipReason} (legacy 사용)`);
       }
 
-      // ── ADR-0173: Supply Health 기반 신호 강등 및 실행 모드 강제 라우팅 ──
-      // 실시간 수급 데이터 장애 시 즉각적으로 SHADOW 강등 또는 BLOCKED 처리
-      const supplyHealthSnapshot = ctx.supplyHealthSnapshot;
       const rawSignalLevel: TradingSignal = isStrongBuy ? 'STRONG_BUY' : 'BUY';
-      let finalSignalLevel: TradingSignal = rawSignalLevel;
-      let supplyAdjustedFinalQuantity = finalQuantity;
-      let healthDecision: ReturnType<typeof applySupplyHealthToSignal> | undefined = undefined;
-      
-      if (supplyHealthSnapshot) {
-        healthDecision = applySupplyHealthToSignal({
-          rawSignal: rawSignalLevel,
-          rawScore: gateScore,
-          positionSize: finalQuantity,
-          supplyHealthSnapshot,
-        });
-        recordSupplyHealthLearningSample({
-          stockCode: stock.code,
-          stockName: stock.name,
-          currentPrice,
-          rawSignal: rawSignalLevel,
-          rawScore: gateScore,
-          requestedSize: finalQuantity,
-          ctx,
-        });
-
-        const executionMode = determineExecutionMode({
-          rawSignal: rawSignalLevel,
-          finalSignal: healthDecision.finalSignal,
-          dataConfidence: healthDecision.dataConfidence,
-          overallStatus: supplyHealthSnapshot.summary.overallStatus,
-          wasDowngradedBySupplyHealth: healthDecision.wasDowngradedBySupplyHealth,
-        });
-
-        if (executionMode === 'BLOCKED') {
-          console.log(`[AutoTrade/SupplyHealth] ${stock.name}(${stock.code}) 수급 데이터 BROKEN — 진입 차단`);
-          continue;
-        }
-        if (executionMode === 'WATCHLIST') {
-          console.log(`[AutoTrade/SupplyHealth] ${stock.name}(${stock.code}) 수급 데이터 불안정 — WATCHLIST 유지 (진입 보류)`);
-          continue;
-        }
-        if (executionMode === 'SHADOW' && !stockShadowMode) {
-          console.log(`[AutoTrade/SupplyHealth] ⚠️ ${stock.name}(${stock.code}) 수급 데이터 저신뢰 — 강제 SHADOW 모드 전환`);
-          stockShadowMode = true; // LIVE 모드를 SHADOW로 안전하게 우회
-        }
-
-        supplyAdjustedFinalQuantity = Math.max(0, Math.floor(healthDecision.positionSizeAfterHealth ?? finalQuantity));
-        finalSignalLevel = healthDecision.finalSignal;
-      }
-      if (supplyAdjustedFinalQuantity < 1) continue;
+      const supplyRouting = supplyHealthRouting({
+        ctx,
+        stock,
+        currentPrice,
+        rawSignalLevel,
+        gateScore,
+        finalQuantity,
+        stockShadowMode,
+      });
+      if (supplyRouting.action === 'SKIP') continue;
+      stockShadowMode = supplyRouting.stockShadowMode;
+      const {
+        finalSignalLevel,
+        supplyAdjustedFinalQuantity,
+        healthDecision,
+      } = supplyRouting;
 
       // 아이디어 8: STRONG_BUY → 분할 매수 1차 진입 (전체 수량의 50%)
       // 잔여 30%·20%는 trancheExecutor가 3일·7일 후 실행
@@ -993,7 +715,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
           finalSignal: finalSignalLevel,
           dataConfidence: healthDecision?.dataConfidence,
           dataQualityBucket: healthDecision?.dataQualityBucket,
-          supplyHealthSnapshot: supplyHealthSnapshot,
+          supplyHealthSnapshot: ctx.supplyHealthSnapshot,
           wasDowngradedBySupplyHealth: healthDecision?.wasDowngradedBySupplyHealth,
           downgradeReasons: healthDecision?.downgradeReasons,
       });
@@ -1050,7 +772,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         liveGateScore,
         reCheckGate,
         finalSignalLevel,
-        shadowApprovalCtx: _shadowApprovalCtx,
+        shadowApprovalCtx: loopRunState.shadowApprovalCtx,
         diagnosticLiveBlockReason,
         macroDiagnosticLiveBlock,
         stageLog,
