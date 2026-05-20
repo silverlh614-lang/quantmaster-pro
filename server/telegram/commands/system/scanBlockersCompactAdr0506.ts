@@ -684,6 +684,56 @@ function compactLookup(
   return { text, source, carried: source !== 'fallback' };
 }
 
+function parseCompactValue(text: string, key: string): string | undefined {
+  const match = new RegExp(`\\b${key}=([^|]+)`, 'iu').exec(text);
+  return match?.[1]?.trim();
+}
+
+function normalizeGate1CompactText(
+  text: string,
+  summary: ScanSummary | null | undefined,
+): string {
+  const health = /^Gate1:\s*([^|]+)/iu.exec(text)?.[1]?.trim()?.toUpperCase();
+  const issue = parseCompactValue(text, 'issue')?.toUpperCase();
+  const missing = parseCompactValue(text, 'missing')?.toLowerCase();
+  const quote = parseCompactValue(text, 'quote')?.toUpperCase();
+  const shadow = parseCompactValue(text, 'shadow')?.toUpperCase();
+  const session = parseCompactValue(text, 'session')?.toUpperCase();
+  const tradable = parseCompactValue(text, 'tradable')?.toUpperCase();
+  const liquidity = parseCompactValue(text, 'liquidity')?.toUpperCase();
+
+  const root = summary as unknown as Record<string, unknown> | undefined;
+  const gate1Survival = asRecord(root?.gate1SurvivalDiagnostic);
+  const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? '').toUpperCase();
+  const missingFields = Array.isArray(gate1Survival?.missingFields) ? gate1Survival?.missingFields : [];
+  const missingEmpty = missing === 'none' || missing === '' || missingFields.length === 0;
+  const verified = quote === 'VERIFIED' || quoteCoverageConfidence === 'VERIFIED';
+
+  let patched = text;
+  if (issue === 'QUOTE_COVERAGE_DEGRADED' && missingEmpty && verified) {
+    patched = patched.replace(/\s*\|\s*issue=QUOTE_COVERAGE_DEGRADED/iu, '');
+  }
+
+  const liveBlockedSession = ['R6_DEFENSE_SELL_ONLY', 'SELL_ONLY', 'CLOSED', 'AFTERMARKET', 'AFTER_MARKET'].includes(session ?? '');
+  const shadowAllowed = summary?.macroGateState?.shadowLearningAllowed === true || summary?.scanEvaluation?.shadowLearningAllowed === true;
+  if ((health === 'DEGRADED' || /^Gate1:\s*DEGRADED/iu.test(patched))
+      && liveBlockedSession
+      && verified
+      && tradable === 'TRADABLE'
+      && liquidity === 'PASS'
+      && shadowAllowed) {
+    patched = patched.replace(/^Gate1:\s*DEGRADED/iu, 'Gate1: LIVE_BLOCKED_ONLY');
+    if (!/\bissue=/iu.test(patched)) patched += ' | issue=LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED';
+    if (!/\baction=/iu.test(patched)) patched += ' | action=CHECK_SESSION_POLICY';
+  }
+
+  const shadowMode = String(gate1Survival?.shadowMode ?? '').toUpperCase();
+  if (shadow === 'COUNTERFACTUAL_ONLY' && shadowAllowed && shadowMode === 'NORMAL_SHADOW') {
+    patched = patched.replace(/\bshadow=COUNTERFACTUAL_ONLY\b/giu, 'shadow=ON');
+  }
+  return patched;
+}
+
 export function resolveScanBlockersGateDiagCompactLookup(
   summary: ScanSummary | null | undefined,
 ): GateDiagCompactLookup {
@@ -693,10 +743,11 @@ export function resolveScanBlockersGateDiagCompactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']),
     'summary.gateLayerSummary',
   )
-    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
+    ?? compactLookup(readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']), 'summary.gateDiagnostics')
     ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
-    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSection')
+    ?? compactLookup(readNestedString(fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText']), 'fullDiagnostic')
     ?? { text: 'UNAVAILABLE | fallback=true | marketSignal=false', source: 'fallback', carried: false };
+  gate1.text = normalizeGate1CompactText(gate1.text, summary);
 
   const gate2 = compactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate2', 'consolidatedDiagnostic', 'compactText']),
@@ -737,6 +788,14 @@ export function resolveScanBlockersTopReason(summary: ScanSummary | null | undef
 
 export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | null | undefined): string {
   const lookup = resolveScanBlockersGateDiagCompactLookup(summary);
+  const gate1Text = lookup.gate1.text;
+  const selectedHealth = /^Gate1:\s*([^|]+)/iu.exec(gate1Text)?.[1]?.trim() ?? 'UNKNOWN';
+  const selectedIssue = parseCompactValue(gate1Text, 'issue') ?? 'none';
+  const root = summary as unknown as Record<string, unknown> | undefined;
+  const gate1Survival = asRecord(root?.gate1SurvivalDiagnostic);
+  const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? 'UNKNOWN');
+  const missingFields = (Array.isArray(gate1Survival?.missingFields) ? gate1Survival.missingFields : []).join(',') || 'none';
+  const shadowMode = String(gate1Survival?.shadowMode ?? 'UNKNOWN');
   return [
     'GateDiag Payload Carry:',
     `- gate1CompactCarried=${lookup.gate1.carried}`,
@@ -745,6 +804,13 @@ export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | nu
     `- gate1CompactSource=${lookup.gate1.source}`,
     `- gate2CompactSource=${lookup.gate2.source}`,
     `- gate3CompactSource=${lookup.gate3.source}`,
+    'Gate1Diag Source:',
+    `- selectedSource=${lookup.gate1.source}`,
+    `- selectedHealth=${selectedHealth}`,
+    `- selectedIssue=${selectedIssue}`,
+    `- quoteCoverageConfidence=${quoteCoverageConfidence}`,
+    `- missingFields=${missingFields}`,
+    `- shadowMode=${shadowMode}`,
   ].join('\n');
 }
 
