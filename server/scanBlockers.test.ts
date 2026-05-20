@@ -165,6 +165,113 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     expect(formatScanBlockersCompactMessage(summary)).toContain('Gate3Diag: DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false');
   });
 
+  it('labels R6 SELL_ONLY compact summary as diagnostic-only without making Gate1 pass look live', () => {
+    const summary = baseSummary({
+      candidates: 16,
+      gateMisses: 13,
+      gatePassDistribution: { gate1Pass: 3, gate2Pass: 0, gate3Pass: 0, lastTriggerPass: 0 },
+      rawScore: 7.5,
+      gateScore: 7.5,
+      signalType: 'SKIP',
+      positionPct: 0,
+      macroGateState: {
+        emergencyStop: false,
+        autoTradeEnabled: true,
+        regime: 'R2_BULL',
+        macroRegimeRaw: 'R2_BULL',
+        macroRegimeEffective: 'R6_DEFENSE',
+        riskOverride: 'R6_DEFENSE',
+        engineMode: 'SELL_ONLY',
+        kellyMultiplierFromRegime: 0,
+        fomcPhase: 'NONE',
+        fomcKellyMultiplier: 1,
+        finalKellyMultiplier: 0,
+        vixGatingActive: false,
+        bearDefenseMode: false,
+        mhsBelow30: false,
+        watchlistEmpty: false,
+        sellOnlyMode: true,
+        liveEntryAllowed: false,
+        shadowLearningAllowed: true,
+        counterfactualAllowed: true,
+      },
+      scanEvaluation: {
+        scanId: 'scan-eval-label-cleanup',
+        asOf: '2026-05-20T12:30:00.000Z',
+        evaluationState: 'NOT_EVALUATED_SELL_ONLY',
+        marketSessionState: 'SELL_ONLY',
+        engineMode: 'SELL_ONLY',
+        effectiveRegime: 'R6_DEFENSE',
+        totalCandidates: 16,
+        evaluated: 16,
+        skipped: 0,
+        rejected: 13,
+        survivors: 3,
+        quoteHydrated: 16,
+        quoteHydrationFailed: 0,
+        blockReason: 'R6_DEFENSE_SELL_ONLY',
+        breakPoint: 'PRE_FLIGHT_SELL_ONLY',
+        sourcePath: 'test',
+        executionImpact: 'NEW_BUY_BLOCKED_ONLY',
+        shadowLearningAllowed: true,
+      },
+      gate1MinimumSignalForensicAdr0505: {
+        totalCandidates: 16,
+        failedCandidates: 13,
+        evaluationState: 'NOT_EVALUATED_SELL_ONLY',
+        requiredScoreAvg: 70,
+        actualScoreAvg: 37,
+        avgScoreGap: -33,
+        dominantFailureDistribution: { MIXED: 2 },
+        missingPositiveSourceCounts: {},
+        penaltyCounts: { softFailPenalty: 1 },
+        supplyScopeWarnings: {},
+        executionImpact: 'NONE',
+        liveExecutionAllowed: false,
+        policyPromotionMode: 'SHADOW_ONLY',
+      } as unknown as ScanSummary['gate1MinimumSignalForensicAdr0505'],
+      gateDiagnostics: {
+        gate1CompactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | session=CLOSED | shadow=ON',
+        gate2CompactText: 'Gate2: DATA_INCOMPLETE | issue=DART_FINANCIALS_UNAVAILABLE | marketSignal=false',
+        gate3CompactText: 'Gate3: DIAGNOSTIC_ONLY | marketSignal=false',
+        marketSignal: false,
+        diagnosticOnly: true,
+        source: 'consolidatedDiagnostic',
+      },
+    } as Partial<ScanSummary>);
+    const before = {
+      rawScore: (summary as unknown as Record<string, unknown>).rawScore,
+      gateScore: (summary as unknown as Record<string, unknown>).gateScore,
+      signalType: (summary as unknown as Record<string, unknown>).signalType,
+      positionPct: (summary as unknown as Record<string, unknown>).positionPct,
+    };
+
+    const text = formatScanBlockersCompactMessage(summary);
+
+    expect(text).toContain('session: CLOSED / SELL_ONLY_POLICY !');
+    expect(text).toContain('marketSession: CLOSED');
+    expect(text).toContain('displaySession: SELL_ONLY_POLICY');
+    expect(text).toContain('entryBlockMode: R6_DEFENSE_SELL_ONLY');
+    expect(text).toContain('Gate1Live: skipped');
+    expect(text).toContain('Gate1Diagnostic: pass=3/16');
+    expect(text).not.toContain('Gate1: 3/16');
+    expect(text).toContain('DiagnosticMinScore: 37.0 / 70.0');
+    expect(text).toContain('LiveScore: not applied due to R6_DEFENSE_SELL_ONLY');
+    expect(text).toContain('DiagnosticDominant: MIXED (2)');
+    expect(text).toContain('DiagnosticPenalty: softFailPenalty (1)');
+    expect(text).toContain('LivePenalty: NOT_APPLIED_R6_DEFENSE_SELL_ONLY');
+    expect(text).toContain('Shadow: ON | learning=true | counterfactual=true | executionImpact=NONE');
+    expect(text).toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
+    expect(text).toContain('Gate2Diag: Gate2: DATA_INCOMPLETE');
+    expect(text).toContain('Gate3Diag: Gate3: DIAGNOSTIC_ONLY');
+    expect({
+      rawScore: (summary as unknown as Record<string, unknown>).rawScore,
+      gateScore: (summary as unknown as Record<string, unknown>).gateScore,
+      signalType: (summary as unknown as Record<string, unknown>).signalType,
+      positionPct: (summary as unknown as Record<string, unknown>).positionPct,
+    }).toEqual(before);
+  });
+
   it('maps R6 live-entry blocks away from MARKET_WEAK', () => {
     const summary = baseSummary({
       emptyScanReason: 'MARKET_WEAK',

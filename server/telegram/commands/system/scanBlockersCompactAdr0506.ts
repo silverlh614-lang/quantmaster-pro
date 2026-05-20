@@ -529,6 +529,11 @@ function fmtPctGap(actual: number | undefined, required: number | undefined): st
   return `${a.toFixed(1)} / ${r.toFixed(1)} (gap ${(a - r).toFixed(1)})`;
 }
 
+function fmtScorePair(actual: number | undefined, required: number | undefined): string {
+  if (!Number.isFinite(actual) || !Number.isFinite(required)) return 'n/a';
+  return `${(actual as number).toFixed(1)} / ${(required as number).toFixed(1)}`;
+}
+
 function fmtDistribution(distribution: Record<string, number> | undefined, limit = 3): string {
   const entries = Object.entries(distribution ?? {})
     .filter(([, value]) => Number.isFinite(value) && value > 0)
@@ -592,6 +597,68 @@ function isSellOnlyOrAftermarketSummary(summary: ScanSummary | null | undefined)
     || blockReason.includes('SELL_ONLY')
     || blockReason.includes('AFTERMARKET')
     || blockReason.includes('AFTER_MARKET');
+}
+
+function resolveScanBlockersEntryBlockMode(summary: ScanSummary | null | undefined): string {
+  const blockReason = String(summary?.scanEvaluation?.blockReason ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
+  const r6 = isR6DefenseSummary(summary);
+  const sellOnlyOrAftermarket = isSellOnlyOrAftermarketSummary(summary);
+  if (blockReason === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
+  if (r6 && sellOnlyOrAftermarket) return 'R6_DEFENSE_SELL_ONLY';
+  if (r6) return 'R6_DEFENSE';
+  if (sellOnlyOrAftermarket) return 'SELL_ONLY_OR_AFTERMARKET';
+  return 'NONE';
+}
+
+function extractGate1DiagnosticSession(summary: ScanSummary | null | undefined): string | undefined {
+  const gate1Text = resolveScanBlockersGateDiagCompactLookup(summary).gate1.text;
+  const match = /\bsession=([A-Z_]+)/iu.exec(gate1Text);
+  return match?.[1]?.toUpperCase();
+}
+
+function normalizeMarketSessionLabel(value: string | undefined): string | undefined {
+  const raw = String(value ?? '').trim().toUpperCase();
+  if (!raw || raw === 'UNKNOWN') return undefined;
+  if (raw === 'AFTER_MARKET') return 'AFTERMARKET';
+  if (raw === 'BUY_ALLOWED') return 'REGULAR';
+  return raw;
+}
+
+function resolveScanBlockersSessionDisplay(summary: ScanSummary | null | undefined): {
+  marketSession: string;
+  displaySession: string;
+  entryBlockMode: string;
+  blocked: boolean;
+} {
+  const entryBlockMode = resolveScanBlockersEntryBlockMode(summary);
+  const rawSession = normalizeMarketSessionLabel(summary?.scanEvaluation?.marketSessionState);
+  const diagnosticSession = normalizeMarketSessionLabel(extractGate1DiagnosticSession(summary));
+  const marketSession = rawSession && rawSession !== 'SELL_ONLY'
+    ? rawSession
+    : diagnosticSession ?? rawSession ?? (summary?.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'REGULAR');
+  const blocked = entryBlockMode !== 'NONE';
+  const displaySession = blocked
+    ? (marketSession === 'AFTERMARKET' ? 'AFTERMARKET_SELL_ONLY' : 'SELL_ONLY_POLICY')
+    : marketSession;
+  return { marketSession, displaySession, entryBlockMode, blocked };
+}
+
+function isLiveEvaluationSkippedSummary(summary: ScanSummary | null | undefined, entryBlockMode: string): boolean {
+  return entryBlockMode !== 'NONE'
+    || Boolean(summary?.scanEvaluation?.evaluationState?.startsWith('NOT_EVALUATED_'));
+}
+
+function formatLivePenaltyLabel(entryBlockMode: string): string {
+  return entryBlockMode === 'NONE' ? 'n/a' : `NOT_APPLIED_${entryBlockMode}`;
+}
+
+function formatShadowAlwaysOnLine(summary: ScanSummary | null | undefined): string | null {
+  const macro = summary?.macroGateState;
+  const evaluation = summary?.scanEvaluation;
+  const learningAllowed = macro?.shadowLearningAllowed ?? evaluation?.shadowLearningAllowed;
+  const counterfactualAllowed = macro?.counterfactualAllowed ?? learningAllowed;
+  if (learningAllowed === undefined && counterfactualAllowed === undefined) return null;
+  return `Shadow: ${learningAllowed ? 'ON' : 'OFF'} | learning=${learningAllowed === true} | counterfactual=${counterfactualAllowed === true} | executionImpact=NONE`;
 }
 
 function resolveGate3Fallback(summary: ScanSummary | null | undefined): string {
@@ -693,7 +760,6 @@ export function formatScanBlockersCompactMessage(
   options: { adr0505?: Adr0505EmissionDiagnostic } = {},
 ): string {
   const lines: string[] = [];
-  const macro = summary?.macroGateState;
   const router = summary?.investorFlowProviderRouter;
   const forensic = summary?.gate1MinimumSignalForensicAdr0505;
   // sectorEnergyQualityDiagnostic 가 더 상세 (ADR-0423) — sectorEnergyQuality 라벨 후방호환.
@@ -708,8 +774,11 @@ export function formatScanBlockersCompactMessage(
   lines.push('━━━━━━━━━━━━━━');
 
   // session / SELL_ONLY
-  const sellOnly = macro?.sellOnlyMode ? 'SELL_ONLY ⚠️' : '정규장';
-  lines.push(`• session: ${sellOnly}`);
+  const sessionDisplay = resolveScanBlockersSessionDisplay(summary);
+  lines.push(`• session: ${sessionDisplay.marketSession} / ${sessionDisplay.displaySession}${sessionDisplay.blocked ? ' !' : ''}`);
+  lines.push(`• marketSession: ${sessionDisplay.marketSession}`);
+  lines.push(`• displaySession: ${sessionDisplay.displaySession}`);
+  lines.push(`• entryBlockMode: ${sessionDisplay.entryBlockMode}`);
 
   // candidates / entries
   const candidates = summary?.candidates ?? 0;
@@ -721,18 +790,27 @@ export function formatScanBlockersCompactMessage(
   lines.push(`• topReason: ${topReason}`);
   const scanEvaluationLine = formatScanEvaluationCompactLine(summary?.scanEvaluation);
   if (scanEvaluationLine) lines.push(scanEvaluationLine);
+  const shadowLine = formatShadowAlwaysOnLine(summary);
+  if (shadowLine) lines.push(`• ${shadowLine}`);
 
   // Gate1 survivor count — ScanSummary.gatePassDistribution.gate1Pass (옵셔널).
   const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));
-  lines.push(`• Gate1: ${gate1Pass}/${candidates}`);
+  const liveEvaluationSkipped = isLiveEvaluationSkippedSummary(summary, sessionDisplay.entryBlockMode);
+  if (liveEvaluationSkipped) {
+    lines.push('• Gate1Live: skipped');
+    lines.push(`• Gate1Diagnostic: pass=${gate1Pass}/${candidates}`);
+  } else {
+    lines.push(`• Gate1: ${gate1Pass}/${candidates}`);
+  }
 
   // MinSignal requiredAvg / actualAvg / gap (ADR-0466 / 0505 / 0507)
   if (forensic) {
     // ADR-0505 schema 정합 — actualScoreAvg / requiredScoreAvg.
     const actualAvg = forensic.actualScoreAvg;
     const required = forensic.requiredScoreAvg;
-    if (isGate1NotEvaluatedState(forensic.evaluationState)) {
-      lines.push(`• MinScore: n/a (${forensic.evaluationState}, diagnostic fallback ${actualAvg.toFixed(1)})`);
+    if (liveEvaluationSkipped || isGate1NotEvaluatedState(forensic.evaluationState)) {
+      lines.push(`• DiagnosticMinScore: ${fmtScorePair(actualAvg, required)}`);
+      lines.push(`• LiveScore: not applied due to ${sessionDisplay.entryBlockMode}`);
     } else {
       lines.push(`• MinScore: ${fmtPctGap(actualAvg, required)}`);
     }
@@ -741,7 +819,7 @@ export function formatScanBlockersCompactMessage(
       const top = Object.entries(dist)
         .filter(([, v]) => Number.isFinite(v) && v > 0)
         .sort((a, b) => b[1] - a[1])[0];
-      if (top) lines.push(`• dominant: ${top[0]} (${top[1]})`);
+      if (top) lines.push(`• ${liveEvaluationSkipped ? 'DiagnosticDominant' : 'dominant'}: ${top[0]} (${top[1]})`);
     }
     // ADR-0507 §B — missing positive top + penalty top (compact 한 줄씩, 옵셔널).
     const missing = forensic.missingPositiveSourceCounts;
@@ -756,10 +834,17 @@ export function formatScanBlockersCompactMessage(
       const topPen = Object.entries(penalty)
         .filter(([, v]) => Number.isFinite(v) && v > 0)
         .sort((a, b) => b[1] - a[1])[0];
-      if (topPen) lines.push(`• penalty: ${topPen[0]} (${topPen[1]})`);
+      if (topPen) lines.push(`• ${liveEvaluationSkipped ? 'DiagnosticPenalty' : 'penalty'}: ${topPen[0]} (${topPen[1]})`);
     }
+    if (liveEvaluationSkipped) lines.push(`• LivePenalty: ${formatLivePenaltyLabel(sessionDisplay.entryBlockMode)}`);
   } else {
-    lines.push('• MinScore: n/a (forensic missing)');
+    if (liveEvaluationSkipped) {
+      lines.push('• DiagnosticMinScore: n/a');
+      lines.push(`• LiveScore: not applied due to ${sessionDisplay.entryBlockMode}`);
+      lines.push(`• LivePenalty: ${formatLivePenaltyLabel(sessionDisplay.entryBlockMode)}`);
+    } else {
+      lines.push('• MinScore: n/a (forensic missing)');
+    }
   }
 
   // Supply — coverage 는 {available, total, missing, stale, ...} 시그니처.
