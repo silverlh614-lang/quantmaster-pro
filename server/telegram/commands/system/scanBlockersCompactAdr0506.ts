@@ -549,7 +549,11 @@ function isGate1NotEvaluatedState(state: string | undefined): boolean {
 type GateDiagCompactSource =
   | 'summary.gateLayerSummary'
   | 'summary.gateDiagnostics'
+  | 'summary.gate1SurvivalDiagnostic'
+  | 'summary.gate1Survival'
+  | 'summary.adr0505.gate1SurvivalDiagnostic'
   | 'fullDiagnostic'
+  | 'renderedSections.gate1Survival'
   | 'renderedSection'
   | 'fallback';
 
@@ -739,14 +743,21 @@ export function resolveScanBlockersGateDiagCompactLookup(
 ): GateDiagCompactLookup {
   const root = summary as unknown as Record<string, unknown> | undefined;
   const fullDiagnostic = root?.fullDiagnostic;
+  const gate1Fallback = isR6DefenseSummary(summary) || isSellOnlyOrAftermarketSummary(summary)
+    ? 'LIVE_BLOCKED_ONLY | fallback=true | liveBuy=false | shadow=ON | marketSignal=false'
+    : 'UNAVAILABLE | fallback=true | reason=GATE1_COMPACT_NOT_CARRIED | marketSignal=false';
   const gate1 = compactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']),
     'summary.gateLayerSummary',
   )
-    ?? compactLookup(readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']), 'summary.gateDiagnostics')
+    ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
+    ?? compactLookup(readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']), 'summary.gate1SurvivalDiagnostic')
+    ?? compactLookup(readNestedString(summary, ['gate1Survival', 'compactText']), 'summary.gate1Survival')
+    ?? compactLookup(readNestedString(summary, ['adr0505', 'gate1SurvivalDiagnostic', 'compactText']), 'summary.adr0505.gate1SurvivalDiagnostic')
     ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
     ?? compactLookup(readNestedString(fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText']), 'fullDiagnostic')
-    ?? { text: 'UNAVAILABLE | fallback=true | marketSignal=false', source: 'fallback', carried: false };
+    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSections.gate1Survival')
+    ?? { text: gate1Fallback, source: 'fallback', carried: false };
   gate1.text = normalizeGate1CompactText(gate1.text, summary);
 
   const gate2 = compactLookup(
@@ -796,6 +807,13 @@ export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | nu
   const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? 'UNKNOWN');
   const missingFields = (Array.isArray(gate1Survival?.missingFields) ? gate1Survival.missingFields : []).join(',') || 'none';
   const shadowMode = String(gate1Survival?.shadowMode ?? 'UNKNOWN');
+  const fullCompact = readNestedString(root?.fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText'])
+    ?? readNestedString(root?.fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText'])
+    ?? readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']);
+  const compactTextPresent = Boolean(lookup.gate1.text && lookup.gate1.source !== 'fallback');
+  const warning = lookup.gate1.source === 'fallback' && fullCompact
+    ? 'GATE1_COMPACT_EXISTS_BUT_SUMMARY_LOOKUP_FALLBACK'
+    : null;
   return [
     'GateDiag Payload Carry:',
     `- gate1CompactCarried=${lookup.gate1.carried}`,
@@ -806,11 +824,15 @@ export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | nu
     `- gate3CompactSource=${lookup.gate3.source}`,
     'Gate1Diag Source:',
     `- selectedSource=${lookup.gate1.source}`,
+    `- compactTextPresent=${compactTextPresent}`,
     `- selectedHealth=${selectedHealth}`,
     `- selectedIssue=${selectedIssue}`,
+    `- health=${summary?.gateDiagnostics?.gate1Health ?? 'null'}`,
+    `- primaryIssue=${summary?.gateDiagnostics?.gate1PrimaryIssue ?? 'null'}`,
     `- quoteCoverageConfidence=${quoteCoverageConfidence}`,
     `- missingFields=${missingFields}`,
     `- shadowMode=${shadowMode}`,
+    ...(warning ? [`- warning=${warning}`] : []),
   ].join('\n');
 }
 

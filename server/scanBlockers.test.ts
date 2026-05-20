@@ -339,11 +339,11 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     const lookup = resolveScanBlockersGateDiagCompactLookup(summary);
     const debug = formatGateDiagPayloadCarryDebugSection(summary);
 
-    expect(lookup.gate1.source).toBe('summary.gateDiagnostics');
+    expect(lookup.gate1.source).toBe('summary.gate1SurvivalDiagnostic');
     expect(debug).toContain('gate1CompactCarried=true');
     expect(debug).toContain('gate2CompactSource=summary.gateDiagnostics');
     expect(debug).toContain('gate3CompactSource=fallback');
-    expect(debug).toContain('selectedSource=summary.gateDiagnostics');
+    expect(debug).toContain('selectedSource=summary.gate1SurvivalDiagnostic');
     expect(debug).toContain('quoteCoverageConfidence=VERIFIED');
     expect(debug).toContain('missingFields=none');
   });
