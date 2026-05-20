@@ -278,3 +278,92 @@ describe('preflightBlockedScanSummary (ADR-0367)', () => {
     expect(nan.candidateSummaryCount).toBe(0);
   });
 });
+
+describe('preflight blocked display relabel patch', () => {
+  afterEach(() => {
+    __resetPreflightBlockedScanSummaryForTests();
+  });
+
+  it('separates REGULAR session from R6 defense mode and prints Gate3 fallback states', () => {
+    const regularR6 = recordPreflightBlockedScanSummary({
+      blockedBy: 'PRE_FLIGHT_BLOCK',
+      preflightDecision: 'ABORT_R6_DEFENSE',
+      candidateSummaryCount: 11,
+      universeSnapshotRecorded: true,
+      counterfactualRecorded: true,
+      scanEvaluation: {
+        scanId: 'scan-r6',
+        asOf: '2026-05-20T04:00:00.000Z',
+        evaluationState: 'NOT_EVALUATED_R6_LIVE_BLOCKED',
+        marketSessionState: 'REGULAR',
+        engineMode: 'SELL_ONLY',
+        effectiveRegime: 'R6_DEFENSE',
+        totalCandidates: 11,
+        evaluated: 11,
+        skipped: 0,
+        rejected: 10,
+        survivors: 1,
+        quoteHydrated: 11,
+        quoteHydrationFailed: 0,
+        blockReason: 'R6_DEFENSE_SELL_ONLY',
+        breakPoint: 'PRE_FLIGHT_SELL_ONLY',
+        sourcePath: 'test',
+        executionImpact: 'NEW_BUY_BLOCKED_ONLY',
+        shadowLearningAllowed: true,
+        diagnostics: { rawRegime: 'R2_BULL', gate3CompactText: 'G3 OK' },
+      },
+    });
+
+    const regularSection = formatPreflightBlockedScanSection(regularR6);
+    expect(regularSection).toContain('marketSessionState=REGULAR');
+    expect(regularSection).toContain('entryBlockMode=R6_DEFENSE');
+    expect(regularSection).toContain('engineModeDisplay=DEFENSE_LIVE_BLOCK');
+    expect(regularSection).toContain('liveEntryAllowed=false');
+    expect(regularSection).toContain('displayEvaluationState=LIVE_ENTRY_SKIPPED_R6_DEFENSE');
+    expect(regularSection).toContain('displayBreakPoint=PRE_FLIGHT_R6_DEFENSE');
+    expect(regularSection).toContain('liveEntryEvaluation=SKIPPED_R6_DEFENSE');
+    expect(regularSection).toContain('topReason=LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE');
+    expect(regularSection).not.toContain('topReason=MARKET_WEAK');
+    expect(regularSection).toContain('  • Gate3Diag: G3 OK');
+
+    const sellOnly = recordPreflightBlockedScanSummary({
+      blockedBy: 'PRE_FLIGHT_BLOCK',
+      preflightDecision: 'ABORT_SELL_ONLY',
+      candidateSummaryCount: 11,
+      universeSnapshotRecorded: true,
+      counterfactualRecorded: true,
+      scanEvaluation: {
+        ...regularR6.scanEvaluation!,
+        marketSessionState: 'SELL_ONLY',
+        effectiveRegime: 'R2_BULL',
+        blockReason: 'SELL_ONLY',
+        diagnostics: { rawRegime: 'R2_BULL' },
+      },
+    });
+    const sellOnlySection = formatPreflightBlockedScanSection(sellOnly);
+    expect(sellOnlySection).toContain('entryBlockMode=SELL_ONLY');
+    expect(sellOnlySection).toContain('displayEvaluationState=NOT_EVALUATED_SELL_ONLY');
+    expect(sellOnlySection).toContain('displayBreakPoint=PRE_FLIGHT_SELL_ONLY');
+    expect(sellOnlySection).toContain('topReason=SELL_ONLY_TIME_WINDOW');
+    expect(sellOnlySection).toContain('  • Gate3Diag: NOT_EVALUATED_SELL_ONLY | timingDiagnosticPreserved=true | marketSignal=false');
+
+    const sellOnlyR6 = recordPreflightBlockedScanSummary({
+      blockedBy: 'PRE_FLIGHT_BLOCK',
+      preflightDecision: 'ABORT_R6_DEFENSE',
+      candidateSummaryCount: 11,
+      universeSnapshotRecorded: true,
+      counterfactualRecorded: true,
+      scanEvaluation: {
+        ...regularR6.scanEvaluation!,
+        marketSessionState: 'SELL_ONLY',
+        effectiveRegime: 'R6_DEFENSE',
+        diagnostics: { rawRegime: 'R2_BULL' },
+      },
+    });
+    const sellOnlyR6Section = formatPreflightBlockedScanSection(sellOnlyR6);
+    expect(sellOnlyR6Section).toContain('entryBlockMode=R6_DEFENSE_SELL_ONLY');
+    expect(sellOnlyR6Section).toContain('displayEvaluationState=LIVE_ENTRY_SKIPPED_R6_SELL_ONLY');
+    expect(sellOnlyR6Section).toContain('displayBreakPoint=PRE_FLIGHT_R6_SELL_ONLY');
+    expect(sellOnlyR6Section).toContain('topReason=R6_DEFENSE_SELL_ONLY');
+  });
+});
