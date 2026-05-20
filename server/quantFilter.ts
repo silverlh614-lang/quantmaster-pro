@@ -60,6 +60,10 @@ import {
   type Gate3SourceCoverage,
   type Gate3WiringDiagnostic,
 } from './quant/gate3Diagnostics.js';
+import {
+  buildGate3ConsolidatedDiagnostic,
+  type Gate3ConsolidatedDiagnostic,
+} from './quant/gate3ConsolidatedDiagnostic.js';
 
 export type { Gate1MarketSession } from './quant/gate1MarketSession.js';
 
@@ -166,7 +170,7 @@ export interface GateLayerBucket {
   wiring?: Array<Gate1WiringDiagnostic | Gate2WiringDiagnostic | Gate3WiringDiagnostic>;
   sourceCoverage?: Gate1SourceCoverage | Gate2SourceCoverage;
   survival?: Gate1SurvivalDiagnostic;
-  consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic | Gate2ConsolidatedDiagnostic;
+  consolidatedDiagnostic?: Gate1ConsolidatedDiagnostic | Gate2ConsolidatedDiagnostic | Gate3ConsolidatedDiagnostic;
   externalDataCoverage?: unknown;
 }
 
@@ -743,6 +747,7 @@ function buildGateLayerSummary(
   (summary.gate3 as unknown as { wiring?: Gate3WiringDiagnostic[] }).wiring = gate3Wiring;
   (summary.gate3 as unknown as { sourceCoverage?: Gate3SourceCoverage }).sourceCoverage = buildGate3SourceCoverage(gate3Wiring);
   (summary.gate3 as unknown as { externalDataCoverage?: Gate3ExternalDataCoverage }).externalDataCoverage = buildGate3ExternalDataCoverage(gate2ExternalCoverageInput.quote as Record<string, unknown> ?? {});
+  summary.gate3.consolidatedDiagnostic = buildGate3ConsolidatedDiagnostic({ gate3: summary.gate3 });
 
   summary.gate2.consolidatedDiagnostic = buildGate2ConsolidatedDiagnostic({
     gate2: {
