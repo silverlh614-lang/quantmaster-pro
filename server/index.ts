@@ -526,7 +526,8 @@ async function startServer() {
     // Telegram 봇 명령어 메뉴 등록 (fire-and-forget)
     setTelegramBotCommands()
       .then(async () => {
-        const { runChannelHealthCheck } = await import('./alerts/alertRouter.js');
+        const { checkTelegramChannelConfig, runChannelHealthCheck } = await import('./alerts/alertRouter.js');
+        await checkTelegramChannelConfig();
         const result = await runChannelHealthCheck();
         const ordered = ['TRADE', 'ANALYSIS', 'INFO', 'SYSTEM'] as const;
         const lines = ordered.map((category) => {

@@ -140,6 +140,8 @@ describe('channelPipeline category-specific enable gates', () => {
   });
 
   it('shadow paper-fill: channel disabled still sends private alert', async () => {
+    process.env.CHANNEL_ENABLED = 'false';
+
     await channelShadowBuyFilled({
       stockName: 'TEST',
       stockCode: '000001',

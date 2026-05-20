@@ -52,5 +52,5 @@ function parseBooleanEnv(name: string): boolean | undefined {
 export function isCategoryEnabled(category: AlertCategory): boolean {
   const specific = parseBooleanEnv(`${category}_CHANNEL_ENABLED`);
   if (specific !== undefined) return specific;
-  return process.env.CHANNEL_ENABLED === 'true';
+  return (process.env.CHANNEL_ENABLED ?? 'true') !== 'false';
 }

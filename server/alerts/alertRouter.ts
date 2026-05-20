@@ -82,6 +82,34 @@ export function getResolvedChannelMap(): Record<AlertCategory, string | undefine
   return resolveCategoryChannelMap();
 }
 
+/**
+ * @responsibility checkTelegramChannelConfig 채널 설정 부팅 진단 SSOT
+ */
+export async function checkTelegramChannelConfig(): Promise<void> {
+  const map = getResolvedChannelMap();
+  const mapFromEnv = parseChannelMap(process.env.CHANNEL_MAP);
+  const configured = (value: string | undefined): string => value ?? '❌ 미설정';
+  const fallback = (category: AlertCategory, envName: string): string => {
+    if (mapFromEnv[category]) return mapFromEnv[category];
+    if (process.env[envName]?.trim()) return map[category] ?? process.env[envName]?.trim();
+    return '❌ 미설정 → TRADE 폴백';
+  };
+  const message = [
+    '🔧 [채널 설정 점검]',
+    `CH1 EXECUTION(TRADE):  ${configured(map[AlertCategory.TRADE])}`,
+    `CH2 SIGNAL(ANALYSIS):  ${configured(map[AlertCategory.ANALYSIS])}`,
+    `CH3 REGIME(INFO):      ${fallback(AlertCategory.INFO, 'TELEGRAM_INFO_CHANNEL_ID')}`,
+    `CH4 JOURNAL(SYSTEM):   ${fallback(AlertCategory.SYSTEM, 'TELEGRAM_SYSTEM_CHANNEL_ID')}`,
+    `CHANNEL_ENABLED:       ${process.env.CHANNEL_ENABLED ?? '미설정'}`,
+  ].join('\n');
+
+  const { sendPrivateAlert } = await import('./telegramClient.js');
+  await sendPrivateAlert(message, {
+    dedupeKey: 'boot_channel_check',
+    priority: 'HIGH',
+  });
+}
+
 export interface DispatchAlertOptions {
   disableNotification?: boolean;
   priority?: DispatchPriority;
