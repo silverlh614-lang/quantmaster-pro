@@ -285,7 +285,10 @@ export function formatNormalSupplyPreviewSection(
   lines.push('');
   lines.push('📌 수급 해석 요약');
   lines.push(`- 데이터 상태: VERIFIED ${preview.healthCounts.VERIFIED}/${preview.candidateCount} 정상`);
-  lines.push(`- Active 매수 후보: ${activeBuyCount}개`);
+  lines.push(`- 외인/기관 순매수 감지 종목: ${activeBuyCount}개`);
+  lines.push(`- 최종 ACCUMULATING 후보: ${preview.signalCounts.ACCUMULATING}개`);
+  lines.push(`- 최종 BULLISH 후보: ${preview.signalCounts.BULLISH}개`);
+  lines.push('- 설명: 외인/기관 순매수 감지는 원천 active flow 기준이며, ACCUMULATING/BULLISH는 프로그램 수급, 점수 임계값, 정책 차단까지 반영한 최종 수급 판정입니다.');
   lines.push(`- 최고 수급점수: ${top?.supplyScore ?? 'N/A'}`);
   lines.push(`- BULLISH 기준: ${bullishThreshold}`);
   lines.push(`- 현재 판정: ${top?.supplySignal ?? 'N/A'}`);
@@ -369,8 +372,15 @@ function formatCompactCandidateDetail(
     `   promotionBlocked=${formatPromotionBlockedCode(candidate)}`,
     `   liveDecision=${formatCompactLiveDecision(preview)}`,
     `   shadowObservable=${preview.shadowObservableAllowed}`,
+    `   watchlistBoost=${formatWatchlistBoost(candidate)}`,
+    `   watchlistPriorityBoost=${candidate.watchlistPriorityBoost}`,
     `   executionImpact=${preview.executionImpact}`,
   ].join('\n');
+}
+
+function formatWatchlistBoost(candidate: NormalSupplyPreviewCandidate): number | 'N/A' {
+  const withOptionalBoost = candidate as NormalSupplyPreviewCandidate & { watchlistBoost?: number };
+  return typeof withOptionalBoost.watchlistBoost === 'number' ? withOptionalBoost.watchlistBoost : 'N/A';
 }
 
 export function formatNormalSupplyPreviewFullSections(
