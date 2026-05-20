@@ -155,7 +155,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('promotionBlocked=BELOW_BULLISH_THRESHOLD');
     expect(section).toContain('liveDecision=BLOCKED_BY_SELL_ONLY_OR_MACRO_LIVE_BLOCK');
     expect(section).toContain('shadowObservable=true');
-    expect(section).toContain('watchlistBoost=N/A');
+    expect(section).not.toContain('watchlistBoost=N/A');
     expect(section).toContain('watchlistPriorityBoost=1');
     expect(section).toContain('executionImpact=NONE');
     expect(preview.liveExecutionAllowed).toBe(false);
