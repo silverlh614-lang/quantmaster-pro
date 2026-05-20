@@ -118,7 +118,36 @@ describe('formatMarketStateNow', () => {
     expect(text).toContain('Live buy: BLOCKED');
     expect(text).toContain('Shadow: ON');
     expect(text).toContain('- freshness: POST_CLOSE_VALID');
+    expect(text).toContain('- intradayTtlSec: 300');
+    expect(text).toContain('- postClosePolicy: VALID_UNTIL_NEXT_MARKET_REFRESH');
     expect(text).toContain('decayBlockedReason: WAITING_NEXT_TRADING_DAY_CONFIRMATION');
+  });
+
+  it('renames scheduled NOT_RUN shadow scan to WAITING_SCHEDULE without running a scan', () => {
+    const text = formatMarketStateNow(baseSnapshot({
+      macroState: {
+        stale: false,
+        freshness: 'FRESH',
+        ageSec: 20,
+        ttlSec: 300,
+        softStaleSec: 900,
+        hardStaleSec: 900,
+        staleReason: 'NONE',
+        executionImpact: 'NONE',
+      },
+    }));
+
+    expect(text).toContain('Shadow candidate scan: WAITING_SCHEDULE');
+    expect(text).toContain('reason: scheduled scan not triggered yet');
+    expect(text).toContain('learning: ON');
+  });
+
+  it('describes retained R6 triggers as cooldown waiting confirmation', () => {
+    const text = formatMarketStateNow(baseSnapshot());
+
+    expect(text).toContain('current active triggers: none');
+    expect(text).toContain('retained previous triggers: KOSPI_INTRADAY_LOW_SHOCK,KOSPI_CLOSE_SHOCK');
+    expect(text).toContain('state: COOLDOWN_WAITING_CONFIRMATION');
   });
 
   it('shows HARD_STALE macro release block details while keeping Shadow learning on', () => {

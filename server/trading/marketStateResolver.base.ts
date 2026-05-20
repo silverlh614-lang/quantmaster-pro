@@ -12,6 +12,11 @@ import {
 import { getRegimeDiagnostics, type RegimeDiagnostics } from './regimeBridge.js';
 import { getJobMetrics } from '../scheduler/scheduleCatalog.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
+import {
+  normalizeNowDisplay,
+  normalizeR6LatchDisplay,
+  NOW_POST_CLOSE_POLICY_LABEL,
+} from '../telegram/nowDisplayNormalizer.js';
 
 export type BiasLabel = 'BULL' | 'NEUTRAL' | 'BEAR';
 export type MhsLabel = 'GREEN' | 'YELLOW' | 'RED';
@@ -894,15 +899,51 @@ function summarizeReasonCodes(reasonCodes: string[]): string {
   return [...picked, ...fallback].map((code) => labels[code] ?? code).join(', ') || '특이사항 없음';
 }
 
-function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined): string {
-  if (!activity) return 'Shadow candidate scan: NOT_RUN\ntrigger: SCHEDULED\nlastCandidateScanAt: N/A\ncandidateEvaluated: 0\nbuyCandidates: 0\nskipReason: SCHEDULER_NOT_TRIGGERED';
+function formatShadowActivityLine(activity: ShadowActivitySnapshot | undefined, snapshot: MarketStateSnapshot): string {
+  if (!activity) {
+    const normalized = normalizeNowDisplay({
+      freshness: snapshot.macroState.freshness,
+      shadowCandidateScanStatus: 'NOT_RUN',
+      shadowCandidateScanSkipReason: 'SCHEDULER_NOT_TRIGGERED',
+      shadowPolicyOn: snapshot.shadowScanAllowed,
+      shadowLearningAllowed: snapshot.shadowLearningAllowed,
+      shadowScanAllowed: snapshot.shadowScanAllowed,
+      effectiveRegime: snapshot.effectiveRegime,
+      riskOverride: snapshot.riskOverride,
+    });
+    return [
+      `Shadow candidate scan: ${normalized.shadowScanLabel}`,
+      'reason: scheduled scan not triggered yet',
+      `position management: ${snapshot.positionManagementAllowed ? 'ON' : 'OFF'}`,
+      `learning: ${snapshot.shadowLearningAllowed ? 'ON' : 'OFF'}`,
+      `explanation: ${normalized.shadowScanExplanation}`,
+      'trigger: SCHEDULED',
+      'lastCandidateScanAt: N/A',
+      'candidateEvaluated: 0',
+      'buyCandidates: 0',
+      'skipReason: SCHEDULER_NOT_TRIGGERED',
+    ].join('\n');
+  }
   const inferredStatus = activity.candidateScanStatus ?? (activity.lastScanAt ? 'RAN' : activity.evaluatedCount > 0 ? 'RAN' : 'NOT_RUN');
   const trigger = activity.candidateScanTrigger ?? 'SCHEDULED';
   const last = activity.lastScanAt ? activity.lastScanAt : 'N/A';
   const skipReason = activity.candidateSkipReason ?? activity.lastBlockReason ?? (activity.evaluatedCount === 0 ? 'SCHEDULER_NOT_TRIGGERED' : undefined);
+  const normalized = normalizeNowDisplay({
+    freshness: snapshot.macroState.freshness,
+    shadowCandidateScanStatus: inferredStatus,
+    shadowCandidateScanSkipReason: skipReason,
+    shadowPolicyOn: snapshot.shadowScanAllowed,
+    shadowLearningAllowed: snapshot.shadowLearningAllowed,
+    shadowScanAllowed: snapshot.shadowScanAllowed,
+    trigger,
+    effectiveRegime: snapshot.effectiveRegime,
+    riskOverride: snapshot.riskOverride,
+  });
   return [
     `Shadow position management: ${activity.scanAllowed ? 'ON' : 'OFF'} / SELL 체크 ${activity.sellCheckCount}건`,
-    `Shadow candidate scan: ${inferredStatus}`,
+    `Shadow candidate scan: ${normalized.shadowScanLabel}`,
+    ...(normalized.shadowScanLabel !== inferredStatus ? [`reason: ${normalized.shadowScanLabel === 'WAITING_SCHEDULE' ? 'scheduled scan not triggered yet' : 'post-close candidate scan deferred'}`] : []),
+    ...(normalized.shadowScanLabel !== inferredStatus ? [`explanation: ${normalized.shadowScanExplanation}`] : []),
     `trigger: ${trigger}`,
     `lastCandidateScanAt: ${last}`,
     `candidateEvaluated: ${activity.evaluatedCount}`,
@@ -964,6 +1005,26 @@ export function formatMarketStateNow(
   snapshot: MarketStateSnapshot,
   context: MarketStateNowContext = {},
 ): string {
+  const display = normalizeNowDisplay({
+    freshness: snapshot.macroState.freshness,
+    ageSec: snapshot.macroState.ageSec,
+    ttlSec: snapshot.macroState.ttlSec,
+    softStaleSec: snapshot.macroState.softStaleSec,
+    hardStaleSec: snapshot.macroState.hardStaleSec,
+    updatedAt: snapshot.macroState.updatedAt,
+    lastRefreshSuccessAt: snapshot.macroState.lastRefreshSuccessAt,
+    shadowPolicyOn: snapshot.shadowScanAllowed,
+    shadowLearningAllowed: snapshot.shadowLearningAllowed,
+    shadowScanAllowed: snapshot.shadowScanAllowed,
+    effectiveRegime: snapshot.effectiveRegime,
+    riskOverride: snapshot.riskOverride,
+  });
+  const latchDisplay = snapshot.r6Latch ? normalizeR6LatchDisplay({
+    activeR6Triggers: snapshot.r6Latch.activeTriggers,
+    previousR6Triggers: snapshot.r6Latch.previousTriggers,
+    releaseEligibleAt: snapshot.r6Latch.releaseEligibleAt,
+    expiresAt: snapshot.r6Latch.expiresAt,
+  }) : undefined;
   const lines: string[] = [
     legacyOpsTitle(snapshot),
     `${snapshot.displayEmoji} ${snapshot.displayTitle}`,
@@ -994,6 +1055,10 @@ export function formatMarketStateNow(
         'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
       ] : []),
       'R6 latch:',
+      `current active triggers: ${formatTriggerList(snapshot.r6Latch.activeTriggers)}`,
+      `retained previous triggers: ${formatTriggerList(snapshot.r6Latch.previousTriggers)}`,
+      `state: ${latchDisplay?.state ?? 'NONE'}`,
+      `explanation: ${latchDisplay?.explanation ?? 'N/A'}`,
       `activeR6Triggers: ${formatTriggerList(snapshot.r6Latch.activeTriggers)}`,
       `previousR6Triggers: ${formatTriggerList(snapshot.r6Latch.previousTriggers)}`,
       `trigger: ${snapshot.r6Latch.triggerType ?? 'N/A'}`,
@@ -1007,13 +1072,20 @@ export function formatMarketStateNow(
       '',
     ] : []),
     'Shadow:',
-    formatShadowActivityLine(context.shadowActivity),
+    formatShadowActivityLine(context.shadowActivity, snapshot),
     'macroState:',
-    `- freshness: ${snapshot.macroState.freshness}`,
+    `- freshness: ${display.freshnessLabel}`,
     `- ageSec: ${snapshot.macroState.ageSec ?? 'N/A'}`,
-    `- ttlSec: ${snapshot.macroState.ttlSec}`,
+    ...(display.shouldShowRawTtl
+      ? [`- ttlSec: ${snapshot.macroState.ttlSec}`]
+      : [
+        `- intradayTtlSec: ${snapshot.macroState.ttlSec}`,
+        `- postClosePolicy: ${NOW_POST_CLOSE_POLICY_LABEL}`,
+        '- reason: market closed snapshot policy',
+      ]),
     `- softStaleSec: ${snapshot.macroState.softStaleSec}`,
-    `- hardStaleSec: ${snapshot.macroState.hardStaleSec}`,
+    `- ${display.shouldShowRawTtl ? 'hardStaleSec' : 'intradayHardStaleSec'}: ${snapshot.macroState.hardStaleSec}`,
+    `- note: ${display.freshnessExplanation}`,
     `- updatedAt: ${snapshot.macroState.updatedAt ?? 'N/A'}`,
     `- lastRefreshAttemptAt: ${snapshot.macroState.lastRefreshAttemptAt ?? 'N/A'}`,
     `- lastRefreshSuccessAt: ${snapshot.macroState.lastRefreshSuccessAt ?? 'N/A'}`,

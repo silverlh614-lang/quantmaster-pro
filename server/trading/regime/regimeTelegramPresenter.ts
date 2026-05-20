@@ -1,6 +1,7 @@
 // @responsibility Render Telegram regime text from RegimeSnapshot only.
 import { formatMarketStateNow, type MarketStateNowContext } from '../marketStateResolver.js';
 import type { ResolvedRegimeSnapshot } from './effectiveRegimeSnapshot.js';
+import { normalizeNowDisplay } from '../../telegram/nowDisplayNormalizer.js';
 
 function isR6Snapshot(snapshot: ResolvedRegimeSnapshot): boolean {
   return snapshot.riskOverride === 'R6_DEFENSE' ||
@@ -42,14 +43,38 @@ export function formatRegimeTelegramNow(
   context: MarketStateNowContext = {},
 ): string {
   const legacy = sanitizeLegacyMarketStateText(formatMarketStateNow(snapshot.marketState, context), snapshot);
+  const display = normalizeNowDisplay({
+    dataHealth: snapshot.sourceHealth,
+    providerIssue: snapshot.providerIssue,
+    marketSignal: snapshot.marketSignal,
+    conflicts: snapshot.conflicts,
+    freshness: snapshot.marketState.macroState.freshness,
+    ageSec: snapshot.marketState.macroState.ageSec,
+    ttlSec: snapshot.marketState.macroState.ttlSec,
+    softStaleSec: snapshot.marketState.macroState.softStaleSec,
+    hardStaleSec: snapshot.marketState.macroState.hardStaleSec,
+    updatedAt: snapshot.marketState.macroState.updatedAt,
+    lastRefreshSuccessAt: snapshot.marketState.macroState.lastRefreshSuccessAt,
+    shadowCandidateScanStatus: context.shadowActivity?.candidateScanStatus,
+    shadowCandidateScanSkipReason: context.shadowActivity?.candidateSkipReason ?? context.shadowActivity?.lastBlockReason,
+    shadowPolicyOn: snapshot.marketState.shadowScanAllowed,
+    shadowLearningAllowed: snapshot.marketState.shadowLearningAllowed,
+    shadowScanAllowed: snapshot.marketState.shadowScanAllowed,
+    trigger: context.shadowActivity?.candidateScanTrigger,
+    effectiveRegime: snapshot.effectiveRegime,
+    riskOverride: snapshot.riskOverride,
+  });
   const header = [
     `Snapshot: ${snapshot.snapshotId} asOf=${snapshot.asOf} ttlSec=${snapshot.ttlSec}`,
     `Display regime: ${snapshot.displayRegime}`,
     `Effective regime: ${snapshot.effectiveRegime}`,
     `riskOverride=${snapshot.riskOverride} engineMode=${snapshot.engineMode}`,
-    `dataHealth=${snapshot.sourceHealth} providerIssue=${snapshot.providerIssue} marketSignal=${snapshot.marketSignal}`,
+    `Data: ${display.dataLine}`,
+    `Data note: ${display.dataExplanation}`,
+    `rawData: dataHealth=${snapshot.sourceHealth} providerIssue=${snapshot.providerIssue} marketSignal=${snapshot.marketSignal}`,
     ...formatMacroReleaseBlockLines(snapshot),
-    `conflicts=${snapshot.conflicts.join(',') || 'none'}`,
+    `conflicts=${display.conflictLabel}`,
+    ...(display.notes.length > 0 ? [`displayWarnings=${display.notes.join(',')}`] : []),
     '',
   ].join('\n');
   return header + legacy;

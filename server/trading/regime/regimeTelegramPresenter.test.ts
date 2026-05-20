@@ -115,3 +115,26 @@ it('prints HARD_STALE macro release block message and provider classification', 
   expect(text).toContain('refreshJobLastRunAt=2026-05-18T05:00:00.000Z');
   expect(text).toContain('executionImpact=REGIME_RELEASE_BLOCKED_ONLY');
 });
+
+it('renders post-close provider issue as isolated display data instead of a conflict', () => {
+  const snapshot = r6Snapshot({
+    sourceHealth: 'STALE',
+    providerIssue: true,
+    marketSignal: false,
+    conflicts: [],
+    marketState: {
+      ...r6Snapshot().marketState,
+      macroState: {
+        ...r6Snapshot().marketState.macroState,
+        freshness: 'POST_CLOSE_VALID',
+        ageSec: 6332,
+        ttlSec: 300,
+        hardStaleSec: 900,
+      },
+    },
+  });
+  const text = formatRegimeTelegramNow(snapshot);
+  expect(text).toContain('Data: POST_CLOSE_STALE_VALID / providerIssue isolated / marketSignal=false');
+  expect(text).toContain('conflicts=none - provider issue isolated from market signal');
+  expect(text).toContain('rawData: dataHealth=STALE providerIssue=true marketSignal=false');
+});
