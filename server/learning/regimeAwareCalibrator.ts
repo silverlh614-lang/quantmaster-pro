@@ -15,7 +15,6 @@
  *   - timeWeight / calcConditionSharpe (signalCalibrator — 공유 유틸)
  */
 
-import { getRecommendations } from './recommendationTracker.js';
 import {
   loadConditionWeightsByRegime,
   saveConditionWeightsByRegime,
@@ -23,6 +22,9 @@ import {
 } from '../persistence/conditionWeightsRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { timeWeight, calcConditionSharpe, latePenaltyForServerKey } from './signalCalibrator.js';
+import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
+import { bucketAttributionEvidence } from './attributionEvidenceAggregator.js';
+import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
 /** R6_DEFENSE 포함 전체 레짐 레벨 */
 const ALL_REGIMES = [
@@ -40,17 +42,32 @@ const MIN_SAMPLES = 5;
 const WEIGHT_MIN = 0.3;
 const WEIGHT_MAX = 1.8;
 
+export interface RegimeCalibrationOptions {
+  candidateCalibrationMode?: boolean;
+  month?: string;
+}
+
+function evidenceTime(record: AttributionEvidenceRecord): string {
+  return record.exitTime ?? record.entryTime ?? `${record.tradeDate}T00:00:00.000Z`;
+}
+
+function evidenceIsWin(record: AttributionEvidenceRecord): boolean {
+  return record.winLoss === 'WIN'
+    || record.winLoss === 'PARTIAL_WIN'
+    || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
+}
+
 /**
  * 전체 추천 이력에서 레짐별로 분리하여 독립 가중치를 보정한다.
  * 월말 calibrateSignalWeights() 이후 순차 호출 권장.
  */
-export async function calibrateByRegime(): Promise<void> {
-  const allRecs = getRecommendations().filter(
-    (r) =>
-      r.status !== 'PENDING' &&
-      r.conditionKeys && r.conditionKeys.length > 0 &&
-      r.entryRegime,
-  );
+export async function calibrateByRegime(options: RegimeCalibrationOptions = {}): Promise<void> {
+  const month = options.month ?? new Date().toISOString().slice(0, 7);
+  const evidenceBuckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const allRecs = (options.candidateCalibrationMode
+    ? [...evidenceBuckets.candidateOnly, ...evidenceBuckets.shadowOnly]
+    : evidenceBuckets.coreEligible
+  ).filter((r) => r.outcomeStatus === 'CONFIRMED' && r.conditionKeys.length > 0 && r.regime);
 
   if (allRecs.length === 0) {
     console.log('[RegimeCalibrator] 레짐 정보가 있는 결산 데이터 없음 — 건너뜀');
@@ -60,7 +77,7 @@ export async function calibrateByRegime(): Promise<void> {
   const summaryLines: string[] = [];
 
   for (const regime of ALL_REGIMES) {
-    const regimeRecs = allRecs.filter((r) => r.entryRegime === regime);
+    const regimeRecs = allRecs.filter((r) => r.regime === regime);
 
     if (regimeRecs.length < MIN_SAMPLES) {
       console.log(
@@ -75,15 +92,15 @@ export async function calibrateByRegime(): Promise<void> {
     for (const rec of regimeRecs) {
       // 아이디어 4 (Phase 2): 현재 처리 중인 레짐의 반감기로 시간 감쇠 조정.
       // R1_TURBO는 30일, R6_DEFENSE는 90일 — 시장 속도에 학습 속도 동기화.
-      const tw = timeWeight(rec.signalTime, regime);
+      const tw = timeWeight(evidenceTime(rec), regime);
       for (const key of rec.conditionKeys ?? []) {
         if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
         condStats[key].wTotal += tw;
         // 아이디어 5 (Phase 3): LATE_WIN × 타이밍 조건 시 WIN 기여를 0.7× 페널티.
-        if (rec.status === 'WIN') {
-          condStats[key].wWins += tw * latePenaltyForServerKey(rec.lateWin, key);
+        if (evidenceIsWin(rec)) {
+          condStats[key].wWins += tw * latePenaltyForServerKey(false, key);
         }
-        if (rec.actualReturn !== undefined) condStats[key].returns.push(rec.actualReturn);
+        if (rec.returnPct !== undefined) condStats[key].returns.push(rec.returnPct);
       }
     }
 
@@ -93,6 +110,7 @@ export async function calibrateByRegime(): Promise<void> {
 
     for (const [key, stat] of Object.entries(condStats)) {
       if (stat.wTotal < 0.5) continue; // 유효 기여 없음
+      if (!(key in (weights as Record<string, number>))) continue;
 
       const winRate = stat.wWins / stat.wTotal;
       const sharpe  = calcConditionSharpe(stat.returns);
@@ -116,7 +134,9 @@ export async function calibrateByRegime(): Promise<void> {
     }
 
     if (adjustments.length > 0) {
-      saveConditionWeightsByRegime(regime, weights as ConditionWeights);
+      if (!options.candidateCalibrationMode) {
+        saveConditionWeightsByRegime(regime, weights as ConditionWeights);
+      }
       const line = `[${regime}] ${regimeRecs.length}건 — ${adjustments.join(' | ')}`;
       summaryLines.push(line);
       console.log(`[RegimeCalibrator] ${line}`);

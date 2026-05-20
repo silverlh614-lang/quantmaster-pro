@@ -25,6 +25,11 @@ import {
   saveConditionWeightsByRegime,
 } from '../persistence/conditionWeightsRepo.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
+import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
+import {
+  bucketAttributionEvidence,
+  filterAttributionRecordsByEvidence,
+} from './attributionEvidenceAggregator.js';
 import {
   analyzeAttribution,
   serverConditionKey,
@@ -76,7 +81,9 @@ function savePhaseMap(map: PhaseMap): void {
  * @returns { dangerCount, recoveryCount } 신규 위험 등록/회복 건수
  */
 export async function updatePhaseMapAndCaps(): Promise<{ dangerCount: number; recoveryCount: number }> {
-  const records = loadAttributionRecords();
+  const month = new Date().toISOString().slice(0, 7);
+  const evidenceBuckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const records = filterAttributionRecordsByEvidence(loadAttributionRecords(), evidenceBuckets.coreEligible);
   if (records.length < 10) {
     console.log('[PhaseMap] 귀인 레코드 부족 — 건너뜀');
     return { dangerCount: 0, recoveryCount: 0 };

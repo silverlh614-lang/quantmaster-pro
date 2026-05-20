@@ -30,6 +30,9 @@ import {
   appendExperimentalCondition,
   type ExperimentalCondition,
 } from '../persistence/experimentalConditionRepo.js';
+import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
+import { bucketAttributionEvidence } from './attributionEvidenceAggregator.js';
+import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -50,6 +53,10 @@ interface ConditionAudit {
 }
 
 type AuditStore = Record<string, ConditionAudit>;
+
+export interface ConditionAuditOptions {
+  month?: string;
+}
 
 // ── 저성과 판단 임계값 ────────────────────────────────────────────────────────
 
@@ -77,23 +84,36 @@ function saveAuditStore(store: AuditStore): void {
   fs.writeFileSync(CONDITION_AUDIT_FILE, JSON.stringify(store, null, 2));
 }
 
+function evidenceTime(record: AttributionEvidenceRecord): string {
+  return record.exitTime ?? record.entryTime ?? `${record.tradeDate}T00:00:00.000Z`;
+}
+
+function evidenceIsWin(record: AttributionEvidenceRecord): boolean {
+  return record.winLoss === 'WIN'
+    || record.winLoss === 'PARTIAL_WIN'
+    || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
+}
+
 // ── 공개 API ──────────────────────────────────────────────────────────────────
 
 /**
  * 조건 감사를 실행하고 Gemini로 신규 조건 후보를 제안한다.
  * calibrateSignalWeights() / calibrateByRegime() 이후 호출 권장.
  */
-export async function runConditionAudit(): Promise<void> {
-  const allRecs = getRecommendations().filter(
+export async function runConditionAudit(options: ConditionAuditOptions = {}): Promise<void> {
+  const proposalRecs = getRecommendations().filter(
     (r) => r.status !== 'PENDING' && r.conditionKeys && r.conditionKeys.length > 0,
+  );
+  const month = options.month ?? new Date().toISOString().slice(0, 7);
+  const evidenceBuckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const allRecs = evidenceBuckets.coreEligible.filter(
+    (r) => r.outcomeStatus === 'CONFIRMED' && r.conditionKeys.length > 0,
   );
 
   if (allRecs.length < 10) {
     console.log('[ConditionAuditor] 데이터 부족 — 감사 건너뜀');
     return;
   }
-
-  const month = new Date().toISOString().slice(0, 7);
 
   // 조건별 시간 가중 집계 (전체 이력)
   const condStats: Record<
@@ -106,13 +126,13 @@ export async function runConditionAudit(): Promise<void> {
   const liveRegime = getLiveRegime(loadMacroState());
 
   for (const rec of allRecs) {
-    const tw = timeWeight(rec.signalTime, liveRegime);
+    const tw = timeWeight(evidenceTime(rec), liveRegime);
     for (const key of rec.conditionKeys ?? []) {
       if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [], total: 0 };
       condStats[key].wTotal += tw;
       condStats[key].total++;
-      if (rec.status === 'WIN') condStats[key].wWins += tw;
-      if (rec.actualReturn !== undefined) condStats[key].returns.push(rec.actualReturn);
+      if (evidenceIsWin(rec)) condStats[key].wWins += tw;
+      if (rec.returnPct !== undefined) condStats[key].returns.push(rec.returnPct);
     }
   }
 
@@ -159,14 +179,14 @@ export async function runConditionAudit(): Promise<void> {
     }
 
     // 가중치 조작: SUSPENDED 진입
-    if (newStatus === 'SUSPENDED' && prev.status !== 'SUSPENDED') {
+    if (newStatus === 'SUSPENDED' && prev.status !== 'SUSPENDED' && key in (weights as Record<string, number>)) {
       (weights as Record<string, number>)[key] = SUSPENDED_WEIGHT;
       weightsDirty[0] = true;
       suspendedKeys.push(key);
     }
 
     // 가중치 조작: SUSPENDED에서 복구
-    if (prev.status === 'SUSPENDED' && newStatus !== 'SUSPENDED') {
+    if (prev.status === 'SUSPENDED' && newStatus !== 'SUSPENDED' && key in (weights as Record<string, number>)) {
       (weights as Record<string, number>)[key] = RECOVERED_WEIGHT;
       weightsDirty[0] = true;
       recoveredKeys.push(key);
@@ -200,12 +220,12 @@ export async function runConditionAudit(): Promise<void> {
   }
 
   // ── 신규 조건 후보 발굴 ───────────────────────────────────────────────────────
-  const winTrades = allRecs
+  const winTrades = proposalRecs
     .filter((r) => r.status === 'WIN')
     .sort((a, b) => (b.actualReturn ?? 0) - (a.actualReturn ?? 0))
     .slice(0, 20);
   // 아이디어 6 (Phase 3): LOSS/EXPIRED 대조군도 함께 제공 → Gemini 가 패턴 차이 학습.
-  const lossTrades = allRecs
+  const lossTrades = proposalRecs
     .filter((r) => r.status === 'LOSS' || r.status === 'EXPIRED')
     .sort((a, b) => (a.actualReturn ?? 0) - (b.actualReturn ?? 0))
     .slice(0, 20);

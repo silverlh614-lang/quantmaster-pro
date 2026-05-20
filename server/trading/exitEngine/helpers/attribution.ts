@@ -19,6 +19,14 @@ import {
   type ServerAttributionRecord,
 } from '../../../persistence/attributionRepo.js';
 
+function evidenceSourceForTrade(shadow: ServerShadowTrade): 'LIVE' | 'SHADOW' {
+  return shadow.mode === 'LIVE' ? 'LIVE' : 'SHADOW';
+}
+
+function evidenceEngineModeForTrade(shadow: ServerShadowTrade): 'NORMAL' | 'R6_DEFENSE' {
+  return shadow.entryRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' : 'NORMAL';
+}
+
 type SellFillBase = Omit<PositionFill, 'id' | 'ordNo' | 'status' | 'confirmedAt' | 'revertedAt' | 'revertReason' | 'flagToClearOnRevert'>;
 
 export interface EmitPartialAttributionInputForSell {
@@ -59,6 +67,12 @@ export function emitPartialAttributionForSell(
     entryRegime: shadow.entryRegime,
     sellReason:  fill.reason ?? undefined,
     conditionScoresOverride: shadow.entryConditionScores,
+    evidenceSource: evidenceSourceForTrade(shadow),
+    evidenceDataConfidence: 'VERIFIED',
+    evidenceEngineMode: evidenceEngineModeForTrade(shadow),
+    evidenceExecutionStatus: shadow.mode === 'LIVE' ? 'EXECUTED' : 'PAPER_FILLED',
+    evidenceExecutionImpact: 'NONE',
+    signalId: shadow.id ?? shadow.stockCode,
   });
 }
 
@@ -111,5 +125,13 @@ export function emitFullCloseAttributionForExit(
     sellReason:      exitRuleTag,
     exitRuleTag,
     conditionScores: shadow.entryConditionScores,
+    evidenceSource: evidenceSourceForTrade(shadow),
+    evidenceDataConfidence: 'VERIFIED',
+    evidenceEngineMode: evidenceEngineModeForTrade(shadow),
+    evidenceExecutionStatus: shadow.mode === 'LIVE' ? 'EXECUTED' : 'PAPER_FILLED',
+    evidenceExecutionImpact: 'NONE',
+    signalId: shadow.id ?? shadow.stockCode,
+    entryPrice: shadow.shadowEntryPrice ?? shadow.signalPrice,
+    exitPrice: input.exitPrice,
   });
 }

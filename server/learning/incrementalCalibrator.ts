@@ -25,19 +25,62 @@ import {
 } from '../persistence/attributionRepo.js';
 import { serverConditionKey } from './attributionAnalyzer.js';
 import { loadWalkForwardState } from './walkForwardValidator.js';
-import { getRecommendations } from './recommendationTracker.js';
 import {
   timeWeight,
   calcConditionSharpe,
   latePenaltyForServerKey,
 } from './signalCalibrator.js';
 import { markCalibRan } from './learningState.js';
+import { resolveAttributionEligibility } from './attributionEligibilityResolver.js';
+import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
+import {
+  bucketAttributionEvidence,
+  filterAttributionRecordsByEvidence,
+} from './attributionEvidenceAggregator.js';
+import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
 const WEIGHT_MIN = 0.3;
 const WEIGHT_MAX = 1.8;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function attributionConditionKeys(record: ServerAttributionRecord): string[] {
+  return Object.entries(record.conditionScores ?? {})
+    .filter(([, score]) => Number(score) >= 6)
+    .map(([conditionId]) => serverConditionKey(Number(conditionId)))
+    .filter((key): key is NonNullable<ReturnType<typeof serverConditionKey>> => Boolean(key));
+}
+
+function recordAttributionEligibility(record: ServerAttributionRecord): string {
+  const source = record.evidenceSource ?? 'DIAGNOSTIC';
+  const executionStatus = record.evidenceExecutionStatus
+    ?? (source === 'LIVE' ? 'EXECUTED' : source === 'SHADOW' ? 'PAPER_FILLED' : 'NOT_EXECUTED');
+  return resolveAttributionEligibility({
+    tradeDate: record.closedAt.slice(0, 10),
+    symbol: record.stockCode,
+    regime: record.entryRegime ?? record.effectiveRegime ?? 'UNKNOWN',
+    conditionKeys: attributionConditionKeys(record),
+    source,
+    outcomeStatus: record.evidenceOutcomeStatus ?? 'CONFIRMED',
+    executionStatus,
+    engineMode: record.evidenceEngineMode ?? (record.entryRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' : 'NORMAL'),
+    dataConfidence: record.evidenceDataConfidence ?? 'UNKNOWN',
+    providerIssue: record.providerIssue,
+    marketSignal: record.marketSignal,
+    executionImpact: record.evidenceExecutionImpact,
+  });
+}
+
+function evidenceTime(record: AttributionEvidenceRecord): string {
+  return record.exitTime ?? record.entryTime ?? `${record.tradeDate}T00:00:00.000Z`;
+}
+
+function evidenceIsWin(record: AttributionEvidenceRecord): boolean {
+  return record.winLoss === 'WIN'
+    || record.winLoss === 'PARTIAL_WIN'
+    || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
 }
 
 /**
@@ -50,6 +93,12 @@ export async function runIncrementalCalibration(
 ): Promise<void> {
   if (loadWalkForwardState()) {
     console.log('[IncrementalCalib] 워크포워드 동결 중 — 스킵');
+    return;
+  }
+
+  const eligibility = recordAttributionEligibility(newRecord);
+  if (eligibility !== 'CORE_ELIGIBLE') {
+    console.log(`[IncrementalCalib] CORE eligible evidence 아님 (${eligibility}) — active weight 조정 스킵`);
     return;
   }
 
@@ -97,7 +146,9 @@ export async function calibrateSignalWeightsLite(): Promise<void> {
   }
 
   const cutoff = Date.now() - 7 * 86_400_000;
-  const recent = loadAttributionRecords().filter(
+  const month = new Date().toISOString().slice(0, 7);
+  const evidenceBuckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const recent = filterAttributionRecordsByEvidence(loadAttributionRecords(), evidenceBuckets.coreEligible).filter(
     (r) => new Date(r.closedAt).getTime() >= cutoff,
   );
 
@@ -162,11 +213,10 @@ export async function calibrateByRegimeSingle(targetRegime: string): Promise<voi
     return;
   }
 
-  const recs = getRecommendations().filter(
-    (r) =>
-      r.status !== 'PENDING' &&
-      r.entryRegime === targetRegime &&
-      r.conditionKeys && r.conditionKeys.length > 0,
+  const month = new Date().toISOString().slice(0, 7);
+  const evidenceBuckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const recs = evidenceBuckets.coreEligible.filter(
+    (r) => r.regime === targetRegime && r.outcomeStatus === 'CONFIRMED' && r.conditionKeys.length > 0,
   );
 
   if (recs.length < 5) {
@@ -179,18 +229,19 @@ export async function calibrateByRegimeSingle(targetRegime: string): Promise<voi
 
   for (const rec of recs) {
     // 아이디어 4 (Phase 2): 레짐별 반감기로 적응형 감쇠 — 단일 레짐 캘리브.
-    const tw = timeWeight(rec.signalTime, targetRegime);
+    const tw = timeWeight(evidenceTime(rec), targetRegime);
     for (const key of rec.conditionKeys ?? []) {
       if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [] };
       condStats[key].wTotal += tw;
-      if (rec.status === 'WIN') condStats[key].wWins += tw;
-      if (rec.actualReturn !== undefined) condStats[key].returns.push(rec.actualReturn);
+      if (evidenceIsWin(rec)) condStats[key].wWins += tw;
+      if (rec.returnPct !== undefined) condStats[key].returns.push(rec.returnPct);
     }
   }
 
   const adjustments: string[] = [];
   for (const [key, st] of Object.entries(condStats)) {
     if (st.wTotal < 0.5) continue;
+    if (!(key in (weights as Record<string, number>))) continue;
     const winRate = st.wWins / st.wTotal;
     const sharpe  = calcConditionSharpe(st.returns);
     const prev    = (weights as Record<string, number>)[key] ?? 1.0;

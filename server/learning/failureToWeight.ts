@@ -20,11 +20,16 @@ import {
   loadAttributionRecords,
   type ServerAttributionRecord,
 } from '../persistence/attributionRepo.js';
+import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
 import {
   loadConditionWeights,
   saveConditionWeights,
   type ConditionWeights,
 } from '../persistence/conditionWeightsRepo.js';
+import {
+  bucketAttributionEvidence,
+  filterAttributionRecordsByEvidence,
+} from './attributionEvidenceAggregator.js';
 import { serverConditionKey, CONDITION_NAMES } from './attributionAnalyzer.js';
 import { type ConditionKey } from '../quantFilter.js';
 import { F2W_AUDIT_FILE, ensureDataDir } from '../persistence/paths.js';
@@ -305,7 +310,9 @@ export interface F2WRunOptions {
 }
 
 export async function runF2WReverseLoop(options: F2WRunOptions = {}): Promise<F2WRunResult> {
-  const records = loadAttributionRecords();
+  const month = new Date().toISOString().slice(0, 7);
+  const evidenceBuckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const records = filterAttributionRecordsByEvidence(loadAttributionRecords(), evidenceBuckets.coreEligible);
   const weightsBefore = loadConditionWeights();
   const weightsAfter: ConditionWeights = { ...weightsBefore };
   const reflectionAdjustments = computeReflectionAdjustment();

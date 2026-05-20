@@ -88,6 +88,15 @@ export const CONDITION_AUDIT_FILE    = path.join(DATA_DIR, 'condition-audit.json
 export const ANOMALY_STATE_FILE      = path.join(DATA_DIR, 'anomaly-state.json');
 /** 귀인 분석 — 클라이언트에서 전송된 거래 종료 기록 (최근 500건) */
 export const ATTRIBUTION_FILE        = path.join(DATA_DIR, 'attribution-records.json');
+export const ATTRIBUTION_EVIDENCE_LEDGER_DIR = path.join(DATA_DIR, 'attribution', 'evidence-ledger');
+export function attributionEvidenceLedgerFile(yyyymm: string): string {
+  const safe = yyyymm.replace(/[^0-9-]/g, '').slice(0, 7);
+  return path.join(ATTRIBUTION_EVIDENCE_LEDGER_DIR, `${safe}.json`);
+}
+export function ensureAttributionEvidenceLedgerDir(): void {
+  ensureDataDir();
+  if (!fs.existsSync(ATTRIBUTION_EVIDENCE_LEDGER_DIR)) fs.mkdirSync(ATTRIBUTION_EVIDENCE_LEDGER_DIR, { recursive: true });
+}
 /** 글로벌 스캔 에이전트 — 매일 KST 06:00 간밤 시장 분석 결과 */
 export const GLOBAL_SCAN_FILE        = path.join(DATA_DIR, 'global-scan-report.json');
 /** 뉴스-수급 시차 학습 DB — 공급망/ETF 경보 이벤트 + T+1·T+3·T+5 추적 결과 */

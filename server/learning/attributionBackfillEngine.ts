@@ -25,7 +25,7 @@ export function runAttributionBackfill(opts: { now?: Date; dryRun?: boolean } = 
     if (g.dataQuality === 'CORRUPTED' || g.dataQuality === 'QUARANTINED' || g.outcomeLabel === 'DATA_CORRUPTED' || g.outcomeLabel === 'QUARANTINED') { inc('data_quarantined'); continue; }
     const conditionScores = g.conditionScores ?? { 1: g.finalReturnPct! > 0 ? 7 : 3 };
     if (!opts.dryRun) {
-      appendAttributionRecord({ tradeId: id(g), stockCode: g.stockCode, stockName: g.stockName, closedAt: g.closedAt!, returnPct: g.finalReturnPct!, isWin: g.outcomeLabel === 'WIN', conditionScores, holdingDays: Math.max(0, Math.round(((g as any).holdingMinutes ?? 0) / 1440)), sellReason: g.closeReason });
+      appendAttributionRecord({ tradeId: id(g), stockCode: g.stockCode, stockName: g.stockName, closedAt: g.closedAt!, returnPct: g.finalReturnPct!, isWin: g.outcomeLabel === 'WIN', conditionScores, holdingDays: Math.max(0, Math.round(((g as any).holdingMinutes ?? 0) / 1440)), sellReason: g.closeReason, evidenceSource: 'COUNTERFACTUAL', evidenceDataConfidence: 'VERIFIED', evidenceExecutionStatus: 'NOT_EXECUTED', evidenceEngineMode: 'NORMAL', evidenceExecutionImpact: 'NONE' });
       g.attributionProcessed = true;
     }
     processedCount++;

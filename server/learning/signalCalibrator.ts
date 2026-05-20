@@ -14,6 +14,15 @@ import { appendWeightSnapshot } from '../persistence/weightHistoryRepo.js';
 import { applyAttributionCalibrationGuardrail, type CalibrationSource, type DataConfidence, type EngineMode } from './attributionCalibrationGuardrail.js';
 import fs from 'fs';
 import { DATA_DIR } from '../persistence/paths.js';
+import { loadAttributionEvidenceForMonth } from '../persistence/attributionEvidenceLedgerRepo.js';
+import {
+  bucketAttributionEvidence,
+  computeConditionPerformance,
+  filterAttributionRecordsByEvidence,
+  formatEvidenceHygieneBlock,
+  summarizeAttributionBuckets,
+} from './attributionEvidenceAggregator.js';
+import type { AttributionEvidenceRecord } from './attributionEvidenceTypes.js';
 
 
 function persistCandidateWeights(regime: string, updates: Record<string, number>): void {
@@ -21,6 +30,19 @@ function persistCandidateWeights(regime: string, updates: Record<string, number>
   const file = `${DATA_DIR}/condition-weights-${safe}.candidate.json`;
   const prev = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
   fs.writeFileSync(file, JSON.stringify({ ...prev, ...updates }, null, 2));
+}
+
+function formatEvidenceInsight(title: string, records: AttributionEvidenceRecord[]): string {
+  const top = computeConditionPerformance(records)
+    .sort((a, b) => b.avgReturnPct - a.avgReturnPct || b.winRate - a.winRate)
+    .slice(0, 3);
+  if (top.length === 0) return `${title}\n  • 데이터 부족`;
+  return [
+    title,
+    ...top.map((item) =>
+      `  • ${item.conditionKey}: WIN ${(item.winRate * 100).toFixed(0)}%, avg ${item.avgReturnPct.toFixed(2)}% (${item.total})`,
+    ),
+  ].join('\n');
 }
 
 /**
@@ -48,10 +70,31 @@ export async function calibrateSignalWeights(): Promise<void> {
     return;
   }
 
-  const records = loadAttributionRecords();
+  const month = new Date().toISOString().slice(0, 7);
+  const allRecords = loadAttributionRecords();
+  const evidenceRecords = loadAttributionEvidenceForMonth(month);
+  const evidenceBuckets = bucketAttributionEvidence(evidenceRecords);
+  const evidenceSummary = summarizeAttributionBuckets(evidenceBuckets);
+  const records = filterAttributionRecordsByEvidence(allRecords, evidenceBuckets.coreEligible);
+  const shadowEvidenceReport = formatEvidenceInsight('👤 Shadow attribution Top 3 (shadowOnly)', evidenceBuckets.shadowOnly);
+  const counterfactualEvidenceReport = formatEvidenceInsight('🧪 Counterfactual attribution Top 3 (counterfactualOnly)', evidenceBuckets.counterfactualOnly);
+
+  console.log(
+    `[ATTRIBUTION_BUCKET_SUMMARY] month=${month} total=${evidenceSummary.total} coreEligible=${evidenceSummary.coreEligible} `
+    + `candidateOnly=${evidenceSummary.candidateOnly} shadowOnly=${evidenceSummary.shadowOnly} `
+    + `counterfactualOnly=${evidenceSummary.counterfactualOnly} diagnosticOnly=${evidenceSummary.diagnosticOnly} `
+    + `pending=${evidenceSummary.pending} excluded=${evidenceSummary.excluded}`,
+  );
 
   if (records.length < 10) {
-    console.log(`[Calibrator] 귀인 레코드 부족 (${records.length}건 < 10) — 보정 건너뜀`);
+    console.log(`[Calibrator] CORE attribution evidence insufficient (${records.length} < 10) -- skip active calibration`);
+    await sendTelegramAlert(
+      `🔬 <b>[귀인 분석 월간 리포트] ${month}</b>\n\n`
+      + `${formatEvidenceHygieneBlock(evidenceSummary)}\n\n`
+      + `${shadowEvidenceReport}\n\n`
+      + `${counterfactualEvidenceReport}\n\n`
+      + `CORE eligible attribution samples are insufficient (${records.length}/10). Active condition weights were not changed.`,
+    ).catch(console.error);
     return;
   }
 
@@ -166,7 +209,6 @@ export async function calibrateSignalWeights(): Promise<void> {
   }
 
   // ── 텔레그램 월간 리포트 ──
-  const month = new Date().toISOString().slice(0, 7);
 
   // 전체 27조건 중 샘플이 있는 것만 필터링하여 상위/하위 3개 선별
   const withSamples = analysis.filter((a) => a.totalTrades >= 3);
@@ -197,7 +239,10 @@ export async function calibrateSignalWeights(): Promise<void> {
   const probationOnlyCount = adjustments.filter((a) => a.includes('PROBATION_ONLY')).length;
   await sendTelegramAlert(
     `🔬 <b>[귀인 분석 월간 리포트] ${month}</b>\n\n` +
-    `📊 분석 레코드: ${records.length}건\n\n` +
+    `${formatEvidenceHygieneBlock(evidenceSummary)}\n\n` +
+    `${shadowEvidenceReport}\n\n` +
+    `${counterfactualEvidenceReport}\n\n` +
+    `📊 분석 레코드: ${records.length}건 (CORE eligible)\n\n` +
     `📈 <b>최고 기여 조건 Top 3</b>\n` +
     topWin.map((c) =>
       `  • ${c.conditionName}: WIN ${(c.winRate * 100).toFixed(0)}%, Sharpe ${c.sharpe.toFixed(2)} (${c.totalTrades}건)`

@@ -22,6 +22,16 @@ import fs from 'fs';
 import { ATTRIBUTION_FILE, SHADOW_FILE, ensureDataDir } from './paths.js';
 import type { RegimePhase } from '../shadow/regimeContext.js';
 import type { RegimeRecoveryConfidence, RegimeRecoverySource } from '../learning/learningTypes.js';
+import { upsertAttributionEvidenceRecord } from './attributionEvidenceLedgerRepo.js';
+import type {
+  AttributionEvidenceRecord,
+  AttributionExecutionImpact,
+  AttributionExecutionStatus,
+  AttributionOutcomeStatus,
+  AttributionSampleSource,
+  DataConfidence as AttributionDataConfidence,
+  EngineMode as AttributionEngineMode,
+} from '../learning/attributionEvidenceTypes.js';
 
 // ── 스키마 버전 ──────────────────────────────────────────────────────────────
 
@@ -91,6 +101,26 @@ export interface ServerAttributionRecord {
   conditionScores: Record<number, number>;
   holdingDays:     number;
   sellReason?:     string;
+  evidenceSource?: AttributionSampleSource;
+  evidenceOutcomeStatus?: AttributionOutcomeStatus;
+  evidenceExecutionStatus?: AttributionExecutionStatus;
+  evidenceDataConfidence?: AttributionDataConfidence;
+  evidenceEngineMode?: AttributionEngineMode;
+  evidenceExecutionImpact?: AttributionExecutionImpact;
+  evidenceAuditTags?: string[];
+  signalId?: string;
+  orderId?: string;
+  blockedReason?: string;
+  providerIssue?: boolean;
+  providerName?: string;
+  marketSignal?: boolean;
+  entryPrice?: number;
+  exitPrice?: number;
+  entryTime?: string;
+  exitTime?: string;
+  returnR?: number;
+  maxFavorableExcursionR?: number;
+  maxAdverseExcursionR?: number;
   /**
    * 아이디어 5 (Phase 3): EXPIRED 이후 60/90일 재평가에서 targetPrice 달성.
    * true 면 타이밍 조건(20 터틀, 21 피보나치, 22 엘리엇, 26 다이버전스)의
@@ -144,6 +174,104 @@ function isSameKey(a: ServerAttributionRecord, b: ServerAttributionRecord): bool
   return false;
 }
 
+const ATTRIBUTION_DIAGNOSTIC_ENGINE_MODES = new Set(['SELL_ONLY', 'SHADOW_ONLY', 'OBSERVE_ONLY', 'R6_DEFENSE']);
+const ATTRIBUTION_SERVER_CONDITION_KEYS: Record<number, string> = {
+  2: 'momentum',
+  4: 'supply_confluence',
+  10: 'ma_alignment',
+  11: 'volume_breakout',
+  18: 'turtle_high',
+  21: 'earnings_quality',
+  24: 'relative_strength',
+  25: 'vcp',
+};
+
+function normalizeAttributionEngineMode(value: unknown, fallbackRegime?: string): AttributionEngineMode {
+  if (value === 'NORMAL' || value === 'DEGRADED' || value === 'SELL_ONLY' || value === 'SHADOW_ONLY' || value === 'OBSERVE_ONLY' || value === 'R6_DEFENSE') {
+    return value;
+  }
+  if (fallbackRegime === 'R6_DEFENSE') return 'R6_DEFENSE';
+  return 'NORMAL';
+}
+
+function inferEvidenceSource(record: ServerAttributionRecord): AttributionSampleSource {
+  if (record.evidenceSource) return record.evidenceSource;
+  if (record.tradeId.startsWith('ghost:') || record.tradeId.startsWith('counterfactual:')) return 'COUNTERFACTUAL';
+  if (record.sellOnlyActive || record.hardBlockActive || ATTRIBUTION_DIAGNOSTIC_ENGINE_MODES.has(String(record.engineMode))) return 'DIAGNOSTIC';
+  return 'DIAGNOSTIC';
+}
+
+function inferExecutionStatus(source: AttributionSampleSource, record: ServerAttributionRecord): AttributionExecutionStatus {
+  if (record.evidenceExecutionStatus) return record.evidenceExecutionStatus;
+  if (source === 'LIVE') return 'EXECUTED';
+  if (source === 'SHADOW') return 'PAPER_FILLED';
+  if (source === 'COUNTERFACTUAL') return 'NOT_EXECUTED';
+  if (source === 'BLOCKED') return 'BLOCKED';
+  return 'SKIPPED';
+}
+
+function inferConditionKeys(record: ServerAttributionRecord): string[] {
+  return Object.entries(record.conditionScores ?? {})
+    .filter(([, score]) => Number(score) >= 6)
+    .map(([conditionId]) => ATTRIBUTION_SERVER_CONDITION_KEYS[Number(conditionId)] ?? `condition:${conditionId}`);
+}
+
+function inferWinLoss(record: ServerAttributionRecord): AttributionEvidenceRecord['winLoss'] {
+  if (!Number.isFinite(record.returnPct)) return 'INVALID';
+  if (record.returnPct > 0.2) return 'WIN';
+  if (record.returnPct < -0.2) return 'LOSS';
+  return 'BREAKEVEN';
+}
+
+function recordEvidenceForAttributionRecord(record: ServerAttributionRecord): void {
+  try {
+    const source = inferEvidenceSource(record);
+    const tradeDate = (record.closedAt || new Date().toISOString()).slice(0, 10);
+    const engineMode = normalizeAttributionEngineMode(record.evidenceEngineMode ?? record.engineMode, record.entryRegime);
+    const legacyInferred = record.evidenceSource === undefined;
+    upsertAttributionEvidenceRecord({
+      tradeDate,
+      symbol: record.stockCode,
+      stockName: record.stockName,
+      regime: record.entryRegime ?? record.effectiveRegime ?? record.rawRegime ?? 'UNKNOWN',
+      conditionKeys: inferConditionKeys(record),
+      source,
+      eligibility: 'EXCLUDED',
+      outcomeStatus: record.evidenceOutcomeStatus ?? 'CONFIRMED',
+      executionStatus: inferExecutionStatus(source, record),
+      engineMode,
+      dataConfidence: record.evidenceDataConfidence ?? (legacyInferred ? 'UNKNOWN' : 'VERIFIED'),
+      signalId: record.signalId ?? record.tradeId,
+      positionId: source === 'LIVE' ? record.tradeId : undefined,
+      orderId: record.orderId ?? record.fillId,
+      shadowPositionId: source === 'SHADOW' ? record.tradeId : undefined,
+      counterfactualId: source === 'COUNTERFACTUAL' ? record.tradeId : undefined,
+      entryPrice: record.entryPrice,
+      exitPrice: record.exitPrice,
+      entryTime: record.entryTime,
+      exitTime: record.closedAt,
+      returnPct: record.returnPct,
+      returnR: record.returnR,
+      maxFavorableExcursionR: record.maxFavorableExcursionR,
+      maxAdverseExcursionR: record.maxAdverseExcursionR,
+      winLoss: inferWinLoss(record),
+      blockedReason: record.blockedReason,
+      providerIssue: record.providerIssue,
+      providerName: record.providerName,
+      marketSignal: record.marketSignal,
+      executionImpact: record.evidenceExecutionImpact ?? 'NONE',
+      auditTags: [
+        'ATTRIBUTION_RECORD',
+        record.attributionType ?? 'FULL_CLOSE',
+        ...(legacyInferred ? ['LEGACY_SOURCE_INFERRED_EXCLUDED'] : []),
+        ...(record.evidenceAuditTags ?? []),
+      ],
+    });
+  } catch (e) {
+    console.warn('[ATTRIBUTION_EVIDENCE_RECORD_FAILED]', e instanceof Error ? e.message : e);
+  }
+}
+
 export function appendAttributionRecord(record: ServerAttributionRecord): void {
   // 신규 저장 시 현재 스키마 버전 강제 기록 — 과거 v0 혼입 방지.
   const versioned: ServerAttributionRecord = {
@@ -157,6 +285,7 @@ export function appendAttributionRecord(record: ServerAttributionRecord): void {
   const filtered = records.filter((r) => !isSameKey(r, versioned));
   filtered.push(versioned);
   saveAttributionRecords(filtered.slice(-500));
+  recordEvidenceForAttributionRecord(versioned);
 }
 
 /**
@@ -341,6 +470,12 @@ export interface EmitPartialAttributionInput {
   sellReason?: string;
   /** 호출자가 직접 제공하는 conditionScores. 없으면 기존 FULL_CLOSE 레코드에서 조회. */
   conditionScoresOverride?: Record<number, number>;
+  evidenceSource?: AttributionSampleSource;
+  evidenceDataConfidence?: AttributionDataConfidence;
+  evidenceEngineMode?: AttributionEngineMode;
+  evidenceExecutionStatus?: AttributionExecutionStatus;
+  evidenceExecutionImpact?: AttributionExecutionImpact;
+  signalId?: string;
 }
 
 /**
@@ -374,6 +509,13 @@ export function emitPartialAttribution(input: EmitPartialAttributionInput): Serv
     conditionScores: scores,
     holdingDays: input.holdingDays,
     sellReason: input.sellReason,
+    evidenceSource: input.evidenceSource,
+    evidenceDataConfidence: input.evidenceDataConfidence,
+    evidenceEngineMode: input.evidenceEngineMode,
+    evidenceExecutionStatus: input.evidenceExecutionStatus,
+    evidenceExecutionImpact: input.evidenceExecutionImpact,
+    signalId: input.signalId,
+    exitTime: input.closedAt,
   };
   appendAttributionRecord(rec);
   return rec;
@@ -412,6 +554,14 @@ export interface EmitFullCloseAttributionInput {
    * 빈 객체 또는 미전달 시 null 반환 — 학습 오염 차단.
    */
   conditionScores: Record<number, number>;
+  evidenceSource?: AttributionSampleSource;
+  evidenceDataConfidence?: AttributionDataConfidence;
+  evidenceEngineMode?: AttributionEngineMode;
+  evidenceExecutionStatus?: AttributionExecutionStatus;
+  evidenceExecutionImpact?: AttributionExecutionImpact;
+  signalId?: string;
+  entryPrice?: number;
+  exitPrice?: number;
 }
 
 export function isFullCloseAttributionDisabled(): boolean {
@@ -448,6 +598,15 @@ export function emitFullCloseAttribution(
     conditionScores: input.conditionScores,
     holdingDays:     Math.max(0, Math.floor(input.holdingDays)),
     sellReason:      input.sellReason ?? input.exitRuleTag,
+    evidenceSource: input.evidenceSource,
+    evidenceDataConfidence: input.evidenceDataConfidence,
+    evidenceEngineMode: input.evidenceEngineMode,
+    evidenceExecutionStatus: input.evidenceExecutionStatus,
+    evidenceExecutionImpact: input.evidenceExecutionImpact,
+    signalId: input.signalId,
+    entryPrice: input.entryPrice,
+    exitPrice: input.exitPrice,
+    exitTime: input.closedAt,
   };
   appendAttributionRecord(rec);
   return rec;
