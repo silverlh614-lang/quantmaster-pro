@@ -21,6 +21,7 @@
  * │  R4_NEUTRAL          : ×1.5                                      │
  * │  R5_CAUTION          : ×2.0                                      │
  * │  R6_DEFENSE          : 매도 전용 2분 고정                         │
+ * │    └ macro_unblock 활성 시: FULL 스캔으로 전환 (override 우선)    │
  * └─────────────────────────────────────────────────────────────────┘
  *
  * ┌─ 3. VKOSPI 급변 ─────────────────────────────────────────────────┐
@@ -54,6 +55,7 @@ import {
   alreadyExecutedThisSession, markSessionExecuted,
 } from './thresholdSearchLoop.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { isMacroEntryOverrideActive } from '../state.js';
 import {
   evaluateEmptyScanLiveness,
   isEmptyScanLivenessPolicyDisabled,
@@ -314,6 +316,44 @@ export function decideScan(): ScanDecision {
   // ── 2. R6_DEFENSE: 매도 전용, 2분 고정 ───────────────────────────────────
   if (regime === 'R6_DEFENSE') {
     const effectiveInterval = 2;
+
+    // ── ADR-R6-OVERRIDE-SCAN-001 ───────────────────────────────────────────
+    // macro_unblock(r6) 활성 시 SELL_ONLY 강제를 해제하고 FULL 스캔으로 전환.
+    // preflight.ts 의 r6EntryOverrideActive 로직이 실제 매수 허용 여부를
+    // 최종 판단하므로, decideScan 은 문을 열어주기만 하면 된다.
+    //
+    // 안전 invariant:
+    //   - macro_unblock 미설정 시 기존 동작 100% 보존
+    //   - VKOSPI 급등(섹션 1) 이후 강제 SELL_ONLY는 이 블록보다 먼저 실행되므로
+    //     VKOSPI 급등 상황에서는 override가 적용되지 않음 (의도된 동작)
+    //   - exitEngine·포지션 관리는 FULL/SELL_ONLY 무관하게 항상 실행됨
+    // ──────────────────────────────────────────────────────────────────────
+    const r6OverrideActive = isMacroEntryOverrideActive('R6_DEFENSE');
+
+    if (r6OverrideActive) {
+      // override 활성: FULL 스캔 허용 — preflight가 실제 매수 여부 최종 판단
+      if (now - lastScanAt < effectiveInterval * 60_000) {
+        return {
+          shouldScan:      false,
+          intervalMinutes: effectiveInterval,
+          reason:          `R6 DEFENSE (OVERRIDE ACTIVE) — ${((now - lastScanAt) / 60_000).toFixed(1)}분 경과 (목표: ${effectiveInterval}분)`,
+          priority:        'SKIP',
+        };
+      }
+      lastScanAt = now;
+      console.info(
+        '[R6_DEFENSE_OVERRIDE_SCAN] macro_unblock active — SELL_ONLY 해제, FULL 스캔 실행 ' +
+        'executionImpact=OPERATOR_OVERRIDE liveEntryDeterminedByPreflight=true',
+      );
+      return {
+        shouldScan:      true,
+        intervalMinutes: effectiveInterval,
+        reason:          'R6 DEFENSE — OPERATOR_MACRO_ENTRY_OVERRIDE active, FULL scan',
+        priority:        'FULL',
+      };
+    }
+
+    // override 없음: 기존 동작 (SELL_ONLY 고정)
     if (now - lastScanAt < effectiveInterval * 60_000) {
       return {
         shouldScan:      false,
