@@ -80,6 +80,9 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const exhaustion = asRecord(falseBreakout.exhaustion);
   const lastTick = asRecord(intraday.lastTick);
   const quoteFreshness = asRecord(intraday.quoteFreshness);
+  const sessionCompatibility = asRecord(intraday.sessionCompatibility);
+  const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';
+  const eodOnlyExpected = ['AFTERMARKET', 'SELL_ONLY', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
 
   const timingAlignment = {
     volume: (breakoutVolumeStatus === 'PASS' || (volumeRatio != null && volumeRatio >= 2) || (tradingValueRatio != null && tradingValueRatio >= 2)) ? 'CONFIRMED' : (breakoutVolumeStatus === 'FAIL' || volumeRatio != null || tradingValueRatio != null) ? 'WEAK' : breakoutVolumeStatus === 'MISSING' ? 'MISSING' : 'UNKNOWN',
@@ -124,7 +127,9 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   } else if (asString(lastTick.status) === 'STALE') {
     freshnessIssues.push('INTRADAY_LAST_TICK_STALE'); health = 'WARN'; primaryIssue = 'INTRADAY_TICK_STALE'; operatorAction = 'CHECK_INTRADAY_FEED';
   } else if (asString(intraday.dataMode) === 'EOD_ONLY' || asString(intraday.status) === 'STAGE_NOT_FETCHED') {
-    health = 'WARN'; primaryIssue = 'INTRADAY_NOT_FETCHED_EOD_ONLY'; operatorAction = 'WAIT_FOR_INTRADAY_CONFIRMATION';
+    if (!eodOnlyExpected) {
+      health = 'WARN'; primaryIssue = 'INTRADAY_NOT_FETCHED_EOD_ONLY'; operatorAction = 'WAIT_FOR_INTRADAY_CONFIRMATION';
+    }
   }
 
   if (timingAlignment.priceBreakout === 'CONFIRMED' && (timingAlignment.volume === 'MISSING' || timingAlignment.volume === 'WEAK')) {
