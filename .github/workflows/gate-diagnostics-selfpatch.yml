@@ -1,0 +1,178 @@
+name: gate-diagnostics-selfpatch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/gate-diagnostics-selfpatch.yml'
+
+permissions:
+  contents: write
+
+env:
+  CI: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Patch gate diagnostics
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          function read(path) {
+            return fs.readFileSync(path, 'utf8');
+          }
+          function write(path, content) {
+            fs.writeFileSync(path, content);
+          }
+          function replaceOnce(path, before, after) {
+            const content = read(path);
+            if (!content.includes(before)) {
+              throw new Error(`${path}: pattern not found:\n${before}`);
+            }
+            write(path, content.replace(before, after));
+          }
+          function replaceAllChecked(path, before, after, expectedCount) {
+            const content = read(path);
+            const count = content.split(before).length - 1;
+            if (count !== expectedCount) {
+              throw new Error(`${path}: expected ${expectedCount} occurrences, found ${count}:\n${before}`);
+            }
+            write(path, content.split(before).join(after));
+          }
+
+          replaceOnce(
+            'server/quant/gate2Diagnostics/types.ts',
+            "export type Gate2EvaluationStage = 'DISCOVERY_GATE' | 'REFRESHED_GATE' | 'ENTRY_RECHECK_GATE' | string;",
+            "export type Gate2EvaluationStage =\n  | 'DISCOVERY_GATE'\n  | 'REFRESHED_GATE'\n  | 'ENTRY_RECHECK_GATE'\n  | 'SELL_ONLY_SESSION'\n  | 'AFTERMARKET_SESSION'\n  | string;",
+          );
+
+          replaceOnce(
+            'server/quant/gate2Diagnostics/externalCoverage.ts',
+            "export function providerFromMetadata(value: unknown, defaults: { verified: string; cache: string; unknown: string }): string {\n  if (!value || typeof value !== 'object') return defaults.unknown;\n  const record = value as Record<string, unknown>;\n  const raw = String(record.provider ?? record.source ?? record.dataSource ?? '').toUpperCase();\n  if (raw.includes('CACHE')) return defaults.cache;\n  if (raw.includes('KIS_OFFICIAL')) return 'KIS_OFFICIAL';\n  if (raw.includes('KIS')) return 'KIS_API';\n  if (raw.includes('DART')) return 'DART';\n  if (raw.includes('KOSPI') || raw.includes('INDEX')) return 'KOSPI_INDEX';\n  if (raw.includes('QMP')) return 'QMP_MACRO';\n  return defaults.verified;\n}\n",
+            "export function providerFromMetadata(value: unknown, defaults: { verified: string; cache: string; unknown: string }): string {\n  if (!value || typeof value !== 'object') return defaults.unknown;\n  const record = value as Record<string, unknown>;\n  const raw = String(record.provider ?? record.source ?? record.dataSource ?? '').toUpperCase();\n  if (raw.includes('CACHE')) return defaults.cache;\n  if (raw.includes('KIS_OFFICIAL')) return 'KIS_OFFICIAL';\n  if (raw.includes('KIS')) return 'KIS_API';\n  if (raw.includes('DART')) return 'DART';\n  if (raw.includes('KOSPI') || raw.includes('INDEX')) return 'KOSPI_INDEX';\n  if (raw.includes('QMP')) return 'QMP_MACRO';\n  return defaults.verified;\n}\n\nexport function isDeferredGate2EvaluationStage(evaluationStage?: Gate2EvaluationStage | null): boolean {\n  return evaluationStage === 'DISCOVERY_GATE'\n    || evaluationStage === 'SELL_ONLY_SESSION'\n    || evaluationStage === 'AFTERMARKET_SESSION';\n}\n",
+          );
+          replaceAllChecked(
+            'server/quant/gate2Diagnostics/externalCoverage.ts',
+            "input.evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING'",
+            "isDeferredGate2EvaluationStage(input.evaluationStage) ? 'STAGE_NOT_FETCHED' : 'MISSING'",
+            2,
+          );
+          replaceOnce(
+            'server/quant/gate2Diagnostics/externalCoverage.ts',
+            "if (!fieldsAvailable && input.evaluationStage === 'DISCOVERY_GATE') return 'STAGE_NOT_FETCHED';",
+            "if (!fieldsAvailable && isDeferredGate2EvaluationStage(input.evaluationStage)) return 'STAGE_NOT_FETCHED';",
+          );
+          replaceOnce(
+            'server/quant/gate2Diagnostics/externalCoverage.ts',
+            "return evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING';",
+            "return isDeferredGate2EvaluationStage(evaluationStage) ? 'STAGE_NOT_FETCHED' : 'MISSING';",
+          );
+          replaceOnce(
+            'server/quant/gate2Diagnostics/externalCoverage.ts',
+            "? evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING'\n    : metadataStatus ?? (overallRisk !== 'UNKNOWN' ? 'VERIFIED' : 'UNKNOWN');",
+            "? isDeferredGate2EvaluationStage(evaluationStage) ? 'STAGE_NOT_FETCHED' : 'MISSING'\n    : metadataStatus ?? (overallRisk !== 'UNKNOWN' ? 'VERIFIED' : 'UNKNOWN');",
+          );
+
+          replaceOnce(
+            'server/quant/gate2Diagnostics/consolidatedDiagnostic.ts',
+            "export function gate2StageNotFetched(external: Gate2ExternalDataCoverage, evaluationStage?: Gate2EvaluationStage | null): boolean {\n  const coreNotFetched = external.kisInvestorFlow.status === 'STAGE_NOT_FETCHED'\n    && external.dartFinancials.status === 'STAGE_NOT_FETCHED'\n    && external.benchmark.status === 'STAGE_NOT_FETCHED';\n  return coreNotFetched && (!evaluationStage || evaluationStage === 'DISCOVERY_GATE');\n}\n",
+            "export function gate2DeferredFetchStage(evaluationStage?: Gate2EvaluationStage | null): boolean {\n  return !evaluationStage\n    || evaluationStage === 'DISCOVERY_GATE'\n    || evaluationStage === 'SELL_ONLY_SESSION'\n    || evaluationStage === 'AFTERMARKET_SESSION';\n}\n\nexport function gate2StageNotFetched(external: Gate2ExternalDataCoverage, evaluationStage?: Gate2EvaluationStage | null): boolean {\n  if (!gate2DeferredFetchStage(evaluationStage)) return false;\n  const coreStatuses = [\n    external.kisInvestorFlow.status,\n    external.dartFinancials.status,\n    external.benchmark.status,\n  ];\n  const anyStageNotFetched = coreStatuses.includes('STAGE_NOT_FETCHED');\n  const noBlockingMissing = coreStatuses.every(status =>\n    ['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED', 'UNKNOWN'].includes(status),\n  );\n  return anyStageNotFetched && noBlockingMissing;\n}\n",
+          );
+
+          replaceOnce(
+            'server/quant/gate3Diagnostics.ts',
+            "  const dataMode: Gate3IntradayTimingDiagnostic['dataMode'] = hasIntraday && hasEod ? 'MIXED' : hasIntraday ? 'INTRADAY' : hasEod ? 'EOD_ONLY' : 'UNKNOWN';\n  if (dataMode === 'EOD_ONLY') notes.push('INTRADAY_NOT_FETCHED_EOD_ONLY');\n",
+            "  const dataMode: Gate3IntradayTimingDiagnostic['dataMode'] = hasIntraday && hasEod ? 'MIXED' : hasIntraday ? 'INTRADAY' : hasEod ? 'EOD_ONLY' : 'UNKNOWN';\n  const eodOnlyExpected = ['AFTERMARKET', 'SELL_ONLY', 'CLOSED', 'HOLIDAY'].includes(session);\n  if (dataMode === 'EOD_ONLY') {\n    notes.push(eodOnlyExpected ? 'INTRADAY_NOT_FETCHED_EOD_ONLY_EXPECTED' : 'INTRADAY_NOT_FETCHED_EOD_ONLY');\n  }\n",
+          );
+
+          replaceOnce(
+            'server/quant/gate3ConsolidatedDiagnostic.ts',
+            "  const lastTick = asRecord(intraday.lastTick);\n  const quoteFreshness = asRecord(intraday.quoteFreshness);\n",
+            "  const lastTick = asRecord(intraday.lastTick);\n  const quoteFreshness = asRecord(intraday.quoteFreshness);\n  const sessionCompatibility = asRecord(intraday.sessionCompatibility);\n  const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';\n  const eodOnlyExpected = ['AFTERMARKET', 'SELL_ONLY', 'CLOSED', 'HOLIDAY'].includes(intradaySession);\n",
+          );
+          replaceOnce(
+            'server/quant/gate3ConsolidatedDiagnostic.ts',
+            "  } else if (asString(intraday.dataMode) === 'EOD_ONLY' || asString(intraday.status) === 'STAGE_NOT_FETCHED') {\n    health = 'WARN'; primaryIssue = 'INTRADAY_NOT_FETCHED_EOD_ONLY'; operatorAction = 'WAIT_FOR_INTRADAY_CONFIRMATION';\n  }\n",
+            "  } else if (asString(intraday.dataMode) === 'EOD_ONLY' || asString(intraday.status) === 'STAGE_NOT_FETCHED') {\n    if (!eodOnlyExpected) {\n      health = 'WARN'; primaryIssue = 'INTRADAY_NOT_FETCHED_EOD_ONLY'; operatorAction = 'WAIT_FOR_INTRADAY_CONFIRMATION';\n    }\n  }\n",
+          );
+
+          replaceOnce(
+            'server/quantFilter.ts',
+            "  const gate3Wiring = buildGate3WiringDiagnostics({ outputs, layerMap: GATE_CONDITION_LAYER_MAP });\n  (summary.gate3 as unknown as { wiring?: Gate3WiringDiagnostic[] }).wiring = gate3Wiring;\n  (summary.gate3 as unknown as { sourceCoverage?: Gate3SourceCoverage }).sourceCoverage = buildGate3SourceCoverage(gate3Wiring);\n  (summary.gate3 as unknown as { externalDataCoverage?: Gate3ExternalDataCoverage }).externalDataCoverage = buildGate3ExternalDataCoverage(gate2ExternalCoverageInput.quote as Record<string, unknown> ?? {});\n  summary.gate3.consolidatedDiagnostic = buildGate3ConsolidatedDiagnostic({ gate3: summary.gate3 });\n",
+            "  const gate3Wiring = buildGate3WiringDiagnostics({ outputs, layerMap: GATE_CONDITION_LAYER_MAP });\n  (summary.gate3 as unknown as { wiring?: Gate3WiringDiagnostic[] }).wiring = gate3Wiring;\n  (summary.gate3 as unknown as { sourceCoverage?: Gate3SourceCoverage }).sourceCoverage = buildGate3SourceCoverage(gate3Wiring);\n  const gate3Quote = gate2ExternalCoverageInput.quote && typeof gate2ExternalCoverageInput.quote === 'object'\n    ? { ...(gate2ExternalCoverageInput.quote as Record<string, unknown>) }\n    : {};\n  if (gate2ExternalCoverageInput.evaluationStage === 'SELL_ONLY_SESSION') {\n    gate3Quote.marketSession = { session: 'SELL_ONLY', liveBuyAllowed: false, shadowAllowed: true };\n  } else if (gate2ExternalCoverageInput.evaluationStage === 'AFTERMARKET_SESSION') {\n    gate3Quote.marketSession = { session: 'AFTERMARKET', liveBuyAllowed: false, shadowAllowed: true };\n  }\n  (summary.gate3 as unknown as { externalDataCoverage?: Gate3ExternalDataCoverage }).externalDataCoverage = buildGate3ExternalDataCoverage(gate3Quote);\n  summary.gate3.consolidatedDiagnostic = buildGate3ConsolidatedDiagnostic({ gate3: summary.gate3 });\n",
+          );
+
+          replaceOnce(
+            'server/screener/universeScanner.ts',
+            "    const gate = evaluateServerGate(\n      enrichedQuote,\n      weights,\n      kospi20dReturn,\n      null,\n      null,\n      regime,\n    );",
+            "    const gate = evaluateServerGate(\n      enrichedQuote,\n      weights,\n      kospi20dReturn,\n      null,\n      null,\n      regime,\n      'DISCOVERY_GATE',\n    );",
+          );
+          replaceOnce(
+            'server/screener/universeScanner.ts',
+            "        const refreshedGate = evaluateServerGate(\n          c.quote,\n          weights,\n          kospi20dReturn,\n          null,\n          flow,\n          regime,\n        );",
+            "        const refreshedGate = evaluateServerGate(\n          c.quote,\n          weights,\n          kospi20dReturn,\n          null,\n          flow,\n          regime,\n          'DISCOVERY_GATE',\n        );",
+          );
+          replaceOnce(
+            'server/screener/universeScanner.ts',
+            "    const refreshedGate = evaluateServerGate(\n      c.quote,\n      weights,\n      macroState?.kospi20dReturn,\n      dartFinByCode.get(c.code) ?? null,\n      kisFlowForGate,\n      regime,\n    );",
+            "    const refreshedGate = evaluateServerGate(\n      c.quote,\n      weights,\n      macroState?.kospi20dReturn,\n      dartFinByCode.get(c.code) ?? null,\n      kisFlowForGate,\n      regime,\n      'REFRESHED_GATE',\n    );",
+          );
+
+          replaceOnce(
+            'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
+            "        const reCheckGatePb = evaluateServerGate(\n          accumulation.quote,\n          ctx.conditionWeights,\n          ctx.macroState?.kospi20dReturn,\n          dartFinPb,\n          kisFlowPb,\n          ctx.regime,\n        );",
+            "        const reCheckGatePb = evaluateServerGate(\n          accumulation.quote,\n          ctx.conditionWeights,\n          ctx.macroState?.kospi20dReturn,\n          dartFinPb,\n          kisFlowPb,\n          ctx.regime,\n          macroDiagnosticLiveBlock\n            || ctx.diagnosticOnlyLiveBlock\n            || (ctx.liveEntryBlockedReason ?? '').includes('SELL_ONLY')\n            || (ctx.liveEntryBlockedReason ?? '').includes('R6_DEFENSE')\n            ? 'SELL_ONLY_SESSION'\n            : ctx.resolvedMarketSessionState === 'AFTER_HOURS'\n              || ctx.resolvedMarketSessionState === 'CLOSED'\n              || ctx.resolvedMarketSessionState === 'NON_TRADING_DAY'\n              || shadowApprovalCtx.marketSession === 'AFTER_HOURS'\n              || shadowApprovalCtx.marketSession === 'CLOSED'\n                ? 'AFTERMARKET_SESSION'\n                : 'ENTRY_RECHECK_GATE',\n        );",
+          );
+
+          replaceOnce(
+            'server/quant/gate2DartStageDiagnostics.test.ts',
+            "  it('keeps entry recheck DART null as missing diagnostic only', () => {",
+            "  it('labels sell-only DART null as stage-not-fetched without provider issue', () => {\n    const result = evaluateGate2WithDartNull('SELL_ONLY_SESSION');\n    const gate2 = result.gateLayerSummary?.gate2;\n    const dart = gate2?.externalDataCoverage?.dartFinancials;\n    const compact = gate2?.consolidatedDiagnostic?.compactText ?? '';\n\n    expect(dart).toMatchObject({\n      status: 'STAGE_NOT_FETCHED',\n      stageNotFetched: true,\n      providerIssue: false,\n      marketSignal: false,\n    });\n    expect(compact).toContain('DART=WAIT');\n    expect(compact).not.toContain('DART_FINANCIALS_UNAVAILABLE');\n    expect(gate2?.consolidatedDiagnostic?.marketSignal).toBe(false);\n  });\n\n  it('labels aftermarket DART null as stage-not-fetched without provider issue', () => {\n    const result = evaluateGate2WithDartNull('AFTERMARKET_SESSION');\n    const gate2 = result.gateLayerSummary?.gate2;\n    const dart = gate2?.externalDataCoverage?.dartFinancials;\n    const compact = gate2?.consolidatedDiagnostic?.compactText ?? '';\n\n    expect(dart).toMatchObject({\n      status: 'STAGE_NOT_FETCHED',\n      stageNotFetched: true,\n      providerIssue: false,\n      marketSignal: false,\n    });\n    expect(compact).toContain('DART=WAIT');\n    expect(compact).not.toContain('DART_FINANCIALS_UNAVAILABLE');\n    expect(gate2?.consolidatedDiagnostic?.marketSignal).toBe(false);\n  });\n\n  it('keeps entry recheck DART null as missing diagnostic only', () => {",
+          );
+
+          replaceOnce(
+            'server/quant/gate3Diagnostics.test.ts',
+            "  it('intraday timing: stale last tick is freshness issue only', () => {",
+            "  it('intraday timing: aftermarket eod only is expected, not warning issue', () => {\n    const now = new Date('2026-05-20T09:00:00.000Z');\n    const q = quote({\n      asOf: new Date(now.getTime() - 10_000).toISOString(),\n      marketSession: { session: 'AFTERMARKET', liveBuyAllowed: false, shadowAllowed: true },\n    } as QuoteLike);\n    const diag = normalizeGate3IntradayTiming({\n      now,\n      quote: q as unknown as Record<string, unknown>,\n      intraday: null,\n      minuteBars: null,\n    });\n    const gate = evaluateServerGate(q, DEFAULT_CONDITION_WEIGHTS, 1, null, null, undefined, 'AFTERMARKET_SESSION');\n    const compact = gate.gateLayerSummary?.gate3.consolidatedDiagnostic?.compactText ?? '';\n\n    expect(diag.dataMode).toBe('EOD_ONLY');\n    expect(diag.notes).toContain('INTRADAY_NOT_FETCHED_EOD_ONLY_EXPECTED');\n    expect(diag.notes).not.toContain('INTRADAY_NOT_FETCHED_EOD_ONLY');\n    expect(compact).toContain('intraday=EOD_ONLY');\n    expect(compact).not.toContain('issue=INTRADAY_NOT_FETCHED_EOD_ONLY');\n    expect(compact).not.toContain('Gate3: WARN |');\n  });\n\n  it('intraday timing: stale last tick is freshness issue only', () => {",
+          );
+
+          fs.unlinkSync('.github/workflows/gate-diagnostics-selfpatch.yml');
+          NODE
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused tests
+        run: |
+          npm test -- server/quant/gate2DartStageDiagnostics.test.ts
+          npm test -- server/quant/gate3Diagnostics.test.ts
+          npm test -- server/gatePipelineAudit.test.ts
+          npm test -- server/scanBlockers.test.ts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Commit and push patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/quant/gate2Diagnostics/types.ts \
+            server/quant/gate2Diagnostics/externalCoverage.ts \
+            server/quant/gate2Diagnostics/consolidatedDiagnostic.ts \
+            server/quant/gate3Diagnostics.ts \
+            server/quant/gate3ConsolidatedDiagnostic.ts \
+            server/quantFilter.ts \
+            server/screener/universeScanner.ts \
+            server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts \
+            server/quant/gate2DartStageDiagnostics.test.ts \
+            server/quant/gate3Diagnostics.test.ts \
+            .github/workflows/gate-diagnostics-selfpatch.yml
+          git commit -m "fix(gate-diagnostics): normalize deferred scan diagnostics"
+          git push
