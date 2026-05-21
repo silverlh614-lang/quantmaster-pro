@@ -282,7 +282,7 @@ export function decideScan(): ScanDecision {
   // signalScanner.ts 의 effectiveMaxPositions 와 동일 식.
   // env MAX_CONVICTION_POSITIONS 가 낮게 설정된 경우에도 스캐너와 decideScan 이 일관된 한도를 쓴다.
   const rawRegimeMax = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
-  const convictionCap = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
+  const convictionCap = Number(process.env.MAX_CONVICTION_POSITIONS ?? '10');
   const maxPositions = Math.max(0, Math.min(convictionCap, rawRegimeMax));
 
   if (recoveryShadowTrigger) {

@@ -8,7 +8,7 @@ export type ShadowRegimeSizingLevel =
   | 'R2_RISK_ON'
   | 'R1_AGGRESSIVE';
 
-export type ShadowSizingSource = 'LIVE_SIZING_MIRROR';
+export type ShadowSizingSource = 'SHADOW_REGIME_SIZING_POLICIES';
 
 export type ShadowRegimeSizingBlockReason =
   | 'REGIME_SHADOW_SLOT_BLOCKED'
@@ -21,6 +21,8 @@ export interface ShadowRegimeSizingPolicy {
   maxSymbols: number;
   maxPositionPct: number;
   totalExposureCap: number;
+  perSymbolCapPct: number;
+  totalExposureCapPct: number;
   liveBuyPctMin: number;
   liveBuyPctMax: number;
 }
@@ -31,14 +33,18 @@ export const SHADOW_REGIME_SIZING_POLICIES: Record<ShadowRegimeSizingLevel, Shad
     maxSymbols: 3,
     maxPositionPct: 0.10,
     totalExposureCap: 0.30,
+    perSymbolCapPct: 10,
+    totalExposureCapPct: 30,
     liveBuyPctMin: 0,
     liveBuyPctMax: 0,
   },
   R5_RECOVERY_WATCH: {
     level: 'R5_RECOVERY_WATCH',
-    maxSymbols: 4,
+    maxSymbols: 3,
     maxPositionPct: 0.10,
-    totalExposureCap: 0.40,
+    totalExposureCap: 0.20,
+    perSymbolCapPct: 10,
+    totalExposureCapPct: 20,
     liveBuyPctMin: 0,
     liveBuyPctMax: 0.10,
   },
@@ -47,6 +53,8 @@ export const SHADOW_REGIME_SIZING_POLICIES: Record<ShadowRegimeSizingLevel, Shad
     maxSymbols: 4,
     maxPositionPct: 0.10,
     totalExposureCap: 0.40,
+    perSymbolCapPct: 10,
+    totalExposureCapPct: 40,
     liveBuyPctMin: 0.20,
     liveBuyPctMax: 0.40,
   },
@@ -55,6 +63,8 @@ export const SHADOW_REGIME_SIZING_POLICIES: Record<ShadowRegimeSizingLevel, Shad
     maxSymbols: 6,
     maxPositionPct: 0.10,
     totalExposureCap: 0.60,
+    perSymbolCapPct: 10,
+    totalExposureCapPct: 60,
     liveBuyPctMin: 0.40,
     liveBuyPctMax: 0.60,
   },
@@ -63,6 +73,8 @@ export const SHADOW_REGIME_SIZING_POLICIES: Record<ShadowRegimeSizingLevel, Shad
     maxSymbols: 8,
     maxPositionPct: 0.10,
     totalExposureCap: 0.80,
+    perSymbolCapPct: 10,
+    totalExposureCapPct: 80,
     liveBuyPctMin: 0.60,
     liveBuyPctMax: 0.80,
   },
@@ -71,6 +83,8 @@ export const SHADOW_REGIME_SIZING_POLICIES: Record<ShadowRegimeSizingLevel, Shad
     maxSymbols: 10,
     maxPositionPct: 0.10,
     totalExposureCap: 1.00,
+    perSymbolCapPct: 10,
+    totalExposureCapPct: 100,
     liveBuyPctMin: 0.80,
     liveBuyPctMax: 1.00,
   },
@@ -81,6 +95,7 @@ export interface ResolveShadowRegimeSizingInput {
   effectiveRegime?: string | null;
   r6RecoveryStatus?: string | null;
   engineMode?: string | null;
+  riskOverride?: string | null;
 }
 
 export interface CalculateShadowRegimeSizingInput {
@@ -112,27 +127,34 @@ function normalizeToken(value: string | null | undefined): string {
 }
 
 export function resolveShadowRegimeSizingLevel(input: ResolveShadowRegimeSizingInput): ShadowRegimeSizingLevel {
-  const tokens = [
-    input.regime,
-    input.effectiveRegime,
-    input.r6RecoveryStatus,
-    input.engineMode,
-  ].map(normalizeToken).filter(Boolean);
-  const joined = tokens.join(' ');
+  const effectiveRegime = normalizeToken(input.effectiveRegime);
+  const engineMode = normalizeToken(input.engineMode);
+  const riskOverride = normalizeToken(input.riskOverride);
+  const rawRegime = normalizeToken(input.regime);
+  const recoveryStatus = normalizeToken(input.r6RecoveryStatus);
 
-  if (joined.includes('R1_AGGRESSIVE') || joined.includes('R1_TURBO')) return 'R1_AGGRESSIVE';
-  if (joined.includes('R2_RISK_ON') || joined.includes('R2_BULL')) return 'R2_RISK_ON';
-  if (joined.includes('R3_NEUTRAL') || joined.includes('R3_EARLY') || joined.includes('NEUTRAL')) return 'R3_NEUTRAL';
-  if (joined.includes('R4_CAUTION') || joined.includes('R5_CAUTION') || joined.includes('CAUTION')) return 'R4_CAUTION';
-  if (joined.includes('RECOVERY_WATCH') || joined.includes('R5_RECOVERY_WATCH')) return 'R5_RECOVERY_WATCH';
+  const r6PriorityTokens = [effectiveRegime, engineMode, riskOverride].join(' ');
   if (
-    joined.includes('R6_DEFENSE') ||
-    joined.includes('R6_CONFIRMATION_WAIT') ||
-    joined.includes('BEAR_DEFENSE') ||
-    joined.includes('HARD_BLOCK')
+    r6PriorityTokens.includes('R6_DEFENSE') ||
+    r6PriorityTokens.includes('HARD_BLOCK') ||
+    r6PriorityTokens.includes('BEAR_DEFENSE')
   ) {
     return 'R6_DEFENSE';
   }
+
+  if (
+    effectiveRegime.includes('R6_RECOVERY_WATCH') ||
+    effectiveRegime.includes('R5_STABILIZING') ||
+    recoveryStatus.includes('RECOVERY_WATCH')
+  ) {
+    return 'R5_RECOVERY_WATCH';
+  }
+
+  if (rawRegime.includes('R1_TURBO')) return 'R1_AGGRESSIVE';
+  if (rawRegime.includes('R2_BULL')) return 'R2_RISK_ON';
+  if (rawRegime.includes('R3_EARLY')) return 'R3_NEUTRAL';
+  if (rawRegime.includes('R4_NEUTRAL')) return 'R4_CAUTION';
+  if (rawRegime.includes('R5_CAUTION')) return 'R5_RECOVERY_WATCH';
   return 'R3_NEUTRAL';
 }
 
@@ -151,7 +173,7 @@ export function calculateShadowRegimeSizing(
   );
 
   const common = {
-    sizingSource: 'LIVE_SIZING_MIRROR' as const,
+    sizingSource: 'SHADOW_REGIME_SIZING_POLICIES' as const,
     liveOrderSent: false as const,
     executionImpact: 'NONE' as const,
     policy,
