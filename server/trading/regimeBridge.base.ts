@@ -459,8 +459,14 @@ function buildR6RecoveryEvidence(
 ): R6RecoveryEvidence {
   const freshness = sourceFreshness(macroState, now);
   const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
+  const vkospiDayChange =
+    macroState?.vkospiDayChange ??
+    macroState?.vkospiDayChangeComputed ??
+    (macroState?.vkospi != null && macroState?.vkospiPrevClose != null && macroState.vkospiPrevClose > 0
+      ? ((macroState.vkospi - macroState.vkospiPrevClose) / macroState.vkospiPrevClose) * 100
+      : Number.POSITIVE_INFINITY);
   const evidence: R6RecoveryEvidence = {
-    vkospiDayChangeOk: (macroState?.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15,
+    vkospiDayChangeOk: vkospiDayChange <= 15,
     usdKrwDayChangeOk: Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5,
     kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
