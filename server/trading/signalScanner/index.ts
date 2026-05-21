@@ -88,6 +88,69 @@ function buildConditionResultsTraceArray(w: any) {
     : projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs);
 }
 
+function toHydrationState(value: unknown): 'HYDRATED' | 'MISSING' | 'UNAVAILABLE' {
+  if (value === null) return 'UNAVAILABLE';
+  if (value === undefined) return 'MISSING';
+  return 'HYDRATED';
+}
+
+function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number }) {
+  const conditionResults = buildConditionResultsTrace(w);
+  const gate1Pass = w.gate1Result?.pass === true || w.gateEvaluation?.passed === true;
+  const gate2Pass = w.gate2Result?.pass === true;
+  const gate3Pass = w.gate3Result?.pass === true;
+  return {
+    supplyProviderHealth: w.supplyProviderHealth,
+    symbol: w.code,
+    name: w.name,
+    market: w.market ?? 'KRX',
+    stageReached: 'WATCHLIST' as const,
+    quote: buildSafeQuoteFeatures(w),
+    symbolFeatures: w.symbolFeatures,
+    conditionResults,
+    supplyContext: w.supplyContext,
+    sectorContext: w.sectorContext,
+    financialContext: w.financialContext,
+    riskContext: w.riskContext,
+    gate1Result: w.gate1Result ?? { pass: gate1Pass },
+    gate2Result: w.gate2Result ?? { pass: gate2Pass },
+    gate3Result: w.gate3Result ?? { pass: gate3Pass },
+    entryScore: w.entryScore ?? w.score ?? w.gateScore,
+    entryDecision: w.entryDecision ?? (w.approved ? 'APPROVED' : 'REJECTED'),
+    sourcePath: 'NORMAL_SCAN_PIPELINE',
+    snapshotId: `${w.code}:${Date.now()}`,
+    asOf: new Date().toISOString(),
+    diagnosticOnly: false,
+    shadowObservableAllowed: true,
+    shadowExecutionAllowed: w.shadowExecutionAllowed ?? true,
+    liveExecutionAllowed: w.liveExecutionAllowed ?? false,
+    realOrderAllowed: w.realOrderAllowed ?? false,
+    executionImpact: w.liveExecutionAllowed ? 'LIVE_ALLOWED' : 'SHADOW_ONLY',
+    quoteHydrated: toHydrationState(w.quote),
+    symbolFeaturesHydrated: toHydrationState(w.symbolFeatures),
+    conditionResultsHydrated: toHydrationState(conditionResults),
+    supplyContextHydrated: toHydrationState(w.supplyContext),
+    sectorContextHydrated: toHydrationState(w.sectorContext),
+    financialContextHydrated: toHydrationState(w.financialContext),
+    riskContextHydrated: toHydrationState(w.riskContext),
+    price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
+    currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
+    volume: w.symbolFeatures?.volume ?? w.quote?.volume,
+    volumeRatio: w.symbolFeatures?.volumeRatio ?? w.quote?.volumeRatio,
+    turnover: w.turnover ?? w.quote?.turnover,
+    ma20: w.symbolFeatures?.ma20 ?? w.quote?.ma20,
+    ma60: w.symbolFeatures?.ma60 ?? w.quote?.ma60,
+    rsi14: w.symbolFeatures?.rsi14 ?? w.quote?.rsi14,
+    atr: w.symbolFeatures?.atr ?? w.quote?.atr,
+    atr20avg: w.symbolFeatures?.atr20avg ?? w.quote?.atr20avg,
+    relativeStrength: w.relativeStrength ?? w.symbolFeatures?.relativeStrength,
+    breakoutScore: w.breakoutScore ?? w.symbolFeatures?.breakoutScore,
+    trendScore: w.trendScore ?? w.symbolFeatures?.trendScore,
+    investorFlow: w.investorFlow,
+    kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? macro?.kospi20dReturn,
+  };
+}
+
 async function collectPreflightAbortDiagnostics(
   preflightResult: any,
   options?: RunAutoSignalScanOptions,
@@ -298,6 +361,7 @@ export async function runAutoSignalScan(
       : {}),
     candidateSnapshots: [
       ...candidates.buyList.map((w: any) => ({
+        ...buildCandidateSnapshotSsot(w, macro),
         // ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — buyListLoop 가 KIS actual investor flow 를
         // 종목별 fetch 후 stock.supplyProviderHealth 에 매핑한 결과를 forensic collector 로 propagate.
         // 본 필드 누락 시 mergeSupplyProviderHealth fallback 의 w.supplyProviderHealth 가
@@ -357,6 +421,7 @@ export async function runAutoSignalScan(
         trend_acceleration: w.trend_acceleration ?? (buildConditionResultsTrace(w) as any)?.trend_acceleration,
       })),
       ...candidates.intradayList.map((w: any) => ({
+        ...buildCandidateSnapshotSsot(w, macro),
         // ADR-0517: intradayLoop 가 매핑한 supplyProviderHealth 를 forensic collector 로 propagate.
         supplyProviderHealth: w.supplyProviderHealth,
         symbol: w.code,

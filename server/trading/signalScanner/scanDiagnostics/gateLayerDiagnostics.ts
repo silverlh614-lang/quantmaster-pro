@@ -35,6 +35,7 @@ export interface GateDiagnosticCarrySummary {
   gate2Health?: string;
   gate3Health?: string;
   gate1PrimaryIssue?: string;
+  gate1OperatorAction?: string;
   gate2PrimaryIssue?: string;
   gate3PrimaryIssue?: string;
   marketSignal: false;
@@ -326,6 +327,7 @@ export function buildGateDiagnosticCarrySummary(
   const gate2Health = topCarryLabel(summary.gate2Coverage?.inputState);
   const gate3Health = topCarryLabel(summary.gate3Consolidated?.health);
   const gate1PrimaryIssue = topCarryLabel(summary.gate1Survival?.consolidatedPrimaryIssue);
+  const gate1OperatorAction = topCarryLabel(summary.gate1Survival?.consolidatedOperatorAction);
   const gate2PrimaryIssue = topCarryLabel(summary.gate2Coverage?.primaryIssue);
   const gate3PrimaryIssue = topCarryLabel(summary.gate3Consolidated?.primaryIssue);
 
@@ -337,6 +339,7 @@ export function buildGateDiagnosticCarrySummary(
     ...(gate2Health ? { gate2Health } : {}),
     ...(gate3Health ? { gate3Health } : {}),
     ...(gate1PrimaryIssue ? { gate1PrimaryIssue } : {}),
+    ...(gate1OperatorAction ? { gate1OperatorAction } : {}),
     ...(gate2PrimaryIssue ? { gate2PrimaryIssue } : {}),
     ...(gate3PrimaryIssue ? { gate3PrimaryIssue } : {}),
     marketSignal: false,

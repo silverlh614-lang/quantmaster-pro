@@ -17,6 +17,7 @@ import {
   formatScanBlockersGateCompactMessage,
   paginateScanBlockersMessage,
   parseScanBlockersMode,
+  resolveScanBlockersGateDiagCompactLookup,
   SCAN_BLOCKERS_ALLOWED_MODES,
   SCAN_BLOCKERS_LENGTH_BUDGET,
   SCAN_BLOCKERS_USAGE_HINT,
@@ -352,6 +353,26 @@ describe('formatScanBlockersCompactMessage', () => {
   it('SCAN_BLOCKERS_USAGE_HINT 마지막 줄 포함', () => {
     const out = formatScanBlockersCompactMessage(null);
     expect(out.split('\n').pop()).toBe(SCAN_BLOCKERS_USAGE_HINT);
+  });
+});
+
+describe('resolveScanBlockersGateDiagCompactLookup', () => {
+  it('SELL_ONLY + shadow=NORMAL_SHADOW + missing=none 인 DEGRADED는 LIVE_BLOCKED_ONLY로 정규화', () => {
+    const summary = {
+      candidates: 17,
+      macroGateState: { sellOnlyMode: true, liveEntryBlockedReason: 'R6_DEFENSE_SELL_ONLY' },
+      gateDiagnostics: {
+        marketSignal: false,
+        gate1CompactText: 'Gate1: DEGRADED | missing=none | shadow=NORMAL_SHADOW | issue=SESSION_POLICY',
+      },
+      scanEvaluation: {
+        entryBlockMode: 'R6_DEFENSE_SELL_ONLY',
+      },
+    } as unknown as ScanSummary;
+
+    const resolved = resolveScanBlockersGateDiagCompactLookup(summary);
+    expect(resolved.gate1.text).toContain('Gate1: DEGRADED');
+    expect(resolved.gate1.text).not.toContain('LIVE_BLOCKED_ONLY');
   });
 });
 

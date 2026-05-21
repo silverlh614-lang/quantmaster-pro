@@ -72,11 +72,13 @@ export interface R6RecoveryEvidence {
   kospiDayReturnOk: boolean;
   mhsScoreOk: boolean;
   vkospiOk: boolean;
+  vkospiThresholdApplied?: number;
   marketDataFreshnessOk: boolean;
   confirmations: number;
   requiredConfirmations: number;
   reasons: string[];
   checkedAt: string;
+  vkospiRecoveryFallbackUsed?: boolean;
 }
 
 export interface RegimeTransitionState {
@@ -125,6 +127,7 @@ export function emptyR6RecoveryEvidence(
     requiredConfirmations: 2,
     reasons: ["NO_RECOVERY_EVALUATION"],
     checkedAt: nowIso,
+    vkospiRecoveryFallbackUsed: false,
   };
 }
 

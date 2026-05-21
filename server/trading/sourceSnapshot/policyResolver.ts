@@ -58,7 +58,7 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
   const effectiveRegime = normalized(input.effectiveRegime);
   const engineMode = normalized(input.engineMode);
   const operationMode = normalized(input.operationMode);
-  const r6Blocked = isR6(effectiveRegime);
+  const r6Blocked = isR6(effectiveRegime) || isR6(engineMode) || isR6(operationMode);
   const aftermarketBlocked = isAftermarket(marketSession) || isAftermarket(input.displaySession);
   const sellOnlyBlocked = isSellOnly(marketSession) || isSellOnly(input.displaySession) || isSellOnly(engineMode) || isSellOnly(operationMode);
   const displaySession = input.displaySession

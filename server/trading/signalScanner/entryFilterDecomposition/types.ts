@@ -416,6 +416,8 @@ export interface CandidateEntryTrace {
   macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
+  technicalIndicators?: Record<string, unknown>;
+  technicalFieldSourceMap?: Record<string, string>;
   breakout_momentum?: unknown;
   turtle_high?: unknown;
   volume_breakout?: unknown;
@@ -692,6 +694,7 @@ export interface CandidateSnapshot {
   macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
+  technicalIndicators?: Record<string, unknown>;
   breakout_momentum?: unknown;
   turtle_high?: unknown;
   volume_breakout?: unknown;

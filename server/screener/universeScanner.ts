@@ -25,6 +25,7 @@
 import fs from "fs";
 import {
   fetchYahooQuote,
+  fetchKisQuoteFallback,
   enrichQuoteWithKisMTAS,
   STOCK_UNIVERSE,
 } from "./stockScreener.js";
@@ -328,7 +329,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           if (!code || seenCodes.has(code)) return null;
 
           // ADR-0443 — SSOT 위임 (양 시장 fallback + ADR-0241 sanity 자동).
-          const quote = await fetchYahooQuoteByCode(code, fetchYahooQuote).catch(() => null);
+          const quote = await fetchKisQuoteFallback(code).catch(() => null);
           if (!quote) return null;
           if (!evaluateStage1FilterTracked(quote).pass) return null;
 
@@ -371,7 +372,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
       batch.map(async (stock) => {
         if (seenCodes.has(stock.code)) return null;
 
-        const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote).catch(() => null);
+        const quote = await fetchKisQuoteFallback(stock.code).catch(() => null);
         if (!quote || quote.price <= 0) return null;
         if (!evaluateStage1FilterTracked(quote).pass) return null;
 

@@ -552,7 +552,11 @@ function isGate1NotEvaluatedState(state: string | undefined): boolean {
 type GateDiagCompactSource =
   | 'summary.gateLayerSummary'
   | 'summary.gateDiagnostics'
+  | 'summary.gate1SurvivalDiagnostic'
+  | 'summary.gate1Survival'
+  | 'summary.adr0505.gate1SurvivalDiagnostic'
   | 'fullDiagnostic'
+  | 'renderedSections.gate1Survival'
   | 'renderedSection'
   | 'fallback';
 
@@ -581,17 +585,19 @@ function readNestedString(root: unknown, path: readonly string[]): string | unde
 function isR6DefenseSummary(summary: ScanSummary | null | undefined): boolean {
   const macro = summary?.macroGateState;
   const scanEvaluation = summary?.scanEvaluation;
+  const scanEvaluationRecord = asRecord(scanEvaluation);
   return scanEvaluation?.effectiveRegime === 'R6_DEFENSE'
     || macro?.macroRegimeEffective === 'R6_DEFENSE'
     || macro?.riskOverride === 'R6_DEFENSE'
     || macro?.regime === 'R6_DEFENSE'
-    || String(scanEvaluation?.blockReason ?? macro?.liveEntryBlockedReason ?? '').includes('R6_DEFENSE');
+    || String(scanEvaluationRecord?.entryBlockMode ?? scanEvaluation?.blockReason ?? macro?.liveEntryBlockedReason ?? '').includes('R6_DEFENSE');
 }
 
 function isSellOnlyOrAftermarketSummary(summary: ScanSummary | null | undefined): boolean {
+  const scanEvaluationRecord = asRecord(summary?.scanEvaluation);
   const state = String(summary?.scanEvaluation?.marketSessionState ?? '').toUpperCase();
   const engineMode = String(summary?.scanEvaluation?.engineMode ?? summary?.macroGateState?.engineMode ?? '').toUpperCase();
-  const blockReason = String(summary?.scanEvaluation?.blockReason ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
+  const blockReason = String(scanEvaluationRecord?.entryBlockMode ?? summary?.scanEvaluation?.blockReason ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
   return summary?.macroGateState?.sellOnlyMode === true
     || engineMode === 'SELL_ONLY'
     || state === 'SELL_ONLY'
@@ -603,7 +609,8 @@ function isSellOnlyOrAftermarketSummary(summary: ScanSummary | null | undefined)
 }
 
 function resolveScanBlockersEntryBlockMode(summary: ScanSummary | null | undefined): string {
-  const blockReason = String(summary?.scanEvaluation?.blockReason ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
+  const scanEvaluationRecord = asRecord(summary?.scanEvaluation);
+  const blockReason = String(scanEvaluationRecord?.entryBlockMode ?? summary?.scanEvaluation?.blockReason ?? summary?.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
   const r6 = isR6DefenseSummary(summary);
   const sellOnlyOrAftermarket = isSellOnlyOrAftermarketSummary(summary);
   if (blockReason === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
@@ -688,17 +695,71 @@ function compactLookup(
   return { text, source, carried: source !== 'fallback' };
 }
 
-function tokenFromGateDiag(text: string, key: string): string | undefined {
-  const match = new RegExp(`\\b${key}=([^|\\s]+)`, 'u').exec(text);
+function parseCompactValue(text: string, key: string): string | undefined {
+  const match = new RegExp(`\\b${key}=([^|]+)`, 'iu').exec(text);
   return match?.[1]?.trim();
+}
+
+function normalizeGate1CompactText(
+  text: string,
+  summary: ScanSummary | null | undefined,
+): string {
+  const issue = parseCompactValue(text, 'issue')?.toUpperCase();
+  const missing = parseCompactValue(text, 'missing')?.toLowerCase();
+  const quote = parseCompactValue(text, 'quote')?.toUpperCase();
+  const shadow = parseCompactValue(text, 'shadow')?.toUpperCase();
+  const tradable = parseCompactValue(text, 'tradable')?.toUpperCase();
+
+  const root = summary as unknown as Record<string, unknown> | undefined;
+  const scanEvaluation = asRecord(root?.scanEvaluation);
+  const gate1Survival = asRecord(root?.gate1SurvivalDiagnostic);
+  const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? '').toUpperCase();
+  const missingFields = Array.isArray(gate1Survival?.missingFields) ? gate1Survival?.missingFields : [];
+  const quoteHydratedFailed = Number(gate1Survival?.quoteHydratedFailed ?? 0);
+  const quoteFreshness = String(gate1Survival?.quoteFreshness ?? '').toUpperCase();
+  const gate1Pass = Number(scanEvaluation?.gate1Pass ?? 0);
+  const missingEmpty = missing === 'none' || missing === '' || missingFields.length === 0;
+  const verified = quote === 'VERIFIED' || quoteCoverageConfidence === 'VERIFIED';
+  const quoteDegradedGuard = missingEmpty
+    || verified
+    || quoteHydratedFailed === 0
+    || quoteFreshness === 'OK'
+    || gate1Pass > 0;
+  const explicitlyQuoteMissing = missingFields.some((field) => ['currentprice', 'price', 'volume', 'quote', 'fetchedat']
+    .includes(String(field).toLowerCase()));
+  const trulyQuoteDegraded = explicitlyQuoteMissing
+    || quoteCoverageConfidence === 'MISSING'
+    || quoteCoverageConfidence === 'DEGRADED'
+    || quoteHydratedFailed > 0
+    || quoteFreshness === 'MISSING'
+    || quoteFreshness === 'STALE';
+  const shadowAllowed = summary?.macroGateState?.shadowLearningAllowed === true
+    || summary?.scanEvaluation?.shadowLearningAllowed === true
+    || String(scanEvaluation?.shadowMode ?? '').toUpperCase() === 'NORMAL_SHADOW';
+
+  let patched = text;
+  if (issue === 'QUOTE_COVERAGE_DEGRADED' && quoteDegradedGuard && !trulyQuoteDegraded) {
+    patched = patched.replace(/\s*\|\s*issue=QUOTE_COVERAGE_DEGRADED/iu, '');
+    patched = patched.replace(/\s*\|\s*action=CHECK_QUOTE_PROVIDER/iu, '');
+  }
+
+  const shadowMode = String(gate1Survival?.shadowMode ?? '').toUpperCase();
+  const counterfactualAllowed = missingFields.some((field) => ['currentprice', 'price'].includes(String(field).toLowerCase()))
+    || quote === 'MISSING'
+    || tradable === 'HALTED'
+    || tradable === 'SUSPENDED';
+  if (shadow === 'COUNTERFACTUAL_ONLY' && shadowAllowed && (shadowMode === 'NORMAL_SHADOW' || !counterfactualAllowed)) {
+    patched = patched.replace(/\bshadow=COUNTERFACTUAL_ONLY\b/giu, 'shadow=ON');
+  }
+  return patched;
 }
 
 function sanitizeGate1DiagText(text: string): string {
   if (!text.includes('LIVE_BLOCKED_ONLY')) return text;
-  const inputs = tokenFromGateDiag(text, 'inputs') ?? 'UNKNOWN';
-  const quote = tokenFromGateDiag(text, 'quote') ?? 'UNKNOWN';
-  const tradable = tokenFromGateDiag(text, 'tradable') ?? 'UNKNOWN';
-  const liquidity = tokenFromGateDiag(text, 'liquidity') ?? 'UNKNOWN';
+  const inputs = parseCompactValue(text, 'inputs') ?? 'UNKNOWN';
+  const quote = parseCompactValue(text, 'quote') ?? 'UNKNOWN';
+  const tradable = parseCompactValue(text, 'tradable') ?? 'UNKNOWN';
+  const liquidity = parseCompactValue(text, 'liquidity') ?? 'UNKNOWN';
   const gateStatus = inputs === 'OK' && quote === 'VERIFIED' && tradable === 'TRADABLE' && liquidity === 'PASS'
     ? 'OK'
     : 'DATA_INCOMPLETE';
@@ -715,11 +776,11 @@ function sanitizeGate1DiagText(text: string): string {
 }
 
 function sanitizeGate1Lookup(
-  lookup: { text: string; source: GateDiagCompactSource; carried: boolean } | null,
+  lookup: { text: string; rawText?: string; source: GateDiagCompactSource; carried: boolean } | null,
 ): { text: string; rawText?: string; source: GateDiagCompactSource; carried: boolean } | null {
   if (!lookup) return null;
   const sanitized = sanitizeGate1DiagText(lookup.text);
-  return sanitized === lookup.text ? lookup : { ...lookup, text: sanitized, rawText: lookup.text };
+  return sanitized === lookup.text ? lookup : { ...lookup, text: sanitized, rawText: lookup.rawText ?? lookup.text };
 }
 
 export function resolveScanBlockersGateDiagCompactLookup(
@@ -727,15 +788,22 @@ export function resolveScanBlockersGateDiagCompactLookup(
 ): GateDiagCompactLookup {
   const root = summary as unknown as Record<string, unknown> | undefined;
   const fullDiagnostic = root?.fullDiagnostic;
-  const gate1 = sanitizeGate1Lookup(compactLookup(
+  const gate1Fallback = 'gateStatus=UNKNOWN | sessionAgnostic=true | inputs=UNKNOWN | quote=UNKNOWN | tradable=UNKNOWN | liquidity=UNKNOWN | technicalStatus=UNKNOWN | dataIssues=GATE1_COMPACT_NOT_CARRIED | fallback=true | marketSignal=false';
+  const gate1Raw = compactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']),
     'summary.gateLayerSummary',
-  ))
+  )
+    ?? compactLookup(readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']), 'summary.gate1SurvivalDiagnostic')
     ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
-    ?? sanitizeGate1Lookup(compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic'))
-    ?? sanitizeGate1Lookup(compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSection'))
-    ?? { text: 'UNAVAILABLE | fallback=true | marketSignal=false', source: 'fallback', carried: false };
-  const sanitizedGate1 = sanitizeGate1Lookup(gate1) ?? gate1;
+    ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
+    ?? compactLookup(readNestedString(fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText']), 'fullDiagnostic')
+    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSection')
+    ?? { text: gate1Fallback, source: 'fallback', carried: false };
+  const normalizedGate1Text = normalizeGate1CompactText(gate1Raw.text, summary);
+  const normalizedGate1 = normalizedGate1Text === gate1Raw.text
+    ? gate1Raw
+    : { ...gate1Raw, text: normalizedGate1Text, rawText: gate1Raw.text };
+  const sanitizedGate1 = sanitizeGate1Lookup(normalizedGate1) ?? normalizedGate1;
 
   const gate2 = compactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate2', 'consolidatedDiagnostic', 'compactText']),
@@ -847,6 +915,54 @@ export function resolveScanBlockersTopReason(summary: ScanSummary | null | undef
 
 export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | null | undefined): string {
   const lookup = resolveScanBlockersGateDiagCompactLookup(summary);
+  const gate1Text = lookup.gate1.text;
+  const selectedHealth = /^Gate1:\s*([^|]+)/iu.exec(gate1Text)?.[1]?.trim() ?? 'UNKNOWN';
+  const selectedIssue = parseCompactValue(gate1Text, 'issue') ?? 'none';
+  const root = summary as unknown as Record<string, unknown> | undefined;
+  const scanEvaluation = asRecord(root?.scanEvaluation);
+  const gate1Survival = asRecord(root?.gate1SurvivalDiagnostic);
+  const quoteCoverageConfidence = String(gate1Survival?.quoteCoverageConfidence ?? 'UNKNOWN');
+  const missingFields = (Array.isArray(gate1Survival?.missingFields) ? gate1Survival.missingFields : []).join(',') || 'none';
+  const shadowMode = String(gate1Survival?.shadowMode ?? 'UNKNOWN');
+  const issueUpper = selectedIssue.toUpperCase();
+  const missingText = parseCompactValue(gate1Text, 'missing')?.toLowerCase() ?? '';
+  const missingEmpty = missingText === 'none' || missingText === '' || missingFields === 'none';
+  const quoteHydratedFailed = Number(gate1Survival?.quoteHydratedFailed ?? 0);
+  const quoteFreshness = String(gate1Survival?.quoteFreshness ?? '').toUpperCase();
+  const gate1Pass = Number(scanEvaluation?.gate1Pass ?? 0);
+  const originalCompact = readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText'])
+    ?? readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText'])
+    ?? readNestedString(summary, ['gateDiagnostics', 'gate1CompactText'])
+    ?? readNestedString(root?.fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText'])
+    ?? readNestedString(root?.fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText'])
+    ?? '';
+  const originalHealth = /^Gate1:\s*([^|]+)/iu.exec(originalCompact)?.[1]?.trim() ?? 'UNKNOWN';
+  const originalIssue = parseCompactValue(originalCompact, 'issue') ?? 'none';
+  const originalMissing = parseCompactValue(originalCompact, 'missing') ?? 'none';
+  const sanitizerApplied = originalCompact !== gate1Text;
+  const sanitizedHealth = selectedHealth;
+  const sanitizedIssue = selectedIssue;
+  const sanitizerReason = sanitizerApplied && String(originalIssue).toUpperCase() === 'QUOTE_COVERAGE_DEGRADED'
+    && missingEmpty
+    && quoteHydratedFailed === 0
+    && (String(quoteCoverageConfidence).toUpperCase() === 'VERIFIED' || quoteFreshness === 'OK' || gate1Pass > 0)
+    ? 'QUOTE_DEGRADED_WITH_NO_MISSING_FIELDS'
+    : 'none';
+  const guardedQuoteDegraded = issueUpper === 'QUOTE_COVERAGE_DEGRADED'
+    && (missingEmpty || String(quoteCoverageConfidence).toUpperCase() === 'VERIFIED' || quoteHydratedFailed === 0 || quoteFreshness === 'OK' || gate1Pass > 0);
+  const guardedCounterfactualOnly = /\bshadow=COUNTERFACTUAL_ONLY\b/iu.test(gate1Text)
+    && (
+      summary?.macroGateState?.shadowLearningAllowed === true
+      || summary?.scanEvaluation?.shadowLearningAllowed === true
+      || String(scanEvaluation?.shadowMode ?? '').toUpperCase() === 'NORMAL_SHADOW'
+    );
+  const fullCompact = readNestedString(root?.fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText'])
+    ?? readNestedString(root?.fullDiagnostic, ['gate1SurvivalDiagnostic', 'compactText'])
+    ?? readNestedString(summary, ['gate1SurvivalDiagnostic', 'compactText']);
+  const compactTextPresent = Boolean(lookup.gate1.text && lookup.gate1.source !== 'fallback');
+  const warning = lookup.gate1.source === 'fallback' && fullCompact
+    ? 'GATE1_COMPACT_EXISTS_BUT_SUMMARY_LOOKUP_FALLBACK'
+    : null;
   return [
     'GateDiag Payload Carry:',
     `- gate1CompactCarried=${lookup.gate1.carried}`,
@@ -855,6 +971,27 @@ export function formatGateDiagPayloadCarryDebugSection(summary: ScanSummary | nu
     `- gate1CompactSource=${lookup.gate1.source}`,
     `- gate2CompactSource=${lookup.gate2.source}`,
     `- gate3CompactSource=${lookup.gate3.source}`,
+    'Gate1Diag Source:',
+    `- selectedSource=${lookup.gate1.source}`,
+    `- compactTextPresent=${compactTextPresent}`,
+    `- selectedHealth=${selectedHealth}`,
+    `- selectedIssue=${selectedIssue}`,
+    `- health=${summary?.gateDiagnostics?.gate1Health ?? 'null'}`,
+    `- primaryIssue=${summary?.gateDiagnostics?.gate1PrimaryIssue ?? 'null'}`,
+    `- quoteCoverageConfidence=${quoteCoverageConfidence}`,
+    `- missingFields=${missingFields}`,
+    `- shadowMode=${shadowMode}`,
+    `- guardedQuoteDegraded=${guardedQuoteDegraded}`,
+    `- guardedCounterfactualOnly=${guardedCounterfactualOnly}`,
+    'Gate1Diag Sanitizer:',
+    `- originalHealth=${originalHealth}`,
+    `- originalIssue=${originalIssue}`,
+    `- originalMissing=${originalMissing}`,
+    `- sanitizerApplied=${sanitizerApplied}`,
+    `- sanitizedHealth=${sanitizedHealth}`,
+    `- sanitizedIssue=${sanitizedIssue}`,
+    `- reason=${sanitizerReason}`,
+    ...(warning ? [`- warning=${warning}`] : []),
   ].join('\n');
 }
 
@@ -912,7 +1049,9 @@ export function formatScanBlockersCompactMessage(
   const liveEvaluationSkipped = isLiveEvaluationSkippedSummary(summary, sessionDisplay.entryBlockMode);
   if (liveEvaluationSkipped) {
     lines.push('• Gate1Live: skipped');
-    lines.push(`• Gate1Diagnostic: pass=${gate1Pass}/${candidates}`);
+    const evaluated = forensic?.evaluatedCandidateCount ?? candidates;
+    const skipped = Math.max(0, candidates - evaluated);
+    lines.push(`• Gate1Diagnostic: pass=${gate1Pass}/${evaluated}, total=${candidates}, skipped=${skipped}`);
   } else {
     lines.push(`• Gate1: ${gate1Pass}/${candidates}`);
   }

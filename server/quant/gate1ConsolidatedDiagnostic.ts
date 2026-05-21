@@ -381,6 +381,7 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     liquidityStatus,
     technicalStatus,
   });
+  const quoteProviderDegraded = hasQuoteProviderDegradation(quoteCoverage, quoteFreshness);
 
   let health: Gate1ConsolidatedHealth = 'OK';
   let primaryIssue: string | null = null;
@@ -390,7 +391,7 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     health = 'DEGRADED';
     primaryIssue = 'SHADOW_DISABLED_UNEXPECTED';
     operatorAction = 'CHECK_SHADOW_KERNEL';
-  } else if (hasQuoteProviderDegradation(quoteCoverage, quoteFreshness)) {
+  } else if (quoteProviderDegraded) {
     health = 'DEGRADED';
     primaryIssue = 'QUOTE_COVERAGE_DEGRADED';
     operatorAction = 'CHECK_QUOTE_PROVIDER';

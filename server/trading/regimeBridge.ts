@@ -44,9 +44,11 @@ function resolveR6RecoveryDecayFloor(state: RegimeTransitionState, macroState: M
   if (!recoveredFresh) return 0;
   const expiresAt = state.latchExpiresAt ? Date.parse(state.latchExpiresAt) : NaN;
   if (Number.isFinite(expiresAt) && expiresAt <= now.getTime()) return 100;
+  const usOvernightBoost = (finiteNumber(macroState?.spxDayReturn) ?? 0) > 1.5 ? 10 : 0;
   const releaseAt = state.latchReleaseEligibleAt ? Date.parse(state.latchReleaseEligibleAt) : NaN;
-  if (Number.isFinite(releaseAt) && releaseAt <= now.getTime()) return 60;
-  return mhs >= 70 && biasScore >= 40 ? 40 : 30;
+  if (Number.isFinite(releaseAt) && releaseAt <= now.getTime()) return usOvernightBoost > 0 ? 70 : 60;
+  const baseFloor = mhs >= 70 && biasScore >= 40 ? 40 : 30;
+  return Math.min(100, baseFloor + usOvernightBoost);
 }
 
 function applyR6RecoveryDecayBoost(state: RegimeTransitionState, macroState: MacroState | null, now: Date): RegimeTransitionState {

@@ -40,6 +40,7 @@ export interface Gate3ConsolidatedDiagnostic {
 type Gate3Bucket = GateLayerSummary['gate3'];
 const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? v as Record<string, unknown> : {});
 const asString = (v: unknown): string | null => typeof v === 'string' && v.trim() ? v.trim() : null;
+const asNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const asList = (v: unknown): string[] => Array.isArray(v) ? v.map(x => String(x)).filter(Boolean) : [];
 
 export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }): Gate3ConsolidatedDiagnostic {
@@ -66,6 +67,10 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   };
 
   const vb = asRecord(volumeTiming.breakoutVolume);
+  const volumeValues = asRecord(volumeTiming.values);
+  const volumeRatio = asNumber(volumeValues.volumeRatio) ?? asNumber(volumeTiming.volumeRatio) ?? asNumber(vb.volumeRatio);
+  const tradingValueRatio = asNumber(volumeValues.tradingValueRatio) ?? asNumber(volumeTiming.tradingValueRatio) ?? asNumber(vb.tradingValueRatio);
+  const breakoutVolumeStatus = asString(vb.status);
   const breakout = asRecord(priceStructure.breakout);
   const turtle = asRecord(priceStructure.turtle);
   const overheat = asRecord(momentum.overheat);
@@ -75,9 +80,12 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const exhaustion = asRecord(falseBreakout.exhaustion);
   const lastTick = asRecord(intraday.lastTick);
   const quoteFreshness = asRecord(intraday.quoteFreshness);
+  const sessionCompatibility = asRecord(intraday.sessionCompatibility);
+  const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';
+  const eodOnlyExpected = ['AFTERMARKET', 'SELL_ONLY', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
 
   const timingAlignment = {
-    volume: asString(vb.status) === 'PASS' ? 'CONFIRMED' : asString(vb.status) === 'FAIL' ? 'WEAK' : asString(vb.status) === 'MISSING' ? 'MISSING' : 'UNKNOWN',
+    volume: (breakoutVolumeStatus === 'PASS' || (volumeRatio != null && volumeRatio >= 2) || (tradingValueRatio != null && tradingValueRatio >= 2)) ? 'CONFIRMED' : (breakoutVolumeStatus === 'FAIL' || volumeRatio != null || tradingValueRatio != null) ? 'WEAK' : breakoutVolumeStatus === 'MISSING' ? 'MISSING' : 'UNKNOWN',
     priceBreakout: (asString(breakout.status) === 'PASS' || asString(turtle.status) === 'PASS') ? 'CONFIRMED' : (asString(breakout.status) === 'FAIL' ? 'NOT_CONFIRMED' : asString(breakout.status) === 'MISSING' ? 'MISSING' : 'UNKNOWN'),
     momentum: asString(overheat.status) === 'OVERHEATED' ? 'OVERHEATED' : (asString(momentum.status) === 'MISSING' ? 'MISSING' : asString(momentum.alignment) ?? 'CONFIRMED'),
     pullback: asString(pullbackQuality.status) === 'HEALTHY_PULLBACK' ? 'HEALTHY' : asString(pullbackQuality.status) === 'EXTENDED_CHASE' ? 'EXTENDED' : asString(pullbackQuality.status) === 'TOO_DEEP' ? 'TOO_DEEP' : (asString(pullback.status) === 'MISSING' ? 'MISSING' : 'DIAGNOSTIC_ONLY'),
@@ -99,11 +107,12 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const freshnessIssues: string[] = [];
 
   const degradedStatus = new Set(['MISSING', 'CALCULATION_MISSING', 'DEGRADED']);
+  const volumeDataIncomplete = degradedStatus.has(dataReadiness.volumeTiming) && timingAlignment.volume === 'MISSING';
   if (source.allDeclaredInputsAvailable === false) {
     health = 'DEGRADED'; primaryIssue = 'GATE3_INPUT_MISSING'; operatorAction = 'REVIEW_GATE3_INPUTS';
   } else if (degradedStatus.has(dataReadiness.technicalIndicators)) {
     health = dataReadiness.technicalIndicators === 'DEGRADED' ? 'DEGRADED' : 'DATA_INCOMPLETE'; primaryIssue = 'TECHNICAL_INDICATORS_UNAVAILABLE'; operatorAction = 'CHECK_TECHNICAL_INDICATORS';
-  } else if (degradedStatus.has(dataReadiness.volumeTiming)) {
+  } else if (volumeDataIncomplete) {
     health = 'DATA_INCOMPLETE'; primaryIssue = 'VOLUME_TIMING_UNAVAILABLE'; operatorAction = 'CHECK_VOLUME_BASELINE';
   } else if (degradedStatus.has(dataReadiness.priceStructure)) {
     health = 'DATA_INCOMPLETE'; primaryIssue = 'PRICE_STRUCTURE_UNAVAILABLE'; operatorAction = 'CHECK_PRICE_STRUCTURE';
@@ -118,7 +127,9 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   } else if (asString(lastTick.status) === 'STALE') {
     freshnessIssues.push('INTRADAY_LAST_TICK_STALE'); health = 'WARN'; primaryIssue = 'INTRADAY_TICK_STALE'; operatorAction = 'CHECK_INTRADAY_FEED';
   } else if (asString(intraday.dataMode) === 'EOD_ONLY' || asString(intraday.status) === 'STAGE_NOT_FETCHED') {
-    health = 'WARN'; primaryIssue = 'INTRADAY_NOT_FETCHED_EOD_ONLY'; operatorAction = 'WAIT_FOR_INTRADAY_CONFIRMATION';
+    if (!eodOnlyExpected) {
+      health = 'WARN'; primaryIssue = 'INTRADAY_NOT_FETCHED_EOD_ONLY'; operatorAction = 'WAIT_FOR_INTRADAY_CONFIRMATION';
+    }
   }
 
   if (timingAlignment.priceBreakout === 'CONFIRMED' && (timingAlignment.volume === 'MISSING' || timingAlignment.volume === 'WEAK')) {

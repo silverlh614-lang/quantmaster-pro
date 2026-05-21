@@ -767,7 +767,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     );
   }
 
-  const MAX_CONVICTION_POSITIONS = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
+  const MAX_CONVICTION_POSITIONS = Number(process.env.MAX_CONVICTION_POSITIONS ?? '10');
   const effectiveMaxPositions = Math.min(
     MAX_CONVICTION_POSITIONS,
     sellOnlyExc.allow ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots) : regimeConfig.maxPositions,

@@ -137,7 +137,10 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     const section = formatNormalSupplyPreviewSection(preview, { maxTopCandidates: 1 });
     expect(section).toContain('📌 수급 해석 요약');
     expect(section).toContain('- 데이터 상태: VERIFIED 1/1 정상');
-    expect(section).toContain('- Active 매수 후보: 1개');
+    expect(section).toContain('- 외인/기관 순매수 감지 종목: 1개');
+    expect(section).toContain('- 최종 ACCUMULATING 후보: 1개');
+    expect(section).toContain('- 최종 BULLISH 후보: 0개');
+    expect(section).toContain('- 설명: 외인/기관 순매수 감지는 원천 active flow 기준이며, ACCUMULATING/BULLISH는 프로그램 수급, 점수 임계값, 정책 차단까지 반영한 최종 수급 판정입니다.');
     expect(section).toContain('- 최고 수급점수: 77');
     expect(section).toContain('- BULLISH 기준: 80');
     expect(section).toContain('- 현재 판정: ACCUMULATING');
@@ -152,6 +155,8 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('promotionBlocked=BELOW_BULLISH_THRESHOLD');
     expect(section).toContain('liveDecision=BLOCKED_BY_SELL_ONLY_OR_MACRO_LIVE_BLOCK');
     expect(section).toContain('shadowObservable=true');
+    expect(section).not.toContain('watchlistBoost=N/A');
+    expect(section).toContain('watchlistPriorityBoost=1');
     expect(section).toContain('executionImpact=NONE');
     expect(preview.liveExecutionAllowed).toBe(false);
     expect(preview.realOrderAllowed).toBe(false);

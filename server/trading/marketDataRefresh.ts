@@ -33,6 +33,7 @@ import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kis
 import { enforceRowInvariant, resolveCombinedSource } from './programMarketSnapshot.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
+import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
@@ -746,6 +747,14 @@ export function computeFssVars(now: Date = new Date()): {
  * 시장 지표를 Yahoo Finance + FSS에서 계산해 MacroState에 MERGE 저장.
  * 실패한 개별 지표는 기존 값 유지.
  */
+export function computeVkospiDayChangeFromBars(bars: DailyBar[] | null): { current: number; prevClose: number; dayChangePct: number } | null {
+  if (!bars || bars.length < 2) return null;
+  const current = bars[bars.length - 1]?.close;
+  const prevClose = bars[bars.length - 2]?.close;
+  if (typeof current !== 'number' || typeof prevClose !== 'number' || prevClose <= 0) return null;
+  return { current, prevClose, dayChangePct: ((current - prevClose) / prevClose) * 100 };
+}
+
 export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<MarketRefreshComputed> {
   const refreshAttemptAt = new Date().toISOString();
   logMacroRefreshStarted(reason);
@@ -798,6 +807,45 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, MA20대비=${(computed.kospiAboveMA20Pct as number).toFixed(2)}%, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);
   } else {
     emitMarketDataProviderWarn('KOSPI_DATA_INSUFFICIENT');
+  }
+
+  // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 우선, Yahoo fallback ───────
+  try {
+    const rows = await fetchDerivativesIndexDaily();
+    const vkospiRow = rows.find((r) =>
+      r.indexName.includes('VKOSPI') ||
+      r.indexName.includes('변동성지수') ||
+      r.indexName.includes('코스피변동성'),
+    );
+    if (vkospiRow) {
+      computed.vkospi = vkospiRow.close;
+      computed.vkospiPrevClose = vkospiRow.change !== 0 ? vkospiRow.close - vkospiRow.change : vkospiRow.close;
+      computed.vkospiDayChangeComputed = vkospiRow.changePct;
+      computed.vkospiDayChangeSource = 'KRX_DERIV_INDEX_DAILY';
+      const ageMs = existing.updatedAt ? Date.now() - Date.parse(existing.updatedAt) : Number.POSITIVE_INFINITY;
+      const shouldKeepClientValue = typeof existing.vkospiDayChange === 'number' && Number.isFinite(ageMs) && ageMs <= 15 * 60_000;
+      computed.vkospiDayChange = shouldKeepClientValue ? existing.vkospiDayChange : vkospiRow.changePct;
+      console.log(
+        `[MarketRefresh] VKOSPI (KRX) source=KRX_DERIV_INDEX_DAILY ` +
+        `현재=${vkospiRow.close.toFixed(2)} 전일=${(computed.vkospiPrevClose as number).toFixed(2)} ` +
+        `dayChange=${vkospiRow.changePct.toFixed(2)}%`,
+      );
+    } else {
+      throw new Error('KRX VKOSPI row not found');
+    }
+  } catch (err) {
+    console.warn('[MarketRefresh] VKOSPI KRX fetch 실패, Yahoo fallback 시도:', err instanceof Error ? err.message : String(err));
+    try {
+      const vkospiBars = await fetchDailyBars('^VKOSPI', '5d');
+      const vkospiComputed = computeVkospiDayChangeFromBars(vkospiBars);
+      if (vkospiComputed) {
+        computed.vkospi = vkospiComputed.current;
+        computed.vkospiPrevClose = vkospiComputed.prevClose;
+        computed.vkospiDayChangeComputed = vkospiComputed.dayChangePct;
+        computed.vkospiDayChangeSource = 'YAHOO_FALLBACK_COMPUTED';
+        if (typeof existing.vkospiDayChange !== 'number') computed.vkospiDayChange = vkospiComputed.dayChangePct;
+      }
+    } catch {}
   }
 
   // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────

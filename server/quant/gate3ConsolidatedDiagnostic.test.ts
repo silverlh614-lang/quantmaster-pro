@@ -25,6 +25,29 @@ describe('gate3 consolidated diagnostic', () => {
     expect(d.marketSignal).toBe(false);
   });
 
+  it('uses computed volumeRatio when breakoutVolume status is missing due trading value coverage', () => {
+    const g = baseGate3();
+    g.externalDataCoverage.volumeTiming = {
+      status: 'CALCULATION_MISSING',
+      values: {
+        volume: 2_000_000,
+        avgVolume: 1_000_000,
+        volumeRatio: 2,
+        tradingValue: 20_000_000_000,
+        tradingValueRatio: null,
+      },
+      breakoutVolume: { status: 'MISSING', volumeRatio: 2, tradingValueRatio: null },
+      vcp: { status: 'MISSING' },
+    };
+
+    const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
+
+    expect(d.timingAlignment.volume).toBe('CONFIRMED');
+    expect(d.compactText).toContain('volume=CONFIRMED');
+    expect(d.primaryIssue).not.toBe('VOLUME_TIMING_UNAVAILABLE');
+    expect(d.marketSignal).toBe(false);
+  });
+
   it('volume missing conflict or incomplete', () => {
     const g = baseGate3();
     g.externalDataCoverage.volumeTiming.status = 'MISSING';

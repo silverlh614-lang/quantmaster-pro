@@ -223,6 +223,15 @@ function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function toFiniteNumber(value: unknown): number | undefined {
+  if (finite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -267,6 +276,13 @@ function nestedNumericTraceValue(
   trace: CandidateEntryTrace,
   paths: readonly string[],
 ): number | undefined {
+  return resolveNumericTracePath(trace, paths).value;
+}
+
+function resolveNumericTracePath(
+  trace: CandidateEntryTrace,
+  paths: readonly string[],
+): { value: number | undefined; sourcePath?: string } {
   const root = trace as unknown as Record<string, unknown>;
   const expandedPaths = paths.flatMap((path) =>
     path.includes(".") ? [path] : [`symbolFeatures.${path}`, path],
@@ -277,9 +293,10 @@ function nestedNumericTraceValue(
         return (current as Record<string, unknown>)[part];
       return undefined;
     }, root);
-    if (finite(value)) return value;
+    const numeric = toFiniteNumber(value);
+    if (numeric !== undefined) return { value: numeric, sourcePath: path };
   }
-  return undefined;
+  return { value: undefined };
 }
 
 function stringArrayTraceValue(
@@ -687,11 +704,22 @@ function technicalTrendScore(trace: CandidateEntryTrace): {
   confidence: SignalScoreComponentConfidence;
   message: string;
 } {
-  const price = numericTraceValue(trace, ["price"]);
-  const ma20 = numericTraceValue(trace, ["ma20"]);
-  const ma60 = numericTraceValue(trace, ["ma60"]);
-  const rsi14 = numericTraceValue(trace, ["rsi14"]);
-  const atr = numericTraceValue(trace, ["atr"]);
+  const technicalTrendObjectPresent = Boolean(
+    nestedNumericTraceValue(trace, ["technicalTrend.slope20d"])
+    ?? nestedNumericTraceValue(trace, ["technicalTrend.rsi14"])
+    ?? nestedNumericTraceValue(trace, ["conditionResults.technicalTrend.slope20d"])
+    ?? nestedNumericTraceValue(trace, ["symbolFeatures.technicalTrend.slope20d"]),
+  );
+  const priceField = resolveNumericTracePath(trace, ["price", "currentPrice", "close", "quote.price", "quote.currentPrice", "quote.close", "symbolFeatures.price", "symbolFeatures.currentPrice", "conditionResults.price", "technicalIndicators.price", "technicalTrend.price"]);
+  const ma20Field = resolveNumericTracePath(trace, ["ma20", "sma20", "quote.ma20", "quote.sma20", "symbolFeatures.ma20", "symbolFeatures.sma20", "conditionResults.ma20", "conditionResults.sma20", "technicalIndicators.ma20", "technicalIndicators.sma20", "technicalTrend.ma20"]);
+  const ma60Field = resolveNumericTracePath(trace, ["ma60", "sma60", "quote.ma60", "quote.sma60", "symbolFeatures.ma60", "symbolFeatures.sma60", "conditionResults.ma60", "conditionResults.sma60", "technicalIndicators.ma60", "technicalIndicators.sma60", "technicalTrend.ma60"]);
+  const rsi14Field = resolveNumericTracePath(trace, ["rsi14", "rsi", "quote.rsi14", "quote.rsi", "symbolFeatures.rsi14", "symbolFeatures.rsi", "conditionResults.rsi14", "conditionResults.rsi", "technicalIndicators.rsi14", "technicalIndicators.rsi", "technicalTrend.rsi14"]);
+  const atrField = resolveNumericTracePath(trace, ["atr", "atr14", "quote.atr", "symbolFeatures.atr", "conditionResults.atr", "technicalIndicators.atr"]);
+  const price = priceField.value;
+  const ma20 = ma20Field.value;
+  const ma60 = ma60Field.value;
+  const rsi14 = rsi14Field.value;
+  const atr = atrField.value;
   const atr20avg = numericTraceValue(trace, ["atr20avg"]);
   const scores: number[] = [];
   if (finite(price) && finite(ma20) && ma20 > 0)
@@ -713,12 +741,26 @@ function technicalTrendScore(trace: CandidateEntryTrace): {
       atr <= atr20avg ? 85 : clamp(85 - (atr / atr20avg - 1) * 50, 30, 85),
     );
   if (scores.length === 0) {
+    const nestedPresentTopMissing =
+      !finite(numericTraceValue(trace, ["price"])) &&
+      (finite(nestedNumericTraceValue(trace, ["quote.price"])) || finite(nestedNumericTraceValue(trace, ["symbolFeatures.price"])));
+    const missingFields = [
+      !finite(price) ? "TECH_MISSING_PRICE" : null,
+      !finite(ma20) ? "TECH_MISSING_MA20" : null,
+      !finite(ma60) ? "TECH_MISSING_MA60" : null,
+      !finite(rsi14) ? "TECH_MISSING_RSI14" : null,
+      !finite(atr) ? "TECH_MISSING_ATR" : null,
+      !technicalTrendObjectPresent ? "TECH_MISSING_TREND_OBJECT" : null,
+    ].filter(Boolean).join(",");
+    const sourceMap = `sourceMap=price:${priceField.sourcePath ?? "-"},ma20:${ma20Field.sourcePath ?? "-"},ma60:${ma60Field.sourcePath ?? "-"},rsi14:${rsi14Field.sourcePath ?? "-"}`;
     return {
       normalizedScore: 0,
       weightedScore: 0,
       confidence: "MISSING",
       message:
-        "Technical trend feature source missing; no uniform proxy score assigned.",
+        nestedPresentTopMissing
+          ? `TECH_NESTED_PRESENT_TOP_LEVEL_MISSING:${missingFields};${sourceMap}`
+          : `TECH_FIELD_PATH_MISMATCH_OR_MISSING:${missingFields};${sourceMap}`,
     };
   }
   const normalizedScore =

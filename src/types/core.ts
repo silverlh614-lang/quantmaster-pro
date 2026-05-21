@@ -152,6 +152,7 @@ export interface FullRegimeConfig {
   // 포지션 공격성
   kellyMultiplier: number;     // baseKelly × kellyMultiplier = 실효 Kelly
   maxPositions: number;        // 동시 보유 최대 종목 수 (0 = 매수 차단)
+  maxExposurePct?: number;     // portfolio exposure cap percentage used by legacy regime configs
   allowedSignals: string[];    // 허용 신호 등급 (빈 배열 = 매수 전면 차단)
   trancheStrategy: string;     // 분할 매수 전략 설명
 

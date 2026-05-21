@@ -30,6 +30,9 @@ export interface MacroState {
   fssAlertLevel?: 'NORMAL' | 'CAUTION' | 'HIGH_ALERT'; // FSS 경보 단계
   // ─── RegimeVariables 7축 매핑용 (optional — 클라이언트 전달 시 저장) ──────
   vkospiDayChange?: number;         // VKOSPI 당일 변화율
+  vkospiPrevClose?: number;         // VKOSPI 전일 종가 (서버 계산 SSOT)
+  vkospiDayChangeComputed?: number; // 서버 직접 계산 당일 변화율
+  vkospiDayChangeSource?: string;   // VKOSPI 당일 변화율 계산 소스 (진단용)
   vkospi5dTrend?: number;           // VKOSPI 5일 추세 (양수=상승)
   usdKrw?: number;                  // 원달러 환율
   usdKrw20dChange?: number;         // 원달러 20일 변화율
@@ -181,6 +184,8 @@ export interface MacroState {
   shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
   /** Phase 1 — 마지막 조회 성공 시각 (ISO) — /health 신선도 표시용. */
   shortSellingFetchedAt?: string;
+  spxDayReturn?: number;            // S&P500 당일 수익률 (미국 장 마감 기준)
+  nasdaqDayReturn?: number;         // 나스닥 당일 수익률 (미국 장 마감 기준)
   spx20dReturn?: number;            // S&P500 20일 수익률
   dxy5dChange?: number;             // 달러인덱스 5일 변화율
   // ─── 글로벌 스캔 에이전트 선행 레이어 필드 ──────────────────────────────────

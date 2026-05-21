@@ -71,6 +71,15 @@ import { buildGate1CandidateTrace, buildGate1Reports } from './gate1CandidateTra
 import { classifySupplyProviderHealth } from './supplyProviderHealth.js';
 import { createKellySizingTrace } from './kellySizing.js';
 import { buildSymbolFeatures } from './symbolFeatures.js';
+
+function pickNumericWithSource(
+  pairs: Array<{ value: unknown; source: string }>,
+): { value: number | undefined; source?: string } {
+  for (const pair of pairs) {
+    if (typeof pair.value === 'number' && Number.isFinite(pair.value)) return { value: pair.value, source: pair.source };
+  }
+  return { value: undefined };
+}
 import { mapConservativeCode } from './formatter.js';
 
 export function buildEntryFilterDecomposition(
@@ -86,6 +95,7 @@ export function buildEntryFilterDecomposition(
   const gp = input.gatePassDistribution;
   const candidateSnapshots = input.candidateSnapshots ?? [];
   const fallbackCount = input.watchlistCandidates;
+  const usePlaceholderRows = candidateSnapshots.length === 0 && fallbackCount > 0;
   const defaultSupplyProviderHealth = classifySupplyProviderHealth(
     input.supplyProviderHealth,
   );
@@ -97,7 +107,33 @@ export function buildEntryFilterDecomposition(
           (_, i): CandidateSnapshot => ({ symbol: `WATCHLIST_${i + 1}` }),
         )
   ).map((c): CandidateEntryTrace => {
+    const candidateRecord = c as unknown as Record<string, unknown>;
+    const symbolFeaturesRecord = c.symbolFeatures as unknown as Record<string, unknown> | undefined;
     const symbolFeatures = buildSymbolFeatures(c);
+    const quote = (c.quote as Record<string, unknown> | undefined) ?? undefined;
+    const conditionResults = (c.conditionResults as Record<string, unknown> | undefined) ?? undefined;
+    const technicalIndicators = (c.technicalIndicators as Record<string, unknown> | undefined) ?? undefined;
+    const resolvedPrice = pickNumericWithSource([
+      { value: c.price, source: 'price' }, { value: c.currentPrice, source: 'currentPrice' }, { value: quote?.price, source: 'quote.price' }, { value: quote?.currentPrice, source: 'quote.currentPrice' }, { value: quote?.close, source: 'quote.close' }, { value: c.symbolFeatures?.price, source: 'symbolFeatures.price' }, { value: conditionResults?.price, source: 'conditionResults.price' }, { value: technicalIndicators?.price, source: 'technicalIndicators.price' },
+    ]);
+    const resolvedMa20 = pickNumericWithSource([
+      { value: c.ma20, source: 'ma20' }, { value: candidateRecord.sma20, source: 'sma20' }, { value: quote?.ma20, source: 'quote.ma20' }, { value: quote?.sma20, source: 'quote.sma20' }, { value: c.symbolFeatures?.ma20, source: 'symbolFeatures.ma20' }, { value: symbolFeaturesRecord?.sma20, source: 'symbolFeatures.sma20' }, { value: conditionResults?.ma20, source: 'conditionResults.ma20' }, { value: conditionResults?.sma20, source: 'conditionResults.sma20' }, { value: technicalIndicators?.ma20, source: 'technicalIndicators.ma20' }, { value: technicalIndicators?.sma20, source: 'technicalIndicators.sma20' },
+    ]);
+    const resolvedMa60 = pickNumericWithSource([
+      { value: c.ma60, source: 'ma60' }, { value: candidateRecord.sma60, source: 'sma60' }, { value: quote?.ma60, source: 'quote.ma60' }, { value: quote?.sma60, source: 'quote.sma60' }, { value: c.symbolFeatures?.ma60, source: 'symbolFeatures.ma60' }, { value: symbolFeaturesRecord?.sma60, source: 'symbolFeatures.sma60' }, { value: conditionResults?.ma60, source: 'conditionResults.ma60' }, { value: conditionResults?.sma60, source: 'conditionResults.sma60' }, { value: technicalIndicators?.ma60, source: 'technicalIndicators.ma60' }, { value: technicalIndicators?.sma60, source: 'technicalIndicators.sma60' },
+    ]);
+    const resolvedRsi14 = pickNumericWithSource([
+      { value: c.rsi14, source: 'rsi14' }, { value: candidateRecord.rsi, source: 'rsi' }, { value: quote?.rsi14, source: 'quote.rsi14' }, { value: quote?.rsi, source: 'quote.rsi' }, { value: c.symbolFeatures?.rsi14, source: 'symbolFeatures.rsi14' }, { value: symbolFeaturesRecord?.rsi, source: 'symbolFeatures.rsi' }, { value: conditionResults?.rsi14, source: 'conditionResults.rsi14' }, { value: conditionResults?.rsi, source: 'conditionResults.rsi' }, { value: technicalIndicators?.rsi14, source: 'technicalIndicators.rsi14' }, { value: technicalIndicators?.rsi, source: 'technicalIndicators.rsi' },
+    ]);
+    const resolvedAtr = pickNumericWithSource([
+      { value: c.atr, source: 'atr' }, { value: candidateRecord.atr14, source: 'atr14' }, { value: quote?.atr, source: 'quote.atr' }, { value: quote?.atr14, source: 'quote.atr14' }, { value: c.symbolFeatures?.atr, source: 'symbolFeatures.atr' }, { value: symbolFeaturesRecord?.atr14, source: 'symbolFeatures.atr14' }, { value: conditionResults?.atr, source: 'conditionResults.atr' }, { value: conditionResults?.atr14, source: 'conditionResults.atr14' }, { value: technicalIndicators?.atr, source: 'technicalIndicators.atr' }, { value: technicalIndicators?.atr14, source: 'technicalIndicators.atr14' },
+    ]);
+    const resolvedAtr20avg = pickNumericWithSource([{ value: c.atr20avg, source: 'atr20avg' }, { value: quote?.atr20avg, source: 'quote.atr20avg' }, { value: c.symbolFeatures?.atr20avg, source: 'symbolFeatures.atr20avg' }, { value: conditionResults?.atr20avg, source: 'conditionResults.atr20avg' }, { value: technicalIndicators?.atr20avg, source: 'technicalIndicators.atr20avg' }]);
+    const sourceMap: Record<string, string> = {};
+    if (resolvedPrice.source) sourceMap.price = resolvedPrice.source;
+    if (resolvedMa20.source) sourceMap.ma20 = resolvedMa20.source;
+    if (resolvedMa60.source) sourceMap.ma60 = resolvedMa60.source;
+    if (resolvedRsi14.source) sourceMap.rsi14 = resolvedRsi14.source;
     return {
       symbol: c.symbol,
       name: c.name,
@@ -146,6 +182,8 @@ export function buildEntryFilterDecomposition(
       macroState: c.macroState,
       breakoutSignals: c.breakoutSignals,
       conditionResults: c.conditionResults,
+      technicalIndicators: c.technicalIndicators,
+      technicalFieldSourceMap: sourceMap,
       breakout_momentum: c.breakout_momentum,
       turtle_high: c.turtle_high,
       volume_breakout: c.volume_breakout,
@@ -157,7 +195,7 @@ export function buildEntryFilterDecomposition(
       volume: c.volume ?? symbolFeatures?.volume,
       avgVolume: c.avgVolume ?? symbolFeatures?.avgVolume,
       projectedVolume: c.projectedVolume ?? symbolFeatures?.projectedVolume,
-      price: c.price ?? c.currentPrice ?? symbolFeatures?.price,
+      price: resolvedPrice.value ?? symbolFeatures?.price ?? undefined,
       currentPrice: c.currentPrice ?? c.price ?? ((symbolFeatures as Record<string, unknown> | undefined)?.currentPrice as number | undefined),
       high5d: c.high5d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high5d as number | undefined),
       high20d: c.high20d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high20d as number | undefined),
@@ -165,11 +203,11 @@ export function buildEntryFilterDecomposition(
       volumeRatio: c.volumeRatio ?? ((symbolFeatures as Record<string, unknown> | undefined)?.volumeRatio as number | undefined),
       aboveMA20: c.aboveMA20,
       aboveMA60: c.aboveMA60,
-      ma20: c.ma20 ?? symbolFeatures?.ma20,
-      ma60: c.ma60 ?? symbolFeatures?.ma60,
-      rsi14: c.rsi14 ?? symbolFeatures?.rsi14,
-      atr: c.atr ?? symbolFeatures?.atr,
-      atr20avg: c.atr20avg ?? symbolFeatures?.atr20avg,
+      ma20: resolvedMa20.value ?? symbolFeatures?.ma20 ?? undefined,
+      ma60: resolvedMa60.value ?? symbolFeatures?.ma60 ?? undefined,
+      rsi14: resolvedRsi14.value ?? symbolFeatures?.rsi14 ?? undefined,
+      atr: resolvedAtr.value ?? symbolFeatures?.atr ?? undefined,
+      atr20avg: resolvedAtr20avg.value ?? symbolFeatures?.atr20avg ?? undefined,
       blockers: [],
       executionImpact: "NONE",
     };

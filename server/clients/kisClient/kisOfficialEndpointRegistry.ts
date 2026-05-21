@@ -37,6 +37,23 @@ export interface KisOfficialEndpointSpec {
   notes?: string;
 }
 
+export interface KisOfficialApiInventoryEntry {
+  apiPath: string;
+  method: 'GET' | 'POST';
+  trId: string | null;
+  requiredParams: string[];
+  outputFields: string[];
+  normalizedModel: string;
+}
+
+export interface KisOfficialApiInventory {
+  quote: KisOfficialApiInventoryEntry;
+  ohlcvDaily: KisOfficialApiInventoryEntry;
+  investorFlow: KisOfficialApiInventoryEntry;
+  balance: KisOfficialApiInventoryEntry;
+  order: KisOfficialApiInventoryEntry;
+}
+
 export const KIS_OFFICIAL_ENDPOINTS = {
   inquirePrice: {
     key: 'inquirePrice',
@@ -585,4 +602,58 @@ export function findKisOfficialEndpointByPath(path: string): KisOfficialEndpoint
 
 export function listKisOfficialEndpoints(): KisOfficialEndpointSpec[] {
   return Object.values(KIS_OFFICIAL_ENDPOINTS);
+}
+
+export function getKisOfficialApiInventory(): KisOfficialApiInventory {
+  const quote = KIS_OFFICIAL_ENDPOINTS.inquirePrice;
+  const ohlcvDaily = KIS_OFFICIAL_ENDPOINTS.inquireDailyItemChartPrice;
+  const investorFlow = KIS_OFFICIAL_ENDPOINTS.inquireInvestor;
+  const balance = KIS_OFFICIAL_ENDPOINTS.inquireBalance;
+  const order = KIS_OFFICIAL_ENDPOINTS.orderCash;
+  const optionalTrId = (endpoint: unknown): string | null => {
+    const trId = (endpoint as { trId?: unknown }).trId;
+    return typeof trId === 'string' ? trId : null;
+  };
+  return {
+    quote: {
+      apiPath: quote.path,
+      method: quote.method,
+      trId: quote.trId ?? null,
+      requiredParams: [...quote.requiredParams],
+      outputFields: [...quote.outputBuckets],
+      normalizedModel: 'KisNormalizedQuote',
+    },
+    ohlcvDaily: {
+      apiPath: ohlcvDaily.path,
+      method: ohlcvDaily.method,
+      trId: ohlcvDaily.trId ?? null,
+      requiredParams: [...ohlcvDaily.requiredParams],
+      outputFields: [...ohlcvDaily.outputBuckets],
+      normalizedModel: 'KisDailyCandle[]',
+    },
+    investorFlow: {
+      apiPath: investorFlow.path,
+      method: investorFlow.method,
+      trId: investorFlow.trId ?? null,
+      requiredParams: [...investorFlow.requiredParams],
+      outputFields: [...investorFlow.outputBuckets],
+      normalizedModel: 'KisInvestorFlow',
+    },
+    balance: {
+      apiPath: balance.path,
+      method: balance.method,
+      trId: optionalTrId(balance),
+      requiredParams: [...balance.requiredParams],
+      outputFields: [...balance.outputBuckets],
+      normalizedModel: 'KisBalance',
+    },
+    order: {
+      apiPath: order.path,
+      method: order.method,
+      trId: optionalTrId(order),
+      requiredParams: [...order.requiredParams],
+      outputFields: [...order.outputBuckets],
+      normalizedModel: 'KisOrderResult',
+    },
+  };
 }

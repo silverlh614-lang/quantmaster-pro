@@ -200,6 +200,37 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
+  const base = Math.max(28, Number(process.env.R6_VKOSPI_RECOVERY_THRESHOLD_BASE ?? '28'));
+  if (process.env.R6_VKOSPI_DYNAMIC_THRESHOLD_ENABLED !== 'true') return base;
+
+  const vkospiDayChange = finiteNumber(macroState?.vkospiDayChange);
+  const isVkospiFallingToday = vkospiDayChange !== undefined && vkospiDayChange < 0;
+  if (!isVkospiFallingToday) return base;
+
+  const trend5d = finiteNumber(macroState?.vkospi5dTrend);
+  const rising = macroState?.vkospiRising;
+  const isVkospiTrendDown = (trend5d !== undefined && trend5d < 0) || rising === false;
+  if (!isVkospiTrendDown) return base;
+
+  const mhs = macroState?.mhs ?? 0;
+  const relaxed = Math.max(base, Number(process.env.R6_VKOSPI_THRESHOLD_RELAXED ?? '40'));
+  const highMhs = Math.max(relaxed, Number(process.env.R6_VKOSPI_THRESHOLD_HIGH_MHS ?? '45'));
+  const threshold = mhs >= 65 ? highMhs : relaxed;
+
+  console.info(
+    `[R6_VKOSPI_DYNAMIC_THRESHOLD] ` +
+      `vkospiDayChange=${vkospiDayChange?.toFixed(1)} ` +
+      `vkospi5dTrend=${trend5d ?? 'N/A'} ` +
+      `vkospiRising=${rising ?? 'N/A'} ` +
+      `mhs=${mhs} ` +
+      `threshold=${threshold} (base=${base}) ` +
+      `executionImpact=NONE`,
+  );
+
+  return threshold;
+}
+
 function triggerFreshness(macroState: MacroState | null, now: Date): R6TriggerBreakdown['triggerFreshness'] {
   return macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
 }
@@ -211,7 +242,17 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   const kospiCloseReturn = finiteNumber(macroState.kospiCloseReturn) ?? kospiDayReturn;
   const kospiIntradayLowReturn = finiteNumber(macroState.kospiIntradayLowReturn);
   const kospiIntradayHighReturn = finiteNumber(macroState.kospiIntradayHighReturn);
-  const vkospiDayChange = finiteNumber(macroState.vkospiDayChange);
+  const vkospiDayChange =
+    finiteNumber(macroState.vkospiDayChange) ??
+    finiteNumber(macroState.vkospiDayChangeComputed) ??
+    (macroState.vkospi != null && macroState.vkospiPrevClose != null && macroState.vkospiPrevClose > 0
+      ? ((macroState.vkospi - macroState.vkospiPrevClose) / macroState.vkospiPrevClose) * 100
+      : undefined);
+  if (vkospiDayChange !== undefined && macroState.vkospiDayChange == null) {
+    console.info(
+      `[R6_VKOSPI_DAYCHANGE_FALLBACK] computed=${vkospiDayChange.toFixed(2)}% source=${macroState.vkospiDayChangeComputed != null ? 'SERVER_COMPUTED' : 'PREV_CLOSE_RATIO'} executionImpact=NONE`,
+    );
+  }
   const usdKrwDayChange = finiteNumber(macroState.usdKrwDayChange);
   const detected: R6TriggerReason[] = [];
   if (kospiIntradayLowReturn !== undefined && kospiIntradayLowReturn <= -5) detected.push('KOSPI_INTRADAY_LOW_SHOCK');
@@ -224,7 +265,8 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
 }
 
 function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroState | null): boolean {
-  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28 && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
+  const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
+  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
 }
 
 
@@ -232,11 +274,15 @@ function addMs(now: Date, ms: number): string {
   return new Date(now.getTime() + ms).toISOString();
 }
 
-function resolveLatchTtlMs(trigger: R6TriggerReason | undefined): number {
-  const oneTradingDayMs = envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS', 24) * 3_600_000;
+function resolveLatchTtlMs(trigger: R6TriggerReason | undefined, triggerValue?: number | null): number {
   const intradayMs = envInt('R6_INTRADAY_LOW_LATCH_TTL_HOURS', 18) * 3_600_000;
   if (trigger === 'KOSPI_INTRADAY_LOW_SHOCK') return intradayMs;
-  if (trigger === 'KOSPI_CLOSE_SHOCK') return oneTradingDayMs;
+  if (trigger === 'KOSPI_CLOSE_SHOCK') {
+    const absVal = Math.abs(triggerValue ?? 0);
+    if (absVal < 6.0) return envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS_MILD', 18) * 3_600_000;
+    if (absVal < 8.0) return envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS', 24) * 3_600_000;
+    return envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS_SEVERE', 36) * 3_600_000;
+  }
   return envInt('R6_GENERIC_LATCH_TTL_HOURS', 24) * 3_600_000;
 }
 
@@ -288,7 +334,32 @@ function latchDecayPercent(
       ? closeEligible ? 60 : 30
       : 0;
 
-  return Math.max(previousState.latchDecayPercent ?? 0, baseDecay, contextualFloor);
+  const strongReboundEnabled = process.env.R6_STRONG_REBOUND_DECAY_ENABLED === 'true';
+  const strongReboundThreshold = Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0');
+  const strongReboundFloor = Number(process.env.R6_STRONG_REBOUND_DECAY_FLOOR ?? '70');
+
+  const strongReboundBoost = strongReboundEnabled &&
+    recoveryContext !== undefined &&
+    recoveryContext.triggerBreakdown.triggerFreshness === 'FRESH' &&
+    recoveryContext.triggerBreakdown.activeR6Triggers.length === 0 &&
+    (recoveryContext.macroState?.mhs ?? 0) >= 60 &&
+    ((recoveryContext.macroState?.kospiDayReturn ?? 0) >= strongReboundThreshold ||
+      (recoveryContext.triggerBreakdown.kospiIntradayHighReturn ?? 0) >= strongReboundThreshold)
+      ? strongReboundFloor
+      : 0;
+
+  if (strongReboundBoost > 0) {
+    console.info(
+      `[R6_STRONG_REBOUND_DECAY_BOOST] ` +
+      `kospiDayReturn=${recoveryContext?.macroState?.kospiDayReturn ?? 'N/A'} ` +
+      `threshold=${strongReboundThreshold} ` +
+      `decayBoostedTo=${strongReboundFloor} ` +
+      `mhs=${recoveryContext?.macroState?.mhs ?? 'N/A'} ` +
+      'executionImpact=NONE',
+    );
+  }
+
+  return Math.max(previousState.latchDecayPercent ?? 0, baseDecay, contextualFloor, strongReboundBoost);
 }
 
 function buildR6ShockLatchDetail(args: {
@@ -387,23 +458,36 @@ function buildR6RecoveryEvidence(
   confirmations: number,
 ): R6RecoveryEvidence {
   const freshness = sourceFreshness(macroState, now);
+  const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
+  const vkospiDayChange = macroState?.vkospiDayChange ?? macroState?.vkospiDayChangeComputed;
+  const vkospiDayChangeMissing = vkospiDayChange == null;
+  const fallbackLevelStable =
+    vkospiDayChangeMissing &&
+    (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold &&
+    ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2 &&
+    Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 &&
+    isFreshEnoughForRecoveryWatch(freshness);
   const evidence: R6RecoveryEvidence = {
-    vkospiDayChangeOk: (macroState?.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15,
+    vkospiDayChangeOk: (vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 || fallbackLevelStable,
     usdKrwDayChangeOk: Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5,
     kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
-    vkospiOk: (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28,
+    vkospiOk: (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold,
+    vkospiThresholdApplied: vkospiThreshold,
     marketDataFreshnessOk: isFreshEnoughForRecoveryWatch(freshness),
     confirmations,
     requiredConfirmations,
     reasons: [],
     checkedAt: now.toISOString(),
+    vkospiRecoveryFallbackUsed: fallbackLevelStable,
   };
   if (!evidence.vkospiDayChangeOk) evidence.reasons.push('VKOSPI_DAY_CHANGE_NOT_STABLE');
+  if (fallbackLevelStable) evidence.reasons.push('VKOSPI_DAY_CHANGE_MISSING_BUT_LEVEL_STABLE');
+  if (fallbackLevelStable && (macroState?.vkospiDayChangeSource?.includes('KRX') ?? false)) evidence.reasons.push('VKOSPI_RECOVERY_FALLBACK_LEVEL_STABLE');
   if (!evidence.usdKrwDayChangeOk) evidence.reasons.push('USD_KRW_DAY_CHANGE_NOT_STABLE');
   if (!evidence.kospiDayReturnOk) evidence.reasons.push('KOSPI_DAY_RETURN_NOT_STABLE');
   if (!evidence.mhsScoreOk) evidence.reasons.push('MHS_BELOW_RECOVERY_FLOOR');
-  if (!evidence.vkospiOk) evidence.reasons.push('VKOSPI_LEVEL_NOT_STABLE');
+  if (!evidence.vkospiOk) evidence.reasons.push(`VKOSPI_LEVEL_NOT_STABLE(current=${macroState?.vkospi?.toFixed(1) ?? 'N/A'},threshold=${vkospiThreshold})`);
   if (!evidence.marketDataFreshnessOk) evidence.reasons.push(`MARKET_DATA_${freshness}`);
   if (evidence.reasons.length === 0) evidence.reasons.push('R6_RECOVERY_EVIDENCE_OK');
   return evidence;
@@ -449,12 +533,24 @@ export function evaluateR6RecoveryTransition(
     biasScore >= -50 &&
     isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness) &&
     releaseReachedOrNear;
-  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && !panicEasingEligible && (!closeEligible || decayPercent < 60);
+  const strongReboundExitEligible =
+    process.env.R6_STRONG_REBOUND_DECAY_ENABLED === 'true' &&
+    decayPercent >= 70 &&
+    (macroState?.mhs ?? 0) >= 60 &&
+    (macroState?.kospiDayReturn ?? 0) >= Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0') &&
+    triggerBreakdown.activeR6Triggers.length === 0 &&
+    triggerBreakdown.triggerFreshness === 'FRESH';
+  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && !panicEasingEligible && !strongReboundExitEligible && (!closeEligible || decayPercent < 60);
 
   if (rawRegime === 'R6_DEFENSE' || activeTriggers.length > 0 || heldByShockLatch) {
     const transitionReason = heldByShockLatch ? 'RAW_R6_HELD_BY_SHOCK_LATCH' : reasonForActiveR6Trigger(activeTriggers[0]);
     const triggerType = activeShockTrigger ?? previousState.r6ShockLatchReason;
-    const expiresAt = shockLatchTriggered ? addMs(now, resolveLatchTtlMs(activeShockTrigger)) : previousState.latchExpiresAt;
+    const shockTriggerValue = activeShockTrigger === 'KOSPI_CLOSE_SHOCK'
+      ? triggerBreakdown.kospiCloseReturn
+      : activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK'
+        ? triggerBreakdown.kospiIntradayLowReturn
+        : undefined;
+    const expiresAt = shockLatchTriggered ? addMs(now, resolveLatchTtlMs(activeShockTrigger, shockTriggerValue)) : previousState.latchExpiresAt;
     const releaseEligibleAt = shockLatchTriggered ? addMs(now, resolveLatchReleaseEligibleMs(activeShockTrigger)) : previousState.latchReleaseEligibleAt;
     const nextDecayPercent = shockLatchTriggered ? 0 : decayPercent;
     const panic = activeTriggers.length > 0;
