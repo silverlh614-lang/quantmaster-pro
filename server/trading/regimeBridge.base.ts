@@ -232,11 +232,15 @@ function addMs(now: Date, ms: number): string {
   return new Date(now.getTime() + ms).toISOString();
 }
 
-function resolveLatchTtlMs(trigger: R6TriggerReason | undefined): number {
-  const oneTradingDayMs = envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS', 24) * 3_600_000;
+function resolveLatchTtlMs(trigger: R6TriggerReason | undefined, triggerValue?: number | null): number {
   const intradayMs = envInt('R6_INTRADAY_LOW_LATCH_TTL_HOURS', 18) * 3_600_000;
   if (trigger === 'KOSPI_INTRADAY_LOW_SHOCK') return intradayMs;
-  if (trigger === 'KOSPI_CLOSE_SHOCK') return oneTradingDayMs;
+  if (trigger === 'KOSPI_CLOSE_SHOCK') {
+    const absVal = Math.abs(triggerValue ?? 0);
+    if (absVal < 6.0) return envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS_MILD', 18) * 3_600_000;
+    if (absVal < 8.0) return envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS', 24) * 3_600_000;
+    return envInt('R6_CLOSE_SHOCK_LATCH_TTL_HOURS_SEVERE', 36) * 3_600_000;
+  }
   return envInt('R6_GENERIC_LATCH_TTL_HOURS', 24) * 3_600_000;
 }
 
@@ -288,7 +292,32 @@ function latchDecayPercent(
       ? closeEligible ? 60 : 30
       : 0;
 
-  return Math.max(previousState.latchDecayPercent ?? 0, baseDecay, contextualFloor);
+  const strongReboundEnabled = process.env.R6_STRONG_REBOUND_DECAY_ENABLED === 'true';
+  const strongReboundThreshold = Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0');
+  const strongReboundFloor = Number(process.env.R6_STRONG_REBOUND_DECAY_FLOOR ?? '70');
+
+  const strongReboundBoost = strongReboundEnabled &&
+    recoveryContext !== undefined &&
+    recoveryContext.triggerBreakdown.triggerFreshness === 'FRESH' &&
+    recoveryContext.triggerBreakdown.activeR6Triggers.length === 0 &&
+    (recoveryContext.macroState?.mhs ?? 0) >= 60 &&
+    ((recoveryContext.macroState?.kospiDayReturn ?? 0) >= strongReboundThreshold ||
+      (recoveryContext.triggerBreakdown.kospiIntradayHighReturn ?? 0) >= strongReboundThreshold)
+      ? strongReboundFloor
+      : 0;
+
+  if (strongReboundBoost > 0) {
+    console.info(
+      `[R6_STRONG_REBOUND_DECAY_BOOST] ` +
+      `kospiDayReturn=${recoveryContext?.macroState?.kospiDayReturn ?? 'N/A'} ` +
+      `threshold=${strongReboundThreshold} ` +
+      `decayBoostedTo=${strongReboundFloor} ` +
+      `mhs=${recoveryContext?.macroState?.mhs ?? 'N/A'} ` +
+      'executionImpact=NONE',
+    );
+  }
+
+  return Math.max(previousState.latchDecayPercent ?? 0, baseDecay, contextualFloor, strongReboundBoost);
 }
 
 function buildR6ShockLatchDetail(args: {
@@ -449,12 +478,24 @@ export function evaluateR6RecoveryTransition(
     biasScore >= -50 &&
     isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness) &&
     releaseReachedOrNear;
-  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && !panicEasingEligible && (!closeEligible || decayPercent < 60);
+  const strongReboundExitEligible =
+    process.env.R6_STRONG_REBOUND_DECAY_ENABLED === 'true' &&
+    decayPercent >= 70 &&
+    (macroState?.mhs ?? 0) >= 60 &&
+    (macroState?.kospiDayReturn ?? 0) >= Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0') &&
+    triggerBreakdown.activeR6Triggers.length === 0 &&
+    triggerBreakdown.triggerFreshness === 'FRESH';
+  const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && !panicEasingEligible && !strongReboundExitEligible && (!closeEligible || decayPercent < 60);
 
   if (rawRegime === 'R6_DEFENSE' || activeTriggers.length > 0 || heldByShockLatch) {
     const transitionReason = heldByShockLatch ? 'RAW_R6_HELD_BY_SHOCK_LATCH' : reasonForActiveR6Trigger(activeTriggers[0]);
     const triggerType = activeShockTrigger ?? previousState.r6ShockLatchReason;
-    const expiresAt = shockLatchTriggered ? addMs(now, resolveLatchTtlMs(activeShockTrigger)) : previousState.latchExpiresAt;
+    const shockTriggerValue = activeShockTrigger === 'KOSPI_CLOSE_SHOCK'
+      ? triggerBreakdown.kospiCloseReturn
+      : activeShockTrigger === 'KOSPI_INTRADAY_LOW_SHOCK'
+        ? triggerBreakdown.kospiIntradayLowReturn
+        : undefined;
+    const expiresAt = shockLatchTriggered ? addMs(now, resolveLatchTtlMs(activeShockTrigger, shockTriggerValue)) : previousState.latchExpiresAt;
     const releaseEligibleAt = shockLatchTriggered ? addMs(now, resolveLatchReleaseEligibleMs(activeShockTrigger)) : previousState.latchReleaseEligibleAt;
     const nextDecayPercent = shockLatchTriggered ? 0 : decayPercent;
     const panic = activeTriggers.length > 0;
