@@ -32,6 +32,7 @@ export interface MacroState {
   vkospiDayChange?: number;         // VKOSPI 당일 변화율
   vkospiPrevClose?: number;         // VKOSPI 전일 종가 (서버 계산 SSOT)
   vkospiDayChangeComputed?: number; // 서버 직접 계산 당일 변화율
+  vkospiDayChangeSource?: string;   // VKOSPI 당일 변화율 계산 소스 (진단용)
   vkospi5dTrend?: number;           // VKOSPI 5일 추세 (양수=상승)
   usdKrw?: number;                  // 원달러 환율
   usdKrw20dChange?: number;         // 원달러 20일 변화율
