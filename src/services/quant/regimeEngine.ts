@@ -28,7 +28,8 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate2Required: 6,    // 12개 중 6개
     gate3Required: 4,    // 10개 중 4개
     kellyMultiplier: 1.0,
-    maxPositions: 8,
+    maxPositions: 10,
+    maxExposurePct: 100,
     allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY', 'EARLY_ENTRY'],
     trancheStrategy: '선제 1차 40% → 모멘텀 확인 후 60%',
     stopLoss: {
@@ -51,7 +52,8 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate2Required: 7,
     gate3Required: 5,
     kellyMultiplier: 0.8,
-    maxPositions: 6,
+    maxPositions: 8,
+    maxExposurePct: 80,
     allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY'],
     trancheStrategy: '1차 40% → 확인 후 35% → 눌림 25%',
     stopLoss: {
@@ -74,7 +76,8 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate2Required: 6,    // R1과 동일 완화 — 선행 포착이 목적
     gate3Required: 4,
     kellyMultiplier: 0.7, // 선취매 구간 — 신규 진입 슬롯 확보를 위해 소폭 상향
-    maxPositions: 5,
+    maxPositions: 6,
+    maxExposurePct: 60,
     allowedSignals: ['STRONG_BUY', 'BUY', 'EARLY_ENTRY'],
     trancheStrategy: '1차 30% 선진입 → R2 레짐 확인 후 70% 증액',
     stopLoss: {
@@ -97,7 +100,8 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate2Required: 8,
     gate3Required: 6,
     kellyMultiplier: 0.5,
-    maxPositions: 6,   // 상승횡보장도 6개 허용 (4→6 상향)
+    maxPositions: 4,
+    maxExposurePct: 40,
     allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'],
     trancheStrategy: '분할 3회 균등 (33/33/33)',
     stopLoss: {
@@ -120,7 +124,8 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate2Required: 10,   // 사실상 CONFIRMED_STRONG_BUY 전용
     gate3Required: 8,
     kellyMultiplier: 0.3,
-    maxPositions: 2,
+    maxPositions: 3,
+    maxExposurePct: 20,
     allowedSignals: ['CONFIRMED_STRONG_BUY'],
     trancheStrategy: '단일 진입, 초단기 익절 우선',
     stopLoss: {
@@ -144,6 +149,7 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     gate3Required: 99,
     kellyMultiplier: 0,
     maxPositions: 0,
+    maxExposurePct: 0,
     allowedSignals: [],  // 신규 매수 없음 — Pre-Mortem 조건 청산만
     trancheStrategy: 'N/A — 신규 매수 차단',
     stopLoss: {
