@@ -687,11 +687,11 @@ function technicalTrendScore(trace: CandidateEntryTrace): {
   confidence: SignalScoreComponentConfidence;
   message: string;
 } {
-  const price = numericTraceValue(trace, ["price"]);
-  const ma20 = numericTraceValue(trace, ["ma20"]);
-  const ma60 = numericTraceValue(trace, ["ma60"]);
-  const rsi14 = numericTraceValue(trace, ["rsi14"]);
-  const atr = numericTraceValue(trace, ["atr"]);
+  const price = nestedNumericTraceValue(trace, ["price", "currentPrice", "quote.price", "quote.currentPrice", "quote.close", "symbolFeatures.price", "conditionResults.price", "technicalIndicators.price"]);
+  const ma20 = nestedNumericTraceValue(trace, ["ma20", "sma20", "quote.ma20", "quote.sma20", "symbolFeatures.ma20", "conditionResults.ma20", "technicalIndicators.ma20"]);
+  const ma60 = nestedNumericTraceValue(trace, ["ma60", "sma60", "quote.ma60", "quote.sma60", "symbolFeatures.ma60", "conditionResults.ma60", "technicalIndicators.ma60"]);
+  const rsi14 = nestedNumericTraceValue(trace, ["rsi14", "rsi", "quote.rsi14", "symbolFeatures.rsi14", "conditionResults.rsi14", "technicalIndicators.rsi14"]);
+  const atr = nestedNumericTraceValue(trace, ["atr", "atr14", "quote.atr", "symbolFeatures.atr", "conditionResults.atr", "technicalIndicators.atr"]);
   const atr20avg = numericTraceValue(trace, ["atr20avg"]);
   const scores: number[] = [];
   if (finite(price) && finite(ma20) && ma20 > 0)
@@ -713,12 +713,24 @@ function technicalTrendScore(trace: CandidateEntryTrace): {
       atr <= atr20avg ? 85 : clamp(85 - (atr / atr20avg - 1) * 50, 30, 85),
     );
   if (scores.length === 0) {
+    const nestedPresentTopMissing =
+      !finite(numericTraceValue(trace, ["price"])) &&
+      (finite(nestedNumericTraceValue(trace, ["quote.price"])) || finite(nestedNumericTraceValue(trace, ["symbolFeatures.price"])));
+    const missingFields = [
+      !finite(price) ? "TECH_MISSING_PRICE" : null,
+      !finite(ma20) ? "TECH_MISSING_MA20" : null,
+      !finite(ma60) ? "TECH_MISSING_MA60" : null,
+      !finite(rsi14) ? "TECH_MISSING_RSI14" : null,
+      !finite(atr) ? "TECH_MISSING_ATR" : null,
+    ].filter(Boolean).join(",");
     return {
       normalizedScore: 0,
       weightedScore: 0,
       confidence: "MISSING",
       message:
-        "Technical trend feature source missing; no uniform proxy score assigned.",
+        nestedPresentTopMissing
+          ? `TECH_NESTED_PRESENT_TOP_LEVEL_MISSING:${missingFields}`
+          : `TECH_FIELD_PATH_MISMATCH_OR_MISSING:${missingFields}`,
     };
   }
   const normalizedScore =

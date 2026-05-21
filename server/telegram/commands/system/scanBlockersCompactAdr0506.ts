@@ -968,7 +968,9 @@ export function formatScanBlockersCompactMessage(
   const liveEvaluationSkipped = isLiveEvaluationSkippedSummary(summary, sessionDisplay.entryBlockMode);
   if (liveEvaluationSkipped) {
     lines.push('• Gate1Live: skipped');
-    lines.push(`• Gate1Diagnostic: pass=${gate1Pass}/${candidates}`);
+    const evaluated = forensic?.evaluatedCandidateCount ?? candidates;
+    const skipped = Math.max(0, candidates - evaluated);
+    lines.push(`• Gate1Diagnostic: pass=${gate1Pass}/${evaluated}, total=${candidates}, skipped=${skipped}`);
   } else {
     lines.push(`• Gate1: ${gate1Pass}/${candidates}`);
   }
