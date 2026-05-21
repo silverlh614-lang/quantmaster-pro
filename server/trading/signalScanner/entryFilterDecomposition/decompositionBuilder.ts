@@ -86,6 +86,7 @@ export function buildEntryFilterDecomposition(
   const gp = input.gatePassDistribution;
   const candidateSnapshots = input.candidateSnapshots ?? [];
   const fallbackCount = input.watchlistCandidates;
+  const usePlaceholderRows = candidateSnapshots.length === 0 && fallbackCount > 0;
   const defaultSupplyProviderHealth = classifySupplyProviderHealth(
     input.supplyProviderHealth,
   );
@@ -98,6 +99,12 @@ export function buildEntryFilterDecomposition(
         )
   ).map((c): CandidateEntryTrace => {
     const symbolFeatures = buildSymbolFeatures(c);
+    const price = c.price ?? c.currentPrice ?? (c.quote as Record<string, unknown> | undefined)?.price as number | undefined ?? (c.quote as Record<string, unknown> | undefined)?.currentPrice as number | undefined ?? (c.symbolFeatures as Record<string, unknown> | undefined)?.price as number | undefined ?? null;
+    const ma20 = c.ma20 ?? c.symbolFeatures?.ma20 ?? (c.quote as Record<string, unknown> | undefined)?.ma20 as number | undefined ?? (c.conditionResults as Record<string, unknown> | undefined)?.ma20 as number | undefined ?? null;
+    const ma60 = c.ma60 ?? c.symbolFeatures?.ma60 ?? (c.quote as Record<string, unknown> | undefined)?.ma60 as number | undefined ?? (c.conditionResults as Record<string, unknown> | undefined)?.ma60 as number | undefined ?? null;
+    const rsi14 = c.rsi14 ?? c.symbolFeatures?.rsi14 ?? (c.quote as Record<string, unknown> | undefined)?.rsi14 as number | undefined ?? (c.conditionResults as Record<string, unknown> | undefined)?.rsi14 as number | undefined ?? null;
+    const atr = c.atr ?? c.symbolFeatures?.atr ?? (c.quote as Record<string, unknown> | undefined)?.atr as number | undefined ?? (c.conditionResults as Record<string, unknown> | undefined)?.atr as number | undefined ?? null;
+    const atr20avg = c.atr20avg ?? c.symbolFeatures?.atr20avg ?? (c.quote as Record<string, unknown> | undefined)?.atr20avg as number | undefined ?? (c.conditionResults as Record<string, unknown> | undefined)?.atr20avg as number | undefined ?? null;
     return {
       symbol: c.symbol,
       name: c.name,
@@ -157,7 +164,7 @@ export function buildEntryFilterDecomposition(
       volume: c.volume ?? symbolFeatures?.volume,
       avgVolume: c.avgVolume ?? symbolFeatures?.avgVolume,
       projectedVolume: c.projectedVolume ?? symbolFeatures?.projectedVolume,
-      price: c.price ?? c.currentPrice ?? symbolFeatures?.price,
+      price: price ?? symbolFeatures?.price ?? undefined,
       currentPrice: c.currentPrice ?? c.price ?? ((symbolFeatures as Record<string, unknown> | undefined)?.currentPrice as number | undefined),
       high5d: c.high5d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high5d as number | undefined),
       high20d: c.high20d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high20d as number | undefined),
@@ -165,11 +172,11 @@ export function buildEntryFilterDecomposition(
       volumeRatio: c.volumeRatio ?? ((symbolFeatures as Record<string, unknown> | undefined)?.volumeRatio as number | undefined),
       aboveMA20: c.aboveMA20,
       aboveMA60: c.aboveMA60,
-      ma20: c.ma20 ?? symbolFeatures?.ma20,
-      ma60: c.ma60 ?? symbolFeatures?.ma60,
-      rsi14: c.rsi14 ?? symbolFeatures?.rsi14,
-      atr: c.atr ?? symbolFeatures?.atr,
-      atr20avg: c.atr20avg ?? symbolFeatures?.atr20avg,
+      ma20: ma20 ?? symbolFeatures?.ma20 ?? undefined,
+      ma60: ma60 ?? symbolFeatures?.ma60 ?? undefined,
+      rsi14: rsi14 ?? symbolFeatures?.rsi14 ?? undefined,
+      atr: atr ?? symbolFeatures?.atr ?? undefined,
+      atr20avg: atr20avg ?? symbolFeatures?.atr20avg ?? undefined,
       blockers: [],
       executionImpact: "NONE",
     };
