@@ -10,6 +10,7 @@ function kstTime(hour: number, minute: number): Date {
 const buyAllowedNow = kstTime(10, 0);
 const trueEmptyOpts = { now: buyAllowedNow, engineMode: 'NORMAL' as const };
 const schedulerSource = fs.readFileSync(path.resolve(__dirname, 'adaptiveScanScheduler.ts'), 'utf-8');
+const schedulerBaseSource = fs.readFileSync(path.resolve(__dirname, 'adaptiveScanScheduler.base.ts'), 'utf-8');
 
 describe('recordScanResult — 피드백 루프', () => {
   beforeEach(() => {
@@ -112,6 +113,16 @@ describe('recordScanResult — ADR-452b empty scan taxonomy wiring', () => {
   });
 });
 
+
+
+describe('R6 macro_unblock override scan wiring (ADR-R6-OVERRIDE-SCAN-001)', () => {
+  it('keeps SELL_ONLY default and enables FULL path when override is active', () => {
+    expect(schedulerBaseSource).toContain("const r6OverrideActive = isMacroEntryOverrideActive('R6_DEFENSE')");
+    expect(schedulerBaseSource).toContain("priority:        'SELL_ONLY'");
+    expect(schedulerBaseSource).toContain("priority:        'FULL'");
+    expect(schedulerBaseSource).toContain('[R6_DEFENSE_OVERRIDE_SCAN] macro_unblock active');
+  });
+});
 
 describe('R6 confirmation/recovery shadow scan trigger wiring', () => {
   it('routes R6 confirmation wait and bias recovery triggers to FULL shadow candidate scans', () => {
