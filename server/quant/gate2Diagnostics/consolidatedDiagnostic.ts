@@ -62,11 +62,28 @@ import type {
 import { buildGate2ExternalDataCoverage } from './externalCoverage.js';
 import { unique } from './wiringDiagnostics.js';
 
+export function gate2DeferredFetchStage(evaluationStage?: Gate2EvaluationStage | null): boolean {
+  return !evaluationStage
+    || evaluationStage === 'DISCOVERY_GATE'
+    || evaluationStage === 'SELL_ONLY_SESSION'
+    || evaluationStage === 'AFTERMARKET_SESSION';
+}
+
 export function gate2StageNotFetched(external: Gate2ExternalDataCoverage, evaluationStage?: Gate2EvaluationStage | null): boolean {
-  const coreNotFetched = external.kisInvestorFlow.status === 'STAGE_NOT_FETCHED'
-    && external.dartFinancials.status === 'STAGE_NOT_FETCHED'
-    && external.benchmark.status === 'STAGE_NOT_FETCHED';
-  return coreNotFetched && (!evaluationStage || evaluationStage === 'DISCOVERY_GATE');
+  if (!gate2DeferredFetchStage(evaluationStage)) return false;
+  const coreStatuses = [
+    external.kisInvestorFlow.status,
+    external.dartFinancials.status,
+    external.benchmark.status,
+  ];
+  const anyStageNotFetched = coreStatuses.includes('STAGE_NOT_FETCHED');
+  const dartDeferredMissing = external.dartFinancials.status === 'MISSING'
+    && !['MISSING', 'DEGRADED'].includes(external.kisInvestorFlow.status)
+    && !['MISSING', 'DEGRADED'].includes(external.benchmark.status);
+  const noBlockingProviderFailure = coreStatuses.every(status =>
+    ['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED', 'UNKNOWN', 'MISSING'].includes(status),
+  );
+  return (anyStageNotFetched || dartDeferredMissing) && noBlockingProviderFailure;
 }
 
 export function alignmentFromSigned(value: number | null): Gate2SignalAlignment {
@@ -169,6 +186,15 @@ export function readinessFromStatus(status: Gate2ExternalProviderStatus, require
   if (status === 'MISSING' || status === 'EMPTY_VALID') return required ? 'MISSING' : 'OPTIONAL';
   if (status === 'DEGRADED' || status === 'STALE') return 'DEGRADED';
   return 'UNKNOWN';
+}
+
+export function readinessWithDeferredStage(
+  status: Gate2ExternalProviderStatus,
+  required: boolean,
+  stageNotFetched: boolean,
+): Gate2DataReadinessStatus {
+  if (stageNotFetched && status === 'MISSING') return required ? 'STAGE_NOT_FETCHED' : 'OPTIONAL';
+  return readinessFromStatus(status, required);
 }
 
 export function programReadiness(program: Gate2ExternalDataCoverage['programTrade']): Gate2DataReadinessStatus {
@@ -280,7 +306,7 @@ export function buildGate2TelegramText(input: {
 
 export function buildGate2Summary(health: Gate2ConsolidatedHealth, primaryIssue: string | null): string {
   if (health === 'OK') return 'Gate2 diagnostics OK; supply, financials, benchmark, and advisory context are available.';
-  if (health === 'STAGE_NOT_FETCHED') return 'Gate2 external data is intentionally not fetched at discovery stage.';
+  if (health === 'STAGE_NOT_FETCHED') return 'Gate2 external data is intentionally not fetched at this evaluation stage.';
   if (health === 'DATA_INCOMPLETE') return 'Gate2 diagnostic data is incomplete; core scoring is unchanged.';
   if (health === 'CONFLICT') return 'Gate2 diagnostic signals conflict; review before interpreting the score.';
   if (primaryIssue) return `Gate2 diagnostic issue: ${primaryIssue}.`;
@@ -361,12 +387,12 @@ export function buildGate2ConsolidatedDiagnostic(input: {
   const stageNotFetched = gate2StageNotFetched(external, input.evaluationStage);
   const providerIssues = stageNotFetched ? [] : gate2ProviderIssues(source, external);
   const dataReadiness: Gate2ConsolidatedDiagnostic['dataReadiness'] = {
-    kisInvestorFlow: readinessFromStatus(external.kisInvestorFlow.status, external.kisInvestorFlow.required),
-    dartFinancials: readinessFromStatus(external.dartFinancials.status, external.dartFinancials.required),
-    benchmark: readinessFromStatus(external.benchmark.status, external.benchmark.required),
+    kisInvestorFlow: readinessWithDeferredStage(external.kisInvestorFlow.status, external.kisInvestorFlow.required, stageNotFetched),
+    dartFinancials: readinessWithDeferredStage(external.dartFinancials.status, external.dartFinancials.required, stageNotFetched),
+    benchmark: readinessWithDeferredStage(external.benchmark.status, external.benchmark.required, stageNotFetched),
     programTrade: programReadiness(external.programTrade),
-    riskFlow: readinessFromStatus(external.riskFlow.status, external.riskFlow.required),
-    sectorCycle: readinessFromStatus(external.sectorCycle.status, external.sectorCycle.required),
+    riskFlow: readinessWithDeferredStage(external.riskFlow.status, external.riskFlow.required, stageNotFetched),
+    sectorCycle: readinessWithDeferredStage(external.sectorCycle.status, external.sectorCycle.required, stageNotFetched),
   };
 
   let health: Gate2ConsolidatedHealth = 'OK';
@@ -375,7 +401,7 @@ export function buildGate2ConsolidatedDiagnostic(input: {
 
   if (stageNotFetched) {
     health = 'STAGE_NOT_FETCHED';
-    primaryIssue = 'DISCOVERY_STAGE_EXTERNAL_DATA_NOT_FETCHED';
+    primaryIssue = 'DEFERRED_STAGE_EXTERNAL_DATA_NOT_FETCHED';
     operatorAction = 'WAIT_FOR_ENTRY_RECHECK';
   } else if (hasQuoteOrUnknownInputMissing(source)) {
     health = 'DEGRADED';
