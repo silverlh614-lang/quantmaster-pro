@@ -19,6 +19,7 @@ import {
   type ShadowRegimeSizingLevel,
   type ShadowRegimeSizingResult,
 } from '../sizing/index.js';
+import { channelShadowBuyFilled } from '../../alerts/channelPipeline.js';
 import type { MacroGateState } from './scanDiagnostics.js';
 import type {
   CandidateWithSupplyContext,
@@ -623,7 +624,11 @@ function buildShadowTrade(input: {
 function selectCandidates(input: ApplyR6ShadowCounterfactualInput): SelectedCandidate[] {
   const rawBySymbol = buildRawCandidateMap(input.rawCandidates);
   const rows: SelectedCandidate[] = [];
+  const seenSymbols = new Set<string>();
   for (const candidate of input.preview.candidates) {
+    const normalized = normalizeSymbol(candidate.symbol);
+    if (!normalized || seenSymbols.has(normalized)) continue;
+    seenSymbols.add(normalized);
     if (!isEligibleAccumulatingCandidate(candidate)) continue;
     const entryPrice = candidatePrice(rawBySymbol.get(candidate.symbol));
     if (entryPrice === null || entryPrice <= 0) continue;
@@ -786,6 +791,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   let staleDedupBlocked = 0;
   let capReached = 0;
   let noBuyCandidate = 0;
+  const newTradeIds = new Set<string>();
   const dedupCounts = {
     registryOpenCount: 0,
     ledgerOpenCount: 0,
@@ -900,6 +906,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
       qty,
     });
     trades.push(trade);
+    newTradeIds.add(trade.id);
     const positionAmount = qty * item.entryPrice;
     sizingState.currentShadowExposure += positionAmount;
     sizingState.availableVirtualCash = Math.max(0, sizingState.availableVirtualCash - positionAmount);
@@ -952,7 +959,40 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   }
 
   if (created > 0) {
-    saveShadowTrades(trades);
+    const freshTrades = loadShadowTrades();
+    const freshOpenSymbols = new Set(
+      freshTrades.filter(isOpenShadowHolding).map((trade) => normalizeSymbol(trade.stockCode)),
+    );
+    const createdTrades = trades.filter((trade) => newTradeIds.has(trade.id));
+    const safeNewTrades: ServerShadowTrade[] = [];
+    for (const trade of createdTrades) {
+      const symbol = normalizeSymbol(trade.stockCode);
+      if (!symbol) continue;
+      if (freshOpenSymbols.has(symbol)) {
+        console.warn(
+          `[R6_COUNTERFACTUAL_RACE_GUARD] duplicate removed symbol=${symbol} tradeId=${trade.id} executionImpact=NONE`,
+        );
+        created = Math.max(0, created - 1);
+        continue;
+      }
+      freshOpenSymbols.add(symbol);
+      safeNewTrades.push(trade);
+    }
+    if (safeNewTrades.length > 0) {
+      saveShadowTrades([...freshTrades, ...safeNewTrades]);
+      for (const trade of safeNewTrades) {
+        void channelShadowBuyFilled({
+          stockCode: trade.stockCode,
+          stockName: trade.stockName,
+          fillPrice: trade.shadowEntryPrice,
+          quantity: trade.originalQuantity ?? trade.quantity,
+          fillId: trade.fills?.[0]?.id ?? `${trade.id}:INITIAL_BUY`,
+          tradeId: trade.id,
+        }).catch((error) => {
+          console.warn('[R6_CF_BUY_NOTIFY_FAILED]', error);
+        });
+      }
+    }
     return {
       ...base,
       r6CounterfactualEntries: created,
