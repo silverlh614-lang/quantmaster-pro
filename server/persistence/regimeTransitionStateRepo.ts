@@ -72,6 +72,7 @@ export interface R6RecoveryEvidence {
   kospiDayReturnOk: boolean;
   mhsScoreOk: boolean;
   vkospiOk: boolean;
+  vkospiThresholdApplied?: number;
   marketDataFreshnessOk: boolean;
   confirmations: number;
   requiredConfirmations: number;
