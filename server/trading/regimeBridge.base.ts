@@ -200,6 +200,37 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
+  const base = Math.max(28, Number(process.env.R6_VKOSPI_RECOVERY_THRESHOLD_BASE ?? '28'));
+  if (process.env.R6_VKOSPI_DYNAMIC_THRESHOLD_ENABLED !== 'true') return base;
+
+  const vkospiDayChange = finiteNumber(macroState?.vkospiDayChange);
+  const isVkospiFallingToday = vkospiDayChange !== undefined && vkospiDayChange < 0;
+  if (!isVkospiFallingToday) return base;
+
+  const trend5d = finiteNumber(macroState?.vkospi5dTrend);
+  const rising = macroState?.vkospiRising;
+  const isVkospiTrendDown = (trend5d !== undefined && trend5d < 0) || rising === false;
+  if (!isVkospiTrendDown) return base;
+
+  const mhs = macroState?.mhs ?? 0;
+  const relaxed = Math.max(base, Number(process.env.R6_VKOSPI_THRESHOLD_RELAXED ?? '40'));
+  const highMhs = Math.max(relaxed, Number(process.env.R6_VKOSPI_THRESHOLD_HIGH_MHS ?? '45'));
+  const threshold = mhs >= 65 ? highMhs : relaxed;
+
+  console.info(
+    `[R6_VKOSPI_DYNAMIC_THRESHOLD] ` +
+      `vkospiDayChange=${vkospiDayChange?.toFixed(1)} ` +
+      `vkospi5dTrend=${trend5d ?? 'N/A'} ` +
+      `vkospiRising=${rising ?? 'N/A'} ` +
+      `mhs=${mhs} ` +
+      `threshold=${threshold} (base=${base}) ` +
+      `executionImpact=NONE`,
+  );
+
+  return threshold;
+}
+
 function triggerFreshness(macroState: MacroState | null, now: Date): R6TriggerBreakdown['triggerFreshness'] {
   return macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
 }
@@ -224,7 +255,8 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
 }
 
 function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroState | null): boolean {
-  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28 && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
+  const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
+  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
 }
 
 
@@ -416,12 +448,14 @@ function buildR6RecoveryEvidence(
   confirmations: number,
 ): R6RecoveryEvidence {
   const freshness = sourceFreshness(macroState, now);
+  const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
   const evidence: R6RecoveryEvidence = {
     vkospiDayChangeOk: (macroState?.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15,
     usdKrwDayChangeOk: Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5,
     kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
-    vkospiOk: (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= 28,
+    vkospiOk: (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold,
+    vkospiThresholdApplied: vkospiThreshold,
     marketDataFreshnessOk: isFreshEnoughForRecoveryWatch(freshness),
     confirmations,
     requiredConfirmations,
@@ -432,7 +466,7 @@ function buildR6RecoveryEvidence(
   if (!evidence.usdKrwDayChangeOk) evidence.reasons.push('USD_KRW_DAY_CHANGE_NOT_STABLE');
   if (!evidence.kospiDayReturnOk) evidence.reasons.push('KOSPI_DAY_RETURN_NOT_STABLE');
   if (!evidence.mhsScoreOk) evidence.reasons.push('MHS_BELOW_RECOVERY_FLOOR');
-  if (!evidence.vkospiOk) evidence.reasons.push('VKOSPI_LEVEL_NOT_STABLE');
+  if (!evidence.vkospiOk) evidence.reasons.push(`VKOSPI_LEVEL_NOT_STABLE(current=${macroState?.vkospi?.toFixed(1) ?? 'N/A'},threshold=${vkospiThreshold})`);
   if (!evidence.marketDataFreshnessOk) evidence.reasons.push(`MARKET_DATA_${freshness}`);
   if (evidence.reasons.length === 0) evidence.reasons.push('R6_RECOVERY_EVIDENCE_OK');
   return evidence;

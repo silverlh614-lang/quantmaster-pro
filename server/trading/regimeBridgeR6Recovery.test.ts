@@ -39,6 +39,10 @@ afterEach(() => {
   delete process.env.R6_STRONG_REBOUND_DECAY_FLOOR;
   delete process.env.R6_CLOSE_SHOCK_LATCH_TTL_HOURS_MILD;
   delete process.env.R6_CLOSE_SHOCK_LATCH_TTL_HOURS_SEVERE;
+  delete process.env.R6_VKOSPI_DYNAMIC_THRESHOLD_ENABLED;
+  delete process.env.R6_VKOSPI_RECOVERY_THRESHOLD_BASE;
+  delete process.env.R6_VKOSPI_THRESHOLD_RELAXED;
+  delete process.env.R6_VKOSPI_THRESHOLD_HIGH_MHS;
 
 });
 
