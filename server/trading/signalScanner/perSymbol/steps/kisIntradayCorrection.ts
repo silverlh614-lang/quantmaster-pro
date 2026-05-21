@@ -69,7 +69,15 @@ export async function kisIntradayCorrectionStep(
   applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlow);
   try { recordPipelineStage(ctx.scanCounters, 'PRICE_FETCH', reCheckQuote ? 'PASS' : 'FAIL'); } catch {}
   const reCheckGate = reCheckQuote
-    ? evaluateServerGate(reCheckQuote, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, dartFin, kisFlow, ctx.regime)
+    ? evaluateServerGate(
+        reCheckQuote,
+        ctx.conditionWeights,
+        ctx.macroState?.kospi20dReturn,
+        dartFin,
+        kisFlow,
+        ctx.regime,
+        'ENTRY_RECHECK_GATE',
+      )
     : null;
   try {
     recordPipelineStage(ctx.scanCounters, 'SERVER_GATE_EVALUATED', reCheckGate ? 'PASS' : 'SKIPPED');
