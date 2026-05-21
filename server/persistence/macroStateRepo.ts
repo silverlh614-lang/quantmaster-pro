@@ -183,6 +183,8 @@ export interface MacroState {
   shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
   /** Phase 1 — 마지막 조회 성공 시각 (ISO) — /health 신선도 표시용. */
   shortSellingFetchedAt?: string;
+  spxDayReturn?: number;            // S&P500 당일 수익률 (미국 장 마감 기준)
+  nasdaqDayReturn?: number;         // 나스닥 당일 수익률 (미국 장 마감 기준)
   spx20dReturn?: number;            // S&P500 20일 수익률
   dxy5dChange?: number;             // 달러인덱스 5일 변화율
   // ─── 글로벌 스캔 에이전트 선행 레이어 필드 ──────────────────────────────────
