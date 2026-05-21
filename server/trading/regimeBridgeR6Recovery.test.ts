@@ -34,7 +34,11 @@ afterEach(() => {
   delete process.env.R6_RECOVERY_MAX_IMMEDIATE_REGIME;
   delete process.env.MACRO_STATE_TTL_SEC;
   delete process.env.R6_RECOVERY_SOFT_STALE_SEC;
-
+  delete process.env.R6_STRONG_REBOUND_DECAY_ENABLED;
+  delete process.env.R6_STRONG_REBOUND_THRESHOLD_PCT;
+  delete process.env.R6_STRONG_REBOUND_DECAY_FLOOR;
+  delete process.env.R6_CLOSE_SHOCK_LATCH_TTL_HOURS_MILD;
+  delete process.env.R6_CLOSE_SHOCK_LATCH_TTL_HOURS_SEVERE;
 
 });
 
@@ -84,6 +88,122 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.transitionReason).toBe(
       "RAW_R6_ACTIVE_BY_KOSPI_INTRADAY_LOW_SHOCK",
     );
+  });
+
+
+  it("applies tiered TTL for mild and severe close shock latches", () => {
+    process.env.R6_CLOSE_SHOCK_LATCH_TTL_HOURS_MILD = "18";
+    process.env.R6_CLOSE_SHOCK_LATCH_TTL_HOURS_SEVERE = "36";
+
+    const mildNow = new Date("2026-05-17T00:00:00.000Z");
+    const mildShock = macro({ kospiCloseReturn: -5.4, kospiDayReturn: -5.4 });
+    const mildState = evaluateR6RecoveryTransition(
+      defaultRegimeTransitionState(mildNow.toISOString()),
+      mildShock,
+      getRawRegime(mildShock, mildNow),
+      mildNow,
+    );
+
+    const severeNow = new Date("2026-05-18T00:00:00.000Z");
+    const severeShock = macro({ updatedAt: "2026-05-18T00:00:00.000Z", kospiTriggerSourceUpdatedAt: "2026-05-18T00:00:00.000Z", kospiCloseReturn: -8.4, kospiDayReturn: -8.4 });
+    const severeState = evaluateR6RecoveryTransition(
+      defaultRegimeTransitionState(severeNow.toISOString()),
+      severeShock,
+      getRawRegime(severeShock, severeNow),
+      severeNow,
+    );
+
+    expect(mildState.latchExpiresAt).toBe("2026-05-17T18:00:00.000Z");
+    expect(severeState.latchExpiresAt).toBe("2026-05-19T12:00:00.000Z");
+  });
+
+  it("enables strong rebound escape from held shock latch when env is on", () => {
+    process.env.R6_STRONG_REBOUND_DECAY_ENABLED = "true";
+    process.env.R6_STRONG_REBOUND_THRESHOLD_PCT = "3.0";
+    process.env.R6_STRONG_REBOUND_DECAY_FLOOR = "70";
+
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-20T00:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_DEFENSE" as const,
+      r6StateMachineState: "R6_DEFENSE" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_CLOSE_SHOCK" as const,
+      latchTriggeredAt: "2026-05-20T00:00:00.000Z",
+      latchExpiresAt: "2026-05-22T00:00:00.000Z",
+      latchReleaseEligibleAt: "2026-05-20T06:00:00.000Z",
+      latchDecayPercent: 20,
+      previousR6Triggers: ["KOSPI_CLOSE_SHOCK" as const],
+      sourceUpdatedAt: "2026-05-20T00:00:00.000Z",
+    };
+
+    const reboundMacro = macro({
+      updatedAt: "2026-05-21T00:10:00.000Z",
+      kospiTriggerSourceUpdatedAt: "2026-05-21T00:10:00.000Z",
+      vkospi: 60,
+      mhs: 70,
+      kospiDayReturn: 5.0,
+      kospiCloseReturn: -1.0,
+      kospiIntradayHighReturn: 5.2,
+      kospiIntradayLowReturn: -0.7,
+    } as Partial<MacroState>);
+
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      reboundMacro,
+      "R3_EARLY",
+      new Date("2026-05-21T00:10:00.000Z"),
+    );
+
+    expect(state.latchDecayPercent).toBeGreaterThanOrEqual(70);
+    expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
+    expect(state.recoveryBlockedReason).toBe("WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION");
+  });
+
+  it("does not apply strong rebound boost when day return is below threshold", () => {
+    process.env.R6_STRONG_REBOUND_DECAY_ENABLED = "true";
+    process.env.R6_STRONG_REBOUND_THRESHOLD_PCT = "3.0";
+
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-20T00:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_DEFENSE" as const,
+      r6StateMachineState: "R6_DEFENSE" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_CLOSE_SHOCK" as const,
+      latchTriggeredAt: "2026-05-20T00:00:00.000Z",
+      latchExpiresAt: "2026-05-22T00:00:00.000Z",
+      latchReleaseEligibleAt: "2026-05-20T06:00:00.000Z",
+      latchDecayPercent: 20,
+      previousR6Triggers: ["KOSPI_CLOSE_SHOCK" as const],
+      sourceUpdatedAt: "2026-05-20T00:00:00.000Z",
+    };
+
+    const weakReboundMacro = macro({
+      updatedAt: "2026-05-21T00:10:00.000Z",
+      kospiTriggerSourceUpdatedAt: "2026-05-21T00:10:00.000Z",
+      vkospi: 60,
+      mhs: 70,
+      kospiDayReturn: 2.9,
+      kospiCloseReturn: -1.0,
+      kospiIntradayHighReturn: 2.9,
+      kospiIntradayLowReturn: -0.7,
+    } as Partial<MacroState>);
+
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      weakReboundMacro,
+      "R3_EARLY",
+      new Date("2026-05-21T00:10:00.000Z"),
+    );
+
+    expect(state.r6ShockLatch).toBe(true);
+    expect(state.latchDecayPercent).toBeLessThan(70);
+    expect(state.recoveryBlockedReason).toBe("WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION");
   });
 
   it("does not increase recovery confirmations before close recovery evidence is eligible", () => {
