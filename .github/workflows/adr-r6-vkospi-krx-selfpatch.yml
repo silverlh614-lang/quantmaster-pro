@@ -1,0 +1,137 @@
+name: ADR-R6 VKOSPI KRX one-shot patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/adr-r6-vkospi-krx-selfpatch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-vkospi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch marketDataRefresh VKOSPI source
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin main
+
+          node <<'NODE'
+          const fs = require('fs');
+          const target = 'server/trading/marketDataRefresh.ts';
+          const workflow = '.github/workflows/adr-r6-vkospi-krx-selfpatch.yml';
+          let text = fs.readFileSync(target, 'utf8');
+
+          const importAnchor = "import { fetchInvestorTradingDetail } from '../clients/krxClient.js';\n";
+          const importLine = "import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';\n";
+          if (!text.includes(importLine)) {
+            if (!text.includes(importAnchor)) {
+              throw new Error('KRX client import anchor not found');
+            }
+            text = text.replace(importAnchor, importAnchor + importLine);
+          }
+
+          const start = text.indexOf('  // ── ③-B VKOSPI');
+          const end = text.indexOf('  // ── ② USD/KRW', start);
+          if (start < 0 || end < 0 || end <= start) {
+            throw new Error('VKOSPI Yahoo block bounds not found');
+          }
+          const previous = text.slice(start, end);
+          if (!previous.includes("fetchDailyBars('^VKOSPI', '5d')") || !previous.includes('YAHOO_COMPUTED')) {
+            throw new Error('VKOSPI block does not match expected Yahoo implementation');
+          }
+
+          const replacement = `  // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 (drvprod_dd_trd) ────────────
+  // ADR-R6-VKOSPI-SELFCOMPUTE-001 Rev.2
+  //
+  // 목적: vkospiDayChange 클라이언트 POST 미수신 시
+  //       R6 recovery confirmations 영구 0 고착 방지.
+  //
+  // 소스: KRX OpenAPI idx/drvprod_dd_trd (승인된 8개 엔드포인트 중 하나)
+  //   → fetchDerivativesIndexDaily() 이미 구현됨
+  //   → KrxIndexDailyRow.changePct = 당일 변화율 (%) 직접 제공
+  //   → KrxIndexDailyRow.close     = 당일 종가 (vkospiPrevClose 산출용)
+  //
+  // VKOSPI 필터링: indexName에 'VKOSPI' 또는 '변동성' 포함 row 선택
+  //   (indexCode는 KRX 응답마다 다를 수 있으므로 name 기준)
+  //
+  // 우선순위:
+  //   1순위: 클라이언트 POST vkospiDayChange (기존 동작 보존)
+  //   2순위: KRX OpenAPI 계산값 (본 블록)
+  //
+  // 안전 invariant:
+  //   - KRX 실패 시 기존 undefined 유지 (try/catch)
+  //   - 클라이언트 값 있으면 덮어쓰지 않음
+  //   - kisClient.ts 경유 없음 — KRX OpenAPI 직접 호출
+  // ─────────────────────────────────────────────────────────────────────────────
+  try {
+    const derivRows = await fetchDerivativesIndexDaily();
+    const vkospiRow = derivRows.find(
+      (r) =>
+        r.indexName.includes('VKOSPI') ||
+        r.indexName.includes('변동성지수') ||
+        r.indexName.includes('코스피변동성'),
+    );
+    if (vkospiRow && Number.isFinite(vkospiRow.close) && Number.isFinite(vkospiRow.changePct)) {
+      computed.vkospi = vkospiRow.close;
+      computed.vkospiPrevClose =
+        vkospiRow.change !== 0
+          ? vkospiRow.close - vkospiRow.change
+          : vkospiRow.close;
+      computed.vkospiDayChangeComputed = vkospiRow.changePct;
+      if (typeof existing.vkospiDayChange !== 'number') {
+        computed.vkospiDayChange = vkospiRow.changePct;
+      }
+      console.log(
+        \`[MarketRefresh] VKOSPI (KRX): \` +
+        \`close=\${vkospiRow.close.toFixed(2)} \` +
+        \`changePct=\${vkospiRow.changePct.toFixed(2)}% \` +
+        \`indexName=\${vkospiRow.indexName} \` +
+        \`clientOverride=\${typeof existing.vkospiDayChange === 'number'} \` +
+        \`source=KRX_DERIV_INDEX_DAILY\`,
+      );
+    } else {
+      console.warn(
+        \`[MarketRefresh] VKOSPI KRX row 미발견 — \` +
+        \`derivRows=\${derivRows.length} \` +
+        \`names=\${derivRows.slice(0, 5).map((r) => r.indexName).join(',')}\`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      '[MarketRefresh] VKOSPI KRX fetch 실패 — dayChange 계산 스킵:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+`;
+
+          text = text.slice(0, start) + replacement + text.slice(end);
+          if (text.includes("fetchDailyBars('^VKOSPI', '5d')")) {
+            throw new Error('Old Yahoo VKOSPI fetch remains');
+          }
+          if (!text.includes(importLine) || !text.includes('source=KRX_DERIV_INDEX_DAILY')) {
+            throw new Error('KRX VKOSPI replacement verification failed');
+          }
+          fs.writeFileSync(target, text, 'utf8');
+          if (fs.existsSync(workflow)) fs.rmSync(workflow);
+          NODE
+
+      - name: Commit and push patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git status --short
+          git add server/trading/marketDataRefresh.ts .github/workflows/adr-r6-vkospi-krx-selfpatch.yml
+          git commit -m "Replace VKOSPI Yahoo refresh with KRX OpenAPI"
+          git pull --rebase origin main
+          git push origin HEAD:main
