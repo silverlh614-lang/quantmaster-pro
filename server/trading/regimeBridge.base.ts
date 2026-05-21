@@ -459,14 +459,16 @@ function buildR6RecoveryEvidence(
 ): R6RecoveryEvidence {
   const freshness = sourceFreshness(macroState, now);
   const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
-  const vkospiDayChange =
-    macroState?.vkospiDayChange ??
-    macroState?.vkospiDayChangeComputed ??
-    (macroState?.vkospi != null && macroState?.vkospiPrevClose != null && macroState.vkospiPrevClose > 0
-      ? ((macroState.vkospi - macroState.vkospiPrevClose) / macroState.vkospiPrevClose) * 100
-      : Number.POSITIVE_INFINITY);
+  const vkospiDayChange = macroState?.vkospiDayChange ?? macroState?.vkospiDayChangeComputed;
+  const vkospiDayChangeMissing = vkospiDayChange == null;
+  const fallbackLevelStable =
+    vkospiDayChangeMissing &&
+    (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold &&
+    ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2 &&
+    Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 &&
+    isFreshEnoughForRecoveryWatch(freshness);
   const evidence: R6RecoveryEvidence = {
-    vkospiDayChangeOk: vkospiDayChange <= 15,
+    vkospiDayChangeOk: (vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 || fallbackLevelStable,
     usdKrwDayChangeOk: Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5,
     kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
@@ -477,8 +479,11 @@ function buildR6RecoveryEvidence(
     requiredConfirmations,
     reasons: [],
     checkedAt: now.toISOString(),
+    vkospiRecoveryFallbackUsed: fallbackLevelStable,
   };
   if (!evidence.vkospiDayChangeOk) evidence.reasons.push('VKOSPI_DAY_CHANGE_NOT_STABLE');
+  if (fallbackLevelStable) evidence.reasons.push('VKOSPI_DAY_CHANGE_MISSING_BUT_LEVEL_STABLE');
+  if (fallbackLevelStable && (macroState?.vkospiDayChangeSource?.includes('KRX') ?? false)) evidence.reasons.push('VKOSPI_RECOVERY_FALLBACK_LEVEL_STABLE');
   if (!evidence.usdKrwDayChangeOk) evidence.reasons.push('USD_KRW_DAY_CHANGE_NOT_STABLE');
   if (!evidence.kospiDayReturnOk) evidence.reasons.push('KOSPI_DAY_RETURN_NOT_STABLE');
   if (!evidence.mhsScoreOk) evidence.reasons.push('MHS_BELOW_RECOVERY_FLOOR');

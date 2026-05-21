@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { computeVkospiDayChangeFromBars } from './marketDataRefresh.js';
 
 describe('computeVkospiDayChangeFromBars', () => {
@@ -16,5 +18,14 @@ describe('computeVkospiDayChangeFromBars', () => {
   it('bars 1개 이하면 null', () => {
     expect(computeVkospiDayChangeFromBars([{ date: '2026-05-21', close: 18 }])).toBeNull();
     expect(computeVkospiDayChangeFromBars(null)).toBeNull();
+  });
+});
+
+describe('VKOSPI KRX wiring', () => {
+  it('uses KRX derivatives index daily as primary source', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'server/trading/marketDataRefresh.ts'), 'utf8');
+    expect(src).toContain('fetchDerivativesIndexDaily()');
+    expect(src).toContain("r.indexName.includes('VKOSPI')");
+    expect(src).toContain("computed.vkospiDayChangeSource = 'KRX_DERIV_INDEX_DAILY'");
   });
 });

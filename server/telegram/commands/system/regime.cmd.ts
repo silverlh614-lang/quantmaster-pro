@@ -72,6 +72,8 @@ const regime: TelegramCommand = {
       `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
       `${formatEngineRuntimePolicy(runtimePolicy)}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
+      `vkospiDayChange=${macro.vkospiDayChange?.toFixed(2) ?? 'N/A'} computed=${macro.vkospiDayChangeComputed?.toFixed(2) ?? 'N/A'} prevClose=${macro.vkospiPrevClose?.toFixed(2) ?? 'N/A'} source=${macro.vkospiDayChangeSource ?? 'N/A'}\n` +
+      `vkospiRecoveryFallbackUsed=${regimeDiagnostics.transitionState.r6RecoveryEvidence.vkospiRecoveryFallbackUsed ? 'true' : 'false'}\n` +
       `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
       `💱 USD/KRW: ${usdKrwLine}\n` +
       `📉 MHS추세: ${macro.mhsTrend ?? 'N/A'}\n` +

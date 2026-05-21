@@ -425,6 +425,32 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(false);
   });
 
+  it("allows recovery confirmation when vkospiDayChange missing but level is stable", () => {
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "0";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "2";
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const previous = {
+      ...defaultRegimeTransitionState(now.toISOString()),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "IN_R6" as const,
+    };
+    const recovering = macro({ updatedAt: now.toISOString(), vkospi: 18, vkospiDayChange: undefined, kospiCloseReturn: 7, usdKrwDayChange: -0.2 });
+    const state = evaluateR6RecoveryTransition(previous, recovering, "R5_CAUTION", now);
+    expect(state.r6RecoveryEvidence.vkospiRecoveryFallbackUsed).toBe(true);
+    expect(state.r6RecoveryEvidence.reasons).not.toContain("VKOSPI_DAY_CHANGE_NOT_STABLE");
+    expect(state.r6RecoveryEvidence.vkospiDayChangeOk).toBe(true);
+  });
+
+  it("does not allow fallback recovery when VKOSPI level is high", () => {
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const previous = { ...defaultRegimeTransitionState(now.toISOString()), currentRegime: "R6_DEFENSE" as const, rawRegime: "R6_DEFENSE" as const, effectiveRegime: "R6_DEFENSE" as const };
+    const blocked = macro({ updatedAt: now.toISOString(), vkospi: 35, vkospiDayChange: undefined, kospiCloseReturn: 7, usdKrwDayChange: -0.2 });
+    const state = evaluateR6RecoveryTransition(previous, blocked, "R5_CAUTION", now);
+    expect(state.r6RecoveryEvidence.vkospiRecoveryFallbackUsed).toBe(false);
+  });
+
 
   it("transitions from R6_DEFENSE to R6_RECOVERY_WATCH after latch release eligibility", () => {
     process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
