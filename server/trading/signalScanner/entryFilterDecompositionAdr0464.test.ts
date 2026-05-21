@@ -149,3 +149,30 @@ describe('ADR-0464 entry filter decomposition', () => {
     expect(d.filterConservatismReport).toBeUndefined();
   });
 });
+
+it('flattens technical fields from nested symbolFeatures to top-level trace', () => {
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 1,
+    watchlistCandidates: 1,
+    entries: 0,
+    macroGateState: macro(),
+    candidateSnapshots: [{ symbol: 'A1', symbolFeatures: { ma20: 10, ma60: 9, rsi14: 55, atr: 1.2 } }],
+  });
+  expect(d.candidateTraces[0].ma20).toBe(10);
+  expect(d.candidateTraces[0].ma60).toBe(9);
+  expect(d.candidateTraces[0].rsi14).toBe(55);
+  expect(d.candidateTraces[0].atr).toBe(1.2);
+});
+
+it('does not generate placeholder symbols when candidate snapshots exist', () => {
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 3,
+    watchlistCandidates: 3,
+    entries: 0,
+    macroGateState: macro(),
+    candidateSnapshots: [{ symbol: 'REAL1' }, { symbol: 'REAL2' }, { symbol: 'REAL3' }],
+  });
+  expect(d.candidateTraces.every((row) => !row.symbol.startsWith('WATCHLIST_'))).toBe(true);
+});
