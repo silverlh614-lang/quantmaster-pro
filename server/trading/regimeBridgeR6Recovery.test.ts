@@ -359,6 +359,48 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.recoveryBlockedReason).toBe("WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION");
   });
 
+  it("adds 10%p recovery decay floor boost when SPX day return exceeds +1.5%", () => {
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "2";
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-17T00:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_PANIC" as const,
+      r6StateMachineState: "R6_PANIC" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_INTRADAY_LOW_SHOCK" as const,
+      latchTriggeredAt: "2026-05-17T00:00:00.000Z",
+      latchExpiresAt: "2026-05-17T18:00:00.000Z",
+      latchReleaseEligibleAt: "2026-05-17T03:00:00.000Z",
+      latchDecayPercent: 0,
+      previousR6Triggers: ["KOSPI_INTRADAY_LOW_SHOCK" as const],
+      sourceUpdatedAt: "2026-05-17T00:00:00.000Z",
+    };
+    const recoveringMacro = macro({
+      updatedAt: "2026-05-17T00:10:00.000Z",
+      kospiTriggerSourceUpdatedAt: "2026-05-17T00:10:00.000Z",
+      mhs: 66,
+      biasScore: 20,
+      kospiCloseReturn: -2.5,
+      kospiDayReturn: -2.5,
+      kospiIntradayLowReturn: -0.5,
+      spxDayReturn: 1.6,
+    } as Partial<MacroState>);
+
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      recoveringMacro,
+      "R3_EARLY",
+      new Date("2026-05-17T00:10:00.000Z"),
+    );
+
+    expect(state.r6TriggerBreakdown.triggerFreshness).toBe("FRESH");
+    expect(state.r6TriggerBreakdown.activeR6Triggers).toEqual([]);
+    expect(state.latchDecayPercent).toBeGreaterThanOrEqual(40);
+    expect(state.latchDecayPercent).toBeLessThan(60);
+  });
+
   it("blocks R6 recovery when market data is stale", () => {
     process.env.R6_RECOVERY_COOLDOWN_MINUTES = "0";
     const now = new Date("2026-05-17T00:00:00.000Z");
