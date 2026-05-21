@@ -242,7 +242,17 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   const kospiCloseReturn = finiteNumber(macroState.kospiCloseReturn) ?? kospiDayReturn;
   const kospiIntradayLowReturn = finiteNumber(macroState.kospiIntradayLowReturn);
   const kospiIntradayHighReturn = finiteNumber(macroState.kospiIntradayHighReturn);
-  const vkospiDayChange = finiteNumber(macroState.vkospiDayChange);
+  const vkospiDayChange =
+    finiteNumber(macroState.vkospiDayChange) ??
+    finiteNumber(macroState.vkospiDayChangeComputed) ??
+    (macroState.vkospi != null && macroState.vkospiPrevClose != null && macroState.vkospiPrevClose > 0
+      ? ((macroState.vkospi - macroState.vkospiPrevClose) / macroState.vkospiPrevClose) * 100
+      : undefined);
+  if (vkospiDayChange !== undefined && macroState.vkospiDayChange == null) {
+    console.info(
+      `[R6_VKOSPI_DAYCHANGE_FALLBACK] computed=${vkospiDayChange.toFixed(2)}% source=${macroState.vkospiDayChangeComputed != null ? 'SERVER_COMPUTED' : 'PREV_CLOSE_RATIO'} executionImpact=NONE`,
+    );
+  }
   const usdKrwDayChange = finiteNumber(macroState.usdKrwDayChange);
   const detected: R6TriggerReason[] = [];
   if (kospiIntradayLowReturn !== undefined && kospiIntradayLowReturn <= -5) detected.push('KOSPI_INTRADAY_LOW_SHOCK');

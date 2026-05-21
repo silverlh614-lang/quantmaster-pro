@@ -30,6 +30,8 @@ export interface MacroState {
   fssAlertLevel?: 'NORMAL' | 'CAUTION' | 'HIGH_ALERT'; // FSS 경보 단계
   // ─── RegimeVariables 7축 매핑용 (optional — 클라이언트 전달 시 저장) ──────
   vkospiDayChange?: number;         // VKOSPI 당일 변화율
+  vkospiPrevClose?: number;         // VKOSPI 전일 종가 (서버 계산 SSOT)
+  vkospiDayChangeComputed?: number; // 서버 직접 계산 당일 변화율
   vkospi5dTrend?: number;           // VKOSPI 5일 추세 (양수=상승)
   usdKrw?: number;                  // 원달러 환율
   usdKrw20dChange?: number;         // 원달러 20일 변화율

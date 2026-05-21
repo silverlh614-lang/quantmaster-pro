@@ -746,6 +746,14 @@ export function computeFssVars(now: Date = new Date()): {
  * 시장 지표를 Yahoo Finance + FSS에서 계산해 MacroState에 MERGE 저장.
  * 실패한 개별 지표는 기존 값 유지.
  */
+export function computeVkospiDayChangeFromBars(bars: DailyBar[] | null): { current: number; prevClose: number; dayChangePct: number } | null {
+  if (!bars || bars.length < 2) return null;
+  const current = bars[bars.length - 1]?.close;
+  const prevClose = bars[bars.length - 2]?.close;
+  if (typeof current !== 'number' || typeof prevClose !== 'number' || prevClose <= 0) return null;
+  return { current, prevClose, dayChangePct: ((current - prevClose) / prevClose) * 100 };
+}
+
 export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<MarketRefreshComputed> {
   const refreshAttemptAt = new Date().toISOString();
   logMacroRefreshStarted(reason);
@@ -798,6 +806,30 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, MA20대비=${(computed.kospiAboveMA20Pct as number).toFixed(2)}%, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);
   } else {
     emitMarketDataProviderWarn('KOSPI_DATA_INSUFFICIENT');
+  }
+
+  // ── ④-B VKOSPI (^VKOSPI) 2일 — dayChange 자체 계산 ──────────────────────
+  // vkospiDayChange 클라이언트 POST 미수신 시 R6 recovery 영구 차단 방지.
+  // ADR-R6-VKOSPI-SELFCOMPUTE-001
+  try {
+    const vkospiBars = await fetchDailyBars('^VKOSPI', '5d');
+    const vkospiComputed = computeVkospiDayChangeFromBars(vkospiBars);
+    if (vkospiComputed) {
+      computed.vkospi = vkospiComputed.current;
+      computed.vkospiPrevClose = vkospiComputed.prevClose;
+      computed.vkospiDayChangeComputed = vkospiComputed.dayChangePct;
+      if (typeof existing.vkospiDayChange !== 'number') computed.vkospiDayChange = vkospiComputed.dayChangePct;
+      console.log(
+        `[MarketRefresh] VKOSPI: 현재=${vkospiComputed.current.toFixed(2)} ` +
+        `전일=${vkospiComputed.prevClose.toFixed(2)} ` +
+        `dayChange=${vkospiComputed.dayChangePct.toFixed(2)}% ` +
+        `(source=YAHOO_COMPUTED)`,
+      );
+    } else {
+      console.warn('[MarketRefresh] VKOSPI bars 부족 — dayChange 계산 스킵');
+    }
+  } catch (err) {
+    console.warn('[MarketRefresh] VKOSPI fetch 실패:', err instanceof Error ? err.message : String(err));
   }
 
   // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────
