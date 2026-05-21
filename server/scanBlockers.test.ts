@@ -73,9 +73,9 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     });
 
     expect(carry).toMatchObject({
-      gate1CompactText: 'Gate1: LIVE_BLOCKED_ONLY | session=AFTERMARKET | shadow=ON',
+      gate1CompactText: 'gateStatus=DATA_INCOMPLETE | sessionAgnostic=true | inputs=UNKNOWN | quote=UNKNOWN | tradable=UNKNOWN | liquidity=UNKNOWN | technicalStatus=UNKNOWN | dataIssues=none',
       gate2CompactText: 'Gate2: DATA_INCOMPLETE | issue=DART_FINANCIALS_UNAVAILABLE | marketSignal=false',
-      gate1Health: 'LIVE_BLOCKED_ONLY',
+      gate1Health: 'OK',
       gate2PrimaryIssue: 'DART_FINANCIALS_UNAVAILABLE',
       marketSignal: false,
       diagnosticOnly: true,
@@ -103,7 +103,9 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
 
     const text = formatScanBlockersCompactMessage(summary);
 
-    expect(text).toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
+    expect(text).toContain('Gate1Diag: gateStatus=OK | sessionAgnostic=true');
+    expect(text).toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
+    expect(text.match(/LIVE_BLOCKED_ONLY/g)?.length).toBe(1);
     expect(text).toContain('Gate2Diag: Gate2: DATA_INCOMPLETE');
   });
 
@@ -231,7 +233,7 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
         policyPromotionMode: 'SHADOW_ONLY',
       } as unknown as ScanSummary['gate1MinimumSignalForensicAdr0505'],
       gateDiagnostics: {
-        gate1CompactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | session=CLOSED | shadow=ON',
+        gate1CompactText: 'Gate1: LIVE_BLOCKED_ONLY | inputs=OK | quote=VERIFIED | tradable=TRADABLE | liquidity=PASS | session=CLOSED | shadow=ON',
         gate2CompactText: 'Gate2: DATA_INCOMPLETE | issue=DART_FINANCIALS_UNAVAILABLE | marketSignal=false',
         gate3CompactText: 'Gate3: DIAGNOSTIC_ONLY | marketSignal=false',
         marketSignal: false,
@@ -261,7 +263,9 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     expect(text).toContain('DiagnosticPenalty: softFailPenalty (1)');
     expect(text).toContain('LivePenalty: NOT_APPLIED_R6_DEFENSE_SELL_ONLY');
     expect(text).toContain('Shadow: ON | learning=true | counterfactual=true | executionImpact=NONE');
-    expect(text).toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
+    expect(text).toContain('Gate1Diag: gateStatus=OK | sessionAgnostic=true');
+    expect(text).toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
+    expect(text.match(/LIVE_BLOCKED_ONLY/g)?.length).toBe(1);
     expect(text).toContain('Gate2Diag: Gate2: DATA_INCOMPLETE');
     expect(text).toContain('Gate3Diag: Gate3: DIAGNOSTIC_ONLY');
     expect({

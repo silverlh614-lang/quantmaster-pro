@@ -44,6 +44,8 @@ import type {
 } from './gateScoreDiagnostics.js';
 import type { GateDiagnosticCarrySummary, GateLayerAuditSummary } from './gateLayerDiagnostics.js';
 import type { ScanEvaluationResult } from '../state/scanEvaluationState.js';
+import type { SourceSnapshotDataHealth } from '../../sourceSnapshot/sourceSnapshotDataHealth.js';
+import type { SnapshotForensicAlert } from '../../sourceSnapshot/snapshotMismatchDetector.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -170,6 +172,9 @@ export interface ScanSummary {
   waitDistribution?: WaitDistribution;
   macroGateState?: MacroGateState;
   scanEvaluation?: ScanEvaluationResult;
+  snapshotId?: string;
+  sourceSnapshotDataHealth?: SourceSnapshotDataHealth;
+  snapshotForensics?: SnapshotForensicAlert[];
   emptyScanReason?: EmptyScanReason;
   emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
   weekendReplaySummaryAdr0501?: WeekendReplaySummaryAdr0501;

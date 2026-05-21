@@ -46,6 +46,12 @@ import type {
 import { bump, resolveGate1EvaluationStateAdr0510 } from './auditBuilder.js';
 import { BREAKOUT_CONDITION_KEYS } from './featureHydrationAudit.js';
 import { resolveSupplyUnknownRootCause } from './supplyScopeAudit.js';
+import {
+  buildDiagnosticPenaltyBreakdown,
+  classifyTechnicalTrendMissing,
+  emptyTechnicalTrendMissingClassification,
+} from '../../sourceSnapshot/sourceSnapshotDataHealth.js';
+import type { TechnicalTrendMissingReason } from '../../sourceSnapshot/sourceSnapshotDataHealth.js';
 
 const EMPTY_HYDRATION_REASON_DISTRIBUTION: Record<HydrationMissingReason, number> = {
   CANDIDATE_TRACE_MISSING: 0,
@@ -108,6 +114,37 @@ const EMPTY_SEMANTIC_REASON_DISTRIBUTION: Record<InvestorFlowSemanticAvailabilit
   UNKNOWN: 0,
 };
 
+const TECHNICAL_FIELD_PATTERN = /ma20|ma60|rsi|atr|technical|indicator/i;
+
+function hasTechnicalTrendMissing(a: Gate1MinimumSignalForensicAuditAdr0505): boolean {
+  return a.missingPositiveSources.includes('TECHNICAL_TREND_MISSING');
+}
+
+function classifyAuditTechnicalTrendMissing(a: Gate1MinimumSignalForensicAuditAdr0505): TechnicalTrendMissingReason {
+  const hydration = a.hydrationAuditAdr0509;
+  const missingFields = [
+    ...(hydration?.missingFields ?? []),
+    ...(hydration?.rsMissingFields ?? []),
+    ...(hydration?.breakoutMissingFields ?? []),
+  ];
+  const technicalFieldMissing = missingFields.some((field) => TECHNICAL_FIELD_PATTERN.test(field));
+  const indicatorComputed = hydration?.breakoutSource === 'QUOTE_OHLCV'
+    || hydration?.breakoutSource === 'SYMBOL_FEATURES'
+    || hydration?.rsSource === 'SYMBOL_FEATURES'
+    || hydration?.candidateTraceHasConditionResults === true && hydration?.conditionKeyStatus != null;
+  const featureSnapshotPresent = hydration?.candidateTraceHasSymbolFeatures === true;
+  const gateMappingPresent = hydration?.breakoutAvailable === true || hydration?.rsAvailable === true;
+
+  return classifyTechnicalTrendMissing({
+    quoteVerified: hydration?.candidateTraceHasQuote === true,
+    ohlcvFetched: hydration?.breakoutSource === 'QUOTE_OHLCV' || featureSnapshotPresent,
+    indicatorComputed,
+    featureSnapshotPresent,
+    gateMappingPresent,
+    fieldPathMismatch: technicalFieldMissing && featureSnapshotPresent && hydration?.candidateTraceHasConditionResults === true,
+  });
+}
+
 export function buildGate1MinimumSignalForensicSummaryAdr0505(
   audits: ReadonlyArray<Gate1MinimumSignalForensicAuditAdr0505>,
 ): Gate1MinimumSignalForensicSummaryAdr0505 {
@@ -164,6 +201,14 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     }
   }
 
+  const technicalTrendMissing = emptyTechnicalTrendMissingClassification();
+  for (const a of failed) {
+    if (!hasTechnicalTrendMissing(a)) continue;
+    technicalTrendMissing.total += 1;
+    const reason = classifyAuditTechnicalTrendMissing(a);
+    technicalTrendMissing.reasons[reason] += 1;
+  }
+
   const penaltyCounts = {
     supplyUnknownPenalty: 0,
     investorFlowUnknownPenalty: 0,
@@ -182,9 +227,14 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
       penaltyCounts.sectorEnergyPenaltyOrBlocked += 1;
     }
     if (a.penaltyComponents['UNKNOWN_DATA_PENALTY']) penaltyCounts.unknownDataPenalty += 1;
-    if (a.penaltyComponents['SOFT_FAIL_PENALTY']) penaltyCounts.softFailPenalty += 1;
+    if (a.penaltyComponents['SOFT_FAIL_PENALTY']) {
+      const technicalReason = hasTechnicalTrendMissing(a) ? classifyAuditTechnicalTrendMissing(a) : null;
+      if (!technicalReason || technicalReason === 'REAL_TECH_DATA_MISSING') penaltyCounts.softFailPenalty += 1;
+    }
     if (a.penaltyComponents['RISK_PENALTY']) penaltyCounts.riskPenalty += 1;
   }
+  const diagnosticPenaltyBreakdown = buildDiagnosticPenaltyBreakdown(technicalTrendMissing);
+  diagnosticPenaltyBreakdown.softFailPenalty += Math.max(0, penaltyCounts.softFailPenalty - diagnosticPenaltyBreakdown.softFailPenalty);
 
   const supplyScopeWarnings = { ...EMPTY_SUPPLY_SCOPE_WARNINGS };
   let supplySymbolMatchedCount = 0;
@@ -570,6 +620,8 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     dominantFailureDistribution,
     missingPositiveSourceCounts,
     penaltyCounts,
+    technicalTrendMissing,
+    diagnosticPenaltyBreakdown,
     supplyScopeWarnings,
     supplySymbolMatchedCount,
     rsHydrationAvailableCount,

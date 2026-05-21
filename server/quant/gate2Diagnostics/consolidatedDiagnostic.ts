@@ -280,7 +280,7 @@ export function buildGate2TelegramText(input: {
 
 export function buildGate2Summary(health: Gate2ConsolidatedHealth, primaryIssue: string | null): string {
   if (health === 'OK') return 'Gate2 diagnostics OK; supply, financials, benchmark, and advisory context are available.';
-  if (health === 'STAGE_NOT_FETCHED') return 'Gate2 external data is intentionally not fetched at discovery stage.';
+  if (health === 'STAGE_NOT_FETCHED') return 'Gate2 external data is deferred and not yet part of the current source snapshot.';
   if (health === 'DATA_INCOMPLETE') return 'Gate2 diagnostic data is incomplete; core scoring is unchanged.';
   if (health === 'CONFLICT') return 'Gate2 diagnostic signals conflict; review before interpreting the score.';
   if (primaryIssue) return `Gate2 diagnostic issue: ${primaryIssue}.`;
@@ -299,6 +299,8 @@ export function buildGate2ConsolidatedDiagnostic(input: {
   if (!source || !external) {
     return {
       health: 'UNKNOWN',
+      gate2Status: 'UNKNOWN',
+      externalDataStage: 'NONE',
       summary: buildGate2Summary('UNKNOWN', 'GATE2_DIAGNOSTIC_MISSING'),
       primaryIssue: 'GATE2_DIAGNOSTIC_MISSING',
       operatorAction: 'REVIEW_GATE2_INPUTS',
@@ -324,6 +326,7 @@ export function buildGate2ConsolidatedDiagnostic(input: {
       marketSignal: false,
       providerIssue: true,
       executionImpact: 'DIAGNOSTIC_ONLY',
+      scoreImpact: 'NOT_APPLIED',
       diagnosticOnly: true,
       sections: {
         wiring: ['Gate2 diagnostic missing'],
@@ -375,7 +378,7 @@ export function buildGate2ConsolidatedDiagnostic(input: {
 
   if (stageNotFetched) {
     health = 'STAGE_NOT_FETCHED';
-    primaryIssue = 'DISCOVERY_STAGE_EXTERNAL_DATA_NOT_FETCHED';
+    primaryIssue = 'DEFERRED_STAGE_EXTERNAL_DATA_NOT_FETCHED';
     operatorAction = 'WAIT_FOR_ENTRY_RECHECK';
   } else if (hasQuoteOrUnknownInputMissing(source)) {
     health = 'DEGRADED';
@@ -416,21 +419,40 @@ export function buildGate2ConsolidatedDiagnostic(input: {
   }
 
   const sections = buildGate2Sections({ source, external, signalAlignment, missingCriticalData, providerIssues });
-  const compactText = [
-    `Gate2: ${health}`,
-    ...(primaryIssue ? [`issue=${primaryIssue}`] : []),
-    `KIS=${compactReadiness(dataReadiness.kisInvestorFlow)}`,
-    `DART=${compactReadiness(dataReadiness.dartFinancials)}`,
-    `BM=${compactReadiness(dataReadiness.benchmark)}`,
-    `supply=${signalAlignment.supply}`,
-    `fin=${signalAlignment.financials}`,
-    `RS=${signalAlignment.relativeStrength}`,
-    `program=${compactReadiness(dataReadiness.programTrade)}`,
-    `risk=${signalAlignment.riskFlow}`,
-    `Sector=${signalAlignment.sectorCycle}`,
-    ...(operatorAction !== 'NONE' ? [`action=${operatorAction}`] : []),
-    'marketSignal=false',
-  ].join(' | ');
+  const externalDataStage = stageNotFetched
+    ? external.dartFinancials.status === 'STAGE_NOT_FETCHED'
+      ? 'DART_DEFERRED' as const
+      : 'EXTERNAL_STAGE_DEFERRED' as const
+    : 'NONE' as const;
+  const scoreImpact = stageNotFetched ? 'NOT_APPLIED' as const : 'APPLIED' as const;
+  const executionImpact = stageNotFetched || health === 'OK' ? 'NONE' as const : 'DIAGNOSTIC_ONLY' as const;
+  const compactText = stageNotFetched
+    ? [
+      `Gate2: ${health}`,
+      `externalDataStage=${externalDataStage}`,
+      `issue=${primaryIssue}`,
+      `DART=${compactReadiness(dataReadiness.dartFinancials)}`,
+      `financialStatus=${signalAlignment.financials}`,
+      `action=${operatorAction}`,
+      `scoreImpact=${scoreImpact}`,
+      `executionImpact=${executionImpact}`,
+      'marketSignal=false',
+    ].join(' | ')
+    : [
+      `Gate2: ${health}`,
+      ...(primaryIssue ? [`issue=${primaryIssue}`] : []),
+      `KIS=${compactReadiness(dataReadiness.kisInvestorFlow)}`,
+      `DART=${compactReadiness(dataReadiness.dartFinancials)}`,
+      `BM=${compactReadiness(dataReadiness.benchmark)}`,
+      `supply=${signalAlignment.supply}`,
+      `fin=${signalAlignment.financials}`,
+      `RS=${signalAlignment.relativeStrength}`,
+      `program=${compactReadiness(dataReadiness.programTrade)}`,
+      `risk=${signalAlignment.riskFlow}`,
+      `Sector=${signalAlignment.sectorCycle}`,
+      ...(operatorAction !== 'NONE' ? [`action=${operatorAction}`] : []),
+      'marketSignal=false',
+    ].join(' | ');
   const telegramText = buildGate2TelegramText({
     health,
     primaryIssue,
@@ -441,6 +463,8 @@ export function buildGate2ConsolidatedDiagnostic(input: {
 
   return {
     health,
+    gate2Status: health,
+    externalDataStage,
     summary: buildGate2Summary(health, primaryIssue),
     primaryIssue,
     operatorAction,
@@ -451,7 +475,8 @@ export function buildGate2ConsolidatedDiagnostic(input: {
     providerIssues,
     marketSignal: false,
     providerIssue: providerIssues.length > 0,
-    executionImpact: health === 'OK' ? 'NONE' : 'DIAGNOSTIC_ONLY',
+    executionImpact,
+    scoreImpact,
     diagnosticOnly: true,
     sections,
     compactText,

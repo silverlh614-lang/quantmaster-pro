@@ -427,6 +427,8 @@ export type Gate2SignalAlignment =
 
 export interface Gate2ConsolidatedDiagnostic {
   health: Gate2ConsolidatedHealth;
+  gate2Status: Gate2ConsolidatedHealth;
+  externalDataStage: 'NONE' | 'DART_DEFERRED' | 'EXTERNAL_STAGE_DEFERRED';
   summary: string;
   primaryIssue: string | null;
   operatorAction: Gate2ConsolidatedOperatorAction;
@@ -452,6 +454,7 @@ export interface Gate2ConsolidatedDiagnostic {
   marketSignal: false;
   providerIssue: boolean;
   executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  scoreImpact: 'APPLIED' | 'NOT_APPLIED';
   diagnosticOnly: true;
   sections: {
     wiring: string[];

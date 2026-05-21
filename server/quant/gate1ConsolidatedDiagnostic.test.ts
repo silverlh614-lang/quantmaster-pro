@@ -135,6 +135,8 @@ describe('Gate1 consolidated diagnostic renderer', () => {
 
     expect(diagnostic).toMatchObject({
       health: 'OK',
+      gateStatus: 'OK',
+      sessionAgnostic: true,
       primaryIssue: null,
       operatorAction: 'NONE',
       liveBuyAllowed: true,
@@ -143,11 +145,12 @@ describe('Gate1 consolidated diagnostic renderer', () => {
       marketSignal: false,
       executionImpact: 'NONE',
     });
-    expect(diagnostic.compactText).toContain('Gate1: OK');
+    expect(diagnostic.compactText).toContain('gateStatus=OK');
+    expect(diagnostic.compactText).toContain('sessionAgnostic=true');
     expect(diagnostic.telegramText.split('\n').length).toBeLessThanOrEqual(8);
   });
 
-  it('renders BLOCKED_LIVE_ONLY for SELL_ONLY while keeping shadow visible', () => {
+  it('keeps SELL_ONLY out of Gate1Diag while preserving quality status', () => {
     const gate1 = baseGate1();
     gate1.survival!.marketSessionCompatibility = {
       session: 'SELL_ONLY',
@@ -180,13 +183,16 @@ describe('Gate1 consolidated diagnostic renderer', () => {
     const diagnostic = buildGate1ConsolidatedDiagnostic({ gate1 });
 
     expect(diagnostic).toMatchObject({
-      health: 'BLOCKED_LIVE_ONLY',
-      primaryIssue: 'LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED',
-      operatorAction: 'CHECK_SESSION_POLICY',
-      executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
+      health: 'OK',
+      gateStatus: 'OK',
+      sessionAgnostic: true,
+      primaryIssue: null,
+      operatorAction: 'NONE',
+      executionImpact: 'NONE',
       marketSignal: false,
     });
-    expect(diagnostic.compactText).toContain('shadow=ON');
+    expect(diagnostic.compactText).not.toContain('LIVE_BLOCKED_ONLY');
+    expect(diagnostic.compactText).not.toContain('session=SELL_ONLY');
   });
 
   it('renders DEGRADED for quote coverage degradation without market signal', () => {
@@ -214,6 +220,7 @@ describe('Gate1 consolidated diagnostic renderer', () => {
 
     expect(diagnostic).toMatchObject({
       health: 'DEGRADED',
+      sessionAgnostic: true,
       operatorAction: 'CHECK_QUOTE_PROVIDER',
       primaryIssue: 'QUOTE_COVERAGE_DEGRADED',
       marketSignal: false,

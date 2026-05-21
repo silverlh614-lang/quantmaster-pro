@@ -255,7 +255,7 @@ exports[`Gate2 consolidated diagnostic regression fixtures > snapshots sanitized
   },
   "discoveryStageNotFetched": {
     "consolidatedDiagnostic": {
-      "compactText": "Gate2: STAGE_NOT_FETCHED | issue=DISCOVERY_STAGE_EXTERNAL_DATA_NOT_FETCHED | KIS=WAIT | DART=WAIT | BM=WAIT | supply=UNAVAILABLE | fin=UNAVAILABLE | RS=UNAVAILABLE | program=OPTIONAL | risk=UNAVAILABLE | Sector=UNAVAILABLE | action=WAIT_FOR_ENTRY_RECHECK | marketSignal=false",
+      "compactText": "Gate2: STAGE_NOT_FETCHED | externalDataStage=DART_DEFERRED | issue=DEFERRED_STAGE_EXTERNAL_DATA_NOT_FETCHED | DART=WAIT | financialStatus=UNAVAILABLE | action=WAIT_FOR_ENTRY_RECHECK | scoreImpact=NOT_APPLIED | executionImpact=NONE | marketSignal=false",
       "conflictFlags": [],
       "dataReadiness": {
         "benchmark": "STAGE_NOT_FETCHED",
@@ -273,7 +273,7 @@ exports[`Gate2 consolidated diagnostic regression fixtures > snapshots sanitized
         "DART_FINANCIALS",
       ],
       "operatorAction": "WAIT_FOR_ENTRY_RECHECK",
-      "primaryIssue": "DISCOVERY_STAGE_EXTERNAL_DATA_NOT_FETCHED",
+      "primaryIssue": "DEFERRED_STAGE_EXTERNAL_DATA_NOT_FETCHED",
       "providerIssue": false,
       "providerIssues": [],
       "signalAlignment": {

@@ -19,6 +19,10 @@ import type {
   InvestorFlowSemanticAvailabilityReason,
   SanitizedInvestorFlowSemanticRow,
 } from '../../../supply/investorFlowSemanticAvailability.js';
+import type {
+  DiagnosticPenaltyBreakdown,
+  TechnicalTrendMissingClassification,
+} from '../../sourceSnapshot/sourceSnapshotDataHealth.js';
 
 export type MissingPositiveSource =
   | 'WATCHLIST_UPSTREAM_SCORE_MISSING'
@@ -354,6 +358,8 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
     softFailPenalty: number;
     riskPenalty: number;
   };
+  technicalTrendMissing?: TechnicalTrendMissingClassification;
+  diagnosticPenaltyBreakdown?: DiagnosticPenaltyBreakdown;
 
   supplyScopeWarnings: Record<SupplyScopeWarning, number>;
   supplySymbolMatchedCount?: number;

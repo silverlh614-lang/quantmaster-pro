@@ -19,6 +19,9 @@ import {
   resolveGate1ForensicNextAction,
   type Gate1MinimumSignalForensicSummaryAdr0505,
 } from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
+import { buildSourceSnapshotDataHealth } from '../../../trading/sourceSnapshot/sourceSnapshotDataHealth.js';
+import { detectSnapshotMismatches } from '../../../trading/sourceSnapshot/snapshotMismatchDetector.js';
+import { formatPolicyDiag, resolvePolicy } from '../../../trading/sourceSnapshot/policyResolver.js';
 
 /* ───────── Mode parser SSOT ───────── */
 
@@ -554,9 +557,9 @@ type GateDiagCompactSource =
   | 'fallback';
 
 interface GateDiagCompactLookup {
-  gate1: { text: string; source: GateDiagCompactSource; carried: boolean };
-  gate2: { text: string; source: GateDiagCompactSource; carried: boolean };
-  gate3: { text: string; source: GateDiagCompactSource; carried: boolean };
+  gate1: { text: string; rawText?: string; source: GateDiagCompactSource; carried: boolean };
+  gate2: { text: string; rawText?: string; source: GateDiagCompactSource; carried: boolean };
+  gate3: { text: string; rawText?: string; source: GateDiagCompactSource; carried: boolean };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -611,7 +614,8 @@ function resolveScanBlockersEntryBlockMode(summary: ScanSummary | null | undefin
 }
 
 function extractGate1DiagnosticSession(summary: ScanSummary | null | undefined): string | undefined {
-  const gate1Text = resolveScanBlockersGateDiagCompactLookup(summary).gate1.text;
+  const gate1 = resolveScanBlockersGateDiagCompactLookup(summary).gate1;
+  const gate1Text = gate1.rawText ?? gate1.text;
   const match = /\bsession=([A-Z_]+)/iu.exec(gate1Text);
   return match?.[1]?.toUpperCase();
 }
@@ -684,19 +688,54 @@ function compactLookup(
   return { text, source, carried: source !== 'fallback' };
 }
 
+function tokenFromGateDiag(text: string, key: string): string | undefined {
+  const match = new RegExp(`\\b${key}=([^|\\s]+)`, 'u').exec(text);
+  return match?.[1]?.trim();
+}
+
+function sanitizeGate1DiagText(text: string): string {
+  if (!text.includes('LIVE_BLOCKED_ONLY')) return text;
+  const inputs = tokenFromGateDiag(text, 'inputs') ?? 'UNKNOWN';
+  const quote = tokenFromGateDiag(text, 'quote') ?? 'UNKNOWN';
+  const tradable = tokenFromGateDiag(text, 'tradable') ?? 'UNKNOWN';
+  const liquidity = tokenFromGateDiag(text, 'liquidity') ?? 'UNKNOWN';
+  const gateStatus = inputs === 'OK' && quote === 'VERIFIED' && tradable === 'TRADABLE' && liquidity === 'PASS'
+    ? 'OK'
+    : 'DATA_INCOMPLETE';
+  return [
+    `gateStatus=${gateStatus}`,
+    'sessionAgnostic=true',
+    `inputs=${inputs}`,
+    `quote=${quote}`,
+    `tradable=${tradable}`,
+    `liquidity=${liquidity}`,
+    'technicalStatus=UNKNOWN',
+    'dataIssues=none',
+  ].join(' | ');
+}
+
+function sanitizeGate1Lookup(
+  lookup: { text: string; source: GateDiagCompactSource; carried: boolean } | null,
+): { text: string; rawText?: string; source: GateDiagCompactSource; carried: boolean } | null {
+  if (!lookup) return null;
+  const sanitized = sanitizeGate1DiagText(lookup.text);
+  return sanitized === lookup.text ? lookup : { ...lookup, text: sanitized, rawText: lookup.text };
+}
+
 export function resolveScanBlockersGateDiagCompactLookup(
   summary: ScanSummary | null | undefined,
 ): GateDiagCompactLookup {
   const root = summary as unknown as Record<string, unknown> | undefined;
   const fullDiagnostic = root?.fullDiagnostic;
-  const gate1 = compactLookup(
+  const gate1 = sanitizeGate1Lookup(compactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']),
     'summary.gateLayerSummary',
-  )
+  ))
     ?? compactLookup(readNestedString(summary, ['gateDiagnostics', 'gate1CompactText']), 'summary.gateDiagnostics')
-    ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
-    ?? compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSection')
+    ?? sanitizeGate1Lookup(compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate1', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic'))
+    ?? sanitizeGate1Lookup(compactLookup(readNestedString(summary, ['renderedSections', 'gate1Survival', 'compactText']), 'renderedSection'))
     ?? { text: 'UNAVAILABLE | fallback=true | marketSignal=false', source: 'fallback', carried: false };
+  const sanitizedGate1 = sanitizeGate1Lookup(gate1) ?? gate1;
 
   const gate2 = compactLookup(
     readNestedString(summary, ['gateLayerSummary', 'gate2', 'consolidatedDiagnostic', 'compactText']),
@@ -715,7 +754,78 @@ export function resolveScanBlockersGateDiagCompactLookup(
     ?? compactLookup(readNestedString(fullDiagnostic, ['gateLayerSummary', 'gate3', 'consolidatedDiagnostic', 'compactText']), 'fullDiagnostic')
     ?? { text: resolveGate3Fallback(summary), source: 'fallback', carried: false };
 
-  return { gate1, gate2, gate3 };
+  return { gate1: sanitizedGate1, gate2, gate3 };
+}
+
+function resolveSnapshotId(summary: ScanSummary | null | undefined): string {
+  return summary?.snapshotId ?? summary?.scanEvaluation?.scanId ?? 'snapshot-unknown';
+}
+
+function resolveSourceDataHealth(summary: ScanSummary | null | undefined) {
+  if (summary?.sourceSnapshotDataHealth) return summary.sourceSnapshotDataHealth;
+  const total = summary?.candidates ?? summary?.scanEvaluation?.totalCandidates ?? 0;
+  const forensic = summary?.gate1MinimumSignalForensicAdr0505;
+  const quoteRows = forensic?.traceWithQuoteCount
+    ?? forensic?.candidateTraceHasQuote
+    ?? summary?.scanEvaluation?.quoteHydrated
+    ?? 0;
+  const technicalMissing = forensic?.technicalTrendMissing?.total
+    ?? forensic?.missingPositiveSourceCounts?.technicalTrendMissing
+    ?? 0;
+  return buildSourceSnapshotDataHealth({
+    totalCandidates: total,
+    quoteVerifiedRows: quoteRows,
+    ohlcvDailyRows: 0,
+    technicalIndicatorRowsComputed: forensic ? Math.max(0, total - technicalMissing) : 0,
+  });
+}
+
+function formatSourceDataHealthLines(summary: ScanSummary | null | undefined): string[] {
+  const health = resolveSourceDataHealth(summary);
+  return [
+    'Source:',
+    `  candidates: ${summary?.candidates ?? 0}`,
+    `  quote: ${health.quote.source} ${health.quote.status} rows=${health.quote.rows}`,
+    `  ohlcvDaily: ${health.ohlcvDaily.status} rows=${health.ohlcvDaily.rows} requiredCandles=${health.ohlcvDaily.requiredCandles}`,
+    `  technicalIndicators: ${health.technicalIndicators.status} rowsComputed=${health.technicalIndicators.rowsComputed} source=${health.technicalIndicators.source}`,
+  ];
+}
+
+function formatTechnicalTrendIssueLines(forensic: Gate1MinimumSignalForensicSummaryAdr0505 | undefined): string[] {
+  const technical = forensic?.technicalTrendMissing;
+  const breakdown = forensic?.diagnosticPenaltyBreakdown;
+  if (!technical || technical.total <= 0 || !breakdown) return [];
+  const reasons = Object.entries(technical.reasons)
+    .filter(([, count]) => Number.isFinite(count) && count > 0)
+    .map(([reason, count]) => `    ${reason}: ${count}`);
+  return [
+    'DataIssue:',
+    '  technicalTrendMissing:',
+    `    total: ${technical.total}`,
+    ...reasons,
+    '  DiagnosticPenalty:',
+    `    softFailPenalty: ${breakdown.softFailPenalty}`,
+    `    dataPipelineIssue: ${breakdown.dataPipelineIssue}`,
+    `    wiringDiagnosticOnly: ${breakdown.wiringDiagnosticOnly}`,
+    `    scoreImpactNotApplied: ${breakdown.scoreImpactNotApplied}`,
+  ];
+}
+
+function resolveScanBlockersPolicyDiag(summary: ScanSummary | null | undefined, sessionDisplay: {
+  marketSession: string;
+  displaySession: string;
+  entryBlockMode: string;
+}) {
+  const snapshotId = resolveSnapshotId(summary);
+  return resolvePolicy({
+    snapshotId,
+    commonGateResult: { snapshotId },
+    marketSession: sessionDisplay.marketSession,
+    displaySession: sessionDisplay.displaySession,
+    effectiveRegime: summary?.scanEvaluation?.effectiveRegime ?? summary?.macroGateState?.macroRegimeEffective ?? summary?.macroGateState?.regime,
+    engineMode: summary?.scanEvaluation?.engineMode ?? summary?.macroGateState?.engineMode,
+    operationMode: sessionDisplay.entryBlockMode,
+  });
 }
 
 export function resolveScanBlockersTopReason(summary: ScanSummary | null | undefined): string {
@@ -773,8 +883,12 @@ export function formatScanBlockersCompactMessage(
   lines.push(`📊 <b>[매수 차단 요약]</b> ${tsLabel}`);
   lines.push('━━━━━━━━━━━━━━');
 
+  lines.push(`snapshotId: ${resolveSnapshotId(summary)}`);
+  lines.push(...formatSourceDataHealthLines(summary));
+
   // session / SELL_ONLY
   const sessionDisplay = resolveScanBlockersSessionDisplay(summary);
+  const policy = resolveScanBlockersPolicyDiag(summary, sessionDisplay);
   lines.push(`• session: ${sessionDisplay.marketSession} / ${sessionDisplay.displaySession}${sessionDisplay.blocked ? ' !' : ''}`);
   lines.push(`• marketSession: ${sessionDisplay.marketSession}`);
   lines.push(`• displaySession: ${sessionDisplay.displaySession}`);
@@ -837,6 +951,7 @@ export function formatScanBlockersCompactMessage(
       if (topPen) lines.push(`• ${liveEvaluationSkipped ? 'DiagnosticPenalty' : 'penalty'}: ${topPen[0]} (${topPen[1]})`);
     }
     if (liveEvaluationSkipped) lines.push(`• LivePenalty: ${formatLivePenaltyLabel(sessionDisplay.entryBlockMode)}`);
+    lines.push(...formatTechnicalTrendIssueLines(forensic));
   } else {
     if (liveEvaluationSkipped) {
       lines.push('• DiagnosticMinScore: n/a');
@@ -886,8 +1001,26 @@ export function formatScanBlockersCompactMessage(
   lines.push('🧩 Gate Diagnostic');
   const gateDiag = resolveScanBlockersGateDiagCompactLookup(summary);
   lines.push(`• Gate1Diag: ${gateDiag.gate1.text}`);
+  lines.push(`PolicyDiag: ${formatPolicyDiag(policy)}`);
   lines.push(`• Gate2Diag: ${gateDiag.gate2.text}`);
   lines.push(`• Gate3Diag: ${gateDiag.gate3.text}`);
+
+  const health = resolveSourceDataHealth(summary);
+  const forensicAlerts = [
+    ...(summary?.snapshotForensics ?? []),
+    ...detectSnapshotMismatches({
+      gate1DiagText: gateDiag.gate1.rawText ?? gateDiag.gate1.text,
+      featureTechnicalIndicatorsStatus: health.technicalIndicators.status,
+      gateTechnicalTrendMissing: (forensic?.technicalTrendMissing?.total ?? forensic?.missingPositiveSourceCounts?.technicalTrendMissing ?? 0) > 0,
+      quoteStatus: health.quote.status,
+      gateResultSnapshotId: resolveSnapshotId(summary),
+      policyResultSnapshotId: policy.snapshotId,
+    }),
+  ];
+  if (forensicAlerts.length > 0) {
+    const reasons = Array.from(new Set(forensicAlerts.map((alert) => alert.reason))).join(',');
+    lines.push(`SnapshotForensic: ${reasons} | executionImpact=NONE`);
+  }
 
   // dominant blocker (waitDistribution top reason)
   const wd = (summary as { waitDistribution?: Record<string, number> })?.waitDistribution;

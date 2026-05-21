@@ -6,7 +6,7 @@ export type Gate1ConsolidatedHealth =
   | 'OK'
   | 'WARN'
   | 'DEGRADED'
-  | 'BLOCKED_LIVE_ONLY'
+  | 'DATA_INCOMPLETE'
   | 'UNKNOWN';
 
 export type Gate1OperatorAction =
@@ -34,12 +34,16 @@ export interface Gate1ConsolidatedDiagnosticSections {
 
 export interface Gate1ConsolidatedDiagnostic {
   health: Gate1ConsolidatedHealth;
+  gateStatus: Gate1ConsolidatedHealth;
+  sessionAgnostic: true;
   summary: string;
   primaryIssue: string | null;
   operatorAction: Gate1OperatorAction;
   liveBuyAllowed: boolean | null;
   shadowAllowed: boolean | null;
   caseRecordingAllowed: boolean | null;
+  technicalStatus: 'COMPUTED' | 'NOT_COMPUTED' | 'PARTIAL' | 'UNKNOWN';
+  dataIssues: string[];
   marketSignal: false;
   providerIssue: boolean;
   executionImpact: Gate1ConsolidatedExecutionImpact;
@@ -215,9 +219,9 @@ function buildSections(gate1: Gate1Bucket): Gate1ConsolidatedDiagnosticSections 
 
 function buildSummary(health: Gate1ConsolidatedHealth, primaryIssue: string | null): string {
   if (health === 'OK') return 'Gate1 diagnostics OK; inputs, quote, survival, and shadow lanes are available.';
-  if (health === 'BLOCKED_LIVE_ONLY') return 'Gate1 live buy is diagnostically blocked while shadow lanes remain available.';
   if (primaryIssue) return `Gate1 diagnostic issue: ${primaryIssue}.`;
   if (health === 'WARN') return 'Gate1 diagnostics have advisory warnings; scoring and shadow learning are unchanged.';
+  if (health === 'DATA_INCOMPLETE') return 'Gate1 source snapshot is incomplete; execution policy is evaluated separately.';
   if (health === 'DEGRADED') return 'Gate1 diagnostics are degraded; check data wiring before interpreting failures.';
   return 'Gate1 consolidated diagnostic is incomplete.';
 }
@@ -231,28 +235,27 @@ function buildCompactText(input: {
   quoteMissingFields: string[];
   tradabilityStatus: string;
   liquidityStatus: string;
-  sessionName: string;
-  shadowMode: string;
-  shadowAllowed: boolean | null;
+  technicalStatus: string;
+  dataIssues: string[];
 }): string {
-  const healthLabel = input.health === 'BLOCKED_LIVE_ONLY' ? 'LIVE_BLOCKED_ONLY' : input.health;
   if (input.health === 'DEGRADED' && input.primaryIssue === 'QUOTE_COVERAGE_DEGRADED') {
     return [
-      `Gate1: ${healthLabel}`,
+      `gateStatus=${input.health}`,
+      'sessionAgnostic=true',
       `issue=${input.primaryIssue}`,
       `missing=${compactList(input.quoteMissingFields)}`,
-      `shadow=${input.shadowMode}`,
       `action=${input.operatorAction}`,
     ].join(' | ');
   }
   return [
-    `Gate1: ${healthLabel}`,
+    `gateStatus=${input.health}`,
+    'sessionAgnostic=true',
     `inputs=${input.inputsOk === true ? 'OK' : input.inputsOk === false ? 'MISSING' : 'UNKNOWN'}`,
     `quote=${input.quoteConfidence}`,
     `tradable=${input.tradabilityStatus}`,
     `liquidity=${input.liquidityStatus}`,
-    `session=${input.sessionName}`,
-    `shadow=${input.health === 'BLOCKED_LIVE_ONLY' && input.shadowAllowed ? 'ON' : input.shadowMode}`,
+    `technicalStatus=${input.technicalStatus}`,
+    `dataIssues=${compactList(input.dataIssues)}`,
     ...(input.primaryIssue ? [`issue=${input.primaryIssue}`] : []),
     ...(input.operatorAction !== 'NONE' ? [`action=${input.operatorAction}`] : []),
   ].join(' | ');
@@ -270,23 +273,18 @@ function buildTelegramText(input: {
   stockType: string;
   liquidityStatus: string;
   tradingValue: unknown;
-  sessionName: string;
-  liveBuyAllowed: boolean | null;
-  shadowMode: string;
-  shadowScanAllowed: boolean | null;
-  shadowSignalAllowed: boolean | null;
-  paperOrderAllowed: boolean | null;
-  caseRecordingAllowed: boolean | null;
+  technicalStatus: string;
+  dataIssues: string[];
   executionImpact: Gate1ConsolidatedExecutionImpact;
 }): string {
   const lines = [
     'Gate1 Wiring',
-    `Status: ${input.health}${input.shadowMode ? ` / shadow=${input.shadowMode}` : ''}`,
+    `Status: ${input.health} / sessionAgnostic=true`,
     `Issue: ${input.primaryIssue ?? 'none'} | action=${input.operatorAction}`,
     `Quote: ${input.quoteSource} ${input.quoteConfidence}${input.quoteMissingFields.length > 0 ? ` missing=${compactList(input.quoteMissingFields)}` : ''}`,
     `Tradability: ${input.tradabilityStatus} / ${input.market} / ${input.stockType}`,
     `Liquidity: ${input.liquidityStatus} / tradingValue=${formatKrw(input.tradingValue)}`,
-    `Session: ${input.sessionName} | Live: buy=${boolText(input.liveBuyAllowed)} | Shadow: scan=${boolText(input.shadowScanAllowed)} signal=${boolText(input.shadowSignalAllowed)} paper=${boolText(input.paperOrderAllowed)} case=${onOff(input.caseRecordingAllowed)}`,
+    `Technical: ${input.technicalStatus} | dataIssues=${compactList(input.dataIssues)}`,
     `marketSignal=false | executionImpact=${input.executionImpact}`,
   ];
   return lines.slice(0, 8).join('\n');
@@ -296,23 +294,58 @@ function unknownDiagnostic(): Gate1ConsolidatedDiagnostic {
   return {
     health: 'UNKNOWN',
     summary: buildSummary('UNKNOWN', null),
+    gateStatus: 'UNKNOWN',
+    sessionAgnostic: true,
     primaryIssue: null,
     operatorAction: 'REVIEW_GATE1_INPUTS',
     liveBuyAllowed: null,
     shadowAllowed: null,
     caseRecordingAllowed: null,
+    technicalStatus: 'UNKNOWN',
+    dataIssues: ['GATE1_DIAGNOSTIC_MISSING'],
     marketSignal: false,
     providerIssue: true,
     executionImpact: 'DIAGNOSTIC_ONLY',
     sections: { ...EMPTY_SECTIONS },
-    compactText: 'Gate1: UNKNOWN | inputs=UNKNOWN | quote=UNKNOWN | shadow=UNKNOWN | action=REVIEW_GATE1_INPUTS',
+    compactText: 'gateStatus=UNKNOWN | sessionAgnostic=true | inputs=UNKNOWN | quote=UNKNOWN | technicalStatus=UNKNOWN | action=REVIEW_GATE1_INPUTS',
     telegramText: [
       'Gate1 Wiring',
-      'Status: UNKNOWN',
+      'Status: UNKNOWN / sessionAgnostic=true',
       'Issue: diagnostic_missing | action=REVIEW_GATE1_INPUTS',
       'marketSignal=false | executionImpact=DIAGNOSTIC_ONLY',
     ].join('\n'),
   };
+}
+
+function resolveTechnicalStatus(gate1: Gate1Bucket): Gate1ConsolidatedDiagnostic['technicalStatus'] {
+  const sourceCoverage = asRecord(gate1.sourceCoverage);
+  const survival = asRecord(gate1.survival);
+  const quoteCoverage = asRecord(survival.kisOfficialQuoteCoverage);
+  const declaredMissing = stringList(quoteCoverage.gate1DeclaredMissingInputs);
+  const sourceMissing = stringList(sourceCoverage.missingInputs);
+  const missingTechnical = [...declaredMissing, ...sourceMissing]
+    .filter((item) => /ma20|ma60|rsi|atr|weeklyRSI/i.test(item));
+  if (missingTechnical.length === 0) return 'COMPUTED';
+  if (missingTechnical.length >= 3) return 'NOT_COMPUTED';
+  return 'PARTIAL';
+}
+
+function buildDataIssues(input: {
+  sourceCoverage: unknown;
+  quoteConfidence: string;
+  tradabilityStatus: string;
+  liquidityStatus: string;
+  technicalStatus: string;
+}): string[] {
+  const sourceCoverage = asRecord(input.sourceCoverage);
+  return [
+    ...(input.quoteConfidence !== 'VERIFIED' ? [`quote=${input.quoteConfidence}`] : []),
+    ...(input.tradabilityStatus !== 'TRADABLE' ? [`tradable=${input.tradabilityStatus}`] : []),
+    ...(input.liquidityStatus !== 'PASS' ? [`liquidity=${input.liquidityStatus}`] : []),
+    ...(input.technicalStatus !== 'COMPUTED' ? [`technicalIndicators=${input.technicalStatus}`] : []),
+    ...stringList(sourceCoverage.missingInputs).map((item) => `missingInput=${item}`),
+    ...stringList(sourceCoverage.missingExternalData).map((item) => `missingExternal=${item}`),
+  ];
 }
 
 export function buildGate1ConsolidatedDiagnostic(input: {
@@ -336,11 +369,18 @@ export function buildGate1ConsolidatedDiagnostic(input: {
   const quoteMissingFields = stringList(quoteCoverage.missingFields);
   const tradabilityStatus = stringOrNull(tradability.status) ?? 'UNKNOWN';
   const liquidityStatus = stringOrNull(liquidity.status) ?? 'UNKNOWN';
-  const sessionName = stringOrNull(session.session) ?? 'UNKNOWN';
   const shadowMode = stringOrNull(shadow.mode) ?? 'UNKNOWN';
   const liveBuyAllowed = boolOrNull(session.liveBuyAllowed);
   const shadowAllowed = boolOrNull(shadow.allowed) ?? boolOrNull(session.shadowAllowed);
   const caseRecordingAllowed = boolOrNull(shadow.caseRecordingAllowed);
+  const technicalStatus = resolveTechnicalStatus(gate1);
+  const dataIssues = buildDataIssues({
+    sourceCoverage,
+    quoteConfidence,
+    tradabilityStatus,
+    liquidityStatus,
+    technicalStatus,
+  });
 
   let health: Gate1ConsolidatedHealth = 'OK';
   let primaryIssue: string | null = null;
@@ -355,17 +395,13 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     primaryIssue = 'QUOTE_COVERAGE_DEGRADED';
     operatorAction = 'CHECK_QUOTE_PROVIDER';
   } else if (!inputsOk) {
-    health = 'DEGRADED';
+    health = 'DATA_INCOMPLETE';
     primaryIssue = 'GATE1_INPUT_MISSING';
     operatorAction = 'REVIEW_GATE1_INPUTS';
   } else if (isTradabilityBlocked(tradabilityStatus)) {
-    health = shadowAllowed === true ? 'BLOCKED_LIVE_ONLY' : 'DEGRADED';
+    health = 'DATA_INCOMPLETE';
     primaryIssue = 'TRADABILITY_BLOCKED';
     operatorAction = 'CHECK_STOCK_MASTER';
-  } else if (liveBuyAllowed === false && shadowAllowed === true) {
-    health = 'BLOCKED_LIVE_ONLY';
-    primaryIssue = 'LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED';
-    operatorAction = 'CHECK_SESSION_POLICY';
   } else if (tradabilityStatus === 'UNKNOWN') {
     health = 'WARN';
     primaryIssue = 'TRADABILITY_UNKNOWN';
@@ -378,11 +414,13 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     health = 'WARN';
     primaryIssue = 'LIQUIDITY_WEAK';
     operatorAction = 'CHECK_LIQUIDITY';
+  } else if (technicalStatus !== 'COMPUTED') {
+    health = 'DATA_INCOMPLETE';
+    primaryIssue = 'TECHNICAL_INDICATORS_NOT_READY';
+    operatorAction = 'REVIEW_GATE1_INPUTS';
   }
 
-  const executionImpact: Gate1ConsolidatedExecutionImpact = health === 'BLOCKED_LIVE_ONLY'
-    ? 'LIVE_BUY_BLOCKED_ONLY'
-    : health === 'OK'
+  const executionImpact: Gate1ConsolidatedExecutionImpact = health === 'OK'
       ? 'NONE'
       : 'DIAGNOSTIC_ONLY';
 
@@ -390,7 +428,6 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     || survival.kisOfficialQuoteCoverage.providerIssue === true
     || survival.tradability.providerIssue === true
     || survival.liquidityFloor.providerIssue === true
-    || survival.marketSessionCompatibility.providerIssue === true
     || survival.shadowEligibility.providerIssue === true
     || (tradabilityStatus === 'UNKNOWN' && stringOrNull(tradability.source) === 'UNKNOWN');
 
@@ -404,9 +441,8 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     quoteMissingFields,
     tradabilityStatus,
     liquidityStatus,
-    sessionName,
-    shadowMode,
-    shadowAllowed,
+    technicalStatus,
+    dataIssues,
   });
   const telegramText = buildTelegramText({
     health,
@@ -420,24 +456,23 @@ export function buildGate1ConsolidatedDiagnostic(input: {
     stockType: stringOrNull(tradability.stockType) ?? 'UNKNOWN',
     liquidityStatus,
     tradingValue: liquidity.tradingValue,
-    sessionName,
-    liveBuyAllowed,
-    shadowMode,
-    shadowScanAllowed: boolOrNull(shadow.shadowScanAllowed),
-    shadowSignalAllowed: boolOrNull(shadow.shadowSignalAllowed),
-    paperOrderAllowed: boolOrNull(shadow.paperOrderAllowed),
-    caseRecordingAllowed,
+    technicalStatus,
+    dataIssues,
     executionImpact,
   });
 
   return {
     health,
+    gateStatus: health,
+    sessionAgnostic: true,
     summary: buildSummary(health, primaryIssue),
     primaryIssue,
     operatorAction,
     liveBuyAllowed,
     shadowAllowed,
     caseRecordingAllowed,
+    technicalStatus,
+    dataIssues,
     marketSignal: false,
     providerIssue,
     executionImpact,

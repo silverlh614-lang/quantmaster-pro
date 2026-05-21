@@ -286,13 +286,43 @@ function topCarryLabel(counts: Record<string, number> | undefined): string | und
   return top === 'none' ? undefined : top;
 }
 
+function extractToken(text: string, key: string): string | undefined {
+  const match = new RegExp(`\\b${key}=([^|\\s]+)`, 'u').exec(text);
+  return match?.[1]?.trim();
+}
+
+function sanitizeGate1PolicyPollution(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  if (!text.includes('LIVE_BLOCKED_ONLY')) return text;
+  const inputs = extractToken(text, 'inputs') ?? 'UNKNOWN';
+  const quote = extractToken(text, 'quote') ?? 'UNKNOWN';
+  const tradable = extractToken(text, 'tradable') ?? 'UNKNOWN';
+  const liquidity = extractToken(text, 'liquidity') ?? 'UNKNOWN';
+  const gateStatus = inputs === 'OK' && quote === 'VERIFIED' && tradable === 'TRADABLE' && liquidity === 'PASS'
+    ? 'OK'
+    : 'DATA_INCOMPLETE';
+  return [
+    `gateStatus=${gateStatus}`,
+    'sessionAgnostic=true',
+    `inputs=${inputs}`,
+    `quote=${quote}`,
+    `tradable=${tradable}`,
+    `liquidity=${liquidity}`,
+    'technicalStatus=UNKNOWN',
+    'dataIssues=none',
+  ].join(' | ');
+}
+
 export function buildGateDiagnosticCarrySummary(
   summary: GateLayerAuditSummary,
 ): GateDiagnosticCarrySummary {
-  const gate1CompactText = topCarryLabel(summary.gate1Survival?.consolidatedCompactText);
+  const gate1CompactText = sanitizeGate1PolicyPollution(topCarryLabel(summary.gate1Survival?.consolidatedCompactText));
   const gate2CompactText = topCarryLabel(summary.gate2Coverage?.compactText);
   const gate3CompactText = topCarryLabel(summary.gate3Consolidated?.compactText);
-  const gate1Health = topCarryLabel(summary.gate1Survival?.consolidatedHealth);
+  const rawGate1Health = topCarryLabel(summary.gate1Survival?.consolidatedHealth);
+  const gate1Health = rawGate1Health === 'BLOCKED_LIVE_ONLY' || rawGate1Health === 'LIVE_BLOCKED_ONLY'
+    ? 'OK'
+    : rawGate1Health;
   const gate2Health = topCarryLabel(summary.gate2Coverage?.inputState);
   const gate3Health = topCarryLabel(summary.gate3Consolidated?.health);
   const gate1PrimaryIssue = topCarryLabel(summary.gate1Survival?.consolidatedPrimaryIssue);

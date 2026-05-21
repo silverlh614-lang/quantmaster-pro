@@ -442,10 +442,14 @@ describe('Gate2 consolidated diagnostic regression fixtures', () => {
     });
     expect(gate2.consolidatedDiagnostic).toMatchObject({
       health: 'STAGE_NOT_FETCHED',
-      primaryIssue: 'DISCOVERY_STAGE_EXTERNAL_DATA_NOT_FETCHED',
+      gate2Status: 'STAGE_NOT_FETCHED',
+      externalDataStage: 'DART_DEFERRED',
+      primaryIssue: 'DEFERRED_STAGE_EXTERNAL_DATA_NOT_FETCHED',
       operatorAction: 'WAIT_FOR_ENTRY_RECHECK',
       marketSignal: false,
       providerIssue: false,
+      scoreImpact: 'NOT_APPLIED',
+      executionImpact: 'NONE',
     });
   });
 

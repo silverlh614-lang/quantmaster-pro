@@ -203,7 +203,7 @@ describe('Gate pipeline integrity audit', () => {
       marketSignal: false,
       executionImpact: 'NONE',
     });
-    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic?.compactText).toContain('Gate1: OK');
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic?.compactText).toContain('gateStatus=OK');
   });
 
   it('adds Gate1 liquidity PASS diagnostics without changing score semantics', () => {
@@ -276,7 +276,7 @@ describe('Gate pipeline integrity audit', () => {
     expect(gate1?.survival?.kisOfficialQuoteCoverage.allRequiredFieldsPresent).toBe(true);
     expect(gate1?.survival?.kisOfficialQuoteCoverage.marketSignal).toBe(false);
     expect(gate1?.consolidatedDiagnostic).toMatchObject({
-      health: 'DEGRADED',
+      health: 'DATA_INCOMPLETE',
       primaryIssue: 'GATE1_INPUT_MISSING',
       operatorAction: 'REVIEW_GATE1_INPUTS',
       marketSignal: false,
@@ -329,7 +329,7 @@ describe('Gate pipeline integrity audit', () => {
     });
   });
 
-  it('keeps shadow allowed during SELL_ONLY while live buy is diagnostically disallowed', () => {
+  it('keeps shadow allowed during SELL_ONLY while Gate1 diagnostic remains session-agnostic', () => {
     const q = { ...gate1OnlyQuote(), marketSession: 'SELL_ONLY' } as YahooQuoteExtended;
     const result = evaluateServerGate(q, DEFAULT_CONDITION_WEIGHTS, 1, null, null);
 
@@ -349,13 +349,15 @@ describe('Gate pipeline integrity audit', () => {
       caseRecordingAllowed: true,
     });
     expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic).toMatchObject({
-      health: 'BLOCKED_LIVE_ONLY',
-      primaryIssue: 'LIVE_BUY_BLOCKED_BUT_SHADOW_ALLOWED',
-      operatorAction: 'CHECK_SESSION_POLICY',
-      executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
+      health: 'OK',
+      gateStatus: 'OK',
+      sessionAgnostic: true,
+      primaryIssue: null,
+      operatorAction: 'NONE',
+      executionImpact: 'NONE',
       marketSignal: false,
     });
-    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic?.compactText).toContain('shadow=ON');
+    expect(result.gateLayerSummary?.gate1.consolidatedDiagnostic?.compactText).not.toContain('LIVE_BLOCKED_ONLY');
   });
 
   it('keeps closed-session shadow recording observable without changing score semantics', () => {
