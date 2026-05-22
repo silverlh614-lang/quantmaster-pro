@@ -27,6 +27,7 @@ export interface ResolvedWatchlistUpstreamScore {
   message: string;
   sourcePath?: string;
   fallbackReason?: string;
+  legacyPathUsed?: boolean;
 }
 
 const SOURCE_FIELDS: WatchlistScoreSourceField[] = [
@@ -62,6 +63,10 @@ function pickRaw(input: Record<string, unknown>): { field: WatchlistScoreSourceF
   if (gateScoreInputSnapshot && typeof gateScoreInputSnapshot === 'object') {
     const watchlist = (gateScoreInputSnapshot as Record<string, unknown>).watchlist;
     if (watchlist && typeof watchlist === 'object') {
+      const watchlistScore = numeric((watchlist as Record<string, unknown>).watchlistScore);
+      if (watchlistScore !== undefined) return { field: 'watchlistScore', raw: watchlistScore };
+      const stage2Score = numeric((watchlist as Record<string, unknown>).stage2Score);
+      if (stage2Score !== undefined) return { field: 'stage2Score', raw: stage2Score };
       const upstream = numeric((watchlist as Record<string, unknown>).upstreamScore);
       if (upstream !== undefined) return { field: 'upstreamScore', raw: upstream };
     }
@@ -160,6 +165,9 @@ export function resolveWatchlistUpstreamScore(input: unknown): ResolvedWatchlist
     };
   }
   const normalized = normalizeByField(picked.field, picked.raw);
+  const sourcePath = picked.field === 'watchlistScore' || picked.field === 'stage2Score' || picked.field === 'upstreamScore'
+    ? 'gateScoreInputSnapshot.watchlist'
+    : 'legacy';
   return {
     sourceField: picked.field,
     rawScore: picked.raw,
@@ -167,6 +175,8 @@ export function resolveWatchlistUpstreamScore(input: unknown): ResolvedWatchlist
     scoreScale: normalized.scoreScale,
     confidence: 'VERIFIED',
     message: normalized.message,
+    sourcePath,
+    legacyPathUsed: sourcePath === 'legacy',
   };
 }
 
