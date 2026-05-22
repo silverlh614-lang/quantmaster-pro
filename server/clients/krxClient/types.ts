@@ -81,6 +81,8 @@ export interface KrxInvestorTradingDiagnostic {
   requiredKeysPresent?: string[];
   requiredKeysMissing?: string[];
   sentPayloadKeys?: string[];
+  allowedKeys?: string[];
+  payloadValidation?: 'PASS' | 'BLOCKED_BY_PAYLOAD_VALIDATION';
   parameterKeys?: string[];
   attemptedVariants?: string[];
   selectedVariant?: string | null;
@@ -189,6 +191,8 @@ export interface KrxPostMeta {
   requiredKeysPresent?: string[];
   requiredKeysMissing?: string[];
   sentPayloadKeys?: string[];
+  allowedKeys?: string[];
+  payloadValidation?: 'PASS' | 'BLOCKED_BY_PAYLOAD_VALIDATION';
   consecutiveFailures?: number;
   cooldownActive?: boolean;
   cooldownRemainingMs?: number;

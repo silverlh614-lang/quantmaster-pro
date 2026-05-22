@@ -591,7 +591,8 @@ export function classifySupplyUnknownRootCauseAdr0488(
     input.finalGate1CalibrationAdr0471?.providerRecoveryGuard.providerHealth,
   ].filter(Boolean).join(' ').toUpperCase();
   const providerVerified = statusText.includes('VERIFIED');
-  const marketSignal = candidateMarketSignal(input);
+  const rawMarketSignal = candidateMarketSignal(input);
+  const marketSignal = providerVerified ? false : rawMarketSignal;
   const providerIssue = !providerVerified && (candidateProviderIssue(input) || statusText.includes('UNKNOWN') || statusText.includes('UNAVAILABLE') || statusText.includes('EMPTY') || statusText.includes('MISMATCH'));
   let rootCause: SupplyUnknownRootCauseAdr0488 = 'SUPPLY_PROVIDER_UNKNOWN';
   if (marketSignal && !providerIssue) rootCause = 'SUPPLY_PROVIDER_UNKNOWN';
