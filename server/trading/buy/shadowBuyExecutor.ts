@@ -9,6 +9,7 @@ import {
   executeShadowBuy,
   recordShadowExecutionOutcome,
   type ExecuteShadowBuyInput,
+  type ShadowFillNotificationInput,
   type ShadowExecutionResult,
 } from '../shadowExecutionPipeline.js';
 import type { BuyApprovalPolicyResult } from './buyApprovalPolicy.js';
@@ -16,6 +17,26 @@ import type { BuySignalStateMachine } from './buySignalStateMachine.js';
 import { emitOperationalWarn } from './operationalWarn.js';
 import { markAutoTradeReady, markFilled, type TradeSignalStatusWriteResult } from './tradeSignalStatusWriter.js';
 import { formatPositionStateOpenedLog, type PositionState } from '../../positions/positionStateResolver.js';
+import {
+  assertPipelineStage,
+  changeOrderIntentStatus,
+  createOrderIntent,
+  createPaperFill,
+  createShadowOrder,
+  formatBuyAllowedPipelineAdvancedLog,
+  formatBuyAllowedPipelineBreakLog,
+  formatOrderIntentCreatedLog,
+  formatOrderPipelineCompletedLog,
+  formatOrderPipelineFailedLog,
+  formatPaperTradeLedgerRecordedLog,
+  formatShadowOrderCreatedLog,
+  formatShadowPaperFilledLog,
+  formatVirtualAccountUpdatedLog,
+  type OrderIntent,
+  type OrderIntentStatus,
+  type PaperFill,
+  type ShadowOrder,
+} from '../orderPipelineSsot.js';
 
 export type ShadowBuyExecutionOutcome =
   | 'SHADOW_POSITION_OPENED'
@@ -40,6 +61,7 @@ export interface ShadowBuyExecutionResult {
   outcome: ShadowBuyExecutionOutcome;
   reason: string;
   shadowExecutionResult?: ShadowExecutionResult;
+  orderIntent?: OrderIntent;
   statusWrites: TradeSignalStatusWriteResult[];
 }
 
@@ -109,6 +131,7 @@ function rejectShadow(
   reason: string,
   statusWrites: TradeSignalStatusWriteResult[],
   shadowExecutionResult?: ShadowExecutionResult,
+  orderIntent?: OrderIntent,
 ): ShadowBuyExecutionResult {
   input.trade.status = 'REJECTED';
   input.stateMachine?.transition('SHADOW_REJECTED', reason);
@@ -116,6 +139,7 @@ function rejectShadow(
     outcome: 'SHADOW_REJECTED',
     reason,
     ...(shadowExecutionResult ? { shadowExecutionResult } : {}),
+    ...(orderIntent ? { orderIntent } : {}),
     statusWrites,
   };
 }
@@ -138,11 +162,104 @@ function appendShadowExecutorLogSafe(
   }
 }
 
+function tradeExtension(trade: ServerShadowTrade): ServerShadowTrade & {
+  tradePlanId?: string;
+  priceSnapshotId?: string;
+  entryQuoteSnapshotId?: string;
+  profileType?: string;
+} {
+  return trade as ServerShadowTrade & {
+    tradePlanId?: string;
+    priceSnapshotId?: string;
+    entryQuoteSnapshotId?: string;
+    profileType?: string;
+  };
+}
+
+function makeOrderIntent(input: ShadowBuyExecutorInput): OrderIntent {
+  const ext = tradeExtension(input.trade);
+  return createOrderIntent({
+    snapshotId: input.signalId ?? input.trade.id,
+    sampleId: input.signalId ?? input.trade.id,
+    tradePlanId: ext.tradePlanId,
+    priceSnapshotId: ext.priceSnapshotId ?? ext.entryQuoteSnapshotId,
+    symbol: input.stockCode,
+    name: input.stockName,
+    mode: 'SHADOW',
+    decision: 'BUY_ALLOWED',
+    label: 'BUY',
+    quantity: input.trade.quantity,
+    referencePrice: input.entryPrice,
+    strategyId: ext.profileType ?? input.logEvent,
+    executionImpact: 'SHADOW_ONLY',
+  });
+}
+
+function logStatusChange(intent: OrderIntent, to: OrderIntentStatus, reason: string): void {
+  const changed = changeOrderIntentStatus(intent, to, reason);
+  console.log(changed.log);
+}
+
+function failPipeline(input: {
+  intent: OrderIntent;
+  stage: string;
+  reason: string;
+}): void {
+  console.error(formatOrderPipelineFailedLog({
+    orderIntentId: input.intent.orderIntentId,
+    symbol: input.intent.symbol,
+    stage: input.stage,
+    failureReason: input.reason,
+    counterfactualPreserved: true,
+    executionImpact: input.intent.executionImpact,
+  }));
+}
+
+async function notifyFilledAfterPositionOpen(input: {
+  deps: ShadowBuyExecutorDeps;
+  trade: ServerShadowTrade;
+  stockCode: string;
+  stockName: string;
+  shadowResult: ShadowExecutionResult;
+  fill: PaperFill;
+}): Promise<'SENT' | 'NOT_REQUESTED'> {
+  const shadowResult = input.shadowResult;
+  const notification: ShadowFillNotificationInput = {
+    stockCode: input.stockCode,
+    stockName: input.stockName,
+    fillPrice: shadowResult.fillPrice ?? input.fill.fillPrice,
+    quantity: input.fill.quantity,
+    fillId: input.fill.fillId,
+    tradeId: input.trade.id,
+    filledAtIso: shadowResult.executedAtIso,
+    currentPrice: shadowResult.currentPrice,
+    fillReferencePrice: shadowResult.currentPrice,
+    proposedFillPrice: shadowResult.proposedFillPrice,
+    deviationPct: shadowResult.deviationPct,
+    quoteAsOf: shadowResult.quoteAsOf,
+    quoteSource: shadowResult.quoteSource,
+    quoteSnapshotId: shadowResult.quoteSnapshotId,
+    priceSnapshotId: shadowResult.priceSnapshotId,
+    priceConfidence: shadowResult.priceConfidence,
+    priceAgeSec: shadowResult.priceAgeSec,
+    validation: shadowResult.tradePlanValid === true ? 'VERIFIED' : undefined,
+    signalType: input.trade.profileType ?? 'B',
+    watchlistSource: input.trade.watchlistSource,
+    mode: 'SHADOW',
+    liveOrderPlaced: false,
+  };
+  await input.deps.notifyFilled(notification);
+  return 'SENT';
+}
+
 export async function executeShadowBuyOrder(
   input: ShadowBuyExecutorInput,
   deps: ShadowBuyExecutorDeps = defaultDeps,
 ): Promise<ShadowBuyExecutionResult> {
   const statusWrites: TradeSignalStatusWriteResult[] = [];
+  let orderIntent: OrderIntent | undefined;
+  let shadowOrder: ShadowOrder | undefined;
+  let paperFill: PaperFill | undefined;
   console.log(
     `[SHADOW_EXECUTION_START] ${input.stockName}(${input.stockCode}) price=${input.currentPrice}`,
   );
@@ -150,6 +267,14 @@ export async function executeShadowBuyOrder(
   if (!input.approvalPolicy.executionAllowed) {
     return rejectShadow(input, input.approvalPolicy.reason, statusWrites);
   }
+
+  orderIntent = makeOrderIntent(input);
+  console.log(formatOrderIntentCreatedLog(orderIntent));
+  console.log(formatBuyAllowedPipelineAdvancedLog({
+    snapshotId: orderIntent.snapshotId,
+    symbol: input.stockCode,
+    nextStage: 'ORDER_INTENT_CREATED',
+  }));
 
   statusWrites.push(deps.markAutoTradeReady({
     signalId: input.signalId,
@@ -165,8 +290,10 @@ export async function executeShadowBuyOrder(
       event: input.logEvent,
     },
   );
+  shadowOrder = createShadowOrder(orderIntent);
   input.stateMachine?.transition('SHADOW_ORDER_CREATED', 'shadow order created');
-  console.log(`[SHADOW_ORDER_CREATED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
+  logStatusChange(orderIntent, 'ORDER_CREATED', 'shadow order created');
+  console.log(formatShadowOrderCreatedLog(shadowOrder));
 
   const shadowResult = await deps.executeShadowBuy({
     trade: input.trade,
@@ -176,28 +303,79 @@ export async function executeShadowBuyOrder(
     regime: input.regime,
     maxPositions: input.maxPositions,
     approvedAtIso: new Date().toISOString(),
-    notifyFilled: deps.notifyFilled,
   });
   deps.recordShadowExecutionOutcome(shadowResult.outcome);
 
   if (shadowResult.outcome !== 'EXECUTED' && shadowResult.outcome !== 'ALREADY_FILLED') {
+    const nextStatus: OrderIntentStatus = shadowResult.orderIntentStatus === 'WAIT_PRICE_VALID'
+      ? 'WAIT_PRICE_VALID'
+      : shadowResult.outcome === 'SHADOW_SLOT_FULL_AT_FILL_TIME'
+        ? 'WAIT_SLOT_AVAILABLE'
+        : 'REJECTED';
+    logStatusChange(orderIntent, nextStatus, shadowResult.outcome);
+    failPipeline({
+      intent: orderIntent,
+      stage: 'SHADOW_PAPER_FILLED',
+      reason: shadowResult.outcome,
+    });
     return rejectShadow(
       input,
       `SHADOW_PAPER_FILL_REJECTED: ${shadowResult.outcome}: ${shadowResult.reason}`,
       statusWrites,
       shadowResult,
+      orderIntent,
     );
   }
 
+  const fillGuard = assertPipelineStage({
+    requiredPreviousStage: 'SHADOW_ORDER_CREATED',
+    currentStage: 'SHADOW_PAPER_FILLED',
+    orderIntentId: orderIntent.orderIntentId,
+    symbol: input.stockCode,
+    exists: shadowOrder !== undefined,
+  });
+  if (!fillGuard.ok) {
+    if (fillGuard.log) console.error(fillGuard.log);
+    console.error(formatBuyAllowedPipelineBreakLog({
+      snapshotId: orderIntent.snapshotId,
+      symbol: input.stockCode,
+      missingStage: 'SHADOW_ORDER_CREATED',
+    }));
+    failPipeline({ intent: orderIntent, stage: 'SHADOW_PAPER_FILLED', reason: 'SHADOW_ORDER_MISSING' });
+    logStatusChange(orderIntent, 'FAILED', 'SHADOW_ORDER_MISSING');
+    return rejectShadow(input, 'SHADOW_ORDER_MISSING_BEFORE_PAPER_FILL', statusWrites, shadowResult, orderIntent);
+  }
+
+  paperFill = createPaperFill({
+    shadowOrder,
+    fillId: shadowResult.fillId ?? `${input.trade.id}-fill`,
+    fillPrice: shadowResult.fillPrice ?? input.entryPrice,
+    quantity: input.trade.quantity,
+    priceSnapshotId: shadowResult.priceSnapshotId,
+    filledAt: shadowResult.executedAtIso,
+  });
   input.stateMachine?.transition('SHADOW_PAPER_FILLED', 'shadow paper-fill recorded', {
     outcome: shadowResult.outcome,
     fillId: shadowResult.fillId,
   });
-  console.log(
-    `[SHADOW_PAPER_FILLED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id} outcome=${shadowResult.outcome}`,
-  );
+  logStatusChange(orderIntent, 'PAPER_FILLED', 'shadow paper-fill recorded');
+  console.log(formatShadowPaperFilledLog(paperFill));
 
+  const positionGuard = assertPipelineStage({
+    requiredPreviousStage: 'SHADOW_PAPER_FILLED',
+    currentStage: 'POSITION_STATE_OPENED',
+    orderIntentId: orderIntent.orderIntentId,
+    symbol: input.stockCode,
+    exists: paperFill !== undefined,
+  });
+  if (!positionGuard.ok && positionGuard.log) console.error(positionGuard.log);
   if (!hasOpenShadowPosition(input.trade)) {
+    failPipeline({
+      intent: orderIntent,
+      stage: 'POSITION_STATE_OPENED',
+      reason: 'SHADOW_POSITION_OPEN_FAILED_AFTER_PAPER_FILL',
+    });
+    logStatusChange(orderIntent, 'FAILED', 'SHADOW_POSITION_OPEN_FAILED_AFTER_PAPER_FILL');
     emitOperationalWarn({
       code: 'P0_SHADOW_POSITION_OPEN_FAILED',
       message: 'Shadow BUY paper-fill completed but no open position was detected',
@@ -214,6 +392,7 @@ export async function executeShadowBuyOrder(
       'SHADOW_POSITION_OPEN_FAILED_AFTER_PAPER_FILL',
       statusWrites,
       shadowResult,
+      orderIntent,
     );
   }
 
@@ -226,9 +405,10 @@ export async function executeShadowBuyOrder(
     reason: 'SHADOW paper-fill position opened',
     important: false,
   }));
-  console.log(`[SHADOW_POSITION_OPENED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
+  logStatusChange(orderIntent, 'POSITION_OPENED', 'shadow position opened');
   const openedPositionState: PositionState = {
     positionId: input.trade.id,
+    orderIntentId: orderIntent.orderIntentId,
     tradingDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }),
     symbol: input.stockCode.padStart(6, '0'),
     name: input.stockName,
@@ -251,28 +431,71 @@ export async function executeShadowBuyOrder(
     priceSnapshotId: shadowResult.priceSnapshotId,
     entryPriceSource: shadowResult.quoteSource,
     entryPriceConfidence: shadowResult.priceConfidence ?? shadowResult.quoteConfidence,
-    relatedOrderIds: [],
+    relatedOrderIds: [orderIntent.orderIntentId],
     relatedSignalIds: input.signalId ? [input.signalId] : [],
     lifecycleOutcome: 'SHADOW_POSITION_OPENED',
   };
   console.log(formatPositionStateOpenedLog(openedPositionState));
   appendShadowExecutorLogSafe(deps, {
-    event: 'SHADOW_LEDGER_RECORDED',
+    event: 'PAPER_TRADE_LEDGER_RECORDED',
     code: input.stockCode,
     tradeId: input.trade.id,
+    orderIntentId: orderIntent.orderIntentId,
     outcome: shadowResult.outcome,
     fillId: shadowResult.fillId,
   }, {
     tradeId: input.trade.id,
     stockCode: input.stockCode,
-    event: 'SHADOW_LEDGER_RECORDED',
+    event: 'PAPER_TRADE_LEDGER_RECORDED',
   });
-  console.log(`[SHADOW_LEDGER_RECORDED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
+  console.log(formatPaperTradeLedgerRecordedLog({
+    tradeId: input.trade.id,
+    orderIntentId: orderIntent.orderIntentId,
+    symbol: input.stockCode,
+    side: 'BUY',
+    quantity: paperFill.quantity,
+    fillPrice: paperFill.fillPrice,
+  }));
+  console.log(formatVirtualAccountUpdatedLog({
+    orderIntentId: orderIntent.orderIntentId,
+    symbol: input.stockCode,
+    side: 'BUY',
+    holdingBefore: 0,
+    holdingAfter: getRemainingQty(input.trade),
+    mode: 'SHADOW',
+  }));
+  logStatusChange(orderIntent, 'COMPLETED', 'position state opened and ledger recorded');
+
+  let telegramStatus: 'SENT' | 'SUPPRESSED' | 'NOT_REQUESTED' = 'NOT_REQUESTED';
+  try {
+    telegramStatus = await notifyFilledAfterPositionOpen({
+      deps,
+      trade: input.trade,
+      stockCode: input.stockCode,
+      stockName: input.stockName,
+      shadowResult,
+      fill: paperFill,
+    });
+  } catch (error) {
+    telegramStatus = 'SUPPRESSED';
+    failPipeline({
+      intent: orderIntent,
+      stage: 'DISPLAY_STATE_RENDERED',
+      reason: `TELEGRAM_SEND_FAILED: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+  console.log(formatOrderPipelineCompletedLog({
+    orderIntentId: orderIntent.orderIntentId,
+    symbol: input.stockCode,
+    mode: 'SHADOW',
+    telegramStatus,
+  }));
 
   return {
     outcome: 'SHADOW_POSITION_OPENED',
     reason: 'SHADOW_POSITION_OPENED',
     shadowExecutionResult: shadowResult,
+    orderIntent,
     statusWrites,
   };
 }

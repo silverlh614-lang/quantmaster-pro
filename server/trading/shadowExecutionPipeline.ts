@@ -842,7 +842,28 @@ export async function executeShadowBuy(
     // shadow log 실패는 무시 — 영속은 이미 성공
   }
 
-  // 5. Telegram `[Shadow 체결]` 알림 (옵셔널 콜백 위임)
+  console.log(
+    `[SHADOW_PAPER_FILLED] ${input.trade.stockName}(${input.trade.stockCode}) ` +
+      `qty=${quantity} @${fillPrice.toLocaleString()} ` +
+      `fillId=${fillId} executionImpact=NONE liveOrderPlaced=false ` +
+      `(Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
+  );
+
+  // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW_POSITION_OPENED
+  // 이벤트 영속. try/catch 격리 — lifecycle emit throw 가 paper-fill 결과를 차단하지
+  // 않도록 (Always-On Trading Kernel, 사용자 §J #2).
+  try {
+    const lifecycleResult = emitShadowPositionOpened(input.trade, { now });
+    recordShadowLifecycleOutcome('SHADOW_POSITION_OPENED', lifecycleResult.outcome);
+  } catch (err) {
+    console.warn(
+      `[ShadowPositionLifecycle] emitShadowPositionOpened 실패 (paper-fill 완료) — ${
+        describeError(err)
+      }`,
+    );
+  }
+
+  // Telegram is the final output: never emit a fill notification before position-open lifecycle.
   if (input.notifyFilled) {
     try {
       await input.notifyFilled({
@@ -871,32 +892,11 @@ export async function executeShadowBuy(
       });
     } catch (err) {
       console.warn(
-        `[ShadowExecutionPipeline] notifyFilled 실패 (영속은 완료) — ${
+        `[ShadowExecutionPipeline] notifyFilled failed after position-open lifecycle - ${
           describeError(err)
         }`,
       );
     }
-  }
-
-  console.log(
-    `[SHADOW_PAPER_FILLED] ${input.trade.stockName}(${input.trade.stockCode}) ` +
-      `qty=${quantity} @${fillPrice.toLocaleString()} ` +
-      `fillId=${fillId} executionImpact=NONE liveOrderPlaced=false ` +
-      `(Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
-  );
-
-  // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW_POSITION_OPENED
-  // 이벤트 영속. try/catch 격리 — lifecycle emit throw 가 paper-fill 결과를 차단하지
-  // 않도록 (Always-On Trading Kernel, 사용자 §J #2).
-  try {
-    const lifecycleResult = emitShadowPositionOpened(input.trade, { now });
-    recordShadowLifecycleOutcome('SHADOW_POSITION_OPENED', lifecycleResult.outcome);
-  } catch (err) {
-    console.warn(
-      `[ShadowPositionLifecycle] emitShadowPositionOpened 실패 (paper-fill 완료) — ${
-        describeError(err)
-      }`,
-    );
   }
 
   return {
