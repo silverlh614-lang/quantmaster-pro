@@ -255,7 +255,7 @@ function resolveWatchlistBreakPoint(candidate: CandidateEntryTrace | undefined, 
   if (traceHasWatchlist) return 'UNKNOWN';
   if (entry) return 'FORENSIC_INPUT_MISSING_SCORE';
   if (promotion) return 'ENTRY_FILTER_TRACE_MISSING_SCORE';
-  if (stage2) return 'PROMOTION_SCORE_NOT_COPIED';
+  if (stage2 && !entry && !promotion) return 'PROMOTION_SCORE_NOT_COPIED';
   return 'WATCHLIST_ENTRY_MISSING_SCORE';
 }
 
