@@ -40,9 +40,14 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
     : kis.status === 'STAGE_NOT_FETCHED'
       ? 'supply=not_yet_evaluated'
       : 'supply=unavailable';
+  const apiPath = kis.endpoint ?? null;
+  const endpointDisplay = apiPath
+    ?? (kis.endpointKey !== 'UNKNOWN' ? `endpointKey:${kis.endpointKey}` : 'UNRESOLVED');
+  const trIdDisplay = kis.trId ?? 'UNKNOWN';
   return [
     `Gate2 KIS Flow: ${kis.status}`,
-    `endpoint=${kis.endpointKey}`,
+    `apiPath=${endpointDisplay}`,
+    `trId=${trIdDisplay}`,
     `foreign=${formatSigned(kis.foreignNetBuy)}`,
     `inst=${formatSigned(kis.institutionalNetBuy)}`,
     supply,

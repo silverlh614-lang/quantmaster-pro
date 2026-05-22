@@ -1177,7 +1177,8 @@ describe('Gate2 wiring diagnostics', () => {
     const text = formatGate2KisInvestorFlowCompactDiagnostic(result.gateLayerSummary?.gate2.externalDataCoverage);
 
     expect(text).toContain('Gate2 KIS Flow: VERIFIED');
-    expect(text).toContain('endpoint=INQUIRE_INVESTOR');
+    expect(text).toContain('apiPath=/uapi/domestic-stock/v1/quotations/inquire-investor');
+    expect(text).toContain('trId=FHKST01010900');
     expect(text).toContain('foreign=+1200000000');
     expect(text).toContain('marketSignal=false');
   });
