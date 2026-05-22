@@ -1,7 +1,30 @@
 import type { CandidateSnapshot, FeatureSnapshot, MarketSession, UnifiedMarketSnapshot } from './ssotSnapshot.js';
 
 export interface CommonGateResult { snapshotId: string; symbol: string; gatePassed: boolean; technicalTrendMissing: boolean; qualityDecision: 'PASS' | 'FAIL'; }
-export interface PolicyResult { snapshotId: string; marketSession: MarketSession; liveBuyAllowed: boolean; realOrderAllowed: boolean; shadowLearningAllowed: boolean; shadowSignalAllowed: boolean; diagnosticAllowed: boolean; counterfactualAllowed: boolean; entryBlockMode: string; blockReasons: string[]; legacyPolicyInputs: string[]; legacyPolicyIgnored: true; legacyIgnoredReasons: string[]; policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY'; }
+export interface PolicyResult {
+  snapshotId: string;
+  marketSession: MarketSession;
+  liveBuyAllowed: boolean;
+  realOrderAllowed: boolean;
+  gatePolicyLiveAllowed: boolean;
+  macroLiveAllowed: boolean;
+  engineMode: 'LIVE' | 'SHADOW_ONLY';
+  brokerOrderAllowed: boolean;
+  operatorOrderAllowed: boolean;
+  actualLiveOrderAllowed: boolean;
+  liveBlockReason: 'NONE' | 'SHADOW_ONLY_MODE' | 'BROKER_PERMISSION_BLOCK' | 'OPERATOR_BLOCK' | 'POLICY_BLOCK';
+  shadowAllowed: boolean;
+  shadowLearningAllowed: boolean;
+  shadowSignalAllowed: boolean;
+  diagnosticAllowed: boolean;
+  counterfactualAllowed: boolean;
+  entryBlockMode: string;
+  blockReasons: string[];
+  legacyPolicyInputs: string[];
+  legacyPolicyIgnored: true;
+  legacyIgnoredReasons: string[];
+  policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
+}
 export interface ExecutionResult { snapshotId: string; executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED'; }
 export interface LearningResult { snapshotId: string; shadowLearning: boolean; counterfactual: boolean; }
 export interface DecisionContext { snapshotId: string; candidateSnapshotId: string; featureSnapshotId: string; gateResult: CommonGateResult; policyResult: PolicyResult; executionResult: ExecutionResult; learningResult: LearningResult; }
@@ -12,18 +35,43 @@ export function evaluateCommonGate(input: { snapshotId: string; candidate: Candi
   return { snapshotId: input.snapshotId, symbol: input.candidate.symbol, gatePassed, technicalTrendMissing, qualityDecision: gatePassed ? 'PASS' : 'FAIL' };
 }
 
-export function resolvePolicy(input: { snapshotId: string; commonGateResult: CommonGateResult; marketSession: MarketSession; entryBlockMode: string }): PolicyResult {
+export function resolvePolicy(input: { snapshotId: string; commonGateResult: CommonGateResult; marketSession: MarketSession; entryBlockMode: string; engineMode?: 'LIVE' | 'SHADOW_ONLY'; brokerOrderAllowed?: boolean; operatorOrderAllowed?: boolean; macroLiveAllowed?: boolean }): PolicyResult {
   const legacyPolicyInputs = [
     input.entryBlockMode === 'SELL_ONLY' ? 'SELL_ONLY_REMOVED' : null,
     input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY' ? 'R6_DEFENSE_SELL_ONLY_REMOVED' : null,
   ].filter((reason): reason is string => reason != null);
   const liveBuyAllowed = input.commonGateResult.qualityDecision === 'PASS';
+  const gatePolicyLiveAllowed = liveBuyAllowed;
+  const engineMode = input.engineMode ?? 'LIVE';
+  const macroLiveAllowed = input.macroLiveAllowed ?? true;
+  const brokerOrderAllowed = input.brokerOrderAllowed ?? true;
+  const operatorOrderAllowed = input.operatorOrderAllowed ?? true;
+  const actualLiveOrderAllowed = gatePolicyLiveAllowed && macroLiveAllowed && engineMode !== 'SHADOW_ONLY' && brokerOrderAllowed && operatorOrderAllowed;
+  const liveBlockReason: PolicyResult['liveBlockReason'] = !gatePolicyLiveAllowed
+    ? 'POLICY_BLOCK'
+    : !macroLiveAllowed
+      ? 'POLICY_BLOCK'
+      : engineMode === 'SHADOW_ONLY'
+        ? 'SHADOW_ONLY_MODE'
+        : !brokerOrderAllowed
+          ? 'BROKER_PERMISSION_BLOCK'
+          : !operatorOrderAllowed
+            ? 'OPERATOR_BLOCK'
+            : 'NONE';
   const uniqueLegacyPolicyInputs = Array.from(new Set(legacyPolicyInputs));
   return {
     snapshotId: input.snapshotId,
     marketSession: input.marketSession,
     liveBuyAllowed,
     realOrderAllowed: liveBuyAllowed,
+    gatePolicyLiveAllowed,
+    macroLiveAllowed,
+    engineMode,
+    brokerOrderAllowed,
+    operatorOrderAllowed,
+    actualLiveOrderAllowed,
+    liveBlockReason,
+    shadowAllowed: true,
     shadowLearningAllowed: true,
     shadowSignalAllowed: true,
     diagnosticAllowed: true,
@@ -42,9 +90,9 @@ export function routeExecution(input: { snapshotId: string; gateResult: CommonGa
   return { snapshotId: input.snapshotId, executionImpact: input.gateResult.gatePassed ? 'LIVE_ORDER_ALLOWED' : 'NONE' };
 }
 
-export function buildDecisionContext(snapshot: UnifiedMarketSnapshot, candidate: CandidateSnapshot, feature: FeatureSnapshot, marketSession: MarketSession, entryBlockMode: string): DecisionContext {
+export function buildDecisionContext(snapshot: UnifiedMarketSnapshot, candidate: CandidateSnapshot, feature: FeatureSnapshot, marketSession: MarketSession, entryBlockMode: string, runtime?: { engineMode?: 'LIVE' | 'SHADOW_ONLY'; brokerOrderAllowed?: boolean; operatorOrderAllowed?: boolean; macroLiveAllowed?: boolean }): DecisionContext {
   const gateResult = evaluateCommonGate({ snapshotId: snapshot.snapshotId, candidate, feature });
-  const policyResult = resolvePolicy({ snapshotId: snapshot.snapshotId, commonGateResult: gateResult, marketSession, entryBlockMode });
+  const policyResult = resolvePolicy({ snapshotId: snapshot.snapshotId, commonGateResult: gateResult, marketSession, entryBlockMode, ...runtime });
   const executionResult = routeExecution({ snapshotId: snapshot.snapshotId, gateResult, policyResult });
   const learningResult = { snapshotId: snapshot.snapshotId, shadowLearning: policyResult.shadowLearningAllowed, counterfactual: policyResult.counterfactualAllowed };
   return {
