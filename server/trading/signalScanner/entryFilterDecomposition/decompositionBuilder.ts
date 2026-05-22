@@ -336,21 +336,16 @@ export function buildEntryFilterDecomposition(
     { gate1Passed: true, gate2Passed: true, gate3Passed: false },
   );
 
+  // ADR patch: Kelly/sizing is advisory-only and must not be an entry hard block.
+  // Keep telemetry via wait distribution and Kelly trace while removing execution blockers.
   const sizingFail = wd?.sizingBlocked ?? 0;
-  addBlockersRoundRobin(
-    traces.slice(gate1Fail + gate2Fail + gate3Fail),
-    sizingFail,
-    () =>
-      blocker({
-        category: "KELLY_SIZING",
-        code: "KELLY_ADJUSTED_TOO_LOW",
-        severity: "SOFT_BLOCK",
-        message:
-          "Kelly-adjusted position size fell below the minimum tradable position threshold.",
-        executionBlocking: "NEW_BUY_ONLY",
-      }),
-    "SIZING",
-  );
+  if (sizingFail > 0) {
+    const advisoryTag = 'SIZING_ADVISORY_LOW';
+    for (const trace of traces.slice(gate1Fail + gate2Fail + gate3Fail, gate1Fail + gate2Fail + gate3Fail + sizingFail)) {
+      trace.notes = Array.isArray(trace.notes) ? trace.notes : [];
+      if (!trace.notes.includes(advisoryTag)) trace.notes.push(advisoryTag);
+    }
+  }
 
   if (
     input.sectorEnergyQuality === "DEGRADED" ||

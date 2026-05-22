@@ -91,8 +91,8 @@ describe('ADR-0464 entry filter decomposition', () => {
   it('Kelly multiplier decomposition records finalKelly and reason', () => {
     const k = createKellySizingTrace({ symbol: 'A1', kellyRaw: 1, regimeMultiplier: 0.7, fomcMultiplier: 1, sectorMultiplier: 0.5, riskMultiplier: 0.742857, minPositionThreshold: 0.3 });
     expect(k.finalKelly).toBeCloseTo(0.26, 3);
-    expect(k.blockedBySizing).toBe(true);
-    expect(k.reason).toBe('KELLY_ADJUSTED_TOO_LOW');
+    expect(k.blockedBySizing).toBe(false);
+    expect(k.reason).toBe('SIZING_ADVISORY_LOW');
   });
 
   it('Watchlist 20 with entry 0 creates 20 ledger rows', () => {
