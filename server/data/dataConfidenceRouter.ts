@@ -4,10 +4,31 @@ import type { ExecutionImpact } from '../runtime/engineRuntimePolicy.js';
 
 export type DataConfidence =
   | 'VERIFIED'
+  | 'COMPUTED'
+  | 'API_REPORTED'
+  | 'USER_CONFIRMED'
   | 'DEGRADED'
   | 'STALE'
   | 'MISSING'
-  | 'AI_ESTIMATED';
+  | 'AI_ESTIMATED'
+  | 'LLM_INFERRED'
+  | 'SEARCH_SUMMARIZED';
+
+export const EXECUTION_ALLOWED_CONFIDENCE: ReadonlySet<DataConfidence> = new Set([
+  'VERIFIED',
+  'COMPUTED',
+  'API_REPORTED',
+  'USER_CONFIRMED',
+]);
+
+export const EXECUTION_FORBIDDEN_CONFIDENCE: ReadonlySet<DataConfidence> = new Set([
+  'AI_ESTIMATED',
+  'LLM_INFERRED',
+  'SEARCH_SUMMARIZED',
+  'STALE',
+  'MISSING',
+  'DEGRADED',
+]);
 
 export type DataPromotionStage =
   | 'OBSERVE'
@@ -64,6 +85,16 @@ const EMPTY_VALID_STATUSES = new Set([
 const STALE_STATUSES = new Set(['STALE', 'CACHE_STALE', 'STALE_CACHE']);
 
 const STAGE_ORDER: DataPromotionStage[] = ['OBSERVE', 'SHADOW_SCORE', 'ADVISORY', 'WEIGHTED', 'GATED', 'CORE'];
+
+export function isExecutionAllowedConfidence(confidence: DataConfidence): boolean {
+  return EXECUTION_ALLOWED_CONFIDENCE.has(confidence);
+}
+
+export function isAiEstimatedConfidence(confidence: DataConfidence): boolean {
+  return confidence === 'AI_ESTIMATED'
+    || confidence === 'LLM_INFERRED'
+    || confidence === 'SEARCH_SUMMARIZED';
+}
 
 function capPromotionStage(stage: DataPromotionStage, maxStage: DataPromotionStage): DataPromotionStage {
   const stageIndex = STAGE_ORDER.indexOf(stage);
@@ -122,16 +153,16 @@ export function normalizeDataSignal(input: NormalizeDataSignalInput): Normalized
     };
   }
 
-  if (input.confidence === 'AI_ESTIMATED') {
+  if (input.confidence && isAiEstimatedConfidence(input.confidence)) {
     return {
       source: input.source,
       providerIssue: false,
       marketSignal: input.requestedMarketSignal === true,
-      confidence: 'AI_ESTIMATED',
+      confidence: input.confidence,
       promotionStage: capPromotionStage(requestedStage, 'ADVISORY'),
       executionImpact: 'NONE',
       rawStatus: input.rawStatus,
-      routedStatus: 'AI_ESTIMATED_CAPPED',
+      routedStatus: `${input.confidence}_CAPPED`,
       reasonCode: input.reasonCode ?? 'AI_ESTIMATED_NOT_CORE',
     };
   }
@@ -151,7 +182,7 @@ export function normalizeDataSignal(input: NormalizeDataSignalInput): Normalized
 }
 
 export function canUseDataSignalInCore(signal: NormalizedDataSignal): boolean {
-  return signal.confidence === 'VERIFIED'
+  return isExecutionAllowedConfidence(signal.confidence)
     && signal.promotionStage === 'CORE'
     && signal.providerIssue === false;
 }

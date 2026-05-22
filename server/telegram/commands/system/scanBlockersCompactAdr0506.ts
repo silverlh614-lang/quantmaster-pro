@@ -22,6 +22,7 @@ import {
 import { buildSourceSnapshotDataHealth } from '../../../trading/sourceSnapshot/sourceSnapshotDataHealth.js';
 import { detectSnapshotMismatches } from '../../../trading/sourceSnapshot/snapshotMismatchDetector.js';
 import { formatPolicyDiag, resolvePolicy } from '../../../trading/sourceSnapshot/policyResolver.js';
+import { formatAiConfidenceTelegramLine } from '../../../trading/gates/aiExecutionIsolation.js';
 
 /* ───────── Mode parser SSOT ───────── */
 
@@ -1044,6 +1045,10 @@ export function formatScanBlockersCompactMessage(
   if (scanEvaluationLine) lines.push(scanEvaluationLine);
   const shadowLine = formatShadowAlwaysOnLine(summary);
   if (shadowLine) lines.push(`• ${shadowLine}`);
+  const aiConfidenceLine = summary?.scoreConfidenceSplit
+    ? formatAiConfidenceTelegramLine(summary.scoreConfidenceSplit)
+    : null;
+  if (aiConfidenceLine) lines.push(aiConfidenceLine);
 
   // Gate1 survivor count — ScanSummary.gatePassDistribution.gate1Pass (옵셔널).
   const gate1Pass = summary?.gatePassDistribution?.gate1Pass ?? Math.max(0, candidates - (summary?.gateMisses ?? 0));

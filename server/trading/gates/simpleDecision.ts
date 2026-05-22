@@ -36,6 +36,10 @@ export interface SimpleTradeDecisionInput {
   slotAvailable?: boolean;
   baseScore?: number;
   scoreAdjustment?: number;
+  executionScore?: number;
+  advisoryScore?: number;
+  aiNarrativeScore?: number;
+  excludedAiScore?: number;
   finalScore: number;
   buyThreshold?: number;
   watchThreshold?: number;
@@ -57,6 +61,11 @@ export interface SimpleTradeDecisionResult {
   slotAvailable: boolean;
   baseScore: number;
   scoreAdjustment: number;
+  executionScore: number;
+  adjustmentScore: number;
+  advisoryScore: number;
+  aiNarrativeScore: number;
+  excludedAiScore: number;
   finalScore: number;
   dataGateUsable: boolean;
   gateTotalScore: number;
@@ -77,6 +86,8 @@ export interface SimpleTradeDecisionResult {
   diagnosticEvidence: string[];
   strongBuyAsLabelOnly: true;
   shadowLearning: true;
+  aiExecutionImpact: 'NONE';
+  dataConfidencePolicy: 'VERIFIED_COMPUTED_ONLY_FOR_EXECUTION';
   executionImpact: 'NONE';
 }
 
@@ -136,19 +147,26 @@ export function resolveSimpleTradeDecision(
   const slotAvailable = input.slotAvailable ?? true;
   const baseScore = finiteOrZero(input.baseScore);
   const scoreAdjustment = finiteOrZero(input.scoreAdjustment);
+  const executionScore = finiteOrZero(input.executionScore ?? input.baseScore);
+  const advisoryScore = finiteOrZero(input.advisoryScore);
+  const aiNarrativeScore = finiteOrZero(input.aiNarrativeScore);
+  const excludedAiScore = finiteOrZero(input.excludedAiScore);
+  const finalScore = input.executionScore === undefined
+    ? input.finalScore
+    : executionScore + scoreAdjustment;
   const regimeAdjustment = finiteOrZero(input.regimeAdjustment);
   const dataGateUsable = input.gateScoreBreakdown?.dataGateUsable ?? input.dataUsable;
-  const label = dataGateUsable ? labelFromFinalScore(input.finalScore) : 'DATA_INCOMPLETE';
+  const label = dataGateUsable ? labelFromFinalScore(finalScore) : 'DATA_INCOMPLETE';
   const qualityDecision = input.qualityDecision ?? (input.gateScoreBreakdown
     ? resolveQualityDecisionFromGate({
         gateScoreBreakdown: input.gateScoreBreakdown,
-        finalScore: input.finalScore,
+        finalScore,
         buyThreshold,
         riskRewardOk,
         slotAvailable,
       })
     : !dataGateUsable ? 'DATA_INCOMPLETE'
-      : !riskRewardOk || !slotAvailable || input.finalScore < buyThreshold ? 'WATCH_READY'
+      : !riskRewardOk || !slotAvailable || finalScore < buyThreshold ? 'WATCH_READY'
       : 'TRADE_READY');
 
   let decision: TradeDecision;
@@ -163,9 +181,9 @@ export function resolveSimpleTradeDecision(
   } else if (!slotAvailable) {
     decision = 'WATCH_SLOT_FULL';
     blockReasons.push('SLOT_FULL');
-  } else if (input.finalScore >= buyThreshold) {
+  } else if (finalScore >= buyThreshold) {
     decision = 'BUY_ALLOWED';
-  } else if (input.finalScore >= watchThreshold) {
+  } else if (finalScore >= watchThreshold) {
     decision = 'WATCH';
   } else {
     decision = 'REJECT_LOW_SCORE';
@@ -181,7 +199,12 @@ export function resolveSimpleTradeDecision(
     slotAvailable,
     baseScore,
     scoreAdjustment,
-    finalScore: input.finalScore,
+    executionScore,
+    adjustmentScore: scoreAdjustment,
+    advisoryScore,
+    aiNarrativeScore,
+    excludedAiScore,
+    finalScore,
     gateTotalScore: input.gateScoreBreakdown?.gateTotalScore ?? 0,
     qualityDecision,
     hardFailReasons: input.gateScoreBreakdown?.hardFailReasons ?? [],
@@ -200,6 +223,8 @@ export function resolveSimpleTradeDecision(
     diagnosticEvidence: input.diagnosticEvidence ?? [],
     strongBuyAsLabelOnly: true,
     shadowLearning: true,
+    aiExecutionImpact: 'NONE',
+    dataConfidencePolicy: 'VERIFIED_COMPUTED_ONLY_FOR_EXECUTION',
     executionImpact: 'NONE',
   };
 }
@@ -213,6 +238,11 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('dataGateUsable', result.dataGateUsable),
     kv('gateTotalScore', result.gateTotalScore),
     kv('baseScore', result.baseScore),
+    kv('executionScore', result.executionScore),
+    kv('adjustmentScore', result.adjustmentScore),
+    kv('advisoryScore', result.advisoryScore),
+    kv('aiNarrativeScore', result.aiNarrativeScore),
+    kv('excludedAiScore', result.excludedAiScore),
     kv('regimeAdjustment', result.regimeAdjustment),
     kv('scoreAdjustment', result.scoreAdjustment),
     kv('finalScore', result.finalScore),
@@ -227,6 +257,8 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('maxPositions', result.maxPositions),
     kv('currentPositions', result.currentPositions),
     kv('remainingSlots', result.remainingSlots),
+    kv('aiExecutionImpact', result.aiExecutionImpact),
+    kv('dataConfidencePolicy', result.dataConfidencePolicy),
     kv('strongBuyAsLabelOnly', result.strongBuyAsLabelOnly),
     kv('shadowLearning', result.shadowLearning),
     "executionImpact='NONE'",
