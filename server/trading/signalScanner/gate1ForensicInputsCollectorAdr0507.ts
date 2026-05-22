@@ -198,8 +198,8 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
             ?? (healthRecord.selectedProviderActualInvestorRow as Record<string, unknown> | null | undefined)),
           actualInvestorRowProvider: ((selectedCandidateRecord?.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)
             ?? (healthRecord.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)),
-          actualInvestorRowUseScope: ((selectedCandidateRecord?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
-            ?? (healthRecord.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)),
+          actualInvestorRowUseScope: ((selectedCandidateRecord?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE' | undefined)
+            ?? (healthRecord.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE' | undefined)),
           selectedActualRowPath: ((healthRecord.selectedActualRowPath as string | null | undefined) ?? (healthRecord.actualInvestorFlowRowSourcePath as string | null | undefined)),
           selectedActualRowFieldKeys: ((healthRecord.selectedActualRowFieldKeys as string[] | undefined) ?? actualInvestorFlowFieldKeys),
           selectedActualNumericFieldKeys: healthRecord.selectedActualNumericFieldKeys as string[] | undefined,

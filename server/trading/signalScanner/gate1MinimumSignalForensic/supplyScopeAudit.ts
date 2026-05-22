@@ -146,8 +146,8 @@ export function buildSupplyScopeAudit(input: {
     ?? (sellOnlyBySymbolPayload?.actualInvestorRowProvider as 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null | undefined)
     ?? null;
   const actualInvestorRowUseScope =
-    (kisFlow?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
-    ?? (sellOnlyBySymbolPayload?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | undefined)
+    (kisFlow?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE' | undefined)
+    ?? (sellOnlyBySymbolPayload?.actualInvestorRowUseScope as 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE' | undefined)
     ?? 'DIAGNOSTIC_ONLY';
   const diagnosticActualInvestorRowCarried = hasActualInvestorNumericRow(diagnosticActualInvestorRow) || hasActualInvestorNumericRow(normalizedRowForPromotion);
 

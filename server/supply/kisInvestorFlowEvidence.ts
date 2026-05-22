@@ -129,7 +129,7 @@ function sampleFromInvestorFields(input: {
     actualInvestorFlowNumericStringKeys: input.value.actualInvestorFlowRowCarrier?.numericStringFieldKeys ?? [],
     actualInvestorFlowCarried: true,
     actualInvestorRowProvider: 'KIS_API',
-    actualInvestorRowUseScope: 'DIAGNOSTIC_ONLY',
+    actualInvestorRowUseScope: (actualRows.length > 0 && Number.isFinite(input.value.foreignNetBuy) && Number.isFinite(input.value.institutionalNetBuy)) ? 'GATE_SCORE_ELIGIBLE' : 'DIAGNOSTIC_ONLY',
     diagnosticActualInvestorRowFromNormalized: actualRows.length === 0,
   };
 }

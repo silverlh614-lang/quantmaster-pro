@@ -29,8 +29,12 @@ export interface ExecutionResult { snapshotId: string; executionImpact: 'NONE' |
 export interface LearningResult { snapshotId: string; shadowLearning: boolean; counterfactual: boolean; }
 export interface DecisionContext { snapshotId: string; candidateSnapshotId: string; featureSnapshotId: string; gateResult: CommonGateResult; policyResult: PolicyResult; executionResult: ExecutionResult; learningResult: LearningResult; }
 
+function isFeaturePackComputed(feature: FeatureSnapshot): boolean {
+  return feature.featurePack?.status === 'COMPUTED';
+}
+
 export function evaluateCommonGate(input: { snapshotId: string; candidate: CandidateSnapshot; feature: FeatureSnapshot }): CommonGateResult {
-  const technicalTrendMissing = input.feature.technicalIndicators.status !== 'COMPUTED';
+  const technicalTrendMissing = !(isFeaturePackComputed(input.feature) || input.feature.technicalIndicators.status === 'COMPUTED');
   const gatePassed = Boolean(input.feature.quote);
   return { snapshotId: input.snapshotId, symbol: input.candidate.symbol, gatePassed, technicalTrendMissing, qualityDecision: gatePassed ? 'PASS' : 'FAIL' };
 }
@@ -110,6 +114,8 @@ export function detectSnapshotMismatch(input: { gateResult: CommonGateResult; po
   const alerts: string[] = [];
   if (input.gateResult.snapshotId !== input.policyResult.snapshotId) alerts.push('SNAPSHOT_MISMATCH_GATE_POLICY');
   if (input.telegramSnapshotId && input.telegramSnapshotId !== input.gateResult.snapshotId) alerts.push('SNAPSHOT_MISMATCH_GATE_TELEGRAM');
-  if (input.feature?.technicalIndicators.status === 'COMPUTED' && input.gateResult.technicalTrendMissing) alerts.push('FEATURE_COMPUTED_BUT_GATE_MAPPING_DROPPED');
+  if ((input.feature?.technicalIndicators.status === 'COMPUTED' || input.feature?.featurePack?.status === 'COMPUTED') && input.gateResult.technicalTrendMissing) {
+    alerts.push('FEATURE_SNAPSHOT_PRESENT_BUT_GATE_MAPPING_DROPPED');
+  }
   return alerts;
 }

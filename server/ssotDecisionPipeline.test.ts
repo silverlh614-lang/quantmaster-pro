@@ -96,6 +96,6 @@ describe('SSOT snapshot pipeline', () => {
       telegramSnapshotId: 'third',
       feature: { ...feature, technicalIndicators: { status: 'COMPUTED', source: 'COMPUTED_FROM_KIS_OHLCV' } },
     });
-    expect(alerts).toEqual(expect.arrayContaining(['SNAPSHOT_MISMATCH_GATE_POLICY', 'SNAPSHOT_MISMATCH_GATE_TELEGRAM', 'FEATURE_COMPUTED_BUT_GATE_MAPPING_DROPPED']));
+    expect(alerts).toEqual(expect.arrayContaining(['SNAPSHOT_MISMATCH_GATE_POLICY', 'SNAPSHOT_MISMATCH_GATE_TELEGRAM', 'FEATURE_SNAPSHOT_PRESENT_BUT_GATE_MAPPING_DROPPED']));
   });
 });

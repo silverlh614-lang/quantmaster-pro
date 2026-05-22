@@ -665,7 +665,7 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const actualRowProviderMatchesSelected = actualRowProvider != null && selectedProvider === actualRowProvider && !diagnosticActualRowFromNormalized;
   const selectedProviderActualInvestorRow: Record<string, unknown> | null =
     actualRowProviderMatchesSelected ? diagnosticActualInvestorRow : null;
-  const actualInvestorRowUseScope: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' =
+  const actualInvestorRowUseScope: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE' =
     actualRowProviderMatchesSelected ? 'SELECTED_PROVIDER' : 'DIAGNOSTIC_ONLY';
   // FIXED: `selectedProvider !== 'NONE'` guard 제거 — selectedProvider==='NONE' 도
   // adapter row 를 보유하면 cross-provider carry 로 인정.
