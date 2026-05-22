@@ -50,11 +50,10 @@ import type { RegimeLevel } from '../../../src/types/core.js';
  * default 둘 다 OFF — PR 머지 후 운영자가 명시 활성화 의무.
  */
 export function shouldApplyPositionSizingEngine(shadowMode: boolean): boolean {
-  if (shadowMode) {
-    return true;
-  }
-  // LIVE 모드 — ADR-0165 활성화 정책
-  return isLivePositionSizingEngineEnabled();
+  void shadowMode;
+  // Simplification Step 2: Kelly/probability-based sizing engine is disabled.
+  // Callers fall back to the regime-only position policy SSOT.
+  return false;
 }
 
 /**

@@ -77,7 +77,7 @@ export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
   },
   '/learning': {
     title: '🧠 학습·리스크',
-    description: '자기학습 이력·Kelly·서킷·리스크 예산을 모두 모았습니다.',
+    description: '자기학습 이력·포지션 정책·서킷·리스크 예산을 모두 모았습니다.',
     rows: [
       ['/learning_status', '/learning_history'],
       ['/kelly', '/kelly_surface'],
@@ -339,7 +339,7 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
     `  /now_debug — NOW raw detail\n` +
     `  /watch — 워치리스트 통합 메뉴\n` +
     `  /positions — 포지션·손익·미체결 통합\n` +
-    `  /learning — 학습·Kelly·서킷·리스크 통합\n` +
+    `  /learning — 학습·포지션 정책·서킷·리스크 통합\n` +
     `  /control — pause/resume/stop/reset 제어판\n` +
     `  /admin — 진단·관리 (숨김 메뉴)\n` +
     `  /help — 이 도움말 다시 보기\n` +
@@ -415,7 +415,7 @@ const FIXED_BOT_MENU_PRELUDE: readonly BotMenuCommand[] = [
 const META_MENU_DESCRIPTIONS: Record<string, string> = {
   '/watch': '워치리스트 통합 메뉴 (조회/Focus/추가/제거)',
   '/positions': '포지션·손익·미체결·매도/취소·reconcile 통합',
-  '/learning': '학습·Kelly·서킷·리스크·AI 상태 통합',
+  '/learning': '학습·포지션 정책·서킷·리스크·AI 상태 통합',
   '/control': 'pause/resume/stop/reset/integrity 제어판',
   '/admin': '진단·관리 (시장 리포트/채널/다이제스트/...)',
 };

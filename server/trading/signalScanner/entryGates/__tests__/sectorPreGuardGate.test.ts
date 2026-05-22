@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../preOrderGuard.js', () => ({
   checkSectorExposureBefore: vi.fn(),
+  assertSafeOrder: vi.fn(),
 }));
 vi.mock('../../../../screener/sectorMap.js', () => ({
   getSectorByCode: vi.fn(() => undefined),
@@ -55,7 +56,7 @@ describe('sectorPreGuardGate', () => {
     );
   });
 
-  it('estCandidateValue 산식 — gateScore 9 이상 → totalAssets * 0.12 * kellyMultiplier', async () => {
+  it('estCandidateValue 산식 — gateScore 9 이상 → totalAssets * 0.12', async () => {
     (checkSectorExposureBefore as any).mockReturnValue({ allowed: true, projectedSectorWeight: 0, reason: '' });
     const stock = makeMockStock({ gateScore: 10 });
     await sectorPreGuardGate(makeMockCtx({ stock, totalAssets: 100_000_000, kellyMultiplier: 1.0 }));
@@ -64,10 +65,10 @@ describe('sectorPreGuardGate', () => {
     );
   });
 
-  it('estCandidateValue 산식 — gateScore 5 → 0.05 비중', async () => {
+  it('estCandidateValue ignores legacy probability multiplier', async () => {
     (checkSectorExposureBefore as any).mockReturnValue({ allowed: true, projectedSectorWeight: 0, reason: '' });
     const stock = makeMockStock({ gateScore: 5 });
-    await sectorPreGuardGate(makeMockCtx({ stock, totalAssets: 100_000_000, kellyMultiplier: 1.0 }));
+    await sectorPreGuardGate(makeMockCtx({ stock, totalAssets: 100_000_000, kellyMultiplier: 0.01 }));
     expect(checkSectorExposureBefore).toHaveBeenCalledWith(
       expect.objectContaining({ candidateValue: 100_000_000 * 0.05 }),
     );

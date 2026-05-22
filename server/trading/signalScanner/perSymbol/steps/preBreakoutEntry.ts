@@ -23,8 +23,6 @@ import { evaluateServerGate } from '../../../../quantFilter.js';
 import {
   buildBuyTrade,
   createBuyTask,
-  computeMtasMultiplier,
-  computeRawPositionPct,
   type BuildBuyTradeParams,
 } from '../../../buyPipeline.js';
 import { getExecutionCostConfig } from '../../../executionCosts.js';
@@ -43,6 +41,7 @@ import {
   formatShadowBullFloorLog,
   resolveCandidatePositionFloor,
 } from '../../../sizing/shadowBullExposureProfile.js';
+import { calculateRegimePositionSizing } from '../../../sizing/regimePositionPolicy.js';
 import { shouldIncrementFailCount } from '../../failureClassifier.js';
 import { routePreBreakoutWaitToKisWs } from '../../preBreakoutKisWsPriorityRouting.js';
 import { evaluatePreBreakoutWait } from '../../preBreakoutWaitPolicy.js';
@@ -287,8 +286,17 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
           kisFlowPb,
           ctx.regime,
         );
-        const mtasPb = reCheckGatePb ? computeMtasMultiplier(reCheckGatePb.mtas) : 1.0;
-        const posPctPb = computeRawPositionPct(gateScorePb) * ctx.kellyMultiplier * mtasPb;
+        const activePbPositions = ctx.shadows.filter(s =>
+          isOpenShadowStatus(s.status) &&
+          s.watchlistSource !== 'INTRADAY' &&
+          s.watchlistSource !== 'PRE_BREAKOUT',
+        ).length + ctx.mutables.reservedSlots.value;
+        const simpleSizingPb = calculateRegimePositionSizing({
+          regime: ctx.regime,
+          totalEquity: ctx.totalAssets,
+          currentPositions: activePbPositions,
+        });
+        const posPctPb = simpleSizingPb.positionSizePct / 100;
         const exposureFloorPb = resolveCandidatePositionFloor({
           shadowMode: ctx.shadowMode,
           regime: ctx.regime,
@@ -306,23 +314,14 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
             }),
           );
         }
-        const remSlotsPb = Math.max(
-          1,
-          ctx.effectiveMaxPositions
-            - ctx.shadows.filter(s =>
-              isOpenShadowStatus(s.status) &&
-              s.watchlistSource !== 'INTRADAY' &&
-              s.watchlistSource !== 'PRE_BREAKOUT',
-            ).length
-            - ctx.mutables.reservedSlots.value,
-        );
+        const remSlotsPb = Math.max(1, simpleSizingPb.remainingSlots);
         const { quantity: legacyFullPbQty } = calculateOrderQuantity({
           totalAssets: ctx.totalAssets,
           orderableCash: ctx.mutables.orderableCash.value,
           positionPct: effPosPctPb,
           price: pbEntryPrice,
           remainingSlots: remSlotsPb,
-          accountKellyMultiplier: ctx.accountKellyMultiplier,
+          accountKellyMultiplier: 1.0,
         });
         const _sizingInputPb = computeSizingLiquidityInputs(
           accumulation.quote ?? null,
@@ -332,7 +331,7 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
         );
         const sizingApplyPb = applyPositionSizingEngine(ctx.shadowMode, {
           totalAssets: ctx.totalAssets, shadowEntryPrice: pbEntryPrice, stopLoss: stock.stopLoss,
-          signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
+          signalGrade: 'BUY', regimeKelly: 1.0, confidenceModifier: 1.0,
           rrr: stock.rrr ?? 0,
           marketCap: 1_000_000_000_000_000,
           avgDailyVolume20d: _sizingInputPb.avgDailyVolume20d,

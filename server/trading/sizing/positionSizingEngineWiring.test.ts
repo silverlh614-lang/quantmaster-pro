@@ -53,28 +53,28 @@ describe('shouldApplyPositionSizingEngine — ENV + SHADOW 분기 SSOT', () => {
     expect(shouldApplyPositionSizingEngine(false)).toBe(false);
   });
 
-  it('SHADOW + ENV 미설정 → false (default OFF)', () => {
-    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
+  it('SHADOW + ENV 미설정 → false (Kelly removed)', () => {
+    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 
-  it('SHADOW + ENV 명시 활성화 → true', () => {
+  it('SHADOW + ENV 명시 활성화 → false (Kelly removed)', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 
   it("SHADOW + ENV 'false' → false", () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'false';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 
   it("SHADOW + ENV '1' → false (정확히 'true' 만 인정)", () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = '1';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 
   it("SHADOW + ENV 'TRUE' (대문자) → false (정확히 'true' 만 인정)", () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'TRUE';
-    expect(shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 });
 
@@ -170,10 +170,10 @@ describe('mapToPositionSizingInput — 입력 매핑 SSOT', () => {
 describe('applyPositionSizingEngine — 통합 진입점 4 분기', () => {
   it('ENV OFF (default) → applied=false / sizingSource=LEGACY_SSOT / skipReason=ENV_DISABLED', () => {
     const result = applyPositionSizingEngine(true, validCtx);
-    expect(result.applied).toBe(true);
-    expect(result.sizingSource).toBe('LIVE_SIZING_MIRROR');
-    expect(result.quantity).toBeGreaterThanOrEqual(1);
-    expect(result.result).toBeDefined();
+    expect(result.applied).toBe(false);
+    expect(result.sizingSource).toBe('LEGACY_SSOT');
+    expect(result.skipReason).toBe('ENV_DISABLED');
+    expect(result.result).toBeUndefined();
   });
 
   it('LIVE 모드 → applied=false / skipReason=LIVE_MODE (LIVE 회귀 격리)', () => {
@@ -184,21 +184,20 @@ describe('applyPositionSizingEngine — 통합 진입점 4 분기', () => {
     expect(result.sizingSource).toBe('LEGACY_SSOT');
   });
 
-  it('ENV ON + SHADOW + 정상 입력 → applied=true / sizingSource=NEW_TIER_ENGINE', () => {
+  it('ENV ON + SHADOW + 정상 입력 → Kelly engine ignored', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     const result = applyPositionSizingEngine(true, validCtx);
-    expect(result.applied).toBe(true);
-    expect(result.sizingSource).toBe('LIVE_SIZING_MIRROR');
-    expect(result.quantity).toBeGreaterThanOrEqual(1);
-    expect(result.result).toBeDefined();
-    expect(result.result!.tier.name).toBe('GROWTH');
+    expect(result.applied).toBe(false);
+    expect(result.sizingSource).toBe('LEGACY_SSOT');
+    expect(result.skipReason).toBe('ENV_DISABLED');
+    expect(result.result).toBeUndefined();
   });
 
   it('ENV ON + SHADOW + totalAssets NaN → applied=false / skipReason=INPUT_MAPPING_FAILED', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     const result = applyPositionSizingEngine(true, { ...validCtx, totalAssets: NaN });
     expect(result.applied).toBe(false);
-    expect(result.skipReason).toBe('INPUT_MAPPING_FAILED');
+    expect(result.skipReason).toBe('ENV_DISABLED');
     expect(result.sizingSource).toBe('LEGACY_SSOT');
     expect(result.result).toBeUndefined();
   });
@@ -209,23 +208,22 @@ describe('applyPositionSizingEngine — 통합 진입점 4 분기', () => {
     // RRR<2.0 시 rrrMultiplier=0 → signalBasedPosition=0 → quantity<1
     expect(result.applied).toBe(false);
     expect(result.sizingSource).toBe('LEGACY_SSOT');
-    expect(result.skipReason).toMatch(/QUANTITY_BELOW_ONE|BLOCKED_BY_ENGINE/);
+    expect(result.skipReason).toBe('ENV_DISABLED');
   });
 
   it('ENV ON + SHADOW + 매우 높은 가격 (finalPosition / price < 1) → applied=false / skipReason=QUANTITY_BELOW_ONE', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     const result = applyPositionSizingEngine(true, { ...validCtx, shadowEntryPrice: 100_000_000, stopLoss: 92_000_000 });
     expect(result.applied).toBe(false);
-    expect(result.skipReason).toBe('QUANTITY_BELOW_ONE');
+    expect(result.skipReason).toBe('ENV_DISABLED');
     expect(result.sizingSource).toBe('LEGACY_SSOT');
   });
 
-  it('ENV ON + SHADOW + GROWTH 티어 정확 매트릭스 (1500만 / STRONG_BUY) → 비중 9~15%', () => {
+  it('ENV ON + SHADOW + GROWTH 티어 매트릭스는 Kelly 제거로 미적용', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     const result = applyPositionSizingEngine(true, validCtx);
-    expect(result.applied).toBe(true);
-    expect(result.result!.finalPositionPct).toBeGreaterThanOrEqual(0.09);
-    expect(result.result!.finalPositionPct).toBeLessThanOrEqual(0.15);
+    expect(result.applied).toBe(false);
+    expect(result.result).toBeUndefined();
   });
 
   it('학습 데이터 격리 — applied=false 시 sizingSource 항상 LEGACY_SSOT', () => {

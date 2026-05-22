@@ -577,7 +577,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         positionPct: effectivePositionPct,
         price: shadowEntryPrice,
         remainingSlots,
-        accountKellyMultiplier: ctx.accountKellyMultiplier,
+        accountKellyMultiplier: 1.0,
       });
 
       if (legacyQuantity < 1) continue;
@@ -598,7 +598,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         shadowEntryPrice,
         stopLoss: stock.stopLoss,
         signalGrade: 'BUY',
-        regimeKelly: ctx.kellyMultiplier,
+        regimeKelly: 1.0,
         confidenceModifier,
         rrr: stock.rrr ?? 0,
         // marketCap: Yahoo Finance chart API 에서 미제공 — universe 차단 회피 위해 큰 수 유지.

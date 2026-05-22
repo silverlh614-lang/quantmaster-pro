@@ -20,7 +20,6 @@ import {
 } from '../../entryEngine.js';
 import {
   MAX_INTRADAY_POSITIONS,
-  INTRADAY_POSITION_PCT_FACTOR,
   INTRADAY_STOP_LOSS_PCT,
   INTRADAY_PULLBACK_STOP_LOSS_PCT,
   INTRADAY_TARGET_PCT,
@@ -34,6 +33,7 @@ import type { IntradayLoopContext } from './types.js';
 // ADR-0167 — currentEquityExposureAmount 정확 산출 (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true`).
 import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
+import { calculateRegimePositionSizing } from '../../sizing/regimePositionPolicy.js';
 // ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 // PATCH-010 후속 — Shadow Bull Exposure Floor (INTRADAY 경로 wiring, ENV default OFF).
@@ -165,9 +165,13 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             ? stock.targetPrice
             : Math.round(shadowEntryPrice * (1 + INTRADAY_TARGET_PCT));
 
-          // 포지션 사이징: gateScore 없으므로 기본 5% × 레짐 Kelly × 50% 축소
-          const rawPositionPct  = 0.05; // Intraday 기본 포지션
-          const positionPct     = rawPositionPct * ctx.kellyMultiplier * INTRADAY_POSITION_PCT_FACTOR;
+          // Simplification Step 2: intraday also uses regime-only position sizing.
+          const simpleIntradaySizing = calculateRegimePositionSizing({
+            regime: ctx.regime,
+            totalEquity: ctx.totalAssets,
+            currentPositions: currentIntradayActive,
+          });
+          const positionPct = simpleIntradaySizing.positionSizePct / 100;
           // PATCH-010 후속 — Shadow Bull Exposure Floor (INTRADAY 경로).
           const exposureFloorIntraday = resolveCandidatePositionFloor({
             shadowMode: ctx.shadowMode,
@@ -186,14 +190,14 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
               }),
             );
           }
-          const remainingSlots  = Math.max(1, MAX_INTRADAY_POSITIONS - currentIntradayActive);
+          const remainingSlots  = Math.max(1, Math.min(MAX_INTRADAY_POSITIONS - currentIntradayActive, simpleIntradaySizing.remainingSlots));
           const { quantity: legacyIntradayQty, effectiveBudget } = calculateOrderQuantity({
             totalAssets: ctx.totalAssets,
             orderableCash: ctx.mutables.orderableCash.value,
             positionPct: effectivePositionPct,
             price: shadowEntryPrice,
             remainingSlots,
-            accountKellyMultiplier: ctx.accountKellyMultiplier,
+            accountKellyMultiplier: 1.0,
           });
 
           if (legacyIntradayQty < 1) continue;
@@ -211,7 +215,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           );
           const sizingApplyIntra = applyPositionSizingEngine(ctx.shadowMode, {
             totalAssets: ctx.totalAssets, shadowEntryPrice, stopLoss: intradayStop,
-            signalGrade: 'BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
+            signalGrade: 'BUY', regimeKelly: 1.0, confidenceModifier: 1.0,
             rrr: 0,  // INTRADAY 는 RRR 평가 부재 — 본 모듈 rrrMultiplier=0 → engine 차단 → legacy fallback
             marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
             currentSectorWeight: _sizingInputIntra.currentSectorWeight, // ADR-0172

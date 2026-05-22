@@ -25,7 +25,7 @@ export interface EntryGateContext {
   currentPrice: number;
   /** PR-58: sectorPreGuard estCandidateValue 계산. */
   totalAssets: number;
-  /** PR-58: sectorPreGuard 가 ctx.kellyMultiplier 사용. */
+  /** Legacy compatibility input; Simplification Step 2 ignores it for sizing and guard estimates. */
   kellyMultiplier: number;
   /**
    * ADR-0067 (PR-Q, 페어 B #2): Multi-Timeframe Confluence 입력 (옵셔널).

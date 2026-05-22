@@ -214,7 +214,8 @@ export function calculateOrderQuantity(input: PositionSizingInput): { quantity: 
   if (input.price <= 0 || input.remainingSlots <= 0 || input.orderableCash <= 0) {
     return { quantity: 0, effectiveBudget: 0 };
   }
-  const targetBudget = Math.max(0, input.totalAssets * input.positionPct * (input.accountKellyMultiplier ?? 1));
+  // Simplification Step 2: accountKellyMultiplier is legacy compatibility only.
+  const targetBudget = Math.max(0, input.totalAssets * input.positionPct);
   const slotBudget = input.orderableCash / input.remainingSlots;
   const effectiveBudget = Math.max(0, Math.min(input.orderableCash, targetBudget, slotBudget));
   return {

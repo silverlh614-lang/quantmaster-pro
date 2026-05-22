@@ -2,11 +2,11 @@
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
-import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import type { RegimeLevel } from '../../../../src/types/core.js';
 import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../runtime/engineRuntimePolicy.js';
+import { getRegimePositionPolicy } from '../../../trading/sizing/regimePositionPolicy.js';
 
 const regime: TelegramCommand = {
   name: '/regime',
@@ -37,7 +37,7 @@ const regime: TelegramCommand = {
     // ADR-0071: USD/KRW 출처 + 격차 표시 — 사용자 신뢰도 즉시 인지
     const usdKrwLine = formatUsdKrwLine(macro);
     // ADR-0074: macroState.regime (GREEN/YELLOW/RED) vs getLiveRegime (R1~R6) 두 SSOT 동시 노출.
-    // 매매 결정에 실제 사용되는 RegimeLevel + Kelly/maxPositions 정책을 1줄로 요약.
+    // 매매 결정에 실제 사용되는 RegimeLevel + position policy를 1줄로 요약.
     const regimeDiagnostics = regimeSnapshot.diagnostics;
     const liveRegime = regimeSnapshot.effectiveRegime as RegimeLevel;
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
@@ -191,7 +191,7 @@ export function formatSectorEnergyLine(macro: {
  *   R1_TURBO:   🔥 (공격 모드 MAX)
  */
 export function formatLiveRegimeLine(liveRegime: RegimeLevel): string {
-  const cfg = REGIME_CONFIGS[liveRegime];
+  const policy = getRegimePositionPolicy(liveRegime);
   const emoji =
     liveRegime === 'R6_DEFENSE' ? '🛑' :
     liveRegime === 'R5_CAUTION' ? '🟡' :
@@ -199,11 +199,7 @@ export function formatLiveRegimeLine(liveRegime: RegimeLevel): string {
     liveRegime === 'R3_EARLY'   ? '🌱' :
     liveRegime === 'R2_BULL'    ? '🟢' :
     liveRegime === 'R1_TURBO'   ? '🔥' : '⚙️';
-  if (!cfg) return `⚙️ 매매: ${liveRegime}`;
-  const kellyLabel = cfg.kellyMultiplier === 0
-    ? '신규 진입 차단'
-    : `Kelly ×${cfg.kellyMultiplier.toFixed(2)}`;
-  return `${emoji} 매매: ${liveRegime} (${kellyLabel}, 최대 ${cfg.maxPositions}포지션)`;
+  return `${emoji} 매매: ${liveRegime} (총노출 ${policy.maxGrossExposurePct}%, 최대 ${policy.maxPositions}포지션, 종목당 ${policy.perPositionPct}%)`;
 }
 
 /**

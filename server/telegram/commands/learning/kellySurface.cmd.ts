@@ -1,6 +1,5 @@
-// @responsibility kellySurface.cmd 텔레그램 모듈
-// @responsibility: /kelly_surface — signalType × regime 버킷별 (p, b) Kelly 학습 상태 + 신뢰구간 폭.
-import { formatKellySurface } from '../../../learning/kellySurfaceMap.js';
+// @responsibility Legacy /kelly_surface command compatibility.
+import { REGIME_POSITION_POLICIES } from '../../../trading/sizing/regimePositionPolicy.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -9,9 +8,17 @@ const kellySurface: TelegramCommand = {
   category: 'LRN',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: 'Kelly Surface — signalType × regime (p, b) 학습 상태',
+  description: 'Legacy probability surface command; current regime sizing table shown',
   async execute({ reply }) {
-    await reply(formatKellySurface());
+    const rows = Object.values(REGIME_POSITION_POLICIES).map((policy) =>
+      `${policy.regime}: maxPositions=${policy.maxPositions}, gross=${policy.maxGrossExposurePct}%, perPosition=${policy.perPositionPct}%`,
+    );
+    await reply([
+      '<b>Legacy probability surface disabled</b>',
+      'sizingPolicy=REGIME_GROSS_EXPOSURE_DIVIDED_BY_MAX_POSITIONS',
+      ...rows,
+      'executionImpact=NONE',
+    ].join('\n'));
   },
 };
 

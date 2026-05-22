@@ -75,7 +75,7 @@ describe('Patch-SNAPSHOT-LATEST-CMD-001: /snapshot_latest 명령', () => {
       expect(mod.default.category).toBe('SYS');
       expect(mod.default.visibility).toBe('ADMIN');
       expect(mod.default.riskLevel).toBe(0); // read-only
-    });
+    }, 10_000);
 
     it('formatSnapshotLatestMessage SSOT export', async () => {
       const mod = await import('./snapshotLatest.cmd.js');

@@ -7,22 +7,22 @@
 import type { EntryKellySnapshot } from '../../../../persistence/shadowTradeRepo.js';
 import { appendShadowLog } from '../../../../persistence/shadowTradeRepo.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
-import { loadKellyDampenerState } from '../../../kellyDampener.js';
 import { checkFailurePattern } from '../../../../learning/failurePatternDB.js';
 import { buildEntryConditionScores } from '../../../../learning/entryConditionScores.js';
 import { evaluateCorrelationGate } from '../../../correlationSlotGate.js';
-import { FRACTIONAL_KELLY_CAP } from '../../../accountRiskBudget.js';
 import { evaluateServerGate } from '../../../../quantFilter.js';
-import { CATALYST_POSITION_FACTOR } from '../../../../screener/watchlistManager.js';
 import { evaluateDataQualityFromStock } from '../../../priceSourcePolicy.js';
 import {
   sizingTierDecider,
-  kellyBudgetDecider,
 } from '../../sizingDeciders/index.js';
 import { loadOpenPositions } from '../../../../persistence/positionTruth.js';
-import { computeMtasMultiplier, computeRawPositionPct } from '../../../buyPipeline.js';
 import { FAILURE_BLOCK_THRESHOLD_PCT } from '../helpers.js';
 import type { BuyListLoopContext } from '../types.js';
+import {
+  calculateRegimePositionSizing,
+  formatKellyRemovedIgnoredLog,
+  formatPositionPolicySimpleAppliedLog,
+} from '../../../sizing/regimePositionPolicy.js';
 
 export type SizingTierFinalDecision = Extract<ReturnType<typeof sizingTierDecider>, { ok: true }>['tierDecision'];
 export type SizingSignalGrade = 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD';
@@ -76,26 +76,40 @@ export async function sizingTierDeciderFinal(
   const tierDecision = tierResult.tierDecision;
   for (const msg of tierResult.logMessages) console.log(msg);
 
-  const mtasMultiplier = computeMtasMultiplier(gateResult.mtas);
-  const sectionFactor = stock.section === 'CATALYST' ? CATALYST_POSITION_FACTOR : 1.0;
-  const positionPct =
-    computeRawPositionPct(params.gateScore) * ctx.kellyMultiplier * mtasMultiplier * sectionFactor * tierDecision.kellyFactor;
+  const sizing = calculateRegimePositionSizing({
+    regime: ctx.regime,
+    totalEquity: ctx.totalAssets,
+    currentPositions: params.currentActive + ctx.mutables.reservedSlots.value,
+  });
+  const positionPct = sizing.positionSizePct / 100;
 
   if (gateResult) {
     console.log(
-      `[AutoTrade] ${stock.name} ????먮떒 ??` +
+      `[AutoTrade] ${stock.name} simple position policy ` +
       `liveGate: ${params.liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
-      `MTAS: ${gateResult.mtas.toFixed(1)}/10 (횞${mtasMultiplier}) | ` +
+      `MTAS: ${gateResult.mtas.toFixed(1)}/10 | ` +
       `CS: ${gateResult.compressionScore.toFixed(2)} | ` +
-      `tier: ${tierDecision.tier}(횞${tierDecision.kellyFactor}) | ` +
+      `tier: ${tierDecision.tier}(diagnostic) | ` +
       `posPct: ${(positionPct * 100).toFixed(1)}%`
     );
   }
 
-  const remainingSlots = Math.max(
-    1,
-    ctx.effectiveMaxPositions - params.currentActive - ctx.mutables.reservedSlots.value,
-  );
+  console.log(formatPositionPolicySimpleAppliedLog({
+    snapshotId: `buyList:${stock.code}`,
+    symbol: stock.code,
+    sizing,
+  }));
+  console.log(formatKellyRemovedIgnoredLog({
+    snapshotId: `buyList:${stock.code}`,
+    symbol: stock.code,
+    previousKellyValue: ctx.kellyMultiplier,
+  }));
+
+  const remainingSlots = sizing.remainingSlots;
+  if (remainingSlots <= 0) {
+    console.log(`[PositionPolicy] ${stock.name}(${stock.code}) slot full by regime policy`);
+    return { shouldSkip: true, remainingSlots: 0, positionPct, tierDecision };
+  }
 
   if (!params.isMomentumShadow) {
     const candidateScores = buildEntryConditionScores(stock.conditionKeys);
@@ -151,32 +165,17 @@ export async function sizingTierDeciderFinal(
   const grade: SizingSignalGrade =
     tierDecision.tier === 'PROBING' ? 'PROBING'
     : 'BUY';
-  const kellyResult = kellyBudgetDecider({
-    stockName: stock.name,
-    shadowEntryPrice: params.shadowEntryPrice,
-    stopLoss: stock.stopLoss,
-    signalGrade: grade,
-    positionPct,
-    mtas: gateResult.mtas,
-    totalAssets: ctx.totalAssets,
-    shadows: ctx.shadows,
-  });
-  if (!kellyResult.ok) {
-    console.log(kellyResult.logMessage);
-    return { shouldSkip: true };
-  }
-  const { budget, sized, confidenceModifier } = kellyResult;
-  for (const msg of kellyResult.logMessages) console.log(msg);
+  const confidenceModifier = 1.0;
 
   const entryKellySnapshot: EntryKellySnapshot = {
     tier: tierDecision.tier,
     signalGrade: grade,
     rawKellyMultiplier: positionPct,
-    effectiveKelly: sized.effectiveKelly,
-    fractionalCap: FRACTIONAL_KELLY_CAP[grade],
-    ipsAtEntry: loadKellyDampenerState().ips,
+    effectiveKelly: positionPct,
+    fractionalCap: positionPct,
+    ipsAtEntry: 0,
     regimeAtEntry: ctx.regime,
-    accountRiskBudgetPctAtEntry: budget.openRiskPct,
+    accountRiskBudgetPctAtEntry: 0,
     confidenceModifier,
     snapshotAt: new Date().toISOString(),
   };

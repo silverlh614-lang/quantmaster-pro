@@ -15,11 +15,11 @@ import { getSectorByCode } from '../../../screener/sectorMap.js';
 import type { EntryGate, EntryGateResult } from './types.js';
 
 export const sectorPreGuardGate: EntryGate = (ctx) => {
-  const { stock, totalAssets, kellyMultiplier, mutables } = ctx;
+  const { stock, totalAssets, mutables } = ctx;
   const candidateSector = stock.sector || getSectorByCode(stock.code);
   const estGateScore = stock.gateScore ?? 5;
   const estRawPct = estGateScore >= 9 ? 0.12 : estGateScore >= 7 ? 0.08 : estGateScore >= 5 ? 0.05 : 0.03;
-  const estCandidateValue = totalAssets * estRawPct * kellyMultiplier;
+  const estCandidateValue = totalAssets * estRawPct;
   const secGuard = checkSectorExposureBefore({
     candidateSector,
     candidateValue: estCandidateValue,

@@ -1,10 +1,8 @@
-// @responsibility kelly.cmd 텔레그램 모듈
-// @responsibility: /kelly — 종목별 Kelly 헬스 카드 (entryKellySnapshot 대비 현재 Kelly/IPS decay + 권고).
-import { loadKellyDampenerState } from '../../../trading/kellyDampener.js';
-import { formatKellyHealthCards } from '../../../trading/kellyHealthCard.js';
+// @responsibility Legacy /kelly command compatibility.
+import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { getLiveRegime } from '../../../trading/regimeBridge.js';
-import { getShadowTrades } from '../../../orchestrator/tradingOrchestrator.js';
+import { calculateRegimePositionSizing } from '../../../trading/sizing/regimePositionPolicy.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -13,20 +11,27 @@ const kelly: TelegramCommand = {
   category: 'LRN',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: '종목별 Kelly 헬스 카드 (진입 vs 현재 + HOLD/TRIM/EXIT 권고)',
+  description: 'Legacy probability sizing command; current regime position policy shown',
   async execute({ reply }) {
-    const shadows = getShadowTrades();
-    const dampener = loadKellyDampenerState();
-    const macro = loadMacroState();
-    const liveRegime = getLiveRegime(macro);
-    await reply(
-      formatKellyHealthCards({
-        shadows,
-        currentIps: dampener.ips,
-        currentRegime: liveRegime,
-        currentIpsMultiplier: dampener.multiplier,
-      }),
-    );
+    const settings = loadTradingSettings();
+    const totalEquity = settings.startingCapital ?? 0;
+    const regime = getLiveRegime(loadMacroState());
+    const sizing = calculateRegimePositionSizing({
+      regime,
+      totalEquity,
+      currentPositions: 0,
+    });
+
+    await reply([
+      '<b>Legacy probability sizing disabled</b>',
+      'sizingPolicy=REGIME_GROSS_EXPOSURE_DIVIDED_BY_MAX_POSITIONS',
+      `regime=${sizing.policy.regime}`,
+      `maxPositions=${sizing.policy.maxPositions}`,
+      `maxGrossExposurePct=${sizing.policy.maxGrossExposurePct}`,
+      `perPositionPct=${sizing.policy.perPositionPct}`,
+      `positionAmount=${Math.round(sizing.positionAmount).toLocaleString()} KRW`,
+      'executionImpact=NONE',
+    ].join('\n'));
   },
 };
 

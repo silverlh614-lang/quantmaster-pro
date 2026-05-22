@@ -43,6 +43,7 @@ import {
   loadLatestRuntimeDebugSnapshot,
   type RuntimeDebugSnapshot,
 } from '../../../replay/runtimeDebugSnapshotRepo.js';
+import { getRegimePositionPolicy } from '../../../trading/sizing/regimePositionPolicy.js';
 
 // ============================================================================
 // 시간 헬퍼 — KST 변환 + age 산출 (외부 의존성 0건)
@@ -88,7 +89,10 @@ function formatRuntimeLine(snapshot: RuntimeDebugSnapshot): string | null {
   if (typeof r.marketSession === 'string') parts.push(`session=${r.marketSession}`);
   if (typeof r.regime === 'string') parts.push(`regime=${r.regime}`);
   if (typeof r.fomcPhase === 'string') parts.push(`fomc=${r.fomcPhase}`);
-  if (typeof r.kellyMultiplier === 'number') parts.push(`kelly=×${r.kellyMultiplier.toFixed(2)}`);
+  if (typeof r.regime === 'string') {
+    const policy = getRegimePositionPolicy(r.regime);
+    parts.push(`position=${policy.perPositionPct}%/${policy.maxPositions}`);
+  }
   if (typeof r.engineAlive === 'boolean') parts.push(`alive=${r.engineAlive ? '✅' : '❌'}`);
   if (typeof r.shadowLearningEnabled === 'boolean') parts.push(`shadow=${r.shadowLearningEnabled ? '✅' : '❌'}`);
   if (typeof r.emergencyStop === 'boolean' && r.emergencyStop) parts.push('🛑 emergencyStop');

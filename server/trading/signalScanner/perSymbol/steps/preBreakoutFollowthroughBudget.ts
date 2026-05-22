@@ -9,8 +9,6 @@ import { RRR_MIN_THRESHOLD, calcRRR } from '../../../riskManager.js';
 import { getExecutionCostConfig } from '../../../executionCosts.js';
 import { isOpenShadowStatus, calculateOrderQuantity } from '../../../entryEngine.js';
 import {
-  computeMtasMultiplier,
-  computeRawPositionPct,
   fetchGateData,
 } from '../../../buyPipeline.js';
 import { buildExposureBudgetMacroInput, computeSizingLiquidityInputs } from '../helpers.js';
@@ -21,6 +19,7 @@ import {
   formatShadowBullFloorLog,
   resolveCandidatePositionFloor,
 } from '../../../sizing/shadowBullExposureProfile.js';
+import { calculateRegimePositionSizing } from '../../../sizing/regimePositionPolicy.js';
 import type { BuyListLoopContext } from '../types.js';
 
 type FetchGateDataResult = Awaited<ReturnType<typeof fetchGateData>>;
@@ -64,8 +63,17 @@ export async function preBreakoutFollowthroughBudget(
     kisFlowFollow,
   );
 
-  const mtasFollow = reCheckGateFollow ? computeMtasMultiplier(reCheckGateFollow.mtas) : 1.0;
-  const posPctFollow = computeRawPositionPct(gateScoreFollow) * ctx.kellyMultiplier * mtasFollow;
+  const activeFollowPositions = ctx.shadows.filter(s =>
+    isOpenShadowStatus(s.status) &&
+    s.watchlistSource !== 'INTRADAY' &&
+    s.watchlistSource !== 'PRE_BREAKOUT',
+  ).length + ctx.mutables.reservedSlots.value;
+  const simpleSizingFollow = calculateRegimePositionSizing({
+    regime: ctx.regime,
+    totalEquity: ctx.totalAssets,
+    currentPositions: activeFollowPositions,
+  });
+  const posPctFollow = simpleSizingFollow.positionSizePct / 100;
   const exposureFloorFollow = resolveCandidatePositionFloor({
     shadowMode: ctx.shadowMode,
     regime: ctx.regime,
@@ -84,23 +92,14 @@ export async function preBreakoutFollowthroughBudget(
     );
   }
 
-  const remSlots = Math.max(
-    1,
-    ctx.effectiveMaxPositions
-      - ctx.shadows.filter(s =>
-        isOpenShadowStatus(s.status) &&
-        s.watchlistSource !== 'INTRADAY' &&
-        s.watchlistSource !== 'PRE_BREAKOUT',
-      ).length
-      - ctx.mutables.reservedSlots.value,
-  );
+  const remSlots = Math.max(1, simpleSizingFollow.remainingSlots);
   const { quantity: legacyFullQty } = calculateOrderQuantity({
     totalAssets: ctx.totalAssets,
     orderableCash: ctx.mutables.orderableCash.value,
     positionPct: effPosPctFollow,
     price: followEntryPrice,
     remainingSlots: remSlots,
-    accountKellyMultiplier: ctx.accountKellyMultiplier,
+    accountKellyMultiplier: 1.0,
   });
 
   const _sizingInputFollow = computeSizingLiquidityInputs(
@@ -111,7 +110,7 @@ export async function preBreakoutFollowthroughBudget(
   );
   const sizingApplyFollow = applyPositionSizingEngine(ctx.shadowMode, {
     totalAssets: ctx.totalAssets, shadowEntryPrice: followEntryPrice, stopLoss: stock.stopLoss,
-    signalGrade: 'STRONG_BUY', regimeKelly: ctx.kellyMultiplier, confidenceModifier: 1.0,
+    signalGrade: 'BUY', regimeKelly: 1.0, confidenceModifier: 1.0,
     rrr: stock.rrr ?? 0,
     marketCap: 1_000_000_000_000_000,
     avgDailyVolume20d: _sizingInputFollow.avgDailyVolume20d,

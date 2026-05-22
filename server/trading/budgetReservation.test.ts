@@ -89,4 +89,24 @@ describe('BUG #3 — orderableCash 예약 패턴', () => {
     expect(b.quantity).toBe(0);
     expect(b.effectiveBudget).toBe(0);
   });
+
+  it('Simplification Step 2: accountKellyMultiplier is ignored by order quantity sizing', () => {
+    const base = calculateOrderQuantity({
+      totalAssets: 100_000_000,
+      orderableCash: 100_000_000,
+      positionPct: 0.1,
+      price: 50_000,
+      remainingSlots: 1,
+    });
+    const legacyKellyInput = calculateOrderQuantity({
+      totalAssets: 100_000_000,
+      orderableCash: 100_000_000,
+      positionPct: 0.1,
+      price: 50_000,
+      remainingSlots: 1,
+      accountKellyMultiplier: 0.01,
+    });
+
+    expect(legacyKellyInput).toEqual(base);
+  });
 });

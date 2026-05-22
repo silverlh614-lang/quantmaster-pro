@@ -1,10 +1,12 @@
-// @responsibility risk.cmd 텔레그램 모듈
-// @responsibility: /risk /risk_budget — 계좌 리스크 예산 + Fractional Kelly 캡 현황 (signalScanner 게이트와 동일 로직).
+// @responsibility /risk /risk_budget account risk and simplified regime position policy.
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
+import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import {
   getAccountRiskBudget,
   formatAccountRiskBudget,
 } from '../../../trading/accountRiskBudget.js';
+import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { calculateRegimePositionSizing } from '../../../trading/sizing/regimePositionPolicy.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -14,15 +16,26 @@ const risk: TelegramCommand = {
   category: 'LRN',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: '계좌 리스크 예산 + Fractional Kelly 캡 현황',
+  description: 'Account risk budget and simplified regime position policy',
   async execute({ reply }) {
     const settings = loadTradingSettings();
     const totalAssets = settings.startingCapital ?? 0;
     const budget = getAccountRiskBudget({ totalAssets });
+    const regime = getLiveRegime(loadMacroState());
+    const sizing = calculateRegimePositionSizing({
+      regime,
+      totalEquity: totalAssets,
+      currentPositions: 0,
+    });
     await reply(
       formatAccountRiskBudget(budget) +
-      `\n\n<i>총 자본 기준: ${(totalAssets / 10_000).toLocaleString()}만원 (settings.startingCapital)\n` +
-      `Fractional Kelly: STRONG_BUY ≤0.5 / BUY ≤0.25 / HOLD ≤0.1</i>`,
+      `\n\n<b>Position policy</b>` +
+      `\nregime=${sizing.policy.regime}` +
+      `\nmaxPositions=${sizing.policy.maxPositions}` +
+      `\nmaxGrossExposurePct=${sizing.policy.maxGrossExposurePct}` +
+      `\nperPositionPct=${sizing.policy.perPositionPct}` +
+      `\npositionAmount=${Math.round(sizing.positionAmount).toLocaleString()} KRW` +
+      `\nexecutionImpact=NONE`,
     );
   },
 };

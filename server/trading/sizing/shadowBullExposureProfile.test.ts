@@ -351,23 +351,31 @@ describe('PATCH-010 §7 PRE_BREAKOUT / INTRADAY 경로 wiring 정적 가드', ()
     path.join(REPO_ROOT, 'server/trading/signalScanner/perSymbol/buyListLoop.ts'),
     'utf8',
   );
+  const preBreakoutFollowthroughSrc = readFileSync(
+    path.join(REPO_ROOT, 'server/trading/signalScanner/perSymbol/steps/preBreakoutFollowthroughBudget.ts'),
+    'utf8',
+  );
+  const preBreakoutEntrySrc = readFileSync(
+    path.join(REPO_ROOT, 'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts'),
+    'utf8',
+  );
   const intradayLoopSrc = readFileSync(
     path.join(REPO_ROOT, 'server/trading/signalScanner/perSymbol/intradayLoop.ts'),
     'utf8',
   );
 
   it('PRE_BREAKOUT_FOLLOWTHROUGH 경로 — effPosPctFollow wiring', () => {
-    expect(buyListLoopSrc).toContain('const exposureFloorFollow = resolveCandidatePositionFloor({');
-    expect(buyListLoopSrc).toContain('const effPosPctFollow = exposureFloorFollow.effectivePositionPct;');
-    expect(buyListLoopSrc).toContain("pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',");
-    expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effPosPctFollow/);
+    expect(preBreakoutFollowthroughSrc).toContain('const exposureFloorFollow = resolveCandidatePositionFloor({');
+    expect(preBreakoutFollowthroughSrc).toContain('const effPosPctFollow = exposureFloorFollow.effectivePositionPct;');
+    expect(preBreakoutFollowthroughSrc).toContain("pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH',");
+    expect(preBreakoutFollowthroughSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effPosPctFollow/);
   });
 
   it('PRE_BREAKOUT 30% 선취매 경로 — effPosPctPb wiring (풀 포지션 floor → 30% 트랜치는 호출자)', () => {
-    expect(buyListLoopSrc).toContain('const exposureFloorPb = resolveCandidatePositionFloor({');
-    expect(buyListLoopSrc).toContain('const effPosPctPb = exposureFloorPb.effectivePositionPct;');
-    expect(buyListLoopSrc).toContain("pathLabel: 'PRE_BREAKOUT_30PCT',");
-    expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effPosPctPb/);
+    expect(preBreakoutEntrySrc).toContain('const exposureFloorPb = resolveCandidatePositionFloor({');
+    expect(preBreakoutEntrySrc).toContain('const effPosPctPb = exposureFloorPb.effectivePositionPct;');
+    expect(preBreakoutEntrySrc).toContain("pathLabel: 'PRE_BREAKOUT_30PCT',");
+    expect(preBreakoutEntrySrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effPosPctPb/);
   });
 
   it('INTRADAY 경로 — effectivePositionPct wiring + import', () => {
@@ -382,14 +390,14 @@ describe('PATCH-010 §7 PRE_BREAKOUT / INTRADAY 경로 wiring 정적 가드', ()
 
   it('3 경로 모두 ctx.shadowMode + STANDARD tier 사용 (PROBING 제외 아님)', () => {
     // FOLLOWTHROUGH / 30% / INTRADAY 모두 tierDecision 부재 → STANDARD 중립 default.
-    expect(buyListLoopSrc).toMatch(/exposureFloorFollow[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
-    expect(buyListLoopSrc).toMatch(/exposureFloorPb[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
+    expect(preBreakoutFollowthroughSrc).toMatch(/exposureFloorFollow[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
+    expect(preBreakoutEntrySrc).toMatch(/exposureFloorPb[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
     expect(intradayLoopSrc).toMatch(/exposureFloorIntraday[\s\S]*?shadowMode:\s*ctx\.shadowMode[\s\S]*?tier:\s*'STANDARD'/);
   });
 
   it('3 경로 모두 applied 시에만 진단 로그 (formatShadowBullFloorLog SSOT)', () => {
-    expect(buyListLoopSrc).toMatch(/if\s*\(exposureFloorFollow\.applied\)/);
-    expect(buyListLoopSrc).toMatch(/if\s*\(exposureFloorPb\.applied\)/);
+    expect(preBreakoutFollowthroughSrc).toMatch(/if\s*\(exposureFloorFollow\.applied\)/);
+    expect(preBreakoutEntrySrc).toMatch(/if\s*\(exposureFloorPb\.applied\)/);
     expect(intradayLoopSrc).toMatch(/if\s*\(exposureFloorIntraday\.applied\)/);
     expect(intradayLoopSrc).toContain('formatShadowBullFloorLog(exposureFloorIntraday, {');
   });

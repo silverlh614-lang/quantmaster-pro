@@ -33,6 +33,7 @@ import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection } from
 import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
+import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
 
 export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // ADR-0367: 직전 스캔이 buyListLoop 진입 전 preflight 차단됐으면 preflight blocked scan 을 우선 표시.
@@ -57,7 +58,8 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push('🛑 <b>거시 게이트:</b>');
     lines.push(`  • emergencyStop: ${mg.emergencyStop ? '<b>ON ⚠️</b>' : 'off'}`);
     lines.push(`  • autoTradeEnabled: ${mg.autoTradeEnabled ? 'on' : '<b>OFF ⚠️</b>'}`);
-    lines.push(`  • 레짐: ${mg.regime} (Kelly ×${mg.kellyMultiplierFromRegime.toFixed(2)})`);
+    const positionPolicy = getRegimePositionPolicy(mg.regime);
+    lines.push(`  • 레짐: ${mg.regime} (총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
     if (mg.macroRegimeRaw || mg.macroRegimeEffective) lines.push(`  • raw/effective: ${mg.macroRegimeRaw ?? 'UNKNOWN'} → ${mg.macroRegimeEffective ?? mg.regime}`);
     if (mg.r6RecoveryStatus) lines.push(`  • r6RecoveryStatus: ${mg.r6RecoveryStatus}`);
     if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);
@@ -70,7 +72,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.shadowLearningAllowed !== undefined) lines.push(`  • shadowLearningAllowed: ${mg.shadowLearningAllowed}`);
     if (mg.counterfactualAllowed !== undefined) lines.push(`  • counterfactualAllowed: ${mg.counterfactualAllowed}`);
     if (mg.brokerOrderAllowed !== undefined) lines.push(`  • brokerOrderAllowed: ${mg.brokerOrderAllowed}`);
-    lines.push(`  • FOMC: ${mg.fomcPhase} (Kelly ×${mg.fomcKellyMultiplier.toFixed(2)}) → 결합 ×${mg.finalKellyMultiplier.toFixed(2)}`);
+    lines.push(`  • FOMC: ${mg.fomcPhase} (점수/신뢰도 보정만 적용, executionImpact=NONE)`);
     if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
     if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);
     if (mg.mhsBelow30) lines.push(`  • MHS<30: <b>ON ⚠️</b>`);

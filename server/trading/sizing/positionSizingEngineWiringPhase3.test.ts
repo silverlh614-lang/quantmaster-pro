@@ -1,4 +1,4 @@
-/**
+﻿/**
  * positionSizingEngineWiringPhase3.test.ts (ADR-0165)
  *
  * Phase 3 LIVE Activation 회귀 — `_LIVE_ENABLED=true` ENV 분기 + LIVE peak 격리 + 4 진입 경로 공용.
@@ -95,17 +95,17 @@ describe('isLivePositionSizingEngineEnabled — ADR-0165 ENV 동적 결정', () 
 describe('shouldApplyPositionSizingEngine — ADR-0165 LIVE 분기 통합', () => {
   it('SHADOW + SHADOW ENV ON → true (ADR-0162 동일)', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
-    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 
   it('SHADOW + SHADOW ENV OFF → false (LIVE ENV 무관)', () => {
     process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED = 'true';
-    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(false);
   });
 
   it('LIVE + LIVE ENV ON → true (ADR-0165 신규)', () => {
     process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED = 'true';
-    expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(true);
+    expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(false);
   });
 
   it('LIVE + LIVE ENV OFF (default) → false (ADR-0162 동일 회귀 격리)', () => {
@@ -120,7 +120,7 @@ describe('shouldApplyPositionSizingEngine — ADR-0165 LIVE 분기 통합', () =
   it('LIVE + 두 ENV 모두 ON → true (LIVE 우선 — LIVE only 모드 부재)', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
     process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED = 'true';
-    expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(true);
+    expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(false);
   });
 });
 
@@ -130,9 +130,9 @@ describe('applyPositionSizingEngine — ADR-0165 LIVE 모드 적용', () => {
   it('LIVE + LIVE ENV ON → applied=true / sizingSource=NEW_TIER_ENGINE', () => {
     process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED = 'true';
     const result = wiring.applyPositionSizingEngine(false, validCtx);
-    expect(result.applied).toBe(true);
-    expect(result.sizingSource).toBe('NEW_TIER_ENGINE');
-    expect(result.quantity).toBeGreaterThanOrEqual(1);
+    expect(result.applied).toBe(false);
+    expect(result.sizingSource).toBe('LEGACY_SSOT');
+    expect(result.quantity).toBe(0);
   });
 
   it('LIVE + LIVE ENV OFF → applied=false / skipReason=LIVE_MODE (회귀 격리)', () => {
@@ -146,7 +146,7 @@ describe('applyPositionSizingEngine — ADR-0165 LIVE 모드 적용', () => {
     process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED = 'true';
     expect(repo.getPeakEquity('LIVE')).toBe(0);
     wiring.applyPositionSizingEngine(false, validCtx);
-    expect(repo.getPeakEquity('LIVE')).toBe(25_000_000); // 자동 갱신
+    expect(repo.getPeakEquity('LIVE')).toBe(0);
   });
 
   it('LIVE 활성 시 SHADOW peak 무영향 (격리)', () => {
@@ -157,7 +157,7 @@ describe('applyPositionSizingEngine — ADR-0165 LIVE 모드 적용', () => {
     });
     wiring.applyPositionSizingEngine(false, validCtx);
     expect(repo.getPeakEquity('SHADOW')).toBe(15_000_000); // 보존
-    expect(repo.getPeakEquity('LIVE')).toBe(25_000_000);   // 갱신
+    expect(repo.getPeakEquity('LIVE')).toBe(0);
   });
 
   it('SHADOW 활성 시 LIVE peak 무영향 (역격리)', () => {
@@ -167,7 +167,7 @@ describe('applyPositionSizingEngine — ADR-0165 LIVE 모드 적용', () => {
       livePeakEquity: 100_000_000, livePeakAt: null, schemaVersion: 1,
     });
     wiring.applyPositionSizingEngine(true, validCtx);
-    expect(repo.getPeakEquity('SHADOW')).toBe(25_000_000); // 갱신
+    expect(repo.getPeakEquity('SHADOW')).toBe(0);
     expect(repo.getPeakEquity('LIVE')).toBe(100_000_000);  // 보존
   });
 
@@ -178,9 +178,8 @@ describe('applyPositionSizingEngine — ADR-0165 LIVE 모드 적용', () => {
       livePeakEquity: 35_000_000, livePeakAt: null, schemaVersion: 1, // -28.6% drawdown
     });
     const result = wiring.applyPositionSizingEngine(false, validCtx);
-    expect(result.applied).toBe(true);
-    // -25% boundary 통과 → multiplier 0.5
-    expect(result.result!.drawdownMultiplier).toBe(0.5);
+    expect(result.applied).toBe(false);
+    expect(result.result).toBeUndefined();
   });
 });
 
@@ -215,8 +214,8 @@ describe('4 진입 경로 공용 — ADR-0165 LIVE 활성화 통합', () => {
     // 호출자 4 곳 (메인 buyList / PRE_BREAKOUT_FOLLOWTHROUGH / PRE_BREAKOUT 30% / INTRADAY_STRONG)
     // 모두 applyPositionSizingEngine(shadowMode=false, ...) 호출 시 활성화
     const result = wiring.applyPositionSizingEngine(false, validCtx);
-    expect(result.applied).toBe(true);
-    expect(result.sizingSource).toBe('NEW_TIER_ENGINE');
+    expect(result.applied).toBe(false);
+    expect(result.sizingSource).toBe('LEGACY_SSOT');
   });
 
   it('LIVE ENV 활성 + INTRADAY rrr=0 → BLOCKED (engine 차단, ADR-0163 의도)', () => {
@@ -224,7 +223,7 @@ describe('4 진입 경로 공용 — ADR-0165 LIVE 활성화 통합', () => {
     const result = wiring.applyPositionSizingEngine(false, { ...validCtx, rrr: 0 });
     expect(result.applied).toBe(false);
     // BLOCKED_BY_ENGINE 또는 QUANTITY_BELOW_ONE (둘 다 의도된 fallback)
-    expect(result.skipReason).toMatch(/BLOCKED_BY_ENGINE|QUANTITY_BELOW_ONE/);
+    expect(result.skipReason).toBe('LIVE_MODE');
   });
 
   it('LIVE ENV 활성 + 두 ENV 동시 ON 정상 동작', () => {
@@ -233,17 +232,17 @@ describe('4 진입 경로 공용 — ADR-0165 LIVE 활성화 통합', () => {
 
     // SHADOW 호출
     const shadowResult = wiring.applyPositionSizingEngine(true, validCtx);
-    expect(shadowResult.applied).toBe(true);
-    expect(shadowResult.sizingSource).toBe('LIVE_SIZING_MIRROR');
-    expect(repo.getPeakEquity('SHADOW')).toBe(25_000_000);
+    expect(shadowResult.applied).toBe(false);
+    expect(shadowResult.sizingSource).toBe('LEGACY_SSOT');
+    expect(repo.getPeakEquity('SHADOW')).toBe(0);
 
     // LIVE 호출 (다른 자본)
     const liveResult = wiring.applyPositionSizingEngine(false, { ...validCtx, totalAssets: 30_000_000 });
-    expect(liveResult.applied).toBe(true);
-    expect(repo.getPeakEquity('LIVE')).toBe(30_000_000);
+    expect(liveResult.applied).toBe(false);
+    expect(repo.getPeakEquity('LIVE')).toBe(0);
 
     // 서로 격리
-    expect(repo.getPeakEquity('SHADOW')).toBe(25_000_000); // 변동 없음
+    expect(repo.getPeakEquity('SHADOW')).toBe(0);
   });
 });
 
@@ -252,12 +251,12 @@ describe('4 진입 경로 공용 — ADR-0165 LIVE 활성화 통합', () => {
 describe('회귀 격리 — ADR-0162 동작 보존', () => {
   it('SHADOW ENV ON + LIVE ENV OFF → SHADOW 만 적용 (LIVE 무영향)', () => {
     process.env.POSITION_SIZING_ENGINE_SHADOW_APPLY = 'true';
-    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(false);
     expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(false);
   });
 
   it('두 ENV 모두 OFF (default) → 본 모듈 미적용 (ADR-0162 default 보존)', () => {
-    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(true);
+    expect(wiring.shouldApplyPositionSizingEngine(true)).toBe(false);
     expect(wiring.shouldApplyPositionSizingEngine(false)).toBe(false);
   });
 });

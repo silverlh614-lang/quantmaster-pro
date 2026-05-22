@@ -18,7 +18,7 @@ export async function phaseEntryGate(
     const result = await gate({
       stock, shadows: ctx.shadows, scanCounters: ctx.scanCounters,
       watchlist: ctx.watchlist, mutables: ctx.mutables,
-      currentPrice, totalAssets: ctx.totalAssets, kellyMultiplier: ctx.kellyMultiplier,
+      currentPrice, totalAssets: ctx.totalAssets, kellyMultiplier: 1.0,
     });
     if (result.pass) {
       if (result.passLogMessage) console.log(result.passLogMessage);
