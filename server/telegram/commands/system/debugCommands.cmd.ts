@@ -64,6 +64,7 @@ const whoami: TelegramCommand = {
 
 const debugCommand: TelegramCommand = {
   name: '/debug_command',
+  aliases: ['/debug'],
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,

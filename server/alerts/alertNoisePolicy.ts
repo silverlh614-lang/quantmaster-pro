@@ -320,7 +320,10 @@ function handleEngineState(event: AlertNoiseEvent): NoiseDecision {
   const key = `ENGINE_STATE:${event.dedupeHint ?? 'GLOBAL'}`;
   const previous = event.previousState ?? lastStateByKey.get(key);
   lastStateByKey.set(key, state);
-  if ((state === 'SELL_ONLY' || state === 'HARD_BLOCK' || previous === 'SELL_ONLY' || previous === 'HARD_BLOCK') && previous !== state) {
+  if (state === 'SELL_ONLY' || previous === 'SELL_ONLY') {
+    return silent(event, 'LEGACY_SELL_ONLY_STATE_INTERNAL_ONLY', `${key}:${previous ?? 'UNKNOWN'}->${state}`, TRADING_DAY);
+  }
+  if ((state === 'HARD_BLOCK' || previous === 'HARD_BLOCK') && previous !== state) {
     return notice(event, 'ENGINE_STATE_TRANSITION_NOTICE', `${key}:${previous ?? 'UNKNOWN'}->${state}`, TRADING_DAY);
   }
   return silent(event, 'ENGINE_STATE_MAINTAINED_SUPPRESSED', `${key}:${state}`, TRADING_DAY);

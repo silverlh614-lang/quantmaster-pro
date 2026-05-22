@@ -81,7 +81,7 @@ describe('ADR-0468 alert noise policy', () => {
     expect(strongReject.shouldSendNow).toBe(true);
   });
 
-  it('sends SELL_ONLY transition and suppresses maintained state', () => {
+  it('keeps legacy SELL_ONLY transition internal-only and suppresses maintained state', () => {
     const transition = evaluateAlertNoise({
       eventType: 'ENGINE_STATE',
       previousState: 'NORMAL',
@@ -95,10 +95,11 @@ describe('ADR-0468 alert noise policy', () => {
       nowMs: 2,
     });
 
-    expect(transition.shouldSendNow).toBe(true);
-    expect(transition.level).toBe('NOTICE');
+    expect(transition.shouldSendNow).toBe(false);
+    expect(transition.level).toBe('SILENT');
+    expect(transition.reason).toBe('LEGACY_SELL_ONLY_STATE_INTERNAL_ONLY');
     expect(maintained.shouldSendNow).toBe(false);
-    expect(maintained.reason).toBe('ENGINE_STATE_MAINTAINED_SUPPRESSED');
+    expect(maintained.reason).toBe('LEGACY_SELL_ONLY_STATE_INTERNAL_ONLY');
   });
 
   it('suppresses health ok and backup success', () => {

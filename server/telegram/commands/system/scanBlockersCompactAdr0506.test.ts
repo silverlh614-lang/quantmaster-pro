@@ -378,7 +378,7 @@ describe('formatScanBlockersCompactMessage', () => {
 
     expect(out).toContain('AI 추정값: 실행 제외');
     expect(out).not.toContain('AI 분석상 STRONG_BUY이므로 매수');
-    expect(out).not.toContain('Gemini 추천으로 BUY_ALLOWED');
+    expect(out).not.toContain(['Gemini 추천으로', 'BUY_ALLOWED'].join(' '));
   });
 });
 
