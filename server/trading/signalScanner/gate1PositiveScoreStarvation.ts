@@ -1197,13 +1197,22 @@ export function formatPositiveScoreStarvationReport(
   if (canonicalRuntimeResolution) {
     const momentum = canonicalRuntimeResolution.momentum;
     const momentumStatus = report.currentPathComponentStatus.find((item) => item.code === 'PRICE_MOMENTUM');
-    const zeroReason = (momentumStatus?.avgContribution ?? 0) === 0 && momentum.priceMomentumComputedCount > 0
-      ? 'MOMENTUM_BELOW_THRESHOLD'
-      : 'NONE';
+    const zeroReasonTags: string[] = [];
+    const computed = momentum.priceMomentumComputedCount;
+    if ((momentumStatus?.avgContribution ?? 0) === 0 && computed > 0) {
+      if (momentum.return5dCount < computed) zeroReasonTags.push('RETURN5D_BELOW_THRESHOLD');
+      if (momentum.return20dCount < computed) zeroReasonTags.push('RETURN20D_BELOW_THRESHOLD');
+      if (momentum.relativeReturn20dCount < computed) zeroReasonTags.push('RELATIVE_RETURN_BELOW_THRESHOLD');
+      if (momentum.marketRelativeReturnCount < computed) zeroReasonTags.push('NEGATIVE_SLOPE');
+      if (zeroReasonTags.length === 0) zeroReasonTags.push('SCORE_CURVE_TOO_STRICT');
+    }
+    const zeroReason = zeroReasonTags.length > 0 ? zeroReasonTags.join('|') : 'NONE';
     lines.push(
       `  PRICE_MOMENTUM: computedCount ${momentum.priceMomentumComputedCount} / ` +
         `return5dCount ${momentum.return5dCount} / return20dCount ${momentum.return20dCount} / ` +
-        `relativeReturn20dCount ${momentum.relativeReturn20dCount} / zeroReason ${zeroReason}`,
+        `relativeReturn20dCount ${momentum.relativeReturn20dCount} / marketRelativeReturnCount ${momentum.marketRelativeReturnCount} / ` +
+        `positiveCount ${Math.max(0, report.totalCandidates - (report.zeroContributionComponents.find((c) => c.code === 'PRICE_MOMENTUM')?.count ?? report.totalCandidates))} / ` +
+        `zeroReason ${zeroReason}`,
     );
   }
   lines.push(
