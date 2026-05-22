@@ -66,7 +66,7 @@ const AUTO_APPROVE_TIMEOUT_MS = 3 * 60 * 1000;
  *   R3 EARLY   — 2분
  *   R4 NEUTRAL — 3분 (기존 고정값)
  *   R5 CAUTION — 신중하게 5분
- *   R6 DEFENSE — 자동 승인 없음(수동만) — 사실상 무제한이지만 R6는 상위 레이어에서 매수가 차단되므로 안전
+ *   R6 DEFENSE — execution block removed; use the same cautious timeout as R5
  */
 const TIMEOUT_BY_REGIME: Record<RegimeLevel, number> = {
   R1_TURBO:    60_000,
@@ -74,7 +74,7 @@ const TIMEOUT_BY_REGIME: Record<RegimeLevel, number> = {
   R3_EARLY:   120_000,
   R4_NEUTRAL: 180_000,
   R5_CAUTION: 300_000,
-  R6_DEFENSE:      0,  // 0 = 자동 승인 비활성 (수동 승인만 허용)
+  R6_DEFENSE: 300_000,
 };
 
 /** 레짐별 타임아웃 조회. 미전달·미지원 레짐 → 기본 3분. */

@@ -146,7 +146,7 @@ const REGIME_MAPPING: Record<RegimeLevel, MarketRegimeLevel> = {
   R3_EARLY: 'R4_RECOVERY',
   R4_NEUTRAL: 'R3_NEUTRAL',
   R5_CAUTION: 'R2_WEAK',
-  R6_DEFENSE: 'R0_CRISIS',
+  R6_DEFENSE: 'R1_DEFENSIVE',
 };
 
 export function mapInternalToExposureRegime(internal: RegimeLevel): MarketRegimeLevel {
@@ -202,7 +202,7 @@ export function mapInternalToExposureRegimeWithMacro(
 
   // R6_DEFENSE 는 매크로 무관 — 시장 전체 붕괴
   if (internal === 'R6_DEFENSE') {
-    return 'R0_CRISIS';
+    return 'R1_DEFENSIVE';
   }
 
   // R5_CAUTION 만 매크로 격상 평가

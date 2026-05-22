@@ -107,7 +107,7 @@ export function emitRegimeConflictWarnings(snapshot: RegimeSnapshot): void {
     const mhsBiasSeverity = conflict === 'MHS_BIAS_CONFLICT' ? resolveMhsBiasConflictSeverity(snapshot) : null;
     const executionImpact = mhsBiasSeverity?.executionImpact ??
       (conflict === 'GREEN_WITH_R6' && correctionApplied && userVisibleSafe
-        ? 'NEW_BUY_BLOCKED_ONLY'
+        ? 'NONE'
         : 'REGIME_DISPLAY_CONFLICT');
     emitOperationalWarn({
       priority: 'P1',

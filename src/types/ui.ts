@@ -218,7 +218,7 @@ export const REGIME_TRADING_POLICY: Record<RegimeLevel, RegimePolicyEntry> = {
     forbidden: ['신규 매수', '물타기', '추격 매매'],
   },
   R6_DEFENSE: {
-    headline: '하락/블랙스완 — 매수 차단',
+    headline: '하락/블랙스완 — 저노출 보정',
     verdict: '🔴',
     allowed: ['전량 매도 또는 현금화', '인버스 ETF 검토', '관망'],
     forbidden: ['신규 매수 전면 금지', '저점 매수', '레버리지 진입'],

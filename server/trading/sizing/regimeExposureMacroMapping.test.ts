@@ -57,13 +57,13 @@ describe('ADR-0170 §2 mapInternalToExposureRegimeWithMacro 결정 트리', () =
 
     it('DISABLED=true + R6_DEFENSE → R0_CRISIS (기존 매핑 보존)', () => {
       process.env.EXPOSURE_REGIME_AUTO_MAPPING_DISABLED = 'true';
-      expect(mapInternalToExposureRegimeWithMacro('R6_DEFENSE', { bearDefenseMode: true })).toBe('R0_CRISIS');
+      expect(mapInternalToExposureRegimeWithMacro('R6_DEFENSE', { bearDefenseMode: true })).toBe('R1_DEFENSIVE');
     });
   });
 
   describe('R6_DEFENSE 매크로 무관', () => {
     it('R6_DEFENSE → R0_CRISIS (매크로 신호 무시)', () => {
-      expect(mapInternalToExposureRegimeWithMacro('R6_DEFENSE', { bearDefenseMode: false, vix: 10 })).toBe('R0_CRISIS');
+      expect(mapInternalToExposureRegimeWithMacro('R6_DEFENSE', { bearDefenseMode: false, vix: 10 })).toBe('R1_DEFENSIVE');
     });
   });
 
@@ -164,7 +164,7 @@ describe('ADR-0170 §2 mapInternalToExposureRegimeWithMacro 결정 트리', () =
     });
 
     it('R6_DEFENSE → R0_CRISIS', () => {
-      expect(mapInternalToExposureRegime('R6_DEFENSE')).toBe('R0_CRISIS');
+      expect(mapInternalToExposureRegime('R6_DEFENSE')).toBe('R1_DEFENSIVE');
     });
 
     it('R1_TURBO → R6_STRONG_BULL', () => {

@@ -74,7 +74,7 @@ export type TradeRegime =
  * R3 EARLY   — 상승 초기 선행 신호: 소규모 선취매 (수익률 최고 구간)
  * R4 NEUTRAL — 중립 횡보: 선택적 진입
  * R5 CAUTION — 약세 징조: 방어 우선
- * R6 DEFENSE — 하락/블랙스완: 매수 차단
+ * R6 DEFENSE — 하락/블랙스완: 저노출 보정
  */
 export type RegimeLevel =
   | 'R1_TURBO'
@@ -151,9 +151,9 @@ export interface FullRegimeConfig {
 
   // 포지션 공격성
   kellyMultiplier: number;     // baseKelly × kellyMultiplier = 실효 Kelly
-  maxPositions: number;        // 동시 보유 최대 종목 수 (0 = 매수 차단)
+  maxPositions: number;        // 동시 보유 최대 종목 수
   maxExposurePct?: number;     // portfolio exposure cap percentage used by legacy regime configs
-  allowedSignals: string[];    // 허용 신호 등급 (빈 배열 = 매수 전면 차단)
+  allowedSignals: string[];    // legacy display/compatibility signal grades; not an execution blocker
   trancheStrategy: string;     // 분할 매수 전략 설명
 
   // 손익 관리

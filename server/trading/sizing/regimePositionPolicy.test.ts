@@ -4,6 +4,10 @@ import {
   calculateRegimePositionSizing,
   formatKellyRemovedIgnoredLog,
   formatPositionPolicySimpleAppliedLog,
+  formatRegimeAdjustmentAppliedLog,
+  formatRegimeExecutionAuthorityRemovedLog,
+  formatRegimePositionPolicyAppliedLog,
+  getRegimeAdjustment,
   getRegimePositionPolicy,
 } from './regimePositionPolicy.js';
 
@@ -32,6 +36,22 @@ describe('regimePositionPolicy — Simplification Step 2', () => {
     expect(getRegimePositionPolicy('R5_CAUTION').perPositionPct).toBe(6.67);
     expect(getRegimePositionPolicy('R6_DEFENSE').perPositionPct).toBe(6.67);
     expect(getRegimePositionPolicy('R6_DEFENSE').maxPositions).toBe(3);
+    expect(getRegimePositionPolicy('R6_DEFENSE').maxGrossExposurePct).toBe(20);
+    expect(getRegimePositionPolicy('UNKNOWN').maxPositions).toBe(3);
+    expect(getRegimePositionPolicy('UNKNOWN').maxGrossExposurePct).toBe(20);
+  });
+
+  it('applies regime as score adjustment only', () => {
+    const r6 = getRegimeAdjustment('R6_DEFENSE');
+    expect(r6).toMatchObject({
+      regime: 'R6_DEFENSE',
+      scoreAdjustment: -5,
+      confidenceAdjustment: -0.10,
+      riskTag: 'REGIME_R6_CONTEXT',
+      learningLabel: 'REGIME_R6_OBSERVED',
+      executionImpact: 'NONE',
+    });
+    expect(getRegimeAdjustment('R1_TURBO').scoreAdjustment).toBe(3);
   });
 
   it('slot full is represented by remainingSlots=0 while preserving counterfactual eligibility', () => {
@@ -62,6 +82,20 @@ describe('regimePositionPolicy — Simplification Step 2', () => {
     });
     expect(formatPositionPolicySimpleAppliedLog({ snapshotId: 'scan_1', symbol: '005930', sizing }))
       .toContain('[POSITION_POLICY_SIMPLE_APPLIED]');
+    expect(formatRegimePositionPolicyAppliedLog({ snapshotId: 'scan_1', symbol: '005930', sizing }))
+      .toContain('[REGIME_POSITION_POLICY_APPLIED]');
+    expect(formatRegimeAdjustmentAppliedLog({
+      snapshotId: 'scan_1',
+      symbol: '005930',
+      adjustment: getRegimeAdjustment('R6_DEFENSE'),
+    })).toContain('[REGIME_ADJUSTMENT_APPLIED]');
+    expect(formatRegimeExecutionAuthorityRemovedLog({
+      snapshotId: 'scan_1',
+      rawRegime: 'R6_DEFENSE',
+      detectedRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      riskOverride: 'R6_DEFENSE',
+    })).toContain('[REGIME_EXECUTION_AUTHORITY_REMOVED]');
     expect(formatKellyRemovedIgnoredLog({ snapshotId: 'scan_1', symbol: '005930', previousKellyValue: 0.01 }))
       .toContain('[KELLY_REMOVED_IGNORED]');
   });

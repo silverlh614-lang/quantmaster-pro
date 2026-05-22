@@ -36,7 +36,7 @@ export const GATE_SCORE_THRESHOLD_BY_REGIME: Record<RegimeLevel, number> = {
   R3_EARLY:   SHARED_SCORE_BANDS.R3_EARLY.normal,
   R4_NEUTRAL: SHARED_SCORE_BANDS.R4_NEUTRAL.normal,
   R5_CAUTION: SHARED_SCORE_BANDS.R5_CAUTION.normal,
-  R6_DEFENSE: SHARED_SCORE_BANDS.R6_DEFENSE.normal, // 999 — 매수 차단
+  R6_DEFENSE: SHARED_SCORE_BANDS.R6_DEFENSE.normal, // legacy score band only; no execution block
 };
 
 /** 레짐별 (STRONG, NORMAL) 쌍 — quantFilter의 signalType 분류에서 사용. */

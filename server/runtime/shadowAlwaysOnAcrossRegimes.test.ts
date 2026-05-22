@@ -12,18 +12,20 @@ describe('Shadow Always-On Across Regimes Patch v1', () => {
       reasonCodes: ['R6_DEFENSE'],
     });
 
-    expect(policy.liveEntryAllowed).toBe(false);
+    expect(policy.liveEntryAllowed).toBe(true);
     expect(policy.liveExitAllowed).toBe(true);
+    expect(policy.liveBuyAllowed).toBe(true);
     expect(policy.shadowBuyAllowed).toBe(true);
     expect(policy.shadowSellAllowed).toBe(true);
     expect(policy.shadowLearningAllowed).toBe(true);
     expect(policy.counterfactualAllowed).toBe(true);
     expect(policy.diagnosticAllowed).toBe(true);
-    expect(policy.brokerOrderAllowed).toBe(false);
-    expect(policy.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
+    expect(policy.brokerOrderAllowed).toBe(true);
+    expect(policy.executionImpact).toBe('LIVE_ORDER_ALLOWED');
+    expect(policy.reasonCodes).not.toContain('R6_DEFENSE');
   });
 
-  it('records an R6 live-buy block as a Shadow/counterfactual case without broker orders', () => {
+  it('records R6 as diagnostic evidence without converting it to a live-buy block', () => {
     const ledger = new InMemoryShadowCaseLedger();
     const policy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
@@ -34,19 +36,21 @@ describe('Shadow Always-On Across Regimes Patch v1', () => {
 
     const row = recordShadowCaseForRuntimePolicy(ledger, {
       runtimePolicy: policy,
-      caseId: 'r6-blocked-buy',
+      caseId: 'r6-adjustment-only',
       symbol: '005930',
       marketSession: 'OPEN',
-      blockedReason: 'R6_DEFENSE',
-      learningTag: 'LIVE_ENTRY_BLOCKED_SHADOW_ALLOWED',
+      rawRegime: 'R6_DEFENSE',
+      effectiveRegime: 'R6_DEFENSE',
+      regimeAtSignal: 'R6_DEFENSE',
+      learningTag: 'REGIME_R6_OBSERVED',
       dataHealth: 'VERIFIED',
       entryPriceVirtual: 70000,
       targetPriceVirtual: 74200,
       stopPriceVirtual: 67900,
     });
 
-    expect(row.state).toBe('LIVE_BLOCKED_SHADOW_ALLOWED');
-    expect(row.actualDecision).toBe('LIVE_BUY_BLOCKED');
+    expect(row.state).toBe('DECISION_MADE');
+    expect(row.actualDecision).toBe('LIVE_BUY_ALLOWED');
     expect(row.shadowDecision).toBe('SHADOW_BUY_SELL_ALLOWED');
     expect(row.counterfactualRecorded).toBe(true);
     expect(row.rawRegime).toBe('R6_DEFENSE');
@@ -57,7 +61,16 @@ describe('Shadow Always-On Across Regimes Patch v1', () => {
     expect(row.brokerOrdersCreated).toBe(0);
   });
 
-  it.each(['SELL_ONLY', 'SHADOW_ONLY', 'OBSERVE_ONLY'] as const)('%s blocks live entry but keeps Shadow always-on', (engineMode) => {
+  it('removed SELL_ONLY normalizes to NORMAL without blocking live entry', () => {
+    const policy = resolveEngineRuntimePolicy({ engineMode: 'SELL_ONLY', liveBuyGateAllowed: true });
+
+    expect(policy.engineMode).toBe('NORMAL');
+    expect(policy.liveEntryAllowed).toBe(true);
+    expect(policy.brokerOrderAllowed).toBe(true);
+    expect(policy.shadowLearningAllowed).toBe(true);
+  });
+
+  it.each(['SHADOW_ONLY', 'OBSERVE_ONLY'] as const)('%s blocks live entry but keeps Shadow always-on', (engineMode) => {
     const policy = resolveEngineRuntimePolicy({ engineMode, liveBuyGateAllowed: true });
 
     expect(policy.liveEntryAllowed).toBe(false);

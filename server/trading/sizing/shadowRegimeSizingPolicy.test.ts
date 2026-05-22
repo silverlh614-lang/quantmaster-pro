@@ -8,7 +8,7 @@ import {
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
 
 describe('shadow regime sizing policy', () => {
-  it('caps R6 shadow budget by 10 percent position cap and 30 percent total exposure cap', () => {
+  it('caps R6 shadow budget by 10 percent position cap and 20 percent total exposure cap', () => {
     const result = calculateShadowRegimeSizing({
       regimeLevel: 'R6_DEFENSE',
       liveSizingEngineBudget: 12_000_000,
@@ -21,7 +21,7 @@ describe('shadow regime sizing policy', () => {
     expect(result.allowed).toBe(true);
     expect(result.policy.maxSymbols).toBe(3);
     expect(result.policy.maxPositionPct).toBe(0.10);
-    expect(result.policy.totalExposureCap).toBe(0.30);
+    expect(result.policy.totalExposureCap).toBe(0.20);
     expect(result.finalShadowBudget).toBe(10_000_000);
     expect(result.finalShadowBudget).toBeGreaterThan(100_000);
     expect(result.sizingSource).toBe('SHADOW_REGIME_SIZING_POLICIES');
@@ -34,7 +34,7 @@ describe('shadow regime sizing policy', () => {
       regimeLevel: 'R6_DEFENSE',
       liveSizingEngineBudget: 10_000_000,
       totalShadowEquity: 100_000_000,
-      currentShadowExposure: 25_000_000,
+      currentShadowExposure: 15_000_000,
       availableVirtualCash: 100_000_000,
       openShadowSymbolCount: 2,
     });
@@ -95,13 +95,13 @@ describe('shadow regime sizing policy', () => {
     expect(resolveShadowRegimeSizingLevel({ regime: 'R2_BULL', effectiveRegime: 'R2_BULL' })).toBe('R2_RISK_ON');
   });
 
-  it('enforces live-shadow parity for R1-R5 and R6 exception', () => {
+  it('enforces live-shadow parity for R1-R6 reduced exposure policies', () => {
     expect(REGIME_CONFIGS.R1_TURBO.maxPositions).toBe(SHADOW_REGIME_SIZING_POLICIES.R1_AGGRESSIVE.maxSymbols);
     expect(REGIME_CONFIGS.R2_BULL.maxPositions).toBe(SHADOW_REGIME_SIZING_POLICIES.R2_RISK_ON.maxSymbols);
     expect(REGIME_CONFIGS.R3_EARLY.maxPositions).toBe(SHADOW_REGIME_SIZING_POLICIES.R3_NEUTRAL.maxSymbols);
     expect(REGIME_CONFIGS.R4_NEUTRAL.maxPositions).toBe(SHADOW_REGIME_SIZING_POLICIES.R4_CAUTION.maxSymbols);
     expect(REGIME_CONFIGS.R5_CAUTION.maxPositions).toBe(SHADOW_REGIME_SIZING_POLICIES.R5_RECOVERY_WATCH.maxSymbols);
-    expect(REGIME_CONFIGS.R6_DEFENSE.maxPositions).toBe(0);
+    expect(REGIME_CONFIGS.R6_DEFENSE.maxPositions).toBe(3);
     expect(SHADOW_REGIME_SIZING_POLICIES.R6_DEFENSE.maxSymbols).toBe(3);
 
     expect((REGIME_CONFIGS as any).R1_TURBO.maxExposurePct).toBe(SHADOW_REGIME_SIZING_POLICIES.R1_AGGRESSIVE.totalExposureCapPct);
@@ -109,7 +109,7 @@ describe('shadow regime sizing policy', () => {
     expect((REGIME_CONFIGS as any).R3_EARLY.maxExposurePct).toBe(SHADOW_REGIME_SIZING_POLICIES.R3_NEUTRAL.totalExposureCapPct);
     expect((REGIME_CONFIGS as any).R4_NEUTRAL.maxExposurePct).toBe(SHADOW_REGIME_SIZING_POLICIES.R4_CAUTION.totalExposureCapPct);
     expect((REGIME_CONFIGS as any).R5_CAUTION.maxExposurePct).toBe(SHADOW_REGIME_SIZING_POLICIES.R5_RECOVERY_WATCH.totalExposureCapPct);
-    expect((REGIME_CONFIGS as any).R6_DEFENSE.maxExposurePct).toBe(0);
-    expect(SHADOW_REGIME_SIZING_POLICIES.R6_DEFENSE.totalExposureCapPct).toBe(30);
+    expect((REGIME_CONFIGS as any).R6_DEFENSE.maxExposurePct).toBe(20);
+    expect(SHADOW_REGIME_SIZING_POLICIES.R6_DEFENSE.totalExposureCapPct).toBe(20);
   });
 });

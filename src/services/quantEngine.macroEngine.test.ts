@@ -264,19 +264,18 @@ describe('getRegimeConfig — 레짐별 Gate·Kelly 설정', () => {
     expect(cfg.allowedSignals).not.toContain('BUY');
   });
 
-  it('MHS < 30 → DEFENSE 설정 (allowedSignals=[], maxPositionKelly=0)', () => {
+  it('MHS < 30 → DEFENSE 설정은 차단 대신 낮은 노출 보정으로 유지', () => {
     const cfg = getRegimeConfig(25, 30);
-    expect(cfg.allowedSignals).toHaveLength(0);
-    expect(cfg.maxPositionKelly).toBe(0);
-    // gate 조건이 사실상 통과 불가
-    expect(cfg.gate2PassCount).toBeGreaterThanOrEqual(99);
-    expect(cfg.gate3PassCount).toBeGreaterThanOrEqual(99);
+    expect(cfg.allowedSignals).toEqual(['HIGH_CONVICTION', 'BUY', 'WATCH']);
+    expect(cfg.maxPositionKelly).toBe(0.3);
+    expect(cfg.gate2PassCount).toBe(10);
+    expect(cfg.gate3PassCount).toBe(8);
   });
 
   it('MHS=0 → DEFENSE 설정', () => {
     const cfg = getRegimeConfig(0, 40);
-    expect(cfg.maxPositionKelly).toBe(0);
-    expect(cfg.allowedSignals).toHaveLength(0);
+    expect(cfg.maxPositionKelly).toBe(0.3);
+    expect(cfg.allowedSignals).toEqual(['HIGH_CONVICTION', 'BUY', 'WATCH']);
   });
 });
 

@@ -99,7 +99,7 @@ export function formatRecentTradesAuditMessage(
   L.push('', '🎯 진단:');
   if (pm.newBuyCount === 0) {
     L.push('   📌 신규 매수 0건 — 다음 거래일 09:00 KST 이후 자연 발생 대기.');
-    L.push('   원인: SHADOW 게이트 / 27조건 / FOMC / VIX / R6_DEFENSE 차단 의심.');
+    L.push('   원인: SHADOW 게이트 / 27조건 / FOMC / VIX / R6_DEFENSE 점수·진단 보정 의심.');
   } else if (pm.withZeroBaseline.length === 0) {
     L.push('   ✅ wiring 정상 — 신규 trade 모두 entryConditionScores 27/27.');
     L.push('   PR-1/2/3/4 정상 작동 확정. attribution baseline 영속 활성.');

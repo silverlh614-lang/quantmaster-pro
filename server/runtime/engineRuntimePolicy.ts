@@ -63,6 +63,21 @@ function uniqueReasons(reasons: string[] = []): string[] {
   return [...new Set(reasons.filter(Boolean))];
 }
 
+const NON_EXECUTION_REGIME_REASON_CODES = new Set([
+  'R5_CAUTION',
+  'R5_CRISIS',
+  'R6_DEFENSE',
+  'RISK_OFF',
+  'BLACK_SWAN',
+  'R6_DEFENSE_SELL_ONLY',
+  'SELL_ONLY',
+  'AFTERMARKET_SELL_ONLY',
+]);
+
+function stripNonExecutionRegimeReasons(reasons: string[] = []): string[] {
+  return reasons.filter((reason) => !NON_EXECUTION_REGIME_REASON_CODES.has(reason));
+}
+
 export function isEngineMode(value: unknown): value is EngineMode {
   return value === 'NORMAL'
     || value === 'DEGRADED'
@@ -88,8 +103,6 @@ export const LearningPolicy = Object.freeze({
 function liveEntryPolicyBlocked(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): boolean {
   return engineMode === 'SHADOW_ONLY'
     || engineMode === 'OBSERVE_ONLY'
-    || input.macroRegime === 'R5_CAUTION'
-    || input.macroRegime === 'R5_CRISIS'
     || input.marketSessionState === 'NON_TRADING_DAY'
     || input.marketSessionState === 'CLOSED'
     || input.hardBlock === true
@@ -101,8 +114,6 @@ function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMo
   const reasons: string[] = [];
   if (engineMode === 'SHADOW_ONLY') reasons.push('SHADOW_ONLY');
   if (engineMode === 'OBSERVE_ONLY') reasons.push('OBSERVE_ONLY');
-  if (input.macroRegime === 'R5_CAUTION') reasons.push('R5_CAUTION');
-  if (input.macroRegime === 'R5_CRISIS') reasons.push('R5_CRISIS');
   if (input.marketSessionState === 'NON_TRADING_DAY') reasons.push('KRX_NON_TRADING_DAY');
   if (input.marketSessionState === 'CLOSED') reasons.push('MARKET_CLOSED');
   if (input.hardBlock === true) reasons.push('HARD_BLOCK');
@@ -135,7 +146,10 @@ export const ExecutionPolicy = Object.freeze({
   resolve(input: ResolveEngineRuntimePolicyInput): EngineRuntimePolicy {
     const engineMode = EngineModeManager.normalize(input.engineMode);
     const policyReasons = liveEntryPolicyReasons(input, engineMode);
-    const reasonCodes = uniqueReasons([...(input.reasonCodes ?? []), ...policyReasons]);
+    const reasonCodes = uniqueReasons([
+      ...stripNonExecutionRegimeReasons(input.reasonCodes ?? []),
+      ...policyReasons,
+    ]);
     const blockedByPolicy = liveEntryPolicyBlocked(input, engineMode);
 
     if (engineMode === 'SHADOW_ONLY') {

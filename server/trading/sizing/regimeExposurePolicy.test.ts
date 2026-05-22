@@ -331,7 +331,7 @@ describe('mapInternalToExposureRegime — 기존 RegimeLevel 매핑', () => {
   });
 
   it('R6_DEFENSE (방어) → R0_CRISIS (위기 — 매수 전면 금지)', () => {
-    expect(mapInternalToExposureRegime('R6_DEFENSE')).toBe('R0_CRISIS');
+    expect(mapInternalToExposureRegime('R6_DEFENSE')).toBe('R1_DEFENSIVE');
   });
 });
 
