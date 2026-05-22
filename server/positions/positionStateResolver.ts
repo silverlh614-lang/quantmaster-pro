@@ -47,6 +47,7 @@ export type PositionStateSourceConfidence =
 
 export interface PositionState {
   positionId: string;
+  orderIntentId?: string;
   tradingDate: string;
   symbol: string;
   name?: string;
@@ -215,6 +216,7 @@ function toPositionState(position: NormalizedPosition, now: Date): PositionState
     entryQuoteSource?: string;
     entryPriceConfidence?: string;
     entryQuoteConfidence?: string;
+    orderIntentId?: string;
     tradePlanId?: string;
     initialStopLoss?: number | null;
     currentStopLoss?: number | null;
@@ -238,6 +240,7 @@ function toPositionState(position: NormalizedPosition, now: Date): PositionState
 
   return {
     positionId: position.id ?? `${mode}:${symbol}`,
+    orderIntentId: raw?.orderIntentId,
     tradingDate: tradingDateKst(now),
     symbol,
     name: position.name,
@@ -527,6 +530,7 @@ export function formatPositionStateOpenedLog(state: PositionState): string {
   return [
     '[POSITION_STATE_OPENED]',
     kv('positionId', state.positionId),
+    kv('orderIntentId', state.orderIntentId),
     kv('symbol', state.symbol),
     "mode='SHADOW'",
     kv('quantity', state.quantity),

@@ -85,12 +85,17 @@ describe('shadowBuyExecutor', () => {
     }, d);
 
     expect(result.outcome).toBe('SHADOW_POSITION_OPENED');
+    expect(result.orderIntent?.status).toBe('COMPLETED');
     expect(sm.state).toBe('SHADOW_POSITION_OPENED');
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_EXECUTION_START]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[ORDER_INTENT_CREATED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_ORDER_CREATED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_PAPER_FILLED]'));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_POSITION_OPENED]'));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_LEDGER_RECORDED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[POSITION_STATE_OPENED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[PAPER_TRADE_LEDGER_RECORDED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[VIRTUAL_ACCOUNT_UPDATED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[ORDER_PIPELINE_COMPLETED]'));
+    expect(d.notifyFilled).toHaveBeenCalled();
     logSpy.mockRestore();
   });
 
@@ -126,6 +131,7 @@ describe('shadowBuyExecutor', () => {
     }, d);
 
     expect(result.outcome).toBe('SHADOW_REJECTED');
+    expect(result.orderIntent?.status).toBe('REJECTED');
     expect(sm.state).toBe('SHADOW_REJECTED');
   });
 });
