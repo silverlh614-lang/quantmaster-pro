@@ -354,6 +354,32 @@ describe('formatScanBlockersCompactMessage', () => {
     const out = formatScanBlockersCompactMessage(null);
     expect(out.split('\n').pop()).toBe(SCAN_BLOCKERS_USAGE_HINT);
   });
+
+  it('AI 추정값은 실행 제외로 표시하고 매수 추천 문구를 만들지 않는다', () => {
+    const summary = {
+      time: '2026-05-13T00:00:00Z',
+      candidates: 1,
+      entries: 0,
+      gatePassDistribution: { gate1Pass: 1, gate2Pass: 1, gate3Pass: 1, lastTriggerPass: 1 },
+      scoreConfidenceSplit: {
+        executionScore: 74,
+        adjustmentScore: 0,
+        finalScore: 74,
+        advisoryScore: 9,
+        aiNarrativeScore: 9,
+        excludedAiScore: 9,
+        executionEligibleFeatureCount: 3,
+        aiEstimatedFeatureCount: 1,
+        diagnostics: [],
+      },
+    } as unknown as ScanSummary;
+
+    const out = formatScanBlockersCompactMessage(summary);
+
+    expect(out).toContain('AI 추정값: 실행 제외');
+    expect(out).not.toContain('AI 분석상 STRONG_BUY이므로 매수');
+    expect(out).not.toContain('Gemini 추천으로 BUY_ALLOWED');
+  });
 });
 
 describe('resolveScanBlockersGateDiagCompactLookup', () => {

@@ -125,7 +125,10 @@ describe('Simplification Step 4 simple final decision', () => {
       snapshotId: 'scan_log',
       symbol: '005930',
       dataUsable: true,
-      finalScore: 87,
+      executionScore: 76,
+      advisoryScore: 9,
+      excludedAiScore: 9,
+      finalScore: 76,
     });
     const logs = [
       formatSimpleDecisionFinalLog(result),
@@ -143,6 +146,11 @@ describe('Simplification Step 4 simple final decision', () => {
     ].join('\n');
 
     expect(logs).toContain('[SIMPLE_DECISION_FINAL]');
+    expect(logs).toContain('executionScore=76');
+    expect(logs).toContain('advisoryScore=9');
+    expect(logs).toContain('excludedAiScore=9');
+    expect(logs).toContain('aiExecutionImpact=NONE');
+    expect(logs).toContain('dataConfidencePolicy=VERIFIED_COMPUTED_ONLY_FOR_EXECUTION');
     expect(logs).toContain('strongBuyAsLabelOnly=true');
     expect(logs).toContain('qualityDecision=TRADE_READY');
     expect(logs).toContain('[STRONG_BUY_CONDITION_DOWNGRADED]');
