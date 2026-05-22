@@ -704,6 +704,18 @@ function technicalTrendScore(trace: CandidateEntryTrace): {
   confidence: SignalScoreComponentConfidence;
   message: string;
 } {
+  const mappedTechnicalTrendScore = numericTraceValue(trace, ["technicalTrendScore", "featurePack.technicalTrendScore", "symbolFeatures.technicalTrendScore", "conditionResults.technicalTrendScore"]);
+  if (finite(mappedTechnicalTrendScore)) {
+    const normalizedMapped = clamp(mappedTechnicalTrendScore <= 10 ? mappedTechnicalTrendScore * 10 : mappedTechnicalTrendScore, 0, 100);
+    const zeroReason = normalizedMapped === 0 ? 'FEATURE_PRESENT_BUT_ZERO_BY_RULE' : 'SCORE_COMPONENT_NOT_MAPPED';
+    return {
+      rawValue: { technicalTrendScore: mappedTechnicalTrendScore },
+      normalizedScore: normalizedMapped,
+      weightedScore: weightedFromNormalized(normalizedMapped, 14),
+      confidence: 'VERIFIED',
+      message: normalizedMapped === 0 ? `TECHNICAL_TREND_${zeroReason}` : 'Technical trend uses SSOT technicalTrendScore mapping.',
+    };
+  }
   const technicalTrendObjectPresent = Boolean(
     nestedNumericTraceValue(trace, ["technicalTrend.slope20d"])
     ?? nestedNumericTraceValue(trace, ["technicalTrend.rsi14"])
