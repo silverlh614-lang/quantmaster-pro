@@ -237,7 +237,7 @@ export async function runAutoSignalScan(
 
   // 1. Preflight (거시/시스템 환경 평가 및 게이팅)
   const preflightResult = await runPreflight(options);
-  if (preflightResult.shouldAbort) {
+  if (preflightResult.shouldAbortEngine || preflightResult.shouldAbort) {
     const preflightAbortSupplyInjection = await collectPreflightAbortDiagnostics(preflightResult, options, counters);
     if (!preflightResult.skipPersist) {
       // ADR-0187: preflight abort 경로도 sectorEnergy meta carry-over (정상 경로와 정합).
@@ -280,6 +280,13 @@ export async function runAutoSignalScan(
     candidates.buyList = injected.candidates;
     candidates.mainList = injected.candidates;
     perSymbolSupplyInjection = injected.stats;
+    if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
+      const intradayInjected = await injectPerSymbolSupplyContext({
+        candidates: candidates.intradayList,
+        investorFlowRouter: createDefaultInvestorFlowRouter(),
+      });
+      candidates.intradayList = intradayInjected.candidates;
+    }
     const normalSupplyPreviewAllowed =
       options?.sellOnly === true ||
       preflightResult.context?.optSellOnly === true ||
@@ -329,7 +336,9 @@ export async function runAutoSignalScan(
   await evaluateIntradayCandidates(candidates, preflightResult.context, counters, queueState, options);
 
   // 5. Order Dispatch (실 KIS 주문 발송 및 알림)
-  await dispatchApprovedBuy(approvedTasks, preflightResult.context);
+  if (!preflightResult.shouldAbortLiveOrder) {
+    await dispatchApprovedBuy(approvedTasks, preflightResult.context);
+  }
 
   // 6. Diagnostics (스캔 이력, 차단 사유 통계 및 영속화)
   // ADR-0187: macroState.sectorEnergy* 3 필드 carry-over → ScanSummary.sectorEnergyQuality/

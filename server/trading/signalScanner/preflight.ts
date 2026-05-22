@@ -318,7 +318,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       },
       notes: ['KIS_APP_KEY missing ??real order preflight remains aborted; learning-only case recorded'],
     });
-    return { shouldAbort: true, skipPersist: false };
+    return { shouldAbort: true, shouldAbortEngine: true, shouldAbortLiveOrder: true, shouldAbortGateEvaluation: true, shouldAbortShadowLearning: false, shouldAbortCounterfactual: false, skipPersist: false };
   }
 
   const legacySellOnlyRequested = options?.sellOnly === true;
@@ -362,7 +362,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       notes: ['watchlist empty ??pre-universe learning snapshot retained with zero candidates'],
     });
     await recordBlockedDayShadowScan('WATCHLIST_EMPTY');
-    return { shouldAbort: true, skipPersist: false };
+    return { shouldAbort: true, shouldAbortEngine: true, shouldAbortLiveOrder: true, shouldAbortGateEvaluation: true, shouldAbortShadowLearning: false, shouldAbortCounterfactual: false, skipPersist: false };
   }
 
   // ADR-0392 P0-B ??env 吏곸젒 李몄“ ??getTradingMode() SSOT ?듭씪.
@@ -605,6 +605,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     saveShadowTrades(shadows);
     return {
       shouldAbort: true,
+      shouldAbortEngine: true,
+      shouldAbortLiveOrder: true,
+      shouldAbortGateEvaluation: true,
+      shouldAbortShadowLearning: false,
+      shouldAbortCounterfactual: false,
       skipPersist: true,
       context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity }),
     };
@@ -650,7 +655,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     );
     await updateShadowResults(shadows, regime);
     saveShadowTrades(shadows);
-    return { shouldAbort: true, skipPersist: true, context: diagnosticContext({ vixGating, fomcProximity }) };
+    return { shouldAbort: true, shouldAbortEngine: true, shouldAbortLiveOrder: true, shouldAbortGateEvaluation: true, shouldAbortShadowLearning: false, shouldAbortCounterfactual: false, skipPersist: true, context: diagnosticContext({ vixGating, fomcProximity }) };
   }
 
   const volumeClock = checkVolumeClockWindow();
@@ -812,6 +817,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     saveShadowTrades(shadows);
     return {
       shouldAbort: true,
+      shouldAbortEngine: true,
+      shouldAbortLiveOrder: true,
+      shouldAbortGateEvaluation: true,
+      shouldAbortShadowLearning: false,
+      shouldAbortCounterfactual: false,
       skipPersist: true,
       positionFull: true,
       context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier }),
@@ -971,6 +981,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   return {
     shouldAbort: false,
+    shouldAbortEngine: false,
+    shouldAbortLiveOrder: diagnosticOnlyLiveBlock,
+    shouldAbortGateEvaluation: false,
+    shouldAbortShadowLearning: false,
+    shouldAbortCounterfactual: false,
     macroGateState,
     context: {
       shadowMode,
