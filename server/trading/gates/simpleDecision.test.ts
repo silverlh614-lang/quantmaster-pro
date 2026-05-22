@@ -6,6 +6,7 @@ import {
   labelFromFinalScore,
   resolveSimpleTradeDecision,
 } from './simpleDecision.js';
+import { evaluateSoftGateScore, formatGateScoreEvaluatedLog } from './gateSoftEvaluation.js';
 
 describe('Simplification Step 4 simple final decision', () => {
   it('labels finalScore 86 as HIGH_CONVICTION without a separate strong-buy condition', () => {
@@ -143,6 +144,7 @@ describe('Simplification Step 4 simple final decision', () => {
 
     expect(logs).toContain('[SIMPLE_DECISION_FINAL]');
     expect(logs).toContain('strongBuyAsLabelOnly=true');
+    expect(logs).toContain('qualityDecision=TRADE_READY');
     expect(logs).toContain('[STRONG_BUY_CONDITION_DOWNGRADED]');
     expect(logs).toContain('[LEGACY_STRONG_BUY_BLOCKER_IGNORED]');
     const forbiddenPhrases = [
@@ -155,5 +157,34 @@ describe('Simplification Step 4 simple final decision', () => {
     for (const phrase of forbiddenPhrases) {
       expect(logs).not.toContain(phrase);
     }
+  });
+
+  it('includes Step 3 Gate score state in SIMPLE_DECISION_FINAL', () => {
+    const gate = evaluateSoftGateScore({
+      currentPrice: 50_000,
+      volume: 100_000,
+      tradable: true,
+      technicalTrend: 'STRONG',
+      supplyTrend: 'MISSING',
+    });
+    const result = resolveSimpleTradeDecision({
+      snapshotId: 'scan_gate',
+      symbol: '005930',
+      dataUsable: true,
+      finalScore: 74,
+      gateScoreBreakdown: gate,
+    });
+    const log = [
+      formatGateScoreEvaluatedLog({ snapshotId: 'scan_gate', symbol: '005930', breakdown: gate }),
+      formatSimpleDecisionFinalLog(result),
+    ].join('\n');
+
+    expect(result.decision).toBe('BUY_ALLOWED');
+    expect(result.qualityDecision).toBe('TRADE_READY');
+    expect(log).toContain('[GATE_SCORE_EVALUATED]');
+    expect(log).toContain('dataGateUsable=true');
+    expect(log).toContain('gateTotalScore=');
+    expect(log).toContain('qualityDecision=TRADE_READY');
+    expect(log).toContain('softFailReasons=[SUPPLY_MISSING_DIAGNOSTIC_ONLY]');
   });
 });

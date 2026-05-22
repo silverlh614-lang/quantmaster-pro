@@ -145,7 +145,7 @@ describe('engine boundary refactor policy contracts', () => {
     expect(signal.reasonCode).toBe('EMPTY_VALID_NOT_BEARISH');
   });
 
-  it('prevents Gate 1 failure from resolving to BUY while keeping HIGH_CONVICTION as label', () => {
+  it('keeps Gate 1 quality misses as score/diagnostic only while keeping HIGH_CONVICTION as label', () => {
     const runtimePolicy = resolveEngineRuntimePolicy({ engineMode: 'NORMAL', liveBuyGateAllowed: true });
     const result = resolveFinalDecision({
       runtimePolicy,
@@ -153,8 +153,26 @@ describe('engine boundary refactor policy contracts', () => {
       gateResults: [gate({ gateName: 'Gate1Survival', passed: false, blockers: ['GATE1_MINIMUM_SIGNAL_FAILED'] })],
     });
 
-    expect(result.decision).toBe('HOLD');
+    expect(result.decision).toBe('BUY');
     expect(result.convictionLabel).toBe('HIGH_CONVICTION');
+    expect(result.liveBuyAllowed).toBe(true);
+    expect(result.reasonCodes).not.toContain('GATE1_SURVIVAL_FAILED');
+  });
+
+  it('still blocks Gate 1 hard fail when core price data is missing', () => {
+    const runtimePolicy = resolveEngineRuntimePolicy({ engineMode: 'NORMAL', liveBuyGateAllowed: true });
+    const result = resolveFinalDecision({
+      runtimePolicy,
+      requestedDecision: 'BUY',
+      gateResults: [gate({
+        gateName: 'Gate1Survival',
+        passed: false,
+        hardFail: true,
+        blockers: ['PRICE_MISSING'],
+      })],
+    });
+
+    expect(result.decision).toBe('HOLD');
     expect(result.liveBuyAllowed).toBe(false);
     expect(result.reasonCodes).toContain('GATE1_SURVIVAL_FAILED');
   });

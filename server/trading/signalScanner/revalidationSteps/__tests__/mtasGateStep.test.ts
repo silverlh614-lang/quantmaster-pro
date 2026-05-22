@@ -1,31 +1,35 @@
-// @responsibility mtasGateStep 회귀 테스트 — boundary 임계값(3) 검증
+// @responsibility mtasGateStep soft Gate regression.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mtasGateStep } from '../mtasGateStep.js';
 
 describe('mtasGateStep', () => {
-  it('mtas > 3 — proceed=true', () => {
-    const result = mtasGateStep({ stockName: '삼성전자', mtas: 5.5 });
+  it('mtas > 3 proceeds', () => {
+    const result = mtasGateStep({ stockName: 'Samsung', mtas: 5.5 });
     expect(result.proceed).toBe(true);
   });
 
-  it('mtas = 3 — 차단 (boundary 정확 일치)', () => {
-    const result = mtasGateStep({ stockName: '삼성전자', mtas: 3 });
-    expect(result.proceed).toBe(false);
-    if (result.proceed) return;
-    expect(result.logMessage).toBe('[AutoTrade] 삼성전자 MTAS 3.0/10 진입 금지 — 타임프레임 불일치');
+  it('mtas = 3 is no longer a hard entry block', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = mtasGateStep({ stockName: 'Samsung', mtas: 3 });
+
+    expect(result.proceed).toBe(true);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('[GATE_HARD_FAIL_LIMITED]'));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("newRole='SOFT_FAIL_OR_SCORE_PENALTY'"));
+    spy.mockRestore();
   });
 
-  it('mtas = 0 — 차단 + failReasons 포함', () => {
-    const result = mtasGateStep({ stockName: '삼성전자', mtas: 0 });
-    expect(result.proceed).toBe(false);
-    if (result.proceed) return;
-    expect(result.failReasons).toEqual(['mtas_below_threshold(0.0)']);
-    expect(result.stageLogValue).toBe('FAIL(mtas:0.0)');
+  it('mtas = 0 remains score evidence instead of a failReason block', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = mtasGateStep({ stockName: 'Samsung', mtas: 0 });
+
+    expect(result.proceed).toBe(true);
+    expect(result).not.toHaveProperty('failReasons');
+    spy.mockRestore();
   });
 
-  it('mtas = 3.01 — 통과', () => {
-    const result = mtasGateStep({ stockName: '삼성전자', mtas: 3.01 });
+  it('mtas = 3.01 proceeds', () => {
+    const result = mtasGateStep({ stockName: 'Samsung', mtas: 3.01 });
     expect(result.proceed).toBe(true);
   });
 });

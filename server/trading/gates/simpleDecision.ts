@@ -1,5 +1,11 @@
 // @responsibility Final score based trade decision labels. Gate remains scoring/diagnostic input only.
 
+import {
+  resolveQualityDecisionFromGate,
+  type GateScoreBreakdown,
+  type QualityDecision,
+} from './gateSoftEvaluation.js';
+
 export type TradeDecision =
   | 'BUY_ALLOWED'
   | 'WATCH'
@@ -34,6 +40,8 @@ export interface SimpleTradeDecisionInput {
   buyThreshold?: number;
   watchThreshold?: number;
   diagnosticEvidence?: string[];
+  gateScoreBreakdown?: GateScoreBreakdown;
+  qualityDecision?: QualityDecision;
 }
 
 export interface SimpleTradeDecisionResult {
@@ -45,6 +53,11 @@ export interface SimpleTradeDecisionResult {
   baseScore: number;
   scoreAdjustment: number;
   finalScore: number;
+  dataGateUsable: boolean;
+  gateTotalScore: number;
+  qualityDecision: QualityDecision;
+  hardFailReasons: string[];
+  softFailReasons: string[];
   buyThreshold: number;
   watchThreshold: number;
   decision: TradeDecision;
@@ -113,12 +126,24 @@ export function resolveSimpleTradeDecision(
   const slotAvailable = input.slotAvailable ?? true;
   const baseScore = finiteOrZero(input.baseScore);
   const scoreAdjustment = finiteOrZero(input.scoreAdjustment);
-  const label = input.dataUsable ? labelFromFinalScore(input.finalScore) : 'DATA_INCOMPLETE';
+  const dataGateUsable = input.gateScoreBreakdown?.dataGateUsable ?? input.dataUsable;
+  const label = dataGateUsable ? labelFromFinalScore(input.finalScore) : 'DATA_INCOMPLETE';
+  const qualityDecision = input.qualityDecision ?? (input.gateScoreBreakdown
+    ? resolveQualityDecisionFromGate({
+        gateScoreBreakdown: input.gateScoreBreakdown,
+        finalScore: input.finalScore,
+        buyThreshold,
+        riskRewardOk,
+        slotAvailable,
+      })
+    : !dataGateUsable ? 'DATA_INCOMPLETE'
+      : !riskRewardOk || !slotAvailable || input.finalScore < buyThreshold ? 'WATCH_READY'
+      : 'TRADE_READY');
 
   let decision: TradeDecision;
   const blockReasons: string[] = [];
 
-  if (!input.dataUsable) {
+  if (!dataGateUsable) {
     decision = 'NO_TRADE_DATA_INCOMPLETE';
     blockReasons.push('DATA_INCOMPLETE');
   } else if (!riskRewardOk) {
@@ -140,11 +165,16 @@ export function resolveSimpleTradeDecision(
     snapshotId: input.snapshotId,
     symbol: input.symbol,
     dataUsable: input.dataUsable,
+    dataGateUsable,
     riskRewardOk,
     slotAvailable,
     baseScore,
     scoreAdjustment,
     finalScore: input.finalScore,
+    gateTotalScore: input.gateScoreBreakdown?.gateTotalScore ?? 0,
+    qualityDecision,
+    hardFailReasons: input.gateScoreBreakdown?.hardFailReasons ?? [],
+    softFailReasons: input.gateScoreBreakdown?.softFailReasons ?? [],
     buyThreshold,
     watchThreshold,
     decision,
@@ -164,12 +194,17 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('snapshotId', result.snapshotId),
     kv('symbol', result.symbol),
     kv('dataUsable', result.dataUsable),
+    kv('dataGateUsable', result.dataGateUsable),
+    kv('gateTotalScore', result.gateTotalScore),
     kv('baseScore', result.baseScore),
     kv('scoreAdjustment', result.scoreAdjustment),
     kv('finalScore', result.finalScore),
     kv('buyThreshold', result.buyThreshold),
     kv('watchThreshold', result.watchThreshold),
     kv('decision', result.decision),
+    kv('qualityDecision', result.qualityDecision),
+    kv('hardFailReasons', `[${result.hardFailReasons.join(',') || 'none'}]`),
+    kv('softFailReasons', `[${result.softFailReasons.join(',') || 'none'}]`),
     kv('label', result.label),
     kv('strongBuyAsLabelOnly', result.strongBuyAsLabelOnly),
     kv('shadowLearning', result.shadowLearning),

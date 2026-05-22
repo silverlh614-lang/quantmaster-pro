@@ -112,6 +112,24 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
     ]));
   });
 
+  it('keeps technical layer missing as WARN instead of Data Gate hard fail', () => {
+    const commonGateResult = evaluateCommonGate({
+      snapshotId: 'snap-tech-warn',
+      candidate: { symbol: '005930', quoteStatus: 'VERIFIED', tradabilityStatus: 'TRADABLE', liquidityStatus: 'PASS' },
+      feature: { technicalIndicators: { status: 'NOT_COMPUTED' } },
+    });
+    const policy = resolvePolicy({
+      snapshotId: 'snap-tech-warn',
+      commonGateResult,
+      marketSession: 'REGULAR',
+    });
+
+    expect(commonGateResult.gateStatus).toBe('WARN');
+    expect(commonGateResult.dataIssues).toContain('technicalIndicators=NOT_COMPUTED:diagnosticOnly');
+    expect(policy.liveBuyAllowed).toBe(true);
+    expect(policy.blockReasons).toEqual([]);
+  });
+
   it('classifies quote-verified technical missing as data pipeline, not soft fail', () => {
     const reason = classifyTechnicalTrendMissing({
       quoteVerified: true,

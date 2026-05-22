@@ -8,7 +8,7 @@ export type SessionOverlay = 'NONE' | 'AFTERMARKET_BUY_BLOCKED' | 'SELL_ONLY_BUY
 export interface ResolvePolicyInput {
   snapshotId: string;
   commonGateResult: Pick<CommonGateResult, 'snapshotId'> & Partial<Pick<CommonGateResult, 'gateStatus'>> & {
-    qualityDecision?: 'PASS' | 'FAIL';
+    qualityDecision?: 'PASS' | 'FAIL' | 'TRADE_READY' | 'WATCH_READY' | 'DATA_INCOMPLETE' | 'ORDER_NOT_READY';
     reasons?: string[];
   };
   marketSession: string;
@@ -112,9 +112,11 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
   });
 
   const qualityPass = input.commonGateResult.qualityDecision
-    ? input.commonGateResult.qualityDecision === 'PASS'
+    ? input.commonGateResult.qualityDecision === 'PASS' ||
+      input.commonGateResult.qualityDecision === 'TRADE_READY' ||
+      input.commonGateResult.qualityDecision === 'WATCH_READY'
     : input.commonGateResult.gateStatus
-      ? input.commonGateResult.gateStatus === 'OK'
+      ? input.commonGateResult.gateStatus === 'OK' || input.commonGateResult.gateStatus === 'WARN'
       : true;
   const liveBuyAllowed = qualityPass;
   const blockReasons = liveBuyAllowed ? [] : ['COMMON_GATE_QUALITY_FAIL'];

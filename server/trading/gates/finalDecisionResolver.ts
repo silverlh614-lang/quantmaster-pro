@@ -19,6 +19,8 @@ export interface GateResult {
   blockers: string[];
   warnings: string[];
   evidence: EvidenceItem[];
+  hardFail?: boolean;
+  executionImpact?: 'NONE' | 'DATA_REQUIRED_MISSING' | 'ORDER_WAIT';
 }
 
 export type FinalDecision = 'BUY' | 'HOLD' | 'BLOCK' | 'SELL_ONLY_ALLOWED';
@@ -51,6 +53,31 @@ function getGate(input: FinalDecisionResolverInput, gateName: string): GateResul
 
 function collect<T>(items: T[][]): T[] {
   return items.flat();
+}
+
+const ALLOWED_GATE_HARD_FAIL_REASONS = new Set([
+  'PRICE_MISSING',
+  'CURRENT_PRICE_MISSING',
+  'PRICE_SNAPSHOT_MISSING',
+  'TRADABLE_FALSE',
+  'HALTED',
+  'SUSPENDED',
+  'MANAGEMENT_ISSUE',
+  'ORDER_UNAVAILABLE',
+  'VOLUME_MISSING',
+  'LIQUIDITY_FAIL_NO_RELIABLE_QUOTE',
+  'TRADE_PLAN_INVALID',
+  'ENTRY_PRICE_INVALID',
+  'STOP_LOSS_INVALID',
+  'TARGET_INVALID',
+  'RR_UNCALCULABLE',
+  'SLOT_FULL',
+]);
+
+function isAllowedHardFailGate(gate: GateResult | undefined): boolean {
+  if (!gate) return false;
+  if (gate.hardFail === true) return true;
+  return gate.blockers.some((blocker) => ALLOWED_GATE_HARD_FAIL_REASONS.has(blocker));
 }
 
 export type GateName =
@@ -105,7 +132,7 @@ export const FinalDecisionResolver = Object.freeze({
       };
     }
 
-    if (gate1 && !gate1.passed) {
+    if (gate1 && !gate1.passed && isAllowedHardFailGate(gate1)) {
       return {
         decision: 'HOLD',
         liveBuyAllowed: false,

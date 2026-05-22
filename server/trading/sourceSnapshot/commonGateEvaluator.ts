@@ -59,17 +59,22 @@ export function evaluateCommonGate(input: EvaluateCommonGateInput): CommonGateRe
   const tradable = input.candidate.tradabilityStatus ?? 'UNKNOWN';
   const liquidity = input.candidate.liquidityStatus ?? 'UNKNOWN';
   const technicalStatus = resolveTechnicalStatus(input.feature);
-  const dataIssues = [
-    quote !== 'VERIFIED' ? `quote=${quote}` : null,
+  const hardDataIssues = [
+    quote === 'MISSING' || quote === 'UNKNOWN' ? `quote=${quote}` : null,
     tradable !== 'TRADABLE' ? `tradable=${tradable}` : null,
-    liquidity !== 'PASS' ? `liquidity=${liquidity}` : null,
-    technicalStatus !== 'COMPUTED' ? `technicalIndicators=${technicalStatus}` : null,
+    liquidity === 'FAIL' ? `liquidity=${liquidity}` : null,
+  ].filter((issue): issue is string => issue != null);
+  const dataIssues = [
+    ...hardDataIssues,
+    quote !== 'VERIFIED' && quote !== 'MISSING' && quote !== 'UNKNOWN' ? `quote=${quote}` : null,
+    liquidity !== 'PASS' && liquidity !== 'FAIL' ? `liquidity=${liquidity}` : null,
+    technicalStatus !== 'COMPUTED' ? `technicalIndicators=${technicalStatus}:diagnosticOnly` : null,
   ].filter((issue): issue is string => issue != null);
 
   return {
     snapshotId: input.snapshotId,
     symbol: input.candidate.symbol,
-    gateStatus: dataIssues.length === 0 ? 'OK' : 'DATA_INCOMPLETE',
+    gateStatus: hardDataIssues.length > 0 ? 'DATA_INCOMPLETE' : dataIssues.length > 0 ? 'WARN' : 'OK',
     sessionAgnostic: true,
     inputs: quote === 'MISSING' || tradable === 'UNKNOWN' ? 'MISSING' : 'OK',
     quote,
