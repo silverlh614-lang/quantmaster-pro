@@ -1,6 +1,7 @@
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 import {
   appendShadowLog,
+  getRemainingQty,
   loadShadowTrades,
 } from '../../persistence/shadowTradeRepo.js';
 import { channelShadowBuyFilled } from '../../alerts/channelPipeline.js';
@@ -14,6 +15,7 @@ import type { BuyApprovalPolicyResult } from './buyApprovalPolicy.js';
 import type { BuySignalStateMachine } from './buySignalStateMachine.js';
 import { emitOperationalWarn } from './operationalWarn.js';
 import { markAutoTradeReady, markFilled, type TradeSignalStatusWriteResult } from './tradeSignalStatusWriter.js';
+import { formatPositionStateOpenedLog, type PositionState } from '../../positions/positionStateResolver.js';
 
 export type ShadowBuyExecutionOutcome =
   | 'SHADOW_POSITION_OPENED'
@@ -222,6 +224,32 @@ export async function executeShadowBuyOrder(
     important: false,
   }));
   console.log(`[SHADOW_POSITION_OPENED] ${input.stockName}(${input.stockCode}) tradeId=${input.trade.id}`);
+  const openedPositionState: PositionState = {
+    positionId: input.trade.id,
+    tradingDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }),
+    symbol: input.stockCode.padStart(6, '0'),
+    name: input.stockName,
+    mode: 'SHADOW',
+    status: 'OPEN',
+    quantity: getRemainingQty(input.trade),
+    avgEntryPrice: shadowResult.fillPrice ?? input.trade.shadowEntryPrice ?? input.entryPrice,
+    currentPrice: shadowResult.currentPrice ?? input.currentPrice,
+    marketValue: (shadowResult.currentPrice ?? input.currentPrice) * getRemainingQty(input.trade),
+    unrealizedPnL: ((shadowResult.currentPrice ?? input.currentPrice) - (shadowResult.fillPrice ?? input.trade.shadowEntryPrice ?? input.entryPrice)) * getRemainingQty(input.trade),
+    unrealizedPnLPct: (shadowResult.fillPrice ?? input.trade.shadowEntryPrice ?? input.entryPrice) > 0
+      ? (((shadowResult.currentPrice ?? input.currentPrice) / (shadowResult.fillPrice ?? input.trade.shadowEntryPrice ?? input.entryPrice)) - 1) * 100
+      : 0,
+    stopLoss: input.trade.stopLoss,
+    targetPrice: input.trade.targetPrice,
+    openedAt: shadowResult.executedAtIso,
+    updatedAt: shadowResult.executedAtIso,
+    source: 'SHADOW_LEDGER',
+    sourceConfidence: 'VERIFIED',
+    relatedOrderIds: [],
+    relatedSignalIds: input.signalId ? [input.signalId] : [],
+    lifecycleOutcome: 'SHADOW_POSITION_OPENED',
+  };
+  console.log(formatPositionStateOpenedLog(openedPositionState));
   appendShadowExecutorLogSafe(deps, {
     event: 'SHADOW_LEDGER_RECORDED',
     code: input.stockCode,

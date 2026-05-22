@@ -59,6 +59,7 @@
 
 import { appendShadowLog, type ServerShadowTrade, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { getOpenPositionByCode } from '../persistence/shadowPositionLedger.js';
+import { formatPositionStateClosedLog, type PositionState } from '../positions/positionStateResolver.js';
 
 // ─── Lifecycle event union ─────────────────────────────────────────────────────
 
@@ -552,7 +553,35 @@ export function emitShadowPositionClosed(
     },
     now,
   );
-  if (result.outcome === 'EMITTED') _emittedKeys.add(idempotencyKey);
+  if (result.outcome === 'EMITTED') {
+    _emittedKeys.add(idempotencyKey);
+    const closedState: PositionState = {
+      positionId: trade.id,
+      tradingDate: deriveTradeDateKst(now),
+      symbol: trade.stockCode.padStart(6, '0'),
+      name: trade.stockName,
+      mode: 'SHADOW',
+      status: 'CLOSED',
+      quantity: 0,
+      avgEntryPrice: trade.shadowEntryPrice ?? trade.signalPrice ?? null,
+      currentPrice: opts.finalExitPrice ?? trade.exitPrice ?? null,
+      marketValue: 0,
+      unrealizedPnL: 0,
+      unrealizedPnLPct: 0,
+      realizedPnL: opts.realizedPnl ?? 0,
+      stopLoss: trade.stopLoss,
+      targetPrice: trade.targetPrice,
+      openedAt: trade.signalTime,
+      updatedAt: now.toISOString(),
+      closedAt: now.toISOString(),
+      source: 'SHADOW_LEDGER',
+      sourceConfidence: 'VERIFIED',
+      relatedOrderIds: [],
+      relatedSignalIds: [],
+      lifecycleOutcome: opts.closeReason ?? 'SHADOW_POSITION_CLOSED',
+    };
+    console.info(formatPositionStateClosedLog(closedState));
+  }
   return result;
 }
 

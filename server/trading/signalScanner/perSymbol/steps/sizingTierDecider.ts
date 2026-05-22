@@ -15,7 +15,6 @@ import { evaluateDataQualityFromStock } from '../../../priceSourcePolicy.js';
 import {
   sizingTierDecider,
 } from '../../sizingDeciders/index.js';
-import { loadOpenPositions } from '../../../../persistence/positionTruth.js';
 import { FAILURE_BLOCK_THRESHOLD_PCT } from '../helpers.js';
 import type { BuyListLoopContext } from '../types.js';
 import {
@@ -23,6 +22,10 @@ import {
   formatKellyRemovedIgnoredLog,
   formatPositionPolicySimpleAppliedLog,
 } from '../../../sizing/regimePositionPolicy.js';
+import {
+  calculatePositionSlotsBySsot,
+  hasOpenPosition,
+} from '../../../../positions/positionStateResolver.js';
 
 export type SizingTierFinalDecision = Extract<ReturnType<typeof sizingTierDecider>, { ok: true }>['tierDecision'];
 export type SizingSignalGrade = 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD';
@@ -76,11 +79,15 @@ export async function sizingTierDeciderFinal(
   const tierDecision = tierResult.tierDecision;
   for (const msg of tierResult.logMessages) console.log(msg);
 
-  const sizing = calculateRegimePositionSizing({
+  const sizing = await calculatePositionSlotsBySsot({
+    regime: ctx.regime,
+    totalEquity: ctx.totalAssets,
+    modePreference: 'SHADOW_FIRST',
+  }).catch(() => calculateRegimePositionSizing({
     regime: ctx.regime,
     totalEquity: ctx.totalAssets,
     currentPositions: params.currentActive + ctx.mutables.reservedSlots.value,
-  });
+  }));
   const positionPct = sizing.positionSizePct / 100;
 
   if (gateResult) {
@@ -147,8 +154,7 @@ export async function sizingTierDeciderFinal(
     }
 
     if (process.env.BUY_LIST_SELF_HOLDING_GUARD_DISABLED !== 'true') {
-      const openPositions = loadOpenPositions();
-      const alreadyHeld = openPositions.some(p => p.stockCode === stock.code);
+      const alreadyHeld = await hasOpenPosition(stock.code, 'SHADOW_FIRST').catch(() => false);
       if (alreadyHeld) {
         console.log(
           `[AutoTrade/SelfHoldingGuard] ${stock.name}(${stock.code}) 이미 보유 중 — 물타기 차단 (ADR-0191)`,
