@@ -65,6 +65,9 @@ export function buildSymbolFeatures(
   c: CandidateSnapshot,
 ): Gate1SymbolFeatures | undefined {
   const provided = c.symbolFeatures ?? {};
+  const featurePack = (c as Record<string, unknown>).featurePack as Record<string, unknown> | undefined;
+  const momentum = featurePack && typeof featurePack.momentum === 'object' ? featurePack.momentum as Record<string, unknown> : undefined;
+  const breakout = featurePack && typeof featurePack.breakout === 'object' ? featurePack.breakout as Record<string, unknown> : undefined;
   const features: Gate1SymbolFeatures = {
     ...provided,
     price:
@@ -99,11 +102,13 @@ export function buildSymbolFeatures(
     return5d:
       provided.return5d ??
       finiteFeature(c.return5d) ??
-      quoteFeature(c, "return5d"),
+      quoteFeature(c, "return5d") ??
+      finiteFeature(momentum?.return5d),
     return20d:
       provided.return20d ??
       finiteFeature(c.return20d) ??
-      quoteFeature(c, "return20d"),
+      quoteFeature(c, "return20d") ??
+      finiteFeature(momentum?.return20d),
     volume:
       provided.volume ?? finiteFeature(c.volume) ?? quoteFeature(c, "volume"),
     avgVolume:
@@ -136,6 +141,19 @@ export function buildSymbolFeatures(
       finiteFeature(c.priorityScore) ??
       finiteFeature(c.watchlistScore) ??
       finiteFeature(c.watchlistUpstreamScore),
+    relativeStrengthScore:
+      provided.relativeStrengthScore ??
+      finiteFeature(c.relativeStrengthScore) ??
+      finiteFeature(momentum?.relativeStrengthScore),
+    breakoutScore:
+      provided.breakoutScore ??
+      finiteFeature(c.breakoutScore) ??
+      finiteFeature(breakout?.breakoutScore),
+    vcpScore:
+      provided.vcpScore ??
+      finiteFeature(c.vcpScore) ??
+      finiteFeature(breakout?.vcpScore) ??
+      finiteFeature(breakout?.volumeDryupScore),
   };
   const watchlistScore = resolveWatchlistUpstreamScore({
     ...c,
