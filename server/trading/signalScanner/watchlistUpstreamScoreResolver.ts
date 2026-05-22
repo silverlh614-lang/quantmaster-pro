@@ -56,6 +56,15 @@ function round1(value: number): number {
 }
 
 function pickRaw(input: Record<string, unknown>): { field: WatchlistScoreSourceField; raw: number } | undefined {
+  const featureContext = input.featureContext;
+  if (featureContext && typeof featureContext === 'object') {
+    const watchlistFeature = (featureContext as Record<string, unknown>).WATCHLIST_UPSTREAM_SCORE;
+    if (watchlistFeature && typeof watchlistFeature === 'object') {
+      const projected = watchlistFeature as Record<string, unknown>;
+      const featureValue = numeric(projected.value);
+      if (featureValue !== undefined) return { field: 'watchlistUpstreamScore', raw: featureValue };
+    }
+  }
   for (const field of SOURCE_FIELDS) {
     const direct = numeric(input[field]);
     if (direct !== undefined) return { field, raw: direct };
