@@ -69,6 +69,23 @@ describe('Simplification Step 9 counterfactual always-on recording', () => {
     expect(logs).toContain('[DATA_GAP_COUNTERFACTUAL_RECORDED]');
   });
 
+  it('records missing PriceSnapshot as price-gap counterfactual', () => {
+    const result = recordCounterfactualForDecision({
+      decision: decision({
+        dataUsable: false,
+        executionScore: 0,
+        finalScore: 90,
+      }),
+      missingFields: ['priceSnapshot'],
+      entryPrice: null,
+    });
+
+    expect(result.sample.decision).toBe('NO_TRADE_DATA_INCOMPLETE');
+    expect(result.sample.sampleType).toBe('PRICE_GAP_COUNTERFACTUAL');
+    expect(result.sample.entryPrice).toBeNull();
+    expect(result.sample.missingFields).toEqual(['priceSnapshot']);
+  });
+
   it('records SLOT_FULL as counterfactual instead of dropping the sample', () => {
     const result = recordCounterfactualForDecision({
       decision: decision({

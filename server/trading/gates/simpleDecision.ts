@@ -51,6 +51,12 @@ export interface SimpleTradeDecisionInput {
   maxPositions?: number;
   currentPositions?: number;
   remainingSlots?: number;
+  priceSnapshotId?: string;
+  currentPrice?: number | null;
+  priceConfidence?: string;
+  priceAgeSec?: number;
+  orderIntentStatus?: 'READY' | 'WAIT_PRICE_VALID' | 'WAIT_PRICE_REBUILD';
+  tradePlanValid?: boolean;
 }
 
 export interface SimpleTradeDecisionResult {
@@ -77,6 +83,12 @@ export interface SimpleTradeDecisionResult {
   maxPositions: number;
   currentPositions: number;
   remainingSlots: number;
+  priceSnapshotId?: string;
+  currentPrice?: number | null;
+  priceConfidence?: string;
+  priceAgeSec?: number;
+  orderIntentStatus?: 'READY' | 'WAIT_PRICE_VALID' | 'WAIT_PRICE_REBUILD';
+  tradePlanValid?: boolean;
   buyThreshold: number;
   watchThreshold: number;
   decision: TradeDecision;
@@ -214,6 +226,12 @@ export function resolveSimpleTradeDecision(
     maxPositions: Math.max(0, Math.floor(input.maxPositions ?? 0)),
     currentPositions: Math.max(0, Math.floor(input.currentPositions ?? 0)),
     remainingSlots: Math.max(0, Math.floor(input.remainingSlots ?? 0)),
+    priceSnapshotId: input.priceSnapshotId,
+    currentPrice: input.currentPrice,
+    priceConfidence: input.priceConfidence,
+    priceAgeSec: input.priceAgeSec,
+    orderIntentStatus: input.orderIntentStatus,
+    tradePlanValid: input.tradePlanValid,
     buyThreshold,
     watchThreshold,
     decision,
@@ -257,6 +275,12 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('maxPositions', result.maxPositions),
     kv('currentPositions', result.currentPositions),
     kv('remainingSlots', result.remainingSlots),
+    kv('priceSnapshotId', result.priceSnapshotId),
+    kv('currentPrice', result.currentPrice),
+    kv('priceConfidence', result.priceConfidence),
+    kv('priceAgeSec', result.priceAgeSec),
+    kv('orderIntentStatus', result.orderIntentStatus),
+    kv('tradePlanValid', result.tradePlanValid),
     kv('aiExecutionImpact', result.aiExecutionImpact),
     kv('dataConfidencePolicy', result.dataConfidencePolicy),
     kv('strongBuyAsLabelOnly', result.strongBuyAsLabelOnly),

@@ -143,6 +143,9 @@ export interface ChannelShadowBuyFilledParams {
   quoteAsOf?: string;
   quoteSource?: string;
   quoteSnapshotId?: string;
+  priceSnapshotId?: string;
+  priceConfidence?: string;
+  priceAgeSec?: number;
   validation?: 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
 }
 
@@ -156,6 +159,8 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
         `괴리: ${(p.deviationPct ?? 0).toFixed(2)}%`,
         `quoteAsOf: ${escapeHtml(p.quoteAsOf ?? 'N/A')}`,
         `quoteSource: ${escapeHtml(p.quoteSource ?? 'N/A')}`,
+        `priceSnapshotId: ${escapeHtml(p.priceSnapshotId ?? p.quoteSnapshotId ?? 'N/A')}`,
+        `가격신뢰도: ${escapeHtml(p.priceConfidence ?? 'REALTIME')} / age ${Math.round(p.priceAgeSec ?? 0)}s`,
         'validation: VERIFIED',
         'liveOrderPlaced=false',
         'executionImpact=NONE',

@@ -11,6 +11,7 @@ export type CounterfactualSampleType =
   | 'WATCH_COUNTERFACTUAL'
   | 'LOW_SCORE_COUNTERFACTUAL'
   | 'DATA_GAP_COUNTERFACTUAL'
+  | 'PRICE_GAP_COUNTERFACTUAL'
   | 'RR_INSUFFICIENT_COUNTERFACTUAL'
   | 'SLOT_FULL_COUNTERFACTUAL';
 
@@ -42,6 +43,9 @@ export interface CounterfactualSample {
   stopLoss?: number | null;
   targetPrice?: number | null;
   riskReward?: number | null;
+  priceSnapshotId?: string;
+  priceConfidence?: string;
+  priceAgeSec?: number;
   regime?: string;
   regimeAdjustment?: number;
   volumeClockPhase?: string;
@@ -82,6 +86,9 @@ export interface RecordCounterfactualInput {
   stopLoss?: number | null;
   targetPrice?: number | null;
   riskReward?: number | null;
+  priceSnapshotId?: string;
+  priceConfidence?: string;
+  priceAgeSec?: number;
   volumeClockPhase?: string;
   volumeClockAdjustment?: number;
   eventAdjustment?: number;
@@ -150,7 +157,10 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
   const tradingDate = input.tradingDate ?? tradingDateFromAsOf(asOf);
   const snapshotId = input.snapshotId ?? decision.snapshotId ?? `decision_${tradingDate}`;
   const symbol = decision.symbol ?? 'UNKNOWN';
-  const sampleType = sampleTypeFromDecision(decision.decision);
+  const sampleType = (decision.decision === 'NO_TRADE_DATA_INCOMPLETE'
+    && (input.missingFields ?? []).some((field) => field === 'priceSnapshot' || field === 'price'))
+    ? 'PRICE_GAP_COUNTERFACTUAL'
+    : sampleTypeFromDecision(decision.decision);
   const learningLabels = new Set<string>([
     decision.learningLabel,
     sampleType,
@@ -192,6 +202,9 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
     stopLoss: input.stopLoss,
     targetPrice: input.targetPrice,
     riskReward: input.riskReward,
+    priceSnapshotId: input.priceSnapshotId,
+    priceConfidence: input.priceConfidence,
+    priceAgeSec: input.priceAgeSec,
     regime: decision.regime,
     regimeAdjustment: decision.regimeAdjustment,
     volumeClockPhase: input.volumeClockPhase,
@@ -308,7 +321,9 @@ export function recordCounterfactualForDecision(input: RecordCounterfactualInput
     formatCounterfactualSampleRecordedLog(sample),
     formatCounterfactualAlwaysOnEnforcedLog(sample),
   ];
-  if (sample.sampleType === 'DATA_GAP_COUNTERFACTUAL') logs.push(formatDataGapCounterfactualRecordedLog(sample));
+  if (sample.sampleType === 'DATA_GAP_COUNTERFACTUAL' || sample.sampleType === 'PRICE_GAP_COUNTERFACTUAL') {
+    logs.push(formatDataGapCounterfactualRecordedLog(sample));
+  }
   if (sample.sampleType === 'SLOT_FULL_COUNTERFACTUAL') logs.push(formatSlotFullCounterfactualRecordedLog(sample));
   if (input.dedupDuplicate === true) {
     logs.push(formatCounterfactualRecordedDespiteDedupLog({

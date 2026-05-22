@@ -63,6 +63,9 @@ export interface PositionState {
   closedAt?: string | null;
   source: PositionStateSource;
   sourceConfidence: PositionStateSourceConfidence;
+  priceSnapshotId?: string;
+  entryPriceSource?: string;
+  entryPriceConfidence?: string;
   relatedOrderIds: string[];
   relatedSignalIds: string[];
   lifecycleOutcome?: string;
@@ -190,6 +193,14 @@ function toPositionState(position: NormalizedPosition, now: Date): PositionState
   const currentPrice = finiteOrNull(position.currentPrice);
   const status = normalizeStatus(position.status, quantity);
   const source = mapSource(position.source, mode);
+  const raw = position.raw as {
+    priceSnapshotId?: string;
+    entryQuoteSnapshotId?: string;
+    entryPriceSource?: string;
+    entryQuoteSource?: string;
+    entryPriceConfidence?: string;
+    entryQuoteConfidence?: string;
+  } | undefined;
   const marketValue = quantity * (currentPrice ?? avgEntryPrice ?? 0);
   const unrealizedPnL = finiteOrZero(position.unrealizedPnl ?? (
     currentPrice !== null && avgEntryPrice !== null ? (currentPrice - avgEntryPrice) * quantity : 0
@@ -216,6 +227,9 @@ function toPositionState(position: NormalizedPosition, now: Date): PositionState
     updatedAt: now.toISOString(),
     source,
     sourceConfidence: sourceConfidence(source),
+    priceSnapshotId: raw?.priceSnapshotId ?? raw?.entryQuoteSnapshotId,
+    entryPriceSource: raw?.entryPriceSource ?? raw?.entryQuoteSource,
+    entryPriceConfidence: raw?.entryPriceConfidence ?? raw?.entryQuoteConfidence,
     relatedOrderIds: [],
     relatedSignalIds: [],
     reconciliationFlags: status === 'STALE_NEEDS_RECONCILIATION'
