@@ -1,6 +1,11 @@
 // @responsibility Provider/value signal normalization SSOT. Pure functions; executionImpact is always explicit.
 
 import type { ExecutionImpact } from '../runtime/engineRuntimePolicy.js';
+import {
+  classifyProviderHealthSnapshot,
+  inferProviderName,
+  type ProviderHealthSnapshot,
+} from '../diagnostics/providerMarketSignalIsolationStep16.js';
 
 export type DataConfidence =
   | 'VERIFIED'
@@ -48,6 +53,11 @@ export interface NormalizedDataSignal {
   rawStatus?: string;
   routedStatus?: string;
   reasonCode?: string;
+  providerHealthSnapshot?: ProviderHealthSnapshot;
+  providerIssueMarketImpact: 'NONE';
+  confidenceAdjustment: number;
+  missingFields: string[];
+  learningLabels: string[];
 }
 
 export interface NormalizeDataSignalInput {
@@ -58,6 +68,8 @@ export interface NormalizeDataSignalInput {
   promotionStage?: DataPromotionStage;
   executionImpact?: ExecutionImpact;
   reasonCode?: string;
+  missingFields?: string[];
+  requiredDataMissing?: boolean;
 }
 
 const PROVIDER_ERROR_STATUSES = new Set([
@@ -110,6 +122,25 @@ function normalizeRawStatus(rawStatus?: string): string {
 export function normalizeDataSignal(input: NormalizeDataSignalInput): NormalizedDataSignal {
   const rawStatus = normalizeRawStatus(input.rawStatus);
   const requestedStage = input.promotionStage ?? 'OBSERVE';
+  const rawStatusForProvider = input.rawStatus ?? 'VERIFIED';
+  const providerHealthSnapshot = classifyProviderHealthSnapshot({
+    provider: inferProviderName(input.source),
+    rawStatus: rawStatusForProvider,
+    missingFields: input.missingFields,
+    requiredDataMissing: input.requiredDataMissing,
+  });
+  const providerIssueFromHealth = rawStatus.length > 0
+    && providerHealthSnapshot.status !== 'EMPTY_VALID'
+    && providerHealthSnapshot.isProviderIssue;
+  const providerMeta = {
+    providerHealthSnapshot,
+    providerIssueMarketImpact: 'NONE' as const,
+    confidenceAdjustment: providerHealthSnapshot.confidenceAdjustment,
+    missingFields: providerHealthSnapshot.missingFields,
+    learningLabels: providerHealthSnapshot.isProviderIssue || providerHealthSnapshot.status === 'EMPTY_VALID'
+      ? [providerHealthSnapshot.status === 'EMPTY_VALID' ? 'EMPTY_RESPONSE_OBSERVED' : 'PROVIDER_ISSUE_OBSERVED']
+      : [],
+  };
 
   if (PROVIDER_ERROR_STATUSES.has(rawStatus)) {
     return {
@@ -122,6 +153,7 @@ export function normalizeDataSignal(input: NormalizeDataSignalInput): Normalized
       rawStatus: input.rawStatus,
       routedStatus: 'PROVIDER_ISSUE',
       reasonCode: input.reasonCode ?? 'PROVIDER_ERROR_IS_NOT_MARKET_SIGNAL',
+      ...providerMeta,
     };
   }
 
@@ -136,13 +168,14 @@ export function normalizeDataSignal(input: NormalizeDataSignalInput): Normalized
       rawStatus: input.rawStatus,
       routedStatus: 'EMPTY_NO_MARKET_SIGNAL',
       reasonCode: input.reasonCode ?? 'EMPTY_VALID_NOT_BEARISH',
+      ...providerMeta,
     };
   }
 
   if (STALE_STATUSES.has(rawStatus)) {
     return {
       source: input.source,
-      providerIssue: false,
+      providerIssue: providerHealthSnapshot.isProviderIssue,
       marketSignal: false,
       confidence: 'STALE',
       promotionStage: 'OBSERVE',
@@ -150,34 +183,37 @@ export function normalizeDataSignal(input: NormalizeDataSignalInput): Normalized
       rawStatus: input.rawStatus,
       routedStatus: 'STALE_NO_MARKET_SIGNAL',
       reasonCode: input.reasonCode ?? 'STALE_DATA_NOT_MARKET_SIGNAL',
+      ...providerMeta,
     };
   }
 
   if (input.confidence && isAiEstimatedConfidence(input.confidence)) {
     return {
       source: input.source,
-      providerIssue: false,
-      marketSignal: input.requestedMarketSignal === true,
+      providerIssue: providerIssueFromHealth,
+      marketSignal: input.requestedMarketSignal === true && !providerIssueFromHealth,
       confidence: input.confidence,
       promotionStage: capPromotionStage(requestedStage, 'ADVISORY'),
       executionImpact: 'NONE',
       rawStatus: input.rawStatus,
       routedStatus: `${input.confidence}_CAPPED`,
       reasonCode: input.reasonCode ?? 'AI_ESTIMATED_NOT_CORE',
+      ...providerMeta,
     };
   }
 
   const confidence = input.confidence ?? 'VERIFIED';
   return {
     source: input.source,
-    providerIssue: false,
-    marketSignal: input.requestedMarketSignal === true,
+    providerIssue: providerIssueFromHealth,
+    marketSignal: input.requestedMarketSignal === true && !providerIssueFromHealth,
     confidence,
     promotionStage: requestedStage,
     executionImpact: input.executionImpact ?? 'NONE',
     rawStatus: input.rawStatus,
     routedStatus: input.requestedMarketSignal === true ? 'MARKET_SIGNAL' : 'NO_MARKET_SIGNAL',
     reasonCode: input.reasonCode,
+    ...providerMeta,
   };
 }
 
