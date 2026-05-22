@@ -60,6 +60,11 @@
 import { appendShadowLog, type ServerShadowTrade, getRemainingQty } from '../persistence/shadowTradeRepo.js';
 import { getOpenPositionByCode } from '../persistence/shadowPositionLedger.js';
 import { formatPositionStateClosedLog, type PositionState } from '../positions/positionStateResolver.js';
+import {
+  formatStopLossReclassifiedByLifecycleLog,
+  formatTradeLifecycleOutcomeResolvedLog,
+  resolveTradeLifecycleOutcomeFromShadowTrade,
+} from './tradeLifecycleOutcomeResolver.js';
 
 // ─── Lifecycle event union ─────────────────────────────────────────────────────
 
@@ -522,6 +527,18 @@ export function emitShadowPositionClosed(
   const now = opts.now ?? new Date();
   const tradeDate = deriveTradeDateKst(now);
   const idempotencyKey = buildClosedIdempotencyKey(tradeDate, trade.stockCode, trade.id);
+  const lifecycleOutcome = resolveTradeLifecycleOutcomeFromShadowTrade(trade, {
+    finalExitReason: opts.closeReason ?? trade.finalExitReason,
+    finalExitPrice: opts.finalExitPrice ?? trade.exitPrice,
+    totalRealizedPnL: opts.realizedPnl,
+    totalRealizedPnLPct: opts.weightedPnlPct,
+    resolvedAt: now.toISOString(),
+  });
+  trade.lifecycleOutcome = lifecycleOutcome.lifecycleOutcome;
+  trade.outcomeClass = lifecycleOutcome.outcomeClass;
+  trade.finalExitReason = lifecycleOutcome.finalExitReason;
+  trade.lifecycleResolvedBy = lifecycleOutcome.resolvedBy;
+  trade.lifecycleResolvedAt = lifecycleOutcome.resolvedAt;
 
   const guard = envOrNotShadowResult('SHADOW_POSITION_CLOSED', trade, idempotencyKey, now);
   if (guard) return guard;
@@ -550,11 +567,17 @@ export function emitShadowPositionClosed(
       finalExitPrice: opts.finalExitPrice ?? trade.exitPrice,
       weightedPnlPct: opts.weightedPnlPct,
       realizedPnl: opts.realizedPnl,
+      lifecycleOutcome: lifecycleOutcome.lifecycleOutcome,
+      outcomeClass: lifecycleOutcome.outcomeClass,
+      resolvedBy: lifecycleOutcome.resolvedBy,
     },
     now,
   );
   if (result.outcome === 'EMITTED') {
     _emittedKeys.add(idempotencyKey);
+    console.info(formatTradeLifecycleOutcomeResolvedLog(lifecycleOutcome));
+    const reclassifiedLog = formatStopLossReclassifiedByLifecycleLog(lifecycleOutcome);
+    if (reclassifiedLog) console.info(reclassifiedLog);
     const closedState: PositionState = {
       positionId: trade.id,
       tradingDate: deriveTradeDateKst(now),
@@ -578,7 +601,9 @@ export function emitShadowPositionClosed(
       sourceConfidence: 'VERIFIED',
       relatedOrderIds: [],
       relatedSignalIds: [],
-      lifecycleOutcome: opts.closeReason ?? 'SHADOW_POSITION_CLOSED',
+      lifecycleOutcome: lifecycleOutcome.lifecycleOutcome,
+      outcomeClass: lifecycleOutcome.outcomeClass,
+      finalExitReason: lifecycleOutcome.finalExitReason,
     };
     console.info(formatPositionStateClosedLog(closedState));
   }
