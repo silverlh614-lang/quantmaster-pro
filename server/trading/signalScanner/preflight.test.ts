@@ -186,7 +186,7 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('should abort if KIS_APP_KEY is not set while recording learning-only cases', async () => {
     delete process.env.KIS_APP_KEY;
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: false });
+    expect(result).toMatchObject({ shouldAbort: true, shouldAbortEngine: true, shouldAbortLiveOrder: true, shouldAbortGateEvaluation: true, shouldAbortShadowLearning: false, shouldAbortCounterfactual: false, skipPersist: false });
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       bypassMacroEntryBlock: true,
@@ -201,7 +201,7 @@ describe('preflight.ts byte-equivalent tests', () => {
   it('should abort if watchlist is empty while recording WATCHLIST_EMPTY learning case', async () => {
     mockedLoadWatchlist.mockReturnValue([]);
     const result = await runPreflight();
-    expect(result).toEqual({ shouldAbort: true, skipPersist: false });
+    expect(result).toMatchObject({ shouldAbort: true, shouldAbortEngine: true, shouldAbortLiveOrder: true, shouldAbortGateEvaluation: true, shouldAbortShadowLearning: false, shouldAbortCounterfactual: false, skipPersist: false });
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
       allowRealOrder: false,
       reason: 'WATCHLIST_EMPTY',
