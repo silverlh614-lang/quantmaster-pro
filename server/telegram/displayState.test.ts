@@ -128,4 +128,22 @@ describe('Simplification Step 8 Telegram DisplayState routing', () => {
     expect(second.learningImpact).toBe('NONE');
     expect(formatTelegramNotificationSuppressedLog(second)).toContain('[TELEGRAM_NOTIFICATION_SUPPRESSED]');
   });
+
+  it('keeps individual counterfactual samples out of the user signal channel', () => {
+    const route = routeTelegramDisplayState({
+      audience: 'USER_SIGNAL',
+      severity: 'DEBUG',
+      eventType: 'COUNTERFACTUAL_SAMPLE_RECORDED',
+      symbol: '005930',
+      decision: 'WATCH',
+      finalScore: 64,
+      summaryLines: ['sampleId=cf_scan_005930_WATCH'],
+      tradingDate: '2026-05-21',
+    });
+
+    expect(route.sentToUserChannel).toBe(false);
+    expect(route.sentToDebugChannel).toBe(true);
+    expect(route.storedInternal).toBe(true);
+    expect(route.learningImpact).toBe('NONE');
+  });
 });
