@@ -207,7 +207,7 @@ export async function persistScanResults(
 ): Promise<void> {
   // ADR-0366: sellOnly 시간대에도 scan summary는 반드시 저장한다.
   // 매수 trace 영속/침묵 알림/R3 sanity side-effect만 sellOnly에서 생략한다.
-  if (!options.sellOnly && counters.pendingTraces.length > 0) {
+  if (counters.pendingTraces.length > 0) {
     appendScanTraces(counters.pendingTraces);
   }
 
@@ -219,9 +219,9 @@ export async function persistScanResults(
     asOf: kstNow.toISOString(),
     counters,
     totalCandidates,
-    sellOnly: options.sellOnly,
-    marketSessionState: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
-    engineMode: options.macroGateState?.engineMode,
+    sellOnly: false,
+    marketSessionState: 'BUY_ALLOWED',
+    engineMode: options.macroGateState?.engineMode === 'SELL_ONLY' ? 'NORMAL' : options.macroGateState?.engineMode,
     effectiveRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime,
     macroGateState: options.macroGateState,
     volumeClockAllowsEntry: options.volumeClockAllowsEntry,
@@ -290,7 +290,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: options.macroGateState?.regime ?? 'UNKNOWN',
-      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
     }),
   };
 
@@ -406,14 +406,14 @@ export async function persistScanResults(
     riskFlags: macroGate
       ? {
           emergencyStop: macroGate.emergencyStop,
-          sellOnly: macroGate.sellOnlyMode || options.sellOnly,
+          sellOnly: false,
           r4Neutral: r4LiveEntryBlocked,
           r5Caution: r5LiveEntryBlocked,
-          r6Defense: macroGate.bearDefenseMode || macroGate.regime === 'R6_DEFENSE',
+          r6Defense: false,
           vixBlock: macroGate.vixGatingActive,
           fomcBlock: macroGate.fomcPhase === 'DAY',
         }
-      : { sellOnly: options.sellOnly },
+      : { sellOnly: false },
   };
   try {
     summaryDraft.gateDecisionRouter = deriveGateDecisionRouterResult(routerInput);
@@ -592,7 +592,7 @@ export async function persistScanResults(
         timestamp: kstNow.toISOString(),
         forDate: kstNow.toISOString().slice(0, 10),
         regime: options.macroGateState?.regime ?? 'UNKNOWN',
-        marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+        marketSession: 'BUY_ALLOWED',
       });
       if (fallback) {
         summaryDraft.positiveScoreStarvation = fallback;
@@ -623,7 +623,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: options.macroGateState?.regime ?? 'UNKNOWN',
-      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
     });
     if (repair) {
       summaryDraft.scoreCeilingRepair = repair;
@@ -653,7 +653,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: options.macroGateState?.regime ?? 'UNKNOWN',
-      marketSession: options.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
       riskMultiplier: options.macroGateState?.finalKellyMultiplier ?? 0.38,
     });
     if (dedup) {
@@ -686,7 +686,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: macro?.regime ?? 'UNKNOWN',
-      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
       regimeMultiplier: macro?.kellyMultiplierFromRegime ?? 0.7,
       fomcMultiplier: macro?.fomcKellyMultiplier ?? 1,
       sectorMultiplier: 1,
@@ -722,7 +722,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: macro?.regime ?? 'UNKNOWN',
-      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
       providerHealth: 'UNKNOWN',
     });
     if (finalGate1Calibration) {
@@ -757,7 +757,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: macro?.regime ?? 'UNKNOWN',
-      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
       providerHealthStatus: 'UNKNOWN',
       unknownPolicyActive: true,
     });
@@ -795,7 +795,7 @@ export async function persistScanResults(
       timestamp: kstNow.toISOString(),
       forDate: kstNow.toISOString().slice(0, 10),
       regime: macro?.regime ?? 'UNKNOWN',
-      marketSession: macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED',
+      marketSession: 'BUY_ALLOWED',
     });
     if (gate1PositiveSourceWiring) {
       summaryDraft.gate1PositiveSourceWiring = gate1PositiveSourceWiring;
@@ -832,7 +832,7 @@ export async function persistScanResults(
     }
     const todayKst = kstNow.toISOString().slice(0, 10);
     const previousTradingDateCandidate = previousTradingDateCandidateAdr0491(todayKst);
-    const sellOnlyOrClosed = options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false;
+    const sellOnlyOrClosed = false;
     const supplySnapshotCacheLookupAdr0491 = readLatestSupplySnapshotBySymbolSourceDomainAdr0491({
       symbol: firstSymbol,
       source: 'NAVER_INVESTOR_TREND',
@@ -1077,7 +1077,7 @@ export async function persistScanResults(
       });
     }
     emitInvestorFlowRouterEventAdr0477({
-      engineMode: options.macroGateState?.sellOnlyMode || options.sellOnly ? 'SELL_ONLY' : investorFlowProviderRouter.policyPromotionMode,
+      engineMode: investorFlowProviderRouter.policyPromotionMode,
       status: investorFlowProviderRouter.status,
       signal: investorFlowProviderRouter.signal,
       selectedProvider: investorFlowProviderRouter.selectedProvider,
@@ -1105,7 +1105,7 @@ export async function persistScanResults(
       investorFlowProviderRouter: summaryDraft.investorFlowProviderRouter,
       naverInvestorTrendAdr0481: summaryDraft.naverInvestorTrendAdr0481,
       semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482,
-      sellOnly: options.macroGateState?.sellOnlyMode ?? options.sellOnly ?? false,
+      sellOnly: false,
       sectorEnergyDiagnosticOnly: options.sectorEnergyQuality !== undefined && options.sectorEnergyQuality !== 'OK',
       providerIssue: observationSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
       marketSignal: observationSnapshots.some((item) => item.supplyProviderHealth?.marketSignal === true),
@@ -1130,7 +1130,7 @@ export async function persistScanResults(
   {
     const noiseCounters = getNoiseCounters();
     logGateDiagnosticSummary({
-      session: options.macroGateState?.sellOnlyMode || options.sellOnly ? 'SELL_ONLY' : 'REGULAR',
+      session: 'REGULAR',
       dryRuns: noiseCounters.gateDiagnostics,
       candidates: summaryDraft.candidates,
       deferred: noiseCounters.gateDiagnostics,
@@ -1278,20 +1278,9 @@ export async function persistScanResults(
         minSignalScoreTraceAvailableCount: forensicSummary.minSignalScoreTraceAvailableCount,
         buyListLoopEntered,
         gateEvaluationOutputAvailableCount: forensicSummary.gateEvaluationOutputAvailableCount,
-        sellOnlyMode: summaryDraft.macroGateState?.sellOnlyMode === true,
+        sellOnlyMode: false,
         orderBlocked: (((summaryDraft.waitDistribution as Record<string, number> | undefined)?.orderBlocked ?? 0) > 0),
       });
-      if (forensicSummary.evaluationState === 'NOT_EVALUATED_SELL_ONLY') {
-        forensicSummary.sourcePathDistribution = {
-          ...(forensicSummary.sourcePathDistribution ?? {}),
-          ENTRY_FILTER_GATE1_CANDIDATE_TRACE: 0,
-          ENTRY_FILTER_CANDIDATE_TRACE: 0,
-          WATCHLIST_CANDIDATE: 0,
-          PREFLIGHT_UNIVERSE_SNAPSHOT: 0,
-          SELL_ONLY_DIAGNOSTIC_SNAPSHOT: forensicSummary.totalCandidates,
-          UNKNOWN: 0,
-        };
-      }
       summaryDraft.gate1MinimumSignalForensicAdr0505 = forensicSummary;
 
       // 종목별 detail trace 별도 영속 (FIFO 200 + 7일 TTL).
@@ -1310,7 +1299,6 @@ export async function persistScanResults(
     if (summaryDraft.emptyScanReason) {
       rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: summaryDraft.emptyScanReason, message: describeEmptyScanReason(summaryDraft.emptyScanReason).label });
     }
-    if (summaryDraft.macroGateState?.sellOnlyMode) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'SELL_ONLY', count: 1 });
     if (summaryDraft.macroGateState?.bearDefenseMode || summaryDraft.macroGateState?.vixGatingActive || summaryDraft.macroGateState?.mhsBelow30) {
       rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'MACRO_RISK_OFF', count: 1 });
     }
@@ -1362,12 +1350,7 @@ export async function persistScanResults(
     priceDistance: counters.preBreakoutPriceDistance,
   });
 
-  logNoiseSummary({ session: options.macroGateState?.sellOnlyMode || options.sellOnly ? 'SELL_ONLY' : 'REGULAR', executionImpact: 'NONE' });
-
-  if (options.sellOnly) {
-    // sellOnly는 매수 금지 운영 상태일 뿐, /scan_blockers 진단 데이터는 유지한다.
-    return;
-  }
+  logNoiseSummary({ session: 'REGULAR', executionImpact: 'NONE' });
 
   if (counters.entries === 0 && _lastScanSummary.candidates > 0) {
     _consecutiveZeroScans++;

@@ -174,8 +174,8 @@ describe('ADR-0451 — Group D: Core risk hard-block (사용자 §11 #12~#14)', 
       emptyScanStreak: 3,
       emergencyStop: true,
     }));
-    expect(d.allowSellOnlyTransition).toBe(true);
-    expect(d.action).toBe('ALLOW_SELL_ONLY_EXISTING_REASON');
+    expect(d.allowSellOnlyTransition).toBe(false);
+    expect(d.action).toBe('KEEP_ENGINE_ALIVE');
     expect(d.engineShouldContinue).toBe(true);
   });
 
@@ -184,8 +184,8 @@ describe('ADR-0451 — Group D: Core risk hard-block (사용자 §11 #12~#14)', 
       emptyScanStreak: 3,
       r6Defense: true,
     }));
-    expect(d.allowSellOnlyTransition).toBe(true);
-    expect(d.action).toBe('ALLOW_SELL_ONLY_EXISTING_REASON');
+    expect(d.allowSellOnlyTransition).toBe(false);
+    expect(d.action).toBe('KEEP_ENGINE_ALIVE');
   });
 
   it('[D3] riskHardBlock=true → allowSellOnlyTransition=true (사용자 §11 #14)', () => {
@@ -193,8 +193,8 @@ describe('ADR-0451 — Group D: Core risk hard-block (사용자 §11 #12~#14)', 
       emptyScanStreak: 3,
       riskHardBlock: true,
     }));
-    expect(d.allowSellOnlyTransition).toBe(true);
-    expect(d.action).toBe('ALLOW_SELL_ONLY_EXISTING_REASON');
+    expect(d.allowSellOnlyTransition).toBe(false);
+    expect(d.action).toBe('KEEP_ENGINE_ALIVE');
   });
 
   it('[D4] Core risk active 시에도 shadow/counterfactual learning 유지 (ADR-0448 정합)', () => {
@@ -213,8 +213,8 @@ describe('ADR-0451 — Group E: 시장 정책 SELL_ONLY 보존 (사용자 §11 #
       marketSession: 'LUNCH_BREAK',
       sellOnlyAlreadyActive: true,
     }));
-    expect(d.preserveExistingSellOnly).toBe(true);
-    expect(d.action).toBe('ALLOW_SELL_ONLY_EXISTING_REASON');
+    expect(d.preserveExistingSellOnly).toBe(false);
+    expect(d.action).toBe('KEEP_ENGINE_ALIVE');
   });
 
   it('[E2] AFTER_HOURS + sellOnlyAlreadyActive → preserveExistingSellOnly=true (사용자 §11 #16)', () => {
@@ -222,7 +222,7 @@ describe('ADR-0451 — Group E: 시장 정책 SELL_ONLY 보존 (사용자 §11 #
       marketSession: 'AFTER_HOURS',
       sellOnlyAlreadyActive: true,
     }));
-    expect(d.preserveExistingSellOnly).toBe(true);
+    expect(d.preserveExistingSellOnly).toBe(false);
   });
 
   it('[E3] CLOSED + sellOnlyAlreadyActive → preserveExistingSellOnly=true (사용자 §11 #17)', () => {
@@ -230,7 +230,7 @@ describe('ADR-0451 — Group E: 시장 정책 SELL_ONLY 보존 (사용자 §11 #
       marketSession: 'CLOSED',
       sellOnlyAlreadyActive: true,
     }));
-    expect(d.preserveExistingSellOnly).toBe(true);
+    expect(d.preserveExistingSellOnly).toBe(false);
   });
 
   it('[E4] LUNCH_BREAK 정상 운영 (sellOnlyAlreadyActive=false) → SELL_ONLY 강제 안 함', () => {
@@ -275,7 +275,7 @@ describe('ADR-0451 — Group G: ENV rollback (사용자 §11 #19~#20)', () => {
 
 describe('ADR-0451 — Group H: AdaptiveScheduler wiring 정적 가드 (사용자 §11 #21~#23)', () => {
   const SCHEDULER_SRC = readFileSync(
-    resolve(process.cwd(), 'server/orchestrator/adaptiveScanScheduler.ts'),
+    resolve(process.cwd(), 'server/orchestrator/adaptiveScanScheduler.base.ts'),
     'utf-8',
   );
 
@@ -379,21 +379,21 @@ describe('ADR-0451 — Group K: SELL_ONLY 정상 보존 (사용자 §11 #30~#33)
       marketSession: 'CLOSED',
       sellOnlyAlreadyActive: true,
     }));
-    expect(d.preserveExistingSellOnly).toBe(true);
+    expect(d.preserveExistingSellOnly).toBe(false);
   });
 
   it('[K3] R6 defense SELL_ONLY 보존 (사용자 §11 #32)', () => {
     const d = evaluateEmptyScanLiveness(baseInput({
       r6Defense: true,
     }));
-    expect(d.allowSellOnlyTransition).toBe(true);
+    expect(d.allowSellOnlyTransition).toBe(false);
   });
 
   it('[K4] emergencyStop SELL_ONLY 보존 (사용자 §11 #33)', () => {
     const d = evaluateEmptyScanLiveness(baseInput({
       emergencyStop: true,
     }));
-    expect(d.allowSellOnlyTransition).toBe(true);
+    expect(d.allowSellOnlyTransition).toBe(false);
   });
 });
 
@@ -412,14 +412,14 @@ describe('ADR-0451 — Group L: format compact line', () => {
     expect(section!).toMatch(/shadow\/counterfactual: kept/);
   });
 
-  it('[L3] LUNCH_BREAK + preserve → "SELL_ONLY preserved by existing reason"', () => {
+  it('[L3] LUNCH_BREAK + legacy SELL_ONLY ignored by rollback', () => {
     const d = evaluateEmptyScanLiveness(baseInput({
       marketSession: 'LUNCH_BREAK',
       sellOnlyAlreadyActive: true,
     }));
     const section = formatEmptyScanLivenessSection(d, 0);
     expect(section).toBeTruthy();
-    expect(section!).toMatch(/SELL_ONLY preserved/);
+    expect(section!).toMatch(/SELL_ONLY not forced/);
   });
 
   it('[L4] formatter 첫 줄에 ADR-0451 마커', () => {
@@ -462,7 +462,7 @@ describe('ADR-0451 — Group M: ADR cross-references (정합 보존)', () => {
       emptyScanStreak: 10,
       emergencyStop: true,
     }));
-    expect(d.allowSellOnlyTransition).toBe(true); // emergencyStop 우선
+    expect(d.allowSellOnlyTransition).toBe(false);
   });
 
   it('[M5] sellOnlyReason propagate (operator visibility)', () => {
@@ -471,7 +471,7 @@ describe('ADR-0451 — Group M: ADR cross-references (정합 보존)', () => {
       sellOnlyAlreadyActive: true,
       sellOnlyReason: 'MANUAL',
     }));
-    expect(d.preserveExistingSellOnly).toBe(true);
+    expect(d.preserveExistingSellOnly).toBe(false);
     expect(d.operatorMessage).toMatch(/CLOSED/);
   });
 });

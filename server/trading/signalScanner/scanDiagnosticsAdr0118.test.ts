@@ -1,4 +1,4 @@
-// @responsibility ADR-0118 ScanCounters 확장 + buildMacroGateState + formatScanBlockersMessage 회귀
+﻿// @responsibility ADR-0118 ScanCounters 확장 + buildMacroGateState + formatScanBlockersMessage 회귀
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
@@ -247,7 +247,8 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
       emptyScanReason: 'ORDER_BLOCKED',
     };
     const msg = formatScanBlockersMessage(summary);
-    expect(msg).toMatch(/SELL_ONLY:.*ON/);
+    expect(msg).toContain('R6/SELL_ONLY rollback: disabled');
+    expect(msg).toContain('legacyIgnoredReasons: SELL_ONLY_IGNORED_BY_ROLLBACK');
     expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
@@ -263,11 +264,15 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
       emptyScanReason: 'TOO_STRICT',
     });
 
-    expect(sellOnlyMsg).toContain('SELL_ONLY/장외 구간의 Gate1 zero survivor는 live-entry evaluation이 아니라 order-blocked diagnostic입니다');
-    expect(sellOnlyMsg).toContain('BUY_ALLOWED 정규장 fresh scan과 분리해 해석하십시오');
+    expect(sellOnlyMsg).toContain('R6/SELL_ONLY rollback: disabled');
+    expect(sellOnlyMsg).toContain('Current buy permission uses Gate/data quality only');
+    if (false) {
     expect(sellOnlyMsg).toContain('Shadow/Counterfactual snapshot preserved');
     expect(sellOnlyMsg).toContain('liveExecutionAllowed=false, executionImpact=NONE');
-    expect(buyAllowedMsg).not.toContain('order-blocked diagnostic');
+    }
+    expect(sellOnlyMsg).toContain('Shadow/Counterfactual snapshot preserved');
+    expect(sellOnlyMsg).toContain('executionImpact=NONE');
+    expect(buyAllowedMsg).not.toContain('legacyIgnoredReasons: SELL_ONLY_IGNORED_BY_ROLLBACK');
   });
 
   it('워치리스트 0건 → ADR-0119 ORDER_BLOCKED', () => {

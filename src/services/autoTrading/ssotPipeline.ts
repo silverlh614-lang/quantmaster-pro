@@ -58,6 +58,7 @@ export interface PolicyResult {
   counterfactualAllowed: boolean;
   entryBlockMode: EntryBlockMode;
   blockReasons: string[];
+  legacyIgnoredReasons?: string[];
   policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
 }
 
@@ -75,6 +76,7 @@ export interface PolicyDiagnostics {
   displaySession: DisplaySession;
   entryBlockMode: EntryBlockMode;
   blockReasons: string[];
+  legacyIgnoredReasons?: string[];
 }
 
 export function createSnapshotId(now = new Date()): string {
@@ -110,16 +112,20 @@ export function resolvePolicy(input: {
   displaySession: DisplaySession;
   entryBlockMode: EntryBlockMode;
 }): PolicyResult {
-  const blockReasons: string[] = [];
-  let liveBuyAllowed = true;
+  const legacyIgnoredReasons: string[] = [];
   if (input.marketSession === 'AFTERMARKET') {
-    liveBuyAllowed = false;
-    blockReasons.push('AFTERMARKET_BUY_BLOCKED');
+    legacyIgnoredReasons.push('AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK');
+  }
+  if (input.displaySession === 'AFTERMARKET_SELL_ONLY') {
+    legacyIgnoredReasons.push('AFTERMARKET_SELL_ONLY_IGNORED_BY_ROLLBACK');
   }
   if (input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY' || input.entryBlockMode === 'SELL_ONLY') {
-    liveBuyAllowed = false;
-    blockReasons.push(input.entryBlockMode);
+    legacyIgnoredReasons.push(`${input.entryBlockMode}_IGNORED_BY_ROLLBACK`);
   }
+  const liveBuyAllowed = input.commonGateResult.qualityDecision === 'PASS';
+  const blockReasons = liveBuyAllowed ? [] : (input.commonGateResult.reasons.length > 0
+    ? input.commonGateResult.reasons
+    : ['QUALITY_DECISION_FAIL']);
 
   return {
     snapshotId: input.snapshotId,
@@ -129,8 +135,9 @@ export function resolvePolicy(input: {
     shadowSignalAllowed: true,
     diagnosticAllowed: true,
     counterfactualAllowed: true,
-    entryBlockMode: input.entryBlockMode,
+    entryBlockMode: 'NORMAL',
     blockReasons,
+    legacyIgnoredReasons,
     policyStatus: liveBuyAllowed ? 'LIVE_ALLOWED' : 'LIVE_BLOCKED_ONLY',
   };
 }
@@ -152,6 +159,7 @@ export function buildPolicyDiag(policy: PolicyResult, marketSession: MarketSessi
     displaySession,
     entryBlockMode: policy.entryBlockMode,
     blockReasons: policy.blockReasons,
+    legacyIgnoredReasons: policy.legacyIgnoredReasons,
   };
 }
 

@@ -31,13 +31,11 @@ function isR5Regime(value: string | undefined): boolean {
 }
 
 function normalizeEngineMode(mode: MarketStateExecutionMode): RegimeEngineMode {
-  return mode;
+  return mode === 'SELL_ONLY' ? 'NORMAL' : mode;
 }
 
-function resolveRiskOverride(marketState: MarketStateSnapshot, effectiveRegime: RegimeLevel): RegimeRiskOverride {
-  if (isR6Regime(effectiveRegime) || isR6Regime(marketState.effectiveRegime)) return 'R6_DEFENSE';
+function resolveRiskOverride(marketState: MarketStateSnapshot, effectiveRegime: string): RegimeRiskOverride {
   if (isR5Regime(marketState.effectiveRegime) || isR5Regime(effectiveRegime)) return 'R5_STABILIZING';
-  if (marketState.executionMode === 'SELL_ONLY') return 'SELL_ONLY';
   if (marketState.executionMode === 'SHADOW_ONLY') return 'SHADOW_ONLY';
   return 'NONE';
 }
@@ -45,14 +43,16 @@ function resolveRiskOverride(marketState: MarketStateSnapshot, effectiveRegime: 
 function resolveDisplayRegime(input: {
   riskOverride: RegimeRiskOverride;
   marketState: MarketStateSnapshot;
-  effectiveRegime: RegimeLevel;
+  effectiveRegime: string;
 }): string {
-  if (input.riskOverride === 'R6_DEFENSE') return 'R6_DEFENSE';
   if (input.riskOverride === 'R5_STABILIZING') return 'R5_STABILIZING';
-  if (input.riskOverride === 'SELL_ONLY') return 'SELL_ONLY';
   if (input.riskOverride === 'SHADOW_ONLY') return 'SHADOW_ONLY';
-  if (isR6Regime(input.effectiveRegime) || isR6Regime(input.marketState.effectiveRegime)) return 'R6_DEFENSE';
   return input.marketState.displayTitle || input.effectiveRegime;
+}
+
+function sanitizeEffectiveRegime(value: string, fallback: string): string {
+  if (!isR6Regime(value)) return value;
+  return isR6Regime(fallback) ? 'R4_NEUTRAL' : fallback;
 }
 
 function emitSnapshotMissingWarn(cause: unknown): void {
@@ -80,7 +80,7 @@ export function resolveRegimeSnapshot(options: ResolveRegimeSnapshotOptions = {}
   try {
     const diagnostics = getRegimeDiagnostics(macroState, now);
     const marketState = resolveMarketState(now, { macroState, diagnostics });
-    const effectiveRegime = diagnostics.effectiveRegime;
+    const effectiveRegime = sanitizeEffectiveRegime(marketState.effectiveRegime, diagnostics.rawRegime);
     const riskOverride = resolveRiskOverride(marketState, effectiveRegime);
     const displayRegime = resolveDisplayRegime({ riskOverride, marketState, effectiveRegime });
     const dataHealth = classifyMacroDataHealth(macroState, now);
@@ -107,7 +107,7 @@ export function resolveRegimeSnapshot(options: ResolveRegimeSnapshotOptions = {}
       displayLabel: marketState.displayLabel,
       mhsDisplayLabel: marketState.mhsDisplayLabel,
       ...(marketState.macroState.freshness === 'HARD_STALE' ? {
-        macroReleaseBlockMessage: 'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
+        macroReleaseBlockMessage: 'Macro snapshot is HARD_STALE; legacy R6 release remains observation-only.',
         macroReleaseBlockDetails: {
           ageSec: marketState.macroState.ageSec,
           lastRefreshAttemptAt: marketState.macroState.lastRefreshAttemptAt,

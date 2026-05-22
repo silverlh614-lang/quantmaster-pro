@@ -1,4 +1,4 @@
-// @responsibility adaptiveScanScheduler 오케스트레이터 모듈
+﻿// @responsibility adaptiveScanScheduler 오케스트레이터 모듈
 /**
  * adaptiveScanScheduler.ts — 적응형 스캔 빈도 결정기
  *
@@ -161,6 +161,8 @@ const REGIME_MULTIPLIER: Record<string, number> = {
   R6_DEFENSE: 99,  // 내부 분기로 처리
 };
 
+REGIME_MULTIPLIER.R6_DEFENSE = 1.0;
+
 const VKOSPI_SPIKE_THRESHOLD  = 5;           // %
 const VKOSPI_SPIKE_COOLDOWN   = 30 * 60_000; // 30분
 
@@ -199,7 +201,7 @@ function resolveR6ConfirmationScanKey(diagnostics: RegimeDiagnostics): string {
 }
 
 function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): void {
-  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE liveNewBuyAllowed=false realOrderAllowed=false strongBuyAllowed=false`;
+  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY rollback=R6_SELLONLY_DISABLED`;
   console.info(line);
   sendTelegramAlert(
     `🧪 <b>[Shadow candidate scan trigger]</b>
@@ -208,7 +210,7 @@ function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): vo
 ` +
     `executionImpact: <code>NONE</code>
 ` +
-    `liveNewBuyAllowed=false / realOrderAllowed=false / strongBuyAllowed=false`,
+    `legacy R6/SELL_ONLY ignored; buy permission uses Gate/data quality only`,
     { priority: 'NORMAL', dedupeKey: `shadow_candidate_scan:${trigger}`, cooldownMs: 30 * 60_000 },
   ).catch(console.error);
 }
@@ -269,9 +271,6 @@ export function decideScan(): ScanDecision {
   });
   lastBiasLabel = biasLabel;
   const shadows    = loadShadowTrades();
-
-  // signalScanner 와 동일한 기준으로 세어야 slot-adj 이 실제 스캐너의 판단과 일치한다.
-  // INTRADAY 및 PRE_BREAKOUT 포지션은 스윙 슬롯 밖이므로 제외.
   const activePositions = shadows.filter(
     (s) =>
       (s.status === 'PENDING' || s.status === 'ORDER_SUBMITTED' || s.status === 'PARTIALLY_FILLED' ||
@@ -291,7 +290,7 @@ export function decideScan(): ScanDecision {
     return {
       shouldScan: true,
       intervalMinutes: 0,
-      reason: `${recoveryShadowTrigger} — shadow candidate scan (executionImpact=NONE, live buy blocked)`,
+      reason: `${recoveryShadowTrigger} - shadow candidate scan (executionImpact=NONE, legacy R6/SELL_ONLY ignored)`,
       priority: 'FULL',
       candidateScanTrigger: recoveryShadowTrigger,
     };
@@ -309,7 +308,7 @@ export function decideScan(): ScanDecision {
       shouldScan:      true,
       intervalMinutes: 0,
       reason:          `VKOSPI 급등 +${vkospiDayChange.toFixed(1)}% — 즉시 매도 모니터링`,
-      priority:        'SELL_ONLY',
+      priority:        'FULL',
     };
   }
 
@@ -367,7 +366,7 @@ export function decideScan(): ScanDecision {
       shouldScan:      true,
       intervalMinutes: effectiveInterval,
       reason:          'R6 DEFENSE — 포지션 모니터링',
-      priority:        'SELL_ONLY',
+      priority:        'FULL',
     };
   }
 
@@ -410,6 +409,17 @@ export function decideScan(): ScanDecision {
   }
 
   // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
+  if (forceSellOnly) {
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] marketSession=ADAPTIVE_SCHEDULER_PHASE ` +
+      `inputEntryBlockMode=SELL_ONLY ignoredReasons=TIME_WINDOW_SELL_ONLY_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=GATE_DATA_ONLY realOrderAllowed=GATE_DATA_ONLY shadowSignalAllowed=true ` +
+      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
+    forceSellOnly = false;
+    phase = phase.replace(/SELL_ONLY/g, 'ROLLBACK_DISABLED');
+  }
+
   const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;
 
   // ── 5. 포지션 조정: 양방향 보상 ───────────────────────────────────────────
@@ -470,7 +480,7 @@ export function decideScan(): ScanDecision {
   //   DEGRADED/OBSERVE/RETRY 상태로 처리하여 Trading Engine liveness 유지.
   //   ADR-0157 정확 비교: `'1'` / `'TRUE'` / `'yes'` 모두 거부 — 정상 운영 default OFF.
   let livenessDecision: EmptyScanLivenessDecision | undefined;
-  let emptyScanForcesSellOnly = emptyBackoff > 1; // legacy fallback (ENV DISABLED 시)
+  let emptyScanForcesSellOnly = false;
   if (!isEmptyScanLivenessPolicyDisabled()) {
     const marketSession = deriveMarketSessionFromKstMinutes(t, useLegacy);
     livenessDecision = evaluateEmptyScanLiveness({
@@ -488,7 +498,7 @@ export function decideScan(): ScanDecision {
   if (emptyBackoff > 1) {
     backoffLabel = livenessDecision && !livenessDecision.allowSellOnlyTransition
       ? ` | 빈스캔×${emptyBackoff}→RETRY/DEGRADED · engine alive`
-      : ` | 빈스캔×${emptyBackoff}→SELL_ONLY`;
+      : ` | 빈스캔×${emptyBackoff}→RETRY/DEGRADED · engine alive`;
   }
 
   return {
@@ -502,7 +512,7 @@ export function decideScan(): ScanDecision {
       (positionAdj !== 0 ? ` (${positionAdj > 0 ? '+' : ''}${positionAdj}분 조정)` : '') +
       ` → ${finalInterval}분 간격`
     ),
-    priority: (forceSellOnly || emptyScanForcesSellOnly) ? 'SELL_ONLY' : 'FULL',
+    priority: 'FULL',
     emptyScanLivenessDecision: livenessDecision,
   };
 }
@@ -565,7 +575,7 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
   }
 
   if (signalCount === 0) {
-    const engineMode = opts?.engineMode ?? 'NORMAL';
+    const engineMode = opts?.engineMode === 'SELL_ONLY' ? 'NORMAL' : opts?.engineMode ?? 'NORMAL';
     const emptyScan = classifyEmptyScan({
       now: opts?.now ?? Date.now(),
       engineMode,
@@ -637,7 +647,7 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
       );
       const msg = `[AdaptiveScheduler] 빈 스캔 ${consecutiveEmptyScans}회 연속 — 다음 간격 ×${multiplier} 확대`;
       if (!isBuyableKstWindow()) {
-        logger.debug(`${msg} (SELL_ONLY·장외 정상 동작)`);
+        logger.debug(`${msg} (legacy SELL_ONLY ignored by rollback; session observation only)`);
       } else {
         emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Adaptive scheduler observed consecutive empty scans in buyable window.', dedupKey: 'p2:scheduler:adaptive-empty-scans', details: { consecutiveEmptyScans, multiplier } });
         if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {

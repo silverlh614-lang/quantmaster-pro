@@ -115,11 +115,13 @@ describe('formatRegimeTelegramNow', () => {
     const text = formatRegimeTelegramNow(r6Snapshot(), shadowContext);
 
     expect(text).toContain('[NOW]');
-    expect(text).toContain('Display regime: R6_DEFENSE');
-    expect(text).toContain('Effective regime: R6_DEFENSE');
-    expect(text).toContain('Live Buy: BLOCKED');
+    expect(text).toContain('Display regime: R3_EARLY');
+    expect(text).toContain('Effective regime: R3_EARLY');
+    expect(text).toContain('Live Buy: GATE_DATA_ONLY');
     expect(text).toContain('Shadow: ON');
-    expect(text).toContain('MHS: 70 OVERRIDDEN_BY_R6');
+    expect(text).toContain('MHS: 70 GREEN');
+    expect(text).toContain('Legacy R6/SELL_ONLY: disabled');
+    expect(text).not.toContain('engineMode=SELL_ONLY');
     expect(text).toContain('providerIssue isolated');
     expect(text).toContain('candidate scan: DEFERRED_POST_CLOSE');
     expect(text).toContain('raw detail: /now_debug');

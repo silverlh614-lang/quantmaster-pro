@@ -632,7 +632,7 @@ export function evaluateR6RecoveryTransition(
       console.warn(`[R6_RELEASE_BLOCKED] reason=MACRO_STATE_${triggerBreakdown.triggerFreshness} shadowLearningAllowed=true`);
     }
     if (r6StateMachineState === 'R6_RECOVERY_WATCH') {
-      console.info('[RECOVERY_WATCH_ACTIVE] liveNewBuyAllowed=false shadowLearningAllowed=true shadowCandidateCollection=true');
+      console.info('[RECOVERY_WATCH_ACTIVE] diagnosticOnly=true executionImpact=NONE legacyR6IgnoredByRollback=true shadowLearningAllowed=true shadowCandidateCollection=true');
     }
     console.info(
       '[REGIME_TRANSITION_EVALUATED] ' +

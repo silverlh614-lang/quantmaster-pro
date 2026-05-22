@@ -42,13 +42,20 @@ describe('ssot pipeline separation', () => {
     expect(new Set([hashPolicy(A), hashPolicy(B), hashPolicy(C), hashPolicy(D)]).size).toBe(4);
   });
 
-  it('Gate1Diag must not contain LIVE_BLOCKED_ONLY while PolicyDiag does', () => {
+  it('Gate1Diag stays gate-only and legacy R6/SELL_ONLY is ignored by policy rollback', () => {
     const gate = evaluateCommonGate({ snapshotId: candidate.snapshotId, candidate, feature });
     const policy = resolvePolicy({ snapshotId: candidate.snapshotId, commonGateResult: gate, marketSession: 'AFTERMARKET', displaySession: 'AFTERMARKET_SELL_ONLY', entryBlockMode: 'R6_DEFENSE_SELL_ONLY' });
     const gateDiag = buildGate1Diag(gate, feature);
     const policyDiag = buildPolicyDiag(policy, 'AFTERMARKET', 'AFTERMARKET_SELL_ONLY');
 
     expect(JSON.stringify(gateDiag)).not.toContain('LIVE_BLOCKED_ONLY');
-    expect(policyDiag.policyStatus).toBe('LIVE_BLOCKED_ONLY');
+    expect(policyDiag.policyStatus).toBe('LIVE_ALLOWED');
+    expect(policyDiag.entryBlockMode).toBe('NORMAL');
+    expect(policyDiag.blockReasons).toEqual([]);
+    expect(policyDiag.legacyIgnoredReasons).toEqual(expect.arrayContaining([
+      'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK',
+      'AFTERMARKET_SELL_ONLY_IGNORED_BY_ROLLBACK',
+      'R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK',
+    ]));
   });
 });

@@ -47,8 +47,8 @@ const normalSupplyPreview: TelegramCommand = {
       [
         '🧪 <b>[Normal Supply Preview]</b> collecting...',
         `previewMode=${fullMode ? NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE : 'NORMAL_SUPPLY_DIAGNOSTIC'}`,
-        'liveExecutionAllowed=false',
-        'realOrderAllowed=false',
+        'livePermission=GATE_DATA_ONLY',
+        'realOrderPermission=GATE_DATA_ONLY',
         'executionImpact=NONE',
       ].join('\n'),
     );
@@ -107,7 +107,7 @@ function logFullStart(preview: NormalSupplyPreview): void {
     message: `[NORMAL_SUPPLY_PREVIEW_FULL_START] ` +
       `source=${preview.source} candidateCount=${preview.candidateCount} ` +
       `previewMode=${NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE} ` +
-      `liveExecutionAllowed=false realOrderAllowed=false executionImpact=NONE`,
+      `livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY executionImpact=NONE`,
     summary: { source: preview.source, candidateCount: preview.candidateCount, executionImpact: 'NONE' },
     details: { previewMode: NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE },
     level: 'info',

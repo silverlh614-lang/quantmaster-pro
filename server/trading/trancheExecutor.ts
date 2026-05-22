@@ -54,7 +54,7 @@ function saveTranches(list: TrancheSchedule[]): void {
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DEFAULT_KRX_HOLIDAYS = KRX_HOLIDAYS;
 const TRANCHE_MAX_DROP_PCT = -3;
-const REGIME_BLOCK_SET = new Set(['R5_BEAR', 'R6_DEFENSE']);
+const REGIME_BLOCK_SET = new Set(['R5_BEAR']);
 
 function formatKstYmd(kstDate: Date): string {
   const y = kstDate.getUTCFullYear();

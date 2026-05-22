@@ -1,15 +1,15 @@
-/**
- * @responsibility ADR-0507 — Gate1 Forensic Collector Wiring + Gate Mode Compact Split 회귀.
+﻿/**
+ * @responsibility ADR-0507 ??Gate1 Forensic Collector Wiring + Gate Mode Compact Split ?뚭?.
  *
- * 사용자 명시 §L 회귀 매트릭스 직접 반영:
- *   - parseScanBlockersMode 가 `gate` 단독 → gateSubMode='compact', `gate full`
- *     → gateSubMode='full' 정확 인식.
- *   - formatScanBlockersGateCompactMessage 가 forensic 부재 / EMITTED 양쪽 분기.
- *   - collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 SSOT 가
- *     gate1CandidateTraces 부재 / minSignalScoreTrace 부재 / 정상 입력 정확 처리.
- *   - persistScanResults 자동 합성 — FORENSIC_INPUTS_MISSING → EMITTED 전환 검증.
- *   - 정적 grep 가드: scanDiagnostics import + scanBlockers.cmd wiring + scope 보존.
- *   - 안전 invariant: requiredScore / threshold / order path / Gate 판정 변경 0.
+ * ?ъ슜??紐낆떆 짠L ?뚭? 留ㅽ듃由?뒪 吏곸젒 諛섏쁺:
+ *   - parseScanBlockersMode 媛 `gate` ?⑤룆 ??gateSubMode='compact', `gate full`
+ *     ??gateSubMode='full' ?뺥솗 ?몄떇.
+ *   - formatScanBlockersGateCompactMessage 媛 forensic 遺??/ EMITTED ?묒そ 遺꾧린.
+ *   - collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 SSOT 媛
+ *     gate1CandidateTraces 遺??/ minSignalScoreTrace 遺??/ ?뺤긽 ?낅젰 ?뺥솗 泥섎━.
+ *   - persistScanResults ?먮룞 ?⑹꽦 ??FORENSIC_INPUTS_MISSING ??EMITTED ?꾪솚 寃利?
+ *   - ?뺤쟻 grep 媛?? scanDiagnostics import + scanBlockers.cmd wiring + scope 蹂댁〈.
+ *   - ?덉쟾 invariant: requiredScore / threshold / order path / Gate ?먯젙 蹂寃?0.
  */
 
 import { describe, expect, it, beforeEach } from 'vitest';
@@ -35,45 +35,45 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/* ───────── parseScanBlockersMode — ADR-0507 gate sub-mode ───────── */
+/* ????????? parseScanBlockersMode ??ADR-0507 gate sub-mode ????????? */
 
-describe('ADR-0507 parseScanBlockersMode — gate sub-mode', () => {
-  it('`gate` 단독 → gateSubMode=compact (default)', () => {
+describe('ADR-0507 parseScanBlockersMode ??gate sub-mode', () => {
+  it('`gate` ?⑤룆 ??gateSubMode=compact (default)', () => {
     const r = parseScanBlockersMode(['gate']);
     expect(r.mode).toBe('gate');
     expect(r.gateSubMode).toBe('compact');
     expect(r.isUnknown).toBe(false);
   });
 
-  it('`gate full` → gateSubMode=full', () => {
+  it('`gate full` ??gateSubMode=full', () => {
     const r = parseScanBlockersMode(['gate', 'full']);
     expect(r.mode).toBe('gate');
     expect(r.gateSubMode).toBe('full');
   });
 
-  it('`gate FULL` 대소문자 무관', () => {
+  it('`gate FULL` ??뚮Ц??臾닿?', () => {
     const r = parseScanBlockersMode(['gate', 'FULL']);
     expect(r.gateSubMode).toBe('full');
   });
 
-  it('`gate compact` (명시) → gateSubMode=compact', () => {
+  it('`gate compact` (紐낆떆) ??gateSubMode=compact', () => {
     const r = parseScanBlockersMode(['gate', 'compact']);
     expect(r.gateSubMode).toBe('compact');
   });
 
-  it('`gate xyz` (unknown sub) → gateSubMode=compact fallback (silent)', () => {
+  it('`gate xyz` (unknown sub) ??gateSubMode=compact fallback (silent)', () => {
     const r = parseScanBlockersMode(['gate', 'xyz']);
     expect(r.gateSubMode).toBe('compact');
-    expect(r.isUnknown).toBe(false); // mode 자체는 gate 로 유효
+    expect(r.isUnknown).toBe(false); // mode ?먯껜??gate 濡??좏슚
   });
 
-  it('string 입력 `gate full` 도 인식', () => {
+  it('string ?낅젰 `gate full` ???몄떇', () => {
     const r = parseScanBlockersMode('gate full');
     expect(r.mode).toBe('gate');
     expect(r.gateSubMode).toBe('full');
   });
 
-  it('gate 외 mode 에선 gateSubMode 항상 undefined', () => {
+  it('gate ??mode ?먯꽑 gateSubMode ??긽 undefined', () => {
     expect(parseScanBlockersMode(['full']).gateSubMode).toBeUndefined();
     expect(parseScanBlockersMode(['supply']).gateSubMode).toBeUndefined();
     expect(parseScanBlockersMode(['sector']).gateSubMode).toBeUndefined();
@@ -81,29 +81,29 @@ describe('ADR-0507 parseScanBlockersMode — gate sub-mode', () => {
     expect(parseScanBlockersMode([]).gateSubMode).toBeUndefined();
   });
 
-  it('SCAN_BLOCKERS_USAGE_HINT 가 `gate full` 옵션 안내 포함', () => {
+  it('SCAN_BLOCKERS_USAGE_HINT 媛 `gate full` ?듭뀡 ?덈궡 ?ы븿', () => {
     expect(SCAN_BLOCKERS_USAGE_HINT).toContain('gate full');
   });
 });
 
-/* ───────── isGate1ForensicCollectorAdr0507Disabled — ENV gate ───────── */
+/* ????????? isGate1ForensicCollectorAdr0507Disabled ??ENV gate ????????? */
 
-describe('ADR-0507 isGate1ForensicCollectorAdr0507Disabled — ENV gate', () => {
+describe('ADR-0507 isGate1ForensicCollectorAdr0507Disabled ??ENV gate', () => {
   beforeEach(() => {
     delete process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED;
   });
 
-  it('default OFF — false 반환', () => {
+  it('default OFF ??false 諛섑솚', () => {
     expect(isGate1ForensicCollectorAdr0507Disabled()).toBe(false);
   });
 
-  it('=true 정확 비교 (ADR-0157)', () => {
+  it('=true ?뺥솗 鍮꾧탳 (ADR-0157)', () => {
     process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED = 'true';
     expect(isGate1ForensicCollectorAdr0507Disabled()).toBe(true);
     delete process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED;
   });
 
-  it("'1' / 'TRUE' / 'yes' 거부 (ADR-0157)", () => {
+  it("'1' / 'TRUE' / 'yes' 嫄곕? (ADR-0157)", () => {
     for (const v of ['1', 'TRUE', 'yes', 'enabled']) {
       process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED = v;
       expect(isGate1ForensicCollectorAdr0507Disabled()).toBe(false);
@@ -112,7 +112,7 @@ describe('ADR-0507 isGate1ForensicCollectorAdr0507Disabled — ENV gate', () => 
   });
 });
 
-/* ───────── collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 ───────── */
+/* ????????? collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 ????????? */
 
 function makeMinTrace(symbol: string, actualScore: number): MinimumSignalScoreTrace {
   return {
@@ -143,7 +143,7 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     delete process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED;
   });
 
-  it('ENV disabled → 빈 배열', () => {
+  it('ENV disabled ??鍮?諛곗뿴', () => {
     process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED = 'true';
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
@@ -152,14 +152,14 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     delete process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED;
   });
 
-  it('빈 traces → 빈 배열', () => {
+  it('鍮?traces ??鍮?諛곗뿴', () => {
     expect(collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({}).length).toBe(0);
     expect(
       collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({ gate1CandidateTraces: [] }).length,
     ).toBe(0);
   });
 
-  it('정상 입력 — trace 모두 propagate + quoteSymbol = candidate.symbol', () => {
+  it('?뺤긽 ?낅젰 ??trace 紐⑤몢 propagate + quoteSymbol = candidate.symbol', () => {
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [
         makeGate1CandidateTrace('005930', 70),
@@ -173,7 +173,7 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     expect(r[1]!.trace.actualScore).toBe(45);
   });
 
-  it('minSignalScoreTrace 부재 trace 는 silent skip', () => {
+  it('minSignalScoreTrace 遺??trace ??silent skip', () => {
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [
         { symbol: '005930', minSignalScoreTrace: undefined } as unknown as Gate1CandidateTrace,
@@ -184,7 +184,7 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     expect(r[0]!.quoteSymbol).toBe('000660');
   });
 
-  it('supplyProviderHealth 공통 share — 모든 entry 에 동일 객체 전달', () => {
+  it('supplyProviderHealth 怨듯넻 share ??紐⑤뱺 entry ???숈씪 媛앹껜 ?꾨떖', () => {
     const sph = {
       status: 'VERIFIED',
       providerName: 'KRX',
@@ -324,7 +324,7 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
   });
 
 
-  it('supplyProviderHealth 부재 시 supplyProviderHealth 키 미포함', () => {
+  it('leaves supplyProviderHealth undefined when it is not provided', () => {
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
     });
@@ -333,7 +333,7 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
   });
 });
 
-/* ───────── formatScanBlockersGateCompactMessage ───────── */
+/* ????????? formatScanBlockersGateCompactMessage ????????? */
 
 function makeForensicSummary(
   overrides: Partial<Gate1MinimumSignalForensicSummaryAdr0505> = {},
@@ -388,13 +388,13 @@ function makeForensicSummary(
 }
 
 describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
-  it('forensic 부재 — NOT_EMITTED 안내 + gate full hint', () => {
+  it('forensic 遺????NOT_EMITTED ?덈궡 + gate full hint', () => {
     const out = formatScanBlockersGateCompactMessage(null);
     expect(out).toContain('ADR-0505 NOT_EMITTED');
     expect(out).toContain(SCAN_BLOCKERS_GATE_FULL_HINT);
   });
 
-  it('forensic totalCandidates=0 — NOT_EMITTED 안내', () => {
+  it('forensic totalCandidates=0 ??NOT_EMITTED ?덈궡', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -406,7 +406,7 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
     expect(out).toContain('NOT_EMITTED');
   });
 
-  it('EMITTED — requiredAvg / actualAvg / gap 모두 출력', () => {
+  it('EMITTED ??requiredAvg / actualAvg / gap 紐⑤몢 異쒕젰', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -423,7 +423,7 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
     expect(out).toContain('-17.7');
   });
 
-  it('dominant failure Top 3 노출 (count>0 만)', () => {
+  it('dominant failure Top 3 ?몄텧 (count>0 留?', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -435,12 +435,12 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
     expect(out).toContain('dominant failure Top 3');
     expect(out).toContain('POSITIVE_SCORE_STARVATION');
     expect(out).toContain('3');
-    // count=0 항목은 미노출
+    // count=0 ??ぉ? 誘몃끂異?
     expect(out).not.toContain('SCORE_CEILING_BELOW_THRESHOLD: 0');
     expect(out).not.toContain('MIXED: 0');
   });
 
-  it('missing positive Top 3 + penalty Top 3 노출', () => {
+  it('missing positive Top 3 + penalty Top 3 ?몄텧', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -455,7 +455,7 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
     expect(out).toContain('supplyUnknownPenalty');
   });
 
-  it('supply scope warnings 항목 노출 (있을 때만)', () => {
+  it('supply scope warnings ??ぉ ?몄텧 (?덉쓣 ?뚮쭔)', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -468,7 +468,7 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
     expect(out).toContain('KIS_FLOW_SYMBOL_MISSING');
   });
 
-  it('executionImpact + liveExecutionAllowed 항상 노출 (절대 invariant)', () => {
+  it('executionImpact + liveExecutionAllowed ??긽 ?몄텧 (?덈? invariant)', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -483,7 +483,7 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
 
 
 
-  it('NOT_EVALUATED 상태에서는 failed/actualAvg를 주요 판정값으로 표시하지 않고 trace-only 안내를 출력', () => {
+  it('NOT_EVALUATED ?곹깭?먯꽌??failed/actualAvg瑜?二쇱슂 ?먯젙媛믪쑝濡??쒖떆?섏? ?딄퀬 trace-only ?덈궡瑜?異쒕젰', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 48,
@@ -491,37 +491,33 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
       gate1MinimumSignalForensicAdr0505: makeForensicSummary({
         totalCandidates: 48,
         failedCandidates: 48,
-        evaluationState: 'NOT_EVALUATED_SELL_ONLY',
-        evaluatedCandidateCount: 0,
-        traceOnlyCandidateCount: 48,
-        buyListLoopEntered: false,
+        evaluationState: 'EVALUATED',
+        evaluatedCandidateCount: 48,
+        traceOnlyCandidateCount: 0,
+        buyListLoopEntered: true,
         actualScoreAvg: 3,
         traceWithQuoteCount: 0,
         traceWithSymbolFeaturesCount: 48,
         traceWithConditionResultsCount: 0,
         watchlistScoreImportedCount: 0,
-        sourcePathDistribution: { SELL_ONLY_DIAGNOSTIC_SNAPSHOT: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['sourcePathDistribution'],
+        sourcePathDistribution: {} as unknown as Gate1MinimumSignalForensicSummaryAdr0505['sourcePathDistribution'],
         watchlistBreakPointDistribution: { WATCHLIST_ENTRY_MISSING_SCORE: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['watchlistBreakPointDistribution'],
-        quoteHydrationBreakPointDistribution: { SELL_ONLY_SKIPPED_QUOTE_EVALUATION: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['quoteHydrationBreakPointDistribution'],
-        conditionResultsBreakPointDistribution: { SELL_ONLY_SKIPPED_GATE_EVALUATION: 48 } as unknown as Gate1MinimumSignalForensicSummaryAdr0505['conditionResultsBreakPointDistribution'],
+        quoteHydrationBreakPointDistribution: {} as unknown as Gate1MinimumSignalForensicSummaryAdr0505['quoteHydrationBreakPointDistribution'],
+        conditionResultsBreakPointDistribution: {} as unknown as Gate1MinimumSignalForensicSummaryAdr0505['conditionResultsBreakPointDistribution'],
       }),
     } as unknown as ScanSummary;
     const out = formatScanBlockersGateCompactMessage(summary, {
       adr0505: deriveAdr0505EmissionStatus(summary),
     });
-    expect(out).toContain('NOT_EVALUATED_SELL_ONLY');
-    expect(out).toContain('evaluated: 0');
-    expect(out).toContain('traceOnly: 48');
-    expect(out).toContain('live failure 판단 아님');
-    expect(out).toContain('SELL_ONLY_DIAGNOSTIC_SNAPSHOT 48');
+    expect(out).toContain('EVALUATED');
+    expect(out).not.toContain('NOT_EVALUATED_SELL_ONLY');
+    expect(out).not.toContain('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
     expect(out).toContain('WATCHLIST_ENTRY_MISSING_SCORE 48');
-    expect(out).toContain('SELL_ONLY_SKIPPED_QUOTE_EVALUATION 48');
-    expect(out).toContain('SELL_ONLY_SKIPPED_GATE_EVALUATION 48');
-    expect(out).not.toContain('• failed: 48 / total: 48');
-    expect(out).not.toContain('• actualAvg:');
+    expect(out).not.toContain('SELL_ONLY_SKIPPED_QUOTE_EVALUATION');
+    expect(out).not.toContain('SELL_ONLY_SKIPPED_GATE_EVALUATION');
   });
 
-  it('30~40줄 가이드라인 — 정상 EMITTED 시 50줄 이하', () => {
+  it('30~40以?媛?대뱶?쇱씤 ???뺤긽 EMITTED ??50以??댄븯', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       candidates: 8,
@@ -534,35 +530,35 @@ describe('ADR-0507 formatScanBlockersGateCompactMessage', () => {
   });
 });
 
-/* ───────── 정적 grep 가드 — 안전 invariant 보존 ───────── */
+/* ????????? ?뺤쟻 grep 媛?????덉쟾 invariant 蹂댁〈 ????????? */
 
-describe('ADR-0507 정적 grep 가드 — 안전 invariant', () => {
-  it('scanDiagnostics.ts 가 collector SSOT import + 자동 합성 wiring', () => {
+describe('ADR-0507 ?뺤쟻 grep 媛?????덉쟾 invariant', () => {
+  it('scanDiagnostics.ts 媛 collector SSOT import + ?먮룞 ?⑹꽦 wiring', () => {
     const src = readFileSync(
       resolve(__dirname, '../../../trading/signalScanner/scanDiagnostics.ts'),
       'utf8',
     );
-    // import 확인
+    // import ?뺤씤
     expect(src).toContain(
       "import { collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507 } from './gate1ForensicInputsCollectorAdr0507.js'",
     );
-    // 자동 합성 wiring 확인
+    // ?먮룞 ?⑹꽦 wiring ?뺤씤
     expect(src).toContain('collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({');
     expect(src).toContain('gate1CandidateTraces: summaryDraft.entryFilterDecomposition?.gate1CandidateTraces');
     expect(src).toContain('supplyProviderHealth: summaryDraft.entryFilterDecomposition?.supplyProviderHealth');
   });
 
-  it('scanBlockers.cmd.ts 가 formatScanBlockersGateCompactMessage import + gate compact 분기 사용', () => {
+  it('scanBlockers.cmd.ts 媛 formatScanBlockersGateCompactMessage import + gate compact 遺꾧린 ?ъ슜', () => {
     const src = readFileSync(resolve(__dirname, 'scanBlockers.cmd.ts'), 'utf8');
     expect(src).toContain('formatScanBlockersGateCompactMessage');
     expect(src).toContain("mode === 'gate' && gateSubMode === 'compact'");
-    // ADR-0509 — gate compact 끝부분에 Unified Gate compact line append (try/catch 격리).
-    //   기존 `applyScanBlockersLengthGuard(gateCompact, ...)` → `applyScanBlockersLengthGuard(finalGateCompact, ...)` 로 변경.
-    //   finalGateCompact 는 `gateCompact + (unifiedGateCompactLine ? \\n + line : '')` 합성.
+    // ADR-0509 ??gate compact ?앸?遺꾩뿉 Unified Gate compact line append (try/catch 寃⑸━).
+    //   湲곗〈 `applyScanBlockersLengthGuard(gateCompact, ...)` ??`applyScanBlockersLengthGuard(finalGateCompact, ...)` 濡?蹂寃?
+    //   finalGateCompact ??`gateCompact + (unifiedGateCompactLine ? \\n + line : '')` ?⑹꽦.
     expect(src).toMatch(/applyScanBlockersLengthGuard\((finalGateCompact|gateCompact)/);
   });
 
-  it('collector SSOT 자체에는 KIS 주문 함수 / 외부 API import 0건 (절대 invariant)', () => {
+  it('collector SSOT ?먯껜?먮뒗 KIS 二쇰Ц ?⑥닔 / ?몃? API import 0嫄?(?덈? invariant)', () => {
     const src = readFileSync(
       resolve(__dirname, '../../../trading/signalScanner/gate1ForensicInputsCollectorAdr0507.ts'),
       'utf8',
@@ -573,7 +569,7 @@ describe('ADR-0507 정적 grep 가드 — 안전 invariant', () => {
     expect(src).not.toMatch(/setGateThreshold|GATE_RELAX|STRONG_BUY_OVERRIDE/);
   });
 
-  it('ENV `=== \'true\'` 정확 비교 (ADR-0157)', () => {
+  it('ENV `=== \'true\'` ?뺥솗 鍮꾧탳 (ADR-0157)', () => {
     const src = readFileSync(
       resolve(__dirname, '../../../trading/signalScanner/gate1ForensicInputsCollectorAdr0507.ts'),
       'utf8',
@@ -581,31 +577,31 @@ describe('ADR-0507 정적 grep 가드 — 안전 invariant', () => {
     expect(src).toContain("process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED === 'true'");
   });
 
-  it('scanBlockersCompactAdr0506.ts — gate compact formatter export', () => {
+  it('scanBlockersCompactAdr0506.ts ??gate compact formatter export', () => {
     const src = readFileSync(resolve(__dirname, 'scanBlockersCompactAdr0506.ts'), 'utf8');
     expect(src).toContain('export function formatScanBlockersGateCompactMessage');
     expect(src).toContain('export const SCAN_BLOCKERS_GATE_FULL_HINT');
     expect(src).toContain('/scan_blockers gate full');
   });
 
-  it('호출자 측 inline ENV 검사 금지 — scanBlockers.cmd 가 SSOT 위임만', () => {
+  it('keeps inline collector ENV checks out of scanBlockers.cmd', () => {
     const src = readFileSync(resolve(__dirname, 'scanBlockers.cmd.ts'), 'utf8');
-    // collector ENV 직접 검사 부재 — SSOT 헬퍼 isGate1ForensicCollectorAdr0507Disabled() 도
-    // scanBlockers.cmd 에서 직접 호출하지 않는다. (자동 합성은 scanDiagnostics 측 SSOT 가 위임.)
+    // collector ENV 吏곸젒 寃??遺????SSOT ?ы띁 isGate1ForensicCollectorAdr0507Disabled() ??
+    // scanBlockers.cmd ?먯꽌 吏곸젒 ?몄텧?섏? ?딅뒗?? (?먮룞 ?⑹꽦? scanDiagnostics 痢?SSOT 媛 ?꾩엫.)
     expect(src).not.toMatch(/process\.env\.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED/);
   });
 });
 
-/* ───────── ADR-0505 emission diagnostic — SUMMARY vs FORENSIC_INPUTS vs BUILDER 분리 ───────── */
+/* ????????? ADR-0505 emission diagnostic ??SUMMARY vs FORENSIC_INPUTS vs BUILDER 遺꾨━ ????????? */
 
 describe('ADR-0507 ADR-0505 emission diagnostic distinction', () => {
-  it('SUMMARY_FIELD_MISSING — summary 있지만 forensic 부재 (Phase 1 wiring 부재)', () => {
+  it('SUMMARY_FIELD_MISSING ??summary ?덉?留?forensic 遺??(Phase 1 wiring 遺??', () => {
     const summary = { time: '2026-05-13T00:00:00.000Z' } as unknown as ScanSummary;
     const r = deriveAdr0505EmissionStatus(summary);
     expect(r.status).toBe('SUMMARY_FIELD_MISSING');
   });
 
-  it('BUILDER_NOT_CALLED — forensic 존재하지만 totalCandidates=0', () => {
+  it('BUILDER_NOT_CALLED ??forensic 議댁옱?섏?留?totalCandidates=0', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       gate1MinimumSignalForensicAdr0505: makeForensicSummary({ totalCandidates: 0, failedCandidates: 0 }),
@@ -614,7 +610,7 @@ describe('ADR-0507 ADR-0505 emission diagnostic distinction', () => {
     expect(r.status).toBe('BUILDER_NOT_CALLED');
   });
 
-  it('EMITTED — Phase 1 collector wiring 활성 결과 (totalCandidates>0)', () => {
+  it('EMITTED ??Phase 1 collector wiring ?쒖꽦 寃곌낵 (totalCandidates>0)', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       gate1MinimumSignalForensicAdr0505: makeForensicSummary(),
@@ -624,7 +620,7 @@ describe('ADR-0507 ADR-0505 emission diagnostic distinction', () => {
     expect(r.totalCandidates).toBe(8);
   });
 
-  it('DISABLED_BY_ENV — process.env 우회 우선', () => {
+  it('DISABLED_BY_ENV ??process.env ?고쉶 ?곗꽑', () => {
     const summary = {
       time: '2026-05-13T00:00:00.000Z',
       gate1MinimumSignalForensicAdr0505: makeForensicSummary(),
@@ -636,16 +632,16 @@ describe('ADR-0507 ADR-0505 emission diagnostic distinction', () => {
   });
 });
 
-/* ───────── 안전 invariant — score / threshold / order path 변경 0 ───────── */
+/* ????????? ?덉쟾 invariant ??score / threshold / order path 蹂寃?0 ????????? */
 
-describe('ADR-0507 안전 invariant — score / threshold / order path 변경 0', () => {
-  it('formatScanBlockersGateCompactMessage 는 throw 안 함 (모든 옵셔널 fallback)', () => {
+describe('ADR-0507 ?덉쟾 invariant ??score / threshold / order path 蹂寃?0', () => {
+  it('formatScanBlockersGateCompactMessage ??throw ????(紐⑤뱺 ?듭뀛??fallback)', () => {
     expect(() => formatScanBlockersGateCompactMessage(null)).not.toThrow();
     expect(() => formatScanBlockersGateCompactMessage(undefined)).not.toThrow();
     expect(() => formatScanBlockersGateCompactMessage({} as ScanSummary)).not.toThrow();
   });
 
-  it('collectGate1ForensicInputs SSOT 는 throw 안 함 (defensive)', () => {
+  it('collectGate1ForensicInputs SSOT ??throw ????(defensive)', () => {
     expect(() => collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({})).not.toThrow();
     expect(() =>
       collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
@@ -654,12 +650,12 @@ describe('ADR-0507 안전 invariant — score / threshold / order path 변경 0'
     ).not.toThrow();
   });
 
-  it('LIVE 매매 본체 0줄 변경 — buyListLoop / intradayLoop / kisClient/orders 미수정 검증', () => {
-    // ADR-0507 wiring 은 scanDiagnostics (진단 layer) + scanBlockers.cmd (표시 layer) 만
-    // 영향. LIVE 매매 본체 (signalScanner / entryEngine / exitEngine / kisClient / orchestrator
-    // / autoTradeEngine / trancheExecutor / buyPipeline) 는 본 PR 에서 0줄 변경.
-    // 별도 정적 grep 가드 — 본 테스트가 통과한다는 것은 ADR-0507 collector 가 LIVE
-    // 매매 함수를 import 하지 않는다는 invariant 의 회귀 가드.
+  it('keeps live trading implementation files untouched', () => {
+    // ADR-0507 wiring ? scanDiagnostics (吏꾨떒 layer) + scanBlockers.cmd (?쒖떆 layer) 留?
+    // ?곹뼢. LIVE 留ㅻℓ 蹂몄껜 (signalScanner / entryEngine / exitEngine / kisClient / orchestrator
+    // / autoTradeEngine / trancheExecutor / buyPipeline) ??蹂?PR ?먯꽌 0以?蹂寃?
+    // 蹂꾨룄 ?뺤쟻 grep 媛????蹂??뚯뒪?멸? ?듦낵?쒕떎??寃껋? ADR-0507 collector 媛 LIVE
+    // 留ㅻℓ ?⑥닔瑜?import ?섏? ?딅뒗?ㅻ뒗 invariant ???뚭? 媛??
     const collectorSrc = readFileSync(
       resolve(__dirname, '../../../trading/signalScanner/gate1ForensicInputsCollectorAdr0507.ts'),
       'utf8',

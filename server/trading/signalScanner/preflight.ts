@@ -1,10 +1,10 @@
-/**
- * @responsibility 스캔 직전 매크로·시스템 게이트 — KIS·manual·regime·VIX·R6·FOMC·sellOnly 판정
+﻿/**
+ * @responsibility ?ㅼ틪 吏곸쟾 留ㅽ겕濡쑣룹떆?ㅽ뀥 寃뚯씠????KIS쨌manual쨌regime쨌VIX쨌R6쨌FOMC쨌sellOnly ?먯젙
  *
- * ADR-0129: macroGateState 11 필드 합성 + persistScanResults propagate (signalScanner/index.ts 호출자)
- * ADR-0168: Kelly clamp SSOT (applyKellyClamp + KELLY_FLOOR) — 매직 넘버 1.5 직접 사용 금지
- * ADR-0147b: signalScanner Phase 3 분해 후 게이팅·sanity·sizing wiring 단일 위치 (drift 차단)
- * ADR-0367: volumeClock abort도 /scan_blockers 진단 summary를 남긴다.
+ * ADR-0129: macroGateState 11 ?꾨뱶 ?⑹꽦 + persistScanResults propagate (signalScanner/index.ts ?몄텧??
+ * ADR-0168: Kelly clamp SSOT (applyKellyClamp + KELLY_FLOOR) ??留ㅼ쭅 ?섎쾭 1.5 吏곸젒 ?ъ슜 湲덉?
+ * ADR-0147b: signalScanner Phase 3 遺꾪빐 ??寃뚯씠?끒톝anity쨌sizing wiring ?⑥씪 ?꾩튂 (drift 李⑤떒)
+ * ADR-0367: volumeClock abort??/scan_blockers 吏꾨떒 summary瑜??④릿??
  */
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';
@@ -17,7 +17,7 @@ import {
   type MacroEntryOverrideState,
   type MacroEntryOverrideTarget,
 } from '../../state.js';
-import { sendTelegramAlert, escapeHtml } from '../../alerts/telegramClient.js';
+import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
 import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
@@ -29,7 +29,7 @@ import {
   isR3SanityAckTokenValid,
   loadR3SanityBlockState,
 } from '../../persistence/r3SanityBlockRepo.js';
-// ADR-0401: R3 Violation streak pre-scan check (SHADOW_ONLY ephemeral 차단).
+// ADR-0401: R3 Violation streak pre-scan check (SHADOW_ONLY ephemeral 李⑤떒).
 import { getEffectiveR3ViolationStreak } from '../../persistence/r3ViolationStreakRepo.js';
 import { getR3SanityProfile } from './r3SanityProfiles.js';
 import { loadShadowTrades, saveShadowTrades } from '../../persistence/shadowTradeRepo.js';
@@ -102,16 +102,16 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
   if (!cfg?.enabled) return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'disabled' };
   
   if (macroState?.vix >= cfg.maxVix) {
-    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: `VIX ${macroState.vix} ≥ ${cfg.maxVix}` };
+    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: `VIX ${macroState.vix} ??${cfg.maxVix}` };
   }
   
   return { 
-    allow: true, 
-    maxSlots: cfg.maxSlots, 
-    kellyFactor: cfg.kellyFactor, 
-    minLiveGate: cfg.minLiveGate, 
-    minMtas: cfg.minMtas, 
-    reason: 'sectorAligned 통과' 
+    allow: true,
+    maxSlots: cfg.maxSlots,
+    kellyFactor: cfg.kellyFactor,
+    minLiveGate: cfg.minLiveGate,
+    minMtas: cfg.minMtas,
+    reason: 'sectorAligned ?듦낵'
   };
 }
 
@@ -179,9 +179,7 @@ function appendLiveEntryBlockReason(current: string | undefined, reason: string)
 function parseEntryBlockReasons(reason: string | undefined): EntryBlockReason[] {
   if (!reason) return [];
   const allowed = new Set<EntryBlockReason>([
-    'R6_DEFENSE',
     'POSITION_FULL',
-    'SELL_ONLY',
     'SHADOW_ONLY',
     'OBSERVE_ONLY',
     'KRX_NON_TRADING_DAY',
@@ -200,7 +198,6 @@ function resolvePreflightExecutionMode(input: {
   sellOnly: boolean;
   diagnosticLiveBlock: boolean;
 }): ExecutionMode {
-  if (input.sellOnly) return 'SELL_ONLY';
   if (input.diagnosticLiveBlock) return 'SHADOW_ONLY';
   return 'NORMAL';
 }
@@ -319,16 +316,17 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       marketSnapshot: {
         emergencyStop: getEmergencyStop(),
       },
-      notes: ['KIS_APP_KEY missing — real order preflight remains aborted; learning-only case recorded'],
+      notes: ['KIS_APP_KEY missing ??real order preflight remains aborted; learning-only case recorded'],
     });
     return { shouldAbort: true, skipPersist: false };
   }
 
-  let optSellOnly = options?.sellOnly;
+  const legacySellOnlyRequested = options?.sellOnly === true;
+  let optSellOnly = false;
   const manualBlockNewBuy = getManualBlockNewBuy();
   const manualManageOnly = getManualManageOnly();
   if ((manualBlockNewBuy || manualManageOnly) && !optSellOnly) {
-    const reason = manualManageOnly ? '보유만 관리 모드' : '신규 매수 차단';
+    const reason = manualManageOnly ? '蹂댁쑀留?愿由?紐⑤뱶' : '?좉퇋 留ㅼ닔 李⑤떒';
     emitPreflightOperationalWarn({
       code: 'P1_PREFLIGHT_MANUAL_GUARD_SELL_ONLY',
       domain: 'DIAGNOSTIC',
@@ -336,7 +334,20 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       dedupKey: `preflight:manual-guard:${reason}`,
       details: { guardReason: reason },
     });
-    optSellOnly = true;
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=preflight marketSession=UNKNOWN displaySession=REGULAR ` +
+      `inputEntryBlockMode=SELL_ONLY ignoredReasons=MANUAL_SELL_ONLY_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
+      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
+  }
+  if (legacySellOnlyRequested) {
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=preflight marketSession=UNKNOWN displaySession=REGULAR ` +
+      `inputEntryBlockMode=SELL_ONLY ignoredReasons=SELL_ONLY_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
+      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
   }
 
   const watchlist = loadWatchlist();
@@ -348,13 +359,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       marketSnapshot: {
         emergencyStop: getEmergencyStop(),
       },
-      notes: ['watchlist empty — pre-universe learning snapshot retained with zero candidates'],
+      notes: ['watchlist empty ??pre-universe learning snapshot retained with zero candidates'],
     });
     await recordBlockedDayShadowScan('WATCHLIST_EMPTY');
     return { shouldAbort: true, skipPersist: false };
   }
 
-  // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
+  // ADR-0392 P0-B ??env 吏곸젒 李몄“ ??getTradingMode() SSOT ?듭씪.
   const shadowMode = getTradingMode() !== 'LIVE';
   const shadows = loadShadowTrades();
   let totalAssets: number;
@@ -385,36 +396,46 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   console.log(
     shadowMode
-      ? `[AutoTrade] [SHADOW] virtual account — equity=${totalAssets.toLocaleString()}원 / cash=${orderableCash.toLocaleString()}원 / holding=${activeHoldingValue.toLocaleString()}원 / mode=SHADOW`
-      : `[AutoTrade] [LIVE] real account — equity=${totalAssets.toLocaleString()}원 / orderable_cash=${orderableCash.toLocaleString()}원 / mode=LIVE`
+      ? `[AutoTrade] [SHADOW] virtual account ??equity=${totalAssets.toLocaleString()}??/ cash=${orderableCash.toLocaleString()}??/ holding=${activeHoldingValue.toLocaleString()}??/ mode=SHADOW`
+      : `[AutoTrade] [LIVE] real account ??equity=${totalAssets.toLocaleString()}??/ orderable_cash=${orderableCash.toLocaleString()}??/ mode=LIVE`
   );
 
   const macroState = loadMacroState();
   const regimeSnapshot = resolveRegimeSnapshot({ macroState });
   const regimeDiagnostics = regimeSnapshot.diagnostics;
-  const regime = regimeSnapshot.effectiveRegime as keyof typeof REGIME_CONFIGS;
+  const observedRegime = String(regimeSnapshot.effectiveRegime) as keyof typeof REGIME_CONFIGS;
+  const observedRawRegime = String(regimeDiagnostics.rawRegime) as keyof typeof REGIME_CONFIGS;
+  const defaultRollbackRegime = (Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, 'R4_NEUTRAL')
+    ? 'R4_NEUTRAL'
+    : Object.keys(REGIME_CONFIGS).find((key) => key !== 'R6_DEFENSE')) as keyof typeof REGIME_CONFIGS;
+  const rollbackRegime = observedRawRegime !== 'R6_DEFENSE' && Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, observedRawRegime)
+    ? observedRawRegime
+    : defaultRollbackRegime;
+  const regime = observedRegime === 'R6_DEFENSE' || !Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, observedRegime)
+    ? rollbackRegime
+    : observedRegime;
+  const legacyR6Detected =
+    observedRegime === 'R6_DEFENSE' ||
+    observedRawRegime === 'R6_DEFENSE' ||
+    regimeSnapshot.detectedRegime === 'R6_DEFENSE' ||
+    regimeSnapshot.riskOverride === 'R6_DEFENSE' ||
+    regimeSnapshot.displayRegime === 'R6_DEFENSE';
   let regimeConfig = REGIME_CONFIGS[regime];
   const macroEntryOverride = getMacroEntryOverrideState();
   const r6EntryOverrideActive =
-    regime === 'R6_DEFENSE' && macroEntryOverrideApplies(macroEntryOverride, 'R6_DEFENSE');
+    legacyR6Detected && macroEntryOverrideApplies(macroEntryOverride, 'R6_DEFENSE');
   if (r6EntryOverrideActive) {
-    regimeConfig = applyMacroEntryOverrideRegimeConfig(regimeConfig, macroEntryOverride!);
     emitPreflightOperationalWarn({
       code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      message: '[AutoTrade] OPERATOR_MACRO_ENTRY_OVERRIDE applied for R6_DEFENSE',
+      message: '[AutoTrade] legacy R6 entry override ignored by rollback',
       dedupKey: 'preflight:operator-macro-entry-override:r6',
       details: {
         override: formatMacroEntryOverrideLog(macroEntryOverride!),
         regimeSnapshotId: regimeSnapshot.snapshotId,
+        executionImpact: 'NONE',
+        rollback: 'R6_SELLONLY_DISABLED',
       },
     });
-    await sendTelegramAlert(
-      `⚠️ <b>[Operator Macro Entry Override]</b>\n` +
-      `R6_DEFENSE 신규 진입 차단을 운영자 명령으로 우회합니다.\n` +
-      `expiresAt: <code>${macroEntryOverride!.expiresAt}</code>\n` +
-      `reason: <code>${escapeHtml(macroEntryOverride!.reason)}</code>`,
-      { priority: 'HIGH', dedupeKey: 'operator_macro_entry_override:r6', cooldownMs: 30 * 60_000 },
-    ).catch(console.error);
   }
   let liveEntryBlockedReason: string | undefined;
   let macroDiagnosticOnly = false;
@@ -422,74 +443,31 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     liveEntryBlockedReason = appendLiveEntryBlockReason(liveEntryBlockedReason, reason);
     macroDiagnosticOnly = true;
   };
-  if (regime === 'R6_DEFENSE' && !r6EntryOverrideActive) {
-    markMacroDiagnosticLiveBlock('R6_DEFENSE');
-    const channelId = process.env.TELEGRAM_CHAT_ID ?? 'default';
-    const snapshot: RegimeStatusSnapshot = {
-      effectiveRegime: 'R6_DEFENSE',
-      riskOverride: 'BLACK_SWAN',
-      mhsBucket: toMhsBucket(macroState?.mhs),
-      liveBuyPolicy: 'LIVE_BUY_BLOCKED',
-      shadowPolicy: 'SHADOW_ON',
-      tradeDate: new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      snapshotId: String(regimeSnapshot.snapshotId ?? 'unknown'),
-    };
-    const previous = regimeStatusByChannel.get(channelId);
-    const sameState = previous
-      && previous.effectiveRegime === snapshot.effectiveRegime
-      && previous.riskOverride === snapshot.riskOverride
-      && previous.mhsBucket === snapshot.mhsBucket
-      && previous.liveBuyPolicy === snapshot.liveBuyPolicy
-      && previous.shadowPolicy === snapshot.shadowPolicy
-      && previous.tradeDate === snapshot.tradeDate;
-    const dedupKey = buildRegimeAlertDedupKey(channelId, snapshot);
-    if (sameState) {
-      console.log(`[REGIME_ALERT_DEDUP_SUPPRESSED] alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE reason=UNCHANGED_REGIME_STATE dedupKey=${dedupKey} lastSentAt=${new Date().toISOString()} currentSnapshotId=${snapshot.snapshotId} previousSnapshotId=${previous.snapshotId} telegramSent=false`);
-    } else {
-      const shouldLogTransition = previous?.effectiveRegime !== 'R6_DEFENSE';
-      const msgId = await sendTelegramAlert(`🔴 <b>[R6_DEFENSE] Live 신규 진입 차단</b>
-MHS: ${macroState?.mhs ?? 'N/A'} | 블랙스완 감지
-Live Buy: BLOCKED
-Shadow: ON — 방어 비중으로 탐색/학습 유지
-기존 포지션: 모니터링 유지`, {
-        dedupeKey: dedupKey,
-      }).catch((cause) => {
-        console.error('[REGIME_ALERT_SEND_FAILED] alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE', cause);
-        return undefined;
-      });
-      if (shouldLogTransition) {
-        console.log(`[REGIME_ALERT_SENT] alertType=REGIME_STATUS transition=${previous?.effectiveRegime ?? 'NONE'}->R6_DEFENSE mhs=${macroState?.mhs ?? 'N/A'} riskOverride=BLACK_SWAN telegramSent=${msgId !== undefined}`);
-      }
-      regimeStatusByChannel.set(channelId, snapshot);
-    }
-    emitPreflightOperationalWarn({
-      code: 'P1_GREEN_WITH_R6_BLOCKED',
-      message: '[AutoTrade] R6_DEFENSE live entry blocked; diagnostics continue',
-      dedupKey: `preflight:r6-defense:block:${regimeSnapshot.snapshotId}`,
-      details: {
-        mhs: macroState?.mhs ?? 'N/A',
-        regimeSnapshotId: regimeSnapshot.snapshotId,
-        displayRegime: regimeSnapshot.displayRegime,
-        effectiveRegime: regimeSnapshot.effectiveRegime,
-      },
-    });
-    await recordBlockedDayShadowScan('RISK_OFF_REGIME');
+  if (legacyR6Detected) {
+    macroDiagnosticOnly = true;
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=REGULAR displaySession=REGULAR ` +
+      `inputEntryBlockMode=R6_DEFENSE ignoredReasons=R6_DEFENSE_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
+      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
   }
-  if (regime === 'R6_DEFENSE' && r6EntryOverrideActive) {
+
+  if (legacyR6Detected && r6EntryOverrideActive) {
     emitPreflightOperationalWarn({
       code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      message: '[AutoTrade] R6_DEFENSE no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE',
+      message: '[AutoTrade] legacy R6 operator bypass ignored by rollback',
       dedupKey: 'preflight:r6-defense:operator-bypass',
       details: {
         kellyFloor: macroEntryOverride?.kellyFloor,
         maxPositionsFloor: macroEntryOverride?.maxPositionsFloor,
         regimeSnapshotId: regimeSnapshot.snapshotId,
+        executionImpact: 'NONE',
+        rollback: 'R6_SELLONLY_DISABLED',
       },
     });
   }
-  const sellOnlyExc = optSellOnly
-    ? evaluateSellOnlyException(regimeConfig, macroState)
-    : { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'sellOnly-disabled' };
+  const sellOnlyExc = { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'R6_SELLONLY_DISABLED' };
 
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
@@ -505,7 +483,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     const session = getGatingAlertSession();
     if (session) {
       const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      await sendTelegramAlert(`🚨 <b>[VIX 게이팅] 신규 진입 차단</b>\n${vixGating.reason}\n포지션 모니터링만 수행합니다.`, {
+      await sendTelegramAlert(`?슚 <b>[VIX 寃뚯씠?? ?좉퇋 吏꾩엯 李⑤떒</b>\n${vixGating.reason}\n?ъ???紐⑤땲?곕쭅留??섑뻾?⑸땲??`, {
         dedupeKey: `vix_gating_block:${kstDateStr}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
@@ -543,7 +521,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     });
     const session = getGatingAlertSession();
     if (session) {
-      await sendTelegramAlert(`📅 <b>[FOMC 게이팅] 신규 진입 차단</b>\n${fomcProximity.description}\n포지션 모니터링만 수행합니다.`, {
+      await sendTelegramAlert(`?뱟 <b>[FOMC 寃뚯씠?? ?좉퇋 吏꾩엯 李⑤떒</b>\n${fomcProximity.description}\n?ъ???紐⑤땲?곕쭅留??섑뻾?⑸땲??`, {
         dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
@@ -646,10 +624,10 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
         dartAttempts: snap.dartAttempts,
       },
     });
-    await sendTelegramAlert(`🧪 <b>[데이터 빈곤 스캔] 신규 진입 보류</b>\nMTAS 실패 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n표본: M${snap.mtasAttempts} · D${snap.dartAttempts}\n빈 스캔과 구분되는 "데이터 부재" 상태 — 원천 데이터 점검 후 복귀`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
+    await sendTelegramAlert(`?㎦ <b>[?곗씠??鍮덇낀 ?ㅼ틪] ?좉퇋 吏꾩엯 蹂대쪟</b>\nMTAS ?ㅽ뙣 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n?쒕낯: M${snap.mtasAttempts} 쨌 D${snap.dartAttempts}\n鍮??ㅼ틪怨?援щ텇?섎뒗 "?곗씠??遺?? ?곹깭 ???먯쿇 ?곗씠???먭? ??蹂듦?`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
     await recordBlockedDayShadowScan('DATA_STARVED');
     // ADR-0433: data-starved preflight abort universe snapshot.
-    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    // ADR-0367: buyListLoop 吏꾩엯 ??李⑤떒 ??preflightBlockedScanSummary ???곸냽.
     await recordPreflightBlockedScan(
       {
         stage: 'AFTER_UNIVERSE_BUILD',
@@ -662,7 +640,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
           vkospiLevel: macroState?.vkospi,
         },
         notes: [
-          `data starved — MTAS fail ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
+          `data starved ??MTAS fail ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
         ],
       },
       {
@@ -681,11 +659,11 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   const r3Countability = evaluateR3CountableScan({
     todayKstDate,
     isKrxTradingDay: todayIsKrxTradingDay,
-    volumeClockAllowsEntry: volumeClock.allowEntry,
+    volumeClockAllowsEntry: true,
     emergencyStop: getEmergencyStop(),
     manualBlockNewBuy,
     manualManageOnly,
-    sellOnlyMode: optSellOnly === true,
+    sellOnlyMode: false,
     regime: regime ?? 'UNKNOWN',
     bearDefenseMode: false,
     vixGatingActive: vixGating.noNewEntry,
@@ -696,7 +674,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   const resolvedMarketSessionState = resolveMarketSessionState({
     skipReason: r3Countability.skipReason,
     isKrxTradingDay: todayIsKrxTradingDay,
-    volumeClockAllowsEntry: volumeClock.allowEntry,
+    volumeClockAllowsEntry: true,
   });
 
   const ipsKelly = getIpsKellyMultiplier();
@@ -705,7 +683,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   const biasMultiplier = biasPositionPenalty.multiplier;
   const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
   const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
-  const exceptionKellyFactor = sellOnlyExc.allow ? sellOnlyExc.kellyFactor : 1;
+  const exceptionKellyFactor = 1;
   const vixDiagnosticOnly = vixGating.noNewEntry && !vixEntryOverrideActive;
   const fomcDiagnosticOnly = fomcProximity.noNewEntry && !fomcEntryOverrideActive;
   const effectiveVixKelly = applyMacroEntryOverrideKellyFloor(
@@ -721,12 +699,9 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   const regimeFomcCombined = combineRegimeAndFomcKelly(regimeConfig.kellyMultiplier, effectiveFomcKelly, fomcProximity.phase, regime);
   
   const liveEntryAllowedForKelly =
-    !liveEntryBlockedReason &&
-    optSellOnly !== true &&
-    volumeClock.allowEntry === true &&
-    resolvedMarketSessionState === 'OPEN';
+    !liveEntryBlockedReason;
   const executionModeForKelly = resolvePreflightExecutionMode({
-    sellOnly: optSellOnly === true,
+    sellOnly: false,
     diagnosticLiveBlock: Boolean(liveEntryBlockedReason),
   });
   const kellyResult = computeEffectiveKelly({
@@ -747,11 +722,11 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   let rawKelly = kellyResult.rawKelly;
   let kellyMultiplier = kellyResult.effectiveKelly;
   
-  if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS 변곡 Kelly 감쇠 적용 — ×${ipsKelly.toFixed(2)}`);
-  if (vixGating.kellyMultiplier < 1) console.log(`[AutoTrade] VIX 게이팅 적용 — ${vixGating.reason}`);
-  if (fomcProximity.kellyMultiplier !== 1) console.log(`[AutoTrade] FOMC 게이팅 적용 — ${fomcProximity.description}`);
-  if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied — x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
-  if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied — x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
+  if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS 蹂怨?Kelly 媛먯뇿 ?곸슜 ??횞${ipsKelly.toFixed(2)}`);
+  if (vixGating.kellyMultiplier < 1) console.log(`[AutoTrade] VIX 寃뚯씠???곸슜 ??${vixGating.reason}`);
+  if (fomcProximity.kellyMultiplier !== 1) console.log(`[AutoTrade] FOMC 寃뚯씠???곸슜 ??${fomcProximity.description}`);
+  if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied ??x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
+  if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied ??x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
   if (kellyResult.blockedByPolicy) {
     console.info(formatKellyPolicyBlockedLog({
       macroRegime: normalizeMacroRegime(regime),
@@ -763,14 +738,14 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     }));
   } else if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
-      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} × VIX(×${effectiveVixKelly.toFixed(2)}) × IPS(×${ipsKelly.toFixed(2)}) × 계좌(×${accountKellyMultiplier.toFixed(2)}) = raw ×${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' → floor applied' : ''} → 유효 ×${kellyMultiplier.toFixed(2)}`,
+      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} 횞 VIX(횞${effectiveVixKelly.toFixed(2)}) 횞 IPS(횞${ipsKelly.toFixed(2)}) 횞 怨꾩쥖(횞${accountKellyMultiplier.toFixed(2)}) = raw 횞${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' ??floor applied' : ''} ???좏슚 횞${kellyMultiplier.toFixed(2)}`,
     );
   }
 
   const MAX_CONVICTION_POSITIONS = Number(process.env.MAX_CONVICTION_POSITIONS ?? '10');
   const effectiveMaxPositions = Math.min(
     MAX_CONVICTION_POSITIONS,
-    sellOnlyExc.allow ? Math.min(regimeConfig.maxPositions, sellOnlyExc.maxSlots) : regimeConfig.maxPositions,
+    regimeConfig.maxPositions,
   );
   
   const slotResult = computeSlotConsumption(shadows, effectiveMaxPositions);
@@ -812,9 +787,9 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
   }
 
   if (slotResult.isFull && process.env.POSITION_FULL_PREFLIGHT_ABORT === 'true' && !shadowMode) {
-    console.log(`[AutoTrade] 최대 동시 포지션 도달 (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}${sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${regime}, raw=${slotResult.rawCount}) — 신규 진입 스킵`);
+    console.log(`[AutoTrade] maximum positions reached (${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, regime=${regime}, raw=${slotResult.rawCount}) - live entry skipped`);
     await recordBlockedDayShadowScan('POSITION_FULL');
-    // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+    // ADR-0367: buyListLoop 吏꾩엯 ??李⑤떒 ??preflightBlockedScanSummary ???곸냽.
     await recordPreflightBlockedScan(
       {
         stage: 'BEFORE_BUYLIST_LOOP',
@@ -826,7 +801,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
           regime: regime ?? macroState?.regime,
           vkospiLevel: macroState?.vkospi,
         },
-        notes: [`position slots full — consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
+        notes: [`position slots full ??consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
       },
       {
         blockedBy: 'NO_BUYLIST_ELIGIBLE',
@@ -852,22 +827,28 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     fomcKelly: effectiveFomcKelly,
     finalKelly: kellyMultiplier,
     vixGatingActive: vixGating.noNewEntry,
-    bearDefenseMode: regime === 'R6_DEFENSE',
+    bearDefenseMode: false,
     mhsBelow30: (macroState?.mhs ?? 100) < 30,
     watchlistEmpty: watchlist.length === 0,
-    sellOnlyMode: optSellOnly === true || !volumeClock.allowEntry,
+    sellOnlyMode: false,
     macroEntryOverrideActive: macroEntryOverride !== null,
     macroEntryOverrideTargets: macroEntryOverride?.targets,
     diagnosticLiveEntryBlocked: diagnosticOnlyLiveBlock,
     liveEntryBlockedReason: liveEntryBlockReason,
     macroRegimeRaw: regimeDiagnostics.rawRegime,
-    macroRegimeEffective: regimeDiagnostics.effectiveRegime,
+    macroRegimeEffective: legacyR6Detected ? regime : regimeDiagnostics.effectiveRegime,
     regimeSnapshotId: regimeSnapshot.snapshotId,
     regimeSnapshotAsOf: regimeSnapshot.asOf,
     regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
-    displayRegime: regimeSnapshot.displayRegime,
-    riskOverride: regimeSnapshot.riskOverride,
-    engineMode: regimeSnapshot.engineMode,
+    displayRegime: regimeSnapshot.displayRegime === 'R6_DEFENSE' || regimeSnapshot.displayRegime === 'SELL_ONLY'
+      ? regimeDiagnostics.rawRegime
+      : regimeSnapshot.displayRegime,
+    riskOverride: regimeSnapshot.riskOverride === 'R6_DEFENSE' || regimeSnapshot.riskOverride === 'SELL_ONLY'
+      ? 'NONE'
+      : regimeSnapshot.riskOverride,
+    engineMode: regimeSnapshot.engineMode === 'SELL_ONLY'
+      ? 'NORMAL'
+      : regimeSnapshot.engineMode,
     sourceHealth: regimeSnapshot.sourceHealth,
     regimeConflicts: regimeSnapshot.conflicts,
     r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
@@ -888,45 +869,28 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
     isPostCloseObservationScan(options) && macroDiagnosticOnly;
 
   if (!volumeClock.allowEntry && !shadowMode) {
-    console.log(volumeClock.reason);
-    if (keepPostCloseObservationAlive) {
-      console.info(
-        `[AutoTrade] POST_CLOSE_OBSERVE diagnostic scan continues after close ` +
-        `(liveEntryBlockedReason=${liveEntryBlockReason ?? 'DIAGNOSTIC_ONLY'}, executionImpact=NONE)`,
-      );
-    } else {
-      // ADR-0515 — volumeClock 점심 차단을 ADR-0192(12:00~12:59) 정합 → 허용 구간 09:30~11:59.
-      console.log(`[AutoTrade] 매수 대기 종목 대기 중 (허용 구간: 09:30~11:59, 13:00~15:20 KST)`);
-      await recordBlockedDayShadowScan('VOLUME_CLOCK_BLOCK');
-      await updateShadowResults(shadows, regime);
-      saveShadowTrades(shadows);
-      return {
-        shouldAbort: true,
-        skipPersist: false,
-        diagnosticData: {
-          buyListLength: watchlist.length,
-          intradayBuyListLength: 0,
-          swingListLength: 0,
-          catalystListLength: 0,
-          momentumListLength: watchlist.length,
-          macroGateState,
-        },
-        context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity, kellyMultiplier, volumeClock, macroGateState }),
-      };
-    }
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=AFTERMARKET displaySession=REGULAR ` +
+      `inputEntryBlockMode=SELL_ONLY ignoredReasons=AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
+      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
+    console.info(
+      `[AutoTrade] volumeClock observation only; Gate/data diagnostics continue (${volumeClock.reason}, postCloseObservation=${keepPostCloseObservationAlive})`,
+    );
   }
   if (!volumeClock.allowEntry && shadowMode) {
-    console.log(`[AutoTrade] volumeClock 차단 SHADOW — Shadow 학습 계속 (${volumeClock.reason})`);
+    console.log(`[AutoTrade] volumeClock observation SHADOW - Shadow learning continues (${volumeClock.reason})`);
   }
 
   if (volumeClock.scoreBonus !== 0) {
     console.log(volumeClock.reason);
   }
 
-  // ADR-0419: SHADOW_ONLY ephemeral 차단 — R6/VIX/FOMC 상태에서도 진단 루프는 유지한다.
-  //   evaluateR3CountableScan 은 이런 거시 차단일을 R3 streak 누적에서 제외하는 안전망이다.
-  // ADR-0401: 영속 latch 와 무관, streak repo 의 24h decay 로 자연 회복.
-  // HARD_BLOCK latch (영속, ADR-0120) 는 라인 ~173 에서 이미 처리됨 (절대 원칙 #11/12 — 자동 해제 0).
+  // ADR-0419: SHADOW_ONLY ephemeral 李⑤떒 ??R6/VIX/FOMC ?곹깭?먯꽌??吏꾨떒 猷⑦봽???좎??쒕떎.
+  //   evaluateR3CountableScan ? ?대윴 嫄곗떆 李⑤떒?쇱쓣 R3 streak ?꾩쟻?먯꽌 ?쒖쇅?섎뒗 ?덉쟾留앹씠??
+  // ADR-0401: ?곸냽 latch ? 臾닿?, streak repo ??24h decay 濡??먯뿰 ?뚮났.
+  // HARD_BLOCK latch (?곸냽, ADR-0120) ???쇱씤 ~173 ?먯꽌 ?대? 泥섎━??(?덈? ?먯튃 #11/12 ???먮룞 ?댁젣 0).
   if (r3Countability.countable) {
     const effectiveStreak = getEffectiveR3ViolationStreak();
     if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
@@ -944,10 +908,10 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
           },
         });
         await sendTelegramAlert(
-          `⚫️ <b>[R3 Sanity — SHADOW_ONLY pre-scan]</b>\n` +
-          `직전 스캔 누적 ${effectiveStreak.consecutiveCount}회 (임계 ${profile.shadowOnlyAt}) — ` +
-          `신규 진입 차단 + shadow learning 유지.\n` +
-          `<i>다음 정상 스캔 (위반 NONE 또는 24h decay) 시 자동 회복 — 영속 latch 없음 (ADR-0401).</i>`,
+          `?ワ툘 <b>[R3 Sanity ??SHADOW_ONLY pre-scan]</b>\n` +
+          `吏곸쟾 ?ㅼ틪 ?꾩쟻 ${effectiveStreak.consecutiveCount}??(?꾧퀎 ${profile.shadowOnlyAt}) ??` +
+          `?좉퇋 吏꾩엯 李⑤떒 + shadow learning ?좎?.\n` +
+          `<i>?ㅼ쓬 ?뺤긽 ?ㅼ틪 (?꾨컲 NONE ?먮뒗 24h decay) ???먮룞 ?뚮났 ???곸냽 latch ?놁쓬 (ADR-0401).</i>`,
           {
             priority: 'HIGH',
             dedupeKey: `r3_sanity_shadow_only_pre:${effectiveStreak.regime}:${effectiveStreak.consecutiveCount}`,
@@ -956,7 +920,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
         ).catch(console.error);
         await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
         // ADR-0433: R3 SHADOW_ONLY ephemeral preflight abort universe snapshot.
-        // ADR-0367: buyListLoop 진입 전 차단 — preflightBlockedScanSummary 도 영속.
+        // ADR-0367: buyListLoop 吏꾩엯 ??李⑤떒 ??preflightBlockedScanSummary ???곸냽.
         await recordPreflightBlockedScan(
           {
             stage: 'BEFORE_BUYLIST_LOOP',
@@ -969,7 +933,7 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
               vkospiLevel: macroState?.vkospi,
             },
             notes: [
-              `R3 SHADOW_ONLY ephemeral — streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.violation}, ${effectiveStreak.regime})`,
+              `R3 SHADOW_ONLY ephemeral ??streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.violation}, ${effectiveStreak.regime})`,
             ],
           },
           {
@@ -990,8 +954,8 @@ Shadow: ON — 방어 비중으로 탐색/학습 유지
       }
     }
   } else {
-    // ADR-0419: 비정상 컨텍스트 — SHADOW_ONLY pre-scan 자체 차단 (사용자 명시 절대 원칙).
-    // R6/VIX/FOMC 진단일은 buyList/gate 진단을 계속하되 R3 streak 산정에서 제외한다.
+    // ADR-0419: 鍮꾩젙??而⑦뀓?ㅽ듃 ??SHADOW_ONLY pre-scan ?먯껜 李⑤떒 (?ъ슜??紐낆떆 ?덈? ?먯튃).
+    // R6/VIX/FOMC 吏꾨떒?쇱? buyList/gate 吏꾨떒??怨꾩냽?섎릺 R3 streak ?곗젙?먯꽌 ?쒖쇅?쒕떎.
     console.info(formatPreScanSkippedLog({
       macroRegime: normalizeMacroRegime(regime ?? macroState?.regime ?? 'R2_NEUTRAL'),
       executionMode: 'SHADOW_ONLY',

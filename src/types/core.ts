@@ -91,13 +91,13 @@ export interface RegimeVariables {
   // ① 변동성 축
   vkospi: number;            // 한국 공포지수 (절대값)
   vkospi5dTrend: number;     // 5일 변화율 % (음수 = 안정화 중)
-  vkospiDayChange: number;   // 단일일 변화율 % (블랙스완 감지용)
+  vkospiDayChange: number;   // 단일일 변화율 %
 
   // ② 매크로 축
   mhsScore: number;          // Macro Health Score 0~100
   usdKrw: number;            // 원달러 환율
   usdKrw20dChange: number;   // 20일 변화율 % (양수 = 달러강세 = 악재)
-  usdKrwDayChange: number;   // 단일일 변화율 % (블랙스완 감지용)
+  usdKrwDayChange: number;   // 단일일 변화율 %
 
   // ③ 수급 축
   foreignNetBuy5d: number;   // 외국인 5일 누적 순매수 (억원)
@@ -107,7 +107,7 @@ export interface RegimeVariables {
   kospiAbove20MA: boolean;   // KOSPI 20일 이동평균선 위
   kospiAbove60MA: boolean;   // KOSPI 60일 이동평균선 위
   kospi20dReturn: number;    // KOSPI 20일 수익률 %
-  kospiDayReturn: number;    // KOSPI 단일일 수익률 % (블랙스완 감지용)
+  kospiDayReturn: number;    // KOSPI 단일일 수익률 %
 
   // ⑤ 사이클 축
   leadingSectorRS: number;                              // 주도 섹터 RS 점수 0~100

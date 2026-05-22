@@ -8,8 +8,8 @@ describe('/normal_supply_preview command wiring', () => {
     expect(source).toContain("name: '/normal_supply_preview'");
     expect(source).toContain("'/normal_supply'");
     expect(source).toContain("'/supply_preview'");
-    expect(source).toContain('liveExecutionAllowed=false');
-    expect(source).toContain('realOrderAllowed=false');
+    expect(source).toContain('livePermission=GATE_DATA_ONLY');
+    expect(source).toContain('realOrderPermission=GATE_DATA_ONLY');
     expect(source).toContain('executionImpact=NONE');
     expect(source).toContain('collectNormalSupplyPreviewFromWatchlist');
     expect(source).toContain('NORMAL_SUPPLY_DIAGNOSTIC_FULL');

@@ -121,29 +121,17 @@ export function evaluateStreakIncrementAllowed(
   if (!ctx.isKrxTradingDay) {
     return { allowed: false, skipReason: 'KRX_NON_TRADING_DAY' };
   }
-  if (!ctx.volumeClockAllowsEntry) {
-    return { allowed: false, skipReason: 'VOLUME_CLOCK_CLOSED' };
-  }
   if (ctx.emergencyStop) {
     return { allowed: false, skipReason: 'EMERGENCY_STOP' };
   }
   if (ctx.manualBlockNewBuy || ctx.manualManageOnly) {
     return { allowed: false, skipReason: 'MANUAL_BLOCK_NEW_BUY' };
   }
-  if (ctx.sellOnlyMode) {
-    return { allowed: false, skipReason: 'SELL_ONLY_MODE' };
-  }
-  if (ctx.regime === 'R6_DEFENSE') {
-    return { allowed: false, skipReason: 'R6_DEFENSE_REGIME' };
-  }
   if (ctx.vixGatingActive) {
     return { allowed: false, skipReason: 'VIX_BLOCK' };
   }
   if (ctx.fomcBlockActive) {
     return { allowed: false, skipReason: 'FOMC_BLOCK' };
-  }
-  if (ctx.bearDefenseMode) {
-    return { allowed: false, skipReason: 'BLOCKED_DAY_SCAN' };
   }
   if (ctx.dataStarvedScan) {
     return { allowed: false, skipReason: 'DATA_STARVED_SCAN' };

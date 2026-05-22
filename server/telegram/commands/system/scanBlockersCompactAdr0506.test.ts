@@ -321,10 +321,10 @@ describe('formatScanBlockersCompactMessage', () => {
       },
     } as unknown as ScanSummary;
     const out = formatScanBlockersCompactMessage(summary);
-    expect(out).toContain('SELL_ONLY');
+    expect(out).not.toContain('SELL_ONLY_POLICY');
     expect(out).toContain('candidates: 50');
-    expect(out).toContain('Gate1Diagnostic: pass=0/50');
-    expect(out).toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
+    expect(out).toContain('Gate1: 0/50');
+    expect(out).toContain('PolicyDiag: LIVE_ALLOWED');
     expect(out).toContain('KIS_API');
     expect(out).toContain('PARTIAL');
     expect(out).toContain('coverage 2/11');

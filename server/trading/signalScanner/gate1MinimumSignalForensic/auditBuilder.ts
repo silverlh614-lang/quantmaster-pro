@@ -101,7 +101,6 @@ export function resolveGate1EvaluationStateAdr0510(input: {
   const gateOutputs = input.gateEvaluationOutputAvailableCount ?? conditionResults;
   const minTrace = input.minSignalScoreTraceAvailableCount ?? 0;
   if (total <= 0) return 'UNKNOWN';
-  if (input.sellOnlyMode) return 'NOT_EVALUATED_SELL_ONLY';
   if (input.orderBlocked) return 'NOT_EVALUATED_ORDER_BLOCKED';
   if (input.buyListLoopEntered === false) return 'NOT_EVALUATED_BUYLIST_NOT_REACHED';
   if (conditionResults > 0 || gateOutputs > 0) return 'EVALUATED';
@@ -238,7 +237,6 @@ export function buildGate1MinimumSignalForensicAuditAdr0505(
 
 function inferTraceSourcePath(candidate?: CandidateEntryTrace): Gate1ForensicTraceSourcePath {
   if (!candidate) return 'UNKNOWN';
-  if (candidate.marketSession === 'SELL_ONLY') return 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT';
   if (candidate.gate1Trace) return 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE';
   if (candidate.stageReached === 'UNIVERSE') return 'PREFLIGHT_UNIVERSE_SNAPSHOT';
   if (candidate.stageReached === 'WATCHLIST') return 'WATCHLIST_CANDIDATE';
@@ -262,7 +260,6 @@ function resolveWatchlistBreakPoint(candidate: CandidateEntryTrace | undefined, 
 }
 
 function resolveQuoteHydrationBreakPoint(candidate: CandidateEntryTrace | undefined, sourcePath: Gate1ForensicTraceSourcePath): QuoteHydrationBreakPointAdr0510 {
-  if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') return 'SELL_ONLY_SKIPPED_QUOTE_EVALUATION';
   if (sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') return 'PRECHECK_ONLY_TRACE';
   if (!candidate) return 'QUOTE_NOT_FETCHED';
   if (!candidate.quote) return 'QUOTE_NOT_FETCHED';
@@ -270,7 +267,6 @@ function resolveQuoteHydrationBreakPoint(candidate: CandidateEntryTrace | undefi
 }
 
 function resolveConditionResultsBreakPoint(candidate: CandidateEntryTrace | undefined, sourcePath: Gate1ForensicTraceSourcePath): ConditionResultsBreakPointAdr0510 {
-  if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') return 'SELL_ONLY_SKIPPED_GATE_EVALUATION';
   if (sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') return 'PRECHECK_ONLY_TRACE';
   const record = candidate as unknown as Record<string, unknown> | undefined;
   const hasResults = Boolean(record?.conditionResults && typeof record.conditionResults === 'object')

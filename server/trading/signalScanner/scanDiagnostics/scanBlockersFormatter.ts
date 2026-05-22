@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @responsibility Telegram scan blockers message formatter.
  * ADR-0001 scan diagnostics core split.
  */
@@ -78,9 +78,10 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push(`  • liveEntryBlocked: <b>${mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY'}</b> (diagnostics continue)`);
     }
     if (mg.sellOnlyMode) {
-      lines.push(`  • SELL_ONLY: <b>ON ⚠️</b> (점심/장외 시간대)`);
-      lines.push('  marketSession note: SELL_ONLY/장외 구간의 Gate1 zero survivor는 live-entry evaluation이 아니라 order-blocked diagnostic입니다. BUY_ALLOWED 정규장 fresh scan과 분리해 해석하십시오.');
-      lines.push('  shadow note: Shadow/Counterfactual snapshot preserved; liveExecutionAllowed=false, executionImpact=NONE.');
+      lines.push('  R6/SELL_ONLY rollback: disabled');
+      lines.push('  legacyIgnoredReasons: SELL_ONLY_IGNORED_BY_ROLLBACK');
+      lines.push('  Current buy permission uses Gate/data quality only.');
+      lines.push('  shadow note: Shadow/Counterfactual snapshot preserved; executionImpact=NONE.');
     }
     if (mg.watchlistEmpty) lines.push(`  • 워치리스트: <b>0개 ⚠️</b>`);
   }
@@ -406,7 +407,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  shadowBuySignals=${r6.shadowBuySignals}`);
     lines.push(`  r6CounterfactualEntries=${r6.r6CounterfactualEntries}`);
     lines.push(`  noShadowEntryReason=${r6.noShadowEntryReason ?? 'N/A'}`);
-    lines.push('  liveNewBuyAllowed=false realOrderAllowed=false strongBuyAllowed=false');
+    lines.push('  legacy R6/SELL_ONLY policy disabled; buy permission uses Gate/data quality only');
     lines.push('  executionImpact=NONE');
   }
 

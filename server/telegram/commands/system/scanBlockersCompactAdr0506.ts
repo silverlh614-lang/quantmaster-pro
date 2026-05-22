@@ -540,13 +540,18 @@ function fmtScorePair(actual: number | undefined, required: number | undefined):
 function fmtDistribution(distribution: Record<string, number> | undefined, limit = 3): string {
   const entries = Object.entries(distribution ?? {})
     .filter(([, value]) => Number.isFinite(value) && value > 0)
+    .filter(([key]) => !key.includes('SELL_ONLY'))
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit);
   return entries.length > 0 ? entries.map(([key, value]) => `${key} ${value}`).join(', ') : 'none';
 }
 
 function isGate1NotEvaluatedState(state: string | undefined): boolean {
-  return state === 'PARTIAL_TRACE_ONLY' || Boolean(state?.startsWith('NOT_EVALUATED_'));
+  return state === 'PARTIAL_TRACE_ONLY' || Boolean(state?.startsWith('NOT_EVALUATED_') && state !== 'NOT_EVALUATED_SELL_ONLY');
+}
+
+function formatGate1EvaluationStateForDisplay(state: string | undefined): string {
+  return state === 'NOT_EVALUATED_SELL_ONLY' ? 'EVALUATED_PARTIAL' : (state ?? '미집계');
 }
 
 type GateDiagCompactSource =
@@ -639,28 +644,31 @@ function resolveScanBlockersSessionDisplay(summary: ScanSummary | null | undefin
   marketSession: string;
   displaySession: string;
   entryBlockMode: string;
+  inputEntryBlockMode: string;
   blocked: boolean;
 } {
-  const entryBlockMode = resolveScanBlockersEntryBlockMode(summary);
+  const inputEntryBlockMode = resolveScanBlockersEntryBlockMode(summary);
   const rawSession = normalizeMarketSessionLabel(summary?.scanEvaluation?.marketSessionState);
   const diagnosticSession = normalizeMarketSessionLabel(extractGate1DiagnosticSession(summary));
-  const marketSession = rawSession && rawSession !== 'SELL_ONLY'
+  const rawMarketSession = rawSession && rawSession !== 'SELL_ONLY'
     ? rawSession
     : diagnosticSession ?? rawSession ?? (summary?.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'REGULAR');
-  const blocked = entryBlockMode !== 'NONE';
-  const displaySession = blocked
-    ? (marketSession === 'AFTERMARKET' ? 'AFTERMARKET_SELL_ONLY' : 'SELL_ONLY_POLICY')
-    : marketSession;
-  return { marketSession, displaySession, entryBlockMode, blocked };
+  const marketSession = rawMarketSession === 'SELL_ONLY' ? 'REGULAR' : rawMarketSession;
+  const blocked = false;
+  return { marketSession, displaySession: marketSession, entryBlockMode: 'NORMAL', inputEntryBlockMode, blocked };
 }
 
 function isLiveEvaluationSkippedSummary(summary: ScanSummary | null | undefined, entryBlockMode: string): boolean {
-  return entryBlockMode !== 'NONE'
-    || Boolean(summary?.scanEvaluation?.evaluationState?.startsWith('NOT_EVALUATED_'));
+  const state = summary?.scanEvaluation?.evaluationState;
+  if (state === 'NOT_EVALUATED_SELL_ONLY' || state === 'NOT_EVALUATED_R6_LIVE_BLOCKED') {
+    return false;
+  }
+  return !['NONE', 'NORMAL'].includes(entryBlockMode)
+    || Boolean(state?.startsWith('NOT_EVALUATED_'));
 }
 
 function formatLivePenaltyLabel(entryBlockMode: string): string {
-  return entryBlockMode === 'NONE' ? 'n/a' : `NOT_APPLIED_${entryBlockMode}`;
+  return ['NONE', 'NORMAL'].includes(entryBlockMode) ? 'n/a' : `NOT_APPLIED_${entryBlockMode}`;
 }
 
 function formatShadowAlwaysOnLine(summary: ScanSummary | null | undefined): string | null {
@@ -673,17 +681,6 @@ function formatShadowAlwaysOnLine(summary: ScanSummary | null | undefined): stri
 }
 
 function resolveGate3Fallback(summary: ScanSummary | null | undefined): string {
-  const r6 = isR6DefenseSummary(summary);
-  const sellOnlyOrAftermarket = isSellOnlyOrAftermarketSummary(summary);
-  if (r6 && sellOnlyOrAftermarket) {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false';
-  }
-  if (r6) {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | compactTextMissing=true | marketSignal=false';
-  }
-  if (sellOnlyOrAftermarket) {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=SELL_ONLY_OR_AFTERMARKET | compactTextMissing=true | marketSignal=false';
-  }
   return 'UNAVAILABLE | reason=GATE3_CONSOLIDATED_DIAGNOSTIC_NOT_CARRIED | fallback=true | marketSignal=false';
 }
 
@@ -883,6 +880,7 @@ function resolveScanBlockersPolicyDiag(summary: ScanSummary | null | undefined, 
   marketSession: string;
   displaySession: string;
   entryBlockMode: string;
+  inputEntryBlockMode: string;
 }) {
   const snapshotId = resolveSnapshotId(summary);
   return resolvePolicy({
@@ -892,7 +890,7 @@ function resolveScanBlockersPolicyDiag(summary: ScanSummary | null | undefined, 
     displaySession: sessionDisplay.displaySession,
     effectiveRegime: summary?.scanEvaluation?.effectiveRegime ?? summary?.macroGateState?.macroRegimeEffective ?? summary?.macroGateState?.regime,
     engineMode: summary?.scanEvaluation?.engineMode ?? summary?.macroGateState?.engineMode,
-    operationMode: sessionDisplay.entryBlockMode,
+    operationMode: sessionDisplay.inputEntryBlockMode,
   });
 }
 
@@ -905,11 +903,9 @@ export function resolveScanBlockersTopReason(summary: ScanSummary | null | undef
   const r6 = effectiveRegime === 'R6_DEFENSE' || macro?.riskOverride === 'R6_DEFENSE' || blockReason.includes('R6_DEFENSE');
   const sellOnlyOrAftermarket = isSellOnlyOrAftermarketSummary(summary);
 
-  if (blockReason === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
-  if (r6 && sellOnlyOrAftermarket) return 'R6_DEFENSE_SELL_ONLY';
-  if (effectiveRegime === 'R6_DEFENSE' && liveEntryAllowed === false) return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
-  if (r6 && scanEvaluation?.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED') return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
-  if (sellOnlyOrAftermarket && !r6) return 'SELL_ONLY_OR_AFTERMARKET';
+  if (blockReason === 'R6_DEFENSE_SELL_ONLY' || blockReason === 'SELL_ONLY' || r6 || sellOnlyOrAftermarket || liveEntryAllowed === false) {
+    return summary?.emptyScanReason ?? ((summary?.entries ?? 0) === 0 ? 'EMPTY_SCAN' : 'OK');
+  }
   return summary?.emptyScanReason ?? ((summary?.entries ?? 0) === 0 ? 'EMPTY_SCAN' : 'OK');
 }
 
@@ -1030,6 +1026,11 @@ export function formatScanBlockersCompactMessage(
   lines.push(`• marketSession: ${sessionDisplay.marketSession}`);
   lines.push(`• displaySession: ${sessionDisplay.displaySession}`);
   lines.push(`• entryBlockMode: ${sessionDisplay.entryBlockMode}`);
+  if (policy.legacyIgnoredReasons.length > 0) {
+    lines.push('R6/SELL_ONLY rollback: disabled');
+    lines.push(`legacyIgnoredReasons: ${policy.legacyIgnoredReasons.join(',')}`);
+    lines.push('Current buy permission uses Gate/data quality only');
+  }
 
   // candidates / entries
   const candidates = summary?.candidates ?? 0;
@@ -1202,7 +1203,7 @@ export function formatScanBlockersGateCompactMessage(
   const tsStr = typeof summary?.time === 'string' ? summary.time : null;
   const tsMs = tsStr ? Date.parse(tsStr) : NaN;
   const tsLabel = Number.isFinite(tsMs) ? fmtKstHm(tsMs) : '미실행';
-  lines.push(`🚪 <b>Gate1 Minimum Signal: ${forensic?.evaluationState ?? '미실행'}</b> ${tsLabel}`);
+  lines.push(`?슞 <b>Gate1 Minimum Signal: ${formatGate1EvaluationStateForDisplay(forensic?.evaluationState)}</b> ${tsLabel}`);
   lines.push('━━━━━━━━━━━━━━');
 
   // ADR-0505 emission (1줄 요약)
@@ -1239,7 +1240,7 @@ export function formatScanBlockersGateCompactMessage(
   const notEvaluated = isGate1NotEvaluatedState(forensic.evaluationState);
   if (notEvaluated) {
     const reasonParts = [
-      forensic.evaluationState,
+      formatGate1EvaluationStateForDisplay(forensic.evaluationState),
       forensic.buyListLoopEntered ? null : 'buyListLoop not reached',
     ].filter(Boolean);
     lines.push(`• reason: ${reasonParts.join(' / ')}`);
@@ -1248,7 +1249,7 @@ export function formatScanBlockersGateCompactMessage(
     lines.push(`• traceOnly: ${forensic.traceOnlyCandidateCount ?? forensic.totalCandidates}`);
     lines.push(`• minScore: n/a (diagnostic fallback ${forensic.actualScoreAvg.toFixed(1)})`);
     lines.push('• live failure 판단 아님');
-    lines.push('• 안내: SELL_ONLY/장외 trace는 diagnostic snapshot입니다. BUY_ALLOWED 정규장 fresh scan에서 Gate1/MinSignal을 재검증하십시오.');
+    lines.push('• 안내: legacy timing trace는 diagnostic snapshot입니다. fresh scan에서 Gate1/MinSignal을 재검증하십시오.');
   } else {
     // 점수 분포 (실제 평가 실행 시에만 주요 판정값으로 표시)
     lines.push(`• requiredAvg: ${forensic.requiredScoreAvg.toFixed(1)}`);

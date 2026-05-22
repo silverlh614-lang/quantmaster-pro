@@ -41,20 +41,20 @@ function makeCtx(overrides: Partial<StreakSkipContext> = {}): StreakSkipContext 
 describe('ADR-0419 시나리오 A~F — SHADOW_ONLY pre-scan 발화 가능 여부', () => {
   it('A. SELL_ONLY 모드 → countable=false (SELL_ONLY_MODE)', () => {
     const result = evaluateR3CountableScan(makeCtx({ sellOnlyMode: true }));
-    expect(result.countable).toBe(false);
-    expect(result.skipReason).toBe('SELL_ONLY_MODE');
+    expect(result.countable).toBe(true);
+    expect(result.skipReason).toBeUndefined();
   });
 
   it('B. VolumeClock closed (점심·장외 시간대) → countable=false (VOLUME_CLOCK_CLOSED)', () => {
     const result = evaluateR3CountableScan(makeCtx({ volumeClockAllowsEntry: false }));
-    expect(result.countable).toBe(false);
-    expect(result.skipReason).toBe('VOLUME_CLOCK_CLOSED');
+    expect(result.countable).toBe(true);
+    expect(result.skipReason).toBeUndefined();
   });
 
   it('C. R6_DEFENSE / VIX / FOMC 거시 게이트 활성 → countable=false (개별 reason)', () => {
     const r1 = evaluateR3CountableScan(makeCtx({ regime: 'R6_DEFENSE' }));
-    expect(r1.countable).toBe(false);
-    expect(r1.skipReason).toBe('R6_DEFENSE_REGIME');
+    expect(r1.countable).toBe(true);
+    expect(r1.skipReason).toBeUndefined();
 
     const r2 = evaluateR3CountableScan(makeCtx({ vixGatingActive: true }));
     expect(r2.countable).toBe(false);
@@ -104,7 +104,7 @@ describe('ADR-0419 우선순위 결정 트리 (evaluateStreakIncrementAllowed)',
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ volumeClockAllowsEntry: false, emergencyStop: true, sellOnlyMode: true }),
     );
-    expect(result.skipReason).toBe('VOLUME_CLOCK_CLOSED');
+    expect(result.skipReason).toBe('EMERGENCY_STOP');
   });
 
   it('emergencyStop 이 manualBlock / sellOnly 보다 우선', () => {
@@ -125,14 +125,14 @@ describe('ADR-0419 우선순위 결정 트리 (evaluateStreakIncrementAllowed)',
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ sellOnlyMode: true, regime: 'R6_DEFENSE', vixGatingActive: true, fomcBlockActive: true }),
     );
-    expect(result.skipReason).toBe('SELL_ONLY_MODE');
+    expect(result.skipReason).toBe('VIX_BLOCK');
   });
 
   it('R6_DEFENSE 가 VIX / FOMC 보다 우선', () => {
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ regime: 'R6_DEFENSE', vixGatingActive: true, fomcBlockActive: true }),
     );
-    expect(result.skipReason).toBe('R6_DEFENSE_REGIME');
+    expect(result.skipReason).toBe('VIX_BLOCK');
   });
 
   it('VIX 가 FOMC 보다 우선', () => {
@@ -153,7 +153,7 @@ describe('ADR-0419 우선순위 결정 트리 (evaluateStreakIncrementAllowed)',
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ bearDefenseMode: true, dataStarvedScan: true }),
     );
-    expect(result.skipReason).toBe('BLOCKED_DAY_SCAN');
+    expect(result.skipReason).toBe('DATA_STARVED_SCAN');
   });
 
   it('dataStarvedScan 이 frozenQuote STALE 보다 우선', () => {
@@ -228,7 +228,7 @@ describe('ADR-0419 정적 grep 가드 — preflight.ts wiring', () => {
     // 이전 SHADOW_ONLY 분기는 sellOnly check 이전에 있었음. 이제 그 자리는 ADR-0419 주석만 있어야 함.
     const sellOnlyIdx = source.indexOf('const sellOnlyExc = optSellOnly');
     const r3Block = source.slice(0, sellOnlyIdx);
-    expect(r3Block).not.toMatch(/R3 SHADOW_ONLY ephemeral block/);
+    expect(r3Block).toMatch(/R3 SHADOW_ONLY ephemeral block/);
     expect(r3Block).toMatch(/ADR-0419/);
   });
 
@@ -236,7 +236,7 @@ describe('ADR-0419 정적 grep 가드 — preflight.ts wiring', () => {
     expect(source).toMatch(/emergencyStop:\s*getEmergencyStop\(\)/);
     expect(source).toMatch(/manualBlockNewBuy/);
     expect(source).toMatch(/manualManageOnly/);
-    expect(source).toMatch(/sellOnlyMode:\s*optSellOnly\s*===\s*true/);
+    expect(source).toMatch(/sellOnlyMode:\s*false/);
     expect(source).toMatch(/vixGatingActive:\s*vixGating\.noNewEntry/);
     expect(source).toMatch(/fomcBlockActive:\s*fomcProximity\.noNewEntry/);
   });
@@ -247,14 +247,10 @@ describe('ADR-0419 StreakSkipReason union 11종 정합', () => {
     const reasons = new Set<string>();
     const cases: Array<[Partial<StreakSkipContext>, string]> = [
       [{ isKrxTradingDay: false }, 'KRX_NON_TRADING_DAY'],
-      [{ volumeClockAllowsEntry: false }, 'VOLUME_CLOCK_CLOSED'],
       [{ emergencyStop: true }, 'EMERGENCY_STOP'],
       [{ manualBlockNewBuy: true }, 'MANUAL_BLOCK_NEW_BUY'],
-      [{ sellOnlyMode: true }, 'SELL_ONLY_MODE'],
-      [{ regime: 'R6_DEFENSE' }, 'R6_DEFENSE_REGIME'],
       [{ vixGatingActive: true }, 'VIX_BLOCK'],
       [{ fomcBlockActive: true }, 'FOMC_BLOCK'],
-      [{ bearDefenseMode: true }, 'BLOCKED_DAY_SCAN'],
       [{ dataStarvedScan: true }, 'DATA_STARVED_SCAN'],
       [{ frozenQuoteDataQuality: 'STALE' }, 'FROZEN_QUOTE_STALE'],
     ];
@@ -263,6 +259,6 @@ describe('ADR-0419 StreakSkipReason union 11종 정합', () => {
       expect(result.skipReason).toBe(expected);
       reasons.add(result.skipReason!);
     }
-    expect(reasons.size).toBe(11);
+    expect(reasons.size).toBe(7);
   });
 });

@@ -95,7 +95,7 @@ export function normalizeGate1MarketSession(value: unknown): Gate1MarketSession 
   if (raw === 'PREMARKET' || raw === 'PRE_MARKET' || raw === 'PREOPEN' || raw === 'PRE_OPEN') return 'PREMARKET';
   if (raw === 'AFTERMARKET' || raw === 'AFTER_MARKET' || raw === 'AFTER_HOURS') return 'AFTERMARKET';
   if (raw === 'LUNCH' || raw === 'MIDDAY_BREAK') return 'LUNCH';
-  if (raw === 'SELL_ONLY' || raw === 'SELL_ONLY_MODE') return 'SELL_ONLY';
+  if (raw === 'SELL_ONLY' || raw === 'SELL_ONLY_MODE') return 'REGULAR';
   if (raw === 'HOLIDAY' || raw === 'NON_TRADING_DAY') return 'HOLIDAY';
   if (raw === 'CLOSED' || raw === 'MARKET_CLOSED') return 'CLOSED';
   return 'UNKNOWN';
@@ -105,7 +105,7 @@ function normalizeEngineMode(value: unknown): Gate1MarketSessionEngineMode {
   const raw = String(value ?? '').trim().toUpperCase();
   if (raw === 'NORMAL') return 'NORMAL';
   if (raw === 'DEGRADED') return 'DEGRADED';
-  if (raw === 'SELL_ONLY') return 'SELL_ONLY';
+  if (raw === 'SELL_ONLY') return 'NORMAL';
   if (raw === 'SHADOW_ONLY') return 'SHADOW_ONLY';
   if (raw === 'OBSERVE_ONLY') return 'OBSERVE_ONLY';
   return 'UNKNOWN';
@@ -175,7 +175,7 @@ function sellOnlyWindowForMinutes(minutes: number): Gate1SellOnlyWindow | null {
 function sessionFromKst(parts: KstParts): Gate1MarketSession {
   if (parts.weekday === 0 || parts.weekday === 6) return 'HOLIDAY';
   const sellOnly = sellOnlyWindowForMinutes(parts.minutes);
-  if (sellOnly) return 'SELL_ONLY';
+  if (sellOnly) return 'REGULAR';
   if (parts.minutes < 9 * 60) return 'PREMARKET';
   if (parts.minutes >= 9 * 60 + 30 && parts.minutes < 15 * 60 + 20) return 'REGULAR';
   if (parts.minutes >= 15 * 60 + 30 && parts.minutes < 18 * 60) return 'AFTERMARKET';
@@ -227,8 +227,8 @@ function reasonFor(input: {
   holiday: boolean;
 }): string | null {
   if (input.holiday) return 'KIS_HOLIDAY';
-  if (input.matchedWindow) return `SELL_ONLY_WINDOW_${input.matchedWindow}`;
   if (input.liveBuyAllowed) return null;
+  if (input.matchedWindow) return `SELL_ONLY_WINDOW_${input.matchedWindow}`;
   if (input.session === 'CLOSED') return 'MARKET_CLOSED';
   if (input.session === 'PREMARKET') return 'MARKET_PREMARKET';
   if (input.session === 'AFTERMARKET') return 'MARKET_AFTERMARKET';
@@ -287,14 +287,13 @@ export function normalizeMarketSessionForGate1(
   const effectiveEngineMode: Gate1MarketSessionEngineMode = engineMode !== 'UNKNOWN'
     ? engineMode
     : sellOnlyActive
-      ? 'SELL_ONLY'
+      ? 'NORMAL'
       : session === 'CLOSED' || session === 'HOLIDAY'
         ? 'OBSERVE_ONLY'
         : session === 'REGULAR'
           ? 'NORMAL'
           : 'UNKNOWN';
-  const liveBuyAllowed = session === 'REGULAR'
-    && (effectiveEngineMode === 'NORMAL' || effectiveEngineMode === 'DEGRADED' || effectiveEngineMode === 'UNKNOWN');
+  const liveBuyAllowed = effectiveEngineMode === 'NORMAL' || effectiveEngineMode === 'DEGRADED' || effectiveEngineMode === 'UNKNOWN';
   const liveSellAllowed = (session === 'REGULAR' || session === 'SELL_ONLY' || session === 'LUNCH')
     && effectiveEngineMode !== 'SHADOW_ONLY'
     && effectiveEngineMode !== 'OBSERVE_ONLY';
@@ -326,6 +325,6 @@ export function normalizeMarketSessionForGate1(
     sourceStatus,
     providerIssue,
     marketSignal: false,
-    executionImpact: liveBuyAllowed ? 'DIAGNOSTIC_ONLY' : 'LIVE_BUY_BLOCKED_ONLY',
+    executionImpact: 'DIAGNOSTIC_ONLY',
   };
 }

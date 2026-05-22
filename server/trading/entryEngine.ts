@@ -24,7 +24,6 @@ import {
   formatEntryBlockReasons,
   formatEntryRevalidationSkippedLog,
   formatRequiredScore,
-  INTERNAL_BLOCK_SENTINEL,
   normalizeMacroRegime,
   resolveMacroRegime,
   resolveMarketSessionState,
@@ -318,13 +317,11 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryR
     ...(input.macroRegimeCandidates ?? []),
     ...(input.macroRegime ? [input.macroRegime] : []),
   ].map(normalizeMacroRegime);
-  if (minGate >= INTERNAL_BLOCK_SENTINEL) macroCandidates.push('R6_DEFENSE');
   const macroRegime = resolveMacroRegime(macroCandidates);
   const blockReasons = Array.from(new Set([
     ...(input.blockReasons ?? []),
-    ...(minGate >= INTERNAL_BLOCK_SENTINEL ? ['R6_DEFENSE' as const] : []),
   ]));
-  const liveEntryAllowed = input.liveEntryAllowed ?? minGate < INTERNAL_BLOCK_SENTINEL;
+  const liveEntryAllowed = input.liveEntryAllowed ?? true;
   const executionMode = input.executionMode ?? (liveEntryAllowed ? 'NORMAL' : 'SHADOW_ONLY');
   const marketSessionState = resolveMarketSessionState({
     marketSessionState: input.marketSessionState,

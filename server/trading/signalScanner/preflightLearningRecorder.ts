@@ -171,12 +171,9 @@ function toWarnMode(value: string | undefined): WarnMode | undefined {
 function emitPreflightScanEvaluationWarn(summary: PreflightBlockedScanSummary): void {
   const scanEvaluation = summary.scanEvaluation;
   if (!scanEvaluation) return;
-  const code =
-    scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY'
-      ? 'P1_SELL_ONLY_EVALUATION_SKIPPED'
-      : scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED'
-        ? 'P1_R6_LIVE_BLOCKED_SHADOW_ALLOWED'
-        : null;
+  const code = scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED'
+    ? 'P1_LEGACY_R6_EVALUATION_IGNORED'
+    : null;
   if (!code) return;
   emitOperationalWarn({
     priority: 'P1',
@@ -194,9 +191,9 @@ function emitPreflightScanEvaluationWarn(summary: PreflightBlockedScanSummary): 
       breakPoint: scanEvaluation.breakPoint,
       sourcePath: scanEvaluation.sourcePath,
       scanId: scanEvaluation.scanId,
-      normalStateMessage: scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 'SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.' : undefined,
-      liveNewBuyAllowed: scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? false : undefined,
-      positionManagementAllowed: scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? true : undefined,
+      normalStateMessage: 'Legacy R6/SELL_ONLY policy ignored by rollback; Gate/data quality remains authoritative.',
+      liveNewBuyAllowed: undefined,
+      positionManagementAllowed: undefined,
       shadowLearningAllowed: scanEvaluation.shadowLearningAllowed,
     },
   });

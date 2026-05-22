@@ -34,7 +34,7 @@ describe('SSOT snapshot pipeline', () => {
     expect(decision.executionResult.snapshotId).toBe(snapshot.snapshotId);
   });
 
-  it('SameSourceDifferentPolicy: gate identical, policy/execution differ', () => {
+  it('ignores legacy R6/SELL_ONLY execution blocks while keeping gate and execution stable', () => {
     const { snapshot, candidate, feature } = fixture();
     const a = buildDecisionContext(snapshot, candidate, feature, 'REGULAR', 'R6_DEFENSE_SELL_ONLY');
     const b = buildDecisionContext(snapshot, candidate, feature, 'AFTERMARKET', 'R6_DEFENSE_SELL_ONLY');
@@ -42,8 +42,19 @@ describe('SSOT snapshot pipeline', () => {
 
     expect(JSON.stringify(a.gateResult)).toBe(JSON.stringify(b.gateResult));
     expect(JSON.stringify(b.gateResult)).toBe(JSON.stringify(c.gateResult));
-    expect(JSON.stringify(a.policyResult)).not.toBe(JSON.stringify(c.policyResult));
-    expect(JSON.stringify(a.executionResult)).not.toBe(JSON.stringify(c.executionResult));
+    expect(a.policyResult.liveBuyAllowed).toBe(true);
+    expect(b.policyResult.liveBuyAllowed).toBe(true);
+    expect(c.policyResult.liveBuyAllowed).toBe(true);
+    expect(a.policyResult.entryBlockMode).toBe('NORMAL');
+    expect(b.policyResult.entryBlockMode).toBe('NORMAL');
+    expect(a.policyResult.blockReasons).toEqual([]);
+    expect(b.policyResult.blockReasons).toEqual([]);
+    expect(a.policyResult.legacyIgnoredReasons).toContain('R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK');
+    expect(b.policyResult.legacyIgnoredReasons).toEqual(expect.arrayContaining([
+      'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK',
+      'R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK',
+    ]));
+    expect(JSON.stringify(a.executionResult)).toBe(JSON.stringify(c.executionResult));
     expect(a.learningResult.shadowLearning).toBe(true);
     expect(c.learningResult.shadowLearning).toBe(true);
   });
@@ -58,7 +69,20 @@ describe('SSOT snapshot pipeline', () => {
     const gate = evaluateCommonGate({ snapshotId: snapshot.snapshotId, candidate, feature: { ...feature, technicalIndicators: { status: 'COMPUTED', source: 'COMPUTED_FROM_KIS_OHLCV' } } });
     const alerts = detectSnapshotMismatch({
       gateResult: { ...gate, technicalTrendMissing: true },
-      policyResult: { snapshotId: 'other', marketSession: 'REGULAR', liveBuyAllowed: true, realOrderAllowed: true, shadowLearningAllowed: true, counterfactualAllowed: true, entryBlockMode: 'NORMAL' },
+      policyResult: {
+        snapshotId: 'other',
+        marketSession: 'REGULAR',
+        liveBuyAllowed: true,
+        realOrderAllowed: true,
+        shadowLearningAllowed: true,
+        shadowSignalAllowed: true,
+        diagnosticAllowed: true,
+        counterfactualAllowed: true,
+        entryBlockMode: 'NORMAL',
+        blockReasons: [],
+        legacyIgnoredReasons: [],
+        policyStatus: 'LIVE_ALLOWED',
+      },
       telegramSnapshotId: 'third',
       feature: { ...feature, technicalIndicators: { status: 'COMPUTED', source: 'COMPUTED_FROM_KIS_OHLCV' } },
     });

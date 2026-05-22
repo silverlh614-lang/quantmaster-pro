@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @responsibility ADR-0019 per-stock buyList loop initialization extracted from buyListLoop.
  */
 
@@ -22,7 +22,6 @@ export function createBuyListLoopRunState(): BuyListLoopRunState {
     diagnosticLiveBlockLogged: false,
   };
 }
-
 function getDiagnosticLiveBlockReason(ctx: BuyListLoopContext): string | undefined {
   const reason = ctx.liveEntryBlockedReason?.trim();
   if (reason) return reason;
@@ -31,7 +30,7 @@ function getDiagnosticLiveBlockReason(ctx: BuyListLoopContext): string | undefin
 
 function isMacroDiagnosticLiveBlockReason(reason: string | undefined): boolean {
   if (!reason) return false;
-  const macroReasons = new Set(['SELL_ONLY', 'R4_NEUTRAL', 'R5_CAUTION', 'R6_DEFENSE', 'VIX_BLOCK', 'FOMC_BLOCK']);
+  const macroReasons = new Set(['R4_NEUTRAL', 'R5_CAUTION', 'VIX_BLOCK', 'FOMC_BLOCK']);
   const parts = reason.split(',').map((part) => part.trim()).filter(Boolean);
   return parts.length > 0 && parts.every((part) => macroReasons.has(part));
 }
@@ -78,7 +77,7 @@ export async function loopInitializer(input: {
   }
   if (!isMomentumShadow && totalCommitted >= ctx.effectiveMaxPositions && !diagnosticLiveBlockReason) {
     console.log(
-      `[AutoTrade] 최대 포지션 도달 (활성 ${slotResult.consumed.toFixed(2)} + 예약 ${ctx.mutables.reservedSlots.value} = ${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions}${ctx.sellOnlyExc.allow ? ' · SELL_ONLY 예외 캡' : ''}, 레짐 ${ctx.regime}, raw=${slotResult.rawCount}) — 나머지 종목 스킵`,
+      `[AutoTrade] max positions reached (${slotResult.consumed.toFixed(2)} + reserved ${ctx.mutables.reservedSlots.value} = ${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions}, regime=${ctx.regime}, raw=${slotResult.rawCount}) - remaining symbols skipped`,
     );
     return { action: 'BREAK', diagnosticLiveBlockLogged };
   }
@@ -86,13 +85,13 @@ export async function loopInitializer(input: {
     stockShadowMode = true;
     if (!diagnosticLiveBlockLogged) {
       console.log(
-        `[AutoTrade] ${diagnosticLiveBlockReason} diagnostic-only path active — live buy tasks suppressed while gate diagnostics continue (${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions})`,
+        `[AutoTrade] ${diagnosticLiveBlockReason} diagnostic-only path active ??live buy tasks suppressed while gate diagnostics continue (${totalCommitted.toFixed(2)}/${ctx.effectiveMaxPositions})`,
       );
       diagnosticLiveBlockLogged = true;
     }
   } else if (!isMomentumShadow && macroDiagnosticLiveBlock && !diagnosticLiveBlockLogged) {
     console.log(
-      `[AutoTrade] ${diagnosticLiveBlockReason} macro diagnostic path active — live buy tasks routed to shadow while gate diagnostics continue`,
+      `[AutoTrade] ${diagnosticLiveBlockReason} macro diagnostic path active ??live buy tasks routed to shadow while gate diagnostics continue`,
     );
     diagnosticLiveBlockLogged = true;
   }
@@ -157,7 +156,7 @@ export async function loopInitializer(input: {
     if (ge?.gate2Passed === true) ctx.scanCounters.gate2Pass++;
     if (ge?.gate3Passed === true) ctx.scanCounters.gate3Pass++;
   } catch (e) {
-    console.warn('[ADR-0120] Gate pass 카운터 누적 실패:', e);
+    console.warn('[ADR-0120] Gate pass 移댁슫???꾩쟻 ?ㅽ뙣:', e);
   }
 
   try {
@@ -171,7 +170,7 @@ export async function loopInitializer(input: {
       kellyWeight: 0.10,
     });
   } catch (e) {
-    console.warn(`[TwinPortfolio] record 실패 ${stock.code}:`, e instanceof Error ? e.message : e);
+    console.warn(`[TwinPortfolio] record ?ㅽ뙣 ${stock.code}:`, e instanceof Error ? e.message : e);
   }
 
   return {

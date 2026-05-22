@@ -180,10 +180,10 @@ export function deriveGateDecisionRouterResult(
   // ────────────────────────────────────────────────────────
   const rf = input.riskFlags ?? {};
   if (rf.emergencyStop) reasons.push('EMERGENCY_STOP');
-  if (rf.sellOnly) reasons.push('SELL_ONLY');
+  // Legacy SELL_ONLY is ignored by the rollback; keep the union value for old ledgers only.
   if (rf.r4Neutral) reasons.push('R4_NEUTRAL');
   if (rf.r5Caution) reasons.push('R5_CAUTION');
-  if (rf.r6Defense) reasons.push('R6_DEFENSE');
+  // Legacy R6 defense is forensic-only and must not become a live gate block.
   if (rf.vixBlock) reasons.push('VIX_BLOCK');
   if (rf.fomcBlock) reasons.push('FOMC_BLOCK');
   if (rf.liquidityBlock) reasons.push('LIQUIDITY_BLOCK');

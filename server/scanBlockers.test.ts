@@ -102,8 +102,9 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     const text = formatScanBlockersCompactMessage(summary);
 
     expect(text).toContain('Gate1Diag: gateStatus=OK | sessionAgnostic=true');
-    expect(text).toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
-    expect(text.match(/LIVE_BLOCKED_ONLY/g)?.length).toBe(1);
+    expect(text).toContain('PolicyDiag: LIVE_ALLOWED');
+    expect(text).not.toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
+    expect(text).toContain('legacyIgnoredReasons=[AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK]');
     expect(text).toContain('Gate2Diag: Gate2: DATA_INCOMPLETE');
   });
 
@@ -162,7 +163,8 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     });
 
     expect(() => formatScanBlockersCompactMessage(summary)).not.toThrow();
-    expect(formatScanBlockersCompactMessage(summary)).toContain('Gate3Diag: DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false');
+    expect(formatScanBlockersCompactMessage(summary)).toContain('Gate3Diag: UNAVAILABLE | reason=GATE3_CONSOLIDATED_DIAGNOSTIC_NOT_CARRIED | fallback=true | marketSignal=false');
+    expect(formatScanBlockersCompactMessage(summary)).toContain('legacyIgnoredReasons: AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK,R6_DEFENSE_IGNORED_BY_ROLLBACK,R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK');
   });
 
   it('labels R6 SELL_ONLY compact summary as diagnostic-only without making Gate1 pass look live', () => {
@@ -251,22 +253,20 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
 
     const text = formatScanBlockersCompactMessage(summary);
 
-    expect(text).toContain('session: CLOSED / SELL_ONLY_POLICY !');
+    expect(text).toContain('session: CLOSED / CLOSED');
     expect(text).toContain('marketSession: CLOSED');
-    expect(text).toContain('displaySession: SELL_ONLY_POLICY');
-    expect(text).toContain('entryBlockMode: R6_DEFENSE_SELL_ONLY');
-    expect(text).toContain('Gate1Live: skipped');
-    expect(text).toContain('Gate1Diagnostic: pass=3/16');
-    expect(text).not.toContain('Gate1: 3/16');
-    expect(text).toContain('DiagnosticMinScore: 37.0 / 70.0');
-    expect(text).toContain('LiveScore: not applied due to R6_DEFENSE_SELL_ONLY');
-    expect(text).toContain('DiagnosticDominant: MIXED (2)');
-    expect(text).toContain('DiagnosticPenalty: softFailPenalty (1)');
-    expect(text).toContain('LivePenalty: NOT_APPLIED_R6_DEFENSE_SELL_ONLY');
+    expect(text).toContain('displaySession: CLOSED');
+    expect(text).toContain('entryBlockMode: NORMAL');
+    expect(text).toContain('R6/SELL_ONLY rollback: disabled');
+    expect(text).toContain('legacyIgnoredReasons: R6_DEFENSE_IGNORED_BY_ROLLBACK,R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK');
+    expect(text).toContain('Gate1: 3/16');
+    expect(text).toContain('MinScore: 37.0 / 70.0');
+    expect(text).toContain('dominant: MIXED (2)');
+    expect(text).toContain('penalty: softFailPenalty (1)');
     expect(text).toContain('Shadow: ON | learning=true | counterfactual=true | executionImpact=NONE');
     expect(text).toContain('Gate1Diag: gateStatus=OK | sessionAgnostic=true');
-    expect(text).toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
-    expect(text.match(/LIVE_BLOCKED_ONLY/g)?.length).toBe(1);
+    expect(text).toContain('PolicyDiag: LIVE_ALLOWED');
+    expect(text).not.toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
     expect(text).toContain('Gate2Diag: Gate2: DATA_INCOMPLETE');
     expect(text).toContain('Gate3Diag: Gate3: DIAGNOSTIC_ONLY');
     expect({
@@ -321,8 +321,8 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
       },
     });
 
-    expect(resolveScanBlockersTopReason(summary)).toBe('LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE');
-    expect(formatScanBlockersCompactMessage(summary)).not.toContain('topReason: MARKET_WEAK');
+    expect(resolveScanBlockersTopReason(summary)).toBe('MARKET_WEAK');
+    expect(formatScanBlockersCompactMessage(summary)).toContain('topReason: MARKET_WEAK');
   });
 
   it('reports GateDiag Payload Carry source details for full mode debug', () => {
@@ -429,7 +429,8 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     const text = formatScanBlockersCompactMessage(summary);
     expect(text).toContain('Gate1Diag: Gate1: DEGRADED');
     expect(text).not.toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
-    expect(text).toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
+    expect(text).toContain('PolicyDiag: LIVE_ALLOWED');
+    expect(text).toContain('legacyIgnoredReasons=[R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK]');
   });
 
   it('keeps DEGRADED when missing includes currentPrice', () => {

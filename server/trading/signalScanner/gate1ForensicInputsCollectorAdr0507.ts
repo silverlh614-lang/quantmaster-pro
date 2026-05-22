@@ -93,9 +93,7 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const quoteSymbol = candidate?.quote && typeof candidate.quote === 'object'
       ? ((candidate.quote as Record<string, unknown>).symbol as string | null | undefined)
       : undefined;
-    const sourcePath: Gate1ForensicTraceSourcePath = candidate?.marketSession === 'SELL_ONLY'
-      ? 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
-      : candidate?.gate1Trace || t.minSignalScoreTrace
+    const sourcePath: Gate1ForensicTraceSourcePath = candidate?.gate1Trace || t.minSignalScoreTrace
         ? 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE'
         : candidate?.stageReached === 'WATCHLIST'
           ? 'WATCHLIST_CANDIDATE'
@@ -104,14 +102,11 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
             : 'UNKNOWN';
     const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
     const resolvedBySymbol = resolveActualSymbolForBySymbolAdr0515(candidate, t.symbol);
-    const pseudoSymbolUnresolved = sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
-      && resolvedBySymbol == null
-      && (isPseudoWatchlistSymbolAdr0515(t.symbol) || isPseudoWatchlistSymbolAdr0515(candidate?.symbol));
-    const directBySymbolPayload = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT')
+    const directBySymbolPayload = sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT'
       ? bySymbolPayloadForCandidateAdr0507(routerBySymbol, candidate, t.symbol, resolvedBySymbol)
       : undefined;
     const cachedLookupSymbol = resolvedBySymbol ?? (isPseudoWatchlistSymbolAdr0515(candidate?.symbol) ? null : candidate?.symbol) ?? (isPseudoWatchlistSymbolAdr0515(t.symbol) ? null : t.symbol);
-    const cachedBySymbolLookup = (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT') && !pseudoSymbolUnresolved && !directBySymbolPayload && cachedLookupSymbol
+    const cachedBySymbolLookup = sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT' && !directBySymbolPayload && cachedLookupSymbol
       ? lookupSupplyBySymbolPayloadSnapshot({
           symbol: cachedLookupSymbol,
           tradeDate: input.tradeDate,
@@ -157,7 +152,6 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
     const actualInvestorFlowCarried = (selectedCandidateRecord?.actualInvestorFlowCarried as boolean | undefined)
       ?? (healthRecord?.actualInvestorFlowCarried as boolean | undefined)
       ?? ((actualInvestorFlowRows?.length ?? 0) > 0);
-    const gateFlatCarryMerged = Boolean(bySymbolPayload && !bySymbolPayloadStale && healthRecord?.['gate' + 'SemanticFlatRow'] != null);
     const kisFlow = healthRecord
       ? {
           requestSymbol: (healthRecord.requestSymbol as string | null | undefined) ?? candidate?.symbol ?? t.symbol ?? null,
@@ -245,20 +239,6 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...((selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) ? { semanticInvestorRow: (selectedCandidateRecord?.semanticInvestorRow ?? selectedCandidateRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...((selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) ? { supplySemanticRow: (selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
-      ...(sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT' ? {
-        sellOnlyBySymbolPayloadAvailable: Boolean(bySymbolPayload),
-        sellOnlyBySymbolPayloadMerged: Boolean(bySymbolPayload && !bySymbolPayloadStale && ((actualInvestorFlowRows?.length ?? 0) > 0 || gateFlatCarryMerged)),
-        sellOnlyCarryBreakPoint: pseudoSymbolUnresolved
-          ? 'PSEUDO_SYMBOL_NOT_RESOLVED'
-          : !bySymbolPayload
-          ? 'BYSYMBOL_PAYLOAD_MISSING'
-          : bySymbolPayloadStale
-            ? 'BYSYMBOL_PAYLOAD_STALE'
-            : (actualInvestorFlowRows?.length ?? 0) > 0 || gateFlatCarryMerged
-              ? 'CARRIED_TO_FORENSIC'
-              : 'BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED',
-        ...(pseudoSymbolUnresolved ? { supplySemanticSkipReason: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL' as const } : {}),
-      } : {}),
       ...(kisFlow ? { kisFlow } : {}),
     };
     out.push(entry);

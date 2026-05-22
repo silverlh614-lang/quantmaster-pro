@@ -21,6 +21,31 @@ function isR6Snapshot(snapshot: ResolvedRegimeSnapshot): boolean {
     snapshot.effectiveRegime === 'R6_PANIC';
 }
 
+function isLegacyR6SellOnlySnapshot(snapshot: ResolvedRegimeSnapshot): boolean {
+  return isR6Snapshot(snapshot) || snapshot.engineMode === 'SELL_ONLY';
+}
+
+function rawNonR6Regime(snapshot: ResolvedRegimeSnapshot): string {
+  const raw = snapshot.diagnostics?.rawRegime ?? snapshot.marketState.detectedRegime ?? snapshot.detectedRegime;
+  return raw === 'R6_DEFENSE' ? 'R3_EARLY' : raw;
+}
+
+function compactDisplayRegime(snapshot: ResolvedRegimeSnapshot): string {
+  return isLegacyR6SellOnlySnapshot(snapshot) ? rawNonR6Regime(snapshot) : snapshot.displayRegime;
+}
+
+function compactEffectiveRegime(snapshot: ResolvedRegimeSnapshot): string {
+  return isLegacyR6SellOnlySnapshot(snapshot) ? rawNonR6Regime(snapshot) : snapshot.effectiveRegime;
+}
+
+function compactRiskOverride(snapshot: ResolvedRegimeSnapshot): string {
+  return isLegacyR6SellOnlySnapshot(snapshot) ? 'NONE (legacy R6/SELL_ONLY ignored)' : snapshot.riskOverride;
+}
+
+function compactEngineMode(snapshot: ResolvedRegimeSnapshot): string {
+  return snapshot.engineMode === 'SELL_ONLY' || isR6Snapshot(snapshot) ? 'NORMAL' : snapshot.engineMode;
+}
+
 function sanitizeR6LegacyLine(line: string, snapshot: ResolvedRegimeSnapshot): string {
   if (line.includes(' OK')) return line.replace('OK', 'HOLD');
   if (line.startsWith('MHS: ')) {
@@ -90,17 +115,17 @@ function formatDisplayNumber(value: number | null | undefined, digits: number): 
 }
 
 function compactReason(snapshot: ResolvedRegimeSnapshot): string {
-  if (isR6Snapshot(snapshot)) return 'BLACK_SWAN_OVERRIDE / next trading day confirmation';
+  if (isLegacyR6SellOnlySnapshot(snapshot)) return 'LEGACY_R6_SELLONLY_IGNORED / rollback=R6_SELLONLY_DISABLED / executionImpact=NONE';
   return snapshot.marketState.reasonCodes.length > 0 ? snapshot.marketState.reasonCodes.join(' / ') : 'NONE';
 }
 
 function compactNowIcon(snapshot: ResolvedRegimeSnapshot): string {
-  if (isR6Snapshot(snapshot)) return '[R6]';
+  if (isLegacyR6SellOnlySnapshot(snapshot)) return '[NOW]';
   return snapshot.marketState.displayEmoji || '[NOW]';
 }
 
 function compactMhsLabel(snapshot: ResolvedRegimeSnapshot): string {
-  return isR6Snapshot(snapshot) ? 'OVERRIDDEN_BY_R6' : snapshot.marketState.mhsDisplayLabel;
+  return snapshot.marketState.mhsDisplayLabel;
 }
 
 function buildNowDisplay(snapshot: ResolvedRegimeSnapshot, context: MarketStateNowContext) {
@@ -122,8 +147,8 @@ function buildNowDisplay(snapshot: ResolvedRegimeSnapshot, context: MarketStateN
     shadowLearningAllowed: snapshot.marketState.shadowLearningAllowed,
     shadowScanAllowed: snapshot.marketState.shadowScanAllowed,
     trigger: context.shadowActivity?.candidateScanTrigger,
-    effectiveRegime: snapshot.effectiveRegime,
-    riskOverride: snapshot.riskOverride,
+    effectiveRegime: compactEffectiveRegime(snapshot),
+    riskOverride: isLegacyR6SellOnlySnapshot(snapshot) ? 'NONE' : snapshot.riskOverride,
   });
 }
 
@@ -132,8 +157,13 @@ function formatRegimeTelegramNowCompact(
   context: MarketStateNowContext = {},
 ): string {
   const display = buildNowDisplay(snapshot, context);
-  const action = snapshot.marketState.liveNewBuyAllowed ? 'BUY_ALLOWED' : 'HOLD';
-  const liveBuy = snapshot.marketState.liveNewBuyAllowed ? 'ALLOWED' : 'BLOCKED';
+  const legacyIgnored = isLegacyR6SellOnlySnapshot(snapshot);
+  const displayRegime = compactDisplayRegime(snapshot);
+  const effectiveRegime = compactEffectiveRegime(snapshot);
+  const riskOverride = compactRiskOverride(snapshot);
+  const engineMode = compactEngineMode(snapshot);
+  const action = legacyIgnored ? 'GATE_DATA_POLICY' : snapshot.marketState.liveNewBuyAllowed ? 'BUY_ALLOWED' : 'HOLD';
+  const liveBuy = legacyIgnored ? 'GATE_DATA_ONLY' : snapshot.marketState.liveNewBuyAllowed ? 'ALLOWED' : 'BLOCKED';
   const shadow = snapshot.marketState.shadowLearningAllowed ? 'ON' : 'OFF';
   const latch = snapshot.marketState.r6Latch;
   const latchDisplay = latch
@@ -150,17 +180,18 @@ function formatRegimeTelegramNowCompact(
     `Snapshot: ${snapshot.snapshotId}`,
     `asOf: ${formatKstDateTime(snapshot.asOf)}`,
     '',
-    `${compactNowIcon(snapshot)} ${snapshot.displayRegime} / ${action}`,
+    `${compactNowIcon(snapshot)} ${displayRegime} / ${action}`,
     `Live Buy: ${liveBuy}`,
     `Shadow: ${shadow}`,
     '',
-    `Display regime: ${snapshot.displayRegime}`,
-    `Effective regime: ${snapshot.effectiveRegime}`,
-    `RiskOverride: ${snapshot.riskOverride} / engineMode=${snapshot.engineMode}`,
+    `Display regime: ${displayRegime}`,
+    `Effective regime: ${effectiveRegime}`,
+    `RiskOverride: ${riskOverride} / engineMode=${engineMode}`,
     `MHS: ${formatDisplayNumber(snapshot.mhs, 0)} ${compactMhsLabel(snapshot)}`,
     `Bias: ${snapshot.marketState.biasLabel} ${formatDisplayNumber(snapshot.biasScore, 1)}`,
-    `Final: ${snapshot.riskOverride !== 'NONE' ? 'Risk Override priority' : snapshot.effectiveRegime}`,
+    `Final: ${legacyIgnored ? effectiveRegime : snapshot.riskOverride !== 'NONE' ? 'Risk Override priority' : snapshot.effectiveRegime}`,
     `Reason: ${compactReason(snapshot)}`,
+    ...(legacyIgnored ? ['Legacy R6/SELL_ONLY: disabled; current buy permission uses Gate/data quality only'] : []),
     '',
     `Data: ${display.dataLine}`,
     `- ${display.dataExplanation}`,
@@ -199,9 +230,9 @@ function formatRegimeTelegramNowDebug(
     '[NOW DEBUG]',
     'DEBUG VIEW - raw fields included. Decisions follow the compact summary Effective regime.',
     `Snapshot: ${snapshot.snapshotId} asOf=${snapshot.asOf} ttlSec=${snapshot.ttlSec}`,
-    `Display regime: ${snapshot.displayRegime}`,
-    `Effective regime: ${snapshot.effectiveRegime}`,
-    `riskOverride=${snapshot.riskOverride} engineMode=${snapshot.engineMode}`,
+    `Display regime: ${compactDisplayRegime(snapshot)}`,
+    `Effective regime: ${compactEffectiveRegime(snapshot)}`,
+    `riskOverride=${compactRiskOverride(snapshot)} engineMode=${compactEngineMode(snapshot)}`,
     `Data: ${display.dataLine}`,
     `Data note: ${display.dataExplanation}`,
     'rawData:',
@@ -230,10 +261,10 @@ export function formatRegimeTelegramNow(
 export function formatRegimeSnapshotCompact(snapshot: ResolvedRegimeSnapshot): string {
   return [
     `snapshotId=${snapshot.snapshotId}`,
-    `displayRegime=${snapshot.displayRegime}`,
-    `effectiveRegime=${snapshot.effectiveRegime}`,
-    `riskOverride=${snapshot.riskOverride}`,
-    `engineMode=${snapshot.engineMode}`,
+    `displayRegime=${compactDisplayRegime(snapshot)}`,
+    `effectiveRegime=${compactEffectiveRegime(snapshot)}`,
+    `riskOverride=${compactRiskOverride(snapshot)}`,
+    `engineMode=${compactEngineMode(snapshot)}`,
     `sourceHealth=${snapshot.sourceHealth}`,
   ].join(' ');
 }

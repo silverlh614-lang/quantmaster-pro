@@ -6,8 +6,9 @@ import { recordPipelineStage } from '../scanDiagnostics/pipelineStageDiagnostics
 import { buildScanEvaluationResult, formatScanEvaluationCompactLine } from './scanEvaluationState.js';
 
 describe('scanEvaluationState', () => {
-  it('classifies SELL_ONLY as not evaluated instead of zero survivor', () => {
+  it('does not let legacy SELL_ONLY skip Gate evaluation', () => {
     const counters = createScanCounters();
+    counters.gateMisses = 12;
     const result = buildScanEvaluationResult({
       asOf: '2026-05-19T01:00:00.000Z',
       counters,
@@ -31,13 +32,13 @@ describe('scanEvaluationState', () => {
       sourcePath: 'test',
     });
 
-    expect(result.evaluationState).toBe('NOT_EVALUATED_SELL_ONLY');
-    expect(result.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
+    expect(result.evaluationState).not.toBe('NOT_EVALUATED_SELL_ONLY');
+    expect(result.executionImpact).not.toBe('NEW_BUY_BLOCKED_ONLY');
     expect(result.shadowLearningAllowed).toBe(true);
-    expect(result.skipped).toBe(12);
+    expect(result.skipped).toBe(0);
   });
 
-  it('classifies R6 live block as shadow-allowed not evaluated state', () => {
+  it('does not let legacy R6 live block state skip Gate evaluation', () => {
     const counters = createScanCounters();
     const result = buildScanEvaluationResult({
       counters,
@@ -45,19 +46,18 @@ describe('scanEvaluationState', () => {
       macroGateState: {
         emergencyStop: false,
         autoTradeEnabled: true,
-        regime: 'R6_DEFENSE',
-        macroRegimeEffective: 'R6_DEFENSE',
-        riskOverride: 'R6_DEFENSE',
-        engineMode: 'DEGRADED',
-        diagnosticLiveEntryBlocked: true,
-        liveEntryBlockedReason: 'R6_DEFENSE',
+        regime: 'R2_BULL',
+        macroRegimeEffective: 'R2_BULL',
+        riskOverride: 'NONE',
+        engineMode: 'NORMAL',
+        diagnosticLiveEntryBlocked: false,
         kellyMultiplierFromRegime: 1,
         fomcPhase: 'NONE',
         fomcKellyMultiplier: 1,
         finalKellyMultiplier: 1,
         vixGatingActive: false,
-        bearDefenseMode: true,
-        mhsBelow30: true,
+        bearDefenseMode: false,
+        mhsBelow30: false,
         watchlistEmpty: false,
         sellOnlyMode: false,
         shadowLearningAllowed: true,
@@ -65,9 +65,9 @@ describe('scanEvaluationState', () => {
       sourcePath: 'test',
     });
 
-    expect(result.evaluationState).toBe('NOT_EVALUATED_R6_LIVE_BLOCKED');
-    expect(result.blockReason).toBe('R6_DEFENSE');
-    expect(result.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
+    expect(result.evaluationState).not.toBe('NOT_EVALUATED_R6_LIVE_BLOCKED');
+    expect(result.blockReason).not.toBe('R6_DEFENSE');
+    expect(result.executionImpact).not.toBe('NEW_BUY_BLOCKED_ONLY');
     expect(result.shadowLearningAllowed).toBe(true);
   });
 

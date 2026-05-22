@@ -252,6 +252,11 @@ function counterfactualOnlyEnabled(): boolean {
 }
 
 function resolvePolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowPolicyRegime | null {
+  void input;
+  return null;
+}
+
+function resolveLegacyPolicyRegime(input: ApplyR6ShadowCounterfactualInput): R6ShadowPolicyRegime | null {
   const macro = input.macroGateState;
   const status = macro?.r6RecoveryStatus;
   if (status === 'R6_CONFIRMATION_WAIT') return 'R6_CONFIRMATION_WAIT';
@@ -673,6 +678,14 @@ function summaryBase(input: ApplyR6ShadowCounterfactualInput, regime: R6ShadowPo
 export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupplyContext>(
   input: ApplyR6ShadowCounterfactualInput<T>,
 ): R6ShadowEntryPolicySummary {
+  const legacyRegime = resolveLegacyPolicyRegime(input);
+  if (legacyRegime) {
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] inputEntryBlockMode=${legacyRegime} ` +
+      `ignoredReasons=${legacyRegime}_IGNORED_BY_ROLLBACK shadowSignalAllowed=true ` +
+      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
+  }
   const regime = resolvePolicyRegime(input);
   const base = summaryBase(input, regime);
   if (base.regime === 'NONE' && (input.macroGateState?.r6RecoveryStatus || input.macroGateState?.bearDefenseMode)) {
@@ -683,7 +696,7 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   }
   console.info(
     `[R6_SHADOW_ENTRY_POLICY_RESOLVED] regime=${base.regime} ` +
-      `liveNewBuyAllowed=false shadowScanAllowed=${base.shadowScanAllowed} ` +
+      `legacyPolicyDisabled=true livePermission=GATE_DATA_ONLY shadowScanAllowed=${base.shadowScanAllowed} ` +
       `shadowLearningAllowed=${base.shadowLearningAllowed} shadowNewBuyAllowed=${base.shadowNewBuyAllowed} ` +
       `shadowPaperFillAllowed=${base.shadowPaperFillAllowed} shadowPositionOpenAllowed=${base.shadowPositionOpenAllowed} ` +
       `shadowCounterfactualAllowed=${base.shadowCounterfactualAllowed} accumulatingEligible=${base.accumulatingEligible} executionImpact=NONE`,

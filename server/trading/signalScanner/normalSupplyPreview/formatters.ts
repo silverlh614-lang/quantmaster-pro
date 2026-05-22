@@ -253,7 +253,7 @@ export function formatNormalSupplyPreviewSection(
   const activeBuyCount = countActiveBuyCandidates(preview.candidates);
   const bullishThreshold = NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold;
   const lines: string[] = [];
-  lines.push('🧪 <b>Normal Supply Preview under SELL_ONLY (ADR-0518)</b>');
+  lines.push('🧪 <b>Normal Supply Preview with legacy R6/SELL_ONLY disabled (ADR-0518)</b>');
   lines.push('━━━━━━━━━━━━━━━━');
   lines.push(`mode: ${preview.engineMode}`);
   lines.push(`previewMode: ${preview.previewMode}`);
@@ -307,7 +307,7 @@ export function formatNormalSupplyPreviewSection(
   }
   lines.push('');
   lines.push('주의:');
-  lines.push('SELL_ONLY 또는 macro live block 상태에서는 신규 매수는 차단됩니다.');
+  lines.push('Legacy R6/SELL_ONLY does not change buy permission; Gate/data quality remains authoritative.');
   lines.push('본 결과는 정상모드 기준 수급 진단이며 주문 영향 없습니다.');
   return lines.join('\n');
 }
@@ -339,14 +339,14 @@ function formatPromotionBlockedCode(candidate: NormalSupplyPreviewCandidate): st
 }
 
 function formatLiveDecisionBlockReason(preview: NormalSupplyPreview): string {
-  if (preview.engineMode === 'SELL_ONLY') return 'SELL_ONLY';
+  if (preview.engineMode === 'SELL_ONLY') return 'LEGACY_POLICY_IGNORED';
   if (preview.engineMode === 'MACRO_LIVE_BLOCK') return 'macro live block';
-  if (!preview.liveExecutionAllowed) return 'SELL_ONLY 또는 macro live block';
+  if (!preview.liveExecutionAllowed) return 'macro live block';
   return 'none';
 }
 
 function formatCompactLiveDecision(preview: NormalSupplyPreview): string {
-  return preview.liveExecutionAllowed ? 'LIVE_DECISION_ALLOWED' : 'BLOCKED_BY_SELL_ONLY_OR_MACRO_LIVE_BLOCK';
+  return preview.liveExecutionAllowed ? 'LIVE_DECISION_ALLOWED' : 'BLOCKED_BY_MACRO_LIVE_BLOCK';
 }
 
 function formatCompactActiveFlow(candidate: NormalSupplyPreviewCandidate): string {
@@ -415,7 +415,7 @@ export function buildNormalSupplyPreviewFullSections(
   const sections: string[] = [];
 
   sections.push([
-    '🧪 <b>Normal Supply Preview FULL under SELL_ONLY (ADR-0518)</b>',
+    '🧪 <b>Normal Supply Preview FULL with legacy R6/SELL_ONLY disabled (ADR-0518)</b>',
     '━━━━━━━━━━━━━━━━',
     `mode: ${escapePreviewHtmlText(preview.engineMode)}`,
     `previewMode: ${NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE}`,
@@ -818,7 +818,7 @@ function splitLongLine(line: string, maxChars: number): string[] {
 
 export function formatNormalSupplyPreviewMissingSection(error?: string): string {
   return [
-    '🧪 <b>Normal Supply Preview under SELL_ONLY (ADR-0518)</b>',
+    '🧪 <b>Normal Supply Preview with legacy R6/SELL_ONLY disabled (ADR-0518)</b>',
     '━━━━━━━━━━━━━━━━',
     'status: NOT_COLLECTED',
     `previewMode: ${NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE}`,

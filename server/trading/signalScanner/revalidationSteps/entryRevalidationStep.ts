@@ -1,7 +1,7 @@
 // @responsibility liveGate 재검증 결과를 RevalidationStep 시그니처로 분기하는 PoC 단계
 
 import { evaluateEntryRevalidation, getMinGateScore } from '../../entryEngine.js';
-import { INTERNAL_BLOCK_SENTINEL, normalizeMacroRegime, resolveMarketSessionState, type EntryBlockReason } from '../../entryPolicySemantics.js';
+import { normalizeMacroRegime, resolveMarketSessionState, type EntryBlockReason } from '../../entryPolicySemantics.js';
 import { isExecutionRelaxationEnabled } from '../failureClassifier.js';
 import type { RevalidationStepResult } from './types.js';
 
@@ -67,8 +67,6 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const minGateBase = getMinGateScore(input.regime);
   const relaxedDelta = isExecutionRelaxationEnabled() ? 1 : 0;
   const minGate = Math.max(minGateBase - relaxedDelta, 5);
-  const policyBlockedBySentinel = minGateBase >= INTERNAL_BLOCK_SENTINEL;
-
   const revalidation = evaluateEntryRevalidation({
     symbol: input.stockName,
     currentPrice: input.currentPrice,
@@ -80,12 +78,12 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     volume: input.reCheckQuote?.volume,
     avgVolume: input.reCheckQuote?.avgVolume,
     minGateScore: minGate,
-    liveEntryAllowed: input.liveEntryAllowed ?? !policyBlockedBySentinel,
+    liveEntryAllowed: input.liveEntryAllowed ?? true,
     shadowLearningAllowed: input.shadowLearningAllowed ?? true,
-    executionMode: input.executionMode ?? (policyBlockedBySentinel ? 'SHADOW_ONLY' : 'NORMAL'),
+    executionMode: input.executionMode ?? 'NORMAL',
     marketSessionState: resolveMarketSessionState({ marketSessionState: input.marketSessionState }),
     macroRegime: normalizeMacroRegime(input.regime),
-    blockReasons: input.blockReasons ?? (policyBlockedBySentinel ? ['R6_DEFENSE'] : undefined),
+    blockReasons: input.blockReasons,
     marketElapsedMinutes: input.marketElapsedMinutes,
   });
 

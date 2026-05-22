@@ -94,12 +94,10 @@ export function normalizePositionContextTag(input: {
   const entrySource = String(input.entrySource ?? '').toUpperCase();
   const regime = String(input.effectiveRegime ?? '').toUpperCase();
 
-  if (entrySource.includes('R6_COUNTERFACTUAL') || regime.includes('R6_COUNTERFACTUAL')) {
-    return 'R6_COUNTERFACTUAL';
-  }
-  if (regime.includes('R6_DEFENSE')) return 'R6_DEFENSE';
-  if (regime.includes('RECOVERY_WATCH')) return 'RECOVERY_WATCH';
-  if (input.engineMode === 'SELL_ONLY' || regime.includes('SELL_ONLY')) return 'SELL_ONLY';
+  if (entrySource.includes('R6_COUNTERFACTUAL') || regime.includes('R6_COUNTERFACTUAL')) return 'NORMAL';
+  if (regime.includes('R6_DEFENSE')) return 'NORMAL';
+  if (regime.includes('RECOVERY_WATCH')) return 'NORMAL';
+  if (input.engineMode === 'SELL_ONLY' || regime.includes('SELL_ONLY')) return 'NORMAL';
   if (input.engineMode === 'SHADOW_ONLY' || regime.includes('SHADOW_ONLY')) return 'SHADOW_ONLY';
   return 'NORMAL';
 }
@@ -107,6 +105,7 @@ export function normalizePositionContextTag(input: {
 function normalizeEffectiveRegimeDisplayTag(effectiveRegime?: string): string | null {
   const regime = String(effectiveRegime ?? '').trim().toUpperCase();
   if (!regime || regime === 'NORMAL') return null;
+  if (regime.includes('R6_DEFENSE') || regime.includes('R6_RECOVERY') || regime.includes('SELL_ONLY')) return null;
   const normalized = regime.replace(/[^A-Z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
   return normalized.length > 0 ? normalized : null;
 }

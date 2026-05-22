@@ -39,11 +39,11 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
     expect(regular).toMatchObject({ gateStatus: 'OK', sessionAgnostic: true });
   });
 
-  it('resolves AFTERMARKET + R6 as policy-only live buy isolation', () => {
+  it('ignores AFTERMARKET + R6/SELL_ONLY execution blocks while preserving policy diagnostics', () => {
     const commonGateResult = evaluateCommonGate({
       snapshotId: 'snap-r6',
       candidate: { symbol: '005930', quoteStatus: 'VERIFIED', tradabilityStatus: 'TRADABLE', liquidityStatus: 'PASS' },
-      feature: { technicalIndicators: { status: 'NOT_COMPUTED' } },
+      feature: { technicalIndicators: { status: 'COMPUTED', ma20: 100, ma60: 90, rsi14: 55, atr14: 2 } },
     });
     const before = structuredClone(commonGateResult);
 
@@ -59,19 +59,26 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
 
     expect(commonGateResult).toEqual(before);
     expect(policy).toMatchObject({
-      policyStatus: 'LIVE_BLOCKED_ONLY',
-      liveBuyAllowed: false,
+      policyStatus: 'LIVE_ALLOWED',
+      liveBuyAllowed: true,
       liveSellAllowed: true,
-      realOrderAllowed: false,
+      realOrderAllowed: true,
       diagnosticAllowed: true,
       shadowAllowed: true,
       counterfactualAllowed: true,
-      entryBlockMode: 'R6_DEFENSE_SELL_ONLY',
-      sessionOverlay: 'AFTERMARKET_BUY_BLOCKED',
-      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
+      entryBlockMode: 'NORMAL',
+      sessionOverlay: 'NONE',
+      executionImpact: 'NONE',
     });
-    expect(policy.blockReasons).toEqual(['R6_DEFENSE_SELL_ONLY', 'AFTERMARKET_BUY_BLOCKED']);
-    expect(formatPolicyDiag(policy)).toContain('LIVE_BLOCKED_ONLY');
+    expect(policy.blockReasons).toEqual([]);
+    expect(policy.legacyIgnoredReasons).toEqual(expect.arrayContaining([
+      'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK',
+      'AFTERMARKET_SELL_ONLY_IGNORED_BY_ROLLBACK',
+      'R6_DEFENSE_IGNORED_BY_ROLLBACK',
+      'R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK',
+    ]));
+    expect(formatPolicyDiag(policy)).toContain('LIVE_ALLOWED');
+    expect(formatPolicyDiag(policy)).toContain('entryBlockMode=NORMAL');
   });
 
   it('classifies quote-verified technical missing as data pipeline, not soft fail', () => {

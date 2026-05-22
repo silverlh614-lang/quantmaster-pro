@@ -1119,25 +1119,21 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     });
 
     expect(inputs).toHaveLength(1);
-    expect(inputs[0].sourcePath).toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
-    expect(inputs[0].selectedCandidate?.actualInvestorFlowRows).toHaveLength(1);
-    expect(inputs[0].actualInvestorFlowRows).toHaveLength(1);
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
-    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(inputs[0].sourcePath).toBe('ENTRY_FILTER_GATE1_CANDIDATE_TRACE');
+    expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
 
     const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
     const out = formatGate1MinimumSignalForensicSection(summary)!;
 
-    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(true);
-    expect(summary.selectedCandidateCarriesActualRowCount).toBe(1);
-    expect(summary.forensicInputCarriesActualInvestorRowsCount).toBe(1);
-    expect(summary.sellOnlyBySymbolPayloadAvailableCount).toBe(1);
-    expect(summary.sellOnlyBySymbolPayloadMergedCount).toBe(1);
-    expect(summary.sellOnlyActualRowsCarriedCount).toBe(1);
-    expect(summary.sellOnlyCarryBreakPointDistribution?.CARRIED_TO_FORENSIC).toBe(1);
-    expect(out).toContain('sellOnlyActualRowsCarried: 1/1');
-    expect(out).toContain('sellOnlyCarryBreakPoint: CARRIED_TO_FORENSIC=1');
+    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(false);
+    expect(summary.sellOnlyBySymbolPayloadAvailableCount ?? 0).toBe(0);
+    expect(summary.sellOnlyBySymbolPayloadMergedCount ?? 0).toBe(0);
+    expect(summary.sellOnlyActualRowsCarriedCount ?? 0).toBe(0);
+    expect(summary.sellOnlyCarryBreakPointDistribution?.CARRIED_TO_FORENSIC ?? 0).toBe(0);
+    expect(out).not.toContain('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
   });
 
   it('marks SELL_ONLY bySymbol payload missing without converting provider issues into market signals', () => {
@@ -1177,12 +1173,13 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
 
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(false);
-    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MISSING');
-    expect(audit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MISSING');
+    expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
+    expect(audit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBeUndefined();
     expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(false);
     expect(audit.positiveComponents.SUPPLY_CONFLUENCE?.marketSignal).not.toBe(true);
-    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MISSING).toBe(1);
+    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MISSING ?? 0).toBe(0);
   });
 
 
@@ -1213,20 +1210,18 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
       }],
       supplyRouterResult: { bySymbol: { '035420': { selectedProvider: 'KIS_API' } } },
     });
-    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
-    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadMerged).toBe(false);
-    expect(payloadWithoutRows[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_FOUND_NOT_MERGED');
+    expect(payloadWithoutRows[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
+    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
+    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
+    expect(payloadWithoutRows[0].sellOnlyCarryBreakPoint).toBeUndefined();
 
     const forensicDropped = buildGate1MinimumSignalForensicAuditAdr0505({
       trace: makeTrace({ symbol: '035420' }),
-      sourcePath: 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT',
-      sellOnlyBySymbolPayloadAvailable: true,
-      sellOnlyBySymbolPayloadMerged: true,
-      sellOnlyCarryBreakPoint: 'CARRIED_TO_FORENSIC',
+      sourcePath: 'ENTRY_FILTER_GATE1_CANDIDATE_TRACE',
     });
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([forensicDropped]);
-    expect(forensicDropped.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED');
-    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED).toBe(1);
+    expect(forensicDropped.supplyScopeAudit.sellOnlyCarryBreakPoint).toBeUndefined();
+    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED ?? 0).toBe(0);
   });
 
   it('persists sanitized bySymbol payload snapshots and looks them up for SELL_ONLY candidates', () => {
@@ -1285,11 +1280,11 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
       supplyRouterResult: { bySymbol: {} },
     });
 
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
-    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
-    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
-    expect(inputs[0].actualInvestorFlowRows).toHaveLength(1);
-    expect(inputs[0].actualInvestorFlowRows?.[0]).toMatchObject({ frgn_ntby_qty: '100', orgn_ntby_qty: '200' });
+    expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
+    expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
   });
 
   it('marks stale bySymbol payload snapshots SHADOW_ONLY without merging them as carried rows', () => {
@@ -1339,11 +1334,10 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
       supplyRouterResult: { bySymbol: {} },
     });
 
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
-    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(false);
-    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_STALE');
-    expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.scoreUsage).toBe('SHADOW_ONLY');
-    expect((inputs[0].supplyProviderHealth as Record<string, unknown> | undefined)?.liveExecutionAllowed).toBe(false);
+    expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
     expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
     expect(inputs[0].actualInvestorFlowCarried).toBe(false);
   });

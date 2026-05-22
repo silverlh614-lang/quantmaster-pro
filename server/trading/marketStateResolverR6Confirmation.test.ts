@@ -8,7 +8,7 @@ describe('resolveMarketState R6 confirmation wait display', () => {
     vi.doUnmock('./regimeBridge.js');
   });
 
-  it('maps close/next-day confirmation blocking to R6_CONFIRMATION_WAIT display state', async () => {
+  it('keeps R6 confirmation wait observation from changing effective/display regime', async () => {
     const now = new Date('2026-05-18T07:00:00.000Z');
     const macro = {
       updatedAt: now.toISOString(),
@@ -65,11 +65,10 @@ describe('resolveMarketState R6 confirmation wait display', () => {
     const { resolveMarketState } = await import('./marketStateResolver.js');
     const snapshot = resolveMarketState(now);
 
-    expect(snapshot.effectiveRegime).toBe('R6_CONFIRMATION_WAIT');
-    expect(snapshot.displayRegime).toBe('R6_DEFENSE');
-    expect(snapshot.displayTitle).toBe('R6_DEFENSE');
-    expect(snapshot.displaySeverity).toBe('PANIC');
-    expect(snapshot.liveNewBuyAllowed).toBe(false);
+    expect(snapshot.effectiveRegime).toBe('R4_NEUTRAL');
+    expect(snapshot.displayRegime).toBe('R4_NEUTRAL');
+    expect(snapshot.displayTitle).toBe('R4_NEUTRAL');
+    expect(snapshot.displaySeverity).toBe('OK');
     expect(snapshot.liveSellAllowed).toBe(true);
     expect(snapshot.positionManagementAllowed).toBe(true);
     expect(snapshot.shadowScanAllowed).toBe(true);
@@ -88,7 +87,7 @@ describe('resolveMarketState R6 display override regressions', () => {
     vi.doUnmock('./regimeBridge.js');
   });
 
-  it('forces BLACK_SWAN with GREEN MHS to R6_DEFENSE/PANIC display without P1_GREEN_WITH_R6_BLOCKED', async () => {
+  it('ignores legacy BLACK_SWAN override for display and execution policy', async () => {
     const now = new Date('2026-05-18T07:00:00.000Z');
     const emitOperationalWarn = vi.fn();
     vi.doMock('../persistence/macroStateRepo.js', () => ({
@@ -142,11 +141,11 @@ describe('resolveMarketState R6 display override regressions', () => {
     expect(snapshot.detectedRegime).toBe('R2_BULL');
     expect(snapshot.rawMhs).toBe(70);
     expect(snapshot.rawMhsLabel).toBe('GREEN');
-    expect(snapshot.displayRegime).toBe('R6_DEFENSE');
-    expect(snapshot.displaySeverity).toBe('PANIC');
-    expect(snapshot.displayLabel).toBe('🔴 R6_DEFENSE');
-    expect(snapshot.liveNewBuyAllowed).toBe(false);
-    expect(snapshot.mhsDisplayLabel).toBe('OVERRIDDEN_BY_R6');
+    expect(snapshot.riskOverride).toBe('NONE');
+    expect(snapshot.displayRegime).toBe('R2_BULL');
+    expect(snapshot.displaySeverity).toBe('OK');
+    expect(snapshot.displayLabel).toBe('🟢 R2_BULL');
+    expect(snapshot.mhsDisplayLabel).toBe('GREEN');
     expect(emitOperationalWarn).not.toHaveBeenCalledWith(expect.objectContaining({ code: 'P1_GREEN_WITH_R6_BLOCKED' }));
   });
 });

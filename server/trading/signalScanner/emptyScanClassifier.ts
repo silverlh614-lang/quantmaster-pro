@@ -84,7 +84,6 @@ export function classifyEmptyScanReason(summary: ScanSummary | null): EmptyScanR
   if (mg) {
     if (mg.emergencyStop) return 'ORDER_BLOCKED';
     if (!mg.autoTradeEnabled) return 'ORDER_BLOCKED';
-    if (mg.sellOnlyMode) return 'ORDER_BLOCKED';
     if (mg.watchlistEmpty) return 'ORDER_BLOCKED';
   }
   // 사이징 차단 다수 → ORDER_BLOCKED (Kelly budget canEnterNew=false 또는 DATA_QUARANTINE)
@@ -185,7 +184,7 @@ export function describeEmptyScanReason(reason: EmptyScanReason): { label: strin
     case 'ORDER_BLOCKED':
       return {
         label: '주문 경로 차단 (운영자 결정)',
-        advice: '비상정지 / AUTO_TRADE_ENABLED=false / SELL_ONLY 시간대 / 워치리스트 0 / 사이징 한도 도달.',
+        advice: '비상정지 / AUTO_TRADE_ENABLED=false / 워치리스트 0 / 사이징 한도 도달. Legacy SELL_ONLY is ignored by rollback.',
       };
     case 'UNKNOWN':
       return {

@@ -44,8 +44,7 @@ export function emitScanOperationalWarn(input: {
   ttlSec?: number;
 }): void {
   const result = input.result;
-  const shadowLearningBroken = result?.evaluationState === 'NOT_EVALUATED_SELL_ONLY' && result?.shadowLearningAllowed === false;
-  const executionImpact = shadowLearningBroken ? 'SHADOW_LEARNING_DEGRADED' : input.executionImpact ?? (result ? toOperationalImpact(result.executionImpact) : 'NONE');
+  const executionImpact = input.executionImpact ?? (result ? toOperationalImpact(result.executionImpact) : 'NONE');
   emitOperationalWarn({
     priority: 'P1',
     domain: 'DIAGNOSTIC',
@@ -63,13 +62,6 @@ export function emitScanOperationalWarn(input: {
       breakPoint: result?.breakPoint,
       sourcePath: result?.sourcePath,
       scanId: result?.scanId,
-      ...(result?.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? {
-        normalStateMessage: 'SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.',
-        liveNewBuyAllowed: false,
-        positionManagementAllowed: true,
-        shadowLearningAllowed: result.shadowLearningAllowed ?? true,
-        executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-      } : {}),
       ...input.details,
     },
   });
@@ -77,17 +69,10 @@ export function emitScanOperationalWarn(input: {
 
 export function emitScanEvaluationWarnings(result: ScanEvaluationResult): void {
   switch (result.evaluationState) {
-    case 'NOT_EVALUATED_SELL_ONLY':
-      emitScanOperationalWarn({
-        code: 'P1_SELL_ONLY_EVALUATION_SKIPPED',
-        message: 'SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.',
-        result,
-      });
-      return;
     case 'NOT_EVALUATED_R6_LIVE_BLOCKED':
       emitScanOperationalWarn({
         code: 'P1_R6_LIVE_BLOCKED_SHADOW_ALLOWED',
-        message: 'R6 blocks live new buys only; shadow scan and learning remain allowed.',
+        message: 'Legacy R6 live block ignored by rollback; Gate/data quality remains authoritative.',
         result,
       });
       return;

@@ -28,12 +28,6 @@ export function formatGate1MinimumSignalForensicSection(
 function appendGate1OverviewLines(lines: string[], summary: Gate1MinimumSignalForensicSummaryAdr0505): void {
   lines.push('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
   lines.push(`- evaluationState=${summary.evaluationState} diagnosticEvaluated=${summary.evaluatedCandidateCount}/${summary.totalCandidates} traceOnly=${summary.traceOnlyCandidateCount}`);
-  if (summary.evaluationState === 'NOT_EVALUATED_SELL_ONLY') {
-    lines.push('- SELL_ONLY: 신규 매수 평가는 건너뛰고 보유 관리/Shadow Learning만 유지합니다.');
-    lines.push('- evaluationState=NOT_EVALUATED_SELL_ONLY liveNewBuyAllowed=false positionManagementAllowed=true shadowLearningAllowed=true executionImpact=NEW_BUY_BLOCKED_ONLY');
-    lines.push('- Supply row carry diagnostic executed');
-    lines.push('- row carry failure is a wiring issue, not a live-entry failure');
-  }
   if (summary.evaluationState === 'EVALUATED') {
     lines.push(`- candidates=${summary.totalCandidates} failed=${summary.failedCandidates}`);
     lines.push(

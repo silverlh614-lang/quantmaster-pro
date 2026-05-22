@@ -23,12 +23,10 @@ export function deriveNormalSupplyPreviewEngineMode(input: {
   const regimeDiagnosticLiveBlocked =
     input.macroGateState?.diagnosticLiveEntryBlocked === true &&
     (macroRegime === 'R4_NEUTRAL' || macroRegime === 'R5_CAUTION');
-  if (input.sellOnly || input.macroGateState?.sellOnlyMode || decision.includes('SELL_ONLY')) return 'SELL_ONLY';
   if (decision.includes('POSITION_FULL') || liveBlockReason.includes('POSITION_FULL')) return 'POSITION_FULL';
   if (
     liveBlockReason.includes('R4_NEUTRAL') ||
     liveBlockReason.includes('R5_CAUTION') ||
-    liveBlockReason.includes('R6_DEFENSE') ||
     liveBlockReason.includes('VIX_BLOCK') ||
     liveBlockReason.includes('FOMC_BLOCK') ||
     regimeDiagnosticLiveBlocked ||

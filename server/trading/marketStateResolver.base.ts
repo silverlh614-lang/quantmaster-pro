@@ -246,10 +246,17 @@ function resolveBiasLabel(score: number): BiasLabel {
 function explicitRiskOverride(macro: MacroState | null): RiskOverride | undefined {
   if (!macro) return undefined;
   const value = (macro as unknown as Record<string, unknown>).riskOverride;
+  if (value === 'BLACK_SWAN' || value === 'KOSPI_CRASH') {
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=market-state marketSession=REGULAR displaySession=REGULAR ` +
+      `inputEntryBlockMode=R6_DEFENSE ignoredReasons=${value}_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
+      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
+    return 'NONE';
+  }
   if (
-    value === 'BLACK_SWAN' ||
     value === 'CIRCUIT_BREAKER' ||
-    value === 'KOSPI_CRASH' ||
     value === 'MANUAL_KILL_SWITCH' ||
     value === 'NONE'
   ) {
@@ -265,17 +272,31 @@ function resolveRiskOverride(diagnostics: RegimeDiagnostics, macro: MacroState |
   if (getDataIntegrityBlocked()) return 'CIRCUIT_BREAKER';
 
   if (diagnostics.effectiveRegime === 'R6_DEFENSE' || diagnostics.rawRegime === 'R6_DEFENSE') {
-    const triggers = diagnostics.activeR6Triggers;
-    if (
-      triggers.includes('KOSPI_INTRADAY_LOW_SHOCK') ||
-      triggers.includes('KOSPI_CLOSE_SHOCK')
-    ) {
-      return 'KOSPI_CRASH';
-    }
-    return 'BLACK_SWAN';
+    console.info(
+      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=market-state marketSession=REGULAR displaySession=REGULAR ` +
+      `inputEntryBlockMode=R6_DEFENSE ignoredReasons=R6_DEFENSE_IGNORED_BY_ROLLBACK ` +
+      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
+      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+    );
   }
 
   return explicit ?? 'NONE';
+}
+
+function isLegacyR6EffectiveRegime(value: string | undefined): boolean {
+  return value === 'R6_PANIC' ||
+    value === 'R6_DEFENSE' ||
+    value === 'R6_CONFIRMATION_WAIT' ||
+    value === 'R6_RECOVERY_WATCH';
+}
+
+function sanitizeLegacyR6EffectiveRegime(
+  value: EffectiveMarketRegime,
+  diagnostics: RegimeDiagnostics,
+): EffectiveMarketRegime {
+  if (!isLegacyR6EffectiveRegime(value)) return value;
+  const raw = diagnostics.rawRegime as EffectiveMarketRegime;
+  return isLegacyR6EffectiveRegime(raw) ? 'R4_CAUTION' : raw;
 }
 
 function isR6ConfirmationWait(diagnostics: RegimeDiagnostics): boolean {
@@ -291,33 +312,24 @@ function resolveEffectiveRegime(
   diagnostics: RegimeDiagnostics,
   riskOverride: RiskOverride,
 ): EffectiveMarketRegime {
-  if (isR6ConfirmationWait(diagnostics)) return 'R6_CONFIRMATION_WAIT';
-  if (diagnostics.r6RecoveryStatus === 'STALE_DATA_BLOCKED') return 'R6_DEFENSE';
-  if (diagnostics.transitionState.r6StateMachineState === 'R6_PANIC') return 'R6_PANIC';
-  if (diagnostics.transitionState.r6StateMachineState === 'R6_RECOVERY_WATCH') return 'R6_RECOVERY_WATCH';
+  if (isR6ConfirmationWait(diagnostics)) return sanitizeLegacyR6EffectiveRegime('R6_CONFIRMATION_WAIT', diagnostics);
+  if (diagnostics.r6RecoveryStatus === 'STALE_DATA_BLOCKED') return sanitizeLegacyR6EffectiveRegime('R6_DEFENSE', diagnostics);
+  if (diagnostics.transitionState.r6StateMachineState === 'R6_PANIC') return sanitizeLegacyR6EffectiveRegime('R6_PANIC', diagnostics);
+  if (diagnostics.transitionState.r6StateMachineState === 'R6_RECOVERY_WATCH') return sanitizeLegacyR6EffectiveRegime('R6_RECOVERY_WATCH', diagnostics);
   if (diagnostics.transitionState.r6StateMachineState === 'R5_STABILIZING') return 'R5_STABILIZING';
   if (diagnostics.transitionState.r6StateMachineState === 'R4_CAUTION') return 'R4_CAUTION';
   if (diagnostics.transitionState.r6StateMachineState === 'R3_NORMAL') return 'R3_NORMAL';
-  let effective: EffectiveMarketRegime = diagnostics.effectiveRegime;
+  let effective: EffectiveMarketRegime = sanitizeLegacyR6EffectiveRegime(diagnostics.effectiveRegime, diagnostics);
   const recoveryActive =
     diagnostics.r6RecoveryStatus === 'COOLDOWN' ||
     diagnostics.r6RecoveryStatus === 'RECOVERY_CANDIDATE';
-  if (recoveryActive && diagnostics.effectiveRegime !== 'R6_DEFENSE') {
-    effective = 'R6_RECOVERY_WATCH';
-  }
-
-  const hardOverride =
-    riskOverride === 'BLACK_SWAN' ||
-    riskOverride === 'CIRCUIT_BREAKER' ||
-    riskOverride === 'KOSPI_CRASH';
-  if (hardOverride && !['R6_PANIC', 'R6_DEFENSE', 'R6_CONFIRMATION_WAIT', 'R6_RECOVERY_WATCH'].includes(effective)) {
+  if (recoveryActive && !isLegacyR6EffectiveRegime(diagnostics.effectiveRegime)) {
     emitMarketStateOperationalWarn({
       code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      message: '[MARKET_STATE_CONFLICT] type=RISK_OVERRIDE_WITH_NON_R6 action=FORCE_R6_DEFENSE',
+      message: '[MARKET_STATE_CONFLICT] type=LEGACY_R6_RECOVERY_WATCH_IGNORED action=OBSERVE_ONLY',
       dedupKey: `market-state:risk-override-non-r6:${riskOverride}:${effective}`,
       details: { riskOverride, effectiveRegime: effective },
     });
-    effective = 'R6_DEFENSE';
   }
 
   return effective;
@@ -332,7 +344,6 @@ function resolveExecution(snapshot: {
   const dataBlocked = getDataIntegrityBlocked();
   const paused = getAutoTradePaused();
   const manualBlock = getManualBlockNewBuy() || getManualManageOnly();
-  const inR6 = snapshot.effectiveRegime === 'R6_PANIC' || snapshot.effectiveRegime === 'R6_DEFENSE' || snapshot.effectiveRegime === 'R6_CONFIRMATION_WAIT' || snapshot.effectiveRegime === 'R6_RECOVERY_WATCH' || snapshot.effectiveRegime === 'R5_STABILIZING';
 
   const liveSellAllowed = !emergency;
   const liveNewBuyAllowed =
@@ -340,17 +351,15 @@ function resolveExecution(snapshot: {
     !emergency &&
     !dataBlocked &&
     !paused &&
-    !manualBlock &&
-    !inR6;
+    !manualBlock;
 
   let executionMode: MarketStateExecutionMode = 'NORMAL';
   if (emergency) executionMode = 'OBSERVE_ONLY';
-  else if (inR6) executionMode = 'SELL_ONLY';
   else if (dataBlocked || paused || manualBlock) executionMode = 'DEGRADED';
   else if (baseMode === 'OFF') executionMode = 'SHADOW_ONLY';
   else executionMode = 'NORMAL';
   const shadowPolicy = resolveShadowAlwaysOnPolicy({
-    engineMode: inR6 ? 'R6_DEFENSE' : executionMode,
+    engineMode: executionMode,
     effectiveRegime: snapshot.effectiveRegime,
     riskOverrideActive: snapshot.riskOverride !== 'NONE',
     liveExecutionAllowed: liveNewBuyAllowed,
@@ -370,10 +379,6 @@ function resolveExecution(snapshot: {
 }
 
 function resolveShadowPolicyEngineMode(snapshot: Pick<MarketStateSnapshot, 'effectiveRegime' | 'executionMode'>): string {
-  const regime = snapshot.effectiveRegime;
-  if (regime === 'R6_PANIC' || regime === 'R6_DEFENSE' || regime === 'R6_CONFIRMATION_WAIT' || regime === 'R6_RECOVERY_WATCH') {
-    return 'R6_DEFENSE';
-  }
   return snapshot.executionMode;
 }
 
@@ -462,10 +467,7 @@ function baseDisplaySeverity(
 }
 
 function isR6DisplayOverride(snapshot: MarketStateSnapshot): boolean {
-  return snapshot.riskOverride === 'BLACK_SWAN' ||
-    snapshot.riskOverride === 'KOSPI_CRASH' ||
-    snapshot.riskOverride === 'CIRCUIT_BREAKER' ||
-    snapshot.effectiveRegime === 'R6_DEFENSE';
+  return snapshot.riskOverride === 'CIRCUIT_BREAKER';
 }
 
 function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot {
@@ -476,11 +478,9 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
   let mhsDisplayLabel = snapshot.mhsDisplayLabel;
 
   if (isR6DisplayOverride(snapshot)) {
-    displayRegime = 'R6_DEFENSE';
+    displayRegime = snapshot.effectiveRegime;
     displaySeverity = 'PANIC';
-    liveNewBuyAllowed = false;
-    mhsDisplayLabel = 'OVERRIDDEN_BY_R6';
-    reasonCodes.add('R6_DISPLAY_OVERRIDE');
+    reasonCodes.add('CIRCUIT_BREAKER_DISPLAY_OVERRIDE');
   }
 
   if (snapshot.effectiveRegime === 'R6_DEFENSE' && displaySeverity === 'OK') {
@@ -499,12 +499,7 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
   }
 
   if (snapshot.riskOverride !== 'NONE' && snapshot.mhsLabel === 'GREEN') {
-    const userVisibleSafe = (
-      snapshot.riskOverride === 'BLACK_SWAN' &&
-      displayRegime === 'R6_DEFENSE' &&
-      mhsDisplayLabel === 'OVERRIDDEN_BY_R6' &&
-      liveNewBuyAllowed === false
-    );
+    const userVisibleSafe = false;
     emitMarketStateOperationalWarn({
       code: userVisibleSafe ? 'P1_MHS_BIAS_OVERRIDDEN_BY_R6' : 'P1_MHS_BIAS_CONFLICT',
       message: '[MHS_RISK_OVERRIDE_CONFLICT] action=RISK_OVERRIDE_PRIORITY',
@@ -526,7 +521,7 @@ function applyConflictRules(snapshot: MarketStateSnapshot): MarketStateSnapshot 
         telegramDisplayRegime: displayRegime,
         correctionApplied: userVisibleSafe,
         userVisibleSafe,
-        selectedDisplaySource: 'R6_OVERRIDE',
+        selectedDisplaySource: 'RISK_OVERRIDE_OBSERVATION',
       },
     });
     reasonCodes.add('MHS_GREEN_BUT_RISK_OVERRIDE_PRIORITY');

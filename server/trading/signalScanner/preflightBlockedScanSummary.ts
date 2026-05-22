@@ -167,25 +167,19 @@ function buildPreflightScanEvaluation(input: {
   let marketSessionState = 'PRE_FLIGHT_BLOCKED';
   let effectiveRegime = 'UNKNOWN';
 
-  if (input.blockedBy === 'SELL_ONLY' || joined.includes('SELL_ONLY')) {
-    evaluationState = 'NOT_EVALUATED_SELL_ONLY';
-    blockReason = 'SELL_ONLY';
-    breakPoint = 'PRE_FLIGHT_SELL_ONLY';
-    executionImpact = 'NEW_BUY_BLOCKED_ONLY';
-    engineMode = 'SELL_ONLY';
-    marketSessionState = 'SELL_ONLY';
+  if (input.blockedBy === 'SELL_ONLY' || joined.includes('SELL_ONLY') || joined.includes('R6')) {
+    evaluationState = totalCandidates > 0 ? 'EVALUATED_PARTIAL' : 'EVALUATED_ZERO_SURVIVOR';
+    blockReason = 'LEGACY_POLICY_IGNORED';
+    breakPoint = 'PRE_FLIGHT';
+    executionImpact = 'NONE';
+    engineMode = 'NORMAL';
+    marketSessionState = 'REGULAR';
+    effectiveRegime = 'UNKNOWN';
   } else if (joined.includes('NON_TRADING') || joined.includes('HOLIDAY') || joined.includes('VOLUME_CLOCK')) {
     evaluationState = 'NOT_EVALUATED_NON_TRADING_DAY';
     blockReason = joined.includes('VOLUME_CLOCK') ? 'NON_TRADING_TIME' : 'NON_TRADING_DAY';
     breakPoint = 'SESSION_GUARD';
     marketSessionState = blockReason;
-  } else if (joined.includes('R6')) {
-    evaluationState = 'NOT_EVALUATED_R6_DEFENSE';
-    blockReason = 'R6_DEFENSE';
-    breakPoint = 'PRE_FLIGHT_R6_DEFENSE';
-    executionImpact = 'NEW_BUY_BLOCKED_ONLY';
-    engineMode = 'DEGRADED';
-    effectiveRegime = 'R6_DEFENSE';
   } else if (input.blockedBy === 'NO_BUYLIST_ELIGIBLE') {
     evaluationState = 'EVALUATED_ZERO_SURVIVOR';
     blockReason = 'NO_BUYLIST_ELIGIBLE';
@@ -235,11 +229,12 @@ export function recordPreflightBlockedScanSummary(
   const candidateSummaryCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
   const scanId = input.scanId ?? buildScanId(timestamp);
   const hardBlockSource = sanitizeHardBlockSource(input.hardBlockSource);
+  const storedBlockedBy: PreflightBlockedBy = input.blockedBy === 'SELL_ONLY' ? 'PRE_FLIGHT_BLOCK' : input.blockedBy;
   const summary: PreflightBlockedScanSummary = {
     scanId,
     timestamp,
     stage: 'BEFORE_BUYLIST_LOOP',
-    blockedBy: input.blockedBy,
+    blockedBy: storedBlockedBy,
     hardBlockSource,
     hardBlockModule: input.hardBlockModule,
     hardBlockReason: input.hardBlockReason,
@@ -254,7 +249,7 @@ export function recordPreflightBlockedScanSummary(
     scanEvaluation: input.scanEvaluation ?? buildPreflightScanEvaluation({
       summaryScanId: scanId,
       timestamp,
-      blockedBy: input.blockedBy,
+      blockedBy: storedBlockedBy,
       preflightDecision: input.preflightDecision,
       hardBlockSource,
       hardBlockReason: input.hardBlockReason,
@@ -289,58 +284,29 @@ export function attachPreflightBlockedPerSymbolSupplyInjection(
 
 
 function resolveSessionWindowState(timestamp: string | undefined): 'SELL_ONLY' | 'REGULAR' {
-  if (!timestamp) return 'REGULAR';
-  const d = new Date(timestamp);
-  if (Number.isNaN(d.getTime())) return 'REGULAR';
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  const hh = kst.getUTCHours();
-  const mm = kst.getUTCMinutes();
-  const mins = hh * 60 + mm;
-  const inWindow = (mins >= 9 * 60 && mins <= 9 * 60 + 30)
-    || (mins >= 12 * 60 && mins <= 12 * 60 + 59)
-    || (mins >= 15 * 60 + 20 && mins <= 15 * 60 + 30);
-  return inWindow ? 'SELL_ONLY' : 'REGULAR';
+  return 'REGULAR';
 }
 
 function resolveDisplayMarketSessionState(scanEvaluation: PreflightScanEvaluationResult): string {
   const explicit = String(scanEvaluation.marketSessionState ?? '').toUpperCase();
-  if (explicit === 'SELL_ONLY' || explicit === 'AFTERMARKET' || explicit === 'AFTER_MARKET') {
+  if (explicit === 'AFTERMARKET' || explicit === 'AFTER_MARKET') {
     return explicit;
   }
   const blockReason = String(scanEvaluation.blockReason ?? '').toUpperCase();
   if (blockReason.includes('AFTERMARKET') || blockReason.includes('AFTER_MARKET')) return 'AFTERMARKET';
-  if (blockReason.includes('SELL_ONLY')) return 'SELL_ONLY';
   return resolveSessionWindowState(scanEvaluation.asOf);
 }
 
 function resolveEntryBlockMode(scanEvaluation: PreflightScanEvaluationResult | undefined): string {
-  if (!scanEvaluation) return 'UNKNOWN';
-  const marketSession = String(scanEvaluation.marketSessionState ?? '').toUpperCase();
-  const blockReason = String(scanEvaluation.blockReason ?? '').toUpperCase();
-  const engineMode = String(scanEvaluation.engineMode ?? '').toUpperCase();
-  const isSellOnly = marketSession === 'SELL_ONLY'
-    || marketSession === 'AFTERMARKET'
-    || marketSession === 'AFTER_MARKET'
-    || engineMode === 'SELL_ONLY'
-    || blockReason.includes('SELL_ONLY')
-    || blockReason.includes('AFTERMARKET')
-    || blockReason.includes('AFTER_MARKET');
-  const isR6 = scanEvaluation.effectiveRegime === 'R6_DEFENSE'
-    || scanEvaluation.blockReason === 'R6_DEFENSE'
-    || scanEvaluation.blockReason === 'R6_DEFENSE_SELL_ONLY'
-    || scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_DEFENSE'
-    || scanEvaluation.evaluationState === 'LIVE_ENTRY_SKIPPED_R6_DEFENSE';
-  if (isSellOnly && isR6) return 'R6_DEFENSE_SELL_ONLY';
-  if (isSellOnly) return 'SELL_ONLY';
-  if (isR6) return 'R6_DEFENSE';
-  return 'NONE';
+  return scanEvaluation ? 'NORMAL' : 'UNKNOWN';
 }
 
 function resolveTopReason(scanEvaluation: PreflightScanEvaluationResult | undefined, entryBlockMode: string): string {
   if (!scanEvaluation) return 'UNKNOWN';
-  if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') return 'R6_DEFENSE_SELL_ONLY';
-  if (entryBlockMode === 'R6_DEFENSE') return 'LIVE_ENTRY_BLOCKED_BY_R6_DEFENSE';
-  if (entryBlockMode === 'SELL_ONLY') return 'SELL_ONLY_OR_AFTERMARKET';
+  const reason = String(scanEvaluation.blockReason ?? '').toUpperCase();
+  if (reason === 'SELL_ONLY' || reason === 'R6_DEFENSE_SELL_ONLY' || reason === 'R6_DEFENSE') {
+    return 'LEGACY_POLICY_IGNORED';
+  }
   return scanEvaluation.blockReason ?? 'UNKNOWN';
 }
 
@@ -350,30 +316,12 @@ function resolveDisplayEvaluation(scanEvaluation: PreflightScanEvaluationResult,
   displayBreakPoint: string;
   liveEntryEvaluation: string;
 } {
-  if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
-    return {
-      displayEvaluationState: 'LIVE_ENTRY_SKIPPED_R6_SELL_ONLY',
-      displayBreakPoint: 'PRE_FLIGHT_R6_SELL_ONLY',
-      liveEntryEvaluation: 'SKIPPED_R6_DEFENSE',
-    };
-  }
-  if (entryBlockMode === 'SELL_ONLY') {
-    return {
-      displayEvaluationState: 'NOT_EVALUATED_SELL_ONLY',
-      displayBreakPoint: 'PRE_FLIGHT_SELL_ONLY',
-      liveEntryEvaluation: 'SKIPPED_SELL_ONLY',
-    };
-  }
-  if (entryBlockMode === 'R6_DEFENSE') {
-    return {
-      displayEvaluationState: 'LIVE_ENTRY_SKIPPED_R6_DEFENSE',
-      displayBreakPoint: 'PRE_FLIGHT_R6_DEFENSE',
-      liveEntryEvaluation: 'SKIPPED_R6_DEFENSE',
-    };
-  }
+  const legacyState = scanEvaluation.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ||
+    scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED' ||
+    scanEvaluation.evaluationState === 'NOT_EVALUATED_R6_DEFENSE';
   return {
-    displayEvaluationState: scanEvaluation.evaluationState,
-    displayBreakPoint: scanEvaluation.breakPoint ?? 'NONE',
+    displayEvaluationState: legacyState ? 'EVALUATED_PARTIAL' : scanEvaluation.evaluationState,
+    displayBreakPoint: scanEvaluation.breakPoint === 'PRE_FLIGHT_SELL_ONLY' ? 'PRE_FLIGHT' : (scanEvaluation.breakPoint ?? 'NONE'),
     liveEntryEvaluation: 'EVALUATED_OR_APPLICABLE',
   };
 }
@@ -382,15 +330,6 @@ function resolveGate3Diagnostic(scanEvaluation: PreflightScanEvaluationResult, e
   const diagnostic = scanEvaluation.diagnostics as Record<string, unknown> | undefined;
   const gate3CompactText = typeof diagnostic?.gate3CompactText === 'string' ? diagnostic.gate3CompactText : null;
   if (gate3CompactText) return gate3CompactText;
-  if (entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE_SELL_ONLY | compactTextMissing=true | marketSignal=false';
-  }
-  if (entryBlockMode === 'R6_DEFENSE') {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=R6_DEFENSE | compactTextMissing=true | marketSignal=false';
-  }
-  if (entryBlockMode === 'SELL_ONLY') {
-    return 'DIAGNOSTIC_ONLY | liveTimingSkippedBy=SELL_ONLY_OR_AFTERMARKET | compactTextMissing=true | marketSignal=false';
-  }
   return 'UNAVAILABLE | reason=GATE3_CONSOLIDATED_DIAGNOSTIC_NOT_CARRIED | fallback=true | marketSignal=false';
 }
 
@@ -416,56 +355,57 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     const marketSessionState = resolveDisplayMarketSessionState(scanEvaluation);
     const entryBlockMode = resolveEntryBlockMode({ ...scanEvaluation, marketSessionState });
     const { displayEvaluationState, displayBreakPoint, liveEntryEvaluation } = resolveDisplayEvaluation(scanEvaluation, entryBlockMode);
-    const liveEvaluated = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.evaluated;
-    const liveSurvivors = (entryBlockMode === 'SELL_ONLY' || entryBlockMode.startsWith('R6_DEFENSE')) ? 0 : scanEvaluation.survivors;
+    const liveEvaluated = scanEvaluation.evaluated;
+    const liveSurvivors = scanEvaluation.survivors;
     const topReason = resolveTopReason(scanEvaluation, entryBlockMode);
+    const displayReason = topReason === 'LEGACY_POLICY_IGNORED'
+      ? 'LEGACY_POLICY_IGNORED'
+      : (scanEvaluation.blockReason ?? 'NONE');
+    const displayEffectiveRegime = scanEvaluation.effectiveRegime === 'R6_DEFENSE'
+      ? String(scanEvaluation.diagnostics?.rawRegime ?? 'UNKNOWN')
+      : scanEvaluation.effectiveRegime;
+    const displayExecutionImpact = topReason === 'LEGACY_POLICY_IGNORED'
+      ? 'NONE'
+      : scanEvaluation.executionImpact;
 
     lines.push(`marketSessionState=${marketSessionState}`);
     lines.push(`entryBlockMode=${entryBlockMode}`);
-    lines.push(`engineModeDisplay=${entryBlockMode.startsWith('R6_DEFENSE') ? 'DEFENSE_LIVE_BLOCK' : scanEvaluation.engineMode}`);
-    lines.push(`liveEntryAllowed=${entryBlockMode === 'NONE'}`);
+    lines.push(`engineModeDisplay=${scanEvaluation.engineMode === 'SELL_ONLY' ? 'NORMAL' : scanEvaluation.engineMode}`);
+    lines.push('liveEntryAllowed=true');
     lines.push(`liveEntryEvaluation=${liveEntryEvaluation}`);
     lines.push(`diagnosticEvaluation=PARTIAL`);
     lines.push(`liveEvaluated=${liveEvaluated}`);
     lines.push(`diagnosticEvaluated=${scanEvaluation.evaluated}`);
     lines.push(`liveSurvivors=${liveSurvivors}`);
     lines.push(`diagnosticSurvivors=${scanEvaluation.survivors}`);
-    lines.push(`evaluationState=${scanEvaluation.evaluationState}`);
+    lines.push(`evaluationState=${displayEvaluationState}`);
     lines.push(`displayEvaluationState=${displayEvaluationState}`);
     lines.push(`sourcePath=${scanEvaluation.sourcePath}`);
-    lines.push(`breakPoint=${scanEvaluation.breakPoint ?? 'NONE'}`);
+    lines.push(`breakPoint=${displayBreakPoint}`);
     lines.push(`displayBreakPoint=${displayBreakPoint}`);
-    lines.push(`reason=${scanEvaluation.blockReason ?? 'NONE'}`);
+    lines.push(`reason=${displayReason}`);
     lines.push(`topReason=${topReason}`);
-    lines.push(`scanExecutionImpact=${scanEvaluation.executionImpact}`);
+    lines.push(`scanExecutionImpact=${displayExecutionImpact}`);
     lines.push(`shadowLearningAllowed=${scanEvaluation.shadowLearningAllowed}`);
     lines.push(`DiagnosticMinScore: n/a`);
     lines.push(`DiagnosticDominant: n/a`);
     lines.push(`DiagnosticPenalty: n/a`);
-    lines.push(`LivePenalty: ${entryBlockMode.startsWith('R6_DEFENSE') ? 'NOT_APPLIED_R6_DEFENSE' : (entryBlockMode === 'SELL_ONLY' ? 'NOT_APPLIED_SELL_ONLY' : 'n/a')}`);
+    lines.push('LivePenalty: n/a');
     lines.push('RegimeOverride:');
     lines.push(`  rawRegime=${scanEvaluation.diagnostics?.rawRegime ?? 'UNKNOWN'}`);
-    lines.push(`  effectiveRegime=${scanEvaluation.effectiveRegime}`);
-    lines.push(`  overrideReason=${entryBlockMode.startsWith('R6_DEFENSE') ? 'RISK_DEFENSE' : 'NONE'}`);
-    lines.push('  note=Live entry is blocked by effective defensive regime; this is not a fresh Gate1/2/3 failure.');
-    lines.push('Gate1Live: skipped');
+    lines.push(`  effectiveRegime=${displayEffectiveRegime}`);
+    lines.push('  overrideReason=NONE');
+    lines.push('  note=Legacy R6/SELL_ONLY policy is disabled; Gate/data diagnostics remain authoritative.');
+    lines.push('Gate1Live: evaluated');
     lines.push(`Gate1Diagnostic: pass=0/${scanEvaluation.totalCandidates}`);
-    lines.push('Gate2Live: skipped');
+    lines.push('Gate2Live: evaluated');
     lines.push(`Gate2Diagnostic: pass=0 trueFailed=0 unavailable=0 watchPreserved=${scanEvaluation.evaluated} shadowPreserved=${scanEvaluation.evaluated}`);
-    lines.push('Gate3Live: skipped');
+    lines.push('Gate3Live: evaluated');
     lines.push(`Gate3Diagnostic: preBreakoutWait=${scanEvaluation.skipped}`);
     lines.push('🧩 Gate Diagnostic');
         const diag = (scanEvaluation.diagnostics as Record<string, unknown> | undefined);
-    const gate1Fallback = entryBlockMode === 'SELL_ONLY'
-      ? 'SELL_ONLY | liveBuy=false | shadow=ON | marketSignal=false'
-      : (entryBlockMode.startsWith('R6_DEFENSE')
-        ? 'REGULAR_R6_BLOCKED | liveBuy=false | shadow=ON | marketSignal=false'
-        : 'UNAVAILABLE | fallback=true | marketSignal=false');
-    const gate2Fallback = entryBlockMode === 'SELL_ONLY'
-      ? 'NOT_EVALUATED_SELL_ONLY | marketSignal=false'
-      : (entryBlockMode.startsWith('R6_DEFENSE')
-        ? 'DIAGNOSTIC_ONLY | liveEntrySkippedBy=R6_DEFENSE | marketSignal=false'
-        : 'UNAVAILABLE | fallback=true | marketSignal=false');
+    const gate1Fallback = 'UNAVAILABLE | fallback=true | marketSignal=false';
+    const gate2Fallback = 'UNAVAILABLE | fallback=true | marketSignal=false';
     lines.push(`  • Gate1Diag: ${diag?.gate1CompactText ?? gate1Fallback}`);
     lines.push(`  • Gate2Diag: ${diag?.gate2CompactText ?? gate2Fallback}`);
     lines.push(`  • Gate3Diag: ${resolveGate3Diagnostic(scanEvaluation, entryBlockMode)}`);

@@ -227,28 +227,30 @@ describe('preflight.ts byte-equivalent tests', () => {
     }));
   });
 
-  it('should keep diagnostics alive in R6_DEFENSE while blocking live entry', async () => {
+  it('should ignore R6_DEFENSE for execution while keeping diagnostics and Shadow alive', async () => {
     mockedGetLiveRegime.mockReturnValue('R6_DEFENSE');
     const result = await runPreflight();
     expect(result).toEqual(expect.objectContaining({ shouldAbort: false }));
     expect(result.macroGateState).toEqual(expect.objectContaining({
-      regime: 'R6_DEFENSE',
-      diagnosticLiveEntryBlocked: true,
-      liveEntryBlockedReason: 'R6_DEFENSE',
+      regime: 'R2_BULL',
+      bearDefenseMode: false,
+      sellOnlyMode: false,
+      diagnosticLiveEntryBlocked: false,
+      liveEntryAllowed: true,
+      brokerOrderAllowed: true,
+      shadowLearningAllowed: true,
+      counterfactualAllowed: true,
     }));
     expect(result.context).toEqual(expect.objectContaining({
       watchlist: expect.any(Array),
-      regime: 'R6_DEFENSE',
+      regime: 'R2_BULL',
       macroDiagnosticOnly: true,
-      liveEntryBlockedReason: 'R6_DEFENSE',
     }));
-    expect(mockedSendTelegramAlert).toHaveBeenCalledWith(
+    expect(mockedSendTelegramAlert).not.toHaveBeenCalledWith(
       expect.stringContaining('[R6_DEFENSE]'),
-      expect.objectContaining({
-        dedupeKey: expect.stringMatching(/^REGIME_STATUS:R6_DEFENSE:BLACK_SWAN:/),
-      }),
+      expect.anything(),
     );
-    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
+    expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['R6_DEFENSE'],
     }));
@@ -309,19 +311,21 @@ describe('preflight.ts byte-equivalent tests', () => {
     }));
   });
 
-  it('should record VOLUME_CLOCK_BLOCK shadow learning when volume clock blocks entries', async () => {
+  it('should ignore volumeClock SELL_ONLY-style blocks for scan evaluation while preserving context', async () => {
     mockedCheckVolumeClockWindow.mockReturnValue({ allowEntry: false, scoreBonus: 0, reason: 'closed' } as ReturnType<typeof checkVolumeClockWindow>);
     const result = await runPreflight();
-    expect(result.shouldAbort).toBe(true);
-    expect(result.skipPersist).toBe(false);
+    expect(result.shouldAbort).toBe(false);
     expect(result.context).toEqual(expect.objectContaining({ watchlist: expect.any(Array), volumeClock: expect.objectContaining({ allowEntry: false }) }));
-    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({
-      allowRealOrder: false,
-      reason: 'VOLUME_CLOCK_BLOCK',
+    expect(result.macroGateState).toEqual(expect.objectContaining({
+      sellOnlyMode: false,
+      liveEntryAllowed: true,
+      brokerOrderAllowed: true,
+      shadowLearningAllowed: true,
     }));
+    expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'VOLUME_CLOCK_BLOCK' }));
     // ADR-0367: recordBlockedDayShadowScan 의 VOLUME_CLOCK_BLOCK 분기가
     // recordPreflightUniverseLearningSnapshot 를 호출 — universe snapshot 기록은 정상 동작.
-    expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['VOLUME_CLOCK_BLOCK'],
     }));
   });
@@ -334,21 +338,20 @@ describe('preflight.ts byte-equivalent tests', () => {
 
     expect(result.shouldAbort).toBe(false);
     expect(result.macroGateState).toEqual(expect.objectContaining({
-      regime: 'R6_DEFENSE',
-      sellOnlyMode: true,
-      diagnosticLiveEntryBlocked: true,
-      liveEntryBlockedReason: 'R6_DEFENSE',
-      liveEntryAllowed: false,
-      brokerOrderAllowed: false,
+      regime: 'R2_BULL',
+      sellOnlyMode: false,
+      diagnosticLiveEntryBlocked: false,
+      liveEntryAllowed: true,
+      brokerOrderAllowed: true,
+      shadowLearningAllowed: true,
     }));
     expect(result.context).toEqual(expect.objectContaining({
       watchlist: expect.any(Array),
-      regime: 'R6_DEFENSE',
+      regime: 'R2_BULL',
       macroDiagnosticOnly: true,
-      liveEntryBlockedReason: 'R6_DEFENSE',
       volumeClock: expect.objectContaining({ allowEntry: false }),
     }));
-    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
+    expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));
     expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'VOLUME_CLOCK_BLOCK' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['VOLUME_CLOCK_BLOCK'],

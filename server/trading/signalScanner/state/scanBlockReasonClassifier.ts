@@ -32,13 +32,9 @@ function includesAny(value: string | undefined, tokens: readonly string[]): bool
 }
 
 function isNonTradingSession(input: ScanBlockReasonClassifierInput): boolean {
-  if (input.volumeClockAllowsEntry === false) return true;
   return includesAny(input.marketSessionState, [
     'NON_TRADING',
     'HOLIDAY',
-    'CLOSED',
-    'AFTER_MARKET',
-    'PRE_MARKET',
     'WEEKEND',
   ]);
 }
@@ -54,20 +50,6 @@ function isR6LiveBlocked(input: ScanBlockReasonClassifierInput): boolean {
 export function classifyScanBlockReason(
   input: ScanBlockReasonClassifierInput,
 ): ScanBlockReasonClassification {
-  const sellOnly = input.sellOnly === true ||
-    input.macroGateState?.sellOnlyMode === true ||
-    input.engineMode === 'SELL_ONLY';
-  if (sellOnly) {
-    const r6SellOnly = input.effectiveRegime === 'R6_DEFENSE' || input.macroGateState?.riskOverride === 'R6_DEFENSE';
-    return {
-      evaluationState: 'NOT_EVALUATED_SELL_ONLY',
-      blockReason: r6SellOnly ? 'R6_DEFENSE_SELL_ONLY' : 'SELL_ONLY',
-      breakPoint: 'PRE_FLIGHT_SELL_ONLY',
-      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-      shadowLearningAllowed: true,
-    };
-  }
-
   if (isNonTradingSession(input)) {
     return {
       evaluationState: 'NOT_EVALUATED_NON_TRADING_DAY',
@@ -75,16 +57,6 @@ export function classifyScanBlockReason(
       breakPoint: 'SESSION_GUARD',
       executionImpact: 'NONE',
       shadowLearningAllowed: input.macroGateState?.shadowLearningAllowed !== false,
-    };
-  }
-
-  if (isR6LiveBlocked(input)) {
-    return {
-      evaluationState: 'NOT_EVALUATED_R6_LIVE_BLOCKED',
-      blockReason: input.macroGateState?.liveEntryBlockedReason ?? 'R6_DEFENSE',
-      breakPoint: 'REGIME_GUARD',
-      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-      shadowLearningAllowed: true,
     };
   }
 

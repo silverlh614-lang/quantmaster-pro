@@ -769,7 +769,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
 
   // macro refresh is observational data collection, not trade execution.  It must
   // continue through R6_DEFENSE / SELL_ONLY / SHADOW_ONLY / OBSERVE_ONLY and when
-  // liveNewBuyAllowed=false; do not gate this path on execution state.
+  // Keep this path independent from execution state.
   saveMacroState({
     ...existing,
     lastRefreshAttemptAt: refreshAttemptAt,

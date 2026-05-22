@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 
 import type { TelegramPositionEntry, PnlSourceSnapshot } from './shadowPositionSources.js';
 import { renderPnlSummary, renderPositionLine } from './positionOutputFormatters.js';
@@ -73,7 +73,10 @@ describe('Position display tags', () => {
       effectiveRegime: 'R6_DEFENSE',
     });
     const text = renderPositionLine(r6, 0);
-    expect(text).toContain('[SHADOW · R6_DEFENSE · R6_COUNTERFACTUAL · 실주문없음]');
+    expect(text).toContain('[SHADOW');
+    expect(text).toContain('실주문없음');
+    expect(text).not.toContain('R6_DEFENSE');
+    expect(text).not.toContain('R6_COUNTERFACTUAL');
     expect(text).toContain('sizingSource: LIVE_SIZING_MIRROR');
     expect(text).toContain('[가상손익]');
   });

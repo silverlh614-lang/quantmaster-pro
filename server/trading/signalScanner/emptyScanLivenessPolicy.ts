@@ -159,7 +159,7 @@ export function isEmptyScanLivenessPolicyDisabled(): boolean {
  * engineShouldContinue 는 *모든 분기에서* 항상 true (literal type 강제).
  *
  * 호출자 정책:
- *   - allowSellOnlyTransition=true 시 호출자가 자체 SELL_ONLY 정책 (phase-based forceSellOnly,
+ *   - legacy SELL_ONLY transition is ignored by the rollback; callers keep diagnostics alive.
  *     emergencyStop 등) 을 그대로 적용 가능.
  *   - allowSellOnlyTransition=false 시 호출자가 *emptyScanStreak 만으로* SELL_ONLY 전환 금지.
  *   - scanIntervalMayExpand=true 시 호출자가 scan interval 확대 가능 (Yahoo / KIS quota 보호).
@@ -173,14 +173,14 @@ export function evaluateEmptyScanLiveness(
       input.emergencyStop ? 'emergencyStop' : input.r6Defense ? 'R6_DEFENSE' : 'riskHardBlock';
     return {
       cause: 'AUXILIARY_DATA_EMPTY',
-      action: 'ALLOW_SELL_ONLY_EXISTING_REASON',
-      allowSellOnlyTransition: true,
-      preserveExistingSellOnly: input.sellOnlyAlreadyActive === true,
+      action: 'KEEP_ENGINE_ALIVE',
+      allowSellOnlyTransition: false,
+      preserveExistingSellOnly: false,
       engineShouldContinue: true,
       shadowLearningAllowed: true,
       counterfactualLearningAllowed: true,
       scanIntervalMayExpand: false,
-      operatorMessage: `core risk hard-block 활성 (${reasonLabel}) — SELL_ONLY 정책 유지 (ADR-0448 정합)`,
+      operatorMessage: `core risk hard-block observation (${reasonLabel}) - legacy R6/SELL_ONLY ignored by rollback`,
     };
   }
 
@@ -192,14 +192,14 @@ export function evaluateEmptyScanLiveness(
   ) {
     return {
       cause: 'TEMPORARY_SESSION_EMPTY',
-      action: 'ALLOW_SELL_ONLY_EXISTING_REASON',
-      allowSellOnlyTransition: input.sellOnlyAlreadyActive === true,
-      preserveExistingSellOnly: input.sellOnlyAlreadyActive === true,
+      action: 'KEEP_ENGINE_ALIVE',
+      allowSellOnlyTransition: false,
+      preserveExistingSellOnly: false,
       engineShouldContinue: true,
       shadowLearningAllowed: true,
       counterfactualLearningAllowed: true,
       scanIntervalMayExpand: false,
-      operatorMessage: `시장 세션 ${input.marketSession} — 기존 SELL_ONLY 정책 유지 (시장 정책)`,
+      operatorMessage: `market session ${input.marketSession} observation - legacy SELL_ONLY ignored by rollback`,
     };
   }
 

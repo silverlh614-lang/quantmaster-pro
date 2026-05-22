@@ -78,10 +78,9 @@ export function buildScanEvaluationResult(
   const macro = input.macroGateState;
   const gateReport = buildGateEvaluationReport(input.counters, totalCandidates);
   const quoteReport = evaluateQuoteHydration(input.counters, totalCandidates);
-  const marketSessionState = input.marketSessionState ??
-    (macro?.sellOnlyMode ? 'SELL_ONLY' : 'BUY_ALLOWED');
-  const engineMode = input.engineMode ?? macro?.engineMode ??
-    (input.sellOnly || macro?.sellOnlyMode ? 'SELL_ONLY' : 'NORMAL');
+  const marketSessionState = input.marketSessionState ?? 'BUY_ALLOWED';
+  const rawEngineMode = input.engineMode ?? macro?.engineMode ?? 'NORMAL';
+  const engineMode = rawEngineMode === 'SELL_ONLY' ? 'NORMAL' : rawEngineMode;
   const effectiveRegime = input.effectiveRegime ??
     macro?.macroRegimeEffective ??
     macro?.regime ??
@@ -132,15 +131,22 @@ export function isNotEvaluatedScanState(state: ScanEvaluationState): boolean {
 
 export function formatScanEvaluationCompactLine(result: ScanEvaluationResult | undefined): string | null {
   if (!result) return null;
+  const displayState = result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' || result.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED'
+    ? 'EVALUATED_PARTIAL'
+    : result.evaluationState;
+  const displayBreakPoint = result.breakPoint === 'PRE_FLIGHT_SELL_ONLY' ? 'PRE_FLIGHT' : result.breakPoint;
+  const displayReason = result.blockReason === 'SELL_ONLY' || result.blockReason === 'R6_DEFENSE_SELL_ONLY' || result.blockReason === 'R6_DEFENSE'
+    ? 'LEGACY_POLICY_IGNORED'
+    : result.blockReason;
   const parts = [
-    `evaluationState=${result.evaluationState}`,
+    `evaluationState=${displayState}`,
     `sourcePath=${result.sourcePath}`,
-    result.breakPoint ? `breakPoint=${result.breakPoint}` : undefined,
-    result.blockReason ? `reason=${result.blockReason}` : undefined,
+    displayBreakPoint ? `breakPoint=${displayBreakPoint}` : undefined,
+    displayReason ? `reason=${displayReason}` : undefined,
     `diagnosticSurvivors=${result.survivors}`,
     `diagnosticEvaluated=${result.evaluated}`,
-    `liveSurvivors=${result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 0 : result.survivors}`,
-    `liveEvaluated=${result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 0 : result.evaluated}`,
+    `liveSurvivors=${result.survivors}`,
+    `liveEvaluated=${result.evaluated}`,
     `skipped=${result.skipped}`,
     `impact=${result.executionImpact}`,
   ].filter((part): part is string => Boolean(part));
@@ -149,18 +155,25 @@ export function formatScanEvaluationCompactLine(result: ScanEvaluationResult | u
 
 export function formatScanEvaluationSection(result: ScanEvaluationResult | undefined): string | null {
   if (!result) return null;
+  const displayState = result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' || result.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED'
+    ? 'EVALUATED_PARTIAL'
+    : result.evaluationState;
+  const displayBreakPoint = result.breakPoint === 'PRE_FLIGHT_SELL_ONLY' ? 'PRE_FLIGHT' : result.breakPoint;
+  const displayReason = result.blockReason === 'SELL_ONLY' || result.blockReason === 'R6_DEFENSE_SELL_ONLY' || result.blockReason === 'R6_DEFENSE'
+    ? 'LEGACY_POLICY_IGNORED'
+    : result.blockReason;
   return [
     'Scan Evaluation State',
-    `  evaluationState=${result.evaluationState}`,
+    `  evaluationState=${displayState}`,
     `  sourcePath=${result.sourcePath}`,
-    `  breakPoint=${result.breakPoint ?? 'NONE'}`,
-    `  blockReason=${result.blockReason ?? 'NONE'}`,
+    `  breakPoint=${displayBreakPoint ?? 'NONE'}`,
+    `  blockReason=${displayReason ?? 'NONE'}`,
     `  marketSessionState=${result.marketSessionState}`,
     `  engineMode=${result.engineMode}`,
     `  effectiveRegime=${result.effectiveRegime}`,
-    `  liveEntryEvaluation=${result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 'SKIPPED_SELL_ONLY' : 'EVALUATED_OR_APPLICABLE'}`,
-    `  diagnosticEvaluation=${result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 'EVALUATED_DIAGNOSTIC' : (result.evaluationState.startsWith('NOT_EVALUATED_') ? 'PARTIAL' : 'EVALUATED_DIAGNOSTIC')}`,
-    `  counts total=${result.totalCandidates} diagnosticEvaluated=${result.evaluated} skipped=${result.skipped} rejected=${result.rejected} diagnosticSurvivors=${result.survivors} liveEvaluated=${result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 0 : result.evaluated} liveSurvivors=${result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' ? 0 : result.survivors}`,
+    '  liveEntryEvaluation=EVALUATED_OR_APPLICABLE',
+    `  diagnosticEvaluation=${result.evaluationState.startsWith('NOT_EVALUATED_') ? 'PARTIAL' : 'EVALUATED_DIAGNOSTIC'}`,
+    `  counts total=${result.totalCandidates} diagnosticEvaluated=${result.evaluated} skipped=${result.skipped} rejected=${result.rejected} diagnosticSurvivors=${result.survivors} liveEvaluated=${result.evaluated} liveSurvivors=${result.survivors}`,
     `  quote hydrated=${result.quoteHydrated} failed=${result.quoteHydrationFailed}`,
     `  executionImpact=${result.executionImpact}`,
     `  shadowLearningAllowed=${result.shadowLearningAllowed}`,

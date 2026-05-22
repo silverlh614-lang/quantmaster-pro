@@ -98,7 +98,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
       candidates: [],
     });
     const section = formatNormalSupplyPreviewSection(preview);
-    expect(section).toContain('Normal Supply Preview under SELL_ONLY');
+    expect(section).toContain('Normal Supply Preview with legacy R6/SELL_ONLY disabled');
     expect(section).toContain('previewMode: NORMAL_SUPPLY_DIAGNOSTIC');
     expect(section).toContain('liveExecutionAllowed: false');
     expect(section).toContain('realOrderAllowed: false');
@@ -145,7 +145,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('- BULLISH 기준: 80');
     expect(section).toContain('- 현재 판정: ACCUMULATING');
     expect(section).toContain('- 미승격 사유: supplyScore 77 < bullishThreshold 80');
-    expect(section).toContain('- 실거래 차단: SELL_ONLY');
+    expect(section).toContain('- 실거래 차단: LEGACY_POLICY_IGNORED');
     expect(section).toContain('- 허용 동작: Shadow 관찰 / Watchlist Boost');
     expect(section).toContain('- executionImpact: NONE');
     expect(section).toContain('1. 011210 현대위아');
@@ -153,7 +153,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('supplyScore=77/80');
     expect(section).toContain('signal=ACCUMULATING');
     expect(section).toContain('promotionBlocked=BELOW_BULLISH_THRESHOLD');
-    expect(section).toContain('liveDecision=BLOCKED_BY_SELL_ONLY_OR_MACRO_LIVE_BLOCK');
+    expect(section).toContain('liveDecision=BLOCKED_BY_MACRO_LIVE_BLOCK');
     expect(section).toContain('shadowObservable=true');
     expect(section).not.toContain('watchlistBoost=N/A');
     expect(section).toContain('watchlistPriorityBoost=1');
@@ -163,7 +163,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
   });
 
   it('classifies SELL_ONLY and macro live block separately from true hard block', () => {
-    expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_SELL_ONLY' })).toBe('SELL_ONLY');
+    expect(deriveNormalSupplyPreviewEngineMode({ preflightDecision: 'ABORT_SELL_ONLY' })).toBe('PRE_FLIGHT_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({ liveEntryBlockedReason: 'R6_DEFENSE,FOMC_BLOCK' })).toBe('MACRO_LIVE_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({ liveEntryBlockedReason: 'R5_CAUTION' })).toBe('MACRO_LIVE_BLOCK');
     expect(deriveNormalSupplyPreviewEngineMode({
