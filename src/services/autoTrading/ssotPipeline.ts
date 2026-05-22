@@ -23,6 +23,17 @@ export interface FeatureSnapshot {
     status: TechnicalIndicatorStatus;
     source: 'COMPUTED_FROM_KIS_OHLCV' | 'COMPUTED_FROM_OTHER_OHLCV' | 'NOT_COMPUTED';
     technicalTrend?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    rowsComputed?: number;
+    requiredCandles?: number;
+    missingReasons?: string[];
+  };
+  ohlcvDaily?: {
+    status: 'VERIFIED' | 'PARTIAL' | 'NOT_FETCHED';
+    rows: number;
+    requiredCandles: number;
+    apiPath?: string;
+    trId?: string;
+    outputShape?: string;
   };
 }
 
@@ -70,6 +81,8 @@ export interface GateDiagnostics {
   quote: FeatureSnapshot['quoteStatus'];
   tradable: FeatureSnapshot['tradableStatus'];
   liquidity: FeatureSnapshot['liquidityStatus'];
+  technicalStatus: TechnicalIndicatorStatus;
+  dataIssues: string[];
 }
 
 export interface PolicyDiagnostics {
@@ -91,10 +104,14 @@ export function createSnapshotId(now = new Date()): string {
 
 export function evaluateCommonGate(input: { snapshotId: string; candidate: CandidateSnapshot; feature: FeatureSnapshot }): CommonGateResult {
   const reasons: string[] = [];
+  const techMissingReasons = Array.from(new Set(input.feature.technicalIndicators.missingReasons ?? []));
+  const ohlcvNotFetched = input.feature.ohlcvDaily?.status === 'NOT_FETCHED';
   const gate1Result = input.feature.quoteStatus === 'VERIFIED' && input.feature.tradableStatus === 'TRADABLE' && input.feature.liquidityStatus === 'PASS' ? 'OK' : 'DATA_INCOMPLETE';
-  const gate2Result = input.feature.technicalIndicators.status === 'MISSING' ? 'DATA_INCOMPLETE' : 'PASS';
+  const gate2Result = (input.feature.technicalIndicators.status === 'MISSING' || ohlcvNotFetched) ? 'DATA_INCOMPLETE' : 'PASS';
   const gate3Result = input.feature.technicalIndicators.status === 'COMPUTED' ? 'PASS' : 'WARN';
   if (input.feature.technicalIndicators.status !== 'COMPUTED') reasons.push('technicalTrendMissing');
+  reasons.push(...techMissingReasons);
+  if (ohlcvNotFetched) reasons.push('OHLCV_PROVIDER_NOT_CALLED');
   return {
     snapshotId: input.snapshotId,
     symbol: input.candidate.symbol,
@@ -148,12 +165,23 @@ export function resolvePolicy(input: {
 }
 
 export function buildGate1Diag(result: CommonGateResult, feature: FeatureSnapshot): GateDiagnostics {
+  const technicalStatus = feature.technicalIndicators.status;
+  const sourceReasons = feature.technicalIndicators.missingReasons ?? [];
+  const ohlcvNotFetched = feature.ohlcvDaily?.status === 'NOT_FETCHED';
+  const dataIssues = Array.from(new Set([
+    ...sourceReasons,
+    ...(technicalStatus !== 'COMPUTED' ? ['technicalTrendMissing'] : []),
+    ...(ohlcvNotFetched ? ['OHLCV_PROVIDER_NOT_CALLED'] : []),
+  ]));
+
   return {
     gateStatus: result.gate1Result,
     sessionAgnostic: true,
     quote: feature.quoteStatus,
     tradable: feature.tradableStatus,
     liquidity: feature.liquidityStatus,
+    technicalStatus,
+    dataIssues,
   };
 }
 
