@@ -594,7 +594,7 @@ export function classifySupplyUnknownRootCauseAdr0488(
   const marketSignal = candidateMarketSignal(input);
   const providerIssue = !providerVerified && (candidateProviderIssue(input) || statusText.includes('UNKNOWN') || statusText.includes('UNAVAILABLE') || statusText.includes('EMPTY') || statusText.includes('MISMATCH'));
   let rootCause: SupplyUnknownRootCauseAdr0488 = 'SUPPLY_PROVIDER_UNKNOWN';
-  if (marketSignal && !providerIssue) rootCause = 'MARKET_BEARISH_SUPPLY_SIGNAL';
+  if (marketSignal && !providerIssue) rootCause = 'SUPPLY_PROVIDER_UNKNOWN';
   else if (statusText.includes('MISMATCH')) rootCause = 'PROVIDER_MISMATCH';
   else if (statusText.includes('CACHE_EMPTY') || statusText.includes('EMPTY')) rootCause = 'CACHE_EMPTY';
   else if (statusText.includes('NON_TRADING')) rootCause = 'NON_TRADING_DAY';
@@ -649,7 +649,7 @@ export function buildSupplyUnknownPolicyReportAdr0488(
 ): SupplyUnknownPolicyStabilizationReportAdr0488 {
   const generatedAt = nowIso(input.generatedAt);
   const classification = classifySupplyUnknownRootCauseAdr0488(input);
-  const active = classification.providerIssue && !classification.marketSignal && !classification.providerVerified;
+  const active = classification.providerIssue && !classification.providerVerified;
   const unknownScenario = scenarioFor(input.finalGate1CalibrationAdr0471, 'UNKNOWN_DIAGNOSTIC_ONLY');
   const originalPenaltyAvg = round1(numberOr(input.originalPenaltyAvg, input.penaltyDeduplicationAdr0469?.originalPenaltyAvg ?? 0));
   const dedupedPenaltyAvg = round1(numberOr(input.dedupedPenaltyAvg, input.penaltyDeduplicationAdr0469?.dedupedPenaltyAvg ?? originalPenaltyAvg));
@@ -678,7 +678,7 @@ export function buildSupplyUnknownPolicyReportAdr0488(
   const diagnostics: string[] = [];
   if (classification.providerVerified) diagnostics.push('Provider VERIFIED disables supply UNKNOWN diagnostic relaxation.');
   if (classification.providerIssue && !classification.marketSignal) diagnostics.push('Provider issue remains diagnostic-only and is not classified as market signal.');
-  if (classification.marketSignal) diagnostics.push('Market supply signal remains separate from provider issue.');
+  if (classification.marketSignal) diagnostics.push('Market signal observed but not promoted to MARKET_BEARISH_SUPPLY_SIGNAL at policy root.');
 
   return {
     generatedAt,
