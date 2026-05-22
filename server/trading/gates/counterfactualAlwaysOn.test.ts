@@ -5,6 +5,7 @@ import {
   loadCounterfactualAlwaysOnSamples,
   recordCounterfactualForDecision,
 } from './counterfactualAlwaysOn.js';
+import { calculateDiversityAdjustment } from '../candidateDiversityAdjustment.js';
 
 function decision(input: Parameters<typeof resolveSimpleTradeDecision>[0]) {
   return resolveSimpleTradeDecision({
@@ -162,5 +163,76 @@ describe('Simplification Step 9 counterfactual always-on recording', () => {
     expect(result.learningImpact).toBe('NONE');
     expect(result.sample.learningLabels).toContain('TELEGRAM_SUPPRESSED_OBSERVED');
     expect(loadCounterfactualAlwaysOnSamples()).toHaveLength(1);
+  });
+
+  it('records repeated candidates with diversity adjustment evidence', () => {
+    const diversity = calculateDiversityAdjustment({
+      symbol: 'HL만도',
+      history: {
+        symbol: 'HL만도',
+        tradingDate: '2026-05-21',
+        lastSignalAt: '2026-05-21T09:00:00.000+09:00',
+        lastBuyAllowedAt: '2026-05-21T09:05:00.000+09:00',
+        seenCount1d: 3,
+        seenCount3d: 5,
+        seenCount7d: 7,
+        signalCount1d: 1,
+        signalCount3d: 2,
+        signalCount7d: 3,
+        sector: '자동차',
+      },
+      asOf: '2026-05-21T09:30:00.000+09:00',
+    });
+    const result = recordCounterfactualForDecision({
+      decision: decision({
+        dataUsable: true,
+        executionScore: 74,
+        diversityAdjustment: diversity.totalDiversityAdjustment,
+        freshnessPenalty: diversity.freshnessPenalty,
+        discoveryBonus: diversity.discoveryBonus,
+        sectorDiversityAdjustment: diversity.sectorDiversityAdjustment,
+        finalScore: 74,
+      }),
+      candidateExposureHistory: diversity.history,
+      freshnessPenalty: diversity.freshnessPenalty,
+      discoveryBonus: diversity.discoveryBonus,
+      sectorDiversityAdjustment: diversity.sectorDiversityAdjustment,
+      totalDiversityAdjustment: diversity.totalDiversityAdjustment,
+    });
+
+    expect(result.sample.candidateExposureHistory?.symbol).toBe('HL만도');
+    expect(result.sample.freshnessPenalty).toBeLessThan(0);
+    expect(result.sample.learningLabels).toContain('REPEATED_CANDIDATE_OBSERVED');
+    expect(result.sample.learningLabels).toContain('FRESHNESS_PENALTY_APPLIED');
+    expect(result.recorded).toBe(true);
+  });
+
+  it('keeps AI narrative-only discovery as data gap instead of BUY_ALLOWED', () => {
+    const diversity = calculateDiversityAdjustment({
+      symbol: '123456',
+      history: null,
+      asOf: '2026-05-21T09:30:00.000+09:00',
+    });
+    const result = recordCounterfactualForDecision({
+      decision: decision({
+        dataUsable: false,
+        executionScore: 0,
+        advisoryScore: 20,
+        excludedAiScore: 20,
+        diversityAdjustment: diversity.totalDiversityAdjustment,
+        discoveryBonus: diversity.discoveryBonus,
+        finalScore: 68,
+      }),
+      aiEvidencePresent: true,
+      aiEstimatedFeatureCount: 1,
+      missingFields: ['quote'],
+      discoveryBonus: diversity.discoveryBonus,
+      totalDiversityAdjustment: diversity.totalDiversityAdjustment,
+    });
+
+    expect(result.sample.decision).toBe('NO_TRADE_DATA_INCOMPLETE');
+    expect(result.sample.sampleType).toBe('DATA_GAP_COUNTERFACTUAL');
+    expect(result.sample.learningLabels).toContain('AI_ESTIMATE_OBSERVED');
+    expect(result.sample.learningLabels).toContain('DISCOVERY_BONUS_APPLIED');
   });
 });
