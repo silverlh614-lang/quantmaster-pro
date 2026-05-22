@@ -38,11 +38,33 @@ export interface CandidateSnapshot {
   rawCandidateData: Record<string, unknown>;
 }
 
+export interface CandidateFeaturePack {
+  sourceSnapshotId: string;
+  symbol: string;
+  price?: number;
+  ma20?: number;
+  ma60?: number;
+  rsi14?: number;
+  atr14?: number;
+  atr20avg?: number;
+  return5d?: number;
+  return20d?: number;
+  relativeReturn20d?: number;
+  marketRelativeReturn?: number;
+  volumeSurgeScore?: number;
+  vcpScore?: number;
+  breakoutScore?: number;
+  technicalTrend?: Record<string, unknown>;
+  source: 'KIS_OHLCV';
+  status: 'COMPUTED' | 'PARTIAL' | 'MISSING';
+}
+
 export interface FeatureSnapshot {
   snapshotId: string;
   symbol: string;
   quote: Record<string, unknown> | null;
   ohlcvDaily: Record<string, unknown> | null;
+  featurePack?: CandidateFeaturePack | null;
   technicalIndicators: {
     status: TechnicalIndicatorStatus;
     source: 'COMPUTED_FROM_KIS_OHLCV' | 'COMPUTED_FROM_OTHER_OHLCV' | 'NOT_COMPUTED';
@@ -97,7 +119,9 @@ export function buildUnifiedMarketSnapshot(input: {
 }
 
 export function classifyTechnicalTrendMissing(feature: FeatureSnapshot): TechnicalTrendMissingReason | null {
-  if (feature.technicalIndicators.status === 'COMPUTED') return null;
+  if (feature.featurePack?.status === 'COMPUTED' && feature.technicalIndicators.status !== 'COMPUTED') return 'INDICATOR_COMPUTED_BUT_FEATURE_SNAPSHOT_DROPPED';
+  if (feature.technicalIndicators.status === 'COMPUTED' && feature.featurePack?.status !== 'COMPUTED') return 'INDICATOR_COMPUTED_BUT_FEATURE_SNAPSHOT_DROPPED';
+  if (feature.technicalIndicators.status === 'COMPUTED' && feature.featurePack?.status === 'COMPUTED') return null;
   if (feature.quote && !feature.ohlcvDaily) return 'KIS_QUOTE_VERIFIED_BUT_OHLCV_NOT_FETCHED';
   if (feature.ohlcvDaily && feature.technicalIndicators.status === 'NOT_COMPUTED') return 'KIS_OHLCV_FETCHED_BUT_INDICATOR_NOT_COMPUTED';
   return feature.technicalIndicators.missingReason ?? 'REAL_TECH_DATA_MISSING';

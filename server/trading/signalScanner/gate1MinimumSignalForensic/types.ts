@@ -106,7 +106,7 @@ export interface SupplyScopeAudit {
    */
   diagnosticActualInvestorRowCarried?: boolean;
   actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
-  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE';
   investorRowMaterializationClass?: InvestorRowMaterializationClass;
   diagnosticActualInvestorRowFromNormalized?: boolean;
   selectedCandidateCarriesSemanticRow?: boolean;
@@ -599,7 +599,7 @@ export interface BuildGate1MinimumSignalForensicInput {
     diagnosticActualInvestorRow?: Record<string, unknown> | null;
     selectedProviderActualInvestorRow?: Record<string, unknown> | null;
     actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
-    actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+    actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE';
     bySymbol?: Record<string, Record<string, unknown>>;
     kisRawRowAvailableAtAdapter?: boolean;
     kisNormalizedRowAvailableAtRouter?: boolean;

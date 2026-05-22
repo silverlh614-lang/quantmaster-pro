@@ -182,7 +182,7 @@ export interface InvestorFlowProviderRouteResult {
    */
   selectedProviderActualInvestorRow?: Record<string, unknown> | null;
   actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
-  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE';
   investorRowMaterializationClass?: InvestorRowMaterializationClass;
   diagnosticActualInvestorRowFromNormalized?: boolean;
   selectedCandidate?: InvestorFlowMaterializedCandidateAdr0503 | null;
@@ -490,7 +490,7 @@ export interface InvestorFlowMaterializedCandidateAdr0503 {
   diagnosticActualInvestorRow?: Record<string, unknown> | null;
   selectedProviderActualInvestorRow?: Record<string, unknown> | null;
   actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
-  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE';
   investorRowMaterializationClass?: InvestorRowMaterializationClass;
   diagnosticActualInvestorRowFromNormalized?: boolean;
   supplyProviderStatus?: InvestorFlowProviderStatus;

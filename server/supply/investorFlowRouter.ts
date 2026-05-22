@@ -67,7 +67,7 @@ export interface InvestorFlowSample {
   actualInvestorFlowNumericStringKeys?: string[];
   actualInvestorFlowCarried?: boolean;
   actualInvestorRowProvider?: 'KIS_API' | 'NAVER_INVESTOR_TREND' | 'UNKNOWN' | null;
-  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE';
+  actualInvestorRowUseScope?: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE';
   diagnosticActualInvestorRowFromNormalized?: boolean;
 }
 
