@@ -214,7 +214,7 @@ import { emitScanDiagnosticBuildFailedWarn } from '../../../trading/signalScanne
 
 const scanBlockers: TelegramCommand = {
   name: '/scan_blockers',
-  aliases: ['/blockers', '/why_no_buy'],
+  aliases: ['/blockers', '/why_no_buy', '/why'],
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,
