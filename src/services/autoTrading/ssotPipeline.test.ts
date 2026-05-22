@@ -27,6 +27,7 @@ const feature: FeatureSnapshot = {
   tradableStatus: 'TRADABLE',
   liquidityStatus: 'PASS',
   technicalIndicators: { status: 'NOT_COMPUTED', source: 'NOT_COMPUTED' },
+  ohlcvDaily: { status: 'NOT_FETCHED', rows: 0, requiredCandles: 60 },
 };
 
 describe('ssot pipeline separation', () => {
@@ -56,6 +57,8 @@ describe('ssot pipeline separation', () => {
     const policyDiag = buildPolicyDiag(policy, 'AFTERMARKET', 'AFTERMARKET_SELL_ONLY');
 
     expect(JSON.stringify(gateDiag)).not.toContain('LIVE_BLOCKED_ONLY');
+    expect(gateDiag.technicalStatus).toBe('NOT_COMPUTED');
+    expect(gateDiag.dataIssues).toEqual(expect.arrayContaining(['technicalTrendMissing', 'OHLCV_PROVIDER_NOT_CALLED']));
     expect(policyDiag.policyStatus).toBe('LIVE_ALLOWED');
     expect(policyDiag.entryBlockMode).toBe('NORMAL');
     expect(policyDiag.displaySession).toBe('REGULAR');
@@ -83,5 +86,44 @@ describe('ssot pipeline separation', () => {
       'AFTERMARKET_SELL_ONLY_REMOVED',
       'SELL_ONLY_REMOVED',
     ]));
+  });
+
+  it('Gate1Diag never reports clean data when technical source is missing', () => {
+    const gate = evaluateCommonGate({ snapshotId: candidate.snapshotId, candidate, feature });
+    const gateDiag = buildGate1Diag(gate, feature);
+
+    expect(gateDiag.technicalStatus).not.toBe('COMPUTED');
+    expect(gateDiag.dataIssues.length).toBeGreaterThan(0);
+    expect(gate.gate2Result).toBe('DATA_INCOMPLETE');
+    expect(gate.reasons).toEqual(expect.arrayContaining(['OHLCV_PROVIDER_NOT_CALLED']));
+  });
+
+  it('computed technical snapshot yields clean diagnostic view', () => {
+    const goodFeature: FeatureSnapshot = {
+      ...feature,
+      technicalIndicators: {
+        status: 'COMPUTED',
+        source: 'COMPUTED_FROM_KIS_OHLCV',
+        technicalTrend: 'BULLISH',
+        rowsComputed: 44,
+        requiredCandles: 60,
+      },
+      ohlcvDaily: {
+        status: 'VERIFIED',
+        rows: 60,
+        requiredCandles: 60,
+        apiPath: '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+        trId: 'FHKST03010100',
+        outputShape: 'output1_output2',
+      },
+    };
+
+    const gate = evaluateCommonGate({ snapshotId: candidate.snapshotId, candidate, feature: goodFeature });
+    const gateDiag = buildGate1Diag(gate, goodFeature);
+
+    expect(gate.gate2Result).toBe('PASS');
+    expect(gate.gate3Result).toBe('PASS');
+    expect(gateDiag.technicalStatus).toBe('COMPUTED');
+    expect(gateDiag.dataIssues).toEqual([]);
   });
 });
