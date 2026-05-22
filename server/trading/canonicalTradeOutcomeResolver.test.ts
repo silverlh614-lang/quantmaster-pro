@@ -98,6 +98,8 @@ describe('resolveCanonicalTradeOutcome', () => {
     expect(outcome.outcome).toBe('PARTIAL_WIN_BREAKEVEN');
     expect(outcome.winRateBucket).toBe('WIN_PARTIAL');
     expect(outcome.exitPath).toBe('TP1_THEN_BREAKEVEN_EXIT');
+    expect(outcome.lifecycleOutcome).toBe('TP1_THEN_BREAKEVEN');
+    expect(outcome.outcomeClass).toBe('WIN_BREAKEVEN');
     expect(outcome.learningTags).toContain('TP1_THEN_BREAKEVEN_EXIT');
   });
 
@@ -260,6 +262,8 @@ describe('resolveCanonicalTradeOutcome', () => {
 
     expect(outcome.source).toBe('SHADOW');
     expect(outcome.outcome).toBe('PARTIAL_WIN_BREAKEVEN');
+    expect(outcome.lifecycleOutcome).toBe('TP1_THEN_BREAKEVEN');
     expect(formatCanonicalTradeOutcomeTelegram(outcome, '[SHADOW 청산 결과]')).toContain('PARTIAL_WIN_BREAKEVEN');
+    expect(formatCanonicalTradeOutcomeTelegram(outcome, '[SHADOW 청산 결과]')).toContain('lifecycleOutcome: TP1_THEN_BREAKEVEN');
   });
 });

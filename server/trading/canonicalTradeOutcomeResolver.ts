@@ -1,5 +1,12 @@
 // @responsibility Canonical position-level trade outcome resolver for LIVE/SHADOW/COUNTERFACTUAL samples.
 
+import {
+  formatTradeLifecycleOutcome,
+  resolveTradeLifecycleOutcome,
+  type TradeLifecycleOutcome,
+  type TradeOutcomeClass,
+} from './tradeLifecycleOutcomeResolver.js';
+
 export type TradeOutcome =
   | 'FULL_WIN'
   | 'PARTIAL_WIN'
@@ -65,6 +72,10 @@ export interface CanonicalTradeOutcome {
   outcome: TradeOutcome;
   winRateBucket: WinRateBucket;
   exitPath: ExitPath;
+  lifecycleOutcome: TradeLifecycleOutcome;
+  outcomeClass: TradeOutcomeClass;
+  lifecycleResolvedBy: 'TradeLifecycleOutcomeResolver';
+  finalExitReason: string;
 
   attributionEligible: boolean;
   learningTags: string[];
@@ -223,6 +234,35 @@ function buildOutcome(
   if (outcome === 'BREAKEVEN') learningTags.push('BREAKEVEN_EXIT');
   if (outcome === 'FULL_LOSS') learningTags.push('FULL_STOP_LOSS');
   if (outcome.startsWith('FORCED_EXIT')) learningTags.push('FORCED_EXIT');
+  const finalExitReason = exitPath === 'TP1_THEN_BREAKEVEN_EXIT' || exitPath === 'STOP_LOSS_DIRECT'
+    ? 'STOP_LOSS'
+    : exitPath === 'TP1_THEN_TRAILING_STOP' || exitPath === 'TRAILING_STOP_WIN'
+      ? 'TRAILING_STOP'
+      : exitPath === 'TIME_STOP'
+        ? 'TIME_STOP'
+        : exitPath === 'MANUAL_EXIT'
+          ? 'MANUAL_EXIT'
+          : outcome === 'FULL_WIN'
+            ? 'TAKE_PROFIT'
+            : outcome.startsWith('FORCED_EXIT')
+              ? 'FORCED_EXIT'
+              : 'UNKNOWN';
+  const lifecycle = resolveTradeLifecycleOutcome({
+    positionId: input.tradeId,
+    symbol: input.symbol,
+    mode: input.source === 'LIVE' ? 'LIVE' : input.source === 'SHADOW' ? 'SHADOW' : 'PAPER',
+    status: facts.remainingQty > 0 ? 'PARTIALLY_CLOSED' : 'CLOSED',
+    entryPrice: facts.entryPrice,
+    initialStopLoss: facts.totalQty > 0 ? facts.entryPrice - (facts.maxRiskAmount / facts.totalQty) : 0,
+    finalExitPrice: input.finalExitPrice ?? input.avgExitPrice ?? facts.entryPrice,
+    totalRealizedPnL: facts.realizedProfit,
+    totalRealizedPnLPct: facts.grossReturnPct,
+    tp1Hit: facts.tp1Hit,
+    stopMovedToBreakeven: facts.breakevenStopActivated,
+    trailingActivated: facts.trailingStopActivated,
+    finalExitReason,
+    remainingQuantity: facts.remainingQty,
+  });
 
   return {
     tradeId: input.tradeId,
@@ -248,6 +288,10 @@ function buildOutcome(
     outcome,
     winRateBucket,
     exitPath,
+    lifecycleOutcome: lifecycle.lifecycleOutcome,
+    outcomeClass: lifecycle.outcomeClass,
+    lifecycleResolvedBy: lifecycle.resolvedBy,
+    finalExitReason: lifecycle.finalExitReason,
     attributionEligible: winRateBucket !== 'EXCLUDED',
     learningTags: [...new Set(learningTags)],
     createdAt: input.createdAt ?? facts.now,
@@ -515,6 +559,9 @@ export function formatCanonicalTradeOutcomeTelegram(
     title,
     `종목: ${outcome.symbol}`,
     `결과: ${outcome.outcome}`,
+    `lifecycleOutcome: ${outcome.lifecycleOutcome}`,
+    `lifecycleLabel: ${formatTradeLifecycleOutcome(outcome.lifecycleOutcome)}`,
+    `분류: ${outcome.outcomeClass}`,
     `승률 반영: ${outcome.winRateBucket}`,
     `실현 R: ${sign}${outcome.returnR.toFixed(2)}R`,
     `경로: ${outcome.exitPath}`,

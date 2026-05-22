@@ -155,7 +155,9 @@ describe('computeShadowMonthlyStats', () => {
     const stats = repo.computeShadowMonthlyStats(thisMonth);
     expect(stats.totalClosed).toBe(1);
     expect(stats.winBreakevens).toBe(1);
+    expect(stats.wins).toBe(0);
     expect(stats.losses).toBe(0);
+    expect(stats.winRate).toBe(0);
     expect(stats.economicWinRate).toBe(100);
     expect(stats.riskControlSuccessRate).toBe(100);
   });

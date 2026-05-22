@@ -13,9 +13,11 @@ import type {
   TradingSignal,
 } from '../learning/supplyHealthLearning.js';
 import {
-  classifyTradeLifecycleOutcome,
   type TradeLifecycleOutcome,
-} from '../trading/exitOutcomeClassifier.js';
+  type TradeOutcomeClass,
+  resolveTradeLifecycleOutcomeFromShadowTrade,
+} from '../trading/tradeLifecycleOutcomeResolver.js';
+import type { TradeLifecycleOutcome as LegacyTradeLifecycleOutcome } from '../trading/exitOutcomeClassifier.js';
 
 // ─── Fill(체결 이벤트) 모델 ────────────────────────────────────────────────────
 
@@ -490,7 +492,11 @@ export interface ServerShadowTrade {
    */
   exitOutcome?: 'WIN' | 'LOSS' | 'BE';
   /** Position-level lifecycle SSOT. Prefer this over fill/exit-level exitOutcome in reports and learning. */
-  tradeLifecycleOutcome?: TradeLifecycleOutcome;
+  tradeLifecycleOutcome?: LegacyTradeLifecycleOutcome;
+  lifecycleOutcome?: TradeLifecycleOutcome;
+  outcomeClass?: TradeOutcomeClass;
+  lifecycleResolvedBy?: 'TradeLifecycleOutcomeResolver';
+  lifecycleResolvedAt?: string;
   target1Hit?: boolean;
   target2Hit?: boolean;
   breakevenStopMoved?: boolean;
@@ -1066,22 +1072,22 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
 
   const openPositions = all.filter(t => isOpenShadowStatusStatus(t.status)).length;
 
-  const lifecycle = closed.map(t => classifyTradeLifecycleOutcome(t));
+  const lifecycle = closed.map(t => resolveTradeLifecycleOutcomeFromShadowTrade(t));
   const returns = closed.map(t => getWeightedPnlPct(t));
-  const fullWins = lifecycle.filter(c => c.tradeLifecycleOutcome === 'FULL_WIN').length;
-  const partialWins = lifecycle.filter(c => c.tradeLifecycleOutcome === 'PARTIAL_WIN').length;
-  const winBreakevens = lifecycle.filter(c => c.tradeLifecycleOutcome === 'WIN_BREAKEVEN').length;
-  const breakevens = lifecycle.filter(c => c.tradeLifecycleOutcome === 'BREAKEVEN').length;
-  const smallWins = lifecycle.filter(c => c.tradeLifecycleOutcome === 'SMALL_WIN').length;
-  const smallLosses = lifecycle.filter(c => c.tradeLifecycleOutcome === 'SMALL_LOSS').length;
-  const fullLosses = lifecycle.filter(c => c.tradeLifecycleOutcome === 'FULL_LOSS').length;
-  const forcedExits = lifecycle.filter(c => c.tradeLifecycleOutcome === 'FORCED_EXIT').length;
-  const wins = fullWins + partialWins + winBreakevens + smallWins;
-  const losses = smallLosses + fullLosses + forcedExits;
+  const fullWins = lifecycle.filter(c => c.lifecycleOutcome === 'FULL_TAKE_PROFIT').length;
+  const partialWins = lifecycle.filter(c => c.lifecycleOutcome === 'TP1_THEN_TRAILING_STOP' || c.lifecycleOutcome === 'TP1_THEN_STOP_LOSS_PROFIT_RETAINED').length;
+  const winBreakevens = lifecycle.filter(c => c.lifecycleOutcome === 'TP1_THEN_BREAKEVEN').length;
+  const breakevens = lifecycle.filter(c => c.lifecycleOutcome === 'BREAKEVEN_EXIT').length;
+  const smallWins = lifecycle.filter(c => c.outcomeClass === 'WIN' && c.lifecycleOutcome === 'UNKNOWN').length;
+  const smallLosses = lifecycle.filter(c => c.outcomeClass === 'LOSS' && c.lifecycleOutcome !== 'STOP_LOSS').length;
+  const fullLosses = lifecycle.filter(c => c.lifecycleOutcome === 'STOP_LOSS').length;
+  const forcedExits = lifecycle.filter(c => c.lifecycleOutcome === 'FORCED_EXIT').length;
+  const wins = lifecycle.filter(c => c.outcomeClass === 'WIN').length;
+  const losses = lifecycle.filter(c => c.outcomeClass === 'LOSS').length;
   const totalClosed = closed.length;
-  const directionalDenominator = fullWins + partialWins + winBreakevens + smallLosses + fullLosses + forcedExits;
-  const riskControlSuccessCount = lifecycle.filter(c => c.riskControlSuccess).length;
-  const economicWins = lifecycle.filter(c => c.economicWin).length;
+  const directionalDenominator = wins + losses;
+  const riskControlSuccessCount = lifecycle.filter(c => c.outcomeClass === 'WIN' || c.outcomeClass === 'WIN_BREAKEVEN' || c.outcomeClass === 'BREAKEVEN').length;
+  const economicWins = lifecycle.filter(c => c.totalRealizedPnL > 0).length;
 
   const avgReturnPct = totalClosed > 0
     ? returns.reduce((s, r) => s + r, 0) / totalClosed
@@ -1102,9 +1108,9 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
   //   entryRegime ∈ {R1_TURBO, R2_BULL, R3_EARLY}
   // 을 STRONG_BUY 로 복원하여 SHADOW 졸업 조건 산정이 레거시 구간에서 막히지 않게 한다.
   const sb = closed.filter(t => isStrongBuyTrade(t));
-  const sbLifecycle = sb.map(t => classifyTradeLifecycleOutcome(t));
-  const sbWins = sbLifecycle.filter(c => c.positionWin).length;
-  const sbLosses = sbLifecycle.filter(c => !c.positionWin && c.tradeLifecycleOutcome !== 'BREAKEVEN').length;
+  const sbLifecycle = sb.map(t => resolveTradeLifecycleOutcomeFromShadowTrade(t));
+  const sbWins = sbLifecycle.filter(c => c.outcomeClass === 'WIN').length;
+  const sbLosses = sbLifecycle.filter(c => c.outcomeClass === 'LOSS').length;
   const strongBuyWinRate = (sbWins + sbLosses) > 0 ? (sbWins / (sbWins + sbLosses)) * 100 : 0;
 
   return {
@@ -1121,7 +1127,7 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
     fullLosses,
     forcedExits,
     economicWinRate: totalClosed > 0 ? (economicWins / totalClosed) * 100 : 0,
-    directionalWinRate: directionalDenominator > 0 ? ((fullWins + partialWins + winBreakevens) / directionalDenominator) * 100 : 0,
+    directionalWinRate: directionalDenominator > 0 ? (wins / directionalDenominator) * 100 : 0,
     fullTargetWinRate: totalClosed > 0 ? (fullWins / totalClosed) * 100 : 0,
     riskControlSuccessRate: totalClosed > 0 ? (riskControlSuccessCount / totalClosed) * 100 : 0,
     winRate: (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : 0,

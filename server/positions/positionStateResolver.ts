@@ -9,6 +9,11 @@ import type {
   PositionSourceAggregate,
 } from '../telegram/commands/positions/positionSourceTypes.js';
 import { calculateRegimePositionSizing } from '../trading/sizing/regimePositionPolicy.js';
+import type {
+  TradeLifecycleOutcome,
+  TradeLifecycleState,
+  TradeOutcomeClass,
+} from '../trading/tradeLifecycleOutcomeResolver.js';
 
 export type PositionMode =
   | 'LIVE'
@@ -68,7 +73,10 @@ export interface PositionState {
   entryPriceConfidence?: string;
   relatedOrderIds: string[];
   relatedSignalIds: string[];
-  lifecycleOutcome?: string;
+  lifecycleOutcome?: TradeLifecycleOutcome | string;
+  outcomeClass?: TradeOutcomeClass;
+  finalExitReason?: string;
+  lifecycleState?: TradeLifecycleState;
   reconciliationFlags?: string[];
 }
 
