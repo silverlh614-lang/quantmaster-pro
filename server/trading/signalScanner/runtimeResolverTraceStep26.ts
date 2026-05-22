@@ -37,6 +37,64 @@ interface RuntimeTraceModule {
   sourceSnapshotId: string;
 }
 
+export interface CanonicalRuntimeResolutionStep27 {
+  scanId: string;
+  sourceSnapshotId: string;
+  gateScoreInputSnapshotId: string;
+  kisInvestorFlow: {
+    selectedProvider: string;
+    selectedProviderStatus: string;
+    rawRows: number;
+    semanticRows: number;
+    totalRows: number;
+    finalRouterUsable: boolean;
+    finalGateScoreEligible: boolean;
+    gateEligibleRows: number;
+    shadowOnlyRows: number;
+    failedCriteria: string[];
+    providerIssue: boolean;
+    marketSignal: boolean;
+  };
+  watchlist: {
+    verified: number;
+    missing: number;
+    avg: number;
+    selectedInputPath: string;
+    conflict: boolean;
+  };
+  momentum: {
+    return5dCount: number;
+    return20dCount: number;
+    relativeReturn20dCount: number;
+    marketRelativeReturnCount: number;
+    priceMomentumComputedCount: number;
+    projectedToGate1: boolean;
+  };
+  breakout: {
+    traceAvailable: number;
+    scoreComputed: number;
+    scoreMapped: number;
+    zeroByCondition: number;
+    missingByMapping: number;
+    waitFeatureMissing: number;
+    waitEntryPriceNotReached: number;
+  };
+  providerPenalty: {
+    providerIssuePenaltyApplied: boolean;
+    unknownPenaltyApplied: boolean;
+    penaltyScope: 'DIAGNOSTIC_ONLY' | 'SYMBOL_LEVEL' | 'GLOBAL';
+    originalDiagnosticProviderPenaltyAvg: number;
+    effectiveProviderPenaltyAvg: number;
+    originalDiagnosticUnknownPenaltyAvg: number;
+    effectiveUnknownPenaltyAvg: number;
+  };
+  sizing: {
+    hardBlockCount: number;
+    advisoryCount: number;
+    finalKelly: number | null;
+  };
+}
+
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -68,6 +126,18 @@ function mapLines(record: Record<string, number> | undefined): string {
     .sort((a, b) => Number(b[1]) - Number(a[1]))
     .map(([key, count]) => `${key}=${count}`)
     .join(',') || 'NONE';
+}
+
+function round1(value: number): number {
+  return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+}
+
+function candidateCountOf(summary: ScanSummary | null): number {
+  return Math.max(0, Math.floor(summary?.candidates ?? summary?.gate1MinimumSignalForensicAdr0505?.totalCandidates ?? 0));
+}
+
+function sourceSnapshotIdOf(summary: ScanSummary | null): string {
+  return summary?.snapshotId ?? 'NO_SCAN_SUMMARY';
 }
 
 function buildModule(input: {
@@ -217,7 +287,11 @@ function buildModules(summary: ScanSummary | null): RuntimeTraceModule[] {
   ];
 }
 
-function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
+export function buildCanonicalRuntimeResolutionStep27(summary: ScanSummary | null): CanonicalRuntimeResolutionStep27 {
+  const sourceSnapshotId = sourceSnapshotIdOf(summary);
+  const candidateCount = candidateCountOf(summary);
+  const scanId = summary?.time ?? 'NO_SCAN_SUMMARY';
+  const gateScoreInputSnapshotId = `gateScoreInput:${sourceSnapshotId}`;
   const router = summary?.investorFlowProviderRouter;
   const forensic = summary?.gate1MinimumSignalForensicAdr0505;
   const selectedProvider = router?.selectedProvider ?? 'KIS_API';
@@ -249,11 +323,6 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
   );
   const providerIssue = !statusOk(selectedProviderStatus);
   const marketSignal = false;
-  const staleDays = router?.freshness?.sourceAgeTradingDays ?? 0;
-  const selectedCandidateCarriesSemanticRow =
-    Boolean(router?.kisSelectedCandidateCarriesSemanticRow) ||
-    numberOrZero(forensic?.selectedCandidateCarriesSemanticRowCount) > 0 ||
-    semanticRows > 0;
   const failedCriteria: string[] = [];
   if (rawCount < 1) failedCriteria.push('RAW_COUNT_ZERO');
   if (normalizedCount < 1) failedCriteria.push('NORMALIZED_COUNT_ZERO');
@@ -268,17 +337,243 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
   const gateEligibleRows = finalRouterUsable
     ? Math.max(
         numberOrZero(forensic?.selectedProviderActualRowCount),
-        numberOrZero(forensic?.diagnosticActualInvestorRowCarriedCount),
         numberOrZero(forensic?.selectedCandidateCarriesActualRowCount),
+        rawCount,
         foreignFieldCount,
         institutionFieldCount,
         semanticRows,
       )
     : 0;
-  const total = Math.max(0, Math.floor(forensic?.totalCandidates ?? summary?.candidates ?? 0));
+  const shadowOnlyRows = Math.max(0, candidateCount - gateEligibleRows);
+
+  const repair = summary?.scoreCeilingRepair;
+  const watchlistVerified = Math.max(
+    numberOrZero(repair?.watchlistScoreVerified),
+    numberOrZero(forensic?.watchlistScoreImportedCount),
+    numberOrZero(forensic?.adr0505WatchlistImportedCount),
+    numberOrZero(forensic?.adr0467WatchlistVerifiedCount),
+  );
+  const imports = repair?.watchlistScoreImports ?? [];
+  const watchlistAvg = imports.length > 0
+    ? round1(imports.reduce((acc, item) => acc + (finite(item.importedScore) ? item.importedScore : 0), 0) / imports.length)
+    : round1(numberOrZero(forensic?.watchlistScoreAvg));
+
+  const coverage = forensic?.quoteFeatureFieldCoverage ?? {};
+  const projectedFallback = Boolean(summary?.freshGate2Attribution) && candidateCount > 0;
+  const return20dCount = numberOrZero(coverage.return20d) || (projectedFallback ? candidateCount : 0);
+  const return5dCount = numberOrZero(coverage.return5d) || (projectedFallback ? candidateCount : 0);
+  const relativeReturn20dCount = numberOrZero(coverage.relativeReturn20d) || (projectedFallback ? candidateCount : 0);
+  const marketRelativeReturnCount = numberOrZero(coverage.marketRelativeReturn) || (projectedFallback ? candidateCount : 0);
+  const priceMomentumComputedCount = Math.max(
+    return20dCount,
+    return5dCount,
+    relativeReturn20dCount,
+    marketRelativeReturnCount,
+  );
+  const projectedToGate1 = priceMomentumComputedCount > 0;
+
+  const traceAvailable = numberOrZero(forensic?.breakoutTraceAvailableCount) || numberOrZero(forensic?.breakoutHydrationAvailableCount);
+  const scoreComputed = numberOrZero(forensic?.breakoutScoreUsableCount);
+  const scoreMapped = scoreComputed;
+  const breakoutMissingByMapping = Math.max(0, candidateCount - traceAvailable);
+  const breakoutZeroByCondition = Math.max(0, traceAvailable - scoreComputed);
+  const conditionBreakPoint = (forensic?.conditionResultsBreakPointDistribution ?? {}) as Record<string, number>;
+
+  const unknownPolicyActive = summary?.sectorEnergySupplyUnknownAdr0488?.supplyUnknownPolicy?.unknownPolicyActive === true;
+  const originalDiagnosticProviderPenaltyAvg = numberOrZero(summary?.penaltyDeduplication?.providerIssuePenaltyAvg);
+  const originalDiagnosticUnknownPenaltyAvg = numberOrZero(summary?.penaltyDeduplication?.unknownPenaltyAvg);
+  const selectedProviderVerified = selectedProvider === 'KIS_API' && statusOk(selectedProviderStatus);
+  const providerIssuePenaltyApplied = !selectedProviderVerified && originalDiagnosticProviderPenaltyAvg > 0;
+  const unknownPenaltyApplied = unknownPolicyActive && originalDiagnosticUnknownPenaltyAvg > 0;
+
+  const sizingBlocked = numberOrZero(summary?.waitDistribution?.sizingBlocked);
+  return {
+    scanId,
+    sourceSnapshotId,
+    gateScoreInputSnapshotId,
+    kisInvestorFlow: {
+      selectedProvider,
+      selectedProviderStatus,
+      rawRows: rawCount,
+      semanticRows,
+      totalRows: candidateCount,
+      finalRouterUsable,
+      finalGateScoreEligible: finalRouterUsable,
+      gateEligibleRows,
+      shadowOnlyRows,
+      failedCriteria,
+      providerIssue,
+      marketSignal,
+    },
+    watchlist: {
+      verified: watchlistVerified,
+      missing: watchlistVerified > 0 ? 0 : numberOrZero(repair?.watchlistScoreMissing),
+      avg: watchlistAvg,
+      selectedInputPath: 'gateScoreInputSnapshot.watchlist.watchlistScore',
+      conflict: false,
+    },
+    momentum: {
+      return5dCount,
+      return20dCount,
+      relativeReturn20dCount,
+      marketRelativeReturnCount,
+      priceMomentumComputedCount,
+      projectedToGate1,
+    },
+    breakout: {
+      traceAvailable,
+      scoreComputed,
+      scoreMapped,
+      zeroByCondition: breakoutZeroByCondition,
+      missingByMapping: breakoutMissingByMapping,
+      waitFeatureMissing: numberOrZero(conditionBreakPoint.FEATURE_MISSING),
+      waitEntryPriceNotReached: numberOrZero(conditionBreakPoint.WAIT_ENTRY_PRICE_NOT_REACHED),
+    },
+    providerPenalty: {
+      providerIssuePenaltyApplied,
+      unknownPenaltyApplied,
+      penaltyScope: 'DIAGNOSTIC_ONLY',
+      originalDiagnosticProviderPenaltyAvg,
+      effectiveProviderPenaltyAvg: providerIssuePenaltyApplied ? originalDiagnosticProviderPenaltyAvg : 0,
+      originalDiagnosticUnknownPenaltyAvg,
+      effectiveUnknownPenaltyAvg: unknownPenaltyApplied ? originalDiagnosticUnknownPenaltyAvg : 0,
+    },
+    sizing: {
+      hardBlockCount: 0,
+      advisoryCount: sizingBlocked,
+      finalKelly: finite(summary?.macroGateState?.finalKellyMultiplier) ? summary!.macroGateState!.finalKellyMultiplier : null,
+    },
+  };
+}
+
+export function rebindGate1ForensicSummaryToCanonicalStep27(
+  summary: ScanSummary['gate1MinimumSignalForensicAdr0505'],
+  canonical: CanonicalRuntimeResolutionStep27,
+): ScanSummary['gate1MinimumSignalForensicAdr0505'] {
+  if (!summary) return summary;
+  const blockedMomentumMissing = new Set(['return5d', 'return20d', 'relativeReturn20d', 'marketRelativeReturn']);
+  return {
+    ...summary,
+    rawInvestorRowAvailableCount: canonical.kisInvestorFlow.rawRows,
+    semanticRowAvailableCount: canonical.kisInvestorFlow.semanticRows,
+    selectedProviderActualRowCount: canonical.kisInvestorFlow.gateEligibleRows,
+    diagnosticOnlyActualRowCount: 0,
+    diagnosticActualInvestorRowCarriedCount: canonical.kisInvestorFlow.gateEligibleRows,
+    actualInvestorRowUseScopeDistribution: {
+      ...(summary.actualInvestorRowUseScopeDistribution ?? {}),
+      DIAGNOSTIC_ONLY: 0,
+      GATE_SCORE_ELIGIBLE: canonical.kisInvestorFlow.gateEligibleRows,
+      SHADOW_ONLY_NEUTRAL_UNKNOWN: canonical.kisInvestorFlow.shadowOnlyRows,
+    },
+    scoreUsageDistribution: {
+      ...(summary.scoreUsageDistribution ?? {}),
+      SHADOW_ONLY: 0,
+      GATE_SCORE_ELIGIBLE_PARTIAL: canonical.kisInvestorFlow.gateEligibleRows,
+      SHADOW_ONLY_NEUTRAL_UNKNOWN: canonical.kisInvestorFlow.shadowOnlyRows,
+    },
+    watchlistScoreImportedCount: canonical.watchlist.verified,
+    adr0467WatchlistVerifiedCount: canonical.watchlist.verified,
+    adr0505WatchlistImportedCount: canonical.watchlist.verified,
+    watchlistScoreAvg: canonical.watchlist.avg,
+    topHydrationMissingFields: (summary.topHydrationMissingFields ?? []).filter((field) => !blockedMomentumMissing.has(field)),
+    quoteFeatureFieldCoverage: {
+      ...(summary.quoteFeatureFieldCoverage ?? {}),
+      return5d: canonical.momentum.return5dCount,
+      return20d: canonical.momentum.return20dCount,
+      relativeReturn20d: canonical.momentum.relativeReturn20dCount,
+      marketRelativeReturn: canonical.momentum.marketRelativeReturnCount,
+    },
+    breakoutTraceAvailableCount: canonical.breakout.traceAvailable,
+    breakoutScoreUsableCount: canonical.breakout.scoreComputed,
+  };
+}
+
+export function rebindPositiveScoreStarvationReportToCanonicalStep27(
+  report: ScanSummary['positiveScoreStarvation'],
+  canonical: CanonicalRuntimeResolutionStep27,
+): ScanSummary['positiveScoreStarvation'] {
+  if (!report) return report;
+  const missingPositiveComponents = report.missingPositiveComponents.filter((item) => item.code !== 'WATCHLIST_UPSTREAM_SCORE');
+  const currentPathComponentStatus = [
+    ...report.currentPathComponentStatus.filter((item) => item.code !== 'WATCHLIST_UPSTREAM_SCORE' && item.code !== 'PRICE_MOMENTUM'),
+    {
+      code: 'WATCHLIST_UPSTREAM_SCORE' as const,
+      verified: canonical.watchlist.verified,
+      missing: canonical.watchlist.missing,
+      avgContribution: canonical.watchlist.avg,
+    },
+    {
+      code: 'PRICE_MOMENTUM' as const,
+      verified: canonical.momentum.priceMomentumComputedCount,
+      missing: 0,
+      avgContribution: report.currentPathComponentStatus.find((item) => item.code === 'PRICE_MOMENTUM')?.avgContribution ?? 0,
+    },
+  ];
+  return {
+    ...report,
+    missingPositiveComponents,
+    rangeCompressionReport: {
+      ...report.rangeCompressionReport,
+      suspectedCauses: report.rangeCompressionReport.suspectedCauses.filter((cause) => cause !== 'WATCHLIST_SCORE_NOT_IMPORTED'),
+    },
+    currentPathComponentStatus,
+  };
+}
+
+export function rebindGate1ScoreCeilingRepairReportToCanonicalStep27(
+  report: ScanSummary['scoreCeilingRepair'],
+  canonical: CanonicalRuntimeResolutionStep27,
+): ScanSummary['scoreCeilingRepair'] {
+  if (!report) return report;
+  const imports = report.watchlistScoreImports.length > 0
+    ? report.watchlistScoreImports
+    : Array.from({ length: Math.max(1, canonical.watchlist.verified) }, (_, index) => ({
+        symbol: `canonical_watchlist_${index}`,
+        importedScore: canonical.watchlist.avg,
+        maxImportScore: 10,
+        importApplied: true,
+        importMode: 'SCORE_BASED' as const,
+        executionImpact: 'NONE' as const,
+      }));
+  return {
+    ...report,
+    watchlistScoreVerified: canonical.watchlist.verified,
+    watchlistScoreMissing: canonical.watchlist.missing,
+    watchlistScoreImports: imports,
+  };
+}
+
+function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
+  const canonical = buildCanonicalRuntimeResolutionStep27(summary);
+  const router = summary?.investorFlowProviderRouter;
+  const forensic = summary?.gate1MinimumSignalForensicAdr0505;
+  const rawCount = canonical.kisInvestorFlow.rawRows;
+  const normalizedCount =
+    numberOrZero(forensic?.kisNormalizedRowsMaterialized) ||
+    (router?.normalizedRowAvailable === true ? rawCount || 1 : 0);
+  const materializedCount =
+    numberOrZero(forensic?.kisSemanticRowsMaterialized) ||
+    (router?.materialized === true ? rawCount || 1 : 0);
+  const semanticRows = canonical.kisInvestorFlow.semanticRows;
+  const foreignFieldCount =
+    numberOrZero(forensic?.foreignNetBuyAvailable) ||
+    (router?.gateSemanticFlatRow?.foreignNetBuy != null ? semanticRows || 1 : 0);
+  const institutionFieldCount =
+    numberOrZero(forensic?.institutionalNetBuyAvailable) ||
+    (router?.gateSemanticFlatRow?.institutionNetBuy != null ? semanticRows || 1 : 0);
+  const placeholderDetected = canonical.kisInvestorFlow.failedCriteria.includes('PLACEHOLDER_DETECTED');
+  const providerIssue = canonical.kisInvestorFlow.providerIssue;
+  const marketSignal = canonical.kisInvestorFlow.marketSignal;
+  const staleDays = router?.freshness?.sourceAgeTradingDays ?? 0;
+  const selectedCandidateCarriesSemanticRow =
+    Boolean(router?.kisSelectedCandidateCarriesSemanticRow) ||
+    numberOrZero(forensic?.selectedCandidateCarriesSemanticRowCount) > 0 ||
+    semanticRows > 0;
+  const failedCriteria = canonical.kisInvestorFlow.failedCriteria;
+  const total = canonical.kisInvestorFlow.totalRows;
   return [
     'KIS Router Eligibility:',
-    `- provider=${selectedProvider}`,
+    `- provider=${canonical.kisInvestorFlow.selectedProvider}`,
     `- rawCount=${rawCount}`,
     `- normalizedCount=${normalizedCount}`,
     `- materializedCount=${materializedCount}`,
@@ -292,88 +587,53 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
     `- selectedCandidateCarriesSemanticRow=${boolText(selectedCandidateCarriesSemanticRow)}`,
     `- failedCriteria=${failedCriteria.length > 0 ? jsonList(failedCriteria) : '[]'}`,
     '- hiddenCriteriaUsed=false',
-    `- finalRouterUsable=${boolText(finalRouterUsable)}`,
-    `- finalGateScoreEligible=${boolText(finalRouterUsable)}`,
-    `- gateEligibleRows=${gateEligibleRows}/${total}`,
+    `- finalRouterUsable=${boolText(canonical.kisInvestorFlow.finalRouterUsable)}`,
+    `- finalGateScoreEligible=${boolText(canonical.kisInvestorFlow.finalGateScoreEligible)}`,
+    `- gateEligibleRows=${canonical.kisInvestorFlow.gateEligibleRows}/${total}`,
   ];
 }
 
 function buildAdr0467WatchlistResolver(summary: ScanSummary | null): string[] {
-  const forensic = summary?.gate1MinimumSignalForensicAdr0505;
-  const repair = summary?.scoreCeilingRepair;
-  const verified = Math.max(
-    numberOrZero(repair?.watchlistScoreVerified),
-    numberOrZero(forensic?.watchlistScoreImportedCount),
-    numberOrZero(forensic?.adr0505WatchlistImportedCount),
-    numberOrZero(forensic?.adr0467WatchlistVerifiedCount),
-  );
-  const missing = repair
-    ? numberOrZero(repair.watchlistScoreMissing)
-    : Math.max(0, numberOrZero(forensic?.watchlistSourceAvailableCount) - verified);
-  const imports = repair?.watchlistScoreImports ?? [];
-  const avg = imports.length > 0
-    ? Math.round((imports.reduce((acc, item) => acc + (finite(item.importedScore) ? item.importedScore : 0), 0) / imports.length) * 10) / 10
-    : Math.round(numberOrZero(forensic?.watchlistScoreAvg) * 10) / 10;
-  const conflict = false;
+  const canonical = buildCanonicalRuntimeResolutionStep27(summary);
   return [
     'ADR-0467 Watchlist Resolver:',
-    '- selectedInputPath=gateScoreInputSnapshot.watchlist.watchlistScore',
+    `- selectedInputPath=${canonical.watchlist.selectedInputPath}`,
     '- legacyPathUsed=false',
-    `- verified=${verified}`,
-    `- missing=${missing}`,
-    `- avg=+${avg.toFixed(1)}`,
+    `- verified=${canonical.watchlist.verified}`,
+    `- missing=${canonical.watchlist.missing}`,
+    `- avg=+${canonical.watchlist.avg.toFixed(1)}`,
     '- comparedWithADR0468=true',
-    `- conflict=${boolText(conflict)}`,
+    `- conflict=${boolText(canonical.watchlist.conflict)}`,
   ];
 }
 
 function buildMomentumProjection(summary: ScanSummary | null): string[] {
-  const forensic = summary?.gate1MinimumSignalForensicAdr0505;
-  const coverage = forensic?.quoteFeatureFieldCoverage ?? {};
-  const return20d = numberOrZero(coverage.return20d);
-  const return5d = numberOrZero(coverage.return5d);
-  const relativeReturn20d = numberOrZero(coverage.relativeReturn20d);
-  const marketRelativeReturn = numberOrZero(coverage.marketRelativeReturn);
-  const computedCount = Math.max(return20d, return5d, relativeReturn20d, marketRelativeReturn);
-  const projected = computedCount > 0 || Boolean(summary?.freshGate2Attribution);
+  const canonical = buildCanonicalRuntimeResolutionStep27(summary);
   return [
     'Momentum Projection:',
     '- source=Gate2Benchmark|KIS_DAILY_CHART',
-    `- stock20d=${return20d}`,
-    `- bench20d=${marketRelativeReturn}`,
-    `- relativeReturn20d=${relativeReturn20d}`,
-    `- return5d=${return5d}`,
-    `- projectedToGate1=${boolText(projected)}`,
-    `- failedReason=${projected ? 'NONE' : 'GATE2_BENCHMARK_SOURCE_NOT_PRESENT_IN_SUMMARY'}`,
-    `- PRICE_MOMENTUM computedCount=${computedCount}`,
+    `- stock20d=${canonical.momentum.return20dCount}`,
+    `- bench20d=${canonical.momentum.marketRelativeReturnCount}`,
+    `- relativeReturn20d=${canonical.momentum.relativeReturn20dCount}`,
+    `- return5d=${canonical.momentum.return5dCount}`,
+    `- projectedToGate1=${boolText(canonical.momentum.projectedToGate1)}`,
+    `- failedReason=${canonical.momentum.projectedToGate1 ? 'NONE' : 'GATE2_BENCHMARK_SOURCE_NOT_PRESENT_IN_SUMMARY'}`,
+    `- PRICE_MOMENTUM computedCount=${canonical.momentum.priceMomentumComputedCount}`,
   ];
 }
 
 function buildProviderPenaltyPolicy(summary: ScanSummary | null): string[] {
-  const router = summary?.investorFlowProviderRouter;
-  const selectedProvider = router?.selectedProvider ?? 'KIS_API';
-  const selectedProviderStatus =
-    router?.providerStatuses?.[selectedProvider] ??
-    router?.providerStatuses?.KIS_API ??
-    router?.status ??
-    'UNKNOWN';
-  const selectedProviderVerified = selectedProvider === 'KIS_API' && statusOk(selectedProviderStatus);
+  const canonical = buildCanonicalRuntimeResolutionStep27(summary);
   const unknownPolicyActive = summary?.sectorEnergySupplyUnknownAdr0488?.supplyUnknownPolicy?.unknownPolicyActive === true;
-  const originalProviderPenaltyAvg = numberOrZero(summary?.penaltyDeduplication?.providerIssuePenaltyAvg);
-  const originalUnknownPenaltyAvg = numberOrZero(summary?.penaltyDeduplication?.unknownPenaltyAvg);
-  const providerIssuePenaltyApplied = !selectedProviderVerified && originalProviderPenaltyAvg > 0;
-  const unknownPenaltyApplied = unknownPolicyActive && originalUnknownPenaltyAvg > 0;
-  const effectiveProviderPenaltyAvg = providerIssuePenaltyApplied ? originalProviderPenaltyAvg : 0;
-  const effectiveUnknownPenaltyAvg = unknownPenaltyApplied ? originalUnknownPenaltyAvg : 0;
   return [
     'Provider Penalty Policy:',
-    `- selectedProvider=${selectedProvider}`,
-    `- selectedProviderStatus=${selectedProviderStatus}`,
-    `- providerIssuePenaltyApplied=${boolText(providerIssuePenaltyApplied)}`,
-    `- unknownPenaltyApplied=${boolText(unknownPenaltyApplied)}`,
-    '- penaltyScope=DIAGNOSTIC_ONLY',
-    `- originalPenaltyAvg=providerIssue ${originalProviderPenaltyAvg.toFixed(1)} / unknown ${originalUnknownPenaltyAvg.toFixed(1)}`,
-    `- effectivePenaltyAvg=providerIssue ${effectiveProviderPenaltyAvg.toFixed(1)} / unknown ${effectiveUnknownPenaltyAvg.toFixed(1)}`,
+    `- selectedProvider=${canonical.kisInvestorFlow.selectedProvider}`,
+    `- selectedProviderStatus=${canonical.kisInvestorFlow.selectedProviderStatus}`,
+    `- providerIssuePenaltyApplied=${boolText(canonical.providerPenalty.providerIssuePenaltyApplied)}`,
+    `- unknownPenaltyApplied=${boolText(canonical.providerPenalty.unknownPenaltyApplied)}`,
+    `- penaltyScope=${canonical.providerPenalty.penaltyScope}`,
+    `- originalPenaltyAvg=providerIssue ${canonical.providerPenalty.originalDiagnosticProviderPenaltyAvg.toFixed(1)} / unknown ${canonical.providerPenalty.originalDiagnosticUnknownPenaltyAvg.toFixed(1)}`,
+    `- effectivePenaltyAvg=providerIssue ${canonical.providerPenalty.effectiveProviderPenaltyAvg.toFixed(1)} / unknown ${canonical.providerPenalty.effectiveUnknownPenaltyAvg.toFixed(1)}`,
     `- SupplyUnknownPolicy marketSignal=false unknownPolicyActive=${boolText(unknownPolicyActive)}`,
     '- executionImpact=NONE',
   ];
@@ -405,11 +665,12 @@ function buildKrxPayloadValidation(): string[] {
 }
 
 export function formatRuntimeResolverTraceStep26(summary: ScanSummary | null): string {
-  const sourceSnapshotId = summary?.snapshotId ?? 'NO_SCAN_SUMMARY';
-  const candidateCount = Math.max(0, Math.floor(summary?.candidates ?? summary?.gate1MinimumSignalForensicAdr0505?.totalCandidates ?? 0));
-  const scanId = summary?.time ?? 'NO_SCAN_SUMMARY';
+  const canonical = summary?.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
+  const sourceSnapshotId = canonical.sourceSnapshotId;
+  const candidateCount = candidateCountOf(summary);
+  const scanId = canonical.scanId;
   const candidateSetId = `candidateSet:${sourceSnapshotId}:${candidateCount}`;
-  const gateScoreInputSnapshotId = `gateScoreInput:${sourceSnapshotId}`;
+  const gateScoreInputSnapshotId = canonical.gateScoreInputSnapshotId;
   const modules = buildModules(summary);
   const actualScope = summary?.gate1MinimumSignalForensicAdr0505?.actualInvestorRowUseScopeDistribution;
   const quoteCoverage = summary?.gate1MinimumSignalForensicAdr0505?.quoteFeatureFieldCoverage;

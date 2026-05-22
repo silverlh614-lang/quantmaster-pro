@@ -47,6 +47,7 @@ import type { ScanEvaluationResult } from '../state/scanEvaluationState.js';
 import type { SourceSnapshotDataHealth } from '../../sourceSnapshot/sourceSnapshotDataHealth.js';
 import type { SnapshotForensicAlert } from '../../sourceSnapshot/snapshotMismatchDetector.js';
 import type { ScoreBreakdown } from '../../gates/aiExecutionIsolation.js';
+import type { CanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -246,4 +247,5 @@ export interface ScanSummary {
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488;
   investorFlowSampleAdr0489?: InvestorFlowSampleAcquisitionReportAdr0489;
   supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491;
+  canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
 }

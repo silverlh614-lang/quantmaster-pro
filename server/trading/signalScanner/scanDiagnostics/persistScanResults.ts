@@ -111,6 +111,7 @@ import {
   type ScanCounters,
   type ScanEvaluationResult,
 } from './persistScanResultsDependencies.js';
+import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
@@ -1336,6 +1337,7 @@ export async function persistScanResults(
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildEmptyScanRootCauseWeekendReplay', error: e });
   }
 
+  summaryDraft.canonicalRuntimeResolution = buildCanonicalRuntimeResolutionStep27(summaryDraft);
   _lastScanSummary = summaryDraft;
   // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
   clearPreflightBlockedScanSummary();

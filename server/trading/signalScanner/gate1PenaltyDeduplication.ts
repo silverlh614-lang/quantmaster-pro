@@ -6,6 +6,7 @@ import type {
   SignalScoreComponentTrace,
 } from './gate1PositiveScoreStarvation.js';
 import type { Gate1ScoreCeilingRepairReport } from './gate1ScoreCeilingRepair.js';
+import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
 
 export const ADR_0469_PENALTY_DEDUP_DRY_RUN = true;
 export const ADR_0469_PENALTY_DEDUP_ENABLED = false;
@@ -795,7 +796,10 @@ export function buildPenaltyDeduplicationReport(input: PenaltyDeduplicationBuild
   };
 }
 
-export function formatPenaltyDeduplicationReport(report?: PenaltyDeduplicationReport | null): string | null {
+export function formatPenaltyDeduplicationReport(
+  report?: PenaltyDeduplicationReport | null,
+  canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27,
+): string | null {
   if (!report || report.totalCandidates <= 0) return null;
   const scenarios = Object.fromEntries(
     report.scenarioResults.map((item) => [item.scenario, item]),
@@ -829,9 +833,20 @@ export function formatPenaltyDeduplicationReport(report?: PenaltyDeduplicationRe
   }
   lines.push(
     '  Penalty source split:',
-    `  providerIssuePenaltyAvg: ${report.providerIssuePenaltyAvg.toFixed(1)}`,
+    ...(canonicalRuntimeResolution
+      ? [
+          `  originalDiagnosticProviderPenaltyAvg: ${canonicalRuntimeResolution.providerPenalty.originalDiagnosticProviderPenaltyAvg.toFixed(1)}`,
+          `  effectiveProviderPenaltyAvg: ${canonicalRuntimeResolution.providerPenalty.effectiveProviderPenaltyAvg.toFixed(1)}`,
+          `  originalDiagnosticUnknownPenaltyAvg: ${canonicalRuntimeResolution.providerPenalty.originalDiagnosticUnknownPenaltyAvg.toFixed(1)}`,
+          `  effectiveUnknownPenaltyAvg: ${canonicalRuntimeResolution.providerPenalty.effectiveUnknownPenaltyAvg.toFixed(1)}`,
+          `  penaltyScope: ${canonicalRuntimeResolution.providerPenalty.penaltyScope}`,
+          '  gateScoreImpact: 0.0',
+        ]
+      : [
+          `  providerIssuePenaltyAvg: ${report.providerIssuePenaltyAvg.toFixed(1)}`,
+          `  unknownPenaltyAvg: ${report.unknownPenaltyAvg.toFixed(1)}`,
+        ]),
     `  marketSignalPenaltyAvg: ${report.marketSignalPenaltyAvg.toFixed(1)}`,
-    `  unknownPenaltyAvg: ${report.unknownPenaltyAvg.toFixed(1)}`,
     `  bearishPenaltyAvg: ${report.bearishPenaltyAvg.toFixed(1)}`,
     '  Risk penalty:',
     `  signalRiskPenaltyAvg: ${report.riskPenaltyAudit.signalRiskPenalty.toFixed(1)}`,

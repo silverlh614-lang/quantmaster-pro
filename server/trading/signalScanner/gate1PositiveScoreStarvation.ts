@@ -1,5 +1,6 @@
 // @responsibility ADR-0467 Gate1 positive score starvation diagnostic audit
 import type { MinSignalScoreDecompositionReport } from './minimumSignalScoreTrace.js';
+import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
 
 export type ScoreConfidence =
   | 'VERIFIED'
@@ -1141,6 +1142,7 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
 
 export function formatPositiveScoreStarvationReport(
   report?: PositiveScoreStarvationReport | null,
+  canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27,
 ): string | null {
   if (!report || report.totalCandidates <= 0) return null;
   const compression = report.rangeCompressionReport;
@@ -1159,7 +1161,7 @@ export function formatPositiveScoreStarvationReport(
     `  positiveUtilizationAvg: ${report.positiveUtilizationAvg.toFixed(1)}%`,
     `  actualScoreMin/Max: ${report.actualScoreMin.toFixed(1)} / ${report.actualScoreMax.toFixed(1)}`,
     `  actualScoreRange: ${report.actualScoreRange.toFixed(1)} compressed=${compression.compressed}`,
-    `  suspectedCause: ${compression.suspectedCauses.join(' / ')}`,
+    `  suspectedCause: ${compression.suspectedCauses.join(' / ') || 'NONE'}`,
   ];
   if (report.topPositiveContributors.length > 0) {
     lines.push(
@@ -1190,6 +1192,18 @@ export function formatPositiveScoreStarvationReport(
     lines.push(
       `  WATCHLIST_UPSTREAM_SCORE: verified ${watchlistStatus.verified} / ` +
         `missing ${watchlistStatus.missing} / avg +${watchlistStatus.avgContribution.toFixed(1)}`,
+    );
+  }
+  if (canonicalRuntimeResolution) {
+    const momentum = canonicalRuntimeResolution.momentum;
+    const momentumStatus = report.currentPathComponentStatus.find((item) => item.code === 'PRICE_MOMENTUM');
+    const zeroReason = (momentumStatus?.avgContribution ?? 0) === 0 && momentum.priceMomentumComputedCount > 0
+      ? 'MOMENTUM_BELOW_THRESHOLD'
+      : 'NONE';
+    lines.push(
+      `  PRICE_MOMENTUM: computedCount ${momentum.priceMomentumComputedCount} / ` +
+        `return5dCount ${momentum.return5dCount} / return20dCount ${momentum.return20dCount} / ` +
+        `relativeReturn20dCount ${momentum.relativeReturn20dCount} / zeroReason ${zeroReason}`,
     );
   }
   lines.push(

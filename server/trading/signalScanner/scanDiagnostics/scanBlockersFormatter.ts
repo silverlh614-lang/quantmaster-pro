@@ -34,6 +34,13 @@ import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
 import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
+import {
+  buildCanonicalRuntimeResolutionStep27,
+  type CanonicalRuntimeResolutionStep27,
+  rebindGate1ForensicSummaryToCanonicalStep27,
+  rebindGate1ScoreCeilingRepairReportToCanonicalStep27,
+  rebindPositiveScoreStarvationReportToCanonicalStep27,
+} from '../runtimeResolverTraceStep26.js';
 
 export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // ADR-0367: 직전 스캔이 buyListLoop 진입 전 preflight 차단됐으면 preflight blocked scan 을 우선 표시.
@@ -47,6 +54,8 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
   }
 
+  const canonicalRuntimeResolution =
+    summary.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
   const wd = summary.waitDistribution;
   const mg = summary.macroGateState;
   const lines: string[] = [];
@@ -126,7 +135,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (wd.dataHold > 0) lines.push(`  • DATA_HOLD: ${wd.dataHold}개 ⚠️`);
     if (wd.gateFail > 0) lines.push(`  • Gate 재검증 미달: ${wd.gateFail}개`);
     if (wd.preBreakout > 0) lines.push(`  • Pre-breakout WAIT: ${wd.preBreakout}개`);
-    if (wd.sizingBlocked > 0) lines.push(`  • Sizing BLOCKED: ${wd.sizingBlocked}개 ⚠️`);
+    if (canonicalRuntimeResolution.sizing.hardBlockCount > 0) {
+      lines.push(`  • Sizing BLOCKED: ${canonicalRuntimeResolution.sizing.hardBlockCount}개 ⚠️`);
+    } else if (wd.sizingBlocked > 0 || canonicalRuntimeResolution.sizing.advisoryCount > 0) {
+      lines.push(`  • SIZING_ADVISORY_LOW: ${canonicalRuntimeResolution.sizing.advisoryCount || wd.sizingBlocked}개 (hardBlock=0, canonicalRuntimeResolution.sizing)`);
+    }
     if (wd.volumeDrop > 0) lines.push(`  • 거래량 급감: ${wd.volumeDrop}개`);
     if (wd.driftRemove > 0) lines.push(`  • Drift REMOVE: ${wd.driftRemove}개`);
     if (wd.corpAction > 0) lines.push(`  • Corporate Action: ${wd.corpAction}개`);
@@ -249,11 +262,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // (ADR-0420 = 조건별 status 분해 / ADR-0505 = 100점형 점수 component 분해).
   // summary 부재 또는 totalCandidates=0 시 미노출 (formatter 내부 필터, 잡음 차단).
   const gate1ForensicSection = formatGate1MinimumSignalForensicSection(
-    summary.gate1MinimumSignalForensicAdr0505,
+    rebindGate1ForensicSummaryToCanonicalStep27(
+      summary.gate1MinimumSignalForensicAdr0505,
+      canonicalRuntimeResolution,
+    ),
   );
   if (gate1ForensicSection) {
     lines.push('');
     lines.push(gate1ForensicSection);
+    lines.push('');
+    lines.push(formatCanonicalRuntimeResolutionAdoptionSection(canonicalRuntimeResolution));
   }
 
   // ADR-452c — Gate Score Health visibility (diagnostic-only).
@@ -291,19 +309,33 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gateReclassificationDryRunSection);
   }
 
-  const positiveStarvationSection = formatPositiveScoreStarvationReport(summary.positiveScoreStarvation);
+  const positiveStarvationSection = formatPositiveScoreStarvationReport(
+    rebindPositiveScoreStarvationReportToCanonicalStep27(
+      summary.positiveScoreStarvation,
+      canonicalRuntimeResolution,
+    ),
+    canonicalRuntimeResolution,
+  );
   if (positiveStarvationSection) {
     lines.push('');
     lines.push(positiveStarvationSection);
   }
 
-  const scoreCeilingRepairSection = formatGate1ScoreCeilingRepairReport(summary.scoreCeilingRepair);
+  const scoreCeilingRepairSection = formatGate1ScoreCeilingRepairReport(
+    rebindGate1ScoreCeilingRepairReportToCanonicalStep27(
+      summary.scoreCeilingRepair,
+      canonicalRuntimeResolution,
+    ),
+  );
   if (scoreCeilingRepairSection) {
     lines.push('');
     lines.push(scoreCeilingRepairSection);
   }
 
-  const penaltyDeduplicationSection = formatPenaltyDeduplicationReport(summary.penaltyDeduplication);
+  const penaltyDeduplicationSection = formatPenaltyDeduplicationReport(
+    summary.penaltyDeduplication,
+    canonicalRuntimeResolution,
+  );
   if (penaltyDeduplicationSection) {
     lines.push('');
     lines.push(penaltyDeduplicationSection);
@@ -315,7 +347,10 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(riskDoubleCountSection);
   }
 
-  const finalGate1CalibrationSection = formatFinalGate1CalibrationReport(summary.finalGate1Calibration);
+  const finalGate1CalibrationSection = formatFinalGate1CalibrationReport(
+    summary.finalGate1Calibration,
+    canonicalRuntimeResolution,
+  );
   if (finalGate1CalibrationSection) {
     lines.push('');
     lines.push(finalGate1CalibrationSection);
@@ -346,7 +381,10 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
   // ADR-0422 Gate2 섹션의 sectorEnergy 표시(요약) 와 *책임 분리* — 본 섹션은 *원인 분해 상세*.
   try {
-    const investorFlowRouterSection = formatInvestorFlowProviderRouterAdr0477(summary.investorFlowProviderRouter);
+    const investorFlowRouterSection = formatInvestorFlowProviderRouterAdr0477(
+      summary.investorFlowProviderRouter,
+      canonicalRuntimeResolution,
+    );
     if (investorFlowRouterSection) {
       lines.push('');
       lines.push(investorFlowRouterSection);
@@ -475,4 +513,60 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   return lines.join('\n');
+}
+
+function formatCanonicalRuntimeResolutionAdoptionSection(
+  canonical: CanonicalRuntimeResolutionStep27,
+): string {
+  return [
+    '[Canonical Runtime Resolution Adopted]',
+    `scanId=${canonical.scanId}`,
+    `sourceSnapshotId=${canonical.sourceSnapshotId}`,
+    `gateScoreInputSnapshotId=${canonical.gateScoreInputSnapshotId}`,
+    'KIS Investor Flow Semantic Row:',
+    `- selectedProvider: ${canonical.kisInvestorFlow.selectedProvider}`,
+    `- rawRow: ${canonical.kisInvestorFlow.rawRows}/${canonical.kisInvestorFlow.totalRows}`,
+    `- semanticRow: ${canonical.kisInvestorFlow.semanticRows}/${canonical.kisInvestorFlow.totalRows}`,
+    `- gateEligibleRows: ${canonical.kisInvestorFlow.gateEligibleRows}/${canonical.kisInvestorFlow.totalRows}`,
+    `- shadowOnlyRows: ${canonical.kisInvestorFlow.shadowOnlyRows}/${canonical.kisInvestorFlow.totalRows}`,
+    `- scoreUsage: ${canonical.kisInvestorFlow.finalGateScoreEligible ? 'GATE_SCORE_ELIGIBLE_PARTIAL' : 'SHADOW_ONLY_NEUTRAL_UNKNOWN'}`,
+    `- finalRouterUsable: ${canonical.kisInvestorFlow.finalRouterUsable}`,
+    `- finalGateScoreEligible: ${canonical.kisInvestorFlow.finalGateScoreEligible}`,
+    `- failedCriteria: ${canonical.kisInvestorFlow.failedCriteria.length > 0 ? canonical.kisInvestorFlow.failedCriteria.join(',') : '[]'}`,
+    `- marketSignal=${canonical.kisInvestorFlow.marketSignal}`,
+    '- executionImpact=NONE',
+    'actualInvestorRowUseScope:',
+    `  GATE_SCORE_ELIGIBLE=${canonical.kisInvestorFlow.gateEligibleRows}`,
+    `  SHADOW_ONLY_NEUTRAL_UNKNOWN=${canonical.kisInvestorFlow.shadowOnlyRows}`,
+    'ADR-0467 Watchlist Resolver:',
+    `- WATCHLIST_UPSTREAM_SCORE verified ${canonical.watchlist.verified} / missing ${canonical.watchlist.missing} / avg +${canonical.watchlist.avg.toFixed(1)}`,
+    `- selectedInputPath=${canonical.watchlist.selectedInputPath}`,
+    `- conflict=${canonical.watchlist.conflict}`,
+    'Momentum Projection:',
+    `- return5dCount=${canonical.momentum.return5dCount}`,
+    `- return20dCount=${canonical.momentum.return20dCount}`,
+    `- relativeReturn20dCount=${canonical.momentum.relativeReturn20dCount}`,
+    `- marketRelativeReturnCount=${canonical.momentum.marketRelativeReturnCount}`,
+    `- PRICE_MOMENTUM computedCount=${canonical.momentum.priceMomentumComputedCount}`,
+    `- projectedToGate1=${canonical.momentum.projectedToGate1}`,
+    'Breakout Runtime Mapping:',
+    `- traceAvailable=${canonical.breakout.traceAvailable}`,
+    `- scoreComputed=${canonical.breakout.scoreComputed}`,
+    `- scoreMappedToGate=${canonical.breakout.scoreMapped}`,
+    `- zeroByCondition=${canonical.breakout.zeroByCondition}`,
+    `- missingByMapping=${canonical.breakout.missingByMapping}`,
+    `- waitFeatureMissing=${canonical.breakout.waitFeatureMissing}`,
+    `- waitEntryPriceNotReached=${canonical.breakout.waitEntryPriceNotReached}`,
+    'Provider Penalty Policy:',
+    `- providerIssuePenaltyApplied=${canonical.providerPenalty.providerIssuePenaltyApplied}`,
+    `- unknownPenaltyApplied=${canonical.providerPenalty.unknownPenaltyApplied}`,
+    `- penaltyScope=${canonical.providerPenalty.penaltyScope}`,
+    `- effectiveProviderPenaltyAvg=${canonical.providerPenalty.effectiveProviderPenaltyAvg.toFixed(1)}`,
+    `- effectiveUnknownPenaltyAvg=${canonical.providerPenalty.effectiveUnknownPenaltyAvg.toFixed(1)}`,
+    '- gateScoreImpact=0',
+    'Sizing:',
+    `- hardBlockCount=${canonical.sizing.hardBlockCount}`,
+    `- advisoryCount=${canonical.sizing.advisoryCount}`,
+    '- executionImpact=NONE',
+  ].join('\n');
 }

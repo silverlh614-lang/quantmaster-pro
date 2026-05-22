@@ -3,6 +3,7 @@ import type { PositiveScoreStarvationReport } from './gate1PositiveScoreStarvati
 import type { Gate1ScoreCeilingRepairReport } from './gate1ScoreCeilingRepair.js';
 import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
 import type { RiskDoubleCountAuditReport } from './gate1RiskDoubleCount.js';
+import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
 
 export type SupplySignalState =
   | 'BULLISH'
@@ -705,6 +706,7 @@ export function buildFinalGate1CalibrationAuditReport(
 
 export function formatFinalGate1CalibrationReport(
   report?: FinalGate1CalibrationAuditReport | null,
+  canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27,
 ): string | null {
   if (!report || report.candidates <= 0) return null;
   const scenario = Object.fromEntries(
@@ -714,14 +716,24 @@ export function formatFinalGate1CalibrationReport(
     report.thresholdSweep.rows.find((row) =>
       row.unknownPolicy === report.thresholdSweep.recommendedUnknownPolicy &&
       row.threshold === threshold);
+  const providerHealth = canonicalRuntimeResolution?.kisInvestorFlow.selectedProvider === 'KIS_API' &&
+    String(canonicalRuntimeResolution.kisInvestorFlow.selectedProviderStatus).toUpperCase() === 'VERIFIED'
+    ? 'VERIFIED'
+    : report.providerRecoveryGuard.providerHealth;
+  const unknownPolicyActive = canonicalRuntimeResolution
+    ? false
+    : report.providerRecoveryGuard.unknownPolicyActive;
+  const unknownDiagnosticNetAvg = canonicalRuntimeResolution
+    ? report.bestRepairedNetAvg
+    : report.unknownDiagnosticNetAvg;
   const lines = [
     '🎚️ Final Gate1 Calibration (ADR-0471)',
     `  candidates: ${report.candidates}`,
     `  regime: ${report.regime}`,
     `  currentRequiredScore: ${report.currentRequiredScore.toFixed(1)}`,
     `  bestRepairedNetAvg: ${report.bestRepairedNetAvg.toFixed(1)}`,
-    `  unknownDiagnosticNetAvg: ${report.unknownDiagnosticNetAvg.toFixed(1)}`,
-    `  gapToRequiredAfterUnknownDiagnostic: ${report.gapToRequiredAfterUnknownDiagnostic.toFixed(1)}`,
+    `  unknownDiagnosticNetAvg: ${unknownDiagnosticNetAvg.toFixed(1)}`,
+    `  gapToRequiredAfterUnknownDiagnostic: ${(report.currentRequiredScore - unknownDiagnosticNetAvg).toFixed(1)}`,
     '  Unknown penalty policy:',
     `  1. CURRENT_RETAIN_10: netAvg ${(scenario.CURRENT_RETAIN_10?.netScoreAvg ?? 0).toFixed(1)} / survivors ${scenario.CURRENT_RETAIN_10?.gate1Survivors ?? 0}`,
     `  2. CAP_UNKNOWN_5: netAvg ${(scenario.CAP_UNKNOWN_5?.netScoreAvg ?? 0).toFixed(1)} / survivors ${scenario.CAP_UNKNOWN_5?.gate1Survivors ?? 0}`,
@@ -731,9 +743,16 @@ export function formatFinalGate1CalibrationReport(
     `  6. UNKNOWN_TO_SIZING_ONLY: netAvg ${(scenario.UNKNOWN_TO_SIZING_ONLY?.netScoreAvg ?? 0).toFixed(1)} / survivors ${scenario.UNKNOWN_TO_SIZING_ONLY?.gate1Survivors ?? 0}`,
     `  7. BEARISH_ONLY_SUPPLY_PENALTY: netAvg ${(scenario.BEARISH_ONLY_SUPPLY_PENALTY?.netScoreAvg ?? 0).toFixed(1)} / survivors ${scenario.BEARISH_ONLY_SUPPLY_PENALTY?.gate1Survivors ?? 0}`,
     '  Provider recovery guard:',
-    `  providerHealth: ${report.providerRecoveryGuard.providerHealth}`,
-    `  unknownPolicyActive: ${report.providerRecoveryGuard.unknownPolicyActive}`,
-    `  autoDisableWhenProviderVerified: ${report.providerRecoveryGuard.shouldAutoDisableUnknownPolicy || report.providerRecoveryGuard.providerHealth !== 'VERIFIED'}`,
+    `  providerHealth: ${providerHealth}`,
+    `  unknownPolicyActive: ${unknownPolicyActive}`,
+    ...(canonicalRuntimeResolution
+      ? [
+          `  effectiveProviderPenaltyAvg: ${canonicalRuntimeResolution.providerPenalty.effectiveProviderPenaltyAvg.toFixed(1)}`,
+          `  effectiveUnknownPenaltyAvg: ${canonicalRuntimeResolution.providerPenalty.effectiveUnknownPenaltyAvg.toFixed(1)}`,
+          '  gateScoreImpact: 0.0',
+        ]
+      : []),
+    `  autoDisableWhenProviderVerified: ${report.providerRecoveryGuard.shouldAutoDisableUnknownPolicy || providerHealth !== 'VERIFIED'}`,
     `  providerVerifiedOverrideWarning: ${report.providerRecoveryGuard.warningIfOverridePersists}`,
     '  Active component requiredScore:',
     `  activeCoveragePct: ${report.activeComponentCoverage.activeCoveragePct.toFixed(1)}%`,

@@ -36,7 +36,10 @@ import {
   formatTechnicalProviderDegradedSection,
   getLastScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { formatRuntimeResolverTraceStep26 } from '../../../trading/signalScanner/runtimeResolverTraceStep26.js';
+import {
+  buildCanonicalRuntimeResolutionStep27,
+  formatRuntimeResolverTraceStep26,
+} from '../../../trading/signalScanner/runtimeResolverTraceStep26.js';
 import {
   formatNormalSupplyPreviewSection,
   getLastNormalSupplyPreview,
@@ -805,6 +808,9 @@ const scanBlockers: TelegramCommand = {
       sectorEnergySupplyUnknownLine = formatSectorEnergySupplyUnknownCompactAdr0488(sectorEnergySupplyUnknownReportForOperator);
       const forensic = summary?.gate1MinimumSignalForensicAdr0505;
       if (forensic?.totalCandidates && forensic.totalCandidates > 0) {
+        const canonicalRuntimeResolution =
+          summary?.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary ?? null);
+        const canonicalKis = canonicalRuntimeResolution.kisInvestorFlow;
         const reasonTop = Object.entries(forensic.semanticReasonDistribution ?? {})
           .filter(([, count]) => Number(count) > 0)
           .sort((a, b) => Number(b[1]) - Number(a[1]))
@@ -834,20 +840,25 @@ const scanBlockers: TelegramCommand = {
                 : 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
         supplySemanticAuditSection = [
           '🔌 KIS Investor Flow Semantic Row',
-          `• selectedProvider: ${summary?.investorFlowProviderRouter?.selectedProvider ?? 'KIS_API'}`,
-          `• rawRow: ${forensic.rawInvestorRowAvailableCount ?? 0}/${forensic.totalCandidates}`,
-          `• semanticRow: ${forensic.semanticRowAvailableCount ?? 0}/${forensic.totalCandidates}`,
+          `• selectedProvider: ${canonicalKis.selectedProvider}`,
+          `• rawRow: ${canonicalKis.rawRows}/${canonicalKis.totalRows}`,
+          `• semanticRow: ${canonicalKis.semanticRows}/${canonicalKis.totalRows}`,
+          `• gateEligibleRows: ${canonicalKis.gateEligibleRows}/${canonicalKis.totalRows}`,
+          `• shadowOnlyRows: ${canonicalKis.shadowOnlyRows}/${canonicalKis.totalRows}`,
           `• metadataOnly: ${forensic.semanticRowMetadataOnlyCount ?? 0}/${forensic.totalCandidates}`,
           `• foreignField: ${forensic.foreignNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
           `• institutionalField: ${forensic.institutionalNetBuyAvailable ?? 0}/${forensic.totalCandidates}`,
           `• breakPoint: ${breakPointTop}`,
-          '• scoreUsage: SHADOW_ONLY',
-          '• marketSignal=false',
+          '• scoreUsage: GATE_SCORE_ELIGIBLE_PARTIAL',
+          `• finalRouterUsable=${canonicalKis.finalRouterUsable}`,
+          `• finalGateScoreEligible=${canonicalKis.finalGateScoreEligible}`,
+          `• failedCriteria: ${canonicalKis.failedCriteria.length > 0 ? canonicalKis.failedCriteria.join(',') : '[]'}`,
+          `• marketSignal=${canonicalKis.marketSignal}`,
           '• executionImpact=NONE',
           `• nextAction: ${nextAction}`,
           '',
           '🔌 Supply Semantic Audit (ADR-0482)',
-          `• selectedProvider: ${summary?.investorFlowProviderRouter?.selectedProvider ?? 'KIS_API'}`,
+          `• selectedProvider: ${canonicalKis.selectedProvider}`,
           `• symbolMatched: ${forensic.symbolMatchedCount ?? forensic.supplySymbolMatchedCount ?? 0}/${forensic.totalCandidates}`,
           `• semanticAvailable: ${forensic.supplySemanticAvailable ?? 0}/${forensic.totalCandidates}`,
           `• diagnosticAvailable: ${forensic.supplyDiagnosticAvailable ?? 0}/${forensic.totalCandidates}`,
@@ -856,7 +867,8 @@ const scanBlockers: TelegramCommand = {
           `• reasonTop: ${reasonTop}`,
           `• kisRawFieldKeysTop: ${Object.entries(forensic.kisRawFieldKeysTop ?? {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 8).map(([key, count]) => `${key}=${count}`).join(', ') || 'none'}`,
           `• mappedFieldDistribution: foreign=${Object.entries(forensic.mappedFieldDistribution?.foreign ?? {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(', ') || 'none'} institution=${Object.entries(forensic.mappedFieldDistribution?.institution ?? {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5).map(([key, count]) => `${key}=${count}`).join(', ') || 'none'}`,
-          `• scoreUsage: ${scoreUsage}`,
+          `• actualInvestorRowUseScope: GATE_SCORE_ELIGIBLE=${canonicalKis.gateEligibleRows}, SHADOW_ONLY_NEUTRAL_UNKNOWN=${canonicalKis.shadowOnlyRows}`,
+          `• scoreUsage: ${canonicalKis.finalGateScoreEligible ? 'GATE_SCORE_ELIGIBLE_PARTIAL' : scoreUsage}`,
           '• marketSignal=false',
           '• executionImpact=NONE',
           `• supplyRouterForensicConflict=${forensic.supplyRouterForensicConflict === true}`,

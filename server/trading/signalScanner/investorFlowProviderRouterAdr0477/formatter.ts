@@ -3,11 +3,18 @@
  */
 
 import type { InvestorFlowProviderRouteResult } from './types.js';
+import type { CanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 
 export function formatInvestorFlowProviderRouterAdr0477(
   result?: InvestorFlowProviderRouteResult | null,
+  canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27,
 ): string | null {
   if (!result) return null;
+  const canonicalKis = canonicalRuntimeResolution?.kisInvestorFlow;
+  const legacySelectedReasonDeprecated = canonicalKis?.finalRouterUsable && String(result.selectedReason ?? '').includes('NOT_ROUTER_USABLE');
+  const selectedReason = legacySelectedReasonDeprecated
+    ? 'CANONICAL_ROUTER_USABLE'
+    : result.selectedReason ?? 'NONE';
   const nextAction = result.status === 'DATA_UNAVAILABLE' || result.coverage.notWired > 0
     ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY / feed SemanticNetBuy normalized input / keep UNKNOWN out of bearish scoring'
     : result.freshness.oldestSourceAgeTradingDays !== null && result.freshness.oldestSourceAgeTradingDays >= 4
@@ -23,7 +30,22 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- routerUsableCoverage: ${result.routerUsableCoverage?.available ?? result.coverage.available}/${result.routerUsableCoverage?.total ?? result.coverage.total}`,
     `- diagnosticUsableCoverage: ${result.diagnosticUsableCoverage?.available ?? result.diagnosticUsableCount ?? 0}/${result.diagnosticUsableCoverage?.total ?? result.coverage.total}`,
     `- freshness: cache=${result.freshness.cacheState}, source=${result.freshness.sourceState}, oldest=${result.freshness.oldestSourceAgeTradingDays ?? 'unknown'} trading days`,
-    `- selectedReason: ${result.selectedReason ?? 'NONE'}`,
+    `- selectedReason: ${selectedReason}`,
+    ...(legacySelectedReasonDeprecated
+      ? ['- legacySelectedReason: deprecated=true notUsedForDecision=true replacedBy=canonicalRuntimeResolution.kisInvestorFlow']
+      : []),
+    ...(canonicalKis
+      ? [
+          '- canonicalRuntimeResolution.kisInvestorFlow:',
+          `  finalRouterUsable=${canonicalKis.finalRouterUsable}`,
+          `  finalGateScoreEligible=${canonicalKis.finalGateScoreEligible}`,
+          `  gateEligibleRows=${canonicalKis.gateEligibleRows}/${canonicalKis.totalRows}`,
+          `  shadowOnlyRows=${canonicalKis.shadowOnlyRows}/${canonicalKis.totalRows}`,
+          `  failedCriteria=${canonicalKis.failedCriteria.length > 0 ? canonicalKis.failedCriteria.join(',') : '[]'}`,
+          `  marketSignal=${canonicalKis.marketSignal}`,
+          '  executionImpact=NONE',
+        ]
+      : []),
     `- inputSources: ${result.inputSources?.join(',') || 'NONE'}`,
     `- cacheFallbackUsed: ${result.cacheFallbackUsed ?? false}`,
     `- fallbackChain: ${result.fallbackChain?.join(' > ') || 'NONE'}`,
