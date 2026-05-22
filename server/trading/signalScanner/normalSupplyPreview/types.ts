@@ -169,6 +169,18 @@ export interface NormalSupplyPreview {
   programFlowEvidenceTrace: ProgramFlowEvidenceTrace;
   programFlowUpstreamPopulationTrace: ProgramFlowUpstreamPopulationTrace;
   safety: NormalSupplyPreviewSafety;
+  runtimePermission: {
+    gatePolicyLiveAllowed: boolean;
+    macroLiveAllowed: boolean;
+    engineMode: NormalSupplyPreviewEngineMode;
+    brokerOrderAllowed: boolean;
+    operatorOrderAllowed: boolean;
+    actualLiveOrderAllowed: boolean;
+    liveBlockReason: 'SHADOW_ONLY_MODE' | 'MACRO_LIVE_BLOCK' | 'SELL_ONLY_MODE' | 'LIVE_ALLOWED';
+    shadowAllowed: boolean;
+    counterfactualAllowed: boolean;
+    executionImpact: 'NONE';
+  };
 }
 
 export interface PersistNormalSupplyPreviewInput<T extends CandidateWithSupplyContext = CandidateWithSupplyContext> {

@@ -145,7 +145,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('- BULLISH 기준: 80');
     expect(section).toContain('- 현재 판정: ACCUMULATING');
     expect(section).toContain('- 미승격 사유: supplyScore 77 < bullishThreshold 80');
-    expect(section).toContain('- 실거래 차단: LEGACY_POLICY_IGNORED');
+    expect(section).toContain('- 실거래 차단: SELL_ONLY_MODE');
     expect(section).toContain('- 허용 동작: Shadow 관찰 / Watchlist Boost');
     expect(section).toContain('- executionImpact: NONE');
     expect(section).toContain('1. 011210 현대위아');
@@ -153,7 +153,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).toContain('supplyScore=77/80');
     expect(section).toContain('signal=ACCUMULATING');
     expect(section).toContain('promotionBlocked=BELOW_BULLISH_THRESHOLD');
-    expect(section).toContain('liveDecision=BLOCKED_BY_MACRO_LIVE_BLOCK');
+    expect(section).toContain('liveDecision=BLOCKED_BY_SELL_ONLY_MODE');
     expect(section).toContain('shadowObservable=true');
     expect(section).not.toContain('watchlistBoost=N/A');
     expect(section).toContain('watchlistPriorityBoost=1');

@@ -85,6 +85,22 @@ export function assembleNormalSupplyPreview(input: AssembleNormalSupplyPreviewIn
       accumulatingAllowsWatchlistBoost: true,
       accumulatingAllowsShadowTracking: true,
     },
+    runtimePermission: {
+      gatePolicyLiveAllowed: true,
+      macroLiveAllowed: input.engineMode !== 'MACRO_LIVE_BLOCK',
+      engineMode: input.engineMode,
+      brokerOrderAllowed: false,
+      operatorOrderAllowed: false,
+      actualLiveOrderAllowed: false,
+      liveBlockReason: input.engineMode === 'MACRO_LIVE_BLOCK'
+        ? 'MACRO_LIVE_BLOCK'
+        : input.engineMode === 'SELL_ONLY'
+          ? 'SELL_ONLY_MODE'
+          : 'SHADOW_ONLY_MODE',
+      shadowAllowed: true,
+      counterfactualAllowed: true,
+      executionImpact: 'NONE',
+    },
   };
 }
 
