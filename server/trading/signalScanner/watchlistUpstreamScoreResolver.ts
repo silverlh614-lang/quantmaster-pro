@@ -25,6 +25,8 @@ export interface ResolvedWatchlistUpstreamScore {
   confidence: WatchlistScoreConfidence;
   reason?: 'WATCHLIST_SCORE_MISSING' | 'WATCHLIST_SCORE_UNKNOWN_SCALE';
   message: string;
+  sourcePath?: string;
+  fallbackReason?: string;
 }
 
 const SOURCE_FIELDS: WatchlistScoreSourceField[] = [
@@ -56,6 +58,24 @@ function round1(value: number): number {
 }
 
 function pickRaw(input: Record<string, unknown>): { field: WatchlistScoreSourceField; raw: number } | undefined {
+  const gateScoreInputSnapshot = input.gateScoreInputSnapshot;
+  if (gateScoreInputSnapshot && typeof gateScoreInputSnapshot === 'object') {
+    const watchlist = (gateScoreInputSnapshot as Record<string, unknown>).watchlist;
+    if (watchlist && typeof watchlist === 'object') {
+      const upstream = numeric((watchlist as Record<string, unknown>).upstreamScore);
+      if (upstream !== undefined) return { field: 'upstreamScore', raw: upstream };
+    }
+  }
+  const featurePack = input.featurePack;
+  if (featurePack && typeof featurePack === 'object') {
+    const watchlistScore = numeric((featurePack as Record<string, unknown>).watchlistScore);
+    if (watchlistScore !== undefined) return { field: 'watchlistScore', raw: watchlistScore };
+    const watchlist = (featurePack as Record<string, unknown>).watchlist;
+    if (watchlist && typeof watchlist === 'object') {
+      const upstream = numeric((watchlist as Record<string, unknown>).upstreamScore);
+      if (upstream !== undefined) return { field: 'upstreamScore', raw: upstream };
+    }
+  }
   const featureContext = input.featureContext;
   if (featureContext && typeof featureContext === 'object') {
     const watchlistFeature = (featureContext as Record<string, unknown>).WATCHLIST_UPSTREAM_SCORE;
