@@ -197,7 +197,10 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(text).toContain('- Semantic NetBuy: DATA_UNAVAILABLE / NO_INPUT_SAMPLE');
     expect(text).toContain('- CACHE: CACHE_STALE_HIT');
     expect(text).toContain('- selectedProvider: CACHE');
-    expect(text).toContain('- supply_confluence: UNKNOWN / STALE_DIAGNOSTIC, not failed');
+    expect(text).toContain('- supply_confluence:');
+    expect(text).toContain('signal=UNKNOWN / STALE_DIAGNOSTIC');
+    expect(text).toContain('providerIssue=false');
+    expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('- liveStrongBuyAllowed: false');
     expect(text).toContain('- shadowObservableAllowed: true');
     expect(text).not.toContain('- NAVER: NOT_WIRED');
@@ -230,7 +233,10 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(text).toContain('selectedReason: ADR-0491 sanitized snapshot cache selected: CACHE_STALE_HIT');
     expect(text).toContain('Semantic NetBuy: DATA_UNAVAILABLE / NO_INPUT_SAMPLE');
     expect(text).toContain('NAVER: DATA_UNAVAILABLE');
-    expect(text).toContain('supply_confluence: UNKNOWN / STALE_DIAGNOSTIC, not bearish');
+    expect(text).toContain('supply_confluence:');
+    expect(text).toContain('signal=UNKNOWN / STALE_DIAGNOSTIC');
+    expect(text).toContain('providerIssue=false');
+    expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('liveStrongBuyAllowed=false');
     expect(text).not.toContain('CACHE: CACHE_EMPTY');
     expect(text).not.toContain('NAVER: NOT_WIRED');
@@ -238,13 +244,13 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(report.executionImpact).toBe('NONE');
   });
 
-  it('/scan_blockers appends the ADR-0473 warmup section without raw Telegram HTML', () => {
+  it('/scan_blockers keeps ADR-0473 runtime evidence internal instead of appending warmup text', () => {
     const text = scanBlockersSource();
 
-    expect(text).toContain('formatSupplyProviderWarmupCompactLine');
     expect(text).toContain('buildSupplyProviderWarmupReport');
-    expect(text).toContain('supplyProviderWarmupSection');
-    expect(text).toContain('parts.push(supplyProviderWarmupSection)');
+    expect(text).toContain('supplyProviderRuntimeEvidence');
+    expect(text).not.toContain('formatSupplyProviderWarmupCompactLine');
+    expect(text).not.toContain('parts.push(supplyProviderWarmupSection)');
     expect(formatSupplyProviderWarmupCompactLine(buildSupplyProviderWarmupReport()))
       .not.toMatch(/<b>|<i>|<code>/);
   });

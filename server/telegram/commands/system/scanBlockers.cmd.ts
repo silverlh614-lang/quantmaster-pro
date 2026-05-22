@@ -72,9 +72,9 @@ import {
 } from '../../../persistence/counterfactualUniverseLearningRepo.js';
 import {
   buildSupplyProviderWarmupReport,
-  formatSupplyProviderWarmupCompactLine,
   getLastInvestorFlowProviderHealth,
   summarizeInvestorFlowProviderHealth,
+  type SupplyProviderWarmupReport,
 } from '../../../supply/investorFlowProviderHealth.js';
 // ADR-0442 — KIS WebSocket Subscription Queue 진단 섹션 (운영자 슬롯 분배 가시화).
 // read-only — buildSubscriptionDiagnosis 가 _subscribedPriorities 메모리 read 만.
@@ -434,7 +434,7 @@ const scanBlockers: TelegramCommand = {
     // Uses the last observed router health only; /scan_blockers must not trigger
     // KRX/NAVER/KIS provider fetches.
     let supplyProviderSection: string | null = null;
-    let supplyProviderWarmupSection: string | null = null;
+    let supplyProviderRuntimeEvidence: SupplyProviderWarmupReport | null = null;
     try {
       const investorFlowHealth = getLastInvestorFlowProviderHealth();
       supplyProviderSection = summarizeInvestorFlowProviderHealth(investorFlowHealth, summary?.investorFlowProviderRouter ? {
@@ -448,25 +448,23 @@ const scanBlockers: TelegramCommand = {
         executionImpact: summary.investorFlowProviderRouter.executionImpact,
         liveExecutionAllowed: summary.investorFlowProviderRouter.liveExecutionAllowed,
       } : null);
-      supplyProviderWarmupSection = formatSupplyProviderWarmupCompactLine(
-        buildSupplyProviderWarmupReport({
-          health: investorFlowHealth,
-          investorFlowRouter: summary?.investorFlowProviderRouter ? {
-            status: summary.investorFlowProviderRouter.status,
-            selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
-            providerTried: [...summary.investorFlowProviderRouter.providerTried],
-            providerStatuses: { ...summary.investorFlowProviderRouter.providerStatuses },
-            selectedReason: summary.investorFlowProviderRouter.selectedReason,
-            signal: summary.investorFlowProviderRouter.signal,
-            coverage: summary.investorFlowProviderRouter.coverage,
-            executionImpact: summary.investorFlowProviderRouter.executionImpact,
-            liveExecutionAllowed: summary.investorFlowProviderRouter.liveExecutionAllowed,
-          } : undefined,
-          naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 ?? null,
-          semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 ?? null,
-          supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 ?? null,
-        }),
-      );
+      supplyProviderRuntimeEvidence = buildSupplyProviderWarmupReport({
+        health: investorFlowHealth,
+        investorFlowRouter: summary?.investorFlowProviderRouter ? {
+          status: summary.investorFlowProviderRouter.status,
+          selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
+          providerTried: [...summary.investorFlowProviderRouter.providerTried],
+          providerStatuses: { ...summary.investorFlowProviderRouter.providerStatuses },
+          selectedReason: summary.investorFlowProviderRouter.selectedReason,
+          signal: summary.investorFlowProviderRouter.signal,
+          coverage: summary.investorFlowProviderRouter.coverage,
+          executionImpact: summary.investorFlowProviderRouter.executionImpact,
+          liveExecutionAllowed: summary.investorFlowProviderRouter.liveExecutionAllowed,
+        } : undefined,
+        naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 ?? null,
+        semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 ?? null,
+        supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 ?? null,
+      });
     } catch (err) {
       emitScanBlockersSectionWarn(
         '[scan_blockers] investor-flow provider health section failed:',
@@ -758,8 +756,8 @@ const scanBlockers: TelegramCommand = {
       const readinessReport = summary?.supplyAdvisoryReadinessAdr0485 ?? safeBuildSupplyAdvisoryReadinessReportAdr0485({ supplyCoverageRecoveryAdr0484: recoveryReport });
       supplyAdvisoryReadinessLine = formatSupplyAdvisoryReadinessCompactAdr0485(readinessReport);
       const mountReport = summary?.supplyRecoveryRuntimeMountAdr0486 ?? safeBuildSupplyRecoveryRuntimeMountReportAdr0486({
-        warmupOutput: supplyProviderWarmupSection,
-        warmupReport: supplyProviderWarmupSection ? undefined : null,
+        warmupOutput: null,
+        warmupReport: supplyProviderRuntimeEvidence,
         investorFlowProviderRouterAdr0477: summary?.investorFlowProviderRouter ?? null,
         naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 ?? null,
         semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 ?? null,
@@ -767,7 +765,6 @@ const scanBlockers: TelegramCommand = {
         supplyCoverageRecoveryAdr0484: recoveryReport,
         supplyAdvisoryReadinessAdr0485: readinessReport,
         compactOutput: [
-          supplyProviderWarmupSection,
           supplyCoverageRecoveryLine,
           supplyAdvisoryReadinessLine,
           runtimeAuditSection,
@@ -914,7 +911,6 @@ const scanBlockers: TelegramCommand = {
     if (normalSupplyPreviewSection) parts.push(normalSupplyPreviewSection);
     if (degradedSection) parts.push(degradedSection);
     if (supplyProviderSection) parts.push(supplyProviderSection);
-    if (supplyProviderWarmupSection) parts.push(supplyProviderWarmupSection);
     if (counterfactualLine) parts.push(counterfactualLine);
     if (promotionLine) parts.push(promotionLine);
     if (universeSection) parts.push(universeSection);

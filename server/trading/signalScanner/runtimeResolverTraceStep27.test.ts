@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { formatPositiveScoreStarvationReport } from './gate1PositiveScoreStarvation.js';
 import { formatPenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
@@ -103,6 +105,21 @@ function makeConflictingSummary(): ScanSummary {
 }
 
 describe('Step27 canonical runtime report rebinding', () => {
+  it('keeps scan blocker Gate report sections wired to canonical runtime rebinding', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), 'server/trading/signalScanner/scanDiagnostics/scanBlockersFormatter.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('buildCanonicalRuntimeResolutionStep27');
+    expect(source).toContain('rebindGate1ForensicSummaryToCanonicalStep27');
+    expect(source).toContain('rebindPositiveScoreStarvationReportToCanonicalStep27');
+    expect(source).toContain('rebindGate1ScoreCeilingRepairReportToCanonicalStep27');
+    expect(source).toContain('formatCanonicalRuntimeResolutionAdoptionSection(canonicalRuntimeResolution)');
+    expect(source).toContain('formatPenaltyDeduplicationReport(');
+    expect(source).toContain('canonicalRuntimeResolution,');
+  });
+
   it('builds one canonical truth for KIS, watchlist, momentum, penalty, and sizing', () => {
     const canonical = buildCanonicalRuntimeResolutionStep27(makeConflictingSummary());
 
