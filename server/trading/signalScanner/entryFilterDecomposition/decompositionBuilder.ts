@@ -231,6 +231,23 @@ export function buildEntryFilterDecomposition(
     });
   }
 
+  // Step-29 RS wiring cleanup:
+  // If rsRankPct / relativeStrengthScore are missing but relativeReturn20d is available,
+  // compute cross-sectional percentile rank and map it to a deterministic score curve.
+  const rsUniverse = traces
+    .map((t) => ({ trace: t, rr20: typeof t.relativeReturn20d === 'number' && Number.isFinite(t.relativeReturn20d) ? t.relativeReturn20d : null }))
+    .filter((row): row is { trace: typeof traces[number]; rr20: number } => row.rr20 !== null)
+    .sort((a, b) => b.rr20 - a.rr20);
+  const denom = Math.max(1, rsUniverse.length - 1);
+  rsUniverse.forEach((row, index) => {
+    const pct = rsUniverse.length <= 1 ? 100 : ((denom - index) / denom) * 100;
+    if (!Number.isFinite(row.trace.rsRankPct as number)) row.trace.rsRankPct = Math.max(0, Math.min(100, Number(pct.toFixed(1))));
+    if (!Number.isFinite(row.trace.relativeStrengthScore as number)) {
+      const p = row.trace.rsRankPct ?? 0;
+      row.trace.relativeStrengthScore = p >= 90 ? 10 : p >= 80 ? 8 : p >= 60 ? 5 : p >= 50 ? 2 : 0;
+    }
+  });
+
   const diagnosticBlockReason = String(input.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
   const removedPolicyDiagnosticBlock = diagnosticBlockReason.includes('SELL_ONLY') || diagnosticBlockReason.includes('R6_DEFENSE');
   if (input.macroGateState?.diagnosticLiveEntryBlocked && !removedPolicyDiagnosticBlock) {
