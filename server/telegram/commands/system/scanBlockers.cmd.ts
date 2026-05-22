@@ -24,6 +24,11 @@ function emitScanBlockersSectionWarn(message: string, error?: unknown): void {
   });
 }
 
+function isProviderIssueStatusForScanBlockers(status: string | undefined): boolean {
+  const normalized = String(status ?? 'UNKNOWN').trim().toUpperCase();
+  return !['VERIFIED', 'OK', 'READY', 'UP', 'SUCCESS'].includes(normalized);
+}
+
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import {
@@ -648,7 +653,9 @@ const scanBlockers: TelegramCommand = {
           penaltyDeduplicationAdr0469: summary?.penaltyDeduplication ?? null,
           providerStatus: summary?.investorFlowProviderRouter?.status ?? summary?.naverInvestorTrendAdr0481?.status ?? 'UNKNOWN',
           currentSupplySignal: summary?.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
-          providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
+          providerIssue: isProviderIssueStatusForScanBlockers(
+            summary?.investorFlowProviderRouter?.status ?? summary?.naverInvestorTrendAdr0481?.status,
+          ),
           marketSignal: false,
         });
       }
@@ -789,7 +796,9 @@ const scanBlockers: TelegramCommand = {
         penaltyDeduplicationAdr0469: summary?.penaltyDeduplication ?? null,
         providerStatus: summary?.investorFlowProviderRouter?.status ?? summary?.naverInvestorTrendAdr0481?.status ?? 'UNKNOWN',
         currentSupplySignal: summary?.investorFlowProviderRouter?.signal ?? 'UNKNOWN',
-        providerIssue: summary?.investorFlowProviderRouter?.signal !== 'BEARISH',
+        providerIssue: isProviderIssueStatusForScanBlockers(
+          summary?.investorFlowProviderRouter?.status ?? summary?.naverInvestorTrendAdr0481?.status,
+        ),
         marketSignal: false,
       });
       sectorEnergySupplyUnknownLine = formatSectorEnergySupplyUnknownCompactAdr0488(sectorEnergySupplyUnknownReportForOperator);

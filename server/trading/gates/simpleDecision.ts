@@ -64,6 +64,10 @@ export interface SimpleTradeDecisionInput {
   priceAgeSec?: number;
   orderIntentStatus?: 'READY' | 'WAIT_PRICE_VALID' | 'WAIT_PRICE_REBUILD';
   tradePlanValid?: boolean;
+  providerIssuePresent?: boolean;
+  providerIssueMarketImpact?: 'NONE';
+  missingFields?: string[];
+  excludedFeatures?: string[];
 }
 
 export interface SimpleTradeDecisionResult {
@@ -103,6 +107,10 @@ export interface SimpleTradeDecisionResult {
   priceAgeSec?: number;
   orderIntentStatus?: 'READY' | 'WAIT_PRICE_VALID' | 'WAIT_PRICE_REBUILD';
   tradePlanValid?: boolean;
+  providerIssuePresent: boolean;
+  providerIssueMarketImpact: 'NONE';
+  missingFields: string[];
+  excludedFeatures: string[];
   buyThreshold: number;
   watchThreshold: number;
   decision: TradeDecision;
@@ -261,6 +269,10 @@ export function resolveSimpleTradeDecision(
     priceAgeSec: input.priceAgeSec,
     orderIntentStatus: input.orderIntentStatus,
     tradePlanValid: input.tradePlanValid,
+    providerIssuePresent: input.providerIssuePresent === true,
+    providerIssueMarketImpact: input.providerIssueMarketImpact ?? 'NONE',
+    missingFields: [...(input.missingFields ?? [])],
+    excludedFeatures: [...(input.excludedFeatures ?? [])],
     buyThreshold,
     watchThreshold,
     decision,
@@ -317,6 +329,10 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('priceAgeSec', result.priceAgeSec),
     kv('orderIntentStatus', result.orderIntentStatus),
     kv('tradePlanValid', result.tradePlanValid),
+    kv('providerIssuePresent', result.providerIssuePresent),
+    kv('providerIssueMarketImpact', result.providerIssueMarketImpact),
+    kv('missingFields', `[${result.missingFields.join(',') || 'none'}]`),
+    kv('excludedFeatures', `[${result.excludedFeatures.join(',') || 'none'}]`),
     kv('aiExecutionImpact', result.aiExecutionImpact),
     kv('dataConfidencePolicy', result.dataConfidencePolicy),
     kv('strongBuyAsLabelOnly', result.strongBuyAsLabelOnly),

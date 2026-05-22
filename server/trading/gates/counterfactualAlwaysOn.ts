@@ -6,6 +6,7 @@ import type {
   TradeDecision,
 } from './simpleDecision.js';
 import type { CandidateExposureHistory } from '../candidateDiversityAdjustment.js';
+import type { ProviderHealthSnapshot } from '../../diagnostics/providerMarketSignalIsolationStep16.js';
 
 export type CounterfactualSampleType =
   | 'BUY_ALLOWED_COUNTERFACTUAL'
@@ -76,8 +77,11 @@ export interface CounterfactualSample {
   learningLabels: string[];
   missingFields?: string[];
   providerHealth?: string;
+  providerHealthSnapshot?: ProviderHealthSnapshot;
+  providerIssuePresent?: boolean;
   quoteStatus?: string;
   dataHealth?: string;
+  excludedFeatures?: string[];
   aiEstimatedFeatureCount?: number;
   aiEvidencePresent?: boolean;
   aiExecutionImpact?: 'NONE';
@@ -123,8 +127,11 @@ export interface RecordCounterfactualInput {
   learningLabels?: string[];
   missingFields?: string[];
   providerHealth?: string;
+  providerHealthSnapshot?: ProviderHealthSnapshot;
+  providerIssuePresent?: boolean;
   quoteStatus?: string;
   dataHealth?: string;
+  excludedFeatures?: string[];
   aiEstimatedFeatureCount?: number;
   aiEvidencePresent?: boolean;
   dedupDuplicate?: boolean;
@@ -198,6 +205,12 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
     learningLabels.add('AI_ESTIMATE_OBSERVED');
     learningLabels.add('AI_EXCLUDED_FROM_EXECUTION');
   }
+  if (input.providerIssuePresent === true || input.providerHealthSnapshot?.isProviderIssue === true) {
+    learningLabels.add('PROVIDER_ISSUE_OBSERVED');
+  }
+  if (input.providerHealthSnapshot?.status === 'EMPTY_VALID') {
+    learningLabels.add('EMPTY_RESPONSE_OBSERVED');
+  }
   if (input.dedupDuplicate === true) learningLabels.add('DEDUP_OBSERVED');
   if (input.cooldownActive === true) learningLabels.add('COOLDOWN_OBSERVED');
   if (input.notificationSuppressed === true) learningLabels.add('TELEGRAM_SUPPRESSED_OBSERVED');
@@ -270,9 +283,12 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
     riskTags: input.riskTags ?? [],
     learningLabels: [...learningLabels],
     missingFields: input.missingFields,
-    providerHealth: input.providerHealth,
+    providerHealth: input.providerHealth ?? input.providerHealthSnapshot?.status,
+    providerHealthSnapshot: input.providerHealthSnapshot,
+    providerIssuePresent: input.providerIssuePresent ?? input.providerHealthSnapshot?.isProviderIssue ?? false,
     quoteStatus: input.quoteStatus,
     dataHealth: input.dataHealth,
+    excludedFeatures: input.excludedFeatures,
     aiEstimatedFeatureCount: input.aiEstimatedFeatureCount,
     aiEvidencePresent: input.aiEvidencePresent ?? decision.excludedAiScore > 0,
     aiExecutionImpact: 'NONE',
