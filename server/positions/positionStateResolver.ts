@@ -63,6 +63,13 @@ export interface PositionState {
   stopLoss?: number | null;
   targetPrice?: number | null;
   trailingStop?: number | null;
+  tradePlanId?: string;
+  initialStopLoss?: number | null;
+  currentStopLoss?: number | null;
+  targetPrice1?: number | null;
+  riskReward1?: number;
+  tp1SellPct?: number;
+  moveStopToBreakevenAfterTp1?: boolean;
   openedAt?: string;
   updatedAt: string;
   closedAt?: string | null;
@@ -208,6 +215,16 @@ function toPositionState(position: NormalizedPosition, now: Date): PositionState
     entryQuoteSource?: string;
     entryPriceConfidence?: string;
     entryQuoteConfidence?: string;
+    tradePlanId?: string;
+    initialStopLoss?: number | null;
+    currentStopLoss?: number | null;
+    stopLoss?: number | null;
+    targetPrice1?: number | null;
+    targetPrice?: number | null;
+    riskReward1?: number;
+    riskReward?: number;
+    tp1SellPct?: number;
+    moveStopToBreakevenAfterTp1?: boolean;
   } | undefined;
   const marketValue = quantity * (currentPrice ?? avgEntryPrice ?? 0);
   const unrealizedPnL = finiteOrZero(position.unrealizedPnl ?? (
@@ -238,6 +255,15 @@ function toPositionState(position: NormalizedPosition, now: Date): PositionState
     priceSnapshotId: raw?.priceSnapshotId ?? raw?.entryQuoteSnapshotId,
     entryPriceSource: raw?.entryPriceSource ?? raw?.entryQuoteSource,
     entryPriceConfidence: raw?.entryPriceConfidence ?? raw?.entryQuoteConfidence,
+    tradePlanId: raw?.tradePlanId,
+    initialStopLoss: finiteOrNull(raw?.initialStopLoss ?? raw?.stopLoss),
+    currentStopLoss: finiteOrNull(raw?.currentStopLoss ?? raw?.initialStopLoss ?? raw?.stopLoss),
+    stopLoss: finiteOrNull(raw?.currentStopLoss ?? raw?.initialStopLoss ?? raw?.stopLoss),
+    targetPrice1: finiteOrNull(raw?.targetPrice1 ?? raw?.targetPrice),
+    targetPrice: finiteOrNull(raw?.targetPrice1 ?? raw?.targetPrice),
+    riskReward1: finiteOrNull(raw?.riskReward1 ?? raw?.riskReward) ?? undefined,
+    tp1SellPct: finiteOrNull(raw?.tp1SellPct) ?? undefined,
+    moveStopToBreakevenAfterTp1: raw?.moveStopToBreakevenAfterTp1,
     relatedOrderIds: [],
     relatedSignalIds: [],
     reconciliationFlags: status === 'STALE_NEEDS_RECONCILIATION'
@@ -505,6 +531,9 @@ export function formatPositionStateOpenedLog(state: PositionState): string {
     "mode='SHADOW'",
     kv('quantity', state.quantity),
     kv('avgEntryPrice', state.avgEntryPrice),
+    kv('tradePlanId', state.tradePlanId),
+    kv('initialStopLoss', state.initialStopLoss),
+    kv('targetPrice1', state.targetPrice1),
     "source='SHADOW_LEDGER'",
   ].join(' ');
 }

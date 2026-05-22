@@ -53,6 +53,18 @@ export interface PriceSnapshot {
   reason?: string;
 }
 
+export type TradePlanStatus =
+  | 'VALID'
+  | 'INVALID_PRICE'
+  | 'INVALID_STOP'
+  | 'INVALID_TARGET'
+  | 'RR_INSUFFICIENT'
+  | 'PRICE_STALE'
+  | 'MISSING_PRICE';
+
+export type StopPolicy = 'FIXED_PCT' | 'TECHNICAL_SUPPORT' | 'HYBRID_SIMPLE';
+export type TargetPolicy = 'FIXED_RR' | 'FIXED_PCT' | 'HYBRID_SIMPLE';
+
 export interface ResolvePriceSnapshotInput {
   symbol: string;
   purpose: PriceSnapshotPurpose;
@@ -63,23 +75,55 @@ export interface ResolvePriceSnapshotInput {
 }
 
 export interface TradePlan {
+  tradePlanId: string;
+  snapshotId: string;
   symbol: string;
+  side: 'BUY' | 'SELL';
   priceSnapshotId: string;
   entryPrice: number;
+  initialStopLoss: number;
+  currentStopLoss: number;
+  targetPrice1: number;
+  targetPrice2?: number | null;
   stopLoss: number;
   targetPrice: number;
   riskPerShare: number;
+  rewardPerShare1: number;
   rewardPerShare: number;
+  riskReward1: number;
   riskReward: number;
+  stopLossPct: number;
+  targetPct1: number;
+  minRiskReward: number;
+  status: TradePlanStatus;
+  invalidReasons: string[];
+  warnings: string[];
+  riskTags: string[];
+  stopPolicy: StopPolicy;
+  targetPolicy: TargetPolicy;
+  tp1SellPct: number;
+  moveStopToBreakevenAfterTp1: boolean;
+  breakevenBufferPct: number;
   computedAt: string;
+  resolvedBy: 'TradePlanResolver';
 }
 
 export interface TradePlanParams {
+  snapshotId?: string;
+  side?: 'BUY' | 'SELL';
   stopLossPct?: number;
   targetGainPct?: number;
   minRiskReward?: number;
+  initialStopLoss?: number | null;
+  targetPrice1?: number | null;
   existingStopLoss?: number | null;
   existingTargetPrice?: number | null;
+  technicalSupportCandidate?: number | null;
+  stopPolicy?: StopPolicy;
+  targetPolicy?: TargetPolicy;
+  tp1SellPct?: number;
+  moveStopToBreakevenAfterTp1?: boolean;
+  breakevenBufferPct?: number;
   computedAt?: string;
 }
 
@@ -93,17 +137,45 @@ export interface PriceMismatchCheck {
 
 export interface TradePlanValidationResult {
   ok: boolean;
-  reason?: 'STOP_ABOVE_LATEST_PRICE' | 'STOP_NOT_BELOW_ENTRY' | 'TARGET_NOT_ABOVE_ENTRY' | 'RR_INSUFFICIENT' | 'ENTRY_LATEST_MISMATCH';
+  reason?: 'STOP_ABOVE_LATEST_PRICE' | 'STOP_NOT_BELOW_ENTRY' | 'TARGET_NOT_ABOVE_ENTRY' | 'RR_INSUFFICIENT' | 'ENTRY_LATEST_MISMATCH' | 'TRADE_PLAN_STATUS_INVALID';
   executionImpact: 'NONE' | 'ORDER_WAIT_PRICE_REBUILD';
   learningLabel?: 'PRICE_PLAN_INVALID';
   mismatch?: PriceMismatchCheck;
 }
 
+export interface BreakevenStopMove {
+  tradePlanId: string;
+  symbol: string;
+  entryPrice: number;
+  tp1Price: number;
+  oldStopLoss: number;
+  newStopLoss: number;
+  tp1RealizedPnL?: number;
+  stopMovedToBreakeven: true;
+}
+
+export interface SimpleTrailingStopResult {
+  currentStopLoss: number;
+  trailingStop: number;
+  trailingActivated: boolean;
+}
+
 const DEFAULT_SHADOW_FILL_AGE_SEC = 60;
 const DEFAULT_QUOTE_AGE_SEC = 30;
+const DEFAULT_STOP_LOSS_PCT = 0.05;
+const DEFAULT_MIN_RISK_REWARD = 2.0;
+const DEFAULT_TP1_SELL_PCT = 0.5;
+const DEFAULT_BREAKEVEN_BUFFER_PCT = 0.001;
+const DEFAULT_TRAILING_PCT = 0.03;
+const MIN_STOP_DISTANCE_PCT = 0.015;
+const WIDE_STOP_DISTANCE_PCT = 0.10;
 
 function finitePositive(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function roundPrice(value: number): number {
+  return Math.round(value);
 }
 
 function kstTradingDate(now: Date): string {
@@ -280,31 +352,158 @@ export function resolveEntryPriceFromSnapshot(snapshot: PriceSnapshot, purpose: 
   return snapshot.priceUsableForDecision ? snapshot.currentPrice : null;
 }
 
+function selectStopLoss(input: {
+  entryPrice: number;
+  fixedStop: number;
+  technicalSupportCandidate?: number | null;
+  explicitStop?: number | null;
+  stopPolicy: StopPolicy;
+}): number {
+  if (finitePositive(input.explicitStop)) {
+    return roundPrice(input.explicitStop);
+  }
+  const technicalStop = input.technicalSupportCandidate;
+  if (
+    (input.stopPolicy === 'TECHNICAL_SUPPORT' || input.stopPolicy === 'HYBRID_SIMPLE')
+    && finitePositive(technicalStop)
+    && technicalStop < input.entryPrice
+  ) {
+    const distancePct = (input.entryPrice - technicalStop) / input.entryPrice;
+    if (distancePct >= MIN_STOP_DISTANCE_PCT && distancePct <= WIDE_STOP_DISTANCE_PCT) {
+      return roundPrice(Math.max(input.fixedStop, technicalStop));
+    }
+  }
+  return roundPrice(input.fixedStop);
+}
+
+function deriveTradePlanStatus(input: {
+  priceSnapshot: PriceSnapshot;
+  entryPrice: number;
+  initialStopLoss: number;
+  targetPrice1: number;
+  riskPerShare: number;
+  riskReward1: number;
+  minRiskReward: number;
+}): { status: TradePlanStatus; invalidReasons: string[]; warnings: string[]; riskTags: string[] } {
+  const invalidReasons: string[] = [];
+  const warnings: string[] = [];
+  const riskTags: string[] = [];
+
+  if (!finitePositive(input.priceSnapshot.currentPrice)) {
+    invalidReasons.push('MISSING_PRICE');
+    return { status: 'MISSING_PRICE', invalidReasons, warnings, riskTags };
+  }
+  if (!finitePositive(input.entryPrice)) {
+    invalidReasons.push('INVALID_ENTRY_PRICE');
+    return { status: 'INVALID_PRICE', invalidReasons, warnings, riskTags };
+  }
+  if (['STALE', 'MISSING', 'ESTIMATED'].includes(input.priceSnapshot.confidence) || !input.priceSnapshot.priceUsableForDecision) {
+    invalidReasons.push(`PRICE_${input.priceSnapshot.confidence}`);
+    return { status: 'PRICE_STALE', invalidReasons, warnings, riskTags };
+  }
+  if (!finitePositive(input.initialStopLoss) || input.initialStopLoss >= input.entryPrice || input.riskPerShare <= 0) {
+    invalidReasons.push('STOP_NOT_BELOW_ENTRY');
+    return { status: 'INVALID_STOP', invalidReasons, warnings, riskTags };
+  }
+  const stopDistancePct = (input.entryPrice - input.initialStopLoss) / input.entryPrice;
+  if (stopDistancePct < MIN_STOP_DISTANCE_PCT) {
+    invalidReasons.push('STOP_TOO_CLOSE_TO_ENTRY');
+    return { status: 'INVALID_STOP', invalidReasons, warnings, riskTags };
+  }
+  if (stopDistancePct > WIDE_STOP_DISTANCE_PCT) {
+    warnings.push('WIDE_STOP_RISK');
+    riskTags.push('WIDE_STOP_RISK');
+  }
+  if (!finitePositive(input.targetPrice1) || input.targetPrice1 <= input.entryPrice) {
+    invalidReasons.push('TARGET_NOT_ABOVE_ENTRY');
+    return { status: 'INVALID_TARGET', invalidReasons, warnings, riskTags };
+  }
+  if (input.riskReward1 < input.minRiskReward) {
+    invalidReasons.push('RR_BELOW_MINIMUM');
+    return { status: 'RR_INSUFFICIENT', invalidReasons, warnings, riskTags };
+  }
+
+  return { status: 'VALID', invalidReasons, warnings, riskTags };
+}
+
 export function computeTradePlan(priceSnapshot: PriceSnapshot, params: TradePlanParams = {}): TradePlan {
   const entryPrice = priceSnapshot.currentPrice ?? 0;
-  const stopLossPct = params.stopLossPct ?? 0.07;
-  const targetGainPct = params.targetGainPct ?? 0.14;
-  const stopLoss = finitePositive(params.existingStopLoss) && (params.existingStopLoss as number) < entryPrice
-    ? Math.round(params.existingStopLoss as number)
-    : Math.round(entryPrice * (1 - stopLossPct));
-  const targetPrice = finitePositive(params.existingTargetPrice) && (params.existingTargetPrice as number) > entryPrice
-    ? Math.round(params.existingTargetPrice as number)
-    : Math.round(entryPrice * (1 + targetGainPct));
-  const riskPerShare = Math.max(0, entryPrice - stopLoss);
-  const rewardPerShare = Math.max(0, targetPrice - entryPrice);
-  const riskReward = riskPerShare > 0 ? rewardPerShare / riskPerShare : 0;
+  const stopLossPct = params.stopLossPct ?? DEFAULT_STOP_LOSS_PCT;
+  const minRiskReward = params.minRiskReward ?? DEFAULT_MIN_RISK_REWARD;
+  const stopPolicy = params.stopPolicy ?? (params.technicalSupportCandidate ? 'HYBRID_SIMPLE' : 'FIXED_PCT');
+  const targetPolicy = params.targetPolicy ?? (params.targetGainPct !== undefined || params.existingTargetPrice !== undefined || params.targetPrice1 !== undefined ? 'FIXED_PCT' : 'FIXED_RR');
+  const fixedStop = entryPrice > 0 ? entryPrice * (1 - stopLossPct) : 0;
+  const explicitStop = params.initialStopLoss ?? params.existingStopLoss;
+  const initialStopLoss = selectStopLoss({
+    entryPrice,
+    fixedStop,
+    technicalSupportCandidate: params.technicalSupportCandidate,
+    explicitStop,
+    stopPolicy,
+  });
+  const riskPerShare = Math.max(0, entryPrice - initialStopLoss);
+  const explicitTarget = params.targetPrice1 ?? params.existingTargetPrice;
+  const targetPrice1 = finitePositive(explicitTarget)
+    ? roundPrice(explicitTarget)
+    : params.targetGainPct !== undefined
+      ? roundPrice(entryPrice * (1 + params.targetGainPct))
+      : roundPrice(entryPrice + riskPerShare * minRiskReward);
+  const rewardPerShare1 = Math.max(0, targetPrice1 - entryPrice);
+  const riskReward1 = riskPerShare > 0 ? rewardPerShare1 / riskPerShare : 0;
+  const targetPct1 = entryPrice > 0 ? (targetPrice1 - entryPrice) / entryPrice : 0;
+  const computedAt = params.computedAt ?? new Date().toISOString();
+  const derived = deriveTradePlanStatus({
+    priceSnapshot,
+    entryPrice,
+    initialStopLoss,
+    targetPrice1,
+    riskPerShare,
+    riskReward1,
+    minRiskReward,
+  });
+  const tradePlanId = [
+    'tp',
+    priceSnapshot.priceSnapshotId,
+    priceSnapshot.symbol,
+    String(Date.parse(computedAt) || computedAt).replace(/[^0-9a-zA-Z_-]+/g, '_'),
+  ].join('_');
+
   return {
+    tradePlanId,
+    snapshotId: params.snapshotId ?? priceSnapshot.snapshotId,
     symbol: priceSnapshot.symbol,
+    side: params.side ?? 'BUY',
     priceSnapshotId: priceSnapshot.priceSnapshotId,
     entryPrice,
-    stopLoss,
-    targetPrice,
+    initialStopLoss,
+    currentStopLoss: initialStopLoss,
+    targetPrice1,
+    targetPrice2: null,
+    stopLoss: initialStopLoss,
+    targetPrice: targetPrice1,
     riskPerShare,
-    rewardPerShare,
-    riskReward: Number(riskReward.toFixed(4)),
-    computedAt: params.computedAt ?? new Date().toISOString(),
+    rewardPerShare1,
+    rewardPerShare: rewardPerShare1,
+    riskReward1: Number(riskReward1.toFixed(4)),
+    riskReward: Number(riskReward1.toFixed(4)),
+    stopLossPct,
+    targetPct1: Number(targetPct1.toFixed(4)),
+    minRiskReward,
+    status: derived.status,
+    invalidReasons: derived.invalidReasons,
+    warnings: derived.warnings,
+    riskTags: derived.riskTags,
+    stopPolicy,
+    targetPolicy,
+    tp1SellPct: params.tp1SellPct ?? DEFAULT_TP1_SELL_PCT,
+    moveStopToBreakevenAfterTp1: params.moveStopToBreakevenAfterTp1 ?? true,
+    breakevenBufferPct: params.breakevenBufferPct ?? DEFAULT_BREAKEVEN_BUFFER_PCT,
+    computedAt,
+    resolvedBy: 'TradePlanResolver',
   };
 }
+
+export const resolveTradePlan = computeTradePlan;
 
 export function checkPriceMismatch(input: {
   referencePrice: number;
@@ -342,20 +541,87 @@ export function validateTradePlanAgainstLatestPrice(input: {
   if (mismatch.status === 'MISMATCH') {
     return { ok: false, reason: 'ENTRY_LATEST_MISMATCH', executionImpact: 'ORDER_WAIT_PRICE_REBUILD', learningLabel: 'PRICE_PLAN_INVALID', mismatch };
   }
-  if (input.tradePlan.stopLoss >= input.tradePlan.entryPrice) {
+  if (input.tradePlan.initialStopLoss >= input.tradePlan.entryPrice) {
     return { ok: false, reason: 'STOP_NOT_BELOW_ENTRY', executionImpact: 'ORDER_WAIT_PRICE_REBUILD', learningLabel: 'PRICE_PLAN_INVALID', mismatch };
   }
-  if (input.tradePlan.targetPrice <= input.tradePlan.entryPrice) {
+  if (input.tradePlan.targetPrice1 <= input.tradePlan.entryPrice) {
     return { ok: false, reason: 'TARGET_NOT_ABOVE_ENTRY', executionImpact: 'ORDER_WAIT_PRICE_REBUILD', learningLabel: 'PRICE_PLAN_INVALID', mismatch };
   }
-  if (input.tradePlan.stopLoss > latestPrice) {
+  if (input.tradePlan.initialStopLoss > latestPrice) {
     return { ok: false, reason: 'STOP_ABOVE_LATEST_PRICE', executionImpact: 'ORDER_WAIT_PRICE_REBUILD', learningLabel: 'PRICE_PLAN_INVALID', mismatch };
   }
-  const minRiskReward = input.minRiskReward ?? 1;
-  if (input.tradePlan.riskReward < minRiskReward) {
+  if (!['VALID', 'RR_INSUFFICIENT'].includes(input.tradePlan.status)) {
+    return { ok: false, reason: 'TRADE_PLAN_STATUS_INVALID', executionImpact: 'ORDER_WAIT_PRICE_REBUILD', learningLabel: 'PRICE_PLAN_INVALID', mismatch };
+  }
+  const minRiskReward = input.minRiskReward ?? input.tradePlan.minRiskReward ?? DEFAULT_MIN_RISK_REWARD;
+  if (input.tradePlan.riskReward1 < minRiskReward) {
     return { ok: false, reason: 'RR_INSUFFICIENT', executionImpact: 'ORDER_WAIT_PRICE_REBUILD', learningLabel: 'PRICE_PLAN_INVALID', mismatch };
   }
   return { ok: true, executionImpact: 'NONE', mismatch };
+}
+
+export function applyTp1BreakevenMove(input: {
+  tradePlan: TradePlan;
+  tp1Price?: number;
+  oldStopLoss?: number;
+  tp1RealizedPnL?: number;
+}): BreakevenStopMove {
+  const newStopLoss = roundPrice(input.tradePlan.entryPrice * (1 + input.tradePlan.breakevenBufferPct));
+  return {
+    tradePlanId: input.tradePlan.tradePlanId,
+    symbol: input.tradePlan.symbol,
+    entryPrice: input.tradePlan.entryPrice,
+    tp1Price: input.tp1Price ?? input.tradePlan.targetPrice1,
+    oldStopLoss: input.oldStopLoss ?? input.tradePlan.currentStopLoss,
+    newStopLoss,
+    tp1RealizedPnL: input.tp1RealizedPnL,
+    stopMovedToBreakeven: true,
+  };
+}
+
+export function applySimpleTrailingStop(input: {
+  entryPrice: number;
+  currentStopLoss: number;
+  latestPrice: number;
+  trailingPct?: number;
+}): SimpleTrailingStopResult {
+  const trailingPct = input.trailingPct ?? DEFAULT_TRAILING_PCT;
+  const trailingStop = roundPrice(input.latestPrice * (1 - trailingPct));
+  const floorStop = Math.max(input.currentStopLoss, input.entryPrice);
+  const currentStopLoss = Math.max(input.currentStopLoss, floorStop, trailingStop);
+  return {
+    currentStopLoss,
+    trailingStop,
+    trailingActivated: currentStopLoss > input.currentStopLoss,
+  };
+}
+
+export function attachTradePlanToPositionState<T extends Record<string, unknown>>(
+  position: T,
+  tradePlan: TradePlan,
+): T & {
+  tradePlanId: string;
+  priceSnapshotId: string;
+  entryPrice: number;
+  initialStopLoss: number;
+  currentStopLoss: number;
+  targetPrice1: number;
+  riskReward1: number;
+  tp1SellPct: number;
+  moveStopToBreakevenAfterTp1: boolean;
+} {
+  return {
+    ...position,
+    tradePlanId: tradePlan.tradePlanId,
+    priceSnapshotId: tradePlan.priceSnapshotId,
+    entryPrice: tradePlan.entryPrice,
+    initialStopLoss: tradePlan.initialStopLoss,
+    currentStopLoss: tradePlan.currentStopLoss,
+    targetPrice1: tradePlan.targetPrice1,
+    riskReward1: tradePlan.riskReward1,
+    tp1SellPct: tradePlan.tp1SellPct,
+    moveStopToBreakevenAfterTp1: tradePlan.moveStopToBreakevenAfterTp1,
+  };
 }
 
 function kv(key: string, value: unknown): string {
@@ -389,10 +655,71 @@ export function formatTradePlanComputedFromPriceSnapshotLog(plan: TradePlan): st
     kv('symbol', plan.symbol),
     kv('priceSnapshotId', plan.priceSnapshotId),
     kv('entryPrice', plan.entryPrice),
-    kv('stopLoss', plan.stopLoss),
-    kv('targetPrice', plan.targetPrice),
-    kv('riskReward', plan.riskReward),
+    kv('stopLoss', plan.initialStopLoss),
+    kv('targetPrice', plan.targetPrice1),
+    kv('riskReward', plan.riskReward1),
     kv('computedAt', plan.computedAt),
+  ].join(' ');
+}
+
+export function formatTradePlanResolvedLog(plan: TradePlan): string {
+  return [
+    '[TRADE_PLAN_RESOLVED]',
+    kv('snapshotId', plan.snapshotId),
+    kv('priceSnapshotId', plan.priceSnapshotId),
+    kv('tradePlanId', plan.tradePlanId),
+    kv('symbol', plan.symbol),
+    kv('entryPrice', plan.entryPrice),
+    kv('initialStopLoss', plan.initialStopLoss),
+    kv('targetPrice1', plan.targetPrice1),
+    kv('riskReward1', plan.riskReward1),
+    kv('status', plan.status),
+    kv('invalidReasons', `[${plan.invalidReasons.join(',') || 'none'}]`),
+    "resolvedBy='TradePlanResolver'",
+  ].join(' ');
+}
+
+export function formatRrInsufficientObservedLog(plan: TradePlan): string {
+  return [
+    '[RR_INSUFFICIENT_OBSERVED]',
+    kv('tradePlanId', plan.tradePlanId),
+    kv('symbol', plan.symbol),
+    kv('riskReward1', plan.riskReward1),
+    kv('minRiskReward', plan.minRiskReward),
+    "decision='WATCH_RR_INSUFFICIENT'",
+    "executionImpact='NONE'",
+    'shadowLearning=true',
+  ].join(' ');
+}
+
+export function formatStopMovedToBreakevenAfterTp1Log(input: BreakevenStopMove & { positionId?: string }): string {
+  return [
+    '[STOP_MOVED_TO_BREAKEVEN_AFTER_TP1]',
+    kv('positionId', input.positionId),
+    kv('symbol', input.symbol),
+    kv('entryPrice', input.entryPrice),
+    kv('tp1Price', input.tp1Price),
+    kv('oldStopLoss', input.oldStopLoss),
+    kv('newStopLoss', input.newStopLoss),
+    kv('tp1RealizedPnL', input.tp1RealizedPnL),
+  ].join(' ');
+}
+
+export function formatPositionTradePlanAttachedLog(input: {
+  positionId?: string;
+  symbol: string;
+  tradePlan: TradePlan;
+}): string {
+  return [
+    '[POSITION_TRADE_PLAN_ATTACHED]',
+    kv('positionId', input.positionId),
+    kv('symbol', input.symbol),
+    kv('tradePlanId', input.tradePlan.tradePlanId),
+    kv('priceSnapshotId', input.tradePlan.priceSnapshotId),
+    kv('entryPrice', input.tradePlan.entryPrice),
+    kv('initialStopLoss', input.tradePlan.initialStopLoss),
+    kv('targetPrice1', input.tradePlan.targetPrice1),
+    kv('riskReward1', input.tradePlan.riskReward1),
   ].join(' ');
 }
 
@@ -457,8 +784,8 @@ export function formatTradePlanPriceValidationFailedLog(input: {
     kv('symbol', input.symbol),
     kv('entryPrice', input.tradePlan.entryPrice),
     kv('latestPrice', input.latestPriceSnapshot.currentPrice),
-    kv('stopLoss', input.tradePlan.stopLoss),
-    kv('targetPrice', input.tradePlan.targetPrice),
+    kv('stopLoss', input.tradePlan.initialStopLoss),
+    kv('targetPrice', input.tradePlan.targetPrice1),
     kv('reason', input.reason ?? 'PRICE_PLAN_INVALID'),
     "executionImpact='ORDER_WAIT_PRICE_REBUILD'",
     'shadowLearning=true',

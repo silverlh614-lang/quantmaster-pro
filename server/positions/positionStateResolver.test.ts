@@ -199,12 +199,18 @@ describe('PositionStateResolver SSOT', () => {
       updatedAt: NOW.toISOString(),
       source: 'SHADOW_LEDGER',
       sourceConfidence: 'VERIFIED',
+      tradePlanId: 'tp-084670',
+      initialStopLoss: 43_985,
+      currentStopLoss: 43_985,
+      targetPrice1: 50_930,
+      riskReward1: 2,
       relatedOrderIds: [],
       relatedSignalIds: [],
     };
 
     expect(formatPositionStateOpenedLog(state)).toContain('[POSITION_STATE_OPENED]');
     expect(formatPositionStateOpenedLog(state)).toContain("source='SHADOW_LEDGER'");
+    expect(formatPositionStateOpenedLog(state)).toContain('tradePlanId=tp-084670');
   });
 
   it('routes slot calculation log through console for operational visibility', async () => {

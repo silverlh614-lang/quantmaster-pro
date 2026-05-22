@@ -89,6 +89,8 @@ import {
   formatShadowFillPriceConfirmedLog,
   formatTradePlanComputedFromPriceSnapshotLog,
   formatTradePlanPriceValidationFailedLog,
+  formatTradePlanResolvedLog,
+  formatPositionTradePlanAttachedLog,
   priceSnapshotFromAuthoritativeQuote,
   validateTradePlanAgainstLatestPrice,
   type PriceSnapshot,
@@ -419,8 +421,8 @@ function applyVerifiedEntryPrice(
   const oldStop = trade.stopLoss;
   const stopLossPct = Number.isFinite(oldEntry) && oldEntry > 0 && Number.isFinite(oldStop) && oldStop > 0 && oldStop < oldEntry
     ? (oldEntry - oldStop) / oldEntry
-    : 0.07;
-  const stopPrice = tradePlan?.stopLoss ?? Math.round(validation.fillPrice * (1 - stopLossPct));
+    : 0.05;
+  const stopPrice = tradePlan?.initialStopLoss ?? Math.round(validation.fillPrice * (1 - stopLossPct));
 
   trade.shadowEntryPrice = validation.fillPrice;
   trade.signalPrice = validation.fillPrice;
@@ -428,7 +430,7 @@ function applyVerifiedEntryPrice(
   trade.stopLoss = stopPrice;
   trade.initialStopLoss = stopPrice;
   if (tradePlan) {
-    trade.targetPrice = tradePlan.targetPrice;
+    trade.targetPrice = tradePlan.targetPrice1;
   }
   trade.entryPriceValidationStatus = 'VERIFIED';
   trade.entryQuoteSnapshotId = validation.quote.snapshotId;
@@ -443,12 +445,24 @@ function applyVerifiedEntryPrice(
     priceSnapshotId?: string;
     entryPriceSource?: string;
     entryPriceConfidence?: string;
+    tradePlanId?: string;
+    currentStopLoss?: number;
+    targetPrice1?: number;
+    riskReward1?: number;
+    tp1SellPct?: number;
+    moveStopToBreakevenAfterTp1?: boolean;
     tradePlanRiskReward?: number;
   };
   extendedTrade.priceSnapshotId = priceSnapshot?.priceSnapshotId;
   extendedTrade.entryPriceSource = priceSnapshot?.source;
   extendedTrade.entryPriceConfidence = priceSnapshot?.confidence;
-  extendedTrade.tradePlanRiskReward = tradePlan?.riskReward;
+  extendedTrade.tradePlanId = tradePlan?.tradePlanId;
+  extendedTrade.currentStopLoss = tradePlan?.currentStopLoss;
+  extendedTrade.targetPrice1 = tradePlan?.targetPrice1;
+  extendedTrade.riskReward1 = tradePlan?.riskReward1;
+  extendedTrade.tp1SellPct = tradePlan?.tp1SellPct;
+  extendedTrade.moveStopToBreakevenAfterTp1 = tradePlan?.moveStopToBreakevenAfterTp1;
+  extendedTrade.tradePlanRiskReward = tradePlan?.riskReward1;
 }
 
 /**
@@ -658,21 +672,11 @@ export async function executeShadowBuy(
       });
     }
 
-    const oldEntry = input.trade.shadowEntryPrice;
-    const oldStop = input.trade.stopLoss;
-    const stopLossPct = Number.isFinite(oldEntry) && oldEntry > 0 && Number.isFinite(oldStop) && oldStop > 0 && oldStop < oldEntry
-      ? (oldEntry - oldStop) / oldEntry
-      : 0.07;
-    const oldTarget = input.trade.targetPrice;
-    const targetGainPct = Number.isFinite(oldEntry) && oldEntry > 0 && Number.isFinite(oldTarget) && oldTarget > oldEntry
-      ? (oldTarget - oldEntry) / oldEntry
-      : 0.14;
     const tradePlan = computeTradePlan(priceSnapshot, {
-      stopLossPct,
-      targetGainPct,
       computedAt: executedAtIso,
     });
     console.log(formatTradePlanComputedFromPriceSnapshotLog(tradePlan));
+    console.log(formatTradePlanResolvedLog(tradePlan));
     const tradePlanValidation = validateTradePlanAgainstLatestPrice({
       tradePlan,
       latestPriceSnapshot: priceSnapshot,
@@ -707,6 +711,11 @@ export async function executeShadowBuy(
     }
 
     applyVerifiedEntryPrice(input.trade, validation, input.marketSession, priceSnapshot, tradePlan);
+    console.log(formatPositionTradePlanAttachedLog({
+      positionId: input.trade.id,
+      symbol: input.trade.stockCode,
+      tradePlan,
+    }));
     fillPrice = validation.fillPrice;
     verifiedQuote = validation.quote;
     verifiedPriceSnapshot = priceSnapshot;

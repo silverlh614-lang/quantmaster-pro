@@ -29,8 +29,15 @@ export interface DisplayState {
   positionAmount?: number;
   entryPrice?: number;
   stopLoss?: number;
+  initialStopLoss?: number;
+  currentStopLoss?: number;
   targetPrice?: number;
+  targetPrice1?: number;
   riskReward?: number;
+  riskReward1?: number;
+  tradePlanId?: string;
+  tp1SellPct?: number;
+  moveStopToBreakevenAfterTp1?: boolean;
   mode?: 'LIVE' | 'SHADOW' | 'COUNTERFACTUAL';
   lifecycleStage?: string;
   tradingDate?: string;
@@ -196,11 +203,14 @@ export function renderDisplayState(state: DisplayState): string {
       `판단: ${state.decision ?? 'n/a'} / ${state.label ?? 'n/a'}`,
       `점수: ${formatNumber(state.finalScore, '점')}`,
       `진입가: ${formatPrice(state.entryPrice)}`,
-      `손절가: ${formatPrice(state.stopLoss)}`,
-      `목표가: ${formatPrice(state.targetPrice)}`,
-      `R:R: ${formatNumber(state.riskReward)}`,
+      `손절가: ${formatPrice(state.initialStopLoss ?? state.stopLoss)}`,
+      `목표가: ${formatPrice(state.targetPrice1 ?? state.targetPrice)}`,
+      `R:R: ${formatNumber(state.riskReward1 ?? state.riskReward)}`,
       `비중: ${formatPrice(state.positionAmount)}`,
       `모드: ${state.mode ?? 'n/a'}`,
+      `TradePlan: ${state.tradePlanId ?? 'n/a'}`,
+      `TP1: ${formatNumber(state.tp1SellPct !== undefined ? state.tp1SellPct * 100 : undefined, '%')}`,
+      `BE after TP1: ${state.moveStopToBreakevenAfterTp1 === undefined ? 'n/a' : state.moveStopToBreakevenAfterTp1 ? 'ON' : 'OFF'}`,
       '',
       '보조 정보:',
       ...summaryLines.map((line) => `- ${line}`),
