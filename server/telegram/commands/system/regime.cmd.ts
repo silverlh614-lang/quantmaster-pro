@@ -183,7 +183,7 @@ export function formatSectorEnergyLine(macro: {
  * 를 미노출 — 운영자가 "왜 매매가 안 되지" 같은 질문에 메시지로 답을 못 받음.
  *
  * 이모지 분류 (방어 → 공격):
- *   R6_DEFENSE: 🛑 (매수 전면 차단)
+ *   R6_DEFENSE: reduced exposure + score adjustment only
  *   R5_CAUTION: 🟡 (CONFIRMED_STRONG_BUY 만)
  *   R4_NEUTRAL: 🟠 (선택적 진입)
  *   R3_EARLY:   🌱 (선취매)
@@ -193,13 +193,13 @@ export function formatSectorEnergyLine(macro: {
 export function formatLiveRegimeLine(liveRegime: RegimeLevel): string {
   const policy = getRegimePositionPolicy(liveRegime);
   const emoji =
-    liveRegime === 'R6_DEFENSE' ? '🛑' :
+    liveRegime === 'R6_DEFENSE' ? '⚪' :
     liveRegime === 'R5_CAUTION' ? '🟡' :
     liveRegime === 'R4_NEUTRAL' ? '🟠' :
     liveRegime === 'R3_EARLY'   ? '🌱' :
     liveRegime === 'R2_BULL'    ? '🟢' :
     liveRegime === 'R1_TURBO'   ? '🔥' : '⚙️';
-  return `${emoji} 매매: ${liveRegime} (총노출 ${policy.maxGrossExposurePct}%, 최대 ${policy.maxPositions}포지션, 종목당 ${policy.perPositionPct}%)`;
+  return `${emoji} 매매: ${liveRegime} (role=position policy + score adjustment only, 총노출 ${policy.maxGrossExposurePct}%, 최대 ${policy.maxPositions}포지션, 종목당 ${policy.perPositionPct}%)`;
 }
 
 /**

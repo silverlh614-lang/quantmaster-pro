@@ -111,13 +111,15 @@ import { formatLiveRegimeLine } from './regime.cmd';
 import type { RegimeLevel } from '../../../../src/types/core';
 
 describe('formatLiveRegimeLine — 매매 레짐 SSOT 노출 (ADR-0074)', () => {
-  it('R6_DEFENSE: 🛑 + 총노출 20% + 최대 3포지션', () => {
+  it('R6_DEFENSE: reduced exposure + adjustment-only role + 최대 3포지션', () => {
     const line = formatLiveRegimeLine('R6_DEFENSE');
-    expect(line).toContain('🛑');
+    expect(line).toContain('⚪');
     expect(line).toContain('R6_DEFENSE');
+    expect(line).toContain('role=position policy + score adjustment only');
     expect(line).toContain('총노출 20%');
     expect(line).toContain('최대 3포지션');
     expect(line).not.toContain('Kelly');
+    expect(line).not.toContain('매수 전면 차단');
   });
 
   it('R5_CAUTION: 🟡 + 총노출 20% + 최대 3포지션', () => {

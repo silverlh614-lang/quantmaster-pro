@@ -42,6 +42,11 @@ export interface SimpleTradeDecisionInput {
   diagnosticEvidence?: string[];
   gateScoreBreakdown?: GateScoreBreakdown;
   qualityDecision?: QualityDecision;
+  regime?: string;
+  regimeAdjustment?: number;
+  maxPositions?: number;
+  currentPositions?: number;
+  remainingSlots?: number;
 }
 
 export interface SimpleTradeDecisionResult {
@@ -58,6 +63,11 @@ export interface SimpleTradeDecisionResult {
   qualityDecision: QualityDecision;
   hardFailReasons: string[];
   softFailReasons: string[];
+  regime: string;
+  regimeAdjustment: number;
+  maxPositions: number;
+  currentPositions: number;
+  remainingSlots: number;
   buyThreshold: number;
   watchThreshold: number;
   decision: TradeDecision;
@@ -126,6 +136,7 @@ export function resolveSimpleTradeDecision(
   const slotAvailable = input.slotAvailable ?? true;
   const baseScore = finiteOrZero(input.baseScore);
   const scoreAdjustment = finiteOrZero(input.scoreAdjustment);
+  const regimeAdjustment = finiteOrZero(input.regimeAdjustment);
   const dataGateUsable = input.gateScoreBreakdown?.dataGateUsable ?? input.dataUsable;
   const label = dataGateUsable ? labelFromFinalScore(input.finalScore) : 'DATA_INCOMPLETE';
   const qualityDecision = input.qualityDecision ?? (input.gateScoreBreakdown
@@ -175,6 +186,11 @@ export function resolveSimpleTradeDecision(
     qualityDecision,
     hardFailReasons: input.gateScoreBreakdown?.hardFailReasons ?? [],
     softFailReasons: input.gateScoreBreakdown?.softFailReasons ?? [],
+    regime: input.regime ?? 'UNKNOWN',
+    regimeAdjustment,
+    maxPositions: Math.max(0, Math.floor(input.maxPositions ?? 0)),
+    currentPositions: Math.max(0, Math.floor(input.currentPositions ?? 0)),
+    remainingSlots: Math.max(0, Math.floor(input.remainingSlots ?? 0)),
     buyThreshold,
     watchThreshold,
     decision,
@@ -197,6 +213,7 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('dataGateUsable', result.dataGateUsable),
     kv('gateTotalScore', result.gateTotalScore),
     kv('baseScore', result.baseScore),
+    kv('regimeAdjustment', result.regimeAdjustment),
     kv('scoreAdjustment', result.scoreAdjustment),
     kv('finalScore', result.finalScore),
     kv('buyThreshold', result.buyThreshold),
@@ -206,6 +223,10 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('hardFailReasons', `[${result.hardFailReasons.join(',') || 'none'}]`),
     kv('softFailReasons', `[${result.softFailReasons.join(',') || 'none'}]`),
     kv('label', result.label),
+    kv('regime', result.regime),
+    kv('maxPositions', result.maxPositions),
+    kv('currentPositions', result.currentPositions),
+    kv('remainingSlots', result.remainingSlots),
     kv('strongBuyAsLabelOnly', result.strongBuyAsLabelOnly),
     kv('shadowLearning', result.shadowLearning),
     "executionImpact='NONE'",

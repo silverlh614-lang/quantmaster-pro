@@ -187,4 +187,45 @@ describe('Simplification Step 4 simple final decision', () => {
     expect(log).toContain('qualityDecision=TRADE_READY');
     expect(log).toContain('softFailReasons=[SUPPLY_MISSING_DIAGNOSTIC_ONLY]');
   });
+
+  it('keeps R6 as score adjustment only when final score remains above buy threshold', () => {
+    const result = resolveSimpleTradeDecision({
+      snapshotId: 'scan_r6_buy',
+      symbol: '005930',
+      dataUsable: true,
+      riskRewardOk: true,
+      slotAvailable: true,
+      baseScore: 78,
+      regimeAdjustment: -5,
+      scoreAdjustment: -5,
+      finalScore: 73,
+      regime: 'R6_DEFENSE',
+      maxPositions: 3,
+      currentPositions: 1,
+      remainingSlots: 2,
+    });
+    const log = formatSimpleDecisionFinalLog(result);
+
+    expect(result.decision).toBe('BUY_ALLOWED');
+    expect(result.blockReasons).not.toContain('R6_DEFENSE');
+    expect(log).toContain('regimeAdjustment=-5');
+    expect(log).toContain('regime=R6_DEFENSE');
+    expect(log).toContain('maxPositions=3');
+  });
+
+  it('allows R6 adjustment to become WATCH only through finalScore, not direct regime block', () => {
+    const result = resolveSimpleTradeDecision({
+      dataUsable: true,
+      riskRewardOk: true,
+      slotAvailable: true,
+      baseScore: 72,
+      regimeAdjustment: -5,
+      scoreAdjustment: -5,
+      finalScore: 67,
+      regime: 'R6_DEFENSE',
+    });
+
+    expect(result.decision).toBe('WATCH');
+    expect(result.blockReasons).toEqual([]);
+  });
 });

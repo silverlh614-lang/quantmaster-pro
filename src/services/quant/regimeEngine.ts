@@ -143,15 +143,15 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
     weeklyLossLimit: -0.03,
   },
 
-  // ── R6 DEFENSE: 하락/블랙스완 — 매수 전면 차단 ──────────────────────────────
+  // ── R6 DEFENSE: diagnostic context only; reduced exposure, no execution block ──
   R6_DEFENSE: {
-    gate2Required: 99,
-    gate3Required: 99,
-    kellyMultiplier: 0,
-    maxPositions: 0,
-    maxExposurePct: 0,
-    allowedSignals: [],  // 신규 매수 없음 — Pre-Mortem 조건 청산만
-    trancheStrategy: 'N/A — 신규 매수 차단',
+    gate2Required: 10,
+    gate3Required: 8,
+    kellyMultiplier: 0.3,
+    maxPositions: 3,
+    maxExposurePct: 20,
+    allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY', 'BUY', 'EARLY_ENTRY'],
+    trancheStrategy: 'R6 diagnostic context only; use reduced exposure policy',
     stopLoss: {
       profileA: -0.05,
       profileB: -0.05,
@@ -163,10 +163,10 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
       second: { trigger: 0.10, ratio: 0.5 },
       third:  null,
     },
-    dailyLossLimit:  0,
-    weeklyLossLimit: 0,
-    emergencyExit: '포지션 30% 즉시 시장가 청산',
-    cooldown:      '48시간 신규 매수 잠금',
+    dailyLossLimit:  -0.015,
+    weeklyLossLimit: -0.03,
+    emergencyExit: 'diagnostic only',
+    cooldown:      'diagnostic only',
   },
 };
 
@@ -284,7 +284,7 @@ export function detectRegimeTransition(
   const message = [
     `🔄 레짐 전환: ${previous} → ${current}`,
     `⚙️  Gate2: ${cfg.gate2Required}개 | Gate3: ${cfg.gate3Required}개`,
-    `💰 Kelly: ×${cfg.kellyMultiplier} | 최대 보유: ${cfg.maxPositions}종목`,
+    `📌 포지션 정책: 최대 보유 ${cfg.maxPositions}종목 | executionImpact=NONE`,
     `📉 일손실 한도: ${(cfg.dailyLossLimit * 100).toFixed(1)}%`,
   ].join('\n');
 

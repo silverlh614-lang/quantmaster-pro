@@ -227,12 +227,12 @@ export function getRegimeConfig(mhs: number, vkospi: number): RegimeConfig {
       allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'],
     };
   }
-  // DEFENSE: MHS < 30 → 매수 전면 차단
+  // DEFENSE: MHS < 30 → reduced exposure / score adjustment only
   return {
-    gate2PassCount: 99,
-    gate3PassCount: 99,
-    maxPositionKelly: 0,
-    allowedSignals: [],  // 방어 모드: 매도 신호만 처리
+    gate2PassCount: 10,
+    gate3PassCount: 8,
+    maxPositionKelly: 0.3,
+    allowedSignals: ['HIGH_CONVICTION', 'BUY', 'WATCH'],
   };
 }
 

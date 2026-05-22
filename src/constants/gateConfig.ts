@@ -100,7 +100,7 @@ export const GATE_SCORE_THRESHOLD_BY_REGIME: Record<RegimeId, GateScoreBand> = {
   R3_EARLY:   { strong: 6,   normal: 4   }, // RISK_ON_EARLY — 문턱 완화
   R4_NEUTRAL: { strong: 7,   normal: 5   }, // 기본
   R5_CAUTION: { strong: 8,   normal: 6   }, // RISK_OFF_CORRECTION — 문턱 강화
-  R6_DEFENSE: { strong: 999, normal: 999 }, // 매수 차단
+  R6_DEFENSE: { strong: 8,   normal: 6   }, // adjustment-only; no execution block
 };
 
 const DEFAULT_SCORE_BAND: GateScoreBand = { strong: 7, normal: 5 };

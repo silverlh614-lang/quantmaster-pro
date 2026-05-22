@@ -298,7 +298,7 @@ describe('formatAdr0505EmissionCompactLine / formatAdr0505EmissionDetailBlock', 
 describe('formatScanBlockersCompactMessage', () => {
   it('summary 부재 — 안전 fallback, 미실행 표시', () => {
     const out = formatScanBlockersCompactMessage(null);
-    expect(out).toContain('매수 차단 요약');
+    expect(out).toContain('스캔 진단 요약');
     expect(out).toContain('미실행');
     expect(out).toContain('candidates: 0');
     expect(out).toContain('Gate1: 0/0');

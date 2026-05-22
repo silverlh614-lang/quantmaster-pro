@@ -1013,7 +1013,7 @@ export function formatScanBlockersCompactMessage(
   const tsStr = typeof summary?.time === 'string' ? summary.time : null;
   const tsMs = tsStr ? Date.parse(tsStr) : NaN;
   const tsLabel = Number.isFinite(tsMs) ? fmtKstHm(tsMs) : '미실행';
-  lines.push(`📊 <b>[매수 차단 요약]</b> ${tsLabel}`);
+  lines.push(`📊 <b>[스캔 진단 요약]</b> ${tsLabel}`);
   lines.push('━━━━━━━━━━━━━━');
 
   lines.push(`snapshotId: ${resolveSnapshotId(summary)}`);

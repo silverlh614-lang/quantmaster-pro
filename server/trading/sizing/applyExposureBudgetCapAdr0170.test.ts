@@ -85,7 +85,7 @@ describe('ADR-0170 §3 applyExposureBudgetCap macro 옵셔널 입력', () => {
       regime: 'R6_DEFENSE',
       macro: { bearDefenseMode: false, vix: 10 },
     }));
-    expect(result.budget?.regime).toBe('R0_CRISIS');
+    expect(result.budget?.regime).toBe('R1_DEFENSIVE');
   });
 
   it('ENV 비활성 (POSITION_SIZING_EXPOSURE_BUDGET_ENABLED 미설정) → applied=false', () => {
