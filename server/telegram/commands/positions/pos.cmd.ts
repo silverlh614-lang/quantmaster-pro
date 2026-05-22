@@ -10,6 +10,13 @@ import {
 } from './shadowPositionSources.js';
 import { renderPositionLine, renderPositionSourceDiagnostics } from './positionOutputFormatters.js';
 import { isEngineBlockQueryException, resolvePositionSource } from '../../../positions/positionSourceResolver.js';
+import {
+  formatPositionExistenceCheckedBySsotLog,
+  formatPositionStateResolvedLog,
+  formatTelegramPositionCommandUsingSsotLog,
+  positionExistsInStates,
+  resolvePositionState,
+} from '../../../positions/positionStateResolver.js';
 
 // ADR-0504 compatibility anchors:
 // getOpenPositions shadowPositionLedger 'POSITION_STATUS_CARD' validatePositionCardPayload buildShadowPositionCardPayload
@@ -69,6 +76,23 @@ function createPositionCommand(
         console.info(`[TELEGRAM_QUERY_ALLOWED_DESPITE_ENGINE_BLOCK] engineMode=${mode.modeLabel} command=${name} executionImpact=NONE queryOnly=true tradeBlockedIgnoredForQuery=true`);
       }
       const visiblePositions = filterPositions(positions, view);
+      const positionStateResolution = await resolvePositionState(
+        { modePreference: 'SHADOW_FIRST', includePending: true },
+        { sourceAggregate: snapshot.sourceAggregate },
+      );
+      const positionExists = positionExistsInStates(positionStateResolution.states);
+      console.info(formatPositionStateResolvedLog(positionStateResolution));
+      console.info(formatPositionExistenceCheckedBySsotLog({
+        exists: positionExists,
+        state: positionStateResolution.states[0],
+      }));
+      console.info(formatTelegramPositionCommandUsingSsotLog({
+        command: name,
+        liveCount: typeof snapshot.counts.kisLiveCount === 'number' ? snapshot.counts.kisLiveCount : 0,
+        shadowCount: snapshot.counts.shadowRegistryCount + snapshot.counts.shadowLedgerCount + snapshot.counts.shadowTradeOpenCount,
+        virtualHoldingCount: snapshot.counts.virtualHoldingCount,
+        displayedCount: visiblePositions.length,
+      }));
       const lines: string[] = [
         '📌 <b>포지션 현황</b>',
         `운영 모드: ${escapeHtml(mode.modeLabel)}`,

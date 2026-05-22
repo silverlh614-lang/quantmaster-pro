@@ -4,6 +4,11 @@ import type { TelegramCommand, CommandVisibility } from '../_types.js';
 import { aggregatePnlSources } from './shadowPositionSources.js';
 import { renderPnlSummary, type PnlView } from './positionOutputFormatters.js';
 import { isEngineBlockQueryException, resolvePositionSource } from '../../../positions/positionSourceResolver.js';
+import {
+  formatPositionStateResolvedLog,
+  formatTelegramPositionCommandUsingSsotLog,
+  resolvePositionState,
+} from '../../../positions/positionStateResolver.js';
 
 function createPnlCommand(
   name: string,
@@ -34,6 +39,18 @@ function createPnlCommand(
       if (isEngineBlockQueryException(snapshot.mode.modeLabel)) {
         console.info(`[TELEGRAM_QUERY_ALLOWED_DESPITE_ENGINE_BLOCK] engineMode=${snapshot.mode.modeLabel} command=${name} executionImpact=NONE queryOnly=true tradeBlockedIgnoredForQuery=true`);
       }
+      const positionStateResolution = await resolvePositionState(
+        { modePreference: 'SHADOW_FIRST', includePending: true },
+        snapshot.sourceAggregate ? { sourceAggregate: snapshot.sourceAggregate } : {},
+      );
+      console.info(formatPositionStateResolvedLog(positionStateResolution));
+      console.info(formatTelegramPositionCommandUsingSsotLog({
+        command: name,
+        liveCount: 0,
+        shadowCount: snapshot.counts.shadowOpenCount,
+        virtualHoldingCount: snapshot.counts.virtualAccountAvailable ? 1 : 0,
+        displayedCount: positionStateResolution.openCount + positionStateResolution.pendingCount,
+      }));
       const message = `${renderPnlSummary(snapshot, view)}\nsourceResolver: ${resolution.selectedSource} (${resolution.reason})`;
       console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=${name} bytes=${message.length}`);
       await reply(message);

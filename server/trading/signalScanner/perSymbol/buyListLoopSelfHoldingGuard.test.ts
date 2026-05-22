@@ -1,7 +1,7 @@
 /**
  * @responsibility sizingTierDecider 자기 보유 가드 정적 회귀 가드 (ADR-0191)
  *
- * Wiring 2 — 사용자 5/6 12회 가짜 매수 사고 후속. corrGate 통과 후 positionTruth
+ * Wiring 2 — 사용자 5/6 12회 가짜 매수 사고 후속. corrGate 통과 후 PositionState
  * SSOT 기반 belt-and-suspenders 2중 안전망. 동일 종목 12회 매수 (물타기) 차단.
  *
  * 정적 grep 가드 (drift 차단) — 추출된 step 의 wiring 위치·인자·로그 형식 보존.
@@ -19,8 +19,9 @@ const source = fs.readFileSync(SIZING_TIER_DECIDER_PATH, 'utf-8');
 const buyListLoopSource = fs.readFileSync(BUY_LIST_LOOP_PATH, 'utf-8');
 
 describe('ADR-0191 §Wiring 2 — sizingTierDecider 자기 보유 가드 정적 가드', () => {
-  it('positionTruth SSOT loadOpenPositions import', () => {
-    expect(source).toMatch(/import \{ loadOpenPositions \} from ['"]\.\.\/\.\.\/\.\.\/\.\.\/persistence\/positionTruth\.js['"]/);
+  it('PositionStateResolver SSOT hasOpenPosition import', () => {
+    expect(source).toMatch(/hasOpenPosition/);
+    expect(source).toMatch(/positionStateResolver\.js/);
   });
 
   it('ADR-0191 추적 주석 (import + wiring)', () => {
@@ -32,9 +33,9 @@ describe('ADR-0191 §Wiring 2 — sizingTierDecider 자기 보유 가드 정적 
     expect(source).toMatch(/process\.env\.BUY_LIST_SELF_HOLDING_GUARD_DISABLED !== ['"]true['"]/);
   });
 
-  it('loadOpenPositions().some(stockCode 매칭)', () => {
-    expect(source).toMatch(/loadOpenPositions\(\)/);
-    expect(source).toMatch(/openPositions\.some\(p => p\.stockCode === stock\.code\)/);
+  it('hasOpenPosition(stockCode, SHADOW_FIRST) 매핑', () => {
+    expect(source).toMatch(/hasOpenPosition\(stock\.code,\s*['"]SHADOW_FIRST['"]/);
+    expect(source).not.toMatch(/dedupOpenCount/);
   });
 
   it('alreadyHeld 시 shouldSkip 반환 (매매 흐름 차단)', () => {
