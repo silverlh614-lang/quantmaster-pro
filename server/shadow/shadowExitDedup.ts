@@ -1,4 +1,9 @@
 export type ShadowExitStage =
+  | 'STOP_APPROACH'
+  | 'STOP_CONFIRM_REQUIRED'
+  | 'STOP_EXECUTION_IMMINENT'
+  | 'STOP_EXECUTED'
+  | 'STOP_SETTLED'
   | 'PRE_ALERT'
   | 'CONFIRMED'
   | 'ORDER_PENDING'
@@ -8,8 +13,9 @@ export type ShadowExitStage =
   | 'ARCHIVED'
   | 'BLOCKED_DIAGNOSTIC';
 
-const TERMINAL = new Set(['CLOSED', 'SETTLED', 'ARCHIVED', 'POSITION_CLOSED', 'PAPER_CLOSED', 'EXITED', 'CANCELLED']);
+const TERMINAL = new Set(['CLOSED', 'SETTLED', 'ARCHIVED', 'POSITION_CLOSED', 'PAPER_CLOSED', 'EXITED', 'CANCELLED', 'QUARANTINED_BAD_ENTRY', 'INCONSISTENT']);
 const PENDING = new Set(['EXIT_PENDING', 'ORDER_PENDING', 'PAPER_FILL_PENDING', 'CLOSING', 'CONFIRMED']);
+const STOP_APPROACH_COOLDOWN_MS = 10 * 60 * 1000;
 
 type ChannelType = 'USER_SIGNAL' | 'BOT' | 'DEBUG' | 'ADMIN' | string;
 
@@ -32,6 +38,7 @@ export interface ShadowExitDedupRecord {
 
 const eventLedger = new Map<string, ShadowExitDedupRecord>();
 const positionTerminal = new Map<string, string>();
+const stopApproachLastSent = new Map<string, number>();
 
 export function buildShadowLiquidationEventId(input: { mode: string; tradeDate: string; symbol: string; positionId?: string | null; exitReason: string; exitStage: string }): string {
   return `${input.mode}:${input.tradeDate}:${input.symbol}:${input.positionId || 'NO_POSITION'}:${input.exitReason}:${input.exitStage}`;
@@ -70,6 +77,13 @@ export function shouldSendShadowExitNotification(input: {
   if (eventLedger.get(eventId)?.sentCount) {
     return { allow: false, eventId, positionKey, reason: 'DUPLICATE_EVENT', suppressToLogOnly: true };
   }
+  if (input.exitStage === 'STOP_APPROACH') {
+    const cooldownKey = `${input.mode}:${input.tradeDate}:${input.symbol}:STOP_APPROACH`;
+    const last = stopApproachLastSent.get(cooldownKey) ?? 0;
+    if (Date.now() - last < STOP_APPROACH_COOLDOWN_MS) {
+      return { allow: false, eventId, positionKey, reason: 'STOP_APPROACH_COOLDOWN', suppressToLogOnly: true };
+    }
+  }
   return { allow: true, eventId, positionKey, reason: 'ALLOW', suppressToLogOnly: false };
 }
 
@@ -84,7 +98,10 @@ export function recordShadowExitNotification(input: {
     eventId, positionKey, symbol: input.symbol, positionId: input.positionId, exitReason: input.exitReason, exitStage: input.exitStage, mode: input.mode, tradeDate: input.tradeDate, channelType: input.channelType, firstSeenAt: now, lastSeenAt: now, sentCount: 1, suppressedCount: 0, terminal: Boolean(input.terminal),
   };
   eventLedger.set(eventId, next);
-  if (next.terminal || ['PAPER_FILLED', 'POSITION_CLOSED', 'SETTLED', 'ARCHIVED'].includes(input.exitStage)) {
+  if (input.exitStage === 'STOP_APPROACH') {
+    stopApproachLastSent.set(`${input.mode}:${input.tradeDate}:${input.symbol}:STOP_APPROACH`, Date.now());
+  }
+  if (next.terminal || ['PAPER_FILLED', 'POSITION_CLOSED', 'SETTLED', 'ARCHIVED', 'STOP_EXECUTED', 'STOP_SETTLED'].includes(input.exitStage)) {
     positionTerminal.set(positionKey, input.exitStage);
   }
   return next;
@@ -96,4 +113,4 @@ export function recordShadowExitSuppressed(eventId: string): void {
   eventLedger.set(eventId, { ...prev, suppressedCount: prev.suppressedCount + 1, lastSeenAt: new Date().toISOString() });
 }
 
-export function resetShadowExitDedupStateForTest(): void { eventLedger.clear(); positionTerminal.clear(); }
+export function resetShadowExitDedupStateForTest(): void { eventLedger.clear(); positionTerminal.clear(); stopApproachLastSent.clear(); }

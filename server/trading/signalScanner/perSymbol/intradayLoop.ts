@@ -404,7 +404,8 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
                   const _r = await executeShadowBuy({
                     trade: t,
                     allTrades: ctx.shadows,
-                    fillPrice: shadowEntryPrice,
+                    proposedFillPrice: shadowEntryPrice,
+                    regime: ctx.regime,
                     notifyFilled: async (n) => {
                       await channelShadowBuyFilled({
                         stockName: n.stockName,
@@ -413,6 +414,14 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
                         quantity: n.quantity,
                         fillId: n.fillId,
                         tradeId: n.tradeId,
+                        currentPrice: n.currentPrice,
+                        fillReferencePrice: n.fillReferencePrice,
+                        proposedFillPrice: n.proposedFillPrice,
+                        deviationPct: n.deviationPct,
+                        quoteAsOf: n.quoteAsOf,
+                        quoteSource: n.quoteSource,
+                        quoteSnapshotId: n.quoteSnapshotId,
+                        validation: n.validation,
                       });
                     },
                   });

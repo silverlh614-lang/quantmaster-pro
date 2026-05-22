@@ -20,6 +20,7 @@ import { placeKisSellOrder, type SellOrderResult } from '../../../clients/kisCli
 import {
   type ServerShadowTrade,
   type PositionFill,
+  appendShadowLog,
   appendFill,
   syncPositionCache,
   getRemainingQty,
@@ -48,6 +49,10 @@ export type ReserveSellResult =
 export type SellFillInput = Omit<PositionFill, 'id' | 'ordNo' | 'status' | 'confirmedAt' | 'revertedAt' | 'revertReason' | 'flagToClearOnRevert'>;
 
 type KisSellReason = Parameters<typeof placeKisSellOrder>[3];
+
+function isShadowExecutionSafeModeEnabledForExit(): boolean {
+  return process.env.SHADOW_EXECUTION_SAFE_MODE === 'true';
+}
 
 export type ReserveSellIntentResult =
   | { kind: 'RESERVED'; reservationId: string; reservedQty: number }
@@ -163,6 +168,27 @@ export function reserveSell(
   }
 
   const isShadow = orderRes.outcome === 'SHADOW_ONLY';
+  if (isShadow && isShadowExecutionSafeModeEnabledForExit()) {
+    const remainingBeforeSell = getRemainingQty(shadow);
+    if (fill.qty > remainingBeforeSell) {
+      const reason = `EXIT_QTY_EXCEEDS_REMAINING_QTY requested=${fill.qty} remaining=${remainingBeforeSell}`;
+      appendShadowLog({
+        event: 'POSITION_QTY_MISMATCH_BLOCKED',
+        ...shadow,
+        reason,
+        requestedQty: fill.qty,
+        remainingQty: remainingBeforeSell,
+        learningTag: 'CASE_POSITION_QTY_MISMATCH',
+        executionImpact: 'NONE',
+        liveOrderSent: false,
+      });
+      console.warn(
+        `[POSITION_QTY_MISMATCH_BLOCKED] symbol=${shadow.stockCode} ` +
+        `${reason} executionImpact=NONE`,
+      );
+      return failedReserveSellResult(shadow, reason, '[SHADOW_EXIT_QTY_REJECTED]');
+    }
+  }
   const reservation = reservationId
     ? { kind: 'RESERVED' as const, reservationId, reservedQty: fill.qty }
     : sellReservationManager.reserveSell({

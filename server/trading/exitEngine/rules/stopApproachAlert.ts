@@ -194,8 +194,8 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
   if (distToStop > 0 && distToStop < 5 && stage < 1) {
     shadow.stopApproachStage = 1;
     shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
-    const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS_S1' : `${source}_S1`, exitStage: 'PRE_ALERT', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_1' });
-    if (!guard.allow) { console.log(`[SHADOW_EXIT_DUPLICATE_SUPPRESSED] eventId=${guard.eventId} symbol=${shadow.stockCode} reason=${guard.reason}`); recordShadowExitSuppressed(guard.eventId); return NO_OP; }
+    const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_APPROACH', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_1' });
+    if (!guard.allow) { console.log(`[EXIT_ALERT_DEDUP_SUPPRESSED] eventId=${guard.eventId} symbol=${shadow.stockCode} reason=${guard.reason} learningTag=CASE_STOP_ALERT_DUPLICATE_SUPPRESSED`); recordShadowExitSuppressed(guard.eventId); return NO_OP; }
     await sendPrivateAlert(
       buildAlertMessage({
         stockName: shadow.stockName,
@@ -212,14 +212,14 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
         dedupeKey: `stop_approach_1:${shadow.stockCode}`,
       },
     ).catch(console.error);
-    recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS_S1' : `${source}_S1`, exitStage: 'PRE_ALERT', channelType: 'BOT' });
+    recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_APPROACH', channelType: 'BOT' });
   }
 
   if (distToStop > 0 && distToStop < 3 && stage < 2) {
     shadow.stopApproachStage = 2;
     shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
-    const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS_S2' : `${source}_S2`, exitStage: 'PRE_ALERT', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_2' });
-    if (!guard.allow) { console.log(`[SHADOW_EXIT_DUPLICATE_SUPPRESSED] eventId=${guard.eventId} symbol=${shadow.stockCode} reason=${guard.reason}`); recordShadowExitSuppressed(guard.eventId); return NO_OP; }
+    const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_CONFIRM_REQUIRED', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_2' });
+    if (!guard.allow) { console.log(`[EXIT_ALERT_DEDUP_SUPPRESSED] eventId=${guard.eventId} symbol=${shadow.stockCode} reason=${guard.reason} learningTag=CASE_STOP_ALERT_DUPLICATE_SUPPRESSED`); recordShadowExitSuppressed(guard.eventId); return NO_OP; }
     await sendPrivateAlert(
       buildAlertMessage({
         stockName: shadow.stockName,
@@ -236,14 +236,14 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
         dedupeKey: `stop_approach_2:${shadow.stockCode}`,
       },
     ).catch(console.error);
-    recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS_S2' : `${source}_S2`, exitStage: 'PRE_ALERT', channelType: 'BOT' });
+    recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_CONFIRM_REQUIRED', channelType: 'BOT' });
   }
 
   if (distToStop > 0 && distToStop < 1 && stage < 3) {
     shadow.stopApproachStage = 3;
     shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
-    const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS_S3' : `${source}_S3`, exitStage: 'PRE_ALERT', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_3' });
-    if (!guard.allow) { console.log(`[SHADOW_EXIT_DUPLICATE_SUPPRESSED] eventId=${guard.eventId} symbol=${shadow.stockCode} reason=${guard.reason}`); recordShadowExitSuppressed(guard.eventId); return NO_OP; }
+    const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_EXECUTION_IMMINENT', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_3' });
+    if (!guard.allow) { console.log(`[EXIT_ALERT_DEDUP_SUPPRESSED] eventId=${guard.eventId} symbol=${shadow.stockCode} reason=${guard.reason} learningTag=CASE_STOP_ALERT_DUPLICATE_SUPPRESSED`); recordShadowExitSuppressed(guard.eventId); return NO_OP; }
     await sendPrivateAlert(
       buildAlertMessage({
         stockName: shadow.stockName,
@@ -260,7 +260,7 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
         dedupeKey: `stop_approach_3:${shadow.stockCode}`,
       },
     ).catch(console.error);
-    recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS_S3' : `${source}_S3`, exitStage: 'PRE_ALERT', channelType: 'BOT' });
+    recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_EXECUTION_IMMINENT', channelType: 'BOT' });
   }
   return NO_OP;
 }

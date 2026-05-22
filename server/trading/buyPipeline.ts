@@ -570,6 +570,8 @@ async function executeBuyTaskApproval(
         stockName: p.stockName,
         currentPrice: p.currentPrice,
         entryPrice: p.entryPrice,
+        marketSession: p.marketSession,
+        regime: p.regime,
         logEvent: p.logEvent,
         signalId: p.signalId,
         approvalPolicy: policy,

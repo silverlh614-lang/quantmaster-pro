@@ -136,10 +136,31 @@ export interface ChannelShadowBuyFilledParams {
   quantity: number;
   fillId: string;
   tradeId: string;
+  currentPrice?: number;
+  fillReferencePrice?: number;
+  proposedFillPrice?: number;
+  deviationPct?: number;
+  quoteAsOf?: string;
+  quoteSource?: string;
+  quoteSnapshotId?: string;
+  validation?: 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
 }
 
 export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): Promise<void> {
+  if (p.validation && p.validation !== 'VERIFIED') return;
   const dedupeKey = `SHADOW_PAPER_FILLED:${p.stockCode}:${p.tradeId}:${p.fillId}`;
+  const validationLines = p.validation === 'VERIFIED'
+    ? [
+        `체결 기준가: ${Math.round(p.fillReferencePrice ?? p.currentPrice ?? p.fillPrice).toLocaleString()}원`,
+        `현재가: ${Math.round(p.currentPrice ?? p.fillPrice).toLocaleString()}원`,
+        `괴리: ${(p.deviationPct ?? 0).toFixed(2)}%`,
+        `quoteAsOf: ${escapeHtml(p.quoteAsOf ?? 'N/A')}`,
+        `quoteSource: ${escapeHtml(p.quoteSource ?? 'N/A')}`,
+        'validation: VERIFIED',
+        'liveOrderPlaced=false',
+        'executionImpact=NONE',
+      ]
+    : [];
   const message = formatAlert({
     category: AlertCategory.ANALYSIS,
     eventType: `[SHADOW 가상매수] ${p.stockName} (${p.stockCode})`,
@@ -148,6 +169,7 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
       formatShadowBuyAlertTitle().replace(/<[^>]*>/g, ''),
       `💵 paper-fill: <b>${p.fillPrice.toLocaleString()}원</b> × ${p.quantity}주`,
       `🧾 fillId: ${escapeHtml(p.fillId)}`,
+      ...validationLines,
       formatShadowBuyExecutionNotice(),
       `⚠️ SHADOW 모드 — 실계좌 잔고 아님`,
       `📌 lifecycle: PENDING → ACTIVE (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001)`,
@@ -190,6 +212,14 @@ export async function channelShadowBuyFilled(p: ChannelShadowBuyFilledParams): P
     `🧾 [SHADOW 가상 체결]\n` +
     `${p.stockName} (${p.stockCode})\n` +
     `paper-fill: ${p.fillPrice.toLocaleString()}원 × ${p.quantity}주\n` +
+    (p.validation === 'VERIFIED'
+      ? `체결 기준가: ${Math.round(p.fillReferencePrice ?? p.currentPrice ?? p.fillPrice).toLocaleString()}원\n` +
+        `현재가: ${Math.round(p.currentPrice ?? p.fillPrice).toLocaleString()}원\n` +
+        `괴리: ${(p.deviationPct ?? 0).toFixed(2)}%\n` +
+        `quoteAsOf: ${p.quoteAsOf ?? 'N/A'}\n` +
+        `quoteSource: ${p.quoteSource ?? 'N/A'}\n` +
+        `validation: VERIFIED\n`
+      : '') +
     `fillId: ${p.fillId}\n` +
     `tradeId: ${p.tradeId}\n` +
     `liveOrderPlaced=false\n` +

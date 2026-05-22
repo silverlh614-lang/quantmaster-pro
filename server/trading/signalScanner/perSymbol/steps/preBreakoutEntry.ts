@@ -508,7 +508,9 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
                   const _r = await executeShadowBuy({
                     trade: pbTrade,
                     allTrades: ctx.shadows,
-                    fillPrice: pbEntryPrice,
+                    proposedFillPrice: pbEntryPrice,
+                    marketSession: shadowApprovalCtx.marketSession,
+                    regime: ctx.regime,
                     notifyFilled: async (n) => {
                       await channelShadowBuyFilled({
                         stockName: n.stockName,
@@ -517,6 +519,14 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
                         quantity: n.quantity,
                         fillId: n.fillId,
                         tradeId: n.tradeId,
+                        currentPrice: n.currentPrice,
+                        fillReferencePrice: n.fillReferencePrice,
+                        proposedFillPrice: n.proposedFillPrice,
+                        deviationPct: n.deviationPct,
+                        quoteAsOf: n.quoteAsOf,
+                        quoteSource: n.quoteSource,
+                        quoteSnapshotId: n.quoteSnapshotId,
+                        validation: n.validation,
                       });
                     },
                   });

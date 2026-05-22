@@ -25,6 +25,9 @@ export interface ShadowBuyExecutorInput {
   stockName: string;
   currentPrice: number;
   entryPrice: number;
+  marketSession?: string;
+  regime?: string;
+  maxPositions?: number;
   logEvent: string;
   signalId?: string;
   approvalPolicy: BuyApprovalPolicyResult;
@@ -61,6 +64,14 @@ const defaultDeps: ShadowBuyExecutorDeps = {
       quantity: filled.quantity,
       fillId: filled.fillId,
       tradeId: filled.tradeId,
+      currentPrice: filled.currentPrice,
+      fillReferencePrice: filled.fillReferencePrice,
+      proposedFillPrice: filled.proposedFillPrice,
+      deviationPct: filled.deviationPct,
+      quoteAsOf: filled.quoteAsOf,
+      quoteSource: filled.quoteSource,
+      quoteSnapshotId: filled.quoteSnapshotId,
+      validation: filled.validation,
     });
   },
   markAutoTradeReady,
@@ -155,7 +166,10 @@ export async function executeShadowBuyOrder(
   const shadowResult = await deps.executeShadowBuy({
     trade: input.trade,
     allTrades: mergeTradeForPaperFill(input.trade, deps.loadShadowTrades),
-    fillPrice: input.entryPrice,
+    proposedFillPrice: input.entryPrice,
+    marketSession: input.marketSession,
+    regime: input.regime,
+    maxPositions: input.maxPositions,
     approvedAtIso: new Date().toISOString(),
     notifyFilled: deps.notifyFilled,
   });

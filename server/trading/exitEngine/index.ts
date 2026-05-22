@@ -46,6 +46,12 @@ import {
   emitShadowPositionMonitor,
   recordShadowLifecycleOutcome,
 } from '../shadowPositionLifecycle.js';
+import {
+  isShadowExecutionSafeModeEnabled,
+  isStopBlockedByUnverifiedEntry,
+  markShadowTradeQuarantined,
+  verifyShadowPositionQuantityForAutoExit,
+} from '../shadowExecutionSafety.js';
 import { atrDynamicStop } from './rules/atrDynamicStop.js';
 import { r6EmergencyExit } from './rules/r6EmergencyExit.js';
 import { ma60DeathForceExit } from './rules/ma60DeathForceExit.js';
@@ -147,6 +153,34 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
       if (shadow.mode === 'LIVE') continue;
       const ageMs = Date.now() - new Date(shadow.signalTime).getTime();
       if (ageMs < 4 * 60 * 1000) continue;
+      if (isShadowExecutionSafeModeEnabled()) {
+        markShadowTradeQuarantined({
+          trade: shadow,
+          reason: 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+          learningTag: 'CASE_STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+          context: {
+            decisionSnapshotId: shadow.entryQuoteSnapshotId,
+            quoteSnapshotId: shadow.entryQuoteSnapshotId,
+            currentPrice: shadow.entryCurrentPrice,
+            proposedFillPrice: shadow.entryProposedFillPrice ?? shadow.shadowEntryPrice,
+            quoteAsOf: shadow.entryQuoteAsOf,
+            confidence: shadow.entryPriceValidationStatus ?? 'UNVERIFIED',
+          },
+        });
+        appendShadowLog({
+          event: 'SHADOW_PENDING_PAPER_FILL_BLOCKED_SAFE_MODE',
+          ...shadow,
+          reason: 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+          learningTag: 'CASE_STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+          executionImpact: 'NONE',
+          liveOrderSent: false,
+        });
+        console.warn(
+          `[STOP_BLOCKED_UNVERIFIED_ENTRY] symbol=${shadow.stockCode} ` +
+          'reason=SHADOW_PENDING_PAPER_FILL_BLOCKED_SAFE_MODE executionImpact=NONE',
+        );
+        continue;
+      }
       shadow.status = 'ACTIVE';
       // PR-7 #13: PENDING→ACTIVE 전환 시 BUY fill 기록 — fills SSOT 작동의 전제.
       // LIVE 경로는 fillMonitor.updateStatus('ACTIVE') 가 이 역할을 하지만 SHADOW 경로는
@@ -185,6 +219,70 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
     // REJECTED는 buyApproval 거부/KIS 주문 실패 시 shadows에 남는 종료 상태이므로 안전.
     // ORDER_SUBMITTED는 fillMonitor가 체결 확인 후 ACTIVE로 전환할 때까지 exitEngine이 관여하지 않음.
     if (shadow.status !== 'ACTIVE' && shadow.status !== 'PARTIALLY_FILLED' && shadow.status !== 'EUPHORIA_PARTIAL') continue;
+
+    if (isStopBlockedByUnverifiedEntry(shadow)) {
+      markShadowTradeQuarantined({
+        trade: shadow,
+        reason: 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+        learningTag: 'CASE_STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+        context: {
+          decisionSnapshotId: shadow.entryQuoteSnapshotId,
+          quoteSnapshotId: shadow.entryQuoteSnapshotId,
+          currentPrice: shadow.entryCurrentPrice,
+          proposedFillPrice: shadow.entryProposedFillPrice ?? shadow.shadowEntryPrice,
+          quoteAsOf: shadow.entryQuoteAsOf,
+          confidence: shadow.entryPriceValidationStatus ?? 'UNVERIFIED',
+        },
+      });
+      appendShadowLog({
+        event: 'STOP_BLOCKED_UNVERIFIED_ENTRY',
+        ...shadow,
+        reason: 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+        learningTag: 'CASE_STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE',
+        executionImpact: 'NONE',
+        liveOrderSent: false,
+      });
+      console.warn(
+        `[STOP_BLOCKED_UNVERIFIED_ENTRY] symbol=${shadow.stockCode} ` +
+        'reason=STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE executionImpact=NONE',
+      );
+      continue;
+    }
+
+    if (isShadowExecutionSafeModeEnabled()) {
+      const quantityCheck = verifyShadowPositionQuantityForAutoExit(shadow);
+      if (!quantityCheck.ok) {
+        markShadowTradeQuarantined({
+          trade: shadow,
+          reason: 'POSITION_QTY_MISMATCH',
+          learningTag: 'CASE_POSITION_QTY_MISMATCH',
+          context: {
+            decisionSnapshotId: shadow.entryQuoteSnapshotId,
+            quoteSnapshotId: shadow.entryQuoteSnapshotId,
+            currentPrice: shadow.entryCurrentPrice,
+            proposedFillPrice: shadow.entryProposedFillPrice ?? shadow.shadowEntryPrice,
+            quoteAsOf: shadow.entryQuoteAsOf,
+            confidence: shadow.entryPriceValidationStatus ?? 'VERIFIED',
+          },
+        });
+        appendShadowLog({
+          event: 'POSITION_QTY_MISMATCH_BLOCKED',
+          ...shadow,
+          reason: quantityCheck.reason,
+          ledgerQty: quantityCheck.ledgerQty,
+          positionQty: quantityCheck.positionQty,
+          learningTag: 'CASE_POSITION_QTY_MISMATCH',
+          executionImpact: 'NONE',
+          liveOrderSent: false,
+        });
+        console.warn(
+          `[POSITION_QTY_MISMATCH_BLOCKED] symbol=${shadow.stockCode} ` +
+          `positionQty=${quantityCheck.positionQty} ledgerQty=${quantityCheck.ledgerQty} ` +
+          'executionImpact=NONE',
+        );
+        continue;
+      }
+    }
 
     // Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002 — SHADOW 포지션이
     // monitor cycle 에 편입됨을 영속 audit. SHADOW 만 대상 (mode!=SHADOW 시 SSOT

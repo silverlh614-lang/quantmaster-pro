@@ -67,6 +67,20 @@ import {
   emitShadowPositionOpened,
   recordShadowLifecycleOutcome,
 } from './shadowPositionLifecycle.js';
+import {
+  appendShadowExecutionLearningCase,
+  appendShadowExecutionRejected,
+  emitShadowExecutionOperatorDiagnosticOnce,
+  isShadowExecutionSafeModeEnabled,
+  markShadowTradeQuarantined,
+  resolveAuthoritativeQuoteForShadowFill,
+  validateShadowFillExecution,
+  validateSlotBeforeShadowFill,
+  type AuthoritativeQuoteSnapshot,
+  type ShadowAuthoritativeQuoteResolver,
+  type ShadowExecutionLearningTag,
+  type ShadowFillRejectReason,
+} from './shadowExecutionSafety.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -88,7 +102,18 @@ export type ShadowExecutionOutcome =
   | 'INVALID_INPUT'
   | 'STATE_TERMINAL'
   | 'ENV_DISABLED'
-  | 'PERSIST_FAILED';
+  | 'PERSIST_FAILED'
+  | 'QUOTE_NOT_VERIFIED_FOR_EXECUTION'
+  | 'QUOTE_SOURCE_NOT_EXECUTABLE'
+  | 'TRADING_HALTED'
+  | 'STALE_QUOTE_FOR_EXECUTION'
+  | 'BAD_FILL_PRICE_DEVIATION'
+  | 'NO_EXECUTABLE_FILL_PRICE'
+  | 'SHADOW_SLOT_FULL_AT_FILL_TIME'
+  | 'SECTOR_LIMIT_EXCEEDED_AT_FILL_TIME'
+  | 'ENTRY_ALREADY_BELOW_STOP'
+  | 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE'
+  | 'POSITION_QTY_MISMATCH';
 
 /**
  * 필수 invariants — TypeScript 컴파일 타임 강제로 호출자 측 위반 즉시 fail.
@@ -106,6 +131,14 @@ export interface ShadowExecutionResult {
   fillId?: string;
   /** Shadow 측 paper-fill 가격 (executed 시) */
   fillPrice?: number;
+  currentPrice?: number;
+  proposedFillPrice?: number;
+  deviationPct?: number;
+  quoteAsOf?: string;
+  quoteSource?: string;
+  quoteSnapshotId?: string;
+  quoteConfidence?: string;
+  learningTag?: ShadowExecutionLearningTag;
   /** 영속 후 status — 호출자 진단용 */
   statusAfter?: ServerShadowTrade['status'];
   /** invariant: 본 SSOT 는 LIVE 주문을 호출하지 않음 */
@@ -121,6 +154,14 @@ export interface ExecuteShadowBuyInput {
   allTrades: ServerShadowTrade[];
   /** Paper-fill 가격 — 명시 시 그대로, 미명시 시 trade.shadowEntryPrice */
   fillPrice?: number;
+  /** Candidate/snapshot price. In safe mode this is diagnostic only, not the fill SSOT. */
+  proposedFillPrice?: number;
+  authoritativeQuote?: AuthoritativeQuoteSnapshot;
+  quoteResolver?: ShadowAuthoritativeQuoteResolver;
+  snapshotId?: string;
+  marketSession?: string;
+  regime?: string;
+  maxPositions?: number;
   /** Approval 시점 ISO (logging) */
   approvedAtIso?: string;
   /** Telegram 발송 콜백 — 옵셔널, 호출자가 dedupe 체크 후 주입 */
@@ -140,6 +181,14 @@ export interface ShadowFillNotificationInput {
   fillId: string;
   tradeId: string;
   filledAtIso: string;
+  currentPrice?: number;
+  fillReferencePrice?: number;
+  proposedFillPrice?: number;
+  deviationPct?: number;
+  quoteAsOf?: string;
+  quoteSource?: string;
+  quoteSnapshotId?: string;
+  validation?: 'VERIFIED';
   signalType: string;
   watchlistSource?: string;
   /** invariant: SHADOW 모드 paper-fill */
@@ -189,7 +238,9 @@ function isAlreadyFilled(trade: ServerShadowTrade): boolean {
  * trade 가 종결 상태인지 (REJECTED).
  */
 function isTerminalState(trade: ServerShadowTrade): boolean {
-  return trade.status === 'REJECTED';
+  return trade.status === 'REJECTED'
+    || trade.status === 'QUARANTINED_BAD_ENTRY'
+    || trade.status === 'INCONSISTENT';
 }
 
 // ─── 메인 진입점 ──────────────────────────────────────────────────────────────
@@ -212,7 +263,7 @@ function executionNow(input: ExecuteShadowBuyInput): Date {
 }
 
 function resolveShadowFillPrice(input: ExecuteShadowBuyInput): number {
-  return input.fillPrice ?? input.trade.shadowEntryPrice;
+  return input.fillPrice ?? input.proposedFillPrice ?? input.trade.shadowEntryPrice;
 }
 
 function isInvalidPaperFillInput(fillPrice: number, quantity: number): boolean {
@@ -239,6 +290,116 @@ function latestFillId(trade: ServerShadowTrade): string {
 function shouldRefreshOriginalQuantity(trade: ServerShadowTrade, quantity: number): boolean {
   if (!trade.originalQuantity) return true;
   return trade.originalQuantity < quantity;
+}
+
+function proposedFillPriceForSafety(input: ExecuteShadowBuyInput): number | undefined {
+  const proposed = input.proposedFillPrice ?? input.fillPrice ?? input.trade.shadowEntryPrice;
+  return Number.isFinite(proposed) && proposed > 0 ? proposed : undefined;
+}
+
+function rejectionLogEvent(reason: ShadowFillRejectReason): string {
+  if (reason === 'BAD_FILL_PRICE_DEVIATION') return 'SHADOW_FILL_REJECTED_BAD_PRICE';
+  if (reason === 'STALE_QUOTE_FOR_EXECUTION') return 'SHADOW_FILL_REJECTED_STALE_QUOTE';
+  if (reason === 'SHADOW_SLOT_FULL_AT_FILL_TIME') return 'SHADOW_SLOT_REJECTED_FULL';
+  if (reason === 'ENTRY_ALREADY_BELOW_STOP') return 'SHADOW_ENTRY_QUARANTINED_BAD_ENTRY';
+  if (reason === 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE') return 'STOP_BLOCKED_UNVERIFIED_ENTRY';
+  return 'SHADOW_FILL_REJECTED_SAFE_MODE';
+}
+
+function rejectSafeModeFill(input: {
+  trade: ServerShadowTrade;
+  tradeId: string;
+  executedAtIso: string;
+  reason: ShadowFillRejectReason;
+  learningTag: ShadowExecutionLearningTag;
+  fillPrice?: number;
+  currentPrice?: number;
+  proposedFillPrice?: number;
+  deviationPct?: number;
+  quote?: AuthoritativeQuoteSnapshot;
+  statusAfter?: ServerShadowTrade['status'];
+  extra?: Record<string, unknown>;
+}): ShadowExecutionResult {
+  const event = rejectionLogEvent(input.reason);
+  const base = {
+    reason: input.reason,
+    learningTag: input.learningTag,
+    symbol: input.trade.stockCode,
+    positionId: input.trade.id,
+    tradeId: input.tradeId,
+    decisionSnapshotId: input.quote?.snapshotId,
+    quoteSnapshotId: input.quote?.snapshotId,
+    currentPrice: input.currentPrice ?? input.quote?.currentPrice,
+    proposedFillPrice: input.proposedFillPrice,
+    fillPrice: input.fillPrice,
+    deviationPct: input.deviationPct,
+    quoteAsOf: input.quote?.quoteAsOf,
+    confidence: input.quote?.confidence,
+    quoteSource: input.quote?.quoteSource,
+    marketSession: input.quote?.marketSession,
+    regime: input.trade.entryRegime,
+    executionImpact: 'NONE',
+    shadowLearning: true,
+    ...input.extra,
+  };
+  appendShadowExecutionRejected({ event, timestamp: input.executedAtIso, ...base });
+  appendShadowExecutionLearningCase({ timestamp: input.executedAtIso, ...base });
+  emitShadowExecutionOperatorDiagnosticOnce({
+    symbol: input.trade.stockCode,
+    reason: input.reason,
+    now: new Date(input.executedAtIso),
+    payload: base,
+  });
+  console.warn(
+    `[${event}] symbol=${input.trade.stockCode} reason=${input.reason} ` +
+      `currentPrice=${base.currentPrice ?? 'NA'} proposedFillPrice=${input.proposedFillPrice ?? 'NA'} ` +
+      `deviationPct=${input.deviationPct ?? 'NA'} executionImpact=NONE learningTag=${input.learningTag}`,
+  );
+  return {
+    outcome: input.reason,
+    reason: input.reason,
+    tradeId: input.tradeId,
+    executedAtIso: input.executedAtIso,
+    fillPrice: input.fillPrice,
+    currentPrice: input.currentPrice ?? input.quote?.currentPrice,
+    proposedFillPrice: input.proposedFillPrice,
+    deviationPct: input.deviationPct,
+    quoteAsOf: input.quote?.quoteAsOf,
+    quoteSource: input.quote?.quoteSource ? String(input.quote.quoteSource) : undefined,
+    quoteSnapshotId: input.quote?.snapshotId,
+    quoteConfidence: input.quote?.confidence,
+    learningTag: input.learningTag,
+    statusAfter: input.statusAfter,
+    ...NOT_SHADOW_RESULT_BASE,
+  };
+}
+
+function applyVerifiedEntryPrice(
+  trade: ServerShadowTrade,
+  validation: Extract<ReturnType<typeof validateShadowFillExecution>, { ok: true }>,
+  marketSession?: string,
+): void {
+  const oldEntry = trade.shadowEntryPrice;
+  const oldStop = trade.stopLoss;
+  const stopLossPct = Number.isFinite(oldEntry) && oldEntry > 0 && Number.isFinite(oldStop) && oldStop > 0 && oldStop < oldEntry
+    ? (oldEntry - oldStop) / oldEntry
+    : 0.07;
+  const stopPrice = Math.round(validation.fillPrice * (1 - stopLossPct));
+
+  trade.shadowEntryPrice = validation.fillPrice;
+  trade.signalPrice = validation.fillPrice;
+  trade.entryPriceRaw = validation.fillPrice;
+  trade.stopLoss = stopPrice;
+  trade.initialStopLoss = stopPrice;
+  trade.entryPriceValidationStatus = 'VERIFIED';
+  trade.entryQuoteSnapshotId = validation.quote.snapshotId;
+  trade.entryQuoteAsOf = validation.quote.quoteAsOf;
+  trade.entryQuoteSource = String(validation.quote.quoteSource);
+  trade.entryPriceBasis = validation.quote.priceBasis;
+  trade.entryCurrentPrice = validation.currentPrice;
+  trade.entryProposedFillPrice = validation.proposedFillPrice;
+  trade.entryPriceDeviationPct = validation.deviationPct;
+  trade.entryMarketSession = marketSession ?? validation.quote.marketSession;
 }
 
 /**
@@ -296,9 +457,14 @@ export async function executeShadowBuy(
   }
 
   // 입력 검증
-  const fillPrice = resolveShadowFillPrice(input);
+  let fillPrice = resolveShadowFillPrice(input);
   const quantity = input.trade.quantity;
-  if (isInvalidPaperFillInput(fillPrice, quantity)) {
+  const safeMode = isShadowExecutionSafeModeEnabled();
+  let verifiedQuote: AuthoritativeQuoteSnapshot | undefined;
+  let verifiedCurrentPrice: number | undefined;
+  let verifiedProposedFillPrice: number | undefined;
+  let verifiedDeviationPct: number | undefined;
+  if (quantity <= 0 || !Number.isFinite(quantity) || (!safeMode && isInvalidPaperFillInput(fillPrice, quantity))) {
     return {
       outcome: 'INVALID_INPUT',
       reason: `fillPrice=${fillPrice} quantity=${quantity} (양수 의무)`,
@@ -306,6 +472,10 @@ export async function executeShadowBuy(
       executedAtIso,
       ...NOT_SHADOW_RESULT_BASE,
     };
+  }
+
+  if (safeMode && !Number.isFinite(fillPrice)) {
+    fillPrice = input.trade.shadowEntryPrice;
   }
 
   // 멱등 가드 — 이미 fill 처리됨
@@ -320,6 +490,114 @@ export async function executeShadowBuy(
       statusAfter: input.trade.status,
       ...NOT_SHADOW_RESULT_BASE,
     };
+  }
+
+  if (safeMode) {
+    const slot = validateSlotBeforeShadowFill({
+      symbol: input.trade.stockCode,
+      sector: input.trade.sector,
+      regime: input.regime ?? input.trade.entryRegime,
+      maxPositions: input.maxPositions,
+      allTrades: input.allTrades,
+      excludingTradeId: input.trade.id,
+    });
+    console.log(
+      `[SHADOW_SLOT_RECHECK_BEFORE_FILL] symbol=${input.trade.stockCode} ` +
+        `open=${slot.currentOpenPositions}/${slot.maxPositions} sector=${slot.sameSectorCount}/${slot.sectorLimit ?? 'NA'} ` +
+        `result=${slot.ok ? 'PASS' : slot.reason} executionImpact=NONE`,
+    );
+    if (!slot.ok) {
+      return rejectSafeModeFill({
+        trade: input.trade,
+        tradeId,
+        executedAtIso,
+        reason: slot.reason ?? 'SHADOW_SLOT_FULL_AT_FILL_TIME',
+        learningTag: slot.learningTag ?? 'CASE_SLOT_FULL_FILL_BLOCKED',
+        proposedFillPrice: proposedFillPriceForSafety(input),
+        statusAfter: input.trade.status,
+        extra: {
+          currentOpenPositions: slot.currentOpenPositions,
+          maxPositions: slot.maxPositions,
+          sameSectorCount: slot.sameSectorCount,
+          sectorLimit: slot.sectorLimit,
+        },
+      });
+    }
+
+    const quote = input.authoritativeQuote ?? await (input.quoteResolver ?? resolveAuthoritativeQuoteForShadowFill)({
+      symbol: input.trade.stockCode,
+      snapshotId: input.snapshotId,
+      marketSession: input.marketSession,
+      now,
+    });
+    const validation = validateShadowFillExecution({
+      quote,
+      proposedFillPrice: proposedFillPriceForSafety(input),
+      side: 'BUY',
+      now,
+    });
+    if (!validation.ok) {
+      return rejectSafeModeFill({
+        trade: input.trade,
+        tradeId,
+        executedAtIso,
+        reason: validation.reason,
+        learningTag: validation.learningTag,
+        fillPrice: validation.fillPrice,
+        currentPrice: validation.currentPrice,
+        proposedFillPrice: validation.proposedFillPrice,
+        deviationPct: validation.deviationPct,
+        quote: validation.quote,
+        statusAfter: input.trade.status,
+        extra: {
+          maxFillDeviationPct: validation.maxFillDeviationPct,
+        },
+      });
+    }
+
+    applyVerifiedEntryPrice(input.trade, validation, input.marketSession);
+    fillPrice = validation.fillPrice;
+    verifiedQuote = validation.quote;
+    verifiedCurrentPrice = validation.currentPrice;
+    verifiedProposedFillPrice = validation.proposedFillPrice;
+    verifiedDeviationPct = validation.deviationPct;
+    console.log(
+      `[QUOTE_VERIFIED_FOR_SHADOW_FILL] symbol=${input.trade.stockCode} ` +
+        `fillPrice=${fillPrice} currentPrice=${validation.currentPrice} ` +
+        `deviationPct=${validation.deviationPct.toFixed(3)} quoteAsOf=${validation.quote.quoteAsOf} ` +
+        `quoteSource=${validation.quote.quoteSource} validation=VERIFIED executionImpact=NONE`,
+    );
+
+    if (validation.currentPrice <= input.trade.stopLoss) {
+      markShadowTradeQuarantined({
+        trade: input.trade,
+        reason: 'ENTRY_ALREADY_BELOW_STOP',
+        learningTag: 'CASE_ENTRY_ALREADY_BELOW_STOP',
+        now,
+        context: {
+          currentPrice: validation.currentPrice,
+          proposedFillPrice: validation.proposedFillPrice,
+          fillPrice,
+          deviationPct: validation.deviationPct,
+          quoteAsOf: validation.quote.quoteAsOf,
+          confidence: validation.quote.confidence,
+          quoteSnapshotId: validation.quote.snapshotId,
+        },
+      });
+      return rejectSafeModeFill({
+        trade: input.trade,
+        tradeId,
+        executedAtIso,
+        reason: 'ENTRY_ALREADY_BELOW_STOP',
+        learningTag: 'CASE_ENTRY_ALREADY_BELOW_STOP',
+        fillPrice,
+        currentPrice: validation.currentPrice,
+        proposedFillPrice: validation.proposedFillPrice,
+        deviationPct: validation.deviationPct,
+        quote: validation.quote,
+        statusAfter: input.trade.status,
+      });
+    }
   }
 
   // ─── Paper-fill 실행 ─────────────────────────────────────────────────────
@@ -374,6 +652,13 @@ export async function executeShadowBuy(
       fillPrice,
       quantity,
       filledAt: executedAtIso,
+      currentPrice: verifiedCurrentPrice,
+      proposedFillPrice: verifiedProposedFillPrice,
+      deviationPct: verifiedDeviationPct,
+      quoteAsOf: verifiedQuote?.quoteAsOf,
+      quoteSource: verifiedQuote?.quoteSource,
+      quoteSnapshotId: verifiedQuote?.snapshotId,
+      validation: safeMode ? 'VERIFIED' : undefined,
       patch: 'Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001',
     });
   } catch {
@@ -391,6 +676,14 @@ export async function executeShadowBuy(
         fillId,
         tradeId,
         filledAtIso: executedAtIso,
+        currentPrice: verifiedCurrentPrice,
+        fillReferencePrice: verifiedCurrentPrice,
+        proposedFillPrice: verifiedProposedFillPrice,
+        deviationPct: verifiedDeviationPct,
+        quoteAsOf: verifiedQuote?.quoteAsOf,
+        quoteSource: verifiedQuote?.quoteSource ? String(verifiedQuote.quoteSource) : undefined,
+        quoteSnapshotId: verifiedQuote?.snapshotId,
+        validation: safeMode ? 'VERIFIED' : undefined,
         signalType: valueOr(input.trade.profileType, 'B'),
         watchlistSource: input.trade.watchlistSource,
         mode: 'SHADOW',
@@ -433,6 +726,13 @@ export async function executeShadowBuy(
     executedAtIso,
     fillId,
     fillPrice,
+    currentPrice: verifiedCurrentPrice,
+    proposedFillPrice: verifiedProposedFillPrice,
+    deviationPct: verifiedDeviationPct,
+    quoteAsOf: verifiedQuote?.quoteAsOf,
+    quoteSource: verifiedQuote?.quoteSource ? String(verifiedQuote.quoteSource) : undefined,
+    quoteSnapshotId: verifiedQuote?.snapshotId,
+    quoteConfidence: verifiedQuote?.confidence,
     statusAfter: input.trade.status,
     ...NOT_SHADOW_RESULT_BASE,
   };
@@ -449,6 +749,11 @@ export interface ShadowExecutionPipelineSummary {
   envDisabled: number;
   notShadow: number;
   stateTerminal: number;
+  safeModeRejected: number;
+  badPriceRejected: number;
+  staleQuoteRejected: number;
+  slotRejected: number;
+  stopBlocked: number;
   /** 본 SSOT 는 LIVE 영향 0 — 항상 'NONE' */
   executionImpact: 'NONE';
 }
@@ -462,6 +767,11 @@ const _summary: ShadowExecutionPipelineSummary = {
   envDisabled: 0,
   notShadow: 0,
   stateTerminal: 0,
+  safeModeRejected: 0,
+  badPriceRejected: 0,
+  staleQuoteRejected: 0,
+  slotRejected: 0,
+  stopBlocked: 0,
   executionImpact: 'NONE',
 };
 
@@ -491,6 +801,29 @@ export function recordShadowExecutionOutcome(
     case 'STATE_TERMINAL':
       _summary.stateTerminal++;
       break;
+    case 'BAD_FILL_PRICE_DEVIATION':
+      _summary.safeModeRejected++;
+      _summary.badPriceRejected++;
+      break;
+    case 'STALE_QUOTE_FOR_EXECUTION':
+    case 'QUOTE_NOT_VERIFIED_FOR_EXECUTION':
+    case 'QUOTE_SOURCE_NOT_EXECUTABLE':
+    case 'TRADING_HALTED':
+    case 'NO_EXECUTABLE_FILL_PRICE':
+      _summary.safeModeRejected++;
+      _summary.staleQuoteRejected++;
+      break;
+    case 'SHADOW_SLOT_FULL_AT_FILL_TIME':
+    case 'SECTOR_LIMIT_EXCEEDED_AT_FILL_TIME':
+      _summary.safeModeRejected++;
+      _summary.slotRejected++;
+      break;
+    case 'ENTRY_ALREADY_BELOW_STOP':
+    case 'STOP_BLOCKED_UNVERIFIED_ENTRY_PRICE':
+    case 'POSITION_QTY_MISMATCH':
+      _summary.safeModeRejected++;
+      _summary.stopBlocked++;
+      break;
   }
 }
 
@@ -507,6 +840,11 @@ export function __resetShadowExecutionPipelineSummaryForTests(): void {
   _summary.envDisabled = 0;
   _summary.notShadow = 0;
   _summary.stateTerminal = 0;
+  _summary.safeModeRejected = 0;
+  _summary.badPriceRejected = 0;
+  _summary.staleQuoteRejected = 0;
+  _summary.slotRejected = 0;
+  _summary.stopBlocked = 0;
 }
 
 /**
@@ -527,6 +865,11 @@ export function formatShadowExecutionPipelineSection(): string | null {
   if (summary.envDisabled > 0) otherCounts.push(`envDisabled=${summary.envDisabled}`);
   if (summary.notShadow > 0) otherCounts.push(`notShadow=${summary.notShadow}`);
   if (summary.stateTerminal > 0) otherCounts.push(`stateTerminal=${summary.stateTerminal}`);
+  if (summary.safeModeRejected > 0) otherCounts.push(`safeModeRejected=${summary.safeModeRejected}`);
+  if (summary.badPriceRejected > 0) otherCounts.push(`badPriceRejected=${summary.badPriceRejected}`);
+  if (summary.staleQuoteRejected > 0) otherCounts.push(`staleQuoteRejected=${summary.staleQuoteRejected}`);
+  if (summary.slotRejected > 0) otherCounts.push(`slotRejected=${summary.slotRejected}`);
+  if (summary.stopBlocked > 0) otherCounts.push(`stopBlocked=${summary.stopBlocked}`);
   if (otherCounts.length > 0) {
     lines.push(`• ${otherCounts.join(' ')}`);
   }

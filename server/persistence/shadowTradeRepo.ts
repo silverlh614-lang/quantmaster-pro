@@ -467,7 +467,17 @@ export interface ServerShadowTrade {
    * 레거시 trade 는 loadShadowTrades 진입 시 lazy 백필로 채워진다.
    */
   sector?: string;
-  status: 'PENDING' | 'ORDER_SUBMITTED' | 'PARTIALLY_FILLED' | 'ACTIVE' | 'REJECTED' | 'HIT_TARGET' | 'HIT_STOP' | 'EUPHORIA_PARTIAL';
+  status:
+    | 'PENDING'
+    | 'ORDER_SUBMITTED'
+    | 'PARTIALLY_FILLED'
+    | 'ACTIVE'
+    | 'REJECTED'
+    | 'HIT_TARGET'
+    | 'HIT_STOP'
+    | 'EUPHORIA_PARTIAL'
+    | 'QUARANTINED_BAD_ENTRY'
+    | 'INCONSISTENT';
   /**
    * 청산 결과 분류 (ADR-0112) — WIN/LOSS/BE.
    * - WIN: returnPct ≥ +1.0% 또는 TARGET_EXIT/EUPHORIA_PARTIAL 류
@@ -628,6 +638,17 @@ export interface ServerShadowTrade {
    * 영속 round-trip 시 보존 — JSON 직렬화로 충분 (sanitize 변경 불필요).
    */
   entryPriceMetadata?: import('../utils/safePctChange.js').PriceBase;
+  entryPriceValidationStatus?: 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'UNVERIFIED';
+  entryQuoteSnapshotId?: string;
+  entryQuoteAsOf?: string;
+  entryQuoteSource?: string;
+  entryPriceBasis?: string;
+  entryCurrentPrice?: number;
+  entryProposedFillPrice?: number;
+  entryPriceDeviationPct?: number;
+  entryMarketSession?: string;
+  quarantinedAt?: string;
+  quarantineReason?: string;
   /**
    * ADR-0085 — BEP 글라이드 1차 터치 KST 영업일 (YYYY-MM-DD).
    * Two-Bar Confirmation Gate 에서 1차 터치 시점에 영속 → 2개 봉 연속 미달 시 청산.
