@@ -50,6 +50,31 @@ export async function krxInvestorOtpCsv(
   options: { allowDisabledAutoFetch?: boolean } = {},
 ): Promise<KrxRawResponse | null> {
   const { body: otpBody, meta: payloadMeta } = buildKrxOtpPayload(variant);
+  if (payloadMeta.payloadValidation === 'BLOCKED_BY_PAYLOAD_VALIDATION') {
+    const reason = 'BLOCKED_BY_PAYLOAD_VALIDATION';
+    setKrxPostMeta(variant.bld, {
+      ...payloadMeta,
+      contentType: 'empty',
+      httpStatus: null,
+      responseKind: 'GATED',
+      selectedKrxFlowMode: 'OTP_CSV',
+      otpGenerated: false,
+      otpLength: 0,
+      csvDownloaded: false,
+      csvRowCount: 0,
+      csvColumnKeys: [],
+      csvFailureReason: reason,
+      csvHeaderDetected: false,
+      csvNoDataReason: reason,
+      diagnosticOnly: true,
+      useForRouter: false,
+      useForGate: false,
+      useForLive: false,
+      useForShadow: false,
+    });
+    console.warn(`[KRX_PAYLOAD_VALIDATION_BLOCKED] endpoint=${variant.endpoint} forbiddenKeysPresent=${payloadMeta.forbiddenKeysPresent?.join(',') || 'NONE'} payloadValidation=${reason}`);
+    return null;
+  }
   if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
     const endpoint = variant.endpoint;
     console.info(`[KRX] skipped: ${krxAutoFetchDisabledReason()} auto fetch disabled endpoint=${endpoint}`);

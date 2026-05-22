@@ -429,6 +429,10 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
         : [];
     const kisDiagnosticFieldKeys = kisDiagnosticActualRows.length > 0 ? Array.from(new Set(kisDiagnosticActualRows.flatMap((row) => Object.keys(row)))) : selectedActualRowFieldKeys;
     const kisDiagnosticNumericKeys = kisDiagnosticActualRows.length > 0 ? Array.from(new Set(kisDiagnosticActualRows.flatMap((row) => supplyNumericKeysAdr0477(row)))) : Array.from(new Set([...selectedActualNumericFieldKeys, ...selectedActualNumericStringFieldKeys]));
+    const kisActualRowUseScope: ActualInvestorFlowCarryAdr0477['actualInvestorRowUseScope'] =
+      kisSample.status === 'VERIFIED' && kisDiagnosticActualRows.length > 0
+        ? 'GATE_SCORE_ELIGIBLE'
+        : 'DIAGNOSTIC_ONLY';
     actualRowCarryByProvider.KIS_API = {
       actualInvestorFlowRows: kisDiagnosticActualRows,
       actualInvestorFlowRowCount: kisDiagnosticActualRows.length,
@@ -444,14 +448,14 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
       actualRowAvailable: Boolean(kisActualInvestorRow),
       diagnosticActualInvestorRow: kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow ?? (hasActualInvestorNumericRow(kisActualInvestorRow) ? kisActualInvestorRow : null),
       actualInvestorRowProvider: (kisNormalizedDiagnosticInvestorRow || kisSemanticDiagnosticInvestorRow || hasActualInvestorNumericRow(kisActualInvestorRow)) ? 'KIS_API' : null,
-      actualInvestorRowUseScope: 'DIAGNOSTIC_ONLY',
+      actualInvestorRowUseScope: kisActualRowUseScope,
       investorRowMaterializationClass,
       diagnosticActualInvestorRowFromNormalized: Boolean(kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow),
       normalizedRowAvailable: Boolean(kisNormalizedInvestorRow),
       semanticRowAvailable: kisNormalizedRowAvailableAtRouter,
       rowCarryPath: 'ADAPTER_TO_ROUTER',
     };
-    diagnostics.push(`[SUPPLY_ROUTER_ROW_CARRIED] symbol=${input.code} actualRowAvailable=${Boolean(kisActualInvestorRow)} semanticRowAvailable=${kisNormalizedRowAvailableAtRouter} materializationClass=${investorRowMaterializationClass} normalizedPromoted=${Boolean(kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow)} fieldKeys=${supplyRowKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} numericKeys=${supplyNumericKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} rowCarryPath=ADAPTER_TO_ROUTER`);
+    diagnostics.push(`[SUPPLY_ROUTER_ROW_CARRIED] symbol=${input.code} actualRowAvailable=${Boolean(kisActualInvestorRow)} semanticRowAvailable=${kisNormalizedRowAvailableAtRouter} materializationClass=${investorRowMaterializationClass} normalizedPromoted=${Boolean(kisNormalizedDiagnosticInvestorRow ?? kisSemanticDiagnosticInvestorRow)} fieldKeys=${supplyRowKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} numericKeys=${supplyNumericKeysAdr0477(kisActualInvestorRow).slice(0, 16).join(',') || 'NONE'} rowCarryPath=ADAPTER_TO_ROUTER useScope=${kisActualRowUseScope}`);
     diagnostics.push(`[SUPPLY_SEMANTIC_FIELD_MAPPED] symbol=${input.code} foreignField=${kisSemanticRow.sourceFields.foreign ?? 'none'} institutionField=${kisSemanticRow.sourceFields.institutional ?? 'none'} individualField=${kisSemanticRow.sourceFields.individual ?? 'none'} foreignNetBuy=${kisSemanticRow.foreignNetBuy ?? 'null'} institutionNetBuy=${kisSemanticRow.institutionalNetBuy ?? 'null'} individualNetBuy=${kisSemanticRow.individualNetBuy ?? 'null'}`);
     if (materializationDiagnostics.KIS_INVESTOR.sampleMaterialized) samplesByProvider.KIS_API = kisSample;
     providerStatuses.KIS_API = kisSample.status;
@@ -662,11 +666,27 @@ export function buildInvestorFlowProviderRouteResultAdr0477(
   const diagnosticActualInvestorRow: Record<string, unknown> | null =
     (adapterFallbackActualRows[0] as Record<string, unknown> | undefined)
     ?? (selectedMaterializedCandidate?.actualInvestorRow ?? null);
-  const actualRowProviderMatchesSelected = actualRowProvider != null && selectedProvider === actualRowProvider && !diagnosticActualRowFromNormalized;
+  const actualRowProviderMatchesSelected =
+    actualRowProvider != null &&
+    selectedProvider === actualRowProvider &&
+    diagnosticActualInvestorRow != null;
   const selectedProviderActualInvestorRow: Record<string, unknown> | null =
     actualRowProviderMatchesSelected ? diagnosticActualInvestorRow : null;
+  const selectedProviderGateScoreEligible =
+    actualRowProviderMatchesSelected &&
+    selectedProvider === 'KIS_API' &&
+    (
+      selectedCandidateCarriesActualRow ||
+      selectedCandidateActualRows.length > 0 ||
+      selectedSemanticRow != null ||
+      kisNormalizedRowAvailableAtRouter
+    );
   const actualInvestorRowUseScope: 'SELECTED_PROVIDER' | 'DIAGNOSTIC_ONLY' | 'SHADOW_SCORE' | 'GATE_SCORE_ELIGIBLE' =
-    actualRowProviderMatchesSelected ? 'SELECTED_PROVIDER' : 'DIAGNOSTIC_ONLY';
+    selectedProviderGateScoreEligible
+      ? 'GATE_SCORE_ELIGIBLE'
+      : actualRowProviderMatchesSelected
+        ? 'SELECTED_PROVIDER'
+        : 'DIAGNOSTIC_ONLY';
   // FIXED: `selectedProvider !== 'NONE'` guard 제거 — selectedProvider==='NONE' 도
   // adapter row 를 보유하면 cross-provider carry 로 인정.
   const adapterRowsForwardedAcrossProviders =

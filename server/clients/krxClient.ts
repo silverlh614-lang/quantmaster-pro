@@ -154,6 +154,8 @@ import {
   getLastKrxPostMeta,
   clearLastKrxPostMetaState,
   sanitizeKrxPayload,
+  allowedKrxPayloadKeys,
+  validateKrxPayloadForVariantAdr0526,
   buildKrxAutoDisabledDiagnostic,
 } from './krxClient/http.js';
 // setKrxPostMeta / classifyContentType / makeKrxResponseKind / buildKrxOtpPayload
@@ -163,6 +165,8 @@ import {
 // sanitizeKrxPayload + buildKrxAutoDisabledDiagnostic 시그니처 byte-equivalent 보존.
 export const __krxClientTestOnly = {
   sanitizeKrxPayload,
+  allowedKrxPayloadKeys,
+  validateKrxPayloadForVariantAdr0526,
   buildKrxAutoDisabledDiagnostic,
   hasKrxInvestorDetailRequiredParams,
 };
@@ -525,6 +529,8 @@ function buildInvestorTradingDiagnostic(input: {
     `requiredKeysPresent=${meta?.requiredKeysPresent?.join(',') || 'NONE'}`,
     `requiredKeysMissing=${meta?.requiredKeysMissing?.join(',') || 'NONE'}`,
     `sentPayloadKeys=${meta?.sentPayloadKeys?.join(',') || 'NONE'}`,
+    `allowedKeys=${meta?.allowedKeys?.join(',') || 'NONE'}`,
+    `payloadValidation=${meta?.payloadValidation ?? 'PASS'}`,
     `paramKeys=${variant ? Object.keys(variant.params).join(',') : 'UNKNOWN'}`,
     `attemptedVariants=${input.attemptedVariants?.join('|') || variant?.id || 'LEGACY_SINGLE'}`,
     `contentType=${contentType}`,
@@ -582,6 +588,8 @@ function buildInvestorTradingDiagnostic(input: {
     requiredKeysPresent: meta?.requiredKeysPresent,
     requiredKeysMissing: meta?.requiredKeysMissing,
     sentPayloadKeys: meta?.sentPayloadKeys,
+    allowedKeys: meta?.allowedKeys,
+    payloadValidation: meta?.payloadValidation,
     parameterKeys: variant ? Object.keys(variant.params) : undefined,
     attemptedVariants: input.attemptedVariants,
     selectedVariant: parserStatus === 'OK' ? variant?.id ?? null : null,

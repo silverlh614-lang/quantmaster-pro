@@ -65,7 +65,7 @@ export function buildSymbolFeatures(
   c: CandidateSnapshot,
 ): Gate1SymbolFeatures | undefined {
   const provided = c.symbolFeatures ?? {};
-  const featurePack = (c as Record<string, unknown>).featurePack as Record<string, unknown> | undefined;
+  const featurePack = (c as unknown as Record<string, unknown>).featurePack as Record<string, unknown> | undefined;
   const momentum = featurePack && typeof featurePack.momentum === 'object' ? featurePack.momentum as Record<string, unknown> : undefined;
   const breakout = featurePack && typeof featurePack.breakout === 'object' ? featurePack.breakout as Record<string, unknown> : undefined;
   const features: Gate1SymbolFeatures = {

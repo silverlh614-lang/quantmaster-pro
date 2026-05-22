@@ -214,6 +214,9 @@ export interface Gate1SymbolFeatures {
   totalGateScore?: number;
   watchlistPriorityScore?: number;
   watchlistScore?: ResolvedWatchlistUpstreamScore;
+  relativeStrengthScore?: number;
+  breakoutScore?: number;
+  vcpScore?: number;
 }
 
 export interface Gate1CandidateTrace {
@@ -376,6 +379,8 @@ export interface CandidateEntryTrace {
   availableMaxScore?: number;
   watchlistReason?: string[];
   relativeStrengthScore?: number;
+  breakoutScore?: number;
+  vcpScore?: number;
   relativeStrength?: number;
   rsRankPct?: number;
   return20d?: number;
@@ -447,6 +452,7 @@ export interface CandidateEntryTrace {
   wouldEnterIfSectorEnergyIgnored?: boolean;
   wouldEnterIfKellyMinApplied?: boolean;
   gate1Trace?: Gate1CandidateTrace;
+  notes?: string[];
   executionImpact: "NONE" | "PAPER_ONLY" | "LIVE_READY";
 }
 
@@ -654,6 +660,8 @@ export interface CandidateSnapshot {
   availableMaxScore?: number;
   watchlistReason?: string[];
   relativeStrengthScore?: number;
+  breakoutScore?: number;
+  vcpScore?: number;
   relativeStrength?: number;
   rsRankPct?: number;
   return20d?: number;

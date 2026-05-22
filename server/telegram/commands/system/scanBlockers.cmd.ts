@@ -36,6 +36,7 @@ import {
   formatTechnicalProviderDegradedSection,
   getLastScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
+import { formatRuntimeResolverTraceStep26 } from '../../../trading/signalScanner/runtimeResolverTraceStep26.js';
 import {
   formatNormalSupplyPreviewSection,
   getLastNormalSupplyPreview,
@@ -876,7 +877,24 @@ const scanBlockers: TelegramCommand = {
     const adr0505DetailBlock =
       mode === 'full' || mode === 'gate' ? formatAdr0505EmissionDetailBlock(adr0505Diag) : null;
 
-    const parts: string[] = [baseMessage];
+    let runtimeResolverTraceStep26: string;
+    try {
+      runtimeResolverTraceStep26 = formatRuntimeResolverTraceStep26(summary);
+    } catch (err) {
+      warnScanBlockersDiagnostic('runtimeResolverTraceStep26', err);
+      runtimeResolverTraceStep26 = [
+        '[Runtime Resolver Trace]',
+        '[PATCH-RUNTIME] patchVersion=STEP26_RUNTIME_TRACE_2026_05_21',
+        `scanId=${summary?.time ?? 'NO_SCAN_SUMMARY'}`,
+        `sourceSnapshotId=${summary?.snapshotId ?? 'NO_SCAN_SUMMARY'}`,
+        'traceBuildError=true',
+        'called=true',
+        'legacyPathUsed=false',
+        'executionImpact=NONE',
+      ].join('\n');
+    }
+
+    const parts: string[] = [baseMessage, runtimeResolverTraceStep26];
     const normalSupplyPreviewSection = formatNormalSupplyPreviewSection(
       getLastNormalSupplyPreview(),
       { maxTopCandidates: mode === 'full' ? 5 : 3 },

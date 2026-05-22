@@ -297,7 +297,7 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
       const urlText = String(url);
       const body = String(init?.body ?? '');
       if (urlText.includes('/GenerateOTP/generate.cmd')) {
-        expect(body).toContain('name=fileDown');
+        expect(body).not.toContain('name=fileDown');
         expect(body).toContain('bld=dbms%2FMDC%2FSTAT%2Fstandard%2FMDCSTAT02401');
         expect(body).toContain('MDCSTAT02401');
         expect(body).toContain('strtDd=20260508');
@@ -349,8 +349,10 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     expect(diagnostic?.csvRowCount).toBe(3);
     expect(diagnostic?.csvHeaderDetected).toBe(true);
     expect(diagnostic?.csvColumnKeys).toContain('투자자구분');
-    expect(diagnostic?.sentPayloadKeys).toEqual(['bld', 'endDd', 'inqVal', 'isuCd', 'name', 'strtDd']);
+    expect(diagnostic?.sentPayloadKeys).toEqual(['bld', 'endDd', 'inqVal', 'isuCd', 'strtDd']);
+    expect(diagnostic?.allowedKeys).toEqual(['bld', 'endDd', 'inqVal', 'isuCd', 'strtDd']);
     expect(diagnostic?.forbiddenKeysPresent).toEqual([]);
+    expect(diagnostic?.payloadValidation).toBe('PASS');
     expect(diagnostic?.requiredKeysMissing).toEqual([]);
     expect(diagnostic?.selectedVariant).toContain('OTP_CSV');
     expect(diagnostic?.selectedVariant).toContain('MDCSTAT02401');
@@ -434,6 +436,47 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
       inqVal: '2',
     });
     expect(result.omittedKeys.sort()).toEqual(['isuCd', 'na', 'nil', 'symbolCode', 'undef', 'unknown']);
+  });
+
+  it('blocks MDCSTAT02401 payloads if forbidden name key is present', async () => {
+    vi.resetModules();
+    const { __krxClientTestOnly } = await import('./krxClient.js');
+    const variant = {
+      id: 'OTP_CSV:MINIMAL_STRICT:MDCSTAT02401:SYMBOL_ISU:strtDd/endDd:ALL',
+      mode: 'OTP_CSV' as const,
+      payloadMode: 'MINIMAL_STRICT' as const,
+      endpoint: 'MDCSTAT02401',
+      bld: 'dbms/MDC/STAT/standard/MDCSTAT02401',
+      routeKind: 'SYMBOL_INVESTOR_FLOW' as const,
+      routePurpose: 'SYMBOL_LEVEL' as const,
+      dateParam: 'strtDd/endDd' as const,
+      marketCode: 'ALL' as const,
+      symbolCode: '005930',
+      symbolRequired: true,
+      shortCodeToIsuCdResolved: true,
+      isuCd: 'KR7005930003',
+      requiredParamMissing: null,
+      inqVal: '2',
+      detailView: null,
+      otpRequired: true,
+      params: {
+        strtDd: '20260508',
+        endDd: '20260508',
+        isuCd: 'KR7005930003',
+        inqVal: '2',
+      },
+    };
+    const validation = __krxClientTestOnly.validateKrxPayloadForVariantAdr0526(variant, {
+      name: 'fileDown',
+      bld: variant.bld,
+      strtDd: '20260508',
+      endDd: '20260508',
+      isuCd: 'KR7005930003',
+      inqVal: '2',
+    });
+    expect(validation.allowedKeys).toEqual(['bld', 'endDd', 'inqVal', 'isuCd', 'strtDd']);
+    expect(validation.forbiddenKeysPresent).toEqual(['name']);
+    expect(validation.payloadValidation).toBe('BLOCKED_BY_PAYLOAD_VALIDATION');
   });
 
   it('records safe variant diagnostics when every KRX investor-flow variant returns HTTP 400', async () => {

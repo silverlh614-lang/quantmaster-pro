@@ -455,7 +455,12 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     // INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001 — diagnostic actual row carry 집계.
     if (a.supplyScopeAudit.diagnosticActualInvestorRowCarried) {
       diagnosticActualInvestorRowCarriedCount += 1;
-      if (a.supplyScopeAudit.actualInvestorRowUseScope === 'SELECTED_PROVIDER') selectedProviderActualRowCount += 1;
+      if (
+        a.supplyScopeAudit.actualInvestorRowUseScope === 'SELECTED_PROVIDER' ||
+        a.supplyScopeAudit.actualInvestorRowUseScope === 'GATE_SCORE_ELIGIBLE'
+      ) {
+        selectedProviderActualRowCount += 1;
+      }
       else diagnosticOnlyActualRowCount += 1;
     }
     if (a.supplyScopeAudit.actualInvestorRowProvider) {

@@ -140,7 +140,7 @@ describe('Router — adapter actual row carry / selectedProvider 분리', () => 
       kisTriedForInvestorFlow: true,
     });
     if (route.selectedProvider === 'KIS_API') {
-      expect(route.actualInvestorRowUseScope).toBe('SELECTED_PROVIDER');
+      expect(route.actualInvestorRowUseScope).toBe('GATE_SCORE_ELIGIBLE');
       expect(route.selectedProviderActualInvestorRow).not.toBeNull();
       // selectedProvider === actualRowProvider → cross-provider forward 아님
       expect(route.adapterRowsForwardedAcrossProviders).toBe(false);
@@ -219,7 +219,7 @@ describe('KIS normalized row bridge — diagnostic-only promotion', () => {
     expect(route.diagnosticActualInvestorRowFromNormalized).toBe(true);
     expect(route.diagnosticActualInvestorRow).toEqual(expect.objectContaining({ foreignNetBuy: '1,234', institutionNetBuy: '-2,000' }));
     expect(route.actualInvestorRowProvider).toBe('KIS_API');
-    expect(route.actualInvestorRowUseScope).toBe('DIAGNOSTIC_ONLY');
+    expect(route.actualInvestorRowUseScope).toBe('GATE_SCORE_ELIGIBLE');
     expect(route.executionImpact).toBe('NONE');
     expect(route.liveExecutionAllowed).toBe(false);
   });
@@ -275,6 +275,6 @@ describe('KIS normalized row bridge — diagnostic-only promotion', () => {
     const payload = route.bySymbol?.['005930'];
     expect(payload?.diagnosticActualInvestorRowFromNormalized).toBe(true);
     expect(payload?.diagnosticActualInvestorRow).toEqual(route.diagnosticActualInvestorRow);
-    expect(payload?.actualInvestorRowUseScope).toBe('DIAGNOSTIC_ONLY');
+    expect(payload?.actualInvestorRowUseScope).toBe('GATE_SCORE_ELIGIBLE');
   });
 });

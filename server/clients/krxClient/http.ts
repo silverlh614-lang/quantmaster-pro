@@ -144,7 +144,12 @@ export function requiredKrxPayloadKeys(variant: KrxInvestorEndpointVariant): str
 }
 
 export function forbiddenKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
-  const common = ['symbolCode', 'isuCd2', 'codeNmisuCd_finder_stkisu0_0'];
+  const common = [
+    'symbolCode',
+    'isuCd2',
+    'codeNmisuCd_finder_stkisu0_0',
+    ...(variant.endpoint === 'MDCSTAT02401' ? ['name'] : []),
+  ];
   if (variant.payloadMode !== 'MINIMAL_STRICT') return common;
   if (variant.routePurpose === 'MARKET_LEVEL') {
     return [
@@ -171,18 +176,51 @@ export function forbiddenKrxPayloadKeys(variant: KrxInvestorEndpointVariant): st
   ];
 }
 
+export function allowedKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
+  const common = variant.payloadMode === 'MINIMAL_STRICT'
+    ? ['name', 'bld', ...Object.keys(variant.params)]
+    : ['name', 'bld', 'url', 'csvxls_isNo', 'locale', ...Object.keys(variant.params)];
+  return Array.from(new Set(common.filter((key) => key !== 'name' || variant.endpoint !== 'MDCSTAT02401'))).sort();
+}
+
+export function validateKrxPayloadForVariantAdr0526(
+  variant: KrxInvestorEndpointVariant,
+  payload: Record<string, string>,
+): {
+  endpoint: string;
+  sentPayloadKeys: string[];
+  allowedKeys: string[];
+  forbiddenKeysPresent: string[];
+  payloadValidation: 'PASS' | 'BLOCKED_BY_PAYLOAD_VALIDATION';
+} {
+  const sentPayloadKeys = Object.keys(payload).sort();
+  const allowedKeys = allowedKrxPayloadKeys(variant);
+  const forbiddenKeys = new Set(forbiddenKrxPayloadKeys(variant));
+  const forbiddenKeysPresent = sentPayloadKeys
+    .filter((key) => forbiddenKeys.has(key) || !allowedKeys.includes(key))
+    .sort();
+  return {
+    endpoint: variant.endpoint,
+    sentPayloadKeys,
+    allowedKeys,
+    forbiddenKeysPresent,
+    payloadValidation: forbiddenKeysPresent.length === 0 ? 'PASS' : 'BLOCKED_BY_PAYLOAD_VALIDATION',
+  };
+}
+
 export function buildKrxOtpPayload(variant: KrxInvestorEndpointVariant): {
   body: string;
-  meta: Pick<KrxPostMeta, 'payloadMode' | 'omittedKeys' | 'forbiddenKeysPresent' | 'requiredKeysPresent' | 'requiredKeysMissing' | 'sentPayloadKeys'>;
+  meta: Pick<KrxPostMeta, 'payloadMode' | 'omittedKeys' | 'forbiddenKeysPresent' | 'requiredKeysPresent' | 'requiredKeysMissing' | 'sentPayloadKeys' | 'allowedKeys' | 'payloadValidation'>;
 } {
+  const includeName = variant.endpoint !== 'MDCSTAT02401';
   const basePayload = variant.payloadMode === 'MINIMAL_STRICT'
     ? {
-        name: 'fileDown',
+        ...(includeName ? { name: 'fileDown' } : {}),
         bld: variant.bld,
         ...variant.params,
       }
     : {
-        name: 'fileDown',
+        ...(includeName ? { name: 'fileDown' } : {}),
         bld: variant.bld,
         url: variant.bld,
         csvxls_isNo: 'false',
@@ -192,19 +230,20 @@ export function buildKrxOtpPayload(variant: KrxInvestorEndpointVariant): {
   const { payload, omittedKeys } = sanitizeKrxPayload(basePayload);
   const sentPayloadKeys = Object.keys(payload).sort();
   const requiredKeys = requiredKrxPayloadKeys(variant);
-  const forbiddenKeys = forbiddenKrxPayloadKeys(variant);
+  const validation = validateKrxPayloadForVariantAdr0526(variant, payload);
   const requiredKeysPresent = requiredKeys.filter((key) => payload[key] != null);
   const requiredKeysMissing = requiredKeys.filter((key) => payload[key] == null);
-  const forbiddenKeysPresent = forbiddenKeys.filter((key) => payload[key] != null);
   return {
     body: new URLSearchParams(payload).toString(),
     meta: {
       payloadMode: variant.payloadMode,
       omittedKeys: omittedKeys.sort(),
-      forbiddenKeysPresent,
+      forbiddenKeysPresent: validation.forbiddenKeysPresent,
       requiredKeysPresent,
       requiredKeysMissing,
       sentPayloadKeys,
+      allowedKeys: validation.allowedKeys,
+      payloadValidation: validation.payloadValidation,
     },
   };
 }
