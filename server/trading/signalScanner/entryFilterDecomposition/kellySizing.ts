@@ -69,8 +69,8 @@ export function createKellySizingTrace(input: {
     riskMultiplier;
   const minPositionThreshold = input.minPositionThreshold ?? 0.01;
   const finalPositionSize = input.finalPositionSize ?? finalKelly;
-  const blockedBySizing =
-    finalKelly < minPositionThreshold || finalPositionSize <= 0;
+  const blockedBySizing = false;
+  const sizingTooLow = finalKelly < minPositionThreshold || finalPositionSize <= 0;
   return {
     symbol: input.symbol,
     kellyRaw: input.kellyRaw,
@@ -82,6 +82,6 @@ export function createKellySizingTrace(input: {
     minPositionThreshold,
     finalPositionSize,
     blockedBySizing,
-    reason: blockedBySizing ? "KELLY_ADJUSTED_TOO_LOW" : undefined,
+    reason: sizingTooLow ? "SIZING_ADVISORY_LOW" : undefined,
   };
 }
