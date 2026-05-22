@@ -262,6 +262,14 @@ export function formatNormalSupplyPreviewSection(
   if (preview.preflightDecision) lines.push(`preflightDecision: ${preview.preflightDecision}`);
   lines.push(`liveExecutionAllowed: ${preview.liveExecutionAllowed}`);
   lines.push(`realOrderAllowed: ${preview.realOrderAllowed}`);
+  lines.push(`actualLiveOrderAllowed: ${preview.runtimePermission.actualLiveOrderAllowed}`);
+  lines.push(`liveBlockReason: ${preview.runtimePermission.liveBlockReason}`);
+  lines.push(`gatePolicyLiveAllowed: ${preview.runtimePermission.gatePolicyLiveAllowed}`);
+  lines.push(`macroLiveAllowed: ${preview.runtimePermission.macroLiveAllowed}`);
+  lines.push(`brokerOrderAllowed: ${preview.runtimePermission.brokerOrderAllowed}`);
+  lines.push(`operatorOrderAllowed: ${preview.runtimePermission.operatorOrderAllowed}`);
+  lines.push(`shadowAllowed: ${preview.runtimePermission.shadowAllowed}`);
+  lines.push(`counterfactualAllowed: ${preview.runtimePermission.counterfactualAllowed}`);
   lines.push(`strongBuyAllowed: ${preview.strongBuyAllowed}`);
   lines.push(`shadowObservableAllowed: ${preview.shadowObservableAllowed}`);
   lines.push(`executionImpact: ${preview.executionImpact}`);
@@ -339,14 +347,12 @@ function formatPromotionBlockedCode(candidate: NormalSupplyPreviewCandidate): st
 }
 
 function formatLiveDecisionBlockReason(preview: NormalSupplyPreview): string {
-  if (preview.engineMode === 'SELL_ONLY') return 'LEGACY_POLICY_IGNORED';
-  if (preview.engineMode === 'MACRO_LIVE_BLOCK') return 'macro live block';
-  if (!preview.liveExecutionAllowed) return 'macro live block';
-  return 'none';
+  return preview.runtimePermission.liveBlockReason;
 }
 
 function formatCompactLiveDecision(preview: NormalSupplyPreview): string {
-  return preview.liveExecutionAllowed ? 'LIVE_DECISION_ALLOWED' : 'BLOCKED_BY_MACRO_LIVE_BLOCK';
+  if (preview.runtimePermission.actualLiveOrderAllowed) return 'LIVE_DECISION_ALLOWED';
+  return `BLOCKED_BY_${preview.runtimePermission.liveBlockReason}`;
 }
 
 function formatCompactActiveFlow(candidate: NormalSupplyPreviewCandidate): string {
