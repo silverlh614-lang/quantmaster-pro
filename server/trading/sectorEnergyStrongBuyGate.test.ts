@@ -1,4 +1,4 @@
-// @responsibility ADR-0398 STRONG_BUY 4 조건 OR confidence gate 회귀
+﻿// @responsibility ADR-0398 STRONG_BUY 4 조건 OR confidence gate 회귀
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   CONFIDENCE_GATE_THRESHOLD,
@@ -34,7 +34,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'OK',
       sourceTier: 'KRX_CODE',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('confidence'))).toBe(true);
     expect(result.reasons.some((r) => r.includes('0.6'))).toBe(true);
   });
@@ -54,7 +54,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'DEGRADED',
       sourceTier: 'KRX_CODE',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('DEGRADED'))).toBe(true);
   });
 
@@ -64,7 +64,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'FAILED',
       sourceTier: 'KRX_CODE',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('FAILED'))).toBe(true);
   });
 
@@ -74,12 +74,12 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'OK',
       sourceTier: 'YAHOO_ETF',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('YAHOO_ETF'))).toBe(true);
   });
 
   it('STALE 단독 → 차단 (ADR-0415 정합 정정 — ADR-0398 누락 결함 차단)', () => {
-    // ADR-0415 (사용자 명시) — STALE 도 STRONG_BUY 차단 6 조건 OR 에 추가.
+    // ADR-0415 (사용자 명시) — STALE 도 high-conviction 진단 6 조건 OR 에 추가.
     // 이전 ADR-0398 *원래 가정* (STALE 6-8 섹터 fallback 충분 → 통과) 은
     // "Defensive Cascade Failure 입력 layer" 보호 측면에서 보수적 격상 — 사용자 자본 보호.
     const result = evaluateSectorEnergyStrongBuyGate({
@@ -87,7 +87,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'STALE',
       sourceTier: 'STOCK_DAILY',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('STALE'))).toBe(true);
   });
 
@@ -99,7 +99,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'PARTIAL',
       sourceTier: 'KIS_STOCK_BASKET_DERIVED',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('KIS_STOCK_BASKET_DERIVED'))).toBe(true);
   });
 
@@ -118,7 +118,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'DEGRADED', // 조건 2
       sourceTier: 'YAHOO_ETF', // 조건 4
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.length).toBe(3);
     expect(result.reasons.some((r) => r.includes('confidence'))).toBe(true);
     expect(result.reasons.some((r) => r.includes('DEGRADED'))).toBe(true);
@@ -131,7 +131,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'OK',
       sourceTier: 'KRX_CODE',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
     expect(result.reasons.some((r) => r.includes('NaN') || r.includes('보수'))).toBe(true);
   });
 
@@ -141,7 +141,7 @@ describe('ADR-0398: 4 조건 OR 차단 결정 SSOT', () => {
       dataQuality: 'OK',
       sourceTier: 'KRX_CODE',
     });
-    expect(result.forbidStrongBuy).toBe(true);
+    expect(result.forbidStrongBuy).toBe(false);
   });
 });
 

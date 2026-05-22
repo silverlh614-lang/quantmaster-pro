@@ -540,7 +540,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     ).toBe(false);
   });
 
-  it("SELL_ONLY blocks execution eligibility only and does not reduce signal score", () => {
+  it("removed SELL_ONLY does not block execution eligibility or reduce signal score", () => {
     const baseInput = {
       now,
       universeCandidates: 1,
@@ -575,7 +575,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       sellOnly.candidateTraces[0].blockers.some(
         (b) => b.code === "SELL_ONLY_TIME_WINDOW",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       sellOnly.minSignalScoreTraces[0].wouldPassIfSessionPenaltyRemoved,
     ).toBe(false);
@@ -631,7 +631,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       d.candidateTraces[0].blockers.find(
         (b) => b.code === "SECTOR_ENERGY_DIAGNOSTIC_ONLY",
       )?.executionBlocking,
-    ).toBe("STRONG_BUY_ONLY");
+    ).toBe("NONE");
     expect(
       d.gate1CandidateTraces[0].conditions.find(
         (c) => c.code === "SECTOR_ENERGY_CONFIDENCE_PASS",
@@ -668,7 +668,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     expect(soft.softFails.map((f) => f.code)).toEqual(
       expect.arrayContaining([
         "PROVIDER_UNKNOWN",
-        "SESSION_SOFT_BLOCK",
+        "SUPPLY_UNKNOWN",
         "SECTOR_DIAGNOSTIC",
         "MIN_SIGNAL_GAP",
       ]),

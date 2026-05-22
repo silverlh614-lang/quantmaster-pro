@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @responsibility ADR-0436 Gate Eligibility Split — classifyGateEligibility SSOT 회귀.
  *
  * 사용자 명시 13 invariants 정적 grep 가드 + 결정 트리 동작 매트릭스.
@@ -154,7 +154,7 @@ describe('ADR-0436 — Gate Eligibility Split SSOT', () => {
       expect(r.shadowObservable).toBe(true);
       expect(r.degradedProviderReasons).toContain('SECTOR_DATA_STALE');
     });
-    it('SECTOR_DATA_DEGRADED → live=false, shadow=true (STRONG_BUY 차단 정합)', () => {
+    it('SECTOR_DATA_DEGRADED → live=false, shadow=true (high-conviction 진단 정합)', () => {
       const r = classifyGateEligibility({
         currentPrice: 50000,
         stockCode: '005930',

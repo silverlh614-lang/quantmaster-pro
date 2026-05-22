@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @responsibility 수급/구조 데이터의 provider 우선순위, 신뢰도, 점수 투입 가능 조건을 선언한다.
  *
  * PR-581: KIS 의존도 격하를 위한 정책 레이어.
@@ -165,7 +165,7 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
     scoringMode: 'optional',
     confidence: { KIS_API: 0.85, KRX_SHORT_SELLING: 0.95, NAVER_SHORT_SELLING: 0.75, CACHE: 0.55 },
     excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
-    notes: ['KIS 공매도/대차/신용 official pack 은 EnemyChecklist 의 STRONG_BUY 차단 후보로 우선 사용한다. 데이터 없음은 bearish 아님.'],
+    notes: ['KIS 공매도/대차/신용 official pack 은 EnemyChecklist 의 high-conviction 진단 후보로 우선 사용한다. 데이터 없음은 bearish 아님.'],
   },
   loanTransaction: {
     key: 'loanTransaction',
@@ -187,7 +187,7 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
     scoringMode: 'optional',
     confidence: { KIS_API: 0.85, KRX_MARGIN_BALANCE: 0.9, FINANCIAL_INVESTMENT_ASSOCIATION: 0.85, CACHE: 0.5 },
     excludeStatuses: ['PROVIDER_UNAVAILABLE', 'COLLECTION_EMPTY', 'MISSING'],
-    notes: ['KIS 신용잔고 급증은 STRONG_BUY 금지 후보. missing 은 bearish 변환 금지.'],
+    notes: ['KIS 신용잔고 급증은 high-conviction 진단 후보. missing 은 bearish 변환 금지.'],
   },
   foreignerRatioTrend: {
     key: 'foreignerRatioTrend',

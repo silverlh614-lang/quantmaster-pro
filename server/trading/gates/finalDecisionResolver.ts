@@ -2,6 +2,7 @@
 
 import type { DataConfidence } from '../../data/dataConfidenceRouter.js';
 import type { EngineRuntimePolicy } from '../../runtime/engineRuntimePolicy.js';
+import type { ConvictionLabel } from './simpleDecision.js';
 
 export interface EvidenceItem {
   key: string;
@@ -20,7 +21,7 @@ export interface GateResult {
   evidence: EvidenceItem[];
 }
 
-export type FinalDecision = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'BLOCK' | 'SELL_ONLY_ALLOWED';
+export type FinalDecision = 'BUY' | 'HOLD' | 'BLOCK' | 'SELL_ONLY_ALLOWED';
 
 export interface FinalDecisionResolverInput {
   runtimePolicy: EngineRuntimePolicy;
@@ -39,6 +40,9 @@ export interface FinalDecisionResolverOutput {
   blockers: string[];
   warnings: string[];
   reasonCodes: string[];
+  convictionLabel: ConvictionLabel;
+  strongBuyAsLabelOnly: true;
+  ignoredLegacyStrongBuyBlockers: string[];
 }
 
 function getGate(input: FinalDecisionResolverInput, gateName: string): GateResult | undefined {
@@ -74,6 +78,15 @@ export const FinalDecisionResolver = Object.freeze({
     const warnings = collect(input.gateResults.map((gate) => gate.warnings));
     const reasonCodes = [...new Set([...input.runtimePolicy.reasonCodes, ...blockers])];
     const gate1 = getGate(input, 'Gate1Survival');
+    const requestedBuyDecision = input.requestedDecision === 'HOLD' ? 'HOLD' : 'BUY';
+    const convictionLabel: ConvictionLabel =
+      input.requestedDecision === 'STRONG_BUY' ? 'HIGH_CONVICTION'
+      : input.requestedDecision === 'BUY' ? 'BUY'
+      : 'WATCH';
+    const ignoredLegacyStrongBuyBlockers =
+      input.requestedDecision === 'STRONG_BUY' && (input.enemyWarningCount ?? 0) >= 2
+        ? ['ENEMY_CHECKLIST_STRONG_BUY_DOWNGRADE']
+        : [];
 
     if (!input.runtimePolicy.liveBuyAllowed) {
       return {
@@ -86,6 +99,9 @@ export const FinalDecisionResolver = Object.freeze({
         blockers,
         warnings,
         reasonCodes,
+        convictionLabel,
+        strongBuyAsLabelOnly: true,
+        ignoredLegacyStrongBuyBlockers,
       };
     }
 
@@ -100,25 +116,14 @@ export const FinalDecisionResolver = Object.freeze({
         blockers: [...blockers, 'GATE1_SURVIVAL_FAILED'],
         warnings,
         reasonCodes: [...new Set([...reasonCodes, 'GATE1_SURVIVAL_FAILED'])],
-      };
-    }
-
-    if (input.requestedDecision === 'STRONG_BUY' && (input.enemyWarningCount ?? 0) >= 2) {
-      return {
-        decision: 'BUY',
-        liveBuyAllowed: true,
-        liveSellAllowed: input.runtimePolicy.liveSellAllowed,
-        shadowAllowed: input.runtimePolicy.shadowAllowed,
-        learningAllowed: input.runtimePolicy.learningAllowed,
-        downgraded: true,
-        blockers,
-        warnings: [...warnings, 'ENEMY_CHECKLIST_STRONG_BUY_DOWNGRADE'],
-        reasonCodes: [...new Set([...reasonCodes, 'ENEMY_CHECKLIST_STRONG_BUY_DOWNGRADE'])],
+        convictionLabel,
+        strongBuyAsLabelOnly: true,
+        ignoredLegacyStrongBuyBlockers,
       };
     }
 
     return {
-      decision: input.requestedDecision,
+      decision: requestedBuyDecision,
       liveBuyAllowed: input.requestedDecision !== 'HOLD',
       liveSellAllowed: input.runtimePolicy.liveSellAllowed,
       shadowAllowed: input.runtimePolicy.shadowAllowed,
@@ -127,6 +132,9 @@ export const FinalDecisionResolver = Object.freeze({
       blockers,
       warnings,
       reasonCodes,
+      convictionLabel,
+      strongBuyAsLabelOnly: true,
+      ignoredLegacyStrongBuyBlockers,
     };
   },
 });

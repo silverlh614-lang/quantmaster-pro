@@ -367,8 +367,8 @@ export function buildEntryFilterDecomposition(
           code: "SECTOR_ENERGY_DIAGNOSTIC_ONLY",
           severity: "DIAGNOSTIC_ONLY",
           message:
-            "SectorEnergy is diagnostic/degraded; STRONG_BUY may be blocked, general BUY/counterfactual is preserved.",
-          executionBlocking: "STRONG_BUY_ONLY",
+            "SectorEnergy is diagnostic/degraded; high-conviction evidence is score/diagnostic only.",
+          executionBlocking: "NONE",
         }),
       "WATCHLIST",
     );

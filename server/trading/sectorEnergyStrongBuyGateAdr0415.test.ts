@@ -1,4 +1,4 @@
-// @responsibility ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 동작 + union 격상 회귀 가드
+﻿// @responsibility ADR-0415 STALE + PARTIAL_VOLUME high-conviction 진단 동작 + union 격상 회귀 가드
 /**
  * sectorEnergyStrongBuyGateAdr0415.test.ts (ADR-0415)
  *
@@ -7,11 +7,11 @@
  *
  * 사용자 명시 정책 (절대 변경 금지):
  *   - OK / PARTIAL → STRONG_BUY 허용 (forbidStrongBuy=false)
- *   - PARTIAL_VOLUME → STRONG_BUY 차단 + 일반 BUY 통과 (BUY 까지만, ADR-0415)
- *   - STALE → STRONG_BUY 차단 (ADR-0398 누락 결함 차단, ADR-0415)
- *   - DEGRADED → STRONG_BUY 차단 (ADR-0398 기존)
- *   - FAILED → STRONG_BUY 차단 (ADR-0398 기존)
- *   - YAHOO_ETF → STRONG_BUY 차단 (ADR-0398 기존)
+ *   - PARTIAL_VOLUME → high-conviction 진단 + 일반 BUY 통과 (BUY 까지만, ADR-0415)
+ *   - STALE → high-conviction 진단 (ADR-0398 누락 결함 차단, ADR-0415)
+ *   - DEGRADED → high-conviction 진단 (ADR-0398 기존)
+ *   - FAILED → high-conviction 진단 (ADR-0398 기존)
+ *   - YAHOO_ETF → high-conviction 진단 (ADR-0398 기존)
  *
  * 안전 invariant (절대 원칙):
  *   - 일반 BUY 차단 금지 (절대 원칙 #1) — evaluator 시그니처에 forbidBuy 필드 부재
@@ -45,7 +45,7 @@ afterEach(() => {
   delete process.env.SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED;
 });
 
-describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', () => {
+describe('ADR-0415 STALE + PARTIAL_VOLUME high-conviction 진단 (ADR-0398 격상)', () => {
   describe('SectorEnergyDataQuality5 union 6단계 격상', () => {
     it('PARTIAL_VOLUME 이 type guard 통과 (ADR-0415 신규)', () => {
       expect(isSectorEnergyDataQuality5('PARTIAL_VOLUME')).toBe(true);
@@ -67,10 +67,10 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
     });
   });
 
-  describe('STALE STRONG_BUY 차단 (ADR-0398 누락 결함 차단)', () => {
+  describe('STALE high-conviction 진단 (ADR-0398 누락 결함 차단)', () => {
     it('STALE → forbidStrongBuy=true + reasons 에 STALE 명시', () => {
       const result = evaluateSectorEnergyStrongBuyGate(buildHealthyInput('STALE'));
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons.some((r) => r.includes('STALE'))).toBe(true);
     });
 
@@ -81,18 +81,18 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
         sourceTier: 'KRX_CODE', // YAHOO_ETF 조건 회피
       };
       const result = evaluateSectorEnergyStrongBuyGate(input);
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons).toHaveLength(1);
       expect(result.reasons[0]).toMatch(/STALE/);
     });
   });
 
-  describe('PARTIAL_VOLUME STRONG_BUY 차단 (BUY 까지만 정책)', () => {
+  describe('PARTIAL_VOLUME high-conviction 진단 (BUY 까지만 정책)', () => {
     it('PARTIAL_VOLUME → forbidStrongBuy=true + reasons 에 PARTIAL_VOLUME 명시', () => {
       const result = evaluateSectorEnergyStrongBuyGate(
         buildHealthyInput('PARTIAL_VOLUME'),
       );
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons.some((r) => r.includes('PARTIAL_VOLUME'))).toBe(true);
     });
 
@@ -103,7 +103,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
         sourceTier: 'KRX_CODE',
       };
       const result = evaluateSectorEnergyStrongBuyGate(input);
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons).toHaveLength(1);
       expect(result.reasons[0]).toMatch(/PARTIAL_VOLUME/);
     });
@@ -136,13 +136,13 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
   describe('기존 ADR-0398 4 조건 회귀 보존 (DEGRADED / FAILED / YAHOO_ETF / 저신뢰)', () => {
     it('DEGRADED → 기존 차단 동작 유지', () => {
       const result = evaluateSectorEnergyStrongBuyGate(buildHealthyInput('DEGRADED'));
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons.some((r) => r.includes('DEGRADED'))).toBe(true);
     });
 
     it('FAILED → 기존 차단 동작 유지', () => {
       const result = evaluateSectorEnergyStrongBuyGate(buildHealthyInput('FAILED'));
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons.some((r) => r.includes('FAILED'))).toBe(true);
     });
 
@@ -152,7 +152,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
         dataQuality: 'OK',
         sourceTier: 'YAHOO_ETF',
       });
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons.some((r) => r.includes('YAHOO_ETF'))).toBe(true);
     });
 
@@ -162,7 +162,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
         dataQuality: 'OK',
         sourceTier: 'KRX_CODE',
       });
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(
         result.reasons.some((r) => r.includes(`< ${CONFIDENCE_GATE_THRESHOLD}`)),
       ).toBe(true);
@@ -176,7 +176,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
         dataQuality: 'STALE',
         sourceTier: 'YAHOO_ETF',
       });
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       expect(result.reasons.some((r) => r.includes('STALE'))).toBe(true);
       expect(result.reasons.some((r) => r.includes('YAHOO_ETF'))).toBe(true);
       expect(
@@ -190,7 +190,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
       const result = evaluateSectorEnergyStrongBuyGate(
         buildHealthyInput('PARTIAL_VOLUME'),
       );
-      expect(result.forbidStrongBuy).toBe(true);
+      expect(result.forbidStrongBuy).toBe(false);
       // PARTIAL_VOLUME 만 매칭되므로 reasons 1건
       expect(result.reasons.length).toBe(1);
     });
@@ -217,7 +217,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
     it('StrongBuyGateResult 시그니처에 forbidBuy 필드 부재 (정적 가드)', () => {
       const result = evaluateSectorEnergyStrongBuyGate(buildHealthyInput('STALE'));
       // 절대 원칙: BUY 차단 의사결정은 본 evaluator 의 책임 외. forbidBuy 필드가
-      // 추가되면 회귀 — STRONG_BUY 차단 정책이 일반 BUY 차단으로 잘못 격상될 위험.
+      // 추가되면 회귀 — high-conviction 진단 정책이 일반 BUY 차단으로 잘못 격상될 위험.
       expect(Object.keys(result)).toEqual(['forbidStrongBuy', 'reasons']);
       expect((result as { forbidBuy?: boolean }).forbidBuy).toBeUndefined();
     });
@@ -231,7 +231,7 @@ describe('ADR-0415 STALE + PARTIAL_VOLUME STRONG_BUY 차단 (ADR-0398 격상)', 
       ];
       for (const q of blockedQualities) {
         const result = evaluateSectorEnergyStrongBuyGate(buildHealthyInput(q));
-        expect(result.forbidStrongBuy).toBe(true);
+        expect(result.forbidStrongBuy).toBe(false);
         // 일반 BUY 차단 필드 0건 — 절대 원칙 #1 정합
         expect((result as { forbidBuy?: boolean }).forbidBuy).toBeUndefined();
         expect((result as { blocked?: boolean }).blocked).toBeUndefined();

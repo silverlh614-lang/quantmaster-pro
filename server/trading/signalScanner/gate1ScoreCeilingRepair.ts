@@ -44,7 +44,7 @@ export interface Gate1PositiveComponentWeight {
     | 'DIAGNOSTIC_ONLY';
   contributesTo:
     | 'SIGNAL_ELIGIBILITY'
-    | 'STRONG_BUY_ONLY'
+    | 'HIGH_CONVICTION_LABEL_ONLY'
     | 'ADVISORY_ONLY';
 }
 

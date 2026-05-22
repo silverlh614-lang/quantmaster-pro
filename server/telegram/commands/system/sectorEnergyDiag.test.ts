@@ -54,7 +54,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).toMatch(/Sector Energy 4-axis 진단/);
     });
 
-    it('정상 OK 상태 → 5 필드 모두 표시 + STRONG_BUY 승격 허용', async () => {
+    it('정상 OK 상태 → 5 필드 모두 표시 + high-conviction label diagnostics', async () => {
       vi.doMock('../../../persistence/macroStateRepo.js', () => ({
         loadMacroState: vi.fn().mockReturnValue({
           sectorEnergyDataQuality: 'OK',
@@ -72,10 +72,11 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).toMatch(/freshness.*FRESH/);
       expect(msg).toMatch(/coverage.*100\.0%/);
       expect(msg).toMatch(/confidence.*100\.0%/);
-      expect(msg).toMatch(/STRONG_BUY 승격 허용/);
+      expect(msg).toMatch(/High-conviction label diagnostics/);
+      expect(msg).toMatch(/score\/diagnostic only/);
     });
 
-    it('Yahoo ETF 폴백 (DEGRADED) → 차단 사유 표시', async () => {
+    it('Yahoo ETF 폴백 (DEGRADED) → high-conviction 진단 사유 표시', async () => {
       vi.doMock('../../../persistence/macroStateRepo.js', () => ({
         loadMacroState: vi.fn().mockReturnValue({
           sectorEnergyDataQuality: 'DEGRADED',
@@ -91,16 +92,16 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       // dataQuality=DEGRADED 마커
       expect(msg).toMatch(/dataQuality.*DEGRADED/);
       expect(msg).toMatch(/🔶/); // DEGRADED 이모지
-      expect(msg).toMatch(/STRONG_BUY 차단/);
+      expect(msg).toMatch(/High-conviction label diagnostics/);
       // 4 조건 OR 다중 사유 동시 충족
       expect(msg).toMatch(/confidence/);
       expect(msg).toMatch(/DEGRADED/);
       expect(msg).toMatch(/YAHOO_ETF/);
-      // 사용자 명시 — 일반 BUY 차단 금지 안내
-      expect(msg).toMatch(/일반 BUY 는 차단되지 않음|보조 신호/);
+      // Step 4 — 진단 근거만 표시하고 매수 차단/강등은 하지 않음
+      expect(msg).toMatch(/score\/diagnostic only/);
     });
 
-    it('FAILED 상태 → STRONG_BUY 차단', async () => {
+    it('FAILED 상태 → high-conviction 진단 사유 표시', async () => {
       vi.doMock('../../../persistence/macroStateRepo.js', () => ({
         loadMacroState: vi.fn().mockReturnValue({
           sectorEnergyDataQuality: 'FAILED',
@@ -115,7 +116,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       const msg = mod.formatSectorEnergyDiagMessage();
       expect(msg).toMatch(/dataQuality.*FAILED/);
       expect(msg).toMatch(/❌/);
-      expect(msg).toMatch(/STRONG_BUY 차단/);
+      expect(msg).toMatch(/High-conviction label diagnostics/);
     });
 
     it('KIS basket derived + verifiedIndexCodeCoverage=0 + kisBasketCoverage=100% → PARTIAL 65% confidence and one ADR-0474 block', async () => {
@@ -184,7 +185,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       ).toBe(1);
     });
 
-    it('ENV STRONG_BUY_GATE_DISABLED → 게이트 비활성 안내', async () => {
+    it('ENV STRONG_BUY_GATE_DISABLED → high-conviction 진단 비활성 안내', async () => {
       process.env.SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED = 'true';
       vi.doMock('../../../persistence/macroStateRepo.js', () => ({
         loadMacroState: vi.fn().mockReturnValue({
@@ -197,7 +198,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       }));
       const mod = await import('./sectorEnergyDiag.cmd.js');
       const msg = mod.formatSectorEnergyDiagMessage();
-      expect(msg).toMatch(/STRONG_BUY 게이트 비활성/);
+      expect(msg).toMatch(/High-conviction label diagnostics disabled/);
       expect(msg).toMatch(/SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED/);
     });
 
@@ -215,7 +216,8 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).toMatch(/dataQuality.*STALE/);
       expect(msg).toMatch(/sourceTier.*미수집/);
       expect(msg).toMatch(/freshness.*미수집/);
-      expect(msg).toMatch(/STRONG_BUY 게이트 평가 불가/);
+      expect(msg).toMatch(/High-conviction label diagnostics/);
+      expect(msg).toMatch(/unavailable/);
     });
   });
 
@@ -436,11 +438,11 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(snapshot.selectedProductionSourceTier).toBe('KIS_STOCK_BASKET_DERIVED');
       expect(snapshot.productionOfficialCoverage).toBe('0/12');
       expect(snapshot.productionBasketCoverage).toBe('12/12');
-      expect(snapshot.strongBuyAllowed).toBe(false);
+      expect(snapshot.strongBuyAllowed).toBe(true);
       expect(snapshot.sectorBoostAllowed).toBe(false);
       expect(snapshot.executionImpact).toBe('NONE');
       expect(snapshot.generalBuyBlocked).toBe(false);
-      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:KIS_STOCK_BASKET_DERIVED:PARTIAL:0/12:12/12:false:false:NONE:KIS_SECTOR_INDEX_DAILY_DRYRUN:2:10:2005,2006:OBSERVE');
+      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:KIS_STOCK_BASKET_DERIVED:PARTIAL:0/12:12/12:false:true:NONE:KIS_SECTOR_INDEX_DAILY_DRYRUN:2:10:2005,2006:OBSERVE');
     });
   });
 

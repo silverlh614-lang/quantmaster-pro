@@ -7,7 +7,7 @@
 //   3. coverage (validSectorCount / 12)
 //   4. confidence (0~1, sourceWeight × freshnessWeight × coverage)
 //   5. dataQuality (OK/PARTIAL/STALE/DEGRADED/FAILED)
-//   + STRONG_BUY 차단 여부 + 차단 사유 (ADR-0398 SSOT 호출)
+//   + high-conviction label diagnostic evidence (ADR-0398 SSOT 호출)
 //
 // 외부 호출 0건 — read-only macroStateRepo. 부수효과 없음.
 
@@ -242,7 +242,7 @@ export function formatSectorEnergyDiagMessage(): string {
         `basketCoverage: <b>${c.kisBasketCount}/${c.totalSectors}</b>`,
       );
       lines.push('sectorBoostAllowed: <b>false</b>');
-      lines.push('strongBuyAllowed: <b>false</b>');
+      lines.push('highConvictionLabel: <b>finalScore-only</b>');
       lines.push(`executionImpact: <code>${diag.executionImpact ?? 'NONE'}</code>`);
       lines.push(
         `  • productionOfficialCoverage: <b>${(Math.max(c.verifiedIndexCodeCoverage, c.kisOfficialCoverage) * 100).toFixed(1)}%</b> (${Math.max(c.verifiedIndexCodeCount, c.kisOfficialCount)}/${c.totalSectors})`,
@@ -316,7 +316,7 @@ export function formatSectorEnergyDiagMessage(): string {
     }
   }
 
-  // ADR-0398 STRONG_BUY 게이트 결과
+  // ADR-0398 high-conviction label diagnostics
   lines.push('');
   const adr0474 = formatSectorEnergyCoverageRecoverySection(
     qualityDiag
@@ -335,10 +335,9 @@ export function formatSectorEnergyDiagMessage(): string {
     );
   }
 
+  lines.push('');
   if (isSectorEnergyStrongBuyGateDisabled()) {
-    lines.push(
-      '🔓 <b>[STRONG_BUY 게이트 비활성]</b> (ENV `SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED=true`)',
-    );
+    lines.push('High-conviction label diagnostics disabled by ENV `SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED=true`.');
   } else if (
     sourceTier !== undefined &&
     dataQuality !== undefined &&
@@ -349,22 +348,14 @@ export function formatSectorEnergyDiagMessage(): string {
       dataQuality,
       sourceTier,
     });
-    if (gate.forbidStrongBuy) {
-      lines.push('🚫 <b>[STRONG_BUY 차단]</b> — 4 조건 OR 충족 (ADR-0398)');
-      for (const reason of gate.reasons) {
-        lines.push(`  • ${reason}`);
-      }
-      lines.push('');
-      lines.push(
-        '<i>일반 BUY 는 차단되지 않음 — 섹터에너지는 보조 신호 (사용자 명시 정책).</i>',
-      );
+    lines.push('<b>[High-conviction label diagnostics]</b> score/diagnostic only; no buy block or downgrade.');
+    if (gate.reasons.length > 0) {
+      for (const reason of gate.reasons) lines.push(`  - ${reason}`);
     } else {
-      lines.push('✅ <b>[STRONG_BUY 승격 허용]</b> — 4 조건 모두 통과');
+      lines.push('  - all SectorEnergy label diagnostics clear');
     }
   } else {
-    lines.push(
-      '⚠️ <b>[STRONG_BUY 게이트 평가 불가]</b> — 4-axis 데이터 미수집',
-    );
+    lines.push('<b>[High-conviction label diagnostics]</b> unavailable: 4-axis data missing.');
   }
 
   return lines.join('\n');
@@ -378,7 +369,7 @@ export interface SectorEnergySnapshot {
   dataQuality: string;
   productionOfficialCoverage: string;
   productionBasketCoverage: string;
-  strongBuyAllowed: false;
+  strongBuyAllowed: true;
   sectorBoostAllowed: false;
   executionImpact: 'NONE';
   generalBuyBlocked: false;
@@ -485,7 +476,7 @@ export function buildSectorEnergyTelegramSnapshot(input: {
     dataQuality: String(macro?.sectorEnergyDataQuality ?? 'UNKNOWN'),
     productionOfficialCoverage: coverage.official,
     productionBasketCoverage: coverage.basket,
-    strongBuyAllowed: false,
+    strongBuyAllowed: true,
     sectorBoostAllowed: false,
     executionImpact: 'NONE',
     generalBuyBlocked: false,
@@ -623,7 +614,7 @@ export function shouldSuppressSectorEnergySnapshotTelegram(snapshot: SectorEnerg
   lastSectorEnergySnapshotTelegramExpiresAt = expiresAt;
   sectorEnergySnapshotTelegramSuppressedCount = 0;
   console.log(
-    `[SECTOR_ENERGY_SNAPSHOT] selectedProductionSourceTier=${snapshot.selectedProductionSourceTier} productionOfficialCoverage=${snapshot.productionOfficialCoverage} productionBasketCoverage=${snapshot.productionBasketCoverage} dryRunCandidateCoverage=${snapshot.dryRunSucceeded}/${snapshot.dryRunAttempted} promotionStage=${snapshot.promotionStage} strongBuyAllowed=${snapshot.strongBuyAllowed} executionImpact=${snapshot.executionImpact}`,
+    `[SECTOR_ENERGY_SNAPSHOT] selectedProductionSourceTier=${snapshot.selectedProductionSourceTier} productionOfficialCoverage=${snapshot.productionOfficialCoverage} productionBasketCoverage=${snapshot.productionBasketCoverage} dryRunCandidateCoverage=${snapshot.dryRunSucceeded}/${snapshot.dryRunAttempted} promotionStage=${snapshot.promotionStage} highConvictionLabel=finalScore-only executionImpact=${snapshot.executionImpact}`,
   );
   return false;
 }
@@ -664,7 +655,7 @@ function formatDisabledKisSectorIndexDryRunSection(): string {
     'officialBenchmark: <b>false</b>',
     'promotionStage: <code>OBSERVE</code>',
     'sectorBoostAllowed: <b>false</b>',
-    'strongBuyAllowed: <b>false</b>',
+    'highConvictionLabel: <b>finalScore-only</b>',
     'executionImpact: <code>NONE</code>',
     'nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',
   ].join('\n');
@@ -713,7 +704,7 @@ const sectorEnergyDiag: TelegramCommand = {
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: 'Sector Energy 4-axis 진단 + STRONG_BUY 차단 사유 (ADR-0398)',
+  description: 'Sector Energy 4-axis 진단 + high-conviction label evidence (ADR-0398)',
   usage: '/sector_energy_diag',
   async execute({ reply }) {
     try {

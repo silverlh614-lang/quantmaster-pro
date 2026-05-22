@@ -278,24 +278,9 @@ export function applySupplyHealthToSignal(params: {
     positionSizeAfterHealth = 0;
   }
 
-  const supplyTrendBothDegraded =
-    supplyHealthSnapshot.criticalFlags.investorFlowDegraded &&
-    supplyHealthSnapshot.criticalFlags.foreignerTrendDegraded;
-  if (rawSignal !== 'SELL' && finalSignal === 'STRONG_BUY' && supplyTrendBothDegraded) {
-    setSignal('BUY', 'investor and foreigner trend degraded');
-  }
-
-  if (
-    rawSignal !== 'SELL' &&
-    finalSignal === 'STRONG_BUY' &&
-    supplyHealthSnapshot.criticalFlags.programTradingMissing
-  ) {
-    setSignal('BUY', 'program trading missing');
-  }
-
-  if (status === 'DEGRADED' && rawSignal !== 'SELL' && finalSignal === 'STRONG_BUY') {
-    setSignal('BUY', 'supply_health DEGRADED');
-  }
+  // Step 4: high-conviction/legacy STRONG_BUY is a finalScore label only.
+  // Supply health can affect data confidence and sizing, but it must not perform
+  // STRONG_BUY-only BUY downgrades.
 
   if (rawSignal !== 'SELL' && positionSizeAfterHealth !== positionSize) {
     const reason = `position scaled by data confidence ${confidence.toFixed(2)}`;
@@ -333,8 +318,7 @@ export function determineExecutionMode(params: {
     return 'SHADOW';
   }
 
-  if (finalSignal === 'STRONG_BUY' && dataConfidence >= 0.8) return 'LIVE';
-  if (finalSignal === 'BUY' && dataConfidence >= 0.6) return 'LIVE';
+  if (isBuySignal(finalSignal) && dataConfidence >= 0.6) return 'LIVE';
   if (isBuySignal(finalSignal)) return 'SHADOW';
   if (finalSignal === 'SELL') return 'LIVE';
   return 'WATCHLIST';
@@ -347,8 +331,8 @@ export function deriveWatchlistReason(params: {
   snapshot: SupplyHealthSnapshot;
 }): WatchlistReason | null {
   if (
-    params.rawSignal === 'STRONG_BUY' &&
-    (params.finalSignal === 'BUY' || params.finalSignal === 'WATCH') &&
+    isBuySignal(params.rawSignal) &&
+    params.finalSignal === 'WATCH' &&
     params.wasDowngradedBySupplyHealth
   ) {
     return params.snapshot.criticalFlags.investorFlowDegraded ||

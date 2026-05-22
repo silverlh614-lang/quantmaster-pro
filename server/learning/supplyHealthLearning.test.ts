@@ -129,8 +129,9 @@ describe('applySupplyHealthToSignal', () => {
       positionSize: 1,
       supplyHealthSnapshot: snapshot({ summary: { overallStatus: 'DEGRADED' } }),
     });
-    expect(result.finalSignal).toBe('BUY');
+    expect(result.finalSignal).toBe('STRONG_BUY');
     expect(result.wasDowngradedBySupplyHealth).toBe(true);
+    expect(result.downgradeReasons).not.toContain('supply_health DEGRADED');
   });
 
   it('UNSAFE + BUY -> WATCH 강등', () => {
@@ -180,7 +181,7 @@ describe('LearningSample / Replay 생성', () => {
       supplyHealthSnapshot: health,
     });
     expect(created.rawSignal).toBe('STRONG_BUY');
-    expect(created.finalSignal).toBe('BUY');
+    expect(created.finalSignal).toBe('STRONG_BUY');
     expect(created.wasDowngradedBySupplyHealth).toBe(true);
     expect(created.supplyHealthSnapshot).toBe(health);
     expect(created.dataQualityBucket).toBe('MID_CONFIDENCE');

@@ -289,7 +289,6 @@ export interface Gate1DecompositionReport {
 
 export type ExecutionBlockScope =
   | "NONE"
-  | "STRONG_BUY_ONLY"
   | "NEW_BUY_ONLY"
   | "ALL_EXECUTION";
 

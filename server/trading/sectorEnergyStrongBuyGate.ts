@@ -1,8 +1,8 @@
-// @responsibility STRONG_BUY confidence gate 6-조건 차단 SSOT (ADR-0398 + ADR-0415)
+// @responsibility High-conviction confidence diagnostics SSOT (ADR-0398 + ADR-0415)
 /**
  * sectorEnergyStrongBuyGate.ts (ADR-0398 = 사용자 명시 ADR-0373)
  *
- * STRONG_BUY 차단 정책 SSOT — 섹터에너지 신뢰도가 낮으면 *최고 등급 승격을 막는* 구조.
+ * Step 4: legacy STRONG_BUY conditions are retained as score/diagnostic evidence only.
  * 사용자 명시 정책 (절대 변경 금지):
  *   - 일반 BUY 차단 금지 (섹터에너지는 보조 신호, 개별 종목 수급/기술/펀더멘털 우선)
  *   - 6 조건 OR (ADR-0398 4 + ADR-0415 2):
@@ -10,7 +10,7 @@
  *       2. dataQuality='DEGRADED'
  *       3. dataQuality='FAILED'
  *       4. sourceTier='YAHOO_ETF'
- *       5. dataQuality='STALE' (ADR-0415 — ADR-0398 누락 결함 차단)
+ *       5. dataQuality='STALE' (ADR-0415 — ADR-0398 누락 진단)
  *       6. dataQuality='PARTIAL_VOLUME' (ADR-0415 — BUY 까지만)
  *       7. sourceTier='KIS_STOCK_BASKET_DERIVED' (derived basket shadow-only)
  *
@@ -27,7 +27,7 @@ import type {
   SectorEnergySourceTier,
 } from '../clients/sectorEnergyDataQuality.js';
 
-/** ADR-0398: STRONG_BUY 차단 임계값 SSOT (사용자 명시 절대 변경 금지). */
+/** ADR-0398: legacy high-conviction diagnostic confidence threshold. */
 export const CONFIDENCE_GATE_THRESHOLD = 0.6;
 
 /** ADR-0398: STRONG_BUY 게이트 입력. */
@@ -40,11 +40,11 @@ export interface StrongBuyGateInput {
   sourceTier: SectorEnergySourceTier;
 }
 
-/** ADR-0398: STRONG_BUY 게이트 결과. */
+/** ADR-0398: legacy high-conviction diagnostic result. */
 export interface StrongBuyGateResult {
-  /** STRONG_BUY 차단 여부 (사용자 명시 4 조건 OR). */
+  /** Step 4 compatibility field. Always false; reasons are diagnostic only. */
   forbidStrongBuy: boolean;
-  /** 차단 사유 카탈로그 (UI 표시 + ADR 추적성). */
+  /** Diagnostic reason catalog (score/evidence only). */
   reasons: string[];
 }
 
@@ -62,7 +62,7 @@ export function isSectorEnergyStrongBuyGateDisabled(): boolean {
  * ADR-0400: ENV `SECTOR_ENERGY_STRONG_BUY_GATE_WIRING_DISABLED=true` SSOT 헬퍼.
  * 정확 비교 (=== 'true') ADR-0157 의무. default OFF.
  *
- * 본 ENV 활성 시 STRONG_BUY → BUY 강등 wiring 자체 비활성화 →
+ * 본 ENV 활성 시 legacy high-conviction diagnostic wiring 자체 비활성화 →
  * ADR-0398 dead code 동작 100% 복원 (회귀 1줄 즉시 롤백 안전망).
  *
  * 호출자 측 inline ENV 검사 0건 — SSOT 위임 (ADR-0185~0189 정합).
@@ -72,15 +72,15 @@ export function isSectorEnergyStrongBuyGateWiringDisabled(): boolean {
 }
 
 /**
- * STRONG_BUY 차단 결정 SSOT — 4 조건 OR (사용자 명시 절대 변경 금지).
+ * Legacy high-conviction evidence SSOT — 4 조건 OR diagnostics.
  *
  * @param input ADR-0396 4-axis 합성 결과 부분 (confidence + dataQuality + sourceTier)
- * @returns forbidStrongBuy + reasons 카탈로그
+ * @returns forbidStrongBuy=false + reasons 카탈로그
  *
  * 안전 invariant:
- *   - 일반 BUY 차단 금지 — 본 함수는 STRONG_BUY 등급 승격만 결정
+ *   - 일반 BUY 차단 금지 — 본 함수는 final decision/label 을 바꾸지 않음
  *   - ENV 우회 활성 시 항상 forbidStrongBuy=false (ADR-0397 동작 복원)
- *   - NaN confidence → 보수 fallback (forbidStrongBuy=true, reasons 에 안내)
+ *   - NaN confidence → diagnostic fallback (forbidStrongBuy=false, reasons 에 안내)
  */
 export function evaluateSectorEnergyStrongBuyGate(
   input: StrongBuyGateInput,
@@ -95,7 +95,7 @@ export function evaluateSectorEnergyStrongBuyGate(
   // 조건 1: confidence < 0.6 (저신뢰)
   if (!Number.isFinite(input.confidence)) {
     // NaN/Infinity 보수 fallback
-    reasons.push('confidence 산출 실패 (NaN/Infinity) — 보수적 차단');
+    reasons.push('confidence 산출 실패 (NaN/Infinity) — high-conviction diagnostic only');
   } else if (input.confidence < CONFIDENCE_GATE_THRESHOLD) {
     reasons.push(`confidence < ${CONFIDENCE_GATE_THRESHOLD} (저신뢰)`);
   }
@@ -116,16 +116,15 @@ export function evaluateSectorEnergyStrongBuyGate(
   }
 
   // 조건 5 (ADR-0415): dataQuality === 'STALE' (6~8 섹터 정상, 신뢰도 부족)
-  // ADR-0398 4 조건 OR 매트릭스에서 STALE 누락 결함 차단 — 사용자 명시 정책
-  // *"STALE → STRONG_BUY 금지"* 정합화. 일반 BUY 진입 영향 0 (절대 원칙 #1 보존).
+  // ADR-0398 4 조건 OR 매트릭스에서 STALE 누락 진단 — 일반 BUY 진입 영향 0.
   if (input.dataQuality === 'STALE') {
     reasons.push('dataQuality=STALE (6~8 섹터 정상, 신뢰도 부족)');
   }
 
   // 조건 6 (ADR-0415): dataQuality === 'PARTIAL_VOLUME' (가격은 정상이나 거래량/일부 섹터 누락)
-  // 사용자 명시 정책 *"PARTIAL_VOLUME → BUY 까지만"* — STRONG_BUY 차단, BUY 통과.
+  // Step 4: PARTIAL_VOLUME is diagnostic evidence only; BUY_ALLOWED is preserved.
   if (input.dataQuality === 'PARTIAL_VOLUME') {
-    reasons.push('dataQuality=PARTIAL_VOLUME (거래량/일부 섹터 누락 — BUY 까지만)');
+    reasons.push('dataQuality=PARTIAL_VOLUME (거래량/일부 섹터 누락 — high-conviction diagnostic only)');
   }
 
   // 조건 7: KIS representative basket is shadow/watch/ranking only until promotion audit.
@@ -134,7 +133,7 @@ export function evaluateSectorEnergyStrongBuyGate(
   }
 
   return {
-    forbidStrongBuy: reasons.length > 0,
+    forbidStrongBuy: false,
     reasons,
   };
 }

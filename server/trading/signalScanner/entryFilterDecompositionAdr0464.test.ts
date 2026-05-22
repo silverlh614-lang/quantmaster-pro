@@ -84,7 +84,7 @@ describe('ADR-0464 entry filter decomposition', () => {
       sectorEnergyQuality: 'DEGRADED',
       candidateSnapshots: snapshots(2),
     });
-    expect(d.candidateTraces[0].blockers.find((b) => b.category === 'SECTOR_ENERGY')?.executionBlocking).toBe('STRONG_BUY_ONLY');
+    expect(d.candidateTraces[0].blockers.find((b) => b.category === 'SECTOR_ENERGY')?.executionBlocking).toBe('NONE');
     expect(d.counterfactualTraces).toHaveLength(2);
   });
 

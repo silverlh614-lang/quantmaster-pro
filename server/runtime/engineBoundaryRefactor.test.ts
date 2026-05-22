@@ -145,7 +145,7 @@ describe('engine boundary refactor policy contracts', () => {
     expect(signal.reasonCode).toBe('EMPTY_VALID_NOT_BEARISH');
   });
 
-  it('prevents Gate 1 failure from resolving to BUY or STRONG_BUY', () => {
+  it('prevents Gate 1 failure from resolving to BUY while keeping HIGH_CONVICTION as label', () => {
     const runtimePolicy = resolveEngineRuntimePolicy({ engineMode: 'NORMAL', liveBuyGateAllowed: true });
     const result = resolveFinalDecision({
       runtimePolicy,
@@ -154,11 +154,12 @@ describe('engine boundary refactor policy contracts', () => {
     });
 
     expect(result.decision).toBe('HOLD');
+    expect(result.convictionLabel).toBe('HIGH_CONVICTION');
     expect(result.liveBuyAllowed).toBe(false);
     expect(result.reasonCodes).toContain('GATE1_SURVIVAL_FAILED');
   });
 
-  it('downgrades STRONG_BUY when the enemy checklist has at least two warnings', () => {
+  it('does not downgrade BUY_ALLOWED because the enemy checklist only affects diagnostics', () => {
     const runtimePolicy = resolveEngineRuntimePolicy({ engineMode: 'NORMAL', liveBuyGateAllowed: true });
     const result = resolveFinalDecision({
       runtimePolicy,
@@ -168,7 +169,10 @@ describe('engine boundary refactor policy contracts', () => {
     });
 
     expect(result.decision).toBe('BUY');
-    expect(result.downgraded).toBe(true);
-    expect(result.warnings).toContain('ENEMY_CHECKLIST_STRONG_BUY_DOWNGRADE');
+    expect(result.convictionLabel).toBe('HIGH_CONVICTION');
+    expect(result.strongBuyAsLabelOnly).toBe(true);
+    expect(result.downgraded).toBe(false);
+    expect(result.warnings).not.toContain('ENEMY_CHECKLIST_STRONG_BUY_DOWNGRADE');
+    expect(result.ignoredLegacyStrongBuyBlockers).toContain('ENEMY_CHECKLIST_STRONG_BUY_DOWNGRADE');
   });
 });

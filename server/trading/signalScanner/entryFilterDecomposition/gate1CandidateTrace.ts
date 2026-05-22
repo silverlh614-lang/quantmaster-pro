@@ -279,7 +279,7 @@ export function buildGate1CandidateTrace(input: {
       passed: !hasSectorEnergyDiagnostic,
       severity: hasSectorEnergyDiagnostic ? "DIAGNOSTIC_ONLY" : "INFO",
       message: hasSectorEnergyDiagnostic
-        ? "SectorEnergy degraded is diagnostic/STRONG_BUY_ONLY per ADR-0462."
+        ? "SectorEnergy degraded is diagnostic evidence only per ADR-0462."
         : "No SectorEnergy confidence diagnostic blocker recorded.",
       providerIssue: hasSectorEnergyDiagnostic,
       marketSignal: false,
@@ -582,4 +582,3 @@ export function buildGate1Reports(input: {
   };
   return { report, counterfactual };
 }
-

@@ -45,7 +45,7 @@ describe('ADR-0162 Phase 2-D wiring 정적 가드 — buyListLoop.ts', () => {
 
   it('execQty 산출 — finalQuantity 기반 (legacyQuantity 직접 사용 안 함)', () => {
     // execQty 가 finalQuantity 기반인지 검증
-    expect(SOURCE).toMatch(/const\s+execQty\s*=\s*isStrongBuy\s*\?\s*Math\.max\(1,\s*Math\.floor\(finalQuantity\s*\*\s*0\.5\)\)\s*:\s*finalQuantity/);
+    expect(SOURCE).toMatch(/const\s+execQty\s*=\s*supplyAdjustedFinalQuantity/);
   });
 
   it('quantity 변수 단독 참조 0건 (legacyQuantity / finalQuantity 만 사용)', () => {
@@ -119,7 +119,7 @@ describe('ADR-0162 Phase 2-D wiring 정적 가드 — buyListLoop.ts', () => {
   });
 
   it('signalGrade 매핑 — isStrongBuy 분기 (CONFIRMED_STRONG_BUY 매핑은 후속 PR)', () => {
-    expect(SOURCE).toMatch(/signalGrade:\s*isStrongBuy\s*\?\s*['"]STRONG_BUY['"]\s*:\s*['"]BUY['"]/);
+    expect(SOURCE).toMatch(/signalGrade:\s*['"]BUY['"]/);
   });
 
   it('LIVE 회귀 격리 — stockShadowMode 첫 인자 전달 (shadowMode=false 시 자동 skip)', () => {

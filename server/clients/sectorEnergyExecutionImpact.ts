@@ -16,11 +16,11 @@
  * 3층 분리 (사용자 §"새로운 개념"):
  *   1. diagnosticStatus  — 운영자 가시화용 진단 상태 (OK/DEGRADED/STALE/BLOCKED/DATA_UNAVAILABLE).
  *   2. scoringImpact     — 점수 산출 영향 (ALLOW_SECTOR_BOOST/ZERO_SECTOR_BOOST/...).
- *   3. executionImpact   — 매매 실행 영향 (NO_EXECUTION_BLOCK/DISALLOW_STRONG_BUY_ONLY/HARD_BLOCK).
+ *   3. executionImpact   — 매매 실행 영향 (Step 4: SectorEnergy never blocks execution).
  *
  * 핵심 불변식 (사용자 §"절대 불변식" 직접 매핑):
  *   - SectorEnergy 유래는 항상 `executionImpact ≠ HARD_BLOCK` (literal type 강제).
- *   - SectorEnergy OK 가 아니면 `strongBuyAllowed=false`, `sectorBoostAllowed=false`.
+ *   - Step 4: high-conviction is a finalScore label; SectorEnergy cannot disable it.
  *   - SectorEnergy 만으로 BUY/HOLD/Shadow/Counterfactual 평가 차단 0건.
  *
  * 본 SSOT 는 *기존 분기 로직을 변경하지 않는다*. 현재 코드 (sectorScoreBoost.ts +
@@ -48,7 +48,6 @@ export type SectorEnergyScoringImpact =
 
 export type SectorEnergyExecutionImpact =
   | 'NO_EXECUTION_BLOCK'
-  | 'DISALLOW_STRONG_BUY_ONLY'
   | 'HARD_BLOCK';
 
 /* ───────── 입력/결과 schema ───────── */
@@ -85,7 +84,7 @@ export interface SectorEnergyExecutionImpactResult {
   executionImpact: SectorEnergyExecutionImpact;
   /** sectorBoost 적용 가능 (OK 일 때만 true). */
   sectorBoostAllowed: boolean;
-  /** STRONG_BUY 승격 가능 (OK 일 때만 true). */
+  /** Step 4 compatibility field. High-conviction label is allowed by finalScore, not SectorEnergy. */
   strongBuyAllowed: boolean;
   /** SectorEnergy 유래 HARD_BLOCK 절대 금지 (literal type). */
   hardBlockAllowed: false;
@@ -115,35 +114,35 @@ export function isSectorEnergyExecutionDecouplingDisabled(): boolean {
  *
  * 결정 트리 우선순위 (위에서 아래 첫 매칭):
  *   1. dataQuality === 'FAILED' OR leadershipConfidence === 'BLOCKED' AND sanity BLOCKED
- *      → BLOCKED + ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY
+ *      → BLOCKED + ZERO_SECTOR_BOOST + NO_EXECUTION_BLOCK
  *   2. sanity confidenceImpact === 'BLOCKED'
- *      → BLOCKED + ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY
+ *      → BLOCKED + ZERO_SECTOR_BOOST + NO_EXECUTION_BLOCK
  *   3. dataQuality === 'DEGRADED' OR fallbackUsed !== 'NONE' OR sourceTier ∈ {STOCK_DAILY, UNKNOWN, FAILED}
- *      → DEGRADED + ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY
+ *      → DEGRADED + ZERO_SECTOR_BOOST + NO_EXECUTION_BLOCK
  *   4. dataQuality ∈ {'STALE', 'PARTIAL_VOLUME'} OR leadershipConfidence === 'DEGRADED'
- *      → STALE + ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY
+ *      → STALE + ZERO_SECTOR_BOOST + NO_EXECUTION_BLOCK
  *   5. dataQuality === 'PARTIAL' (ADR-0396 일부 OK)
- *      → DEGRADED + ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY (보수적)
+ *      → DEGRADED + ZERO_SECTOR_BOOST + NO_EXECUTION_BLOCK
  *   6. dataQuality === 'OK' AND leadershipConfidence !== 'BLOCKED' AND sanity !== 'BLOCKED'
  *      → OK + ALLOW_SECTOR_BOOST + NO_EXECUTION_BLOCK
  *   7. 입력 부재 (모든 필드 undefined)
- *      → DATA_UNAVAILABLE + SECTOR_SCORE_NEUTRAL + DISALLOW_STRONG_BUY_ONLY
+ *      → DATA_UNAVAILABLE + SECTOR_SCORE_NEUTRAL + NO_EXECUTION_BLOCK
  *
  * 절대 불변식: 모든 분기에서 `hardBlockAllowed: false` literal type 강제.
  */
 export function deriveSectorEnergyExecutionImpact(
   input: SectorEnergyExecutionImpactInput | undefined | null,
 ): SectorEnergyExecutionImpactResult {
-  // (7) 입력 부재 — DATA_UNAVAILABLE 보수 fallback (STRONG_BUY 차단, sectorBoost neutral).
+  // (7) 입력 부재 — DATA_UNAVAILABLE fallback (label remains finalScore-only, sectorBoost neutral).
   if (!input || (input.dataQuality === undefined && input.leadershipConfidence === undefined && input.sanityConfidenceImpact === undefined)) {
     return {
       diagnosticStatus: 'DATA_UNAVAILABLE',
       scoringImpact: 'SECTOR_SCORE_NEUTRAL',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
-      reason: 'SectorEnergy diagnostic input absent — STRONG_BUY suppressed conservatively.',
+      reason: 'SectorEnergy diagnostic input absent — high-conviction remains finalScore-only.',
     };
   }
 
@@ -161,9 +160,9 @@ export function deriveSectorEnergyExecutionImpact(
     return {
       diagnosticStatus: 'BLOCKED',
       scoringImpact: 'ZERO_SECTOR_BOOST',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
       reason: 'SectorEnergy BLOCKED (sector-index leadership data unavailable or corrupted).',
     };
@@ -174,9 +173,9 @@ export function deriveSectorEnergyExecutionImpact(
     return {
       diagnosticStatus: 'BLOCKED',
       scoringImpact: 'ZERO_SECTOR_BOOST',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
       reason: 'SectorEnergy sanity violations BLOCKED (volume/return outliers detected).',
     };
@@ -190,9 +189,9 @@ export function deriveSectorEnergyExecutionImpact(
     return {
       diagnosticStatus: 'DEGRADED',
       scoringImpact: 'ZERO_SECTOR_BOOST',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
       reason: 'KIS basket is derived representative basket, not official sector index — shadow/watch/ranking only.',
     };
@@ -201,9 +200,9 @@ export function deriveSectorEnergyExecutionImpact(
     return {
       diagnosticStatus: 'DEGRADED',
       scoringImpact: 'ZERO_SECTOR_BOOST',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
       reason: dq === 'DEGRADED'
         ? 'SectorEnergy DEGRADED (validSectorCount low / coverage incomplete).'
@@ -216,24 +215,24 @@ export function deriveSectorEnergyExecutionImpact(
     return {
       diagnosticStatus: 'STALE',
       scoringImpact: 'ZERO_SECTOR_BOOST',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
       reason: `SectorEnergy STALE (dataQuality=${dq ?? 'unknown'} leadership=${lc ?? 'unknown'}).`,
     };
   }
 
-  // (5) PARTIAL — sectorBoost 0.5 (sectorScoreBoost.ts 자체 분기), 보수적 STRONG_BUY 차단
+  // (5) PARTIAL — sectorBoost 0.5 (sectorScoreBoost.ts 자체 분기), label remains finalScore-only
   if (dq === 'PARTIAL') {
     return {
       diagnosticStatus: 'DEGRADED',
       scoringImpact: 'ZERO_SECTOR_BOOST',
-      executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+      executionImpact: 'NO_EXECUTION_BLOCK',
       sectorBoostAllowed: false,
-      strongBuyAllowed: false,
+      strongBuyAllowed: true,
       hardBlockAllowed: false,
-      reason: 'SectorEnergy PARTIAL (some sectors missing — STRONG_BUY suppressed conservatively).',
+      reason: 'SectorEnergy PARTIAL (some sectors missing — high-conviction remains finalScore-only).',
     };
   }
 
@@ -254,9 +253,9 @@ export function deriveSectorEnergyExecutionImpact(
   return {
     diagnosticStatus: 'DATA_UNAVAILABLE',
     scoringImpact: 'SECTOR_SCORE_NEUTRAL',
-    executionImpact: 'DISALLOW_STRONG_BUY_ONLY',
+    executionImpact: 'NO_EXECUTION_BLOCK',
     sectorBoostAllowed: false,
-    strongBuyAllowed: false,
+    strongBuyAllowed: true,
     hardBlockAllowed: false,
     reason: `SectorEnergy state ambiguous (dataQuality=${dq ?? 'undef'} leadership=${lc ?? 'undef'}).`,
   };
@@ -268,7 +267,7 @@ export function deriveSectorEnergyExecutionImpact(
  * /scan_blockers compact line — 사용자 §"권장 텔레그램 표시" 정합.
  *
  * 출력 예 (plain text, no `<b>` tags — Telegram HTML parse failure 방지):
- *   "🧩 SectorEnergy: diagnostic BLOCKED · sectorBoost=0 · STRONG_BUY blocked · execution HARD_BLOCK=no"
+ *   "🧩 SectorEnergy: diagnostic BLOCKED · sectorBoost=0 · highConviction=label-only · execution HARD_BLOCK=no"
  *
  * 핵심: 마지막 필드 `execution HARD_BLOCK=no` 가 항상 표시 — 운영자가 "SectorEnergy 가
  * 매매엔진을 멈추지 않는다" 를 즉시 인지.
@@ -277,9 +276,9 @@ export function formatSectorEnergyExecutionImpactCompactLine(
   result: SectorEnergyExecutionImpactResult,
 ): string {
   const sectorBoostText = result.sectorBoostAllowed ? 'allowed' : '0';
-  const strongBuyText = result.strongBuyAllowed ? 'allowed' : 'blocked';
+  const highConvictionText = result.strongBuyAllowed ? 'label-only' : 'diagnostic-only';
   return (
     `🧩 SectorEnergy: diagnostic ${result.diagnosticStatus} · ` +
-    `sectorBoost=${sectorBoostText} · STRONG_BUY ${strongBuyText} · execution HARD_BLOCK=no`
+    `sectorBoost=${sectorBoostText} · highConviction=${highConvictionText} · execution HARD_BLOCK=no`
   );
 }

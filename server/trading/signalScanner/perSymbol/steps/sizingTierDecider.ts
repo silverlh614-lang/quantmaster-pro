@@ -150,7 +150,6 @@ export async function sizingTierDeciderFinal(
 
   const grade: SizingSignalGrade =
     tierDecision.tier === 'PROBING' ? 'PROBING'
-    : params.isStrongBuy ? 'STRONG_BUY'
     : 'BUY';
   const kellyResult = kellyBudgetDecider({
     stockName: stock.name,

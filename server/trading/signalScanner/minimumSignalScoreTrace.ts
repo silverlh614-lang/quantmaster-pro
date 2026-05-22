@@ -1014,10 +1014,10 @@ export function buildMinimumSignalScoreTrace(input: {
       marketSignal: false,
       penaltyApplied: input.hasSectorEnergyDiagnostic,
       penaltyReason: input.hasSectorEnergyDiagnostic
-        ? "SECTOR_ENERGY_DIAGNOSTIC_STRONG_BUY_ONLY"
+        ? "SECTOR_ENERGY_DIAGNOSTIC_SCORE_ONLY"
         : undefined,
       message: input.hasSectorEnergyDiagnostic
-        ? "SectorEnergy diagnostic penalty is advisory/STRONG_BUY_ONLY scoped."
+        ? "SectorEnergy diagnostic penalty is advisory score-only evidence."
         : "SectorEnergy confidence verified.",
     }),
     component({

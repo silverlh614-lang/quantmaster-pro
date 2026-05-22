@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @responsibility ADR-0448 Phase 0 — SectorEnergy Execution Decoupler 회귀 테스트.
  *
  * 새 framing (사용자 직접 명시): *"Auxiliary Data Must Not Hard-Block Execution"* —
@@ -9,7 +9,7 @@
  *
  * 핵심 불변식 (모든 분기에서 정적 검증):
  *   - `hardBlockAllowed: false` literal type — SectorEnergy 유래 HARD_BLOCK 절대 금지.
- *   - OK 외 모든 분기 → `strongBuyAllowed=false` + `sectorBoostAllowed=false`.
+ *   - OK 외 모든 분기 → `strongBuyAllowed=true` + `sectorBoostAllowed=false`.
  *   - OK 분기만 → 둘 다 true.
  */
 
@@ -80,7 +80,7 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
 
 
 
-    it('KIS basket READY_FOR_SHADOW → shadow-only, no sectorBoost or STRONG_BUY unlock', () => {
+    it('KIS basket READY_FOR_SHADOW → shadow-only, no sectorBoost or high-conviction label evidence', () => {
       const result = deriveSectorEnergyExecutionImpact({
         dataQuality: 'PARTIAL',
         leadershipConfidence: 'READY_FOR_SHADOW',
@@ -88,39 +88,39 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
         sanityConfidenceImpact: 'NONE',
         fallbackUsed: 'NONE',
       });
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
       expect(result.sectorBoostAllowed).toBe(false);
-      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.strongBuyAllowed).toBe(true);
       expect(result.hardBlockAllowed).toBe(false);
       expect(result.reason).toMatch(/derived representative basket/);
     });
 
-    it('SectorEnergy DEGRADED → ZERO_SECTOR_BOOST + DISALLOW_STRONG_BUY_ONLY', () => {
+    it('SectorEnergy DEGRADED → ZERO_SECTOR_BOOST + NO_EXECUTION_BLOCK', () => {
       const result = deriveSectorEnergyExecutionImpact({
         dataQuality: 'DEGRADED',
         leadershipConfidence: 'DEGRADED',
       });
       expect(result.diagnosticStatus).toBe('DEGRADED');
       expect(result.scoringImpact).toBe('ZERO_SECTOR_BOOST');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
       expect(result.sectorBoostAllowed).toBe(false);
-      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.strongBuyAllowed).toBe(true);
       expect(result.hardBlockAllowed).toBe(false);
     });
 
-    it('SectorEnergy STALE → STALE + DISALLOW_STRONG_BUY_ONLY (HARD_BLOCK 아님)', () => {
+    it('SectorEnergy STALE → STALE + NO_EXECUTION_BLOCK (HARD_BLOCK 아님)', () => {
       const result = deriveSectorEnergyExecutionImpact({ dataQuality: 'STALE' });
       expect(result.diagnosticStatus).toBe('STALE');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
       expect(result.sectorBoostAllowed).toBe(false);
-      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.strongBuyAllowed).toBe(true);
       expect(result.hardBlockAllowed).toBe(false);
     });
 
     it('SectorEnergy FAILED → BLOCKED diagnosticStatus (HARD_BLOCK 아님)', () => {
       const result = deriveSectorEnergyExecutionImpact({ dataQuality: 'FAILED' });
       expect(result.diagnosticStatus).toBe('BLOCKED');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
       expect(result.hardBlockAllowed).toBe(false);
     });
 
@@ -130,7 +130,7 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
         sanityConfidenceImpact: 'BLOCKED',
       });
       expect(result.diagnosticStatus).toBe('BLOCKED');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
       expect(result.hardBlockAllowed).toBe(false);
     });
 
@@ -139,7 +139,7 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
         sanityConfidenceImpact: 'BLOCKED',
       });
       expect(result.diagnosticStatus).toBe('BLOCKED');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
       expect(result.hardBlockAllowed).toBe(false);
     });
 
@@ -168,29 +168,29 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
         fallbackUsed: 'CACHE',
       });
       expect(result.diagnosticStatus).toBe('DEGRADED');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
     });
 
-    it('PARTIAL_VOLUME → STALE 분기 + STRONG_BUY 차단 (ADR-0415 정합)', () => {
+    it('PARTIAL_VOLUME → STALE 분기 + high-conviction label diagnostic (ADR-0415 정합)', () => {
       const result = deriveSectorEnergyExecutionImpact({ dataQuality: 'PARTIAL_VOLUME' });
       expect(result.diagnosticStatus).toBe('STALE');
-      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.strongBuyAllowed).toBe(true);
       expect(result.hardBlockAllowed).toBe(false);
     });
 
-    it('PARTIAL → DEGRADED + STRONG_BUY 보수적 차단', () => {
+    it('PARTIAL → DEGRADED + high-conviction label은 finalScore 전용', () => {
       const result = deriveSectorEnergyExecutionImpact({ dataQuality: 'PARTIAL' });
       expect(result.diagnosticStatus).toBe('DEGRADED');
       expect(result.scoringImpact).toBe('ZERO_SECTOR_BOOST');
-      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.strongBuyAllowed).toBe(true);
     });
 
-    it('null 입력 → DATA_UNAVAILABLE + STRONG_BUY 차단 + HARD_BLOCK 아님', () => {
+    it('null 입력 → DATA_UNAVAILABLE + high-conviction label diagnostic + HARD_BLOCK 아님', () => {
       const result = deriveSectorEnergyExecutionImpact(null);
       expect(result.diagnosticStatus).toBe('DATA_UNAVAILABLE');
       expect(result.scoringImpact).toBe('SECTOR_SCORE_NEUTRAL');
-      expect(result.executionImpact).toBe('DISALLOW_STRONG_BUY_ONLY');
-      expect(result.strongBuyAllowed).toBe(false);
+      expect(result.executionImpact).toBe('NO_EXECUTION_BLOCK');
+      expect(result.strongBuyAllowed).toBe(true);
       expect(result.hardBlockAllowed).toBe(false);
     });
 
@@ -237,7 +237,7 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
       expect(result.executionImpact).not.toBe('HARD_BLOCK');
     });
 
-    it('OK 외 모든 분기 → strongBuyAllowed=false', () => {
+    it('OK 외 모든 분기 → strongBuyAllowed=true', () => {
       const nonOkInputs: SectorEnergyExecutionImpactInput[] = [
         { dataQuality: 'PARTIAL' },
         { dataQuality: 'STALE' },
@@ -249,7 +249,7 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
       ];
       for (const input of nonOkInputs) {
         const result = deriveSectorEnergyExecutionImpact(input);
-        expect(result.strongBuyAllowed).toBe(false);
+        expect(result.strongBuyAllowed).toBe(true);
       }
     });
 
@@ -275,16 +275,16 @@ describe('ADR-0448 Phase 0 — sectorEnergyExecutionImpact SSOT', () => {
       const line = formatSectorEnergyExecutionImpactCompactLine(result);
       expect(line).toContain('🧩 SectorEnergy:');
       expect(line).toContain('diagnostic OK');
-      expect(line).toContain('STRONG_BUY allowed');
+      expect(line).toContain('highConviction=label-only');
       expect(line).toContain('execution HARD_BLOCK=no');
     });
 
-    it('BLOCKED 분기 → diagnostic BLOCKED + STRONG_BUY blocked + execution HARD_BLOCK=no', () => {
+    it('BLOCKED 분기 → diagnostic BLOCKED + high-conviction label-only + execution HARD_BLOCK=no', () => {
       const result = deriveSectorEnergyExecutionImpact({ dataQuality: 'FAILED' });
       const line = formatSectorEnergyExecutionImpactCompactLine(result);
       expect(line).toContain('diagnostic BLOCKED');
       expect(line).toContain('sectorBoost=0');
-      expect(line).toContain('STRONG_BUY blocked');
+      expect(line).toContain('highConviction=label-only');
       expect(line).toContain('execution HARD_BLOCK=no');
     });
 

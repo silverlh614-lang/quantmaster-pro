@@ -33,6 +33,11 @@ import type {
   TradingSignal,
 } from '../learning/supplyHealthLearning.js';
 import { applySupplyHealthToSignal } from '../learning/supplyHealthLearning.js';
+import {
+  learningLabelFromConvictionLabel,
+  type ConvictionLabel,
+  type LearningLabel,
+} from './gates/simpleDecision.js';
 
 // ─── 타입 SSOT ────────────────────────────────────────────────────────────────
 
@@ -107,6 +112,8 @@ export interface ShadowLearningOnlySignal {
   regime: string;
   macroBlockReason: string;
   dataQualityStatus: 'OK' | 'STALE' | 'INVALID';
+  convictionLabel?: ConvictionLabel;
+  learningLabel?: LearningLabel;
   futureReturn1d?: number;
   futureReturn3d?: number;
   futureReturn5d?: number;
@@ -139,6 +146,7 @@ interface ShadowScanCandidate {
   targetPrice: number;
   gateScore: number;
   signalGrade: ShadowLearningOnlySignal['signalGrade'];
+  convictionLabel: ConvictionLabel;
   dataQualityStatus: ShadowLearningOnlySignal['dataQualityStatus'];
   regime: string;
   source: 'WATCHLIST' | 'SCREENER';
@@ -168,10 +176,16 @@ function normalizeGateScore(value: unknown): number {
 }
 
 function gradeFromGateScore(gateScore: number): ShadowLearningOnlySignal['signalGrade'] {
-  if (gateScore >= 9) return 'STRONG_BUY';
   if (gateScore >= 5) return 'BUY';
   if (gateScore > 0) return 'WATCH';
   return 'NONE';
+}
+
+function convictionLabelFromGateScore(gateScore: number): ConvictionLabel {
+  if (gateScore >= 9) return 'HIGH_CONVICTION';
+  if (gateScore >= 5) return 'BUY';
+  if (gateScore > 0) return 'WATCH';
+  return 'LOW_SCORE';
 }
 
 function tradingSignalFromGrade(signalGrade: ShadowLearningOnlySignal['signalGrade']): TradingSignal {
@@ -194,6 +208,7 @@ function buildFromWatchlist(entry: WatchlistEntry): ShadowScanCandidate | null {
   const gateScore = normalizeGateScore(entry.gateScore);
   const section = entry.section ?? (entry.track === 'B' ? 'SWING' : 'MOMENTUM');
   const signalGrade = gradeFromGateScore(gateScore);
+  const convictionLabel = convictionLabelFromGateScore(gateScore);
 
   return {
     symbol: entry.code,
@@ -202,6 +217,7 @@ function buildFromWatchlist(entry: WatchlistEntry): ShadowScanCandidate | null {
     targetPrice,
     gateScore,
     signalGrade,
+    convictionLabel,
     dataQualityStatus: entry.isDataQuarantined ? 'STALE' : 'OK',
     regime: entry.entryRegime ?? 'UNKNOWN',
     source: 'WATCHLIST',
@@ -231,6 +247,7 @@ function buildFromScreener(stock: ScreenedStock): ShadowScanCandidate | null {
     targetPrice: Math.round(entryPrice * 1.2),
     gateScore,
     signalGrade: gradeFromGateScore(gateScore),
+    convictionLabel: convictionLabelFromGateScore(gateScore),
     dataQualityStatus: 'OK',
     regime: 'UNKNOWN',
     source: 'SCREENER',
@@ -333,6 +350,8 @@ export async function runShadowLearningOnlyScan(
       hypotheticalStopLoss: candidate.stopLoss,
       hypotheticalTargetPrice: candidate.targetPrice,
       signalGrade: candidate.signalGrade,
+      convictionLabel: candidate.convictionLabel,
+      learningLabel: learningLabelFromConvictionLabel(candidate.convictionLabel),
       gateScore: candidate.gateScore,
       regime: candidate.regime,
       macroBlockReason: `${input.reason}:${candidate.source}`,

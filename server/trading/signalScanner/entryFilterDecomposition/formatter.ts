@@ -11,7 +11,7 @@ export function mapConservativeCode(code: string): string | null {
     case "GATE2_FAIL":
       return "GATE2_TOO_STRICT";
     case "SECTOR_ENERGY_DIAGNOSTIC_ONLY":
-      return "SECTOR_ENERGY_STRONG_BUY_BLOCK_ONLY";
+      return "SECTOR_ENERGY_DIAGNOSTIC_ONLY";
     case "KELLY_ADJUSTED_TOO_LOW":
       return "KELLY_MULTIPLIER_TOO_LOW";
     case "SELL_ONLY_TIME_WINDOW":

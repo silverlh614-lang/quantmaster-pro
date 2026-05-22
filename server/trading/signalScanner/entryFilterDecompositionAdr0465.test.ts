@@ -176,7 +176,7 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
     expect(gateAndOrder.candidateTraces[0].wouldEnterIfNoOrderBlock).toBe(false);
   });
 
-  it('SectorEnergy diagnostic only remains STRONG_BUY_ONLY/diagnostic and learningBlocking=false for provider issue', () => {
+  it('SectorEnergy diagnostic only remains score-only/diagnostic and learningBlocking=false for provider issue', () => {
     const d = buildEntryFilterDecomposition({
       now,
       universeCandidates: 1,
@@ -189,7 +189,7 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
     });
     const sectorBlocker = d.candidateTraces[0].blockers.find((b) => b.category === 'SECTOR_ENERGY');
     expect(sectorBlocker?.severity).toBe('DIAGNOSTIC_ONLY');
-    expect(sectorBlocker?.executionBlocking).toBe('STRONG_BUY_ONLY');
+    expect(sectorBlocker?.executionBlocking).toBe('NONE');
     expect(d.gate1CandidateTraces[0].conditions.filter((c) => c.providerIssue).every((c) => c.learningBlocking === false)).toBe(true);
   });
 

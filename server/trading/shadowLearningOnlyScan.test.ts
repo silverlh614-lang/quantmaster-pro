@@ -368,8 +368,10 @@ describe('blocked-day shadow scan persistence', () => {
 
     const signals = repo.loadShadowLearningOnlySignals();
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rawSignal).toBe('STRONG_BUY');
+    expect(signals[0]!.rawSignal).toBe('BUY');
     expect(signals[0]!.finalSignal).toBe('BUY');
+    expect(signals[0]!.convictionLabel).toBe('HIGH_CONVICTION');
+    expect(signals[0]!.learningLabel).toBe('LABEL_HIGH_CONVICTION');
     expect(signals[0]!.wasDowngradedBySupplyHealth).toBe(true);
     expect(signals[0]!.dataQualityBucket).toBe('LOW_CONFIDENCE');
     expect(signals[0]!.supplyHealthSnapshot?.summary.overallStatus).toBe('DEGRADED');
@@ -425,7 +427,9 @@ describe('shadowLearningOnlySignalRepo — round-trip', () => {
       hypotheticalEntryPrice: 75000,
       hypotheticalStopLoss: 71000,
       hypotheticalTargetPrice: 82000,
-      signalGrade: 'STRONG_BUY' as const,
+      signalGrade: 'BUY' as const,
+      convictionLabel: 'HIGH_CONVICTION' as const,
+      learningLabel: 'LABEL_HIGH_CONVICTION' as const,
       gateScore: 22,
       regime: 'R3_EARLY',
       macroBlockReason: 'FOMC DAY phase',
@@ -582,21 +586,18 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
       expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
       // preflight.ts 는 runShadowLearningOnlyScan 을 직접 호출하지 않음
       expect(src).not.toMatch(/runShadowLearningOnlyScan\(/);
-      // recordBlockedDayShadowScan wiring 은 preflight.ts 가 소유 (≥11회)
+      // recordBlockedDayShadowScan wiring 은 preflight.ts 가 소유 (SELL_ONLY/R6 rollback 후 9회)
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
-      expect(wiringCalls!.length).toBeGreaterThanOrEqual(11);
+      expect(wiringCalls!.length).toBeGreaterThanOrEqual(9);
       const reasons = [...src.matchAll(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
       expect(reasons).toEqual(expect.arrayContaining([
         'KIS_CONFIG_MISSING',
         'WATCHLIST_EMPTY',
-        'MANUAL_BLOCK',
-        'RISK_OFF_REGIME',
         'VIX_SPIKE',
         'FOMC_BLOCK',
         'DATA_STARVED',
         'POSITION_FULL',
-        'VOLUME_CLOCK_BLOCK',
         'R3_SANITY_BLOCK',
       ]));
     }
