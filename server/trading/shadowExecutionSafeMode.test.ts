@@ -135,9 +135,14 @@ describe('SHADOW_EXECUTION_SAFE_MODE price and position SSOT', () => {
 
     expect(result.outcome).toBe('EXECUTED');
     expect(result.fillPrice).toBe(46_300);
+    expect(result.priceSnapshotId).toBe('ps_quote-safe-1');
+    expect(result.priceConfidence).toBe('DELAYED_VALID');
+    expect(result.orderIntentStatus).toBe('READY');
+    expect(result.tradePlanValid).toBe(true);
     expect(result.quoteConfidence).toBe('VERIFIED');
     expect(trade.status).toBe('ACTIVE');
     expect(trade.entryPriceValidationStatus).toBe('VERIFIED');
+    expect((trade as { priceSnapshotId?: string }).priceSnapshotId).toBe('ps_quote-safe-1');
     expect(trade.fills?.[0].price).toBe(46_300);
     expect(notifyFilled).toHaveBeenCalledWith(expect.objectContaining({
       validation: 'VERIFIED',
