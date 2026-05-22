@@ -49,8 +49,8 @@ const regime: TelegramCommand = {
     const runtimePolicy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
       macroRegime: regimeDiagnostics.effectiveRegime,
-      liveBuyGateAllowed: regimeDiagnostics.effectiveRegime !== 'R6_DEFENSE',
-      reasonCodes: regimeDiagnostics.effectiveRegime === 'R6_DEFENSE' ? ['R6_DEFENSE'] : [],
+      liveBuyGateAllowed: true,
+      reasonCodes: [],
     });
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);

@@ -655,7 +655,7 @@ function resolveScanBlockersSessionDisplay(summary: ScanSummary | null | undefin
     : diagnosticSession ?? rawSession ?? (summary?.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'REGULAR');
   const marketSession = rawMarketSession === 'SELL_ONLY' ? 'REGULAR' : rawMarketSession;
   const blocked = false;
-  return { marketSession, displaySession: marketSession, entryBlockMode: 'NORMAL', inputEntryBlockMode, blocked };
+  return { marketSession, displaySession: 'REGULAR', entryBlockMode: 'NORMAL', inputEntryBlockMode, blocked };
 }
 
 function isLiveEvaluationSkippedSummary(summary: ScanSummary | null | undefined, entryBlockMode: string): boolean {
@@ -1019,16 +1019,16 @@ export function formatScanBlockersCompactMessage(
   lines.push(`snapshotId: ${resolveSnapshotId(summary)}`);
   lines.push(...formatSourceDataHealthLines(summary));
 
-  // session / SELL_ONLY
+  // session / legacy defense policy inputs
   const sessionDisplay = resolveScanBlockersSessionDisplay(summary);
   const policy = resolveScanBlockersPolicyDiag(summary, sessionDisplay);
   lines.push(`• session: ${sessionDisplay.marketSession} / ${sessionDisplay.displaySession}${sessionDisplay.blocked ? ' !' : ''}`);
   lines.push(`• marketSession: ${sessionDisplay.marketSession}`);
   lines.push(`• displaySession: ${sessionDisplay.displaySession}`);
   lines.push(`• entryBlockMode: ${sessionDisplay.entryBlockMode}`);
-  if (policy.legacyIgnoredReasons.length > 0) {
-    lines.push('R6/SELL_ONLY rollback: disabled');
-    lines.push(`legacyIgnoredReasons: ${policy.legacyIgnoredReasons.join(',')}`);
+  if (policy.legacyPolicyInputs.length > 0) {
+    lines.push('Legacy defense policy input detected - executionImpact=NONE');
+    lines.push('removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
     lines.push('Current buy permission uses Gate/data quality only');
   }
 

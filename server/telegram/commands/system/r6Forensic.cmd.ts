@@ -19,8 +19,8 @@ const r6Forensic: TelegramCommand = {
     const runtimePolicy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
       macroRegime: diagnostics.effectiveRegime,
-      liveBuyGateAllowed: diagnostics.effectiveRegime !== 'R6_DEFENSE',
-      reasonCodes: diagnostics.effectiveRegime === 'R6_DEFENSE' ? ['R6_DEFENSE'] : [],
+      liveBuyGateAllowed: true,
+      reasonCodes: [],
     });
     await reply([
       '🧯 <b>[R6 Forensic]</b>', '━━━━━━━━━━━━━━━━',

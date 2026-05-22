@@ -228,13 +228,10 @@ function reasonFor(input: {
 }): string | null {
   if (input.holiday) return 'KIS_HOLIDAY';
   if (input.liveBuyAllowed) return null;
-  if (input.matchedWindow) return `SELL_ONLY_WINDOW_${input.matchedWindow}`;
   if (input.session === 'CLOSED') return 'MARKET_CLOSED';
   if (input.session === 'PREMARKET') return 'MARKET_PREMARKET';
   if (input.session === 'AFTERMARKET') return 'MARKET_AFTERMARKET';
-  if (input.session === 'LUNCH') return 'SELL_ONLY_WINDOW_LUNCH_1200_1259';
   if (input.session === 'UNKNOWN') return 'MARKET_SESSION_UNKNOWN';
-  if (input.engineMode === 'SELL_ONLY') return 'ENGINE_MODE_SELL_ONLY';
   if (input.engineMode === 'SHADOW_ONLY') return 'ENGINE_MODE_SHADOW_ONLY';
   if (input.engineMode === 'OBSERVE_ONLY') return 'ENGINE_MODE_OBSERVE_ONLY';
   return `${input.session}_LIVE_BUY_NOT_ALLOWED_DIAGNOSTIC`;
@@ -274,27 +271,19 @@ export function normalizeMarketSessionForGate1(
     session = sessionFromKst(kst);
     source = session === 'HOLIDAY' ? 'MARKET_CLOCK' : 'MARKET_CLOCK';
     sourceStatus = 'VERIFIED';
-  } else if (engineMode === 'SELL_ONLY') {
-    session = 'SELL_ONLY';
-    source = 'ENGINE_MODE';
-    sourceStatus = 'VERIFIED';
   }
 
-  const derivedWindow = kst ? sellOnlyWindowForMinutes(kst.minutes) : null;
-  const explicitWindow = normalizeSellOnlyWindow(input.matchedWindow ?? marketClock.matchedWindow ?? marketClock.sellOnlyWindow);
-  const matchedWindow = explicitWindow ?? (session === 'SELL_ONLY' ? derivedWindow : null);
-  const sellOnlyActive = session === 'SELL_ONLY' || session === 'LUNCH' || matchedWindow != null;
+  const matchedWindow = null;
+  const sellOnlyActive = false;
   const effectiveEngineMode: Gate1MarketSessionEngineMode = engineMode !== 'UNKNOWN'
     ? engineMode
-    : sellOnlyActive
-      ? 'NORMAL'
-      : session === 'CLOSED' || session === 'HOLIDAY'
+    : session === 'CLOSED' || session === 'HOLIDAY'
         ? 'OBSERVE_ONLY'
         : session === 'REGULAR'
           ? 'NORMAL'
           : 'UNKNOWN';
   const liveBuyAllowed = effectiveEngineMode === 'NORMAL' || effectiveEngineMode === 'DEGRADED' || effectiveEngineMode === 'UNKNOWN';
-  const liveSellAllowed = (session === 'REGULAR' || session === 'SELL_ONLY' || session === 'LUNCH')
+  const liveSellAllowed = (session === 'REGULAR' || session === 'LUNCH')
     && effectiveEngineMode !== 'SHADOW_ONLY'
     && effectiveEngineMode !== 'OBSERVE_ONLY';
   const reason = reasonFor({

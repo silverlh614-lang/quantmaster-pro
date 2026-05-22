@@ -1,7 +1,7 @@
 import type { CandidateSnapshot, FeatureSnapshot, MarketSession, UnifiedMarketSnapshot } from './ssotSnapshot.js';
 
 export interface CommonGateResult { snapshotId: string; symbol: string; gatePassed: boolean; technicalTrendMissing: boolean; qualityDecision: 'PASS' | 'FAIL'; }
-export interface PolicyResult { snapshotId: string; marketSession: MarketSession; liveBuyAllowed: boolean; realOrderAllowed: boolean; shadowLearningAllowed: boolean; shadowSignalAllowed: boolean; diagnosticAllowed: boolean; counterfactualAllowed: boolean; entryBlockMode: string; blockReasons: string[]; legacyIgnoredReasons: string[]; policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY'; }
+export interface PolicyResult { snapshotId: string; marketSession: MarketSession; liveBuyAllowed: boolean; realOrderAllowed: boolean; shadowLearningAllowed: boolean; shadowSignalAllowed: boolean; diagnosticAllowed: boolean; counterfactualAllowed: boolean; entryBlockMode: string; blockReasons: string[]; legacyPolicyInputs: string[]; legacyPolicyIgnored: true; legacyIgnoredReasons: string[]; policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY'; }
 export interface ExecutionResult { snapshotId: string; executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED'; }
 export interface LearningResult { snapshotId: string; shadowLearning: boolean; counterfactual: boolean; }
 export interface DecisionContext { snapshotId: string; candidateSnapshotId: string; featureSnapshotId: string; gateResult: CommonGateResult; policyResult: PolicyResult; executionResult: ExecutionResult; learningResult: LearningResult; }
@@ -13,13 +13,12 @@ export function evaluateCommonGate(input: { snapshotId: string; candidate: Candi
 }
 
 export function resolvePolicy(input: { snapshotId: string; commonGateResult: CommonGateResult; marketSession: MarketSession; entryBlockMode: string }): PolicyResult {
-  const legacyIgnoredReasons = [
-    input.marketSession === 'AFTERMARKET' ? 'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK' : null,
-    input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY' || input.entryBlockMode === 'SELL_ONLY'
-      ? `${input.entryBlockMode}_IGNORED_BY_ROLLBACK`
-      : null,
+  const legacyPolicyInputs = [
+    input.entryBlockMode === 'SELL_ONLY' ? 'SELL_ONLY_REMOVED' : null,
+    input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY' ? 'R6_DEFENSE_SELL_ONLY_REMOVED' : null,
   ].filter((reason): reason is string => reason != null);
   const liveBuyAllowed = input.commonGateResult.qualityDecision === 'PASS';
+  const uniqueLegacyPolicyInputs = Array.from(new Set(legacyPolicyInputs));
   return {
     snapshotId: input.snapshotId,
     marketSession: input.marketSession,
@@ -30,8 +29,10 @@ export function resolvePolicy(input: { snapshotId: string; commonGateResult: Com
     diagnosticAllowed: true,
     counterfactualAllowed: true,
     entryBlockMode: 'NORMAL',
-    blockReasons: liveBuyAllowed ? [] : ['QUALITY_DECISION_FAIL'],
-    legacyIgnoredReasons,
+    blockReasons: liveBuyAllowed ? [] : ['COMMON_GATE_QUALITY_FAIL'],
+    legacyPolicyInputs: uniqueLegacyPolicyInputs,
+    legacyPolicyIgnored: true,
+    legacyIgnoredReasons: uniqueLegacyPolicyInputs,
     policyStatus: liveBuyAllowed ? 'LIVE_ALLOWED' : 'LIVE_BLOCKED_ONLY',
   };
 }

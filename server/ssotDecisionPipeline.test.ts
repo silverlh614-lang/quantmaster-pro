@@ -34,7 +34,7 @@ describe('SSOT snapshot pipeline', () => {
     expect(decision.executionResult.snapshotId).toBe(snapshot.snapshotId);
   });
 
-  it('ignores legacy R6/SELL_ONLY execution blocks while keeping gate and execution stable', () => {
+  it('ignores removed R6/SELL_ONLY execution blocks while keeping gate and execution stable', () => {
     const { snapshot, candidate, feature } = fixture();
     const a = buildDecisionContext(snapshot, candidate, feature, 'REGULAR', 'R6_DEFENSE_SELL_ONLY');
     const b = buildDecisionContext(snapshot, candidate, feature, 'AFTERMARKET', 'R6_DEFENSE_SELL_ONLY');
@@ -49,10 +49,10 @@ describe('SSOT snapshot pipeline', () => {
     expect(b.policyResult.entryBlockMode).toBe('NORMAL');
     expect(a.policyResult.blockReasons).toEqual([]);
     expect(b.policyResult.blockReasons).toEqual([]);
-    expect(a.policyResult.legacyIgnoredReasons).toContain('R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK');
-    expect(b.policyResult.legacyIgnoredReasons).toEqual(expect.arrayContaining([
-      'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK',
-      'R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK',
+    expect(a.policyResult.legacyPolicyIgnored).toBe(true);
+    expect(a.policyResult.legacyPolicyInputs).toContain('R6_DEFENSE_SELL_ONLY_REMOVED');
+    expect(b.policyResult.legacyPolicyInputs).toEqual(expect.arrayContaining([
+      'R6_DEFENSE_SELL_ONLY_REMOVED',
     ]));
     expect(JSON.stringify(a.executionResult)).toBe(JSON.stringify(c.executionResult));
     expect(a.learningResult.shadowLearning).toBe(true);
@@ -80,6 +80,8 @@ describe('SSOT snapshot pipeline', () => {
         counterfactualAllowed: true,
         entryBlockMode: 'NORMAL',
         blockReasons: [],
+        legacyPolicyInputs: [],
+        legacyPolicyIgnored: true,
         legacyIgnoredReasons: [],
         policyStatus: 'LIVE_ALLOWED',
       },

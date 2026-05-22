@@ -326,6 +326,10 @@ function resolveDisplayEvaluation(scanEvaluation: PreflightScanEvaluationResult,
   };
 }
 
+function resolveDisplaySourcePath(sourcePath: string): string {
+  return sourcePath.includes('SELL_ONLY') ? 'DIAGNOSTIC_SNAPSHOT' : sourcePath;
+}
+
 function resolveGate3Diagnostic(scanEvaluation: PreflightScanEvaluationResult, entryBlockMode: string): string {
   const diagnostic = scanEvaluation.diagnostics as Record<string, unknown> | undefined;
   const gate3CompactText = typeof diagnostic?.gate3CompactText === 'string' ? diagnostic.gate3CompactText : null;
@@ -380,7 +384,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push(`diagnosticSurvivors=${scanEvaluation.survivors}`);
     lines.push(`evaluationState=${displayEvaluationState}`);
     lines.push(`displayEvaluationState=${displayEvaluationState}`);
-    lines.push(`sourcePath=${scanEvaluation.sourcePath}`);
+    lines.push(`sourcePath=${resolveDisplaySourcePath(scanEvaluation.sourcePath)}`);
     lines.push(`breakPoint=${displayBreakPoint}`);
     lines.push(`displayBreakPoint=${displayBreakPoint}`);
     lines.push(`reason=${displayReason}`);
@@ -395,7 +399,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push(`  rawRegime=${scanEvaluation.diagnostics?.rawRegime ?? 'UNKNOWN'}`);
     lines.push(`  effectiveRegime=${displayEffectiveRegime}`);
     lines.push('  overrideReason=NONE');
-    lines.push('  note=Legacy R6/SELL_ONLY policy is disabled; Gate/data diagnostics remain authoritative.');
+    lines.push('  note=Legacy defense policy is disabled; Gate/data diagnostics remain authoritative.');
     lines.push('Gate1Live: evaluated');
     lines.push(`Gate1Diagnostic: pass=0/${scanEvaluation.totalCandidates}`);
     lines.push('Gate2Live: evaluated');

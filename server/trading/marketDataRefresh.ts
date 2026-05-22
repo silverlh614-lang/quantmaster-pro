@@ -182,7 +182,7 @@ function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; 
       marketSession: process.env.MARKET_SESSION ?? process.env.NODE_ENV ?? 'UNKNOWN',
       engineMode: regimeSnapshot.engineMode,
       r6State,
-      sellOnly: regimeSnapshot.effectiveRegime === 'R6_DEFENSE' || regimeSnapshot.effectiveRegime === 'R5_CAUTION',
+      sellOnly: false,
     };
   } catch (e) {
     return {
@@ -252,7 +252,7 @@ function logMacroRefreshSkipped(reason: string): void {
     code: 'P1_REGIME_DATA_HEALTH_STALE',
     message: '[MACRO_REFRESH_SKIPPED] macro refresh skipped',
     executionImpact: 'NONE',
-    mode: ctx.sellOnly ? 'SELL_ONLY' : 'DEGRADED',
+    mode: 'DEGRADED',
     dedupKey: `macro-refresh-skipped:${reason}:${ctx.r6State}`,
     ttlSec: defaultWarnTtlSec('P1'),
     details: {

@@ -248,10 +248,10 @@ function explicitRiskOverride(macro: MacroState | null): RiskOverride | undefine
   const value = (macro as unknown as Record<string, unknown>).riskOverride;
   if (value === 'BLACK_SWAN' || value === 'KOSPI_CRASH') {
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=market-state marketSession=REGULAR displaySession=REGULAR ` +
-      `inputEntryBlockMode=R6_DEFENSE ignoredReasons=${value}_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=market-state marketSession=REGULAR inputDisplaySession=REGULAR ` +
+      `inputEntryBlockMode=R6_DEFENSE removedPolicies=${value} ` +
       `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
     return 'NONE';
   }
@@ -273,10 +273,10 @@ function resolveRiskOverride(diagnostics: RegimeDiagnostics, macro: MacroState |
 
   if (diagnostics.effectiveRegime === 'R6_DEFENSE' || diagnostics.rawRegime === 'R6_DEFENSE') {
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=market-state marketSession=REGULAR displaySession=REGULAR ` +
-      `inputEntryBlockMode=R6_DEFENSE ignoredReasons=R6_DEFENSE_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=market-state marketSession=REGULAR inputDisplaySession=REGULAR ` +
+      `inputEntryBlockMode=R6_DEFENSE removedPolicies=R6_DEFENSE ` +
       `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
   }
 

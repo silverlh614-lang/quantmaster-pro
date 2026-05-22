@@ -180,7 +180,7 @@ export function evaluateEmptyScanLiveness(
       shadowLearningAllowed: true,
       counterfactualLearningAllowed: true,
       scanIntervalMayExpand: false,
-      operatorMessage: `core risk hard-block observation (${reasonLabel}) - legacy R6/SELL_ONLY ignored by rollback`,
+      operatorMessage: `core risk hard-block observation (${reasonLabel}) - legacy defense policy ignored by rollback`,
     };
   }
 

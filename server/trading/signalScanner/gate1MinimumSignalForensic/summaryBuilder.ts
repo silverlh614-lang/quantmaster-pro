@@ -411,18 +411,13 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let sectorEnergyHardBlockCount = 0;
 
   for (const a of failed) {
-    const sourcePath = a.sourcePath ?? 'UNKNOWN';
+    const sourcePath = a.sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
+      ? 'PREFLIGHT_UNIVERSE_SNAPSHOT'
+      : a.sourcePath ?? 'UNKNOWN';
     bump(sourcePathDistribution, sourcePath);
-    if (sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT') {
-      if (a.supplyScopeAudit.sellOnlyBySymbolPayloadAvailable) sellOnlyBySymbolPayloadAvailableCount += 1;
-      if (a.supplyScopeAudit.sellOnlyBySymbolPayloadMerged) sellOnlyBySymbolPayloadMergedCount += 1;
-      if (a.supplyScopeAudit.forensicInputCarriesActualInvestorRows) sellOnlyActualRowsCarriedCount += 1;
-      const sellOnlyBreakPoint = a.supplyScopeAudit.sellOnlyCarryBreakPoint ?? 'UNKNOWN';
-      sellOnlyCarryBreakPointDistribution[sellOnlyBreakPoint] = (sellOnlyCarryBreakPointDistribution[sellOnlyBreakPoint] ?? 0) + 1;
-    }
     bump(watchlistBreakPointDistribution, a.watchlistBreakPoint ?? 'UNKNOWN');
-    bump(quoteHydrationBreakPointDistribution, a.quoteHydrationBreakPoint ?? 'UNKNOWN');
-    bump(conditionResultsBreakPointDistribution, a.conditionResultsBreakPoint ?? 'UNKNOWN');
+    bump(quoteHydrationBreakPointDistribution, a.quoteHydrationBreakPoint === 'SELL_ONLY_SKIPPED_QUOTE_EVALUATION' ? 'PRECHECK_ONLY_TRACE' : a.quoteHydrationBreakPoint ?? 'UNKNOWN');
+    bump(conditionResultsBreakPointDistribution, a.conditionResultsBreakPoint === 'SELL_ONLY_SKIPPED_GATE_EVALUATION' ? 'PRECHECK_ONLY_TRACE' : a.conditionResultsBreakPoint ?? 'UNKNOWN');
     if (a.hydrationAuditAdr0509?.watchlist.scoreImported) {
       sourcePathWithWatchlistScore[sourcePath] += 1;
       forensicInputScoreAvailable += 1;

@@ -73,7 +73,9 @@ export function isEngineMode(value: unknown): value is EngineMode {
 
 export const EngineModeManager = Object.freeze({
   normalize(value: unknown): EngineMode {
-    return isEngineMode(value) ? value : 'OBSERVE_ONLY';
+    const raw = String(value ?? '').trim().toUpperCase();
+    if (raw === 'SELL_ONLY') return 'NORMAL';
+    return isEngineMode(raw) ? raw : 'OBSERVE_ONLY';
   },
 });
 
@@ -84,12 +86,10 @@ export const LearningPolicy = Object.freeze({
 });
 
 function liveEntryPolicyBlocked(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): boolean {
-  return engineMode === 'SELL_ONLY'
-    || engineMode === 'SHADOW_ONLY'
+  return engineMode === 'SHADOW_ONLY'
     || engineMode === 'OBSERVE_ONLY'
     || input.macroRegime === 'R5_CAUTION'
     || input.macroRegime === 'R5_CRISIS'
-    || input.macroRegime === 'R6_DEFENSE'
     || input.marketSessionState === 'NON_TRADING_DAY'
     || input.marketSessionState === 'CLOSED'
     || input.hardBlock === true
@@ -99,12 +99,10 @@ function liveEntryPolicyBlocked(input: ResolveEngineRuntimePolicyInput, engineMo
 
 function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): string[] {
   const reasons: string[] = [];
-  if (engineMode === 'SELL_ONLY') reasons.push('SELL_ONLY');
   if (engineMode === 'SHADOW_ONLY') reasons.push('SHADOW_ONLY');
   if (engineMode === 'OBSERVE_ONLY') reasons.push('OBSERVE_ONLY');
   if (input.macroRegime === 'R5_CAUTION') reasons.push('R5_CAUTION');
   if (input.macroRegime === 'R5_CRISIS') reasons.push('R5_CRISIS');
-  if (input.macroRegime === 'R6_DEFENSE') reasons.push('R6_DEFENSE');
   if (input.marketSessionState === 'NON_TRADING_DAY') reasons.push('KRX_NON_TRADING_DAY');
   if (input.marketSessionState === 'CLOSED') reasons.push('MARKET_CLOSED');
   if (input.hardBlock === true) reasons.push('HARD_BLOCK');
@@ -139,16 +137,6 @@ export const ExecutionPolicy = Object.freeze({
     const policyReasons = liveEntryPolicyReasons(input, engineMode);
     const reasonCodes = uniqueReasons([...(input.reasonCodes ?? []), ...policyReasons]);
     const blockedByPolicy = liveEntryPolicyBlocked(input, engineMode);
-
-    if (engineMode === 'SELL_ONLY') {
-      return buildPolicy({
-        engineMode,
-        liveEntryAllowed: false,
-        liveExitAllowed: true,
-        executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-        reasonCodes,
-      });
-    }
 
     if (engineMode === 'SHADOW_ONLY') {
       return buildPolicy({

@@ -120,7 +120,8 @@ describe('formatRegimeTelegramNow', () => {
     expect(text).toContain('Live Buy: GATE_DATA_ONLY');
     expect(text).toContain('Shadow: ON');
     expect(text).toContain('MHS: 70 GREEN');
-    expect(text).toContain('Legacy R6/SELL_ONLY: disabled');
+    expect(text).toContain('Legacy defense policy: disabled');
+    expect(text).not.toContain('Legacy R6/SELL_ONLY');
     expect(text).not.toContain('engineMode=SELL_ONLY');
     expect(text).toContain('providerIssue isolated');
     expect(text).toContain('candidate scan: DEFERRED_POST_CLOSE');

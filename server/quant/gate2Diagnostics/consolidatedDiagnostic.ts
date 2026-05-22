@@ -65,7 +65,6 @@ import { unique } from './wiringDiagnostics.js';
 export function gate2DeferredFetchStage(evaluationStage?: Gate2EvaluationStage | null): boolean {
   return !evaluationStage
     || evaluationStage === 'DISCOVERY_GATE'
-    || evaluationStage === 'SELL_ONLY_SESSION'
     || evaluationStage === 'AFTERMARKET_SESSION';
 }
 

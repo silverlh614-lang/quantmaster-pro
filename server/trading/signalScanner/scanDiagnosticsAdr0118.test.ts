@@ -247,8 +247,8 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
       emptyScanReason: 'ORDER_BLOCKED',
     };
     const msg = formatScanBlockersMessage(summary);
-    expect(msg).toContain('R6/SELL_ONLY rollback: disabled');
-    expect(msg).toContain('legacyIgnoredReasons: SELL_ONLY_IGNORED_BY_ROLLBACK');
+    expect(msg).toContain('Legacy defense policy input detected - executionImpact=NONE');
+    expect(msg).toContain('removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
     expect(msg).toMatch(/ORDER_BLOCKED/);
   });
 
@@ -264,7 +264,7 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
       emptyScanReason: 'TOO_STRICT',
     });
 
-    expect(sellOnlyMsg).toContain('R6/SELL_ONLY rollback: disabled');
+    expect(sellOnlyMsg).toContain('Legacy defense policy input detected - executionImpact=NONE');
     expect(sellOnlyMsg).toContain('Current buy permission uses Gate/data quality only');
     if (false) {
     expect(sellOnlyMsg).toContain('Shadow/Counterfactual snapshot preserved');
@@ -272,7 +272,7 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
     }
     expect(sellOnlyMsg).toContain('Shadow/Counterfactual snapshot preserved');
     expect(sellOnlyMsg).toContain('executionImpact=NONE');
-    expect(buyAllowedMsg).not.toContain('legacyIgnoredReasons: SELL_ONLY_IGNORED_BY_ROLLBACK');
+    expect(buyAllowedMsg).not.toContain('removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
   });
 
   it('워치리스트 0건 → ADR-0119 ORDER_BLOCKED', () => {

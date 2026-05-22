@@ -75,20 +75,6 @@ export const FinalDecisionResolver = Object.freeze({
     const reasonCodes = [...new Set([...input.runtimePolicy.reasonCodes, ...blockers])];
     const gate1 = getGate(input, 'Gate1Survival');
 
-    if (input.runtimePolicy.engineMode === 'SELL_ONLY') {
-      return {
-        decision: 'SELL_ONLY_ALLOWED',
-        liveBuyAllowed: false,
-        liveSellAllowed: input.runtimePolicy.liveSellAllowed,
-        shadowAllowed: input.runtimePolicy.shadowAllowed,
-        learningAllowed: input.runtimePolicy.learningAllowed,
-        downgraded: input.requestedDecision !== 'HOLD',
-        blockers,
-        warnings,
-        reasonCodes,
-      };
-    }
-
     if (!input.runtimePolicy.liveBuyAllowed) {
       return {
         decision: 'BLOCK',

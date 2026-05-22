@@ -91,26 +91,25 @@ function withInvariant(result: Omit<ShadowAlwaysOnPolicyResult, 'invariant'>): S
 
 export function resolveShadowAlwaysOnPolicy(input: ShadowAlwaysOnPolicyInput): ShadowAlwaysOnPolicyResult {
   const mode = normalizeToken(input.engineMode);
-  const outsideLiveWindow = isOutsideLiveWindow(input);
-  const liveBuyDefault = outsideLiveWindow ? false : resolveLiveBuyDefault(input);
+  const liveBuyDefault = resolveLiveBuyDefault(input);
 
   if (isR6Like(input)) {
     return withInvariant({
       ...SHADOW_TRUE,
-      liveBuyAllowed: false,
+      liveBuyAllowed: liveBuyDefault,
       liveSellAllowed: true,
-      executionImpact: 'LIVE_BUY_BLOCKED',
-      reason: 'R6_DEFENSE_LIVE_BUY_BLOCK_SHADOW_ALLOWED',
+      executionImpact: liveBuyDefault ? 'NONE' : 'NEW_BUY_BLOCKED_ONLY',
+      reason: 'LEGACY_R6_EVIDENCE_ONLY_SHADOW_ALLOWED',
     });
   }
 
   if (mode === 'SELL_ONLY') {
     return withInvariant({
       ...SHADOW_TRUE,
-      liveBuyAllowed: false,
+      liveBuyAllowed: liveBuyDefault,
       liveSellAllowed: true,
-      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-      reason: 'SELL_ONLY_LIVE_BUY_BLOCK_SHADOW_ALLOWED',
+      executionImpact: liveBuyDefault ? 'NONE' : 'NEW_BUY_BLOCKED_ONLY',
+      reason: 'LEGACY_POLICY_INPUT_REMOVED_SHADOW_ALLOWED',
     });
   }
 
@@ -141,16 +140,6 @@ export function resolveShadowAlwaysOnPolicy(input: ShadowAlwaysOnPolicyInput): S
       liveSellAllowed: true,
       executionImpact: 'LIVE_TRADING_BLOCKED',
       reason: 'HARD_BLOCK_LIVE_BUY_BLOCK_SHADOW_ALLOWED',
-    });
-  }
-
-  if (outsideLiveWindow) {
-    return withInvariant({
-      ...SHADOW_TRUE,
-      liveBuyAllowed: false,
-      liveSellAllowed: true,
-      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
-      reason: 'OUTSIDE_LIVE_WINDOW_SHADOW_ALLOWED',
     });
   }
 

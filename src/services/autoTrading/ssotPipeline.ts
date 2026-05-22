@@ -59,6 +59,8 @@ export interface PolicyResult {
   entryBlockMode: EntryBlockMode;
   blockReasons: string[];
   legacyIgnoredReasons?: string[];
+  legacyPolicyInputs?: string[];
+  legacyPolicyIgnored: true;
   policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
 }
 
@@ -77,6 +79,8 @@ export interface PolicyDiagnostics {
   entryBlockMode: EntryBlockMode;
   blockReasons: string[];
   legacyIgnoredReasons?: string[];
+  legacyPolicyInputs?: string[];
+  legacyPolicyIgnored: true;
 }
 
 export function createSnapshotId(now = new Date()): string {
@@ -112,20 +116,19 @@ export function resolvePolicy(input: {
   displaySession: DisplaySession;
   entryBlockMode: EntryBlockMode;
 }): PolicyResult {
-  const legacyIgnoredReasons: string[] = [];
-  if (input.marketSession === 'AFTERMARKET') {
-    legacyIgnoredReasons.push('AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK');
-  }
+  const legacyPolicyInputs: string[] = [];
   if (input.displaySession === 'AFTERMARKET_SELL_ONLY') {
-    legacyIgnoredReasons.push('AFTERMARKET_SELL_ONLY_IGNORED_BY_ROLLBACK');
+    legacyPolicyInputs.push('AFTERMARKET_SELL_ONLY_REMOVED');
   }
-  if (input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY' || input.entryBlockMode === 'SELL_ONLY') {
-    legacyIgnoredReasons.push(`${input.entryBlockMode}_IGNORED_BY_ROLLBACK`);
+  if (input.entryBlockMode === 'SELL_ONLY') {
+    legacyPolicyInputs.push('SELL_ONLY_REMOVED');
+  }
+  if (input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY') {
+    legacyPolicyInputs.push('R6_DEFENSE_SELL_ONLY_REMOVED');
   }
   const liveBuyAllowed = input.commonGateResult.qualityDecision === 'PASS';
-  const blockReasons = liveBuyAllowed ? [] : (input.commonGateResult.reasons.length > 0
-    ? input.commonGateResult.reasons
-    : ['QUALITY_DECISION_FAIL']);
+  const blockReasons = liveBuyAllowed ? [] : ['COMMON_GATE_QUALITY_FAIL'];
+  const uniqueLegacyPolicyInputs = Array.from(new Set(legacyPolicyInputs));
 
   return {
     snapshotId: input.snapshotId,
@@ -137,7 +140,9 @@ export function resolvePolicy(input: {
     counterfactualAllowed: true,
     entryBlockMode: 'NORMAL',
     blockReasons,
-    legacyIgnoredReasons,
+    legacyIgnoredReasons: uniqueLegacyPolicyInputs,
+    legacyPolicyInputs: uniqueLegacyPolicyInputs,
+    legacyPolicyIgnored: true,
     policyStatus: liveBuyAllowed ? 'LIVE_ALLOWED' : 'LIVE_BLOCKED_ONLY',
   };
 }
@@ -156,10 +161,12 @@ export function buildPolicyDiag(policy: PolicyResult, marketSession: MarketSessi
   return {
     policyStatus: policy.policyStatus,
     marketSession,
-    displaySession,
+    displaySession: 'REGULAR',
     entryBlockMode: policy.entryBlockMode,
     blockReasons: policy.blockReasons,
     legacyIgnoredReasons: policy.legacyIgnoredReasons,
+    legacyPolicyInputs: policy.legacyPolicyInputs,
+    legacyPolicyIgnored: policy.legacyPolicyIgnored,
   };
 }
 

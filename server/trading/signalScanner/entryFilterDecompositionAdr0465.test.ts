@@ -124,7 +124,7 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
     expect(d.gate1CandidateTraces[0].executionImpact).toBe('NONE');
   });
 
-  it('SELL_ONLY does not overwrite Gate1 reasons; signal vs execution eligibility are separated', () => {
+  it('removed SELL_ONLY does not overwrite Gate1 reasons or session eligibility', () => {
     const d = buildEntryFilterDecomposition({
       now,
       universeCandidates: 1,
@@ -135,9 +135,10 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
       candidateSnapshots: snapshots(1),
       supplyProviderHealth: noRecentSample,
     });
-    expect(d.candidateTraces[0].blockers.map((b) => b.code)).toEqual(expect.arrayContaining(['SELL_ONLY_TIME_WINDOW', 'GATE1_FAIL']));
+    expect(d.candidateTraces[0].blockers.map((b) => b.code)).toEqual(expect.arrayContaining(['GATE1_FAIL']));
+    expect(d.candidateTraces[0].blockers.map((b) => b.code)).not.toContain('SELL_ONLY_TIME_WINDOW');
     expect(d.gate1CandidateTraces[0].primaryFailCode).toBe('SUPPLY_PROVIDER_HEALTH_PASS');
-    expect(d.gate1CandidateTraces[0].conditions.find((c) => c.code === 'TRADING_SESSION_PASS')?.severity).toBe('SOFT_FAIL');
+    expect(d.gate1CandidateTraces[0].conditions.find((c) => c.code === 'TRADING_SESSION_PASS')?.severity).toBe('INFO');
     expect(d.gate1CounterfactualSurvivorReport.ifTimeWindowIgnored).toBe(0);
   });
 
@@ -208,8 +209,8 @@ describe('ADR-0465 Gate1 survivor decomposition', () => {
     const section = formatEntryFilterDecompositionSection(d);
     expect(section).toContain('Gate1 Survivor Decomposition (ADR-0465)');
     expect(section).toContain('provider-softened survivor');
-    expect(section).toContain('order-blocked diagnostic');
-    expect(section).toContain('liveExecutionAllowed=false, executionImpact=NONE');
+    expect(section).not.toContain('order-blocked diagnostic');
+    expect(section).not.toContain('liveExecutionAllowed=false');
   });
 });
 

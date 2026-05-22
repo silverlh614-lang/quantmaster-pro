@@ -37,9 +37,7 @@ export function computeEffectiveKelly(input: EffectiveKellyInput): EffectiveKell
   const blockReasons = normalizeKellyBlockReasons(input);
   const policyBlocked =
     !input.liveEntryAllowed ||
-    input.macroRegime === 'R6_DEFENSE' ||
     input.hardBlock === true ||
-    input.executionMode === 'SELL_ONLY' ||
     input.executionMode === 'SHADOW_ONLY' ||
     input.executionMode === 'OBSERVE_ONLY' ||
     input.marketSessionState === 'NON_TRADING_DAY' ||
@@ -106,8 +104,6 @@ function normalizeKellyBlockReasons(input: EffectiveKellyInput): EntryBlockReaso
   for (const reason of input.blockReasons ?? []) {
     if (reason !== 'NONE') reasons.add(reason);
   }
-  if (input.macroRegime === 'R6_DEFENSE') reasons.add('R6_DEFENSE');
-  if (input.executionMode === 'SELL_ONLY') reasons.add('SELL_ONLY');
   if (input.executionMode === 'SHADOW_ONLY') reasons.add('SHADOW_ONLY');
   if (input.executionMode === 'OBSERVE_ONLY') reasons.add('OBSERVE_ONLY');
   if (input.marketSessionState === 'NON_TRADING_DAY') reasons.add('KRX_NON_TRADING_DAY');

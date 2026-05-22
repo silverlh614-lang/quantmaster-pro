@@ -110,15 +110,12 @@ export function buildGate1CandidateTrace(input: {
   conditions.push(
     makeCondition({
       code: "TRADING_SESSION_PASS",
-      passed: marketSession !== "SELL_ONLY",
-      severity: marketSession === "SELL_ONLY" ? "SOFT_FAIL" : "INFO",
-      message:
-        marketSession === "SELL_ONLY"
-          ? "SELL_ONLY is recorded as execution time-window blocker; signal eligibility remains separately decomposed."
-          : "Trading session allows new buy execution.",
+      passed: true,
+      severity: "INFO",
+      message: "Trading session is metadata only; Gate1 signal eligibility remains data-driven.",
       providerIssue: false,
       marketSignal: false,
-      executionBlocking: marketSession === "SELL_ONLY",
+      executionBlocking: false,
       learningBlocking: false,
       value: marketSession,
       expected: "NORMAL",

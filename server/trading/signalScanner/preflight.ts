@@ -335,18 +335,18 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       details: { guardReason: reason },
     });
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=preflight marketSession=UNKNOWN displaySession=REGULAR ` +
-      `inputEntryBlockMode=SELL_ONLY ignoredReasons=MANUAL_SELL_ONLY_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=preflight marketSession=UNKNOWN inputDisplaySession=REGULAR ` +
+      `inputEntryBlockMode=SELL_ONLY removedPolicies=SELL_ONLY ` +
       `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
   }
   if (legacySellOnlyRequested) {
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=preflight marketSession=UNKNOWN displaySession=REGULAR ` +
-      `inputEntryBlockMode=SELL_ONLY ignoredReasons=SELL_ONLY_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=preflight marketSession=UNKNOWN inputDisplaySession=REGULAR ` +
+      `inputEntryBlockMode=SELL_ONLY removedPolicies=SELL_ONLY ` +
       `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
   }
 
@@ -433,7 +433,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         override: formatMacroEntryOverrideLog(macroEntryOverride!),
         regimeSnapshotId: regimeSnapshot.snapshotId,
         executionImpact: 'NONE',
-        rollback: 'R6_SELLONLY_DISABLED',
+        rollback: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED',
       },
     });
   }
@@ -446,10 +446,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   if (legacyR6Detected) {
     macroDiagnosticOnly = true;
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=REGULAR displaySession=REGULAR ` +
-      `inputEntryBlockMode=R6_DEFENSE ignoredReasons=R6_DEFENSE_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=REGULAR inputDisplaySession=REGULAR ` +
+      `inputEntryBlockMode=R6_DEFENSE removedPolicies=R6_DEFENSE ` +
       `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
   }
 
@@ -463,11 +463,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         maxPositionsFloor: macroEntryOverride?.maxPositionsFloor,
         regimeSnapshotId: regimeSnapshot.snapshotId,
         executionImpact: 'NONE',
-        rollback: 'R6_SELLONLY_DISABLED',
+        rollback: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED',
       },
     });
   }
-  const sellOnlyExc = { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'R6_SELLONLY_DISABLED' };
+  const sellOnlyExc = { allow: true, maxSlots: Number.POSITIVE_INFINITY, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED' };
 
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
   const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
@@ -870,10 +870,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   if (!volumeClock.allowEntry && !shadowMode) {
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=AFTERMARKET displaySession=REGULAR ` +
-      `inputEntryBlockMode=SELL_ONLY ignoredReasons=AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=AFTERMARKET inputDisplaySession=REGULAR ` +
+      `inputEntryBlockMode=SELL_ONLY removedPolicies=SELL_ONLY ` +
       `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
     console.info(
       `[AutoTrade] volumeClock observation only; Gate/data diagnostics continue (${volumeClock.reason}, postCloseObservation=${keepPostCloseObservationAlive})`,

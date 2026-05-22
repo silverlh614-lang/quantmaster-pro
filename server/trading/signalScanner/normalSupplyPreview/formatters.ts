@@ -253,7 +253,7 @@ export function formatNormalSupplyPreviewSection(
   const activeBuyCount = countActiveBuyCandidates(preview.candidates);
   const bullishThreshold = NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold;
   const lines: string[] = [];
-  lines.push('🧪 <b>Normal Supply Preview with legacy R6/SELL_ONLY disabled (ADR-0518)</b>');
+  lines.push('🧪 <b>Normal Supply Preview with legacy defense policy disabled (ADR-0518)</b>');
   lines.push('━━━━━━━━━━━━━━━━');
   lines.push(`mode: ${preview.engineMode}`);
   lines.push(`previewMode: ${preview.previewMode}`);
@@ -307,7 +307,7 @@ export function formatNormalSupplyPreviewSection(
   }
   lines.push('');
   lines.push('주의:');
-  lines.push('Legacy R6/SELL_ONLY does not change buy permission; Gate/data quality remains authoritative.');
+  lines.push('Legacy defense policy does not change buy permission; Gate/data quality remains authoritative.');
   lines.push('본 결과는 정상모드 기준 수급 진단이며 주문 영향 없습니다.');
   return lines.join('\n');
 }
@@ -415,7 +415,7 @@ export function buildNormalSupplyPreviewFullSections(
   const sections: string[] = [];
 
   sections.push([
-    '🧪 <b>Normal Supply Preview FULL with legacy R6/SELL_ONLY disabled (ADR-0518)</b>',
+    '🧪 <b>Normal Supply Preview FULL with legacy defense policy disabled (ADR-0518)</b>',
     '━━━━━━━━━━━━━━━━',
     `mode: ${escapePreviewHtmlText(preview.engineMode)}`,
     `previewMode: ${NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE}`,
@@ -818,7 +818,7 @@ function splitLongLine(line: string, maxChars: number): string[] {
 
 export function formatNormalSupplyPreviewMissingSection(error?: string): string {
   return [
-    '🧪 <b>Normal Supply Preview with legacy R6/SELL_ONLY disabled (ADR-0518)</b>',
+    '🧪 <b>Normal Supply Preview with legacy defense policy disabled (ADR-0518)</b>',
     '━━━━━━━━━━━━━━━━',
     'status: NOT_COLLECTED',
     `previewMode: ${NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE}`,

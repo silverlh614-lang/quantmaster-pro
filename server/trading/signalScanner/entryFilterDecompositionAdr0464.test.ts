@@ -31,7 +31,7 @@ function snapshots(n: number) {
 }
 
 describe('ADR-0464 entry filter decomposition', () => {
-  it('SELL_ONLY blocks live entry but preserves counterfactual trace', () => {
+  it('removed SELL_ONLY does not block live entry and preserves counterfactual trace', () => {
     const d = buildEntryFilterDecomposition({
       now,
       universeCandidates: 20,
@@ -40,7 +40,7 @@ describe('ADR-0464 entry filter decomposition', () => {
       macroGateState: macro({ sellOnlyMode: true }),
       candidateSnapshots: snapshots(20),
     });
-    expect(d.blockedByTimeWindow).toBe(20);
+    expect(d.blockedByTimeWindow).toBe(0);
     expect(d.counterfactualTraces).toHaveLength(20);
     expect(d.counterfactualTraces.every((x) => x.executionImpact === 'NONE')).toBe(true);
     expect(d.learningBlocked).toBe(0);
@@ -69,8 +69,8 @@ describe('ADR-0464 entry filter decomposition', () => {
       waitDistribution: { dataHold: 0, preBreakout: 0, gateFail: 2, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 },
       candidateSnapshots: snapshots(3),
     });
-    expect(d.candidateTraces.every((x) => x.blockers.length > 0)).toBe(true);
-    expect(d.candidateTraces[0].blockers.map((b) => b.code)).toContain('SELL_ONLY_TIME_WINDOW');
+    expect(d.candidateTraces.filter((x) => x.blockers.some((b) => b.code === 'GATE1_FAIL'))).toHaveLength(2);
+    expect(d.candidateTraces[0].blockers.map((b) => b.code)).not.toContain('SELL_ONLY_TIME_WINDOW');
     expect(d.candidateTraces[0].blockers.map((b) => b.code)).toContain('GATE1_FAIL');
   });
 
@@ -106,7 +106,7 @@ describe('ADR-0464 entry filter decomposition', () => {
     expect(d.ledgerRows[0].symbol).toBe('UNIVERSE_SUMMARY');
   });
 
-  it('Gate1 fail and SELL_ONLY are both recorded, not overwritten', () => {
+  it('Gate1 fail is recorded without removed SELL_ONLY time-window pollution', () => {
     const d = buildEntryFilterDecomposition({
       now,
       universeCandidates: 1,
@@ -116,7 +116,7 @@ describe('ADR-0464 entry filter decomposition', () => {
       waitDistribution: { dataHold: 0, preBreakout: 0, gateFail: 1, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 },
       candidateSnapshots: snapshots(1),
     });
-    expect(d.candidateTraces[0].blockers.map((b) => b.code).sort()).toEqual(['GATE1_FAIL', 'SELL_ONLY_TIME_WINDOW']);
+    expect(d.candidateTraces[0].blockers.map((b) => b.code).sort()).toEqual(['GATE1_FAIL']);
   });
 
   it('learningBlocking remains false for execution-only blockers', () => {

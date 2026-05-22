@@ -201,7 +201,7 @@ function resolveR6ConfirmationScanKey(diagnostics: RegimeDiagnostics): string {
 }
 
 function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): void {
-  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY rollback=R6_SELLONLY_DISABLED`;
+  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY rollback=SELL_ONLY_AND_R6_EXECUTION_DISABLED`;
   console.info(line);
   sendTelegramAlert(
     `🧪 <b>[Shadow candidate scan trigger]</b>
@@ -210,7 +210,7 @@ function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): vo
 ` +
     `executionImpact: <code>NONE</code>
 ` +
-    `legacy R6/SELL_ONLY ignored; buy permission uses Gate/data quality only`,
+    `legacy defense policy ignored; buy permission uses Gate/data quality only`,
     { priority: 'NORMAL', dedupeKey: `shadow_candidate_scan:${trigger}`, cooldownMs: 30 * 60_000 },
   ).catch(console.error);
 }
@@ -290,7 +290,7 @@ export function decideScan(): ScanDecision {
     return {
       shouldScan: true,
       intervalMinutes: 0,
-      reason: `${recoveryShadowTrigger} - shadow candidate scan (executionImpact=NONE, legacy R6/SELL_ONLY ignored)`,
+      reason: `${recoveryShadowTrigger} - shadow candidate scan (executionImpact=NONE, legacy defense policy ignored)`,
       priority: 'FULL',
       candidateScanTrigger: recoveryShadowTrigger,
     };
@@ -411,10 +411,10 @@ export function decideScan(): ScanDecision {
   // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
   if (forceSellOnly) {
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] marketSession=ADAPTIVE_SCHEDULER_PHASE ` +
-      `inputEntryBlockMode=SELL_ONLY ignoredReasons=TIME_WINDOW_SELL_ONLY_IGNORED_BY_ROLLBACK ` +
+      `[REMOVED_POLICY_INPUT_IGNORED] marketSession=ADAPTIVE_SCHEDULER_PHASE ` +
+      `inputEntryBlockMode=SELL_ONLY removedPolicies=SELL_ONLY ` +
       `liveBuyAllowed=GATE_DATA_ONLY realOrderAllowed=GATE_DATA_ONLY shadowSignalAllowed=true ` +
-      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
     forceSellOnly = false;
     phase = phase.replace(/SELL_ONLY/g, 'ROLLBACK_DISABLED');

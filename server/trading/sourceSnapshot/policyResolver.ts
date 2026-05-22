@@ -33,6 +33,8 @@ export interface PolicyResult {
   shadowAllowed: boolean;
   counterfactualAllowed: boolean;
   blockReasons: string[];
+  legacyPolicyInputs: string[];
+  legacyPolicyIgnored: true;
   legacyIgnoredReasons: string[];
   issue: string | null;
   action: 'NONE' | 'CHECK_GATE_QUALITY';
@@ -58,31 +60,56 @@ function isAftermarket(value: string | undefined): boolean {
   return raw === 'AFTERMARKET' || raw === 'AFTER_MARKET' || raw.includes('AFTERMARKET') || raw.includes('AFTER_MARKET');
 }
 
+function buildLegacyPolicyInputs(input: {
+  displaySession: string;
+  effectiveRegime: string;
+  engineMode: string;
+  operationMode: string;
+}): string[] {
+  const legacyPolicyInputs = [
+    input.displaySession.includes('AFTERMARKET_SELL_ONLY')
+      ? 'AFTERMARKET_SELL_ONLY_REMOVED'
+      : null,
+    input.operationMode === 'SELL_ONLY' || isSellOnly(input.engineMode)
+      ? 'SELL_ONLY_REMOVED'
+      : null,
+    input.operationMode === 'R6_DEFENSE_SELL_ONLY'
+      ? 'R6_DEFENSE_SELL_ONLY_REMOVED'
+      : null,
+    isR6(input.effectiveRegime) || isR6(input.engineMode)
+      ? 'R6_DEFENSE_REMOVED'
+      : null,
+  ].filter((reason): reason is string => reason != null);
+  return Array.from(new Set(legacyPolicyInputs));
+}
+
+function formatPolicyInputsForDiagnostic(legacyPolicyInputs: string[]): string {
+  return legacyPolicyInputs.length > 0 ? 'LEGACY_DEFENSE_POLICY_REMOVED' : 'NONE';
+}
+
+function formatRemovedPoliciesForLog(legacyPolicyInputs: string[]): string {
+  const labels = legacyPolicyInputs.map((input) => {
+    if (input === 'AFTERMARKET_SELL_ONLY_REMOVED') return 'AFTERMARKET_SELL_ONLY';
+    if (input === 'SELL_ONLY_REMOVED') return 'SELL_ONLY';
+    if (input === 'R6_DEFENSE_SELL_ONLY_REMOVED') return 'R6_DEFENSE_SELL_ONLY';
+    if (input === 'R6_DEFENSE_REMOVED') return 'R6_DEFENSE';
+    return input;
+  });
+  return labels.join(',') || 'none';
+}
+
 export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
   const marketSession = normalized(input.marketSession) || 'UNKNOWN';
   const effectiveRegime = normalized(input.effectiveRegime);
   const engineMode = normalized(input.engineMode);
   const operationMode = normalized(input.operationMode);
-  const displaySession = input.displaySession ? normalized(input.displaySession) : marketSession;
-
-  const legacyIgnoredReasons = [
-    isAftermarket(marketSession) || isAftermarket(displaySession)
-      ? 'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK'
-      : null,
-    displaySession.includes('AFTERMARKET_SELL_ONLY')
-      ? 'AFTERMARKET_SELL_ONLY_IGNORED_BY_ROLLBACK'
-      : null,
-    isR6(effectiveRegime) || isR6(engineMode)
-      ? 'R6_DEFENSE_IGNORED_BY_ROLLBACK'
-      : null,
-    operationMode === 'R6_DEFENSE_SELL_ONLY' || operationMode === 'SELL_ONLY'
-      ? `${operationMode}_IGNORED_BY_ROLLBACK`
-      : null,
-    !['R6_DEFENSE_SELL_ONLY', 'SELL_ONLY'].includes(operationMode) && (isSellOnly(marketSession) || isSellOnly(displaySession) || isSellOnly(engineMode))
-      ? 'SELL_ONLY_IGNORED_BY_ROLLBACK'
-      : null,
-  ].filter((reason): reason is string => reason != null);
-  const uniqueLegacyIgnoredReasons = Array.from(new Set(legacyIgnoredReasons));
+  const inputDisplaySession = input.displaySession ? normalized(input.displaySession) : marketSession;
+  const legacyPolicyInputs = buildLegacyPolicyInputs({
+    displaySession: inputDisplaySession,
+    effectiveRegime,
+    engineMode,
+    operationMode,
+  });
 
   const qualityPass = input.commonGateResult.qualityDecision
     ? input.commonGateResult.qualityDecision === 'PASS'
@@ -90,16 +117,14 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
       ? input.commonGateResult.gateStatus === 'OK'
       : true;
   const liveBuyAllowed = qualityPass;
-  const blockReasons = liveBuyAllowed ? [] : (input.commonGateResult.reasons?.length
-    ? input.commonGateResult.reasons
-    : ['QUALITY_DECISION_FAIL']);
+  const blockReasons = liveBuyAllowed ? [] : ['COMMON_GATE_QUALITY_FAIL'];
 
   const result: PolicyResult = {
     snapshotId: input.snapshotId,
     gateSnapshotId: input.commonGateResult.snapshotId,
     policyStatus: liveBuyAllowed ? 'LIVE_ALLOWED' : 'LIVE_BLOCKED_ONLY',
     marketSession,
-    displaySession,
+    displaySession: 'REGULAR',
     entryBlockMode: 'NORMAL',
     sessionOverlay: 'NONE',
     liveBuyAllowed,
@@ -110,39 +135,44 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
     shadowAllowed: true,
     counterfactualAllowed: true,
     blockReasons,
-    legacyIgnoredReasons: uniqueLegacyIgnoredReasons,
+    legacyPolicyInputs,
+    legacyPolicyIgnored: true,
+    legacyIgnoredReasons: legacyPolicyInputs,
     issue: liveBuyAllowed ? null : 'GATE_OR_DATA_QUALITY_BLOCKED',
     action: liveBuyAllowed ? 'NONE' : 'CHECK_GATE_QUALITY',
     executionImpact: liveBuyAllowed ? 'NONE' : 'NEW_BUY_BLOCKED_ONLY',
   };
-  if (result.legacyIgnoredReasons.length > 0) {
-    console.info(formatLegacyR6SellOnlyIgnoredLog(result, {
+  if (result.legacyPolicyInputs.length > 0) {
+    console.info(formatRemovedPolicyInputIgnoredLog(result, {
+      inputDisplaySession,
       inputEntryBlockMode: operationMode || 'NORMAL',
     }));
   }
   return result;
 }
 
-export function formatLegacyR6SellOnlyIgnoredLog(
-  policy: Pick<PolicyResult, 'snapshotId' | 'marketSession' | 'displaySession' | 'legacyIgnoredReasons' | 'liveBuyAllowed' | 'realOrderAllowed' | 'shadowSignalAllowed' | 'diagnosticAllowed' | 'counterfactualAllowed'>,
-  input: { inputEntryBlockMode: string },
+export function formatRemovedPolicyInputIgnoredLog(
+  policy: Pick<PolicyResult, 'snapshotId' | 'marketSession' | 'legacyPolicyInputs' | 'liveBuyAllowed' | 'realOrderAllowed' | 'shadowSignalAllowed' | 'diagnosticAllowed' | 'counterfactualAllowed'>,
+  input: { inputDisplaySession: string; inputEntryBlockMode: string },
 ): string {
   return [
-    '[LEGACY_R6_SELLONLY_IGNORED]',
+    '[REMOVED_POLICY_INPUT_IGNORED]',
     `snapshotId=${policy.snapshotId}`,
     `marketSession=${policy.marketSession}`,
-    `displaySession=${policy.displaySession}`,
+    `inputDisplaySession=${input.inputDisplaySession}`,
     `inputEntryBlockMode=${input.inputEntryBlockMode}`,
-    `ignoredReasons=${policy.legacyIgnoredReasons.join(',') || 'none'}`,
+    `removedPolicies=${formatRemovedPoliciesForLog(policy.legacyPolicyInputs)}`,
     `liveBuyAllowed=${policy.liveBuyAllowed}`,
     `realOrderAllowed=${policy.realOrderAllowed}`,
     `shadowSignalAllowed=${policy.shadowSignalAllowed}`,
     `diagnosticAllowed=${policy.diagnosticAllowed}`,
     `counterfactualAllowed=${policy.counterfactualAllowed}`,
     "executionImpact='NONE'",
-    "rollback='R6_SELLONLY_DISABLED'",
+    "rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'",
   ].join(' ');
 }
+
+export const formatLegacyR6SellOnlyIgnoredLog = formatRemovedPolicyInputIgnoredLog;
 
 export function formatPolicyDiag(policy: PolicyResult): string {
   return [
@@ -158,7 +188,8 @@ export function formatPolicyDiag(policy: PolicyResult): string {
     `shadowAllowed=${policy.shadowAllowed}`,
     `counterfactualAllowed=${policy.counterfactualAllowed}`,
     `reason=[${policy.blockReasons.join(',') || 'NONE'}]`,
-    `legacyIgnoredReasons=[${policy.legacyIgnoredReasons.join(',') || 'NONE'}]`,
+    `legacyPolicyIgnored=${policy.legacyPolicyIgnored}`,
+    `legacyPolicyInputs=[${formatPolicyInputsForDiagnostic(policy.legacyPolicyInputs)}]`,
     ...(policy.issue ? [`issue=${policy.issue}`] : []),
     `action=${policy.action}`,
   ].join(' | ');

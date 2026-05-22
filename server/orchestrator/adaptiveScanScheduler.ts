@@ -60,13 +60,13 @@ function resolveR6RecoveryScanKey(diagnostics: RegimeDiagnostics, recoveryState:
 }
 
 function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): void {
-  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY rollback=R6_SELLONLY_DISABLED`;
+  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY rollback=SELL_ONLY_AND_R6_EXECUTION_DISABLED`;
   console.info(line);
   sendTelegramAlert(
     `<b>[Shadow candidate scan trigger]</b>\n` +
     `trigger: <code>${trigger}</code>\n` +
     `executionImpact: <code>NONE</code>\n` +
-    `legacy R6/SELL_ONLY ignored; buy permission uses Gate/data quality only`,
+    `legacy defense policy ignored; buy permission uses Gate/data quality only`,
     { priority: 'NORMAL', dedupeKey: `shadow_candidate_scan:${trigger}`, cooldownMs: RECOVERY_SHADOW_SCAN_COOLDOWN_MS },
   ).catch(console.error);
 }
@@ -125,7 +125,7 @@ export function decideScan(): base.ScanDecision {
     return {
       shouldScan: true,
       intervalMinutes: 0,
-      reason: `${recoveryShadowTrigger} - shadow candidate scan (executionImpact=NONE, legacy R6/SELL_ONLY ignored)`,
+      reason: `${recoveryShadowTrigger} - shadow candidate scan (executionImpact=NONE, legacy defense policy ignored)`,
       priority: 'FULL',
       candidateScanTrigger: recoveryShadowTrigger,
     };

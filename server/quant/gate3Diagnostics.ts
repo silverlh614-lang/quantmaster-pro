@@ -817,7 +817,7 @@ export function normalizeGate3IntradayTiming(input: {
     session,
     liveBuyAllowed,
     shadowAllowed,
-    reason: session === 'SELL_ONLY' ? 'SELL_ONLY_LIVE_BLOCKED_SHADOW_ALLOWED' : null,
+    reason: null,
   };
 
   const hasIntraday = minuteBars.length > 0 || lastTick.status !== 'MISSING';

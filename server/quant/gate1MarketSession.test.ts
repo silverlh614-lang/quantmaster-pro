@@ -95,54 +95,54 @@ describe('Gate1 market session diagnostic normalizer', () => {
     });
   });
 
-  it('classifies opening SELL_ONLY without blocking shadow learning', () => {
+  it('normalizes opening legacy SELL_ONLY without blocking live or shadow learning', () => {
     const diagnostic = normalizeMarketSessionForGate1({
       now: '2026-05-19T09:10:00+09:00',
       engineMode: 'SELL_ONLY',
     });
 
     expect(diagnostic).toMatchObject({
-      session: 'SELL_ONLY',
-      engineMode: 'SELL_ONLY',
-      liveBuyAllowed: false,
+      session: 'REGULAR',
+      engineMode: 'NORMAL',
+      liveBuyAllowed: true,
       liveSellAllowed: true,
       shadowAllowed: true,
       caseRecordingAllowed: true,
-      reason: 'SELL_ONLY_WINDOW_OPENING_0900_0930',
-      sellOnlyWindow: { active: true, matchedWindow: 'OPENING_0900_0930' },
+      reason: null,
+      sellOnlyWindow: { active: false, matchedWindow: null },
       marketSignal: false,
-      executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
+      executionImpact: 'DIAGNOSTIC_ONLY',
     });
   });
 
-  it('classifies lunch SELL_ONLY without propagating live buy block to shadow', () => {
+  it('normalizes lunch legacy SELL_ONLY without propagating live buy block to shadow', () => {
     const diagnostic = normalizeMarketSessionForGate1({
       now: '2026-05-19T12:30:00+09:00',
       engineMode: 'SELL_ONLY',
     });
 
-    expect(diagnostic.session).toBe('SELL_ONLY');
+    expect(diagnostic.session).toBe('REGULAR');
     expect(diagnostic.sellOnlyWindow).toMatchObject({
-      active: true,
-      matchedWindow: 'LUNCH_1200_1259',
+      active: false,
+      matchedWindow: null,
     });
-    expect(diagnostic.liveBuyAllowed).toBe(false);
+    expect(diagnostic.liveBuyAllowed).toBe(true);
     expect(diagnostic.shadowAllowed).toBe(true);
     expect(diagnostic.marketSignal).toBe(false);
   });
 
-  it('classifies closing SELL_ONLY without changing execution policy', () => {
+  it('normalizes closing legacy SELL_ONLY without changing execution policy', () => {
     const diagnostic = normalizeMarketSessionForGate1({
       now: '2026-05-19T15:25:00+09:00',
       engineMode: 'SELL_ONLY',
     });
 
     expect(diagnostic).toMatchObject({
-      session: 'SELL_ONLY',
-      liveBuyAllowed: false,
+      session: 'REGULAR',
+      liveBuyAllowed: true,
       shadowAllowed: true,
-      sellOnlyWindow: { active: true, matchedWindow: 'CLOSING_1520_1530' },
-      executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
+      sellOnlyWindow: { active: false, matchedWindow: null },
+      executionImpact: 'DIAGNOSTIC_ONLY',
       marketSignal: false,
     });
   });
@@ -165,7 +165,7 @@ describe('Gate1 market session diagnostic normalizer', () => {
     });
   });
 
-  it('classifies KIS holiday as live-buy blocked but shadow observable', () => {
+  it('classifies KIS holiday as diagnostic metadata while keeping shadow observable', () => {
     const diagnostic = normalizeMarketSessionForGate1({
       now: '2026-05-19T10:15:00+09:00',
       engineMode: 'NORMAL',
@@ -174,7 +174,7 @@ describe('Gate1 market session diagnostic normalizer', () => {
 
     expect(diagnostic).toMatchObject({
       session: 'HOLIDAY',
-      liveBuyAllowed: false,
+      liveBuyAllowed: true,
       shadowAllowed: true,
       providerIssue: false,
       reason: 'KIS_HOLIDAY',
@@ -202,8 +202,8 @@ describe('Gate1 market session diagnostic normalizer', () => {
 
     expect(pickCoreDecisionFields(sellOnly)).toEqual(pickCoreDecisionFields(regular));
     expect(sellOnly.gateLayerSummary?.gate1.survival?.marketSessionCompatibility).toMatchObject({
-      session: 'SELL_ONLY',
-      liveBuyAllowed: false,
+      session: 'REGULAR',
+      liveBuyAllowed: true,
       shadowAllowed: true,
       caseRecordingAllowed: true,
       marketSignal: false,

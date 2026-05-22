@@ -15,7 +15,7 @@ export function mapConservativeCode(code: string): string | null {
     case "KELLY_ADJUSTED_TOO_LOW":
       return "KELLY_MULTIPLIER_TOO_LOW";
     case "SELL_ONLY_TIME_WINDOW":
-      return "SELL_ONLY_MASKING_ENTRY_SIGNAL";
+      return "LEGACY_POLICY_INPUT_IGNORED";
     case "WATCHLIST_EMPTY_OR_STALE":
       return "WATCHLIST_EMPTY_OR_STALE";
     case "AUTOTRADE_DISABLED":
@@ -34,10 +34,6 @@ export function formatEntryFilterDecompositionSection(
   const sample = d.candidateTraces[0];
   lines.push(`• regime: ${sample?.regime ?? "UNKNOWN"}`);
   lines.push(`• marketSession: ${sample?.marketSession ?? "UNKNOWN"}`);
-  if (sample?.marketSession === "SELL_ONLY") {
-    lines.push("• marketSession note: SELL_ONLY/장외 Gate1 zero survivor는 live-entry evaluation이 아니라 order-blocked diagnostic입니다.");
-    lines.push("• shadow/counterfactual snapshot preserved; liveExecutionAllowed=false, executionImpact=NONE.");
-  }
   lines.push(`• universeCandidates: ${d.universeCandidates}`);
   lines.push(`• watchlistCandidates: ${d.watchlistCandidates}`);
   lines.push(`• tracedCandidates: ${d.tracedCandidates}`);
@@ -46,7 +42,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`• ledgerRowsCreated: ${d.ledgerRowsCreated}`);
   lines.push("");
   lines.push("차단 분포:");
-  lines.push(`1. SELL_ONLY_TIME_WINDOW: ${d.blockedByTimeWindow}`);
+  lines.push(`1. LEGACY_POLICY_INPUT_IGNORED: ${d.blockedByTimeWindow}`);
   lines.push(`2. GATE1_FAIL: ${d.blockedByGate1}`);
   lines.push(`3. GATE2_FAIL: ${d.blockedByGate2}`);
   lines.push(`4. GATE3_FAIL: ${d.blockedByGate3}`);

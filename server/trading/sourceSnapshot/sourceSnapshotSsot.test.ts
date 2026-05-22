@@ -39,7 +39,7 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
     expect(regular).toMatchObject({ gateStatus: 'OK', sessionAgnostic: true });
   });
 
-  it('ignores AFTERMARKET + R6/SELL_ONLY execution blocks while preserving policy diagnostics', () => {
+  it('ignores removed AFTERMARKET display + R6/SELL_ONLY execution blocks while preserving policy diagnostics', () => {
     const commonGateResult = evaluateCommonGate({
       snapshotId: 'snap-r6',
       candidate: { symbol: '005930', quoteStatus: 'VERIFIED', tradabilityStatus: 'TRADABLE', liquidityStatus: 'PASS' },
@@ -66,19 +66,50 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
       diagnosticAllowed: true,
       shadowAllowed: true,
       counterfactualAllowed: true,
+      displaySession: 'REGULAR',
       entryBlockMode: 'NORMAL',
       sessionOverlay: 'NONE',
       executionImpact: 'NONE',
+      legacyPolicyIgnored: true,
     });
     expect(policy.blockReasons).toEqual([]);
-    expect(policy.legacyIgnoredReasons).toEqual(expect.arrayContaining([
-      'AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK',
-      'AFTERMARKET_SELL_ONLY_IGNORED_BY_ROLLBACK',
-      'R6_DEFENSE_IGNORED_BY_ROLLBACK',
-      'R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK',
+    expect(policy.legacyPolicyInputs).toEqual(expect.arrayContaining([
+      'AFTERMARKET_SELL_ONLY_REMOVED',
+      'R6_DEFENSE_REMOVED',
+      'R6_DEFENSE_SELL_ONLY_REMOVED',
+      'SELL_ONLY_REMOVED',
     ]));
     expect(formatPolicyDiag(policy)).toContain('LIVE_ALLOWED');
     expect(formatPolicyDiag(policy)).toContain('entryBlockMode=NORMAL');
+    expect(formatPolicyDiag(policy)).not.toContain('R6_DEFENSE_SELL_ONLY');
+    expect(formatPolicyDiag(policy)).not.toContain('AFTERMARKET_SELL_ONLY');
+  });
+
+  it('blocks failed common gate only with gate quality reason', () => {
+    const policy = resolvePolicy({
+      snapshotId: 'snap-fail',
+      commonGateResult: {
+        snapshotId: 'snap-fail',
+        gateStatus: 'DATA_INCOMPLETE',
+        qualityDecision: 'FAIL',
+        reasons: ['R6_DEFENSE_SELL_ONLY'],
+      },
+      marketSession: 'AFTERMARKET',
+      displaySession: 'AFTERMARKET_SELL_ONLY',
+      effectiveRegime: 'R6_DEFENSE',
+      engineMode: 'SELL_ONLY',
+      operationMode: 'SELL_ONLY',
+    });
+
+    expect(policy.liveBuyAllowed).toBe(false);
+    expect(policy.realOrderAllowed).toBe(false);
+    expect(policy.blockReasons).toEqual(['COMMON_GATE_QUALITY_FAIL']);
+    expect(policy.blockReasons.join(',')).not.toMatch(/SELL_ONLY|R6_DEFENSE|AFTERMARKET_BUY_BLOCKED/);
+    expect(policy.legacyPolicyInputs).toEqual(expect.arrayContaining([
+      'AFTERMARKET_SELL_ONLY_REMOVED',
+      'SELL_ONLY_REMOVED',
+      'R6_DEFENSE_REMOVED',
+    ]));
   });
 
   it('classifies quote-verified technical missing as data pipeline, not soft fail', () => {

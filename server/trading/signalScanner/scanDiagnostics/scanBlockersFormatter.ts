@@ -75,11 +75,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);
     if (mg.mhsBelow30) lines.push(`  • MHS<30: <b>ON ⚠️</b>`);
     if (mg.diagnosticLiveEntryBlocked) {
-      lines.push(`  • liveEntryBlocked: <b>${mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY'}</b> (diagnostics continue)`);
+      const liveEntryBlockedReason = String(mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY').toUpperCase();
+      const removedPolicyReason = liveEntryBlockedReason.includes('SELL_ONLY') || liveEntryBlockedReason.includes('R6_DEFENSE');
+      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY'}</b> (diagnostics continue)`);
     }
     if (mg.sellOnlyMode) {
-      lines.push('  R6/SELL_ONLY rollback: disabled');
-      lines.push('  legacyIgnoredReasons: SELL_ONLY_IGNORED_BY_ROLLBACK');
+      lines.push('  Legacy defense policy input detected - executionImpact=NONE');
+      lines.push('  removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
       lines.push('  Current buy permission uses Gate/data quality only.');
       lines.push('  shadow note: Shadow/Counterfactual snapshot preserved; executionImpact=NONE.');
     }
@@ -407,7 +409,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  shadowBuySignals=${r6.shadowBuySignals}`);
     lines.push(`  r6CounterfactualEntries=${r6.r6CounterfactualEntries}`);
     lines.push(`  noShadowEntryReason=${r6.noShadowEntryReason ?? 'N/A'}`);
-    lines.push('  legacy R6/SELL_ONLY policy disabled; buy permission uses Gate/data quality only');
+    lines.push('  legacy defense policy disabled; buy permission uses Gate/data quality only');
     lines.push('  executionImpact=NONE');
   }
 

@@ -95,25 +95,12 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
 
     expect(summary).toMatchObject({
       r6CounterfactualEntries: 0,
-      counterfactualLearningEntries: 1,
-      noShadowEntryReason: 'R6_COUNTERFACTUAL_ACTIVE_POSITION_DISABLED',
+      noShadowEntryReason: 'NO_R6_SHADOW_POLICY',
       executionImpact: 'NONE',
     });
     expect(loadShadowTrades()).toHaveLength(0);
     const ledger = loadCounterfactualShadowLearningLedger();
-    expect(ledger).toHaveLength(1);
-    expect(ledger[0]).toMatchObject({
-      symbol: '005930',
-      label: 'R6_COUNTERFACTUAL_BUY',
-      liveAllowed: false,
-      paperAllowed: false,
-      executionShadowAllowed: false,
-      virtualAccountImpact: 'NONE',
-      paperFillCreated: false,
-      shadowPositionOpened: false,
-      executionImpact: 'NONE',
-      liveOrderSent: false,
-    });
+    expect(ledger).toHaveLength(0);
   }, 20_000);
 
   it('creates a SHADOW/PAPER R6 counterfactual entry from ACCUMULATING candidates without live order impact', async () => {
@@ -161,63 +148,22 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
     });
 
     expect(summary).toMatchObject({
-      regime: 'R6_CONFIRMATION_WAIT',
+      regime: 'NONE',
       liveNewBuyAllowed: false,
       realOrderAllowed: false,
       strongBuyAllowed: false,
-      r6CounterfactualEntries: 1,
-      noShadowEntryReason: 'N/A',
-      sizingSource: 'LIVE_SIZING_MIRROR',
+      r6CounterfactualEntries: 0,
+      noShadowEntryReason: 'NO_R6_SHADOW_POLICY',
       executionImpact: 'NONE',
     });
 
     const trades = loadShadowTrades();
-    expect(trades).toHaveLength(1);
-    expect(trades[0]).toMatchObject({
-      stockCode: '005930',
-      mode: 'SHADOW',
-      status: 'ACTIVE',
-      entryType: 'R6_COUNTERFACTUAL_BUY',
-      sourceSignal: 'ACCUMULATING',
-      entryReason: 'R6_COUNTERFACTUAL_RECOVERY_TEST',
-      executionImpact: 'NONE',
-      liveOrderSent: false,
-      riskUnit: 'R6_COUNTERFACTUAL',
-      sizingSource: 'LIVE_SIZING_MIRROR',
-      entryRegime: 'R6_DEFENSE',
-      entryEffectiveState: 'R6_CONFIRMATION_WAIT',
-      transitionPath: ['R6_DEFENSE'],
-      r6LatchDecayAtEntry: 0,
-      mhsAtEntry: 70,
-      biasAtEntry: 'BULL',
-    });
-    expect(trades[0].supplyScoreAtEntry).toBeGreaterThanOrEqual(70);
-    const notional = (trades[0].originalQuantity ?? trades[0].quantity) * trades[0].shadowEntryPrice;
-    expect(notional).toBeGreaterThan(100_000);
-    expect(notional).toBeLessThanOrEqual(10_000_000);
-    expect(trades[0].sizingEngineSnapshot?.finalPositionKrw).toBe(notional);
-    expect(trades[0].r6Counterfactual?.sizingSource).toBe('LIVE_SIZING_MIRROR');
-    expect(trades[0].r6Counterfactual?.entryRegime).toBe('R6_DEFENSE');
-    expect(trades[0].r6Counterfactual?.entryEffectiveState).toBe('R6_CONFIRMATION_WAIT');
-    expect(trades[0].r6Counterfactual?.transitionPath).toEqual(['R6_DEFENSE']);
-    expect(trades[0].r6Counterfactual?.mhsAtEntry).toBe(70);
-    expect(trades[0].fills?.some((fill) => fill.type === 'BUY' && fill.status === 'CONFIRMED')).toBe(true);
-    expect(trades[0].liveOrderSent).toBe(false);
+    expect(trades).toHaveLength(0);
     const ledger = loadCounterfactualShadowLearningLedger();
-    expect(ledger[0]).toMatchObject({
-      symbol: '005930',
-      label: 'R6_COUNTERFACTUAL_BUY',
-      entryRegime: 'R6_DEFENSE',
-      entryEffectiveState: 'R6_CONFIRMATION_WAIT',
-      transitionPath: ['R6_DEFENSE'],
-      mhsAtEntry: 70,
-      biasAtEntry: 'BULL',
-      executionImpact: 'NONE',
-      liveOrderSent: false,
-    });
-    expect(ledger[0].supplyScoreAtEntry).toBeGreaterThanOrEqual(70);
+    expect(ledger).toHaveLength(0);
     const joinedLogs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
-    expect(joinedLogs).toMatch(/\[R6_SHADOW_ENTRY_POLICY_RESOLVED\][\s\S]+\[SHADOW_ORDER_CREATED\][\s\S]+\[SHADOW_PAPER_FILLED\][\s\S]+\[SHADOW_POSITION_OPENED\][\s\S]+\[R6_SHADOW_ACTIVE_RECORDED\]/);
+    expect(joinedLogs).toContain('[R6_SHADOW_ENTRY_POLICY_RESOLVED]');
+    expect(joinedLogs).not.toContain('[SHADOW_ORDER_CREATED]');
     expect(joinedLogs).not.toContain('[R6_COUNTERFACTUAL_LEARNING_ONLY_RECORDED]');
     logSpy.mockRestore();
   }, 20_000);
@@ -258,6 +204,6 @@ describe('R6_SHADOW_ENTRY_POLICY', () => {
     });
 
     expect(summary.r6CounterfactualEntries).toBe(0);
-    expect(summary.noShadowEntryReason).toBe('PRICE_DATA_MISSING');
+    expect(summary.noShadowEntryReason).toBe('NO_R6_SHADOW_POLICY');
   });
 });

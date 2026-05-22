@@ -104,7 +104,8 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     expect(text).toContain('Gate1Diag: gateStatus=OK | sessionAgnostic=true');
     expect(text).toContain('PolicyDiag: LIVE_ALLOWED');
     expect(text).not.toContain('PolicyDiag: LIVE_BLOCKED_ONLY');
-    expect(text).toContain('legacyIgnoredReasons=[AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK]');
+    expect(text).toContain('displaySession: REGULAR');
+    expect(text).not.toContain('AFTERMARKET_SELL_ONLY');
     expect(text).toContain('Gate2Diag: Gate2: DATA_INCOMPLETE');
   });
 
@@ -164,7 +165,8 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
 
     expect(() => formatScanBlockersCompactMessage(summary)).not.toThrow();
     expect(formatScanBlockersCompactMessage(summary)).toContain('Gate3Diag: UNAVAILABLE | reason=GATE3_CONSOLIDATED_DIAGNOSTIC_NOT_CARRIED | fallback=true | marketSignal=false');
-    expect(formatScanBlockersCompactMessage(summary)).toContain('legacyIgnoredReasons: AFTERMARKET_BUY_BLOCK_IGNORED_BY_ROLLBACK,R6_DEFENSE_IGNORED_BY_ROLLBACK,R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK');
+    expect(formatScanBlockersCompactMessage(summary)).toContain('Legacy defense policy input detected - executionImpact=NONE');
+    expect(formatScanBlockersCompactMessage(summary)).toContain('removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
   });
 
   it('labels R6 SELL_ONLY compact summary as diagnostic-only without making Gate1 pass look live', () => {
@@ -253,12 +255,15 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
 
     const text = formatScanBlockersCompactMessage(summary);
 
-    expect(text).toContain('session: CLOSED / CLOSED');
+    expect(text).toContain('session: CLOSED / REGULAR');
     expect(text).toContain('marketSession: CLOSED');
-    expect(text).toContain('displaySession: CLOSED');
+    expect(text).toContain('displaySession: REGULAR');
     expect(text).toContain('entryBlockMode: NORMAL');
-    expect(text).toContain('R6/SELL_ONLY rollback: disabled');
-    expect(text).toContain('legacyIgnoredReasons: R6_DEFENSE_IGNORED_BY_ROLLBACK,R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK');
+    expect(text).toContain('Legacy defense policy input detected - executionImpact=NONE');
+    expect(text).toContain('removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
+    expect(text).not.toContain('R6_DEFENSE_SELL_ONLY');
+    expect(text).not.toContain('NOT_EVALUATED_SELL_ONLY');
+    expect(text).not.toContain('PRE_FLIGHT_SELL_ONLY');
     expect(text).toContain('Gate1: 3/16');
     expect(text).toContain('MinScore: 37.0 / 70.0');
     expect(text).toContain('dominant: MIXED (2)');
@@ -430,7 +435,8 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
     expect(text).toContain('Gate1Diag: Gate1: DEGRADED');
     expect(text).not.toContain('Gate1Diag: Gate1: LIVE_BLOCKED_ONLY');
     expect(text).toContain('PolicyDiag: LIVE_ALLOWED');
-    expect(text).toContain('legacyIgnoredReasons=[R6_DEFENSE_SELL_ONLY_IGNORED_BY_ROLLBACK]');
+    expect(text).toContain('legacyPolicyInputs=[LEGACY_DEFENSE_POLICY_REMOVED]');
+    expect(text).not.toContain('R6_DEFENSE_SELL_ONLY');
   });
 
   it('keeps DEGRADED when missing includes currentPrice', () => {

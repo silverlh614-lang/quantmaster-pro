@@ -12,7 +12,7 @@ describe('resolveShadowAlwaysOnPolicy', () => {
       realOrderAllowed: true,
     });
 
-    expect(policy.liveBuyAllowed).toBe(false);
+    expect(policy.liveBuyAllowed).toBe(true);
     expect(policy.liveSellAllowed).toBe(true);
     expect(policy.shadowScanAllowed).toBe(true);
     expect(policy.shadowSignalAllowed).toBe(true);
@@ -21,17 +21,17 @@ describe('resolveShadowAlwaysOnPolicy', () => {
     expect(policy.shadowExitAllowed).toBe(true);
     expect(policy.shadowLearningAllowed).toBe(true);
     expect(policy.counterfactualAllowed).toBe(true);
-    expect(policy.executionImpact).toBe('LIVE_BUY_BLOCKED');
+    expect(policy.executionImpact).toBe('NONE');
   });
 
-  it('blocks live buys only in SELL_ONLY while preserving Shadow learning', () => {
+  it('ignores removed SELL_ONLY while preserving Shadow learning', () => {
     const policy = resolveShadowAlwaysOnPolicy({ engineMode: 'SELL_ONLY', liveExecutionAllowed: true });
 
-    expect(policy.liveBuyAllowed).toBe(false);
+    expect(policy.liveBuyAllowed).toBe(true);
     expect(policy.liveSellAllowed).toBe(true);
     expect(policy.shadowLearningAllowed).toBe(true);
     expect(policy.counterfactualAllowed).toBe(true);
-    expect(policy.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
+    expect(policy.executionImpact).toBe('NONE');
   });
 
   it('keeps paper fill and learning available in SHADOW_ONLY', () => {

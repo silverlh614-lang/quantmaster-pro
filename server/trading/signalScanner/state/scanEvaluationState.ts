@@ -129,6 +129,11 @@ export function isNotEvaluatedScanState(state: ScanEvaluationState): boolean {
   return state.startsWith('NOT_EVALUATED_');
 }
 
+function displaySourcePath(sourcePath: string | undefined): string {
+  const raw = sourcePath ?? 'UNKNOWN';
+  return raw.includes('SELL_ONLY') ? 'DIAGNOSTIC_SNAPSHOT' : raw;
+}
+
 export function formatScanEvaluationCompactLine(result: ScanEvaluationResult | undefined): string | null {
   if (!result) return null;
   const displayState = result.evaluationState === 'NOT_EVALUATED_SELL_ONLY' || result.evaluationState === 'NOT_EVALUATED_R6_LIVE_BLOCKED'
@@ -140,7 +145,7 @@ export function formatScanEvaluationCompactLine(result: ScanEvaluationResult | u
     : result.blockReason;
   const parts = [
     `evaluationState=${displayState}`,
-    `sourcePath=${result.sourcePath}`,
+    `sourcePath=${displaySourcePath(result.sourcePath)}`,
     displayBreakPoint ? `breakPoint=${displayBreakPoint}` : undefined,
     displayReason ? `reason=${displayReason}` : undefined,
     `diagnosticSurvivors=${result.survivors}`,
@@ -165,7 +170,7 @@ export function formatScanEvaluationSection(result: ScanEvaluationResult | undef
   return [
     'Scan Evaluation State',
     `  evaluationState=${displayState}`,
-    `  sourcePath=${result.sourcePath}`,
+    `  sourcePath=${displaySourcePath(result.sourcePath)}`,
     `  breakPoint=${displayBreakPoint ?? 'NONE'}`,
     `  blockReason=${displayReason ?? 'NONE'}`,
     `  marketSessionState=${result.marketSessionState}`,

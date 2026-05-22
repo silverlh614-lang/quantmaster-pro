@@ -90,7 +90,7 @@ function normalizeEngineMode(input: NormalizeShadowEligibilityInput): EngineMode
     return EngineModeManager.normalize(input.engineMode);
   }
   const session = upper(input.marketSessionCompatibility?.session);
-  if (session === 'SELL_ONLY') return 'SELL_ONLY';
+  if (session === 'SELL_ONLY') return 'NORMAL';
   if (session === 'CLOSED' || session === 'HOLIDAY' || session === 'NON_TRADING_DAY') return 'OBSERVE_ONLY';
   return 'NORMAL';
 }
@@ -116,9 +116,7 @@ function tradabilityHardBlock(status: string): boolean {
 function liveImpactFor(input: NormalizeShadowEligibilityInput, engineMode: EngineMode, blockers: string[]): Gate1LiveExecutionImpact {
   if (blockers.some(blocker => blocker.startsWith('TRADABILITY_'))) return 'LIVE_EXECUTION_BLOCKED';
   if (engineMode === 'SHADOW_ONLY' || engineMode === 'OBSERVE_ONLY') return 'LIVE_EXECUTION_BLOCKED';
-  if (engineMode === 'SELL_ONLY') return 'LIVE_BUY_BLOCKED_ONLY';
   if (hasMissingQuote(input)) return 'LIVE_BUY_BLOCKED_ONLY';
-  if (input.marketSessionCompatibility?.liveBuyAllowed === false) return 'LIVE_BUY_BLOCKED_ONLY';
   return 'NONE';
 }
 
@@ -202,9 +200,6 @@ export function normalizeShadowEligibilityForGate1(
     reason = session === 'CLOSED' || session === 'HOLIDAY'
       ? 'MARKET_CLOSED_OBSERVE_ONLY_CASE_RECORDING_ALLOWED'
       : 'ENGINE_OBSERVE_ONLY_CASE_RECORDING_ALLOWED';
-  } else if (engineMode === 'SELL_ONLY') {
-    mode = degradedReasons.length > 0 ? 'DEGRADED_SHADOW' : 'NORMAL_SHADOW';
-    reason = 'LIVE_BUY_BLOCKED_BY_SELL_ONLY_BUT_SHADOW_ALLOWED';
   } else if (engineMode === 'SHADOW_ONLY') {
     mode = degradedReasons.length > 0 ? 'DEGRADED_SHADOW' : 'NORMAL_SHADOW';
     reason = 'LIVE_EXECUTION_BLOCKED_BY_SHADOW_ONLY_BUT_SHADOW_ALLOWED';

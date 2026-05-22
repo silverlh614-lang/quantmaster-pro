@@ -98,7 +98,7 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
       candidates: [],
     });
     const section = formatNormalSupplyPreviewSection(preview);
-    expect(section).toContain('Normal Supply Preview with legacy R6/SELL_ONLY disabled');
+    expect(section).toContain('Normal Supply Preview with legacy defense policy disabled');
     expect(section).toContain('previewMode: NORMAL_SUPPLY_DIAGNOSTIC');
     expect(section).toContain('liveExecutionAllowed: false');
     expect(section).toContain('realOrderAllowed: false');

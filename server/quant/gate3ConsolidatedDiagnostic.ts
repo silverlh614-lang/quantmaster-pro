@@ -82,7 +82,7 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const quoteFreshness = asRecord(intraday.quoteFreshness);
   const sessionCompatibility = asRecord(intraday.sessionCompatibility);
   const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';
-  const eodOnlyExpected = ['AFTERMARKET', 'SELL_ONLY', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
+  const eodOnlyExpected = ['AFTERMARKET', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
 
   const timingAlignment = {
     volume: (breakoutVolumeStatus === 'PASS' || (volumeRatio != null && volumeRatio >= 2) || (tradingValueRatio != null && tradingValueRatio >= 2)) ? 'CONFIRMED' : (breakoutVolumeStatus === 'FAIL' || volumeRatio != null || tradingValueRatio != null) ? 'WEAK' : breakoutVolumeStatus === 'MISSING' ? 'MISSING' : 'UNKNOWN',

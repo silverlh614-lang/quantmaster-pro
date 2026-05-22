@@ -47,6 +47,15 @@ function isR6LiveBlocked(input: ScanBlockReasonClassifierInput): boolean {
   ) && input.macroGateState?.diagnosticLiveEntryBlocked === true;
 }
 
+function isRemovedPolicyLiveBlock(input: ScanBlockReasonClassifierInput): boolean {
+  const reason = String(input.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
+  return input.engineMode === 'SELL_ONLY'
+    || input.sellOnly === true
+    || input.macroGateState?.sellOnlyMode === true
+    || reason.includes('SELL_ONLY')
+    || isR6LiveBlocked(input);
+}
+
 export function classifyScanBlockReason(
   input: ScanBlockReasonClassifierInput,
 ): ScanBlockReasonClassification {
@@ -70,7 +79,7 @@ export function classifyScanBlockReason(
     };
   }
 
-  if (input.macroGateState?.diagnosticLiveEntryBlocked === true) {
+  if (input.macroGateState?.diagnosticLiveEntryBlocked === true && !isRemovedPolicyLiveBlock(input)) {
     return {
       evaluationState: 'NOT_EVALUATED_DIAGNOSTIC_ONLY',
       blockReason: input.macroGateState.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY',

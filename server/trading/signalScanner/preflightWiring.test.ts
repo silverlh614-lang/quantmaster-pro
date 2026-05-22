@@ -64,7 +64,8 @@ describe('signalScanner ↔ preflight 단일 SSOT (PR-42 M3)', () => {
     const macro = { vix: 30 } as any;
     const r = preflight.evaluateSellOnlyException(cfg, macro);
     expect(r.allow).toBe(false);
-    expect(r.reason).toContain('VIX 30 ≥ 25');
+    expect(r.reason).toContain('VIX 30');
+    expect(r.reason).toContain('25');
   });
 
   it('evaluateSellOnlyException — sectorAligned 통과 시 allow=true', () => {

@@ -39,7 +39,7 @@ function compactEffectiveRegime(snapshot: ResolvedRegimeSnapshot): string {
 }
 
 function compactRiskOverride(snapshot: ResolvedRegimeSnapshot): string {
-  return isLegacyR6SellOnlySnapshot(snapshot) ? 'NONE (legacy R6/SELL_ONLY ignored)' : snapshot.riskOverride;
+  return isLegacyR6SellOnlySnapshot(snapshot) ? 'NONE (legacy defense policy ignored)' : snapshot.riskOverride;
 }
 
 function compactEngineMode(snapshot: ResolvedRegimeSnapshot): string {
@@ -115,7 +115,7 @@ function formatDisplayNumber(value: number | null | undefined, digits: number): 
 }
 
 function compactReason(snapshot: ResolvedRegimeSnapshot): string {
-  if (isLegacyR6SellOnlySnapshot(snapshot)) return 'LEGACY_R6_SELLONLY_IGNORED / rollback=R6_SELLONLY_DISABLED / executionImpact=NONE';
+  if (isLegacyR6SellOnlySnapshot(snapshot)) return 'LEGACY_DEFENSE_POLICY_IGNORED / rollback=DEFENSE_POLICY_DISABLED / executionImpact=NONE';
   return snapshot.marketState.reasonCodes.length > 0 ? snapshot.marketState.reasonCodes.join(' / ') : 'NONE';
 }
 
@@ -191,7 +191,7 @@ function formatRegimeTelegramNowCompact(
     `Bias: ${snapshot.marketState.biasLabel} ${formatDisplayNumber(snapshot.biasScore, 1)}`,
     `Final: ${legacyIgnored ? effectiveRegime : snapshot.riskOverride !== 'NONE' ? 'Risk Override priority' : snapshot.effectiveRegime}`,
     `Reason: ${compactReason(snapshot)}`,
-    ...(legacyIgnored ? ['Legacy R6/SELL_ONLY: disabled; current buy permission uses Gate/data quality only'] : []),
+    ...(legacyIgnored ? ['Legacy defense policy: disabled; current buy permission uses Gate/data quality only'] : []),
     '',
     `Data: ${display.dataLine}`,
     `- ${display.dataExplanation}`,

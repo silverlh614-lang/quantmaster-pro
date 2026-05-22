@@ -681,9 +681,9 @@ export function applyR6ShadowCounterfactualEntries<T extends CandidateWithSupply
   const legacyRegime = resolveLegacyPolicyRegime(input);
   if (legacyRegime) {
     console.info(
-      `[LEGACY_R6_SELLONLY_IGNORED] inputEntryBlockMode=${legacyRegime} ` +
-      `ignoredReasons=${legacyRegime}_IGNORED_BY_ROLLBACK shadowSignalAllowed=true ` +
-      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='R6_SELLONLY_DISABLED'`,
+      `[REMOVED_POLICY_INPUT_IGNORED] inputEntryBlockMode=${legacyRegime} ` +
+      `removedPolicies=${legacyRegime} shadowSignalAllowed=true ` +
+      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
     );
   }
   const regime = resolvePolicyRegime(input);

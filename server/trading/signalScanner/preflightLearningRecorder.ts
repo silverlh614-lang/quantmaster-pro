@@ -191,7 +191,7 @@ function emitPreflightScanEvaluationWarn(summary: PreflightBlockedScanSummary): 
       breakPoint: scanEvaluation.breakPoint,
       sourcePath: scanEvaluation.sourcePath,
       scanId: scanEvaluation.scanId,
-      normalStateMessage: 'Legacy R6/SELL_ONLY policy ignored by rollback; Gate/data quality remains authoritative.',
+      normalStateMessage: 'Legacy defense policy ignored by rollback; Gate/data quality remains authoritative.',
       liveNewBuyAllowed: undefined,
       positionManagementAllowed: undefined,
       shadowLearningAllowed: scanEvaluation.shadowLearningAllowed,

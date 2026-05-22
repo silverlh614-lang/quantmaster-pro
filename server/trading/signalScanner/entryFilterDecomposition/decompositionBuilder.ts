@@ -88,9 +88,7 @@ export function buildEntryFilterDecomposition(
   const nowIso = input.now.toISOString();
   const forDate = nowIso.slice(0, 10);
   const regime = input.macroGateState?.regime ?? "UNKNOWN";
-  const marketSession = input.macroGateState?.sellOnlyMode
-    ? "SELL_ONLY"
-    : "NORMAL";
+  const marketSession = "NORMAL";
   const wd = input.waitDistribution;
   const gp = input.gatePassDistribution;
   const candidateSnapshots = input.candidateSnapshots ?? [];
@@ -233,23 +231,9 @@ export function buildEntryFilterDecomposition(
     });
   }
 
-  if (input.macroGateState?.sellOnlyMode) {
-    for (const trace of traces) {
-      trace.blockers.push(
-        blocker({
-          category: "TIME_WINDOW",
-          code: "SELL_ONLY_TIME_WINDOW",
-          severity: "HARD_BLOCK",
-          message:
-            "SELL_ONLY market session blocks new live buy execution only.",
-          executionBlocking: "NEW_BUY_ONLY",
-          expectedInRegime: true,
-        }),
-      );
-    }
-  }
-
-  if (input.macroGateState?.diagnosticLiveEntryBlocked) {
+  const diagnosticBlockReason = String(input.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
+  const removedPolicyDiagnosticBlock = diagnosticBlockReason.includes('SELL_ONLY') || diagnosticBlockReason.includes('R6_DEFENSE');
+  if (input.macroGateState?.diagnosticLiveEntryBlocked && !removedPolicyDiagnosticBlock) {
     for (const trace of traces) {
       trace.blockers.push(
         blocker({
@@ -758,9 +742,7 @@ export function buildEntryFilterDecomposition(
       0,
       input.watchlistCandidates - (gp?.gate1Pass ?? 0),
     ),
-    blockedByTimeWindow: traces.filter((t) =>
-      t.blockers.some((b) => b.code === "SELL_ONLY_TIME_WINDOW"),
-    ).length,
+    blockedByTimeWindow: 0,
     blockedByGate1: traces.filter((t) =>
       t.blockers.some((b) => b.category === "GATE1"),
     ).length,
