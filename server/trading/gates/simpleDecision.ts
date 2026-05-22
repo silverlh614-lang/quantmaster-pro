@@ -36,6 +36,13 @@ export interface SimpleTradeDecisionInput {
   slotAvailable?: boolean;
   baseScore?: number;
   scoreAdjustment?: number;
+  diversityAdjustment?: number;
+  freshnessPenalty?: number;
+  discoveryBonus?: number;
+  sectorDiversityAdjustment?: number;
+  volumeClockAdjustment?: number;
+  eventAdjustment?: number;
+  riskPenalty?: number;
   executionScore?: number;
   advisoryScore?: number;
   aiNarrativeScore?: number;
@@ -67,6 +74,13 @@ export interface SimpleTradeDecisionResult {
   slotAvailable: boolean;
   baseScore: number;
   scoreAdjustment: number;
+  diversityAdjustment: number;
+  freshnessPenalty: number;
+  discoveryBonus: number;
+  sectorDiversityAdjustment: number;
+  volumeClockAdjustment: number;
+  eventAdjustment: number;
+  riskPenalty: number;
   executionScore: number;
   adjustmentScore: number;
   advisoryScore: number;
@@ -158,7 +172,15 @@ export function resolveSimpleTradeDecision(
   const riskRewardOk = input.riskRewardOk ?? true;
   const slotAvailable = input.slotAvailable ?? true;
   const baseScore = finiteOrZero(input.baseScore);
-  const scoreAdjustment = finiteOrZero(input.scoreAdjustment);
+  const rawScoreAdjustment = finiteOrZero(input.scoreAdjustment);
+  const diversityAdjustment = finiteOrZero(input.diversityAdjustment);
+  const freshnessPenalty = finiteOrZero(input.freshnessPenalty);
+  const discoveryBonus = finiteOrZero(input.discoveryBonus);
+  const sectorDiversityAdjustment = finiteOrZero(input.sectorDiversityAdjustment);
+  const volumeClockAdjustment = finiteOrZero(input.volumeClockAdjustment);
+  const eventAdjustment = finiteOrZero(input.eventAdjustment);
+  const riskPenalty = finiteOrZero(input.riskPenalty);
+  const scoreAdjustment = rawScoreAdjustment + diversityAdjustment;
   const executionScore = finiteOrZero(input.executionScore ?? input.baseScore);
   const advisoryScore = finiteOrZero(input.advisoryScore);
   const aiNarrativeScore = finiteOrZero(input.aiNarrativeScore);
@@ -211,6 +233,13 @@ export function resolveSimpleTradeDecision(
     slotAvailable,
     baseScore,
     scoreAdjustment,
+    diversityAdjustment,
+    freshnessPenalty,
+    discoveryBonus,
+    sectorDiversityAdjustment,
+    volumeClockAdjustment,
+    eventAdjustment,
+    riskPenalty,
     executionScore,
     adjustmentScore: scoreAdjustment,
     advisoryScore,
@@ -262,6 +291,13 @@ export function formatSimpleDecisionFinalLog(result: SimpleTradeDecisionResult):
     kv('aiNarrativeScore', result.aiNarrativeScore),
     kv('excludedAiScore', result.excludedAiScore),
     kv('regimeAdjustment', result.regimeAdjustment),
+    kv('volumeClockAdjustment', result.volumeClockAdjustment),
+    kv('eventAdjustment', result.eventAdjustment),
+    kv('riskPenalty', result.riskPenalty),
+    kv('diversityAdjustment', result.diversityAdjustment),
+    kv('freshnessPenalty', result.freshnessPenalty),
+    kv('discoveryBonus', result.discoveryBonus),
+    kv('sectorDiversityAdjustment', result.sectorDiversityAdjustment),
     kv('scoreAdjustment', result.scoreAdjustment),
     kv('finalScore', result.finalScore),
     kv('buyThreshold', result.buyThreshold),

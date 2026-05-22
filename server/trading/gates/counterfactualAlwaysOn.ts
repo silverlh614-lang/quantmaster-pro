@@ -5,6 +5,7 @@ import type {
   SimpleTradeDecisionResult,
   TradeDecision,
 } from './simpleDecision.js';
+import type { CandidateExposureHistory } from '../candidateDiversityAdjustment.js';
 
 export type CounterfactualSampleType =
   | 'BUY_ALLOWED_COUNTERFACTUAL'
@@ -51,6 +52,11 @@ export interface CounterfactualSample {
   volumeClockPhase?: string;
   volumeClockAdjustment?: number;
   eventAdjustment?: number;
+  candidateExposureHistory?: CandidateExposureHistory | null;
+  freshnessPenalty?: number;
+  discoveryBonus?: number;
+  sectorDiversityAdjustment?: number;
+  totalDiversityAdjustment?: number;
   positionPolicy?: {
     maxPositions: number;
     currentPositions: number;
@@ -92,6 +98,11 @@ export interface RecordCounterfactualInput {
   volumeClockPhase?: string;
   volumeClockAdjustment?: number;
   eventAdjustment?: number;
+  candidateExposureHistory?: CandidateExposureHistory | null;
+  freshnessPenalty?: number;
+  discoveryBonus?: number;
+  sectorDiversityAdjustment?: number;
+  totalDiversityAdjustment?: number;
   maxGrossExposurePct?: number;
   perPositionPct?: number;
   blockers?: string[];
@@ -173,6 +184,14 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
   if (input.dedupDuplicate === true) learningLabels.add('DEDUP_OBSERVED');
   if (input.cooldownActive === true) learningLabels.add('COOLDOWN_OBSERVED');
   if (input.notificationSuppressed === true) learningLabels.add('TELEGRAM_SUPPRESSED_OBSERVED');
+  const totalDiversityAdjustment = input.totalDiversityAdjustment ?? decision.diversityAdjustment;
+  const freshnessPenalty = input.freshnessPenalty ?? decision.freshnessPenalty;
+  const discoveryBonus = input.discoveryBonus ?? decision.discoveryBonus;
+  const sectorDiversityAdjustment = input.sectorDiversityAdjustment ?? decision.sectorDiversityAdjustment;
+  if (freshnessPenalty < 0) learningLabels.add('REPEATED_CANDIDATE_OBSERVED');
+  if (freshnessPenalty < 0) learningLabels.add('FRESHNESS_PENALTY_APPLIED');
+  if (discoveryBonus > 0) learningLabels.add('DISCOVERY_BONUS_APPLIED');
+  if (sectorDiversityAdjustment !== 0) learningLabels.add('SECTOR_DIVERSITY_ADJUSTMENT_APPLIED');
 
   const sampleId = input.sampleId ?? [
     'cf',
@@ -210,6 +229,11 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
     volumeClockPhase: input.volumeClockPhase,
     volumeClockAdjustment: input.volumeClockAdjustment,
     eventAdjustment: input.eventAdjustment,
+    candidateExposureHistory: input.candidateExposureHistory,
+    freshnessPenalty,
+    discoveryBonus,
+    sectorDiversityAdjustment,
+    totalDiversityAdjustment,
     positionPolicy: {
       maxPositions: decision.maxPositions,
       currentPositions: decision.currentPositions,
