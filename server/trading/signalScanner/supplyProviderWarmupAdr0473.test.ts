@@ -251,6 +251,7 @@ describe('ADR-0473 Supply Provider Warmup', () => {
     expect(text).toContain('supplyProviderRuntimeEvidence');
     expect(text).not.toContain('formatSupplyProviderWarmupCompactLine');
     expect(text).not.toContain('parts.push(supplyProviderWarmupSection)');
+    expect(text).not.toContain('provider warmup 상태 점검');
     expect(formatSupplyProviderWarmupCompactLine(buildSupplyProviderWarmupReport()))
       .not.toMatch(/<b>|<i>|<code>/);
   });

@@ -267,6 +267,8 @@ const scanBlockers: TelegramCommand = {
     const gateSubMode = modeResult.gateSubMode;
     const supplySubMode = modeResult.supplySubMode ?? 'summary';
     const summary = getLastScanSummary();
+    const scanCanonicalRuntimeResolution =
+      summary?.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary ?? null);
 
     function logCommand(replyMode: 'single' | 'paginated', pages?: number): void {
       const subMode = mode === 'gate'
@@ -437,10 +439,14 @@ const scanBlockers: TelegramCommand = {
     let supplyProviderRuntimeEvidence: SupplyProviderWarmupReport | null = null;
     try {
       const investorFlowHealth = getLastInvestorFlowProviderHealth();
+      const canonicalKis = scanCanonicalRuntimeResolution.kisInvestorFlow;
+      const canonicalSelectedReason = canonicalKis.finalRouterUsable
+        ? 'CANONICAL_ROUTER_USABLE'
+        : summary?.investorFlowProviderRouter?.selectedReason;
       supplyProviderSection = summarizeInvestorFlowProviderHealth(investorFlowHealth, summary?.investorFlowProviderRouter ? {
         status: summary.investorFlowProviderRouter.status,
         selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
-        selectedReason: summary.investorFlowProviderRouter.selectedReason,
+        selectedReason: canonicalSelectedReason,
         providerTried: [...summary.investorFlowProviderRouter.providerTried],
         providerStatuses: { ...summary.investorFlowProviderRouter.providerStatuses },
         signal: summary.investorFlowProviderRouter.signal,
@@ -455,7 +461,7 @@ const scanBlockers: TelegramCommand = {
           selectedProvider: summary.investorFlowProviderRouter.selectedProvider,
           providerTried: [...summary.investorFlowProviderRouter.providerTried],
           providerStatuses: { ...summary.investorFlowProviderRouter.providerStatuses },
-          selectedReason: summary.investorFlowProviderRouter.selectedReason,
+          selectedReason: canonicalSelectedReason,
           signal: summary.investorFlowProviderRouter.signal,
           coverage: summary.investorFlowProviderRouter.coverage,
           executionImpact: summary.investorFlowProviderRouter.executionImpact,
@@ -690,13 +696,15 @@ const scanBlockers: TelegramCommand = {
     let emptyScanRootCauseSectionAdr0500: string | null = null;
     try {
       if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.yahooFails ?? 0) > 0) {
-        const dashboard = summary?.emptyScanRootCause ?? safeBuildEmptyScanRootCauseDashboardAdr0500({
+        const sizingHardBlockCount = scanCanonicalRuntimeResolution.sizing.hardBlockCount;
+        const usePersistedRootCause = Boolean(summary?.emptyScanRootCause) && sizingHardBlockCount > 0;
+        const dashboard = usePersistedRootCause ? summary!.emptyScanRootCause! : safeBuildEmptyScanRootCauseDashboardAdr0500({
           scanId: summary?.time ? `scan-blockers-${summary.time}` : undefined,
           events: buildEmptyScanRootCauseEventsFromStringsAdr0500([
             ...(summary?.macroGateState?.sellOnlyMode ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SELL_ONLY', count: 1 }] : []),
             ...((summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) ? [{ source: 'SCAN_BLOCKER' as const, reason: 'MACRO_RISK_OFF', count: 1 }] : []),
             ...((summary?.yahooFails ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'PROVIDER_ERROR', count: summary?.yahooFails }] : []),
-            ...((summary?.waitDistribution?.sizingBlocked ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SIZING', count: summary?.waitDistribution?.sizingBlocked }] : []),
+            ...(sizingHardBlockCount > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SIZING', count: sizingHardBlockCount }] : []),
             ...((summary?.waitDistribution?.gateFail ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'THRESHOLD', count: summary?.waitDistribution?.gateFail }] : []),
             ...(summary?.emptyScanReason ? [{ source: 'SCAN_BLOCKER' as const, reason: summary.emptyScanReason, message: 'ADR-0119 empty scan reason' }] : []),
           ]),
@@ -711,15 +719,17 @@ const scanBlockers: TelegramCommand = {
     let weekendReplaySectionAdr0501: string | null = null;
     try {
       if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.yahooFails ?? 0) > 0) {
+        const sizingHardBlockCount = scanCanonicalRuntimeResolution.sizing.hardBlockCount;
         const records = buildWeekendReplayRecordsFromStringsAdr0501([
           ...(summary?.macroGateState?.sellOnlyMode ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SELL_ONLY', replayMode: 'LATEST' as const }] : []),
           ...((summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) ? [{ source: 'SCAN_SUMMARY' as const, reason: 'MACRO_RISK_OFF', replayMode: 'LATEST' as const }] : []),
           ...((summary?.yahooFails ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'PROVIDER_ERROR', replayMode: 'LATEST' as const }] : []),
-          ...((summary?.waitDistribution?.sizingBlocked ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SIZING', replayMode: 'LATEST' as const }] : []),
+          ...(sizingHardBlockCount > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SIZING', replayMode: 'LATEST' as const }] : []),
           ...((summary?.waitDistribution?.gateFail ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'THRESHOLD', replayMode: 'LATEST' as const }] : []),
           ...(summary?.emptyScanReason ? [{ source: 'SCAN_SUMMARY' as const, reason: summary.emptyScanReason, message: 'ADR-0119 empty scan reason', replayMode: 'LATEST' as const }] : []),
         ]);
-        const replaySummary = summary?.weekendReplaySummaryAdr0501 ?? safeBuildWeekendReplaySummaryAdr0501({
+        const usePersistedReplay = Boolean(summary?.weekendReplaySummaryAdr0501) && sizingHardBlockCount > 0;
+        const replaySummary = usePersistedReplay ? summary!.weekendReplaySummaryAdr0501! : safeBuildWeekendReplaySummaryAdr0501({
           records,
           replayMode: 'LATEST',
           totalScans: summary ? 1 : 0,

@@ -137,7 +137,7 @@ function candidateCountOf(summary: ScanSummary | null): number {
 }
 
 function sourceSnapshotIdOf(summary: ScanSummary | null): string {
-  return summary?.snapshotId ?? 'NO_SCAN_SUMMARY';
+  return summary?.snapshotId ?? summary?.scanEvaluation?.scanId ?? (summary?.time ? `scan-summary:${summary.time}` : 'NO_SCAN_SUMMARY');
 }
 
 function buildModule(input: {
@@ -290,7 +290,7 @@ function buildModules(summary: ScanSummary | null): RuntimeTraceModule[] {
 export function buildCanonicalRuntimeResolutionStep27(summary: ScanSummary | null): CanonicalRuntimeResolutionStep27 {
   const sourceSnapshotId = sourceSnapshotIdOf(summary);
   const candidateCount = candidateCountOf(summary);
-  const scanId = summary?.time ?? 'NO_SCAN_SUMMARY';
+  const scanId = summary?.scanEvaluation?.scanId ?? summary?.time ?? 'NO_SCAN_SUMMARY';
   const gateScoreInputSnapshotId = `gateScoreInput:${sourceSnapshotId}`;
   const router = summary?.investorFlowProviderRouter;
   const forensic = summary?.gate1MinimumSignalForensicAdr0505;
@@ -672,7 +672,12 @@ export function formatRuntimeResolverTraceStep26(summary: ScanSummary | null): s
   const candidateSetId = `candidateSet:${sourceSnapshotId}:${candidateCount}`;
   const gateScoreInputSnapshotId = canonical.gateScoreInputSnapshotId;
   const modules = buildModules(summary);
-  const actualScope = summary?.gate1MinimumSignalForensicAdr0505?.actualInvestorRowUseScopeDistribution;
+  const actualScope = canonical.kisInvestorFlow.finalGateScoreEligible
+    ? {
+        GATE_SCORE_ELIGIBLE: canonical.kisInvestorFlow.gateEligibleRows,
+        SHADOW_ONLY_NEUTRAL_UNKNOWN: canonical.kisInvestorFlow.shadowOnlyRows,
+      }
+    : summary?.gate1MinimumSignalForensicAdr0505?.actualInvestorRowUseScopeDistribution;
   const quoteCoverage = summary?.gate1MinimumSignalForensicAdr0505?.quoteFeatureFieldCoverage;
   const lines = [
     '[Runtime Resolver Trace]',

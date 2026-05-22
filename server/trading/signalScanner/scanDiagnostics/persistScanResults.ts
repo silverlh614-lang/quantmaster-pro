@@ -1295,6 +1295,8 @@ export async function persistScanResults(
 
   // ADR-0500 — Empty Scan Root Cause Dashboard snapshot. Diagnostic-only aggregation;
   // no scan decision, stage, order path, or persisted provider data mutation.
+  const canonicalRuntimeResolutionForRootCause = buildCanonicalRuntimeResolutionStep27(summaryDraft);
+
   try {
     const rootCauseInputs: Array<{ source: 'SCAN_BLOCKER'; reason: string | null; message?: string; count?: number }> = [];
     if (summaryDraft.emptyScanReason) {
@@ -1303,7 +1305,13 @@ export async function persistScanResults(
     if (summaryDraft.macroGateState?.bearDefenseMode || summaryDraft.macroGateState?.vixGatingActive || summaryDraft.macroGateState?.mhsBelow30) {
       rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'MACRO_RISK_OFF', count: 1 });
     }
-    if (summaryDraft.waitDistribution?.sizingBlocked) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'SIZING', count: summaryDraft.waitDistribution.sizingBlocked });
+    if (canonicalRuntimeResolutionForRootCause.sizing.hardBlockCount > 0) {
+      rootCauseInputs.push({
+        source: 'SCAN_BLOCKER',
+        reason: 'SIZING',
+        count: canonicalRuntimeResolutionForRootCause.sizing.hardBlockCount,
+      });
+    }
     if (summaryDraft.waitDistribution?.gateFail) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'THRESHOLD', count: summaryDraft.waitDistribution.gateFail });
     if (summaryDraft.yahooFails > 0) rootCauseInputs.push({ source: 'SCAN_BLOCKER', reason: 'PROVIDER_ERROR', count: summaryDraft.yahooFails });
     if (summaryDraft.sectorEnergyQuality && summaryDraft.sectorEnergyQuality !== 'OK') {
@@ -1337,7 +1345,7 @@ export async function persistScanResults(
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildEmptyScanRootCauseWeekendReplay', error: e });
   }
 
-  summaryDraft.canonicalRuntimeResolution = buildCanonicalRuntimeResolutionStep27(summaryDraft);
+  summaryDraft.canonicalRuntimeResolution = canonicalRuntimeResolutionForRootCause;
   _lastScanSummary = summaryDraft;
   // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
   clearPreflightBlockedScanSummary();

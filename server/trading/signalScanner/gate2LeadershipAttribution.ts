@@ -145,7 +145,7 @@ export interface SectorEnergyDiagnostic {
 /**
  * 매수 차단 사유 카운트 — 기존 waitDistribution 에서 발췌 (gate1 survivor 기준).
  *
- * 사용자 명시 §E — Gate 재검증 미달 / Pre-breakout WAIT / Sizing BLOCKED / Drift REMOVE 분해.
+ * 사용자 명시 §E — Gate 재검증 미달 / Pre-breakout WAIT / Sizing advisory / Drift REMOVE 분해.
  */
 export interface Gate2BlockReasons {
   gateRecheckMiss: number;
@@ -839,13 +839,13 @@ export function formatGate2AttributionSection(
     lines.push(`  • topWaitCondition: ${topWait.conditionKey} wait=${topWait.wait}/${topWait.total}`);
   }
 
-  // blockReasons (Gate 재검증 미달 / Pre-breakout WAIT / Sizing BLOCKED / Drift REMOVE).
+  // blockReasons (Gate 재검증 미달 / Pre-breakout WAIT / Sizing advisory / Drift REMOVE).
   const br = attribution.blockReasons;
   if (br) {
     const items: string[] = [];
     if (br.gateRecheckMiss > 0) items.push(`Gate 재검증 미달 ${br.gateRecheckMiss}`);
     if (br.preBreakoutWait > 0) items.push(`Pre-breakout WAIT ${br.preBreakoutWait}`);
-    if (br.sizingBlocked > 0) items.push(`Sizing BLOCKED ${br.sizingBlocked}`);
+    if (br.sizingBlocked > 0) items.push(`SIZING_ADVISORY_LOW ${br.sizingBlocked} (hardBlock=0)`);
     if (br.driftRemove > 0) items.push(`Drift REMOVE ${br.driftRemove}`);
     if (items.length > 0) {
       lines.push(`  • 차단 사유: ${items.join(' / ')}`);

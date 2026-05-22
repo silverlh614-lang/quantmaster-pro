@@ -132,6 +132,8 @@ describe('runtimeResolverTraceStep26', () => {
     expect(output).toContain('- finalRouterUsable=true');
     expect(output).toContain('- finalGateScoreEligible=true');
     expect(output).toContain('- gateEligibleRows=31/43');
+    expect(output).toContain('actualInvestorRowUseScope=GATE_SCORE_ELIGIBLE=31,SHADOW_ONLY_NEUTRAL_UNKNOWN=12');
+    expect(output).not.toContain('actualInvestorRowUseScope=DIAGNOSTIC_ONLY=43');
     expect(output).not.toContain('NOT_ROUTER_USABLE');
   });
 

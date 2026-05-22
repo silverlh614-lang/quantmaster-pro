@@ -5,16 +5,49 @@
 import type { InvestorFlowProviderRouteResult } from './types.js';
 import type { CanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 
+function isKisProvider(provider: string | null | undefined): boolean {
+  return String(provider ?? '').trim().toUpperCase() === 'KIS_API';
+}
+
+function sanitizeCanonicalKisReason(input: {
+  provider?: string | null;
+  reason?: string | null;
+  canonicalKisUsable: boolean;
+}): string {
+  const reason = input.reason ?? 'NONE';
+  if (!input.canonicalKisUsable) return reason;
+  if (!isKisProvider(input.provider)) return reason;
+  if (!reason.includes('NOT_ROUTER_USABLE')) return reason;
+  return 'deprecated=true notUsedForDecision=true replacedBy=canonicalRuntimeResolution.kisInvestorFlow finalRouterUsable=true';
+}
+
+function formatProviderReasons(
+  reasons: Record<string, string> | undefined,
+  canonicalKisUsable: boolean,
+): string {
+  const entries = Object.entries(reasons ?? {});
+  if (entries.length === 0) return 'NONE';
+  return entries
+    .map(([provider, reason]) => `${provider}=${sanitizeCanonicalKisReason({ provider, reason, canonicalKisUsable })}`)
+    .join(' | ');
+}
+
 export function formatInvestorFlowProviderRouterAdr0477(
   result?: InvestorFlowProviderRouteResult | null,
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27,
 ): string | null {
   if (!result) return null;
   const canonicalKis = canonicalRuntimeResolution?.kisInvestorFlow;
-  const legacySelectedReasonDeprecated = canonicalKis?.finalRouterUsable && String(result.selectedReason ?? '').includes('NOT_ROUTER_USABLE');
+  const canonicalKisUsable = canonicalKis?.finalRouterUsable === true;
+  const legacySelectedReasonDeprecated = canonicalKisUsable && String(result.selectedReason ?? '').includes('NOT_ROUTER_USABLE');
   const selectedReason = legacySelectedReasonDeprecated
     ? 'CANONICAL_ROUTER_USABLE'
     : result.selectedReason ?? 'NONE';
+  const selectedDiagnosticReason = sanitizeCanonicalKisReason({
+    provider: result.selectedDiagnosticProvider,
+    reason: result.selectedDiagnosticReason,
+    canonicalKisUsable,
+  });
   const nextAction = result.status === 'DATA_UNAVAILABLE' || result.coverage.notWired > 0
     ? 'WIRE_NAVER_OR_REPAIR_CACHE_KEY / feed SemanticNetBuy normalized input / keep UNKNOWN out of bearish scoring'
     : result.freshness.oldestSourceAgeTradingDays !== null && result.freshness.oldestSourceAgeTradingDays >= 4
@@ -50,14 +83,14 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- cacheFallbackUsed: ${result.cacheFallbackUsed ?? false}`,
     `- fallbackChain: ${result.fallbackChain?.join(' > ') || 'NONE'}`,
     `- rejectedProviders: ${result.rejectedProviders?.join(',') || 'NONE'}`,
-    `- rejectedReasonByProvider: ${Object.entries(result.rejectedReasonByProvider ?? {}).map(([provider, reason]) => `${provider}=${reason}`).join(' | ') || 'NONE'}`,
+    `- rejectedReasonByProvider: ${formatProviderReasons(result.rejectedReasonByProvider, canonicalKisUsable)}`,
     `- noMaterializedCandidateReason: ${result.noMaterializedCandidateReason ?? 'NONE'}`,
     `- cacheFallbackReason: ${result.cacheFallbackReason ?? 'NONE'}`,
     `- staleButSelectedReason: ${result.staleButSelectedReason ?? 'NONE'}`,
     `- coverageBasis: routerUsableSampleCount plus selected SHADOW fallback; before=${result.coverageBefore ?? result.coverage.available}, after=${result.coverageAfter ?? result.coverage.available}`,
     `- diagnosticUsableCount: ${result.diagnosticUsableCount ?? 0}`,
     `- selectedDiagnosticProvider: ${result.selectedDiagnosticProvider ?? 'NONE'}`,
-    `- selectedDiagnosticReason: ${result.selectedDiagnosticReason ?? 'NONE'}`,
+    `- selectedDiagnosticReason: ${selectedDiagnosticReason}`,
     `- selectedForLive: ${result.selectedForLive ?? false}`,
     `- selectedForShadow: ${result.selectedForShadow ?? result.selectedProvider !== 'NONE'}`,
     `- kisFirstMode: ${result.kisFirstMode ?? false}`,
@@ -88,7 +121,7 @@ export function formatInvestorFlowProviderRouterAdr0477(
     `- selectedFreshness: ${result.selectedFreshness ?? 'UNKNOWN'}`,
     `- selectedConfidence: ${result.selectedConfidence ?? 'NONE'}`,
     `- providerTried: ${result.providerTried.join(' -> ') || 'NONE'}`,
-    `- providerTriedDetail: ${Object.entries(result.providerReasons).map(([provider, reason]) => `${provider}=${reason}`).join(' | ') || 'NONE'}`,
+    `- providerTriedDetail: ${formatProviderReasons(result.providerReasons, canonicalKisUsable)}`,
     `- rawPayloadPersistenceAllowed: false`,
     `- executionImpact: ${result.executionImpact}`,
     `- liveExecutionAllowed: ${result.liveExecutionAllowed}`,

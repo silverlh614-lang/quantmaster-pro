@@ -192,7 +192,7 @@ export function formatEntryFilterDecompositionSection(
   );
   lines.push("");
   lines.push("operatorAction:");
-  lines.push("• investor-flow provider warmup 상태 점검");
+  lines.push("• investor-flow provider health / router 상태 점검");
   lines.push("• provider sample age / cache key 확인");
   lines.push(
     `• provider issue soft-fail 적용 시 예상 survivor ${cf.ifProviderIssueSoftened}개 (executionImpact=NONE)`,

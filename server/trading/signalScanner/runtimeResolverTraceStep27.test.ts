@@ -227,13 +227,19 @@ describe('Step27 canonical runtime report rebinding', () => {
       coverage: { available: 31, total: 43, notWired: 0 },
       freshness: { cacheState: 'FRESH', sourceState: 'FRESH', oldestSourceAgeTradingDays: 0 },
       selectedReason: 'blockedReason=NOT_ROUTER_USABLE',
+      selectedDiagnosticProvider: 'KIS_API',
+      selectedDiagnosticReason: 'KIS_API materialized=true usableForRouter=false blockedReason=NOT_ROUTER_USABLE',
       inputSources: ['KIS_API'],
       fallbackChain: [],
-      rejectedProviders: [],
-      rejectedReasonByProvider: {},
+      rejectedProviders: ['KIS_API'],
+      rejectedReasonByProvider: {
+        KIS_API: 'KIS_API materialized=true usableForRouter=false blockedReason=NOT_ROUTER_USABLE',
+      },
       providerStatuses: { KIS_API: 'VERIFIED' },
       providerTried: ['KIS_API'],
-      providerReasons: {},
+      providerReasons: {
+        KIS_API: 'KIS_API materialized=true usableForRouter=false blockedReason=NOT_ROUTER_USABLE',
+      },
       executionImpact: 'NONE',
       liveExecutionAllowed: false,
     } as never, canonical) ?? '';
