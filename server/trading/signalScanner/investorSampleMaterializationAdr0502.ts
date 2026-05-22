@@ -185,6 +185,10 @@ export function buildInvestorSampleDiagnosticsAdr0502(
     && fieldCoverage > 0
     && confidenceLevel !== 'MISSING'
     && blockedReason === 'NONE';
+  const normalizedBlockedReason: InvestorSampleBlockedReasonAdr0502 =
+    blockedReason === 'NONE' && !usableForRouter
+      ? 'NOT_ROUTER_USABLE'
+      : blockedReason;
   return {
     providerName: input.providerName,
     rawFetched,
@@ -196,7 +200,7 @@ export function buildInvestorSampleDiagnosticsAdr0502(
     fieldCoverage,
     sampleMaterialized,
     usableForRouter,
-    blockedReason,
+    blockedReason: normalizedBlockedReason,
     staleReason,
     placeholderDetected,
     inputSourceKind,
@@ -218,7 +222,7 @@ export function buildInvestorSampleDiagnosticsAdr0502(
       `fieldCoverage=${fieldCoverage}`,
       `sampleMaterialized=${String(sampleMaterialized)}`,
       `usableForRouter=${String(usableForRouter)}`,
-      `blockedReason=${blockedReason}`,
+      `blockedReason=${normalizedBlockedReason}`,
       `placeholderDetected=${String(placeholderDetected)}`,
       `inputSourceKind=${inputSourceKind}`,
       `confidenceLevel=${confidenceLevel}`,

@@ -61,4 +61,23 @@ describe('ADR-0502 investor sample materialization diagnostics', () => {
     expect(diag.placeholderDetected).toBe(true);
     expect(diag.blockedReason).toBe('NO_INPUT_SAMPLE');
   });
+
+  it('normalizes blockedReason NONE to NOT_ROUTER_USABLE when router usability is false', () => {
+    const diag = buildInvestorSampleDiagnosticsAdr0502({
+      providerName: 'KIS_INVESTOR',
+      rawFetched: true,
+      rawCount: 2,
+      normalizedCount: 2,
+      materializedCount: 2,
+      symbolCoverage: 1,
+      dateCoverage: null,
+      fieldCoverage: 1,
+      inputSourceKind: 'RAW_PROVIDER',
+      blockedReason: 'NONE',
+    });
+
+    expect(diag.sampleMaterialized).toBe(true);
+    expect(diag.usableForRouter).toBe(false);
+    expect(diag.blockedReason).toBe('NOT_ROUTER_USABLE');
+  });
 });
