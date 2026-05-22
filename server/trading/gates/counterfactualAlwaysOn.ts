@@ -14,6 +14,7 @@ export type CounterfactualSampleType =
   | 'DATA_GAP_COUNTERFACTUAL'
   | 'PRICE_GAP_COUNTERFACTUAL'
   | 'RR_INSUFFICIENT_COUNTERFACTUAL'
+  | 'TRADE_PLAN_INVALID_COUNTERFACTUAL'
   | 'SLOT_FULL_COUNTERFACTUAL';
 
 export type CounterfactualOutcomeStatus =
@@ -47,6 +48,12 @@ export interface CounterfactualSample {
   priceSnapshotId?: string;
   priceConfidence?: string;
   priceAgeSec?: number;
+  tradePlanId?: string;
+  initialStopLoss?: number | null;
+  targetPrice1?: number | null;
+  riskReward1?: number | null;
+  tradePlanStatus?: string;
+  invalidReasons?: string[];
   regime?: string;
   regimeAdjustment?: number;
   volumeClockPhase?: string;
@@ -95,6 +102,12 @@ export interface RecordCounterfactualInput {
   priceSnapshotId?: string;
   priceConfidence?: string;
   priceAgeSec?: number;
+  tradePlanId?: string;
+  initialStopLoss?: number | null;
+  targetPrice1?: number | null;
+  riskReward1?: number | null;
+  tradePlanStatus?: string;
+  invalidReasons?: string[];
   volumeClockPhase?: string;
   volumeClockAdjustment?: number;
   eventAdjustment?: number;
@@ -168,10 +181,14 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
   const tradingDate = input.tradingDate ?? tradingDateFromAsOf(asOf);
   const snapshotId = input.snapshotId ?? decision.snapshotId ?? `decision_${tradingDate}`;
   const symbol = decision.symbol ?? 'UNKNOWN';
-  const sampleType = (decision.decision === 'NO_TRADE_DATA_INCOMPLETE'
+  const tradePlanInvalid = input.tradePlanStatus !== undefined
+    && !['VALID', 'RR_INSUFFICIENT'].includes(input.tradePlanStatus);
+  const sampleType = tradePlanInvalid
+    ? 'TRADE_PLAN_INVALID_COUNTERFACTUAL'
+    : (decision.decision === 'NO_TRADE_DATA_INCOMPLETE'
     && (input.missingFields ?? []).some((field) => field === 'priceSnapshot' || field === 'price'))
-    ? 'PRICE_GAP_COUNTERFACTUAL'
-    : sampleTypeFromDecision(decision.decision);
+      ? 'PRICE_GAP_COUNTERFACTUAL'
+      : sampleTypeFromDecision(decision.decision);
   const learningLabels = new Set<string>([
     decision.learningLabel,
     sampleType,
@@ -184,6 +201,8 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
   if (input.dedupDuplicate === true) learningLabels.add('DEDUP_OBSERVED');
   if (input.cooldownActive === true) learningLabels.add('COOLDOWN_OBSERVED');
   if (input.notificationSuppressed === true) learningLabels.add('TELEGRAM_SUPPRESSED_OBSERVED');
+  if (input.tradePlanStatus === 'RR_INSUFFICIENT') learningLabels.add('RR_INSUFFICIENT_OBSERVED');
+  if (tradePlanInvalid) learningLabels.add('TRADE_PLAN_INVALID_OBSERVED');
   const totalDiversityAdjustment = input.totalDiversityAdjustment ?? decision.diversityAdjustment;
   const freshnessPenalty = input.freshnessPenalty ?? decision.freshnessPenalty;
   const discoveryBonus = input.discoveryBonus ?? decision.discoveryBonus;
@@ -224,6 +243,12 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
     priceSnapshotId: input.priceSnapshotId,
     priceConfidence: input.priceConfidence,
     priceAgeSec: input.priceAgeSec,
+    tradePlanId: input.tradePlanId,
+    initialStopLoss: input.initialStopLoss,
+    targetPrice1: input.targetPrice1,
+    riskReward1: input.riskReward1,
+    tradePlanStatus: input.tradePlanStatus,
+    invalidReasons: input.invalidReasons,
     regime: decision.regime,
     regimeAdjustment: decision.regimeAdjustment,
     volumeClockPhase: input.volumeClockPhase,
