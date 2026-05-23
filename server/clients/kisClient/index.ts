@@ -103,7 +103,9 @@ export {
   fetchKisPrevClose,
   fetchStockName,
   fetchKisSectorIndexDaily,
+  fetchKisSectorIndexCurrentPrice,
   isKisSectorIndexDailyDisabled,
+  isKisSectorIndexCurrentDisabled,
   KIS_SECTOR_INDEX_ISCD,
   KIS_SECTOR_ISCD_MAP,
 } from './query.js';

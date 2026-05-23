@@ -29,6 +29,8 @@ beforeEach(async () => {
   _HAS_REAL_DATA_CLIENT.value = false;
   delete process.env.KIS_SECTOR_INDEX_DAILY_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
+  delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
   process.env.KIS_APP_KEY = 'test-key';
   mod = await import('./query.js');
 });
@@ -37,6 +39,8 @@ afterEach(() => {
   delete process.env.KIS_APP_KEY;
   delete process.env.KIS_SECTOR_INDEX_DAILY_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
+  delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
   vi.clearAllMocks();
 });
 
@@ -115,5 +119,51 @@ describe('fetchKisSectorIndexDaily', () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _realDataKisGet.mockRejectedValue(new Error('circuit open'));
     await expect(mod.fetchKisSectorIndexDaily('0001')).resolves.toBeNull();
+  });
+});
+
+describe('fetchKisSectorIndexCurrentPrice', () => {
+  it('returns null when ENV is off', async () => {
+    await expect(mod.fetchKisSectorIndexCurrentPrice('0001')).resolves.toBeNull();
+    expect(_realDataKisGet).not.toHaveBeenCalled();
+  });
+
+  it('uses VTS override first', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    const mockResult = {
+      sectorIscd: '0001',
+      sectorName: 'KOSPI',
+      currentIndex: 2700,
+      changePct: 1.2,
+      fetchedAt: '2026-05-23T00:00:00.000Z',
+      source: 'KIS_API' as const,
+      rawFieldKeys: ['bstp_nmix_prpr'],
+    };
+    _getKisOverrides.mockReturnValue({ fetchKisSectorIndexCurrentPrice: vi.fn().mockResolvedValue(mockResult) });
+    await expect(mod.fetchKisSectorIndexCurrentPrice('0001')).resolves.toEqual(mockResult);
+    expect(_realDataKisGet).not.toHaveBeenCalled();
+  });
+
+  it('calls the official current sector index endpoint and parses output', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    _realDataKisGet.mockResolvedValue({
+      output: [{ hts_kor_isnm: 'KOSPI', bstp_nmix_prpr: '2700.50', bstp_nmix_prdy_ctrt: '1.23' }],
+    });
+
+    const result = await mod.fetchKisSectorIndexCurrentPrice('0001');
+
+    expect(result).toMatchObject({
+      sectorIscd: '0001',
+      sectorName: 'KOSPI',
+      currentIndex: 2700.5,
+      changePct: 1.23,
+      source: 'KIS_API',
+      rawFieldKeys: ['hts_kor_isnm', 'bstp_nmix_prpr', 'bstp_nmix_prdy_ctrt'],
+    });
+    const [trId, path, params] = _realDataKisGet.mock.calls[0];
+    expect(trId).toBe('FHPUP02100000');
+    expect(path).toBe('/uapi/domestic-stock/v1/quotations/inquire-index-price');
+    expect(params.FID_COND_MRKT_DIV_CODE).toBe('U');
+    expect(params.FID_INPUT_ISCD).toBe('0001');
   });
 });

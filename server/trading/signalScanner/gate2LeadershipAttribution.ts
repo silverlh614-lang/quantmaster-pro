@@ -101,6 +101,7 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
   if (!attribution || !report?.sectorEnergyMaster) return attribution;
 
   const sector = report.sectorEnergyMaster;
+  const officialCoverage = ratioFromMaybePercent(sector.officialIndexCoverage);
   const verifiedCoverage = ratioFromMaybePercent(sector.verifiedIndexCodeCoverage);
   const internalGroupedSnapshotCoverage = ratioFromMaybePercent(
     sector.internalGroupedSnapshotCoverage ??
@@ -109,10 +110,10 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
   const internalProxyCoverage = Math.max(ratioFromMaybePercent(sector.internalProxyCoverage), internalGroupedSnapshotCoverage);
   const officialStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
     verifiedCoverage >= 0.8 ? 'VERIFIED'
-      : verifiedCoverage > 0 ? 'PARTIAL'
+      : officialCoverage > 0 ? 'PARTIAL'
         : 'UNAVAILABLE';
   const officialBlocker: NonNullable<Gate2LeadershipAttribution['officialIndex']['blocker']> =
-    verifiedCoverage <= 0
+    officialCoverage <= 0
       ? 'OFFICIAL_INDEX_UNAVAILABLE'
       : verifiedCoverage < 0.8
         ? 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
@@ -121,7 +122,7 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
   const breakoutConfirmed = attribution.leadershipAttribution.breakoutMomentum.status === 'CONFIRMED';
   const liveLeadership = sector.promotionAllowed === true && attribution.gate2Pass > 0;
   const blockers = new Set<Gate2LeadershipBlocker>(attribution.leadershipAttribution.blockers);
-  if (verifiedCoverage <= 0) blockers.add('OFFICIAL_INDEX_UNAVAILABLE');
+  if (officialCoverage <= 0) blockers.add('OFFICIAL_INDEX_UNAVAILABLE');
   if (verifiedCoverage < 0.8) blockers.add('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
   if (sector.leadershipConfidence === 'BLOCKED') blockers.add('SECTOR_UNAVAILABLE');
   if (!breakoutConfirmed) blockers.add('BREAKOUT_MOMENTUM_FAIL');
@@ -144,8 +145,8 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
       dataQuality: sector.leadershipConfidence,
       validSectorCount: sector.records.length || attribution.sectorEnergy?.validSectorCount,
       expectedSectorCount: sector.records.length || attribution.sectorEnergy?.expectedSectorCount,
-      indexCodeCoverage: verifiedCoverage,
-      officialIndexCoverage: verifiedCoverage,
+      indexCodeCoverage: officialCoverage,
+      officialIndexCoverage: officialCoverage,
       internalGroupedSnapshotCoverage,
       ...(sector.internalGroupedValidSectorCount !== undefined
         ? { internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount }
@@ -169,7 +170,7 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
       ...attribution.leadershipAttribution,
       officialIndex: {
         status: officialStatus,
-        coverage: verifiedCoverage,
+        coverage: officialCoverage,
         verifiedIndexCodeCoverage: verifiedCoverage,
         blocker: officialBlocker,
         promotionAllowed: sector.promotionAllowed,

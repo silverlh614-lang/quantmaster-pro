@@ -23,6 +23,7 @@ import type {
   KisInvestorFlowActualRowCarrier,
   KisInvestorFlowRawRow,
   KisMarketProgramTrade,
+  KisSectorIndexCurrentPrice,
   KisSectorIndexDaily,
   KisSectorIndexDailyRow,
   KisShortSaleRankingRow,
@@ -718,6 +719,10 @@ const SECTOR_INDEX_DAILY_TR_ID =
   process.env.KIS_SECTOR_INDEX_DAILY_TR_ID ?? 'FHKUP03500100';
 const SECTOR_INDEX_DAILY_PATH =
   '/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice';
+const SECTOR_INDEX_CURRENT_TR_ID =
+  process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID ?? 'FHPUP02100000';
+const SECTOR_INDEX_CURRENT_PATH =
+  '/uapi/domestic-stock/v1/quotations/inquire-index-price';
 
 /**
  * KIS 국내업종 지수 시세 ENV gate — ADR-0157 정확 비교 의무. default OFF.
@@ -725,6 +730,10 @@ const SECTOR_INDEX_DAILY_PATH =
  */
 export function isKisSectorIndexDailyDisabled(): boolean {
   return process.env.KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true';
+}
+
+export function isKisSectorIndexCurrentDisabled(): boolean {
+  return process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED !== 'true';
 }
 
 /** KST 기준 YYYYMMDD (날짜 helper 의존성 0 — 인라인 계산). */
@@ -811,6 +820,46 @@ export async function fetchKisSectorIndexDaily(
     };
   } catch (e) {
     console.error('[KIS] 국내업종 기간별 지수 시세 조회 실패:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export async function fetchKisSectorIndexCurrentPrice(
+  sectorIscd: string,
+  priority: KisApiPriority = 'LOW',
+): Promise<KisSectorIndexCurrentPrice | null> {
+  const overrides = getKisOverrides();
+  if (overrides.fetchKisSectorIndexCurrentPrice) {
+    return overrides.fetchKisSectorIndexCurrentPrice(sectorIscd);
+  }
+  if (isKisSectorIndexCurrentDisabled()) return null;
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const iscd = (sectorIscd ?? '').trim();
+  if (!/^\d{4}$/.test(iscd)) return null;
+  try {
+    const data = await realDataKisGet(
+      SECTOR_INDEX_CURRENT_TR_ID,
+      SECTOR_INDEX_CURRENT_PATH,
+      {
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: iscd,
+      },
+      priority,
+    );
+    const buckets = pickKisRowsByBucket(data);
+    const row = buckets.output[0] ?? buckets.output1[0] ?? buckets.output2[0];
+    if (!row) return null;
+    return {
+      sectorIscd: iscd,
+      sectorName: String(row.hts_kor_isnm ?? row.idx_name ?? row.bstp_kor_isnm ?? '').trim(),
+      currentIndex: extractKisNumberOptional(row, ['bstp_nmix_prpr', 'bstp_nmix_prdy_vrss', 'prpr']) ?? null,
+      changePct: extractKisNumberOptional(row, ['bstp_nmix_prdy_ctrt', 'prdy_ctrt']) ?? null,
+      fetchedAt: new Date().toISOString(),
+      source: 'KIS_API',
+      rawFieldKeys: Object.keys(row),
+    };
+  } catch (e) {
+    console.error('[KIS] sector index current price fetch failed:', e instanceof Error ? e.message : e);
     return null;
   }
 }

@@ -80,8 +80,8 @@ function sectorEnergyQualityDiagnosticForDisplay(summary: ScanSummary): SectorEn
 
   return {
     ...diagnostic,
-    indexCodeCoverage: formatterRatioFromMaybePercent(sectorMaster.verifiedIndexCodeCoverage),
-    officialIndexCoverage: formatterRatioFromMaybePercent(sectorMaster.verifiedIndexCodeCoverage),
+    indexCodeCoverage: formatterRatioFromMaybePercent(sectorMaster.officialIndexCoverage),
+    officialIndexCoverage: formatterRatioFromMaybePercent(sectorMaster.officialIndexCoverage),
     internalGroupedSnapshotCoverage: formatterRatioFromMaybePercent(
       sectorMaster.internalGroupedSnapshotCoverage ?? sectorMaster.internalProxyCoverage,
     ),
@@ -213,7 +213,7 @@ function buildCandidateFeatureCoverageFromSummary(
       shadowOnlyRows: canonical.kisInvestorFlow.shadowOnlyRows || Math.max(0, total - (forensic?.supplySemanticAvailable ?? total)),
     },
     sectorLeadership: sectorMaster ? {
-      officialIndexCoverage: sectorMaster.verifiedIndexCodeCoverage,
+      officialIndexCoverage: sectorMaster.officialIndexCoverage,
       verifiedIndexCodeCoverage: sectorMaster.verifiedIndexCodeCoverage,
       internalGroupedSnapshotCoverage: sectorMaster.internalGroupedSnapshotCoverage,
       ...(sectorMaster.internalGroupedValidSectorCount !== undefined

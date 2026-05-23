@@ -240,7 +240,7 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({
         dataQuality: 'OK',
-        indexCodeCoverageAfterAliasCandidate: 50,
+        officialIndexCoverage: 50,
         verifiedIndexCodeCoverage: 50,
         missingIndexCodeCount: 6,
         fallbackUsed: 'NONE',
@@ -252,6 +252,67 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.strongBuyAllowed).toBe(false);
     expect(report.shadowLeadershipAllowed).toBe(true);
     expect(report.executionImpact).toBe('NONE');
+  });
+
+  it('keeps official mapped coverage separate from failed API verification', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        dataQuality: 'OK',
+        officialIndexCoverage: 50,
+        verifiedIndexCodeCoverage: 0,
+        internalProxyCoverage: 100,
+        missingIndexCodeCount: 6,
+        fallbackUsed: 'NONE',
+      }),
+      officialSectorIndexMaster: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: 24,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        officialIndexCoverage: 50,
+        verifiedIndexCodeCoverage: 0,
+        mappedSectorCount: 6,
+        verifiedIndexCodeCount: 0,
+        targetSectorCount: 12,
+        safeAliasCount: 1,
+        unsafeAliasCount: 0,
+        aliasResolvedCount: 1,
+        unresolvedSectorNames: ['UNRESOLVED_A'],
+        topMissingSectorNames: ['UNRESOLVED_A'],
+        verifyApiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
+        verifyTrId: 'FHPUP02100000',
+        verifySuccessCount: 0,
+        verifyFailCount: 6,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED', 'OFFICIAL_INDEX_API_VERIFY_FAILED'],
+        mappingRows: [],
+        verificationResults: [],
+      },
+    });
+
+    expect(report.officialIndexCoverage).toBe(50);
+    expect(report.verifiedIndexCodeCoverage).toBe(0);
+    expect(report.leadershipConfidence).toBe('PARTIAL');
+    expect(report.selectedSectorEnergySourceTier).toBe('INTERNAL_GROUPED_SNAPSHOT');
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.sectorBoostAllowed).toBe(false);
+    expect(report.strongBuyAllowed).toBe(false);
+    expect(report.shadowLeadershipAllowed).toBe(true);
+    expect(report.officialIndexMasterRecovery.officialIndexCoverage).toBe(50);
+    expect(report.officialIndexMasterRecovery.verifiedIndexCodeCoverage).toBe(0);
+    expect(report.reasonCodes).toContain('OFFICIAL_INDEX_API_VERIFY_FAILED');
+    expect(report.executionImpact).toBe('NONE');
+    const compact = formatSectorEnergySupplyUnknownCompactAdr0488(buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({ dataQuality: 'OK', officialIndexCoverage: 50, verifiedIndexCodeCoverage: 0, internalProxyCoverage: 100, fallbackUsed: 'NONE' }),
+      officialSectorIndexMaster: report.officialSectorIndexMaster,
+    }));
+    expect(compact).toContain('officialIndexCoverage=50%');
+    expect(compact).toContain('verifiedIndexCodeCoverage=0%');
+    expect(compact).toContain('promotionAllowed=false');
   });
 
   it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {
