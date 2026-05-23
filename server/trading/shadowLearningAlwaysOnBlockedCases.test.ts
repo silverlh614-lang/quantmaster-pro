@@ -109,7 +109,7 @@ describe('Shadow Always-On blocked cases', () => {
       learningOnly: true,
       executionImpact: 'NONE',
       wouldHaveBought: true,
-      signalGrade: 'STRONG_BUY',
+      signalGrade: 'BUY',
       outcome: 'PENDING',
     });
     expect(signals[0]!.macroBlockReason).toBe(`${reason}:WATCHLIST`);

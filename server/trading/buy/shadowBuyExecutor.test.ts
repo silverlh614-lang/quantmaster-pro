@@ -94,10 +94,12 @@ describe('shadowBuyExecutor', () => {
     expect(result.orderIntent?.status).toBe('COMPLETED');
     expect(sm.state).toBe('SHADOW_POSITION_OPENED');
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_EXECUTION_START]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_SIGNAL_APPROVED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_SIGNAL_LIFECYCLE_REGISTERED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[ORDER_INTENT_CREATED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_ORDER_CREATED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_PAPER_FILLED]'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[SHADOW_POSITION_OPENED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[POSITION_STATE_OPENED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[PAPER_TRADE_LEDGER_RECORDED]'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('[VIRTUAL_ACCOUNT_UPDATED]'));

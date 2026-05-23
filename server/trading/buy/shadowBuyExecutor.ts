@@ -278,6 +278,10 @@ export async function executeShadowBuyOrder(
   if (!input.approvalPolicy.executionAllowed) {
     return rejectShadow(input, input.approvalPolicy.reason, statusWrites);
   }
+  console.log(
+    `[SHADOW_SIGNAL_APPROVED] symbol=${input.stockCode} tradeId=${input.trade.id} ` +
+      'mode=SHADOW liveOrderPlaced=false executionImpact=NONE',
+  );
 
   const lifecycleRegistration = registerShadowBuyLifecycle({
     trade: input.trade,
@@ -486,6 +490,10 @@ export async function executeShadowBuyOrder(
     outcome: shadowResult.outcome,
     fillId: shadowResult.fillId,
   });
+  console.log(
+    `[SHADOW_POSITION_OPENED] symbol=${input.stockCode} tradeId=${input.trade.id} ` +
+      `fillId=${shadowResult.fillId ?? 'N/A'} mode=SHADOW executionImpact=NONE`,
+  );
   updateShadowBuyLifecycleStatus({
     key: shadowBuyLifecycleKey(input.trade),
     tradeId: input.trade.id,
