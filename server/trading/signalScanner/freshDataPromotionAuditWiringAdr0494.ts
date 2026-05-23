@@ -143,7 +143,7 @@ function sectorEnergyInput(report: SectorEnergyAndSupplyUnknownPolicyReportAdr04
     staleMisclassificationCount: 0,
     providerFailureCount: finiteCount(master.providerError),
     providerMarketSignalMixedCount: providerMarketSignalMixed,
-    shadowContributionScore: options.shadowContributionScore ?? (master.adr0495Coverage?.coverageAfter && master.adr0495Coverage.coverageAfter > 0 ? master.adr0495Coverage.coverageAfter : (master.leadershipConfidence === 'OBSERVE_READY' ? master.coveragePct : null)),
+    shadowContributionScore: options.shadowContributionScore ?? (master.adr0495Coverage?.coverageAfter && master.adr0495Coverage.coverageAfter > 0 ? master.adr0495Coverage.coverageAfter : (master.leadershipConfidence === 'VERIFIED' ? master.coveragePct : null)),
     liveRegressionPassed: options.liveRegressionPassed,
     nullZeroSeparationPassed: options.nullZeroSeparationPassed,
     holidayFreshnessPassed: options.holidayFreshnessPassed,

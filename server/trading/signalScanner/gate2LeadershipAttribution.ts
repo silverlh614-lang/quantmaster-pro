@@ -117,6 +117,17 @@ export type Gate2LeadershipDominantReason =
   | 'MIXED'
   | 'UNKNOWN';
 
+export type Gate2LeadershipBlocker =
+  | 'OFFICIAL_INDEX_UNAVAILABLE'
+  | 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
+  | 'SECTOR_STALE'
+  | 'SECTOR_UNAVAILABLE'
+  | 'FUNDAMENTAL_UNAVAILABLE'
+  | 'BREAKOUT_MOMENTUM_FAIL'
+  | 'RELATIVE_STRENGTH_FAIL'
+  | 'VOLUME_CONFIRMATION_FAIL'
+  | 'NO_LEADERSHIP_AFTER_ALL_CHECKS';
+
 export interface Gate2LeadershipAttribution {
   gate1Pass: number;
   gate2Pass: number;
@@ -125,6 +136,29 @@ export interface Gate2LeadershipAttribution {
   blockedByUnavailableFundamentalCount: number;
   sectorStaleContributionPct: number;
   dominantReason: Gate2LeadershipDominantReason;
+  officialIndex: {
+    status: 'VERIFIED' | 'PARTIAL' | 'UNAVAILABLE';
+    coverage: number;
+    promotionAllowed: boolean;
+    impact: 'NONE' | 'NO_LIVE_PROMOTION_ONLY';
+  };
+  shadowSector: {
+    status: 'AVAILABLE' | 'UNAVAILABLE';
+    sourceTier: string;
+    shadowLeadershipAllowed: boolean;
+    confidence: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED' | 'UNKNOWN';
+  };
+  breakoutMomentum: {
+    status: 'CONFIRMED' | 'NOT_CONFIRMED';
+    blocker: 'NONE' | 'BREAKOUT_MOMENTUM_FAIL';
+  };
+  final: {
+    liveLeadership: boolean;
+    shadowLeadership: boolean;
+    noLeadershipReason: string;
+    executionImpact: 'NONE';
+  };
+  blockers: Gate2LeadershipBlocker[];
 }
 
 /**
@@ -139,6 +173,17 @@ export interface SectorEnergyDiagnostic {
   expectedSectorCount?: number;
   reason?: string;
   indexCodeCoverage?: number;
+  officialIndexCoverage?: number;
+  internalProxyCoverage?: number;
+  stockBasketCoverage?: number;
+  selectedSectorEnergySourceTier?: string;
+  leadershipConfidence?: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED';
+  promotionAllowed?: boolean;
+  sectorBoostAllowed?: boolean;
+  strongBuyAllowed?: boolean;
+  shadowLeadershipAllowed?: boolean;
+  counterfactualAllowed?: boolean;
+  reasonCodes?: string[];
   isStale?: boolean;
 }
 
@@ -268,6 +313,12 @@ function emptyBucket(key: string): Gate2BlockerBucket {
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function ratioFromMaybePercent(value: unknown): number {
+  if (!finiteNumber(value)) return 0;
+  if (value > 1) return Math.max(0, Math.min(1, value / 100));
+  return Math.max(0, Math.min(1, value));
 }
 
 function readNumericField(source: Record<string, unknown>, names: readonly string[]): number | undefined {
@@ -587,12 +638,23 @@ function buildGate2LeadershipAttribution(input: {
 }): Gate2LeadershipAttribution {
   const conditionKeys = new Set(['momentum', 'breakout_momentum', 'turtle_high', 'vcp', 'pullback', 'trend_acceleration']);
   const fundamentalKeys = new Set(['earnings_quality', 'per', 'sectorLeadership', 'sector_leadership', 'sectorBoost', 'sector_boost']);
+  const relativeStrengthKeys = new Set(['relative_strength', 'relativeStrength', 'rs', 'rs_percentile']);
+  const volumeKeys = new Set(['volume_surge', 'volume_breakout', 'volumeEnergy', 'volume_energy']);
   const blockedByConditionFailCount = input.sorted
     .filter((b) => conditionKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.failed, 0);
   const blockedByUnavailableFundamentalCount = input.sorted
     .filter((b) => fundamentalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
+  const breakoutMomentumFailCount = input.sorted
+    .filter((b) => b.conditionKey === 'breakout_momentum')
+    .reduce((sum, b) => sum + b.failed + b.wait, 0);
+  const relativeStrengthFailCount = input.sorted
+    .filter((b) => relativeStrengthKeys.has(b.conditionKey))
+    .reduce((sum, b) => sum + b.failed, 0);
+  const volumeConfirmationFailCount = input.sorted
+    .filter((b) => volumeKeys.has(b.conditionKey))
+    .reduce((sum, b) => sum + b.failed, 0);
   const blockedBySectorStaleCount = input.sectorEnergy?.isStale ? input.gate1Pass : input.sorted
     .filter((b) => b.conditionKey.toLowerCase().includes('sector'))
     .reduce((sum, b) => sum + b.stale, 0);
@@ -603,6 +665,43 @@ function buildGate2LeadershipAttribution(input: {
   else if (blockedByUnavailableFundamentalCount / denom >= 0.5) dominantReason = 'FUNDAMENTAL_DATA_UNAVAILABLE';
   else if (blockedByConditionFailCount / denom >= 0.5) dominantReason = 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
   else if (blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount > 0) dominantReason = 'MIXED';
+  const officialCoverage = ratioFromMaybePercent(
+    input.sectorEnergy?.officialIndexCoverage ?? input.sectorEnergy?.indexCodeCoverage,
+  );
+  const officialIndexStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
+    officialCoverage >= 0.8 ? 'VERIFIED'
+      : officialCoverage > 0 ? 'PARTIAL'
+        : 'UNAVAILABLE';
+  const promotionAllowed = input.sectorEnergy?.promotionAllowed === true;
+  const sourceTier = input.sectorEnergy?.selectedSectorEnergySourceTier ?? 'NONE';
+  const confidence = input.sectorEnergy?.leadershipConfidence ?? (
+    officialIndexStatus === 'VERIFIED' ? 'VERIFIED'
+      : officialIndexStatus === 'PARTIAL' ? 'PARTIAL'
+        : sourceTier === 'INTERNAL_GROUPED_SNAPSHOT' || sourceTier === 'KIS_STOCK_BASKET_DERIVED' ? 'SHADOW_ONLY'
+          : 'UNKNOWN'
+  );
+  const shadowLeadershipAllowed = input.sectorEnergy?.shadowLeadershipAllowed === true || confidence === 'SHADOW_ONLY' || confidence === 'PARTIAL' || confidence === 'VERIFIED';
+  const breakoutConfirmed = breakoutMomentumFailCount === 0;
+  const blockers: Gate2LeadershipBlocker[] = [];
+  if (officialCoverage <= 0) blockers.push('OFFICIAL_INDEX_UNAVAILABLE');
+  if (officialCoverage < 0.8) blockers.push('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+  if (blockedBySectorStaleCount > 0 || input.sectorEnergy?.isStale) blockers.push('SECTOR_STALE');
+  if (input.sectorEnergy && confidence === 'BLOCKED') blockers.push('SECTOR_UNAVAILABLE');
+  if (blockedByUnavailableFundamentalCount > 0) blockers.push('FUNDAMENTAL_UNAVAILABLE');
+  if (!breakoutConfirmed) blockers.push('BREAKOUT_MOMENTUM_FAIL');
+  if (relativeStrengthFailCount > 0) blockers.push('RELATIVE_STRENGTH_FAIL');
+  if (volumeConfirmationFailCount > 0) blockers.push('VOLUME_CONFIRMATION_FAIL');
+  if (blockers.length === 0) blockers.push('NO_LEADERSHIP_AFTER_ALL_CHECKS');
+  const liveLeadership = promotionAllowed && input.gate2Pass > 0;
+  const finalNoLeadershipReason = liveLeadership
+    ? 'LIVE_LEADERSHIP_CONFIRMED'
+    : !promotionAllowed && !breakoutConfirmed
+      ? 'LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED'
+      : !promotionAllowed
+        ? 'LIVE_PROMOTION_DISABLED_BY_OFFICIAL_INDEX'
+        : !breakoutConfirmed
+          ? 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
+          : 'NO_LEADERSHIP_AFTER_ALL_CHECKS';
   return {
     gate1Pass: input.gate1Pass,
     gate2Pass: input.gate2Pass,
@@ -611,6 +710,29 @@ function buildGate2LeadershipAttribution(input: {
     blockedByUnavailableFundamentalCount,
     sectorStaleContributionPct,
     dominantReason,
+    officialIndex: {
+      status: officialIndexStatus,
+      coverage: officialCoverage,
+      promotionAllowed,
+      impact: promotionAllowed ? 'NONE' : 'NO_LIVE_PROMOTION_ONLY',
+    },
+    shadowSector: {
+      status: shadowLeadershipAllowed ? 'AVAILABLE' : 'UNAVAILABLE',
+      sourceTier,
+      shadowLeadershipAllowed,
+      confidence,
+    },
+    breakoutMomentum: {
+      status: breakoutConfirmed ? 'CONFIRMED' : 'NOT_CONFIRMED',
+      blocker: breakoutConfirmed ? 'NONE' : 'BREAKOUT_MOMENTUM_FAIL',
+    },
+    final: {
+      liveLeadership,
+      shadowLeadership: shadowLeadershipAllowed,
+      noLeadershipReason: finalNoLeadershipReason,
+      executionImpact: 'NONE',
+    },
+    blockers,
   };
 }
 
@@ -706,6 +828,17 @@ export function buildSectorEnergyDiagnostic(input: {
   expectedSectorCount?: number;
   reasons?: string[];
   indexCodeCoverage?: number;
+  officialIndexCoverage?: number;
+  internalProxyCoverage?: number;
+  stockBasketCoverage?: number;
+  selectedSectorEnergySourceTier?: string;
+  leadershipConfidence?: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED';
+  promotionAllowed?: boolean;
+  sectorBoostAllowed?: boolean;
+  strongBuyAllowed?: boolean;
+  shadowLeadershipAllowed?: boolean;
+  counterfactualAllowed?: boolean;
+  reasonCodes?: string[];
 }): SectorEnergyDiagnostic {
   const isStale =
     input.dataQuality === 'STALE' ||
@@ -721,6 +854,23 @@ export function buildSectorEnergyDiagnostic(input: {
     ...(typeof input.indexCodeCoverage === 'number'
       ? { indexCodeCoverage: input.indexCodeCoverage }
       : {}),
+    ...(typeof input.officialIndexCoverage === 'number'
+      ? { officialIndexCoverage: input.officialIndexCoverage }
+      : {}),
+    ...(typeof input.internalProxyCoverage === 'number'
+      ? { internalProxyCoverage: input.internalProxyCoverage }
+      : {}),
+    ...(typeof input.stockBasketCoverage === 'number'
+      ? { stockBasketCoverage: input.stockBasketCoverage }
+      : {}),
+    ...(input.selectedSectorEnergySourceTier ? { selectedSectorEnergySourceTier: input.selectedSectorEnergySourceTier } : {}),
+    ...(input.leadershipConfidence ? { leadershipConfidence: input.leadershipConfidence } : {}),
+    ...(typeof input.promotionAllowed === 'boolean' ? { promotionAllowed: input.promotionAllowed } : {}),
+    ...(typeof input.sectorBoostAllowed === 'boolean' ? { sectorBoostAllowed: input.sectorBoostAllowed } : {}),
+    ...(typeof input.strongBuyAllowed === 'boolean' ? { strongBuyAllowed: input.strongBuyAllowed } : {}),
+    ...(typeof input.shadowLeadershipAllowed === 'boolean' ? { shadowLeadershipAllowed: input.shadowLeadershipAllowed } : {}),
+    ...(typeof input.counterfactualAllowed === 'boolean' ? { counterfactualAllowed: input.counterfactualAllowed } : {}),
+    ...(input.reasonCodes && input.reasonCodes.length > 0 ? { reasonCodes: input.reasonCodes } : {}),
     isStale,
   };
 }
@@ -801,6 +951,21 @@ export function formatGate2AttributionSection(
     `dominant=${leadership.dominantReason}`,
   );
 
+  lines.push(
+    `  officialIndex: status=${leadership.officialIndex.status} coverage=${(leadership.officialIndex.coverage * 100).toFixed(1)}% ` +
+    `promotionAllowed=${leadership.officialIndex.promotionAllowed} impact=${leadership.officialIndex.impact}`,
+  );
+  lines.push(
+    `  shadowSector: status=${leadership.shadowSector.status} sourceTier=${leadership.shadowSector.sourceTier} ` +
+    `shadowLeadershipAllowed=${leadership.shadowSector.shadowLeadershipAllowed} confidence=${leadership.shadowSector.confidence}`,
+  );
+  lines.push(`  breakoutMomentum: status=${leadership.breakoutMomentum.status} blocker=${leadership.breakoutMomentum.blocker}`);
+  lines.push(
+    `  final: liveLeadership=${leadership.final.liveLeadership} shadowLeadership=${leadership.final.shadowLeadership} ` +
+    `noLeadershipReason=${leadership.final.noLeadershipReason} executionImpact=${leadership.final.executionImpact}`,
+  );
+  lines.push(`  blockers: ${leadership.blockers.join(',')}`);
+
   if (attribution.nearMissConditions.length > 0) {
     lines.push(`  • nearMissConditions: ${attribution.nearMissConditions.slice(0, 8).join(', ')}`);
   }
@@ -864,6 +1029,22 @@ export function formatGate2AttributionSection(
       lines.push(`  • validSectorCount: ${se.validSectorCount}${expected}`);
     }
     if (se.reason) lines.push(`  • reason: ${se.reason}`);
+    if (typeof se.officialIndexCoverage === 'number') {
+      lines.push(`  officialIndexCoverage: ${(ratioFromMaybePercent(se.officialIndexCoverage) * 100).toFixed(1)}%`);
+    }
+    if (typeof se.internalProxyCoverage === 'number') {
+      lines.push(`  internalProxyCoverage: ${(ratioFromMaybePercent(se.internalProxyCoverage) * 100).toFixed(1)}%`);
+    }
+    if (typeof se.stockBasketCoverage === 'number') {
+      lines.push(`  stockBasketCoverage: ${(ratioFromMaybePercent(se.stockBasketCoverage) * 100).toFixed(1)}%`);
+    }
+    if (se.selectedSectorEnergySourceTier) lines.push(`  selectedSectorEnergySourceTier: ${se.selectedSectorEnergySourceTier}`);
+    if (se.leadershipConfidence) lines.push(`  leadershipConfidence: ${se.leadershipConfidence}`);
+    if (typeof se.promotionAllowed === 'boolean') lines.push(`  promotionAllowed: ${se.promotionAllowed}`);
+    if (typeof se.sectorBoostAllowed === 'boolean') lines.push(`  sectorBoostAllowed: ${se.sectorBoostAllowed}`);
+    if (typeof se.strongBuyAllowed === 'boolean') lines.push(`  strongBuyAllowed: ${se.strongBuyAllowed}`);
+    if (typeof se.shadowLeadershipAllowed === 'boolean') lines.push(`  shadowLeadershipAllowed: ${se.shadowLeadershipAllowed}`);
+    if (typeof se.counterfactualAllowed === 'boolean') lines.push(`  counterfactualAllowed: ${se.counterfactualAllowed}`);
     if (typeof se.indexCodeCoverage === 'number') {
       lines.push(`  • indexCodeCoverage: ${(se.indexCodeCoverage * 100).toFixed(1)}%`);
     }

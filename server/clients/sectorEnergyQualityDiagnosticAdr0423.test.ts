@@ -27,6 +27,7 @@ import {
   isSectorEnergyQualityDiagnosticDisabled,
   shouldBlockLeadershipConfidence,
 } from './sectorEnergyQualityDiagnostic.js';
+import { buildSectorEnergyDiagnostic } from '../trading/signalScanner/gate2LeadershipAttribution.js';
 
 describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
   it('1. indexCodeCoverage 0 이면 STALE — INDEX_CODE_COVERAGE_ZERO + leadershipConfidence BLOCKED', () => {
@@ -189,9 +190,6 @@ describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
     });
     expect(diag.dataQuality).toBe('STALE');
     // ADR-0422 의 isStale 산출 정합 검증 (실제 빌더 호출).
-    const { buildSectorEnergyDiagnostic } = await import(
-      '../trading/signalScanner/gate2LeadershipAttribution.js'
-    );
     const gate2Diag = buildSectorEnergyDiagnostic({
       dataQuality: diag.dataQuality,
       validSectorCount: diag.validSectorCount,

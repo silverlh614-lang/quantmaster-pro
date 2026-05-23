@@ -66,15 +66,21 @@ export function evaluateCoverageDiagnostics(input: {
     sectorBoostAllowed = true;
     strongBuyAllowed = true;
     shadowLeadershipAllowed = true;
+    reasonCodes.push('OFFICIAL_INDEX_MASTER_LOADED');
     reasonCodes.push('OFFICIAL_INDEX_VERIFIED_COVERAGE');
   } else if (officialIndexCoverage > 0) {
     leadershipConfidence = 'PARTIAL';
     shadowLeadershipAllowed = true;
+    reasonCodes.push('OFFICIAL_INDEX_MASTER_LOADED');
+    reasonCodes.push('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
     reasonCodes.push('PROMOTION_DISABLED_COVERAGE_BELOW_80');
   } else if (internalProxyCoverage > 0 || stockBasketCoverage > 0) {
     leadershipConfidence = 'SHADOW_ONLY';
     shadowLeadershipAllowed = true;
     reasonCodes.push('OFFICIAL_INDEX_COVERAGE_ZERO');
+    if (internalProxyCoverage > 0) reasonCodes.push('INTERNAL_PROXY_AVAILABLE');
+    if (stockBasketCoverage > 0) reasonCodes.push('KIS_BASKET_DERIVED_SHADOW_ONLY');
+    reasonCodes.push('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     reasonCodes.push('SHADOW_LEADERSHIP_RECORDED');
   } else {
     leadershipConfidence = 'BLOCKED';

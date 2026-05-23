@@ -82,9 +82,9 @@ function formatRuntimeWiringSummary(
     const paperForensic = summary.paperEntryForensic;
     const synthesizeDecisionRecords = (candidates: PaperEntryCandidateForensic[]): PaperEntryDecisionRecord[] => {
       const baseScanId = summary.snapshotId ?? summary.time ?? 'SCAN_UNKNOWN';
-      const sourceSnapshotId = summary.candidatePool?.sourceSnapshotId ?? summary.sourceSnapshotDataHealth?.sourceSnapshotId ?? 'SOURCE_SNAPSHOT_UNKNOWN';
+      const sourceSnapshotId = summary.candidatePool?.sourceSnapshotId ?? (summary.sourceSnapshotDataHealth as { sourceSnapshotId?: string } | undefined)?.sourceSnapshotId ?? 'SOURCE_SNAPSHOT_UNKNOWN';
       const candidateSetId = summary.candidatePool?.asOf ?? summary.time ?? 'CANDIDATE_SET_UNKNOWN';
-      const gateScoreInputSnapshotId = summary.entryFilterDecomposition?.sourceSnapshotId ?? sourceSnapshotId;
+      const gateScoreInputSnapshotId = (summary.entryFilterDecomposition as { sourceSnapshotId?: string } | undefined)?.sourceSnapshotId ?? sourceSnapshotId;
       return candidates
         .filter((candidate) => typeof candidate.symbol === 'string' && candidate.symbol.trim().length > 0)
         .map((candidate) => ({
@@ -129,7 +129,7 @@ function formatRuntimeWiringSummary(
       }
       const fallbackSourceSnapshotId = summary.candidatePool?.sourceSnapshotId ?? 'SOURCE_SNAPSHOT_UNKNOWN';
       const fallbackCandidateSetId = summary.candidatePool?.asOf ?? summary.time ?? 'CANDIDATE_SET_UNKNOWN';
-      const fallbackGateScoreSnapshotId = summary.entryFilterDecomposition?.sourceSnapshotId ?? fallbackSourceSnapshotId;
+      const fallbackGateScoreSnapshotId = (summary.entryFilterDecomposition as { sourceSnapshotId?: string } | undefined)?.sourceSnapshotId ?? fallbackSourceSnapshotId;
       decisionRecords = fallbackSymbols.map((symbol): PaperEntryDecisionRecord => ({
         symbol,
         sourceSnapshotId: fallbackSourceSnapshotId,

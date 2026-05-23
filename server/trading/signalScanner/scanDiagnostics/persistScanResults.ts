@@ -447,6 +447,17 @@ export async function persistScanResults(
           expectedSectorCount: options.sectorEnergyQualityDiagnostic.expectedSectorCount,
           reasons: options.sectorEnergyQualityDiagnostic.reasons,
           indexCodeCoverage: options.sectorEnergyQualityDiagnostic.indexCodeCoverage,
+          officialIndexCoverage: options.sectorEnergyQualityDiagnostic.officialIndexCoverage,
+          internalProxyCoverage: options.sectorEnergyQualityDiagnostic.internalProxyCoverage,
+          stockBasketCoverage: options.sectorEnergyQualityDiagnostic.stockBasketCoverage,
+          selectedSectorEnergySourceTier: options.sectorEnergyQualityDiagnostic.selectedSectorEnergySourceTier,
+          leadershipConfidence: options.sectorEnergyQualityDiagnostic.leadershipConfidence,
+          promotionAllowed: options.sectorEnergyQualityDiagnostic.promotionAllowed,
+          sectorBoostAllowed: options.sectorEnergyQualityDiagnostic.promotionAllowed === true,
+          strongBuyAllowed: options.sectorEnergyQualityDiagnostic.promotionAllowed === true,
+          shadowLeadershipAllowed: options.sectorEnergyQualityDiagnostic.shadowLeadershipAllowed,
+          counterfactualAllowed: options.sectorEnergyQualityDiagnostic.counterfactualAllowed,
+          reasonCodes: options.sectorEnergyQualityDiagnostic.reasonCodes,
         })
       : options.sectorEnergyQuality !== undefined
         ? buildSectorEnergyDiagnostic({

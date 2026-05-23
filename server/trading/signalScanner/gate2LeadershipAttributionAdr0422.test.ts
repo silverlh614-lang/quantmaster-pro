@@ -244,6 +244,53 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     });
     expect(formatGate2AttributionSection(noSurvivorAttribution)).toBeNull();
   });
+
+  it('splits official index absence from breakout momentum failure and preserves shadow leadership', () => {
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('breakout_momentum'), failed: 3, total: 3 },
+      { ...emptyBucket('earnings_quality'), unavailable: 2, total: 2 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 43,
+      gate1Pass: 6,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+      sectorEnergy: buildSectorEnergyDiagnostic({
+        dataQuality: 'PARTIAL',
+        validSectorCount: 12,
+        expectedSectorCount: 12,
+        indexCodeCoverage: 0,
+        officialIndexCoverage: 0,
+        internalProxyCoverage: 1,
+        stockBasketCoverage: 1,
+        selectedSectorEnergySourceTier: 'KIS_STOCK_BASKET_DERIVED',
+        leadershipConfidence: 'SHADOW_ONLY',
+        promotionAllowed: false,
+        sectorBoostAllowed: false,
+        strongBuyAllowed: false,
+        shadowLeadershipAllowed: true,
+        counterfactualAllowed: true,
+      }),
+    });
+
+    expect(attribution.leadershipAttribution.blockers).toContain('OFFICIAL_INDEX_UNAVAILABLE');
+    expect(attribution.leadershipAttribution.blockers).toContain('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+    expect(attribution.leadershipAttribution.blockers).toContain('BREAKOUT_MOMENTUM_FAIL');
+    expect(attribution.leadershipAttribution.officialIndex.status).toBe('UNAVAILABLE');
+    expect(attribution.leadershipAttribution.shadowSector.status).toBe('AVAILABLE');
+    expect(attribution.leadershipAttribution.final.shadowLeadership).toBe(true);
+    expect(attribution.leadershipAttribution.final.liveLeadership).toBe(false);
+    expect(attribution.leadershipAttribution.final.noLeadershipReason).toBe('LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED');
+
+    const section = formatGate2AttributionSection(attribution);
+    expect(section).toContain('officialIndex: status=UNAVAILABLE');
+    expect(section).toContain('shadowSector: status=AVAILABLE');
+    expect(section).toContain('breakoutMomentum: status=NOT_CONFIRMED');
+    expect(section).toContain('executionImpact=NONE');
+  });
 });
 
 describe('ADR-0422 §E 결정 트리 분기 SSOT', () => {

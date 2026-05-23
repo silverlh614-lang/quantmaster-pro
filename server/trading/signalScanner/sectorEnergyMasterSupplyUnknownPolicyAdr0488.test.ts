@@ -144,8 +144,10 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({ unsafeAliasCandidateCount: 2, indexCodeCoverageAfterAliasCandidate: 90, fallbackUsed: 'NONE' }),
     });
-    expect(report.leadershipConfidence).toBe('BLOCKED');
+    expect(report.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(report.shadowLeadershipAllowed).toBe(true);
     expect(report.sectorBoostAllowed).toBe(false);
+    expect(report.reasonCodes).toContain('UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION');
   });
 
   it('keeps STOCK_DAILY fallback from unlocking SectorEnergy boost or STRONG_BUY', () => {
@@ -155,11 +157,12 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.fallbackUsed).toBe('STOCK_DAILY');
     expect(report.sectorBoostAllowed).toBe(false);
     expect(report.strongBuyAllowed).toBe(false);
-    expect(report.leadershipConfidence).toBe('BLOCKED');
+    expect(report.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(report.shadowLeadershipAllowed).toBe(true);
     expect(report.leadershipBlockReason).toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
   });
 
-  it('keeps leadership blocked when internal proxy coverage is high but verified KRX index coverage is zero', () => {
+  it('keeps leadership shadow-only when internal proxy coverage is high but verified official index coverage is zero', () => {
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({
         indexCodeCoverageAfterAliasCandidate: 100,
@@ -187,14 +190,81 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.internalProxyCoverage).toBe(100);
     expect(report.stockDailyFallbackCoverage).toBe(100);
     expect(report.officialIndexMasterRecovery.status).toBe('OFFICIAL_MISSING_REPAIR_REQUIRED');
-    expect(report.officialIndexMasterRecovery.sourceOfTruth).toBe('KRX_OFFICIAL_INDEX_MASTER');
+    expect(report.officialIndexMasterRecovery.sourceOfTruth).toBe('INTERNAL_PROXY_OR_BASKET');
     expect(report.officialIndexMasterRecovery.promotionAllowed).toBe(false);
-    expect(report.leadershipConfidence).toBe('BLOCKED');
+    expect(report.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(report.selectedSectorEnergySourceTier).toBe('INTERNAL_GROUPED_SNAPSHOT');
+    expect(report.shadowLeadershipAllowed).toBe(true);
+    expect(report.counterfactualAllowed).toBe(true);
     expect(report.leadershipBlockReason).toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
     expect(report.sectorBoostAllowed).toBe(false);
     expect(compact).toContain('verifiedIndexCodeCoverage=0%');
     expect(compact).toContain('internalProxyCoverage=100%');
     expect(compact).toContain('OfficialIndexMasterRecovery: OFFICIAL_MISSING_REPAIR_REQUIRED');
+  });
+
+  it('classifies 50% official coverage as PARTIAL and preserves shadow leadership only', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        dataQuality: 'OK',
+        indexCodeCoverageAfterAliasCandidate: 50,
+        verifiedIndexCodeCoverage: 50,
+        missingIndexCodeCount: 6,
+        fallbackUsed: 'NONE',
+      }),
+    });
+    expect(report.leadershipConfidence).toBe('PARTIAL');
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.sectorBoostAllowed).toBe(false);
+    expect(report.strongBuyAllowed).toBe(false);
+    expect(report.shadowLeadershipAllowed).toBe(true);
+    expect(report.executionImpact).toBe('NONE');
+  });
+
+  it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        dataQuality: 'OK',
+        indexCodeCoverageAfterAliasCandidate: 100,
+        verifiedIndexCodeCoverage: 100,
+        missingIndexCodeCount: 0,
+        aliasMissingCount: 0,
+        fallbackUsed: 'NONE',
+      }),
+      sectorMasterRecords: [
+        { sectorName: '전기전자', indexCode: '0005', market: 'KOSPI', source: 'KIS', normalized: true },
+        { sectorName: '화학', indexCode: '0006', market: 'KOSPI', source: 'KIS', normalized: true },
+        { sectorName: '운송장비', indexCode: '0012', market: 'KOSPI', source: 'KIS', normalized: true },
+        { sectorName: '금융업', indexCode: '0018', market: 'KOSPI', source: 'KIS', normalized: true },
+      ],
+    });
+    expect(report.leadershipConfidence).toBe('VERIFIED');
+    expect(report.promotionAllowed).toBe(true);
+    expect(report.sectorBoostAllowed).toBe(true);
+    expect(report.strongBuyAllowed).toBe(true);
+    expect(report.liveExecutionAllowed).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
+    expect(report.selectedSectorEnergySourceTier).toBe('OFFICIAL_KIS_SECTOR_INDEX');
+    expect(report.officialIndexMasterRecovery.sourceOfTruth).toBe('KIS_OFFICIAL_INDEX_MASTER');
+  });
+
+  it('keeps stale official sector index out of promotion but preserves shadow leadership when proxy exists', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        dataQuality: 'STALE',
+        indexCodeCoverageAfterAliasCandidate: 100,
+        verifiedIndexCodeCoverage: 100,
+        internalProxyCoverage: 100,
+        missingIndexCodeCount: 0,
+        aliasMissingCount: 0,
+        fallbackUsed: 'NONE',
+      }),
+    });
+    expect(report.leadershipConfidence).toBe('PARTIAL');
+    expect(report.leadershipBlockReason).toBe('SECTOR_INDEX_STALE');
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.shadowLeadershipAllowed).toBe(true);
+    expect(report.executionImpact).toBe('NONE');
   });
 
   it('computes indexCode coverage percentage', () => {

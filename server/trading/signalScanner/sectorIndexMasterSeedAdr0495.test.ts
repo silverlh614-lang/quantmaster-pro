@@ -49,7 +49,9 @@ describe('ADR-0495 Sector Index Master Seed & Mapping Repair', () => {
 
   it('fallback_does_not_unlock_leadership', () => {
     const report = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({ generatedAt: '2026-05-09T00:00:00.000Z' });
-    expect(['BLOCKED', 'OBSERVE_ONLY']).toContain(report.sectorEnergyMaster.leadershipConfidence);
+    expect(report.sectorEnergyMaster.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(report.sectorEnergyMaster.shadowLeadershipAllowed).toBe(true);
+    expect(report.sectorEnergyMaster.promotionAllowed).toBe(false);
     expect(report.sectorEnergyMaster.fallbackUsed).toBe('STOCK_DAILY_PROXY');
   });
 

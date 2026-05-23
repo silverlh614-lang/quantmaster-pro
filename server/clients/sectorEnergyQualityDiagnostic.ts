@@ -806,10 +806,24 @@ export function formatSectorEnergyQualityDiagnosticSection(
     }
   }
 
-  const leadershipConfidence = diagnostic.sourceTier === 'KIS_STOCK_BASKET_DERIVED'
-    ? 'SHADOW_ONLY'
-    : diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'OK';
+  const leadershipConfidence = diagnostic.leadershipConfidence ?? (
+    diagnostic.sourceTier === 'KIS_STOCK_BASKET_DERIVED'
+      ? 'SHADOW_ONLY'
+      : diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'VERIFIED'
+  );
+  lines.push(`  • selectedSourceTier: ${diagnostic.selectedSectorEnergySourceTier ?? diagnostic.sourceTier ?? 'NONE'}`);
+  lines.push(`  • officialIndexCoverage: ${((diagnostic.officialIndexCoverage ?? diagnostic.indexCodeCoverage) * 100).toFixed(1)}%`);
+  lines.push(`  • internalProxyCoverage: ${((diagnostic.internalProxyCoverage ?? 0) * 100).toFixed(1)}%`);
+  lines.push(`  • stockBasketCoverage: ${((diagnostic.stockBasketCoverage ?? 0) * 100).toFixed(1)}%`);
   lines.push(`  • leadershipConfidence: ${leadershipConfidence}`);
+  lines.push(`  • promotionAllowed: ${diagnostic.promotionAllowed === true}`);
+  lines.push(`  • sectorBoostAllowed: ${diagnostic.promotionAllowed === true}`);
+  lines.push(`  • strongBuyAllowed: ${diagnostic.promotionAllowed === true}`);
+  lines.push(`  • shadowLeadershipAllowed: ${diagnostic.shadowLeadershipAllowed === true}`);
+  lines.push(`  • counterfactualAllowed: ${diagnostic.counterfactualAllowed !== false}`);
+  if (diagnostic.reasonCodes && diagnostic.reasonCodes.length > 0) {
+    lines.push(`  • reasonCodes: ${diagnostic.reasonCodes.join(',')}`);
+  }
 
   // ADR-0424: backfill stats + repair status (옵셔널, 후방호환).
   if (diagnostic.indexCodeBackfilledCount !== undefined && diagnostic.indexCodeBackfilledCount > 0) {
