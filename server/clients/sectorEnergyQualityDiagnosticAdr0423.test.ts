@@ -114,6 +114,25 @@ describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
     expect(diag.shouldBlockLeadershipConfidence).toBe(false);
     expect(section).toMatch(/leadershipConfidence: (READY_FOR_SHADOW|SHADOW_ONLY)/);
     expect(section).not.toContain('leadershipConfidence: OK');
+    expect(diag.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(diag.promotionAllowed).toBe(false);
+    expect(diag.shadowLeadershipAllowed).toBe(true);
+    expect(diag.counterfactualAllowed).toBe(true);
+    expect(diag.reasonCodes).toContain('OFFICIAL_INDEX_COVERAGE_ZERO');
+  });
+
+  it('official coverage 80% 이상이면 VERIFIED + promotionAllowed=true', () => {
+    const diag = evaluateSectorEnergyQualityDiagnostic({
+      validSectorCount: 12,
+      totalSectorRows: 12,
+      rowsWithIndexCode: 12,
+      symmetryValidationPassed: true,
+      officialIndexCoverage: 0.8,
+      internalProxyCoverage: 1,
+      stockBasketCoverage: 1,
+    });
+    expect(diag.leadershipConfidence).toBe('VERIFIED');
+    expect(diag.promotionAllowed).toBe(true);
   });
 
   it('6. totalSectorRows 0 이면 FAILED — SOURCE_EMPTY', () => {
