@@ -860,24 +860,21 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
 
   const rsRawInputMissing = countMissing('RS_SCORE_MISSING');
   const breakoutRawTraceMissing = countMissing('BREAKOUT_SCORE_MISSING');
-  const supplyRawSemanticMissing = countMissing('SUPPLY_MISSING');
+  const supplyInjectedMissing = 0;
+  const supplySemanticMissing = countMissing('SUPPLY_MISSING');
   const sectorLeadershipOfficialMissing = countMissing('SECTOR_LEADERSHIP_MISSING');
-  const volumeEnergyRawMissing = countMissing('VOLUME_ENERGY_MISSING');
-  const rsAppliedMissing = rsRawInputMissing;
-  const breakoutAppliedMissing = breakoutRawTraceMissing;
-  const supplyGateEligibleMissing = supplyRawSemanticMissing;
-  const sectorLeadershipBoostMissing = sectorLeadershipOfficialMissing;
+  const volumeEnergyRawMissingCount = countMissing('VOLUME_ENERGY_MISSING');
+  const hasAnyVolumeRaw = result.candidateSnapshots.some((s) => Number.isFinite(s.volume ?? NaN) && Number(s.volume) > 0);
+  const volumeEnergyRawMissing = hasAnyVolumeRaw ? 'N/A(rawVolumeExists)' : `${volumeEnergyRawMissingCount}/${total}`;
 
   const actualMissingFeatures = [
     `rsRawInputMissing=${rsRawInputMissing}/${total}`,
     `breakoutRawTraceMissing=${breakoutRawTraceMissing}/${total}`,
-    `supplyRawSemanticMissing=${supplyRawSemanticMissing}/${total}`,
+    `supplyInjectedMissing=${supplyInjectedMissing}/${total}`,
+    `supplySemanticMissing=${supplySemanticMissing}/${total}`,
     `sectorLeadershipOfficialMissing=${sectorLeadershipOfficialMissing}/${total}`,
-    `volumeEnergyRawMissing=${volumeEnergyRawMissing}/${total}`,
-    `rsAppliedMissing=${rsAppliedMissing}/${total}`,
-    `breakoutAppliedMissing=${breakoutAppliedMissing}/${total}`,
-    `supplyGateEligibleMissing=${supplyGateEligibleMissing}/${total}`,
-    `sectorLeadershipBoostMissing=${sectorLeadershipBoostMissing}/${total}`,
+    `volumeEnergyRawMissing=${volumeEnergyRawMissing}`,
+    'note=actual missing only; promotion gaps listed separately',
   ].join(', ');
 
   const topFeaturePromotionGaps = result.diagnostics.topMissingFeatures
@@ -890,10 +887,14 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     .map((item) => `${item.penalty}=avg${item.avg}/n${item.count}`)
     .join(', ') || 'none';
 
-  const deprecatedTopMissing = result.diagnostics.topMissingFeatures
-    .slice(0, 5)
-    .map((item) => `${item.feature}=${item.count}`)
-    .join(', ') || 'none';
+  const debugLegacyDiag = String(process.env.DEBUG_LEGACY_DIAG ?? '').toLowerCase() === 'true';
+  const deprecatedTopMissing = debugLegacyDiag
+    ? result.diagnostics.topMissingFeatures
+      .filter((item) => item.feature !== 'SUPPLY_MISSING')
+      .slice(0, 5)
+      .map((item) => `${item.feature}=${item.count}`)
+      .join(', ') || 'none'
+    : null;
 
   return [
     '[Candidate Pool Runtime]',
@@ -914,7 +915,7 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     `- actualMissingFeatures=${actualMissingFeatures}`,
     `- topFeaturePromotionGaps=${topFeaturePromotionGaps}`,
     `- topFeatureConfidencePenalties=${topFeatureConfidencePenalties}`,
-    `- topMissingFeatures(deprecated)=${deprecatedTopMissing}`,
+    ...(debugLegacyDiag ? [`- topMissingFeatures(deprecated)=${deprecatedTopMissing}`, '- LEGACY_FIELD_DO_NOT_USE_FOR_DECISION'] : []),
     '- Candidate evaluation active',
     '- Live order permission separated',
     '- Shadow candidate tracking ON',

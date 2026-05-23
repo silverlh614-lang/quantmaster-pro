@@ -142,6 +142,18 @@ function buildScanBlockersPageHeader(title: string, page: number, totalPages: nu
   return `${title}\nPage ${page}/${totalPages}\n━━━━━━━━━━━━━━━━`;
 }
 
+const MIN_PAGE_CONTENT_CHARS = 24;
+
+function isHeaderOnlyChunk(chunk: string): boolean {
+  const lines = chunk
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return true;
+  const bodyLines = lines.filter((line) => line !== '━━━━━━━━━━━━━━━━' && !/^Page\s+\d+\/\d+$/i.test(line));
+  return bodyLines.length <= 1;
+}
+
 function splitOversizedSectionByLine(section: string, maxBodyChars: number): string[] {
   if (section.length <= maxBodyChars) return [section];
   const chunks: string[] = [];
@@ -205,8 +217,23 @@ export function paginateScanBlockersMessage(
     }
   }
 
-  const totalPages = pages.length;
-  return pages.map((pageBody, index) => {
+  const normalizedPages: string[] = [];
+  for (const page of pages) {
+    const trimmed = page.trim();
+    if (trimmed.length === 0) continue;
+    if (normalizedPages.length > 0 && (trimmed.length < MIN_PAGE_CONTENT_CHARS || isHeaderOnlyChunk(trimmed))) {
+      normalizedPages[normalizedPages.length - 1] = `${normalizedPages[normalizedPages.length - 1]}\n\n${trimmed}`;
+      continue;
+    }
+    normalizedPages.push(trimmed);
+  }
+  if (normalizedPages.length >= 2 && (normalizedPages[0].trim().length < MIN_PAGE_CONTENT_CHARS || isHeaderOnlyChunk(normalizedPages[0]))) {
+    normalizedPages[1] = `${normalizedPages[0]}\n\n${normalizedPages[1]}`;
+    normalizedPages.shift();
+  }
+  const finalPages = normalizedPages.length > 0 ? normalizedPages : ['진단 섹션 없음'];
+  const totalPages = finalPages.length;
+  return finalPages.map((pageBody, index) => {
     const page = index + 1;
     return {
       page,
