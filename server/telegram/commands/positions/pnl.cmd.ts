@@ -26,9 +26,11 @@ function createPnlCommand(
     description,
     async execute({ reply, correlationId }) {
       console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
+      console.info(`[PORTFOLIO_QUERY_SHADOW_FIRST] correlationId=${correlationId ?? 'N/A'} command=${name} priority=ShadowPositionRegistry>ShadowPositionLedger>ShadowTradeRepo>VirtualAccount>PaperTradeLedger>KISLiveHolding modePreference=SHADOW_FIRST includePending=true executionImpact=NONE`);
       try {
       const snapshot = await aggregatePnlSources();
       console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} realizedPnlSource=ShadowTradeRepo unrealizedPnlSource=VirtualAccount virtualEquity=${snapshot.pnl.virtualTotalAssets} virtualCash=${snapshot.pnl.virtualCash} holding=${snapshot.openTrades.length} shadowPnL=${snapshot.counts.shadowRealizedCount + snapshot.counts.shadowOpenCount} livePnL=${snapshot.counts.livePnlSkipped ? 'SKIPPED' : 0}`);
+      console.info(`[PORTFOLIO_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} realizedPnlSource=ShadowTradeRepo unrealizedPnlSource=VirtualAccount virtualEquity=${snapshot.pnl.virtualTotalAssets} virtualCash=${snapshot.pnl.virtualCash} holding=${snapshot.openTrades.length} shadowPnL=${snapshot.counts.shadowRealizedCount + snapshot.counts.shadowOpenCount} livePnL=${snapshot.counts.livePnlSkipped ? 'SKIPPED' : 0} executionImpact=NONE`);
       const resolution = resolvePositionSource({
         engineMode: snapshot.mode.modeLabel,
         liveCount: 0,

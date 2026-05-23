@@ -61,9 +61,11 @@ function createPositionCommand(
     description,
     async execute({ reply, correlationId }) {
       console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
+      console.info(`[PORTFOLIO_QUERY_SHADOW_FIRST] correlationId=${correlationId ?? 'N/A'} command=${name} priority=ShadowPositionRegistry>ShadowPositionLedger>ShadowTradeRepo>VirtualAccount>PaperTradeLedger>KISLiveHolding modePreference=SHADOW_FIRST includePending=true executionImpact=NONE`);
       try {
       const snapshot = await aggregatePositionSources();
       console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount}`);
+      console.info(`[PORTFOLIO_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount} executionImpact=NONE`);
       const { mode, positions, account } = snapshot;
       const resolution = resolvePositionSource({
         engineMode: mode.modeLabel,

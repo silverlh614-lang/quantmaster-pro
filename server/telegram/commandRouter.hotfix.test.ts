@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandReplyFn, TelegramCommand } from './commands/_types.js';
 
+const COLD_IMPORT_TIMEOUT_MS = 15_000;
+
 function makeCommand(name: string, calls: string[]): TelegramCommand {
   return {
     name,
@@ -15,7 +17,7 @@ function makeCommand(name: string, calls: string[]): TelegramCommand {
   };
 }
 
-async function loadRouters() {
+async function loadRouters(options: { includeCallbackRouter?: boolean } = {}) {
   vi.resetModules();
   const calls: string[] = [];
   const handlers = new Map<string, TelegramCommand>([
@@ -43,7 +45,9 @@ async function loadRouters() {
   }));
 
   const commandRouter = await import('./commandRouter.js');
-  const callbackRouter = await import('./callbackRouter.js');
+  const callbackRouter = options.includeCallbackRouter
+    ? await import('./callbackRouter.js')
+    : undefined;
   return { commandRouter, callbackRouter, calls };
 }
 
@@ -55,7 +59,7 @@ describe('Telegram command hotfix normalization', () => {
   it('normalizeCommand("/PNL") == "/pnl"', async () => {
     const { commandRouter } = await loadRouters();
     expect(commandRouter.normalizeCommand('/PNL')).toBe('/pnl');
-  });
+  }, COLD_IMPORT_TIMEOUT_MS);
 
   it('normalizeCommand("/pos@Quantmaster_Bot") == "/pos"', async () => {
     const { commandRouter } = await loadRouters();
@@ -77,6 +81,18 @@ describe('Telegram command hotfix commandRouter dispatch', () => {
     const { commandRouter, calls } = await loadRouters();
     await commandRouter.dispatchTelegramCommand({ rawText: '/pos', chatId: '1', userId: '2', reply: vi.fn() });
     expect(calls).toEqual(['/pos']);
+  });
+
+  it('emits P0 command routing aliases for Railway log verification', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const { commandRouter, calls } = await loadRouters();
+
+    await commandRouter.dispatchTelegramCommand({ rawText: '/pos', chatId: '1', userId: '2', reply: vi.fn() });
+
+    expect(calls).toEqual(['/pos']);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('[TELEGRAM_UPDATE_RECEIVED]'));
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('[COMMAND_NORMALIZED]'));
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('[COMMAND_ROUTED]'));
   });
 
   it('commandRouter.dispatch("/positions") calls PositionSummaryService equivalent /pos handler', async () => {
@@ -103,13 +119,15 @@ describe('Telegram command hotfix commandRouter dispatch', () => {
 
 describe('Telegram command hotfix callbackRouter dispatch', () => {
   it('callbackRouter.dispatch("BTN_POSITION") calls PositionSummaryService equivalent /pos handler', async () => {
-    const { callbackRouter, calls } = await loadRouters();
+    const { callbackRouter, calls } = await loadRouters({ includeCallbackRouter: true });
+    if (!callbackRouter) throw new Error('callbackRouter was not loaded');
     await callbackRouter.dispatchTelegramCallback({ data: 'BTN_POSITION', reply: vi.fn() });
     expect(calls).toEqual(['/pos']);
   });
 
   it('callbackRouter.dispatch("BTN_PNL") calls PnlSummaryService equivalent /pnl handler', async () => {
-    const { callbackRouter, calls } = await loadRouters();
+    const { callbackRouter, calls } = await loadRouters({ includeCallbackRouter: true });
+    if (!callbackRouter) throw new Error('callbackRouter was not loaded');
     await callbackRouter.dispatchTelegramCallback({ data: 'BTN_PNL', reply: vi.fn() });
     expect(calls).toEqual(['/pnl']);
   });

@@ -154,6 +154,7 @@ export async function dispatchTelegramCommand(ctx: CommandDispatchContext): Prom
 
   logCommandChain('TELEGRAM_UPDATE_RECEIVED', { correlationId, raw: ctx.rawText, chatId: ctx.chatId, userId: ctx.userId ?? '' });
   logCommandChain('TELEGRAM_COMMAND_NORMALIZED', { correlationId, rawCommand: parsed.normalized, normalized: canonical, args: parsed.args.length });
+  logCommandChain('COMMAND_NORMALIZED', { correlationId, rawCommand: parsed.normalized, normalized: canonical, args: parsed.args.length });
 
   if (!commandRegistry.resolve(canonical)) {
     await ensureCommandRegistryLoaded();
@@ -166,6 +167,7 @@ export async function dispatchTelegramCommand(ctx: CommandDispatchContext): Prom
   }
 
   logCommandChain('TELEGRAM_COMMAND_ROUTED', { correlationId, command: canonical, action: route.action, handler: route.handlerName });
+  logCommandChain('COMMAND_ROUTED', { correlationId, command: canonical, action: route.action, handler: route.handlerName });
 
   try {
     logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, handler: route.handlerName });
@@ -225,6 +227,13 @@ async function resolveRoute(
         const nowRenderOptions = debugNow ? NOW_DEBUG_RENDER_OPTIONS : NOW_COMPACT_RENDER_OPTIONS;
         logCommandChain('TELEGRAM_SERVICE_CALLED', { correlationId, command: canonical, service: 'handleMetaCommand' });
         logCommandChain('TELEGRAM_COMMAND_ROUTED', {
+          correlationId,
+          command: metaCommand.replace(/^\//, ''),
+          handler: 'handleNow',
+          mode,
+          raw: dispatchContext.rawText,
+        });
+        logCommandChain('COMMAND_ROUTED', {
           correlationId,
           command: metaCommand.replace(/^\//, ''),
           handler: 'handleNow',
