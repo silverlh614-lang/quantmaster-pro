@@ -116,7 +116,7 @@ export async function fetchGateData(
 
   const macroState = loadMacroState();
   const gate = evaluateServerGate(
-    quote, weights, kospi20dReturn ?? macroState?.kospi20dReturn, dartFin, kisFlow,
+    quote, weights, kospi20dReturn ?? macroState?.kospi20dReturn, dartFin, kisFlow, undefined, 'ENTRY_RECHECK_GATE',
   );
 
   const etfBoost = computeEtfSectorBoost(getSectorByCode(stockCode));

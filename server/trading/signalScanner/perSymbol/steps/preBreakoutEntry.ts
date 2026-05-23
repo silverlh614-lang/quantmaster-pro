@@ -285,6 +285,7 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
           dartFinPb,
           kisFlowPb,
           ctx.regime,
+          'ENTRY_RECHECK_GATE',
         );
         const activePbPositions = ctx.shadows.filter(s =>
           isOpenShadowStatus(s.status) &&

@@ -1,6 +1,8 @@
 // @responsibility Gate2 DART financials stage diagnostics regression tests.
 
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { DEFAULT_CONDITION_WEIGHTS, evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import type { KisInvestorFlow } from '../clients/kisClient.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
@@ -116,5 +118,17 @@ describe('Gate2 DART financials stage diagnostics', () => {
   it('does not change scoring fields when only entry recheck stage is explicit', () => {
     expect(pickDecisionFields(evaluateGate2WithDartNull('ENTRY_RECHECK_GATE')))
       .toEqual(pickDecisionFields(evaluateGate2WithDartNull()));
+  });
+
+  it('wires DART-hydrated rechecks as ENTRY_RECHECK_GATE so null DART is not stage-not-fetched', () => {
+    const root = process.cwd();
+    const files = [
+      'server/screener/universeScanner.ts',
+      'server/trading/buyPipeline.ts',
+      'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
+    ];
+    for (const file of files) {
+      expect(fs.readFileSync(path.join(root, file), 'utf8')).toContain("'ENTRY_RECHECK_GATE'");
+    }
   });
 });

@@ -651,6 +651,7 @@ export async function stage3AIScreenAndRegister(
       dartFinByCode.get(c.code) ?? null,
       kisFlowForGate,
       regime,
+      'ENTRY_RECHECK_GATE',
     );
     applyGateSnapshotToCandidate(c, refreshedGate);
     // gateScore 가 비어 있을 때만 refreshedGate 원점수로 채운다.
