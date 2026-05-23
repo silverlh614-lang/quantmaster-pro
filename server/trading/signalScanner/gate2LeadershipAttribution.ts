@@ -102,7 +102,11 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
 
   const sector = report.sectorEnergyMaster;
   const verifiedCoverage = ratioFromMaybePercent(sector.verifiedIndexCodeCoverage);
-  const internalProxyCoverage = ratioFromMaybePercent(sector.internalProxyCoverage);
+  const internalGroupedSnapshotCoverage = ratioFromMaybePercent(
+    sector.internalGroupedSnapshotCoverage ??
+    (sector.selectedSectorEnergySourceTier === 'INTERNAL_GROUPED_SNAPSHOT' ? sector.internalProxyCoverage : 0),
+  );
+  const internalProxyCoverage = Math.max(ratioFromMaybePercent(sector.internalProxyCoverage), internalGroupedSnapshotCoverage);
   const officialStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
     verifiedCoverage >= 0.8 ? 'VERIFIED'
       : verifiedCoverage > 0 ? 'PARTIAL'
@@ -142,6 +146,13 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
       expectedSectorCount: sector.records.length || attribution.sectorEnergy?.expectedSectorCount,
       indexCodeCoverage: verifiedCoverage,
       officialIndexCoverage: verifiedCoverage,
+      internalGroupedSnapshotCoverage,
+      ...(sector.internalGroupedValidSectorCount !== undefined
+        ? { internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount }
+        : {}),
+      ...(sector.internalGroupedExpectedSectorCount !== undefined
+        ? { internalGroupedExpectedSectorCount: sector.internalGroupedExpectedSectorCount }
+        : {}),
       internalProxyCoverage,
       stockBasketCoverage: ratioFromMaybePercent(sector.stockDailyFallbackCoverage),
       selectedSectorEnergySourceTier: sector.selectedSectorEnergySourceTier,
@@ -169,6 +180,13 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
         sourceTier: sector.selectedSectorEnergySourceTier,
         shadowLeadershipAllowed,
         confidence: sector.leadershipConfidence,
+        internalGroupedSnapshotCoverage,
+        ...(sector.internalGroupedValidSectorCount !== undefined
+          ? { internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount }
+          : {}),
+        ...(sector.internalGroupedExpectedSectorCount !== undefined
+          ? { internalGroupedExpectedSectorCount: sector.internalGroupedExpectedSectorCount }
+          : {}),
         internalProxyCoverage,
         counterfactualAllowed: sector.counterfactualAllowed,
       },
@@ -239,6 +257,9 @@ export interface Gate2LeadershipAttribution {
     sourceTier: string;
     shadowLeadershipAllowed: boolean;
     confidence: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED' | 'UNKNOWN';
+    internalGroupedSnapshotCoverage?: number;
+    internalGroupedValidSectorCount?: number;
+    internalGroupedExpectedSectorCount?: number;
     internalProxyCoverage?: number;
     counterfactualAllowed?: boolean;
   };
@@ -268,6 +289,9 @@ export interface SectorEnergyDiagnostic {
   reason?: string;
   indexCodeCoverage?: number;
   officialIndexCoverage?: number;
+  internalGroupedSnapshotCoverage?: number;
+  internalGroupedValidSectorCount?: number;
+  internalGroupedExpectedSectorCount?: number;
   internalProxyCoverage?: number;
   stockBasketCoverage?: number;
   selectedSectorEnergySourceTier?: string;
@@ -768,6 +792,10 @@ function buildGate2LeadershipAttribution(input: {
         : 'UNAVAILABLE';
   const promotionAllowed = input.sectorEnergy?.promotionAllowed === true;
   const sourceTier = input.sectorEnergy?.selectedSectorEnergySourceTier ?? 'NONE';
+  const internalGroupedSnapshotCoverage = ratioFromMaybePercent(
+    input.sectorEnergy?.internalGroupedSnapshotCoverage ??
+    (sourceTier === 'INTERNAL_GROUPED_SNAPSHOT' ? input.sectorEnergy?.internalProxyCoverage : 0),
+  );
   const confidence = input.sectorEnergy?.leadershipConfidence ?? (
     officialIndexStatus === 'VERIFIED' ? 'VERIFIED'
       : officialIndexStatus === 'PARTIAL' ? 'PARTIAL'
@@ -821,6 +849,13 @@ function buildGate2LeadershipAttribution(input: {
       sourceTier,
       shadowLeadershipAllowed,
       confidence,
+      internalGroupedSnapshotCoverage,
+      ...(typeof input.sectorEnergy?.internalGroupedValidSectorCount === 'number'
+        ? { internalGroupedValidSectorCount: input.sectorEnergy.internalGroupedValidSectorCount }
+        : {}),
+      ...(typeof input.sectorEnergy?.internalGroupedExpectedSectorCount === 'number'
+        ? { internalGroupedExpectedSectorCount: input.sectorEnergy.internalGroupedExpectedSectorCount }
+        : {}),
       internalProxyCoverage: ratioFromMaybePercent(input.sectorEnergy?.internalProxyCoverage),
       counterfactualAllowed: input.sectorEnergy?.counterfactualAllowed === true,
     },
@@ -931,6 +966,9 @@ export function buildSectorEnergyDiagnostic(input: {
   reasons?: string[];
   indexCodeCoverage?: number;
   officialIndexCoverage?: number;
+  internalGroupedSnapshotCoverage?: number;
+  internalGroupedValidSectorCount?: number;
+  internalGroupedExpectedSectorCount?: number;
   internalProxyCoverage?: number;
   stockBasketCoverage?: number;
   selectedSectorEnergySourceTier?: string;
@@ -958,6 +996,15 @@ export function buildSectorEnergyDiagnostic(input: {
       : {}),
     ...(typeof input.officialIndexCoverage === 'number'
       ? { officialIndexCoverage: input.officialIndexCoverage }
+      : {}),
+    ...(typeof input.internalGroupedSnapshotCoverage === 'number'
+      ? { internalGroupedSnapshotCoverage: input.internalGroupedSnapshotCoverage }
+      : {}),
+    ...(typeof input.internalGroupedValidSectorCount === 'number'
+      ? { internalGroupedValidSectorCount: input.internalGroupedValidSectorCount }
+      : {}),
+    ...(typeof input.internalGroupedExpectedSectorCount === 'number'
+      ? { internalGroupedExpectedSectorCount: input.internalGroupedExpectedSectorCount }
       : {}),
     ...(typeof input.internalProxyCoverage === 'number'
       ? { internalProxyCoverage: input.internalProxyCoverage }
@@ -1061,7 +1108,8 @@ export function formatGate2AttributionSection(
   lines.push(
     `  shadowSector: status=${leadership.shadowSector.status} sourceTier=${leadership.shadowSector.sourceTier} ` +
     `shadowLeadershipAllowed=${leadership.shadowSector.shadowLeadershipAllowed} confidence=${leadership.shadowSector.confidence} ` +
-    `internalProxyCoverage=${(((leadership.shadowSector.internalProxyCoverage ?? 0) * 100)).toFixed(1)}% ` +
+    `internalGroupedSnapshotCoverage=${(((leadership.shadowSector.internalGroupedSnapshotCoverage ?? leadership.shadowSector.internalProxyCoverage ?? 0) * 100)).toFixed(1)}% ` +
+    `groupedValidSectorCount=${leadership.shadowSector.internalGroupedValidSectorCount ?? 0}/${leadership.shadowSector.internalGroupedExpectedSectorCount ?? 0} ` +
     `counterfactualAllowed=${leadership.shadowSector.counterfactualAllowed === true}`,
   );
   lines.push(`  breakoutMomentum: status=${leadership.breakoutMomentum.status} blocker=${leadership.breakoutMomentum.blocker}`);
@@ -1136,6 +1184,12 @@ export function formatGate2AttributionSection(
     if (se.reason) lines.push(`  • reason: ${se.reason}`);
     if (typeof se.officialIndexCoverage === 'number') {
       lines.push(`  officialIndexCoverage: ${(ratioFromMaybePercent(se.officialIndexCoverage) * 100).toFixed(1)}%`);
+    }
+    if (typeof se.internalGroupedSnapshotCoverage === 'number') {
+      lines.push(`  internalGroupedSnapshotCoverage: ${(ratioFromMaybePercent(se.internalGroupedSnapshotCoverage) * 100).toFixed(1)}%`);
+    }
+    if (typeof se.internalGroupedValidSectorCount === 'number' || typeof se.internalGroupedExpectedSectorCount === 'number') {
+      lines.push(`  internalGroupedValidSectorCount: ${se.internalGroupedValidSectorCount ?? 0}/${se.internalGroupedExpectedSectorCount ?? 0}`);
     }
     if (typeof se.internalProxyCoverage === 'number') {
       lines.push(`  internalProxyCoverage: ${(ratioFromMaybePercent(se.internalProxyCoverage) * 100).toFixed(1)}%`);

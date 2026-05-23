@@ -287,6 +287,7 @@ export function formatGroupedSectorEnergyDiagnosticSection(snapshot: GroupedSect
   lines.push('📊 Grouped Sector Energy (ADR-0423):');
   lines.push(`  • groupedStatus: ${snapshot.groupedValidSectorCount > 0 ? 'GROUPED_ENERGY_OK' : 'GROUPED_ENERGY_NOT_EVALUATED'}`);
   lines.push(`  • groupedValidSectorCount: ${snapshot.groupedValidSectorCount}/${snapshot.expectedSectorCount}`);
+  lines.push(`  • internalGroupedSnapshotCoverage: ${snapshot.expectedSectorCount > 0 ? ((snapshot.groupedValidSectorCount / snapshot.expectedSectorCount) * 100).toFixed(1) : '0.0'}%`);
   lines.push(`  • topGroupedSectors: ${snapshot.topGroupedSectors.join(', ') || 'none'}`);
   lines.push(`  • benchmarkStatus: ${snapshot.benchmarkStatus}`);
   lines.push(`  • sourceTier: ${snapshot.sourceTier}`);

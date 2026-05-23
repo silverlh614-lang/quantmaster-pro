@@ -341,6 +341,9 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
           aliasResolvedCount: 0,
           aliasUnsafeCount: 0,
           verifiedIndexCodeCoverage: 0,
+          internalGroupedSnapshotCoverage: 100,
+          internalGroupedValidSectorCount: 12,
+          internalGroupedExpectedSectorCount: 12,
           internalProxyCoverage: 100,
           stockDailyFallbackCoverage: 0,
           unresolvedSectorCount: 12,
@@ -350,6 +353,9 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
         indexCodeCoverageBefore: 0,
         indexCodeCoverageAfter: 100,
         verifiedIndexCodeCoverage: 0,
+        internalGroupedSnapshotCoverage: 100,
+        internalGroupedValidSectorCount: 12,
+        internalGroupedExpectedSectorCount: 12,
         internalProxyCoverage: 100,
         stockDailyFallbackCoverage: 0,
         aliasResolvedCount: 0,
@@ -379,6 +385,9 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
           sourceOfTruth: 'INTERNAL_PROXY_OR_BASKET',
           selectedSectorEnergySourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
           verifiedIndexCodeCoverage: 0,
+          internalGroupedSnapshotCoverage: 100,
+          internalGroupedValidSectorCount: 12,
+          internalGroupedExpectedSectorCount: 12,
           internalProxyCoverage: 100,
           stockDailyFallbackCoverage: 0,
           requiredVerifiedCoveragePct: 80,
@@ -411,6 +420,8 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     expect(bridged?.leadershipAttribution.shadowSector.sourceTier).toBe('INTERNAL_GROUPED_SNAPSHOT');
     expect(bridged?.leadershipAttribution.shadowSector.shadowLeadershipAllowed).toBe(true);
     expect(bridged?.leadershipAttribution.shadowSector.confidence).toBe('SHADOW_ONLY');
+    expect(bridged?.leadershipAttribution.shadowSector.internalGroupedSnapshotCoverage).toBe(1);
+    expect(bridged?.leadershipAttribution.shadowSector.internalGroupedValidSectorCount).toBe(12);
     expect(bridged?.leadershipAttribution.shadowSector.internalProxyCoverage).toBe(1);
     expect(bridged?.leadershipAttribution.final.shadowLeadership).toBe(true);
     expect(bridged?.leadershipAttribution.final.liveLeadership).toBe(false);
@@ -422,7 +433,8 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     const section = formatGate2AttributionSection(bridged);
     expect(section).toContain('shadowSector: status=AVAILABLE sourceTier=INTERNAL_GROUPED_SNAPSHOT');
     expect(section).toContain('confidence=SHADOW_ONLY');
-    expect(section).toContain('internalProxyCoverage=100.0%');
+    expect(section).toContain('internalGroupedSnapshotCoverage=100.0%');
+    expect(section).toContain('groupedValidSectorCount=12/12');
     expect(section).toContain('counterfactualAllowed=true');
     expect(section).toContain('liveLeadership=false shadowLeadership=true');
     expect(section).toContain('executionImpact=NONE');

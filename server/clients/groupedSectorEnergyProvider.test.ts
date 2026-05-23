@@ -81,6 +81,7 @@ describe('SECTOR-CLASSIFICATION-SNAPSHOT grouped sector energy', () => {
     expect(section).toContain('snapshotCoverage: 8/8');
     expect(section).toContain('Grouped Sector Energy');
     expect(section).toContain('groupedValidSectorCount:');
+    expect(section).toContain('internalGroupedSnapshotCoverage:');
     expect(section).toContain('benchmarkStatus:');
     expect(section).toContain('sourceTier: INTERNAL_GROUPED_SNAPSHOT');
     expect(section).toContain('sectorBoostAllowed=false');

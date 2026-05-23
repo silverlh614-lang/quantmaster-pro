@@ -187,6 +187,7 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     }));
 
     expect(report.verifiedIndexCodeCoverage).toBe(0);
+    expect(report.internalGroupedSnapshotCoverage).toBe(100);
     expect(report.internalProxyCoverage).toBe(100);
     expect(report.stockDailyFallbackCoverage).toBe(100);
     expect(report.officialIndexMasterRecovery.status).toBe('OFFICIAL_MISSING_REPAIR_REQUIRED');
@@ -199,8 +200,40 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.leadershipBlockReason).toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
     expect(report.sectorBoostAllowed).toBe(false);
     expect(compact).toContain('verifiedIndexCodeCoverage=0%');
+    expect(compact).toContain('internalGroupedSnapshotCoverage=100%');
     expect(compact).toContain('internalProxyCoverage=100%');
     expect(compact).toContain('OfficialIndexMasterRecovery: OFFICIAL_MISSING_REPAIR_REQUIRED');
+  });
+
+  it('treats INTERNAL_GROUPED_SNAPSHOT coverage as shadow leadership coverage even when official index coverage is zero', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        indexCodeCoverageAfterAliasCandidate: 100,
+        verifiedIndexCodeCoverage: 0,
+        internalProxyCoverage: 0,
+        stockDailyFallbackCoverage: 0,
+        missingIndexCodeCount: 12,
+        fallbackUsed: 'NONE',
+        groupedSectorEnergy: {
+          groupedStatus: 'GROUPED_ENERGY_OK',
+          groupedValidSectorCount: 12,
+          expectedSectorCount: 12,
+        },
+      }),
+    });
+
+    expect(report.verifiedIndexCodeCoverage).toBe(0);
+    expect(report.internalGroupedSnapshotCoverage).toBe(100);
+    expect(report.internalGroupedValidSectorCount).toBe(12);
+    expect(report.internalGroupedExpectedSectorCount).toBe(12);
+    expect(report.internalProxyCoverage).toBe(100);
+    expect(report.selectedSectorEnergySourceTier).toBe('INTERNAL_GROUPED_SNAPSHOT');
+    expect(report.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.sectorBoostAllowed).toBe(false);
+    expect(report.strongBuyAllowed).toBe(false);
+    expect(report.shadowLeadershipAllowed).toBe(true);
+    expect(report.executionImpact).toBe('NONE');
   });
 
   it('classifies 50% official coverage as PARTIAL and preserves shadow leadership only', () => {

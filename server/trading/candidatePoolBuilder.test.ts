@@ -225,6 +225,9 @@ describe('CandidatePoolBuilder', () => {
         sectorLeadership: {
           officialIndexCoverage: 0,
           verifiedIndexCodeCoverage: 0,
+          internalGroupedSnapshotCoverage: 100,
+          internalGroupedValidSectorCount: 12,
+          internalGroupedExpectedSectorCount: 12,
           internalProxyCoverage: 100,
           stockDailyFallbackCoverage: 0,
           selectedSourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
@@ -257,7 +260,8 @@ describe('CandidatePoolBuilder', () => {
     expect(text).toContain('BREAKOUT mapped=39/43 traceAvailableRuntime=39/43 traceAvailableAlignment=43/43');
     expect(text).toContain('zeroByCondition=23/43');
     expect(text).toContain('SECTOR_LEADERSHIP officialIndexCoverage=0.0%');
-    expect(text).toContain('internalProxyCoverage=100.0%');
+    expect(text).toContain('internalGroupedSnapshotCoverage=100.0%');
+    expect(text).toContain('internalGroupedValidSectorCount=12/12');
     expect(text).toContain('selectedSourceTier=INTERNAL_GROUPED_SNAPSHOT');
     expect(text).toContain('RS_SCORE_NOT_PROMOTED=32/43(basis=scoreUsableFromForensic)');
     expect(text).toContain('BREAKOUT_SCORE_NOT_PROMOTED=0/43(basis=alignment.scoreMappedToGate)');

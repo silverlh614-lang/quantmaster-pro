@@ -10,7 +10,10 @@ import { formatPreBreakoutWaitSummarySection } from '../preBreakoutWaitPolicy.js
 import { formatShadowNearBreakoutSection, type ShadowNearBreakoutBlockReason } from '../shadowNearBreakoutEntryPolicy.js';
 import { formatFreshAttributionSection } from '../freshScanBlockerAttribution.js';
 import { formatGate2AttributionSection, rebindGate2AttributionToSectorEnergyMasterAdr0488 } from '../gate2LeadershipAttribution.js';
-import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sectorEnergyQualityDiagnostic.js';
+import {
+  formatSectorEnergyQualityDiagnosticSection,
+  type SectorEnergyQualityDiagnostic,
+} from '../../../clients/sectorEnergyQualityDiagnostic.js';
 import { formatGate1MinimumSignalForensicSection } from '../gate1MinimumSignalForensicAuditAdr0505.js';
 import { formatGateDecisionRouterSection } from '../gateDecisionRouter.js';
 import { formatProvisionalShadowSection } from '../provisionalShadowLane.js';
@@ -56,6 +59,43 @@ function formatterGetByPath(obj: unknown, path: string): unknown {
 
 function formatterFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatterRatioFromMaybePercent(value: unknown): number {
+  if (!formatterFiniteNumber(value)) return 0;
+  return value > 1 ? Math.max(0, Math.min(1, value / 100)) : Math.max(0, Math.min(1, value));
+}
+
+function sectorEnergyQualityDiagnosticForDisplay(summary: ScanSummary): SectorEnergyQualityDiagnostic | undefined {
+  const diagnostic = summary.sectorEnergyQualityDiagnostic;
+  const sectorMaster = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyMaster;
+  if (!diagnostic || !sectorMaster) return diagnostic;
+
+  const groupedValidSectorCount =
+    sectorMaster.internalGroupedValidSectorCount ??
+    diagnostic.groupedSectorEnergy?.groupedValidSectorCount;
+  const groupedExpectedSectorCount =
+    sectorMaster.internalGroupedExpectedSectorCount ??
+    diagnostic.groupedSectorEnergy?.expectedSectorCount;
+
+  return {
+    ...diagnostic,
+    indexCodeCoverage: formatterRatioFromMaybePercent(sectorMaster.verifiedIndexCodeCoverage),
+    officialIndexCoverage: formatterRatioFromMaybePercent(sectorMaster.verifiedIndexCodeCoverage),
+    internalGroupedSnapshotCoverage: formatterRatioFromMaybePercent(
+      sectorMaster.internalGroupedSnapshotCoverage ?? sectorMaster.internalProxyCoverage,
+    ),
+    ...(groupedValidSectorCount !== undefined ? { internalGroupedValidSectorCount: groupedValidSectorCount } : {}),
+    ...(groupedExpectedSectorCount !== undefined ? { internalGroupedExpectedSectorCount: groupedExpectedSectorCount } : {}),
+    internalProxyCoverage: formatterRatioFromMaybePercent(sectorMaster.internalProxyCoverage),
+    stockBasketCoverage: formatterRatioFromMaybePercent(sectorMaster.stockDailyFallbackCoverage),
+    selectedSectorEnergySourceTier: sectorMaster.selectedSectorEnergySourceTier,
+    leadershipConfidence: sectorMaster.leadershipConfidence,
+    promotionAllowed: sectorMaster.promotionAllowed,
+    shadowLeadershipAllowed: sectorMaster.shadowLeadershipAllowed,
+    counterfactualAllowed: sectorMaster.counterfactualAllowed,
+    reasonCodes: sectorMaster.reasonCodes,
+  };
 }
 
 function formatterComponentTrace(row: unknown, code: string): Record<string, unknown> | undefined {
@@ -175,6 +215,13 @@ function buildCandidateFeatureCoverageFromSummary(
     sectorLeadership: sectorMaster ? {
       officialIndexCoverage: sectorMaster.verifiedIndexCodeCoverage,
       verifiedIndexCodeCoverage: sectorMaster.verifiedIndexCodeCoverage,
+      internalGroupedSnapshotCoverage: sectorMaster.internalGroupedSnapshotCoverage,
+      ...(sectorMaster.internalGroupedValidSectorCount !== undefined
+        ? { internalGroupedValidSectorCount: sectorMaster.internalGroupedValidSectorCount }
+        : {}),
+      ...(sectorMaster.internalGroupedExpectedSectorCount !== undefined
+        ? { internalGroupedExpectedSectorCount: sectorMaster.internalGroupedExpectedSectorCount }
+        : {}),
       internalProxyCoverage: sectorMaster.internalProxyCoverage,
       stockDailyFallbackCoverage: sectorMaster.stockDailyFallbackCoverage,
       selectedSourceTier: sectorMaster.selectedSectorEnergySourceTier,
@@ -899,7 +946,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1DryRunObservationSummary', error: e });
   }
 
-  const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(summary.sectorEnergyQualityDiagnostic);
+  const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(sectorEnergyQualityDiagnosticForDisplay(summary));
   if (sectorEnergySection) {
     lines.push('');
     lines.push(sectorEnergySection);

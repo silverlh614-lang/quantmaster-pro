@@ -273,6 +273,9 @@ export interface SectorEnergyQualityDiagnostic {
     count: number;
   }>;
   officialIndexCoverage?: number;
+  internalGroupedSnapshotCoverage?: number;
+  internalGroupedValidSectorCount?: number;
+  internalGroupedExpectedSectorCount?: number;
   internalProxyCoverage?: number;
   stockBasketCoverage?: number;
   leadershipConfidence?: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED';
@@ -359,6 +362,9 @@ export interface EvaluateSectorEnergyQualityInput {
     count: number;
   }>;
   officialIndexCoverage?: number;
+  internalGroupedSnapshotCoverage?: number;
+  internalGroupedValidSectorCount?: number;
+  internalGroupedExpectedSectorCount?: number;
   internalProxyCoverage?: number;
   stockBasketCoverage?: number;
 }
@@ -628,7 +634,25 @@ export function evaluateSectorEnergyQualityDiagnostic(
 
   const operatorMessage = buildOperatorMessage(dataQuality, reasons, indexCodeCoverage, fallbackUsed);
   const officialIndexCoverage = Number.isFinite(input.officialIndexCoverage) ? Math.max(0, Math.min(1, Number(input.officialIndexCoverage))) : indexCodeCoverage;
-  const internalProxyCoverage = Number.isFinite(input.internalProxyCoverage) ? Math.max(0, Math.min(1, Number(input.internalProxyCoverage))) : 0;
+  const groupedExpectedSectorCount = Number.isFinite(input.internalGroupedExpectedSectorCount)
+    ? Math.max(0, Number(input.internalGroupedExpectedSectorCount))
+    : input.groupedSectorEnergy?.expectedSectorCount;
+  const groupedValidSectorCount = Number.isFinite(input.internalGroupedValidSectorCount)
+    ? Math.max(0, Number(input.internalGroupedValidSectorCount))
+    : input.groupedSectorEnergy?.groupedValidSectorCount;
+  const groupedCountCoverage = groupedExpectedSectorCount && groupedExpectedSectorCount > 0 && Number.isFinite(groupedValidSectorCount)
+    ? Math.max(0, Math.min(1, Number(groupedValidSectorCount) / groupedExpectedSectorCount))
+    : 0;
+  const rawInternalProxyCoverage = Number.isFinite(input.internalProxyCoverage)
+    ? Math.max(0, Math.min(1, Number(input.internalProxyCoverage)))
+    : 0;
+  const internalGroupedSnapshotCoverage = Number.isFinite(input.internalGroupedSnapshotCoverage)
+    ? Math.max(0, Math.min(1, Number(input.internalGroupedSnapshotCoverage)))
+    : Math.max(groupedCountCoverage, input.sourceTier === 'INTERNAL_GROUPED_SNAPSHOT' ? rawInternalProxyCoverage : 0);
+  const internalProxyCoverage = Math.max(
+    rawInternalProxyCoverage,
+    internalGroupedSnapshotCoverage,
+  );
   const stockBasketCoverage = Number.isFinite(input.stockBasketCoverage)
     ? Math.max(0, Math.min(1, Number(input.stockBasketCoverage)))
     : input.sourceTier === 'KIS_STOCK_BASKET_DERIVED' ? 1 : 0;
@@ -702,6 +726,9 @@ export function evaluateSectorEnergyQualityDiagnostic(
         ? { topRecoveredAliases: input.sectorIndexRecovery.topRecoveredAliases }
         : {}),
     officialIndexCoverage,
+    internalGroupedSnapshotCoverage,
+    ...(groupedValidSectorCount !== undefined ? { internalGroupedValidSectorCount: groupedValidSectorCount } : {}),
+    ...(groupedExpectedSectorCount !== undefined ? { internalGroupedExpectedSectorCount: groupedExpectedSectorCount } : {}),
     internalProxyCoverage,
     stockBasketCoverage,
     leadershipConfidence,
@@ -811,9 +838,22 @@ export function formatSectorEnergyQualityDiagnosticSection(
       ? 'SHADOW_ONLY'
       : diagnostic.shouldBlockLeadershipConfidence ? 'BLOCKED' : 'VERIFIED'
   );
-  lines.push(`  • selectedSourceTier: ${diagnostic.selectedSectorEnergySourceTier ?? diagnostic.sourceTier ?? 'NONE'}`);
+  const groupedValidSectorCount =
+    diagnostic.internalGroupedValidSectorCount ?? diagnostic.groupedSectorEnergy?.groupedValidSectorCount ?? 0;
+  const groupedExpectedSectorCount =
+    diagnostic.internalGroupedExpectedSectorCount ?? diagnostic.groupedSectorEnergy?.expectedSectorCount ?? 0;
+  const groupedDerivedCoverage = groupedExpectedSectorCount > 0 ? groupedValidSectorCount / groupedExpectedSectorCount : 0;
+  const selectedTier = diagnostic.selectedSectorEnergySourceTier ?? diagnostic.sourceTier ?? 'NONE';
+  const internalGroupedSnapshotCoverage =
+    diagnostic.internalGroupedSnapshotCoverage ??
+    (selectedTier === 'INTERNAL_GROUPED_SNAPSHOT'
+      ? Math.max(diagnostic.internalProxyCoverage ?? 0, groupedDerivedCoverage)
+      : groupedDerivedCoverage);
+  lines.push(`  • selectedSourceTier: ${selectedTier}`);
   lines.push(`  • officialIndexCoverage: ${((diagnostic.officialIndexCoverage ?? diagnostic.indexCodeCoverage) * 100).toFixed(1)}%`);
-  lines.push(`  • internalProxyCoverage: ${((diagnostic.internalProxyCoverage ?? 0) * 100).toFixed(1)}%`);
+  lines.push(`  • internalGroupedSnapshotCoverage: ${(internalGroupedSnapshotCoverage * 100).toFixed(1)}%`);
+  lines.push(`  • internalGroupedValidSectorCount: ${groupedValidSectorCount}/${groupedExpectedSectorCount}`);
+  lines.push(`  • internalProxyCoverage: ${((diagnostic.internalProxyCoverage ?? internalGroupedSnapshotCoverage) * 100).toFixed(1)}%`);
   lines.push(`  • stockBasketCoverage: ${((diagnostic.stockBasketCoverage ?? 0) * 100).toFixed(1)}%`);
   lines.push(`  • leadershipConfidence: ${leadershipConfidence}`);
   lines.push(`  • promotionAllowed: ${diagnostic.promotionAllowed === true}`);
@@ -826,6 +866,12 @@ export function formatSectorEnergyQualityDiagnosticSection(
   }
 
   // ADR-0424: backfill stats + repair status (옵셔널, 후방호환).
+  if ((diagnostic.stockBasketCoverage ?? 0) > 0 || diagnostic.sourceTier === 'KIS_STOCK_BASKET_DERIVED') {
+    lines.push(
+      `  • basketEvidence: sourceTier=KIS_STOCK_BASKET_DERIVED coverage=${((diagnostic.stockBasketCoverage ?? 0) * 100).toFixed(1)}% officialEquivalent=false useForPromotion=false useForShadowEvidence=${(diagnostic.stockBasketCoverage ?? 0) > 0}`,
+    );
+  }
+
   if (diagnostic.indexCodeBackfilledCount !== undefined && diagnostic.indexCodeBackfilledCount > 0) {
     lines.push(
       `  • indexCodeBackfilledCount: ${diagnostic.indexCodeBackfilledCount} (NAME_LOOKUP via SECTOR_INDEX_MASTER)`,
