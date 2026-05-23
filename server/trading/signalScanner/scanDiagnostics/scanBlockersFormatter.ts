@@ -45,6 +45,50 @@ import {
   formatGatePositiveRuntimeAlignmentSection,
 } from '../runtimeResolverTraceStep26.js';
 
+function formatRuntimeWiringSummary(
+  summary: ScanSummary,
+  canonical: CanonicalRuntimeResolutionStep27,
+): string {
+  const candidatePool = summary.candidatePool;
+  const forensic = summary.gate1MinimumSignalForensicAdr0505;
+  const softLane = summary.gate2SoftLeadershipLane;
+  const total = summary.candidates || candidatePool?.candidateSnapshots.length || 0;
+  const gateScoreInputCandidates =
+    summary.entryFilterDecomposition?.tracedCandidates ??
+    candidatePool?.gateEvaluated ??
+    total;
+  const macro = summary.macroGateState;
+  const rawRegime = macro?.macroRegimeRaw ?? macro?.regime ?? 'UNKNOWN';
+  const legacyEffectiveRegime = macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN';
+  const displayRegime = macro?.displayRegime ?? macro?.regime ?? 'UNKNOWN';
+  const riskOverride = macro?.riskOverride ?? 'NONE';
+  const effectiveRegime =
+    legacyEffectiveRegime === 'R6_DEFENSE' &&
+    displayRegime !== 'R6_DEFENSE' &&
+    macro?.regime !== 'R6_DEFENSE'
+      ? rawRegime
+      : legacyEffectiveRegime;
+
+  const lines = [
+    '🧩 <b>Runtime Wiring Summary</b>',
+    `- Candidates: ${total}`,
+    `- GateScoreInput candidates: ${gateScoreInputCandidates}`,
+    `- Quote raw coverage: return5d ${canonical.momentum.return5dCount}/${total}, return20d ${canonical.momentum.return20dCount}/${total}`,
+    `- PriceMomentum applied: ${canonical.momentum.priceMomentumComputedCount}/${total}`,
+    `- RS applied: ${forensic?.rsScoreUsableCount ?? 0}/${total}`,
+    `- Breakout mapped: ${canonical.breakout.scoreMapped}/${total}`,
+    `- KIS investorFlow gateEligibleRows: ${canonical.kisInvestorFlow.gateEligibleRows}/${canonical.kisInvestorFlow.totalRows || total}`,
+    `- Watchlist score verified: ${canonical.watchlist.verified}/${total}`,
+    `- Gate1 hard survivors: ${softLane?.gate1HardSurvivors ?? 0}`,
+    `- Gate2 pending preserved: ${softLane?.gate2PendingPreserved ?? 0}`,
+    `- Shadow observable: ${summary.shadowObservableCount ?? candidatePool?.shadowEligible ?? 0}`,
+    `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
+    `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
+    `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
+  ];
+  return lines.join('\n');
+}
+
 export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // ADR-0367: 직전 스캔이 buyListLoop 진입 전 preflight 차단됐으면 preflight blocked scan 을 우선 표시.
   // persistScanResults 가 _lastScanSummary 를 채울 때 clearPreflightBlockedScanSummary 로 stale 제거되므로
@@ -77,11 +121,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       legacyEffectiveRegime === 'R6_DEFENSE' &&
       displayRegime !== 'R6_DEFENSE' &&
       mg.regime !== 'R6_DEFENSE';
-    const canonicalEffectiveRegime = staleLegacyR6Path ? displayRegime : legacyEffectiveRegime;
-    const positionPolicy = getRegimePositionPolicy(canonicalEffectiveRegime);
-    lines.push(`  • 레짐: ${canonicalEffectiveRegime} (총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
+    const canonicalEffectiveRegime = staleLegacyR6Path ? rawRegime : legacyEffectiveRegime;
+    const policyViewRegime = mg.riskOverride && mg.riskOverride !== 'NONE' ? mg.riskOverride : displayRegime;
+    const positionPolicy = getRegimePositionPolicy(policyViewRegime || canonicalEffectiveRegime);
+    lines.push(`  • 레짐: display=${displayRegime} effective=${canonicalEffectiveRegime} (policyView=${policyViewRegime || canonicalEffectiveRegime}, 총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
     if (mg.macroRegimeRaw || mg.macroRegimeEffective || mg.displayRegime) {
-      lines.push(`  • raw/effective: ${rawRegime} → ${canonicalEffectiveRegime}`);
+      lines.push(`  • raw/effective/display/riskOverride: ${rawRegime} → ${canonicalEffectiveRegime} / ${displayRegime} / ${mg.riskOverride ?? 'NONE'}`);
       lines.push(`  • regimeSource: canonical=RegimeResolver.canonicalOutput display=${displayRegime} riskOverride=${mg.riskOverride ?? 'NONE'} executionPermissionImpact=NONE`);
     }
     if (staleLegacyR6Path) {
@@ -128,6 +173,9 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push('');
     lines.push(candidatePoolSection);
   }
+
+  lines.push('');
+  lines.push(formatRuntimeWiringSummary(summary, canonicalRuntimeResolution));
 
   if (summary.sectorEnergyQuality !== undefined) {
     lines.push('');

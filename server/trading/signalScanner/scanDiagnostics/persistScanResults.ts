@@ -695,6 +695,39 @@ export async function persistScanResults(
       watchlistRefreshedAt: options.watchlistRefreshedAt,
       watchlistSource: options.watchlistSource,
     });
+    const entryFilter = summaryDraft.entryFilterDecomposition;
+    if (entryFilter) {
+      const gate1HardSurvivorSymbols = new Set(
+        entryFilter.gate1CandidateTraces
+          .filter((trace) => trace.gate1Passed && trace.hardFailCount === 0 && trace.softFailCount === 0)
+          .map((trace) => trace.symbol),
+      );
+      const gate2PendingPreserved = entryFilter.candidateTraces.filter((trace) =>
+        gate1HardSurvivorSymbols.has(trace.symbol) &&
+        trace.gate2Passed !== true,
+      ).length;
+      const minSignal = entryFilter.minSignalScoreDecompositionReport;
+      const minSignalLivePass = Math.max(0, minSignal.totalCandidates - minSignal.minSignalFailed);
+      if (gate1HardSurvivorSymbols.size > 0 || minSignalLivePass > 0) {
+        summaryDraft.gate2SoftLeadershipLane = {
+          gate1HardSurvivors: gate1HardSurvivorSymbols.size,
+          minSignalLivePass,
+          gate2PendingPreserved,
+          labels: [
+            'GATE1_HARD_SURVIVOR_GATE2_PENDING',
+            'GATE1_PASS_PRE_BREAKOUT_WAIT',
+            'R3_PROVISIONAL_LEADER_GATE2_NOT_CONFIRMED',
+          ],
+          shadowObservablePreserved: gate2PendingPreserved > 0,
+          watchPreserved: gate2PendingPreserved > 0,
+          counterfactualRecorded: gate2PendingPreserved > 0,
+          executionImpact: 'NONE',
+        };
+        if (gate2PendingPreserved > 0) {
+          summaryDraft.shadowObservableCount = Math.max(summaryDraft.shadowObservableCount ?? 0, gate2PendingPreserved);
+        }
+      }
+    }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildEntryFilterDecomposition', error: e });
   }

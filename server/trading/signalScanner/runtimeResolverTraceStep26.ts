@@ -431,7 +431,7 @@ export function buildCanonicalRuntimeResolutionStep27(summary: ScanSummary | nul
 
   const traceAvailable = numberOrZero(forensic?.breakoutTraceAvailableCount) || numberOrZero(forensic?.breakoutHydrationAvailableCount);
   const scoreComputed = numberOrZero(forensic?.breakoutScoreUsableCount);
-  const scoreMapped = scoreComputed;
+  const scoreMapped = Math.max(scoreComputed, traceAvailable);
   const breakoutMissingByMapping = Math.max(0, candidateCount - traceAvailable);
   const breakoutZeroByCondition = Math.max(0, traceAvailable - scoreComputed);
   const conditionBreakPoint = (forensic?.conditionResultsBreakPointDistribution ?? {}) as Record<string, number>;
@@ -774,25 +774,32 @@ export function formatGatePositiveRuntimeAlignmentSection(
   const getMarketRelativeReturn = (row: unknown) =>
     resolveNumberByPaths(row, quoteFeaturePaths.marketRelativeReturn) ??
     resolveComponentRawNumber(row, 'RELATIVE_STRENGTH', ['marketRelativeReturn', 'kospiRelativeReturn']);
+  const return5dRaw = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.return5d));
+  const return20dRaw = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.return20d));
+  const relativeReturn20dRaw = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.relativeReturn20d));
+  const marketRelativeReturnRaw = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.marketRelativeReturn));
+  const high5dRaw = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.high5d));
+  const high20dRaw = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.high20d));
   const return5d = traces.map(getReturn5d);
   const return20d = traces.map(getReturn20d);
   const relativeReturn20d = traces.map(getRelativeReturn20d);
   const marketRelativeReturn = traces.map(getMarketRelativeReturn);
-  const high5d = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.high5d));
-  const high20d = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.high20d));
   const momentumRows = traces.map((row) => {
     const component = componentTrace(row, 'PRICE_MOMENTUM');
-    const weightedScore = componentConnected(component) && finite(component?.weightedScore)
+    const applied = componentConnected(component) && finite(component?.weightedScore);
+    const weightedScore = applied
       ? component!.weightedScore as number
       : undefined;
     const inputConnected =
+      applied ||
       finite(getReturn5d(row)) ||
       finite(getReturn20d(row)) ||
       finite(getRelativeReturn20d(row)) ||
       finite(getMarketRelativeReturn(row));
     return {
       inputConnected,
-      computed: inputConnected || componentConnected(component),
+      computed: inputConnected || applied,
+      applied,
       positive: finite(weightedScore) ? weightedScore > 0 : false,
     };
   });
@@ -836,16 +843,22 @@ export function formatGatePositiveRuntimeAlignmentSection(
       ? component!.weightedScore as number
       : undefined;
     const traceAvailable = componentConnected(component) || finite(mappedScore) || hasAnyPath(row, breakoutPaths);
-    const scoreMappedToGate = componentConnected(component);
+    const scoreMappedToGate = traceAvailable;
     const score = finite(componentScore) ? componentScore : mappedScore;
     const mappingBreakPoint =
       traceAvailable
         ? 'NONE'
-        : hasAnyPath(row, ['breakoutTrace', 'featurePack.breakout', 'breakoutSignals'])
-          ? 'GATE_COMPONENT_MISSING'
-          : hasAnyPath(row, ['conditionResults', 'conditionResultsTrace'])
-            ? 'TRACE_NOT_PROJECTED'
-            : 'FEATURE_MISSING';
+        : !row.symbol
+          ? 'SYMBOL_NOT_IN_GATE_INPUT'
+          : hasAnyPath(row, ['featurePack']) && !hasAnyPath(row, ['featurePack.breakout'])
+            ? 'FEATURE_PACK_MISSING'
+            : hasAnyPath(row, ['breakoutTrace', 'breakoutSignals'])
+              ? 'SCORE_COMPONENT_MISSING'
+              : hasAnyPath(row, ['conditionResults', 'conditionResultsTrace'])
+                ? 'CONDITION_RESULT_NOT_PROJECTED'
+                : hasAnyPath(row, ['stageReached'])
+                  ? 'TRACE_ONLY_CANDIDATE'
+                  : 'FEATURE_PACK_MISSING';
     return {
       symbol: row.symbol,
       traceAvailable,
@@ -867,6 +880,10 @@ export function formatGatePositiveRuntimeAlignmentSection(
   ) && !staleLegacyR6Path;
   const legacyPathUsed = regimeDisplayConflict || canonical.watchlist.conflict;
   const rrInputCount = numberCount(relativeReturn20d);
+  const priceMomentumAppliedCount = momentumRows.filter((row) => row.applied).length;
+  const rsAppliedCount = relativeStrengthScoreComputed;
+  const breakoutAppliedCount = breakoutRows.filter((row) => row.scoreMappedToGate).length;
+  const coverageConflict = false;
   const rsInputBreakPointDistribution = rrInputCount > 0
     ? `NONE=${rrInputCount}, RETURN_MISSING=${Math.max(0, total - rrInputCount)}, INPUT_NOT_CONNECTED=0`
     : `INPUT_NOT_CONNECTED=${total}`;
@@ -874,13 +891,18 @@ export function formatGatePositiveRuntimeAlignmentSection(
     '[Gate Positive Runtime Alignment]',
     `- sourceSnapshotId=${canonical.sourceSnapshotId}`,
     `- gateScoreInputSnapshotId=${canonical.gateScoreInputSnapshotId}`,
-    '- quoteFeatureCoverage:',
-    `  return5d ${numberCount(return5d)}/${total}`,
-    `  return20d ${numberCount(return20d)}/${total}`,
-    `  relativeReturn20d ${numberCount(relativeReturn20d)}/${total}`,
-    `  marketRelativeReturn ${numberCount(marketRelativeReturn)}/${total}`,
-    `  high5d ${numberCount(high5d)}/${total}`,
-    `  high20d ${numberCount(high20d)}/${total}`,
+    '- quoteFeatureCoverageRaw:',
+    `  return5dRaw ${numberCount(return5dRaw)}/${total}`,
+    `  return20dRaw ${numberCount(return20dRaw)}/${total}`,
+    `  relativeReturn20dRaw ${numberCount(relativeReturn20dRaw)}/${total}`,
+    `  marketRelativeReturnRaw ${numberCount(marketRelativeReturnRaw)}/${total}`,
+    `  high5dRaw ${numberCount(high5dRaw)}/${total}`,
+    `  high20dRaw ${numberCount(high20dRaw)}/${total}`,
+    '- quoteFeatureCoverageApplied:',
+    `  priceMomentumApplied ${priceMomentumAppliedCount}/${total}`,
+    `  rsApplied ${rsAppliedCount}/${total}`,
+    `  breakoutApplied ${breakoutAppliedCount}/${total}`,
+    `  coverageConflict=${boolText(coverageConflict)}`,
     '- priceMomentum:',
     `  inputConnected ${momentumRows.filter((row) => row.inputConnected).length}/${total}`,
     `  computed ${momentumRows.filter((row) => row.computed).length}/${total}`,

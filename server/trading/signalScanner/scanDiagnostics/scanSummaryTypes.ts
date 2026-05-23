@@ -217,6 +217,16 @@ export interface ScanSummary {
   providerDegradedObservableCount?: number;
   trueGateFailCount?: number;
   hardRiskBlockedCount?: number;
+  gate2SoftLeadershipLane?: {
+    gate1HardSurvivors: number;
+    minSignalLivePass: number;
+    gate2PendingPreserved: number;
+    labels: string[];
+    shadowObservablePreserved: boolean;
+    watchPreserved: boolean;
+    counterfactualRecorded: boolean;
+    executionImpact: 'NONE';
+  };
   r3NoiseDecision?: R3NoiseGovernorDecision;
   preBreakoutWaitSummary?: PreBreakoutWaitSummary;
   shadowNearBreakoutCreated?: number;

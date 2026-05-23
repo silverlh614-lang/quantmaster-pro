@@ -85,6 +85,18 @@ export function formatGateEligibilitySplitSection(
   }
 
   // R3 streak skip 사유 (사용자 §5 명시)
+  if (summary.gate2SoftLeadershipLane) {
+    const lane = summary.gate2SoftLeadershipLane;
+    lines.push(`  - Gate1 hard survivors: ${lane.gate1HardSurvivors}`);
+    lines.push(`  - MinSignal live pass: ${lane.minSignalLivePass}`);
+    lines.push(`  - Gate2 pending preserved: ${lane.gate2PendingPreserved}`);
+    lines.push(`  - Soft leadership lanes: ${lane.labels.join(',')}`);
+    lines.push(`  - shadowObservablePreserved=${lane.shadowObservablePreserved}`);
+    lines.push(`  - watchPreserved=${lane.watchPreserved}`);
+    lines.push(`  - counterfactualRecorded=${lane.counterfactualRecorded}`);
+    lines.push(`  - executionImpact=${lane.executionImpact}`);
+  }
+
   const streakSkipReason =
     summary.r3StreakSkipped?.skipped === true
       ? `r3StreakSkipped (${summary.r3StreakSkipped.reason ?? 'unknown'})`

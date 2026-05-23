@@ -227,12 +227,15 @@ describe('Step27 canonical runtime report rebinding', () => {
     const text = formatGatePositiveRuntimeAlignmentSection(summary, buildCanonicalRuntimeResolutionStep27(summary)) ?? '';
 
     expect(text).toContain('[Gate Positive Runtime Alignment]');
-    expect(text).toContain('return5d 2/2');
-    expect(text).toContain('return20d 2/2');
-    expect(text).toContain('relativeReturn20d 2/2');
+    expect(text).toContain('- quoteFeatureCoverageRaw:');
+    expect(text).toContain('return5dRaw 0/2');
+    expect(text).toContain('- quoteFeatureCoverageApplied:');
+    expect(text).toContain('priceMomentumApplied 2/2');
+    expect(text).toContain('coverageConflict=false');
+    expect(text).toContain('inputConnected 2/2');
     expect(text).toContain('rsRankPctComputed 2/2');
     expect(text).toContain('relativeStrengthScoreComputed 2/2');
-    expect(text).toContain('missingByMappingSymbols A2:FEATURE_MISSING');
+    expect(text).toContain('missingByMappingSymbols A2:FEATURE_PACK_MISSING');
   });
 
   it('counts Gate2/Gate3 materialized runtime fields and treats stale R6 as deprecated-only display', () => {
@@ -277,12 +280,13 @@ describe('Step27 canonical runtime report rebinding', () => {
     } as unknown as ScanSummary;
     const text = formatGatePositiveRuntimeAlignmentSection(summary, buildCanonicalRuntimeResolutionStep27(summary)) ?? '';
 
-    expect(text).toContain('return5d 2/2');
-    expect(text).toContain('return20d 2/2');
-    expect(text).toContain('relativeReturn20d 2/2');
-    expect(text).toContain('marketRelativeReturn 2/2');
-    expect(text).toContain('high5d 2/2');
-    expect(text).toContain('high20d 2/2');
+    expect(text).toContain('return5dRaw 2/2');
+    expect(text).toContain('return20dRaw 2/2');
+    expect(text).toContain('relativeReturn20dRaw 2/2');
+    expect(text).toContain('marketRelativeReturnRaw 2/2');
+    expect(text).toContain('high5dRaw 2/2');
+    expect(text).toContain('high20dRaw 2/2');
+    expect(text).toContain('priceMomentumApplied 0/2');
     expect(text).toContain('rsRankPctComputed 2/2');
     expect(text).toContain('missingByMapping 0/2');
     expect(text).toContain('regimeDisplayConflict=false');

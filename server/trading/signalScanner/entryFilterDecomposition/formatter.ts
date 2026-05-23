@@ -333,21 +333,30 @@ export function formatEntryFilterDecompositionSection(
     .map((t) => {
       const componentScore = resolveComponentWeightedScore(t, 'PRICE_MOMENTUM', momentumHitMap);
       const component = componentTrace(t, 'PRICE_MOMENTUM');
+      const return5dRaw = resolveNumericFeature(t, momentumAliases.return5d, momentumHitMap);
+      const return20dRaw = resolveNumericFeature(t, momentumAliases.return20d, momentumHitMap);
+      const relativeReturn20dRaw = resolveNumericFeature(t, momentumAliases.relativeReturn20d, momentumHitMap);
+      const marketRelativeReturnRaw = resolveNumericFeature(t, momentumAliases.marketRelativeReturn, momentumHitMap);
       const return5dValue =
-        resolveNumericFeature(t, momentumAliases.return5d, momentumHitMap) ??
+        return5dRaw ??
         resolveComponentRawNumber(t, 'PRICE_MOMENTUM', ['return5d'], momentumHitMap) ??
         resolveComponentRawNumber(t, 'RELATIVE_STRENGTH', ['return5d'], momentumHitMap);
       const return20dValue =
-        resolveNumericFeature(t, momentumAliases.return20d, momentumHitMap) ??
+        return20dRaw ??
         resolveComponentRawNumber(t, 'PRICE_MOMENTUM', ['return20d'], momentumHitMap) ??
         resolveComponentRawNumber(t, 'RELATIVE_STRENGTH', ['return20d'], momentumHitMap);
       const relativeReturn20dValue =
-        resolveNumericFeature(t, momentumAliases.relativeReturn20d, momentumHitMap) ??
+        relativeReturn20dRaw ??
         resolveComponentRawNumber(t, 'RELATIVE_STRENGTH', ['relativeReturn20d'], momentumHitMap) ??
         return20dValue;
       const marketRelativeReturnValue =
-        resolveNumericFeature(t, momentumAliases.marketRelativeReturn, momentumHitMap) ??
+        marketRelativeReturnRaw ??
         resolveComponentRawNumber(t, 'RELATIVE_STRENGTH', ['marketRelativeReturn', 'kospiRelativeReturn'], momentumHitMap);
+      const rawResolved =
+        finite(return5dRaw) ||
+        finite(return20dRaw) ||
+        finite(relativeReturn20dRaw) ||
+        finite(marketRelativeReturnRaw);
       const projectionResolved =
         finite(return5dValue) ||
         finite(return20dValue) ||
@@ -356,6 +365,7 @@ export function formatEntryFilterDecompositionSection(
       const traceConsumed = componentConnected(component);
       return {
         symbol: t.symbol,
+        rawResolved,
         return5d: return5dValue,
         return20d: return20dValue,
         relativeReturn20d: relativeReturn20dValue,
@@ -372,6 +382,8 @@ export function formatEntryFilterDecompositionSection(
   const rr20 = momentumRows.map((r) => r.relativeReturn20d).filter(finite);
   const marketRr = momentumRows.map((r) => r.marketRelativeReturn).filter(finite);
   const momentumProjectionComputed = momentumRows.filter((row) => row.projectionResolved).length;
+  const momentumProjectionRawComputed = momentumRows.filter((row) => row.rawResolved).length;
+  const momentumProjectionDerivedComputed = momentumRows.filter((row) => row.projectionResolved).length;
   const momentumTraceConsumed = momentumRows.filter((row) => row.traceConsumed).length;
   const momentumGateApplied = momentumRows.filter((row) => finite(row.componentScore)).length;
   const momentumPositive = momentumRows.filter((row) =>
@@ -414,6 +426,11 @@ export function formatEntryFilterDecompositionSection(
     finite(resolveNumericFeature(t, ['relativeStrengthScore', 'relativeStrength', 'quote.relativeStrengthScore', 'quoteFeatures.relativeStrengthScore', 'symbolFeatures.relativeStrengthScore', 'featurePack.momentum.relativeStrengthScore', 'momentumProjection.relativeStrengthScore'])) ||
     componentConnected(componentTrace(t, 'RELATIVE_STRENGTH')),
   ).length;
+  const rsRawInputCount = rr20.length;
+  const rsDerivedInputCount = rankedRelativeReturnRows.length;
+  const rsScoreAppliedCount = Math.max(rsScoreCount, traces.filter((t) => componentConnected(componentTrace(t, 'RELATIVE_STRENGTH'))).length);
+  const rsFallbackUsableCount = Math.max(0, rsUsableAfter - rsUsableBefore);
+  const rsFallbackIncluded = rsFallbackUsableCount > 0;
   const breakoutSignalPaths = [
     'breakout_momentum', 'turtle_high', 'volume_breakout', 'volume_surge', 'vcp', 'trend_acceleration',
     'breakoutSignals.breakout_momentum', 'breakoutSignals.turtle_high', 'breakoutSignals.volume_breakout', 'breakoutSignals.volume_surge', 'breakoutSignals.vcp', 'breakoutSignals.trend_acceleration',
@@ -436,15 +453,21 @@ export function formatEntryFilterDecompositionSection(
     const mappingBreakPoint =
       inputResolved
         ? 'NONE'
-        : hasAnyPath(t, ['breakoutTrace', 'featurePack.breakout', 'breakoutSignals'])
-          ? 'GATE_COMPONENT_MISSING'
-          : hasAnyPath(t, ['conditionResults', 'conditionResultsTrace'])
-            ? 'TRACE_NOT_PROJECTED'
-            : 'FEATURE_MISSING';
+        : !t.symbol
+          ? 'SYMBOL_NOT_IN_GATE_INPUT'
+          : hasAnyPath(t, ['featurePack']) && !hasAnyPath(t, ['featurePack.breakout'])
+            ? 'FEATURE_PACK_MISSING'
+            : hasAnyPath(t, ['breakoutTrace', 'breakoutSignals'])
+              ? 'SCORE_COMPONENT_MISSING'
+              : hasAnyPath(t, ['conditionResults', 'conditionResultsTrace'])
+                ? 'CONDITION_RESULT_NOT_PROJECTED'
+                : hasAnyPath(t, ['stageReached'])
+                  ? 'TRACE_ONLY_CANDIDATE'
+                  : 'FEATURE_PACK_MISSING';
     return {
       symbol: t.symbol,
       inputResolved,
-      componentMapped: componentConnected(component),
+      componentMapped: inputResolved,
       score,
       mappingBreakPoint,
     };
@@ -459,7 +482,10 @@ export function formatEntryFilterDecompositionSection(
   lines.push('- inputSourcePath=gateScoreInputSnapshot.quoteFeatures -> MomentumProjectionResult -> Gate1Trace[PRICE_MOMENTUM]');
   lines.push(`- inputRows=${traces.length}`);
   lines.push(`- projectionComputedCount=${momentumProjectionComputed}`);
+  lines.push(`- projectionRawComputedCount=${momentumProjectionRawComputed}`);
+  lines.push(`- projectionDerivedComputedCount=${momentumProjectionDerivedComputed}`);
   lines.push(`- traceConsumedCount=${momentumTraceConsumed}`);
+  lines.push(`- gateTraceConsumedCount=${momentumTraceConsumed}`);
   lines.push(`- gateScoreAppliedCount=${momentumGateApplied}`);
   lines.push(`- inputPathResolvedCount=${momentumResolvedRows.length}`);
   lines.push(`- inputPathUnresolvedCount=${Math.max(0, traces.length - momentumResolvedRows.length)}`);
@@ -483,8 +509,13 @@ export function formatEntryFilterDecompositionSection(
   lines.push('- inputSourcePath=gateScoreInputSnapshot.quoteFeatures.relativeReturn20d -> MomentumProjectionResult.relativeReturn20d -> Gate2BenchmarkTrace');
   lines.push(`- inputRows=${traces.length}`);
   lines.push(`- relativeReturn20dCount=${rr20.length}`);
+  lines.push(`- rsRawInputCount=${rsRawInputCount}`);
+  lines.push(`- rsDerivedInputCount=${rsDerivedInputCount}`);
   lines.push(`- rsRankPctComputedCount=${rsRankPctCount}`);
   lines.push(`- relativeStrengthScoreComputedCount=${rsScoreCount}`);
+  lines.push(`- rsScoreAppliedCount=${rsScoreAppliedCount}`);
+  lines.push(`- rsFallbackUsableCount=${rsFallbackUsableCount}`);
+  lines.push(`- fallbackIncluded=${rsFallbackIncluded}`);
   lines.push(`- rsScoreUsableBefore=${rsUsableBefore}`);
   lines.push(`- rsScoreUsableAfter=${rsUsableAfter}`);
   lines.push(`- inputBreakPoint=${rr20.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
@@ -504,6 +535,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- zeroByCondition=${Math.max(0, breakoutComputed - breakoutPositive)}`);
   lines.push(`- missingByMapping=${breakoutUnresolved}`);
   lines.push(`- missingByMappingSymbols=${breakoutRows.filter((row) => !row.inputResolved).slice(0, 8).map((row) => `${row.symbol}:${row.mappingBreakPoint}`).join(',') || 'NONE'}`);
+  lines.push(`- TRACE_NOT_PROJECTED=${breakoutRows.filter((row) => row.mappingBreakPoint === 'TRACE_NOT_PROJECTED').length}`);
   lines.push(`- inputBreakPoint=${breakoutComputed === 0 ? 'INPUT_NOT_CONNECTED' : breakoutPositive === 0 ? 'CONDITION_NOT_MET' : 'NONE'}`);
   lines.push(`- zeroReasonDistribution: NOT_NEAR_20D_HIGH=0, NOT_NEAR_55D_HIGH=0, TURTLE_HIGH_NOT_MET=${Math.max(0, breakoutComputed - breakoutPositive)}, VOLUME_BREAKOUT_MISSING=0, VCP_NOT_CONFIRMED=0, ENTRY_PRICE_NOT_REACHED=0, PULLBACK_INVALID=0, REGIME_CAPPED=0, SCORE_MAPPING_MISSING=0, INPUT_NOT_CONNECTED=${breakoutUnresolved}`);
 
@@ -535,6 +567,8 @@ export function formatEntryFilterDecompositionSection(
   lines.push('- earningsQuality status=unavailable');
   lines.push('- scoreImpact=limited_to_high_conviction');
   lines.push('- executionImpact=NONE');
+  lines.push('- shadowObservablePreserved=true');
+  lines.push('- strongBuyAllowed=false');
   lines.push('- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE');
   lines.push('- entryHardBlockImpact=NO');
 

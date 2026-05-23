@@ -207,12 +207,22 @@ it('wires canonical positive feature inputs into Gate1 trace and score curve aud
   expect(d.candidateTraces.every((trace) => Number.isFinite(trace.relativeReturn20d))).toBe(true);
   expect(d.candidateTraces.every((trace) => Number.isFinite(trace.rsRankPct))).toBe(true);
   const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('- projectionRawComputedCount=3');
+  expect(formatted).toContain('- projectionDerivedComputedCount=3');
+  expect(formatted).toContain('- gateTraceConsumedCount=3');
   expect(formatted).toContain('- inputPathResolvedCount=3');
   expect(formatted).toContain('- inputPathUnresolvedCount=0');
+  expect(formatted).toContain('- rsRawInputCount=3');
+  expect(formatted).toContain('- rsDerivedInputCount=3');
   expect(formatted).toContain('- rsRankPctComputedCount=3');
+  expect(formatted).toContain('- rsScoreAppliedCount=3');
+  expect(formatted).toContain('- fallbackIncluded=false');
   expect(formatted).toContain('- runtimeScoreComputed=3');
   expect(formatted).toContain('- scoreMappedToGate=3');
+  expect(formatted).toContain('- TRACE_NOT_PROJECTED=0');
   expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
+  expect(formatted).toContain('- shadowObservablePreserved=true');
+  expect(formatted).toContain('- strongBuyAllowed=false');
 });
 
 it('materializes Gate2/Gate3 runtime diagnostics into quote features and RS percentile', () => {
@@ -271,12 +281,19 @@ it('materializes Gate2/Gate3 runtime diagnostics into quote features and RS perc
   expect(d.candidateTraces.every((trace) => Number.isFinite(trace.high20d))).toBe(true);
 
   const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('- projectionRawComputedCount=3');
+  expect(formatted).toContain('- projectionDerivedComputedCount=3');
+  expect(formatted).toContain('- gateTraceConsumedCount=3');
   expect(formatted).toContain('- return5dCount=3');
   expect(formatted).toContain('- return20dCount=3');
   expect(formatted).toContain('- relativeReturn20dCount=3');
+  expect(formatted).toContain('- rsRawInputCount=3');
+  expect(formatted).toContain('- rsDerivedInputCount=3');
   expect(formatted).toContain('- rsRankPctComputedCount=3');
   expect(formatted).toContain('- relativeStrengthScoreComputedCount=3');
+  expect(formatted).toContain('- rsScoreAppliedCount=3');
   expect(formatted).toContain('- missingByMapping=0');
+  expect(formatted).toContain('- TRACE_NOT_PROJECTED=0');
   expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
 });
 
@@ -307,6 +324,9 @@ it('uses Gate1Trace rawValue when report rows no longer carry quote feature fiel
   }
 
   const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('- projectionRawComputedCount=0');
+  expect(formatted).toContain('- projectionDerivedComputedCount=3');
+  expect(formatted).toContain('- gateTraceConsumedCount=3');
   expect(formatted).toContain('- return5dCount=3');
   expect(formatted).toContain('- return20dCount=3');
   expect(formatted).toContain('- relativeReturn20dCount=3');
