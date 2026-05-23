@@ -857,6 +857,15 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     .slice(0, 5)
     .map((item) => `${item.feature}=${item.count}`)
     .join(', ') || 'none';
+  const total = Math.max(1, result.validCount);
+  const rsRawInputMissing = result.candidateSnapshots.filter((s) => s.relativeStrength === null && s.rsRankPct === null).length;
+  const breakoutRawTraceMissing = result.candidateSnapshots.filter((s) => s.breakout === null).length;
+  const supplyRawSemanticMissing = result.candidateSnapshots.filter((s) => s.supplyScore === null).length;
+  const sectorLeadershipOfficialMissing = result.candidateSnapshots.filter((s) => s.sectorScore === null).length;
+  const rsAppliedMissing = Math.max(0, total - result.candidateSnapshots.filter((s) => s.relativeStrength !== null || s.rsRankPct !== null).length);
+  const breakoutAppliedMissing = breakoutRawTraceMissing;
+  const supplyGateEligibleMissing = supplyRawSemanticMissing;
+  const sectorLeadershipBoostMissing = sectorLeadershipOfficialMissing;
   const topPenalties = result.diagnostics.topPenalties
     .slice(0, 5)
     .map((item) => `${item.penalty}=avg${item.avg}/n${item.count}`)
@@ -879,6 +888,8 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     `- fallbackUsed=${result.fallbackUsed}${result.fallbackReason ? ` reason=${result.fallbackReason}` : ''}`,
     `- topCandidateSources=${topSources}`,
     `- topMissingFeatures=${topMissing}`,
+    `- rawMissing: rsRawInputMissing=${rsRawInputMissing}/${total}, breakoutRawTraceMissing=${breakoutRawTraceMissing}/${total}, supplyRawSemanticMissing=${supplyRawSemanticMissing}/${total}, sectorLeadershipOfficialMissing=${sectorLeadershipOfficialMissing}/${total}`,
+    `- gateAppliedMissing: rsAppliedMissing=${rsAppliedMissing}/${total}, breakoutAppliedMissing=${breakoutAppliedMissing}/${total}, supplyGateEligibleMissing=${supplyGateEligibleMissing}/${total}, sectorLeadershipBoostMissing=${sectorLeadershipBoostMissing}/${total}`,
     `- topPenalties=${topPenalties}`,
     '- Candidate evaluation active',
     '- Live order permission separated',
