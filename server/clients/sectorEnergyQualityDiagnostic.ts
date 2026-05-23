@@ -272,6 +272,15 @@ export interface SectorEnergyQualityDiagnostic {
     displayName: string;
     count: number;
   }>;
+  officialIndexCoverage?: number;
+  internalProxyCoverage?: number;
+  stockBasketCoverage?: number;
+  leadershipConfidence?: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED';
+  promotionAllowed?: boolean;
+  shadowLeadershipAllowed?: boolean;
+  counterfactualAllowed?: boolean;
+  selectedSectorEnergySourceTier?: string;
+  reasonCodes?: string[];
 }
 
 // ─── SSOT 입력 타입 ──────────────────────────────────────────────────────
@@ -349,6 +358,9 @@ export interface EvaluateSectorEnergyQualityInput {
     displayName: string;
     count: number;
   }>;
+  officialIndexCoverage?: number;
+  internalProxyCoverage?: number;
+  stockBasketCoverage?: number;
 }
 
 // ─── 임계 SSOT (ADR-0423 §C 사용자 명시 정합 — 절대 변경 금지) ──────────────
@@ -615,6 +627,25 @@ export function evaluateSectorEnergyQualityDiagnostic(
   }
 
   const operatorMessage = buildOperatorMessage(dataQuality, reasons, indexCodeCoverage, fallbackUsed);
+  const officialIndexCoverage = Number.isFinite(input.officialIndexCoverage) ? Math.max(0, Math.min(1, Number(input.officialIndexCoverage))) : indexCodeCoverage;
+  const internalProxyCoverage = Number.isFinite(input.internalProxyCoverage) ? Math.max(0, Math.min(1, Number(input.internalProxyCoverage))) : 0;
+  const stockBasketCoverage = Number.isFinite(input.stockBasketCoverage)
+    ? Math.max(0, Math.min(1, Number(input.stockBasketCoverage)))
+    : input.sourceTier === 'KIS_STOCK_BASKET_DERIVED' ? 1 : 0;
+  const leadershipConfidence: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED' =
+    officialIndexCoverage >= 0.8 ? 'VERIFIED'
+      : officialIndexCoverage > 0 ? 'PARTIAL'
+        : (internalProxyCoverage > 0 || stockBasketCoverage > 0) ? 'SHADOW_ONLY'
+          : 'BLOCKED';
+  const promotionAllowed = leadershipConfidence === 'VERIFIED';
+  const shadowLeadershipAllowed = internalProxyCoverage > 0 || stockBasketCoverage > 0 || leadershipConfidence === 'VERIFIED' || leadershipConfidence === 'PARTIAL';
+  const reasonCodes = [
+    ...(officialIndexCoverage === 0 ? ['OFFICIAL_INDEX_COVERAGE_ZERO'] : []),
+    ...(officialIndexCoverage > 0 && officialIndexCoverage < 0.8 ? ['OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'] : []),
+    ...(leadershipConfidence === 'SHADOW_ONLY' ? ['SHADOW_LEADERSHIP_RECORDED'] : []),
+    ...(promotionAllowed ? ['OFFICIAL_INDEX_MASTER_LOADED'] : ['PROMOTION_DISABLED_COVERAGE_BELOW_80']),
+    'EXECUTION_IMPACT_NONE_CONFIRMED',
+  ];
 
   // ADR-0424: backfill stats + repair status 분류 SSOT.
   const indexCodeBackfilledCount =
@@ -670,6 +701,15 @@ export function evaluateSectorEnergyQualityDiagnostic(
       : input.sectorIndexRecovery?.topRecoveredAliases !== undefined
         ? { topRecoveredAliases: input.sectorIndexRecovery.topRecoveredAliases }
         : {}),
+    officialIndexCoverage,
+    internalProxyCoverage,
+    stockBasketCoverage,
+    leadershipConfidence,
+    promotionAllowed,
+    shadowLeadershipAllowed,
+    counterfactualAllowed: true,
+    selectedSectorEnergySourceTier: input.sourceTier ?? 'NONE',
+    reasonCodes,
   };
 }
 
