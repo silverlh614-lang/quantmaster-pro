@@ -853,22 +853,46 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     .slice(0, 5)
     .map((item) => `${item.source}=${item.count}`)
     .join(', ') || 'none';
-  const topMissing = result.diagnostics.topMissingFeatures
-    .slice(0, 5)
-    .map((item) => `${item.feature}=${item.count}`)
-    .join(', ') || 'none';
+
   const total = Math.max(1, result.validCount);
-  const rsRawInputMissing = result.candidateSnapshots.filter((s) => s.relativeStrength === null && s.rsRankPct === null).length;
-  const breakoutRawTraceMissing = result.candidateSnapshots.filter((s) => s.breakout === null).length;
-  const supplyRawSemanticMissing = result.candidateSnapshots.filter((s) => s.supplyScore === null).length;
-  const sectorLeadershipOfficialMissing = result.candidateSnapshots.filter((s) => s.sectorScore === null).length;
-  const rsAppliedMissing = Math.max(0, total - result.candidateSnapshots.filter((s) => s.relativeStrength !== null || s.rsRankPct !== null).length);
+  const countMissing = (feature: CandidateMissingFeature): number =>
+    result.candidateSnapshots.filter((s) => s.missingFeatures.includes(feature)).length;
+
+  const rsRawInputMissing = countMissing('RS_SCORE_MISSING');
+  const breakoutRawTraceMissing = countMissing('BREAKOUT_SCORE_MISSING');
+  const supplyRawSemanticMissing = countMissing('SUPPLY_MISSING');
+  const sectorLeadershipOfficialMissing = countMissing('SECTOR_LEADERSHIP_MISSING');
+  const volumeEnergyRawMissing = countMissing('VOLUME_ENERGY_MISSING');
+  const rsAppliedMissing = rsRawInputMissing;
   const breakoutAppliedMissing = breakoutRawTraceMissing;
   const supplyGateEligibleMissing = supplyRawSemanticMissing;
   const sectorLeadershipBoostMissing = sectorLeadershipOfficialMissing;
-  const topPenalties = result.diagnostics.topPenalties
+
+  const actualMissingFeatures = [
+    `rsRawInputMissing=${rsRawInputMissing}/${total}`,
+    `breakoutRawTraceMissing=${breakoutRawTraceMissing}/${total}`,
+    `supplyRawSemanticMissing=${supplyRawSemanticMissing}/${total}`,
+    `sectorLeadershipOfficialMissing=${sectorLeadershipOfficialMissing}/${total}`,
+    `volumeEnergyRawMissing=${volumeEnergyRawMissing}/${total}`,
+    `rsAppliedMissing=${rsAppliedMissing}/${total}`,
+    `breakoutAppliedMissing=${breakoutAppliedMissing}/${total}`,
+    `supplyGateEligibleMissing=${supplyGateEligibleMissing}/${total}`,
+    `sectorLeadershipBoostMissing=${sectorLeadershipBoostMissing}/${total}`,
+  ].join(', ');
+
+  const topFeaturePromotionGaps = result.diagnostics.topMissingFeatures
+    .slice(0, 5)
+    .map((item) => `${item.feature.replace('_MISSING', '_NOT_PROMOTED')}=${item.count}`)
+    .join(', ') || 'none';
+
+  const topFeatureConfidencePenalties = result.diagnostics.topPenalties
     .slice(0, 5)
     .map((item) => `${item.penalty}=avg${item.avg}/n${item.count}`)
+    .join(', ') || 'none';
+
+  const deprecatedTopMissing = result.diagnostics.topMissingFeatures
+    .slice(0, 5)
+    .map((item) => `${item.feature}=${item.count}`)
     .join(', ') || 'none';
 
   return [
@@ -887,10 +911,10 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     `- counterfactualRecorded=${result.counterfactualRecorded}`,
     `- fallbackUsed=${result.fallbackUsed}${result.fallbackReason ? ` reason=${result.fallbackReason}` : ''}`,
     `- topCandidateSources=${topSources}`,
-    `- topMissingFeatures=${topMissing}`,
-    `- rawMissing: rsRawInputMissing=${rsRawInputMissing}/${total}, breakoutRawTraceMissing=${breakoutRawTraceMissing}/${total}, supplyRawSemanticMissing=${supplyRawSemanticMissing}/${total}, sectorLeadershipOfficialMissing=${sectorLeadershipOfficialMissing}/${total}`,
-    `- gateAppliedMissing: rsAppliedMissing=${rsAppliedMissing}/${total}, breakoutAppliedMissing=${breakoutAppliedMissing}/${total}, supplyGateEligibleMissing=${supplyGateEligibleMissing}/${total}, sectorLeadershipBoostMissing=${sectorLeadershipBoostMissing}/${total}`,
-    `- topPenalties=${topPenalties}`,
+    `- actualMissingFeatures=${actualMissingFeatures}`,
+    `- topFeaturePromotionGaps=${topFeaturePromotionGaps}`,
+    `- topFeatureConfidencePenalties=${topFeatureConfidencePenalties}`,
+    `- topMissingFeatures(deprecated)=${deprecatedTopMissing}`,
     '- Candidate evaluation active',
     '- Live order permission separated',
     '- Shadow candidate tracking ON',
