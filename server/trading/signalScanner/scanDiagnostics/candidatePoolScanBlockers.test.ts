@@ -104,10 +104,54 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('Gate2 pending preserved: 3');
     expect(text).toContain('- counterfactualLedgerRowsCreated=0');
     expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=0 paperEntrySkippedCount=3');
+    expect(text).toContain('- paperEntrySkipReasonDistribution={}');
+    expect(text).toContain('- paperEntryForensicStatus=INVALID');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');
     expect(text).toContain('executionImpact=NONE');
+  });
+
+  it('emits paper-entry forensic details when skip reasons are available', () => {
+    const summary = {
+      time: '12:07 KST',
+      candidates: 3,
+      trackB: 0,
+      swing: 0,
+      catalyst: 0,
+      momentum: 0,
+      yahooFails: 0,
+      gateMisses: 0,
+      rrrMisses: 0,
+      entries: 0,
+      gate2SoftLeadershipLane: {
+        gate1HardSurvivors: 3,
+        minSignalLivePass: 3,
+        gate2PendingPreserved: 3,
+        labels: [],
+        shadowObservablePreserved: true,
+        watchPreserved: true,
+        counterfactualRecorded: true,
+        executionImpact: 'NONE',
+      },
+      paperEntryForensic: {
+        candidateSymbols: ['005930', '000660', '035420'],
+        createdSymbols: ['005930'],
+        skippedSymbols: ['000660', '035420'],
+        skipReasonDistribution: { DUPLICATE_OPEN_POSITION: 1, STALE_PRICE: 1 },
+        topSkipReason: 'DUPLICATE_OPEN_POSITION',
+        executionImpact: 'NONE',
+      },
+    } satisfies ScanSummary;
+
+    const text = formatScanBlockersMessage(summary);
+    expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=1 paperEntrySkippedCount=2');
+    expect(text).toContain('- paperEntrySkipReasonDistribution={\"DUPLICATE_OPEN_POSITION\":1,\"STALE_PRICE\":1}');
+    expect(text).toContain('- paperEntryCandidateSymbols=005930,000660,035420');
+    expect(text).toContain('- paperEntryCreatedSymbols=005930');
+    expect(text).toContain('- paperEntrySkippedSymbols=000660,035420');
+    expect(text).toContain('- paperEntryTopSkipReason=DUPLICATE_OPEN_POSITION');
+    expect(text).toContain('- paperEntryForensicStatus=OK');
   });
 
   it('prints stale legacy R6 as deprecated-only while keeping canonical effective regime', () => {
