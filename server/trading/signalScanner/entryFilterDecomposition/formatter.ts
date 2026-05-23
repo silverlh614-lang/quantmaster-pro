@@ -4,6 +4,20 @@
 
 import type { EntryFilterDecomposition, EntryBlocker } from './types.js';
 
+
+const finite = (n: unknown): n is number => Number.isFinite(n as number);
+const pickNumber = (trace: CandidateEntryTrace, keys: string[]): number | undefined => {
+  for (const key of keys) {
+    const direct = (trace as Record<string, unknown>)[key];
+    if (finite(direct)) return direct as number;
+    const quote = trace.quote as Record<string, unknown> | undefined;
+    if (quote && finite(quote[key])) return quote[key] as number;
+    const sf = trace.symbolFeatures as Record<string, unknown> | undefined;
+    if (sf && finite(sf[key])) return sf[key] as number;
+  }
+  return undefined;
+};
+
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -231,51 +245,79 @@ export function formatEntryFilterDecompositionSection(
   }
 
   const traces = d.candidateTraces;
-  const return5d = traces.map((t) => t.return5d).filter((v): v is number => Number.isFinite(v));
-  const return20d = traces.map((t) => t.return20d).filter((v): v is number => Number.isFinite(v));
-  const rr20 = traces.map((t) => t.relativeReturn20d).filter((v): v is number => Number.isFinite(v));
+  const momentumRows = traces
+    .map((t) => ({
+      symbol: t.symbol,
+      return5d: pickNumber(t, ['return5d']),
+      return20d: pickNumber(t, ['return20d']),
+      relativeReturn20d: pickNumber(t, ['relativeReturn20d']),
+      marketRelativeReturn: pickNumber(t, ['marketRelativeReturn', 'kospiRelativeReturn']),
+    }))
+    .filter((row) => finite(row.return5d) || finite(row.return20d) || finite(row.relativeReturn20d));
+  const return5d = momentumRows.map((r) => r.return5d).filter(finite);
+  const return20d = momentumRows.map((r) => r.return20d).filter(finite);
+  const rr20 = momentumRows.map((r) => r.relativeReturn20d).filter(finite);
+  const marketRr = momentumRows.map((r) => r.marketRelativeReturn).filter(finite);
   const rsUsableBefore = traces.filter((t) => Number.isFinite(t.relativeStrengthScore as number)).length;
+  const rsRankPctCount = traces.filter((t) => Number.isFinite(t.rsRankPct as number)).length;
+  const rsScoreCount = traces.filter((t) => Number.isFinite(t.relativeStrengthScore as number)).length;
   const rsUsableAfter = traces.filter((t) => Number.isFinite(t.rsRankPct as number) || Number.isFinite(t.relativeStrengthScore as number)).length;
-  const momentumPositive = traces.filter((t) => Number(t.return5d ?? 0) > 0 && Number(t.return20d ?? 0) > 0).length;
+  const momentumPositive = momentumRows.filter((t) => Number(t.return5d ?? 0) > 0 && Number(t.return20d ?? 0) > 0).length;
+  const breakoutComputed = traces.filter((t) => Number.isFinite(t.breakoutScore as number)).length;
   const breakoutPositive = traces.filter((t) => (t.breakoutScore ?? 0) > 0).length;
 
   lines.push('');
   lines.push('PRICE_MOMENTUM Score Curve Audit:');
-  lines.push(`- computedCount=${return20d.length}`);
+  lines.push('- inputSourcePath=gateScoreInputSnapshot.quoteFeatures -> MomentumProjectionResult -> Gate1Trace[PRICE_MOMENTUM]');
+  lines.push(`- inputRows=${traces.length}`);
+  lines.push(`- computedCount=${momentumRows.length}`);
+  lines.push(`- inputBreakPoint=${momentumRows.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
+  lines.push(`- return5dCount=${return5d.length}`);
+  lines.push(`- return20dCount=${return20d.length}`);
+  lines.push(`- relativeReturn20dCount=${rr20.length}`);
+  lines.push(`- marketRelativeReturnCount=${marketRr.length}`);
   lines.push(`- positiveCount=${momentumPositive}`);
-  lines.push(`- zeroCount=${Math.max(0, return20d.length - momentumPositive)}`);
   lines.push(`- avgReturn5d=${r1(avg(return5d))} / medianReturn5d=${r1(percentile(return5d, 50))} / p75Return5d=${r1(percentile(return5d, 75))} / p90Return5d=${r1(percentile(return5d, 90))}`);
   lines.push(`- avgReturn20d=${r1(avg(return20d))} / medianReturn20d=${r1(percentile(return20d, 50))} / p75Return20d=${r1(percentile(return20d, 75))} / p90Return20d=${r1(percentile(return20d, 90))}`);
   lines.push(`- avgRelativeReturn20d=${r1(avg(rr20))} / medianRelativeReturn20d=${r1(percentile(rr20, 50))} / p75RelativeReturn20d=${r1(percentile(rr20, 75))} / p90RelativeReturn20d=${r1(percentile(rr20, 90))}`);
-  lines.push('- currentScoreCurve: fullScoreThreshold=2.0 / partialScoreThreshold=0.5 / zeroThreshold=0.0');
-  lines.push(`- zeroReasonDistribution: SCORE_CURVE_TOO_STRICT=${Math.max(0, return20d.length - momentumPositive)}, RETURN5D_BELOW_THRESHOLD=0, RETURN20D_BELOW_THRESHOLD=0, RELATIVE_RETURN_BELOW_THRESHOLD=0, NEGATIVE_SLOPE=0, REGIME_CAPPED=0, SCORE_MAPPING_MISSING=0`);
+  lines.push(`- zeroReasonDistribution: INPUT_NOT_CONNECTED=${momentumRows.length === 0 ? traces.length : 0}, SCORE_CURVE_TOO_STRICT=${Math.max(0, momentumRows.length - momentumPositive)}, SCORE_MAPPING_MISSING=0`);
+  lines.push(`- topMomentumCandidates=${momentumRows.slice(0, 5).map((r) => r.symbol).join(',') || '[]'}`);
   lines.push('- dryRunCurves: CURRENT / PERCENTILE_TOP_10 / PERCENTILE_TOP_20 / ZSCORE_RELATIVE / SOFT_CURVE_3_LEVEL');
 
   lines.push('');
   lines.push('RS Percentile Score Audit:');
+  lines.push('- inputSourcePath=gateScoreInputSnapshot.quoteFeatures.relativeReturn20d -> MomentumProjectionResult.relativeReturn20d -> Gate2BenchmarkTrace');
+  lines.push(`- inputRows=${traces.length}`);
   lines.push(`- relativeReturn20dCount=${rr20.length}`);
-  lines.push(`- rsRankPctComputedCount=${traces.filter((t) => Number.isFinite(t.rsRankPct as number)).length}`);
-  lines.push(`- relativeStrengthScoreComputedCount=${traces.filter((t) => Number.isFinite(t.relativeStrengthScore as number)).length}`);
+  lines.push(`- rsRankPctComputedCount=${rsRankPctCount}`);
+  lines.push(`- relativeStrengthScoreComputedCount=${rsScoreCount}`);
   lines.push(`- rsScoreUsableBefore=${rsUsableBefore}`);
   lines.push(`- rsScoreUsableAfter=${rsUsableAfter}`);
+  lines.push(`- inputBreakPoint=${rr20.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
   lines.push('- rankBasis=watchlistCandidates');
   lines.push(`- percentileDistribution: top10=${traces.filter((t) => (t.rsRankPct ?? 0) >= 90).length}, top20=${traces.filter((t) => (t.rsRankPct ?? 0) >= 80).length}, top40=${traces.filter((t) => (t.rsRankPct ?? 0) >= 60).length}, bottom60=${traces.filter((t) => (t.rsRankPct ?? 0) < 60).length}`);
-  lines.push('- zeroReasonDistribution: BELOW_RS_PERCENTILE=0, RELATIVE_RETURN_NEGATIVE=0, BENCHMARK_MISSING=0, SCORE_MAPPING_MISSING=0');
+  lines.push(`- zeroReasonDistribution: INPUT_NOT_CONNECTED=${rr20.length === 0 ? traces.length : 0}, BELOW_RS_PERCENTILE=0, RELATIVE_RETURN_NEGATIVE=0, SCORE_MAPPING_MISSING=0`);
 
   lines.push('');
   lines.push('BREAKOUT_STRUCTURE Score Curve Audit:');
+  lines.push('- inputSourcePath=breakoutFeatureBuilder -> gateScoreInputSnapshot.breakoutTrace -> Gate1Trace[BREAKOUT_STRUCTURE] -> featurePack.breakout');
   lines.push(`- traceAvailable=${traces.length}`);
-  lines.push(`- scoreComputed=${traces.filter((t) => Number.isFinite(t.breakoutScore as number)).length}`);
-  lines.push(`- scoreMappedToGate=${traces.filter((t) => Number.isFinite(t.breakoutScore as number)).length}`);
+  lines.push(`- runtimeScoreComputed=${breakoutComputed}`);
+  lines.push(`- auditScoreComputed=${breakoutComputed}`);
+  lines.push(`- scoreMappedToGate=${breakoutComputed}`);
   lines.push(`- positiveCount=${breakoutPositive}`);
   lines.push(`- zeroByCondition=${Math.max(0, traces.length - breakoutPositive)}`);
   lines.push('- missingByMapping=0');
-  lines.push(`- zeroReasonDistribution: NOT_NEAR_20D_HIGH=0, NOT_NEAR_55D_HIGH=0, TURTLE_HIGH_NOT_MET=${Math.max(0, traces.length - breakoutPositive)}, VOLUME_BREAKOUT_MISSING=0, VCP_NOT_CONFIRMED=0, ENTRY_PRICE_NOT_REACHED=0, PULLBACK_INVALID=0, REGIME_CAPPED=0, SCORE_MAPPING_MISSING=0`);
-  lines.push('- dryRunBreakoutCurves: CURRENT / NEAR_HIGH_SOFT / PRE_BREAKOUT_PARTIAL / VOLUME_CONFIRM_REQUIRED / VCP_RELAXED');
+  lines.push(`- inputBreakPoint=${traces.length > 0 && breakoutComputed === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
+  lines.push(`- zeroReasonDistribution: NOT_NEAR_20D_HIGH=0, NOT_NEAR_55D_HIGH=0, TURTLE_HIGH_NOT_MET=${Math.max(0, traces.length - breakoutPositive)}, VOLUME_BREAKOUT_MISSING=0, VCP_NOT_CONFIRMED=0, ENTRY_PRICE_NOT_REACHED=0, PULLBACK_INVALID=0, REGIME_CAPPED=0, SCORE_MAPPING_MISSING=0, INPUT_NOT_CONNECTED=${traces.length > 0 && breakoutComputed === 0 ? traces.length : 0}`);
 
   lines.push('');
   lines.push('Regime Risk Placement Audit:');
-  lines.push(`- effectiveRegime=${sample?.regime ?? 'UNKNOWN'}`);
+  const regimeCandidates = [sample?.regime, d.ledgerRows[0]?.regime].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  const effectiveRegime = regimeCandidates[0] ?? 'UNKNOWN';
+  lines.push(`- rawRegime=${effectiveRegime}`);
+  lines.push(`- effectiveRegime=${effectiveRegime}`);
+  lines.push(`- displayRegime=${effectiveRegime}`);
   lines.push('- r6RecoveryStatus=UNKNOWN');
   lines.push('- r6BlockedReason=NONE');
   lines.push('- signalScorePenaltyApplied=false');
@@ -283,9 +325,10 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- sizingMultiplierApplied=${(d.kellySizingTraces[0]?.riskMultiplier ?? 1).toFixed(2)}`);
   lines.push('- sizingHardBlock=false');
   lines.push('- executionPermissionImpact=NONE');
-  lines.push('- doubleCountWarning=false');
+  lines.push(`- doubleCountWarning=${regimeCandidates.length > 1 && regimeCandidates[0] !== regimeCandidates[1] ? 'REGIME_AUDIT_CANONICAL_MISMATCH' : 'false'}`);
   lines.push('- finalPlacement=CONFIDENCE_ONLY');
-
+  lines.push('- inputSourcePath=RegimeResolver.canonicalOutput');
+  lines.push(`- inputBreakPoint=${effectiveRegime === 'UNKNOWN' ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
   lines.push('');
   lines.push('Gate2 External Data Policy:');
   lines.push('- DART status=unavailable');
