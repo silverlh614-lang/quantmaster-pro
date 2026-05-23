@@ -27,7 +27,7 @@ import { formatGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr04
 import { formatGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
 import { formatGate1DryRunObservationSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
 import { formatInvestorFlowProviderRouterAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
-import { type ScanSummary } from './scanSummaryTypes.js';
+import { type PaperEntryCandidateForensic, type ScanSummary } from './scanSummaryTypes.js';
 import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection } from './gateScoreDiagnostics.js';
 import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection } from './gateLayerDiagnostics.js';
 import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
@@ -49,9 +49,44 @@ function formatRuntimeWiringSummary(
   summary: ScanSummary,
   canonical: CanonicalRuntimeResolutionStep27,
 ): string {
+  const softLane = summary.gate2SoftLeadershipLane;
+  const derivePaperEntryForensic = () => {
+    const paperForensic = summary.paperEntryForensic;
+    const candidates = paperForensic?.candidates ?? [];
+    const candidateSymbols = candidates.map((candidate) => candidate.symbol);
+    const createdCandidates = candidates.filter((candidate) => candidate.paperEntryDecision === 'CREATED');
+    const skippedCandidates = candidates.filter((candidate) => candidate.paperEntryDecision === 'SKIPPED' || candidate.paperEntryDecision === 'BLOCKED' || candidate.paperEntryDecision === 'ERROR');
+    const skippedWithoutReason = skippedCandidates.filter((candidate) => !candidate.paperEntrySkipReason).length;
+    const skipReasonDistribution = skippedCandidates.reduce<Record<string, number>>((acc, candidate) => {
+      if (!candidate.paperEntrySkipReason) return acc;
+      acc[candidate.paperEntrySkipReason] = (acc[candidate.paperEntrySkipReason] ?? 0) + 1;
+      return acc;
+    }, {});
+    const createdSymbols = createdCandidates.map((candidate) => candidate.symbol);
+    const skippedSymbols = skippedCandidates.map((candidate) => candidate.symbol);
+    const candidateCount = candidates.length || softLane?.gate1HardSurvivors || 0;
+    const createdCount = createdCandidates.length || paperForensic?.createdSymbols?.length || 0;
+    const skippedCount = skippedCandidates.length || Math.max(0, candidateCount - createdCount);
+    const topSkipReason = paperForensic?.topSkipReason ?? Object.entries(skipReasonDistribution).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const invariantValid =
+      candidateCount === candidateSymbols.length &&
+      createdCount === createdSymbols.length &&
+      skippedCount === skippedSymbols.length &&
+      createdCount + skippedCount === candidateCount;
+    const invalidReasons: string[] = [];
+    if (candidateCount > 0 && candidateSymbols.length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SYMBOL_PAYLOAD_CARRY');
+    if (skippedCount > 0 && skippedSymbols.length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SYMBOL_PAYLOAD_CARRY');
+    if (skippedCount > 0 && Object.keys(skipReasonDistribution).length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SKIP_REASON_EMISSION');
+    if (!invariantValid) invalidReasons.push('FIX_PAPER_ENTRY_FORENSIC_CARRY');
+    if (skippedWithoutReason > 0) invalidReasons.push('FIX_PAPER_ENTRY_SKIP_REASON_EMISSION');
+    const forensicStatus = invalidReasons.length > 0 ? 'INVALID' : 'VALID';
+    const recommendedAction = invalidReasons.length > 0 ? Array.from(new Set(invalidReasons)).join(',') : 'NONE';
+    return { candidates, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid, recommendedAction };
+  };
+
+  const paper = derivePaperEntryForensic();
   const candidatePool = summary.candidatePool;
   const forensic = summary.gate1MinimumSignalForensicAdr0505;
-  const softLane = summary.gate2SoftLeadershipLane;
   const total = summary.candidates || candidatePool?.candidateSnapshots.length || 0;
   const gateScoreInputCandidates =
     summary.entryFilterDecomposition?.tracedCandidates ??
@@ -75,19 +110,16 @@ function formatRuntimeWiringSummary(
     shadowObservableStrictCount,
     (softLane?.gate1HardSurvivors ?? 0) + (softLane?.gate2PendingPreserved ?? 0) + minSignalLivePass,
   );
-  const paperEntryCandidateCount = softLane?.gate1HardSurvivors ?? 0;
-  const paperEntryCreatedCount = summary.paperEntryForensic?.createdSymbols?.length ?? 0;
-  const paperEntrySkippedCount = Math.max(0, paperEntryCandidateCount - paperEntryCreatedCount);
-  const paperEntryCandidateSymbols = summary.paperEntryForensic?.candidateSymbols ?? [];
-  const paperEntryCreatedSymbols = summary.paperEntryForensic?.createdSymbols ?? [];
-  const paperEntrySkippedSymbols = summary.paperEntryForensic?.skippedSymbols ?? [];
-  const paperEntrySkipReasonDistribution = summary.paperEntryForensic?.skipReasonDistribution ?? {};
-  const paperEntryTopSkipReason = summary.paperEntryForensic?.topSkipReason
-    ?? Object.entries(paperEntrySkipReasonDistribution).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const paperEntryCandidateCount = paper.candidateCount;
+  const paperEntryCreatedCount = paper.createdCount;
+  const paperEntrySkippedCount = paper.skippedCount;
+  const paperEntryCandidateSymbols = paper.candidateSymbols;
+  const paperEntryCreatedSymbols = paper.createdSymbols;
+  const paperEntrySkippedSymbols = paper.skippedSymbols;
+  const paperEntrySkipReasonDistribution = paper.skipReasonDistribution;
+  const paperEntryTopSkipReason = paper.topSkipReason;
   const paperEntryExecutionImpact = summary.paperEntryForensic?.executionImpact ?? 'NONE';
-  const paperEntryForensicStatus = paperEntrySkippedCount > 0 && Object.keys(paperEntrySkipReasonDistribution).length === 0
-    ? 'INVALID'
-    : 'OK';
+  const paperEntryForensicStatus = paper.forensicStatus;
   const macro = summary.macroGateState;
   const rawRegime = macro?.macroRegimeRaw ?? macro?.regime ?? 'UNKNOWN';
   const legacyEffectiveRegime = macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN';
@@ -125,11 +157,36 @@ function formatRuntimeWiringSummary(
     `- paperEntryTopSkipReason=${paperEntryTopSkipReason ?? '-'}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryForensicStatus=${paperEntryForensicStatus}`,
+    `- paperEntryInvariantValid=${paper.invariantValid}`,
+    `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
+    `- paperEntryRecommendedAction=${paper.recommendedAction}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
     `- legacyR6Path: ${effectiveRegime !== legacyEffectiveRegime ? 'deprecated/notUsedForDecision' : 'notUsed'}`,
   ];
+
+  if (paper.candidates.length > 0) {
+    lines.push('[PaperEntry Forensic]');
+    const formatCandidate = (candidate: PaperEntryCandidateForensic): string[] => [
+      `- symbol=${candidate.symbol}`,
+      `  eligible=${candidate.paperEntryEligible}`,
+      `  decision=${candidate.paperEntryDecision}`,
+      `  skipReason=${candidate.paperEntrySkipReason ?? '-'}`,
+      `  skipStage=${candidate.paperEntrySkipStage ?? '-'}`,
+      `  gate1HardSurvivor=${candidate.gate1HardSurvivor}`,
+      `  minSignalLivePass=${candidate.minSignalLivePass}`,
+      `  gate2PendingPreserved=${candidate.gate2PendingPreserved}`,
+      `  shadowObservableStrict=${candidate.shadowObservableStrict}`,
+      `  priceSource=${candidate.priceSource ?? '-'}`,
+      `  resolvedEntryPrice=${candidate.resolvedEntryPrice ?? '-'}`,
+      `  sizingAllowed=${candidate.sizingAllowed}`,
+      `  duplicateKey=${candidate.duplicateKey ?? '-'}`,
+      `  existingOpenShadowPosition=${candidate.existingOpenShadowPosition}`,
+      `  existingPendingPaperOrder=${candidate.existingPendingPaperOrder}`,
+    ];
+    for (const candidate of paper.candidates) lines.push(...formatCandidate(candidate));
+  }
   return lines.join('\n');
 }
 

@@ -260,12 +260,62 @@ export interface ScanSummary {
   supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491;
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
   candidatePool?: CandidatePoolResult;
-  paperEntryForensic?: {
-    candidateSymbols?: string[];
-    createdSymbols?: string[];
-    skippedSymbols?: string[];
-    skipReasonDistribution?: Record<string, number>;
-    executionImpact?: 'NONE' | 'SHADOW_ONLY' | 'LIVE_BLOCKED';
-    topSkipReason?: string;
-  };
+  paperEntryForensic?: PaperEntryForensicSummary;
+}
+
+export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';
+
+export type PaperEntrySkipReason =
+  | 'DUPLICATE_PENDING_ORDER'
+  | 'DUPLICATE_OPEN_POSITION'
+  | 'PRICE_UNRESOLVED'
+  | 'STALE_PRICE'
+  | 'INVALID_ENTRY_PRICE'
+  | 'SIZING_ZERO'
+  | 'SIZING_ADVISORY_ONLY'
+  | 'SESSION_POLICY_BLOCKED'
+  | 'EXECUTION_PERMISSION_BLOCKED'
+  | 'GATE2_PENDING_OBSERVE_ONLY'
+  | 'PRE_BREAKOUT_WAIT_COOLDOWN'
+  | 'PAPER_ENGINE_DISABLED'
+  | 'PAPER_LEDGER_WRITE_FAILED'
+  | 'POSITION_REGISTRY_WRITE_FAILED'
+  | 'FORENSIC_CARRY_BROKEN'
+  | 'UNKNOWN_BUG';
+
+export interface PaperEntryCandidateForensic {
+  symbol: string;
+  name?: string;
+  sourceSnapshotId?: string;
+  candidateSetId?: string;
+  gateScoreInputSnapshotId?: string;
+  gate1HardSurvivor: boolean;
+  minSignalLivePass: boolean;
+  gate2PendingPreserved: boolean;
+  shadowObservableStrict: boolean;
+  shadowObservableSoft: boolean;
+  paperEntryEligible: boolean;
+  paperEntryDecision: PaperEntryDecision;
+  paperEntrySkipReason?: PaperEntrySkipReason;
+  paperEntrySkipStage?: string;
+  duplicateKey?: string;
+  existingOpenShadowPosition: boolean;
+  existingPendingPaperOrder: boolean;
+  resolvedEntryPrice?: number;
+  priceSource?: string;
+  quoteFreshness?: string;
+  sizingAllowed: boolean;
+  sizingReason?: string;
+  executionPermission?: string;
+  sessionPolicy?: string;
+}
+
+export interface PaperEntryForensicSummary {
+  candidates?: PaperEntryCandidateForensic[];
+  candidateSymbols?: string[];
+  createdSymbols?: string[];
+  skippedSymbols?: string[];
+  skipReasonDistribution?: Record<string, number>;
+  executionImpact?: 'NONE' | 'SHADOW_ONLY' | 'LIVE_BLOCKED';
+  topSkipReason?: string;
 }
