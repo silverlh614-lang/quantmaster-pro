@@ -117,11 +117,15 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- MinSignal live pass: 4');
     expect(text).toContain('Gate2 pending preserved: 3');
     expect(text).toContain('- counterfactualLedgerRowsCreated=3');
-    expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=3 paperEntrySkippedCount=0');
+    expect(text).toContain('- paperEntryCandidateCount=3 paperExecutableCreatedCount=0 paperObservationalCreatedCount=3 paperEntrySkippedCount=0');
+    expect(text).toContain('- paperCreatedTotal=3 paperCounterfactualCreatedCount=0');
+    expect(text).toContain('- PaperEntry: executableCreated=0 observationalCreated=3 skipped=0 executionImpact=NONE note=observational paper entries are not executable paper trades');
     expect(text).toContain('- paperEntrySkipReasonDistribution={}');
     expect(text).toContain('- paperEntrySoftLabelDistribution={"SCORE_BELOW_THRESHOLD":3,"GATE2_PENDING":3,"GATE3_PRE_BREAKOUT":3,"SIZING_BLOCKED":3}');
     expect(text).toContain('- paperEntryCandidateSymbols=000660,003230,002960');
     expect(text).toContain('- paperEntryCreatedSymbols=000660,003230,002960');
+    expect(text).toContain('- paperExecutableSymbols=-');
+    expect(text).toContain('- paperObservationalSymbols=000660,003230,002960');
     expect(text).toContain('- paperEntrySkippedSymbols=-');
     expect(text).toContain('- paperEntryForensicStatus=VALID');
     expect(text).toContain('- paperEntryInvariantValid=true');
@@ -129,8 +133,9 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntryRecommendedAction=NONE');
     expect(text).toContain('- paperEntryRealSkipReasonResolvedCount=0');
     expect(text).toContain('- paperEntryForensicFallbackReasonCount=0');
-    expect(text).toContain('000660:CREATED:primary=PAPER_ENTRY_CREATED:secondary=SCORE_BELOW_THRESHOLD,GATE2_PENDING,GATE3_PRE_BREAKOUT,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED');
-    expect(text).toContain('Entry Lane Split: liveCandidates=0 liveCreated=0 liveBlocked=0 paperCandidates=3 paperCreated=3 paperSkipped=0');
+    expect(text).toContain('000660:CREATED:kind=OBSERVATIONAL_PAPER_ENTRY:primary=OBSERVATIONAL_PAPER_ENTRY_CREATED:secondary=SCORE_BELOW_THRESHOLD,GATE2_PENDING,GATE3_PRE_BREAKOUT,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED:executable=false:promotionAllowed=false:liveOrderAllowed=false:paperExecutable=false:learningAllowed=true:executionImpact=NONE');
+    expect(text).toContain('paperStatisticsSeparation=observationalExcludedFromExecutablePnL:true');
+    expect(text).toContain('Entry Lane Split: liveCandidates=0 liveCreated=0 liveBlocked=0 paperCandidates=3 paperExecutableCreated=0 paperObservationalCreated=3 paperSkipped=0');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');
@@ -183,16 +188,67 @@ describe('scan_blockers candidate pool section', () => {
     } satisfies ScanSummary;
 
     const text = formatScanBlockersMessage(summary);
-    expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=1 paperEntrySkippedCount=2');
+    expect(text).toContain('- paperEntryCandidateCount=3 paperExecutableCreatedCount=0 paperObservationalCreatedCount=1 paperEntrySkippedCount=2');
+    expect(text).toContain('- paperCreatedTotal=1 paperCounterfactualCreatedCount=0');
     expect(text).toContain('- paperEntrySkipReasonDistribution={\"DUPLICATE_OPEN_POSITION\":1,\"STALE_PRICE\":1}');
     expect(text).toContain('- paperEntryCandidateSymbols=005930,000660,035420');
     expect(text).toContain('- paperEntryCreatedSymbols=005930');
+    expect(text).toContain('- paperObservationalSymbols=005930');
     expect(text).toContain('- paperEntrySkippedSymbols=000660,035420');
     expect(text).toContain('- paperEntryTopSkipReason=DUPLICATE_OPEN_POSITION');
     expect(text).toContain('- paperEntryForensicStatus=VALID');
     expect(text).toContain('- paperEntryInvariantValid=true');
     expect(text).toContain('- paperEntryRecommendedAction=NONE');
     expect(text).toContain('[PaperEntry Forensic]');
+  });
+
+  it('separates executable paper entries from observational paper entries', () => {
+    const summary = {
+      time: '12:08 KST',
+      candidates: 1,
+      trackB: 0,
+      swing: 0,
+      catalyst: 0,
+      momentum: 0,
+      yahooFails: 0,
+      gateMisses: 0,
+      rrrMisses: 0,
+      entries: 0,
+      paperEntryForensic: {
+        decisionRecords: [
+          {
+            symbol: '005930',
+            sourceSnapshotId: 'scan-eval:exec',
+            candidateSetId: 'candidateSet:exec',
+            gateScoreInputSnapshotId: 'gateScoreInput:exec',
+            scanId: 'scan-eval:exec',
+            decision: 'CREATED',
+            stage: 'ORDER_CREATION',
+            skipReason: 'NONE',
+            gate1HardSurvivor: true,
+            minSignalLivePass: true,
+            gate2PendingPreserved: false,
+            shadowObservableStrict: true,
+            shadowObservableSoft: true,
+            paperEntryEligible: true,
+            existingOpenShadowPosition: false,
+            existingPendingPaperOrder: false,
+            resolvedEntryPrice: 75_000,
+            priceSource: 'TEST_QUOTE',
+            sizingAllowed: true,
+            executionPermission: 'ALLOW',
+          },
+        ],
+        executionImpact: 'NONE',
+      },
+    } satisfies ScanSummary;
+
+    const text = formatScanBlockersMessage(summary);
+
+    expect(text).toContain('- paperEntryCandidateCount=1 paperExecutableCreatedCount=1 paperObservationalCreatedCount=0 paperEntrySkippedCount=0');
+    expect(text).toContain('- paperExecutableSymbols=005930');
+    expect(text).toContain('- paperObservationalSymbols=-');
+    expect(text).toContain('005930:CREATED:kind=EXECUTABLE_PAPER_ENTRY:primary=EXECUTABLE_PAPER_ENTRY_CREATED:secondary=NONE:score=PASS:gate1=PASS:gate2=PASS:gate3=PASS:sizing=PASS:executable=true:promotionAllowed=true:liveOrderAllowed=false:paperExecutable=true:learningAllowed=true:executionImpact=NONE');
   });
 
   it('renders SHADOW_ONLY holiday permission as paper/shadow allowed but live broker blocked', () => {
@@ -261,7 +317,10 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('brokerRouteAlive: true');
     expect(text).toContain('brokerLiveOrderAllowed: false');
     expect(text).toContain('paperOrderAllowed: true');
-    expect(text).toContain('Permission Resolution: canonicalSession=HOLIDAY displaySession=BUY_ALLOWED engineMode=SHADOW_ONLY brokerRouteAlive=true brokerLiveOrderAllowed=false');
+    expect(text).toContain('Permission Resolution: canonicalSession=HOLIDAY displaySession=HOLIDAY_SHADOW_OBSERVE liveEntryAllowed=false engineMode=SHADOW_ONLY brokerRouteAlive=true brokerLiveOrderAllowed=false');
+    expect(text).toContain('watchAllowed=true');
+    expect(text).toContain('executionImpact=NONE note=Holiday blocks live broker orders; paper/shadow observation remains allowed.');
+    expect(text).not.toContain('displaySession=BUY_ALLOWED');
     expect(text).not.toContain('brokerOrderAllowed: true');
   });
 

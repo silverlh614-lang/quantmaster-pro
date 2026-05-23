@@ -30,7 +30,13 @@ import { formatGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr04
 import { formatGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
 import { formatGate1DryRunObservationSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
 import { formatInvestorFlowProviderRouterAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
-import { type PaperEntryCandidateForensic, type PaperEntryDecisionRecord, type PaperEntrySkipReason, type ScanSummary } from './scanSummaryTypes.js';
+import {
+  type PaperEntryCandidateForensic,
+  type PaperEntryDecisionRecord,
+  type PaperEntryKind,
+  type PaperEntrySkipReason,
+  type ScanSummary,
+} from './scanSummaryTypes.js';
 import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection } from './gateScoreDiagnostics.js';
 import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection } from './gateLayerDiagnostics.js';
 import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
@@ -117,6 +123,30 @@ function buildPaperEntrySoftLabels(record: PaperEntryDecisionRecord): string[] {
   return Array.from(new Set(labels));
 }
 
+function resolvePaperEntryKind(record: PaperEntryDecisionRecord): PaperEntryKind {
+  if (record.paperEntryKind) return record.paperEntryKind;
+  const executionAllowed = formatterUpper(record.executionPermission) === 'ALLOW';
+  const scorePass = record.minSignalLivePass === true;
+  const gate1Pass = record.gate1HardSurvivor === true;
+  const gate2Pass = record.gate2PendingPreserved === false;
+  const gate3Pass = executionAllowed;
+  const sizingPass = record.sizingAllowed === true;
+  if (scorePass && gate1Pass && gate2Pass && gate3Pass && sizingPass) return 'EXECUTABLE_PAPER_ENTRY';
+  if (gate1Pass && record.gate2PendingPreserved && !executionAllowed) return 'OBSERVATIONAL_PAPER_ENTRY';
+  if (gate1Pass && record.gate2PendingPreserved) return 'PRE_BREAKOUT_WATCH_ENTRY';
+  return 'COUNTERFACTUAL_ENTRY';
+}
+
+function isExecutablePaperEntry(record: PaperEntryDecisionRecord): boolean {
+  return record.decision === 'CREATED' && resolvePaperEntryKind(record) === 'EXECUTABLE_PAPER_ENTRY';
+}
+
+function isObservationalPaperEntry(record: PaperEntryDecisionRecord): boolean {
+  const kind = resolvePaperEntryKind(record);
+  return record.decision === 'CREATED'
+    && (kind === 'OBSERVATIONAL_PAPER_ENTRY' || kind === 'PRE_BREAKOUT_WATCH_ENTRY');
+}
+
 function normalizePaperEntryDecision(record: PaperEntryDecisionRecord): PaperEntryDecisionRecord {
   const hardSkipReason = resolvePaperEntryHardSkipReason(record);
   if (hardSkipReason) {
@@ -125,13 +155,16 @@ function normalizePaperEntryDecision(record: PaperEntryDecisionRecord): PaperEnt
       decision: 'SKIPPED',
       skipReason: hardSkipReason,
       paperEntryEligible: false,
+      paperExecutable: false,
+      promotionAllowed: false,
+      learningAllowed: false,
     };
   }
   if (
     record.decision === 'SKIPPED' &&
     (record.gate1HardSurvivor || record.minSignalLivePass || record.shadowObservableStrict || record.shadowObservableSoft || record.paperEntryEligible)
   ) {
-    return {
+    const next: PaperEntryDecisionRecord = {
       ...record,
       decision: 'CREATED',
       stage: record.stage === 'CANDIDATE_SELECTED' ? 'ORDER_CREATION' : record.stage,
@@ -139,10 +172,28 @@ function normalizePaperEntryDecision(record: PaperEntryDecisionRecord): PaperEnt
       paperEntryEligible: true,
       executionPermission: formatterUpper(record.executionPermission) === 'ALLOW' ? record.executionPermission : 'PAPER_OBSERVATION_ALLOWED',
     };
+    const kind = resolvePaperEntryKind(next);
+    return {
+      ...next,
+      paperEntryKind: kind,
+      paperExecutable: kind === 'EXECUTABLE_PAPER_ENTRY',
+      promotionAllowed: kind === 'EXECUTABLE_PAPER_ENTRY',
+      learningAllowed: true,
+    };
   }
-  return record.decision === 'CREATED'
-    ? { ...record, skipReason: 'NONE', paperEntryEligible: true }
-    : record;
+  if (record.decision === 'CREATED') {
+    const kind = resolvePaperEntryKind(record);
+    return {
+      ...record,
+      skipReason: 'NONE',
+      paperEntryEligible: true,
+      paperEntryKind: kind,
+      paperExecutable: kind === 'EXECUTABLE_PAPER_ENTRY',
+      promotionAllowed: kind === 'EXECUTABLE_PAPER_ENTRY',
+      learningAllowed: true,
+    };
+  }
+  return record;
 }
 
 function parseSummaryDate(summary: ScanSummary): Date | null {
@@ -179,6 +230,11 @@ function resolvePermissionView(summary: ScanSummary) {
         : ['BUY_ALLOWED', 'OPEN', 'REGULAR_OPEN', 'NORMAL'].includes(session)
           ? 'REGULAR_OPEN'
           : session || 'UNKNOWN';
+  const displaySession = canonicalSession === 'HOLIDAY'
+    ? 'HOLIDAY_SHADOW_OBSERVE'
+    : canonicalSession === 'CLOSED'
+      ? 'CLOSED_SHADOW_OBSERVE'
+      : rawSession;
   const displayRegime = mg?.displayRegime ?? mg?.regime ?? summary.scanEvaluation?.engineMode ?? 'UNKNOWN';
   const engineMode = mg?.engineMode ?? summary.scanEvaluation?.engineMode ?? displayRegime;
   const shadowOnly = formatterUpper(engineMode) === 'SHADOW_ONLY'
@@ -193,7 +249,7 @@ function resolvePermissionView(summary: ScanSummary) {
   const counterfactualAllowed = mg?.counterfactualAllowed ?? true;
   return {
     canonicalSession,
-    displaySession: rawSession,
+    displaySession,
     engineMode,
     displayRegime,
     liveEntryAllowed: brokerLiveOrderAllowed,
@@ -202,7 +258,12 @@ function resolvePermissionView(summary: ScanSummary) {
     brokerExitOrderAllowed,
     paperOrderAllowed,
     shadowAllowed,
+    watchAllowed: true,
     counterfactualAllowed,
+    executionImpact: 'NONE',
+    note: canonicalSession === 'HOLIDAY'
+      ? 'Holiday blocks live broker orders; paper/shadow observation remains allowed.'
+      : 'Paper/shadow observation permission is separate from live broker orders.',
   };
 }
 
@@ -425,7 +486,7 @@ function formatRuntimeWiringSummary(
   };
   const buildPaperDecisionReasonView = (record: PaperEntryDecisionRecord): { primaryReason: string; secondaryReasons: string[] } => {
     const secondaryReasons = buildPaperEntrySoftLabels(record);
-    if (record.decision === 'CREATED') return { primaryReason: 'PAPER_ENTRY_CREATED', secondaryReasons };
+    if (record.decision === 'CREATED') return { primaryReason: `${resolvePaperEntryKind(record)}_CREATED`, secondaryReasons };
     if (record.decision === 'BLOCKED') return { primaryReason: record.skipReason ?? 'PAPER_ENTRY_BLOCKED', secondaryReasons };
     if (record.decision === 'ERROR') return { primaryReason: record.skipReason ?? 'PAPER_ENTRY_ERROR', secondaryReasons };
     return { primaryReason: record.skipReason ?? 'NONE', secondaryReasons };
@@ -464,6 +525,10 @@ function formatRuntimeWiringSummary(
           sizingAllowed: candidate.sizingAllowed,
           sizingReason: candidate.sizingReason,
           executionPermission: candidate.executionPermission ?? candidate.sessionPolicy ?? 'UNKNOWN',
+          paperEntryKind: candidate.paperEntryKind,
+          paperExecutable: candidate.paperExecutable,
+          promotionAllowed: candidate.promotionAllowed,
+          learningAllowed: candidate.learningAllowed,
         }));
     };
 
@@ -518,6 +583,9 @@ function formatRuntimeWiringSummary(
     const candidates = paperForensic?.candidates ?? [];
     const candidateSymbols = decisionRecords.map((record) => record.symbol).filter(Boolean);
     const createdRecords = decisionRecords.filter((record) => record.decision === 'CREATED');
+    const executableCreatedRecords = createdRecords.filter(isExecutablePaperEntry);
+    const observationalCreatedRecords = createdRecords.filter(isObservationalPaperEntry);
+    const counterfactualCreatedRecords = createdRecords.filter((record) => resolvePaperEntryKind(record) === 'COUNTERFACTUAL_ENTRY');
     const skippedRecords = decisionRecords.filter((record) => record.decision === 'SKIPPED');
     const blockedRecords = decisionRecords.filter((record) => record.decision === 'BLOCKED');
     const errorRecords = decisionRecords.filter((record) => record.decision === 'ERROR');
@@ -532,6 +600,9 @@ function formatRuntimeWiringSummary(
       return acc;
     }, {});
     const createdSymbols = createdRecords.map((record) => record.symbol);
+    const executableSymbols = executableCreatedRecords.map((record) => record.symbol);
+    const observationalSymbols = observationalCreatedRecords.map((record) => record.symbol);
+    const counterfactualSymbols = counterfactualCreatedRecords.map((record) => record.symbol);
     const skippedSymbols = skippedRecords.map((record) => record.symbol);
     const candidateCount = decisionRecords.length;
     const createdCount = createdRecords.length;
@@ -573,7 +644,33 @@ function formatRuntimeWiringSummary(
       .map((record) => ({ record, resolved: resolveRealPaperSkipReason(record) }))
       .filter(({ resolved }) => resolved.reason === 'FORENSIC_CARRY_BROKEN' && resolved.missingInputReason)
       .map(({ record, resolved }) => `${record.symbol}:${resolved.missingInputReason}`);
-    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, softLabelDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid: invariantValid && semanticInvariantValid, semanticInvariantValid, realSkipReasonResolvedCount, forensicFallbackReasonCount, recommendedAction, invalidMarkers, missingInputReasons };
+    return {
+      candidates,
+      decisionRecords,
+      candidateSymbols,
+      createdSymbols,
+      executableSymbols,
+      observationalSymbols,
+      counterfactualSymbols,
+      skippedSymbols,
+      skipReasonDistribution,
+      softLabelDistribution,
+      candidateCount,
+      createdCount,
+      executableCreatedCount: executableCreatedRecords.length,
+      observationalCreatedCount: observationalCreatedRecords.length,
+      counterfactualCreatedCount: counterfactualCreatedRecords.length,
+      skippedCount,
+      topSkipReason,
+      forensicStatus,
+      invariantValid: invariantValid && semanticInvariantValid,
+      semanticInvariantValid,
+      realSkipReasonResolvedCount,
+      forensicFallbackReasonCount,
+      recommendedAction,
+      invalidMarkers,
+      missingInputReasons,
+    };
   };
 
   const paper = derivePaperEntryForensic();
@@ -604,9 +701,15 @@ function formatRuntimeWiringSummary(
   );
   const paperEntryCandidateCount = paper.candidateCount;
   const paperEntryCreatedCount = paper.createdCount;
+  const paperExecutableCreatedCount = paper.executableCreatedCount;
+  const paperObservationalCreatedCount = paper.observationalCreatedCount;
+  const paperCounterfactualCreatedCount = paper.counterfactualCreatedCount;
   const paperEntrySkippedCount = paper.skippedCount;
   const paperEntryCandidateSymbols = paper.candidateSymbols;
   const paperEntryCreatedSymbols = paper.createdSymbols;
+  const paperExecutableSymbols = paper.executableSymbols;
+  const paperObservationalSymbols = paper.observationalSymbols;
+  const paperCounterfactualSymbols = paper.counterfactualSymbols;
   const paperEntrySkippedSymbols = paper.skippedSymbols;
   const paperEntrySkipReasonDistribution = paper.skipReasonDistribution;
   const paperEntrySoftLabelDistribution = paper.softLabelDistribution;
@@ -647,11 +750,16 @@ function formatRuntimeWiringSummary(
     `- shadowObservableSoftCount=${shadowObservableSoftCount}`,
     `- counterfactualLedgerRowsCreated=${counterfactualLedgerRowsCreated}`,
     `- gateCounterfactualReadyCount=${gateCounterfactualReadyCount}`,
-    `- paperEntryCandidateCount=${paperEntryCandidateCount} paperEntryCreatedCount=${paperEntryCreatedCount} paperEntrySkippedCount=${paperEntrySkippedCount}`,
+    `- paperEntryCandidateCount=${paperEntryCandidateCount} paperExecutableCreatedCount=${paperExecutableCreatedCount} paperObservationalCreatedCount=${paperObservationalCreatedCount} paperEntrySkippedCount=${paperEntrySkippedCount}`,
+    `- paperCreatedTotal=${paperEntryCreatedCount} paperCounterfactualCreatedCount=${paperCounterfactualCreatedCount}`,
+    `- PaperEntry: executableCreated=${paperExecutableCreatedCount} observationalCreated=${paperObservationalCreatedCount} skipped=${paperEntrySkippedCount} executionImpact=${paperEntryExecutionImpact} note=observational paper entries are not executable paper trades`,
     `- paperEntrySkipReasonDistribution=${Object.keys(paperEntrySkipReasonDistribution).length ? JSON.stringify(paperEntrySkipReasonDistribution) : '{}'}`,
     `- paperEntrySoftLabelDistribution=${Object.keys(paperEntrySoftLabelDistribution).length ? JSON.stringify(paperEntrySoftLabelDistribution) : '{}'}`,
     `- paperEntryCandidateSymbols=${paperEntryCandidateSymbols.length ? paperEntryCandidateSymbols.join(',') : '-'}`,
     `- paperEntryCreatedSymbols=${paperEntryCreatedSymbols.length ? paperEntryCreatedSymbols.join(',') : '-'}`,
+    `- paperExecutableSymbols=${paperExecutableSymbols.length ? paperExecutableSymbols.join(',') : '-'}`,
+    `- paperObservationalSymbols=${paperObservationalSymbols.length ? paperObservationalSymbols.join(',') : '-'}`,
+    `- paperCounterfactualSymbols=${paperCounterfactualSymbols.length ? paperCounterfactualSymbols.join(',') : '-'}`,
     `- paperEntrySkippedSymbols=${paperEntrySkippedSymbols.length ? paperEntrySkippedSymbols.join(',') : '-'}`,
     `- paperEntryTopSkipReason=${paperEntryTopSkipReason ?? '-'}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
@@ -665,11 +773,15 @@ function formatRuntimeWiringSummary(
     `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => {
       const reasonView = buildPaperDecisionReasonView(record);
       const secondary = reasonView.secondaryReasons.length > 0 ? reasonView.secondaryReasons.join(',') : 'NONE';
-      return `${record.symbol}:${record.decision}:primary=${reasonView.primaryReason}:secondary=${secondary}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'FAIL'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}`;
+      const kind = resolvePaperEntryKind(record);
+      const paperExecutable = isExecutablePaperEntry(record);
+      const promotionAllowed = paperExecutable;
+      return `${record.symbol}:${record.decision}:kind=${kind}:primary=${reasonView.primaryReason}:secondary=${secondary}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'PASS'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}:executable=${paperExecutable}:promotionAllowed=${promotionAllowed}:liveOrderAllowed=false:paperExecutable=${paperExecutable}:learningAllowed=${record.decision === 'CREATED'}:executionImpact=${paperEntryExecutionImpact}`;
     }).join('|') : '-'}`,
     ...(paper.missingInputReasons?.length ? [`- paperEntryMissingInputReason=${paper.missingInputReasons.join('|')}`] : []),
-    `- Entry Lane Split: liveCandidates=${liveCandidates} liveCreated=${liveCreated} liveBlocked=${liveBlocked} paperCandidates=${paperEntryCandidateCount} paperCreated=${paperEntryCreatedCount} paperSkipped=${paperEntrySkippedCount} shadowCandidates=${shadowObservableSoftCount} shadowCreated=${summary.provisionalShadowLane?.created ?? 0} counterfactualCreated=${counterfactualLedgerRowsCreated} watchOnlyPreserved=${watchOnlyPreserved}`,
-    `- Permission Resolution: canonicalSession=${permissionView.canonicalSession} displaySession=${permissionView.displaySession} engineMode=${permissionView.engineMode} brokerRouteAlive=${permissionView.brokerRouteAlive} brokerLiveOrderAllowed=${permissionView.brokerLiveOrderAllowed} brokerExitOrderAllowed=${permissionView.brokerExitOrderAllowed} paperOrderAllowed=${permissionView.paperOrderAllowed} shadowAllowed=${permissionView.shadowAllowed} counterfactualAllowed=${permissionView.counterfactualAllowed}`,
+    `- paperStatisticsSeparation=observationalExcludedFromExecutablePnL:true,winRate:true,rMultiple:true,entrySuccessRate:true; includedIn=nearMiss,preBreakoutObservation,forwardReturn1D3D5D,counterfactual,shadowPromotionAudit`,
+    `- Entry Lane Split: liveCandidates=${liveCandidates} liveCreated=${liveCreated} liveBlocked=${liveBlocked} paperCandidates=${paperEntryCandidateCount} paperExecutableCreated=${paperExecutableCreatedCount} paperObservationalCreated=${paperObservationalCreatedCount} paperSkipped=${paperEntrySkippedCount} shadowCandidates=${shadowObservableSoftCount} shadowCreated=${summary.provisionalShadowLane?.created ?? 0} counterfactualCreated=${counterfactualLedgerRowsCreated} watchOnlyPreserved=${watchOnlyPreserved}`,
+    `- Permission Resolution: canonicalSession=${permissionView.canonicalSession} displaySession=${permissionView.displaySession} liveEntryAllowed=${permissionView.liveEntryAllowed} engineMode=${permissionView.engineMode} brokerRouteAlive=${permissionView.brokerRouteAlive} brokerLiveOrderAllowed=${permissionView.brokerLiveOrderAllowed} brokerExitOrderAllowed=${permissionView.brokerExitOrderAllowed} paperOrderAllowed=${permissionView.paperOrderAllowed} shadowAllowed=${permissionView.shadowAllowed} watchAllowed=${permissionView.watchAllowed} counterfactualAllowed=${permissionView.counterfactualAllowed} executionImpact=${permissionView.executionImpact} note=${permissionView.note}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
@@ -692,6 +804,10 @@ function formatRuntimeWiringSummary(
       `  priceSource=${candidate.priceSource ?? '-'}`,
       `  resolvedEntryPrice=${candidate.resolvedEntryPrice ?? '-'}`,
       `  sizingAllowed=${candidate.sizingAllowed}`,
+      `  paperEntryKind=${candidate.paperEntryKind ?? '-'}`,
+      `  paperExecutable=${candidate.paperExecutable ?? '-'}`,
+      `  promotionAllowed=${candidate.promotionAllowed ?? '-'}`,
+      `  learningAllowed=${candidate.learningAllowed ?? '-'}`,
       `  duplicateKey=${candidate.duplicateKey ?? '-'}`,
       `  existingOpenShadowPosition=${candidate.existingOpenShadowPosition}`,
       `  existingPendingPaperOrder=${candidate.existingPendingPaperOrder}`,

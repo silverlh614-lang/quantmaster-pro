@@ -272,6 +272,12 @@ export interface ScanSummary {
 
 export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';
 
+export type PaperEntryKind =
+  | 'EXECUTABLE_PAPER_ENTRY'
+  | 'OBSERVATIONAL_PAPER_ENTRY'
+  | 'PRE_BREAKOUT_WATCH_ENTRY'
+  | 'COUNTERFACTUAL_ENTRY';
+
 export type PaperEntrySkipReason =
   | 'NONE'
   | 'INVALID_SYMBOL'
@@ -332,6 +338,10 @@ export interface PaperEntryCandidateForensic {
   sizingReason?: string;
   executionPermission?: string;
   sessionPolicy?: string;
+  paperEntryKind?: PaperEntryKind;
+  paperExecutable?: boolean;
+  promotionAllowed?: boolean;
+  learningAllowed?: boolean;
 }
 
 export interface PaperEntryForensicSummary {
@@ -370,6 +380,10 @@ export interface PaperEntryDecisionRecord {
   sizingAllowed: boolean;
   sizingReason?: string;
   executionPermission: string;
+  paperEntryKind?: PaperEntryKind;
+  paperExecutable?: boolean;
+  promotionAllowed?: boolean;
+  learningAllowed?: boolean;
   createdOrderId?: string;
   ledgerRecordId?: string;
 }
