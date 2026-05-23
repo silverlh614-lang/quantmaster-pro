@@ -50,6 +50,19 @@ function formatRuntimeWiringSummary(
   canonical: CanonicalRuntimeResolutionStep27,
 ): string {
   const softLane = summary.gate2SoftLeadershipLane;
+  const resolvePaperEntrySkipReason = (record: PaperEntryDecisionRecord): PaperEntryDecisionRecord['skipReason'] => {
+    if (record.existingPendingPaperOrder) return 'DUPLICATE_PENDING_ORDER';
+    if (record.existingOpenShadowPosition) return 'DUPLICATE_OPEN_POSITION';
+    if (!record.resolvedEntryPrice || record.resolvedEntryPrice <= 0) return 'PRICE_UNRESOLVED';
+    if (record.quoteFreshness && /stale/i.test(record.quoteFreshness)) return 'STALE_PRICE';
+    if (!record.sizingAllowed) return 'SIZING_ZERO';
+    if (record.executionPermission === 'PAPER_ENGINE_DISABLED') return 'PAPER_ENGINE_DISABLED';
+    if (record.executionPermission && record.executionPermission !== 'ALLOW' && record.executionPermission !== 'UNKNOWN') return 'EXECUTION_PERMISSION_BLOCKED';
+    if (record.gate2PendingPreserved) return 'GATE2_PENDING_OBSERVE_ONLY';
+    if (!record.gate1HardSurvivor && !record.minSignalLivePass) return 'UNKNOWN_BUG';
+    if (!record.paperEntryEligible && record.shadowObservableSoft) return 'UNKNOWN_BUG';
+    return 'UNKNOWN_BUG';
+  };
   const derivePaperEntryForensic = () => {
     const paperForensic = summary.paperEntryForensic;
     const synthesizeDecisionRecords = (candidates: PaperEntryCandidateForensic[]): PaperEntryDecisionRecord[] => {
@@ -129,15 +142,23 @@ function formatRuntimeWiringSummary(
     const skippedRecords = decisionRecords.filter((record) => record.decision === 'SKIPPED');
     const blockedRecords = decisionRecords.filter((record) => record.decision === 'BLOCKED');
     const errorRecords = decisionRecords.filter((record) => record.decision === 'ERROR');
-    const skippedWithoutReason = skippedRecords.filter((record) => !record.skipReason || record.skipReason === 'NONE').length;
-    const skipReasonDistribution = skippedRecords.reduce<Record<string, number>>((acc, record) => {
+    const normalizedDecisionRecords = decisionRecords.map((record) => {
+      if (record.decision !== 'SKIPPED') return record;
+      if (!record.skipReason || record.skipReason === 'NONE' || record.skipReason === 'MISSING_SKIP_REASON_EMISSION' || record.skipReason === 'FORENSIC_CARRY_BROKEN') {
+        return { ...record, skipReason: resolvePaperEntrySkipReason(record) };
+      }
+      return record;
+    });
+    const normalizedSkippedRecords = normalizedDecisionRecords.filter((record) => record.decision === 'SKIPPED');
+    const skippedWithoutReason = normalizedSkippedRecords.filter((record) => !record.skipReason || record.skipReason === 'NONE').length;
+    const skipReasonDistribution = normalizedSkippedRecords.reduce<Record<string, number>>((acc, record) => {
       if (!record.skipReason || record.skipReason === 'NONE') return acc;
       acc[record.skipReason] = (acc[record.skipReason] ?? 0) + 1;
       return acc;
     }, {});
     const createdSymbols = createdRecords.map((record) => record.symbol);
-    const skippedSymbols = skippedRecords.map((record) => record.symbol);
-    const candidateCount = decisionRecords.length;
+    const skippedSymbols = normalizedSkippedRecords.map((record) => record.symbol);
+    const candidateCount = normalizedDecisionRecords.length;
     const createdCount = createdRecords.length;
     const skippedCount = skippedRecords.length;
     const blockedCount = blockedRecords.length;
@@ -151,22 +172,37 @@ function formatRuntimeWiringSummary(
       (skippedCount === 0 || skippedSymbols.length > 0) &&
       (skippedCount === 0 || Object.keys(skipReasonDistribution).length > 0) &&
       skippedWithoutReason === 0 &&
-      decisionRecords.every((record) => typeof record.symbol === 'string' && record.symbol.trim().length > 0);
+      normalizedDecisionRecords.every((record) => typeof record.symbol === 'string' && record.symbol.trim().length > 0);
+    const containsForensicCarryBroken = normalizedSkippedRecords.some((record) => record.skipReason === 'FORENSIC_CARRY_BROKEN');
+    const containsMissingSkipEmission = normalizedSkippedRecords.some((record) => record.skipReason === 'MISSING_SKIP_REASON_EMISSION');
+    const containsUnknownBug = normalizedSkippedRecords.some((record) => record.skipReason === 'UNKNOWN_BUG');
+    const semanticInvariantValid =
+      !containsForensicCarryBroken &&
+      !containsMissingSkipEmission &&
+      !(topSkipReason === 'FORENSIC_CARRY_BROKEN');
     const invalidReasons: string[] = [];
     if ((softLane?.gate1HardSurvivors ?? 0) > 0 && candidateCount === 0) invalidReasons.push('FORENSIC_CARRY_BROKEN');
     if (candidateCount > 0 && candidateSymbols.length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SYMBOL_PAYLOAD_CARRY');
     if (skippedCount > 0 && skippedSymbols.length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SYMBOL_PAYLOAD_CARRY');
     if (skippedCount > 0 && Object.keys(skipReasonDistribution).length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SKIP_REASON_EMISSION');
     if (!invariantValid) invalidReasons.push('FIX_PAPER_ENTRY_FORENSIC_CARRY');
+    if (containsForensicCarryBroken) invalidReasons.push('FIX_REAL_SKIP_REASON_RESOLUTION');
+    if (containsMissingSkipEmission) invalidReasons.push('FIX_SKIP_REASON_BRANCH_EMISSION');
+    if (containsUnknownBug) invalidReasons.push('ADD_PAPER_ENTRY_BRANCH_TRACE');
     if (skippedWithoutReason > 0) invalidReasons.push('FIX_PAPER_ENTRY_SKIP_REASON_EMISSION');
-    const forensicStatus = invalidReasons.length > 0 ? 'INVALID' : 'VALID';
+    const forensicStatus = !invariantValid
+      ? 'INVALID'
+      : semanticInvariantValid
+        ? 'VALID'
+        : 'DEGRADED';
     const recommendedAction = invalidReasons.length > 0 ? Array.from(new Set(invalidReasons)).join(',') : 'NONE';
     const invalidMarkers: string[] = [];
     if ((softLane?.gate1HardSurvivors ?? 0) > 0 && candidateCount === 0) invalidMarkers.push('[PAPER_ENTRY_DECISION_RECORD_MISSING]');
     if ((candidateCount > 0 && candidateSymbols.length === 0) || (skippedCount > 0 && skippedSymbols.length === 0)) invalidMarkers.push('[PAPER_ENTRY_SYMBOL_PAYLOAD_MISSING]');
     if ((skippedCount > 0 && Object.keys(skipReasonDistribution).length === 0) || skippedWithoutReason > 0) invalidMarkers.push('[PAPER_ENTRY_SKIP_REASON_MISSING]');
     if (!invariantValid) invalidMarkers.push('[PAPER_ENTRY_INVARIANT_BROKEN]');
-    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid, recommendedAction, invalidMarkers };
+    if (!semanticInvariantValid) invalidMarkers.push('[PAPER_ENTRY_SEMANTIC_INVARIANT_BROKEN]');
+    return { candidates, decisionRecords: normalizedDecisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid, semanticInvariantValid, recommendedAction, invalidMarkers };
   };
 
   const paper = derivePaperEntryForensic();
@@ -243,6 +279,7 @@ function formatRuntimeWiringSummary(
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryForensicStatus=${paperEntryForensicStatus}`,
     `- paperEntryInvariantValid=${paper.invariantValid}`,
+    `- paperEntrySemanticInvariantValid=${paper.semanticInvariantValid}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryRecommendedAction=${paper.recommendedAction}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
@@ -272,6 +309,12 @@ function formatRuntimeWiringSummary(
       `  existingPendingPaperOrder=${candidate.existingPendingPaperOrder}`,
     ];
     for (const candidate of paper.candidates) lines.push(...formatCandidate(candidate));
+  }
+  if (paper.decisionRecords.length > 0) {
+    lines.push('PaperEntryDecision:');
+    for (const record of paper.decisionRecords) {
+      lines.push(`- ${record.symbol} decision=${record.decision} stage=${record.stage} skipReason=${record.skipReason} gate1Hard=${record.gate1HardSurvivor} minSignalLivePass=${record.minSignalLivePass} gate2Pending=${record.gate2PendingPreserved} priceResolved=${Boolean(record.resolvedEntryPrice && record.resolvedEntryPrice > 0)} duplicate=${record.existingOpenShadowPosition || record.existingPendingPaperOrder} sizingAllowed=${record.sizingAllowed}`);
+    }
   }
   return lines.join('\n');
 }
