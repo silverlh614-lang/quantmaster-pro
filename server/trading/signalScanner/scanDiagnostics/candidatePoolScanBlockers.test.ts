@@ -135,10 +135,23 @@ describe('scan_blockers candidate pool section', () => {
         executionImpact: 'NONE',
       },
       paperEntryForensic: {
-        candidateSymbols: ['005930', '000660', '035420'],
-        createdSymbols: ['005930'],
-        skippedSymbols: ['000660', '035420'],
-        skipReasonDistribution: { DUPLICATE_OPEN_POSITION: 1, STALE_PRICE: 1 },
+        candidates: [
+          {
+            symbol: '005930', gate1HardSurvivor: true, minSignalLivePass: true, gate2PendingPreserved: true,
+            shadowObservableStrict: true, shadowObservableSoft: true, paperEntryEligible: true, paperEntryDecision: 'CREATED',
+            existingOpenShadowPosition: false, existingPendingPaperOrder: false, sizingAllowed: true,
+          },
+          {
+            symbol: '000660', gate1HardSurvivor: true, minSignalLivePass: true, gate2PendingPreserved: true,
+            shadowObservableStrict: true, shadowObservableSoft: true, paperEntryEligible: true, paperEntryDecision: 'SKIPPED',
+            paperEntrySkipReason: 'DUPLICATE_OPEN_POSITION', existingOpenShadowPosition: true, existingPendingPaperOrder: false, sizingAllowed: true,
+          },
+          {
+            symbol: '035420', gate1HardSurvivor: true, minSignalLivePass: true, gate2PendingPreserved: true,
+            shadowObservableStrict: true, shadowObservableSoft: true, paperEntryEligible: true, paperEntryDecision: 'SKIPPED',
+            paperEntrySkipReason: 'STALE_PRICE', existingOpenShadowPosition: false, existingPendingPaperOrder: false, sizingAllowed: true,
+          },
+        ],
         topSkipReason: 'DUPLICATE_OPEN_POSITION',
         executionImpact: 'NONE',
       },
@@ -151,7 +164,10 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntryCreatedSymbols=005930');
     expect(text).toContain('- paperEntrySkippedSymbols=000660,035420');
     expect(text).toContain('- paperEntryTopSkipReason=DUPLICATE_OPEN_POSITION');
-    expect(text).toContain('- paperEntryForensicStatus=OK');
+    expect(text).toContain('- paperEntryForensicStatus=VALID');
+    expect(text).toContain('- paperEntryInvariantValid=true');
+    expect(text).toContain('- paperEntryRecommendedAction=NONE');
+    expect(text).toContain('[PaperEntry Forensic]');
   });
 
   it('prints stale legacy R6 as deprecated-only while keeping canonical effective regime', () => {
