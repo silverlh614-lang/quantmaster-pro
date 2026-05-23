@@ -109,6 +109,7 @@ export function buildEntryFilterDecomposition(
     const symbolFeaturesRecord = c.symbolFeatures as unknown as Record<string, unknown> | undefined;
     const symbolFeatures = buildSymbolFeatures(c);
     const quote = (c.quote as Record<string, unknown> | undefined) ?? undefined;
+    const quoteFeatures = (c.quoteFeatures as Record<string, unknown> | undefined) ?? undefined;
     const conditionResults = (c.conditionResults as Record<string, unknown> | undefined) ?? undefined;
     const technicalIndicators = (c.technicalIndicators as Record<string, unknown> | undefined) ?? undefined;
     const resolvedPrice = pickNumericWithSource([
@@ -167,17 +168,21 @@ export function buildEntryFilterDecomposition(
       availableMaxScore: c.availableMaxScore,
       watchlistScore: c.watchlistScore,
       watchlistReason: c.watchlistReason,
-      relativeStrengthScore: c.relativeStrengthScore,
+      relativeStrengthScore: c.relativeStrengthScore ?? symbolFeatures?.relativeStrengthScore,
       relativeStrength: c.relativeStrength,
-      rsRankPct: c.rsRankPct,
-      return20d: c.return20d,
-      return5d: c.return5d,
-      marketRelativeReturn: c.marketRelativeReturn,
-      kospiRelativeReturn: c.kospiRelativeReturn,
-      relativeReturn20d: c.relativeReturn20d,
-      kospi20dReturn: c.kospi20dReturn,
+      rsRankPct: c.rsRankPct ?? symbolFeatures?.rsRankPct ?? (quote?.rsRankPct as number | undefined) ?? (quoteFeatures?.rsRankPct as number | undefined),
+      return20d: c.return20d ?? symbolFeatures?.return20d ?? (quote?.return20d as number | undefined) ?? (quoteFeatures?.return20d as number | undefined),
+      return5d: c.return5d ?? symbolFeatures?.return5d ?? (quote?.return5d as number | undefined) ?? (quoteFeatures?.return5d as number | undefined),
+      marketRelativeReturn: c.marketRelativeReturn ?? symbolFeatures?.marketRelativeReturn ?? (quote?.marketRelativeReturn as number | undefined) ?? (quoteFeatures?.marketRelativeReturn as number | undefined),
+      kospiRelativeReturn: c.kospiRelativeReturn ?? symbolFeatures?.kospiRelativeReturn ?? (quote?.kospiRelativeReturn as number | undefined) ?? (quoteFeatures?.kospiRelativeReturn as number | undefined),
+      relativeReturn20d: c.relativeReturn20d ?? symbolFeatures?.relativeReturn20d ?? (quote?.relativeReturn20d as number | undefined) ?? (quoteFeatures?.relativeReturn20d as number | undefined),
+      kospi20dReturn: c.kospi20dReturn ?? symbolFeatures?.kospi20dReturn ?? (quote?.kospi20dReturn as number | undefined) ?? (quoteFeatures?.kospi20dReturn as number | undefined),
       quote: c.quote,
+      quoteFeatures: c.quoteFeatures,
+      featurePack: c.featurePack,
+      momentumProjection: c.momentumProjection,
       macroState: c.macroState,
+      breakoutTrace: c.breakoutTrace,
       breakoutSignals: c.breakoutSignals,
       conditionResults: c.conditionResults,
       technicalIndicators: c.technicalIndicators,

@@ -328,9 +328,28 @@ function breakoutSignalState(trace: CandidateEntryTrace, key: string): unknown {
   const record = trace as unknown as Record<string, unknown>;
   const direct = record[key];
   if (direct !== undefined) return direct;
+  const symbolFeatures = record.symbolFeatures;
+  if (symbolFeatures && typeof symbolFeatures === "object") {
+    const value = (symbolFeatures as Record<string, unknown>)[key];
+    if (value !== undefined) return value;
+  }
   const signals = record.breakoutSignals;
   if (signals && typeof signals === "object")
     return (signals as Record<string, unknown>)[key];
+  const breakoutTrace = record.breakoutTrace;
+  if (breakoutTrace && typeof breakoutTrace === "object") {
+    const value = (breakoutTrace as Record<string, unknown>)[key];
+    if (value !== undefined) return value;
+  }
+  const featurePack = record.featurePack;
+  const breakout =
+    featurePack && typeof featurePack === "object"
+      ? (featurePack as Record<string, unknown>).breakout
+      : undefined;
+  if (breakout && typeof breakout === "object") {
+    const value = (breakout as Record<string, unknown>)[key];
+    if (value !== undefined) return value;
+  }
   const conditionResults = record.conditionResults;
   if (conditionResults && typeof conditionResults === "object")
     return (conditionResults as Record<string, unknown>)[key];
@@ -502,6 +521,14 @@ function normalizedRelativeStrength(
     "relativeStrengthScore",
     "relativeStrength",
     "rsRankPct",
+    "quote.rsRankPct",
+    "quote.relativeStrengthScore",
+    "quoteFeatures.rsRankPct",
+    "quoteFeatures.relativeStrengthScore",
+    "featurePack.momentum.rsRankPct",
+    "featurePack.momentum.relativeStrengthScore",
+    "momentumProjection.rsRankPct",
+    "momentumProjection.relativeStrengthScore",
     "conditionResults.relative_strength.score",
     "conditionResults.relative_strength.normalizedScore",
   ]);
@@ -509,19 +536,41 @@ function normalizedRelativeStrength(
     "marketRelativeReturn",
     "kospiRelativeReturn",
     "relativeReturn20d",
+    "quote.marketRelativeReturn",
+    "quote.kospiRelativeReturn",
+    "quote.relativeReturn20d",
+    "quoteFeatures.marketRelativeReturn",
+    "quoteFeatures.kospiRelativeReturn",
+    "quoteFeatures.relativeReturn20d",
+    "featurePack.momentum.marketRelativeReturn",
+    "featurePack.momentum.kospiRelativeReturn",
+    "featurePack.momentum.relativeReturn20d",
+    "momentumProjection.marketRelativeReturn",
+    "momentumProjection.kospiRelativeReturn",
+    "momentumProjection.relativeReturn20d",
     "conditionResults.relative_strength.relativeReturn20d",
   ]);
   const return20d = nestedNumericTraceValue(trace, [
     "return20d",
     "quote.return20d",
+    "quoteFeatures.return20d",
+    "featurePack.momentum.return20d",
+    "momentumProjection.return20d",
   ]);
   const return5d = nestedNumericTraceValue(trace, [
     "return5d",
     "quote.return5d",
+    "quoteFeatures.return5d",
+    "featurePack.momentum.return5d",
+    "momentumProjection.return5d",
   ]);
   const kospi20dReturn =
     nestedNumericTraceValue(trace, [
       "kospi20dReturn",
+      "quote.kospi20dReturn",
+      "quoteFeatures.kospi20dReturn",
+      "featurePack.momentum.kospi20dReturn",
+      "momentumProjection.kospi20dReturn",
       "macroState.kospi20dReturn",
     ]) ??
     ((macroGateState as unknown as Record<string, unknown> | undefined)
@@ -562,8 +611,19 @@ function volumeLiquidityScore(trace: CandidateEntryTrace): {
   penaltyReason?: string;
   message: string;
 } {
-  const avgVolume = numericTraceValue(trace, ["avgVolume"]);
-  const currentVolume = numericTraceValue(trace, ["projectedVolume", "volume"]);
+  const avgVolume = nestedNumericTraceValue(trace, [
+    "avgVolume",
+    "quote.avgVolume",
+    "quoteFeatures.avgVolume",
+  ]);
+  const currentVolume = nestedNumericTraceValue(trace, [
+    "projectedVolume",
+    "volume",
+    "quote.projectedVolume",
+    "quote.volume",
+    "quoteFeatures.projectedVolume",
+    "quoteFeatures.volume",
+  ]);
   if (avgVolume !== undefined && avgVolume > 0 && currentVolume !== undefined) {
     const ratio = currentVolume / avgVolume;
     const normalizedScore =
@@ -611,6 +671,28 @@ function breakoutScore(trace: CandidateEntryTrace): {
   providerIssue: boolean;
   message: string;
 } {
+  const mappedScore = nestedNumericTraceValue(trace, [
+    "breakoutScore",
+    "breakoutStructureScore",
+    "symbolFeatures.breakoutScore",
+    "breakoutTrace.breakoutScore",
+    "featurePack.breakout.breakoutScore",
+    "featurePack.breakout.score",
+  ]);
+  if (finite(mappedScore)) {
+    const normalizedScore = clamp(mappedScore <= 10 ? mappedScore * 10 : mappedScore, 0, 100);
+    return {
+      rawValue: { breakoutScore: mappedScore },
+      normalizedScore,
+      weightedScore: weightedFromNormalized(normalizedScore, 10),
+      confidence: "VERIFIED",
+      providerIssue: false,
+      message:
+        normalizedScore === 0
+          ? "Breakout structure score is mapped and present, but zero by rule."
+          : "Breakout structure score consumed from canonical breakout trace/feature pack.",
+    };
+  }
   const breakoutStates = BREAKOUT_SOURCE_KEYS.map((key) => ({
     key,
     value: breakoutSignalState(trace, key),
@@ -659,10 +741,16 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
   const return5d = nestedNumericTraceValue(trace, [
     "return5d",
     "quote.return5d",
+    "quoteFeatures.return5d",
+    "featurePack.momentum.return5d",
+    "momentumProjection.return5d",
   ]);
   const return20d = nestedNumericTraceValue(trace, [
     "return20d",
     "quote.return20d",
+    "quoteFeatures.return20d",
+    "featurePack.momentum.return20d",
+    "momentumProjection.return20d",
   ]);
   const gateScore = numericTraceValue(trace, ["gateScore"]);
   if (finite(return5d) || finite(return20d)) {

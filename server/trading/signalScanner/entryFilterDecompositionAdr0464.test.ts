@@ -3,6 +3,7 @@ import {
   buildEntryFilterDecomposition,
   blocker,
   createKellySizingTrace,
+  formatEntryFilterDecompositionSection,
   type CandidateEntryTrace,
 } from './entryFilterDecomposition.js';
 
@@ -175,4 +176,41 @@ it('does not generate placeholder symbols when candidate snapshots exist', () =>
     candidateSnapshots: [{ symbol: 'REAL1' }, { symbol: 'REAL2' }, { symbol: 'REAL3' }],
   });
   expect(d.candidateTraces.every((row) => !row.symbol.startsWith('WATCHLIST_'))).toBe(true);
+});
+
+it('wires canonical positive feature inputs into Gate1 trace and score curve audit', () => {
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 3,
+    watchlistCandidates: 3,
+    entries: 0,
+    macroGateState: macro(),
+    candidateSnapshots: [
+      {
+        symbol: 'P1',
+        quoteFeatures: { return5d: 5, return20d: 18, relativeReturn20d: 12 },
+        featurePack: { breakout: { breakoutScore: 7 } },
+      },
+      {
+        symbol: 'P2',
+        quote: { return5d: 2, return20d: 10, relativeReturn20d: 6 },
+        breakoutTrace: { breakoutScore: 3 },
+      },
+      {
+        symbol: 'P3',
+        symbolFeatures: { return5d: 1, return20d: 4, relativeReturn20d: 1 },
+        breakoutSignals: { turtle_high: false, volume_breakout: false },
+      },
+    ],
+  });
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.return5d))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.relativeReturn20d))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.rsRankPct))).toBe(true);
+  const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('- inputPathResolvedCount=3');
+  expect(formatted).toContain('- inputPathUnresolvedCount=0');
+  expect(formatted).toContain('- rsRankPctComputedCount=3');
+  expect(formatted).toContain('- runtimeScoreComputed=3');
+  expect(formatted).toContain('- scoreMappedToGate=3');
+  expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
 });

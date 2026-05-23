@@ -56,9 +56,13 @@ export function finiteFeature(value: unknown): number | undefined {
 }
 
 export function quoteFeature(c: CandidateSnapshot, key: string): number | undefined {
-  const quote = c.quote;
-  if (!quote || typeof quote !== "object") return undefined;
-  return finiteFeature((quote as Record<string, unknown>)[key]);
+  const sources = [c.quoteFeatures, c.quote];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const value = finiteFeature((source as Record<string, unknown>)[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 export function buildSymbolFeatures(
@@ -67,7 +71,9 @@ export function buildSymbolFeatures(
   const provided = c.symbolFeatures ?? {};
   const featurePack = (c as unknown as Record<string, unknown>).featurePack as Record<string, unknown> | undefined;
   const momentum = featurePack && typeof featurePack.momentum === 'object' ? featurePack.momentum as Record<string, unknown> : undefined;
+  const momentumProjection = (c as unknown as Record<string, unknown>).momentumProjection as Record<string, unknown> | undefined;
   const breakout = featurePack && typeof featurePack.breakout === 'object' ? featurePack.breakout as Record<string, unknown> : undefined;
+  const breakoutTrace = (c as unknown as Record<string, unknown>).breakoutTrace as Record<string, unknown> | undefined;
   const features: Gate1SymbolFeatures = {
     ...provided,
     price:
@@ -126,7 +132,33 @@ export function buildSymbolFeatures(
     kospi20dReturn:
       provided.kospi20dReturn ??
       finiteFeature(c.kospi20dReturn) ??
-      quoteFeature(c, "kospi20dReturn"),
+      quoteFeature(c, "kospi20dReturn") ??
+      finiteFeature(momentum?.kospi20dReturn) ??
+      finiteFeature(momentumProjection?.kospi20dReturn),
+    marketRelativeReturn:
+      provided.marketRelativeReturn ??
+      finiteFeature(c.marketRelativeReturn) ??
+      quoteFeature(c, "marketRelativeReturn") ??
+      finiteFeature(momentum?.marketRelativeReturn) ??
+      finiteFeature(momentumProjection?.marketRelativeReturn),
+    kospiRelativeReturn:
+      provided.kospiRelativeReturn ??
+      finiteFeature(c.kospiRelativeReturn) ??
+      quoteFeature(c, "kospiRelativeReturn") ??
+      finiteFeature(momentum?.kospiRelativeReturn) ??
+      finiteFeature(momentumProjection?.kospiRelativeReturn),
+    relativeReturn20d:
+      provided.relativeReturn20d ??
+      finiteFeature(c.relativeReturn20d) ??
+      quoteFeature(c, "relativeReturn20d") ??
+      finiteFeature(momentum?.relativeReturn20d) ??
+      finiteFeature(momentumProjection?.relativeReturn20d),
+    rsRankPct:
+      provided.rsRankPct ??
+      finiteFeature(c.rsRankPct) ??
+      quoteFeature(c, "rsRankPct") ??
+      finiteFeature(momentum?.rsRankPct) ??
+      finiteFeature(momentumProjection?.rsRankPct),
     sector:
       provided.sector ??
       (typeof (c as unknown as Record<string, unknown>).sector === "string"
@@ -144,14 +176,17 @@ export function buildSymbolFeatures(
     relativeStrengthScore:
       provided.relativeStrengthScore ??
       finiteFeature(c.relativeStrengthScore) ??
+      quoteFeature(c, "relativeStrengthScore") ??
       finiteFeature(momentum?.relativeStrengthScore),
     breakoutScore:
       provided.breakoutScore ??
       finiteFeature(c.breakoutScore) ??
+      finiteFeature(breakoutTrace?.breakoutScore) ??
       finiteFeature(breakout?.breakoutScore),
     vcpScore:
       provided.vcpScore ??
       finiteFeature(c.vcpScore) ??
+      finiteFeature(breakoutTrace?.vcpScore) ??
       finiteFeature(breakout?.vcpScore) ??
       finiteFeature(breakout?.volumeDryupScore),
   };

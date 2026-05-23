@@ -252,6 +252,39 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     expect(missing?.confidence).toBe("MISSING");
   });
 
+  it("consumes canonical quoteFeatures, momentumProjection, and breakout feature paths", () => {
+    const trace = minTrace({
+      quoteFeatures: {
+        return5d: 4,
+        return20d: 18,
+        relativeReturn20d: 11,
+      },
+      momentumProjection: {
+        rsRankPct: 92,
+      },
+      featurePack: {
+        breakout: {
+          breakoutScore: 6,
+        },
+      },
+    });
+    expect(
+      trace.components.find((c) => c.code === "PRICE_MOMENTUM")?.confidence,
+    ).toBe("VERIFIED");
+    expect(
+      trace.components.find((c) => c.code === "PRICE_MOMENTUM")
+        ?.weightedScore,
+    ).toBeGreaterThan(0);
+    expect(
+      trace.components.find((c) => c.code === "RELATIVE_STRENGTH")
+        ?.weightedScore,
+    ).toBeGreaterThan(9);
+    expect(
+      trace.components.find((c) => c.code === "BREAKOUT_STRUCTURE")
+        ?.weightedScore,
+    ).toBe(6);
+  });
+
   it("scores passed breakout signals above no passed signals and ignores unavailable/error positives", () => {
     const none = minTrace({
       breakoutSignals: {

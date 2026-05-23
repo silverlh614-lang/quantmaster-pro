@@ -25,6 +25,36 @@ const resolveNumericFeature = (row: unknown, aliases: string[], hitMap?: Record<
   }
   return undefined;
 };
+const componentTrace = (row: unknown, code: string): Record<string, unknown> | undefined => {
+  const components =
+    getByPath(row, 'minSignalScoreTrace.components') ??
+    getByPath(row, 'gate1Trace.minSignalScoreTrace.components');
+  if (!Array.isArray(components)) return undefined;
+  return components.find((component) =>
+    component &&
+    typeof component === 'object' &&
+    (component as Record<string, unknown>).code === code,
+  ) as Record<string, unknown> | undefined;
+};
+const componentConnected = (component: Record<string, unknown> | undefined): boolean =>
+  Boolean(component && component.confidence !== 'MISSING');
+const resolveComponentWeightedScore = (
+  row: unknown,
+  code: string,
+  hitMap?: Record<string, number>,
+): number | undefined => {
+  const component = componentTrace(row, code);
+  if (!componentConnected(component)) return undefined;
+  const value = component?.weightedScore;
+  if (finite(value)) {
+    const key = `minSignalScoreTrace.components.${code}.weightedScore`;
+    if (hitMap) hitMap[key] = (hitMap[key] ?? 0) + 1;
+    return value as number;
+  }
+  return undefined;
+};
+const hasAnyPath = (row: unknown, paths: readonly string[]): boolean =>
+  paths.some((path) => getByPath(row, path) !== undefined);
 const pickNumber = (trace: Record<string, unknown>, keys: string[]): number | undefined => {
   for (const key of keys) {
     const direct = (trace as Record<string, unknown>)[key];
@@ -266,45 +296,111 @@ export function formatEntryFilterDecompositionSection(
   const traces = d.candidateTraces;
   const momentumHitMap: Record<string, number> = {};
   const breakoutHitMap: Record<string, number> = {};
+  const momentumAliases = {
+    return5d: ['return5d', 'quote.return5d', 'quoteFeatures.return5d', 'symbolFeatures.return5d', 'features.return5d', 'features.momentum.return5d', 'featurePack.momentum.return5d', 'momentum.return5d', 'momentumProjection.return5d', 'returns.return5d'],
+    return20d: ['return20d', 'quote.return20d', 'quoteFeatures.return20d', 'symbolFeatures.return20d', 'features.return20d', 'features.momentum.return20d', 'featurePack.momentum.return20d', 'momentum.return20d', 'momentumProjection.return20d', 'returns.return20d'],
+    relativeReturn20d: ['relativeReturn20d', 'quote.relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'symbolFeatures.relativeReturn20d', 'features.relativeReturn20d', 'features.relativeStrength.relativeReturn20d', 'featurePack.momentum.relativeReturn20d', 'momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d', 'rs.relativeReturn20d'],
+    marketRelativeReturn: ['marketRelativeReturn', 'quote.marketRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'symbolFeatures.marketRelativeReturn', 'features.marketRelativeReturn', 'featurePack.momentum.marketRelativeReturn', 'momentum.marketRelativeReturn', 'momentumProjection.marketRelativeReturn', 'kospiRelativeReturn', 'quote.kospiRelativeReturn', 'quoteFeatures.kospiRelativeReturn', 'symbolFeatures.kospiRelativeReturn'],
+  };
   const momentumRows = traces
-    .map((t) => ({
-      symbol: t.symbol,
-      return5d: resolveNumericFeature(t, ['return5d', 'quoteFeatures.return5d', 'features.return5d', 'features.momentum.return5d', 'momentum.return5d', 'momentumProjection.return5d', 'returns.return5d'], momentumHitMap),
-      return20d: resolveNumericFeature(t, ['return20d', 'quoteFeatures.return20d', 'features.return20d', 'features.momentum.return20d', 'momentum.return20d', 'momentumProjection.return20d', 'returns.return20d'], momentumHitMap),
-      relativeReturn20d: resolveNumericFeature(t, ['relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'features.relativeReturn20d', 'features.relativeStrength.relativeReturn20d', 'momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d', 'rs.relativeReturn20d'], momentumHitMap),
-      marketRelativeReturn: resolveNumericFeature(t, ['marketRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'features.marketRelativeReturn', 'momentum.marketRelativeReturn', 'momentumProjection.marketRelativeReturn', 'kospiRelativeReturn'], momentumHitMap),
-    }))
-    .filter((row) => finite(row.return5d) || finite(row.return20d) || finite(row.relativeReturn20d));
+    .map((t) => {
+      const componentScore = resolveComponentWeightedScore(t, 'PRICE_MOMENTUM', momentumHitMap);
+      const component = componentTrace(t, 'PRICE_MOMENTUM');
+      const return5dValue = resolveNumericFeature(t, momentumAliases.return5d, momentumHitMap);
+      const return20dValue = resolveNumericFeature(t, momentumAliases.return20d, momentumHitMap);
+      const relativeReturn20dValue = resolveNumericFeature(t, momentumAliases.relativeReturn20d, momentumHitMap);
+      const marketRelativeReturnValue = resolveNumericFeature(t, momentumAliases.marketRelativeReturn, momentumHitMap);
+      const projectionResolved =
+        finite(return5dValue) ||
+        finite(return20dValue) ||
+        finite(relativeReturn20dValue) ||
+        finite(marketRelativeReturnValue);
+      const traceConsumed = componentConnected(component);
+      return {
+        symbol: t.symbol,
+        return5d: return5dValue,
+        return20d: return20dValue,
+        relativeReturn20d: relativeReturn20dValue,
+        marketRelativeReturn: marketRelativeReturnValue,
+        projectionResolved,
+        traceConsumed,
+        componentScore,
+        inputResolved: projectionResolved || traceConsumed,
+      };
+    });
+  const momentumResolvedRows = momentumRows.filter((row) => row.inputResolved);
   const return5d = momentumRows.map((r) => r.return5d).filter(finite);
   const return20d = momentumRows.map((r) => r.return20d).filter(finite);
   const rr20 = momentumRows.map((r) => r.relativeReturn20d).filter(finite);
   const marketRr = momentumRows.map((r) => r.marketRelativeReturn).filter(finite);
-  const rsUsableBefore = traces.filter((t) => Number.isFinite(t.relativeStrengthScore as number)).length;
-  const rsRankPctCount = traces.filter((t) => Number.isFinite(t.rsRankPct as number)).length;
-  const rsScoreCount = traces.filter((t) => Number.isFinite(t.relativeStrengthScore as number)).length;
-  const rsUsableAfter = traces.filter((t) => Number.isFinite(t.rsRankPct as number) || Number.isFinite(t.relativeStrengthScore as number)).length;
-  const momentumPositive = momentumRows.filter((t) => Number(t.return5d ?? 0) > 0 && Number(t.return20d ?? 0) > 0).length;
-  const breakoutScores = traces.map((t) => resolveNumericFeature(t, ['breakoutScore', 'breakoutStructureScore', 'features.breakoutScore', 'features.breakout.breakoutScore', 'breakout.score', 'gateComponents.BREAKOUT_STRUCTURE.score', 'contributions.BREAKOUT_STRUCTURE'], breakoutHitMap));
-  const breakoutComputed = breakoutScores.filter((v) => finite(v)).length;
-  const breakoutPositive = breakoutScores.filter((v) => Number(v ?? 0) > 0).length;
+  const momentumProjectionComputed = momentumRows.filter((row) => row.projectionResolved).length;
+  const momentumTraceConsumed = momentumRows.filter((row) => row.traceConsumed).length;
+  const momentumGateApplied = momentumRows.filter((row) => finite(row.componentScore)).length;
+  const momentumPositive = momentumRows.filter((row) =>
+    finite(row.componentScore)
+      ? Number(row.componentScore) > 0
+      : Number(row.return5d ?? 0) > 0 && Number(row.return20d ?? 0) > 0,
+  ).length;
+  const rsRankValues = traces
+    .map((t) => resolveNumericFeature(t, ['rsRankPct', 'quote.rsRankPct', 'quoteFeatures.rsRankPct', 'symbolFeatures.rsRankPct', 'featurePack.momentum.rsRankPct', 'momentumProjection.rsRankPct'], momentumHitMap))
+    .filter(finite);
+  const rsScoreValues = traces
+    .map((t) => resolveNumericFeature(t, ['relativeStrengthScore', 'relativeStrength', 'quote.relativeStrengthScore', 'quoteFeatures.relativeStrengthScore', 'symbolFeatures.relativeStrengthScore', 'featurePack.momentum.relativeStrengthScore', 'momentumProjection.relativeStrengthScore'], momentumHitMap))
+    .filter(finite);
+  const rsUsableBefore = rsScoreValues.length;
+  const rsRankPctCount = rsRankValues.length;
+  const rsScoreCount = rsScoreValues.length;
+  const rsUsableAfter = traces.filter((t) =>
+    finite(resolveNumericFeature(t, ['rsRankPct', 'quote.rsRankPct', 'quoteFeatures.rsRankPct', 'symbolFeatures.rsRankPct', 'featurePack.momentum.rsRankPct', 'momentumProjection.rsRankPct'])) ||
+    finite(resolveNumericFeature(t, ['relativeStrengthScore', 'relativeStrength', 'quote.relativeStrengthScore', 'quoteFeatures.relativeStrengthScore', 'symbolFeatures.relativeStrengthScore', 'featurePack.momentum.relativeStrengthScore', 'momentumProjection.relativeStrengthScore'])) ||
+    componentConnected(componentTrace(t, 'RELATIVE_STRENGTH')),
+  ).length;
+  const breakoutSignalPaths = [
+    'breakout_momentum', 'turtle_high', 'volume_breakout', 'volume_surge', 'vcp', 'trend_acceleration',
+    'breakoutSignals.breakout_momentum', 'breakoutSignals.turtle_high', 'breakoutSignals.volume_breakout', 'breakoutSignals.volume_surge', 'breakoutSignals.vcp', 'breakoutSignals.trend_acceleration',
+    'breakoutTrace.breakout_momentum', 'breakoutTrace.turtle_high', 'breakoutTrace.volume_breakout', 'breakoutTrace.volume_surge', 'breakoutTrace.vcp', 'breakoutTrace.trend_acceleration',
+    'featurePack.breakout.breakout_momentum', 'featurePack.breakout.turtle_high', 'featurePack.breakout.volume_breakout', 'featurePack.breakout.volume_surge', 'featurePack.breakout.vcp', 'featurePack.breakout.trend_acceleration',
+    'conditionResults.breakout_momentum', 'conditionResults.turtle_high', 'conditionResults.volume_breakout', 'conditionResults.volume_surge', 'conditionResults.vcp', 'conditionResults.trend_acceleration',
+  ];
+  const breakoutRows = traces.map((t) => {
+    const component = componentTrace(t, 'BREAKOUT_STRUCTURE');
+    const componentScore = resolveComponentWeightedScore(t, 'BREAKOUT_STRUCTURE', breakoutHitMap);
+    const mappedScore = resolveNumericFeature(t, ['breakoutScore', 'breakoutStructureScore', 'symbolFeatures.breakoutScore', 'breakoutTrace.breakoutScore', 'featurePack.breakout.breakoutScore', 'features.breakoutScore', 'features.breakout.breakoutScore', 'breakout.score', 'gateComponents.BREAKOUT_STRUCTURE.score', 'contributions.BREAKOUT_STRUCTURE'], breakoutHitMap);
+    const inputResolved = componentConnected(component) || finite(mappedScore) || hasAnyPath(t, breakoutSignalPaths);
+    const score = finite(componentScore) ? componentScore : mappedScore;
+    return {
+      inputResolved,
+      componentMapped: componentConnected(component),
+      score,
+    };
+  });
+  const breakoutComputed = breakoutRows.filter((row) => row.inputResolved).length;
+  const breakoutMappedToGate = breakoutRows.filter((row) => row.componentMapped).length;
+  const breakoutPositive = breakoutRows.filter((row) => Number(row.score ?? 0) > 0).length;
+  const breakoutUnresolved = Math.max(0, traces.length - breakoutComputed);
 
   lines.push('');
   lines.push('PRICE_MOMENTUM Score Curve Audit:');
   lines.push('- inputSourcePath=gateScoreInputSnapshot.quoteFeatures -> MomentumProjectionResult -> Gate1Trace[PRICE_MOMENTUM]');
   lines.push(`- inputRows=${traces.length}`);
-  lines.push(`- computedCount=${momentumRows.length}`);
-  lines.push(`- inputBreakPoint=${momentumRows.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
+  lines.push(`- projectionComputedCount=${momentumProjectionComputed}`);
+  lines.push(`- traceConsumedCount=${momentumTraceConsumed}`);
+  lines.push(`- gateScoreAppliedCount=${momentumGateApplied}`);
+  lines.push(`- inputPathResolvedCount=${momentumResolvedRows.length}`);
+  lines.push(`- inputPathUnresolvedCount=${Math.max(0, traces.length - momentumResolvedRows.length)}`);
+  lines.push(`- computedCount=${momentumResolvedRows.length}`);
+  lines.push(`- inputBreakPoint=${momentumResolvedRows.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
   lines.push(`- return5dCount=${return5d.length}`);
   lines.push(`- return20dCount=${return20d.length}`);
   lines.push(`- relativeReturn20dCount=${rr20.length}`);
   lines.push(`- marketRelativeReturnCount=${marketRr.length}`);
   lines.push(`- fieldPathHitTop=${Object.entries(momentumHitMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(',') || 'INPUT_FIELD_PATH_UNRESOLVED'}`);
   lines.push(`- positiveCount=${momentumPositive}`);
-  lines.push(momentumRows.length > 0 ? `- avgReturn5d=${r1(avg(return5d))} / medianReturn5d=${r1(percentile(return5d, 50))} / p75Return5d=${r1(percentile(return5d, 75))} / p90Return5d=${r1(percentile(return5d, 90))}` : '- avgReturn5d=N/A / medianReturn5d=N/A / p75Return5d=N/A / p90Return5d=N/A');
-  lines.push(momentumRows.length > 0 ? `- avgReturn20d=${r1(avg(return20d))} / medianReturn20d=${r1(percentile(return20d, 50))} / p75Return20d=${r1(percentile(return20d, 75))} / p90Return20d=${r1(percentile(return20d, 90))}` : '- avgReturn20d=N/A / medianReturn20d=N/A / p75Return20d=N/A / p90Return20d=N/A');
-  lines.push(momentumRows.length > 0 ? `- avgRelativeReturn20d=${r1(avg(rr20))} / medianRelativeReturn20d=${r1(percentile(rr20, 50))} / p75RelativeReturn20d=${r1(percentile(rr20, 75))} / p90RelativeReturn20d=${r1(percentile(rr20, 90))}` : '- avgRelativeReturn20d=N/A / medianRelativeReturn20d=N/A / p75RelativeReturn20d=N/A / p90RelativeReturn20d=N/A');
-  lines.push(`- zeroReasonDistribution: INPUT_NOT_CONNECTED=${momentumRows.length === 0 ? traces.length : 0}, SCORE_CURVE_TOO_STRICT=${Math.max(0, momentumRows.length - momentumPositive)}, SCORE_MAPPING_MISSING=0`);
-  lines.push(`- topMomentumCandidates=${momentumRows.slice(0, 5).map((r) => r.symbol).join(',') || '[]'}`);
+  lines.push(momentumResolvedRows.length > 0 ? `- avgReturn5d=${r1(avg(return5d))} / medianReturn5d=${r1(percentile(return5d, 50))} / p75Return5d=${r1(percentile(return5d, 75))} / p90Return5d=${r1(percentile(return5d, 90))}` : '- avgReturn5d=N/A / medianReturn5d=N/A / p75Return5d=N/A / p90Return5d=N/A');
+  lines.push(momentumResolvedRows.length > 0 ? `- avgReturn20d=${r1(avg(return20d))} / medianReturn20d=${r1(percentile(return20d, 50))} / p75Return20d=${r1(percentile(return20d, 75))} / p90Return20d=${r1(percentile(return20d, 90))}` : '- avgReturn20d=N/A / medianReturn20d=N/A / p75Return20d=N/A / p90Return20d=N/A');
+  lines.push(momentumResolvedRows.length > 0 ? `- avgRelativeReturn20d=${r1(avg(rr20))} / medianRelativeReturn20d=${r1(percentile(rr20, 50))} / p75RelativeReturn20d=${r1(percentile(rr20, 75))} / p90RelativeReturn20d=${r1(percentile(rr20, 90))}` : '- avgRelativeReturn20d=N/A / medianRelativeReturn20d=N/A / p75RelativeReturn20d=N/A / p90RelativeReturn20d=N/A');
+  lines.push(`- zeroReasonDistribution: INPUT_NOT_CONNECTED=${Math.max(0, traces.length - momentumResolvedRows.length)}, SCORE_CURVE_TOO_STRICT=${Math.max(0, momentumResolvedRows.length - momentumPositive)}, SCORE_MAPPING_MISSING=0`);
+  lines.push(`- topMomentumCandidates=${momentumResolvedRows.slice(0, 5).map((r) => r.symbol).join(',') || '[]'}`);
   lines.push('- dryRunCurves: CURRENT / PERCENTILE_TOP_10 / PERCENTILE_TOP_20 / ZSCORE_RELATIVE / SOFT_CURVE_3_LEVEL');
 
   lines.push('');
@@ -318,7 +414,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- rsScoreUsableAfter=${rsUsableAfter}`);
   lines.push(`- inputBreakPoint=${rr20.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
   lines.push('- rankBasis=watchlistCandidates');
-  lines.push(`- percentileDistribution: top10=${traces.filter((t) => (t.rsRankPct ?? 0) >= 90).length}, top20=${traces.filter((t) => (t.rsRankPct ?? 0) >= 80).length}, top40=${traces.filter((t) => (t.rsRankPct ?? 0) >= 60).length}, bottom60=${traces.filter((t) => (t.rsRankPct ?? 0) < 60).length}`);
+  lines.push(`- percentileDistribution: top10=${rsRankValues.filter((v) => v >= 90).length}, top20=${rsRankValues.filter((v) => v >= 80).length}, top40=${rsRankValues.filter((v) => v >= 60).length}, bottom60=${Math.max(0, traces.length - rsRankValues.filter((v) => v >= 60).length)}`);
   lines.push(`- zeroReasonDistribution: INPUT_NOT_CONNECTED=${rr20.length === 0 ? traces.length : 0}, BELOW_RS_PERCENTILE=0, RELATIVE_RETURN_NEGATIVE=0, SCORE_MAPPING_MISSING=0`);
 
   lines.push('');
@@ -327,13 +423,13 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- traceAvailable=${traces.length}`);
   lines.push(`- runtimeScoreComputed=${breakoutComputed}`);
   lines.push(`- auditScoreComputed=${breakoutComputed}`);
-  lines.push(`- scoreMappedToGate=${breakoutComputed}`);
+  lines.push(`- scoreMappedToGate=${breakoutMappedToGate}`);
   lines.push(`- fieldPathHitTop=${Object.entries(breakoutHitMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(',') || 'INPUT_FIELD_PATH_UNRESOLVED'}`);
   lines.push(`- positiveCount=${breakoutPositive}`);
-  lines.push(`- zeroByCondition=${Math.max(0, traces.length - breakoutPositive)}`);
-  lines.push('- missingByMapping=0');
-  lines.push(`- inputBreakPoint=${traces.length > 0 && breakoutComputed === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
-  lines.push(`- zeroReasonDistribution: NOT_NEAR_20D_HIGH=0, NOT_NEAR_55D_HIGH=0, TURTLE_HIGH_NOT_MET=${Math.max(0, traces.length - breakoutPositive)}, VOLUME_BREAKOUT_MISSING=0, VCP_NOT_CONFIRMED=0, ENTRY_PRICE_NOT_REACHED=0, PULLBACK_INVALID=0, REGIME_CAPPED=0, SCORE_MAPPING_MISSING=0, INPUT_NOT_CONNECTED=${traces.length > 0 && breakoutComputed === 0 ? traces.length : 0}`);
+  lines.push(`- zeroByCondition=${Math.max(0, breakoutComputed - breakoutPositive)}`);
+  lines.push(`- missingByMapping=${breakoutUnresolved}`);
+  lines.push(`- inputBreakPoint=${breakoutComputed === 0 ? 'INPUT_NOT_CONNECTED' : breakoutPositive === 0 ? 'CONDITION_NOT_MET' : 'NONE'}`);
+  lines.push(`- zeroReasonDistribution: NOT_NEAR_20D_HIGH=0, NOT_NEAR_55D_HIGH=0, TURTLE_HIGH_NOT_MET=${Math.max(0, breakoutComputed - breakoutPositive)}, VOLUME_BREAKOUT_MISSING=0, VCP_NOT_CONFIRMED=0, ENTRY_PRICE_NOT_REACHED=0, PULLBACK_INVALID=0, REGIME_CAPPED=0, SCORE_MAPPING_MISSING=0, INPUT_NOT_CONNECTED=${breakoutUnresolved}`);
 
   lines.push('');
   lines.push('Regime Risk Placement Audit:');

@@ -207,6 +207,10 @@ export interface Gate1SymbolFeatures {
   atr?: number;
   atr20avg?: number;
   kospi20dReturn?: number;
+  marketRelativeReturn?: number;
+  kospiRelativeReturn?: number;
+  relativeReturn20d?: number;
+  rsRankPct?: number;
   sector?: string;
   gateScore?: number;
   stage1Score?: number;
@@ -393,6 +397,11 @@ export interface CandidateEntryTrace {
     | {
         return20d?: number;
         return5d?: number;
+        marketRelativeReturn?: number;
+        kospiRelativeReturn?: number;
+        relativeReturn20d?: number;
+        kospi20dReturn?: number;
+        rsRankPct?: number;
         symbol?: string;
         code?: string;
         price?: number;
@@ -418,6 +427,10 @@ export interface CandidateEntryTrace {
       }
     | Record<string, unknown>;
   macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
+  quoteFeatures?: Record<string, unknown>;
+  featurePack?: Record<string, unknown>;
+  momentumProjection?: Record<string, unknown>;
+  breakoutTrace?: Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   technicalIndicators?: Record<string, unknown>;
@@ -674,6 +687,11 @@ export interface CandidateSnapshot {
     | {
         return20d?: number;
         return5d?: number;
+        marketRelativeReturn?: number;
+        kospiRelativeReturn?: number;
+        relativeReturn20d?: number;
+        kospi20dReturn?: number;
+        rsRankPct?: number;
         symbol?: string;
         code?: string;
         price?: number;
@@ -699,6 +717,10 @@ export interface CandidateSnapshot {
       }
     | Record<string, unknown>;
   macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
+  quoteFeatures?: Record<string, unknown>;
+  featurePack?: Record<string, unknown>;
+  momentumProjection?: Record<string, unknown>;
+  breakoutTrace?: Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   technicalIndicators?: Record<string, unknown>;
