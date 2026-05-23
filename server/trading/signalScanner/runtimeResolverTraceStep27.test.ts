@@ -229,9 +229,11 @@ describe('Step27 canonical runtime report rebinding', () => {
     expect(text).toContain('[Gate Positive Runtime Alignment]');
     expect(text).toContain('- quoteFeatureCoverageRaw:');
     expect(text).toContain('return5dRaw 0/2');
-    expect(text).toContain('- quoteFeatureCoverageApplied:');
-    expect(text).toContain('priceMomentumApplied 2/2');
+    expect(text).toContain('- gateTraceAppliedCoverage:');
+    expect(text).toContain('priceMomentumAppliedCount 2/2');
+    expect(text).toContain('watchlistAppliedCount 0/2');
     expect(text).toContain('coverageConflict=false');
+    expect(text).toContain('conflictReason=NONE');
     expect(text).toContain('inputConnected 2/2');
     expect(text).toContain('rsRankPctComputed 2/2');
     expect(text).toContain('relativeStrengthScoreComputed 2/2');
@@ -286,7 +288,7 @@ describe('Step27 canonical runtime report rebinding', () => {
     expect(text).toContain('marketRelativeReturnRaw 2/2');
     expect(text).toContain('high5dRaw 2/2');
     expect(text).toContain('high20dRaw 2/2');
-    expect(text).toContain('priceMomentumApplied 0/2');
+    expect(text).toContain('priceMomentumAppliedCount 0/2');
     expect(text).toContain('rsRankPctComputed 2/2');
     expect(text).toContain('missingByMapping 0/2');
     expect(text).toContain('regimeDisplayConflict=false');

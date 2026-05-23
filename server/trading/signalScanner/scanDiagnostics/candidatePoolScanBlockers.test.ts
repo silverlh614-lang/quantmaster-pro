@@ -52,7 +52,10 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('Runtime Wiring Summary');
     expect(text).toContain('- GateScoreInput candidates: 1');
     expect(text).toContain('- PriceMomentum applied: 0/1');
+    expect(text).toContain('- RS computed/applied: 0/1 / 0/1');
+    expect(text).toContain('- Counterfactual recorded: 1');
     expect(text).toContain('- Provider penalty: DIAGNOSTIC_ONLY');
+    expect(text).toContain('- legacyR6Path: notUsed');
     expect(text).toContain('importedCandidates=1');
     expect(text).toContain('gateEvaluated=1');
     expect(text).toContain('shadowEligible=1');
@@ -97,7 +100,9 @@ describe('scan_blockers candidate pool section', () => {
 
     expect(text).toContain('Gate1 hard survivors: 3');
     expect(text).toContain('MinSignal live pass: 4');
+    expect(text).toContain('- MinSignal live pass: 4');
     expect(text).toContain('Gate2 pending preserved: 3');
+    expect(text).toContain('- Counterfactual recorded: 3');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');

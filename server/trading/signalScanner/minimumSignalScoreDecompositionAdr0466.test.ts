@@ -147,6 +147,23 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     expect(breakout?.marketSignal).toBe(false);
   });
 
+  it("projects trace-only breakout structure as a zero component instead of TRACE_NOT_PROJECTED", () => {
+    const trace = minTrace({
+      conditionResults: {},
+    });
+    const breakout = trace.components.find(
+      (c) => c.code === "BREAKOUT_STRUCTURE",
+    );
+    expect(breakout?.weightedScore).toBe(0);
+    expect(breakout?.confidence).toBe("DEGRADED");
+    expect(breakout?.providerIssue).toBe(false);
+    expect(breakout?.message).toContain("SCORE_ZERO_BUT_COMPONENT_PRESENT");
+    expect(breakout?.rawValue).toMatchObject({
+      projectionBreakPoint: "CONDITION_RESULT_NOT_PROJECTED",
+      zeroReason: "SCORE_ZERO_BUT_COMPONENT_PRESENT",
+    });
+  });
+
   it("differentiates actual scores from watchlist, relative strength, breakout, and volume features", () => {
     const weak = minTrace({
       symbol: "WEAK",

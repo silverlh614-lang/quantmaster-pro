@@ -283,6 +283,21 @@ function nestedNumericTraceValue(
   return resolveNumericTracePath(trace, paths).value;
 }
 
+function tracePathExists(
+  trace: CandidateEntryTrace,
+  paths: readonly string[],
+): boolean {
+  const root = trace as unknown as Record<string, unknown>;
+  return paths.some((path) => {
+    const value = path.split(".").reduce<unknown>((current, part) => {
+      if (current && typeof current === "object")
+        return (current as Record<string, unknown>)[part];
+      return undefined;
+    }, root);
+    return value !== undefined;
+  });
+}
+
 function resolveNumericTracePath(
   trace: CandidateEntryTrace,
   paths: readonly string[],
@@ -402,6 +417,24 @@ function isBreakoutUnavailable(value: unknown): boolean {
     );
   }
   return false;
+}
+
+function breakoutProjectionBreakPoint(trace: CandidateEntryTrace): string | undefined {
+  if (!trace.symbol) return "SYMBOL_NOT_IN_GATE_INPUT";
+  if (tracePathExists(trace, ["featurePack"]) && !tracePathExists(trace, ["featurePack.breakout"]))
+    return "FEATURE_PACK_MISSING";
+  if (tracePathExists(trace, ["conditionResults", "conditionResultsTrace"]))
+    return "CONDITION_RESULT_NOT_PROJECTED";
+  if (tracePathExists(trace, ["breakoutTrace", "breakoutSignals"]))
+    return "SCORE_COMPONENT_MISSING";
+  if (tracePathExists(trace, [
+    "gateLayerSummary.gate3",
+    "gate3ExternalDataCoverage",
+  ]))
+    return "SCORE_COMPONENT_MISSING";
+  if (tracePathExists(trace, ["stageReached"]))
+    return "TRACE_ONLY_CANDIDATE";
+  return undefined;
 }
 
 function normalizeRelativeReturn20dTo100(value: number): number {
@@ -729,6 +762,22 @@ function breakoutScore(trace: CandidateEntryTrace): {
       .filter((item) => item.value !== undefined)
       .map((item) => [item.key, item.value]),
   );
+  const projectionBreakPoint = breakoutProjectionBreakPoint(trace);
+  if (available.length === 0 && breakoutUnavailable.length === 0 && projectionBreakPoint) {
+    return {
+      rawValue: {
+        ...rawValue,
+        projectionBreakPoint,
+        zeroReason: "SCORE_ZERO_BUT_COMPONENT_PRESENT",
+      },
+      normalizedScore: 0,
+      weightedScore: 0,
+      confidence: "DEGRADED",
+      providerIssue: false,
+      message:
+        `BREAKOUT_STRUCTURE_SCORE_ZERO_BUT_COMPONENT_PRESENT:${projectionBreakPoint}; component projected with zero score for Gate trace alignment.`,
+    };
+  }
   return {
     rawValue,
     normalizedScore,

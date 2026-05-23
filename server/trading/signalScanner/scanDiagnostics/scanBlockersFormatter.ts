@@ -57,6 +57,20 @@ function formatRuntimeWiringSummary(
     summary.entryFilterDecomposition?.tracedCandidates ??
     candidatePool?.gateEvaluated ??
     total;
+  const rsComputed = summary.entryFilterDecomposition?.minSignalScoreTraces.filter((trace) =>
+    trace.components.some((component) =>
+      component.code === 'RELATIVE_STRENGTH' &&
+      component.confidence !== 'MISSING',
+    ),
+  ).length ?? summary.gate1MinimumSignalForensicAdr0505?.rsScoreUsableCount ?? 0;
+  const minSignal = summary.entryFilterDecomposition?.minSignalScoreDecompositionReport;
+  const minSignalLivePass = summary.gate2SoftLeadershipLane?.minSignalLivePass ??
+    (minSignal ? Math.max(0, minSignal.totalCandidates - minSignal.minSignalFailed) : 0);
+  const counterfactualRecorded =
+    summary.entryFilterDecomposition?.counterfactualRecorded ??
+    candidatePool?.counterfactualRecorded ??
+    summary.gate2SoftLeadershipLane?.gate2PendingPreserved ??
+    0;
   const macro = summary.macroGateState;
   const rawRegime = macro?.macroRegimeRaw ?? macro?.regime ?? 'UNKNOWN';
   const legacyEffectiveRegime = macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN';
@@ -75,16 +89,19 @@ function formatRuntimeWiringSummary(
     `- GateScoreInput candidates: ${gateScoreInputCandidates}`,
     `- Quote raw coverage: return5d ${canonical.momentum.return5dCount}/${total}, return20d ${canonical.momentum.return20dCount}/${total}`,
     `- PriceMomentum applied: ${canonical.momentum.priceMomentumComputedCount}/${total}`,
-    `- RS applied: ${forensic?.rsScoreUsableCount ?? 0}/${total}`,
+    `- RS computed/applied: ${rsComputed}/${total} / ${forensic?.rsScoreUsableCount ?? rsComputed}/${total}`,
     `- Breakout mapped: ${canonical.breakout.scoreMapped}/${total}`,
     `- KIS investorFlow gateEligibleRows: ${canonical.kisInvestorFlow.gateEligibleRows}/${canonical.kisInvestorFlow.totalRows || total}`,
     `- Watchlist score verified: ${canonical.watchlist.verified}/${total}`,
     `- Gate1 hard survivors: ${softLane?.gate1HardSurvivors ?? 0}`,
+    `- MinSignal live pass: ${minSignalLivePass}`,
     `- Gate2 pending preserved: ${softLane?.gate2PendingPreserved ?? 0}`,
     `- Shadow observable: ${summary.shadowObservableCount ?? candidatePool?.shadowEligible ?? 0}`,
+    `- Counterfactual recorded: ${counterfactualRecorded}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
+    `- legacyR6Path: ${effectiveRegime !== legacyEffectiveRegime ? 'deprecated/notUsedForDecision' : 'notUsed'}`,
   ];
   return lines.join('\n');
 }

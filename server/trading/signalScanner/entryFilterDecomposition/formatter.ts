@@ -386,6 +386,12 @@ export function formatEntryFilterDecompositionSection(
   const momentumProjectionDerivedComputed = momentumRows.filter((row) => row.projectionResolved).length;
   const momentumTraceConsumed = momentumRows.filter((row) => row.traceConsumed).length;
   const momentumGateApplied = momentumRows.filter((row) => finite(row.componentScore)).length;
+  const momentumFinalScoreSourceDistribution = [
+    `GATE_TRACE=${momentumGateApplied}`,
+    `DERIVED_INPUT=${Math.max(0, momentumProjectionDerivedComputed - momentumProjectionRawComputed)}`,
+    `RAW_INPUT=${momentumProjectionRawComputed}`,
+    `UNRESOLVED=${Math.max(0, traces.length - momentumResolvedRows.length)}`,
+  ].join(',');
   const momentumPositive = momentumRows.filter((row) =>
     finite(row.componentScore)
       ? Number(row.componentScore) > 0
@@ -420,6 +426,7 @@ export function formatEntryFilterDecompositionSection(
   const rsUsableBefore = directRsScoreValues.length;
   const rsRankPctCount = rsRankValues.length;
   const rsScoreCount = rsScoreValues.length;
+  const rsComponentAppliedCount = traces.filter((t) => componentConnected(componentTrace(t, 'RELATIVE_STRENGTH'))).length;
   const rsUsableAfter = traces.filter((t) =>
     finite(resolveNumericFeature(t, ['rsRankPct', 'quote.rsRankPct', 'quoteFeatures.rsRankPct', 'symbolFeatures.rsRankPct', 'featurePack.momentum.rsRankPct', 'momentumProjection.rsRankPct'])) ||
     finite(derivedRsRankBySymbol.get(t.symbol)) ||
@@ -428,9 +435,16 @@ export function formatEntryFilterDecompositionSection(
   ).length;
   const rsRawInputCount = rr20.length;
   const rsDerivedInputCount = rankedRelativeReturnRows.length;
-  const rsScoreAppliedCount = Math.max(rsScoreCount, traces.filter((t) => componentConnected(componentTrace(t, 'RELATIVE_STRENGTH'))).length);
+  const rsScoreAppliedCount = Math.max(rsScoreCount, rsComponentAppliedCount);
   const rsFallbackUsableCount = Math.max(0, rsUsableAfter - rsUsableBefore);
   const rsFallbackIncluded = rsFallbackUsableCount > 0;
+  const rsFallbackReasonDistribution = [
+    ['DERIVED_RELATIVE_RETURN', Math.max(0, rsDerivedInputCount - rsUsableBefore)],
+    ['GATE_TRACE_COMPONENT', Math.max(0, rsComponentAppliedCount - rsScoreCount)],
+  ]
+    .filter(([, count]) => Number(count) > 0)
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(',') || 'NONE';
   const breakoutSignalPaths = [
     'breakout_momentum', 'turtle_high', 'volume_breakout', 'volume_surge', 'vcp', 'trend_acceleration',
     'breakoutSignals.breakout_momentum', 'breakoutSignals.turtle_high', 'breakoutSignals.volume_breakout', 'breakoutSignals.volume_surge', 'breakoutSignals.vcp', 'breakoutSignals.trend_acceleration',
@@ -487,6 +501,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- traceConsumedCount=${momentumTraceConsumed}`);
   lines.push(`- gateTraceConsumedCount=${momentumTraceConsumed}`);
   lines.push(`- gateScoreAppliedCount=${momentumGateApplied}`);
+  lines.push(`- finalScoreSourceDistribution=${momentumFinalScoreSourceDistribution}`);
   lines.push(`- inputPathResolvedCount=${momentumResolvedRows.length}`);
   lines.push(`- inputPathUnresolvedCount=${Math.max(0, traces.length - momentumResolvedRows.length)}`);
   lines.push(`- computedCount=${momentumResolvedRows.length}`);
@@ -516,6 +531,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- rsScoreAppliedCount=${rsScoreAppliedCount}`);
   lines.push(`- rsFallbackUsableCount=${rsFallbackUsableCount}`);
   lines.push(`- fallbackIncluded=${rsFallbackIncluded}`);
+  lines.push(`- fallbackReasonDistribution=${rsFallbackReasonDistribution}`);
   lines.push(`- rsScoreUsableBefore=${rsUsableBefore}`);
   lines.push(`- rsScoreUsableAfter=${rsUsableAfter}`);
   lines.push(`- inputBreakPoint=${rr20.length === 0 ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);

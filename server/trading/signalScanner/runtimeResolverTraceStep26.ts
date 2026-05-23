@@ -880,10 +880,16 @@ export function formatGatePositiveRuntimeAlignmentSection(
   ) && !staleLegacyR6Path;
   const legacyPathUsed = regimeDisplayConflict || canonical.watchlist.conflict;
   const rrInputCount = numberCount(relativeReturn20d);
+  const expectedPriceMomentumApplied = canonical.momentum.priceMomentumComputedCount || momentumRows.filter((row) => row.computed).length;
   const priceMomentumAppliedCount = momentumRows.filter((row) => row.applied).length;
-  const rsAppliedCount = relativeStrengthScoreComputed;
+  const rsComponentAppliedCount = traces.filter((row) => componentConnected(componentTrace(row, 'RELATIVE_STRENGTH'))).length;
+  const rsAppliedCount = Math.max(relativeStrengthScoreComputed, rsComponentAppliedCount);
   const breakoutAppliedCount = breakoutRows.filter((row) => row.scoreMappedToGate).length;
-  const coverageConflict = false;
+  const watchlistAppliedCount = traces.filter((row) => componentConnected(componentTrace(row, 'WATCHLIST_UPSTREAM_SCORE'))).length;
+  const coverageConflict = expectedPriceMomentumApplied > 0 && priceMomentumAppliedCount + 1 < expectedPriceMomentumApplied;
+  const conflictReason = coverageConflict
+    ? `PRICE_MOMENTUM_APPLIED_BELOW_CANONICAL:${priceMomentumAppliedCount}/${expectedPriceMomentumApplied}`
+    : 'NONE';
   const rsInputBreakPointDistribution = rrInputCount > 0
     ? `NONE=${rrInputCount}, RETURN_MISSING=${Math.max(0, total - rrInputCount)}, INPUT_NOT_CONNECTED=0`
     : `INPUT_NOT_CONNECTED=${total}`;
@@ -898,11 +904,13 @@ export function formatGatePositiveRuntimeAlignmentSection(
     `  marketRelativeReturnRaw ${numberCount(marketRelativeReturnRaw)}/${total}`,
     `  high5dRaw ${numberCount(high5dRaw)}/${total}`,
     `  high20dRaw ${numberCount(high20dRaw)}/${total}`,
-    '- quoteFeatureCoverageApplied:',
-    `  priceMomentumApplied ${priceMomentumAppliedCount}/${total}`,
-    `  rsApplied ${rsAppliedCount}/${total}`,
-    `  breakoutApplied ${breakoutAppliedCount}/${total}`,
+    '- gateTraceAppliedCoverage:',
+    `  priceMomentumAppliedCount ${priceMomentumAppliedCount}/${total}`,
+    `  rsAppliedCount ${rsAppliedCount}/${total}`,
+    `  breakoutAppliedCount ${breakoutAppliedCount}/${total}`,
+    `  watchlistAppliedCount ${watchlistAppliedCount}/${total}`,
     `  coverageConflict=${boolText(coverageConflict)}`,
+    `  conflictReason=${conflictReason}`,
     '- priceMomentum:',
     `  inputConnected ${momentumRows.filter((row) => row.inputConnected).length}/${total}`,
     `  computed ${momentumRows.filter((row) => row.computed).length}/${total}`,
