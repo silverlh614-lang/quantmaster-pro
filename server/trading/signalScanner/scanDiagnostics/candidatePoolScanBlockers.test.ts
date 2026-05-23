@@ -107,7 +107,12 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntrySkipReasonDistribution={"FORENSIC_CARRY_BROKEN":3}');
     expect(text).toContain('- paperEntryCandidateSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
     expect(text).toContain('- paperEntrySkippedSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
-    expect(text).toContain('- paperEntryForensicStatus=VALID');
+    expect(text).toContain('- paperEntryForensicStatus=DEGRADED');
+    expect(text).toContain('- paperEntryInvariantValid=false');
+    expect(text).toContain('- paperEntrySemanticInvariantValid=false');
+    expect(text).toContain('- paperEntryRecommendedAction=FIX_REAL_SKIP_REASON_RESOLUTION');
+    expect(text).toContain('- paperEntryRealSkipReasonResolvedCount=0');
+    expect(text).toContain('- paperEntryForensicFallbackReasonCount=3');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');
