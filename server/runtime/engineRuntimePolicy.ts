@@ -1,5 +1,10 @@
 // @responsibility Engine runtime mode/policy SSOT. Pure functions only; no broker/order imports.
 
+import {
+  resolveExecutionPermission,
+  type ExecutionPermissionLiveBlockReason,
+} from './executionPermissionResolver.js';
+
 export type EngineMode =
   | 'NORMAL'
   | 'DEGRADED'
@@ -15,10 +20,16 @@ export type ExecutionImpact =
 
 export interface EngineRuntimePolicy {
   engineMode: EngineMode;
+  gateEvaluationAllowed: boolean;
+  diagnosticGateEvaluationAllowed: boolean;
+  shadowEvaluationAllowed: boolean;
+  paperFillAllowed: boolean;
   liveEntryAllowed: boolean;
   liveExitAllowed: boolean;
   liveBuyAllowed: boolean;
   liveSellAllowed: boolean;
+  liveOrderAllowed: boolean;
+  liveBlockReason: ExecutionPermissionLiveBlockReason;
   shadowBuyAllowed: boolean;
   shadowSellAllowed: boolean;
   shadowLearningAllowed: boolean;
@@ -28,6 +39,14 @@ export interface EngineRuntimePolicy {
   shadowAllowed: boolean;
   learningAllowed: boolean;
   executionImpact: ExecutionImpact;
+  confidenceAdjustments: string[];
+  policyLabels: string[];
+  learningLabels: string[];
+  scorePenalty: number;
+  sizingMultiplier: number;
+  providerIssueIsolated: boolean;
+  marketSignal: boolean;
+  logTags: string[];
   reasonCodes: string[];
 }
 
@@ -46,6 +65,13 @@ export interface ResolveEngineRuntimePolicyInput {
   riskLimitReached?: boolean;
   liveBuyGateAllowed?: boolean;
   liveSellGateAllowed?: boolean;
+  brokerOrderAllowed?: boolean;
+  operatorOrderAllowed?: boolean;
+  realTradingEnabled?: boolean;
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  kellyFraction?: number | null;
+  kellySizingMultiplier?: number | null;
   reasonCodes?: string[];
 }
 
@@ -103,15 +129,20 @@ export const LearningPolicy = Object.freeze({
 function liveEntryPolicyBlocked(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): boolean {
   return engineMode === 'SHADOW_ONLY'
     || engineMode === 'OBSERVE_ONLY'
+    || input.engineMode === 'SELL_ONLY'
     || input.marketSessionState === 'NON_TRADING_DAY'
     || input.marketSessionState === 'CLOSED'
     || input.hardBlock === true
     || input.positionFull === true
-    || input.riskLimitReached === true;
+    || input.riskLimitReached === true
+    || input.brokerOrderAllowed === false
+    || input.operatorOrderAllowed === false
+    || input.realTradingEnabled === false;
 }
 
 function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): string[] {
   const reasons: string[] = [];
+  if (input.engineMode === 'SELL_ONLY') reasons.push('SELL_ONLY_MODE');
   if (engineMode === 'SHADOW_ONLY') reasons.push('SHADOW_ONLY');
   if (engineMode === 'OBSERVE_ONLY') reasons.push('OBSERVE_ONLY');
   if (input.marketSessionState === 'NON_TRADING_DAY') reasons.push('KRX_NON_TRADING_DAY');
@@ -119,6 +150,9 @@ function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMo
   if (input.hardBlock === true) reasons.push('HARD_BLOCK');
   if (input.positionFull === true) reasons.push('POSITION_FULL');
   if (input.riskLimitReached === true) reasons.push('RISK_LIMIT');
+  if (input.brokerOrderAllowed === false) reasons.push('BROKER_PERMISSION_BLOCK');
+  if (input.operatorOrderAllowed === false) reasons.push('OPERATOR_BLOCK');
+  if (input.realTradingEnabled === false) reasons.push('REAL_TRADING_DISABLED');
   return reasons;
 }
 
@@ -128,16 +162,35 @@ function buildPolicy(input: {
   liveExitAllowed: boolean;
   executionImpact: ExecutionImpact;
   reasonCodes: string[];
+  permission: ReturnType<typeof resolveExecutionPermission>;
 }): EngineRuntimePolicy {
   return {
     engineMode: input.engineMode,
+    gateEvaluationAllowed: input.permission.gateEvaluationAllowed,
+    diagnosticGateEvaluationAllowed: input.permission.diagnosticGateEvaluationAllowed,
+    shadowEvaluationAllowed: input.permission.shadowEvaluationAllowed,
+    paperFillAllowed: input.permission.paperFillAllowed,
     liveEntryAllowed: input.liveEntryAllowed,
     liveExitAllowed: input.liveExitAllowed,
     liveBuyAllowed: input.liveEntryAllowed,
     liveSellAllowed: input.liveExitAllowed,
+    liveOrderAllowed: input.liveEntryAllowed,
+    liveBlockReason: input.liveEntryAllowed
+      ? 'NONE'
+      : input.permission.liveBlockReason === 'NONE'
+        ? 'POLICY_BLOCK'
+        : input.permission.liveBlockReason,
     ...LearningPolicy.resolve(),
     brokerOrderAllowed: input.liveEntryAllowed,
     executionImpact: input.executionImpact,
+    confidenceAdjustments: input.permission.confidenceAdjustments,
+    policyLabels: input.permission.policyLabels,
+    learningLabels: input.permission.learningLabels,
+    scorePenalty: input.permission.scorePenalty,
+    sizingMultiplier: input.permission.sizingMultiplier,
+    providerIssueIsolated: input.permission.providerIssueIsolated,
+    marketSignal: input.permission.marketSignal,
+    logTags: input.permission.logTags,
     reasonCodes: uniqueReasons(input.reasonCodes),
   };
 }
@@ -145,6 +198,21 @@ function buildPolicy(input: {
 export const ExecutionPolicy = Object.freeze({
   resolve(input: ResolveEngineRuntimePolicyInput): EngineRuntimePolicy {
     const engineMode = EngineModeManager.normalize(input.engineMode);
+    const permission = resolveExecutionPermission({
+      sourceSnapshotId: 'runtime-policy',
+      engineMode: input.engineMode,
+      operationMode: input.engineMode,
+      effectiveRegime: input.macroRegime,
+      marketSessionState: input.marketSessionState,
+      brokerOrderAllowed: input.brokerOrderAllowed,
+      operatorOrderAllowed: input.operatorOrderAllowed,
+      realTradingEnabled: input.realTradingEnabled,
+      providerIssue: input.providerIssue,
+      marketSignal: input.marketSignal,
+      kellyFraction: input.kellyFraction,
+      kellySizingMultiplier: input.kellySizingMultiplier,
+      gateQualityPassed: input.liveBuyGateAllowed !== false,
+    });
     const policyReasons = liveEntryPolicyReasons(input, engineMode);
     const reasonCodes = uniqueReasons([
       ...stripNonExecutionRegimeReasons(input.reasonCodes ?? []),
@@ -159,6 +227,7 @@ export const ExecutionPolicy = Object.freeze({
         liveExitAllowed: true,
         executionImpact: 'NONE',
         reasonCodes,
+        permission,
       });
     }
 
@@ -169,10 +238,11 @@ export const ExecutionPolicy = Object.freeze({
         liveExitAllowed: true,
         executionImpact: 'NONE',
         reasonCodes,
+        permission,
       });
     }
 
-    const liveBuyAllowed = input.liveBuyGateAllowed === true && !blockedByPolicy;
+    const liveBuyAllowed = input.liveBuyGateAllowed === true && !blockedByPolicy && permission.liveOrderAllowed;
     const liveSellAllowed = input.liveSellGateAllowed !== false;
     return buildPolicy({
       engineMode,
@@ -180,6 +250,7 @@ export const ExecutionPolicy = Object.freeze({
       liveExitAllowed: liveSellAllowed,
       executionImpact: blockedByPolicy ? 'NEW_BUY_BLOCKED_ONLY' : liveBuyAllowed || liveSellAllowed ? 'LIVE_ORDER_ALLOWED' : 'LIVE_ORDER_BLOCKED',
       reasonCodes,
+      permission,
     });
   },
 });
@@ -215,12 +286,21 @@ export function formatEngineRuntimePolicy(policy: EngineRuntimePolicy): string {
     'Execution Policy:',
     `liveEntryAllowed=${policy.liveEntryAllowed}`,
     `liveExitAllowed=${policy.liveExitAllowed}`,
+    `gateEvaluationAllowed=${policy.gateEvaluationAllowed}`,
+    `diagnosticGateEvaluationAllowed=${policy.diagnosticGateEvaluationAllowed}`,
+    `shadowEvaluationAllowed=${policy.shadowEvaluationAllowed}`,
     `shadowBuyAllowed=${policy.shadowBuyAllowed}`,
     `shadowSellAllowed=${policy.shadowSellAllowed}`,
     `shadowLearningAllowed=${policy.shadowLearningAllowed}`,
     `counterfactualAllowed=${policy.counterfactualAllowed}`,
     `diagnosticAllowed=${policy.diagnosticAllowed}`,
     `brokerOrderAllowed=${policy.brokerOrderAllowed}`,
+    `liveBlockReason=${policy.liveBlockReason}`,
+    `scorePenalty=${policy.scorePenalty}`,
+    `sizingMultiplier=${policy.sizingMultiplier.toFixed(4)}`,
+    `providerIssueIsolated=${policy.providerIssueIsolated}`,
+    `marketSignal=${policy.marketSignal}`,
+    `tags=${policy.logTags.join(',')}`,
     `executionImpact=${policy.executionImpact}`,
     'shadow.executionImpact=NONE',
     'counterfactual.executionImpact=NONE',

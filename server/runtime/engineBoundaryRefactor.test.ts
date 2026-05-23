@@ -52,15 +52,21 @@ describe('engine boundary refactor policy contracts', () => {
     expect(signal.executionImpact).toBe('NONE');
   });
 
-  it('normalizes removed SELL_ONLY to NORMAL without blocking live buys', () => {
+  it('keeps SELL_ONLY evaluation alive while blocking only live order permission', () => {
     const policy = resolveEngineRuntimePolicy({ engineMode: 'SELL_ONLY', liveBuyGateAllowed: true });
 
     expect(policy.engineMode).toBe('NORMAL');
-    expect(policy.liveBuyAllowed).toBe(true);
+    expect(policy.gateEvaluationAllowed).toBe(true);
+    expect(policy.diagnosticGateEvaluationAllowed).toBe(true);
+    expect(policy.shadowEvaluationAllowed).toBe(true);
+    expect(policy.liveBuyAllowed).toBe(false);
+    expect(policy.liveOrderAllowed).toBe(false);
+    expect(policy.liveBlockReason).toBe('SELL_ONLY_MODE');
     expect(policy.liveSellAllowed).toBe(true);
-    expect(policy.reasonCodes).not.toContain('SELL_ONLY');
+    expect(policy.reasonCodes).toContain('SELL_ONLY_MODE');
     expect(policy.shadowAllowed).toBe(true);
     expect(policy.learningAllowed).toBe(true);
+    expect(policy.policyLabels).toContain('SELL_ONLY_EVALUATION_CONTINUED');
   });
 
   it('keeps R6 diagnostic evidence from blocking runtime execution', () => {
@@ -73,6 +79,8 @@ describe('engine boundary refactor policy contracts', () => {
     expect(policy.liveBuyAllowed).toBe(true);
     expect(policy.brokerOrderAllowed).toBe(true);
     expect(policy.reasonCodes).not.toContain('R6_DEFENSE');
+    expect(policy.policyLabels).toContain('R6_SCORE_PENALTY_ONLY');
+    expect(policy.sizingMultiplier).toBeLessThanOrEqual(0.7);
   });
 
   it('records SHADOW_ONLY cases with executionImpact NONE', () => {

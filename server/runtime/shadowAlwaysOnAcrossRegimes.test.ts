@@ -61,12 +61,15 @@ describe('Shadow Always-On Across Regimes Patch v1', () => {
     expect(row.brokerOrdersCreated).toBe(0);
   });
 
-  it('removed SELL_ONLY normalizes to NORMAL without blocking live entry', () => {
+  it('SELL_ONLY blocks live entry permission only and keeps Shadow always-on', () => {
     const policy = resolveEngineRuntimePolicy({ engineMode: 'SELL_ONLY', liveBuyGateAllowed: true });
 
     expect(policy.engineMode).toBe('NORMAL');
-    expect(policy.liveEntryAllowed).toBe(true);
-    expect(policy.brokerOrderAllowed).toBe(true);
+    expect(policy.gateEvaluationAllowed).toBe(true);
+    expect(policy.shadowEvaluationAllowed).toBe(true);
+    expect(policy.liveEntryAllowed).toBe(false);
+    expect(policy.liveBlockReason).toBe('SELL_ONLY_MODE');
+    expect(policy.brokerOrderAllowed).toBe(false);
     expect(policy.shadowLearningAllowed).toBe(true);
   });
 

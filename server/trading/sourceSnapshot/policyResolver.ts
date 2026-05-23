@@ -1,5 +1,9 @@
 // @responsibility Source Snapshot policy resolver. Decides permissions without mutating gate results.
 
+import {
+  resolveExecutionPermission,
+  type ExecutionPermissionLiveBlockReason,
+} from '../../runtime/executionPermissionResolver.js';
 import type { CommonGateResult } from './commonGateEvaluator.js';
 
 export type PolicyStatus = 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
@@ -16,6 +20,12 @@ export interface ResolvePolicyInput {
   effectiveRegime?: string;
   engineMode?: string;
   operationMode?: string;
+  asOf?: string;
+  ttlSec?: number;
+  providerIssue?: boolean;
+  marketSignal?: boolean;
+  kellyFraction?: number | null;
+  kellySizingMultiplier?: number | null;
 }
 
 export interface PolicyResult {
@@ -25,6 +35,16 @@ export interface PolicyResult {
   displaySession: string;
   entryBlockMode: string;
   sessionOverlay: SessionOverlay;
+  sourceSnapshotId: string;
+  asOf: string;
+  ttlSec: number;
+  gateEvaluationAllowed: true;
+  diagnosticGateEvaluationAllowed: true;
+  shadowEvaluationAllowed: true;
+  shadowOrderAllowed: true;
+  paperFillAllowed: true;
+  liveOrderAllowed: boolean;
+  liveBlockReason: ExecutionPermissionLiveBlockReason;
   liveBuyAllowed: boolean;
   liveSellAllowed: boolean;
   realOrderAllowed: boolean;
@@ -39,6 +59,14 @@ export interface PolicyResult {
   issue: string | null;
   action: 'NONE' | 'CHECK_GATE_QUALITY';
   executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY';
+  confidenceAdjustments: string[];
+  policyLabels: string[];
+  learningLabels: string[];
+  scorePenalty: number;
+  sizingMultiplier: number;
+  providerIssueIsolated: boolean;
+  marketSignal: boolean;
+  executionPermissionLogTags: string[];
   gateSnapshotId: string;
 }
 
@@ -120,6 +148,20 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
       : true;
   const liveBuyAllowed = qualityPass;
   const blockReasons = liveBuyAllowed ? [] : ['COMMON_GATE_QUALITY_FAIL'];
+  const executionPermission = resolveExecutionPermission({
+    sourceSnapshotId: input.snapshotId,
+    asOf: input.asOf,
+    ttlSec: input.ttlSec,
+    gateQualityPassed: qualityPass,
+    engineMode,
+    operationMode,
+    effectiveRegime,
+    marketSessionState: marketSession,
+    providerIssue: input.providerIssue,
+    marketSignal: input.marketSignal,
+    kellyFraction: input.kellyFraction,
+    kellySizingMultiplier: input.kellySizingMultiplier,
+  });
 
   const result: PolicyResult = {
     snapshotId: input.snapshotId,
@@ -129,9 +171,19 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
     displaySession: 'REGULAR',
     entryBlockMode: 'NORMAL',
     sessionOverlay: 'NONE',
+    sourceSnapshotId: executionPermission.sourceSnapshotId,
+    asOf: executionPermission.asOf,
+    ttlSec: executionPermission.ttlSec,
+    gateEvaluationAllowed: executionPermission.gateEvaluationAllowed,
+    diagnosticGateEvaluationAllowed: executionPermission.diagnosticGateEvaluationAllowed,
+    shadowEvaluationAllowed: executionPermission.shadowEvaluationAllowed,
+    shadowOrderAllowed: executionPermission.shadowOrderAllowed,
+    paperFillAllowed: executionPermission.paperFillAllowed,
+    liveOrderAllowed: liveBuyAllowed && executionPermission.liveOrderAllowed,
+    liveBlockReason: liveBuyAllowed ? executionPermission.liveBlockReason : 'POLICY_BLOCK',
     liveBuyAllowed,
     liveSellAllowed: true,
-    realOrderAllowed: liveBuyAllowed,
+    realOrderAllowed: liveBuyAllowed && executionPermission.liveOrderAllowed,
     diagnosticAllowed: true,
     shadowSignalAllowed: true,
     shadowAllowed: true,
@@ -142,7 +194,15 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
     legacyIgnoredReasons: legacyPolicyInputs,
     issue: liveBuyAllowed ? null : 'GATE_OR_DATA_QUALITY_BLOCKED',
     action: liveBuyAllowed ? 'NONE' : 'CHECK_GATE_QUALITY',
-    executionImpact: liveBuyAllowed ? 'NONE' : 'NEW_BUY_BLOCKED_ONLY',
+    executionImpact: liveBuyAllowed && executionPermission.liveOrderAllowed ? 'NONE' : 'NEW_BUY_BLOCKED_ONLY',
+    confidenceAdjustments: executionPermission.confidenceAdjustments,
+    policyLabels: executionPermission.policyLabels,
+    learningLabels: executionPermission.learningLabels,
+    scorePenalty: executionPermission.scorePenalty,
+    sizingMultiplier: executionPermission.sizingMultiplier,
+    providerIssueIsolated: executionPermission.providerIssueIsolated,
+    marketSignal: executionPermission.marketSignal,
+    executionPermissionLogTags: executionPermission.logTags,
   };
   if (result.legacyPolicyInputs.length > 0) {
     console.info(formatRemovedPolicyInputIgnoredLog(result, {
@@ -154,10 +214,11 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
 }
 
 export function formatRemovedPolicyInputIgnoredLog(
-  policy: Pick<PolicyResult, 'snapshotId' | 'marketSession' | 'legacyPolicyInputs' | 'liveBuyAllowed' | 'realOrderAllowed' | 'shadowSignalAllowed' | 'diagnosticAllowed' | 'counterfactualAllowed'>,
+  policy: Pick<PolicyResult, 'snapshotId' | 'marketSession' | 'legacyPolicyInputs' | 'liveBuyAllowed' | 'realOrderAllowed' | 'liveOrderAllowed' | 'liveBlockReason' | 'shadowSignalAllowed' | 'diagnosticAllowed' | 'counterfactualAllowed' | 'gateEvaluationAllowed' | 'shadowEvaluationAllowed' | 'executionPermissionLogTags'>,
   input: { inputDisplaySession: string; inputEntryBlockMode: string },
 ): string {
   return [
+    ...policy.executionPermissionLogTags,
     '[REMOVED_POLICY_INPUT_IGNORED]',
     `snapshotId=${policy.snapshotId}`,
     `marketSession=${policy.marketSession}`,
@@ -165,7 +226,11 @@ export function formatRemovedPolicyInputIgnoredLog(
     `inputEntryBlockMode=${input.inputEntryBlockMode}`,
     `removedPolicies=${formatRemovedPoliciesForLog(policy.legacyPolicyInputs)}`,
     `liveBuyAllowed=${policy.liveBuyAllowed}`,
+    `liveOrderAllowed=${policy.liveOrderAllowed}`,
+    `liveBlockReason=${policy.liveBlockReason}`,
     `realOrderAllowed=${policy.realOrderAllowed}`,
+    `gateEvaluationAllowed=${policy.gateEvaluationAllowed}`,
+    `shadowEvaluationAllowed=${policy.shadowEvaluationAllowed}`,
     `shadowSignalAllowed=${policy.shadowSignalAllowed}`,
     `diagnosticAllowed=${policy.diagnosticAllowed}`,
     `counterfactualAllowed=${policy.counterfactualAllowed}`,
@@ -184,7 +249,13 @@ export function formatPolicyDiag(policy: PolicyResult): string {
     `entryBlockMode=${policy.entryBlockMode}`,
     `sessionOverlay=${policy.sessionOverlay}`,
     `liveBuyAllowed=${policy.liveBuyAllowed}`,
+    `liveOrderAllowed=${policy.liveOrderAllowed}`,
+    `liveBlockReason=${policy.liveBlockReason}`,
     `realOrderAllowed=${policy.realOrderAllowed}`,
+    `gateEvaluationAllowed=${policy.gateEvaluationAllowed}`,
+    `diagnosticGateEvaluationAllowed=${policy.diagnosticGateEvaluationAllowed}`,
+    `shadowEvaluationAllowed=${policy.shadowEvaluationAllowed}`,
+    `paperFillAllowed=${policy.paperFillAllowed}`,
     `diagnosticAllowed=${policy.diagnosticAllowed}`,
     `shadowSignalAllowed=${policy.shadowSignalAllowed}`,
     `shadowAllowed=${policy.shadowAllowed}`,
@@ -192,6 +263,11 @@ export function formatPolicyDiag(policy: PolicyResult): string {
     `reason=[${policy.blockReasons.join(',') || 'NONE'}]`,
     `legacyPolicyIgnored=${policy.legacyPolicyIgnored}`,
     `legacyPolicyInputs=[${formatPolicyInputsForDiagnostic(policy.legacyPolicyInputs)}]`,
+    `policyLabels=[${policy.policyLabels.join(',') || 'NONE'}]`,
+    `providerIssueIsolated=${policy.providerIssueIsolated}`,
+    `marketSignal=${policy.marketSignal}`,
+    `scorePenalty=${policy.scorePenalty}`,
+    `sizingMultiplier=${policy.sizingMultiplier.toFixed(4)}`,
     ...(policy.issue ? [`issue=${policy.issue}`] : []),
     `action=${policy.action}`,
   ].join(' | ');

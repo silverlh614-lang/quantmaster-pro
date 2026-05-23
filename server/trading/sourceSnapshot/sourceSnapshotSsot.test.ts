@@ -62,14 +62,20 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
       policyStatus: 'LIVE_ALLOWED',
       liveBuyAllowed: true,
       liveSellAllowed: true,
-      realOrderAllowed: true,
+      realOrderAllowed: false,
+      liveOrderAllowed: false,
+      liveBlockReason: 'SELL_ONLY_MODE',
+      gateEvaluationAllowed: true,
+      diagnosticGateEvaluationAllowed: true,
+      shadowEvaluationAllowed: true,
+      paperFillAllowed: true,
       diagnosticAllowed: true,
       shadowAllowed: true,
       counterfactualAllowed: true,
       displaySession: 'REGULAR',
       entryBlockMode: 'NORMAL',
       sessionOverlay: 'NONE',
-      executionImpact: 'NONE',
+      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
       legacyPolicyIgnored: true,
     });
     expect(policy.blockReasons).toEqual([]);
@@ -81,8 +87,42 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
     ]));
     expect(formatPolicyDiag(policy)).toContain('LIVE_ALLOWED');
     expect(formatPolicyDiag(policy)).toContain('entryBlockMode=NORMAL');
+    expect(formatPolicyDiag(policy)).toContain('liveOrderAllowed=false');
+    expect(formatPolicyDiag(policy)).toContain('shadowEvaluationAllowed=true');
     expect(formatPolicyDiag(policy)).not.toContain('R6_DEFENSE_SELL_ONLY');
     expect(formatPolicyDiag(policy)).not.toContain('AFTERMARKET_SELL_ONLY');
+  });
+
+  it('keeps provider issue and Kelly advisory isolated from evaluation permission', () => {
+    const commonGateResult = evaluateCommonGate({
+      snapshotId: 'snap-provider',
+      candidate: { symbol: '005930', quoteStatus: 'VERIFIED', tradabilityStatus: 'TRADABLE', liquidityStatus: 'PASS' },
+      feature: { technicalIndicators: { status: 'COMPUTED', ma20: 100, ma60: 90, rsi14: 55, atr14: 2 } },
+    });
+
+    const policy = resolvePolicy({
+      snapshotId: 'snap-provider',
+      commonGateResult,
+      marketSession: 'REGULAR',
+      providerIssue: true,
+      marketSignal: true,
+      kellyFraction: 0,
+    });
+
+    expect(policy.gateEvaluationAllowed).toBe(true);
+    expect(policy.shadowEvaluationAllowed).toBe(true);
+    expect(policy.counterfactualAllowed).toBe(true);
+    expect(policy.providerIssueIsolated).toBe(true);
+    expect(policy.marketSignal).toBe(false);
+    expect(policy.sizingMultiplier).toBe(0);
+    expect(policy.policyLabels).toEqual(expect.arrayContaining([
+      'KELLY_ADVISORY_ONLY',
+      'PROVIDER_ISSUE_ISOLATED',
+    ]));
+    expect(policy.executionPermissionLogTags).toEqual(expect.arrayContaining([
+      '[KELLY_ADVISORY_ONLY]',
+      '[PROVIDER_ISSUE_ISOLATED]',
+    ]));
   });
 
   it('blocks failed common gate only with gate quality reason', () => {

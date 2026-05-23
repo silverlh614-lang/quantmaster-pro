@@ -106,10 +106,10 @@ export function resolveShadowAlwaysOnPolicy(input: ShadowAlwaysOnPolicyInput): S
   if (mode === 'SELL_ONLY') {
     return withInvariant({
       ...SHADOW_TRUE,
-      liveBuyAllowed: liveBuyDefault,
+      liveBuyAllowed: false,
       liveSellAllowed: true,
-      executionImpact: liveBuyDefault ? 'NONE' : 'NEW_BUY_BLOCKED_ONLY',
-      reason: 'LEGACY_POLICY_INPUT_REMOVED_SHADOW_ALLOWED',
+      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
+      reason: 'SELL_ONLY_EVALUATION_CONTINUED_LIVE_BUY_BLOCKED',
     });
   }
 

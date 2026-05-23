@@ -34,7 +34,7 @@ describe('SSOT snapshot pipeline', () => {
     expect(decision.executionResult.snapshotId).toBe(snapshot.snapshotId);
   });
 
-  it('ignores removed R6/SELL_ONLY execution blocks while keeping gate and execution stable', () => {
+  it('continues evaluation in R6/SELL_ONLY while blocking only live order permission', () => {
     const { snapshot, candidate, feature } = fixture();
     const a = buildDecisionContext(snapshot, candidate, feature, 'REGULAR', 'R6_DEFENSE_SELL_ONLY');
     const b = buildDecisionContext(snapshot, candidate, feature, 'AFTERMARKET', 'R6_DEFENSE_SELL_ONLY');
@@ -45,6 +45,12 @@ describe('SSOT snapshot pipeline', () => {
     expect(a.policyResult.liveBuyAllowed).toBe(true);
     expect(b.policyResult.liveBuyAllowed).toBe(true);
     expect(c.policyResult.liveBuyAllowed).toBe(true);
+    expect(a.policyResult.gateEvaluationAllowed).toBe(true);
+    expect(a.policyResult.shadowEvaluationAllowed).toBe(true);
+    expect(a.policyResult.counterfactualAllowed).toBe(true);
+    expect(a.policyResult.actualLiveOrderAllowed).toBe(false);
+    expect(a.policyResult.liveOrderAllowed).toBe(false);
+    expect(a.policyResult.liveBlockReason).toBe('SELL_ONLY_MODE');
     expect(a.policyResult.entryBlockMode).toBe('NORMAL');
     expect(b.policyResult.entryBlockMode).toBe('NORMAL');
     expect(a.policyResult.blockReasons).toEqual([]);
@@ -54,7 +60,8 @@ describe('SSOT snapshot pipeline', () => {
     expect(b.policyResult.legacyPolicyInputs).toEqual(expect.arrayContaining([
       'R6_DEFENSE_SELL_ONLY_REMOVED',
     ]));
-    expect(JSON.stringify(a.executionResult)).toBe(JSON.stringify(c.executionResult));
+    expect(a.executionResult.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
+    expect(c.executionResult.executionImpact).toBe('LIVE_ORDER_ALLOWED');
     expect(a.learningResult.shadowLearning).toBe(true);
     expect(c.learningResult.shadowLearning).toBe(true);
   });
@@ -81,6 +88,12 @@ describe('SSOT snapshot pipeline', () => {
         operatorOrderAllowed: true,
         actualLiveOrderAllowed: true,
         liveBlockReason: 'NONE',
+        gateEvaluationAllowed: true,
+        diagnosticGateEvaluationAllowed: true,
+        shadowEvaluationAllowed: true,
+        shadowOrderAllowed: true,
+        paperFillAllowed: true,
+        liveOrderAllowed: true,
         shadowAllowed: true,
         shadowLearningAllowed: true,
         shadowSignalAllowed: true,
@@ -91,6 +104,14 @@ describe('SSOT snapshot pipeline', () => {
         legacyPolicyInputs: [],
         legacyPolicyIgnored: true,
         legacyIgnoredReasons: [],
+        confidenceAdjustments: [],
+        policyLabels: ['SOURCE_SNAPSHOT_SSOT_CONFIRMED'],
+        learningLabels: ['SHADOW_LEARNING_ALWAYS_ON', 'COUNTERFACTUAL_ALWAYS_ON'],
+        scorePenalty: 0,
+        sizingMultiplier: 1,
+        providerIssueIsolated: false,
+        marketSignal: false,
+        executionPermissionLogTags: ['[SOURCE_SNAPSHOT_SSOT_CONFIRMED]'],
         policyStatus: 'LIVE_ALLOWED',
       },
       telegramSnapshotId: 'third',
