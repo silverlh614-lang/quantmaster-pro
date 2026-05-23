@@ -111,6 +111,13 @@ export interface MacroGateState {
   counterfactualAllowed?: boolean;
   diagnosticAllowed?: boolean;
   brokerOrderAllowed?: boolean;
+  canonicalSession?: string;
+  displaySession?: string;
+  brokerRouteAlive?: boolean;
+  brokerLiveOrderAllowed?: boolean;
+  brokerExitOrderAllowed?: boolean;
+  paperOrderAllowed?: boolean;
+  shadowAllowed?: boolean;
 }
 
 export type DataPromotionLevel = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
@@ -267,8 +274,13 @@ export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';
 
 export type PaperEntrySkipReason =
   | 'NONE'
+  | 'INVALID_SYMBOL'
+  | 'PRICE_MISSING'
+  | 'NO_REFERENCE_PRICE'
   | 'DUPLICATE_PENDING_ORDER'
   | 'DUPLICATE_OPEN_POSITION'
+  | 'COOLDOWN_ACTIVE'
+  | 'BLACKLISTED'
   | 'PRICE_UNRESOLVED'
   | 'STALE_PRICE'
   | 'INVALID_ENTRY_PRICE'

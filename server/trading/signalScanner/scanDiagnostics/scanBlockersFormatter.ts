@@ -30,7 +30,7 @@ import { formatGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr04
 import { formatGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
 import { formatGate1DryRunObservationSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
 import { formatInvestorFlowProviderRouterAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
-import { type PaperEntryCandidateForensic, type PaperEntryDecisionRecord, type ScanSummary } from './scanSummaryTypes.js';
+import { type PaperEntryCandidateForensic, type PaperEntryDecisionRecord, type PaperEntrySkipReason, type ScanSummary } from './scanSummaryTypes.js';
 import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection } from './gateScoreDiagnostics.js';
 import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection } from './gateLayerDiagnostics.js';
 import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
@@ -64,6 +64,146 @@ function formatterFiniteNumber(value: unknown): value is number {
 function formatterRatioFromMaybePercent(value: unknown): number {
   if (!formatterFiniteNumber(value)) return 0;
   return value > 1 ? Math.max(0, Math.min(1, value / 100)) : Math.max(0, Math.min(1, value));
+}
+
+const PAPER_ENTRY_HARD_SKIP_REASONS = new Set<string>([
+  'INVALID_SYMBOL',
+  'PRICE_MISSING',
+  'NO_REFERENCE_PRICE',
+  'PRICE_UNRESOLVED',
+  'STALE_PRICE',
+  'INVALID_ENTRY_PRICE',
+  'DUPLICATE_PENDING_ORDER',
+  'DUPLICATE_OPEN_POSITION',
+  'COOLDOWN_ACTIVE',
+  'PRE_BREAKOUT_WAIT_COOLDOWN',
+  'BLACKLISTED',
+  'PAPER_ENGINE_DISABLED',
+  'PAPER_LEDGER_WRITE_FAILED',
+  'POSITION_REGISTRY_WRITE_FAILED',
+  'UNKNOWN_BUG',
+]);
+
+function formatterUpper(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+function hasPaperReferencePrice(record: PaperEntryDecisionRecord): boolean {
+  return formatterFiniteNumber(record.resolvedEntryPrice) && record.resolvedEntryPrice > 0;
+}
+
+function resolvePaperEntryHardSkipReason(record: PaperEntryDecisionRecord): PaperEntrySkipReason | null {
+  if (!record.symbol || record.symbol.trim().length === 0) return 'INVALID_SYMBOL';
+  if (record.existingOpenShadowPosition) return 'DUPLICATE_OPEN_POSITION';
+  if (record.existingPendingPaperOrder) return 'DUPLICATE_PENDING_ORDER';
+  if (record.skipReason && PAPER_ENTRY_HARD_SKIP_REASONS.has(record.skipReason)) return record.skipReason;
+  if (record.resolvedEntryPrice !== undefined && (!formatterFiniteNumber(record.resolvedEntryPrice) || record.resolvedEntryPrice <= 0)) {
+    return 'INVALID_ENTRY_PRICE';
+  }
+  if (!hasPaperReferencePrice(record)) return 'PRICE_MISSING';
+  return null;
+}
+
+function buildPaperEntrySoftLabels(record: PaperEntryDecisionRecord): string[] {
+  const labels: string[] = [];
+  if (!record.minSignalLivePass) labels.push('SCORE_BELOW_THRESHOLD');
+  if (record.gate2PendingPreserved) labels.push('GATE2_PENDING');
+  if (formatterUpper(record.executionPermission) !== 'ALLOW') labels.push('GATE3_PRE_BREAKOUT');
+  if (!record.sizingAllowed) labels.push('SIZING_BLOCKED');
+  if (formatterUpper(record.sizingReason).includes('SECTOR')) labels.push('SECTOR_SHADOW_ONLY');
+  if (formatterUpper(record.sizingReason).includes('KELLY') || formatterUpper(record.sizingReason).includes('RISK')) {
+    labels.push('RISK_KELLY_LABEL_ONLY');
+  }
+  return Array.from(new Set(labels));
+}
+
+function normalizePaperEntryDecision(record: PaperEntryDecisionRecord): PaperEntryDecisionRecord {
+  const hardSkipReason = resolvePaperEntryHardSkipReason(record);
+  if (hardSkipReason) {
+    return {
+      ...record,
+      decision: 'SKIPPED',
+      skipReason: hardSkipReason,
+      paperEntryEligible: false,
+    };
+  }
+  if (
+    record.decision === 'SKIPPED' &&
+    (record.gate1HardSurvivor || record.minSignalLivePass || record.shadowObservableStrict || record.shadowObservableSoft || record.paperEntryEligible)
+  ) {
+    return {
+      ...record,
+      decision: 'CREATED',
+      stage: record.stage === 'CANDIDATE_SELECTED' ? 'ORDER_CREATION' : record.stage,
+      skipReason: 'NONE',
+      paperEntryEligible: true,
+      executionPermission: formatterUpper(record.executionPermission) === 'ALLOW' ? record.executionPermission : 'PAPER_OBSERVATION_ALLOWED',
+    };
+  }
+  return record.decision === 'CREATED'
+    ? { ...record, skipReason: 'NONE', paperEntryEligible: true }
+    : record;
+}
+
+function parseSummaryDate(summary: ScanSummary): Date | null {
+  const sourceHealth = summary.sourceSnapshotDataHealth as { asOf?: string } | undefined;
+  const candidates = [
+    summary.scanEvaluation?.asOf,
+    sourceHealth?.asOf,
+    summary.snapshotId,
+    summary.time,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const raw = String(candidate);
+    const normalized = raw.includes(' KST') ? raw.replace(' KST', '+09:00') : raw;
+    const ms = Date.parse(normalized);
+    if (Number.isFinite(ms)) return new Date(ms);
+  }
+  return null;
+}
+
+function resolvePermissionView(summary: ScanSummary) {
+  const mg = summary.macroGateState;
+  const rawSession = mg?.displaySession ?? mg?.canonicalSession ?? summary.scanEvaluation?.marketSessionState ?? 'UNKNOWN';
+  const parsed = parseSummaryDate(summary);
+  const kstDay = parsed ? new Date(parsed.getTime() + 9 * 60 * 60 * 1000).getUTCDay() : null;
+  const weekend = kstDay === 0 || kstDay === 6;
+  const session = formatterUpper(rawSession);
+  const canonicalSession = weekend
+    ? 'HOLIDAY'
+    : session === 'HOLIDAY' || session === 'NON_TRADING_DAY'
+      ? 'HOLIDAY'
+      : ['CLOSED', 'AFTERMARKET', 'AFTER_MARKET', 'POST_CLOSE', 'PRE_MARKET'].includes(session)
+        ? 'CLOSED'
+        : ['BUY_ALLOWED', 'OPEN', 'REGULAR_OPEN', 'NORMAL'].includes(session)
+          ? 'REGULAR_OPEN'
+          : session || 'UNKNOWN';
+  const displayRegime = mg?.displayRegime ?? mg?.regime ?? summary.scanEvaluation?.engineMode ?? 'UNKNOWN';
+  const engineMode = mg?.engineMode ?? summary.scanEvaluation?.engineMode ?? displayRegime;
+  const shadowOnly = formatterUpper(engineMode) === 'SHADOW_ONLY'
+    || formatterUpper(displayRegime) === 'SHADOW_ONLY'
+    || formatterUpper(mg?.riskOverride) === 'SHADOW_ONLY';
+  const liveSession = canonicalSession === 'REGULAR_OPEN';
+  const brokerRouteAlive = mg?.brokerRouteAlive ?? mg?.brokerOrderAllowed ?? true;
+  const brokerLiveOrderAllowed = mg?.brokerLiveOrderAllowed ?? (brokerRouteAlive === true && liveSession && !shadowOnly && mg?.liveEntryAllowed === true);
+  const brokerExitOrderAllowed = mg?.brokerExitOrderAllowed ?? (brokerRouteAlive === true && liveSession && !shadowOnly && mg?.liveExitAllowed === true);
+  const paperOrderAllowed = mg?.paperOrderAllowed ?? true;
+  const shadowAllowed = mg?.shadowAllowed ?? mg?.shadowBuyAllowed ?? true;
+  const counterfactualAllowed = mg?.counterfactualAllowed ?? true;
+  return {
+    canonicalSession,
+    displaySession: rawSession,
+    engineMode,
+    displayRegime,
+    liveEntryAllowed: brokerLiveOrderAllowed,
+    brokerRouteAlive,
+    brokerLiveOrderAllowed,
+    brokerExitOrderAllowed,
+    paperOrderAllowed,
+    shadowAllowed,
+    counterfactualAllowed,
+  };
 }
 
 function sectorEnergyQualityDiagnosticForDisplay(summary: ScanSummary): SectorEnergyQualityDiagnostic | undefined {
@@ -284,13 +424,11 @@ function formatRuntimeWiringSummary(
     return { reason: 'FORENSIC_CARRY_BROKEN', missingInputReason: 'missing gate/score/sizing/permission trace inputs' };
   };
   const buildPaperDecisionReasonView = (record: PaperEntryDecisionRecord): { primaryReason: string; secondaryReasons: string[] } => {
-    if (record.decision !== 'SKIPPED') return { primaryReason: record.skipReason ?? 'NONE', secondaryReasons: [] };
-    const primaryReason = record.skipReason ?? 'NONE';
-    const secondaryReasons: string[] = [];
-    if (record.gate2PendingPreserved) secondaryReasons.push('GATE2_PENDING');
-    if (record.executionPermission !== 'ALLOW') secondaryReasons.push('GATE3_BLOCK');
-    if (!record.sizingAllowed) secondaryReasons.push('SIZING_BLOCKED');
-    return { primaryReason, secondaryReasons };
+    const secondaryReasons = buildPaperEntrySoftLabels(record);
+    if (record.decision === 'CREATED') return { primaryReason: 'PAPER_ENTRY_CREATED', secondaryReasons };
+    if (record.decision === 'BLOCKED') return { primaryReason: record.skipReason ?? 'PAPER_ENTRY_BLOCKED', secondaryReasons };
+    if (record.decision === 'ERROR') return { primaryReason: record.skipReason ?? 'PAPER_ENTRY_ERROR', secondaryReasons };
+    return { primaryReason: record.skipReason ?? 'NONE', secondaryReasons };
   };
   const derivePaperEntryForensic = () => {
     const paperForensic = summary.paperEntryForensic;
@@ -333,10 +471,10 @@ function formatRuntimeWiringSummary(
       ? paperForensic.decisionRecords
       : synthesizeDecisionRecords(paperForensic?.candidates ?? []);
     if (decisionRecords.length === 0 && (softLane?.gate1HardSurvivors ?? 0) > 0) {
-      const fallbackSymbols = (summary.candidatePool?.candidateSnapshots ?? [])
+      const fallbackSnapshots = (summary.candidatePool?.candidateSnapshots ?? [])
         .slice(0, softLane?.gate1HardSurvivors ?? 0)
-        .map((snapshot) => snapshot.symbol)
-        .filter((symbol) => typeof symbol === 'string' && symbol.trim().length > 0);
+        .filter((snapshot) => typeof snapshot.symbol === 'string' && snapshot.symbol.trim().length > 0);
+      const fallbackSymbols = fallbackSnapshots.map((snapshot) => snapshot.symbol);
       const requiredFallbackCount = softLane?.gate1HardSurvivors ?? 0;
       while (fallbackSymbols.length < requiredFallbackCount) {
         fallbackSymbols.push(`UNKNOWN_${fallbackSymbols.length + 1}`);
@@ -344,7 +482,10 @@ function formatRuntimeWiringSummary(
       const fallbackSourceSnapshotId = summary.candidatePool?.sourceSnapshotId ?? 'SOURCE_SNAPSHOT_UNKNOWN';
       const fallbackCandidateSetId = summary.candidatePool?.asOf ?? summary.time ?? 'CANDIDATE_SET_UNKNOWN';
       const fallbackGateScoreSnapshotId = (summary.entryFilterDecomposition as { sourceSnapshotId?: string } | undefined)?.sourceSnapshotId ?? fallbackSourceSnapshotId;
-      decisionRecords = fallbackSymbols.map((symbol): PaperEntryDecisionRecord => ({
+      decisionRecords = fallbackSymbols.map((symbol): PaperEntryDecisionRecord => {
+        const snapshot = fallbackSnapshots.find((candidate) => candidate.symbol === symbol);
+        const resolvedEntryPrice = formatterFiniteNumber(snapshot?.price) && snapshot.price > 0 ? snapshot.price : undefined;
+        return ({
         symbol,
         sourceSnapshotId: fallbackSourceSnapshotId,
         candidateSetId: fallbackCandidateSetId,
@@ -358,17 +499,21 @@ function formatRuntimeWiringSummary(
         gate2PendingPreserved: true,
         shadowObservableStrict: true,
         shadowObservableSoft: true,
-        paperEntryEligible: false,
+        paperEntryEligible: resolvedEntryPrice !== undefined,
         existingOpenShadowPosition: false,
         existingPendingPaperOrder: false,
+        resolvedEntryPrice,
+        priceSource: resolvedEntryPrice !== undefined ? 'CANDIDATE_POOL_REFERENCE_PRICE' : undefined,
         sizingAllowed: false,
-        executionPermission: 'UNKNOWN',
-      }));
+        executionPermission: 'PAPER_OBSERVATION_ALLOWED',
+      });
+      });
     }
     decisionRecords = decisionRecords.map((record) => {
-      if (record.decision !== 'SKIPPED') return record;
+      const normalized = normalizePaperEntryDecision(record);
+      if (normalized.decision !== 'SKIPPED') return normalized;
       const resolved = resolveRealPaperSkipReason(record);
-      return { ...record, skipReason: resolved.reason as PaperEntryDecisionRecord['skipReason'] };
+      return normalizePaperEntryDecision({ ...record, skipReason: resolved.reason as PaperEntryDecisionRecord['skipReason'] });
     });
     const candidates = paperForensic?.candidates ?? [];
     const candidateSymbols = decisionRecords.map((record) => record.symbol).filter(Boolean);
@@ -380,6 +525,10 @@ function formatRuntimeWiringSummary(
     const skipReasonDistribution = skippedRecords.reduce<Record<string, number>>((acc, record) => {
       if (!record.skipReason || record.skipReason === 'NONE') return acc;
       acc[record.skipReason] = (acc[record.skipReason] ?? 0) + 1;
+      return acc;
+    }, {});
+    const softLabelDistribution = decisionRecords.reduce<Record<string, number>>((acc, record) => {
+      for (const label of buildPaperEntrySoftLabels(record)) acc[label] = (acc[label] ?? 0) + 1;
       return acc;
     }, {});
     const createdSymbols = createdRecords.map((record) => record.symbol);
@@ -424,7 +573,7 @@ function formatRuntimeWiringSummary(
       .map((record) => ({ record, resolved: resolveRealPaperSkipReason(record) }))
       .filter(({ resolved }) => resolved.reason === 'FORENSIC_CARRY_BROKEN' && resolved.missingInputReason)
       .map(({ record, resolved }) => `${record.symbol}:${resolved.missingInputReason}`);
-    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid: invariantValid && semanticInvariantValid, semanticInvariantValid, realSkipReasonResolvedCount, forensicFallbackReasonCount, recommendedAction, invalidMarkers, missingInputReasons };
+    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, softLabelDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid: invariantValid && semanticInvariantValid, semanticInvariantValid, realSkipReasonResolvedCount, forensicFallbackReasonCount, recommendedAction, invalidMarkers, missingInputReasons };
   };
 
   const paper = derivePaperEntryForensic();
@@ -460,6 +609,7 @@ function formatRuntimeWiringSummary(
   const paperEntryCreatedSymbols = paper.createdSymbols;
   const paperEntrySkippedSymbols = paper.skippedSymbols;
   const paperEntrySkipReasonDistribution = paper.skipReasonDistribution;
+  const paperEntrySoftLabelDistribution = paper.softLabelDistribution;
   const paperEntryTopSkipReason = paper.topSkipReason;
   const paperEntryExecutionImpact = summary.paperEntryForensic?.executionImpact ?? 'NONE';
   const paperEntryForensicStatus = paper.forensicStatus;
@@ -474,6 +624,11 @@ function formatRuntimeWiringSummary(
     macro?.regime !== 'R6_DEFENSE'
       ? rawRegime
       : legacyEffectiveRegime;
+  const permissionView = resolvePermissionView(summary);
+  const liveCandidates = summary.liveEligibleCount ?? 0;
+  const liveCreated = summary.entries ?? 0;
+  const liveBlocked = Math.max(0, liveCandidates - liveCreated);
+  const watchOnlyPreserved = softLane?.gate2PendingPreserved ?? 0;
 
   const lines = [
     '🧩 <b>Runtime Wiring Summary</b>',
@@ -494,6 +649,7 @@ function formatRuntimeWiringSummary(
     `- gateCounterfactualReadyCount=${gateCounterfactualReadyCount}`,
     `- paperEntryCandidateCount=${paperEntryCandidateCount} paperEntryCreatedCount=${paperEntryCreatedCount} paperEntrySkippedCount=${paperEntrySkippedCount}`,
     `- paperEntrySkipReasonDistribution=${Object.keys(paperEntrySkipReasonDistribution).length ? JSON.stringify(paperEntrySkipReasonDistribution) : '{}'}`,
+    `- paperEntrySoftLabelDistribution=${Object.keys(paperEntrySoftLabelDistribution).length ? JSON.stringify(paperEntrySoftLabelDistribution) : '{}'}`,
     `- paperEntryCandidateSymbols=${paperEntryCandidateSymbols.length ? paperEntryCandidateSymbols.join(',') : '-'}`,
     `- paperEntryCreatedSymbols=${paperEntryCreatedSymbols.length ? paperEntryCreatedSymbols.join(',') : '-'}`,
     `- paperEntrySkippedSymbols=${paperEntrySkippedSymbols.length ? paperEntrySkippedSymbols.join(',') : '-'}`,
@@ -512,6 +668,8 @@ function formatRuntimeWiringSummary(
       return `${record.symbol}:${record.decision}:primary=${reasonView.primaryReason}:secondary=${secondary}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'FAIL'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}`;
     }).join('|') : '-'}`,
     ...(paper.missingInputReasons?.length ? [`- paperEntryMissingInputReason=${paper.missingInputReasons.join('|')}`] : []),
+    `- Entry Lane Split: liveCandidates=${liveCandidates} liveCreated=${liveCreated} liveBlocked=${liveBlocked} paperCandidates=${paperEntryCandidateCount} paperCreated=${paperEntryCreatedCount} paperSkipped=${paperEntrySkippedCount} shadowCandidates=${shadowObservableSoftCount} shadowCreated=${summary.provisionalShadowLane?.created ?? 0} counterfactualCreated=${counterfactualLedgerRowsCreated} watchOnlyPreserved=${watchOnlyPreserved}`,
+    `- Permission Resolution: canonicalSession=${permissionView.canonicalSession} displaySession=${permissionView.displaySession} engineMode=${permissionView.engineMode} brokerRouteAlive=${permissionView.brokerRouteAlive} brokerLiveOrderAllowed=${permissionView.brokerLiveOrderAllowed} brokerExitOrderAllowed=${permissionView.brokerExitOrderAllowed} paperOrderAllowed=${permissionView.paperOrderAllowed} shadowAllowed=${permissionView.shadowAllowed} counterfactualAllowed=${permissionView.counterfactualAllowed}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
@@ -578,6 +736,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     const canonicalEffectiveRegime = staleLegacyR6Path ? rawRegime : legacyEffectiveRegime;
     const policyViewRegime = mg.riskOverride && mg.riskOverride !== 'NONE' ? mg.riskOverride : displayRegime;
     const positionPolicy = getRegimePositionPolicy(policyViewRegime || canonicalEffectiveRegime);
+    const permissionView = resolvePermissionView(summary);
     lines.push(`  • 레짐: display=${displayRegime} effective=${canonicalEffectiveRegime} (policyView=${policyViewRegime || canonicalEffectiveRegime}, 총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
     if (mg.macroRegimeRaw || mg.macroRegimeEffective || mg.displayRegime) {
       lines.push(`  • raw/effective/display/riskOverride: ${rawRegime} → ${canonicalEffectiveRegime} / ${displayRegime} / ${mg.riskOverride ?? 'NONE'}`);
@@ -591,13 +750,18 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
       if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
     }
-    if (mg.liveEntryAllowed !== undefined) lines.push(`  • liveEntryAllowed: ${mg.liveEntryAllowed}`);
+    if (mg.liveEntryAllowed !== undefined) lines.push(`  • liveEntryAllowed: ${permissionView.liveEntryAllowed}`);
     if (mg.liveExitAllowed !== undefined) lines.push(`  • liveExitAllowed: ${mg.liveExitAllowed}`);
     if (mg.shadowBuyAllowed !== undefined) lines.push(`  • shadowBuyAllowed: ${mg.shadowBuyAllowed}`);
     if (mg.shadowSellAllowed !== undefined) lines.push(`  • shadowSellAllowed: ${mg.shadowSellAllowed}`);
     if (mg.shadowLearningAllowed !== undefined) lines.push(`  • shadowLearningAllowed: ${mg.shadowLearningAllowed}`);
     if (mg.counterfactualAllowed !== undefined) lines.push(`  • counterfactualAllowed: ${mg.counterfactualAllowed}`);
-    if (mg.brokerOrderAllowed !== undefined) lines.push(`  • brokerOrderAllowed: ${mg.brokerOrderAllowed}`);
+    if (mg.brokerOrderAllowed !== undefined || mg.brokerRouteAlive !== undefined) {
+      lines.push(`  • brokerRouteAlive: ${permissionView.brokerRouteAlive}`);
+      lines.push(`  • brokerLiveOrderAllowed: ${permissionView.brokerLiveOrderAllowed}`);
+      lines.push(`  • brokerExitOrderAllowed: ${permissionView.brokerExitOrderAllowed}`);
+      lines.push(`  • paperOrderAllowed: ${permissionView.paperOrderAllowed}`);
+    }
     lines.push(`  • FOMC: ${mg.fomcPhase} (점수/신뢰도 보정만 적용, executionImpact=NONE)`);
     if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
     if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);

@@ -38,7 +38,7 @@ describe("/scan_blockers R6 forensic macro gate fields", () => {
       },
     } as any);
 
-    expect(text).toContain("raw/effective: R6_DEFENSE → R6_DEFENSE");
+    expect(text).toContain("raw/effective/display/riskOverride: R6_DEFENSE → R6_DEFENSE / R6_DEFENSE / NONE");
     expect(text).toContain("activeR6Triggers: [KOSPI_INTRADAY_LOW_SHOCK]");
     expect(text).toContain("r6ShockLatch: true");
     expect(text).toContain("liveEntryAllowed: false");
@@ -47,6 +47,9 @@ describe("/scan_blockers R6 forensic macro gate fields", () => {
     expect(text).toContain("shadowSellAllowed: true");
     expect(text).toContain("shadowLearningAllowed: true");
     expect(text).toContain("counterfactualAllowed: true");
-    expect(text).toContain("brokerOrderAllowed: false");
+    expect(text).toContain("brokerRouteAlive: false");
+    expect(text).toContain("brokerLiveOrderAllowed: false");
+    expect(text).toContain("paperOrderAllowed: true");
+    expect(text).not.toContain("brokerOrderAllowed: false");
   });
 });

@@ -42,7 +42,18 @@ export function buildMacroGateState(input: {
   counterfactualAllowed?: boolean;
   diagnosticAllowed?: boolean;
   brokerOrderAllowed?: boolean;
+  canonicalSession?: string;
+  displaySession?: string;
+  brokerRouteAlive?: boolean;
+  brokerLiveOrderAllowed?: boolean;
+  brokerExitOrderAllowed?: boolean;
+  paperOrderAllowed?: boolean;
+  shadowAllowed?: boolean;
 }): MacroGateState {
+  const engineMode = input.engineMode ?? input.displayRegime ?? input.regime;
+  const shadowOnly = engineMode === 'SHADOW_ONLY' || input.displayRegime === 'SHADOW_ONLY' || input.riskOverride === 'SHADOW_ONLY';
+  const brokerRouteAlive = input.brokerRouteAlive ?? input.brokerOrderAllowed ?? input.liveEntryAllowed ?? false;
+  const brokerLiveOrderAllowed = input.brokerLiveOrderAllowed ?? (!shadowOnly && brokerRouteAlive && input.liveEntryAllowed === true);
   return {
     emergencyStop: input.emergencyStop,
     autoTradeEnabled: input.autoTradeEnabled,
@@ -83,6 +94,13 @@ export function buildMacroGateState(input: {
     counterfactualAllowed: input.counterfactualAllowed ?? true,
     diagnosticAllowed: input.diagnosticAllowed ?? true,
     brokerOrderAllowed: input.brokerOrderAllowed ?? input.liveEntryAllowed ?? false,
+    canonicalSession: input.canonicalSession,
+    displaySession: input.displaySession,
+    brokerRouteAlive,
+    brokerLiveOrderAllowed,
+    brokerExitOrderAllowed: input.brokerExitOrderAllowed ?? (!shadowOnly && brokerRouteAlive && input.liveExitAllowed !== false),
+    paperOrderAllowed: input.paperOrderAllowed ?? true,
+    shadowAllowed: input.shadowAllowed ?? true,
   };
 }
 

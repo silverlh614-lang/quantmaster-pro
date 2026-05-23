@@ -69,6 +69,16 @@ describe('scan_blockers candidate pool section', () => {
   });
 
   it('renders Gate1 hard survivors preserved into the Gate2 soft leadership lane', () => {
+    const candidatePool = buildCandidatePool({
+      sourceSnapshotId: 'scan-eval:paper-lane',
+      existingWatchlist: [
+        { symbol: '000660', name: 'SK hynix', price: 180_000, volume: 1_000_000, turnover: 180_000_000_000 },
+        { symbol: '002960', name: 'Hankook Shell', price: 250_000, volume: 30_000, turnover: 7_500_000_000 },
+        { symbol: '003230', name: 'Samyang Foods', price: 520_000, volume: 50_000, turnover: 26_000_000_000 },
+      ],
+      liveOrderAllowed: false,
+      emitLogs: false,
+    });
     const summary = {
       time: '12:05 KST',
       candidates: 3,
@@ -83,6 +93,7 @@ describe('scan_blockers candidate pool section', () => {
       shadowObservableCount: 3,
       liveEligibleCount: 0,
       dataUnavailableBlockedCount: 3,
+      candidatePool,
       gate2SoftLeadershipLane: {
         gate1HardSurvivors: 3,
         minSignalLivePass: 4,
@@ -105,18 +116,21 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('MinSignal live pass: 4');
     expect(text).toContain('- MinSignal live pass: 4');
     expect(text).toContain('Gate2 pending preserved: 3');
-    expect(text).toContain('- counterfactualLedgerRowsCreated=0');
-    expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=0 paperEntrySkippedCount=3');
-    expect(text).toContain('- paperEntrySkipReasonDistribution={"PAPER_ENTRY_SCORE_BELOW_THRESHOLD":3}');
-    expect(text).toContain('- paperEntryCandidateSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
-    expect(text).toContain('- paperEntrySkippedSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
+    expect(text).toContain('- counterfactualLedgerRowsCreated=3');
+    expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=3 paperEntrySkippedCount=0');
+    expect(text).toContain('- paperEntrySkipReasonDistribution={}');
+    expect(text).toContain('- paperEntrySoftLabelDistribution={"SCORE_BELOW_THRESHOLD":3,"GATE2_PENDING":3,"GATE3_PRE_BREAKOUT":3,"SIZING_BLOCKED":3}');
+    expect(text).toContain('- paperEntryCandidateSymbols=000660,003230,002960');
+    expect(text).toContain('- paperEntryCreatedSymbols=000660,003230,002960');
+    expect(text).toContain('- paperEntrySkippedSymbols=-');
     expect(text).toContain('- paperEntryForensicStatus=VALID');
     expect(text).toContain('- paperEntryInvariantValid=true');
     expect(text).toContain('- paperEntrySemanticInvariantValid=true');
     expect(text).toContain('- paperEntryRecommendedAction=NONE');
-    expect(text).toContain('- paperEntryRealSkipReasonResolvedCount=3');
+    expect(text).toContain('- paperEntryRealSkipReasonResolvedCount=0');
     expect(text).toContain('- paperEntryForensicFallbackReasonCount=0');
-    expect(text).toContain('UNKNOWN_1:SKIPPED:primary=PAPER_ENTRY_SCORE_BELOW_THRESHOLD:secondary=GATE2_PENDING,GATE3_BLOCK,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED');
+    expect(text).toContain('000660:CREATED:primary=PAPER_ENTRY_CREATED:secondary=SCORE_BELOW_THRESHOLD,GATE2_PENDING,GATE3_PRE_BREAKOUT,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED');
+    expect(text).toContain('Entry Lane Split: liveCandidates=0 liveCreated=0 liveBlocked=0 paperCandidates=3 paperCreated=3 paperSkipped=0');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');
@@ -150,12 +164,12 @@ describe('scan_blockers candidate pool section', () => {
           {
             symbol: '005930', gate1HardSurvivor: true, minSignalLivePass: true, gate2PendingPreserved: true,
             shadowObservableStrict: true, shadowObservableSoft: true, paperEntryEligible: true, paperEntryDecision: 'CREATED',
-            existingOpenShadowPosition: false, existingPendingPaperOrder: false, sizingAllowed: true,
+            existingOpenShadowPosition: false, existingPendingPaperOrder: false, resolvedEntryPrice: 75_000, priceSource: 'TEST_QUOTE', sizingAllowed: true,
           },
           {
             symbol: '000660', gate1HardSurvivor: true, minSignalLivePass: true, gate2PendingPreserved: true,
             shadowObservableStrict: true, shadowObservableSoft: true, paperEntryEligible: true, paperEntryDecision: 'SKIPPED',
-            paperEntrySkipReason: 'DUPLICATE_OPEN_POSITION', existingOpenShadowPosition: true, existingPendingPaperOrder: false, sizingAllowed: true,
+            paperEntrySkipReason: 'DUPLICATE_OPEN_POSITION', existingOpenShadowPosition: true, existingPendingPaperOrder: false, resolvedEntryPrice: 180_000, priceSource: 'TEST_QUOTE', sizingAllowed: true,
           },
           {
             symbol: '035420', gate1HardSurvivor: true, minSignalLivePass: true, gate2PendingPreserved: true,
@@ -179,6 +193,76 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntryInvariantValid=true');
     expect(text).toContain('- paperEntryRecommendedAction=NONE');
     expect(text).toContain('[PaperEntry Forensic]');
+  });
+
+  it('renders SHADOW_ONLY holiday permission as paper/shadow allowed but live broker blocked', () => {
+    const summary = {
+      time: '2026-05-23T13:38:00.000Z',
+      candidates: 0,
+      trackB: 0,
+      swing: 0,
+      catalyst: 0,
+      momentum: 0,
+      yahooFails: 0,
+      gateMisses: 0,
+      rrrMisses: 0,
+      entries: 0,
+      macroGateState: {
+        emergencyStop: false,
+        autoTradeEnabled: true,
+        regime: 'R3_EARLY',
+        macroRegimeRaw: 'R3_EARLY',
+        macroRegimeEffective: 'R3_EARLY',
+        displayRegime: 'SHADOW_ONLY',
+        riskOverride: 'SHADOW_ONLY',
+        engineMode: 'SHADOW_ONLY',
+        kellyMultiplierFromRegime: 0.7,
+        fomcPhase: 'NORMAL',
+        fomcKellyMultiplier: 1,
+        finalKellyMultiplier: 0,
+        vixGatingActive: false,
+        bearDefenseMode: false,
+        mhsBelow30: false,
+        watchlistEmpty: false,
+        sellOnlyMode: false,
+        liveEntryAllowed: true,
+        liveExitAllowed: true,
+        shadowBuyAllowed: true,
+        shadowSellAllowed: true,
+        shadowLearningAllowed: true,
+        counterfactualAllowed: true,
+        brokerOrderAllowed: true,
+      },
+      scanEvaluation: {
+        scanId: 'scan-eval:test-holiday',
+        asOf: '2026-05-23T13:38:00.000Z',
+        evaluationState: 'EVALUATED_WITH_SURVIVORS',
+        marketSessionState: 'BUY_ALLOWED',
+        engineMode: 'SHADOW_ONLY',
+        effectiveRegime: 'R3_EARLY',
+        totalCandidates: 0,
+        evaluated: 0,
+        skipped: 0,
+        rejected: 0,
+        survivors: 0,
+        quoteHydrated: 0,
+        quoteHydrationFailed: 0,
+        blockReason: 'NONE',
+        breakPoint: 'NONE',
+        sourcePath: 'test',
+        executionImpact: 'NONE',
+        shadowLearningAllowed: true,
+      },
+    } satisfies ScanSummary;
+
+    const text = formatScanBlockersMessage(summary);
+
+    expect(text).toContain('liveEntryAllowed: false');
+    expect(text).toContain('brokerRouteAlive: true');
+    expect(text).toContain('brokerLiveOrderAllowed: false');
+    expect(text).toContain('paperOrderAllowed: true');
+    expect(text).toContain('Permission Resolution: canonicalSession=HOLIDAY displaySession=BUY_ALLOWED engineMode=SHADOW_ONLY brokerRouteAlive=true brokerLiveOrderAllowed=false');
+    expect(text).not.toContain('brokerOrderAllowed: true');
   });
 
   it('prints stale legacy R6 as deprecated-only while keeping canonical effective regime', () => {
