@@ -282,6 +282,9 @@ export async function runAutoSignalScan(
         sellOnly: options?.sellOnly,
         ...preflightResult.diagnosticData,
         ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
+        ...(Array.isArray(preflightResult.context?.watchlist)
+          ? { candidatePoolSourceCandidates: preflightResult.context.watchlist }
+          : {}),
         ...(preflightAbortSupplyInjection ? { perSymbolSupplyInjection: preflightAbortSupplyInjection } : {}),
         ...(abortMacro?.sectorEnergyDataQuality !== undefined ? {
           sectorEnergyQuality: abortMacro.sectorEnergyDataQuality,
@@ -395,6 +398,11 @@ export async function runAutoSignalScan(
     ...(macro?.sectorEnergyQualityDiagnostic !== undefined
       ? { sectorEnergyQualityDiagnostic: macro.sectorEnergyQualityDiagnostic }
       : {}),
+    candidatePoolSourceCandidates: [
+      ...(Array.isArray(preflightResult.context?.watchlist) ? preflightResult.context.watchlist : []),
+      ...candidates.buyList,
+      ...candidates.intradayList,
+    ],
     candidateSnapshots: [
       ...candidates.buyList.map((w: any) => ({
         ...buildCandidateSnapshotSsot(w, macro),

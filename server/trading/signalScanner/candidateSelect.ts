@@ -17,18 +17,19 @@ export async function selectCandidates(
   options?: RunAutoSignalScanOptions,
 ): Promise<any> {
   const { watchlist } = context;
+  const intradayList = loadIntradayWatchlist().filter((w) => (w as any).intradayReady === true);
 
   if (watchlist.length === 0) {
     return {
-      mainList: [],
+      mainList: intradayList,
       buyList: [],
-      intradayList: [],
+      intradayList,
       swingList: [],
       catalystList: [],
       momentumList: [],
       lengths: {
         buyListLength: 0,
-        intradayBuyListLength: 0,
+        intradayBuyListLength: intradayList.length,
         swingListLength: 0,
         catalystListLength: 0,
         momentumListLength: 0,
@@ -76,8 +77,6 @@ export async function selectCandidates(
         (momentumList.length > 10 ? ` ...외 ${momentumList.length - 10}개` : ''),
     );
   }
-
-  const intradayList = loadIntradayWatchlist().filter((w) => (w as any).intradayReady === true);
 
   return {
     mainList: buyList, // 테스트 하위 호환성 유지용

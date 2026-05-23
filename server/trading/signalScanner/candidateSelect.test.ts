@@ -35,12 +35,13 @@ describe('candidateSelect.ts byte-equivalent tests', () => {
     process.env = { ...originalEnv };
   });
 
-  it('should return empty arrays if watchlist is empty', async () => {
+  it('should preserve intraday-ready fallback candidates if watchlist is empty', async () => {
     const result = await selectCandidates({ watchlist: [] });
     
-    expect(result.mainList).toEqual([]);
+    expect(result.mainList).toHaveLength(1);
     expect(result.lengths.buyListLength).toBe(0);
-    expect(result.lengths.intradayBuyListLength).toBe(0);
+    expect(result.intradayList).toHaveLength(1);
+    expect(result.lengths.intradayBuyListLength).toBe(1);
   });
 
   it('should classify SWING, CATALYST, and MOMENTUM lists correctly', async () => {

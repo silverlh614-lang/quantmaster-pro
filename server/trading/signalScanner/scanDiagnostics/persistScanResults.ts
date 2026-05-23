@@ -141,7 +141,7 @@ function countFiniteCandidateMetric(
 ): number {
   let count = 0;
   for (const snapshot of snapshots) {
-    const root = snapshot as Record<string, unknown>;
+    const root = snapshot as unknown as Record<string, unknown>;
     const quote = snapshot.quote && typeof snapshot.quote === 'object'
       ? snapshot.quote as Record<string, unknown>
       : {};
@@ -199,6 +199,7 @@ export interface PersistScanResultsOptions {
   perSymbolSupplyInjection?: PerSymbolSupplyInjectionStats;
   candidateSnapshots?: CandidateSnapshot[];
   candidatePool?: CandidatePoolResult;
+  candidatePoolSourceCandidates?: CandidatePoolInputCandidate[];
   watchlistRefreshedAt?: string;
   watchlistSource?: string;
   macroGateState?: MacroGateState;
@@ -381,7 +382,7 @@ export async function persistScanResults(
         scanCandidateSnapshots.length,
         fallbackCandidates.length,
       ),
-      existingWatchlist: scanCandidateSnapshots as unknown as CandidatePoolInputCandidate[],
+      existingWatchlist: options.candidatePoolSourceCandidates ?? (scanCandidateSnapshots as unknown as CandidatePoolInputCandidate[]),
       previousDayTopRankedCandidates: priorCandidates,
       openShadowWatchlist: priorCandidates,
       fallbackBroadUniverse: fallbackCandidates,

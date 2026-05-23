@@ -512,7 +512,7 @@ function buildSnapshot(
     labels.add('FALLBACK_CANDIDATE');
   }
 
-  const diagnosticReason = [...missingFeatures];
+  const diagnosticReason: string[] = [...missingFeatures];
   if (input.runtimeLabels?.r6Defense) diagnosticReason.push('R6_DEFENSE_SCORED_AS_PENALTY');
   if (input.runtimeLabels?.sellOnly) diagnosticReason.push('SELL_ONLY_LIVE_PERMISSION_ONLY');
   if (input.runtimeLabels?.kellyZero) diagnosticReason.push('KELLY_ADVISORY_ONLY');
