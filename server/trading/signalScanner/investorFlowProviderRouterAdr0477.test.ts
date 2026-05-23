@@ -528,9 +528,14 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(route.selectedProvider).toBe('CACHE');
     expect(route.status).toBe('CACHE_HIT');
     expect(route.providerStatuses.KRX_INVESTOR_FLOW).toBe('PROVIDER_EMPTY_RESPONSE');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('krxEmptyRecovery=PARAMETER_MISMATCH');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('recoveryAction=RETRY_KRX_PAYLOAD_VARIANTS_IN_OBSERVE_MODE');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('safeToFallback=true');
     expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('previousTradingDateCandidate=2026-05-08');
     expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('contentType=json');
     expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('responseKeySummary=output:len=0');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('marketSignal=false');
+    expect(route.providerReasons.KRX_INVESTOR_FLOW).toContain('[PROVIDER_HEALTH_SEPARATED_FROM_MARKET_SIGNAL]');
     expect(route.krxSourceRepairDiagnostic?.parserStatus).toBe('PROVIDER_EMPTY_RESPONSE');
     expect(route.cacheFallbackUsed).toBe(true);
     expect(route.liveExecutionAllowed).toBe(false);

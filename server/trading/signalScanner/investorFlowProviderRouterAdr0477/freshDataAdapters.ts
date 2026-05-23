@@ -168,6 +168,93 @@ export function krxDiagnosticStatusAdr0477(status: string | undefined): Investor
   return 'DATA_UNAVAILABLE';
 }
 
+export type KrxEmptyRecoveryKindAdr0477 =
+  | 'NOT_EMPTY'
+  | 'PARAMETER_MISMATCH'
+  | 'ACCEPTED_EMPTY'
+  | 'MARKET_CLOSED_NO_SAMPLE'
+  | 'SCHEMA_OR_FIELD_MISMATCH'
+  | 'PROVIDER_EMPTY';
+
+export interface KrxEmptyRecoveryDiagnosticAdr0477 {
+  kind: KrxEmptyRecoveryKindAdr0477;
+  providerIssue: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE';
+  diagnosticOnly: true;
+  safeToFallback: boolean;
+  recoveryAction: string;
+}
+
+export function classifyKrxEmptyRecoveryAdr0477(
+  input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>,
+): KrxEmptyRecoveryDiagnosticAdr0477 {
+  const status = input.parserStatus ?? input.status ?? 'DATA_UNAVAILABLE';
+  if (status === 'OK') {
+    return {
+      kind: 'NOT_EMPTY',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'NONE',
+      diagnosticOnly: true,
+      safeToFallback: false,
+      recoveryAction: 'KRX_SAMPLE_MATERIALIZED',
+    };
+  }
+  if (String(status).startsWith('DISABLED_BY_')) {
+    return {
+      kind: 'NOT_EMPTY',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'NONE',
+      diagnosticOnly: true,
+      safeToFallback: false,
+      recoveryAction: 'KRX_AUTO_FETCH_DISABLED_BY_POLICY',
+    };
+  }
+
+  const csvReason = String(input.csvNoDataReason ?? input.csvFailureReason ?? '').toUpperCase();
+  const endpointHint = String(input.endpointIssueHint ?? '').toUpperCase();
+  const responseKind = String(input.responseKind ?? '').toUpperCase();
+  const hasEmptyRowPath = (input.detectedCandidatePaths ?? []).some((path) => /:len=0\b/.test(path));
+  const providerIssue = status !== 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE';
+  let kind: KrxEmptyRecoveryKindAdr0477 = 'PROVIDER_EMPTY';
+  let recoveryAction = 'KEEP_KIS_OR_CACHE_CANONICAL_AND_OBSERVE_KRX';
+
+  if (status === 'MARKET_CLOSED_NO_PREVIOUS_SAMPLE' || endpointHint.includes('MARKET_CLOSED')) {
+    kind = 'MARKET_CLOSED_NO_SAMPLE';
+    recoveryAction = 'WAIT_FOR_TRADING_SESSION_OR_PREVIOUS_SAMPLE';
+  } else if (
+    csvReason.includes('PARAMETER_MISMATCH') ||
+    endpointHint.includes('ENDPOINT_PARAMETER_ERROR') ||
+    input.httpStatus === 400
+  ) {
+    kind = 'PARAMETER_MISMATCH';
+    recoveryAction = 'RETRY_KRX_PAYLOAD_VARIANTS_IN_OBSERVE_MODE';
+  } else if (
+    responseKind === 'EMPTY' ||
+    input.httpStatus === 200 ||
+    input.csvHeaderDetected === true ||
+    hasEmptyRowPath
+  ) {
+    kind = 'ACCEPTED_EMPTY';
+    recoveryAction = 'TREAT_AS_PROVIDER_EMPTY_NOT_MARKET_SIGNAL';
+  } else if (status === 'PARSER_KEY_MISMATCH' || status === 'PARSER_FIELD_MISMATCH') {
+    kind = 'SCHEMA_OR_FIELD_MISMATCH';
+    recoveryAction = 'REPAIR_KRX_FIELD_MAPPING_IN_DIAGNOSTIC_MODE';
+  }
+
+  return {
+    kind,
+    providerIssue,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    diagnosticOnly: true,
+    safeToFallback: true,
+    recoveryAction,
+  };
+}
+
 export function isKisFirstRebuildModeAdr0477(): boolean {
   return process.env.KIS_FIRST_REBUILD_MODE === 'true';
 }
@@ -181,8 +268,12 @@ export function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlow
   const fieldMappings = input.fieldMappings
     ? Object.entries(input.fieldMappings).map(([key, value]) => `${key}:${value ?? 'NONE'}`).join(',')
     : 'NONE';
+  const emptyRecovery = classifyKrxEmptyRecoveryAdr0477(input);
   return [
     `KRX_INVESTOR_FLOW ${input.parserStatus ?? 'DATA_UNAVAILABLE'}`,
+    `krxEmptyRecovery=${emptyRecovery.kind}`,
+    `recoveryAction=${emptyRecovery.recoveryAction}`,
+    `safeToFallback=${String(emptyRecovery.safeToFallback)}`,
     `endpoint=${input.endpoint ?? 'MDCSTAT02203'}`,
     `bld=${input.bld ?? 'UNKNOWN'}`,
     `tradeDate=${input.tradeDate ?? 'UNKNOWN'}`,
@@ -238,8 +329,11 @@ export function formatKrxRepairDiagnosticAdr0477(input: NonNullable<InvestorFlow
     `normalizedRows=${input.normalizedRows ?? 0}`,
     `firstRowKeys=${input.firstRowKeys?.join(',') || 'NONE'}`,
     `fieldMappings=${fieldMappings}`,
-    'providerIssue=true',
-    'marketSignal=false',
+    `providerIssue=${String(emptyRecovery.providerIssue)}`,
+    `marketSignal=${String(emptyRecovery.marketSignal)}`,
+    `diagnosticOnly=${String(emptyRecovery.diagnosticOnly)}`,
+    `executionImpact=${emptyRecovery.executionImpact}`,
+    '[PROVIDER_HEALTH_SEPARATED_FROM_MARKET_SIGNAL]',
   ].join('; ');
 }
 

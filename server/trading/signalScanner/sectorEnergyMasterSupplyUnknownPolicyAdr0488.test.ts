@@ -186,11 +186,15 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.verifiedIndexCodeCoverage).toBe(0);
     expect(report.internalProxyCoverage).toBe(100);
     expect(report.stockDailyFallbackCoverage).toBe(100);
+    expect(report.officialIndexMasterRecovery.status).toBe('OFFICIAL_MISSING_REPAIR_REQUIRED');
+    expect(report.officialIndexMasterRecovery.sourceOfTruth).toBe('KRX_OFFICIAL_INDEX_MASTER');
+    expect(report.officialIndexMasterRecovery.promotionAllowed).toBe(false);
     expect(report.leadershipConfidence).toBe('BLOCKED');
     expect(report.leadershipBlockReason).toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
     expect(report.sectorBoostAllowed).toBe(false);
     expect(compact).toContain('verifiedIndexCodeCoverage=0%');
     expect(compact).toContain('internalProxyCoverage=100%');
+    expect(compact).toContain('OfficialIndexMasterRecovery: OFFICIAL_MISSING_REPAIR_REQUIRED');
   });
 
   it('computes indexCode coverage percentage', () => {

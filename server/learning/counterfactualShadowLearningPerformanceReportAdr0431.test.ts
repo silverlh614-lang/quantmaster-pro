@@ -17,6 +17,8 @@ import {
   isHorizonReached,
   resolveCounterfactualEntryPrice,
   COUNTERFACTUAL_HORIZON_OFFSET_MS,
+  COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+  buildCounterfactualCalibrationReadiness,
   type CounterfactualShadowHorizon,
   type CounterfactualShadowPriceProvider,
 } from './counterfactualShadowLearningPerformanceReport.js';
@@ -255,6 +257,7 @@ describe('ADR-0431 Counterfactual Shadow Learning Performance Report', () => {
     expect(COUNTERFACTUAL_HORIZON_OFFSET_MS.T_PLUS_30M).toBe(30 * 60 * 1_000);
     expect(COUNTERFACTUAL_HORIZON_OFFSET_MS.T_PLUS_1H).toBe(60 * 60 * 1_000);
     expect(COUNTERFACTUAL_HORIZON_OFFSET_MS.T_PLUS_3D_CLOSE).toBe(80 * 60 * 60 * 1_000);
+    expect(COUNTERFACTUAL_HORIZON_OFFSET_MS.T_PLUS_5D_CLOSE).toBe(128 * 60 * 60 * 1_000);
     expect(Object.isFrozen(COUNTERFACTUAL_HORIZON_OFFSET_MS)).toBe(true);
   });
 
@@ -370,6 +373,47 @@ describe('ADR-0431 Counterfactual Shadow Learning Performance Report', () => {
     const avg30m = summary.avgReturnByHorizon.T_PLUS_30M;
     expect(avg30m).toBeCloseTo(10.0, 1);
     expect(summary.winRateByHorizon.T_PLUS_30M).toBe(1);
+  });
+
+  it('counterfactual calibration remains observation-only until 1D/3D/5D samples are sufficient', async () => {
+    const provider: CounterfactualShadowPriceProvider = async () => ({
+      available: true,
+      price: 105000,
+      observedAtKst: '2026-05-20T15:30:00+09:00',
+    });
+    const summary = await buildCounterfactualShadowPerformanceReport({
+      entries: [
+        makeEntry({
+          symbol: '005930',
+          scanId: 'calibration-1',
+          entryPrice: 100000,
+          createdAtKst: '2026-05-07T09:00:00+09:00',
+        }),
+      ],
+      nowKst: '2026-05-20T15:30:00+09:00',
+      priceProvider: provider,
+    });
+
+    expect(summary.sampleCountByHorizon.T_PLUS_1D_CLOSE).toBe(1);
+    expect(summary.sampleCountByHorizon.T_PLUS_3D_CLOSE).toBe(1);
+    expect(summary.sampleCountByHorizon.T_PLUS_5D_CLOSE).toBe(1);
+    expect(summary.calibrationReadiness.decision).toBe('OBSERVE_MORE_COUNTERFACTUALS');
+    expect(summary.calibrationReadiness.thresholdChangeApplied).toBe(false);
+    expect(summary.calibrationReadiness.executionImpact).toBe('NONE');
+  });
+
+  it('counterfactual calibration only becomes operator-review ready after sufficient 1D/3D/5D evidence', () => {
+    const readiness = buildCounterfactualCalibrationReadiness({
+      T_PLUS_1D_CLOSE: COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+      T_PLUS_3D_CLOSE: COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+      T_PLUS_5D_CLOSE: COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+    });
+
+    expect(readiness.ready).toBe(true);
+    expect(readiness.decision).toBe('READY_FOR_OPERATOR_REVIEW');
+    expect(readiness.liveExecutionAllowed).toBe(false);
+    expect(readiness.thresholdChangeApplied).toBe(false);
+    expect(readiness.operatorApprovalRequired).toBe(true);
   });
 
   // ──────────────────────────────────────────────────────────────────────
@@ -518,6 +562,8 @@ describe('ADR-0431 Counterfactual Shadow Learning Performance Report', () => {
       blockedByBreakdown: { SELL_ONLY: 9 },
       avgReturnByHorizon: {},
       winRateByHorizon: {},
+      sampleCountByHorizon: {},
+      calibrationReadiness: buildCounterfactualCalibrationReadiness({}),
       topWinners: [],
       topLosers: [],
       generatedAtKst: '2026-05-08T10:00:00+09:00',
@@ -545,6 +591,8 @@ describe('ADR-0431 Counterfactual Shadow Learning Performance Report', () => {
       blockedByBreakdown: {},
       avgReturnByHorizon: {},
       winRateByHorizon: {},
+      sampleCountByHorizon: {},
+      calibrationReadiness: buildCounterfactualCalibrationReadiness({}),
       topWinners: [],
       topLosers: [],
       generatedAtKst: '2026-05-08T10:00:00+09:00',

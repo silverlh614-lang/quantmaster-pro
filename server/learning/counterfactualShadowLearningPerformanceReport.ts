@@ -20,14 +20,15 @@
 
 import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
 
-/** 6-value horizon union (사용자 §B 정합, 절대 변경 금지). */
+/** 7-value horizon union (사용자 §B 정합, 1D/3D/5D calibration basis 포함). */
 export type CounterfactualShadowHorizon =
   | 'T_PLUS_30M'
   | 'T_PLUS_1H'
   | 'SAME_DAY_CLOSE'
   | 'NEXT_OPEN'
   | 'T_PLUS_1D_CLOSE'
-  | 'T_PLUS_3D_CLOSE';
+  | 'T_PLUS_3D_CLOSE'
+  | 'T_PLUS_5D_CLOSE';
 
 /** 6-value status union (사용자 §B 정합 + INSUFFICIENT_DATA 추가). */
 export type CounterfactualShadowPointStatus =
@@ -122,9 +123,30 @@ export interface CounterfactualShadowPerformanceSummary {
   blockedByBreakdown: Record<string, number>;
   avgReturnByHorizon: Partial<Record<CounterfactualShadowHorizon, number>>;
   winRateByHorizon: Partial<Record<CounterfactualShadowHorizon, number>>;
+  sampleCountByHorizon: Partial<Record<CounterfactualShadowHorizon, number>>;
+  calibrationReadiness: CounterfactualCalibrationReadiness;
   topWinners: CounterfactualShadowPerformanceRecord[];
   topLosers: CounterfactualShadowPerformanceRecord[];
   generatedAtKst: string;
+}
+
+export type CounterfactualCalibrationDecision =
+  | 'OBSERVE_MORE_COUNTERFACTUALS'
+  | 'READY_FOR_OPERATOR_REVIEW'
+  | 'DISABLED';
+
+export interface CounterfactualCalibrationReadiness {
+  basis: 'COUNTERFACTUAL_1D_3D_5D';
+  decision: CounterfactualCalibrationDecision;
+  ready: boolean;
+  requiredObservedPerHorizon: number;
+  requiredHorizons: CounterfactualShadowHorizon[];
+  observedByHorizon: Partial<Record<CounterfactualShadowHorizon, number>>;
+  thresholdChangeApplied: false;
+  liveExecutionAllowed: false;
+  executionImpact: 'NONE';
+  operatorApprovalRequired: true;
+  nextAction: string;
 }
 
 /**
@@ -140,6 +162,7 @@ export const COUNTERFACTUAL_HORIZON_OFFSET_MS: Record<CounterfactualShadowHorizo
     NEXT_OPEN: 24 * 60 * 60 * 1_000,
     T_PLUS_1D_CLOSE: 32 * 60 * 60 * 1_000,
     T_PLUS_3D_CLOSE: 80 * 60 * 60 * 1_000,
+    T_PLUS_5D_CLOSE: 128 * 60 * 60 * 1_000,
   });
 
 const ALL_HORIZONS: CounterfactualShadowHorizon[] = [
@@ -149,7 +172,13 @@ const ALL_HORIZONS: CounterfactualShadowHorizon[] = [
   'NEXT_OPEN',
   'T_PLUS_1D_CLOSE',
   'T_PLUS_3D_CLOSE',
+  'T_PLUS_5D_CLOSE',
 ];
+
+export const COUNTERFACTUAL_CALIBRATION_REQUIRED_HORIZONS: readonly CounterfactualShadowHorizon[] =
+  Object.freeze(['T_PLUS_1D_CLOSE', 'T_PLUS_3D_CLOSE', 'T_PLUS_5D_CLOSE'] as const);
+
+export const COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON = 30;
 
 /**
  * priceProvider 의존성 주입 시그니처 (사용자 §C 정합).
@@ -237,6 +266,50 @@ function safeReturnPct(
   if (entryPrice === undefined || !Number.isFinite(entryPrice) || entryPrice <= 0) return undefined;
   if (!Number.isFinite(observedPrice) || observedPrice <= 0) return undefined;
   return ((observedPrice - entryPrice) / entryPrice) * 100;
+}
+
+export function buildCounterfactualCalibrationReadiness(
+  sampleCountByHorizon: Partial<Record<CounterfactualShadowHorizon, number>>,
+): CounterfactualCalibrationReadiness {
+  const observedByHorizon = Object.fromEntries(
+    COUNTERFACTUAL_CALIBRATION_REQUIRED_HORIZONS.map((horizon) => [
+      horizon,
+      sampleCountByHorizon[horizon] ?? 0,
+    ]),
+  ) as Partial<Record<CounterfactualShadowHorizon, number>>;
+  if (isReportDisabled()) {
+    return {
+      basis: 'COUNTERFACTUAL_1D_3D_5D',
+      decision: 'DISABLED',
+      ready: false,
+      requiredObservedPerHorizon: COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+      requiredHorizons: [...COUNTERFACTUAL_CALIBRATION_REQUIRED_HORIZONS],
+      observedByHorizon,
+      thresholdChangeApplied: false,
+      liveExecutionAllowed: false,
+      executionImpact: 'NONE',
+      operatorApprovalRequired: true,
+      nextAction: 'COUNTERFACTUAL_CALIBRATION_DISABLED',
+    };
+  }
+  const ready = COUNTERFACTUAL_CALIBRATION_REQUIRED_HORIZONS.every(
+    (horizon) => (observedByHorizon[horizon] ?? 0) >= COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+  );
+  return {
+    basis: 'COUNTERFACTUAL_1D_3D_5D',
+    decision: ready ? 'READY_FOR_OPERATOR_REVIEW' : 'OBSERVE_MORE_COUNTERFACTUALS',
+    ready,
+    requiredObservedPerHorizon: COUNTERFACTUAL_CALIBRATION_MIN_OBSERVED_PER_HORIZON,
+    requiredHorizons: [...COUNTERFACTUAL_CALIBRATION_REQUIRED_HORIZONS],
+    observedByHorizon,
+    thresholdChangeApplied: false,
+    liveExecutionAllowed: false,
+    executionImpact: 'NONE',
+    operatorApprovalRequired: true,
+    nextAction: ready
+      ? 'REVIEW_1D_3D_5D_COUNTERFACTUAL_CALIBRATION_WITH_OPERATOR_APPROVAL'
+      : 'COLLECT_1D_3D_5D_COUNTERFACTUAL_OUTCOMES',
+  };
 }
 
 /**
@@ -348,6 +421,8 @@ export async function buildCounterfactualShadowPerformanceReport(
       blockedByBreakdown: {},
       avgReturnByHorizon: {},
       winRateByHorizon: {},
+      sampleCountByHorizon: {},
+      calibrationReadiness: buildCounterfactualCalibrationReadiness({}),
       topWinners: [],
       topLosers: [],
       generatedAtKst,
@@ -525,6 +600,7 @@ export async function buildCounterfactualShadowPerformanceReport(
   // Horizon 별 avg return + win rate (observed only, PENDING/DATA_UNAVAILABLE 제외)
   const avgReturnByHorizon: Partial<Record<CounterfactualShadowHorizon, number>> = {};
   const winRateByHorizon: Partial<Record<CounterfactualShadowHorizon, number>> = {};
+  const sampleCountByHorizon: Partial<Record<CounterfactualShadowHorizon, number>> = {};
   for (const horizon of ALL_HORIZONS) {
     const observed = records.flatMap((r) =>
       r.points.filter(
@@ -532,12 +608,14 @@ export async function buildCounterfactualShadowPerformanceReport(
       ),
     );
     if (observed.length > 0) {
+      sampleCountByHorizon[horizon] = observed.length;
       const sum = observed.reduce((acc, p) => acc + (p.returnPct ?? 0), 0);
       avgReturnByHorizon[horizon] = sum / observed.length;
       const wins = observed.filter((p) => (p.returnPct ?? 0) > 0).length;
       winRateByHorizon[horizon] = wins / observed.length;
     }
   }
+  const calibrationReadiness = buildCounterfactualCalibrationReadiness(sampleCountByHorizon);
 
   // Top winners / losers — bestReturnPct / worstReturnPct 기준 (observed only)
   const recordsWithObserved = records.filter((r) => r.summary.bestReturnPct !== undefined);
@@ -581,6 +659,8 @@ export async function buildCounterfactualShadowPerformanceReport(
     blockedByBreakdown,
     avgReturnByHorizon,
     winRateByHorizon,
+    sampleCountByHorizon,
+    calibrationReadiness,
     topWinners,
     topLosers,
     generatedAtKst,
@@ -656,6 +736,7 @@ export function formatCounterfactualShadowPerformanceMessage(
     NEXT_OPEN: 'nextOpen',
     T_PLUS_1D_CLOSE: '+1d',
     T_PLUS_3D_CLOSE: '+3d',
+    T_PLUS_5D_CLOSE: '+5d',
   };
   const horizonsWithData = ALL_HORIZONS.filter(
     (h) => summary.avgReturnByHorizon[h] !== undefined,
@@ -680,6 +761,19 @@ export function formatCounterfactualShadowPerformanceMessage(
     lines.push('  <b>📊 Horizon 성과</b>');
     lines.push('    • <i>insufficient data — 모든 horizon pending</i>');
   }
+
+  const readiness = summary.calibrationReadiness;
+  lines.push('');
+  lines.push('  <b>Counterfactual Calibration Guard</b>');
+  lines.push(
+    `    - decision: <b>${readiness.decision}</b> / basis=${readiness.basis} / required=${readiness.requiredObservedPerHorizon} per horizon`,
+  );
+  lines.push(
+    `    - observed: 1D=${readiness.observedByHorizon.T_PLUS_1D_CLOSE ?? 0}, 3D=${readiness.observedByHorizon.T_PLUS_3D_CLOSE ?? 0}, 5D=${readiness.observedByHorizon.T_PLUS_5D_CLOSE ?? 0}`,
+  );
+  lines.push(
+    `    - thresholdChangeApplied=${readiness.thresholdChangeApplied} / executionImpact=${readiness.executionImpact} / operatorApprovalRequired=${readiness.operatorApprovalRequired}`,
+  );
 
   // Top winners
   if (summary.topWinners.length > 0) {
