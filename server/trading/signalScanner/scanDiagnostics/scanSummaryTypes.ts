@@ -266,6 +266,7 @@ export interface ScanSummary {
 export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';
 
 export type PaperEntrySkipReason =
+  | 'NONE'
   | 'DUPLICATE_PENDING_ORDER'
   | 'DUPLICATE_OPEN_POSITION'
   | 'PRICE_UNRESOLVED'
@@ -280,8 +281,19 @@ export type PaperEntrySkipReason =
   | 'PAPER_ENGINE_DISABLED'
   | 'PAPER_LEDGER_WRITE_FAILED'
   | 'POSITION_REGISTRY_WRITE_FAILED'
+  | 'MISSING_SKIP_REASON_EMISSION'
   | 'FORENSIC_CARRY_BROKEN'
   | 'UNKNOWN_BUG';
+
+export type PaperEntryDecisionStage =
+  | 'CANDIDATE_SELECTED'
+  | 'ELIGIBILITY_CHECK'
+  | 'PRICE_RESOLUTION'
+  | 'DUPLICATE_CHECK'
+  | 'SIZING_CHECK'
+  | 'ORDER_CREATION'
+  | 'LEDGER_WRITE'
+  | 'POSITION_REGISTRY_WRITE';
 
 export interface PaperEntryCandidateForensic {
   symbol: string;
@@ -311,6 +323,7 @@ export interface PaperEntryCandidateForensic {
 }
 
 export interface PaperEntryForensicSummary {
+  decisionRecords?: PaperEntryDecisionRecord[];
   candidates?: PaperEntryCandidateForensic[];
   candidateSymbols?: string[];
   createdSymbols?: string[];
@@ -318,4 +331,33 @@ export interface PaperEntryForensicSummary {
   skipReasonDistribution?: Record<string, number>;
   executionImpact?: 'NONE' | 'SHADOW_ONLY' | 'LIVE_BLOCKED';
   topSkipReason?: string;
+}
+
+export interface PaperEntryDecisionRecord {
+  symbol: string;
+  name?: string;
+  sourceSnapshotId: string;
+  candidateSetId: string;
+  gateScoreInputSnapshotId: string;
+  scanId: string;
+  decision: PaperEntryDecision;
+  stage: PaperEntryDecisionStage;
+  skipReason: PaperEntrySkipReason;
+  gate1HardSurvivor: boolean;
+  minSignalLivePass: boolean;
+  gate2PendingPreserved: boolean;
+  shadowObservableStrict: boolean;
+  shadowObservableSoft: boolean;
+  paperEntryEligible: boolean;
+  duplicateKey?: string;
+  existingOpenShadowPosition: boolean;
+  existingPendingPaperOrder: boolean;
+  resolvedEntryPrice?: number;
+  priceSource?: string;
+  quoteFreshness?: string;
+  sizingAllowed: boolean;
+  sizingReason?: string;
+  executionPermission: string;
+  createdOrderId?: string;
+  ledgerRecordId?: string;
 }

@@ -104,8 +104,10 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('Gate2 pending preserved: 3');
     expect(text).toContain('- counterfactualLedgerRowsCreated=0');
     expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=0 paperEntrySkippedCount=3');
-    expect(text).toContain('- paperEntrySkipReasonDistribution={}');
-    expect(text).toContain('- paperEntryForensicStatus=INVALID');
+    expect(text).toContain('- paperEntrySkipReasonDistribution={"FORENSIC_CARRY_BROKEN":3}');
+    expect(text).toContain('- paperEntryCandidateSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
+    expect(text).toContain('- paperEntrySkippedSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
+    expect(text).toContain('- paperEntryForensicStatus=VALID');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');
