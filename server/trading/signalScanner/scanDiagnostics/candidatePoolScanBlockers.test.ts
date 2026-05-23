@@ -104,7 +104,7 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('Gate2 pending preserved: 3');
     expect(text).toContain('- counterfactualLedgerRowsCreated=0');
     expect(text).toContain('- paperEntryCandidateCount=3 paperEntryCreatedCount=0 paperEntrySkippedCount=3');
-    expect(text).toContain('- paperEntrySkipReasonDistribution={"MIN_SIGNAL_SCORE_BELOW_ENTRY_THRESHOLD":3}');
+    expect(text).toContain('- paperEntrySkipReasonDistribution={"PAPER_ENTRY_SCORE_BELOW_THRESHOLD":3}');
     expect(text).toContain('- paperEntryCandidateSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
     expect(text).toContain('- paperEntrySkippedSymbols=UNKNOWN_1,UNKNOWN_2,UNKNOWN_3');
     expect(text).toContain('- paperEntryForensicStatus=VALID');
@@ -113,6 +113,7 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntryRecommendedAction=NONE');
     expect(text).toContain('- paperEntryRealSkipReasonResolvedCount=3');
     expect(text).toContain('- paperEntryForensicFallbackReasonCount=0');
+    expect(text).toContain('UNKNOWN_1:SKIPPED:primary=PAPER_ENTRY_SCORE_BELOW_THRESHOLD:secondary=GATE2_PENDING,GATE3_BLOCK,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
     expect(text).toContain('counterfactualRecorded=true');
