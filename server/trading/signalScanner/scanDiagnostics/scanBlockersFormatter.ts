@@ -39,7 +39,9 @@ import {
   type CanonicalRuntimeResolutionStep27,
   rebindGate1ForensicSummaryToCanonicalStep27,
   rebindGate1ScoreCeilingRepairReportToCanonicalStep27,
+  rebindGate1ScoringAlignmentReportToCanonicalStep27,
   rebindPositiveScoreStarvationReportToCanonicalStep27,
+  formatGatePositiveRuntimeAlignmentSection,
 } from '../runtimeResolverTraceStep26.js';
 
 export function formatScanBlockersMessage(summary: ScanSummary | null): string {
@@ -67,13 +69,28 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push('🛑 <b>거시 게이트:</b>');
     lines.push(`  • emergencyStop: ${mg.emergencyStop ? '<b>ON ⚠️</b>' : 'off'}`);
     lines.push(`  • autoTradeEnabled: ${mg.autoTradeEnabled ? 'on' : '<b>OFF ⚠️</b>'}`);
-    const positionPolicy = getRegimePositionPolicy(mg.regime);
-    lines.push(`  • 레짐: ${mg.regime} (총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
-    if (mg.macroRegimeRaw || mg.macroRegimeEffective) lines.push(`  • raw/effective: ${mg.macroRegimeRaw ?? 'UNKNOWN'} → ${mg.macroRegimeEffective ?? mg.regime}`);
-    if (mg.r6RecoveryStatus) lines.push(`  • r6RecoveryStatus: ${mg.r6RecoveryStatus}`);
-    if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);
-    if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
-    if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
+    const rawRegime = mg.macroRegimeRaw ?? mg.regime;
+    const displayRegime = mg.displayRegime ?? mg.regime;
+    const legacyEffectiveRegime = mg.macroRegimeEffective ?? mg.regime;
+    const staleLegacyR6Path =
+      legacyEffectiveRegime === 'R6_DEFENSE' &&
+      displayRegime !== 'R6_DEFENSE' &&
+      mg.regime !== 'R6_DEFENSE';
+    const canonicalEffectiveRegime = staleLegacyR6Path ? displayRegime : legacyEffectiveRegime;
+    const positionPolicy = getRegimePositionPolicy(canonicalEffectiveRegime);
+    lines.push(`  • 레짐: ${canonicalEffectiveRegime} (총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
+    if (mg.macroRegimeRaw || mg.macroRegimeEffective || mg.displayRegime) {
+      lines.push(`  • raw/effective: ${rawRegime} → ${canonicalEffectiveRegime}`);
+      lines.push(`  • regimeSource: canonical=RegimeResolver.canonicalOutput display=${displayRegime} riskOverride=${mg.riskOverride ?? 'NONE'} executionPermissionImpact=NONE`);
+    }
+    if (staleLegacyR6Path) {
+      lines.push(`  • legacyR6Path: deprecated=true notUsedForDecision=true legacyEffective=${legacyEffectiveRegime} legacyR6RecoveryStatus=${mg.r6RecoveryStatus ?? 'NONE'}`);
+    } else {
+      if (mg.r6RecoveryStatus) lines.push(`  • r6RecoveryStatus: ${mg.r6RecoveryStatus}`);
+      if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);
+      if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
+      if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
+    }
     if (mg.liveEntryAllowed !== undefined) lines.push(`  • liveEntryAllowed: ${mg.liveEntryAllowed}`);
     if (mg.liveExitAllowed !== undefined) lines.push(`  • liveExitAllowed: ${mg.liveExitAllowed}`);
     if (mg.shadowBuyAllowed !== undefined) lines.push(`  • shadowBuyAllowed: ${mg.shadowBuyAllowed}`);
@@ -272,6 +289,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gate1ForensicSection);
     lines.push('');
     lines.push(formatCanonicalRuntimeResolutionAdoptionSection(canonicalRuntimeResolution));
+    const gatePositiveRuntimeAlignmentSection = formatGatePositiveRuntimeAlignmentSection(summary, canonicalRuntimeResolution);
+    if (gatePositiveRuntimeAlignmentSection) {
+      lines.push('');
+      lines.push(gatePositiveRuntimeAlignmentSection);
+    }
   }
 
   // ADR-452c — Gate Score Health visibility (diagnostic-only).
@@ -357,7 +379,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   try {
-    const gate1ScoringAlignmentSection = formatGate1ScoringAlignmentReport(summary.gate1ScoringAlignment);
+    const gate1ScoringAlignmentSection = formatGate1ScoringAlignmentReport(
+      rebindGate1ScoringAlignmentReportToCanonicalStep27(
+        summary.gate1ScoringAlignment,
+        canonicalRuntimeResolution,
+      ),
+    );
     if (gate1ScoringAlignmentSection) {
       lines.push('');
       lines.push(gate1ScoringAlignmentSection);

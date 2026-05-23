@@ -128,6 +128,63 @@ function mapLines(record: Record<string, number> | undefined): string {
     .join(',') || 'NONE';
 }
 
+function getByPath(obj: unknown, path: string): unknown {
+  const keys = path.split('.');
+  let cur: unknown = obj;
+  for (const key of keys) {
+    if (!cur || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
+function componentTrace(row: unknown, code: string): Record<string, unknown> | undefined {
+  const components =
+    getByPath(row, 'minSignalScoreTrace.components') ??
+    getByPath(row, 'gate1Trace.minSignalScoreTrace.components');
+  if (!Array.isArray(components)) return undefined;
+  return components.find((component) =>
+    component &&
+    typeof component === 'object' &&
+    (component as Record<string, unknown>).code === code,
+  ) as Record<string, unknown> | undefined;
+}
+
+function componentConnected(component: Record<string, unknown> | undefined): boolean {
+  return Boolean(component && component.confidence !== 'MISSING');
+}
+
+function resolveNumberByPaths(row: unknown, paths: readonly string[]): number | undefined {
+  for (const path of paths) {
+    const value = getByPath(row, path);
+    if (finite(value)) return value;
+  }
+  return undefined;
+}
+
+function resolveComponentRawNumber(row: unknown, code: string, paths: readonly string[]): number | undefined {
+  const component = componentTrace(row, code);
+  if (!componentConnected(component)) return undefined;
+  const raw = component?.rawValue;
+  for (const path of paths) {
+    const value = path === '$self' ? raw : getByPath(raw, path);
+    if (finite(value)) return value;
+  }
+  return undefined;
+}
+
+function hasAnyPath(row: unknown, paths: readonly string[]): boolean {
+  return paths.some((path) => getByPath(row, path) !== undefined);
+}
+
+function rsScoreFromRank(rank: number): number {
+  if (rank >= 90) return 10;
+  if (rank >= 80) return 8;
+  if (rank >= 60) return 5;
+  if (rank >= 50) return 2;
+  return 0;
+}
+
 function round1(value: number): number {
   return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
 }
@@ -509,6 +566,10 @@ export function rebindPositiveScoreStarvationReportToCanonicalStep27(
       avgContribution: report.currentPathComponentStatus.find((item) => item.code === 'PRICE_MOMENTUM')?.avgContribution ?? 0,
     },
   ];
+  const recommendedAction =
+    report.recommendedAction === 'CHECK_WATCHLIST_SCORE_PROPAGATION' && !canonical.watchlist.conflict && canonical.watchlist.missing === 0
+      ? 'WIRE_RS_PERCENTILE_INPUT'
+      : report.recommendedAction;
   return {
     ...report,
     missingPositiveComponents,
@@ -517,6 +578,23 @@ export function rebindPositiveScoreStarvationReportToCanonicalStep27(
       suspectedCauses: report.rangeCompressionReport.suspectedCauses.filter((cause) => cause !== 'WATCHLIST_SCORE_NOT_IMPORTED'),
     },
     currentPathComponentStatus,
+    recommendedAction,
+  };
+}
+
+export function rebindGate1ScoringAlignmentReportToCanonicalStep27(
+  report: ScanSummary['gate1ScoringAlignment'],
+  canonical: CanonicalRuntimeResolutionStep27,
+): ScanSummary['gate1ScoringAlignment'] {
+  if (!report) return report;
+  const watchlistResolved = !canonical.watchlist.conflict && canonical.watchlist.verified > 0 && canonical.watchlist.missing === 0;
+  const missingComponents = watchlistResolved
+    ? report.missingComponents.filter((component) => component !== 'WATCHLIST_UPSTREAM_SCORE')
+    : report.missingComponents;
+  return {
+    ...report,
+    missingComponents,
+    componentSetAligned: missingComponents.length === 0,
   };
 }
 
@@ -662,6 +740,160 @@ function buildKrxPayloadValidation(): string[] {
     `- forbiddenKeysPresent=${forbiddenKeysPresent.length > 0 ? listText(forbiddenKeysPresent) : 'NONE'}`,
     `- payloadValidation=${payloadValidation}`,
   ];
+}
+
+export function formatGatePositiveRuntimeAlignmentSection(
+  summary: ScanSummary | null,
+  canonicalInput?: CanonicalRuntimeResolutionStep27,
+): string | null {
+  if (!summary?.entryFilterDecomposition?.candidateTraces?.length) return null;
+  const canonical = canonicalInput ?? summary.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
+  const traces = summary.entryFilterDecomposition.candidateTraces;
+  const total = candidateCountOf(summary) || traces.length;
+  const numberCount = (values: Array<number | undefined>): number => values.filter(finite).length;
+  const quoteFeaturePaths = {
+    return5d: ['return5d', 'quote.return5d', 'quoteFeatures.return5d', 'symbolFeatures.return5d', 'featurePack.momentum.return5d', 'momentumProjection.return5d'],
+    return20d: ['return20d', 'quote.return20d', 'quoteFeatures.return20d', 'symbolFeatures.return20d', 'featurePack.momentum.return20d', 'momentumProjection.return20d'],
+    relativeReturn20d: ['relativeReturn20d', 'quote.relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'symbolFeatures.relativeReturn20d', 'featurePack.momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d'],
+    marketRelativeReturn: ['marketRelativeReturn', 'kospiRelativeReturn', 'quote.marketRelativeReturn', 'quote.kospiRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'quoteFeatures.kospiRelativeReturn', 'symbolFeatures.marketRelativeReturn', 'symbolFeatures.kospiRelativeReturn', 'featurePack.momentum.marketRelativeReturn', 'featurePack.momentum.kospiRelativeReturn', 'momentumProjection.marketRelativeReturn', 'momentumProjection.kospiRelativeReturn'],
+    high5d: ['high5d', 'quote.high5d', 'quoteFeatures.high5d', 'symbolFeatures.high5d', 'featurePack.momentum.high5d', 'momentumProjection.high5d'],
+    high20d: ['high20d', 'quote.high20d', 'quote.high20', 'quoteFeatures.high20d', 'quoteFeatures.high20', 'symbolFeatures.high20d', 'featurePack.momentum.high20d', 'momentumProjection.high20d'],
+  } as const;
+  const getReturn5d = (row: unknown) =>
+    resolveNumberByPaths(row, quoteFeaturePaths.return5d) ??
+    resolveComponentRawNumber(row, 'PRICE_MOMENTUM', ['return5d']) ??
+    resolveComponentRawNumber(row, 'RELATIVE_STRENGTH', ['return5d']);
+  const getReturn20d = (row: unknown) =>
+    resolveNumberByPaths(row, quoteFeaturePaths.return20d) ??
+    resolveComponentRawNumber(row, 'PRICE_MOMENTUM', ['return20d']) ??
+    resolveComponentRawNumber(row, 'RELATIVE_STRENGTH', ['return20d']);
+  const getRelativeReturn20d = (row: unknown) =>
+    resolveNumberByPaths(row, quoteFeaturePaths.relativeReturn20d) ??
+    resolveComponentRawNumber(row, 'RELATIVE_STRENGTH', ['relativeReturn20d']) ??
+    getReturn20d(row);
+  const getMarketRelativeReturn = (row: unknown) =>
+    resolveNumberByPaths(row, quoteFeaturePaths.marketRelativeReturn) ??
+    resolveComponentRawNumber(row, 'RELATIVE_STRENGTH', ['marketRelativeReturn', 'kospiRelativeReturn']);
+  const return5d = traces.map(getReturn5d);
+  const return20d = traces.map(getReturn20d);
+  const relativeReturn20d = traces.map(getRelativeReturn20d);
+  const marketRelativeReturn = traces.map(getMarketRelativeReturn);
+  const high5d = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.high5d));
+  const high20d = traces.map((row) => resolveNumberByPaths(row, quoteFeaturePaths.high20d));
+  const momentumRows = traces.map((row) => {
+    const component = componentTrace(row, 'PRICE_MOMENTUM');
+    const weightedScore = componentConnected(component) && finite(component?.weightedScore)
+      ? component!.weightedScore as number
+      : undefined;
+    const inputConnected =
+      finite(getReturn5d(row)) ||
+      finite(getReturn20d(row)) ||
+      finite(getRelativeReturn20d(row)) ||
+      finite(getMarketRelativeReturn(row));
+    return {
+      inputConnected,
+      computed: inputConnected || componentConnected(component),
+      positive: finite(weightedScore) ? weightedScore > 0 : false,
+    };
+  });
+  const rankedRows = traces
+    .map((row) => ({ symbol: row.symbol, relativeReturn20d: getRelativeReturn20d(row) }))
+    .filter((row): row is { symbol: string; relativeReturn20d: number } => finite(row.relativeReturn20d))
+    .sort((a, b) => b.relativeReturn20d - a.relativeReturn20d);
+  const rankDenominator = Math.max(1, rankedRows.length - 1);
+  const ranks = new Map<string, number>();
+  rankedRows.forEach((row, index) => {
+    const rank = rankedRows.length <= 1 ? 100 : ((rankDenominator - index) / rankDenominator) * 100;
+    ranks.set(row.symbol, rank);
+  });
+  const rsRankPctComputed = traces.filter((row) =>
+    finite(resolveNumberByPaths(row, ['rsRankPct', 'quote.rsRankPct', 'quoteFeatures.rsRankPct', 'symbolFeatures.rsRankPct', 'featurePack.momentum.rsRankPct', 'momentumProjection.rsRankPct'])) ||
+    finite(ranks.get(row.symbol)),
+  ).length;
+  const relativeStrengthScoreComputed = traces.filter((row) => {
+    const direct = resolveNumberByPaths(row, ['relativeStrengthScore', 'relativeStrength', 'quote.relativeStrengthScore', 'quoteFeatures.relativeStrengthScore', 'symbolFeatures.relativeStrengthScore', 'featurePack.momentum.relativeStrengthScore', 'momentumProjection.relativeStrengthScore']);
+    if (finite(direct)) return true;
+    const rank = ranks.get(row.symbol);
+    return finite(rank) && finite(rsScoreFromRank(rank));
+  }).length;
+  const breakoutPaths = [
+    'breakout_momentum', 'turtle_high', 'volume_breakout', 'volume_surge', 'vcp', 'trend_acceleration',
+    'breakoutSignals.breakout_momentum', 'breakoutSignals.turtle_high', 'breakoutSignals.volume_breakout', 'breakoutSignals.volume_surge', 'breakoutSignals.vcp', 'breakoutSignals.trend_acceleration',
+    'breakoutTrace.breakout_momentum', 'breakoutTrace.turtle_high', 'breakoutTrace.volume_breakout', 'breakoutTrace.volume_surge', 'breakoutTrace.vcp', 'breakoutTrace.trend_acceleration',
+    'featurePack.breakout.breakout_momentum', 'featurePack.breakout.turtle_high', 'featurePack.breakout.volume_breakout', 'featurePack.breakout.volume_surge', 'featurePack.breakout.vcp', 'featurePack.breakout.trend_acceleration',
+    'conditionResults.breakout_momentum', 'conditionResults.turtle_high', 'conditionResults.volume_breakout', 'conditionResults.volume_surge', 'conditionResults.vcp', 'conditionResults.trend_acceleration',
+  ];
+  const breakoutRows = traces.map((row) => {
+    const component = componentTrace(row, 'BREAKOUT_STRUCTURE');
+    const mappedScore = resolveNumberByPaths(row, ['breakoutScore', 'breakoutStructureScore', 'symbolFeatures.breakoutScore', 'breakoutTrace.breakoutScore', 'featurePack.breakout.breakoutScore', 'featurePack.breakout.score']);
+    const componentScore = componentConnected(component) && finite(component?.weightedScore)
+      ? component!.weightedScore as number
+      : undefined;
+    const traceAvailable = componentConnected(component) || finite(mappedScore) || hasAnyPath(row, breakoutPaths);
+    const scoreMappedToGate = componentConnected(component);
+    const score = finite(componentScore) ? componentScore : mappedScore;
+    const mappingBreakPoint =
+      traceAvailable
+        ? 'NONE'
+        : hasAnyPath(row, ['breakoutTrace', 'featurePack.breakout', 'breakoutSignals'])
+          ? 'GATE_COMPONENT_MISSING'
+          : hasAnyPath(row, ['conditionResults', 'conditionResultsTrace'])
+            ? 'TRACE_NOT_PROJECTED'
+            : 'FEATURE_MISSING';
+    return {
+      symbol: row.symbol,
+      traceAvailable,
+      scoreMappedToGate,
+      positive: Number(score ?? 0) > 0,
+      mappingBreakPoint,
+    };
+  });
+  const regimeDisplayConflict = Boolean(
+    summary.macroGateState?.macroRegimeEffective &&
+    summary.macroGateState?.displayRegime &&
+    summary.macroGateState.macroRegimeEffective !== summary.macroGateState.displayRegime,
+  );
+  const legacyPathUsed = regimeDisplayConflict || canonical.watchlist.conflict;
+  const rrInputCount = numberCount(relativeReturn20d);
+  const rsInputBreakPointDistribution = rrInputCount > 0
+    ? `NONE=${rrInputCount}, RETURN_MISSING=${Math.max(0, total - rrInputCount)}, INPUT_NOT_CONNECTED=0`
+    : `INPUT_NOT_CONNECTED=${total}`;
+  return [
+    '[Gate Positive Runtime Alignment]',
+    `- sourceSnapshotId=${canonical.sourceSnapshotId}`,
+    `- gateScoreInputSnapshotId=${canonical.gateScoreInputSnapshotId}`,
+    '- quoteFeatureCoverage:',
+    `  return5d ${numberCount(return5d)}/${total}`,
+    `  return20d ${numberCount(return20d)}/${total}`,
+    `  relativeReturn20d ${numberCount(relativeReturn20d)}/${total}`,
+    `  marketRelativeReturn ${numberCount(marketRelativeReturn)}/${total}`,
+    `  high5d ${numberCount(high5d)}/${total}`,
+    `  high20d ${numberCount(high20d)}/${total}`,
+    '- priceMomentum:',
+    `  inputConnected ${momentumRows.filter((row) => row.inputConnected).length}/${total}`,
+    `  computed ${momentumRows.filter((row) => row.computed).length}/${total}`,
+    `  positive ${momentumRows.filter((row) => row.positive).length}/${total}`,
+    `  zeroByCurve ${momentumRows.filter((row) => row.computed && !row.positive).length}/${total}`,
+    `  missing ${momentumRows.filter((row) => !row.computed).length}/${total}`,
+    '- rsPercentile:',
+    `  relativeReturn20dInput ${rrInputCount}/${total}`,
+    `  rsRankPctComputed ${rsRankPctComputed}/${total}`,
+    `  relativeStrengthScoreComputed ${relativeStrengthScoreComputed}/${total}`,
+    `  inputBreakPointDistribution ${rsInputBreakPointDistribution}`,
+    '- breakoutStructure:',
+    `  traceAvailable ${breakoutRows.filter((row) => row.traceAvailable).length}/${total}`,
+    `  runtimeScoreComputed ${breakoutRows.filter((row) => row.traceAvailable).length}/${total}`,
+    `  scoreMappedToGate ${breakoutRows.filter((row) => row.scoreMappedToGate).length}/${total}`,
+    `  positive ${breakoutRows.filter((row) => row.positive).length}/${total}`,
+    `  zeroByCondition ${breakoutRows.filter((row) => row.traceAvailable && !row.positive).length}/${total}`,
+    `  missingByMapping ${breakoutRows.filter((row) => !row.traceAvailable).length}/${total}`,
+    `  missingByMappingSymbols ${breakoutRows.filter((row) => !row.traceAvailable).slice(0, 8).map((row) => `${row.symbol}:${row.mappingBreakPoint}`).join(',') || 'NONE'}`,
+    '- canonicalDisplay:',
+    `  watchlistResolverConflict=${boolText(canonical.watchlist.conflict)}`,
+    `  regimeDisplayConflict=${boolText(regimeDisplayConflict)}`,
+    `  legacyPathUsed=${boolText(legacyPathUsed)}`,
+    '- executionImpact=NONE',
+  ].join('\n');
 }
 
 export function formatRuntimeResolverTraceStep26(summary: ScanSummary | null): string {

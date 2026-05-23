@@ -6,7 +6,9 @@ import { formatPenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js
 import { formatInvestorFlowProviderRouterAdr0477 } from './investorFlowProviderRouterAdr0477.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
+  formatGatePositiveRuntimeAlignmentSection,
   rebindGate1ForensicSummaryToCanonicalStep27,
+  rebindGate1ScoringAlignmentReportToCanonicalStep27,
   rebindPositiveScoreStarvationReportToCanonicalStep27,
 } from './runtimeResolverTraceStep26.js';
 import type { ScanSummary } from './scanDiagnostics/scanSummaryTypes.js';
@@ -115,7 +117,9 @@ describe('Step27 canonical runtime report rebinding', () => {
     expect(source).toContain('rebindGate1ForensicSummaryToCanonicalStep27');
     expect(source).toContain('rebindPositiveScoreStarvationReportToCanonicalStep27');
     expect(source).toContain('rebindGate1ScoreCeilingRepairReportToCanonicalStep27');
+    expect(source).toContain('rebindGate1ScoringAlignmentReportToCanonicalStep27');
     expect(source).toContain('formatCanonicalRuntimeResolutionAdoptionSection(canonicalRuntimeResolution)');
+    expect(source).toContain('formatGatePositiveRuntimeAlignmentSection(summary, canonicalRuntimeResolution)');
     expect(source).toContain('formatPenaltyDeduplicationReport(');
     expect(source).toContain('canonicalRuntimeResolution,');
   });
@@ -186,6 +190,61 @@ describe('Step27 canonical runtime report rebinding', () => {
     expect(text).toContain('PRICE_MOMENTUM: computedCount 43');
     expect(text).not.toContain('WATCHLIST_SCORE_NOT_IMPORTED');
     expect(text).not.toContain('WATCHLIST_UPSTREAM_SCORE 11');
+  });
+
+  it('reports Gate positive runtime alignment from Gate1Trace raw values, not weighted score only', () => {
+    const summary = {
+      ...makeConflictingSummary(),
+      candidates: 2,
+      entryFilterDecomposition: {
+        candidateTraces: [
+          {
+            symbol: 'A1',
+            gate1Trace: {
+              minSignalScoreTrace: {
+                components: [
+                  { code: 'PRICE_MOMENTUM', rawValue: { return5d: 5, return20d: 12 }, weightedScore: 4, confidence: 'VERIFIED' },
+                  { code: 'RELATIVE_STRENGTH', rawValue: { relativeReturn20d: 8 }, weightedScore: 5, confidence: 'VERIFIED' },
+                  { code: 'BREAKOUT_STRUCTURE', rawValue: { breakoutScore: 6 }, weightedScore: 6, confidence: 'VERIFIED' },
+                ],
+              },
+            },
+          },
+          {
+            symbol: 'A2',
+            gate1Trace: {
+              minSignalScoreTrace: {
+                components: [
+                  { code: 'PRICE_MOMENTUM', rawValue: { return5d: 1, return20d: 4 }, weightedScore: 1, confidence: 'VERIFIED' },
+                  { code: 'RELATIVE_STRENGTH', rawValue: { relativeReturn20d: -2 }, weightedScore: 2, confidence: 'VERIFIED' },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    } as unknown as ScanSummary;
+    const text = formatGatePositiveRuntimeAlignmentSection(summary, buildCanonicalRuntimeResolutionStep27(summary)) ?? '';
+
+    expect(text).toContain('[Gate Positive Runtime Alignment]');
+    expect(text).toContain('return5d 2/2');
+    expect(text).toContain('return20d 2/2');
+    expect(text).toContain('relativeReturn20d 2/2');
+    expect(text).toContain('rsRankPctComputed 2/2');
+    expect(text).toContain('relativeStrengthScoreComputed 2/2');
+    expect(text).toContain('missingByMappingSymbols A2:FEATURE_MISSING');
+  });
+
+  it('removes resolved watchlist from Gate1 scoring alignment missing components', () => {
+    const summary = makeConflictingSummary();
+    const canonical = buildCanonicalRuntimeResolutionStep27(summary);
+    const report = rebindGate1ScoringAlignmentReportToCanonicalStep27({
+      missingComponents: ['WATCHLIST_UPSTREAM_SCORE', 'BREAKOUT_STRUCTURE'],
+      componentSetAligned: false,
+    } as never, canonical);
+
+    expect(report?.missingComponents).toEqual(['BREAKOUT_STRUCTURE']);
+    expect(report?.componentSetAligned).toBe(false);
   });
 
   it('renders provider penalties and router selectedReason from canonical output', () => {

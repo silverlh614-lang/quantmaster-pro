@@ -214,3 +214,38 @@ it('wires canonical positive feature inputs into Gate1 trace and score curve aud
   expect(formatted).toContain('- scoreMappedToGate=3');
   expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
 });
+
+it('uses Gate1Trace rawValue when report rows no longer carry quote feature fields', () => {
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 3,
+    watchlistCandidates: 3,
+    entries: 0,
+    macroGateState: macro(),
+    candidateSnapshots: [
+      { symbol: 'R1', quoteFeatures: { return5d: 5, return20d: 18, relativeReturn20d: 12 } },
+      { symbol: 'R2', quoteFeatures: { return5d: 2, return20d: 10, relativeReturn20d: 6 } },
+      { symbol: 'R3', quoteFeatures: { return5d: 1, return20d: 4, relativeReturn20d: 1 } },
+    ],
+  });
+
+  for (const trace of d.candidateTraces) {
+    delete trace.return5d;
+    delete trace.return20d;
+    delete trace.relativeReturn20d;
+    delete trace.marketRelativeReturn;
+    delete trace.quote;
+    delete trace.quoteFeatures;
+    trace.symbolFeatures = {};
+    delete trace.featurePack;
+    delete trace.momentumProjection;
+  }
+
+  const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('- return5dCount=3');
+  expect(formatted).toContain('- return20dCount=3');
+  expect(formatted).toContain('- relativeReturn20dCount=3');
+  expect(formatted).toContain('- rsRankPctComputedCount=3');
+  expect(formatted).toContain('- relativeStrengthScoreComputedCount=3');
+  expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
+});
