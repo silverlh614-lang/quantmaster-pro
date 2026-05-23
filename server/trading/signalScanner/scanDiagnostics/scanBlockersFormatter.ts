@@ -50,6 +50,22 @@ function formatRuntimeWiringSummary(
   canonical: CanonicalRuntimeResolutionStep27,
 ): string {
   const softLane = summary.gate2SoftLeadershipLane;
+  const resolveRealPaperSkipReason = (record: PaperEntryDecisionRecord): { reason: string; missingInputReason?: string } => {
+    if (record.skipReason && record.skipReason !== 'FORENSIC_CARRY_BROKEN' && record.skipReason !== 'MISSING_SKIP_REASON_EMISSION') {
+      return { reason: record.skipReason };
+    }
+    if (record.executionPermission === 'SHADOW_ONLY' || record.executionPermission === 'DENY') {
+      return { reason: 'PAPER_ENTRY_NOT_ALLOWED_SHADOW_ONLY_POLICY' };
+    }
+    if (!record.gate2PendingPreserved) return { reason: 'LEADERSHIP_NOT_CONFIRMED' };
+    if (!record.minSignalLivePass) return { reason: 'MIN_SIGNAL_SCORE_BELOW_ENTRY_THRESHOLD' };
+    if (record.gate2PendingPreserved) return { reason: 'GATE2_PENDING_OBSERVE_ONLY' };
+    if (record.sizingAllowed === false) {
+      if (record.sizingReason?.toUpperCase().includes('ADVISORY')) return { reason: 'SIZING_ADVISORY_LOW' };
+      return { reason: 'PAPER_ENTRY_OBSERVE_ONLY' };
+    }
+    return { reason: 'FORENSIC_CARRY_BROKEN', missingInputReason: 'missing gate/score/sizing/permission trace inputs' };
+  };
   const derivePaperEntryForensic = () => {
     const paperForensic = summary.paperEntryForensic;
     const synthesizeDecisionRecords = (candidates: PaperEntryCandidateForensic[]): PaperEntryDecisionRecord[] => {
@@ -123,6 +139,11 @@ function formatRuntimeWiringSummary(
         executionPermission: 'UNKNOWN',
       }));
     }
+    decisionRecords = decisionRecords.map((record) => {
+      if (record.decision !== 'SKIPPED') return record;
+      const resolved = resolveRealPaperSkipReason(record);
+      return { ...record, skipReason: resolved.reason as PaperEntryDecisionRecord['skipReason'] };
+    });
     const candidates = paperForensic?.candidates ?? [];
     const candidateSymbols = decisionRecords.map((record) => record.symbol).filter(Boolean);
     const createdRecords = decisionRecords.filter((record) => record.decision === 'CREATED');
@@ -173,7 +194,11 @@ function formatRuntimeWiringSummary(
     if ((candidateCount > 0 && candidateSymbols.length === 0) || (skippedCount > 0 && skippedSymbols.length === 0)) invalidMarkers.push('[PAPER_ENTRY_SYMBOL_PAYLOAD_MISSING]');
     if ((skippedCount > 0 && Object.keys(skipReasonDistribution).length === 0) || skippedWithoutReason > 0) invalidMarkers.push('[PAPER_ENTRY_SKIP_REASON_MISSING]');
     if (!invariantValid) invalidMarkers.push('[PAPER_ENTRY_INVARIANT_BROKEN]');
-    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid: invariantValid && semanticInvariantValid, semanticInvariantValid, realSkipReasonResolvedCount, forensicFallbackReasonCount, recommendedAction, invalidMarkers };
+    const missingInputReasons = skippedRecords
+      .map((record) => ({ record, resolved: resolveRealPaperSkipReason(record) }))
+      .filter(({ resolved }) => resolved.reason === 'FORENSIC_CARRY_BROKEN' && resolved.missingInputReason)
+      .map(({ record, resolved }) => `${record.symbol}:${resolved.missingInputReason}`);
+    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid: invariantValid && semanticInvariantValid, semanticInvariantValid, realSkipReasonResolvedCount, forensicFallbackReasonCount, recommendedAction, invalidMarkers, missingInputReasons };
   };
 
   const paper = derivePaperEntryForensic();
@@ -255,7 +280,8 @@ function formatRuntimeWiringSummary(
     `- paperEntryForensicFallbackReasonCount=${paper.forensicFallbackReasonCount}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryRecommendedAction=${paper.recommendedAction}`,
-    `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => `${record.symbol}:${record.decision}:${record.skipReason ?? 'NONE'}`).join('|') : '-'}`,
+    `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => `${record.symbol}:${record.decision}:${record.skipReason ?? 'NONE'}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'FAIL'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}`).join('|') : '-'}`,
+    ...(paper.missingInputReasons?.length ? [`- paperEntryMissingInputReason=${paper.missingInputReasons.join('|')}`] : []),
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
