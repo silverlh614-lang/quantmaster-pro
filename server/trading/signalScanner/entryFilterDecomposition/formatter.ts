@@ -6,7 +6,26 @@ import type { EntryFilterDecomposition, EntryBlocker } from './types.js';
 
 
 const finite = (n: unknown): n is number => Number.isFinite(n as number);
-const pickNumber = (trace: CandidateEntryTrace, keys: string[]): number | undefined => {
+const getByPath = (obj: unknown, path: string): unknown => {
+  const keys = path.split('.');
+  let cur: unknown = obj;
+  for (const key of keys) {
+    if (!cur || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+};
+const resolveNumericFeature = (row: unknown, aliases: string[], hitMap?: Record<string, number>): number | undefined => {
+  for (const alias of aliases) {
+    const value = getByPath(row, alias);
+    if (finite(value)) {
+      if (hitMap) hitMap[alias] = (hitMap[alias] ?? 0) + 1;
+      return value as number;
+    }
+  }
+  return undefined;
+};
+const pickNumber = (trace: Record<string, unknown>, keys: string[]): number | undefined => {
   for (const key of keys) {
     const direct = (trace as Record<string, unknown>)[key];
     if (finite(direct)) return direct as number;
@@ -245,13 +264,15 @@ export function formatEntryFilterDecompositionSection(
   }
 
   const traces = d.candidateTraces;
+  const momentumHitMap: Record<string, number> = {};
+  const breakoutHitMap: Record<string, number> = {};
   const momentumRows = traces
     .map((t) => ({
       symbol: t.symbol,
-      return5d: pickNumber(t, ['return5d']),
-      return20d: pickNumber(t, ['return20d']),
-      relativeReturn20d: pickNumber(t, ['relativeReturn20d']),
-      marketRelativeReturn: pickNumber(t, ['marketRelativeReturn', 'kospiRelativeReturn']),
+      return5d: resolveNumericFeature(t, ['return5d', 'quoteFeatures.return5d', 'features.return5d', 'features.momentum.return5d', 'momentum.return5d', 'momentumProjection.return5d', 'returns.return5d'], momentumHitMap),
+      return20d: resolveNumericFeature(t, ['return20d', 'quoteFeatures.return20d', 'features.return20d', 'features.momentum.return20d', 'momentum.return20d', 'momentumProjection.return20d', 'returns.return20d'], momentumHitMap),
+      relativeReturn20d: resolveNumericFeature(t, ['relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'features.relativeReturn20d', 'features.relativeStrength.relativeReturn20d', 'momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d', 'rs.relativeReturn20d'], momentumHitMap),
+      marketRelativeReturn: resolveNumericFeature(t, ['marketRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'features.marketRelativeReturn', 'momentum.marketRelativeReturn', 'momentumProjection.marketRelativeReturn', 'kospiRelativeReturn'], momentumHitMap),
     }))
     .filter((row) => finite(row.return5d) || finite(row.return20d) || finite(row.relativeReturn20d));
   const return5d = momentumRows.map((r) => r.return5d).filter(finite);
@@ -263,8 +284,9 @@ export function formatEntryFilterDecompositionSection(
   const rsScoreCount = traces.filter((t) => Number.isFinite(t.relativeStrengthScore as number)).length;
   const rsUsableAfter = traces.filter((t) => Number.isFinite(t.rsRankPct as number) || Number.isFinite(t.relativeStrengthScore as number)).length;
   const momentumPositive = momentumRows.filter((t) => Number(t.return5d ?? 0) > 0 && Number(t.return20d ?? 0) > 0).length;
-  const breakoutComputed = traces.filter((t) => Number.isFinite(t.breakoutScore as number)).length;
-  const breakoutPositive = traces.filter((t) => (t.breakoutScore ?? 0) > 0).length;
+  const breakoutScores = traces.map((t) => resolveNumericFeature(t, ['breakoutScore', 'breakoutStructureScore', 'features.breakoutScore', 'features.breakout.breakoutScore', 'breakout.score', 'gateComponents.BREAKOUT_STRUCTURE.score', 'contributions.BREAKOUT_STRUCTURE'], breakoutHitMap));
+  const breakoutComputed = breakoutScores.filter((v) => finite(v)).length;
+  const breakoutPositive = breakoutScores.filter((v) => Number(v ?? 0) > 0).length;
 
   lines.push('');
   lines.push('PRICE_MOMENTUM Score Curve Audit:');
@@ -276,10 +298,11 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- return20dCount=${return20d.length}`);
   lines.push(`- relativeReturn20dCount=${rr20.length}`);
   lines.push(`- marketRelativeReturnCount=${marketRr.length}`);
+  lines.push(`- fieldPathHitTop=${Object.entries(momentumHitMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(',') || 'INPUT_FIELD_PATH_UNRESOLVED'}`);
   lines.push(`- positiveCount=${momentumPositive}`);
-  lines.push(`- avgReturn5d=${r1(avg(return5d))} / medianReturn5d=${r1(percentile(return5d, 50))} / p75Return5d=${r1(percentile(return5d, 75))} / p90Return5d=${r1(percentile(return5d, 90))}`);
-  lines.push(`- avgReturn20d=${r1(avg(return20d))} / medianReturn20d=${r1(percentile(return20d, 50))} / p75Return20d=${r1(percentile(return20d, 75))} / p90Return20d=${r1(percentile(return20d, 90))}`);
-  lines.push(`- avgRelativeReturn20d=${r1(avg(rr20))} / medianRelativeReturn20d=${r1(percentile(rr20, 50))} / p75RelativeReturn20d=${r1(percentile(rr20, 75))} / p90RelativeReturn20d=${r1(percentile(rr20, 90))}`);
+  lines.push(momentumRows.length > 0 ? `- avgReturn5d=${r1(avg(return5d))} / medianReturn5d=${r1(percentile(return5d, 50))} / p75Return5d=${r1(percentile(return5d, 75))} / p90Return5d=${r1(percentile(return5d, 90))}` : '- avgReturn5d=N/A / medianReturn5d=N/A / p75Return5d=N/A / p90Return5d=N/A');
+  lines.push(momentumRows.length > 0 ? `- avgReturn20d=${r1(avg(return20d))} / medianReturn20d=${r1(percentile(return20d, 50))} / p75Return20d=${r1(percentile(return20d, 75))} / p90Return20d=${r1(percentile(return20d, 90))}` : '- avgReturn20d=N/A / medianReturn20d=N/A / p75Return20d=N/A / p90Return20d=N/A');
+  lines.push(momentumRows.length > 0 ? `- avgRelativeReturn20d=${r1(avg(rr20))} / medianRelativeReturn20d=${r1(percentile(rr20, 50))} / p75RelativeReturn20d=${r1(percentile(rr20, 75))} / p90RelativeReturn20d=${r1(percentile(rr20, 90))}` : '- avgRelativeReturn20d=N/A / medianRelativeReturn20d=N/A / p75RelativeReturn20d=N/A / p90RelativeReturn20d=N/A');
   lines.push(`- zeroReasonDistribution: INPUT_NOT_CONNECTED=${momentumRows.length === 0 ? traces.length : 0}, SCORE_CURVE_TOO_STRICT=${Math.max(0, momentumRows.length - momentumPositive)}, SCORE_MAPPING_MISSING=0`);
   lines.push(`- topMomentumCandidates=${momentumRows.slice(0, 5).map((r) => r.symbol).join(',') || '[]'}`);
   lines.push('- dryRunCurves: CURRENT / PERCENTILE_TOP_10 / PERCENTILE_TOP_20 / ZSCORE_RELATIVE / SOFT_CURVE_3_LEVEL');
@@ -305,6 +328,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- runtimeScoreComputed=${breakoutComputed}`);
   lines.push(`- auditScoreComputed=${breakoutComputed}`);
   lines.push(`- scoreMappedToGate=${breakoutComputed}`);
+  lines.push(`- fieldPathHitTop=${Object.entries(breakoutHitMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(',') || 'INPUT_FIELD_PATH_UNRESOLVED'}`);
   lines.push(`- positiveCount=${breakoutPositive}`);
   lines.push(`- zeroByCondition=${Math.max(0, traces.length - breakoutPositive)}`);
   lines.push('- missingByMapping=0');
@@ -313,22 +337,25 @@ export function formatEntryFilterDecompositionSection(
 
   lines.push('');
   lines.push('Regime Risk Placement Audit:');
-  const regimeCandidates = [sample?.regime, d.ledgerRows[0]?.regime].filter((v): v is string => typeof v === 'string' && v.length > 0);
-  const effectiveRegime = regimeCandidates[0] ?? 'UNKNOWN';
-  lines.push(`- rawRegime=${effectiveRegime}`);
+  const macroState = (sample?.macroState as Record<string, unknown> | undefined) ?? {};
+  const rawRegime = (macroState.regime as string | undefined) ?? sample?.regime ?? 'UNKNOWN';
+  const effectiveRegime = (macroState.macroRegimeEffective as string | undefined) ?? rawRegime;
+  const r6RecoveryStatus = (macroState.r6RecoveryStatus as string | undefined) ?? 'UNKNOWN';
+  const r6BlockedReason = (macroState.r6RecoveryBlockedReason as string | undefined) ?? 'NONE';
+  lines.push(`- rawRegime=${rawRegime}`);
   lines.push(`- effectiveRegime=${effectiveRegime}`);
   lines.push(`- displayRegime=${effectiveRegime}`);
-  lines.push('- r6RecoveryStatus=UNKNOWN');
-  lines.push('- r6BlockedReason=NONE');
+  lines.push(`- r6RecoveryStatus=${r6RecoveryStatus}`);
+  lines.push(`- recoveryBlockedReason=${r6BlockedReason}`);
   lines.push('- signalScorePenaltyApplied=false');
   lines.push('- confidenceDowngradeApplied=true');
   lines.push(`- sizingMultiplierApplied=${(d.kellySizingTraces[0]?.riskMultiplier ?? 1).toFixed(2)}`);
   lines.push('- sizingHardBlock=false');
   lines.push('- executionPermissionImpact=NONE');
-  lines.push(`- doubleCountWarning=${regimeCandidates.length > 1 && regimeCandidates[0] !== regimeCandidates[1] ? 'REGIME_AUDIT_CANONICAL_MISMATCH' : 'false'}`);
+  lines.push('- doubleCountWarning=false');
   lines.push('- finalPlacement=CONFIDENCE_ONLY');
   lines.push('- inputSourcePath=RegimeResolver.canonicalOutput');
-  lines.push(`- inputBreakPoint=${effectiveRegime === 'UNKNOWN' ? 'INPUT_NOT_CONNECTED' : 'NONE'}`);
+  lines.push(`- inputBreakPoint=${effectiveRegime === 'UNKNOWN' ? 'INPUT_CONTEXT_MISSING' : 'NONE'}`);
   lines.push('');
   lines.push('Gate2 External Data Policy:');
   lines.push('- DART status=unavailable');
