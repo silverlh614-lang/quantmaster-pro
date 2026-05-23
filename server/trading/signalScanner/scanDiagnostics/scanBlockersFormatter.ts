@@ -58,13 +58,25 @@ function formatRuntimeWiringSummary(
       return { reason: 'PAPER_ENTRY_NOT_ALLOWED_SHADOW_ONLY_POLICY' };
     }
     if (!record.gate2PendingPreserved) return { reason: 'LEADERSHIP_NOT_CONFIRMED' };
-    if (!record.minSignalLivePass) return { reason: 'MIN_SIGNAL_SCORE_BELOW_ENTRY_THRESHOLD' };
-    if (record.gate2PendingPreserved) return { reason: 'GATE2_PENDING_OBSERVE_ONLY' };
+    if (!record.minSignalLivePass) {
+      if (record.gate1HardSurvivor) return { reason: 'PAPER_ENTRY_SCORE_BELOW_THRESHOLD' };
+      return { reason: 'LIVE_ENTRY_SCORE_BELOW_THRESHOLD' };
+    }
+    if (record.gate2PendingPreserved) return { reason: 'PAPER_ENTRY_NOT_PROMOTED_SCORE_GAP' };
     if (record.sizingAllowed === false) {
       if (record.sizingReason?.toUpperCase().includes('ADVISORY')) return { reason: 'SIZING_ADVISORY_LOW' };
       return { reason: 'PAPER_ENTRY_OBSERVE_ONLY' };
     }
     return { reason: 'FORENSIC_CARRY_BROKEN', missingInputReason: 'missing gate/score/sizing/permission trace inputs' };
+  };
+  const buildPaperDecisionReasonView = (record: PaperEntryDecisionRecord): { primaryReason: string; secondaryReasons: string[] } => {
+    if (record.decision !== 'SKIPPED') return { primaryReason: record.skipReason ?? 'NONE', secondaryReasons: [] };
+    const primaryReason = record.skipReason ?? 'NONE';
+    const secondaryReasons: string[] = [];
+    if (record.gate2PendingPreserved) secondaryReasons.push('GATE2_PENDING');
+    if (record.executionPermission !== 'ALLOW') secondaryReasons.push('GATE3_BLOCK');
+    if (!record.sizingAllowed) secondaryReasons.push('SIZING_BLOCKED');
+    return { primaryReason, secondaryReasons };
   };
   const derivePaperEntryForensic = () => {
     const paperForensic = summary.paperEntryForensic;
@@ -280,7 +292,11 @@ function formatRuntimeWiringSummary(
     `- paperEntryForensicFallbackReasonCount=${paper.forensicFallbackReasonCount}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryRecommendedAction=${paper.recommendedAction}`,
-    `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => `${record.symbol}:${record.decision}:${record.skipReason ?? 'NONE'}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'FAIL'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}`).join('|') : '-'}`,
+    `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => {
+      const reasonView = buildPaperDecisionReasonView(record);
+      const secondary = reasonView.secondaryReasons.length > 0 ? reasonView.secondaryReasons.join(',') : 'NONE';
+      return `${record.symbol}:${record.decision}:primary=${reasonView.primaryReason}:secondary=${secondary}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'FAIL'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}`;
+    }).join('|') : '-'}`,
     ...(paper.missingInputReasons?.length ? [`- paperEntryMissingInputReason=${paper.missingInputReasons.join('|')}`] : []),
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
