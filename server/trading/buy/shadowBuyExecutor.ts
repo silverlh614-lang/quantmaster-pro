@@ -37,6 +37,11 @@ import {
   type PaperFill,
   type ShadowOrder,
 } from '../orderPipelineSsot.js';
+import {
+  registerShadowBuyLifecycle,
+  updateShadowBuyLifecycleStatus,
+  type ShadowBuyLifecycleStatus,
+} from './shadowDuplicateBuyRegistry.js';
 
 export type ShadowBuyExecutionOutcome =
   | 'SHADOW_POSITION_OPENED'
@@ -167,6 +172,8 @@ function tradeExtension(trade: ServerShadowTrade): ServerShadowTrade & {
   priceSnapshotId?: string;
   entryQuoteSnapshotId?: string;
   profileType?: string;
+  shadowBuyLifecycleKey?: string;
+  shadowBuyLifecycleStatus?: ShadowBuyLifecycleStatus;
 } {
   return trade as ServerShadowTrade & {
     tradePlanId?: string;
@@ -174,6 +181,10 @@ function tradeExtension(trade: ServerShadowTrade): ServerShadowTrade & {
     entryQuoteSnapshotId?: string;
     profileType?: string;
   };
+}
+
+function shadowBuyLifecycleKey(trade: ServerShadowTrade): string | undefined {
+  return tradeExtension(trade).shadowBuyLifecycleKey;
 }
 
 function makeOrderIntent(input: ShadowBuyExecutorInput): OrderIntent {
@@ -268,6 +279,71 @@ export async function executeShadowBuyOrder(
     return rejectShadow(input, input.approvalPolicy.reason, statusWrites);
   }
 
+  const lifecycleRegistration = registerShadowBuyLifecycle({
+    trade: input.trade,
+    allTrades: deps.loadShadowTrades(),
+    strategy: input.logEvent,
+  });
+  if (!lifecycleRegistration.ok) {
+    const message = `${lifecycleRegistration.logTags.join(' ')} symbol=${input.stockCode} ` +
+      `key=${lifecycleRegistration.key} existingTradeId=${lifecycleRegistration.existingTradeId} ` +
+      `existingStatus=${lifecycleRegistration.existingStatus} executionImpact=NONE`;
+    console.warn(message);
+    appendShadowExecutorLogSafe(
+      deps,
+      {
+        event: 'SHADOW_DUPLICATE_BUY_BLOCKED',
+        code: input.stockCode,
+        tradeId: input.trade.id,
+        duplicateKey: lifecycleRegistration.key,
+        existingTradeId: lifecycleRegistration.existingTradeId,
+        existingStatus: lifecycleRegistration.existingStatus,
+        existingRawStatus: lifecycleRegistration.existingRawStatus,
+        counterfactualRecorded: true,
+        counterfactualReason: 'SHADOW_DUPLICATE_BUY_BLOCKED',
+        telegramSuppressed: true,
+        executionImpact: 'NONE',
+      },
+      {
+        tradeId: input.trade.id,
+        stockCode: input.stockCode,
+        event: 'SHADOW_DUPLICATE_BUY_BLOCKED',
+      },
+    );
+    input.trade.status = 'REJECTED';
+    input.stateMachine?.transition('DUPLICATE_BLOCKED', 'duplicate shadow buy blocked', {
+      duplicateKey: lifecycleRegistration.key,
+      existingTradeId: lifecycleRegistration.existingTradeId,
+      existingStatus: lifecycleRegistration.existingStatus,
+    });
+    return {
+      outcome: 'SHADOW_REJECTED',
+      reason: 'SHADOW_DUPLICATE_BUY_BLOCKED',
+      statusWrites,
+    };
+  }
+  console.log(
+    `${lifecycleRegistration.logTags.join(' ')} symbol=${input.stockCode} ` +
+      `key=${lifecycleRegistration.registration.key} status=${lifecycleRegistration.registration.lifecycleStatus} ` +
+      `executionImpact=NONE`,
+  );
+  appendShadowExecutorLogSafe(
+    deps,
+    {
+      event: 'SHADOW_SIGNAL_LIFECYCLE_REGISTERED',
+      code: input.stockCode,
+      tradeId: input.trade.id,
+      lifecycleKey: lifecycleRegistration.registration.key,
+      lifecycleStatus: lifecycleRegistration.registration.lifecycleStatus,
+      executionImpact: 'NONE',
+    },
+    {
+      tradeId: input.trade.id,
+      stockCode: input.stockCode,
+      event: 'SHADOW_SIGNAL_LIFECYCLE_REGISTERED',
+    },
+  );
+
   orderIntent = makeOrderIntent(input);
   console.log(formatOrderIntentCreatedLog(orderIntent));
   console.log(formatBuyAllowedPipelineAdvancedLog({
@@ -291,6 +367,11 @@ export async function executeShadowBuyOrder(
     },
   );
   shadowOrder = createShadowOrder(orderIntent);
+  updateShadowBuyLifecycleStatus({
+    key: shadowBuyLifecycleKey(input.trade),
+    tradeId: input.trade.id,
+    status: 'ORDER_PENDING',
+  });
   input.stateMachine?.transition('SHADOW_ORDER_CREATED', 'shadow order created');
   logStatusChange(orderIntent, 'ORDER_CREATED', 'shadow order created');
   console.log(formatShadowOrderCreatedLog(shadowOrder));
@@ -354,6 +435,11 @@ export async function executeShadowBuyOrder(
     priceSnapshotId: shadowResult.priceSnapshotId,
     filledAt: shadowResult.executedAtIso,
   });
+  updateShadowBuyLifecycleStatus({
+    key: shadowBuyLifecycleKey(input.trade),
+    tradeId: input.trade.id,
+    status: 'PAPER_FILLED',
+  });
   input.stateMachine?.transition('SHADOW_PAPER_FILLED', 'shadow paper-fill recorded', {
     outcome: shadowResult.outcome,
     fillId: shadowResult.fillId,
@@ -399,6 +485,11 @@ export async function executeShadowBuyOrder(
   input.stateMachine?.transition('SHADOW_POSITION_OPENED', 'shadow position opened', {
     outcome: shadowResult.outcome,
     fillId: shadowResult.fillId,
+  });
+  updateShadowBuyLifecycleStatus({
+    key: shadowBuyLifecycleKey(input.trade),
+    tradeId: input.trade.id,
+    status: 'OPEN',
   });
   statusWrites.push(deps.markFilled({
     signalId: input.signalId,

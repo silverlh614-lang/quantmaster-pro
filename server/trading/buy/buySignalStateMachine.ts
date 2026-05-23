@@ -80,6 +80,7 @@ const ALLOWED_TRANSITIONS: Record<BuySignalState, readonly BuySignalState[]> = {
     'SHADOW_ORDER_CREATED',
     'LIVE_REJECTED',
     'SHADOW_REJECTED',
+    'DUPLICATE_BLOCKED',
     'FAILED',
   ],
   LIVE_ORDER_PENDING: [
