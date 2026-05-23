@@ -9,7 +9,7 @@ import { formatR3NoiseGovernorCompactLine } from '../r3NoiseGovernor.js';
 import { formatPreBreakoutWaitSummarySection } from '../preBreakoutWaitPolicy.js';
 import { formatShadowNearBreakoutSection, type ShadowNearBreakoutBlockReason } from '../shadowNearBreakoutEntryPolicy.js';
 import { formatFreshAttributionSection } from '../freshScanBlockerAttribution.js';
-import { formatGate2AttributionSection } from '../gate2LeadershipAttribution.js';
+import { formatGate2AttributionSection, rebindGate2AttributionToSectorEnergyMasterAdr0488 } from '../gate2LeadershipAttribution.js';
 import { formatSectorEnergyQualityDiagnosticSection } from '../../../clients/sectorEnergyQualityDiagnostic.js';
 import { formatGate1MinimumSignalForensicSection } from '../gate1MinimumSignalForensicAuditAdr0505.js';
 import { formatGateDecisionRouterSection } from '../gateDecisionRouter.js';
@@ -34,7 +34,7 @@ import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
 import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
-import { formatCandidatePoolSection } from '../../candidatePoolBuilder.js';
+import { formatCandidatePoolSection, type CandidateFeatureCoverageDiagnostics, type CandidatePoolResult } from '../../candidatePoolBuilder.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
   type CanonicalRuntimeResolutionStep27,
@@ -44,6 +44,173 @@ import {
   rebindPositiveScoreStarvationReportToCanonicalStep27,
   formatGatePositiveRuntimeAlignmentSection,
 } from '../runtimeResolverTraceStep26.js';
+
+function formatterGetByPath(obj: unknown, path: string): unknown {
+  let current: unknown = obj;
+  for (const key of path.split('.')) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+function formatterFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatterComponentTrace(row: unknown, code: string): Record<string, unknown> | undefined {
+  const components =
+    formatterGetByPath(row, 'minSignalScoreTrace.components') ??
+    formatterGetByPath(row, 'gate1Trace.minSignalScoreTrace.components');
+  if (!Array.isArray(components)) return undefined;
+  return components.find((component) =>
+    component &&
+    typeof component === 'object' &&
+    (component as Record<string, unknown>).code === code,
+  ) as Record<string, unknown> | undefined;
+}
+
+function formatterComponentConnected(component: Record<string, unknown> | undefined): boolean {
+  return Boolean(component && component.confidence !== 'MISSING');
+}
+
+function formatterHasAnyPath(row: unknown, paths: readonly string[]): boolean {
+  return paths.some((path) => formatterGetByPath(row, path) !== undefined);
+}
+
+function formatterComponentAppliedCount(rows: readonly unknown[], code: string): number {
+  return rows.filter((row) => formatterComponentConnected(formatterComponentTrace(row, code))).length;
+}
+
+function buildCandidateFeatureCoverageFromSummary(
+  summary: ScanSummary,
+  canonical: CanonicalRuntimeResolutionStep27,
+): CandidateFeatureCoverageDiagnostics | undefined {
+  const candidatePool = summary.candidatePool;
+  if (!candidatePool) return undefined;
+
+  const forensic = summary.gate1MinimumSignalForensicAdr0505;
+  const total = summary.candidates || forensic?.totalCandidates || candidatePool.validCount || candidatePool.candidateSnapshots.length;
+  const traces = (summary.entryFilterDecomposition?.candidateTraces ?? []) as unknown[];
+  const minSignalTraces = (summary.entryFilterDecomposition?.minSignalScoreTraces ?? []) as unknown[];
+  const rsComponentApplied = Math.max(
+    formatterComponentAppliedCount(traces, 'RELATIVE_STRENGTH'),
+    formatterComponentAppliedCount(minSignalTraces, 'RELATIVE_STRENGTH'),
+  );
+  const rsRawComputed = Math.max(
+    rsComponentApplied,
+    forensic?.rsScoreUsableCount ?? 0,
+    forensic?.rsHydrationAvailableCount ?? 0,
+  );
+
+  const breakoutPaths = [
+    'breakout_momentum', 'turtle_high', 'volume_breakout', 'volume_surge', 'vcp', 'trend_acceleration',
+    'breakoutSignals.breakout_momentum', 'breakoutSignals.turtle_high', 'breakoutSignals.volume_breakout', 'breakoutSignals.volume_surge', 'breakoutSignals.vcp', 'breakoutSignals.trend_acceleration',
+    'breakoutTrace.breakout_momentum', 'breakoutTrace.turtle_high', 'breakoutTrace.volume_breakout', 'breakoutTrace.volume_surge', 'breakoutTrace.vcp', 'breakoutTrace.trend_acceleration',
+    'featurePack.breakout.breakout_momentum', 'featurePack.breakout.turtle_high', 'featurePack.breakout.volume_breakout', 'featurePack.breakout.volume_surge', 'featurePack.breakout.vcp', 'featurePack.breakout.trend_acceleration',
+    'conditionResults.breakout_momentum', 'conditionResults.turtle_high', 'conditionResults.volume_breakout', 'conditionResults.volume_surge', 'conditionResults.vcp', 'conditionResults.trend_acceleration',
+    'gateLayerSummary.gate3.externalDataCoverage.priceStructure.turtle', 'gateLayerSummary.gate3.externalDataCoverage.priceStructure.breakout',
+    'gateLayerSummary.gate3.externalDataCoverage.volumeTiming.breakoutVolume', 'gateLayerSummary.gate3.externalDataCoverage.volumeTiming.vcp',
+    'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.shortMomentum',
+    'gate3ExternalDataCoverage.priceStructure.turtle', 'gate3ExternalDataCoverage.priceStructure.breakout',
+    'gate3ExternalDataCoverage.volumeTiming.breakoutVolume', 'gate3ExternalDataCoverage.volumeTiming.vcp',
+    'gate3ExternalDataCoverage.momentumIndicators.shortMomentum',
+  ] as const;
+  const breakoutAlignmentRows = traces.map((row) => {
+    const component = formatterComponentTrace(row, 'BREAKOUT_STRUCTURE');
+    const mappedScore = formatterGetByPath(row, 'breakoutScore') ?? formatterGetByPath(row, 'breakoutStructureScore');
+    const traceAvailable =
+      formatterComponentConnected(component) ||
+      formatterFiniteNumber(mappedScore) ||
+      formatterHasAnyPath(row, breakoutPaths);
+    const weightedScore = component?.weightedScore;
+    return {
+      traceAvailable,
+      positive: formatterFiniteNumber(weightedScore) ? weightedScore > 0 : formatterFiniteNumber(mappedScore) ? mappedScore > 0 : false,
+    };
+  });
+  const breakoutTraceAvailableAlignment = breakoutAlignmentRows.filter((row) => row.traceAvailable).length;
+  const breakoutPositive = breakoutAlignmentRows.filter((row) => row.positive).length;
+  const supply = summary.perSymbolSupplyInjection;
+  const sectorMaster = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyMaster;
+  const rawVolumeKeys = [
+    ...Object.keys(forensic?.actualRawFieldKeysTop ?? {}),
+    ...Object.keys(forensic?.kisRawFieldKeysTop ?? {}),
+    ...Object.keys(forensic?.quoteFeatureFieldCoverage ?? {}),
+  ].filter((key) => /acml_vol|volume|vol/i.test(key));
+  const rawVolumeFieldAvailable =
+    rawVolumeKeys.length > 0 ||
+    candidatePool.candidateSnapshots.some((candidate) => Number.isFinite(candidate.volume ?? NaN) && Number(candidate.volume) > 0);
+
+  return {
+    totalCandidates: total,
+    rs: {
+      rawComputed: rsRawComputed,
+      traceAvailable: forensic?.rsTraceAvailableCount ?? Math.max(rsRawComputed, forensic?.rsScoreUsableCount ?? 0),
+      gateApplied: rsComponentApplied || rsRawComputed,
+      scoreUsable: forensic?.rsScoreUsableCount ?? rsComponentApplied,
+      selectedBasisForActualMissing: 'traceAvailableFromForensic',
+      selectedBasisForPromotionGap: 'scoreUsableFromForensic',
+    },
+    breakout: {
+      mapped: canonical.breakout.scoreMapped,
+      traceAvailableRuntime: canonical.breakout.traceAvailable || forensic?.breakoutTraceAvailableCount,
+      traceAvailableAlignment: breakoutTraceAvailableAlignment || canonical.breakout.scoreMapped || forensic?.breakoutTraceAvailableCount,
+      runtimeScoreComputed: canonical.breakout.scoreComputed,
+      scoreMappedToGateRuntime: canonical.breakout.scoreMapped,
+      scoreMappedToGateAlignment: breakoutTraceAvailableAlignment || canonical.breakout.scoreMapped,
+      positive: breakoutPositive || undefined,
+      zeroByCondition: canonical.breakout.zeroByCondition,
+      selectedBasisForActualMissing: 'alignment.traceAvailable',
+      selectedBasisForPromotionGap: 'alignment.scoreMappedToGate',
+    },
+    supply: {
+      injected: supply?.injected ?? total,
+      verified: supply?.verified ?? supply?.injected ?? total,
+      symbolMatched: forensic?.supplySymbolMatchedCount ?? forensic?.symbolMatchedCount,
+      semanticAvailable: canonical.kisInvestorFlow.gateEligibleRows || forensic?.supplySemanticAvailable,
+      gateEligibleRows: canonical.kisInvestorFlow.gateEligibleRows || forensic?.supplySemanticAvailable,
+      shadowOnlyRows: canonical.kisInvestorFlow.shadowOnlyRows || Math.max(0, total - (forensic?.supplySemanticAvailable ?? total)),
+    },
+    sectorLeadership: sectorMaster ? {
+      officialIndexCoverage: sectorMaster.verifiedIndexCodeCoverage,
+      verifiedIndexCodeCoverage: sectorMaster.verifiedIndexCodeCoverage,
+      internalProxyCoverage: sectorMaster.internalProxyCoverage,
+      stockDailyFallbackCoverage: sectorMaster.stockDailyFallbackCoverage,
+      selectedSourceTier: sectorMaster.selectedSectorEnergySourceTier,
+      leadershipConfidence: sectorMaster.leadershipConfidence,
+      promotionAllowed: sectorMaster.promotionAllowed,
+      sectorBoostAllowed: sectorMaster.sectorBoostAllowed,
+      strongBuyAllowed: sectorMaster.strongBuyAllowed,
+      shadowLeadershipAllowed: sectorMaster.shadowLeadershipAllowed,
+      counterfactualAllowed: sectorMaster.counterfactualAllowed,
+    } : undefined,
+    volumeEnergy: {
+      rawVolumeFieldAvailable,
+      rawVolumeFieldKeys: rawVolumeKeys.length > 0 ? [...new Set(rawVolumeKeys)].slice(0, 8) : (rawVolumeFieldAvailable ? ['candidateSnapshot.volume'] : []),
+      volumeEnergyPromoted: candidatePool.candidateSnapshots.some((candidate) => candidate.featureScores.volumeEnergyScore > 0),
+    },
+  };
+}
+
+function withCandidatePoolRuntimeCoverage(
+  summary: ScanSummary,
+  canonical: CanonicalRuntimeResolutionStep27,
+): CandidatePoolResult | undefined {
+  if (!summary.candidatePool) return undefined;
+  const featureCoverage = buildCandidateFeatureCoverageFromSummary(summary, canonical);
+  if (!featureCoverage) return summary.candidatePool;
+  return {
+    ...summary.candidatePool,
+    diagnostics: {
+      ...summary.candidatePool.diagnostics,
+      featureCoverage: {
+        ...(summary.candidatePool.diagnostics.featureCoverage ?? {}),
+        ...featureCoverage,
+      },
+    },
+  };
+}
 
 function formatRuntimeWiringSummary(
   summary: ScanSummary,
@@ -408,7 +575,9 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(scanEvaluationSection);
   }
 
-  const candidatePoolSection = formatCandidatePoolSection(summary.candidatePool);
+  const candidatePoolSection = formatCandidatePoolSection(
+    withCandidatePoolRuntimeCoverage(summary, canonicalRuntimeResolution),
+  );
   if (candidatePoolSection) {
     lines.push('');
     lines.push(candidatePoolSection);
@@ -561,7 +730,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // ADR-0422 — Gate2 / NO_LEADERSHIP fresh attribution 노출.
   // gate1Pass>0 + gate2Pass=0 시점에만 노출 (formatGate2AttributionSection 내부 필터).
   // gate1Pass=0 시점은 ADR-0420 GATE1_PASS_ZERO 분석이 우선 (책임 분리).
-  const gate2Section = formatGate2AttributionSection(summary.freshGate2Attribution);
+  const gate2Section = formatGate2AttributionSection(
+    rebindGate2AttributionToSectorEnergyMasterAdr0488(
+      summary.freshGate2Attribution,
+      summary.sectorEnergySupplyUnknownAdr0488,
+    ),
+  );
   if (gate2Section) {
     lines.push('');
     lines.push(gate2Section);

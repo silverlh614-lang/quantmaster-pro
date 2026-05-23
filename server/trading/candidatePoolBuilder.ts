@@ -175,6 +175,57 @@ export interface CandidatePoolDiagnostics {
   duplicateSymbols: string[];
   logTags: string[];
   counterfactualRecords: CandidateCounterfactualRecord[];
+  featureCoverage?: CandidateFeatureCoverageDiagnostics;
+}
+
+export interface CandidateFeatureCoverageDiagnostics {
+  totalCandidates?: number;
+  rs?: {
+    rawComputed?: number;
+    traceAvailable?: number;
+    gateApplied?: number;
+    scoreUsable?: number;
+    selectedBasisForActualMissing?: string;
+    selectedBasisForPromotionGap?: string;
+  };
+  breakout?: {
+    mapped?: number;
+    traceAvailableRuntime?: number;
+    traceAvailableAlignment?: number;
+    runtimeScoreComputed?: number;
+    scoreMappedToGateRuntime?: number;
+    scoreMappedToGateAlignment?: number;
+    positive?: number;
+    zeroByCondition?: number;
+    selectedBasisForActualMissing?: string;
+    selectedBasisForPromotionGap?: string;
+  };
+  supply?: {
+    injected?: number;
+    verified?: number;
+    symbolMatched?: number;
+    semanticAvailable?: number;
+    gateEligibleRows?: number;
+    shadowOnlyRows?: number;
+  };
+  sectorLeadership?: {
+    officialIndexCoverage?: number;
+    verifiedIndexCodeCoverage?: number;
+    internalProxyCoverage?: number;
+    stockDailyFallbackCoverage?: number;
+    selectedSourceTier?: string;
+    leadershipConfidence?: string;
+    promotionAllowed?: boolean;
+    sectorBoostAllowed?: boolean;
+    strongBuyAllowed?: boolean;
+    shadowLeadershipAllowed?: boolean;
+    counterfactualAllowed?: boolean;
+  };
+  volumeEnergy?: {
+    rawVolumeFieldAvailable?: boolean;
+    rawVolumeFieldKeys?: string[];
+    volumeEnergyPromoted?: boolean;
+  };
 }
 
 export interface CandidatePoolResult {
@@ -233,6 +284,7 @@ export interface BuildCandidatePoolInput {
     rsScoreUsable?: number;
     breakoutScoreUsable?: number;
   };
+  featureCoverage?: CandidateFeatureCoverageDiagnostics;
 }
 
 const CANDIDATE_TAGS = new Set<CandidateSourceTag>([
@@ -840,11 +892,144 @@ export function buildCandidatePool(input: BuildCandidatePoolInput): CandidatePoo
       duplicateSymbols: [...state.duplicateSymbols],
       logTags,
       counterfactualRecords,
+      ...(input.featureCoverage ? { featureCoverage: input.featureCoverage } : {}),
     },
   };
 
   if (input.emitLogs !== false) emitRuntimeLogs(result);
   return result;
+}
+
+function finiteCount(value: unknown, total: number): number | null {
+  const n = toFiniteNumber(value);
+  if (n === null) return null;
+  return Math.max(0, Math.min(total, Math.round(n)));
+}
+
+function formatCount(count: number | null, total: number): string {
+  return count === null ? `unknown/${total}` : `${count}/${total}`;
+}
+
+function formatPct(value: unknown): string {
+  const n = toFiniteNumber(value);
+  if (n === null) return 'unknown';
+  const pct = n <= 1 ? n * 100 : n;
+  return `${pct.toFixed(1)}%`;
+}
+
+function buildFeatureCoverageDisplay(
+  result: CandidatePoolResult,
+  total: number,
+  countMissing: (feature: CandidateMissingFeature) => number,
+): {
+  actualMissingFeatures: string;
+  topFeaturePromotionGaps: string;
+  featureCoverageLines: string[];
+} {
+  const coverage = result.diagnostics.featureCoverage;
+  const fallbackRsMissing = countMissing('RS_SCORE_MISSING');
+  const fallbackBreakoutMissing = countMissing('BREAKOUT_SCORE_MISSING');
+  const fallbackSupplyMissing = countMissing('SUPPLY_MISSING');
+  const fallbackSectorMissing = countMissing('SECTOR_LEADERSHIP_MISSING');
+  const fallbackVolumeMissing = countMissing('VOLUME_ENERGY_MISSING');
+  const hasAnyVolumeRaw = result.candidateSnapshots.some((s) => Number.isFinite(s.volume ?? NaN) && Number(s.volume) > 0);
+
+  const rsActualBasisName =
+    coverage?.rs?.selectedBasisForActualMissing ??
+    (coverage?.rs?.traceAvailable !== undefined ? 'traceAvailableFromForensic'
+      : coverage?.rs?.rawComputed !== undefined ? 'rawComputedFromRuntimeWiring'
+        : coverage?.rs?.gateApplied !== undefined ? 'gateAppliedFromAlignment'
+          : 'candidateMissingFeatureFallback');
+  const rsActualBasis = finiteCount(
+    rsActualBasisName.includes('trace') ? coverage?.rs?.traceAvailable
+      : rsActualBasisName.includes('raw') ? coverage?.rs?.rawComputed
+        : rsActualBasisName.includes('gate') ? coverage?.rs?.gateApplied
+          : total - fallbackRsMissing,
+    total,
+  );
+  const rsRawInputMissing = rsActualBasis === null ? fallbackRsMissing : Math.max(0, total - rsActualBasis);
+  const rsPromotionBasisName = coverage?.rs?.selectedBasisForPromotionGap ?? 'scoreUsableFromForensic';
+  const rsPromotionBasis = finiteCount(
+    rsPromotionBasisName.includes('gate') ? coverage?.rs?.gateApplied : coverage?.rs?.scoreUsable,
+    total,
+  );
+  const rsScoreNotPromoted = rsPromotionBasis === null ? fallbackRsMissing : Math.max(0, total - rsPromotionBasis);
+
+  const breakoutActualBasisName =
+    coverage?.breakout?.selectedBasisForActualMissing ??
+    (coverage?.breakout?.traceAvailableAlignment !== undefined ? 'alignment.traceAvailable'
+      : coverage?.breakout?.traceAvailableRuntime !== undefined ? 'runtimeMapping.traceAvailable'
+        : coverage?.breakout?.mapped !== undefined ? 'runtimeWiring.mapped'
+          : 'candidateMissingFeatureFallback');
+  const breakoutActualBasis = finiteCount(
+    breakoutActualBasisName.includes('alignment') ? coverage?.breakout?.traceAvailableAlignment
+      : breakoutActualBasisName.includes('runtimeMapping') ? coverage?.breakout?.traceAvailableRuntime
+        : breakoutActualBasisName.includes('runtimeWiring') ? coverage?.breakout?.mapped
+          : total - fallbackBreakoutMissing,
+    total,
+  );
+  const breakoutRawTraceMissing = breakoutActualBasis === null ? fallbackBreakoutMissing : Math.max(0, total - breakoutActualBasis);
+  const breakoutPromotionBasisName = coverage?.breakout?.selectedBasisForPromotionGap ?? (
+    coverage?.breakout?.scoreMappedToGateAlignment !== undefined ? 'alignment.scoreMappedToGate' : 'runtimeMapping.scoreMappedToGate'
+  );
+  const breakoutPromotionBasis = finiteCount(
+    breakoutPromotionBasisName.includes('alignment') ? coverage?.breakout?.scoreMappedToGateAlignment : coverage?.breakout?.scoreMappedToGateRuntime,
+    total,
+  );
+  const breakoutScoreNotPromoted = breakoutPromotionBasis === null ? fallbackBreakoutMissing : Math.max(0, total - breakoutPromotionBasis);
+
+  const supplyInjected = finiteCount(coverage?.supply?.injected, total);
+  const supplyInjectedMissing = supplyInjected === null ? 0 : Math.max(0, total - supplyInjected);
+  const supplySemanticAvailable = finiteCount(coverage?.supply?.semanticAvailable, total);
+  const supplyShadowOnlyRows = finiteCount(coverage?.supply?.shadowOnlyRows, total);
+  const supplySemanticMissing =
+    supplyShadowOnlyRows ??
+    (supplySemanticAvailable === null ? fallbackSupplyMissing : Math.max(0, total - supplySemanticAvailable));
+
+  const officialCoverage =
+    coverage?.sectorLeadership?.verifiedIndexCodeCoverage ??
+    coverage?.sectorLeadership?.officialIndexCoverage;
+  const officialMissingLabel = toFiniteNumber(officialCoverage) === 0
+    ? `true(officialCoverage=${formatPct(officialCoverage)})`
+    : toFiniteNumber(officialCoverage) === null
+      ? `${fallbackSectorMissing}/${total}`
+      : `false(officialCoverage=${formatPct(officialCoverage)})`;
+
+  const rawVolumeAvailable = coverage?.volumeEnergy?.rawVolumeFieldAvailable === true || hasAnyVolumeRaw;
+  const volumeEnergyRawMissing = rawVolumeAvailable
+    ? `false(rawVolumeExists${coverage?.volumeEnergy?.rawVolumeFieldKeys?.length ? `:${coverage.volumeEnergy.rawVolumeFieldKeys.join('|')}` : ''})`
+    : `${fallbackVolumeMissing}/${total}`;
+  const volumeEnergyNotPromoted = rawVolumeAvailable && coverage?.volumeEnergy?.volumeEnergyPromoted !== true;
+
+  const actualMissingFeatures = [
+    `rsRawInputMissing=${rsRawInputMissing}/${total}`,
+    `breakoutRawTraceMissing=${breakoutRawTraceMissing}/${total}`,
+    `supplyInjectedMissing=${supplyInjectedMissing}/${total}`,
+    `supplySemanticMissing=${supplySemanticMissing}/${total}`,
+    `sectorLeadershipOfficialMissing=${officialMissingLabel}`,
+    `volumeEnergyRawMissing=${volumeEnergyRawMissing}`,
+    'note=actual missing only; promotion gaps listed separately',
+  ].join(', ');
+
+  const topFeaturePromotionGaps = [
+    `RS_SCORE_NOT_PROMOTED=${rsScoreNotPromoted}/${total}(basis=${rsPromotionBasisName})`,
+    `BREAKOUT_SCORE_NOT_PROMOTED=${breakoutScoreNotPromoted}/${total}(basis=${breakoutPromotionBasisName})`,
+    `SUPPLY_PARTIAL_ELIGIBLE=${formatCount(finiteCount(coverage?.supply?.gateEligibleRows, total), total)}`,
+    `SUPPLY_SHADOW_ONLY_NEUTRAL_UNKNOWN=${supplySemanticMissing}/${total}`,
+    `SECTOR_OFFICIAL_PROMOTION_DISABLED=${coverage?.sectorLeadership?.promotionAllowed === false}`,
+    `VOLUME_ENERGY_NOT_PROMOTED=${volumeEnergyNotPromoted}`,
+  ].join(', ');
+
+  const featureCoverageLines = [
+    '- featureCoverage:',
+    `  RS rawComputed=${formatCount(finiteCount(coverage?.rs?.rawComputed, total), total)} traceAvailable=${formatCount(finiteCount(coverage?.rs?.traceAvailable, total), total)} gateApplied=${formatCount(finiteCount(coverage?.rs?.gateApplied, total), total)} scoreUsable=${formatCount(finiteCount(coverage?.rs?.scoreUsable, total), total)} actualMissing.rawInputMissing=${rsRawInputMissing}/${total} promotionGap.scoreNotPromoted=${rsScoreNotPromoted}/${total} sourceBasis.actual=${rsActualBasisName} sourceBasis.promotion=${rsPromotionBasisName} status=${rsRawInputMissing === 0 ? 'COMPUTED' : 'PARTIAL'}`,
+    `  BREAKOUT mapped=${formatCount(finiteCount(coverage?.breakout?.mapped, total), total)} traceAvailableRuntime=${formatCount(finiteCount(coverage?.breakout?.traceAvailableRuntime, total), total)} traceAvailableAlignment=${formatCount(finiteCount(coverage?.breakout?.traceAvailableAlignment, total), total)} runtimeScoreComputed=${formatCount(finiteCount(coverage?.breakout?.runtimeScoreComputed, total), total)} scoreMappedRuntime=${formatCount(finiteCount(coverage?.breakout?.scoreMappedToGateRuntime, total), total)} scoreMappedAlignment=${formatCount(finiteCount(coverage?.breakout?.scoreMappedToGateAlignment, total), total)} actualMissing.rawTraceMissing=${breakoutRawTraceMissing}/${total} promotionGap.scoreNotPromoted=${breakoutScoreNotPromoted}/${total} zeroByCondition=${formatCount(finiteCount(coverage?.breakout?.zeroByCondition, total), total)} sourceBasis.actual=${breakoutActualBasisName} sourceBasis.promotion=${breakoutPromotionBasisName} status=${breakoutRawTraceMissing === 0 ? 'COMPUTED_BUT_CONDITION_ZERO' : 'PARTIAL'}`,
+    `  SUPPLY injected=${formatCount(supplyInjected, total)} verified=${formatCount(finiteCount(coverage?.supply?.verified, total), total)} symbolMatched=${formatCount(finiteCount(coverage?.supply?.symbolMatched, total), total)} semanticAvailable=${formatCount(supplySemanticAvailable, total)} gateEligibleRows=${formatCount(finiteCount(coverage?.supply?.gateEligibleRows, total), total)} shadowOnlyRows=${formatCount(supplyShadowOnlyRows, total)} actualMissing.injectedMissing=${supplyInjectedMissing}/${total} actualMissing.semanticMissing=${supplySemanticMissing}/${total} status=PARTIAL_ELIGIBLE`,
+    `  SECTOR_LEADERSHIP officialIndexCoverage=${formatPct(coverage?.sectorLeadership?.officialIndexCoverage)} verifiedIndexCodeCoverage=${formatPct(coverage?.sectorLeadership?.verifiedIndexCodeCoverage)} internalProxyCoverage=${formatPct(coverage?.sectorLeadership?.internalProxyCoverage)} stockDailyFallbackCoverage=${formatPct(coverage?.sectorLeadership?.stockDailyFallbackCoverage)} selectedSourceTier=${coverage?.sectorLeadership?.selectedSourceTier ?? 'UNKNOWN'} leadershipConfidence=${coverage?.sectorLeadership?.leadershipConfidence ?? 'UNKNOWN'} promotionAllowed=${coverage?.sectorLeadership?.promotionAllowed === true} shadowLeadershipAllowed=${coverage?.sectorLeadership?.shadowLeadershipAllowed === true} counterfactualAllowed=${coverage?.sectorLeadership?.counterfactualAllowed === true} actualMissing.officialIndexMissing=${toFiniteNumber(officialCoverage) === 0} status=${coverage?.sectorLeadership?.leadershipConfidence ?? 'UNKNOWN'}`,
+    `  VOLUME_ENERGY rawVolumeFieldAvailable=${rawVolumeAvailable} rawVolumeFieldKeys=${coverage?.volumeEnergy?.rawVolumeFieldKeys?.join('|') || (hasAnyVolumeRaw ? 'candidateSnapshot.volume' : 'none')} actualMissing.rawVolumeMissing=${!rawVolumeAvailable} promotionGap.volumeEnergyNotPromoted=${volumeEnergyNotPromoted} status=${rawVolumeAvailable ? 'RAW_AVAILABLE_SCORE_NOT_PROMOTED' : 'RAW_MISSING'}`,
+  ];
+
+  return { actualMissingFeatures, topFeaturePromotionGaps, featureCoverageLines };
 }
 
 export function formatCandidatePoolSection(result?: CandidatePoolResult): string | null {
@@ -857,30 +1042,7 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
   const total = Math.max(1, result.validCount);
   const countMissing = (feature: CandidateMissingFeature): number =>
     result.candidateSnapshots.filter((s) => s.missingFeatures.includes(feature)).length;
-
-  const rsRawInputMissing = countMissing('RS_SCORE_MISSING');
-  const breakoutRawTraceMissing = countMissing('BREAKOUT_SCORE_MISSING');
-  const supplyInjectedMissing = 0;
-  const supplySemanticMissing = countMissing('SUPPLY_MISSING');
-  const sectorLeadershipOfficialMissing = countMissing('SECTOR_LEADERSHIP_MISSING');
-  const volumeEnergyRawMissingCount = countMissing('VOLUME_ENERGY_MISSING');
-  const hasAnyVolumeRaw = result.candidateSnapshots.some((s) => Number.isFinite(s.volume ?? NaN) && Number(s.volume) > 0);
-  const volumeEnergyRawMissing = hasAnyVolumeRaw ? 'N/A(rawVolumeExists)' : `${volumeEnergyRawMissingCount}/${total}`;
-
-  const actualMissingFeatures = [
-    `rsRawInputMissing=${rsRawInputMissing}/${total}`,
-    `breakoutRawTraceMissing=${breakoutRawTraceMissing}/${total}`,
-    `supplyInjectedMissing=${supplyInjectedMissing}/${total}`,
-    `supplySemanticMissing=${supplySemanticMissing}/${total}`,
-    `sectorLeadershipOfficialMissing=${sectorLeadershipOfficialMissing}/${total}`,
-    `volumeEnergyRawMissing=${volumeEnergyRawMissing}`,
-    'note=actual missing only; promotion gaps listed separately',
-  ].join(', ');
-
-  const topFeaturePromotionGaps = result.diagnostics.topMissingFeatures
-    .slice(0, 5)
-    .map((item) => `${item.feature.replace('_MISSING', '_NOT_PROMOTED')}=${item.count}`)
-    .join(', ') || 'none';
+  const featureCoverageDisplay = buildFeatureCoverageDisplay(result, total, countMissing);
 
   const topFeatureConfidencePenalties = result.diagnostics.topPenalties
     .slice(0, 5)
@@ -912,8 +1074,9 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     `- counterfactualRecorded=${result.counterfactualRecorded}`,
     `- fallbackUsed=${result.fallbackUsed}${result.fallbackReason ? ` reason=${result.fallbackReason}` : ''}`,
     `- topCandidateSources=${topSources}`,
-    `- actualMissingFeatures=${actualMissingFeatures}`,
-    `- topFeaturePromotionGaps=${topFeaturePromotionGaps}`,
+    `- actualMissingFeatures=${featureCoverageDisplay.actualMissingFeatures}`,
+    ...featureCoverageDisplay.featureCoverageLines,
+    `- topFeaturePromotionGaps=${featureCoverageDisplay.topFeaturePromotionGaps}`,
     `- topFeatureConfidencePenalties=${topFeatureConfidencePenalties}`,
     ...(debugLegacyDiag ? [`- topMissingFeatures(deprecated)=${deprecatedTopMissing}`, '- LEGACY_FIELD_DO_NOT_USE_FOR_DECISION'] : []),
     '- Candidate evaluation active',

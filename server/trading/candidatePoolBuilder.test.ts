@@ -183,6 +183,86 @@ describe('CandidatePoolBuilder', () => {
     expect(text).toContain('Missing features scored as confidence penalty');
   });
 
+  it('separates actual missing, promotion gap, and condition-zero coverage evidence', () => {
+    const result = buildCandidatePool({
+      sourceSnapshotId: 'snapshot:coverage',
+      existingWatchlist: Array.from({ length: 43 }, (_, i) => makeCandidate(i + 1, {
+        relativeStrengthScore: null,
+        breakoutScore: null,
+        supplyScore: null,
+        sectorLeadershipScore: null,
+      })),
+      emitLogs: false,
+      featureCoverage: {
+        totalCandidates: 43,
+        rs: {
+          rawComputed: 34,
+          traceAvailable: 39,
+          gateApplied: 34,
+          scoreUsable: 11,
+          selectedBasisForActualMissing: 'traceAvailableFromForensic',
+          selectedBasisForPromotionGap: 'scoreUsableFromForensic',
+        },
+        breakout: {
+          mapped: 39,
+          traceAvailableRuntime: 39,
+          traceAvailableAlignment: 43,
+          runtimeScoreComputed: 20,
+          scoreMappedToGateRuntime: 39,
+          scoreMappedToGateAlignment: 43,
+          zeroByCondition: 23,
+          selectedBasisForActualMissing: 'alignment.traceAvailable',
+          selectedBasisForPromotionGap: 'alignment.scoreMappedToGate',
+        },
+        supply: {
+          injected: 43,
+          verified: 43,
+          symbolMatched: 39,
+          semanticAvailable: 27,
+          gateEligibleRows: 27,
+          shadowOnlyRows: 16,
+        },
+        sectorLeadership: {
+          officialIndexCoverage: 0,
+          verifiedIndexCodeCoverage: 0,
+          internalProxyCoverage: 100,
+          stockDailyFallbackCoverage: 0,
+          selectedSourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
+          leadershipConfidence: 'SHADOW_ONLY',
+          promotionAllowed: false,
+          sectorBoostAllowed: false,
+          strongBuyAllowed: false,
+          shadowLeadershipAllowed: true,
+          counterfactualAllowed: true,
+        },
+        volumeEnergy: {
+          rawVolumeFieldAvailable: true,
+          rawVolumeFieldKeys: ['acml_vol'],
+          volumeEnergyPromoted: false,
+        },
+      },
+    });
+
+    const text = formatCandidatePoolSection(result);
+
+    expect(text).toContain('rsRawInputMissing=4/43');
+    expect(text).toContain('breakoutRawTraceMissing=0/43');
+    expect(text).toContain('supplyInjectedMissing=0/43');
+    expect(text).toContain('supplySemanticMissing=16/43');
+    expect(text).toContain('volumeEnergyRawMissing=false(rawVolumeExists:acml_vol)');
+    expect(text).not.toContain('rsRawInputMissing=43/43');
+    expect(text).not.toContain('breakoutRawTraceMissing=43/43');
+    expect(text).not.toContain('supplySemanticMissing=43/43');
+    expect(text).toContain('RS rawComputed=34/43 traceAvailable=39/43 gateApplied=34/43 scoreUsable=11/43');
+    expect(text).toContain('BREAKOUT mapped=39/43 traceAvailableRuntime=39/43 traceAvailableAlignment=43/43');
+    expect(text).toContain('zeroByCondition=23/43');
+    expect(text).toContain('SECTOR_LEADERSHIP officialIndexCoverage=0.0%');
+    expect(text).toContain('internalProxyCoverage=100.0%');
+    expect(text).toContain('selectedSourceTier=INTERNAL_GROUPED_SNAPSHOT');
+    expect(text).toContain('RS_SCORE_NOT_PROMOTED=32/43(basis=scoreUsableFromForensic)');
+    expect(text).toContain('BREAKOUT_SCORE_NOT_PROMOTED=0/43(basis=alignment.scoreMappedToGate)');
+  });
+
   it('emits Railway verification tags once per build', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     try {

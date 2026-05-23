@@ -34,6 +34,7 @@
 
 import type { ConditionEvalOutput } from '../../quant/conditions/types.js';
 import { inferStatusFromLegacyResult } from '../../persistence/gateAuditRepo.js';
+import type { SectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 
 /**
  * Gate2 조건별 fresh 카운터.
@@ -93,6 +94,95 @@ export interface Gate2BlockerBucket {
   conditionGaps?: Gate2ConditionGapTrace[];
 }
 
+export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
+  attribution: Gate2FreshAttribution | undefined,
+  report: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | undefined,
+): Gate2FreshAttribution | undefined {
+  if (!attribution || !report?.sectorEnergyMaster) return attribution;
+
+  const sector = report.sectorEnergyMaster;
+  const verifiedCoverage = ratioFromMaybePercent(sector.verifiedIndexCodeCoverage);
+  const internalProxyCoverage = ratioFromMaybePercent(sector.internalProxyCoverage);
+  const officialStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
+    verifiedCoverage >= 0.8 ? 'VERIFIED'
+      : verifiedCoverage > 0 ? 'PARTIAL'
+        : 'UNAVAILABLE';
+  const officialBlocker: NonNullable<Gate2LeadershipAttribution['officialIndex']['blocker']> =
+    verifiedCoverage <= 0
+      ? 'OFFICIAL_INDEX_UNAVAILABLE'
+      : verifiedCoverage < 0.8
+        ? 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
+        : 'NONE';
+  const shadowLeadershipAllowed = sector.shadowLeadershipAllowed === true;
+  const breakoutConfirmed = attribution.leadershipAttribution.breakoutMomentum.status === 'CONFIRMED';
+  const liveLeadership = sector.promotionAllowed === true && attribution.gate2Pass > 0;
+  const blockers = new Set<Gate2LeadershipBlocker>(attribution.leadershipAttribution.blockers);
+  if (verifiedCoverage <= 0) blockers.add('OFFICIAL_INDEX_UNAVAILABLE');
+  if (verifiedCoverage < 0.8) blockers.add('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+  if (sector.leadershipConfidence === 'BLOCKED') blockers.add('SECTOR_UNAVAILABLE');
+  if (!breakoutConfirmed) blockers.add('BREAKOUT_MOMENTUM_FAIL');
+  blockers.delete('NO_LEADERSHIP_AFTER_ALL_CHECKS');
+  if (blockers.size === 0) blockers.add('NO_LEADERSHIP_AFTER_ALL_CHECKS');
+  const noLeadershipReason = liveLeadership
+    ? 'LIVE_LEADERSHIP_CONFIRMED'
+    : !sector.promotionAllowed && !breakoutConfirmed
+      ? 'LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED'
+      : !sector.promotionAllowed
+        ? 'LIVE_PROMOTION_DISABLED_BY_OFFICIAL_INDEX'
+        : !breakoutConfirmed
+          ? 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
+          : 'NO_LEADERSHIP_AFTER_ALL_CHECKS';
+
+  return {
+    ...attribution,
+    sectorEnergy: {
+      ...(attribution.sectorEnergy ?? {}),
+      dataQuality: sector.leadershipConfidence,
+      validSectorCount: sector.records.length || attribution.sectorEnergy?.validSectorCount,
+      expectedSectorCount: sector.records.length || attribution.sectorEnergy?.expectedSectorCount,
+      indexCodeCoverage: verifiedCoverage,
+      officialIndexCoverage: verifiedCoverage,
+      internalProxyCoverage,
+      stockBasketCoverage: ratioFromMaybePercent(sector.stockDailyFallbackCoverage),
+      selectedSectorEnergySourceTier: sector.selectedSectorEnergySourceTier,
+      leadershipConfidence: sector.leadershipConfidence,
+      promotionAllowed: sector.promotionAllowed,
+      sectorBoostAllowed: sector.sectorBoostAllowed,
+      strongBuyAllowed: sector.strongBuyAllowed,
+      shadowLeadershipAllowed,
+      counterfactualAllowed: sector.counterfactualAllowed,
+      reasonCodes: sector.reasonCodes,
+      isStale: false,
+    },
+    leadershipAttribution: {
+      ...attribution.leadershipAttribution,
+      officialIndex: {
+        status: officialStatus,
+        coverage: verifiedCoverage,
+        verifiedIndexCodeCoverage: verifiedCoverage,
+        blocker: officialBlocker,
+        promotionAllowed: sector.promotionAllowed,
+        impact: sector.promotionAllowed ? 'NONE' : 'NO_LIVE_PROMOTION_ONLY',
+      },
+      shadowSector: {
+        status: shadowLeadershipAllowed ? 'AVAILABLE' : 'UNAVAILABLE',
+        sourceTier: sector.selectedSectorEnergySourceTier,
+        shadowLeadershipAllowed,
+        confidence: sector.leadershipConfidence,
+        internalProxyCoverage,
+        counterfactualAllowed: sector.counterfactualAllowed,
+      },
+      final: {
+        liveLeadership,
+        shadowLeadership: shadowLeadershipAllowed,
+        noLeadershipReason,
+        executionImpact: 'NONE',
+      },
+      blockers: [...blockers],
+    },
+  };
+}
+
 /**
  * Gate2 / leadership 진단 분류 (사용자 §B + §E 정합).
  *
@@ -139,6 +229,8 @@ export interface Gate2LeadershipAttribution {
   officialIndex: {
     status: 'VERIFIED' | 'PARTIAL' | 'UNAVAILABLE';
     coverage: number;
+    verifiedIndexCodeCoverage?: number;
+    blocker?: 'NONE' | 'OFFICIAL_INDEX_UNAVAILABLE' | 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD';
     promotionAllowed: boolean;
     impact: 'NONE' | 'NO_LIVE_PROMOTION_ONLY';
   };
@@ -147,6 +239,8 @@ export interface Gate2LeadershipAttribution {
     sourceTier: string;
     shadowLeadershipAllowed: boolean;
     confidence: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED' | 'UNKNOWN';
+    internalProxyCoverage?: number;
+    counterfactualAllowed?: boolean;
   };
   breakoutMomentum: {
     status: 'CONFIRMED' | 'NOT_CONFIRMED';
@@ -713,6 +807,12 @@ function buildGate2LeadershipAttribution(input: {
     officialIndex: {
       status: officialIndexStatus,
       coverage: officialCoverage,
+      verifiedIndexCodeCoverage: officialCoverage,
+      blocker: officialCoverage <= 0
+        ? 'OFFICIAL_INDEX_UNAVAILABLE'
+        : officialCoverage < 0.8
+          ? 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
+          : 'NONE',
       promotionAllowed,
       impact: promotionAllowed ? 'NONE' : 'NO_LIVE_PROMOTION_ONLY',
     },
@@ -721,6 +821,8 @@ function buildGate2LeadershipAttribution(input: {
       sourceTier,
       shadowLeadershipAllowed,
       confidence,
+      internalProxyCoverage: ratioFromMaybePercent(input.sectorEnergy?.internalProxyCoverage),
+      counterfactualAllowed: input.sectorEnergy?.counterfactualAllowed === true,
     },
     breakoutMomentum: {
       status: breakoutConfirmed ? 'CONFIRMED' : 'NOT_CONFIRMED',
@@ -953,11 +1055,14 @@ export function formatGate2AttributionSection(
 
   lines.push(
     `  officialIndex: status=${leadership.officialIndex.status} coverage=${(leadership.officialIndex.coverage * 100).toFixed(1)}% ` +
-    `promotionAllowed=${leadership.officialIndex.promotionAllowed} impact=${leadership.officialIndex.impact}`,
+    `verifiedIndexCodeCoverage=${(((leadership.officialIndex.verifiedIndexCodeCoverage ?? leadership.officialIndex.coverage) * 100)).toFixed(1)}% ` +
+    `blocker=${leadership.officialIndex.blocker ?? 'NONE'} promotionAllowed=${leadership.officialIndex.promotionAllowed} impact=${leadership.officialIndex.impact}`,
   );
   lines.push(
     `  shadowSector: status=${leadership.shadowSector.status} sourceTier=${leadership.shadowSector.sourceTier} ` +
-    `shadowLeadershipAllowed=${leadership.shadowSector.shadowLeadershipAllowed} confidence=${leadership.shadowSector.confidence}`,
+    `shadowLeadershipAllowed=${leadership.shadowSector.shadowLeadershipAllowed} confidence=${leadership.shadowSector.confidence} ` +
+    `internalProxyCoverage=${(((leadership.shadowSector.internalProxyCoverage ?? 0) * 100)).toFixed(1)}% ` +
+    `counterfactualAllowed=${leadership.shadowSector.counterfactualAllowed === true}`,
   );
   lines.push(`  breakoutMomentum: status=${leadership.breakoutMomentum.status} blocker=${leadership.breakoutMomentum.blocker}`);
   lines.push(

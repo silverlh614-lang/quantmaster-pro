@@ -28,6 +28,7 @@ import {
   detailIndicatesStale,
   finalizeGate2BucketRates,
   formatGate2AttributionSection,
+  rebindGate2AttributionToSectorEnergyMasterAdr0488,
 } from './gate2LeadershipAttribution.js';
 
 function emptyBucket(key: string): Gate2BlockerBucket {
@@ -289,6 +290,141 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     expect(section).toContain('officialIndex: status=UNAVAILABLE');
     expect(section).toContain('shadowSector: status=AVAILABLE');
     expect(section).toContain('breakoutMomentum: status=NOT_CONFIRMED');
+    expect(section).toContain('executionImpact=NONE');
+  });
+
+  it('bridges ADR-0488 SectorEnergyMaster into Gate2 shadow leadership attribution', () => {
+    const attribution = buildGate2FreshAttribution({
+      buckets: [
+        { ...emptyBucket('breakout_momentum'), failed: 3, total: 3 },
+        { ...emptyBucket('volume_surge'), failed: 1, total: 1 },
+      ],
+      candidates: 43,
+      gate1Pass: 6,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+      sectorEnergy: {
+        dataQuality: 'MISSING',
+        selectedSectorEnergySourceTier: 'NONE',
+        leadershipConfidence: 'BLOCKED',
+        shadowLeadershipAllowed: false,
+      },
+    });
+
+    const bridged = rebindGate2AttributionToSectorEnergyMasterAdr0488(attribution, {
+      generatedAt: '2026-05-23T16:39:00.000Z',
+      overallStatus: 'PARTIAL',
+      sectorEnergyMaster: {
+        generatedAt: '2026-05-23T16:39:00.000Z',
+        status: 'PARTIAL',
+        records: Array.from({ length: 12 }, (_, index) => ({
+          sectorName: `sector-${index}`,
+          indexCode: null,
+          market: 'KOSPI',
+          source: 'INTERNAL',
+          normalized: true,
+          coverageMetadata: { hasIndexCode: false, aggregateIgnored: false, aliasCandidate: false },
+          fetchedAt: null,
+          observedAt: '2026-05-23T16:39:00.000Z',
+        })),
+        mappingDiagnostics: {
+          sectorToIndexCode: {},
+          indexCodeToSectorName: {},
+          missingIndexCodeCount: 12,
+          unresolvedSectorNames: [],
+          aggregateIgnoredCount: 0,
+          aliasMissingCount: 0,
+          safeAliasCandidatesCount: 0,
+          unsafeAliasCandidatesCount: 0,
+          aliasResolvedCount: 0,
+          aliasUnsafeCount: 0,
+          verifiedIndexCodeCoverage: 0,
+          internalProxyCoverage: 100,
+          stockDailyFallbackCoverage: 0,
+          unresolvedSectorCount: 12,
+          symmetryPassed: true,
+          topGaps: [],
+        },
+        indexCodeCoverageBefore: 0,
+        indexCodeCoverageAfter: 100,
+        verifiedIndexCodeCoverage: 0,
+        internalProxyCoverage: 100,
+        stockDailyFallbackCoverage: 0,
+        aliasResolvedCount: 0,
+        aliasUnsafeCount: 0,
+        unresolvedSectorCount: 12,
+        coveragePct: 100,
+        fresh: 12,
+        stale: 0,
+        missing: 0,
+        providerError: 0,
+        fallbackUsed: 'DIAGNOSTIC_PROXY',
+        leadershipConfidence: 'SHADOW_ONLY',
+        leadershipBlockReason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+        promotionAllowed: false,
+        sectorBoostAllowed: false,
+        strongBuyAllowed: false,
+        shadowLeadershipAllowed: true,
+        counterfactualAllowed: true,
+        selectedSectorEnergySourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
+        reasonCodes: ['OFFICIAL_INDEX_COVERAGE_ZERO', 'INTERNAL_PROXY_AVAILABLE'],
+        topMissingSectorNames: [],
+        liveExecutionAllowed: false,
+        executionImpact: 'NONE',
+        operatorApprovalRequired: true,
+        officialIndexMasterRecovery: {
+          status: 'OFFICIAL_MISSING_REPAIR_REQUIRED',
+          sourceOfTruth: 'INTERNAL_PROXY_OR_BASKET',
+          selectedSectorEnergySourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
+          verifiedIndexCodeCoverage: 0,
+          internalProxyCoverage: 100,
+          stockDailyFallbackCoverage: 0,
+          requiredVerifiedCoveragePct: 80,
+          leadershipConfidence: 'SHADOW_ONLY',
+          promotionAllowed: false,
+          sectorBoostAllowed: false,
+          strongBuyAllowed: false,
+          shadowLeadershipAllowed: true,
+          counterfactualAllowed: true,
+          liveExecutionAllowed: false,
+          executionImpact: 'NONE',
+          reasonCodes: [],
+          nextAction: 'REPAIR_SECTOR_INDEX_MASTER',
+        },
+        topGaps: [],
+        recommendedNextActions: [],
+        diagnostics: [],
+      },
+      supplyUnknownPolicy: {} as never,
+      topGaps: [],
+      recommendedNextActions: [],
+      executionImpact: 'NONE',
+      liveExecutionAllowed: false,
+      policyPromotionMode: 'SHADOW_ONLY',
+      operatorApprovalRequired: true,
+      diagnostics: [],
+    });
+
+    expect(bridged?.leadershipAttribution.shadowSector.status).toBe('AVAILABLE');
+    expect(bridged?.leadershipAttribution.shadowSector.sourceTier).toBe('INTERNAL_GROUPED_SNAPSHOT');
+    expect(bridged?.leadershipAttribution.shadowSector.shadowLeadershipAllowed).toBe(true);
+    expect(bridged?.leadershipAttribution.shadowSector.confidence).toBe('SHADOW_ONLY');
+    expect(bridged?.leadershipAttribution.shadowSector.internalProxyCoverage).toBe(1);
+    expect(bridged?.leadershipAttribution.final.shadowLeadership).toBe(true);
+    expect(bridged?.leadershipAttribution.final.liveLeadership).toBe(false);
+    expect(bridged?.leadershipAttribution.officialIndex.status).toBe('UNAVAILABLE');
+    expect(bridged?.leadershipAttribution.officialIndex.blocker).toBe('OFFICIAL_INDEX_UNAVAILABLE');
+    expect(bridged?.leadershipAttribution.blockers).toContain('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+    expect(bridged?.leadershipAttribution.blockers).toContain('BREAKOUT_MOMENTUM_FAIL');
+
+    const section = formatGate2AttributionSection(bridged);
+    expect(section).toContain('shadowSector: status=AVAILABLE sourceTier=INTERNAL_GROUPED_SNAPSHOT');
+    expect(section).toContain('confidence=SHADOW_ONLY');
+    expect(section).toContain('internalProxyCoverage=100.0%');
+    expect(section).toContain('counterfactualAllowed=true');
+    expect(section).toContain('liveLeadership=false shadowLeadership=true');
     expect(section).toContain('executionImpact=NONE');
   });
 });
