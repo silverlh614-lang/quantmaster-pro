@@ -48,6 +48,7 @@ import type { SourceSnapshotDataHealth } from '../../sourceSnapshot/sourceSnapsh
 import type { SnapshotForensicAlert } from '../../sourceSnapshot/snapshotMismatchDetector.js';
 import type { ScoreBreakdown } from '../../gates/aiExecutionIsolation.js';
 import type { CanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
+import type { CandidatePoolResult } from '../../candidatePoolBuilder.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -248,4 +249,5 @@ export interface ScanSummary {
   investorFlowSampleAdr0489?: InvestorFlowSampleAcquisitionReportAdr0489;
   supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491;
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
+  candidatePool?: CandidatePoolResult;
 }

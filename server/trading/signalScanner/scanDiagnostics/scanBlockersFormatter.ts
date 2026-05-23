@@ -34,6 +34,7 @@ import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
 import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
+import { formatCandidatePoolSection } from '../../candidatePoolBuilder.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
   type CanonicalRuntimeResolutionStep27,
@@ -120,6 +121,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (scanEvaluationSection) {
     lines.push('');
     lines.push(scanEvaluationSection);
+  }
+
+  const candidatePoolSection = formatCandidatePoolSection(summary.candidatePool);
+  if (candidatePoolSection) {
+    lines.push('');
+    lines.push(candidatePoolSection);
   }
 
   if (summary.sectorEnergyQuality !== undefined) {

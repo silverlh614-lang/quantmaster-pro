@@ -62,6 +62,7 @@ export { cacheLookupToSemanticInputAdr0482, compactTradingDateAdr0505, kisEviden
 export { logAdrDiagnostic, logGateDiagnosticSummary, logPreBreakoutNoiseSummary } from './adrDiagnosticLogger.js';
 export { emitInvestorFlowRouterEventAdr0477 } from './investorFlowRouterEmitter.js';
 export { formatR3StateMessage } from './sectionFormatters.js';
+export { buildCandidatePool } from '../../candidatePoolBuilder.js';
 export type { ShadowCandidateScanTrigger } from '../../marketStateResolver.js';
 export type { FrozenQuoteResult } from '../frozenQuoteDetector.js';
 export type { StreakSkipReason } from '../r3StreakSkipPolicy.js';
@@ -76,3 +77,4 @@ export type { FreshDataSupplyReportInputAdr0487 } from '../freshDataSupplyLayerA
 export type { MacroGateState, ScanSummary } from './scanSummaryTypes.js';
 export type { ScanCounters } from './scanCounterTypes.js';
 export type { ScanEvaluationResult } from '../state/scanEvaluationState.js';
+export type { CandidatePoolInputCandidate, CandidatePoolResult } from '../../candidatePoolBuilder.js';

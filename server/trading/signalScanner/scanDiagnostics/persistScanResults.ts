@@ -95,6 +95,7 @@ import {
   logPreBreakoutNoiseSummary,
   emitInvestorFlowRouterEventAdr0477,
   formatR3StateMessage,
+  buildCandidatePool,
   type ShadowCandidateScanTrigger,
   type FrozenQuoteResult,
   type StreakSkipReason,
@@ -102,6 +103,8 @@ import {
   type ProvisionalShadowSectionInput,
   type CounterfactualShadowSectionInput,
   type CandidateSnapshot,
+  type CandidatePoolInputCandidate,
+  type CandidatePoolResult,
   type InvestorFlowProviderRouterInput,
   type PerSymbolSupplyInjectionStats,
   type SemanticNetBuyInputPoint,
@@ -112,6 +115,7 @@ import {
   type ScanEvaluationResult,
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
+import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
@@ -122,6 +126,69 @@ export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans
 
 export function setLastBuySignalAt(ts: number): void { _lastBuySignalAt = ts; }
 
+function finiteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value.replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function countFiniteCandidateMetric(
+  snapshots: readonly CandidateSnapshot[],
+  keys: readonly string[],
+): number {
+  let count = 0;
+  for (const snapshot of snapshots) {
+    const root = snapshot as Record<string, unknown>;
+    const quote = snapshot.quote && typeof snapshot.quote === 'object'
+      ? snapshot.quote as Record<string, unknown>
+      : {};
+    const symbolFeatures = snapshot.symbolFeatures && typeof snapshot.symbolFeatures === 'object'
+      ? snapshot.symbolFeatures as Record<string, unknown>
+      : {};
+    const hasMetric = keys.some((key) =>
+      finiteNumber(root[key]) !== null ||
+      finiteNumber(quote[key]) !== null ||
+      finiteNumber(symbolFeatures[key]) !== null,
+    );
+    if (hasMetric) count += 1;
+  }
+  return count;
+}
+
+function watchlistFallbackCandidates(): CandidatePoolInputCandidate[] {
+  try {
+    return loadWatchlist().map((entry) => ({
+      symbol: entry.code,
+      code: entry.code,
+      name: entry.name,
+      market: 'KRX',
+      sector: entry.sector,
+      sourceTags: ['WATCHLIST'],
+      price: entry.symbolFeatures?.price ?? entry.entryPrice,
+      currentPrice: entry.symbolFeatures?.price ?? entry.entryPrice,
+      volume: entry.symbolFeatures?.volume,
+      avgVolume: entry.symbolFeatures?.avgVolume,
+      relativeStrengthScore: (entry as any).relativeStrengthScore,
+      rsRankPct: (entry as any).rsRankPct,
+      breakoutScore: (entry as any).breakoutScore,
+      return5d: entry.symbolFeatures?.return5d,
+      return20d: entry.symbolFeatures?.return20d,
+      quote: entry.symbolFeatures ?? {
+        price: entry.entryPrice,
+      },
+      gateScore: entry.gateScore,
+      stage1Score: entry.stage1Score,
+      stage2Score: entry.stage2Score,
+      totalGateScore: entry.totalGateScore,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export interface PersistScanResultsOptions {
   sellOnly?: boolean;
   buyListLength: number;
@@ -131,6 +198,7 @@ export interface PersistScanResultsOptions {
   momentumListLength: number;
   perSymbolSupplyInjection?: PerSymbolSupplyInjectionStats;
   candidateSnapshots?: CandidateSnapshot[];
+  candidatePool?: CandidatePoolResult;
   watchlistRefreshedAt?: string;
   watchlistSource?: string;
   macroGateState?: MacroGateState;
@@ -215,6 +283,7 @@ export async function persistScanResults(
   const kstNow = new Date(Date.now() + 9 * 3_600_000);
   const timeLabel = kstNow.toISOString().slice(11, 16) + ' KST';
   const totalCandidates = options.buyListLength + options.intradayBuyListLength;
+  const scanCandidateSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
   const gateLayerAudit = buildGateLayerAuditSummary(counters);
   const scanEvaluation = options.scanEvaluation ?? buildScanEvaluationResult({
     asOf: kstNow.toISOString(),
@@ -294,6 +363,52 @@ export async function persistScanResults(
       marketSession: 'BUY_ALLOWED',
     }),
   };
+
+  try {
+    const fallbackCandidates = watchlistFallbackCandidates();
+    const priorCandidates = (_lastScanSummary?.candidatePool?.candidateSnapshots ?? []) as unknown as CandidatePoolInputCandidate[];
+    const sourceSnapshotId =
+      summaryDraft.snapshotId ??
+      (scanEvaluation as { scanId?: string }).scanId ??
+      options.macroGateState?.regimeSnapshotId ??
+      `scan-eval:${kstNow.toISOString()}`;
+    summaryDraft.candidatePool = options.candidatePool ?? buildCandidatePool({
+      sourceSnapshotId,
+      asOf: kstNow.toISOString(),
+      ttlSec: options.macroGateState?.regimeSnapshotTtlSec ?? 300,
+      totalUniverseCount: Math.max(
+        totalCandidates,
+        scanCandidateSnapshots.length,
+        fallbackCandidates.length,
+      ),
+      existingWatchlist: scanCandidateSnapshots as unknown as CandidatePoolInputCandidate[],
+      previousDayTopRankedCandidates: priorCandidates,
+      openShadowWatchlist: priorCandidates,
+      fallbackBroadUniverse: fallbackCandidates,
+      liveOrderAllowed: options.macroGateState?.liveEntryAllowed === true && options.macroGateState?.brokerOrderAllowed !== false,
+      runtimeLabels: {
+        sellOnly: options.sellOnly === true || options.macroGateState?.sellOnlyMode === true,
+        r6Defense:
+          options.macroGateState?.regime === 'R6_DEFENSE' ||
+          options.macroGateState?.macroRegimeEffective === 'R6_DEFENSE',
+        kellyZero: (options.macroGateState?.finalKellyMultiplier ?? 1) <= 0,
+        providerIssue: scanCandidateSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
+        staleData:
+          options.marketDataFreshness === 'STALE' ||
+          options.marketDataFreshness === 'EXPIRED' ||
+          scanCandidateSnapshots.some((item) => item.priceDataFresh === false),
+        shadowOnly: options.macroGateState?.engineMode === 'SHADOW_ONLY',
+      },
+      zeroSurvivorSignals: {
+        gateEntryCandidates: totalCandidates,
+        watchlistImported: totalCandidates,
+        rsScoreUsable: countFiniteCandidateMetric(scanCandidateSnapshots, ['relativeStrengthScore', 'rsRankPct']),
+        breakoutScoreUsable: countFiniteCandidateMetric(scanCandidateSnapshots, ['breakoutScore']),
+      },
+    });
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidatePool', error: e });
+  }
 
   // ADR-0420 — Fresh Scan Blocker Attribution build + persist (옵셔널, 후방호환).
   // candidates>0 시점에만 build (의미 있는 분해). 빈 buckets 도 NO_CANDIDATES/UNKNOWN
