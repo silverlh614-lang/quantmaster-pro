@@ -76,8 +76,18 @@ function formatRuntimeWiringSummary(
     (softLane?.gate1HardSurvivors ?? 0) + (softLane?.gate2PendingPreserved ?? 0) + minSignalLivePass,
   );
   const paperEntryCandidateCount = softLane?.gate1HardSurvivors ?? 0;
-  const paperEntryCreatedCount = 0;
-  const paperEntrySkippedCount = paperEntryCandidateCount;
+  const paperEntryCreatedCount = summary.paperEntryForensic?.createdSymbols?.length ?? 0;
+  const paperEntrySkippedCount = Math.max(0, paperEntryCandidateCount - paperEntryCreatedCount);
+  const paperEntryCandidateSymbols = summary.paperEntryForensic?.candidateSymbols ?? [];
+  const paperEntryCreatedSymbols = summary.paperEntryForensic?.createdSymbols ?? [];
+  const paperEntrySkippedSymbols = summary.paperEntryForensic?.skippedSymbols ?? [];
+  const paperEntrySkipReasonDistribution = summary.paperEntryForensic?.skipReasonDistribution ?? {};
+  const paperEntryTopSkipReason = summary.paperEntryForensic?.topSkipReason
+    ?? Object.entries(paperEntrySkipReasonDistribution).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const paperEntryExecutionImpact = summary.paperEntryForensic?.executionImpact ?? 'NONE';
+  const paperEntryForensicStatus = paperEntrySkippedCount > 0 && Object.keys(paperEntrySkipReasonDistribution).length === 0
+    ? 'INVALID'
+    : 'OK';
   const macro = summary.macroGateState;
   const rawRegime = macro?.macroRegimeRaw ?? macro?.regime ?? 'UNKNOWN';
   const legacyEffectiveRegime = macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN';
@@ -108,6 +118,13 @@ function formatRuntimeWiringSummary(
     `- counterfactualLedgerRowsCreated=${counterfactualLedgerRowsCreated}`,
     `- gateCounterfactualReadyCount=${gateCounterfactualReadyCount}`,
     `- paperEntryCandidateCount=${paperEntryCandidateCount} paperEntryCreatedCount=${paperEntryCreatedCount} paperEntrySkippedCount=${paperEntrySkippedCount}`,
+    `- paperEntrySkipReasonDistribution=${Object.keys(paperEntrySkipReasonDistribution).length ? JSON.stringify(paperEntrySkipReasonDistribution) : '{}'}`,
+    `- paperEntryCandidateSymbols=${paperEntryCandidateSymbols.length ? paperEntryCandidateSymbols.join(',') : '-'}`,
+    `- paperEntryCreatedSymbols=${paperEntryCreatedSymbols.length ? paperEntryCreatedSymbols.join(',') : '-'}`,
+    `- paperEntrySkippedSymbols=${paperEntrySkippedSymbols.length ? paperEntrySkippedSymbols.join(',') : '-'}`,
+    `- paperEntryTopSkipReason=${paperEntryTopSkipReason ?? '-'}`,
+    `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
+    `- paperEntryForensicStatus=${paperEntryForensicStatus}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,

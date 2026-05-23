@@ -260,4 +260,12 @@ export interface ScanSummary {
   supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491;
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
   candidatePool?: CandidatePoolResult;
+  paperEntryForensic?: {
+    candidateSymbols?: string[];
+    createdSymbols?: string[];
+    skippedSymbols?: string[];
+    skipReasonDistribution?: Record<string, number>;
+    executionImpact?: 'NONE' | 'SHADOW_ONLY' | 'LIVE_BLOCKED';
+    topSkipReason?: string;
+  };
 }
