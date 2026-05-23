@@ -47,6 +47,10 @@ import {
 } from "../watchlistUpstreamScoreResolver.js";
 import type { GateConditionResultTrace } from "../gateConditionResultTrace.js";
 import type { SanitizedInvestorFlowSemanticRow } from "../../../supply/investorFlowSemanticAvailability.js";
+import {
+  extractGateLayerQuoteFeatureValues,
+  finitePositiveFeature,
+} from "../gatePositiveFeatureMaterializer.js";
 import type { CandidateSnapshot, Gate1SymbolFeatures } from './types.js';
 
 export function finiteFeature(value: unknown): number | undefined {
@@ -72,6 +76,7 @@ export function buildSymbolFeatures(
   const featurePack = (c as unknown as Record<string, unknown>).featurePack as Record<string, unknown> | undefined;
   const momentum = featurePack && typeof featurePack.momentum === 'object' ? featurePack.momentum as Record<string, unknown> : undefined;
   const momentumProjection = (c as unknown as Record<string, unknown>).momentumProjection as Record<string, unknown> | undefined;
+  const gateLayerFeatures = extractGateLayerQuoteFeatureValues(c);
   const breakout = featurePack && typeof featurePack.breakout === 'object' ? featurePack.breakout as Record<string, unknown> : undefined;
   const breakoutTrace = (c as unknown as Record<string, unknown>).breakoutTrace as Record<string, unknown> | undefined;
   const features: Gate1SymbolFeatures = {
@@ -81,78 +86,94 @@ export function buildSymbolFeatures(
       finiteFeature(c.price) ??
       finiteFeature(c.currentPrice) ??
       quoteFeature(c, "price") ??
-      quoteFeature(c, "currentPrice"),
+      quoteFeature(c, "currentPrice") ??
+      finitePositiveFeature(gateLayerFeatures.price),
     currentPrice:
       ((provided as Record<string, unknown>).currentPrice as number | undefined) ??
       finiteFeature(c.currentPrice) ??
       quoteFeature(c, "currentPrice") ??
-      quoteFeature(c, "price"),
+      quoteFeature(c, "price") ??
+      finitePositiveFeature(gateLayerFeatures.currentPrice),
     high5d:
       ((provided as Record<string, unknown>).high5d as number | undefined) ??
       finiteFeature(c.high5d) ??
-      quoteFeature(c, "high5d"),
+      quoteFeature(c, "high5d") ??
+      finitePositiveFeature(gateLayerFeatures.high5d),
     high20d:
       ((provided as Record<string, unknown>).high20d as number | undefined) ??
       finiteFeature(c.high20d) ??
-      quoteFeature(c, "high20d"),
+      quoteFeature(c, "high20d") ??
+      finitePositiveFeature(gateLayerFeatures.high20d),
     high60:
       ((provided as Record<string, unknown>).high60 as number | undefined) ??
       finiteFeature(c.high60) ??
-      quoteFeature(c, "high60"),
+      quoteFeature(c, "high60") ??
+      finitePositiveFeature(gateLayerFeatures.high60),
     volumeRatio:
       ((provided as Record<string, unknown>).volumeRatio as number | undefined) ??
       finiteFeature(c.volumeRatio) ??
-      quoteFeature(c, "volumeRatio"),
-    ma20: provided.ma20 ?? finiteFeature(c.ma20) ?? quoteFeature(c, "ma20"),
-    ma60: provided.ma60 ?? finiteFeature(c.ma60) ?? quoteFeature(c, "ma60"),
+      quoteFeature(c, "volumeRatio") ??
+      finitePositiveFeature(gateLayerFeatures.volumeRatio),
+    ma20: provided.ma20 ?? finiteFeature(c.ma20) ?? quoteFeature(c, "ma20") ?? finitePositiveFeature(gateLayerFeatures.ma20),
+    ma60: provided.ma60 ?? finiteFeature(c.ma60) ?? quoteFeature(c, "ma60") ?? finitePositiveFeature(gateLayerFeatures.ma60),
     return5d:
       provided.return5d ??
       finiteFeature(c.return5d) ??
       quoteFeature(c, "return5d") ??
-      finiteFeature(momentum?.return5d),
+      finiteFeature(momentum?.return5d) ??
+      finiteFeature(momentumProjection?.return5d) ??
+      finitePositiveFeature(gateLayerFeatures.return5d),
     return20d:
       provided.return20d ??
       finiteFeature(c.return20d) ??
       quoteFeature(c, "return20d") ??
-      finiteFeature(momentum?.return20d),
+      finiteFeature(momentum?.return20d) ??
+      finiteFeature(momentumProjection?.return20d) ??
+      finitePositiveFeature(gateLayerFeatures.return20d),
     volume:
-      provided.volume ?? finiteFeature(c.volume) ?? quoteFeature(c, "volume"),
+      provided.volume ?? finiteFeature(c.volume) ?? quoteFeature(c, "volume") ?? finitePositiveFeature(gateLayerFeatures.volume),
     avgVolume:
       provided.avgVolume ??
       finiteFeature(c.avgVolume) ??
-      quoteFeature(c, "avgVolume"),
+      quoteFeature(c, "avgVolume") ??
+      finitePositiveFeature(gateLayerFeatures.avgVolume),
     projectedVolume:
       provided.projectedVolume ?? finiteFeature(c.projectedVolume),
-    rsi14: provided.rsi14 ?? finiteFeature(c.rsi14) ?? quoteFeature(c, "rsi14"),
-    atr: provided.atr ?? finiteFeature(c.atr) ?? quoteFeature(c, "atr"),
+    rsi14: provided.rsi14 ?? finiteFeature(c.rsi14) ?? quoteFeature(c, "rsi14") ?? finitePositiveFeature(gateLayerFeatures.rsi14),
+    atr: provided.atr ?? finiteFeature(c.atr) ?? quoteFeature(c, "atr") ?? finitePositiveFeature(gateLayerFeatures.atr),
     atr20avg:
       provided.atr20avg ??
       finiteFeature(c.atr20avg) ??
-      quoteFeature(c, "atr20avg"),
+      quoteFeature(c, "atr20avg") ??
+      finitePositiveFeature(gateLayerFeatures.atr20avg),
     kospi20dReturn:
       provided.kospi20dReturn ??
       finiteFeature(c.kospi20dReturn) ??
       quoteFeature(c, "kospi20dReturn") ??
       finiteFeature(momentum?.kospi20dReturn) ??
-      finiteFeature(momentumProjection?.kospi20dReturn),
+      finiteFeature(momentumProjection?.kospi20dReturn) ??
+      finitePositiveFeature(gateLayerFeatures.kospi20dReturn),
     marketRelativeReturn:
       provided.marketRelativeReturn ??
       finiteFeature(c.marketRelativeReturn) ??
       quoteFeature(c, "marketRelativeReturn") ??
       finiteFeature(momentum?.marketRelativeReturn) ??
-      finiteFeature(momentumProjection?.marketRelativeReturn),
+      finiteFeature(momentumProjection?.marketRelativeReturn) ??
+      finitePositiveFeature(gateLayerFeatures.marketRelativeReturn),
     kospiRelativeReturn:
       provided.kospiRelativeReturn ??
       finiteFeature(c.kospiRelativeReturn) ??
       quoteFeature(c, "kospiRelativeReturn") ??
       finiteFeature(momentum?.kospiRelativeReturn) ??
-      finiteFeature(momentumProjection?.kospiRelativeReturn),
+      finiteFeature(momentumProjection?.kospiRelativeReturn) ??
+      finitePositiveFeature(gateLayerFeatures.kospiRelativeReturn),
     relativeReturn20d:
       provided.relativeReturn20d ??
       finiteFeature(c.relativeReturn20d) ??
       quoteFeature(c, "relativeReturn20d") ??
       finiteFeature(momentum?.relativeReturn20d) ??
-      finiteFeature(momentumProjection?.relativeReturn20d),
+      finiteFeature(momentumProjection?.relativeReturn20d) ??
+      finitePositiveFeature(gateLayerFeatures.relativeReturn20d),
     rsRankPct:
       provided.rsRankPct ??
       finiteFeature(c.rsRankPct) ??

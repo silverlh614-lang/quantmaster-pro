@@ -28,6 +28,7 @@ import {
   persistNormalSupplyPreview,
 } from './normalSupplyPreview.js';
 import { applyR6ShadowCounterfactualEntries } from './r6ShadowCounterfactualEntryPolicy.js';
+import { extractGateLayerQuoteFeatureValues } from './gatePositiveFeatureMaterializer.js';
 // Patch-MARKET-PROGRAM-CARRY-WIRING-001 — Branch A wiring: PREFLIGHT_ABORT_DIAGNOSTIC
 // + RUNTIME_DIAGNOSTIC 의 persistNormalSupplyPreview 호출에 marketProgramFlow 4 필드
 // carry SSOT 위임. 호출자 측 inline ENV 검사 0건 (SSOT 헬퍼 위임 의무).
@@ -52,31 +53,35 @@ function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
   const featurePack = w.featurePack && typeof w.featurePack === 'object' ? w.featurePack : {};
   const momentum = featurePack.momentum && typeof featurePack.momentum === 'object' ? featurePack.momentum : {};
   const momentumProjection = w.momentumProjection && typeof w.momentumProjection === 'object' ? w.momentumProjection : {};
+  const gateLayerFeatures = extractGateLayerQuoteFeatureValues(w);
   return {
     symbol: typeof q.symbol === 'string' ? q.symbol : w.code,
     code: typeof q.code === 'string' ? q.code : w.code,
-    price: pickNumber(q.price, q.currentPrice, sf.price, sf.currentPrice, w.entryPrice),
+    price: pickNumber(q.price, q.currentPrice, sf.price, sf.currentPrice, gateLayerFeatures.price, w.entryPrice),
     changePercent: pickNumber(q.changePercent, sf.changePercent),
-    return5d: pickNumber(q.return5d, sf.return5d, w.return5d, momentum.return5d, momentumProjection.return5d),
-    return20d: pickNumber(q.return20d, sf.return20d, w.return20d, momentum.return20d, momentumProjection.return20d),
-    relativeReturn20d: pickNumber(q.relativeReturn20d, sf.relativeReturn20d, w.relativeReturn20d, momentum.relativeReturn20d, momentumProjection.relativeReturn20d),
-    marketRelativeReturn: pickNumber(q.marketRelativeReturn, sf.marketRelativeReturn, w.marketRelativeReturn, momentum.marketRelativeReturn, momentumProjection.marketRelativeReturn),
-    kospiRelativeReturn: pickNumber(q.kospiRelativeReturn, sf.kospiRelativeReturn, w.kospiRelativeReturn, momentum.kospiRelativeReturn, momentumProjection.kospiRelativeReturn),
-    kospi20dReturn: pickNumber(q.kospi20dReturn, sf.kospi20dReturn, w.kospi20dReturn, momentum.kospi20dReturn, momentumProjection.kospi20dReturn),
+    return5d: pickNumber(q.return5d, sf.return5d, w.return5d, momentum.return5d, momentumProjection.return5d, gateLayerFeatures.return5d),
+    return20d: pickNumber(q.return20d, sf.return20d, w.return20d, momentum.return20d, momentumProjection.return20d, gateLayerFeatures.return20d),
+    relativeReturn20d: pickNumber(q.relativeReturn20d, sf.relativeReturn20d, w.relativeReturn20d, momentum.relativeReturn20d, momentumProjection.relativeReturn20d, gateLayerFeatures.relativeReturn20d),
+    marketRelativeReturn: pickNumber(q.marketRelativeReturn, sf.marketRelativeReturn, w.marketRelativeReturn, momentum.marketRelativeReturn, momentumProjection.marketRelativeReturn, gateLayerFeatures.marketRelativeReturn),
+    kospiRelativeReturn: pickNumber(q.kospiRelativeReturn, sf.kospiRelativeReturn, w.kospiRelativeReturn, momentum.kospiRelativeReturn, momentumProjection.kospiRelativeReturn, gateLayerFeatures.kospiRelativeReturn),
+    kospi20dReturn: pickNumber(q.kospi20dReturn, sf.kospi20dReturn, w.kospi20dReturn, momentum.kospi20dReturn, momentumProjection.kospi20dReturn, gateLayerFeatures.kospi20dReturn),
     rsRankPct: pickNumber(q.rsRankPct, sf.rsRankPct, w.rsRankPct, momentum.rsRankPct, momentumProjection.rsRankPct),
-    high5d: pickNumber(q.high5d, sf.high5d),
-    high20d: pickNumber(q.high20d, q.high20, sf.high20d, sf.high20),
-    high20: pickNumber(q.high20, q.high20d, sf.high20, sf.high20d),
-    high60: pickNumber(q.high60, sf.high60),
-    volume: pickNumber(q.volume, sf.volume),
-    avgVolume: pickNumber(q.avgVolume, sf.avgVolume),
+    high5d: pickNumber(q.high5d, sf.high5d, gateLayerFeatures.high5d),
+    high20d: pickNumber(q.high20d, q.high20, sf.high20d, sf.high20, gateLayerFeatures.high20d),
+    high20: pickNumber(q.high20, q.high20d, sf.high20, sf.high20d, gateLayerFeatures.high20),
+    high60: pickNumber(q.high60, sf.high60, gateLayerFeatures.high60),
+    high60d: pickNumber(q.high60d, sf.high60d, gateLayerFeatures.high60d),
+    volume: pickNumber(q.volume, sf.volume, gateLayerFeatures.volume),
+    avgVolume: pickNumber(q.avgVolume, sf.avgVolume, gateLayerFeatures.avgVolume),
+    avgVolume20d: pickNumber(q.avgVolume20d, sf.avgVolume20d, gateLayerFeatures.avgVolume20d),
+    volumeRatio: pickNumber(q.volumeRatio, sf.volumeRatio, gateLayerFeatures.volumeRatio),
     ma5: pickNumber(q.ma5, sf.ma5),
-    ma20: pickNumber(q.ma20, sf.ma20),
-    ma60: pickNumber(q.ma60, sf.ma60),
-    rsi14: pickNumber(q.rsi14, sf.rsi14),
-    atr: pickNumber(q.atr, sf.atr),
-    atr20avg: pickNumber(q.atr20avg, sf.atr20avg),
-    bbWidthCurrent: pickNumber(q.bbWidthCurrent, sf.bbWidthCurrent),
+    ma20: pickNumber(q.ma20, sf.ma20, gateLayerFeatures.ma20),
+    ma60: pickNumber(q.ma60, sf.ma60, gateLayerFeatures.ma60),
+    rsi14: pickNumber(q.rsi14, sf.rsi14, gateLayerFeatures.rsi14),
+    atr: pickNumber(q.atr, sf.atr, gateLayerFeatures.atr),
+    atr20avg: pickNumber(q.atr20avg, sf.atr20avg, gateLayerFeatures.atr20avg),
+    bbWidthCurrent: pickNumber(q.bbWidthCurrent, sf.bbWidthCurrent, gateLayerFeatures.bbWidthCurrent),
     bbWidth20dAvg: pickNumber(q.bbWidth20dAvg, sf.bbWidth20dAvg),
     vol5dAvg: pickNumber(q.vol5dAvg, sf.vol5dAvg),
     vol20dAvg: pickNumber(q.vol20dAvg, sf.vol20dAvg),
@@ -118,6 +123,9 @@ function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number })
     featurePack: w.featurePack,
     momentumProjection: w.momentumProjection,
     breakoutTrace: w.breakoutTrace,
+    gateLayerSummary: w.gateLayerSummary,
+    gate2ExternalDataCoverage: w.gate2ExternalDataCoverage ?? w.gateLayerSummary?.gate2?.externalDataCoverage,
+    gate3ExternalDataCoverage: w.gate3ExternalDataCoverage ?? w.gateLayerSummary?.gate3?.externalDataCoverage,
     symbolFeatures: w.symbolFeatures,
     conditionResults,
     supplyContext: w.supplyContext,
@@ -421,6 +429,9 @@ export async function runAutoSignalScan(
         featurePack: w.featurePack,
         momentumProjection: w.momentumProjection,
         breakoutTrace: w.breakoutTrace,
+        gateLayerSummary: w.gateLayerSummary,
+        gate2ExternalDataCoverage: w.gate2ExternalDataCoverage ?? w.gateLayerSummary?.gate2?.externalDataCoverage,
+        gate3ExternalDataCoverage: w.gate3ExternalDataCoverage ?? w.gateLayerSummary?.gate3?.externalDataCoverage,
         symbolFeatures: {
           ...(w.symbolFeatures ?? {}),
           return5d: w.symbolFeatures?.return5d ?? w.return5d ?? w.quote?.return5d ?? w.featurePack?.momentum?.return5d ?? w.momentumProjection?.return5d,
@@ -493,6 +504,9 @@ export async function runAutoSignalScan(
         featurePack: w.featurePack,
         momentumProjection: w.momentumProjection,
         breakoutTrace: w.breakoutTrace,
+        gateLayerSummary: w.gateLayerSummary,
+        gate2ExternalDataCoverage: w.gate2ExternalDataCoverage ?? w.gateLayerSummary?.gate2?.externalDataCoverage,
+        gate3ExternalDataCoverage: w.gate3ExternalDataCoverage ?? w.gateLayerSummary?.gate3?.externalDataCoverage,
         symbolFeatures: {
           ...(w.symbolFeatures ?? {}),
           return5d: w.symbolFeatures?.return5d ?? w.return5d ?? w.quote?.return5d ?? w.featurePack?.momentum?.return5d ?? w.momentumProjection?.return5d,

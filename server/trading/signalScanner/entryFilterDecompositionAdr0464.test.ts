@@ -215,6 +215,71 @@ it('wires canonical positive feature inputs into Gate1 trace and score curve aud
   expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
 });
 
+it('materializes Gate2/Gate3 runtime diagnostics into quote features and RS percentile', () => {
+  const candidate = (symbol: string, relativeReturn20d: number, return5d: number, turtleStatus: string) => ({
+    symbol,
+    gateLayerSummary: {
+      gate2: {
+        externalDataCoverage: {
+          benchmark: {
+            values: {
+              stockReturn20d: relativeReturn20d + 0.03,
+              benchmarkReturn20d: 0.03,
+              relativeReturn20d,
+            },
+          },
+        },
+      },
+      gate3: {
+        externalDataCoverage: {
+          priceStructure: {
+            values: { currentPrice: 100, high5d: 103, high20d: 110, high60d: 120 },
+            turtle: { status: turtleStatus },
+            breakout: { status: 'FAIL' },
+          },
+          momentumIndicators: {
+            values: { return5d, return20d: relativeReturn20d + 0.03 },
+            shortMomentum: { status: return5d > 0 ? 'PASS' : 'FAIL' },
+          },
+          volumeTiming: {
+            values: { volume: 1000, avgVolume20d: 900, volumeRatio: 1.1 },
+            breakoutVolume: { status: 'FAIL' },
+            vcp: { status: 'FAIL' },
+          },
+        },
+      },
+    },
+  });
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 3,
+    watchlistCandidates: 3,
+    entries: 0,
+    macroGateState: macro(),
+    candidateSnapshots: [
+      candidate('G1', 0.12, 0.04, 'PASS'),
+      candidate('G2', 0.05, 0.02, 'FAIL'),
+      candidate('G3', -0.02, -0.01, 'FAIL'),
+    ],
+  });
+
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.return5d))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.return20d))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.relativeReturn20d))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.rsRankPct))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.high5d))).toBe(true);
+  expect(d.candidateTraces.every((trace) => Number.isFinite(trace.high20d))).toBe(true);
+
+  const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('- return5dCount=3');
+  expect(formatted).toContain('- return20dCount=3');
+  expect(formatted).toContain('- relativeReturn20dCount=3');
+  expect(formatted).toContain('- rsRankPctComputedCount=3');
+  expect(formatted).toContain('- relativeStrengthScoreComputedCount=3');
+  expect(formatted).toContain('- missingByMapping=0');
+  expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
+});
+
 it('uses Gate1Trace rawValue when report rows no longer carry quote feature fields', () => {
   const d = buildEntryFilterDecomposition({
     now,

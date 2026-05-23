@@ -71,6 +71,10 @@ import { buildGate1CandidateTrace, buildGate1Reports } from './gate1CandidateTra
 import { classifySupplyProviderHealth } from './supplyProviderHealth.js';
 import { createKellySizingTrace } from './kellySizing.js';
 import { buildSymbolFeatures } from './symbolFeatures.js';
+import {
+  extractGateLayerBreakoutSignals,
+  extractGateLayerQuoteFeatureValues,
+} from '../gatePositiveFeatureMaterializer.js';
 
 function pickNumericWithSource(
   pairs: Array<{ value: unknown; source: string }>,
@@ -108,6 +112,9 @@ export function buildEntryFilterDecomposition(
     const candidateRecord = c as unknown as Record<string, unknown>;
     const symbolFeaturesRecord = c.symbolFeatures as unknown as Record<string, unknown> | undefined;
     const symbolFeatures = buildSymbolFeatures(c);
+    const gateLayerFeatures = extractGateLayerQuoteFeatureValues(c);
+    const gateLayerBreakoutSignals = extractGateLayerBreakoutSignals(c);
+    const breakoutSignals = { ...gateLayerBreakoutSignals, ...(c.breakoutSignals ?? {}) };
     const quote = (c.quote as Record<string, unknown> | undefined) ?? undefined;
     const quoteFeatures = (c.quoteFeatures as Record<string, unknown> | undefined) ?? undefined;
     const conditionResults = (c.conditionResults as Record<string, unknown> | undefined) ?? undefined;
@@ -171,43 +178,46 @@ export function buildEntryFilterDecomposition(
       relativeStrengthScore: c.relativeStrengthScore ?? symbolFeatures?.relativeStrengthScore,
       relativeStrength: c.relativeStrength,
       rsRankPct: c.rsRankPct ?? symbolFeatures?.rsRankPct ?? (quote?.rsRankPct as number | undefined) ?? (quoteFeatures?.rsRankPct as number | undefined),
-      return20d: c.return20d ?? symbolFeatures?.return20d ?? (quote?.return20d as number | undefined) ?? (quoteFeatures?.return20d as number | undefined),
-      return5d: c.return5d ?? symbolFeatures?.return5d ?? (quote?.return5d as number | undefined) ?? (quoteFeatures?.return5d as number | undefined),
-      marketRelativeReturn: c.marketRelativeReturn ?? symbolFeatures?.marketRelativeReturn ?? (quote?.marketRelativeReturn as number | undefined) ?? (quoteFeatures?.marketRelativeReturn as number | undefined),
-      kospiRelativeReturn: c.kospiRelativeReturn ?? symbolFeatures?.kospiRelativeReturn ?? (quote?.kospiRelativeReturn as number | undefined) ?? (quoteFeatures?.kospiRelativeReturn as number | undefined),
-      relativeReturn20d: c.relativeReturn20d ?? symbolFeatures?.relativeReturn20d ?? (quote?.relativeReturn20d as number | undefined) ?? (quoteFeatures?.relativeReturn20d as number | undefined),
-      kospi20dReturn: c.kospi20dReturn ?? symbolFeatures?.kospi20dReturn ?? (quote?.kospi20dReturn as number | undefined) ?? (quoteFeatures?.kospi20dReturn as number | undefined),
+      return20d: c.return20d ?? symbolFeatures?.return20d ?? (quote?.return20d as number | undefined) ?? (quoteFeatures?.return20d as number | undefined) ?? gateLayerFeatures.return20d,
+      return5d: c.return5d ?? symbolFeatures?.return5d ?? (quote?.return5d as number | undefined) ?? (quoteFeatures?.return5d as number | undefined) ?? gateLayerFeatures.return5d,
+      marketRelativeReturn: c.marketRelativeReturn ?? symbolFeatures?.marketRelativeReturn ?? (quote?.marketRelativeReturn as number | undefined) ?? (quoteFeatures?.marketRelativeReturn as number | undefined) ?? gateLayerFeatures.marketRelativeReturn,
+      kospiRelativeReturn: c.kospiRelativeReturn ?? symbolFeatures?.kospiRelativeReturn ?? (quote?.kospiRelativeReturn as number | undefined) ?? (quoteFeatures?.kospiRelativeReturn as number | undefined) ?? gateLayerFeatures.kospiRelativeReturn,
+      relativeReturn20d: c.relativeReturn20d ?? symbolFeatures?.relativeReturn20d ?? (quote?.relativeReturn20d as number | undefined) ?? (quoteFeatures?.relativeReturn20d as number | undefined) ?? gateLayerFeatures.relativeReturn20d,
+      kospi20dReturn: c.kospi20dReturn ?? symbolFeatures?.kospi20dReturn ?? (quote?.kospi20dReturn as number | undefined) ?? (quoteFeatures?.kospi20dReturn as number | undefined) ?? gateLayerFeatures.kospi20dReturn,
       quote: c.quote,
       quoteFeatures: c.quoteFeatures,
       featurePack: c.featurePack,
       momentumProjection: c.momentumProjection,
       macroState: c.macroState,
       breakoutTrace: c.breakoutTrace,
-      breakoutSignals: c.breakoutSignals,
+      gateLayerSummary: c.gateLayerSummary,
+      gate2ExternalDataCoverage: c.gate2ExternalDataCoverage,
+      gate3ExternalDataCoverage: c.gate3ExternalDataCoverage,
+      breakoutSignals: Object.keys(breakoutSignals).length > 0 ? breakoutSignals : c.breakoutSignals,
       conditionResults: c.conditionResults,
       technicalIndicators: c.technicalIndicators,
       technicalFieldSourceMap: sourceMap,
-      breakout_momentum: c.breakout_momentum,
-      turtle_high: c.turtle_high,
-      volume_breakout: c.volume_breakout,
-      volume_surge: c.volume_surge,
-      vcp: c.vcp,
-      trend_acceleration: c.trend_acceleration,
+      breakout_momentum: c.breakout_momentum ?? gateLayerBreakoutSignals.breakout_momentum,
+      turtle_high: c.turtle_high ?? gateLayerBreakoutSignals.turtle_high,
+      volume_breakout: c.volume_breakout ?? gateLayerBreakoutSignals.volume_breakout,
+      volume_surge: c.volume_surge ?? gateLayerBreakoutSignals.volume_surge,
+      vcp: c.vcp ?? gateLayerBreakoutSignals.vcp,
+      trend_acceleration: c.trend_acceleration ?? gateLayerBreakoutSignals.trend_acceleration,
       priceDataFresh: c.priceDataFresh,
       volumeLiquidityPassed: c.volumeLiquidityPassed,
-      volume: c.volume ?? symbolFeatures?.volume,
-      avgVolume: c.avgVolume ?? symbolFeatures?.avgVolume,
+      volume: c.volume ?? symbolFeatures?.volume ?? gateLayerFeatures.volume,
+      avgVolume: c.avgVolume ?? symbolFeatures?.avgVolume ?? gateLayerFeatures.avgVolume,
       projectedVolume: c.projectedVolume ?? symbolFeatures?.projectedVolume,
-      price: resolvedPrice.value ?? symbolFeatures?.price ?? undefined,
-      currentPrice: c.currentPrice ?? c.price ?? ((symbolFeatures as Record<string, unknown> | undefined)?.currentPrice as number | undefined),
-      high5d: c.high5d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high5d as number | undefined),
-      high20d: c.high20d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high20d as number | undefined),
-      high60: c.high60 ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high60 as number | undefined),
-      volumeRatio: c.volumeRatio ?? ((symbolFeatures as Record<string, unknown> | undefined)?.volumeRatio as number | undefined),
+      price: resolvedPrice.value ?? symbolFeatures?.price ?? gateLayerFeatures.price,
+      currentPrice: c.currentPrice ?? c.price ?? ((symbolFeatures as Record<string, unknown> | undefined)?.currentPrice as number | undefined) ?? gateLayerFeatures.currentPrice,
+      high5d: c.high5d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high5d as number | undefined) ?? gateLayerFeatures.high5d,
+      high20d: c.high20d ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high20d as number | undefined) ?? gateLayerFeatures.high20d,
+      high60: c.high60 ?? ((symbolFeatures as Record<string, unknown> | undefined)?.high60 as number | undefined) ?? gateLayerFeatures.high60,
+      volumeRatio: c.volumeRatio ?? ((symbolFeatures as Record<string, unknown> | undefined)?.volumeRatio as number | undefined) ?? gateLayerFeatures.volumeRatio,
       aboveMA20: c.aboveMA20,
       aboveMA60: c.aboveMA60,
-      ma20: resolvedMa20.value ?? symbolFeatures?.ma20 ?? undefined,
-      ma60: resolvedMa60.value ?? symbolFeatures?.ma60 ?? undefined,
+      ma20: resolvedMa20.value ?? symbolFeatures?.ma20 ?? gateLayerFeatures.ma20,
+      ma60: resolvedMa60.value ?? symbolFeatures?.ma60 ?? gateLayerFeatures.ma60,
       rsi14: resolvedRsi14.value ?? symbolFeatures?.rsi14 ?? undefined,
       atr: resolvedAtr.value ?? symbolFeatures?.atr ?? undefined,
       atr20avg: resolvedAtr20avg.value ?? symbolFeatures?.atr20avg ?? undefined,

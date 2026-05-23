@@ -431,6 +431,9 @@ export interface CandidateEntryTrace {
   featurePack?: Record<string, unknown>;
   momentumProjection?: Record<string, unknown>;
   breakoutTrace?: Record<string, unknown>;
+  gateLayerSummary?: Record<string, unknown>;
+  gate2ExternalDataCoverage?: Record<string, unknown>;
+  gate3ExternalDataCoverage?: Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   technicalIndicators?: Record<string, unknown>;
@@ -721,6 +724,9 @@ export interface CandidateSnapshot {
   featurePack?: Record<string, unknown>;
   momentumProjection?: Record<string, unknown>;
   breakoutTrace?: Record<string, unknown>;
+  gateLayerSummary?: Record<string, unknown>;
+  gate2ExternalDataCoverage?: Record<string, unknown>;
+  gate3ExternalDataCoverage?: Record<string, unknown>;
   breakoutSignals?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   technicalIndicators?: Record<string, unknown>;

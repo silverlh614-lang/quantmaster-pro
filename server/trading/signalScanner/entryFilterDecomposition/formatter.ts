@@ -324,10 +324,10 @@ export function formatEntryFilterDecompositionSection(
   const momentumHitMap: Record<string, number> = {};
   const breakoutHitMap: Record<string, number> = {};
   const momentumAliases = {
-    return5d: ['return5d', 'quote.return5d', 'quoteFeatures.return5d', 'symbolFeatures.return5d', 'features.return5d', 'features.momentum.return5d', 'featurePack.momentum.return5d', 'momentum.return5d', 'momentumProjection.return5d', 'returns.return5d'],
-    return20d: ['return20d', 'quote.return20d', 'quoteFeatures.return20d', 'symbolFeatures.return20d', 'features.return20d', 'features.momentum.return20d', 'featurePack.momentum.return20d', 'momentum.return20d', 'momentumProjection.return20d', 'returns.return20d'],
-    relativeReturn20d: ['relativeReturn20d', 'quote.relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'symbolFeatures.relativeReturn20d', 'features.relativeReturn20d', 'features.relativeStrength.relativeReturn20d', 'featurePack.momentum.relativeReturn20d', 'momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d', 'rs.relativeReturn20d'],
-    marketRelativeReturn: ['marketRelativeReturn', 'quote.marketRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'symbolFeatures.marketRelativeReturn', 'features.marketRelativeReturn', 'featurePack.momentum.marketRelativeReturn', 'momentum.marketRelativeReturn', 'momentumProjection.marketRelativeReturn', 'kospiRelativeReturn', 'quote.kospiRelativeReturn', 'quoteFeatures.kospiRelativeReturn', 'symbolFeatures.kospiRelativeReturn'],
+    return5d: ['return5d', 'quote.return5d', 'quoteFeatures.return5d', 'symbolFeatures.return5d', 'features.return5d', 'features.momentum.return5d', 'featurePack.momentum.return5d', 'momentum.return5d', 'momentumProjection.return5d', 'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return5d', 'gate3ExternalDataCoverage.momentumIndicators.values.return5d', 'returns.return5d'],
+    return20d: ['return20d', 'quote.return20d', 'quoteFeatures.return20d', 'symbolFeatures.return20d', 'features.return20d', 'features.momentum.return20d', 'featurePack.momentum.return20d', 'momentum.return20d', 'momentumProjection.return20d', 'gateLayerSummary.gate2.externalDataCoverage.benchmark.values.stockReturn20d', 'gate2ExternalDataCoverage.benchmark.values.stockReturn20d', 'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return20d', 'gate3ExternalDataCoverage.momentumIndicators.values.return20d', 'returns.return20d'],
+    relativeReturn20d: ['relativeReturn20d', 'quote.relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'symbolFeatures.relativeReturn20d', 'features.relativeReturn20d', 'features.relativeStrength.relativeReturn20d', 'featurePack.momentum.relativeReturn20d', 'momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d', 'gateLayerSummary.gate2.externalDataCoverage.benchmark.values.relativeReturn20d', 'gate2ExternalDataCoverage.benchmark.values.relativeReturn20d', 'rs.relativeReturn20d'],
+    marketRelativeReturn: ['marketRelativeReturn', 'quote.marketRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'symbolFeatures.marketRelativeReturn', 'features.marketRelativeReturn', 'featurePack.momentum.marketRelativeReturn', 'momentum.marketRelativeReturn', 'momentumProjection.marketRelativeReturn', 'gateLayerSummary.gate2.externalDataCoverage.benchmark.values.relativeReturn20d', 'gate2ExternalDataCoverage.benchmark.values.relativeReturn20d', 'kospiRelativeReturn', 'quote.kospiRelativeReturn', 'quoteFeatures.kospiRelativeReturn', 'symbolFeatures.kospiRelativeReturn'],
   };
   const momentumRows = traces
     .map((t) => {
@@ -420,6 +420,12 @@ export function formatEntryFilterDecompositionSection(
     'breakoutTrace.breakout_momentum', 'breakoutTrace.turtle_high', 'breakoutTrace.volume_breakout', 'breakoutTrace.volume_surge', 'breakoutTrace.vcp', 'breakoutTrace.trend_acceleration',
     'featurePack.breakout.breakout_momentum', 'featurePack.breakout.turtle_high', 'featurePack.breakout.volume_breakout', 'featurePack.breakout.volume_surge', 'featurePack.breakout.vcp', 'featurePack.breakout.trend_acceleration',
     'conditionResults.breakout_momentum', 'conditionResults.turtle_high', 'conditionResults.volume_breakout', 'conditionResults.volume_surge', 'conditionResults.vcp', 'conditionResults.trend_acceleration',
+    'gateLayerSummary.gate3.externalDataCoverage.priceStructure.turtle', 'gateLayerSummary.gate3.externalDataCoverage.priceStructure.breakout',
+    'gateLayerSummary.gate3.externalDataCoverage.volumeTiming.breakoutVolume', 'gateLayerSummary.gate3.externalDataCoverage.volumeTiming.vcp',
+    'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.shortMomentum',
+    'gate3ExternalDataCoverage.priceStructure.turtle', 'gate3ExternalDataCoverage.priceStructure.breakout',
+    'gate3ExternalDataCoverage.volumeTiming.breakoutVolume', 'gate3ExternalDataCoverage.volumeTiming.vcp',
+    'gate3ExternalDataCoverage.momentumIndicators.shortMomentum',
   ];
   const breakoutRows = traces.map((t) => {
     const component = componentTrace(t, 'BREAKOUT_STRUCTURE');

@@ -752,12 +752,12 @@ export function formatGatePositiveRuntimeAlignmentSection(
   const total = candidateCountOf(summary) || traces.length;
   const numberCount = (values: Array<number | undefined>): number => values.filter(finite).length;
   const quoteFeaturePaths = {
-    return5d: ['return5d', 'quote.return5d', 'quoteFeatures.return5d', 'symbolFeatures.return5d', 'featurePack.momentum.return5d', 'momentumProjection.return5d'],
-    return20d: ['return20d', 'quote.return20d', 'quoteFeatures.return20d', 'symbolFeatures.return20d', 'featurePack.momentum.return20d', 'momentumProjection.return20d'],
-    relativeReturn20d: ['relativeReturn20d', 'quote.relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'symbolFeatures.relativeReturn20d', 'featurePack.momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d'],
-    marketRelativeReturn: ['marketRelativeReturn', 'kospiRelativeReturn', 'quote.marketRelativeReturn', 'quote.kospiRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'quoteFeatures.kospiRelativeReturn', 'symbolFeatures.marketRelativeReturn', 'symbolFeatures.kospiRelativeReturn', 'featurePack.momentum.marketRelativeReturn', 'featurePack.momentum.kospiRelativeReturn', 'momentumProjection.marketRelativeReturn', 'momentumProjection.kospiRelativeReturn'],
-    high5d: ['high5d', 'quote.high5d', 'quoteFeatures.high5d', 'symbolFeatures.high5d', 'featurePack.momentum.high5d', 'momentumProjection.high5d'],
-    high20d: ['high20d', 'quote.high20d', 'quote.high20', 'quoteFeatures.high20d', 'quoteFeatures.high20', 'symbolFeatures.high20d', 'featurePack.momentum.high20d', 'momentumProjection.high20d'],
+    return5d: ['return5d', 'quote.return5d', 'quoteFeatures.return5d', 'symbolFeatures.return5d', 'featurePack.momentum.return5d', 'momentumProjection.return5d', 'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return5d', 'gate3ExternalDataCoverage.momentumIndicators.values.return5d'],
+    return20d: ['return20d', 'quote.return20d', 'quoteFeatures.return20d', 'symbolFeatures.return20d', 'featurePack.momentum.return20d', 'momentumProjection.return20d', 'gateLayerSummary.gate2.externalDataCoverage.benchmark.values.stockReturn20d', 'gate2ExternalDataCoverage.benchmark.values.stockReturn20d', 'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return20d', 'gate3ExternalDataCoverage.momentumIndicators.values.return20d'],
+    relativeReturn20d: ['relativeReturn20d', 'quote.relativeReturn20d', 'quoteFeatures.relativeReturn20d', 'symbolFeatures.relativeReturn20d', 'featurePack.momentum.relativeReturn20d', 'momentumProjection.relativeReturn20d', 'gateLayerSummary.gate2.externalDataCoverage.benchmark.values.relativeReturn20d', 'gate2ExternalDataCoverage.benchmark.values.relativeReturn20d'],
+    marketRelativeReturn: ['marketRelativeReturn', 'kospiRelativeReturn', 'quote.marketRelativeReturn', 'quote.kospiRelativeReturn', 'quoteFeatures.marketRelativeReturn', 'quoteFeatures.kospiRelativeReturn', 'symbolFeatures.marketRelativeReturn', 'symbolFeatures.kospiRelativeReturn', 'featurePack.momentum.marketRelativeReturn', 'featurePack.momentum.kospiRelativeReturn', 'momentumProjection.marketRelativeReturn', 'momentumProjection.kospiRelativeReturn', 'gateLayerSummary.gate2.externalDataCoverage.benchmark.values.relativeReturn20d', 'gate2ExternalDataCoverage.benchmark.values.relativeReturn20d'],
+    high5d: ['high5d', 'quote.high5d', 'quoteFeatures.high5d', 'symbolFeatures.high5d', 'featurePack.momentum.high5d', 'momentumProjection.high5d', 'gateLayerSummary.gate3.externalDataCoverage.priceStructure.values.high5d', 'gate3ExternalDataCoverage.priceStructure.values.high5d'],
+    high20d: ['high20d', 'quote.high20d', 'quote.high20', 'quoteFeatures.high20d', 'quoteFeatures.high20', 'symbolFeatures.high20d', 'featurePack.momentum.high20d', 'momentumProjection.high20d', 'gateLayerSummary.gate3.externalDataCoverage.priceStructure.values.high20d', 'gate3ExternalDataCoverage.priceStructure.values.high20d'],
   } as const;
   const getReturn5d = (row: unknown) =>
     resolveNumberByPaths(row, quoteFeaturePaths.return5d) ??
@@ -822,6 +822,12 @@ export function formatGatePositiveRuntimeAlignmentSection(
     'breakoutTrace.breakout_momentum', 'breakoutTrace.turtle_high', 'breakoutTrace.volume_breakout', 'breakoutTrace.volume_surge', 'breakoutTrace.vcp', 'breakoutTrace.trend_acceleration',
     'featurePack.breakout.breakout_momentum', 'featurePack.breakout.turtle_high', 'featurePack.breakout.volume_breakout', 'featurePack.breakout.volume_surge', 'featurePack.breakout.vcp', 'featurePack.breakout.trend_acceleration',
     'conditionResults.breakout_momentum', 'conditionResults.turtle_high', 'conditionResults.volume_breakout', 'conditionResults.volume_surge', 'conditionResults.vcp', 'conditionResults.trend_acceleration',
+    'gateLayerSummary.gate3.externalDataCoverage.priceStructure.turtle', 'gateLayerSummary.gate3.externalDataCoverage.priceStructure.breakout',
+    'gateLayerSummary.gate3.externalDataCoverage.volumeTiming.breakoutVolume', 'gateLayerSummary.gate3.externalDataCoverage.volumeTiming.vcp',
+    'gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.shortMomentum',
+    'gate3ExternalDataCoverage.priceStructure.turtle', 'gate3ExternalDataCoverage.priceStructure.breakout',
+    'gate3ExternalDataCoverage.volumeTiming.breakoutVolume', 'gate3ExternalDataCoverage.volumeTiming.vcp',
+    'gate3ExternalDataCoverage.momentumIndicators.shortMomentum',
   ];
   const breakoutRows = traces.map((row) => {
     const component = componentTrace(row, 'BREAKOUT_STRUCTURE');
@@ -848,11 +854,17 @@ export function formatGatePositiveRuntimeAlignmentSection(
       mappingBreakPoint,
     };
   });
+  const staleLegacyR6Path = Boolean(
+    summary.macroGateState?.macroRegimeEffective === 'R6_DEFENSE' &&
+    summary.macroGateState?.displayRegime &&
+    summary.macroGateState.displayRegime !== 'R6_DEFENSE' &&
+    summary.macroGateState?.regime !== 'R6_DEFENSE'
+  );
   const regimeDisplayConflict = Boolean(
     summary.macroGateState?.macroRegimeEffective &&
     summary.macroGateState?.displayRegime &&
     summary.macroGateState.macroRegimeEffective !== summary.macroGateState.displayRegime,
-  );
+  ) && !staleLegacyR6Path;
   const legacyPathUsed = regimeDisplayConflict || canonical.watchlist.conflict;
   const rrInputCount = numberCount(relativeReturn20d);
   const rsInputBreakPointDistribution = rrInputCount > 0

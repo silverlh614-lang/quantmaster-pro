@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createScanCounters } from '../scanDiagnostics.js';
 import { recordPipelineStage } from '../scanDiagnostics/pipelineStageDiagnostics.js';
-import { buildScanEvaluationResult, formatScanEvaluationCompactLine } from './scanEvaluationState.js';
+import { buildScanEvaluationResult, formatScanEvaluationCompactLine, formatScanEvaluationSection } from './scanEvaluationState.js';
 
 describe('scanEvaluationState', () => {
   it('does not let legacy SELL_ONLY skip Gate evaluation', () => {
@@ -69,6 +69,44 @@ describe('scanEvaluationState', () => {
     expect(result.blockReason).not.toBe('R6_DEFENSE');
     expect(result.executionImpact).not.toBe('NEW_BUY_BLOCKED_ONLY');
     expect(result.shadowLearningAllowed).toBe(true);
+  });
+
+  it('prints stale legacy R6 as deprecated instead of decision effectiveRegime', () => {
+    const counters = createScanCounters();
+    const result = buildScanEvaluationResult({
+      counters,
+      totalCandidates: 43,
+      effectiveRegime: 'R6_DEFENSE',
+      macroGateState: {
+        emergencyStop: false,
+        autoTradeEnabled: true,
+        regime: 'R3_EARLY',
+        macroRegimeEffective: 'R6_DEFENSE',
+        displayRegime: 'SHADOW_ONLY',
+        riskOverride: 'SHADOW_ONLY',
+        engineMode: 'SHADOW_ONLY',
+        diagnosticLiveEntryBlocked: false,
+        kellyMultiplierFromRegime: 1,
+        fomcPhase: 'NONE',
+        fomcKellyMultiplier: 1,
+        finalKellyMultiplier: 1,
+        vixGatingActive: false,
+        bearDefenseMode: false,
+        mhsBelow30: false,
+        watchlistEmpty: false,
+        sellOnlyMode: false,
+        shadowLearningAllowed: true,
+      },
+      sourcePath: 'test',
+    });
+
+    expect(result.effectiveRegime).toBe('R3_EARLY');
+    const section = formatScanEvaluationSection(result) ?? '';
+    expect(section).toContain('effectiveRegime=R3_EARLY');
+    expect(section).toContain('displayRegime=SHADOW_ONLY');
+    expect(section).toContain('riskOverride=SHADOW_ONLY');
+    expect(section).toContain('legacyEffectiveRegime=R6_DEFENSE deprecated=true notUsedForDecision=true');
+    expect(section).not.toContain('\n  effectiveRegime=R6_DEFENSE');
   });
 
   it('separates quote hydration failure from gate reject', () => {

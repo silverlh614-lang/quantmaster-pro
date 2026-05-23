@@ -101,6 +101,9 @@ export async function kisIntradayCorrectionStep(
       gateRawScore: reCheckGate.rawScore,
       normalizedGateScore: reCheckGate.normalizedGateScore,
       availableMaxScore: reCheckGate.availableMaxScore,
+      gateLayerSummary: reCheckGate.gateLayerSummary,
+      gate2ExternalDataCoverage: reCheckGate.gateLayerSummary?.gate2?.externalDataCoverage,
+      gate3ExternalDataCoverage: reCheckGate.gateLayerSummary?.gate3?.externalDataCoverage,
     });
   }
   try {

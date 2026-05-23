@@ -65,6 +65,55 @@ function finiteCount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
+function stringField(source: unknown, key: string): string | undefined {
+  if (!source || typeof source !== 'object') return undefined;
+  const value = (source as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function buildCanonicalRegimeDiagnostics(
+  macro: MacroGateState | undefined,
+  requestedEffectiveRegime: string | undefined,
+): { effectiveRegime: string; diagnostics: Record<string, unknown> } {
+  const rawRegime =
+    stringField(macro, 'macroRegimeRaw') ??
+    stringField(macro, 'regime') ??
+    requestedEffectiveRegime ??
+    'UNKNOWN';
+  const legacyEffectiveRegime =
+    requestedEffectiveRegime ??
+    stringField(macro, 'macroRegimeEffective') ??
+    stringField(macro, 'regime') ??
+    'UNKNOWN';
+  const displayRegime =
+    stringField(macro, 'displayRegime') ??
+    stringField(macro, 'riskOverride') ??
+    stringField(macro, 'regime') ??
+    legacyEffectiveRegime;
+  const riskOverride = stringField(macro, 'riskOverride') ?? displayRegime;
+  const staleLegacyR6 =
+    legacyEffectiveRegime === 'R6_DEFENSE' &&
+    displayRegime !== 'R6_DEFENSE' &&
+    stringField(macro, 'regime') !== 'R6_DEFENSE';
+  const canonicalEffectiveRegime = staleLegacyR6 ? rawRegime : legacyEffectiveRegime;
+  return {
+    effectiveRegime: canonicalEffectiveRegime,
+    diagnostics: {
+      rawRegime,
+      canonicalEffectiveRegime,
+      displayRegime,
+      riskOverride,
+      ...(staleLegacyR6
+        ? {
+            legacyEffectiveRegime,
+            legacyRegimeDeprecated: true,
+            legacyRegimeNotUsedForDecision: true,
+          }
+        : {}),
+    },
+  };
+}
+
 export function buildScanEvaluationId(asOf: string): string {
   const compact = asOf.replace(/[^0-9]/g, '').slice(0, 14);
   return `scan-eval-${compact || 'unknown'}`;
@@ -81,10 +130,8 @@ export function buildScanEvaluationResult(
   const marketSessionState = input.marketSessionState ?? 'BUY_ALLOWED';
   const rawEngineMode = input.engineMode ?? macro?.engineMode ?? 'NORMAL';
   const engineMode = rawEngineMode === 'SELL_ONLY' ? 'NORMAL' : rawEngineMode;
-  const effectiveRegime = input.effectiveRegime ??
-    macro?.macroRegimeEffective ??
-    macro?.regime ??
-    'UNKNOWN';
+  const regimeView = buildCanonicalRegimeDiagnostics(macro, input.effectiveRegime);
+  const effectiveRegime = regimeView.effectiveRegime;
   const classification = classifyScanBlockReason({
     sellOnly: input.sellOnly,
     marketSessionState,
@@ -118,6 +165,7 @@ export function buildScanEvaluationResult(
     shadowLearningAllowed: classification.shadowLearningAllowed,
     diagnostics: {
       ...input.diagnostics,
+      ...regimeView.diagnostics,
       gate: gateReport.diagnostics,
       quote: quoteReport.diagnostics,
       ...(classification.unmapped ? { unmappedBlockReason: true } : {}),
@@ -167,6 +215,13 @@ export function formatScanEvaluationSection(result: ScanEvaluationResult | undef
   const displayReason = result.blockReason === 'SELL_ONLY' || result.blockReason === 'R6_DEFENSE_SELL_ONLY' || result.blockReason === 'R6_DEFENSE'
     ? 'LEGACY_POLICY_IGNORED'
     : result.blockReason;
+  const diagnostics = result.diagnostics ?? {};
+  const displayRegime = typeof diagnostics.displayRegime === 'string' ? diagnostics.displayRegime : undefined;
+  const riskOverride = typeof diagnostics.riskOverride === 'string' ? diagnostics.riskOverride : undefined;
+  const legacyEffectiveRegime = typeof diagnostics.legacyEffectiveRegime === 'string' ? diagnostics.legacyEffectiveRegime : undefined;
+  const canonicalEffectiveRegime = typeof diagnostics.canonicalEffectiveRegime === 'string'
+    ? diagnostics.canonicalEffectiveRegime
+    : result.effectiveRegime;
   return [
     'Scan Evaluation State',
     `  evaluationState=${displayState}`,
@@ -175,7 +230,12 @@ export function formatScanEvaluationSection(result: ScanEvaluationResult | undef
     `  blockReason=${displayReason ?? 'NONE'}`,
     `  marketSessionState=${result.marketSessionState}`,
     `  engineMode=${result.engineMode}`,
-    `  effectiveRegime=${result.effectiveRegime}`,
+    `  effectiveRegime=${canonicalEffectiveRegime}`,
+    ...(displayRegime ? [`  displayRegime=${displayRegime}`] : []),
+    ...(riskOverride ? [`  riskOverride=${riskOverride}`] : []),
+    ...(legacyEffectiveRegime
+      ? [`  legacyEffectiveRegime=${legacyEffectiveRegime} deprecated=true notUsedForDecision=true`]
+      : []),
     '  liveEntryEvaluation=EVALUATED_OR_APPLICABLE',
     `  diagnosticEvaluation=${result.evaluationState.startsWith('NOT_EVALUATED_') ? 'PARTIAL' : 'EVALUATED_DIAGNOSTIC'}`,
     `  counts total=${result.totalCandidates} diagnosticEvaluated=${result.evaluated} skipped=${result.skipped} rejected=${result.rejected} diagnosticSurvivors=${result.survivors} liveEvaluated=${result.evaluated} liveSurvivors=${result.survivors}`,

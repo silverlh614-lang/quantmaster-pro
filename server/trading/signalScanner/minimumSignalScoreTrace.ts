@@ -13,6 +13,10 @@ import type {
   SupplyConfluenceState,
   SupplyProviderHealthTrace,
 } from "./entryFilterDecomposition.js";
+import {
+  conditionTraceValue,
+  extractGateLayerBreakoutSignals,
+} from "./gatePositiveFeatureMaterializer.js";
 
 export type SignalScoreComponentCode =
   | "PRICE_MOMENTUM"
@@ -353,6 +357,10 @@ function breakoutSignalState(trace: CandidateEntryTrace, key: string): unknown {
   const conditionResults = record.conditionResults;
   if (conditionResults && typeof conditionResults === "object")
     return (conditionResults as Record<string, unknown>)[key];
+  const conditionTrace = conditionTraceValue(trace, key);
+  if (conditionTrace !== undefined) return conditionTrace;
+  const gateLayerSignals = extractGateLayerBreakoutSignals(trace);
+  if (gateLayerSignals[key] !== undefined) return gateLayerSignals[key];
   const conditionKeys = record.conditionKeys;
   if (
     Array.isArray(conditionKeys) &&
@@ -548,6 +556,8 @@ function normalizedRelativeStrength(
     "momentumProjection.marketRelativeReturn",
     "momentumProjection.kospiRelativeReturn",
     "momentumProjection.relativeReturn20d",
+    "gateLayerSummary.gate2.externalDataCoverage.benchmark.values.relativeReturn20d",
+    "gate2ExternalDataCoverage.benchmark.values.relativeReturn20d",
     "conditionResults.relative_strength.relativeReturn20d",
   ]);
   const return20d = nestedNumericTraceValue(trace, [
@@ -556,6 +566,10 @@ function normalizedRelativeStrength(
     "quoteFeatures.return20d",
     "featurePack.momentum.return20d",
     "momentumProjection.return20d",
+    "gateLayerSummary.gate2.externalDataCoverage.benchmark.values.stockReturn20d",
+    "gate2ExternalDataCoverage.benchmark.values.stockReturn20d",
+    "gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return20d",
+    "gate3ExternalDataCoverage.momentumIndicators.values.return20d",
   ]);
   const return5d = nestedNumericTraceValue(trace, [
     "return5d",
@@ -563,6 +577,8 @@ function normalizedRelativeStrength(
     "quoteFeatures.return5d",
     "featurePack.momentum.return5d",
     "momentumProjection.return5d",
+    "gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return5d",
+    "gate3ExternalDataCoverage.momentumIndicators.values.return5d",
   ]);
   const kospi20dReturn =
     nestedNumericTraceValue(trace, [
@@ -571,6 +587,8 @@ function normalizedRelativeStrength(
       "quoteFeatures.kospi20dReturn",
       "featurePack.momentum.kospi20dReturn",
       "momentumProjection.kospi20dReturn",
+      "gateLayerSummary.gate2.externalDataCoverage.benchmark.values.benchmarkReturn20d",
+      "gate2ExternalDataCoverage.benchmark.values.benchmarkReturn20d",
       "macroState.kospi20dReturn",
     ]) ??
     ((macroGateState as unknown as Record<string, unknown> | undefined)
@@ -744,6 +762,8 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
     "quoteFeatures.return5d",
     "featurePack.momentum.return5d",
     "momentumProjection.return5d",
+    "gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return5d",
+    "gate3ExternalDataCoverage.momentumIndicators.values.return5d",
   ]);
   const return20d = nestedNumericTraceValue(trace, [
     "return20d",
@@ -751,6 +771,10 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
     "quoteFeatures.return20d",
     "featurePack.momentum.return20d",
     "momentumProjection.return20d",
+    "gateLayerSummary.gate2.externalDataCoverage.benchmark.values.stockReturn20d",
+    "gate2ExternalDataCoverage.benchmark.values.stockReturn20d",
+    "gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return20d",
+    "gate3ExternalDataCoverage.momentumIndicators.values.return20d",
   ]);
   const gateScore = numericTraceValue(trace, ["gateScore"]);
   if (finite(return5d) || finite(return20d)) {

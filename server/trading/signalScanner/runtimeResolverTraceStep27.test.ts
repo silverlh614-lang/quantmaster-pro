@@ -235,6 +235,60 @@ describe('Step27 canonical runtime report rebinding', () => {
     expect(text).toContain('missingByMappingSymbols A2:FEATURE_MISSING');
   });
 
+  it('counts Gate2/Gate3 materialized runtime fields and treats stale R6 as deprecated-only display', () => {
+    const summary = {
+      ...makeConflictingSummary(),
+      candidates: 2,
+      macroGateState: {
+        regime: 'R3_EARLY',
+        macroRegimeEffective: 'R6_DEFENSE',
+        displayRegime: 'SHADOW_ONLY',
+      },
+      entryFilterDecomposition: {
+        candidateTraces: [
+          {
+            symbol: 'G1',
+            gateLayerSummary: {
+              gate2: { externalDataCoverage: { benchmark: { values: { stockReturn20d: 0.12, benchmarkReturn20d: 0.03, relativeReturn20d: 0.09 } } } },
+              gate3: {
+                externalDataCoverage: {
+                  priceStructure: { values: { high5d: 105, high20d: 110 }, turtle: { status: 'PASS' }, breakout: { status: 'FAIL' } },
+                  momentumIndicators: { values: { return5d: 0.04, return20d: 0.12 }, shortMomentum: { status: 'PASS' } },
+                  volumeTiming: { breakoutVolume: { status: 'FAIL' }, vcp: { status: 'FAIL' } },
+                },
+              },
+            },
+          },
+          {
+            symbol: 'G2',
+            gateLayerSummary: {
+              gate2: { externalDataCoverage: { benchmark: { values: { stockReturn20d: 0.04, benchmarkReturn20d: 0.03, relativeReturn20d: 0.01 } } } },
+              gate3: {
+                externalDataCoverage: {
+                  priceStructure: { values: { high5d: 101, high20d: 104 }, turtle: { status: 'FAIL' }, breakout: { status: 'FAIL' } },
+                  momentumIndicators: { values: { return5d: 0.01, return20d: 0.04 }, shortMomentum: { status: 'FAIL' } },
+                  volumeTiming: { breakoutVolume: { status: 'FAIL' }, vcp: { status: 'FAIL' } },
+                },
+              },
+            },
+          },
+        ],
+      },
+    } as unknown as ScanSummary;
+    const text = formatGatePositiveRuntimeAlignmentSection(summary, buildCanonicalRuntimeResolutionStep27(summary)) ?? '';
+
+    expect(text).toContain('return5d 2/2');
+    expect(text).toContain('return20d 2/2');
+    expect(text).toContain('relativeReturn20d 2/2');
+    expect(text).toContain('marketRelativeReturn 2/2');
+    expect(text).toContain('high5d 2/2');
+    expect(text).toContain('high20d 2/2');
+    expect(text).toContain('rsRankPctComputed 2/2');
+    expect(text).toContain('missingByMapping 0/2');
+    expect(text).toContain('regimeDisplayConflict=false');
+    expect(text).toContain('legacyPathUsed=false');
+  });
+
   it('removes resolved watchlist from Gate1 scoring alignment missing components', () => {
     const summary = makeConflictingSummary();
     const canonical = buildCanonicalRuntimeResolutionStep27(summary);
