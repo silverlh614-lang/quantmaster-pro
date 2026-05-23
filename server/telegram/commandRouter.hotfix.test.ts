@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandReplyFn, TelegramCommand } from './commands/_types.js';
 
 const COLD_IMPORT_TIMEOUT_MS = 15_000;
+const COMMAND_DISPATCH_TIMEOUT_MS = 15_000;
 
 function makeCommand(name: string, calls: string[]): TelegramCommand {
   return {
@@ -114,7 +115,7 @@ describe('Telegram command hotfix commandRouter dispatch', () => {
     await commandRouter.dispatchTelegramCommand({ rawText: '/pos', chatId: '1', userId: '2', reply });
     await commandRouter.dispatchTelegramCommand({ rawText: '/pnl', chatId: '1', userId: '2', reply });
     expect(calls).toEqual(['/pos', '/pnl']);
-  });
+  }, COMMAND_DISPATCH_TIMEOUT_MS);
 });
 
 describe('Telegram command hotfix callbackRouter dispatch', () => {

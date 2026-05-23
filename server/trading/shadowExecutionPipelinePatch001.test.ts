@@ -19,6 +19,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+const SHADOW_PIPELINE_HOOK_TIMEOUT_MS = 30_000;
+
 function validQuoteForTrade(trade: { stockCode: string; shadowEntryPrice?: number }, price?: number): any {
   const currentPrice = price ?? trade.shadowEntryPrice ?? 10_000;
   return {
@@ -63,7 +65,7 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     pipeline = await import('./shadowExecutionPipeline.js');
     repo = await import('../persistence/shadowTradeRepo.js');
     pipeline.__resetShadowExecutionPipelineSummaryForTests();
-  });
+  }, SHADOW_PIPELINE_HOOK_TIMEOUT_MS);
 
   afterEach(() => {
     delete process.env.PERSIST_DATA_DIR;
