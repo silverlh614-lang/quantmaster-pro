@@ -229,7 +229,20 @@ function missingQuote(
 
 function isExecutableQuoteSource(source: string): boolean {
   const upper = source.toUpperCase();
-  return !upper.includes('FALLBACK') && !upper.includes('CACHE') && !upper.includes('STALE');
+  return !upper.includes('FALLBACK')
+    && !upper.includes('CACHE')
+    && !upper.includes('STALE')
+    && !upper.includes('DAILY_CLOSE')
+    && !upper.includes('PREVIOUS_CLOSE')
+    && !upper.includes('PREV_CLOSE')
+    && !upper.includes('ADJUSTED')
+    && !upper.includes('HISTORICAL')
+    && !upper.includes('YAHOO')
+    && !upper.includes('OHLCV')
+    && !upper.includes('NULL')
+    && !upper.includes('GUESSED')
+    && !upper.includes('ESTIMATED')
+    && !upper.includes('AI_');
 }
 
 function spreadPct(bid: number, ask: number): number {

@@ -329,6 +329,41 @@ function rejectionLogEvent(reason: ShadowFillRejectReason): string {
   return 'SHADOW_FILL_REJECTED_SAFE_MODE';
 }
 
+function priceIntegrityTags(reason: ShadowFillRejectReason): string[] {
+  const tags = ['[PRICE_INTEGRITY_BLOCKED]'];
+  if (reason === 'STALE_QUOTE_FOR_EXECUTION') tags.push('[SHADOW_FILL_BLOCKED_STALE_PRICE]');
+  if (reason === 'QUOTE_SOURCE_NOT_EXECUTABLE') tags.push('[SHADOW_FILL_BLOCKED_PRICE_SOURCE_FORBIDDEN]');
+  return tags;
+}
+
+function isForbiddenShadowFillQuoteSource(source: unknown): boolean {
+  const upper = String(source ?? '').toUpperCase();
+  return upper.includes('FALLBACK')
+    || upper.includes('CACHE')
+    || upper.includes('STALE')
+    || upper.includes('DAILY_CLOSE')
+    || upper.includes('PREVIOUS_CLOSE')
+    || upper.includes('PREV_CLOSE')
+    || upper.includes('ADJUSTED')
+    || upper.includes('HISTORICAL')
+    || upper.includes('YAHOO')
+    || upper.includes('OHLCV')
+    || upper.includes('NULL')
+    || upper.includes('GUESSED')
+    || upper.includes('ESTIMATED')
+    || upper.includes('AI_');
+}
+
+function priceNotUsableRejectReason(
+  quote: AuthoritativeQuoteSnapshot,
+  priceSnapshot: PriceSnapshot,
+): ShadowFillRejectReason {
+  if (quote.isStale || priceSnapshot.confidence === 'STALE') return 'STALE_QUOTE_FOR_EXECUTION';
+  if (isForbiddenShadowFillQuoteSource(quote.quoteSource)) return 'QUOTE_SOURCE_NOT_EXECUTABLE';
+  if (priceSnapshot.source === 'FALLBACK_PREV_CLOSE' || priceSnapshot.source === 'UNKNOWN') return 'QUOTE_SOURCE_NOT_EXECUTABLE';
+  return 'QUOTE_NOT_VERIFIED_FOR_EXECUTION';
+}
+
 function rejectSafeModeFill(input: {
   trade: ServerShadowTrade;
   tradeId: string;
@@ -350,6 +385,9 @@ function rejectSafeModeFill(input: {
     : 'WAIT_PRICE_VALID';
   const base = {
     reason: input.reason,
+    counterfactualReason: 'PRICE_INTEGRITY_BLOCKED',
+    priceIntegrityStatus: 'BLOCKED',
+    priceIntegrityTags: priceIntegrityTags(input.reason),
     learningTag: input.learningTag,
     symbol: input.trade.stockCode,
     positionId: input.trade.id,
@@ -382,7 +420,7 @@ function rejectSafeModeFill(input: {
     payload: base,
   });
   console.warn(
-    `[${event}] symbol=${input.trade.stockCode} reason=${input.reason} ` +
+    `${priceIntegrityTags(input.reason).join(' ')} [${event}] symbol=${input.trade.stockCode} reason=${input.reason} ` +
       `currentPrice=${base.currentPrice ?? 'NA'} proposedFillPrice=${input.proposedFillPrice ?? 'NA'} ` +
       `deviationPct=${input.deviationPct ?? 'NA'} executionImpact=NONE learningTag=${input.learningTag}`,
   );
@@ -522,14 +560,15 @@ export async function executeShadowBuy(
   // 입력 검증
   let fillPrice = resolveShadowFillPrice(input);
   const quantity = input.trade.quantity;
-  const safeMode = isShadowExecutionSafeModeEnabled();
+  const priceIntegrityRequired = true;
+  const safeMode = priceIntegrityRequired || isShadowExecutionSafeModeEnabled();
   let verifiedQuote: AuthoritativeQuoteSnapshot | undefined;
   let verifiedCurrentPrice: number | undefined;
   let verifiedProposedFillPrice: number | undefined;
   let verifiedDeviationPct: number | undefined;
   let verifiedPriceSnapshot: PriceSnapshot | undefined;
   let verifiedTradePlan: TradePlan | undefined;
-  if (quantity <= 0 || !Number.isFinite(quantity) || (!safeMode && isInvalidPaperFillInput(fillPrice, quantity))) {
+  if (quantity <= 0 || !Number.isFinite(quantity) || isInvalidPaperFillInput(fillPrice, quantity)) {
     return {
       outcome: 'INVALID_INPUT',
       reason: `fillPrice=${fillPrice} quantity=${quantity} (양수 의무)`,
@@ -612,7 +651,7 @@ export async function executeShadowBuy(
         trade: input.trade,
         tradeId,
         executedAtIso,
-        reason: quote.isStale ? 'STALE_QUOTE_FOR_EXECUTION' : 'QUOTE_NOT_VERIFIED_FOR_EXECUTION',
+        reason: priceNotUsableRejectReason(quote, priceSnapshot),
         learningTag: 'CASE_STALE_QUOTE_EXECUTION_BLOCKED',
         currentPrice: quote.currentPrice,
         proposedFillPrice: proposedFillPriceForSafety(input),
@@ -723,6 +762,12 @@ export async function executeShadowBuy(
     verifiedCurrentPrice = validation.currentPrice;
     verifiedProposedFillPrice = validation.proposedFillPrice;
     verifiedDeviationPct = validation.deviationPct;
+    console.log(
+      `[PRICE_INTEGRITY_OK] symbol=${input.trade.stockCode} ` +
+        `fillPrice=${fillPrice} currentPrice=${validation.currentPrice} ` +
+        `quoteSource=${validation.quote.quoteSource} quoteSnapshotId=${validation.quote.snapshotId} ` +
+        `executionImpact=NONE`
+    );
     console.log(
       `[QUOTE_VERIFIED_FOR_SHADOW_FILL] symbol=${input.trade.stockCode} ` +
         `fillPrice=${fillPrice} currentPrice=${validation.currentPrice} ` +

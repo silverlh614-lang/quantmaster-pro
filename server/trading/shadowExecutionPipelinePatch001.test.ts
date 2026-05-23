@@ -19,6 +19,35 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+function validQuoteForTrade(trade: { stockCode: string; shadowEntryPrice?: number }, price?: number): any {
+  const currentPrice = price ?? trade.shadowEntryPrice ?? 10_000;
+  return {
+    symbol: trade.stockCode,
+    currentPrice,
+    quoteSource: 'KIS_API',
+    quoteAsOf: '2026-05-22T02:00:00.000Z',
+    snapshotId: `quote-${trade.stockCode}-${currentPrice}`,
+    marketSession: 'REGULAR',
+    isStale: false,
+    staleMs: 0,
+    confidence: 'VERIFIED',
+    providerIssue: null,
+    tradingHalted: false,
+    priceBasis: 'KIS_CURRENT',
+  };
+}
+
+function withVerifiedQuote<T extends { trade: { stockCode: string; shadowEntryPrice?: number } }>(
+  input: T,
+  price?: number,
+): T & { now: Date; quoteResolver: () => any } {
+  return {
+    ...input,
+    now: new Date('2026-05-22T02:00:00.000Z'),
+    quoteResolver: () => validQuoteForTrade(input.trade, price),
+  };
+}
+
 // ─── Test isolation ────────────────────────────────────────────────────────────
 
 describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', () => {
@@ -71,7 +100,7 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     const trade = makeTrade();
     const allTrades = [trade];
 
-    const result = await pipeline.executeShadowBuy({ trade, allTrades });
+    const result = await pipeline.executeShadowBuy(withVerifiedQuote({ trade, allTrades }));
 
     expect(result.outcome).toBe('EXECUTED');
     expect(result.statusAfter).toBe('ACTIVE');
@@ -101,7 +130,7 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     const trade = makeTrade();
     const allTrades = [trade];
 
-    const r1 = await pipeline.executeShadowBuy({ trade, allTrades });
+    const r1 = await pipeline.executeShadowBuy(withVerifiedQuote({ trade, allTrades }));
     expect(r1.outcome).toBe('EXECUTED');
     expect(trade.fills).toHaveLength(1);
 
@@ -170,11 +199,11 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     const trade = makeTrade({ shadowEntryPrice: 10000 });
     const allTrades = [trade];
 
-    const r = await pipeline.executeShadowBuy({
+    const r = await pipeline.executeShadowBuy(withVerifiedQuote({
       trade,
       allTrades,
       fillPrice: 10250, // approval 시점 가격이 더 높았다
-    });
+    }, 10250));
     expect(r.outcome).toBe('EXECUTED');
     expect(r.fillPrice).toBe(10250);
     expect(trade.fills?.[0].price).toBe(10250);
@@ -185,7 +214,7 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     const trade = makeTrade();
     const allTrades = [trade];
 
-    const r1 = await pipeline.executeShadowBuy({ trade, allTrades });
+    const r1 = await pipeline.executeShadowBuy(withVerifiedQuote({ trade, allTrades }));
     expect(r1.outcome).toBe('EXECUTED');
 
     // 영속 후 다시 load — 새 인스턴스
@@ -207,11 +236,11 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     const allTrades = [trade];
     const notifyFilled = vi.fn().mockResolvedValue(undefined);
 
-    const r = await pipeline.executeShadowBuy({
+    const r = await pipeline.executeShadowBuy(withVerifiedQuote({
       trade,
       allTrades,
       notifyFilled,
-    });
+    }));
     expect(r.outcome).toBe('EXECUTED');
     expect(notifyFilled).toHaveBeenCalledTimes(1);
     const arg = notifyFilled.mock.calls[0][0];
@@ -230,11 +259,11 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — executeShadowBuy SSOT', (
     const allTrades = [trade];
     const notifyFilled = vi.fn().mockRejectedValue(new Error('telegram down'));
 
-    const r = await pipeline.executeShadowBuy({
+    const r = await pipeline.executeShadowBuy(withVerifiedQuote({
       trade,
       allTrades,
       notifyFilled,
-    });
+    }));
     // 영속은 이미 완료 — Telegram 실패가 영속 롤백 유발 금지
     expect(r.outcome).toBe('EXECUTED');
     expect(trade.status).toBe('ACTIVE');
@@ -481,7 +510,7 @@ describe('Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — 사용자 5/13 보고 시
       mode: 'SHADOW' as const,
     };
     const allTrades = [trade];
-    const r1 = await pipeline.executeShadowBuy({ trade, allTrades });
+    const r1 = await pipeline.executeShadowBuy(withVerifiedQuote({ trade, allTrades }));
     expect(r1.outcome).toBe('EXECUTED');
 
     // 13:15 — 다음 cron 사이클, 메모리에서 같은 trade reference 유지된 경우

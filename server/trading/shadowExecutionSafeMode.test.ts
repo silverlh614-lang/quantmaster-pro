@@ -172,6 +172,30 @@ describe('SHADOW_EXECUTION_SAFE_MODE price and position SSOT', () => {
     expect(trade.fills ?? []).toHaveLength(0);
   });
 
+  it('blocks previous-close shadow fill sources and suppresses fill notification', async () => {
+    const trade = makeTrade({ shadowEntryPrice: 46_300, signalPrice: 46_300 });
+    const notifyFilled = vi.fn();
+
+    const result = await executeShadowBuy({
+      trade,
+      allTrades: [trade],
+      proposedFillPrice: 46_300,
+      now: new Date('2026-05-22T02:00:00.000Z'),
+      quoteResolver: () => quote({
+        currentPrice: 46_300,
+        quoteSource: 'PREVIOUS_CLOSE',
+        priceBasis: 'KIS_CURRENT',
+      }),
+      notifyFilled,
+    });
+
+    expect(result.outcome).toBe('QUOTE_SOURCE_NOT_EXECUTABLE');
+    expect(result.learningTag).toBe('CASE_STALE_QUOTE_EXECUTION_BLOCKED');
+    expect(trade.status).toBe('PENDING');
+    expect(trade.fills ?? []).toHaveLength(0);
+    expect(notifyFilled).not.toHaveBeenCalled();
+  });
+
   it('marks quantity mismatch inconsistent and blocks auto exit diagnostics', () => {
     const trade = makeTrade({
       status: 'ACTIVE',
