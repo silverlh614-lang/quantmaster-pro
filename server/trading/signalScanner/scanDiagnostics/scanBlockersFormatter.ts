@@ -152,6 +152,10 @@ function formatRuntimeWiringSummary(
       (skippedCount === 0 || Object.keys(skipReasonDistribution).length > 0) &&
       skippedWithoutReason === 0 &&
       decisionRecords.every((record) => typeof record.symbol === 'string' && record.symbol.trim().length > 0);
+    const forensicFallbackReasonCount = skipReasonDistribution.FORENSIC_CARRY_BROKEN ?? 0;
+    const hasForensicCarryBroken = forensicFallbackReasonCount > 0;
+    const realSkipReasonResolvedCount = Math.max(0, skippedCount - forensicFallbackReasonCount);
+    const semanticInvariantValid = !hasForensicCarryBroken;
     const invalidReasons: string[] = [];
     if ((softLane?.gate1HardSurvivors ?? 0) > 0 && candidateCount === 0) invalidReasons.push('FORENSIC_CARRY_BROKEN');
     if (candidateCount > 0 && candidateSymbols.length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SYMBOL_PAYLOAD_CARRY');
@@ -159,14 +163,17 @@ function formatRuntimeWiringSummary(
     if (skippedCount > 0 && Object.keys(skipReasonDistribution).length === 0) invalidReasons.push('FIX_PAPER_ENTRY_SKIP_REASON_EMISSION');
     if (!invariantValid) invalidReasons.push('FIX_PAPER_ENTRY_FORENSIC_CARRY');
     if (skippedWithoutReason > 0) invalidReasons.push('FIX_PAPER_ENTRY_SKIP_REASON_EMISSION');
-    const forensicStatus = invalidReasons.length > 0 ? 'INVALID' : 'VALID';
-    const recommendedAction = invalidReasons.length > 0 ? Array.from(new Set(invalidReasons)).join(',') : 'NONE';
+    if (hasForensicCarryBroken) invalidReasons.push('FIX_REAL_SKIP_REASON_RESOLUTION');
+    const forensicStatus = hasForensicCarryBroken ? 'DEGRADED' : (invalidReasons.length > 0 ? 'INVALID' : 'VALID');
+    const recommendedAction = hasForensicCarryBroken
+      ? 'FIX_REAL_SKIP_REASON_RESOLUTION'
+      : (invalidReasons.length > 0 ? Array.from(new Set(invalidReasons)).join(',') : 'NONE');
     const invalidMarkers: string[] = [];
     if ((softLane?.gate1HardSurvivors ?? 0) > 0 && candidateCount === 0) invalidMarkers.push('[PAPER_ENTRY_DECISION_RECORD_MISSING]');
     if ((candidateCount > 0 && candidateSymbols.length === 0) || (skippedCount > 0 && skippedSymbols.length === 0)) invalidMarkers.push('[PAPER_ENTRY_SYMBOL_PAYLOAD_MISSING]');
     if ((skippedCount > 0 && Object.keys(skipReasonDistribution).length === 0) || skippedWithoutReason > 0) invalidMarkers.push('[PAPER_ENTRY_SKIP_REASON_MISSING]');
     if (!invariantValid) invalidMarkers.push('[PAPER_ENTRY_INVARIANT_BROKEN]');
-    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid, recommendedAction, invalidMarkers };
+    return { candidates, decisionRecords, candidateSymbols, createdSymbols, skippedSymbols, skipReasonDistribution, candidateCount, createdCount, skippedCount, topSkipReason, forensicStatus, invariantValid: invariantValid && semanticInvariantValid, semanticInvariantValid, realSkipReasonResolvedCount, forensicFallbackReasonCount, recommendedAction, invalidMarkers };
   };
 
   const paper = derivePaperEntryForensic();
@@ -243,8 +250,12 @@ function formatRuntimeWiringSummary(
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryForensicStatus=${paperEntryForensicStatus}`,
     `- paperEntryInvariantValid=${paper.invariantValid}`,
+    `- paperEntrySemanticInvariantValid=${paper.semanticInvariantValid}`,
+    `- paperEntryRealSkipReasonResolvedCount=${paper.realSkipReasonResolvedCount}`,
+    `- paperEntryForensicFallbackReasonCount=${paper.forensicFallbackReasonCount}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryRecommendedAction=${paper.recommendedAction}`,
+    `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => `${record.symbol}:${record.decision}:${record.skipReason ?? 'NONE'}`).join('|') : '-'}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
