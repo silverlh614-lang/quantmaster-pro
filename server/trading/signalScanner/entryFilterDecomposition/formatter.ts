@@ -108,6 +108,81 @@ function rsScoreFromRank(rank: number): number {
 
 function r1(n: number): string { return n.toFixed(1); }
 
+const recordOf = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+
+function stringValue(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function nestedRecord(source: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  return recordOf(source?.[key]);
+}
+
+function statusOf(source: Record<string, unknown> | undefined, fallback: string): string {
+  return stringValue(source?.status, fallback).toUpperCase();
+}
+
+function resolveGate2ExternalData(sample: unknown): Record<string, unknown> | undefined {
+  const direct = recordOf(getByPath(sample, 'gate2ExternalDataCoverage'));
+  if (direct) return direct;
+  return recordOf(getByPath(sample, 'gateLayerSummary.gate2.externalDataCoverage'));
+}
+
+function dartReason(status: string): string {
+  if (status === 'VERIFIED') return 'NONE';
+  if (status === 'STAGE_NOT_FETCHED' || status === 'DEFERRED') return 'STAGE_NOT_FETCHED';
+  if (status === 'ERROR' || status === 'DEGRADED') return 'API_ERROR';
+  return 'DART_FINANCIALS_MISSING';
+}
+
+function valuationStatus(external: Record<string, unknown> | undefined, dartStatus: string): { status: string; source: string } {
+  const valuation = nestedRecord(external, 'valuation');
+  const explicitPer = statusOf(nestedRecord(valuation, 'per'), '');
+  if (explicitPer) return { status: explicitPer, source: stringValue(valuation?.source, 'NONE') };
+  if (dartStatus === 'VERIFIED') return { status: 'DEFERRED', source: 'DART' };
+  if (dartStatus === 'STAGE_NOT_FETCHED') return { status: 'DEFERRED', source: 'NONE' };
+  return { status: 'MISSING', source: 'NONE' };
+}
+
+function shadowAwareStageStatus(status: string): string {
+  if (status === 'VERIFIED') return 'VERIFIED';
+  if (status === 'PARTIAL' || status === 'DEGRADED') return 'SHADOW_ONLY';
+  if (status === 'UNKNOWN') return 'UNKNOWN';
+  return 'MISSING';
+}
+
+function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): string[] {
+  const sample = d.candidateTraces[0];
+  const external = resolveGate2ExternalData(sample);
+  const dart = nestedRecord(external, 'dartFinancials');
+  const sectorCycle = nestedRecord(external, 'sectorCycle');
+  const leaderCycle = nestedRecord(external, 'leaderCycle');
+  const dartStatus = statusOf(dart, 'MISSING');
+  const valuation = valuationStatus(external, dartStatus);
+  const sectorStatus = shadowAwareStageStatus(statusOf(sectorCycle, 'MISSING'));
+  const leaderStatus = shadowAwareStageStatus(statusOf(leaderCycle, 'UNKNOWN'));
+  const sectorSourceTier =
+    stringValue(sectorCycle?.sourceTier, '') ||
+    stringValue(sectorCycle?.provider, '') ||
+    (sectorStatus === 'SHADOW_ONLY' ? 'INTERNAL_GROUPED_SNAPSHOT' : 'NONE');
+  const leaderSourceTier =
+    stringValue(leaderCycle?.sourceTier, '') ||
+    (leaderStatus === 'SHADOW_ONLY' ? sectorSourceTier : 'NONE');
+  return [
+    'Gate2ExternalData:',
+    `- dart: status=${dartStatus} reason=${dartReason(dartStatus)} affectedConditions=earnings_quality,roe,opm,icr,per scoreImpact=limited_to_high_conviction executionImpact=NONE`,
+    `- valuation: perStatus=${valuation.status} source=${valuation.source}`,
+    `- sectorCycle: status=${sectorStatus} sourceTier=${sectorSourceTier}`,
+    `- leaderCycle: status=${leaderStatus} sourceTier=${leaderSourceTier}`,
+    '- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE',
+    '- entryHardBlockImpact=NO',
+    '- shadowObservablePreserved=true',
+    '- counterfactualAllowed=true',
+    '- executionImpact=NONE',
+  ];
+}
+
 export function mapConservativeCode(code: string): string | null {
   switch (code) {
     case "GATE1_FAIL":
@@ -577,16 +652,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push('- inputSourcePath=RegimeResolver.canonicalOutput');
   lines.push(`- inputBreakPoint=${effectiveRegime === 'UNKNOWN' ? 'INPUT_CONTEXT_MISSING' : 'NONE'}`);
   lines.push('');
-  lines.push('Gate2 External Data Policy:');
-  lines.push('- DART status=unavailable');
-  lines.push('- PER status=unavailable');
-  lines.push('- earningsQuality status=unavailable');
-  lines.push('- scoreImpact=limited_to_high_conviction');
-  lines.push('- executionImpact=NONE');
-  lines.push('- shadowObservablePreserved=true');
-  lines.push('- strongBuyAllowed=false');
-  lines.push('- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE');
-  lines.push('- entryHardBlockImpact=NO');
+  lines.push(...formatGate2ExternalDataStageSection(d));
 
   if (d.filterConservatismReport) {
     lines.push("");

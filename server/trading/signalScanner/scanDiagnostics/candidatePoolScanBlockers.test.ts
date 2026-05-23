@@ -58,6 +58,9 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- legacyR6Path: notUsed');
     expect(text).toContain('importedCandidates=1');
     expect(text).toContain('gateEvaluated=1');
+    expect(text).toContain('Candidate Pool Counts:');
+    expect(text).toContain('candidateDiagnosticScorePositive=');
+    expect(text).not.toContain('diagnosticSurvivors=');
     expect(text).toContain('shadowEligible=1');
     expect(text).toContain('counterfactualRecorded=1');
     expect(text).toContain('Candidate evaluation active');

@@ -224,7 +224,41 @@ it('wires canonical positive feature inputs into Gate1 trace and score curve aud
   expect(formatted).toContain('- TRACE_NOT_PROJECTED=0');
   expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
   expect(formatted).toContain('- shadowObservablePreserved=true');
-  expect(formatted).toContain('- strongBuyAllowed=false');
+  expect(formatted).toContain('Gate2ExternalData:');
+  expect(formatted).toContain('- dart: status=MISSING reason=DART_FINANCIALS_MISSING');
+  expect(formatted).toContain('- entryHardBlockImpact=NO');
+});
+
+it('separates Gate2 external data stage from SectorEnergy leadership state', () => {
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 1,
+    watchlistCandidates: 1,
+    entries: 0,
+    macroGateState: macro(),
+    candidateSnapshots: [
+      {
+        symbol: 'E1',
+        price: 100,
+        volume: 1000,
+        gate2ExternalDataCoverage: {
+          dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+          sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+          leaderCycle: { status: 'UNKNOWN' },
+        },
+      },
+    ],
+  });
+
+  const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+  expect(formatted).toContain('Gate2ExternalData:');
+  expect(formatted).toContain('- dart: status=MISSING reason=DART_FINANCIALS_MISSING affectedConditions=earnings_quality,roe,opm,icr,per scoreImpact=limited_to_high_conviction executionImpact=NONE');
+  expect(formatted).toContain('- valuation: perStatus=MISSING source=NONE');
+  expect(formatted).toContain('- sectorCycle: status=SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT');
+  expect(formatted).toContain('- leaderCycle: status=UNKNOWN sourceTier=NONE');
+  expect(formatted).toContain('- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE');
+  expect(formatted).toContain('- entryHardBlockImpact=NO');
+  expect(formatted).toContain('- executionImpact=NONE');
 });
 
 it('materializes Gate2/Gate3 runtime diagnostics into quote features and RS percentile', () => {

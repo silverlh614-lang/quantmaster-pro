@@ -239,7 +239,7 @@ export interface CandidatePoolResult {
   hydratedCount: number;
   rankedCandidates: number;
   gateEvaluated: number;
-  diagnosticSurvivors: number;
+  candidateDiagnosticScorePositive: number;
   shadowEligible: number;
   counterfactualRecorded: number;
   fallbackUsed: boolean;
@@ -794,7 +794,7 @@ function emitRuntimeLogs(result: CandidatePoolResult): void {
   }
   console.info('[GATE_EVALUATION_CONTINUED_FOR_CANDIDATES]', {
     gateEvaluated: result.gateEvaluated,
-    diagnosticSurvivors: result.diagnosticSurvivors,
+    candidateDiagnosticScorePositive: result.candidateDiagnosticScorePositive,
     executionImpact: 'NONE',
   });
   console.info('[WATCHLIST_COUNTERFACTUAL_RECORDED] [COUNTERFACTUAL_CANDIDATE_RECORDED]', {
@@ -876,7 +876,7 @@ export function buildCandidatePool(input: BuildCandidatePoolInput): CandidatePoo
     hydratedCount,
     rankedCandidates: snapshots.length,
     gateEvaluated: snapshots.filter((candidate) => candidate.evaluationEligible).length,
-    diagnosticSurvivors: snapshots.filter((candidate) => candidate.evaluationEligible && candidate.totalScore > 0).length,
+    candidateDiagnosticScorePositive: snapshots.filter((candidate) => candidate.evaluationEligible && candidate.totalScore > 0).length,
     shadowEligible: snapshots.filter((candidate) => candidate.shadowEligible).length,
     counterfactualRecorded: counterfactualRecords.length,
     fallbackUsed,
@@ -1069,7 +1069,12 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     `- hydratedCandidates=${result.hydratedCount}`,
     `- rankedCandidates=${result.rankedCandidates}`,
     `- gateEvaluated=${result.gateEvaluated}`,
-    `- diagnosticSurvivors=${result.diagnosticSurvivors}`,
+    '- Candidate Pool Counts:',
+    `  totalUniverse=${result.totalUniverseCount}`,
+    `  validCandidates=${result.validCount}`,
+    `  rankedCandidates=${result.rankedCandidates}`,
+    `  gateEvaluated=${result.gateEvaluated}`,
+    `  candidateDiagnosticScorePositive=${result.candidateDiagnosticScorePositive}`,
     `- shadowEligible=${result.shadowEligible}`,
     `- counterfactualRecorded=${result.counterfactualRecorded}`,
     `- fallbackUsed=${result.fallbackUsed}${result.fallbackReason ? ` reason=${result.fallbackReason}` : ''}`,

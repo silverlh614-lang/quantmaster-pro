@@ -381,7 +381,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
     lines.push(`liveEvaluated=${liveEvaluated}`);
     lines.push(`diagnosticEvaluated=${scanEvaluation.evaluated}`);
     lines.push(`liveSurvivors=${liveSurvivors}`);
-    lines.push(`diagnosticSurvivors=${scanEvaluation.survivors}`);
+    lines.push(`diagnosticGateSurvivors=${scanEvaluation.survivors}`);
     lines.push(`evaluationState=${displayEvaluationState}`);
     lines.push(`displayEvaluationState=${displayEvaluationState}`);
     lines.push(`sourcePath=${resolveDisplaySourcePath(scanEvaluation.sourcePath)}`);

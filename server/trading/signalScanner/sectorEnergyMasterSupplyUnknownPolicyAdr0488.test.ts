@@ -248,6 +248,49 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.officialIndexMasterRecovery.sourceOfTruth).toBe('KIS_OFFICIAL_INDEX_MASTER');
   });
 
+  it('recovers official KIS index master coverage from diagnostic sector rows', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: {
+        dataQuality: 'OK',
+        fallbackUsed: 'NONE',
+        coverageBreakdown: {
+          sectorRows: [
+            { sectorName: 'SEMICONDUCTOR', sectorCode: '2004', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+            { sectorName: 'BATTERY', sectorCode: '2012', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+            { sectorName: 'FINANCE', sectorCode: '0021', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+            { sectorName: 'IT_INTERNET', sectorCode: '0029', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+          ],
+        },
+      },
+    });
+
+    expect(report.verifiedIndexCodeCoverage).toBe(100);
+    expect(report.mappingDiagnostics.verifiedIndexCodeCoverage).toBe(100);
+    expect(report.selectedSectorEnergySourceTier).toBe('OFFICIAL_KIS_SECTOR_INDEX');
+    expect(report.leadershipConfidence).toBe('VERIFIED');
+    expect(report.promotionAllowed).toBe(true);
+    expect(report.sectorBoostAllowed).toBe(true);
+    expect(report.strongBuyAllowed).toBe(true);
+    expect(report.executionImpact).toBe('NONE');
+    expect(report.reasonCodes).toContain('OFFICIAL_KIS_INDEX_MASTER_LOADED');
+    const compact = formatSectorEnergySupplyUnknownCompactAdr0488(buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: {
+        dataQuality: 'OK',
+        fallbackUsed: 'NONE',
+        coverageBreakdown: {
+          sectorRows: [
+            { sectorName: 'SEMICONDUCTOR', sectorCode: '2004', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+            { sectorName: 'BATTERY', sectorCode: '2012', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+            { sectorName: 'FINANCE', sectorCode: '0021', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+            { sectorName: 'IT_INTERNET', sectorCode: '0029', market: 'KOSPI', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' },
+          ],
+        },
+      },
+    }));
+    expect(compact).toContain('officialIndexCoverage=100%');
+    expect(compact).toContain('selectedSourceTier=OFFICIAL_KIS_SECTOR_INDEX');
+  });
+
   it('keeps stale official sector index out of promotion but preserves shadow leadership when proxy exists', () => {
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({

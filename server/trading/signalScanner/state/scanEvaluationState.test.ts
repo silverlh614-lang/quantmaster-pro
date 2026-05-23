@@ -141,5 +141,25 @@ describe('scanEvaluationState', () => {
     expect(line).toContain('evaluationState=EVALUATED_GATE_REJECTED');
     expect(line).toContain('sourcePath=test.source');
     expect(line).toContain('breakPoint=GATE_EVALUATION');
+    expect(line).toContain('diagnosticGateSurvivors=');
+    expect(line).toContain('liveGateSurvivors=');
+    expect(line).not.toContain('diagnosticSurvivors=');
+  });
+
+  it('renders Gate Evaluation Counts without ambiguous diagnosticSurvivors label', () => {
+    const counters = createScanCounters();
+    counters.gateMisses = 2;
+    counters.waitGateFail = 2;
+    const result = buildScanEvaluationResult({
+      counters,
+      totalCandidates: 2,
+      sourcePath: 'test.source',
+    });
+
+    const section = formatScanEvaluationSection(result) ?? '';
+    expect(section).toContain('Gate Evaluation Counts:');
+    expect(section).toContain('diagnosticGateSurvivors=');
+    expect(section).toContain('liveGateSurvivors=');
+    expect(section).not.toContain('diagnosticSurvivors=');
   });
 });

@@ -345,6 +345,74 @@ function diagnosticsEvidencePresent(input: BuildSectorEnergyMasterReportInputAdr
   return Boolean(input.sectorEnergyDiagnosticAdr0474) || Boolean(input.freshDataSupplyAdr0487) || Boolean(input.sectorMasterRecords?.length);
 }
 
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function arrayField(source: Record<string, unknown> | null | undefined, keys: string[]): unknown[] {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+function stringFromKeys(source: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function sourceFromTier(value: unknown): SectorEnergyMasterInputRecordAdr0488['source'] {
+  const source = safeString(value).toUpperCase();
+  if (source.includes('OFFICIAL_KRX') || source === 'KRX' || source.includes('KRX_CODE')) return 'KRX';
+  if (source.includes('OFFICIAL_KIS') || source === 'KIS') return 'KIS';
+  if (source.includes('INTERNAL_GROUPED') || source.includes('INTERNAL')) return 'INTERNAL';
+  if (source.includes('CACHE')) return 'CACHE';
+  return 'UNKNOWN';
+}
+
+function extractSectorRowsFromDiagnostic(
+  diag: Record<string, unknown> | null | undefined,
+  observedAt: string,
+): SectorEnergyMasterInputRecordAdr0488[] {
+  const root = objectRecord(diag);
+  if (!root) return [];
+  const coverageBreakdown = objectRecord(root.coverageBreakdown);
+  const selectedTier =
+    root.selectedSectorEnergySourceTier ??
+    root.sourceTier ??
+    coverageBreakdown?.selectedSectorEnergySourceTier ??
+    coverageBreakdown?.sourceTier;
+  const candidates = [
+    ...arrayField(root, ['officialIndexMasterRows', 'sectorIndexMasterRows', 'indexMasterRows', 'sectorRows']),
+    ...arrayField(coverageBreakdown, ['officialIndexMasterRows', 'sectorIndexMasterRows', 'indexMasterRows', 'sectorRows']),
+  ];
+  const records: SectorEnergyMasterInputRecordAdr0488[] = [];
+  for (const item of candidates) {
+    const row = objectRecord(item);
+    if (!row) continue;
+    const sectorName = stringFromKeys(row, ['sectorName', 'officialIndexName', 'idxName', 'indexName', 'displayName', 'name']);
+    if (!sectorName) continue;
+    const indexCode = stringFromKeys(row, ['officialIndexCode', 'indexCode', 'idxCode', 'sectorCode', 'krxIndexCode', 'kisIndexCode']);
+    const rowTier = row.sourceTier ?? row.selectedSectorEnergySourceTier ?? row.source ?? row.provider ?? selectedTier;
+    records.push({
+      sectorName,
+      indexCode: indexCode || null,
+      market: stringFromKeys(row, ['market', 'idxDiv']) || 'KR',
+      source: sourceFromTier(rowTier),
+      normalized: row.normalized === true || Boolean(indexCode),
+      observedAt,
+      aggregate: row.aggregate === true,
+      aggregateIgnored: row.aggregateIgnored === true,
+      aliasCandidate: row.aliasCandidate === true || row.aliasResolved === true,
+    });
+  }
+  return records;
+}
+
 function adr0495SeedRecords(observedAt: string): SectorEnergyMasterInputRecordAdr0488[] {
   return buildSectorIndexMasterSeedAdr0495().map((record) => ({
     sectorName: record.indexNameKo,
@@ -401,7 +469,11 @@ function buildMappingDiagnostics(
   const aliasResolvedCount = diagnosticNumber(diag, ['aliasResolvedCount', 'aliasResolved'], Math.max(0, safeAliasCandidatesCount - aliasMissingCount));
   const aliasUnsafeCount = diagnosticNumber(diag, ['aliasUnsafeCount'], unsafeAliasCandidatesCount);
   const nonAggregateRecords = records.filter((record) => !record.coverageMetadata.aggregateIgnored);
-  const verifiedRecords = nonAggregateRecords.filter((record) => record.source === 'KRX' && record.coverageMetadata.hasIndexCode && record.normalized);
+  const verifiedRecords = nonAggregateRecords.filter((record) =>
+    (record.source === 'KRX' || record.source === 'KIS') &&
+    record.coverageMetadata.hasIndexCode &&
+    record.normalized,
+  );
   const internalProxyRecords = nonAggregateRecords.filter((record) => record.source === 'INTERNAL' && record.coverageMetadata.hasIndexCode);
   const verifiedIndexCodeCoverage = diagnosticNumber(
     diag,
@@ -500,12 +572,20 @@ function buildSectorEnergyReasonCodes(input: {
   unsafeAliasCount: number;
   sectorDataStale: boolean;
   fallbackUsed: SectorEnergyMasterSupplyLineReportAdr0488['fallbackUsed'];
+  hasKisOfficialRecord: boolean;
+  hasKrxOfficialRecord: boolean;
+  unresolvedSectorCount: number;
 }): string[] {
   const reasonCodes = new Set<string>();
   if (input.verifiedIndexCodeCoverage > 0) reasonCodes.add('OFFICIAL_INDEX_MASTER_LOADED');
+  if (input.hasKisOfficialRecord && input.verifiedIndexCodeCoverage > 0) reasonCodes.add('OFFICIAL_KIS_INDEX_MASTER_LOADED');
+  if (input.hasKrxOfficialRecord && input.verifiedIndexCodeCoverage > 0) reasonCodes.add('OFFICIAL_KRX_INDEX_MASTER_LOADED');
   if (input.verifiedIndexCodeCoverage === 0) reasonCodes.add('OFFICIAL_INDEX_COVERAGE_ZERO');
   if (input.verifiedIndexCodeCoverage > 0 && input.verifiedIndexCodeCoverage < 80) {
     reasonCodes.add('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+  }
+  if (input.verifiedIndexCodeCoverage === 0 && input.unresolvedSectorCount > 0) {
+    reasonCodes.add('OFFICIAL_INDEX_MASTER_UNRESOLVED_SECTORS');
   }
   if (input.internalProxyCoverage > 0) reasonCodes.add('INTERNAL_PROXY_AVAILABLE');
   if (
@@ -579,8 +659,13 @@ export function buildSectorEnergyMasterReportAdr0488(
 ): SectorEnergyMasterSupplyLineReportAdr0488 {
   const generatedAt = nowIso(input.generatedAt);
   const diag = input.sectorEnergyDiagnosticAdr0474 ?? null;
-  const useAdr0495Seed = input.useAdr0495Seed === true && !input.sectorMasterRecords?.length;
-  const rawRecords = input.sectorMasterRecords?.length ? input.sectorMasterRecords : (useAdr0495Seed ? adr0495SeedRecords(generatedAt) : []);
+  const diagnosticSectorRows = extractSectorRowsFromDiagnostic(diag, generatedAt);
+  const useAdr0495Seed = input.useAdr0495Seed === true && !input.sectorMasterRecords?.length && diagnosticSectorRows.length === 0;
+  const rawRecords = input.sectorMasterRecords?.length
+    ? input.sectorMasterRecords
+    : diagnosticSectorRows.length > 0
+      ? diagnosticSectorRows
+      : (useAdr0495Seed ? adr0495SeedRecords(generatedAt) : []);
   const records = rawRecords
     .map((record) => sanitizeMasterRecord(record, generatedAt))
     .filter((record): record is SectorEnergyMasterRecordAdr0488 => Boolean(record));
@@ -627,6 +712,7 @@ export function buildSectorEnergyMasterReportAdr0488(
     record.normalized,
   );
   const hasKisOfficialRecord = officialRecords.some((record) => record.source === 'KIS');
+  const hasKrxOfficialRecord = officialRecords.some((record) => record.source === 'KRX');
   const verifiedRecordCoverage = recordTotal > 0
     ? (officialRecords.length / recordTotal) * 100
     : 0;
@@ -700,9 +786,13 @@ export function buildSectorEnergyMasterReportAdr0488(
     unsafeAliasCount: mapping.unsafeAliasCandidatesCount,
     sectorDataStale,
     fallbackUsed,
+    hasKisOfficialRecord,
+    hasKrxOfficialRecord,
+    unresolvedSectorCount: mapping.unresolvedSectorCount,
   });
   const diagnostics: string[] = [];
   if (!evidencePresent) diagnostics.push('SectorEnergy master source evidence missing.');
+  if (diagnosticSectorRows.length > 0) diagnostics.push(`SectorEnergy official/index master rows extracted from diagnostic payload: ${diagnosticSectorRows.length}.`);
   if (fallbackUsed === 'STOCK_DAILY' || fallbackUsed === 'STOCK_DAILY_PROXY') diagnostics.push('STOCK_DAILY fallback remains diagnostic-only.');
   diagnostics.push(`ADR-0495 seed coverage verified=${adr0495Coverage.coverageVerified}% partial=${adr0495Coverage.coveragePartial}% unknown=${adr0495Coverage.coverageUnknown}%; guardrails executionImpact=NONE liveExecutionAllowed=false sectorBoostAllowed=false strongBuyAllowed=false rawPayloadPersistenceAllowed=false.`);
   diagnostics.push(`SectorEnergy coverage split verifiedIndexCodeCoverage=${verifiedIndexCodeCoverage}% internalProxyCoverage=${internalProxyCoverage}% stockDailyFallbackCoverage=${stockDailyFallbackCoverage}%; selectedSourceTier=${selectedSectorEnergySourceTier}; leadershipConfidence=${leadershipConfidence}; promotionAllowed=${promotionAllowed}; leadershipBlockReason=${leadershipBlockReason}.`);
@@ -974,7 +1064,7 @@ export function formatSectorEnergySupplyUnknownCompactAdr0488(report: SectorEner
   const supply = report.supplyUnknownPolicy;
   const official = sector.officialIndexMasterRecovery;
   return [
-    `ADR-0488 SectorEnergyMaster: ${sector.status} | selectedSourceTier=${sector.selectedSectorEnergySourceTier} | coverageBefore=${pct(sector.indexCodeCoverageBefore)} | coverageAfter=${pct(sector.indexCodeCoverageAfter)} | verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} | internalProxyCoverage=${pct(sector.internalProxyCoverage)} | stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} | missing=${sector.mappingDiagnostics.missingIndexCodeCount} | leadershipConfidence=${sector.leadershipConfidence} | promotionAllowed=${sector.promotionAllowed} | reason=${sector.leadershipBlockReason} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} | counterfactualAllowed=${sector.counterfactualAllowed} | impact=${sector.executionImpact}`,
+    `ADR-0488 SectorEnergyMaster: ${sector.status} | selectedSourceTier=${sector.selectedSectorEnergySourceTier} | coverageBefore=${pct(sector.indexCodeCoverageBefore)} | coverageAfter=${pct(sector.indexCodeCoverageAfter)} | officialIndexCoverage=${pct(sector.verifiedIndexCodeCoverage)} | verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} | internalProxyCoverage=${pct(sector.internalProxyCoverage)} | stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} | missing=${sector.mappingDiagnostics.missingIndexCodeCount} | leadershipConfidence=${sector.leadershipConfidence} | promotionAllowed=${sector.promotionAllowed} | reason=${sector.leadershipBlockReason} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} | counterfactualAllowed=${sector.counterfactualAllowed} | impact=${sector.executionImpact}`,
     `ADR-0488 OfficialIndexMasterRecovery: ${official.status} | sourceOfTruth=${official.sourceOfTruth} | selectedSourceTier=${official.selectedSectorEnergySourceTier} | requiredVerifiedCoverage=${pct(official.requiredVerifiedCoveragePct)} | promotionAllowed=${official.promotionAllowed} | sectorBoostAllowed=${official.sectorBoostAllowed} | strongBuyAllowed=${official.strongBuyAllowed} | shadowLeadershipAllowed=${official.shadowLeadershipAllowed} | impact=${official.executionImpact}`,
     `ADR-0488 SupplyUnknownPolicy: ${supply.status} | providerIssue=${supply.providerIssue} | marketSignal=${supply.marketSignal} | unknownPolicyActive=${supply.unknownPolicyActive} | diagnosticNet=${round1(supply.diagnosticPolicyNetAvg)} | survivors=${supply.survivorsCurrent}->${supply.survivorsUnknownDiagnosticOnly} | requiredScore=${supply.requiredScore} | impact=${supply.executionImpact}`,
     `   action: ${report.recommendedNextActions[0] ?? 'continue SHADOW_ONLY observation'}`,
@@ -993,7 +1083,7 @@ export function formatSectorEnergySupplyUnknownDetailAdr0488(report: SectorEnerg
     `overallStatus=${report.overallStatus} policyPromotionMode=${report.policyPromotionMode}`,
     'SectorEnergyMaster:',
     `- status=${sector.status} coverageBefore=${pct(sector.indexCodeCoverageBefore)} coverageAfter=${pct(sector.indexCodeCoverageAfter)} missingIndexCodeCount=${sector.mappingDiagnostics.missingIndexCodeCount}`,
-    `- verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} internalProxyCoverage=${pct(sector.internalProxyCoverage)} stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} leadershipBlockReason=${sector.leadershipBlockReason}`,
+    `- officialIndexCoverage=${pct(sector.verifiedIndexCodeCoverage)} verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} internalProxyCoverage=${pct(sector.internalProxyCoverage)} stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} leadershipBlockReason=${sector.leadershipBlockReason}`,
     `- ADR-0495 coverageVerified=${pct(sector.adr0495Coverage?.coverageVerified ?? 0)} coveragePartial=${pct(sector.adr0495Coverage?.coveragePartial ?? 0)} coverageUnknown=${pct(sector.adr0495Coverage?.coverageUnknown ?? 0)} normalized=${sector.adr0495Coverage?.normalized ?? false}`,
     `- aggregateIgnored=${sector.mappingDiagnostics.aggregateIgnoredCount} aliasMissing=${sector.mappingDiagnostics.aliasMissingCount} aliasResolvedCount=${sector.aliasResolvedCount} aliasUnsafeCount=${sector.aliasUnsafeCount} safeAliasCandidates=${sector.mappingDiagnostics.safeAliasCandidatesCount} unsafeAliasCandidates=${sector.mappingDiagnostics.unsafeAliasCandidatesCount} unresolvedSectorCount=${sector.unresolvedSectorCount}`,
     `- ADR-0495 safeAliasCandidates=${sector.adr0495Coverage?.safeAliasCandidates.slice(0, 12).join(',') || 'none'} unsafeAliasCandidates=${sector.adr0495Coverage?.unsafeAliasCandidates.join(',') || 'none'}`,
