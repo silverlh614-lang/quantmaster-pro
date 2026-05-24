@@ -47,6 +47,7 @@ beforeEach(async () => {
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_VERIFY_MODE;
   process.env.KIS_APP_KEY = 'test-key';
   process.env.KIS_APP_SECRET = 'test-secret';
   mod = await import('./query.js');
@@ -59,6 +60,7 @@ afterEach(() => {
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_VERIFY_MODE;
   delete process.env.KIS_SECTOR_INDEX_VERIFY_SEND_DEBUG_VARIANTS;
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -276,6 +278,7 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
   });
 
   it('separates client disabled before request transport', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'false';
     const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
 
     expect(result).toMatchObject({
@@ -283,9 +286,11 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
       selectedFailureReason: 'KIS_INDEX_API_CLIENT_DISABLED',
       clientStatus: {
         enabled: false,
+        verifyMode: 'OBSERVE',
+        livePromotionFromVerify: false,
         authReady: false,
         canCall: false,
-        disabledReason: 'KIS_SECTOR_INDEX_CURRENT_ENABLED_NOT_TRUE',
+        disabledReason: 'KIS_SECTOR_INDEX_CURRENT_ENABLED_FALSE',
       },
     });
     expect(result?.attempts[0]).toMatchObject({
@@ -298,8 +303,39 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
     expect(_fetch).not.toHaveBeenCalled();
   });
 
+  it('enables the verify probe by default in observe mode and sends a request when auth is ready', async () => {
+    _fetch.mockResolvedValue(new Response(JSON.stringify({
+      rt_cd: '1',
+      msg_cd: 'INVALID',
+      msg1: 'bad code',
+      output: [],
+    }), { status: 200 }));
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      verified: false,
+      selectedFailureReason: 'KIS_INDEX_API_REJECTED_CODE',
+      clientStatus: {
+        enabled: true,
+        verifyMode: 'OBSERVE',
+        livePromotionFromVerify: false,
+        authReady: true,
+        tokenPresent: true,
+        tokenProvider: 'KIS_SHARED_TOKEN_PROVIDER',
+        canCall: true,
+      },
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      requestBuilt: true,
+      requestSent: true,
+      transportStage: 'HTTP_RESPONSE_RECEIVED',
+      reasonCode: 'KIS_INDEX_API_REJECTED_CODE',
+    });
+    expect(_fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('separates auth-not-ready before sending a request', async () => {
-    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
     delete process.env.KIS_APP_SECRET;
 
     const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
@@ -308,6 +344,7 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
       selectedFailureReason: 'KIS_INDEX_API_AUTH_ERROR',
       clientStatus: {
         enabled: true,
+        verifyMode: 'OBSERVE',
         authReady: false,
         canCall: false,
         disabledReason: 'KIS_APP_KEY_OR_SECRET_MISSING',

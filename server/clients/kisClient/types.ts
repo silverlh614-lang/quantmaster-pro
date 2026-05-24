@@ -307,6 +307,7 @@ export type KisSectorIndexVerifyTransportStage =
   | 'VERIFY_FAILED';
 
 export type KisIndexQuoteBaseUrlKind = 'REAL' | 'VIRTUAL' | 'UNKNOWN';
+export type KisSectorIndexVerifyMode = 'OBSERVE' | 'OFF';
 
 export interface KisSectorIndexVerifyVariantPolicy {
   enabled: boolean;
@@ -317,9 +318,12 @@ export interface KisSectorIndexVerifyVariantPolicy {
 
 export interface KisIndexQuoteClientStatus {
   enabled: boolean;
+  verifyMode: KisSectorIndexVerifyMode;
+  livePromotionFromVerify: false;
   authReady: boolean;
   tokenPresent: boolean;
   tokenExpiresInSec: number | null;
+  tokenProvider: 'KIS_SHARED_TOKEN_PROVIDER';
   baseUrlKind: KisIndexQuoteBaseUrlKind;
   apiPath: string;
   method: 'GET';

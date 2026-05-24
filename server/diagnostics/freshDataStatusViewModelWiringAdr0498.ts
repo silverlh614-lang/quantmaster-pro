@@ -449,6 +449,13 @@ interface SectorIndexMasterFreshStatusReportAdr0498 {
       verifySuccessCount?: number;
       verifyFailCount?: number;
       selectedFailureReason?: string;
+      kisIndexQuoteClientStatus?: {
+        enabled?: boolean;
+        authReady?: boolean;
+        tokenPresent?: boolean;
+        disabledReason?: string;
+        verifyMode?: string;
+      };
       verifyApiFailureSamples?: Array<{ reasonCode?: string; selectedFailureReason?: string }>;
       unresolvedSectorNames?: string[];
       topMissingSectorNames?: string[];
@@ -499,7 +506,13 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
   const providerHealth: ProviderHealthStatusAdr0497 = master?.masterLoaded ? 'UP' : 'EMPTY';
   const confidence = sectorMasterConfidenceAdr0498(officialCoverage, verifiedCoverage);
   const status = sectorMasterLineStatusAdr0498(officialCoverage, verifiedCoverage);
-  const verifyReason = master?.selectedFailureReason
+  const verifyClientReason = master?.kisIndexQuoteClientStatus?.enabled === false
+    ? 'CLIENT_DISABLED'
+    : master?.kisIndexQuoteClientStatus?.authReady === false
+      ? 'AUTH_NOT_READY'
+      : undefined;
+  const verifyReason = verifyClientReason
+    ?? master?.selectedFailureReason
     ?? master?.verifyApiFailureSamples?.find((sample) => sample.selectedFailureReason || sample.reasonCode)?.selectedFailureReason
     ?? master?.verifyApiFailureSamples?.find((sample) => sample.reasonCode)?.reasonCode
     ?? (master?.reasonCodes ?? []).find((code) => code.startsWith('KIS_INDEX_API_') || code.startsWith('VERIFY_'))
@@ -574,6 +587,11 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
       blockers: verifiedCoverage >= 80 ? [] : ['BLOCKED_COVERAGE_LOW'],
       warnings: [
         `reason=${verifyReason}`,
+        `enabled=${master?.kisIndexQuoteClientStatus?.enabled === true}`,
+        `authReady=${master?.kisIndexQuoteClientStatus?.authReady === true}`,
+        `tokenPresent=${master?.kisIndexQuoteClientStatus?.tokenPresent === true}`,
+        `verifyMode=${master?.kisIndexQuoteClientStatus?.verifyMode ?? 'OBSERVE'}`,
+        `disabledReason=${master?.kisIndexQuoteClientStatus?.disabledReason ?? 'NONE'}`,
         `verifySuccessCount=${master?.verifySuccessCount ?? 0}`,
         `verifyFailCount=${master?.verifyFailCount ?? 0}`,
         `officialIndexCoverage=${Number.isFinite(officialCoverage) ? officialCoverage : 0}%`,

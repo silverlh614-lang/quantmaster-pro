@@ -32,6 +32,7 @@ export type {
   KisSectorIndexDaily,
   KisSectorIndexDailyRow,
   KisIndexQuoteClientStatus,
+  KisSectorIndexVerifyMode,
   KisSectorIndexVerifyTransportStage,
   KisSectorIndexVerifyVariantPolicy,
   KisSectorIndexCurrentPriceProbeAttempt,
@@ -112,6 +113,7 @@ export {
   fetchKisSectorIndexCurrentPriceProbe,
   isKisSectorIndexDailyDisabled,
   isKisSectorIndexCurrentDisabled,
+  getKisSectorIndexVerifyMode,
   KIS_SECTOR_INDEX_ISCD,
   KIS_SECTOR_ISCD_MAP,
 } from './query.js';

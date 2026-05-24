@@ -34,6 +34,7 @@ import type {
   KisSectorIndexCurrentPrice,
   KisSectorIndexCurrentPriceProbeAttempt,
   KisSectorIndexCurrentPriceProbeResult,
+  KisSectorIndexVerifyMode,
   KisSectorIndexVerifyTransportStage,
   KisSectorIndexVerifyVariantPolicy,
   KisSectorIndexDaily,
@@ -748,6 +749,32 @@ export function isKisSectorIndexCurrentDisabled(): boolean {
   return process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED !== 'true';
 }
 
+function normalizeFeatureFlag(value: string | undefined): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+export function getKisSectorIndexVerifyMode(): KisSectorIndexVerifyMode {
+  const raw = normalizeFeatureFlag(process.env.KIS_SECTOR_INDEX_VERIFY_MODE);
+  if (raw === 'off' || raw === 'disabled' || raw === 'false' || raw === '0') return 'OFF';
+  return 'OBSERVE';
+}
+
+function isKisSectorIndexVerifyClientDisabled(): boolean {
+  const currentFlag = normalizeFeatureFlag(process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED);
+  if (currentFlag === 'false' || currentFlag === '0' || currentFlag === 'off' || currentFlag === 'disabled') {
+    return true;
+  }
+  return getKisSectorIndexVerifyMode() === 'OFF';
+}
+
+function kisSectorIndexVerifyDisabledReason(): string {
+  const currentFlag = normalizeFeatureFlag(process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED);
+  if (currentFlag === 'false' || currentFlag === '0' || currentFlag === 'off' || currentFlag === 'disabled') {
+    return 'KIS_SECTOR_INDEX_CURRENT_ENABLED_FALSE';
+  }
+  return 'KIS_SECTOR_INDEX_VERIFY_MODE_OFF';
+}
+
 const SECTOR_INDEX_VALUE_FIELD_CANDIDATES = [
   'bstp_nmix_prpr',
   'bstp_nmix_prdy_vrss',
@@ -817,9 +844,12 @@ function buildKisIndexQuoteClientStatus(input: {
 }): KisIndexQuoteClientStatus {
   return {
     enabled: input.enabled,
+    verifyMode: getKisSectorIndexVerifyMode(),
+    livePromotionFromVerify: false,
     authReady: input.authReady,
     tokenPresent: input.tokenPresent === true,
     tokenExpiresInSec: input.tokenPresent === true ? sectorIndexTokenExpiresInSec() : null,
+    tokenProvider: 'KIS_SHARED_TOKEN_PROVIDER',
     baseUrlKind: sectorIndexBaseUrlKind(),
     apiPath: SECTOR_INDEX_CURRENT_PATH,
     method: 'GET',
@@ -1317,7 +1347,7 @@ export async function fetchKisSectorIndexCurrentPriceProbe(
       triedCandidates: attempts.map((attempt) => attempt.fidInputIscd),
     };
   }
-  if (isKisSectorIndexCurrentDisabled()) {
+  if (isKisSectorIndexVerifyClientDisabled()) {
     const attempts = candidates.map((candidate) => emptyProbeAttempt({
       fidInputIscd: candidate,
       reasonCode: 'KIS_INDEX_API_CLIENT_DISABLED',
@@ -1338,7 +1368,7 @@ export async function fetchKisSectorIndexCurrentPriceProbe(
         authReady: false,
         tokenPresent: false,
         canCall: false,
-        disabledReason: 'KIS_SECTOR_INDEX_CURRENT_ENABLED_NOT_TRUE',
+        disabledReason: kisSectorIndexVerifyDisabledReason(),
       }),
       verifyVariantPolicy: policy,
       attempts,
