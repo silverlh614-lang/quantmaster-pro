@@ -5,6 +5,11 @@ import { getDartFinancials } from '../../clients/dartFinancialClient.js';
 import { normalizeDartFinancials, type QmpDartFinancials } from '../../clients/dartFinancialNormalizer.js';
 import { fetchWithRetry, FetchRetryError } from '../../utils/fetchWithRetry.js';
 import {
+  ensureDartCorpCodeMasterCache,
+  getDartCorpCodeCacheStatus,
+  resolveDartCorpCodeFromCache,
+} from './dartCorpCodeMasterCache.js';
+import {
   getGate2ExternalCacheRecord,
   isGate2ExternalCacheWritable,
   loadGate2ExternalCache,
@@ -61,8 +66,14 @@ export interface Gate2ExternalRefreshCounters {
 export type Gate2ExternalRootCause =
   | 'NONE'
   | 'DART_API_KEY_MISSING'
+  | 'DART_CORP_CODE_CACHE_NOT_LOADED'
+  | 'DART_CORP_CODE_NOT_FOUND'
   | 'DART_CORP_CODE_MAPPING_MISSING'
   | 'DART_FISCAL_PERIOD_RESOLVE_FAILED'
+  | 'DART_FINANCIAL_HTTP_ERROR'
+  | 'DART_FINANCIAL_ROWS_EMPTY'
+  | 'DART_FINANCIAL_NORMALIZATION_FAILED'
+  | 'GATE2_DERIVED_METRICS_FAILED'
   | 'DART_HTTP_OR_RESPONSE_ERROR'
   | 'DART_NORMALIZATION_MAPPING_FAILED'
   | 'DART_FINANCIALS_MISSING';
@@ -261,28 +272,19 @@ function classifyFetchError(error: unknown): { httpStatus?: number; errorCode: s
   return { errorCode: error instanceof Error ? error.name || 'ERROR' : 'ERROR' };
 }
 
-async function resolveDartCorpCode(symbol: string, apiKey: string, trace: Gate2ExternalRefreshTrace): Promise<string | null> {
+async function resolveDartCorpCode(symbol: string, trace: Gate2ExternalRefreshTrace): Promise<string | null> {
   trace.corpCodeRequestAttempted = true;
-  const url = `${DART_BASE}/company.json?crtfc_key=${encodeURIComponent(apiKey)}&stock_code=${cleanSymbol(symbol)}`;
   try {
-    const { httpStatus, body } = await fetchDartJson(url, 8000);
-    trace.dartHttpStatus = httpStatus;
-    const record = isRecord(body) ? body : {};
-    const status = responseStatusCode(record);
-    const corpCode = typeof record.corp_code === 'string' && record.corp_code.trim() ? record.corp_code.trim() : null;
-    if (httpStatus >= 400 || (status && status !== '000' && status !== '0')) {
-      trace.corpCodeResolveStatus = 'ERROR';
-      trace.dartErrorCode = String(record.message ?? record.msg ?? status ?? `HTTP_${httpStatus}`);
+    const master = getDartCorpCodeCacheStatus();
+    trace.dartHttpStatus = master.lastHttpStatus ?? undefined;
+    const resolved = resolveDartCorpCodeFromCache(symbol);
+    trace.corpCodeResolveStatus = resolved.status;
+    if (resolved.status !== 'FOUND' || !resolved.corpCode) {
+      trace.dartErrorCode = resolved.reason;
       return null;
     }
-    if (!corpCode) {
-      trace.corpCodeResolveStatus = 'NOT_FOUND';
-      trace.dartErrorCode = 'CORP_CODE_NOT_FOUND';
-      return null;
-    }
-    trace.corpCodeResolveStatus = 'FOUND';
-    trace.corpCode = corpCode;
-    return corpCode;
+    trace.corpCode = resolved.corpCode;
+    return resolved.corpCode;
   } catch (error) {
     const classified = classifyFetchError(error);
     trace.corpCodeResolveStatus = 'ERROR';
@@ -411,6 +413,7 @@ export async function fetchDartFinancialsForGate2(input: {
   apiKey?: string | null;
   now?: Date;
   asOf?: string;
+  skipCorpCodeMasterEnsure?: boolean;
 }): Promise<{ dartFin: Gate2DartEvaluationFinancials | null; trace: Gate2ExternalRefreshTrace }> {
   const symbol = cleanSymbol(input.symbol);
   const trace = newTrace(symbol);
@@ -420,7 +423,10 @@ export async function fetchDartFinancialsForGate2(input: {
     trace.dartErrorCode = 'DART_API_KEY_MISSING';
     return { dartFin: null, trace };
   }
-  const corpCode = await resolveDartCorpCode(symbol, apiKey, trace);
+  if (!input.skipCorpCodeMasterEnsure) {
+    await ensureDartCorpCodeMasterCache({ apiKey, now: input.now });
+  }
+  const corpCode = await resolveDartCorpCode(symbol, trace);
   if (!corpCode) return { dartFin: null, trace };
 
   for (const candidate of reportCandidates(input.now)) {
@@ -807,33 +813,38 @@ function inferRootCause(input: {
   symbols: readonly string[];
   counters: Gate2ExternalRefreshCounters;
   apiKeyPresent: boolean;
+  corpCodeCacheLoaded: boolean;
   missingCount: number;
 }): Gate2ExternalRootCause {
   if (input.missingCount === 0) return 'NONE';
   if (!input.apiKeyPresent) return 'DART_API_KEY_MISSING';
-  if (input.counters.corpCodeResolved === 0 && input.symbols.length > 0) return 'DART_CORP_CODE_MAPPING_MISSING';
+  if (input.counters.corpCodeResolved === 0 && input.symbols.length > 0) {
+    return input.corpCodeCacheLoaded ? 'DART_CORP_CODE_NOT_FOUND' : 'DART_CORP_CODE_CACHE_NOT_LOADED';
+  }
   if (input.counters.corpCodeResolved > 0 && input.counters.fiscalPeriodResolved === 0) return 'DART_FISCAL_PERIOD_RESOLVE_FAILED';
-  if (input.counters.dartResponsesOk === 0 && input.counters.providerRequestsAttempted > 0) return 'DART_HTTP_OR_RESPONSE_ERROR';
-  if (input.counters.dartRowsFetched > 0 && input.counters.normalizedRowsBuilt === 0) return 'DART_NORMALIZATION_MAPPING_FAILED';
+  if (input.counters.dartResponsesOk === 0 && input.counters.providerRequestsAttempted > 0) return 'DART_FINANCIAL_HTTP_ERROR';
+  if (input.counters.dartRowsFetched === 0 && input.counters.dartResponsesOk > 0) return 'DART_FINANCIAL_ROWS_EMPTY';
+  if (input.counters.dartRowsFetched > 0 && input.counters.normalizedRowsBuilt === 0) return 'DART_FINANCIAL_NORMALIZATION_FAILED';
+  if (input.counters.normalizedRowsBuilt > 0 && input.counters.derivedMetricsComputed === 0) return 'GATE2_DERIVED_METRICS_FAILED';
   return 'DART_FINANCIALS_MISSING';
 }
 
 export function getGate2DartProviderHealth(): Gate2DartProviderHealth {
   const apiKeyPresent = Boolean(process.env.DART_API_KEY || process.env.OPENDART_API_KEY);
   const cache = loadGate2ExternalCache();
+  const corpCodeStatus = getDartCorpCodeCacheStatus();
   const lastRefresh = cache.lastRefresh;
   const cacheWritable = isGate2ExternalCacheWritable();
   const traces = lastRefresh?.traces ?? [];
-  const corpResolved = traces.filter(trace => trace.corpCodeResolveStatus === 'FOUND');
   const lastTraceWithHttp = [...traces].reverse().find(trace => trace.dartHttpStatus != null || trace.dartErrorCode != null);
   return {
     apiKeyPresent,
-    corpCodeCacheLoaded: corpResolved.length > 0,
-    corpCodeCacheCount: corpResolved.length,
-    lastCorpCodeCacheUpdatedAt: cache.updatedAt ?? null,
+    corpCodeCacheLoaded: corpCodeStatus.corpCodeCacheLoaded,
+    corpCodeCacheCount: corpCodeStatus.corpCodeCacheCount,
+    lastCorpCodeCacheUpdatedAt: corpCodeStatus.loadedAt,
     requestEnabled: apiKeyPresent,
-    lastHttpStatus: lastTraceWithHttp?.dartHttpStatus ?? null,
-    lastErrorCode: lastTraceWithHttp?.dartErrorCode ?? null,
+    lastHttpStatus: lastTraceWithHttp?.dartHttpStatus ?? corpCodeStatus.lastHttpStatus,
+    lastErrorCode: lastTraceWithHttp?.dartErrorCode ?? corpCodeStatus.lastError,
     rateLimitState: traces.some(trace => trace.dartErrorCode === 'RATE_LIMITED' || trace.dartHttpStatus === 429) ? 'RATE_LIMITED' : traces.length > 0 ? 'OK' : 'UNKNOWN',
     cacheWritable,
     executionImpact: 'NONE',
@@ -849,6 +860,10 @@ export async function refreshGate2ExternalData(input: {
   const symbols = [...new Set(input.symbols.map(cleanSymbol).filter(symbol => /^\d{6}$/.test(symbol)))];
   const records: Gate2ExternalProjection[] = [];
   const traces: Gate2ExternalRefreshTrace[] = [];
+  const apiKey = process.env.DART_API_KEY || process.env.OPENDART_API_KEY || null;
+  if (!input.fetcher && apiKey) {
+    await ensureDartCorpCodeMasterCache({ apiKey, now: input.now });
+  }
   for (const symbol of symbols) {
     let dartFin: Gate2DartEvaluationFinancials | null = null;
     let trace = newTrace(symbol);
@@ -868,7 +883,12 @@ export async function refreshGate2ExternalData(input: {
         trace.normalizedRows = 1;
       }
     } else {
-      const fetched = await fetchDartFinancialsForGate2({ symbol, now: input.now, asOf });
+      const fetched = await fetchDartFinancialsForGate2({
+        symbol,
+        now: input.now,
+        asOf,
+        skipCorpCodeMasterEnsure: true,
+      });
       dartFin = fetched.dartFin;
       trace = fetched.trace;
     }
@@ -901,7 +921,6 @@ export async function refreshGate2ExternalData(input: {
   const counters = summarizeCounters(traces);
   const providerHealth = getGate2DartProviderHealth();
   const apiKeyPresent = Boolean(process.env.DART_API_KEY || process.env.OPENDART_API_KEY) || Boolean(input.fetcher);
-  const rootCause = inferRootCause({ symbols, counters, apiKeyPresent, missingCount });
   const finalProviderHealth: Gate2DartProviderHealth = {
     ...providerHealth,
     apiKeyPresent,
@@ -911,6 +930,13 @@ export async function refreshGate2ExternalData(input: {
     lastErrorCode: [...traces].reverse().find(trace => trace.dartErrorCode != null)?.dartErrorCode ?? providerHealth.lastErrorCode,
     rateLimitState: traces.some(trace => trace.dartErrorCode === 'RATE_LIMITED' || trace.dartHttpStatus === 429) ? 'RATE_LIMITED' : traces.length > 0 ? 'OK' : providerHealth.rateLimitState,
   };
+  const rootCause = inferRootCause({
+    symbols,
+    counters,
+    apiKeyPresent,
+    corpCodeCacheLoaded: finalProviderHealth.corpCodeCacheLoaded,
+    missingCount,
+  });
   updateGate2ExternalLastRefresh({
     asOf,
     counters,

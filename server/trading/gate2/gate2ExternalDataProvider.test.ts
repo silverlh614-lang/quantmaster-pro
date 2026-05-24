@@ -171,7 +171,7 @@ describe('Gate2ExternalDataProvider', () => {
       strongBuyBlockedReason: 'DART_FINANCIALS_MISSING',
       executionImpact: 'NONE',
     });
-    expect(result.rootCause).toBe('DART_CORP_CODE_MAPPING_MISSING');
+    expect(result.rootCause).toBe('DART_CORP_CODE_CACHE_NOT_LOADED');
     expect(result.counters.corpCodeMissing).toBe(2);
     expect(result.counters.fiscalPeriodMissing).toBe(2);
     expect(result.counters.kisPerUnavailable).toBe(2);

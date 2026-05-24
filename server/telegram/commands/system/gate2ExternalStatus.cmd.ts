@@ -8,6 +8,8 @@ function formatGate2ExternalStatusMessage(): string {
   const cache = loadGate2ExternalCache();
   const summary = summarizeGate2ExternalCache();
   const lastRefresh = cache.lastRefresh;
+  const lastRefreshAsOf = lastRefresh?.asOf ?? summary.latestUpdatedAt ?? 'NONE';
+  const lastRefreshRootCause = lastRefresh?.rootCause ?? (summary.recordCount > 0 ? 'REFRESH_METADATA_MISSING' : 'NONE');
   const counters = lastRefresh?.counters;
   const providerHealth = lastRefresh?.providerHealth;
   const samples = cache.records.slice(-8).map(record => {
@@ -30,8 +32,9 @@ function formatGate2ExternalStatusMessage(): string {
     `verified=${summary.verifiedCount} stale=${summary.staleCount} missing=${summary.missingCount}`,
     `rowsProjected=${summary.recordCount}`,
     `unavailableCount=${summary.unavailableCount}`,
-    `lastRefreshAsOf=${lastRefresh?.asOf ?? 'NONE'}`,
-    `lastRefreshRootCause=${lastRefresh?.rootCause ?? 'NONE'}`,
+    `lastRefreshMetadata=${lastRefresh ? 'present' : 'missing'}`,
+    `lastRefreshAsOf=${lastRefreshAsOf}`,
+    `lastRefreshRootCause=${lastRefreshRootCause}`,
     ...(counters ? [
       `providerRequestsAttempted=${counters.providerRequestsAttempted}`,
       `corpCodeResolved=${counters.corpCodeResolved}`,

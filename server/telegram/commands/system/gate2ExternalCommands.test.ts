@@ -161,10 +161,51 @@ vi.mock('../../../trading/gate2/gate2ExternalDataProvider.js', () => ({
   }),
 }));
 
+const refreshDartCorpCodeMasterCache = vi.fn(async () => ({
+  corpCodeCacheLoaded: true,
+  corpCodeCacheCount: 2,
+  listedStockCodeCount: 2,
+  loadedAt: '2026-05-24T00:00:00.000Z',
+  ttlExpiresAt: '2026-05-27T00:00:00.000Z',
+  source: 'DART_CORPCODE_XML',
+  ttlHours: 72,
+  expired: false,
+  sampleMappings: ['005930 -> Samsung Electronics corp_code=00126380'],
+  missingSampleSymbols: [],
+  lastError: null,
+  lastHttpStatus: 200,
+  executionImpact: 'NONE',
+  downloaded: true,
+  parseStatus: 'OK',
+  refreshed: true,
+  reason: 'OK',
+  cacheFile: 'test-cache',
+}));
+
+vi.mock('../../../trading/gate2/dartCorpCodeMasterCache.js', () => ({
+  getDartCorpCodeCacheStatus: () => ({
+    corpCodeCacheLoaded: true,
+    corpCodeCacheCount: 2,
+    listedStockCodeCount: 2,
+    loadedAt: '2026-05-24T00:00:00.000Z',
+    ttlExpiresAt: '2026-05-27T00:00:00.000Z',
+    source: 'DART_CORPCODE_XML',
+    ttlHours: 72,
+    expired: false,
+    sampleMappings: ['005930 -> Samsung Electronics corp_code=00126380'],
+    missingSampleSymbols: [],
+    lastError: null,
+    lastHttpStatus: 200,
+    executionImpact: 'NONE',
+  }),
+  refreshDartCorpCodeMasterCache,
+}));
+
 describe('Gate2 external commands', () => {
   beforeEach(async () => {
     vi.resetModules();
     refreshGate2ExternalData.mockClear();
+    refreshDartCorpCodeMasterCache.mockClear();
     const registry = await import('../../commandRegistry.js');
     registry.commandRegistry.__resetForTests();
   });
@@ -218,5 +259,28 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('cacheWritable=true');
     expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('never printed');
+  });
+
+  it('registers DART corpCode status and refresh commands', async () => {
+    const registry = await import('../../commandRegistry.js');
+    await import('./dartCorpCode.cmd.js');
+    const status = registry.commandRegistry.resolve('/dart_corpcode_status');
+    const refresh = registry.commandRegistry.resolve('/dart_corpcode_refresh');
+    expect(status).toBeDefined();
+    expect(refresh).toBeDefined();
+    expect(registry.commandRegistry.resolve('/dart_corp_status')).toBe(status);
+
+    const statusReplies: string[] = [];
+    await status!.execute({ args: ['005930'], reply: async message => { statusReplies.push(message); } });
+    expect(statusReplies.join('\n')).toContain('corpCodeCacheLoaded=true');
+    expect(statusReplies.join('\n')).toContain('sampleMappings=005930');
+
+    const refreshReplies: string[] = [];
+    await refresh!.execute({ args: [], reply: async message => { refreshReplies.push(message); } });
+    const refreshText = refreshReplies.join('\n');
+    expect(refreshDartCorpCodeMasterCache).toHaveBeenCalled();
+    expect(refreshText).toContain('parseStatus=OK');
+    expect(refreshText).toContain('no broker order');
+    expect(refreshText).toContain('executionImpact=NONE');
   });
 });

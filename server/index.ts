@@ -97,6 +97,16 @@ async function startServer() {
   // 전역 에러 포획 — 가장 먼저 설치해야 이후 모든 모듈 로드 중 예외도 잡는다.
   installGlobalErrorHandlers();
 
+  // Gate2 ExternalData: OpenDART corpCode.xml master cache bootstrap.
+  // Missing/failed bootstrap is diagnostic-only and must never stop the trading kernel.
+  try {
+    const { bootstrapDartCorpCodeMasterCache } =
+      await import('./trading/gate2/dartCorpCodeMasterCache.js');
+    bootstrapDartCorpCodeMasterCache();
+  } catch (error) {
+    console.warn('[Boot] DART corpCode bootstrap skipped:', error instanceof Error ? error.message : error);
+  }
+
   // 이전 세션이 비정상 종료됐다면 → 그 세션 bootedAt 이후 에러 로그를 복기해
   // Telegram 으로 요약 보고. Volume 이 살아있다는 증거이기도 하다.
   if (bootInfo.previousCrashed && bootInfo.previous) {
