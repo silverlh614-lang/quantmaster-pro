@@ -48,7 +48,7 @@ export function parseIdxCodeMasterText(text: string): RawKisSectorIndexMasterRow
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
+    .map((line): RawKisSectorIndexMasterRow | null => {
       const csvParts = line.split(/[,\t|]+/).map((part) => part.trim()).filter(Boolean);
       if (csvParts.length >= 3) {
         return { idxDiv: csvParts[0], idxCode: csvParts[1], idxName: csvParts.slice(2).join(' ') };

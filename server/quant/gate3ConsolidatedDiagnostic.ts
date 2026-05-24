@@ -1,8 +1,15 @@
 // @responsibility Gate3 consolidated timing diagnostic renderer; diagnostic output only.
 
 import type { GateLayerSummary } from '../quantFilter.js';
+import type {
+  Gate3EntryPriceGuardDiagnostic,
+  Gate3ExecutionImpact,
+  Gate3LastTriggerEvaluation,
+  Gate3RrrCheckDiagnostic,
+} from './gate3LastTrigger.js';
 
 export type Gate3ConsolidatedHealth = 'OK' | 'WARN' | 'DEGRADED' | 'DATA_INCOMPLETE' | 'TIMING_NOT_CONFIRMED' | 'CONFLICT' | 'UNKNOWN';
+export type Gate3TimingReadiness = 'READY' | 'WAIT' | 'DATA_INCOMPLETE';
 export type Gate3OperatorAction =
   | 'NONE'
   | 'CHECK_TECHNICAL_INDICATORS'
@@ -22,6 +29,12 @@ export interface Gate3ConsolidatedDiagnostic {
   operatorAction: Gate3OperatorAction;
   dataReadiness: Record<string, string>;
   timingAlignment: Record<string, string>;
+  timingReadiness: Gate3TimingReadiness;
+  lastTrigger: Pick<Gate3LastTriggerEvaluation, 'status' | 'fired' | 'reason' | 'executionReady' | 'liveBuyAllowed' | 'shadowObservableAllowed' | 'counterfactualAllowed' | 'executionImpact' | 'marketSignal'>;
+  entryPriceGuard: Gate3EntryPriceGuardDiagnostic | Record<string, unknown>;
+  rrrCheck: Gate3RrrCheckDiagnostic | Record<string, unknown>;
+  falseBreakoutRisk: string;
+  executionReadiness: Record<string, unknown>;
   conflictFlags: string[];
   missingCriticalData: string[];
   providerIssues: string[];
@@ -31,7 +44,7 @@ export interface Gate3ConsolidatedDiagnostic {
   providerIssue: boolean;
   calculationIssue: boolean;
   freshnessIssue: boolean;
-  executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
+  executionImpact: Gate3ExecutionImpact;
   sections: Record<string, string[]>;
   compactText: string;
   telegramText: string;
@@ -55,6 +68,10 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const pullback = asRecord(ext.pullbackSupport);
   const falseBreakout = asRecord(ext.falseBreakout);
   const intraday = asRecord(ext.intradayTiming);
+  const lastTriggerRecord = asRecord(ext.lastTrigger);
+  const entryPriceGuard = asRecord(ext.entryPriceGuard);
+  const rrrCheck = asRecord(ext.rrrCheck);
+  const executionReadinessRecord = asRecord(ext.executionReadiness);
 
   const dataReadiness = {
     technicalIndicators: asString(technical.status) ?? 'UNKNOWN',
@@ -64,6 +81,8 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     pullbackSupport: asString(pullback.status) ?? 'OPTIONAL',
     falseBreakout: asString(falseBreakout.status) ?? 'OPTIONAL',
     intradayTiming: asString(intraday.status) ?? 'OPTIONAL',
+    lastTrigger: asString(lastTriggerRecord.status) ?? 'UNKNOWN',
+    entryPriceGuard: asString(entryPriceGuard.priceFreshness) ?? 'UNKNOWN',
   };
 
   const vb = asRecord(volumeTiming.breakoutVolume);
@@ -81,6 +100,13 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const lastTick = asRecord(intraday.lastTick);
   const quoteFreshness = asRecord(intraday.quoteFreshness);
   const sessionCompatibility = asRecord(intraday.sessionCompatibility);
+  const lastTriggerStatus = asString(lastTriggerRecord.status) ?? 'UNKNOWN';
+  const lastTriggerFired = lastTriggerRecord.fired === true;
+  const lastTriggerReason = asString(lastTriggerRecord.reason) ?? (lastTriggerFired ? 'FIRED' : 'LAST_TRIGGER_NOT_FIRED');
+  const priceFreshness = asString(entryPriceGuard.priceFreshness) ?? 'UNKNOWN';
+  const rrrValue = asNumber(rrrCheck.rrr);
+  const rrrStatus = asString(rrrCheck.status) ?? 'UNKNOWN';
+  const executionImpact = (asString(lastTriggerRecord.executionImpact) ?? asString(executionReadinessRecord.executionImpact) ?? 'DIAGNOSTIC_ONLY') as Gate3ExecutionImpact;
   const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';
   const eodOnlyExpected = ['AFTERMARKET', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
 
@@ -91,6 +117,9 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     pullback: asString(pullbackQuality.status) === 'HEALTHY_PULLBACK' ? 'HEALTHY' : asString(pullbackQuality.status) === 'EXTENDED_CHASE' ? 'EXTENDED' : asString(pullbackQuality.status) === 'TOO_DEEP' ? 'TOO_DEEP' : (asString(pullback.status) === 'MISSING' ? 'MISSING' : 'DIAGNOSTIC_ONLY'),
     falseBreakoutRisk: asString(fbRisk.status) === 'LOW_RISK' ? 'LOW' : asString(fbRisk.status) === 'WATCH' ? 'WATCH' : asString(fbRisk.status) === 'HIGH_RISK' ? 'HIGH' : (asString(falseBreakout.status) === 'MISSING' ? 'MISSING' : 'DIAGNOSTIC_ONLY'),
     intraday: asString(lastTick.status) === 'STALE' ? 'STALE' : asString(intraday.dataMode) === 'EOD_ONLY' ? 'EOD_ONLY' : (asString(intraday.dataMode) === 'INTRADAY' && asString(quoteFreshness.status) === 'FRESH' ? 'CONFIRMED' : (asString(intraday.status) === 'MISSING' ? 'MISSING' : 'DIAGNOSTIC_ONLY')),
+    lastTrigger: lastTriggerFired ? 'FIRED' : lastTriggerStatus === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'WAIT',
+    entryPrice: priceFreshness,
+    rrr: rrrStatus,
   };
 
   let health: Gate3ConsolidatedHealth = 'OK';
@@ -108,7 +137,18 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
 
   const degradedStatus = new Set(['MISSING', 'CALCULATION_MISSING', 'DEGRADED']);
   const volumeDataIncomplete = degradedStatus.has(dataReadiness.volumeTiming) && timingAlignment.volume === 'MISSING';
-  if (source.allDeclaredInputsAvailable === false) {
+  const timingReadiness: Gate3TimingReadiness = lastTriggerFired
+    ? 'READY'
+    : lastTriggerStatus === 'DATA_UNAVAILABLE' || lastTriggerReason.startsWith('ENTRY_PRICE')
+      ? 'DATA_INCOMPLETE'
+      : 'WAIT';
+
+  if (timingReadiness === 'DATA_INCOMPLETE') {
+    health = 'DATA_INCOMPLETE';
+    primaryIssue = lastTriggerReason;
+    operatorAction = lastTriggerReason.startsWith('ENTRY_PRICE') ? 'CHECK_INTRADAY_FEED' : 'REVIEW_GATE3_INPUTS';
+    if (lastTriggerReason.startsWith('ENTRY_PRICE')) freshnessIssues.push(lastTriggerReason);
+  } else if (source.allDeclaredInputsAvailable === false) {
     health = 'DEGRADED'; primaryIssue = 'GATE3_INPUT_MISSING'; operatorAction = 'REVIEW_GATE3_INPUTS';
   } else if (degradedStatus.has(dataReadiness.technicalIndicators)) {
     health = dataReadiness.technicalIndicators === 'DEGRADED' ? 'DEGRADED' : 'DATA_INCOMPLETE'; primaryIssue = 'TECHNICAL_INDICATORS_UNAVAILABLE'; operatorAction = 'CHECK_TECHNICAL_INDICATORS';
@@ -141,16 +181,29 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     conflictFlags.push('PRICE_BREAKOUT_WITHOUT_VOLUME_CONFIRMATION');
   }
 
+  if (health === 'OK' && timingReadiness === 'WAIT') {
+    health = 'TIMING_NOT_CONFIRMED';
+    primaryIssue ??= lastTriggerReason;
+  }
+
   if (health === 'OK' && !(timingAlignment.volume === 'CONFIRMED' && timingAlignment.priceBreakout === 'CONFIRMED' && timingAlignment.momentum === 'CONFIRMED' && timingAlignment.falseBreakoutRisk === 'LOW')) {
     health = 'TIMING_NOT_CONFIRMED';
   }
 
+  const rrrText = rrrValue == null ? 'MISSING' : rrrValue.toFixed(1);
   const summary = primaryIssue ? `Gate3 diagnostic issue: ${primaryIssue}.` : 'Gate3 timing diagnostic dashboard is healthy.';
-  const compactText = `Gate3: ${health} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | momentum=${timingAlignment.momentum} | falseBreakout=${timingAlignment.falseBreakoutRisk} | intraday=${timingAlignment.intraday}${primaryIssue ? ` | issue=${primaryIssue}` : ''} | marketSignal=false`;
+  const compactText = timingReadiness === 'READY'
+    ? `Gate3: READY | trigger=FIRED | priceFresh=${priceFreshness} | rrr=${rrrText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | marketSignal=false`
+    : timingReadiness === 'WAIT'
+      ? `Gate3: WAIT | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`
+      : `Gate3: DATA_INCOMPLETE | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`;
   const telegramLines = [
     '🧩 Gate3 Timing',
     `상태: ${health}`,
     primaryIssue ? `주요 이슈: ${primaryIssue}` : null,
+    `LastTrigger: ${lastTriggerStatus}`,
+    `PriceFresh: ${priceFreshness}`,
+    `RRR: ${rrrText}`,
     `Volume: ${timingAlignment.volume}`,
     `Price: ${timingAlignment.priceBreakout}`,
     `Momentum: ${timingAlignment.momentum}`,
@@ -167,6 +220,26 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     operatorAction,
     dataReadiness,
     timingAlignment,
+    timingReadiness,
+    lastTrigger: {
+      status: lastTriggerStatus as Gate3LastTriggerEvaluation['status'],
+      fired: lastTriggerFired,
+      reason: lastTriggerReason,
+      executionReady: lastTriggerRecord.executionReady === true,
+      liveBuyAllowed: lastTriggerRecord.liveBuyAllowed === true,
+      shadowObservableAllowed: lastTriggerRecord.shadowObservableAllowed !== false,
+      counterfactualAllowed: lastTriggerRecord.counterfactualAllowed !== false,
+      executionImpact,
+      marketSignal: false,
+    },
+    entryPriceGuard,
+    rrrCheck,
+    falseBreakoutRisk: timingAlignment.falseBreakoutRisk,
+    executionReadiness: {
+      ...executionReadinessRecord,
+      status: timingReadiness,
+      marketSignal: false,
+    },
     conflictFlags,
     missingCriticalData,
     providerIssues,
@@ -176,7 +249,7 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     providerIssue: providerIssues.length > 0,
     calculationIssue: calculationIssues.length > 0,
     freshnessIssue: freshnessIssues.length > 0,
-    executionImpact: 'DIAGNOSTIC_ONLY',
+    executionImpact,
     sections: {
       wiring: [`inputs=${source.allDeclaredInputsAvailable === true ? 'OK' : 'MISSING'}`, `requiredData=${source.allRequiredDataAvailable === true ? 'OK' : 'MISSING'}`],
       volume: [`status=${dataReadiness.volumeTiming}`, `breakoutVolume=${timingAlignment.volume}`],
@@ -185,6 +258,7 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
       pullback: [`status=${dataReadiness.pullbackSupport}`, `pullback=${timingAlignment.pullback}`],
       falseBreakout: [`status=${dataReadiness.falseBreakout}`, `risk=${timingAlignment.falseBreakoutRisk}`, `exhaustion=${asString(exhaustion.status) ?? 'UNKNOWN'}`],
       intraday: [`status=${dataReadiness.intradayTiming}`, `dataMode=${asString(intraday.dataMode) ?? 'UNKNOWN'}`, `lastTick=${asString(lastTick.status) ?? 'UNKNOWN'}`],
+      lastTrigger: [`status=${lastTriggerStatus}`, `reason=${lastTriggerReason}`, `priceFresh=${priceFreshness}`, `rrr=${rrrText}`, `executionImpact=${executionImpact}`],
     },
     compactText,
     telegramText: telegramLines.join('\n'),

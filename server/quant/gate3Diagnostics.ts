@@ -1,5 +1,12 @@
 // @responsibility Gate3 timing wiring/coverage diagnostics (diagnostic-only; no scoring impact).
 import type { GateLayerName, ServerGateResult } from '../quantFilter.js';
+import {
+  evaluateGate3LastTrigger,
+  type Gate3EntryPriceGuardDiagnostic,
+  type Gate3ExecutionImpact,
+  type Gate3LastTriggerEvaluation,
+  type Gate3RrrCheckDiagnostic,
+} from './gate3LastTrigger.js';
 
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
 type Numeric = number | null;
@@ -239,6 +246,41 @@ export interface Gate3ExternalDataCoverage {
     executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY';
     missingFields: string[];
     notes: string[];
+  };
+  lastTrigger: {
+    required: true;
+    available: boolean;
+    status: Gate3LastTriggerEvaluation['status'];
+    fired: boolean;
+    reason: string;
+    priceBreakout: Gate3LastTriggerEvaluation['priceBreakout'];
+    volumeConfirmation: Gate3LastTriggerEvaluation['volumeConfirmation'];
+    vcp: Gate3LastTriggerEvaluation['vcp'];
+    rsi: Gate3LastTriggerEvaluation['rsi'];
+    macd: Gate3LastTriggerEvaluation['macd'];
+    falseBreakoutRisk: Gate3LastTriggerEvaluation['falseBreakoutRisk'];
+    strongBuyAllowed: boolean;
+    liveBuyAllowed: boolean;
+    shadowObservableAllowed: boolean;
+    counterfactualAllowed: boolean;
+    executionReady: boolean;
+    providerIssue: boolean;
+    calculationIssue: boolean;
+    marketSignal: false;
+    executionImpact: Gate3ExecutionImpact;
+    notes: string[];
+  };
+  entryPriceGuard: Gate3EntryPriceGuardDiagnostic;
+  rrrCheck: Gate3RrrCheckDiagnostic;
+  executionReadiness: {
+    status: 'READY' | 'WAIT' | 'DATA_INCOMPLETE';
+    liveBuyAllowed: boolean;
+    shadowObservableAllowed: boolean;
+    counterfactualAllowed: boolean;
+    executionReady: boolean;
+    executionImpact: Gate3ExecutionImpact;
+    marketSignal: false;
+    reason: string;
   };
   momentumIndicators: {
     required: true;
@@ -555,10 +597,7 @@ export function buildGate3WiringDiagnostics(input: {
       const priceStructureInputs = unique(inputs.filter(i => PRICE.test(i)));
       const missingInputs = unique([...(item.context?.missingInputs ?? [])]);
       const requiredData = unique([...(item.context?.requiredData ?? [])]);
-      const inferredRequiredData = item.key === 'momentum' ? ['MOMENTUM_INDICATORS']
-        : item.key === 'rsi_zone' ? ['RSI_INDICATORS']
-          : item.key === 'macd_bull' ? ['MACD_INDICATORS'] : [];
-      const mergedRequiredData = unique([...requiredData, ...inferredRequiredData]);
+      const mergedRequiredData = unique(requiredData);
       const missingRequiredData = mergedRequiredData.filter(key => item.context?.availableData?.[key] !== true);
 
       const domains = [quoteInputs, technicalInputs, intradayInputs, volumeInputs, priceStructureInputs]
@@ -1196,6 +1235,18 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     momentumIndicators: { rsi14: momentumDiag.rsi.rsi14, macdHistogram: momentumDiag.macd.macdHistogram },
     pullbackSupport: { ma20: pullbackDiag.movingAverageSupport.ma20, boxTop: pullbackDiag.boxRetest.boxTop },
   });
+  const lastTriggerDiag = evaluateGate3LastTrigger({
+    quote: {
+      ...quote,
+      currentPrice: priceDiag.currentPrice ?? quote.currentPrice ?? quote.price,
+      falseBreakoutRisk: falseBreakoutDiag.falseBreakout.status,
+    },
+  });
+  const executionReadinessStatus = lastTriggerDiag.fired
+    ? 'READY'
+    : lastTriggerDiag.status === 'DATA_UNAVAILABLE' || lastTriggerDiag.entryPriceGuard.priceFreshness === 'MISSING'
+      ? 'DATA_INCOMPLETE'
+      : 'WAIT';
 
   return {
     technicalIndicators: { required: true, available: technicalState.available, provider: 'UNKNOWN', status: technicalState.status, fields: technicalFields, providerIssue: false, calculationIssue: technicalState.status === 'CALCULATION_MISSING' || technicalState.status === 'MISSING', marketSignal: false },
@@ -1291,6 +1342,41 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       executionImpact: 'DIAGNOSTIC_ONLY',
       missingFields: falseBreakoutDiag.missingFields,
       notes: falseBreakoutDiag.notes,
+    },
+    lastTrigger: {
+      required: true,
+      available: lastTriggerDiag.status !== 'DATA_UNAVAILABLE',
+      status: lastTriggerDiag.status,
+      fired: lastTriggerDiag.fired,
+      reason: lastTriggerDiag.reason,
+      priceBreakout: lastTriggerDiag.priceBreakout,
+      volumeConfirmation: lastTriggerDiag.volumeConfirmation,
+      vcp: lastTriggerDiag.vcp,
+      rsi: lastTriggerDiag.rsi,
+      macd: lastTriggerDiag.macd,
+      falseBreakoutRisk: lastTriggerDiag.falseBreakoutRisk,
+      strongBuyAllowed: lastTriggerDiag.strongBuyAllowed,
+      liveBuyAllowed: lastTriggerDiag.liveBuyAllowed,
+      shadowObservableAllowed: lastTriggerDiag.shadowObservableAllowed,
+      counterfactualAllowed: lastTriggerDiag.counterfactualAllowed,
+      executionReady: lastTriggerDiag.executionReady,
+      providerIssue: false,
+      calculationIssue: lastTriggerDiag.status === 'DATA_UNAVAILABLE',
+      marketSignal: false,
+      executionImpact: lastTriggerDiag.executionImpact,
+      notes: lastTriggerDiag.notes,
+    },
+    entryPriceGuard: lastTriggerDiag.entryPriceGuard,
+    rrrCheck: lastTriggerDiag.rrrCheck,
+    executionReadiness: {
+      status: executionReadinessStatus,
+      liveBuyAllowed: lastTriggerDiag.liveBuyAllowed,
+      shadowObservableAllowed: lastTriggerDiag.shadowObservableAllowed,
+      counterfactualAllowed: lastTriggerDiag.counterfactualAllowed,
+      executionReady: lastTriggerDiag.executionReady,
+      executionImpact: lastTriggerDiag.executionImpact,
+      marketSignal: false,
+      reason: lastTriggerDiag.reason,
     },
     momentumIndicators: {
       required: true,

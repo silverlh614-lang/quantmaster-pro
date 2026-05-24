@@ -64,6 +64,7 @@ import './runtimeAudit.cmd.js';
 import './scanBlockers.cmd.js';
 import './scanBlockersEnergy.cmd.js';
 import './scanBlockersGate2.cmd.js';
+import './scanBlockersGate3.cmd.js';
 import './scanReadiness.cmd.js';
 import './scanIndices.cmd.js';
 // ADR-0398: Sector Energy 4-axis diagnostic command.

@@ -74,6 +74,8 @@ function sanitizeVolatileFields<T>(value: T): T {
 
 const gate3DiagnosticSections = [
   'falseBreakout',
+  'lastTrigger',
+  'executionReadiness',
   'intradayTiming',
   'momentumIndicators',
   'priceStructure',
@@ -118,6 +120,7 @@ describe('Gate3 regression fixture snapshot / diagnostic invariance', () => {
     const gate3 = run(baseQuote()).gateLayerSummary?.gate3 as any;
     expect(typeof gate3.sourceCoverage.allDeclaredInputsAvailable).toBe('boolean');
     expect(typeof gate3.sourceCoverage.allRequiredDataAvailable).toBe('boolean');
+    expect(gate3.sourceCoverage.allRequiredDataAvailable).toBe(true);
     expect(gate3.externalDataCoverage.volumeTiming.status).toBe('VERIFIED');
     expect(gate3.externalDataCoverage.priceStructure.status).toBe('VERIFIED');
     expect(['VERIFIED', 'PARTIAL', 'CALCULATION_MISSING']).toContain(gate3.externalDataCoverage.technicalIndicators.status);

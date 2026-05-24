@@ -6,7 +6,7 @@
  */
 
 import type { ConditionEvaluator } from './types.js';
-import { isPullbackSetup } from '../../screener/pipelineHelpers.js';
+import { isPullbackSetup } from '../../screener/pullbackSetup.js';
 // ADR-0421 — kisFlow semantic availability checker SSOT (객체 truthy 만으로
 //   available 판정 금지 — required semantic field 검증 의무).
 import { evaluateInvestorFlowSemanticAvailability } from '../../supply/investorFlowSemanticAvailability.js';

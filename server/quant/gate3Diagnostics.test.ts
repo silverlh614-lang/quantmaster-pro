@@ -422,4 +422,29 @@ describe('Gate3 diagnostics wiring', () => {
     expect(coverage.falseBreakout.falseBreakout.status).toBe('LOW_RISK');
     expect(coverage.falseBreakout.marketSignal).toBe(false);
   });
+
+  it('externalDataCoverage exposes lastTrigger, entryPriceGuard and RRR without market signal promotion', () => {
+    const coverage = buildGate3ExternalDataCoverage(quote({
+      currentPrice: 10_250,
+      price: 10_250,
+      high5d: 10_000,
+      high20d: 10_000,
+      volume: 3_000_000,
+      avgVolume: 1_000_000,
+      rsi14: 58,
+      macdHistogram: 0.5,
+      macd5dHistAgo: -0.1,
+      rrr: 2.5,
+      entryPriceAgeSec: 20,
+      entryPriceSource: 'KIS_REALTIME',
+      falseBreakoutRisk: 'LOW',
+    }) as any);
+
+    expect(coverage.lastTrigger.status).toBe('FIRED');
+    expect(coverage.lastTrigger.fired).toBe(true);
+    expect(coverage.entryPriceGuard.priceFreshness).toBe('VERIFIED');
+    expect(coverage.rrrCheck.status).toBe('PASS');
+    expect(coverage.executionReadiness.status).toBe('READY');
+    expect(coverage.lastTrigger.marketSignal).toBe(false);
+  });
 });

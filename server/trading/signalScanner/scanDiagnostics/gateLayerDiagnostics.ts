@@ -48,6 +48,16 @@ export interface Gate3ConsolidatedAuditSummary {
   health: Record<string, number>;
   primaryIssue: Record<string, number>;
   compactText: Record<string, number>;
+  timingReadiness: Record<string, number>;
+  lastTriggerStatus: Record<string, number>;
+  priceFreshness: Record<string, number>;
+  executionImpact: Record<string, number>;
+  lastTriggerPassCount: number;
+  lastTriggerWaitCount: number;
+  entryPriceStaleCount: number;
+  rrrFailCount: number;
+  falseBreakoutHighCount: number;
+  executionReadyCount: number;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -149,6 +159,16 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       health: {},
       primaryIssue: {},
       compactText: {},
+      timingReadiness: {},
+      lastTriggerStatus: {},
+      priceFreshness: {},
+      executionImpact: {},
+      lastTriggerPassCount: 0,
+      lastTriggerWaitCount: 0,
+      entryPriceStaleCount: 0,
+      rrrFailCount: 0,
+      falseBreakoutHighCount: 0,
+      executionReadyCount: 0,
     },
   };
 }
@@ -246,6 +266,25 @@ export function accumulateGateLayerSummary(
     counters.gateLayerAudit.gate3Consolidated.samples += 1;
     incrementCount(counters.gateLayerAudit.gate3Consolidated.health, String(gate3Consolidated.health ?? 'UNKNOWN'));
     incrementCount(counters.gateLayerAudit.gate3Consolidated.primaryIssue, String(gate3Consolidated.primaryIssue ?? 'none'));
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.timingReadiness, String(gate3Consolidated.timingReadiness ?? 'UNKNOWN'));
+    const lastTrigger = gate3Consolidated.lastTrigger && typeof gate3Consolidated.lastTrigger === 'object'
+      ? gate3Consolidated.lastTrigger as Record<string, unknown>
+      : {};
+    const entryPriceGuard = gate3Consolidated.entryPriceGuard && typeof gate3Consolidated.entryPriceGuard === 'object'
+      ? gate3Consolidated.entryPriceGuard as Record<string, unknown>
+      : {};
+    const rrrCheck = gate3Consolidated.rrrCheck && typeof gate3Consolidated.rrrCheck === 'object'
+      ? gate3Consolidated.rrrCheck as Record<string, unknown>
+      : {};
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.lastTriggerStatus, String(lastTrigger.status ?? 'UNKNOWN'));
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.priceFreshness, String(entryPriceGuard.priceFreshness ?? 'UNKNOWN'));
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.executionImpact, String(gate3Consolidated.executionImpact ?? lastTrigger.executionImpact ?? 'UNKNOWN'));
+    if (lastTrigger.fired === true || lastTrigger.status === 'FIRED') counters.gateLayerAudit.gate3Consolidated.lastTriggerPassCount += 1;
+    else counters.gateLayerAudit.gate3Consolidated.lastTriggerWaitCount += 1;
+    if (entryPriceGuard.priceFreshness === 'STALE' || entryPriceGuard.blockReason === 'ENTRY_PRICE_STALE') counters.gateLayerAudit.gate3Consolidated.entryPriceStaleCount += 1;
+    if (rrrCheck.status === 'FAIL') counters.gateLayerAudit.gate3Consolidated.rrrFailCount += 1;
+    if (gate3Consolidated.falseBreakoutRisk === 'HIGH') counters.gateLayerAudit.gate3Consolidated.falseBreakoutHighCount += 1;
+    if (lastTrigger.executionReady === true) counters.gateLayerAudit.gate3Consolidated.executionReadyCount += 1;
     if (typeof gate3Consolidated.compactText === 'string' && gate3Consolidated.compactText.length > 0) {
       incrementCount(counters.gateLayerAudit.gate3Consolidated.compactText, gate3Consolidated.compactText);
     }
@@ -392,5 +431,24 @@ export function formatGate2CoverageAuditSection(summary: Gate2CoverageAuditSumma
     `  sectorCycle: ${topLabel(summary.sectorCycleCompactText)}`,
     `  leaderCycle: ${topLabel(summary.leaderCycleCompactText)}`,
     '  marketSignal: false; diagnosticOnly: true',
+  ].join('\n');
+}
+
+export function formatGate3TimingReadinessAuditSection(summary: Gate3ConsolidatedAuditSummary | null | undefined): string | null {
+  if (!summary || summary.samples <= 0) return null;
+  return [
+    '<b>Gate3 Timing Readiness</b>',
+    `  evaluated: ${summary.samples}/${summary.samples}`,
+    `  readiness: ${topKey(summary.timingReadiness)}`,
+    `  lastTriggerPass: ${summary.lastTriggerPassCount}`,
+    `  lastTriggerWait: ${summary.lastTriggerWaitCount}`,
+    `  entryPriceFresh: ${topKey(summary.priceFreshness)}`,
+    `  entryPriceStaleBlocked: ${summary.entryPriceStaleCount}`,
+    `  rrrFail: ${summary.rrrFailCount}`,
+    `  falseBreakoutHigh: ${summary.falseBreakoutHighCount}`,
+    `  executionReady: ${summary.executionReadyCount}`,
+    `  executionImpact: ${topKey(summary.executionImpact)}`,
+    `  compactText: ${topLabel(summary.compactText)}`,
+    '  marketSignal=false; shadowLearning=true; counterfactualRecorded=true',
   ].join('\n');
 }

@@ -11,6 +11,10 @@ function baseGate3(): any {
       momentumIndicators: { status: 'VERIFIED', alignment: 'CONFIRMED', overheat: { status: 'NORMAL' } },
       pullbackSupport: { status: 'OPTIONAL', pullbackQuality: { status: 'HEALTHY_PULLBACK' } },
       falseBreakout: { status: 'OPTIONAL', falseBreakout: { status: 'LOW_RISK' }, divergence: { status: 'NONE' }, exhaustion: { status: 'NORMAL' } },
+      lastTrigger: { status: 'FIRED', fired: true, reason: 'FIRED', executionReady: true, liveBuyAllowed: true, shadowObservableAllowed: true, counterfactualAllowed: true, executionImpact: 'NONE' },
+      entryPriceGuard: { priceFreshness: 'VERIFIED', executionImpact: 'NONE' },
+      rrrCheck: { status: 'PASS', rrr: 2.4 },
+      executionReadiness: { status: 'READY', executionImpact: 'NONE' },
       intradayTiming: { status: 'STAGE_NOT_FETCHED', dataMode: 'EOD_ONLY', quoteFreshness: { status: 'FRESH' }, lastTick: { status: 'FRESH' } },
     },
   };
@@ -73,6 +77,34 @@ describe('gate3 consolidated diagnostic', () => {
     const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
     expect(['WARN', 'CONFLICT']).toContain(d.health);
     expect(d.primaryIssue).toBe('FALSE_BREAKOUT_RISK');
+    expect(d.marketSignal).toBe(false);
+  });
+
+  it('lastTrigger WAIT is reflected without promoting marketSignal', () => {
+    const g = baseGate3();
+    g.externalDataCoverage.lastTrigger = { status: 'THRESHOLD_NOT_MET', fired: false, reason: 'RRR_BELOW_2_0', executionReady: false, liveBuyAllowed: false, shadowObservableAllowed: true, counterfactualAllowed: true, executionImpact: 'NONE' };
+    g.externalDataCoverage.rrrCheck = { status: 'FAIL', rrr: 1.6 };
+
+    const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
+
+    expect(d.timingReadiness).toBe('WAIT');
+    expect(d.lastTrigger.fired).toBe(false);
+    expect(d.compactText).toContain('Gate3: WAIT');
+    expect(d.compactText).toContain('rrr=1.6');
+    expect(d.marketSignal).toBe(false);
+    expect(d.executionImpact).toBe('NONE');
+  });
+
+  it('entry price stale is live-buy-only execution impact', () => {
+    const g = baseGate3();
+    g.externalDataCoverage.lastTrigger = { status: 'THRESHOLD_NOT_MET', fired: false, reason: 'ENTRY_PRICE_STALE', executionReady: false, liveBuyAllowed: false, shadowObservableAllowed: true, counterfactualAllowed: true, executionImpact: 'LIVE_BUY_BLOCKED_ONLY' };
+    g.externalDataCoverage.entryPriceGuard = { priceFreshness: 'STALE', blockReason: 'ENTRY_PRICE_STALE', executionImpact: 'LIVE_BUY_BLOCKED_ONLY' };
+
+    const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
+
+    expect(d.timingReadiness).toBe('DATA_INCOMPLETE');
+    expect(d.executionImpact).toBe('LIVE_BUY_BLOCKED_ONLY');
+    expect(d.compactText).toContain('ENTRY_PRICE_STALE');
     expect(d.marketSignal).toBe(false);
   });
 });

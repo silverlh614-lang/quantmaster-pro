@@ -28,6 +28,7 @@ import {
   earningsQualityEvaluator,
   trendAccelerationEvaluator,
 } from './evaluators.js';
+import { lastTriggerEvaluator } from './lastTriggerEvaluator.js';
 
 export { ConditionRegistry } from './registry.js';
 export type {
@@ -55,6 +56,7 @@ export const defaultRegistry: ConditionRegistry = new ConditionRegistry()
   .register(rsiZoneEvaluator)
   .register(macdBullEvaluator)
   .register(pullbackEvaluator)
+  .register(lastTriggerEvaluator)
   .register(ma60RisingEvaluator)
   .register(weeklyRsiZoneEvaluator)
   .register(supplyConfluenceEvaluator)

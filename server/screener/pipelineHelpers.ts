@@ -28,6 +28,9 @@ import {
   classifyStage1RejectStrict,
   isEmergencyStage1StrictEnabled,
 } from '../dataQuality/emergencyDataQualityGuards.js';
+import { isPullbackSetup } from './pullbackSetup.js';
+
+export { isPullbackSetup } from './pullbackSetup.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -297,26 +300,6 @@ export function projectIntradayVolume(
   if (!Number.isFinite(volume) || volume <= 0) return 0;
   const elapsedRatio = getKstRegularSessionElapsedRatio(now);
   return volume / elapsedRatio;
-}
-
-/**
- * 눌림목(Pullback) 셋업 판별.
- *
- * 조건:
- *  1. 60일 고점 대비 3~20% 조정 (적정 눌림, 붕괴 아님)
- *  2. 가격 > MA60 (장기 추세 유지)
- *  3. VCP(변동성 축소) 또는 거래량 마름 (에너지 응축)
- *  4. RSI 30~62 (완화 — 강한 추세에서 RSI 56~62 첫 눌림 포착)
- */
-export function isPullbackSetup(q: YahooQuoteExtended): boolean {
-  if (q.high60d <= 0) return false;
-  const drawdown = (q.high60d - q.price) / q.high60d * 100;
-  if (drawdown < 3 || drawdown > 20) return false;         // 고점 대비 3~20% 조정
-  if (q.ma60 <= 0 || q.price < q.ma60) return false;       // 장기 추세 유지
-  const isVCP = q.atr > 0 && q.atr20avg > 0 && q.atr < q.atr20avg * 0.75;
-  if (!isVCP && !q.dailyVolumeDrying) return false;         // 압축 또는 거래량 마름
-  if (q.rsi14 < 30 || q.rsi14 > 62) return false;          // 완화: 강한 추세 첫 눌림 허용
-  return true;
 }
 
 /**

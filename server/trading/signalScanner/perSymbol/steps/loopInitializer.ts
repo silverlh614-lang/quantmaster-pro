@@ -155,6 +155,13 @@ export async function loopInitializer(input: {
     }
     if (ge?.gate2Passed === true) ctx.scanCounters.gate2Pass++;
     if (ge?.gate3Passed === true) ctx.scanCounters.gate3Pass++;
+    const gateLayerSummary = (stock as unknown as { gateLayerSummary?: { gate3?: { consolidatedDiagnostic?: unknown } } }).gateLayerSummary;
+    const lastTrigger = gateLayerSummary?.gate3?.consolidatedDiagnostic && typeof gateLayerSummary.gate3.consolidatedDiagnostic === 'object'
+      ? (gateLayerSummary.gate3.consolidatedDiagnostic as Record<string, unknown>).lastTrigger
+      : undefined;
+    if (lastTrigger && typeof lastTrigger === 'object' && ((lastTrigger as Record<string, unknown>).fired === true || (lastTrigger as Record<string, unknown>).status === 'FIRED')) {
+      ctx.scanCounters.lastTriggerPass++;
+    }
   } catch (e) {
     console.warn('[ADR-0120] Gate pass 移댁슫???꾩쟻 ?ㅽ뙣:', e);
   }

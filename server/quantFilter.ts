@@ -268,6 +268,7 @@ export const CONDITION_KEYS = {
   SUPPLY_CONFLUENCE: 'supply_confluence',
   EARNINGS_QUALITY:  'earnings_quality',
   TREND_ACCELERATION: 'trend_acceleration',
+  LAST_TRIGGER:      'last_trigger',
 } as const;
 
 export type ConditionKey = (typeof CONDITION_KEYS)[keyof typeof CONDITION_KEYS];
@@ -293,6 +294,7 @@ export const DEFAULT_CONDITION_WEIGHTS: ConditionWeights = {
   supply_confluence: 1.2,
   earnings_quality:  0.7,
   trend_acceleration: 1.0,
+  last_trigger:      1.0,
 };
 
 const CONDITION_WEIGHT_MIN = 0.1;
@@ -328,7 +330,21 @@ export const GATE_CONDITION_LAYER_MAP: Record<ConditionKey, GateLayerName> = {
   supply_confluence: 'gate2',
   earnings_quality: 'gate2',
   trend_acceleration: 'gate2',
+  last_trigger: 'gate3',
 };
+
+export const SERVER_GATE3_EVALUATOR_KEYS = [
+  'momentum',
+  'volume_breakout',
+  'turtle_high',
+  'breakout_momentum',
+  'vcp',
+  'volume_surge',
+  'rsi_zone',
+  'macd_bull',
+  'pullback',
+  'last_trigger',
+] as const satisfies readonly ConditionKey[];
 
 function emptyGateLayerBucket(): GateLayerBucket {
   return {

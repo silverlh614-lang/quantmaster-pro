@@ -35,11 +35,14 @@ function validPrice(v: unknown): number | null {
 // 아이디어 5: 확장된 Yahoo 시세 인터페이스 (MA/고가/ATR/RSI/MACD + 가속도 포함)
 export interface YahooQuoteExtended {
   price: number;
+  currentPrice?: number;
+  close?: number;
   dayOpen: number;         // 당일 시가
   prevClose: number;       // 전일 종가
   changePercent: number;
   volume: number;
   avgVolume: number;
+  avgVolume20d?: number;
   ma5: number;             // 5일 이동평균
   ma20: number;            // 20일 이동평균
   ma60: number;            // 60일 이동평균
@@ -87,6 +90,17 @@ export interface YahooQuoteExtended {
    * 옵셔널 — 기존 호출자 후방호환.
    */
   priceMetadata?: PriceBase;
+  entryPriceAgeSec?: number;
+  priceAsOf?: string;
+  entryPriceSource?: string;
+  rawEntryPrice?: number;
+  adjustedEntryPrice?: number;
+  driftPct?: number;
+  rrr?: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  falseBreakoutRisk?: string;
+  priceFreshness?: string;
   /**
    * ADR-0091 PR-Z4 + ADR-0411/0502 — price data quality marker.
    * KIS fresh current price is primary. Yahoo can still be fetched for diagnostics,

@@ -60,7 +60,7 @@ describe('SectorEnergy official index master diagnostics', () => {
       stockBasketCount: 0,
       aliasResolvedCount: 0,
       unsafeAliasCount: 0,
-      topMissingSectorNames: [],
+      topMissingSectorNames: [] as string[],
       selectedSectorEnergySourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
       officialIndexApiSucceeded: true,
       containsUnsafeAliasInPromotionTarget: false,
