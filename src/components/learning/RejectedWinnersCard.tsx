@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard — Rejected Winners 카드 (거짓 부정율, ADR-0180)
+// @responsibility Learning Diagnostics Dashboard — Rejected Winners 카드 (거짓 부정율, ADR-0180)
 import * as React from 'react';
 import type { ClientRejectionShadowSummary } from '../../api/learningDashboardClient';
 

@@ -288,7 +288,7 @@ export function evaluateFeedbackLoop(
  * dispatchAlert(JOURNAL) + sendPrivateAlert 일괄 발송.
  *
  * pauseStatus.paused=true + 신규 감지 시점에만 호출. 만료 / shadow / 기존 pause
- * 유지 시에는 호출하지 않음 (24h dedupe 는 서버에서 추가 보장).
+ * 유지 시에는 호출하지 않음 (24h dedupe 는 서버에서 추가 유지).
  */
 export function buildDriftAlertPayload(
   weights: Record<number, number>,

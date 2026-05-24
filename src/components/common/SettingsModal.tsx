@@ -1,6 +1,6 @@
 // @responsibility common 영역 SettingsModal 컴포넌트 (UIVerbosityToggle 임베드 — ADR-0100)
 import React from 'react';
-import { Settings, Key, Trash2, ExternalLink, Layers } from 'lucide-react';
+import { Settings, Key, Trash2, ExternalLink, Layers, Stethoscope } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../../ui/modal';
 import { Button } from '../../ui/button';
 import { cn } from '../../ui/cn';
@@ -13,6 +13,7 @@ export function SettingsModal() {
     showSettings, setShowSettings,
     theme, setTheme,
     userApiKey, setUserApiKey,
+    showOperatorDiagnostics, setShowOperatorDiagnostics,
   } = useSettingsStore();
 
   return (
@@ -69,6 +70,35 @@ export function SettingsModal() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Operator diagnostics — ADR-537 */}
+        <div className="space-y-2 rounded-xl border border-theme-border bg-white/[0.03] p-3">
+          <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest flex items-center gap-2">
+            <Stethoscope className="w-3.5 h-3.5" />
+            Operator Diagnostics
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowOperatorDiagnostics(!showOperatorDiagnostics)}
+            className={cn(
+              'w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all',
+              showOperatorDiagnostics
+                ? 'border-blue-500/30 bg-blue-500/10 text-blue-200'
+                : 'border-theme-border bg-theme-surface text-theme-text-secondary hover:bg-theme-border',
+            )}
+          >
+            <span className="text-xs font-black">
+              {showOperatorDiagnostics ? '운영자 진단 메뉴 표시 중' : '운영자 진단 메뉴 숨김'}
+            </span>
+            <span className="text-[10px] font-black uppercase tracking-wider">
+              {showOperatorDiagnostics ? 'ON' : 'OFF'}
+            </span>
+          </button>
+          <p className="text-[11px] text-theme-text-muted leading-snug">
+            일반 화면에는 raw log, provider response, execution trace, SourceSnapshot 원자료를 숨깁니다.
+            이 토글은 운영자 메뉴 노출만 바꾸며 Shadow Learning과 리포트 생성은 계속 유지됩니다.
+          </p>
         </div>
 
         {/* UI 정보 밀도 — ADR-0100 (사용자 #12) */}

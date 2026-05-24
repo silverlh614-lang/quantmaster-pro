@@ -19,8 +19,13 @@ export type View =
   | 'SHADOW_LEARNING'
   | 'PUBLIC_REPORT'
   | 'BLOG_EXPORT'
+  | 'TELEGRAM_SUMMARY'
+  | 'PAID_PREVIEW'
   | 'DIAGNOSTICS'
-  | 'LEARNING_SANITY';
+  | 'LEARNING_SANITY'
+  | 'PROVIDER_HEALTH'
+  | 'EXECUTION_TRACE'
+  | 'RAW_SNAPSHOT';
 export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
 export type PublicReportViewMode = 'OPERATION_MODE' | 'PUBLIC_REPORT_MODE' | 'PAID_PREVIEW_MODE';
 /**
@@ -97,6 +102,8 @@ interface SettingsState {
   setAutoTradeViewMode: (mode: ViewDensity) => void;
   publicReportViewMode: PublicReportViewMode;
   setPublicReportViewMode: (mode: PublicReportViewMode) => void;
+  showOperatorDiagnostics: boolean;
+  setShowOperatorDiagnostics: (enabled: boolean) => void;
 
   // 자동매매 관제실 활성 탭 (영속)
   autoTradeActiveTab: AutoTradeTabId;
@@ -168,6 +175,8 @@ export const useSettingsStore = create<SettingsState>()(
       setAutoTradeViewMode: (autoTradeViewMode) => set({ autoTradeViewMode }),
       publicReportViewMode: 'OPERATION_MODE',
       setPublicReportViewMode: (publicReportViewMode) => set({ publicReportViewMode }),
+      showOperatorDiagnostics: false,
+      setShowOperatorDiagnostics: (showOperatorDiagnostics) => set({ showOperatorDiagnostics }),
 
       // 자동매매 활성 탭
       autoTradeActiveTab: 'positions',
@@ -194,6 +203,7 @@ export const useSettingsStore = create<SettingsState>()(
         subscribedSectors: state.subscribedSectors,
         autoTradeViewMode: state.autoTradeViewMode,
         publicReportViewMode: state.publicReportViewMode,
+        showOperatorDiagnostics: state.showOperatorDiagnostics,
         autoTradeActiveTab: state.autoTradeActiveTab,
         uiVerbosity: state.uiVerbosity,
       }),

@@ -66,7 +66,7 @@ export function classifyAutoTradeContextFromNow(now: Date = new Date()): AutoTra
   return classifyAutoTradeContext(mode, now);
 }
 
-// 테스트 결정성 보장용 export — 프로덕션 코드에서 직접 호출 금지.
+// 테스트 결정성 확인용 export — 프로덕션 코드에서 직접 호출 금지.
 export const __MARKET_OPEN_GUARD__ = isMarketOpen;
 
 /**

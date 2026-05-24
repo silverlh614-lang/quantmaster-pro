@@ -223,7 +223,7 @@ function computeBasePositionSize(ctx: {
   if (ctx.cashRatio > 30) {
     riskReductionPct += Math.min(30, ctx.cashRatio - 30); // 현금 비율 초과분 (최대 30%)
   }
-  // 최대 감쇄 70% — 최소 포지션 30% 보장 (적극적 매수 지원)
+  // 최대 감쇄 70% — 최소 포지션 30% 유지 (적극적 매수 지원)
   const effectiveReduction = Math.min(70, riskReductionPct) / 100;
   if (effectiveReduction > 0) {
     positionSize *= (1 - effectiveReduction);

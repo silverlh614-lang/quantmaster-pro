@@ -3,7 +3,7 @@
  * useEngineHeartbeat — 서버 cron tick 의 "실제 가동" 을 UI 측에서 감시.
  *
  * Railway 14분 self-ping 은 프로세스 생존만 증명할 뿐, cron 루프가 실제로
- * 돌고 있는지는 보장하지 않는다. 이 훅은 `engineStatus.heartbeat.at` 과
+ * 돌고 있는지는 확인하지 않는다. 이 훅은 `engineStatus.heartbeat.at` 과
  * 클라이언트 현재 시각 차이가 임계값을 넘으면 `isStale=true` 를 반환하여
  * 상단 적색 배너 노출 트리거를 제공한다.
  *

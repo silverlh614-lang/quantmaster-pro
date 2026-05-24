@@ -339,7 +339,7 @@ export function TradingSettingsPanel() {
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-black text-theme-text">포지션 한도</h4>
             <p className="text-[10px] text-theme-text-muted mt-0.5">
-              단일 종목에 대한 최대 포트폴리오 비중을 제한합니다. 집중 투자 리스크를 방지하여 분산 효과를 유지합니다.
+              단일 종목에 대한 최대 포트폴리오 비중을 제한합니다. 집중 투자 리스크를 낮추고 분산 원칙을 유지합니다.
             </p>
           </div>
           <Toggle
@@ -474,7 +474,7 @@ export function TradingSettingsPanel() {
             <h4 className="text-sm font-black text-theme-text">OCO 자동 등록</h4>
             <p className="text-[10px] text-theme-text-muted mt-0.5">
               진입 시 손절/익절 주문을 동시에 등록합니다 (One-Cancels-Other). 한쪽이 체결되면 반대 주문은 자동 취소됩니다.
-              감정적 매매를 방지하고 기계적 실행을 보장합니다.
+              감정적 매매를 줄이고 기계적 실행 원칙을 유지합니다.
             </p>
           </div>
           <Toggle

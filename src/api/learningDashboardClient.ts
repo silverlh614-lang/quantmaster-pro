@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard 클라이언트 SDK — ADR-0177 endpoint 2종 fetch + 타입 동기 사본 (절대 규칙 #3 준수).
+// @responsibility Learning Diagnostics Dashboard 클라이언트 SDK — ADR-0177 endpoint 2종 fetch + 타입 동기 사본 (절대 규칙 #3 준수).
 /**
  * learningDashboardClient.ts — ADR-0178 Phase 4-B-1
  *

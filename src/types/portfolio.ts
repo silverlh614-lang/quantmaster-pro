@@ -401,7 +401,7 @@ export interface TradeRecord {
 /**
  * 추천 발령 시점부터 사용자 행동(매수→매도) 까지의 전 lifecycle 영속 단위.
  *
- * 자기학습 5계층 확장 시리즈 PR-B 의 핵심 SSOT — 사용자가 받은 AI 추천이
+ * 자기학습 5계층 확장 시리즈 PR-B 의 핵심 SSOT — 사용자가 받은 후보 판정이
  * 실제로 얼마나 적중했는지(adoption rate, hit rate, avg return) 정량화한다.
  *
  * 서버 `recommendationTracker.RecommendationRecord` 와 별개:

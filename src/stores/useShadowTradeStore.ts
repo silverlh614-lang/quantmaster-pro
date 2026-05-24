@@ -15,7 +15,7 @@ import { autoTradeApi, type ServerShadowTrade } from '../api';
  *
  * 지금은:
  *   - `addShadowTrade` 가 스토어 내부에서 즉시 optimistic 로컬 업데이트 →
- *     서버 POST → 실패 시 자동 롤백. 어떤 호출자가 쓰든 서버 동기화가 보장된다.
+ *     서버 POST → 실패 시 자동 롤백. 어떤 호출자가 쓰든 서버 동기화를 유지한다.
  *   - `hydrateFromServer` 가 서버 상태를 권위 있는 스냅샷으로 반영한다.
  *     (폴링은 호출부에서 `usePolledFetch` 로 주기 호출.)
  */

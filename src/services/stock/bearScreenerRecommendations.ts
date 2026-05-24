@@ -53,7 +53,7 @@ export async function getBearScreenerRecommendations(filters?: StockFilters): Pr
       5. 각 종목의 실시간 주가 및 시가총액 교차검증 필수
 
       [Bear Screener 15개 방어 조건 평가]
-      각 추천 종목에 대해 다음 15개 조건을 True/False로 평가하여 'checklist'에 포함하라:
+      각 시스템 후보에 대해 다음 15개 조건을 True/False로 평가하여 'checklist'에 포함하라:
       방어주 조건: dividendYield3pct, essentialConsumerSector, telcoUtilitySector, lowBeta
       역주기주 조건: bondEtfCandidate, goldEtfHedge, dollarEtfSurge, negativeCorrelation
       숏 수혜주 조건: roeAbove15, perBelowSectorAvg, shortInterestDeclining, oversoldFundamentalsIntact

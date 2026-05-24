@@ -86,7 +86,7 @@ export class PositionEventBus {
 
   /**
    * 이벤트 발행.
-   * 동기 핸들러는 순서 보장, 비동기 핸들러는 fire-and-forget (await 없이 병렬 실행).
+   * 동기 핸들러는 순서 유지, 비동기 핸들러는 fire-and-forget (await 없이 병렬 실행).
    * 한 핸들러 실패가 다른 핸들러를 막지 않도록 try/catch로 격리.
    */
   publish(event: PositionEvent): void {

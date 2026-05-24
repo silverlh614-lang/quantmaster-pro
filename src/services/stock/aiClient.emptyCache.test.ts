@@ -1,7 +1,7 @@
 /**
  * @responsibility aiClient getCachedAIResponse 의 빈 응답 read 무효화 회귀
  *
- * 사용자 보고 "AI 추천 버튼 누르면 바로 완료되었다고 뜨고 아무것도 안 검색됨" 의
+ * 사용자 보고 "후보 판정 버튼 누르면 바로 완료되었다고 뜨고 아무것도 안 검색됨" 의
  * 핵심 원인 — 이전 버전이 빈 recommendations 를 캐시에 저장한 뒤 read 경로가
  * 그대로 반환하여 24h 동안 박제되던 구조 해소.
  */

@@ -50,7 +50,7 @@ function detectBuyingHaltedConflict(
  * 시장 레짐 자동 분류기 결과만 입력 받아 BUYING_HALTED 충돌 1건을 검사한다.
  *
  * dynamicStop / lifecycle 입력은 더 이상 받지 않는다(RegimeContext 도입으로
- * 양측 파라미터 동기화가 컴파일 타임에 보장됨).
+ * 양측 파라미터 동기화가 컴파일 타임에 확인됨).
  */
 export function checkSystemInterference(
   regimeResult: MarketRegimeClassifierResult | null,

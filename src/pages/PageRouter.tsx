@@ -130,9 +130,15 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
               <ShadowLearningPage />
             ) : view === 'PUBLIC_REPORT' ? (
               <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" />
-            ) : view === 'BLOG_EXPORT' ? (
+            ) : view === 'BLOG_EXPORT' || view === 'TELEGRAM_SUMMARY' ? (
               <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" />
-            ) : view === 'DIAGNOSTICS' || view === 'LEARNING_SANITY' ? (
+            ) : view === 'PAID_PREVIEW' ? (
+              <PublicReportPage preferredMode="PAID_PREVIEW_MODE" />
+            ) : view === 'DIAGNOSTICS'
+              || view === 'LEARNING_SANITY'
+              || view === 'PROVIDER_HEALTH'
+              || view === 'EXECUTION_TRACE'
+              || view === 'RAW_SNAPSHOT' ? (
               <LearningSanityDashboardPage />
             ) : view === 'WALK_FORWARD' ? (
               <WalkForwardView />

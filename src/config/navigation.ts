@@ -8,7 +8,7 @@ import type { ElementType } from 'react';
 import {
   Zap, Search, Bookmark, Filter, Radar, Calculator,
   History, Shield, Activity, TrendingUp, Layers, Globe, Trophy, Brain,
-  FileText, FileOutput, Stethoscope,
+  FileText, FileOutput, Stethoscope, Send, BadgeDollarSign, Server, ScrollText, Database,
 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
 
@@ -64,6 +64,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'PUBLIC_REPORT', label: 'Public Report', icon: FileText },
       { id: 'BLOG_EXPORT', label: 'Blog Export', icon: FileOutput },
+      { id: 'TELEGRAM_SUMMARY', label: 'Telegram Summary', icon: Send },
+      { id: 'PAID_PREVIEW', label: 'Paid Preview', icon: BadgeDollarSign },
     ],
   },
   {
@@ -72,14 +74,19 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'MACRO_INTEL', label: 'Macro Intel', icon: Globe },
       { id: 'DIAGNOSTICS', label: 'Diagnostics', icon: Stethoscope },
-      { id: 'LEARNING_SANITY', label: 'Learning Sanity', icon: Activity },
+      { id: 'PROVIDER_HEALTH', label: 'Provider Health', icon: Server },
+      { id: 'EXECUTION_TRACE', label: 'Execution Trace', icon: ScrollText },
+      { id: 'LEARNING_SANITY', label: 'Learning Diagnostics', icon: Activity },
+      { id: 'RAW_SNAPSHOT', label: 'Raw Snapshot', icon: Database },
     ],
   },
 ];
 
-export function isOperatorNavigationEnabled(): boolean {
+export function isOperatorNavigationEnabled(settingsShowOperatorDiagnostics = false): boolean {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-  return env?.VITE_QMP_OPERATOR_MODE === 'true';
+  return settingsShowOperatorDiagnostics
+    || env?.VITE_QMP_OPERATOR_MODE === 'true'
+    || env?.VITE_ENABLE_OPERATOR_UI === 'true';
 }
 
 export function getVisibleNavGroups(operatorMode = isOperatorNavigationEnabled()): NavGroup[] {
@@ -108,6 +115,8 @@ export const MORE_MOBILE_TABS: NavItem[] = [
   { id: 'SHADOW_LEARNING', label: 'Shadow', icon: Brain },
   { id: 'RECOMMENDATION_HISTORY', label: '판정 이력', icon: Trophy },
   { id: 'BLOG_EXPORT', label: 'Blog Export', icon: FileOutput },
+  { id: 'TELEGRAM_SUMMARY', label: 'Telegram', icon: Send },
+  { id: 'PAID_PREVIEW', label: 'Paid', icon: BadgeDollarSign },
   { id: 'SCREENER', label: '스크리너', icon: Filter },
   { id: 'SUBSCRIPTION', label: '섹터', icon: Radar },
   { id: 'MANUAL_INPUT', label: '수동 퀀트', icon: Calculator },

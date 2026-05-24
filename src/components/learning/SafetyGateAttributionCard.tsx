@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard — Safety Gate Attribution 7 GateName 결과 카드 (ADR-0178)
+// @responsibility Learning Diagnostics Dashboard — Safety Gate Attribution 7 GateName 결과 카드 (ADR-0178)
 import * as React from 'react';
 import {
   ALL_GATE_NAMES,

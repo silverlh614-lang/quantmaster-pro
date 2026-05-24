@@ -1,7 +1,7 @@
 /**
  * @responsibility enrichStockWithRealData aiFallback Naver closePrice 보강 회귀 — 2026-04-24
  *
- * 사용자 보고: AI 추천 카드는 보이지만 가격이 모두 "-" 로 표시됨. 원인은 장외/주말에
+ * 사용자 보고: 후보 판정 카드는 보이지만 가격이 모두 "-" 로 표시됨. 원인은 장외/주말에
  * fetchHistoricalData 가 null 반환 → aiFallback 진입 → Gemini 가 currentPrice=0 으로
  * 응답 → applyTradingFieldFallbacks 도 currentPrice<=0 이면 비활성화. Naver snapshot 의
  * closePrice(전일 종가) 로 보강해 사용자에게 "참고 가격" 을 노출한다.

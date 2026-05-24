@@ -115,7 +115,7 @@ export interface MarketNeutralLeg {
   weightPct: number;               // 비중 (%)
   label: string;                   // 표시 라벨
   description: string;             // 설명
-  examples: string[];              // 추천 종목/ETF 예시
+  examples: string[];              // 시스템 후보/ETF 예시
 }
 
 /** 베타 중립화 시나리오 — 시장 하락 시 손익 시뮬레이션 */

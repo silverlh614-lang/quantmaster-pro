@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard — Unresolved Counterfactuals 카드 (학습 입력 진단, ADR-0182)
+// @responsibility Learning Diagnostics Dashboard — Unresolved Counterfactuals 카드 (학습 입력 진단, ADR-0182)
 import * as React from 'react';
 import type { ClientCounterfactualUnresolvedStats } from '../../api/learningDashboardClient';
 

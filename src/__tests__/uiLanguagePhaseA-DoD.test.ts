@@ -49,7 +49,7 @@ describe('Phase A DoD — UI Language SSOT 종료 선언 (ADR-0094)', () => {
   });
 
   it('DoD-2b: useUILang.ts 파일이 7 메서드 + raw 정의', () => {
-    // 파일 정적 검증 — renderHook 없이도 contract 보장 (jsdom 환경 미지원 시에도 작동)
+    // 파일 정적 검증 — renderHook 없이도 contract 확인 (jsdom 환경 미지원 시에도 작동)
     const hookSource = readFileSync(join(ROOT, 'src/hooks/useUILang.ts'), 'utf-8');
     expect(hookSource).toContain('nav:');
     expect(hookSource).toContain('card:');
@@ -123,9 +123,9 @@ describe('Phase A DoD — UI Language SSOT 종료 선언 (ADR-0094)', () => {
       expect(existsSync(filePath), `${file} 부재`).toBe(true);
     }
     // 본 PR 5 파일은 모두 ALLOWED_FILES 화이트리스트 — 검증 스크립트가 자기 자신/SSOT/테스트
-    // 를 검사 제외하므로 위반 0건이 자연 보장됨.
+    // 를 검사 제외하므로 위반 0건이 자연스럽게 유지됨.
     // 추가로 신규 파일이 *값* 으로 금지 표현을 가지지 않는 것은 uiLanguage.test.ts 의
-    // "SSOT 자체는 금지 표현 안 가짐 (메타 검증)" 케이스가 별도 보장.
+    // "SSOT 자체는 금지 표현 안 가짐 (메타 검증)" 케이스가 별도 확인.
   });
 
   // ============================================================

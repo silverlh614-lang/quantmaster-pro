@@ -107,6 +107,6 @@ describe('useUILang() hook', () => {
     const first = result.current;
     rerender();
     const second = result.current;
-    expect(first).toBe(second); // useMemo 로 동일 객체 보장
+    expect(first).toBe(second); // useMemo 로 동일 객체 유지
   });
 });

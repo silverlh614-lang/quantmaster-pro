@@ -116,7 +116,7 @@ export const getMarketPhaseInfo = (phase?: string) => {
       };
     case 'SIDEWAYS':
       return {
-        label: '횡보장 (Sideways)',
+        label: '박스권 (Sideways)',
         description: '시장이 뚜렷한 방향성 없이 박스권에서 움직이고 있습니다.',
         recommendation: '박스권 매매 및 개별 종목 장세 대응',
         color: 'text-blue-400'

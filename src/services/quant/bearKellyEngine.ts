@@ -61,7 +61,7 @@ export function evaluateBearKelly(
   const rawP = bearRegimeResult.conditions.length > 0
     ? bearRegimeResult.triggeredCount / bearRegimeResult.conditions.length
     : 0;
-  // p = Bear Mode 활성 시 rawP에 0.5 하한 적용 (최소한의 Bear 신뢰도 보장);
+  // p = Bear Mode 활성 시 rawP에 0.5 하한 적용 (최소한의 Bear 신뢰도 유지);
   // Bear Mode가 아닐 때는 0으로 처리
   const weightedP = rawP * (1 + Math.max(0, inverseEntryWeightPct) / 100);
   const p = isActive ? Math.max(0.5, Math.min(weightedP, 1.0)) : 0;

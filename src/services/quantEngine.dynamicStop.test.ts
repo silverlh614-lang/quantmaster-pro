@@ -300,7 +300,7 @@ describe('evaluateDynamicStop — ADR-0079 BEP Glide 통합', () => {
     expect(result.bepProtection).toBe(true);
   });
 
-  it('+5% & ATR=0 (회귀 보장): trailingStopPrice = entryPrice (기존 동작)', () => {
+  it('+5% & ATR=0 (회귀 확인): trailingStopPrice = entryPrice (기존 동작)', () => {
     const result = evaluateDynamicStop(input({
       entryPrice: 10000,
       atr14: 0,

@@ -6,7 +6,7 @@
  *   evaluateDynamicStop({ ...input, regime: ctx.dynamicStopRegime });
  *   evaluatePositionLifecycle(state, ctx);
  *
- * 보장:
+ * 유지 조건:
  *   - dynamicStopRegime, lifecycle.{exitPrep,fullExit}BreachCount, buyingHalted,
  *     positionSizeLimitPct 모두 분류 결과로부터 자동 도출.
  *   - 한 번 생성된 컨텍스트의 필드는 변경 불가(Readonly).

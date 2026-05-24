@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard — Stale Reflections 카드 (자기학습 모듈 자연선택, ADR-0181)
+// @responsibility Learning Diagnostics Dashboard — Stale Reflections 카드 (자기학습 모듈 자연선택, ADR-0181)
 import * as React from 'react';
 import type {
   ClientReflectionImpactSummary,

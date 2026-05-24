@@ -98,7 +98,7 @@ async function sendNotification(stock: StockRecommendation, level: PriceAlertLev
     }
   }
 
-  // Fallback: 클래식 Notification API (foreground 탭에서만 보장)
+  // Fallback: 클래식 Notification API (foreground 탭에서만 동작)
   try {
     new Notification(title, { body, tag });
   } catch {

@@ -307,7 +307,7 @@ export function applyTradingFieldFallbacks<
 
 export async function enrichStockWithRealData(stock: StockRecommendation): Promise<StockRecommendation> {
   // Fix 2 + 2026-04-24 추가 — enrich 실패 경로에서 currentPrice 가 0 으로 남는 문제 해소.
-  // 사용자 체감: AI 추천 카드는 보이지만 가격이 모두 "-" 로 표시되어 "표시 안 됨" 으로 인지.
+  // 사용자 체감: 후보 판정 카드는 보이지만 가격이 모두 "-" 로 표시되어 "표시 안 됨" 으로 인지.
   // 원인: 장외/주말에 fetchHistoricalData 가 null 반환 → aiFallback 진입 → Gemini 가
   //       프롬프트 지시대로 currentPrice=0 으로 응답 → applyTradingFieldFallbacks 도
   //       currentPrice<=0 이면 비활성화. Naver snapshot 의 closePrice(전일 종가) 로 보강.

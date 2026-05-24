@@ -8,7 +8,7 @@
  * 3. getBatchMarketIntel()  — globalCorrelation + fomcSentiment
  *
  * Google Search 12회 → 3회로 압축. 공유 컨텍스트로 응답 품질 향상 + 비용 75% 절감.
- * 개별 캐시에도 동시 저장 → 기존 개별 함수 호출 시 캐시 히트 보장.
+ * 개별 캐시에도 동시 저장 → 기존 개별 함수 호출 시 캐시 히트 유지.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -29,7 +29,7 @@ import { clientWarn } from '../utils/clientWarn';
 
 /**
  * 모듈 레벨 레이트 리미터.
- * Gemini 무료 티어 RPM 초과 방지 — 배치 3개 호출 사이 최소 2초 간격 보장.
+ * Gemini 무료 티어 RPM 초과 방지 — 배치 3개 호출 사이 최소 2초 간격 유지.
  */
 let lastGeminiCallTime = 0;
 const GEMINI_CALL_INTERVAL = 2000;

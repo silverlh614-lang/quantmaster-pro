@@ -476,7 +476,7 @@ export function BearModeSimulatorPanel({ inputs, onInputsChange, result }: BearM
               ))}
             </div>
             <p className="text-[8px] text-theme-text-muted mt-2">
-              * 과거 시나리오 기반 시뮬레이션이며, 실제 미래 수익을 보장하지 않습니다.
+              * 과거 시나리오 기반 시뮬레이션이며, 실제 미래 수익을 예측하거나 약속하지 않습니다.
             </p>
           </div>
         </div>

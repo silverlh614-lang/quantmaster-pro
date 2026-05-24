@@ -50,7 +50,7 @@ function buildMarketSection(ctx: MarketContext | null): ReportSection {
 
 function buildStocksSection(stocks: StockRecommendation[]): ReportSection {
   if (stocks.length === 0) {
-    return { title: '추천 종목', body: '- 추천 종목 없음 (현금 비중 확대 권장)' };
+    return { title: '시스템 후보', body: '- 시스템 후보 없음 (현금 비중 확대 권장)' };
   }
   const lines = stocks.slice(0, 10).map((s) => {
     const passedCount = Object.values(s.checklist || {}).filter(Boolean).length;
@@ -63,11 +63,11 @@ function buildStocksSection(stocks: StockRecommendation[]): ReportSection {
     const target = fmtNum(s.targetPrice);
     return `- **${s.name}** (${s.code}) — ${type} | 목표가 ${target}원 | 체크리스트 ${passedCount}/27 통과 (주요: ${passedKeys || 'N/A'})`;
   });
-  return { title: '추천 종목 분석', body: lines.join('\n') };
+  return { title: '시스템 후보 분석', body: lines.join('\n') };
 }
 
 function buildRiskSection(stocks: StockRecommendation[]): ReportSection {
-  if (stocks.length === 0) return { title: '리스크 요약', body: '- 추천 종목이 없어 리스크 요약 생략.' };
+  if (stocks.length === 0) return { title: '리스크 요약', body: '- 시스템 후보가 없어 리스크 요약 생략.' };
   const allRisks = new Set<string>();
   for (const s of stocks) {
     for (const r of s.riskFactors ?? []) {
@@ -94,7 +94,7 @@ function buildHeader(stocks: StockRecommendation[], ctx: MarketContext | null): 
 
 /**
  * 결정적 리포트 본문 생성 — Gemini 호출 없음.
- * 추천 종목·체크리스트·시장 지표를 마크다운 섹션으로 조립.
+ * 시스템 후보·체크리스트·시장 지표를 마크다운 섹션으로 조립.
  */
 export function buildReportBody(
   recommendations: StockRecommendation[],

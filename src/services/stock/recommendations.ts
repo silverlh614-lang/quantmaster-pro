@@ -1,6 +1,6 @@
 // @responsibility stock recommendations 서비스 모듈
 /**
- * recommendations.ts — AI 추천 오케스트레이터
+ * recommendations.ts — 후보 판정 오케스트레이터
  *
  * mode에 따라 적절한 서브모듈로 라우팅합니다:
  *   momentumRecommendations.ts    — MOMENTUM / EARLY_DETECT 모드

@@ -93,7 +93,7 @@ export function TimeBand({
   const remainingPct = useMemo(() => computeRemainingPct(createdAt, expiresAt, now), [createdAt, expiresAt, now]);
   const grade = useMemo(() => classifyTimeBandGrade(remainingPct), [remainingPct]);
 
-  // onExpire ref 패턴 — props 변화로 인한 useEffect 재실행 시 stale closure 회피 + 1회 호출 보장
+  // onExpire ref 패턴 — props 변화로 인한 useEffect 재실행 시 stale closure 회피 + 1회 호출 유지
   const onExpireRef = useRef(onExpire);
   useEffect(() => {
     onExpireRef.current = onExpire;

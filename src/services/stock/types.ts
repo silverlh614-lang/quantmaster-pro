@@ -457,7 +457,7 @@ export interface RecommendationResponse {
   marketContext: MarketContext;
   recommendations: StockRecommendation[];
   /**
-   * 사용자에게 노출할 안내 메시지. AI 추천 universe 발굴이 degrade 되었거나
+   * 사용자에게 노출할 안내 메시지. 후보 판정 universe 발굴이 degrade 되었거나
    * (Google 미설정·예산 초과) fallback seed 가 사용된 경우 그 사유를 기록한다.
    * 있으면 프론트엔드가 `toast.warning` 등으로 표시한다. 비어있으면 생략.
    */

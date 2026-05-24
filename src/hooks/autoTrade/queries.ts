@@ -3,7 +3,7 @@
  * Auto-Trade TanStack Query Hooks
  *
  * 각 엔드포인트별 `useQuery` 래퍼. 정책은 `queryKeys.ts` 의
- * `AUTO_TRADE_POLICY` 에서 주입받아 일관성을 보장한다.
+ * `AUTO_TRADE_POLICY` 에서 주입받아 일관성을 유지한다.
  *
  * 설계 원칙:
  *   - 훅은 "데이터와 상태"만 반환하고 UI 결정(렌더)은 하지 않는다.

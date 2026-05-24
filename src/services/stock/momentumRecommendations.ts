@@ -1,6 +1,6 @@
 // @responsibility stock momentumRecommendations 서비스 모듈
 /**
- * momentumRecommendations.ts — MOMENTUM / EARLY_DETECT / SMALL_MID_CAP 모드 AI 추천 로직
+ * momentumRecommendations.ts — MOMENTUM / EARLY_DETECT / SMALL_MID_CAP 모드 후보 판정 로직
  *
  * PR-25-B (ADR-0011): KIS 랭킹·KRX valuation 의존 제거. 후보 universe 발굴은
  * Google Custom Search + Naver Finance(`aiUniverseService` 통로). 자동매매 KIS
@@ -498,8 +498,8 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
 
       [시장 상황에 따른 추천 전략]
       1. 시황이 좋지 않은 경우(BEAR, VKOSPI 25 이상 등)에는 종목 추천을 최소화(0~3개)하라.
-      2. 시황이 극도로 악화된 경우 "현재는 현금 비중 확대 및 관망이 필요한 시점입니다"라는 메시지와 함께 추천 종목을 반드시 빈 배열([])로 반환하라.
-      3. 추천 종목이 있다면 최대 5개까지만 추천하여 응답의 완성도를 높여라.
+      2. 시황이 극도로 악화된 경우 "현재는 현금 비중 확대 및 관망이 필요한 시점입니다"라는 메시지와 함께 시스템 후보를 반드시 빈 배열([])로 반환하라.
+      3. 시스템 후보가 있다면 최대 5개까지만 반환하여 응답의 완성도를 높여라.
       4. **[필수]** 'reason' 필드는 해당 종목의 점수나 등급에 가장 큰 영향을 미친 구체적인 기술적 지표나 펀더멘털 요인을 반드시 포함하여 2~3문장으로 핵심만 상세히 작성하라.
       5. **[필수]** 'sectorAnalysis' 필드는 해당 종목이 속한 산업 섹터에 대한 AI 분석을 제공하라. 다음 내용을 반드시 포함해야 한다:
          - sectorName: 산업 명칭

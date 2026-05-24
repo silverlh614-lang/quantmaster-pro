@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard — Shadow vs Live Delta 5 카테고리 결과 카드 (ADR-0178)
+// @responsibility Learning Diagnostics Dashboard — Shadow vs Live Delta 5 카테고리 결과 카드 (ADR-0178)
 import * as React from 'react';
 import {
   ALL_DELTA_CATEGORIES,

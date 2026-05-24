@@ -60,7 +60,7 @@ interface RecommendationState {
   searchingSpecific: boolean;
   setSearchingSpecific: (searching: boolean) => void;
 
-  // AI 추천 universe 발굴 경고 — Google Search 미설정/예산초과/실패 시 사용자 안내.
+  // 후보 판정 universe 발굴 경고 — Google Search 미설정/예산초과/실패 시 사용자 안내.
   // toast 만으로는 사용자가 사라진 메시지를 못 보고 "버튼만 누르고 결과 없음" 으로
   // 인지하던 문제 해소 — 다음 분석 실행 시까지 배너로 영구 표시.
   recommendationWarnings: string[];

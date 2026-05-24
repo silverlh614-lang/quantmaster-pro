@@ -19,12 +19,12 @@ interface SidebarProps {
 }
 
 export function Sidebar({ asDrawer = false }: SidebarProps = {}) {
-  const { view, setView, setShowSettings, setShowMasterChecklist } = useSettingsStore();
+  const { view, setView, setShowSettings, setShowMasterChecklist, showOperatorDiagnostics } = useSettingsStore();
   const { watchlist, setSearchQuery, lastUpdated } = useRecommendationStore();
   const { tradeRecords } = useTradeStore();
   const { syncStatus } = useMarketStore();
   const { shadowTrades } = useShadowTradeStore();
-  const navGroups = useMemo(() => getVisibleNavGroups(), []);
+  const navGroups = useMemo(() => getVisibleNavGroups(showOperatorDiagnostics), [showOperatorDiagnostics]);
 
   const openTradesCount = tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length;
 

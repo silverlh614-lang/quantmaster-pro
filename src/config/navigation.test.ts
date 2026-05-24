@@ -50,12 +50,21 @@ describe('navigation SSOT — PR-I 신규 페이지 등록', () => {
   it('리포트 그룹이 Public Report / Blog Export 진입점을 제공함', () => {
     const report = NAV_GROUPS.find(g => g.label === '리포트');
     expect(report).toBeDefined();
-    expect(report?.items.map(i => i.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT']);
+    expect(report?.items.map(i => i.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT', 'TELEGRAM_SUMMARY', 'PAID_PREVIEW']);
   });
 
   it('운영자 그룹은 일반 navigation 에서 숨김 처리됨', () => {
     expect(NAV_GROUPS.some(g => g.label === '운영자')).toBe(true);
     expect(getVisibleNavGroups(false).some(g => g.label === '운영자')).toBe(false);
     expect(getVisibleNavGroups(true).some(g => g.label === '운영자')).toBe(true);
+    const operator = getVisibleNavGroups(true).find(g => g.label === '운영자');
+    expect(operator?.items.map(i => i.id)).toEqual([
+      'MACRO_INTEL',
+      'DIAGNOSTICS',
+      'PROVIDER_HEALTH',
+      'EXECUTION_TRACE',
+      'LEARNING_SANITY',
+      'RAW_SNAPSHOT',
+    ]);
   });
 });

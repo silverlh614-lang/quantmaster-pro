@@ -1,7 +1,7 @@
 /**
- * @responsibility AI 추천 universe API 클라이언트 — server/routes/aiUniverseRouter.ts 호출 (PR-25-B)
+ * @responsibility 후보 판정 universe API 클라이언트 — server/routes/aiUniverseRouter.ts 호출 (PR-25-B)
  *
- * 모든 AI 추천 경로(momentum/quantScreen/bear)와 enrichment 가 본 헬퍼를 통해
+ * 모든 후보 판정 경로(momentum/quantScreen/bear)와 enrichment 가 본 헬퍼를 통해
  * KIS/KRX 비의존 통로를 사용한다. 응답 schema 는 KRX valuation 호환 필드를 유지.
  */
 
@@ -40,7 +40,7 @@ export interface AiUniverseValuation {
 
 /**
  * 서버 AiUniverseService 가 계산한 우선순위 단일 값. 클라이언트는 이 값으로
- * "AI 추천 버튼을 눌렀는데 아무것도 나오지 않음" 에 대한 사용자 안내를 결정한다.
+ * "후보 판정 버튼을 눌렀는데 아무것도 나오지 않음" 에 대한 사용자 안내를 결정한다.
  *
  * ADR-0016 (PR-37) 에서 5-Tier fallback 구조 도입 — Tier 2/3/4 사유 신규 3값 추가.
  * 서버 `server/services/aiUniverseTypes.ts::AiUniverseSourceStatus` 와 1:1 동기 사본.
@@ -146,7 +146,7 @@ async function getJson<T>(url: string): Promise<T | null> {
 }
 
 /**
- * mode 별 AI 추천 universe 발굴.
+ * mode 별 후보 판정 universe 발굴.
  */
 export async function discoverAiUniverse(
   mode: AiUniverseMode,

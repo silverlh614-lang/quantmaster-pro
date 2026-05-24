@@ -40,7 +40,7 @@ export async function searchStock(query: string, filters?: {
   );
 
   const prompt = `
-    [절대 원칙: 실시간성 보장 및 과거 데이터 배제]
+    [절대 원칙: 실시간성 확인 및 과거 데이터 배제]
     현재 한국 시각은 ${now}입니다. (오늘 날짜: ${todayDate})
     당신은 반드시 'googleSearch' 도구를 사용하여 '현재 시점의 실시간 데이터'만을 기반으로 응답해야 합니다.
     과거의 훈련 데이터나 예시 데이터를 사용하는 것은 엄격히 금지됩니다.

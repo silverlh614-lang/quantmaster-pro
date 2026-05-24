@@ -1,4 +1,4 @@
-// @responsibility Learning Sanity Dashboard — MissedLearningQueue 4 status 카운트 카드 (ADR-0179)
+// @responsibility Learning Diagnostics Dashboard — MissedLearningQueue 4 status 카운트 카드 (ADR-0179)
 import * as React from 'react';
 import type { ClientMissedLearningQueueStats } from '../../api/learningDashboardClient';
 
