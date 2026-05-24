@@ -67,6 +67,7 @@ export interface OfficialSectorIndexMappingAttempt {
   selectedOfficialIndexName: string | null;
   selectedOfficialIndexCode: string | null;
   includedInOfficialCoverage: boolean;
+  shadowEvidenceOnly: boolean;
   verifyAttempted?: boolean;
   verified?: boolean;
   reasonCode: string;
@@ -116,26 +117,26 @@ const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
   ['bank', ['bank', 'banks']],
   ['insurance', ['insurance']],
   ['securities', ['securities', 'brokerage']],
-  ['chemical', ['chemical', 'chemicals']],
+  ['chemical', ['chemical', 'chemicals', 'chemistry']],
   ['pharma', ['pharma', 'pharmaceutical', 'healthcare']],
   ['electric electronics', ['electric electronics', 'electronics']],
-  ['machinery', ['machinery', 'machine equipment']],
+  ['machinery', ['machinery', 'machine', 'machine equipment']],
   ['construction', ['construction']],
   ['steel', ['steel', 'metal']],
-  [KR_ELECTRIC_ELECTRONICS, [KR_ELECTRIC_ELECTRONICS, 'electric electronics', 'electronics', 'semiconductor']],
+  [KR_ELECTRIC_ELECTRONICS, [KR_ELECTRIC_ELECTRONICS, 'electric electronics', 'electronics', 'semiconductor', 'chip']],
   [KR_FINANCE, ['\uAE08\uC735', KR_FINANCE, 'finance', 'financial', 'financials', 'financial']],
   [KR_INSURANCE, [KR_INSURANCE, 'insurance']],
   [KR_SECURITIES, [KR_SECURITIES, 'securities', 'brokerage']],
   [KR_BANK, [KR_BANK, 'bank', 'banks']],
-  [KR_CHEMICAL, [KR_CHEMICAL, 'chemical', 'chemicals']],
+  [KR_CHEMICAL, [KR_CHEMICAL, 'chemical', 'chemicals', 'chemistry']],
   [KR_PHARMA, [KR_PHARMA, 'pharma', 'pharmaceutical']],
-  [KR_MEDICINE, [KR_MEDICINE, 'pharma', 'pharmaceutical']],
-  [KR_TRANSPORT_EQUIPMENT, [KR_TRANSPORT_EQUIPMENT, '\uC6B4\uC1A1\uC7A5\uBE44', 'transport equipment', 'automotive', 'auto']],
-  [KR_MACHINERY, [KR_MACHINERY, 'machinery', 'machine equipment']],
+  [KR_MEDICINE, [KR_MEDICINE, 'pharma', 'pharmaceutical', 'healthcare']],
+  [KR_TRANSPORT_EQUIPMENT, [KR_TRANSPORT_EQUIPMENT, '\uC6B4\uC1A1\uC7A5\uBE44', 'transport equipment', 'automotive', 'auto', 'car']],
+  [KR_MACHINERY, [KR_MACHINERY, 'machinery', 'machine', 'machine equipment']],
   [KR_STEEL, [KR_STEEL, '\uCCA0\uAC15', 'steel', 'metal']],
-  [KR_SERVICE, [KR_SERVICE, '\uC11C\uBE44\uC2A4', 'service', 'internet', 'software', 'game', 'media']],
+  [KR_SERVICE, [KR_SERVICE, '\uC11C\uBE44\uC2A4', 'service', 'services', 'internet', 'software', 'game', 'media']],
   [KR_CONSTRUCTION, [KR_CONSTRUCTION, '\uAC74\uC124', 'construction']],
-  [KR_TRANSPORT_WAREHOUSE, [KR_TRANSPORT_WAREHOUSE, 'transport', 'transport warehouse']],
+  [KR_TRANSPORT_WAREHOUSE, [KR_TRANSPORT_WAREHOUSE, 'transport', 'transport warehouse', 'logistics']],
   [KR_DISTRIBUTION, [KR_DISTRIBUTION, 'retail', 'distribution']],
   [KR_FOOD, [KR_FOOD, 'food', 'food beverage']],
   [KR_TEXTILE, [KR_TEXTILE, 'textile']],
@@ -233,6 +234,29 @@ function officialSource(row: OfficialSectorIndexMasterRow | null | undefined): b
   return row?.sourceTier === 'OFFICIAL_KIS_SECTOR_INDEX' || row?.sourceTier === 'OFFICIAL_KRX_SECTOR_INDEX';
 }
 
+function compactNameKey(value: string): string {
+  return value.replace(/\s+/g, '');
+}
+
+function registerMasterName(
+  lookup: Map<string, OfficialSectorIndexMasterRow>,
+  key: string,
+  row: OfficialSectorIndexMasterRow,
+): void {
+  if (!key) return;
+  if (!lookup.has(key)) lookup.set(key, row);
+  const compactKey = compactNameKey(key);
+  if (compactKey && !lookup.has(compactKey)) lookup.set(compactKey, row);
+}
+
+function findMasterByName(
+  lookup: Map<string, OfficialSectorIndexMasterRow>,
+  normalizedName: string,
+): OfficialSectorIndexMasterRow | null {
+  if (!normalizedName) return null;
+  return lookup.get(normalizedName) ?? lookup.get(compactNameKey(normalizedName)) ?? null;
+}
+
 function findBySafeAlias(
   target: OfficialSectorIndexTarget,
   masterByName: Map<string, OfficialSectorIndexMasterRow>,
@@ -243,7 +267,7 @@ function findBySafeAlias(
   for (const candidate of candidates) {
     for (const [canonicalName, aliases] of SAFE_ALIAS_BY_NORMALIZED_NAME) {
       if (!aliases.includes(candidate)) continue;
-      const row = masterByName.get(canonicalName);
+      const row = findMasterByName(masterByName, normalizeOfficialSectorName(canonicalName));
       if (row) {
         candidateOfficialNames.push(row.officialIndexName);
         return { row, aliasSource: candidate, candidateOfficialNames };
@@ -264,7 +288,7 @@ function findByUnsafeAlias(
     if (!officialNames) continue;
     const candidateOfficialNames = Array.from(officialNames);
     for (const officialName of officialNames) {
-      const row = masterByName.get(normalizeOfficialSectorName(officialName));
+      const row = findMasterByName(masterByName, normalizeOfficialSectorName(officialName));
       if (row) return { row, aliasSource: candidate, candidateOfficialNames };
     }
     return { row: null, aliasSource: candidate, candidateOfficialNames };
@@ -294,6 +318,7 @@ function attemptFromRow(row: OfficialSectorIndexCodeMappingRow): OfficialSectorI
     selectedOfficialIndexName: row.selectedOfficialIndexName,
     selectedOfficialIndexCode: row.selectedOfficialIndexCode,
     includedInOfficialCoverage: row.includedInOfficialCoverage,
+    shadowEvidenceOnly: row.shadowEvidenceOnly,
     reasonCode: row.reasonCode,
   };
 }
@@ -310,7 +335,9 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
   const masterByName = new Map<string, OfficialSectorIndexMasterRow>();
   for (const row of input.masterRows) {
     masterByCode.set(row.officialIndexCode, row);
-    if (row.normalizedSectorName) masterByName.set(row.normalizedSectorName, row);
+    registerMasterName(masterByName, row.normalizedSectorName, row);
+    registerMasterName(masterByName, normalizeOfficialSectorName(row.officialIndexName), row);
+    registerMasterName(masterByName, normalizeOfficialSectorName(row.rawSectorName), row);
   }
 
   const rows: OfficialSectorIndexCodeMappingRow[] = [];
@@ -339,7 +366,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       if (matched) candidateOfficialNames.push(matched.officialIndexName);
     }
     if (!matched && normalizedName) {
-      matched = masterByName.get(normalizedName) ?? null;
+      matched = findMasterByName(masterByName, normalizedName);
       exactMatch = Boolean(matched);
       if (matched) candidateOfficialNames.push(matched.officialIndexName);
     }
@@ -420,7 +447,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         officialCoverageEligible: false,
         includedInOfficialCoverage: false,
         shadowEvidenceOnly: true,
-        reasonCode: 'UNSAFE_ALIAS_SHADOW_ONLY',
+        reasonCode: 'UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION',
       });
       continue;
     }

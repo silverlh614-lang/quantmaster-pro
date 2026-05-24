@@ -32,6 +32,9 @@ const koreanMasterRows: OfficialSectorIndexMasterRow[] = [
   officialRow('0005', '\uC804\uAE30\uC804\uC790'),
   officialRow('0011', '\uCCA0\uAC15\uAE08\uC18D'),
   officialRow('0026', '\uC11C\uBE44\uC2A4\uC5C5'),
+  officialRow('0007', '\uAE30\uACC4'),
+  officialRow('0016', '\uC6B4\uC218\uCC3D\uACE0'),
+  officialRow('0015', '\uC720\uD1B5\uC5C5'),
 ];
 
 describe('SectorIndexCodeMap', () => {
@@ -59,7 +62,7 @@ describe('SectorIndexCodeMap', () => {
       officialCoverageEligible: false,
       includedInOfficialCoverage: false,
       shadowEvidenceOnly: true,
-      reasonCode: 'UNSAFE_ALIAS_SHADOW_ONLY',
+      reasonCode: 'UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION',
     });
   });
 
@@ -68,16 +71,23 @@ describe('SectorIndexCodeMap', () => {
       masterRows: koreanMasterRows,
       targets: [
         { sectorName: 'AUTOMOTIVE' },
+        { sectorName: 'CAR' },
         { sectorName: 'SEMICONDUCTOR' },
+        { sectorName: 'CHIP' },
         { sectorName: 'STEEL' },
+        { sectorName: 'CHEMISTRY' },
+        { sectorName: 'MACHINE' },
+        { sectorName: 'LOGISTICS' },
+        { sectorName: 'DISTRIBUTION' },
+        { sectorName: 'SERVICE' },
         { sectorName: 'INTERNET' },
       ],
     });
 
-    expect(result.targetSectorCount).toBe(4);
-    expect(result.mappedSectorCount).toBe(4);
+    expect(result.targetSectorCount).toBe(11);
+    expect(result.mappedSectorCount).toBe(11);
     expect(result.officialIndexCoverage).toBe(100);
-    expect(result.safeAliasMatchCount).toBe(4);
+    expect(result.safeAliasMatchCount).toBe(11);
     expect(result.mappedSectorPairs.join('|')).toContain('AUTOMOTIVE ->');
     expect(result.rows.find((row) => row.sectorName === 'AUTOMOTIVE')).toMatchObject({
       officialIndexCode: '0012',
@@ -90,9 +100,41 @@ describe('SectorIndexCodeMap', () => {
       officialIndexCode: '0005',
       safeAliasMatch: '\uC804\uAE30\uC804\uC790',
     });
+    expect(result.rows.find((row) => row.sectorName === 'CHIP')).toMatchObject({
+      officialIndexCode: '0005',
+      safeAliasMatch: '\uC804\uAE30\uC804\uC790',
+    });
     expect(result.rows.find((row) => row.sectorName === 'STEEL')).toMatchObject({
       officialIndexCode: '0011',
       safeAliasMatch: '\uCCA0\uAC15\uAE08\uC18D',
+    });
+    expect(result.rows.find((row) => row.sectorName === 'SERVICE')).toMatchObject({
+      officialIndexCode: '0026',
+      safeAliasMatch: '\uC11C\uBE44\uC2A4\uC5C5',
+    });
+  });
+
+  it('matches Korean official names despite punctuation or whitespace variants', () => {
+    const variantMasterRows: OfficialSectorIndexMasterRow[] = [
+      officialRow('0005', '\uC804\uAE30 \uC804\uC790'),
+      officialRow('0011', '\uCCA0\uAC15 \uAE08\uC18D'),
+    ];
+    const result = mapSectorNamesToOfficialIndexCodes({
+      masterRows: variantMasterRows,
+      targets: [
+        { sectorName: 'SEMICONDUCTOR' },
+        { sectorName: 'STEEL' },
+      ],
+    });
+
+    expect(result.officialIndexCoverage).toBe(100);
+    expect(result.rows.find((row) => row.sectorName === 'SEMICONDUCTOR')).toMatchObject({
+      officialIndexCode: '0005',
+      includedInOfficialCoverage: true,
+    });
+    expect(result.rows.find((row) => row.sectorName === 'STEEL')).toMatchObject({
+      officialIndexCode: '0011',
+      includedInOfficialCoverage: true,
     });
   });
 
