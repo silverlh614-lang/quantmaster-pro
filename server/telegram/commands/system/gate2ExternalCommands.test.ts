@@ -181,6 +181,7 @@ const refreshDartCorpCodeMasterCache = vi.fn(async () => ({
   firstBytesHex: '50 4b 03 04',
   firstBytesAscii: 'PK..',
   zipOpenStatus: 'OK',
+  zipSignature: 'ZIP_FILE',
   zipEntries: ['CORPCODE.xml'],
   selectedXmlEntry: 'CORPCODE.xml',
   responsePreview: null,
@@ -213,6 +214,7 @@ vi.mock('../../../trading/gate2/dartCorpCodeMasterCache.js', () => ({
     firstBytesHex: '50 4b 03 04',
     firstBytesAscii: 'PK..',
     zipOpenStatus: 'OK',
+    zipSignature: 'ZIP_FILE',
     zipEntries: ['CORPCODE.xml'],
     selectedXmlEntry: 'CORPCODE.xml',
     responsePreview: null,
@@ -295,6 +297,7 @@ describe('Gate2 external commands', () => {
     expect(statusReplies.join('\n')).toContain('corpCodeCacheLoaded=true');
     expect(statusReplies.join('\n')).toContain('sampleMappings=005930');
     expect(statusReplies.join('\n')).toContain('selectedXmlEntry=CORPCODE.xml');
+    expect(statusReplies.join('\n')).toContain('zipSignature=ZIP_FILE');
 
     const refreshReplies: string[] = [];
     await refresh!.execute({ args: [], reply: async message => { refreshReplies.push(message); } });

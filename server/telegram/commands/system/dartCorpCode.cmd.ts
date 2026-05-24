@@ -38,6 +38,7 @@ function formatStatus(input: ReturnType<typeof getDartCorpCodeCacheStatus>): str
     `firstBytesHex=${input.firstBytesHex ?? 'NONE'}`,
     `firstBytesAscii=${input.firstBytesAscii ?? 'NONE'}`,
     `zipOpenStatus=${input.zipOpenStatus}`,
+    `zipSignature=${input.zipSignature ?? 'NOT_ZIP'}`,
     `zipEntries=${zipEntries.length > 0 ? zipEntries.join('|') : 'NONE'}`,
     `selectedXmlEntry=${input.selectedXmlEntry ?? 'NONE'}`,
     `responsePreview=${input.responsePreview ?? 'NONE'}`,

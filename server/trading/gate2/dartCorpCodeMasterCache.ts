@@ -29,6 +29,7 @@ export interface DartCorpCodeMasterCacheFile {
   selectedXmlEntry?: string | null;
   zipEntries?: string[];
   zipOpenStatus?: 'OK' | 'FAILED' | 'NOT_ATTEMPTED';
+  zipSignature?: DartCorpCodeZipSignature;
   requestUrlHost?: string | null;
   contentType?: string | null;
   contentLength?: number | null;
@@ -60,6 +61,7 @@ export interface DartCorpCodeCacheStatus {
   firstBytesHex: string | null;
   firstBytesAscii: string | null;
   zipOpenStatus: 'OK' | 'FAILED' | 'NOT_ATTEMPTED';
+  zipSignature: DartCorpCodeZipSignature;
   zipEntries: string[];
   selectedXmlEntry: string | null;
   responsePreview: string | null;
@@ -94,6 +96,8 @@ export interface DartCorpCodeFetchResponse {
   contentLength?: number | null;
 }
 
+export type DartCorpCodeZipSignature = 'ZIP_FILE' | 'ZIP_EMPTY' | 'ZIP_SPANNED' | 'NOT_ZIP';
+
 export interface DartCorpCodeCacheOptions {
   cacheFile?: string;
   apiKey?: string | null;
@@ -122,6 +126,7 @@ function emptyCache(ttlHours = DEFAULT_DART_CORP_CODE_TTL_HOURS): DartCorpCodeMa
     selectedXmlEntry: null,
     zipEntries: [],
     zipOpenStatus: 'NOT_ATTEMPTED',
+    zipSignature: 'NOT_ZIP',
     requestUrlHost: null,
     contentType: null,
     contentLength: null,
@@ -153,8 +158,17 @@ function readUInt32LE(buffer: Buffer, offset: number): number {
   return offset + 4 <= buffer.length ? buffer.readUInt32LE(offset) : 0;
 }
 
+function getZipSignatureType(buffer: Buffer): DartCorpCodeZipSignature {
+  if (buffer.length < 4) return 'NOT_ZIP';
+  if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) return 'NOT_ZIP';
+  if (buffer[2] === 0x03 && buffer[3] === 0x04) return 'ZIP_FILE';
+  if (buffer[2] === 0x05 && buffer[3] === 0x06) return 'ZIP_EMPTY';
+  if (buffer[2] === 0x07 && buffer[3] === 0x08) return 'ZIP_SPANNED';
+  return 'ZIP_FILE';
+}
+
 function isZipBuffer(buffer: Buffer): boolean {
-  return buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+  return getZipSignatureType(buffer) !== 'NOT_ZIP';
 }
 
 function firstBytesHex(buffer: Buffer, max = 16): string {
@@ -366,6 +380,18 @@ function tagValue(block: string, tag: string): string {
   return decodeXmlEntities(match?.[1] ?? '');
 }
 
+function cleanXmlString(rawXml: string): string {
+  let xml = rawXml
+    .replace(/^\uFEFF/, '')
+    .replace(/^\u00EF\u00BB\u00BF/, '')
+    .trim();
+  const xmlStart = xml.indexOf('<?xml');
+  const resultStart = xml.indexOf('<result>');
+  if (xmlStart > 0) xml = xml.slice(xmlStart);
+  else if (resultStart > 0) xml = xml.slice(resultStart);
+  return xml.trim();
+}
+
 interface ParsedDartCorpCodeXml {
   rows: DartCorpCodeMasterRow[];
   totalListCount: number;
@@ -397,7 +423,7 @@ function parseDartCorpCodeXmlDetailed(xml: string): ParsedDartCorpCodeXml {
 }
 
 export function parseDartCorpCodeXml(xml: string): DartCorpCodeMasterRow[] {
-  return parseDartCorpCodeXmlDetailed(xml).rows;
+  return parseDartCorpCodeXmlDetailed(cleanXmlString(xml)).rows;
 }
 
 function loadCacheFile(cacheFile: string): DartCorpCodeMasterCacheFile {
@@ -422,6 +448,12 @@ function loadCacheFile(cacheFile: string): DartCorpCodeMasterCacheFile {
       zipOpenStatus: parsed.zipOpenStatus === 'OK' || parsed.zipOpenStatus === 'FAILED'
         ? parsed.zipOpenStatus
         : 'NOT_ATTEMPTED',
+      zipSignature: parsed.zipSignature === 'ZIP_FILE'
+        || parsed.zipSignature === 'ZIP_EMPTY'
+        || parsed.zipSignature === 'ZIP_SPANNED'
+        || parsed.zipSignature === 'NOT_ZIP'
+        ? parsed.zipSignature
+        : 'NOT_ZIP',
       requestUrlHost: typeof parsed.requestUrlHost === 'string' ? parsed.requestUrlHost : null,
       contentType: typeof parsed.contentType === 'string' ? parsed.contentType : null,
       contentLength: typeof parsed.contentLength === 'number' ? parsed.contentLength : null,
@@ -512,6 +544,7 @@ function buildStatus(cache: DartCorpCodeMasterCacheFile, options: {
     firstBytesHex: cache.firstBytesHex ?? null,
     firstBytesAscii: cache.firstBytesAscii ?? null,
     zipOpenStatus: cache.zipOpenStatus ?? 'NOT_ATTEMPTED',
+    zipSignature: cache.zipSignature ?? 'NOT_ZIP',
     zipEntries: (cache.zipEntries ?? []).slice(0, 10),
     selectedXmlEntry: cache.selectedXmlEntry ?? null,
     responsePreview: cache.responsePreview ?? null,
@@ -563,7 +596,7 @@ function requestUrlHost(): string {
 
 function fetchDiagnostics(response: DartCorpCodeFetchResponse): Pick<
   DartCorpCodeMasterCacheFile,
-  'requestUrlHost' | 'contentType' | 'contentLength' | 'firstBytesHex' | 'firstBytesAscii' | 'responsePreview' | 'lastHttpStatus'
+  'requestUrlHost' | 'contentType' | 'contentLength' | 'firstBytesHex' | 'firstBytesAscii' | 'responsePreview' | 'lastHttpStatus' | 'zipSignature'
 > {
   return {
     requestUrlHost: requestUrlHost(),
@@ -571,6 +604,7 @@ function fetchDiagnostics(response: DartCorpCodeFetchResponse): Pick<
     contentLength: response.contentLength ?? response.body.length,
     firstBytesHex: firstBytesHex(response.body),
     firstBytesAscii: firstBytesAscii(response.body),
+    zipSignature: getZipSignatureType(response.body),
     responsePreview: isZipBuffer(response.body) ? null : safePreview(response.body),
     lastHttpStatus: response.httpStatus ?? null,
   };
@@ -597,6 +631,7 @@ export async function refreshDartCorpCodeMasterCache(
   let lastDiagnostics: Partial<DartCorpCodeMasterCacheFile> = {
     requestUrlHost: requestUrlHost(),
     zipOpenStatus: 'NOT_ATTEMPTED',
+    zipSignature: 'NOT_ZIP',
   };
   if (!apiKey) {
     const cache = saveDartCorpCodeMasterCache({
@@ -630,7 +665,7 @@ export async function refreshDartCorpCodeMasterCache(
       responsePreview: null,
     };
     const xmlBuffer = extracted.xml;
-    const xmlText = new TextDecoder('utf-8', { fatal: false }).decode(xmlBuffer);
+    const xmlText = cleanXmlString(new TextDecoder('utf-8', { fatal: false }).decode(xmlBuffer));
     const parsed = parseDartCorpCodeXmlDetailed(xmlText);
     const rows = parsed.rows;
     const parseStatus = rows.length > 0 ? 'OK' : 'EMPTY';
@@ -648,6 +683,7 @@ export async function refreshDartCorpCodeMasterCache(
         selectedXmlEntry: extracted.selectedXmlEntry,
         zipEntries: extracted.zipEntries.slice(0, 10),
         zipOpenStatus: 'OK',
+        zipSignature: getZipSignatureType(fetched.body),
         requestUrlHost: requestUrlHost(),
         contentType: fetched.contentType ?? null,
         contentLength: fetched.contentLength ?? fetched.body.length,

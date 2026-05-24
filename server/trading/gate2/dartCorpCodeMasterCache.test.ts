@@ -96,6 +96,13 @@ describe('DART corpCode master cache', () => {
     });
   });
 
+  it('cleans BOM and leading junk before parsing corpCode XML', () => {
+    const rows = parseDartCorpCodeXml(`\uFEFFnoise-before-xml${sampleXml}`);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].stockCode).toBe('000660');
+  });
+
   it('loads corpCode.xml from zip into a persistent resolver cache', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dart-corpcode-'));
     const cacheFile = path.join(dir, 'corpcode.json');
@@ -115,6 +122,7 @@ describe('DART corpCode master cache', () => {
     expect(result.listedStockCodeCount).toBe(2);
     expect(result.selectedXmlEntry).toBe('CORPCODE.xml');
     expect(result.zipOpenStatus).toBe('OK');
+    expect(result.zipSignature).toBe('ZIP_FILE');
     expect(result.zipEntries).toContain('CORPCODE.xml');
     expect(result.executionImpact).toBe('NONE');
 
@@ -175,6 +183,7 @@ describe('DART corpCode master cache', () => {
     expect(result.refreshed).toBe(true);
     expect(result.reason).toBe('OK');
     expect(result.zipOpenStatus).toBe('OK');
+    expect(result.zipSignature).toBe('ZIP_FILE');
     expect(result.selectedXmlEntry).toBe('CORPCODE.xml');
     expect(result.requestUrlHost).toBe('opendart.fss.or.kr');
     expect(result.httpStatus).toBe(200);
@@ -199,6 +208,7 @@ describe('DART corpCode master cache', () => {
     expect(result.refreshed).toBe(false);
     expect(result.reason).toBe('DART_CORPCODE_RESPONSE_NOT_ZIP');
     expect(result.zipOpenStatus).toBe('FAILED');
+    expect(result.zipSignature).toBe('NOT_ZIP');
     expect(result.responsePreview).toContain('crtfc_key=<masked>');
     expect(result.responsePreview).not.toContain('SECRET');
     expect(result.executionImpact).toBe('NONE');
