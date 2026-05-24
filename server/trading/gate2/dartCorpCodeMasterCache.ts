@@ -1,4 +1,4 @@
-// @responsibility OpenDART corpCode.xml master cache and stock_code -> corp_code resolver.
+// @responsibility OpenDART corpCode.xml master cache with stock_code -> corp_code resolver.
 
 import fs from 'node:fs';
 import path from 'node:path';

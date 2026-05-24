@@ -1,4 +1,4 @@
-// @responsibility PositionState SSOT resolver for holdings, PnL, pending state, and slot counts.
+// @responsibility PositionState SSOT resolver for holdings, PnL, pending state, slot counts.
 
 import {
   aggregatePositionSourceResults,

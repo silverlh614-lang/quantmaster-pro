@@ -1,4 +1,4 @@
-// @responsibility Candidate repetition, discovery, and sector diversity score adjustment.
+// @responsibility Candidate repetition, discovery, sector diversity score adjustment.
 
 export interface CandidateExposureHistory {
   symbol: string;

@@ -1,4 +1,4 @@
-// @responsibility KIS official program-trade normalization and passive-flow diagnostics.
+// @responsibility KIS official program-trade normalization with passive-flow diagnostics.
 
 import { KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS } from './kisOfficialEndpointRegistry.js';
 

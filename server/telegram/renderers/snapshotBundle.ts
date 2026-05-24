@@ -1,4 +1,4 @@
-// @responsibility ADR-0523 Telegram Gate/Execution/Learning snapshot bundle contracts and compact extraction helpers.
+// @responsibility ADR-0523 Telegram Gate/Execution/Learning snapshot bundle contracts with compact extraction helpers.
 
 export type TelegramVerbosity = 'COMPACT' | 'DETAIL' | 'FULL_FORENSIC' | 'DEBUG_RAW';
 export type TelegramChannelKind = 'SIGNAL' | 'OPERATOR' | 'DEBUG' | 'DM';

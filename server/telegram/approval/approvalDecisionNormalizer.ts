@@ -1,4 +1,4 @@
-// @responsibility Normalize approval actions and delivery outcomes into a common decision.
+// @responsibility Normalize approval actions, delivery outcomes into a common decision.
 
 import { emitOperationalWarn } from '../../trading/buy/operationalWarn.js';
 import type {

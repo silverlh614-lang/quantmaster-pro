@@ -1,4 +1,4 @@
-// @responsibility Position Source Aggregator for /pos and /pnl.
+// @responsibility Position Source Aggregator for /pos, /pnl.
 
 import { readLiveKisPositions } from './readers/liveKisPositionReader.js';
 import { readPaperTradePositions } from './readers/paperTradePositionReader.js';

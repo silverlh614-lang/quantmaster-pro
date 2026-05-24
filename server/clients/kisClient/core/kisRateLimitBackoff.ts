@@ -1,4 +1,4 @@
-// @responsibility KIS 429 retry-after and rate-limit backoff helpers.
+// @responsibility KIS 429 retry-after rate-limit backoff helpers.
 
 export function parseRetryAfterMs(headers: Headers | Record<string, string | undefined>): number | undefined {
   const raw = headers instanceof Headers

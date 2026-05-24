@@ -1,4 +1,4 @@
-// @responsibility /risk /risk_budget account risk and simplified regime position policy.
+// @responsibility /risk /risk_budget account risk with simplified regime position policy.
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import {

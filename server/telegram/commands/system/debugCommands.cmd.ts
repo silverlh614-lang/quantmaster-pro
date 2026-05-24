@@ -1,4 +1,4 @@
-// @responsibility Read-only Telegram command diagnostics for routing, identity, and position source counts.
+// @responsibility Read-only Telegram command diagnostics for routing, identity, position source counts.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { aggregatePositionSources } from '../positions/shadowPositionSources.js';

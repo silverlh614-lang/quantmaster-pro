@@ -1,4 +1,4 @@
-// @responsibility Detect and emit operational warnings for regime snapshot conflicts.
+// @responsibility Emit operational warnings for detected regime snapshot conflicts.
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
 import type { ExecutionImpact } from '../../observability/executionImpact.js';
 import type { RegimeConflictCode, RegimeSnapshot } from './effectiveRegimeSnapshot.js';

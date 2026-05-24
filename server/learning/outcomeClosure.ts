@@ -1,4 +1,4 @@
-// @responsibility ADR-0522 outcome label closure and gate attribution learning dataset. No execution or provider fetch.
+// @responsibility ADR-0522 outcome label closure for the gate attribution learning dataset. No live execution; no provider fetch.
 
 import type {
   ExecutionPermissionDecision,

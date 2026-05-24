@@ -1,4 +1,4 @@
-// @responsibility View label, group, and description registry.
+// @responsibility View label, group, description registry.
 
 import type { View } from '../stores/useSettingsStore';
 

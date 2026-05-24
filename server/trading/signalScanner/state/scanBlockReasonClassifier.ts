@@ -1,4 +1,4 @@
-// @responsibility Classify why a scan was skipped, degraded, or evaluated.
+// @responsibility Classify scan outcome as skipped, degraded, evaluated.
 
 import type { MacroGateState } from '../scanDiagnostics/scanSummaryTypes.js';
 import type { GateEvaluationReport } from './gateEvaluationReporter.js';

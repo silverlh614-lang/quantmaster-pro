@@ -1,4 +1,4 @@
-// @responsibility Compact operational warning counts for boot or periodic reporting.
+// @responsibility Compact operational warning counts for boot/periodic reporting.
 
 import type { WarnPriority } from './operationalWarnTypes.js';
 

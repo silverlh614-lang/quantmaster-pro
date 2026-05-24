@@ -1,4 +1,4 @@
-// @responsibility /dart_provider_health read-only DART provider and Gate2 cache diagnostics.
+// @responsibility /dart_provider_health read-only DART provider/Gate2 cache diagnostics.
 
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';

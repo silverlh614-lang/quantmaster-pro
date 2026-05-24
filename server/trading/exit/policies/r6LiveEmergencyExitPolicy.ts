@@ -1,4 +1,4 @@
-// @responsibility R6_DEFENSE live emergency exit policy and session deferral.
+// @responsibility R6_DEFENSE live emergency exit policy with session deferral.
 
 import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
 import { emitExitOperationalWarn } from '../exitOperationalWarn.js';

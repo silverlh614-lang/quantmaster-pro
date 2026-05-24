@@ -1,4 +1,4 @@
-// @responsibility Normalize KIS core HTTP responses and provider failures.
+// @responsibility Normalize KIS core HTTP responses including provider failures.
 
 import type { KisProviderHealthState } from './kisProviderHealth.js';
 import { recordKisProviderFailure, recordKisProviderSuccess } from './kisProviderHealth.js';

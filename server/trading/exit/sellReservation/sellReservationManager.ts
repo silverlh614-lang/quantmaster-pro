@@ -1,4 +1,4 @@
-// @responsibility Sell reservation transaction manager for live and shadow exits.
+// @responsibility Sell reservation transaction manager for live/shadow exits.
 
 import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
 import { emitExitOperationalWarn } from '../exitOperationalWarn.js';

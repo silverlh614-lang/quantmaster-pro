@@ -1,4 +1,4 @@
-// @responsibility Simplification Step 3 soft Gate scoring and hard-fail limiting.
+// @responsibility Simplification Step 3 soft Gate scoring with hard-fail limiting.
 
 export type GateSeverity =
   | 'PASS'

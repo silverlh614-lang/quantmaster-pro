@@ -1,4 +1,4 @@
-// @responsibility P0 Shadow BUY duplicate registry. Blocks same symbol/strategy/day before Telegram or paper fill.
+// @responsibility P0 Shadow BUY duplicate registry. Blocks same symbol/strategy/day before Telegram/paper fill.
 
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 

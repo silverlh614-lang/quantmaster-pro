@@ -1,4 +1,4 @@
-// @responsibility Price Snapshot SSOT for decision, execution, shadow fill, TradePlan, and display.
+// @responsibility Price Snapshot SSOT for decision, execution, shadow fill, TradePlan, display.
 
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimeQuote } from '../clients/kisStreamClient.js';

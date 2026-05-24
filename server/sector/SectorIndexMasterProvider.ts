@@ -1,4 +1,4 @@
-// @responsibility Load and parse official KIS idxcode.mst sector index master with cache fallback.
+// @responsibility Load/parse official KIS idxcode.mst sector index master with cache fallback.
 
 import fs from 'node:fs';
 import path from 'node:path';

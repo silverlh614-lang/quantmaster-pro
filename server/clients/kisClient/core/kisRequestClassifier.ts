@@ -1,4 +1,4 @@
-// @responsibility Classify KIS requests by operational priority and purpose.
+// @responsibility Classify KIS requests by operational priority/purpose.
 
 import type { KisApiPriority } from '../../kisRateLimiter.js';
 

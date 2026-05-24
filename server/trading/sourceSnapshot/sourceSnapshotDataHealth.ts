@@ -1,4 +1,4 @@
-// @responsibility Source Snapshot data health and technical-trend penalty classification.
+// @responsibility Source Snapshot data health with technical-trend penalty classification.
 
 export type TechnicalTrendMissingReason =
   | 'KIS_QUOTE_VERIFIED_BUT_OHLCV_NOT_FETCHED'

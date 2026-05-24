@@ -1,4 +1,4 @@
-// @responsibility Retry and reconcile queued shadow persistence writes.
+// @responsibility Retry-reconcile queued shadow persistence writes.
 
 import {
   listShadowLedgerWriteQueue,

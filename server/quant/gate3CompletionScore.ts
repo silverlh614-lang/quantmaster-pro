@@ -1,4 +1,4 @@
-// @responsibility Gate3 final completion scoring and operator formatting; diagnostic only.
+// @responsibility Gate3 final completion scoring with operator formatting; diagnostic only.
 
 import type { Gate3CandidateDetail, Gate3Readiness } from './gate3CandidateDetail.js';
 import type { Gate3EvidenceScore } from './gate3EvidenceScore.js';

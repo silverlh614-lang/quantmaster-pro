@@ -1,4 +1,4 @@
-// @responsibility DART financial normalization and diagnostic field coverage.
+// @responsibility DART financial normalization with diagnostic field coverage.
 
 export type DartFinancialProviderStatus =
   | 'OK_WITH_DATA'

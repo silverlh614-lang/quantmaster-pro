@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0019 pre-breakout entry and wait handling extracted from buyListLoop.
+ * @responsibility ADR-0019 pre-breakout entry/wait handling extracted from buyListLoop.
  */
 
 import { channelShadowBuyFilled } from '../../../../alerts/channelPipeline.js';

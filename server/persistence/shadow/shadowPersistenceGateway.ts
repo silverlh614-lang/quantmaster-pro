@@ -1,4 +1,4 @@
-// @responsibility Single gateway for shadow persistence reads, writes, fallback, and queueing.
+// @responsibility Single gateway for shadow persistence reads, writes, fallback, queueing.
 
 import * as fs from 'fs';
 import * as path from 'path';

@@ -1,4 +1,4 @@
-// @responsibility Shadow exit evaluation and paper-only decisions.
+// @responsibility Shadow exit evaluation with paper-only decisions.
 
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 import { resolveR6ShadowHoldPolicy } from './policies/r6ShadowHoldPolicy.js';

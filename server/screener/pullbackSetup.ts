@@ -1,4 +1,4 @@
-// @responsibility Lightweight pullback setup predicate shared by screener and condition evaluators.
+// @responsibility Lightweight pullback setup predicate shared by screener/condition evaluators.
 
 interface PullbackSetupQuote {
   high60d: number;

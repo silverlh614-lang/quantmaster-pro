@@ -1,4 +1,4 @@
-// @responsibility ADR-0520 Gate3 runtime regression and LastTrigger closure diagnostics.
+// @responsibility ADR-0520 Gate3 runtime regression/LastTrigger closure diagnostics.
 
 import { evaluateGate3LastTrigger } from './gate3LastTrigger.js';
 import type { Gate2Status } from './gate2ConfluenceScore.js';

@@ -1,4 +1,4 @@
-// @responsibility Bucket and summarize Attribution Evidence Ledger records.
+// @responsibility Summarize bucketed Attribution Evidence Ledger records.
 
 import {
   resolveAttributionEligibility,

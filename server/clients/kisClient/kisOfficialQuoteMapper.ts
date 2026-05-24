@@ -1,4 +1,4 @@
-// @responsibility KIS official inquire-price quote normalization and diagnostics.
+// @responsibility KIS official inquire-price quote normalization with diagnostics.
 
 import { KIS_OFFICIAL_INQUIRE_PRICE_ENDPOINT } from './kisOfficialEndpointRegistry.js';
 

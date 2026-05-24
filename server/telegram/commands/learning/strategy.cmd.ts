@@ -1,4 +1,4 @@
-// @responsibility /strategy ADR-0526 Strategy Versioning and Rollback UX. Version registry only; no direct runtime config mutation.
+// @responsibility /strategy ADR-0526 Strategy Versioning/Rollback UX. Version registry only; no direct runtime config mutation.
 import {
   formatStrategyCompact,
   formatStrategyDetail,

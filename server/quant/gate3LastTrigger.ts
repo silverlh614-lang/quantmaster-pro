@@ -1,4 +1,4 @@
-// @responsibility Gate3 last-trigger and entry price readiness helpers.
+// @responsibility Gate3 last-trigger entry-price readiness helpers.
 
 import {
   buildGate3RrrInput,

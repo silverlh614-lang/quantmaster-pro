@@ -1,4 +1,4 @@
-// @responsibility Live exit evaluation and real sell submission boundary.
+// @responsibility Live exit evaluation with real sell submission boundary.
 
 import { placeKisSellOrder } from '../../clients/kisClient.js';
 import type { SellOrderResult } from '../../clients/kisClient/types.js';

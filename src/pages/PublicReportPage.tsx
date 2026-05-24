@@ -1,4 +1,4 @@
-// @responsibility Public Report page for blog, Telegram, and paid-preview export entry.
+// @responsibility Public Report page for blog, Telegram, paid-preview export entry.
 
 import React, { useEffect, useState } from 'react';
 import { FileText, Send, ShieldCheck } from 'lucide-react';

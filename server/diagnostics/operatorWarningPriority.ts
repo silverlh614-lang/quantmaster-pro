@@ -1,4 +1,4 @@
-// @responsibility Read-only operator warning urgency taxonomy and sorting.
+// @responsibility Read-only operator warning urgency taxonomy with sort ordering.
 
 export type OperatorWarningPriorityRank = 1 | 2 | 3 | 4 | 5;
 

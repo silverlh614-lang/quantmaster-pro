@@ -1,4 +1,4 @@
-// @responsibility Gate2 external financial snapshot, derived metrics, and safe projection helpers.
+// @responsibility Gate2 external financial snapshot, derived metrics, safe projection helpers.
 
 import type { DartFinancials } from '../../clients/dartFinancialClient.js';
 import { getDartFinancials } from '../../clients/dartFinancialClient.js';

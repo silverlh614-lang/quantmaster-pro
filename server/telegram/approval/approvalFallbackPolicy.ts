@@ -1,4 +1,4 @@
-// @responsibility Approval fallback decisions for timeout, delivery failure, no response, and duplicates.
+// @responsibility Approval fallback decisions for timeout, delivery failure, no response, duplicates.
 
 import { emitOperationalWarn } from '../../trading/buy/operationalWarn.js';
 import type { ApprovalDecision, ApprovalMode } from './approvalTypes.js';

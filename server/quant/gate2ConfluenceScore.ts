@@ -1,4 +1,4 @@
-// @responsibility ADR-0519 Gate2 confluence scoring and promotion policy.
+// @responsibility ADR-0519 Gate2 confluence scoring with promotion policy.
 
 export type Gate2Axis =
   | 'RS_RELATIVE_STRENGTH'

@@ -1,4 +1,4 @@
-// @responsibility KIS official investor-flow normalization and diagnostics.
+// @responsibility KIS official investor-flow normalization with diagnostics.
 
 import { KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS } from './kisOfficialEndpointRegistry.js';
 

@@ -1,4 +1,4 @@
-// @responsibility Source Snapshot SSOT common gate evaluator. No session or execution-policy inputs.
+// @responsibility Source Snapshot SSOT common gate evaluator. No session/execution-policy inputs.
 
 export type CommonGateStatus = 'OK' | 'DATA_INCOMPLETE' | 'WARN';
 export type TechnicalLayerStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'UNKNOWN';

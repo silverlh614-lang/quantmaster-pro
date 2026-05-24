@@ -1,4 +1,4 @@
-// @responsibility Scan evaluation state machine public contract and formatter.
+// @responsibility Scan evaluation state machine public contract with formatter.
 
 import type { ScanCounters } from '../scanDiagnostics/scanCounterTypes.js';
 import type { MacroGateState } from '../scanDiagnostics/scanSummaryTypes.js';

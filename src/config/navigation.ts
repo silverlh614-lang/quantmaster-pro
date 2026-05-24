@@ -1,4 +1,4 @@
-// @responsibility Navigation SSOT for sidebar and mobile tabs.
+// @responsibility Navigation SSOT for sidebar/mobile tabs.
 
 import type { ElementType } from 'react';
 import {

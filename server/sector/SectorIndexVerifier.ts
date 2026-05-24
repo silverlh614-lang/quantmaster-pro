@@ -1,4 +1,4 @@
-// @responsibility Official sector index code API verification and coverage aggregation.
+// @responsibility Official sector index code API verification with coverage aggregation.
 
 import type {
   OfficialSectorIndexCodeMapResult,

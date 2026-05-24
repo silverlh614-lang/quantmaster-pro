@@ -1,4 +1,4 @@
-// @responsibility Blog export, Telegram summary, image capture, and snapshot history for Public Report Mode.
+// @responsibility Blog export, Telegram summary, image capture, snapshot history for Public Report Mode.
 
 import React, { useMemo, useState } from 'react';
 import { ClipboardCopy, Download, Eye, FileCode, FileText, ImageDown, Save, Send, Tags, Trash2 } from 'lucide-react';

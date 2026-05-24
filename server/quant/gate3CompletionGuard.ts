@@ -1,4 +1,4 @@
-// @responsibility Gate3 completion invariant assertion for tests and operator dry-runs.
+// @responsibility Gate3 completion invariant assertion for tests/operator dry-runs.
 
 import {
   buildGate3CompletionScore,

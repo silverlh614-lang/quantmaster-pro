@@ -1,4 +1,4 @@
-// @responsibility Trade lifecycle outcome SSOT for exit, learning, Telegram, and stats.
+// @responsibility Trade lifecycle outcome SSOT for exit, learning, Telegram, stats.
 
 export type TradeLifecycleOutcome =
   | 'FULL_TAKE_PROFIT'

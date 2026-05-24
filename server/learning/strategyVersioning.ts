@@ -1,4 +1,4 @@
-// @responsibility ADR-0526 Strategy Versioning and Rollback. Version artifacts only; no direct runtime config mutation.
+// @responsibility ADR-0526 Strategy Versioning/Rollback. Version artifacts only; no direct runtime config mutation.
 
 import { createHash } from 'crypto';
 import {

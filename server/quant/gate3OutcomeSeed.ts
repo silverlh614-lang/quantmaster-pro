@@ -1,4 +1,4 @@
-// @responsibility Gate3 outcome seed creation and tracking summary; read/record only.
+// @responsibility Gate3 outcome seed creation with tracking summary; read/record only.
 
 import type { Gate3CandidateDetail, Gate3Readiness } from './gate3CandidateDetail.js';
 import type { Gate3LearningLabel, Gate3ShadowPolicy, Gate3ShadowRoute } from './gate3ShadowPolicy.js';

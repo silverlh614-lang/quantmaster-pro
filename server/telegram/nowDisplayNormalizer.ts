@@ -1,4 +1,4 @@
-// @responsibility Normalize Telegram NOW display labels without changing regime or trading decisions.
+// @responsibility Normalize Telegram NOW display labels without changing regime/trading decisions.
 
 export interface NowDisplayNormalizeInput {
   dataHealth?: string | null;
