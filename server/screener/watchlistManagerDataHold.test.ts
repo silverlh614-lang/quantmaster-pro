@@ -21,11 +21,7 @@ function makeEntry(overrides: Partial<WatchlistEntry>): WatchlistEntry {
     entryPrice: 12610,
     stopLoss: 12000,
     targetPrice: 14500,
-    // 신뢰 가능한 최근(2시간 전) 윈도우 — 신선한 entryPrice 직후의 큰 drift 는 단일일 불연속
-    // (분할/권리락/데이터 오염)을 모델링한다. 한국 ±30% 일일 제한폭으로 organic 달성 불가 →
-    // 본 테스트군은 그 코퍼레이트 액션/DATA_HOLD 분류를 검증한다. (수 주 보유 organic 랠리 +
-    // 레거시/불명 윈도우 케이스는 watchlistManager.test.ts 'organic 모멘텀 랠리' describe 검증.)
-    addedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+    addedAt: '2026-04-30T00:00:00.000Z',
     addedBy: 'AUTO',
     section: 'MOMENTUM',
     ...overrides,
