@@ -55,7 +55,9 @@ Patch Plan 의 도메인에 맞춰 아래 중 하나를 적용한다.
 - **Type-only / interface patch** — `npm run lint` + 관련 unit 테스트(있으면).
 - **Gate / SourceSnapshot patch** — `npm run lint` + 관련 gate/source-snapshot 테스트 + 해당 시 `/scan_blockers` 진단 확인.
 - **Provider patch** — `npm run lint` + provider fallback/stale/empty 테스트(있으면) + providerIssue 가 marketSignal 로 변환되지 않음 확인.
-- **Telegram patch** — `npm run lint` + telegram 포맷/dedup/command route 테스트(있으면) + CH1~CH4 채널 분리 확인.
+- **Telegram patch** — `npm run lint` + telegram 포맷/dedup/command route 테스트(있으면) + CH1~CH4 채널 분리 확인 +
+  severity 필터(ADR-532): executionImpact=NONE/DIAGNOSTIC/DEBUG/SUPPRESSED 이 CH2(SIGNAL) 미노출 + `/pos`·`/pnl` shadow-first 유지.
+  상세 → `docs/archive/adr/adr-532-telegram-noise-reduction.md`.
 - **Shadow Learning patch** — `npm run lint` + shadow lifecycle/ledger/counterfactual 테스트(있으면) + SELL_ONLY/R6/providerIssue 하에서 `shadowAllowed` 가 true 유지 확인.
 - **Refactor patch** — `npm run lint` + 기존 관련 테스트 + 명시되지 않는 한 동작 변경 0 (byte-equivalent).
 - **Diagnostics / severity-taxonomy patch (ADR-531)** — `npm run lint` + severity 매핑 테스트(있으면) +

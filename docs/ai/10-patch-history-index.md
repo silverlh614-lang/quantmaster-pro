@@ -78,6 +78,13 @@
 - **Current Relevance:** diagnostic/severity/logging/telegram-display 패치 시 taxonomy SSOT 준수.
 - **Detail:** `docs/archive/adr/adr-531-warning-error-taxonomy.md` (검색어 `ADR-531`)
 
+### ADR-532 — Telegram Noise Reduction & Channel Severity Filter
+- **Status:** Completed (1차: 문서 SSOT 전용) · **Domain:** telegram / notification routing / severity filter
+- **Problem:** executionImpact=NONE diagnostic/provider 가 사용자 SIGNAL 채널에 노이즈로 노출될 여지.
+- **Decision:** ADR-531 taxonomy 의 Telegram 적용 규칙 성문화. **핵심 발견: 상당수 이미 구현됨** (provider→CH3, /pos·/pnl shadow-first, [DEBUG]→Railway-only, dedup 인프라). 기존 동작 SSOT 검증 + gap(userFacing 플래그·ADMIN 채널)은 후속 분리.
+- **Current Relevance:** telegram severity 필터/표시 패치 시 본 규칙 준수.
+- **Detail:** `docs/archive/adr/adr-532-telegram-noise-reduction.md` (검색어 `ADR-532`)
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -489,3 +496,4 @@
 - 2026-05-24 · ADR-529
 - 2026-05-24 · ADR-530
 - 2026-05-24 · ADR-531
+- 2026-05-24 · ADR-532

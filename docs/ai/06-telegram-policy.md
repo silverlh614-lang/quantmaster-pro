@@ -48,6 +48,27 @@
 
 ---
 
+## severity 필터 & 노이즈 정책 (ADR-532)
+
+ADR-531 taxonomy 를 Telegram 출력에 적용. **이미 구현된 라우팅을 SSOT 로 성문화** + 사용자-facing 소음 차단.
+상세·검증 케이스 → `docs/archive/adr/adr-532-telegram-noise-reduction.md`.
+
+- **CH2(SIGNAL) = 사용자-facing 매매만** — BUY/SELL·Shadow 신호·체결·포지션·손절/익절/청산·executionImpact≠NONE.
+- **executionImpact=NONE diagnostic/provider → CH2 금지** — `providerIssue=true && executionImpact=NONE` 은
+  CH3(REGIME/INFO)·CH4·Railway 로만 (이미 PROVIDER_HEALTH→CH3 라우팅으로 충족). 시장 위험 경고로 표시 금지 (불변식 #6).
+- **DIAGNOSTIC/DEBUG/SUPPRESSED → CH2 직접 노출 금지** — DEBUG/INVARIANT/TRACE 는 Railway-log-only
+  (`classifyTelegramRouting`), SUPPRESSED 는 CH4/요약만, DIAGNOSTIC 은 사용자 요청 명령(`/scan_blockers` 등) 응답만.
+- **정책 상태 ≠ 장애** — SELL_ONLY/R6/HOLIDAY/SHADOW_ONLY/PRE_MARKET 은 INFO/정책 상태로 표시 (오류 표현 금지).
+  정책 상태 + 실제 장애 결합 시에만 WARN/ERROR (예: R6 + Shadow stopped → ERROR).
+- **dedup 키** — Trading Signal `tradeDate+symbol+side+strategy+sourceSnapshotId` / Position `positionId+symbol+eventType+stage+tradeDate` /
+  Liquidation `positionId+exitReason+exitStage+tradeDate` / Policy `policyState+engineMode+effectiveRegime+tradingDate`(전환 시만).
+  기존 `dedupeKey`+`cooldownMs`+category×priority 활용 (신규 인프라 불필요).
+- **legacy 명령 보존** — `/pos`·`/pnl` 는 shadow-first(`shadowPositionSources.ts`) 이미 적용 — liveCount=0 정상.
+  severity 필터가 사용자 조회 응답(`/pos`·`/pnl`·`/help`)을 차단하지 않는다.
+- **진단 보존** — 모든 diagnostic 을 숨기지 않는다. CH3/CH4/Railway/Admin 경로로 운영자가 원인 추적 가능해야 함.
+
+---
+
 ## /scan_blockers 출력 정책 (ADR-0478/0479)
 
 - **`/scan_blockers` (요약, compact)** — ≤4096 char Telegram 한도. SCAN_BLOCKERS_BUDGET=4000.
