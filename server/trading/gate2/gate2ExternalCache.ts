@@ -23,6 +23,11 @@ export interface Gate2ExternalLastRefreshDiagnostics {
   rootCause: Gate2ExternalRootCause;
   traces: Gate2ExternalRefreshTrace[];
   providerHealth: Gate2DartProviderHealth;
+  strongBuyBlockedDetails?: string;
+  corpCodeMissingSymbols?: string[];
+  dartNotApplicableSymbols?: string[];
+  corpCodeLookupFailedSymbols?: string[];
+  nonEquitySymbols?: string[];
 }
 
 export interface Gate2ExternalCacheFile {
