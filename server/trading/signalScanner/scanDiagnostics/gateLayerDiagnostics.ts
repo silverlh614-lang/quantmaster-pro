@@ -17,9 +17,18 @@ import {
   buildGate3CandidateDetail,
   groupGate3CandidateDetails,
   normalizeGate3CandidateDetailSnapshot,
+  withGate3ShadowPolicy,
   type Gate3CandidateDetail,
   type Gate3CandidateDetailGroups,
 } from '../../../quant/gate3CandidateDetail.js';
+import {
+  buildGate3ShadowPolicy,
+  emptyGate3ShadowRoutingSummary,
+  summarizeGate3ShadowPolicies,
+  type Gate3ShadowPolicy,
+  type Gate3ShadowPolicyExecutionContext,
+  type Gate3ShadowRoutingSummary,
+} from '../../../quant/gate3ShadowPolicy.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -86,6 +95,8 @@ export interface Gate3ConsolidatedAuditSummary {
   executionReadyCount: number;
   candidateDetails: Gate3CandidateDetail[];
   detailsByReadiness: Gate3CandidateDetailGroups;
+  shadowPolicies: Gate3ShadowPolicy[];
+  shadowRouting: Gate3ShadowRoutingSummary;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -148,6 +159,7 @@ export interface GateLayerCandidateMeta {
 export interface BuildGateLayerAuditSummaryOptions {
   sourceSnapshotId?: string;
   asOf?: string;
+  shadowPolicyContext?: Gate3ShadowPolicyExecutionContext;
 }
 
 function emptyGate3CandidateGroups(): Gate3CandidateDetailGroups {
@@ -244,6 +256,8 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       executionReadyCount: 0,
       candidateDetails: [],
       detailsByReadiness: emptyGate3CandidateGroups(),
+      shadowPolicies: [],
+      shadowRouting: emptyGate3ShadowRoutingSummary(),
     },
   };
 }
@@ -414,13 +428,21 @@ export function buildGateLayerAuditSummary(
 ): GateLayerAuditSummary {
   const survival = counters.gateLayerAudit.gate1Survival;
   const gate2Coverage = counters.gateLayerAudit.gate2Coverage;
-  const gate3Details = counters.gateLayerAudit.gate3Consolidated.candidateDetails.map(detail =>
+  const gate3DetailsWithoutPolicy = counters.gateLayerAudit.gate3Consolidated.candidateDetails.map(detail =>
     normalizeGate3CandidateDetailSnapshot(detail, options),
+  );
+  const shadowPolicies = gate3DetailsWithoutPolicy.map(detail =>
+    buildGate3ShadowPolicy(detail, options.shadowPolicyContext),
+  );
+  const gate3Details = gate3DetailsWithoutPolicy.map((detail, index) =>
+    withGate3ShadowPolicy(detail, shadowPolicies[index]),
   );
   const gate3Consolidated = {
     ...counters.gateLayerAudit.gate3Consolidated,
     candidateDetails: gate3Details,
     detailsByReadiness: groupGate3CandidateDetails(gate3Details),
+    shadowPolicies,
+    shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
   };
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,

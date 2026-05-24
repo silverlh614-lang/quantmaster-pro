@@ -422,6 +422,20 @@ export async function persistScanResults(
   const gateLayerAudit = buildGateLayerAuditSummary(counters, {
     sourceSnapshotId,
     asOf: scanAsOf,
+    shadowPolicyContext: {
+      livePolicyAllowed: options.macroGateState
+        ? options.macroGateState.liveEntryAllowed !== false
+          && options.macroGateState.brokerOrderAllowed !== false
+          && options.macroGateState.brokerLiveOrderAllowed !== false
+        : undefined,
+      engineMode: options.macroGateState?.engineMode,
+      macroRegime: options.macroGateState?.regime,
+      effectiveRegime: options.macroGateState?.macroRegimeEffective,
+      riskOverride: options.macroGateState?.riskOverride,
+      sellOnlyMode: options.sellOnly === true || options.macroGateState?.sellOnlyMode === true,
+      shadowOnlyMode: options.macroGateState?.engineMode === 'SHADOW_ONLY',
+      brokerLiveOrderAllowed: options.macroGateState?.brokerLiveOrderAllowed,
+    },
   });
   const summaryDraft: ScanSummary = {
     time: timeLabel,

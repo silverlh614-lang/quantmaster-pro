@@ -1,5 +1,7 @@
 // @responsibility Gate3 per-symbol timing forensic detail builder; diagnostic/read-only only.
 
+import type { Gate3ShadowPolicy } from './gate3ShadowPolicy.js';
+
 export type Gate3Readiness = 'READY' | 'WAIT' | 'BLOCKED' | 'DATA_INCOMPLETE';
 
 export type Gate3Issue =
@@ -71,6 +73,7 @@ export interface Gate3CandidateDetail {
     counterfactualAllowed: boolean;
     executionImpact: 'NONE' | 'DIAGNOSTIC_ONLY' | 'LIVE_BUY_BLOCKED_ONLY';
   };
+  shadowPolicy?: Gate3ShadowPolicy;
   compactText: string;
   marketSignal: false;
 }
@@ -221,6 +224,25 @@ function volumeText(detail: Pick<Gate3CandidateDetail, 'volumeConfirmation'>): s
     : `${detail.volumeConfirmation.status} ${ratio.toFixed(2)}x`;
 }
 
+function liveText(policy: Gate3ShadowPolicy): string {
+  return policy.liveBuyAllowed
+    ? 'live=true'
+    : `live=false${policy.liveBlockReason ? `(${policy.liveBlockReason})` : ''}`;
+}
+
+function shadowPolicyText(policy: Gate3ShadowPolicy | undefined): string {
+  if (!policy) return '';
+  return [
+    `route=${policy.route}`,
+    `shadowEntry=${policy.shadowEntryAllowed}`,
+    `paper=${policy.paperOrderAllowed}`,
+    `watchUpgrade=${policy.watchlistUpgrade}`,
+    `counterfactual=${policy.counterfactualAllowed}`,
+    liveText(policy),
+    `label=${policy.learningLabel}`,
+  ].join(' | ');
+}
+
 function iconFor(readiness: Gate3Readiness): string {
   if (readiness === 'READY') return '🟢';
   if (readiness === 'WAIT') return '🟡';
@@ -230,16 +252,18 @@ function iconFor(readiness: Gate3Readiness): string {
 
 export function formatGate3CandidateCompactText(detail: Gate3CandidateDetail): string {
   const common = `${iconFor(detail.readiness)} ${displayName(detail)} ${detail.readiness}`;
+  const policy = shadowPolicyText(detail.shadowPolicy);
+  const policySegment = policy ? ` | ${policy}` : '';
   if (detail.readiness === 'READY') {
-    return `${common} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger FIRED | live=${detail.permissions.liveBuyAllowed} shadow=${detail.permissions.shadowAllowed} | marketSignal=false`;
+    return `${common}${policySegment} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger FIRED | live=${detail.permissions.liveBuyAllowed} shadow=${detail.permissions.shadowAllowed} | marketSignal=false`;
   }
   if (detail.readiness === 'WAIT') {
-    return `${common} | issue=${detail.issue} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger ${detail.lastTriggerStatus} | shadow=${detail.permissions.shadowAllowed} | marketSignal=false`;
+    return `${common} | issue=${detail.issue}${policySegment} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger ${detail.lastTriggerStatus} | shadow=${detail.permissions.shadowAllowed} | marketSignal=false`;
   }
   if (detail.readiness === 'BLOCKED') {
-    return `${common} | issue=${detail.issue} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger ${detail.lastTriggerStatus} | marketSignal=false`;
+    return `${common} | issue=${detail.issue}${policySegment} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger ${detail.lastTriggerStatus} | marketSignal=false`;
   }
-  return `${common} | issue=${detail.issue} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger ${detail.lastTriggerStatus} | executionImpact=${detail.permissions.executionImpact} | marketSignal=false`;
+  return `${common} | issue=${detail.issue}${policySegment} | RRR ${rrrText(detail)} | Price ${detail.priceConfirmation.status} | Vol ${volumeText(detail)} | Trigger ${detail.lastTriggerStatus} | executionImpact=${detail.permissions.executionImpact} | marketSignal=false`;
 }
 
 export function buildGate3CandidateDetail(input: BuildGate3CandidateDetailInput): Gate3CandidateDetail {
@@ -394,14 +418,32 @@ export function normalizeGate3CandidateDetailSnapshot(
   detail: Gate3CandidateDetail,
   input: { sourceSnapshotId?: string; asOf?: string },
 ): Gate3CandidateDetail {
+  const sourceSnapshotId = input.sourceSnapshotId ?? detail.sourceSnapshotId;
   const normalized = {
     ...detail,
-    sourceSnapshotId: input.sourceSnapshotId ?? detail.sourceSnapshotId,
+    sourceSnapshotId,
     asOf: input.asOf ?? detail.asOf,
+    ...(detail.shadowPolicy
+      ? { shadowPolicy: { ...detail.shadowPolicy, sourceSnapshotId } }
+      : {}),
   };
   return {
     ...normalized,
     compactText: formatGate3CandidateCompactText(normalized),
+  };
+}
+
+export function withGate3ShadowPolicy(
+  detail: Gate3CandidateDetail,
+  shadowPolicy: Gate3ShadowPolicy,
+): Gate3CandidateDetail {
+  const withPolicy = {
+    ...detail,
+    shadowPolicy,
+  };
+  return {
+    ...withPolicy,
+    compactText: formatGate3CandidateCompactText(withPolicy),
   };
 }
 

@@ -5,6 +5,7 @@ import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnosti
 import type { Gate3ConsolidatedAuditSummary, GateLayerAuditSummary } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate3TimingReadinessAuditSection } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDetail.js';
+import { formatGate3ShadowRoutingAuditSection } from '../../../quant/gate3ShadowPolicy.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
   const [top] = Object.entries(counts ?? {})
@@ -69,6 +70,13 @@ export function formatScanBlockersGate3Section(
     `executionImpact: ${topKey(gate3.executionImpact)}`,
     `compactText: ${topLabel(gate3.compactText)}`,
     `candidateDetails: ${gate3.candidateDetails?.length ?? 0}`,
+    `shadowEntryAllowed: ${gate3.shadowRouting?.shadowEntryAllowedCount ?? 0}`,
+    `nearEntryTracking: ${gate3.shadowRouting?.nearEntryTrackingCount ?? 0}`,
+    `counterfactualOnly: ${gate3.shadowRouting?.counterfactualOnlyCount ?? 0}`,
+    `diagnosticOnly: ${gate3.shadowRouting?.diagnosticOnlyCount ?? 0}`,
+    `watchlistUpgrade: ${gate3.shadowRouting?.watchlistUpgradeCount ?? 0}`,
+    `paperOrderAllowed: ${gate3.shadowRouting?.paperOrderAllowedCount ?? 0}`,
+    `livePolicyBlocked: ${gate3.shadowRouting?.livePolicyBlockedCount ?? 0}`,
     'marketSignal=false',
     'shadowLearning=true',
     'counterfactualRecorded=true',
@@ -105,6 +113,7 @@ const scanBlockersGate3: TelegramCommand = {
     const audit = summary?.gateLayerAudit;
     const compact = formatScanBlockersGate3Section(audit);
     const full = formatGate3TimingReadinessAuditSection(audit?.gate3Consolidated as Gate3ConsolidatedAuditSummary | undefined);
+    const routing = formatGate3ShadowRoutingAuditSection(audit?.gate3Consolidated?.shadowRouting);
     const details = formatGate3CandidateDetailTable({
       detailsByReadiness: audit?.gate3Consolidated?.detailsByReadiness,
       candidateDetails: audit?.gate3Consolidated?.candidateDetails,
@@ -115,6 +124,7 @@ const scanBlockersGate3: TelegramCommand = {
       '',
       compact,
       ...(full ? ['', full] : []),
+      ...(routing ? ['', routing] : []),
       ...(details ? ['', details] : []),
       '',
       'note: compact diagnostic only; no scan execution, no provider fetch, no broker order, no live promotion.',

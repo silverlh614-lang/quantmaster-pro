@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatScanBlockersGate3Section } from './telegram/commands/system/scanBlockersGate3.cmd.js';
-import { buildGate3CandidateDetail, groupGate3CandidateDetails } from './quant/gate3CandidateDetail.js';
+import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowPolicy } from './quant/gate3CandidateDetail.js';
+import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from './quant/gate3ShadowPolicy.js';
 import { accumulateGateLayerSummary, buildGateLayerAuditSummary, createScanCounters } from './trading/signalScanner/scanDiagnostics.js';
 import type { GateLayerSummary } from './quantFilter.js';
 
@@ -27,7 +28,7 @@ function gateLayer(consolidatedDiagnostic: Record<string, unknown>): GateLayerSu
 
 describe('scan_blockers_gate3 RRR counters', () => {
   it('separates rrrMissing from rrrFail and preserves safe-degrade labels', () => {
-    const candidateDetails = [
+    const rawCandidateDetails = [
       buildGate3CandidateDetail({
         symbol: '204320',
         name: 'HL만도',
@@ -52,6 +53,10 @@ describe('scan_blockers_gate3 RRR counters', () => {
         },
       }),
     ];
+    const shadowPolicies = rawCandidateDetails.map(detail => buildGate3ShadowPolicy(detail));
+    const candidateDetails = rawCandidateDetails.map((detail, index) =>
+      withGate3ShadowPolicy(detail, shadowPolicies[index]),
+    );
     const text = formatScanBlockersGate3Section({
       gate1PassCount: 0,
       gate2PassCount: 0,
@@ -98,6 +103,8 @@ describe('scan_blockers_gate3 RRR counters', () => {
         executionReadyCount: 0,
         candidateDetails,
         detailsByReadiness: groupGate3CandidateDetails(candidateDetails),
+        shadowPolicies,
+        shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
       },
     });
 
@@ -112,6 +119,9 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(text).toContain('volumeDryUp: 1');
     expect(text).toContain('lastTriggerDataUnavailable: 1');
     expect(text).toContain('candidateDetails: 1');
+    expect(text).toContain('shadowEntryAllowed: 0');
+    expect(text).toContain('nearEntryTracking: 1');
+    expect(text).toContain('watchlistUpgrade: 1');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('shadowLearning=true');
     expect(text).toContain('counterfactualRecorded=true');
@@ -170,5 +180,13 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(gate3.candidateDetails.filter(detail => detail.falseBreakoutRisk === 'HIGH')).toHaveLength(gate3.falseBreakoutHighCount);
     expect(gate3.candidateDetails.every(detail => detail.sourceSnapshotId === 'scan-eval:invariant')).toBe(true);
     expect(gate3.candidateDetails.every(detail => detail.marketSignal === false)).toBe(true);
+    expect(gate3.shadowPolicies).toHaveLength(gate3.candidateDetails.length);
+    expect(gate3.shadowPolicies.filter(policy => policy.route === 'SHADOW_ENTRY_ALLOWED')).toHaveLength(gate3.candidateDetails.filter(detail => detail.readiness === 'READY').length);
+    expect(gate3.shadowPolicies.filter(policy => policy.route === 'NEAR_ENTRY_TRACKING')).toHaveLength(gate3.candidateDetails.filter(detail => detail.readiness === 'WAIT').length);
+    expect(gate3.shadowPolicies.filter(policy => policy.route === 'COUNTERFACTUAL_ONLY')).toHaveLength(gate3.candidateDetails.filter(detail => detail.readiness === 'BLOCKED').length);
+    expect(gate3.shadowPolicies.filter(policy => policy.route === 'DIAGNOSTIC_ONLY')).toHaveLength(gate3.candidateDetails.filter(detail => detail.readiness === 'DATA_INCOMPLETE').length);
+    expect(gate3.shadowPolicies.every(policy => policy.sourceSnapshotId === 'scan-eval:invariant')).toBe(true);
+    expect(gate3.shadowPolicies.every(policy => policy.counterfactualAllowed === true)).toBe(true);
+    expect(gate3.candidateDetails.every(detail => detail.shadowPolicy?.marketSignal === false)).toBe(true);
   });
 });

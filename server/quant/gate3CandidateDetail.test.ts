@@ -3,7 +3,9 @@ import {
   buildGate3CandidateDetail,
   formatGate3CandidateDetailTable,
   groupGate3CandidateDetails,
+  withGate3ShadowPolicy,
 } from './gate3CandidateDetail.js';
+import { buildGate3ShadowPolicy } from './gate3ShadowPolicy.js';
 
 function diagnostic(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -147,5 +149,20 @@ describe('Gate3 candidate detail', () => {
     expect(groups.detailTruncated).toBe(true);
     expect(table).toContain('Gate3 Candidate Detail');
     expect(table).toContain('detailTruncated=true');
+  });
+
+  it('includes shadow route and learning label when policy is attached', () => {
+    const base = detail();
+    const policy = buildGate3ShadowPolicy(base, {
+      engineMode: 'SHADOW_ONLY',
+      livePolicyAllowed: false,
+    });
+    const withPolicy = withGate3ShadowPolicy(base, policy);
+
+    expect(withPolicy.shadowPolicy?.route).toBe('SHADOW_ENTRY_ALLOWED');
+    expect(withPolicy.compactText).toContain('route=SHADOW_ENTRY_ALLOWED');
+    expect(withPolicy.compactText).toContain('shadowEntry=true');
+    expect(withPolicy.compactText).toContain('live=false(SHADOW_ONLY)');
+    expect(withPolicy.compactText).toContain('label=GATE3_READY_FIRED');
   });
 });

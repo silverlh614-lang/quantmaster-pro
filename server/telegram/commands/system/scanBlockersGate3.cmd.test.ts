@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildGate3CandidateDetail, groupGate3CandidateDetails } from '../../../quant/gate3CandidateDetail.js';
+import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowPolicy } from '../../../quant/gate3CandidateDetail.js';
+import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from '../../../quant/gate3ShadowPolicy.js';
 
 let mockSummary: any;
 
@@ -15,7 +16,7 @@ vi.mock('../../../trading/signalScanner/scanDiagnostics.js', () => ({
 describe('/scan_blockers_gate3 command', () => {
   beforeEach(async () => {
     vi.resetModules();
-    const candidateDetails = [
+    const rawCandidateDetails = [
       buildGate3CandidateDetail({
         symbol: '204320',
         name: 'HL만도',
@@ -40,6 +41,13 @@ describe('/scan_blockers_gate3 command', () => {
         },
       }),
     ];
+    const shadowPolicies = rawCandidateDetails.map(detail => buildGate3ShadowPolicy(detail, {
+      engineMode: 'SHADOW_ONLY',
+      livePolicyAllowed: false,
+    }));
+    const candidateDetails = rawCandidateDetails.map((detail, index) =>
+      withGate3ShadowPolicy(detail, shadowPolicies[index]),
+    );
     mockSummary = {
       gateLayerAudit: {
         gate1PassCount: 3,
@@ -87,6 +95,8 @@ describe('/scan_blockers_gate3 command', () => {
           executionReadyCount: 1,
           candidateDetails,
           detailsByReadiness: groupGate3CandidateDetails(candidateDetails),
+          shadowPolicies,
+          shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
         },
       },
     };
@@ -128,6 +138,11 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('volume=WEAK 0.80x');
     expect(text).toContain('Gate3 Candidate Detail');
     expect(text).toContain('HL만도(204320) READY');
+    expect(text).toContain('Gate3 Shadow Entry Routing');
+    expect(text).toContain('shadowEntryAllowed: 1');
+    expect(text).toContain('livePolicyBlocked: 1');
+    expect(text).toContain('route=SHADOW_ENTRY_ALLOWED');
+    expect(text).toContain('label=GATE3_READY_FIRED');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('no scan execution');
   }, 15000);
