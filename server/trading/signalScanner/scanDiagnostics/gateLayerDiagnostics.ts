@@ -13,6 +13,13 @@ import {
   formatGate2ProgramTradeCompactDiagnostic,
   formatGate2SectorCycleCompactDiagnostic,
 } from '../../../quant/gate2Diagnostics.js';
+import {
+  buildGate3CandidateDetail,
+  groupGate3CandidateDetails,
+  normalizeGate3CandidateDetailSnapshot,
+  type Gate3CandidateDetail,
+  type Gate3CandidateDetailGroups,
+} from '../../../quant/gate3CandidateDetail.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -77,6 +84,8 @@ export interface Gate3ConsolidatedAuditSummary {
   volumeSpikeRiskCount: number;
   falseBreakoutHighCount: number;
   executionReadyCount: number;
+  candidateDetails: Gate3CandidateDetail[];
+  detailsByReadiness: Gate3CandidateDetailGroups;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -127,6 +136,32 @@ export interface GateLayerAuditAccumulator {
   gate1Survival: Gate1SurvivalAuditSummary;
   gate2Coverage: Gate2CoverageAuditSummary;
   gate3Consolidated: Gate3ConsolidatedAuditSummary;
+}
+
+export interface GateLayerCandidateMeta {
+  symbol?: string;
+  name?: string;
+  sourceSnapshotId?: string;
+  asOf?: string;
+}
+
+export interface BuildGateLayerAuditSummaryOptions {
+  sourceSnapshotId?: string;
+  asOf?: string;
+}
+
+function emptyGate3CandidateGroups(): Gate3CandidateDetailGroups {
+  return {
+    ready: [],
+    wait: [],
+    blocked: [],
+    dataIncomplete: [],
+    detailTruncated: false,
+    hiddenReadyCount: 0,
+    hiddenWaitCount: 0,
+    hiddenBlockedCount: 0,
+    hiddenDataIncompleteCount: 0,
+  };
 }
 
 export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
@@ -207,6 +242,8 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       volumeSpikeRiskCount: 0,
       falseBreakoutHighCount: 0,
       executionReadyCount: 0,
+      candidateDetails: [],
+      detailsByReadiness: emptyGate3CandidateGroups(),
     },
   };
 }
@@ -221,6 +258,7 @@ export function accumulateGateLayerSummary(
   counters: ScanCounters,
   summary: GateLayerSummary | null | undefined,
   signalType?: string,
+  candidateMeta: GateLayerCandidateMeta = {},
 ): void {
   if (!summary) return;
   if (summary.gate1.passed) counters.gateLayerAudit.gate1PassCount += 1;
@@ -357,15 +395,33 @@ export function accumulateGateLayerSummary(
     if (volumeConfirmationStatus === 'SPIKE_RISK') counters.gateLayerAudit.gate3Consolidated.volumeSpikeRiskCount += 1;
     if (gate3Consolidated.falseBreakoutRisk === 'HIGH') counters.gateLayerAudit.gate3Consolidated.falseBreakoutHighCount += 1;
     if (lastTrigger.executionReady === true) counters.gateLayerAudit.gate3Consolidated.executionReadyCount += 1;
+    counters.gateLayerAudit.gate3Consolidated.candidateDetails.push(buildGate3CandidateDetail({
+      symbol: candidateMeta.symbol ?? 'UNKNOWN',
+      ...(candidateMeta.name ? { name: candidateMeta.name } : {}),
+      sourceSnapshotId: candidateMeta.sourceSnapshotId ?? 'SOURCE_SNAPSHOT_PENDING',
+      asOf: candidateMeta.asOf ?? new Date().toISOString(),
+      consolidatedDiagnostic: gate3Consolidated,
+    }));
     if (typeof gate3Consolidated.compactText === 'string' && gate3Consolidated.compactText.length > 0) {
       incrementCount(counters.gateLayerAudit.gate3Consolidated.compactText, gate3Consolidated.compactText);
     }
   }
 }
 
-export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAuditSummary {
+export function buildGateLayerAuditSummary(
+  counters: ScanCounters,
+  options: BuildGateLayerAuditSummaryOptions = {},
+): GateLayerAuditSummary {
   const survival = counters.gateLayerAudit.gate1Survival;
   const gate2Coverage = counters.gateLayerAudit.gate2Coverage;
+  const gate3Details = counters.gateLayerAudit.gate3Consolidated.candidateDetails.map(detail =>
+    normalizeGate3CandidateDetailSnapshot(detail, options),
+  );
+  const gate3Consolidated = {
+    ...counters.gateLayerAudit.gate3Consolidated,
+    candidateDetails: gate3Details,
+    detailsByReadiness: groupGate3CandidateDetails(gate3Details),
+  };
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,
     gate2PassCount: counters.gateLayerAudit.gate2PassCount,
@@ -377,7 +433,7 @@ export function buildGateLayerAuditSummary(counters: ScanCounters): GateLayerAud
     ...(survival.samples > 0 ? { gate1Survival: { ...survival } } : {}),
     ...(gate2Coverage.samples > 0 ? { gate2Coverage: { ...gate2Coverage } } : {}),
     ...(counters.gateLayerAudit.gate3Consolidated.samples > 0
-      ? { gate3Consolidated: { ...counters.gateLayerAudit.gate3Consolidated } }
+      ? { gate3Consolidated }
       : {}),
   };
 }

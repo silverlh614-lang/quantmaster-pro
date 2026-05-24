@@ -395,7 +395,6 @@ export async function persistScanResults(
   const timeLabel = kstNow.toISOString().slice(11, 16) + ' KST';
   const totalCandidates = options.buyListLength + options.intradayBuyListLength;
   const scanCandidateSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
-  const gateLayerAudit = buildGateLayerAuditSummary(counters);
   const scanEvaluation = options.scanEvaluation ?? buildScanEvaluationResult({
     asOf: kstNow.toISOString(),
     counters,
@@ -414,6 +413,15 @@ export async function persistScanResults(
       catalystListLength: options.catalystListLength,
       momentumListLength: options.momentumListLength,
     },
+  });
+  const sourceSnapshotId =
+    (scanEvaluation as { scanId?: string }).scanId ??
+    options.macroGateState?.regimeSnapshotId ??
+    `scan-eval:${kstNow.toISOString()}`;
+  const scanAsOf = kstNow.toISOString();
+  const gateLayerAudit = buildGateLayerAuditSummary(counters, {
+    sourceSnapshotId,
+    asOf: scanAsOf,
   });
   const summaryDraft: ScanSummary = {
     time: timeLabel,
@@ -478,11 +486,6 @@ export async function persistScanResults(
   try {
     const fallbackCandidates = watchlistFallbackCandidates();
     const priorCandidates = (_lastScanSummary?.candidatePool?.candidateSnapshots ?? []) as unknown as CandidatePoolInputCandidate[];
-    const sourceSnapshotId =
-      summaryDraft.snapshotId ??
-      (scanEvaluation as { scanId?: string }).scanId ??
-      options.macroGateState?.regimeSnapshotId ??
-      `scan-eval:${kstNow.toISOString()}`;
     summaryDraft.candidatePool = options.candidatePool ?? buildCandidatePool({
       sourceSnapshotId,
       asOf: kstNow.toISOString(),

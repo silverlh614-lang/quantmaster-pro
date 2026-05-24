@@ -1,8 +1,57 @@
 import { describe, expect, it } from 'vitest';
 import { formatScanBlockersGate3Section } from './telegram/commands/system/scanBlockersGate3.cmd.js';
+import { buildGate3CandidateDetail, groupGate3CandidateDetails } from './quant/gate3CandidateDetail.js';
+import { accumulateGateLayerSummary, buildGateLayerAuditSummary, createScanCounters } from './trading/signalScanner/scanDiagnostics.js';
+import type { GateLayerSummary } from './quantFilter.js';
+
+function gateLayer(consolidatedDiagnostic: Record<string, unknown>): GateLayerSummary {
+  const bucket = {
+    fired: [],
+    unavailable: [],
+    thresholdNotMet: [],
+    providerDegraded: [],
+    passed: false,
+    score: 0,
+    availableMaxScore: 0,
+  };
+  return {
+    gate1: { ...bucket, passed: true },
+    gate2: { ...bucket },
+    gate3: {
+      ...bucket,
+      consolidatedDiagnostic: consolidatedDiagnostic as never,
+    },
+    finalPath: 'SHADOW_OBSERVABLE',
+  };
+}
 
 describe('scan_blockers_gate3 RRR counters', () => {
   it('separates rrrMissing from rrrFail and preserves safe-degrade labels', () => {
+    const candidateDetails = [
+      buildGate3CandidateDetail({
+        symbol: '204320',
+        name: 'HL만도',
+        sourceSnapshotId: 'scan-eval:test',
+        asOf: '2026-05-24T09:00:00.000Z',
+        consolidatedDiagnostic: {
+          timingReadiness: 'WAIT',
+          falseBreakoutRisk: 'LOW',
+          executionImpact: 'DIAGNOSTIC_ONLY',
+          entryPriceGuard: { priceFreshness: 'VERIFIED' },
+          rrrCheck: { rrr: 1.72, status: 'WATCH', source: 'FALLBACK_PERCENT', entryPrice: 10_000, stopLoss: 9_300, targetPrice: 11_500 },
+          lastTrigger: {
+            status: 'THRESHOLD_NOT_MET',
+            fired: false,
+            liveBuyAllowed: false,
+            shadowObservableAllowed: true,
+            counterfactualAllowed: true,
+            executionImpact: 'DIAGNOSTIC_ONLY',
+            priceConfirmation: { status: 'NEAR_BREAKOUT' },
+            volumeConfirmationDetail: { status: 'DRY_UP', volumeRatio20d: 0.42 },
+          },
+        },
+      }),
+    ];
     const text = formatScanBlockersGate3Section({
       gate1PassCount: 0,
       gate2PassCount: 0,
@@ -47,6 +96,8 @@ describe('scan_blockers_gate3 RRR counters', () => {
         rrrFallbackUsedCount: 1,
         falseBreakoutHighCount: 0,
         executionReadyCount: 0,
+        candidateDetails,
+        detailsByReadiness: groupGate3CandidateDetails(candidateDetails),
       },
     });
 
@@ -60,8 +111,64 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(text).toContain('priceNearBreakout: 1');
     expect(text).toContain('volumeDryUp: 1');
     expect(text).toContain('lastTriggerDataUnavailable: 1');
+    expect(text).toContain('candidateDetails: 1');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('shadowLearning=true');
     expect(text).toContain('counterfactualRecorded=true');
+  });
+
+  it('keeps aggregate counters and candidate detail counters invariant', () => {
+    const counters = createScanCounters();
+    const ready = {
+      timingReadiness: 'READY',
+      falseBreakoutRisk: 'LOW',
+      executionImpact: 'NONE',
+      entryPriceGuard: { priceFreshness: 'VERIFIED' },
+      rrrCheck: { rrr: 2.4, status: 'PASS', source: 'FALLBACK_PERCENT' },
+      lastTrigger: {
+        status: 'FIRED',
+        fired: true,
+        executionReady: true,
+        liveBuyAllowed: true,
+        shadowObservableAllowed: true,
+        counterfactualAllowed: true,
+        priceConfirmation: { status: 'BREAKOUT_CONFIRMED' },
+        volumeConfirmationDetail: { status: 'CONFIRMED', volumeRatio20d: 1.8 },
+      },
+    };
+    const blocked = {
+      timingReadiness: 'BLOCKED',
+      falseBreakoutRisk: 'LOW',
+      executionImpact: 'NONE',
+      entryPriceGuard: { priceFreshness: 'VERIFIED' },
+      rrrCheck: { rrr: 1.2, status: 'FAIL', source: 'EXPLICIT' },
+      lastTrigger: {
+        status: 'THRESHOLD_NOT_MET',
+        fired: false,
+        executionReady: false,
+        liveBuyAllowed: false,
+        shadowObservableAllowed: true,
+        counterfactualAllowed: true,
+        priceConfirmation: { status: 'NOT_CONFIRMED' },
+        volumeConfirmationDetail: { status: 'WEAK', volumeRatio20d: 0.8 },
+      },
+    };
+
+    accumulateGateLayerSummary(counters, gateLayer(ready), 'BUY', { symbol: '204320', name: 'HL만도' });
+    accumulateGateLayerSummary(counters, gateLayer(blocked), 'BUY', { symbol: '011210', name: '현대위아' });
+    const audit = buildGateLayerAuditSummary(counters, {
+      sourceSnapshotId: 'scan-eval:invariant',
+      asOf: '2026-05-24T09:00:00.000Z',
+    });
+    const gate3 = audit.gate3Consolidated!;
+
+    expect(gate3.candidateDetails).toHaveLength(gate3.samples);
+    expect(gate3.candidateDetails.filter(detail => detail.readiness === 'READY')).toHaveLength(gate3.timingReadiness.READY);
+    expect(gate3.candidateDetails.filter(detail => detail.lastTriggerStatus === 'FIRED')).toHaveLength(gate3.lastTriggerPassCount);
+    expect(gate3.candidateDetails.filter(detail => detail.rrr.status === 'FAIL')).toHaveLength(gate3.rrrFailCount);
+    expect(gate3.candidateDetails.filter(detail => detail.rrr.status === 'MISSING')).toHaveLength(gate3.rrrMissingCount);
+    expect(gate3.candidateDetails.filter(detail => detail.falseBreakoutRisk === 'HIGH')).toHaveLength(gate3.falseBreakoutHighCount);
+    expect(gate3.candidateDetails.every(detail => detail.sourceSnapshotId === 'scan-eval:invariant')).toBe(true);
+    expect(gate3.candidateDetails.every(detail => detail.marketSignal === false)).toBe(true);
   });
 });

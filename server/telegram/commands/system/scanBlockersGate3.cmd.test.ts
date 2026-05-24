@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildGate3CandidateDetail, groupGate3CandidateDetails } from '../../../quant/gate3CandidateDetail.js';
 
 let mockSummary: any;
 
@@ -14,6 +15,31 @@ vi.mock('../../../trading/signalScanner/scanDiagnostics.js', () => ({
 describe('/scan_blockers_gate3 command', () => {
   beforeEach(async () => {
     vi.resetModules();
+    const candidateDetails = [
+      buildGate3CandidateDetail({
+        symbol: '204320',
+        name: 'HL만도',
+        sourceSnapshotId: 'scan-eval:test',
+        asOf: '2026-05-24T09:00:00.000Z',
+        consolidatedDiagnostic: {
+          timingReadiness: 'READY',
+          falseBreakoutRisk: 'LOW',
+          executionImpact: 'NONE',
+          entryPriceGuard: { priceFreshness: 'VERIFIED' },
+          rrrCheck: { rrr: 2.31, status: 'PASS', source: 'FALLBACK_PERCENT', entryPrice: 10_000, stopLoss: 9_300, targetPrice: 11_500 },
+          lastTrigger: {
+            status: 'FIRED',
+            fired: true,
+            liveBuyAllowed: false,
+            shadowObservableAllowed: true,
+            counterfactualAllowed: true,
+            executionImpact: 'NONE',
+            priceConfirmation: { status: 'BREAKOUT_CONFIRMED' },
+            volumeConfirmationDetail: { status: 'CONFIRMED', volumeRatio20d: 1.8 },
+          },
+        },
+      }),
+    ];
     mockSummary = {
       gateLayerAudit: {
         gate1PassCount: 3,
@@ -59,6 +85,8 @@ describe('/scan_blockers_gate3 command', () => {
           rrrFallbackUsedCount: 1,
           falseBreakoutHighCount: 0,
           executionReadyCount: 1,
+          candidateDetails,
+          detailsByReadiness: groupGate3CandidateDetails(candidateDetails),
         },
       },
     };
@@ -98,6 +126,8 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('rrrSource=FALLBACK_PERCENT');
     expect(text).toContain('price=NOT_CONFIRMED');
     expect(text).toContain('volume=WEAK 0.80x');
+    expect(text).toContain('Gate3 Candidate Detail');
+    expect(text).toContain('HL만도(204320) READY');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('no scan execution');
   }, 15000);

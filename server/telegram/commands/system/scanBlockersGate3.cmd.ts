@@ -4,6 +4,7 @@ import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
 import type { Gate3ConsolidatedAuditSummary, GateLayerAuditSummary } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate3TimingReadinessAuditSection } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
+import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDetail.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
   const [top] = Object.entries(counts ?? {})
@@ -67,6 +68,7 @@ export function formatScanBlockersGate3Section(
     `lastTriggerStatus: ${topKey(gate3.lastTriggerStatus)}`,
     `executionImpact: ${topKey(gate3.executionImpact)}`,
     `compactText: ${topLabel(gate3.compactText)}`,
+    `candidateDetails: ${gate3.candidateDetails?.length ?? 0}`,
     'marketSignal=false',
     'shadowLearning=true',
     'counterfactualRecorded=true',
@@ -103,12 +105,17 @@ const scanBlockersGate3: TelegramCommand = {
     const audit = summary?.gateLayerAudit;
     const compact = formatScanBlockersGate3Section(audit);
     const full = formatGate3TimingReadinessAuditSection(audit?.gate3Consolidated as Gate3ConsolidatedAuditSummary | undefined);
+    const details = formatGate3CandidateDetailTable({
+      detailsByReadiness: audit?.gate3Consolidated?.detailsByReadiness,
+      candidateDetails: audit?.gate3Consolidated?.candidateDetails,
+    });
     await replyInChunks(reply, [
       '[scan_blockers_gate3] Gate3 Entry Timing / LastTrigger / Price & Volume Guard',
       `source=${summary ? 'lastScanSummary' : 'none'} executionImpact=NONE`,
       '',
       compact,
       ...(full ? ['', full] : []),
+      ...(details ? ['', details] : []),
       '',
       'note: compact diagnostic only; no scan execution, no provider fetch, no broker order, no live promotion.',
     ].join('\n'));

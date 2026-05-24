@@ -6,6 +6,7 @@ import {
 } from '../quantFilter.js';
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
 import { buildGate3ExternalDataCoverage, normalizeGate3FalseBreakout, normalizeGate3IntradayTiming, normalizeGate3Momentum, normalizeGate3PriceStructure, normalizeGate3Pullback, normalizeGate3VolumeTiming } from './gate3Diagnostics.js';
+import { buildGate3CandidateDetail } from './gate3CandidateDetail.js';
 
 type QuoteLike = Partial<YahooQuoteExtended> & Record<string, unknown>;
 
@@ -449,5 +450,41 @@ describe('Gate3 diagnostics wiring', () => {
     expect(coverage.rrrCheck.status).toBe('PASS');
     expect(coverage.executionReadiness.status).toBe('READY');
     expect(coverage.lastTrigger.marketSignal).toBe(false);
+  });
+
+  it('builds per-symbol candidate detail from consolidated Gate3 diagnostic with source snapshot', () => {
+    const result = run(quote({
+      symbol: '204320',
+      currentPrice: 10_250,
+      price: 10_250,
+      high5d: 10_000,
+      high20d: 10_000,
+      ma20: 9_900,
+      atr14: 300,
+      volume: 3_000_000,
+      avgVolume: 1_000_000,
+      rsi14: 58,
+      macdHistogram: 0.5,
+      macd5dHistAgo: -0.1,
+      rrr: 2.5,
+      entryPriceAgeSec: 20,
+      entryPriceSource: 'KIS_REALTIME',
+      falseBreakoutRisk: 'LOW',
+    }) as any);
+    const consolidated = result.gateLayerSummary?.gate3.consolidatedDiagnostic as unknown as Record<string, unknown>;
+
+    const detail = buildGate3CandidateDetail({
+      symbol: '204320',
+      name: 'HL만도',
+      sourceSnapshotId: 'scan-eval:test',
+      asOf: '2026-05-24T09:00:00.000Z',
+      consolidatedDiagnostic: consolidated,
+    });
+
+    expect(detail.sourceSnapshotId).toBe('scan-eval:test');
+    expect(detail.readiness).toBe('READY');
+    expect(detail.priceConfirmation.status).toBe('BREAKOUT_CONFIRMED');
+    expect(detail.volumeConfirmation.status).toBe('CONFIRMED');
+    expect(detail.marketSignal).toBe(false);
   });
 });

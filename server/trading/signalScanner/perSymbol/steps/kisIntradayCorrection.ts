@@ -108,7 +108,12 @@ export async function kisIntradayCorrectionStep(
   }
   try {
     accumulateGateScoreHealth(ctx.scanCounters, reCheckGate);
-    accumulateGateLayerSummary(ctx.scanCounters, reCheckGate?.gateLayerSummary, reCheckGate?.signalType);
+    accumulateGateLayerSummary(ctx.scanCounters, reCheckGate?.gateLayerSummary, reCheckGate?.signalType, {
+      symbol: stock.code,
+      name: stock.name,
+      sourceSnapshotId: 'SOURCE_SNAPSHOT_PENDING',
+      asOf: new Date().toISOString(),
+    });
   } catch (e) {
     console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
   }
