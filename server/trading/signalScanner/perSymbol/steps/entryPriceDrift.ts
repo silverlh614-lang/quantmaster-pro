@@ -28,7 +28,7 @@ export function buildCorporateActionDriftMessage(input: CorporateActionDriftMess
     ? '[Corporate Action Guard - universe excluded]'
     : '[Corporate Action Guard - entryPrice adjusted]';
   const entryLine = input.mode === 'IMMUTABLE_REMOVE'
-    ? `entryPrice kept: <b>${formatKrw(input.oldEntry)}</b> (RAW immutable, ADR-0115)`
+    ? `entryPrice kept: <b>${formatKrw(input.oldEntry)}</b> (RAW immutable, ADR-0115) · current: <b>${formatKrw(input.currentPrice)}</b>`
     : `entryPrice adjusted: <b>${formatKrw(input.oldEntry)} -> ${formatKrw(input.currentPrice)}</b>`;
   const actionLine = input.mode === 'IMMUTABLE_REMOVE'
     ? 'action: watchlist excluded; review DART disclosure before re-entry.'

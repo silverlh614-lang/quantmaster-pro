@@ -372,6 +372,10 @@ async function startServer() {
         const indexLastModified = indexStats.mtime.toUTCString();
         app.use(express.static(distPath));
         app.get('*', (req, res) => {
+          // SPA 셸은 항상 재검증 — content-hash 된 에셋과 달리 index.html 은
+          // 고정 경로라서 캐시되면 배포 후에도 옛 번들 참조가 남는다 (섹션 전환 등
+          // 최신 UI 코드가 사용자에게 도달하지 못함). no-cache 로 매 요청 재검증.
+          res.set('Cache-Control', 'no-cache, must-revalidate');
           if (req.headers['if-none-match'] === indexEtag) {
             return res.status(304).end();
           }
