@@ -462,6 +462,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'circuits',
   'cron_status',
   'ghost_inspect',
+  'governance',
   'health',
   'health_loop',
   'fresh_data_status',
