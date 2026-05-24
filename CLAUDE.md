@@ -118,7 +118,20 @@ Provider 정책 → `docs/ai/05-provider-policy.md`
   (2) wiring 완료 vs 인프라만 (3) ADR 발급 무결성 (4) 회귀 테스트 적정성 (5) 정책 위반 baseline 무회귀.
 - **byte-equivalent 원칙** — LIVE 매매 본체 0줄 변경 + ENV 1줄 즉시 롤백 + 회귀 테스트 + KIS/KRX quota 0 침범.
 
-상세 테스트 체크리스트 → `docs/ai/08-testing-checklist.md` · 리팩토링 규칙 → `docs/ai/09-refactor-rules.md`
+### 5.1 Patch Scope Guard (ADR-530)
+
+코드 수정 전, 다음을 선언한다 (상세·템플릿은 아래 링크): `targetDomain` · `allowedFiles` ·
+`forbiddenFiles` · `expectedBehaviorChange` · `sourceSnapshotImpact` · `executionImpact` ·
+`shadowLearningImpact` · `telegramImpact` · `providerImpact` · `testsRequired` · `rollbackPlan`.
+
+- 3개 도메인 초과 시 패치를 분리한다 (ADR 분리).
+- 문서 전용 작업은 소스 코드를 수정하지 않는다.
+- warning cleanup 은 명시 요구 없이는 runtime 동작을 바꾸지 않는다 (behavior change 와 분리).
+- Trading Engine / SourceSnapshot / Gate / Provider / Telegram / Shadow 를 건드리면 해당 `docs/ai` 문서 먼저 읽는다.
+
+상세 테스트 체크리스트 → `docs/ai/08-testing-checklist.md` · 리팩토링 규칙·Patch Scope Guard 상세 →
+`docs/ai/09-refactor-rules.md` · 템플릿 → `docs/ai/templates/patch-plan-template.md` ·
+`docs/ai/templates/patch-report-template.md`
 
 ---
 
@@ -138,7 +151,7 @@ Provider 정책 → `docs/ai/05-provider-policy.md`
 | Telegram Bot · 채널 라우팅(CH1~4) · dedup · 명령 레지스트리 · HTML 정제 · 진단 명령 출력 | `06-telegram-policy.md` |
 | Shadow Learning · Counterfactual · Ghost Portfolio · LearningLabel · attribution · nightlyReflection · virtual fills | `07-learning-engine.md` |
 | typecheck · test · validate:* · precommit · PR 자가 review · 정적 가드 | `08-testing-checklist.md` |
-| 리팩토링 · 파일 분해 · SRP · 1,500줄 한계 · baseline 카탈로그 · ADR INDEX SLA | `09-refactor-rules.md` |
+| 리팩토링 · 파일 분해 · SRP · 1,500줄 한계 · baseline 카탈로그 · ADR INDEX SLA · **Patch Scope Guard / Patch Plan·Report** | `09-refactor-rules.md` (+ `templates/patch-plan-template.md` · `templates/patch-report-template.md`) |
 | 과거 ADR/패치 기록 인덱스 (상세 로그를 CLAUDE.md 로 되돌리지 말 것) | `10-patch-history-index.md` |
 
 외부 SSOT (docs/ai 밖): 요구사항·도메인 `README.md` · 모듈 경계 단일 책임 `ARCHITECTURE.md` ·

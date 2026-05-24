@@ -64,6 +64,13 @@
 - **Current Relevance:** 과거 패치 검색 시 본 색인 → archive 순으로 진입.
 - **Detail:** 본 문서 + archive (검색어 `ADR-529`)
 
+### ADR-530 — Patch Scope Guard & Refactor Safety Template
+- **Status:** Completed · **Domain:** AI Context / Documentation
+- **Problem:** 에이전트가 패치 범위를 과확장 (문서 수정인 줄 알았는데 src/engine/provider/gate 까지 건드림).
+- **Decision:** CLAUDE.md/AGENTS.md 에 짧은 Patch Scope Guard + `09` 상세 규칙 10조 + `08` 패치 유형별 최소 검증 + `templates/patch-plan-template.md`·`patch-report-template.md` 신설.
+- **Current Relevance:** 모든 패치 시작 전 Patch Plan 작성, allowedFiles 안에서만 수정.
+- **Detail:** `docs/ai/09-refactor-rules.md` · `docs/ai/templates/` (검색어 `ADR-530`)
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -473,3 +480,4 @@
 - 2026-05-24 · ADR-528
 - 2026-05-24 · ADR-528-B
 - 2026-05-24 · ADR-529
+- 2026-05-24 · ADR-530

@@ -46,6 +46,24 @@
 
 ---
 
+## Minimum Validation by Patch Type (ADR-530)
+
+패치 유형별 **최소** 검증 기준. `npm run lint` = client+server `tsc` 타입체크 (이 프로젝트의 typecheck).
+Patch Plan 의 도메인에 맞춰 아래 중 하나를 적용한다.
+
+- **Documentation-only patch** — 변경 파일만 확인. 문서가 명령/생성물을 참조하지 않으면 런타임 테스트 불필요.
+- **Type-only / interface patch** — `npm run lint` + 관련 unit 테스트(있으면).
+- **Gate / SourceSnapshot patch** — `npm run lint` + 관련 gate/source-snapshot 테스트 + 해당 시 `/scan_blockers` 진단 확인.
+- **Provider patch** — `npm run lint` + provider fallback/stale/empty 테스트(있으면) + providerIssue 가 marketSignal 로 변환되지 않음 확인.
+- **Telegram patch** — `npm run lint` + telegram 포맷/dedup/command route 테스트(있으면) + CH1~CH4 채널 분리 확인.
+- **Shadow Learning patch** — `npm run lint` + shadow lifecycle/ledger/counterfactual 테스트(있으면) + SELL_ONLY/R6/providerIssue 하에서 `shadowAllowed` 가 true 유지 확인.
+- **Refactor patch** — `npm run lint` + 기존 관련 테스트 + 명시되지 않는 한 동작 변경 0 (byte-equivalent).
+
+상세 Patch Scope Guard·Patch Plan/Report 템플릿 → `docs/ai/09-refactor-rules.md` ·
+`docs/ai/templates/patch-plan-template.md` · `docs/ai/templates/patch-report-template.md`.
+
+---
+
 ## ADR-0146 PR 자가 review (5 카테고리)
 
 모든 PR 은 머지 전 5 카테고리 자가 검증:
@@ -69,14 +87,14 @@ LIVE 매매 본체 **0줄 변경** + ENV **1줄 즉시 롤백** + 회귀 테스�
 - ADR INDEX `다음 발급` 번호 SSOT 단조 증가 (중복/건너뜀 차단).
 - ADR 파일 ↔ INDEX 행 정합 (orphan ADR / orphan INDEX 행 차단).
 - pending wiring 항목 SLA 초과 추적 (ADR-0158/0159).
-- 변경 이력 한 줄 누락 차단 — 모든 PR 은 `docs/ai/10-patch-history-index.md` Patch Log 한 줄.
+- 변경 이력 한 줄 누락 차단 — 모든 PR 은 `docs/ai/10-patch-history-index.md` ## 색인 한 줄 (ADR-529 형식).
 
 ---
 
 ## 변경 이력 의무
 
-- 모든 PR 은 `docs/ai/10-patch-history-index.md` Patch Log 표에 **한 줄** 추가 (절대 규칙).
-- CLAUDE.md 에는 패치 노트 누적 금지 (→ `CLAUDE.md` §4 Forbidden).
+- 모든 PR 은 `docs/ai/10-patch-history-index.md` **## 색인** 에 **한 줄** 추가 (ADR-529 형식); 구조/거버넌스 ADR 은 ## 핵심 ADR 요약 7-필드 블록 추가.
+- CLAUDE.md / AGENTS.md 에는 패치 노트 누적 금지 (→ `CLAUDE.md` §4 Forbidden). 상세는 `docs/archive/adr/`.
 
 복잡도 한계·분해 워크플로 → `docs/ai/09-refactor-rules.md` · 과거 변경 이력 → `docs/ai/10-patch-history-index.md`
 PR 범위 규칙 → `CLAUDE.md` §5 Patch Scope Rule

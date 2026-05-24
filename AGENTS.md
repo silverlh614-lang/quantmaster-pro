@@ -95,7 +95,20 @@ the orchestrator/harness flow described in `docs/ai/01-architecture-map.md`. Sim
 - **byte-equivalent principle** — LIVE trading body 0-line change + 1-line ENV rollback + regression
   test + 0 KIS/KRX quota impact, whenever you touch anything near the live path.
 
-Detail → `docs/ai/08-testing-checklist.md` (PR self-review) · `docs/ai/09-refactor-rules.md` (refactor scope)
+### 4.1 Patch Scope Guard (ADR-530)
+
+Before editing code, declare (full template → links below): `targetDomain` · `allowedFiles` ·
+`forbiddenFiles` · `expectedBehaviorChange` · `sourceSnapshotImpact` · `executionImpact` ·
+`shadowLearningImpact` · `telegramImpact` · `providerImpact` · `testsRequired` · `rollbackPlan`.
+
+- If a patch touches more than 3 domains, split it (separate ADRs).
+- Documentation-only tasks must not edit source code (`src/`, `server/`, `scripts/`).
+- Warning-cleanup tasks must not change runtime behavior unless explicitly required.
+- If the patch touches Trading Engine, SourceSnapshot, Gate, Provider, Telegram, or Shadow Learning, read the relevant `docs/ai/` document first.
+
+Detail → `docs/ai/08-testing-checklist.md` (validation by patch type · PR self-review) ·
+`docs/ai/09-refactor-rules.md` (Patch Scope Guard detail) · templates:
+`docs/ai/templates/patch-plan-template.md` · `docs/ai/templates/patch-report-template.md`
 
 ---
 
@@ -116,7 +129,7 @@ sections — those are the authoritative SRP boundaries.
 | Telegram Bot · channel routing CH1~4 · dedup · command registry · HTML sanitize · diagnostic output | `06-telegram-policy.md` |
 | Shadow Learning · Counterfactual · Ghost Portfolio · LearningLabel · attribution · nightlyReflection | `07-learning-engine.md` |
 | typecheck · test · validate:* · precommit · PR self-review · static guards | `08-testing-checklist.md` |
-| refactor · file split · SRP · 1,500-line limit · baseline catalog · ADR INDEX SLA | `09-refactor-rules.md` |
+| refactor · file split · SRP · 1,500-line limit · baseline catalog · ADR INDEX SLA · **Patch Scope Guard / Patch Plan·Report** | `09-refactor-rules.md` (+ `templates/patch-plan-template.md` · `templates/patch-report-template.md`) |
 | past ADR/patch history index — keyword-search rows only, **do not load the whole file** | `10-patch-history-index.md` |
 
 External SSOT (outside `docs/ai/`): requirements/domain `README.md` · module-boundary single-responsibility
