@@ -69,6 +69,17 @@ export interface Gate2ExternalRefreshTrace {
   executionImpact: 'NONE';
 }
 
+type Gate2InstrumentClass =
+  | 'ETF'
+  | 'ETN'
+  | 'FUND'
+  | 'INDEX_PRODUCT'
+  | 'REIT'
+  | 'SPAC'
+  | 'PREFERRED'
+  | 'COMMON_STOCK'
+  | 'UNKNOWN';
+
 export interface Gate2ExternalRefreshCounters {
   providerRequestsAttempted: number;
   corpCodeResolved: number;
@@ -90,6 +101,12 @@ export interface Gate2ExternalRefreshCounters {
   perComputedFromPriceAndEps: number;
   perCacheHit: number;
   unavailableDueToPER: number;
+  perFailDueToNegativeEps: number;
+  perUnavailableDueToNegativeEps: number;
+  perUnavailableDueToProviderMissing: number;
+  perUnavailableDueToPriceMissing: number;
+  perUnavailableDueToEpsMissing: number;
+  perUnavailableDueToNonPositive: number;
   unavailableDueToCorpCodeMissing: number;
   unavailableDueToFiscalPeriodMissing: number;
   unavailableDueToFinancialRowsEmpty: number;
@@ -319,9 +336,49 @@ function hasKisValuationCredentials(): boolean {
   return HAS_REAL_DATA_CLIENT || Boolean(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET);
 }
 
+function inferInstrumentClassFromText(value: string): Gate2InstrumentClass {
+  const upper = value.toUpperCase();
+  if (/(ETF|KODEX|TIGER|ACE|KOSEF|KBSTAR|ARIRANG|HANARO|TIMEFOLIO|RISE|PLUS|FOCUS|KINDEX)/.test(upper)) return 'ETF';
+  if (/ETN/.test(upper)) return 'ETN';
+  if (/(FUND|펀드|투자신탁|신탁)/i.test(value)) return 'FUND';
+  if (/(INDEX_PRODUCT|INDEX PRODUCT|인덱스|지수상품)/i.test(value)) return 'INDEX_PRODUCT';
+  if (/(REIT|리츠)/i.test(value)) return 'REIT';
+  if (/(SPAC|스팩|기업인수목적)/i.test(value)) return 'SPAC';
+  if (/(PREFERRED|우선주|종류주|우$|우B|우C|1우|2우|3우)/i.test(value)) return 'PREFERRED';
+  return 'UNKNOWN';
+}
+
+function isNonEquityInstrumentClass(value: Gate2InstrumentClass): boolean {
+  return ['ETF', 'ETN', 'FUND', 'INDEX_PRODUCT', 'REIT', 'SPAC', 'PREFERRED'].includes(value);
+}
+
+function isPreferredInstrumentType(value: string | undefined): boolean {
+  return inferInstrumentClassFromText(value ?? '') === 'PREFERRED';
+}
+
+function parentCommonSymbolCandidate(symbol: string): string | null {
+  const cleaned = cleanSymbol(symbol);
+  if (!/^\d{6}$/.test(cleaned) || cleaned.endsWith('0')) return null;
+  return `${cleaned.slice(0, 5)}0`;
+}
+
+function describeKnownInstrumentSymbol(symbol: string): { instrumentType: string; nonEquity: boolean } {
+  const knownIndexProductSymbols = new Set([
+    '069500', // KODEX 200
+    '102110', // TIGER 200
+    '133690', // TIGER 미국나스닥100
+    '153130', // KODEX 단기채권
+    '229200', // KODEX 코스닥150
+  ]);
+  if (knownIndexProductSymbols.has(cleanSymbol(symbol))) {
+    return { instrumentType: 'KIS_METADATA/ETF_OR_INDEX_PRODUCT', nonEquity: true };
+  }
+  return { instrumentType: 'UNKNOWN', nonEquity: false };
+}
+
 function describeInstrumentType(symbol: string): { instrumentType: string; nonEquity: boolean } {
   const entry = getStockByCode(symbol);
-  if (!entry) return { instrumentType: 'UNKNOWN', nonEquity: false };
+  if (!entry) return describeKnownInstrumentSymbol(symbol);
   const joined = [entry.market, entry.securityType, entry.stockType, entry.department, entry.name]
     .filter(Boolean)
     .join('/');
@@ -357,7 +414,7 @@ export function classifyGate2CorpCodeMissingForDiagnostics(input: {
   instrumentType?: string;
   nonEquity?: boolean;
 }): { instrumentType: string; reason: Gate2CorpCodeMissingReason; executionImpact: 'NONE' } {
-  if (input.nonEquity === true) {
+  if (input.nonEquity === true || isNonEquityInstrumentClass(inferInstrumentClassFromText(input.instrumentType ?? ''))) {
     return {
       instrumentType: input.instrumentType ?? 'NON_EQUITY',
       reason: 'DART_NOT_APPLICABLE',
@@ -418,7 +475,24 @@ async function resolveDartCorpCode(symbol: string, trace: Gate2ExternalRefreshTr
     const resolved = resolveDartCorpCodeFromCache(symbol);
     trace.corpCodeResolveStatus = resolved.status;
     if (resolved.status !== 'FOUND' || !resolved.corpCode) {
-      trace.dartErrorCode = resolved.reason;
+      const instrument = describeInstrumentType(symbol);
+      let missingReason = resolved.reason;
+      const parentSymbol = isPreferredInstrumentType(instrument.instrumentType)
+        ? parentCommonSymbolCandidate(symbol)
+        : null;
+      if (parentSymbol) {
+        const parentResolved = resolveDartCorpCodeFromCache(parentSymbol);
+        if (parentResolved.status === 'FOUND' && parentResolved.corpCode) {
+          trace.lookupKey = parentSymbol;
+          trace.corpCodeResolveStatus = 'FOUND';
+          trace.corpCode = parentResolved.corpCode;
+          trace.corpCodeMissingReason = 'NONE';
+          trace.instrumentType = `${instrument.instrumentType}|PREFERRED_PARENT_COMMON:${parentSymbol}`;
+          return parentResolved.corpCode;
+        }
+        missingReason = parentResolved.reason ?? 'PREFERRED_PARENT_COMMON_NOT_FOUND';
+      }
+      trace.dartErrorCode = missingReason;
       applyCorpCodeMissingClassification(trace);
       return null;
     }
@@ -725,10 +799,10 @@ function reasonForMissingPer(input: {
   output: Record<string, unknown> | null;
 }): string {
   if (!input.output) return 'KIS_PER_OUTPUT_MISSING';
-  if (input.directPer != null && input.directPer <= 0) return 'PER_NON_POSITIVE_OR_UNAVAILABLE';
-  if (input.currentPrice == null || input.currentPrice <= 0) return 'PRICE_MISSING';
   if (input.kisEps != null && input.kisEps <= 0) return 'EPS_NON_POSITIVE';
   if (input.dartEps != null && input.dartEps <= 0) return 'EPS_NON_POSITIVE';
+  if (input.directPer != null && input.directPer <= 0) return 'PER_NON_POSITIVE_OR_UNAVAILABLE';
+  if (input.currentPrice == null || input.currentPrice <= 0) return 'PRICE_MISSING';
   if (input.kisEps == null && input.dartEps == null) {
     return input.listedShares == null ? 'SHARES_OUTSTANDING_MISSING' : 'EPS_MISSING';
   }
@@ -792,9 +866,10 @@ export async function fetchGate2PerValuation(input: {
       };
     }
     const netIncome = netIncomeFromDartFin(input.dartFin);
-    const dartEps = netIncome != null && netIncome > 0 && listedShares != null && listedShares > 0
+    const rawDartEps = netIncome != null && listedShares != null && listedShares > 0
       ? netIncome / listedShares
       : null;
+    const dartEps = rawDartEps != null && rawDartEps > 0 ? rawDartEps : null;
     if (currentPrice != null && currentPrice > 0 && dartEps != null && dartEps > 0) {
       return {
         attempted: true,
@@ -815,16 +890,16 @@ export async function fetchGate2PerValuation(input: {
         directPer: rawDirectPer,
         currentPrice,
         kisEps,
-        dartEps,
+        dartEps: rawDartEps,
         listedShares,
         output,
       }), true),
-      eps: kisEps ?? dartEps,
+      eps: kisEps ?? rawDartEps,
       currentPrice,
       listedShares,
       source: output ? 'KIS' : 'NONE',
       raw,
-      dartEpsComputed: dartEps != null && dartEps > 0,
+      dartEpsComputed: rawDartEps != null,
     };
   } catch (error) {
     return {
@@ -979,6 +1054,15 @@ function projectPer(
   unavailableReason = 'PER_MISSING',
 ): Gate2ProjectedCondition {
   if (value == null) {
+    if (unavailableReason === 'EPS_NON_POSITIVE') {
+      return {
+        status: 'FAIL',
+        value: null,
+        source: source === 'NONE' ? 'KIS' : source,
+        reason: 'EPS_NON_POSITIVE',
+        executionImpact: 'NONE',
+      };
+    }
     return {
       status: 'UNAVAILABLE',
       value: null,
@@ -1171,6 +1255,12 @@ function emptyCounters(): Gate2ExternalRefreshCounters {
     perComputedFromPriceAndEps: 0,
     perCacheHit: 0,
     unavailableDueToPER: 0,
+    perFailDueToNegativeEps: 0,
+    perUnavailableDueToNegativeEps: 0,
+    perUnavailableDueToProviderMissing: 0,
+    perUnavailableDueToPriceMissing: 0,
+    perUnavailableDueToEpsMissing: 0,
+    perUnavailableDueToNonPositive: 0,
     unavailableDueToCorpCodeMissing: 0,
     unavailableDueToFiscalPeriodMissing: 0,
     unavailableDueToFinancialRowsEmpty: 0,
@@ -1181,6 +1271,15 @@ function emptyCounters(): Gate2ExternalRefreshCounters {
     excludedCount: 0,
     excludedUnavailableEquivalent: 0,
   };
+}
+
+function perUnavailableBucket(reason: string | undefined): 'NEGATIVE_EPS' | 'PROVIDER_MISSING' | 'PRICE_MISSING' | 'EPS_MISSING' | 'NON_POSITIVE_PER' {
+  const normalized = String(reason ?? '').toUpperCase();
+  if (normalized === 'EPS_NON_POSITIVE') return 'NEGATIVE_EPS';
+  if (normalized === 'PRICE_MISSING') return 'PRICE_MISSING';
+  if (normalized === 'EPS_MISSING' || normalized === 'SHARES_OUTSTANDING_MISSING') return 'EPS_MISSING';
+  if (normalized === 'PER_NON_POSITIVE_OR_UNAVAILABLE') return 'NON_POSITIVE_PER';
+  return 'PROVIDER_MISSING';
 }
 
 function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2ExternalRefreshCounters {
@@ -1204,8 +1303,29 @@ function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2E
     if (trace.dartEpsComputed) counters.dartEpsComputed += 1;
     if (trace.perComputedFromPriceAndEps) counters.perComputedFromPriceAndEps += 1;
     if (trace.perCacheHit) counters.perCacheHit += 1;
+    const shouldCountPer = trace.corpCodeResolveStatus === 'FOUND' || trace.kisPerRequestAttempted || trace.perSource === 'KIS';
     if (trace.perNormalized != null && trace.perNormalized > 0) counters.kisPerAvailable += 1;
-    else if (trace.corpCodeResolveStatus === 'FOUND' || trace.kisPerRequestAttempted || trace.perSource === 'KIS') counters.kisPerUnavailable += 1;
+    else if (shouldCountPer) {
+      counters.kisPerUnavailable += 1;
+      switch (perUnavailableBucket(trace.perReason)) {
+        case 'NEGATIVE_EPS':
+          counters.perFailDueToNegativeEps += 1;
+          counters.perUnavailableDueToNegativeEps += 1;
+          break;
+        case 'PRICE_MISSING':
+          counters.perUnavailableDueToPriceMissing += 1;
+          break;
+        case 'EPS_MISSING':
+          counters.perUnavailableDueToEpsMissing += 1;
+          break;
+        case 'NON_POSITIVE_PER':
+          counters.perUnavailableDueToNonPositive += 1;
+          break;
+        default:
+          counters.perUnavailableDueToProviderMissing += 1;
+          break;
+      }
+    }
 
     const unavailableCount = trace.unavailableConditions.length;
     counters.unavailableCountRaw += unavailableCount;
@@ -1231,7 +1351,9 @@ function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2E
       counters.unavailableDueToNormalizationFailed += unavailableCount;
       continue;
     }
-    if (trace.unavailableConditions.includes('per')) counters.unavailableDueToPER += 1;
+    if (trace.unavailableConditions.includes('per') && perUnavailableBucket(trace.perReason) !== 'NEGATIVE_EPS') {
+      counters.unavailableDueToPER += 1;
+    }
   }
   counters.unavailableExcludingExcluded = Math.max(0, counters.unavailableCountRaw - counters.excludedUnavailableEquivalent);
   counters.unavailableCountActionable = counters.unavailableDueToPER
@@ -1288,7 +1410,20 @@ function buildStrongBuyBlockedDetails(
   counters: Gate2ExternalRefreshCounters,
 ): string {
   const parts: string[] = [];
-  if (counters.unavailableDueToPER > 0) parts.push(`PER_UNAVAILABLE_${counters.unavailableDueToPER}`);
+  if (counters.perFailDueToNegativeEps > 0) parts.push(`EPS_NON_POSITIVE_${counters.perFailDueToNegativeEps}`);
+  if (counters.perUnavailableDueToProviderMissing > 0) parts.push(`PER_PROVIDER_MISSING_${counters.perUnavailableDueToProviderMissing}`);
+  if (counters.perUnavailableDueToPriceMissing > 0) parts.push(`PER_PRICE_MISSING_${counters.perUnavailableDueToPriceMissing}`);
+  if (counters.perUnavailableDueToEpsMissing > 0) parts.push(`EPS_MISSING_${counters.perUnavailableDueToEpsMissing}`);
+  if (counters.perUnavailableDueToNonPositive > 0) parts.push(`PER_NON_POSITIVE_${counters.perUnavailableDueToNonPositive}`);
+  if (
+    counters.unavailableDueToPER > 0
+    && counters.perUnavailableDueToProviderMissing
+      + counters.perUnavailableDueToPriceMissing
+      + counters.perUnavailableDueToEpsMissing
+      + counters.perUnavailableDueToNonPositive === 0
+  ) {
+    parts.push(`PER_UNAVAILABLE_${counters.unavailableDueToPER}`);
+  }
   if (counters.trueCorpCodeNotFound > 0) parts.push(`TRUE_CORP_CODE_NOT_FOUND_${counters.trueCorpCodeNotFound}`);
   if (counters.corpCodeLookupFailed > 0) parts.push(`CORP_CODE_LOOKUP_FAILED_${counters.corpCodeLookupFailed}`);
   if (counters.unavailableDueToFiscalPeriodMissing > 0) parts.push(`FISCAL_PERIOD_MISSING_${counters.unavailableDueToFiscalPeriodMissing}`);

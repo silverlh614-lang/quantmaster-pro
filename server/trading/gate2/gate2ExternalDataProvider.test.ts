@@ -166,6 +166,52 @@ describe('Gate2ExternalDataProvider', () => {
     expect(projection.valuation.per.per).toBe(0);
   });
 
+  it('classifies EPS non-positive as a valuation fail rather than provider missing', () => {
+    const projection = buildGate2ExternalProjection({
+      symbol: '005930',
+      per: null,
+      perSource: 'KIS',
+      perReason: 'EPS_NON_POSITIVE',
+      dartFin: {
+        symbol: '005930',
+        reportDate: '2025-12-31',
+        fiscalYear: '2025',
+        quarter: 'ANNUAL',
+        revenue: 1000,
+        operatingIncome: 120,
+        netIncome: 100,
+        operatingCashFlow: 140,
+        interestExpense: 20,
+        totalEquity: 500,
+        totalAssets: 900,
+        ocfRatio: 1.4,
+        roe: 0.2,
+        opm: 0.12,
+        opmYoYDelta: 0.02,
+        revenueYoYGrowth: null,
+        operatingIncomeYoYGrowth: null,
+        marginAcceleration: 0.03,
+        interestCoverageRatio: 6,
+        source: 'DART',
+        providerStatus: 'OK_WITH_DATA',
+        dataConfidence: 'VERIFIED',
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'DIAGNOSTIC_ONLY',
+      },
+    });
+
+    expect(projection.conditionResults.per).toMatchObject({
+      status: 'FAIL',
+      value: null,
+      source: 'KIS',
+      reason: 'EPS_NON_POSITIVE',
+      executionImpact: 'NONE',
+    });
+    expect(projection.unavailableCount).toBe(0);
+    expect(projection.highConvictionImpact).toBe('BLOCK_STRONG_BUY_UPGRADE');
+  });
+
   it('refreshes without throwing when DART data is missing', async () => {
     const result = await refreshGate2ExternalData({
       symbols: ['005930', '000660'],
@@ -248,6 +294,80 @@ describe('Gate2ExternalDataProvider', () => {
     expect(result.executionImpact).toBe('NONE');
   });
 
+  it('splits negative EPS from provider-missing PER in refresh quality buckets', async () => {
+    const result = await refreshGate2ExternalData({
+      symbols: ['005930', '000660'],
+      fetcher: async (symbol) => ({
+        symbol,
+        corpCode: symbol === '005930' ? '00126380' : '00164779',
+        reportDate: '2025-12-31',
+        fiscalYear: '2025',
+        quarter: 'ANNUAL',
+        revenue: 1000,
+        operatingIncome: 120,
+        netIncome: 100,
+        operatingCashFlow: 140,
+        interestExpense: 20,
+        totalEquity: 500,
+        totalAssets: 900,
+        ocfRatio: 1.4,
+        roe: 0.2,
+        opm: 0.12,
+        opmYoYDelta: 0.02,
+        revenueYoYGrowth: null,
+        operatingIncomeYoYGrowth: null,
+        marginAcceleration: 0.03,
+        interestCoverageRatio: 6,
+        source: 'DART',
+        providerStatus: 'OK_WITH_DATA',
+        dataConfidence: 'VERIFIED',
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'DIAGNOSTIC_ONLY',
+      }),
+      perFetcher: async (symbol) => symbol === '005930'
+        ? {
+          attempted: true,
+          per: null,
+          eps: -100,
+          currentPrice: 60000,
+          listedShares: 1000,
+          source: 'KIS',
+          reason: 'EPS_NON_POSITIVE',
+          raw: { eps: '-100', stck_prpr: '60000' },
+          dartEpsComputed: false,
+          perComputedFromPriceAndEps: false,
+          perCacheHit: false,
+        }
+        : {
+          attempted: true,
+          per: null,
+          eps: null,
+          currentPrice: 60000,
+          listedShares: 1000,
+          source: 'KIS',
+          reason: 'KIS_PER_OUTPUT_MISSING',
+          raw: {},
+          dartEpsComputed: false,
+          perComputedFromPriceAndEps: false,
+          perCacheHit: false,
+        },
+      now: new Date('2026-05-24T00:00:00.000Z'),
+    });
+
+    expect(result.verifiedCount).toBe(2);
+    expect(result.counters.kisPerUnavailable).toBe(2);
+    expect(result.counters.perFailDueToNegativeEps).toBe(1);
+    expect(result.counters.perUnavailableDueToNegativeEps).toBe(1);
+    expect(result.counters.perUnavailableDueToProviderMissing).toBe(1);
+    expect(result.counters.unavailableDueToPER).toBe(1);
+    expect(result.unavailableCountActionable).toBe(1);
+    expect(result.strongBuyBlockedDetails).toBe('EPS_NON_POSITIVE_1|PER_PROVIDER_MISSING_1');
+    expect(result.records.find(record => record.symbol === '005930')?.conditionResults.per.status).toBe('FAIL');
+    expect(result.records.find(record => record.symbol === '000660')?.conditionResults.per.status).toBe('UNAVAILABLE');
+    expect(result.executionImpact).toBe('NONE');
+  });
+
   it('classifies non-equity corpCode misses as DART not applicable', () => {
     const classified = classifyGate2CorpCodeMissingForDiagnostics({
       symbol: '123456',
@@ -261,6 +381,19 @@ describe('Gate2ExternalDataProvider', () => {
       executionImpact: 'NONE',
     });
     expect(classified.instrumentType).toContain('ETF');
+  });
+
+  it('classifies known ETF symbols without corpCode as DART not applicable', () => {
+    const classified = classifyGate2CorpCodeMissingForDiagnostics({
+      symbol: '069500',
+      status: 'NOT_FOUND',
+    });
+
+    expect(classified).toMatchObject({
+      instrumentType: 'KIS_METADATA/ETF_OR_INDEX_PRODUCT',
+      reason: 'DART_NOT_APPLICABLE',
+      executionImpact: 'NONE',
+    });
   });
 
   it('reads KIS inquire-price PER fields through the shared real-data client path', async () => {

@@ -43,6 +43,12 @@ vi.mock('../../../trading/gate2/gate2ExternalCache.js', () => ({
         perComputedFromPriceAndEps: 0,
         perCacheHit: 0,
         unavailableDueToPER: 1,
+        perFailDueToNegativeEps: 0,
+        perUnavailableDueToNegativeEps: 0,
+        perUnavailableDueToProviderMissing: 1,
+        perUnavailableDueToPriceMissing: 0,
+        perUnavailableDueToEpsMissing: 0,
+        perUnavailableDueToNonPositive: 0,
         unavailableDueToCorpCodeMissing: 5,
         unavailableDueToFiscalPeriodMissing: 0,
         unavailableDueToFinancialRowsEmpty: 0,
@@ -53,8 +59,8 @@ vi.mock('../../../trading/gate2/gate2ExternalCache.js', () => ({
         excludedCount: 0,
         excludedUnavailableEquivalent: 0,
       },
-      strongBuyBlockedDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
-      blockingDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
+      strongBuyBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+      blockingDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
       excludedDetails: 'NONE',
       excludedCount: 0,
       excludedSymbols: [],
@@ -138,6 +144,12 @@ const refreshGate2ExternalData = vi.fn(async () => ({
     perComputedFromPriceAndEps: 0,
     perCacheHit: 0,
     unavailableDueToPER: 1,
+    perFailDueToNegativeEps: 0,
+    perUnavailableDueToNegativeEps: 0,
+    perUnavailableDueToProviderMissing: 1,
+    perUnavailableDueToPriceMissing: 0,
+    perUnavailableDueToEpsMissing: 0,
+    perUnavailableDueToNonPositive: 0,
     unavailableDueToCorpCodeMissing: 5,
     unavailableDueToFiscalPeriodMissing: 0,
     unavailableDueToFinancialRowsEmpty: 0,
@@ -190,8 +202,8 @@ const refreshGate2ExternalData = vi.fn(async () => ({
     executionImpact: 'NONE',
   },
   strongBuyBlockedReason: 'GATE2_EXTERNAL_PARTIAL',
-  strongBuyBlockedDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
-  blockingDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
+  strongBuyBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+  blockingDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
   excludedDetails: 'NONE',
   excludedCount: 0,
   excludedSymbols: [],
@@ -317,7 +329,7 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('cacheRecords=1');
     expect(text).toContain('lastRefreshRootCause=DART_FINANCIALS_MISSING');
     expect(text).toContain('trueCorpCodeNotFound=1');
-    expect(text).toContain('blockingDetails=PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1');
+    expect(text).toContain('blockingDetails=PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1');
     expect(text).toContain('excludedDetails=NONE');
     expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('no provider fetch');
@@ -338,7 +350,7 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('providerRequestsAttempted=2');
     expect(text).toContain('rootCause=DART_FINANCIALS_MISSING');
     expect(text).toContain('unavailableCountActionable=6');
-    expect(text).toContain('blockingDetails=PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1');
+    expect(text).toContain('blockingDetails=PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1');
     expect(text).toContain('refreshTrace:');
     expect(text).toContain('no broker order');
     expect(text).toContain('executionImpact=NONE');

@@ -113,7 +113,7 @@ describe('/scan_blockers_gate2 command', () => {
               entryHardBlockImpact: 'NO',
               shadowObservablePreserved: true,
               counterfactualAllowed: true,
-              blockingDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
+              blockingDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
               excludedDetails: 'DART_NOT_APPLICABLE_2',
               excludedCount: 2,
             },
@@ -137,8 +137,8 @@ describe('/scan_blockers_gate2 command', () => {
       updatedAt: '2026-05-24T00:10:00.000Z',
       lastRefresh: {
         asOf: '2026-05-24T00:10:00.000Z',
-        blockingDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
-        strongBuyBlockedDetails: 'PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1',
+        blockingDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+        strongBuyBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
         excludedDetails: 'DART_NOT_APPLICABLE_2',
         excludedCount: 2,
         traces: [{ symbol: '005930' }, { symbol: '000660' }],
@@ -216,7 +216,7 @@ describe('/scan_blockers_gate2 command', () => {
     expect(text).toContain('per:status=PARTIAL:value=12:source=KIS:reason=PER_PARTIAL');
     expect(text).toContain('gate2CacheAsOf=2026-05-24T00:10:00.000Z lastScanSummaryAsOf=2026-05-24T00:00:00.000Z projectionStale=true');
     expect(text).toContain('note=SCAN_SUMMARY_OLDER_THAN_GATE2_REFRESH');
-    expect(text).toContain('strongBuyBlockedDetails=PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1');
+    expect(text).toContain('strongBuyBlockedDetails=PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1');
     expect(text).toContain('excludedDetails=DART_NOT_APPLICABLE_2');
   });
 });
