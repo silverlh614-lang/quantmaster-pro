@@ -1,12 +1,9 @@
-/**
- * @responsibility navigation 그룹·메뉴 SSOT 회귀 테스트 — PR-I
- */
-import { describe, it, expect } from 'vitest';
-import { NAV_GROUPS, PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS, getVisibleNavGroups } from './navigation';
+import { describe, expect, it } from 'vitest';
+import { MORE_MOBILE_TABS, NAV_GROUPS, PRIMARY_MOBILE_TABS, getVisibleNavGroups } from './navigation';
 import { VIEW_LABELS } from './viewRegistry';
 
-describe('navigation SSOT — PR-I 신규 페이지 등록', () => {
-  it('NAV_GROUPS 의 모든 view id 가 VIEW_LABELS 에 존재', () => {
+describe('navigation SSOT', () => {
+  it('registers every sidebar view in VIEW_LABELS', () => {
     for (const group of NAV_GROUPS) {
       for (const item of group.items) {
         expect(VIEW_LABELS[item.id]).toBeDefined();
@@ -14,51 +11,42 @@ describe('navigation SSOT — PR-I 신규 페이지 등록', () => {
     }
   });
 
-  it('MORE_MOBILE_TABS 의 모든 view id 가 VIEW_LABELS 에 존재', () => {
+  it('registers every mobile more-tab view in VIEW_LABELS', () => {
     for (const item of MORE_MOBILE_TABS) {
       expect(VIEW_LABELS[item.id]).toBeDefined();
     }
   });
 
-  it('PRIMARY_MOBILE_TABS 의 모든 view id 가 VIEW_LABELS 에 존재', () => {
+  it('registers every primary mobile tab in VIEW_LABELS', () => {
     for (const item of PRIMARY_MOBILE_TABS) {
       expect(VIEW_LABELS[item.id]).toBeDefined();
     }
   });
 
-  it('PR-I — RECOMMENDATION_HISTORY 가 NAV_GROUPS 에 등록됨', () => {
-    const allItems = NAV_GROUPS.flatMap(g => g.items);
-    expect(allItems.some(i => i.id === 'RECOMMENDATION_HISTORY')).toBe(true);
+  it('keeps Decision History and Macro Intel registered', () => {
+    const allItems = NAV_GROUPS.flatMap((group) => group.items);
+    expect(allItems.some((item) => item.id === 'RECOMMENDATION_HISTORY')).toBe(true);
+    expect(allItems.some((item) => item.id === 'MACRO_INTEL')).toBe(true);
   });
 
-  it('PR-I — MACRO_INTEL 이 NAV_GROUPS 에 등록됨', () => {
-    const allItems = NAV_GROUPS.flatMap(g => g.items);
-    expect(allItems.some(i => i.id === 'MACRO_INTEL')).toBe(true);
-  });
-
-  it('PR-I — 두 신규 항목이 MORE_MOBILE_TABS 에도 등록됨', () => {
-    expect(MORE_MOBILE_TABS.some(i => i.id === 'RECOMMENDATION_HISTORY')).toBe(true);
-    expect(MORE_MOBILE_TABS.some(i => i.id === 'BLOG_EXPORT')).toBe(true);
-  });
-
-  it('NAV_GROUPS 에 중복된 view id 없음 (drift 가드)', () => {
-    const allIds = NAV_GROUPS.flatMap(g => g.items).map(i => i.id);
-    const uniq = new Set(allIds);
-    expect(uniq.size).toBe(allIds.length);
-  });
-
-  it('리포트 그룹이 Public Report / Blog Export 진입점을 제공함', () => {
-    const report = NAV_GROUPS.find(g => g.label === '리포트');
+  it('keeps report entry points available on desktop and mobile', () => {
+    const report = NAV_GROUPS.find((group) => group.label === 'Report');
     expect(report).toBeDefined();
-    expect(report?.items.map(i => i.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT', 'TELEGRAM_SUMMARY', 'PAID_PREVIEW']);
+    expect(report?.items.map((item) => item.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT', 'TELEGRAM_SUMMARY', 'PAID_PREVIEW']);
+    expect(MORE_MOBILE_TABS.some((item) => item.id === 'BLOG_EXPORT')).toBe(true);
   });
 
-  it('운영자 그룹은 일반 navigation 에서 숨김 처리됨', () => {
-    expect(NAV_GROUPS.some(g => g.label === '운영자')).toBe(true);
-    expect(getVisibleNavGroups(false).some(g => g.label === '운영자')).toBe(false);
-    expect(getVisibleNavGroups(true).some(g => g.label === '운영자')).toBe(true);
-    const operator = getVisibleNavGroups(true).find(g => g.label === '운영자');
-    expect(operator?.items.map(i => i.id)).toEqual([
+  it('has no duplicate sidebar view ids', () => {
+    const allIds = NAV_GROUPS.flatMap((group) => group.items).map((item) => item.id);
+    expect(new Set(allIds).size).toBe(allIds.length);
+  });
+
+  it('hides operator navigation unless operator mode is enabled', () => {
+    expect(NAV_GROUPS.some((group) => group.label === 'Operator')).toBe(true);
+    expect(getVisibleNavGroups(false).some((group) => group.label === 'Operator')).toBe(false);
+    expect(getVisibleNavGroups(true).some((group) => group.label === 'Operator')).toBe(true);
+    const operator = getVisibleNavGroups(true).find((group) => group.label === 'Operator');
+    expect(operator?.items.map((item) => item.id)).toEqual([
       'MACRO_INTEL',
       'DIAGNOSTICS',
       'PROVIDER_HEALTH',

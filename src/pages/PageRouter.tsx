@@ -129,11 +129,13 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
             ) : view === 'SHADOW_LEARNING' ? (
               <ShadowLearningPage />
             ) : view === 'PUBLIC_REPORT' ? (
-              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" />
-            ) : view === 'BLOG_EXPORT' || view === 'TELEGRAM_SUMMARY' ? (
-              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" />
+              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" focusSection="TOP" />
+            ) : view === 'BLOG_EXPORT' ? (
+              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" focusSection="BLOG_EXPORT" />
+            ) : view === 'TELEGRAM_SUMMARY' ? (
+              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" focusSection="TELEGRAM_SUMMARY" />
             ) : view === 'PAID_PREVIEW' ? (
-              <PublicReportPage preferredMode="PAID_PREVIEW_MODE" />
+              <PublicReportPage preferredMode="PAID_PREVIEW_MODE" focusSection="PAID_PREVIEW" />
             ) : view === 'DIAGNOSTICS'
               || view === 'LEARNING_SANITY'
               || view === 'PROVIDER_HEALTH'

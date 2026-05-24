@@ -23,11 +23,14 @@ import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
 import { useMarketMode } from '../../hooks/useMarketMode';
+import { useUIVerbosity } from '../../hooks/useUIVerbosity';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore } from '../../types/quant';
 import type { View } from '../../stores/useSettingsStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { classifyScoreConcordance, getQuantGateScore } from '../../utils/recommendationScore';
+import { buildCandidateDecisionCardModel } from '../../candidate-decision/candidateDecisionModel';
+import { CandidateDecisionCard } from './CandidateDecisionCard';
 
 export interface WatchlistCardProps {
   stock: StockRecommendation;
@@ -380,7 +383,7 @@ const StockIdentityPanel = ({
         </div>
         {stock.aiConvictionScore && (
           <div className="mt-2 text-[10px] text-orange-300/60">
-            Gemini conviction is diagnostic, not an auto-trade trigger.
+            Model score is diagnostic, not an auto-trade trigger.
           </div>
         )}
         {quantGateScore && (
@@ -390,7 +393,7 @@ const StockIdentityPanel = ({
               ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
               : 'border-red-500/20 bg-red-500/10 text-red-200',
           )}>
-            AI Score {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
+            Model Score {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
             {quantGateScore.pass ? 'auto-trade eligible' : 'auto-trade blocked'}{' '}
             ({quantGateScore.regime.replace(/_.+$/, '')} threshold {quantGateScore.threshold}
             {quantGateScore.pass ? '' : ' unmet'})
@@ -429,7 +432,7 @@ const AiScoreBlock = ({
   <>
     {stock.aiConvictionScore && (
       <div className="flex flex-col items-end shrink-0">
-        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">AI Score</span>
+        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">Model Score</span>
         <span className={cn(
           'text-lg sm:text-xl font-black tracking-tighter font-num',
           stock.aiConvictionScore.totalScore >= 80 ? 'text-orange-500' :
@@ -470,7 +473,7 @@ const AiFactorBar = ({ stock }: { stock: StockRecommendation }) => {
       {stock.aiConvictionScore && (
         <div className="mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">AI Conviction</span>
+            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Decision Confluence</span>
             <span className="text-[11px] font-black text-white/70 font-num">{total}/100</span>
           </div>
           <div className="gate-bar">
@@ -881,6 +884,7 @@ export function WatchlistCard({
 }: WatchlistCardProps) {
   const isAllGatesPassed = isAllGatesPassedFor(stock);
   const marketMode = useMarketMode();
+  const verbosity = useUIVerbosity();
   const macroEnv = useGlobalIntelStore((state) => state.macroEnv);
   const recentPositiveDisclosure = dartAlerts.some(
     (alert) => alert.stock_code.replace(/^A/, '') === stock.code && alert.sentiment === 'POSITIVE',
@@ -892,6 +896,17 @@ export function WatchlistCard({
   const concordance = aiScore !== null && quantGateScore
     ? classifyScoreConcordance(aiScore, quantGateScore.normalized)
     : null;
+  const sourceSnapshotId = (stock as { sourceSnapshotId?: string; snapshotId?: string }).sourceSnapshotId
+    ?? (stock as { sourceSnapshot?: { id?: string; sourceSnapshotId?: string } }).sourceSnapshot?.sourceSnapshotId
+    ?? (stock as { sourceSnapshot?: { id?: string; sourceSnapshotId?: string } }).sourceSnapshot?.id
+    ?? 'candidate-card-local';
+  const candidateDecision = buildCandidateDecisionCardModel(stock, {
+    sourceSnapshotId,
+    asOf: stock.priceUpdatedAt ?? stock.financialUpdatedAt,
+    engineMode: marketMode === 'DEGRADED' ? 'DEGRADED' : 'NORMAL',
+    marketGateStatus: stock.aiConvictionScore?.marketPhase === 'BEAR' || stock.aiConvictionScore?.marketPhase === 'RISK_OFF' ? 'ORANGE' : 'YELLOW',
+  });
+  const candidateCardMode = verbosity.verbosity === 'minimal' ? 'simple' : 'pro';
 
   return (
     <motion.div
@@ -920,6 +935,11 @@ export function WatchlistCard({
           concordance={concordance}
           onCopy={onCopy}
           onDeepAnalysis={onDeepAnalysis}
+        />
+        <CandidateDecisionCard
+          model={candidateDecision}
+          mode={candidateCardMode}
+          className="mb-4 sm:mb-6"
         />
         <AiFactorBar stock={stock} />
         <SignalAndActions

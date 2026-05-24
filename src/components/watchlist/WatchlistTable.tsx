@@ -9,11 +9,37 @@ import { cn } from '../../ui/cn';
 import { WatchlistCard, type WatchlistCardProps } from './WatchlistCard';
 import type { StockRecommendation } from '../../services/stockService';
 import type { NewsFrequencyScore, RecommendationHistory } from '../../types/quant';
+import { buildCandidateDecisionSummary } from '../../candidate-decision/candidateDecisionModel';
 
 interface RecommendationHistoryItem {
   date: string;
   stocks: string[];
   hitRate: number;
+}
+
+function SummaryPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'green' | 'blue' | 'amber' | 'red' | 'violet' | 'slate';
+}) {
+  const toneClass = {
+    green: 'border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-100',
+    blue: 'border-blue-400/20 bg-blue-400/[0.06] text-blue-100',
+    amber: 'border-amber-400/20 bg-amber-400/[0.06] text-amber-100',
+    red: 'border-red-400/20 bg-red-400/[0.06] text-red-100',
+    violet: 'border-violet-400/20 bg-violet-400/[0.06] text-violet-100',
+    slate: 'border-slate-400/20 bg-slate-400/[0.06] text-slate-100',
+  }[tone];
+  return (
+    <div className={cn('rounded-lg border px-3 py-2 text-center', toneClass)}>
+      <div className="text-[9px] font-black uppercase tracking-wider text-white/38">{label}</div>
+      <div className="mt-0.5 text-base font-black font-num">{value}</div>
+    </div>
+  );
 }
 
 export interface WatchlistTableProps {
@@ -78,6 +104,11 @@ export function WatchlistTable({
   onSyncPrice,
   onManualPriceUpdate,
 }: WatchlistTableProps) {
+  const candidateSummary = React.useMemo(
+    () => buildCandidateDecisionSummary(displayList),
+    [displayList],
+  );
+
   return (
     <>
       {/* Quick Navigation */}
@@ -198,6 +229,31 @@ export function WatchlistTable({
         </div>
       ) : (
         <div className="space-y-4">
+          {displayList.length > 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 shadow-inner">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/35">Today Candidate Summary</div>
+                  <div className="mt-1 text-sm font-black text-white">Gate → Data Trust → Block Reason → Shadow Tracking</div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                  <SummaryPill label="Strong" value={candidateSummary.confirmedCandidateCount} tone="green" />
+                  <SummaryPill label="Entry" value={candidateSummary.buyCandidateCount} tone="green" />
+                  <SummaryPill label="Watch" value={candidateSummary.watchCount} tone="blue" />
+                  <SummaryPill label="Pullback" value={candidateSummary.waitPullbackCount} tone="amber" />
+                  <SummaryPill label="Blocked" value={candidateSummary.blockedCount + candidateSummary.dataInsufficientCount} tone="red" />
+                  <SummaryPill label="Shadow" value={candidateSummary.shadowTrackingCount} tone="violet" />
+                  <SummaryPill label="Total" value={candidateSummary.totalCandidates} tone="slate" />
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-[11px] font-bold text-white/55 md:grid-cols-3">
+                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">Active Candidates: strong, entry, watch, pullback</div>
+                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">Blocked / Risk: blocked, data insufficient, sell-only, shadow-only</div>
+                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">Shadow Tracking: registered, open, closed, blocked-but-tracked</div>
+              </div>
+            </div>
+          )}
+
           {displayList.length > 0 && view === 'DISCOVER' && (
             <div className={cn(
               "flex flex-wrap items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 rounded-2xl border mb-4 backdrop-blur-sm",

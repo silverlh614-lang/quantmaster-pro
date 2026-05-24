@@ -1,21 +1,33 @@
-// @responsibility navigation 설정 SSOT
-/**
- * Centralized navigation configuration.
- * All sidebar / bottom-nav items and group labels are defined here
- * so that adding, removing or reordering tabs requires only one edit.
- */
+// @responsibility Navigation SSOT for sidebar and mobile tabs.
+
 import type { ElementType } from 'react';
 import {
-  Zap, Search, Bookmark, Filter, Radar, Calculator,
-  History, Shield, Activity, TrendingUp, Layers, Globe, Trophy, Brain,
-  FileText, FileOutput, Stethoscope, Send, BadgeDollarSign, Server, ScrollText, Database,
+  Activity,
+  BadgeDollarSign,
+  Brain,
+  Calculator,
+  Database,
+  FileOutput,
+  FileText,
+  Filter,
+  Globe,
+  History,
+  Layers,
+  Radar,
+  ScrollText,
+  Search,
+  Send,
+  Server,
+  Shield,
+  Stethoscope,
+  TrendingUp,
+  Trophy,
+  Zap,
+  Bookmark,
 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
 
-// ── Types ────────────────────────────────────────────────────────────────
-
 export interface NavItem {
-  /** Must match one of the View union members */
   id: View;
   label: string;
   icon: ElementType;
@@ -28,11 +40,9 @@ export interface NavGroup {
   operatorOnly?: boolean;
 }
 
-// ── Full navigation structure (Sidebar) ──────────────────────────────────
-
 export const NAV_GROUPS: NavGroup[] = [
   {
-    label: '핵심 운영',
+    label: 'Core Operations',
     items: [
       { id: 'MARKET', label: 'Market Gate', icon: Activity },
       { id: 'AUTO_TRADE', label: 'Auto Trade', icon: Zap },
@@ -40,27 +50,27 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: '후보 발굴',
+    label: 'Candidate Discovery',
     items: [
       { id: 'DISCOVER', label: 'Candidate Discovery', icon: Search },
-      { id: 'WATCHLIST', label: '관심 목록', icon: Bookmark },
+      { id: 'WATCHLIST', label: 'Watchlist', icon: Bookmark },
       { id: 'SCREENER', label: 'Screener', icon: Filter },
       { id: 'SUBSCRIPTION', label: 'Sector Rotation', icon: Radar },
       { id: 'MANUAL_INPUT', label: 'Manual Quant', icon: Calculator },
     ],
   },
   {
-    label: '검증/성과',
+    label: 'Validation',
     items: [
       { id: 'RECOMMENDATION_HISTORY', label: 'Decision History', icon: Trophy },
       { id: 'TRADE_JOURNAL', label: 'Trade Journal', icon: TrendingUp },
       { id: 'WALK_FORWARD', label: 'Walk Forward', icon: Shield },
       { id: 'BACKTEST', label: 'Backtest', icon: History },
-      { id: 'PORTFOLIO_EXTRACT', label: '후보 포트폴리오 구성', icon: Layers },
+      { id: 'PORTFOLIO_EXTRACT', label: 'Candidate Portfolio', icon: Layers },
     ],
   },
   {
-    label: '리포트',
+    label: 'Report',
     items: [
       { id: 'PUBLIC_REPORT', label: 'Public Report', icon: FileText },
       { id: 'BLOG_EXPORT', label: 'Blog Export', icon: FileOutput },
@@ -69,7 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: '운영자',
+    label: 'Operator',
     operatorOnly: true,
     items: [
       { id: 'MACRO_INTEL', label: 'Macro Intel', icon: Globe },
@@ -91,37 +101,33 @@ export function isOperatorNavigationEnabled(settingsShowOperatorDiagnostics = fa
 
 export function getVisibleNavGroups(operatorMode = isOperatorNavigationEnabled()): NavGroup[] {
   return NAV_GROUPS
-    .filter(group => operatorMode || !group.operatorOnly)
-    .map(group => ({
+    .filter((group) => operatorMode || !group.operatorOnly)
+    .map((group) => ({
       ...group,
-      items: group.items.filter(item => operatorMode || !item.operatorOnly),
+      items: group.items.filter((item) => operatorMode || !item.operatorOnly),
     }))
-    .filter(group => group.items.length > 0);
+    .filter((group) => group.items.length > 0);
 }
 
-// ── Mobile bottom-nav: primary tabs (always visible) ─────────────────────
-
 export const PRIMARY_MOBILE_TABS: NavItem[] = [
-  { id: 'AUTO_TRADE', label: '운영', icon: Zap },
-  { id: 'DISCOVER', label: '후보', icon: Search },
-  { id: 'WATCHLIST', label: '관심', icon: Bookmark },
-  { id: 'PUBLIC_REPORT', label: '리포트', icon: FileText },
+  { id: 'AUTO_TRADE', label: 'Trade', icon: Zap },
+  { id: 'DISCOVER', label: 'Candidates', icon: Search },
+  { id: 'WATCHLIST', label: 'Watchlist', icon: Bookmark },
+  { id: 'PUBLIC_REPORT', label: 'Report', icon: FileText },
 ];
-
-// ── Mobile bottom-nav: "more" menu items ─────────────────────────────────
 
 export const MORE_MOBILE_TABS: NavItem[] = [
   { id: 'MARKET', label: 'Gate', icon: Activity },
   { id: 'SHADOW_LEARNING', label: 'Shadow', icon: Brain },
-  { id: 'RECOMMENDATION_HISTORY', label: '판정 이력', icon: Trophy },
+  { id: 'RECOMMENDATION_HISTORY', label: 'History', icon: Trophy },
   { id: 'BLOG_EXPORT', label: 'Blog Export', icon: FileOutput },
   { id: 'TELEGRAM_SUMMARY', label: 'Telegram', icon: Send },
   { id: 'PAID_PREVIEW', label: 'Paid', icon: BadgeDollarSign },
-  { id: 'SCREENER', label: '스크리너', icon: Filter },
-  { id: 'SUBSCRIPTION', label: '섹터', icon: Radar },
-  { id: 'MANUAL_INPUT', label: '수동 퀀트', icon: Calculator },
-  { id: 'BACKTEST', label: '백테스트', icon: History },
-  { id: 'PORTFOLIO_EXTRACT', label: '추출', icon: Layers },
-  { id: 'WALK_FORWARD', label: '워크포워드', icon: Shield },
-  { id: 'TRADE_JOURNAL', label: '매매일지', icon: TrendingUp },
+  { id: 'SCREENER', label: 'Screener', icon: Filter },
+  { id: 'SUBSCRIPTION', label: 'Sector', icon: Radar },
+  { id: 'MANUAL_INPUT', label: 'Manual', icon: Calculator },
+  { id: 'BACKTEST', label: 'Backtest', icon: History },
+  { id: 'PORTFOLIO_EXTRACT', label: 'Portfolio', icon: Layers },
+  { id: 'WALK_FORWARD', label: 'Walk Forward', icon: Shield },
+  { id: 'TRADE_JOURNAL', label: 'Journal', icon: TrendingUp },
 ];
