@@ -1,9 +1,17 @@
 # 05 · Provider Policy (장애 격리·신뢰 등급·fallback)
 
-> **Read this file only when working on:** KIS/KRX/Yahoo/Naver provider 호출 경로를 수정할 때,
-> provider 장애(500/빈 응답/stale) 처리를 다룰 때, 회로차단기·Last Good Value·fallback 라우터를
-> 건드릴 때, 데이터 신뢰 등급(L1~L4) 강등을 적용할 때, 또는 AI_ESTIMATED 데이터의 live 사용
-> 금지(불변식 #7) 를 검증할 때.
+**Read this file only when working on:**
+- KIS / KRX / DART / Yahoo / Naver provider 호출 경로 수정
+- provider 장애(500 / 빈 응답 / stale / empty) 처리 · official schema
+- 회로차단기 · Last Good Value · fallback 라우터 · 24h 블랙리스트
+- 데이터 신뢰 등급 L1~L4 강등의 운영 적용 · KRX 거래일 달력(stale 판정)
+- AI_ESTIMATED 데이터 live 사용 금지(불변식 #7) · provider 장애≠signal(불변식 #6) 검증
+
+**Do not read this file for:**
+- provider 장애가 실행 권한을 어떻게 바꾸는가(엔진 측) → `02-trading-engine-rules.md`
+- SourceSnapshot 으로의 데이터 carry · 단일 통로 → `03-source-snapshot-ssot.md`
+- Gate 통과 판정 · DATA_UNAVAILABLE 의 Gate 의미 → `04-gate-system.md`
+- provider 진단 명령의 Telegram 출력 형식 → `06-telegram-policy.md`
 
 ---
 

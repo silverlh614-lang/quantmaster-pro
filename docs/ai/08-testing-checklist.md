@@ -1,8 +1,15 @@
 # 08 · Testing Checklist (검증 파이프라인·precommit·PR 자가 review)
 
-> **Read this file only when working on:** 커밋 전 검증을 돌릴 때, 새 validate 스크립트를
-> 추가/수정할 때, precommit 훅을 다룰 때, PR 자가 review(ADR-0146 5 카테고리)를 수행할 때,
-> 또는 정적 가드(silent catch·exposure·boundary)를 통과시킬 때.
+**Read this file only when working on:**
+- 커밋 전 검증(typecheck · test · `validate:*`) 실행 · precommit 훅
+- 새 validate 스크립트 추가/수정 · 정적 가드(silent catch · exposure · boundary) 통과
+- PR 자가 review (ADR-0146 5 카테고리) · ADR-0148 정적 체크
+- 변경 이력 한 줄 의무 점검
+
+**Do not read this file for:**
+- 파일 분해 워크플로 · baseline 카탈로그 · 복잡도 한계 → `09-refactor-rules.md`
+- PR 범위·diff 출력·ADR vs patch type 규칙 → `CLAUDE.md` §5
+- 모듈 경계·에이전트 DoD → `01-architecture-map.md`
 
 ---
 

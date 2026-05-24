@@ -1,8 +1,16 @@
 # 00 · Project Charter (정체성·9대 불변식·데이터 신뢰 등급)
 
-> **Read this file only when working on:** 프로젝트 정체성을 이해해야 할 때,
-> 9대 불변식의 의미·배경을 확인할 때, 데이터 신뢰 등급(L1~L4) 철학을 적용할 때,
-> 또는 신규 ADR/패치가 핵심 원칙을 위반하는지 판정할 때.
+**Read this file only when working on:**
+- 프로젝트 정체성 · 시스템 목적 · 디렉토리 한눈 지도
+- 9대 불변식의 의미 · 배경 · 적용 가이드
+- 데이터 신뢰 등급 L1~L4 철학
+- 신규 ADR/패치가 핵심 원칙(불변식)을 위반하는지 판정
+
+**Do not read this file for:**
+- 디렉토리 · 모듈 경계 · 복잡도 현황 → `01-architecture-map.md`
+- 매매 엔진 liveness · 실행 권한 상세 → `02-trading-engine-rules.md`
+- SourceSnapshot 채우기/읽기 경로 → `03-source-snapshot-ssot.md`
+- provider 장애 처리 · fallback · L1~L4 운영 적용 → `05-provider-policy.md`
 
 ---
 

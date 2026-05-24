@@ -1,8 +1,15 @@
 # 01 · Architecture Map (디렉토리·모듈 경계·에이전트·복잡도 현황)
 
-> **Read this file only when working on:** 새 모듈을 추가하거나 기존 모듈 경계를 수정할 때,
-> 어느 에이전트가 어느 영역을 담당하는지 확인할 때, 하네스 워크플로를 시작할 때,
-> 또는 복잡도 위반 파일의 분해 우선순위를 정할 때.
+**Read this file only when working on:**
+- 새 모듈 추가 · 기존 모듈 경계 수정 · 디렉토리 구조 파악
+- 어느 에이전트가 어느 영역을 담당하는지 (4-에이전트 매핑)
+- 하네스 워크플로 시작 (트리거 판정 · 5단계)
+- 복잡도 위반 파일의 분해 우선순위 한눈 확인
+
+**Do not read this file for:**
+- 모듈 경계 단일 책임 정식 정의 → `ARCHITECTURE.md` (본 문서는 요약)
+- 분해 워크플로 · baseline 카탈로그 상세 → `09-refactor-rules.md`
+- 검증 파이프라인 · precommit → `08-testing-checklist.md`
 
 ---
 

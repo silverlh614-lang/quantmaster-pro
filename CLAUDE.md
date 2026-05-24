@@ -1,7 +1,8 @@
 # QuantMaster Pro — AI 실행 규칙 (CLAUDE.md)
 
-> **본 문서는 최상위 실행 규칙 SSOT 다.** 상세 내용은 `docs/ai/00`~`10` 으로 분리됐다 (ADR-527).
-> 작업 도메인에 해당하는 문서만 읽어라 — 각 문서 상단의 "Read this file only when working on:" 안내를 따른다.
+> **본 문서는 최상위 실행 규칙 SSOT 다.** 상세 내용은 `docs/ai/00`~`10` 으로 분리됐다 (ADR-527·528).
+> **작업 전 §6 Reference Docs Router 에서 트리거 키워드에 해당하는 문서 1개만 골라 읽어라.** 각 문서
+> 상단의 "Read this file only when working on:" / "Do not read this file for:" 안내가 SRP 경계다.
 > CLAUDE.md 에는 **패치 노트를 누적하지 않는다.** 변경 이력은 `docs/ai/10-patch-history-index.md` 에 한 줄로 추가한다.
 
 ---
@@ -123,24 +124,25 @@ Provider 정책 → `docs/ai/05-provider-policy.md`
 
 ## 6. Reference Docs Router
 
-작업 도메인에 해당하는 문서만 읽어라.
+**작업 도메인 트리거 키워드 → 해당 문서 1개만 읽어라.** 경로는 모두 `docs/ai/` 하위.
+각 문서 상단 "Read this file only when working on:" / "Do not read this file for:" 가 SRP 경계 SSOT.
 
-| 작업 도메인 | 참조 문서 |
-|-------------|-----------|
-| 프로젝트 정체성·9대 불변식·데이터 신뢰 등급 철학 | `docs/ai/00-project-charter.md` |
-| 디렉토리 구조·모듈 경계·4-에이전트·복잡도 현황 | `docs/ai/01-architecture-map.md` (+ `ARCHITECTURE.md`) |
-| Trading Engine liveness·R6/SELL_ONLY/HOLIDAY/장전장후 정책·ExecutionPermission | `docs/ai/02-trading-engine-rules.md` |
-| SourceSnapshot SSOT·Gate 내부 provider 우회 금지·단일 통로 | `docs/ai/03-source-snapshot-ssot.md` |
-| 27조건·Gate 0/1/2/3 시스템 | `docs/ai/04-gate-system.md` (+ `docs/gate1-completion-checklist-010.md`, `docs/gate3-completion-and-gate123-integration-checklist-010.md`) |
-| provider 장애≠signal·AI_ESTIMATED≠live·데이터 신뢰 L1~L4 | `docs/ai/05-provider-policy.md` |
-| 텔레그램 알림 라우팅·진단 명령 | `docs/ai/06-telegram-policy.md` |
-| Shadow Learning·학습 라벨·attribution | `docs/ai/07-learning-engine.md` |
-| 검증 파이프라인·precommit·PR 자가 review | `docs/ai/08-testing-checklist.md` |
-| 복잡도 한계·분해 워크플로·baseline 카탈로그 | `docs/ai/09-refactor-rules.md` |
-| 과거 패치/변경 이력·ADR 교차 참조 | `docs/ai/10-patch-history-index.md` |
-| 요구사항·도메인 | `README.md` |
-| 모듈 경계 (단일 책임) | `ARCHITECTURE.md` |
-| 운영·인시던트 플레이북 | `docs/incident-playbook.md` |
-| AI 협업·토큰 절약 전체 지침 | `CLAUDE_patch_section.md` |
+| 트리거 키워드 | 참조 문서 |
+|---------------|-----------|
+| 프로젝트 정체성 · 9대 불변식 · 데이터 신뢰 L1~L4 철학 | `00-project-charter.md` |
+| 디렉토리 · 모듈 경계 · 4-에이전트 · 복잡도 현황 · 하네스 워크플로 | `01-architecture-map.md` (+ `ARCHITECTURE.md`) |
+| Trading Engine · engineMode · executionAllowed · shadowAllowed · SELL_ONLY · R6 · SHADOW_ONLY · FOMC · 사이징 | `02-trading-engine-rules.md` |
+| SourceSnapshot · providerIssue · marketSignal · confidence · ExecutionPermission · carry wiring · 단일 통로 | `03-source-snapshot-ssot.md` |
+| Gate0/1/2/3 · scan_blockers · blockerReason · candidateSnapshots · requiredScore · STRONG_BUY · RRR · VCP · LastTrigger | `04-gate-system.md` |
+| KIS/KRX/DART/Yahoo · fallback · stale · empty · 회로차단기 · Last Good Value · provider health | `05-provider-policy.md` |
+| Telegram Bot · 채널 라우팅(CH1~4) · dedup · 명령 레지스트리 · HTML 정제 · 진단 명령 출력 | `06-telegram-policy.md` |
+| Shadow Learning · Counterfactual · Ghost Portfolio · LearningLabel · attribution · nightlyReflection · virtual fills | `07-learning-engine.md` |
+| typecheck · test · validate:* · precommit · PR 자가 review · 정적 가드 | `08-testing-checklist.md` |
+| 리팩토링 · 파일 분해 · SRP · 1,500줄 한계 · baseline 카탈로그 · ADR INDEX SLA | `09-refactor-rules.md` |
+| 과거 ADR/패치 기록 인덱스 (상세 로그를 CLAUDE.md 로 되돌리지 말 것) | `10-patch-history-index.md` |
+
+외부 SSOT (docs/ai 밖): 요구사항·도메인 `README.md` · 모듈 경계 단일 책임 `ARCHITECTURE.md` ·
+운영·인시던트 `docs/incident-playbook.md` · AI 협업·토큰 절약 `CLAUDE_patch_section.md` ·
+Gate 완료 체크리스트 `docs/gate1-completion-checklist-010.md` · `docs/gate3-completion-and-gate123-integration-checklist-010.md`
 
 > **ONE-LINE PRINCIPLE:** 토큰은 비용이다 — diff만, 한 번에, 텔레그램 먼저.

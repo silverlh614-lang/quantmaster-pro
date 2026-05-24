@@ -1,9 +1,17 @@
 # 02 · Trading Engine Rules (liveness·실행 권한·상태 정책)
 
-> **Read this file only when working on:** signalScanner / entryEngine / exitEngine /
-> autoTradeEngine / trancheExecutor / buyPipeline 를 수정할 때, R6·SELL_ONLY·HOLIDAY·
-> 장전/장후 정책을 다룰 때, KIS 주문 경로를 건드릴 때, 또는 Trading Engine liveness
-> (불변식 #1) 와 실거래/Shadow 차단 분리(불변식 #8) 를 적용할 때.
+**Read this file only when working on:**
+- signalScanner / entryEngine / exitEngine / autoTradeEngine / trancheExecutor / buyPipeline 수정
+- engineMode · executionAllowed · shadowAllowed · SELL_ONLY · R6 · SHADOW_ONLY · FOMC · VIX 게이팅
+- 매매 허용 시간(장전/장후/점심) · HOLIDAY 정책
+- KIS 주문 경로 · idempotency · 포지션 사이징(Kelly)
+- Trading Engine liveness(불변식 #1) · 실거래/Shadow 차단 분리(불변식 #8)
+
+**Do not read this file for:**
+- SourceSnapshot 을 어떻게 채우는가 → `03-source-snapshot-ssot.md`
+- Gate 통과 판정 로직 · scan_blockers → `04-gate-system.md`
+- provider 장애 처리 · 회로차단기 · fallback → `05-provider-policy.md`
+- Shadow paper-fill lifecycle · 학습 라벨 → `07-learning-engine.md`
 
 ---
 
@@ -66,8 +74,8 @@ Policy·Confidence·ExecutionPermission·LearningLabel 만 바꾼다.
 - 차단된 날 Shadow learning 은 `runShadowLearningOnlyScan({ allowRealOrder: false })` 로 별도 lane.
   `allowRealOrder: false` literal type + runtime throw 2중 강제.
 - Shadow 매수는 실제 주문 API 호출 0건 — paper fill 처리 (`shadowExecutionPipeline.ts`, Patch-001/002).
-  Shadow lifecycle 6-state: SHADOW_PAPER_FILLED → POSITION_OPENED → MONITOR → SELL_SIGNAL →
-  SELL_PAPER_FILLED → POSITION_CLOSED.
+  Shadow lifecycle 6-state(SHADOW_PAPER_FILLED→…→POSITION_CLOSED) 상세는 학습 엔진 SSOT →
+  `docs/ai/07-learning-engine.md`.
 
 ---
 

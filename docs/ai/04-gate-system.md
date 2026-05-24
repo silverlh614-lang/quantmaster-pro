@@ -1,8 +1,17 @@
 # 04 · Gate System (27 조건·Gate 0/1/2/3·진단)
 
-> **Read this file only when working on:** 새 Gate 조건을 추가하거나 기존 조건 가중치를 바꿀 때,
-> Gate 0/1/2/3 통과 판정 로직을 수정할 때, requiredScore·STRONG_BUY 임계를 다룰 때,
-> Gate 차단 사유 진단(`/scan_blockers`)을 분석할 때, 또는 minimum signal score 를 다룰 때.
+**Read this file only when working on:**
+- 새 Gate 조건 추가 · 기존 조건 가중치 변경 · 27 조건 출처 분류
+- Gate 0/1/2/3 통과 판정 로직 · minimum signal score
+- requiredScore · STRONG_BUY · CONDITION_PASS_THRESHOLD · UNKNOWN penalty · RRR 임계
+- scan_blockers / blockerReason / candidateSnapshots / forensic attribution · DATA_UNAVAILABLE
+- LastTrigger · VCP · entry readiness · 섹터 Gate Score
+
+**Do not read this file for:**
+- `/scan_blockers` Telegram 출력 형식·페이지네이션·HTML → `06-telegram-policy.md`
+- SourceSnapshot 입력을 어떻게 채우는가 · provider 우회 금지 → `03-source-snapshot-ssot.md`
+- provider stale/empty/fallback 자체 처리 → `05-provider-policy.md`
+- 조건 기여도 학습·attribution multiplier 의 학습 쪽 → `07-learning-engine.md`
 
 ---
 
@@ -64,9 +73,8 @@ QuantMaster Pro 는 **27개 조건 + 4단계 Gate(0/1/2/3)** 를 통과한 종�
 
 ### 진단 출력 정책
 
-- `/scan_blockers` (요약, ADR-0478 compact) — ≤4096 char Telegram 한도. priority registry 로 섹션 압축.
-  초과 시 pagination (Patch-SUPPLY-DIAG-ACCURACY). `/scan_blockers full` 로 전체 + pagination.
-- `/scan_blockers gate` (ADR-0507 compact) — Gate1/ADR-0505 핵심 30~40줄. `gate full` 로 ADR 마커 필터링 장문.
+- `/scan_blockers` 출력 형식 (compact/full 페이지네이션 · `gate` 뷰 · 4096 char 한도)은 Telegram 출력
+  SSOT → `docs/ai/06-telegram-policy.md`. **본 문서는 *무엇을* 진단하는가(원인 분해)만 다룬다.**
 - **DATA_UNAVAILABLE 은 failed 가 아니다** (ADR-0416) — 평가 불가이지 임계 미달이 아님. unavailable++ 만.
   postmortem 권고는 `REVIEW_GATE_THRESHOLD` (LOOSEN_GATE 폐기) — trueFailRate>0.95 AND unavailableRate≤0.5 시만 (ADR-0417).
 

@@ -1,9 +1,16 @@
 # 03 · SourceSnapshot SSOT (단일 진실 출처·provider 우회 금지)
 
-> **Read this file only when working on:** SourceSnapshot 을 읽거나 채우는 경로를 수정할 때,
-> Gate 평가 입력을 다룰 때, 호출자가 provider 를 직접 조회하려 할 때,
-> stockService / aiUniverseService 데이터 페칭 경로를 건드릴 때,
-> 또는 데이터 carry wiring (시장/종목 프로그램매매·섹터·섹터에너지) 을 정밀화할 때.
+**Read this file only when working on:**
+- SourceSnapshot 을 읽거나 채우는 경로 · Gate 평가 입력 전달
+- providerIssue · marketSignal · confidence · ExecutionPermission 의 데이터-측 의미
+- 호출자가 provider 를 직접 조회(우회)하려 할 때 (불변식 #9)
+- stockService / aiUniverseService 데이터 페칭 단일 통로
+- carry wiring (시장/종목 프로그램매매 · 섹터 분류) 정밀화
+
+**Do not read this file for:**
+- engineMode/SELL_ONLY/R6 가 실행 권한을 어떻게 바꾸는가 → `02-trading-engine-rules.md`
+- Gate 통과 판정·조건 가중치·scan_blockers → `04-gate-system.md`
+- provider 장애 처리·회로차단기·fallback·L1~L4 운영 → `05-provider-policy.md`
 
 ---
 
@@ -64,8 +71,8 @@
 - **safePctChange** (ADR-0028) — `((current - base) / base) * 100` 패턴의 stale base price + sanity bound
   단일 안전 헬퍼. 5종 가드 (분모/분자/결과 NaN·Infinity, ±90% sanity bound, null 반환 강제).
   `safePctChangeStrict` (ADR-0117) 는 거래 차단 게이트 — sanity 위반 시 entryEngine WAIT/DATA_HOLD 반환.
-- **KRX 거래일 달력** (ADR-0190) — Yahoo `KRX_DAILY_PRICE_SOURCES` 4 출처의 stale base 판정에
-  `isAcceptableKrxDailyBase` SSOT 사용. 5/1·5/5·추석 휴장일 클러스터에서 정상 base 를 stale 로 오판 차단.
+- **KRX 거래일 달력** (ADR-0190) — `isAcceptableKrxDailyBase` SSOT 로 휴장일 클러스터의 정상 base 를
+  stale 로 오판하지 않게 한다. provider-측 데이터 품질 규칙이므로 상세 → `docs/ai/05-provider-policy.md`.
 
 데이터 신뢰 등급(L1~L4)·provider 장애 처리 → `docs/ai/05-provider-policy.md`
 Gate 시스템 상세 → `docs/ai/04-gate-system.md`

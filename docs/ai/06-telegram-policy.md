@@ -1,9 +1,15 @@
 # 06 · Telegram Policy (명령 레지스트리·채널 라우팅·HTML 정제)
 
-> **Read this file only when working on:** 텔레그램 명령을 추가/수정할 때,
-> 알림 채널 라우팅(CH1~CH4)·진동 정책을 다룰 때, `/scan_blockers` 출력 형식을
-> 건드릴 때, Telegram HTML 전송(태그·청크 분할·invariant 라우팅)을 수정할 때,
-> 또는 명령 레지스트리(commandRegistry) 등록 경로를 다룰 때.
+**Read this file only when working on:**
+- 텔레그램 명령 추가/수정 · 명령 레지스트리(commandRegistry) 등록 경로 · 메뉴 동기화
+- 알림 채널 라우팅(CH1~CH4) · 진동 정책 · 개인 회선 분리 · dedup
+- `/scan_blockers` 등 진단 명령의 **출력 형식**(compact/full 페이지네이션 · 4096 char)
+- Telegram HTML 전송(허용 태그 · 청크 분할 · invariant 라우팅 · 이스케이프)
+
+**Do not read this file for:**
+- scan_blockers 가 진단하는 *원인 분해* 자체(Gate forensic) → `04-gate-system.md`
+- provider 진단이 보는 데이터(회로차단기·fallback) → `05-provider-policy.md`
+- 학습 진단(`/learning_*`) 이 보는 데이터 → `07-learning-engine.md`
 
 ---
 

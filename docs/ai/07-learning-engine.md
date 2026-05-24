@@ -1,9 +1,15 @@
 # 07 · Learning Engine (Shadow Learning·학습 라벨·attribution)
 
-> **Read this file only when working on:** Shadow Learning 표본 수집/판단 경로를 수정할 때,
-> 학습 라벨(LearningLabel)·attribution(조건별 기여도)을 다룰 때, nightlyReflection·
-> feedbackLoopEngine·regimeLearningBank 를 건드릴 때, 또는 조건 lifecycle(승격/강등)·
-> shadow model 가중치를 조정할 때.
+**Read this file only when working on:**
+- Shadow Learning 표본 수집/판단 경로 · Shadow lifecycle 6-state · virtual(paper) fills
+- LearningLabel · Counterfactual(반사실) · Ghost Portfolio
+- attribution(조건별 기여도) · nightlyReflection · feedbackLoopEngine(F2W)
+- regimeLearningBank / Backfill · 조건 lifecycle(승격/강등) · shadow model 가중치
+
+**Do not read this file for:**
+- 실거래 차단 vs Shadow 차단의 엔진 측 게이팅(allowRealOrder) → `02-trading-engine-rules.md`
+- Gate 조건 가중치 · requiredScore 의 매매 측 임계 → `04-gate-system.md`
+- 학습 진단 명령(`/learning_*`)의 Telegram 출력 형식 → `06-telegram-policy.md`
 
 ---
 
@@ -16,18 +22,25 @@
   `allowRealOrder: false` literal type + runtime throw 2중 강제 — 실주문 API 호출 0건 (paper fill).
 - provider 장애·DATA_UNAVAILABLE 도 학습 표본으로 보존 (`CASE_KIS_REALDATA_500` 등 learningTag).
   provider 장애를 bearish 로 변환하지 않고 "데이터 결손 사례" 로 학습 (불변식 #6 정합).
-- Shadow lifecycle 6-state (→ `docs/ai/02-trading-engine-rules.md`): SHADOW_PAPER_FILLED →
-  POSITION_OPENED → MONITOR → SELL_SIGNAL → SELL_PAPER_FILLED → POSITION_CLOSED.
+- **Shadow lifecycle 6-state SSOT** (본 문서가 canonical): SHADOW_PAPER_FILLED → POSITION_OPENED →
+  MONITOR → SELL_SIGNAL → SELL_PAPER_FILLED → POSITION_CLOSED. 엔진 측 실행 lane 분리(allowRealOrder
+  false)는 → `docs/ai/02-trading-engine-rules.md`.
 
 ---
 
-## 학습 라벨 (LearningLabel)
+## 학습 라벨 · Counterfactual · Ghost Portfolio
 
 상태(R6/SELL_ONLY/HOLIDAY/장전장후/providerIssue)는 SourceSnapshot 을 바꾸지 않고
 **LearningLabel 만 바꾼다** (불변식 #5). 같은 데이터라도 라벨로 학습 맥락을 분리한다.
 
-- 매매 차단 상황의 Shadow 표본은 "이 환경에서 진입했다면" 의 반사실(counterfactual) 라벨 부착.
-- live fill 표본과 shadow paper fill 표본은 라벨로 구분 — 혼합 집계 금지.
+- **LearningLabel** — live fill 표본과 shadow paper fill 표본을 라벨로 구분 — 혼합 집계 금지.
+  매매 차단 상황의 Shadow 표본은 "이 환경에서 진입했다면" 맥락 라벨 부착.
+- **Counterfactual (반사실)** — 진입/미진입·가중치 변경 시 결과를 추정해 학습에 반영
+  (`dynamicWeightFeedback.ts` / `suggestedWeightAction` / `factorContributionScore`).
+  counterfactual metadata(entry/target/stop price)는 표본별로 보존·repair (`/learning_pulse` 진단).
+- **Ghost Portfolio** — 실제 미진입 Shadow 후보로 구성한 가상 포트폴리오. nightlyReflection·
+  attributionBackfill 이 *진입했다면* 의 가상 성과를 추적 (`nightlyReflectionEngine.ts` /
+  `attributionBackfillEngine.ts` / `regimeLearningBank.ts`). 실거래 표본과 분리 집계.
 
 ---
 

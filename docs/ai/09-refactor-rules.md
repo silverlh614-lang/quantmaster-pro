@@ -1,8 +1,15 @@
 # 09 · Refactor Rules (복잡도 한계·분해 워크플로·baseline 카탈로그)
 
-> **Read this file only when working on:** 1,500줄 한계에 근접/초과한 파일을 분해할 때,
-> 대형 서버 파일(1,000줄+)을 모듈로 쪼갤 때, BASELINE_TECHNICAL_DEBT 카탈로그를 다룰 때,
-> 또는 ADR INDEX / pending wiring SLA 를 갱신할 때.
+**Read this file only when working on:**
+- 1,500줄 한계에 근접/초과한 파일 분해 · 대형 서버 파일(1,000줄+) 모듈 분리
+- SRP 준수 · no broad rewrite · patch scope 제한 · warning cleanup
+- BASELINE_TECHNICAL_DEBT 카탈로그 · 복잡도 위반 우선순위
+- ADR INDEX `다음 발급` SSOT · pending wiring SLA 갱신
+
+**Do not read this file for:**
+- 검증 파이프라인·precommit·PR 자가 review → `08-testing-checklist.md`
+- 현재 복잡도 위반 파일 목록(요약)·모듈 경계 → `01-architecture-map.md`
+- PR 범위·diff 출력·ADR vs patch type → `CLAUDE.md` §5
 
 ---
 
