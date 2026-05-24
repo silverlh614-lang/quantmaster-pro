@@ -71,6 +71,13 @@
 - **Current Relevance:** 모든 패치 시작 전 Patch Plan 작성, allowedFiles 안에서만 수정.
 - **Detail:** `docs/ai/09-refactor-rules.md` · `docs/ai/templates/` (검색어 `ADR-530`)
 
+### ADR-531 — Warning/Error Taxonomy Cleanup & Diagnostic Severity Normalization
+- **Status:** Completed (1차: 문서 SSOT 전용) · **Domain:** diagnostics / logging / severity taxonomy
+- **Problem:** severity enum 4종 분산 + ad-hoc console.warn 산재 + 정책상태/providerIssue 가 장애처럼 표시될 여지.
+- **Decision:** 분산된 기존 인프라(WarnPriority/ExecutionImpact/logger/alertRouter)를 6-레벨 taxonomy 로 **성문화**(코드 0줄). 경고는 삭제가 아니라 분류. enum 통합·emit 사이트 리팩토링·telegram 필터는 ADR-532+ 분리.
+- **Current Relevance:** diagnostic/severity/logging/telegram-display 패치 시 taxonomy SSOT 준수.
+- **Detail:** `docs/archive/adr/adr-531-warning-error-taxonomy.md` (검색어 `ADR-531`)
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -481,3 +488,4 @@
 - 2026-05-24 · ADR-528-B
 - 2026-05-24 · ADR-529
 - 2026-05-24 · ADR-530
+- 2026-05-24 · ADR-531

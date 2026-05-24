@@ -58,6 +58,21 @@ Patch Plan 의 도메인에 맞춰 아래 중 하나를 적용한다.
 - **Telegram patch** — `npm run lint` + telegram 포맷/dedup/command route 테스트(있으면) + CH1~CH4 채널 분리 확인.
 - **Shadow Learning patch** — `npm run lint` + shadow lifecycle/ledger/counterfactual 테스트(있으면) + SELL_ONLY/R6/providerIssue 하에서 `shadowAllowed` 가 true 유지 확인.
 - **Refactor patch** — `npm run lint` + 기존 관련 테스트 + 명시되지 않는 한 동작 변경 0 (byte-equivalent).
+- **Diagnostics / severity-taxonomy patch (ADR-531)** — `npm run lint` + severity 매핑 테스트(있으면) +
+  아래 taxonomy 케이스 확인 + warning cleanup 은 runtime 동작 무변경.
+
+### Severity Taxonomy 검증 케이스 (ADR-531)
+
+severity/diagnostic/telegram-display 패치 시 다음을 만족해야 한다 (SSOT →
+`docs/archive/adr/adr-531-warning-error-taxonomy.md`):
+
+1. providerIssue=true · marketSignal=false · executionImpact=NONE → severity ∈ {INFO, DIAGNOSTIC} (ERROR/WARN 아님).
+2. SELL_ONLY + live buy blocked → INFO/POLICY_STATE (장애 아님).
+3. R6 active + shadowAllowed=true → ERROR 아님 (불변식 #2).
+4. P3/P4 budget exceeded → DIAGNOSTIC · dataVacuum=false (승격 금지).
+5. P0 execution-critical provider missing → WARN/ERROR 가능.
+6. Telegram signal 채널에 DIAGNOSTIC/DEBUG/SUPPRESSED 직접 노출 안 됨.
+7. Shadow lifecycle failure → WARN/ERROR 유지.
 
 상세 Patch Scope Guard·Patch Plan/Report 템플릿 → `docs/ai/09-refactor-rules.md` ·
 `docs/ai/templates/patch-plan-template.md` · `docs/ai/templates/patch-report-template.md`.

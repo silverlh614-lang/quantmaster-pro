@@ -40,6 +40,16 @@
 > Engine policy 를 바꿈 / warning 제거인 줄 알았는데 runtime semantics 를 바꿈 / 문서 정리인 줄
 > 알았는데 src 코드까지 수정함." → Patch Plan 의 `allowedFiles`/`forbiddenFiles` 로 차단.
 
+### Warning Cleanup ≠ Behavior Change (ADR-531)
+
+**경고는 없애는 게 아니라 분류한다.** warning cleanup 패치는 명시되지 않는 한 runtime semantics 를 바꾸지 않는다.
+
+- ❌ `console.warn(...)` 단순 삭제 / `console.warn` → `console.log` 무작정 치환.
+- ✅ severity·category·executionImpact·userFacing 을 명시해 **의미를 부여**한다 (taxonomy SSOT 위임).
+- providerIssue 를 marketSignal 로 변환 금지 (불변식 #6). 정책 상태(SELL_ONLY/R6/HOLIDAY)를 장애로 표시 금지.
+- executionImpact=NONE 이벤트를 사용자-facing 경고로 승격 금지.
+- severity taxonomy·매핑·정책상태/Telegram 표시 규칙 SSOT → `docs/archive/adr/adr-531-warning-error-taxonomy.md`.
+
 패치 유형별 최소 검증 기준 → `docs/ai/08-testing-checklist.md`.
 
 ---
