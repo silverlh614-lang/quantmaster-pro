@@ -112,7 +112,14 @@
 - **Decision:** 5× SyntaxError = ENVIRONMENT_BLOCKED(node --check PASS·standalone EXIT=0·CI-통과 커밋·vitest/env 아티팩트), check_complexity = 병렬작업 오염 → **편집 금지·보류**. clean-CI+병렬랜딩 후 재측정 권고. ADR-534 로드맵 정정.
 - **Current Relevance:** scripts self-test 실패를 고치려 할 때 먼저 본 분류 확인 (추측 수정 방지).
 - **Detail:** `docs/archive/adr/adr-541-scripts-selftest-failure-classification.md` (검색어 `ADR-541`)
-- **번호 메모:** 선행 대기 작업이 536~540 점유 → 사용자 지시로 541.
+- **번호 메모:** 536~540 = Codex UI 작업 점유 → 사용자 지시로 541.
+
+### ADR-542 — Baseline Failure Triage (Deterministic vs Environment) & Clean-Tree Gate
+- **Status:** Completed (triage 분석, 코드 0줄) · **Domain:** validation baseline / failure triage
+- **Problem:** 310 실패를 burn-down 하기 전 — 진짜 실패 vs env 노이즈 판정 필요.
+- **Decision:** 종전 가설 정정 — **network 차단 0, AssertionError 215 = 결정적 실패 지배적**(env-noise 아님). 단 트리가 Codex 미커밋 UI 병렬작업으로 오염(실패 도메인 trading/learning/telegram 과 겹침) → **clean tree 전까지 burn-down 보류** gate 명시.
+- **Current Relevance:** burn-down 시작 전 clean-tree gate 충족 여부 확인.
+- **Detail:** `docs/archive/adr/adr-542-baseline-failure-triage.md` (검색어 `ADR-542`)
 
 ---
 
@@ -530,3 +537,4 @@
 - 2026-05-24 · ADR-534
 - 2026-05-24 · ADR-535
 - 2026-05-24 · ADR-541
+- 2026-05-24 · ADR-542
