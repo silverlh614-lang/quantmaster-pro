@@ -28,6 +28,77 @@ const CONJUNCTIONS = [' and ', ' or ', ' 또는 ', ' 및 ', ' 그리고 '];
 const MAX_WORDS = 25;
 const HEAD_LINES = 20;
 
+/**
+ * BASELINE_SRP_VIOLATIONS — 전체 트리 스캔 도입 이전부터 존재하던 *기존* 접속사 위반.
+ * ACMA(check_complexity.js)의 BASELINE_TECHNICAL_DEBT 패턴 정합: legacy 위반은
+ * 비차단(리포트만), 본 목록 밖의 *신규* 위반만 hard-fail 한다. CI 가 전체 트리를
+ * 스캔하므로 카탈로그 미등재 시 모든 PR 이 기존 부채로 실패(예: PR #1193).
+ *
+ * 신규 진입 절대 금지 — 이 목록은 줄어들기만 해야 한다. @responsibility 를 단일
+ * 책임 문장으로 교정하면 해당 줄을 제거한다.
+ */
+const BASELINE_SRP_VIOLATIONS = new Set([
+  'server/clients/dartFinancialNormalizer.ts',
+  'server/clients/kisClient/core/kisCoreResultNormalizer.ts',
+  'server/clients/kisClient/core/kisRateLimitBackoff.ts',
+  'server/clients/kisClient/core/kisRequestClassifier.ts',
+  'server/clients/kisClient/kisOfficialInvestorFlowMapper.ts',
+  'server/clients/kisClient/kisOfficialProgramFlowMapper.ts',
+  'server/clients/kisClient/kisOfficialQuoteMapper.ts',
+  'server/diagnostics/operatorWarningPriority.ts',
+  'server/learning/attributionEvidenceAggregator.ts',
+  'server/learning/outcomeClosure.ts',
+  'server/learning/strategyVersioning.ts',
+  'server/observability/warnSummaryReporter.ts',
+  'server/persistence/shadow/shadowPersistenceGateway.ts',
+  'server/persistence/shadow/shadowPersistenceReconciler.ts',
+  'server/positions/positionStateResolver.ts',
+  'server/quant/gate2ConfluenceScore.ts',
+  'server/quant/gate3CompletionGuard.ts',
+  'server/quant/gate3CompletionScore.ts',
+  'server/quant/gate3LastTrigger.ts',
+  'server/quant/gate3OutcomeSeed.ts',
+  'server/quant/gate3RuntimeClosure.ts',
+  'server/screener/pullbackSetup.ts',
+  'server/sector/SectorIndexMasterProvider.ts',
+  'server/sector/SectorIndexVerifier.ts',
+  'server/telegram/approval/approvalDecisionNormalizer.ts',
+  'server/telegram/approval/approvalFallbackPolicy.ts',
+  'server/telegram/commands/learning/risk.cmd.ts',
+  'server/telegram/commands/learning/strategy.cmd.ts',
+  'server/telegram/commands/positions/positionSourceAggregator.ts',
+  'server/telegram/commands/system/dartProviderHealth.cmd.ts',
+  'server/telegram/commands/system/debugCommands.cmd.ts',
+  'server/telegram/nowDisplayNormalizer.ts',
+  'server/telegram/renderers/snapshotBundle.ts',
+  'server/trading/buy/shadowDuplicateBuyRegistry.ts',
+  'server/trading/candidateDiversityAdjustment.ts',
+  'server/trading/exit/liveExitEngine.ts',
+  'server/trading/exit/policies/r6LiveEmergencyExitPolicy.ts',
+  'server/trading/exit/sellReservation/sellReservationManager.ts',
+  'server/trading/exit/shadowExitEngine.ts',
+  'server/trading/gate2/dartCorpCodeMasterCache.ts',
+  'server/trading/gate2/gate2ExternalDataProvider.ts',
+  'server/trading/gates/gateSoftEvaluation.ts',
+  'server/trading/priceSnapshotSsot.ts',
+  'server/trading/regime/regimeConflictDetector.ts',
+  'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
+  'server/trading/signalScanner/state/scanBlockReasonClassifier.ts',
+  'server/trading/signalScanner/state/scanEvaluationState.ts',
+  'server/trading/sourceSnapshot/commonGateEvaluator.ts',
+  'server/trading/sourceSnapshot/sourceSnapshotDataHealth.ts',
+  'server/trading/tradeLifecycleOutcomeResolver.ts',
+  'src/components/publicReport/BlogExportPanel.tsx',
+  'src/config/navigation.ts',
+  'src/config/viewRegistry.ts',
+  'src/pages/PublicReportPage.tsx',
+]);
+
+function isBaselineViolation(file) {
+  const norm = file.split('\\').join('/');
+  return BASELINE_SRP_VIOLATIONS.has(norm) || [...BASELINE_SRP_VIOLATIONS].some((b) => norm.endsWith('/' + b));
+}
+
 function walk(dir, out = []) {
   if (!existsSync(dir)) return out;
   for (const name of readdirSync(dir)) {
@@ -110,16 +181,25 @@ function main() {
     }
   }
 
-  if (violations.length > 0) {
-    console.error(`\n[SRP][FAIL] SRP 위반 의심 ${violations.length}건`);
-    for (const { f, tag, problems } of violations) {
+  const baselineViolations = violations.filter(({ f }) => isBaselineViolation(f));
+  const newViolations = violations.filter(({ f }) => !isBaselineViolation(f));
+
+  if (baselineViolations.length > 0) {
+    scriptWarn(`\n[SRP][BASELINE] 기존 접속사 위반 ${baselineViolations.length}건 (비차단 — 카탈로그 등재 legacy 부채)`);
+  }
+
+  if (newViolations.length > 0) {
+    console.error(`\n[SRP][FAIL] 신규 SRP 위반 ${newViolations.length}건 (BASELINE_SRP_VIOLATIONS 미등재)`);
+    for (const { f, tag, problems } of newViolations) {
       console.error(`  ${f}\n    "${tag}"\n    · ${problems.join('\n    · ')}`);
     }
   }
 
-  const hardFail = violations.length > 0 || (strict && missing.length > 0);
+  const hardFail = newViolations.length > 0 || (strict && missing.length > 0);
   if (hardFail) process.exit(1);
-  console.log(`\n[SRP] OK — ${files.length}개 파일 검사, 위반 ${violations.length}건`);
+  console.log(
+    `\n[SRP] OK — ${files.length}개 파일 검사, 신규 위반 0건 (baseline ${baselineViolations.length}건 제외)`,
+  );
 }
 
 main();
