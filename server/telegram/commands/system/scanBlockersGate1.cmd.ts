@@ -8,6 +8,9 @@ import {
 } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate1MinimumSignalForensicSection } from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
 import type { Gate1MinimumSignalForensicSummaryAdr0505 } from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
+import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
+import { renderGate1Compact } from '../../renderers/gateCompactRenderer.js';
+import { buildSnapshotBundleFromScanSummary } from '../../renderers/snapshotBundle.js';
 
 function text(value: unknown, fallback = 'UNKNOWN'): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
@@ -210,8 +213,16 @@ const scanBlockersGate1: TelegramCommand = {
   riskLevel: 0,
   description: 'Gate1 survival / minimum-signal forensic slice from latest scan blockers',
   usage: '/scan_blockers_gate1',
-  async execute({ reply }) {
+  async execute({ args, reply }) {
     const summary = getLastScanSummary();
+    const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
+    if (!wantsFull) {
+      await reply([
+        renderGate1Compact(buildSnapshotBundleFromScanSummary(summary)),
+        buildDiagnosticCommandHint('gate'),
+      ].join('\n'));
+      return;
+    }
     const compact = formatScanBlockersGate1Section(summary);
     const survival = formatGate1SurvivalAuditSection(summary?.gateLayerAudit?.gate1Survival as Gate1SurvivalAuditSummary | undefined);
     const forensic = safeFormatGate1ForensicSection(summary?.gate1MinimumSignalForensicAdr0505);

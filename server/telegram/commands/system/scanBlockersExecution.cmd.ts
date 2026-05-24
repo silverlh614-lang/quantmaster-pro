@@ -16,6 +16,9 @@ import {
   type FinalDecisionProviderHealthStatus,
   type FinalDecisionShadowMode,
 } from '../../../trading/gates/finalDecisionResolver.js';
+import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
+import { renderExecutionCompact } from '../../renderers/executionCompactRenderer.js';
+import { buildSnapshotBundleFromScanSummary, executionSummaryFromAudit } from '../../renderers/snapshotBundle.js';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -123,7 +126,7 @@ const scanBlockersExecution: TelegramCommand = {
   riskLevel: 0,
   description: 'FinalDecisionResolver execution permission audit from latest scan blockers',
   usage: '/scan_blockers_execution',
-  async execute({ reply }) {
+  async execute({ args, reply }) {
     const summary = recordOf(getLastScanSummary());
     const sourceSnapshotId = resolveSourceSnapshotId(summary);
     const traces = resolveCandidateTraces(summary);
@@ -171,6 +174,18 @@ const scanBlockersExecution: TelegramCommand = {
     });
     const decisions = inputs.map(input => resolveFinalExecutionDecision(input, new Date('1970-01-01T00:00:00.000Z')));
     const audit = buildFinalDecisionRuntimeAuditSummary({ sourceSnapshotId, decisions, inputs });
+    const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
+    if (!wantsFull) {
+      await reply([
+        renderExecutionCompact({
+          ...buildSnapshotBundleFromScanSummary(summary),
+          execution: executionSummaryFromAudit(audit),
+          executionImpact: executionSummaryFromAudit(audit).executionImpact,
+        }),
+        buildDiagnosticCommandHint('execution'),
+      ].join('\n'));
+      return;
+    }
     await reply([
       formatFinalDecisionRuntimeAuditCompact(audit),
       '',

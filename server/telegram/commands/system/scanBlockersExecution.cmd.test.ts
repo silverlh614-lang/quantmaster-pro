@@ -55,7 +55,7 @@ describe('/scan_blockers_execution command', () => {
 
     const replies: string[] = [];
     await command!.execute({
-      args: [],
+      args: ['full'],
       reply: async message => {
         replies.push(message);
       },

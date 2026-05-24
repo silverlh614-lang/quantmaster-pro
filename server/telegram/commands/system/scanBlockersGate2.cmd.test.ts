@@ -80,7 +80,7 @@ describe('/scan_blockers_gate2 command', () => {
 
     const replies: string[] = [];
     await command!.execute({
-      args: [],
+      args: ['full'],
       reply: async (message) => {
         replies.push(message);
       },
@@ -220,7 +220,7 @@ describe('/scan_blockers_gate2 command', () => {
 
     const command = registry.commandRegistry.resolve('/scan_blockers_gate2');
     const replies: string[] = [];
-    await command!.execute({ args: [], reply: async message => { replies.push(message); } });
+    await command!.execute({ args: ['full'], reply: async message => { replies.push(message); } });
     const text = replies.join('\n');
 
     expect(text).toContain('valuation: perStatusSample=PASS perStatusAggregate=PARTIAL');

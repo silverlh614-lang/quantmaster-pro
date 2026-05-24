@@ -62,6 +62,8 @@ describe('/learning_outcomes ADR-0522 command', () => {
     await import('./learningOutcomes.cmd.js');
     const command = registry.commandRegistry.resolve('/learning_outcomes');
     expect(command).toBeDefined();
+    expect(registry.commandRegistry.resolve('/learning')).toBe(command);
+    expect(registry.commandRegistry.resolve('/learning_full')).toBe(command);
     expect(registry.commandRegistry.resolve('/outcome_labels')).toBe(command);
     expect(registry.commandRegistry.resolve('/outcome_attribution')).toBe(command);
 
@@ -71,10 +73,17 @@ describe('/learning_outcomes ADR-0522 command', () => {
     };
     await command!.execute({ args: [], reply });
 
+    expect(replied).toContain('[Learning]');
+    expect(replied).toContain('seeds: +1 / pending 0 / labeled 1');
+    expect(replied).toContain('impact: NONE');
+    expect(replied).toContain('learning: ON');
+    expect(replied).toContain('detail: /learning_full');
+
+    await command!.execute({ args: ['full'], command: '/learning_full', reply });
     expect(replied).toContain('[Learning Outcomes]');
     expect(replied).toContain('Seeds: created 1 / pending 0 / labeled 1');
     expect(replied).toContain('ExecutionImpact: NONE for learning');
     expect(replied).toContain('ShadowLearning: true');
     expect(replied).toContain('no provider fetch, no broker order, no live promotion');
-  });
+  }, 15000);
 });

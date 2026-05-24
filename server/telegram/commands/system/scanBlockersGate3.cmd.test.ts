@@ -173,7 +173,7 @@ describe('/scan_blockers_gate3 command', () => {
 
     const replies: string[] = [];
     await command!.execute({
-      args: [],
+      args: ['full'],
       reply: async (message) => {
         replies.push(message);
       },

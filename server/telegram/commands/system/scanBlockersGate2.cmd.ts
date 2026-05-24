@@ -12,6 +12,9 @@ import {
   formatGate2ConfluenceCompact,
   formatGate2ConfluenceFull,
 } from '../../../quant/gate2ConfluenceScore.js';
+import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
+import { renderGate2Compact } from '../../renderers/gateCompactRenderer.js';
+import { buildSnapshotBundleFromScanSummary, gate2SummaryFromConfluence } from '../../renderers/snapshotBundle.js';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -456,7 +459,7 @@ const scanBlockersGate2: TelegramCommand = {
   riskLevel: 0,
   description: 'Gate2 ExternalData / DART / PER slice from latest scan blockers',
   usage: '/scan_blockers_gate2',
-  async execute({ reply }) {
+  async execute({ args, reply }) {
     const summary = getLastScanSummary();
     const gate2Cache = loadGate2ExternalCache();
     const summaryRecord = recordOf(summary);
@@ -466,6 +469,17 @@ const scanBlockersGate2: TelegramCommand = {
       sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
       gate2CacheRecords: latestGate2CacheRecords(gate2Cache) as unknown as Record<string, unknown>[],
     });
+    const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
+    if (!wantsFull) {
+      await reply([
+        renderGate2Compact({
+          ...buildSnapshotBundleFromScanSummary(summary),
+          gate2: gate2SummaryFromConfluence(confluence),
+        }),
+        buildDiagnosticCommandHint('gate'),
+      ].join('\n'));
+      return;
+    }
     const lines = [
       '[scan_blockers_gate2] Gate2 Growth / Confluence Validation',
       `source=${summary ? 'lastScanSummary+gate2ExternalCache' : 'gate2ExternalCache'} executionImpact=NONE`,

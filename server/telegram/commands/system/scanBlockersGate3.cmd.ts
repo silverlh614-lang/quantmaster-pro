@@ -17,6 +17,9 @@ import { formatGate3OutcomeTrackingSummary } from '../../../quant/gate3OutcomeSe
 import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
 import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
 import { formatGate3FinalizationSection } from '../../../quant/gate3CompletionScore.js';
+import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
+import { renderGate3Compact } from '../../renderers/gateCompactRenderer.js';
+import { buildSnapshotBundleFromScanSummary, gate3SummaryFromRuntimeClosure } from '../../renderers/snapshotBundle.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
   const [top] = Object.entries(counts ?? {})
@@ -174,7 +177,7 @@ const scanBlockersGate3: TelegramCommand = {
   riskLevel: 0,
   description: 'Gate3 timing readiness / last trigger slice from latest scan blockers',
   usage: '/scan_blockers_gate3',
-  async execute({ reply }) {
+  async execute({ args, reply }) {
     const summary = getLastScanSummary();
     const summaryRecord = recordOf(summary);
     const candidateTraces = resolveCandidateTraces(summaryRecord);
@@ -195,6 +198,17 @@ const scanBlockersGate3: TelegramCommand = {
       sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
       gate2StatusBySymbol,
     });
+    const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
+    if (!wantsFull) {
+      await reply([
+        renderGate3Compact({
+          ...buildSnapshotBundleFromScanSummary(summary),
+          gate3: gate3SummaryFromRuntimeClosure(runtimeClosure),
+        }),
+        buildDiagnosticCommandHint('gate'),
+      ].join('\n'));
+      return;
+    }
     const audit = summary?.gateLayerAudit;
     const compact = formatScanBlockersGate3Section(audit);
     const runtimeCompact = formatGate3RuntimeClosureCompact(runtimeClosure);

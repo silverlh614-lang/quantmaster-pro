@@ -108,7 +108,7 @@ describe('/scan_blockers_gate1 command', () => {
     expect(registry.commandRegistry.resolve('/gate1_min_signal')).toBe(command);
 
     const replies: string[] = [];
-    await command!.execute({ args: [], reply: async message => { replies.push(message); } });
+    await command!.execute({ args: ['full'], reply: async message => { replies.push(message); } });
     const text = replies.join('\n');
 
     expect(text).toContain('[scan_blockers_gate1] Gate1 Survival / Minimum Signal Forensics');
