@@ -103,6 +103,49 @@ export interface OfficialSectorIndexVerifyAttempt {
   reasonCode: string;
 }
 
+export interface SectorIndexCoverageDenominator {
+  internalGroupedSectorCount?: number;
+  officialTargetSectorCount: number;
+  safePromotionEligibleSectorCount: number;
+  unsafeAliasSectorCount: number;
+  unresolvedSectorCount: number;
+  verifiedSuccessCount: number;
+}
+
+export interface SectorIndexCoverageMetrics {
+  officialIndexCoverageByOfficialTarget: number;
+  verifiedCoverageByOfficialTarget: number;
+  verifiedCoverageByInternalGrouped?: number;
+  verifiedCoverageExcludingUnsafeAlias: number;
+  promotionVerifiedCoverage: number;
+}
+
+export interface SectorIndexUnsafeAliasPolicy {
+  includeInPromotionDenominator: true;
+  includeInPromotionNumerator: false;
+  useForShadowEvidence: true;
+  reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS';
+}
+
+export interface SectorIndexPromotionCoveragePolicy {
+  selectedMetric: 'officialTargetVerifiedCoverage';
+  numerator: number;
+  denominator: number;
+  requiredVerifiedCoverage: 80;
+  selectedCoverageValue: number;
+  promotionAllowed: boolean;
+  reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'VERIFIED_INDEX_CODE_COVERAGE_READY';
+  alternativeInternalGroupedCoverage?: number;
+  executionImpact: 'NONE';
+}
+
+export interface SectorIndexValueQuality {
+  zeroCurrentIndexCount: number;
+  nonZeroCurrentIndexCount: number;
+  zeroCurrentIndexSymbols: string[];
+  zeroCurrentIndexPolicy: 'OBSERVE_ONLY';
+}
+
 export interface VerifyOfficialSectorIndexCodesInput {
   mappingRows: readonly OfficialSectorIndexCodeMappingRow[];
   verifyIndexCode?: (row: OfficialSectorIndexCodeMappingRow) => Promise<OfficialSectorIndexVerifyResult>;
@@ -133,6 +176,16 @@ export interface OfficialSectorIndexMasterCoverageResult {
   mappedSectorCount: number;
   verifiedIndexCodeCount: number;
   targetSectorCount: number;
+  coverageDenominator?: SectorIndexCoverageDenominator;
+  coverageMetrics?: SectorIndexCoverageMetrics;
+  unsafeAliasPolicy?: SectorIndexUnsafeAliasPolicy;
+  promotionCoveragePolicy?: SectorIndexPromotionCoveragePolicy;
+  indexValueQuality?: SectorIndexValueQuality;
+  officialIndexCoverageByOfficialTarget?: number;
+  verifiedCoverageByOfficialTarget?: number;
+  verifiedCoverageByInternalGrouped?: number;
+  verifiedCoverageExcludingUnsafeAlias?: number;
+  promotionVerifiedCoverage?: number;
   safeAliasCoverage?: number;
   exactMatchCount?: number;
   safeAliasMatchCount?: number;
@@ -173,6 +226,52 @@ export interface OfficialSectorIndexMasterCoverageResult {
 function pct(count: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((count / total) * 1000) / 10;
+}
+
+function uniqueVerifyResultKey(result: OfficialSectorIndexVerifyResult): string {
+  return [
+    result.sectorName,
+    result.idxDiv ?? '',
+    result.idxCode ?? result.officialIndexCode,
+  ].join('|');
+}
+
+function representativeCurrentIndex(result: OfficialSectorIndexVerifyResult): number | null {
+  if (typeof result.currentIndex === 'number' && Number.isFinite(result.currentIndex)) {
+    return result.currentIndex;
+  }
+  const verifiedAttempt = result.attempts?.find((attempt) =>
+    attempt.verified && typeof attempt.currentIndex === 'number' && Number.isFinite(attempt.currentIndex),
+  );
+  if (verifiedAttempt && typeof verifiedAttempt.currentIndex === 'number') return verifiedAttempt.currentIndex;
+  const schemaAttempt = result.attempts?.find((attempt) =>
+    attempt.indexValueFieldPresent && typeof attempt.currentIndex === 'number' && Number.isFinite(attempt.currentIndex),
+  );
+  return typeof schemaAttempt?.currentIndex === 'number' ? schemaAttempt.currentIndex : null;
+}
+
+function buildIndexValueQuality(results: readonly OfficialSectorIndexVerifyResult[]): SectorIndexValueQuality {
+  const seen = new Set<string>();
+  const zeroCurrentIndexSymbols: string[] = [];
+  let nonZeroCurrentIndexCount = 0;
+  for (const result of results) {
+    const currentIndex = representativeCurrentIndex(result);
+    if (currentIndex === null) continue;
+    const key = uniqueVerifyResultKey(result);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (currentIndex === 0) {
+      zeroCurrentIndexSymbols.push(result.sectorName);
+    } else {
+      nonZeroCurrentIndexCount += 1;
+    }
+  }
+  return {
+    zeroCurrentIndexCount: zeroCurrentIndexSymbols.length,
+    nonZeroCurrentIndexCount,
+    zeroCurrentIndexSymbols,
+    zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+  };
 }
 
 function mappingVerifyKey(input: {
@@ -276,6 +375,42 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   const verifyVariantPolicy = verificationResults.find((result) => result.verifyVariantPolicy)?.verifyVariantPolicy;
   const kisIndexQuoteClientStatus = verificationResults.find((result) => result.clientStatus)?.clientStatus;
   const verifiedIndexCodeCoverage = pct(verifySuccessCount, mapping.targetSectorCount);
+  const safePromotionEligibleSectorCount = mapping.rows.filter((row) =>
+    row.officialCoverageEligible && !row.unsafeAlias && Boolean(row.officialIndexCode),
+  ).length;
+  const verifiedCoverageExcludingUnsafeAlias = pct(verifySuccessCount, safePromotionEligibleSectorCount);
+  const coverageDenominator: SectorIndexCoverageDenominator = {
+    officialTargetSectorCount: mapping.targetSectorCount,
+    safePromotionEligibleSectorCount,
+    unsafeAliasSectorCount: mapping.unsafeAliasCount,
+    unresolvedSectorCount: mapping.unresolvedSectorNames.length,
+    verifiedSuccessCount: verifySuccessCount,
+  };
+  const coverageMetrics: SectorIndexCoverageMetrics = {
+    officialIndexCoverageByOfficialTarget: mapping.officialIndexCoverage,
+    verifiedCoverageByOfficialTarget: verifiedIndexCodeCoverage,
+    verifiedCoverageExcludingUnsafeAlias,
+    promotionVerifiedCoverage: verifiedIndexCodeCoverage,
+  };
+  const unsafeAliasPolicy: SectorIndexUnsafeAliasPolicy = {
+    includeInPromotionDenominator: true,
+    includeInPromotionNumerator: false,
+    useForShadowEvidence: true,
+    reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
+  };
+  const promotionCoveragePolicy: SectorIndexPromotionCoveragePolicy = {
+    selectedMetric: 'officialTargetVerifiedCoverage',
+    numerator: verifySuccessCount,
+    denominator: mapping.targetSectorCount,
+    requiredVerifiedCoverage: 80,
+    selectedCoverageValue: verifiedIndexCodeCoverage,
+    promotionAllowed: verifiedIndexCodeCoverage >= 80,
+    reason: verifiedIndexCodeCoverage >= 80
+      ? 'VERIFIED_INDEX_CODE_COVERAGE_READY'
+      : 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+    executionImpact: 'NONE',
+  };
+  const indexValueQuality = buildIndexValueQuality(verificationResults);
   const masterSource = provider?.cacheFallbackUsed
     ? 'CACHE'
     : provider?.masterSource ?? 'NONE';
@@ -297,6 +432,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     reasonCodes.add('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     reasonCodes.add('VERIFIED_INDEX_CODE_COVERAGE_LOW');
   }
+  if (indexValueQuality.zeroCurrentIndexCount > 0) reasonCodes.add('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
   reasonCodes.add('EXECUTION_IMPACT_NONE_CONFIRMED');
 
   return {
@@ -325,6 +461,15 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     mappedSectorCount: mapping.mappedSectorCount,
     verifiedIndexCodeCount: verifySuccessCount,
     targetSectorCount: mapping.targetSectorCount,
+    coverageDenominator,
+    coverageMetrics,
+    unsafeAliasPolicy,
+    promotionCoveragePolicy,
+    indexValueQuality,
+    officialIndexCoverageByOfficialTarget: coverageMetrics.officialIndexCoverageByOfficialTarget,
+    verifiedCoverageByOfficialTarget: coverageMetrics.verifiedCoverageByOfficialTarget,
+    verifiedCoverageExcludingUnsafeAlias,
+    promotionVerifiedCoverage: coverageMetrics.promotionVerifiedCoverage,
     safeAliasCoverage: pct(mapping.safeAliasCount, mapping.targetSectorCount),
     exactMatchCount: mapping.exactMatchCount,
     safeAliasMatchCount: mapping.safeAliasMatchCount,

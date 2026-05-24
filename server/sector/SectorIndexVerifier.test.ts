@@ -393,6 +393,79 @@ describe('SectorIndexVerifier', () => {
     expect(result.executionImpact).toBe('NONE');
   });
 
+  it('exposes denominator, unsafe alias, promotion policy, and index value quality separately', async () => {
+    const result = await buildOfficialSectorIndexMasterCoverage({
+      provider: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: masterRows.length,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        rows: masterRows,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'],
+        cacheFile: 'memory',
+        fetchedAt: '2026-05-23T00:00:00.000Z',
+      },
+      targets: [
+        { sectorName: 'finance' },
+        { sectorName: 'chemical' },
+        { sectorName: 'defense', sectorKey: 'DEFENSE', candidateIndexCode: '0006' },
+        { sectorName: 'unresolved' },
+      ],
+      verifyIndexCode: async (row) => ({
+        officialIndexCode: row.officialIndexCode ?? '',
+        sectorName: row.sectorName,
+        idxDiv: row.idxDiv,
+        idxCode: row.idxCode,
+        verified: true,
+        currentIndex: row.sectorName === 'finance' ? 0 : 123.4,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCode: 'VERIFY_SUCCESS',
+      }),
+    });
+
+    expect(result.coverageDenominator).toMatchObject({
+      officialTargetSectorCount: 4,
+      safePromotionEligibleSectorCount: 2,
+      unsafeAliasSectorCount: 1,
+      unresolvedSectorCount: 1,
+      verifiedSuccessCount: 2,
+    });
+    expect(result.coverageMetrics).toMatchObject({
+      officialIndexCoverageByOfficialTarget: 50,
+      verifiedCoverageByOfficialTarget: 50,
+      verifiedCoverageExcludingUnsafeAlias: 100,
+      promotionVerifiedCoverage: 50,
+    });
+    expect(result.promotionCoveragePolicy).toMatchObject({
+      selectedMetric: 'officialTargetVerifiedCoverage',
+      numerator: 2,
+      denominator: 4,
+      selectedCoverageValue: 50,
+      promotionAllowed: false,
+      reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+      executionImpact: 'NONE',
+    });
+    expect(result.unsafeAliasPolicy).toMatchObject({
+      includeInPromotionDenominator: true,
+      includeInPromotionNumerator: false,
+      useForShadowEvidence: true,
+    });
+    expect(result.indexValueQuality).toMatchObject({
+      zeroCurrentIndexCount: 1,
+      nonZeroCurrentIndexCount: 1,
+      zeroCurrentIndexSymbols: ['finance'],
+      zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+    });
+    expect(result.reasonCodes).toContain('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
+  });
+
   it('raises verified coverage only when an idxDiv+idxCode verify variant succeeds', async () => {
     const result = await buildOfficialSectorIndexMasterCoverage({
       provider: {

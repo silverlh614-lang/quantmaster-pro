@@ -377,6 +377,93 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(compact).toContain('selectedCanonical=transport-equipment');
     expect(compact).toContain('SectorIndexUnresolvedDetails: UNRESOLVED_A:reason=EN_TO_KR_ALIAS_MISSING');
   });
+
+  it('prints official-target promotion coverage separately from internal grouped diagnostic coverage', () => {
+    const report = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        dataQuality: 'OK',
+        officialIndexCoverage: 73.3,
+        verifiedIndexCodeCoverage: 73.3,
+        internalGroupedSnapshotCoverage: 100,
+        internalGroupedValidSectorCount: 12,
+        internalGroupedExpectedSectorCount: 12,
+        fallbackUsed: 'NONE',
+      }),
+      officialSectorIndexMaster: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: 485,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        officialIndexCoverage: 73.3,
+        verifiedIndexCodeCoverage: 73.3,
+        mappedSectorCount: 11,
+        verifiedIndexCodeCount: 11,
+        targetSectorCount: 15,
+        coverageDenominator: {
+          officialTargetSectorCount: 15,
+          safePromotionEligibleSectorCount: 11,
+          unsafeAliasSectorCount: 4,
+          unresolvedSectorCount: 0,
+          verifiedSuccessCount: 11,
+        },
+        coverageMetrics: {
+          officialIndexCoverageByOfficialTarget: 73.3,
+          verifiedCoverageByOfficialTarget: 73.3,
+          verifiedCoverageExcludingUnsafeAlias: 100,
+          promotionVerifiedCoverage: 73.3,
+        },
+        unsafeAliasPolicy: {
+          includeInPromotionDenominator: true,
+          includeInPromotionNumerator: false,
+          useForShadowEvidence: true,
+          reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
+        },
+        promotionCoveragePolicy: {
+          selectedMetric: 'officialTargetVerifiedCoverage',
+          numerator: 11,
+          denominator: 15,
+          requiredVerifiedCoverage: 80,
+          selectedCoverageValue: 73.3,
+          promotionAllowed: false,
+          reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+          executionImpact: 'NONE',
+        },
+        indexValueQuality: {
+          zeroCurrentIndexCount: 2,
+          nonZeroCurrentIndexCount: 9,
+          zeroCurrentIndexSymbols: ['화학', '철강'],
+          zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+        },
+        safeAliasCount: 5,
+        unsafeAliasCount: 4,
+        unsafeAliasSectorNames: ['조선', '방산', '원자력', '이차전지'],
+        aliasResolvedCount: 12,
+        unresolvedSectorNames: [],
+        topMissingSectorNames: [],
+        verifyApiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
+        verifyTrId: 'FHPUP02100000',
+        verifySuccessCount: 11,
+        verifyFailCount: 0,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['VERIFIED_INDEX_CODE_COVERAGE_LOW'],
+        mappingRows: [],
+        verificationResults: [],
+      },
+    });
+    const compact = formatSectorEnergySupplyUnknownCompactAdr0488(report);
+
+    expect(report.sectorEnergyMaster.promotionAllowed).toBe(false);
+    expect(compact).toContain('SectorIndexCoverageDenominator: internalGroupedSectorCount=12 officialTargetSectorCount=15 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
+    expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% promotionVerifiedCoverage=73.3%');
+    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=true includeInPromotionNumerator=false useForShadowEvidence=true reason=THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
+    expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=officialTargetVerifiedCoverage numerator=11 denominator=15 required=80% selectedCoverageValue=73.3% coveragePromotionAllowed=false promotionAllowed=false reason=VERIFIED_INDEX_CODE_COVERAGE_LOW alternativeInternalGroupedCoverage=91.7% executionImpact=NONE');
+    expect(compact).toContain('IndexValueQuality: zeroCurrentIndexCount=2 currentIndexZeroCount=2 nonZeroCurrentIndexCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY');
+  });
+
   it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({
