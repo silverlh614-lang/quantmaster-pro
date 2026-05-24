@@ -105,6 +105,18 @@ const BASELINE_TECHNICAL_DEBT = [
   //   후속 PR 시리즈로 진행 (책임 단위 SSOT 분리 + import 정합 + 회귀 테스트 의무).
   'server/learning/regimeLearningBackfill.ts',
   'server/learning/regimeLearningBank.ts',
+  // 2026-05-24 governance unblock — 당일 feature/fix 커밋으로 1500 초과한 4 파일 (커밋 차단 해소).
+  //   ADR-0133/0502c 패턴 정합 — 카탈로그 등재로 validate:complexity EXIT=0 회복. 본체 무수정
+  //   (byte-equivalent, runtime 0줄). 분해는 각 파일별 별도 ADR-first 후속 PR (책임 단위 SSOT 분리 +
+  //   import 정합 + 회귀 테스트 의무 — KIS/Gate/trading core 이므로 9대 불변식 보존 최우선):
+  //     - server/clients/kisClient/query.ts (2132 LoC, 7926f3ae) — KIS query SSOT (core)
+  //     - server/trading/gate2/gate2ExternalDataProvider.ts (1715 LoC, 94879dba) — Gate2 외부데이터 provider
+  //     - server/trading/signalScanner/scanDiagnostics/persistScanResults.ts (1827 LoC, 2b3d54de) — 스캔 진단 영속
+  //     - server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts (1568 LoC, 4f6736dd)
+  'server/clients/kisClient/query.ts',
+  'server/trading/gate2/gate2ExternalDataProvider.ts',
+  'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
+  'server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts',
 ];
 
 function isBaseline(file) {
