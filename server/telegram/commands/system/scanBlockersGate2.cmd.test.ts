@@ -87,7 +87,12 @@ describe('/scan_blockers_gate2 command', () => {
     });
     const text = replies.join('\n');
 
-    expect(text).toContain('[scan_blockers_gate2] Gate2 ExternalData / DART PER Earnings Quality');
+    expect(text).toContain('[scan_blockers_gate2] Gate2 Growth / Confluence Validation');
+    expect(text).toContain('Gate2 Growth / Confluence Validation');
+    expect(text).toContain('evaluated: 1/1');
+    expect(text).toContain('executionImpact=NONE');
+    expect(text).toContain('shadowLearning=true');
+    expect(text).toContain('counterfactualRecorded=true');
     expect(text).toContain('Gate2ExternalData:');
     expect(text).toContain('dart: status=MISSING source=NONE reason=DART_FINANCIALS_MISSING');
     expect(text).toContain('valuation: perStatusSample=UNAVAILABLE perStatusAggregate=UNAVAILABLE');
@@ -219,6 +224,9 @@ describe('/scan_blockers_gate2 command', () => {
     const text = replies.join('\n');
 
     expect(text).toContain('valuation: perStatusSample=PASS perStatusAggregate=PARTIAL');
+    expect(text).toContain('Gate2 Confluence Full Diagnostic');
+    expect(text).toContain('counterfactualSeeds: 2');
+    expect(text).toContain('Gate1ToGate2:');
     expect(text).toContain('earningsQuality: status=FAIL');
     expect(text).toContain('earnings_quality:status=PARTIAL:value=0.8:source=DART:reason=EARNINGS_QUALITY_PARTIAL');
     expect(text).toContain('per:status=PARTIAL:value=12:source=KIS:reason=PER_PARTIAL');

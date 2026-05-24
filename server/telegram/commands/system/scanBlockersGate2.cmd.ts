@@ -7,6 +7,11 @@ import {
   type Gate2ExternalCacheFile,
   type Gate2ExternalCacheRecord,
 } from '../../../trading/gate2/gate2ExternalCache.js';
+import {
+  buildGate2ConfluenceSummary,
+  formatGate2ConfluenceCompact,
+  formatGate2ConfluenceFull,
+} from '../../../quant/gate2ConfluenceScore.js';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -88,6 +93,19 @@ function resolveSummaryAsOf(summary: AnyRecord | null): string {
       ?? summary?.createdAt
       ?? getByPath(summary, 'candidatePool.asOf')
       ?? getByPath(summary, 'scanEvaluationState.asOf'),
+  );
+}
+
+function resolveSourceSnapshotId(summary: AnyRecord | null): string {
+  return text(
+    summary?.sourceSnapshotId
+      ?? summary?.scanId
+      ?? summary?.id
+      ?? getByPath(summary, 'candidatePool.sourceSnapshotId')
+      ?? getByPath(summary, 'entryFilterDecomposition.sourceSnapshotId')
+      ?? getByPath(summary, 'gateLayerAudit.sourceSnapshotId')
+      ?? resolveSummaryAsOf(summary),
+    'UNKNOWN_SOURCE_SNAPSHOT',
   );
 }
 
@@ -441,9 +459,20 @@ const scanBlockersGate2: TelegramCommand = {
   async execute({ reply }) {
     const summary = getLastScanSummary();
     const gate2Cache = loadGate2ExternalCache();
+    const summaryRecord = recordOf(summary);
+    const entryFilter = resolveEntryFilter(summaryRecord);
+    const confluence = buildGate2ConfluenceSummary({
+      traces: resolveCandidateTraces(entryFilter),
+      sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
+      gate2CacheRecords: latestGate2CacheRecords(gate2Cache) as unknown as Record<string, unknown>[],
+    });
     const lines = [
-      '[scan_blockers_gate2] Gate2 ExternalData / DART PER Earnings Quality',
+      '[scan_blockers_gate2] Gate2 Growth / Confluence Validation',
       `source=${summary ? 'lastScanSummary+gate2ExternalCache' : 'gate2ExternalCache'} executionImpact=NONE`,
+      '',
+      formatGate2ConfluenceCompact(confluence),
+      '',
+      formatGate2ConfluenceFull(confluence),
       '',
       compactGate2ExternalData(summary, gate2Cache),
       '',
