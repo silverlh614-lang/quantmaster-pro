@@ -546,3 +546,4 @@
 - 2026-05-25 · Patch-WATCHLIST-ADDED-ALERT-DEDUP-001 (피엠티 churn 반복 편입 알림 → 종목코드+KST일자 dedup 1일 1회)
 - 2026-05-25 · Patch-CI-SRP-BASELINE-AND-GITLEAKS-FP-001 (PR #1193 실패 진단: SRP 전체트리 접속사 위반 54건 → BASELINE 카탈로그 비차단·신규만 차단; gitleaks generic-api-key 오탐 `key: Gate3ThresholdKey` 타입명 → .gitleaks.toml allowlist)
 - 2026-05-25 · Patch-CI-SRP-BASELINE-DRAIN-001 (SRP baseline 54건 @responsibility 를 단일책임 문장으로 교정 — 코멘트 1줄씩만 변경(런타임 0), BASELINE_SRP_VIOLATIONS 카탈로그 비움 → 이후 모든 접속사 위반 즉시 hard-fail)
+- 2026-05-25 · Patch-CI-DEPLOY-WINDOW-HOLIDAY-001 (deploy-window 가드가 KRX 휴장일 인식 — 석가탄신일 등 장중 배포 오탐 차단; 정적 휴장일 날짜를 plain-JS shim krxHolidayDates.js 단일출처로 통합(krxHolidays.ts 가 소비); 2026 대체공휴일 누락 3건 03-02·08-17·10-05 보강(추석 9/26 토요일은 일요일-only 규칙상 대체 없음 → 9/28 거래일 유지))

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @responsibility 배포 금지 창(장중 KST 평일 08:30~16:30) 진입 시 exit 1로 파이프라인을 차단한다.
+ * @responsibility 배포 금지 창(장중 KST 거래일 08:30~16:30) 진입 시 exit 1로 파이프라인을 차단한다.
  *
  * 근거: 장중 배포는 포지션 상태·주문 큐·실시간 피드 재접속을 동시 촉발해
  *       고빈도 결함을 유발한다. 배포는 반드시 장외 시간에만 허용.
@@ -10,19 +10,25 @@
  *   ALLOW_DEPLOY_WINDOW=1 node scripts/check_deploy_window.js   # 강제 허용
  *
  * 허용 창:
- *   - 주말(토·일) 전일
- *   - 평일 00:00~08:29, 16:31~23:59 (장외)
- *   - 공휴일 API가 없으므로 평일 판정만 수행 — 공휴일 장중에는 운영자가 판단
+ *   - 주말(토·일)
+ *   - KRX 휴장일 (krxHolidayDates.js SSOT 참조 — 석가탄신일 등 장이 안 서는 날)
+ *   - 거래일 00:00~08:29, 16:31~23:59 (장외)
+ *
+ * 휴장일 판정은 정적 KRX 휴장일 목록(STATIC_KRX_HOLIDAYS)만 사용 — 운영자 patch
+ * (krxHolidayRepo, 디스크) 의존 없이 plain-node 로 안전 import.
  *
  * Exit code:
  *   0 — 배포 허용
- *   1 — 배포 금지(장중)
+ *   1 — 배포 금지(거래일 장중)
  *   2 — 잘못된 환경(TZ 계산 실패 등)
  */
+
+import { STATIC_KRX_HOLIDAYS } from '../server/trading/krxHolidayDates.js';
 
 const KST_OFFSET_MIN = 9 * 60;
 const MARKET_OPEN_MIN  = 8 * 60 + 30;   // 08:30
 const MARKET_CLOSE_MIN = 16 * 60 + 30;  // 16:30
+const KRX_HOLIDAY_SET = new Set(STATIC_KRX_HOLIDAYS);
 
 function nowKst(now = new Date()) {
   const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -33,13 +39,20 @@ function nowKst(now = new Date()) {
     weekday: shifted.getUTCDay(),   // 0=Sun, 6=Sat
     minuteOfDay: kstTotalMin,
     iso: shifted.toISOString(),
+    dateYmd: shifted.toISOString().slice(0, 10),  // KST 기준 YYYY-MM-DD
   };
+}
+
+function isKrxHoliday(dateYmd) {
+  return KRX_HOLIDAY_SET.has(dateYmd);
 }
 
 function isDeployBlocked(ts) {
   // 주말(토·일)은 항상 허용
   if (ts.weekday === 0 || ts.weekday === 6) return false;
-  // 평일 장중이면 차단
+  // KRX 휴장일(석가탄신일 등)은 장이 안 서므로 허용
+  if (isKrxHoliday(ts.dateYmd)) return false;
+  // 거래일 장중이면 차단
   return ts.minuteOfDay >= MARKET_OPEN_MIN && ts.minuteOfDay <= MARKET_CLOSE_MIN;
 }
 
@@ -47,7 +60,8 @@ function fmt(ts) {
   const h = String(Math.floor(ts.minuteOfDay / 60)).padStart(2, '0');
   const m = String(ts.minuteOfDay % 60).padStart(2, '0');
   const wd = ['일', '월', '화', '수', '목', '금', '토'][ts.weekday];
-  return `KST ${wd}요일 ${h}:${m}`;
+  const holiday = isKrxHoliday(ts.dateYmd) ? ' · KRX 휴장일' : '';
+  return `KST ${ts.dateYmd}(${wd}) ${h}:${m}${holiday}`;
 }
 
 function main() {
@@ -78,7 +92,7 @@ function main() {
 }
 
 // 테스트 가능하게 export (Node ESM)
-export { nowKst, isDeployBlocked, MARKET_OPEN_MIN, MARKET_CLOSE_MIN };
+export { nowKst, isDeployBlocked, isKrxHoliday, MARKET_OPEN_MIN, MARKET_CLOSE_MIN };
 
 // CLI 진입점
 const isMain = import.meta.url === `file://${process.argv[1]}`;
