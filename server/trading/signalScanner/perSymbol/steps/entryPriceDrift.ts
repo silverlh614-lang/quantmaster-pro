@@ -8,6 +8,41 @@ import { resolveDataHoldAction } from '../../../../data/dataHoldRolePolicy.js';
 import { isEntryPriceAutoCorrectDisabled } from '../../failureClassifier.js';
 import type { BuyListLoopContext } from '../types.js';
 
+export type CorporateActionDriftMode = 'IMMUTABLE_REMOVE' | 'AUTO_CORRECT';
+
+export interface CorporateActionDriftMessageInput {
+  name: string;
+  code: string;
+  driftPctText: string;
+  oldEntry: number;
+  currentPrice: number;
+  mode: CorporateActionDriftMode;
+}
+
+function formatKrw(value: number): string {
+  return value.toLocaleString('ko-KR');
+}
+
+export function buildCorporateActionDriftMessage(input: CorporateActionDriftMessageInput): string {
+  const header = input.mode === 'IMMUTABLE_REMOVE'
+    ? '[Corporate Action Guard - universe excluded]'
+    : '[Corporate Action Guard - entryPrice adjusted]';
+  const entryLine = input.mode === 'IMMUTABLE_REMOVE'
+    ? `entryPrice kept: <b>${formatKrw(input.oldEntry)}</b> (RAW immutable, ADR-0115)`
+    : `entryPrice adjusted: <b>${formatKrw(input.oldEntry)} -> ${formatKrw(input.currentPrice)}</b>`;
+  const actionLine = input.mode === 'IMMUTABLE_REMOVE'
+    ? 'action: watchlist excluded; review DART disclosure before re-entry.'
+    : 'action: auto-correction applied; review DART disclosure for split/merge/rights issue.';
+
+  return [
+    `<b>${header}</b> ${input.name} (${input.code})`,
+    '--------------------',
+    `drift: ${input.driftPctText}% (split/merge/rights issue suspected)`,
+    entryLine,
+    actionLine,
+  ].join('\n');
+}
+
 export async function checkEntryPriceDrift(
   ctx: BuyListLoopContext,
   stock: WatchlistEntry,
@@ -34,7 +69,7 @@ export async function checkEntryPriceDrift(
     }
     ctx.mutables.watchlistMutated.value = true;
     console.warn(`[WatchlistManager] drift update skipped: ${reason}`);
-    console.log(`[AutoTrade] ${stock.name}(${stock.code}) ??WAIT / DATA_HOLD / ${action.reason}`);
+    console.log(`[AutoTrade] ${stock.name}(${stock.code}) WAIT / DATA_HOLD / ${action.reason}`);
     stageLog.drift = 'DATA_HOLD';
     ctx.scanCounters.waitDataHold++;
     pushTrace();
@@ -46,19 +81,21 @@ export async function checkEntryPriceDrift(
     const driftPctText = (((currentPrice - oldEntry) / oldEntry) * 100).toFixed(1);
     if (isEntryPriceAutoCorrectDisabled()) {
       console.warn(
-        `[AutoTrade] ?뵩 ${stock.name}(${stock.code}) Corporate Action ?섏떖 ` +
-        `(drift ${driftPctText}%) ??entryPrice ${oldEntry.toLocaleString()} 蹂댁〈 (RAW immutable, ADR-0115). ` +
-        `universe ?쒖쇅 + DART 議고쉶 沅뚭퀬.`,
+        `[AutoTrade] ${stock.name}(${stock.code}) Corporate Action guard ` +
+        `(drift ${driftPctText}%) entryPrice ${formatKrw(oldEntry)} kept ` +
+        '(RAW immutable, ADR-0115); universe excluded and DART review requested.',
       );
       try {
         const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
         await sendTelegramAlert(
-          `?뵩 <b>[Corporate Action ?섏떖 ??universe ?쒖쇅]</b> ${stock.name} (${stock.code})\n` +
-          `?곣봺?곣봺?곣봺?곣봺?곣봺?곣봺?곣봺?곣봺\n` +
-          `??drift: ${driftPctText}% (遺꾪븷/蹂묓빀/沅뚮━??異붿젙)\n` +
-          `??entryPrice <b>${oldEntry.toLocaleString()}??蹂댁〈</b> (RAW immutable, ADR-0115)\n` +
-          `??泥섎━: ?뚯튂由ъ뒪?몄뿉???쒖쇅 (?ㅼ쓬 ?곸뾽???댁쁺??寃?????섎룞 entryPrice 媛깆떊 ?먮뒗 ??吏꾩엯)\n` +
-          `??沅뚭퀬: DART 怨듭떆 ?뺤씤 (遺꾪븷/蹂묓빀/沅뚮━??`,
+          buildCorporateActionDriftMessage({
+            name: stock.name,
+            code: stock.code,
+            driftPctText,
+            oldEntry,
+            currentPrice,
+            mode: 'IMMUTABLE_REMOVE',
+          }),
           {
             priority: 'HIGH',
             dedupeKey: `corp_action_immutable:${stock.code}`,
@@ -66,10 +103,13 @@ export async function checkEntryPriceDrift(
           },
         ).catch(() => undefined);
       } catch (e) {
-        console.warn('[CorporateAction] ?붾젅洹몃옩 ?뚮┝ ?ㅽ뙣:', e instanceof Error ? e.message : e);
+        console.warn('[CorporateAction] telegram alert failed:', e instanceof Error ? e.message : e);
       }
       const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
-      if (idx >= 0) { ctx.watchlist.splice(idx, 1); ctx.mutables.watchlistMutated.value = true; }
+      if (idx >= 0) {
+        ctx.watchlist.splice(idx, 1);
+        ctx.mutables.watchlistMutated.value = true;
+      }
       stageLog.drift = 'CORPORATE_ACTION_REMOVE';
     } else {
       stock.entryPrice = currentPrice;
@@ -77,18 +117,21 @@ export async function checkEntryPriceDrift(
       stock.corporateActionAdjustedAt = new Date().toISOString();
       ctx.mutables.watchlistMutated.value = true;
       console.warn(
-        `[AutoTrade] ?뵩 ${stock.name}(${stock.code}) Corporate Action ?섏떖 ` +
-        `(drift ${driftPctText}%) ??entryPrice ${oldEntry.toLocaleString()} ??` +
-        `${currentPrice.toLocaleString()} ?먮룞 蹂댁젙 (ADR-0113 ?덇굅???숈옉, ENV ?고쉶).`,
+        `[AutoTrade] ${stock.name}(${stock.code}) Corporate Action guard ` +
+        `(drift ${driftPctText}%) entryPrice ${formatKrw(oldEntry)} -> ${formatKrw(currentPrice)} ` +
+        'auto-corrected (ADR-0113 enabled by ENV).',
       );
       try {
         const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
         await sendTelegramAlert(
-          `?뵩 <b>[Corporate Action ?섏떖 ???먮룞 蹂댁젙]</b> ${stock.name} (${stock.code})\n` +
-          `?곣봺?곣봺?곣봺?곣봺?곣봺?곣봺?곣봺?곣봺\n` +
-          `??drift: ${driftPctText}% (遺꾪븷/蹂묓빀/沅뚮━??異붿젙)\n` +
-          `??entryPrice ?먮룞 蹂댁젙: ${oldEntry.toLocaleString()} ??${currentPrice.toLocaleString()}\n` +
-          `??沅뚭퀬: DART 怨듭떆 ?뺤씤 (遺꾪븷/蹂묓빀/沅뚮━?? ???뚯튂由ъ뒪??寃??`,
+          buildCorporateActionDriftMessage({
+            name: stock.name,
+            code: stock.code,
+            driftPctText,
+            oldEntry,
+            currentPrice,
+            mode: 'AUTO_CORRECT',
+          }),
           {
             priority: 'HIGH',
             dedupeKey: `corp_action:${stock.code}`,
@@ -96,7 +139,7 @@ export async function checkEntryPriceDrift(
           },
         ).catch(() => undefined);
       } catch (e) {
-        console.warn('[CorporateAction] ?붾젅洹몃옩 ?뚮┝ ?ㅽ뙣:', e instanceof Error ? e.message : e);
+        console.warn('[CorporateAction] telegram alert failed:', e instanceof Error ? e.message : e);
       }
       stageLog.drift = 'CORPORATE_ACTION';
     }
@@ -108,11 +151,14 @@ export async function checkEntryPriceDrift(
   if (driftAction === 'REMOVE') {
     const driftPct = ((currentPrice - stock.entryPrice) / stock.entryPrice * 100).toFixed(1);
     console.log(
-      `[AutoTrade] ${stock.name}(${stock.code}) entryPrice ?쒕━?꾪듃 ?쒓굅 ??` +
-      `?꾩옱媛 ${currentPrice.toLocaleString()} vs entryPrice ${stock.entryPrice.toLocaleString()} (+${driftPct}%)`,
+      `[AutoTrade] ${stock.name}(${stock.code}) entryPrice drift removal: ` +
+      `current ${formatKrw(currentPrice)} vs entryPrice ${formatKrw(stock.entryPrice)} (+${driftPct}%)`,
     );
     const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
-    if (idx >= 0) { ctx.watchlist.splice(idx, 1); ctx.mutables.watchlistMutated.value = true; }
+    if (idx >= 0) {
+      ctx.watchlist.splice(idx, 1);
+      ctx.mutables.watchlistMutated.value = true;
+    }
     stageLog.drift = 'REMOVE';
     ctx.scanCounters.waitDriftRemove++;
     pushTrace();
@@ -124,8 +170,8 @@ export async function checkEntryPriceDrift(
     stock.entryPrice = currentPrice;
     ctx.mutables.watchlistMutated.value = true;
     console.log(
-      `[AutoTrade] ${stock.name}(${stock.code}) entryPrice ?몃젅??????` +
-      `${oldEntry.toLocaleString()} ??${currentPrice.toLocaleString()} (+10% ?댁긽 ?쒕━?꾪듃)`,
+      `[AutoTrade] ${stock.name}(${stock.code}) entryPrice drift update: ` +
+      `${formatKrw(oldEntry)} -> ${formatKrw(currentPrice)} (+10% tracking refresh)`,
     );
     stageLog.drift = 'UPDATE';
     pushTrace();

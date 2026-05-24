@@ -102,7 +102,7 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
   if (!cfg?.enabled) return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'disabled' };
   
   if (macroState?.vix >= cfg.maxVix) {
-    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: `VIX ${macroState.vix} ??${cfg.maxVix}` };
+    return { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: `VIX ${macroState.vix} >= ${cfg.maxVix}` };
   }
   
   return { 
@@ -111,7 +111,7 @@ export function evaluateSellOnlyException(regimeConfig: any, macroState: any): a
     kellyFactor: cfg.kellyFactor,
     minLiveGate: cfg.minLiveGate,
     minMtas: cfg.minMtas,
-    reason: 'sectorAligned ?듦낵'
+    reason: 'sectorAligned pass'
   };
 }
 
@@ -316,7 +316,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       marketSnapshot: {
         emergencyStop: getEmergencyStop(),
       },
-      notes: ['KIS_APP_KEY missing ??real order preflight remains aborted; learning-only case recorded'],
+      notes: ['KIS_APP_KEY missing: real order preflight remains aborted; learning-only case recorded'],
     });
     return { shouldAbort: true, shouldAbortEngine: true, shouldAbortLiveOrder: true, shouldAbortGateEvaluation: true, shouldAbortShadowLearning: false, shouldAbortCounterfactual: false, skipPersist: false };
   }
@@ -326,7 +326,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const manualBlockNewBuy = getManualBlockNewBuy();
   const manualManageOnly = getManualManageOnly();
   if ((manualBlockNewBuy || manualManageOnly) && !optSellOnly) {
-    const reason = manualManageOnly ? '蹂댁쑀留?愿由?紐⑤뱶' : '?좉퇋 留ㅼ닔 李⑤떒';
+    const reason = manualManageOnly ? 'HOLDINGS_MANAGE_ONLY' : 'NEW_BUY_BLOCKED';
     emitPreflightOperationalWarn({
       code: 'P1_PREFLIGHT_MANUAL_GUARD_SELL_ONLY',
       domain: 'DIAGNOSTIC',
@@ -396,8 +396,8 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
 
   console.log(
     shadowMode
-      ? `[AutoTrade] [SHADOW] virtual account ??equity=${totalAssets.toLocaleString()}??/ cash=${orderableCash.toLocaleString()}??/ holding=${activeHoldingValue.toLocaleString()}??/ mode=SHADOW`
-      : `[AutoTrade] [LIVE] real account ??equity=${totalAssets.toLocaleString()}??/ orderable_cash=${orderableCash.toLocaleString()}??/ mode=LIVE`
+      ? `[AutoTrade] [SHADOW] virtual account equity=${totalAssets.toLocaleString()} KRW / cash=${orderableCash.toLocaleString()} KRW / holding=${activeHoldingValue.toLocaleString()} KRW / mode=SHADOW`
+      : `[AutoTrade] [LIVE] real account equity=${totalAssets.toLocaleString()} KRW / orderable_cash=${orderableCash.toLocaleString()} KRW / mode=LIVE`
   );
 
   const macroState = loadMacroState();
@@ -483,7 +483,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     const session = getGatingAlertSession();
     if (session) {
       const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      await sendTelegramAlert(`?슚 <b>[VIX 寃뚯씠?? ?좉퇋 吏꾩엯 李⑤떒</b>\n${vixGating.reason}\n?ъ???紐⑤땲?곕쭅留??섑뻾?⑸땲??`, {
+      await sendTelegramAlert(`<b>[VIX Gate - new entries blocked]</b>\n${vixGating.reason}\nShadow monitoring continues.`, {
         dedupeKey: `vix_gating_block:${kstDateStr}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
@@ -521,7 +521,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     });
     const session = getGatingAlertSession();
     if (session) {
-      await sendTelegramAlert(`?뱟 <b>[FOMC 寃뚯씠?? ?좉퇋 吏꾩엯 李⑤떒</b>\n${fomcProximity.description}\n?ъ???紐⑤땲?곕쭅留??섑뻾?⑸땲??`, {
+      await sendTelegramAlert(`<b>[FOMC Gate - new entries blocked]</b>\n${fomcProximity.description}\nShadow monitoring continues.`, {
         dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
       }).catch(console.error);
     }
@@ -629,7 +629,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         dartAttempts: snap.dartAttempts,
       },
     });
-    await sendTelegramAlert(`?㎦ <b>[?곗씠??鍮덇낀 ?ㅼ틪] ?좉퇋 吏꾩엯 蹂대쪟</b>\nMTAS ?ㅽ뙣 ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\n?쒕낯: M${snap.mtasAttempts} 쨌 D${snap.dartAttempts}\n鍮??ㅼ틪怨?援щ텇?섎뒗 "?곗씠??遺?? ?곹깭 ???먯쿇 ?곗씠???먭? ??蹂듦?`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
+    await sendTelegramAlert(`<b>[Data-starved Scan] new entries held</b>\nMTAS failure ${(snap.mtasFailRate * 100).toFixed(1)}% | DART null ${(snap.dartNullRate * 100).toFixed(1)}%\nSample: M${snap.mtasAttempts} / D${snap.dartAttempts}\nData insufficiency is separated from market weakness.`, { priority: 'HIGH', dedupeKey: 'data-starved-scan', cooldownMs: 30 * 60_000 }).catch(console.error);
     await recordBlockedDayShadowScan('DATA_STARVED');
     // ADR-0433: data-starved preflight abort universe snapshot.
     // ADR-0367: buyListLoop 吏꾩엯 ??李⑤떒 ??preflightBlockedScanSummary ???곸냽.
@@ -645,7 +645,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
           vkospiLevel: macroState?.vkospi,
         },
         notes: [
-          `data starved ??MTAS fail ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
+          `data starved: MTAS fail ${(snap.mtasFailRate * 100).toFixed(1)}% / DART null ${(snap.dartNullRate * 100).toFixed(1)}%`,
         ],
       },
       {
@@ -727,11 +727,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   let rawKelly = kellyResult.rawKelly;
   let kellyMultiplier = kellyResult.effectiveKelly;
   
-  if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS 蹂怨?Kelly 媛먯뇿 ?곸슜 ??횞${ipsKelly.toFixed(2)}`);
-  if (vixGating.kellyMultiplier < 1) console.log(`[AutoTrade] VIX 寃뚯씠???곸슜 ??${vixGating.reason}`);
-  if (fomcProximity.kellyMultiplier !== 1) console.log(`[AutoTrade] FOMC 寃뚯씠???곸슜 ??${fomcProximity.description}`);
-  if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied ??x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
-  if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied ??x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
+  if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS Kelly reduction applied x${ipsKelly.toFixed(2)}`);
+  if (vixGating.kellyMultiplier < 1) console.log(`[AutoTrade] VIX gate applied: ${vixGating.reason}`);
+  if (fomcProximity.kellyMultiplier !== 1) console.log(`[AutoTrade] FOMC gate applied: ${fomcProximity.description}`);
+  if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
+  if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
   if (kellyResult.blockedByPolicy) {
     console.info(formatKellyPolicyBlockedLog({
       macroRegime: normalizeMacroRegime(regime),
@@ -743,7 +743,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     }));
   } else if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
     console.log(
-      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} 횞 VIX(횞${effectiveVixKelly.toFixed(2)}) 횞 IPS(횞${ipsKelly.toFixed(2)}) 횞 怨꾩쥖(횞${accountKellyMultiplier.toFixed(2)}) = raw 횞${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' ??floor applied' : ''} ???좏슚 횞${kellyMultiplier.toFixed(2)}`,
+      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} x VIX(${effectiveVixKelly.toFixed(2)}) x IPS(${ipsKelly.toFixed(2)}) x account(${accountKellyMultiplier.toFixed(2)}) = raw x${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' floor applied' : ''} -> effective x${kellyMultiplier.toFixed(2)}`,
     );
   }
 
@@ -806,7 +806,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
           regime: regime ?? macroState?.regime,
           vkospiLevel: macroState?.vkospi,
         },
-        notes: [`position slots full ??consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
+        notes: [`position slots full: consumed=${slotResult.consumed.toFixed(2)}/${effectiveMaxPositions}, raw=${slotResult.rawCount}`],
       },
       {
         blockedBy: 'NO_BUYLIST_ELIGIBLE',
@@ -918,10 +918,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
           },
         });
         await sendTelegramAlert(
-          `?ワ툘 <b>[R3 Sanity ??SHADOW_ONLY pre-scan]</b>\n` +
-          `吏곸쟾 ?ㅼ틪 ?꾩쟻 ${effectiveStreak.consecutiveCount}??(?꾧퀎 ${profile.shadowOnlyAt}) ??` +
-          `?좉퇋 吏꾩엯 李⑤떒 + shadow learning ?좎?.\n` +
-          `<i>?ㅼ쓬 ?뺤긽 ?ㅼ틪 (?꾨컲 NONE ?먮뒗 24h decay) ???먮룞 ?뚮났 ???곸냽 latch ?놁쓬 (ADR-0401).</i>`,
+          `<b>[R3 Sanity - SHADOW_ONLY pre-scan]</b>\n` +
+          `Previous scan streak ${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} ` +
+          `(${effectiveStreak.violation}, ${effectiveStreak.regime}).\n` +
+          `New entries blocked; shadow learning continues.\n` +
+          `<i>Latch clears after the next normal scan or 24h decay (ADR-0401).</i>`,
           {
             priority: 'HIGH',
             dedupeKey: `r3_sanity_shadow_only_pre:${effectiveStreak.regime}:${effectiveStreak.consecutiveCount}`,
@@ -943,7 +944,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
               vkospiLevel: macroState?.vkospi,
             },
             notes: [
-              `R3 SHADOW_ONLY ephemeral ??streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.violation}, ${effectiveStreak.regime})`,
+              `R3 SHADOW_ONLY ephemeral: streak=${effectiveStreak.consecutiveCount}/${profile.shadowOnlyAt} (${effectiveStreak.violation}, ${effectiveStreak.regime})`,
             ],
           },
           {
