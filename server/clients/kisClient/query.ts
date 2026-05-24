@@ -1061,6 +1061,7 @@ function classifyKisSectorIndexFailure(input: {
   msg1?: string | null;
   outputPresent: boolean;
   indexValueFieldPresent: boolean;
+  currentIndex?: number | null;
   hasRawResponse: boolean;
 }): string {
   if (input.httpStatus === 401 || input.httpStatus === 403) return 'KIS_INDEX_API_AUTH_ERROR';
@@ -1074,7 +1075,8 @@ function classifyKisSectorIndexFailure(input: {
   if (!successEquivalent) return 'KIS_INDEX_API_REJECTED_CODE';
   if (!input.outputPresent) return 'KIS_INDEX_API_OUTPUT_EMPTY';
   if (!input.indexValueFieldPresent) return 'KIS_INDEX_API_SCHEMA_MISMATCH';
-  return 'KIS_INDEX_API_SCHEMA_MISMATCH';
+  if (input.currentIndex == null || !Number.isFinite(input.currentIndex)) return 'KIS_INDEX_API_INDEX_VALUE_INVALID';
+  return 'KIS_INDEX_API_VERIFY_CONDITION_NOT_MET';
 }
 
 function outputShape(data: unknown): string {
@@ -1121,7 +1123,7 @@ function materializeKisSectorIndexProbeAttempt(input: {
   const msgCd = root?.msg_cd != null ? String(root.msg_cd) : null;
   const msg1 = root?.msg1 != null ? String(root.msg1) : null;
   const successEquivalent = !rtCd || rtCd === '0';
-  const verified = successEquivalent && outputPresent && indexValueFieldPresent && Number(currentIndex) > 0;
+  const verified = successEquivalent && outputPresent && indexValueFieldPresent && currentIndex != null && Number.isFinite(currentIndex);
   const reasonCode = verified
     ? 'VERIFY_SUCCESS'
     : classifyKisSectorIndexFailure({
@@ -1131,6 +1133,7 @@ function materializeKisSectorIndexProbeAttempt(input: {
       msg1,
       outputPresent,
       indexValueFieldPresent,
+      currentIndex,
       hasRawResponse: Boolean(root),
     });
   return {

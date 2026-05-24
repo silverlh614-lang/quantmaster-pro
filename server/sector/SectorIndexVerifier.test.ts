@@ -243,6 +243,51 @@ describe('SectorIndexCodeMap', () => {
     expect(result.reasonCodes).toContain('UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION');
   });
 
+  it('allows theme-like sectors when the official master has an exact canonical index', () => {
+    const result = mapSectorNamesToOfficialIndexCodes({
+      masterRows: [
+        officialRow('4400', '3KRX \uBC18\uB3C4\uCCB4'),
+        officialRow('4401', '2KRX \uC790\uB3D9\uCC28'),
+        officialRow('4402', '8KRX \uCCA0\uAC15'),
+        officialRow('4403', '5\uC720\uD1B5'),
+      ],
+      targets: [
+        { sectorName: '\uBC18\uB3C4\uCCB4' },
+        { sectorName: '\uC790\uB3D9\uCC28' },
+        { sectorName: 'STEEL' },
+        { sectorName: '\uC720\uD1B5/\uC18C\uBE44\uC7AC' },
+      ],
+    });
+
+    expect(result.officialIndexCoverage).toBe(100);
+    expect(result.rows.find((row) => row.sectorName === '\uBC18\uB3C4\uCCB4')).toMatchObject({
+      officialIndexCode: '4400',
+      exactMatch: true,
+      unsafeAlias: false,
+      includedInOfficialCoverage: true,
+      reasonCode: 'EXACT_MATCHED',
+    });
+    expect(result.rows.find((row) => row.sectorName === '\uC790\uB3D9\uCC28')).toMatchObject({
+      officialIndexCode: '4401',
+      exactMatch: true,
+      unsafeAlias: false,
+      includedInOfficialCoverage: true,
+      reasonCode: 'EXACT_MATCHED',
+    });
+    expect(result.rows.find((row) => row.sectorName === 'STEEL')).toMatchObject({
+      officialIndexCode: '4402',
+      safeAlias: true,
+      includedInOfficialCoverage: true,
+      reasonCode: 'SAFE_ALIAS_MATCHED',
+    });
+    expect(result.rows.find((row) => row.sectorName === '\uC720\uD1B5/\uC18C\uBE44\uC7AC')).toMatchObject({
+      officialIndexCode: '4403',
+      safeAlias: true,
+      includedInOfficialCoverage: true,
+      reasonCode: 'SAFE_ALIAS_MATCHED',
+    });
+  });
+
   it('reports EN_TO_KR_ALIAS_MISSING when loaded master cannot resolve English internal sectors', () => {
     const result = mapSectorNamesToOfficialIndexCodes({
       masterRows: [officialRow('0099', '\uC885\uD569')],

@@ -158,16 +158,20 @@ const KR_PHARMA = '\uC81C\uC57D';
 const KR_MEDICINE = '\uC758\uC57D\uD488';
 const KR_TRANSPORT_EQUIPMENT = '\uC6B4\uC218\uC7A5\uBE44';
 const KR_TRANSPORT_EQUIPMENT_ALT = '\uC6B4\uC1A1\uC7A5\uBE44';
+const KR_AUTOMOTIVE = '\uC790\uB3D9\uCC28';
 const KR_MACHINERY = '\uAE30\uACC4';
 const KR_MACHINERY_EQUIPMENT = '\uAE30\uACC4\uC7A5\uBE44';
 const KR_STEEL = '\uCCA0\uAC15\uAE08\uC18D';
+const KR_STEEL_SHORT = '\uCCA0\uAC15';
 const KR_SERVICE = '\uC11C\uBE44\uC2A4\uC5C5';
 const KR_SERVICE_SHORT = '\uC11C\uBE44\uC2A4';
+const KR_HEALTHCARE = '\uD5EC\uC2A4\uCF00\uC5B4';
 const KR_CONSTRUCTION = '\uAC74\uC124\uC5C5';
 const KR_CONSTRUCTION_SHORT = '\uAC74\uC124';
 const KR_TRANSPORT_WAREHOUSE = '\uC6B4\uC218\uCC3D\uACE0';
 const KR_DISTRIBUTION = '\uC720\uD1B5\uC5C5';
 const KR_DISTRIBUTION_SHORT = '\uC720\uD1B5';
+const KR_CONSUMER_RETAIL = '\uC720\uD1B5 \uC18C\uBE44\uC7AC';
 const KR_FOOD = '\uC74C\uC2DD\uB8CC\uD488';
 const KR_FOOD_TOBACCO = '\uC74C\uC2DD\uB8CC \uB2F4\uBC30';
 const KR_TEXTILE = '\uC12C\uC720\uC758\uBCF5';
@@ -196,16 +200,20 @@ const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
   [KR_MEDICINE, [KR_MEDICINE, 'pharma', 'pharmaceutical', 'healthcare']],
   [KR_TRANSPORT_EQUIPMENT, [KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, 'transport equipment', 'automotive', 'auto', 'car']],
   [KR_TRANSPORT_EQUIPMENT_ALT, [KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, 'transport equipment', 'automotive', 'auto', 'car']],
+  [KR_AUTOMOTIVE, [KR_AUTOMOTIVE, 'automotive', 'auto', 'car']],
   [KR_MACHINERY, [KR_MACHINERY, 'machinery', 'machine', 'machine equipment']],
   [KR_MACHINERY_EQUIPMENT, [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, 'machinery', 'machine', 'machine equipment']],
   [KR_STEEL, [KR_STEEL, '\uCCA0\uAC15', 'steel', 'metal']],
+  [KR_STEEL_SHORT, [KR_STEEL, KR_STEEL_SHORT, 'steel', 'metal']],
   [KR_SERVICE, [KR_SERVICE, '\uC11C\uBE44\uC2A4', 'service', 'services', 'internet', 'software', 'game', 'media']],
   [KR_SERVICE_SHORT, [KR_SERVICE, KR_SERVICE_SHORT, 'service', 'services', 'internet', 'software', 'game', 'media']],
+  [KR_HEALTHCARE, [KR_HEALTHCARE, 'healthcare', 'bio healthcare', '\uBC14\uC774\uC624 \uD5EC\uC2A4\uCF00\uC5B4', '\uBC14\uC774\uC624\uD5EC\uC2A4\uCF00\uC5B4']],
   [KR_CONSTRUCTION, [KR_CONSTRUCTION, '\uAC74\uC124', 'construction']],
   [KR_CONSTRUCTION_SHORT, [KR_CONSTRUCTION, KR_CONSTRUCTION_SHORT, 'construction']],
   [KR_TRANSPORT_WAREHOUSE, [KR_TRANSPORT_WAREHOUSE, 'transport', 'transport warehouse', 'logistics']],
-  [KR_DISTRIBUTION, [KR_DISTRIBUTION, 'retail', 'distribution']],
-  [KR_DISTRIBUTION_SHORT, [KR_DISTRIBUTION, KR_DISTRIBUTION_SHORT, 'retail', 'distribution']],
+  [KR_DISTRIBUTION, [KR_DISTRIBUTION, KR_DISTRIBUTION_SHORT, KR_CONSUMER_RETAIL, '\uC720\uD1B5\uC18C\uBE44\uC7AC', 'retail', 'distribution', 'consumer retail']],
+  [KR_DISTRIBUTION_SHORT, [KR_DISTRIBUTION, KR_DISTRIBUTION_SHORT, KR_CONSUMER_RETAIL, '\uC720\uD1B5\uC18C\uBE44\uC7AC', 'retail', 'distribution', 'consumer retail']],
+  [KR_CONSUMER_RETAIL, [KR_CONSUMER_RETAIL, '\uC720\uD1B5 \uC18C\uBE44\uC7AC', '\uC720\uD1B5\uC18C\uBE44\uC7AC', 'consumer retail']],
   [KR_FOOD, [KR_FOOD, KR_FOOD_TOBACCO, 'food', 'food beverage']],
   [KR_FOOD_TOBACCO, [KR_FOOD, KR_FOOD_TOBACCO, 'food', 'food beverage']],
   [KR_TEXTILE, [KR_TEXTILE, KR_TEXTILE_CLOTHING, 'textile']],
@@ -603,7 +611,12 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
     const uniqueCandidateOfficialNames = Array.from(new Set(candidateOfficialNames.filter(Boolean)));
     const matchedOfficialNames = officialCandidateNames(matched);
 
-    if (matched && matchedOfficial && !unsafeTheme) {
+    const exactOfficialNameMatch = Boolean(exactMatch
+      && matched
+      && compactNameKey(masterCanonicalName(matched)) === compactNameKey(normalizedName));
+    const officialCoverageSafe = !unsafeTheme || exactOfficialNameMatch;
+
+    if (matched && matchedOfficial && officialCoverageSafe) {
       if (safeAlias) safeAliasCount += 1;
       if (safeAlias && safeAliasTarget) {
         const normalizedAliasTarget = normalizeOfficialSectorName(safeAliasTarget);

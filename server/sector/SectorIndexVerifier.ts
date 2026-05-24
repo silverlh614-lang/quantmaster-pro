@@ -55,6 +55,7 @@ export interface OfficialSectorIndexVerifyResult {
   requestSent?: boolean;
   outputShape?: string | null;
   indexValueFieldName?: string | null;
+  currentIndex?: number | null;
   exceptionClass?: string | null;
   exceptionMessageSanitized?: string | null;
   timeoutMs?: number | null;
@@ -88,6 +89,7 @@ export interface OfficialSectorIndexVerifyAttempt {
   msg1?: string | null;
   outputShape?: string | null;
   indexValueFieldName?: string | null;
+  currentIndex?: number | null;
   exceptionClass?: string | null;
   exceptionMessageSanitized?: string | null;
   timeoutMs?: number | null;

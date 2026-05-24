@@ -277,6 +277,31 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
     });
   });
 
+  it('treats a finite zero index value as a schema-valid verify response', async () => {
+    _fetch.mockResolvedValue(new Response(JSON.stringify({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      msg1: 'OK',
+      output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prpr: '0.00' }],
+    }), { status: 200 }));
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      verified: true,
+      selectedInputIscd: '0000',
+      currentIndex: 0,
+      reasonCode: 'VERIFY_SUCCESS',
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      indexValueFieldPresent: true,
+      indexValueFieldName: 'bstp_nmix_prpr',
+      currentIndex: 0,
+      transportStage: 'VERIFY_SUCCESS',
+      reasonCode: 'VERIFY_SUCCESS',
+    });
+  });
+
   it('separates client disabled before request transport', async () => {
     process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'false';
     const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
