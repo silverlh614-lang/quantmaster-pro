@@ -95,6 +95,9 @@ describe('SectorIndexCodeMap', () => {
       includedInOfficialCoverage: true,
       safeAlias: true,
       safeAliasMatch: '\uC6B4\uC218\uC7A5\uBE44',
+      safeAliasTarget: '\uC6B4\uC218\uC7A5\uBE44',
+      aliasLookupKey: 'automotive',
+      reasonCode: 'SAFE_ALIAS_MATCHED',
     });
     expect(result.rows.find((row) => row.sectorName === 'SEMICONDUCTOR')).toMatchObject({
       officialIndexCode: '0005',
@@ -112,6 +115,7 @@ describe('SectorIndexCodeMap', () => {
       officialIndexCode: '0026',
       safeAliasMatch: '\uC11C\uBE44\uC2A4\uC5C5',
     });
+    expect(result.reasonCodes).toContain('SAFE_ALIAS_MATCHED');
   });
 
   it('matches Korean official names despite punctuation or whitespace variants', () => {
@@ -156,6 +160,11 @@ describe('SectorIndexCodeMap', () => {
     expect(result.unsafeAliasSectorNames).toEqual(['DEFENSE', 'SHIPBUILDING', 'SECONDARY_BATTERY', '\uBC18\uB3C4\uCCB4']);
     expect(result.rows.every((row) => row.shadowEvidenceOnly)).toBe(true);
     expect(result.rows.every((row) => !row.includedInOfficialCoverage)).toBe(true);
+    expect(result.rows.find((row) => row.sectorName === 'DEFENSE')).toMatchObject({
+      aliasLookupKey: 'defense',
+      unsafeAliasTargets: expect.arrayContaining(['\uAE30\uACC4', '\uC6B4\uC218\uC7A5\uBE44', '\uC804\uAE30\uC804\uC790']),
+      reasonCode: 'UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION',
+    });
     expect(result.reasonCodes).toContain('UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION');
   });
 
@@ -168,6 +177,11 @@ describe('SectorIndexCodeMap', () => {
     expect(result.officialIndexCoverage).toBe(0);
     expect(result.unresolvedSectorNames).toEqual(['AUTOMOTIVE']);
     expect(result.reasonCodes).toContain('EN_TO_KR_ALIAS_MISSING');
+    expect(result.unresolvedSectorDetails).toEqual([expect.objectContaining({
+      sector: 'AUTOMOTIVE',
+      reason: 'ALIAS_TARGET_NOT_IN_MASTER',
+      aliasTarget: '\uC6B4\uC218\uC7A5\uBE44',
+    })]);
   });
 
   it('does not count internal grouped snapshot rows as official coverage', () => {
@@ -240,6 +254,10 @@ describe('SectorIndexVerifier', () => {
     expect(result.unresolvedCount).toBe(1);
     expect(result.internalSectorNames).toEqual(['finance', 'chemical', 'unresolved']);
     expect(result.rawSampleRows?.[0]).toMatchObject({ idxCode: '0021', idxName: 'finance' });
+    expect(result.aliasDictionaryStatus).toMatchObject({
+      loaded: true,
+    });
+    expect(result.aliasDictionaryStatus?.sampleAliases.join('|')).toContain('AUTOMOTIVE ->');
     expect(result.verifyAttemptCount).toBe(2);
     expect(result.verifyApiSuccessSamples).toHaveLength(1);
     expect(result.verifyApiFailureSamples).toHaveLength(1);

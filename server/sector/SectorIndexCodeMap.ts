@@ -37,10 +37,13 @@ export interface OfficialSectorIndexCodeMappingRow {
   sectorName: string;
   sectorKey?: string;
   normalizedInternalName: string;
+  aliasLookupKey: string | null;
   candidateOfficialNames: string[];
   exactMatch: boolean;
   safeAliasMatch: string | null;
+  safeAliasTarget: string | null;
   unsafeAliasMatch: string | null;
+  unsafeAliasTargets: string[];
   officialIndexCode: string | null;
   officialIndexName: string | null;
   selectedOfficialIndexCode: string | null;
@@ -60,10 +63,13 @@ export interface OfficialSectorIndexCodeMappingRow {
 export interface OfficialSectorIndexMappingAttempt {
   internalSectorName: string;
   normalizedInternalName: string;
+  aliasLookupKey: string | null;
   candidateOfficialNames: string[];
   exactMatch: boolean;
   safeAliasMatch: string | null;
+  safeAliasTarget: string | null;
   unsafeAliasMatch: string | null;
+  unsafeAliasTargets: string[];
   selectedOfficialIndexName: string | null;
   selectedOfficialIndexCode: string | null;
   includedInOfficialCoverage: boolean;
@@ -71,6 +77,22 @@ export interface OfficialSectorIndexMappingAttempt {
   verifyAttempted?: boolean;
   verified?: boolean;
   reasonCode: string;
+}
+
+export interface OfficialSectorIndexUnresolvedSectorReason {
+  sector: string;
+  normalizedInternalName: string;
+  reason: string;
+  aliasTarget?: string;
+  candidateOfficialNames: string[];
+}
+
+export interface OfficialSectorIndexAliasDictionaryStatus {
+  loaded: boolean;
+  aliasCount: number;
+  safeAliasCount: number;
+  unsafeAliasCount: number;
+  sampleAliases: string[];
 }
 
 export interface OfficialSectorIndexCodeMapResult {
@@ -85,6 +107,7 @@ export interface OfficialSectorIndexCodeMapResult {
   unsafeAliasSectorNames: string[];
   mappedSectorPairs: string[];
   unresolvedSectorNames: string[];
+  unresolvedSectorDetails: OfficialSectorIndexUnresolvedSectorReason[];
   topMissingSectorNames: string[];
   internalSectorNames: string[];
   normalizedInternalSectorNames: string[];
@@ -102,7 +125,9 @@ const KR_CHEMICAL = '\uD654\uD559';
 const KR_PHARMA = '\uC81C\uC57D';
 const KR_MEDICINE = '\uC758\uC57D\uD488';
 const KR_TRANSPORT_EQUIPMENT = '\uC6B4\uC218\uC7A5\uBE44';
+const KR_TRANSPORT_EQUIPMENT_ALT = '\uC6B4\uC1A1\uC7A5\uBE44';
 const KR_MACHINERY = '\uAE30\uACC4';
+const KR_MACHINERY_EQUIPMENT = '\uAE30\uACC4\uC7A5\uBE44';
 const KR_STEEL = '\uCCA0\uAC15\uAE08\uC18D';
 const KR_SERVICE = '\uC11C\uBE44\uC2A4\uC5C5';
 const KR_CONSTRUCTION = '\uAC74\uC124\uC5C5';
@@ -131,8 +156,10 @@ const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
   [KR_CHEMICAL, [KR_CHEMICAL, 'chemical', 'chemicals', 'chemistry']],
   [KR_PHARMA, [KR_PHARMA, 'pharma', 'pharmaceutical']],
   [KR_MEDICINE, [KR_MEDICINE, 'pharma', 'pharmaceutical', 'healthcare']],
-  [KR_TRANSPORT_EQUIPMENT, [KR_TRANSPORT_EQUIPMENT, '\uC6B4\uC1A1\uC7A5\uBE44', 'transport equipment', 'automotive', 'auto', 'car']],
+  [KR_TRANSPORT_EQUIPMENT, [KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, 'transport equipment', 'automotive', 'auto', 'car']],
+  [KR_TRANSPORT_EQUIPMENT_ALT, [KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, 'transport equipment', 'automotive', 'auto', 'car']],
   [KR_MACHINERY, [KR_MACHINERY, 'machinery', 'machine', 'machine equipment']],
+  [KR_MACHINERY_EQUIPMENT, [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, 'machinery', 'machine', 'machine equipment']],
   [KR_STEEL, [KR_STEEL, '\uCCA0\uAC15', 'steel', 'metal']],
   [KR_SERVICE, [KR_SERVICE, '\uC11C\uBE44\uC2A4', 'service', 'services', 'internet', 'software', 'game', 'media']],
   [KR_CONSTRUCTION, [KR_CONSTRUCTION, '\uAC74\uC124', 'construction']],
@@ -178,23 +205,23 @@ const UNSAFE_THEME_NORMALIZED_NAMES = new Set([
 ]);
 
 const UNSAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
-  ['shipbuilding', [KR_TRANSPORT_EQUIPMENT, KR_MACHINERY]],
-  ['defense', [KR_MACHINERY, KR_TRANSPORT_EQUIPMENT, KR_ELECTRIC_ELECTRONICS]],
-  ['nuclear', [KR_MACHINERY, KR_CONSTRUCTION, KR_ELECTRIC_ELECTRONICS]],
+  ['shipbuilding', [KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, KR_MACHINERY, KR_MACHINERY_EQUIPMENT]],
+  ['defense', [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, KR_ELECTRIC_ELECTRONICS]],
+  ['nuclear', [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, KR_CONSTRUCTION, KR_ELECTRIC_ELECTRONICS]],
   ['secondary battery', [KR_CHEMICAL, KR_ELECTRIC_ELECTRONICS]],
   ['secondarybattery', [KR_CHEMICAL, KR_ELECTRIC_ELECTRONICS]],
   ['battery', [KR_CHEMICAL, KR_ELECTRIC_ELECTRONICS]],
-  ['robot', [KR_MACHINERY, KR_ELECTRIC_ELECTRONICS]],
+  ['robot', [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, KR_ELECTRIC_ELECTRONICS]],
   ['ai', [KR_SERVICE, KR_ELECTRIC_ELECTRONICS]],
   ['bio', [KR_MEDICINE, KR_PHARMA]],
   ['holding', [KR_OTHER_FINANCE, KR_FINANCE]],
-  ['\uC870\uC120', [KR_TRANSPORT_EQUIPMENT, KR_MACHINERY]],
-  ['\uBC29\uC0B0', [KR_MACHINERY, KR_TRANSPORT_EQUIPMENT, KR_ELECTRIC_ELECTRONICS]],
-  ['\uC6D0\uC790\uB825', [KR_MACHINERY, KR_CONSTRUCTION, KR_ELECTRIC_ELECTRONICS]],
+  ['\uC870\uC120', [KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, KR_MACHINERY, KR_MACHINERY_EQUIPMENT]],
+  ['\uBC29\uC0B0', [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, KR_TRANSPORT_EQUIPMENT, KR_TRANSPORT_EQUIPMENT_ALT, KR_ELECTRIC_ELECTRONICS]],
+  ['\uC6D0\uC790\uB825', [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, KR_CONSTRUCTION, KR_ELECTRIC_ELECTRONICS]],
   ['2\uCC28\uC804\uC9C0', [KR_CHEMICAL, KR_ELECTRIC_ELECTRONICS]],
   ['\uC774\uCC28\uC804\uC9C0', [KR_CHEMICAL, KR_ELECTRIC_ELECTRONICS]],
   ['\uBC14\uC774\uC624', [KR_MEDICINE, KR_PHARMA]],
-  ['\uB85C\uBD07', [KR_MACHINERY, KR_ELECTRIC_ELECTRONICS]],
+  ['\uB85C\uBD07', [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, KR_ELECTRIC_ELECTRONICS]],
   ['\uBC18\uB3C4\uCCB4', [KR_ELECTRIC_ELECTRONICS]],
   ['\uC790\uB3D9\uCC28', [KR_TRANSPORT_EQUIPMENT]],
   ['\uC9C0\uC8FC', [KR_OTHER_FINANCE, KR_FINANCE]],
@@ -260,7 +287,12 @@ function findMasterByName(
 function findBySafeAlias(
   target: OfficialSectorIndexTarget,
   masterByName: Map<string, OfficialSectorIndexMasterRow>,
-): { row: OfficialSectorIndexMasterRow | null; aliasSource: string; candidateOfficialNames: string[] } | null {
+): {
+  row: OfficialSectorIndexMasterRow | null;
+  aliasSource: string;
+  safeAliasTarget: string;
+  candidateOfficialNames: string[];
+} | null {
   const candidates = normalizedTargetCandidates(target);
   const candidateOfficialNames: string[] = [];
 
@@ -270,12 +302,14 @@ function findBySafeAlias(
       const row = findMasterByName(masterByName, normalizeOfficialSectorName(canonicalName));
       if (row) {
         candidateOfficialNames.push(row.officialIndexName);
-        return { row, aliasSource: candidate, candidateOfficialNames };
+        return { row, aliasSource: candidate, safeAliasTarget: row.officialIndexName, candidateOfficialNames };
       }
       candidateOfficialNames.push(canonicalName);
     }
   }
-  return candidateOfficialNames.length > 0 ? { row: null, aliasSource: candidates[0] ?? '', candidateOfficialNames } : null;
+  return candidateOfficialNames.length > 0
+    ? { row: null, aliasSource: candidates[0] ?? '', safeAliasTarget: candidateOfficialNames[0] ?? '', candidateOfficialNames }
+    : null;
 }
 
 function findByUnsafeAlias(
@@ -311,10 +345,13 @@ function attemptFromRow(row: OfficialSectorIndexCodeMappingRow): OfficialSectorI
   return {
     internalSectorName: row.sectorName,
     normalizedInternalName: row.normalizedInternalName,
+    aliasLookupKey: row.aliasLookupKey,
     candidateOfficialNames: row.candidateOfficialNames,
     exactMatch: row.exactMatch,
     safeAliasMatch: row.safeAliasMatch,
+    safeAliasTarget: row.safeAliasTarget,
     unsafeAliasMatch: row.unsafeAliasMatch,
+    unsafeAliasTargets: row.unsafeAliasTargets,
     selectedOfficialIndexName: row.selectedOfficialIndexName,
     selectedOfficialIndexCode: row.selectedOfficialIndexCode,
     includedInOfficialCoverage: row.includedInOfficialCoverage,
@@ -325,6 +362,39 @@ function attemptFromRow(row: OfficialSectorIndexCodeMappingRow): OfficialSectorI
 
 function isLikelyEnglishSector(value: string): boolean {
   return /[A-Za-z]/.test(value);
+}
+
+function sumAliasCount(source: Map<string, readonly string[]>): number {
+  return Array.from(source.values()).reduce((sum, aliases) => sum + aliases.length, 0);
+}
+
+export function getOfficialSectorIndexAliasDictionaryStatus(): OfficialSectorIndexAliasDictionaryStatus {
+  const sampleAliases = [
+    `AUTOMOTIVE -> ${KR_TRANSPORT_EQUIPMENT}`,
+    `SEMICONDUCTOR -> ${KR_ELECTRIC_ELECTRONICS}`,
+    `STEEL -> ${KR_STEEL}`,
+    `SOFTWARE -> ${KR_SERVICE}`,
+    `DEFENSE -> ${KR_MACHINERY}/${KR_TRANSPORT_EQUIPMENT}/${KR_ELECTRIC_ELECTRONICS} (unsafe)`,
+  ];
+  return {
+    loaded: SAFE_ALIAS_BY_NORMALIZED_NAME.size > 0,
+    aliasCount: sumAliasCount(SAFE_ALIAS_BY_NORMALIZED_NAME) + sumAliasCount(UNSAFE_ALIAS_BY_NORMALIZED_NAME),
+    safeAliasCount: sumAliasCount(SAFE_ALIAS_BY_NORMALIZED_NAME),
+    unsafeAliasCount: sumAliasCount(UNSAFE_ALIAS_BY_NORMALIZED_NAME),
+    sampleAliases,
+  };
+}
+
+function unresolvedReason(input: {
+  sectorName: string;
+  normalizedName: string;
+  masterRowsCount: number;
+  candidateOfficialNames: readonly string[];
+}): string {
+  if (input.masterRowsCount <= 0) return 'MASTER_ROWS_EMPTY';
+  if (input.candidateOfficialNames.length > 0) return 'ALIAS_TARGET_NOT_IN_MASTER';
+  if (isLikelyEnglishSector(input.sectorName) || isLikelyEnglishSector(input.normalizedName)) return 'EN_TO_KR_ALIAS_MISSING';
+  return 'OFFICIAL_NAME_NOT_FOUND';
 }
 
 export function mapSectorNamesToOfficialIndexCodes(input: {
@@ -345,6 +415,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
   let unsafeAliasCount = 0;
   let exactMatchCount = 0;
   const unresolved: string[] = [];
+  const unresolvedDetails: OfficialSectorIndexUnresolvedSectorReason[] = [];
   const unsafeAliasSectorNames: string[] = [];
 
   for (const target of input.targets) {
@@ -356,8 +427,11 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
     let aliasSource: string | undefined;
     let safeAlias = false;
     let exactMatch = false;
+    let aliasLookupKey: string | null = null;
     let safeAliasMatch: string | null = null;
+    let safeAliasTarget: string | null = null;
     let unsafeAliasMatch: string | null = null;
+    let unsafeAliasTargets: string[] = [];
     const candidateOfficialNames: string[] = [];
 
     if (/^\d{4}$/.test(candidateCode)) {
@@ -375,8 +449,13 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       if (aliasMatch?.row && officialSource(aliasMatch.row)) {
         matched = aliasMatch.row;
         aliasSource = aliasMatch.aliasSource;
+        aliasLookupKey = aliasMatch.aliasSource;
         safeAlias = true;
         safeAliasMatch = aliasMatch.row.officialIndexName;
+      }
+      if (aliasMatch) {
+        aliasLookupKey ??= aliasMatch.aliasSource;
+        safeAliasTarget = aliasMatch.safeAliasTarget;
       }
       if (aliasMatch?.candidateOfficialNames.length) candidateOfficialNames.push(...aliasMatch.candidateOfficialNames);
     }
@@ -384,11 +463,14 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
     const unsafeAlias = unsafeTheme ? findByUnsafeAlias(target, masterByName) : null;
     if (unsafeAlias) {
       unsafeAliasMatch = unsafeAlias.row?.officialIndexName ?? unsafeAlias.candidateOfficialNames[0] ?? null;
+      unsafeAliasTargets = Array.from(unsafeAlias.candidateOfficialNames);
       candidateOfficialNames.push(...unsafeAlias.candidateOfficialNames);
       if (!matched && unsafeAlias.row) {
         matched = unsafeAlias.row;
         aliasSource = unsafeAlias.aliasSource;
+        aliasLookupKey = unsafeAlias.aliasSource;
       }
+      aliasLookupKey ??= unsafeAlias.aliasSource;
     }
 
     const matchedOfficial = officialSource(matched);
@@ -401,10 +483,13 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         sectorName,
         sectorKey: target.sectorKey,
         normalizedInternalName: normalizedName,
+        aliasLookupKey,
         candidateOfficialNames: uniqueCandidateOfficialNames,
         exactMatch,
         safeAliasMatch,
+        safeAliasTarget,
         unsafeAliasMatch: null,
+        unsafeAliasTargets: [],
         officialIndexCode: matched.officialIndexCode,
         officialIndexName: matched.officialIndexName,
         selectedOfficialIndexCode: matched.officialIndexCode,
@@ -418,7 +503,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         officialCoverageEligible: true,
         includedInOfficialCoverage: true,
         shadowEvidenceOnly: false,
-        reasonCode: safeAlias ? 'SAFE_ALIAS_MAPPED' : 'OFFICIAL_INDEX_CODE_MAPPED',
+        reasonCode: safeAlias ? 'SAFE_ALIAS_MATCHED' : 'EXACT_MATCHED',
       });
       continue;
     }
@@ -430,10 +515,13 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         sectorName,
         sectorKey: target.sectorKey,
         normalizedInternalName: normalizedName,
+        aliasLookupKey,
         candidateOfficialNames: uniqueCandidateOfficialNames,
         exactMatch,
         safeAliasMatch,
+        safeAliasTarget,
         unsafeAliasMatch,
+        unsafeAliasTargets,
         officialIndexCode: matched?.officialIndexCode ?? null,
         officialIndexName: matched?.officialIndexName ?? null,
         selectedOfficialIndexCode: matched?.officialIndexCode ?? null,
@@ -457,10 +545,13 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         sectorName,
         sectorKey: target.sectorKey,
         normalizedInternalName: normalizedName,
+        aliasLookupKey,
         candidateOfficialNames: uniqueCandidateOfficialNames,
         exactMatch,
         safeAliasMatch,
+        safeAliasTarget,
         unsafeAliasMatch,
+        unsafeAliasTargets,
         officialIndexCode: matched.officialIndexCode,
         officialIndexName: matched.officialIndexName,
         selectedOfficialIndexCode: matched.officialIndexCode,
@@ -479,15 +570,31 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       continue;
     }
 
+    const failureReason = unresolvedReason({
+      sectorName,
+      normalizedName,
+      masterRowsCount: input.masterRows.length,
+      candidateOfficialNames: uniqueCandidateOfficialNames,
+    });
     unresolved.push(sectorName);
+    unresolvedDetails.push({
+      sector: sectorName,
+      normalizedInternalName: normalizedName,
+      reason: failureReason,
+      ...(safeAliasTarget ? { aliasTarget: safeAliasTarget } : {}),
+      candidateOfficialNames: uniqueCandidateOfficialNames,
+    });
     rows.push({
       sectorName,
       sectorKey: target.sectorKey,
       normalizedInternalName: normalizedName,
+      aliasLookupKey,
       candidateOfficialNames: uniqueCandidateOfficialNames,
       exactMatch: false,
       safeAliasMatch: null,
+      safeAliasTarget,
       unsafeAliasMatch: null,
+      unsafeAliasTargets,
       officialIndexCode: null,
       officialIndexName: null,
       selectedOfficialIndexCode: null,
@@ -500,7 +607,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       officialCoverageEligible: false,
       includedInOfficialCoverage: false,
       shadowEvidenceOnly: false,
-      reasonCode: 'OFFICIAL_INDEX_CODE_UNRESOLVED',
+      reasonCode: failureReason,
     });
   }
 
@@ -510,11 +617,13 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
     .map((row) => `${row.sectorName} -> ${row.officialIndexName}(code=${row.officialIndexCode})`);
   const reasonCodes = new Set<string>();
   reasonCodes.add(mappedSectorCount > 0 ? 'OFFICIAL_INDEX_CODE_MAPPED' : 'OFFICIAL_INDEX_COVERAGE_ZERO');
-  if (safeAliasCount > 0) reasonCodes.add('SAFE_ALIAS_MAPPED');
+  if (exactMatchCount > 0) reasonCodes.add('EXACT_MATCHED');
+  if (safeAliasCount > 0) reasonCodes.add('SAFE_ALIAS_MATCHED');
   if (unsafeAliasCount > 0) reasonCodes.add('UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION');
   if (unresolved.length > 0) {
     reasonCodes.add('OFFICIAL_INDEX_MASTER_UNRESOLVED_SECTORS');
     reasonCodes.add('INTERNAL_SECTOR_ALIAS_MISSING');
+    for (const detail of unresolvedDetails) reasonCodes.add(detail.reason);
     if (input.masterRows.length > 0 && unresolved.some(isLikelyEnglishSector)) {
       reasonCodes.add('EN_TO_KR_ALIAS_MISSING');
     }
@@ -532,6 +641,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
     unsafeAliasSectorNames,
     mappedSectorPairs,
     unresolvedSectorNames: unresolved,
+    unresolvedSectorDetails: unresolvedDetails,
     topMissingSectorNames: unresolved.slice(0, 12),
     internalSectorNames: input.targets.map((target) => String(target.sectorName ?? '').trim()).filter(Boolean),
     normalizedInternalSectorNames: input.targets.map((target) => normalizeOfficialSectorName(target.sectorName)).filter(Boolean),

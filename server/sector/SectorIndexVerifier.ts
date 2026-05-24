@@ -5,8 +5,14 @@ import type {
   OfficialSectorIndexCodeMappingRow,
   OfficialSectorIndexMappingAttempt,
   OfficialSectorIndexTarget,
+  OfficialSectorIndexAliasDictionaryStatus,
+  OfficialSectorIndexUnresolvedSectorReason,
 } from './SectorIndexCodeMap.js';
-import { mapSectorNamesToOfficialIndexCodes, type OfficialSectorIndexMasterRow } from './SectorIndexCodeMap.js';
+import {
+  getOfficialSectorIndexAliasDictionaryStatus,
+  mapSectorNamesToOfficialIndexCodes,
+  type OfficialSectorIndexMasterRow,
+} from './SectorIndexCodeMap.js';
 import type { SectorIndexMasterProviderResult } from './SectorIndexMasterProvider.js';
 
 export const KIS_SECTOR_INDEX_VERIFY_API_PATH =
@@ -38,6 +44,8 @@ export interface OfficialSectorIndexMasterCoverageResult {
   parseStatus: string;
   rows?: readonly OfficialSectorIndexMasterRow[];
   rawSampleRows?: Array<{ idxDiv?: string; idxCode: string; idxName: string; normalizedIdxName: string }>;
+  idxNameSampleTop?: string[];
+  aliasDictionaryStatus?: OfficialSectorIndexAliasDictionaryStatus;
   officialIndexCoverage: number;
   verifiedIndexCodeCoverage: number;
   mappedSectorCount: number;
@@ -54,6 +62,7 @@ export interface OfficialSectorIndexMasterCoverageResult {
   sourceTier?: 'OFFICIAL_KRX_SECTOR_INDEX' | 'OFFICIAL_KIS_SECTOR_INDEX' | 'CACHE' | 'NONE';
   aliasResolvedCount: number;
   unresolvedSectorNames: string[];
+  unresolvedSectorDetails?: OfficialSectorIndexUnresolvedSectorReason[];
   topMissingSectorNames: string[];
   internalSectorNames?: string[];
   normalizedInternalSectorNames?: string[];
@@ -130,6 +139,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     targets: input.targets,
     masterRows,
   });
+  const aliasDictionaryStatus = getOfficialSectorIndexAliasDictionaryStatus();
   const verificationResults = await verifyOfficialSectorIndexCodes({
     mappingRows: mapping.rows,
     verifyIndexCode: input.verifyIndexCode,
@@ -148,6 +158,8 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   if (verificationResults.length > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_ATTEMPTED');
   if (verifySuccessCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_SUCCEEDED');
   if (verifyFailCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_FAILED');
+  if (!(provider?.masterLoaded ?? masterRows.length > 0)) reasonCodes.add('MASTER_NOT_LOADED');
+  if (masterRows.length === 0) reasonCodes.add('MASTER_ROWS_EMPTY');
   if (mapping.officialIndexCoverage > 0 && verifiedIndexCodeCoverage < 80) {
     reasonCodes.add('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     reasonCodes.add('VERIFIED_INDEX_CODE_COVERAGE_LOW');
@@ -168,6 +180,9 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
       idxName: row.officialIndexName,
       normalizedIdxName: row.normalizedSectorName,
     })),
+    idxNameSampleTop: (provider?.rawSampleRows?.map((row) => row.idxName) ?? masterRows.map((row) => row.officialIndexName))
+      .slice(0, 12),
+    aliasDictionaryStatus,
     officialIndexCoverage: mapping.officialIndexCoverage,
     verifiedIndexCodeCoverage,
     mappedSectorCount: mapping.mappedSectorCount,
@@ -190,6 +205,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
           : 'NONE',
     aliasResolvedCount: mapping.aliasResolvedCount,
     unresolvedSectorNames: mapping.unresolvedSectorNames,
+    unresolvedSectorDetails: mapping.unresolvedSectorDetails,
     topMissingSectorNames: mapping.topMissingSectorNames,
     internalSectorNames: mapping.internalSectorNames,
     normalizedInternalSectorNames: mapping.normalizedInternalSectorNames,

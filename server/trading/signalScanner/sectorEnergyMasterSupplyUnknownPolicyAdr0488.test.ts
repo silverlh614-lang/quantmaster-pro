@@ -271,6 +271,15 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
         idxcodeMstDownloaded: true,
         cacheFallbackUsed: false,
         parseStatus: 'OK',
+        rawSampleRows: [{ idxDiv: '1', idxCode: '0012', idxName: '운수장비', normalizedIdxName: '운수장비' }],
+        idxNameSampleTop: ['운수장비', '전기전자', '철강금속'],
+        aliasDictionaryStatus: {
+          loaded: true,
+          aliasCount: 3,
+          safeAliasCount: 2,
+          unsafeAliasCount: 1,
+          sampleAliases: ['AUTOMOTIVE -> 운수장비', 'SEMICONDUCTOR -> 전기전자'],
+        },
         officialIndexCoverage: 50,
         verifiedIndexCodeCoverage: 0,
         mappedSectorCount: 6,
@@ -279,7 +288,34 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
         safeAliasCount: 1,
         unsafeAliasCount: 0,
         aliasResolvedCount: 1,
+        internalSectorNames: ['AUTOMOTIVE', 'UNRESOLVED_A'],
+        normalizedInternalSectorNames: ['automotive', 'unresolved a'],
+        mappedSectorPairs: ['AUTOMOTIVE -> 운수장비(code=0012)'],
+        mappingAttempts: [{
+          internalSectorName: 'AUTOMOTIVE',
+          normalizedInternalName: 'automotive',
+          aliasLookupKey: 'automotive',
+          candidateOfficialNames: ['운수장비'],
+          exactMatch: false,
+          safeAliasMatch: '운수장비',
+          safeAliasTarget: '운수장비',
+          unsafeAliasMatch: null,
+          unsafeAliasTargets: [],
+          selectedOfficialIndexName: '운수장비',
+          selectedOfficialIndexCode: '0012',
+          includedInOfficialCoverage: true,
+          shadowEvidenceOnly: false,
+          verifyAttempted: true,
+          verified: false,
+          reasonCode: 'SAFE_ALIAS_MATCHED',
+        }],
         unresolvedSectorNames: ['UNRESOLVED_A'],
+        unresolvedSectorDetails: [{
+          sector: 'UNRESOLVED_A',
+          normalizedInternalName: 'unresolved a',
+          reason: 'EN_TO_KR_ALIAS_MISSING',
+          candidateOfficialNames: [],
+        }],
         topMissingSectorNames: ['UNRESOLVED_A'],
         verifyApiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
         verifyTrId: 'FHPUP02100000',
@@ -313,6 +349,12 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(compact).toContain('officialIndexCoverage=50%');
     expect(compact).toContain('verifiedIndexCodeCoverage=0%');
     expect(compact).toContain('promotionAllowed=false');
+    expect(compact).toContain('Official Sector Index Master Debug');
+    expect(compact).toContain('rawSampleRows=1:0012:운수장비:운수장비');
+    expect(compact).toContain('EN_KR_AliasDictionaryStatus: loaded=true');
+    expect(compact).toContain('SectorIndexMappingAttempt: AUTOMOTIVE:normalized=automotive');
+    expect(compact).toContain('safeAliasTarget=운수장비');
+    expect(compact).toContain('SectorIndexUnresolvedDetails: UNRESOLVED_A:reason=EN_TO_KR_ALIAS_MISSING');
   });
 
   it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {
