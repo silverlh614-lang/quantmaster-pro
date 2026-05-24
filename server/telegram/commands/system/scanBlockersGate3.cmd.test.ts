@@ -28,15 +28,30 @@ describe('/scan_blockers_gate3 command', () => {
           health: { TIMING_NOT_CONFIRMED: 1, OK: 1 },
           primaryIssue: { RRR_BELOW_2_0: 1, none: 1 },
           compactText: {
-            'Gate3: WAIT | issue=RRR_FAIL | priceFresh=VERIFIED | rrr=1.20 FAIL | rrrSource=FALLBACK_PERCENT | falseBreakout=LOW | executionImpact=NONE | marketSignal=false': 1,
+            'Gate3: WAIT | issue=RRR_FAIL | priceFresh=VERIFIED | rrr=1.20 FAIL | rrrSource=FALLBACK_PERCENT | price=NOT_CONFIRMED | volume=WEAK 0.80x | falseBreakout=LOW | executionImpact=NONE | marketSignal=false': 1,
           },
           timingReadiness: { WAIT: 1, READY: 1 },
           lastTriggerStatus: { THRESHOLD_NOT_MET: 1, FIRED: 1 },
           priceFreshness: { VERIFIED: 2 },
           executionImpact: { NONE: 2 },
+          priceConfirmationStatus: { BREAKOUT_CONFIRMED: 1, NOT_CONFIRMED: 1 },
+          volumeConfirmationStatus: { CONFIRMED: 1, WEAK: 1 },
           lastTriggerPassCount: 1,
+          lastTriggerFiredCount: 1,
           lastTriggerWaitCount: 1,
+          lastTriggerThresholdNotMetCount: 1,
+          lastTriggerDataUnavailableCount: 0,
           entryPriceStaleCount: 0,
+          priceBreakoutConfirmedCount: 1,
+          priceNearBreakoutCount: 0,
+          pricePullbackEntryCount: 0,
+          priceNotConfirmedCount: 1,
+          priceOverextendedCount: 0,
+          volumeConfirmedCount: 1,
+          volumePartialCount: 0,
+          volumeDryUpCount: 0,
+          volumeWeakCount: 1,
+          volumeSpikeRiskCount: 0,
           rrrPassCount: 1,
           rrrWatchCount: 0,
           rrrFailCount: 1,
@@ -69,15 +84,20 @@ describe('/scan_blockers_gate3 command', () => {
     });
 
     const text = replies.join('\n');
-    expect(text).toContain('[scan_blockers_gate3] Gate3 Entry Timing / LastTrigger / Price Guard');
+    expect(text).toContain('[scan_blockers_gate3] Gate3 Entry Timing / LastTrigger / Price & Volume Guard');
     expect(text).toContain('Gate3 Timing Readiness');
     expect(text).toContain('gate3Pass: 1');
     expect(text).toContain('lastTriggerPass: 1');
     expect(text).toContain('lastTriggerWait: 1');
+    expect(text).toContain('lastTriggerThresholdNotMet: 1');
+    expect(text).toContain('priceBreakoutConfirmed: 1');
+    expect(text).toContain('volumeWeak: 1');
     expect(text).toContain('rrrPass: 1');
     expect(text).toContain('rrrFail: 1');
     expect(text).toContain('rrrMissing: 0');
     expect(text).toContain('rrrSource=FALLBACK_PERCENT');
+    expect(text).toContain('price=NOT_CONFIRMED');
+    expect(text).toContain('volume=WEAK 0.80x');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('no scan execution');
   }, 15000);

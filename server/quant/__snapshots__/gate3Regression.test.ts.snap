@@ -14,7 +14,7 @@ exports[`Gate3 regression fixture snapshot / diagnostic invariance > baseline fi
       "intraday": "DIAGNOSTIC_ONLY",
       "lastTrigger": "WAIT",
       "momentum": "CONFIRMED",
-      "priceBreakout": "CONFIRMED",
+      "priceBreakout": "OVEREXTENDED",
       "pullback": "DIAGNOSTIC_ONLY",
       "rrr": "FAIL",
       "volume": "CONFIRMED",
@@ -60,7 +60,7 @@ exports[`Gate3 regression fixture snapshot / diagnostic invariance > baseline fi
       "volumeTiming",
     ],
     "statusMatrix": {
-      "executionReadiness": "WAIT",
+      "executionReadiness": "BLOCKED",
       "falseBreakout": "WARN",
       "intradayTiming": "PARTIAL",
       "lastTrigger": "THRESHOLD_NOT_MET",

@@ -255,6 +255,8 @@ export interface Gate3ExternalDataCoverage {
     reason: string;
     priceBreakout: Gate3LastTriggerEvaluation['priceBreakout'];
     volumeConfirmation: Gate3LastTriggerEvaluation['volumeConfirmation'];
+    priceConfirmation: Gate3LastTriggerEvaluation['priceConfirmation'];
+    volumeConfirmationDetail: Gate3LastTriggerEvaluation['volumeConfirmationDetail'];
     vcp: Gate3LastTriggerEvaluation['vcp'];
     rsi: Gate3LastTriggerEvaluation['rsi'];
     macd: Gate3LastTriggerEvaluation['macd'];
@@ -273,7 +275,7 @@ export interface Gate3ExternalDataCoverage {
   entryPriceGuard: Gate3EntryPriceGuardDiagnostic;
   rrrCheck: Gate3RrrCheckDiagnostic;
   executionReadiness: {
-    status: 'READY' | 'WAIT' | 'DATA_INCOMPLETE';
+    status: 'READY' | 'WAIT' | 'BLOCKED' | 'DATA_INCOMPLETE';
     liveBuyAllowed: boolean;
     shadowObservableAllowed: boolean;
     counterfactualAllowed: boolean;
@@ -1248,11 +1250,14 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       falseBreakoutRisk: falseBreakoutDiag.falseBreakout.status,
     },
   });
+  const lastTriggerWaitReasons = new Set(['NEAR_BREAKOUT_DRY_UP', 'PULLBACK_ENTRY_PARTIAL_VOLUME', 'RRR_WATCH', 'LAST_TRIGGER_WAIT']);
   const executionReadinessStatus = lastTriggerDiag.fired
     ? 'READY'
     : lastTriggerDiag.status === 'DATA_UNAVAILABLE' || lastTriggerDiag.entryPriceGuard.priceFreshness === 'MISSING'
       ? 'DATA_INCOMPLETE'
-      : 'WAIT';
+      : lastTriggerWaitReasons.has(lastTriggerDiag.reason)
+        ? 'WAIT'
+        : 'BLOCKED';
 
   return {
     technicalIndicators: { required: true, available: technicalState.available, provider: 'UNKNOWN', status: technicalState.status, fields: technicalFields, providerIssue: false, calculationIssue: technicalState.status === 'CALCULATION_MISSING' || technicalState.status === 'MISSING', marketSignal: false },
@@ -1357,6 +1362,8 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
       reason: lastTriggerDiag.reason,
       priceBreakout: lastTriggerDiag.priceBreakout,
       volumeConfirmation: lastTriggerDiag.volumeConfirmation,
+      priceConfirmation: lastTriggerDiag.priceConfirmation,
+      volumeConfirmationDetail: lastTriggerDiag.volumeConfirmationDetail,
       vcp: lastTriggerDiag.vcp,
       rsi: lastTriggerDiag.rsi,
       macd: lastTriggerDiag.macd,

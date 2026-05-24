@@ -9,7 +9,7 @@ import type {
 } from './gate3LastTrigger.js';
 
 export type Gate3ConsolidatedHealth = 'OK' | 'WARN' | 'DEGRADED' | 'DATA_INCOMPLETE' | 'TIMING_NOT_CONFIRMED' | 'CONFLICT' | 'UNKNOWN';
-export type Gate3TimingReadiness = 'READY' | 'WAIT' | 'DATA_INCOMPLETE';
+export type Gate3TimingReadiness = 'READY' | 'WAIT' | 'BLOCKED' | 'DATA_INCOMPLETE';
 export type Gate3OperatorAction =
   | 'NONE'
   | 'CHECK_TECHNICAL_INDICATORS'
@@ -30,7 +30,10 @@ export interface Gate3ConsolidatedDiagnostic {
   dataReadiness: Record<string, string>;
   timingAlignment: Record<string, string>;
   timingReadiness: Gate3TimingReadiness;
-  lastTrigger: Pick<Gate3LastTriggerEvaluation, 'status' | 'fired' | 'reason' | 'executionReady' | 'liveBuyAllowed' | 'shadowObservableAllowed' | 'counterfactualAllowed' | 'executionImpact' | 'marketSignal'>;
+  lastTrigger: Pick<Gate3LastTriggerEvaluation, 'status' | 'fired' | 'reason' | 'executionReady' | 'liveBuyAllowed' | 'shadowObservableAllowed' | 'counterfactualAllowed' | 'executionImpact' | 'marketSignal'> & {
+    priceConfirmation: Gate3LastTriggerEvaluation['priceConfirmation'] | Record<string, unknown>;
+    volumeConfirmationDetail: Gate3LastTriggerEvaluation['volumeConfirmationDetail'] | Record<string, unknown>;
+  };
   entryPriceGuard: Gate3EntryPriceGuardDiagnostic | Record<string, unknown>;
   rrrCheck: Gate3RrrCheckDiagnostic | Record<string, unknown>;
   falseBreakoutRisk: string;
@@ -104,18 +107,30 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const lastTriggerFired = lastTriggerRecord.fired === true;
   const lastTriggerReason = asString(lastTriggerRecord.reason) ?? (lastTriggerFired ? 'FIRED' : 'LAST_TRIGGER_NOT_FIRED');
   const priceFreshness = asString(entryPriceGuard.priceFreshness) ?? 'UNKNOWN';
+  const priceConfirmation = asRecord(lastTriggerRecord.priceConfirmation);
+  const volumeConfirmationDetail = asRecord(lastTriggerRecord.volumeConfirmationDetail);
+  const priceConfirmationStatus = asString(priceConfirmation.status);
+  const volumeConfirmationStatus = asString(volumeConfirmationDetail.status);
+  const volumeRatio20d = asNumber(volumeConfirmationDetail.volumeRatio20d);
   const rrrValue = asNumber(rrrCheck.rrr);
   const rrrStatus = asString(rrrCheck.status) ?? 'UNKNOWN';
   const rrrSource = asString(rrrCheck.source) ?? 'MISSING';
   const stopLoss = asNumber(rrrCheck.stopLoss);
   const targetPrice = asNumber(rrrCheck.targetPrice);
   const executionImpact = (asString(lastTriggerRecord.executionImpact) ?? asString(executionReadinessRecord.executionImpact) ?? 'DIAGNOSTIC_ONLY') as Gate3ExecutionImpact;
+  const policyBlockReason = asString(executionReadinessRecord.livePolicy)
+    ?? asString(executionReadinessRecord.policyBlockReason)
+    ?? asString(executionReadinessRecord.liveBlockReason)
+    ?? asString(lastTriggerRecord.livePolicy)
+    ?? asString(lastTriggerRecord.policyBlockReason);
   const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';
   const eodOnlyExpected = ['AFTERMARKET', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
 
+  const fallbackVolumeAlignment = (breakoutVolumeStatus === 'PASS' || (volumeRatio != null && volumeRatio >= 2) || (tradingValueRatio != null && tradingValueRatio >= 2)) ? 'CONFIRMED' : (breakoutVolumeStatus === 'FAIL' || volumeRatio != null || tradingValueRatio != null) ? 'WEAK' : breakoutVolumeStatus === 'MISSING' ? 'MISSING' : 'UNKNOWN';
+  const fallbackPriceAlignment = (asString(breakout.status) === 'PASS' || asString(turtle.status) === 'PASS') ? 'CONFIRMED' : (asString(breakout.status) === 'FAIL' ? 'NOT_CONFIRMED' : asString(breakout.status) === 'MISSING' ? 'MISSING' : 'UNKNOWN');
   const timingAlignment = {
-    volume: (breakoutVolumeStatus === 'PASS' || (volumeRatio != null && volumeRatio >= 2) || (tradingValueRatio != null && tradingValueRatio >= 2)) ? 'CONFIRMED' : (breakoutVolumeStatus === 'FAIL' || volumeRatio != null || tradingValueRatio != null) ? 'WEAK' : breakoutVolumeStatus === 'MISSING' ? 'MISSING' : 'UNKNOWN',
-    priceBreakout: (asString(breakout.status) === 'PASS' || asString(turtle.status) === 'PASS') ? 'CONFIRMED' : (asString(breakout.status) === 'FAIL' ? 'NOT_CONFIRMED' : asString(breakout.status) === 'MISSING' ? 'MISSING' : 'UNKNOWN'),
+    volume: volumeConfirmationStatus ?? fallbackVolumeAlignment,
+    priceBreakout: priceConfirmationStatus ?? fallbackPriceAlignment,
     momentum: asString(overheat.status) === 'OVERHEATED' ? 'OVERHEATED' : (asString(momentum.status) === 'MISSING' ? 'MISSING' : asString(momentum.alignment) ?? 'CONFIRMED'),
     pullback: asString(pullbackQuality.status) === 'HEALTHY_PULLBACK' ? 'HEALTHY' : asString(pullbackQuality.status) === 'EXTENDED_CHASE' ? 'EXTENDED' : asString(pullbackQuality.status) === 'TOO_DEEP' ? 'TOO_DEEP' : (asString(pullback.status) === 'MISSING' ? 'MISSING' : 'DIAGNOSTIC_ONLY'),
     falseBreakoutRisk: asString(fbRisk.status) === 'LOW_RISK' ? 'LOW' : asString(fbRisk.status) === 'WATCH' ? 'WATCH' : asString(fbRisk.status) === 'HIGH_RISK' ? 'HIGH' : (asString(falseBreakout.status) === 'MISSING' ? 'MISSING' : 'DIAGNOSTIC_ONLY'),
@@ -139,12 +154,17 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const freshnessIssues: string[] = [];
 
   const degradedStatus = new Set(['MISSING', 'CALCULATION_MISSING', 'DEGRADED']);
-  const volumeDataIncomplete = degradedStatus.has(dataReadiness.volumeTiming) && timingAlignment.volume === 'MISSING';
+  const priceConfirmed = timingAlignment.priceBreakout === 'BREAKOUT_CONFIRMED' || timingAlignment.priceBreakout === 'CONFIRMED';
+  const volumeMissing = timingAlignment.volume === 'MISSING' || timingAlignment.volume === 'DATA_UNAVAILABLE';
+  const volumeDataIncomplete = degradedStatus.has(dataReadiness.volumeTiming) && volumeMissing;
+  const lastTriggerWaitReasons = new Set(['NEAR_BREAKOUT_DRY_UP', 'PULLBACK_ENTRY_PARTIAL_VOLUME', 'RRR_WATCH', 'LAST_TRIGGER_WAIT']);
   const timingReadiness: Gate3TimingReadiness = lastTriggerFired
     ? 'READY'
     : lastTriggerStatus === 'DATA_UNAVAILABLE' || lastTriggerReason.startsWith('ENTRY_PRICE')
       ? 'DATA_INCOMPLETE'
-      : 'WAIT';
+      : lastTriggerWaitReasons.has(lastTriggerReason)
+        ? 'WAIT'
+        : 'BLOCKED';
 
   if (timingReadiness === 'DATA_INCOMPLETE') {
     health = 'DATA_INCOMPLETE';
@@ -162,9 +182,9 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   } else if (degradedStatus.has(dataReadiness.momentumIndicators)) {
     health = 'DATA_INCOMPLETE'; primaryIssue = 'MOMENTUM_INDICATORS_UNAVAILABLE'; operatorAction = 'CHECK_MOMENTUM_INDICATORS';
   } else if (asString(fbRisk.status) === 'HIGH_RISK') {
-    health = timingAlignment.priceBreakout === 'CONFIRMED' ? 'CONFLICT' : 'WARN'; primaryIssue = 'FALSE_BREAKOUT_RISK'; operatorAction = 'REVIEW_FALSE_BREAKOUT_RISK';
+    health = priceConfirmed ? 'CONFLICT' : 'WARN'; primaryIssue = 'FALSE_BREAKOUT_RISK'; operatorAction = 'REVIEW_FALSE_BREAKOUT_RISK';
   } else if (['RSI_BEARISH', 'MACD_BEARISH', 'BOTH_BEARISH'].includes(asString(divergence.status) ?? '')) {
-    health = timingAlignment.priceBreakout === 'CONFIRMED' ? 'CONFLICT' : 'WARN'; primaryIssue = 'MOMENTUM_DIVERGENCE_WARNING'; operatorAction = 'REVIEW_FALSE_BREAKOUT_RISK';
+    health = priceConfirmed ? 'CONFLICT' : 'WARN'; primaryIssue = 'MOMENTUM_DIVERGENCE_WARNING'; operatorAction = 'REVIEW_FALSE_BREAKOUT_RISK';
   } else if (asString(exhaustion.status) === 'EXHAUSTED') {
     health = 'WARN'; primaryIssue = 'EXHAUSTION_RISK'; operatorAction = 'REVIEW_FALSE_BREAKOUT_RISK';
   } else if (asString(lastTick.status) === 'STALE') {
@@ -175,33 +195,42 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     }
   }
 
-  if (timingAlignment.priceBreakout === 'CONFIRMED' && (timingAlignment.volume === 'MISSING' || timingAlignment.volume === 'WEAK')) {
+  if (priceConfirmed && (volumeMissing || timingAlignment.volume === 'WEAK')) {
     if (health === 'OK') {
-      health = timingAlignment.volume === 'MISSING' ? 'DATA_INCOMPLETE' : 'CONFLICT';
-      primaryIssue ??= timingAlignment.volume === 'MISSING' ? 'VOLUME_TIMING_UNAVAILABLE' : 'VOLUME_NOT_CONFIRMED';
+      health = volumeMissing ? 'DATA_INCOMPLETE' : 'CONFLICT';
+      primaryIssue ??= volumeMissing ? 'VOLUME_TIMING_UNAVAILABLE' : 'VOLUME_NOT_CONFIRMED';
       operatorAction = 'CHECK_VOLUME_BASELINE';
     }
     conflictFlags.push('PRICE_BREAKOUT_WITHOUT_VOLUME_CONFIRMATION');
   }
 
-  if (health === 'OK' && timingReadiness === 'WAIT') {
+  if (health === 'OK' && (timingReadiness === 'WAIT' || timingReadiness === 'BLOCKED')) {
     health = 'TIMING_NOT_CONFIRMED';
     primaryIssue ??= lastTriggerReason;
   }
 
-  if (health === 'OK' && !(timingAlignment.volume === 'CONFIRMED' && timingAlignment.priceBreakout === 'CONFIRMED' && timingAlignment.momentum === 'CONFIRMED' && timingAlignment.falseBreakoutRisk === 'LOW')) {
+  if (health === 'OK' && !(timingAlignment.volume === 'CONFIRMED' && priceConfirmed && timingAlignment.momentum === 'CONFIRMED' && timingAlignment.falseBreakoutRisk === 'LOW')) {
     health = 'TIMING_NOT_CONFIRMED';
   }
 
   const rrrText = rrrValue == null ? 'MISSING' : `${rrrValue.toFixed(2)} ${rrrStatus}`;
   const stopLossText = stopLoss == null ? 'MISSING' : stopLoss.toFixed(0);
   const targetPriceText = targetPrice == null ? 'MISSING' : targetPrice.toFixed(0);
+  const volumeText = volumeRatio20d == null
+    ? timingAlignment.volume
+    : `${timingAlignment.volume} ${volumeRatio20d.toFixed(2)}x`;
+  const policyLiveBlocked = lastTriggerFired && (lastTriggerRecord.liveBuyAllowed === false || executionReadinessRecord.liveBuyAllowed === false);
+  const livePolicyText = policyLiveBlocked
+    ? ` | livePolicy=${policyBlockReason ?? 'BLOCKED_POLICY'} | shadowAllowed=${lastTriggerRecord.shadowObservableAllowed !== false}`
+    : '';
   const summary = primaryIssue ? `Gate3 diagnostic issue: ${primaryIssue}.` : 'Gate3 timing diagnostic dashboard is healthy.';
   const compactText = timingReadiness === 'READY'
-    ? `Gate3: READY | trigger=FIRED | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | marketSignal=false`
+    ? `Gate3: READY | trigger=FIRED | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | price=${timingAlignment.priceBreakout} | volume=${volumeText} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact}${livePolicyText} | marketSignal=false`
     : timingReadiness === 'WAIT'
-      ? `Gate3: WAIT | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`
-      : `Gate3: DATA_INCOMPLETE | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`;
+      ? `Gate3: WAIT | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | price=${timingAlignment.priceBreakout} | volume=${volumeText} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`
+      : timingReadiness === 'BLOCKED'
+        ? `Gate3: BLOCKED | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | price=${timingAlignment.priceBreakout} | volume=${volumeText} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`
+        : `Gate3: DATA_INCOMPLETE | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | price=${timingAlignment.priceBreakout} | volume=${volumeText} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`;
   const telegramLines = [
     '🧩 Gate3 Timing',
     `상태: ${health}`,
@@ -230,6 +259,8 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
       status: lastTriggerStatus as Gate3LastTriggerEvaluation['status'],
       fired: lastTriggerFired,
       reason: lastTriggerReason,
+      priceConfirmation,
+      volumeConfirmationDetail,
       executionReady: lastTriggerRecord.executionReady === true,
       liveBuyAllowed: lastTriggerRecord.liveBuyAllowed === true,
       shadowObservableAllowed: lastTriggerRecord.shadowObservableAllowed !== false,
@@ -257,13 +288,13 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     executionImpact,
     sections: {
       wiring: [`inputs=${source.allDeclaredInputsAvailable === true ? 'OK' : 'MISSING'}`, `requiredData=${source.allRequiredDataAvailable === true ? 'OK' : 'MISSING'}`],
-      volume: [`status=${dataReadiness.volumeTiming}`, `breakoutVolume=${timingAlignment.volume}`],
+      volume: [`status=${dataReadiness.volumeTiming}`, `breakoutVolume=${volumeText}`],
       price: [`status=${dataReadiness.priceStructure}`, `breakout=${timingAlignment.priceBreakout}`],
       momentum: [`status=${dataReadiness.momentumIndicators}`, `alignment=${timingAlignment.momentum}`, `divergence=${asString(divergence.status) ?? 'UNKNOWN'}`],
       pullback: [`status=${dataReadiness.pullbackSupport}`, `pullback=${timingAlignment.pullback}`],
       falseBreakout: [`status=${dataReadiness.falseBreakout}`, `risk=${timingAlignment.falseBreakoutRisk}`, `exhaustion=${asString(exhaustion.status) ?? 'UNKNOWN'}`],
       intraday: [`status=${dataReadiness.intradayTiming}`, `dataMode=${asString(intraday.dataMode) ?? 'UNKNOWN'}`, `lastTick=${asString(lastTick.status) ?? 'UNKNOWN'}`],
-      lastTrigger: [`status=${lastTriggerStatus}`, `reason=${lastTriggerReason}`, `priceFresh=${priceFreshness}`, `rrr=${rrrText}`, `rrrSource=${rrrSource}`, `stopLoss=${stopLossText}`, `targetPrice=${targetPriceText}`, `executionImpact=${executionImpact}`],
+      lastTrigger: [`status=${lastTriggerStatus}`, `reason=${lastTriggerReason}`, `priceFresh=${priceFreshness}`, `price=${timingAlignment.priceBreakout}`, `volume=${volumeText}`, `rrr=${rrrText}`, `rrrSource=${rrrSource}`, `stopLoss=${stopLossText}`, `targetPrice=${targetPriceText}`, `executionImpact=${executionImpact}`],
     },
     compactText,
     telegramText: telegramLines.join('\n'),

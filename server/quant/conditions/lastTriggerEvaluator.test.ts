@@ -49,6 +49,37 @@ describe('lastTriggerEvaluator', () => {
     expect(result?.detail).toContain('RRR_FAIL');
   });
 
+  it('RRR PASS + near breakout + dry-up -> WAIT / THRESHOLD_NOT_MET', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({
+      price: 9_900,
+      currentPrice: 9_900,
+      high5d: 10_000,
+      high20d: 10_000,
+      volume: 420_000,
+      avgVolume: 1_000_000,
+      avgVolume20d: 1_000_000,
+      rrr: 2.4,
+    }));
+    expect(result?.status).toBe('THRESHOLD_NOT_MET');
+    expect(result?.detail).toContain('NEAR_BREAKOUT_DRY_UP');
+  });
+
+  it('RRR WATCH + pullback entry + partial volume -> WAIT / THRESHOLD_NOT_MET', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({
+      price: 10_200,
+      currentPrice: 10_200,
+      high5d: 11_000,
+      high20d: 11_000,
+      ma20: 10_000,
+      volume: 1_200_000,
+      avgVolume: 1_000_000,
+      avgVolume20d: 1_000_000,
+      rrr: 1.7,
+    }));
+    expect(result?.status).toBe('THRESHOLD_NOT_MET');
+    expect(result?.detail).toContain('PULLBACK_ENTRY_PARTIAL_VOLUME');
+  });
+
   it('rrr MISSING -> DATA_UNAVAILABLE', () => {
     const result = lastTriggerEvaluator.evaluate(ctx({ rrr: undefined, targetPrice: 9_900, stopLoss: 9_300 }));
     expect(result?.status).toBe('DATA_UNAVAILABLE');
@@ -72,9 +103,51 @@ describe('lastTriggerEvaluator', () => {
     expect(result?.detail).toContain('FALSE_BREAKOUT_HIGH');
   });
 
+  it('price overextended -> THRESHOLD_NOT_MET', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({
+      price: 11_600,
+      currentPrice: 11_600,
+      high5d: 12_000,
+      high20d: 12_000,
+      ma20: 10_000,
+      volume: 2_000_000,
+      avgVolume: 1_000_000,
+      avgVolume20d: 1_000_000,
+      rrr: 2.4,
+    }));
+    expect(result?.status).toBe('THRESHOLD_NOT_MET');
+    expect(result?.detail).toContain('PRICE_OVEREXTENDED');
+  });
+
+  it('volume weak -> THRESHOLD_NOT_MET', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({
+      price: 10_250,
+      currentPrice: 10_250,
+      high5d: 10_000,
+      high20d: 10_000,
+      volume: 800_000,
+      avgVolume: 1_000_000,
+      avgVolume20d: 1_000_000,
+      rrr: 2.4,
+    }));
+    expect(result?.status).toBe('THRESHOLD_NOT_MET');
+    expect(result?.detail).toContain('VOLUME_WEAK');
+  });
+
+  it('missing volume baseline -> DATA_UNAVAILABLE', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({
+      volume: undefined,
+      avgVolume: undefined,
+      avgVolume20d: undefined,
+      rrr: 2.4,
+    }));
+    expect(result?.status).toBe('DATA_UNAVAILABLE');
+    expect(result?.detail).toContain('VOLUME_BASELINE_MISSING');
+  });
+
   it('missing price -> DATA_UNAVAILABLE', () => {
     const result = lastTriggerEvaluator.evaluate(ctx({ price: undefined, currentPrice: undefined }));
     expect(result?.status).toBe('DATA_UNAVAILABLE');
-    expect(result?.detail).toContain('PRICE_MISSING');
+    expect(result?.detail).toContain('PRICE_CONFIRMATION_MISSING');
   });
 });

@@ -80,19 +80,70 @@ describe('gate3 consolidated diagnostic', () => {
     expect(d.marketSignal).toBe(false);
   });
 
-  it('lastTrigger WAIT is reflected without promoting marketSignal', () => {
+  it('lastTrigger BLOCKED is reflected without promoting marketSignal', () => {
     const g = baseGate3();
     g.externalDataCoverage.lastTrigger = { status: 'THRESHOLD_NOT_MET', fired: false, reason: 'RRR_BELOW_2_0', executionReady: false, liveBuyAllowed: false, shadowObservableAllowed: true, counterfactualAllowed: true, executionImpact: 'NONE' };
     g.externalDataCoverage.rrrCheck = { status: 'FAIL', rrr: 1.6 };
 
     const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
 
-    expect(d.timingReadiness).toBe('WAIT');
+    expect(d.timingReadiness).toBe('BLOCKED');
     expect(d.lastTrigger.fired).toBe(false);
-    expect(d.compactText).toContain('Gate3: WAIT');
+    expect(d.compactText).toContain('Gate3: BLOCKED');
     expect(d.compactText).toContain('rrr=1.6');
     expect(d.marketSignal).toBe(false);
     expect(d.executionImpact).toBe('NONE');
+  });
+
+  it('renders LastTrigger price and volume confirmation details with ratio', () => {
+    const g = baseGate3();
+    g.externalDataCoverage.lastTrigger = {
+      status: 'THRESHOLD_NOT_MET',
+      fired: false,
+      reason: 'NEAR_BREAKOUT_DRY_UP',
+      executionReady: false,
+      liveBuyAllowed: false,
+      shadowObservableAllowed: true,
+      counterfactualAllowed: true,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+      priceConfirmation: { status: 'NEAR_BREAKOUT' },
+      volumeConfirmationDetail: { status: 'DRY_UP', volumeRatio20d: 0.42 },
+    };
+    g.externalDataCoverage.rrrCheck = { status: 'PASS', rrr: 2.05, source: 'FALLBACK_PERCENT' };
+
+    const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
+
+    expect(d.timingReadiness).toBe('WAIT');
+    expect(d.timingAlignment.priceBreakout).toBe('NEAR_BREAKOUT');
+    expect(d.timingAlignment.volume).toBe('DRY_UP');
+    expect(d.compactText).toContain('price=NEAR_BREAKOUT');
+    expect(d.compactText).toContain('volume=DRY_UP 0.42x');
+    expect(d.marketSignal).toBe(false);
+  });
+
+  it('separates Gate3 READY from live policy block', () => {
+    const g = baseGate3();
+    g.externalDataCoverage.lastTrigger = {
+      ...g.externalDataCoverage.lastTrigger,
+      liveBuyAllowed: false,
+      shadowObservableAllowed: true,
+      priceConfirmation: { status: 'BREAKOUT_CONFIRMED' },
+      volumeConfirmationDetail: { status: 'CONFIRMED', volumeRatio20d: 1.8 },
+    };
+    g.externalDataCoverage.executionReadiness = {
+      status: 'READY',
+      liveBuyAllowed: false,
+      policyBlockReason: 'BLOCKED_SHADOW_ONLY',
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    };
+
+    const d = buildGate3ConsolidatedDiagnostic({ gate3: g });
+
+    expect(d.timingReadiness).toBe('READY');
+    expect(d.compactText).toContain('Gate3: READY');
+    expect(d.compactText).toContain('livePolicy=BLOCKED_SHADOW_ONLY');
+    expect(d.compactText).toContain('shadowAllowed=true');
+    expect(d.marketSignal).toBe(false);
   });
 
   it('entry price stale is live-buy-only execution impact', () => {

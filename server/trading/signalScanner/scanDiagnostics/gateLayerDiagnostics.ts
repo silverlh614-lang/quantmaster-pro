@@ -52,14 +52,29 @@ export interface Gate3ConsolidatedAuditSummary {
   lastTriggerStatus: Record<string, number>;
   priceFreshness: Record<string, number>;
   executionImpact: Record<string, number>;
+  priceConfirmationStatus: Record<string, number>;
+  volumeConfirmationStatus: Record<string, number>;
   lastTriggerPassCount: number;
+  lastTriggerFiredCount: number;
   lastTriggerWaitCount: number;
+  lastTriggerThresholdNotMetCount: number;
+  lastTriggerDataUnavailableCount: number;
   entryPriceStaleCount: number;
   rrrPassCount: number;
   rrrWatchCount: number;
   rrrFailCount: number;
   rrrMissingCount: number;
   rrrFallbackUsedCount: number;
+  priceBreakoutConfirmedCount: number;
+  priceNearBreakoutCount: number;
+  pricePullbackEntryCount: number;
+  priceNotConfirmedCount: number;
+  priceOverextendedCount: number;
+  volumeConfirmedCount: number;
+  volumePartialCount: number;
+  volumeDryUpCount: number;
+  volumeWeakCount: number;
+  volumeSpikeRiskCount: number;
   falseBreakoutHighCount: number;
   executionReadyCount: number;
 }
@@ -167,14 +182,29 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       lastTriggerStatus: {},
       priceFreshness: {},
       executionImpact: {},
+      priceConfirmationStatus: {},
+      volumeConfirmationStatus: {},
       lastTriggerPassCount: 0,
+      lastTriggerFiredCount: 0,
       lastTriggerWaitCount: 0,
+      lastTriggerThresholdNotMetCount: 0,
+      lastTriggerDataUnavailableCount: 0,
       entryPriceStaleCount: 0,
       rrrPassCount: 0,
       rrrWatchCount: 0,
       rrrFailCount: 0,
       rrrMissingCount: 0,
       rrrFallbackUsedCount: 0,
+      priceBreakoutConfirmedCount: 0,
+      priceNearBreakoutCount: 0,
+      pricePullbackEntryCount: 0,
+      priceNotConfirmedCount: 0,
+      priceOverextendedCount: 0,
+      volumeConfirmedCount: 0,
+      volumePartialCount: 0,
+      volumeDryUpCount: 0,
+      volumeWeakCount: 0,
+      volumeSpikeRiskCount: 0,
       falseBreakoutHighCount: 0,
       executionReadyCount: 0,
     },
@@ -284,17 +314,47 @@ export function accumulateGateLayerSummary(
     const rrrCheck = gate3Consolidated.rrrCheck && typeof gate3Consolidated.rrrCheck === 'object'
       ? gate3Consolidated.rrrCheck as Record<string, unknown>
       : {};
-    incrementCount(counters.gateLayerAudit.gate3Consolidated.lastTriggerStatus, String(lastTrigger.status ?? 'UNKNOWN'));
+    const timingAlignment = gate3Consolidated.timingAlignment && typeof gate3Consolidated.timingAlignment === 'object'
+      ? gate3Consolidated.timingAlignment as Record<string, unknown>
+      : {};
+    const priceConfirmation = lastTrigger.priceConfirmation && typeof lastTrigger.priceConfirmation === 'object'
+      ? lastTrigger.priceConfirmation as Record<string, unknown>
+      : {};
+    const volumeConfirmationDetail = lastTrigger.volumeConfirmationDetail && typeof lastTrigger.volumeConfirmationDetail === 'object'
+      ? lastTrigger.volumeConfirmationDetail as Record<string, unknown>
+      : {};
+    const lastTriggerStatus = String(lastTrigger.status ?? 'UNKNOWN');
+    const priceConfirmationStatus = String(priceConfirmation.status ?? timingAlignment.priceBreakout ?? 'UNKNOWN');
+    const volumeConfirmationStatus = String(volumeConfirmationDetail.status ?? timingAlignment.volume ?? 'UNKNOWN');
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.lastTriggerStatus, lastTriggerStatus);
     incrementCount(counters.gateLayerAudit.gate3Consolidated.priceFreshness, String(entryPriceGuard.priceFreshness ?? 'UNKNOWN'));
     incrementCount(counters.gateLayerAudit.gate3Consolidated.executionImpact, String(gate3Consolidated.executionImpact ?? lastTrigger.executionImpact ?? 'UNKNOWN'));
-    if (lastTrigger.fired === true || lastTrigger.status === 'FIRED') counters.gateLayerAudit.gate3Consolidated.lastTriggerPassCount += 1;
-    else counters.gateLayerAudit.gate3Consolidated.lastTriggerWaitCount += 1;
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.priceConfirmationStatus, priceConfirmationStatus);
+    incrementCount(counters.gateLayerAudit.gate3Consolidated.volumeConfirmationStatus, volumeConfirmationStatus);
+    if (lastTrigger.fired === true || lastTriggerStatus === 'FIRED') {
+      counters.gateLayerAudit.gate3Consolidated.lastTriggerPassCount += 1;
+      counters.gateLayerAudit.gate3Consolidated.lastTriggerFiredCount += 1;
+    } else {
+      counters.gateLayerAudit.gate3Consolidated.lastTriggerWaitCount += 1;
+      if (lastTriggerStatus === 'DATA_UNAVAILABLE') counters.gateLayerAudit.gate3Consolidated.lastTriggerDataUnavailableCount += 1;
+      if (lastTriggerStatus === 'THRESHOLD_NOT_MET' || lastTriggerStatus === 'SANITY_REJECTED') counters.gateLayerAudit.gate3Consolidated.lastTriggerThresholdNotMetCount += 1;
+    }
     if (entryPriceGuard.priceFreshness === 'STALE' || entryPriceGuard.blockReason === 'ENTRY_PRICE_STALE') counters.gateLayerAudit.gate3Consolidated.entryPriceStaleCount += 1;
     if (rrrCheck.status === 'PASS') counters.gateLayerAudit.gate3Consolidated.rrrPassCount += 1;
     if (rrrCheck.status === 'WATCH') counters.gateLayerAudit.gate3Consolidated.rrrWatchCount += 1;
     if (rrrCheck.status === 'FAIL') counters.gateLayerAudit.gate3Consolidated.rrrFailCount += 1;
     if (rrrCheck.status === 'MISSING') counters.gateLayerAudit.gate3Consolidated.rrrMissingCount += 1;
     if (rrrCheck.fallbackUsed === true || rrrCheck.source === 'FALLBACK_PERCENT') counters.gateLayerAudit.gate3Consolidated.rrrFallbackUsedCount += 1;
+    if (priceConfirmationStatus === 'BREAKOUT_CONFIRMED' || priceConfirmationStatus === 'CONFIRMED') counters.gateLayerAudit.gate3Consolidated.priceBreakoutConfirmedCount += 1;
+    if (priceConfirmationStatus === 'NEAR_BREAKOUT') counters.gateLayerAudit.gate3Consolidated.priceNearBreakoutCount += 1;
+    if (priceConfirmationStatus === 'PULLBACK_ENTRY') counters.gateLayerAudit.gate3Consolidated.pricePullbackEntryCount += 1;
+    if (priceConfirmationStatus === 'NOT_CONFIRMED') counters.gateLayerAudit.gate3Consolidated.priceNotConfirmedCount += 1;
+    if (priceConfirmationStatus === 'OVEREXTENDED') counters.gateLayerAudit.gate3Consolidated.priceOverextendedCount += 1;
+    if (volumeConfirmationStatus === 'CONFIRMED') counters.gateLayerAudit.gate3Consolidated.volumeConfirmedCount += 1;
+    if (volumeConfirmationStatus === 'PARTIAL') counters.gateLayerAudit.gate3Consolidated.volumePartialCount += 1;
+    if (volumeConfirmationStatus === 'DRY_UP') counters.gateLayerAudit.gate3Consolidated.volumeDryUpCount += 1;
+    if (volumeConfirmationStatus === 'WEAK') counters.gateLayerAudit.gate3Consolidated.volumeWeakCount += 1;
+    if (volumeConfirmationStatus === 'SPIKE_RISK') counters.gateLayerAudit.gate3Consolidated.volumeSpikeRiskCount += 1;
     if (gate3Consolidated.falseBreakoutRisk === 'HIGH') counters.gateLayerAudit.gate3Consolidated.falseBreakoutHighCount += 1;
     if (lastTrigger.executionReady === true) counters.gateLayerAudit.gate3Consolidated.executionReadyCount += 1;
     if (typeof gate3Consolidated.compactText === 'string' && gate3Consolidated.compactText.length > 0) {
@@ -453,9 +513,22 @@ export function formatGate3TimingReadinessAuditSection(summary: Gate3Consolidate
     `  evaluated: ${summary.samples}/${summary.samples}`,
     `  readiness: ${topKey(summary.timingReadiness)}`,
     `  lastTriggerPass: ${summary.lastTriggerPassCount}`,
+    `  lastTriggerFired: ${summary.lastTriggerFiredCount}`,
     `  lastTriggerWait: ${summary.lastTriggerWaitCount}`,
+    `  lastTriggerThresholdNotMet: ${summary.lastTriggerThresholdNotMetCount}`,
+    `  lastTriggerDataUnavailable: ${summary.lastTriggerDataUnavailableCount}`,
     `  entryPriceFresh: ${topKey(summary.priceFreshness)}`,
     `  entryPriceStaleBlocked: ${summary.entryPriceStaleCount}`,
+    `  priceBreakoutConfirmed: ${summary.priceBreakoutConfirmedCount}`,
+    `  priceNearBreakout: ${summary.priceNearBreakoutCount}`,
+    `  pricePullbackEntry: ${summary.pricePullbackEntryCount}`,
+    `  priceNotConfirmed: ${summary.priceNotConfirmedCount}`,
+    `  priceOverextended: ${summary.priceOverextendedCount}`,
+    `  volumeConfirmed: ${summary.volumeConfirmedCount}`,
+    `  volumePartial: ${summary.volumePartialCount}`,
+    `  volumeDryUp: ${summary.volumeDryUpCount}`,
+    `  volumeWeak: ${summary.volumeWeakCount}`,
+    `  volumeSpikeRisk: ${summary.volumeSpikeRiskCount}`,
     `  rrrPass: ${summary.rrrPassCount}`,
     `  rrrWatch: ${summary.rrrWatchCount}`,
     `  rrrFail: ${summary.rrrFailCount}`,

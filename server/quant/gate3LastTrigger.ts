@@ -5,6 +5,14 @@ import {
   type Gate3RrrInput,
   type Gate3RrrStatus,
 } from './gate3RrrBuilder.js';
+import {
+  buildGate3PriceConfirmation,
+  type Gate3PriceConfirmation,
+} from './gate3PriceConfirmation.js';
+import {
+  buildGate3VolumeConfirmation,
+  type Gate3VolumeConfirmation,
+} from './gate3VolumeConfirmation.js';
 
 export type Gate3LastTriggerStatus =
   | 'FIRED'
@@ -73,6 +81,8 @@ export interface Gate3LastTriggerEvaluation {
   executionImpact: Gate3ExecutionImpact;
   entryPriceGuard: Gate3EntryPriceGuardDiagnostic;
   rrrCheck: Gate3RrrCheckDiagnostic;
+  priceConfirmation: Gate3PriceConfirmation;
+  volumeConfirmationDetail: Gate3VolumeConfirmation;
   notes: string[];
   marketSignal: false;
 }
@@ -251,28 +261,25 @@ export function evaluateGate3LastTrigger(input: {
   now?: Date;
 }): Gate3LastTriggerEvaluation {
   const quote = input.quote;
-  const currentPrice = firstPositive(quote, ['currentPrice', 'price', 'close', 'regularMarketPrice']);
-  const high5d = firstPositive(quote, ['high5d']);
-  const high20d = firstPositive(quote, ['high20d']);
-  const volume = firstFinite(quote, ['volume', 'regularMarketVolume']);
-  const avgVolume = firstPositive(quote, ['avgVolume', 'avgVolume20d', 'vol20dAvg']);
   const rsi14 = firstFinite(quote, ['rsi14']);
   const macdHistogram = firstFinite(quote, ['macdHistogram']);
   const macd5dHistAgo = firstFinite(quote, ['macd5dHistAgo']);
   const entryPriceGuard = buildGate3EntryPriceGuard({ quote, now: input.now });
   const rrrCheck = buildGate3RrrCheck(quote);
+  const priceConfirmation = buildGate3PriceConfirmation(quote);
+  const volumeConfirmationDetail = buildGate3VolumeConfirmation(quote);
   const falseBreakoutRisk = normalizeFalseBreakoutRisk(quote);
   const notes: string[] = [];
-
-  const breakoutReference = high5d ?? high20d;
-  const breakoutPass = currentPrice != null && breakoutReference != null && currentPrice >= breakoutReference;
-  const breakoutNear = currentPrice != null && breakoutReference != null && currentPrice >= breakoutReference * 0.99;
   const priceBreakout: Gate3LastTriggerEvaluation['priceBreakout'] =
-    currentPrice == null || breakoutReference == null ? 'MISSING' : breakoutPass ? 'PASS' : breakoutNear ? 'NEAR' : 'FAIL';
-
-  const volumeRatio = volume != null && avgVolume != null && avgVolume > 0 ? volume / avgVolume : null;
-  const breakoutVolume = volumeRatio != null && volumeRatio >= 2;
-  const volumeSurge = volumeRatio != null && volumeRatio >= 3;
+    priceConfirmation.status === 'DATA_UNAVAILABLE' ? 'MISSING'
+      : priceConfirmation.status === 'BREAKOUT_CONFIRMED' ? 'PASS'
+        : priceConfirmation.status === 'NEAR_BREAKOUT' || priceConfirmation.status === 'PULLBACK_ENTRY' ? 'NEAR'
+          : 'FAIL';
+  const volumeConfirmation: Gate3LastTriggerEvaluation['volumeConfirmation'] =
+    volumeConfirmationDetail.status === 'DATA_UNAVAILABLE' ? 'MISSING'
+      : volumeConfirmationDetail.status === 'CONFIRMED' ? 'PASS'
+        : volumeConfirmationDetail.status === 'PARTIAL' || volumeConfirmationDetail.status === 'DRY_UP' ? 'PARTIAL'
+          : 'FAIL';
   const vcpPass = bool(quote.vcpPass)
     || bool(quote.vcp)
     || (firstFinite(quote, ['compressionScore']) ?? 0) >= 0.4
@@ -281,10 +288,7 @@ export function evaluateGate3LastTrigger(input: {
       && firstPositive(quote, ['bbWidth20dAvg']) != null
       && firstPositive(quote, ['bbWidthCurrent'])! <= firstPositive(quote, ['bbWidth20dAvg'])! * 0.7
     );
-  const volumeConfirmation: Gate3LastTriggerEvaluation['volumeConfirmation'] =
-    volumeRatio == null ? 'MISSING' : breakoutVolume || volumeSurge ? 'PASS' : volumeRatio >= 1.2 ? 'PARTIAL' : 'FAIL';
   const vcp: Gate3LastTriggerEvaluation['vcp'] = vcpPass ? 'PASS' : 'FAIL';
-
   const rsi: Gate3LastTriggerEvaluation['rsi'] =
     rsi14 == null ? 'MISSING' : rsi14 >= 40 && rsi14 <= 75 ? 'PASS' : 'FAIL';
   const macdImproving = macdHistogram != null && macd5dHistAgo != null && macdHistogram > macd5dHistAgo;
@@ -292,14 +296,11 @@ export function evaluateGate3LastTrigger(input: {
     macdHistogram == null ? 'MISSING' : macdHistogram >= 0 ? 'PASS' : macdImproving ? 'IMPROVING' : 'FAIL';
 
   const missingReason =
-    currentPrice == null ? 'PRICE_MISSING'
-      : breakoutReference == null ? 'BREAKOUT_REFERENCE_MISSING'
-        : volume == null || avgVolume == null ? 'VOLUME_BASELINE_MISSING'
-          : rsi14 == null ? 'RSI_MISSING'
-            : macdHistogram == null ? 'MACD_MISSING'
-              : rrrCheck.status === 'MISSING' ? 'RRR_MISSING'
-                : entryPriceGuard.priceFreshness === 'MISSING' ? 'ENTRY_PRICE_FRESHNESS_MISSING'
-                  : null;
+    priceConfirmation.status === 'DATA_UNAVAILABLE' ? 'PRICE_CONFIRMATION_MISSING'
+      : volumeConfirmationDetail.status === 'DATA_UNAVAILABLE' ? 'VOLUME_BASELINE_MISSING'
+        : rrrCheck.status === 'MISSING' ? 'RRR_MISSING'
+          : entryPriceGuard.priceFreshness === 'MISSING' ? 'ENTRY_PRICE_FRESHNESS_MISSING'
+            : null;
 
   if (missingReason) {
     return {
@@ -321,6 +322,8 @@ export function evaluateGate3LastTrigger(input: {
       executionImpact: entryPriceGuard.executionImpact === 'LIVE_BUY_BLOCKED_ONLY' ? 'LIVE_BUY_BLOCKED_ONLY' : 'DIAGNOSTIC_ONLY',
       entryPriceGuard,
       rrrCheck,
+      priceConfirmation,
+      volumeConfirmationDetail,
       notes: ['MISSING_DATA_IS_UNAVAILABLE_NOT_FAILED'],
       marketSignal: false,
     };
@@ -349,29 +352,56 @@ export function evaluateGate3LastTrigger(input: {
       executionImpact: 'LIVE_BUY_BLOCKED_ONLY',
       entryPriceGuard,
       rrrCheck,
+      priceConfirmation,
+      volumeConfirmationDetail,
       notes: ['LIVE_BUY_BLOCKED_ONLY', 'SHADOW_COUNTERFACTUAL_ALLOWED'],
       marketSignal: false,
     };
   }
 
-  const positiveSetup = priceBreakout === 'PASS' || priceBreakout === 'NEAR';
-  const positiveVolumeOrVcp = volumeConfirmation === 'PASS' || vcp === 'PASS';
-  if (!positiveSetup) notes.push('BREAKOUT_NOT_NEAR');
-  if (!positiveVolumeOrVcp) notes.push('VOLUME_OR_VCP_NOT_CONFIRMED');
-  if (rsi !== 'PASS') notes.push('RSI_OUT_OF_TRIGGER_ZONE');
-  if (!(macd === 'PASS' || macd === 'IMPROVING')) notes.push('MACD_NOT_POSITIVE');
+  const rsiOverheated = rsi14 != null && rsi14 > 80;
+  const rsiTriggerOk = rsi14 == null || (rsi14 >= 40 && rsi14 <= 75);
+  const macdTriggerOk = macdHistogram == null || macd === 'PASS' || macd === 'IMPROVING';
+  const priceReady = priceConfirmation.status === 'BREAKOUT_CONFIRMED';
+  const volumeReady = volumeConfirmationDetail.status === 'CONFIRMED';
+  const waitPrice = priceConfirmation.status === 'NEAR_BREAKOUT' || priceConfirmation.status === 'PULLBACK_ENTRY';
+  const waitVolume = volumeConfirmationDetail.status === 'DRY_UP' || volumeConfirmationDetail.status === 'PARTIAL';
+  const waitRrr = rrrCheck.status === 'PASS' || rrrCheck.status === 'WATCH';
+  if (priceConfirmation.status === 'NOT_CONFIRMED') notes.push('PRICE_NOT_CONFIRMED');
+  if (priceConfirmation.status === 'OVEREXTENDED') notes.push('PRICE_OVEREXTENDED');
+  if (volumeConfirmationDetail.status === 'WEAK') notes.push('VOLUME_WEAK');
+  if (volumeConfirmationDetail.status === 'SPIKE_RISK') notes.push('VOLUME_SPIKE_RISK');
   if (!rrrCheck.passed) notes.push(rrrCheck.reason ?? 'RRR_FAIL');
   if (falseBreakoutRisk === 'HIGH') notes.push('FALSE_BREAKOUT_HIGH');
+  if (rsiOverheated) notes.push('RSI_OVERHEATED');
+  else if (!rsiTriggerOk) notes.push('RSI_OUT_OF_TRIGGER_ZONE');
+  if (!macdTriggerOk) notes.push('MACD_NOT_POSITIVE');
 
-  const thresholdOk = positiveSetup
-    && positiveVolumeOrVcp
-    && rsi === 'PASS'
-    && (macd === 'PASS' || macd === 'IMPROVING')
+  const thresholdOk = priceReady
+    && volumeReady
     && rrrCheck.passed
-    && falseBreakoutRisk !== 'HIGH';
+    && falseBreakoutRisk !== 'HIGH'
+    && rsiTriggerOk
+    && macdTriggerOk;
+
+  const waitOk = !thresholdOk
+    && waitRrr
+    && waitPrice
+    && waitVolume
+    && falseBreakoutRisk !== 'HIGH'
+    && !rsiOverheated
+    && macdTriggerOk;
 
   if (!thresholdOk) {
-    const reason = notes[0] ?? 'LAST_TRIGGER_NOT_FIRED';
+    const reason = waitOk
+      ? priceConfirmation.status === 'NEAR_BREAKOUT' && volumeConfirmationDetail.status === 'DRY_UP'
+        ? 'NEAR_BREAKOUT_DRY_UP'
+        : priceConfirmation.status === 'PULLBACK_ENTRY' && volumeConfirmationDetail.status === 'PARTIAL'
+          ? 'PULLBACK_ENTRY_PARTIAL_VOLUME'
+          : rrrCheck.status === 'WATCH'
+            ? 'RRR_WATCH'
+            : 'LAST_TRIGGER_WAIT'
+      : notes[0] ?? 'LAST_TRIGGER_NOT_FIRED';
     return {
       status: 'THRESHOLD_NOT_MET',
       fired: false,
@@ -391,7 +421,9 @@ export function evaluateGate3LastTrigger(input: {
       executionImpact: falseBreakoutRisk === 'HIGH' ? 'LIVE_BUY_BLOCKED_ONLY' : 'NONE',
       entryPriceGuard,
       rrrCheck,
-      notes,
+      priceConfirmation,
+      volumeConfirmationDetail,
+      notes: waitOk && notes.length === 0 ? ['WAIT_FOR_BREAKOUT_CONFIRMATION'] : notes,
       marketSignal: false,
     };
   }
@@ -400,7 +432,7 @@ export function evaluateGate3LastTrigger(input: {
     status: 'FIRED',
     fired: true,
     reason: 'FIRED',
-    detail: `LastTrigger FIRED: price=${priceBreakout} volume=${volumeConfirmation} rrr=${rrrCheck.rrr?.toFixed(1) ?? 'n/a'} source=${rrrCheck.source}`,
+    detail: `LastTrigger FIRED: price=${priceConfirmation.status} volume=${volumeConfirmationDetail.status} rrr=${rrrCheck.rrr?.toFixed(1) ?? 'n/a'} source=${rrrCheck.source}`,
     priceBreakout,
     volumeConfirmation,
     vcp,
@@ -415,6 +447,8 @@ export function evaluateGate3LastTrigger(input: {
     executionImpact: 'NONE',
     entryPriceGuard,
     rrrCheck,
+    priceConfirmation,
+    volumeConfirmationDetail,
     notes,
     marketSignal: false,
   };
