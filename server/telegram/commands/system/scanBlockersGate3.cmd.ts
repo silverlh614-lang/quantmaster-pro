@@ -8,6 +8,7 @@ import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDe
 import { formatGate3ShadowRoutingAuditSection } from '../../../quant/gate3ShadowPolicy.js';
 import { formatGate3OutcomeTrackingSummary } from '../../../quant/gate3OutcomeSeed.js';
 import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
+import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
 import { formatGate3FinalizationSection } from '../../../quant/gate3CompletionScore.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
@@ -87,6 +88,8 @@ export function formatScanBlockersGate3Section(
     `outcomeDuplicateSuppressed: ${gate3.outcomeTracking?.duplicateSuppressed ?? 0}`,
     `thresholdEvidenceSampleSize: ${gate3.thresholdEvidence?.sampleSize ?? 0}`,
     `thresholdSuggestions: ${gate3.thresholdEvidence?.suggestions.length ?? 0}`,
+    `evidenceWarmupSchedulerHealthy: ${gate3.evidenceWarmup?.schedulerHealthy ?? false}`,
+    `evidenceWarmupWarnings: ${gate3.evidenceWarmup?.warnings.join(',') || 'none'}`,
     `completionStatus: ${gate3.completionScore?.status ?? 'N/A'}`,
     `completionScore: ${gate3.completionScore?.score ?? 0}/100`,
     `liveReadinessStatus: ${gate3.liveReadinessScore?.status ?? 'N/A'}`,
@@ -129,6 +132,7 @@ const scanBlockersGate3: TelegramCommand = {
     const routing = formatGate3ShadowRoutingAuditSection(audit?.gate3Consolidated?.shadowRouting);
     const outcomes = formatGate3OutcomeTrackingSummary(audit?.gate3Consolidated?.outcomeTracking);
     const thresholdEvidence = formatGate3ThresholdEvidenceSection(audit?.gate3Consolidated?.thresholdEvidence);
+    const warmup = formatGate3EvidenceWarmupSection(audit?.gate3Consolidated?.evidenceWarmup);
     const finalization = formatGate3FinalizationSection({
       completionScore: audit?.gate3Consolidated?.completionScore,
       liveReadinessScore: audit?.gate3Consolidated?.liveReadinessScore,
@@ -145,6 +149,7 @@ const scanBlockersGate3: TelegramCommand = {
       ...(full ? ['', full] : []),
       ...(routing ? ['', routing] : []),
       ...(outcomes ? ['', outcomes] : []),
+      ...(warmup ? ['', warmup] : []),
       ...(thresholdEvidence ? ['', thresholdEvidence] : []),
       ...(finalization ? ['', finalization] : []),
       ...(details ? ['', details] : []),

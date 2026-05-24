@@ -19,6 +19,7 @@ import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../
 import { collectRegimeLearningBank, collectRegimeLearningConsistency } from '../../../learning/regimeLearningBank.js';
 import { appendLearningPulseArchive, collectLearningPulseArchiveStatus, loadReflectionInjectionBusState, type LearningPulseArchiveStatus } from '../../../learning/reflectionInjectionBusState.js';
 import { buildGate3LearningFinalization, formatGate3LearningFinalizationSection } from '../../../quant/gate3CompletionScore.js';
+import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
 import { getLastGate3FinalizationSummary } from '../../../quant/gate3FinalizationState.js';
 export const PULSE_THRESHOLDS = { GHOST_OPEN_BLOCKER_MIN: 100, GHOST_CLOSE_RATIO_THRESHOLD: 0.1, ATTRIBUTION_TARGET_7D: LEARNING_ATTRIBUTION_TARGET_7D, SUGGEST_SILENCE_THRESHOLD: 1, GEMINI_USE_RATIO_TARGET: LEARNING_GEMINI_UTILIZATION_TARGET, GEMINI_BUSINESS_DAYS_PER_MONTH: LEARNING_TRADING_DAYS_PER_MONTH } as const;
 export const SUGGEST_MODULES = LEARNING_SUGGEST_CHANNELS;
@@ -345,6 +346,7 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
     `Cohort Snapshot: snapshotStatus=${s.cohortSnapshotStatus} / cohortSumMatchesTotal=${s.cohortConsistency.cohortSumMatchesTotal} / ghostRepairReflectedInPulse=${s.cohortConsistency.ghostRepairReflectedInPulse} / cohortSnapshotAgeSec=${(s as any).cohortSnapshotAgeSec ?? 'N/A'} / cohortSnapshotMaxAgeSec=${(s as any).cohortSnapshotMaxAgeSec ?? 'N/A'} / cohortSnapshotRefreshedAt=${(s as any).cohortSnapshotRefreshedAt ?? 'N/A'} / cohortSnapshotRefreshStatus=${(s as any).cohortSnapshotRefreshStatus ?? 'N/A'} / cohortSnapshotRefreshFailureReason=${(s as any).cohortSnapshotRefreshFailureReason ?? 'N/A'}`,
     `Gemini Scheduler: advisorySchedulerStatus=${s.geminiScheduler.schedulerStatus} / advisorySchedulerWarning=missedCount:${s.geminiScheduler.missedCount} / learningCoreImpact=NONE / executionImpact=NONE / promotionImpact=NONE / lastScheduledAt=${s.geminiScheduler.lastScheduledAt ?? 'N/A'} / lastRunAt=${s.geminiScheduler.lastRunAt ?? 'N/A'} / nextScheduledAt=${s.geminiScheduler.nextScheduledAt ?? 'N/A'} / recommendationOnly=${s.geminiScheduler.recommendationOnly}`,
     formatGate3LearningFinalizationSection(s.gate3LearningFinalization) ?? '',
+    formatGate3EvidenceWarmupSection(s.gate3LearningFinalization.evidenceWarmup) ?? '',
   ].join('\n');
   return `${formatLearningPulseMessageBase(s)}\n${extra}`;
 }

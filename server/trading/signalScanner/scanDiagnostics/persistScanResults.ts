@@ -118,6 +118,7 @@ import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceSt
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
+import { buildGate3EvidenceWarmupStatus } from '../../../quant/gate3EvidenceWarmup.js';
 import { buildGate3CompletionScore } from '../../../quant/gate3CompletionScore.js';
 import { buildLiveReadinessScore } from '../../../quant/liveReadinessScore.js';
 import { rememberGate3FinalizationSummary } from '../../../quant/gate3FinalizationState.js';
@@ -450,6 +451,12 @@ export async function persistScanResults(
     });
     gateLayerAudit.gate3Consolidated.outcomeTracking = result.summary;
     gateLayerAudit.gate3Consolidated.thresholdEvidence = buildGate3EvidenceScore(result.seeds);
+    gateLayerAudit.gate3Consolidated.evidenceWarmup = buildGate3EvidenceWarmupStatus(result.seeds, {
+      now: new Date(scanAsOf),
+      outcomeTracking: result.summary,
+      thresholdEvidenceSampleSize: gateLayerAudit.gate3Consolidated.thresholdEvidence.sampleSize,
+      duplicateSuppressed: result.summary.duplicateSuppressed,
+    });
     gateLayerAudit.gate3Consolidated.completionScore = buildGate3CompletionScore(gateLayerAudit.gate3Consolidated, {
       sourceSnapshotId,
       gate3SourceSnapshotId: sourceSnapshotId,

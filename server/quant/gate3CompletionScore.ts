@@ -2,6 +2,7 @@
 
 import type { Gate3CandidateDetail, Gate3Readiness } from './gate3CandidateDetail.js';
 import type { Gate3EvidenceScore } from './gate3EvidenceScore.js';
+import { buildGate3EvidenceWarmupStatus, type Gate3EvidenceWarmupStatus } from './gate3EvidenceWarmup.js';
 import type { Gate3OutcomeSeed, Gate3OutcomeTrackingSummary } from './gate3OutcomeSeed.js';
 import type { Gate3ShadowPolicy, Gate3ShadowRoute, Gate3ShadowRoutingSummary } from './gate3ShadowPolicy.js';
 import type { LiveReadinessScore } from './liveReadinessScore.js';
@@ -76,6 +77,7 @@ export interface Gate3CompletionSummaryInput {
   outcomeSeeds: Gate3OutcomeSeed[];
   outcomeTracking?: Gate3OutcomeTrackingSummary;
   thresholdEvidence?: Gate3EvidenceScore;
+  evidenceWarmup?: Gate3EvidenceWarmupStatus;
   providerIssue?: boolean;
   marketSignal?: boolean;
   completionScore?: Gate3CompletionScore;
@@ -91,6 +93,7 @@ export interface Gate3LearningFinalizationSummary {
   suggestions: number;
   completionScore: number;
   status: Gate3CompletionStatus;
+  evidenceWarmup: Gate3EvidenceWarmupStatus;
   marketSignal: false;
 }
 
@@ -415,10 +418,15 @@ export function buildGate3LearningFinalization(
       suggestions: 0,
       completionScore: 0,
       status: 'INCOMPLETE',
+      evidenceWarmup: buildGate3EvidenceWarmupStatus([]),
       marketSignal: false,
     };
   }
   const completion = summary?.completionScore ?? buildGate3CompletionScore(summary);
+  const evidenceWarmup = summary.evidenceWarmup ?? buildGate3EvidenceWarmupStatus(summary.outcomeSeeds, {
+    outcomeTracking: summary.outcomeTracking,
+    thresholdEvidenceSampleSize: summary.thresholdEvidence?.sampleSize ?? 0,
+  });
   return {
     outcomeSeeds: summary.outcomeSeeds.length,
     labeled: summary.outcomeTracking?.labeled ?? 0,
@@ -428,6 +436,7 @@ export function buildGate3LearningFinalization(
     suggestions: summary.thresholdEvidence?.suggestions.length ?? 0,
     completionScore: completion.score,
     status: completion.status,
+    evidenceWarmup,
     marketSignal: false,
   };
 }
@@ -445,6 +454,8 @@ export function formatGate3LearningFinalizationSection(summary: Gate3LearningFin
     `suggestions: ${summary.suggestions}`,
     `completionScore: ${summary.completionScore}`,
     `status: ${summary.status}`,
+    `evidenceWarmupSchedulerHealthy: ${summary.evidenceWarmup.schedulerHealthy}`,
+    `evidenceWarmupWarnings: ${summary.evidenceWarmup.warnings.join(',') || 'none'}`,
     'marketSignal=false; shadowLearning=true; counterfactualRecorded=true',
   ].join('\n');
 }

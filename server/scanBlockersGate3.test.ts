@@ -4,6 +4,7 @@ import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowP
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from './quant/gate3ShadowPolicy.js';
 import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from './quant/gate3OutcomeSeed.js';
 import { buildGate3EvidenceScore } from './quant/gate3EvidenceScore.js';
+import { buildGate3EvidenceWarmupStatus } from './quant/gate3EvidenceWarmup.js';
 import { buildGate3CompletionScore } from './quant/gate3CompletionScore.js';
 import { buildLiveReadinessScore } from './quant/liveReadinessScore.js';
 import { accumulateGateLayerSummary, buildGateLayerAuditSummary, createScanCounters } from './trading/signalScanner/scanDiagnostics.js';
@@ -65,6 +66,11 @@ describe('scan_blockers_gate3 RRR counters', () => {
       tradeDate: '2026-05-24',
       asOf: '2026-05-24T09:00:00.000Z',
     });
+    const outcomeTracking = summarizeGate3OutcomeSeeds(outcomeSeeds, {
+      tradeDate: '2026-05-24',
+      seedCreatedToday: outcomeSeeds.length,
+    });
+    const thresholdEvidence = buildGate3EvidenceScore(outcomeSeeds);
     const text = formatScanBlockersGate3Section({
       gate1PassCount: 0,
       gate2PassCount: 0,
@@ -114,11 +120,13 @@ describe('scan_blockers_gate3 RRR counters', () => {
         shadowPolicies,
         shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
         outcomeSeeds,
-        outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
-          tradeDate: '2026-05-24',
-          seedCreatedToday: outcomeSeeds.length,
+        outcomeTracking,
+        thresholdEvidence,
+        evidenceWarmup: buildGate3EvidenceWarmupStatus(outcomeSeeds, {
+          now: new Date('2026-05-24T09:00:00.000Z'),
+          outcomeTracking,
+          thresholdEvidenceSampleSize: thresholdEvidence.sampleSize,
         }),
-        thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
       },
     });
 
@@ -140,6 +148,8 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(text).toContain('outcomePending: 1');
     expect(text).toContain('thresholdEvidenceSampleSize: 0');
     expect(text).toContain('thresholdSuggestions: 0');
+    expect(text).toContain('evidenceWarmupSchedulerHealthy: true');
+    expect(text).toContain('evidenceWarmupWarnings: none');
     expect(text).toContain('completionStatus: N/A');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('shadowLearning=true');
@@ -212,6 +222,7 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(gate3.outcomeSeeds.every(seed => seed.marketSignal === false)).toBe(true);
     expect(gate3.thresholdEvidence?.sampleSize).toBe(0);
     expect(gate3.thresholdEvidence?.suggestions.every(item => item.applyMode === 'SUGGEST_ONLY')).toBe(true);
+    expect(gate3.evidenceWarmup?.schedulerHealthy).toBe(true);
     expect(gate3.completionScore?.status).toBe('PARTIAL');
     expect(gate3.liveReadinessScore?.status).toBe('SHADOW_READY');
     expect(formatScanBlockersGate3Section(audit)).toContain('completionStatus: PARTIAL');
@@ -257,6 +268,11 @@ describe('scan_blockers_gate3 RRR counters', () => {
       maxForwardReturnPct: 3,
       minForwardReturnPct: 1,
     }));
+    const outcomeTracking = summarizeGate3OutcomeSeeds(outcomeSeeds, {
+      tradeDate: '2026-05-24',
+      seedCreatedToday: outcomeSeeds.length,
+    });
+    const thresholdEvidence = buildGate3EvidenceScore(outcomeSeeds);
     const gate3Consolidated = {
       samples: 1,
       health: { OK: 1 },
@@ -296,11 +312,13 @@ describe('scan_blockers_gate3 RRR counters', () => {
       shadowPolicies,
       shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
       outcomeSeeds,
-      outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
-        tradeDate: '2026-05-24',
-        seedCreatedToday: outcomeSeeds.length,
+      outcomeTracking,
+      thresholdEvidence,
+      evidenceWarmup: buildGate3EvidenceWarmupStatus(outcomeSeeds, {
+        now: new Date('2026-05-24T09:00:00.000Z'),
+        outcomeTracking,
+        thresholdEvidenceSampleSize: thresholdEvidence.sampleSize,
       }),
-      thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
     };
     const completionScore = buildGate3CompletionScore(gate3Consolidated, { sourceSnapshotId: 'scan-eval:final' });
     const liveReadinessScore = buildLiveReadinessScore({ gate3Completion: completionScore, policy: { shadowOnlyMode: true } });
@@ -322,5 +340,6 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(text).toContain('completionStatus: COMPLETE');
     expect(text).toContain('completionScore: 100/100');
     expect(text).toContain('liveReadinessStatus: SHADOW_READY');
+    expect(text).toContain('evidenceWarmupSchedulerHealthy: true');
   });
 });

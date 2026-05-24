@@ -3,6 +3,7 @@ import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowP
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from '../../../quant/gate3ShadowPolicy.js';
 import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from '../../../quant/gate3OutcomeSeed.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
+import { buildGate3EvidenceWarmupStatus } from '../../../quant/gate3EvidenceWarmup.js';
 import { buildGate3CompletionScore } from '../../../quant/gate3CompletionScore.js';
 import { buildLiveReadinessScore } from '../../../quant/liveReadinessScore.js';
 
@@ -56,6 +57,11 @@ describe('/scan_blockers_gate3 command', () => {
       tradeDate: '2026-05-24',
       asOf: '2026-05-24T09:00:00.000Z',
     });
+    const outcomeTracking = summarizeGate3OutcomeSeeds(outcomeSeeds, {
+      tradeDate: '2026-05-24',
+      seedCreatedToday: outcomeSeeds.length,
+    });
+    const thresholdEvidence = buildGate3EvidenceScore(outcomeSeeds);
     mockSummary = {
       gateLayerAudit: {
         gate1PassCount: 3,
@@ -106,11 +112,13 @@ describe('/scan_blockers_gate3 command', () => {
           shadowPolicies,
           shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
           outcomeSeeds,
-          outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
-            tradeDate: '2026-05-24',
-            seedCreatedToday: outcomeSeeds.length,
+          outcomeTracking,
+          thresholdEvidence,
+          evidenceWarmup: buildGate3EvidenceWarmupStatus(outcomeSeeds, {
+            now: new Date('2026-05-24T09:00:00.000Z'),
+            outcomeTracking,
+            thresholdEvidenceSampleSize: thresholdEvidence.sampleSize,
           }),
-          thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
         },
       },
     };
@@ -164,6 +172,8 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('Gate3 Outcome Tracking');
     expect(text).toContain('seedCreatedToday: 1');
     expect(text).toContain('READY: pending 1 / labeled 0');
+    expect(text).toContain('Gate3 Evidence Warm-up');
+    expect(text).toContain('schedulerHealthy: true');
     expect(text).toContain('Gate3 Threshold Evidence');
     expect(text).toContain('sampleSize: 0');
     expect(text).toContain('applyMode=SUGGEST_ONLY');

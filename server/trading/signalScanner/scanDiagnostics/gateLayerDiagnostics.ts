@@ -40,6 +40,10 @@ import {
   type Gate3EvidenceScore,
 } from '../../../quant/gate3EvidenceScore.js';
 import {
+  buildGate3EvidenceWarmupStatus,
+  type Gate3EvidenceWarmupStatus,
+} from '../../../quant/gate3EvidenceWarmup.js';
+import {
   buildGate3CompletionScore,
   type Gate3CompletionScore,
 } from '../../../quant/gate3CompletionScore.js';
@@ -118,6 +122,7 @@ export interface Gate3ConsolidatedAuditSummary {
   outcomeSeeds: Gate3OutcomeSeed[];
   outcomeTracking: Gate3OutcomeTrackingSummary;
   thresholdEvidence?: Gate3EvidenceScore;
+  evidenceWarmup?: Gate3EvidenceWarmupStatus;
   completionScore?: Gate3CompletionScore;
   liveReadinessScore?: LiveReadinessScore;
 }
@@ -286,6 +291,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       outcomeSeeds: [],
       outcomeTracking: summarizeGate3OutcomeSeeds([]),
       thresholdEvidence: buildGate3EvidenceScore([]),
+      evidenceWarmup: buildGate3EvidenceWarmupStatus([]),
     },
   };
 }
@@ -470,6 +476,11 @@ export function buildGateLayerAuditSummary(
     tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
     gate3SnapshotId: options.gate3SnapshotId ?? (options.sourceSnapshotId ? `${options.sourceSnapshotId}:gate3` : undefined),
   });
+  const outcomeTracking = summarizeGate3OutcomeSeeds(outcomeSeeds, {
+    tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
+    seedCreatedToday: outcomeSeeds.length,
+  });
+  const thresholdEvidence = buildGate3EvidenceScore(outcomeSeeds);
   const gate3Consolidated = {
     ...counters.gateLayerAudit.gate3Consolidated,
     candidateDetails: gate3Details,
@@ -477,11 +488,14 @@ export function buildGateLayerAuditSummary(
     shadowPolicies,
     shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
     outcomeSeeds,
-    outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
-      tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
-      seedCreatedToday: outcomeSeeds.length,
+    outcomeTracking,
+    thresholdEvidence,
+    evidenceWarmup: buildGate3EvidenceWarmupStatus(outcomeSeeds, {
+      outcomeTracking,
+      thresholdEvidenceSampleSize: thresholdEvidence.sampleSize,
+      duplicateSuppressed: outcomeTracking.duplicateSuppressed,
+      ...(options.asOf ? { now: new Date(options.asOf) } : {}),
     }),
-    thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
   };
   gate3Consolidated.completionScore = buildGate3CompletionScore(gate3Consolidated, {
     sourceSnapshotId: options.sourceSnapshotId,
