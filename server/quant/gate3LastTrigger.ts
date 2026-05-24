@@ -1,5 +1,11 @@
 // @responsibility Gate3 last-trigger and entry price readiness helpers.
 
+import {
+  buildGate3RrrInput,
+  type Gate3RrrInput,
+  type Gate3RrrStatus,
+} from './gate3RrrBuilder.js';
+
 export type Gate3LastTriggerStatus =
   | 'FIRED'
   | 'THRESHOLD_NOT_MET'
@@ -36,8 +42,15 @@ export interface Gate3RrrCheckDiagnostic {
   rrr: number | null;
   requiredRrr: 2.0;
   passed: boolean;
-  status: 'PASS' | 'FAIL' | 'MISSING';
+  status: Gate3RrrStatus;
   reason: string | null;
+  entryPrice: number | null;
+  stopLoss: number | null;
+  targetPrice: number | null;
+  source: Gate3RrrInput['source'];
+  missingFields: string[];
+  notes: string[];
+  fallbackUsed: boolean;
   marketSignal: false;
 }
 
@@ -191,31 +204,28 @@ export function buildGate3EntryPriceGuard(input: {
 }
 
 export function buildGate3RrrCheck(quote: Record<string, unknown>): Gate3RrrCheckDiagnostic {
-  const currentPrice = firstPositive(quote, ['currentPrice', 'price', 'close', 'entryPrice', 'resolvedEntryPrice']);
-  const target = firstPositive(quote, ['targetPrice', 'takeProfitPrice', 'expectedTargetPrice']);
-  const stop = firstPositive(quote, ['stopLossPrice', 'stopPrice', 'riskStopPrice']);
-  const explicit = firstFinite(quote, ['rrr', 'riskRewardRatio', 'rewardRiskRatio']);
-  const calculated = currentPrice != null && target != null && stop != null && currentPrice > stop
-    ? (target - currentPrice) / (currentPrice - stop)
-    : null;
-  const rrr = explicit ?? calculated;
-  if (rrr == null || !Number.isFinite(rrr)) {
-    return {
-      rrr: null,
-      requiredRrr: 2.0,
-      passed: false,
-      status: 'MISSING',
-      reason: 'RRR_MISSING',
-      marketSignal: false,
-    };
-  }
-  const passed = rrr >= 2.0;
+  const built = buildGate3RrrInput(quote);
+  const passed = built.status === 'PASS';
+  const reason = built.status === 'PASS'
+    ? null
+    : built.status === 'WATCH'
+      ? 'RRR_WATCH'
+      : built.status === 'FAIL'
+        ? 'RRR_FAIL'
+        : 'RRR_MISSING';
   return {
-    rrr,
+    rrr: built.rrr,
     requiredRrr: 2.0,
     passed,
-    status: passed ? 'PASS' : 'FAIL',
-    reason: passed ? null : 'RRR_BELOW_2_0',
+    status: built.status,
+    reason,
+    entryPrice: built.entryPrice,
+    stopLoss: built.stopLoss,
+    targetPrice: built.targetPrice,
+    source: built.source,
+    missingFields: built.missingFields,
+    notes: built.notes,
+    fallbackUsed: built.fallbackUsed,
     marketSignal: false,
   };
 }
@@ -390,7 +400,7 @@ export function evaluateGate3LastTrigger(input: {
     status: 'FIRED',
     fired: true,
     reason: 'FIRED',
-    detail: `LastTrigger FIRED: price=${priceBreakout} volume=${volumeConfirmation} rrr=${rrrCheck.rrr?.toFixed(1) ?? 'n/a'}`,
+    detail: `LastTrigger FIRED: price=${priceBreakout} volume=${volumeConfirmation} rrr=${rrrCheck.rrr?.toFixed(1) ?? 'n/a'} source=${rrrCheck.source}`,
     priceBreakout,
     volumeConfirmation,
     vcp,

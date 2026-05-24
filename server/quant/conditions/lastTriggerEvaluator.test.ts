@@ -37,10 +37,33 @@ describe('lastTriggerEvaluator', () => {
     expect(result?.detail).toContain('ENTRY_PRICE_STALE');
   });
 
-  it('RRR below 2.0 -> THRESHOLD_NOT_MET', () => {
+  it('rrr WATCH -> THRESHOLD_NOT_MET', () => {
     const result = lastTriggerEvaluator.evaluate(ctx({ rrr: 1.6 }));
     expect(result?.status).toBe('THRESHOLD_NOT_MET');
-    expect(result?.detail).toContain('RRR_BELOW_2_0');
+    expect(result?.detail).toContain('RRR_WATCH');
+  });
+
+  it('rrr FAIL -> THRESHOLD_NOT_MET', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({ rrr: 1.2 }));
+    expect(result?.status).toBe('THRESHOLD_NOT_MET');
+    expect(result?.detail).toContain('RRR_FAIL');
+  });
+
+  it('rrr MISSING -> DATA_UNAVAILABLE', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({ rrr: undefined, targetPrice: 9_900, stopLoss: 9_300 }));
+    expect(result?.status).toBe('DATA_UNAVAILABLE');
+    expect(result?.detail).toContain('RRR_MISSING');
+  });
+
+  it('priceFresh VERIFIED but rrr missing keeps RRR_MISSING issue', () => {
+    const result = lastTriggerEvaluator.evaluate(ctx({
+      rrr: undefined,
+      targetPrice: 9_900,
+      stopLoss: 9_300,
+      priceFreshness: 'VERIFIED',
+    }));
+    expect(result?.status).toBe('DATA_UNAVAILABLE');
+    expect(result?.detail).toContain('RRR_MISSING');
   });
 
   it('falseBreakoutRisk HIGH -> THRESHOLD_NOT_MET', () => {

@@ -28,7 +28,7 @@ describe('/scan_blockers_gate3 command', () => {
           health: { TIMING_NOT_CONFIRMED: 1, OK: 1 },
           primaryIssue: { RRR_BELOW_2_0: 1, none: 1 },
           compactText: {
-            'Gate3: WAIT | issue=RRR_BELOW_2_0 | priceFresh=VERIFIED | rrr=1.6 | falseBreakout=LOW | executionImpact=NONE | marketSignal=false': 1,
+            'Gate3: WAIT | issue=RRR_FAIL | priceFresh=VERIFIED | rrr=1.20 FAIL | rrrSource=FALLBACK_PERCENT | falseBreakout=LOW | executionImpact=NONE | marketSignal=false': 1,
           },
           timingReadiness: { WAIT: 1, READY: 1 },
           lastTriggerStatus: { THRESHOLD_NOT_MET: 1, FIRED: 1 },
@@ -37,7 +37,11 @@ describe('/scan_blockers_gate3 command', () => {
           lastTriggerPassCount: 1,
           lastTriggerWaitCount: 1,
           entryPriceStaleCount: 0,
+          rrrPassCount: 1,
+          rrrWatchCount: 0,
           rrrFailCount: 1,
+          rrrMissingCount: 0,
+          rrrFallbackUsedCount: 1,
           falseBreakoutHighCount: 0,
           executionReadyCount: 1,
         },
@@ -70,7 +74,10 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('gate3Pass: 1');
     expect(text).toContain('lastTriggerPass: 1');
     expect(text).toContain('lastTriggerWait: 1');
+    expect(text).toContain('rrrPass: 1');
     expect(text).toContain('rrrFail: 1');
+    expect(text).toContain('rrrMissing: 0');
+    expect(text).toContain('rrrSource=FALLBACK_PERCENT');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('no scan execution');
   }, 15000);

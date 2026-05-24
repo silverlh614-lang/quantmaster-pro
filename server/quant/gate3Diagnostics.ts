@@ -1239,6 +1239,12 @@ export function buildGate3ExternalDataCoverage(quote: Record<string, unknown>): 
     quote: {
       ...quote,
       currentPrice: priceDiag.currentPrice ?? quote.currentPrice ?? quote.price,
+      recentSwingLow: pullbackDiag.swing.recentSwingLow ?? priceDiag.low20d ?? quote.recentSwingLow,
+      ma20: pullbackDiag.movingAverageSupport.ma20 ?? quote.ma20,
+      atr14: volumeTiming.vcp.atr14 ?? quote.atr14 ?? quote.atr,
+      recentResistance: quote.recentResistance ?? priceDiag.high20d,
+      boxHigh: pullbackDiag.boxRetest.boxTop ?? quote.boxHigh ?? priceDiag.high20d,
+      boxLow: pullbackDiag.boxRetest.boxBottom ?? quote.boxLow ?? priceDiag.low20d,
       falseBreakoutRisk: falseBreakoutDiag.falseBreakout.status,
     },
   });

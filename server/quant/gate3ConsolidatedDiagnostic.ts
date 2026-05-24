@@ -106,6 +106,9 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
   const priceFreshness = asString(entryPriceGuard.priceFreshness) ?? 'UNKNOWN';
   const rrrValue = asNumber(rrrCheck.rrr);
   const rrrStatus = asString(rrrCheck.status) ?? 'UNKNOWN';
+  const rrrSource = asString(rrrCheck.source) ?? 'MISSING';
+  const stopLoss = asNumber(rrrCheck.stopLoss);
+  const targetPrice = asNumber(rrrCheck.targetPrice);
   const executionImpact = (asString(lastTriggerRecord.executionImpact) ?? asString(executionReadinessRecord.executionImpact) ?? 'DIAGNOSTIC_ONLY') as Gate3ExecutionImpact;
   const intradaySession = asString(sessionCompatibility.session) ?? 'UNKNOWN';
   const eodOnlyExpected = ['AFTERMARKET', 'CLOSED', 'HOLIDAY'].includes(intradaySession);
@@ -190,20 +193,22 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
     health = 'TIMING_NOT_CONFIRMED';
   }
 
-  const rrrText = rrrValue == null ? 'MISSING' : rrrValue.toFixed(1);
+  const rrrText = rrrValue == null ? 'MISSING' : `${rrrValue.toFixed(2)} ${rrrStatus}`;
+  const stopLossText = stopLoss == null ? 'MISSING' : stopLoss.toFixed(0);
+  const targetPriceText = targetPrice == null ? 'MISSING' : targetPrice.toFixed(0);
   const summary = primaryIssue ? `Gate3 diagnostic issue: ${primaryIssue}.` : 'Gate3 timing diagnostic dashboard is healthy.';
   const compactText = timingReadiness === 'READY'
-    ? `Gate3: READY | trigger=FIRED | priceFresh=${priceFreshness} | rrr=${rrrText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | marketSignal=false`
+    ? `Gate3: READY | trigger=FIRED | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | marketSignal=false`
     : timingReadiness === 'WAIT'
-      ? `Gate3: WAIT | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`
-      : `Gate3: DATA_INCOMPLETE | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`;
+      ? `Gate3: WAIT | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`
+      : `Gate3: DATA_INCOMPLETE | issue=${lastTriggerReason} | priceFresh=${priceFreshness} | rrr=${rrrText} | rrrSource=${rrrSource} | stopLoss=${stopLossText} | targetPrice=${targetPriceText} | volume=${timingAlignment.volume} | price=${timingAlignment.priceBreakout} | falseBreakout=${timingAlignment.falseBreakoutRisk} | executionImpact=${executionImpact} | marketSignal=false`;
   const telegramLines = [
     '🧩 Gate3 Timing',
     `상태: ${health}`,
     primaryIssue ? `주요 이슈: ${primaryIssue}` : null,
     `LastTrigger: ${lastTriggerStatus}`,
     `PriceFresh: ${priceFreshness}`,
-    `RRR: ${rrrText}`,
+    `RRR: ${rrrText} (${rrrSource})`,
     `Volume: ${timingAlignment.volume}`,
     `Price: ${timingAlignment.priceBreakout}`,
     `Momentum: ${timingAlignment.momentum}`,
@@ -258,7 +263,7 @@ export function buildGate3ConsolidatedDiagnostic(input: { gate3: Gate3Bucket }):
       pullback: [`status=${dataReadiness.pullbackSupport}`, `pullback=${timingAlignment.pullback}`],
       falseBreakout: [`status=${dataReadiness.falseBreakout}`, `risk=${timingAlignment.falseBreakoutRisk}`, `exhaustion=${asString(exhaustion.status) ?? 'UNKNOWN'}`],
       intraday: [`status=${dataReadiness.intradayTiming}`, `dataMode=${asString(intraday.dataMode) ?? 'UNKNOWN'}`, `lastTick=${asString(lastTick.status) ?? 'UNKNOWN'}`],
-      lastTrigger: [`status=${lastTriggerStatus}`, `reason=${lastTriggerReason}`, `priceFresh=${priceFreshness}`, `rrr=${rrrText}`, `executionImpact=${executionImpact}`],
+      lastTrigger: [`status=${lastTriggerStatus}`, `reason=${lastTriggerReason}`, `priceFresh=${priceFreshness}`, `rrr=${rrrText}`, `rrrSource=${rrrSource}`, `stopLoss=${stopLossText}`, `targetPrice=${targetPriceText}`, `executionImpact=${executionImpact}`],
     },
     compactText,
     telegramText: telegramLines.join('\n'),

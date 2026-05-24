@@ -37,6 +37,8 @@ function baseQuote(overrides: QuoteLike = {}): YahooQuoteExtended {
     recentVolumeAvg3d: 300_000,
     contractionCount: 3,
     rangeContraction: 0.2,
+    entryPriceAgeSec: 20,
+    entryPriceSource: 'KIS_REALTIME',
     ...overrides,
   } as unknown as YahooQuoteExtended;
 }

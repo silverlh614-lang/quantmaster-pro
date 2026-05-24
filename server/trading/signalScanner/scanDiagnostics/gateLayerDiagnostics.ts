@@ -55,7 +55,11 @@ export interface Gate3ConsolidatedAuditSummary {
   lastTriggerPassCount: number;
   lastTriggerWaitCount: number;
   entryPriceStaleCount: number;
+  rrrPassCount: number;
+  rrrWatchCount: number;
   rrrFailCount: number;
+  rrrMissingCount: number;
+  rrrFallbackUsedCount: number;
   falseBreakoutHighCount: number;
   executionReadyCount: number;
 }
@@ -166,7 +170,11 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       lastTriggerPassCount: 0,
       lastTriggerWaitCount: 0,
       entryPriceStaleCount: 0,
+      rrrPassCount: 0,
+      rrrWatchCount: 0,
       rrrFailCount: 0,
+      rrrMissingCount: 0,
+      rrrFallbackUsedCount: 0,
       falseBreakoutHighCount: 0,
       executionReadyCount: 0,
     },
@@ -282,7 +290,11 @@ export function accumulateGateLayerSummary(
     if (lastTrigger.fired === true || lastTrigger.status === 'FIRED') counters.gateLayerAudit.gate3Consolidated.lastTriggerPassCount += 1;
     else counters.gateLayerAudit.gate3Consolidated.lastTriggerWaitCount += 1;
     if (entryPriceGuard.priceFreshness === 'STALE' || entryPriceGuard.blockReason === 'ENTRY_PRICE_STALE') counters.gateLayerAudit.gate3Consolidated.entryPriceStaleCount += 1;
+    if (rrrCheck.status === 'PASS') counters.gateLayerAudit.gate3Consolidated.rrrPassCount += 1;
+    if (rrrCheck.status === 'WATCH') counters.gateLayerAudit.gate3Consolidated.rrrWatchCount += 1;
     if (rrrCheck.status === 'FAIL') counters.gateLayerAudit.gate3Consolidated.rrrFailCount += 1;
+    if (rrrCheck.status === 'MISSING') counters.gateLayerAudit.gate3Consolidated.rrrMissingCount += 1;
+    if (rrrCheck.fallbackUsed === true || rrrCheck.source === 'FALLBACK_PERCENT') counters.gateLayerAudit.gate3Consolidated.rrrFallbackUsedCount += 1;
     if (gate3Consolidated.falseBreakoutRisk === 'HIGH') counters.gateLayerAudit.gate3Consolidated.falseBreakoutHighCount += 1;
     if (lastTrigger.executionReady === true) counters.gateLayerAudit.gate3Consolidated.executionReadyCount += 1;
     if (typeof gate3Consolidated.compactText === 'string' && gate3Consolidated.compactText.length > 0) {
@@ -444,7 +456,11 @@ export function formatGate3TimingReadinessAuditSection(summary: Gate3Consolidate
     `  lastTriggerWait: ${summary.lastTriggerWaitCount}`,
     `  entryPriceFresh: ${topKey(summary.priceFreshness)}`,
     `  entryPriceStaleBlocked: ${summary.entryPriceStaleCount}`,
+    `  rrrPass: ${summary.rrrPassCount}`,
+    `  rrrWatch: ${summary.rrrWatchCount}`,
     `  rrrFail: ${summary.rrrFailCount}`,
+    `  rrrMissing: ${summary.rrrMissingCount}`,
+    `  rrrFallbackUsed: ${summary.rrrFallbackUsedCount}`,
     `  falseBreakoutHigh: ${summary.falseBreakoutHighCount}`,
     `  executionReady: ${summary.executionReadyCount}`,
     `  executionImpact: ${topKey(summary.executionImpact)}`,

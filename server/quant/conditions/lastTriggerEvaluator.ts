@@ -25,9 +25,6 @@ export const lastTriggerEvaluator: ConditionEvaluator = {
     'quote.avgVolume',
     'quote.rsi14',
     'quote.macdHistogram',
-    'quote.rrr',
-    'quote.entryPriceAgeSec',
-    'quote.falseBreakoutRisk',
   ],
   evaluate({ quote, weights }) {
     const result = evaluateGate3LastTrigger({ quote: quote as unknown as Record<string, unknown> });
