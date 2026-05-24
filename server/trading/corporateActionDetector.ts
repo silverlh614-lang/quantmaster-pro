@@ -47,6 +47,8 @@ export const CORPORATE_ACTION_THRESHOLDS = {
   /** ADR-0301 ENV legacy — `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 활성 */
   LEGACY_STRONG_DRIFT_PCT: 150,
   LEGACY_RIGHTS_DRIFT_MAX: 150,
+  /** 한국 시장 일일 가격제한폭(±%). 단일일 이 한계 초과는 organic 불가 → 코퍼레이트 액션. */
+  KOREAN_DAILY_LIMIT_PCT: 30,
 } as const;
 
 const NOT_DETECTED: CorporateActionResult = {
@@ -103,6 +105,57 @@ export function isAbsoluteDeadZoneDrift(driftPct: number): boolean {
 export function isStrongDriftSuspected(driftPct: number): boolean {
   if (!Number.isFinite(driftPct)) return false;
   return Math.abs(driftPct) > activeStrongDriftPct();
+}
+
+/**
+ * 일일 가격제한폭 기반 organic 타당성 가드 비활성 ENV.
+ * `CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED=true` → 가드 끔(기존 절대-임계 동작 복원).
+ * ADR-0157 정확 비교 의무.
+ */
+export function isCorporateActionDailyLimitGuardDisabled(): boolean {
+  return process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED === 'true';
+}
+
+/**
+ * N 영업일 동안 한국 ±30% 일일 제한폭으로 *이론상* 달성 가능한 최대 누적 drift(%).
+ * 단일일 상한이 +30% 이므로 N 일 복리 = (1.30^N − 1)×100. N 은 최소 1 로 floor.
+ */
+export function maxOrganicDriftPct(elapsedTradingDays: number): number {
+  const limit = CORPORATE_ACTION_THRESHOLDS.KOREAN_DAILY_LIMIT_PCT / 100;
+  const n = Number.isFinite(elapsedTradingDays) ? Math.max(1, Math.floor(elapsedTradingDays)) : 1;
+  return (Math.pow(1 + limit, n) - 1) * 100;
+}
+
+/**
+ * 진입 ISO 시각으로부터 경과 영업일(근사). 캘린더 일수 × 5/7. 미래/무효 → 0.
+ * (외부 캘린더 의존 없이 watchlistManager 가 코퍼레이트 액션 SSOT 를 통해 사용.)
+ */
+export function approxTradingDaysSince(entryIso: string | undefined, now: Date = new Date()): number {
+  if (!entryIso) return 0;
+  const entryMs = Date.parse(entryIso);
+  if (!Number.isFinite(entryMs)) return 0;
+  const diffMs = now.getTime() - entryMs;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
+  return (diffMs / (24 * 3600 * 1000)) * (5 / 7);
+}
+
+/**
+ * 누적 *상승* drift 가 경과 영업일 동안 ±30% 일일 제한폭으로 organic 하게 달성 가능한가?
+ * true → 정상 모멘텀(점진적 상승)으로 코퍼레이트 액션/데이터 오염 아님 → 일반 drift 처리.
+ *
+ * 호출자(watchlistManager.applyEntryPriceDrift)가 addedAt 윈도우 컨텍스트로 직접 사용.
+ * detectCorporateAction 자체는 magnitude-only 로 유지 (윈도우 판정은 caller 책임).
+ *
+ * - **양(+) drift 에만 적용** — 하락 drift 는 붕괴/데이터 이슈 가능성이라 면제 대상 아님.
+ * - ENV 가드 비활성 시 항상 false (기존 절대-임계 동작).
+ * - elapsedTradingDays 미제공/무효 → 윈도우 판정 불가 → 보수적으로 1 일(=+30%) 적용.
+ * - NaN drift → false.
+ */
+export function isOrganicallyPlausibleDrift(driftPct: number, elapsedTradingDays?: number): boolean {
+  if (isCorporateActionDailyLimitGuardDisabled()) return false;
+  if (!Number.isFinite(driftPct)) return false;
+  if (driftPct <= 0) return false;
+  return driftPct <= maxOrganicDriftPct(elapsedTradingDays ?? 1);
 }
 
 /**

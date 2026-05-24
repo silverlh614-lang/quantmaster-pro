@@ -22,8 +22,10 @@ import { loadWatchlist, saveWatchlist, type WatchlistEntry, type WatchlistSectio
 import { syncDetachedFromWatchlist } from './watchlistDetachmentSync.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import {
+  approxTradingDaysSince,
   detectCorporateAction,
   isAbsoluteDeadZoneDrift,
+  isOrganicallyPlausibleDrift,
   isStrongDriftSuspected,
 } from '../trading/corporateActionDetector.js';
 import { safePctChangeStrict } from '../utils/safePctChange.js';
@@ -101,6 +103,9 @@ export const ENTRY_PRICE_DRIFT_PCT = 10;
  *  - drift > 80% (ADR-0301 STRONG, ADR-0113): 'CORPORATE_ACTION' — 분할/병합/권리락 의심.
  *    ADR-0115: default 동작 universe 제외 + entryPrice 보존. 2:1 분할 +100% 시나리오 포함.
  *    ENV `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 150% 임계 복원 (ADR-0113 동작).
+ *    **단, 한국 ±30% 일일 제한폭 기준 경과 영업일 동안 organic 달성 가능한 누적 상승은
+ *    코퍼레이트 액션이 아니다 — 정상 drift 처리(REMOVE/UPDATE). 단일일 갭(분할/권리락)만 격리.
+ *    ENV `CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED=true` 시 이 가드 끔(절대-임계 복원).**
  *  - **drift sanity 위반 (ADR-0117): 'DATA_HOLD' — drift 업데이트 금지 + 격리.
  *    호출자가 isDataQuarantined=true + dataQuality 영속 의무.**
  *  - 그 외 또는 미도달: 'KEEP'
@@ -110,17 +115,30 @@ export function applyEntryPriceDrift(
   currentPrice: number,
 ): 'REMOVE' | 'UPDATE' | 'KEEP' | 'CORPORATE_ACTION' | 'DATA_HOLD' {
   if (currentPrice <= 0 || entry.entryPrice <= 0) return 'KEEP';
-  const absDriftRaw = Math.abs(((currentPrice - entry.entryPrice) / entry.entryPrice) * 100);
+  const signedDriftRaw = ((currentPrice - entry.entryPrice) / entry.entryPrice) * 100;
+  const absDriftRaw = Math.abs(signedDriftRaw);
   // ADR-0301: ABSOLUTE_DEAD_ZONE (>250%) — 실제 데이터 오염, 코퍼레이트 액션 아님 → DATA_HOLD 우선.
   if (isAbsoluteDeadZoneDrift(absDriftRaw)) return 'DATA_HOLD';
-  // ADR-0113 + ADR-0301: drift > STRONG 임계 (default 80%, legacy 150%) 시 CORPORATE_ACTION 분류.
-  // 1차 로그 098460 고영 +221% / 336260 두산테스나 +207% + 2:1 분할 +100% 사례 영구 차단.
-  if (isStrongDriftSuspected(absDriftRaw)) {
+
+  // 한국 ±30% 일일 가격제한폭 기준 organic 타당성 — 경과 영업일 동안 점진적으로
+  // 달성 가능한 누적 *상승*(예: 수 주에 걸친 +99.6% 모멘텀 랠리)은 분할/병합/권리락이
+  // *아니다*. entryPrice 설정 시각(코퍼레이트 액션 보정 시각 우선) 이후 경과로 판정.
+  // 하락 drift 는 면제 대상 아님(붕괴/데이터 이슈) — 부호 보존 입력으로 양수만 면제.
+  const baseIso = entry.corporateActionAdjustedAt ?? entry.addedAt;
+  const elapsedTradingDays = approxTradingDaysSince(baseIso);
+  const organic = isOrganicallyPlausibleDrift(signedDriftRaw, elapsedTradingDays);
+
+  // ADR-0113 + ADR-0301: drift > STRONG 임계 (default 80%) 시 CORPORATE_ACTION 분류.
+  // 단, 경과 영업일 동안 organic 달성 가능한 상승이면(단일일 갭 아님) 오탐이므로 제외.
+  // 1차 로그 098460 고영 +221% / 336260 두산테스나 +207% + 2:1 분할 +100% 단일일 사례는 유지.
+  if (!organic && isStrongDriftSuspected(absDriftRaw)) {
     const action = detectCorporateAction({ driftPct: absDriftRaw });
     if (action.detected) return 'CORPORATE_ACTION';
   }
   // ADR-0117: drift 산출은 *거래 차단 게이트* — sanity 위반 시 DATA_HOLD 반환.
   // 호출자(perSymbolEvaluation) 가 entry.dataQuality 영속 + isDataQuarantined 마커 부여.
+  // 단, organic 으로 검증된 누적 상승은 데이터 오염이 아니므로 DATA_HOLD 로 격리하지 않고
+  // 정상 drift 처리(AUTO=REMOVE / MANUAL=UPDATE)로 흘려보낸다.
   const driftStrict = safePctChangeStrict({
     current: currentPrice,
     base: entry.entryPrice,
@@ -128,8 +146,11 @@ export function applyEntryPriceDrift(
     context: `watchlistManager.drift:${entry.code}`,
     maxAbsPct: 90,
   });
-  if (!driftStrict.ok) return 'DATA_HOLD';
-  const driftPct = driftStrict.pct;
+  if (!driftStrict.ok) {
+    if (!organic) return 'DATA_HOLD';
+    // organic & >90% — 정상 급등. 아래 일반 drift 처리로 진행.
+  }
+  const driftPct = driftStrict.pct ?? ((currentPrice - entry.entryPrice) / entry.entryPrice) * 100;
   if (driftPct === null || driftPct < ENTRY_PRICE_DRIFT_PCT) return 'KEEP';
   return entry.addedBy === 'MANUAL' ? 'UPDATE' : 'REMOVE';
 }

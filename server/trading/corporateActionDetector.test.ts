@@ -4,21 +4,27 @@ import {
   activeAbsoluteDeadZoneLimit,
   activeRightsDriftMaxPct,
   activeStrongDriftPct,
+  approxTradingDaysSince,
   CORPORATE_ACTION_THRESHOLDS,
   detectCorporateAction,
   isAbsoluteDeadZoneDrift,
+  isCorporateActionDailyLimitGuardDisabled,
   isCorporateActionDetectorDisabled,
   isCorporateActionLegacyThresholds,
+  isOrganicallyPlausibleDrift,
   isStrongDriftSuspected,
+  maxOrganicDriftPct,
   type CorporateActionResult,
 } from './corporateActionDetector.js';
 
 const ORIGINAL_DISABLED = process.env.CORPORATE_ACTION_DETECTOR_DISABLED;
 const ORIGINAL_LEGACY = process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
+const ORIGINAL_DAILY_GUARD = process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED;
 
 beforeEach(() => {
   delete process.env.CORPORATE_ACTION_DETECTOR_DISABLED;
   delete process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
+  delete process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED;
 });
 
 afterEach(() => {
@@ -26,6 +32,8 @@ afterEach(() => {
   else process.env.CORPORATE_ACTION_DETECTOR_DISABLED = ORIGINAL_DISABLED;
   if (ORIGINAL_LEGACY === undefined) delete process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS;
   else process.env.CORPORATE_ACTION_LEGACY_THRESHOLDS = ORIGINAL_LEGACY;
+  if (ORIGINAL_DAILY_GUARD === undefined) delete process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED;
+  else process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED = ORIGINAL_DAILY_GUARD;
 });
 
 describe('CORPORATE_ACTION_THRESHOLDS SSOT (ADR-0301)', () => {
@@ -272,5 +280,63 @@ describe('detectCorporateAction — 분류 규칙', () => {
     expect(typeof r.type).toBe('string');
     expect(typeof r.driftPct).toBe('number');
     expect(typeof r.reason).toBe('string');
+  });
+});
+
+describe('organic 타당성 가드 (한국 ±30% 일일 제한폭)', () => {
+  it('maxOrganicDriftPct — 1일=30%, 2일≈69%, 3일≈119.7%', () => {
+    expect(maxOrganicDriftPct(1)).toBeCloseTo(30, 5);
+    expect(maxOrganicDriftPct(2)).toBeCloseTo(69, 5);
+    expect(maxOrganicDriftPct(3)).toBeCloseTo(119.7, 1);
+  });
+
+  it('maxOrganicDriftPct — N<1 또는 무효는 1일(30%)로 floor', () => {
+    expect(maxOrganicDriftPct(0)).toBeCloseTo(30, 5);
+    expect(maxOrganicDriftPct(-5)).toBeCloseTo(30, 5);
+    expect(maxOrganicDriftPct(NaN)).toBeCloseTo(30, 5);
+  });
+
+  it('isOrganicallyPlausibleDrift — +99.6% 가 14영업일 보유면 organic (코퍼레이트 액션 아님)', () => {
+    expect(isOrganicallyPlausibleDrift(99.6, 14)).toBe(true);
+  });
+
+  it('isOrganicallyPlausibleDrift — +99.6% 가 2영업일 보유면 implausible (단일일 갭 의심)', () => {
+    expect(isOrganicallyPlausibleDrift(99.6, 2)).toBe(false);
+  });
+
+  it('isOrganicallyPlausibleDrift — 2:1 분할 +100% 단일일(1d)은 implausible', () => {
+    expect(isOrganicallyPlausibleDrift(100, 1)).toBe(false);
+  });
+
+  it('isOrganicallyPlausibleDrift — 하락 drift(-95%)는 면제 대상 아님(positive-only)', () => {
+    expect(isOrganicallyPlausibleDrift(-95, 14)).toBe(false);
+    expect(isOrganicallyPlausibleDrift(-30, 5)).toBe(false);
+  });
+
+  it('isOrganicallyPlausibleDrift — ENV 가드 비활성 시 항상 false(기존 동작)', () => {
+    process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED = 'true';
+    expect(isCorporateActionDailyLimitGuardDisabled()).toBe(true);
+    expect(isOrganicallyPlausibleDrift(99.6, 14)).toBe(false);
+  });
+
+  it('detectCorporateAction — magnitude-only 유지(윈도우 판정은 caller 책임)', () => {
+    // 디텍터 자체는 시간 윈도우를 보지 않는다 — +99.6% 는 항상 SPLIT 의심.
+    const r = detectCorporateAction({ driftPct: 99.6 });
+    expect(r.detected).toBe(true);
+    expect(r.type).toBe('SPLIT');
+  });
+
+  it('approxTradingDaysSince — 14일 전 ISO → 약 10영업일(±1)', () => {
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
+    const days = approxTradingDaysSince(fourteenDaysAgo);
+    expect(days).toBeGreaterThan(9);
+    expect(days).toBeLessThan(11);
+  });
+
+  it('approxTradingDaysSince — 무효/미래 → 0', () => {
+    expect(approxTradingDaysSince(undefined)).toBe(0);
+    expect(approxTradingDaysSince('not-a-date')).toBe(0);
+    const future = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString();
+    expect(approxTradingDaysSince(future)).toBe(0);
   });
 });
