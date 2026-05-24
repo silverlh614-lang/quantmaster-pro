@@ -100,6 +100,11 @@ runtime 동작 변경 여부 · rollback 필요 여부.
 
 분류: BASELINE_EXISTING_FAILURE / NEW_REGRESSION / SCRIPT_MISSING / ENVIRONMENT_BLOCKED.
 
+**Baseline Failure Burn-down (ADR-534):** 현재 310 baseline 실패는 도메인/위험도/원인별로 분류돼 LOW→HIGH 순
+소규모 후속 ADR(535+)로 제거한다 — 한 번에 고치지 않는다. 핵심: typecheck=0 → type-shape fixture drift 부재,
+실패 본질은 런타임 assertion. 같은 ADR 에서 무관 실패를 섞지 말고, 3개 도메인 초과 시 분리.
+도메인 분류·후속 ADR 지도 → `docs/archive/adr/adr-534-baseline-failure-burndown.md`.
+
 ---
 
 ## Required Validation by Domain (ADR-533)

@@ -92,6 +92,13 @@
 - **Current Relevance:** 패치가 type error 0·test 실패 ≤310 유지하는지 판정.
 - **Detail:** `docs/archive/adr/adr-533-typecheck-baseline-no-regression.md` (검색어 `ADR-533`)
 
+### ADR-534 — Baseline Failure Burn-down Plan
+- **Status:** Completed · **Domain:** validation baseline / failure taxonomy / burn-down planning
+- **Problem:** 310 baseline 실패를 한 번에 고치면 위험 — 분류·우선순위·소규모 분할 필요.
+- **Decision:** 도메인(trading 52·clients 8·telegram 7·learning 7·scripts 7 등)/위험도 분류 + taxonomy + 후속 ADR(535~539) 지도. **핵심: typecheck=0 → type-shape fixture drift 부재, 실패는 런타임 assertion.** 코드 0줄.
+- **Current Relevance:** burn-down 후속 ADR 범위/순서 결정 시 참조.
+- **Detail:** `docs/archive/adr/adr-534-baseline-failure-burndown.md` (검색어 `ADR-534`)
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -505,3 +512,4 @@
 - 2026-05-24 · ADR-531
 - 2026-05-24 · ADR-532
 - 2026-05-24 · ADR-533
+- 2026-05-24 · ADR-534
