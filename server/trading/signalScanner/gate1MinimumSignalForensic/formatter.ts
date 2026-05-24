@@ -213,7 +213,30 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
   if (summary.watchlistScoreScaleDistribution) {
     lines.push(`- watchlistScoreScaleDistribution: ${formatDistribution(summary.watchlistScoreScaleDistribution)}`);
   }
+  lines.push(
+    `- watchlistScoreNormalized=${count(summary.watchlistScoreNormalized)}/${summary.totalCandidates} watchlistScoreMissing=${count(summary.watchlistScoreMissing)} watchlistScoreScaleFixed=${count(summary.watchlistScoreScaleFixed)} promotionScoreCopied=${count(summary.promotionScoreCopied)}`,
+  );
+  if (summary.watchlistScoreScaleDistributionAfter) {
+    lines.push(`- watchlistScoreScaleDistributionAfter: ${formatDistribution(summary.watchlistScoreScaleDistributionAfter)}`);
+  }
   lines.push(`- watchlistScoreAvg: ${(count(summary.watchlistScoreAvg)).toFixed(1)}`);
+  if (summary.technicalProjectionCoverage) {
+    lines.push(`- technicalProjectionCoverage: ${formatDistribution(summary.technicalProjectionCoverage)}`);
+  }
+  lines.push(
+    `- maAlignmentComputed=${count(summary.maAlignmentComputed)}/${summary.totalCandidates} return5dAvailable=${count(summary.return5dAvailable)}/${summary.totalCandidates} return20dAvailable=${count(summary.return20dAvailable)}/${summary.totalCandidates}`,
+  );
+  if (summary.technicalProjectionBreakPoint) {
+    lines.push(`- technicalProjectionBreakPoint: ${formatDistribution(summary.technicalProjectionBreakPoint)}`);
+  }
+  lines.push(
+    `- maAlignmentPolicy: advisoryOnly=${count(summary.maAlignmentAdvisoryOnlyCount)} technicalTrendDeathHardBlock=${count(summary.technicalTrendDeathHardBlockCount)}`,
+  );
+  if (summary.rsBreakPointDistribution) lines.push(`- rsBreakPointDistribution: ${formatDistribution(summary.rsBreakPointDistribution)}`);
+  lines.push(`- breakoutAdvisoryOnly=${summary.breakoutAdvisoryOnly === true} breakoutUsedForGate1Block=${String(summary.breakoutUsedForGate1Block ?? false)}`);
+  lines.push(
+    `- supplyMissingNeutralized=${count(summary.supplyMissingNeutralized)} supplyMissingExecutionImpact=${summary.supplyMissingExecutionImpact ?? 'NONE'} supplyMissingMarketSignal=${String(summary.supplyMissingMarketSignal ?? false)} learningTag=${formatDistribution(summary.supplyMissingLearningTagDistribution ?? {})}`,
+  );
   lines.push(`- traceWithQuoteCount: ${summary.traceWithQuoteCount ?? count(summary.candidateTraceHasQuote)}/${summary.totalCandidates}`);
   lines.push(`- traceWithConditionResultsCount: ${summary.traceWithConditionResultsCount ?? count(summary.candidateTraceHasConditionResults)}/${summary.totalCandidates}`);
   if (summary.sourcePathDistribution) lines.push(`- sourcePathDistribution: ${formatDistribution(summary.sourcePathDistribution)}`);

@@ -247,6 +247,8 @@ export function buildSupplyScopeAudit(input: {
   const programNetBuy = semantic.programNetBuy ?? null;
   const individualNetBuy = semantic.individualNetBuy;
   const semanticAvailable = semantic.available;
+  const supplyMissingNeutralized = semantic.reason === 'NO_ACTUAL_ROW_FOUND'
+    || semantic.semanticRowBreakPoint === 'NO_ROW_FOUND';
 
   // warning 우선순위 결정 트리 (사용자 명시 절대 변경 금지)
   let warning: SupplyScopeWarning = 'NONE';
@@ -364,14 +366,18 @@ export function buildSupplyScopeAudit(input: {
           wrapperOnlyCount: semantic.fieldKeyDiagnostics?.wrapperOnlyCount,
         }
       : semantic.fieldKeyDiagnostics,
-    providerIssue: semantic.providerIssue,
+    providerIssue: supplyMissingNeutralized ? false : semantic.providerIssue,
     marketSignal: false,
     wouldBeNeutralIfZeroButMaterialized: semantic.wouldBeNeutralIfZeroButMaterialized,
     wouldBeEligibleIfForeignOrInstitutionFieldMapped: semantic.wouldBeEligibleIfForeignOrInstitutionFieldMapped,
     wouldBeSemanticAvailableIfFieldMapped: semantic.wouldBeSemanticAvailableIfFieldMapped,
     wouldBeZeroNeutralIfAllZero: semantic.wouldBeZeroNeutralIfAllZero,
-    scoreUsage: semantic.scoreUsage,
+    scoreUsage: supplyMissingNeutralized ? 'DIAGNOSTIC_ONLY' : semantic.scoreUsage,
     executionImpact: 'NONE',
+    supplyMissingNeutralized,
+    supplyMissingExecutionImpact: 'NONE',
+    supplyMissingMarketSignal: false,
+    ...(supplyMissingNeutralized ? { learningTag: 'CASE_SUPPLY_ROW_NOT_FOUND' as const } : {}),
     warning,
   };
 }

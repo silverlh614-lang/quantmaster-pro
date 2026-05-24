@@ -409,6 +409,29 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let forensicInputScoreAvailable = 0;
   let sectorEnergyStrongBuyBlockedCount = 0;
   let sectorEnergyHardBlockCount = 0;
+  let watchlistScoreNormalized = 0;
+  let watchlistScoreMissing = 0;
+  let watchlistScoreScaleFixed = 0;
+  let promotionScoreCopied = 0;
+  const watchlistScoreScaleDistributionAfter: Record<string, number> = {};
+  const technicalProjectionCoverage: Record<string, number> = {
+    aboveMA20: 0,
+    aboveMA60: 0,
+    maAlignmentStatus: 0,
+    return5d: 0,
+    return20d: 0,
+    rsUsable: 0,
+    breakoutUsable: 0,
+  };
+  let maAlignmentComputed = 0;
+  let return5dAvailable = 0;
+  let return20dAvailable = 0;
+  const technicalProjectionBreakPoint: Record<string, number> = {};
+  let maAlignmentAdvisoryOnlyCount = 0;
+  let technicalTrendDeathHardBlockCount = 0;
+  const rsBreakPointDistribution: Record<string, number> = {};
+  let supplyMissingNeutralized = 0;
+  const supplyMissingLearningTagDistribution: Record<string, number> = {};
 
   for (const a of failed) {
     const sourcePath = a.sourcePath === 'SELL_ONLY_DIAGNOSTIC_SNAPSHOT'
@@ -596,6 +619,33 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     }
   }
 
+  for (const a of audits) {
+    const hydration = a.hydrationAuditAdr0509;
+    const watchlist = hydration?.watchlist;
+    const normalized = watchlist?.watchlistScoreNormalized ?? watchlist?.normalizedWatchlistScore;
+    if (typeof normalized === 'number' && Number.isFinite(normalized)) watchlistScoreNormalized += 1;
+    if (watchlist?.watchlistScoreMissing === true || watchlist?.scoreImported === false) watchlistScoreMissing += 1;
+    if (watchlist?.watchlistScoreScaleFixed === true) watchlistScoreScaleFixed += 1;
+    if (watchlist?.promotionScoreCopied === true) promotionScoreCopied += 1;
+    bump(watchlistScoreScaleDistributionAfter, watchlist?.scoreScale ?? 'none');
+
+    for (const [field, covered] of Object.entries(hydration?.technicalProjectionCoverage ?? {})) {
+      if (covered) technicalProjectionCoverage[field] = (technicalProjectionCoverage[field] ?? 0) + 1;
+    }
+    if (hydration?.maAlignmentComputed) maAlignmentComputed += 1;
+    if (hydration?.return5dAvailable) return5dAvailable += 1;
+    if (hydration?.return20dAvailable) return20dAvailable += 1;
+    bump(technicalProjectionBreakPoint, hydration?.technicalProjectionBreakPoint ?? 'TRACE_MISSING');
+    if (hydration?.maAlignmentPolicy?.advisoryOnly) maAlignmentAdvisoryOnlyCount += 1;
+    if (hydration?.maAlignmentPolicy?.hardBlockReason === 'TECHNICAL_TREND_DEATH') technicalTrendDeathHardBlockCount += 1;
+    bump(rsBreakPointDistribution, hydration?.rsBreakPoint ?? 'UNKNOWN');
+
+    if (a.supplyScopeAudit.supplyMissingNeutralized) {
+      supplyMissingNeutralized += 1;
+      bump(supplyMissingLearningTagDistribution, a.supplyScopeAudit.learningTag ?? 'CASE_SUPPLY_ROW_NOT_FOUND');
+    }
+  }
+
   return {
     totalCandidates,
     failedCandidates,
@@ -635,19 +685,29 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     candidateTraceHasQuote,
     candidateTraceHasSymbolFeatures,
     candidateTraceHasConditionResults,
-    watchlistSourceAvailableCount,
+    watchlistSourceAvailableCount: audits.filter((a) => a.hydrationAuditAdr0509?.watchlist.sourceAvailable).length,
     watchlistSourceFieldDistribution,
-    watchlistScoreImportedCount,
+    watchlistScoreImportedCount: audits.filter((a) => a.hydrationAuditAdr0509?.watchlist.scoreImported).length,
     watchlistMissingReasonTop: Object.entries(watchlistMissingReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([reason]) => reason),
-    rsTraceAvailableCount: rsHydrationAvailableCount,
-    rsScoreUsableCount,
+    rsTraceAvailableCount: audits.filter((a) => a.hydrationAuditAdr0509?.rsAvailable).length,
+    rsScoreUsableCount: audits.filter((a) => a.hydrationAuditAdr0509?.rsScoreUsable).length,
     rsMissingFieldsTop: Object.entries(rsMissingFieldCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([field]) => field),
     rsSourceDistribution,
     rsConditionStatusDistribution,
-    breakoutTraceAvailableCount: breakoutHydrationAvailableCount,
-    breakoutScoreUsableCount,
+    breakoutTraceAvailableCount: audits.filter((a) => a.hydrationAuditAdr0509?.breakoutAvailable).length,
+    breakoutScoreUsableCount: audits.filter((a) => a.hydrationAuditAdr0509?.breakoutScoreUsable).length,
     breakoutMissingFieldsTop: Object.entries(breakoutMissingFieldCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([field]) => field),
     breakoutSourceDistribution,
+    technicalProjectionCoverage,
+    maAlignmentComputed,
+    return5dAvailable,
+    return20dAvailable,
+    technicalProjectionBreakPoint,
+    maAlignmentAdvisoryOnlyCount,
+    technicalTrendDeathHardBlockCount,
+    rsBreakPointDistribution,
+    breakoutAdvisoryOnly: true,
+    breakoutUsedForGate1Block: false,
     breakoutConditionStatusDistribution,
     candidateSymbolAvailableCount,
     quoteSymbolAvailableCount,
@@ -731,13 +791,22 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
                 : 'ROUTER_VERIFIED_BUT_SEMANTIC_FIELDS_MISSING'
       : undefined,
     shadowEligibleSupplyCount,
+    supplyMissingNeutralized,
+    supplyMissingExecutionImpact: 'NONE',
+    supplyMissingMarketSignal: false,
+    supplyMissingLearningTagDistribution,
     candidateTraceCount: totalCandidates,
     traceWithQuoteCount: candidateTraceHasQuote,
     traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
     traceWithConditionResultsCount: candidateTraceHasConditionResults,
-    traceWithWatchlistScoreCount: watchlistScoreImportedCount,
+    traceWithWatchlistScoreCount: audits.filter((a) => a.hydrationAuditAdr0509?.watchlist.scoreImported).length,
     watchlistScoreScaleDistribution,
     watchlistScoreAvg: watchlistScoreImportedCount > 0 ? round1(watchlistScoreSum / watchlistScoreImportedCount) : 0,
+    watchlistScoreNormalized,
+    watchlistScoreMissing,
+    watchlistScoreScaleFixed,
+    promotionScoreCopied,
+    watchlistScoreScaleDistributionAfter,
     watchlistDiagnosticConflict: watchlistSourceAvailableCount !== watchlistScoreImportedCount || missingPositiveSourceCounts.watchlistUpstreamMissing > 0 && watchlistScoreImportedCount > 0,
     adr0467WatchlistVerifiedCount: watchlistSourceAvailableCount,
     adr0505WatchlistImportedCount: watchlistScoreImportedCount,

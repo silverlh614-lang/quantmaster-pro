@@ -126,11 +126,26 @@ export const maAlignmentEvaluator: ConditionEvaluator = {
         status: 'DATA_UNAVAILABLE',
       };
     }
-    if (!(quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60)) {
+    const price = Number.isFinite(quote.price) && quote.price > 0 ? quote.price : undefined;
+    const return20d = Number.isFinite(quote.return20d) ? quote.return20d : undefined;
+    const trendDeath = price !== undefined
+      && return20d !== undefined
+      && price < quote.ma60
+      && quote.ma20 < quote.ma60
+      && return20d < -15;
+    if (trendDeath) {
       return {
         score: 0, conditionKey: 'ma_alignment',
-        detail: `MA5=${quote.ma5.toFixed(0)}/MA20=${quote.ma20.toFixed(0)}/MA60=${quote.ma60.toFixed(0)} 정배열 미충족`,
+        detail: `TECHNICAL_TREND_DEATH price=${price.toFixed(0)}/MA20=${quote.ma20.toFixed(0)}/MA60=${quote.ma60.toFixed(0)}/return20d=${return20d.toFixed(1)}%`,
         status: 'THRESHOLD_NOT_MET',
+      };
+    }
+    if (!(quote.ma5 > quote.ma20 && quote.ma20 > quote.ma60)) {
+      return {
+        score: weightFor(weights, 'ma_alignment') * 0.35,
+        conditionKey: 'ma_alignment',
+        detail: `MA_ALIGNMENT_ADVISORY_DAMPENER MA5=${quote.ma5.toFixed(0)}/MA20=${quote.ma20.toFixed(0)}/MA60=${quote.ma60.toFixed(0)}`,
+        status: 'FIRED',
       };
     }
     return {

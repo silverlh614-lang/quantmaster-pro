@@ -142,6 +142,10 @@ export interface SupplyScopeAudit {
   /** symbol 확인 실패 수급은 SHADOW_ONLY diagnostic 으로만 표기한다. */
   scoreUsage?: 'ELIGIBLE_AFTER_SEMANTIC_MATCH' | 'SHADOW_ONLY' | 'DIAGNOSTIC_ONLY';
   executionImpact?: 'NONE';
+  supplyMissingNeutralized?: boolean;
+  supplyMissingExecutionImpact?: 'NONE';
+  supplyMissingMarketSignal?: false;
+  learningTag?: 'CASE_SUPPLY_ROW_NOT_FOUND';
   warning: SupplyScopeWarning;
 }
 
@@ -228,6 +232,11 @@ export interface WatchlistHydrationAuditAdr0509 {
   scoreImported: boolean;
   rawScore?: number | null;
   normalizedWatchlistScore?: number | null;
+  watchlistScoreNormalized?: number | null;
+  watchlistScoreMissing?: boolean;
+  watchlistScoreScaleFixed?: boolean;
+  promotionScoreCopied?: boolean;
+  scaleHint?: string | null;
   scoreScale?: string | null;
   stage2Score?: number | null;
   watchlistScore?: number | null;
@@ -260,6 +269,36 @@ export interface FeatureHydrationAuditAdr0509 {
   watchlist: WatchlistHydrationAuditAdr0509;
   conditionKeyStatus?: Record<string, 'FIRED' | 'DATA_UNAVAILABLE' | 'THRESHOLD_NOT_MET' | 'PROVIDER_DEGRADED' | 'ERROR'>;
   breakoutConditionKeys?: string[];
+  technicalProjectionCoverage?: {
+    aboveMA20: boolean;
+    aboveMA60: boolean;
+    maAlignmentStatus: boolean;
+    return5d: boolean;
+    return20d: boolean;
+    rsUsable: boolean;
+    breakoutUsable: boolean;
+  };
+  maAlignmentComputed?: boolean;
+  return5dAvailable?: boolean;
+  return20dAvailable?: boolean;
+  technicalProjectionBreakPoint?:
+    | 'PROJECTED'
+    | 'TECHNICAL_STATUS_COMPUTED_FIELD_MISSING'
+    | 'TECHNICAL_STATUS_NOT_COMPUTED'
+    | 'TRACE_MISSING';
+  technicalProjectionMissingFields?: string[];
+  computedRsScore?: number | null;
+  computedRsStatus?: 'STRONG' | 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'WEAK' | 'MISSING';
+  rsBreakPoint?: string;
+  maAlignmentPolicy?: {
+    status: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'MISSING';
+    hardBlock: boolean;
+    hardBlockReason: 'TECHNICAL_TREND_DEATH' | null;
+    advisoryOnly: boolean;
+    dampenerOnly: boolean;
+  };
+  breakoutAdvisoryOnly?: true;
+  breakoutUsedForGate1Block?: false;
 }
 
 export interface SectorEnergyForensicAudit {
@@ -377,6 +416,11 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   watchlistMissingReasonTop?: string[];
   watchlistScoreScaleDistribution?: Record<string, number>;
   watchlistScoreAvg?: number;
+  watchlistScoreNormalized?: number;
+  watchlistScoreMissing?: number;
+  watchlistScoreScaleFixed?: number;
+  promotionScoreCopied?: number;
+  watchlistScoreScaleDistributionAfter?: Record<string, number>;
   watchlistDiagnosticConflict?: boolean;
   adr0467WatchlistVerifiedCount?: number;
   adr0505WatchlistImportedCount?: number;
@@ -398,6 +442,16 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   breakoutScoreUsableCount?: number;
   breakoutMissingFieldsTop?: string[];
   breakoutSourceDistribution?: Record<BreakoutHydrationSourceAdr0509, number>;
+  technicalProjectionCoverage?: Record<string, number>;
+  maAlignmentComputed?: number;
+  return5dAvailable?: number;
+  return20dAvailable?: number;
+  technicalProjectionBreakPoint?: Record<string, number>;
+  maAlignmentAdvisoryOnlyCount?: number;
+  technicalTrendDeathHardBlockCount?: number;
+  rsBreakPointDistribution?: Record<string, number>;
+  breakoutAdvisoryOnly?: boolean;
+  breakoutUsedForGate1Block?: false;
   candidateSymbolAvailableCount?: number;
   quoteSymbolAvailableCount?: number;
   requestSymbolAvailableCount?: number;
@@ -482,6 +536,10 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   forensicSemanticAvailable?: string;
   routerForensicConflictReason?: string;
   shadowEligibleSupplyCount?: number;
+  supplyMissingNeutralized?: number;
+  supplyMissingExecutionImpact?: 'NONE';
+  supplyMissingMarketSignal?: false;
+  supplyMissingLearningTagDistribution?: Record<string, number>;
   candidateTraceCount?: number;
   traceWithQuoteCount?: number;
   traceWithSymbolFeaturesCount?: number;

@@ -299,7 +299,9 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
 export function recordLayerBlockReasons(target: Record<string, number>, layer: GateLayerSummary['gate1']): void {
   for (const key of layer.unavailable) incrementCount(target, `DATA_UNAVAILABLE:${key}`);
   for (const key of layer.providerDegraded) incrementCount(target, `PROVIDER_DEGRADED:${key}`);
-  for (const key of layer.thresholdNotMet) incrementCount(target, `THRESHOLD_NOT_MET:${key}`);
+  for (const key of layer.thresholdNotMet) {
+    incrementCount(target, key === 'ma_alignment' ? 'TECHNICAL_TREND_DEATH' : `THRESHOLD_NOT_MET:${key}`);
+  }
 }
 
 export function accumulateGateLayerSummary(

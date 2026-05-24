@@ -9,15 +9,18 @@ describe('watchlist upstream score resolver', () => {
     expect(resolved.confidence).toBe('VERIFIED');
   });
 
-  it('normalizes GateSnap-like 6.4 from 0~10 scale', () => {
+  it('normalizes raw <= 27 from the Gate1 0~27 watchlist scale by default', () => {
     const resolved = resolveWatchlistUpstreamScore({ stage2Score: 6.4 });
     expect(resolved.sourceField).toBe('stage2Score');
-    expect(resolved.normalized100).toBe(64);
+    expect(resolved.normalized100).toBe(23.7);
+    expect(resolved.scoreScale).toBe('0~27');
+    expect(resolved.scoreScaleFixed).toBe(true);
   });
 
-  it('normalizes stage2Score 8.5 as 0~10 scale', () => {
-    const resolved = resolveWatchlistUpstreamScore({ stage2Score: 8.5 });
+  it('honors explicit 0~10 scale hints for legacy GateSnap-like scores', () => {
+    const resolved = resolveWatchlistUpstreamScore({ stage2Score: 8.5, scoreScaleHint: '0_10' });
     expect(resolved.normalized100).toBe(85);
+    expect(resolved.scoreScale).toBe('0~10');
   });
 
   it('preserves 0~100 score and caps above 100', () => {
@@ -35,6 +38,7 @@ describe('watchlist upstream score resolver', () => {
     const resolved = resolveWatchlistUpstreamScore({ gateScore: 0 });
     expect(resolved.confidence).toBe('VERIFIED');
     expect(resolved.normalized100).toBe(0);
+    expect(resolved.normalizedScore).toBe(0);
   });
 
   it('uses code-path priority from totalGateScore before lower-priority fields', () => {

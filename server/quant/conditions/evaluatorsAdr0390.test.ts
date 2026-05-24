@@ -39,10 +39,17 @@ describe('maAlignmentEvaluator status (ADR-0390)', () => {
     expect(r!.score).toBe(DEFAULT_CONDITION_WEIGHTS.ma_alignment);
   });
 
-  it('역배열 → THRESHOLD_NOT_MET', () => {
+  it('non-perfect alignment is an advisory dampener, not a Gate1 hard block', () => {
     const r = maAlignmentEvaluator.evaluate(ctx(makeQuote({ ma5: 100, ma20: 105, ma60: 110 })));
+    expect(r!.status).toBe('FIRED');
+    expect(r!.score).toBe(DEFAULT_CONDITION_WEIGHTS.ma_alignment * 0.35);
+    expect(r!.detail).toContain('MA_ALIGNMENT_ADVISORY_DAMPENER');
+  });
+
+  it('hard-blocks only technical trend death', () => {
+    const r = maAlignmentEvaluator.evaluate(ctx(makeQuote({ price: 90, ma5: 95, ma20: 98, ma60: 110, return20d: -18 })));
     expect(r!.status).toBe('THRESHOLD_NOT_MET');
-    expect(r!.detail).toMatch(/정배열 미충족/);
+    expect(r!.detail).toContain('TECHNICAL_TREND_DEATH');
   });
 });
 

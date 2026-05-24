@@ -328,11 +328,13 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
 
       expect(audit.hydrationAuditAdr0509?.watchlist.scoreImported).toBe(true);
       expect(audit.hydrationAuditAdr0509?.watchlist.sourceField).toBe('stage2Score');
-      expect(audit.hydrationAuditAdr0509?.watchlist.scoreScale).toBe('0~10');
+      expect(audit.hydrationAuditAdr0509?.watchlist.scoreScale).toBe('0~27');
+      expect(audit.hydrationAuditAdr0509?.watchlist.watchlistScoreScaleFixed).toBe(true);
       expect(summary.watchlistScoreImportedCount).toBe(1);
       expect(summary.watchlistSourceFieldDistribution?.stage2Score).toBe(1);
-      expect(summary.watchlistScoreScaleDistribution?.['0~10']).toBe(1);
-      expect(summary.watchlistScoreAvg).toBe(80);
+      expect(summary.watchlistScoreScaleDistribution?.['0~27']).toBe(1);
+      expect(summary.watchlistScoreScaleDistributionAfter?.['0~27']).toBe(1);
+      expect(summary.watchlistScoreAvg).toBe(29.6);
     });
 
     it('quote return fields recover RS trace availability via QUOTE_RETURN', () => {
@@ -353,6 +355,35 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(summary.traceWithQuoteCount).toBe(1);
       expect(summary.rsTraceAvailableCount).toBe(1);
       expect(summary.quoteFeatureFieldCoverage?.return20d).toBe(1);
+    });
+
+    it('computes RS from return20d minus indexReturn20d and exposes technical projection coverage', () => {
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505({
+        trace: makeTrace({ symbol: 'A0002RS' }),
+        candidate: {
+          symbol: 'A0002RS',
+          stageReached: 'WATCHLIST',
+          blockers: [],
+          executionImpact: 'NONE',
+          price: 105,
+          ma20: 100,
+          ma60: 95,
+          return5d: 4,
+          return20d: 12,
+          symbolFeatures: { kospi20dReturn: 1 },
+        },
+      });
+      const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
+
+      expect(audit.hydrationAuditAdr0509?.rsScoreUsable).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.computedRsScore).toBe(85);
+      expect(audit.hydrationAuditAdr0509?.computedRsStatus).toBe('BULLISH');
+      expect(audit.hydrationAuditAdr0509?.rsBreakPoint).toBe('RS_COMPUTED_FROM_RETURN20D');
+      expect(audit.hydrationAuditAdr0509?.technicalProjectionBreakPoint).toBe('PROJECTED');
+      expect(summary.rsScoreUsableCount).toBe(1);
+      expect(summary.technicalProjectionCoverage?.aboveMA20).toBe(1);
+      expect(summary.maAlignmentComputed).toBe(1);
+      expect(summary.return20dAvailable).toBe(1);
     });
 
     it('conditionResults relative_strength and breakout keys recover trace/source diagnostics', () => {

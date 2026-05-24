@@ -477,6 +477,8 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'report',
   'scan',
   'scan_blockers',
+  'scan_blockers_gate0',
+  'scan_blockers_gate1',
   'scheduler',
   'sell',
   'shadow',
