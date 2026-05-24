@@ -2,13 +2,70 @@
 
 import type { DartFinancials } from '../../clients/dartFinancialClient.js';
 import { getDartFinancials } from '../../clients/dartFinancialClient.js';
-import type { QmpDartFinancials } from '../../clients/dartFinancialNormalizer.js';
-import { getGate2ExternalCacheRecord, upsertGate2ExternalCacheRecords } from './gate2ExternalCache.js';
+import { normalizeDartFinancials, type QmpDartFinancials } from '../../clients/dartFinancialNormalizer.js';
+import { fetchWithRetry, FetchRetryError } from '../../utils/fetchWithRetry.js';
+import {
+  getGate2ExternalCacheRecord,
+  isGate2ExternalCacheWritable,
+  loadGate2ExternalCache,
+  upsertGate2ExternalCacheRecords,
+  updateGate2ExternalLastRefresh,
+} from './gate2ExternalCache.js';
 
 export type Gate2FinancialSource = 'DART' | 'CACHE' | 'NONE';
 export type Gate2FinancialConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
 export type Gate2FinancialStatementType = 'CFS' | 'OFS' | 'UNKNOWN';
 export type Gate2ConditionStatus = 'PASS' | 'FAIL' | 'UNAVAILABLE';
+export type Gate2CorpCodeResolveStatus = 'FOUND' | 'NOT_FOUND' | 'CACHE_MISSING' | 'ERROR';
+export type Gate2FiscalPeriodStatus = 'RESOLVED' | 'NONE' | 'ERROR';
+
+export interface Gate2ExternalRefreshTrace {
+  symbol: string;
+  corpCodeResolveStatus: Gate2CorpCodeResolveStatus;
+  corpCode?: string;
+  fiscalPeriodStatus: Gate2FiscalPeriodStatus;
+  fiscalPeriod?: string;
+  reportCode?: string;
+  statementType?: Gate2FinancialStatementType;
+  corpCodeRequestAttempted: boolean;
+  dartRequestAttempted: boolean;
+  dartHttpStatus?: number;
+  dartErrorCode?: string;
+  dartRawRows: number;
+  normalizedRows: number;
+  derivedMetricsComputed: boolean;
+  kisPerRequestAttempted: boolean;
+  kisPerRaw?: unknown;
+  perNormalized?: number | null;
+  finalConfidence: 'VERIFIED' | 'STALE' | 'MISSING';
+  unavailableConditions: string[];
+  executionImpact: 'NONE';
+}
+
+export interface Gate2ExternalRefreshCounters {
+  providerRequestsAttempted: number;
+  corpCodeResolved: number;
+  corpCodeMissing: number;
+  fiscalPeriodResolved: number;
+  fiscalPeriodMissing: number;
+  dartResponsesOk: number;
+  dartResponsesError: number;
+  dartRowsFetched: number;
+  normalizedRowsBuilt: number;
+  derivedMetricsComputed: number;
+  kisPerAttempted: number;
+  kisPerAvailable: number;
+  kisPerUnavailable: number;
+}
+
+export type Gate2ExternalRootCause =
+  | 'NONE'
+  | 'DART_API_KEY_MISSING'
+  | 'DART_CORP_CODE_MAPPING_MISSING'
+  | 'DART_FISCAL_PERIOD_RESOLVE_FAILED'
+  | 'DART_HTTP_OR_RESPONSE_ERROR'
+  | 'DART_NORMALIZATION_MAPPING_FAILED'
+  | 'DART_FINANCIALS_MISSING';
 
 export interface Gate2FinancialSnapshot {
   symbol: string;
@@ -84,6 +141,7 @@ export interface Gate2ExternalProjection {
     executionImpact: 'NONE';
   };
   conditionResults: Record<'earnings_quality' | 'per' | 'roe' | 'opm' | 'icr', Gate2ProjectedCondition>;
+  refreshTrace?: Gate2ExternalRefreshTrace;
   unavailableCount: number;
   highConvictionImpact: 'NONE' | 'BLOCK_STRONG_BUY_UPGRADE';
   entryHardBlockImpact: 'NO';
@@ -101,12 +159,30 @@ export interface Gate2ExternalRefreshResult {
   missingCount: number;
   rowsProjected: number;
   unavailableCount: number;
+  counters: Gate2ExternalRefreshCounters;
+  rootCause: Gate2ExternalRootCause;
+  traces: Gate2ExternalRefreshTrace[];
+  providerHealth: Gate2DartProviderHealth;
   strongBuyBlockedReason: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
   executionImpact: 'NONE';
   records: Gate2ExternalProjection[];
 }
 
+export interface Gate2DartProviderHealth {
+  apiKeyPresent: boolean;
+  corpCodeCacheLoaded: boolean;
+  corpCodeCacheCount: number;
+  lastCorpCodeCacheUpdatedAt: string | null;
+  requestEnabled: boolean;
+  lastHttpStatus: number | null;
+  lastErrorCode: string | null;
+  rateLimitState: 'UNKNOWN' | 'OK' | 'RATE_LIMITED';
+  cacheWritable: boolean;
+  executionImpact: 'NONE';
+}
+
 export type Gate2DartEvaluationFinancials = DartFinancials | QmpDartFinancials;
+const DART_BASE = 'https://opendart.fss.or.kr/api';
 
 function nowIso(now: Date = new Date()): string {
   return now.toISOString();
@@ -125,6 +201,272 @@ function finiteNumber(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const parsed = Number(value.replace(/,/g, '').replace(/%/g, '').trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toDartAmount(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/,/g, '').replace(/%/g, '').replace(/\+/g, '').trim();
+  if (!cleaned || cleaned === '-' || cleaned.toUpperCase() === 'N/A') return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function newTrace(symbol: string): Gate2ExternalRefreshTrace {
+  return {
+    symbol: cleanSymbol(symbol),
+    corpCodeResolveStatus: 'CACHE_MISSING',
+    fiscalPeriodStatus: 'NONE',
+    corpCodeRequestAttempted: false,
+    dartRequestAttempted: false,
+    dartRawRows: 0,
+    normalizedRows: 0,
+    derivedMetricsComputed: false,
+    kisPerRequestAttempted: false,
+    perNormalized: null,
+    finalConfidence: 'MISSING',
+    unavailableConditions: ['earnings_quality', 'per', 'roe', 'opm', 'icr'],
+    executionImpact: 'NONE',
+  };
+}
+
+function responseStatusCode(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const status = payload.status ?? payload.rt_cd;
+  return typeof status === 'string' ? status : status == null ? null : String(status);
+}
+
+async function fetchDartJson(input: string, timeoutMs = 10000): Promise<{ httpStatus: number; body: unknown }> {
+  const response = await fetchWithRetry(input, {
+    timeoutMs,
+    retries: 1,
+    callerLabel: 'gate2-dart-financials',
+  });
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  return { httpStatus: response.status, body };
+}
+
+function classifyFetchError(error: unknown): { httpStatus?: number; errorCode: string } {
+  if (error instanceof FetchRetryError) {
+    return {
+      httpStatus: error.status ?? undefined,
+      errorCode: error.status === 429 ? 'RATE_LIMITED' : error.status ? `HTTP_${error.status}` : 'NETWORK_OR_TIMEOUT',
+    };
+  }
+  return { errorCode: error instanceof Error ? error.name || 'ERROR' : 'ERROR' };
+}
+
+async function resolveDartCorpCode(symbol: string, apiKey: string, trace: Gate2ExternalRefreshTrace): Promise<string | null> {
+  trace.corpCodeRequestAttempted = true;
+  const url = `${DART_BASE}/company.json?crtfc_key=${encodeURIComponent(apiKey)}&stock_code=${cleanSymbol(symbol)}`;
+  try {
+    const { httpStatus, body } = await fetchDartJson(url, 8000);
+    trace.dartHttpStatus = httpStatus;
+    const record = isRecord(body) ? body : {};
+    const status = responseStatusCode(record);
+    const corpCode = typeof record.corp_code === 'string' && record.corp_code.trim() ? record.corp_code.trim() : null;
+    if (httpStatus >= 400 || (status && status !== '000' && status !== '0')) {
+      trace.corpCodeResolveStatus = 'ERROR';
+      trace.dartErrorCode = String(record.message ?? record.msg ?? status ?? `HTTP_${httpStatus}`);
+      return null;
+    }
+    if (!corpCode) {
+      trace.corpCodeResolveStatus = 'NOT_FOUND';
+      trace.dartErrorCode = 'CORP_CODE_NOT_FOUND';
+      return null;
+    }
+    trace.corpCodeResolveStatus = 'FOUND';
+    trace.corpCode = corpCode;
+    return corpCode;
+  } catch (error) {
+    const classified = classifyFetchError(error);
+    trace.corpCodeResolveStatus = 'ERROR';
+    trace.dartHttpStatus = classified.httpStatus;
+    trace.dartErrorCode = classified.errorCode;
+    return null;
+  }
+}
+
+interface DartReportCandidate {
+  fiscalPeriod: string;
+  bsnsYear: string;
+  reportCode: string;
+  quarter: QmpDartFinancials['quarter'];
+}
+
+function reportCandidates(now: Date = new Date()): DartReportCandidate[] {
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const candidates: DartReportCandidate[] = [];
+  if (month >= 11) candidates.push({ fiscalPeriod: `${year}Q3`, bsnsYear: String(year), reportCode: '11014', quarter: 'Q3' });
+  if (month >= 8) candidates.push({ fiscalPeriod: `${year}Q2`, bsnsYear: String(year), reportCode: '11012', quarter: 'Q2' });
+  if (month >= 5) candidates.push({ fiscalPeriod: `${year}Q1`, bsnsYear: String(year), reportCode: '11013', quarter: 'Q1' });
+  if (month >= 4) candidates.push({ fiscalPeriod: `${year - 1}_ANNUAL`, bsnsYear: String(year - 1), reportCode: '11011', quarter: 'ANNUAL' });
+  candidates.push({ fiscalPeriod: `${year - 1}_ANNUAL`, bsnsYear: String(year - 1), reportCode: '11011', quarter: 'ANNUAL' });
+  candidates.push({ fiscalPeriod: `${year - 2}_ANNUAL`, bsnsYear: String(year - 2), reportCode: '11011', quarter: 'ANNUAL' });
+  return candidates.filter((candidate, index, array) =>
+    array.findIndex(item => item.fiscalPeriod === candidate.fiscalPeriod && item.reportCode === candidate.reportCode) === index,
+  );
+}
+
+function rowsFromDartPayload(payload: unknown): Record<string, unknown>[] {
+  if (!isRecord(payload)) return [];
+  const list = payload.list;
+  return Array.isArray(list) ? list.filter(isRecord) : [];
+}
+
+function compactKorean(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, '').replace(/[()\uFF08\uFF09]/g, '').trim();
+}
+
+function extractAccountAmount(rows: readonly Record<string, unknown>[], aliases: readonly string[]): number | null {
+  const normalizedAliases = aliases.map(compactKorean);
+  for (const alias of aliases) {
+    const row = rows.find(item =>
+      item.account_id === alias
+      || item.accountId === alias
+      || normalizedAliases.includes(compactKorean(item.account_nm))
+      || normalizedAliases.includes(compactKorean(item.accountName)),
+    );
+    const value = toDartAmount(row?.thstrm_amount ?? row?.amount ?? row?.value);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function buildRawFinancialFlat(rows: readonly Record<string, unknown>[]): Record<string, unknown> {
+  return {
+    revenue: extractAccountAmount(rows, [
+      'ifrs-full_Revenue',
+      'ifrs_Revenue',
+      'dart_Revenue',
+      '\uB9E4\uCD9C\uC561',
+      '\uC601\uC5C5\uC218\uC775',
+    ]),
+    operatingIncome: extractAccountAmount(rows, [
+      'dart_OperatingIncomeLoss',
+      'ifrs-full_ProfitLossFromOperatingActivities',
+      'ifrs-full_OperatingIncome',
+      '\uC601\uC5C5\uC774\uC775',
+      '\uC601\uC5C5\uC190\uC775',
+    ]),
+    netIncome: extractAccountAmount(rows, [
+      'ifrs-full_ProfitLoss',
+      'ifrs-full_NetProfitLoss',
+      'ifrs-full_ProfitLossAttributableToOwnersOfParent',
+      '\uB2F9\uAE30\uC21C\uC774\uC775',
+      '\uB2F9\uAE30\uC21C\uC190\uC775',
+    ]),
+    operatingCashFlow: extractAccountAmount(rows, [
+      'ifrs-full_CashFlowsFromUsedInOperatingActivities',
+      'ifrs-full_CashFlowsFromOperatingActivities',
+      '\uC601\uC5C5\uD65C\uB3D9\uD604\uAE08\uD750\uB984',
+    ]),
+    interestExpense: extractAccountAmount(rows, ['ifrs-full_FinanceCosts', 'ifrs-full_InterestExpense', '\uC774\uC790\uBE44\uC6A9']),
+    totalEquity: extractAccountAmount(rows, ['ifrs-full_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent', '\uC790\uBCF8\uCD1D\uACC4']),
+    totalAssets: extractAccountAmount(rows, ['ifrs-full_Assets', '\uC790\uC0B0\uCD1D\uACC4']),
+    totalDebt: extractAccountAmount(rows, ['ifrs-full_Liabilities', '\uBD80\uCC44\uCD1D\uACC4']),
+    currentAssets: extractAccountAmount(rows, ['ifrs-full_CurrentAssets', '\uC720\uB3D9\uC790\uC0B0']),
+    currentLiabilities: extractAccountAmount(rows, ['ifrs-full_CurrentLiabilities', '\uC720\uB3D9\uBD80\uCC44']),
+  };
+}
+
+function normalizeFetchedDartFinancials(input: {
+  symbol: string;
+  corpCode: string;
+  candidate: DartReportCandidate;
+  statementType: 'CFS' | 'OFS';
+  rows: Record<string, unknown>[];
+  asOf: string;
+}): Gate2DartEvaluationFinancials {
+  const flat = buildRawFinancialFlat(input.rows);
+  const normalized = normalizeDartFinancials({
+    symbol: input.symbol,
+    corpCode: input.corpCode,
+    raw: flat,
+    fiscalYear: input.candidate.bsnsYear,
+    quarter: input.candidate.quarter,
+    reportDate: input.candidate.fiscalPeriod,
+    fetchedAt: input.asOf,
+    providerStatus: 'OK_WITH_DATA',
+    source: 'DART',
+  });
+  return {
+    ...normalized,
+    fiscalPeriod: input.candidate.fiscalPeriod,
+    statementType: input.statementType,
+    totalDebt: finiteNumber(flat.totalDebt),
+    currentAssets: finiteNumber(flat.currentAssets),
+    currentLiabilities: finiteNumber(flat.currentLiabilities),
+  } as Gate2DartEvaluationFinancials;
+}
+
+export async function fetchDartFinancialsForGate2(input: {
+  symbol: string;
+  apiKey?: string | null;
+  now?: Date;
+  asOf?: string;
+}): Promise<{ dartFin: Gate2DartEvaluationFinancials | null; trace: Gate2ExternalRefreshTrace }> {
+  const symbol = cleanSymbol(input.symbol);
+  const trace = newTrace(symbol);
+  const apiKey = input.apiKey ?? process.env.DART_API_KEY ?? process.env.OPENDART_API_KEY ?? null;
+  if (!apiKey) {
+    trace.corpCodeResolveStatus = 'CACHE_MISSING';
+    trace.dartErrorCode = 'DART_API_KEY_MISSING';
+    return { dartFin: null, trace };
+  }
+  const corpCode = await resolveDartCorpCode(symbol, apiKey, trace);
+  if (!corpCode) return { dartFin: null, trace };
+
+  for (const candidate of reportCandidates(input.now)) {
+    for (const statementType of ['CFS', 'OFS'] as const) {
+      const url = `${DART_BASE}/fnlttSinglAcntAll.json`
+        + `?crtfc_key=${encodeURIComponent(apiKey)}`
+        + `&corp_code=${encodeURIComponent(corpCode)}`
+        + `&bsns_year=${candidate.bsnsYear}`
+        + `&reprt_code=${candidate.reportCode}`
+        + `&fs_div=${statementType}`;
+      trace.dartRequestAttempted = true;
+      try {
+        const { httpStatus, body } = await fetchDartJson(url, 10000);
+        trace.dartHttpStatus = httpStatus;
+        const status = responseStatusCode(body);
+        if (httpStatus >= 400 || (status && status !== '000' && status !== '0')) {
+          trace.dartErrorCode = isRecord(body) ? String(body.message ?? body.msg ?? status ?? `HTTP_${httpStatus}`) : `HTTP_${httpStatus}`;
+          continue;
+        }
+        const rows = rowsFromDartPayload(body);
+        trace.dartRawRows += rows.length;
+        if (rows.length === 0) continue;
+        const dartFin = normalizeFetchedDartFinancials({
+          symbol,
+          corpCode,
+          candidate,
+          statementType,
+          rows,
+          asOf: input.asOf ?? nowIso(input.now),
+        });
+        trace.fiscalPeriodStatus = 'RESOLVED';
+        trace.fiscalPeriod = candidate.fiscalPeriod;
+        trace.reportCode = candidate.reportCode;
+        trace.statementType = statementType;
+        trace.normalizedRows = 1;
+        trace.dartErrorCode = undefined;
+        return { dartFin, trace };
+      } catch (error) {
+        const classified = classifyFetchError(error);
+        trace.dartHttpStatus = classified.httpStatus;
+        trace.dartErrorCode = classified.errorCode;
+      }
+    }
+  }
+  trace.fiscalPeriodStatus = trace.dartRequestAttempted ? 'NONE' : 'ERROR';
+  return { dartFin: null, trace };
 }
 
 function ratio(numerator: number | null, denominator: number | null): number | null {
@@ -266,6 +608,19 @@ function projectMetric(
   };
 }
 
+function projectPer(value: number | null): Gate2ProjectedCondition {
+  if (value == null) {
+    return { status: 'UNAVAILABLE', value: null, source: 'NONE', reason: 'PER_MISSING', executionImpact: 'NONE' };
+  }
+  if (value <= 0) {
+    return { status: 'UNAVAILABLE', value: null, source: 'KIS', reason: 'PER_NON_POSITIVE_OR_UNAVAILABLE', executionImpact: 'NONE' };
+  }
+  if (value > 30) {
+    return { status: 'FAIL', value, source: 'KIS', reason: 'PER_TOO_HIGH', executionImpact: 'NONE' };
+  }
+  return { status: 'PASS', value, source: 'KIS', reason: 'PER_ACCEPTABLE', executionImpact: 'NONE' };
+}
+
 export function buildGate2ExternalProjection(input: {
   symbol: string;
   dartFin?: Gate2DartEvaluationFinancials | null;
@@ -273,6 +628,7 @@ export function buildGate2ExternalProjection(input: {
   per?: number | null;
   quote?: unknown;
   asOf?: string;
+  refreshTrace?: Gate2ExternalRefreshTrace;
 }): Gate2ExternalProjection {
   const asOf = input.asOf ?? nowIso();
   const quoteRecord = isRecord(input.quote) ? input.quote : {};
@@ -290,7 +646,7 @@ export function buildGate2ExternalProjection(input: {
   );
   const conditions = {
     earnings_quality: earningsQuality,
-    per: projectMetric(metrics.per, metrics.per == null ? 'NONE' : 'KIS', value => value > 0 && value <= 30, 'PER_MISSING', 'PER_TOO_HIGH'),
+    per: projectPer(metrics.per),
     roe: projectMetric(metrics.roe, source, value => value > 0, 'ROE_UNAVAILABLE', 'ROE_NOT_POSITIVE'),
     opm: projectMetric(metrics.opm, source, value => value > 0, 'OPM_UNAVAILABLE', 'OPM_NOT_POSITIVE'),
     icr: projectMetric(metrics.icr, source, value => value >= 1, 'ICR_UNAVAILABLE', 'ICR_BELOW_1'),
@@ -299,6 +655,18 @@ export function buildGate2ExternalProjection(input: {
   const highConvictionImpact = unavailableCount > 0 || Object.values(conditions).some(condition => condition.status === 'FAIL')
     ? 'BLOCK_STRONG_BUY_UPGRADE'
     : 'NONE';
+  const refreshTrace = input.refreshTrace
+    ? {
+      ...input.refreshTrace,
+      perNormalized: metrics.per,
+      derivedMetricsComputed: Object.values(conditions).some(condition => condition.status !== 'UNAVAILABLE'),
+      finalConfidence: (financialSnapshot.confidence === 'STALE' ? 'STALE' : financialSnapshot.confidence === 'VERIFIED' ? 'VERIFIED' : 'MISSING') as Gate2ExternalRefreshTrace['finalConfidence'],
+      unavailableConditions: Object.entries(conditions)
+        .filter(([, condition]) => condition.status === 'UNAVAILABLE')
+        .map(([key]) => key),
+      executionImpact: 'NONE' as const,
+    }
+    : undefined;
   return {
     symbol: cleanSymbol(input.symbol),
     asOf,
@@ -330,6 +698,7 @@ export function buildGate2ExternalProjection(input: {
       executionImpact: 'NONE',
     },
     conditionResults: conditions,
+    ...(refreshTrace ? { refreshTrace } : {}),
     unavailableCount,
     highConvictionImpact,
     entryHardBlockImpact: 'NO',
@@ -395,6 +764,82 @@ export async function getGate2DartFinancialsForEvaluation(symbol: string): Promi
   return dartFin;
 }
 
+function emptyCounters(): Gate2ExternalRefreshCounters {
+  return {
+    providerRequestsAttempted: 0,
+    corpCodeResolved: 0,
+    corpCodeMissing: 0,
+    fiscalPeriodResolved: 0,
+    fiscalPeriodMissing: 0,
+    dartResponsesOk: 0,
+    dartResponsesError: 0,
+    dartRowsFetched: 0,
+    normalizedRowsBuilt: 0,
+    derivedMetricsComputed: 0,
+    kisPerAttempted: 0,
+    kisPerAvailable: 0,
+    kisPerUnavailable: 0,
+  };
+}
+
+function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2ExternalRefreshCounters {
+  const counters = emptyCounters();
+  for (const trace of traces) {
+    if (trace.corpCodeRequestAttempted) counters.providerRequestsAttempted += 1;
+    if (trace.dartRequestAttempted) counters.providerRequestsAttempted += 1;
+    if (trace.corpCodeResolveStatus === 'FOUND') counters.corpCodeResolved += 1;
+    if (trace.corpCodeResolveStatus !== 'FOUND') counters.corpCodeMissing += 1;
+    if (trace.fiscalPeriodStatus === 'RESOLVED') counters.fiscalPeriodResolved += 1;
+    if (trace.fiscalPeriodStatus !== 'RESOLVED') counters.fiscalPeriodMissing += 1;
+    if (trace.dartRequestAttempted && trace.dartErrorCode == null && trace.dartRawRows > 0) counters.dartResponsesOk += 1;
+    if (trace.dartRequestAttempted && (trace.dartErrorCode != null || trace.dartRawRows === 0)) counters.dartResponsesError += 1;
+    counters.dartRowsFetched += trace.dartRawRows;
+    counters.normalizedRowsBuilt += trace.normalizedRows;
+    if (trace.derivedMetricsComputed) counters.derivedMetricsComputed += 1;
+    if (trace.kisPerRequestAttempted) counters.kisPerAttempted += 1;
+    if (trace.perNormalized != null && trace.perNormalized > 0) counters.kisPerAvailable += 1;
+    else counters.kisPerUnavailable += 1;
+  }
+  return counters;
+}
+
+function inferRootCause(input: {
+  symbols: readonly string[];
+  counters: Gate2ExternalRefreshCounters;
+  apiKeyPresent: boolean;
+  missingCount: number;
+}): Gate2ExternalRootCause {
+  if (input.missingCount === 0) return 'NONE';
+  if (!input.apiKeyPresent) return 'DART_API_KEY_MISSING';
+  if (input.counters.corpCodeResolved === 0 && input.symbols.length > 0) return 'DART_CORP_CODE_MAPPING_MISSING';
+  if (input.counters.corpCodeResolved > 0 && input.counters.fiscalPeriodResolved === 0) return 'DART_FISCAL_PERIOD_RESOLVE_FAILED';
+  if (input.counters.dartResponsesOk === 0 && input.counters.providerRequestsAttempted > 0) return 'DART_HTTP_OR_RESPONSE_ERROR';
+  if (input.counters.dartRowsFetched > 0 && input.counters.normalizedRowsBuilt === 0) return 'DART_NORMALIZATION_MAPPING_FAILED';
+  return 'DART_FINANCIALS_MISSING';
+}
+
+export function getGate2DartProviderHealth(): Gate2DartProviderHealth {
+  const apiKeyPresent = Boolean(process.env.DART_API_KEY || process.env.OPENDART_API_KEY);
+  const cache = loadGate2ExternalCache();
+  const lastRefresh = cache.lastRefresh;
+  const cacheWritable = isGate2ExternalCacheWritable();
+  const traces = lastRefresh?.traces ?? [];
+  const corpResolved = traces.filter(trace => trace.corpCodeResolveStatus === 'FOUND');
+  const lastTraceWithHttp = [...traces].reverse().find(trace => trace.dartHttpStatus != null || trace.dartErrorCode != null);
+  return {
+    apiKeyPresent,
+    corpCodeCacheLoaded: corpResolved.length > 0,
+    corpCodeCacheCount: corpResolved.length,
+    lastCorpCodeCacheUpdatedAt: cache.updatedAt ?? null,
+    requestEnabled: apiKeyPresent,
+    lastHttpStatus: lastTraceWithHttp?.dartHttpStatus ?? null,
+    lastErrorCode: lastTraceWithHttp?.dartErrorCode ?? null,
+    rateLimitState: traces.some(trace => trace.dartErrorCode === 'RATE_LIMITED' || trace.dartHttpStatus === 429) ? 'RATE_LIMITED' : traces.length > 0 ? 'OK' : 'UNKNOWN',
+    cacheWritable,
+    executionImpact: 'NONE',
+  };
+}
+
 export async function refreshGate2ExternalData(input: {
   symbols: readonly string[];
   fetcher?: (symbol: string) => Promise<Gate2DartEvaluationFinancials | null>;
@@ -402,23 +847,46 @@ export async function refreshGate2ExternalData(input: {
 }): Promise<Gate2ExternalRefreshResult> {
   const asOf = nowIso(input.now);
   const symbols = [...new Set(input.symbols.map(cleanSymbol).filter(symbol => /^\d{6}$/.test(symbol)))];
-  const fetcher = input.fetcher ?? getDartFinancials;
   const records: Gate2ExternalProjection[] = [];
+  const traces: Gate2ExternalRefreshTrace[] = [];
   for (const symbol of symbols) {
     let dartFin: Gate2DartEvaluationFinancials | null = null;
-    try {
-      dartFin = process.env.DART_API_KEY || input.fetcher ? await fetcher(symbol) : null;
-    } catch {
-      dartFin = null;
+    let trace = newTrace(symbol);
+    if (input.fetcher) {
+      trace.corpCodeRequestAttempted = true;
+      trace.dartRequestAttempted = true;
+      try {
+        dartFin = await input.fetcher(symbol);
+      } catch {
+        dartFin = null;
+        trace.dartErrorCode = 'FETCHER_ERROR';
+      }
+      if (dartFin) {
+        trace.corpCodeResolveStatus = 'FOUND';
+        trace.fiscalPeriodStatus = 'RESOLVED';
+        trace.dartRawRows = 1;
+        trace.normalizedRows = 1;
+      }
+    } else {
+      const fetched = await fetchDartFinancialsForGate2({ symbol, now: input.now, asOf });
+      dartFin = fetched.dartFin;
+      trace = fetched.trace;
     }
     const projection = buildGate2ExternalProjection({
       symbol,
       dartFin,
       financialSnapshot: dartFin
         ? undefined
-        : buildMissingGate2FinancialSnapshot(symbol, process.env.DART_API_KEY ? 'DART_FINANCIALS_MISSING' : 'DART_API_KEY_MISSING', asOf),
+        : buildMissingGate2FinancialSnapshot(
+          symbol,
+          process.env.DART_API_KEY || process.env.OPENDART_API_KEY ? 'DART_FINANCIALS_MISSING' : 'DART_API_KEY_MISSING',
+          asOf,
+        ),
       asOf,
+      refreshTrace: trace,
     });
+    if (projection.refreshTrace) traces.push(projection.refreshTrace);
+    else traces.push(trace);
     records.push(projection);
   }
   upsertGate2ExternalCacheRecords(records.map(projection => ({
@@ -430,6 +898,26 @@ export async function refreshGate2ExternalData(input: {
   const staleCount = records.filter(row => row.financialSnapshot.confidence === 'STALE').length;
   const missingCount = records.filter(row => row.financialSnapshot.confidence === 'MISSING').length;
   const unavailableCount = records.reduce((sum, row) => sum + row.unavailableCount, 0);
+  const counters = summarizeCounters(traces);
+  const providerHealth = getGate2DartProviderHealth();
+  const apiKeyPresent = Boolean(process.env.DART_API_KEY || process.env.OPENDART_API_KEY) || Boolean(input.fetcher);
+  const rootCause = inferRootCause({ symbols, counters, apiKeyPresent, missingCount });
+  const finalProviderHealth: Gate2DartProviderHealth = {
+    ...providerHealth,
+    apiKeyPresent,
+    requestEnabled: apiKeyPresent,
+    lastHttpStatus: [...traces].reverse().find(trace => trace.dartHttpStatus != null)?.dartHttpStatus
+      ?? providerHealth.lastHttpStatus,
+    lastErrorCode: [...traces].reverse().find(trace => trace.dartErrorCode != null)?.dartErrorCode ?? providerHealth.lastErrorCode,
+    rateLimitState: traces.some(trace => trace.dartErrorCode === 'RATE_LIMITED' || trace.dartHttpStatus === 429) ? 'RATE_LIMITED' : traces.length > 0 ? 'OK' : providerHealth.rateLimitState,
+  };
+  updateGate2ExternalLastRefresh({
+    asOf,
+    counters,
+    rootCause,
+    traces,
+    providerHealth: finalProviderHealth,
+  });
   return {
     asOf,
     requestedSymbols: symbols,
@@ -439,6 +927,10 @@ export async function refreshGate2ExternalData(input: {
     missingCount,
     rowsProjected: records.length,
     unavailableCount,
+    counters,
+    rootCause,
+    traces,
+    providerHealth: finalProviderHealth,
     strongBuyBlockedReason: missingCount === records.length ? 'DART_FINANCIALS_MISSING' : unavailableCount > 0 ? 'GATE2_EXTERNAL_PARTIAL' : 'NONE',
     executionImpact: 'NONE',
     records,

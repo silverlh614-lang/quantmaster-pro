@@ -7,6 +7,9 @@ import { loadGate2ExternalCache, summarizeGate2ExternalCache } from '../../../tr
 function formatGate2ExternalStatusMessage(): string {
   const cache = loadGate2ExternalCache();
   const summary = summarizeGate2ExternalCache();
+  const lastRefresh = cache.lastRefresh;
+  const counters = lastRefresh?.counters;
+  const providerHealth = lastRefresh?.providerHealth;
   const samples = cache.records.slice(-8).map(record => {
     const snapshot = record.projection.financialSnapshot;
     return [
@@ -27,6 +30,26 @@ function formatGate2ExternalStatusMessage(): string {
     `verified=${summary.verifiedCount} stale=${summary.staleCount} missing=${summary.missingCount}`,
     `rowsProjected=${summary.recordCount}`,
     `unavailableCount=${summary.unavailableCount}`,
+    `lastRefreshAsOf=${lastRefresh?.asOf ?? 'NONE'}`,
+    `lastRefreshRootCause=${lastRefresh?.rootCause ?? 'NONE'}`,
+    ...(counters ? [
+      `providerRequestsAttempted=${counters.providerRequestsAttempted}`,
+      `corpCodeResolved=${counters.corpCodeResolved}`,
+      `corpCodeMissing=${counters.corpCodeMissing}`,
+      `fiscalPeriodResolved=${counters.fiscalPeriodResolved}`,
+      `fiscalPeriodMissing=${counters.fiscalPeriodMissing}`,
+      `dartResponsesOk=${counters.dartResponsesOk}`,
+      `dartResponsesError=${counters.dartResponsesError}`,
+      `dartRowsFetched=${counters.dartRowsFetched}`,
+      `normalizedRowsBuilt=${counters.normalizedRowsBuilt}`,
+      `derivedMetricsComputed=${counters.derivedMetricsComputed}`,
+      `kisPerAttempted=${counters.kisPerAttempted}`,
+      `kisPerAvailable=${counters.kisPerAvailable}`,
+      `kisPerUnavailable=${counters.kisPerUnavailable}`,
+    ] : []),
+    ...(providerHealth ? [
+      `providerHealth=apiKeyPresent:${providerHealth.apiKeyPresent}|requestEnabled:${providerHealth.requestEnabled}|corpCodeCacheLoaded:${providerHealth.corpCodeCacheLoaded}|corpCodeCacheCount:${providerHealth.corpCodeCacheCount}|lastHttpStatus:${providerHealth.lastHttpStatus ?? 'NONE'}|lastErrorCode:${providerHealth.lastErrorCode ?? 'NONE'}|rateLimitState:${providerHealth.rateLimitState}|cacheWritable:${providerHealth.cacheWritable}`,
+    ] : []),
     `strongBuyBlockedReason=${summary.missingCount > 0 ? 'GATE2_EXTERNAL_PARTIAL' : summary.unavailableCount > 0 ? 'GATE2_EXTERNAL_PARTIAL' : 'NONE'}`,
     'entryHardBlockImpact=NO',
     'shadowObservablePreserved=true',

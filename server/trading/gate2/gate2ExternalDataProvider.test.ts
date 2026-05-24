@@ -114,6 +114,49 @@ describe('Gate2ExternalDataProvider', () => {
     expect(projection.entryHardBlockImpact).toBe('NO');
   });
 
+  it('classifies PER zero as unavailable instead of too high', () => {
+    const projection = buildGate2ExternalProjection({
+      symbol: '005930',
+      per: 0,
+      dartFin: {
+        symbol: '005930',
+        reportDate: '2025-12-31',
+        fiscalYear: '2025',
+        quarter: 'ANNUAL',
+        revenue: 1000,
+        operatingIncome: 120,
+        netIncome: 100,
+        operatingCashFlow: 140,
+        interestExpense: 20,
+        totalEquity: 500,
+        totalAssets: 900,
+        ocfRatio: 1.4,
+        roe: 0.2,
+        opm: 0.12,
+        opmYoYDelta: 0.02,
+        revenueYoYGrowth: null,
+        operatingIncomeYoYGrowth: null,
+        marginAcceleration: 0.03,
+        interestCoverageRatio: 6,
+        source: 'DART',
+        providerStatus: 'OK_WITH_DATA',
+        dataConfidence: 'VERIFIED',
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'DIAGNOSTIC_ONLY',
+      },
+    });
+
+    expect(projection.conditionResults.per).toMatchObject({
+      status: 'UNAVAILABLE',
+      value: null,
+      source: 'KIS',
+      reason: 'PER_NON_POSITIVE_OR_UNAVAILABLE',
+      executionImpact: 'NONE',
+    });
+    expect(projection.valuation.per.per).toBe(0);
+  });
+
   it('refreshes without throwing when DART data is missing', async () => {
     const result = await refreshGate2ExternalData({
       symbols: ['005930', '000660'],
@@ -128,6 +171,12 @@ describe('Gate2ExternalDataProvider', () => {
       strongBuyBlockedReason: 'DART_FINANCIALS_MISSING',
       executionImpact: 'NONE',
     });
+    expect(result.rootCause).toBe('DART_CORP_CODE_MAPPING_MISSING');
+    expect(result.counters.corpCodeMissing).toBe(2);
+    expect(result.counters.fiscalPeriodMissing).toBe(2);
+    expect(result.counters.kisPerUnavailable).toBe(2);
+    expect(result.traces).toHaveLength(2);
+    expect(result.providerHealth.executionImpact).toBe('NONE');
     expect(result.records.every(record => record.shadowObservablePreserved && record.counterfactualAllowed)).toBe(true);
   });
 });

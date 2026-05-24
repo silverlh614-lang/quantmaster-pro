@@ -3,7 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR, ensureDataDir } from '../../persistence/paths.js';
-import type { Gate2ExternalProjection } from './gate2ExternalDataProvider.js';
+import type {
+  Gate2DartProviderHealth,
+  Gate2ExternalProjection,
+  Gate2ExternalRefreshCounters,
+  Gate2ExternalRefreshTrace,
+  Gate2ExternalRootCause,
+} from './gate2ExternalDataProvider.js';
 
 export interface Gate2ExternalCacheRecord {
   symbol: string;
@@ -11,10 +17,19 @@ export interface Gate2ExternalCacheRecord {
   updatedAt: string;
 }
 
+export interface Gate2ExternalLastRefreshDiagnostics {
+  asOf: string;
+  counters: Gate2ExternalRefreshCounters;
+  rootCause: Gate2ExternalRootCause;
+  traces: Gate2ExternalRefreshTrace[];
+  providerHealth: Gate2DartProviderHealth;
+}
+
 export interface Gate2ExternalCacheFile {
   version: 1;
   updatedAt: string | null;
   records: Gate2ExternalCacheRecord[];
+  lastRefresh?: Gate2ExternalLastRefreshDiagnostics;
 }
 
 const CACHE_FILE = path.join(DATA_DIR, 'gate2-external-cache.json');
@@ -35,6 +50,9 @@ export function loadGate2ExternalCache(): Gate2ExternalCacheFile {
       version: 1,
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
       records: Array.isArray(parsed.records) ? parsed.records.filter(record => record && typeof record.symbol === 'string') as Gate2ExternalCacheRecord[] : [],
+      lastRefresh: parsed.lastRefresh && typeof parsed.lastRefresh === 'object'
+        ? parsed.lastRefresh as Gate2ExternalLastRefreshDiagnostics
+        : undefined,
     };
   } catch {
     return emptyCache();
@@ -66,9 +84,32 @@ export function upsertGate2ExternalCacheRecords(records: readonly Gate2ExternalC
     version: 1,
     updatedAt: new Date().toISOString(),
     records: [...bySymbol.values()].sort((a, b) => a.symbol.localeCompare(b.symbol)).slice(-500),
+    lastRefresh: cache.lastRefresh,
   };
   saveGate2ExternalCache(next);
   return next;
+}
+
+export function updateGate2ExternalLastRefresh(lastRefresh: Gate2ExternalLastRefreshDiagnostics): Gate2ExternalCacheFile {
+  const cache = loadGate2ExternalCache();
+  const next: Gate2ExternalCacheFile = {
+    ...cache,
+    version: 1,
+    updatedAt: cache.updatedAt ?? lastRefresh.asOf,
+    lastRefresh,
+  };
+  saveGate2ExternalCache(next);
+  return next;
+}
+
+export function isGate2ExternalCacheWritable(): boolean {
+  try {
+    ensureDataDir();
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function summarizeGate2ExternalCache(now: Date = new Date()): {

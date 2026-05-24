@@ -51,6 +51,24 @@ function parseSymbols(args: readonly string[]): string[] {
   return [...new Set(parsed)];
 }
 
+function compactTrace(trace: NonNullable<Awaited<ReturnType<typeof refreshGate2ExternalData>>['traces'][number]>): string {
+  return [
+    trace.symbol,
+    `corp=${trace.corpCodeResolveStatus}${trace.corpCode ? `(${trace.corpCode})` : ''}`,
+    `fiscal=${trace.fiscalPeriodStatus}`,
+    `period=${trace.fiscalPeriod ?? 'NONE'}`,
+    `dartAttempt=${trace.dartRequestAttempted}`,
+    `http=${trace.dartHttpStatus ?? 'NONE'}`,
+    `err=${trace.dartErrorCode ?? 'NONE'}`,
+    `rawRows=${trace.dartRawRows}`,
+    `normalizedRows=${trace.normalizedRows}`,
+    `derived=${trace.derivedMetricsComputed}`,
+    `per=${trace.perNormalized ?? 'null'}`,
+    `confidence=${trace.finalConfidence}`,
+    `unavailable=${trace.unavailableConditions.join('/') || 'NONE'}`,
+  ].join(':');
+}
+
 const gate2ExternalRefresh: TelegramCommand = {
   name: '/gate2_external_refresh',
   aliases: ['/gate2_refresh', '/refresh_gate2_external'],
@@ -74,6 +92,8 @@ const gate2ExternalRefresh: TelegramCommand = {
     const limited = symbols.slice(0, 50);
     await reply(`[gate2_external_refresh] starting symbols=${limited.length} mode=OBSERVE executionImpact=NONE`);
     const result = await refreshGate2ExternalData({ symbols: limited });
+    const counters = result.counters;
+    const health = result.providerHealth;
     const samples = result.records.slice(0, 8).map(record => [
       record.symbol,
       `confidence=${record.financialSnapshot.confidence}`,
@@ -81,6 +101,7 @@ const gate2ExternalRefresh: TelegramCommand = {
       `fiscalPeriod=${record.financialSnapshot.fiscalPeriod ?? 'NONE'}`,
       `unavailable=${record.unavailableCount}`,
     ].join(':'));
+    const traceSamples = result.traces.slice(0, 8).map(compactTrace);
     await reply([
       '[gate2_external_refresh] completed',
       `requested=${result.requestedSymbols.length}`,
@@ -91,11 +112,27 @@ const gate2ExternalRefresh: TelegramCommand = {
       `rowsProjected=${result.rowsProjected}`,
       `unavailableCount=${result.unavailableCount}`,
       `strongBuyBlockedReason=${result.strongBuyBlockedReason}`,
+      `rootCause=${result.rootCause}`,
+      `providerRequestsAttempted=${counters.providerRequestsAttempted}`,
+      `corpCodeResolved=${counters.corpCodeResolved}`,
+      `corpCodeMissing=${counters.corpCodeMissing}`,
+      `fiscalPeriodResolved=${counters.fiscalPeriodResolved}`,
+      `fiscalPeriodMissing=${counters.fiscalPeriodMissing}`,
+      `dartResponsesOk=${counters.dartResponsesOk}`,
+      `dartResponsesError=${counters.dartResponsesError}`,
+      `dartRowsFetched=${counters.dartRowsFetched}`,
+      `normalizedRowsBuilt=${counters.normalizedRowsBuilt}`,
+      `derivedMetricsComputed=${counters.derivedMetricsComputed}`,
+      `kisPerAttempted=${counters.kisPerAttempted}`,
+      `kisPerAvailable=${counters.kisPerAvailable}`,
+      `kisPerUnavailable=${counters.kisPerUnavailable}`,
+      `providerHealth=apiKeyPresent:${health.apiKeyPresent}|requestEnabled:${health.requestEnabled}|corpCodeCacheLoaded:${health.corpCodeCacheLoaded}|corpCodeCacheCount:${health.corpCodeCacheCount}|lastHttpStatus:${health.lastHttpStatus ?? 'NONE'}|lastErrorCode:${health.lastErrorCode ?? 'NONE'}|rateLimitState:${health.rateLimitState}|cacheWritable:${health.cacheWritable}`,
       'entryHardBlockImpact=NO',
       'shadowObservablePreserved=true',
       'counterfactualAllowed=true',
       'executionImpact=NONE',
       ...(samples.length > 0 ? ['', 'samples:', ...samples] : []),
+      ...(traceSamples.length > 0 ? ['', 'refreshTrace:', ...traceSamples] : []),
       '',
       'note: provider refresh only; no scan execution, no broker order, no live promotion.',
     ].join('\n'));

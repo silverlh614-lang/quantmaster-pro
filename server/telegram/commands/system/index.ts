@@ -11,6 +11,7 @@ import './cronStatus.cmd.js';
 import './cronIntrospect.cmd.js';
 import './dataCompleteness.cmd.js';
 import './dataVerificationReview.cmd.js';
+import './dartProviderHealth.cmd.js';
 import './foreignerRatioBackfill.cmd.js';
 import './foreignerTrend.cmd.js';
 import './freshDataStatus.cmd.js';
