@@ -1,6 +1,6 @@
-// @responsibility drift 패턴으로 액면분할/병합/권리락 의심 분류 SSOT — DART 매칭은 후속
+// @responsibility drift 패턴으로 액면분할/병합/권리락 의심 분류 + 일봉 연속성 검증 SSOT (ADR-0518)
 /**
- * corporateActionDetector.ts (ADR-0113 + ADR-0301) — 코퍼레이트 액션 detector.
+ * corporateActionDetector.ts (ADR-0113 + ADR-0301 + ADR-0518) — 코퍼레이트 액션 detector.
  *
  * 1차 로그(2026-04-30) 의 098460 고영 +221% / 336260 두산테스나 +207% 같은 워치리스트
  * drift 패턴이 분할/병합/권리락 의심 사례임을 자동 분류.
@@ -18,6 +18,17 @@
  *
  * ENV `CORPORATE_ACTION_DETECTOR_DISABLED=true` → 항상 detected=false 반환.
  * ENV `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` → STRONG=150 / RIGHTS_MAX=150 / DEAD_ZONE=∞.
+ *
+ * ADR-0518 (2026-05-24) — 일봉 연속성 검증 (false-positive 차단):
+ *   magnitude-only(>80%) 판정은 "수 주간 정상 +99.6% 랠리"와 "하룻밤 +100% 권리락/병합 갭"을
+ *   구분하지 못함. KRX 일일 ±30% 상한가/하한가 → 정상 매매로는 하루 ±30% 초과 불가.
+ *   분할/병합/권리락 ex-date 는 기계적 조정이라 단일일 갭이 ±30% 초과.
+ *   따라서 RAW 일봉에서 단일일 |close-to-close| 갭 > 35%(=30%+마진) 가 있으면 CONFIRMED,
+ *   없으면 GENUINE_RALLY (corporate action 아님 → benign 강등).
+ *   본 SSOT 는 **PURE** — 일봉 조회(네트워크)는 caller(entryPriceDrift.ts)가 주입한다.
+ *   kisChartDataFetcher 를 import 하지 않는다 (import 0건 원칙 유지).
+ *   ENV `CORPORATE_ACTION_DAILYBAR_VERIFY_DISABLED=true` → 검증 skip (보수적 기존 동작 복원).
+ *   ENV `CORPORATE_ACTION_GAP_THRESHOLD_PCT` → 갭 임계 override (유한 & >0 일 때).
  */
 
 export type CorporateActionType = 'SPLIT' | 'MERGE' | 'RIGHTS' | 'UNKNOWN';
@@ -47,8 +58,6 @@ export const CORPORATE_ACTION_THRESHOLDS = {
   /** ADR-0301 ENV legacy — `CORPORATE_ACTION_LEGACY_THRESHOLDS=true` 시 활성 */
   LEGACY_STRONG_DRIFT_PCT: 150,
   LEGACY_RIGHTS_DRIFT_MAX: 150,
-  /** 한국 시장 일일 가격제한폭(±%). 단일일 이 한계 초과는 organic 불가 → 코퍼레이트 액션. */
-  KOREAN_DAILY_LIMIT_PCT: 30,
 } as const;
 
 const NOT_DETECTED: CorporateActionResult = {
@@ -108,57 +117,6 @@ export function isStrongDriftSuspected(driftPct: number): boolean {
 }
 
 /**
- * 일일 가격제한폭 기반 organic 타당성 가드 비활성 ENV.
- * `CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED=true` → 가드 끔(기존 절대-임계 동작 복원).
- * ADR-0157 정확 비교 의무.
- */
-export function isCorporateActionDailyLimitGuardDisabled(): boolean {
-  return process.env.CORPORATE_ACTION_DAILY_LIMIT_GUARD_DISABLED === 'true';
-}
-
-/**
- * N 영업일 동안 한국 ±30% 일일 제한폭으로 *이론상* 달성 가능한 최대 누적 drift(%).
- * 단일일 상한이 +30% 이므로 N 일 복리 = (1.30^N − 1)×100. N 은 최소 1 로 floor.
- */
-export function maxOrganicDriftPct(elapsedTradingDays: number): number {
-  const limit = CORPORATE_ACTION_THRESHOLDS.KOREAN_DAILY_LIMIT_PCT / 100;
-  const n = Number.isFinite(elapsedTradingDays) ? Math.max(1, Math.floor(elapsedTradingDays)) : 1;
-  return (Math.pow(1 + limit, n) - 1) * 100;
-}
-
-/**
- * 진입 ISO 시각으로부터 경과 영업일(근사). 캘린더 일수 × 5/7. 미래/무효 → 0.
- * (외부 캘린더 의존 없이 watchlistManager 가 코퍼레이트 액션 SSOT 를 통해 사용.)
- */
-export function approxTradingDaysSince(entryIso: string | undefined, now: Date = new Date()): number {
-  if (!entryIso) return 0;
-  const entryMs = Date.parse(entryIso);
-  if (!Number.isFinite(entryMs)) return 0;
-  const diffMs = now.getTime() - entryMs;
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
-  return (diffMs / (24 * 3600 * 1000)) * (5 / 7);
-}
-
-/**
- * 누적 *상승* drift 가 경과 영업일 동안 ±30% 일일 제한폭으로 organic 하게 달성 가능한가?
- * true → 정상 모멘텀(점진적 상승)으로 코퍼레이트 액션/데이터 오염 아님 → 일반 drift 처리.
- *
- * 호출자(watchlistManager.applyEntryPriceDrift)가 addedAt 윈도우 컨텍스트로 직접 사용.
- * detectCorporateAction 자체는 magnitude-only 로 유지 (윈도우 판정은 caller 책임).
- *
- * - **양(+) drift 에만 적용** — 하락 drift 는 붕괴/데이터 이슈 가능성이라 면제 대상 아님.
- * - ENV 가드 비활성 시 항상 false (기존 절대-임계 동작).
- * - elapsedTradingDays 미제공/무효 → 윈도우 판정 불가 → 보수적으로 1 일(=+30%) 적용.
- * - NaN drift → false.
- */
-export function isOrganicallyPlausibleDrift(driftPct: number, elapsedTradingDays?: number): boolean {
-  if (isCorporateActionDailyLimitGuardDisabled()) return false;
-  if (!Number.isFinite(driftPct)) return false;
-  if (driftPct <= 0) return false;
-  return driftPct <= maxOrganicDriftPct(elapsedTradingDays ?? 1);
-}
-
-/**
  * drift 패턴으로 코퍼레이트 액션 의심 분류.
  *
  * 분류 규칙 (ADR-0301 default):
@@ -215,4 +173,138 @@ export function detectCorporateAction(input: CorporateActionInput): CorporateAct
   }
 
   return { ...NOT_DETECTED, driftPct };
+}
+
+// ── ADR-0518: 일봉 연속성 검증 (false-positive 차단) ────────────────────────────
+
+/** KRX 일일 가격 제한폭 — 정상 매매로는 단일일 ±30% 초과 불가. */
+export const KRX_DAILY_PRICE_LIMIT_PCT = 30;
+/** corporate action 확정 갭 임계 — KRX ±30% 한계 + 마진. ENV override 가능. */
+export const CORPORATE_ACTION_GAP_THRESHOLD_PCT = 35;
+
+export type DailyBarVerdictStatus = 'CONFIRMED' | 'GENUINE_RALLY' | 'UNVERIFIABLE';
+
+/** 일봉 최소 형태 — date(YYYYMMDD) + close 만 사용. */
+export interface DailyBarLike {
+  date: string;
+  close: number;
+}
+
+export interface DailyBarVerdict {
+  status: DailyBarVerdictStatus;
+  /** 스캔 구간 내 최대 단일일 |close-to-close| 변동률(%). 검증 불가 시 null. */
+  maxSingleDayMovePct: number | null;
+  /** CONFIRMED 시 갭 발생 bar 의 date. */
+  gapDate?: string;
+  /** 실제 인접 쌍 비교에 사용된 candle 수. */
+  barsExamined: number;
+  reason: string;
+}
+
+/** ADR-0518 ENV gate — true 시 일봉 검증 skip (기존 보수적 동작 복원). ADR-0157 정확 비교. */
+export function isDailyBarVerificationDisabled(): boolean {
+  return process.env.CORPORATE_ACTION_DAILYBAR_VERIFY_DISABLED === 'true';
+}
+
+/** ADR-0518 활성 갭 임계 — ENV CORPORATE_ACTION_GAP_THRESHOLD_PCT 가 유한 & >0 이면 사용, 아니면 35. */
+export function activeCorporateActionGapThresholdPct(): number {
+  const raw = Number(process.env.CORPORATE_ACTION_GAP_THRESHOLD_PCT);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return CORPORATE_ACTION_GAP_THRESHOLD_PCT;
+}
+
+/** YYYYMMDD 또는 ISO 날짜 문자열을 YYYYMMDD 숫자(비교용)로 정규화. 실패 시 null. */
+function normalizeDateKey(value: string | undefined | null): number | null {
+  if (!value) return null;
+  // KIS date 는 'YYYYMMDD', addedAt 은 ISO('2026-05-24T...'). 둘 다 숫자 8자리로 정규화.
+  const digits = value.replace(/[^0-9]/g, '').slice(0, 8);
+  if (digits.length < 8) return null;
+  const n = parseInt(digits, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * ADR-0518 — RAW 일봉(old→new) 연속성 검증. **PURE** (네트워크 호출 없음).
+ *
+ * opts.sinceDate(YYYYMMDD or ISO) 가 있으면 그 날짜 **이후(>=)** candle 만 스캔한다
+ * (addedAt 이후 구간만 검증 — 그 이전의 분할 갭은 무관). 스캔 대상 < 2개면 UNVERIFIABLE.
+ * 인접 close 쌍 `|close[i]/close[i-1]-1|*100` 최대값을 구한다 (close<=0 인 쌍은 건너뜀).
+ * 최대값 > activeThreshold → CONFIRMED(gapDate=해당 bar.date), 아니면 GENUINE_RALLY.
+ */
+export function verifyDailyBarContinuity(
+  candles: DailyBarLike[],
+  opts?: { sinceDate?: string; thresholdPct?: number },
+): DailyBarVerdict {
+  const threshold = Number.isFinite(opts?.thresholdPct) && (opts?.thresholdPct as number) > 0
+    ? (opts!.thresholdPct as number)
+    : activeCorporateActionGapThresholdPct();
+
+  if (!Array.isArray(candles) || candles.length === 0) {
+    return {
+      status: 'UNVERIFIABLE',
+      maxSingleDayMovePct: null,
+      barsExamined: 0,
+      reason: 'no_candles',
+    };
+  }
+
+  const sinceKey = normalizeDateKey(opts?.sinceDate);
+  // sinceDate 가 있으면 그 날짜 이후(>=) candle 만 스캔. 날짜 파싱 실패 candle 은 보수적으로 포함.
+  const scanned = sinceKey === null
+    ? candles
+    : candles.filter((c) => {
+        const key = normalizeDateKey(c.date);
+        return key === null || key >= sinceKey;
+      });
+
+  if (scanned.length < 2) {
+    return {
+      status: 'UNVERIFIABLE',
+      maxSingleDayMovePct: null,
+      barsExamined: scanned.length,
+      reason: `insufficient_bars_${scanned.length}_after_since_${opts?.sinceDate ?? 'none'}`,
+    };
+  }
+
+  let maxMovePct: number | null = null;
+  let gapDate: string | undefined;
+  let comparedPairs = 0;
+  for (let i = 1; i < scanned.length; i++) {
+    const prev = scanned[i - 1].close;
+    const cur = scanned[i].close;
+    // close<=0 또는 비유한 값 쌍은 검증 불가 → 건너뜀 (0으로 나누기 방지).
+    if (!Number.isFinite(prev) || !Number.isFinite(cur) || prev <= 0 || cur <= 0) continue;
+    comparedPairs++;
+    const movePct = Math.abs((cur / prev - 1) * 100);
+    if (maxMovePct === null || movePct > maxMovePct) {
+      maxMovePct = movePct;
+      gapDate = scanned[i].date;
+    }
+  }
+
+  if (comparedPairs === 0 || maxMovePct === null) {
+    return {
+      status: 'UNVERIFIABLE',
+      maxSingleDayMovePct: null,
+      barsExamined: scanned.length,
+      reason: 'no_valid_close_pairs',
+    };
+  }
+
+  if (maxMovePct > threshold) {
+    return {
+      status: 'CONFIRMED',
+      maxSingleDayMovePct: maxMovePct,
+      gapDate,
+      barsExamined: scanned.length,
+      reason: `single_day_gap_${maxMovePct.toFixed(1)}%_gt_${threshold}%_on_${gapDate ?? 'unknown'}_corporate_action_confirmed`,
+    };
+  }
+
+  return {
+    status: 'GENUINE_RALLY',
+    maxSingleDayMovePct: maxMovePct,
+    barsExamined: scanned.length,
+    reason: `max_single_day_move_${maxMovePct.toFixed(1)}%_le_${threshold}%_over_${scanned.length}_bars_genuine_rally`,
+  };
 }

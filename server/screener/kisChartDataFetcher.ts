@@ -63,6 +63,8 @@ function calcEMAArr(values: number[], period: number): number[] {
  * @param period  'D'=일봉 | 'W'=주봉 | 'M'=월봉
  * @param startDate  조회 시작일 YYYYMMDD
  * @param endDate    조회 종료일 YYYYMMDD
+ * @param opts.rawPrices  true 시 원주가(FID_ORG_ADJ_PRC:'1', 분할 갭 보존, ADR-0518),
+ *                        미전달/false 시 수정주가(FID_ORG_ADJ_PRC:'0', 기존 default).
  * @returns 캔들 배열 (오래된 순서: 과거 → 최근)
  */
 export async function fetchKisChartData(
@@ -70,6 +72,7 @@ export async function fetchKisChartData(
   period: 'D' | 'W' | 'M',
   startDate: string,
   endDate: string,
+  opts?: { rawPrices?: boolean },
 ): Promise<KisChartCandle[]> {
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return [];
 
@@ -83,7 +86,8 @@ export async function fetchKisChartData(
         FID_INPUT_DATE_1: startDate,
         FID_INPUT_DATE_2: endDate,
         FID_PERIOD_DIV_CODE: period,
-        FID_ORG_ADJ_PRC: '0',  // 수정주가 반영
+        // ADR-0518: '1'=원주가(raw, 분할 갭 보존) / '0'=수정주가(adjusted, 기존 default)
+        FID_ORG_ADJ_PRC: opts?.rawPrices === true ? '1' : '0',
         __kisPurpose: 'DISCOVERY',
       },
     );
@@ -227,15 +231,18 @@ function formatDate(d: Date): string {
  *
  * FHKST03010100 한 번 호출당 최대 ~100 봉 반환 — 120봉 확보 위해
  * calendarDays(기본 220)로 충분한 캘린더 범위를 지정한다.
+ *
+ * @param opts.rawPrices  true 시 원주가 일봉(ADR-0518 갭 탐지용). 미전달 시 수정주가 default.
  */
 export async function fetchKisDailyCandles(
   code: string,
   calendarDays = 220,
+  opts?: { rawPrices?: boolean },
 ): Promise<KisChartCandle[]> {
   const now = new Date();
   const endDate = formatDate(now);
   const start = new Date(now);
   start.setDate(start.getDate() - calendarDays);
   const startDate = formatDate(start);
-  return fetchKisChartData(code, 'D', startDate, endDate);
+  return fetchKisChartData(code, 'D', startDate, endDate, opts);
 }

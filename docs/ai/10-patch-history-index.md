@@ -128,6 +128,7 @@
 > 각 줄은 archive 의 해당 행으로 가는 입구다. 상세 본문은 `patch-history-full-log.md` 에서
 > 식별자(ADR-xxxx / Patch-xxx / PR-xxx)·날짜로 검색. **본 색인을 상세 로그로 키우지 말 것.**
 
+- 2026-05-24 · PR-ADR-0518 (corporate-action-guard-dailybar-continuity · corporateActionDetector/entryPriceDrift/kisChartDataFetcher · magnitude-only false-positive 차단)
 - 2026-05-20 · Patch-TSC-BASELINE-DIAGNOSTIC-FIX-001
 - 2026-05-20 · 문서
 - 2026-05-15 · PR-ADR-0517
@@ -541,4 +542,4 @@
 - 2026-05-24 · Patch-ACMA-UNBLOCK-4FILES
 - 2026-05-24 · Patch-DECOMP-regimeLearningBackfill-001
 - 2026-05-24 · Patch-UI-SECTION-NAV-VERIFY-AND-SPA-NOCACHE-001
-- 2026-05-24 · Patch-CORP-ACTION-ORGANIC-DAILY-LIMIT-GUARD-001 (147760 피엠티 +99.6% organic 랠리 오탐 방지)
+- 2026-05-24 · Patch-CORP-ACTION-ORGANIC-DAILY-LIMIT-GUARD-001 (addedAt 윈도우 휴리스틱 — ADR-0518 일봉 검증으로 대체/제거됨)
