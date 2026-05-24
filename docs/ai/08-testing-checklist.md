@@ -105,6 +105,10 @@ runtime 동작 변경 여부 · rollback 필요 여부.
 실패 본질은 런타임 assertion. 같은 ADR 에서 무관 실패를 섞지 말고, 3개 도메인 초과 시 분리.
 도메인 분류·후속 ADR 지도 → `docs/archive/adr/adr-534-baseline-failure-burndown.md`.
 
+**Test fixture 규율 (ADR-535):** mock 작성 시 canonical test-factory 패턴(불변식 보존 default — providerIssue↔marketSignal
+분리, executionImpact=NONE, shadowAllowed 정책상태 유지) 사용. 동작하는 테스트 재작성 금지(typecheck=0 → type-shape drift 부재).
+도메인별 필수 fixture 케이스·factory 패턴 → `docs/archive/adr/adr-535-test-fixture-schema-alignment.md`.
+
 ---
 
 ## Required Validation by Domain (ADR-533)

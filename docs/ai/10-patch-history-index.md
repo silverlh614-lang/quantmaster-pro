@@ -99,6 +99,13 @@
 - **Current Relevance:** burn-down 후속 ADR 범위/순서 결정 시 참조.
 - **Detail:** `docs/archive/adr/adr-534-baseline-failure-burndown.md` (검색어 `ADR-534`)
 
+### ADR-535 — Test Fixture Schema Alignment & Factory Discipline
+- **Status:** Completed (재범위: 문서 SSOT) · **Domain:** test fixtures / mock factory discipline
+- **Problem:** 가장 낮은 위험의 TEST_FIXTURE_DRIFT 부터 정리하려 했으나 — 실측상 type-shape drift 부재.
+- **Decision:** typecheck=0/import에러 0 → fixture schema drift **부재** 검증·기록. 동작 테스트 재작성 금지. canonical test-factory 규율(불변식 보존 default) + 도메인별 필수 fixture 케이스를 forward guideline 로 확립. 코드 0줄.
+- **Current Relevance:** 테스트 mock 작성/정렬 시 factory 규율 참조.
+- **Detail:** `docs/archive/adr/adr-535-test-fixture-schema-alignment.md` (검색어 `ADR-535`)
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -513,3 +520,4 @@
 - 2026-05-24 · ADR-532
 - 2026-05-24 · ADR-533
 - 2026-05-24 · ADR-534
+- 2026-05-24 · ADR-535
