@@ -31,7 +31,7 @@ export function useStockSearch() {
     setRecommendationSourceStatus(undefined);
     try {
       const data = await getStockRecommendations(filters);
-      if (!data || !data.recommendations) throw new Error("AI 추정 데이터를 불러오지 못했습니다.");
+      if (!data || !data.recommendations) throw new Error("후보 판정 데이터를 불러오지 못했습니다.");
       const avgConfidence = data.recommendations.length > 0 ? Math.round(data.recommendations.reduce((sum: number, s: StockRecommendation) => sum + s.confidenceScore, 0) / data.recommendations.length) : 75;
       const newHistoryItem = { date: new Date().toLocaleDateString(), stocks: data.recommendations.map((s: StockRecommendation) => s.name), hitRate: avgConfidence, strongBuyHitRate: Math.min(99, avgConfidence + 5) };
       const updatedHistory = [newHistoryItem, ...recommendationHistory].slice(0, 10);
@@ -50,7 +50,7 @@ export function useStockSearch() {
       setMarketContext(data.marketContext);
       setLastUpdated(new Date().toISOString());
 
-      // ADR-0019 (PR-B): 추천 발령 시점에 RecommendationSnapshot 영속.
+      // ADR-0019 (PR-B): 판정 발령 시점에 RecommendationSnapshot 영속.
       // 동일 stockCode active snapshot (PENDING/OPEN) 있으면 무시 (idempotent).
       // 30일 경과 PENDING 은 자동 EXPIRED 로 전이.
       const snapStore = useRecommendationSnapshotStore.getState();
@@ -68,7 +68,7 @@ export function useStockSearch() {
       setRecommendationSourceStatus(status);
       for (const w of warnings) toast.warning(w, { duration: 8000 });
       if (diversified.length === 0) {
-        toast.info(warnings.length > 0 ? '추천 결과 없음 — 위 안내를 확인하세요.' : '추천 종목이 없습니다.');
+        toast.info(warnings.length > 0 ? '후보 판정 결과 없음 — 위 안내를 확인하세요.' : '시스템 후보가 없습니다.');
       } else {
         toast.success('검색이 완료되었습니다.');
       }

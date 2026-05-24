@@ -10,7 +10,7 @@ import {
 import { cn } from '../ui/cn';
 import { useSettingsStore, useRecommendationStore, useTradeStore, useMarketStore } from '../stores';
 import { useShadowTradeStore } from '../stores/useShadowTradeStore';
-import { NAV_GROUPS } from '../config';
+import { getVisibleNavGroups } from '../config';
 import type { TradeRecord } from '../types/quant';
 
 interface SidebarProps {
@@ -24,6 +24,7 @@ export function Sidebar({ asDrawer = false }: SidebarProps = {}) {
   const { tradeRecords } = useTradeStore();
   const { syncStatus } = useMarketStore();
   const { shadowTrades } = useShadowTradeStore();
+  const navGroups = useMemo(() => getVisibleNavGroups(), []);
 
   const openTradesCount = tradeRecords.filter((t: TradeRecord) => t.status === 'OPEN').length;
 
@@ -65,7 +66,7 @@ export function Sidebar({ asDrawer = false }: SidebarProps = {}) {
 
       {/* Navigation Groups */}
       <nav className="flex-1 py-4 px-3 space-y-5">
-        {NAV_GROUPS.map((group) => (
+        {navGroups.map((group) => (
           <div key={group.label}>
             <div className="px-3 mb-2">
               <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">

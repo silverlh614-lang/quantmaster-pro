@@ -35,7 +35,7 @@ interface SymbolPick {
 }
 
 /**
- * watchlist 우선 + 추천 종목으로 보충하여 N개 symbols 선택. dedupe (code).
+ * watchlist 우선 + 시스템 후보로 보충하여 N개 symbols 선택. dedupe (code).
  */
 function pickSymbols(watchlist: { code: string; name: string }[], recommendations: { code: string; name: string }[]): SymbolPick[] {
   const seen = new Set<string>();
@@ -104,7 +104,7 @@ export function PortfolioCorrelationMatrix({ className }: PortfolioCorrelationMa
           <span>보유 종목 상관관계</span>
         </div>
         <p className="text-xs opacity-60">
-          관심·추천 종목이 2개 이상 있어야 매트릭스 계산 가능 — 현재 {symbols.length} 종목.
+          관심·후보 종목이 2개 이상 있어야 매트릭스 계산 가능 — 현재 {symbols.length} 종목.
         </p>
       </div>
     );

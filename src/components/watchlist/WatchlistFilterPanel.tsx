@@ -187,7 +187,7 @@ export function WatchlistFilterPanel({
                   <div className="relative group/info">
                     <Info className="w-3.5 h-3.5 text-theme-text-muted hover:text-orange-500 transition-colors cursor-help" />
                     <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-theme-bg backdrop-blur-xl border border-theme-border rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
-                      <h4 className="text-xs font-black text-orange-500 mb-2 uppercase tracking-widest">빈칸 검색 추천 기준 (Top 10)</h4>
+                      <h4 className="text-xs font-black text-orange-500 mb-2 uppercase tracking-widest">빈칸 검색 후보 판정 기준 (Top 10)</h4>
                       <ul className="space-y-2">
                         {[
                           { label: "시장 주도주", desc: "현재 시장의 주도 섹터 및 사이클 부합 여부" },
@@ -195,7 +195,7 @@ export function WatchlistFilterPanel({
                           { label: "ROE Type 3", desc: "자산회전율과 마진이 동반 상승하는 성장성" },
                           { label: "수급의 질", desc: "기관/외인의 질적인 수급 유입 및 매집 흔적" },
                           { label: "기술적 돌파", desc: "이동평균선 정배열 및 주요 지지/저항 돌파" },
-                          { label: "종합 확신도", desc: "27가지 체크리스트 기반 최고 점수 종목 엄선" },
+                          { label: "판정 합치도", desc: "27가지 체크리스트 기반 최고 점수 후보 선별" },
                         ].map((item, i) => (
                           <li key={i} className="flex flex-col gap-0.5">
                             <span className="text-[10px] font-black text-theme-text-secondary">{item.label}</span>
@@ -204,14 +204,14 @@ export function WatchlistFilterPanel({
                         ))}
                       </ul>
                       <div className="mt-3 pt-3 border-t border-theme-border space-y-2">
-                        <p className="text-[9px] font-bold text-orange-500/60 italic">* 검색어가 없을 경우 AI가 실시간 시장 데이터를 분석하여 가장 유망한 10개 종목을 추천합니다. 시장 상황은 매 순간 변하므로 검색 시마다 결과가 달라질 수 있습니다.</p>
+                        <p className="text-[9px] font-bold text-orange-500/60 italic">* 검색어가 없을 경우 시스템이 실시간 시장 데이터를 기준으로 관찰 후보 10개를 산출합니다. 시장 상황은 매 순간 변하므로 검색 시마다 결과가 달라질 수 있습니다.</p>
                         <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
                           <h5 className="text-[9px] font-black text-blue-400 mb-1 flex items-center gap-1">
                             <Lightbulb className="w-2.5 h-2.5" />
                             백테스팅 결과와 다른 이유?
                           </h5>
                           <p className="text-[8px] text-theme-text-muted font-medium leading-relaxed">
-                            추천 종목은 단기 모멘텀에 집중하며, 백테스팅은 장기 안정성과 포트폴리오 조화를 평가합니다. 따라서 추천 종목이 백테스팅에서 리스크로 분류될 수 있습니다.
+                            후보 판정은 단기 모멘텀에 집중하며, 백테스팅은 장기 안정성과 포트폴리오 조화를 평가합니다. 따라서 시스템 후보가 백테스팅에서 리스크로 분류될 수 있습니다.
                           </p>
                         </div>
                       </div>
@@ -310,7 +310,7 @@ export function WatchlistFilterPanel({
                   {isFilterExpanded && (
                     <div className="px-1 mb-2">
                       <p className="text-[11px] text-theme-text-muted leading-relaxed">
-                        AI 분석 전, 정량적 지표를 통해 1차 스크리닝을 수행합니다. 설정한 조건에 부합하는 종목들 중에서만 AI가 정밀 분석을 진행합니다.
+                        정량 지표로 1차 스크리닝을 수행합니다. 설정한 조건에 부합하는 종목만 후보 판정 대상으로 올립니다.
                       </p>
                     </div>
                   )}
@@ -384,7 +384,7 @@ export function WatchlistFilterPanel({
               <div className="flex flex-wrap gap-3 items-center">
                 {/* Type Filter */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">추천 유형</span>
+                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">판정 유형</span>
                   <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
                     {['ALL', 'STRONG_BUY', 'BUY', 'STRONG_SELL', 'SELL'].map((type) => (
                       <button

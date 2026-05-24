@@ -111,10 +111,10 @@ export function PortfolioExtractPage() {
           accentColor="bg-purple-500"
           actions={
             <ConnectionStatus
-              label="추천 데이터"
+              label="후보 판정 데이터"
               state={upstreamState}
               lastUpdated={lastUpdated}
-              detail={upstreamState === 'idle' ? 'AI 추정 결과가 없으면 추출할 후보가 없습니다. 탐색 탭에서 추천을 먼저 실행하세요.' : undefined}
+              detail={upstreamState === 'idle' ? '후보 판정 결과가 없으면 추출할 후보가 없습니다. 후보 판정 탭에서 먼저 실행하세요.' : undefined}
             />
           }
         >

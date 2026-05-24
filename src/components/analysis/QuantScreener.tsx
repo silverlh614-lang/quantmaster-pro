@@ -44,7 +44,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
   { label: 'DART Review', desc: 'Recent disclosures and ownership signals', color: 'text-amber-400', border: 'border-amber-500/40' },
   { label: 'Composite Score', desc: 'Quant, disclosure, and news factors combined', color: 'text-green-400', border: 'border-green-500/40' },
   { label: 'Quiet Accumulation', desc: 'VWAP, institutional split buying, and supply shrinkage', color: 'text-purple-400', border: 'border-purple-500/40' },
-  { label: 'AI Timing Review', desc: 'Narrative quality and 27-condition gate read', color: 'text-pink-400', border: 'border-pink-500/40' },
+  { label: 'Timing Review', desc: 'Narrative quality and 27-condition gate read', color: 'text-pink-400', border: 'border-pink-500/40' },
 ];
 
 const MODE_OPTIONS = [
@@ -232,7 +232,7 @@ function ScreenerForm({
             )}
           >
             {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-            Run Screen
+            후보 스크리닝 시작
           </button>
         </div>
       </form>
@@ -331,7 +331,7 @@ function StandardLoading() {
         <Brain className="w-6 h-6 text-purple-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
       </div>
       <div className="text-center">
-        <p className="text-white font-medium">AI is reviewing candidates.</p>
+        <p className="text-white font-medium">System is reviewing candidates.</p>
         <p className="text-sm text-gray-500 mt-1">The screener is checking leadership cycles, macro fit, and supply quality.</p>
       </div>
     </div>
@@ -457,7 +457,7 @@ function AnalysisResultsPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-purple-400" />
-          <h3 className="text-lg font-bold text-white">Step 2: AI Screening Results</h3>
+          <h3 className="text-lg font-bold text-white">Step 2: Candidate Screening Results</h3>
         </div>
         {recommendations.length > 0 && (
           <span className="text-xs font-medium text-purple-400 bg-purple-400/10 px-2 py-1 rounded border border-purple-400/20">
@@ -484,8 +484,8 @@ function StrengthPanel() {
         Pipeline Strengths
       </h3>
       <ul className="space-y-4">
-        <StrengthItem title="Quant validation" body="Filters weak balance sheets and low-quality valuations before AI review." />
-        <StrengthItem title="AI narrative review" body="Ranks candidates by leadership cycle, macro fit, and supply quality." />
+        <StrengthItem title="Quant validation" body="Filters weak balance sheets and low-quality valuations before qualitative review." />
+        <StrengthItem title="Narrative review" body="Ranks candidates by leadership cycle, macro fit, and supply quality." />
         <StrengthItem title="Risk discipline" body="Prioritizes validated setups instead of simply chasing popular tickers." />
       </ul>
     </div>

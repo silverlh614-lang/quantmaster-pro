@@ -2,7 +2,7 @@
  * @responsibility navigation 그룹·메뉴 SSOT 회귀 테스트 — PR-I
  */
 import { describe, it, expect } from 'vitest';
-import { NAV_GROUPS, PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS } from './navigation';
+import { NAV_GROUPS, PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS, getVisibleNavGroups } from './navigation';
 import { VIEW_LABELS } from './viewRegistry';
 
 describe('navigation SSOT — PR-I 신규 페이지 등록', () => {
@@ -38,7 +38,7 @@ describe('navigation SSOT — PR-I 신규 페이지 등록', () => {
 
   it('PR-I — 두 신규 항목이 MORE_MOBILE_TABS 에도 등록됨', () => {
     expect(MORE_MOBILE_TABS.some(i => i.id === 'RECOMMENDATION_HISTORY')).toBe(true);
-    expect(MORE_MOBILE_TABS.some(i => i.id === 'MACRO_INTEL')).toBe(true);
+    expect(MORE_MOBILE_TABS.some(i => i.id === 'BLOG_EXPORT')).toBe(true);
   });
 
   it('NAV_GROUPS 에 중복된 view id 없음 (drift 가드)', () => {
@@ -47,9 +47,15 @@ describe('navigation SSOT — PR-I 신규 페이지 등록', () => {
     expect(uniq.size).toBe(allIds.length);
   });
 
-  it('인텔리전스 그룹 신규 추가됨', () => {
-    const intel = NAV_GROUPS.find(g => g.label === '인텔리전스');
-    expect(intel).toBeDefined();
-    expect(intel?.items.length).toBeGreaterThanOrEqual(2);
+  it('리포트 그룹이 Public Report / Blog Export 진입점을 제공함', () => {
+    const report = NAV_GROUPS.find(g => g.label === '리포트');
+    expect(report).toBeDefined();
+    expect(report?.items.map(i => i.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT']);
+  });
+
+  it('운영자 그룹은 일반 navigation 에서 숨김 처리됨', () => {
+    expect(NAV_GROUPS.some(g => g.label === '운영자')).toBe(true);
+    expect(getVisibleNavGroups(false).some(g => g.label === '운영자')).toBe(false);
+    expect(getVisibleNavGroups(true).some(g => g.label === '운영자')).toBe(true);
   });
 });

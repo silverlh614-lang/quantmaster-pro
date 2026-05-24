@@ -77,7 +77,7 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
     // 보유 마커 표시
     expect(getByText('보유')).toBeTruthy();
     // placeholder 미노출
-    expect(queryByText(/관심·추천·보유 종목 중/)).toBeNull();
+    expect(queryByText(/관심·후보·보유 종목 중/)).toBeNull();
   });
 
   it('closed shadow (HIT_TARGET / HIT_STOP) — 매칭에서 제외', () => {
@@ -98,7 +98,7 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
   });
 
   it('dedupe — recommendations 와 동일 code 의 shadow trade 는 한 번만 노출', () => {
-    // 추천 = 반도체 / shadow = sector 단일 반도체 (동일 code)
+    // 후보 = 반도체 / shadow = sector 단일 반도체 (동일 code)
     useRecommendationStore.setState({
       recommendations: [makeStock('005930', '삼성전자', ['반도체'], 'STRONG_BUY')],
       watchlist: [],
@@ -112,13 +112,13 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
     // dedupe 확인 — code=005930 항목이 정확히 1건만 렌더 (li 갯수)
     const items = container.querySelectorAll('li');
     expect(items.length).toBe(1);
-    // 추천이 우선 (먼저 들어온 항목이 dedupe seen 에 먼저 등록) — STRONG_BUY 라벨 노출
+    // 후보가 우선 (먼저 들어온 항목이 dedupe seen 에 먼저 등록) — STRONG_BUY 라벨 노출
     expect(items[0].textContent).toContain('STRONG_BUY');
-    // 보유 마커는 미노출 (추천이 우선)
+    // 보유 마커는 미노출 (후보가 우선)
     expect(items[0].textContent).not.toContain('보유');
   });
 
-  it('빈 매칭 — 추천·관심·shadow 모두 미매칭 시 placeholder', () => {
+  it('빈 매칭 — 후보·관심·shadow 모두 미매칭 시 placeholder', () => {
     useRecommendationStore.setState({
       recommendations: [makeStock('005930', '삼성전자', ['반도체'])],
     });

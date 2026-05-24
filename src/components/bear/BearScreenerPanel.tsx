@@ -295,7 +295,7 @@ export function BearScreenerPanel({
                     )}
                     <div className="mt-2 flex items-center gap-1 flex-wrap">
                       {stock.confidenceScore > 0 && (
-                        <span className="text-[10px] text-gray-500">확신도 {stock.confidenceScore}%</span>
+                        <span className="text-[10px] text-gray-500">판정 합치도 {stock.confidenceScore}%</span>
                       )}
                     </div>
                   </button>

@@ -1,4 +1,4 @@
-// @responsibility 추천 이력·승률·평균수익률 표시 페이지 (ADR-0029 PR-B + ADR-0034 PR-G)
+// @responsibility 판정 이력·승률·평균수익률 표시 페이지 (ADR-0029 PR-B + ADR-0034 PR-G)
 
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -76,9 +76,9 @@ export function RecommendationHistoryPage() {
   return (
     <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
       <header>
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tight">추천 이력 성과 추적</h1>
+        <h1 className="text-2xl sm:text-3xl font-black tracking-tight">판정 이력 성과 추적</h1>
         <p className="text-xs sm:text-sm text-white/60 mt-1">
-          시스템이 STRONG_BUY/BUY 추천한 종목의 이후 성과 — 승/패/만료 분류 + 월간 통계
+          시스템이 Confirmed Candidate/BUY로 판정한 종목의 이후 성과 — 승/패/만료 분류 + 월간 통계
         </p>
       </header>
 
@@ -126,7 +126,7 @@ export function RecommendationHistoryPage() {
           className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3"
           aria-label="월간 통계"
         >
-          <StatBox label="총 추천" value={fmtNum(stats.totalCount)} sub={`이번달 ${stats.monthly.total}건`} />
+          <StatBox label="총 판정" value={fmtNum(stats.totalCount)} sub={`이번달 ${stats.monthly.total}건`} />
           <StatBox label="진행 중" value={fmtNum(stats.pendingCount)} sub="PENDING" />
           <StatBox
             label="승률"
@@ -156,7 +156,7 @@ export function RecommendationHistoryPage() {
       ) : null}
 
       {/* 이력 테이블 */}
-      <section aria-label="추천 이력 목록">
+      <section aria-label="판정 이력 목록">
         {historyQuery.isLoading ? (
           <div className="text-sm text-white/40">이력 로드 중…</div>
         ) : historyQuery.isError ? (
@@ -165,7 +165,7 @@ export function RecommendationHistoryPage() {
           </div>
         ) : records.length === 0 ? (
           <div className="rounded border border-white/10 bg-white/5 p-6 text-center text-sm text-white/50">
-            아직 추천 이력이 없습니다.
+            아직 판정 이력이 없습니다.
           </div>
         ) : (
           <div className="overflow-x-auto rounded border border-white/10 bg-black/20">
@@ -196,7 +196,7 @@ export function RecommendationHistoryPage() {
         )}
       </section>
 
-      {/* PR-M: 추천 일별 시계열 차트 */}
+      {/* PR-M: 판정 일별 시계열 차트 */}
       <RecommendationTimeseriesChart />
 
       {/* PR-H (ADR-0035): 조건별 수익률 귀인 차트 */}

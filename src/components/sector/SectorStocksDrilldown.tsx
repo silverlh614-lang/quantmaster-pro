@@ -25,7 +25,7 @@ type CardLikeStock = {
   code: string;
   name: string;
   currentPrice?: number;
-  /** AI 추천 type 또는 'HOLDING' (shadow trade 진입 종목). */
+  /** 후보 판정 type 또는 'HOLDING' (shadow trade 진입 종목). */
   type: StockRecommendation['type'] | 'HOLDING';
   relatedSectors?: string[];
   sector?: string;
@@ -73,7 +73,7 @@ export function SectorStocksDrilldown({ sectorName, score, onClose }: SectorStoc
     [shadowTrades],
   );
 
-  // 추천 + 워치리스트 + 활성 shadow trade 통합. filterStocksBySector 가 code 기준 dedupe.
+  // 후보 + 워치리스트 + 활성 shadow trade 통합. filterStocksBySector 가 code 기준 dedupe.
   const merged: CardLikeStock[] = React.useMemo(() => [
     ...recommendations.map(toCardLike),
     ...watchlist.map(toCardLike),
@@ -117,7 +117,7 @@ export function SectorStocksDrilldown({ sectorName, score, onClose }: SectorStoc
         <div className="flex-1 overflow-y-auto p-4">
           {matched.length === 0 ? (
             <p className="text-xs opacity-60">
-              관심·추천·보유 종목 중 "{sectorName}" 섹터에 속한 종목이 없습니다.
+              관심·후보·보유 종목 중 "{sectorName}" 섹터에 속한 종목이 없습니다.
             </p>
           ) : (
             <ul className="divide-y divide-white/5">

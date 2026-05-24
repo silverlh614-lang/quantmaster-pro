@@ -232,7 +232,7 @@ export function useReportExport() {
     setIsSummarizing(true);
     try {
       debugLog('AI 요약 생성 중...');
-      // 추천 종목과 검색 결과를 합쳐서 요약 대상으로 전달
+      // 시스템 후보와 검색 결과를 합쳐서 요약 대상으로 전달
       const allStocks = [...(recommendations || []), ...(searchResults || [])];
       const summary = await generateReportSummary(allStocks, marketContext);
       setReportSummary(summary);

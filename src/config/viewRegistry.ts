@@ -8,7 +8,7 @@ import type { View } from '../stores/useSettingsStore';
 
 /** Label shown in the browser tab / header for each view */
 export const VIEW_LABELS: Record<View, string> = {
-  DISCOVER: '탐색',
+  DISCOVER: '후보 판정',
   WATCHLIST: '관심 목록',
   SCREENER: '스크리너',
   SUBSCRIPTION: '섹터 구독',
@@ -19,9 +19,12 @@ export const VIEW_LABELS: Record<View, string> = {
   TRADE_JOURNAL: '매매일지',
   AUTO_TRADE: '자동매매',
   PORTFOLIO_EXTRACT: '포트폴리오 추출',
-  RECOMMENDATION_HISTORY: '추천 이력',
+  RECOMMENDATION_HISTORY: '판정 이력',
   MACRO_INTEL: '매크로 인텔리전스',
   SHADOW_LEARNING: 'Shadow 학습',
+  PUBLIC_REPORT: 'Public Report',
+  BLOG_EXPORT: 'Blog Export',
+  DIAGNOSTICS: 'Diagnostics',
   LEARNING_SANITY: 'Learning Sanity',
 };
 

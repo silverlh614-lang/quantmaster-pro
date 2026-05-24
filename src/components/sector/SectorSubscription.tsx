@@ -110,7 +110,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
           {draftSectors.length === 0 ? (
             <div className="bg-black/30 border border-dashed border-white/10 rounded-lg p-4 text-center">
               <p className="text-sm text-gray-400 font-medium">선택된 섹터가 없습니다.</p>
-              <p className="text-xs text-gray-500 mt-1">아래 추천 섹터를 선택하거나 직접 입력해 <span className="text-amber-400 font-bold">저장</span>을 눌러주세요.</p>
+              <p className="text-xs text-gray-500 mt-1">아래 후보 섹터를 선택하거나 직접 입력해 <span className="text-amber-400 font-bold">저장</span>을 눌러주세요.</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -151,7 +151,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
           </form>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            <span className="text-xs text-gray-500 font-medium py-1">추천 섹터:</span>
+            <span className="text-xs text-gray-500 font-medium py-1">후보 섹터:</span>
             {AVAILABLE_SECTORS.filter(s => !draftSectors.includes(s)).slice(0, 8).map(sector => (
               <button
                 key={sector}
@@ -316,7 +316,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
               <div className="pt-4 border-t border-white/5">
                 <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
                   <Brain className="w-3.5 h-3.5" />
-                  <span>AI 분석 가동 중</span>
+                  <span>시스템 분석 가동 중</span>
                 </div>
                 <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
                   <motion.div 

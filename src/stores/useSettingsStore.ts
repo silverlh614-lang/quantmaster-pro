@@ -2,7 +2,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type View = 'DISCOVER' | 'WATCHLIST' | 'BACKTEST' | 'MARKET' | 'WALK_FORWARD' | 'MANUAL_INPUT' | 'SCREENER' | 'SUBSCRIPTION' | 'TRADE_JOURNAL' | 'AUTO_TRADE' | 'PORTFOLIO_EXTRACT' | 'RECOMMENDATION_HISTORY' | 'MACRO_INTEL' | 'SHADOW_LEARNING' | 'LEARNING_SANITY';
+export type View =
+  | 'DISCOVER'
+  | 'WATCHLIST'
+  | 'BACKTEST'
+  | 'MARKET'
+  | 'WALK_FORWARD'
+  | 'MANUAL_INPUT'
+  | 'SCREENER'
+  | 'SUBSCRIPTION'
+  | 'TRADE_JOURNAL'
+  | 'AUTO_TRADE'
+  | 'PORTFOLIO_EXTRACT'
+  | 'RECOMMENDATION_HISTORY'
+  | 'MACRO_INTEL'
+  | 'SHADOW_LEARNING'
+  | 'PUBLIC_REPORT'
+  | 'BLOG_EXPORT'
+  | 'DIAGNOSTICS'
+  | 'LEARNING_SANITY';
 export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
 export type PublicReportViewMode = 'OPERATION_MODE' | 'PUBLIC_REPORT_MODE' | 'PAID_PREVIEW_MODE';
 /**

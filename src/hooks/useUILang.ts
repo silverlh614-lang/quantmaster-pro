@@ -21,7 +21,7 @@ import { UI_LANG, type UILangKeys } from '../config/uiLanguage';
 export interface UILang {
   /** 사이드바 / 탭 / 페이지 라벨 */
   nav: (k: keyof UILangKeys['nav']) => string;
-  /** 종목 카드 / 추천 카드 라벨 */
+  /** 종목 카드 / 판정 카드 라벨 */
   card: (k: keyof UILangKeys['card']) => string;
   /** 데이터 품질 5-tier 라벨 */
   tier: (k: keyof UILangKeys['tier']) => string;

@@ -55,7 +55,7 @@ function DataTrustLegend() {
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Data Trust Visibility</p>
           <p className="mt-1 text-xs leading-relaxed text-white/55">
-            각 지표가 실계산 데이터인지, 지연/누락 데이터인지, AI 추정값인지 분리해 표시합니다. 배지는 표시 의미만 설명하며 gate·score·STRONG_BUY 판정 로직을 변경하지 않습니다.
+            각 지표가 실계산 데이터인지, 지연/누락 데이터인지, AI 추정값인지 분리해 표시합니다. 배지는 표시 의미만 설명하며 gate·score·후보 판정 로직을 변경하지 않습니다.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 lg:max-w-2xl lg:justify-end">
@@ -140,10 +140,10 @@ export function PublicReportDashboard({
               {viewMode === 'PAID_PREVIEW_MODE' && <Badge variant="violet" size="md">Paid Preview</Badge>}
             </div>
             <h2 className="mt-3 text-xl font-black tracking-tight text-white sm:text-2xl">
-              QuantMaster Public Report Cards
+              QuantMaster 후보 판정 공개 리포트
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-white/60">
-              {report.publicSummary} 공개용 화면은 내부 로그, provider raw response, 매수가, 손절가, 트랑슈 세부 계획을 숨깁니다.
+              {report.publicSummary} 공개용 화면은 내부 로그, provider raw response, 매수가, 손절가, 목표가, 트랑슈 세부 계획을 숨깁니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -214,7 +214,7 @@ export function PublicReportDashboard({
           {stock && (
             <Card padding="sm" className="xl:col-span-2">
               <CardHeader className="mb-3">
-                <CardTitle>Stock Decision Card</CardTitle>
+                <CardTitle>Candidate Decision Card</CardTitle>
                 <DataConfidenceBadge
                   confidence={stock.dataConfidenceSummary.overall}
                   source="stock decision indicators"
@@ -234,7 +234,7 @@ export function PublicReportDashboard({
               </div>
               <div className="mt-4 flex flex-wrap gap-2 text-xs">
                 <DataConfidenceBadge confidence="VERIFIED" label={`실계산 ${stock.calculatedIndicatorCount}`} compact showTooltip={false} />
-                <DataConfidenceBadge confidence="AI_ESTIMATED" label={`AI 추정 ${stock.aiEstimatedIndicatorCount}`} compact />
+                <DataConfidenceBadge confidence="AI_ESTIMATED" label={`추정 ${stock.aiEstimatedIndicatorCount}`} compact />
                 <DataConfidenceBadge confidence="MISSING" label={`누락 ${stock.missingIndicatorCount}`} compact />
               </div>
               <p className="mt-4 text-sm leading-relaxed text-white/65">
@@ -291,7 +291,7 @@ export function PublicReportDashboard({
             </CardHeader>
             {block ? (
               <div className="space-y-3">
-                <p className="text-sm font-black text-white">현재 조건상 매수 차단</p>
+                <p className="text-sm font-black text-white">좋은 종목일 수 있으나, 현재는 좋은 매수 자리가 아닙니다.</p>
                 <ul className="space-y-2 text-sm text-white/65">
                   {block.blockedReasons.slice(0, 5).map((reason) => (
                     <li key={reason} className="rounded-lg bg-white/[0.025] px-3 py-2">{reason}</li>

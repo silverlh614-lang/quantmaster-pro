@@ -174,7 +174,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
               {/* Inverse ETFs */}
               {vkospiTriggerResult.inverseEtfSuggestions.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">추천 인버스 ETF</p>
+                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">방어 ETF 후보</p>
                   <ul className="space-y-1">
                     {vkospiTriggerResult.inverseEtfSuggestions.map(etf => (
                       <li key={etf} className="text-[10px] text-theme-text-secondary">• {etf}</li>
@@ -351,7 +351,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
           {inverseGate1Result.etfRecommendations.length > 0 && (
             <div className="mt-4 p-3 border border-red-600/40 bg-red-900/15">
               <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-2">
-                🔴 STRONG BEAR 시그널 — 추천 인버스 ETF
+                🔴 STRONG BEAR 시그널 — 방어 ETF 후보
               </p>
               <ul className="space-y-1">
                 {inverseGate1Result.etfRecommendations.map(etf => (

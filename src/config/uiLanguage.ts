@@ -7,7 +7,7 @@
  *
  * 금지 표현 정책 (scripts/check_ui_language.js 자동 차단):
  * - 절대 표현: 완벽한 / 강력한 / 확실한 / 보장 / 확실히 / 최고의 / 베스트
- * - 출처 모호: AI 가 분석한 / AI 추천
+ * - 출처 모호: 출처 없는 분석 문구 / AI 기반 후보 권유
  * - 감정 표현: 놀라운 / 엄청난 / 대박 / 가장 좋은
  * - 약속 표현: 반드시 / 무조건 / 승률 100%
  *
@@ -24,7 +24,7 @@
 export const UI_LANG = {
   /** 사이드바 / 탭 / 페이지 라벨 */
   nav: {
-    DISCOVER: '발견',
+    DISCOVER: '후보 판정',
     AUTO_TRADE: '자동매매',
     POSITIONS: '보유 종목',
     SCREENER: '스크리너',
@@ -32,14 +32,17 @@ export const UI_LANG = {
     LEARNING: '자기학습',
     MACRO: '매크로 인텔',
     SHADOW_LEARNING: 'Shadow 학습',
-    RECOMMENDATION_HISTORY: '추천 이력',
+    PUBLIC_REPORT: 'Public Report',
+    BLOG_EXPORT: 'Blog Export',
+    DIAGNOSTICS: 'Diagnostics',
+    RECOMMENDATION_HISTORY: '판정 이력',
     SETTINGS: '설정',
   },
 
-  /** 종목 카드 / 추천 카드 라벨 */
+  /** 종목 카드 / 판정 카드 라벨 */
   card: {
-    STRONG_BUY: '강매수 후보',
-    BUY: '매수 후보',
+    STRONG_BUY: 'Confirmed Candidate',
+    BUY: '진입 가능 후보',
     HOLD: '관망',
     SELL: '청산 검토',
     AVOID: '진입 회피',
@@ -73,9 +76,9 @@ export const UI_LANG = {
   /** 4단계 Gate (0/1/2/3) — gateEngine boundary 와 정합 */
   gate: {
     GATE_0: '시장 게이트',
-    GATE_1: '필수 조건',
-    GATE_2: '강화 조건',
-    GATE_3: '확신 조건',
+    GATE_1: '생존 필터',
+    GATE_2: '성장 검증',
+    GATE_3: '진입 타이밍',
   },
 
   /**

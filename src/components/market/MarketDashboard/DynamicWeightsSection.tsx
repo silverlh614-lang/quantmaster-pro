@@ -29,9 +29,9 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React
         <div>
           <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
             <Zap className="w-6 h-6 text-yellow-400" />
-            AI 동적 가중치 전략 (Dynamic Weighting)
+            동적 가중치 전략 (Dynamic Weighting)
           </h3>
-          <p className="text-xs font-bold text-white/30 uppercase tracking-widest mt-2">AI-Driven Adaptive Scoring Strategy</p>
+          <p className="text-xs font-bold text-white/30 uppercase tracking-widest mt-2">Adaptive Scoring Strategy</p>
         </div>
         <div className="px-4 py-2 bg-yellow-400/10 border border-yellow-400/20 rounded-2xl">
           <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">실시간 최적화 적용 중</span>
@@ -65,7 +65,7 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React
       <div className="mt-10 p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-[2rem] flex items-start gap-4">
         <Info className="w-5 h-5 text-indigo-400 mt-1 shrink-0" />
         <p className="text-sm font-medium text-indigo-200/70 leading-relaxed">
-          AI가 현재 시장의 변동성, 금리, 환율 및 섹터 순환 데이터를 분석하여 퀀트 엔진의 가중치를 실시간으로 조정합니다.
+          시스템이 현재 시장의 변동성, 금리, 환율 및 섹터 순환 데이터를 분석하여 퀀트 엔진의 가중치를 실시간으로 조정합니다.
           상승장 초기에는 모멘텀 가중치를 높이고, 변동성 확대 시에는 리스크 관리 지표의 비중을 자동으로 강화하여 수익률을 극대화합니다.
         </p>
       </div>

@@ -187,11 +187,11 @@ export function StatusBanner() {
           <span className="text-[11px] font-black text-orange-400 font-num">{openTrades}건</span>
         </div>
 
-        {/* AI Recommendations count - desktop */}
+        {/* Candidate decision count - desktop */}
         <div className="hidden md:flex items-center gap-1.5 shrink-0 ml-auto">
           <Activity className="w-3 h-3 text-violet-400" />
           <span className="text-[10px] font-black text-violet-400 uppercase tracking-widest">
-            AI 추천 {(recommendations || []).length}건
+            시스템 후보 {(recommendations || []).length}건
           </span>
         </div>
       </div>

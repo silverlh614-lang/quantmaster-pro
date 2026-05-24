@@ -112,11 +112,11 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
     >
       <Stack gap="xl">
         <PageHeader
-          title="Quant Screener + AI Pipeline"
-          subtitle="정량 필터 → AI 질적 분석"
+          title="Quant Screener Pipeline"
+          subtitle="정량 필터 → 질적 검증"
           accentColor="bg-blue-600"
         >
-          정량적 필터로 후보군을 압축하고, AI가 질적 분석을 통해 최종 주도주를 선정하는 2단계 파이프라인입니다.
+          정량적 필터로 후보군을 압축하고, 질적 검증을 통해 최종 주도주 후보를 선별하는 2단계 파이프라인입니다.
         </PageHeader>
 
         {/* IPYL — 장중 Pipeline Yield 3-막대 실시간 티커 */}

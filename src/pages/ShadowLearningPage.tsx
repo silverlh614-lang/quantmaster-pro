@@ -81,7 +81,7 @@ export default function ShadowLearningPage(): React.ReactElement {
       <header className="space-y-2">
         <h1 className="text-2xl font-bold text-zinc-100">🌑 Shadow Learning Dashboard</h1>
         <p className="text-sm text-zinc-400">
-          AI 가 추천하지 않은 선택까지 학습하는 메타 학습 엔진. Rejection + Twin Portfolio 데이터 기반.
+          시스템이 후보로 판정하지 않은 선택까지 학습하는 메타 학습 엔진. Rejection + Twin Portfolio 데이터 기반.
         </p>
       </header>
 

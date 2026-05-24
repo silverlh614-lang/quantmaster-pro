@@ -14,7 +14,7 @@ const TONE_STYLE = {
 const HINT_LABEL: Record<MarketRegimeView['executionHint'], string> = {
   NORMAL_OPERATION: 'Display-only hint: normal interpretation',
   TIGHTEN_GATE_DISPLAY_ONLY: 'Display-only hint: 박스권 돌파 신호 해석 주의',
-  REDUCE_CONFIDENCE_DISPLAY_ONLY: 'Display-only hint: 신호 확신도 낮게 해석',
+  REDUCE_CONFIDENCE_DISPLAY_ONLY: 'Display-only hint: 신호 신뢰도 낮게 해석',
   BUY_STOP_RECOMMENDED_DISPLAY_ONLY: 'Display-only hint: 신규 매수 보수적 해석 권고',
   OBSERVE_ONLY_DISPLAY: 'Display-only hint: 관찰 우선, 데이터 연결 필요',
 };

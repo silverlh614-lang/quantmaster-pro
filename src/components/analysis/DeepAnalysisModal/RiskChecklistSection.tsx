@@ -115,7 +115,7 @@ export function RiskChecklistSection({ stock }: Props) {
         </div>
 
         <p className="text-[10px] text-white/40 font-bold leading-relaxed mt-6 pt-4 border-t border-white/10">
-          마스터 체크리스트는 시장 사이클, 수급, 펀더멘털, 기술적 지표 및 심리적 요인을 종합적으로 검증합니다. 15개 이상 통과 시 '강력 매수' 신호로 간주됩니다.
+          마스터 체크리스트는 시장 사이클, 수급, 펀더멘털, 기술적 지표 및 심리적 요인을 종합적으로 검증합니다. 15개 이상 통과 시 '강한 후보' 신호로 간주됩니다.
         </p>
       </div>
     </div>

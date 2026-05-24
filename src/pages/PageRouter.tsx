@@ -17,6 +17,7 @@ import { DiscoverWatchlistPage } from './DiscoverWatchlistPage';
 import { PortfolioExtractPage } from './PortfolioExtractPage';
 import { RecommendationHistoryPage } from './RecommendationHistoryPage';
 import { MacroIntelligencePage } from './MacroIntelligencePage';
+import { PublicReportPage } from './PublicReportPage';
 import ShadowLearningPage from './ShadowLearningPage';
 import LearningSanityDashboardPage from './LearningSanityDashboardPage';
 import { WalkForwardView } from '../components/common/WalkForwardView';
@@ -127,7 +128,11 @@ export function PageRouter({ onFetchMarketOverview }: PageRouterProps) {
               <MacroIntelligencePage />
             ) : view === 'SHADOW_LEARNING' ? (
               <ShadowLearningPage />
-            ) : view === 'LEARNING_SANITY' ? (
+            ) : view === 'PUBLIC_REPORT' ? (
+              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" />
+            ) : view === 'BLOG_EXPORT' ? (
+              <PublicReportPage preferredMode="PUBLIC_REPORT_MODE" />
+            ) : view === 'DIAGNOSTICS' || view === 'LEARNING_SANITY' ? (
               <LearningSanityDashboardPage />
             ) : view === 'WALK_FORWARD' ? (
               <WalkForwardView />

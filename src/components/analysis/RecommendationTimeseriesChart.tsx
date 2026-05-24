@@ -1,4 +1,4 @@
-// @responsibility 추천 일별 시계열 차트 — 어제/오늘 비교 + 7~30일 분포 (PR-M)
+// @responsibility 판정 일별 시계열 차트 — 어제/오늘 비교 + 7~30일 분포 (PR-M)
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -78,7 +78,7 @@ interface RecommendationTimeseriesChartProps {
 }
 
 /**
- * 추천 일별 시계열 차트 — 7/14/30일 슬라이서 + 오늘 vs 어제 델타 표시.
+ * 판정 일별 시계열 차트 — 7/14/30일 슬라이서 + 오늘 vs 어제 델타 표시.
  */
 export function RecommendationTimeseriesChart({ className }: RecommendationTimeseriesChartProps) {
   const [days, setDays] = useState<7 | 14 | 30>(7);
@@ -98,11 +98,11 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
     <div
       className={cn('rounded border border-white/10 bg-black/20 p-3 sm:p-4', className)}
       role="region"
-      aria-label="추천 일별 시계열"
+      aria-label="판정 일별 시계열"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
-          <Calendar className="w-3 h-3" /> 추천 시계열
+          <Calendar className="w-3 h-3" /> 판정 시계열
         </span>
         <div role="tablist" className="flex gap-1">
           {DAYS_OPTIONS.map(opt => (
@@ -128,7 +128,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
       {today && (
         <div className="grid grid-cols-3 gap-2 mb-3 text-[11px]">
           <div className="rounded border border-white/10 bg-white/5 p-2">
-            <div className="text-[10px] opacity-60">오늘 추천</div>
+            <div className="text-[10px] opacity-60">오늘 판정</div>
             <div className={cn('text-lg font-black font-num', deltaCls(today.total, yesterday?.total ?? null))}>
               {today.total}
             </div>

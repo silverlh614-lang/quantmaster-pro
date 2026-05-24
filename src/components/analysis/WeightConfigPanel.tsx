@@ -4,7 +4,7 @@
  *
  * Quantus PER/PBR 가중치 UI를 27개 마스터 조건에 적용.
  * 각 조건이 카드 형태로 펼쳐지고, 0~10 가중치 슬라이더 +
- * VKOSPI/레짐에 따른 동적 추천 가중치가 함께 표시된다.
+ * VKOSPI/레짐에 따른 동적 권장 가중치가 함께 표시된다.
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import {
@@ -213,7 +213,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                 {/* Action buttons */}
                 <div className="flex gap-2 shrink-0">
                   <Button variant="secondary" size="sm" icon={<Sparkles className="w-3 h-3" />} onClick={applyRecommended}>
-                    추천 적용
+                    권장 적용
                   </Button>
                   <Button variant="ghost" size="sm" icon={<RotateCcw className="w-3 h-3" />} onClick={resetToDefaults}>
                     초기화
@@ -334,7 +334,7 @@ function ConditionWeightCard({ id, weight, recommended, baseWeight, onWeightChan
 
       {/* Recommended badge */}
       <div className="hidden sm:flex flex-col items-center gap-0.5 shrink-0 w-14">
-        <span className="text-[8px] font-black text-theme-text-muted uppercase tracking-wider">추천</span>
+        <span className="text-[8px] font-black text-theme-text-muted uppercase tracking-wider">권장</span>
         <span className={cn(
           'text-xs font-black font-mono tabular-nums',
           Math.abs(diffFromRec) < 0.1 ? 'text-green-400' : 'text-amber-400'

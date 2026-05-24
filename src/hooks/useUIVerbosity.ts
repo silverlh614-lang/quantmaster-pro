@@ -20,7 +20,7 @@ import { useSettingsStore, type UIVerbosity } from '../stores/useSettingsStore';
 
 /** 컴포넌트 또는 정보 영역의 *자기 식별 키* — useUIVerbosity().shouldShow(key) 로 가시성 결정. */
 export type VerbosityContent =
-  | 'verdict'           // 추천 라벨 (STRONG_BUY 등) — 모든 모드
+  | 'verdict'           // 판정 라벨 (STRONG_BUY 등) — 모든 모드
   | 'evidence'          // V-E-R Evidence slot — balanced 이상
   | 'risk'              // V-E-R Risk slot (Stop-loss First) — balanced 이상
   | 'time-band'         // Verdict 만료 띠 — balanced 이상

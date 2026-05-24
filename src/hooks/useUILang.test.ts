@@ -73,9 +73,9 @@ describe('useUILang() hook', () => {
   it('gate() 메서드가 4 단계 모두 정확히 반환', () => {
     const { result } = renderHook(() => useUILang());
     expect(result.current.gate('GATE_0')).toBe('시장 게이트');
-    expect(result.current.gate('GATE_1')).toBe('필수 조건');
-    expect(result.current.gate('GATE_2')).toBe('강화 조건');
-    expect(result.current.gate('GATE_3')).toBe('확신 조건');
+    expect(result.current.gate('GATE_1')).toBe('생존 필터');
+    expect(result.current.gate('GATE_2')).toBe('성장 검증');
+    expect(result.current.gate('GATE_3')).toBe('진입 타이밍');
   });
 
   it('empty() 메서드가 4 sub-variant 모두 정확히 반환', () => {

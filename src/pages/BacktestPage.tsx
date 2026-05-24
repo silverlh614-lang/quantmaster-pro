@@ -83,11 +83,11 @@ export function BacktestPage({
       <Stack gap="xl">
         {/* Header */}
         <PageHeader
-          title="AI Portfolio Backtest"
+                title="Portfolio Backtest"
           subtitle="포트폴리오 백테스트 시뮬레이터"
           accentColor="bg-blue-500"
         >
-          사용자 정의 포트폴리오의 과거 성과를 AI로 시뮬레이션하고, 위험 지표 분석 및 최적화 전략을 제안받으세요.
+          사용자 정의 포트폴리오의 과거 성과를 시뮬레이션하고, 위험 지표 분석 및 최적화 전략을 검증하세요.
         </PageHeader>
 
         {/* ═══════════════════════════════════════════════════════════════════
@@ -327,7 +327,7 @@ export function BacktestPage({
                 {(backtestPortfolioItems || []).length === 0 ? (
                   <div className="text-center py-12 sm:py-20 border-2 border-dashed border-theme-border rounded-2xl sm:rounded-3xl">
                     <Plus className="w-10 h-10 sm:w-12 sm:h-12 text-theme-text-muted mx-auto mb-3 sm:mb-4" />
-                    <p className="text-xs sm:text-sm text-theme-text-muted font-black leading-relaxed">추천 종목이나 검색 결과에서<br/>종목을 추가하세요.</p>
+                    <p className="text-xs sm:text-sm text-theme-text-muted font-black leading-relaxed">시스템 후보나 검색 결과에서<br/>종목을 추가하세요.</p>
                   </div>
                 ) : (
                   (backtestPortfolioItems || []).map((item: any) => {
@@ -427,7 +427,7 @@ export function BacktestPage({
                     <div className="min-w-0">
                       <h4 className="text-base sm:text-xl font-black text-theme-text uppercase tracking-tighter mb-1">고위험 종목 감지</h4>
                       <p className="text-xs sm:text-sm text-theme-text-secondary font-bold leading-relaxed">
-                        포트폴리오 내에 AI가 분석한 고위험 종목이 포함되어 있습니다. 리스크 관리 섹션을 확인하세요.
+                        포트폴리오 내에 시스템이 고위험으로 판정한 종목이 포함되어 있습니다. 리스크 관리 섹션을 확인하세요.
                       </p>
                     </div>
                   </motion.div>
@@ -535,7 +535,7 @@ export function BacktestPage({
                   <Card padding="lg">
                     <div className="flex items-center gap-3 mb-6">
                       <Lightbulb className="w-5 h-5 text-orange-400" />
-                      <span className="text-micro">AI 전략 분석</span>
+                      <span className="text-micro">전략 분석</span>
                     </div>
                     <p className="text-sm sm:text-base text-theme-text-secondary font-bold leading-relaxed whitespace-pre-wrap">
                       {backtestResult.aiAnalysis}
@@ -556,7 +556,7 @@ export function BacktestPage({
                         onClick={onApplyAIRecommendedWeights}
                         className="text-blue-400 border-blue-500/20"
                       >
-                        AI 추천 비중 적용
+                        판정 비중 적용
                       </Button>
                     </div>
 
@@ -568,7 +568,7 @@ export function BacktestPage({
                         </div>
                         <div className="min-w-0">
                           <h4 className="text-xs sm:text-sm font-black text-theme-text mb-2 flex items-center gap-2 flex-wrap">
-                            오늘의 추천이 '제거' 대상으로?
+                            오늘의 후보가 '제거' 대상으로?
                             <Badge variant="info" size="sm">AI Tip</Badge>
                           </h4>
                           <div className="space-y-1.5 text-[10px] sm:text-xs text-theme-text-muted font-medium leading-relaxed">
@@ -664,7 +664,7 @@ export function BacktestPage({
                     >
                       <div className="flex items-center gap-3 mb-6">
                         <ShieldAlert className={cn('w-5 h-5', backtestResult.riskyStocks.some((s: any) => s.riskLevel === 'HIGH') ? 'text-red-500 animate-pulse' : 'text-red-400')} />
-                        <span className="text-micro">리스크 관리: 정리 추천</span>
+                        <span className="text-micro">리스크 관리: 정리 후보</span>
                       </div>
                       <div className="space-y-3 sm:space-y-5">
                         {(backtestResult.riskyStocks || []).map((rs: any, i: number) => (

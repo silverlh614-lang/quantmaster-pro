@@ -195,7 +195,7 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
               .filter(pm => selectedPreMortems.has(pm.id))
               .map(pm => ({ ...pm, triggered: false }));
 
-            // ADR-0018: 자기학습 데이터 무결성 — 추천 시점 27조건 점수와
+            // ADR-0018: 자기학습 데이터 무결성 — 판정 시점 27조건 점수와
             // 출처 분류를 무손실 변환해 학습 루프에 전달한다. 기존엔 빈
             // 객체/0 을 보내 feedbackLoopEngine 이 영구 비활성이었다.
             const conditionScores = checklistToConditionScores(tradeRecordStock.checklist);

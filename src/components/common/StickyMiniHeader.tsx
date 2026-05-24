@@ -57,7 +57,7 @@ export function StickyMiniHeader() {
       <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
         {/* Stock Count */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">AI추천</span>
+          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">후보</span>
           <span className="text-[11px] font-black text-violet-400 font-num">{totalCount}건</span>
         </div>
 

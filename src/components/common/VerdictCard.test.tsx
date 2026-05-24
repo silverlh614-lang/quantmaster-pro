@@ -57,7 +57,7 @@ describe('VerdictCard.Verdict — slot (#6)', () => {
         <VerdictCard.Verdict verdict="STRONG_BUY" regime="R2_BULL" />
       </VerdictCard>,
     );
-    expect(container.textContent).toContain('강매수 후보'); // UI_LANG.card.STRONG_BUY
+    expect(container.textContent).toContain('Confirmed Candidate'); // UI_LANG.card.STRONG_BUY
     expect(container.querySelector('[data-vcard-verdict="STRONG_BUY"]')).not.toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe('VerdictCard.Verdict — slot (#6)', () => {
       </VerdictCard>,
     );
     expect(container.textContent).toContain('재검증 대기');
-    expect(container.textContent).not.toContain('강매수 후보');
+    expect(container.textContent).not.toContain('Confirmed Candidate');
     expect(container.querySelector('[data-vcard-expired="true"]')).not.toBeNull();
   });
 
@@ -309,7 +309,7 @@ describe('VerdictCard — 통합 (3 슬롯 모두 사용)', () => {
       </VerdictCard>,
     );
 
-    expect(container.textContent).toContain('강매수 후보'); // Verdict
+    expect(container.textContent).toContain('Confirmed Candidate'); // Verdict
     expect(container.textContent).toContain('안정 강세'); // Regime
     expect(container.textContent).toContain('외인 5일 +120억'); // Evidence
     expect(container.textContent).toContain('9,500원'); // Stop-loss First

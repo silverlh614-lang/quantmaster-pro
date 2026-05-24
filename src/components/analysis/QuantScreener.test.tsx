@@ -15,7 +15,7 @@ describe('QuantScreener', () => {
       />
     );
 
-    fireEvent.click(getByText('스크리닝 시작'));
+    fireEvent.click(getByText('후보 스크리닝 시작'));
 
     expect(onScreen).toHaveBeenCalledTimes(1);
     expect(onScreen).toHaveBeenCalledWith({

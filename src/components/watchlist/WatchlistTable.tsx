@@ -110,7 +110,7 @@ export function WatchlistTable({
         <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
             <div className="flex items-center gap-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">AI 추천 적중률 (최근 10회)</span>
+              <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">시스템 후보 사후 성과 (최근 10회)</span>
               <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
             </div>
             <div className="flex items-end gap-2">
@@ -128,7 +128,7 @@ export function WatchlistTable({
                 <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
               </div>
               <p className="text-[11px] text-white/60 leading-relaxed font-medium">
-                최근 10번의 추천 세션에서 선정된 종목들이 추천 시점 이후 <span className="text-orange-400">5거래일 이내에 +3% 이상의 수익률</span>을 기록한 비율의 평균입니다. 시스템의 전반적인 단기 예측 성공률을 나타냅니다.
+                최근 10번의 판정 세션에서 선정된 후보들이 판정 시점 이후 <span className="text-orange-400">5거래일 이내에 +3% 이상의 수익률</span>을 기록한 비율의 평균입니다. 시스템 후보의 사후 성과를 나타냅니다.
               </p>
             </div>
           </div>
@@ -150,7 +150,7 @@ export function WatchlistTable({
                 <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
               </div>
               <p className="text-[11px] text-white/60 leading-relaxed font-medium">
-                최근 30일간 <span className="text-indigo-400">AI 확신도(Conviction Score)가 85점 이상</span>인 '강력 매수' 종목들의 적중률입니다. 고확신도 종목에 대한 정밀도를 나타내며, 일반 추천보다 엄격한 기준으로 관리됩니다.
+                최근 30일간 <span className="text-indigo-400">판정 합치도(Conviction Score)가 85점 이상</span>인 Confirmed Candidate 후보들의 사후 성과입니다. 고합치도 후보에 대한 정밀도를 나타내며, 일반 후보보다 엄격한 기준으로 관리됩니다.
               </p>
             </div>
           </div>
@@ -159,7 +159,7 @@ export function WatchlistTable({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4 text-white/30" />
-                <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">최근 추천 히스토리</span>
+                <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">최근 판정 히스토리</span>
               </div>
               <span className="text-[9px] font-black text-white/10 uppercase tracking-widest">최근 10개 세션 저장됨</span>
             </div>

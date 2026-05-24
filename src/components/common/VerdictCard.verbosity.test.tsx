@@ -66,14 +66,14 @@ describe('VerdictCard — verbosity wiring (ADR-0101)', () => {
     expect(container.textContent).not.toContain('9,500원');
   });
 
-  it('minimal: Verdict 라벨은 표시 (강매수 후보)', () => {
+  it('minimal: Verdict 라벨은 표시 (Confirmed Candidate)', () => {
     useSettingsStore.getState().setUIVerbosity('minimal');
     const { container } = render(
       <VerdictCard variant="verdict">
         <VerdictCard.Verdict verdict="STRONG_BUY" />
       </VerdictCard>,
     );
-    expect(container.textContent).toContain('강매수 후보');
+    expect(container.textContent).toContain('Confirmed Candidate');
   });
 
   // ============================================================

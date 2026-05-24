@@ -117,7 +117,7 @@ export function MarketPage({ onFetchMarketOverview }: MarketPageProps) {
         {/* Market Dashboard */}
         {loadingMarket && !marketOverview ? (
           <LoadingState
-            message="AI가 실시간 시장 데이터를 분석 중입니다..."
+            message="실시간 시장 데이터를 분석 중입니다..."
             skeleton="dashboard"
           />
         ) : marketOverview ? (

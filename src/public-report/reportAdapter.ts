@@ -78,7 +78,7 @@ function mapConfidenceFromRecommendation(stock?: StockRecommendation): DataConfi
       missingIndicatorCount: 1,
       providerIssue: false,
       marketSignal: false,
-      notes: ['추천 후보 데이터가 없어 공개 리포트를 보수적으로 생성했습니다.'],
+      notes: ['후보 판정 데이터가 없어 공개 리포트를 보수적으로 생성했습니다.'],
     };
   }
 
@@ -111,7 +111,7 @@ function mapConfidenceFromRecommendation(stock?: StockRecommendation): DataConfi
     aiEstimatedIndicatorCount,
     missingIndicatorCount,
     providerIssue,
-    marketSignal: stock.type === 'BUY' || stock.type === 'STRONG_BUY',
+    marketSignal: false,
     notes: [
       aiEstimatedIndicatorCount > 0 ? 'AI 추정 지표는 공개 리포트에서 추정으로 분리됩니다.' : '',
       providerIssue ? 'Provider 상태 저하가 시장 악재로 변환되지는 않습니다.' : '',
@@ -312,7 +312,7 @@ function buildShadowPerformanceCard(shadowTrades: ShadowTrade[] = []): ShadowPer
 }
 
 function buildPublicSummary(marketGate: DailyMarketGateCard, stockDecision?: StockDecisionCard): string {
-  const stockLine = stockDecision ? `${stockDecision.stockName}: ${stockDecision.finalDecision}` : '종목 후보 없음';
+  const stockLine = stockDecision ? `${stockDecision.stockName}: ${stockDecision.finalDecision}` : '시스템 후보 없음';
   return `시장 Gate ${marketGate.marketGateStatus}, 신규 매수 ${marketGate.newBuyAllowed ? '관찰 가능' : '제한'}, ${stockLine}.`;
 }
 
