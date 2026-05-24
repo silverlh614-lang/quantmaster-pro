@@ -490,6 +490,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'shadow',
   'signal_status',
   'status',
+  'strategy',
   'supply_health',
   'watchlist',
   'weight_feedback',

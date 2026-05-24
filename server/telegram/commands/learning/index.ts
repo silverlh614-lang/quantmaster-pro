@@ -16,6 +16,7 @@ import './regimeLearning.cmd.js';
 import './regimeCoverage.cmd.js';
 import './resetCircuits.cmd.js';
 import './risk.cmd.js';
+import './strategy.cmd.js';
 import './weightFeedback.cmd.js';
 
 export {};

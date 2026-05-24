@@ -66,6 +66,10 @@ export interface OutcomeSeed {
   marketSession: string;
   effectiveRegime: string;
   riskOverride?: string;
+  liveStrategyVersionId?: string;
+  shadowStrategyVersionId?: string;
+  canaryStrategyVersionId?: string;
+  configHash?: string;
   blockReasons: string[];
   advisoryReasons: string[];
   dataConfidenceCeiling: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -253,6 +257,10 @@ export function buildOutcomeSeed(input: {
   stopLossPrice?: number | null;
   targetPrice?: number | null;
   rrrValue?: number | null;
+  liveStrategyVersionId?: string;
+  shadowStrategyVersionId?: string;
+  canaryStrategyVersionId?: string;
+  configHash?: string;
 }): OutcomeSeed {
   const createdAt = input.runtimeInput.asOf ?? '1970-01-01T00:00:00.000Z';
   const tradeDate = input.tradeDate ?? createdAt.slice(0, 10);
@@ -294,6 +302,10 @@ export function buildOutcomeSeed(input: {
     marketSession: input.runtimeInput.marketSession,
     effectiveRegime: input.runtimeInput.effectiveRegime,
     riskOverride: input.runtimeInput.riskOverride,
+    liveStrategyVersionId: input.liveStrategyVersionId,
+    shadowStrategyVersionId: input.shadowStrategyVersionId,
+    canaryStrategyVersionId: input.canaryStrategyVersionId,
+    configHash: input.configHash,
     blockReasons: input.decision.blockReasons,
     advisoryReasons: input.decision.advisoryReasons,
     dataConfidenceCeiling: input.runtimeInput.dataConfidenceCeiling,
