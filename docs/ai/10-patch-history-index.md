@@ -85,6 +85,13 @@
 - **Current Relevance:** telegram severity 필터/표시 패치 시 본 규칙 준수.
 - **Detail:** `docs/archive/adr/adr-532-telegram-noise-reduction.md` (검색어 `ADR-532`)
 
+### ADR-533 — Typecheck Baseline & No-Regression Guard
+- **Status:** Completed · **Domain:** testing / typecheck / no-regression baseline
+- **Problem:** baseline 실패 기준선 부재 → 패치가 안정성을 깨도 감지 불가.
+- **Decision:** baseline 기록(typecheck 0 errors · test 310 failed/13,826 @bd574995) + No-Regression Guard + 도메인별 필수 검증 문서화. 코드 0줄.
+- **Current Relevance:** 패치가 type error 0·test 실패 ≤310 유지하는지 판정.
+- **Detail:** `docs/archive/adr/adr-533-typecheck-baseline-no-regression.md` (검색어 `ADR-533`)
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -497,3 +504,4 @@
 - 2026-05-24 · ADR-530
 - 2026-05-24 · ADR-531
 - 2026-05-24 · ADR-532
+- 2026-05-24 · ADR-533

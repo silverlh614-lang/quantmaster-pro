@@ -81,6 +81,42 @@ severity/diagnostic/telegram-display 패치 시 다음을 만족해야 한다 (S
 
 ---
 
+## No-Regression Guard (ADR-533)
+
+**Baseline (2026-05-24, commit bd574995):** typecheck **0 errors** · test **310 failed / 13,826** (99 files / 1086).
+상세 → `docs/archive/adr/adr-533-typecheck-baseline-no-regression.md`.
+
+모든 패치는 보고한다: 실행한 검증 명령 · pass/fail · 실패가 BASELINE_EXISTING_FAILURE 인지 NEW_REGRESSION 인지 ·
+runtime 동작 변경 여부 · rollback 필요 여부.
+
+규칙:
+1. **신규 type error 0** — `npm run lint`(=typecheck) 는 항상 EXIT 0. type 회귀 절대 금지.
+2. **신규 test 실패 0** — 실패 수를 baseline(310) 이상으로 늘리지 않는다.
+3. warning cleanup 은 명시 없이 매매 의미 변경 금지 (→ `09` Warning Cleanup 규칙).
+4. 문서 전용 패치는 런타임 테스트 불필요하나 소스 코드를 수정하지 않는다.
+5. 검증 명령 부재 → SCRIPT_MISSING 보고 (무시 금지). env 불가 → ENVIRONMENT_BLOCKED + 사유.
+6. 실패 은폐 금지 — test skip/only, `any`, `@ts-ignore`, tsconfig exclude 확장으로 통과시키지 않는다.
+7. baseline failure 해소는 무관 PR 에 섞지 말고 별도 burn-down ADR (→ `adr-534`).
+
+분류: BASELINE_EXISTING_FAILURE / NEW_REGRESSION / SCRIPT_MISSING / ENVIRONMENT_BLOCKED.
+
+---
+
+## Required Validation by Domain (ADR-533)
+
+| 도메인 | 최소 검증 |
+|--------|-----------|
+| Documentation-only | `git diff --name-only` → 소스 파일 미변경 확인 |
+| Refactor-only | `npm run lint` + 관련 테스트 + 동작 변경 NO |
+| SourceSnapshot | `npm run lint` + snapshot/providerIssue/marketSignal 테스트 + providerIssue↛marketSignal |
+| Gate | `npm run lint` + gate/scan_blockers 테스트 + candidateSnapshots/blockers 보존 |
+| Provider | `npm run lint` + fallback/stale/empty 테스트 + provider 장애가 Trading Engine 정지 안 함 |
+| Telegram | `npm run lint` + formatter/router 테스트 + DIAGNOSTIC/DEBUG/SUPPRESSED 가 SIGNAL 미라우팅 |
+| Shadow Learning | `npm run lint` + lifecycle/ledger/counterfactual 테스트 + SELL_ONLY/R6/providerIssue 하 shadowAllowed=true |
+| Execution / Order Path | `npm run lint` + order/position/ledger 테스트 필수 · riskLevel HIGH · rollback plan 필수 |
+
+---
+
 ## ADR-0146 PR 자가 review (5 카테고리)
 
 모든 PR 은 머지 전 5 카테고리 자가 검증:
