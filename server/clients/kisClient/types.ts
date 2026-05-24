@@ -293,20 +293,69 @@ export interface KisSectorIndexCurrentPrice {
   rawFieldKeys: string[];
 }
 
+export type KisSectorIndexVerifyTransportStage =
+  | 'NOT_ATTEMPTED'
+  | 'CLIENT_DISABLED'
+  | 'AUTH_NOT_READY'
+  | 'REQUEST_BUILT'
+  | 'REQUEST_SENT'
+  | 'HTTP_RESPONSE_RECEIVED'
+  | 'HTTP_EXCEPTION'
+  | 'TIMEOUT'
+  | 'PARSE_FAILED'
+  | 'VERIFY_SUCCESS'
+  | 'VERIFY_FAILED';
+
+export type KisIndexQuoteBaseUrlKind = 'REAL' | 'VIRTUAL' | 'UNKNOWN';
+
+export interface KisSectorIndexVerifyVariantPolicy {
+  enabled: boolean;
+  triedVariants: string[];
+  debugOnlyVariants: string[];
+  colonHyphenSent: boolean;
+}
+
+export interface KisIndexQuoteClientStatus {
+  enabled: boolean;
+  authReady: boolean;
+  tokenPresent: boolean;
+  tokenExpiresInSec: number | null;
+  baseUrlKind: KisIndexQuoteBaseUrlKind;
+  apiPath: string;
+  method: 'GET';
+  trId: string;
+  canCall: boolean;
+  disabledReason?: string;
+  lastExceptionClass?: string;
+  lastExceptionMessageSanitized?: string;
+  executionImpact: 'NONE';
+}
+
 export interface KisSectorIndexCurrentPriceProbeAttempt {
   fidCondMrktDivCode: string;
   fidInputIscd: string;
   apiPath: string;
+  method?: 'GET';
   trId: string;
+  baseUrlKind?: KisIndexQuoteBaseUrlKind;
+  requestBuilt?: boolean;
+  requestSent?: boolean;
   httpStatus?: number | null;
   rtCd?: string | null;
   msgCd?: string | null;
   msg1?: string | null;
+  outputShape?: string | null;
+  indexValueFieldName?: string | null;
   outputPresent: boolean;
   indexValueFieldPresent: boolean;
   rawTopLevelKeys: string[];
   outputKeys: string[];
   currentIndex?: number | null;
+  exceptionClass?: string | null;
+  exceptionMessageSanitized?: string | null;
+  timeoutMs?: number | null;
+  retryCount?: number;
+  transportStage?: KisSectorIndexVerifyTransportStage;
   verified: boolean;
   reasonCode: string;
 }
@@ -322,6 +371,8 @@ export interface KisSectorIndexCurrentPriceProbeResult {
   source: 'KIS_API';
   reasonCode: string;
   selectedFailureReason?: string;
+  clientStatus?: KisIndexQuoteClientStatus;
+  verifyVariantPolicy?: KisSectorIndexVerifyVariantPolicy;
   attempts: KisSectorIndexCurrentPriceProbeAttempt[];
   triedCandidates: string[];
 }

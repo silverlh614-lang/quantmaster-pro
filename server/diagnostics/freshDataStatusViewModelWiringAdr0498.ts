@@ -448,6 +448,8 @@ interface SectorIndexMasterFreshStatusReportAdr0498 {
       targetSectorCount?: number;
       verifySuccessCount?: number;
       verifyFailCount?: number;
+      selectedFailureReason?: string;
+      verifyApiFailureSamples?: Array<{ reasonCode?: string; selectedFailureReason?: string }>;
       unresolvedSectorNames?: string[];
       topMissingSectorNames?: string[];
       reasonCodes?: string[];
@@ -497,6 +499,16 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
   const providerHealth: ProviderHealthStatusAdr0497 = master?.masterLoaded ? 'UP' : 'EMPTY';
   const confidence = sectorMasterConfidenceAdr0498(officialCoverage, verifiedCoverage);
   const status = sectorMasterLineStatusAdr0498(officialCoverage, verifiedCoverage);
+  const verifyReason = master?.selectedFailureReason
+    ?? master?.verifyApiFailureSamples?.find((sample) => sample.selectedFailureReason || sample.reasonCode)?.selectedFailureReason
+    ?? master?.verifyApiFailureSamples?.find((sample) => sample.reasonCode)?.reasonCode
+    ?? (master?.reasonCodes ?? []).find((code) => code.startsWith('KIS_INDEX_API_') || code.startsWith('VERIFY_'))
+    ?? (verifiedCoverage >= 80 ? 'VERIFIED' : 'VERIFY_NOT_ATTEMPTED');
+  const verifyProviderHealth: ProviderHealthStatusAdr0497 = verifiedCoverage >= 80
+    ? 'UP'
+    : (master?.verifyFailCount ?? 0) > 0
+      ? 'DOWN'
+      : 'EMPTY';
 
   return [
     {
@@ -547,6 +559,26 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
         `verifiedIndexCodeCount=${master?.verifiedIndexCodeCount ?? 0}/${master?.targetSectorCount ?? 0}`,
         `unresolvedSectorNames=${(master?.unresolvedSectorNames ?? master?.topMissingSectorNames ?? []).slice(0, 4).join('|') || 'NONE'}`,
         ...commonWarnings,
+      ],
+    },
+    {
+      sourceAdr: 'ADR_0495_SECTOR_INDEX_MASTER',
+      dataLineId: 'KIS_SECTOR_INDEX_VERIFY',
+      domain: 'SECTOR_ENERGY',
+      providerHealth: verifyProviderHealth,
+      providerDisplay: 'KIS',
+      dataConfidence: verifiedCoverage >= 80 ? 'VERIFIED' : verifiedCoverage > 0 ? 'PARTIAL' : 'MISSING',
+      marketSignal: 'UNKNOWN',
+      dataLineStatus: verifiedCoverage >= 80 ? 'READY_FOR_ADVISORY' : officialCoverage > 0 ? 'OBSERVING' : 'OBSERVING',
+      promotionReadiness,
+      blockers: verifiedCoverage >= 80 ? [] : ['BLOCKED_COVERAGE_LOW'],
+      warnings: [
+        `reason=${verifyReason}`,
+        `verifySuccessCount=${master?.verifySuccessCount ?? 0}`,
+        `verifyFailCount=${master?.verifyFailCount ?? 0}`,
+        `officialIndexCoverage=${Number.isFinite(officialCoverage) ? officialCoverage : 0}%`,
+        `verifiedIndexCodeCoverage=${Number.isFinite(verifiedCoverage) ? verifiedCoverage : 0}%`,
+        'executionImpact=NONE',
       ],
     },
   ];

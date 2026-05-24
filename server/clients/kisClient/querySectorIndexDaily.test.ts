@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const _realDataKisGet = vi.fn();
 const _getKisOverrides = vi.fn();
+const _refreshKisToken = vi.fn();
+const _fetch = vi.fn();
 const _HAS_REAL_DATA_CLIENT = { value: false };
 
 vi.mock('./http.js', () => ({
@@ -17,6 +19,16 @@ vi.mock('./overrides.js', () => ({
 
 vi.mock('./constants.js', () => ({
   get HAS_REAL_DATA_CLIENT() { return _HAS_REAL_DATA_CLIENT.value; },
+  KIS_BASE: 'https://openapivts.koreainvestment.com:29443',
+  KIS_IS_REAL: false,
+  REAL_DATA_BASE: 'https://openapi.koreainvestment.com:9443',
+}));
+
+vi.mock('./auth.js', () => ({
+  refreshKisToken: () => _refreshKisToken(),
+  refreshRealDataToken: () => _refreshKisToken(),
+  getKisTokenRemainingHours: () => 22,
+  getRealDataTokenRemainingHours: () => 22,
 }));
 
 let mod: typeof import('./query.js');
@@ -25,6 +37,10 @@ beforeEach(async () => {
   vi.resetModules();
   _realDataKisGet.mockReset();
   _getKisOverrides.mockReset();
+  _refreshKisToken.mockReset();
+  _refreshKisToken.mockResolvedValue('test-token');
+  _fetch.mockReset();
+  vi.stubGlobal('fetch', _fetch);
   _getKisOverrides.mockReturnValue({});
   _HAS_REAL_DATA_CLIENT.value = false;
   delete process.env.KIS_SECTOR_INDEX_DAILY_ENABLED;
@@ -32,15 +48,19 @@ beforeEach(async () => {
   delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
   process.env.KIS_APP_KEY = 'test-key';
+  process.env.KIS_APP_SECRET = 'test-secret';
   mod = await import('./query.js');
 });
 
 afterEach(() => {
   delete process.env.KIS_APP_KEY;
+  delete process.env.KIS_APP_SECRET;
   delete process.env.KIS_SECTOR_INDEX_DAILY_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_VERIFY_SEND_DEBUG_VARIANTS;
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -171,27 +191,38 @@ describe('fetchKisSectorIndexCurrentPrice', () => {
 describe('fetchKisSectorIndexCurrentPriceProbe', () => {
   it('tries idx_code and idx_div+idx_code variants until one verifies', async () => {
     process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
-    _realDataKisGet
-      .mockResolvedValueOnce({ rt_cd: '1', msg_cd: 'INVALID', msg1: 'bad code', output: [] })
-      .mockResolvedValueOnce({
+    _fetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ rt_cd: '1', msg_cd: 'INVALID', msg1: 'bad code', output: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
         rt_cd: '0',
         msg_cd: 'MCA00000',
         msg1: 'OK',
         output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prpr: '1234.56', bstp_nmix_prdy_ctrt: '1.2' }],
-      });
+      }), { status: 200 }));
 
-    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000', '80000']);
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000', '80000', '8:0000', '8-0000']);
 
     expect(result).toMatchObject({
       verified: true,
       selectedInputIscd: '80000',
       currentIndex: 1234.56,
       reasonCode: 'VERIFY_SUCCESS',
+      verifyVariantPolicy: {
+        enabled: true,
+        triedVariants: ['idxCode', 'idxDivCompact'],
+        debugOnlyVariants: ['colon', 'hyphen'],
+        colonHyphenSent: false,
+      },
     });
     expect(result?.attempts).toHaveLength(2);
     expect(result?.attempts[0]).toMatchObject({
       fidCondMrktDivCode: 'U',
       fidInputIscd: '0000',
+      method: 'GET',
+      requestBuilt: true,
+      requestSent: true,
+      httpStatus: 200,
+      transportStage: 'HTTP_RESPONSE_RECEIVED',
       rtCd: '1',
       msgCd: 'INVALID',
       msg1: 'bad code',
@@ -202,24 +233,27 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
       fidInputIscd: '80000',
       outputPresent: true,
       indexValueFieldPresent: true,
+      indexValueFieldName: 'bstp_nmix_prpr',
+      transportStage: 'VERIFY_SUCCESS',
       verified: true,
       reasonCode: 'VERIFY_SUCCESS',
     });
-    expect(_realDataKisGet).toHaveBeenCalledTimes(2);
-    expect(_realDataKisGet.mock.calls[1][2]).toMatchObject({
-      FID_COND_MRKT_DIV_CODE: 'U',
-      FID_INPUT_ISCD: '80000',
+    expect(_fetch).toHaveBeenCalledTimes(2);
+    expect(String(_fetch.mock.calls[1][0])).toContain('FID_COND_MRKT_DIV_CODE=U');
+    expect(String(_fetch.mock.calls[1][0])).toContain('FID_INPUT_ISCD=80000');
+    expect(_fetch.mock.calls[1][1]).toMatchObject({
+      method: 'GET',
     });
   });
 
   it('reports schema mismatch when KIS succeeds but index value fields are absent', async () => {
     process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
-    _realDataKisGet.mockResolvedValue({
+    _fetch.mockResolvedValue(new Response(JSON.stringify({
       rt_cd: '0',
       msg_cd: 'MCA00000',
       msg1: 'OK',
       output: [{ hts_kor_isnm: 'chemical', unknown_field: '123' }],
-    });
+    }), { status: 200 }));
 
     const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
 
@@ -232,10 +266,78 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
       fidInputIscd: '0000',
       rtCd: '0',
       msgCd: 'MCA00000',
+      httpStatus: 200,
       outputPresent: true,
       indexValueFieldPresent: false,
       outputKeys: ['hts_kor_isnm', 'unknown_field'],
+      transportStage: 'HTTP_RESPONSE_RECEIVED',
       reasonCode: 'KIS_INDEX_API_SCHEMA_MISMATCH',
     });
+  });
+
+  it('separates client disabled before request transport', async () => {
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      verified: false,
+      selectedFailureReason: 'KIS_INDEX_API_CLIENT_DISABLED',
+      clientStatus: {
+        enabled: false,
+        authReady: false,
+        canCall: false,
+        disabledReason: 'KIS_SECTOR_INDEX_CURRENT_ENABLED_NOT_TRUE',
+      },
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      requestBuilt: false,
+      requestSent: false,
+      transportStage: 'CLIENT_DISABLED',
+      reasonCode: 'KIS_INDEX_API_CLIENT_DISABLED',
+      httpStatus: null,
+    });
+    expect(_fetch).not.toHaveBeenCalled();
+  });
+
+  it('separates auth-not-ready before sending a request', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    delete process.env.KIS_APP_SECRET;
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      selectedFailureReason: 'KIS_INDEX_API_AUTH_ERROR',
+      clientStatus: {
+        enabled: true,
+        authReady: false,
+        canCall: false,
+        disabledReason: 'KIS_APP_KEY_OR_SECRET_MISSING',
+      },
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      requestBuilt: false,
+      requestSent: false,
+      transportStage: 'AUTH_NOT_READY',
+      reasonCode: 'KIS_INDEX_API_AUTH_ERROR',
+    });
+    expect(_fetch).not.toHaveBeenCalled();
+  });
+
+  it('captures timeout transport failures with sanitized exception detail', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    _fetch.mockRejectedValue(Object.assign(new Error('operation aborted after timeout token=SECRET'), { name: 'AbortError' }));
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      selectedFailureReason: 'KIS_INDEX_API_TIMEOUT',
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      requestBuilt: true,
+      requestSent: true,
+      transportStage: 'TIMEOUT',
+      reasonCode: 'KIS_INDEX_API_TIMEOUT',
+      exceptionClass: 'AbortError',
+    });
+    expect(result?.attempts[0]?.exceptionMessageSanitized).toContain('token=<masked>');
   });
 });

@@ -15,6 +15,11 @@ import {
   type OfficialSectorIndexMasterRow,
 } from './SectorIndexCodeMap.js';
 import type { SectorIndexMasterProviderResult } from './SectorIndexMasterProvider.js';
+import type {
+  KisIndexQuoteClientStatus,
+  KisSectorIndexVerifyTransportStage,
+  KisSectorIndexVerifyVariantPolicy,
+} from '../clients/kisClient/types.js';
 
 export const KIS_SECTOR_INDEX_VERIFY_API_PATH =
   '/uapi/domestic-stock/v1/quotations/inquire-index-price';
@@ -38,10 +43,23 @@ export interface OfficialSectorIndexVerifyResult {
   executionImpact: 'NONE';
   reasonCode: string;
   selectedFailureReason?: string;
+  clientStatus?: KisIndexQuoteClientStatus;
+  verifyVariantPolicy?: KisSectorIndexVerifyVariantPolicy;
   httpStatus?: number | null;
   rtCd?: string | null;
   msgCd?: string | null;
   msg1?: string | null;
+  method?: 'GET';
+  baseUrlKind?: 'REAL' | 'VIRTUAL' | 'UNKNOWN';
+  requestBuilt?: boolean;
+  requestSent?: boolean;
+  outputShape?: string | null;
+  indexValueFieldName?: string | null;
+  exceptionClass?: string | null;
+  exceptionMessageSanitized?: string | null;
+  timeoutMs?: number | null;
+  retryCount?: number;
+  transportStage?: KisSectorIndexVerifyTransportStage;
   outputPresent?: boolean;
   indexValueFieldPresent?: boolean;
   rawTopLevelKeys?: string[];
@@ -59,11 +77,22 @@ export interface OfficialSectorIndexVerifyAttempt {
   fidCondMrktDivCode: string;
   fidInputIscd: string;
   apiPath: typeof KIS_SECTOR_INDEX_VERIFY_API_PATH;
+  method?: 'GET';
   trId: typeof KIS_SECTOR_INDEX_VERIFY_TR_ID;
+  baseUrlKind?: 'REAL' | 'VIRTUAL' | 'UNKNOWN';
+  requestBuilt?: boolean;
+  requestSent?: boolean;
   httpStatus?: number | null;
   rtCd?: string | null;
   msgCd?: string | null;
   msg1?: string | null;
+  outputShape?: string | null;
+  indexValueFieldName?: string | null;
+  exceptionClass?: string | null;
+  exceptionMessageSanitized?: string | null;
+  timeoutMs?: number | null;
+  retryCount?: number;
+  transportStage?: KisSectorIndexVerifyTransportStage;
   outputPresent: boolean;
   indexValueFieldPresent: boolean;
   rawTopLevelKeys: string[];
@@ -129,6 +158,8 @@ export interface OfficialSectorIndexMasterCoverageResult {
   verifyAttemptDetails?: OfficialSectorIndexVerifyAttempt[];
   verifyVariantAttemptCount?: number;
   verifyVariantTried?: boolean;
+  verifyVariantPolicy?: KisSectorIndexVerifyVariantPolicy;
+  kisIndexQuoteClientStatus?: KisIndexQuoteClientStatus;
   providerIssue: boolean;
   marketSignal: false;
   executionImpact: 'NONE';
@@ -240,6 +271,8 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   const verifyFailCount = verificationResults.length - verifySuccessCount;
   const verifyAttemptDetails = verificationResults.flatMap((result) => result.attempts ?? []);
   const verifyVariantAttemptCount = verifyAttemptDetails.length || verificationResults.length;
+  const verifyVariantPolicy = verificationResults.find((result) => result.verifyVariantPolicy)?.verifyVariantPolicy;
+  const kisIndexQuoteClientStatus = verificationResults.find((result) => result.clientStatus)?.clientStatus;
   const verifiedIndexCodeCoverage = pct(verifySuccessCount, mapping.targetSectorCount);
   const masterSource = provider?.cacheFallbackUsed
     ? 'CACHE'
@@ -331,11 +364,13 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     verifyAttemptCount: verificationResults.length,
     verifyVariantAttemptCount,
     verifyVariantTried: verificationResults.some((result) => (result.triedCandidates?.length ?? 0) > 1),
+    ...(verifyVariantPolicy ? { verifyVariantPolicy } : {}),
     verifySuccessCount,
     verifyFailCount,
     verifyApiSuccessSamples: verificationResults.filter((result) => result.verified).slice(0, 3),
     verifyApiFailureSamples: verificationResults.filter((result) => !result.verified).slice(0, 3),
     verifyAttemptDetails,
+    ...(kisIndexQuoteClientStatus ? { kisIndexQuoteClientStatus } : {}),
     providerIssue: Boolean(provider?.providerIssue) || verificationResults.some((result) => result.providerIssue),
     marketSignal: false,
     executionImpact: 'NONE',

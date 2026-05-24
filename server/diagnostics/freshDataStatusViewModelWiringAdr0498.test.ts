@@ -289,6 +289,8 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
           mappedSectorCount: 6,
           verifiedIndexCodeCount: 3,
           targetSectorCount: 12,
+          verifySuccessCount: 3,
+          verifyFailCount: 3,
           unresolvedSectorNames: ['방산'],
           reasonCodes: ['PROMOTION_DISABLED_COVERAGE_BELOW_80'],
         },
@@ -300,6 +302,7 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(text).toContain('SECTOR_ENERGY/KRX_SECTOR_INDEX_MASTER provider=KRX confidence=MISSING');
     expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_MASTER provider=KIS confidence=PARTIAL');
     expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_CODE_MAPPING provider=INTERNAL confidence=PARTIAL');
+    expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_VERIFY provider=KIS confidence=PARTIAL');
     expect(text).toContain('promo=BLOCKED');
     expect(text).toContain('impact=NONE');
     expect(text).not.toContain('signal=BEARISH');
