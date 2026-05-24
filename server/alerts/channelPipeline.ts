@@ -464,7 +464,18 @@ export async function channelWatchlistAdded(
     `━━━━━━━━━━━━━━━━\n` +
     `🗺️ 레짐: ${regime}`;
 
-  await dispatchAlert(ChannelSemantic.SIGNAL, msg, { disableNotification: true }).catch(console.error);
+  // 동일 종목 세트의 반복 편입 알림 dedup — entryPrice 가 drift 게이트(예: GENUINE_RALLY
+  // benign REMOVE)로 매 스캔 제거되면 클라이언트가 stale entryPrice 로 재등록 → "추가" 알림이
+  // 사이클마다 반복된다(147760 피엠티 사례). KST 일자 + 추가 코드 세트로 24h dedup → 1일 1회.
+  const kstDate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const codesKey = stocks.map(s => s.code).sort().join(',');
+  const dedupeKey = `WATCHLIST_ADDED:${codesKey}:${kstDate}`;
+
+  await dispatchAlert(ChannelSemantic.SIGNAL, msg, {
+    disableNotification: true,
+    dedupeKey,
+    cooldownMs: 24 * 60 * 60 * 1000,
+  }).catch(console.error);
 }
 
 // ── 5-1. 워치리스트 제거 알림 ───────────────────────────────────────────────
