@@ -239,6 +239,20 @@ function collectOfficialSectorIndexTargets(
   }
   if (diag) {
     const grouped = nestedRecord(diag, 'groupedSectorEnergy') ?? nestedRecord(diag, 'groupedSectorSnapshot');
+    const groupedResults = Array.isArray(grouped?.results) ? grouped.results : [];
+    for (const result of groupedResults) {
+      if (!result || typeof result !== 'object') continue;
+      const record = result as Record<string, unknown>;
+      const sectorName = firstStringValue(record, ['sectorName', 'sectorKey']);
+      if (!sectorName) continue;
+      const sectorKey = firstStringValue(record, ['sectorKey']);
+      const candidateIndexCode = firstStringValue(record, ['krxIndexCode', 'indexCode', 'sectorIndexCode', 'officialIndexCode']);
+      addTarget({
+        sectorName,
+        ...(sectorKey ? { sectorKey } : {}),
+        ...(candidateIndexCode ? { candidateIndexCode } : {}),
+      });
+    }
     const topGroupedRaw = diag.topGroupedSectors ?? grouped?.topGroupedSectors;
     const topGroupedSectors = Array.isArray(topGroupedRaw)
       ? topGroupedRaw

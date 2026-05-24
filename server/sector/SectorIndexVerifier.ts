@@ -3,6 +3,7 @@
 import type {
   OfficialSectorIndexCodeMapResult,
   OfficialSectorIndexCodeMappingRow,
+  OfficialSectorIndexMappingAttempt,
   OfficialSectorIndexTarget,
 } from './SectorIndexCodeMap.js';
 import { mapSectorNamesToOfficialIndexCodes, type OfficialSectorIndexMasterRow } from './SectorIndexCodeMap.js';
@@ -35,21 +36,31 @@ export interface OfficialSectorIndexMasterCoverageResult {
   idxcodeMstDownloaded: boolean;
   cacheFallbackUsed: boolean;
   parseStatus: string;
+  rows?: readonly OfficialSectorIndexMasterRow[];
+  rawSampleRows?: Array<{ idxDiv?: string; idxCode: string; idxName: string; normalizedIdxName: string }>;
   officialIndexCoverage: number;
   verifiedIndexCodeCoverage: number;
   mappedSectorCount: number;
   verifiedIndexCodeCount: number;
   targetSectorCount: number;
   safeAliasCoverage?: number;
+  exactMatchCount?: number;
+  safeAliasMatchCount?: number;
   safeAliasCount: number;
   unsafeAliasCount: number;
+  unsafeAliasSectorNames?: string[];
+  mappedSectorPairs?: string[];
   unresolvedCount?: number;
   sourceTier?: 'OFFICIAL_KRX_SECTOR_INDEX' | 'OFFICIAL_KIS_SECTOR_INDEX' | 'CACHE' | 'NONE';
   aliasResolvedCount: number;
   unresolvedSectorNames: string[];
   topMissingSectorNames: string[];
+  internalSectorNames?: string[];
+  normalizedInternalSectorNames?: string[];
+  mappingAttempts?: OfficialSectorIndexMappingAttempt[];
   verifyApiPath: typeof KIS_SECTOR_INDEX_VERIFY_API_PATH;
   verifyTrId: typeof KIS_SECTOR_INDEX_VERIFY_TR_ID;
+  verifyAttemptCount?: number;
   verifySuccessCount: number;
   verifyFailCount: number;
   verifyApiSuccessSamples?: OfficialSectorIndexVerifyResult[];
@@ -123,6 +134,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     mappingRows: mapping.rows,
     verifyIndexCode: input.verifyIndexCode,
   });
+  const verificationByCode = new Map(verificationResults.map((result) => [result.officialIndexCode, result]));
   const verifySuccessCount = verificationResults.filter((result) => result.verified).length;
   const verifyFailCount = verificationResults.length - verifySuccessCount;
   const verifiedIndexCodeCoverage = pct(verifySuccessCount, mapping.targetSectorCount);
@@ -138,6 +150,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   if (verifyFailCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_FAILED');
   if (mapping.officialIndexCoverage > 0 && verifiedIndexCodeCoverage < 80) {
     reasonCodes.add('PROMOTION_DISABLED_COVERAGE_BELOW_80');
+    reasonCodes.add('VERIFIED_INDEX_CODE_COVERAGE_LOW');
   }
   reasonCodes.add('EXECUTION_IMPACT_NONE_CONFIRMED');
 
@@ -148,14 +161,25 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     idxcodeMstDownloaded: provider?.idxcodeMstDownloaded ?? false,
     cacheFallbackUsed: provider?.cacheFallbackUsed ?? false,
     parseStatus: provider?.parseStatus ?? (masterRows.length > 0 ? 'OK' : 'FAILED'),
+    rows: provider?.rows ?? masterRows,
+    rawSampleRows: provider?.rawSampleRows ?? masterRows.slice(0, 8).map((row) => ({
+      ...(row.idxDiv ? { idxDiv: row.idxDiv } : {}),
+      idxCode: row.officialIndexCode,
+      idxName: row.officialIndexName,
+      normalizedIdxName: row.normalizedSectorName,
+    })),
     officialIndexCoverage: mapping.officialIndexCoverage,
     verifiedIndexCodeCoverage,
     mappedSectorCount: mapping.mappedSectorCount,
     verifiedIndexCodeCount: verifySuccessCount,
     targetSectorCount: mapping.targetSectorCount,
     safeAliasCoverage: pct(mapping.safeAliasCount, mapping.targetSectorCount),
+    exactMatchCount: mapping.exactMatchCount,
+    safeAliasMatchCount: mapping.safeAliasMatchCount,
     safeAliasCount: mapping.safeAliasCount,
     unsafeAliasCount: mapping.unsafeAliasCount,
+    unsafeAliasSectorNames: mapping.unsafeAliasSectorNames,
+    mappedSectorPairs: mapping.mappedSectorPairs,
     unresolvedCount: mapping.unresolvedSectorNames.length,
     sourceTier: masterSource === 'CACHE'
       ? 'CACHE'
@@ -167,8 +191,21 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     aliasResolvedCount: mapping.aliasResolvedCount,
     unresolvedSectorNames: mapping.unresolvedSectorNames,
     topMissingSectorNames: mapping.topMissingSectorNames,
+    internalSectorNames: mapping.internalSectorNames,
+    normalizedInternalSectorNames: mapping.normalizedInternalSectorNames,
+    mappingAttempts: mapping.mappingAttempts.map((attempt) => {
+      const verification = attempt.selectedOfficialIndexCode
+        ? verificationByCode.get(attempt.selectedOfficialIndexCode)
+        : undefined;
+      return {
+        ...attempt,
+        verifyAttempted: attempt.includedInOfficialCoverage && Boolean(attempt.selectedOfficialIndexCode),
+        verified: verification?.verified ?? false,
+      };
+    }),
     verifyApiPath: KIS_SECTOR_INDEX_VERIFY_API_PATH,
     verifyTrId: KIS_SECTOR_INDEX_VERIFY_TR_ID,
+    verifyAttemptCount: verificationResults.length,
     verifySuccessCount,
     verifyFailCount,
     verifyApiSuccessSamples: verificationResults.filter((result) => result.verified).slice(0, 3),

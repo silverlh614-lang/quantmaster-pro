@@ -26,6 +26,12 @@ export interface SectorIndexMasterProviderResult {
   cacheFallbackUsed: boolean;
   parseStatus: 'OK' | 'FAILED' | 'PARTIAL' | 'NOT_ATTEMPTED';
   rows: OfficialSectorIndexMasterRow[];
+  rawSampleRows?: Array<{
+    idxDiv?: string;
+    idxCode: string;
+    idxName: string;
+    normalizedIdxName: string;
+  }>;
   providerIssue: boolean;
   marketSignal: false;
   executionImpact: 'NONE';
@@ -214,7 +220,13 @@ export async function loadKisOfficialSectorIndexMaster(
     try {
       rows = parseIdxCodeMasterText(idxText);
       parseStatus = rows.length > 0 ? 'OK' : 'FAILED';
-      reasonCodes.add(rows.length > 0 ? 'OFFICIAL_INDEX_MASTER_LOADED' : 'OFFICIAL_INDEX_MASTER_EMPTY');
+      if (rows.length > 0) {
+        reasonCodes.add('OFFICIAL_INDEX_MASTER_LOADED');
+        reasonCodes.add('OFFICIAL_INDEX_MASTER_PARSE_OK');
+      } else {
+        reasonCodes.add('OFFICIAL_INDEX_MASTER_PARSE_EMPTY');
+        reasonCodes.add('PARSE_EMPTY');
+      }
     } catch {
       parseStatus = 'FAILED';
       reasonCodes.add('OFFICIAL_INDEX_MASTER_PARSE_FAILED');
@@ -230,6 +242,12 @@ export async function loadKisOfficialSectorIndexMaster(
     cacheFallbackUsed,
     parseStatus,
     rows,
+    rawSampleRows: rows.slice(0, 8).map((row) => ({
+      ...(row.idxDiv ? { idxDiv: row.idxDiv } : {}),
+      idxCode: row.officialIndexCode,
+      idxName: row.officialIndexName,
+      normalizedIdxName: row.normalizedSectorName,
+    })),
     providerIssue: !masterLoaded,
     marketSignal: false,
     executionImpact: 'NONE',

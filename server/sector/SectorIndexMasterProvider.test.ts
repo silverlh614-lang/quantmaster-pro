@@ -53,6 +53,12 @@ describe('SectorIndexMasterProvider', () => {
     expect(result.masterRowCount).toBe(2);
     expect(result.idxcodeMstDownloaded).toBe(true);
     expect(result.parseStatus).toBe('OK');
+    expect(result.rawSampleRows?.[1]).toMatchObject({
+      idxCode: '0021',
+      idxName: 'finance',
+      normalizedIdxName: 'finance',
+    });
+    expect(result.reasonCodes).toContain('OFFICIAL_INDEX_MASTER_PARSE_OK');
     expect(result.providerIssue).toBe(false);
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');

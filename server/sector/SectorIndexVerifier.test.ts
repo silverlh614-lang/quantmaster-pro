@@ -1,66 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { mapSectorNamesToOfficialIndexCodes, type OfficialSectorIndexMasterRow } from './SectorIndexCodeMap.js';
+import {
+  mapSectorNamesToOfficialIndexCodes,
+  normalizeOfficialSectorName,
+  type OfficialSectorIndexMasterRow,
+} from './SectorIndexCodeMap.js';
 import { buildOfficialSectorIndexMasterCoverage } from './SectorIndexVerifier.js';
 
+function officialRow(code: string, name: string): OfficialSectorIndexMasterRow {
+  return {
+    market: 'KOSPI',
+    idxDiv: '1',
+    officialIndexCode: code,
+    officialIndexName: name,
+    normalizedSectorName: normalizeOfficialSectorName(name),
+    rawSectorName: name,
+    sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
+    aliasResolved: false,
+    unsafeAlias: false,
+  };
+}
+
 const masterRows: OfficialSectorIndexMasterRow[] = [
-  {
-    market: 'KOSPI',
-    idxDiv: '1',
-    officialIndexCode: '0021',
-    officialIndexName: 'finance',
-    normalizedSectorName: 'finance',
-    rawSectorName: 'finance',
-    sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
-    aliasResolved: false,
-    unsafeAlias: false,
-  },
-  {
-    market: 'KOSPI',
-    idxDiv: '1',
-    officialIndexCode: '0006',
-    officialIndexName: 'chemical',
-    normalizedSectorName: 'chemical',
-    rawSectorName: 'chemical',
-    sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
-    aliasResolved: false,
-    unsafeAlias: false,
-  },
+  officialRow('0021', 'finance'),
+  officialRow('0006', 'chemical'),
 ];
 
 const koreanMasterRows: OfficialSectorIndexMasterRow[] = [
-  {
-    market: 'KOSPI',
-    idxDiv: '1',
-    officialIndexCode: '0018',
-    officialIndexName: '금융업',
-    normalizedSectorName: '금융업',
-    rawSectorName: '금융업',
-    sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
-    aliasResolved: false,
-    unsafeAlias: false,
-  },
-  {
-    market: 'KOSPI',
-    idxDiv: '1',
-    officialIndexCode: '0006',
-    officialIndexName: '화학',
-    normalizedSectorName: '화학',
-    rawSectorName: '화학',
-    sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
-    aliasResolved: false,
-    unsafeAlias: false,
-  },
-  {
-    market: 'KOSPI',
-    idxDiv: '1',
-    officialIndexCode: '0012',
-    officialIndexName: '운수장비',
-    normalizedSectorName: '운수장비',
-    rawSectorName: '운수장비',
-    sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
-    aliasResolved: false,
-    unsafeAlias: false,
-  },
+  officialRow('0018', '\uAE08\uC735\uC5C5'),
+  officialRow('0006', '\uD654\uD559'),
+  officialRow('0012', '\uC6B4\uC218\uC7A5\uBE44'),
+  officialRow('0005', '\uC804\uAE30\uC804\uC790'),
+  officialRow('0011', '\uCCA0\uAC15\uAE08\uC18D'),
+  officialRow('0026', '\uC11C\uBE44\uC2A4\uC5C5'),
 ];
 
 describe('SectorIndexCodeMap', () => {
@@ -78,63 +49,98 @@ describe('SectorIndexCodeMap', () => {
     expect(result.targetSectorCount).toBe(4);
     expect(result.mappedSectorCount).toBe(2);
     expect(result.officialIndexCoverage).toBe(50);
+    expect(result.exactMatchCount).toBe(1);
     expect(result.safeAliasCount).toBe(1);
     expect(result.unsafeAliasCount).toBe(1);
     expect(result.unresolvedSectorNames).toEqual(['unresolved']);
+    expect(result.reasonCodes).toContain('INTERNAL_SECTOR_ALIAS_MISSING');
     expect(result.rows.find((row) => row.sectorName === 'defense')).toMatchObject({
       unsafeAlias: true,
       officialCoverageEligible: false,
+      includedInOfficialCoverage: false,
       shadowEvidenceOnly: true,
       reasonCode: 'UNSAFE_ALIAS_SHADOW_ONLY',
     });
   });
 
-  it('maps Korean safe aliases and excludes Korean theme aliases from official coverage', () => {
+  it('maps English internal sector names to Korean official idx_name safe aliases', () => {
     const result = mapSectorNamesToOfficialIndexCodes({
       masterRows: koreanMasterRows,
       targets: [
-        { sectorName: '금융' },
-        { sectorName: '화학' },
-        { sectorName: '방산', sectorKey: 'DEFENSE', candidateIndexCode: '0012' },
-        { sectorName: '반도체', candidateIndexCode: '0006' },
+        { sectorName: 'AUTOMOTIVE' },
+        { sectorName: 'SEMICONDUCTOR' },
+        { sectorName: 'STEEL' },
+        { sectorName: 'INTERNET' },
       ],
     });
 
     expect(result.targetSectorCount).toBe(4);
-    expect(result.mappedSectorCount).toBe(2);
-    expect(result.officialIndexCoverage).toBe(50);
-    expect(result.safeAliasCount).toBe(1);
-    expect(result.unsafeAliasCount).toBe(2);
-    expect(result.rows.find((row) => row.sectorName === '금융')).toMatchObject({
-      officialIndexCode: '0018',
-      safeAlias: true,
+    expect(result.mappedSectorCount).toBe(4);
+    expect(result.officialIndexCoverage).toBe(100);
+    expect(result.safeAliasMatchCount).toBe(4);
+    expect(result.mappedSectorPairs.join('|')).toContain('AUTOMOTIVE ->');
+    expect(result.rows.find((row) => row.sectorName === 'AUTOMOTIVE')).toMatchObject({
+      officialIndexCode: '0012',
       officialCoverageEligible: true,
+      includedInOfficialCoverage: true,
+      safeAlias: true,
+      safeAliasMatch: '\uC6B4\uC218\uC7A5\uBE44',
     });
-    expect(result.rows.find((row) => row.sectorName === '방산')).toMatchObject({
-      unsafeAlias: true,
-      officialCoverageEligible: false,
-      shadowEvidenceOnly: true,
+    expect(result.rows.find((row) => row.sectorName === 'SEMICONDUCTOR')).toMatchObject({
+      officialIndexCode: '0005',
+      safeAliasMatch: '\uC804\uAE30\uC804\uC790',
     });
-    expect(result.rows.find((row) => row.sectorName === '반도체')).toMatchObject({
-      unsafeAlias: true,
-      officialCoverageEligible: false,
-      shadowEvidenceOnly: true,
+    expect(result.rows.find((row) => row.sectorName === 'STEEL')).toMatchObject({
+      officialIndexCode: '0011',
+      safeAliasMatch: '\uCCA0\uAC15\uAE08\uC18D',
     });
+  });
+
+  it('excludes unsafe aliases from official coverage while preserving shadow evidence', () => {
+    const result = mapSectorNamesToOfficialIndexCodes({
+      masterRows: koreanMasterRows,
+      targets: [
+        { sectorName: 'DEFENSE' },
+        { sectorName: 'SHIPBUILDING' },
+        { sectorName: 'SECONDARY_BATTERY' },
+        { sectorName: '\uBC18\uB3C4\uCCB4' },
+      ],
+    });
+
+    expect(result.targetSectorCount).toBe(4);
+    expect(result.mappedSectorCount).toBe(0);
+    expect(result.officialIndexCoverage).toBe(0);
+    expect(result.unsafeAliasCount).toBe(4);
+    expect(result.unsafeAliasSectorNames).toEqual(['DEFENSE', 'SHIPBUILDING', 'SECONDARY_BATTERY', '\uBC18\uB3C4\uCCB4']);
+    expect(result.rows.every((row) => row.shadowEvidenceOnly)).toBe(true);
+    expect(result.rows.every((row) => !row.includedInOfficialCoverage)).toBe(true);
+    expect(result.reasonCodes).toContain('UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION');
+  });
+
+  it('reports EN_TO_KR_ALIAS_MISSING when loaded master cannot resolve English internal sectors', () => {
+    const result = mapSectorNamesToOfficialIndexCodes({
+      masterRows: [officialRow('0099', '\uC885\uD569')],
+      targets: [{ sectorName: 'AUTOMOTIVE' }],
+    });
+
+    expect(result.officialIndexCoverage).toBe(0);
+    expect(result.unresolvedSectorNames).toEqual(['AUTOMOTIVE']);
+    expect(result.reasonCodes).toContain('EN_TO_KR_ALIAS_MISSING');
   });
 
   it('does not count internal grouped snapshot rows as official coverage', () => {
     const result = mapSectorNamesToOfficialIndexCodes({
       masterRows: [{
         market: 'UNKNOWN',
-        officialIndexCode: 'INTERNAL_PROXY:금융업',
-        officialIndexName: '금융업',
-        normalizedSectorName: '금융업',
-        rawSectorName: '금융업',
+        officialIndexCode: 'INTERNAL_PROXY:\uAE08\uC735\uC5C5',
+        officialIndexName: '\uAE08\uC735\uC5C5',
+        normalizedSectorName: normalizeOfficialSectorName('\uAE08\uC735\uC5C5'),
+        rawSectorName: '\uAE08\uC735\uC5C5',
         sourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
         aliasResolved: false,
         unsafeAlias: false,
       }],
-      targets: [{ sectorName: '금융업' }],
+      targets: [{ sectorName: '\uAE08\uC735\uC5C5' }],
     });
 
     expect(result.mappedSectorCount).toBe(0);
@@ -159,6 +165,7 @@ describe('SectorIndexVerifier', () => {
         cacheFallbackUsed: false,
         parseStatus: 'OK',
         rows: masterRows,
+        rawSampleRows: [{ idxDiv: '1', idxCode: '0021', idxName: 'finance', normalizedIdxName: 'finance' }],
         providerIssue: false,
         marketSignal: false,
         executionImpact: 'NONE',
@@ -186,13 +193,22 @@ describe('SectorIndexVerifier', () => {
     expect(result.verifiedIndexCodeCoverage).toBe(33.3);
     expect(result.mappedSectorCount).toBe(2);
     expect(result.verifiedIndexCodeCount).toBe(1);
+    expect(result.exactMatchCount).toBe(2);
     expect(result.safeAliasCoverage).toBe(0);
     expect(result.unresolvedCount).toBe(1);
+    expect(result.internalSectorNames).toEqual(['finance', 'chemical', 'unresolved']);
+    expect(result.rawSampleRows?.[0]).toMatchObject({ idxCode: '0021', idxName: 'finance' });
+    expect(result.verifyAttemptCount).toBe(2);
     expect(result.verifyApiSuccessSamples).toHaveLength(1);
     expect(result.verifyApiFailureSamples).toHaveLength(1);
+    expect(result.mappingAttempts?.find((row) => row.internalSectorName === 'finance')).toMatchObject({
+      verifyAttempted: true,
+      verified: true,
+    });
     expect(result.verifyApiPath).toBe('/uapi/domestic-stock/v1/quotations/inquire-index-price');
     expect(result.verifyTrId).toBe('FHPUP02100000');
     expect(result.reasonCodes).toContain('OFFICIAL_INDEX_API_VERIFY_FAILED');
+    expect(result.reasonCodes).toContain('VERIFIED_INDEX_CODE_COVERAGE_LOW');
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
   });
