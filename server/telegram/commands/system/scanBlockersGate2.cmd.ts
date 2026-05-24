@@ -81,6 +81,7 @@ function dartReason(status: string, dart: AnyRecord | null): string {
 
 function normalizeConditionStatus(raw: unknown): string {
   const status = text(raw, 'UNAVAILABLE').toUpperCase();
+  if (status === 'PARTIAL' || status === 'MIXED' || status === 'EXCLUDED') return status;
   if (status === 'FIRED' || status === 'PASS' || status === 'OK') return 'PASS';
   if (status === 'FAIL' || status === 'THRESHOLD_NOT_MET') return 'FAIL';
   if (status === 'DATA_UNAVAILABLE' || status === 'ERROR') return 'UNAVAILABLE';
@@ -105,7 +106,44 @@ function conditionRows(trace: AnyRecord): AnyRecord[] {
   });
 }
 
-function summarizeCondition(traces: AnyRecord[], key: string, external?: AnyRecord | null): string {
+interface ConditionAggregate {
+  status: string;
+  sampleStatus: string;
+  value: unknown;
+  source: string;
+  sampleSource: string;
+  reason: string;
+  sampleReason: string;
+  count: number;
+  pass: number;
+  fail: number;
+  unavailable: number;
+  projection: boolean;
+}
+
+function aggregateReason(key: string, status: string, sampleReason: string): string {
+  if (status === 'PARTIAL') {
+    if (key === 'earnings_quality') return 'EARNINGS_QUALITY_PARTIAL';
+    if (key === 'per') return 'PER_PARTIAL';
+    return `${key.toUpperCase()}_PARTIAL`;
+  }
+  if (status === 'MIXED') {
+    if (key === 'earnings_quality') return 'EARNINGS_QUALITY_MIXED';
+    if (key === 'per') return 'PER_MIXED';
+    return `${key.toUpperCase()}_MIXED`;
+  }
+  return sampleReason;
+}
+
+function preferredConditionSample(rows: AnyRecord[]): AnyRecord | null {
+  return rows.find(row => normalizeConditionStatus(row.status) === 'FAIL')
+    ?? rows.find(row => normalizeConditionStatus(row.status) === 'PASS')
+    ?? rows.find(row => normalizeConditionStatus(row.status) === 'UNAVAILABLE')
+    ?? rows[0]
+    ?? null;
+}
+
+function conditionAggregate(traces: AnyRecord[], key: string, external?: AnyRecord | null): ConditionAggregate {
   const projected = firstRecord(
     getByPath(external, `conditionResults.${key}`),
     getByPath(external, `gate2ConditionProjection.${key}`),
@@ -113,37 +151,90 @@ function summarizeCondition(traces: AnyRecord[], key: string, external?: AnyReco
   const rows = traces.flatMap(conditionRows).filter((row) => text(row.key, '') === key);
   if (rows.length === 0 && projected) {
     const status = normalizeConditionStatus(projected.status);
-    return [
-      `${key}:status=${status}`,
-      `value=${numberText(projected.value)}`,
-      `source=${sourceOf(projected, 'NONE')}`,
-      `reason=${text(projected.reason ?? projected.reasonCode, status === 'UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'NONE')}`,
-      'count=1',
-      `pass=${status === 'PASS' ? 1 : 0}`,
-      `fail=${status === 'FAIL' ? 1 : 0}`,
-      `unavailable=${status === 'UNAVAILABLE' ? 1 : 0}`,
-      'projection=Gate2ExternalData',
-    ].join(':');
+    const source = sourceOf(projected, 'NONE');
+    const reason = text(projected.reason ?? projected.reasonCode, status === 'UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'NONE');
+    return {
+      status,
+      sampleStatus: status,
+      value: projected.value,
+      source,
+      sampleSource: source,
+      reason,
+      sampleReason: reason,
+      count: 1,
+      pass: status === 'PASS' ? 1 : 0,
+      fail: status === 'FAIL' ? 1 : 0,
+      unavailable: status === 'UNAVAILABLE' ? 1 : 0,
+      projection: true,
+    };
   }
   if (rows.length === 0) {
-    return `${key}:status=UNAVAILABLE:value=null:source=NONE:reason=NOT_PROJECTED count=0`;
+    return {
+      status: 'UNAVAILABLE',
+      sampleStatus: 'UNAVAILABLE',
+      value: null,
+      source: 'NONE',
+      sampleSource: 'NONE',
+      reason: 'NOT_PROJECTED',
+      sampleReason: 'NOT_PROJECTED',
+      count: 0,
+      pass: 0,
+      fail: 0,
+      unavailable: 0,
+      projection: false,
+    };
   }
   const counts = new Map<string, number>();
   for (const row of rows) {
     const status = normalizeConditionStatus(row.status);
     counts.set(status, (counts.get(status) ?? 0) + 1);
   }
+  const pass = counts.get('PASS') ?? 0;
+  const fail = counts.get('FAIL') ?? 0;
+  const unavailable = counts.get('UNAVAILABLE') ?? 0;
+  const resolved = pass + fail;
   const topStatus = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'UNAVAILABLE';
-  const sample = rows.find((row) => normalizeConditionStatus(row.status) === topStatus) ?? rows[0];
+  const status = resolved > 0 && unavailable > 0
+    ? 'PARTIAL'
+    : pass > 0 && fail > 0
+      ? 'MIXED'
+      : topStatus;
+  const sample = preferredConditionSample(rows);
+  const resolvedRows = rows.filter(row => ['PASS', 'FAIL'].includes(normalizeConditionStatus(row.status)));
+  const source = sourceOf(
+    resolvedRows.find(row => sourceOf(row, 'NONE') !== 'NONE') ?? sample,
+    key === 'per' && resolved > 0 ? 'KIS' : key === 'earnings_quality' && resolved > 0 ? 'DART' : 'NONE',
+  );
+  const sampleStatus = normalizeConditionStatus(sample?.status);
+  const sampleReason = text(sample?.reason ?? sample?.detail, sampleStatus === 'UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'NONE');
+  return {
+    status,
+    sampleStatus,
+    value: sample?.value,
+    source,
+    sampleSource: sourceOf(sample, source),
+    reason: aggregateReason(key, status, sampleReason),
+    sampleReason,
+    count: rows.length,
+    pass,
+    fail,
+    unavailable,
+    projection: false,
+  };
+}
+
+function summarizeCondition(traces: AnyRecord[], key: string, external?: AnyRecord | null): string {
+  const aggregate = conditionAggregate(traces, key, external);
   return [
-    `${key}:status=${topStatus}`,
-    `value=${numberText(sample?.value)}`,
-    `source=${sourceOf(sample, 'NONE')}`,
-    `reason=${text(sample?.reason ?? sample?.detail, topStatus === 'UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'NONE')}`,
-    `count=${rows.length}`,
-    `pass=${counts.get('PASS') ?? 0}`,
-    `fail=${counts.get('FAIL') ?? 0}`,
-    `unavailable=${counts.get('UNAVAILABLE') ?? 0}`,
+    `${key}:status=${aggregate.status}`,
+    `value=${numberText(aggregate.value)}`,
+    `source=${aggregate.source}`,
+    `reason=${aggregate.reason}`,
+    `count=${aggregate.count}`,
+    `pass=${aggregate.pass}`,
+    `fail=${aggregate.fail}`,
+    `unavailable=${aggregate.unavailable}`,
+    ...(aggregate.projection ? ['projection=Gate2ExternalData'] : []),
   ].join(':');
 }
 
@@ -158,19 +249,30 @@ function compactGate2ExternalData(summaryRaw: unknown): string {
   const profitability = firstRecord(external?.profitability, dart?.profitability);
   const stability = firstRecord(external?.stability, dart?.stability);
   const earningsQuality = firstRecord(external?.earningsQuality, external?.earnings_quality, dart?.earningsQuality);
+  const perAggregate = conditionAggregate(traces, 'per', external);
+  const earningsAggregate = conditionAggregate(traces, 'earnings_quality', external);
   const dartStatus = statusOf(dart, external ? 'MISSING' : 'STAGE_NOT_FETCHED');
-  const valuationStatus = statusOf(perRecord, dartStatus === 'VERIFIED' ? 'DEFERRED' : 'MISSING');
-  const earningsStatus = statusOf(earningsQuality, dartStatus === 'VERIFIED' ? 'NEUTRAL' : 'UNAVAILABLE');
+  const valuationStatus = perAggregate.count > 0
+    ? perAggregate.sampleStatus
+    : statusOf(perRecord, dartStatus === 'VERIFIED' ? 'DEFERRED' : 'MISSING');
+  const valuationAggregateStatus = perAggregate.count > 0 ? perAggregate.status : valuationStatus;
+  const earningsStatus = earningsAggregate.count > 0
+    ? earningsAggregate.sampleStatus
+    : statusOf(earningsQuality, dartStatus === 'VERIFIED' ? 'NEUTRAL' : 'UNAVAILABLE');
+  const earningsSource = earningsAggregate.count > 0 ? earningsAggregate.sampleSource : sourceOf(earningsQuality, 'NONE');
+  const earningsReason = earningsAggregate.count > 0
+    ? earningsAggregate.sampleReason
+    : text(earningsQuality?.reason ?? earningsQuality?.reasonCode, earningsStatus === 'UNAVAILABLE' ? 'EARNINGS_QUALITY_UNAVAILABLE' : 'NONE');
   const stageStatus = text(external?.stageStatus ?? external?.status, external ? 'STAGE_OBSERVED' : 'STAGE_NOT_FETCHED');
 
   return [
     'Gate2ExternalData:',
     `- stageStatus=${stageStatus} sampleTraces=${traces.length}`,
     `- dart: status=${dartStatus} source=${sourceOf(dart, dartStatus === 'VERIFIED' ? 'DART' : 'NONE')} reason=${dartReason(dartStatus, dart)} fiscalPeriod=${text(dart?.fiscalPeriod)} lastUpdated=${text(dart?.lastUpdated ?? dart?.fetchedAt)} affectedConditions=earnings_quality,roe,opm,icr,per scoreImpact=limited_to_high_conviction executionImpact=NONE`,
-    `- valuation: perStatus=${valuationStatus} per=${numberText(perRecord?.per ?? perRecord?.value)} source=${sourceOf(perRecord, 'NONE')} reason=${text(perRecord?.reason ?? perRecord?.reasonCode, valuationStatus === 'MISSING' ? 'PER_MISSING' : 'NONE')}`,
+    `- valuation: perStatusSample=${valuationStatus} perStatusAggregate=${valuationAggregateStatus} per=${numberText(perRecord?.per ?? perRecord?.value ?? perAggregate.value)} source=${perAggregate.count > 0 ? perAggregate.source : sourceOf(perRecord, 'NONE')} reason=${perAggregate.count > 0 ? perAggregate.reason : text(perRecord?.reason ?? perRecord?.reasonCode, valuationStatus === 'MISSING' ? 'PER_MISSING' : 'NONE')}`,
     `- profitability: roe=${numberText(profitability?.roe)} opm=${numberText(profitability?.opm)} netMargin=${numberText(profitability?.netMargin)} source=${sourceOf(profitability, sourceOf(dart, 'NONE'))}`,
     `- stability: icr=${numberText(stability?.icr)} debtRatio=${numberText(stability?.debtRatio)} currentRatio=${numberText(stability?.currentRatio)} source=${sourceOf(stability, sourceOf(dart, 'NONE'))}`,
-    `- earningsQuality: status=${earningsStatus} score=${numberText(earningsQuality?.score)} reason=${text(earningsQuality?.reason ?? earningsQuality?.reasonCode, earningsStatus === 'UNAVAILABLE' ? 'EARNINGS_QUALITY_UNAVAILABLE' : 'NONE')}`,
+    `- earningsQuality: status=${earningsStatus} score=${numberText(earningsQuality?.score ?? earningsAggregate.value)} source=${earningsSource} reason=${earningsReason}`,
     'Gate2ConditionResults:',
     `- ${summarizeCondition(traces, 'earnings_quality', external)}`,
     `- ${summarizeCondition(traces, 'per', external)}`,
@@ -183,6 +285,9 @@ function compactGate2ExternalData(summaryRaw: unknown): string {
     '- GATE2_EXTERNAL/EARNINGS_QUALITY provider=DART|CACHE status=READY_FOR_SHADOW|OBSERVING impact=NONE',
     'Gate2Safety:',
     `- highConvictionImpact=${text(external?.highConvictionImpact, 'BLOCK_STRONG_BUY_UPGRADE')}`,
+    `- strongBuyBlockedDetails=${text(external?.blockingDetails ?? external?.strongBuyBlockedDetails, 'NONE')}`,
+    `- excludedDetails=${text(external?.excludedDetails, 'NONE')}`,
+    `- excludedCount=${String(external?.excludedCount ?? 0)}`,
     `- entryHardBlockImpact=${text(external?.entryHardBlockImpact, 'NO')}`,
     `- shadowObservablePreserved=${String(external?.shadowObservablePreserved ?? true)}`,
     `- counterfactualAllowed=${String(external?.counterfactualAllowed ?? true)}`,

@@ -73,6 +73,9 @@ export interface Gate2ExternalRefreshCounters {
   providerRequestsAttempted: number;
   corpCodeResolved: number;
   corpCodeMissing: number;
+  dartNotApplicableCount: number;
+  trueCorpCodeNotFound: number;
+  corpCodeLookupFailed: number;
   fiscalPeriodResolved: number;
   fiscalPeriodMissing: number;
   dartResponsesOk: number;
@@ -91,6 +94,11 @@ export interface Gate2ExternalRefreshCounters {
   unavailableDueToFiscalPeriodMissing: number;
   unavailableDueToFinancialRowsEmpty: number;
   unavailableDueToNormalizationFailed: number;
+  unavailableCountRaw: number;
+  unavailableCountActionable: number;
+  unavailableExcludingExcluded: number;
+  excludedCount: number;
+  excludedUnavailableEquivalent: number;
 }
 
 export type Gate2ExternalRootCause =
@@ -98,6 +106,9 @@ export type Gate2ExternalRootCause =
   | 'DART_API_KEY_MISSING'
   | 'DART_CORP_CODE_CACHE_NOT_LOADED'
   | 'DART_CORP_CODE_NOT_FOUND'
+  | 'PARTIAL_CORP_CODE_NOT_FOUND'
+  | 'DART_NOT_APPLICABLE_ONLY'
+  | 'PER_PARTIAL_UNAVAILABLE'
   | 'DART_CORP_CODE_MAPPING_MISSING'
   | 'DART_FISCAL_PERIOD_RESOLVE_FAILED'
   | 'DART_FINANCIAL_HTTP_ERROR'
@@ -206,8 +217,18 @@ export interface Gate2ExternalRefreshResult {
   providerHealth: Gate2DartProviderHealth;
   strongBuyBlockedReason: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
   strongBuyBlockedDetails: string;
+  blockingDetails: string;
+  excludedDetails: string;
+  excludedCount: number;
+  excludedSymbols: string[];
+  excludedReason: 'DART_NOT_APPLICABLE' | 'NONE';
+  unavailableCountRaw: number;
+  unavailableCountActionable: number;
+  unavailableExcludingExcluded: number;
+  excludedUnavailableEquivalent: number;
   corpCodeMissingSymbols: string[];
   dartNotApplicableSymbols: string[];
+  trueCorpCodeNotFoundSymbols: string[];
   corpCodeLookupFailedSymbols: string[];
   nonEquitySymbols: string[];
   executionImpact: 'NONE';
@@ -1133,6 +1154,9 @@ function emptyCounters(): Gate2ExternalRefreshCounters {
     providerRequestsAttempted: 0,
     corpCodeResolved: 0,
     corpCodeMissing: 0,
+    dartNotApplicableCount: 0,
+    trueCorpCodeNotFound: 0,
+    corpCodeLookupFailed: 0,
     fiscalPeriodResolved: 0,
     fiscalPeriodMissing: 0,
     dartResponsesOk: 0,
@@ -1151,6 +1175,11 @@ function emptyCounters(): Gate2ExternalRefreshCounters {
     unavailableDueToFiscalPeriodMissing: 0,
     unavailableDueToFinancialRowsEmpty: 0,
     unavailableDueToNormalizationFailed: 0,
+    unavailableCountRaw: 0,
+    unavailableCountActionable: 0,
+    unavailableExcludingExcluded: 0,
+    excludedCount: 0,
+    excludedUnavailableEquivalent: 0,
   };
 }
 
@@ -1161,6 +1190,9 @@ function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2E
     if (trace.dartRequestAttempted) counters.providerRequestsAttempted += 1;
     if (trace.corpCodeResolveStatus === 'FOUND') counters.corpCodeResolved += 1;
     if (trace.corpCodeResolveStatus !== 'FOUND') counters.corpCodeMissing += 1;
+    if (trace.corpCodeMissingReason === 'DART_NOT_APPLICABLE') counters.dartNotApplicableCount += 1;
+    if (trace.corpCodeMissingReason === 'DART_CORP_CODE_NOT_FOUND') counters.trueCorpCodeNotFound += 1;
+    if (trace.corpCodeMissingReason === 'DART_CORP_CODE_LOOKUP_FAILED') counters.corpCodeLookupFailed += 1;
     if (trace.fiscalPeriodStatus === 'RESOLVED') counters.fiscalPeriodResolved += 1;
     if (trace.fiscalPeriodStatus !== 'RESOLVED') counters.fiscalPeriodMissing += 1;
     if (trace.dartRequestAttempted && trace.dartErrorCode == null && trace.dartRawRows > 0) counters.dartResponsesOk += 1;
@@ -1176,6 +1208,12 @@ function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2E
     else if (trace.corpCodeResolveStatus === 'FOUND' || trace.kisPerRequestAttempted || trace.perSource === 'KIS') counters.kisPerUnavailable += 1;
 
     const unavailableCount = trace.unavailableConditions.length;
+    counters.unavailableCountRaw += unavailableCount;
+    if (trace.corpCodeMissingReason === 'DART_NOT_APPLICABLE') {
+      counters.excludedCount += 1;
+      counters.excludedUnavailableEquivalent += unavailableCount;
+      continue;
+    }
     if (unavailableCount === 0) continue;
     if (trace.corpCodeResolveStatus !== 'FOUND') {
       counters.unavailableDueToCorpCodeMissing += unavailableCount;
@@ -1195,6 +1233,12 @@ function summarizeCounters(traces: readonly Gate2ExternalRefreshTrace[]): Gate2E
     }
     if (trace.unavailableConditions.includes('per')) counters.unavailableDueToPER += 1;
   }
+  counters.unavailableExcludingExcluded = Math.max(0, counters.unavailableCountRaw - counters.excludedUnavailableEquivalent);
+  counters.unavailableCountActionable = counters.unavailableDueToPER
+    + counters.unavailableDueToCorpCodeMissing
+    + counters.unavailableDueToFiscalPeriodMissing
+    + counters.unavailableDueToFinancialRowsEmpty
+    + counters.unavailableDueToNormalizationFailed;
   return counters;
 }
 
@@ -1205,8 +1249,20 @@ function inferRootCause(input: {
   corpCodeCacheLoaded: boolean;
   missingCount: number;
 }): Gate2ExternalRootCause {
-  if (input.missingCount === 0) return 'NONE';
   if (!input.apiKeyPresent) return 'DART_API_KEY_MISSING';
+  if (input.counters.trueCorpCodeNotFound > 0 && input.counters.corpCodeResolved > 0) {
+    return 'PARTIAL_CORP_CODE_NOT_FOUND';
+  }
+  if (
+    input.counters.corpCodeMissing > 0
+    && input.counters.dartNotApplicableCount === input.counters.corpCodeMissing
+    && input.counters.trueCorpCodeNotFound === 0
+    && input.counters.corpCodeLookupFailed === 0
+  ) {
+    return 'DART_NOT_APPLICABLE_ONLY';
+  }
+  if (input.missingCount === 0 && input.counters.unavailableDueToPER > 0) return 'PER_PARTIAL_UNAVAILABLE';
+  if (input.missingCount === 0) return 'NONE';
   if (input.counters.corpCodeMissing > 0 && input.counters.corpCodeMissing === input.missingCount) {
     return input.corpCodeCacheLoaded ? 'DART_CORP_CODE_NOT_FOUND' : 'DART_CORP_CODE_CACHE_NOT_LOADED';
   }
@@ -1230,21 +1286,19 @@ function uniqueSymbolsByTrace(
 
 function buildStrongBuyBlockedDetails(
   counters: Gate2ExternalRefreshCounters,
-  traces: readonly Gate2ExternalRefreshTrace[],
 ): string {
   const parts: string[] = [];
   if (counters.unavailableDueToPER > 0) parts.push(`PER_UNAVAILABLE_${counters.unavailableDueToPER}`);
-  if (counters.corpCodeMissing > 0) parts.push(`CORP_CODE_MISSING_${counters.corpCodeMissing}`);
-  const dartNotApplicable = traces.filter(trace => trace.corpCodeMissingReason === 'DART_NOT_APPLICABLE').length;
-  const lookupFailed = traces.filter(trace => trace.corpCodeMissingReason === 'DART_CORP_CODE_LOOKUP_FAILED').length;
-  const notFound = traces.filter(trace => trace.corpCodeMissingReason === 'DART_CORP_CODE_NOT_FOUND').length;
-  if (dartNotApplicable > 0) parts.push(`DART_NOT_APPLICABLE_${dartNotApplicable}`);
-  if (lookupFailed > 0) parts.push(`CORP_CODE_LOOKUP_FAILED_${lookupFailed}`);
-  if (notFound > 0) parts.push(`CORP_CODE_NOT_FOUND_${notFound}`);
+  if (counters.trueCorpCodeNotFound > 0) parts.push(`TRUE_CORP_CODE_NOT_FOUND_${counters.trueCorpCodeNotFound}`);
+  if (counters.corpCodeLookupFailed > 0) parts.push(`CORP_CODE_LOOKUP_FAILED_${counters.corpCodeLookupFailed}`);
   if (counters.unavailableDueToFiscalPeriodMissing > 0) parts.push(`FISCAL_PERIOD_MISSING_${counters.unavailableDueToFiscalPeriodMissing}`);
   if (counters.unavailableDueToFinancialRowsEmpty > 0) parts.push(`FINANCIAL_ROWS_EMPTY_${counters.unavailableDueToFinancialRowsEmpty}`);
   if (counters.unavailableDueToNormalizationFailed > 0) parts.push(`NORMALIZATION_FAILED_${counters.unavailableDueToNormalizationFailed}`);
   return parts.length > 0 ? parts.join('|') : 'NONE';
+}
+
+function buildExcludedDetails(counters: Gate2ExternalRefreshCounters): string {
+  return counters.dartNotApplicableCount > 0 ? `DART_NOT_APPLICABLE_${counters.dartNotApplicableCount}` : 'NONE';
 }
 
 export function getGate2DartProviderHealth(): Gate2DartProviderHealth {
@@ -1381,9 +1435,16 @@ export async function refreshGate2ExternalData(input: {
     corpCodeCacheLoaded: finalProviderHealth.corpCodeCacheLoaded,
     missingCount,
   });
-  const strongBuyBlockedDetails = buildStrongBuyBlockedDetails(counters, traces);
+  const strongBuyBlockedDetails = buildStrongBuyBlockedDetails(counters);
+  const excludedDetails = buildExcludedDetails(counters);
+  const strongBuyBlockedReason = counters.unavailableCountActionable === 0
+    ? 'NONE'
+    : missingCount === records.length
+      ? 'DART_FINANCIALS_MISSING'
+      : 'GATE2_EXTERNAL_PARTIAL';
   const corpCodeMissingSymbols = uniqueSymbolsByTrace(traces, trace => trace.corpCodeResolveStatus !== 'FOUND');
   const dartNotApplicableSymbols = uniqueSymbolsByTrace(traces, trace => trace.corpCodeMissingReason === 'DART_NOT_APPLICABLE');
+  const trueCorpCodeNotFoundSymbols = uniqueSymbolsByTrace(traces, trace => trace.corpCodeMissingReason === 'DART_CORP_CODE_NOT_FOUND');
   const corpCodeLookupFailedSymbols = uniqueSymbolsByTrace(traces, trace => trace.corpCodeMissingReason === 'DART_CORP_CODE_LOOKUP_FAILED');
   const nonEquitySymbols = dartNotApplicableSymbols;
   updateGate2ExternalLastRefresh({
@@ -1393,8 +1454,18 @@ export async function refreshGate2ExternalData(input: {
     traces,
     providerHealth: finalProviderHealth,
     strongBuyBlockedDetails,
+    blockingDetails: strongBuyBlockedDetails,
+    excludedDetails,
+    excludedCount: counters.excludedCount,
+    excludedSymbols: dartNotApplicableSymbols,
+    excludedReason: counters.excludedCount > 0 ? 'DART_NOT_APPLICABLE' : 'NONE',
+    unavailableCountRaw: counters.unavailableCountRaw,
+    unavailableCountActionable: counters.unavailableCountActionable,
+    unavailableExcludingExcluded: counters.unavailableExcludingExcluded,
+    excludedUnavailableEquivalent: counters.excludedUnavailableEquivalent,
     corpCodeMissingSymbols,
     dartNotApplicableSymbols,
+    trueCorpCodeNotFoundSymbols,
     corpCodeLookupFailedSymbols,
     nonEquitySymbols,
   });
@@ -1411,10 +1482,20 @@ export async function refreshGate2ExternalData(input: {
     rootCause,
     traces,
     providerHealth: finalProviderHealth,
-    strongBuyBlockedReason: missingCount === records.length ? 'DART_FINANCIALS_MISSING' : unavailableCount > 0 ? 'GATE2_EXTERNAL_PARTIAL' : 'NONE',
+    strongBuyBlockedReason,
     strongBuyBlockedDetails,
+    blockingDetails: strongBuyBlockedDetails,
+    excludedDetails,
+    excludedCount: counters.excludedCount,
+    excludedSymbols: dartNotApplicableSymbols,
+    excludedReason: counters.excludedCount > 0 ? 'DART_NOT_APPLICABLE' : 'NONE',
+    unavailableCountRaw: counters.unavailableCountRaw,
+    unavailableCountActionable: counters.unavailableCountActionable,
+    unavailableExcludingExcluded: counters.unavailableExcludingExcluded,
+    excludedUnavailableEquivalent: counters.excludedUnavailableEquivalent,
     corpCodeMissingSymbols,
     dartNotApplicableSymbols,
+    trueCorpCodeNotFoundSymbols,
     corpCodeLookupFailedSymbols,
     nonEquitySymbols,
     executionImpact: 'NONE',

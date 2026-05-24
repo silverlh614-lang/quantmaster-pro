@@ -24,8 +24,18 @@ export interface Gate2ExternalLastRefreshDiagnostics {
   traces: Gate2ExternalRefreshTrace[];
   providerHealth: Gate2DartProviderHealth;
   strongBuyBlockedDetails?: string;
+  blockingDetails?: string;
+  excludedDetails?: string;
+  excludedCount?: number;
+  excludedSymbols?: string[];
+  excludedReason?: 'DART_NOT_APPLICABLE' | 'NONE';
+  unavailableCountRaw?: number;
+  unavailableCountActionable?: number;
+  unavailableExcludingExcluded?: number;
+  excludedUnavailableEquivalent?: number;
   corpCodeMissingSymbols?: string[];
   dartNotApplicableSymbols?: string[];
+  trueCorpCodeNotFoundSymbols?: string[];
   corpCodeLookupFailedSymbols?: string[];
   nonEquitySymbols?: string[];
 }

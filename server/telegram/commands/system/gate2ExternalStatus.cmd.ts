@@ -11,6 +11,14 @@ function formatGate2ExternalStatusMessage(): string {
   const lastRefreshAsOf = lastRefresh?.asOf ?? summary.latestUpdatedAt ?? 'NONE';
   const lastRefreshRootCause = lastRefresh?.rootCause ?? (summary.recordCount > 0 ? 'REFRESH_METADATA_MISSING' : 'NONE');
   const counters = lastRefresh?.counters;
+  const actionableUnavailable = lastRefresh?.unavailableCountActionable
+    ?? counters?.unavailableCountActionable
+    ?? summary.unavailableCount;
+  const strongBuyBlockedReason = actionableUnavailable <= 0
+    ? 'NONE'
+    : summary.recordCount > 0 && summary.missingCount === summary.recordCount
+      ? 'DART_FINANCIALS_MISSING'
+      : 'GATE2_EXTERNAL_PARTIAL';
   const providerHealth = lastRefresh?.providerHealth;
   const samples = cache.records.slice(-8).map(record => {
     const snapshot = record.projection.financialSnapshot;
@@ -39,6 +47,9 @@ function formatGate2ExternalStatusMessage(): string {
       `providerRequestsAttempted=${counters.providerRequestsAttempted}`,
       `corpCodeResolved=${counters.corpCodeResolved}`,
       `corpCodeMissing=${counters.corpCodeMissing}`,
+      `dartNotApplicable=${counters.dartNotApplicableCount ?? 0}`,
+      `trueCorpCodeNotFound=${counters.trueCorpCodeNotFound ?? 0}`,
+      `lookupFailed=${counters.corpCodeLookupFailed ?? 0}`,
       `fiscalPeriodResolved=${counters.fiscalPeriodResolved}`,
       `fiscalPeriodMissing=${counters.fiscalPeriodMissing}`,
       `dartResponsesOk=${counters.dartResponsesOk}`,
@@ -57,16 +68,26 @@ function formatGate2ExternalStatusMessage(): string {
       `unavailableDueToFiscalPeriodMissing=${counters.unavailableDueToFiscalPeriodMissing ?? 0}`,
       `unavailableDueToFinancialRowsEmpty=${counters.unavailableDueToFinancialRowsEmpty ?? 0}`,
       `unavailableDueToNormalizationFailed=${counters.unavailableDueToNormalizationFailed ?? 0}`,
+      `unavailableCountRaw=${lastRefresh?.unavailableCountRaw ?? counters.unavailableCountRaw ?? summary.unavailableCount}`,
+      `unavailableCountActionable=${lastRefresh?.unavailableCountActionable ?? counters.unavailableCountActionable ?? summary.unavailableCount}`,
+      `unavailableExcludingExcluded=${lastRefresh?.unavailableExcludingExcluded ?? counters.unavailableExcludingExcluded ?? summary.unavailableCount}`,
+      `excludedCount=${lastRefresh?.excludedCount ?? counters.excludedCount ?? 0}`,
+      `excludedSymbols=${lastRefresh?.excludedSymbols?.join(',') || 'NONE'}`,
+      `excludedReason=${lastRefresh?.excludedReason ?? 'NONE'}`,
+      `excludedUnavailableEquivalent=${lastRefresh?.excludedUnavailableEquivalent ?? counters.excludedUnavailableEquivalent ?? 0}`,
       `strongBuyBlockedDetails=${lastRefresh?.strongBuyBlockedDetails ?? 'NONE'}`,
+      `blockingDetails=${lastRefresh?.blockingDetails ?? lastRefresh?.strongBuyBlockedDetails ?? 'NONE'}`,
+      `excludedDetails=${lastRefresh?.excludedDetails ?? 'NONE'}`,
       `corpCodeMissingSymbols=${lastRefresh?.corpCodeMissingSymbols?.join(',') || 'NONE'}`,
       `dartNotApplicableSymbols=${lastRefresh?.dartNotApplicableSymbols?.join(',') || 'NONE'}`,
+      `trueCorpCodeNotFoundSymbols=${lastRefresh?.trueCorpCodeNotFoundSymbols?.join(',') || 'NONE'}`,
       `corpCodeLookupFailedSymbols=${lastRefresh?.corpCodeLookupFailedSymbols?.join(',') || 'NONE'}`,
       `nonEquitySymbols=${lastRefresh?.nonEquitySymbols?.join(',') || 'NONE'}`,
     ] : []),
     ...(providerHealth ? [
       `providerHealth=apiKeyPresent:${providerHealth.apiKeyPresent}|requestEnabled:${providerHealth.requestEnabled}|corpCodeCacheLoaded:${providerHealth.corpCodeCacheLoaded}|corpCodeCacheCount:${providerHealth.corpCodeCacheCount}|lastHttpStatus:${providerHealth.lastHttpStatus ?? 'NONE'}|lastErrorCode:${providerHealth.lastErrorCode ?? 'NONE'}|rateLimitState:${providerHealth.rateLimitState}|cacheWritable:${providerHealth.cacheWritable}`,
     ] : []),
-    `strongBuyBlockedReason=${summary.missingCount > 0 ? 'GATE2_EXTERNAL_PARTIAL' : summary.unavailableCount > 0 ? 'GATE2_EXTERNAL_PARTIAL' : 'NONE'}`,
+    `strongBuyBlockedReason=${strongBuyBlockedReason}`,
     'entryHardBlockImpact=NO',
     'shadowObservablePreserved=true',
     'counterfactualAllowed=true',
