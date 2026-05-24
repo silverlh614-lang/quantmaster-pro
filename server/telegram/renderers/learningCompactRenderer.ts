@@ -34,6 +34,7 @@ export function renderLearningCompact(bundle: SnapshotBundle): string {
     `blocked: missed ${lrn?.blockedMissed ?? 0} / avoided ${lrn?.blockedAvoided ?? 0}`,
     `topPositive: ${lrn?.topPositive ?? 'none'}`,
     `topOverBlock: ${lrn?.topOverBlock ?? 'none'}`,
+    ...(lrn?.feedbackLine ? [lrn.feedbackLine] : []),
     'impact: NONE',
     `learning: ${bundle.shadowLearning ? 'ON' : 'OFF'}`,
     `next: ${lrn?.nextAction ?? 'wait 10D labels'}`,

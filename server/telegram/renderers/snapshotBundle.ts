@@ -82,6 +82,7 @@ export interface LearningSummary {
   blockedAvoided: number;
   topPositive: string;
   topOverBlock: string;
+  feedbackLine?: string;
   nextAction: string;
 }
 

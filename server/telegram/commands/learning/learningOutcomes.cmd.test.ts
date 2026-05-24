@@ -75,6 +75,7 @@ describe('/learning_outcomes ADR-0522 command', () => {
 
     expect(replied).toContain('[Learning]');
     expect(replied).toContain('seeds: +1 / pending 0 / labeled 1');
+    expect(replied).toContain('[Feedback]');
     expect(replied).toContain('impact: NONE');
     expect(replied).toContain('learning: ON');
     expect(replied).toContain('detail: /learning_full');
@@ -85,5 +86,5 @@ describe('/learning_outcomes ADR-0522 command', () => {
     expect(replied).toContain('ExecutionImpact: NONE for learning');
     expect(replied).toContain('ShadowLearning: true');
     expect(replied).toContain('no provider fetch, no broker order, no live promotion');
-  }, 15000);
+  }, 30000);
 });

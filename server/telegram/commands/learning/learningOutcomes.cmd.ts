@@ -6,6 +6,10 @@ import {
   formatLearningOutcomesSummary,
   outcomeClosureRepo,
 } from '../../../learning/outcomeClosure.js';
+import {
+  buildWeightFeedbackReport,
+  formatLearningFeedbackLine,
+} from '../../../learning/dynamicWeightFeedback.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderLearningCompact, learningSummaryFromOutcomeSummary } from '../../renderers/learningCompactRenderer.js';
 import { buildSnapshotBundleFromScanSummary } from '../../renderers/snapshotBundle.js';
@@ -23,9 +27,16 @@ const learningOutcomes: TelegramCommand = {
     const summary = outcomeClosureRepo.summarizeLearningOutcomes();
     const wantsFull = command === '/learning_full' || args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
     if (!wantsFull) {
+      const feedback = buildWeightFeedbackReport({
+        seeds: outcomeClosureRepo.listSeeds(),
+        createdAt: new Date(0).toISOString(),
+      });
       const bundle = {
         ...buildSnapshotBundleFromScanSummary(getLastScanSummary()),
-        learning: learningSummaryFromOutcomeSummary(summary),
+        learning: {
+          ...learningSummaryFromOutcomeSummary(summary),
+          feedbackLine: formatLearningFeedbackLine(feedback),
+        },
         executionImpact: 'NONE',
         shadowLearning: true,
       };

@@ -491,6 +491,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'status',
   'supply_health',
   'watchlist',
+  'weight_feedback',
 ]);
 
 const MENU_LOW_VALUE_PATTERNS = [

@@ -13,4 +13,16 @@ describe('ADR-0523 Telegram learning compact renderer', () => {
     expect(text).toContain('topOverBlock: R6_DEFENSE');
     expect(text).toContain('impact: NONE');
   });
+
+  it('keeps the optional weight feedback line compact and operator-facing', () => {
+    const text = renderLearningCompact(sampleBundle({
+      learning: {
+        ...sampleBundle().learning!,
+        feedbackLine: '[Feedback] topUp Supply | topDown Volume | review 3 | impact NONE',
+      },
+    }));
+
+    expect(text).toContain('[Feedback] topUp Supply | topDown Volume | review 3 | impact NONE');
+    expect(text).toContain('impact: NONE');
+  });
 });
