@@ -5,8 +5,10 @@ import type { ShadowTrade } from '../types/quant';
 import type { SectorEnergyResult, SectorEnergyScore } from '../types/sectorEnergy';
 import type {
   BuyBlockReasonCard,
+  CandidateDecisionSummary,
   DailyMarketGateCard,
   DataConfidenceSummary,
+  PublicDecisionDisplay,
   PublicDecisionStatus,
   PublicReportModel,
   ReportVisibility,
@@ -31,6 +33,27 @@ export interface PublicReportAdapterInput {
 const INVESTMENT_NOTICE =
   '본 콘텐츠는 투자판단 참고용 데이터 리포트이며, 매수·매도 지시가 아닙니다. 모든 투자의 최종 판단과 책임은 투자자 본인에게 있습니다.';
 
+const BLOG_TITLE = '오늘 시장은 매수 가능한 장인가? — QuantMaster Gate 리포트';
+
+const DEFAULT_CONFIDENCE_SUMMARY: DataConfidenceSummary = {
+  overall: 'MISSING',
+  calculatedIndicatorCount: 0,
+  aiEstimatedIndicatorCount: 0,
+  missingIndicatorCount: 1,
+  providerIssue: false,
+  marketSignal: false,
+  notes: ['공개 리포트 생성에 필요한 후보 판정 데이터가 부족합니다.'],
+};
+
+const CONFIDENCE_SEVERITY: Record<DataConfidenceSummary['overall'], number> = {
+  VERIFIED: 0,
+  DEGRADED: 1,
+  UNKNOWN: 2,
+  AI_ESTIMATED: 3,
+  STALE: 4,
+  MISSING: 5,
+};
+
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : 0));
 }
@@ -46,6 +69,74 @@ function reportDate(now: Date): string {
 
 function createReportId(now: Date): string {
   return `public_report_${now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`;
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function getObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+}
+
+function extractSourceSnapshotId(input: PublicReportAdapterInput, now: Date): string {
+  const candidates: unknown[] = [
+    input.marketOverview,
+    input.marketContext,
+    input.sectorEnergyResult,
+    ...(input.recommendations ?? []),
+  ];
+
+  for (const candidate of candidates) {
+    const object = getObject(candidate);
+    const direct = getString(object?.sourceSnapshotId) ?? getString(object?.snapshotId);
+    if (direct) return direct;
+
+    const sourceSnapshot = getObject(object?.sourceSnapshot);
+    const nested = getString(sourceSnapshot?.id) ?? getString(sourceSnapshot?.sourceSnapshotId);
+    if (nested) return nested;
+  }
+
+  return `public-report-${reportDate(now)}`;
+}
+
+function extractAsOf(input: PublicReportAdapterInput, now: Date): string {
+  const candidates: unknown[] = [
+    input.marketOverview,
+    input.marketContext,
+    input.sectorEnergyResult,
+    ...(input.recommendations ?? []),
+  ];
+
+  for (const candidate of candidates) {
+    const object = getObject(candidate);
+    const timestamp = getString(object?.asOf)
+      ?? getString(object?.updatedAt)
+      ?? getString(object?.generatedAt)
+      ?? getString(object?.calculatedAt)
+      ?? getString(object?.priceUpdatedAt);
+    if (timestamp) return timestamp;
+  }
+
+  return now.toISOString();
+}
+
+export function publicDecisionLabel(status?: PublicDecisionStatus): PublicDecisionDisplay {
+  switch (status) {
+    case 'CONFIRMED_BUY':
+      return 'CONFIRMED_CANDIDATE';
+    case 'BUY':
+      return 'BUY_CANDIDATE';
+    case 'WATCH':
+    case 'WAIT_PULLBACK':
+    case 'HOLD':
+    case 'SELL_ONLY':
+    case 'BLOCKED':
+    case 'DATA_INSUFFICIENT':
+      return status;
+    default:
+      return 'DATA_INSUFFICIENT';
+  }
 }
 
 function statusToScore(status?: string): number {
@@ -117,6 +208,24 @@ function mapConfidenceFromRecommendation(stock?: StockRecommendation): DataConfi
       providerIssue ? 'Provider 상태 저하가 시장 악재로 변환되지는 않습니다.' : '',
       missingIndicatorCount > 0 ? '일부 핵심 지표가 누락되어 보수적 판정을 적용했습니다.' : '',
     ].filter(Boolean),
+  };
+}
+
+function combineConfidenceSummaries(summaries: DataConfidenceSummary[]): DataConfidenceSummary {
+  if (summaries.length === 0) return DEFAULT_CONFIDENCE_SUMMARY;
+
+  const overall = summaries.reduce<DataConfidenceSummary['overall']>((current, summary) => (
+    CONFIDENCE_SEVERITY[summary.overall] > CONFIDENCE_SEVERITY[current] ? summary.overall : current
+  ), 'VERIFIED');
+
+  return {
+    overall,
+    calculatedIndicatorCount: summaries.reduce((sum, item) => sum + item.calculatedIndicatorCount, 0),
+    aiEstimatedIndicatorCount: summaries.reduce((sum, item) => sum + item.aiEstimatedIndicatorCount, 0),
+    missingIndicatorCount: summaries.reduce((sum, item) => sum + item.missingIndicatorCount, 0),
+    providerIssue: summaries.some((item) => item.providerIssue),
+    marketSignal: false,
+    notes: [...new Set(summaries.flatMap((item) => item.notes))],
   };
 }
 
@@ -212,12 +321,71 @@ function mapPublicDecision(stock: StockRecommendation | undefined, confidence: D
   if (stock.gateEvaluation?.gate1Passed === false) return 'BLOCKED';
   if (stock.gateEvaluation?.gate2Passed === false) return 'WATCH';
   if (stock.gateEvaluation?.gate3Passed === false) return 'WAIT_PULLBACK';
-  if (stock.type === 'STRONG_BUY') return confidence.aiEstimatedIndicatorCount > 0 ? 'BUY' : 'CONFIRMED_BUY';
+  if (stock.type === 'STRONG_BUY') {
+    if (confidence.aiEstimatedIndicatorCount >= Math.max(2, confidence.calculatedIndicatorCount)) return 'WATCH';
+    return confidence.aiEstimatedIndicatorCount > 0 ? 'BUY' : 'CONFIRMED_BUY';
+  }
   if (stock.type === 'BUY') return confidence.aiEstimatedIndicatorCount > 2 ? 'WATCH' : 'BUY';
   return 'HOLD';
 }
 
-function buildStockDecisionCard(stock: StockRecommendation | undefined, marketGate: DailyMarketGateCard): StockDecisionCard | undefined {
+function buildCandidateSummary(recommendations: StockRecommendation[] | undefined, marketGate: DailyMarketGateCard): CandidateDecisionSummary {
+  const summary: CandidateDecisionSummary = {
+    totalCandidates: recommendations?.length ?? 0,
+    confirmedCandidateCount: 0,
+    buyCandidateCount: 0,
+    watchCount: 0,
+    waitPullbackCount: 0,
+    blockedCount: 0,
+    dataInsufficientCount: 0,
+    sellOnlyCount: 0,
+    holdCount: 0,
+  };
+
+  for (const stock of recommendations ?? []) {
+    const confidence = mapConfidenceFromRecommendation(stock);
+    const decision = mapPublicDecision(stock, confidence, marketGate);
+    if (decision === 'CONFIRMED_BUY') summary.confirmedCandidateCount += 1;
+    if (decision === 'BUY') summary.buyCandidateCount += 1;
+    if (decision === 'WATCH') summary.watchCount += 1;
+    if (decision === 'WAIT_PULLBACK') summary.waitPullbackCount += 1;
+    if (decision === 'BLOCKED') summary.blockedCount += 1;
+    if (decision === 'DATA_INSUFFICIENT') summary.dataInsufficientCount += 1;
+    if (decision === 'SELL_ONLY') summary.sellOnlyCount += 1;
+    if (decision === 'HOLD') summary.holdCount += 1;
+  }
+
+  return summary;
+}
+
+function buildConfluenceAxes(stock: StockRecommendation, marketGate: DailyMarketGateCard): StockDecisionCard['confluenceAxes'] {
+  const financial = clamp(stock.visualReport?.financial ?? stock.valuation?.epsGrowth ?? 0) / 10;
+  const flow = clamp(stock.visualReport?.supply ?? (stock.supplyQuality?.active ? 70 : 45)) / 10;
+  const technical = clamp(stock.visualReport?.technical ?? stock.confidenceScore ?? 0) / 10;
+  const macro = clamp(marketGate.macroHealthScore) / 10;
+
+  return [
+    { id: 'FUNDAMENTAL', score: round(financial, 1), reason: 'DART/재무 품질 확인 필요' },
+    { id: 'FLOW', score: round(flow, 1), reason: '수급 합치도 보강 필요' },
+    { id: 'TECHNICAL', score: round(technical, 1), reason: 'Gate 3 타이밍 확인 필요' },
+    { id: 'MACRO', score: round(macro, 1), reason: '시장 Gate 확인 필요' },
+  ];
+}
+
+function buildNextCheckConditions(stock: StockRecommendation, marketGate: DailyMarketGateCard, confidence: DataConfidenceSummary): string[] {
+  return [
+    stock.gateEvaluation?.gate3Passed === false ? 'Gate 3 타이밍과 LastTrigger 재확인' : '',
+    confidence.overall === 'AI_ESTIMATED' ? 'AI 추정 항목의 실계산 데이터 대체 여부 확인' : '',
+    confidence.missingIndicatorCount > 0 ? '누락 지표 보강 후 후보 판정 재계산' : '',
+    ...marketGate.tomorrowWatchPoints,
+  ].filter(Boolean).slice(0, 5);
+}
+
+function buildStockDecisionCard(
+  stock: StockRecommendation | undefined,
+  marketGate: DailyMarketGateCard,
+  sourceSnapshotId: string,
+): StockDecisionCard | undefined {
   if (!stock) return undefined;
   const confidence = mapConfidenceFromRecommendation(stock);
   const finalDecision = mapPublicDecision(stock, confidence, marketGate);
@@ -228,6 +396,7 @@ function buildStockDecisionCard(stock: StockRecommendation | undefined, marketGa
     stock.gateEvaluation?.gate3Passed === false ? 'Gate 3 타이밍 부족' : '',
     confidence.overall === 'MISSING' ? '핵심 지표 데이터 부족' : '',
     confidence.overall === 'STALE' ? '일부 데이터 최신성 저하' : '',
+    confidence.overall === 'AI_ESTIMATED' ? 'AI 추정 비중이 높아 공개 후보 판정을 보수적으로 표시' : '',
   ].filter(Boolean);
 
   return {
@@ -235,7 +404,9 @@ function buildStockDecisionCard(stock: StockRecommendation | undefined, marketGa
     stockName: stock.name,
     sector: stockSector(stock),
     finalDecision,
+    displayDecision: publicDecisionLabel(finalDecision),
     finalScore,
+    sourceSnapshotId,
     gate0MacroStatus: marketGate.marketGateStatus,
     gate1SurvivalResult: gateText(stock.gateEvaluation?.gate1?.score, stock.gateEvaluation?.gate1Passed),
     gate2GrowthResult: gateText(stock.gateEvaluation?.gate2?.score, stock.gateEvaluation?.gate2Passed),
@@ -247,6 +418,8 @@ function buildStockDecisionCard(stock: StockRecommendation | undefined, marketGa
     bullishReasons: [stock.reason, ...(stock.patterns ?? []).slice(0, 3)].filter(Boolean),
     bearishReasons: stock.riskFactors?.slice(0, 5) ?? [],
     blockedReasons,
+    nextCheckConditions: buildNextCheckConditions(stock, marketGate, confidence),
+    confluenceAxes: buildConfluenceAxes(stock, marketGate),
     shadowRegistrationStatus: marketGate.newBuyAllowed ? 'REGISTERED' : 'SHADOW_ONLY',
     executionImpact: marketGate.newBuyAllowed ? 'LIVE_EXECUTION_ALLOWED' : marketGate.engineMode === 'SELL_ONLY' ? 'SELL_ONLY' : 'NONE',
   };
@@ -311,8 +484,15 @@ function buildShadowPerformanceCard(shadowTrades: ShadowTrade[] = []): ShadowPer
   };
 }
 
+function newBuyStatusText(marketGate?: DailyMarketGateCard): string {
+  if (!marketGate) return '차단';
+  if (marketGate.newBuyAllowed) return '허용';
+  if (marketGate.engineMode === 'SELL_ONLY' || marketGate.engineMode === 'SHADOW_ONLY' || marketGate.engineMode === 'OBSERVE_ONLY') return '차단';
+  return '제한';
+}
+
 function buildPublicSummary(marketGate: DailyMarketGateCard, stockDecision?: StockDecisionCard): string {
-  const stockLine = stockDecision ? `${stockDecision.stockName}: ${stockDecision.finalDecision}` : '시스템 후보 없음';
+  const stockLine = stockDecision ? `${stockDecision.stockName}: ${stockDecision.displayDecision}` : '시스템 후보 없음';
   return `시장 Gate ${marketGate.marketGateStatus}, 신규 매수 ${marketGate.newBuyAllowed ? '관찰 가능' : '제한'}, ${stockLine}.`;
 }
 
@@ -324,14 +504,15 @@ function buildBlogMarkdown(model: Omit<PublicReportModel, 'markdownOutput' | 'te
   const shadow = model.shadowPerformance;
 
   return [
-    '# 오늘 시장은 매수 가능한 장인가? - QuantMaster Gate 리포트',
+    `# ${model.blogTitle}`,
     '',
     '## 1. 오늘의 한 줄 결론',
     market ? `${market.primaryReason} ${market.riskSummary}` : '시장 데이터가 부족해 공개 리포트를 보수적으로 생성했습니다.',
     '',
     '## 2. 시장 Gate',
     `- 시장 상태: ${market?.marketGateStatus ?? 'GRAY'}`,
-    `- 신규 매수: ${market?.newBuyAllowed ? '관찰 가능' : '제한'}`,
+    `- 실행 모드: ${market?.engineMode ?? 'UNKNOWN'}`,
+    `- 신규 매수: ${newBuyStatusText(market)}`,
     `- 보유 관리: ${market?.sellOnlyAllowed ? '가능' : '제한'}`,
     `- Shadow Learning: ${market?.shadowLearningAllowed ? 'ON' : 'OFF'}`,
     `- Macro Health Score: ${market?.macroHealthScore ?? 0}/100`,
@@ -342,13 +523,16 @@ function buildBlogMarkdown(model: Omit<PublicReportModel, 'markdownOutput' | 'te
     ...(sector?.topSectors.slice(0, 5).map((item, index) => `- ${index + 1}위: ${item.sectorName} ${item.sectorScore}점 ${item.flowDirection}`) ?? ['- 데이터 확인 필요']),
     '',
     '## 4. 오늘의 후보 요약',
-    `- WATCH: ${stock?.finalDecision === 'WATCH' ? 1 : 0}`,
-    `- WAIT_PULLBACK: ${stock?.finalDecision === 'WAIT_PULLBACK' ? 1 : 0}`,
-    `- BLOCKED: ${stock?.finalDecision === 'BLOCKED' ? 1 : 0}`,
+    `- WATCH: ${model.candidateSummary.watchCount}`,
+    `- WAIT_PULLBACK: ${model.candidateSummary.waitPullbackCount}`,
+    `- BLOCKED: ${model.candidateSummary.blockedCount}`,
+    `- CONFIRMED_CANDIDATE: ${model.candidateSummary.confirmedCandidateCount}`,
+    `- BUY_CANDIDATE: ${model.candidateSummary.buyCandidateCount}`,
+    `- DATA_INSUFFICIENT: ${model.candidateSummary.dataInsufficientCount}`,
     '',
     '## 5. 종목 판정',
-    `- 종목명: ${stock?.stockName ?? '후보 없음'}`,
-    `- 최종 판정: ${stock?.finalDecision ?? 'DATA_INSUFFICIENT'}`,
+    `- 종목명: ${stock ? `${stock.stockName}(${stock.stockCode})` : '후보 없음'}`,
+    `- 최종 판정: ${stock?.displayDecision ?? 'DATA_INSUFFICIENT'}`,
     `- Gate 0: ${stock?.gate0MacroStatus ?? 'N/A'}`,
     `- Gate 1: ${stock?.gate1SurvivalResult ?? 'N/A'}`,
     `- Gate 2: ${stock?.gate2GrowthResult ?? 'N/A'}`,
@@ -356,7 +540,7 @@ function buildBlogMarkdown(model: Omit<PublicReportModel, 'markdownOutput' | 'te
     `- 데이터 신뢰도: ${stock?.dataConfidenceSummary.overall ?? 'MISSING'}`,
     '',
     '## 6. 매수 차단 사유',
-    ...(buyBlock?.blockedReasons.map((reason, index) => `- 차단 사유 ${index + 1}: ${reason}`) ?? ['- 현재 주요 차단 사유 없음']),
+    ...(buyBlock?.blockedReasons.slice(0, 5).map((reason, index) => `- 차단 사유 ${index + 1}: ${reason}`) ?? ['- 현재 주요 차단 사유 없음']),
     '',
     '## 7. Shadow 추적 결과',
     `- 후보 수: ${shadow?.totalShadowCandidates ?? 0}`,
@@ -366,23 +550,28 @@ function buildBlogMarkdown(model: Omit<PublicReportModel, 'markdownOutput' | 'te
     `- 실거래 전환 상태: ${shadow?.liveTransitionStatus ?? 'NOT_READY'}`,
     '',
     '## 8. 내일 확인할 조건',
-    ...(market?.tomorrowWatchPoints.map((point) => `- ${point}`) ?? ['- 데이터 신뢰도 회복 여부']),
+    ...((stock?.nextCheckConditions.length ? stock.nextCheckConditions : market?.tomorrowWatchPoints)?.slice(0, 5).map((point) => `- ${point}`) ?? ['- 데이터 신뢰도 회복 여부']),
     '',
     '## 투자 유의',
     INVESTMENT_NOTICE,
   ].join('\n');
 }
 
-function buildTelegramSummary(market: DailyMarketGateCard, sector: SectorRotationCard, stock?: StockDecisionCard): string {
+function buildTelegramSummary(
+  market: DailyMarketGateCard,
+  sector: SectorRotationCard,
+  summary: CandidateDecisionSummary,
+  publicSummary: string,
+): string {
   return [
     '[QuantMaster Daily Gate]',
     `시장 Gate: ${market.marketGateStatus}`,
-    `신규 매수: ${market.newBuyAllowed ? '관찰 가능' : '제한'}`,
+    `실행 모드: ${market.engineMode}`,
+    `신규 매수: ${newBuyStatusText(market)}`,
     `주도 섹터: ${sector.topSectors.slice(0, 3).map((item) => item.sectorName).join(' / ') || '확인 필요'}`,
-    `오늘 후보: ${stock ? `${stock.stockName} ${stock.finalDecision}` : '후보 없음'}`,
+    `오늘 후보: WATCH ${summary.watchCount}개 / WAIT ${summary.waitPullbackCount}개 / BLOCKED ${summary.blockedCount}개`,
     'Shadow Learning: ON',
-    '판단: 추격매수보다 조건 확인과 눌림목 대기',
-    INVESTMENT_NOTICE,
+    `판단: ${publicSummary}`,
   ].join('\n');
 }
 
@@ -422,14 +611,21 @@ function buildPrivatePayload(input: PublicReportAdapterInput): Record<string, un
 
 export function toPublicReport(input: PublicReportAdapterInput): PublicReportModel {
   const now = input.now ?? new Date();
+  const sourceSnapshotId = extractSourceSnapshotId(input, now);
+  const asOf = extractAsOf(input, now);
   const marketGate = buildDailyMarketGateCard(input, now);
   const sectorRotation = buildSectorRotationCard(input, now);
-  const stockDecision = buildStockDecisionCard(input.recommendations?.[0], marketGate);
+  const candidateSummary = buildCandidateSummary(input.recommendations, marketGate);
+  const stockDecision = buildStockDecisionCard(input.recommendations?.[0], marketGate, sourceSnapshotId);
   const buyBlock = buildBuyBlockReasonCard(stockDecision);
   const shadowPerformance = buildShadowPerformanceCard(input.shadowTrades);
+  const dataConfidenceSummary = combineConfidenceSummaries((input.recommendations ?? []).map(mapConfidenceFromRecommendation));
   const base = {
     reportId: createReportId(now),
     reportDate: reportDate(now),
+    sourceSnapshotId,
+    asOf,
+    blogTitle: BLOG_TITLE,
     reportType: 'DAILY_FULL_REPORT' as const,
     visibility: input.visibility ?? 'PUBLIC',
     marketGate,
@@ -437,16 +633,19 @@ export function toPublicReport(input: PublicReportAdapterInput): PublicReportMod
     stockDecision,
     buyBlock,
     shadowPerformance,
+    candidateSummary,
+    dataConfidenceSummary,
     paidPayload: input.visibility === 'PAID' || input.visibility === 'PRIVATE' ? buildPaidPayload(input) : undefined,
     privatePayload: input.visibility === 'PRIVATE' ? buildPrivatePayload(input) : undefined,
     generatedAt: now.toISOString(),
   };
+  const publicSummary = buildPublicSummary(marketGate, stockDecision);
 
   return {
     ...base,
     markdownOutput: buildBlogMarkdown(base),
-    telegramOutput: buildTelegramSummary(marketGate, sectorRotation, stockDecision),
-    publicSummary: buildPublicSummary(marketGate, stockDecision),
+    telegramOutput: buildTelegramSummary(marketGate, sectorRotation, candidateSummary, publicSummary),
+    publicSummary,
   };
 }
 

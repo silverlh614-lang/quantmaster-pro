@@ -126,6 +126,7 @@ router.post('/macro/state', (req: any, res: any) => {
   if (bool('kospiAbove60MA'))        state.kospiAbove60MA         = b.kospiAbove60MA;
   if (num('kospi20dReturn'))         state.kospi20dReturn         = b.kospi20dReturn;
   if (num('kospiDayReturn'))         state.kospiDayReturn         = b.kospiDayReturn;
+  if (num('spxDayReturn'))           state.spxDayReturn           = b.spxDayReturn;
   if (num('leadingSectorRS'))        state.leadingSectorRS        = b.leadingSectorRS;
   if (b.sectorCycleStage === 'EARLY' || b.sectorCycleStage === 'MID' ||
       b.sectorCycleStage === 'LATE'  || b.sectorCycleStage === 'TURNING')

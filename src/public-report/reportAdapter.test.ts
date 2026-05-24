@@ -118,11 +118,21 @@ describe('public report adapter', () => {
     });
 
     expect(report.reportType).toBe('DAILY_FULL_REPORT');
+    expect(report.blogTitle).toContain('QuantMaster Gate 리포트');
+    expect(report.sourceSnapshotId).toBe('public-report-2026-05-16');
     expect(report.marketGate?.shadowLearningAllowed).toBe(true);
     expect(report.stockDecision?.finalDecision).toBe('BUY');
+    expect(report.stockDecision?.displayDecision).toBe('BUY_CANDIDATE');
+    expect(report.stockDecision?.sourceSnapshotId).toBe(report.sourceSnapshotId);
     expect(report.stockDecision?.dataConfidenceSummary.aiEstimatedIndicatorCount).toBe(1);
+    expect(report.candidateSummary.buyCandidateCount).toBe(1);
+    expect(report.dataConfidenceSummary.marketSignal).toBe(false);
     expect(report.markdownOutput).toContain('## 투자 유의');
+    expect(report.markdownOutput).toContain('CONFIRMED_CANDIDATE');
+    expect(report.markdownOutput).toContain('BUY_CANDIDATE');
     expect(report.telegramOutput.split('\n').length).toBeLessThanOrEqual(8);
+    expect(report.telegramOutput).toContain('실행 모드');
+    expect(report.telegramOutput).not.toContain('투자판단 참고용');
     expect(report.paidPayload).toBeUndefined();
     expect(report.privatePayload).toBeUndefined();
     expect(report.markdownOutput).not.toContain('9500');
@@ -153,6 +163,8 @@ describe('public report adapter', () => {
     expect(report.marketGate?.engineMode).toBe('SELL_ONLY');
     expect(report.marketGate?.shadowLearningAllowed).toBe(true);
     expect(report.stockDecision?.finalDecision).toBe('SELL_ONLY');
+    expect(report.stockDecision?.displayDecision).toBe('SELL_ONLY');
+    expect(report.candidateSummary.sellOnlyCount).toBe(1);
   });
 
   it('does not treat stale provider status as a market signal', () => {
@@ -164,5 +176,19 @@ describe('public report adapter', () => {
     expect(report.stockDecision?.dataConfidenceSummary.providerIssue).toBe(true);
     expect(report.stockDecision?.dataConfidenceSummary.overall).toBe('STALE');
     expect(report.stockDecision?.finalDecision).toBe('DATA_INSUFFICIENT');
+    expect(report.dataConfidenceSummary.providerIssue).toBe(true);
+    expect(report.dataConfidenceSummary.marketSignal).toBe(false);
+  });
+
+  it('keeps confirmed candidate only when core data is calculated', () => {
+    const report = toPublicReport({
+      recommendations: [stock({ conditionSourceTiers: { cycleVerified: 'COMPUTED', momentumRanking: 'COMPUTED', roeType3: 'COMPUTED' } })],
+      sectorEnergyResult,
+      now: new Date('2026-05-16T00:00:00.000Z'),
+    });
+
+    expect(report.stockDecision?.finalDecision).toBe('CONFIRMED_BUY');
+    expect(report.stockDecision?.displayDecision).toBe('CONFIRMED_CANDIDATE');
+    expect(report.candidateSummary.confirmedCandidateCount).toBe(1);
   });
 });

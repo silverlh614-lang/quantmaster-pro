@@ -37,6 +37,7 @@ import type {
   TradeOutcome,
   WinRateBucket,
 } from '../trading/canonicalTradeOutcomeResolver.js';
+import { withAttributionOutcomeDefaults } from './attributionRecordDefaults.js';
 
 // ── 스키마 버전 ──────────────────────────────────────────────────────────────
 
@@ -306,13 +307,10 @@ function recordEvidenceForAttributionRecord(record: ServerAttributionRecord): vo
 
 export function appendAttributionRecord(record: ServerAttributionRecord): void {
   // 신규 저장 시 현재 스키마 버전 강제 기록 — 과거 v0 혼입 방지.
-  const versioned: ServerAttributionRecord = {
+  const versioned: ServerAttributionRecord = withAttributionOutcomeDefaults({
     ...record,
     schemaVersion: record.schemaVersion ?? CURRENT_ATTRIBUTION_SCHEMA_VERSION,
-    // 기본값 주입 (타입 미지정은 FULL_CLOSE / 비중 미지정은 1.0).
-    attributionType: record.attributionType ?? (record.fillId ? 'PARTIAL' : 'FULL_CLOSE'),
-    qtyRatio: record.qtyRatio ?? 1.0,
-  };
+  });
   const records = loadAttributionRecords();
   const filtered = records.filter((r) => !isSameKey(r, versioned));
   filtered.push(versioned);

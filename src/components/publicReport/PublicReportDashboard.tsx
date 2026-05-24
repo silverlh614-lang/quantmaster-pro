@@ -1,7 +1,7 @@
 // @responsibility Public Report Mode dashboard built from sanitized report cards.
 
 import React, { useMemo } from 'react';
-import { ClipboardCopy, Save, Send } from 'lucide-react';
+import { ClipboardCopy, Save, Send, Type } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
 import { Card, CardHeader, CardTitle } from '../../ui/card';
@@ -9,6 +9,7 @@ import { Badge } from '../../ui/badge';
 import { cn } from '../../ui/cn';
 import { DataConfidenceBadge } from './DataConfidenceBadge';
 import { DATA_CONFIDENCE_HELP, type DataConfidence } from '../common/DataConfidenceBadge';
+import { ConfluenceMeter } from '../common/ConfluenceMeter';
 import { savePublicReportSnapshot, toPublicReport } from '../../public-report/reportAdapter';
 import type { ReportVisibility, ViewMode } from '../../public-report/reportTypes';
 import type { MarketContext, MarketOverview, StockRecommendation } from '../../services/stockService';
@@ -98,6 +99,33 @@ function Stat({ label, value, tone }: { label: string; value: React.ReactNode; t
   );
 }
 
+function PanelList({ items, emptyText, limit = 3 }: { items: string[]; emptyText: string; limit?: number }) {
+  const visibleItems = items.filter(Boolean).slice(0, limit);
+  if (visibleItems.length === 0) {
+    return <p className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-xs text-white/45">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2">
+      {visibleItems.map((item) => (
+        <li key={item} className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-xs leading-relaxed text-white/65">
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function confidenceSummaryText(summary: { calculatedIndicatorCount: number; aiEstimatedIndicatorCount: number; missingIndicatorCount: number }) {
+  return `실계산 ${summary.calculatedIndicatorCount} / AI 추정 ${summary.aiEstimatedIndicatorCount} / 누락 ${summary.missingIndicatorCount}`;
+}
+
+function newBuyLabel(allowed?: boolean, engineMode?: string) {
+  if (allowed) return '허용';
+  if (engineMode === 'SELL_ONLY' || engineMode === 'SHADOW_ONLY' || engineMode === 'OBSERVE_ONLY') return '차단';
+  return '제한';
+}
+
 export function PublicReportDashboard({
   viewMode,
   marketOverview,
@@ -123,6 +151,8 @@ export function PublicReportDashboard({
   const sector = report.sectorRotation;
   const block = report.buyBlock;
   const shadow = report.shadowPerformance;
+  const candidateSummary = report.candidateSummary;
+  const reportConfidence = report.dataConfidenceSummary;
 
   const handleSaveSnapshot = () => {
     savePublicReportSnapshot(report);
@@ -137,6 +167,7 @@ export function PublicReportDashboard({
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="info" size="md">Public Report Mode</Badge>
               <Badge variant="default" size="md">{report.reportDate}</Badge>
+              <Badge variant="default" size="md">snapshot {report.sourceSnapshotId}</Badge>
               {viewMode === 'PAID_PREVIEW_MODE' && <Badge variant="violet" size="md">Paid Preview</Badge>}
             </div>
             <h2 className="mt-3 text-xl font-black tracking-tight text-white sm:text-2xl">
@@ -145,8 +176,25 @@ export function PublicReportDashboard({
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-white/60">
               {report.publicSummary} 공개용 화면은 내부 로그, provider raw response, 매수가, 손절가, 목표가, 트랑슈 세부 계획을 숨깁니다.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <DataConfidenceBadge confidence={reportConfidence.overall} source="report bundle" updatedAt={report.asOf} />
+              <span className="text-xs font-bold text-white/45">{confidenceSummaryText(reportConfidence)}</span>
+              <Badge variant={reportConfidence.providerIssue ? 'warning' : 'success'} size="sm">
+                providerIssue={String(reportConfidence.providerIssue)}
+              </Badge>
+              <Badge variant="default" size="sm">marketSignal=false</Badge>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              icon={<Type className="h-4 w-4" />}
+              onClick={() => copyText(report.blogTitle, 'Blog title copied')}
+            >
+              Copy Blog Title
+            </Button>
             <Button
               type="button"
               variant="secondary"
@@ -179,20 +227,43 @@ export function PublicReportDashboard({
 
         <DataTrustLegend />
 
+        <Card padding="sm">
+          <CardHeader className="mb-3">
+            <CardTitle>Today Candidate Summary</CardTitle>
+            <DataConfidenceBadge confidence={reportConfidence.overall} source="candidate summary" compact />
+          </CardHeader>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+            <Stat label="Total" value={candidateSummary.totalCandidates} tone="blue" />
+            <Stat label="Confirmed" value={candidateSummary.confirmedCandidateCount} tone="green" />
+            <Stat label="Buy Candidate" value={candidateSummary.buyCandidateCount} tone="green" />
+            <Stat label="Watch" value={candidateSummary.watchCount} tone="yellow" />
+            <Stat label="Wait Pullback" value={candidateSummary.waitPullbackCount} tone="yellow" />
+            <Stat label="Blocked" value={candidateSummary.blockedCount} tone="red" />
+            <Stat label="Data" value={candidateSummary.dataInsufficientCount} tone="red" />
+            <Stat label="Sell Only" value={candidateSummary.sellOnlyCount} />
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-white/50">
+            공개용 후보 요약은 매수가·목표가·손절가를 제외하고, 판정 상태와 데이터 신뢰도만 표시합니다.
+          </p>
+        </Card>
+
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
           {market && (
             <Card padding="sm" className="xl:col-span-2">
               <CardHeader className="mb-3">
                 <CardTitle>Daily Market Gate</CardTitle>
-                <Badge
-                  variant={market.marketGateStatus === 'GREEN' ? 'success' : market.marketGateStatus === 'RED' ? 'danger' : 'warning'}
-                  size="sm"
-                >
-                  {market.marketGateStatus}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <DataConfidenceBadge confidence={reportConfidence.providerIssue ? 'DEGRADED' : 'VERIFIED'} source="market gate" compact />
+                  <Badge
+                    variant={market.marketGateStatus === 'GREEN' ? 'success' : market.marketGateStatus === 'RED' ? 'danger' : 'warning'}
+                    size="sm"
+                  >
+                    {market.marketGateStatus}
+                  </Badge>
+                </div>
               </CardHeader>
               <div className="grid grid-cols-2 gap-3">
-                <Stat label="New buy" value={market.newBuyAllowed ? '관찰 가능' : '제한'} tone={market.newBuyAllowed ? 'green' : 'yellow'} />
+                <Stat label="New buy" value={newBuyLabel(market.newBuyAllowed, market.engineMode)} tone={market.newBuyAllowed ? 'green' : 'yellow'} />
                 <Stat label="MHS" value={`${market.macroHealthScore}/100`} tone="blue" />
                 <Stat label="Engine mode" value={market.engineMode} />
                 <Stat label="Shadow Learning" value={market.shadowLearningAllowed ? 'ON' : 'OFF'} tone="green" />
@@ -222,14 +293,17 @@ export function PublicReportDashboard({
                 />
               </CardHeader>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="accent" size="md">{stock.finalDecision}</Badge>
+                <Badge variant="accent" size="md">{stock.displayDecision}</Badge>
                 <span className="text-sm font-black text-white">{stock.stockName}</span>
+                <span className="text-xs font-bold text-white/55">({stock.stockCode})</span>
                 <span className="text-xs text-white/45">{stock.sector}</span>
               </div>
+              <p className="mt-2 text-[11px] font-mono text-white/35">snapshot {stock.sourceSnapshotId}</p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <Stat label="Score" value={`${stock.finalScore}/100`} tone="blue" />
                 <Stat label="Gate 0" value={stock.gate0MacroStatus} />
                 <Stat label="Gate 1" value={stock.gate1SurvivalResult} />
+                <Stat label="Gate 2" value={stock.gate2GrowthResult} />
                 <Stat label="Gate 3" value={stock.gate3TimingResult} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -237,9 +311,31 @@ export function PublicReportDashboard({
                 <DataConfidenceBadge confidence="AI_ESTIMATED" label={`추정 ${stock.aiEstimatedIndicatorCount}`} compact />
                 <DataConfidenceBadge confidence="MISSING" label={`누락 ${stock.missingIndicatorCount}`} compact />
               </div>
-              <p className="mt-4 text-sm leading-relaxed text-white/65">
-                {stock.blockedReasons[0] ?? stock.bullishReasons[0] ?? '조건 기반 판정 리포트입니다.'}
-              </p>
+              <div className="mt-4 rounded-lg border border-white/[0.07] bg-black/10 p-3">
+                <ConfluenceMeter axes={stock.confluenceAxes} compact forceShow />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-emerald-200/70">긍정 사유 TOP 3</p>
+                  <PanelList items={stock.bullishReasons} emptyText="긍정 사유는 추가 검증 중입니다." />
+                </div>
+                <div>
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-red-200/70">부정 사유 TOP 3</p>
+                  <PanelList items={stock.bearishReasons} emptyText="주요 부정 사유 없음" />
+                </div>
+                <div>
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-yellow-200/70">다음 확인 조건</p>
+                  <PanelList items={stock.nextCheckConditions} emptyText="다음 확인 조건 없음" />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Badge variant={stock.shadowRegistrationStatus === 'REGISTERED' ? 'success' : 'info'} size="sm">
+                  Shadow {stock.shadowRegistrationStatus}
+                </Badge>
+                <Badge variant={stock.executionImpact === 'LIVE_EXECUTION_ALLOWED' ? 'success' : 'warning'} size="sm">
+                  impact {stock.executionImpact}
+                </Badge>
+              </div>
             </Card>
           )}
 
@@ -247,17 +343,25 @@ export function PublicReportDashboard({
             <Card padding="sm">
               <CardHeader className="mb-3">
                 <CardTitle>Shadow Performance</CardTitle>
-                <Badge variant="success" size="sm">NONE</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <DataConfidenceBadge confidence={shadow.totalShadowCandidates > 0 ? 'VERIFIED' : 'UNKNOWN'} source="shadow tracking" compact />
+                  <Badge variant="success" size="sm">impact NONE</Badge>
+                </div>
               </CardHeader>
               <div className="space-y-3">
                 <Stat label="Candidates" value={shadow.totalShadowCandidates} />
+                <Stat label="Open" value={shadow.openShadowPositions} />
+                <Stat label="Target / Stop" value={`${shadow.targetHitCount} / ${shadow.stopLossHitCount}`} />
+                <Stat label="Pending" value={shadow.pendingCount} />
                 <Stat label="Win rate" value={`${shadow.winRate}%`} tone="green" />
                 <Stat label="PF" value={shadow.profitFactor} />
+                <Stat label="MDD" value={`${shadow.maxDrawdown}%`} tone={shadow.maxDrawdown < -10 ? 'red' : 'yellow'} />
                 <Stat label="Transition" value={shadow.liveTransitionStatus} tone="yellow" />
               </div>
               <p className="mt-4 text-xs leading-relaxed text-white/55">
-                Shadow 성과는 실거래와 분리되며 executionImpact=NONE으로 표시됩니다.
+                {shadow.period} · sample={shadow.sampleSizeSufficiency}. Shadow 성과는 실거래와 분리되며 executionImpact=NONE으로 표시됩니다.
               </p>
+              <PanelList items={shadow.improvementNotes} emptyText="Shadow 개선 메모 없음" limit={2} />
             </Card>
           )}
         </div>
@@ -267,7 +371,10 @@ export function PublicReportDashboard({
             <Card padding="sm">
               <CardHeader className="mb-3">
                 <CardTitle>Sector Rotation Heatmap Card</CardTitle>
-                <Badge variant="info" size="sm">Top 5 public</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <DataConfidenceBadge confidence={sector.topSectors.length > 0 ? 'VERIFIED' : 'MISSING'} source="sector rotation" compact />
+                  <Badge variant="info" size="sm">Top 5 public</Badge>
+                </div>
               </CardHeader>
               <div className="space-y-2">
                 {sector.topSectors.slice(0, 5).map((item) => (
@@ -287,18 +394,40 @@ export function PublicReportDashboard({
           <Card padding="sm">
             <CardHeader className="mb-3">
               <CardTitle>Buy Block Reason Card</CardTitle>
-              <Badge variant={block ? 'warning' : 'success'} size="sm">{block ? block.blockLevel : 'NO_MAJOR_BLOCK'}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <DataConfidenceBadge confidence={stock?.dataConfidenceSummary.overall ?? reportConfidence.overall} source="buy block" compact />
+                <Badge variant={block ? 'warning' : 'success'} size="sm">{block ? block.blockLevel : 'NO_MAJOR_BLOCK'}</Badge>
+              </div>
             </CardHeader>
             {block ? (
               <div className="space-y-3">
                 <p className="text-sm font-black text-white">좋은 종목일 수 있으나, 현재는 좋은 매수 자리가 아닙니다.</p>
-                <ul className="space-y-2 text-sm text-white/65">
-                  {block.blockedReasons.slice(0, 5).map((reason) => (
-                    <li key={reason} className="rounded-lg bg-white/[0.025] px-3 py-2">{reason}</li>
-                  ))}
-                </ul>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Stat label="Failed Gate" value={block.failedGate} tone="yellow" />
+                  <Stat label="Execution Impact" value={block.executionImpact} />
+                  <Stat label="Shadow Only" value={block.shadowOnlyAllowed ? 'ALLOWED' : 'BLOCKED'} tone={block.shadowOnlyAllowed ? 'green' : 'red'} />
+                  <Stat label="Outcome Tracking" value={block.postOutcomeTrackingEnabled ? 'ON' : 'OFF'} tone="green" />
+                </div>
+                <div>
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-yellow-200/70">차단 사유 TOP 5</p>
+                  <PanelList items={block.blockedReasons} emptyText="차단 사유 없음" limit={5} />
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-red-200/70">Risk Flags</p>
+                    <PanelList items={block.riskFlags} emptyText="주요 리스크 플래그 없음" limit={3} />
+                  </div>
+                  <div>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-blue-200/70">Data Issues</p>
+                    <PanelList items={block.dataIssues} emptyText="데이터 이슈 없음" limit={3} />
+                  </div>
+                  <div>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-emerald-200/70">재진입 조건</p>
+                    <PanelList items={block.requiredConditionsForReentry} emptyText="재진입 조건 없음" limit={3} />
+                  </div>
+                </div>
                 <p className="text-xs leading-relaxed text-white/50">
-                  좋은 종목일 수 있으나, 좋은 매수 자리는 아닐 수 있습니다. Shadow 추적은 계속 가능합니다.
+                  Provider 장애는 시장 악재가 아니며 marketSignal=false로 격리됩니다. 데이터 부족 시 실거래 판단은 보류하고 Shadow 추적만 수행합니다.
                 </p>
               </div>
             ) : (

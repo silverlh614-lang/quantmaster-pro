@@ -888,8 +888,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   // ── ⑦ S&P500 (^GSPC) 20일 ────────────────────────────────────────────────
   const spx = await fetchCloses('^GSPC', '25d');
   if (spx && spx.length >= 3) {
+    computed.spxDayReturn = nDayReturn(spx, 1);
     computed.spx20dReturn = nDayReturn(spx, Math.min(20, spx.length - 1));
-    console.log(`[MarketRefresh] SPX: 20d=${(computed.spx20dReturn as number).toFixed(2)}%`);
+    console.log(`[MarketRefresh] SPX: 1d=${(computed.spxDayReturn as number).toFixed(2)}%, 20d=${(computed.spx20dReturn as number).toFixed(2)}%`);
   } else {
     emitMarketDataProviderWarn('SPX_DATA_INSUFFICIENT');
   }

@@ -22,6 +22,28 @@ export type PublicDecisionStatus =
   | 'BLOCKED'
   | 'DATA_INSUFFICIENT';
 
+export type PublicDecisionDisplay =
+  | 'CONFIRMED_CANDIDATE'
+  | 'BUY_CANDIDATE'
+  | 'WATCH'
+  | 'WAIT_PULLBACK'
+  | 'HOLD'
+  | 'SELL_ONLY'
+  | 'BLOCKED'
+  | 'DATA_INSUFFICIENT';
+
+export interface CandidateDecisionSummary {
+  totalCandidates: number;
+  confirmedCandidateCount: number;
+  buyCandidateCount: number;
+  watchCount: number;
+  waitPullbackCount: number;
+  blockedCount: number;
+  dataInsufficientCount: number;
+  sellOnlyCount: number;
+  holdCount: number;
+}
+
 export interface DataConfidenceSummary {
   overall: DataConfidence;
   calculatedIndicatorCount: number;
@@ -73,7 +95,9 @@ export interface StockDecisionCard {
   stockName: string;
   sector: string;
   finalDecision: PublicDecisionStatus;
+  displayDecision: PublicDecisionDisplay;
   finalScore: number;
+  sourceSnapshotId: string;
   gate0MacroStatus: string;
   gate1SurvivalResult: string;
   gate2GrowthResult: string;
@@ -85,6 +109,12 @@ export interface StockDecisionCard {
   bullishReasons: string[];
   bearishReasons: string[];
   blockedReasons: string[];
+  nextCheckConditions: string[];
+  confluenceAxes: {
+    id: 'FUNDAMENTAL' | 'FLOW' | 'TECHNICAL' | 'MACRO';
+    score: number;
+    reason?: string;
+  }[];
   shadowRegistrationStatus: 'REGISTERED' | 'NOT_REGISTERED' | 'SHADOW_ONLY' | 'NOT_ALLOWED';
   executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'SELL_ONLY' | 'LIVE_EXECUTION_ALLOWED';
 }
@@ -128,6 +158,9 @@ export interface ShadowPerformanceCard {
 export interface PublicReportModel {
   reportId: string;
   reportDate: string;
+  sourceSnapshotId: string;
+  asOf: string;
+  blogTitle: string;
   reportType:
     | 'DAILY_MARKET_GATE'
     | 'SECTOR_ROTATION'
@@ -141,6 +174,8 @@ export interface PublicReportModel {
   stockDecision?: StockDecisionCard;
   buyBlock?: BuyBlockReasonCard;
   shadowPerformance?: ShadowPerformanceCard;
+  candidateSummary: CandidateDecisionSummary;
+  dataConfidenceSummary: DataConfidenceSummary;
   markdownOutput: string;
   telegramOutput: string;
   publicSummary: string;
