@@ -45,6 +45,10 @@ regexes = [
   # `env.XXX` 속성 접근식(예: `keySignal: env.m2GrowthYoY`) —
   # 매크로 엔진의 도메인 필드 참조로, 실제 비밀이 아님.
   '''^env\.[A-Za-z][A-Za-z0-9]*$''',
+  # `key: Gate3ThresholdKey` (server/quant/gate3EvidenceScore.ts) — TypeScript
+  # 타입명 식별자. generic-api-key 룰이 `key:` 뒤 17자 토큰(엔트로피 3.69)을
+  # 비밀로 오탐. 실제 비밀이 아닌 타입 어노테이션이므로 좁게 화이트리스트.
+  '''Gate3ThresholdKey''',
 ]
 
 # ADR-461 livePathSafetyAudit.ts 의 과거 false positive.
