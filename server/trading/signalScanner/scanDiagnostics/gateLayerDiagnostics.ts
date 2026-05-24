@@ -35,6 +35,10 @@ import {
   type Gate3OutcomeSeed,
   type Gate3OutcomeTrackingSummary,
 } from '../../../quant/gate3OutcomeSeed.js';
+import {
+  buildGate3EvidenceScore,
+  type Gate3EvidenceScore,
+} from '../../../quant/gate3EvidenceScore.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -105,6 +109,7 @@ export interface Gate3ConsolidatedAuditSummary {
   shadowRouting: Gate3ShadowRoutingSummary;
   outcomeSeeds: Gate3OutcomeSeed[];
   outcomeTracking: Gate3OutcomeTrackingSummary;
+  thresholdEvidence?: Gate3EvidenceScore;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -270,6 +275,7 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       shadowRouting: emptyGate3ShadowRoutingSummary(),
       outcomeSeeds: [],
       outcomeTracking: summarizeGate3OutcomeSeeds([]),
+      thresholdEvidence: buildGate3EvidenceScore([]),
     },
   };
 }
@@ -465,6 +471,7 @@ export function buildGateLayerAuditSummary(
       tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
       seedCreatedToday: outcomeSeeds.length,
     }),
+    thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
   };
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,

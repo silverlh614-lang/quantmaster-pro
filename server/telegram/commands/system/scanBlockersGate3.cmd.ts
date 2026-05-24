@@ -7,6 +7,7 @@ import { formatGate3TimingReadinessAuditSection } from '../../../trading/signalS
 import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDetail.js';
 import { formatGate3ShadowRoutingAuditSection } from '../../../quant/gate3ShadowPolicy.js';
 import { formatGate3OutcomeTrackingSummary } from '../../../quant/gate3OutcomeSeed.js';
+import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
   const [top] = Object.entries(counts ?? {})
@@ -83,6 +84,8 @@ export function formatScanBlockersGate3Section(
     `outcomeLabeled: ${gate3.outcomeTracking?.labeled ?? 0}`,
     `outcomeDataInsufficient: ${gate3.outcomeTracking?.dataInsufficient ?? 0}`,
     `outcomeDuplicateSuppressed: ${gate3.outcomeTracking?.duplicateSuppressed ?? 0}`,
+    `thresholdEvidenceSampleSize: ${gate3.thresholdEvidence?.sampleSize ?? 0}`,
+    `thresholdSuggestions: ${gate3.thresholdEvidence?.suggestions.length ?? 0}`,
     'marketSignal=false',
     'shadowLearning=true',
     'counterfactualRecorded=true',
@@ -121,6 +124,7 @@ const scanBlockersGate3: TelegramCommand = {
     const full = formatGate3TimingReadinessAuditSection(audit?.gate3Consolidated as Gate3ConsolidatedAuditSummary | undefined);
     const routing = formatGate3ShadowRoutingAuditSection(audit?.gate3Consolidated?.shadowRouting);
     const outcomes = formatGate3OutcomeTrackingSummary(audit?.gate3Consolidated?.outcomeTracking);
+    const thresholdEvidence = formatGate3ThresholdEvidenceSection(audit?.gate3Consolidated?.thresholdEvidence);
     const details = formatGate3CandidateDetailTable({
       detailsByReadiness: audit?.gate3Consolidated?.detailsByReadiness,
       candidateDetails: audit?.gate3Consolidated?.candidateDetails,
@@ -133,6 +137,7 @@ const scanBlockersGate3: TelegramCommand = {
       ...(full ? ['', full] : []),
       ...(routing ? ['', routing] : []),
       ...(outcomes ? ['', outcomes] : []),
+      ...(thresholdEvidence ? ['', thresholdEvidence] : []),
       ...(details ? ['', details] : []),
       '',
       'note: compact diagnostic only; no scan execution, no provider fetch, no broker order, no live promotion.',

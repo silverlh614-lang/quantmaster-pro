@@ -39,6 +39,7 @@ import {
 } from './scanSummaryTypes.js';
 import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection } from './gateScoreDiagnostics.js';
 import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection, formatGate3TimingReadinessAuditSection } from './gateLayerDiagnostics.js';
+import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
 import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
@@ -1124,6 +1125,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (gate3TimingSection) {
     lines.push('');
     lines.push(gate3TimingSection);
+  }
+  const gate3ThresholdEvidenceSection = formatGate3ThresholdEvidenceSection(summary.gateLayerAudit?.gate3Consolidated?.thresholdEvidence);
+  if (gate3ThresholdEvidenceSection) {
+    lines.push('');
+    lines.push(gate3ThresholdEvidenceSection);
   }
 
   const gateReclassificationDryRunSection = formatGateReclassificationDryRunSection(summary.gateReclassificationDryRun);

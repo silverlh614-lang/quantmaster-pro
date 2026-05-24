@@ -117,6 +117,7 @@ import {
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
+import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
 import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMasterProvider.js';
 import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
@@ -445,6 +446,7 @@ export async function persistScanResults(
       tradeDate: scanAsOf.slice(0, 10),
     });
     gateLayerAudit.gate3Consolidated.outcomeTracking = result.summary;
+    gateLayerAudit.gate3Consolidated.thresholdEvidence = buildGate3EvidenceScore(result.seeds);
   }
   const summaryDraft: ScanSummary = {
     time: timeLabel,

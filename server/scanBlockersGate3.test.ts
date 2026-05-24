@@ -3,6 +3,7 @@ import { formatScanBlockersGate3Section } from './telegram/commands/system/scanB
 import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowPolicy } from './quant/gate3CandidateDetail.js';
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from './quant/gate3ShadowPolicy.js';
 import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from './quant/gate3OutcomeSeed.js';
+import { buildGate3EvidenceScore } from './quant/gate3EvidenceScore.js';
 import { accumulateGateLayerSummary, buildGateLayerAuditSummary, createScanCounters } from './trading/signalScanner/scanDiagnostics.js';
 import type { GateLayerSummary } from './quantFilter.js';
 
@@ -115,6 +116,7 @@ describe('scan_blockers_gate3 RRR counters', () => {
           tradeDate: '2026-05-24',
           seedCreatedToday: outcomeSeeds.length,
         }),
+        thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
       },
     });
 
@@ -134,6 +136,8 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(text).toContain('watchlistUpgrade: 1');
     expect(text).toContain('outcomeSeedCreatedToday: 1');
     expect(text).toContain('outcomePending: 1');
+    expect(text).toContain('thresholdEvidenceSampleSize: 0');
+    expect(text).toContain('thresholdSuggestions: 0');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('shadowLearning=true');
     expect(text).toContain('counterfactualRecorded=true');
@@ -203,5 +207,7 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(gate3.outcomeSeeds).toHaveLength(gate3.candidateDetails.length);
     expect(gate3.outcomeSeeds.every(seed => seed.sourceSnapshotId === 'scan-eval:invariant')).toBe(true);
     expect(gate3.outcomeSeeds.every(seed => seed.marketSignal === false)).toBe(true);
+    expect(gate3.thresholdEvidence?.sampleSize).toBe(0);
+    expect(gate3.thresholdEvidence?.suggestions.every(item => item.applyMode === 'SUGGEST_ONLY')).toBe(true);
   });
 });
