@@ -68,7 +68,7 @@ function normalizeScaleHint(value: unknown): WatchlistScoreScaleHint | undefined
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim().toUpperCase().replace(/[~-]/g, '_');
   if (normalized === '0_10' || normalized === 'SCALE_0_10') return '0_10';
-  if (normalized === '0_27' || normalized === 'SCALE_0_27') return '0_27';
+  if (normalized === '0_27' || normalized === 'SCALE_0_27' || normalized === 'TOTAL_GATE_SCORE_27') return '0_27';
   if (normalized === '0_100' || normalized === 'SCALE_0_100') return '0_100';
   return undefined;
 }

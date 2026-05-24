@@ -333,7 +333,11 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(summary.watchlistScoreImportedCount).toBe(1);
       expect(summary.watchlistSourceFieldDistribution?.stage2Score).toBe(1);
       expect(summary.watchlistScoreScaleDistribution?.['0~27']).toBe(1);
-      expect(summary.watchlistScoreScaleDistributionAfter?.['0~27']).toBe(1);
+      expect(summary.watchlistScoreScaleDistributionBefore?.['0~27']).toBe(1);
+      expect(summary.watchlistScoreScaleDistributionAfter?.['0~100']).toBe(1);
+      expect(summary.watchlistScoreNormalizedCount).toBe(1);
+      expect(summary.watchlistScoreScaleFixedCount).toBe(1);
+      expect(summary.watchlistScoreNormalizationBreakPoint?.SCALE_FIXED_TO_NORMALIZED_100).toBe(1);
       expect(summary.watchlistScoreAvg).toBe(29.6);
     });
 
@@ -379,10 +383,17 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       expect(audit.hydrationAuditAdr0509?.computedRsScore).toBe(85);
       expect(audit.hydrationAuditAdr0509?.computedRsStatus).toBe('BULLISH');
       expect(audit.hydrationAuditAdr0509?.rsBreakPoint).toBe('RS_COMPUTED_FROM_RETURN20D');
+      expect(audit.hydrationAuditAdr0509?.rsComputedFromReturn20d).toBe(true);
+      expect(audit.hydrationAuditAdr0509?.rsIndexFallbackUsed).toBe(true);
       expect(audit.hydrationAuditAdr0509?.technicalProjectionBreakPoint).toBe('PROJECTED');
       expect(summary.rsScoreUsableCount).toBe(1);
+      expect(summary.rsComputedFromReturn20dCount).toBe(1);
+      expect(summary.rsIndexFallbackUsedCount).toBe(1);
       expect(summary.technicalProjectionCoverage?.aboveMA20).toBe(1);
+      expect(summary.aboveMA20AvailableCount).toBe(1);
+      expect(summary.aboveMA60AvailableCount).toBe(1);
       expect(summary.maAlignmentComputed).toBe(1);
+      expect(summary.maAlignmentPolicy).toBe('ADVISORY_DAMPENER');
       expect(summary.return20dAvailable).toBe(1);
     });
 

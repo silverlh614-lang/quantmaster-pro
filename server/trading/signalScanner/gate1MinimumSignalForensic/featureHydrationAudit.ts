@@ -331,6 +331,7 @@ export function buildFeatureHydrationAuditAdr0509(
         watchlistScoreMissing: true,
         watchlistScoreScaleFixed: false,
         promotionScoreCopied: false,
+        watchlistScoreNormalizationBreakPoint: 'WATCHLIST_SCORE_MISSING',
         missingReason: 'CANDIDATE_TRACE_MISSING',
       },
       technicalProjectionCoverage: {
@@ -350,6 +351,9 @@ export function buildFeatureHydrationAuditAdr0509(
       computedRsScore: null,
       computedRsStatus: 'MISSING',
       rsBreakPoint: 'CANDIDATE_TRACE_MISSING',
+      rsComputedFromReturn20d: false,
+      rsIndexFallbackUsed: false,
+      rsTraceButScoreMissingBreakPoint: 'CANDIDATE_TRACE_MISSING',
       maAlignmentPolicy: {
         status: 'MISSING',
         hardBlock: false,
@@ -370,6 +374,9 @@ export function buildFeatureHydrationAuditAdr0509(
   const candidateTraceHasWatchlistScore = resolvedWatchlist.confidence === 'VERIFIED';
   const technicalProjection = projectTechnicalFields(candidate);
   const computedRs = computeRelativeStrengthFromReturns(technicalProjection.return20d, technicalProjection.indexReturn20d);
+  const rsIndexFallbackUsed = computedRs !== null
+    && !hasHydrationField(candidate, 'indexReturn20d')
+    && hasHydrationField(candidate, 'kospi20dReturn');
   const rsMissingFields = RS_HYDRATION_FIELDS.filter((field) => {
     if (field === 'return5d') return technicalProjection.return5d === null;
     if (field === 'return20d') return technicalProjection.return20d === null;
@@ -487,6 +494,13 @@ export function buildFeatureHydrationAuditAdr0509(
       watchlistScoreScaleFixed: resolvedWatchlist.scoreScaleFixed,
       promotionScoreCopied: resolvedWatchlist.promotionScoreCopied,
       scaleHint: resolvedWatchlist.scaleHint ?? null,
+      watchlistScoreNormalizationBreakPoint: resolvedWatchlist.confidence !== 'VERIFIED'
+        ? 'WATCHLIST_SCORE_MISSING'
+        : resolvedWatchlist.scoreScaleFixed === true
+          ? 'SCALE_FIXED_TO_NORMALIZED_100'
+          : resolvedWatchlist.scoreScale === '0~100'
+            ? 'SCALE_ALREADY_NORMALIZED_100'
+            : 'SCALE_UNKNOWN',
       scoreScale: resolvedWatchlist.scoreScale ?? null,
       stage2Score: numericValue(record.stage2Score) ?? null,
       watchlistScore: numericValue(record.watchlistScore) ?? null,
@@ -508,6 +522,9 @@ export function buildFeatureHydrationAuditAdr0509(
     computedRsScore: computedRs?.score ?? null,
     computedRsStatus: computedRs?.status ?? 'MISSING',
     rsBreakPoint,
+    rsComputedFromReturn20d: computedRs !== null,
+    rsIndexFallbackUsed,
+    rsTraceButScoreMissingBreakPoint: rsAvailable && !rsScoreUsable ? rsBreakPoint : null,
     maAlignmentPolicy,
     breakoutAdvisoryOnly: true,
     breakoutUsedForGate1Block: false,

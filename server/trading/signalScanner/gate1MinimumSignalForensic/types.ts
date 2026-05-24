@@ -237,6 +237,11 @@ export interface WatchlistHydrationAuditAdr0509 {
   watchlistScoreScaleFixed?: boolean;
   promotionScoreCopied?: boolean;
   scaleHint?: string | null;
+  watchlistScoreNormalizationBreakPoint?:
+    | 'WATCHLIST_SCORE_MISSING'
+    | 'SCALE_FIXED_TO_NORMALIZED_100'
+    | 'SCALE_ALREADY_NORMALIZED_100'
+    | 'SCALE_UNKNOWN';
   scoreScale?: string | null;
   stage2Score?: number | null;
   watchlistScore?: number | null;
@@ -290,6 +295,9 @@ export interface FeatureHydrationAuditAdr0509 {
   computedRsScore?: number | null;
   computedRsStatus?: 'STRONG' | 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'WEAK' | 'MISSING';
   rsBreakPoint?: string;
+  rsComputedFromReturn20d?: boolean;
+  rsIndexFallbackUsed?: boolean;
+  rsTraceButScoreMissingBreakPoint?: string | null;
   maAlignmentPolicy?: {
     status: 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'MISSING';
     hardBlock: boolean;
@@ -415,12 +423,18 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   watchlistScoreImportedCount?: number;
   watchlistMissingReasonTop?: string[];
   watchlistScoreScaleDistribution?: Record<string, number>;
+  watchlistScoreScaleDistributionBefore?: Record<string, number>;
   watchlistScoreAvg?: number;
   watchlistScoreNormalized?: number;
+  watchlistScoreNormalizedCount?: number;
   watchlistScoreMissing?: number;
+  watchlistScoreMissingCount?: number;
   watchlistScoreScaleFixed?: number;
+  watchlistScoreScaleFixedCount?: number;
   promotionScoreCopied?: number;
+  promotionScoreCopiedCount?: number;
   watchlistScoreScaleDistributionAfter?: Record<string, number>;
+  watchlistScoreNormalizationBreakPoint?: Record<string, number>;
   watchlistDiagnosticConflict?: boolean;
   adr0467WatchlistVerifiedCount?: number;
   adr0505WatchlistImportedCount?: number;
@@ -443,13 +457,29 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   breakoutMissingFieldsTop?: string[];
   breakoutSourceDistribution?: Record<BreakoutHydrationSourceAdr0509, number>;
   technicalProjectionCoverage?: Record<string, number>;
+  technicalProjectedCount?: number;
   maAlignmentComputed?: number;
+  maAlignmentComputedCount?: number;
+  aboveMA20AvailableCount?: number;
+  aboveMA60AvailableCount?: number;
   return5dAvailable?: number;
+  return5dAvailableCount?: number;
   return20dAvailable?: number;
+  return20dAvailableCount?: number;
+  technicalComputedButProjectionMissingCount?: number;
   technicalProjectionBreakPoint?: Record<string, number>;
+  technicalProjectionBreakPointDistribution?: Record<string, number>;
   maAlignmentAdvisoryOnlyCount?: number;
+  maAlignmentDampenerCount?: number;
+  maAlignmentHardBlockCount?: number;
   technicalTrendDeathHardBlockCount?: number;
+  technicalTrendDeathCount?: number;
+  maAlignmentPolicy?: 'ADVISORY_DAMPENER';
+  topGate1BlockReasonAfter?: string;
   rsBreakPointDistribution?: Record<string, number>;
+  rsComputedFromReturn20dCount?: number;
+  rsIndexFallbackUsedCount?: number;
+  rsTraceButScoreMissingBreakPoint?: Record<string, number>;
   breakoutAdvisoryOnly?: boolean;
   breakoutUsedForGate1Block?: false;
   candidateSymbolAvailableCount?: number;
@@ -537,9 +567,11 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   routerForensicConflictReason?: string;
   shadowEligibleSupplyCount?: number;
   supplyMissingNeutralized?: number;
+  supplyMissingNeutralizedCount?: number;
   supplyMissingExecutionImpact?: 'NONE';
   supplyMissingMarketSignal?: false;
   supplyMissingLearningTagDistribution?: Record<string, number>;
+  supplyRowMissingLearningTagCount?: number;
   candidateTraceCount?: number;
   traceWithQuoteCount?: number;
   traceWithSymbolFeaturesCount?: number;

@@ -69,8 +69,24 @@ describe('/scan_blockers_gate1 command', () => {
         penaltyCounts: { supplyUnknownPenalty: 4 },
         supplyScopeWarnings: { KIS_FLOW_SEMANTIC_UNAVAILABLE: 4 },
         watchlistScoreImportedCount: 7,
+        watchlistScoreNormalizedCount: 7,
+        watchlistScoreScaleDistributionBefore: { '0~27': 5, '0~100': 2 },
+        watchlistScoreScaleDistributionAfter: { '0~100': 7, missing: 4 },
+        watchlistScoreScaleFixedCount: 5,
+        watchlistScoreNormalizationBreakPoint: { SCALE_FIXED_TO_NORMALIZED_100: 5, SCALE_ALREADY_NORMALIZED_100: 2 },
         rsScoreUsableCount: 6,
+        rsComputedFromReturn20dCount: 6,
+        rsIndexFallbackUsedCount: 2,
         breakoutScoreUsableCount: 4,
+        technicalProjectedCount: 9,
+        technicalProjectionCoverage: { aboveMA20: 9, aboveMA60: 9, return5d: 9, return20d: 9 },
+        maAlignmentPolicy: 'ADVISORY_DAMPENER',
+        maAlignmentDampenerCount: 11,
+        maAlignmentHardBlockCount: 1,
+        technicalTrendDeathCount: 1,
+        topGate1BlockReasonAfter: 'TECHNICAL_MA_ALIGNMENT_DAMPENER',
+        supplyMissingNeutralizedCount: 2,
+        supplyRowMissingLearningTagCount: 2,
         supplySemanticAvailable: 5,
         foreignNetBuyAvailable: 4,
         institutionalNetBuyAvailable: 3,
@@ -106,6 +122,12 @@ describe('/scan_blockers_gate1 command', () => {
     expect(text).toContain('evaluationState=EVALUATED');
     expect(text).toContain('dominantFailure=POSITIVE_SCORE_STARVATION');
     expect(text).toContain('missingPositiveTop=relativeStrengthMissing');
+    expect(text).toContain('watchlistScoreScaleDistributionAfter=0~100:7');
+    expect(text).toContain('Gate1 Runtime Calibration');
+    expect(text).toContain('scoreNormalized: 7/11');
+    expect(text).toContain('technicalProjected: 9/11');
+    expect(text).toContain('rsUsable: 6/11');
+    expect(text).toContain('maAlignmentPolicy: DAMPENER');
     expect(text).toContain('shadowLearning=true');
     expect(text).toContain('counterfactualRecorded=true');
     expect(text).toContain('providerIssue=false');

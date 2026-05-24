@@ -213,29 +213,47 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
   if (summary.watchlistScoreScaleDistribution) {
     lines.push(`- watchlistScoreScaleDistribution: ${formatDistribution(summary.watchlistScoreScaleDistribution)}`);
   }
+  if (summary.watchlistScoreScaleDistributionBefore) {
+    lines.push(`- watchlistScoreScaleDistributionBefore: ${formatDistribution(summary.watchlistScoreScaleDistributionBefore)}`);
+  }
   lines.push(
-    `- watchlistScoreNormalized=${count(summary.watchlistScoreNormalized)}/${summary.totalCandidates} watchlistScoreMissing=${count(summary.watchlistScoreMissing)} watchlistScoreScaleFixed=${count(summary.watchlistScoreScaleFixed)} promotionScoreCopied=${count(summary.promotionScoreCopied)}`,
+    `- watchlistScoreNormalized=${count(summary.watchlistScoreNormalizedCount ?? summary.watchlistScoreNormalized)}/${summary.totalCandidates} watchlistScoreMissing=${count(summary.watchlistScoreMissingCount ?? summary.watchlistScoreMissing)} watchlistScoreScaleFixed=${count(summary.watchlistScoreScaleFixedCount ?? summary.watchlistScoreScaleFixed)} promotionScoreCopied=${count(summary.promotionScoreCopiedCount ?? summary.promotionScoreCopied)}`,
   );
   if (summary.watchlistScoreScaleDistributionAfter) {
     lines.push(`- watchlistScoreScaleDistributionAfter: ${formatDistribution(summary.watchlistScoreScaleDistributionAfter)}`);
   }
+  if (summary.watchlistScoreNormalizationBreakPoint) {
+    lines.push(`- watchlistScoreNormalizationBreakPoint: ${formatDistribution(summary.watchlistScoreNormalizationBreakPoint)}`);
+  }
   lines.push(`- watchlistScoreAvg: ${(count(summary.watchlistScoreAvg)).toFixed(1)}`);
+  lines.push('- Gate1 Runtime Calibration:');
+  lines.push(`  - scoreNormalized: ${count(summary.watchlistScoreNormalizedCount ?? summary.watchlistScoreNormalized)}/${summary.totalCandidates}`);
+  lines.push(`  - technicalProjected: ${count(summary.technicalProjectedCount)}/${summary.totalCandidates}`);
+  lines.push(`  - rsUsable: ${count(summary.rsScoreUsableCount)}/${summary.totalCandidates}`);
+  lines.push(`  - maAlignmentPolicy: DAMPENER`);
+  lines.push(`  - hardTechnicalDeath: ${count(summary.technicalTrendDeathCount ?? summary.technicalTrendDeathHardBlockCount)}`);
+  lines.push(`  - supplyMissingNeutralized: ${count(summary.supplyMissingNeutralizedCount ?? summary.supplyMissingNeutralized)}`);
+  lines.push('  - executionImpact: NONE');
+  lines.push('  - shadowLearning: true');
+  lines.push('  - counterfactualRecorded: true');
   if (summary.technicalProjectionCoverage) {
     lines.push(`- technicalProjectionCoverage: ${formatDistribution(summary.technicalProjectionCoverage)}`);
   }
   lines.push(
-    `- maAlignmentComputed=${count(summary.maAlignmentComputed)}/${summary.totalCandidates} return5dAvailable=${count(summary.return5dAvailable)}/${summary.totalCandidates} return20dAvailable=${count(summary.return20dAvailable)}/${summary.totalCandidates}`,
+    `- maAlignmentComputed=${count(summary.maAlignmentComputedCount ?? summary.maAlignmentComputed)}/${summary.totalCandidates} aboveMA20Available=${count(summary.aboveMA20AvailableCount)}/${summary.totalCandidates} aboveMA60Available=${count(summary.aboveMA60AvailableCount)}/${summary.totalCandidates} return5dAvailable=${count(summary.return5dAvailableCount ?? summary.return5dAvailable)}/${summary.totalCandidates} return20dAvailable=${count(summary.return20dAvailableCount ?? summary.return20dAvailable)}/${summary.totalCandidates}`,
   );
   if (summary.technicalProjectionBreakPoint) {
     lines.push(`- technicalProjectionBreakPoint: ${formatDistribution(summary.technicalProjectionBreakPoint)}`);
   }
+  lines.push(`- technicalComputedButProjectionMissing=${count(summary.technicalComputedButProjectionMissingCount)}`);
   lines.push(
-    `- maAlignmentPolicy: advisoryOnly=${count(summary.maAlignmentAdvisoryOnlyCount)} technicalTrendDeathHardBlock=${count(summary.technicalTrendDeathHardBlockCount)}`,
+    `- maAlignmentPolicy=${summary.maAlignmentPolicy ?? 'ADVISORY_DAMPENER'} dampener=${count(summary.maAlignmentDampenerCount ?? summary.maAlignmentAdvisoryOnlyCount)} hardBlock=${count(summary.maAlignmentHardBlockCount)} technicalTrendDeath=${count(summary.technicalTrendDeathCount ?? summary.technicalTrendDeathHardBlockCount)} topGate1BlockReasonAfter=${summary.topGate1BlockReasonAfter ?? 'TECHNICAL_MA_ALIGNMENT_DAMPENER'}`,
   );
   if (summary.rsBreakPointDistribution) lines.push(`- rsBreakPointDistribution: ${formatDistribution(summary.rsBreakPointDistribution)}`);
+  lines.push(`- rsComputedFromReturn20d=${count(summary.rsComputedFromReturn20dCount)} rsIndexFallbackUsed=${count(summary.rsIndexFallbackUsedCount)} rsTraceButScoreMissingBreakPoint=${formatDistribution(summary.rsTraceButScoreMissingBreakPoint ?? {})}`);
   lines.push(`- breakoutAdvisoryOnly=${summary.breakoutAdvisoryOnly === true} breakoutUsedForGate1Block=${String(summary.breakoutUsedForGate1Block ?? false)}`);
   lines.push(
-    `- supplyMissingNeutralized=${count(summary.supplyMissingNeutralized)} supplyMissingExecutionImpact=${summary.supplyMissingExecutionImpact ?? 'NONE'} supplyMissingMarketSignal=${String(summary.supplyMissingMarketSignal ?? false)} learningTag=${formatDistribution(summary.supplyMissingLearningTagDistribution ?? {})}`,
+    `- supplyMissingNeutralized=${count(summary.supplyMissingNeutralizedCount ?? summary.supplyMissingNeutralized)} supplyMissingExecutionImpact=${summary.supplyMissingExecutionImpact ?? 'NONE'} supplyMissingMarketSignal=${String(summary.supplyMissingMarketSignal ?? false)} supplyRowMissingLearningTag=${count(summary.supplyRowMissingLearningTagCount)} learningTag=${formatDistribution(summary.supplyMissingLearningTagDistribution ?? {})}`,
   );
   lines.push(`- traceWithQuoteCount: ${summary.traceWithQuoteCount ?? count(summary.candidateTraceHasQuote)}/${summary.totalCandidates}`);
   lines.push(`- traceWithConditionResultsCount: ${summary.traceWithConditionResultsCount ?? count(summary.candidateTraceHasConditionResults)}/${summary.totalCandidates}`);

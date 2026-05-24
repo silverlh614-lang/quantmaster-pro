@@ -46,4 +46,11 @@ describe('watchlist upstream score resolver', () => {
     expect(resolved.sourceField).toBe('totalGateScore');
     expect(resolved.normalized100).toBe(66.7);
   });
+
+  it('honors TOTAL_GATE_SCORE_27 scale hints', () => {
+    const resolved = resolveWatchlistUpstreamScore({ score: 14, scaleHint: 'TOTAL_GATE_SCORE_27' });
+    expect(resolved.normalized100).toBe(51.9);
+    expect(resolved.scoreScale).toBe('0~27');
+    expect(resolved.normalizedScore).toBe(51.9);
+  });
 });
