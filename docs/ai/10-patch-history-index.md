@@ -539,3 +539,4 @@
 - 2026-05-24 · ADR-541
 - 2026-05-24 · ADR-542
 - 2026-05-24 · Patch-ACMA-UNBLOCK-4FILES
+- 2026-05-24 · Patch-DECOMP-regimeLearningBackfill-001

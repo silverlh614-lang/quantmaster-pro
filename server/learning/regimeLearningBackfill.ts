@@ -25,73 +25,35 @@ import type {
   RegimeRecoveryConfidence,
   RegimeRecoverySource,
 } from './learningTypes.js';
+import type {
+  DailyRegimeFallbackStatus,
+  PriorityDateReconstructionStatus,
+  RegimeBackfillFailureReason,
+  RegimeBackfillTimestampSource,
+  RegimeDailySnapshot,
+  RegimeLearningBackfillDryRunResult,
+  RegimeLearningBackfillInput,
+  RegimeLearningBackfillRunResult,
+  RegimeLearningBackfillTarget,
+  RegimeSnapshotCoverage,
+  RegimeSnapshotReconstructionConfidence,
+  RegimeSnapshotReconstructionSource,
+  RegimeSourceInventoryAuditStatus,
+  RegimeSourceInventoryRow,
+  RegimeTimestampSnapshot,
+  RegimeUnknownAnalysisResult,
+  RegimeUnknownReason,
+  RegimeUnknownRepairResult,
+  RegimeWritableRow,
+} from './regimeLearningBackfill/types.js';
 
-export type RegimeLearningBackfillTarget =
-  | 'GHOST_REPAIR'
-  | 'BACKLOG_REPAIR'
-  | 'FRESH_SHADOW'
-  | 'COUNTERFACTUAL'
-  | 'OUTCOME'
-  | 'ATTRIBUTION'
-  | 'OPEN_UNRESOLVED'
-  | 'QUARANTINED';
+export * from './regimeLearningBackfill/types.js';
+export * from './regimeLearningBackfill/formatters.js';
 
 type RegimeBackfillRow = {
   target: RegimeLearningBackfillTarget;
   row: RegimeWritableRow;
   createdAt?: string;
-};
-
-type RegimeWritableRow = {
-  id?: string;
-  caseId?: string;
-  signalId?: string;
-  tradeId?: string;
-  counterfactualKey?: string;
-  symbol?: string;
-  stockCode?: string;
-  cohortType?: string;
-  sourceType?: string;
-  rawRegime?: string;
-  effectiveRegime?: string;
-  regime?: string;
-  entryRegime?: string;
-  regimePhase?: RegimePhase;
-  originalRegimePhase?: RegimePhase;
-  regimeAtSignal?: RegimePhase | string;
-  regimeAtEntry?: RegimePhase | string;
-  regimeAtExit?: RegimePhase | string;
-  regimeAtOutcome?: RegimePhase | string;
-  r6Trigger?: string;
-  engineMode?: string;
-  marketSession?: string;
-  sellOnlyActive?: boolean;
-  hardBlockActive?: boolean;
-  sourceFreshness?: string;
-  regimeConfidence?: string;
-  regimeRecovered?: boolean;
-  regimeRecoverySource?: RegimeRecoverySource;
-  regimeRecoveryConfidence?: RegimeRecoveryConfidence;
-  regimeRecoveredAt?: string;
-  blockedReason?: string;
-  rejectionReason?: string;
-  skipReason?: string;
-  closeReason?: string;
-  outcomeLabel?: string;
-  closed?: boolean;
-  closedAt?: string;
-  createdAt?: string;
-  detectedAt?: string;
-  updatedAt?: string;
-  entryAt?: string;
-  entryPrice?: number;
-  entryPriceVirtual?: number;
-  hypotheticalEntryPrice?: number;
-  priceAtSignal?: number;
-  signalTime?: string;
-  signalDate?: string;
-  lastUpdatedAt?: string;
-  quarantinedReason?: string;
 };
 
 interface RecoveredRegime {
@@ -101,222 +63,6 @@ interface RecoveredRegime {
   regimeRecovered: boolean;
   regimeRecoverySource: RegimeRecoverySource;
   regimeRecoveryConfidence: RegimeRecoveryConfidence;
-}
-
-export interface RegimeLearningBackfillInput {
-  ghosts?: LearningGhostCase[];
-  counterfactuals?: CounterfactualEntry[];
-  attributionRecords?: ServerAttributionRecord[];
-  macroSnapshots?: RegimeTimestampSnapshot[];
-  transitionSnapshots?: RegimeTimestampSnapshot[];
-  dailyRegimeSnapshots?: RegimeDailySnapshot[];
-  pulseArchiveSnapshots?: RegimeDailySnapshot[];
-  pulseArchiveRegimeSnapshots?: RegimeDailySnapshot[];
-  reconstructionLogEntries?: RegimeSnapshotReconstructionLogEntry[];
-  shadowCases?: RegimeWritableRow[];
-  now?: Date;
-  write?: boolean;
-}
-
-export type RegimeBackfillFailureReason =
-  | 'NO_SNAPSHOT_IN_WINDOW'
-  | 'NO_RECONSTRUCTION_SOURCE_FOR_DATE'
-  | 'MISSING_SAMPLE_TIMESTAMP'
-  | 'SNAPSHOT_REPO_EMPTY'
-  | 'TIMEZONE_MISMATCH_SUSPECT'
-  | 'INVALID_TIMESTAMP'
-  | 'DUPLICATE_SUPPRESSED_BEFORE_BACKFILL'
-  | 'SOURCE_LANE_EXCLUDED'
-  | 'UNKNOWN_ERROR';
-
-export type RegimeBackfillTimestampSource =
-  | 'SIGNAL_TIME'
-  | 'ENTRY_AT'
-  | 'DETECTED_AT'
-  | 'CREATED_AT'
-  | 'CLOSED_AT'
-  | 'UPDATED_AT'
-  | 'LAST_UPDATED_AT'
-  | 'SIGNAL_DATE'
-  | 'MISSING';
-
-export type RegimeUnknownReason =
-  | 'MISSING_CREATED_AT'
-  | 'NO_MACRO_SNAPSHOT'
-  | 'NO_TRANSITION_STATE'
-  | 'PRE_REGIME_TRACKING_SAMPLE'
-  | 'AMBIGUOUS_SESSION'
-  | 'CORRUPTED_TIMESTAMP'
-  | 'CASE_TYPE_NOT_SUPPORTED'
-  | 'UNKNOWN_FALLBACK_USED';
-
-export interface RegimeTimestampSnapshot {
-  at: string;
-  rawRegime: string;
-  effectiveRegime?: string;
-}
-
-export interface RegimeDailySnapshot {
-  tradingDate?: string;
-  date?: string;
-  at?: string;
-  rawRegime: string;
-  effectiveRegime?: string;
-  riskOverride?: string;
-  source?: string;
-  confidence?: RegimeSnapshotReconstructionConfidence;
-  reconstructed?: boolean;
-  reconstructedAt?: string;
-  executionImpact?: 'NONE';
-}
-
-export interface RegimeSnapshotCoverage {
-  intradayNearest60m: number;
-  sameDayDaily: number;
-  previousTradingDayClose: number;
-  pulseArchiveSameDate: number;
-  reconstructedDaily: number;
-}
-
-export type RegimeSnapshotReconstructionSource =
-  | 'TELEGRAM_PULSE_ARCHIVE'
-  | 'REGIME_RESOLVER_DECISION_LOG'
-  | 'MARKET_MACRO_SNAPSHOT_LOG'
-  | 'R6_TRIGGER_LOG'
-  | 'RISK_OVERRIDE_EVENT_LOG'
-  | 'EFFECTIVE_REGIME_TRANSITION_LOG'
-  | 'EXECUTION_POLICY_SNAPSHOT_LOG'
-  | 'LEARNING_PULSE_ARCHIVE'
-  | 'RAILWAY_APP_LOG_ARCHIVE';
-
-export type RegimeSnapshotReconstructionConfidence = 'RECOVERED_LOW' | 'RECOVERED_MEDIUM';
-export type RegimeSourceInventoryAuditStatus =
-  | 'NO_MISSING_DATES'
-  | 'PRIORITY_SOURCE_AVAILABLE'
-  | 'PRIORITY_SOURCE_MISSING'
-  | 'PARTIAL_SOURCE_AVAILABLE'
-  | 'NO_SOURCES_AVAILABLE';
-
-export type PriorityDateReconstructionStatus = 'SUCCESS' | 'FAILED' | 'UNRECOVERABLE' | 'NOT_ATTEMPTED';
-
-export interface RegimeSourceInventoryRow {
-  telegramPulseArchive: number;
-  regimeResolverDecisionLog: number;
-  marketMacroSnapshotLog: number;
-  riskOverrideEventLog: number;
-  r6TriggerLog: number;
-  effectiveRegimeTransitionLog: number;
-  executionPolicySnapshotLog: number;
-  learningPulseArchive: number;
-  railwayAppLogArchive: number;
-}
-
-export interface RegimeSnapshotReconstructionLogEntry {
-  tradingDate?: string;
-  at?: string;
-  message?: string;
-  rawRegime?: string;
-  effectiveRegime?: string;
-  riskOverride?: string;
-  source?: string;
-}
-
-export type DailyRegimeFallbackStatus =
-  | 'NO_UNKNOWN_SAMPLES'
-  | 'OK'
-  | 'USED_DAILY_FALLBACK'
-  | 'NO_DAILY_SNAPSHOT_FOR_DATE';
-
-export interface RegimeUnknownAnalysisResult {
-  unknownTotal: number;
-  unknownBySource: Record<string, number>;
-  unknownByCaseType: Record<string, number>;
-  unknownByDate: Record<string, number>;
-  unknownReasonBreakdown: Record<RegimeUnknownReason, number>;
-  missingTimestampCount: number;
-  missingMacroSnapshotCount: number;
-  missingTransitionStateCount: number;
-  recoverableByNearestSnapshot: number;
-  recoverableByTradingDayRegime: number;
-  recoverableByR6Trigger: number;
-  unrecoverableCount: number;
-  recommendedFix: string;
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-  promotionAllowed: false;
-}
-
-export interface RegimeUnknownRepairResult {
-  scannedUnknown: number;
-  attemptedUnique: number;
-  attemptedDuplicates: number;
-  repaired: number;
-  stillUnknown: number;
-  byRecoveredRegime: Record<string, number>;
-  recoverySourceBreakdown: Record<string, number>;
-  recoveryConfidenceBreakdown: Record<string, number>;
-  recoveredBySource: Record<string, number>;
-  recoveredByConfidence: Record<string, number>;
-  failedAfterDailyFallback: number;
-  failureReasonBreakdownAfterDailyFallback: Record<RegimeBackfillFailureReason, number>;
-  failureReasonBreakdown: Record<RegimeBackfillFailureReason, number>;
-  failureBySourceLane: Record<string, number>;
-  failureByTimestampSource: Record<RegimeBackfillTimestampSource, number>;
-  failureByTradingDate: Record<string, number>;
-  snapshotCoverageByTradingDate: Record<string, RegimeSnapshotCoverage>;
-  missingRegimeSnapshotDates: string[];
-  dailyRegimeFallbackStatus: DailyRegimeFallbackStatus;
-  snapshotReconstructionAttemptedDates: string[];
-  snapshotReconstructionSucceededDates: string[];
-  snapshotReconstructionFailedDates: string[];
-  snapshotReconstructionSourceBreakdown: Record<string, number>;
-  snapshotReconstructionConfidenceBreakdown: Record<string, number>;
-  reconstructedDailySnapshots: RegimeDailySnapshot[];
-  sourceInventoryByDate: Record<string, RegimeSourceInventoryRow>;
-  sourceInventoryTopAvailable: string[];
-  sourceInventoryMissingSources: Record<string, string[]>;
-  sourceInventoryAuditStatus: RegimeSourceInventoryAuditStatus;
-  snapshotReconstructionPriorityDate: string;
-  priorityDateReconstructionStatus: PriorityDateReconstructionStatus;
-  priorityDateRecoveredSampleCount: number;
-  priorityDateFailureReason: string;
-  telegramArchiveCountByDate: Record<string, number>;
-  telegramArchiveRegimePatternMatchedByDate: Record<string, number>;
-  telegramArchiveEffectiveRegimeExtractedByDate: Record<string, number>;
-  telegramArchiveRejectedNoRegimeByDate: Record<string, number>;
-  telegramArchiveParseFailureTopReasons: string[];
-  priorityDateTelegramArchiveCount: number;
-  priorityDateRegimePatternMatched: number;
-  priorityDateEffectiveRegimeExtracted: number;
-  priorityDateTelegramParseFailureReason: string;
-  failureSampleKeys: string[];
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-  promotionAllowed: false;
-}
-
-export interface RegimeLearningBackfillDryRunResult {
-  scannedTotal: number;
-  missingRegimePhase: number;
-  recoverableByStoredSnapshot: number;
-  recoverableByTimestampMacroState: number;
-  recoverableByRegimeTransitionState: number;
-  recoverableByR6Trigger: number;
-  recoverableByCurrentRegimeFallback: 0;
-  unrecoverable: number;
-  expectedByRegime: Record<string, number>;
-  expectedUnknown: number;
-  executionImpact: 'NONE';
-  brokerOrdersCreated: 0;
-}
-
-export interface RegimeLearningBackfillRunResult extends RegimeLearningBackfillDryRunResult {
-  updated: number;
-  byRegime: Record<string, number>;
-  unknownCount: number;
-  recoverySourceBreakdown: Record<string, number>;
-  recoveryConfidenceBreakdown: Record<string, number>;
-  promotionAllowed: false;
 }
 
 function inc(record: Record<string, number>, key: string | undefined, amount = 1): void {
@@ -1742,85 +1488,4 @@ export function regimeUnknownRepairDryRun(input: RegimeLearningBackfillInput = {
 
 export function regimeUnknownRepairRun(input: RegimeLearningBackfillInput = {}): RegimeUnknownRepairResult {
   return regimeUnknownRepair(input, true);
-}
-
-export function formatRegimeLearningBackfillDryRun(s: RegimeLearningBackfillDryRunResult): string {
-  return [
-    '<b>[Regime Learning Backfill Dryrun]</b>',
-    `scannedTotal=${s.scannedTotal} missingRegimePhase=${s.missingRegimePhase}`,
-    `recoverableByStoredSnapshot=${s.recoverableByStoredSnapshot} recoverableByTimestampMacroState=${s.recoverableByTimestampMacroState} recoverableByRegimeTransitionState=${s.recoverableByRegimeTransitionState} recoverableByCurrentRegimeFallback=${s.recoverableByCurrentRegimeFallback} recoverableByR6Trigger=${s.recoverableByR6Trigger}`,
-    `unrecoverable=${s.unrecoverable} expectedByRegime=${JSON.stringify(s.expectedByRegime)} expectedUnknown=${s.expectedUnknown}`,
-    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated}`,
-  ].join('\n');
-}
-
-export function formatRegimeLearningBackfillRun(s: RegimeLearningBackfillRunResult): string {
-  return [
-    '<b>[Regime Learning Backfill Run]</b>',
-    `scannedTotal=${s.scannedTotal} updated=${s.updated} missingRegimePhase=${s.missingRegimePhase}`,
-    `byRegime=${JSON.stringify(s.byRegime)} unknownCount=${s.unknownCount}`,
-    `recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`,
-    `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`,
-    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
-  ].join('\n');
-}
-
-export function formatRegimeUnknownAnalysis(s: RegimeUnknownAnalysisResult): string {
-  return [
-    '<b>[Regime UNKNOWN Analysis]</b>',
-    `unknownTotal=${s.unknownTotal}`,
-    `unknownBySource=${JSON.stringify(s.unknownBySource)}`,
-    `unknownByCaseType=${JSON.stringify(s.unknownByCaseType)}`,
-    `unknownByDate=${JSON.stringify(s.unknownByDate)}`,
-    `unknownReasonBreakdown=${JSON.stringify(s.unknownReasonBreakdown)}`,
-    `missingTimestampCount=${s.missingTimestampCount} missingMacroSnapshotCount=${s.missingMacroSnapshotCount} missingTransitionStateCount=${s.missingTransitionStateCount}`,
-    `recoverableByNearestSnapshot=${s.recoverableByNearestSnapshot} recoverableByTradingDayRegime=${s.recoverableByTradingDayRegime} recoverableByR6Trigger=${s.recoverableByR6Trigger} unrecoverableCount=${s.unrecoverableCount}`,
-    `recommendedFix=${s.recommendedFix}`,
-    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
-  ].join('\n');
-}
-
-export function formatRegimeUnknownRepair(s: RegimeUnknownRepairResult, mode: 'dryrun' | 'run'): string {
-  return [
-    `<b>[Regime UNKNOWN Repair ${mode}]</b>`,
-    `scannedUnknown=${s.scannedUnknown} attemptedUnique=${s.attemptedUnique} attemptedDuplicates=${s.attemptedDuplicates} repaired=${s.repaired} stillUnknown=${s.stillUnknown}`,
-    `byRecoveredRegime=${JSON.stringify(s.byRecoveredRegime)}`,
-    `recoverySourceBreakdown=${JSON.stringify(s.recoverySourceBreakdown)}`,
-    `recoveryConfidenceBreakdown=${JSON.stringify(s.recoveryConfidenceBreakdown)}`,
-    `recoveredBySource=${JSON.stringify(s.recoveredBySource)}`,
-    `recoveredByConfidence=${JSON.stringify(s.recoveredByConfidence)}`,
-    `failedAfterDailyFallback=${s.failedAfterDailyFallback}`,
-    `failureReasonBreakdownAfterDailyFallback=${JSON.stringify(s.failureReasonBreakdownAfterDailyFallback)}`,
-    `failureReasonBreakdown=${JSON.stringify(s.failureReasonBreakdown)}`,
-    `failureBySourceLane=${JSON.stringify(s.failureBySourceLane)}`,
-    `failureByTimestampSource=${JSON.stringify(s.failureByTimestampSource)}`,
-    `failureByTradingDate=${JSON.stringify(s.failureByTradingDate)}`,
-    `snapshotCoverageByTradingDate=${JSON.stringify(s.snapshotCoverageByTradingDate)}`,
-    `missingRegimeSnapshotDates=${JSON.stringify(s.missingRegimeSnapshotDates)}`,
-    `dailyRegimeFallbackStatus=${s.dailyRegimeFallbackStatus}`,
-    `snapshotReconstructionAttemptedDates=${JSON.stringify(s.snapshotReconstructionAttemptedDates)}`,
-    `snapshotReconstructionSucceededDates=${JSON.stringify(s.snapshotReconstructionSucceededDates)}`,
-    `snapshotReconstructionFailedDates=${JSON.stringify(s.snapshotReconstructionFailedDates)}`,
-    `snapshotReconstructionSourceBreakdown=${JSON.stringify(s.snapshotReconstructionSourceBreakdown)}`,
-    `snapshotReconstructionConfidenceBreakdown=${JSON.stringify(s.snapshotReconstructionConfidenceBreakdown)}`,
-    `sourceInventoryByDate=${JSON.stringify(s.sourceInventoryByDate)}`,
-    `sourceInventoryTopAvailable=${JSON.stringify(s.sourceInventoryTopAvailable)}`,
-    `sourceInventoryMissingSources=${JSON.stringify(s.sourceInventoryMissingSources)}`,
-    `sourceInventoryAuditStatus=${s.sourceInventoryAuditStatus}`,
-    `snapshotReconstructionPriorityDate=${s.snapshotReconstructionPriorityDate}`,
-    `priorityDateReconstructionStatus=${s.priorityDateReconstructionStatus}`,
-    `priorityDateRecoveredSampleCount=${s.priorityDateRecoveredSampleCount}`,
-    `priorityDateFailureReason=${s.priorityDateFailureReason}`,
-    `telegramArchiveCountByDate=${JSON.stringify(s.telegramArchiveCountByDate)}`,
-    `telegramArchiveRegimePatternMatchedByDate=${JSON.stringify(s.telegramArchiveRegimePatternMatchedByDate)}`,
-    `telegramArchiveEffectiveRegimeExtractedByDate=${JSON.stringify(s.telegramArchiveEffectiveRegimeExtractedByDate)}`,
-    `telegramArchiveRejectedNoRegimeByDate=${JSON.stringify(s.telegramArchiveRejectedNoRegimeByDate)}`,
-    `telegramArchiveParseFailureTopReasons=${JSON.stringify(s.telegramArchiveParseFailureTopReasons)}`,
-    `priorityDateTelegramArchiveCount=${s.priorityDateTelegramArchiveCount}`,
-    `priorityDateRegimePatternMatched=${s.priorityDateRegimePatternMatched}`,
-    `priorityDateEffectiveRegimeExtracted=${s.priorityDateEffectiveRegimeExtracted}`,
-    `priorityDateTelegramParseFailureReason=${s.priorityDateTelegramParseFailureReason}`,
-    `failureSampleKeys=${JSON.stringify(s.failureSampleKeys)}`,
-    `executionImpact=${s.executionImpact} brokerOrdersCreated=${s.brokerOrdersCreated} promotionAllowed=${s.promotionAllowed}`,
-  ].join('\n');
 }
