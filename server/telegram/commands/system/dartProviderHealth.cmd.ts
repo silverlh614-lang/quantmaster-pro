@@ -15,6 +15,8 @@ function formatDartProviderHealthMessage(): string {
     `requestEnabled=${health.requestEnabled}`,
     `lastHttpStatus=${health.lastHttpStatus ?? 'NONE'}`,
     `lastErrorCode=${health.lastErrorCode ?? 'NONE'}`,
+    `lastNonBlockingIssue=${health.lastNonBlockingIssue ?? 'NONE'}`,
+    `lastNonBlockingSymbols=${health.lastNonBlockingSymbols?.join(',') || 'NONE'}`,
     `rateLimitState=${health.rateLimitState}`,
     `cacheWritable=${health.cacheWritable}`,
     'executionImpact=NONE',

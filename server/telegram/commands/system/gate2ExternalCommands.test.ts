@@ -61,6 +61,11 @@ vi.mock('../../../trading/gate2/gate2ExternalCache.js', () => ({
       },
       strongBuyBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
       blockingDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+      externalDataBlockReason: 'GATE2_EXTERNAL_PARTIAL',
+      externalDataBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+      fundamentalQualityFailReason: 'NONE',
+      fundamentalQualityFailDetails: 'NONE',
+      qualityFailDetails: 'NONE',
       excludedDetails: 'NONE',
       excludedCount: 0,
       excludedSymbols: [],
@@ -83,6 +88,8 @@ vi.mock('../../../trading/gate2/gate2ExternalCache.js', () => ({
         requestEnabled: true,
         lastHttpStatus: 200,
         lastErrorCode: null,
+        lastNonBlockingIssue: null,
+        lastNonBlockingSymbols: [],
         rateLimitState: 'OK',
         cacheWritable: true,
         executionImpact: 'NONE',
@@ -197,6 +204,8 @@ const refreshGate2ExternalData = vi.fn(async () => ({
     requestEnabled: true,
     lastHttpStatus: 200,
     lastErrorCode: null,
+    lastNonBlockingIssue: null,
+    lastNonBlockingSymbols: [],
     rateLimitState: 'OK',
     cacheWritable: true,
     executionImpact: 'NONE',
@@ -204,6 +213,11 @@ const refreshGate2ExternalData = vi.fn(async () => ({
   strongBuyBlockedReason: 'GATE2_EXTERNAL_PARTIAL',
   strongBuyBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
   blockingDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+  externalDataBlockReason: 'GATE2_EXTERNAL_PARTIAL',
+  externalDataBlockedDetails: 'PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1',
+  fundamentalQualityFailReason: 'NONE',
+  fundamentalQualityFailDetails: 'NONE',
+  qualityFailDetails: 'NONE',
   excludedDetails: 'NONE',
   excludedCount: 0,
   excludedSymbols: [],
@@ -239,6 +253,8 @@ vi.mock('../../../trading/gate2/gate2ExternalDataProvider.js', () => ({
     requestEnabled: true,
     lastHttpStatus: 200,
     lastErrorCode: null,
+    lastNonBlockingIssue: null,
+    lastNonBlockingSymbols: [],
     rateLimitState: 'OK',
     cacheWritable: true,
     executionImpact: 'NONE',
@@ -330,6 +346,9 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('lastRefreshRootCause=DART_FINANCIALS_MISSING');
     expect(text).toContain('trueCorpCodeNotFound=1');
     expect(text).toContain('blockingDetails=PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1');
+    expect(text).toContain('externalDataBlockReason=GATE2_EXTERNAL_PARTIAL');
+    expect(text).toContain('qualityFailDetails=NONE');
+    expect(text).toContain('equityFinancialCoverage=1/1');
     expect(text).toContain('excludedDetails=NONE');
     expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('no provider fetch');
@@ -351,6 +370,9 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('rootCause=DART_FINANCIALS_MISSING');
     expect(text).toContain('unavailableCountActionable=6');
     expect(text).toContain('blockingDetails=PER_PROVIDER_MISSING_1|TRUE_CORP_CODE_NOT_FOUND_1');
+    expect(text).toContain('externalDataBlockReason=GATE2_EXTERNAL_PARTIAL');
+    expect(text).toContain('qualityFailDetails=NONE');
+    expect(text).toContain('externalDataBlock=GATE2_EXTERNAL_PARTIAL');
     expect(text).toContain('refreshTrace:');
     expect(text).toContain('no broker order');
     expect(text).toContain('executionImpact=NONE');
@@ -367,6 +389,7 @@ describe('Gate2 external commands', () => {
     const text = replies.join('\n');
     expect(text).toContain('[dart_provider_health]');
     expect(text).toContain('apiKeyPresent=true');
+    expect(text).toContain('lastNonBlockingIssue=NONE');
     expect(text).toContain('cacheWritable=true');
     expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('never printed');

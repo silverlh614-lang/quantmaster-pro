@@ -235,6 +235,11 @@ export interface Gate2ExternalRefreshResult {
   strongBuyBlockedReason: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
   strongBuyBlockedDetails: string;
   blockingDetails: string;
+  externalDataBlockReason: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
+  externalDataBlockedDetails: string;
+  fundamentalQualityFailReason: 'NONE' | 'EPS_NON_POSITIVE';
+  fundamentalQualityFailDetails: string;
+  qualityFailDetails: string;
   excludedDetails: string;
   excludedCount: number;
   excludedSymbols: string[];
@@ -260,6 +265,8 @@ export interface Gate2DartProviderHealth {
   requestEnabled: boolean;
   lastHttpStatus: number | null;
   lastErrorCode: string | null;
+  lastNonBlockingIssue: string | null;
+  lastNonBlockingSymbols: string[];
   rateLimitState: 'UNKNOWN' | 'OK' | 'RATE_LIMITED';
   cacheWritable: boolean;
   executionImpact: 'NONE';
@@ -1406,11 +1413,10 @@ function uniqueSymbolsByTrace(
   return [...new Set(traces.filter(predicate).map(trace => trace.symbol))];
 }
 
-function buildStrongBuyBlockedDetails(
+function buildExternalDataBlockedDetails(
   counters: Gate2ExternalRefreshCounters,
 ): string {
   const parts: string[] = [];
-  if (counters.perFailDueToNegativeEps > 0) parts.push(`EPS_NON_POSITIVE_${counters.perFailDueToNegativeEps}`);
   if (counters.perUnavailableDueToProviderMissing > 0) parts.push(`PER_PROVIDER_MISSING_${counters.perUnavailableDueToProviderMissing}`);
   if (counters.perUnavailableDueToPriceMissing > 0) parts.push(`PER_PRICE_MISSING_${counters.perUnavailableDueToPriceMissing}`);
   if (counters.perUnavailableDueToEpsMissing > 0) parts.push(`EPS_MISSING_${counters.perUnavailableDueToEpsMissing}`);
@@ -1422,7 +1428,7 @@ function buildStrongBuyBlockedDetails(
       + counters.perUnavailableDueToEpsMissing
       + counters.perUnavailableDueToNonPositive === 0
   ) {
-    parts.push(`PER_UNAVAILABLE_${counters.unavailableDueToPER}`);
+    parts.push(`PER_PROVIDER_MISSING_${counters.unavailableDueToPER}`);
   }
   if (counters.trueCorpCodeNotFound > 0) parts.push(`TRUE_CORP_CODE_NOT_FOUND_${counters.trueCorpCodeNotFound}`);
   if (counters.corpCodeLookupFailed > 0) parts.push(`CORP_CODE_LOOKUP_FAILED_${counters.corpCodeLookupFailed}`);
@@ -1432,8 +1438,44 @@ function buildStrongBuyBlockedDetails(
   return parts.length > 0 ? parts.join('|') : 'NONE';
 }
 
+function buildFundamentalQualityFailDetails(
+  counters: Gate2ExternalRefreshCounters,
+): string {
+  const parts: string[] = [];
+  if (counters.perFailDueToNegativeEps > 0) parts.push(`EPS_NON_POSITIVE_${counters.perFailDueToNegativeEps}`);
+  return parts.length > 0 ? parts.join('|') : 'NONE';
+}
+
+function fundamentalQualityFailReason(
+  details: string,
+): 'NONE' | 'EPS_NON_POSITIVE' {
+  return details.includes('EPS_NON_POSITIVE') ? 'EPS_NON_POSITIVE' : 'NONE';
+}
+
 function buildExcludedDetails(counters: Gate2ExternalRefreshCounters): string {
   return counters.dartNotApplicableCount > 0 ? `DART_NOT_APPLICABLE_${counters.dartNotApplicableCount}` : 'NONE';
+}
+
+function isBlockingTraceError(trace: Gate2ExternalRefreshTrace): boolean {
+  if (!trace.dartErrorCode) return false;
+  if (trace.corpCodeMissingReason === 'DART_NOT_APPLICABLE') return false;
+  return true;
+}
+
+function nonBlockingIssueFromLastRefresh(
+  lastRefresh: { rootCause?: Gate2ExternalRootCause; counters?: Gate2ExternalRefreshCounters } | undefined,
+): string | null {
+  if (lastRefresh?.rootCause === 'DART_NOT_APPLICABLE_ONLY') return 'DART_NOT_APPLICABLE_ONLY';
+  if ((lastRefresh?.counters?.dartNotApplicableCount ?? 0) > 0) return 'DART_NOT_APPLICABLE';
+  if ((lastRefresh?.counters?.perFailDueToNegativeEps ?? 0) > 0) return 'EPS_NON_POSITIVE';
+  return null;
+}
+
+function nonBlockingSymbolsFromTraces(traces: readonly Gate2ExternalRefreshTrace[]): string[] {
+  return uniqueSymbolsByTrace(
+    traces,
+    trace => trace.corpCodeMissingReason === 'DART_NOT_APPLICABLE',
+  );
 }
 
 export function getGate2DartProviderHealth(): Gate2DartProviderHealth {
@@ -1444,6 +1486,9 @@ export function getGate2DartProviderHealth(): Gate2DartProviderHealth {
   const cacheWritable = isGate2ExternalCacheWritable();
   const traces = lastRefresh?.traces ?? [];
   const lastTraceWithHttp = [...traces].reverse().find(trace => trace.dartHttpStatus != null || trace.dartErrorCode != null);
+  const lastBlockingTraceWithError = [...traces].reverse().find(isBlockingTraceError);
+  const lastNonBlockingIssue = nonBlockingIssueFromLastRefresh(lastRefresh);
+  const lastNonBlockingSymbols = nonBlockingSymbolsFromTraces(traces);
   return {
     apiKeyPresent,
     corpCodeCacheLoaded: corpCodeStatus.corpCodeCacheLoaded,
@@ -1451,7 +1496,9 @@ export function getGate2DartProviderHealth(): Gate2DartProviderHealth {
     lastCorpCodeCacheUpdatedAt: corpCodeStatus.loadedAt,
     requestEnabled: apiKeyPresent,
     lastHttpStatus: lastTraceWithHttp?.dartHttpStatus ?? corpCodeStatus.lastHttpStatus,
-    lastErrorCode: lastTraceWithHttp?.dartErrorCode ?? corpCodeStatus.lastError,
+    lastErrorCode: lastBlockingTraceWithError?.dartErrorCode ?? (lastNonBlockingIssue ? null : corpCodeStatus.lastError),
+    lastNonBlockingIssue,
+    lastNonBlockingSymbols,
     rateLimitState: traces.some(trace => trace.dartErrorCode === 'RATE_LIMITED' || trace.dartHttpStatus === 429) ? 'RATE_LIMITED' : traces.length > 0 ? 'OK' : 'UNKNOWN',
     cacheWritable,
     executionImpact: 'NONE',
@@ -1554,13 +1601,24 @@ export async function refreshGate2ExternalData(input: {
   const counters = summarizeCounters(traces);
   const providerHealth = getGate2DartProviderHealth();
   const apiKeyPresent = Boolean(process.env.DART_API_KEY || process.env.OPENDART_API_KEY) || Boolean(input.fetcher);
+  const lastBlockingTraceWithError = [...traces].reverse().find(isBlockingTraceError);
+  const lastNonBlockingIssue = counters.dartNotApplicableCount > 0
+    ? counters.dartNotApplicableCount === counters.corpCodeMissing && counters.trueCorpCodeNotFound === 0 && counters.corpCodeLookupFailed === 0
+      ? 'DART_NOT_APPLICABLE_ONLY'
+      : 'DART_NOT_APPLICABLE'
+    : counters.perFailDueToNegativeEps > 0
+      ? 'EPS_NON_POSITIVE'
+      : null;
+  const lastNonBlockingSymbols = nonBlockingSymbolsFromTraces(traces);
   const finalProviderHealth: Gate2DartProviderHealth = {
     ...providerHealth,
     apiKeyPresent,
     requestEnabled: apiKeyPresent,
     lastHttpStatus: [...traces].reverse().find(trace => trace.dartHttpStatus != null)?.dartHttpStatus
       ?? providerHealth.lastHttpStatus,
-    lastErrorCode: [...traces].reverse().find(trace => trace.dartErrorCode != null)?.dartErrorCode ?? providerHealth.lastErrorCode,
+    lastErrorCode: lastBlockingTraceWithError?.dartErrorCode ?? (lastNonBlockingIssue ? null : providerHealth.lastErrorCode),
+    lastNonBlockingIssue,
+    lastNonBlockingSymbols,
     rateLimitState: traces.some(trace => trace.dartErrorCode === 'RATE_LIMITED' || trace.dartHttpStatus === 429) ? 'RATE_LIMITED' : traces.length > 0 ? 'OK' : providerHealth.rateLimitState,
   };
   const rootCause = inferRootCause({
@@ -1570,7 +1628,9 @@ export async function refreshGate2ExternalData(input: {
     corpCodeCacheLoaded: finalProviderHealth.corpCodeCacheLoaded,
     missingCount,
   });
-  const strongBuyBlockedDetails = buildStrongBuyBlockedDetails(counters);
+  const externalDataBlockedDetails = buildExternalDataBlockedDetails(counters);
+  const fundamentalQualityFailDetails = buildFundamentalQualityFailDetails(counters);
+  const fundamentalQualityReason = fundamentalQualityFailReason(fundamentalQualityFailDetails);
   const excludedDetails = buildExcludedDetails(counters);
   const strongBuyBlockedReason = counters.unavailableCountActionable === 0
     ? 'NONE'
@@ -1593,8 +1653,13 @@ export async function refreshGate2ExternalData(input: {
     lookupFailed: counters.corpCodeLookupFailed,
     unavailableDueToPER: counters.unavailableDueToPER,
     unavailableDueToCorpCodeMissing: counters.unavailableDueToCorpCodeMissing,
-    strongBuyBlockedDetails,
-    blockingDetails: strongBuyBlockedDetails,
+    strongBuyBlockedDetails: externalDataBlockedDetails,
+    blockingDetails: externalDataBlockedDetails,
+    externalDataBlockReason: strongBuyBlockedReason,
+    externalDataBlockedDetails,
+    fundamentalQualityFailReason: fundamentalQualityReason,
+    fundamentalQualityFailDetails,
+    qualityFailDetails: fundamentalQualityFailDetails,
     excludedDetails,
     excludedCount: counters.excludedCount,
     excludedSymbols: dartNotApplicableSymbols,
@@ -1623,8 +1688,13 @@ export async function refreshGate2ExternalData(input: {
     traces,
     providerHealth: finalProviderHealth,
     strongBuyBlockedReason,
-    strongBuyBlockedDetails,
-    blockingDetails: strongBuyBlockedDetails,
+    strongBuyBlockedDetails: externalDataBlockedDetails,
+    blockingDetails: externalDataBlockedDetails,
+    externalDataBlockReason: strongBuyBlockedReason,
+    externalDataBlockedDetails,
+    fundamentalQualityFailReason: fundamentalQualityReason,
+    fundamentalQualityFailDetails,
+    qualityFailDetails: fundamentalQualityFailDetails,
     excludedDetails,
     excludedCount: counters.excludedCount,
     excludedSymbols: dartNotApplicableSymbols,

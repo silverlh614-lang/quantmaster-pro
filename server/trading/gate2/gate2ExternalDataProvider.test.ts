@@ -362,7 +362,10 @@ describe('Gate2ExternalDataProvider', () => {
     expect(result.counters.perUnavailableDueToProviderMissing).toBe(1);
     expect(result.counters.unavailableDueToPER).toBe(1);
     expect(result.unavailableCountActionable).toBe(1);
-    expect(result.strongBuyBlockedDetails).toBe('EPS_NON_POSITIVE_1|PER_PROVIDER_MISSING_1');
+    expect(result.strongBuyBlockedDetails).toBe('PER_PROVIDER_MISSING_1');
+    expect(result.externalDataBlockedDetails).toBe('PER_PROVIDER_MISSING_1');
+    expect(result.fundamentalQualityFailDetails).toBe('EPS_NON_POSITIVE_1');
+    expect(result.qualityFailDetails).toBe('EPS_NON_POSITIVE_1');
     expect(result.records.find(record => record.symbol === '005930')?.conditionResults.per.status).toBe('FAIL');
     expect(result.records.find(record => record.symbol === '000660')?.conditionResults.per.status).toBe('UNAVAILABLE');
     expect(result.executionImpact).toBe('NONE');

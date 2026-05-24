@@ -33,7 +33,22 @@ function formatGate2ExternalStatusMessage(): string {
     : summary.recordCount > 0 && summary.missingCount === summary.recordCount
       ? 'DART_FINANCIALS_MISSING'
       : 'GATE2_EXTERNAL_PARTIAL';
+  const externalDataBlockReason = lastRefresh?.externalDataBlockReason ?? strongBuyBlockedReason;
+  const externalDataBlockedDetails = lastRefresh?.externalDataBlockedDetails
+    ?? lastRefresh?.blockingDetails
+    ?? lastRefresh?.strongBuyBlockedDetails
+    ?? 'NONE';
+  const qualityFailDetails = lastRefresh?.qualityFailDetails
+    ?? lastRefresh?.fundamentalQualityFailDetails
+    ?? ((counters?.perFailDueToNegativeEps ?? 0) > 0 ? `EPS_NON_POSITIVE_${counters?.perFailDueToNegativeEps}` : 'NONE');
+  const fundamentalQualityFailReason = lastRefresh?.fundamentalQualityFailReason
+    ?? (qualityFailDetails.includes('EPS_NON_POSITIVE') ? 'EPS_NON_POSITIVE' : 'NONE');
   const providerHealth = lastRefresh?.providerHealth;
+  const equityUniverse = Math.max(0, summary.recordCount - excludedCount);
+  const equityVerified = Math.min(summary.verifiedCount, equityUniverse);
+  const perUniverse = counters?.corpCodeResolved ?? equityUniverse;
+  const perAvailable = counters?.kisPerAvailable ?? 0;
+  const epsNegativeFail = counters?.perFailDueToNegativeEps ?? 0;
   const samples = cache.records.slice(-8).map(record => {
     const snapshot = record.projection.financialSnapshot;
     return [
@@ -97,6 +112,11 @@ function formatGate2ExternalStatusMessage(): string {
       `excludedUnavailableEquivalent=${lastRefresh?.excludedUnavailableEquivalent ?? counters.excludedUnavailableEquivalent ?? 0}`,
       `strongBuyBlockedDetails=${lastRefresh?.strongBuyBlockedDetails ?? 'NONE'}`,
       `blockingDetails=${lastRefresh?.blockingDetails ?? lastRefresh?.strongBuyBlockedDetails ?? 'NONE'}`,
+      `externalDataBlockReason=${externalDataBlockReason}`,
+      `externalDataBlockedDetails=${externalDataBlockedDetails}`,
+      `fundamentalQualityFailReason=${fundamentalQualityFailReason}`,
+      `fundamentalQualityFailDetails=${qualityFailDetails}`,
+      `qualityFailDetails=${qualityFailDetails}`,
       `excludedDetails=${lastRefresh?.excludedDetails ?? 'NONE'}`,
       `corpCodeMissingSymbols=${lastRefresh?.corpCodeMissingSymbols?.join(',') || 'NONE'}`,
       `dartNotApplicableSymbols=${lastRefresh?.dartNotApplicableSymbols?.join(',') || 'NONE'}`,
@@ -105,8 +125,17 @@ function formatGate2ExternalStatusMessage(): string {
       `nonEquitySymbols=${lastRefresh?.nonEquitySymbols?.join(',') || 'NONE'}`,
     ] : []),
     ...(providerHealth ? [
-      `providerHealth=apiKeyPresent:${providerHealth.apiKeyPresent}|requestEnabled:${providerHealth.requestEnabled}|corpCodeCacheLoaded:${providerHealth.corpCodeCacheLoaded}|corpCodeCacheCount:${providerHealth.corpCodeCacheCount}|lastHttpStatus:${providerHealth.lastHttpStatus ?? 'NONE'}|lastErrorCode:${providerHealth.lastErrorCode ?? 'NONE'}|rateLimitState:${providerHealth.rateLimitState}|cacheWritable:${providerHealth.cacheWritable}`,
+      `providerHealth=apiKeyPresent:${providerHealth.apiKeyPresent}|requestEnabled:${providerHealth.requestEnabled}|corpCodeCacheLoaded:${providerHealth.corpCodeCacheLoaded}|corpCodeCacheCount:${providerHealth.corpCodeCacheCount}|lastHttpStatus:${providerHealth.lastHttpStatus ?? 'NONE'}|lastErrorCode:${providerHealth.lastErrorCode ?? 'NONE'}|lastNonBlockingIssue:${providerHealth.lastNonBlockingIssue ?? 'NONE'}|lastNonBlockingSymbols:${providerHealth.lastNonBlockingSymbols?.join(',') || 'NONE'}|rateLimitState:${providerHealth.rateLimitState}|cacheWritable:${providerHealth.cacheWritable}`,
     ] : []),
+    'Gate2 ExternalData Summary:',
+    `- equityFinancialCoverage=${equityVerified}/${equityUniverse}`,
+    `- excludedNonEquity=${excludedCount}`,
+    `- actionableDataMissing=${actionableUnavailable}`,
+    `- perAvailable=${perAvailable}/${perUniverse}`,
+    `- epsNegativeFail=${epsNegativeFail}`,
+    `- externalDataBlock=${externalDataBlockReason}`,
+    `- fundamentalQualityFail=${qualityFailDetails}`,
+    '- executionImpact=NONE',
     `strongBuyBlockedReason=${strongBuyBlockedReason}`,
     'entryHardBlockImpact=NO',
     'shadowObservablePreserved=true',

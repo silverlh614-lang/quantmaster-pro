@@ -30,6 +30,11 @@ export interface Gate2ExternalLastRefreshDiagnostics {
   unavailableDueToCorpCodeMissing?: number;
   strongBuyBlockedDetails?: string;
   blockingDetails?: string;
+  externalDataBlockReason?: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
+  externalDataBlockedDetails?: string;
+  fundamentalQualityFailReason?: 'NONE' | 'EPS_NON_POSITIVE';
+  fundamentalQualityFailDetails?: string;
+  qualityFailDetails?: string;
   excludedDetails?: string;
   excludedCount?: number;
   excludedSymbols?: string[];

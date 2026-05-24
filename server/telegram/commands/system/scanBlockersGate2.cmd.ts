@@ -133,6 +133,11 @@ function externalFromGate2Cache(cache: Gate2ExternalCacheFile): AnyRecord | null
     counterfactualAllowed: projection.counterfactualAllowed,
     blockingDetails: lastRefresh?.blockingDetails ?? lastRefresh?.strongBuyBlockedDetails,
     strongBuyBlockedDetails: lastRefresh?.strongBuyBlockedDetails,
+    externalDataBlockReason: lastRefresh?.externalDataBlockReason,
+    externalDataBlockedDetails: lastRefresh?.externalDataBlockedDetails ?? lastRefresh?.blockingDetails ?? lastRefresh?.strongBuyBlockedDetails,
+    fundamentalQualityFailReason: lastRefresh?.fundamentalQualityFailReason,
+    fundamentalQualityFailDetails: lastRefresh?.fundamentalQualityFailDetails,
+    qualityFailDetails: lastRefresh?.qualityFailDetails ?? lastRefresh?.fundamentalQualityFailDetails,
     excludedDetails: lastRefresh?.excludedDetails,
     excludedCount: lastRefresh?.excludedCount,
   };
@@ -317,6 +322,7 @@ function compactGate2ExternalData(summaryRaw: unknown, gate2Cache: Gate2External
   const scanExternal = resolveGate2ExternalData(summary, entryFilter);
   const cacheExternal = externalFromGate2Cache(gate2Cache);
   const external = cacheExternal ?? scanExternal;
+  const lastRefresh = gate2Cache.lastRefresh;
   const gate2CacheAsOf = gate2Cache.lastRefresh?.asOf ?? gate2Cache.updatedAt ?? 'NONE';
   const lastScanSummaryAsOf = resolveSummaryAsOf(summary);
   const cacheMs = dateMs(gate2CacheAsOf);
@@ -343,6 +349,22 @@ function compactGate2ExternalData(summaryRaw: unknown, gate2Cache: Gate2External
     ? earningsAggregate.sampleReason
     : text(earningsQuality?.reason ?? earningsQuality?.reasonCode, earningsStatus === 'UNAVAILABLE' ? 'EARNINGS_QUALITY_UNAVAILABLE' : 'NONE');
   const stageStatus = text(external?.stageStatus ?? external?.status, external ? 'STAGE_OBSERVED' : 'STAGE_NOT_FETCHED');
+  const excludedCount = Number(external?.excludedCount ?? lastRefresh?.excludedCount ?? 0);
+  const equityUniverse = Math.max(0, cacheRecords.length - excludedCount);
+  const equityVerified = Math.min(
+    cacheRecords.filter(record => record.projection.financialSnapshot.confidence === 'VERIFIED').length,
+    equityUniverse,
+  );
+  const actionableDataMissing = lastRefresh?.unavailableCountActionable
+    ?? lastRefresh?.counters?.unavailableCountActionable
+    ?? 0;
+  const perAvailable = lastRefresh?.counters?.kisPerAvailable ?? 0;
+  const perUniverse = lastRefresh?.counters?.corpCodeResolved ?? equityUniverse;
+  const epsNegativeFail = lastRefresh?.counters?.perFailDueToNegativeEps ?? 0;
+  const externalDataBlockReason = text(external?.externalDataBlockReason, actionableDataMissing > 0 ? 'GATE2_EXTERNAL_PARTIAL' : 'NONE');
+  const externalDataBlockedDetails = text(external?.externalDataBlockedDetails ?? external?.blockingDetails ?? external?.strongBuyBlockedDetails, 'NONE');
+  const qualityFailDetails = text(external?.qualityFailDetails ?? external?.fundamentalQualityFailDetails, epsNegativeFail > 0 ? `EPS_NON_POSITIVE_${epsNegativeFail}` : 'NONE');
+  const fundamentalQualityFailReason = text(external?.fundamentalQualityFailReason, qualityFailDetails.includes('EPS_NON_POSITIVE') ? 'EPS_NON_POSITIVE' : 'NONE');
 
   return [
     'Gate2ExternalData:',
@@ -354,6 +376,15 @@ function compactGate2ExternalData(summaryRaw: unknown, gate2Cache: Gate2External
     `- profitability: roe=${numberText(profitability?.roe)} opm=${numberText(profitability?.opm)} netMargin=${numberText(profitability?.netMargin)} source=${sourceOf(profitability, sourceOf(dart, 'NONE'))}`,
     `- stability: icr=${numberText(stability?.icr)} debtRatio=${numberText(stability?.debtRatio)} currentRatio=${numberText(stability?.currentRatio)} source=${sourceOf(stability, sourceOf(dart, 'NONE'))}`,
     `- earningsQuality: status=${earningsStatus} score=${numberText(earningsQuality?.score ?? earningsAggregate.value)} source=${earningsSource} reason=${earningsReason}`,
+    'Gate2ExternalData Summary:',
+    `- equityFinancialCoverage=${equityVerified}/${equityUniverse}`,
+    `- excludedNonEquity=${excludedCount}`,
+    `- actionableDataMissing=${actionableDataMissing}`,
+    `- perAvailable=${perAvailable}/${perUniverse}`,
+    `- epsNegativeFail=${epsNegativeFail}`,
+    `- externalDataBlock=${externalDataBlockReason}`,
+    `- fundamentalQualityFail=${qualityFailDetails}`,
+    '- executionImpact=NONE',
     'Gate2ConditionResults:',
     `- ${summarizeCondition(projectionTraces, 'earnings_quality', external)}`,
     `- ${summarizeCondition(projectionTraces, 'per', external)}`,
@@ -366,9 +397,15 @@ function compactGate2ExternalData(summaryRaw: unknown, gate2Cache: Gate2External
     '- GATE2_EXTERNAL/EARNINGS_QUALITY provider=DART|CACHE status=READY_FOR_SHADOW|OBSERVING impact=NONE',
     'Gate2Safety:',
     `- highConvictionImpact=${text(external?.highConvictionImpact, 'BLOCK_STRONG_BUY_UPGRADE')}`,
-    `- strongBuyBlockedDetails=${text(external?.blockingDetails ?? external?.strongBuyBlockedDetails, 'NONE')}`,
+    `- strongBuyBlockedDetails=${text(external?.strongBuyBlockedDetails, externalDataBlockedDetails)}`,
+    `- blockingDetails=${externalDataBlockedDetails}`,
+    `- externalDataBlockReason=${externalDataBlockReason}`,
+    `- externalDataBlockedDetails=${externalDataBlockedDetails}`,
+    `- fundamentalQualityFailReason=${fundamentalQualityFailReason}`,
+    `- fundamentalQualityFailDetails=${qualityFailDetails}`,
+    `- qualityFailDetails=${qualityFailDetails}`,
     `- excludedDetails=${text(external?.excludedDetails, 'NONE')}`,
-    `- excludedCount=${String(external?.excludedCount ?? 0)}`,
+    `- excludedCount=${String(excludedCount)}`,
     `- entryHardBlockImpact=${text(external?.entryHardBlockImpact, 'NO')}`,
     `- shadowObservablePreserved=${String(external?.shadowObservablePreserved ?? true)}`,
     `- counterfactualAllowed=${String(external?.counterfactualAllowed ?? true)}`,
