@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { extractMstFromZipBuffer, loadKisOfficialSectorIndexMaster, parseIdxCodeMasterText } from './SectorIndexMasterProvider.js';
 
 function storedZip(fileName: string, content: string): Buffer {
@@ -51,6 +54,41 @@ describe('SectorIndexMasterProvider', () => {
     expect(result.idxcodeMstDownloaded).toBe(true);
     expect(result.parseStatus).toBe('OK');
     expect(result.providerIssue).toBe(false);
+    expect(result.marketSignal).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+  });
+
+  it('falls back to cache when idxcode.mst download fails', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sector-index-master-'));
+    const cacheFile = path.join(dir, 'idxcode.mst');
+    fs.writeFileSync(cacheFile, '1 0021 금융업\n', 'utf8');
+
+    const result = await loadKisOfficialSectorIndexMaster({
+      cacheFile,
+      fetchZip: async () => { throw new Error('network down'); },
+      writeCache: false,
+      now: () => new Date('2026-05-23T00:00:00.000Z'),
+    });
+
+    expect(result.masterLoaded).toBe(true);
+    expect(result.cacheFallbackUsed).toBe(true);
+    expect(result.parseStatus).toBe('OK');
+    expect(result.reasonCodes).toContain('CACHE_FALLBACK_USED');
+    expect(result.executionImpact).toBe('NONE');
+  });
+
+  it('keeps provider failure diagnostic-only when download and cache both fail', async () => {
+    const result = await loadKisOfficialSectorIndexMaster({
+      cacheFile: path.join(os.tmpdir(), `missing-${Date.now()}-idxcode.mst`),
+      fetchZip: async () => { throw new Error('network down'); },
+      writeCache: false,
+      now: () => new Date('2026-05-23T00:00:00.000Z'),
+    });
+
+    expect(result.masterLoaded).toBe(false);
+    expect(result.parseStatus).toBe('FAILED');
+    expect(result.masterRowCount).toBe(0);
+    expect(result.providerIssue).toBe(true);
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
   });

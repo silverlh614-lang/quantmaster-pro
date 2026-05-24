@@ -29,7 +29,7 @@ export interface VerifyOfficialSectorIndexCodesInput {
 }
 
 export interface OfficialSectorIndexMasterCoverageResult {
-  masterSource: 'OFFICIAL_KIS_IDXCODE_MST' | 'OFFICIAL_KRX_SECTOR_INDEX_MASTER' | 'NONE';
+  masterSource: 'OFFICIAL_KIS_IDXCODE_MST' | 'OFFICIAL_KRX_INDEX_MASTER' | 'OFFICIAL_KRX_SECTOR_INDEX_MASTER' | 'CACHE' | 'NONE';
   masterLoaded: boolean;
   masterRowCount: number;
   idxcodeMstDownloaded: boolean;
@@ -40,8 +40,11 @@ export interface OfficialSectorIndexMasterCoverageResult {
   mappedSectorCount: number;
   verifiedIndexCodeCount: number;
   targetSectorCount: number;
+  safeAliasCoverage?: number;
   safeAliasCount: number;
   unsafeAliasCount: number;
+  unresolvedCount?: number;
+  sourceTier?: 'OFFICIAL_KRX_SECTOR_INDEX' | 'OFFICIAL_KIS_SECTOR_INDEX' | 'CACHE' | 'NONE';
   aliasResolvedCount: number;
   unresolvedSectorNames: string[];
   topMissingSectorNames: string[];
@@ -49,6 +52,8 @@ export interface OfficialSectorIndexMasterCoverageResult {
   verifyTrId: typeof KIS_SECTOR_INDEX_VERIFY_TR_ID;
   verifySuccessCount: number;
   verifyFailCount: number;
+  verifyApiSuccessSamples?: OfficialSectorIndexVerifyResult[];
+  verifyApiFailureSamples?: OfficialSectorIndexVerifyResult[];
   providerIssue: boolean;
   marketSignal: false;
   executionImpact: 'NONE';
@@ -121,6 +126,9 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   const verifySuccessCount = verificationResults.filter((result) => result.verified).length;
   const verifyFailCount = verificationResults.length - verifySuccessCount;
   const verifiedIndexCodeCoverage = pct(verifySuccessCount, mapping.targetSectorCount);
+  const masterSource = provider?.cacheFallbackUsed
+    ? 'CACHE'
+    : provider?.masterSource ?? 'NONE';
   const reasonCodes = new Set<string>([
     ...mapping.reasonCodes,
     ...(provider?.reasonCodes ?? []),
@@ -134,19 +142,28 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   reasonCodes.add('EXECUTION_IMPACT_NONE_CONFIRMED');
 
   return {
-    masterSource: provider?.masterSource ?? 'NONE',
+    masterSource,
     masterLoaded: provider?.masterLoaded ?? masterRows.length > 0,
     masterRowCount: provider?.masterRowCount ?? masterRows.length,
     idxcodeMstDownloaded: provider?.idxcodeMstDownloaded ?? false,
     cacheFallbackUsed: provider?.cacheFallbackUsed ?? false,
-    parseStatus: provider?.parseStatus ?? (masterRows.length > 0 ? 'OK' : 'CACHE_MISSING'),
+    parseStatus: provider?.parseStatus ?? (masterRows.length > 0 ? 'OK' : 'FAILED'),
     officialIndexCoverage: mapping.officialIndexCoverage,
     verifiedIndexCodeCoverage,
     mappedSectorCount: mapping.mappedSectorCount,
     verifiedIndexCodeCount: verifySuccessCount,
     targetSectorCount: mapping.targetSectorCount,
+    safeAliasCoverage: pct(mapping.safeAliasCount, mapping.targetSectorCount),
     safeAliasCount: mapping.safeAliasCount,
     unsafeAliasCount: mapping.unsafeAliasCount,
+    unresolvedCount: mapping.unresolvedSectorNames.length,
+    sourceTier: masterSource === 'CACHE'
+      ? 'CACHE'
+      : provider?.masterSource === 'OFFICIAL_KIS_IDXCODE_MST'
+        ? 'OFFICIAL_KIS_SECTOR_INDEX'
+        : masterRows.some((row) => row.sourceTier === 'OFFICIAL_KRX_SECTOR_INDEX')
+          ? 'OFFICIAL_KRX_SECTOR_INDEX'
+          : 'NONE',
     aliasResolvedCount: mapping.aliasResolvedCount,
     unresolvedSectorNames: mapping.unresolvedSectorNames,
     topMissingSectorNames: mapping.topMissingSectorNames,
@@ -154,6 +171,8 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     verifyTrId: KIS_SECTOR_INDEX_VERIFY_TR_ID,
     verifySuccessCount,
     verifyFailCount,
+    verifyApiSuccessSamples: verificationResults.filter((result) => result.verified).slice(0, 3),
+    verifyApiFailureSamples: verificationResults.filter((result) => !result.verified).slice(0, 3),
     providerIssue: Boolean(provider?.providerIssue) || verificationResults.some((result) => result.providerIssue),
     marketSignal: false,
     executionImpact: 'NONE',

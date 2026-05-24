@@ -24,7 +24,7 @@ export interface SectorIndexMasterProviderResult {
   masterRowCount: number;
   idxcodeMstDownloaded: boolean;
   cacheFallbackUsed: boolean;
-  parseStatus: 'OK' | 'EMPTY' | 'FETCH_FAILED' | 'CACHE_MISSING' | 'PARSE_FAILED';
+  parseStatus: 'OK' | 'FAILED' | 'PARTIAL' | 'NOT_ATTEMPTED';
   rows: OfficialSectorIndexMasterRow[];
   providerIssue: boolean;
   marketSignal: false;
@@ -185,7 +185,7 @@ export async function loadKisOfficialSectorIndexMaster(
   let idxText: string | null = null;
   let idxcodeMstDownloaded = false;
   let cacheFallbackUsed = false;
-  let parseStatus: SectorIndexMasterProviderResult['parseStatus'] = 'FETCH_FAILED';
+  let parseStatus: SectorIndexMasterProviderResult['parseStatus'] = 'NOT_ATTEMPTED';
 
   try {
     const zip = await fetchZip(url);
@@ -201,8 +201,9 @@ export async function loadKisOfficialSectorIndexMaster(
       idxText = cached;
       cacheFallbackUsed = true;
       reasonCodes.add('OFFICIAL_INDEX_MASTER_CACHE_FALLBACK_USED');
+      reasonCodes.add('CACHE_FALLBACK_USED');
     } else {
-      parseStatus = 'CACHE_MISSING';
+      parseStatus = 'FAILED';
       reasonCodes.add('OFFICIAL_INDEX_MASTER_FETCH_FAILED');
       reasonCodes.add('OFFICIAL_INDEX_MASTER_CACHE_MISSING');
     }
@@ -212,10 +213,10 @@ export async function loadKisOfficialSectorIndexMaster(
   if (idxText) {
     try {
       rows = parseIdxCodeMasterText(idxText);
-      parseStatus = rows.length > 0 ? 'OK' : 'EMPTY';
+      parseStatus = rows.length > 0 ? 'OK' : 'FAILED';
       reasonCodes.add(rows.length > 0 ? 'OFFICIAL_INDEX_MASTER_LOADED' : 'OFFICIAL_INDEX_MASTER_EMPTY');
     } catch {
-      parseStatus = 'PARSE_FAILED';
+      parseStatus = 'FAILED';
       reasonCodes.add('OFFICIAL_INDEX_MASTER_PARSE_FAILED');
     }
   }

@@ -27,6 +27,7 @@ import {
   mapFreshDataSupplyReportToStatusInputsAdr0498,
   mapInvestorFlowRouterToStatusInputAdr0498,
   mapPromotionAuditEvaluationToStatusInputAdr0498,
+  mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498,
   safeBuildFreshDataStatusSectionAdr0498,
 } from '../../../diagnostics/freshDataStatusViewModelWiringAdr0498.js';
 
@@ -104,8 +105,9 @@ const freshDataStatus: TelegramCommand = {
     const adr0498Section = safeBuildFreshDataStatusSectionAdr0498([
       ...(routerStatusInput ? [routerStatusInput] : []),
       ...mapFreshDataSupplyReportToStatusInputsAdr0498(report),
+      ...mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(adr0488),
       ...promotionAudits.map(mapPromotionAuditEvaluationToStatusInputAdr0498),
-    ], { maxLines: 6 });
+    ], { maxLines: 9 });
     const adr0498Summary = ['ADR-0498 Normalized FreshDataStatus', ...adr0498Section.lines].join('\n');
     await reply(`${adr0498Summary}\n\n${formatFreshDataSupplyDetailAdr0487(report)}\n\n${formatSupplyCoverageSummaryAdr0496(investorFlow.adr0496SupplyCoverage)}\n\n${formatSectorEnergySupplyUnknownDetailAdr0488(adr0488)}\n\n${promotionSummary.promotionAuditSummary}\n${promotionLines}`);
   },

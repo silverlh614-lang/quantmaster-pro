@@ -8,6 +8,7 @@ import {
   mapFreshDataSupplyReportToStatusInputsAdr0498,
   mapInvestorFlowRouterToStatusInputAdr0498,
   mapRuntimeFreshDataSummaryToStatusInputsAdr0498,
+  mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498,
   mapStatusFromCoverageAdr0498,
   safeBuildFreshDataStatusSectionAdr0498,
 } from './freshDataStatusViewModelWiringAdr0498.js';
@@ -269,6 +270,39 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     const section = safeBuildFreshDataStatusSectionAdr0498(inputs, { maxLines: 1 });
     expect(section.lines[0]).toContain('provider=CACHE');
     expect(section.lines[0]).not.toContain('provider=EMPTY');
+  });
+
+  it('exposes official sector index master status as KRX/KIS/mapping data lines', () => {
+    const inputs = mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498({
+      sectorEnergyMaster: {
+        officialIndexCoverage: 50,
+        verifiedIndexCodeCoverage: 25,
+        promotionAllowed: false,
+        officialSectorIndexMaster: {
+          masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+          masterLoaded: true,
+          masterRowCount: 120,
+          cacheFallbackUsed: false,
+          parseStatus: 'OK',
+          officialIndexCoverage: 50,
+          verifiedIndexCodeCoverage: 25,
+          mappedSectorCount: 6,
+          verifiedIndexCodeCount: 3,
+          targetSectorCount: 12,
+          unresolvedSectorNames: ['방산'],
+          reasonCodes: ['PROMOTION_DISABLED_COVERAGE_BELOW_80'],
+        },
+      },
+    });
+    const section = safeBuildFreshDataStatusSectionAdr0498(inputs, { maxLines: 6 });
+    const text = section.lines.join('\n');
+
+    expect(text).toContain('SECTOR_ENERGY/KRX_SECTOR_INDEX_MASTER provider=KRX confidence=MISSING');
+    expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_MASTER provider=KIS confidence=PARTIAL');
+    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_CODE_MAPPING provider=INTERNAL confidence=PARTIAL');
+    expect(text).toContain('promo=BLOCKED');
+    expect(text).toContain('impact=NONE');
+    expect(text).not.toContain('signal=BEARISH');
   });
 
   it('contains no forbidden live order, Gate/Kelly mutation, persistence, or provider fetch patterns', () => {

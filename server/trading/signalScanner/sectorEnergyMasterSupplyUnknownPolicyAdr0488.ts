@@ -864,7 +864,10 @@ export function buildSectorEnergyMasterReportAdr0488(
     record.normalized,
   );
   const hasKisOfficialRecord = officialRecords.some((record) => record.source === 'KIS')
-    || officialSectorIndexMaster?.masterSource === 'OFFICIAL_KIS_IDXCODE_MST';
+    || officialSectorIndexMaster?.masterSource === 'OFFICIAL_KIS_IDXCODE_MST'
+    || officialSectorIndexMaster?.masterSource === 'CACHE'
+    || officialSectorIndexMaster?.sourceTier === 'OFFICIAL_KIS_SECTOR_INDEX'
+    || officialSectorIndexMaster?.sourceTier === 'CACHE';
   const hasKrxOfficialRecord = officialRecords.some((record) => record.source === 'KRX');
   const verifiedRecordCoverage = recordTotal > 0
     ? (officialRecords.length / recordTotal) * 100

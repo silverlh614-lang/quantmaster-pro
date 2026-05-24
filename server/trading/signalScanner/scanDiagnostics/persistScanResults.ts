@@ -116,6 +116,10 @@ import {
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
+import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMasterProvider.js';
+import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
+import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
+import type { OfficialSectorIndexTarget } from '../../../sector/SectorIndexCodeMap.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
@@ -156,6 +160,98 @@ function countFiniteCandidateMetric(
     if (hasMetric) count += 1;
   }
   return count;
+}
+
+function firstStringValue(record: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function nestedRecord(record: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = record[key];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function collectOfficialSectorIndexTargets(
+  snapshots: readonly CandidateSnapshot[],
+  diagnostic: unknown,
+): OfficialSectorIndexTarget[] {
+  const targets = new Map<string, OfficialSectorIndexTarget>();
+  const addTarget = (target: OfficialSectorIndexTarget): void => {
+    const sectorName = String(target.sectorName ?? '').trim();
+    if (!sectorName) return;
+    const key = `${sectorName}|${target.sectorKey ?? ''}|${target.candidateIndexCode ?? ''}`;
+    if (!targets.has(key)) targets.set(key, target);
+  };
+
+  for (const snapshot of snapshots) {
+    const root = snapshot as unknown as Record<string, unknown>;
+    const featurePack = nestedRecord(root, 'featurePack');
+    const quote = nestedRecord(root, 'quote');
+    const symbolFeatures = nestedRecord(root, 'symbolFeatures');
+    const classification = nestedRecord(root, 'classification') ?? nestedRecord(root, 'sectorClassification');
+    const sectorName =
+      firstStringValue(root, ['sectorName', 'sector', 'industry', 'theme', 'themeName'])
+      ?? (featurePack ? firstStringValue(featurePack, ['sectorName', 'sector', 'industry', 'theme', 'themeName']) : null)
+      ?? (classification ? firstStringValue(classification, ['sectorName', 'sector', 'industry', 'theme', 'themeName']) : null);
+    const sectorKey =
+      firstStringValue(root, ['sectorKey', 'themeKey'])
+      ?? (featurePack ? firstStringValue(featurePack, ['sectorKey', 'themeKey']) : null)
+      ?? (classification ? firstStringValue(classification, ['sectorKey', 'themeKey']) : null);
+    const candidateIndexCode =
+      firstStringValue(root, ['indexCode', 'sectorIndexCode', 'officialIndexCode'])
+      ?? (featurePack ? firstStringValue(featurePack, ['indexCode', 'sectorIndexCode', 'officialIndexCode']) : null)
+      ?? (quote ? firstStringValue(quote, ['sectorIndexCode', 'officialIndexCode']) : null)
+      ?? (symbolFeatures ? firstStringValue(symbolFeatures, ['sectorIndexCode', 'officialIndexCode']) : null);
+    if (sectorName) addTarget({
+      sectorName,
+      ...(sectorKey ? { sectorKey } : {}),
+      ...(candidateIndexCode ? { candidateIndexCode } : {}),
+    });
+  }
+
+  const diag = diagnostic && typeof diagnostic === 'object' ? diagnostic as Record<string, unknown> : null;
+  const sectorRows = diag ? [
+    diag.sectors,
+    diag.sectorRows,
+    diag.records,
+    diag.rows,
+  ].find((value): value is unknown[] => Array.isArray(value)) : null;
+  if (sectorRows) {
+    for (const row of sectorRows) {
+      if (!row || typeof row !== 'object') continue;
+      const record = row as Record<string, unknown>;
+      const sectorName = firstStringValue(record, ['sectorName', 'officialIndexName', 'idxName', 'indexName', 'displayName', 'name']);
+      if (!sectorName) continue;
+      const sectorKey = firstStringValue(record, ['sectorKey', 'themeKey']);
+      const candidateIndexCode = firstStringValue(record, ['indexCode', 'sectorIndexCode', 'officialIndexCode', 'idxCode']);
+      addTarget({
+        sectorName,
+        ...(sectorKey ? { sectorKey } : {}),
+        ...(candidateIndexCode ? { candidateIndexCode } : {}),
+      });
+    }
+  }
+  if (diag) {
+    const grouped = nestedRecord(diag, 'groupedSectorEnergy') ?? nestedRecord(diag, 'groupedSectorSnapshot');
+    const topGroupedRaw = diag.topGroupedSectors ?? grouped?.topGroupedSectors;
+    const topGroupedSectors = Array.isArray(topGroupedRaw)
+      ? topGroupedRaw
+      : typeof topGroupedRaw === 'string'
+        ? topGroupedRaw.split(',')
+        : [];
+    for (const sector of topGroupedSectors) {
+      const sectorName = typeof sector === 'string' ? sector.trim() : '';
+      if (sectorName) addTarget({ sectorName, sectorKey: sectorName });
+    }
+  }
+
+  return Array.from(targets.values()).slice(0, 64);
 }
 
 function watchlistFallbackCandidates(): CandidatePoolInputCandidate[] {
@@ -1368,9 +1464,21 @@ export async function persistScanResults(
       investorFlowProviderRouterAdr0477: summaryDraft.investorFlowProviderRouter,
       supplyCoverageReportAdr0496: summaryDraft.investorFlowSampleAdr0489.adr0496SupplyCoverage,
     });
+    let officialSectorIndexMaster: OfficialSectorIndexMasterCoverageResult | null = null;
+    const officialSectorTargets = collectOfficialSectorIndexTargets(
+      options.candidateSnapshots ?? counters.entryCandidateSnapshots,
+      summaryDraft.sectorEnergyQualityDiagnostic,
+    );
+    const officialSectorProvider = await loadKisOfficialSectorIndexMaster({ writeCache: true });
+    officialSectorIndexMaster = await buildOfficialSectorIndexMasterCoverage({
+      provider: officialSectorProvider,
+      targets: officialSectorTargets,
+      verifyIndexCode: verifySectorIndexCodeWithKisCurrentPrice,
+    });
     summaryDraft.sectorEnergySupplyUnknownAdr0488 = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       generatedAt: kstNow.toISOString(),
       sectorEnergyDiagnosticAdr0474: summaryDraft.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+      officialSectorIndexMaster,
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
       finalGate1CalibrationAdr0471: summaryDraft.finalGate1Calibration,
       penaltyDeduplicationAdr0469: summaryDraft.penaltyDeduplication,

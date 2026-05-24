@@ -7,6 +7,8 @@ export type OfficialSectorEnergySourceTier =
   | 'KIS_STOCK_BASKET_DERIVED'
   | 'NONE';
 
+export type SectorIndexSourceTier = OfficialSectorEnergySourceTier;
+
 export interface OfficialSectorIndexMasterRow {
   market: 'KOSPI' | 'KOSDAQ' | 'KOSPI200' | 'UNKNOWN';
   idxDiv?: string;
@@ -14,11 +16,15 @@ export interface OfficialSectorIndexMasterRow {
   officialIndexName: string;
   normalizedSectorName: string;
   rawSectorName: string;
-  sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' | 'OFFICIAL_KRX_SECTOR_INDEX';
+  sourceTier: SectorIndexSourceTier;
   aliasResolved: boolean;
   aliasSource?: string;
   unsafeAlias: boolean;
+  verified?: boolean;
+  verifyReason?: string;
 }
+
+export type SectorIndexMasterRow = OfficialSectorIndexMasterRow;
 
 export interface OfficialSectorIndexTarget {
   sectorName: string;
@@ -63,11 +69,23 @@ const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
   ['securities', ['securities', 'brokerage']],
   ['chemical', ['chemical', 'chemicals']],
   ['pharma', ['pharma', 'pharmaceutical', 'healthcare', 'bio']],
-  ['auto', ['auto', 'automotive', 'transport equipment']],
-  ['electric electronics', ['electric electronics', 'electronics', 'semiconductor', 'it']],
+  ['electric electronics', ['electric electronics', 'electronics']],
   ['machinery', ['machinery', 'machine equipment']],
   ['construction', ['construction']],
   ['steel', ['steel', 'metal']],
+  ['전기전자', ['전기전자', 'electric electronics', 'electronics']],
+  ['금융업', ['금융', '금융업', 'finance', 'financial', 'financials']],
+  ['보험', ['보험']],
+  ['증권', ['증권']],
+  ['은행', ['은행']],
+  ['화학', ['화학', 'chemical', 'chemicals']],
+  ['제약', ['제약', 'pharma', 'pharmaceutical']],
+  ['운수장비', ['운수장비', '운송장비', 'transport equipment']],
+  ['기계', ['기계', 'machinery']],
+  ['철강금속', ['철강금속', '철강', 'steel', 'metal']],
+  ['서비스업', ['서비스업', '서비스', 'service']],
+  ['건설업', ['건설업', '건설', 'construction']],
+  ['운수창고', ['운수창고', 'transport warehouse']],
 ]);
 
 const UNSAFE_THEME_KEYS = new Set([
@@ -76,6 +94,29 @@ const UNSAFE_THEME_KEYS = new Set([
   'ROBOT',
   'SHIPBUILDING',
   'BATTERY',
+  'SEMICONDUCTOR',
+  'AUTO',
+  'AI',
+]);
+
+const UNSAFE_THEME_NORMALIZED_NAMES = new Set([
+  'defense',
+  'nuclear',
+  'robot',
+  'shipbuilding',
+  'battery',
+  'semiconductor',
+  'auto',
+  'automotive',
+  'ai',
+  '조선',
+  '방산',
+  '원자력',
+  '2차전지',
+  '이차전지',
+  '로봇',
+  '반도체',
+  '자동차',
 ]);
 
 function stripNoise(value: string): string {
@@ -85,6 +126,7 @@ function stripNoise(value: string): string {
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/[{}]/g, ' ')
     .replace(/\b(KRX|KOSPI|KOSDAQ|KONEX|INDEX|INDICES|SECTOR|INDUSTRY|COMPOSITE)\b/gi, ' ')
+    .replace(/(한국거래소|코스피|코스닥|코넥스|업종|섹터|산업|지수)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -124,8 +166,12 @@ function findBySafeAlias(
 function isUnsafeThemeTarget(target: OfficialSectorIndexTarget): boolean {
   const key = String(target.sectorKey ?? '').trim().toUpperCase();
   if (UNSAFE_THEME_KEYS.has(key)) return true;
-  const normalized = normalizeOfficialSectorName(target.sectorName);
-  return ['defense', 'nuclear', 'robot', 'shipbuilding', 'battery'].includes(normalized);
+  const candidates = [
+    target.sectorName,
+    target.sectorKey,
+    ...(target.aliasCandidates ?? []),
+  ].map(normalizeOfficialSectorName).filter(Boolean);
+  return candidates.some((candidate) => UNSAFE_THEME_NORMALIZED_NAMES.has(candidate));
 }
 
 function pct(count: number, total: number): number {
@@ -173,7 +219,10 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       }
     }
 
-    if (matched && !unsafeTheme) {
+    const matchedOfficial = matched?.sourceTier === 'OFFICIAL_KIS_SECTOR_INDEX'
+      || matched?.sourceTier === 'OFFICIAL_KRX_SECTOR_INDEX';
+
+    if (matched && matchedOfficial && !unsafeTheme) {
       if (safeAlias) safeAliasCount += 1;
       rows.push({
         sectorName,
@@ -189,6 +238,25 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         officialCoverageEligible: true,
         shadowEvidenceOnly: false,
         reasonCode: safeAlias ? 'SAFE_ALIAS_MAPPED' : 'OFFICIAL_INDEX_CODE_MAPPED',
+      });
+      continue;
+    }
+
+    if (matched && !matchedOfficial) {
+      rows.push({
+        sectorName,
+        sectorKey: target.sectorKey,
+        officialIndexCode: matched.officialIndexCode,
+        officialIndexName: matched.officialIndexName,
+        market: matched.market,
+        sourceTier: matched.sourceTier,
+        aliasResolved: Boolean(aliasSource),
+        ...(aliasSource ? { aliasSource } : {}),
+        safeAlias,
+        unsafeAlias: unsafeTheme,
+        officialCoverageEligible: false,
+        shadowEvidenceOnly: true,
+        reasonCode: 'NON_OFFICIAL_SOURCE_SHADOW_ONLY',
       });
       continue;
     }
