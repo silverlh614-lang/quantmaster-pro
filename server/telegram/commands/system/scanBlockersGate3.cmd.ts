@@ -2,8 +2,15 @@
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
+import { loadGate2ExternalCache } from '../../../trading/gate2/gate2ExternalCache.js';
 import type { Gate3ConsolidatedAuditSummary, GateLayerAuditSummary } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate3TimingReadinessAuditSection } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
+import { buildGate2ConfluenceSummary } from '../../../quant/gate2ConfluenceScore.js';
+import {
+  buildGate3RuntimeClosureSummary,
+  formatGate3RuntimeClosureCompact,
+  formatGate3RuntimeClosureFull,
+} from '../../../quant/gate3RuntimeClosure.js';
 import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDetail.js';
 import { formatGate3ShadowRoutingAuditSection } from '../../../quant/gate3ShadowPolicy.js';
 import { formatGate3OutcomeTrackingSummary } from '../../../quant/gate3OutcomeSeed.js';
@@ -23,6 +30,49 @@ function topLabel(counts: Record<string, number> | undefined): string {
     .filter(([, value]) => Number.isFinite(value) && value > 0)
     .sort((a, b) => Number(b[1]) - Number(a[1]));
   return top ? top[0] : 'none';
+}
+
+type AnyRecord = Record<string, unknown>;
+
+function recordOf(value: unknown): AnyRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as AnyRecord : null;
+}
+
+function arrayOfRecords(value: unknown): AnyRecord[] {
+  return Array.isArray(value) ? value.map(recordOf).filter((item): item is AnyRecord => Boolean(item)) : [];
+}
+
+function getByPath(source: unknown, path: string): unknown {
+  let current: unknown = source;
+  for (const part of path.split('.')) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as AnyRecord)[part];
+  }
+  return current;
+}
+
+function text(value: unknown, fallback = 'UNKNOWN_SOURCE_SNAPSHOT'): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function resolveEntryFilter(summary: AnyRecord | null): AnyRecord | null {
+  return recordOf(summary?.entryFilterDecomposition) ?? recordOf(summary?.entryFilterDecompositionAdr0464);
+}
+
+function resolveCandidateTraces(summary: AnyRecord | null): AnyRecord[] {
+  return arrayOfRecords(resolveEntryFilter(summary)?.candidateTraces);
+}
+
+function resolveSourceSnapshotId(summary: AnyRecord | null): string {
+  return text(
+    summary?.sourceSnapshotId
+      ?? summary?.scanId
+      ?? getByPath(summary, 'candidatePool.sourceSnapshotId')
+      ?? getByPath(summary, 'entryFilterDecomposition.sourceSnapshotId')
+      ?? getByPath(summary, 'gateLayerAudit.sourceSnapshotId')
+      ?? summary?.asOf
+      ?? summary?.time,
+  );
 }
 
 export function formatScanBlockersGate3Section(
@@ -126,8 +176,29 @@ const scanBlockersGate3: TelegramCommand = {
   usage: '/scan_blockers_gate3',
   async execute({ reply }) {
     const summary = getLastScanSummary();
+    const summaryRecord = recordOf(summary);
+    const candidateTraces = resolveCandidateTraces(summaryRecord);
+    const gate2Cache = loadGate2ExternalCache();
+    const gate2Confluence = buildGate2ConfluenceSummary({
+      traces: candidateTraces,
+      sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
+      gate2CacheRecords: gate2Cache.records as unknown as Record<string, unknown>[],
+    });
+    const gate2StatusBySymbol = new Map<string, string>(gate2Confluence.results.map(result => [result.symbol, result.gate2Status]));
+    for (const trace of candidateTraces) {
+      const symbol = text(trace.symbol, '');
+      const explicitStatus = text(trace.gate2Status, '');
+      if (symbol && explicitStatus) gate2StatusBySymbol.set(symbol, explicitStatus);
+    }
+    const runtimeClosure = buildGate3RuntimeClosureSummary({
+      traces: candidateTraces,
+      sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
+      gate2StatusBySymbol,
+    });
     const audit = summary?.gateLayerAudit;
     const compact = formatScanBlockersGate3Section(audit);
+    const runtimeCompact = formatGate3RuntimeClosureCompact(runtimeClosure);
+    const runtimeFull = formatGate3RuntimeClosureFull(runtimeClosure);
     const full = formatGate3TimingReadinessAuditSection(audit?.gate3Consolidated as Gate3ConsolidatedAuditSummary | undefined);
     const routing = formatGate3ShadowRoutingAuditSection(audit?.gate3Consolidated?.shadowRouting);
     const outcomes = formatGate3OutcomeTrackingSummary(audit?.gate3Consolidated?.outcomeTracking);
@@ -146,6 +217,9 @@ const scanBlockersGate3: TelegramCommand = {
       `source=${summary ? 'lastScanSummary' : 'none'} executionImpact=NONE`,
       '',
       compact,
+      '',
+      runtimeCompact,
+      ...(runtimeFull ? ['', runtimeFull] : []),
       ...(full ? ['', full] : []),
       ...(routing ? ['', routing] : []),
       ...(outcomes ? ['', outcomes] : []),

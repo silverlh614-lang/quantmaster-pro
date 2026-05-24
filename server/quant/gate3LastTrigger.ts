@@ -52,6 +52,7 @@ export interface Gate3RrrCheckDiagnostic {
   passed: boolean;
   status: Gate3RrrStatus;
   reason: string | null;
+  missingReason?: Gate3RrrInput['missingReason'];
   entryPrice: number | null;
   stopLoss: number | null;
   targetPrice: number | null;
@@ -59,6 +60,10 @@ export interface Gate3RrrCheckDiagnostic {
   missingFields: string[];
   notes: string[];
   fallbackUsed: boolean;
+  stopFallbackUsed: boolean;
+  targetFallbackUsed: boolean;
+  inputCoverage: Record<string, boolean>;
+  breakPoint: string;
   marketSignal: false;
 }
 
@@ -229,6 +234,7 @@ export function buildGate3RrrCheck(quote: Record<string, unknown>): Gate3RrrChec
     passed,
     status: built.status,
     reason,
+    ...(built.missingReason ? { missingReason: built.missingReason } : {}),
     entryPrice: built.entryPrice,
     stopLoss: built.stopLoss,
     targetPrice: built.targetPrice,
@@ -236,6 +242,10 @@ export function buildGate3RrrCheck(quote: Record<string, unknown>): Gate3RrrChec
     missingFields: built.missingFields,
     notes: built.notes,
     fallbackUsed: built.fallbackUsed,
+    stopFallbackUsed: built.stopFallbackUsed,
+    targetFallbackUsed: built.targetFallbackUsed,
+    inputCoverage: built.inputCoverage,
+    breakPoint: built.breakPoint,
     marketSignal: false,
   };
 }

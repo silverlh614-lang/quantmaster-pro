@@ -18,13 +18,21 @@ vi.mock('../../../trading/signalScanner/scanDiagnostics.js', () => ({
   getLastScanSummary: () => mockSummary,
 }));
 
+vi.mock('../../../trading/gate2/gate2ExternalCache.js', () => ({
+  loadGate2ExternalCache: () => ({
+    version: 1,
+    updatedAt: '2026-05-24T09:00:00.000Z',
+    records: [],
+  }),
+}));
+
 describe('/scan_blockers_gate3 command', () => {
   beforeEach(async () => {
     vi.resetModules();
     const rawCandidateDetails = [
       buildGate3CandidateDetail({
         symbol: '204320',
-        name: 'HL만도',
+        name: 'HL Mando',
         sourceSnapshotId: 'scan-eval:test',
         asOf: '2026-05-24T09:00:00.000Z',
         consolidatedDiagnostic: {
@@ -63,6 +71,28 @@ describe('/scan_blockers_gate3 command', () => {
     });
     const thresholdEvidence = buildGate3EvidenceScore(outcomeSeeds);
     mockSummary = {
+      sourceSnapshotId: 'scan-eval:test',
+      entryFilterDecomposition: {
+        candidateTraces: [
+          {
+            symbol: '204320',
+            name: 'HL Mando',
+            gate1Passed: true,
+            gate2Status: 'GATE2_PASS_STRONG',
+            currentPrice: 10_000,
+            high20d: 9_900,
+            volume: 2_000_000,
+            avgVolume20d: 1_000_000,
+            rsi14: 58,
+            macdHistogram: 0.2,
+            priceFreshness: 'VERIFIED',
+            entryPriceAgeSec: 20,
+            stopLoss: 9_300,
+            targetPrice: 11_500,
+            falseBreakoutRisk: 'LOW',
+          },
+        ],
+      },
       gateLayerAudit: {
         gate1PassCount: 3,
         gate2PassCount: 2,
@@ -152,6 +182,11 @@ describe('/scan_blockers_gate3 command', () => {
     const text = replies.join('\n');
     expect(text).toContain('[scan_blockers_gate3] Gate3 Entry Timing / LastTrigger / Price & Volume Guard');
     expect(text).toContain('Gate3 Timing Readiness');
+    expect(text).toContain('Gate3 Regression & LastTrigger Closure');
+    expect(text).toContain('gate3Ready: 1');
+    expect(text).toContain('rrrComputed: 1/1');
+    expect(text).toContain('LastTrigger states: TRIGGERED:1');
+    expect(text).toContain('livePermissionNotEvaluatedHere=true');
     expect(text).toContain('gate3Pass: 1');
     expect(text).toContain('lastTriggerPass: 1');
     expect(text).toContain('lastTriggerWait: 1');
@@ -165,7 +200,7 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('price=NOT_CONFIRMED');
     expect(text).toContain('volume=WEAK 0.80x');
     expect(text).toContain('Gate3 Candidate Detail');
-    expect(text).toContain('HL만도(204320) READY');
+    expect(text).toContain('HL Mando(204320) READY');
     expect(text).toContain('Gate3 Shadow Entry Routing');
     expect(text).toContain('shadowEntryAllowed: 1');
     expect(text).toContain('livePolicyBlocked: 1');

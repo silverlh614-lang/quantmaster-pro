@@ -12,29 +12,33 @@ describe('buildGate3RrrInput', () => {
     const result = buildGate3RrrInput({ ...base, stopLoss: 9_300, targetPrice: 11_500 });
     expect(result.rrr).toBeCloseTo(1500 / 700, 5);
     expect(result.status).toBe('PASS');
-    expect(result.source).toBe('MEASURED_MOVE');
+    expect(result.source).toBe('EXPLICIT');
+    expect(result.breakPoint).toBe('RRR_COMPUTED');
   });
 
   it('uses fallback target when target is missing', () => {
     const result = buildGate3RrrInput({ ...base, stopLoss: 9_300 });
-    expect(result.targetPrice).toBe(11_500);
+    expect(result.targetPrice).toBe(11_750);
     expect(result.status).toBe('PASS');
     expect(result.source).toBe('FALLBACK_PERCENT');
     expect(result.fallbackUsed).toBe(true);
+    expect(result.targetFallbackUsed).toBe(true);
   });
 
   it('uses fallback stop when stop is missing', () => {
     const result = buildGate3RrrInput({ ...base, targetPrice: 11_500 });
-    expect(result.stopLoss).toBe(9_300);
-    expect(result.status).toBe('PASS');
+    expect(result.stopLoss).toBe(9_200);
+    expect(result.status).toBe('WATCH');
     expect(result.source).toBe('FALLBACK_PERCENT');
     expect(result.fallbackUsed).toBe(true);
+    expect(result.stopFallbackUsed).toBe(true);
   });
 
   it('returns MISSING when price is missing', () => {
     const result = buildGate3RrrInput({ stopLoss: 9_300, targetPrice: 11_500 });
     expect(result.status).toBe('MISSING');
     expect(result.missingFields).toContain('entryPrice');
+    expect(result.missingReason).toBe('RRR_MISSING_ENTRY');
   });
 
   it('sanity rejects target below entry as MISSING', () => {
@@ -42,6 +46,7 @@ describe('buildGate3RrrInput', () => {
     expect(result.status).toBe('MISSING');
     expect(result.missingFields).toContain('targetPrice');
     expect(result.notes).toContain('RRR_TARGET_SANITY_REJECTED');
+    expect(result.missingReason).toBe('RRR_INVALID_REWARD');
   });
 
   it('sanity rejects stop above entry as MISSING', () => {
@@ -49,6 +54,7 @@ describe('buildGate3RrrInput', () => {
     expect(result.status).toBe('MISSING');
     expect(result.missingFields).toContain('stopLoss');
     expect(result.notes).toContain('RRR_STOP_SANITY_REJECTED');
+    expect(result.missingReason).toBe('RRR_INVALID_RISK');
   });
 
   it('classifies rrr below 1.5 as FAIL', () => {

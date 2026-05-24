@@ -16,7 +16,7 @@ exports[`Gate3 regression fixture snapshot / diagnostic invariance > baseline fi
       "momentum": "CONFIRMED",
       "priceBreakout": "OVEREXTENDED",
       "pullback": "DIAGNOSTIC_ONLY",
-      "rrr": "FAIL",
+      "rrr": "PASS",
       "volume": "CONFIRMED",
     },
   },
