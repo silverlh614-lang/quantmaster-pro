@@ -63,6 +63,7 @@ import './recentTradesAudit.cmd.js';
 import './runtimeAudit.cmd.js';
 import './scanBlockers.cmd.js';
 import './scanBlockersEnergy.cmd.js';
+import './scanBlockersExecution.cmd.js';
 import './scanBlockersGate0.cmd.js';
 import './scanBlockersGate1.cmd.js';
 import './scanBlockersGate2.cmd.js';
