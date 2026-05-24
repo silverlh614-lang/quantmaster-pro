@@ -105,8 +105,26 @@ function conditionRows(trace: AnyRecord): AnyRecord[] {
   });
 }
 
-function summarizeCondition(traces: AnyRecord[], key: string): string {
+function summarizeCondition(traces: AnyRecord[], key: string, external?: AnyRecord | null): string {
+  const projected = firstRecord(
+    getByPath(external, `conditionResults.${key}`),
+    getByPath(external, `gate2ConditionProjection.${key}`),
+  );
   const rows = traces.flatMap(conditionRows).filter((row) => text(row.key, '') === key);
+  if (rows.length === 0 && projected) {
+    const status = normalizeConditionStatus(projected.status);
+    return [
+      `${key}:status=${status}`,
+      `value=${numberText(projected.value)}`,
+      `source=${sourceOf(projected, 'NONE')}`,
+      `reason=${text(projected.reason ?? projected.reasonCode, status === 'UNAVAILABLE' ? 'DATA_UNAVAILABLE' : 'NONE')}`,
+      'count=1',
+      `pass=${status === 'PASS' ? 1 : 0}`,
+      `fail=${status === 'FAIL' ? 1 : 0}`,
+      `unavailable=${status === 'UNAVAILABLE' ? 1 : 0}`,
+      'projection=Gate2ExternalData',
+    ].join(':');
+  }
   if (rows.length === 0) {
     return `${key}:status=UNAVAILABLE:value=null:source=NONE:reason=NOT_PROJECTED count=0`;
   }
@@ -154,20 +172,20 @@ function compactGate2ExternalData(summaryRaw: unknown): string {
     `- stability: icr=${numberText(stability?.icr)} debtRatio=${numberText(stability?.debtRatio)} currentRatio=${numberText(stability?.currentRatio)} source=${sourceOf(stability, sourceOf(dart, 'NONE'))}`,
     `- earningsQuality: status=${earningsStatus} score=${numberText(earningsQuality?.score)} reason=${text(earningsQuality?.reason ?? earningsQuality?.reasonCode, earningsStatus === 'UNAVAILABLE' ? 'EARNINGS_QUALITY_UNAVAILABLE' : 'NONE')}`,
     'Gate2ConditionResults:',
-    `- ${summarizeCondition(traces, 'earnings_quality')}`,
-    `- ${summarizeCondition(traces, 'per')}`,
-    `- ${summarizeCondition(traces, 'roe')}`,
-    `- ${summarizeCondition(traces, 'opm')}`,
-    `- ${summarizeCondition(traces, 'icr')}`,
+    `- ${summarizeCondition(traces, 'earnings_quality', external)}`,
+    `- ${summarizeCondition(traces, 'per', external)}`,
+    `- ${summarizeCondition(traces, 'roe', external)}`,
+    `- ${summarizeCondition(traces, 'opm', external)}`,
+    `- ${summarizeCondition(traces, 'icr', external)}`,
     'Gate2FreshDataStatusTargets:',
     '- GATE2_EXTERNAL/DART_FINANCIALS provider=DART status=READY_FOR_SHADOW|OBSERVING promo=BLOCKED_DATA_MISSING|ALLOWED impact=NONE',
     '- GATE2_EXTERNAL/VALUATION_PER provider=KIS|DART|CACHE status=READY_FOR_SHADOW|OBSERVING impact=NONE',
     '- GATE2_EXTERNAL/EARNINGS_QUALITY provider=DART|CACHE status=READY_FOR_SHADOW|OBSERVING impact=NONE',
     'Gate2Safety:',
-    '- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE',
-    '- entryHardBlockImpact=NO',
-    '- shadowObservablePreserved=true',
-    '- counterfactualAllowed=true',
+    `- highConvictionImpact=${text(external?.highConvictionImpact, 'BLOCK_STRONG_BUY_UPGRADE')}`,
+    `- entryHardBlockImpact=${text(external?.entryHardBlockImpact, 'NO')}`,
+    `- shadowObservablePreserved=${String(external?.shadowObservablePreserved ?? true)}`,
+    `- counterfactualAllowed=${String(external?.counterfactualAllowed ?? true)}`,
     '- executionImpact=NONE',
   ].join('\n');
 }

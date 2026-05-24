@@ -5,7 +5,7 @@
 import { channelShadowBuyFilled } from '../../../../alerts/channelPipeline.js';
 import { fetchKisInvestorTradeByStockDaily } from '../../../../clients/kisClient.js';
 import { applySupplyProviderHealthFromKisFlow } from '../../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
-import { getDartFinancials } from '../../../../clients/dartFinancialClient.js';
+import { getGate2DartFinancialsForEvaluation } from '../../../gate2/gate2ExternalDataProvider.js';
 import { requestKisWsSubscription } from '../../../../clients/kisWebSocketSubscriptionManager.js';
 import { verifyStockIncremental } from '../../../../data/dataVerificationIncremental.js';
 import { buildEntryConditionScores } from '../../../../learning/entryConditionScores.js';
@@ -272,7 +272,7 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
         const gateScorePb = (stock.gateScore ?? 0) + ctx.volumeClock.scoreBonus;
         const [kisFlowPb, dartFinPb] = await Promise.all([
           fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
-          getDartFinancials(stock.code).catch(() => null),
+          getGate2DartFinancialsForEvaluation(stock.code).catch(() => null),
         ]);
         applySupplyProviderHealthFromKisFlow(
           stock as { supplyProviderHealth?: Record<string, unknown> | undefined },

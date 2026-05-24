@@ -61,10 +61,8 @@ import {
   fetchKisInvestorTradeByStockDaily,
   hasKisClientOverrides,
 } from "../clients/kisClient.js";
-import {
-  getDartFinancials,
-  type DartFinancials,
-} from "../clients/dartFinancialClient.js";
+import { getGate2DartFinancialsForEvaluation } from "../trading/gate2/gate2ExternalDataProvider.js";
+import type { Gate2ExternalCoverageInput } from "../quant/gate2Diagnostics/types.js";
 import { recordDartAttempt } from "./dataCompletenessTracker.js";
 import {
   calcReliabilityScore,
@@ -611,19 +609,23 @@ export async function stage3AIScreenAndRegister(
   // ── DART 펀더멘털 실데이터 병렬 조회 ────────────────────────────────────────
   // dartFinByCode: GateEvaluation refresh 에 쓸 full DartFinancials snapshot 보관.
   // CandidateStock.dartFin 은 narrow 타입(roe/opm/debtRatio/ocfRatio)이므로 별도 보관.
-  const dartFinByCode = new Map<string, DartFinancials>();
+  const dartFinByCode = new Map<string, NonNullable<Gate2ExternalCoverageInput['dartFin']>>();
   await Promise.all(
     candidates.map(async (c) => {
-      const fin = await getDartFinancials(c.code).catch(() => null);
-      const hasData = !!(fin && fin.ocfRatio != null);
+      const fin = await getGate2DartFinancialsForEvaluation(c.code).catch(() => null);
+      const finAny = fin as Record<string, unknown> | null;
+      const totalDebt = typeof finAny?.totalDebt === 'number' ? finAny.totalDebt : null;
+      const totalEquity = typeof finAny?.totalEquity === 'number' ? finAny.totalEquity : null;
+      const derivedDebtRatio = totalDebt != null && totalEquity && totalEquity !== 0 ? totalDebt / totalEquity : null;
+      const hasData = !!(finAny && finAny.ocfRatio != null);
       recordDartAttempt(c.code, hasData);
       if (fin) {
         dartFinByCode.set(c.code, fin);
         c.dartFin = {
-          roe: fin.roe,
-          opm: fin.opm,
-          debtRatio: fin.debtRatio,
-          ocfRatio: fin.ocfRatio,
+          roe: typeof finAny?.roe === 'number' ? finAny.roe : null,
+          opm: typeof finAny?.opm === 'number' ? finAny.opm : null,
+          debtRatio: typeof finAny?.debtRatio === 'number' ? finAny.debtRatio : derivedDebtRatio,
+          ocfRatio: typeof finAny?.ocfRatio === 'number' ? finAny.ocfRatio : null,
         };
       }
     }),

@@ -16,7 +16,7 @@ import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from 
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import type { KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
-import { getDartFinancials } from '../clients/dartFinancialClient.js';
+import { getGate2DartFinancialsForEvaluation } from './gate2/gate2ExternalDataProvider.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
@@ -111,7 +111,7 @@ export async function fetchGateData(
 
   const [kisFlow, dartFin] = await Promise.all([
     fetchKisInvestorTradeByStockDaily(stockCode).catch(() => null),
-    getDartFinancials(stockCode).catch(() => null),
+    getGate2DartFinancialsForEvaluation(stockCode).catch(() => null),
   ]);
 
   const macroState = loadMacroState();

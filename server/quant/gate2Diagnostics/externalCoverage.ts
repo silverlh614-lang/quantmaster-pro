@@ -58,6 +58,7 @@ import type {
   Gate2WiringDiagnostic,
 } from './types.js';
 import { isBenchmarkInput, isDartInput, isKisInput, unique } from './wiringDiagnostics.js';
+import { buildGate2ExternalProjection } from '../../trading/gate2/gate2ExternalDataProvider.js';
 
 export function fieldAvailable(wiring: readonly Gate2WiringDiagnostic[], input: string): boolean {
   return wiring.some(item => item.availableInputs.includes(input));
@@ -691,6 +692,11 @@ export function buildGate2ExternalDataCoverage(
   const kisDataConfidence = kisConfidence(input.kisFlow);
   const dartProviderStatusValue = dartProviderStatus(input.dartFin);
   const dartDataConfidence = dartConfidence(input.dartFin);
+  const gate2FinancialProjection = buildGate2ExternalProjection({
+    symbol: quoteSymbol(input),
+    dartFin: input.dartFin,
+    quote: input.quote,
+  });
 
   return {
     kisInvestorFlow: {
@@ -731,11 +737,29 @@ export function buildGate2ExternalDataCoverage(
       interestCoverageRatio: dartInterestCoverageRatio,
       missingFields: dartMissingFields,
       rawFieldCoverage: dartRawFieldCoverage(input.dartFin, dartMissingFields, dartLegacyRequiredField),
+      fiscalPeriod: gate2FinancialProjection.financialSnapshot.fiscalPeriod,
+      lastUpdated: gate2FinancialProjection.financialSnapshot.lastUpdated,
+      financialSnapshot: gate2FinancialProjection.financialSnapshot as unknown as Record<string, unknown>,
+      profitability: gate2FinancialProjection.profitability as unknown as Record<string, unknown>,
+      stability: gate2FinancialProjection.stability as unknown as Record<string, unknown>,
+      earningsQuality: gate2FinancialProjection.earningsQuality as unknown as Record<string, unknown>,
       stageNotFetched: dartStatus === 'STAGE_NOT_FETCHED',
       providerIssue: providerIssueForDartStatus(dartRequired, dartStatus),
       marketSignal: false,
       executionImpact: 'DIAGNOSTIC_ONLY',
     },
+    valuation: gate2FinancialProjection.valuation as unknown as Record<string, unknown>,
+    profitability: gate2FinancialProjection.profitability as unknown as Record<string, unknown>,
+    stability: gate2FinancialProjection.stability as unknown as Record<string, unknown>,
+    earningsQuality: gate2FinancialProjection.earningsQuality as unknown as Record<string, unknown>,
+    conditionResults: gate2FinancialProjection.conditionResults as unknown as Record<string, unknown>,
+    gate2ConditionProjection: gate2FinancialProjection.conditionResults as unknown as Record<string, unknown>,
+    unavailableCount: gate2FinancialProjection.unavailableCount,
+    highConvictionImpact: gate2FinancialProjection.highConvictionImpact,
+    entryHardBlockImpact: gate2FinancialProjection.entryHardBlockImpact,
+    shadowObservablePreserved: gate2FinancialProjection.shadowObservablePreserved,
+    counterfactualAllowed: gate2FinancialProjection.counterfactualAllowed,
+    executionImpact: 'NONE',
     benchmark: {
       required: benchmarkRequired,
       available: benchmarkAvailable,

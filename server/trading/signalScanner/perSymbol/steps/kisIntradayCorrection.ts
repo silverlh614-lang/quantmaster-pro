@@ -4,7 +4,7 @@
 
 import { fetchKisInvestorTradeByStockDaily } from '../../../../clients/kisClient.js';
 import { applySupplyProviderHealthFromKisFlow } from '../../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
-import { getDartFinancials } from '../../../../clients/dartFinancialClient.js';
+import { getGate2DartFinancialsForEvaluation } from '../../../gate2/gate2ExternalDataProvider.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../../../../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../../../../screener/adapters/yahooSymbolResolver.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
@@ -63,7 +63,7 @@ export async function kisIntradayCorrectionStep(
   const [kisFlow, dartFin] = reCheckQuote
     ? await Promise.all([
         fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
-        getDartFinancials(stock.code).catch(() => null),
+        getGate2DartFinancialsForEvaluation(stock.code).catch(() => null),
       ])
     : [null, null];
   applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlow);
