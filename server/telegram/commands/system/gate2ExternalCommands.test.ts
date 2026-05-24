@@ -316,6 +316,9 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('[gate2_external_status]');
     expect(text).toContain('cacheRecords=1');
     expect(text).toContain('lastRefreshRootCause=DART_FINANCIALS_MISSING');
+    expect(text).toContain('trueCorpCodeNotFound=1');
+    expect(text).toContain('blockingDetails=PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1');
+    expect(text).toContain('excludedDetails=NONE');
     expect(text).toContain('executionImpact=NONE');
     expect(text).toContain('no provider fetch');
   });
@@ -334,6 +337,8 @@ describe('Gate2 external commands', () => {
     expect(text).toContain('strongBuyBlockedReason=GATE2_EXTERNAL_PARTIAL');
     expect(text).toContain('providerRequestsAttempted=2');
     expect(text).toContain('rootCause=DART_FINANCIALS_MISSING');
+    expect(text).toContain('unavailableCountActionable=6');
+    expect(text).toContain('blockingDetails=PER_UNAVAILABLE_1|TRUE_CORP_CODE_NOT_FOUND_1');
     expect(text).toContain('refreshTrace:');
     expect(text).toContain('no broker order');
     expect(text).toContain('executionImpact=NONE');

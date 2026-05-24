@@ -23,6 +23,11 @@ export interface Gate2ExternalLastRefreshDiagnostics {
   rootCause: Gate2ExternalRootCause;
   traces: Gate2ExternalRefreshTrace[];
   providerHealth: Gate2DartProviderHealth;
+  dartNotApplicable?: number;
+  trueCorpCodeNotFound?: number;
+  lookupFailed?: number;
+  unavailableDueToPER?: number;
+  unavailableDueToCorpCodeMissing?: number;
   strongBuyBlockedDetails?: string;
   blockingDetails?: string;
   excludedDetails?: string;

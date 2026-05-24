@@ -2,6 +2,11 @@
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
+import {
+  loadGate2ExternalCache,
+  type Gate2ExternalCacheFile,
+  type Gate2ExternalCacheRecord,
+} from '../../../trading/gate2/gate2ExternalCache.js';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -67,6 +72,70 @@ function resolveGate2ExternalData(summary: AnyRecord | null, entryFilter: AnyRec
     traceWithExternal?.gate2ExternalDataCoverage,
     getByPath(traceWithExternal, 'gateLayerSummary.gate2.externalDataCoverage'),
   );
+}
+
+function dateMs(value: unknown): number | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function resolveSummaryAsOf(summary: AnyRecord | null): string {
+  return text(
+    summary?.asOf
+      ?? summary?.timestamp
+      ?? summary?.updatedAt
+      ?? summary?.createdAt
+      ?? getByPath(summary, 'candidatePool.asOf')
+      ?? getByPath(summary, 'scanEvaluationState.asOf'),
+  );
+}
+
+function latestGate2CacheRecords(cache: Gate2ExternalCacheFile): Gate2ExternalCacheRecord[] {
+  const traceSymbols = new Set((cache.lastRefresh?.traces ?? []).map(trace => trace.symbol));
+  const records = traceSymbols.size > 0
+    ? cache.records.filter(record => traceSymbols.has(record.symbol))
+    : cache.records;
+  return records;
+}
+
+function cacheRecordsToConditionTraces(records: readonly Gate2ExternalCacheRecord[]): AnyRecord[] {
+  return records.map(record => ({
+    symbol: record.symbol,
+    conditionResults: record.projection.conditionResults,
+  }));
+}
+
+function externalFromGate2Cache(cache: Gate2ExternalCacheFile): AnyRecord | null {
+  const records = latestGate2CacheRecords(cache);
+  if (records.length === 0) return null;
+  const sample = records.find(record => record.projection.financialSnapshot.confidence === 'VERIFIED') ?? records[0];
+  const projection = sample.projection;
+  const snapshot = projection.financialSnapshot;
+  const lastRefresh = cache.lastRefresh;
+  return {
+    stageStatus: 'CACHE_PROJECTED',
+    status: 'CACHE_PROJECTED',
+    dart: {
+      status: snapshot.confidence,
+      source: snapshot.source,
+      reason: snapshot.confidence === 'VERIFIED' ? 'NONE' : snapshot.rawStatus,
+      fiscalPeriod: snapshot.fiscalPeriod,
+      lastUpdated: snapshot.lastUpdated,
+    },
+    valuation: projection.valuation,
+    profitability: projection.profitability,
+    stability: projection.stability,
+    earningsQuality: projection.earningsQuality,
+    highConvictionImpact: projection.highConvictionImpact,
+    entryHardBlockImpact: projection.entryHardBlockImpact,
+    shadowObservablePreserved: projection.shadowObservablePreserved,
+    counterfactualAllowed: projection.counterfactualAllowed,
+    blockingDetails: lastRefresh?.blockingDetails ?? lastRefresh?.strongBuyBlockedDetails,
+    strongBuyBlockedDetails: lastRefresh?.strongBuyBlockedDetails,
+    excludedDetails: lastRefresh?.excludedDetails,
+    excludedCount: lastRefresh?.excludedCount,
+  };
 }
 
 function dartReason(status: string, dart: AnyRecord | null): string {
@@ -238,19 +307,29 @@ function summarizeCondition(traces: AnyRecord[], key: string, external?: AnyReco
   ].join(':');
 }
 
-function compactGate2ExternalData(summaryRaw: unknown): string {
+function compactGate2ExternalData(summaryRaw: unknown, gate2Cache: Gate2ExternalCacheFile = loadGate2ExternalCache()): string {
   const summary = recordOf(summaryRaw);
   const entryFilter = resolveEntryFilter(summary);
   const traces = resolveCandidateTraces(entryFilter);
-  const external = resolveGate2ExternalData(summary, entryFilter);
+  const cacheRecords = latestGate2CacheRecords(gate2Cache);
+  const cacheTraces = cacheRecordsToConditionTraces(cacheRecords);
+  const projectionTraces = cacheTraces.length > 0 ? cacheTraces : traces;
+  const scanExternal = resolveGate2ExternalData(summary, entryFilter);
+  const cacheExternal = externalFromGate2Cache(gate2Cache);
+  const external = cacheExternal ?? scanExternal;
+  const gate2CacheAsOf = gate2Cache.lastRefresh?.asOf ?? gate2Cache.updatedAt ?? 'NONE';
+  const lastScanSummaryAsOf = resolveSummaryAsOf(summary);
+  const cacheMs = dateMs(gate2CacheAsOf);
+  const scanMs = dateMs(lastScanSummaryAsOf);
+  const projectionStale = cacheMs != null && scanMs != null && scanMs < cacheMs;
   const dart = firstRecord(external?.dart, external?.dartFinancials, external?.financials);
   const valuation = firstRecord(external?.valuation, external?.per, dart?.valuation);
   const perRecord = firstRecord(valuation?.per, valuation);
   const profitability = firstRecord(external?.profitability, dart?.profitability);
   const stability = firstRecord(external?.stability, dart?.stability);
   const earningsQuality = firstRecord(external?.earningsQuality, external?.earnings_quality, dart?.earningsQuality);
-  const perAggregate = conditionAggregate(traces, 'per', external);
-  const earningsAggregate = conditionAggregate(traces, 'earnings_quality', external);
+  const perAggregate = conditionAggregate(projectionTraces, 'per', external);
+  const earningsAggregate = conditionAggregate(projectionTraces, 'earnings_quality', external);
   const dartStatus = statusOf(dart, external ? 'MISSING' : 'STAGE_NOT_FETCHED');
   const valuationStatus = perAggregate.count > 0
     ? perAggregate.sampleStatus
@@ -267,18 +346,20 @@ function compactGate2ExternalData(summaryRaw: unknown): string {
 
   return [
     'Gate2ExternalData:',
-    `- stageStatus=${stageStatus} sampleTraces=${traces.length}`,
+    `- stageStatus=${stageStatus} sampleTraces=${projectionTraces.length}`,
+    `- SourceSnapshotConsistency: gate2CacheAsOf=${gate2CacheAsOf} lastScanSummaryAsOf=${lastScanSummaryAsOf} projectionStale=${String(projectionStale)}`,
+    ...(projectionStale ? ['- note=SCAN_SUMMARY_OLDER_THAN_GATE2_REFRESH recommendedAction=/scan or next scan cycle'] : []),
     `- dart: status=${dartStatus} source=${sourceOf(dart, dartStatus === 'VERIFIED' ? 'DART' : 'NONE')} reason=${dartReason(dartStatus, dart)} fiscalPeriod=${text(dart?.fiscalPeriod)} lastUpdated=${text(dart?.lastUpdated ?? dart?.fetchedAt)} affectedConditions=earnings_quality,roe,opm,icr,per scoreImpact=limited_to_high_conviction executionImpact=NONE`,
     `- valuation: perStatusSample=${valuationStatus} perStatusAggregate=${valuationAggregateStatus} per=${numberText(perRecord?.per ?? perRecord?.value ?? perAggregate.value)} source=${perAggregate.count > 0 ? perAggregate.source : sourceOf(perRecord, 'NONE')} reason=${perAggregate.count > 0 ? perAggregate.reason : text(perRecord?.reason ?? perRecord?.reasonCode, valuationStatus === 'MISSING' ? 'PER_MISSING' : 'NONE')}`,
     `- profitability: roe=${numberText(profitability?.roe)} opm=${numberText(profitability?.opm)} netMargin=${numberText(profitability?.netMargin)} source=${sourceOf(profitability, sourceOf(dart, 'NONE'))}`,
     `- stability: icr=${numberText(stability?.icr)} debtRatio=${numberText(stability?.debtRatio)} currentRatio=${numberText(stability?.currentRatio)} source=${sourceOf(stability, sourceOf(dart, 'NONE'))}`,
     `- earningsQuality: status=${earningsStatus} score=${numberText(earningsQuality?.score ?? earningsAggregate.value)} source=${earningsSource} reason=${earningsReason}`,
     'Gate2ConditionResults:',
-    `- ${summarizeCondition(traces, 'earnings_quality', external)}`,
-    `- ${summarizeCondition(traces, 'per', external)}`,
-    `- ${summarizeCondition(traces, 'roe', external)}`,
-    `- ${summarizeCondition(traces, 'opm', external)}`,
-    `- ${summarizeCondition(traces, 'icr', external)}`,
+    `- ${summarizeCondition(projectionTraces, 'earnings_quality', external)}`,
+    `- ${summarizeCondition(projectionTraces, 'per', external)}`,
+    `- ${summarizeCondition(projectionTraces, 'roe', external)}`,
+    `- ${summarizeCondition(projectionTraces, 'opm', external)}`,
+    `- ${summarizeCondition(projectionTraces, 'icr', external)}`,
     'Gate2FreshDataStatusTargets:',
     '- GATE2_EXTERNAL/DART_FINANCIALS provider=DART status=READY_FOR_SHADOW|OBSERVING promo=BLOCKED_DATA_MISSING|ALLOWED impact=NONE',
     '- GATE2_EXTERNAL/VALUATION_PER provider=KIS|DART|CACHE status=READY_FOR_SHADOW|OBSERVING impact=NONE',
@@ -322,11 +403,12 @@ const scanBlockersGate2: TelegramCommand = {
   usage: '/scan_blockers_gate2',
   async execute({ reply }) {
     const summary = getLastScanSummary();
+    const gate2Cache = loadGate2ExternalCache();
     const lines = [
       '[scan_blockers_gate2] Gate2 ExternalData / DART PER Earnings Quality',
-      `source=${summary ? 'lastScanSummary' : 'none'} executionImpact=NONE`,
+      `source=${summary ? 'lastScanSummary+gate2ExternalCache' : 'gate2ExternalCache'} executionImpact=NONE`,
       '',
-      compactGate2ExternalData(summary),
+      compactGate2ExternalData(summary, gate2Cache),
       '',
       'note: compact diagnostic only; no scan execution, no provider fetch, no broker order, no live promotion.',
     ];

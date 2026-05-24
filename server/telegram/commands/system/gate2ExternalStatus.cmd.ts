@@ -11,6 +11,20 @@ function formatGate2ExternalStatusMessage(): string {
   const lastRefreshAsOf = lastRefresh?.asOf ?? summary.latestUpdatedAt ?? 'NONE';
   const lastRefreshRootCause = lastRefresh?.rootCause ?? (summary.recordCount > 0 ? 'REFRESH_METADATA_MISSING' : 'NONE');
   const counters = lastRefresh?.counters;
+  const dartNotApplicable = lastRefresh?.dartNotApplicable
+    ?? counters?.dartNotApplicableCount
+    ?? lastRefresh?.dartNotApplicableSymbols?.length
+    ?? 0;
+  const trueCorpCodeNotFound = lastRefresh?.trueCorpCodeNotFound
+    ?? counters?.trueCorpCodeNotFound
+    ?? lastRefresh?.trueCorpCodeNotFoundSymbols?.length
+    ?? 0;
+  const lookupFailed = lastRefresh?.lookupFailed
+    ?? counters?.corpCodeLookupFailed
+    ?? lastRefresh?.corpCodeLookupFailedSymbols?.length
+    ?? 0;
+  const excludedSymbols = lastRefresh?.excludedSymbols ?? lastRefresh?.dartNotApplicableSymbols ?? [];
+  const excludedCount = lastRefresh?.excludedCount ?? counters?.excludedCount ?? excludedSymbols.length;
   const actionableUnavailable = lastRefresh?.unavailableCountActionable
     ?? counters?.unavailableCountActionable
     ?? summary.unavailableCount;
@@ -47,9 +61,9 @@ function formatGate2ExternalStatusMessage(): string {
       `providerRequestsAttempted=${counters.providerRequestsAttempted}`,
       `corpCodeResolved=${counters.corpCodeResolved}`,
       `corpCodeMissing=${counters.corpCodeMissing}`,
-      `dartNotApplicable=${counters.dartNotApplicableCount ?? 0}`,
-      `trueCorpCodeNotFound=${counters.trueCorpCodeNotFound ?? 0}`,
-      `lookupFailed=${counters.corpCodeLookupFailed ?? 0}`,
+      `dartNotApplicable=${dartNotApplicable}`,
+      `trueCorpCodeNotFound=${trueCorpCodeNotFound}`,
+      `lookupFailed=${lookupFailed}`,
       `fiscalPeriodResolved=${counters.fiscalPeriodResolved}`,
       `fiscalPeriodMissing=${counters.fiscalPeriodMissing}`,
       `dartResponsesOk=${counters.dartResponsesOk}`,
@@ -63,17 +77,17 @@ function formatGate2ExternalStatusMessage(): string {
       `dartEpsComputed=${counters.dartEpsComputed ?? 0}`,
       `perComputedFromPriceAndEps=${counters.perComputedFromPriceAndEps ?? 0}`,
       `perCacheHit=${counters.perCacheHit ?? 0}`,
-      `unavailableDueToPER=${counters.unavailableDueToPER ?? 0}`,
-      `unavailableDueToCorpCodeMissing=${counters.unavailableDueToCorpCodeMissing ?? 0}`,
+      `unavailableDueToPER=${lastRefresh?.unavailableDueToPER ?? counters.unavailableDueToPER ?? 0}`,
+      `unavailableDueToCorpCodeMissing=${lastRefresh?.unavailableDueToCorpCodeMissing ?? counters.unavailableDueToCorpCodeMissing ?? 0}`,
       `unavailableDueToFiscalPeriodMissing=${counters.unavailableDueToFiscalPeriodMissing ?? 0}`,
       `unavailableDueToFinancialRowsEmpty=${counters.unavailableDueToFinancialRowsEmpty ?? 0}`,
       `unavailableDueToNormalizationFailed=${counters.unavailableDueToNormalizationFailed ?? 0}`,
       `unavailableCountRaw=${lastRefresh?.unavailableCountRaw ?? counters.unavailableCountRaw ?? summary.unavailableCount}`,
       `unavailableCountActionable=${lastRefresh?.unavailableCountActionable ?? counters.unavailableCountActionable ?? summary.unavailableCount}`,
       `unavailableExcludingExcluded=${lastRefresh?.unavailableExcludingExcluded ?? counters.unavailableExcludingExcluded ?? summary.unavailableCount}`,
-      `excludedCount=${lastRefresh?.excludedCount ?? counters.excludedCount ?? 0}`,
-      `excludedSymbols=${lastRefresh?.excludedSymbols?.join(',') || 'NONE'}`,
-      `excludedReason=${lastRefresh?.excludedReason ?? 'NONE'}`,
+      `excludedCount=${excludedCount}`,
+      `excludedSymbols=${excludedSymbols.join(',') || 'NONE'}`,
+      `excludedReason=${lastRefresh?.excludedReason ?? (excludedCount > 0 ? 'DART_NOT_APPLICABLE' : 'NONE')}`,
       `excludedUnavailableEquivalent=${lastRefresh?.excludedUnavailableEquivalent ?? counters.excludedUnavailableEquivalent ?? 0}`,
       `strongBuyBlockedDetails=${lastRefresh?.strongBuyBlockedDetails ?? 'NONE'}`,
       `blockingDetails=${lastRefresh?.blockingDetails ?? lastRefresh?.strongBuyBlockedDetails ?? 'NONE'}`,
