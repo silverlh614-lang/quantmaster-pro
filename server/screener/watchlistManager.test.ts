@@ -363,6 +363,7 @@ describe('applyEntryPriceDrift', () => {
 
   describe('organic 모멘텀 랠리 — 코퍼레이트 액션 오탐 방지 (한국 ±30% 일일 제한폭)', () => {
     const daysAgoIso = (n: number) => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
+    const hoursAgoIso = (n: number) => new Date(Date.now() - n * 3600 * 1000).toISOString();
 
     it('피엠티 시나리오 — 20일 보유 +99.6% (organic) → AUTO REMOVE (코퍼레이트 액션 아님)', () => {
       const entry = makeEntry({ code: '147760', entryPrice: 4_745, addedBy: 'AUTO', addedAt: daysAgoIso(20) });
@@ -374,8 +375,20 @@ describe('applyEntryPriceDrift', () => {
       expect(applyEntryPriceDrift(entry, 9_470)).toBe('UPDATE');
     });
 
-    it('당일 추가 +99.6% (단일일 갭 — organic 불가) → CORPORATE_ACTION 유지', () => {
-      const entry = makeEntry({ code: 'X', entryPrice: 4_745, addedBy: 'AUTO', addedAt: new Date().toISOString() });
+    it('피엠티 prod — addedAt 레거시 locale 문자열(파싱불가, 윈도우 불명) +99.6% → AUTO REMOVE (오탐 방지)', () => {
+      // 실제 운영 회귀: 오래된 entryPrice(4,745) + 파싱 불가능한 레거시 addedAt → 윈도우 null →
+      // 양수 drift 는 organic 으로 처리해야 한다(단일일 갭 입증 불가 → 보수적 flag 금지).
+      const entry = makeEntry({ code: '147760', entryPrice: 4_745, addedBy: 'AUTO', addedAt: '2026. 5. 10. 오전 9:00:00' });
+      expect(applyEntryPriceDrift(entry, 9_470)).toBe('REMOVE');
+    });
+
+    it('addedAt 누락(빈 문자열, 윈도우 불명) +99.6% → AUTO REMOVE', () => {
+      const entry = makeEntry({ code: 'Z', entryPrice: 4_745, addedBy: 'AUTO', addedAt: '' });
+      expect(applyEntryPriceDrift(entry, 9_470)).toBe('REMOVE');
+    });
+
+    it('당일(2시간 전) 추가 +99.6% (신뢰 윈도우 + 단일일 갭 — organic 불가) → CORPORATE_ACTION 유지', () => {
+      const entry = makeEntry({ code: 'X', entryPrice: 4_745, addedBy: 'AUTO', addedAt: hoursAgoIso(2) });
       expect(applyEntryPriceDrift(entry, 9_470)).toBe('CORPORATE_ACTION');
     });
 
@@ -391,11 +404,11 @@ describe('applyEntryPriceDrift', () => {
       }
     });
 
-    it('corporateActionAdjustedAt 우선 — 최근 보정 후 큰 drift 는 단일일 의심 → CORPORATE_ACTION', () => {
+    it('corporateActionAdjustedAt 우선 — 최근(2시간 전) 보정 후 큰 drift 는 단일일 의심 → CORPORATE_ACTION', () => {
       const entry = makeEntry({
         code: 'Y', entryPrice: 4_745, addedBy: 'AUTO',
         addedAt: daysAgoIso(60),
-        corporateActionAdjustedAt: new Date().toISOString(),
+        corporateActionAdjustedAt: hoursAgoIso(2),
       });
       expect(applyEntryPriceDrift(entry, 9_470)).toBe('CORPORATE_ACTION');
     });

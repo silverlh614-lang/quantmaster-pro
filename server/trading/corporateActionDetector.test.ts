@@ -329,14 +329,22 @@ describe('organic 타당성 가드 (한국 ±30% 일일 제한폭)', () => {
   it('approxTradingDaysSince — 14일 전 ISO → 약 10영업일(±1)', () => {
     const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
     const days = approxTradingDaysSince(fourteenDaysAgo);
-    expect(days).toBeGreaterThan(9);
-    expect(days).toBeLessThan(11);
+    expect(days).not.toBeNull();
+    expect(days as number).toBeGreaterThan(9);
+    expect(days as number).toBeLessThan(11);
   });
 
-  it('approxTradingDaysSince — 무효/미래 → 0', () => {
-    expect(approxTradingDaysSince(undefined)).toBe(0);
-    expect(approxTradingDaysSince('not-a-date')).toBe(0);
+  it('approxTradingDaysSince — 미제공/파싱불가(레거시)/미래 → null (윈도우 불명)', () => {
+    expect(approxTradingDaysSince(undefined)).toBeNull();
+    expect(approxTradingDaysSince('not-a-date')).toBeNull();
+    expect(approxTradingDaysSince('2026. 5. 10. 오전 9:00:00')).toBeNull(); // 레거시 locale 문자열
     const future = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString();
-    expect(approxTradingDaysSince(future)).toBe(0);
+    expect(approxTradingDaysSince(future)).toBeNull();
+  });
+
+  it('isOrganicallyPlausibleDrift — 윈도우 null(불명) + 양수 drift → organic (보수적 flag 금지)', () => {
+    expect(isOrganicallyPlausibleDrift(99.6, null)).toBe(true);
+    expect(isOrganicallyPlausibleDrift(200, null)).toBe(true);
+    expect(isOrganicallyPlausibleDrift(-99.6, null)).toBe(false); // 하락은 불명이어도 면제 아님
   });
 });

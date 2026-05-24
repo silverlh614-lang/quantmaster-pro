@@ -127,15 +127,21 @@ export function maxOrganicDriftPct(elapsedTradingDays: number): number {
 }
 
 /**
- * 진입 ISO 시각으로부터 경과 영업일(근사). 캘린더 일수 × 5/7. 미래/무효 → 0.
+ * 진입 ISO 시각으로부터 경과 영업일(근사). 캘린더 일수 × 5/7.
+ *
+ * 반환:
+ *   - 양수: 신뢰 가능한 과거 시각 → 경과 영업일.
+ *   - **null: 윈도우 판정 불가** — 미제공 / 파싱 불가(레거시 locale 문자열 등) / 미래·동시각.
+ *     호출자는 null 을 "최근 단일일 갭임을 입증할 수 없음"으로 해석해야 한다(보수적 flag 금지).
  * (외부 캘린더 의존 없이 watchlistManager 가 코퍼레이트 액션 SSOT 를 통해 사용.)
  */
-export function approxTradingDaysSince(entryIso: string | undefined, now: Date = new Date()): number {
-  if (!entryIso) return 0;
+export function approxTradingDaysSince(entryIso: string | undefined, now: Date = new Date()): number | null {
+  if (!entryIso) return null;
   const entryMs = Date.parse(entryIso);
-  if (!Number.isFinite(entryMs)) return 0;
+  if (!Number.isFinite(entryMs)) return null;
   const diffMs = now.getTime() - entryMs;
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return 0;
+  // 미래(음수)·비유한 → 윈도우 불명(null). 동시각(0)은 "방금 추가된 신뢰 윈도우" → 0 반환.
+  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
   return (diffMs / (24 * 3600 * 1000)) * (5 / 7);
 }
 
@@ -148,14 +154,18 @@ export function approxTradingDaysSince(entryIso: string | undefined, now: Date =
  *
  * - **양(+) drift 에만 적용** — 하락 drift 는 붕괴/데이터 이슈 가능성이라 면제 대상 아님.
  * - ENV 가드 비활성 시 항상 false (기존 절대-임계 동작).
- * - elapsedTradingDays 미제공/무효 → 윈도우 판정 불가 → 보수적으로 1 일(=+30%) 적용.
+ * - **윈도우 불명(null: addedAt 미제공/파싱 불가/미래) → 양수 drift 는 organic 으로 처리.**
+ *   단일일 갭임을 입증할 수 없는데(레거시 타임스탬프 등) 보수적으로 코퍼레이트 액션 처리하면
+ *   2배 모멘텀 랠리(147760 피엠티 등)를 반복 오탐한다. organic 처리 시 AUTO=REMOVE /
+ *   MANUAL=UPDATE 로 안전 격리(실주문 0). 진짜 단일일 분할은 신뢰 윈도우(양수 일수)에서 포착.
  * - NaN drift → false.
  */
-export function isOrganicallyPlausibleDrift(driftPct: number, elapsedTradingDays?: number): boolean {
+export function isOrganicallyPlausibleDrift(driftPct: number, elapsedTradingDays: number | null): boolean {
   if (isCorporateActionDailyLimitGuardDisabled()) return false;
   if (!Number.isFinite(driftPct)) return false;
   if (driftPct <= 0) return false;
-  return driftPct <= maxOrganicDriftPct(elapsedTradingDays ?? 1);
+  if (elapsedTradingDays === null) return true;
+  return driftPct <= maxOrganicDriftPct(elapsedTradingDays);
 }
 
 /**

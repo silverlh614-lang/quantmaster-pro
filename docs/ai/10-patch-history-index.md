@@ -542,3 +542,4 @@
 - 2026-05-24 · Patch-DECOMP-regimeLearningBackfill-001
 - 2026-05-24 · Patch-UI-SECTION-NAV-VERIFY-AND-SPA-NOCACHE-001
 - 2026-05-24 · Patch-CORP-ACTION-ORGANIC-DAILY-LIMIT-GUARD-001 (147760 피엠티 +99.6% organic 랠리 오탐 방지)
+- 2026-05-24 · Patch-CORP-ACTION-UNKNOWN-WINDOW-ORGANIC-002 (레거시/불명 addedAt 윈도우 → 양수 drift organic 처리, 피엠티 재오탐 후속)
