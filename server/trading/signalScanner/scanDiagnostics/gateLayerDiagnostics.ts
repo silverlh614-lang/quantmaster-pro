@@ -29,6 +29,12 @@ import {
   type Gate3ShadowPolicyExecutionContext,
   type Gate3ShadowRoutingSummary,
 } from '../../../quant/gate3ShadowPolicy.js';
+import {
+  buildGate3OutcomeSeeds,
+  summarizeGate3OutcomeSeeds,
+  type Gate3OutcomeSeed,
+  type Gate3OutcomeTrackingSummary,
+} from '../../../quant/gate3OutcomeSeed.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -97,6 +103,8 @@ export interface Gate3ConsolidatedAuditSummary {
   detailsByReadiness: Gate3CandidateDetailGroups;
   shadowPolicies: Gate3ShadowPolicy[];
   shadowRouting: Gate3ShadowRoutingSummary;
+  outcomeSeeds: Gate3OutcomeSeed[];
+  outcomeTracking: Gate3OutcomeTrackingSummary;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -160,6 +168,8 @@ export interface BuildGateLayerAuditSummaryOptions {
   sourceSnapshotId?: string;
   asOf?: string;
   shadowPolicyContext?: Gate3ShadowPolicyExecutionContext;
+  tradeDate?: string;
+  gate3SnapshotId?: string;
 }
 
 function emptyGate3CandidateGroups(): Gate3CandidateDetailGroups {
@@ -258,6 +268,8 @@ export function createGateLayerAuditAccumulator(): GateLayerAuditAccumulator {
       detailsByReadiness: emptyGate3CandidateGroups(),
       shadowPolicies: [],
       shadowRouting: emptyGate3ShadowRoutingSummary(),
+      outcomeSeeds: [],
+      outcomeTracking: summarizeGate3OutcomeSeeds([]),
     },
   };
 }
@@ -437,12 +449,22 @@ export function buildGateLayerAuditSummary(
   const gate3Details = gate3DetailsWithoutPolicy.map((detail, index) =>
     withGate3ShadowPolicy(detail, shadowPolicies[index]),
   );
+  const outcomeSeeds = buildGate3OutcomeSeeds(gate3Details, shadowPolicies, {
+    asOf: options.asOf,
+    tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
+    gate3SnapshotId: options.gate3SnapshotId ?? (options.sourceSnapshotId ? `${options.sourceSnapshotId}:gate3` : undefined),
+  });
   const gate3Consolidated = {
     ...counters.gateLayerAudit.gate3Consolidated,
     candidateDetails: gate3Details,
     detailsByReadiness: groupGate3CandidateDetails(gate3Details),
     shadowPolicies,
     shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
+    outcomeSeeds,
+    outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
+      tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
+      seedCreatedToday: outcomeSeeds.length,
+    }),
   };
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,

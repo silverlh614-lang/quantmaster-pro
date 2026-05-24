@@ -283,6 +283,8 @@ export const GHOST_PORTFOLIO_FILE      = path.join(DATA_DIR, 'ghost-portfolio.js
 export const REJECTION_SHADOW_FILE     = path.join(DATA_DIR, 'rejection-shadow.json');
 /** ADR-0454: Near-Miss Outcome Ledger — DATA_BLOCKED_NEAR_MISS/PROBING/SHADOW_ONLY 3/5/10영업일 성과 추적 */
 export const NEAR_MISS_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'near-miss-outcomes.json');
+/** Gate3 timing readiness outcome ledger; shadow/counterfactual learning only, no live execution. */
+export const GATE3_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'gate3-outcomes.json');
 /** ADR-0029 (PR-M): Counterfactual Twin Portfolio — 3 Twin (AGGR/DISC/EQUAL) 평행 포트폴리오 */
 export const TWIN_PORTFOLIO_FILE       = path.join(DATA_DIR, 'twin-portfolio.json');
 /** ADR-0031 (PR-O): Order Type Optimizer — 종목별 슬리피지 이력 학습 */

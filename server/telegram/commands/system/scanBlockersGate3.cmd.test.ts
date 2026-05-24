@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowPolicy } from '../../../quant/gate3CandidateDetail.js';
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from '../../../quant/gate3ShadowPolicy.js';
+import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from '../../../quant/gate3OutcomeSeed.js';
 
 let mockSummary: any;
 
@@ -48,6 +49,10 @@ describe('/scan_blockers_gate3 command', () => {
     const candidateDetails = rawCandidateDetails.map((detail, index) =>
       withGate3ShadowPolicy(detail, shadowPolicies[index]),
     );
+    const outcomeSeeds = buildGate3OutcomeSeeds(candidateDetails, shadowPolicies, {
+      tradeDate: '2026-05-24',
+      asOf: '2026-05-24T09:00:00.000Z',
+    });
     mockSummary = {
       gateLayerAudit: {
         gate1PassCount: 3,
@@ -97,6 +102,11 @@ describe('/scan_blockers_gate3 command', () => {
           detailsByReadiness: groupGate3CandidateDetails(candidateDetails),
           shadowPolicies,
           shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
+          outcomeSeeds,
+          outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
+            tradeDate: '2026-05-24',
+            seedCreatedToday: outcomeSeeds.length,
+          }),
         },
       },
     };
@@ -141,6 +151,9 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('Gate3 Shadow Entry Routing');
     expect(text).toContain('shadowEntryAllowed: 1');
     expect(text).toContain('livePolicyBlocked: 1');
+    expect(text).toContain('Gate3 Outcome Tracking');
+    expect(text).toContain('seedCreatedToday: 1');
+    expect(text).toContain('READY: pending 1 / labeled 0');
     expect(text).toContain('route=SHADOW_ENTRY_ALLOWED');
     expect(text).toContain('label=GATE3_READY_FIRED');
     expect(text).toContain('marketSignal=false');

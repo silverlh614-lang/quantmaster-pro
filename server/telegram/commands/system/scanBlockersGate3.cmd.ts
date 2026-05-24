@@ -6,6 +6,7 @@ import type { Gate3ConsolidatedAuditSummary, GateLayerAuditSummary } from '../..
 import { formatGate3TimingReadinessAuditSection } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDetail.js';
 import { formatGate3ShadowRoutingAuditSection } from '../../../quant/gate3ShadowPolicy.js';
+import { formatGate3OutcomeTrackingSummary } from '../../../quant/gate3OutcomeSeed.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
   const [top] = Object.entries(counts ?? {})
@@ -77,6 +78,11 @@ export function formatScanBlockersGate3Section(
     `watchlistUpgrade: ${gate3.shadowRouting?.watchlistUpgradeCount ?? 0}`,
     `paperOrderAllowed: ${gate3.shadowRouting?.paperOrderAllowedCount ?? 0}`,
     `livePolicyBlocked: ${gate3.shadowRouting?.livePolicyBlockedCount ?? 0}`,
+    `outcomeSeedCreatedToday: ${gate3.outcomeTracking?.seedCreatedToday ?? 0}`,
+    `outcomePending: ${gate3.outcomeTracking?.pending ?? 0}`,
+    `outcomeLabeled: ${gate3.outcomeTracking?.labeled ?? 0}`,
+    `outcomeDataInsufficient: ${gate3.outcomeTracking?.dataInsufficient ?? 0}`,
+    `outcomeDuplicateSuppressed: ${gate3.outcomeTracking?.duplicateSuppressed ?? 0}`,
     'marketSignal=false',
     'shadowLearning=true',
     'counterfactualRecorded=true',
@@ -114,6 +120,7 @@ const scanBlockersGate3: TelegramCommand = {
     const compact = formatScanBlockersGate3Section(audit);
     const full = formatGate3TimingReadinessAuditSection(audit?.gate3Consolidated as Gate3ConsolidatedAuditSummary | undefined);
     const routing = formatGate3ShadowRoutingAuditSection(audit?.gate3Consolidated?.shadowRouting);
+    const outcomes = formatGate3OutcomeTrackingSummary(audit?.gate3Consolidated?.outcomeTracking);
     const details = formatGate3CandidateDetailTable({
       detailsByReadiness: audit?.gate3Consolidated?.detailsByReadiness,
       candidateDetails: audit?.gate3Consolidated?.candidateDetails,
@@ -125,6 +132,7 @@ const scanBlockersGate3: TelegramCommand = {
       compact,
       ...(full ? ['', full] : []),
       ...(routing ? ['', routing] : []),
+      ...(outcomes ? ['', outcomes] : []),
       ...(details ? ['', details] : []),
       '',
       'note: compact diagnostic only; no scan execution, no provider fetch, no broker order, no live promotion.',

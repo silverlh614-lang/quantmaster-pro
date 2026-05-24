@@ -116,6 +116,7 @@ import {
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
+import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMasterProvider.js';
 import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
@@ -422,6 +423,8 @@ export async function persistScanResults(
   const gateLayerAudit = buildGateLayerAuditSummary(counters, {
     sourceSnapshotId,
     asOf: scanAsOf,
+    tradeDate: scanAsOf.slice(0, 10),
+    gate3SnapshotId: `${sourceSnapshotId}:gate3`,
     shadowPolicyContext: {
       livePolicyAllowed: options.macroGateState
         ? options.macroGateState.liveEntryAllowed !== false
@@ -437,6 +440,12 @@ export async function persistScanResults(
       brokerLiveOrderAllowed: options.macroGateState?.brokerLiveOrderAllowed,
     },
   });
+  if (gateLayerAudit.gate3Consolidated?.outcomeSeeds.length) {
+    const result = upsertGate3OutcomeSeeds(gateLayerAudit.gate3Consolidated.outcomeSeeds, {
+      tradeDate: scanAsOf.slice(0, 10),
+    });
+    gateLayerAudit.gate3Consolidated.outcomeTracking = result.summary;
+  }
   const summaryDraft: ScanSummary = {
     time: timeLabel,
     candidates: totalCandidates,
