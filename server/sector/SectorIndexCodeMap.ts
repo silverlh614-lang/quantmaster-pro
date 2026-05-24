@@ -15,6 +15,8 @@ export interface OfficialSectorIndexMasterRow {
   officialIndexCode: string;
   officialIndexName: string;
   normalizedSectorName: string;
+  canonicalOfficialName?: string;
+  codePrefixRemoved?: boolean;
   rawSectorName: string;
   sourceTier: SectorIndexSourceTier;
   aliasResolved: boolean;
@@ -44,8 +46,14 @@ export interface OfficialSectorIndexCodeMappingRow {
   safeAliasTarget: string | null;
   unsafeAliasMatch: string | null;
   unsafeAliasTargets: string[];
+  rawOfficialCandidates: string[];
+  normalizedOfficialCandidates: string[];
+  canonicalOfficialCandidates: string[];
   officialIndexCode: string | null;
   officialIndexName: string | null;
+  selectedOfficialRawName: string | null;
+  selectedOfficialCanonicalName: string | null;
+  codePrefixRemoved: boolean;
   selectedOfficialIndexCode: string | null;
   selectedOfficialIndexName: string | null;
   market: OfficialSectorIndexMasterRow['market'];
@@ -70,8 +78,14 @@ export interface OfficialSectorIndexMappingAttempt {
   safeAliasTarget: string | null;
   unsafeAliasMatch: string | null;
   unsafeAliasTargets: string[];
+  rawOfficialCandidates: string[];
+  normalizedOfficialCandidates: string[];
+  canonicalOfficialCandidates: string[];
   selectedOfficialIndexName: string | null;
   selectedOfficialIndexCode: string | null;
+  selectedOfficialRawName: string | null;
+  selectedOfficialCanonicalName: string | null;
+  codePrefixRemoved: boolean;
   includedInOfficialCoverage: boolean;
   shadowEvidenceOnly: boolean;
   verifyAttempted?: boolean;
@@ -101,6 +115,7 @@ export interface OfficialSectorIndexCodeMapResult {
   officialIndexCoverage: number;
   exactMatchCount: number;
   safeAliasMatchCount: number;
+  safeSynonymMatchCount: number;
   aliasResolvedCount: number;
   safeAliasCount: number;
   unsafeAliasCount: number;
@@ -118,6 +133,7 @@ export interface OfficialSectorIndexCodeMapResult {
 
 const KR_ELECTRIC_ELECTRONICS = '\uC804\uAE30\uC804\uC790';
 const KR_FINANCE = '\uAE08\uC735\uC5C5';
+const KR_FINANCE_SHORT = '\uAE08\uC735';
 const KR_BANK = '\uC740\uD589';
 const KR_INSURANCE = '\uBCF4\uD5D8';
 const KR_SECURITIES = '\uC99D\uAD8C';
@@ -130,11 +146,16 @@ const KR_MACHINERY = '\uAE30\uACC4';
 const KR_MACHINERY_EQUIPMENT = '\uAE30\uACC4\uC7A5\uBE44';
 const KR_STEEL = '\uCCA0\uAC15\uAE08\uC18D';
 const KR_SERVICE = '\uC11C\uBE44\uC2A4\uC5C5';
+const KR_SERVICE_SHORT = '\uC11C\uBE44\uC2A4';
 const KR_CONSTRUCTION = '\uAC74\uC124\uC5C5';
+const KR_CONSTRUCTION_SHORT = '\uAC74\uC124';
 const KR_TRANSPORT_WAREHOUSE = '\uC6B4\uC218\uCC3D\uACE0';
 const KR_DISTRIBUTION = '\uC720\uD1B5\uC5C5';
+const KR_DISTRIBUTION_SHORT = '\uC720\uD1B5';
 const KR_FOOD = '\uC74C\uC2DD\uB8CC\uD488';
+const KR_FOOD_TOBACCO = '\uC74C\uC2DD\uB8CC \uB2F4\uBC30';
 const KR_TEXTILE = '\uC12C\uC720\uC758\uBCF5';
+const KR_TEXTILE_CLOTHING = '\uC12C\uC720 \uC758\uB958';
 const KR_OTHER_FINANCE = '\uAE30\uD0C0\uAE08\uC735';
 
 const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
@@ -150,6 +171,7 @@ const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
   ['steel', ['steel', 'metal']],
   [KR_ELECTRIC_ELECTRONICS, [KR_ELECTRIC_ELECTRONICS, 'electric electronics', 'electronics', 'semiconductor', 'chip']],
   [KR_FINANCE, ['\uAE08\uC735', KR_FINANCE, 'finance', 'financial', 'financials', 'financial']],
+  [KR_FINANCE_SHORT, [KR_FINANCE_SHORT, KR_FINANCE, 'finance', 'financial', 'financials', 'financial']],
   [KR_INSURANCE, [KR_INSURANCE, 'insurance']],
   [KR_SECURITIES, [KR_SECURITIES, 'securities', 'brokerage']],
   [KR_BANK, [KR_BANK, 'bank', 'banks']],
@@ -162,11 +184,16 @@ const SAFE_ALIAS_BY_NORMALIZED_NAME = new Map<string, readonly string[]>([
   [KR_MACHINERY_EQUIPMENT, [KR_MACHINERY, KR_MACHINERY_EQUIPMENT, 'machinery', 'machine', 'machine equipment']],
   [KR_STEEL, [KR_STEEL, '\uCCA0\uAC15', 'steel', 'metal']],
   [KR_SERVICE, [KR_SERVICE, '\uC11C\uBE44\uC2A4', 'service', 'services', 'internet', 'software', 'game', 'media']],
+  [KR_SERVICE_SHORT, [KR_SERVICE, KR_SERVICE_SHORT, 'service', 'services', 'internet', 'software', 'game', 'media']],
   [KR_CONSTRUCTION, [KR_CONSTRUCTION, '\uAC74\uC124', 'construction']],
+  [KR_CONSTRUCTION_SHORT, [KR_CONSTRUCTION, KR_CONSTRUCTION_SHORT, 'construction']],
   [KR_TRANSPORT_WAREHOUSE, [KR_TRANSPORT_WAREHOUSE, 'transport', 'transport warehouse', 'logistics']],
   [KR_DISTRIBUTION, [KR_DISTRIBUTION, 'retail', 'distribution']],
-  [KR_FOOD, [KR_FOOD, 'food', 'food beverage']],
-  [KR_TEXTILE, [KR_TEXTILE, 'textile']],
+  [KR_DISTRIBUTION_SHORT, [KR_DISTRIBUTION, KR_DISTRIBUTION_SHORT, 'retail', 'distribution']],
+  [KR_FOOD, [KR_FOOD, KR_FOOD_TOBACCO, 'food', 'food beverage']],
+  [KR_FOOD_TOBACCO, [KR_FOOD, KR_FOOD_TOBACCO, 'food', 'food beverage']],
+  [KR_TEXTILE, [KR_TEXTILE, KR_TEXTILE_CLOTHING, 'textile']],
+  [KR_TEXTILE_CLOTHING, [KR_TEXTILE, KR_TEXTILE_CLOTHING, 'textile']],
 ]);
 
 const UNSAFE_THEME_KEYS = new Set([
@@ -232,12 +259,23 @@ function stripNoise(value: string): string {
     .normalize('NFKC')
     .replace(/\([^)]*\)/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[\u00B7\u318D/]/g, ' ')
     .replace(/[{}]/g, ' ')
     .replace(/\b(KRX|KOSPI|KOSDAQ|KONEX|INDEX|INDICES|SECTOR|INDUSTRY|COMPOSITE)\b/gi, ' ')
     .replace(/(\uD55C\uAD6D\uAC70\uB798\uC18C|\uCF54\uC2A4\uD53C|\uCF54\uC2A4\uB2E5|\uCF54\uB125\uC2A4|\uC5C5\uC885|\uC139\uD130|\uC0B0\uC5C5|\uC9C0\uC218)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+export function canonicalizeOfficialIndexName(value: unknown): { canonicalName: string; codePrefixRemoved: boolean } {
+  const raw = String(value ?? '').trim();
+  const codePrefixRemoved = /^[0-9]+/.test(raw);
+  const withoutCodePrefix = raw.replace(/^[0-9]+\s*/g, '');
+  return {
+    canonicalName: normalizeOfficialSectorName(withoutCodePrefix),
+    codePrefixRemoved,
+  };
 }
 
 export function normalizeOfficialSectorName(value: unknown): string {
@@ -276,6 +314,27 @@ function registerMasterName(
   if (compactKey && !lookup.has(compactKey)) lookup.set(compactKey, row);
 }
 
+function masterCanonicalName(row: OfficialSectorIndexMasterRow): string {
+  return row.canonicalOfficialName ?? canonicalizeOfficialIndexName(row.officialIndexName).canonicalName;
+}
+
+function masterCodePrefixRemoved(row: OfficialSectorIndexMasterRow): boolean {
+  return row.codePrefixRemoved ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefixRemoved;
+}
+
+function officialCandidateNames(row: OfficialSectorIndexMasterRow | null | undefined): {
+  raw: string[];
+  normalized: string[];
+  canonical: string[];
+} {
+  if (!row) return { raw: [], normalized: [], canonical: [] };
+  return {
+    raw: Array.from(new Set([row.officialIndexName, row.rawSectorName].filter(Boolean))),
+    normalized: Array.from(new Set([row.normalizedSectorName, normalizeOfficialSectorName(row.officialIndexName)].filter(Boolean))),
+    canonical: Array.from(new Set([masterCanonicalName(row)].filter(Boolean))),
+  };
+}
+
 function findMasterByName(
   lookup: Map<string, OfficialSectorIndexMasterRow>,
   normalizedName: string,
@@ -302,7 +361,7 @@ function findBySafeAlias(
       const row = findMasterByName(masterByName, normalizeOfficialSectorName(canonicalName));
       if (row) {
         candidateOfficialNames.push(row.officialIndexName);
-        return { row, aliasSource: candidate, safeAliasTarget: row.officialIndexName, candidateOfficialNames };
+        return { row, aliasSource: candidate, safeAliasTarget: canonicalName, candidateOfficialNames };
       }
       candidateOfficialNames.push(canonicalName);
     }
@@ -352,8 +411,14 @@ function attemptFromRow(row: OfficialSectorIndexCodeMappingRow): OfficialSectorI
     safeAliasTarget: row.safeAliasTarget,
     unsafeAliasMatch: row.unsafeAliasMatch,
     unsafeAliasTargets: row.unsafeAliasTargets,
+    rawOfficialCandidates: row.rawOfficialCandidates,
+    normalizedOfficialCandidates: row.normalizedOfficialCandidates,
+    canonicalOfficialCandidates: row.canonicalOfficialCandidates,
     selectedOfficialIndexName: row.selectedOfficialIndexName,
     selectedOfficialIndexCode: row.selectedOfficialIndexCode,
+    selectedOfficialRawName: row.selectedOfficialRawName,
+    selectedOfficialCanonicalName: row.selectedOfficialCanonicalName,
+    codePrefixRemoved: row.codePrefixRemoved,
     includedInOfficialCoverage: row.includedInOfficialCoverage,
     shadowEvidenceOnly: row.shadowEvidenceOnly,
     reasonCode: row.reasonCode,
@@ -406,6 +471,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
   for (const row of input.masterRows) {
     masterByCode.set(row.officialIndexCode, row);
     registerMasterName(masterByName, row.normalizedSectorName, row);
+    registerMasterName(masterByName, masterCanonicalName(row), row);
     registerMasterName(masterByName, normalizeOfficialSectorName(row.officialIndexName), row);
     registerMasterName(masterByName, normalizeOfficialSectorName(row.rawSectorName), row);
   }
@@ -417,6 +483,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
   const unresolved: string[] = [];
   const unresolvedDetails: OfficialSectorIndexUnresolvedSectorReason[] = [];
   const unsafeAliasSectorNames: string[] = [];
+  let safeSynonymMatchCount = 0;
 
   for (const target of input.targets) {
     const sectorName = String(target.sectorName ?? '').trim();
@@ -475,9 +542,20 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
 
     const matchedOfficial = officialSource(matched);
     const uniqueCandidateOfficialNames = Array.from(new Set(candidateOfficialNames.filter(Boolean)));
+    const matchedOfficialNames = officialCandidateNames(matched);
 
     if (matched && matchedOfficial && !unsafeTheme) {
       if (safeAlias) safeAliasCount += 1;
+      if (safeAlias && safeAliasTarget) {
+        const normalizedAliasTarget = normalizeOfficialSectorName(safeAliasTarget);
+        const selectedCanonicalName = masterCanonicalName(matched);
+        if (
+          normalizedAliasTarget !== selectedCanonicalName
+          && compactNameKey(normalizedAliasTarget) === compactNameKey(selectedCanonicalName)
+        ) {
+          safeSynonymMatchCount += 1;
+        }
+      }
       if (exactMatch && !safeAlias) exactMatchCount += 1;
       rows.push({
         sectorName,
@@ -490,8 +568,14 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         safeAliasTarget,
         unsafeAliasMatch: null,
         unsafeAliasTargets: [],
+        rawOfficialCandidates: matchedOfficialNames.raw,
+        normalizedOfficialCandidates: matchedOfficialNames.normalized,
+        canonicalOfficialCandidates: matchedOfficialNames.canonical,
         officialIndexCode: matched.officialIndexCode,
         officialIndexName: matched.officialIndexName,
+        selectedOfficialRawName: matched.officialIndexName,
+        selectedOfficialCanonicalName: masterCanonicalName(matched),
+        codePrefixRemoved: masterCodePrefixRemoved(matched),
         selectedOfficialIndexCode: matched.officialIndexCode,
         selectedOfficialIndexName: matched.officialIndexName,
         market: matched.market,
@@ -522,8 +606,14 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         safeAliasTarget,
         unsafeAliasMatch,
         unsafeAliasTargets,
+        rawOfficialCandidates: matchedOfficialNames.raw,
+        normalizedOfficialCandidates: matchedOfficialNames.normalized,
+        canonicalOfficialCandidates: matchedOfficialNames.canonical,
         officialIndexCode: matched?.officialIndexCode ?? null,
         officialIndexName: matched?.officialIndexName ?? null,
+        selectedOfficialRawName: matched?.officialIndexName ?? null,
+        selectedOfficialCanonicalName: matched ? masterCanonicalName(matched) : null,
+        codePrefixRemoved: matched ? masterCodePrefixRemoved(matched) : false,
         selectedOfficialIndexCode: matched?.officialIndexCode ?? null,
         selectedOfficialIndexName: matched?.officialIndexName ?? unsafeAliasMatch,
         market: matched?.market ?? 'UNKNOWN',
@@ -552,8 +642,14 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         safeAliasTarget,
         unsafeAliasMatch,
         unsafeAliasTargets,
+        rawOfficialCandidates: matchedOfficialNames.raw,
+        normalizedOfficialCandidates: matchedOfficialNames.normalized,
+        canonicalOfficialCandidates: matchedOfficialNames.canonical,
         officialIndexCode: matched.officialIndexCode,
         officialIndexName: matched.officialIndexName,
+        selectedOfficialRawName: matched.officialIndexName,
+        selectedOfficialCanonicalName: masterCanonicalName(matched),
+        codePrefixRemoved: masterCodePrefixRemoved(matched),
         selectedOfficialIndexCode: matched.officialIndexCode,
         selectedOfficialIndexName: matched.officialIndexName,
         market: matched.market,
@@ -595,8 +691,14 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       safeAliasTarget,
       unsafeAliasMatch: null,
       unsafeAliasTargets,
+      rawOfficialCandidates: [],
+      normalizedOfficialCandidates: [],
+      canonicalOfficialCandidates: [],
       officialIndexCode: null,
       officialIndexName: null,
+      selectedOfficialRawName: null,
+      selectedOfficialCanonicalName: null,
+      codePrefixRemoved: false,
       selectedOfficialIndexCode: null,
       selectedOfficialIndexName: null,
       market: 'UNKNOWN',
@@ -619,6 +721,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
   reasonCodes.add(mappedSectorCount > 0 ? 'OFFICIAL_INDEX_CODE_MAPPED' : 'OFFICIAL_INDEX_COVERAGE_ZERO');
   if (exactMatchCount > 0) reasonCodes.add('EXACT_MATCHED');
   if (safeAliasCount > 0) reasonCodes.add('SAFE_ALIAS_MATCHED');
+  if (safeSynonymMatchCount > 0) reasonCodes.add('SAFE_SYNONYM_MATCHED_CANONICAL');
   if (unsafeAliasCount > 0) reasonCodes.add('UNSAFE_ALIAS_EXCLUDED_FROM_PROMOTION');
   if (unresolved.length > 0) {
     reasonCodes.add('OFFICIAL_INDEX_MASTER_UNRESOLVED_SECTORS');
@@ -635,6 +738,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
     officialIndexCoverage: pct(mappedSectorCount, input.targets.length),
     exactMatchCount,
     safeAliasMatchCount: safeAliasCount,
+    safeSynonymMatchCount,
     aliasResolvedCount: safeAliasCount + unsafeAliasCount,
     safeAliasCount,
     unsafeAliasCount,

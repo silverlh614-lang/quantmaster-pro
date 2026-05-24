@@ -255,6 +255,7 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
   });
 
   it('keeps official mapped coverage separate from failed API verification', () => {
+    const officialName = 'transport-equipment';
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({
         dataQuality: 'OK',
@@ -271,14 +272,22 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
         idxcodeMstDownloaded: true,
         cacheFallbackUsed: false,
         parseStatus: 'OK',
-        rawSampleRows: [{ idxDiv: '1', idxCode: '0012', idxName: '운수장비', normalizedIdxName: '운수장비' }],
-        idxNameSampleTop: ['운수장비', '전기전자', '철강금속'],
+        rawSampleRows: [{
+          idxDiv: '1',
+          idxCode: '0012',
+          idxName: officialName,
+          rawIdxName: officialName,
+          normalizedIdxName: officialName,
+          canonicalOfficialName: officialName,
+          codePrefixRemoved: false,
+        }],
+        idxNameSampleTop: [officialName, 'electric-electronics', 'steel-metal'],
         aliasDictionaryStatus: {
           loaded: true,
           aliasCount: 3,
           safeAliasCount: 2,
           unsafeAliasCount: 1,
-          sampleAliases: ['AUTOMOTIVE -> 운수장비', 'SEMICONDUCTOR -> 전기전자'],
+          sampleAliases: [`AUTOMOTIVE -> ${officialName}`, 'SEMICONDUCTOR -> electric-electronics'],
         },
         officialIndexCoverage: 50,
         verifiedIndexCodeCoverage: 0,
@@ -290,19 +299,25 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
         aliasResolvedCount: 1,
         internalSectorNames: ['AUTOMOTIVE', 'UNRESOLVED_A'],
         normalizedInternalSectorNames: ['automotive', 'unresolved a'],
-        mappedSectorPairs: ['AUTOMOTIVE -> 운수장비(code=0012)'],
+        mappedSectorPairs: [`AUTOMOTIVE -> ${officialName}(code=0012)`],
         mappingAttempts: [{
           internalSectorName: 'AUTOMOTIVE',
           normalizedInternalName: 'automotive',
           aliasLookupKey: 'automotive',
-          candidateOfficialNames: ['운수장비'],
+          candidateOfficialNames: [officialName],
           exactMatch: false,
-          safeAliasMatch: '운수장비',
-          safeAliasTarget: '운수장비',
+          safeAliasMatch: officialName,
+          safeAliasTarget: officialName,
           unsafeAliasMatch: null,
           unsafeAliasTargets: [],
-          selectedOfficialIndexName: '운수장비',
+          rawOfficialCandidates: [officialName],
+          normalizedOfficialCandidates: [officialName],
+          canonicalOfficialCandidates: [officialName],
+          selectedOfficialIndexName: officialName,
           selectedOfficialIndexCode: '0012',
+          selectedOfficialRawName: officialName,
+          selectedOfficialCanonicalName: officialName,
+          codePrefixRemoved: false,
           includedInOfficialCoverage: true,
           shadowEvidenceOnly: false,
           verifyAttempted: true,
@@ -350,13 +365,13 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(compact).toContain('verifiedIndexCodeCoverage=0%');
     expect(compact).toContain('promotionAllowed=false');
     expect(compact).toContain('Official Sector Index Master Debug');
-    expect(compact).toContain('rawSampleRows=1:0012:운수장비:운수장비');
+    expect(compact).toContain('rawSampleRows=1:0012:raw=transport-equipment:normalized=transport-equipment:canonical=transport-equipment:prefixRemoved=false');
     expect(compact).toContain('EN_KR_AliasDictionaryStatus: loaded=true');
     expect(compact).toContain('SectorIndexMappingAttempt: AUTOMOTIVE:normalized=automotive');
-    expect(compact).toContain('safeAliasTarget=운수장비');
+    expect(compact).toContain('safeAliasTarget=transport-equipment');
+    expect(compact).toContain('selectedCanonical=transport-equipment');
     expect(compact).toContain('SectorIndexUnresolvedDetails: UNRESOLVED_A:reason=EN_TO_KR_ALIAS_MISSING');
   });
-
   it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {
     const report = buildSectorEnergyMasterReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({

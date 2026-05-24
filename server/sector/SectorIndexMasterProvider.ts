@@ -5,6 +5,7 @@ import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import {
+  canonicalizeOfficialIndexName,
   normalizeOfficialSectorName,
   type OfficialSectorIndexMasterRow,
 } from './SectorIndexCodeMap.js';
@@ -30,7 +31,10 @@ export interface SectorIndexMasterProviderResult {
     idxDiv?: string;
     idxCode: string;
     idxName: string;
+    rawIdxName?: string;
     normalizedIdxName: string;
+    canonicalOfficialName?: string;
+    codePrefixRemoved?: boolean;
   }>;
   providerIssue: boolean;
   marketSignal: false;
@@ -65,12 +69,15 @@ function toMasterRow(input: {
   const code = String(input.idxCode ?? '').trim();
   const name = String(input.idxName ?? '').trim();
   if (!/^\d{4}$/.test(code) || !name) return null;
+  const canonical = canonicalizeOfficialIndexName(name);
   return {
     market: marketFromIdxCode(code, input.idxDiv),
     idxDiv: input.idxDiv,
     officialIndexCode: code,
     officialIndexName: name,
     normalizedSectorName: normalizeOfficialSectorName(name),
+    canonicalOfficialName: canonical.canonicalName,
+    codePrefixRemoved: canonical.codePrefixRemoved,
     rawSectorName: name,
     sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
     aliasResolved: false,
@@ -246,7 +253,10 @@ export async function loadKisOfficialSectorIndexMaster(
       ...(row.idxDiv ? { idxDiv: row.idxDiv } : {}),
       idxCode: row.officialIndexCode,
       idxName: row.officialIndexName,
+      rawIdxName: row.rawSectorName,
       normalizedIdxName: row.normalizedSectorName,
+      canonicalOfficialName: row.canonicalOfficialName ?? canonicalizeOfficialIndexName(row.officialIndexName).canonicalName,
+      codePrefixRemoved: row.codePrefixRemoved ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefixRemoved,
     })),
     providerIssue: !masterLoaded,
     marketSignal: false,

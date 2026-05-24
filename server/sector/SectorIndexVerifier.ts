@@ -9,6 +9,7 @@ import type {
   OfficialSectorIndexUnresolvedSectorReason,
 } from './SectorIndexCodeMap.js';
 import {
+  canonicalizeOfficialIndexName,
   getOfficialSectorIndexAliasDictionaryStatus,
   mapSectorNamesToOfficialIndexCodes,
   type OfficialSectorIndexMasterRow,
@@ -43,7 +44,15 @@ export interface OfficialSectorIndexMasterCoverageResult {
   cacheFallbackUsed: boolean;
   parseStatus: string;
   rows?: readonly OfficialSectorIndexMasterRow[];
-  rawSampleRows?: Array<{ idxDiv?: string; idxCode: string; idxName: string; normalizedIdxName: string }>;
+  rawSampleRows?: Array<{
+    idxDiv?: string;
+    idxCode: string;
+    idxName: string;
+    rawIdxName?: string;
+    normalizedIdxName: string;
+    canonicalOfficialName?: string;
+    codePrefixRemoved?: boolean;
+  }>;
   idxNameSampleTop?: string[];
   aliasDictionaryStatus?: OfficialSectorIndexAliasDictionaryStatus;
   officialIndexCoverage: number;
@@ -54,6 +63,7 @@ export interface OfficialSectorIndexMasterCoverageResult {
   safeAliasCoverage?: number;
   exactMatchCount?: number;
   safeAliasMatchCount?: number;
+  safeSynonymMatchCount?: number;
   safeAliasCount: number;
   unsafeAliasCount: number;
   unsafeAliasSectorNames?: string[];
@@ -178,7 +188,10 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
       ...(row.idxDiv ? { idxDiv: row.idxDiv } : {}),
       idxCode: row.officialIndexCode,
       idxName: row.officialIndexName,
+      rawIdxName: row.rawSectorName,
       normalizedIdxName: row.normalizedSectorName,
+      canonicalOfficialName: row.canonicalOfficialName ?? canonicalizeOfficialIndexName(row.officialIndexName).canonicalName,
+      codePrefixRemoved: row.codePrefixRemoved ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefixRemoved,
     })),
     idxNameSampleTop: (provider?.rawSampleRows?.map((row) => row.idxName) ?? masterRows.map((row) => row.officialIndexName))
       .slice(0, 12),
@@ -191,6 +204,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     safeAliasCoverage: pct(mapping.safeAliasCount, mapping.targetSectorCount),
     exactMatchCount: mapping.exactMatchCount,
     safeAliasMatchCount: mapping.safeAliasMatchCount,
+    safeSynonymMatchCount: mapping.safeSynonymMatchCount,
     safeAliasCount: mapping.safeAliasCount,
     unsafeAliasCount: mapping.unsafeAliasCount,
     unsafeAliasSectorNames: mapping.unsafeAliasSectorNames,

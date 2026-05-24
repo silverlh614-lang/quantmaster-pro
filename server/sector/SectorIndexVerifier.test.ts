@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalizeOfficialIndexName,
   mapSectorNamesToOfficialIndexCodes,
   normalizeOfficialSectorName,
   type OfficialSectorIndexMasterRow,
@@ -139,6 +140,65 @@ describe('SectorIndexCodeMap', () => {
     expect(result.rows.find((row) => row.sectorName === 'STEEL')).toMatchObject({
       officialIndexCode: '0011',
       includedInOfficialCoverage: true,
+    });
+  });
+
+  it('matches KIS official idx_name after removing numeric code prefixes', () => {
+    expect(canonicalizeOfficialIndexName('8\uD654\uD559')).toEqual({
+      canonicalName: '\uD654\uD559',
+      codePrefixRemoved: true,
+    });
+    expect(canonicalizeOfficialIndexName('5\uC74C\uC2DD\uB8CC\u00B7\uB2F4\uBC30')).toEqual({
+      canonicalName: '\uC74C\uC2DD\uB8CC \uB2F4\uBC30',
+      codePrefixRemoved: true,
+    });
+
+    const prefixedMasterRows: OfficialSectorIndexMasterRow[] = [
+      officialRow('0006', '8\uD654\uD559'),
+      officialRow('0011', '11\uCCA0\uAC15 \uAE08\uC18D'),
+      officialRow('0019', '19\uAC74\uC124'),
+    ];
+    const result = mapSectorNamesToOfficialIndexCodes({
+      masterRows: prefixedMasterRows,
+      targets: [
+        { sectorName: '\uD654\uD559' },
+        { sectorName: 'STEEL' },
+        { sectorName: 'CONSTRUCTION' },
+      ],
+    });
+
+    expect(result.officialIndexCoverage).toBe(100);
+    expect(result.exactMatchCount).toBe(1);
+    expect(result.safeAliasMatchCount).toBe(2);
+    expect(result.safeSynonymMatchCount).toBe(1);
+    expect(result.reasonCodes).toContain('SAFE_SYNONYM_MATCHED_CANONICAL');
+    expect(result.mappedSectorPairs).toEqual(expect.arrayContaining([
+      '\uD654\uD559 -> 8\uD654\uD559(code=0006)',
+      'STEEL -> 11\uCCA0\uAC15 \uAE08\uC18D(code=0011)',
+      'CONSTRUCTION -> 19\uAC74\uC124(code=0019)',
+    ]));
+    expect(result.mappingAttempts.find((row) => row.internalSectorName === '\uD654\uD559')).toMatchObject({
+      selectedOfficialRawName: '8\uD654\uD559',
+      selectedOfficialCanonicalName: '\uD654\uD559',
+      canonicalOfficialCandidates: ['\uD654\uD559'],
+      codePrefixRemoved: true,
+      includedInOfficialCoverage: true,
+      reasonCode: 'EXACT_MATCHED',
+    });
+    expect(result.mappingAttempts.find((row) => row.internalSectorName === 'STEEL')).toMatchObject({
+      selectedOfficialRawName: '11\uCCA0\uAC15 \uAE08\uC18D',
+      selectedOfficialCanonicalName: '\uCCA0\uAC15 \uAE08\uC18D',
+      canonicalOfficialCandidates: ['\uCCA0\uAC15 \uAE08\uC18D'],
+      codePrefixRemoved: true,
+      includedInOfficialCoverage: true,
+      reasonCode: 'SAFE_ALIAS_MATCHED',
+    });
+    expect(result.mappingAttempts.find((row) => row.internalSectorName === 'CONSTRUCTION')).toMatchObject({
+      selectedOfficialRawName: '19\uAC74\uC124',
+      selectedOfficialCanonicalName: '\uAC74\uC124',
+      codePrefixRemoved: true,
+      includedInOfficialCoverage: true,
+      reasonCode: 'SAFE_ALIAS_MATCHED',
     });
   });
 
