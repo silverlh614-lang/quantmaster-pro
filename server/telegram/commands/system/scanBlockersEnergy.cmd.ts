@@ -70,7 +70,7 @@ const scanBlockersEnergy: TelegramCommand = {
 
     const status = safeBuildFreshDataStatusSectionAdr0498(
       mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(adr0488),
-      { maxLines: 4 },
+      { maxLines: 5 },
     );
 
     const lines = [

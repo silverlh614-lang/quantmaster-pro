@@ -291,6 +291,21 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
           targetSectorCount: 12,
           verifySuccessCount: 3,
           verifyFailCount: 3,
+          coverageMetrics: {
+            verifiedCoverageExcludingUnsafeAlias: 100,
+          },
+          promotionReadiness: {
+            selectedPromotionCoverage: 25,
+            requiredPromotionCoverage: 80,
+            safeOnlyMetricWouldPass: true,
+            reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+          },
+          indexValueQuality: {
+            apiVerifiedCount: 3,
+            zeroCurrentIndexCount: 1,
+            nonZeroCurrentIndexCount: 2,
+            qualityUsableCount: 2,
+          },
           unresolvedSectorNames: ['방산'],
           reasonCodes: ['PROMOTION_DISABLED_COVERAGE_BELOW_80'],
         },
@@ -302,7 +317,8 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(text).toContain('SECTOR_ENERGY/KRX_SECTOR_INDEX_MASTER provider=KRX confidence=MISSING');
     expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_MASTER provider=KIS confidence=PARTIAL');
     expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_CODE_MAPPING provider=INTERNAL confidence=PARTIAL');
-    expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_VERIFY provider=KIS confidence=PARTIAL');
+    expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_VERIFY provider=KIS confidence=PARTIAL signal=UNKNOWN status=READY_FOR_SHADOW promo=BLOCKED quality=DEGRADED_CURRENT_INDEX_ZERO');
+    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_PROMOTION_READINESS provider=INTERNAL confidence=PARTIAL signal=UNKNOWN status=OBSERVING promo=BLOCKED quality=DEGRADED_CURRENT_INDEX_ZERO');
     expect(text).toContain('promo=BLOCKED');
     expect(text).toContain('impact=NONE');
     expect(text).not.toContain('signal=BEARISH');

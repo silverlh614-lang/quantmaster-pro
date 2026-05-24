@@ -458,12 +458,37 @@ describe('SectorIndexVerifier', () => {
       useForShadowEvidence: true,
     });
     expect(result.indexValueQuality).toMatchObject({
+      apiVerifiedCount: 2,
       zeroCurrentIndexCount: 1,
       nonZeroCurrentIndexCount: 1,
+      qualityUsableCount: 1,
+      qualityUsableCoverageByOfficialTarget: 25,
+      qualityUsableCoverageExcludingUnsafeAlias: 50,
       zeroCurrentIndexSymbols: ['finance'],
       zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+      qualityImpact: 'BLOCK_LIVE_PROMOTION_ONLY',
+      executionImpact: 'NONE',
+    });
+    expect(result.sectorIndexQuality?.find((row) => row.sectorName === 'finance')).toMatchObject({
+      verified: true,
+      currentIndex: 0,
+      qualityUsable: false,
+      qualityReason: 'CURRENT_INDEX_ZERO',
+      useForShadowLeadership: true,
+      useForLivePromotion: false,
+    });
+    expect(result.promotionReadiness).toMatchObject({
+      selectedPromotionMetric: 'officialTargetVerifiedCoverage',
+      selectedPromotionCoverage: 50,
+      requiredPromotionCoverage: 80,
+      qualityUsableCoverageByOfficialTarget: 25,
+      promotionAllowed: false,
+      reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+      safeOnlyMetricWouldPass: true,
+      useAlternativeForLivePromotion: false,
     });
     expect(result.reasonCodes).toContain('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
+    expect(result.reasonCodes).toContain('INDEX_VALUE_QUALITY_LOW');
   });
 
   it('raises verified coverage only when an idxDiv+idxCode verify variant succeeds', async () => {

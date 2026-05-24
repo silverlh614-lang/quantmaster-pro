@@ -325,6 +325,12 @@ function sectorIndexCoveragePolicyLines(
   const verifiedCoverageExcludingUnsafeAlias = master.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias
     ?? master.verifiedCoverageExcludingUnsafeAlias
     ?? ratioPct(verifiedSuccessCount, safePromotionEligibleSectorCount);
+  const quality = master.indexValueQuality;
+  const qualityUsableCount = quality?.qualityUsableCount ?? quality?.nonZeroCurrentIndexCount ?? 0;
+  const qualityUsableCoverageByOfficialTarget = quality?.qualityUsableCoverageByOfficialTarget
+    ?? ratioPct(qualityUsableCount, officialTargetSectorCount);
+  const qualityUsableCoverageExcludingUnsafeAlias = quality?.qualityUsableCoverageExcludingUnsafeAlias
+    ?? ratioPct(qualityUsableCount, safePromotionEligibleSectorCount);
   const policy = master.promotionCoveragePolicy;
   const selectedMetric = policy?.selectedMetric ?? 'officialTargetVerifiedCoverage';
   const selectedNumerator = policy?.numerator ?? verifiedSuccessCount;
@@ -336,13 +342,23 @@ function sectorIndexCoveragePolicyLines(
     selectedCoverageValue >= 80 ? 'VERIFIED_INDEX_CODE_COVERAGE_READY' : 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
   );
   const unsafePolicy = master.unsafeAliasPolicy;
-  const quality = master.indexValueQuality;
+  const internalGroupedMetricWouldPass = verifiedCoverageByInternalGrouped >= 80;
+  const safeOnlyMetricWouldPass = master.promotionReadiness?.safeOnlyMetricWouldPass ?? verifiedCoverageExcludingUnsafeAlias >= 80;
+  const selectedReadinessReason = master.promotionReadiness?.reason ?? (
+    selectedCoverageValue < 80
+      ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
+      : qualityUsableCoverageByOfficialTarget >= 80
+        ? 'READY_FOR_PROMOTION'
+        : 'INDEX_VALUE_QUALITY_LOW'
+  );
   return [
     `SectorIndexCoverageDenominator: internalGroupedSectorCount=${internalGroupedSectorCount} officialTargetSectorCount=${officialTargetSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount}`,
     `CoverageMetrics: officialIndexCoverageByOfficialTarget=${pct(officialIndexCoverageByOfficialTarget)} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} promotionVerifiedCoverage=${pct(selectedCoverageValue)}`,
-    `UnsafeAliasPolicy: includeInPromotionDenominator=${unsafePolicy?.includeInPromotionDenominator ?? true} includeInPromotionNumerator=${unsafePolicy?.includeInPromotionNumerator ?? false} useForShadowEvidence=${unsafePolicy?.useForShadowEvidence ?? true} reason=${unsafePolicy?.reason ?? 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS'}`,
+    `SectorIndexPromotionReadiness: officialTargetSectorCount=${officialTargetSectorCount} internalGroupedSectorCount=${internalGroupedSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} selectedPromotionMetric=${master.promotionReadiness?.selectedPromotionMetric ?? 'officialTargetVerifiedCoverage'} selectedPromotionCoverage=${pct(selectedCoverageValue)} requiredPromotionCoverage=${pct(master.promotionReadiness?.requiredPromotionCoverage ?? 80)} qualityUsableCoverageByOfficialTarget=${pct(qualityUsableCoverageByOfficialTarget)} qualityUsableCoverageExcludingUnsafeAlias=${pct(qualityUsableCoverageExcludingUnsafeAlias)} promotionAllowed=${effectivePromotionAllowed} reason=${selectedReadinessReason} internalGroupedMetricWouldPass=${internalGroupedMetricWouldPass} safeOnlyMetricWouldPass=${safeOnlyMetricWouldPass} useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY executionImpact=NONE`,
+    `UnsafeAliasPolicy: includeInPromotionDenominator=${unsafePolicy?.includeInPromotionDenominator ?? true} includeInPromotionNumerator=${unsafePolicy?.includeInPromotionNumerator ?? false} useForShadowEvidence=${unsafePolicy?.useForShadowEvidence ?? true} useForLivePromotion=false reason=${unsafePolicy?.reason ?? 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS'}`,
     `PromotionCoveragePolicy: selectedMetric=${selectedMetric} numerator=${selectedNumerator} denominator=${selectedDenominator} required=${pct(policy?.requiredVerifiedCoverage ?? 80)} selectedCoverageValue=${pct(selectedCoverageValue)} coveragePromotionAllowed=${coveragePromotionAllowed} promotionAllowed=${effectivePromotionAllowed} reason=${promotionReason} alternativeInternalGroupedCoverage=${pct(verifiedCoverageByInternalGrouped)} executionImpact=NONE`,
-    `IndexValueQuality: zeroCurrentIndexCount=${quality?.zeroCurrentIndexCount ?? 0} currentIndexZeroCount=${quality?.zeroCurrentIndexCount ?? 0} nonZeroCurrentIndexCount=${quality?.nonZeroCurrentIndexCount ?? 0} zeroCurrentIndexSymbols=${quality?.zeroCurrentIndexSymbols.join(',') || 'NONE'} zeroPolicy=${quality?.zeroCurrentIndexPolicy ?? 'OBSERVE_ONLY'}`,
+    `IndexValueQuality: apiVerifiedCount=${quality?.apiVerifiedCount ?? verifiedSuccessCount} currentIndexZeroCount=${quality?.zeroCurrentIndexCount ?? 0} zeroCurrentIndexCount=${quality?.zeroCurrentIndexCount ?? 0} currentIndexNonZeroCount=${quality?.nonZeroCurrentIndexCount ?? 0} nonZeroCurrentIndexCount=${quality?.nonZeroCurrentIndexCount ?? 0} qualityUsableCount=${qualityUsableCount} zeroCurrentIndexSymbols=${quality?.zeroCurrentIndexSymbols.join(',') || 'NONE'} zeroPolicy=${quality?.zeroCurrentIndexPolicy ?? 'OBSERVE_ONLY'} qualityImpact=${quality?.qualityImpact ?? 'NONE'} executionImpact=NONE`,
+    `SectorIndexQuality: ${(master.sectorIndexQuality ?? []).slice(0, 16).map((row) => `${row.sectorName}:verified=${row.verified}:currentIndex=${row.currentIndex ?? 'NONE'}:qualityUsable=${row.qualityUsable}:qualityReason=${row.qualityReason}:useForShadowLeadership=${row.useForShadowLeadership}:useForLivePromotion=${row.useForLivePromotion}:executionImpact=${row.executionImpact}`).join(' | ') || 'NONE'}`,
   ];
 }
 

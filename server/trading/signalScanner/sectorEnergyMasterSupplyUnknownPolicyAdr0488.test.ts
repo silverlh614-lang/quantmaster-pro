@@ -431,11 +431,39 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
           executionImpact: 'NONE',
         },
         indexValueQuality: {
+          apiVerifiedCount: 11,
           zeroCurrentIndexCount: 2,
           nonZeroCurrentIndexCount: 9,
+          qualityUsableCount: 9,
+          qualityUsableCoverageByOfficialTarget: 60,
+          qualityUsableCoverageExcludingUnsafeAlias: 81.8,
           zeroCurrentIndexSymbols: ['화학', '철강'],
           zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+          qualityImpact: 'BLOCK_LIVE_PROMOTION_ONLY',
+          executionImpact: 'NONE',
         },
+        sectorIndexQuality: [
+          {
+            sectorName: '화학',
+            verified: true,
+            currentIndex: 0,
+            qualityUsable: false,
+            qualityReason: 'CURRENT_INDEX_ZERO',
+            useForShadowLeadership: true,
+            useForLivePromotion: false,
+            executionImpact: 'NONE',
+          },
+          {
+            sectorName: '금융',
+            verified: true,
+            currentIndex: 123.4,
+            qualityUsable: true,
+            qualityReason: 'OK',
+            useForShadowLeadership: true,
+            useForLivePromotion: true,
+            executionImpact: 'NONE',
+          },
+        ],
         safeAliasCount: 5,
         unsafeAliasCount: 4,
         unsafeAliasSectorNames: ['조선', '방산', '원자력', '이차전지'],
@@ -459,9 +487,12 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.sectorEnergyMaster.promotionAllowed).toBe(false);
     expect(compact).toContain('SectorIndexCoverageDenominator: internalGroupedSectorCount=12 officialTargetSectorCount=15 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
     expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% promotionVerifiedCoverage=73.3%');
-    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=true includeInPromotionNumerator=false useForShadowEvidence=true reason=THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
+    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=true includeInPromotionNumerator=false useForShadowEvidence=true useForLivePromotion=false reason=THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
+    expect(compact).toContain('SectorIndexPromotionReadiness: officialTargetSectorCount=15 internalGroupedSectorCount=12 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
+    expect(compact).toContain('internalGroupedMetricWouldPass=true safeOnlyMetricWouldPass=true useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY');
     expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=officialTargetVerifiedCoverage numerator=11 denominator=15 required=80% selectedCoverageValue=73.3% coveragePromotionAllowed=false promotionAllowed=false reason=VERIFIED_INDEX_CODE_COVERAGE_LOW alternativeInternalGroupedCoverage=91.7% executionImpact=NONE');
-    expect(compact).toContain('IndexValueQuality: zeroCurrentIndexCount=2 currentIndexZeroCount=2 nonZeroCurrentIndexCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY');
+    expect(compact).toContain('IndexValueQuality: apiVerifiedCount=11 currentIndexZeroCount=2 zeroCurrentIndexCount=2 currentIndexNonZeroCount=9 nonZeroCurrentIndexCount=9 qualityUsableCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY qualityImpact=BLOCK_LIVE_PROMOTION_ONLY executionImpact=NONE');
+    expect(compact).toContain('SectorIndexQuality: 화학:verified=true:currentIndex=0:qualityUsable=false:qualityReason=CURRENT_INDEX_ZERO:useForShadowLeadership=true:useForLivePromotion=false:executionImpact=NONE');
   });
 
   it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {
