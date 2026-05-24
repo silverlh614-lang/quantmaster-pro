@@ -174,6 +174,16 @@ const refreshDartCorpCodeMasterCache = vi.fn(async () => ({
   missingSampleSymbols: [],
   lastError: null,
   lastHttpStatus: 200,
+  requestUrlHost: 'opendart.fss.or.kr',
+  httpStatus: 200,
+  contentType: 'application/zip',
+  contentLength: 1024,
+  firstBytesHex: '50 4b 03 04',
+  firstBytesAscii: 'PK..',
+  zipOpenStatus: 'OK',
+  zipEntries: ['CORPCODE.xml'],
+  selectedXmlEntry: 'CORPCODE.xml',
+  responsePreview: null,
   executionImpact: 'NONE',
   downloaded: true,
   parseStatus: 'OK',
@@ -196,6 +206,16 @@ vi.mock('../../../trading/gate2/dartCorpCodeMasterCache.js', () => ({
     missingSampleSymbols: [],
     lastError: null,
     lastHttpStatus: 200,
+    requestUrlHost: 'opendart.fss.or.kr',
+    httpStatus: 200,
+    contentType: 'application/zip',
+    contentLength: 1024,
+    firstBytesHex: '50 4b 03 04',
+    firstBytesAscii: 'PK..',
+    zipOpenStatus: 'OK',
+    zipEntries: ['CORPCODE.xml'],
+    selectedXmlEntry: 'CORPCODE.xml',
+    responsePreview: null,
     executionImpact: 'NONE',
   }),
   refreshDartCorpCodeMasterCache,
@@ -274,12 +294,14 @@ describe('Gate2 external commands', () => {
     await status!.execute({ args: ['005930'], reply: async message => { statusReplies.push(message); } });
     expect(statusReplies.join('\n')).toContain('corpCodeCacheLoaded=true');
     expect(statusReplies.join('\n')).toContain('sampleMappings=005930');
+    expect(statusReplies.join('\n')).toContain('selectedXmlEntry=CORPCODE.xml');
 
     const refreshReplies: string[] = [];
     await refresh!.execute({ args: [], reply: async message => { refreshReplies.push(message); } });
     const refreshText = refreshReplies.join('\n');
     expect(refreshDartCorpCodeMasterCache).toHaveBeenCalled();
     expect(refreshText).toContain('parseStatus=OK');
+    expect(refreshText).toContain('zipOpenStatus=OK');
     expect(refreshText).toContain('no broker order');
     expect(refreshText).toContain('executionImpact=NONE');
   });

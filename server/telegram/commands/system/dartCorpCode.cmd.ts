@@ -21,6 +21,7 @@ function parseSymbols(args: readonly string[]): string[] {
 }
 
 function formatStatus(input: ReturnType<typeof getDartCorpCodeCacheStatus>): string[] {
+  const zipEntries = Array.isArray(input.zipEntries) ? input.zipEntries : [];
   return [
     `corpCodeCacheLoaded=${input.corpCodeCacheLoaded}`,
     `corpCodeCacheCount=${input.corpCodeCacheCount}`,
@@ -30,6 +31,16 @@ function formatStatus(input: ReturnType<typeof getDartCorpCodeCacheStatus>): str
     `ttlHours=${input.ttlHours}`,
     `expired=${input.expired}`,
     `source=${input.source}`,
+    `requestUrlHost=${input.requestUrlHost ?? 'NONE'}`,
+    `httpStatus=${input.httpStatus ?? 'NONE'}`,
+    `contentType=${input.contentType ?? 'NONE'}`,
+    `contentLength=${input.contentLength ?? 'NONE'}`,
+    `firstBytesHex=${input.firstBytesHex ?? 'NONE'}`,
+    `firstBytesAscii=${input.firstBytesAscii ?? 'NONE'}`,
+    `zipOpenStatus=${input.zipOpenStatus}`,
+    `zipEntries=${zipEntries.length > 0 ? zipEntries.join('|') : 'NONE'}`,
+    `selectedXmlEntry=${input.selectedXmlEntry ?? 'NONE'}`,
+    `responsePreview=${input.responsePreview ?? 'NONE'}`,
     `lastHttpStatus=${input.lastHttpStatus ?? 'NONE'}`,
     `lastError=${input.lastError ?? 'NONE'}`,
     `sampleMappings=${input.sampleMappings.length > 0 ? input.sampleMappings.join('|') : 'NONE'}`,
