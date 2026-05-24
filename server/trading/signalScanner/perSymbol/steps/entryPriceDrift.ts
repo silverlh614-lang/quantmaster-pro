@@ -6,7 +6,34 @@ import { applyEntryPriceDrift } from '../../../../screener/watchlistManager.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
 import { resolveDataHoldAction } from '../../../../data/dataHoldRolePolicy.js';
 import { isEntryPriceAutoCorrectDisabled } from '../../failureClassifier.js';
+import {
+  verifyDailyBarContinuity,
+  isDailyBarVerificationDisabled,
+  activeCorporateActionGapThresholdPct,
+} from '../../../corporateActionDetector.js';
+import { fetchKisDailyCandles } from '../../../../screener/kisChartDataFetcher.js';
 import type { BuyListLoopContext } from '../types.js';
+
+/**
+ * ADR-0518 — addedAt 기준 RAW 일봉 스캔 윈도우(캘린더 일수) 계산.
+ * daysSince(addedAt)+10 을 [30, 250] 으로 clamp. addedAt 파싱 실패 시 60.
+ */
+function resolveDailyBarScanWindow(addedAt: string | undefined): number {
+  const parsed = addedAt ? Date.parse(addedAt) : NaN;
+  if (!Number.isFinite(parsed)) return 60;
+  const daysSince = Math.floor((Date.now() - parsed) / (24 * 60 * 60 * 1000));
+  const target = daysSince + 10;
+  return Math.min(250, Math.max(30, target));
+}
+
+/** 일봉 조회 주입형 시그니처 — 테스트 mock 주입용. default 는 RAW 일봉(분할 갭 보존). */
+export type DailyCandleFetcher = (
+  code: string,
+  calendarDays?: number,
+) => Promise<{ date: string; close: number }[]>;
+
+const defaultDailyCandleFetcher: DailyCandleFetcher = (code, days) =>
+  fetchKisDailyCandles(code, days, { rawPrices: true });
 
 export type CorporateActionDriftMode = 'IMMUTABLE_REMOVE' | 'AUTO_CORRECT';
 
@@ -49,6 +76,7 @@ export async function checkEntryPriceDrift(
   currentPrice: number,
   stageLog: Record<string, string>,
   pushTrace: () => void,
+  fetchCandles: DailyCandleFetcher = defaultDailyCandleFetcher,
 ): Promise<'SKIP' | 'CONTINUE'> {
   const driftAction = applyEntryPriceDrift(stock, currentPrice);
   if (driftAction === 'DATA_HOLD') {
@@ -79,6 +107,36 @@ export async function checkEntryPriceDrift(
   if (driftAction === 'CORPORATE_ACTION') {
     const oldEntry = stock.entryPrice;
     const driftPctText = (((currentPrice - oldEntry) / oldEntry) * 100).toFixed(1);
+
+    // ADR-0518 — magnitude-only(>80%) 의심을 RAW 일봉 연속성으로 재검증.
+    // addedAt 이후 구간에 단일일 |close-to-close| 갭 > 임계(default 35%) 가 없으면
+    // 정상 다일 랠리(GENUINE_RALLY) → corporate action 아님 → 조용히 universe drop.
+    // 검증 비활성 ENV / 일봉 미가용(UNVERIFIABLE) / CONFIRMED 는 기존 보수적 동작 유지(무회귀).
+    if (!isDailyBarVerificationDisabled()) {
+      const scanWindow = resolveDailyBarScanWindow(stock.addedAt);
+      // 일봉 조회 실패는 의도적 fallback — 빈 배열 → verifyDailyBarContinuity 가 UNVERIFIABLE
+      // 로 보수 처리(provider 장애가 진짜 corp action 을 통과시키지 않도록). /* SDS-ignore: 보수적 fallback */
+      const candles = await fetchCandles(stock.code, scanWindow).catch(() => [] as { date: string; close: number }[]);
+      const verdict = verifyDailyBarContinuity(candles, { sinceDate: stock.addedAt });
+      if (verdict.status === 'GENUINE_RALLY') {
+        const threshold = activeCorporateActionGapThresholdPct();
+        console.log(
+          `[AutoTrade] ${stock.name}(${stock.code}) drift +${driftPctText}% verified ` +
+          `GENUINE_RALLY (max single-day ${verdict.maxSingleDayMovePct?.toFixed(1)}% <= ${threshold}% ` +
+          `over ${verdict.barsExamined} bars) — universe drop, no corporate action (ADR-0518).`,
+        );
+        const idx = ctx.watchlist.findIndex(w => w.code === stock.code);
+        if (idx >= 0) {
+          ctx.watchlist.splice(idx, 1);
+          ctx.mutables.watchlistMutated.value = true;
+        }
+        stageLog.drift = 'GENUINE_RALLY_DROP';
+        ctx.scanCounters.waitDriftRemove++;
+        pushTrace();
+        return 'SKIP';
+      }
+    }
+
     if (isEntryPriceAutoCorrectDisabled()) {
       console.warn(
         `[AutoTrade] ${stock.name}(${stock.code}) Corporate Action guard ` +

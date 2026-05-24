@@ -128,6 +128,7 @@
 > 각 줄은 archive 의 해당 행으로 가는 입구다. 상세 본문은 `patch-history-full-log.md` 에서
 > 식별자(ADR-xxxx / Patch-xxx / PR-xxx)·날짜로 검색. **본 색인을 상세 로그로 키우지 말 것.**
 
+- 2026-05-24 · PR-ADR-0518 (corporate-action-guard-dailybar-continuity · corporateActionDetector/entryPriceDrift/kisChartDataFetcher · magnitude-only false-positive 차단)
 - 2026-05-20 · Patch-TSC-BASELINE-DIAGNOSTIC-FIX-001
 - 2026-05-20 · 문서
 - 2026-05-15 · PR-ADR-0517
