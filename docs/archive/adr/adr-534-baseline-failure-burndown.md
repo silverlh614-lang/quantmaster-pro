@@ -95,9 +95,12 @@
   drift 부재 검증 + 진짜 isolated shape 이슈만(있으면) 수정. **fixture 대량 재작성 금지.**
 - Forbidden: runtime code · 동작 변경.
 
-### ADR-536 — Scripts Self-Test Fixture Refresh (LOW)
+### ADR-536 — Scripts Self-Test Fixture Refresh (LOW) — ⚠ 정정: ADR-541 참조
 - Scope: `scripts/*.test.js` self-test 기대값(7 파일). Risk: LOW. CONFIG_SCRIPT_ISSUE.
 - Goal: validation script 단위 테스트 fixture 를 현재 repo 상태와 정렬. runtime 무관.
+- **정정(ADR-541 조사):** 실측 결과 5건은 **ENVIRONMENT_BLOCKED**(node --check PASS·스크립트 standalone EXIT=0·
+  CI-통과 커밋 — vitest/env 아티팩트), check_complexity 는 **병렬 작업 오염**. → 로컬 안전 타겟 아님,
+  clean-CI + 병렬 랜딩 후 재측정 전까지 **보류**. 추측 편집 금지. 상세 → `adr-541-scripts-selftest-failure-classification.md`.
 
 ### ADR-537 — Time/Env-Dependent Test Isolation (MEDIUM)
 - Scope: 시간/날짜/네트워크 의존 테스트의 deterministic mock 화 (assertion drift 의 큰 축).

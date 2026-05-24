@@ -106,6 +106,14 @@
 - **Current Relevance:** 테스트 mock 작성/정렬 시 factory 규율 참조.
 - **Detail:** `docs/archive/adr/adr-535-test-fixture-schema-alignment.md` (검색어 `ADR-535`)
 
+### ADR-541 — scripts/*.test.js Self-Test Failure Classification (ENVIRONMENT_BLOCKED)
+- **Status:** Completed (조사·분류, 코드 0줄) · **Domain:** validation scripts / test-env classification
+- **Problem:** ADR-534 로드맵 다음 항목(scripts self-test, LOW) 진행 — 실측 결과 안전 수정 타겟 아님.
+- **Decision:** 5× SyntaxError = ENVIRONMENT_BLOCKED(node --check PASS·standalone EXIT=0·CI-통과 커밋·vitest/env 아티팩트), check_complexity = 병렬작업 오염 → **편집 금지·보류**. clean-CI+병렬랜딩 후 재측정 권고. ADR-534 로드맵 정정.
+- **Current Relevance:** scripts self-test 실패를 고치려 할 때 먼저 본 분류 확인 (추측 수정 방지).
+- **Detail:** `docs/archive/adr/adr-541-scripts-selftest-failure-classification.md` (검색어 `ADR-541`)
+- **번호 메모:** 선행 대기 작업이 536~540 점유 → 사용자 지시로 541.
+
 ---
 
 ## 색인 (chronological — archive 상세로 가는 입구)
@@ -521,3 +529,4 @@
 - 2026-05-24 · ADR-533
 - 2026-05-24 · ADR-534
 - 2026-05-24 · ADR-535
+- 2026-05-24 · ADR-541
