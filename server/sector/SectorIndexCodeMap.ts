@@ -12,18 +12,24 @@ export type SectorIndexSourceTier = OfficialSectorEnergySourceTier;
 export interface OfficialSectorIndexMasterRow {
   market: 'KOSPI' | 'KOSDAQ' | 'KOSPI200' | 'UNKNOWN';
   idxDiv?: string;
+  idxCode?: string;
   officialIndexCode: string;
   officialIndexName: string;
   normalizedSectorName: string;
   canonicalOfficialName?: string;
   codePrefixRemoved?: boolean;
+  rawIdxName?: string;
+  normalizedIdxName?: string;
   rawSectorName: string;
   sourceTier: SectorIndexSourceTier;
+  marketClass?: string;
   aliasResolved: boolean;
   aliasSource?: string;
   unsafeAlias: boolean;
   verified?: boolean;
   verifyReason?: string;
+  selectedOfficialIndexCode?: string;
+  verifyInputCandidates?: string[];
 }
 
 export type SectorIndexMasterRow = OfficialSectorIndexMasterRow;
@@ -51,6 +57,11 @@ export interface OfficialSectorIndexCodeMappingRow {
   canonicalOfficialCandidates: string[];
   officialIndexCode: string | null;
   officialIndexName: string | null;
+  idxDiv: string | null;
+  idxCode: string | null;
+  rawIdxName: string | null;
+  canonicalOfficialName: string | null;
+  verifyInputCandidates: string[];
   selectedOfficialRawName: string | null;
   selectedOfficialCanonicalName: string | null;
   codePrefixRemoved: boolean;
@@ -83,6 +94,11 @@ export interface OfficialSectorIndexMappingAttempt {
   canonicalOfficialCandidates: string[];
   selectedOfficialIndexName: string | null;
   selectedOfficialIndexCode: string | null;
+  idxDiv: string | null;
+  idxCode: string | null;
+  rawIdxName: string | null;
+  canonicalOfficialName: string | null;
+  verifyInputCandidates: string[];
   selectedOfficialRawName: string | null;
   selectedOfficialCanonicalName: string | null;
   codePrefixRemoved: boolean;
@@ -268,14 +284,33 @@ function stripNoise(value: string): string {
     .toLowerCase();
 }
 
-export function canonicalizeOfficialIndexName(value: unknown): { canonicalName: string; codePrefixRemoved: boolean } {
+export function canonicalizeOfficialIndexName(value: unknown): { canonicalName: string; codePrefixRemoved: boolean; codePrefix?: string } {
   const raw = String(value ?? '').trim();
-  const codePrefixRemoved = /^[0-9]+/.test(raw);
+  const codePrefix = raw.match(/^([0-9]+)/)?.[1];
+  const codePrefixRemoved = Boolean(codePrefix);
   const withoutCodePrefix = raw.replace(/^[0-9]+\s*/g, '');
   return {
     canonicalName: normalizeOfficialSectorName(withoutCodePrefix),
     codePrefixRemoved,
+    ...(codePrefix ? { codePrefix } : {}),
   };
+}
+
+export function buildOfficialSectorVerifyInputCandidates(input: {
+  idxDiv?: string | null;
+  idxCode?: string | null;
+  officialIndexCode?: string | null;
+}): string[] {
+  const idxCode = String(input.idxCode ?? input.officialIndexCode ?? '').trim();
+  if (!idxCode) return [];
+  const idxDiv = String(input.idxDiv ?? '').trim();
+  const candidates = [idxCode];
+  if (idxDiv && idxDiv !== '-') {
+    candidates.push(`${idxDiv}${idxCode}`);
+    candidates.push(`${idxDiv}:${idxCode}`);
+    candidates.push(`${idxDiv}-${idxCode}`);
+  }
+  return Array.from(new Set(candidates.filter(Boolean)));
 }
 
 export function normalizeOfficialSectorName(value: unknown): string {
@@ -318,8 +353,27 @@ function masterCanonicalName(row: OfficialSectorIndexMasterRow): string {
   return row.canonicalOfficialName ?? canonicalizeOfficialIndexName(row.officialIndexName).canonicalName;
 }
 
+function masterIdxDiv(row: OfficialSectorIndexMasterRow): string | null {
+  return row.idxDiv ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefix ?? null;
+}
+
+function masterIdxCode(row: OfficialSectorIndexMasterRow): string {
+  return row.idxCode ?? row.officialIndexCode;
+}
+
+function masterRawIdxName(row: OfficialSectorIndexMasterRow): string {
+  return row.rawIdxName ?? row.rawSectorName ?? row.officialIndexName;
+}
+
 function masterCodePrefixRemoved(row: OfficialSectorIndexMasterRow): boolean {
   return row.codePrefixRemoved ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefixRemoved;
+}
+
+function masterVerifyInputCandidates(row: OfficialSectorIndexMasterRow): string[] {
+  return row.verifyInputCandidates ?? buildOfficialSectorVerifyInputCandidates({
+    idxDiv: masterIdxDiv(row),
+    idxCode: masterIdxCode(row),
+  });
 }
 
 function officialCandidateNames(row: OfficialSectorIndexMasterRow | null | undefined): {
@@ -416,6 +470,11 @@ function attemptFromRow(row: OfficialSectorIndexCodeMappingRow): OfficialSectorI
     canonicalOfficialCandidates: row.canonicalOfficialCandidates,
     selectedOfficialIndexName: row.selectedOfficialIndexName,
     selectedOfficialIndexCode: row.selectedOfficialIndexCode,
+    idxDiv: row.idxDiv,
+    idxCode: row.idxCode,
+    rawIdxName: row.rawIdxName,
+    canonicalOfficialName: row.canonicalOfficialName,
+    verifyInputCandidates: row.verifyInputCandidates,
     selectedOfficialRawName: row.selectedOfficialRawName,
     selectedOfficialCanonicalName: row.selectedOfficialCanonicalName,
     codePrefixRemoved: row.codePrefixRemoved,
@@ -573,7 +632,12 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         canonicalOfficialCandidates: matchedOfficialNames.canonical,
         officialIndexCode: matched.officialIndexCode,
         officialIndexName: matched.officialIndexName,
-        selectedOfficialRawName: matched.officialIndexName,
+        idxDiv: masterIdxDiv(matched),
+        idxCode: masterIdxCode(matched),
+        rawIdxName: masterRawIdxName(matched),
+        canonicalOfficialName: masterCanonicalName(matched),
+        verifyInputCandidates: masterVerifyInputCandidates(matched),
+        selectedOfficialRawName: masterRawIdxName(matched),
         selectedOfficialCanonicalName: masterCanonicalName(matched),
         codePrefixRemoved: masterCodePrefixRemoved(matched),
         selectedOfficialIndexCode: matched.officialIndexCode,
@@ -611,7 +675,12 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         canonicalOfficialCandidates: matchedOfficialNames.canonical,
         officialIndexCode: matched?.officialIndexCode ?? null,
         officialIndexName: matched?.officialIndexName ?? null,
-        selectedOfficialRawName: matched?.officialIndexName ?? null,
+        idxDiv: matched ? masterIdxDiv(matched) : null,
+        idxCode: matched ? masterIdxCode(matched) : null,
+        rawIdxName: matched ? masterRawIdxName(matched) : null,
+        canonicalOfficialName: matched ? masterCanonicalName(matched) : null,
+        verifyInputCandidates: matched ? masterVerifyInputCandidates(matched) : [],
+        selectedOfficialRawName: matched ? masterRawIdxName(matched) : null,
         selectedOfficialCanonicalName: matched ? masterCanonicalName(matched) : null,
         codePrefixRemoved: matched ? masterCodePrefixRemoved(matched) : false,
         selectedOfficialIndexCode: matched?.officialIndexCode ?? null,
@@ -647,7 +716,12 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         canonicalOfficialCandidates: matchedOfficialNames.canonical,
         officialIndexCode: matched.officialIndexCode,
         officialIndexName: matched.officialIndexName,
-        selectedOfficialRawName: matched.officialIndexName,
+        idxDiv: masterIdxDiv(matched),
+        idxCode: masterIdxCode(matched),
+        rawIdxName: masterRawIdxName(matched),
+        canonicalOfficialName: masterCanonicalName(matched),
+        verifyInputCandidates: masterVerifyInputCandidates(matched),
+        selectedOfficialRawName: masterRawIdxName(matched),
         selectedOfficialCanonicalName: masterCanonicalName(matched),
         codePrefixRemoved: masterCodePrefixRemoved(matched),
         selectedOfficialIndexCode: matched.officialIndexCode,
@@ -696,6 +770,11 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
       canonicalOfficialCandidates: [],
       officialIndexCode: null,
       officialIndexName: null,
+      idxDiv: null,
+      idxCode: null,
+      rawIdxName: null,
+      canonicalOfficialName: null,
+      verifyInputCandidates: [],
       selectedOfficialRawName: null,
       selectedOfficialCanonicalName: null,
       codePrefixRemoved: false,

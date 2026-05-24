@@ -23,12 +23,53 @@ export const KIS_SECTOR_INDEX_VERIFY_TR_ID = 'FHPUP02100000';
 export interface OfficialSectorIndexVerifyResult {
   officialIndexCode: string;
   sectorName: string;
+  rawIdxName?: string | null;
+  idxDiv?: string | null;
+  idxCode?: string | null;
+  canonicalOfficialName?: string | null;
+  fidCondMrktDivCode?: string;
+  fidInputIscd?: string;
+  verifiedInputIscd?: string | null;
+  verifyInputCandidates?: string[];
+  triedCandidates?: string[];
   verified: boolean;
   providerIssue: boolean;
   marketSignal: false;
   executionImpact: 'NONE';
   reasonCode: string;
+  selectedFailureReason?: string;
+  httpStatus?: number | null;
+  rtCd?: string | null;
+  msgCd?: string | null;
+  msg1?: string | null;
+  outputPresent?: boolean;
+  indexValueFieldPresent?: boolean;
+  rawTopLevelKeys?: string[];
+  outputKeys?: string[];
+  attempts?: OfficialSectorIndexVerifyAttempt[];
   fetchedAt?: string;
+}
+
+export interface OfficialSectorIndexVerifyAttempt {
+  sectorName: string;
+  rawIdxName?: string | null;
+  idxDiv?: string | null;
+  idxCode?: string | null;
+  canonicalOfficialName?: string | null;
+  fidCondMrktDivCode: string;
+  fidInputIscd: string;
+  apiPath: typeof KIS_SECTOR_INDEX_VERIFY_API_PATH;
+  trId: typeof KIS_SECTOR_INDEX_VERIFY_TR_ID;
+  httpStatus?: number | null;
+  rtCd?: string | null;
+  msgCd?: string | null;
+  msg1?: string | null;
+  outputPresent: boolean;
+  indexValueFieldPresent: boolean;
+  rawTopLevelKeys: string[];
+  outputKeys: string[];
+  verified: boolean;
+  reasonCode: string;
 }
 
 export interface VerifyOfficialSectorIndexCodesInput {
@@ -52,6 +93,7 @@ export interface OfficialSectorIndexMasterCoverageResult {
     normalizedIdxName: string;
     canonicalOfficialName?: string;
     codePrefixRemoved?: boolean;
+    verifyInputCandidates?: string[];
   }>;
   idxNameSampleTop?: string[];
   aliasDictionaryStatus?: OfficialSectorIndexAliasDictionaryStatus;
@@ -84,6 +126,9 @@ export interface OfficialSectorIndexMasterCoverageResult {
   verifyFailCount: number;
   verifyApiSuccessSamples?: OfficialSectorIndexVerifyResult[];
   verifyApiFailureSamples?: OfficialSectorIndexVerifyResult[];
+  verifyAttemptDetails?: OfficialSectorIndexVerifyAttempt[];
+  verifyVariantAttemptCount?: number;
+  verifyVariantTried?: boolean;
   providerIssue: boolean;
   marketSignal: false;
   executionImpact: 'NONE';
@@ -97,12 +142,34 @@ function pct(count: number, total: number): number {
   return Math.round((count / total) * 1000) / 10;
 }
 
+function mappingVerifyKey(input: {
+  sectorName?: string | null;
+  idxDiv?: string | null;
+  officialIndexCode?: string | null;
+  idxCode?: string | null;
+}): string {
+  return [
+    input.sectorName ?? '',
+    input.idxDiv ?? '',
+    input.officialIndexCode ?? input.idxCode ?? '',
+  ].join('|');
+}
+
 async function defaultVerifyIndexCode(
   row: OfficialSectorIndexCodeMappingRow,
 ): Promise<OfficialSectorIndexVerifyResult> {
   return {
     officialIndexCode: row.officialIndexCode ?? '',
     sectorName: row.sectorName,
+    rawIdxName: row.rawIdxName,
+    idxDiv: row.idxDiv,
+    idxCode: row.idxCode,
+    canonicalOfficialName: row.canonicalOfficialName,
+    fidCondMrktDivCode: 'U',
+    fidInputIscd: row.verifyInputCandidates[0] ?? row.officialIndexCode ?? '',
+    verifiedInputIscd: null,
+    verifyInputCandidates: row.verifyInputCandidates,
+    triedCandidates: [],
     verified: false,
     providerIssue: false,
     marketSignal: false,
@@ -126,11 +193,21 @@ export async function verifyOfficialSectorIndexCodes(
       results.push({
         officialIndexCode: row.officialIndexCode ?? '',
         sectorName: row.sectorName,
+        rawIdxName: row.rawIdxName,
+        idxDiv: row.idxDiv,
+        idxCode: row.idxCode,
+        canonicalOfficialName: row.canonicalOfficialName,
+        fidCondMrktDivCode: 'U',
+        fidInputIscd: row.verifyInputCandidates[0] ?? row.officialIndexCode ?? '',
+        verifiedInputIscd: null,
+        verifyInputCandidates: row.verifyInputCandidates,
+        triedCandidates: row.verifyInputCandidates,
         verified: false,
         providerIssue: true,
         marketSignal: false,
         executionImpact: 'NONE',
         reasonCode: 'OFFICIAL_INDEX_API_VERIFY_FAILED',
+        selectedFailureReason: 'KIS_INDEX_API_HTTP_ERROR',
       });
     }
   }
@@ -154,9 +231,15 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     mappingRows: mapping.rows,
     verifyIndexCode: input.verifyIndexCode,
   });
-  const verificationByCode = new Map(verificationResults.map((result) => [result.officialIndexCode, result]));
+  const verificationByCode = new Map(verificationResults.map((result) => [mappingVerifyKey(result), result]));
+  const verificationByLooseCode = new Map(verificationResults.map((result) => [
+    `${result.sectorName}|${result.officialIndexCode}`,
+    result,
+  ]));
   const verifySuccessCount = verificationResults.filter((result) => result.verified).length;
   const verifyFailCount = verificationResults.length - verifySuccessCount;
+  const verifyAttemptDetails = verificationResults.flatMap((result) => result.attempts ?? []);
+  const verifyVariantAttemptCount = verifyAttemptDetails.length || verificationResults.length;
   const verifiedIndexCodeCoverage = pct(verifySuccessCount, mapping.targetSectorCount);
   const masterSource = provider?.cacheFallbackUsed
     ? 'CACHE'
@@ -168,6 +251,11 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   if (verificationResults.length > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_ATTEMPTED');
   if (verifySuccessCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_SUCCEEDED');
   if (verifyFailCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_FAILED');
+  for (const result of verificationResults) {
+    reasonCodes.add(result.reasonCode);
+    if (result.selectedFailureReason) reasonCodes.add(result.selectedFailureReason);
+    for (const attempt of result.attempts ?? []) reasonCodes.add(attempt.reasonCode);
+  }
   if (!(provider?.masterLoaded ?? masterRows.length > 0)) reasonCodes.add('MASTER_NOT_LOADED');
   if (masterRows.length === 0) reasonCodes.add('MASTER_ROWS_EMPTY');
   if (mapping.officialIndexCoverage > 0 && verifiedIndexCodeCoverage < 80) {
@@ -192,6 +280,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
       normalizedIdxName: row.normalizedSectorName,
       canonicalOfficialName: row.canonicalOfficialName ?? canonicalizeOfficialIndexName(row.officialIndexName).canonicalName,
       codePrefixRemoved: row.codePrefixRemoved ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefixRemoved,
+      verifyInputCandidates: row.verifyInputCandidates,
     })),
     idxNameSampleTop: (provider?.rawSampleRows?.map((row) => row.idxName) ?? masterRows.map((row) => row.officialIndexName))
       .slice(0, 12),
@@ -225,7 +314,11 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     normalizedInternalSectorNames: mapping.normalizedInternalSectorNames,
     mappingAttempts: mapping.mappingAttempts.map((attempt) => {
       const verification = attempt.selectedOfficialIndexCode
-        ? verificationByCode.get(attempt.selectedOfficialIndexCode)
+        ? verificationByCode.get(mappingVerifyKey({
+          sectorName: attempt.internalSectorName,
+          idxDiv: attempt.idxDiv,
+          officialIndexCode: attempt.selectedOfficialIndexCode,
+        })) ?? verificationByLooseCode.get(`${attempt.internalSectorName}|${attempt.selectedOfficialIndexCode}`)
         : undefined;
       return {
         ...attempt,
@@ -236,10 +329,13 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     verifyApiPath: KIS_SECTOR_INDEX_VERIFY_API_PATH,
     verifyTrId: KIS_SECTOR_INDEX_VERIFY_TR_ID,
     verifyAttemptCount: verificationResults.length,
+    verifyVariantAttemptCount,
+    verifyVariantTried: verificationResults.some((result) => (result.triedCandidates?.length ?? 0) > 1),
     verifySuccessCount,
     verifyFailCount,
     verifyApiSuccessSamples: verificationResults.filter((result) => result.verified).slice(0, 3),
     verifyApiFailureSamples: verificationResults.filter((result) => !result.verified).slice(0, 3),
+    verifyAttemptDetails,
     providerIssue: Boolean(provider?.providerIssue) || verificationResults.some((result) => result.providerIssue),
     marketSignal: false,
     executionImpact: 'NONE',

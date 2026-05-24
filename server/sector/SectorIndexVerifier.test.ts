@@ -8,16 +8,29 @@ import {
 import { buildOfficialSectorIndexMasterCoverage } from './SectorIndexVerifier.js';
 
 function officialRow(code: string, name: string): OfficialSectorIndexMasterRow {
+  const canonical = canonicalizeOfficialIndexName(name);
+  const idxDiv = canonical.codePrefix ?? '1';
   return {
     market: 'KOSPI',
-    idxDiv: '1',
+    idxDiv,
+    idxCode: code,
     officialIndexCode: code,
     officialIndexName: name,
     normalizedSectorName: normalizeOfficialSectorName(name),
+    canonicalOfficialName: canonical.canonicalName,
+    codePrefixRemoved: canonical.codePrefixRemoved,
+    rawIdxName: name,
+    normalizedIdxName: normalizeOfficialSectorName(name),
     rawSectorName: name,
     sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
     aliasResolved: false,
     unsafeAlias: false,
+    verifyInputCandidates: [
+      code,
+      `${idxDiv}${code}`,
+      `${idxDiv}:${code}`,
+      `${idxDiv}-${code}`,
+    ],
   };
 }
 
@@ -147,10 +160,12 @@ describe('SectorIndexCodeMap', () => {
     expect(canonicalizeOfficialIndexName('8\uD654\uD559')).toEqual({
       canonicalName: '\uD654\uD559',
       codePrefixRemoved: true,
+      codePrefix: '8',
     });
     expect(canonicalizeOfficialIndexName('5\uC74C\uC2DD\uB8CC\u00B7\uB2F4\uBC30')).toEqual({
       canonicalName: '\uC74C\uC2DD\uB8CC \uB2F4\uBC30',
       codePrefixRemoved: true,
+      codePrefix: '5',
     });
 
     const prefixedMasterRows: OfficialSectorIndexMasterRow[] = [
@@ -329,6 +344,184 @@ describe('SectorIndexVerifier', () => {
     expect(result.verifyTrId).toBe('FHPUP02100000');
     expect(result.reasonCodes).toContain('OFFICIAL_INDEX_API_VERIFY_FAILED');
     expect(result.reasonCodes).toContain('VERIFIED_INDEX_CODE_COVERAGE_LOW');
+    expect(result.marketSignal).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+  });
+
+  it('raises verified coverage only when an idxDiv+idxCode verify variant succeeds', async () => {
+    const result = await buildOfficialSectorIndexMasterCoverage({
+      provider: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: 1,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        rows: [officialRow('0000', '8\uD654\uD559')],
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'],
+        cacheFile: 'memory',
+        fetchedAt: '2026-05-23T00:00:00.000Z',
+      },
+      targets: [{ sectorName: '\uD654\uD559' }],
+      verifyIndexCode: async (row) => ({
+        officialIndexCode: row.officialIndexCode ?? '',
+        sectorName: row.sectorName,
+        rawIdxName: row.rawIdxName,
+        idxDiv: row.idxDiv,
+        idxCode: row.idxCode,
+        canonicalOfficialName: row.canonicalOfficialName,
+        fidCondMrktDivCode: 'U',
+        fidInputIscd: '80000',
+        verifiedInputIscd: '80000',
+        verifyInputCandidates: row.verifyInputCandidates,
+        triedCandidates: ['0000', '80000'],
+        verified: true,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCode: 'VERIFY_SUCCESS',
+        attempts: [
+          {
+            sectorName: row.sectorName,
+            rawIdxName: row.rawIdxName,
+            idxDiv: row.idxDiv,
+            idxCode: row.idxCode,
+            canonicalOfficialName: row.canonicalOfficialName,
+            fidCondMrktDivCode: 'U',
+            fidInputIscd: '0000',
+            apiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
+            trId: 'FHPUP02100000',
+            httpStatus: 200,
+            rtCd: '1',
+            msgCd: 'INVALID',
+            msg1: 'bad code',
+            outputPresent: false,
+            indexValueFieldPresent: false,
+            rawTopLevelKeys: ['rt_cd', 'msg_cd', 'msg1'],
+            outputKeys: [],
+            verified: false,
+            reasonCode: 'KIS_INDEX_API_REJECTED_CODE',
+          },
+          {
+            sectorName: row.sectorName,
+            rawIdxName: row.rawIdxName,
+            idxDiv: row.idxDiv,
+            idxCode: row.idxCode,
+            canonicalOfficialName: row.canonicalOfficialName,
+            fidCondMrktDivCode: 'U',
+            fidInputIscd: '80000',
+            apiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
+            trId: 'FHPUP02100000',
+            httpStatus: 200,
+            rtCd: '0',
+            msgCd: 'MCA00000',
+            msg1: 'OK',
+            outputPresent: true,
+            indexValueFieldPresent: true,
+            rawTopLevelKeys: ['rt_cd', 'msg_cd', 'msg1', 'output'],
+            outputKeys: ['bstp_nmix_prpr'],
+            verified: true,
+            reasonCode: 'VERIFY_SUCCESS',
+          },
+        ],
+      }),
+    });
+
+    expect(result.officialIndexCoverage).toBe(100);
+    expect(result.verifiedIndexCodeCoverage).toBe(100);
+    expect(result.verifySuccessCount).toBe(1);
+    expect(result.verifyVariantAttemptCount).toBe(2);
+    expect(result.verifyVariantTried).toBe(true);
+    expect(result.verifyAttemptDetails?.map((attempt) => attempt.fidInputIscd)).toEqual(['0000', '80000']);
+    expect(result.mappingAttempts?.[0]).toMatchObject({
+      idxDiv: '8',
+      idxCode: '0000',
+      rawIdxName: '8\uD654\uD559',
+      verifyInputCandidates: ['0000', '80000', '8:0000', '8-0000'],
+      verifyAttempted: true,
+      verified: true,
+    });
+    expect(result.reasonCodes).toContain('VERIFY_SUCCESS');
+  });
+
+  it('keeps official mapped coverage when all verify variants are exhausted', async () => {
+    const result = await buildOfficialSectorIndexMasterCoverage({
+      provider: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: 1,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        rows: [officialRow('0000', '8\uD654\uD559')],
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'],
+        cacheFile: 'memory',
+        fetchedAt: '2026-05-23T00:00:00.000Z',
+      },
+      targets: [{ sectorName: '\uD654\uD559' }],
+      verifyIndexCode: async (row) => ({
+        officialIndexCode: row.officialIndexCode ?? '',
+        sectorName: row.sectorName,
+        rawIdxName: row.rawIdxName,
+        idxDiv: row.idxDiv,
+        idxCode: row.idxCode,
+        canonicalOfficialName: row.canonicalOfficialName,
+        fidCondMrktDivCode: 'U',
+        fidInputIscd: '8-0000',
+        verifiedInputIscd: null,
+        verifyInputCandidates: row.verifyInputCandidates,
+        triedCandidates: row.verifyInputCandidates,
+        verified: false,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+        selectedFailureReason: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+        rtCd: '0',
+        msgCd: 'MCA00000',
+        msg1: 'OK',
+        outputPresent: true,
+        indexValueFieldPresent: false,
+        outputKeys: ['unknown_field'],
+        attempts: row.verifyInputCandidates.map((candidate) => ({
+          sectorName: row.sectorName,
+          rawIdxName: row.rawIdxName,
+          idxDiv: row.idxDiv,
+          idxCode: row.idxCode,
+          canonicalOfficialName: row.canonicalOfficialName,
+          fidCondMrktDivCode: 'U',
+          fidInputIscd: candidate,
+          apiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
+          trId: 'FHPUP02100000',
+          httpStatus: 200,
+          rtCd: '0',
+          msgCd: 'MCA00000',
+          msg1: 'OK',
+          outputPresent: true,
+          indexValueFieldPresent: false,
+          rawTopLevelKeys: ['rt_cd', 'msg_cd', 'msg1', 'output'],
+          outputKeys: ['unknown_field'],
+          verified: false,
+          reasonCode: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+        })),
+      }),
+    });
+
+    expect(result.officialIndexCoverage).toBe(100);
+    expect(result.verifiedIndexCodeCoverage).toBe(0);
+    expect(result.verifyFailCount).toBe(1);
+    expect(result.verifyVariantAttemptCount).toBe(4);
+    expect(result.reasonCodes).toEqual(expect.arrayContaining([
+      'VERIFY_VARIANTS_EXHAUSTED',
+      'KIS_INDEX_API_SCHEMA_MISMATCH',
+      'PROMOTION_DISABLED_COVERAGE_BELOW_80',
+    ]));
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
   });

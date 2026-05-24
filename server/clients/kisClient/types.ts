@@ -293,6 +293,39 @@ export interface KisSectorIndexCurrentPrice {
   rawFieldKeys: string[];
 }
 
+export interface KisSectorIndexCurrentPriceProbeAttempt {
+  fidCondMrktDivCode: string;
+  fidInputIscd: string;
+  apiPath: string;
+  trId: string;
+  httpStatus?: number | null;
+  rtCd?: string | null;
+  msgCd?: string | null;
+  msg1?: string | null;
+  outputPresent: boolean;
+  indexValueFieldPresent: boolean;
+  rawTopLevelKeys: string[];
+  outputKeys: string[];
+  currentIndex?: number | null;
+  verified: boolean;
+  reasonCode: string;
+}
+
+export interface KisSectorIndexCurrentPriceProbeResult {
+  sectorIscd: string;
+  selectedInputIscd: string | null;
+  verified: boolean;
+  currentIndex: number | null;
+  changePct: number | null;
+  sectorName: string;
+  fetchedAt?: string;
+  source: 'KIS_API';
+  reasonCode: string;
+  selectedFailureReason?: string;
+  attempts: KisSectorIndexCurrentPriceProbeAttempt[];
+  triedCandidates: string[];
+}
+
 /**
  * KIS 전일종가 응답 — ADR-0004 대체 경로에서 장전 갭 계산의 기준가로 사용.
  */
@@ -365,5 +398,6 @@ export interface KisClientOverrides {
   fetchKisInvestorTimeByMarket?: () => Promise<KisInvestorTimeByMarket | null>;
   fetchKisSectorIndexDaily?: (sectorIscd: string) => Promise<KisSectorIndexDaily | null>;
   fetchKisSectorIndexCurrentPrice?: (sectorIscd: string) => Promise<KisSectorIndexCurrentPrice | null>;
+  fetchKisSectorIndexCurrentPriceProbe?: (sectorIscdCandidates: readonly string[]) => Promise<KisSectorIndexCurrentPriceProbeResult | null>;
   realDataKisGet?: (trId: string, apiPath: string, params: Record<string, string>) => Promise<unknown>;
 }

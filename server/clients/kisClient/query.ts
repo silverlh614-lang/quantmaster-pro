@@ -24,6 +24,8 @@ import type {
   KisInvestorFlowRawRow,
   KisMarketProgramTrade,
   KisSectorIndexCurrentPrice,
+  KisSectorIndexCurrentPriceProbeAttempt,
+  KisSectorIndexCurrentPriceProbeResult,
   KisSectorIndexDaily,
   KisSectorIndexDailyRow,
   KisShortSaleRankingRow,
@@ -736,6 +738,20 @@ export function isKisSectorIndexCurrentDisabled(): boolean {
   return process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED !== 'true';
 }
 
+const SECTOR_INDEX_VALUE_FIELD_CANDIDATES = [
+  'bstp_nmix_prpr',
+  'bstp_nmix_prdy_vrss',
+  'bstp_nmix_prdy_ctrt',
+  'bstp_nmix_oprc',
+  'bstp_nmix_hgpr',
+  'bstp_nmix_lwpr',
+  'prdy_vrss',
+  'prdy_ctrt',
+  'stck_prpr',
+  'prpr',
+  'close',
+];
+
 /** KST 기준 YYYYMMDD (날짜 helper 의존성 0 — 인라인 계산). */
 function kstYyyymmdd(offsetDays = 0): string {
   const ms = Date.now() + 9 * 60 * 60 * 1000 - offsetDays * 24 * 60 * 60 * 1000;
@@ -862,6 +878,231 @@ export async function fetchKisSectorIndexCurrentPrice(
     console.error('[KIS] sector index current price fetch failed:', e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+function classifyKisSectorIndexFailure(input: {
+  rtCd?: string | null;
+  msgCd?: string | null;
+  msg1?: string | null;
+  outputPresent: boolean;
+  indexValueFieldPresent: boolean;
+  hasRawResponse: boolean;
+}): string {
+  if (!input.hasRawResponse) return 'KIS_INDEX_API_HTTP_ERROR';
+  const text = `${input.rtCd ?? ''} ${input.msgCd ?? ''} ${input.msg1 ?? ''}`;
+  if (/auth|token|oauth|unauthor|egw|인증|권한/i.test(text)) return 'KIS_INDEX_API_AUTH_ERROR';
+  if (/rate|limit|too many|초과|제한/i.test(text)) return 'KIS_INDEX_API_RATE_LIMIT';
+  const successEquivalent = !input.rtCd || input.rtCd === '0';
+  if (!successEquivalent) return 'KIS_INDEX_API_REJECTED_CODE';
+  if (!input.outputPresent) return 'KIS_INDEX_API_OUTPUT_EMPTY';
+  if (!input.indexValueFieldPresent) return 'KIS_INDEX_API_SCHEMA_MISMATCH';
+  return 'KIS_INDEX_API_SCHEMA_MISMATCH';
+}
+
+function materializeKisSectorIndexProbeAttempt(input: {
+  data: unknown;
+  fidInputIscd: string;
+}): KisSectorIndexCurrentPriceProbeAttempt {
+  const root = input.data && typeof input.data === 'object' ? input.data as Record<string, unknown> : null;
+  const rows = pickKisRows(input.data);
+  const row = rows[0];
+  const currentIndex = extractKisNumberOptional(row, SECTOR_INDEX_VALUE_FIELD_CANDIDATES) ?? null;
+  const indexValueFieldPresent = currentIndex !== null;
+  const outputPresent = Boolean(row);
+  const rtCd = root?.rt_cd != null ? String(root.rt_cd) : null;
+  const msgCd = root?.msg_cd != null ? String(root.msg_cd) : null;
+  const msg1 = root?.msg1 != null ? String(root.msg1) : null;
+  const successEquivalent = !rtCd || rtCd === '0';
+  const verified = successEquivalent && outputPresent && indexValueFieldPresent && Number(currentIndex) > 0;
+  const reasonCode = verified
+    ? 'VERIFY_SUCCESS'
+    : classifyKisSectorIndexFailure({
+      rtCd,
+      msgCd,
+      msg1,
+      outputPresent,
+      indexValueFieldPresent,
+      hasRawResponse: Boolean(root),
+    });
+  return {
+    fidCondMrktDivCode: 'U',
+    fidInputIscd: input.fidInputIscd,
+    apiPath: SECTOR_INDEX_CURRENT_PATH,
+    trId: SECTOR_INDEX_CURRENT_TR_ID,
+    httpStatus: root ? 200 : null,
+    rtCd,
+    msgCd,
+    msg1,
+    outputPresent,
+    indexValueFieldPresent,
+    rawTopLevelKeys: root ? Object.keys(root).slice(0, 32) : [],
+    outputKeys: row ? Object.keys(row).slice(0, 64) : [],
+    currentIndex,
+    verified,
+    reasonCode,
+  };
+}
+
+export async function fetchKisSectorIndexCurrentPriceProbe(
+  sectorIscdCandidates: readonly string[],
+  priority: KisApiPriority = 'LOW',
+): Promise<KisSectorIndexCurrentPriceProbeResult | null> {
+  const overrides = getKisOverrides();
+  const candidates = Array.from(new Set(sectorIscdCandidates.map((item) => String(item ?? '').trim()).filter(Boolean)));
+  if (candidates.length === 0) return null;
+  if (overrides.fetchKisSectorIndexCurrentPriceProbe) {
+    return overrides.fetchKisSectorIndexCurrentPriceProbe(candidates);
+  }
+  if (overrides.fetchKisSectorIndexCurrentPrice) {
+    const attempts: KisSectorIndexCurrentPriceProbeAttempt[] = [];
+    for (const candidate of candidates) {
+      const result = await overrides.fetchKisSectorIndexCurrentPrice(candidate);
+      const verified = Boolean(result && typeof result.currentIndex === 'number' && result.currentIndex > 0);
+      attempts.push({
+        fidCondMrktDivCode: 'U',
+        fidInputIscd: candidate,
+        apiPath: SECTOR_INDEX_CURRENT_PATH,
+        trId: SECTOR_INDEX_CURRENT_TR_ID,
+        httpStatus: result ? 200 : null,
+        rtCd: null,
+        msgCd: null,
+        msg1: null,
+        outputPresent: Boolean(result),
+        indexValueFieldPresent: verified,
+        rawTopLevelKeys: [],
+        outputKeys: result?.rawFieldKeys ?? [],
+        currentIndex: result?.currentIndex ?? null,
+        verified,
+        reasonCode: verified ? 'VERIFY_SUCCESS' : 'KIS_INDEX_API_OUTPUT_EMPTY',
+      });
+      if (verified) {
+        return {
+          sectorIscd: candidates[0] ?? candidate,
+          selectedInputIscd: candidate,
+          verified: true,
+          currentIndex: result?.currentIndex ?? null,
+          changePct: result?.changePct ?? null,
+          sectorName: result?.sectorName ?? '',
+          fetchedAt: result?.fetchedAt,
+          source: 'KIS_API',
+          reasonCode: 'VERIFY_SUCCESS',
+          attempts,
+          triedCandidates: attempts.map((attempt) => attempt.fidInputIscd),
+        };
+      }
+    }
+    return {
+      sectorIscd: candidates[0] ?? '',
+      selectedInputIscd: null,
+      verified: false,
+      currentIndex: null,
+      changePct: null,
+      sectorName: '',
+      source: 'KIS_API',
+      reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+      selectedFailureReason: attempts.at(-1)?.reasonCode,
+      attempts,
+      triedCandidates: attempts.map((attempt) => attempt.fidInputIscd),
+    };
+  }
+  if (isKisSectorIndexCurrentDisabled() || (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT)) {
+    const attempts = candidates.map((candidate): KisSectorIndexCurrentPriceProbeAttempt => ({
+      fidCondMrktDivCode: 'U',
+      fidInputIscd: candidate,
+      apiPath: SECTOR_INDEX_CURRENT_PATH,
+      trId: SECTOR_INDEX_CURRENT_TR_ID,
+      httpStatus: null,
+      rtCd: null,
+      msgCd: null,
+      msg1: null,
+      outputPresent: false,
+      indexValueFieldPresent: false,
+      rawTopLevelKeys: [],
+      outputKeys: [],
+      currentIndex: null,
+      verified: false,
+      reasonCode: 'KIS_INDEX_API_HTTP_ERROR',
+    }));
+    return {
+      sectorIscd: candidates[0] ?? '',
+      selectedInputIscd: null,
+      verified: false,
+      currentIndex: null,
+      changePct: null,
+      sectorName: '',
+      source: 'KIS_API',
+      reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+      selectedFailureReason: 'KIS_INDEX_API_HTTP_ERROR',
+      attempts,
+      triedCandidates: attempts.map((attempt) => attempt.fidInputIscd),
+    };
+  }
+
+  const attempts: KisSectorIndexCurrentPriceProbeAttempt[] = [];
+  for (const candidate of candidates) {
+    try {
+      const data = await realDataKisGet(
+        SECTOR_INDEX_CURRENT_TR_ID,
+        SECTOR_INDEX_CURRENT_PATH,
+        {
+          FID_COND_MRKT_DIV_CODE: 'U',
+          FID_INPUT_ISCD: candidate,
+        },
+        priority,
+      );
+      const attempt = materializeKisSectorIndexProbeAttempt({ data, fidInputIscd: candidate });
+      attempts.push(attempt);
+      if (attempt.verified) {
+        const buckets = pickKisRowsByBucket(data);
+        const row = buckets.output[0] ?? buckets.output1[0] ?? buckets.output2[0];
+        return {
+          sectorIscd: candidates[0] ?? candidate,
+          selectedInputIscd: candidate,
+          verified: true,
+          currentIndex: attempt.currentIndex ?? null,
+          changePct: extractKisNumberOptional(row, ['bstp_nmix_prdy_ctrt', 'prdy_ctrt']) ?? null,
+          sectorName: String(row?.hts_kor_isnm ?? row?.idx_name ?? row?.bstp_kor_isnm ?? '').trim(),
+          fetchedAt: new Date().toISOString(),
+          source: 'KIS_API',
+          reasonCode: 'VERIFY_SUCCESS',
+          attempts,
+          triedCandidates: attempts.map((item) => item.fidInputIscd),
+        };
+      }
+    } catch (e) {
+      attempts.push({
+        fidCondMrktDivCode: 'U',
+        fidInputIscd: candidate,
+        apiPath: SECTOR_INDEX_CURRENT_PATH,
+        trId: SECTOR_INDEX_CURRENT_TR_ID,
+        httpStatus: null,
+        rtCd: null,
+        msgCd: null,
+        msg1: e instanceof Error ? e.message : String(e),
+        outputPresent: false,
+        indexValueFieldPresent: false,
+        rawTopLevelKeys: [],
+        outputKeys: [],
+        currentIndex: null,
+        verified: false,
+        reasonCode: 'KIS_INDEX_API_HTTP_ERROR',
+      });
+    }
+  }
+
+  return {
+    sectorIscd: candidates[0] ?? '',
+    selectedInputIscd: null,
+    verified: false,
+    currentIndex: null,
+    changePct: null,
+    sectorName: '',
+    source: 'KIS_API',
+    reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+    selectedFailureReason: attempts.at(-1)?.reasonCode,
+    attempts,
+    triedCandidates: attempts.map((attempt) => attempt.fidInputIscd),
+  };
 }
 
 // ─── 종목별 투자자 수급 조회 ─────────────────────────────────────────────────

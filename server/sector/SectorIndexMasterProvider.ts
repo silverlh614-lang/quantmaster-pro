@@ -5,6 +5,7 @@ import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import {
+  buildOfficialSectorVerifyInputCandidates,
   canonicalizeOfficialIndexName,
   normalizeOfficialSectorName,
   type OfficialSectorIndexMasterRow,
@@ -35,6 +36,7 @@ export interface SectorIndexMasterProviderResult {
     normalizedIdxName: string;
     canonicalOfficialName?: string;
     codePrefixRemoved?: boolean;
+    verifyInputCandidates?: string[];
   }>;
   providerIssue: boolean;
   marketSignal: false;
@@ -70,18 +72,25 @@ function toMasterRow(input: {
   const name = String(input.idxName ?? '').trim();
   if (!/^\d{4}$/.test(code) || !name) return null;
   const canonical = canonicalizeOfficialIndexName(name);
+  const idxDiv = input.idxDiv ?? canonical.codePrefix;
+  const normalizedSectorName = normalizeOfficialSectorName(name);
   return {
     market: marketFromIdxCode(code, input.idxDiv),
-    idxDiv: input.idxDiv,
+    ...(idxDiv ? { idxDiv } : {}),
+    idxCode: code,
     officialIndexCode: code,
     officialIndexName: name,
-    normalizedSectorName: normalizeOfficialSectorName(name),
+    normalizedSectorName,
     canonicalOfficialName: canonical.canonicalName,
     codePrefixRemoved: canonical.codePrefixRemoved,
+    rawIdxName: name,
+    normalizedIdxName: normalizedSectorName,
     rawSectorName: name,
     sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
     aliasResolved: false,
     unsafeAlias: false,
+    selectedOfficialIndexCode: code,
+    verifyInputCandidates: buildOfficialSectorVerifyInputCandidates({ idxDiv, idxCode: code }),
   };
 }
 
@@ -257,6 +266,7 @@ export async function loadKisOfficialSectorIndexMaster(
       normalizedIdxName: row.normalizedSectorName,
       canonicalOfficialName: row.canonicalOfficialName ?? canonicalizeOfficialIndexName(row.officialIndexName).canonicalName,
       codePrefixRemoved: row.codePrefixRemoved ?? canonicalizeOfficialIndexName(row.officialIndexName).codePrefixRemoved,
+      verifyInputCandidates: row.verifyInputCandidates,
     })),
     providerIssue: !masterLoaded,
     marketSignal: false,

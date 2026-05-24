@@ -167,3 +167,75 @@ describe('fetchKisSectorIndexCurrentPrice', () => {
     expect(params.FID_INPUT_ISCD).toBe('0001');
   });
 });
+
+describe('fetchKisSectorIndexCurrentPriceProbe', () => {
+  it('tries idx_code and idx_div+idx_code variants until one verifies', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    _realDataKisGet
+      .mockResolvedValueOnce({ rt_cd: '1', msg_cd: 'INVALID', msg1: 'bad code', output: [] })
+      .mockResolvedValueOnce({
+        rt_cd: '0',
+        msg_cd: 'MCA00000',
+        msg1: 'OK',
+        output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prpr: '1234.56', bstp_nmix_prdy_ctrt: '1.2' }],
+      });
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000', '80000']);
+
+    expect(result).toMatchObject({
+      verified: true,
+      selectedInputIscd: '80000',
+      currentIndex: 1234.56,
+      reasonCode: 'VERIFY_SUCCESS',
+    });
+    expect(result?.attempts).toHaveLength(2);
+    expect(result?.attempts[0]).toMatchObject({
+      fidCondMrktDivCode: 'U',
+      fidInputIscd: '0000',
+      rtCd: '1',
+      msgCd: 'INVALID',
+      msg1: 'bad code',
+      reasonCode: 'KIS_INDEX_API_REJECTED_CODE',
+      verified: false,
+    });
+    expect(result?.attempts[1]).toMatchObject({
+      fidInputIscd: '80000',
+      outputPresent: true,
+      indexValueFieldPresent: true,
+      verified: true,
+      reasonCode: 'VERIFY_SUCCESS',
+    });
+    expect(_realDataKisGet).toHaveBeenCalledTimes(2);
+    expect(_realDataKisGet.mock.calls[1][2]).toMatchObject({
+      FID_COND_MRKT_DIV_CODE: 'U',
+      FID_INPUT_ISCD: '80000',
+    });
+  });
+
+  it('reports schema mismatch when KIS succeeds but index value fields are absent', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    _realDataKisGet.mockResolvedValue({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      msg1: 'OK',
+      output: [{ hts_kor_isnm: 'chemical', unknown_field: '123' }],
+    });
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      verified: false,
+      reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+      selectedFailureReason: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      fidInputIscd: '0000',
+      rtCd: '0',
+      msgCd: 'MCA00000',
+      outputPresent: true,
+      indexValueFieldPresent: false,
+      outputKeys: ['hts_kor_isnm', 'unknown_field'],
+      reasonCode: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+    });
+  });
+});
