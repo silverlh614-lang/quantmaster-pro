@@ -39,6 +39,14 @@ import {
   buildGate3EvidenceScore,
   type Gate3EvidenceScore,
 } from '../../../quant/gate3EvidenceScore.js';
+import {
+  buildGate3CompletionScore,
+  type Gate3CompletionScore,
+} from '../../../quant/gate3CompletionScore.js';
+import {
+  buildLiveReadinessScore,
+  type LiveReadinessScore,
+} from '../../../quant/liveReadinessScore.js';
 
 export interface GateLayerAuditSummary {
   gate1PassCount: number;
@@ -110,6 +118,8 @@ export interface Gate3ConsolidatedAuditSummary {
   outcomeSeeds: Gate3OutcomeSeed[];
   outcomeTracking: Gate3OutcomeTrackingSummary;
   thresholdEvidence?: Gate3EvidenceScore;
+  completionScore?: Gate3CompletionScore;
+  liveReadinessScore?: LiveReadinessScore;
 }
 
 export interface Gate1SurvivalAuditSummary {
@@ -473,6 +483,27 @@ export function buildGateLayerAuditSummary(
     }),
     thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
   };
+  gate3Consolidated.completionScore = buildGate3CompletionScore(gate3Consolidated, {
+    sourceSnapshotId: options.sourceSnapshotId,
+    gate3SourceSnapshotId: options.sourceSnapshotId,
+    asOf: options.asOf,
+    engineMode: options.shadowPolicyContext?.engineMode,
+    macroRegime: options.shadowPolicyContext?.macroRegime ?? options.shadowPolicyContext?.effectiveRegime,
+  });
+  gate3Consolidated.liveReadinessScore = buildLiveReadinessScore({
+    gate3Completion: gate3Consolidated.completionScore,
+    policy: {
+      allowsLive: options.shadowPolicyContext?.livePolicyAllowed,
+      shadowOnlyMode: options.shadowPolicyContext?.shadowOnlyMode,
+      sellOnlyMode: options.shadowPolicyContext?.sellOnlyMode,
+      r6DefenseMode: options.shadowPolicyContext?.macroRegime === 'R6_DEFENSE'
+        || options.shadowPolicyContext?.effectiveRegime === 'R6_DEFENSE'
+        || options.shadowPolicyContext?.riskOverride === 'R6_DEFENSE',
+      brokerLiveOrderAllowed: options.shadowPolicyContext?.brokerLiveOrderAllowed,
+    },
+    shadowAllowed: true,
+    counterfactualAllowed: gate3Consolidated.shadowRouting.counterfactualAllowedCount === gate3Consolidated.candidateDetails.length,
+  });
   return {
     gate1PassCount: counters.gateLayerAudit.gate1PassCount,
     gate2PassCount: counters.gateLayerAudit.gate2PassCount,

@@ -4,6 +4,8 @@ import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowP
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from './quant/gate3ShadowPolicy.js';
 import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from './quant/gate3OutcomeSeed.js';
 import { buildGate3EvidenceScore } from './quant/gate3EvidenceScore.js';
+import { buildGate3CompletionScore } from './quant/gate3CompletionScore.js';
+import { buildLiveReadinessScore } from './quant/liveReadinessScore.js';
 import { accumulateGateLayerSummary, buildGateLayerAuditSummary, createScanCounters } from './trading/signalScanner/scanDiagnostics.js';
 import type { GateLayerSummary } from './quantFilter.js';
 
@@ -138,6 +140,7 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(text).toContain('outcomePending: 1');
     expect(text).toContain('thresholdEvidenceSampleSize: 0');
     expect(text).toContain('thresholdSuggestions: 0');
+    expect(text).toContain('completionStatus: N/A');
     expect(text).toContain('marketSignal=false');
     expect(text).toContain('shadowLearning=true');
     expect(text).toContain('counterfactualRecorded=true');
@@ -209,5 +212,115 @@ describe('scan_blockers_gate3 RRR counters', () => {
     expect(gate3.outcomeSeeds.every(seed => seed.marketSignal === false)).toBe(true);
     expect(gate3.thresholdEvidence?.sampleSize).toBe(0);
     expect(gate3.thresholdEvidence?.suggestions.every(item => item.applyMode === 'SUGGEST_ONLY')).toBe(true);
+    expect(gate3.completionScore?.status).toBe('PARTIAL');
+    expect(gate3.liveReadinessScore?.status).toBe('SHADOW_READY');
+    expect(formatScanBlockersGate3Section(audit)).toContain('completionStatus: PARTIAL');
+  });
+
+  it('prints Gate3 finalization and LiveReadiness contribution when completion score is carried', () => {
+    const rawCandidateDetails = [
+      buildGate3CandidateDetail({
+        symbol: '204320',
+        sourceSnapshotId: 'scan-eval:final',
+        asOf: '2026-05-24T09:00:00.000Z',
+        consolidatedDiagnostic: {
+          timingReadiness: 'READY',
+          falseBreakoutRisk: 'LOW',
+          executionImpact: 'NONE',
+          entryPriceGuard: { priceFreshness: 'VERIFIED' },
+          rrrCheck: { rrr: 2.31, status: 'PASS', source: 'FALLBACK_PERCENT', entryPrice: 10_000, stopLoss: 9_300, targetPrice: 11_500 },
+          lastTrigger: {
+            status: 'FIRED',
+            fired: true,
+            liveBuyAllowed: true,
+            shadowObservableAllowed: true,
+            counterfactualAllowed: true,
+            executionImpact: 'NONE',
+            priceConfirmation: { status: 'BREAKOUT_CONFIRMED' },
+            volumeConfirmationDetail: { status: 'CONFIRMED', volumeRatio20d: 1.8 },
+          },
+        },
+      }),
+    ];
+    const shadowPolicies = rawCandidateDetails.map(detail => buildGate3ShadowPolicy(detail));
+    const candidateDetails = rawCandidateDetails.map((detail, index) =>
+      withGate3ShadowPolicy(detail, shadowPolicies[index]),
+    );
+    const outcomeSeeds = buildGate3OutcomeSeeds(candidateDetails, shadowPolicies, {
+      tradeDate: '2026-05-24',
+      asOf: '2026-05-24T09:00:00.000Z',
+    }).map(seed => ({
+      ...seed,
+      outcomeStatus: 'LABELED' as const,
+      outcomeLabel: 'GATE3_READY_FOLLOW_THROUGH' as const,
+      forwardReturns: { ...seed.forwardReturns, d5: 3 },
+      maxForwardReturnPct: 3,
+      minForwardReturnPct: 1,
+    }));
+    const gate3Consolidated = {
+      samples: 1,
+      health: { OK: 1 },
+      primaryIssue: { none: 1 },
+      compactText: { 'Gate3: READY': 1 },
+      timingReadiness: { READY: 1 },
+      lastTriggerStatus: { FIRED: 1 },
+      priceFreshness: { VERIFIED: 1 },
+      executionImpact: { NONE: 1 },
+      priceConfirmationStatus: { BREAKOUT_CONFIRMED: 1 },
+      volumeConfirmationStatus: { CONFIRMED: 1 },
+      lastTriggerPassCount: 1,
+      lastTriggerFiredCount: 1,
+      lastTriggerWaitCount: 0,
+      lastTriggerThresholdNotMetCount: 0,
+      lastTriggerDataUnavailableCount: 0,
+      entryPriceStaleCount: 0,
+      priceBreakoutConfirmedCount: 1,
+      priceNearBreakoutCount: 0,
+      pricePullbackEntryCount: 0,
+      priceNotConfirmedCount: 0,
+      priceOverextendedCount: 0,
+      volumeConfirmedCount: 1,
+      volumePartialCount: 0,
+      volumeDryUpCount: 0,
+      volumeWeakCount: 0,
+      volumeSpikeRiskCount: 0,
+      rrrPassCount: 1,
+      rrrWatchCount: 0,
+      rrrFailCount: 0,
+      rrrMissingCount: 0,
+      rrrFallbackUsedCount: 1,
+      falseBreakoutHighCount: 0,
+      executionReadyCount: 1,
+      candidateDetails,
+      detailsByReadiness: groupGate3CandidateDetails(candidateDetails),
+      shadowPolicies,
+      shadowRouting: summarizeGate3ShadowPolicies(shadowPolicies),
+      outcomeSeeds,
+      outcomeTracking: summarizeGate3OutcomeSeeds(outcomeSeeds, {
+        tradeDate: '2026-05-24',
+        seedCreatedToday: outcomeSeeds.length,
+      }),
+      thresholdEvidence: buildGate3EvidenceScore(outcomeSeeds),
+    };
+    const completionScore = buildGate3CompletionScore(gate3Consolidated, { sourceSnapshotId: 'scan-eval:final' });
+    const liveReadinessScore = buildLiveReadinessScore({ gate3Completion: completionScore, policy: { shadowOnlyMode: true } });
+    const text = formatScanBlockersGate3Section({
+      gate1PassCount: 1,
+      gate2PassCount: 1,
+      gate3PassCount: 1,
+      strongBuySuppressedByDataUnavailableCount: 0,
+      topGate1BlockReasons: [],
+      topGate2BlockReasons: [],
+      topGate3BlockReasons: [],
+      gate3Consolidated: {
+        ...gate3Consolidated,
+        completionScore,
+        liveReadinessScore,
+      },
+    });
+
+    expect(text).toContain('completionStatus: COMPLETE');
+    expect(text).toContain('completionScore: 100/100');
+    expect(text).toContain('liveReadinessStatus: SHADOW_READY');
   });
 });

@@ -3,6 +3,8 @@ import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowP
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from '../../../quant/gate3ShadowPolicy.js';
 import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from '../../../quant/gate3OutcomeSeed.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
+import { buildGate3CompletionScore } from '../../../quant/gate3CompletionScore.js';
+import { buildLiveReadinessScore } from '../../../quant/liveReadinessScore.js';
 
 let mockSummary: any;
 
@@ -112,6 +114,12 @@ describe('/scan_blockers_gate3 command', () => {
         },
       },
     };
+    const gate3 = mockSummary.gateLayerAudit.gate3Consolidated;
+    gate3.completionScore = buildGate3CompletionScore(gate3, { sourceSnapshotId: 'scan-eval:test' });
+    gate3.liveReadinessScore = buildLiveReadinessScore({
+      gate3Completion: gate3.completionScore,
+      policy: { shadowOnlyMode: true, allowsLive: false },
+    });
     const registry = await import('../../commandRegistry.js');
     registry.commandRegistry.__resetForTests();
   });
@@ -159,6 +167,9 @@ describe('/scan_blockers_gate3 command', () => {
     expect(text).toContain('Gate3 Threshold Evidence');
     expect(text).toContain('sampleSize: 0');
     expect(text).toContain('applyMode=SUGGEST_ONLY');
+    expect(text).toContain('Gate3 Finalization');
+    expect(text).toContain('completionStatus: BROKEN');
+    expect(text).toContain('Gate3 LiveReadiness Contribution');
     expect(text).toContain('route=SHADOW_ENTRY_ALLOWED');
     expect(text).toContain('label=GATE3_READY_FIRED');
     expect(text).toContain('marketSignal=false');

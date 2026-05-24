@@ -118,6 +118,9 @@ import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceSt
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
+import { buildGate3CompletionScore } from '../../../quant/gate3CompletionScore.js';
+import { buildLiveReadinessScore } from '../../../quant/liveReadinessScore.js';
+import { rememberGate3FinalizationSummary } from '../../../quant/gate3FinalizationState.js';
 import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMasterProvider.js';
 import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
@@ -447,6 +450,32 @@ export async function persistScanResults(
     });
     gateLayerAudit.gate3Consolidated.outcomeTracking = result.summary;
     gateLayerAudit.gate3Consolidated.thresholdEvidence = buildGate3EvidenceScore(result.seeds);
+    gateLayerAudit.gate3Consolidated.completionScore = buildGate3CompletionScore(gateLayerAudit.gate3Consolidated, {
+      sourceSnapshotId,
+      gate3SourceSnapshotId: sourceSnapshotId,
+      asOf: scanAsOf,
+      engineMode: options.macroGateState?.engineMode,
+      macroRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime,
+    });
+    gateLayerAudit.gate3Consolidated.liveReadinessScore = buildLiveReadinessScore({
+      gate3Completion: gateLayerAudit.gate3Consolidated.completionScore,
+      policy: {
+        allowsLive: options.macroGateState
+          ? options.macroGateState.liveEntryAllowed !== false
+            && options.macroGateState.brokerOrderAllowed !== false
+            && options.macroGateState.brokerLiveOrderAllowed !== false
+          : undefined,
+        shadowOnlyMode: options.macroGateState?.engineMode === 'SHADOW_ONLY',
+        sellOnlyMode: options.sellOnly === true || options.macroGateState?.sellOnlyMode === true,
+        r6DefenseMode: options.macroGateState?.riskOverride === 'R6_DEFENSE'
+          || options.macroGateState?.regime === 'R6_DEFENSE'
+          || options.macroGateState?.macroRegimeEffective === 'R6_DEFENSE',
+        brokerLiveOrderAllowed: options.macroGateState?.brokerLiveOrderAllowed,
+      },
+      shadowAllowed: true,
+      counterfactualAllowed: gateLayerAudit.gate3Consolidated.shadowRouting.counterfactualAllowedCount === gateLayerAudit.gate3Consolidated.candidateDetails.length,
+    });
+    rememberGate3FinalizationSummary(gateLayerAudit.gate3Consolidated);
   }
   const summaryDraft: ScanSummary = {
     time: timeLabel,
