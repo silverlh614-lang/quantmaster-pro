@@ -34,8 +34,6 @@ import { buildCandidateRiskDoubleCountTrace } from './gate1RiskDoubleCount.js';
  * recorded in the ADR-0476 observation ledger for 1D/3D/5D forward-return tracking only.
  */
 
-export const GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG = 'GATE1_SCORING_ALIGNMENT_DRYRUN_ENABLED';
-
 /** ADR-0472 best scenario applied per-candidate as the relaxed alignment curve. */
 export const ADR_0520_DRY_RUN_SCENARIO: Gate1ScoringAlignmentScenario = 'ALIGN_PLUS_DEDUP_PLUS_RISK_SPLIT';
 
@@ -69,7 +67,6 @@ export interface Gate1ScoringAlignmentDryRunCandidate {
 }
 
 export interface Gate1ScoringAlignmentDryRunGateResult {
-  enabled: boolean;
   scenario: Gate1ScoringAlignmentScenario;
   requiredScore: number;
   totalCandidates: number;
@@ -88,17 +85,6 @@ function round1(value: number): number {
 
 function finite(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-/**
- * Resolve whether the DRY_RUN scoring-alignment gate is enabled.
- * Default is `false` — the operator must explicitly opt in. When `false`, the
- * caller must keep 100% identical behaviour (no rows emitted, no live impact).
- */
-export function isGate1ScoringAlignmentDryRunEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return env[GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG] === 'true';
 }
 
 function positiveComponentScore(
@@ -229,8 +215,9 @@ function evaluateCandidate(
 
 /**
  * Build the per-candidate DRY_RUN scoring-alignment gate result from the REAL
- * candidate traces. Returns a disabled result with no survivors when the ENV flag
- * is off (preserving 100% of the prior behaviour for the caller).
+ * candidate traces. Observation-only (executionImpact=NONE, never affects live
+ * scoring/promotion) and therefore ALWAYS evaluated — no ENV toggle, consistent
+ * with the other ADR-0476 observation sources. Empty only when no candidate traces.
  */
 export function buildGate1ScoringAlignmentDryRunGate(input: {
   traces?: readonly Gate1ScoreStarvationTrace[];
@@ -238,15 +225,12 @@ export function buildGate1ScoringAlignmentDryRunGate(input: {
   scenario?: Gate1ScoringAlignmentScenario;
   /** Override requiredScore for tests; defaults to per-candidate trace requiredScore (live, frozen). */
   requiredScoreOverride?: number;
-  env?: NodeJS.ProcessEnv;
 }): Gate1ScoringAlignmentDryRunGateResult {
   const scenario = input.scenario ?? ADR_0520_DRY_RUN_SCENARIO;
-  const enabled = isGate1ScoringAlignmentDryRunEnabled(input.env ?? process.env);
   // requiredScore on the result is informational only; per-candidate uses the frozen trace value.
   const requiredScoreFromReport = finite(input.alignmentReport?.requiredScore, 70);
 
   const base: Omit<Gate1ScoringAlignmentDryRunGateResult, 'survivors' | 'evaluated'> = {
-    enabled,
     scenario,
     requiredScore: round1(input.requiredScoreOverride ?? requiredScoreFromReport),
     totalCandidates: input.traces?.length ?? 0,
@@ -255,7 +239,7 @@ export function buildGate1ScoringAlignmentDryRunGate(input: {
     policyPromotionMode: 'SHADOW_ONLY',
   };
 
-  if (!enabled || !input.traces || input.traces.length === 0) {
+  if (!input.traces || input.traces.length === 0) {
     return { ...base, survivors: [], evaluated: [] };
   }
 

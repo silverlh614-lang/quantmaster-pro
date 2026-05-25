@@ -1435,10 +1435,9 @@ export async function persistScanResults(
   // observation rows for 1D/3D/5D tracking and never changes live execution.
   try {
     const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
-    // ADR-0520 — DRY_RUN scoring-alignment gate. ENV `GATE1_SCORING_ALIGNMENT_DRYRUN_ENABLED`
-    // defaults to false; when off this returns a disabled result with no survivors so the
-    // ledger output stays byte-equivalent. The live Gate1 curve is never read or mutated —
-    // only the per-candidate frozen actualScore traces and the ADR-0472 dry-run report.
+    // ADR-0520 — DRY_RUN scoring-alignment observation. Observation-only (executionImpact=NONE),
+    // always recorded like the other ADR-0476 sources (no ENV toggle). The live Gate1 curve is
+    // never read or mutated — only the per-candidate frozen actualScore traces and ADR-0472 report.
     const scoringAlignmentDryRunAdr0520 = buildGate1ScoringAlignmentDryRunGate({
       traces: counters.positiveScoreStarvationTraces,
       alignmentReport: summaryDraft.gate1ScoringAlignment,
