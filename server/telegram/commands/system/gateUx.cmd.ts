@@ -24,6 +24,7 @@ import { outcomeClosureRepo } from '../../../learning/outcomeClosure.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderExecutionCompact } from '../../renderers/executionCompactRenderer.js';
 import { renderGateDetailSummary } from '../../renderers/gateDetailRenderer.js';
+import { buildQmpGateDetailHeaderView } from '../../renderers/qmpGateDetailHeaderCanonical.js';
 import { renderDebugRaw, renderGateFullForensic } from '../../renderers/gateFullRenderer.js';
 import { buildCanonicalDebugRawView } from '../../renderers/canonicalDebugRawView.js';
 import {
@@ -159,6 +160,7 @@ function buildGateUxBundle(): SnapshotBundle {
     execution: executionSummaryFromAudit(executionAudit),
     learning: learningSummaryFromOutcomeSummary(outcomeClosureRepo.summarizeLearningOutcomes()),
     executionImpact: executionSummaryFromAudit(executionAudit).executionImpact,
+    qmpGateDetailHeader: buildQmpGateDetailHeaderView(summary),
     fullForensicText: formatScanBlockersMessage(summary),
   };
 }

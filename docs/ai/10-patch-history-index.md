@@ -98,6 +98,7 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-25 · ADR-0527 · ExecutionPermissionResolution, PositionPolicyDecision
 - 2026-05-25 · Patch-SCAN-BLOCKERS-ENTRY-LANE-SPLIT-001 · scan_blockers, SHADOW_ONLY, entry-lanes
 - 2026-05-25 · Patch-PATCH-HISTORY-INDEX-COMPACT-ROUTER-001 · docs-ai-10, archive-snapshot, context-hygiene
+- 2026-05-26 · Patch-QMP-GATE-DETAIL-HEADER-CANONICAL-536A2 · gateUx, QMP-header, Permission/Gate3/EntryLane
 
 ---
 
