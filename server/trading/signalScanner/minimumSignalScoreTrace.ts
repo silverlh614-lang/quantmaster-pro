@@ -18,246 +18,38 @@ import {
   conditionTraceValue,
   extractGateLayerBreakoutSignals,
 } from "./gatePositiveFeatureMaterializer.js";
+import type {
+  SignalScoreComponentCode,
+  SignalScoreComponentConfidence,
+  SignalScoreComponentTrace,
+  MinimumSignalScoreTrace,
+  UnknownDataTreatment,
+  UnknownDataTreatmentAudit,
+  SoftFailCode,
+  SoftFailAccumulationTrace,
+  RiskPenaltyTrace,
+  SignalScoreCalibrationScenario,
+  SignalScoreCalibrationResult,
+  MinSignalScoreDecompositionReport,
+} from "./minimumSignalScoreTrace/types.js";
+import {
+  round1,
+  round2,
+  finite,
+  toFiniteNumber,
+  clamp,
+  weightedFromNormalized,
+  percentReturn,
+  normalizeAbsoluteReturn20dTo100,
+  normalizeSignalScoreTo100,
+  scoreRelativeStrength,
+} from "./minimumSignalScoreTrace/scoring.js";
 
-export type SignalScoreComponentCode =
-  | "PRICE_MOMENTUM"
-  | "VOLUME_LIQUIDITY"
-  | "TECHNICAL_TREND"
-  | "RELATIVE_STRENGTH"
-  | "WATCHLIST_UPSTREAM_SCORE"
-  | "BREAKOUT_STRUCTURE"
-  | "SUPPLY_CONFLUENCE"
-  | "INVESTOR_FLOW"
-  | "SECTOR_ENERGY"
-  | "MARKET_REGIME"
-  | "MACRO_RISK"
-  | "DATA_QUALITY"
-  | "SESSION_STATUS"
-  | "NEWS_OR_CATALYST"
-  | "WATCHLIST_PRIORITY"
-  | "RISK_PENALTY"
-  | "UNKNOWN_DATA_PENALTY"
-  | "SOFT_FAIL_PENALTY"
-  | "OTHER";
-
-export type SignalScoreComponentConfidence =
-  | "VERIFIED"
-  | "DEGRADED"
-  | "STALE"
-  | "UNKNOWN"
-  | "MISSING"
-  | "DIAGNOSTIC_ONLY";
-
-export interface SignalScoreComponentTrace {
-  code: SignalScoreComponentCode;
-  rawValue?: unknown;
-  normalizedScore: number;
-  weight: number;
-  weightedScore: number;
-  maxScore: number;
-  contributionPct: number;
-  confidence: SignalScoreComponentConfidence;
-  providerIssue: boolean;
-  marketSignal: boolean;
-  penaltyApplied: boolean;
-  penaltyReason?: string;
-  message: string;
-}
-
-export interface MinimumSignalScoreTrace {
-  symbol: string;
-  name?: string;
-  requiredScore: number;
-  actualScore: number;
-  scoreGap: number;
-  passed: boolean;
-  components: SignalScoreComponentTrace[];
-  positiveScoreTotal: number;
-  penaltyTotal: number;
-  unknownPenaltyTotal: number;
-  providerIssuePenaltyTotal: number;
-  sessionPenaltyTotal: number;
-  sectorPenaltyTotal: number;
-  riskPenaltyTotal: number;
-  softFailPenaltyTotal: number;
-  topMissingContributors: string[];
-  topPenaltyContributors: string[];
-  wouldPassIfUnknownNeutral: boolean;
-  wouldPassIfProviderPenaltyRemoved: boolean;
-  wouldPassIfSessionPenaltyRemoved: boolean;
-  wouldPassIfRiskPenaltyCapped: boolean;
-  wouldPassIfSectorPenaltyRemoved: boolean;
-  wouldPassIfSoftFailPenaltyRemoved: boolean;
-}
-
-export type UnknownDataTreatment =
-  | "NEUTRAL"
-  | "EXCLUDED_FROM_DENOMINATOR"
-  | "ZERO_SCORE"
-  | "PENALTY"
-  | "BEARISH_EQUIVALENT";
-
-export interface UnknownDataTreatmentAudit {
-  symbol: string;
-  unknownFields: {
-    field: string;
-    treatment: UnknownDataTreatment;
-    scoreImpact: number;
-    allowed: boolean;
-    message: string;
-  }[];
-  hasBearishEquivalentUnknown: boolean;
-  totalUnknownScoreImpact: number;
-}
-
-export type SoftFailCode =
-  | "PROVIDER_UNKNOWN"
-  | "SUPPLY_UNKNOWN"
-  | "SECTOR_DIAGNOSTIC"
-  | "MIN_SIGNAL_GAP"
-  | "DATA_STALE"
-  | "RISK_PENALTY"
-  | "SESSION_SOFT_BLOCK"
-  | "LOW_CONFIDENCE"
-  | "OTHER";
-
-export interface SoftFailAccumulationTrace {
-  symbol: string;
-  softFails: {
-    code: SoftFailCode;
-    weight: number;
-    severityScore: number;
-    reason: string;
-    providerIssue: boolean;
-    marketSignal: boolean;
-  }[];
-  totalSoftFailScore: number;
-  softFailThreshold: number;
-  failedBySoftAccumulation: boolean;
-  wouldPassIfProviderSoftFailsExcluded: boolean;
-  wouldPassIfSessionSoftFailsExcluded: boolean;
-  wouldPassIfSectorSoftFailsExcluded: boolean;
-  wouldPassIfRiskSoftFailsCapped: boolean;
-}
-
-export interface RiskPenaltyTrace {
-  symbol: string;
-  regimeMultiplier: number;
-  fomcMultiplier: number;
-  sectorMultiplier: number;
-  riskMultiplier: number;
-  finalKelly: number;
-  signalScoreRiskPenalty: number;
-  sizingRiskPenalty: number;
-  doubleCountWarning: boolean;
-  wouldPassIfRiskPenaltyCapped: boolean;
-}
-
-export type SignalScoreCalibrationScenario =
-  | "UNKNOWN_NEUTRAL"
-  | "PROVIDER_PENALTY_REMOVED"
-  | "SESSION_PENALTY_REMOVED"
-  | "RISK_PENALTY_CAPPED"
-  | "SECTOR_PENALTY_REMOVED"
-  | "SOFT_FAIL_PENALTY_REMOVED"
-  | "MIN_SIGNAL_THRESHOLD_MINUS_5"
-  | "MIN_SIGNAL_THRESHOLD_MINUS_10"
-  | "R3_EARLY_ADAPTIVE_THRESHOLD";
-
-export interface SignalScoreCalibrationResult {
-  scenario: SignalScoreCalibrationScenario;
-  hypotheticalSurvivors: number;
-  survivorExamples: {
-    symbol: string;
-    name?: string;
-    actualScore: number;
-    adjustedScore: number;
-    requiredScore: number;
-    reason: string[];
-  }[];
-  executionImpact: "NONE";
-}
-
-export interface MinSignalScoreDecompositionReport {
-  timestamp: string;
-  forDate: string;
-  regime: string;
-  marketSession: string;
-  totalCandidates: number;
-  minSignalFailed: number;
-  requiredScoreAvg: number;
-  actualScoreAvg: number;
-  actualScoreMin: number;
-  actualScoreMax: number;
-  avgScoreGap: number;
-  topScoreDeficits: {
-    code: SignalScoreComponentCode;
-    avgImpact: number;
-    affectedCount: number;
-  }[];
-  topPenaltyContributors: {
-    code: SignalScoreComponentCode;
-    avgPenalty: number;
-    affectedCount: number;
-  }[];
-  unknownTreatmentWarnings: number;
-  wouldPassIfUnknownNeutral: number;
-  wouldPassIfProviderPenaltyRemoved: number;
-  wouldPassIfSessionPenaltyRemoved: number;
-  wouldPassIfRiskPenaltyCapped: number;
-  wouldPassIfSoftFailPenaltyRemoved: number;
-  recommendedAction:
-    | "NO_ACTION"
-    | "DIAGNOSTIC_ONLY"
-    | "FIX_UNKNOWN_TREATMENT"
-    | "REMOVE_SESSION_FROM_SIGNAL_SCORE"
-    | "CAP_RISK_PENALTY"
-    | "REVIEW_MIN_SIGNAL_THRESHOLD"
-    | "REVIEW_SOFT_FAIL_ACCUMULATION";
-}
-
-function round1(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function finite(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function toFiniteNumber(value: unknown): number | undefined {
-  if (finite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-export function normalizeSignalScoreTo100(
-  score: number | null | undefined,
-): number {
-  if (score == null || !Number.isFinite(score)) return 0;
-  if (score >= 0 && score <= 10) return score * 10;
-  if (score > 10 && score <= 27) return (score / 27) * 100;
-  if (score > 27 && score <= 100) return score;
-  if (score > 100) return 100;
-  return 0;
-}
-
-function weightedFromNormalized(
-  normalizedScore: number,
-  maxScore: number,
-): number {
-  return round1((clamp(normalizedScore, 0, 100) / 100) * maxScore);
-}
+export * from "./minimumSignalScoreTrace/types.js";
+export {
+  normalizeSignalScoreTo100,
+  scoreRelativeStrength,
+} from "./minimumSignalScoreTrace/scoring.js";
 
 function numericTraceValue(
   trace: CandidateEntryTrace,
@@ -436,123 +228,6 @@ function breakoutProjectionBreakPoint(trace: CandidateEntryTrace): string | unde
   if (tracePathExists(trace, ["stageReached"]))
     return "TRACE_ONLY_CANDIDATE";
   return undefined;
-}
-
-function normalizeRelativeReturn20dTo100(value: number): number {
-  const percentValue = Math.abs(value) <= 1 ? value * 100 : value;
-  return clamp(((percentValue + 10) / 20) * 100, 0, 100);
-}
-
-function normalizeAbsoluteReturn20dTo100(value: number): number {
-  const percentValue = Math.abs(value) <= 1 ? value * 100 : value;
-  return clamp(((percentValue + 10) / 30) * 100, 0, 100);
-}
-
-function percentReturn(value: number): number {
-  return Math.abs(value) <= 1 ? value * 100 : value;
-}
-
-export function scoreRelativeStrength(input: {
-  return20d?: number;
-  return5d?: number;
-  kospi20dReturn?: number;
-  explicitRelativeStrength?: number;
-  marketRelativeReturn?: number;
-}): {
-  rawValue?: unknown;
-  normalizedScore: number;
-  weightedScore: number;
-  maxScore: 10;
-  confidence: SignalScoreComponentConfidence;
-  providerIssue: boolean;
-  marketSignal: boolean;
-  message: string;
-} {
-  if (finite(input.explicitRelativeStrength)) {
-    const normalizedScore = normalizeSignalScoreTo100(
-      input.explicitRelativeStrength,
-    );
-    return {
-      rawValue: input.explicitRelativeStrength,
-      normalizedScore,
-      weightedScore: weightedFromNormalized(normalizedScore, 10),
-      maxScore: 10,
-      confidence: "VERIFIED",
-      providerIssue: false,
-      marketSignal: false,
-      message:
-        "Relative strength component imported from explicit candidate ranking/source.",
-    };
-  }
-
-  if (finite(input.marketRelativeReturn)) {
-    const relativeReturn20d = percentReturn(input.marketRelativeReturn);
-    const normalizedScore = normalizeRelativeReturn20dTo100(relativeReturn20d);
-    return {
-      rawValue: { relativeReturn20d },
-      normalizedScore,
-      weightedScore: weightedFromNormalized(normalizedScore, 10),
-      maxScore: 10,
-      confidence: "VERIFIED",
-      providerIssue: false,
-      marketSignal: false,
-      message:
-        "Relative strength component computed from explicit market-relative return.",
-    };
-  }
-
-  if (finite(input.return20d)) {
-    const return20d = percentReturn(input.return20d);
-    const kospi20dReturn = finite(input.kospi20dReturn)
-      ? percentReturn(input.kospi20dReturn)
-      : undefined;
-    const relativeReturn20d =
-      kospi20dReturn === undefined ? return20d : return20d - kospi20dReturn;
-    const normalizedScore =
-      kospi20dReturn === undefined
-        ? normalizeAbsoluteReturn20dTo100(return20d)
-        : normalizeRelativeReturn20dTo100(relativeReturn20d);
-    return {
-      rawValue: { return20d, kospi20dReturn, relativeReturn20d },
-      normalizedScore,
-      weightedScore: weightedFromNormalized(normalizedScore, 10),
-      maxScore: 10,
-      confidence: "VERIFIED",
-      providerIssue: false,
-      marketSignal: false,
-      message:
-        kospi20dReturn === undefined
-          ? "Relative strength component computed from candidate 20-day return because KOSPI 20-day return is unavailable."
-          : "Relative strength component computed from candidate 20-day return minus KOSPI 20-day return.",
-    };
-  }
-
-  if (finite(input.return5d)) {
-    const return5d = percentReturn(input.return5d);
-    const normalizedScore = clamp(((return5d + 5) / 15) * 100, 0, 100);
-    return {
-      rawValue: { return5d },
-      normalizedScore,
-      weightedScore: weightedFromNormalized(normalizedScore, 10),
-      maxScore: 10,
-      confidence: "DEGRADED",
-      providerIssue: false,
-      marketSignal: false,
-      message:
-        "Relative strength component computed from short-horizon 5-day return fallback.",
-    };
-  }
-
-  return {
-    normalizedScore: 0,
-    weightedScore: 0,
-    maxScore: 10,
-    confidence: "MISSING",
-    providerIssue: false,
-    marketSignal: false,
-    message:
-      "Relative strength source missing; contribution is 0 and is not treated as provider or bearish penalty.",
-  };
 }
 
 function normalizedRelativeStrength(

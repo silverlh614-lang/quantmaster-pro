@@ -72,7 +72,9 @@ const BASELINE_TECHNICAL_DEBT = [
   //     - investorFlowProviderRouterAdr0477.ts (1694 LoC) — ADR-0477 router 본체
   //     - minimumSignalScoreTrace.ts (1520 LoC) — ADR-0466 score 분해
   //   각각 분해 PR 머지 시 본 카탈로그에서 정식 제거.
-  'server/trading/signalScanner/minimumSignalScoreTrace.ts',
+  //   ✅ 2026-05-25 minimumSignalScoreTrace.ts 분해 완료 (1736→1411줄 — ADR-0524, types.ts(타입 12종)
+  //      + scoring.ts(정규화·RS 스코어링 leaf) 추출 + 메인 export * re-export, byte-equivalent, lint EXIT=0,
+  //      test 155pass/1fail(사전 실패·무회귀)) → 카탈로그에서 정식 제거.
   // ADR-0367 (2026-05-14) — gate1MinimumSignalForensicAuditAdr0505.ts 2317 LoC.
   //   ADR-0505 본체(~430 LoC) 가 #944~#953 KIS investor row carry / forensic mapper
   //   누적 PR 로 1500 초과 — origin/main 에 이미 누적된 사전 baseline. ADR-0502c 패턴 정합
