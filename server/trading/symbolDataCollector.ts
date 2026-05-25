@@ -13,7 +13,7 @@
 
 import {
   fetchKisStockFullQuote,
-  fetchKisInvestorFlow,
+  fetchKisInvestorTradeByStockDaily,
   fetchKisStockDailyBars,
   fetchKisStockProgramTrade,
 } from '../clients/kisClient.js';
@@ -257,7 +257,7 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
 
   const [quoteResult, flowResult, barsResult, programResult] = await Promise.allSettled([
     fetchKisStockFullQuote(code),
-    fetchKisInvestorFlow(code),
+    fetchKisInvestorTradeByStockDaily(code),
     fetchKisStockDailyBars(code, 90), // 60 거래일 + 여유 → 캘린더 90일
     fetchKisStockProgramTrade(code),
   ]);
@@ -276,7 +276,7 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
     flowResult.status === 'fulfilled' ? flowResult.value : null;
   if (flowResult.status === 'rejected') {
     logger.warn(
-      '[SymbolDataCollector] fetchKisInvestorFlow 실패:',
+      '[SymbolDataCollector] fetchKisInvestorTradeByStockDaily 실패:',
       flowResult.reason instanceof Error ? flowResult.reason.message : String(flowResult.reason),
       { code },
     );

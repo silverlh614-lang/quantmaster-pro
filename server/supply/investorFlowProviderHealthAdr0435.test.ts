@@ -102,7 +102,7 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
 
   it('routes KRX empty rows, NAVER not wired, cache empty, and semantic collector unavailable without FAIL', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
-    setKisClientOverrides({ fetchKisInvestorFlow: async () => null });
+    setKisClientOverrides({ fetchKisInvestorTradeByStockDaily: async () => null });
     const { fetchInvestorFlowWithPolicy, summarizeInvestorFlowProviderHealth } = await import('./investorFlowRouter.js');
     const result = await fetchInvestorFlowWithPolicy('005930', new Date('2026-05-07T01:00:00.000Z'));
 

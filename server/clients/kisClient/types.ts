@@ -438,7 +438,6 @@ export interface KisClientOverrides {
   fetchStockName?: (code: string) => Promise<string | null>;
   fetchAccountBalance?: () => Promise<number | null>;
   fetchKisHoldings?: () => Promise<KisHolding[] | null>;
-  fetchKisInvestorFlow?: (code: string) => Promise<KisInvestorFlow | null>;
   fetchKisStockProgramTrade?: (code: string) => Promise<KisStockProgramTrade | null>;
   fetchKisMarketProgramTrade?: () => Promise<KisMarketProgramTrade | null>;
   fetchKisDailyShortSale?: (code: string) => Promise<KisDailyShortSale | null>;

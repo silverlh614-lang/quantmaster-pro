@@ -28,7 +28,7 @@ describe('KIS official investor-flow evidence adapter', () => {
 
   it('keeps missing strict KIS fields as provider issue, not market signal', async () => {
     const { setKisClientOverrides } = await import('../clients/kisClient/overrides.js');
-    setKisClientOverrides({ fetchKisInvestorFlow: async () => null });
+    setKisClientOverrides({ fetchKisInvestorTradeByStockDaily: async () => null });
     const { fetchKisInvestorFlowEvidence } = await import('./kisInvestorFlowEvidence.js');
 
     const result = await fetchKisInvestorFlowEvidence('005930', new Date('2026-05-11T09:30:00.000Z'));

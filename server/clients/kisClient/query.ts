@@ -1466,39 +1466,8 @@ export async function fetchKisSectorIndexCurrentPriceProbe(
   };
 }
 
-// ─── 종목별 투자자 수급 조회 ─────────────────────────────────────────────────
-
-/**
- * FHKST01010300 — 주식현재가 투자자별 순매수 조회.
- * KIS_APP_KEY 미설정 시 null 반환. 실계좌/VTS 모두 지원.
- */
-export async function fetchKisInvestorFlow(
-  code: string,
-  priority: KisApiPriority = 'LOW',
-): Promise<KisInvestorFlow | null> {
-  const overrides = getKisOverrides();
-  if (overrides.fetchKisInvestorFlow) return overrides.fetchKisInvestorFlow(code);
-  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
-  try {
-    const data = await realDataKisGet(
-      'FHKST01010300',
-      '/uapi/domestic-stock/v1/quotations/inquire-investor',
-      {
-        FID_COND_MRKT_DIV_CODE: 'J',
-        FID_INPUT_ISCD: code.padStart(6, '0'),
-      },
-      priority,
-    );
-    const out = pickKisOutput(data);
-    if (!out) return null;
-    return {
-      foreignNetBuy:       extractKisNumber(out, ['frgn_ntby_qty', 'FRGN_NETBUY_QTY']),
-      institutionalNetBuy: extractKisNumber(out, ['orgn_ntby_qty', 'INST_NETBUY_QTY']),
-      individualNetBuy:    extractKisNumber(out, ['prsn_ntby_qty', 'INDV_NETBUY_QTY']),
-      source: 'KIS_API',
-    };
-  } catch { return null; }
-}
+// ─── 시장 전체 투자자 수급 조회 ─────────────────────────────────────────────
+// 종목별 투자자 수급은 fetchKisInvestorTradeByStockDaily (FHPTJ04160001) 단일 통로.
 
 /**
  * FHKST03030100 — 코스피 전체 투자자별 매매 동향 조회.
