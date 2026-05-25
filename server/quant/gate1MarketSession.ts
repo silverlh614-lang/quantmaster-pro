@@ -95,7 +95,7 @@ export function normalizeGate1MarketSession(value: unknown): Gate1MarketSession 
   if (raw === 'PREMARKET' || raw === 'PRE_MARKET' || raw === 'PREOPEN' || raw === 'PRE_OPEN') return 'PREMARKET';
   if (raw === 'AFTERMARKET' || raw === 'AFTER_MARKET' || raw === 'AFTER_HOURS') return 'AFTERMARKET';
   if (raw === 'LUNCH' || raw === 'MIDDAY_BREAK') return 'LUNCH';
-  if (raw === 'SELL_ONLY' || raw === 'SELL_ONLY_MODE') return 'REGULAR';
+  if (raw === 'SELL_ONLY' || raw === 'SELL_ONLY_MODE') return 'SELL_ONLY';
   if (raw === 'HOLIDAY' || raw === 'NON_TRADING_DAY') return 'HOLIDAY';
   if (raw === 'CLOSED' || raw === 'MARKET_CLOSED') return 'CLOSED';
   return 'UNKNOWN';
@@ -275,15 +275,18 @@ export function normalizeMarketSessionForGate1(
 
   const matchedWindow = null;
   const sellOnlyActive = false;
-  const effectiveEngineMode: Gate1MarketSessionEngineMode = engineMode !== 'UNKNOWN'
-    ? engineMode
-    : session === 'CLOSED' || session === 'HOLIDAY'
-        ? 'OBSERVE_ONLY'
-        : session === 'REGULAR'
-          ? 'NORMAL'
-          : 'UNKNOWN';
+  const effectiveEngineMode: Gate1MarketSessionEngineMode =
+    session === 'SELL_ONLY'
+      ? 'SELL_ONLY'
+      : engineMode !== 'UNKNOWN'
+        ? engineMode
+        : session === 'CLOSED' || session === 'HOLIDAY'
+          ? 'OBSERVE_ONLY'
+          : session === 'REGULAR' || session === 'LUNCH'
+            ? 'NORMAL'
+            : 'UNKNOWN';
   const liveBuyAllowed = effectiveEngineMode === 'NORMAL' || effectiveEngineMode === 'DEGRADED' || effectiveEngineMode === 'UNKNOWN';
-  const liveSellAllowed = (session === 'REGULAR' || session === 'LUNCH')
+  const liveSellAllowed = (session === 'REGULAR' || session === 'LUNCH' || session === 'SELL_ONLY')
     && effectiveEngineMode !== 'SHADOW_ONLY'
     && effectiveEngineMode !== 'OBSERVE_ONLY';
   const reason = reasonFor({

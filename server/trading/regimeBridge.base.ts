@@ -129,8 +129,14 @@ function capRecoveryRegime(rawRegime: RegimeLevel): RegimeLevel {
   return REGIME_ORDER[Math.min(rawIdx, capIdx)] ?? 'R5_CAUTION';
 }
 
-function applyForcedDowngrade(regime: RegimeLevel): RegimeLevel {
+function applyForcedDowngrade(regime: RegimeLevel, previousEffective?: RegimeLevel): RegimeLevel {
   if (!isForcedRegimeDowngradeActive()) return regime;
+  // 업그레이드 방향(raw > previous)이면 강제 하향 스킵 — 상승 기회는 차단하지 않음
+  if (previousEffective !== undefined) {
+    const rawIdx = REGIME_ORDER.indexOf(regime);
+    const prevIdx = REGIME_ORDER.indexOf(previousEffective);
+    if (rawIdx > prevIdx) return regime;
+  }
   const idx = REGIME_ORDER.indexOf(regime);
   if (idx <= 0) return regime; // 이미 R6_DEFENSE — 더 내려갈 곳 없음
   return REGIME_ORDER[idx - 1] ?? regime;
@@ -173,7 +179,7 @@ function macroFreshnessFromUpdatedAt(macroState: MacroState | null, updatedAt: s
   const updatedAtMs = Date.parse(updatedAt);
   if (!Number.isFinite(updatedAtMs)) return 'MISSING';
   const ageSec = Math.max(0, Math.floor((now.getTime() - updatedAtMs) / 1000));
-  const ttlSec = envInt('MACRO_STATE_TTL_SEC', envInt('MARKET_STATE_SNAPSHOT_TTL_SEC', 300));
+  const ttlSec = envInt('MACRO_STATE_TTL_SEC', envInt('MARKET_STATE_SNAPSHOT_TTL_SEC', 180));
   const softStaleSec = Math.max(ttlSec, envInt('R6_RECOVERY_SOFT_STALE_SEC', 900));
   if (ageSec <= ttlSec) return 'FRESH';
   if (ageSec <= softStaleSec) return 'SOFT_STALE';
@@ -622,7 +628,7 @@ export function evaluateR6RecoveryTransition(
     const latchStillActive = !recovered && previousState.r6ShockLatch && !isLatchExpired(previousState, now);
     const recoveryWatch = !recovered && recoveryWatchEligible(evidence, previousState, now, triggerBreakdown.triggerFreshness);
     const r6StateMachineState: R6StateMachineState = recovered ? (previousState.r6StateMachineState === 'R5_STABILIZING' ? resolveRecoveredStateMachine(rawRegime, macroState) : 'R5_STABILIZING') : recoveryWatch ? 'R6_RECOVERY_WATCH' : 'R6_DEFENSE';
-    const effectiveRegime = recovered ? applyForcedDowngrade(rawRegime) : (recoveryWatch ? capRecoveryRegime(applyForcedDowngrade(rawRegime)) : 'R6_DEFENSE');
+    const effectiveRegime = recovered ? applyForcedDowngrade(rawRegime, previousState.effectiveRegime) : (recoveryWatch ? capRecoveryRegime(applyForcedDowngrade(rawRegime, previousState.effectiveRegime)) : 'R6_DEFENSE');
     const status = recovered ? (r6StateMachineState === 'R5_STABILIZING' ? 'R5_STABILIZING' : 'RECOVERED') : isHardStaleForRecovery(triggerBreakdown.triggerFreshness) ? 'STALE_DATA_BLOCKED' : recoveryWatch ? 'R6_RECOVERY_WATCH' : Date.parse(cooldownUntil) <= now.getTime() && evidenceComplete(evidence) ? 'RECOVERY_CANDIDATE' : 'COOLDOWN';
     const decision = r6StateMachineState === 'R6_RECOVERY_WATCH' ? 'TRANSITION_ALLOWED' : recovered ? 'RECOVERED' : 'TRANSITION_BLOCKED';
     if (previousState.latchDecayPercent !== undefined && nextDecayPercent > previousState.latchDecayPercent) {
@@ -677,7 +683,7 @@ export function evaluateR6RecoveryTransition(
     };
   }
 
-  const effectiveRegime = applyForcedDowngrade(rawRegime);
+  const effectiveRegime = applyForcedDowngrade(rawRegime, previousState.effectiveRegime);
   const r6StateMachineState: R6StateMachineState = effectiveRegime === 'R5_CAUTION' ? 'R4_CAUTION' : 'R3_NORMAL';
   return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: previousState.effectiveRegime === effectiveRegime ? 'RAW_REGIME_RECONFIRMED' : 'RAW_REGIME_RECLASSIFIED', r6RecoveryStatus: 'NONE', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: [], r6ShockLatch: false, r6ShockLatchDetail: undefined, r6StateMachineState, r6ShockLatchReason: undefined, latchTriggeredAt: undefined, latchTriggerValue: undefined, latchTriggerSource: undefined, latchExpiresAt: undefined, latchDecayLevel: 'NONE', latchDecayPercent: 0, latchReleaseEligibleAt: undefined, recoveryBlockedReason: undefined };
 }

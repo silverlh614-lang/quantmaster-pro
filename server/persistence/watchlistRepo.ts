@@ -412,6 +412,12 @@ export interface WatchlistEntry {
   recheckFailCount?: number;
   /** ADR-0449 — 마지막 WAIT 시각 (ISO) — cooldown 만료 판정 입력. */
   lastWaitAt?: string;
+  /**
+   * Gate 1/2/3 per-layer diagnostic summary (diagnostic only; never used for live execution decisions).
+   * Written by kisIntradayCorrection after evaluateServerGate(); propagated through
+   * createBuyTask → shadowGateAuditStore for audit purposes.
+   */
+  gateLayerSummary?: import('../quantFilter.js').GateLayerSummary;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {

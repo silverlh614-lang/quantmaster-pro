@@ -13,6 +13,7 @@ import {
   classifySectorTier,
   describeSectorBoost,
 } from '../../../sectorScoreBoost.js';
+import { getSectorByCode } from '../../../../screener/sectorMap.js';
 import { getKstMarketElapsedMinutes } from '../../../entryEngine.js';
 import { shouldIncrementFailCount } from '../../failureClassifier.js';
 import { entryRevalidationStep } from '../../revalidationSteps/index.js';
@@ -44,12 +45,18 @@ export async function handleEntryRevalidationGate(
 ): Promise<'SKIP' | 'CONTINUE'> {
   const sectorEnergyResult = ctx.macroState?.sectorEnergyResult ?? null;
   const sectorEnergyDataQuality = ctx.macroState?.sectorEnergyDataQuality;
-  const sectorBoost = applySectorScoreBoost(stock.sector, sectorEnergyResult, ctx.regime, sectorEnergyDataQuality);
-  const sectorBoostReason = sectorBoost !== 0 && stock.sector && sectorEnergyResult
+  // ADR-0060: stock.sector 부재 시 getSectorByCode fallback (sectorConcentrationGate 동일 정책)
+  const stockSectorLabel = stock.sector ?? getSectorByCode(stock.code);
+  // ADR-0488: sectorBoostAllowed=false 종목(섹터인덱스 씨드 등)은 boost 차단
+  const isSectorBoostAllowed = (stock as { sectorBoostAllowed?: boolean }).sectorBoostAllowed !== false;
+  const sectorBoost = isSectorBoostAllowed
+    ? applySectorScoreBoost(stockSectorLabel, sectorEnergyResult, ctx.regime, sectorEnergyDataQuality)
+    : 0;
+  const sectorBoostReason = sectorBoost !== 0 && stockSectorLabel && sectorEnergyResult
     ? describeSectorBoost(
-        stock.sector,
+        stockSectorLabel,
         sectorBoost,
-        classifySectorTier(stock.sector, sectorEnergyResult),
+        classifySectorTier(stockSectorLabel, sectorEnergyResult),
         ctx.regime,
       )
     : undefined;

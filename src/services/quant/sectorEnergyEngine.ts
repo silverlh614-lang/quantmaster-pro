@@ -218,19 +218,6 @@ export function evaluateSectorEnergy(
 }
 
 /**
- * 특정 종목의 섹터가 주도 섹터인지 판별하여 Gate 2 조정값 반환.
- * 주도 섹터면 -1, 그 외 0.
- */
-export function getSectorGate2Adjustment(
-  stockSectorName: string,
-  result: SectorEnergyResult | null,
-): number {
-  if (!result) return 0;
-  const tier = result.leadingSectors.find((t) => t.name === stockSectorName);
-  return tier?.gate2Adjustment ?? 0;
-}
-
-/**
  * 특정 종목의 섹터 포지션 사이즈 상한 반환.
  * 소외 섹터면 40, 그 외 100.
  */
@@ -241,4 +228,19 @@ export function getSectorPositionLimit(
   if (!result) return 100;
   const lag = result.laggingSectors.find((t) => t.name === stockSectorName);
   return lag?.positionSizeLimit ?? 100;
+}
+
+/**
+ * 종목 섹터의 리더십 점수 반환 (candidatePoolBuilder featureScore용).
+ * LEADING=8, NEUTRAL=4, LAGGING=0, 데이터없음=null
+ */
+export function getSectorLeadershipScore(
+  stockSectorName: string | null | undefined,
+  result: SectorEnergyResult | null,
+): number | null {
+  if (!result || !stockSectorName) return null;
+  if (result.leadingSectors.some((t) => t.name === stockSectorName)) return 8;
+  if (result.laggingSectors.some((t) => t.name === stockSectorName)) return 0;
+  if (result.neutralSectors.some((t) => t.name === stockSectorName)) return 4;
+  return null;
 }

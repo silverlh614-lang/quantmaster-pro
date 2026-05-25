@@ -60,6 +60,8 @@ function makeShadowAuditRecord(overrides?: Partial<ShadowGateAuditRecord>): Shad
     shadow: {
       scoreSystem: 'SHADOW_GATE_RAW',
       rawGateScore: 8.4,
+      availableMaxScore: null,
+      gateLayerSummary: null,
       gateBandNormal: 6.0,
       gateBandStrong: 8.0,
       signalType: 'BUY',

@@ -107,6 +107,9 @@ import {
   type EntryRevalidationSkippedBatchItem,
 } from './steps/entryRevalidationGate.js';
 import { sizingTierDeciderFinal } from './steps/sizingTierDecider.js';
+// ADR-0075: LAGGING 섹터 포지션 상한 — getSectorPositionLimit SSOT 연결
+import { getSectorByCode } from '../../../screener/sectorMap.js';
+import { getSectorPositionLimit } from '../../../../src/services/quant/sectorEnergyEngine.js';
 import { phaseEntryGate } from './steps/entryGateChain.js';
 import { gateEligibilitySplit } from './steps/gateEligibilitySplit.js';
 import { counterfactualShadowLearning } from './steps/counterfactualShadowLane.js';
@@ -571,10 +574,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         );
       }
 
+      // ADR-0075: LAGGING 섹터 포지션 상한 — getSectorPositionLimit SSOT 연결
+      // LAGGING(Bottom 3) 섹터 종목은 계산된 비중의 40%로 제한, LEADING/NEUTRAL 100% 유지.
+      // dataQuality STALE/FAILED 시 ctx.macroState?.sectorEnergyResult null → 상한 미적용 (안전 fallback).
+      const _stockSectorForCap = stock.sector ?? getSectorByCode(stock.code);
+      const _sectorPosLimit = getSectorPositionLimit(_stockSectorForCap, ctx.macroState?.sectorEnergyResult ?? null);
+      const laggingCappedPositionPct = effectivePositionPct * (_sectorPosLimit / 100);
+      if (_sectorPosLimit < 100) {
+        console.log(
+          `[SectorPositionCap] ${stock.name}(${_stockSectorForCap ?? '?'}) LAGGING → ` +
+          `positionPct ${(effectivePositionPct * 100).toFixed(2)}% × ${_sectorPosLimit}% cap → ` +
+          `${(laggingCappedPositionPct * 100).toFixed(2)}%`,
+        );
+      }
+
       const { quantity: legacyQuantity, effectiveBudget } = calculateOrderQuantity({
         totalAssets: ctx.totalAssets,
         orderableCash: ctx.mutables.orderableCash.value,
-        positionPct: effectivePositionPct,
+        positionPct: laggingCappedPositionPct,
         price: shadowEntryPrice,
         remainingSlots,
         accountKellyMultiplier: 1.0,

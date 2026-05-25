@@ -43,7 +43,7 @@ describe('Gate1 Always-On shadow eligibility normalizer', () => {
     });
   });
 
-  it('normalizes removed SELL_ONLY while keeping live and shadow lanes open', () => {
+  it('propagates SELL_ONLY session liveBuyAllowed=false as LIVE_BUY_BLOCKED_ONLY while shadow stays open', () => {
     const result = normalizeShadowEligibilityForGate1({
       engineMode: 'SELL_ONLY',
       marketSessionCompatibility: { session: 'SELL_ONLY', liveBuyAllowed: false, shadowAllowed: true },
@@ -62,7 +62,7 @@ describe('Gate1 Always-On shadow eligibility normalizer', () => {
       counterfactualLearningAllowed: true,
       caseRecordingAllowed: true,
       reason: null,
-      liveExecutionImpact: 'NONE',
+      liveExecutionImpact: 'LIVE_BUY_BLOCKED_ONLY',
       shadowExecutionImpact: 'NONE',
     });
   });

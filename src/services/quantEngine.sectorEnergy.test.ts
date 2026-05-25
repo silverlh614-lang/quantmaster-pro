@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest';
 import {
   evaluateSectorEnergy,
   getSeasonMonth,
-  getSectorGate2Adjustment,
   getSectorPositionLimit,
 } from '../../src/services/quant/sectorEnergyEngine';
 import type { SectorEnergyInput } from '../../src/types/sectorEnergy';
@@ -129,26 +128,6 @@ describe('evaluateSectorEnergy', () => {
     const result = evaluateSectorEnergy(small, 6);
     // Top 3 = all three (size <= 6)
     expect(result.scores).toHaveLength(3);
-  });
-});
-
-// ─── getSectorGate2Adjustment ─────────────────────────────────────────────────
-
-describe('getSectorGate2Adjustment', () => {
-  it('returns -1 for a leading sector', () => {
-    const result = evaluateSectorEnergy(makeSample(), 6);
-    const leadingName = result.leadingSectors[0].name;
-    expect(getSectorGate2Adjustment(leadingName, result)).toBe(-1);
-  });
-
-  it('returns 0 for a neutral or lagging sector', () => {
-    const result = evaluateSectorEnergy(makeSample(), 6);
-    const laggingName = result.laggingSectors[0].name;
-    expect(getSectorGate2Adjustment(laggingName, result)).toBe(0);
-  });
-
-  it('returns 0 when result is null', () => {
-    expect(getSectorGate2Adjustment('반도체', null)).toBe(0);
   });
 });
 

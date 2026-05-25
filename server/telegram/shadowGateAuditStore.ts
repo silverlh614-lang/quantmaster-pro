@@ -37,6 +37,8 @@ export interface ShadowGateAuditRecord {
   shadow: {
     scoreSystem: 'SHADOW_GATE_RAW';
     rawGateScore: number | null;
+    availableMaxScore: number | null;
+    gateLayerSummary: import('../quantFilter.js').GateLayerSummary | null;
     gateBandNormal: number | null;
     gateBandStrong: number | null;
     signalType: string | null;
@@ -79,6 +81,8 @@ interface ShadowGateAuditInput {
   tradeDate: string;
   marketSession: string;
   rawGateScore?: number;
+  availableMaxScore?: number | null;
+  gateLayerSummary?: import('../quantFilter.js').GateLayerSummary | null;
   gateBandNormal?: number;
   gateBandStrong?: number;
   signalType?: string;
@@ -207,6 +211,8 @@ export function recordShadowApprovalCardAudit(input: ShadowGateAuditInput): Shad
     shadow: {
       scoreSystem: 'SHADOW_GATE_RAW',
       rawGateScore: null,
+      availableMaxScore: null,
+      gateLayerSummary: null,
       gateBandNormal: null,
       gateBandStrong: null,
       signalType: null,
@@ -234,6 +240,8 @@ export function recordShadowApprovalCardAudit(input: ShadowGateAuditInput): Shad
     shadow: {
       ...base.shadow,
       rawGateScore: finiteOrNull(input.rawGateScore) ?? base.shadow.rawGateScore,
+      availableMaxScore: finiteOrNull(input.availableMaxScore) ?? base.shadow.availableMaxScore,
+      gateLayerSummary: input.gateLayerSummary ?? base.shadow.gateLayerSummary,
       gateBandNormal: finiteOrNull(input.gateBandNormal) ?? base.shadow.gateBandNormal,
       gateBandStrong: finiteOrNull(input.gateBandStrong) ?? base.shadow.gateBandStrong,
       signalType: input.signalType ?? base.shadow.signalType,

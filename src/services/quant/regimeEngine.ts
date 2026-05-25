@@ -206,8 +206,9 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
   ];
   if (cautionSignals.filter(Boolean).length >= 3) return 'R5_CAUTION';
 
-  // ── R3: 상승 초기 선행 신호 (5개 중 3개 이상 + MHS ≥ 45) ─────────────────────
+  // ── R3: 상승 초기 선행 신호 (5개 중 2개 이상 + MHS ≥ 40) ─────────────────────
   // R1/R2 이전에 체크: 아직 완전한 Bull이 아니지만 선행 지표가 먼저 켜지는 구간
+  // 임계값 완화(3→2, MHS 45→40): 선행 포착 타이밍을 앞당겨 수익률 최고 구간 선진입
   const earlySignals = [
     v.vkospi5dTrend     < -3,                          // 공포지수 5일 하락 중
     v.foreignNetBuy5d   > 0 && !v.passiveActiveBoth,   // Passive 전환 시작 (Active 미동반)
@@ -215,12 +216,13 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     v.spx20dReturn      > 1,                            // 글로벌 선행 회복
     v.vix               < 20 && v.dxy5dChange < 0,     // 공포 해소 + 달러 약세
   ];
-  if (earlySignals.filter(Boolean).length >= 3 && v.mhsScore >= 45) return 'R3_EARLY';
+  if (earlySignals.filter(Boolean).length >= 2 && v.mhsScore >= 40) return 'R3_EARLY';
 
-  // ── R1: 완전한 Bull (8개 중 6개 이상) ───────────────────────────────────────
+  // ── R1: 완전한 Bull (8개 중 5개 이상) ───────────────────────────────────────
+  // 임계값 완화(6→5, MHS 80→75): 상승 사이클 진입 속도 향상
   const turboSignals = [
-    v.vkospi          < 17,
-    v.mhsScore        >= 80,
+    v.vkospi          < 18,
+    v.mhsScore        >= 75,
     v.foreignNetBuy5d > 3000,
     v.passiveActiveBoth,
     v.kospiAbove60MA,
@@ -228,23 +230,25 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     v.usdKrw20dChange < -1,                // 원화 강세 (달러약세)
     v.sectorCycleStage === 'EARLY' || v.sectorCycleStage === 'MID',
   ];
-  if (turboSignals.filter(Boolean).length >= 6) return 'R1_TURBO';
+  if (turboSignals.filter(Boolean).length >= 5) return 'R1_TURBO';
 
   // ── R2: 일반 Bull ────────────────────────────────────────────────────────────
+  // 임계값 완화(VKOSPI 22→24, MHS 65→60, 외국인 500→200): 상승 초입 포착 빠르게
   if (
-    v.vkospi          <= 22  &&
-    v.mhsScore        >= 65  &&
+    v.vkospi          <= 24  &&
+    v.mhsScore        >= 60  &&
     v.kospiAbove20MA         &&
-    v.foreignNetBuy5d > 500
+    v.foreignNetBuy5d > 200
   ) {
     return 'R2_BULL';
   }
 
-  // ── R3 강제 승급: KOSPI MA20 대비 +5% 이상 + 외국인 순매수 진입(≥1일) ─────────
+  // ── R3 강제 승급: KOSPI MA20 대비 +3% 이상 + 외국인 순매수 진입(≥1일) ─────────
   // 보수적 R4에서도 상승 모멘텀이 명확하면 기회를 잡을 수 있도록 강제 승급.
   // FSS 5일 누적이 0인 첫날에도 KIS 당일 보정값(≥1)이 들어오면 즉시 승급한다.
+  // 기준 완화(5%→3%): 상승 초입 단계에서 R3 진입 앞당김
   if (
-    (v.kospiAboveMA20Pct ?? 0) > 5 &&
+    (v.kospiAboveMA20Pct ?? 0) > 3 &&
     (v.foreignContinuousBuyDays ?? 0) >= 1
   ) {
     return 'R3_EARLY';

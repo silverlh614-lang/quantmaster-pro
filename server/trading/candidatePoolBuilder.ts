@@ -107,6 +107,8 @@ export interface CandidatePoolInputCandidate {
   rsRankPct?: number | null;
   relativeStrengthScore?: number | null;
   breakoutScore?: number | null;
+  supplyScore?: number | null;        // KIS 투자자 플로우 → deriveSupplyScore 결과
+  sectorLeadershipScore?: number | null;  // 섹터 에너지 티어 → LEADING=8 NEUTRAL=4 LAGGING=0
   volumeRatio?: number | null;
   return5d?: number | null;
   return20d?: number | null;
@@ -433,11 +435,26 @@ function scoreCandidate(
   const avgVolume = pickNumber(candidate.avgVolume, quote?.avgVolume, quote?.avgVolume20d);
   const volumeRatio = pickNumber(candidate.volumeRatio, quote?.volumeRatio);
   const rsRankPct = pickNumber(candidate.rsRankPct, quote?.rsRankPct);
-  const relativeStrength = pickNumber(candidate.relativeStrengthScore, quote?.relativeStrengthScore) ?? scoreFromRankPct(rsRankPct);
-  const breakout = pickNumber(candidate.breakoutScore, quote?.breakoutScore);
   const return5d = pickNumber(candidate.return5d, quote?.return5d);
   const return20d = pickNumber(candidate.return20d, quote?.return20d);
   const relativeReturn20d = pickNumber(candidate.relativeReturn20d, quote?.relativeReturn20d);
+  const kospi20dReturn = pickNumber((candidate as any).kospi20dReturn, quote?.kospi20dReturn);
+  const relativeReturn20dFromReturns =
+    return20d !== null && kospi20dReturn !== null ? return20d - kospi20dReturn : null;
+  const rsFromRelativeReturn = pickNumber(relativeReturn20d, relativeReturn20dFromReturns);
+  const rsScoreFromRelativeReturn: number | null =
+    rsFromRelativeReturn !== null
+      ? rsFromRelativeReturn >= 10 ? 12
+        : rsFromRelativeReturn >= 5 ? 10
+        : rsFromRelativeReturn >= 2 ? 7
+        : rsFromRelativeReturn >= 0 ? 4
+        : 0
+      : null;
+  const relativeStrength =
+    pickNumber(candidate.relativeStrengthScore, quote?.relativeStrengthScore)
+    ?? scoreFromRankPct(rsRankPct)
+    ?? rsScoreFromRelativeReturn;
+  const breakout = pickNumber(candidate.breakoutScore, quote?.breakoutScore);
   const supplyScore = pickNumber(candidate.supplyScore, quote?.supplyScore);
   const sectorScore = pickNumber(candidate.sectorLeadershipScore, quote?.sectorLeadershipScore);
   const vcpScore = pickNumber(candidate.volatilityCompressionScore, quote?.volatilityCompressionScore, candidate.vcpScore);

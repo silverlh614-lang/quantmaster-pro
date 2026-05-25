@@ -113,7 +113,7 @@ export function registerReportJobs(): void {
   // macro refresh is observation-only and must not be skipped by R6/SELL_ONLY/live-buy blocks.
   scheduledJob('40 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_regime_refresh_morning',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
-  scheduledJob('*/5 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_intraday_ttl',
+  scheduledJob('*/3 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_intraday_ttl',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
   scheduledJob('30 6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_close',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });

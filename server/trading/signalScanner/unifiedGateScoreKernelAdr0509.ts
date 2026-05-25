@@ -479,9 +479,11 @@ export function buildUnifiedGateScoreSnapshot(
     marketSession: shadowAudit.marketSession,
 
     rawGateScore,
-    // normalizedGateScore — rawGateScore 가 0..10 scale 이라 가정하면 10배 → 100-scale.
-    // Shadow Gate 자체는 0..10 raw 만 노출하므로 normalizedGateScore = rawGateScore * 10 (diagnostic only).
-    normalizedGateScore: rawGateScore !== null ? rawGateScore * 10 : null,
+    // normalizedGateScore — availableMaxScore 기반 정규화; 없으면 *10 근사 (diagnostic only).
+    // quantFilter.ts rawScore / availableMaxScore 와 동일한 공식 사용 (0~100 scale).
+    normalizedGateScore: rawGateScore !== null && shadowAudit.shadow.availableMaxScore
+      ? Math.round((rawGateScore / shadowAudit.shadow.availableMaxScore) * 100 * 10) / 10
+      : rawGateScore !== null ? rawGateScore * 10 : null,
     minSignalScore100,
     requiredMinSignalScore,
     scoreGap: liveForensic ? finiteOrNull(liveForensic.scoreGap) : null,

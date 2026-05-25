@@ -34,6 +34,9 @@ import { extractGateLayerQuoteFeatureValues } from './gatePositiveFeatureMateria
 // carry SSOT 위임. 호출자 측 inline ENV 검사 0건 (SSOT 헬퍼 위임 의무).
 import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPolicy.js';
 import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
+import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
+import { getSectorByCode } from '../../screener/sectorMap.js';
+import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -355,6 +358,22 @@ export async function runAutoSignalScan(
     );
   }
 
+  // 2.5. Per-Symbol Price Context (volume + return5d/20d via KIS for candidatePool diagnostics)
+  try {
+    const priceInjected = await injectPerSymbolPriceContext(candidates.buyList as Record<string, unknown>[]);
+    candidates.buyList = priceInjected.candidates as typeof candidates.buyList;
+    candidates.mainList = priceInjected.candidates as typeof candidates.mainList;
+    if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
+      const intradayPrice = await injectPerSymbolPriceContext(candidates.intradayList as Record<string, unknown>[]);
+      candidates.intradayList = intradayPrice.candidates as typeof candidates.intradayList;
+    }
+  } catch (error) {
+    console.warn(
+      '[PER_SYMBOL_PRICE_CONTEXT_INJECTION] failed before evaluation; continuing',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
   // 3. Per-Symbol Evaluation (매수 조건 검증, 큐/포지션/가용현금 상태관리 공유)
   const queueState = createApprovalQueueState(preflightResult.context.orderableCash);
   await evaluateMainCandidates(candidates, preflightResult.context, counters, queueState);
@@ -399,9 +418,27 @@ export async function runAutoSignalScan(
       ? { sectorEnergyQualityDiagnostic: macro.sectorEnergyQualityDiagnostic }
       : {}),
     candidatePoolSourceCandidates: [
-      ...(Array.isArray(preflightResult.context?.watchlist) ? preflightResult.context.watchlist : []),
-      ...candidates.buyList,
-      ...candidates.intradayList,
+      ...(Array.isArray(preflightResult.context?.watchlist) ? preflightResult.context.watchlist : []).map((w: any) => ({
+        ...w,
+        sectorLeadershipScore: getSectorLeadershipScore(
+          w.sector ?? getSectorByCode(w.code),
+          (preflightResult.context?.macroState as any)?.sectorEnergyResult ?? null,
+        ),
+      })),
+      ...candidates.buyList.map((w: any) => ({
+        ...w,
+        sectorLeadershipScore: getSectorLeadershipScore(
+          w.sector ?? getSectorByCode(w.code),
+          (preflightResult.context?.macroState as any)?.sectorEnergyResult ?? null,
+        ),
+      })),
+      ...candidates.intradayList.map((w: any) => ({
+        ...w,
+        sectorLeadershipScore: getSectorLeadershipScore(
+          w.sector ?? getSectorByCode(w.code),
+          (preflightResult.context?.macroState as any)?.sectorEnergyResult ?? null,
+        ),
+      })),
     ],
     candidateSnapshots: [
       ...candidates.buyList.map((w: any) => ({

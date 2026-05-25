@@ -116,6 +116,8 @@ export async function handleApprovalQueue(input: HandleApprovalQueueInput): Prom
     rrr: _rrr,
     mtas: reCheckGate.mtas,
     compressionScore: reCheckGate.compressionScore,
+    availableMaxScore: reCheckGate.availableMaxScore,
+    gateLayerSummary: stock.gateLayerSummary,
     signalType: isFinalStrongBuy ? 'STRONG_BUY' : 'BUY',
     gateBandNormal: getRegimeGateBand(ctx.regime).normal,
     gateBandStrong: getRegimeGateBand(ctx.regime).strong,

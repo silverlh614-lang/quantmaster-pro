@@ -117,6 +117,7 @@ function liveImpactFor(input: NormalizeShadowEligibilityInput, engineMode: Engin
   if (blockers.some(blocker => blocker.startsWith('TRADABILITY_'))) return 'LIVE_EXECUTION_BLOCKED';
   if (engineMode === 'SHADOW_ONLY' || engineMode === 'OBSERVE_ONLY') return 'LIVE_EXECUTION_BLOCKED';
   if (hasMissingQuote(input)) return 'LIVE_BUY_BLOCKED_ONLY';
+  if (input.marketSessionCompatibility?.liveBuyAllowed === false) return 'LIVE_BUY_BLOCKED_ONLY';
   return 'NONE';
 }
 
