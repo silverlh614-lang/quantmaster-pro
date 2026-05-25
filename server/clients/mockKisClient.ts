@@ -176,10 +176,6 @@ export function createMockKisOverrides(): KisClientOverrides {
       return balance;
     },
 
-    fetchKisInvestorFlow: async (code: string) => {
-      return generateMockInvestorFlow(code);
-    },
-
     fetchKisInvestorTradeByStockDaily: async (code: string) => {
       return generateMockInvestorTradeByStockDaily(code);
     },

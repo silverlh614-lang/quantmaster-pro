@@ -81,9 +81,6 @@ export {
 // ─── http ──────────────────────────────────────────────────────────────────
 export { kisGet, kisPost, realDataKisGet, isKisChartCooldownActive, getKisChartCooldownRemainingMs } from './http.js';
 
-// ─── query (시세 조회) ─────────────────────────────────────────────────────
-export { fetchKisInvestorFlow } from './investorFlowStrict.js';
-
 // ─── investor flow → supplyProviderHealth bridge SSOT (ADR-0517) ──────────
 export {
   buildSupplyProviderHealthFromKisFlow,
