@@ -1,6 +1,7 @@
 // @responsibility buyList candidates per-symbol investor-flow context hydration
 import { createTraceId, logger, logVisibilityEvent } from '../../utils/logger.js';
 import { fetchInvestorFlowWithPolicy, type InvestorFlowRouteResult } from '../../supply/investorFlowRouter.js';
+import { deriveSupplyScore } from './normalSupplyPreview/candidateMapper.js';
 import type { ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
 import type { SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
 
@@ -181,6 +182,10 @@ export async function injectPerSymbolSupplyContext<T extends CandidateWithSupply
     candidate.gateContext = mergeCandidateSupplyContext(candidate.gateContext, supplyContext);
     candidate.scoringContext = mergeCandidateSupplyContext(candidate.scoringContext, supplyContext);
     candidate.supplyContext = supplyContext;
+    // ADR-0075: supplyScore 스칼라 파생 — candidatePoolBuilder.scoreCandidate() SUPPLY_MISSING 해소
+    if (typeof (candidate as any).supplyScore !== 'number' || !Number.isFinite((candidate as any).supplyScore)) {
+      (candidate as any).supplyScore = deriveSupplyScore(supplyContext);
+    }
     candidate.supplyProviderHealth = supplyContextToHealthTrace(supplyContext, candidate.supplyProviderHealth);
   }
 

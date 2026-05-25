@@ -229,3 +229,18 @@ export function getSectorPositionLimit(
   const lag = result.laggingSectors.find((t) => t.name === stockSectorName);
   return lag?.positionSizeLimit ?? 100;
 }
+
+/**
+ * 종목 섹터의 리더십 점수 반환 (candidatePoolBuilder featureScore용).
+ * LEADING=8, NEUTRAL=4, LAGGING=0, 데이터없음=null
+ */
+export function getSectorLeadershipScore(
+  stockSectorName: string | null | undefined,
+  result: SectorEnergyResult | null,
+): number | null {
+  if (!result || !stockSectorName) return null;
+  if (result.leadingSectors.some((t) => t.name === stockSectorName)) return 8;
+  if (result.laggingSectors.some((t) => t.name === stockSectorName)) return 0;
+  if (result.neutralSectors.some((t) => t.name === stockSectorName)) return 4;
+  return null;
+}

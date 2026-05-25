@@ -34,6 +34,8 @@ import { extractGateLayerQuoteFeatureValues } from './gatePositiveFeatureMateria
 // carry SSOT 위임. 호출자 측 inline ENV 검사 0건 (SSOT 헬퍼 위임 의무).
 import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPolicy.js';
 import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
+import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
+import { getSectorByCode } from '../../screener/sectorMap.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -399,9 +401,27 @@ export async function runAutoSignalScan(
       ? { sectorEnergyQualityDiagnostic: macro.sectorEnergyQualityDiagnostic }
       : {}),
     candidatePoolSourceCandidates: [
-      ...(Array.isArray(preflightResult.context?.watchlist) ? preflightResult.context.watchlist : []),
-      ...candidates.buyList,
-      ...candidates.intradayList,
+      ...(Array.isArray(preflightResult.context?.watchlist) ? preflightResult.context.watchlist : []).map((w: any) => ({
+        ...w,
+        sectorLeadershipScore: getSectorLeadershipScore(
+          w.sector ?? getSectorByCode(w.code),
+          (preflightResult.context?.macroState as any)?.sectorEnergyResult ?? null,
+        ),
+      })),
+      ...candidates.buyList.map((w: any) => ({
+        ...w,
+        sectorLeadershipScore: getSectorLeadershipScore(
+          w.sector ?? getSectorByCode(w.code),
+          (preflightResult.context?.macroState as any)?.sectorEnergyResult ?? null,
+        ),
+      })),
+      ...candidates.intradayList.map((w: any) => ({
+        ...w,
+        sectorLeadershipScore: getSectorLeadershipScore(
+          w.sector ?? getSectorByCode(w.code),
+          (preflightResult.context?.macroState as any)?.sectorEnergyResult ?? null,
+        ),
+      })),
     ],
     candidateSnapshots: [
       ...candidates.buyList.map((w: any) => ({
