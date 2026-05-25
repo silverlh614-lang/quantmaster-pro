@@ -200,7 +200,7 @@ describe('commands/learning barrel — Phase B2 auto-register', () => {
     await import('./commands/learning/index.js');
   });
 
-  it('all 8 LRN commands resolvable (kelly/kelly_surface/regime_coverage/ledger/counterfactual/risk/circuits/reset_circuits)', () => {
+  it('core LRN commands resolvable', () => {
     for (const name of [
       '/kelly',
       '/kelly_surface',
@@ -210,6 +210,7 @@ describe('commands/learning barrel — Phase B2 auto-register', () => {
       '/risk',
       '/circuits',
       '/reset_circuits',
+      '/learning_weights_reset',
     ]) {
       expect(commandRegistry.resolve(name), `missing ${name}`).toBeDefined();
     }
@@ -229,13 +230,15 @@ describe('commands/learning barrel — Phase B2 auto-register', () => {
       '/risk',
       '/circuits',
       '/reset_circuits',
+      '/learning_weights_reset',
     ]) {
       expect(commandRegistry.resolve(name)?.category, `${name} category`).toBe('LRN');
     }
   });
 
-  it('/reset_circuits is riskLevel=1 (light mutate); read-only LRN are riskLevel=0', () => {
+  it('/reset_circuits and /learning_weights_reset are riskLevel=1 (light mutate); read-only LRN are riskLevel=0', () => {
     expect(commandRegistry.resolve('/reset_circuits')?.riskLevel).toBe(1);
+    expect(commandRegistry.resolve('/learning_weights_reset')?.riskLevel).toBe(1);
     for (const name of [
       '/kelly',
       '/kelly_surface',

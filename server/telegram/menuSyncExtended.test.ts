@@ -45,7 +45,7 @@ describe('buildBotMenuCommandsExtended menu curation', () => {
 
   it('keeps core operator commands visible while registry remains larger than the menu', () => {
     const extendedCmds = new Set(extended.map((e) => e.command));
-    for (const name of ['status', 'health', 'supply_health', 'ghost_inspect', 'scheduler', 'scan', 'scan_blockers_gate0', 'scan_blockers_gate1', 'scan_blockers_gate2', 'scan_blockers_gate3', 'buy', 'sell']) {
+    for (const name of ['status', 'health', 'supply_health', 'ghost_inspect', 'scheduler', 'learning_weights_reset', 'scan', 'scan_blockers_gate0', 'scan_blockers_gate1', 'scan_blockers_gate2', 'scan_blockers_gate3', 'buy', 'sell']) {
       expect(extendedCmds.has(name)).toBe(true);
     }
     expect(commandRegistry.all().length).toBeGreaterThan(extended.length - baseLen);
