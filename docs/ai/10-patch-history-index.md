@@ -561,3 +561,4 @@
 - 2026-05-25 · ADR-0519 + Patch-UNIFIED-SOURCE-SNAPSHOT-001 (SymbolDataCollector + UnifiedSourceSnapshot 아키텍처 도입; KIS 4-엔드포인트 종목당 1회 수집; feature flag USE_UNIFIED_SOURCE_SNAPSHOT; Gate 읽기 전용 소비 계약; 불변식 #3 이행 인프라; executionImpact=NONE)
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-002 (Phase 2: injectPerSymbolSupplyContext/PriceContext snapshotData 주입 wiring; 중복 KIS fetch 제거; executionImpact=NONE)
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-003 (KRX 마스터 연결: symbolDataCollector name/market 플레이스홀더 제거; getAllStockEntries 코드→엔트리 맵; OTHER 마켓 KOSPI 폴백; executionImpact=NONE)
+- 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-004 (교차 집합 RS: computeCrossSectionalRS 추가; freeze 전 relativeReturn20d/rsScore 퍼센타일 일괄 계산; UnifiedMacroContext.kospi20dReturn 필드 추가; executionImpact=NONE)
