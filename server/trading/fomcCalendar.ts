@@ -101,37 +101,7 @@ const FOMC_FAVORABLE_REGIMES = new Set<string>([
   'R2_BULL_NORMAL',
 ]);
 
-// Kelly 배율 테이블 (정책 v4 — 2026-04-26 사용자 운영 결정, ADR-0057)
-//
-// 변경 이력:
-//   v1 (2025):         PRE_3/PRE_2/PRE_1/DAY 모두 0.0 (4일 차단)
-//   v2 (2026-04-26):   PRE_3/PRE_2 = 1.0, PRE_1/DAY = 0.0 (2일 차단)
-//   v3 (2026-04-26):   PRE_3/PRE_2/PRE_1 = 1.0, DAY 만 0.0 (1일 차단)
-//   v3.1 (2026-04-26): PRE_1 = 0.75 (사이즈 25% 축소), DAY 차단 유지
-//   v4 (2026-04-26):   PRE_3/PRE_2/PRE_1 모두 0.75 — 4일 보수성 균일 ← 현재
-//     사유: 사용자 운영 결정 — D-3 부터 사이즈 25% 축소 균일 적용, 4일 일관성.
-const PHASE_KELLY: Record<FomcPhase, number> = {
-  PRE_3:  0.75,  // 보수적 진입 (사이즈 25% 축소, v4) — D-3 부터 발표 영향권
-  PRE_2:  0.75,  // 보수적 진입 (사이즈 25% 축소, v4)
-  PRE_1:  0.75,  // 보수적 진입 (사이즈 25% 축소, v3.1 부터 유지)
-  DAY:    0.0,   // 신규 진입 금지 (발표 당일 — 익일 09:00 시초가 점프 회피)
-  POST_1: 1.30,  // FOMC 방향 확인 후 최대 진입
-  POST_2: 1.15,
-  NORMAL: 1.0,
-};
-
 // ── 메인 함수 ─────────────────────────────────────────────────────────────────
-
-/** KST 기준 오늘 날짜 문자열 (YYYY-MM-DD) */
-function todayKst(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-/** 두 날짜 문자열(YYYY-MM-DD) 간 캘린더 일수 차이 (b - a) */
-function daysDiff(a: string, b: string): number {
-  const msPerDay = 86_400_000;
-  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / msPerDay);
-}
 
 /**
  * 우호 환경 완화 헬퍼 — DAY (FOMC 발표 당일) 에서 macro 환경이 *우호적* 이면 차단을
@@ -148,7 +118,7 @@ function daysDiff(a: string, b: string): number {
  * macro snapshot 부재 또는 일부 필드 누락 시 *보수적으로* 차단 유지.
  *
  * @param phase   현재 FOMC phase
- * @param defaultKelly  현재 phase 의 PHASE_KELLY 값 (DAY 가 아니면 그대로)
+ * @param defaultKelly  현재 phase 의 Kelly 값 (DAY 가 아니면 그대로)
  * @param macro   macro snapshot (mhs/regime/vkospi)
  */
 export function applyFomcRelaxation(
