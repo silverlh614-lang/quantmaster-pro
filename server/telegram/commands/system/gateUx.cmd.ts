@@ -25,6 +25,7 @@ import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuil
 import { renderExecutionCompact } from '../../renderers/executionCompactRenderer.js';
 import { renderGateDetailSummary } from '../../renderers/gateDetailRenderer.js';
 import { renderDebugRaw, renderGateFullForensic } from '../../renderers/gateFullRenderer.js';
+import { buildCanonicalDebugRawView } from '../../renderers/canonicalDebugRawView.js';
 import {
   renderGateCompactSummary,
 } from '../../renderers/gateCompactRenderer.js';
@@ -35,7 +36,6 @@ import {
   boolOf,
   executionSummaryFromAudit,
   gate2SummaryFromConfluence,
-  gate3SummaryFromRuntimeClosure,
   getByPath,
   recordOf,
   text,
@@ -154,7 +154,8 @@ function buildGateUxBundle(): SnapshotBundle {
     engineMode,
     effectiveRegime: canonicalEffectiveRegime,
     gate2: gate2SummaryFromConfluence(confluence),
-    gate3: gate3SummaryFromRuntimeClosure(gate3),
+    // ADR-0525: gate3 표시 override 제거 → base 의 canonical gate3(gateLayerAudit.gate3Consolidated 투영)를 사용한다.
+    // /gate · /gate_detail · /gate_full · debug_raw 가 동일 gate3 정본을 본다. (gate2/execution override 는 Phase1/2 대상으로 잔류)
     execution: executionSummaryFromAudit(executionAudit),
     learning: learningSummaryFromOutcomeSummary(outcomeClosureRepo.summarizeLearningOutcomes()),
     executionImpact: executionSummaryFromAudit(executionAudit).executionImpact,
@@ -260,7 +261,8 @@ const debugGate: TelegramCommand = {
   description: 'Raw Gate snapshot bundle debug',
   usage: '/debug_gate',
   async execute({ reply }) {
-    await replyText(reply, renderDebugRaw(buildGateUxBundle()));
+    // ADR-0525: debug_raw 는 재계산 번들(buildGateUxBundle)이 아니라 persisted 정본 슬라이스를 직렬화한다.
+    await replyText(reply, renderDebugRaw(buildCanonicalDebugRawView(getLastScanSummary())));
   },
 };
 
