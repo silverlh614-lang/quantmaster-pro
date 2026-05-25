@@ -9,6 +9,7 @@ import {
   formatRegimePositionPolicyAppliedLog,
   getRegimeAdjustment,
   getRegimePositionPolicy,
+  toPositionPolicyDecision,
 } from './regimePositionPolicy.js';
 
 describe('regimePositionPolicy — Simplification Step 2', () => {
@@ -98,5 +99,36 @@ describe('regimePositionPolicy — Simplification Step 2', () => {
     })).toContain('[REGIME_EXECUTION_AUTHORITY_REMOVED]');
     expect(formatKellyRemovedIgnoredLog({ snapshotId: 'scan_1', symbol: '005930', previousKellyValue: 0.01 }))
       .toContain('[KELLY_REMOVED_IGNORED]');
+  });
+});
+
+describe('ADR-0527 toPositionPolicyDecision — canonical mapping (calculation unchanged)', () => {
+  it('maps sizing result to PositionPolicyDecision shape without altering computed values', () => {
+    const sizing = calculateRegimePositionSizing({
+      regime: 'R2_BULL',
+      totalEquity: 10_000_000,
+      currentPositions: 2,
+    });
+    const decision = toPositionPolicyDecision({
+      sourceSnapshotId: 'scan-eval:pp',
+      symbol: '005930',
+      sizing,
+    });
+    expect(decision.tier).toBe('R2_BULL');
+    expect(decision.posPct).toBe(sizing.positionSizePct);
+    expect(decision.maxPositions).toBe(sizing.policy.maxPositions);
+    expect(decision.maxGrossExposurePct).toBe(sizing.policy.maxGrossExposurePct);
+    // 현 정책상 Kelly 비활성 → finalKelly null 고정.
+    expect(decision.finalKelly).toBeNull();
+    // 호출 맥락 기본 DIAGNOSTIC, executionImpact NONE.
+    expect(decision.diagnosticVsLive).toBe('DIAGNOSTIC');
+    expect(decision.executionImpact).toBe('NONE');
+  });
+
+  it('diagnosticVsLive discriminator is settable by call context', () => {
+    const sizing = calculateRegimePositionSizing({ regime: 'R6_DEFENSE', totalEquity: 5_000_000 });
+    const live = toPositionPolicyDecision({ sourceSnapshotId: 's', sizing, diagnosticVsLive: 'LIVE' });
+    expect(live.diagnosticVsLive).toBe('LIVE');
+    expect(live.tier).toBe('R6_DEFENSE');
   });
 });

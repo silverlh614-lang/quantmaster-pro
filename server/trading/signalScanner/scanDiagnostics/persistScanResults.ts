@@ -123,6 +123,10 @@ import {
   buildCandidateGate2ConfluenceSnapshot,
   buildCandidateGate3ClosureSnapshot,
 } from './candidateGateEvaluationView.js';
+import {
+  buildCandidateExecutionResolutions,
+  aggregateUnifiedExecutionPermission,
+} from './candidateExecutionResolution.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
@@ -1738,6 +1742,20 @@ export async function persistScanResults(
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateGateEvaluationViews', error: e });
+  }
+
+  // ADR-0527 Phase 2a — per-candidate 통합 실행허가 정본 도출·영속 (가산만, 무위험).
+  // Phase1 candidateGateViews 가 세팅된 *후* 도출 — gate quality 정본 입력 정합.
+  // A(resolveExecutionPermission) 는 LIVE 와 byte-equivalent, B 라벨은 실제 스캔 시각(더미 1970 의존 0)으로 산출.
+  // 소비자(formatter)는 Phase 2b 전까지 0 → 화면 무변화. 빌드 실패가 ScanSummary 영속을 차단하지 않도록 try/catch 격리.
+  try {
+    const executionResolutions = buildCandidateExecutionResolutions(summaryDraft);
+    if (executionResolutions.length > 0) {
+      summaryDraft.candidateExecutionResolutions = executionResolutions;
+      summaryDraft.executionResolutionAggregate = aggregateUnifiedExecutionPermission(executionResolutions);
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateExecutionResolutions', error: e });
   }
 
   _lastScanSummary = summaryDraft;

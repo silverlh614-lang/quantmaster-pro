@@ -96,15 +96,48 @@ export interface PositionPolicyDecision {
 }
 
 /**
- * TODO(ADR-0527 engine-dev): runtime/executionPermissionResolver 와
- * gates/finalDecisionResolver 를 본 통합 계약으로 수렴한다. legacy resolver 는
- * 입력 어댑터로 흡수하되 허가 산출 로직은 byte-equivalent 유지 (회귀 테스트로 고정).
- * PositionPolicyDecision 은 regimePositionPolicy.calculateRegimePositionSizing 결과를
- * 정본 형상으로 매핑하며 diagnosticVsLive 를 명시한다.
+ * ADR-0527 engine-dev — 통합 병합 정본.
+ * A(runtime/executionPermissionResolver.ExecutionPermissionResolution) 의 permission/sizing/provider
+ * 필드와 B(gates/finalDecisionResolver) 의 decision/convictionLabel/reasonCodes *라벨만* 병합한다.
  *
- * 본 시그니처는 engine-dev 가 채운다. 컴파일을 위해 export 만 선언한다.
+ * 불변 규율:
+ * - permission boolean 군(liveOrderAllowed/shadowPermissionAllowed/counterfactualAllowed/paperFillAllowed/
+ *   learningAllowed)은 **A 에서만** 채운다. B 는 절대 덮어쓰지 않는다(허가 산출 byte-equivalent).
+ * - liveSellAllowed 는 A 가 SELL 권한을 별도 산출하지 않으므로 liveOrderAllowed 와 동일 신호로 carry
+ *   한다(가법 — 새 허가 산출 로직 도입 아님).
+ * - executionImpact/liveBlockReason/sizingMultiplier/scorePenalty/marketSignal/providerIssueIsolated 는
+ *   모두 A 의 값(불변식 #6: providerIssueIsolated 가 marketSignal 을 false 로 격리한 결과 그대로).
+ * - decision/convictionLabel/reasonCodes 는 B 라벨. strongBuyAsLabelOnly 는 true 고정.
  */
-export declare function toUnifiedExecutionPermission(
+export function toUnifiedExecutionPermission(
   permission: ExecutionPermissionResolution,
-  decision: { decision: FinalDecision; convictionLabel: ConvictionLabel; reasonCodes: string[] },
-): UnifiedExecutionPermissionResolution;
+  decision: { decision: FinalDecision; convictionLabel: ConvictionLabel; reasonCodes: readonly string[] },
+): UnifiedExecutionPermissionResolution {
+  return {
+    sourceSnapshotId: permission.sourceSnapshotId,
+    asOf: permission.asOf,
+    // --- permission 군 (A 에서만) ---
+    liveOrderAllowed: permission.liveOrderAllowed,
+    liveSellAllowed: permission.liveOrderAllowed,
+    shadowPermissionAllowed: permission.shadowOrderAllowed,
+    counterfactualAllowed: permission.counterfactualAllowed,
+    paperFillAllowed: permission.paperFillAllowed,
+    learningAllowed: true,
+    // --- 판단 라벨 군 (B 라벨) ---
+    decision: decision.decision,
+    convictionLabel: decision.convictionLabel,
+    strongBuyAsLabelOnly: true,
+    liveBlockReason: permission.liveBlockReason,
+    executionImpact: permission.executionImpact,
+    // --- 사이징 군 (A) ---
+    sizingMultiplier: permission.sizingMultiplier,
+    scorePenalty: permission.scorePenalty,
+    // --- provider/signal 군 (A, 불변식 #6) ---
+    marketSignal: permission.marketSignal,
+    providerIssueIsolated: permission.providerIssueIsolated,
+    // --- 진단 라벨 ---
+    policyLabels: [...permission.policyLabels],
+    learningLabels: [...permission.learningLabels],
+    reasonCodes: [...decision.reasonCodes],
+  };
+}
