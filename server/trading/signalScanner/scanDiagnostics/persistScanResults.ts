@@ -42,6 +42,7 @@ import {
   buildRiskDoubleCountAuditReport,
   buildFinalGate1CalibrationAuditReport,
   buildGate1ScoringAlignmentReport,
+  buildGate1ScoringAlignmentDryRunGate,
   buildGate1PositiveSourceWiringReport,
   buildGate1DryRunObservationRows,
   saveGate1DryRunObservationRows,
@@ -1434,12 +1435,21 @@ export async function persistScanResults(
   // observation rows for 1D/3D/5D tracking and never changes live execution.
   try {
     const observationSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
+    // ADR-0520 — DRY_RUN scoring-alignment gate. ENV `GATE1_SCORING_ALIGNMENT_DRYRUN_ENABLED`
+    // defaults to false; when off this returns a disabled result with no survivors so the
+    // ledger output stays byte-equivalent. The live Gate1 curve is never read or mutated —
+    // only the per-candidate frozen actualScore traces and the ADR-0472 dry-run report.
+    const scoringAlignmentDryRunAdr0520 = buildGate1ScoringAlignmentDryRunGate({
+      traces: counters.positiveScoreStarvationTraces,
+      alignmentReport: summaryDraft.gate1ScoringAlignment,
+    });
     const rows = buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       candidateSnapshots: observationSnapshots,
       finalGate1Calibration: summaryDraft.finalGate1Calibration,
       gate1PositiveSourceWiring: summaryDraft.gate1PositiveSourceWiring,
+      scoringAlignmentDryRunAdr0520,
       investorFlowProviderRouter: summaryDraft.investorFlowProviderRouter,
       naverInvestorTrendAdr0481: summaryDraft.naverInvestorTrendAdr0481,
       semanticNetBuyNormalizationAdr0482: summaryDraft.semanticNetBuyNormalizationAdr0482,

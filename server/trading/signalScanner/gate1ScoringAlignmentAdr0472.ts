@@ -1,6 +1,10 @@
 // @responsibility ADR-0472 Gate1 scoring component alignment dry-run audit
 import type { SignalScoreComponentCode } from './minimumSignalScoreTrace.js';
-import type { PositiveScoreStarvationReport, PositiveSignalComponentCode } from './gate1PositiveScoreStarvation.js';
+import type {
+  Gate1ScoreStarvationTrace,
+  PositiveScoreStarvationReport,
+  PositiveSignalComponentCode,
+} from './gate1PositiveScoreStarvation.js';
 import type { Gate1ScoreCeilingRepairReport } from './gate1ScoreCeilingRepair.js';
 import { GATE1_POSITIVE_COMPONENT_WEIGHTS } from './gate1ScoreCeilingRepair.js';
 import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
@@ -273,6 +277,39 @@ export function detectGate1ScoringAlignmentMissingComponents(input: {
   const minimum = new Set<string>(input.minimumSignalComponents ?? MINIMUM_SIGNAL_SCORE_COMPONENT_CODES_ADR0472);
   const required = input.requiredComponents ?? REQUIRED_ALIGNMENT_COMPONENTS;
   return required.filter((code) => !minimum.has(code));
+}
+
+/**
+ * Positive components the ADR-0472 ALIGN curve recognizes per-candidate. These are
+ * already-computed positive contributions that the live frozen curve does not credit
+ * (the live actualScore stays exactly as-is). The relaxed curve re-recognizes them.
+ */
+export const ADR_0472_ALIGN_RECOGNIZED_POSITIVE_COMPONENTS: readonly PositiveSignalComponentCode[] = [
+  'BREAKOUT_STRUCTURE',
+  'PRICE_MOMENTUM',
+];
+
+/**
+ * Per-candidate ALIGN delta (positive normalization) for the ADR-0520 relaxed curve.
+ *
+ * Single-source rule: derive the delta ONLY from the candidate's own
+ * `Gate1ScoreStarvationTrace.positiveComponents`. The relaxed ALIGN curve recognizes
+ * the already-computed positive contributions (BREAKOUT_STRUCTURE + PRICE_MOMENTUM)
+ * that the live frozen score did not credit. This is the per-candidate analogue of the
+ * aggregate `ALIGN_ALL_POSITIVE_COMPONENTS` scenario — no aggregate average is used.
+ *
+ * The live `trace.actualScore` is never read for mutation here; we only sum the
+ * recognized positive weightedScores already present in the immutable trace.
+ */
+export function resolveAdr0472AlignDeltaForCandidate(
+  trace: Gate1ScoreStarvationTrace,
+  recognizedComponents: readonly PositiveSignalComponentCode[] = ADR_0472_ALIGN_RECOGNIZED_POSITIVE_COMPONENTS,
+): number {
+  const recognized = new Set<string>(recognizedComponents);
+  const delta = trace.positiveComponents
+    .filter((component) => recognized.has(component.code))
+    .reduce((sum, component) => sum + Math.max(0, finite(component.weightedScore)), 0);
+  return round1(Math.max(0, delta));
 }
 
 export function buildGate1ScoringAlignmentReport(input: Gate1ScoringAlignmentBuildInput): Gate1ScoringAlignmentReport | null {

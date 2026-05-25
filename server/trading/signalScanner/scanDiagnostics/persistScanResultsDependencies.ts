@@ -31,6 +31,7 @@ export { buildPenaltyDeduplicationReport } from '../gate1PenaltyDeduplication.js
 export { buildRiskDoubleCountAuditReport } from '../gate1RiskDoubleCount.js';
 export { buildFinalGate1CalibrationAuditReport } from '../gate1FinalCalibration.js';
 export { buildGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr0472.js';
+export { buildGate1ScoringAlignmentDryRunGate, isGate1ScoringAlignmentDryRunEnabled } from '../gate1ScoringAlignmentDryRunGateAdr0520.js';
 export { buildGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
 export { buildGate1DryRunObservationRows, saveGate1DryRunObservationRows, summarizeGate1DryRunObservationRows } from '../gate1DryRunObservationLedgerAdr0476.js';
 export { buildInvestorFlowProviderRouteResultAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
