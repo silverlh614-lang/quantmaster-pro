@@ -37,6 +37,12 @@ import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
+import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
+
+// ─── Feature flag: USE_UNIFIED_SOURCE_SNAPSHOT ───────────────────────────────
+// true 시 buyListLoop 전에 SymbolDataCollector로 종목당 1회 일괄 수집.
+// false(기본) 시 기존 per-gate 개별 fetch 경로 100% 유지 — executionImpact=NONE.
+const USE_UNIFIED_SNAPSHOT = process.env.USE_UNIFIED_SOURCE_SNAPSHOT === 'true';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -304,6 +310,29 @@ export async function runAutoSignalScan(
 
   // 2. Candidate Select (관심종목 3섹션 및 Intraday 후보군 선정)
   const candidates = await selectCandidates(preflightResult.context, options);
+
+  // 2.1 Unified Source Snapshot (feature flag: USE_UNIFIED_SOURCE_SNAPSHOT=true)
+  // OFF 시 기존 per-gate 경로 100% 유지 — 이 블록은 진단 수집만 하며 buyListLoop 경로는 변경하지 않는다.
+  if (USE_UNIFIED_SNAPSHOT) {
+    const candidateSymbols: string[] = [
+      ...candidates.buyList.map((c: any) => c.code ?? c.symbol).filter(Boolean),
+      ...candidates.intradayList.map((c: any) => c.code ?? c.symbol).filter(Boolean),
+    ];
+    const uniqueSymbols = [...new Set(candidateSymbols)] as string[];
+    if (uniqueSymbols.length > 0) {
+      try {
+        // 결과는 현재 기존 경로와 병행 — 향후 Gate 주입 연계 시 snapshot을 전달
+        await collectUnifiedSnapshot(uniqueSymbols, { scanCycleId: `scan_${Date.now()}` });
+      } catch (err) {
+        // 수집 실패는 기존 경로 차단 금지 — 불변식 #1 Trading Engine 항상 생존
+        console.warn(
+          '[UNIFIED_SNAPSHOT] collectUnifiedSnapshot 실패; 기존 경로 유지',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
+
   let perSymbolSupplyInjection: PerSymbolSupplyInjectionStats | undefined;
   try {
     const injected = await injectPerSymbolSupplyContext({
