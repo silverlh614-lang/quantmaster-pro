@@ -33,6 +33,27 @@ describe('ADR-0523 Telegram snapshot bundle', () => {
     expect(bundle.effectiveRegime).toBe('R6_DEFENSE');
   });
 
+  it('prefers canonical scanEvaluation.effectiveRegime over stale legacy macroRegimeEffective', () => {
+    const bundle = buildSnapshotBundleFromScanSummary({
+      snapshotId: 'scan-eval-regime',
+      time: '2026-05-25T09:00:00.000Z',
+      candidates: 12,
+      // 폐기된 R6 transition machine 잔재 — 상단 JSON 을 오염시키면 안 된다.
+      macroGateState: {
+        engineMode: 'SHADOW_ONLY',
+        macroRegimeEffective: 'R6_DEFENSE',
+        macroRegimeRaw: 'R3_EARLY',
+        regime: 'R3_EARLY',
+        displayRegime: 'SHADOW_ONLY',
+        canonicalSession: 'REGULAR',
+      },
+      // 정본: buildCanonicalRegimeDiagnostics 가 staleLegacyR6 를 R3_EARLY 로 정정한 결과.
+      scanEvaluation: { scanId: 'scan-eval-regime', effectiveRegime: 'R3_EARLY' },
+    });
+
+    expect(bundle.effectiveRegime).toBe('R3_EARLY');
+  });
+
   it('maps Gate2, Gate3, and execution summaries into compact fields', () => {
     expect(gate2SummaryFromConfluence({
       evaluated: 18,
