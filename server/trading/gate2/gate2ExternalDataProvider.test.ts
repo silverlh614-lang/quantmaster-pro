@@ -426,3 +426,138 @@ describe('Gate2ExternalDataProvider', () => {
     });
   });
 });
+
+// Gate2 PER dedup (정본 데이터 SSOT, patch, byte-equivalent): 정본 snapshot quote 재사용이 동일 FHKST01010100
+// 재호출 결과와 deep-equal 임을 단언하고, flag OFF / quote 부재 시 재호출 fallback(회귀 0) 을 검증한다.
+describe('Gate2 PER snapshot dedup (정본 데이터 SSOT, patch)', () => {
+  const PER_OUTPUT = {
+    output: {
+      stck_prpr: '60000',
+      per: '12.5',
+      eps: '4800',
+      lstn_stcn: '1000000',
+    },
+  };
+
+  afterEach(() => {
+    setKisClientOverrides({});
+    delete process.env.KIS_APP_KEY;
+    delete process.env.KIS_APP_SECRET;
+    delete process.env.USE_UNIFIED_SOURCE_SNAPSHOT;
+  });
+
+  it('reuses canonical snapshot quote without re-calling FHKST01010100 (byte-equivalent)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.USE_UNIFIED_SOURCE_SNAPSHOT = 'true';
+
+    // 1) 기존 재호출 경로 결과 (output = PER_OUTPUT).
+    let calls = 0;
+    setKisClientOverrides({
+      realDataKisGet: async () => {
+        calls += 1;
+        return PER_OUTPUT;
+      },
+    });
+    const viaRefetch = await fetchGate2PerValuation({ symbol: '005930' });
+    expect(calls).toBe(1);
+
+    // 2) 정본 snapshot quote 재사용 경로 — realDataKisGet 가 호출되면 안 된다.
+    let reuseCalls = 0;
+    setKisClientOverrides({
+      realDataKisGet: async () => {
+        reuseCalls += 1;
+        return PER_OUTPUT;
+      },
+    });
+    const viaSnapshot = await fetchGate2PerValuation({
+      symbol: '005930',
+      snapshotQuote: { per: 12.5, eps: 4800, listedShares: 1000000, currentPrice: 60000 },
+    });
+    expect(reuseCalls).toBe(0); // 재호출 skip — 중복 호출 제거 단언.
+
+    // 3) byte-equivalent — 결정 필드(raw 디버그 echo 제외) deep-equal.
+    const { raw: rawA, ...decisionRefetch } = viaRefetch;
+    const { raw: rawB, ...decisionSnapshot } = viaSnapshot;
+    void rawA; void rawB;
+    expect(decisionSnapshot).toEqual(decisionRefetch);
+    expect(viaSnapshot).toMatchObject({
+      attempted: true,
+      per: 12.5,
+      eps: 4800,
+      currentPrice: 60000,
+      listedShares: 1000000,
+      source: 'KIS',
+      reason: 'PER_ACCEPTABLE',
+    });
+  });
+
+  it('falls back to re-call when flag OFF even if snapshotQuote present (regression 0)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    // USE_UNIFIED_SOURCE_SNAPSHOT unset → flag OFF.
+    let calls = 0;
+    setKisClientOverrides({
+      realDataKisGet: async () => {
+        calls += 1;
+        return PER_OUTPUT;
+      },
+    });
+    const result = await fetchGate2PerValuation({
+      symbol: '005930',
+      snapshotQuote: { per: 12.5, eps: 4800, listedShares: 1000000, currentPrice: 60000 },
+    });
+    expect(calls).toBe(1); // flag OFF → 기존 재호출 경로 유지.
+    expect(result).toMatchObject({ per: 12.5, source: 'KIS', reason: 'PER_ACCEPTABLE' });
+  });
+
+  it('falls back to re-call when snapshotQuote has no valuation fields (flag ON)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.USE_UNIFIED_SOURCE_SNAPSHOT = 'true';
+    let calls = 0;
+    setKisClientOverrides({
+      realDataKisGet: async () => {
+        calls += 1;
+        return PER_OUTPUT;
+      },
+    });
+    const result = await fetchGate2PerValuation({
+      symbol: '005930',
+      snapshotQuote: { per: null, eps: null, listedShares: null, currentPrice: null },
+    });
+    expect(calls).toBe(1); // valuation 부재 → 재호출 fallback.
+    expect(result).toMatchObject({ per: 12.5, source: 'KIS' });
+  });
+
+  it('computes PER from snapshot price+eps identical to re-call when direct PER absent', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.USE_UNIFIED_SOURCE_SNAPSHOT = 'true';
+    const noPerOutput = { output: { stck_prpr: '60000', eps: '3000' } };
+
+    setKisClientOverrides({ realDataKisGet: async () => noPerOutput });
+    const viaRefetch = await fetchGate2PerValuation({ symbol: '005930' });
+
+    setKisClientOverrides({
+      realDataKisGet: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const viaSnapshot = await fetchGate2PerValuation({
+      symbol: '005930',
+      snapshotQuote: { per: null, eps: 3000, currentPrice: 60000 },
+    });
+
+    const { raw: rawA, ...decisionRefetch } = viaRefetch;
+    const { raw: rawB, ...decisionSnapshot } = viaSnapshot;
+    void rawA; void rawB;
+    expect(decisionSnapshot).toEqual(decisionRefetch);
+    expect(viaSnapshot).toMatchObject({
+      per: 20,
+      source: 'KIS',
+      reason: 'PER_COMPUTED_FROM_KIS_PRICE_EPS',
+      perComputedFromPriceAndEps: true,
+    });
+  });
+});
