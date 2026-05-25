@@ -24,6 +24,8 @@ import type {
   KisStockProgramTrade,
 } from '../clients/kisClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
+import { getAllStockEntries } from '../persistence/krxStockMasterRepo.js';
+import type { StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 import { logger } from '../utils/logger.js';
 import {
   generateSnapshotId,
@@ -250,7 +252,7 @@ function assessDataQuality(data: {
  * 각 fetch는 내부적으로 에러를 catch하여 null/빈배열을 반환하므로
  * 이 함수 자체는 throw하지 않는다.
  */
-async function collectSymbolData(code: string): Promise<SymbolSnapshotData> {
+async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Promise<SymbolSnapshotData> {
   const t0 = performance.now();
 
   const [quoteResult, flowResult, barsResult, programResult] = await Promise.allSettled([
@@ -307,10 +309,13 @@ async function collectSymbolData(code: string): Promise<SymbolSnapshotData> {
   const supplySignal = deriveSupplySignal(flow);
   const dataQuality = assessDataQuality({ quote, flow, bars, program });
 
+  const resolvedMarket =
+    krxEntry && krxEntry.market !== 'OTHER' ? krxEntry.market : 'KOSPI';
+
   return {
     code,
-    name: '',           // KRX 마스터 연계 예정 — 수집기 단계에서는 빈 문자열
-    market: 'KOSPI',    // 심볼 마스터 연계 예정 — 기본값 KOSPI
+    name: krxEntry?.name ?? '',
+    market: resolvedMarket,
     quote,
     investorFlow: flow,
     dailyBars: bars,
@@ -374,10 +379,15 @@ export async function collectUnifiedSnapshot(
     concurrency,
   });
 
+  // KRX 마스터 코드→엔트리 맵 (동기 로드 — 경량 JSON)
+  const krxMasterMap = new Map<string, StockMasterEntry>(
+    getAllStockEntries().map((e) => [e.code, e]),
+  );
+
   // macroContext는 fetch와 병행 수집
   const [macroContext, rawResults] = await Promise.all([
     buildMacroContext(),
-    mapLimit(candidates, concurrency, collectSymbolData),
+    mapLimit(candidates, concurrency, (code) => collectSymbolData(code, krxMasterMap.get(code))),
   ]);
 
   // perSymbol 맵 구성
@@ -393,10 +403,13 @@ export async function collectUnifiedSnapshot(
     } else {
       // mapLimit에서 이미 warn 로그 → 여기서는 MISSING 레코드로 채움
       logger.warn('[SymbolDataCollector] 종목 수집 결과 null — MISSING 처리', { code });
+      const missingEntry = krxMasterMap.get(code);
+      const missingMarket =
+        missingEntry && missingEntry.market !== 'OTHER' ? missingEntry.market : 'KOSPI';
       perSymbol[code] = {
         code,
-        name: '',
-        market: 'KOSPI',
+        name: missingEntry?.name ?? '',
+        market: missingMarket,
         quote: null,
         investorFlow: null,
         dailyBars: [],
