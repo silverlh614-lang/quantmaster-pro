@@ -2,7 +2,7 @@
  * @responsibility ADR-0019 SHADOW/LIVE approval queue registration extracted from buyListLoop.
  */
 
-import { channelBuySignalEmitted, channelShadowBuyFilled } from '../../../../alerts/channelPipeline.js';
+import { channelBuySignalEmitted } from '../../../../alerts/channelPipeline.js';
 import { recordUniverseEntries } from '../../../../learning/ledgerSimulator.js';
 import type { ServerShadowTrade } from '../../../../persistence/shadowTradeRepo.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
@@ -12,7 +12,6 @@ import { formatStopLossBreakdown, type StopLossPlan } from '../../../entryEngine
 import { getRegimeGateBand } from '../../../gateConfig.js';
 import { trancheExecutor } from '../../../trancheExecutor.js';
 import { createBuyTask } from '../../../buyPipeline.js';
-import { executeShadowBuy, recordShadowExecutionOutcome } from '../../../shadowExecutionPipeline.js';
 import { setLastBuySignalAt } from '../../scanDiagnostics.js';
 import { applyApprovalReservation } from '../../approvalQueue/index.js';
 import type { TradingSignal } from '../../../../learning/supplyHealthLearning.js';
@@ -123,38 +122,10 @@ export async function handleApprovalQueue(input: HandleApprovalQueueInput): Prom
     gateBandStrong: getRegimeGateBand(ctx.regime).strong,
     onApproved: async (t) => {
       ctx.shadows.push(t);
-      if (stockShadowMode) {
-        try {
-          const _r = await executeShadowBuy({
-            trade: t,
-            allTrades: ctx.shadows,
-            proposedFillPrice: shadowEntryPrice,
-            marketSession: shadowApprovalCtx.marketSession,
-            regime: ctx.regime,
-            notifyFilled: async (n) => {
-              await channelShadowBuyFilled({
-                stockName: n.stockName,
-                stockCode: n.stockCode,
-                fillPrice: n.fillPrice,
-                quantity: n.quantity,
-                fillId: n.fillId,
-                tradeId: n.tradeId,
-                currentPrice: n.currentPrice,
-                fillReferencePrice: n.fillReferencePrice,
-                proposedFillPrice: n.proposedFillPrice,
-                deviationPct: n.deviationPct,
-                quoteAsOf: n.quoteAsOf,
-                quoteSource: n.quoteSource,
-                quoteSnapshotId: n.quoteSnapshotId,
-                validation: n.validation,
-              });
-            },
-          });
-          recordShadowExecutionOutcome(_r.outcome);
-        } catch (e) {
-          console.warn('[ShadowExecutionPipeline] 메인 buyList 영속 실패 (매매 흐름 보호):', e);
-        }
-      }
+      // P3-1 (shadow-exec-singlepath): SHADOW paper-fill 은 5-event 정본 경로
+      // (buyPipeline.executeShadowBuyOrder → shadowBuyExecutor.executeShadowBuy) 가 단독 수행.
+      // 과거 여기 있던 executeShadowBuy 재호출은 항상 5-event 이후라 isAlreadyFilled no-op 이었음 → 제거.
+      // 비-fill 부수효과(신호 카드/학습 ledger/분할매수)는 task-tracking 책임으로 유지.
       await channelBuySignalEmitted({
         mode: stockShadowMode ? 'SHADOW' : 'LIVE', stockName: stock.name, stockCode: stock.code,
         price: currentPrice, quantity: execQty, gateScore: liveGateScore,

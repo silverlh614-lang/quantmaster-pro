@@ -2,7 +2,6 @@
  * @responsibility ADR-0019 pre-breakout followthrough execution extracted from buyListLoop.
  */
 
-import { channelShadowBuyFilled } from '../../../../alerts/channelPipeline.js';
 import { verifyStockIncremental } from '../../../../data/dataVerificationIncremental.js';
 import { buildEntryConditionScores } from '../../../../learning/entryConditionScores.js';
 import { addRecommendation } from '../../../../learning/recommendationTracker.js';
@@ -23,7 +22,6 @@ import {
   isOpenShadowStatus,
 } from '../../../entryEngine.js';
 import { getRegimeGateBand } from '../../../gateConfig.js';
-import { executeShadowBuy, recordShadowExecutionOutcome } from '../../../shadowExecutionPipeline.js';
 import {
   getAdaptiveProfitTargets,
   type SymbolExitContext,
@@ -230,38 +228,10 @@ export async function preBreakoutFollowthrough(
         gateBandStrong: getRegimeGateBand(ctx.regime).strong,
         onApproved: async () => {
           ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - followFinalQty * followEntryPrice);
-          if (followHealth.shadowMode) {
-            try {
-              const _r = await executeShadowBuy({
-                trade: followTrade,
-                allTrades: ctx.shadows,
-                proposedFillPrice: followEntryPrice,
-                marketSession: shadowApprovalCtx.marketSession,
-                regime: ctx.regime,
-                notifyFilled: async (n) => {
-                  await channelShadowBuyFilled({
-                    stockName: n.stockName,
-                    stockCode: n.stockCode,
-                    fillPrice: n.fillPrice,
-                    quantity: n.quantity,
-                    fillId: n.fillId,
-                    tradeId: n.tradeId,
-                    currentPrice: n.currentPrice,
-                    fillReferencePrice: n.fillReferencePrice,
-                    proposedFillPrice: n.proposedFillPrice,
-                    deviationPct: n.deviationPct,
-                    quoteAsOf: n.quoteAsOf,
-                    quoteSource: n.quoteSource,
-                    quoteSnapshotId: n.quoteSnapshotId,
-                    validation: n.validation,
-                  });
-                },
-              });
-              recordShadowExecutionOutcome(_r.outcome);
-            } catch (e) {
-              console.warn('[ShadowExecutionPipeline] PRE_BREAKOUT_FOLLOWTHROUGH 영속 실패 (매매 흐름 보호):', e);
-            }
-          }
+          // P3-1 (shadow-exec-singlepath): PRE_BREAKOUT_FOLLOWTHROUGH SHADOW paper-fill 은 5-event 정본 경로
+          // (buyPipeline.executeShadowBuyOrder → shadowBuyExecutor.executeShadowBuy) 가 단독 수행.
+          // 과거 여기 있던 executeShadowBuy 재호출은 항상 5-event 이후라 isAlreadyFilled no-op 이었음 → 제거.
+          // cash 차감은 task-tracking 책임으로 유지.
         },
       }));
       ctx.mutables.reservedSlots.value++;
