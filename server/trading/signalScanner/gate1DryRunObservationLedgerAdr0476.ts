@@ -24,6 +24,7 @@ import {
   buildSupplySnapshotObservationRowAdr0491,
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
+import type { Gate1ScoringAlignmentDryRunGateResult } from './gate1ScoringAlignmentDryRunGateAdr0520.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
@@ -149,6 +150,8 @@ export interface Gate1DryRunObservationBuildInput {
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult | null;
   semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482 | null;
   supplyRecoveryRuntimeMountAdr0486?: SupplyRecoveryRuntimeMountReportAdr0486 | null;
+  /** ADR-0520 — DRY_RUN scoring-alignment gate result (ENV-gated, off by default). */
+  scoringAlignmentDryRunAdr0520?: Gate1ScoringAlignmentDryRunGateResult | null;
   freshDataSupplyAdr0487?: FreshDataSupplyReportAdr0487 | null;
   sectorEnergySupplyUnknownAdr0488?: SectorEnergyAndSupplyUnknownPolicyReportAdr0488 | null;
   supplySnapshotStoreAdr0491?: SupplySnapshotReplayResultAdr0491 | null;
@@ -337,6 +340,39 @@ function buildPositiveWiringRows(input: Gate1DryRunObservationBuildInput, nowIso
       sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
     });
   });
+}
+
+function buildScoringAlignmentRowsAdr0520(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const gate = input.scoringAlignmentDryRunAdr0520;
+  // ENV flag off (or no gate) -> emit nothing so the prior behaviour is identical.
+  if (!gate || gate.enabled !== true) return [];
+  // Only the REAL symbols that pass the relaxed curve but fail the live curve.
+  const survivors = gate.survivors.slice(0, input.topN ?? 10);
+  return survivors.map((survivor) => withOptionalScoreFields({
+    createdAt: nowIso,
+    forDate: input.forDate,
+    source: 'ADR_0472_SCORING_ALIGNMENT',
+    symbol: survivor.symbol,
+    ...(survivor.name ? { name: survivor.name } : {}),
+    // actualGate1Passed reflects the LIVE frozen decision (always false for survivors).
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: 'WOULD_PASS_DRY_RUN',
+    dryRunScenario: gate.scenario,
+    actualScore: survivor.actualScore,
+    dryRunScore: survivor.dryRunScore,
+    requiredScore: survivor.requiredScore,
+    scoreGap: survivor.scoreGap,
+    providerIssue: input.providerIssue === true,
+    marketSignal: input.marketSignal === true,
+    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    sellOnly: input.sellOnly === true,
+    breakoutStructureScore: survivor.breakoutStructureScore,
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+  }));
 }
 
 function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
@@ -538,6 +574,7 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
   const rows = [
     ...buildUnknownDiagnosticRows(input, nowIso),
     ...buildPositiveWiringRows(input, nowIso),
+    ...buildScoringAlignmentRowsAdr0520(input, nowIso),
     ...buildInvestorFlowRouterRows(input, nowIso),
     ...buildNaverInvestorTrendRowsAdr0481(input, nowIso),
     ...buildSemanticNetBuyNormalizerRowsAdr0482(input, nowIso),
@@ -670,6 +707,7 @@ export function formatGate1DryRunObservationSummary(
     `  matured5D: ${summary.matured5D}`,
     '  sources:',
     sourceLine('ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'),
+    sourceLine('ADR_0472_SCORING_ALIGNMENT'),
     sourceLine('ADR_0475_POSITIVE_SOURCE_WIRING'),
     sourceLine('ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'),
     sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
