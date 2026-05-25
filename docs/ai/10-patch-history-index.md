@@ -562,3 +562,4 @@
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-002 (Phase 2: injectPerSymbolSupplyContext/PriceContext snapshotData 주입 wiring; 중복 KIS fetch 제거; executionImpact=NONE)
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-003 (KRX 마스터 연결: symbolDataCollector name/market 플레이스홀더 제거; getAllStockEntries 코드→엔트리 맵; OTHER 마켓 KOSPI 폴백; executionImpact=NONE)
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-004 (교차 집합 RS: computeCrossSectionalRS 추가; freeze 전 relativeReturn20d/rsScore 퍼센타일 일괄 계산; UnifiedMacroContext.kospi20dReturn 필드 추가; executionImpact=NONE)
+- 2026-05-25 · Patch-KIS-BATCH-QUOTE-UNIVERSE-001 (queryMultiPrice FHKST11300006 배치 시세 30종목/call; queryVolumeRanking FHPST01710000 ETF/SPAC 제외 전종목 스캔; symbolDataCollector 개별 quote→배치 교체; 100종목 기준 100회→4회 KIS 호출 감소; executionImpact=NONE)
