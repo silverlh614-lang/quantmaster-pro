@@ -371,3 +371,41 @@ export function executionSummaryFromAudit(raw: unknown): ExecutionSummary {
     nextAction: numberOf(summary?.liveBuyAllowed, 0) > 0 ? 'operator approval / execution policy review' : 'observe / shadow learning',
   };
 }
+
+/**
+ * ADR-0527 Phase 2b — execution 표시 정본 read.
+ * UnifiedExecutionPermissionAggregate(스캔-시점 persist, 실제 asOf 도출 — 더미 1970 재계산 0)를
+ * ExecutionSummary(표시 형태)로 매핑한다. formatter 는 resolveFinalExecutionDecision 를 재실행하지 않는다.
+ *
+ * 명명 규율(ADR-0527 §Decision.2): aggregate 의 *Count/*Created(건수)를 read 한다 —
+ * permission(boolean: shadowPermissionAllowed 등)은 per-candidate resolution 의 것이며 집계 표시에 쓰지 않는다.
+ * 표시 필드 shadowBuyAllowed 는 aggregate.shadowOrderCreated(실제 shadow 흡수 건수)를 carry 한다(이름 충돌 방지: count 의미).
+ * providerIssueConvertedToMarketSignal 은 불변식 #6 에 따라 항상 0(providerIssue 는 격리되어 market signal 로 변환되지 않음).
+ * aggregate 부재 시 빈 요약(graceful — 기존 audit-absent 동작과 동일).
+ */
+export function executionSummaryFromUnifiedAggregate(raw: unknown): ExecutionSummary {
+  const aggregate = recordOf(raw);
+  const countOf = (field: string): number => numberOf(getByPath(aggregate, `${field}.value`), 0);
+  const liveBuyAllowed = countOf('liveBuyAllowedCount');
+  const liveBuyBlocked = countOf('liveBuyBlockedCount');
+  const executionImpact = liveBuyAllowed > 0
+    ? 'LIVE_ORDER_ALLOWED'
+    : liveBuyBlocked > 0
+      ? 'NEW_BUY_BLOCKED_ONLY'
+      : 'NONE';
+  return {
+    entryReady: countOf('entryReadyCount'),
+    liveBuyAllowed,
+    liveBuyBlocked,
+    // shadowBuyAllowed(표시) = aggregate.shadowOrderCreated(count) — per-candidate boolean 권한과 의미 분리.
+    shadowBuyAllowed: countOf('shadowOrderCreated'),
+    observeOnly: countOf('observeOnlyCount'),
+    blocked: countOf('blockedCount'),
+    topBlockReason: text(aggregate?.topBlockReason, 'none'),
+    // 불변식 #6: providerIssue 는 격리(providerIssueIsolatedCount) — market signal 로 변환되지 않으므로 항상 0.
+    providerIssueConvertedToMarketSignal: 0,
+    executionImpact,
+    brokerOrderAllowed: liveBuyAllowed > 0,
+    nextAction: liveBuyAllowed > 0 ? 'operator approval / execution policy review' : 'observe / shadow learning',
+  };
+}

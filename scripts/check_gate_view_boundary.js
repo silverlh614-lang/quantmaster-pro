@@ -29,6 +29,7 @@ const TARGET_FILES = [
   'server/telegram/commands/system/gateUx.cmd.ts',
   'server/telegram/commands/system/scanBlockersGate2.cmd.ts',
   'server/telegram/commands/system/scanBlockersGate3.cmd.ts',
+  'server/telegram/commands/system/scanBlockersExecution.cmd.ts',
   'server/telegram/commands/system/gate2ExternalRefresh.cmd.ts',
   'server/telegram/renderers/snapshotBundle.ts',
   'server/trading/signalScanner/scanDiagnostics/scanBlockersFormatter.ts',
