@@ -11,6 +11,7 @@ import './kellySurface.cmd.js';
 import './learningPulse.cmd.js';
 import './learningOutcomes.cmd.js';
 import './learningRepair.cmd.js';
+import './learningWeightsReset.cmd.js';
 import './ledger.cmd.js';
 import './regimeLearning.cmd.js';
 import './regimeCoverage.cmd.js';

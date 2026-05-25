@@ -84,6 +84,7 @@ export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
       ['/regime_coverage', '/ledger'],
       ['/counterfactual', '/risk'],
       ['/circuits', '/reset_circuits', '/ai_status'],
+      ['/weight_feedback', '/learning_weights_reset'],
     ],
   },
   '/control': {
@@ -471,6 +472,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'learning_pulse',
   'learning_status',
   'learning',
+  'learning_weights_reset',
   'market',
   'pending',
   'pnl',
