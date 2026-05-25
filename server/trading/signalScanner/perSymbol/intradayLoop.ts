@@ -39,14 +39,8 @@ import { calculateRegimePositionSizing } from '../../sizing/regimePositionPolicy
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 // PATCH-010 후속 — Shadow Bull Exposure Floor (INTRADAY 경로 wiring, ENV default OFF).
 import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
-// Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — INTRADAY SHADOW paper-fill 영속 SSOT.
-//   onApproved 가 ctx.shadows.push(t) 만 하고 saveShadowTrades 미호출하던 결함 차단.
-//   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향.
-import {
-  executeShadowBuy,
-  recordShadowExecutionOutcome,
-} from '../../shadowExecutionPipeline.js';
-import { channelShadowBuyFilled } from '../../../alerts/channelPipeline.js';
+// P3-1 (shadow-exec-singlepath): INTRADAY SHADOW paper-fill 은 5-event 정본 경로
+//   (buyPipeline.executeShadowBuyOrder)가 단독 수행. onApproved 재호출(no-op)은 제거됨.
 import {
   applySupplyHealthToSignal,
   createLearningSampleFromDecision,
@@ -401,40 +395,10 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
               }
               ctx.shadows.push(t);
               ctx.mutables.orderableCash.value = Math.max(0, ctx.mutables.orderableCash.value - effectiveBudget);
-              // Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001 — INTRADAY SHADOW paper-fill 영속.
-              // SSOT 가 mode 검사 (LIVE 는 NOT_SHADOW skip), 멱등 (이미 ACTIVE 시 skip),
-              // 영속 실패 시 status 롤백, [Shadow 체결] Telegram 1회 발송 보장.
-              if (intradayShadowMode) {
-                try {
-                  const _r = await executeShadowBuy({
-                    trade: t,
-                    allTrades: ctx.shadows,
-                    proposedFillPrice: shadowEntryPrice,
-                    regime: ctx.regime,
-                    notifyFilled: async (n) => {
-                      await channelShadowBuyFilled({
-                        stockName: n.stockName,
-                        stockCode: n.stockCode,
-                        fillPrice: n.fillPrice,
-                        quantity: n.quantity,
-                        fillId: n.fillId,
-                        tradeId: n.tradeId,
-                        currentPrice: n.currentPrice,
-                        fillReferencePrice: n.fillReferencePrice,
-                        proposedFillPrice: n.proposedFillPrice,
-                        deviationPct: n.deviationPct,
-                        quoteAsOf: n.quoteAsOf,
-                        quoteSource: n.quoteSource,
-                        quoteSnapshotId: n.quoteSnapshotId,
-                        validation: n.validation,
-                      });
-                    },
-                  });
-                  recordShadowExecutionOutcome(_r.outcome);
-                } catch (e) {
-                  console.warn('[ShadowExecutionPipeline] INTRADAY 영속 실패 (매매 흐름 보호):', e);
-                }
-              }
+              // P3-1 (shadow-exec-singlepath): INTRADAY SHADOW paper-fill 은 5-event 정본 경로
+              // (buyPipeline.executeShadowBuyOrder → shadowBuyExecutor.executeShadowBuy) 가 단독 수행.
+              // 과거 여기 있던 executeShadowBuy 재호출은 항상 5-event 이후라 isAlreadyFilled no-op 이었음 → 제거.
+              // 포지션 슬롯 재확인/cash 차감은 task-tracking 책임으로 유지.
             },
           }));
           // Phase 1 ①: 큐 푸시 시점에 Intraday 슬롯 예약 (플러시 후 실패 시 롤백)
