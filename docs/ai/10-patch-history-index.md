@@ -546,6 +546,8 @@
 - 2026-05-25 · Patch-WATCHLIST-ADDED-ALERT-DEDUP-001 (피엠티 churn 반복 편입 알림 → 종목코드+KST일자 dedup 1일 1회)
 - 2026-05-25 · Patch-CI-SRP-BASELINE-AND-GITLEAKS-FP-001 (PR #1193 실패 진단: SRP 전체트리 접속사 위반 54건 → BASELINE 카탈로그 비차단·신규만 차단; gitleaks generic-api-key 오탐 `key: Gate3ThresholdKey` 타입명 → .gitleaks.toml allowlist)
 - 2026-05-25 · Patch-KELLY-REMOVAL-REGIME-BUYWEIGHT-001 (Kelly Criterion 승수 체인 제거 → 레짐별 매수비중 직접 사용; R1=100%/R2=80%/R3=70%/R4=50%/R5=30%; IPS 감쇠·계좌보정·편향패널티·안전게이트 피드백 제거; kellyDampener stub; FOMC/VIX 게이팅 완전 제거)
+- 2026-05-25 · Patch-WATCHLIST-SYNC-BASELINE-002 (클라이언트 마운트 시 워치리스트 전체 재미러링 차단 — churn 근원 제거, diffWatchlistSync baseline)
+- 2026-05-25 · Patch-ADR-INDEX-TOKEN-COMPACT-001 (docs/adr/INDEX.md 316KB→28KB 압축 + 발급 룰 #6 토큰 효율 SSOT)
 - 2026-05-25 · Patch-REGIME-SWITCH-FASTER-UPGRADE-001 (레짐 상향 기준 완화·갱신 주기 단축; R3 earlySignals 3→2/MHS 45→40, R2 VKOSPI 22→24/MHS 65→60/외국인 500→200, R1 turboSignals 6→5/MHS 80→75/VKOSPI 17→18, R3강제승급 5%→3%; scheduler 5분→3분; TTL 300→180s; applyForcedDowngrade 업그레이드 방향 스킵)
 - 2026-05-25 · Patch-SECTOR-ENERGY-WIRING-FIX-001 (LAGGING 섹터 포지션 40% 상한 연결; entryRevalidationGate sector fallback; sectorBoostAllowed 차단; getSectorGate2Adjustment dead code 제거)
 - 2026-05-25 · Patch-GATE2-SUPPLY-SECTOR-RS-WIRING-001 (candidatePoolBuilder wiring 갭 3개: supplyScore deriveSupplyScore 파생 연결, getSectorLeadershipScore 추가+candidatePoolSourceCandidates 주입, RS_SCORE 폴백 return20d-kospi20dReturn 기반 rsScoreFromRelativeReturn 추가, CandidatePoolInputCandidate 타입 2필드 추가)
