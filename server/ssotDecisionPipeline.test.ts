@@ -34,7 +34,7 @@ describe('SSOT snapshot pipeline', () => {
     expect(decision.executionResult.snapshotId).toBe(snapshot.snapshotId);
   });
 
-  it('continues evaluation in R6/SELL_ONLY while blocking only live order permission', () => {
+  it('R6/SELL_ONLY 제거됨 — 모든 entryBlockMode 가 NORMAL 과 동일하게 처리됨', () => {
     const { snapshot, candidate, feature } = fixture();
     const a = buildDecisionContext(snapshot, candidate, feature, 'REGULAR', 'R6_DEFENSE_SELL_ONLY');
     const b = buildDecisionContext(snapshot, candidate, feature, 'AFTERMARKET', 'R6_DEFENSE_SELL_ONLY');
@@ -48,19 +48,17 @@ describe('SSOT snapshot pipeline', () => {
     expect(a.policyResult.gateEvaluationAllowed).toBe(true);
     expect(a.policyResult.shadowEvaluationAllowed).toBe(true);
     expect(a.policyResult.counterfactualAllowed).toBe(true);
-    expect(a.policyResult.actualLiveOrderAllowed).toBe(false);
-    expect(a.policyResult.liveOrderAllowed).toBe(false);
-    expect(a.policyResult.liveBlockReason).toBe('SELL_ONLY_MODE');
+    // R6/SELL_ONLY 제거됨 → liveBlockReason=NONE, live order permitted
+    expect(a.policyResult.liveBlockReason).toBe('NONE');
     expect(a.policyResult.entryBlockMode).toBe('NORMAL');
     expect(b.policyResult.entryBlockMode).toBe('NORMAL');
     expect(a.policyResult.blockReasons).toEqual([]);
     expect(b.policyResult.blockReasons).toEqual([]);
     expect(a.policyResult.legacyPolicyIgnored).toBe(true);
-    expect(a.policyResult.legacyPolicyInputs).toContain('R6_DEFENSE_SELL_ONLY_REMOVED');
-    expect(b.policyResult.legacyPolicyInputs).toEqual(expect.arrayContaining([
-      'R6_DEFENSE_SELL_ONLY_REMOVED',
-    ]));
-    expect(a.executionResult.executionImpact).toBe('NEW_BUY_BLOCKED_ONLY');
+    // legacyPolicyInputs 항상 빈 배열 (R6/SELL_ONLY 완전 제거)
+    expect(a.policyResult.legacyPolicyInputs).toEqual([]);
+    expect(b.policyResult.legacyPolicyInputs).toEqual([]);
+    expect(a.executionResult.executionImpact).toBe('LIVE_ORDER_ALLOWED');
     expect(c.executionResult.executionImpact).toBe('LIVE_ORDER_ALLOWED');
     expect(a.learningResult.shadowLearning).toBe(true);
     expect(c.learningResult.shadowLearning).toBe(true);

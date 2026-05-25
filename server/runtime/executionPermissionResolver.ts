@@ -63,20 +63,6 @@ function upper(value: string | null | undefined): string {
   return String(value ?? '').trim().toUpperCase();
 }
 
-function isSellOnly(input: ResolveExecutionPermissionInput): boolean {
-  return upper(input.engineMode) === 'SELL_ONLY'
-    || upper(input.operationMode) === 'SELL_ONLY'
-    || upper(input.operationMode).includes('SELL_ONLY');
-}
-
-function isR6(input: ResolveExecutionPermissionInput): boolean {
-  const regime = upper(input.effectiveRegime);
-  return regime === 'R6_DEFENSE'
-    || regime.startsWith('R6_')
-    || upper(input.engineMode) === 'R6_DEFENSE'
-    || upper(input.operationMode).includes('R6_DEFENSE');
-}
-
 function isShadowOnly(input: ResolveExecutionPermissionInput): boolean {
   return upper(input.engineMode) === 'SHADOW_ONLY' || upper(input.operationMode) === 'SHADOW_ONLY';
 }
@@ -101,7 +87,6 @@ function finiteNumber(value: number | null | undefined): value is number {
 
 function resolveLiveBlockReason(input: ResolveExecutionPermissionInput): ExecutionPermissionLiveBlockReason {
   if (input.gateQualityPassed === false) return 'POLICY_BLOCK';
-  if (isSellOnly(input)) return 'SELL_ONLY_MODE';
   if (isShadowOnly(input)) return 'SHADOW_ONLY_MODE';
   if (isObserveOnly(input)) return 'OBSERVE_ONLY_MODE';
   if (input.realTradingEnabled === false) return 'REAL_TRADING_DISABLED';
@@ -113,7 +98,6 @@ function resolveLiveBlockReason(input: ResolveExecutionPermissionInput): Executi
 
 function resolveSizingMultiplier(input: ResolveExecutionPermissionInput): number {
   const multipliers: number[] = [1];
-  if (isR6(input)) multipliers.push(finiteNumber(input.r6SizingMultiplier) ? input.r6SizingMultiplier : 0.7);
   if (finiteNumber(input.kellySizingMultiplier)) multipliers.push(Math.max(0, input.kellySizingMultiplier));
   if (finiteNumber(input.kellyFraction)) multipliers.push(Math.max(0, input.kellyFraction));
   return Math.max(0, Math.min(...multipliers));
@@ -121,8 +105,6 @@ function resolveSizingMultiplier(input: ResolveExecutionPermissionInput): number
 
 export function resolveExecutionPermission(input: ResolveExecutionPermissionInput): ExecutionPermissionResolution {
   const liveBlockReason = resolveLiveBlockReason(input);
-  const r6Active = isR6(input);
-  const sellOnlyActive = isSellOnly(input);
   const providerIssueIsolated = input.providerIssue === true;
   const kellyAdvisory = finiteNumber(input.kellyFraction) || finiteNumber(input.kellySizingMultiplier);
   const marketSignal = providerIssueIsolated ? false : input.marketSignal === true;
@@ -132,15 +114,6 @@ export function resolveExecutionPermission(input: ResolveExecutionPermissionInpu
   const learningLabels = ['SHADOW_LEARNING_ALWAYS_ON', 'COUNTERFACTUAL_ALWAYS_ON'];
   const logTags = ['[SOURCE_SNAPSHOT_SSOT_CONFIRMED]'];
 
-  if (sellOnlyActive) {
-    policyLabels.push('SELL_ONLY_EVALUATION_CONTINUED');
-    logTags.push('[SELL_ONLY_EVALUATION_CONTINUED]');
-  }
-  if (r6Active) {
-    policyLabels.push('R6_SCORE_PENALTY_ONLY');
-    confidenceAdjustments.push('R6_CONFIDENCE_DOWNGRADE_ONLY');
-    logTags.push('[R6_SCORE_PENALTY_ONLY]');
-  }
   if (kellyAdvisory) {
     policyLabels.push('KELLY_ADVISORY_ONLY');
     logTags.push('[KELLY_ADVISORY_ONLY]');
@@ -168,7 +141,7 @@ export function resolveExecutionPermission(input: ResolveExecutionPermissionInpu
     policyLabels,
     learningLabels,
     executionImpact: liveOrderAllowed ? 'LIVE_ORDER_ALLOWED' : 'NONE',
-    scorePenalty: r6Active ? Math.max(0, input.r6ScorePenalty ?? 0) : 0,
+    scorePenalty: 0,
     sizingMultiplier: resolveSizingMultiplier(input),
     providerIssueIsolated,
     marketSignal,

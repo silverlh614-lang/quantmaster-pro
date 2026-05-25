@@ -58,10 +58,7 @@ export function evaluateCommonGate(input: { snapshotId: string; candidate: Candi
 }
 
 export function resolvePolicy(input: { snapshotId: string; commonGateResult: CommonGateResult; marketSession: MarketSession; entryBlockMode: string; engineMode?: 'LIVE' | 'SHADOW_ONLY'; brokerOrderAllowed?: boolean; operatorOrderAllowed?: boolean; macroLiveAllowed?: boolean; providerIssue?: boolean; marketSignal?: boolean; kellyFraction?: number | null; kellySizingMultiplier?: number | null }): PolicyResult {
-  const legacyPolicyInputs = [
-    input.entryBlockMode === 'SELL_ONLY' ? 'SELL_ONLY_REMOVED' : null,
-    input.entryBlockMode === 'R6_DEFENSE_SELL_ONLY' ? 'R6_DEFENSE_SELL_ONLY_REMOVED' : null,
-  ].filter((reason): reason is string => reason != null);
+  const legacyPolicyInputs: string[] = [];
   const liveBuyAllowed = input.commonGateResult.qualityDecision === 'PASS';
   const gatePolicyLiveAllowed = liveBuyAllowed;
   const engineMode = input.engineMode ?? 'LIVE';

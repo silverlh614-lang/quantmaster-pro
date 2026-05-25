@@ -30,8 +30,6 @@ import {
 } from './entryEngine.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
 import { calcRRR, RRR_MIN_THRESHOLD } from './riskManager.js';
-import { getVixGating } from './vixGating.js';
-import { getFomcProximity } from './fomcCalendar.js';
 import { combineRegimeAndFomcKelly } from './regimeFomcCombiner.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
@@ -59,7 +57,6 @@ export interface DryRunScanResult {
   regime:              string;
   kellyMultiplier:     number;
   vixBlocked:          boolean;
-  fomcBlocked:         boolean;
   maxPositionsBlocked: boolean;
   volumeClockBlocked:  boolean;
   totalCandidates:     number;
@@ -115,27 +112,12 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
     }
   }
 
-  // 게이팅 평가
-  const vixGating      = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
-  // v3.1 (2026-04-26): macro snapshot 전달해 PRE_1/DAY 우호 환경 완화 적용 일관성 확보.
-  const fomcProximity  = getFomcProximity(
-    macroState
-      ? {
-          mhs: macroState.mhs,
-          regime: regime ?? macroState.regime,
-          vkospi: macroState.vkospi,
-        }
-      : undefined,
-  );
+  // 게이팅 평가 — VIX/FOMC 게이팅 제거됨
   const volumeClock    = checkVolumeClockWindow();
-  // ADR-0076: regime + FOMC 결합 SSOT — FOMC 활성 시 regimeKelly 무시 (R6_DEFENSE 만 보호)
   const regimeFomcCombined = combineRegimeAndFomcKelly(
-    regimeConfig.kellyMultiplier, fomcProximity.kellyMultiplier, fomcProximity.phase, regime,
+    regimeConfig.kellyMultiplier, 1.0, 'NORMAL', regime,
   );
-  const kellyMultiplier = Math.min(
-    1.5,
-    regimeFomcCombined.value * vixGating.kellyMultiplier,
-  );
+  const kellyMultiplier = Math.min(1.5, regimeFomcCombined.value);
   const activeSwingCount = shadows.filter(
     s => isOpenShadowStatus(s.status) &&
          s.watchlistSource !== 'INTRADAY' &&
@@ -144,8 +126,6 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
 
   // 글로벌 차단 여부 — 이미 막혔으면 모든 종목에 동일 blockedBy 반환
   const globalBlock =
-    vixGating.noNewEntry   ? `VIX_GATING: ${vixGating.reason}` :
-    fomcProximity.noNewEntry ? `FOMC_GATING: ${fomcProximity.description}` :
     activeSwingCount >= regimeConfig.maxPositions ? `MAX_POSITIONS(${activeSwingCount}/${regimeConfig.maxPositions})` :
     !volumeClock.allowEntry ? `VOLUME_CLOCK: ${volumeClock.reason}` :
     null;
@@ -367,8 +347,7 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
     scannedAt:           new Date().toISOString(),
     regime,
     kellyMultiplier,
-    vixBlocked:          vixGating.noNewEntry,
-    fomcBlocked:         fomcProximity.noNewEntry,
+    vixBlocked:          false,
     maxPositionsBlocked: activeSwingCount >= regimeConfig.maxPositions,
     volumeClockBlocked:  !volumeClock.allowEntry,
     totalCandidates:     buyList.length,

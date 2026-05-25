@@ -5,7 +5,7 @@ import {
 } from './executionPermissionResolver.js';
 
 describe('resolveExecutionPermission P0 contract', () => {
-  it('keeps gate, diagnostic, shadow, and counterfactual evaluation alive in SELL_ONLY', () => {
+  it('operationMode=SELL_ONLY 가 평가(gate/shadow/counterfactual)를 계속 허용함 (R6/SELL_ONLY 제거됨)', () => {
     const policy = resolveExecutionPermission({
       sourceSnapshotId: 'snap-sell-only',
       asOf: '2026-05-23T02:00:00.000Z',
@@ -18,13 +18,13 @@ describe('resolveExecutionPermission P0 contract', () => {
     expect(policy.shadowEvaluationAllowed).toBe(true);
     expect(policy.counterfactualAllowed).toBe(true);
     expect(policy.paperFillAllowed).toBe(true);
-    expect(policy.liveOrderAllowed).toBe(false);
-    expect(policy.liveBlockReason).toBe('SELL_ONLY_MODE');
-    expect(policy.policyLabels).toContain('SELL_ONLY_EVALUATION_CONTINUED');
-    expect(formatExecutionPermissionLog(policy)).toContain('[SELL_ONLY_EVALUATION_CONTINUED]');
+    // R6/SELL_ONLY 제거됨 — live order 차단 없음
+    expect(policy.liveOrderAllowed).toBe(true);
+    expect(policy.liveBlockReason).toBe('NONE');
+    expect(policy.policyLabels).not.toContain('SELL_ONLY_EVALUATION_CONTINUED');
   });
 
-  it('treats R6 and Kelly as score/sizing advisory without blocking evaluation', () => {
+  it('R6_DEFENSE 레짐 및 Kelly=0 — 사이징 0 유지, score penalty 없음 (R6 제거됨)', () => {
     const policy = resolveExecutionPermission({
       sourceSnapshotId: 'snap-r6',
       effectiveRegime: 'R6_DEFENSE',
@@ -35,16 +35,15 @@ describe('resolveExecutionPermission P0 contract', () => {
     expect(policy.gateEvaluationAllowed).toBe(true);
     expect(policy.shadowEvaluationAllowed).toBe(true);
     expect(policy.liveOrderAllowed).toBe(true);
-    expect(policy.scorePenalty).toBe(3);
+    // R6 제거됨 — scorePenalty 항상 0
+    expect(policy.scorePenalty).toBe(0);
+    // Kelly=0 이므로 sizingMultiplier=0 유지
     expect(policy.sizingMultiplier).toBe(0);
-    expect(policy.policyLabels).toEqual(expect.arrayContaining([
-      'R6_SCORE_PENALTY_ONLY',
-      'KELLY_ADVISORY_ONLY',
-    ]));
-    expect(policy.logTags).toEqual(expect.arrayContaining([
-      '[R6_SCORE_PENALTY_ONLY]',
-      '[KELLY_ADVISORY_ONLY]',
-    ]));
+    // R6 policyLabels 제거됨
+    expect(policy.policyLabels).not.toContain('R6_SCORE_PENALTY_ONLY');
+    expect(policy.policyLabels).toContain('KELLY_ADVISORY_ONLY');
+    expect(policy.logTags).not.toContain('[R6_SCORE_PENALTY_ONLY]');
+    expect(policy.logTags).toContain('[KELLY_ADVISORY_ONLY]');
   });
 
   it('isolates providerIssue from marketSignal', () => {

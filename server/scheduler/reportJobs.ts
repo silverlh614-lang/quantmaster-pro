@@ -17,7 +17,6 @@ import {
   sendWatchlistBriefing,
 } from '../alerts/reportGenerator.js';
 import { refreshMarketRegimeVars } from '../trading/marketDataRefresh.js';
-import { checkFomcProximityAlert } from '../trading/fomcCalendar.js';
 import { generateDailyPickReport } from '../alerts/stockPickReporter.js';
 import { resetKisCircuits } from '../clients/kisClient.js';
 import { _resetKrxOpenApiBreaker } from '../clients/krxOpenApi.js';
@@ -125,7 +124,6 @@ export function registerReportJobs(): void {
     await runUnifiedBriefing('🌅 아침 브리핑', 'T2_REPORT', [
       sendPreMarketReport,
       sendWatchlistBriefing,
-      checkFomcProximityAlert,
     ]);
   }, { timezone: 'UTC' });
 

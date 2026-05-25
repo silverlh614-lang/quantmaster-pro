@@ -82,15 +82,8 @@ vi.mock('../../screener/dataCompletenessTracker.js', () => ({
   isDataStarvedScan: vi.fn().mockReturnValue(false),
   getCompletenessSnapshot: vi.fn().mockReturnValue({ mtasFailRate: 0, dartNullRate: 0, mtasAttempts: 100, dartAttempts: 100 }),
 }));
-vi.mock('../kellyDampener.js', () => ({
-  getKellyMultiplier: vi.fn().mockReturnValue(1.0),
-}));
-vi.mock('../../learning/biasPositionPenalty.js', () => ({
-  computeBiasPositionPenalty: vi.fn().mockReturnValue({ multiplier: 1.0, reasons: [] }),
-}));
-vi.mock('../../learning/safetyGatePolicyFeedback.js', () => ({
-  computeSafetyGatePolicyFeedback: vi.fn().mockReturnValue({ multiplier: 1.0, active: false, reasons: [] }),
-}));
+// kellyDampener, biasPositionPenalty, safetyGatePolicyFeedback mocks removed:
+// preflight.ts no longer imports these after Kelly multiplier chain removal.
 vi.mock('../slotAccounting.js', () => ({
   computeSlotConsumption: vi.fn(),
 }));
@@ -381,13 +374,13 @@ describe('preflight.ts byte-equivalent tests', () => {
     expect(result.shouldAbort).toBe(false);
     expect(result.macroGateState).toBeDefined();
     expect(result.macroGateState.regime).toBe('R2_BULL');
-    expect(result.macroGateState.finalKellyMultiplier).toBeCloseTo(0.8 * 1.08);
+    expect(result.macroGateState.finalKellyMultiplier).toBeCloseTo(0.8);
 
     const ctx = result.context;
     expect(ctx).toBeDefined();
     expect(ctx.shadowMode).toBe(true);
     expect(ctx.regime).toBe('R2_BULL');
-    expect(ctx.kellyMultiplier).toBeCloseTo(0.8 * 1.08);
+    expect(ctx.kellyMultiplier).toBeCloseTo(0.8);
     expect(ctx.effectiveMaxPositions).toBe(6);
   });
 });

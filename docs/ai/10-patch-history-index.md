@@ -544,4 +544,6 @@
 - 2026-05-24 · Patch-UI-SECTION-NAV-VERIFY-AND-SPA-NOCACHE-001
 - 2026-05-24 · Patch-CORP-ACTION-ORGANIC-DAILY-LIMIT-GUARD-001 (addedAt 윈도우 휴리스틱 — ADR-0518 일봉 검증으로 대체/제거됨)
 - 2026-05-25 · Patch-WATCHLIST-ADDED-ALERT-DEDUP-001 (피엠티 churn 반복 편입 알림 → 종목코드+KST일자 dedup 1일 1회)
+- 2026-05-25 · Patch-CI-SRP-BASELINE-AND-GITLEAKS-FP-001 (PR #1193 실패 진단: SRP 전체트리 접속사 위반 54건 → BASELINE 카탈로그 비차단·신규만 차단; gitleaks generic-api-key 오탐 `key: Gate3ThresholdKey` 타입명 → .gitleaks.toml allowlist)
+- 2026-05-25 · Patch-KELLY-REMOVAL-REGIME-BUYWEIGHT-001 (Kelly Criterion 승수 체인 제거 → 레짐별 매수비중 직접 사용; R1=100%/R2=80%/R3=70%/R4=50%/R5=30%; IPS 감쇠·계좌보정·편향패널티·안전게이트 피드백 제거; kellyDampener stub; FOMC/VIX 게이팅 완전 제거)
 - 2026-05-25 · Patch-WATCHLIST-SYNC-BASELINE-002 (클라이언트 마운트 시 워치리스트 전체 재미러링 차단 — churn 근원 제거, diffWatchlistSync baseline)

@@ -69,7 +69,7 @@ describe('engine boundary refactor policy contracts', () => {
     expect(policy.policyLabels).toContain('SELL_ONLY_EVALUATION_CONTINUED');
   });
 
-  it('keeps R6 diagnostic evidence from blocking runtime execution', () => {
+  it('R6_DEFENSE 레짐이 실행 차단을 일으키지 않음 (R6 제거됨)', () => {
     const policy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
       macroRegime: 'R6_DEFENSE',
@@ -79,8 +79,9 @@ describe('engine boundary refactor policy contracts', () => {
     expect(policy.liveBuyAllowed).toBe(true);
     expect(policy.brokerOrderAllowed).toBe(true);
     expect(policy.reasonCodes).not.toContain('R6_DEFENSE');
-    expect(policy.policyLabels).toContain('R6_SCORE_PENALTY_ONLY');
-    expect(policy.sizingMultiplier).toBeLessThanOrEqual(0.7);
+    // R6 제거됨 — score penalty / sizing reduction 없음
+    expect(policy.policyLabels).not.toContain('R6_SCORE_PENALTY_ONLY');
+    expect(policy.sizingMultiplier).toBe(1.0);
   });
 
   it('records SHADOW_ONLY cases with executionImpact NONE', () => {

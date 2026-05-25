@@ -19,7 +19,6 @@ import {
 } from '../../state.js';
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
-import { getGatingAlertSession } from '../../utils/gatingAlertWindow.js';
 import { loadMacroState } from '../../persistence/macroStateRepo.js';
 import { resolveRegimeSnapshot } from '../regime/regimeResolver.js';
 import { REGIME_CONFIGS } from '../../../src/services/quant/regimeEngine.js';
@@ -39,10 +38,6 @@ import { updateShadowResults } from '../exitEngine.js';
 import { getVixGating } from '../vixGating.js';
 import { getFomcProximity } from '../fomcCalendar.js';
 import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataCompletenessTracker.js';
-import { getKellyMultiplier as getIpsKellyMultiplier } from '../kellyDampener.js';
-import { computeBiasPositionPenalty } from '../../learning/biasPositionPenalty.js';
-import { computeSafetyGatePolicyFeedback } from '../../learning/safetyGatePolicyFeedback.js';
-import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from '../regimeFomcCombiner.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -88,13 +83,6 @@ function toMhsBucket(mhs: unknown): string {
 }
 function buildRegimeAlertDedupKey(channelId: string, snap: RegimeStatusSnapshot): string {
   return `REGIME_STATUS:${snap.effectiveRegime}:${snap.riskOverride}:${snap.mhsBucket}:${snap.liveBuyPolicy}:${snap.shadowPolicy}:${snap.tradeDate}:${channelId}`;
-}
-
-export function getAccountScaleKellyMultiplier(totalAssets: number): number {
-  if (totalAssets >= 300_000_000) return 1.15;
-  if (totalAssets >= 100_000_000) return 1.08;
-  if (totalAssets >= 50_000_000) return 1.0;
-  return 0.92;
 }
 
 export function evaluateSellOnlyException(regimeConfig: any, macroState: any): any {
@@ -220,11 +208,6 @@ function applyMacroDiagnosticRegimeConfig(regimeConfig: any): any {
   };
 }
 
-function applyMacroDiagnosticKellyFloor(value: number, active: boolean): number {
-  if (!active) return value;
-  return Math.max(value, getMacroDiagnosticKellyFloor());
-}
-
 function applyMacroEntryOverrideRegimeConfig(
   regimeConfig: any,
   override: MacroEntryOverrideState | null,
@@ -245,15 +228,6 @@ function applyMacroEntryOverrideRegimeConfig(
         : [...MACRO_OVERRIDE_ALLOWED_SIGNALS],
     trancheStrategy: `${regimeConfig?.trancheStrategy ?? 'operator macro override'} | OPERATOR_MACRO_ENTRY_OVERRIDE`,
   };
-}
-
-function applyMacroEntryOverrideKellyFloor(
-  value: number,
-  override: MacroEntryOverrideState | null,
-  target: MacroEntryOverrideTarget,
-): number {
-  if (!macroEntryOverrideApplies(override, target)) return value;
-  return Math.max(value, override.kellyFloor);
 }
 
 function formatMacroEntryOverrideLog(override: MacroEntryOverrideState): string {
@@ -404,145 +378,22 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const regimeSnapshot = resolveRegimeSnapshot({ macroState });
   const regimeDiagnostics = regimeSnapshot.diagnostics;
   const observedRegime = String(regimeSnapshot.effectiveRegime) as keyof typeof REGIME_CONFIGS;
-  const observedRawRegime = String(regimeDiagnostics.rawRegime) as keyof typeof REGIME_CONFIGS;
-  const defaultRollbackRegime = (Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, 'R4_NEUTRAL')
-    ? 'R4_NEUTRAL'
-    : Object.keys(REGIME_CONFIGS).find((key) => key !== 'R6_DEFENSE')) as keyof typeof REGIME_CONFIGS;
-  const rollbackRegime = observedRawRegime !== 'R6_DEFENSE' && Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, observedRawRegime)
-    ? observedRawRegime
-    : defaultRollbackRegime;
-  const regime = observedRegime === 'R6_DEFENSE' || !Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, observedRegime)
-    ? rollbackRegime
-    : observedRegime;
-  const legacyR6Detected =
-    observedRegime === 'R6_DEFENSE' ||
-    observedRawRegime === 'R6_DEFENSE' ||
-    regimeSnapshot.detectedRegime === 'R6_DEFENSE' ||
-    regimeSnapshot.riskOverride === 'R6_DEFENSE' ||
-    regimeSnapshot.displayRegime === 'R6_DEFENSE';
+  const regime = Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, observedRegime)
+    ? observedRegime
+    : 'R4_NEUTRAL' as keyof typeof REGIME_CONFIGS;
   let regimeConfig = REGIME_CONFIGS[regime];
   const macroEntryOverride = getMacroEntryOverrideState();
-  const r6EntryOverrideActive =
-    legacyR6Detected && macroEntryOverrideApplies(macroEntryOverride, 'R6_DEFENSE');
-  if (r6EntryOverrideActive) {
-    emitPreflightOperationalWarn({
-      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      message: '[AutoTrade] legacy R6 entry override ignored by rollback',
-      dedupKey: 'preflight:operator-macro-entry-override:r6',
-      details: {
-        override: formatMacroEntryOverrideLog(macroEntryOverride!),
-        regimeSnapshotId: regimeSnapshot.snapshotId,
-        executionImpact: 'NONE',
-        rollback: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED',
-      },
-    });
-  }
   let liveEntryBlockedReason: string | undefined;
   let macroDiagnosticOnly = false;
   const markMacroDiagnosticLiveBlock = (reason: MacroEntryOverrideTarget) => {
     liveEntryBlockedReason = appendLiveEntryBlockReason(liveEntryBlockedReason, reason);
     macroDiagnosticOnly = true;
   };
-  if (legacyR6Detected) {
-    macroDiagnosticOnly = true;
-    console.info(
-      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=REGULAR inputDisplaySession=REGULAR ` +
-      `inputEntryBlockMode=R6_DEFENSE removedPolicies=R6_DEFENSE ` +
-      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
-    );
-  }
-
-  if (legacyR6Detected && r6EntryOverrideActive) {
-    emitPreflightOperationalWarn({
-      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      message: '[AutoTrade] legacy R6 operator bypass ignored by rollback',
-      dedupKey: 'preflight:r6-defense:operator-bypass',
-      details: {
-        kellyFloor: macroEntryOverride?.kellyFloor,
-        maxPositionsFloor: macroEntryOverride?.maxPositionsFloor,
-        regimeSnapshotId: regimeSnapshot.snapshotId,
-        executionImpact: 'NONE',
-        rollback: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED',
-      },
-    });
-  }
-  const sellOnlyExc = { allow: true, maxSlots: Number.POSITIVE_INFINITY, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED' };
+  // SELL_ONLY_AND_R6_EXECUTION_DISABLED — disabled stub (allow=false = no-op gate)
+  const sellOnlyExc = { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED' };
 
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory ?? []);
-  const vixEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'VIX_BLOCK');
-  if (vixGating.noNewEntry && !vixEntryOverrideActive) {
-    markMacroDiagnosticLiveBlock('VIX_BLOCK');
-    emitPreflightOperationalWarn({
-      code: 'P1_REGIME_CONFLICT',
-      domain: 'REGIME',
-      message: '[AutoTrade] VIX gating blocked new entries',
-      dedupKey: `preflight:vix-block:${vixGating.reason}`,
-      details: { vixReason: vixGating.reason, regimeSnapshotId: regimeSnapshot.snapshotId },
-    });
-    const session = getGatingAlertSession();
-    if (session) {
-      const kstDateStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      await sendTelegramAlert(`<b>[VIX Gate - new entries blocked]</b>\n${vixGating.reason}\nShadow monitoring continues.`, {
-        dedupeKey: `vix_gating_block:${kstDateStr}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
-      }).catch(console.error);
-    }
-    emitPreflightOperationalWarn({
-      code: 'P1_REGIME_CONFLICT',
-      domain: 'REGIME',
-      message: '[AutoTrade] VIX_BLOCK diagnostic-only live block active; continuing scan diagnostics',
-      dedupKey: 'preflight:vix-block:diagnostic-only',
-      details: { regimeSnapshotId: regimeSnapshot.snapshotId },
-    });
-    await recordBlockedDayShadowScan('VIX_SPIKE');
-  }
-  if (vixGating.noNewEntry && vixEntryOverrideActive) {
-    emitPreflightOperationalWarn({
-      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      domain: 'REGIME',
-      message: '[AutoTrade] VIX no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE',
-      dedupKey: 'preflight:vix-block:operator-bypass',
-      details: { override: formatMacroEntryOverrideLog(macroEntryOverride!) },
-    });
-  }
-
-  const fomcProximity = getFomcProximity(
-    macroState ? { mhs: macroState.mhs, regime: regime ?? macroState.regime, vkospi: macroState.vkospi } : undefined,
-  );
-  const fomcEntryOverrideActive = macroEntryOverrideApplies(macroEntryOverride, 'FOMC_BLOCK');
-  if (fomcProximity.noNewEntry && !fomcEntryOverrideActive) {
-    markMacroDiagnosticLiveBlock('FOMC_BLOCK');
-    emitPreflightOperationalWarn({
-      code: 'P1_REGIME_CONFLICT',
-      domain: 'REGIME',
-      message: '[AutoTrade] FOMC gating blocked new entries',
-      dedupKey: `preflight:fomc-block:${fomcProximity.nextFomcDate ?? 'unknown'}`,
-      details: { description: fomcProximity.description, regimeSnapshotId: regimeSnapshot.snapshotId },
-    });
-    const session = getGatingAlertSession();
-    if (session) {
-      await sendTelegramAlert(`<b>[FOMC Gate - new entries blocked]</b>\n${fomcProximity.description}\nShadow monitoring continues.`, {
-        dedupeKey: `fomc_gating_block:${fomcProximity.nextFomcDate ?? 'unknown'}:${session.toLowerCase()}`, cooldownMs: 12 * 60 * 60 * 1000,
-      }).catch(console.error);
-    }
-    emitPreflightOperationalWarn({
-      code: 'P1_REGIME_CONFLICT',
-      domain: 'REGIME',
-      message: '[AutoTrade] FOMC_BLOCK diagnostic-only live block active; continuing scan diagnostics',
-      dedupKey: 'preflight:fomc-block:diagnostic-only',
-      details: { regimeSnapshotId: regimeSnapshot.snapshotId },
-    });
-    await recordBlockedDayShadowScan('FOMC_BLOCK');
-  }
-  if (fomcProximity.noNewEntry && fomcEntryOverrideActive) {
-    emitPreflightOperationalWarn({
-      code: 'P1_RISK_OVERRIDE_WITH_NON_R6',
-      domain: 'REGIME',
-      message: '[AutoTrade] FOMC no-new-entry bypassed by OPERATOR_MACRO_ENTRY_OVERRIDE',
-      dedupKey: 'preflight:fomc-block:operator-bypass',
-      details: { override: formatMacroEntryOverrideLog(macroEntryOverride!) },
-    });
-  }
+  const fomcProximity = getFomcProximity();
   const diagnosticContext = (extra: Record<string, unknown> = {}) => ({
     shadowMode,
     totalAssets,
@@ -682,27 +533,12 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     volumeClockAllowsEntry: true,
   });
 
-  const ipsKelly = getIpsKellyMultiplier();
-  const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
-  const biasPositionPenalty = computeBiasPositionPenalty();
-  const biasMultiplier = biasPositionPenalty.multiplier;
-  const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
-  const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
-  const exceptionKellyFactor = 1;
-  const vixDiagnosticOnly = vixGating.noNewEntry && !vixEntryOverrideActive;
-  const fomcDiagnosticOnly = fomcProximity.noNewEntry && !fomcEntryOverrideActive;
-  const effectiveVixKelly = applyMacroEntryOverrideKellyFloor(
-    applyMacroDiagnosticKellyFloor(vixGating.kellyMultiplier, vixDiagnosticOnly),
-    macroEntryOverride,
-    'VIX_BLOCK',
-  );
-  const effectiveFomcKelly = applyMacroEntryOverrideKellyFloor(
-    applyMacroDiagnosticKellyFloor(fomcProximity.kellyMultiplier, fomcDiagnosticOnly),
-    macroEntryOverride,
-    'FOMC_BLOCK',
-  );
-  const regimeFomcCombined = combineRegimeAndFomcKelly(regimeConfig.kellyMultiplier, effectiveFomcKelly, fomcProximity.phase, regime);
-  
+  // 레짐별 매수비중 직접 사용 (R1=1.0, R2=0.8, R3=0.7, R4=0.5, R5=0.3)
+  const buyWeightPct = regimeConfig.kellyMultiplier;
+  const effectiveVixKelly = 1.0;
+  const effectiveFomcKelly = 1.0;
+  const accountKellyMultiplier = 1.0;
+
   const liveEntryAllowedForKelly =
     !liveEntryBlockedReason;
   const executionModeForKelly = resolvePreflightExecutionMode({
@@ -710,13 +546,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     diagnosticLiveBlock: Boolean(liveEntryBlockedReason),
   });
   const kellyResult = computeEffectiveKelly({
-    baseKelly: regimeFomcCombined.value,
-    vixMultiplier: effectiveVixKelly,
-    ipsMultiplier: ipsKelly,
-    exceptionKellyFactor,
-    accountMultiplier: accountKellyMultiplier,
-    biasMultiplier,
-    safetyGateMultiplier,
+    baseKelly: buyWeightPct,
+    vixMultiplier: 1.0,
+    ipsMultiplier: 1.0,
+    accountMultiplier: 1.0,
     liveEntryAllowed: liveEntryAllowedForKelly,
     macroRegime: normalizeMacroRegime(regime),
     executionMode: executionModeForKelly,
@@ -726,12 +559,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   });
   let rawKelly = kellyResult.rawKelly;
   let kellyMultiplier = kellyResult.effectiveKelly;
-  
-  if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS Kelly reduction applied x${ipsKelly.toFixed(2)}`);
-  if (vixGating.kellyMultiplier < 1) console.log(`[AutoTrade] VIX gate applied: ${vixGating.reason}`);
-  if (fomcProximity.kellyMultiplier !== 1) console.log(`[AutoTrade] FOMC gate applied: ${fomcProximity.description}`);
-  if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
-  if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
+
   if (kellyResult.blockedByPolicy) {
     console.info(formatKellyPolicyBlockedLog({
       macroRegime: normalizeMacroRegime(regime),
@@ -741,9 +569,9 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       shadowLearningAllowed: true,
       result: kellyResult,
     }));
-  } else if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
+  } else if (kellyMultiplier !== buyWeightPct) {
     console.log(
-      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} x VIX(${effectiveVixKelly.toFixed(2)}) x IPS(${ipsKelly.toFixed(2)}) x account(${accountKellyMultiplier.toFixed(2)}) = raw x${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' floor applied' : ''} -> effective x${kellyMultiplier.toFixed(2)}`,
+      `[AutoTrade] 레짐 매수비중 ${regime} ×${buyWeightPct.toFixed(2)} → effective ×${kellyMultiplier.toFixed(2)}`,
     );
   }
 
@@ -760,13 +588,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const diagnosticOnlyLiveBlock = Boolean(liveEntryBlockReason);
   if (slotResult.isFull && kellyMultiplier !== 0) {
     const positionFullKellyResult = computeEffectiveKelly({
-      baseKelly: regimeFomcCombined.value,
-      vixMultiplier: effectiveVixKelly,
-      ipsMultiplier: ipsKelly,
-      exceptionKellyFactor,
-      accountMultiplier: accountKellyMultiplier,
-      biasMultiplier,
-      safetyGateMultiplier,
+      baseKelly: buyWeightPct,
+      vixMultiplier: 1.0,
+      ipsMultiplier: 1.0,
+      accountMultiplier: 1.0,
       liveEntryAllowed: false,
       macroRegime: normalizeMacroRegime(regime),
       executionMode: executionModeForKelly,
@@ -834,7 +659,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     regime: regime ?? 'UNKNOWN',
     regimeKelly: regimeConfig.kellyMultiplier,
     fomcPhase: fomcProximity.phase,
-    fomcKelly: effectiveFomcKelly,
+    fomcKelly: 1.0,
     finalKelly: kellyMultiplier,
     vixGatingActive: vixGating.noNewEntry,
     bearDefenseMode: false,
@@ -846,24 +671,18 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     diagnosticLiveEntryBlocked: diagnosticOnlyLiveBlock,
     liveEntryBlockedReason: liveEntryBlockReason,
     macroRegimeRaw: regimeDiagnostics.rawRegime,
-    macroRegimeEffective: legacyR6Detected ? regime : regimeDiagnostics.effectiveRegime,
+    macroRegimeEffective: regimeDiagnostics.effectiveRegime,
     regimeSnapshotId: regimeSnapshot.snapshotId,
     regimeSnapshotAsOf: regimeSnapshot.asOf,
     regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
-    displayRegime: regimeSnapshot.displayRegime === 'R6_DEFENSE' || regimeSnapshot.displayRegime === 'SELL_ONLY'
-      ? regimeDiagnostics.rawRegime
-      : regimeSnapshot.displayRegime,
-    riskOverride: regimeSnapshot.riskOverride === 'R6_DEFENSE' || regimeSnapshot.riskOverride === 'SELL_ONLY'
-      ? 'NONE'
-      : regimeSnapshot.riskOverride,
-    engineMode: regimeSnapshot.engineMode === 'SELL_ONLY'
-      ? 'NORMAL'
-      : regimeSnapshot.engineMode,
+    displayRegime: regimeSnapshot.displayRegime,
+    riskOverride: regimeSnapshot.riskOverride,
+    engineMode: regimeSnapshot.engineMode,
     sourceHealth: regimeSnapshot.sourceHealth,
     regimeConflicts: regimeSnapshot.conflicts,
-    r6RecoveryStatus: regimeDiagnostics.r6RecoveryStatus,
-    activeR6Triggers: regimeDiagnostics.activeR6Triggers,
-    r6ShockLatch: regimeDiagnostics.r6ShockLatch,
+    r6RecoveryStatus: undefined,
+    activeR6Triggers: undefined,
+    r6ShockLatch: undefined,
     recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
     liveEntryAllowed: !diagnosticOnlyLiveBlock,
     liveExitAllowed: true,
@@ -879,12 +698,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     isPostCloseObservationScan(options) && macroDiagnosticOnly;
 
   if (!volumeClock.allowEntry && !shadowMode) {
-    console.info(
-      `[REMOVED_POLICY_INPUT_IGNORED] snapshotId=${String(regimeSnapshot.snapshotId ?? 'unknown')} marketSession=AFTERMARKET inputDisplaySession=REGULAR ` +
-      `inputEntryBlockMode=SELL_ONLY removedPolicies=SELL_ONLY ` +
-      `liveBuyAllowed=true realOrderAllowed=true shadowSignalAllowed=true diagnosticAllowed=true ` +
-      `counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
-    );
     console.info(
       `[AutoTrade] volumeClock observation only; Gate/data diagnostics continue (${volumeClock.reason}, postCloseObservation=${keepPostCloseObservationAlive})`,
     );
