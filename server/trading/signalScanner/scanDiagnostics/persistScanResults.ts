@@ -333,6 +333,13 @@ export interface PersistScanResultsOptions {
   watchlistSource?: string;
   macroGateState?: MacroGateState;
   scanEvaluation?: ScanEvaluationResult;
+  /**
+   * ADR-0528 a1/a2 — 호출자(signalScanner/index.ts) scan-start 에서 1회 산출한 KST asOf ISO.
+   * `scanEvaluation` 미전달 시 buildScanEvaluationResult 의 asOf 로 사용 → scanEvaluation.scanId 가
+   * 호출자 context.sourceSnapshotId(= buildScanEvaluationId(scanAsOf)) 와 byte-identical 보장.
+   * 부재 시 기존 kstNow.toISOString() 자연 fallback (회귀 안전).
+   */
+  scanAsOf?: string;
   candidateScanTrigger?: ShadowCandidateScanTrigger;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
@@ -415,7 +422,9 @@ export async function persistScanResults(
   const totalCandidates = options.buyListLength + options.intradayBuyListLength;
   const scanCandidateSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
   const scanEvaluation = options.scanEvaluation ?? buildScanEvaluationResult({
-    asOf: kstNow.toISOString(),
+    // ADR-0528 a1/a2: 호출자 scan-start scanAsOf 우선 → scanEvaluation.scanId 가
+    // context.sourceSnapshotId 와 동일값(byte-identical). 부재 시 kstNow 자연 fallback.
+    asOf: options.scanAsOf ?? kstNow.toISOString(),
     counters,
     totalCandidates,
     sellOnly: false,
