@@ -424,11 +424,37 @@ export async function verifyOfficialSectorIndexCodes(
   return results;
 }
 
+// 휴장/주말엔 KIS 업종지수 현재가가 세션 부재로 0/실패다 — providerIssue 가 아니라 예상된 상태다.
+// 라이브 verify 를 건너뛰고(쿼터 절약) 시장 폐장 분류만 남긴다.
+function buildMarketClosedVerifyResult(
+  row: OfficialSectorIndexCodeMappingRow,
+): OfficialSectorIndexVerifyResult {
+  return {
+    officialIndexCode: row.officialIndexCode ?? '',
+    sectorName: row.sectorName,
+    rawIdxName: row.rawIdxName,
+    idxDiv: row.idxDiv,
+    idxCode: row.idxCode,
+    canonicalOfficialName: row.canonicalOfficialName,
+    fidCondMrktDivCode: 'U',
+    fidInputIscd: row.verifyInputCandidates[0] ?? row.officialIndexCode ?? '',
+    verifiedInputIscd: null,
+    verifyInputCandidates: row.verifyInputCandidates,
+    triedCandidates: [],
+    verified: false,
+    providerIssue: false,
+    marketSignal: false,
+    executionImpact: 'NONE',
+    reasonCode: 'SECTOR_INDEX_MARKET_CLOSED',
+  };
+}
+
 export async function buildOfficialSectorIndexMasterCoverage(input: {
   provider: SectorIndexMasterProviderResult | null;
   targets: readonly OfficialSectorIndexTarget[];
   masterRows?: readonly OfficialSectorIndexMasterRow[];
   verifyIndexCode?: (row: OfficialSectorIndexCodeMappingRow) => Promise<OfficialSectorIndexVerifyResult>;
+  marketClosed?: boolean;
 }): Promise<OfficialSectorIndexMasterCoverageResult> {
   const provider = input.provider;
   const masterRows = input.masterRows ?? provider?.rows ?? [];
@@ -437,10 +463,15 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     masterRows,
   });
   const aliasDictionaryStatus = getOfficialSectorIndexAliasDictionaryStatus();
-  const verificationResults = await verifyOfficialSectorIndexCodes({
-    mappingRows: mapping.rows,
-    verifyIndexCode: input.verifyIndexCode,
-  });
+  const marketClosed = input.marketClosed === true;
+  const verificationResults = marketClosed
+    ? mapping.rows
+        .filter((row) => row.officialCoverageEligible && Boolean(row.officialIndexCode))
+        .map((row) => buildMarketClosedVerifyResult(row))
+    : await verifyOfficialSectorIndexCodes({
+        mappingRows: mapping.rows,
+        verifyIndexCode: input.verifyIndexCode,
+      });
   const verificationByCode = new Map(verificationResults.map((result) => [mappingVerifyKey(result), result]));
   const verificationByLooseCode = new Map(verificationResults.map((result) => [
     `${result.sectorName}|${result.officialIndexCode}`,
@@ -483,9 +514,11 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     requiredVerifiedCoverage: 80,
     selectedCoverageValue: verifiedIndexCodeCoverage,
     promotionAllowed: verifiedIndexCodeCoverage >= 80,
-    reason: verifiedIndexCodeCoverage >= 80
-      ? 'VERIFIED_INDEX_CODE_COVERAGE_READY'
-      : 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+    reason: marketClosed
+      ? 'SECTOR_INDEX_MARKET_CLOSED'
+      : verifiedIndexCodeCoverage >= 80
+        ? 'VERIFIED_INDEX_CODE_COVERAGE_READY'
+        : 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
     executionImpact: 'NONE',
   };
   const sectorIndexQuality = buildSectorIndexQuality(verificationResults);
@@ -511,11 +544,13 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     requiredPromotionCoverage: 80,
     qualityGatePassed,
     promotionAllowed: verifiedIndexCodeCoverage >= 80 && qualityGatePassed,
-    reason: verifiedIndexCodeCoverage < 80
-      ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
-      : qualityGatePassed
-        ? 'READY_FOR_PROMOTION'
-        : 'INDEX_VALUE_QUALITY_LOW',
+    reason: marketClosed
+      ? 'SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY'
+      : verifiedIndexCodeCoverage < 80
+        ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
+        : qualityGatePassed
+          ? 'READY_FOR_PROMOTION'
+          : 'INDEX_VALUE_QUALITY_LOW',
     safeOnlyMetricWouldPass: verifiedCoverageExcludingUnsafeAlias >= 80,
     useAlternativeForLivePromotion: false,
     alternativePolicyReason: 'OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY',
@@ -528,9 +563,9 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     ...mapping.reasonCodes,
     ...(provider?.reasonCodes ?? []),
   ]);
-  if (verificationResults.length > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_ATTEMPTED');
-  if (verifySuccessCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_SUCCEEDED');
-  if (verifyFailCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_FAILED');
+  if (!marketClosed && verificationResults.length > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_ATTEMPTED');
+  if (!marketClosed && verifySuccessCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_SUCCEEDED');
+  if (!marketClosed && verifyFailCount > 0) reasonCodes.add('OFFICIAL_INDEX_API_VERIFY_FAILED');
   for (const result of verificationResults) {
     reasonCodes.add(result.reasonCode);
     if (result.selectedFailureReason) reasonCodes.add(result.selectedFailureReason);
@@ -538,12 +573,16 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   }
   if (!(provider?.masterLoaded ?? masterRows.length > 0)) reasonCodes.add('MASTER_NOT_LOADED');
   if (masterRows.length === 0) reasonCodes.add('MASTER_ROWS_EMPTY');
-  if (mapping.officialIndexCoverage > 0 && verifiedIndexCodeCoverage < 80) {
+  if (!marketClosed && mapping.officialIndexCoverage > 0 && verifiedIndexCodeCoverage < 80) {
     reasonCodes.add('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     reasonCodes.add('VERIFIED_INDEX_CODE_COVERAGE_LOW');
   }
-  if (indexValueQuality.zeroCurrentIndexCount > 0) reasonCodes.add('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
-  if (verifySuccessCount > 0 && !qualityGatePassed) reasonCodes.add('INDEX_VALUE_QUALITY_LOW');
+  if (!marketClosed && indexValueQuality.zeroCurrentIndexCount > 0) reasonCodes.add('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
+  if (!marketClosed && verifySuccessCount > 0 && !qualityGatePassed) reasonCodes.add('INDEX_VALUE_QUALITY_LOW');
+  if (marketClosed) {
+    reasonCodes.add('SECTOR_INDEX_MARKET_CLOSED');
+    reasonCodes.add('HOLIDAY_NO_SESSION_OBSERVE_ONLY');
+  }
   reasonCodes.add('EXECUTION_IMPACT_NONE_CONFIRMED');
 
   return {

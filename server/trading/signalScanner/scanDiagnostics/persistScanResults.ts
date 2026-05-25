@@ -126,6 +126,7 @@ import { rememberGate3FinalizationSummary } from '../../../quant/gate3Finalizati
 import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMasterProvider.js';
 import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
+import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 import type { OfficialSectorIndexTarget } from '../../../sector/SectorIndexCodeMap.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
@@ -1557,10 +1558,14 @@ export async function persistScanResults(
       summaryDraft.sectorEnergyQualityDiagnostic,
     );
     const officialSectorProvider = await loadKisOfficialSectorIndexMaster({ writeCache: true });
+    // 휴장/주말엔 KIS 업종지수 현재가 세션이 없어 verify 가 0/실패로 false-alarm 을 낸다.
+    // 라이브 verify 를 건너뛰고 SECTOR_INDEX_MARKET_CLOSED 로 분류한다 (promotionAllowed 결정은 동일, executionImpact=NONE).
+    const sectorIndexMarketClosed = !isTradingDay(kstNow.toISOString().slice(0, 10));
     officialSectorIndexMaster = await buildOfficialSectorIndexMasterCoverage({
       provider: officialSectorProvider,
       targets: officialSectorTargets,
       verifyIndexCode: verifySectorIndexCodeWithKisCurrentPrice,
+      marketClosed: sectorIndexMarketClosed,
     });
     summaryDraft.sectorEnergySupplyUnknownAdr0488 = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       generatedAt: kstNow.toISOString(),

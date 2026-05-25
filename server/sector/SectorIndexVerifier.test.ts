@@ -668,4 +668,56 @@ describe('SectorIndexVerifier', () => {
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
   });
+
+  it('skips live verify on a closed market and classifies as SECTOR_INDEX_MARKET_CLOSED', async () => {
+    let verifyCalls = 0;
+    const result = await buildOfficialSectorIndexMasterCoverage({
+      provider: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: masterRows.length,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        rows: masterRows,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'],
+        cacheFile: 'memory',
+        fetchedAt: '2026-05-23T00:00:00.000Z',
+      },
+      targets: [{ sectorName: 'finance' }, { sectorName: 'chemical' }],
+      marketClosed: true,
+      verifyIndexCode: async (row) => {
+        verifyCalls += 1;
+        return {
+          officialIndexCode: row.officialIndexCode ?? '',
+          sectorName: row.sectorName,
+          verified: true,
+          providerIssue: false,
+          marketSignal: false,
+          executionImpact: 'NONE',
+          reasonCode: 'OK',
+        };
+      },
+    });
+
+    // 휴장일엔 라이브 KIS verify 를 호출하지 않는다 (쿼터 절약 + 0/실패 false-alarm 제거).
+    expect(verifyCalls).toBe(0);
+    expect(result.verifiedIndexCodeCoverage).toBe(0);
+    expect(result.promotionReadiness.promotionAllowed).toBe(false);
+    expect(result.promotionReadiness.reason).toBe('SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY');
+    expect(result.promotionCoveragePolicy.reason).toBe('SECTOR_INDEX_MARKET_CLOSED');
+    expect(result.reasonCodes).toEqual(expect.arrayContaining([
+      'SECTOR_INDEX_MARKET_CLOSED',
+      'HOLIDAY_NO_SESSION_OBSERVE_ONLY',
+    ]));
+    // provider 장애·verify 실패 코드를 휴장 false-alarm 으로 남기지 않는다 (불변식 #6).
+    expect(result.reasonCodes).not.toContain('OFFICIAL_INDEX_API_VERIFY_FAILED');
+    expect(result.reasonCodes).not.toContain('OFFICIAL_INDEX_API_VERIFY_ATTEMPTED');
+    expect(result.reasonCodes).not.toContain('PROMOTION_DISABLED_COVERAGE_BELOW_80');
+    expect(result.marketSignal).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+  });
 });
