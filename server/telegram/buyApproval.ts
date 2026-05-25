@@ -107,6 +107,7 @@ export interface BuyApprovalRequestParams {
   mtas?: number;
   compressionScore?: number;
   availableMaxScore?: number | null;
+  gateLayerSummary?: import('../quantFilter.js').GateLayerSummary;
   signalType?: string;
   gateBandNormal?: number;
   gateBandStrong?: number;
@@ -300,6 +301,7 @@ export async function requestBuyApprovalWithDelivery(params: {
   mtas?: number;
   compressionScore?: number;
   availableMaxScore?: number | null;
+  gateLayerSummary?: import('../quantFilter.js').GateLayerSummary;
   signalType?: string;
   gateBandNormal?: number;
   gateBandStrong?: number;
@@ -308,7 +310,7 @@ export async function requestBuyApprovalWithDelivery(params: {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
     regime, preMortem, signalId, tradeDate, marketSession, sourceLane, rrr,
-    mtas, compressionScore, availableMaxScore, signalType, gateBandNormal, gateBandStrong,
+    mtas, compressionScore, availableMaxScore, gateLayerSummary, signalType, gateBandNormal, gateBandStrong,
   } = params;
 
   // ─── Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe guard ─────────────
@@ -365,6 +367,7 @@ export async function requestBuyApprovalWithDelivery(params: {
           marketSession,
           rawGateScore: gateScore,
           availableMaxScore,
+          gateLayerSummary,
           mtas,
           compressionScore,
           rrr,
@@ -394,7 +397,7 @@ export async function requestBuyApprovalWithDelivery(params: {
         recordDuplicateSuppressed(stockCode, stockName);
         recordShadowApprovalCardAudit({
           symbol: stockCode, name: stockName, tradeDate, marketSession,
-          rawGateScore: gateScore, availableMaxScore, mtas, compressionScore, rrr, signalType, gateBandNormal, gateBandStrong,
+          rawGateScore: gateScore, availableMaxScore, gateLayerSummary, mtas, compressionScore, rrr, signalType, gateBandNormal, gateBandStrong,
           approvalCardEmitted: false, approvalState: 'DEDUPED', shadowRecorded: false,
           triggerSource: mapShadowApprovalSourceLaneToAuditTriggerSource(lane), dedupeKey: shadowDedupeKey,
         });
@@ -427,6 +430,7 @@ export async function requestBuyApprovalWithDelivery(params: {
       marketSession,
       rawGateScore: gateScore,
       availableMaxScore,
+      gateLayerSummary,
       mtas,
       compressionScore,
       rrr,

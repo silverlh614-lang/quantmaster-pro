@@ -239,6 +239,7 @@ export interface CreateBuyTaskParams {
   mtas?: number;
   compressionScore?: number;
   availableMaxScore?: number | null;
+  gateLayerSummary?: import('../quantFilter.js').GateLayerSummary;
   signalType?: string;
   gateBandNormal?: number;
   gateBandStrong?: number;
@@ -422,6 +423,7 @@ function requestApprovalForBuyTask(
     mtas:         p.mtas,
     compressionScore: p.compressionScore,
     availableMaxScore: p.availableMaxScore,
+    gateLayerSummary: p.gateLayerSummary,
     signalType:   p.signalType,
     gateBandNormal: p.gateBandNormal,
     gateBandStrong: p.gateBandStrong,
