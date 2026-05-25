@@ -96,6 +96,7 @@ function shadowClosedSummary(): ScanSummary {
       buckets: [],
       conditionGaps: [],
       nearMissConditions: [],
+      topUnavailableCondition: { conditionKey: 'per', unavailable: 6 },
       gate2TrueFailedCount: 5,
       gate2UnavailableCount: 32,
       gate2WatchPreservedCount: 6,
@@ -123,7 +124,7 @@ function shadowClosedSummary(): ScanSummary {
         },
         final: {
           liveLeadership: false,
-          shadowLeadership: true,
+          shadowLeadership: false,
           noLeadershipReason: 'LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED',
           executionImpact: 'NONE',
         },
@@ -204,8 +205,40 @@ function shadowClosedSummary(): ScanSummary {
     sectorEnergySupplyUnknownAdr0488: {
       sectorEnergyMaster: {
         promotionAllowed: false,
+        shadowLeadershipAllowed: true,
       },
     } as unknown as ScanSummary['sectorEnergySupplyUnknownAdr0488'],
+    paperEntryForensic: {
+      decisionRecords: ['000660', '033640', '066570', '069500', '336260', '006345'].map((symbol) => ({
+        symbol,
+        sourceSnapshotId: 'scan-eval-20260525234352',
+        candidateSetId: 'candidates-20260525234352',
+        gateScoreInputSnapshotId: 'gate-score-20260525234352',
+        scanId: 'scan-eval-20260525234352',
+        decision: 'CREATED',
+        stage: 'ORDER_CREATION',
+        skipReason: 'NONE',
+        gate1HardSurvivor: true,
+        minSignalLivePass: true,
+        gate2PendingPreserved: true,
+        shadowObservableStrict: true,
+        shadowObservableSoft: true,
+        paperEntryEligible: true,
+        existingOpenShadowPosition: false,
+        existingPendingPaperOrder: false,
+        resolvedEntryPrice: 10000,
+        priceSource: 'KIS',
+        quoteFreshness: 'VERIFIED',
+        sizingAllowed: false,
+        sizingReason: 'SIZING_ADVISORY_ONLY',
+        executionPermission: 'PAPER_OBSERVATION_ALLOWED',
+        paperEntryKind: 'OBSERVATIONAL_PAPER_ENTRY',
+        paperExecutable: false,
+        promotionAllowed: false,
+        learningAllowed: true,
+      })),
+      executionImpact: 'NONE',
+    },
     entryLaneSplit: {
       liveCandidates: 9,
       liveOrderCreated: 2,
@@ -213,14 +246,14 @@ function shadowClosedSummary(): ScanSummary {
       shadowDiagnosticCreated: 3,
       shadowOrderCreated: 0,
       paperExecutableCreated: 0,
-      paperObservationalCreated: 5,
+      paperObservationalCreated: 0,
       counterfactualCreated: 43,
       watchOnlyPreserved: 5,
     },
   } as unknown as ScanSummary;
 }
 
-describe('ADR-536a-2 QMP Gate Detail canonical header', () => {
+describe('ADR-536a-3 QMP Gate Detail header field source correction', () => {
   it('rebases session, Gate3 top block, and entry lanes to canonical forensic slices', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
@@ -238,8 +271,10 @@ describe('ADR-536a-2 QMP Gate Detail canonical header', () => {
       expect(view.gate3.topBlockReason).toBe('PRE_BREAKOUT_WAIT');
       expect(view.entryLane.liveOrderCreated).toBe(0);
       expect(view.entryLane.shadowDiagnosticCreated).toBe(3);
-      expect(view.entryLane.paperObservationalCreated).toBe(5);
+      expect(view.entryLane.paperObservationalCreated).toBe(6);
       expect(view.entryLane.counterfactualCreated).toBe(43);
+      expect(view.gate2.shadowLeadership).toBe(true);
+      expect(view.gate2.topMissingAxis).toBe('SECTOR_LEADERSHIP,per');
       expect(view.topBlocks).toEqual(expect.arrayContaining([
         'SHADOW_ONLY_POLICY',
         'BROKER_LIVE_ORDER_BLOCKED',
@@ -263,8 +298,9 @@ describe('ADR-536a-2 QMP Gate Detail canonical header', () => {
 
       expect(text).toContain('session/mode/regime: CLOSED_SHADOW_OBSERVE / SHADOW_ONLY / R3_EARLY');
       expect(text).toContain('policy: liveOrderAllowed=false brokerLiveOrderAllowed=false shadowAllowed=true counterfactualAllowed=true executionImpact=NONE');
+      expect(text).toContain('G2: liveLeadership=false shadowLeadershipAllowed=true pending=5 topMissing=SECTOR_LEADERSHIP,per');
       expect(text).toContain('G3: ready=0 wait=9 dataUnavailable=0 rrrMissing=0 rrr=1/3/5 priceNotConfirmed=7 volumeWeak=4');
-      expect(text).toContain('Entry: liveOrderCreated=0 shadowDiagnostic=3 paperObservational=5 counterfactual=43 liveBlockedByPolicy=9');
+      expect(text).toContain('Entry: liveOrderCreated=0 shadowDiagnostic=3 paperObservational=6 counterfactual=43 liveBlockedByPolicy=9');
       expect(text).toContain('Safety: 실거래 주문 0개 - Shadow/Watch/Learning only');
       expect(text).toContain('TopBlocks: SHADOW_ONLY_POLICY, BROKER_LIVE_ORDER_BLOCKED, NO_LEADERSHIP, PRE_BREAKOUT_WAIT, RISK_SIZING_ZERO, SECTOR_OFFICIAL_PROMOTION_DISABLED');
       expect(text).not.toContain('TopBlock: GATE3_DATA_INCOMPLETE');

@@ -145,6 +145,10 @@ function boolOrNull(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
+function upper(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase();
+}
+
 function normalizeEngineMode(value: unknown): string {
   const raw = text(value, 'UNKNOWN').toUpperCase();
   return raw === 'SELL_ONLY' ? 'NORMAL' : raw;
@@ -242,10 +246,19 @@ function buildGate2(summary: ScanSummary | null, missingSlices: string[]): QmpGa
   const attribution = recordOf(summary?.freshGate2Attribution);
   const leadership = recordOf(attribution?.leadershipAttribution);
   const final = recordOf(leadership?.final);
+  const shadowSector = recordOf(leadership?.shadowSector);
   const softLane = summary?.gate2SoftLeadershipLane;
   const gate2Pass = numberOf(attribution?.gate2Pass ?? getByPath(summary, 'gatePassDistribution.gate2Pass'), Number.NaN);
   const gate2TrueFailed = hasOwn(attribution, 'gate2TrueFailedCount') ? numberOf(attribution?.gate2TrueFailedCount, 0) : null;
   const gate2Unavailable = hasOwn(attribution, 'gate2UnavailableCount') ? numberOf(attribution?.gate2UnavailableCount, 0) : null;
+  const secondaryMissingAxis =
+    stringOrNull(getByPath(attribution, 'topUnavailableCondition.conditionKey')) ??
+    stringOrNull(getByPath(attribution, 'leadershipAttribution.officialIndex.blocker')) ??
+    stringOrNull(getByPath(attribution, 'leadershipAttribution.final.noLeadershipReason'));
+  const topMissingAxes = [
+    boolOrNull(final?.liveLeadership) === false ? 'SECTOR_LEADERSHIP' : null,
+    secondaryMissingAxis,
+  ].filter((value): value is string => Boolean(value));
 
   if (!attribution) missingSlices.push('gate2.freshGate2Attribution missing');
 
@@ -257,11 +270,8 @@ function buildGate2(summary: ScanSummary | null, missingSlices: string[]): QmpGa
     fail: gate2TrueFailed,
     dataIncomplete: gate2Unavailable,
     liveLeadership: boolOrNull(final?.liveLeadership),
-    shadowLeadership: boolOrNull(final?.shadowLeadership),
-    topMissingAxis:
-      stringOrNull(getByPath(attribution, 'topUnavailableCondition.conditionKey')) ??
-      stringOrNull(getByPath(attribution, 'leadershipAttribution.officialIndex.blocker')) ??
-      stringOrNull(getByPath(attribution, 'leadershipAttribution.final.noLeadershipReason')),
+    shadowLeadership: boolOrNull(shadowSector?.shadowLeadershipAllowed) ?? boolOrNull(final?.shadowLeadership),
+    topMissingAxis: Array.from(new Set(topMissingAxes)).join(',') || null,
     topBlockReason:
       stringOrNull(getByPath(attribution, 'recommendedDiagnosis')) ??
       stringOrNull(getByPath(attribution, 'leadershipAttribution.final.noLeadershipReason')),
@@ -319,8 +329,13 @@ function buildGate3(summary: ScanSummary | null, missingSlices: string[]): {
 function buildEntryLane(
   summary: ScanSummary | null,
   permission: PermissionView,
-): { entryLane: QmpGateDetailHeaderView['entryLane']; rawLiveOrderCreated: number } {
+): {
+  entryLane: QmpGateDetailHeaderView['entryLane'];
+  rawLiveOrderCreated: number;
+  runtimePaperObservationalCreated: number;
+} {
   const explicit = summary?.entryLaneSplit;
+  const paperCounts = deriveRuntimePaperEntryCounts(summary);
   const liveCandidates = numberOf(explicit?.liveCandidates ?? summary?.liveEligibleCount, 0);
   const rawLiveOrderCreated = numberOf(explicit?.liveOrderCreated, 0);
   const liveOrderCreated = permission.shadowOnly ? 0 : rawLiveOrderCreated;
@@ -337,14 +352,15 @@ function buildEntryLane(
 
   return {
     rawLiveOrderCreated,
+    runtimePaperObservationalCreated: paperCounts.observationalCreated,
     entryLane: {
       liveCandidates,
       liveOrderCreated,
       liveBlockedByPolicy,
       shadowDiagnosticCreated,
       shadowOrderCreated: numberOf(explicit?.shadowOrderCreated, 0),
-      paperExecutableCreated: numberOf(explicit?.paperExecutableCreated, 0),
-      paperObservationalCreated: numberOf(explicit?.paperObservationalCreated, 0),
+      paperExecutableCreated: paperCounts.executableCreated || numberOf(explicit?.paperExecutableCreated, 0),
+      paperObservationalCreated: paperCounts.observationalCreated || numberOf(explicit?.paperObservationalCreated, 0),
       counterfactualCreated: numberOf(
         explicit?.counterfactualCreated ??
           getByPath(summary, 'entryFilterDecomposition.ledgerRowsCreated') ??
@@ -354,6 +370,51 @@ function buildEntryLane(
       watchOnlyPreserved: numberOf(explicit?.watchOnlyPreserved ?? summary?.gate2SoftLeadershipLane?.gate2PendingPreserved, 0),
     },
   };
+}
+
+function paperKindFromRecord(record: AnyRecord): string {
+  const explicitKind = upper(record.paperEntryKind);
+  if (explicitKind) return explicitKind;
+  const executionAllowed = upper(record.executionPermission) === 'ALLOW';
+  const scorePass = record.minSignalLivePass === true;
+  const gate1Pass = record.gate1HardSurvivor === true;
+  const gate2Pass = record.gate2PendingPreserved === false;
+  const sizingPass = record.sizingAllowed === true;
+  if (scorePass && gate1Pass && gate2Pass && executionAllowed && sizingPass) return 'EXECUTABLE_PAPER_ENTRY';
+  if (gate1Pass && record.gate2PendingPreserved === true && !executionAllowed) return 'OBSERVATIONAL_PAPER_ENTRY';
+  if (gate1Pass && record.gate2PendingPreserved === true) return 'PRE_BREAKOUT_WATCH_ENTRY';
+  return 'COUNTERFACTUAL_ENTRY';
+}
+
+function paperRecordFromCandidate(candidate: AnyRecord): AnyRecord {
+  return {
+    ...candidate,
+    decision: candidate.paperEntryDecision,
+    executionPermission: candidate.executionPermission,
+    paperEntryKind: candidate.paperEntryKind,
+  };
+}
+
+function deriveRuntimePaperEntryCounts(summary: ScanSummary | null): {
+  executableCreated: number;
+  observationalCreated: number;
+} {
+  const forensic = summary?.paperEntryForensic;
+  const rawRecords = Array.isArray(forensic?.decisionRecords) && forensic.decisionRecords.length > 0
+    ? forensic.decisionRecords
+    : Array.isArray(forensic?.candidates)
+      ? forensic.candidates.map((candidate) => paperRecordFromCandidate(candidate as unknown as AnyRecord))
+      : [];
+  let executableCreated = 0;
+  let observationalCreated = 0;
+  for (const raw of rawRecords) {
+    const record = recordOf(raw);
+    if (!record || upper(record.decision) !== 'CREATED') continue;
+    const kind = paperKindFromRecord(record);
+    if (kind === 'EXECUTABLE_PAPER_ENTRY') executableCreated += 1;
+    if (kind === 'OBSERVATIONAL_PAPER_ENTRY' || kind === 'PRE_BREAKOUT_WATCH_ENTRY') observationalCreated += 1;
+  }
+  return { executableCreated, observationalCreated };
 }
 
 function addBlock(blocks: string[], block: string | null | undefined): void {
@@ -394,6 +455,8 @@ function validateHeader(
   rawLiveOrderCreated: number,
   entryPriceStaleBlocked: number,
   missingSlices: string[],
+  runtimePaperObservationalCreated: number,
+  sectorShadowLeadershipAllowed: boolean | null,
 ): void {
   if (view.policy.engineMode === 'SHADOW_ONLY' && view.entryLane.liveOrderCreated !== 0) {
     warnCanonicalMismatch('SHADOW_ONLY header liveOrderCreated must be 0', missingSlices);
@@ -409,6 +472,30 @@ function validateHeader(
   ) {
     warnCanonicalMismatch('GATE3_DATA_INCOMPLETE without actual missing Gate3 evidence', missingSlices);
   }
+  if (
+    runtimePaperObservationalCreated > 0 &&
+    view.entryLane.paperObservationalCreated !== runtimePaperObservationalCreated
+  ) {
+    warnCanonicalMismatch(
+      `paperObservational header=${view.entryLane.paperObservationalCreated} runtime=${runtimePaperObservationalCreated}`,
+      missingSlices,
+    );
+  }
+  if (
+    sectorShadowLeadershipAllowed !== null &&
+    view.gate2.shadowLeadership !== sectorShadowLeadershipAllowed
+  ) {
+    warnCanonicalMismatch(
+      `gate2.shadowLeadershipAllowed header=${view.gate2.shadowLeadership} sector=${sectorShadowLeadershipAllowed}`,
+      missingSlices,
+    );
+  }
+}
+
+function resolveSectorShadowLeadershipAllowed(summary: ScanSummary | null): boolean | null {
+  return boolOrNull(getByPath(summary, 'freshGate2Attribution.leadershipAttribution.shadowSector.shadowLeadershipAllowed')) ??
+    boolOrNull(getByPath(summary, 'freshGate2Attribution.sectorEnergy.shadowLeadershipAllowed')) ??
+    boolOrNull(getByPath(summary, 'sectorEnergySupplyUnknownAdr0488.sectorEnergyMaster.shadowLeadershipAllowed'));
 }
 
 export function buildQmpGateDetailHeaderView(summary: ScanSummary | null): QmpGateDetailHeaderView {
@@ -418,7 +505,7 @@ export function buildQmpGateDetailHeaderView(summary: ScanSummary | null): QmpGa
   const gate1 = buildGate1(summary, missingSlices);
   const gate2 = buildGate2(summary, missingSlices);
   const { gate3, entryPriceStaleBlocked } = buildGate3(summary, missingSlices);
-  const { entryLane, rawLiveOrderCreated } = buildEntryLane(summary, permission);
+  const { entryLane, rawLiveOrderCreated, runtimePaperObservationalCreated } = buildEntryLane(summary, permission);
   const topBlocks = buildTopBlocks({ permission, gate2, gate3, summary });
 
   const view: QmpGateDetailHeaderView = {
@@ -454,7 +541,14 @@ export function buildQmpGateDetailHeaderView(summary: ScanSummary | null): QmpGa
       : `실거래 주문 ${entryLane.liveOrderCreated}개 - live order path visible`,
     missingSlices,
   };
-  validateHeader(view, rawLiveOrderCreated, entryPriceStaleBlocked, missingSlices);
+  validateHeader(
+    view,
+    rawLiveOrderCreated,
+    entryPriceStaleBlocked,
+    missingSlices,
+    runtimePaperObservationalCreated,
+    resolveSectorShadowLeadershipAllowed(summary),
+  );
   return view;
 }
 
@@ -477,7 +571,7 @@ export function renderQmpGateDetailHeaderView(view: QmpGateDetailHeaderView): st
     `session/mode/regime: ${view.session.displaySession} / ${view.policy.engineMode} / ${view.policy.effectiveRegime}`,
     `policy: liveOrderAllowed=${view.policy.liveOrderAllowed} brokerLiveOrderAllowed=${view.policy.brokerLiveOrderAllowed} shadowAllowed=${view.policy.shadowAllowed} counterfactualAllowed=${view.policy.counterfactualAllowed} executionImpact=${view.policy.executionImpact}`,
     `G1: hardSurvivors=${nullableText(view.gate1.gate1HardSurvivors)} minSignalPass=${nullableText(view.gate1.minSignalLivePass)} avgScore=${nullableText(view.gate1.averageScore)} required=${nullableText(view.gate1.requiredScore)} topBlock=${view.gate1.topBlockReason ?? 'null'}`,
-    `G2: liveLeadership=${nullableText(view.gate2.liveLeadership === null ? null : String(view.gate2.liveLeadership))} shadowLeadership=${nullableText(view.gate2.shadowLeadership === null ? null : String(view.gate2.shadowLeadership))} pending=${nullableText(view.gate2.pendingPreserved)} topMissing=${view.gate2.topMissingAxis ?? 'null'}`,
+    `G2: liveLeadership=${nullableText(view.gate2.liveLeadership === null ? null : String(view.gate2.liveLeadership))} shadowLeadershipAllowed=${nullableText(view.gate2.shadowLeadership === null ? null : String(view.gate2.shadowLeadership))} pending=${nullableText(view.gate2.pendingPreserved)} topMissing=${view.gate2.topMissingAxis ?? 'null'}`,
     `G3: ready=${view.gate3.executionReady} wait=${view.gate3.lastTriggerWait} dataUnavailable=${view.gate3.lastTriggerDataUnavailable} rrrMissing=${view.gate3.rrrMissing} rrr=${view.gate3.rrrPass}/${view.gate3.rrrWatch}/${view.gate3.rrrFail} priceNotConfirmed=${view.gate3.priceNotConfirmed} volumeWeak=${view.gate3.volumeWeak}`,
     `Entry: liveOrderCreated=${view.entryLane.liveOrderCreated} shadowDiagnostic=${view.entryLane.shadowDiagnosticCreated} paperObservational=${view.entryLane.paperObservationalCreated} counterfactual=${view.entryLane.counterfactualCreated} liveBlockedByPolicy=${view.entryLane.liveBlockedByPolicy}`,
     `TopBlocks: ${view.topBlocks.join(', ')}`,
