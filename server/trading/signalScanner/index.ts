@@ -37,6 +37,12 @@ import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
+import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
+
+// ─── Feature flag: USE_UNIFIED_SOURCE_SNAPSHOT ───────────────────────────────
+// true 시 buyListLoop 전에 SymbolDataCollector로 종목당 1회 일괄 수집.
+// false(기본) 시 기존 per-gate 개별 fetch 경로 100% 유지 — executionImpact=NONE.
+const USE_UNIFIED_SNAPSHOT = process.env.USE_UNIFIED_SOURCE_SNAPSHOT === 'true';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -304,11 +310,35 @@ export async function runAutoSignalScan(
 
   // 2. Candidate Select (관심종목 3섹션 및 Intraday 후보군 선정)
   const candidates = await selectCandidates(preflightResult.context, options);
+
+  // 2.1 Unified Source Snapshot (feature flag: USE_UNIFIED_SOURCE_SNAPSHOT=true)
+  // OFF 시 기존 per-gate 경로 100% 유지 — executionImpact=NONE.
+  let unifiedSnapshot: import('../sourceSnapshot/unifiedSourceSnapshot.js').UnifiedSourceSnapshot | undefined;
+  if (USE_UNIFIED_SNAPSHOT) {
+    const candidateSymbols: string[] = [
+      ...candidates.buyList.map((c: any) => c.code ?? c.symbol).filter(Boolean),
+      ...candidates.intradayList.map((c: any) => c.code ?? c.symbol).filter(Boolean),
+    ];
+    const uniqueSymbols = [...new Set(candidateSymbols)] as string[];
+    if (uniqueSymbols.length > 0) {
+      try {
+        unifiedSnapshot = await collectUnifiedSnapshot(uniqueSymbols, { scanCycleId: `scan_${Date.now()}` });
+      } catch (err) {
+        // 수집 실패는 기존 경로 차단 금지 — 불변식 #1 Trading Engine 항상 생존
+        console.warn(
+          '[UNIFIED_SNAPSHOT] collectUnifiedSnapshot 실패; 기존 경로 유지',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
+
   let perSymbolSupplyInjection: PerSymbolSupplyInjectionStats | undefined;
   try {
     const injected = await injectPerSymbolSupplyContext({
       candidates: candidates.buyList,
       investorFlowRouter: createDefaultInvestorFlowRouter(),
+      snapshotData: unifiedSnapshot?.perSymbol,
     });
     candidates.buyList = injected.candidates;
     candidates.mainList = injected.candidates;
@@ -317,6 +347,7 @@ export async function runAutoSignalScan(
       const intradayInjected = await injectPerSymbolSupplyContext({
         candidates: candidates.intradayList,
         investorFlowRouter: createDefaultInvestorFlowRouter(),
+        snapshotData: unifiedSnapshot?.perSymbol,
       });
       candidates.intradayList = intradayInjected.candidates;
     }
@@ -358,13 +389,19 @@ export async function runAutoSignalScan(
     );
   }
 
-  // 2.5. Per-Symbol Price Context (volume + return5d/20d via KIS for candidatePool diagnostics)
+  // 2.5. Per-Symbol Price Context (volume + return5d/20d — snapshotData 있으면 KIS fetch 우회)
   try {
-    const priceInjected = await injectPerSymbolPriceContext(candidates.buyList as Record<string, unknown>[]);
+    const priceInjected = await injectPerSymbolPriceContext(
+      candidates.buyList as Record<string, unknown>[],
+      { snapshotData: unifiedSnapshot?.perSymbol },
+    );
     candidates.buyList = priceInjected.candidates as typeof candidates.buyList;
     candidates.mainList = priceInjected.candidates as typeof candidates.mainList;
     if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
-      const intradayPrice = await injectPerSymbolPriceContext(candidates.intradayList as Record<string, unknown>[]);
+      const intradayPrice = await injectPerSymbolPriceContext(
+        candidates.intradayList as Record<string, unknown>[],
+        { snapshotData: unifiedSnapshot?.perSymbol },
+      );
       candidates.intradayList = intradayPrice.candidates as typeof candidates.intradayList;
     }
   } catch (error) {

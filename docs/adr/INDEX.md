@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0519`**
+**다음 ADR 번호: `0520`**
 
-마지막 발급: 0518 — corporate-action-guard-dailybar-continuity-verification (2026-05-24).
+마지막 발급: 0519 — unified-source-snapshot (2026-05-25).
 
 > 본 섹션은 *다음 발급 번호 + 마지막 발급 한 줄* 만 유지한다. ADR 본문 요약·근거는 각 ADR 파일(`docs/adr/NNNN-*.md`)이 SSOT — 여기에 누적 금지 (토큰 효율, §발급 룰 4 "한 줄").
 
@@ -90,6 +90,7 @@
 
 | 번호 | 제목 | 도메인 |
 |------|------|--------|
+| 0519 | unified-source-snapshot | trading / data-collection / source-snapshot / feature-flag |
 | 0518 | corporate-action-guard-dailybar-continuity-verification | trading / corporate-action / watchlist / dailybar-verify |
 | 0517 | kis-investor-flow-supply-health-bridge | kis / supply / forensic / wiring / patch |
 | 0516 | watchlist-tier-based-kis-rest-usage | trading / watchlist / kis-rest / tier-policy |
@@ -441,7 +442,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0518 · 다음 발급 0519** — 총 330행 (327 unique 번호). 충돌·누락 카운트 SSOT 는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0519 · 다음 발급 0520** — 총 331행 (328 unique 번호). 충돌·누락 카운트 SSOT 는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
