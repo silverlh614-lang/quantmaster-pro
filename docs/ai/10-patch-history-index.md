@@ -544,3 +544,4 @@
 - 2026-05-24 · Patch-UI-SECTION-NAV-VERIFY-AND-SPA-NOCACHE-001
 - 2026-05-24 · Patch-CORP-ACTION-ORGANIC-DAILY-LIMIT-GUARD-001 (addedAt 윈도우 휴리스틱 — ADR-0518 일봉 검증으로 대체/제거됨)
 - 2026-05-25 · Patch-WATCHLIST-ADDED-ALERT-DEDUP-001 (피엠티 churn 반복 편입 알림 → 종목코드+KST일자 dedup 1일 1회)
+- 2026-05-25 · Patch-WATCHLIST-SYNC-BASELINE-002 (클라이언트 마운트 시 워치리스트 전체 재미러링 차단 — churn 근원 제거, diffWatchlistSync baseline)

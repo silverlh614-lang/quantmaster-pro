@@ -6,6 +6,25 @@ import { autoTradeApi } from '../api';
 
 type HistoryEntry = { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number };
 
+/**
+ * 워치리스트 → 자동매매 엔진 미러링 델타 계산 (순수).
+ *
+ * `prevCodes === null` (최초 관측: 마운트/동기 prime) 은 baseline 으로만 기록하고
+ * 빈 델타를 반환한다 — 기존 워치리스트 전체를 "신규 추가"로 오인해 매 마운트마다
+ * 서버로 재미러링하던 churn 을 차단한다(147760 피엠티: 엔진이 +99.6% drift 로 제거 →
+ * 클라이언트가 재등록 → 반복 편입 알림). 이후의 실제 사용자 추가/제거 델타만 동기화.
+ */
+export function diffWatchlistSync(
+  prevCodes: string[] | null,
+  currentCodes: string[],
+): { added: string[]; removed: string[] } {
+  if (prevCodes === null) return { added: [], removed: [] };
+  return {
+    added: currentCodes.filter((c) => !prevCodes.includes(c)),
+    removed: prevCodes.filter((c) => !currentCodes.includes(c)),
+  };
+}
+
 export function useQuantRecommendations() {
   const {
     recommendations,
@@ -40,14 +59,15 @@ export function useQuantRecommendations() {
   }, []);
 
   // ── Watchlist Sync ──────────────────────────────────────────────────────
-  const prevWatchlistCodesRef = useRef<string[]>([]);
+  // null = 아직 미관측 — 최초 관측(마운트/동기 prime)은 baseline 으로만 기록(델타 0).
+  const prevWatchlistCodesRef = useRef<string[] | null>(null);
   useEffect(() => {
     const currentCodes = (watchlist || []).map((s: StockRecommendation) => s.code);
-    const prevCodes = prevWatchlistCodesRef.current;
+    const { added: addedCodes, removed } = diffWatchlistSync(prevWatchlistCodesRef.current, currentCodes);
     prevWatchlistCodesRef.current = currentCodes;
 
-    const added = (watchlist || []).filter((s: StockRecommendation) => !prevCodes.includes(s.code));
-    for (const stock of added) {
+    const addedSet = new Set(addedCodes);
+    for (const stock of (watchlist || []).filter((s: StockRecommendation) => addedSet.has(s.code))) {
       autoTradeApi.addToWatchlist({
         code: stock.code,
         name: stock.name,
@@ -57,7 +77,6 @@ export function useQuantRecommendations() {
       }).catch((err) => console.error('[ERROR] 워치리스트 동기화 실패:', err));
     }
 
-    const removed = prevCodes.filter((code: string) => !currentCodes.includes(code));
     for (const code of removed) {
       autoTradeApi.removeFromWatchlist(code).catch((err) => console.error('[ERROR] 워치리스트 삭제 실패:', err));
     }
