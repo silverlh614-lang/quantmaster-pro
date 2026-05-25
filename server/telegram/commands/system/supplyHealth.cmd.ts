@@ -56,6 +56,8 @@ import type {
   KisSupplyEnemyChecklistDecision,
 } from '../../../supply/kisOfficialSupplyPack.js';
 import { buildKisOnlyHealthReport, formatKisOnlyHealthReport, isKisOnlyRebuildMode } from '../../../diagnostics/kisOnlyHealth.js';
+// 정본 통일 후속 — 스캔 정본 수급 뷰(가산·read-only). live-probe 섹션 동작 0줄 변경.
+import { buildCanonicalSupplyView, formatCanonicalSupplyViewLines } from './supplyHealthCanonicalView.js';
 
 export const SUPPLY_HEALTH_CACHE_TTL_MS = 30_000;
 const TOP_N = 10;
@@ -1090,6 +1092,9 @@ function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine:
   const degraded = channels.filter((c) => c.marker === 'DEGRADED').length;
   const missing = channels.filter((c) => c.marker === 'MISSING').length;
   const risks = buildRiskTop3(channels);
+  // 스캔 정본 수급 뷰 — getLastScanSummary 영속본 read-only 추출 (재fetch·재계산 0).
+  // live-probe 섹션과 별개 정본 섹션을 한 메시지에 공존시켜 운영자가 "스캔 실사용분" vs "현재 채널 상태"를 구분.
+  const canonicalSupplyLines = formatCanonicalSupplyViewLines(buildCanonicalSupplyView(getLastScanSummary()));
   const lines = [
     ...(kisFirstMode ? [
       `Current Data Mode: ${isKisOnlyRebuildMode() ? 'KIS_ONLY_REBUILD' : 'KIS_FIRST_REBUILD'}`,
@@ -1097,6 +1102,9 @@ function renderMessage(channels: ChannelStatus[], targetLine: string, cacheLine:
       'Legacy Providers: diagnostic-only',
       '',
     ] : []),
+    ...canonicalSupplyLines,
+    '',
+    '🔍 현재 채널 상태 (live probe — 스캔 사용분과 다를 수 있음)',
     `📊 Supply Health: ${ok}/${channels.length} OK | ${neutral} NEUTRAL | ${degraded} DEGRADED | ${stale} STALE | ${missing} MISSING`, targetLine, cacheLine, '', '⚠️ 위험 TOP 3', ...(risks.length > 0 ? risks : ['- 🟢 주요 위험 없음']), ''];
   channels.forEach((channel, index) => {
     lines.push(`${index + 1}. ${markerIcon(channel.marker)} ${channel.title}`);
