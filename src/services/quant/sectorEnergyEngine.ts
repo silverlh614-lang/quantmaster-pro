@@ -218,19 +218,6 @@ export function evaluateSectorEnergy(
 }
 
 /**
- * 특정 종목의 섹터가 주도 섹터인지 판별하여 Gate 2 조정값 반환.
- * 주도 섹터면 -1, 그 외 0.
- */
-export function getSectorGate2Adjustment(
-  stockSectorName: string,
-  result: SectorEnergyResult | null,
-): number {
-  if (!result) return 0;
-  const tier = result.leadingSectors.find((t) => t.name === stockSectorName);
-  return tier?.gate2Adjustment ?? 0;
-}
-
-/**
  * 특정 종목의 섹터 포지션 사이즈 상한 반환.
  * 소외 섹터면 40, 그 외 100.
  */
