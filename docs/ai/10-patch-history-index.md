@@ -101,6 +101,7 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-25 · Patch-PATCH-HISTORY-INDEX-COMPACT-ROUTER-001 · docs-ai-10, archive-snapshot, context-hygiene
 - 2026-05-26 · Patch-QMP-GATE-DETAIL-HEADER-CANONICAL-536A2 · gateUx, QMP-header, Permission/Gate3/EntryLane
 - 2026-05-26 · Patch-QMP-GATE-HEADER-FIELD-SOURCE-536A3 · QMP-header, paperObservational, shadowLeadershipAllowed
+- 2026-05-26 · Patch-ADR0528-A1A2-SOURCESNAPSHOT-CARRY-WIRING · position-policy-log, sourceSnapshotId, scanEvaluation.scanId, NA-fallback-fix
 
 ---
 
