@@ -476,9 +476,10 @@ export async function persistScanResults(
           : undefined,
         shadowOnlyMode: options.macroGateState?.engineMode === 'SHADOW_ONLY',
         sellOnlyMode: options.sellOnly === true || options.macroGateState?.sellOnlyMode === true,
+        // 폐기된 macroRegimeEffective(legacy R6 transition machine, notUsedForDecision)는 제외한다 —
+        // 정본 regime/riskOverride 만으로 R6 방어를 판정해 livePolicy R6_DEFENSE 오라벨을 차단한다.
         r6DefenseMode: options.macroGateState?.riskOverride === 'R6_DEFENSE'
-          || options.macroGateState?.regime === 'R6_DEFENSE'
-          || options.macroGateState?.macroRegimeEffective === 'R6_DEFENSE',
+          || options.macroGateState?.regime === 'R6_DEFENSE',
         brokerLiveOrderAllowed: options.macroGateState?.brokerLiveOrderAllowed,
       },
       shadowAllowed: true,
@@ -565,9 +566,9 @@ export async function persistScanResults(
       liveOrderAllowed: options.macroGateState?.liveEntryAllowed === true && options.macroGateState?.brokerOrderAllowed !== false,
       runtimeLabels: {
         sellOnly: options.sellOnly === true || options.macroGateState?.sellOnlyMode === true,
+        // 정본 regime 만 사용 — 폐기 macroRegimeEffective(notUsedForDecision) 제외.
         r6Defense:
-          options.macroGateState?.regime === 'R6_DEFENSE' ||
-          options.macroGateState?.macroRegimeEffective === 'R6_DEFENSE',
+          options.macroGateState?.regime === 'R6_DEFENSE',
         kellyZero: (options.macroGateState?.finalKellyMultiplier ?? 1) <= 0,
         providerIssue: scanCandidateSnapshots.some((item) => item.supplyProviderHealth?.providerIssue === true),
         staleData:
