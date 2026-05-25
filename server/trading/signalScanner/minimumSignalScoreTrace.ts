@@ -1132,9 +1132,9 @@ export function buildMinimumSignalScoreTrace(input: {
             ? 4
             : supplyBearish
               ? -10
-              : supplyUnknown
-                ? -10
-                : 0,
+              // 불변식 #6: UNKNOWN/UNAVAILABLE 수급(provider 장애·데이터 없음)은 점수
+              // 페널티가 아니라 confidence 강등(confidence=UNKNOWN)만 — bearish 로 변환 금지.
+              : 0,
       maxScore: 8,
       confidence: supplyUnknown ? "UNKNOWN" : "VERIFIED",
       providerIssue: supplyUnknown,
