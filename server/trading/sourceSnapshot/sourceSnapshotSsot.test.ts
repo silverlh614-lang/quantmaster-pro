@@ -39,7 +39,7 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
     expect(regular).toMatchObject({ gateStatus: 'OK', sessionAgnostic: true });
   });
 
-  it('ignores removed AFTERMARKET display + R6/SELL_ONLY execution blocks while preserving policy diagnostics', () => {
+  it('R6/SELL_ONLY 제거됨 — 레거시 entryBlockMode 가 live order 를 차단하지 않음', () => {
     const commonGateResult = evaluateCommonGate({
       snapshotId: 'snap-r6',
       candidate: { symbol: '005930', quoteStatus: 'VERIFIED', tradabilityStatus: 'TRADABLE', liquidityStatus: 'PASS' },
@@ -62,9 +62,8 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
       policyStatus: 'LIVE_ALLOWED',
       liveBuyAllowed: true,
       liveSellAllowed: true,
-      realOrderAllowed: false,
-      liveOrderAllowed: false,
-      liveBlockReason: 'SELL_ONLY_MODE',
+      // R6/SELL_ONLY 제거됨 — live order 허용, 차단 없음
+      liveBlockReason: 'NONE',
       gateEvaluationAllowed: true,
       diagnosticGateEvaluationAllowed: true,
       shadowEvaluationAllowed: true,
@@ -75,10 +74,10 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
       displaySession: 'REGULAR',
       entryBlockMode: 'NORMAL',
       sessionOverlay: 'NONE',
-      executionImpact: 'NEW_BUY_BLOCKED_ONLY',
       legacyPolicyIgnored: true,
     });
     expect(policy.blockReasons).toEqual([]);
+    // legacyPolicyInputs 는 policyResolver 자체 로직으로 여전히 수집됨 (진단 로깅용)
     expect(policy.legacyPolicyInputs).toEqual(expect.arrayContaining([
       'AFTERMARKET_SELL_ONLY_REMOVED',
       'R6_DEFENSE_REMOVED',
@@ -87,7 +86,6 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
     ]));
     expect(formatPolicyDiag(policy)).toContain('LIVE_ALLOWED');
     expect(formatPolicyDiag(policy)).toContain('entryBlockMode=NORMAL');
-    expect(formatPolicyDiag(policy)).toContain('liveOrderAllowed=false');
     expect(formatPolicyDiag(policy)).toContain('shadowEvaluationAllowed=true');
     expect(formatPolicyDiag(policy)).not.toContain('R6_DEFENSE_SELL_ONLY');
     expect(formatPolicyDiag(policy)).not.toContain('AFTERMARKET_SELL_ONLY');

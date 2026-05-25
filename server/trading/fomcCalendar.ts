@@ -36,8 +36,6 @@
  *  2026 — 연준 공식 일정 (확정, 2025-11 발표)
  */
 
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
-
 // ── FOMC 발표일 (ET 기준 2일차 — 한국 시장 종료일) ────────────────────────────
 
 export const FOMC_DATES: string[] = [
@@ -217,65 +215,21 @@ export function applyFomcRelaxation(
 }
 
 /**
- * 현재 KST 날짜 기준 FOMC 근접도를 반환한다.
- * signalScanner.ts가 매 tick마다 호출한다.
- *
- * @param macro 옵셔널 — 우호 환경 완화 컨텍스트(MHS/regime/VKOSPI). 전달 시 PRE_1/DAY
- *              구간에서 자동 완화 평가, 미전달 시 기존 차단 정책 유지 (호환성 보장).
+ * FOMC 게이팅이 제거되었습니다. 항상 NONE phase(no-block, Kelly ×1.0)를 반환합니다.
  */
-export function getFomcProximity(macro?: FomcRelaxationContext): FomcProximity {
-  const today = todayKst();
-
-  // 다음 FOMC, 직전 FOMC 탐색
-  const sortedDates = [...FOMC_DATES].sort();
-  const nextDate    = sortedDates.find(d => d >= today) ?? null;
-  const lastDate    = [...sortedDates].reverse().find(d => d < today) ?? null;
-
-  const daysUntil = nextDate ? daysDiff(today, nextDate) : null;
-  const daysAfter = lastDate ? daysDiff(lastDate, today) : null;
-
-  let phase: FomcPhase;
-
-  if      (daysUntil === 0)  phase = 'DAY';
-  else if (daysUntil === 1)  phase = 'PRE_1';
-  else if (daysUntil === 2)  phase = 'PRE_2';
-  else if (daysUntil === 3)  phase = 'PRE_3';
-  else if (daysAfter === 1)  phase = 'POST_1';
-  else if (daysAfter === 2)  phase = 'POST_2';
-  else                        phase = 'NORMAL';
-
-  const baseKelly = PHASE_KELLY[phase];
-  // hedgeSignal: v2 정책에선 D-3 가 정상 운용으로 격하되어 헤지 신호도 제거.
-  // 헤지 검토는 본 게이트가 아닌 R6 비상 청산·trailingStop 등 exitEngine 룰에서 자체 처리.
-  const hedgeSignal = false;
-
-  const descMap: Record<FomcPhase, string> = {
-    PRE_3:  `FOMC D-3 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
-    PRE_2:  `FOMC D-2 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
-    PRE_1:  `FOMC D-1 (${nextDate}) — 보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)`,
-    DAY:    `FOMC 발표일 (${nextDate ?? lastDate}) — 신규 진입 금지`,
-    POST_1: `FOMC D+1 (${lastDate}) — 방향 확인 후 최대 진입 (Kelly ×1.30)`,
-    POST_2: `FOMC D+2 (${lastDate}) — 모멘텀 가속 (Kelly ×1.15)`,
-    NORMAL: '정상 운용',
-  };
-
-  // v2 우호 환경 완화 — PRE_1 / DAY 에서 macro 가 우호적이면 보수적 진입 허용.
-  // macro 미전달 시 applyFomcRelaxation 이 차단 유지 결과 반환 (회귀 안전).
-  const relaxation = applyFomcRelaxation(phase, baseKelly, macro);
-  const description = relaxation.relaxed
-    ? `${descMap[phase]} | ${relaxation.reason}`
-    : descMap[phase];
-
+export function getFomcProximity(_macro?: FomcRelaxationContext): FomcProximity {
   return {
-    phase, daysUntil, daysAfter,
-    nextFomcDate:     nextDate,
-    lastFomcDate:     lastDate,
-    kellyMultiplier:  relaxation.effectiveKelly,
-    noNewEntry:       relaxation.noNewEntry,
-    hedgeSignal,
-    description,
-    relaxed:          relaxation.relaxed || undefined,
-    relaxationReason: relaxation.relaxed ? relaxation.reason : undefined,
+    phase:           'NORMAL',
+    daysUntil:       null,
+    daysAfter:       null,
+    nextFomcDate:    undefined as unknown as null,
+    lastFomcDate:    null,
+    kellyMultiplier: 1.0,
+    noNewEntry:      false,
+    hedgeSignal:     false,
+    description:     'FOMC_GATING_REMOVED',
+    relaxed:         undefined,
+    relaxationReason: undefined,
   };
 }
 
@@ -328,41 +282,10 @@ export function generateFomcIcs(): string {
 let _lastAlertedDate = '';
 
 /**
- * FOMC 근접 시 Telegram 경보 발송.
- * sendWatchlistBriefing() 직후 scheduler.ts에서 호출.
- * 하루 1회만 발송 (서버 메모리 기준).
+ * FOMC 근접 경보 — 제거됨. no-op stub.
  */
 export async function checkFomcProximityAlert(): Promise<void> {
-  const today = todayKst();
-  if (_lastAlertedDate === today) return; // 오늘 이미 발송
-
-  const p = getFomcProximity();
-  if (p.phase === 'NORMAL') return;
-
-  _lastAlertedDate = today;
-
-  const emojiMap: Record<FomcPhase, string> = {
-    PRE_3: '🔴', PRE_2: '🟠', PRE_1: '🟡',
-    DAY:   '🔵', POST_1: '📈', POST_2: '📊', NORMAL: '',
-  };
-
-  let msg =
-    `${emojiMap[p.phase]} <b>[FOMC 캘린더]</b> ${p.description}\n`;
-
-  if (p.hedgeSignal) {
-    msg += `\n📌 <b>자동 적용:</b> 신규 진입 차단\n` +
-           `💡 <b>권고:</b> 기존 포지션 50% 헤지 검토\n` +
-           `📅 다음 FOMC: ${p.nextFomcDate}`;
-  } else if (p.noNewEntry) {
-    msg += `\n📌 <b>자동 적용:</b> 신규 진입 차단`;
-    if (p.nextFomcDate) msg += `\n📅 FOMC 날짜: ${p.nextFomcDate}`;
-  } else {
-    // POST 구간
-    msg += `\n📌 <b>자동 적용:</b> Kelly ×${p.kellyMultiplier.toFixed(2)} (부스트)\n` +
-           `💡 방향 확인 후 적극 진입 구간`;
-  }
-
-  await sendTelegramAlert(msg).catch(console.error);
+  // FOMC_GATING_REMOVED — no-op
 }
 
 // ─── FOMC DAY 보유 포지션 강제 청산 정책 (PR-1, ADR-0061) ─────────────────────

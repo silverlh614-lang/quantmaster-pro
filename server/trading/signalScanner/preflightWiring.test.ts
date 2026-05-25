@@ -12,10 +12,6 @@ describe('signalScanner ↔ preflight 단일 SSOT (PR-42 M3)', () => {
     expect(typeof preflight.evaluateSellOnlyException).toBe('function');
   });
 
-  it('preflight.getAccountScaleKellyMultiplier export 존재', () => {
-    expect(typeof preflight.getAccountScaleKellyMultiplier).toBe('function');
-  });
-
   it('signalScanner.ts 본체는 inline 정의 미보유 (drift 차단)', () => {
     // ADR-0147b (signalScanner Phase 3 분해, PR #523): signalScanner.ts 는
     // barrel re-export 35줄로 축소. preflight 호출은 signalScanner/index.ts
@@ -26,7 +22,6 @@ describe('signalScanner ↔ preflight 단일 SSOT (PR-42 M3)', () => {
       'utf-8',
     );
     expect(src).not.toMatch(/^function\s+evaluateSellOnlyException\s*\(/m);
-    expect(src).not.toMatch(/^function\s+getAccountScaleKellyMultiplier\s*\(/m);
     expect(src).not.toMatch(/^interface\s+SellOnlyExceptionDecision\b/m);
   });
 
@@ -36,16 +31,6 @@ describe('signalScanner ↔ preflight 단일 SSOT (PR-42 M3)', () => {
       'utf-8',
     );
     expect(src).toContain("from './preflight.js'");
-  });
-
-  it('getAccountScaleKellyMultiplier — 계좌 규모 별 정확한 배수', () => {
-    expect(preflight.getAccountScaleKellyMultiplier(500_000_000)).toBe(1.15);
-    expect(preflight.getAccountScaleKellyMultiplier(300_000_000)).toBe(1.15);
-    expect(preflight.getAccountScaleKellyMultiplier(150_000_000)).toBe(1.08);
-    expect(preflight.getAccountScaleKellyMultiplier(100_000_000)).toBe(1.08);
-    expect(preflight.getAccountScaleKellyMultiplier(50_000_000)).toBe(1.0);
-    expect(preflight.getAccountScaleKellyMultiplier(20_000_000)).toBe(0.92);
-    expect(preflight.getAccountScaleKellyMultiplier(5_000_000)).toBe(0.92);
   });
 
   it('evaluateSellOnlyException — sellOnlyException disabled 시 allow=false', () => {

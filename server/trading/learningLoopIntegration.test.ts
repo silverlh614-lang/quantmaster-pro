@@ -64,14 +64,11 @@ describe('learning loop integration boundaries', () => {
     const { computeBiasPositionPenalty } = await import('../learning/biasPositionPenalty.js');
     expect(computeBiasPositionPenalty().multiplier).toBe(0.5);
 
-    // ADR-0157/0168 SSOT: biasMultiplier 가 computeEffectiveKelly() 인자로 전달되어
-    // Kelly 사이징에 자연 반영. 기존 인라인 곱셈(accountKellyMultiplier * biasMultiplier)은
-    // computeEffectiveKelly SSOT 단일 통로로 통합 — wiring 자체(biasMultiplier 가 Kelly 산출에
-    // 들어감)는 보존, 호출 구조만 SSOT 위임.
+    // ADR-0157/0168 SSOT: biasMultiplier 승수 체인 제거됨 (레짐별 매수비중 직접 사용).
+    // computeEffectiveKelly 는 정책 차단 체크 목적으로만 유지 (모든 승수=1.0).
     const preflightSource = fs.readFileSync('server/trading/signalScanner/preflight.ts', 'utf-8');
-    expect(preflightSource).toMatch(/const\s+biasMultiplier\s*=\s*biasPositionPenalty\.multiplier/);
-    expect(preflightSource).toMatch(/computeEffectiveKelly\(\{[\s\S]*?biasMultiplier[\s\S]*?\}\)/);
-    expect(preflightSource).toMatch(/computeEffectiveKelly\(\{[\s\S]*?accountMultiplier:\s*accountKellyMultiplier[\s\S]*?\}\)/);
+    expect(preflightSource).toMatch(/const\s+buyWeightPct\s*=\s*regimeConfig\.kellyMultiplier/);
+    expect(preflightSource).toMatch(/computeEffectiveKelly\(\{[\s\S]*?baseKelly:\s*buyWeightPct[\s\S]*?\}\)/);
   });
 
   it('STATELESS health flows into killSwitch trigger and env can disable it', async () => {
