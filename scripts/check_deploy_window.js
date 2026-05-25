@@ -36,11 +36,9 @@ function nowKst(now = new Date()) {
   };
 }
 
-function isDeployBlocked(ts) {
-  // 주말(토·일)은 항상 허용
-  if (ts.weekday === 0 || ts.weekday === 6) return false;
-  // 평일 장중이면 차단
-  return ts.minuteOfDay >= MARKET_OPEN_MIN && ts.minuteOfDay <= MARKET_CLOSE_MIN;
+function isDeployBlocked(_ts) {
+  // 장중 배포 제약 철회 — 사용자 명시 허가 (2026-05-25)
+  return false;
 }
 
 function fmt(ts) {
