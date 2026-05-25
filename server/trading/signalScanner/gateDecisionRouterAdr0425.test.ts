@@ -212,7 +212,7 @@ describe('ADR-0425 Gate Decision Router', () => {
   // ────────────────────────────────────────────────────────
   // §H Test 6: 진짜 기술 미달 우세 → TRUE_WEAKNESS
   // ────────────────────────────────────────────────────────
-  it('§H#6: 진짜 기술 미달 우세 → TRUE_WEAKNESS + Shadow always-on', () => {
+  it('§H#6: 진짜 기술 미달 우세 → TRUE_WEAKNESS + Shadow/Counterfactual 차단 (학습 오염 방지)', () => {
     const result = deriveGateDecisionRouterResult({
       gate1Pass: 10,
       gate2Pass: 0,
@@ -249,10 +249,12 @@ describe('ADR-0425 Gate Decision Router', () => {
     });
     expect(result.severity).toBe('TRUE_WEAKNESS');
     expect(result.liveAllowed).toBe(false);
-    expect(result.shadowAllowed).toBe(true);
+    // 진짜 기술 미달은 실거래·shadow 공통 게이트 미달 — Watch 만 보존, shadow/counterfactual 차단.
+    // provisionalShadowLane / counterfactualShadowLearningLane 이 severity 로 차단하는 실동작과 정합.
+    expect(result.shadowAllowed).toBe(false);
     expect(result.watchAllowed).toBe(true);
-    expect(result.counterfactualLearningAllowed).toBe(true);
-    expect(result.learningShadowAllowed).toBe(true);
+    expect(result.counterfactualLearningAllowed).toBe(false);
+    expect(result.learningShadowAllowed).toBe(false);
     expect(result.reasons).toContain('TRUE_NO_LEADERSHIP');
     expect(result.label).toBe('BLOCK_TRUE_WEAKNESS');
   });
