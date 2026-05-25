@@ -344,10 +344,11 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       supplyConfluenceState: "UNKNOWN",
       hasSectorEnergyDiagnostic: false,
     });
+    // 불변식 #6: UNKNOWN 수급(provider 장애)은 점수 페널티 0 (confidence 강등만).
     expect(
       trace.components.find((c) => c.code === "SUPPLY_CONFLUENCE")
         ?.weightedScore,
-    ).toBe(-10);
+    ).toBe(0);
     expect(
       trace.components.find((c) => c.code === "INVESTOR_FLOW")?.weightedScore,
     ).toBe(0);
@@ -355,7 +356,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       trace.components.find((c) => c.code === "SOFT_FAIL_PENALTY")
         ?.weightedScore,
     ).toBe(0);
-    expect(trace.providerIssuePenaltyTotal).toBe(-10);
+    expect(trace.providerIssuePenaltyTotal).toBe(0);
   });
 
   it("keeps bearish supply penalty while capping REGIME_RISK signal-score double-count", () => {
@@ -382,6 +383,42 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       trace.components.find((c) => c.code === "RISK_PENALTY")?.weightedScore,
     ).toBeGreaterThanOrEqual(-3);
     expect(trace.riskPenaltyTotal).toBe(-3);
+  });
+
+  it("invariant #6: UNKNOWN/UNAVAILABLE supply confluence applies zero score penalty, BEARISH keeps -10", () => {
+    const supplyComponent = (
+      state: "UNKNOWN" | "UNAVAILABLE" | "BEARISH" | "NEUTRAL" | "BULLISH",
+    ) =>
+      buildMinimumSignalScoreTrace({
+        trace: {
+          symbol: `SUP_${state}`,
+          stageReached: "WATCHLIST",
+          blockers: [],
+          executionImpact: "NONE",
+        },
+        hasGate1Blocker: true,
+        regime: "R3_EARLY",
+        marketSession: "NORMAL",
+        supplyProviderHealth:
+          state === "UNKNOWN" || state === "UNAVAILABLE"
+            ? noRecentSample
+            : verifiedSupply,
+        supplyConfluenceState: state,
+        hasSectorEnergyDiagnostic: false,
+      }).components.find((c) => c.code === "SUPPLY_CONFLUENCE");
+
+    // provider 장애/데이터 없음 → 점수 영향 0 (bearish 로 변환 금지)
+    expect(supplyComponent("UNKNOWN")?.weightedScore).toBe(0);
+    expect(supplyComponent("UNAVAILABLE")?.weightedScore).toBe(0);
+    // 실제 데이터 기반 신호는 그대로 유지
+    expect(supplyComponent("BEARISH")?.weightedScore).toBe(-10);
+    expect(supplyComponent("NEUTRAL")?.weightedScore).toBe(4);
+    expect(supplyComponent("BULLISH")?.weightedScore).toBe(8);
+    // UNKNOWN 은 점수 대신 confidence 강등 + providerIssue 로 추적 (market signal 아님)
+    const unknown = supplyComponent("UNKNOWN");
+    expect(unknown?.confidence).toBe("UNKNOWN");
+    expect(unknown?.providerIssue).toBe(true);
+    expect(unknown?.marketSignal).toBe(false);
   });
 
   it("uses component sum for actualScore and never lets trace.gateScore override the full score", () => {
@@ -474,10 +511,11 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       supplyConfluenceState: "UNKNOWN",
       hasSectorEnergyDiagnostic: false,
     });
+    // 불변식 #6: UNKNOWN 수급(provider 장애)은 점수 페널티 0 (confidence 강등만).
     expect(
       trace.components.find((c) => c.code === "SUPPLY_CONFLUENCE")
         ?.weightedScore,
-    ).toBe(-10);
+    ).toBe(0);
     expect(
       trace.components.find((c) => c.code === "INVESTOR_FLOW")?.weightedScore,
     ).toBe(0);
@@ -485,7 +523,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
       trace.components.find((c) => c.code === "SOFT_FAIL_PENALTY")
         ?.weightedScore,
     ).toBe(0);
-    expect(trace.providerIssuePenaltyTotal).toBe(-10);
+    expect(trace.providerIssuePenaltyTotal).toBe(0);
     expect(
       trace.components.find((c) => c.code === "INVESTOR_FLOW")?.marketSignal,
     ).toBe(false);
@@ -582,7 +620,8 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     });
     const audit = d.unknownDataTreatmentAudits[0];
     expect(audit.hasBearishEquivalentUnknown).toBe(false);
-    expect(d.minSignalScoreTraces[0].providerIssuePenaltyTotal).toBeLessThan(0);
+    // 불변식 #6: provider 장애는 점수 페널티 0 — market penalty 와 완전 분리(이전 -10 → 0).
+    expect(d.minSignalScoreTraces[0].providerIssuePenaltyTotal).toBe(0);
     expect(
       d.minSignalScoreTraces[0].components.find(
         (c) => c.code === "INVESTOR_FLOW",
@@ -807,9 +846,9 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     });
     expect(d.ledgerRows[0].minSignalScoreSummary?.scoreGap).toBeLessThan(0);
     expect(d.ledgerRows[0].gate1TraceSummary?.tags).toEqual(
+      // 불변식 #6: UNKNOWN 수급은 점수 페널티가 아니므로 CASE_UNKNOWN_DATA_PENALTY 미발생.
       expect.arrayContaining([
         "CASE_MIN_SIGNAL_SCORE_GAP",
-        "CASE_UNKNOWN_DATA_PENALTY",
         "CASE_SOFT_FAIL_ACCUMULATION",
         "CASE_RISK_PENALTY_DOUBLE_COUNT_WARNING",
       ]),

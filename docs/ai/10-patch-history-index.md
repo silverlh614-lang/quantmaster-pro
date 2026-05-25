@@ -562,3 +562,4 @@
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-002 (Phase 2: injectPerSymbolSupplyContext/PriceContext snapshotData 주입 wiring; 중복 KIS fetch 제거; executionImpact=NONE)
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-003 (KRX 마스터 연결: symbolDataCollector name/market 플레이스홀더 제거; getAllStockEntries 코드→엔트리 맵; OTHER 마켓 KOSPI 폴백; executionImpact=NONE)
 - 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-004 (교차 집합 RS: computeCrossSectionalRS 추가; freeze 전 relativeReturn20d/rsScore 퍼센타일 일괄 계산; UnifiedMacroContext.kospi20dReturn 필드 추가; executionImpact=NONE)
+- 2026-05-25 · Patch-SUPPLY-CONFLUENCE-UNKNOWN-NEUTRALIZE-001 (불변식 #6 정합: minimumSignalScoreTrace SUPPLY_CONFLUENCE supplyUnknown(UNKNOWN/UNAVAILABLE) weightedScore -10→0 — provider 장애·수급 데이터 없음을 점수 페널티로 변환 금지; supplyBearish -10 유지; confidence=UNKNOWN+providerIssue 추적 보존; providerIssuePenaltyTotal 0 정합; KRX investor-flow 깨짐 시 Gate1 score collapse(42.6→21.5·survivor 4→0) 근본 차단; ADR-0466 회귀테스트 4건 갱신+1건 추가; executionImpact=NONE)
