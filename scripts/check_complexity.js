@@ -108,11 +108,11 @@ const BASELINE_TECHNICAL_DEBT = [
   //     - server/clients/kisClient/query.ts (2132 LoC, 7926f3ae) — KIS query SSOT (core)
   //     - server/trading/gate2/gate2ExternalDataProvider.ts (1715 LoC, 94879dba) — Gate2 외부데이터 provider
   //     - server/trading/signalScanner/scanDiagnostics/persistScanResults.ts (1827 LoC, 2b3d54de) — 스캔 진단 영속
-  //     - server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts (1568 LoC, 4f6736dd)
+  //   ✅ 2026-05-25 sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts 분해 완료 (1568→1336줄 — ADR-0521,
+  //      types.ts 모듈 추출(타입 17종) + 메인 re-export, byte-equivalent, lint EXIT=0, test 39/39) → 카탈로그에서 정식 제거.
   'server/clients/kisClient/query.ts',
   'server/trading/gate2/gate2ExternalDataProvider.ts',
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
-  'server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts',
 ];
 
 function isBaseline(file) {
