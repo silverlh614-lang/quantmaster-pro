@@ -223,6 +223,7 @@ export async function preBreakoutFollowthrough(
         rrr: stock.rrr,
         mtas: reCheckGateFollow?.mtas,
         compressionScore: reCheckGateFollow?.compressionScore,
+        availableMaxScore: reCheckGateFollow?.availableMaxScore,
         signalType: 'PRE_BREAKOUT_FOLLOWTHROUGH',
         gateBandNormal: getRegimeGateBand(ctx.regime).normal,
         gateBandStrong: getRegimeGateBand(ctx.regime).strong,

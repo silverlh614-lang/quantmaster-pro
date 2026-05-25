@@ -238,6 +238,7 @@ export interface CreateBuyTaskParams {
   rrr?: number;
   mtas?: number;
   compressionScore?: number;
+  availableMaxScore?: number | null;
   signalType?: string;
   gateBandNormal?: number;
   gateBandStrong?: number;
@@ -420,6 +421,7 @@ function requestApprovalForBuyTask(
     rrr:          p.rrr,
     mtas:         p.mtas,
     compressionScore: p.compressionScore,
+    availableMaxScore: p.availableMaxScore,
     signalType:   p.signalType,
     gateBandNormal: p.gateBandNormal,
     gateBandStrong: p.gateBandStrong,

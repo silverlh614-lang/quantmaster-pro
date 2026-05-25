@@ -498,6 +498,7 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
             rrr: stock.rrr,
             mtas: reCheckGatePb?.mtas,
             compressionScore: reCheckGatePb?.compressionScore,
+            availableMaxScore: reCheckGatePb?.availableMaxScore,
             signalType: 'PRE_BREAKOUT_SHADOW_ALLOWED',
             gateBandNormal: getRegimeGateBand(ctx.regime).normal,
             gateBandStrong: getRegimeGateBand(ctx.regime).strong,
