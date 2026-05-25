@@ -344,8 +344,8 @@ function buildPositiveWiringRows(input: Gate1DryRunObservationBuildInput, nowIso
 
 function buildScoringAlignmentRowsAdr0520(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
   const gate = input.scoringAlignmentDryRunAdr0520;
-  // ENV flag off (or no gate) -> emit nothing so the prior behaviour is identical.
-  if (!gate || gate.enabled !== true) return [];
+  // Observation-only source; always recorded when present (no ENV toggle). Empty when absent.
+  if (!gate) return [];
   // Only the REAL symbols that pass the relaxed curve but fail the live curve.
   const survivors = gate.survivors.slice(0, input.topN ?? 10);
   return survivors.map((survivor) => withOptionalScoreFields({

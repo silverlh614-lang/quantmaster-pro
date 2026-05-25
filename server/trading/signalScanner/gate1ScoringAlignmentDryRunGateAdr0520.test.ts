@@ -1,22 +1,14 @@
-// @responsibility ADR-0520 Gate1 scoring-alignment DRY_RUN gating regression tests
+// @responsibility ADR-0520 Gate1 scoring-alignment DRY_RUN observation regression tests
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   ADR_0520_DRY_RUN_SCENARIO,
-  GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG,
   buildGate1ScoringAlignmentDryRunGate,
-  isGate1ScoringAlignmentDryRunEnabled,
 } from './gate1ScoringAlignmentDryRunGateAdr0520.js';
 import { buildGate1DryRunObservationRows } from './gate1DryRunObservationLedgerAdr0476.js';
 import type { Gate1ScoreStarvationTrace } from './gate1PositiveScoreStarvation.js';
 import type { Gate1ScoringAlignmentReport } from './gate1ScoringAlignmentAdr0472.js';
-
-const FLAG = GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG;
-
-afterEach(() => {
-  delete process.env[FLAG];
-});
 
 // alignDelta per-candidate = sum of recognized positive weightedScores
 // (BREAKOUT_STRUCTURE 6 + PRICE_MOMENTUM 10 = 16). No penalty components -> dedup/risk = 0.
@@ -78,8 +70,7 @@ function trace(
   };
 }
 
-// ADR-0472 report stub: CURRENT net 42.6, relaxed best (ALIGN_PLUS_DEDUP_PLUS_RISK_SPLIT) net 72.6
-// -> alignment delta = +30. requiredScore 70.
+// ADR-0472 report stub: CURRENT net 42.6, relaxed best (ALIGN_PLUS_DEDUP_PLUS_RISK_SPLIT) net 72.6.
 function alignmentReport(): Gate1ScoringAlignmentReport {
   const scenarioResult = (scenario: string, netScoreAvg: number, penaltyAvg: number) => ({
     scenario: scenario as never,
@@ -139,21 +130,21 @@ function fortyThreeTraces(): Gate1ScoreStarvationTrace[] {
     trace(`${index}`.padStart(6, '0'), 30 + index, `cand-${index}`));
 }
 
-describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
-  it('defaults to disabled when the ENV flag is unset', () => {
-    delete process.env[FLAG];
-    expect(isGate1ScoringAlignmentDryRunEnabled()).toBe(false);
+describe('ADR-0520 Gate1 scoring-alignment DRY_RUN observation', () => {
+  it('always evaluates (observation-only, no ENV toggle); empty only when no traces', () => {
+    const empty = buildGate1ScoringAlignmentDryRunGate({ traces: [], alignmentReport: alignmentReport() });
+    expect(empty.survivors).toHaveLength(0);
+    expect(empty.evaluated).toHaveLength(0);
+
     const result = buildGate1ScoringAlignmentDryRunGate({
       traces: fortyThreeTraces(),
       alignmentReport: alignmentReport(),
     });
-    expect(result.enabled).toBe(false);
-    expect(result.survivors).toHaveLength(0);
-    expect(result.evaluated).toHaveLength(0);
+    expect(result.totalCandidates).toBe(43);
+    expect(result.evaluated.length).toBe(43);
   });
 
   it('derives the relaxed score per-candidate from the candidate own trace (single source, no uniform delta)', () => {
-    process.env[FLAG] = 'true';
     const result = buildGate1ScoringAlignmentDryRunGate({
       traces: [trace('100000', 60, 'single-source')],
       alignmentReport: alignmentReport(),
@@ -170,9 +161,8 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
   });
 
   it('adds per-candidate ADR-0469 dedup + ADR-0470 risk-split deltas from the candidate own penalties', () => {
-    process.env[FLAG] = 'true';
-    // Two duplicate SUPPLY_UNKNOWN provider penalties (10 + 8) dedup to keep-largest (10),
-    // removing 8. A RISK_PENALTY of 5 caps to ADR-0470's 3-point signal risk move-to-sizing.
+    // Two duplicate provider penalties (10 + 8) dedup to keep-largest (10), removing 8.
+    // A RISK_PENALTY of 5 caps to ADR-0470's 3-point signal risk move-to-sizing.
     const penalties: Gate1ScoreStarvationTrace['penaltyComponents'] = [
       {
         code: 'SUPPLY_CONFLUENCE', normalizedScore: 0, weight: 10, weightedScore: -10, maxScore: 0,
@@ -202,12 +192,10 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
   });
 
   it('identifies REAL survivor symbols that fail live but pass the relaxed curve', () => {
-    process.env[FLAG] = 'true';
     const result = buildGate1ScoringAlignmentDryRunGate({
       traces: fortyThreeTraces(),
       alignmentReport: alignmentReport(),
     });
-    expect(result.enabled).toBe(true);
     expect(result.scenario).toBe(ADR_0520_DRY_RUN_SCENARIO);
     expect(result.totalCandidates).toBe(43);
     // Per-candidate align delta = 16, required = 70 -> actualScore in [54, 69] crosses.
@@ -228,7 +216,6 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
   });
 
   it('does not flag candidates that already pass the live curve as survivors', () => {
-    process.env[FLAG] = 'true';
     const result = buildGate1ScoringAlignmentDryRunGate({
       traces: [trace('900000', 75, 'already-passing')],
       alignmentReport: alignmentReport(),
@@ -240,7 +227,6 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
   });
 
   it('always reports executionImpact NONE / liveExecutionAllowed false / SHADOW_ONLY', () => {
-    process.env[FLAG] = 'true';
     const result = buildGate1ScoringAlignmentDryRunGate({
       traces: fortyThreeTraces(),
       alignmentReport: alignmentReport(),
@@ -250,21 +236,15 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
     expect(result.policyPromotionMode).toBe('SHADOW_ONLY');
   });
 
-  it('emits no ADR-0472 ledger rows when the gate is disabled (flag off, behaviour unchanged)', () => {
-    delete process.env[FLAG];
-    const gate = buildGate1ScoringAlignmentDryRunGate({
-      traces: fortyThreeTraces(),
-      alignmentReport: alignmentReport(),
-    });
+  it('emits no ADR-0472 ledger rows when there is no gate result', () => {
     const rows = buildGate1DryRunObservationRows({
       forDate: '2026-05-25',
-      scoringAlignmentDryRunAdr0520: gate,
+      scoringAlignmentDryRunAdr0520: null,
     });
     expect(rows.filter((row) => row.source === 'ADR_0472_SCORING_ALIGNMENT')).toHaveLength(0);
   });
 
-  it('records ADR_0472_SCORING_ALIGNMENT ledger rows for real survivors when enabled', () => {
-    process.env[FLAG] = 'true';
+  it('records ADR_0472_SCORING_ALIGNMENT ledger rows for real survivors (always-on observation)', () => {
     const gate = buildGate1ScoringAlignmentDryRunGate({
       traces: fortyThreeTraces(),
       alignmentReport: alignmentReport(),

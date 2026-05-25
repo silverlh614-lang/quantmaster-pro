@@ -39,9 +39,10 @@ under the new source `ADR_0472_SCORING_ALIGNMENT` (with `dryRunScenario` =
 
 ## Policy
 
-- ENV flag `GATE1_SCORING_ALIGNMENT_DRYRUN_ENABLED` (default `false`). When off, the
-  gate returns disabled with zero survivors and emits zero ledger rows — behaviour is
-  100% identical to before. Operator must explicitly set it to `true`.
+- **No ENV toggle.** Observation is ALWAYS recorded (like every other ADR-0476 source),
+  because it is observation-only and never touches live scoring/promotion. Avoiding ENV
+  on/off gating keeps operations simple (operator directive). Survivor rows accumulate in
+  the ADR-0476 ledger every scan; the operator reviews 1D/3D/5D forward returns there.
 - `policyPromotionMode=SHADOW_ONLY`, `executionImpact=NONE`, `liveExecutionAllowed=false`.
 - `requiredScore=70` and the live Gate threshold are unchanged.
 - Live Gate1 scoring (actualScore / component weightedScore / survivor judgment /
