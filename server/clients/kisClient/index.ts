@@ -162,3 +162,10 @@ export {
 } from './core/kisRequestClassifier.js';
 export type { KisRequestPriority, KisRequestClassification } from './core/kisRequestClassifier.js';
 export { getKisProviderHealthSnapshot } from './core/kisProviderHealth.js';
+
+// ─── 배치 시세 조회 (ADR-0519 Phase 5) ────────────────────────────────────────
+export { fetchKisMultiStockQuote } from './queryMultiPrice.js';
+
+// ─── 거래량순위 유니버스 스캔 (ADR-0519 Phase 5) ───────────────────────────────
+export { fetchKisVolumeRanking } from './queryVolumeRanking.js';
+export type { KisVolumeRankEntry } from './queryVolumeRanking.js';

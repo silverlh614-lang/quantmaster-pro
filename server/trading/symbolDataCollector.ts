@@ -13,6 +13,7 @@
 
 import {
   fetchKisStockFullQuote,
+  fetchKisMultiStockQuote,
   fetchKisInvestorFlow,
   fetchKisStockDailyBars,
   fetchKisStockProgramTrade,
@@ -249,27 +250,41 @@ function assessDataQuality(data: {
 
 /**
  * 단일 종목에 대해 KIS 4개 엔드포인트를 동시 호출한다.
+ * preloadedQuote가 제공된 경우 fetchKisStockFullQuote 개별 호출을 스킵한다
+ * (ADR-0519 Phase 5: intstock-multprice 배치 시세 최적화).
  * 각 fetch는 내부적으로 에러를 catch하여 null/빈배열을 반환하므로
  * 이 함수 자체는 throw하지 않는다.
  */
-async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Promise<SymbolSnapshotData> {
+async function collectSymbolData(
+  code: string,
+  krxEntry?: StockMasterEntry,
+  preloadedQuote?: KisStockFullQuote,
+): Promise<SymbolSnapshotData> {
   const t0 = performance.now();
 
-  const [quoteResult, flowResult, barsResult, programResult] = await Promise.allSettled([
-    fetchKisStockFullQuote(code),
-    fetchKisInvestorFlow(code),
-    fetchKisStockDailyBars(code, 90), // 60 거래일 + 여유 → 캘린더 90일
-    fetchKisStockProgramTrade(code),
+  // preloadedQuote가 있으면 개별 quote fetch 스킵 — flow/bars/program은 항상 병렬 fetch
+  const [flowResult, barsResult, programResult] = await Promise.all([
+    Promise.allSettled([fetchKisInvestorFlow(code)]).then((r) => r[0]),
+    Promise.allSettled([fetchKisStockDailyBars(code, 90)]).then((r) => r[0]),
+    Promise.allSettled([fetchKisStockProgramTrade(code)]).then((r) => r[0]),
   ]);
 
-  const quote =
-    quoteResult.status === 'fulfilled' ? quoteResult.value : null;
-  if (quoteResult.status === 'rejected') {
-    logger.warn(
-      '[SymbolDataCollector] fetchKisStockFullQuote 실패:',
-      quoteResult.reason instanceof Error ? quoteResult.reason.message : String(quoteResult.reason),
-      { code },
-    );
+  // quote 결정: preloadedQuote 우선, 없으면 개별 KIS 호출
+  let quote: KisStockFullQuote | null;
+  if (preloadedQuote !== undefined) {
+    quote = preloadedQuote;
+  } else {
+    const [quoteResult] = await Promise.allSettled([fetchKisStockFullQuote(code)]);
+    if (quoteResult.status === 'rejected') {
+      logger.warn(
+        '[SymbolDataCollector] fetchKisStockFullQuote 실패:',
+        quoteResult.reason instanceof Error ? quoteResult.reason.message : String(quoteResult.reason),
+        { code },
+      );
+      quote = null;
+    } else {
+      quote = quoteResult.value;
+    }
   }
 
   const flow =
@@ -436,10 +451,24 @@ export async function collectUnifiedSnapshot(
     getAllStockEntries().map((e) => [e.code, e]),
   );
 
+  // ADR-0519 Phase 5: 배치 시세 선행 fetch (100종목 기준 100회 → 4회 KIS 호출 감소).
+  // 배치 실패 시 빈 Map 반환 — collectSymbolData 내 개별 fallback 경로로 수렴.
+  let quoteMap: Map<string, KisStockFullQuote> = new Map();
+  try {
+    quoteMap = await fetchKisMultiStockQuote(candidates);
+  } catch (batchErr) {
+    logger.warn(
+      '[SymbolDataCollector] 배치 시세 fetch 실패 — 개별 quote fetch로 fallback',
+      batchErr instanceof Error ? batchErr.message : String(batchErr),
+    );
+  }
+
   // macroContext는 fetch와 병행 수집
   const [macroContext, rawResults] = await Promise.all([
     buildMacroContext(),
-    mapLimit(candidates, concurrency, (code) => collectSymbolData(code, krxMasterMap.get(code))),
+    mapLimit(candidates, concurrency, (code) =>
+      collectSymbolData(code, krxMasterMap.get(code), quoteMap.get(code)),
+    ),
   ]);
 
   // perSymbol 맵 구성
