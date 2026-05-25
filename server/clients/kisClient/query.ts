@@ -2091,10 +2091,38 @@ export interface KisStockFullQuote {
   changePercent: number | null;
   prevClose: number | null;
   fetchedAt: string;
+  // Gate2 PER dedup (정본 데이터 SSOT, patch): 동일 FHKST01010100 응답에 이미 존재하는
+  // valuation 필드를 보존해 Gate2 PER 재호출을 제거. fetchGate2PerValuation 과 동일 추출 키.
+  per?: number | null;          // per/PER/hts_per/HTS_PER 중 첫 finite
+  eps?: number | null;          // eps/EPS/stac_eps/STAC_EPS 중 첫 finite
+  listedShares?: number | null; // lstn_stcn/LSTN_STCN/listedShares 중 첫 positive
+}
+
+/**
+ * fetchGate2PerValuation 의 finiteNumber 헬퍼와 byte-equivalent 한 숫자 강제 변환.
+ * (콤마·% 제거 후 Number 변환 — parseFloat 아님). 동일 값 보장을 위해 동일 규약 사용.
+ */
+function valuationFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const parsed = Number(value.replace(/,/g, '').replace(/%/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * FHKST01010100 output 에서 첫 번째 finite 숫자를 반환 (fetchGate2PerValuation 추출 규약과 동일).
+ */
+function firstFiniteFromOutput(out: Record<string, unknown>, keys: readonly string[]): number | null {
+  for (const key of keys) {
+    const value = valuationFiniteNumber(out[key]);
+    if (value != null) return value;
+  }
+  return null;
 }
 
 /**
  * FHKST01010100 한 번의 라운드트립으로 현재가·누적거래량·등락률·전일종가를 반환한다.
+ * (정본 데이터 SSOT, patch) 동일 응답의 per/eps/listedShares 도 함께 보존하여 Gate2 PER 중복 호출을 제거한다.
  * KIS 미설정 시 null. 호출자는 null-safe 처리 필수.
  */
 export async function fetchKisStockFullQuote(stockCode: string): Promise<KisStockFullQuote | null> {
@@ -2112,6 +2140,11 @@ export async function fetchKisStockFullQuote(stockCode: string): Promise<KisStoc
     const volume = parseInt(out.acml_vol ?? '0', 10);
     const prevClose = parseInt(out.stck_sdpr ?? '0', 10);
     const changePercent = parseFloat(out.prdy_ctrt ?? 'NaN');
+    // 정본 데이터 SSOT(Gate2 PER dedup, patch): fetchGate2PerValuation(L559·L562·L563) 과 동일 키·동일 추출 — 동일 값 보장.
+    const per = firstFiniteFromOutput(out, ['per', 'PER', 'hts_per', 'HTS_PER']);
+    const eps = firstFiniteFromOutput(out, ['eps', 'EPS', 'stac_eps', 'STAC_EPS']);
+    const listedSharesRaw = firstFiniteFromOutput(out, ['lstn_stcn', 'LSTN_STCN', 'listedShares']);
+    const listedShares = listedSharesRaw != null && listedSharesRaw > 0 ? listedSharesRaw : null;
     return {
       code,
       currentPrice: currentPrice > 0 ? currentPrice : null,
@@ -2119,6 +2152,9 @@ export async function fetchKisStockFullQuote(stockCode: string): Promise<KisStoc
       changePercent: Number.isFinite(changePercent) ? changePercent : null,
       prevClose: prevClose > 0 ? prevClose : null,
       fetchedAt,
+      per,
+      eps,
+      listedShares,
     };
   } catch (err) {
     logger.warn(`[KIS] fetchKisStockFullQuote ${code} 실패:`, err instanceof Error ? err.message : err);

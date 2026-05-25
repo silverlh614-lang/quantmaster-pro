@@ -15,9 +15,11 @@ import {
   upsertGate2ExternalCacheRecords,
   updateGate2ExternalLastRefresh,
 } from './gate2ExternalCache.js';
-import { realDataKisGet } from '../../clients/kisClient/http.js';
-import { HAS_REAL_DATA_CLIENT } from '../../clients/kisClient/constants.js';
 import { getStockByCode, isTradableKrxEquity } from '../../persistence/krxStockMasterRepo.js';
+// 정본 데이터 SSOT(Gate2 PER dedup, patch): Gate2 PER valuation 엔진(KIS FHKST01010100 추출·판정 + 정본 snapshot quote 재사용) 단일 모듈.
+import { emptyPerValuation, fetchGate2PerValuation } from './gate2ExternalDataProvider/perValuation.js';
+
+export { fetchGate2PerValuation };
 
 export * from './gate2ExternalDataProvider/types.js';
 import type {
@@ -83,10 +85,6 @@ function newTrace(symbol: string): Gate2ExternalRefreshTrace {
     unavailableConditions: ['earnings_quality', 'per', 'roe', 'opm', 'icr'],
     executionImpact: 'NONE',
   };
-}
-
-function hasKisValuationCredentials(): boolean {
-  return HAS_REAL_DATA_CLIENT || Boolean(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET);
 }
 
 function inferInstrumentClassFromText(value: string): Gate2InstrumentClass {
@@ -431,210 +429,6 @@ export async function fetchDartFinancialsForGate2(input: {
   }
   trace.fiscalPeriodStatus = trace.dartRequestAttempted ? 'NONE' : 'ERROR';
   return { dartFin: null, trace };
-}
-
-function emptyPerValuation(reason = 'PER_MISSING', attempted = false): Gate2PerValuationResult {
-  return {
-    attempted,
-    per: null,
-    eps: null,
-    currentPrice: null,
-    listedShares: null,
-    source: 'NONE',
-    reason,
-    dartEpsComputed: false,
-    perComputedFromPriceAndEps: false,
-    perCacheHit: false,
-  };
-}
-
-function pickKisValuationOutput(data: unknown): Record<string, unknown> | null {
-  if (!isRecord(data)) return null;
-  const buckets = [data.output, data.output1, data.output2];
-  for (const bucket of buckets) {
-    if (isRecord(bucket)) return bucket;
-    if (Array.isArray(bucket)) {
-      const first = bucket.find(isRecord);
-      if (first) return first;
-    }
-  }
-  return null;
-}
-
-function firstPositiveNumber(record: Record<string, unknown> | null, keys: readonly string[]): number | null {
-  if (!record) return null;
-  for (const key of keys) {
-    const value = finiteNumber(record[key]);
-    if (value != null && value > 0) return value;
-  }
-  return null;
-}
-
-function firstFiniteNumber(record: Record<string, unknown> | null, keys: readonly string[]): number | null {
-  if (!record) return null;
-  for (const key of keys) {
-    const value = finiteNumber(record[key]);
-    if (value != null) return value;
-  }
-  return null;
-}
-
-function sanitizedKisValuationRaw(output: Record<string, unknown> | null): Record<string, unknown> | undefined {
-  if (!output) return undefined;
-  const keepKeys = [
-    'stck_prpr',
-    'prpr',
-    'per',
-    'hts_per',
-    'eps',
-    'stac_eps',
-    'lstn_stcn',
-    'hts_avls',
-    'pbr',
-    'bps',
-  ];
-  const sanitized: Record<string, unknown> = {};
-  for (const key of keepKeys) {
-    if (output[key] != null) sanitized[key] = output[key];
-  }
-  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
-}
-
-function listedSharesFromMaster(symbol: string): number | null {
-  const entry = getStockByCode(cleanSymbol(symbol));
-  return typeof entry?.listedShares === 'number' && Number.isFinite(entry.listedShares) && entry.listedShares > 0
-    ? entry.listedShares
-    : null;
-}
-
-function netIncomeFromDartFin(dartFin: Gate2DartEvaluationFinancials | null | undefined): number | null {
-  if (!isRecord(dartFin)) return null;
-  return finiteNumber(dartFin.netIncome);
-}
-
-function sharesFromDartFin(dartFin: Gate2DartEvaluationFinancials | null | undefined): number | null {
-  if (!isRecord(dartFin)) return null;
-  const shares = finiteNumber(dartFin.sharesOutstanding ?? dartFin.weightedAverageShares ?? dartFin.listedShares);
-  return shares != null && shares > 0 ? shares : null;
-}
-
-function reasonForMissingPer(input: {
-  directPer: number | null;
-  currentPrice: number | null;
-  kisEps: number | null;
-  dartEps: number | null;
-  listedShares: number | null;
-  output: Record<string, unknown> | null;
-}): string {
-  if (!input.output) return 'KIS_PER_OUTPUT_MISSING';
-  if (input.kisEps != null && input.kisEps <= 0) return 'EPS_NON_POSITIVE';
-  if (input.dartEps != null && input.dartEps <= 0) return 'EPS_NON_POSITIVE';
-  if (input.directPer != null && input.directPer <= 0) return 'PER_NON_POSITIVE_OR_UNAVAILABLE';
-  if (input.currentPrice == null || input.currentPrice <= 0) return 'PRICE_MISSING';
-  if (input.kisEps == null && input.dartEps == null) {
-    return input.listedShares == null ? 'SHARES_OUTSTANDING_MISSING' : 'EPS_MISSING';
-  }
-  return 'PER_UNAVAILABLE';
-}
-
-export async function fetchGate2PerValuation(input: {
-  symbol: string;
-  dartFin?: Gate2DartEvaluationFinancials | null;
-}): Promise<Gate2PerValuationResult> {
-  const symbol = cleanSymbol(input.symbol);
-  if (!hasKisValuationCredentials()) return emptyPerValuation('KIS_PER_CONFIG_MISSING', false);
-  try {
-    const data = await realDataKisGet(
-      'FHKST01010100',
-      '/uapi/domestic-stock/v1/quotations/inquire-price',
-      {
-        FID_COND_MRKT_DIV_CODE: 'J',
-        FID_INPUT_ISCD: symbol,
-        __kisPurpose: 'GATE2_PER_VALUATION',
-      },
-      'LOW',
-    );
-    const output = pickKisValuationOutput(data);
-    const raw = sanitizedKisValuationRaw(output);
-    const rawDirectPer = firstFiniteNumber(output, ['per', 'PER', 'hts_per', 'HTS_PER']);
-    const directPer = rawDirectPer != null && rawDirectPer > 0 ? rawDirectPer : null;
-    const currentPrice = firstPositiveNumber(output, ['stck_prpr', 'STCK_PRPR', 'prpr', 'close']);
-    const kisEps = firstFiniteNumber(output, ['eps', 'EPS', 'stac_eps', 'STAC_EPS']);
-    const listedShares = firstPositiveNumber(output, ['lstn_stcn', 'LSTN_STCN', 'listedShares'])
-      ?? sharesFromDartFin(input.dartFin)
-      ?? listedSharesFromMaster(symbol);
-    if (directPer != null && directPer > 0) {
-      return {
-        attempted: true,
-        per: directPer,
-        eps: kisEps,
-        currentPrice,
-        listedShares,
-        source: 'KIS',
-        reason: directPer > 30 ? 'PER_TOO_HIGH' : 'PER_ACCEPTABLE',
-        raw,
-        dartEpsComputed: false,
-        perComputedFromPriceAndEps: false,
-        perCacheHit: false,
-      };
-    }
-    if (currentPrice != null && currentPrice > 0 && kisEps != null && kisEps > 0) {
-      return {
-        attempted: true,
-        per: currentPrice / kisEps,
-        eps: kisEps,
-        currentPrice,
-        listedShares,
-        source: 'KIS',
-        reason: 'PER_COMPUTED_FROM_KIS_PRICE_EPS',
-        raw,
-        dartEpsComputed: false,
-        perComputedFromPriceAndEps: true,
-        perCacheHit: false,
-      };
-    }
-    const netIncome = netIncomeFromDartFin(input.dartFin);
-    const rawDartEps = netIncome != null && listedShares != null && listedShares > 0
-      ? netIncome / listedShares
-      : null;
-    const dartEps = rawDartEps != null && rawDartEps > 0 ? rawDartEps : null;
-    if (currentPrice != null && currentPrice > 0 && dartEps != null && dartEps > 0) {
-      return {
-        attempted: true,
-        per: currentPrice / dartEps,
-        eps: dartEps,
-        currentPrice,
-        listedShares,
-        source: 'DART_EPS_PRICE',
-        reason: 'PER_COMPUTED_FROM_DART_EPS_AND_KIS_PRICE',
-        raw,
-        dartEpsComputed: true,
-        perComputedFromPriceAndEps: true,
-        perCacheHit: false,
-      };
-    }
-    return {
-      ...emptyPerValuation(reasonForMissingPer({
-        directPer: rawDirectPer,
-        currentPrice,
-        kisEps,
-        dartEps: rawDartEps,
-        listedShares,
-        output,
-      }), true),
-      eps: kisEps ?? rawDartEps,
-      currentPrice,
-      listedShares,
-      source: output ? 'KIS' : 'NONE',
-      raw,
-      dartEpsComputed: rawDartEps != null,
-    };
-  } catch (error) {
-    return {
-      ...emptyPerValuation(error instanceof Error ? `KIS_PER_PROVIDER_ERROR:${error.name}` : 'KIS_PER_PROVIDER_ERROR', true),
-      source: 'KIS',
-    };
-  }
 }
 
 function ratio(numerator: number | null, denominator: number | null): number | null {
@@ -1230,6 +1024,16 @@ export async function refreshGate2ExternalData(input: {
   symbols: readonly string[];
   fetcher?: (symbol: string) => Promise<Gate2DartEvaluationFinancials | null>;
   perFetcher?: (symbol: string, dartFin: Gate2DartEvaluationFinancials | null) => Promise<Gate2PerValuationResult>;
+  /**
+   * 정본 데이터 SSOT(Gate2 PER dedup, patch): 정본 SourceSnapshot quote(동일 FHKST01010100) per/eps/listedShares/currentPrice 맵.
+   * 제공 시 fetchGate2PerValuation 이 재호출을 skip 하고 이 값을 재사용한다 (없으면 기존 재호출 fallback).
+   */
+  snapshotQuotes?: Record<string, {
+    per?: number | null;
+    eps?: number | null;
+    listedShares?: number | null;
+    currentPrice?: number | null;
+  } | null | undefined>;
   now?: Date;
 }): Promise<Gate2ExternalRefreshResult> {
   const asOf = nowIso(input.now);
@@ -1277,7 +1081,7 @@ export async function refreshGate2ExternalData(input: {
         ? await input.perFetcher(symbol, dartFin)
         : input.fetcher
           ? emptyPerValuation('PER_MISSING', false)
-          : await fetchGate2PerValuation({ symbol, dartFin })
+          : await fetchGate2PerValuation({ symbol, dartFin, snapshotQuote: input.snapshotQuotes?.[symbol] ?? null })
       : emptyPerValuation(trace.corpCodeResolveStatus === 'FOUND' ? 'PER_MISSING' : 'PER_SKIPPED_DART_FINANCIALS_MISSING', false);
     trace.kisPerRequestAttempted = perValuation.attempted;
     trace.kisPerRaw = perValuation.raw;
