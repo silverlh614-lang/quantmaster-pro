@@ -36,6 +36,7 @@ import { buildMarketProgramFlowCarryPayload } from './marketProgramCarryWiringPo
 import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
+import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -353,6 +354,22 @@ export async function runAutoSignalScan(
   } catch (error) {
     console.warn(
       '[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION] failed before evaluation; continuing',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  // 2.5. Per-Symbol Price Context (volume + return5d/20d via KIS for candidatePool diagnostics)
+  try {
+    const priceInjected = await injectPerSymbolPriceContext(candidates.buyList as Record<string, unknown>[]);
+    candidates.buyList = priceInjected.candidates as typeof candidates.buyList;
+    candidates.mainList = priceInjected.candidates as typeof candidates.mainList;
+    if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
+      const intradayPrice = await injectPerSymbolPriceContext(candidates.intradayList as Record<string, unknown>[]);
+      candidates.intradayList = intradayPrice.candidates as typeof candidates.intradayList;
+    }
+  } catch (error) {
+    console.warn(
+      '[PER_SYMBOL_PRICE_CONTEXT_INJECTION] failed before evaluation; continuing',
       error instanceof Error ? error.message : String(error),
     );
   }

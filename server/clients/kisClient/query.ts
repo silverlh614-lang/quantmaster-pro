@@ -2113,6 +2113,105 @@ async function _fetchLatestKrxBusinessDate(code: string): Promise<string | null>
   } catch { return null; }
 }
 
+// ─── 주식 전체 시세 조회 (FHKST01010100) ───────────────────────────────────────
+
+export interface KisStockFullQuote {
+  code: string;
+  currentPrice: number | null;
+  volume: number | null;
+  changePercent: number | null;
+  prevClose: number | null;
+  fetchedAt: string;
+}
+
+/**
+ * FHKST01010100 한 번의 라운드트립으로 현재가·누적거래량·등락률·전일종가를 반환한다.
+ * KIS 미설정 시 null. 호출자는 null-safe 처리 필수.
+ */
+export async function fetchKisStockFullQuote(stockCode: string): Promise<KisStockFullQuote | null> {
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  const code = stockCode.padStart(6, '0');
+  const fetchedAt = new Date().toISOString();
+  try {
+    const data = await realDataKisGet('FHKST01010100', '/uapi/domestic-stock/v1/quotations/inquire-price', {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: code,
+    });
+    const out = (data as { output?: Record<string, string> } | null)?.output;
+    if (!out) return null;
+    const currentPrice = parseInt(out.stck_prpr ?? '0', 10);
+    const volume = parseInt(out.acml_vol ?? '0', 10);
+    const prevClose = parseInt(out.stck_sdpr ?? '0', 10);
+    const changePercent = parseFloat(out.prdy_ctrt ?? 'NaN');
+    return {
+      code,
+      currentPrice: currentPrice > 0 ? currentPrice : null,
+      volume: volume > 0 ? volume : null,
+      changePercent: Number.isFinite(changePercent) ? changePercent : null,
+      prevClose: prevClose > 0 ? prevClose : null,
+      fetchedAt,
+    };
+  } catch (err) {
+    logger.warn(`[KIS] fetchKisStockFullQuote ${code} 실패:`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+// ─── 일봉 OHLC 조회 (FHKST03010100) ────────────────────────────────────────────
+
+export interface KisStockDailyBar {
+  date: string;
+  close: number;
+  volume: number | null;
+}
+
+/**
+ * FHKST03010100 일봉 시계열을 lookbackCalendarDays 범위만큼 조회한다.
+ * bars[0] = 가장 최근 거래일 (내림차순). KIS 미설정 시 빈 배열.
+ */
+export async function fetchKisStockDailyBars(
+  stockCode: string,
+  lookbackCalendarDays = 35,
+): Promise<KisStockDailyBar[]> {
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return [];
+  const code = stockCode.padStart(6, '0');
+  const today = _kstDateStr().replace(/-/g, '');
+  const startYmd = _kstDateStrOffset(-lookbackCalendarDays).replace(/-/g, '');
+  try {
+    const data = await realDataKisGet(
+      'FHKST03010100',
+      '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
+      {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: code,
+        FID_INPUT_DATE_1: startYmd,
+        FID_INPUT_DATE_2: today,
+        FID_PERIOD_DIV_CODE: 'D',
+        FID_ORG_ADJ_PRC: '0',
+      },
+    );
+    const output2 = (data as { output2?: Record<string, string>[] } | null)?.output2;
+    if (!Array.isArray(output2)) return [];
+    return output2
+      .map((row): KisStockDailyBar | null => {
+        const ymd = row.stck_bsop_date ?? '';
+        if (!/^\d{8}$/.test(ymd)) return null;
+        const close = parseInt(row.stck_clpr ?? '0', 10);
+        if (close <= 0) return null;
+        const vol = parseInt(row.acml_vol ?? '0', 10);
+        return {
+          date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`,
+          close,
+          volume: vol > 0 ? vol : null,
+        };
+      })
+      .filter((b): b is KisStockDailyBar => b !== null);
+  } catch (err) {
+    logger.warn(`[KIS] fetchKisStockDailyBars ${code} 실패:`, err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 /**
  * KIS FHKST01010100 응답의 hts_kor_isnm 필드로 한국 종목명을 조회한다.
  * KIS 미설정 시 null 반환 — 호출자가 fallback 처리 필요.
