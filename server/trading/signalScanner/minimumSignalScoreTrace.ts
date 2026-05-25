@@ -5,6 +5,7 @@
  * Does not relax thresholds, route orders, or mutate trading state.
  */
 import type { MacroGateState } from "./scanDiagnostics.js";
+import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
 import { resolveWatchlistUpstreamScore } from "./watchlistUpstreamScoreResolver.js";
 import type {
   CandidateEntryTrace,
@@ -970,7 +971,8 @@ export function buildMinimumSignalScoreTrace(input: {
   supplyConfluenceState: SupplyConfluenceState;
   hasSectorEnergyDiagnostic: boolean;
 }): MinimumSignalScoreTrace {
-  const requiredScore = input.trace.minSignalRequiredScore ?? 70;
+  const requiredScore = input.trace.minSignalRequiredScore
+    ?? loadTradingSettings().buyCondition.minScoreThreshold;
   const riskMultiplier =
     input.macroGateState?.finalKellyMultiplier !== undefined
       ? input.macroGateState.finalKellyMultiplier /

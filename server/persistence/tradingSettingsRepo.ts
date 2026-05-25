@@ -41,7 +41,7 @@ export interface TradingSettings {
 export const DEFAULT_TRADING_SETTINGS: TradingSettings = {
   buyCondition: {
     gatePassRequired: true,
-    minScoreThreshold: 60,
+    minScoreThreshold: 70,
   },
   autoStopLoss: {
     enabled: true,
