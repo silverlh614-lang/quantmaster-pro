@@ -240,6 +240,9 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
     topBlockReason: text(getByPath(gateLayer, 'topGate1BlockReasons.0.reason'), 'none'),
     nextAction: 'Gate2 confluence review',
   } : undefined;
+  // ADR-0526 Phase 1b: gate2 표시 정본 = 스캔-시점 View(candidateGateAggregate). aggregate 부재 시 undefined(기존과 동일 graceful).
+  const candidateGateAggregate = summary?.candidateGateAggregate;
+  const gate2 = candidateGateAggregate ? gate2SummaryFromAggregate(candidateGateAggregate) : undefined;
   const bundle: SnapshotBundle = {
     sourceSnapshotId: resolveSourceSnapshotId(summary),
     asOf,
@@ -249,6 +252,7 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
     executionImpact: text(overrides.executionImpact ?? getByPath(gate3, 'executionImpact') ?? 'NONE', 'NONE'),
     shadowLearning: boolOf(overrides.shadowLearning ?? true, true),
     gate1,
+    gate2,
     gate3: gate3 ? {
       evaluated: numberOf(gate3.samples, 0),
       ready: numberOf(gate3.executionReadyCount ?? gate3.lastTriggerFiredCount, 0),
@@ -279,6 +283,36 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
 export function compactNumber(value: number | null | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/A';
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/**
+ * ADR-0526 §Decision.5 — gate2 PASS/FAIL status 정본은 CandidateGateEvaluationAggregate(스캔-시점 View)다.
+ * formatter 는 본 함수로 View aggregate 에서 status count + 표시용 coverage 를 읽는다(buildGate2ConfluenceSummary 재실행 금지).
+ * ScopedCount(.value) 와 gate2Coverage(표시용 보조)를 carry. aggregate 부재 시 빈 요약(graceful).
+ */
+export function gate2SummaryFromAggregate(raw: unknown): Gate2Summary {
+  const aggregate = recordOf(raw);
+  const coverage = recordOf(aggregate?.gate2Coverage);
+  const countOf = (field: string): number => numberOf(getByPath(aggregate, `${field}.value`), 0);
+  const passStrong = countOf('gate2PassStrongCount');
+  const passWeak = countOf('gate2PassWeakCount');
+  const evaluated = numberOf(getByPath(aggregate, 'evaluatedCount.value'), 0);
+  return {
+    evaluated,
+    passStrong,
+    passWeak,
+    watch: countOf('gate2WatchCount'),
+    fail: countOf('gate2FailCount'),
+    dataIncomplete: countOf('gate2DataIncompleteCount'),
+    rsUsable: numberOf(coverage?.rsUsable, 0),
+    supplyUsable: numberOf(coverage?.supplyUsable, 0),
+    sectorUsable: numberOf(coverage?.sectorUsable, 0),
+    technicalUsable: numberOf(coverage?.technicalUsable, 0),
+    fundamentalUsable: numberOf(coverage?.fundamentalUsable, 0),
+    topPositiveAxis: text(coverage?.topPositiveAxis, 'none'),
+    topMissingAxis: text(coverage?.topMissingAxis, 'none'),
+    nextAction: `Gate3 timing for ${passStrong + passWeak} candidates`,
+  };
 }
 
 export function gate2SummaryFromConfluence(raw: unknown): Gate2Summary {
@@ -338,5 +372,43 @@ export function executionSummaryFromAudit(raw: unknown): ExecutionSummary {
     executionImpact: topKey(getByPath(summary, 'executionImpactDistribution'), 'NONE'),
     brokerOrderAllowed: numberOf(summary?.liveBuyAllowed, 0) > 0,
     nextAction: numberOf(summary?.liveBuyAllowed, 0) > 0 ? 'operator approval / execution policy review' : 'observe / shadow learning',
+  };
+}
+
+/**
+ * ADR-0527 Phase 2b — execution 표시 정본 read.
+ * UnifiedExecutionPermissionAggregate(스캔-시점 persist, 실제 asOf 도출 — 더미 1970 재계산 0)를
+ * ExecutionSummary(표시 형태)로 매핑한다. formatter 는 resolveFinalExecutionDecision 를 재실행하지 않는다.
+ *
+ * 명명 규율(ADR-0527 §Decision.2): aggregate 의 *Count/*Created(건수)를 read 한다 —
+ * permission(boolean: shadowPermissionAllowed 등)은 per-candidate resolution 의 것이며 집계 표시에 쓰지 않는다.
+ * 표시 필드 shadowBuyAllowed 는 aggregate.shadowOrderCreated(실제 shadow 흡수 건수)를 carry 한다(이름 충돌 방지: count 의미).
+ * providerIssueConvertedToMarketSignal 은 불변식 #6 에 따라 항상 0(providerIssue 는 격리되어 market signal 로 변환되지 않음).
+ * aggregate 부재 시 빈 요약(graceful — 기존 audit-absent 동작과 동일).
+ */
+export function executionSummaryFromUnifiedAggregate(raw: unknown): ExecutionSummary {
+  const aggregate = recordOf(raw);
+  const countOf = (field: string): number => numberOf(getByPath(aggregate, `${field}.value`), 0);
+  const liveBuyAllowed = countOf('liveBuyAllowedCount');
+  const liveBuyBlocked = countOf('liveBuyBlockedCount');
+  const executionImpact = liveBuyAllowed > 0
+    ? 'LIVE_ORDER_ALLOWED'
+    : liveBuyBlocked > 0
+      ? 'NEW_BUY_BLOCKED_ONLY'
+      : 'NONE';
+  return {
+    entryReady: countOf('entryReadyCount'),
+    liveBuyAllowed,
+    liveBuyBlocked,
+    // shadowBuyAllowed(표시) = aggregate.shadowOrderCreated(count) — per-candidate boolean 권한과 의미 분리.
+    shadowBuyAllowed: countOf('shadowOrderCreated'),
+    observeOnly: countOf('observeOnlyCount'),
+    blocked: countOf('blockedCount'),
+    topBlockReason: text(aggregate?.topBlockReason, 'none'),
+    // 불변식 #6: providerIssue 는 격리(providerIssueIsolatedCount) — market signal 로 변환되지 않으므로 항상 0.
+    providerIssueConvertedToMarketSignal: 0,
+    executionImpact,
+    brokerOrderAllowed: liveBuyAllowed > 0,
+    nextAction: liveBuyAllowed > 0 ? 'operator approval / execution policy review' : 'observe / shadow learning',
   };
 }

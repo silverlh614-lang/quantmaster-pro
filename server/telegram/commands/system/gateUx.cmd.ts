@@ -6,20 +6,6 @@ import {
   formatScanBlockersMessage,
   getLastScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { loadGate2ExternalCache } from '../../../trading/gate2/gate2ExternalCache.js';
-import { buildGate2ConfluenceSummary } from '../../../quant/gate2ConfluenceScore.js';
-import { buildGate3RuntimeClosureSummary } from '../../../quant/gate3RuntimeClosure.js';
-import {
-  buildFinalDecisionRuntimeAuditSummary,
-  resolveFinalExecutionDecision,
-  type FinalDecisionDataConfidenceCeiling,
-  type FinalDecisionEffectiveRegime,
-  type FinalDecisionEngineMode,
-  type FinalDecisionEntryTimingSignal,
-  type FinalDecisionMarketSession,
-  type FinalDecisionProviderHealthStatus,
-  type FinalDecisionShadowMode,
-} from '../../../trading/gates/finalDecisionResolver.js';
 import { outcomeClosureRepo } from '../../../learning/outcomeClosure.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderExecutionCompact } from '../../renderers/executionCompactRenderer.js';
@@ -32,134 +18,55 @@ import {
 } from '../../renderers/gateCompactRenderer.js';
 import { learningSummaryFromOutcomeSummary } from '../../renderers/learningCompactRenderer.js';
 import {
-  arrayOfRecords,
   buildSnapshotBundleFromScanSummary,
-  boolOf,
-  executionSummaryFromAudit,
-  gate2SummaryFromConfluence,
+  executionSummaryFromUnifiedAggregate,
+  gate2SummaryFromAggregate,
   getByPath,
   recordOf,
   text,
   type SnapshotBundle,
 } from '../../renderers/snapshotBundle.js';
 
-type AnyRecord = Record<string, unknown>;
-
-function normalizeEngineMode(value: unknown): FinalDecisionEngineMode {
+function normalizeEngineMode(value: unknown): string {
   const raw = text(value, 'OBSERVE_ONLY').toUpperCase();
   if (raw === 'NORMAL' || raw === 'DEGRADED' || raw === 'SELL_ONLY' || raw === 'SHADOW_ONLY' || raw === 'OBSERVE_ONLY') return raw;
   return 'OBSERVE_ONLY';
 }
 
-function normalizeMarketSession(value: unknown): FinalDecisionMarketSession {
+function normalizeMarketSession(value: unknown): string {
   const raw = text(value, 'UNKNOWN').toUpperCase();
   if (raw === 'REGULAR' || raw === 'PRE_MARKET' || raw === 'POST_MARKET' || raw === 'HOLIDAY' || raw === 'LUNCH' || raw === 'UNKNOWN') return raw;
   if (raw === 'NON_TRADING_DAY' || raw === 'CLOSED') return 'HOLIDAY';
   return 'UNKNOWN';
 }
 
-function normalizeRegime(value: unknown): FinalDecisionEffectiveRegime {
-  const raw = text(value, 'UNKNOWN').toUpperCase();
-  if (raw === 'GREEN' || raw === 'YELLOW' || raw === 'RED' || raw === 'R6_DEFENSE' || raw === 'R5_STABILIZING' || raw === 'UNKNOWN') return raw;
-  return raw.startsWith('R6') ? 'R6_DEFENSE' : 'UNKNOWN';
-}
-
-function normalizeHealth(value: unknown): FinalDecisionProviderHealthStatus {
-  const raw = text(value, 'VERIFIED').toUpperCase();
-  if (raw === 'VERIFIED' || raw === 'DEGRADED' || raw === 'STALE' || raw === 'MISSING') return raw;
-  if (raw === 'FRESH' || raw === 'OK' || raw === 'PASS') return 'VERIFIED';
-  return 'DEGRADED';
-}
-
-function normalizeConfidence(value: unknown): FinalDecisionDataConfidenceCeiling {
-  const raw = text(value, 'HIGH').toUpperCase();
-  return raw === 'LOW' || raw === 'MEDIUM' || raw === 'HIGH' ? raw : 'HIGH';
-}
-
-function shadowModeFor(engineMode: FinalDecisionEngineMode): FinalDecisionShadowMode {
-  if (engineMode === 'SHADOW_ONLY') return 'SHADOW_ONLY';
-  if (engineMode === 'OBSERVE_ONLY') return 'OBSERVE_ONLY';
-  return 'NORMAL';
-}
-
-function resolveEntryFilter(summary: AnyRecord | null): AnyRecord | null {
-  return recordOf(summary?.entryFilterDecomposition) ?? recordOf(summary?.entryFilterDecompositionAdr0464);
-}
-
-function resolveCandidateTraces(summary: AnyRecord | null): AnyRecord[] {
-  return arrayOfRecords(resolveEntryFilter(summary)?.candidateTraces);
-}
-
-function latestGate2CacheRecords(cache: ReturnType<typeof loadGate2ExternalCache>): Record<string, unknown>[] {
-  const traceSymbols = new Set((cache.lastRefresh?.traces ?? []).map(trace => trace.symbol));
-  const records = traceSymbols.size > 0
-    ? cache.records.filter(record => traceSymbols.has(record.symbol))
-    : cache.records;
-  return records as unknown as Record<string, unknown>[];
-}
-
 function buildGateUxBundle(): SnapshotBundle {
   const summary = getLastScanSummary();
   const summaryRecord = recordOf(summary);
   const base = buildSnapshotBundleFromScanSummary(summary);
-  const traces = resolveCandidateTraces(summaryRecord);
-  const gate2Cache = loadGate2ExternalCache();
-  const confluence = buildGate2ConfluenceSummary({
-    traces,
-    sourceSnapshotId: base.sourceSnapshotId,
-    gate2CacheRecords: latestGate2CacheRecords(gate2Cache),
-  });
-  const gate2StatusBySymbol = new Map<string, string>(confluence.results.map(result => [result.symbol, result.gate2Status]));
-  const gate3 = buildGate3RuntimeClosureSummary({ traces, sourceSnapshotId: base.sourceSnapshotId, gate2StatusBySymbol });
   const engineMode = normalizeEngineMode(summaryRecord?.engineMode ?? getByPath(summaryRecord, 'macroGateState.engineMode'));
   const marketSession = normalizeMarketSession(summaryRecord?.marketSession ?? getByPath(summaryRecord, 'macroGateState.canonicalSession'));
   // 정본 macro regime 은 base(snapshotBundle = scanEvaluation.effectiveRegime SSOT)에서 가져온다.
   // 폐기된 macroRegimeEffective(legacyRegimeNotUsedForDecision)를 재계산하면 R6_DEFENSE 오표기 → 차단.
   const canonicalEffectiveRegime = base.effectiveRegime;
-  // FinalDecisionResolver 는 color/R6 taxonomy 만 받는다 — R3_EARLY 등 macro 레짐은 UNKNOWN 으로 정규화(가짜 R6 아님).
-  const finalDecisionRegime = normalizeRegime(canonicalEffectiveRegime);
-  const inputs = gate3.results.map((result) => {
-    const trace = traces.find((item) => text(item.symbol, '') === result.symbol) ?? {};
-    return {
-      sourceSnapshotId: base.sourceSnapshotId,
-      symbol: result.symbol,
-      asOf: base.asOf,
-      gate1Status: result.gate1Status,
-      gate2Status: result.gate2Status,
-      gate3Readiness: result.gate3Readiness,
-      entryTimingSignal: result.entryTimingSignal as FinalDecisionEntryTimingSignal,
-      engineMode,
-      marketSession,
-      effectiveRegime: finalDecisionRegime,
-      riskOverride: finalDecisionRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' as const : 'NONE' as const,
-      providerHealth: {
-        quote: normalizeHealth(result.priceFreshness),
-        supply: normalizeHealth(getByPath(trace, 'providerHealth.supply') ?? trace.supplyConfidence),
-        dart: normalizeHealth(getByPath(trace, 'providerHealth.dart') ?? trace.dartConfidence),
-        macro: normalizeHealth(getByPath(summaryRecord, 'providerHealth.macro')),
-      },
-      dataConfidenceCeiling: normalizeConfidence(trace.dataConfidenceCeiling ?? summaryRecord?.dataConfidenceCeiling),
-      marketSignal: boolOf(summaryRecord?.marketSignal, false),
-      providerIssue: boolOf(summaryRecord?.providerIssue, false) || boolOf(trace.providerIssue, false),
-      shadowMode: shadowModeFor(engineMode),
-      requestedSide: 'BUY' as const,
-      currentPositionState: 'NONE' as const,
-      isDiagnosticOnly: boolOf(trace.isDiagnosticOnly, false) || result.gate3Readiness === 'SKIPPED',
-    };
-  });
-  const decisions = inputs.map(input => resolveFinalExecutionDecision(input, new Date('1970-01-01T00:00:00.000Z')));
-  const executionAudit = buildFinalDecisionRuntimeAuditSummary({ sourceSnapshotId: base.sourceSnapshotId, decisions, inputs });
+  // ADR-0527 Phase 2b: execution 표시 정본 = 스캔-시점 persist(executionResolutionAggregate).
+  // 더미 시각(1970) resolveFinalExecutionDecision 재계산 + buildFinalDecisionRuntimeAuditSummary 집계 제거 →
+  // 실제 asOf 로 도출된 정본 read 로 교체(렌더 비결정성/더미-시각 divergence 제거 = 의도된 버그 정정).
+  // gate2/gate3 표시는 View read 라 더 이상 execution input plumbing 이 필요 없어 GATE-VIEW-EXEMPT 면제 불요(가드가 강제).
+  const execution = executionSummaryFromUnifiedAggregate(summaryRecord?.executionResolutionAggregate);
   return {
     ...base,
     marketSession,
     engineMode,
     effectiveRegime: canonicalEffectiveRegime,
-    gate2: gate2SummaryFromConfluence(confluence),
+    // ADR-0526 Phase1b: gate2 표시 status 정본 = 스캔-시점 View(candidateGateAggregate). confluence(캐시 보강) override 제거.
+    gate2: gate2SummaryFromAggregate(summaryRecord?.candidateGateAggregate),
     // ADR-0525: gate3 표시 override 제거 → base 의 canonical gate3(gateLayerAudit.gate3Consolidated 투영)를 사용한다.
-    // /gate · /gate_detail · /gate_full · debug_raw 가 동일 gate3 정본을 본다. (gate2/execution override 는 Phase1/2 대상으로 잔류)
-    execution: executionSummaryFromAudit(executionAudit),
+    execution,
     learning: learningSummaryFromOutcomeSummary(outcomeClosureRepo.summarizeLearningOutcomes()),
-    executionImpact: executionSummaryFromAudit(executionAudit).executionImpact,
+    // Phase2b: executionImpact 정본 = executionResolutionAggregate(더미-시각 executionAudit 제거).
+    executionImpact: execution.executionImpact,
+    // main(536A2): QMP gate detail header canonical view (summary read).
     qmpGateDetailHeader: buildQmpGateDetailHeaderView(summary),
     fullForensicText: formatScanBlockersMessage(summary),
   };

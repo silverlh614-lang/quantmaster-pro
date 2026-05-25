@@ -282,9 +282,15 @@ export function formatBuyAllowedPipelineBreakLog(input: {
   ].join(' ');
 }
 
-export function formatShadowOrderCreatedLog(order: ShadowOrder): string {
+export function formatShadowOrderCreatedLog(
+  order: ShadowOrder,
+  // ADR-0528 a5: 5-event 체인 공통 sourceSnapshotId carry(log-only — order.snapshotId 정본 read).
+  sourceSnapshotId?: string,
+): string {
   return [
     '[SHADOW_ORDER_CREATED]',
+    'decisionStage=SHADOW_ORDER_CREATED',
+    kv('sourceSnapshotId', sourceSnapshotId),
     kv('shadowOrderId', order.shadowOrderId),
     kv('orderIntentId', order.orderIntentId),
     kv('symbol', order.symbol),
@@ -294,9 +300,15 @@ export function formatShadowOrderCreatedLog(order: ShadowOrder): string {
   ].join(' ');
 }
 
-export function formatShadowPaperFilledLog(fill: PaperFill): string {
+export function formatShadowPaperFilledLog(
+  fill: PaperFill,
+  // ADR-0528 a6: 공통 sourceSnapshotId 를 priceSnapshotId 와 별도 필드로 명시 부착(log-only).
+  sourceSnapshotId?: string,
+): string {
   return [
     '[SHADOW_PAPER_FILLED]',
+    'decisionStage=SHADOW_PAPER_FILLED',
+    kv('sourceSnapshotId', sourceSnapshotId),
     kv('fillId', fill.fillId),
     kv('shadowOrderId', fill.shadowOrderId),
     kv('orderIntentId', fill.orderIntentId),
@@ -314,9 +326,13 @@ export function formatPaperTradeLedgerRecordedLog(input: {
   side: 'BUY' | 'SELL';
   quantity: number;
   fillPrice: number;
+  // ADR-0528 a8: 5-event 체인 완결 마커. 공통 sourceSnapshotId carry = 실 체결 증명(log-only).
+  sourceSnapshotId?: string;
 }): string {
   return [
     '[PAPER_TRADE_LEDGER_RECORDED]',
+    'decisionStage=LEDGER_RECORDED',
+    kv('sourceSnapshotId', input.sourceSnapshotId),
     kv('tradeId', input.tradeId),
     kv('orderIntentId', input.orderIntentId),
     kv('symbol', input.symbol),

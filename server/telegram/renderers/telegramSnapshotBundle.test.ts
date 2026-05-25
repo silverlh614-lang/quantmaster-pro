@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSnapshotBundleFromScanSummary,
   executionSummaryFromAudit,
+  gate2SummaryFromAggregate,
   gate2SummaryFromConfluence,
   gate3SummaryFromRuntimeClosure,
 } from './snapshotBundle.js';
@@ -88,5 +89,45 @@ describe('ADR-0523 Telegram snapshot bundle', () => {
       executionImpactDistribution: { LIVE_BUY_BLOCKED: 3 },
       providerIssueConvertedToMarketSignalCount: 0,
     }).topBlockReason).toBe('R6_DEFENSE_LIVE_BUY_BLOCKED');
+  });
+
+  // ADR-0526 Phase 1b: gate2 표시 status 정본 = 스캔-시점 View aggregate(ScopedCount), 캐시 아님.
+  it('gate2SummaryFromAggregate reads scan-time View status counts + display coverage', () => {
+    const gate2 = gate2SummaryFromAggregate({
+      evaluatedCount: { scope: 'ALL_CANDIDATES', value: 18 },
+      gate2PassStrongCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 4 },
+      gate2PassWeakCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 9 },
+      gate2WatchCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 3 },
+      gate2FailCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 2 },
+      gate2DataIncompleteCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 0 },
+      gate2Coverage: {
+        rsUsable: 16, supplyUsable: 14, sectorUsable: 12, technicalUsable: 18, fundamentalUsable: 9,
+        topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+      },
+    });
+    expect(gate2.passStrong).toBe(4);
+    expect(gate2.passWeak).toBe(9);
+    expect(gate2.evaluated).toBe(18);
+    expect(gate2.topPositiveAxis).toBe('SUPPLY_CONFLUENCE');
+    expect(gate2.nextAction).toBe('Gate3 timing for 13 candidates');
+  });
+
+  it('buildSnapshotBundleFromScanSummary projects gate2 from candidateGateAggregate (View), not undefined', () => {
+    const bundle = buildSnapshotBundleFromScanSummary({
+      snapshotId: 'scan-eval-gate2view',
+      time: '2026-05-25T09:00:00.000Z',
+      candidates: 5,
+      candidateGateAggregate: {
+        evaluatedCount: { scope: 'ALL_CANDIDATES', value: 5 },
+        gate2PassStrongCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+        gate2PassWeakCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 2 },
+        gate2WatchCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+        gate2FailCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+        gate2DataIncompleteCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 0 },
+      },
+    });
+    expect(bundle.gate2?.passStrong).toBe(1);
+    expect(bundle.gate2?.passWeak).toBe(2);
+    expect(bundle.gate2?.fail).toBe(1);
   });
 });

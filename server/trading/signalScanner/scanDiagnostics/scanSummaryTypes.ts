@@ -49,6 +49,16 @@ import type { SnapshotForensicAlert } from '../../sourceSnapshot/snapshotMismatc
 import type { ScoreBreakdown } from '../../gates/aiExecutionIsolation.js';
 import type { CanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import type { CandidatePoolResult } from '../../candidatePoolBuilder.js';
+import type {
+  CandidateGateEvaluationView,
+  CandidateGateEvaluationAggregate,
+} from './candidateGateEvaluationView.js';
+import type { Gate2ConfluenceSummary } from '../../../quant/gate2ConfluenceScore.js';
+import type { Gate3RuntimeClosureSummary } from '../../../quant/gate3RuntimeClosure.js';
+import type {
+  UnifiedExecutionPermissionResolution,
+  UnifiedExecutionPermissionAggregate,
+} from '../../gates/unifiedExecutionContract.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -281,6 +291,22 @@ export interface ScanSummary {
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
   candidatePool?: CandidatePoolResult;
   paperEntryForensic?: PaperEntryForensicSummary;
+  // ADR-0526 Phase 1a — per-candidate Gate0/1/2/3 판단 정본 (가산만, 기존 필드 무변경).
+  // 생산자(persistScanResults)가 도출·영속. 소비자(formatter)는 1b 에서 read 로 재바인딩.
+  candidateGateViews?: CandidateGateEvaluationView[];
+  candidateGateAggregate?: CandidateGateEvaluationAggregate;
+  // ADR-0526 Phase 1b — gate2 confluence 정본 스냅샷(스캔-시점, gate2 캐시 미사용 → 결정론).
+  // formatter(scanBlockersGate2/Gate3)가 buildGate2ConfluenceSummary 를 재실행하지 않고 본 필드를 read.
+  candidateGate2Confluence?: Gate2ConfluenceSummary;
+  // ADR-0526 Phase 1b — gate3 runtime closure 정본 스냅샷(스캔-시점, gate2 캐시 미사용 → 결정론).
+  // formatter(scanBlockersGate3)가 buildGate3RuntimeClosureSummary 를 재실행하지 않고 본 필드를 read.
+  candidateGate3Closure?: Gate3RuntimeClosureSummary;
+  // ADR-0527 Phase 2a — per-candidate 통합 실행허가 정본(A resolveExecutionPermission byte-equivalent + B 라벨 병합).
+  // 스캔-시점(실제 asOf, 더미 1970 의존 0) 도출·영속. 소비자(formatter)는 Phase 2b 전까지 0 — 화면 무변화.
+  candidateExecutionResolutions?: UnifiedExecutionPermissionResolution[];
+  // ADR-0527 Phase 2a — 위 per-candidate 정본의 roll-up. permission(boolean)과 count(*Count/*Created) 명명 분리.
+  executionResolutionAggregate?: UnifiedExecutionPermissionAggregate;
+  // main(71e3c29) "split scan blocker entry lanes" — 진입 레인 분리 count.
   entryLaneSplit?: EntryLaneSplitCounts;
 }
 

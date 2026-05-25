@@ -1,5 +1,11 @@
 // @responsibility Simplification Step 2 — regime-only position sizing policy.
 
+import type {
+  PositionPolicyDecision,
+  PositionPolicyMode,
+  PositionPolicyTier,
+} from '../gates/unifiedExecutionContract.js';
+
 export type RegimePositionPolicyKey =
   | 'R1_STRONG_BULL'
   | 'R2_BULL'
@@ -162,14 +168,20 @@ export function calculateRegimePositionSizing(input: PositionPolicySizingInput):
 
 export function formatPositionPolicySimpleAppliedLog(input: {
   snapshotId?: string;
+  /** ADR-0528 a2: 진짜 SourceSnapshot id(log-only carry). 부재 시 'NA'. */
+  sourceSnapshotId?: string;
   symbol?: string;
   sizing: PositionPolicySizingResult;
 }): string {
   const { policy } = input.sizing;
   return [
     '[POSITION_POLICY_SIMPLE_APPLIED]',
-    `snapshotId=${input.snapshotId ?? 'NA'}`,
+    // ADR-0528 a2: 진짜 sourceSnapshotId 를 carry. 기존 buyList:CODE proxy 는 positionSnapshotProxy 로 강등.
+    `decisionStage=POSITION_POLICY`,
+    `sourceSnapshotId=${input.sourceSnapshotId ?? 'NA'}`,
+    `positionSnapshotProxy=${input.snapshotId ?? 'NA'}`,
     `symbol=${input.symbol ?? 'NA'}`,
+    `positionIntent=simple_applied`,
     `regime=${policy.regime}`,
     `maxPositions=${policy.maxPositions}`,
     `currentPositions=${input.sizing.currentPositions}`,
@@ -239,6 +251,35 @@ export function formatRegimeExecutionAuthorityRemovedLog(input: {
     "newBehavior='POSITION_POLICY_AND_SCORE_ADJUSTMENT_ONLY'",
     "executionImpact='NONE'",
   ].join(' ');
+}
+
+/**
+ * ADR-0527 — PositionPolicyDecision 정본 매핑.
+ * calculateRegimePositionSizing 의 결과(RegimePositionPolicySizingResult)를 정본 형상으로
+ * **명명·표본 매핑만** 한다. 사이징 계산 로직은 변경하지 않는다.
+ * - tier: policy.regime (RegimePositionPolicyKey ⊆ PositionPolicyTier, 동일 리터럴).
+ * - posPct: perPositionPct 정본(= sizing.positionSizePct = policy.perPositionPct).
+ * - finalKelly: 현 정책상 Kelly 비활성(kellyDisabled=true) → null 고정.
+ * - diagnosticVsLive: 호출 맥락으로 설정(기본 DIAGNOSTIC — formatter 표본 구분용).
+ */
+export function toPositionPolicyDecision(input: {
+  sourceSnapshotId: string;
+  symbol?: string;
+  sizing: PositionPolicySizingResult;
+  diagnosticVsLive?: PositionPolicyMode;
+}): PositionPolicyDecision {
+  const { policy } = input.sizing;
+  return {
+    sourceSnapshotId: input.sourceSnapshotId,
+    ...(input.symbol ? { symbol: input.symbol } : {}),
+    tier: policy.regime as PositionPolicyTier,
+    posPct: input.sizing.positionSizePct,
+    maxPositions: policy.maxPositions,
+    maxGrossExposurePct: policy.maxGrossExposurePct,
+    finalKelly: input.sizing.kellyDisabled ? null : null,
+    diagnosticVsLive: input.diagnosticVsLive ?? 'DIAGNOSTIC',
+    executionImpact: 'NONE',
+  };
 }
 
 export function formatKellyRemovedIgnoredLog(input: {

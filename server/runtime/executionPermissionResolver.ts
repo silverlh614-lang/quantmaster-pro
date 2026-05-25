@@ -149,10 +149,19 @@ export function resolveExecutionPermission(input: ResolveExecutionPermissionInpu
   };
 }
 
-export function formatExecutionPermissionLog(permission: ExecutionPermissionResolution): string {
+export function formatExecutionPermissionLog(
+  permission: ExecutionPermissionResolution,
+  // ADR-0528 a3: per-symbol 호출 시 symbol + finalVerdict(②) carry(log-only enrichment).
+  correlation?: { symbol?: string; finalVerdict?: string },
+): string {
   return [
     ...permission.logTags,
+    // ADR-0528 a3: decisionStage + symbol + finalVerdict 부착(상관 강제). 값은 정본 read-carry.
+    `decisionStage=EXECUTION_PERMISSION`,
     `sourceSnapshotId=${permission.sourceSnapshotId}`,
+    `symbol=${correlation?.symbol ?? 'NA'}`,
+    ...(correlation?.finalVerdict !== undefined ? [`finalVerdict=${correlation.finalVerdict}`] : []),
+    `shadowOrderAllowed=${permission.shadowOrderAllowed}`,
     `asOf=${permission.asOf}`,
     `ttlSec=${permission.ttlSec}`,
     `gateEvaluationAllowed=${permission.gateEvaluationAllowed}`,

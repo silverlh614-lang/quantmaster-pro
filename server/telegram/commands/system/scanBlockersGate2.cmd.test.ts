@@ -1,8 +1,28 @@
 // @responsibility /scan_blockers_gate2 compact Gate2 ExternalData slice command tests.
+// ADR-0526 Phase 1b: formatter 는 buildGate2ConfluenceSummary 를 재실행하지 않고 persist 된 정본
+// (candidateGate2Confluence / candidateGateAggregate)을 read 한다. 테스트는 mock summary 에 해당 정본을
+// 실제 빌더로 채워 "스캔-시점 View" 경로를 모사한다(의도된 동작 — 캐시-status 가 아닌 스캔-시점 status).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildCandidateGateEvaluationViews,
+  aggregateCandidateGateEvaluationViews,
+  buildCandidateGate2Coverage,
+  buildCandidateGate2ConfluenceSnapshot,
+} from '../../../trading/signalScanner/scanDiagnostics/candidateGateEvaluationView.js';
+
+/** mock summary 에 ADR-0526 정본 View 필드(스캔-시점, gate2 캐시 미사용)를 가산한다. */
+function withCanonicalViews(summary: any): any {
+  const views = buildCandidateGateEvaluationViews(summary);
+  return {
+    ...summary,
+    candidateGateViews: views,
+    candidateGateAggregate: aggregateCandidateGateEvaluationViews(views, buildCandidateGate2Coverage(summary)),
+    candidateGate2Confluence: buildCandidateGate2ConfluenceSnapshot(summary),
+  };
+}
 
 function baseMockSummary(): any {
-  return {
+  return withCanonicalViews({
   entryFilterDecomposition: {
     candidateTraces: [
       {
@@ -33,7 +53,7 @@ function baseMockSummary(): any {
       },
     ],
   },
-};
+});
 }
 
 let mockSummary: any = baseMockSummary();
@@ -103,7 +123,7 @@ describe('/scan_blockers_gate2 command', () => {
   });
 
   it('shows partial DART/PER aggregates when some candidates have usable Gate2 data', async () => {
-    mockSummary = {
+    mockSummary = withCanonicalViews({
       asOf: '2026-05-24T00:00:00.000Z',
       entryFilterDecomposition: {
         candidateTraces: [
@@ -140,7 +160,7 @@ describe('/scan_blockers_gate2 command', () => {
           },
         ],
       },
-    };
+    });
     mockGate2Cache = {
       version: 1,
       updatedAt: '2026-05-24T00:10:00.000Z',

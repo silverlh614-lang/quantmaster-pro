@@ -116,6 +116,17 @@ import {
   type ScanEvaluationResult,
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
+import {
+  buildCandidateGateEvaluationViews,
+  aggregateCandidateGateEvaluationViews,
+  buildCandidateGate2Coverage,
+  buildCandidateGate2ConfluenceSnapshot,
+  buildCandidateGate3ClosureSnapshot,
+} from './candidateGateEvaluationView.js';
+import {
+  buildCandidateExecutionResolutions,
+  aggregateUnifiedExecutionPermission,
+} from './candidateExecutionResolution.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
@@ -1710,6 +1721,43 @@ export async function persistScanResults(
   }
 
   summaryDraft.canonicalRuntimeResolution = canonicalRuntimeResolutionForRootCause;
+
+  // ADR-0526 Phase 1a — per-candidate Gate0/1/2/3 판단 정본 View 도출·영속 (가산만, 무위험).
+  // entryFilterDecomposition / gateLayerAudit / meta 가 모두 세팅된 *후* 도출 — 정본 입력 정합.
+  // 결정론적(네트워크/캐시/더미 시각 없음). 이 View 를 읽는 소비자는 1b 전까지 0 — 화면 무변화.
+  // 빌드 실패가 ScanSummary 영속을 차단해서는 안 됨 — try/catch 격리.
+  try {
+    const candidateGateViews = buildCandidateGateEvaluationViews(summaryDraft);
+    if (candidateGateViews.length > 0) {
+      summaryDraft.candidateGateViews = candidateGateViews;
+      // gate2Coverage(표시용 보조 axis 지표)를 confluence 정본에서 1회 도출해 aggregate 에 carry —
+      // formatter 가 buildGate2ConfluenceSummary 를 재실행하지 않도록 함(ADR-0526 §Decision.5).
+      summaryDraft.candidateGateAggregate = aggregateCandidateGateEvaluationViews(
+        candidateGateViews,
+        buildCandidateGate2Coverage(summaryDraft),
+      );
+      // gate2 confluence / gate3 closure 정본 스냅샷(스캔-시점, 캐시 미사용) 영속 — full-mode formatter read 용.
+      summaryDraft.candidateGate2Confluence = buildCandidateGate2ConfluenceSnapshot(summaryDraft);
+      summaryDraft.candidateGate3Closure = buildCandidateGate3ClosureSnapshot(summaryDraft);
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateGateEvaluationViews', error: e });
+  }
+
+  // ADR-0527 Phase 2a — per-candidate 통합 실행허가 정본 도출·영속 (가산만, 무위험).
+  // Phase1 candidateGateViews 가 세팅된 *후* 도출 — gate quality 정본 입력 정합.
+  // A(resolveExecutionPermission) 는 LIVE 와 byte-equivalent, B 라벨은 실제 스캔 시각(더미 1970 의존 0)으로 산출.
+  // 소비자(formatter)는 Phase 2b 전까지 0 → 화면 무변화. 빌드 실패가 ScanSummary 영속을 차단하지 않도록 try/catch 격리.
+  try {
+    const executionResolutions = buildCandidateExecutionResolutions(summaryDraft);
+    if (executionResolutions.length > 0) {
+      summaryDraft.candidateExecutionResolutions = executionResolutions;
+      summaryDraft.executionResolutionAggregate = aggregateUnifiedExecutionPermission(executionResolutions);
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateExecutionResolutions', error: e });
+  }
+
   _lastScanSummary = summaryDraft;
   // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
   clearPreflightBlockedScanSummary();
