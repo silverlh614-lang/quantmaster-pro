@@ -305,13 +305,40 @@ export async function requestBuyApprovalWithDelivery(params: {
   signalType?: string;
   gateBandNormal?: number;
   gateBandStrong?: number;
+  /**
+   * Patch-SHADOW-OPERATING-WINDOW-GATE — 운영자용 SHADOW 매수 승인 카드 운영시간 게이트.
+   * `false` 면 카드/자동승인 미발송 + SKIP 반환 (shadow pos/pnl 미반영). 백그라운드 학습 lane 은
+   * 별도 경로라 무영향 (불변식 #2). `undefined`(미전달)·LIVE 모드는 게이트 비적용 (후방호환).
+   */
+  operatorWindowOpen?: boolean;
 }): Promise<BuyApprovalRequestResult> {
   const {
     tradeId, stockCode, stockName,
     currentPrice, quantity, stopLoss, targetPrice, mode, gateScore, enemyCheck,
     regime, preMortem, signalId, tradeDate, marketSession, sourceLane, rrr,
     mtas, compressionScore, availableMaxScore, gateLayerSummary, signalType, gateBandNormal, gateBandStrong,
+    operatorWindowOpen,
   } = params;
+
+  // Patch-SHADOW-OPERATING-WINDOW-GATE — 운영자용 SHADOW 매수 승인 카드는 LIVE 와 동일하게
+  // 거래일·정규장 시간에만 발화한다. 운영시간 외(휴장·장후·주말)면 카드/자동승인 0건 + SKIP 반환
+  // → 호출자(buyPipeline)가 executeShadowBuyOrder 미호출 → shadow pos/pnl 미반영. 백그라운드 학습
+  // lane(counterfactual/provisional)은 buyList 루프 앞단에서 독립 실행돼 무영향 (불변식 #2 보존).
+  // operatorWindowOpen 미전달(undefined)·LIVE 모드는 비적용 (trancheExecutor/회귀 테스트 후방호환).
+  if (mode === 'SHADOW' && operatorWindowOpen === false) {
+    console.log(
+      '[BuyApproval] SHADOW 승인 카드 억제 — 운영시간 외 (거래일·정규장 외). 백그라운드 학습 lane 은 별도 진행.',
+      JSON.stringify({
+        symbol: stockCode,
+        tradeDate,
+        marketSession,
+        reason: 'OUTSIDE_LIVE_OPERATING_WINDOW',
+        executionImpact: 'NONE',
+        liveOrderPlaced: false,
+      }),
+    );
+    return { action: 'SKIP', telegramDelivered: false };
+  }
 
   // ─── Patch-SHADOW-APPROVAL-DEDUP-001 — Shadow lane dedupe guard ─────────────
   // SHADOW 모드 + dedupe 필수 필드 전달 시에만 활성. LIVE 모드는 본 가드 미적용

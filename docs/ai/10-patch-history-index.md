@@ -128,6 +128,7 @@
 > 각 줄은 archive 의 해당 행으로 가는 입구다. 상세 본문은 `patch-history-full-log.md` 에서
 > 식별자(ADR-xxxx / Patch-xxx / PR-xxx)·날짜로 검색. **본 색인을 상세 로그로 키우지 말 것.**
 
+- 2026-05-25 · Patch-Shadow-Operating-Window-Gate (운영자용 SHADOW 매수 승인 카드를 LIVE 와 동일 운영시간(거래일+REGULAR 세션)에만 발화 · buyPipeline.resolveOperatorShadowCardWindowOpen + buyApproval operatorWindowOpen 게이트 · 휴장/장후/주말 카드+자동승인 0건·SKIP → shadow pos/pnl 미반영 · 백그라운드 학습 lane 무영향(불변식 #2) · ENV SHADOW_OPERATING_WINDOW_GATE_DISABLED 롤백 · 휴일 21:26 가상매수 인시던트 수정 · 매도 청산 게이트는 후속 PR)
 - 2026-05-25 · Patch-Gate-TrueWeakness-Shadow-Flag-Alignment (gateDecisionRouter TRUE_WEAKNESS 의 shadowAllowed/counterfactualLearningAllowed/learningShadowAllowed → false 실동작 정렬 · /scan_blockers 자기모순(lanes=✅ vs operatorMessage=차단) 제거 · provisional/counterfactual 레인이 severity 로 이미 차단하므로 런타임 동작 변화 0)
 - 2026-05-24 · PR-ADR-0518 (corporate-action-guard-dailybar-continuity · corporateActionDetector/entryPriceDrift/kisChartDataFetcher · magnitude-only false-positive 차단)
 - 2026-05-20 · Patch-TSC-BASELINE-DIAGNOSTIC-FIX-001
