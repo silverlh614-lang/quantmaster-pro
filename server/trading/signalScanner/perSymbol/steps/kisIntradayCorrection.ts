@@ -4,7 +4,8 @@
 
 import { fetchKisInvestorTradeByStockDaily } from '../../../../clients/kisClient.js';
 import { applySupplyProviderHealthFromKisFlow } from '../../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
-import { getGate2DartFinancialsForEvaluation } from '../../../gate2/gate2ExternalDataProvider.js';
+import { resolveDartFinancialsForEvaluation } from '../../../gate2/gate2DartCanonicalSlot.js';
+import { readCandidateDartSlot } from '../../injectPerSymbolDartContext.js';
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../../../../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../../../../screener/adapters/yahooSymbolResolver.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
@@ -60,10 +61,11 @@ export async function kisIntradayCorrectionStep(
   });
   for (const msg of kisCorrection.logMessages) console.log(msg);
 
+  // ADR-0529: flag ON + 정본 슬롯 가용 시 슬롯 financials, 아니면 기존 cache-first 경로 fallback (byte-equivalent).
   const [kisFlow, dartFin] = reCheckQuote
     ? await Promise.all([
         fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
-        getGate2DartFinancialsForEvaluation(stock.code).catch(() => null),
+        resolveDartFinancialsForEvaluation(stock.code, readCandidateDartSlot(stock)).catch(() => null),
       ])
     : [null, null];
   applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlow);

@@ -16,7 +16,8 @@ import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from 
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import type { KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
-import { getGate2DartFinancialsForEvaluation } from './gate2/gate2ExternalDataProvider.js';
+import { resolveDartFinancialsForEvaluation } from './gate2/gate2DartCanonicalSlot.js';
+import type { SymbolDartFinancialsSlot } from './sourceSnapshot/symbolSnapshotData.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
@@ -103,6 +104,8 @@ export async function fetchGateData(
   stockCode: string,
   conditionWeights?: ReturnType<typeof loadConditionWeights>,
   kospi20dReturn?: number,
+  // ADR-0529: 호출자가 carry 한 정본 DART 슬롯(있으면 슬롯 read, 없으면 기존 cache-first fallback — byte-equivalent).
+  dartSlot?: SymbolDartFinancialsSlot | null,
 ): Promise<GateData> {
   const weights = conditionWeights ?? loadConditionWeights();
   const quote = await fetchYahooQuoteByCode(stockCode, fetchYahooQuote)
@@ -112,7 +115,7 @@ export async function fetchGateData(
 
   const [kisFlow, dartFin] = await Promise.all([
     fetchKisInvestorTradeByStockDaily(stockCode).catch(() => null),
-    getGate2DartFinancialsForEvaluation(stockCode).catch(() => null),
+    resolveDartFinancialsForEvaluation(stockCode, dartSlot).catch(() => null),
   ]);
 
   const macroState = loadMacroState();

@@ -61,7 +61,7 @@ import {
   fetchKisInvestorTradeByStockDaily,
   hasKisClientOverrides,
 } from "../clients/kisClient.js";
-import { getGate2DartFinancialsForEvaluation } from "../trading/gate2/gate2ExternalDataProvider.js";
+import { resolveDartFinancialsForEvaluation } from "../trading/gate2/gate2DartCanonicalSlot.js";
 import type { Gate2ExternalCoverageInput } from "../quant/gate2Diagnostics/types.js";
 import { recordDartAttempt } from "./dataCompletenessTracker.js";
 import {
@@ -612,7 +612,8 @@ export async function stage3AIScreenAndRegister(
   const dartFinByCode = new Map<string, NonNullable<Gate2ExternalCoverageInput['dartFin']>>();
   await Promise.all(
     candidates.map(async (c) => {
-      const fin = await getGate2DartFinancialsForEvaluation(c.code).catch(() => null);
+      // ADR-0529: 정본 read 단일 진입점. 이 경로는 정본 snapshot 미threaded — 슬롯 부재 → 기존 cache-first fallback (byte-equivalent, 회귀 0).
+      const fin = await resolveDartFinancialsForEvaluation(c.code).catch(() => null);
       const finAny = fin as Record<string, unknown> | null;
       const totalDebt = typeof finAny?.totalDebt === 'number' ? finAny.totalDebt : null;
       const totalEquity = typeof finAny?.totalEquity === 'number' ? finAny.totalEquity : null;

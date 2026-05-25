@@ -39,7 +39,10 @@ import type {
   SymbolTechnicalIndicators,
   SymbolSupplySignal,
   SymbolDataQuality,
+  SymbolDartFinancialsSlot,
 } from './sourceSnapshot/symbolSnapshotData.js';
+// ADR-0529: DART 정본 슬롯은 기존 cache-first 통로 위임만 — 새 DART HTTP fetch 신설 0.
+import { buildSymbolDartFinancialsSlot } from './gate2/gate2DartCanonicalSlot.js';
 
 // ─── concurrency helper ──────────────────────────────────────────────────────
 
@@ -302,6 +305,11 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
     );
   }
 
+  // ADR-0529 방식 B(cached-reference): DART 정본 슬롯 채움.
+  // flag-gated + try/catch 격리 — DART 실패가 4 KIS 수집/scan 을 막지 않는다 (불변식 #1).
+  // 새 DART HTTP fetch 신설 0 — 기존 cache-first 단일 통로 위임만 (hit=외부호출 0, miss≤1 기존과 동일).
+  const dartFinancials = await collectDartFinancialsSlot(code);
+
   const fetchDurationMs = Math.round(performance.now() - t0);
   const fetchedAt = new Date().toISOString();
 
@@ -322,10 +330,36 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
     programTrade: program,
     technicalIndicators,
     supplySignal,
+    dartFinancials,
     dataQuality,
     fetchedAt,
     fetchDurationMs,
   };
+}
+
+/**
+ * ADR-0529: 종목 DART 정본 슬롯을 flag-gated 로 채운다.
+ * flag OFF → null (슬롯 미수집, read site 가 기존 경로 fallback).
+ * cache-first 위임 실패 시 MISSING 슬롯으로 격리 (불변식 #1: collect/scan 무중단).
+ */
+async function collectDartFinancialsSlot(code: string): Promise<SymbolDartFinancialsSlot | null> {
+  if (process.env.USE_UNIFIED_SOURCE_SNAPSHOT !== 'true') return null;
+  try {
+    return await buildSymbolDartFinancialsSlot(code);
+  } catch (err) {
+    logger.warn(
+      '[SymbolDataCollector] DART 정본 슬롯 수집 실패 — MISSING 처리 (scan 무중단)',
+      err instanceof Error ? err.message : String(err),
+      { code },
+    );
+    return {
+      financials: null,
+      cadence: 'MISSING',
+      source: 'NONE',
+      cacheHit: false,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
 }
 
 // ─── 매크로 컨텍스트 ─────────────────────────────────────────────────────────
@@ -468,6 +502,7 @@ export async function collectUnifiedSnapshot(
         programTrade: null,
         technicalIndicators: null,
         supplySignal: null,
+        dartFinancials: null,   // ADR-0529: MISSING 종목은 정본 슬롯도 미수집 → read site fallback.
         dataQuality: 'MISSING',
         fetchedAt: new Date().toISOString(),
         fetchDurationMs: 0,

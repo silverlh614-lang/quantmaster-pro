@@ -5,7 +5,8 @@
 import { channelShadowBuyFilled } from '../../../../alerts/channelPipeline.js';
 import { fetchKisInvestorTradeByStockDaily } from '../../../../clients/kisClient.js';
 import { applySupplyProviderHealthFromKisFlow } from '../../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
-import { getGate2DartFinancialsForEvaluation } from '../../../gate2/gate2ExternalDataProvider.js';
+import { resolveDartFinancialsForEvaluation } from '../../../gate2/gate2DartCanonicalSlot.js';
+import { readCandidateDartSlot } from '../../injectPerSymbolDartContext.js';
 import { requestKisWsSubscription } from '../../../../clients/kisWebSocketSubscriptionManager.js';
 import { verifyStockIncremental } from '../../../../data/dataVerificationIncremental.js';
 import { buildEntryConditionScores } from '../../../../learning/entryConditionScores.js';
@@ -270,9 +271,10 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
         const slippage = getExecutionCostConfig().slippageRate;
         const pbEntryPrice = Math.round(currentPrice * (1 + slippage));
         const gateScorePb = (stock.gateScore ?? 0) + ctx.volumeClock.scoreBonus;
+        // ADR-0529: 정본 슬롯 우선·기존 경로 fallback (byte-equivalent, 동일 cache-first 출처).
         const [kisFlowPb, dartFinPb] = await Promise.all([
           fetchKisInvestorTradeByStockDaily(stock.code).catch(() => null),
-          getGate2DartFinancialsForEvaluation(stock.code).catch(() => null),
+          resolveDartFinancialsForEvaluation(stock.code, readCandidateDartSlot(stock)).catch(() => null),
         ]);
         applySupplyProviderHealthFromKisFlow(
           stock as { supplyProviderHealth?: Record<string, unknown> | undefined },
