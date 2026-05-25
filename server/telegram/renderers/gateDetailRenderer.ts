@@ -1,8 +1,12 @@
 // @responsibility ADR-0523 detail summary renderer for top distributions without full forensic payloads.
 
 import type { SnapshotBundle } from './snapshotBundle.js';
+import { renderQmpGateDetailHeaderView } from './qmpGateDetailHeaderCanonical.js';
 
 export function renderGateDetailSummary(bundle: SnapshotBundle): string {
+  if (bundle.qmpGateDetailHeader) {
+    return renderQmpGateDetailHeaderView(bundle.qmpGateDetailHeader);
+  }
   const g1 = bundle.gate1;
   const g2 = bundle.gate2;
   const g3 = bundle.gate3;

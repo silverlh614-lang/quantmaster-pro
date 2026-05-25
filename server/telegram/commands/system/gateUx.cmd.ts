@@ -10,6 +10,7 @@ import { outcomeClosureRepo } from '../../../learning/outcomeClosure.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderExecutionCompact } from '../../renderers/executionCompactRenderer.js';
 import { renderGateDetailSummary } from '../../renderers/gateDetailRenderer.js';
+import { buildQmpGateDetailHeaderView } from '../../renderers/qmpGateDetailHeaderCanonical.js';
 import { renderDebugRaw, renderGateFullForensic } from '../../renderers/gateFullRenderer.js';
 import { buildCanonicalDebugRawView } from '../../renderers/canonicalDebugRawView.js';
 import {
@@ -63,7 +64,10 @@ function buildGateUxBundle(): SnapshotBundle {
     // ADR-0525: gate3 표시 override 제거 → base 의 canonical gate3(gateLayerAudit.gate3Consolidated 투영)를 사용한다.
     execution,
     learning: learningSummaryFromOutcomeSummary(outcomeClosureRepo.summarizeLearningOutcomes()),
+    // Phase2b: executionImpact 정본 = executionResolutionAggregate(더미-시각 executionAudit 제거).
     executionImpact: execution.executionImpact,
+    // main(536A2): QMP gate detail header canonical view (summary read).
+    qmpGateDetailHeader: buildQmpGateDetailHeaderView(summary),
     fullForensicText: formatScanBlockersMessage(summary),
   };
 }

@@ -1,5 +1,7 @@
 // @responsibility ADR-0523 Telegram Gate/Execution/Learning snapshot bundle contracts and compact extraction helpers.
 
+import type { QmpGateDetailHeaderView } from './qmpGateDetailHeaderCanonical.js';
+
 export type TelegramVerbosity = 'COMPACT' | 'DETAIL' | 'FULL_FORENSIC' | 'DEBUG_RAW';
 export type TelegramChannelKind = 'SIGNAL' | 'OPERATOR' | 'DEBUG' | 'DM';
 export type Severity = 'INFO' | 'WATCH' | 'ACTION' | 'BLOCKED' | 'ERROR' | 'DEBUG';
@@ -106,6 +108,7 @@ export interface SnapshotBundle {
   execution?: ExecutionSummary;
   learning?: LearningSummary;
   providerHealth?: ProviderHealthSummary;
+  qmpGateDetailHeader?: QmpGateDetailHeaderView;
   fullForensicText?: string;
 }
 
