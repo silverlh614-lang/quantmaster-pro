@@ -237,6 +237,9 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
     topBlockReason: text(getByPath(gateLayer, 'topGate1BlockReasons.0.reason'), 'none'),
     nextAction: 'Gate2 confluence review',
   } : undefined;
+  // ADR-0526 Phase 1b: gate2 표시 정본 = 스캔-시점 View(candidateGateAggregate). aggregate 부재 시 undefined(기존과 동일 graceful).
+  const candidateGateAggregate = summary?.candidateGateAggregate;
+  const gate2 = candidateGateAggregate ? gate2SummaryFromAggregate(candidateGateAggregate) : undefined;
   const bundle: SnapshotBundle = {
     sourceSnapshotId: resolveSourceSnapshotId(summary),
     asOf,
@@ -246,6 +249,7 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
     executionImpact: text(overrides.executionImpact ?? getByPath(gate3, 'executionImpact') ?? 'NONE', 'NONE'),
     shadowLearning: boolOf(overrides.shadowLearning ?? true, true),
     gate1,
+    gate2,
     gate3: gate3 ? {
       evaluated: numberOf(gate3.samples, 0),
       ready: numberOf(gate3.executionReadyCount ?? gate3.lastTriggerFiredCount, 0),
@@ -276,6 +280,36 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
 export function compactNumber(value: number | null | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/A';
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/**
+ * ADR-0526 §Decision.5 — gate2 PASS/FAIL status 정본은 CandidateGateEvaluationAggregate(스캔-시점 View)다.
+ * formatter 는 본 함수로 View aggregate 에서 status count + 표시용 coverage 를 읽는다(buildGate2ConfluenceSummary 재실행 금지).
+ * ScopedCount(.value) 와 gate2Coverage(표시용 보조)를 carry. aggregate 부재 시 빈 요약(graceful).
+ */
+export function gate2SummaryFromAggregate(raw: unknown): Gate2Summary {
+  const aggregate = recordOf(raw);
+  const coverage = recordOf(aggregate?.gate2Coverage);
+  const countOf = (field: string): number => numberOf(getByPath(aggregate, `${field}.value`), 0);
+  const passStrong = countOf('gate2PassStrongCount');
+  const passWeak = countOf('gate2PassWeakCount');
+  const evaluated = numberOf(getByPath(aggregate, 'evaluatedCount.value'), 0);
+  return {
+    evaluated,
+    passStrong,
+    passWeak,
+    watch: countOf('gate2WatchCount'),
+    fail: countOf('gate2FailCount'),
+    dataIncomplete: countOf('gate2DataIncompleteCount'),
+    rsUsable: numberOf(coverage?.rsUsable, 0),
+    supplyUsable: numberOf(coverage?.supplyUsable, 0),
+    sectorUsable: numberOf(coverage?.sectorUsable, 0),
+    technicalUsable: numberOf(coverage?.technicalUsable, 0),
+    fundamentalUsable: numberOf(coverage?.fundamentalUsable, 0),
+    topPositiveAxis: text(coverage?.topPositiveAxis, 'none'),
+    topMissingAxis: text(coverage?.topMissingAxis, 'none'),
+    nextAction: `Gate3 timing for ${passStrong + passWeak} candidates`,
+  };
 }
 
 export function gate2SummaryFromConfluence(raw: unknown): Gate2Summary {

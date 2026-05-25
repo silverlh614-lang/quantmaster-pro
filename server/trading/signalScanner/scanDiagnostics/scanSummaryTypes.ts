@@ -49,6 +49,12 @@ import type { SnapshotForensicAlert } from '../../sourceSnapshot/snapshotMismatc
 import type { ScoreBreakdown } from '../../gates/aiExecutionIsolation.js';
 import type { CanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import type { CandidatePoolResult } from '../../candidatePoolBuilder.js';
+import type {
+  CandidateGateEvaluationView,
+  CandidateGateEvaluationAggregate,
+} from './candidateGateEvaluationView.js';
+import type { Gate2ConfluenceSummary } from '../../../quant/gate2ConfluenceScore.js';
+import type { Gate3RuntimeClosureSummary } from '../../../quant/gate3RuntimeClosure.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -268,6 +274,16 @@ export interface ScanSummary {
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
   candidatePool?: CandidatePoolResult;
   paperEntryForensic?: PaperEntryForensicSummary;
+  // ADR-0526 Phase 1a — per-candidate Gate0/1/2/3 판단 정본 (가산만, 기존 필드 무변경).
+  // 생산자(persistScanResults)가 도출·영속. 소비자(formatter)는 1b 에서 read 로 재바인딩.
+  candidateGateViews?: CandidateGateEvaluationView[];
+  candidateGateAggregate?: CandidateGateEvaluationAggregate;
+  // ADR-0526 Phase 1b — gate2 confluence 정본 스냅샷(스캔-시점, gate2 캐시 미사용 → 결정론).
+  // formatter(scanBlockersGate2/Gate3)가 buildGate2ConfluenceSummary 를 재실행하지 않고 본 필드를 read.
+  candidateGate2Confluence?: Gate2ConfluenceSummary;
+  // ADR-0526 Phase 1b — gate3 runtime closure 정본 스냅샷(스캔-시점, gate2 캐시 미사용 → 결정론).
+  // formatter(scanBlockersGate3)가 buildGate3RuntimeClosureSummary 를 재실행하지 않고 본 필드를 read.
+  candidateGate3Closure?: Gate3RuntimeClosureSummary;
 }
 
 export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';

@@ -2,14 +2,12 @@
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { loadGate2ExternalCache } from '../../../trading/gate2/gate2ExternalCache.js';
 import type { Gate3ConsolidatedAuditSummary, GateLayerAuditSummary } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
 import { formatGate3TimingReadinessAuditSection } from '../../../trading/signalScanner/scanDiagnostics/gateLayerDiagnostics.js';
-import { buildGate2ConfluenceSummary } from '../../../quant/gate2ConfluenceScore.js';
 import {
-  buildGate3RuntimeClosureSummary,
   formatGate3RuntimeClosureCompact,
   formatGate3RuntimeClosureFull,
+  type Gate3RuntimeClosureSummary,
 } from '../../../quant/gate3RuntimeClosure.js';
 import { formatGate3CandidateDetailTable } from '../../../quant/gate3CandidateDetail.js';
 import { formatGate3ShadowRoutingAuditSection } from '../../../quant/gate3ShadowPolicy.js';
@@ -19,7 +17,7 @@ import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWa
 import { formatGate3FinalizationSection } from '../../../quant/gate3CompletionScore.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderGate3Compact } from '../../renderers/gateCompactRenderer.js';
-import { buildSnapshotBundleFromScanSummary, gate3SummaryFromRuntimeClosure } from '../../renderers/snapshotBundle.js';
+import { buildSnapshotBundleFromScanSummary } from '../../renderers/snapshotBundle.js';
 
 function topKey(counts: Record<string, number> | undefined): string {
   const [top] = Object.entries(counts ?? {})
@@ -39,43 +37,6 @@ type AnyRecord = Record<string, unknown>;
 
 function recordOf(value: unknown): AnyRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as AnyRecord : null;
-}
-
-function arrayOfRecords(value: unknown): AnyRecord[] {
-  return Array.isArray(value) ? value.map(recordOf).filter((item): item is AnyRecord => Boolean(item)) : [];
-}
-
-function getByPath(source: unknown, path: string): unknown {
-  let current: unknown = source;
-  for (const part of path.split('.')) {
-    if (!current || typeof current !== 'object') return undefined;
-    current = (current as AnyRecord)[part];
-  }
-  return current;
-}
-
-function text(value: unknown, fallback = 'UNKNOWN_SOURCE_SNAPSHOT'): string {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
-}
-
-function resolveEntryFilter(summary: AnyRecord | null): AnyRecord | null {
-  return recordOf(summary?.entryFilterDecomposition) ?? recordOf(summary?.entryFilterDecompositionAdr0464);
-}
-
-function resolveCandidateTraces(summary: AnyRecord | null): AnyRecord[] {
-  return arrayOfRecords(resolveEntryFilter(summary)?.candidateTraces);
-}
-
-function resolveSourceSnapshotId(summary: AnyRecord | null): string {
-  return text(
-    summary?.sourceSnapshotId
-      ?? summary?.scanId
-      ?? getByPath(summary, 'candidatePool.sourceSnapshotId')
-      ?? getByPath(summary, 'entryFilterDecomposition.sourceSnapshotId')
-      ?? getByPath(summary, 'gateLayerAudit.sourceSnapshotId')
-      ?? summary?.asOf
-      ?? summary?.time,
-  );
 }
 
 export function formatScanBlockersGate3Section(
@@ -180,31 +141,14 @@ const scanBlockersGate3: TelegramCommand = {
   async execute({ args, reply }) {
     const summary = getLastScanSummary();
     const summaryRecord = recordOf(summary);
-    const candidateTraces = resolveCandidateTraces(summaryRecord);
-    const gate2Cache = loadGate2ExternalCache();
-    const gate2Confluence = buildGate2ConfluenceSummary({
-      traces: candidateTraces,
-      sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
-      gate2CacheRecords: gate2Cache.records as unknown as Record<string, unknown>[],
-    });
-    const gate2StatusBySymbol = new Map<string, string>(gate2Confluence.results.map(result => [result.symbol, result.gate2Status]));
-    for (const trace of candidateTraces) {
-      const symbol = text(trace.symbol, '');
-      const explicitStatus = text(trace.gate2Status, '');
-      if (symbol && explicitStatus) gate2StatusBySymbol.set(symbol, explicitStatus);
-    }
-    const runtimeClosure = buildGate3RuntimeClosureSummary({
-      traces: candidateTraces,
-      sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
-      gate2StatusBySymbol,
-    });
+    // ADR-0526 §Decision.5: gate3 정본 = 스캔-시점 View(gate3Consolidated 투영 + candidateGate3Closure).
+    // buildGate3RuntimeClosureSummary / buildGate2ConfluenceSummary formatter 측 재실행 제거 → persist 정본 read.
+    const runtimeClosure = (summaryRecord?.candidateGate3Closure ?? null) as Gate3RuntimeClosureSummary | null;
     const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
     if (!wantsFull) {
+      // compact gate3 는 gateLayerAudit.gate3Consolidated 정본 투영(buildSnapshotBundleFromScanSummary.gate3)을 그대로 쓴다.
       await reply([
-        renderGate3Compact({
-          ...buildSnapshotBundleFromScanSummary(summary),
-          gate3: gate3SummaryFromRuntimeClosure(runtimeClosure),
-        }),
+        renderGate3Compact(buildSnapshotBundleFromScanSummary(summary)),
         buildDiagnosticCommandHint('gate'),
       ].join('\n'));
       return;

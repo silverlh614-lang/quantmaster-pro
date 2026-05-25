@@ -31,11 +31,11 @@ function getByPath(source: unknown, path: string): unknown {
 
 function symbolsFromLatestScan(): string[] {
   const summary = recordOf(getLastScanSummary());
-  const entry = recordOf(summary?.entryFilterDecomposition) ?? recordOf(summary?.entryFilterDecompositionAdr0464);
-  const traces = arrayOfRecords(entry?.candidateTraces);
+  // ADR-0526 §Decision.5: candidateTraces 채굴 대신 per-candidate 정본 View(candidateGateViews)의 symbol 을 read.
+  const views = arrayOfRecords(summary?.candidateGateViews);
   const candidates = arrayOfRecords(summary?.candidates);
   const all = [
-    ...traces.flatMap(trace => [trace.symbol, trace.code, trace.stockCode]),
+    ...views.map(view => view.symbol),
     ...candidates.flatMap(candidate => [candidate.symbol, candidate.code, candidate.stockCode]),
     ...arrayOfRecords(getByPath(summary, 'candidatePool.candidates')).flatMap(candidate => [candidate.symbol, candidate.code, candidate.stockCode]),
   ];

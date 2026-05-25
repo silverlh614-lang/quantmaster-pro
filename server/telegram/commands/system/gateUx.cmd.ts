@@ -35,7 +35,7 @@ import {
   buildSnapshotBundleFromScanSummary,
   boolOf,
   executionSummaryFromAudit,
-  gate2SummaryFromConfluence,
+  gate2SummaryFromAggregate,
   getByPath,
   recordOf,
   text,
@@ -103,6 +103,9 @@ function buildGateUxBundle(): SnapshotBundle {
   const base = buildSnapshotBundleFromScanSummary(summary);
   const traces = resolveCandidateTraces(summaryRecord);
   const gate2Cache = loadGate2ExternalCache();
+  // ADR-0526 §Decision.5: gate2 PASS/FAIL status 표시 정본은 스캔-시점 View(candidateGateAggregate)다.
+  // 아래 confluence/gate3 closure 재계산은 *Phase2 execution resolver 입력 전용* — 표시 status 에 쓰지 않는다.
+  // GATE-VIEW-EXEMPT-BEGIN (ADR-0527/Phase2 execution input — gate2/gate3 display 는 View read)
   const confluence = buildGate2ConfluenceSummary({
     traces,
     sourceSnapshotId: base.sourceSnapshotId,
@@ -110,6 +113,7 @@ function buildGateUxBundle(): SnapshotBundle {
   });
   const gate2StatusBySymbol = new Map<string, string>(confluence.results.map(result => [result.symbol, result.gate2Status]));
   const gate3 = buildGate3RuntimeClosureSummary({ traces, sourceSnapshotId: base.sourceSnapshotId, gate2StatusBySymbol });
+  // GATE-VIEW-EXEMPT-END
   const engineMode = normalizeEngineMode(summaryRecord?.engineMode ?? getByPath(summaryRecord, 'macroGateState.engineMode'));
   const marketSession = normalizeMarketSession(summaryRecord?.marketSession ?? getByPath(summaryRecord, 'macroGateState.canonicalSession'));
   // 정본 macro regime 은 base(snapshotBundle = scanEvaluation.effectiveRegime SSOT)에서 가져온다.
@@ -117,6 +121,7 @@ function buildGateUxBundle(): SnapshotBundle {
   const canonicalEffectiveRegime = base.effectiveRegime;
   // FinalDecisionResolver 는 color/R6 taxonomy 만 받는다 — R3_EARLY 등 macro 레짐은 UNKNOWN 으로 정규화(가짜 R6 아님).
   const finalDecisionRegime = normalizeRegime(canonicalEffectiveRegime);
+  // GATE-VIEW-EXEMPT-BEGIN (ADR-0527/Phase2 execution resolver 입력 plumbing — display gate2/gate3 는 View read)
   const inputs = gate3.results.map((result) => {
     const trace = traces.find((item) => text(item.symbol, '') === result.symbol) ?? {};
     return {
@@ -148,14 +153,16 @@ function buildGateUxBundle(): SnapshotBundle {
   });
   const decisions = inputs.map(input => resolveFinalExecutionDecision(input, new Date('1970-01-01T00:00:00.000Z')));
   const executionAudit = buildFinalDecisionRuntimeAuditSummary({ sourceSnapshotId: base.sourceSnapshotId, decisions, inputs });
+  // GATE-VIEW-EXEMPT-END
   return {
     ...base,
     marketSession,
     engineMode,
     effectiveRegime: canonicalEffectiveRegime,
-    gate2: gate2SummaryFromConfluence(confluence),
+    // ADR-0526 Phase1b: gate2 표시 status 정본 = 스캔-시점 View(candidateGateAggregate). confluence(캐시 보강) override 제거.
+    gate2: gate2SummaryFromAggregate(summaryRecord?.candidateGateAggregate),
     // ADR-0525: gate3 표시 override 제거 → base 의 canonical gate3(gateLayerAudit.gate3Consolidated 투영)를 사용한다.
-    // /gate · /gate_detail · /gate_full · debug_raw 가 동일 gate3 정본을 본다. (gate2/execution override 는 Phase1/2 대상으로 잔류)
+    // /gate · /gate_detail · /gate_full · debug_raw 가 동일 gate3 정본을 본다. (execution override 는 Phase2 대상으로 잔류)
     execution: executionSummaryFromAudit(executionAudit),
     learning: learningSummaryFromOutcomeSummary(outcomeClosureRepo.summarizeLearningOutcomes()),
     executionImpact: executionSummaryFromAudit(executionAudit).executionImpact,
