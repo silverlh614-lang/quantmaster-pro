@@ -213,6 +213,9 @@ export interface OfficialSectorIndexMasterCoverageResult {
     verifyInputCandidates?: string[];
   }>;
   idxNameSampleTop?: string[];
+  // 미매핑 테마(조선/방산/원자력/이차전지)용 — 마스터 485행 중 KRX/테마 키워드 매칭 후보를 노출한다.
+  // 거래일 스캔에서 해당 공식지수 존재 여부를 확정하기 위한 진단 (executionImpact=NONE).
+  themeIndexCandidates?: string[];
   aliasDictionaryStatus?: OfficialSectorIndexAliasDictionaryStatus;
   officialIndexCoverage: number;
   verifiedIndexCodeCoverage: number;
@@ -424,6 +427,29 @@ export async function verifyOfficialSectorIndexCodes(
   return results;
 }
 
+// 미매핑 테마(조선/방산/원자력/이차전지)가 official 지수로 매핑 가능한지 확정하기 위한 진단 키워드.
+// KRX 시리즈/테마 지수명을 마스터에서 직접 노출해 거래일에 매핑 가능 여부를 판정한다.
+const THEME_INDEX_NAME_KEYWORDS = [
+  'KRX', '2차전지', '이차전지', '배터리', '방산', '조선', '원자력', '신재생', '에너지', 'K-뉴딜', 'K뉴딜', 'BBIG',
+];
+
+function collectThemeIndexCandidates(
+  rows: readonly OfficialSectorIndexMasterRow[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of rows) {
+    const name = row.officialIndexName ?? '';
+    if (!THEME_INDEX_NAME_KEYWORDS.some((kw) => name.includes(kw))) continue;
+    const entry = `${row.idxDiv ?? '-'}:${row.officialIndexCode}:${name}`;
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
 // 휴장/주말엔 KIS 업종지수 현재가가 세션 부재로 0/실패다 — providerIssue 가 아니라 예상된 상태다.
 // 라이브 verify 를 건너뛰고(쿼터 절약) 시장 폐장 분류만 남긴다.
 function buildMarketClosedVerifyResult(
@@ -605,6 +631,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     })),
     idxNameSampleTop: (provider?.rawSampleRows?.map((row) => row.idxName) ?? masterRows.map((row) => row.officialIndexName))
       .slice(0, 12),
+    themeIndexCandidates: collectThemeIndexCandidates(provider?.rows ?? masterRows),
     aliasDictionaryStatus,
     officialIndexCoverage: mapping.officialIndexCoverage,
     verifiedIndexCodeCoverage,

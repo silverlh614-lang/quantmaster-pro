@@ -720,4 +720,39 @@ describe('SectorIndexVerifier', () => {
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
   });
+
+  it('surfaces KRX/theme index names as themeIndexCandidates for unmapped-sector mapping diagnosis', async () => {
+    const themedRows: OfficialSectorIndexMasterRow[] = [
+      officialRow('4400', 'KRX 2차전지'),
+      officialRow('4400', 'KRX 방산'),
+      officialRow('0000', '8화학'),
+      officialRow('0002', '1금융'),
+    ];
+    const result = await buildOfficialSectorIndexMasterCoverage({
+      provider: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: themedRows.length,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        rows: themedRows,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'],
+        cacheFile: 'memory',
+        fetchedAt: '2026-05-23T00:00:00.000Z',
+      },
+      targets: [{ sectorName: 'finance' }],
+      marketClosed: true,
+    });
+
+    // KRX/테마 키워드 매칭 행만 노출하고, 일반 업종(화학/금융)은 제외한다.
+    expect(result.themeIndexCandidates).toEqual(expect.arrayContaining([
+      expect.stringContaining('KRX 2차전지'),
+      expect.stringContaining('KRX 방산'),
+    ]));
+    expect(result.themeIndexCandidates?.some((entry) => entry.includes('금융'))).toBe(false);
+  });
 });
