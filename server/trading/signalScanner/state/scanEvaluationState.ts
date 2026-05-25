@@ -71,6 +71,89 @@ function stringField(source: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+export type ScanMarketCanonicalSession = 'REGULAR_OPEN' | 'POST_CLOSE' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
+
+export interface ScanMarketSessionView {
+  marketSessionState: string;
+  canonicalSession: ScanMarketCanonicalSession;
+  displaySession: string;
+}
+
+function upper(value: string | null | undefined): string {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+function canonicalSessionFromRaw(value: string | null | undefined): ScanMarketCanonicalSession {
+  const session = upper(value);
+  if (!session) return 'UNKNOWN';
+  if (session.includes('HOLIDAY') || session === 'NON_TRADING_DAY') return 'HOLIDAY';
+  if (session.includes('POST_CLOSE') || session.includes('AFTERMARKET') || session.includes('AFTER_MARKET')) return 'POST_CLOSE';
+  if (session.includes('CLOSED') || session === 'PRE_MARKET') return 'CLOSED';
+  if (session === 'BUY_ALLOWED' || session === 'OPEN' || session === 'REGULAR_OPEN' || session === 'REGULAR') return 'REGULAR_OPEN';
+  return 'UNKNOWN';
+}
+
+function kstMinuteFromLabel(value: string | undefined): number | null {
+  const raw = String(value ?? '').trim();
+  const hhmm = raw.match(/\b(\d{2}):(\d{2})\b/);
+  if (hhmm) {
+    const hour = Number(hhmm[1]);
+    const minute = Number(hhmm[2]);
+    if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) return hour * 60 + minute;
+  }
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return null;
+  const parsed = new Date(ms);
+  return parsed.getUTCHours() * 60 + parsed.getUTCMinutes();
+}
+
+function sessionFromKstMinute(minute: number | null): ScanMarketCanonicalSession {
+  if (minute === null) return 'UNKNOWN';
+  if (minute >= 9 * 60 && minute < 15 * 60 + 30) return 'REGULAR_OPEN';
+  if (minute >= 15 * 60 + 30 && minute < 18 * 60) return 'POST_CLOSE';
+  return 'CLOSED';
+}
+
+function isWeekendKstLabel(value: string | undefined): boolean {
+  const raw = String(value ?? '').trim();
+  if (!/\d{4}-\d{2}-\d{2}/.test(raw)) return false;
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return false;
+  const day = new Date(ms).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function displaySessionFor(canonical: ScanMarketCanonicalSession, rawDisplay?: string): string {
+  if (canonical === 'REGULAR_OPEN') return rawDisplay && canonicalSessionFromRaw(rawDisplay) === 'REGULAR_OPEN' ? rawDisplay : 'REGULAR_OPEN';
+  if (canonical === 'POST_CLOSE') return 'POST_CLOSE_SHADOW_OBSERVE';
+  if (canonical === 'CLOSED') return 'CLOSED_SHADOW_OBSERVE';
+  if (canonical === 'HOLIDAY') return 'HOLIDAY_SHADOW_OBSERVE';
+  return rawDisplay ?? 'UNKNOWN';
+}
+
+export function resolveScanMarketSessionView(input: {
+  explicitMarketSessionState?: string;
+  macroGateState?: MacroGateState;
+  asOf?: string;
+  timeLabel?: string;
+}): ScanMarketSessionView {
+  const rawDisplay = input.macroGateState?.displaySession;
+  const rawSession = rawDisplay ?? input.macroGateState?.canonicalSession ?? input.explicitMarketSessionState;
+  let canonical = canonicalSessionFromRaw(rawSession);
+  const wallClock = sessionFromKstMinute(kstMinuteFromLabel(input.timeLabel) ?? kstMinuteFromLabel(input.asOf));
+  const weekend = isWeekendKstLabel(input.timeLabel) || isWeekendKstLabel(input.asOf);
+  if (weekend) {
+    canonical = 'HOLIDAY';
+  } else if ((canonical === 'UNKNOWN' || canonical === 'REGULAR_OPEN') && wallClock !== 'UNKNOWN') {
+    canonical = wallClock;
+  }
+  const displaySession = displaySessionFor(canonical, rawDisplay);
+  const marketSessionState = canonical === 'REGULAR_OPEN'
+    ? (input.explicitMarketSessionState ?? 'BUY_ALLOWED')
+    : canonical;
+  return { marketSessionState, canonicalSession: canonical, displaySession };
+}
+
 function buildCanonicalRegimeDiagnostics(
   macro: MacroGateState | undefined,
   requestedEffectiveRegime: string | undefined,
@@ -127,7 +210,11 @@ export function buildScanEvaluationResult(
   const macro = input.macroGateState;
   const gateReport = buildGateEvaluationReport(input.counters, totalCandidates);
   const quoteReport = evaluateQuoteHydration(input.counters, totalCandidates);
-  const marketSessionState = input.marketSessionState ?? 'BUY_ALLOWED';
+  const marketSessionState = resolveScanMarketSessionView({
+    explicitMarketSessionState: input.marketSessionState,
+    macroGateState: macro,
+    asOf,
+  }).marketSessionState;
   const rawEngineMode = input.engineMode ?? macro?.engineMode ?? 'NORMAL';
   const engineMode = rawEngineMode === 'SELL_ONLY' ? 'NORMAL' : rawEngineMode;
   const regimeView = buildCanonicalRegimeDiagnostics(macro, input.effectiveRegime);

@@ -167,6 +167,19 @@ export const DEFAULT_DATA_PROMOTION_STATUS: DataPromotionStatus = {
   yahooPrice: 'GATED',
 };
 
+export interface EntryLaneSplitCounts {
+  liveCandidates?: number;
+  liveOrderCreated?: number;
+  liveCreatedDeprecated?: number;
+  liveBlockedByPolicy?: number;
+  shadowDiagnosticCreated?: number;
+  shadowOrderCreated?: number;
+  paperExecutableCreated?: number;
+  paperObservationalCreated?: number;
+  counterfactualCreated?: number;
+  watchOnlyPreserved?: number;
+}
+
 export interface ScanSummary {
   time: string;
   candidates: number;
@@ -268,6 +281,7 @@ export interface ScanSummary {
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
   candidatePool?: CandidatePoolResult;
   paperEntryForensic?: PaperEntryForensicSummary;
+  entryLaneSplit?: EntryLaneSplitCounts;
 }
 
 export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';

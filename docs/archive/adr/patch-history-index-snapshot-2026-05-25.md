@@ -1,0 +1,595 @@
+﻿<!-- @responsibility Archived snapshot of verbose patch-history index before compact router split. -->
+# Archived Patch History Index Snapshot — 2026-05-25
+
+This file preserves the verbose `docs/ai/10-patch-history-index.md` contents before the compact router split.
+Do not load this file by default. Search by ADR/Patch identifier only.
+
+---
+# 10 · Patch History Index (요약 색인)
+
+**Read this file only when working on:**
+- 과거 패치/ADR 가 *언제·무엇* 이었는지 빠른 색인 조회
+- 특정 도메인의 과거 변경을 찾아 archive 상세로 진입하는 입구
+
+**Do not read this file for:**
+- 현재 실행 규칙(헌법) → `CLAUDE.md` / `AGENTS.md`
+- 도메인별 현행 정책 → `docs/ai/00`~`09`
+- **과거 패치 상세 본문** → `docs/archive/adr/patch-history-full-log.md` (기본 로드 금지)
+
+> **Archive Note.** 본 문서는 **요약 색인(목차)** 다 — 상세가 아니다. 과거 패치 상세 본문 전체
+> (archival 시점 401 entries, ~1.8MB)는 `docs/archive/adr/patch-history-full-log.md` 로 격리됐다 (ADR-529).
+> 일반 코딩 중에는 archive 를 로드하지 말 것. 현재 작업이 해당 도메인을 직접 건드릴 때만,
+> 아래 색인에서 ADR/Patch 식별자·날짜를 찾아 archive 에서 키워드 검색하라.
+
+---
+
+## 문서 구조 (ADR-529)
+
+| 파일 | 역할 | 로드 |
+|------|------|------|
+| `CLAUDE.md` / `AGENTS.md` | 짧은 실행 규칙 (헌법) | 항상 |
+| `docs/ai/00`~`09` | 현재 작업용 도메인 문서 | 작업 도메인만 |
+| `docs/ai/10-patch-history-index.md` (본 문서) | 과거 기록 검색용 **요약 색인** | 검색 시 |
+| `docs/archive/adr/patch-history-full-log.md` | 과거 패치 **상세 본문** (격리) | **기본 금지** |
+
+## 신규 패치 기록 규칙 (going-forward)
+
+- 모든 PR 은 아래 **## 색인** 끝에 한 줄 추가: `- YYYY-MM-DD · <ADR/Patch 식별자>`.
+- 구조/거버넌스 ADR 은 **## 핵심 ADR 요약** 에 7-필드 블록 추가.
+- 상세 진단 로그·Telegram 원문·수십 줄 분석은 본 문서에 **누적 금지** — archive 또는 PR 설명으로.
+- 과거 사건 ≠ 현재 실행 규칙. 현재 규칙은 항상 `docs/ai/00`~`09` 에만 둔다.
+
+---
+
+## 핵심 ADR 요약 (구조·거버넌스)
+
+### ADR-527 — CLAUDE.md Slimming
+- **Status:** Completed · **Domain:** AI Context / Documentation
+- **Problem:** CLAUDE.md 가 ~1.8MB 로 비대화 → Claude Code 성능 저하 경고.
+- **Decision:** CLAUDE.md 를 최상위 실행 규칙(≤40k)으로 축소하고 상세를 `docs/ai/00`~`10` 으로 분리.
+- **Current Relevance:** AI 에이전트 지침/문서 구조를 수정할 때만 참조.
+- **Detail:** `docs/archive/adr/patch-history-full-log.md` (검색어 `ADR-527`)
+
+### ADR-528 — docs/ai Reference Router Hardening
+- **Status:** Completed · **Domain:** AI Context / Documentation
+- **Problem:** 문서를 나누기만 하면 에이전트가 여전히 전부 읽을 수 있음 (라우팅 미강제).
+- **Decision:** CLAUDE.md §6 키워드 라우터 강화 + 각 문서 "Read/Do not read" 2-섹션 + SRP 중복 제거.
+- **Current Relevance:** `docs/ai` 문서 경계/라우터를 수정할 때만 참조.
+- **Detail:** `docs/archive/adr/patch-history-full-log.md` (검색어 `ADR-528`)
+
+### ADR-528-B — AGENTS.md 생성
+- **Status:** Completed · **Domain:** AI Context / Multi-Agent
+- **Problem:** Codex/VS Code 등 범용 에이전트가 따를 실행 규칙 파일 부재.
+- **Decision:** `AGENTS.md` 신설 (범용·영어, 9대 불변식 verbatim, `docs/ai` 라우팅). CLAUDE.md 복사 아님.
+- **Current Relevance:** 다중 에이전트 지침을 수정할 때만 참조.
+- **Detail:** `docs/archive/adr/patch-history-full-log.md` (검색어 `ADR-528-B`)
+
+### ADR-529 — Patch History Archive & Legacy Context Cleanup
+- **Status:** Completed · **Domain:** AI Context / Documentation
+- **Problem:** `10-patch-history-index.md` 가 ~1.8MB / 401 entries 로 제2의 CLAUDE.md 화.
+- **Decision:** 상세 본문을 `docs/archive/adr/patch-history-full-log.md` 로 무손실 격리하고 본 문서는 요약 색인만 유지.
+- **Current Relevance:** 과거 패치 검색 시 본 색인 → archive 순으로 진입.
+- **Detail:** 본 문서 + archive (검색어 `ADR-529`)
+
+### ADR-530 — Patch Scope Guard & Refactor Safety Template
+- **Status:** Completed · **Domain:** AI Context / Documentation
+- **Problem:** 에이전트가 패치 범위를 과확장 (문서 수정인 줄 알았는데 src/engine/provider/gate 까지 건드림).
+- **Decision:** CLAUDE.md/AGENTS.md 에 짧은 Patch Scope Guard + `09` 상세 규칙 10조 + `08` 패치 유형별 최소 검증 + `templates/patch-plan-template.md`·`patch-report-template.md` 신설.
+- **Current Relevance:** 모든 패치 시작 전 Patch Plan 작성, allowedFiles 안에서만 수정.
+- **Detail:** `docs/ai/09-refactor-rules.md` · `docs/ai/templates/` (검색어 `ADR-530`)
+
+### ADR-531 — Warning/Error Taxonomy Cleanup & Diagnostic Severity Normalization
+- **Status:** Completed (1차: 문서 SSOT 전용) · **Domain:** diagnostics / logging / severity taxonomy
+- **Problem:** severity enum 4종 분산 + ad-hoc console.warn 산재 + 정책상태/providerIssue 가 장애처럼 표시될 여지.
+- **Decision:** 분산된 기존 인프라(WarnPriority/ExecutionImpact/logger/alertRouter)를 6-레벨 taxonomy 로 **성문화**(코드 0줄). 경고는 삭제가 아니라 분류. enum 통합·emit 사이트 리팩토링·telegram 필터는 ADR-532+ 분리.
+- **Current Relevance:** diagnostic/severity/logging/telegram-display 패치 시 taxonomy SSOT 준수.
+- **Detail:** `docs/archive/adr/adr-531-warning-error-taxonomy.md` (검색어 `ADR-531`)
+
+### ADR-532 — Telegram Noise Reduction & Channel Severity Filter
+- **Status:** Completed (1차: 문서 SSOT 전용) · **Domain:** telegram / notification routing / severity filter
+- **Problem:** executionImpact=NONE diagnostic/provider 가 사용자 SIGNAL 채널에 노이즈로 노출될 여지.
+- **Decision:** ADR-531 taxonomy 의 Telegram 적용 규칙 성문화. **핵심 발견: 상당수 이미 구현됨** (provider→CH3, /pos·/pnl shadow-first, [DEBUG]→Railway-only, dedup 인프라). 기존 동작 SSOT 검증 + gap(userFacing 플래그·ADMIN 채널)은 후속 분리.
+- **Current Relevance:** telegram severity 필터/표시 패치 시 본 규칙 준수.
+- **Detail:** `docs/archive/adr/adr-532-telegram-noise-reduction.md` (검색어 `ADR-532`)
+
+### ADR-533 — Typecheck Baseline & No-Regression Guard
+- **Status:** Completed · **Domain:** testing / typecheck / no-regression baseline
+- **Problem:** baseline 실패 기준선 부재 → 패치가 안정성을 깨도 감지 불가.
+- **Decision:** baseline 기록(typecheck 0 errors · test 310 failed/13,826 @bd574995) + No-Regression Guard + 도메인별 필수 검증 문서화. 코드 0줄.
+- **Current Relevance:** 패치가 type error 0·test 실패 ≤310 유지하는지 판정.
+- **Detail:** `docs/archive/adr/adr-533-typecheck-baseline-no-regression.md` (검색어 `ADR-533`)
+
+### ADR-534 — Baseline Failure Burn-down Plan
+- **Status:** Completed · **Domain:** validation baseline / failure taxonomy / burn-down planning
+- **Problem:** 310 baseline 실패를 한 번에 고치면 위험 — 분류·우선순위·소규모 분할 필요.
+- **Decision:** 도메인(trading 52·clients 8·telegram 7·learning 7·scripts 7 등)/위험도 분류 + taxonomy + 후속 ADR(535~539) 지도. **핵심: typecheck=0 → type-shape fixture drift 부재, 실패는 런타임 assertion.** 코드 0줄.
+- **Current Relevance:** burn-down 후속 ADR 범위/순서 결정 시 참조.
+- **Detail:** `docs/archive/adr/adr-534-baseline-failure-burndown.md` (검색어 `ADR-534`)
+
+### ADR-535 — Test Fixture Schema Alignment & Factory Discipline
+- **Status:** Completed (재범위: 문서 SSOT) · **Domain:** test fixtures / mock factory discipline
+- **Problem:** 가장 낮은 위험의 TEST_FIXTURE_DRIFT 부터 정리하려 했으나 — 실측상 type-shape drift 부재.
+- **Decision:** typecheck=0/import에러 0 → fixture schema drift **부재** 검증·기록. 동작 테스트 재작성 금지. canonical test-factory 규율(불변식 보존 default) + 도메인별 필수 fixture 케이스를 forward guideline 로 확립. 코드 0줄.
+- **Current Relevance:** 테스트 mock 작성/정렬 시 factory 규율 참조.
+- **Detail:** `docs/archive/adr/adr-535-test-fixture-schema-alignment.md` (검색어 `ADR-535`)
+
+### ADR-541 — scripts/*.test.js Self-Test Failure Classification (ENVIRONMENT_BLOCKED)
+- **Status:** Completed (조사·분류, 코드 0줄) · **Domain:** validation scripts / test-env classification
+- **Problem:** ADR-534 로드맵 다음 항목(scripts self-test, LOW) 진행 — 실측 결과 안전 수정 타겟 아님.
+- **Decision:** 5× SyntaxError = ENVIRONMENT_BLOCKED(node --check PASS·standalone EXIT=0·CI-통과 커밋·vitest/env 아티팩트), check_complexity = 병렬작업 오염 → **편집 금지·보류**. clean-CI+병렬랜딩 후 재측정 권고. ADR-534 로드맵 정정.
+- **Current Relevance:** scripts self-test 실패를 고치려 할 때 먼저 본 분류 확인 (추측 수정 방지).
+- **Detail:** `docs/archive/adr/adr-541-scripts-selftest-failure-classification.md` (검색어 `ADR-541`)
+- **번호 메모:** 536~540 = Codex UI 작업 점유 → 사용자 지시로 541.
+
+### ADR-542 — Baseline Failure Triage (Deterministic vs Environment) & Clean-Tree Gate
+- **Status:** Completed (triage 분석, 코드 0줄) · **Domain:** validation baseline / failure triage
+- **Problem:** 310 실패를 burn-down 하기 전 — 진짜 실패 vs env 노이즈 판정 필요.
+- **Decision:** 종전 가설 정정 — **network 차단 0, AssertionError 215 = 결정적 실패 지배적**(env-noise 아님). 단 트리가 Codex 미커밋 UI 병렬작업으로 오염(실패 도메인 trading/learning/telegram 과 겹침) → **clean tree 전까지 burn-down 보류** gate 명시.
+- **Current Relevance:** burn-down 시작 전 clean-tree gate 충족 여부 확인.
+- **Detail:** `docs/archive/adr/adr-542-baseline-failure-triage.md` (검색어 `ADR-542`)
+
+---
+
+## 색인 (chronological — archive 상세로 가는 입구)
+
+> 각 줄은 archive 의 해당 행으로 가는 입구다. 상세 본문은 `patch-history-full-log.md` 에서
+> 식별자(ADR-xxxx / Patch-xxx / PR-xxx)·날짜로 검색. **본 색인을 상세 로그로 키우지 말 것.**
+
+- 2026-05-25 · Patch-Shadow-Operating-Window-Gate (운영자용 SHADOW 매수 승인 카드를 LIVE 와 동일 운영시간(거래일+REGULAR 세션)에만 발화 · buyPipeline.resolveOperatorShadowCardWindowOpen + buyApproval operatorWindowOpen 게이트 · 휴장/장후/주말 카드+자동승인 0건·SKIP → shadow pos/pnl 미반영 · 백그라운드 학습 lane 무영향(불변식 #2) · ENV SHADOW_OPERATING_WINDOW_GATE_DISABLED 롤백 · 휴일 21:26 가상매수 인시던트 수정 · 매도 청산 게이트는 후속 PR)
+- 2026-05-25 · Patch-Gate-TrueWeakness-Shadow-Flag-Alignment (gateDecisionRouter TRUE_WEAKNESS 의 shadowAllowed/counterfactualLearningAllowed/learningShadowAllowed → false 실동작 정렬 · /scan_blockers 자기모순(lanes=✅ vs operatorMessage=차단) 제거 · provisional/counterfactual 레인이 severity 로 이미 차단하므로 런타임 동작 변화 0)
+- 2026-05-24 · PR-ADR-0518 (corporate-action-guard-dailybar-continuity · corporateActionDetector/entryPriceDrift/kisChartDataFetcher · magnitude-only false-positive 차단)
+- 2026-05-20 · Patch-TSC-BASELINE-DIAGNOSTIC-FIX-001
+- 2026-05-20 · 문서
+- 2026-05-15 · PR-ADR-0517
+- 2026-05-14 · PR-ADR-0516
+- 2026-05-14 · PR-ADR-0515
+- 2026-05-13 · PR-ADR-0506
+- 2026-05-10 · PATCH-0491
+- 2026-05-10 · PR-ADR-0501
+- 2026-05-10 · PR-ADR-0500
+- 2026-05-10 · PR-ADR-0499
+- 2026-05-10 · PR-ADR-0498
+- 2026-05-09 · PR-ADR-0497
+- 2026-05-09 · PR-ADR-0492
+- 2026-05-09 · PR-ADR-0496
+- 2026-05-09 · PR-ADR-0491
+- 2026-05-09 · PR-ADR-0491
+- 2026-05-09 · PR-ADR-0490
+- 2026-05-09 · PR-ADR-0489
+- 2026-05-09 · PR-ADR-0495
+- 2026-05-09 · PR-ADR-0488
+- 2026-05-09 · PR-ADR-0487
+- 2026-05-07 · PR-KIS-WS-Subscription-Priority-Queue
+- 2026-05-07 · PR-Gate-Eligibility-Split
+- 2026-05-07 · PR-Investor-Flow-Provider-Recovery
+- 2026-05-07 · PR-Counterfactual-Price-Provider-Cache-Wiring
+- 2026-04-26 · PR-Q
+- 2026-04-23 · 하네스
+- 2026-04-23 · ADR
+- 2026-04-23 · learningJobs.ts
+- 2026-04-24 · PR-1
+- 2026-04-24 · PR-2
+- 2026-04-24 · PR-3
+- 2026-04-24 · PR-4
+- 2026-04-24 · PR-5
+- 2026-04-24 · PR-6
+- 2026-04-24 · PR-7
+- 2026-04-24 · PR-8
+- 2026-04-24 · PR-9
+- 2026-04-24 · PR-10
+- 2026-04-24 · PR-11
+- 2026-04-24 · PR-12
+- 2026-04-24 · PR-13
+- 2026-04-24 · PR-14
+- 2026-04-24 · PR-15
+- 2026-04-24 · PR-16
+- 2026-04-24 · PR-17
+- 2026-04-24 · PR-18
+- 2026-04-24 · PR-19
+- 2026-04-24 · PR-20
+- 2026-04-24 · PR-21
+- 2026-04-24 · PR-23
+- 2026-04-24 · PR-22
+- 2026-04-24 · PR-24
+- 2026-04-24 · PR-25-A
+- 2026-04-24 · PR-25-B
+- 2026-04-24 · PR-25-C
+- 2026-04-25 · PR-30
+- 2026-04-25 · PR-29
+- 2026-04-25 · PR-28
+- 2026-04-24 · PR-27
+- 2026-04-24 · PR-26
+- 2026-04-25 · PR-31
+- 2026-04-25 · AI
+- 2026-04-25 · PR-32
+- 2026-04-25 · PR-33
+- 2026-04-25 · PR-35
+- 2026-04-25 · PR-37
+- 2026-04-25 · PR-36
+- 2026-04-25 · PR-34
+- 2026-04-25 · PR-40
+- 2026-04-25 · PR-39
+- 2026-04-25 · PR-41
+- 2026-04-25 · PR-42
+- 2026-04-25 · PR-48
+- 2026-04-25 · PR-47
+- 2026-04-25 · PR-46
+- 2026-04-25 · PR-45
+- 2026-04-25 · PR-44
+- 2026-04-26 · PR-B-2
+- 2026-04-26 · PR-D
+- 2026-04-26 · PR-C
+- 2026-04-26 · PR-B
+- 2026-04-26 · PR-A
+- 2026-04-26 · PR-T
+- 2026-04-26 · PR-S
+- 2026-04-26 · PR-R
+- 2026-04-26 · PR-Q
+- 2026-04-26 · PR-P
+- 2026-04-26 · PR-O
+- 2026-04-26 · PR-N
+- 2026-04-26 · PR-M
+- 2026-04-26 · PR-L
+- 2026-04-26 · PR-K
+- 2026-04-26 · PR-J
+- 2026-04-26 · PR-I
+- 2026-04-26 · PR-H
+- 2026-04-26 · PR-G
+- 2026-04-26 · PR-F
+- 2026-04-26 · PR-E
+- 2026-04-26 · PR-D
+- 2026-04-26 · PR-C
+- 2026-04-26 · PR-B
+- 2026-04-26 · PR-A
+- 2026-04-25 · PR-51
+- 2026-04-25 · PR-50
+- 2026-04-25 · PR-49
+- 2026-04-26 · PR-P
+- 2026-04-26 · PR-O
+- 2026-04-26 · PR-N
+- 2026-04-26 · PR-M
+- 2026-04-26 · PR-L
+- 2026-04-26 · PR-K
+- 2026-04-26 · PR-J
+- 2026-04-26 · PR-I
+- 2026-04-26 · PR-H
+- 2026-04-26 · PR-G
+- 2026-04-26 · PR-F
+- 2026-04-26 · PR-E
+- 2026-04-26 · PR-D
+- 2026-04-26 · PR-C
+- 2026-04-26 · PR-B
+- 2026-04-26 · PR-55
+- 2026-04-26 · PR-54
+- 2026-04-26 · PR-53
+- 2026-04-26 · PR-52
+- 2026-04-26 · PR-A
+- 2026-04-25 · PR-43
+- 2026-04-26 · PR-53
+- 2026-04-26 · PR-54
+- 2026-04-26 · PR-55
+- 2026-04-26 · PR-56
+- 2026-04-26 · PR-57
+- 2026-04-26 · PR-58
+- 2026-04-26 · PR-59
+- 2026-04-26 · PR-60~65
+- 2026-04-26 · PR-X1
+- 2026-04-26 · PR-X2
+- 2026-04-26 · PR-X3
+- 2026-04-26 · PR-X4
+- 2026-04-26 · PR-X5
+- 2026-04-26 · PR-X6
+- 2026-04-26 · PR-Y1
+- 2026-04-26 · PR-Y2
+- 2026-04-26 · PR-Y4
+- 2026-04-27 · PR-Z1
+- 2026-04-26 · PR-Z1
+- 2026-04-26 · PR-Z2
+- 2026-04-26 · PR-Z3
+- 2026-04-26 · PR-Z4
+- 2026-04-26 · PR-Z5
+- 2026-04-26 · PR-Z6
+- 2026-04-26 · PR-Z7
+- 2026-04-26 · 긴급패치
+- 2026-04-26 · fix(survival):
+- 2026-04-26 · FOMC
+- 2026-04-26 · FOMC
+- 2026-04-26 · FOMC
+- 2026-04-26 · Yahoo
+- 2026-04-26 · PR-EG1+EG2+EG3
+- 2026-04-26 · 공매도
+- 2026-04-26 · /health
+- 2026-04-26 · Yahoo
+- 2026-04-26 · 스케줄러
+- 2026-04-26 · 글로벌
+- 2026-04-26 · 장외
+- 2026-04-27 · `/refresh_sector_map`
+- 2026-04-27 · PR-1
+- 2026-04-27 · PR-2
+- 2026-04-27 · PR-α
+- 2026-04-27 · PR-γ
+- 2026-04-28 · PR-R
+- 2026-04-27 · PR-β
+- 2026-04-27 · FOMC
+- 2026-04-27 · PR-4
+- 2026-04-27 · 4/27
+- 2026-04-27 · 4/27
+- 2026-04-27 · 다중
+- 2026-04-27 · Gap
+- 2026-04-28 · PR-Z7
+- 2026-04-28 · PR-S1
+- 2026-04-28 · BEP
+- 2026-04-27 · Gap
+- 2026-04-28 · PR-Z
+- 2026-04-28 · PR-A
+- 2026-04-28 · PR-B
+- 2026-04-28 · PR-C
+- 2026-04-28 · PR-D
+- 2026-04-28 · PR-E
+- 2026-04-28 · PR-F
+- 2026-04-28 · PR-G
+- 2026-04-28 · PR-F-2
+- 2026-04-28 · PR-Z
+- 2026-04-29 · PR-Z4
+- 2026-04-29 · PR-Z5
+- 2026-04-29 · PR-Z6
+- 2026-04-29 · PR-Z7
+- 2026-04-29 · PR-Z8
+- 2026-04-29 · PR-Z9
+- 2026-04-29 · PR-Z10
+- 2026-04-29 · PR-Z11
+- 2026-04-29 · PR-Z12
+- 2026-04-29 · PR-Z13
+- 2026-04-29 · PR-Z14
+- 2026-04-29 · PR-Z15
+- 2026-04-29 · PR-Z16
+- 2026-04-29 · 게이팅
+- 2026-04-29 · MHS
+- 2026-04-29 · 운영자
+- 2026-04-29 · PR-Z17
+- 2026-04-29 · PR-Z18
+- 2026-04-30 · Circuit
+- 2026-04-30 · PR-α
+- 2026-04-30 · PR-β
+- 2026-04-30 · PR-γ
+- 2026-04-30 · PR-ADR-0115
+- 2026-04-30 · PR-ADR-0116
+- 2026-04-30 · PR-ADR-0117
+- 2026-04-30 · PR-ADR-0118
+- 2026-04-30 · PR-ADR-0124
+- 2026-04-30 · PR-ADR-0128
+- 2026-04-30 · PR-ADR-0128
+- 2026-04-30 · PR-ADR-0129
+- 2026-04-30 · Attribution
+- 2026-04-30 · PR-ADR-0130
+- 2026-05-01 · PR-ADR-0132
+- 2026-05-01 · PR-Refactor-1
+- 2026-05-01 · PR-Refactor-2
+- 2026-05-01 · PR-Refactor-3
+- 2026-05-01 · PR-Diag-1
+- 2026-05-01 · PR-Diag-2
+- 2026-05-01 · PR-Diag-3
+- 2026-05-01 · PR-Diag-4
+- 2026-05-01 · PR-Diag-5
+- 2026-05-01 · PR-B
+- 2026-05-01 · PR-Diag-6
+- 2026-05-01 · PR-B
+- 2026-05-01 · PR-Governance-1:
+- 2026-05-01 · PR-Governance-2:
+- 2026-05-01 · PR-Governance-3:
+- 2026-05-01 · KIS
+- 2026-05-01 · PR-Governance-Followup:
+- 2026-05-01 · PR-A3-Pre:
+- 2026-05-01 · PR-A3-Audit:
+- 2026-05-01 · PR-B1-1:
+- 2026-05-01 · PR-Phase0-MappingFix:
+- 2026-05-01 · PR-Phase1-DartFinalize:
+- 2026-05-01 · PR-Phase2-KisSupplyAudit:
+- 2026-05-01 · PR-Phase2-Real-Phase3:
+- 2026-05-01 · PR-Phase4-Closeout:
+- 2026-05-01 · PR-Phase5:
+- 2026-05-01 · PR-Governance-Followup-2:
+- 2026-05-02 · PR-Governance-3-SLA:
+- 2026-05-02 · PR-Diaspora:
+- 2026-05-02 · PR-Reflection-Routing-Retrofit:
+- 2026-05-02 · PR-Sizing-Engine-Phase1:
+- 2026-05-02 · PR-Sizing-Engine-Phase2D:
+- 2026-05-02 · PR-Sizing-Engine-Phase2D-Extension:
+- 2026-05-02 · PR-Sizing-Drawdown-Tracking:
+- 2026-05-02 · PR-Sizing-Phase3-LiveActivation:
+- 2026-05-02 · PR-Regime-Exposure-Budget:
+- 2026-05-02 · PR-Audit-520:
+- 2026-05-02 · PR-ExposureBudget-AccurateExposure:
+- 2026-05-02 · PR-Kelly-Clamp-SSOT:
+- 2026-05-02 · PR-ExposureBudget-AutoRegimeMapping:
+- 2026-05-02 · PR-ExposureBudget-AddOnBuyDetection
+- 2026-05-02 · PR-Audit-530:
+- 2026-05-02 · PR-Sizing-ExposureBudget-VerboseLog:
+- 2026-05-03 · PR-Shadow-Learning-Phase4b2a:
+- 2026-05-03 · PR-Shadow-Learning-Phase4b1:
+- 2026-05-03 · PR-Shadow-Learning-Phase4a:
+- 2026-05-03 · PR-ScheduleCatalog-Drift-Fix:
+- 2026-05-03 · PR-Shadow-Learning-Phase2b2:
+- 2026-05-03 · PR-Shadow-Learning-Phase2b1:
+- 2026-05-03 · PR-Shadow-Learning-Phase2a:
+- 2026-05-03 · PR-Shadow-Learning-Persistence-Phase1:
+- 2026-05-02 · PR-Sizing-Engine-Real-Data:
+- 2026-05-03 · PR-Shadow-Learning-Phase4b2b1:
+- 2026-05-03 · PR-Shadow-Learning-Phase4b2b2:
+- 2026-05-03 · PR-Shadow-Learning-Phase4b2b3:
+- 2026-05-03 · PR-Shadow-Learning-Phase3-StageA:
+- 2026-05-05 · PR-A2-Wiring-1:
+- 2026-05-05 · PR-B12-B:
+- 2026-05-05 · PR-B12-A:
+- 2026-05-05 · PR-Governance-Recovery-505:
+- 2026-05-05 · PR-MacroState-DeadRead-Wiring:
+- 2026-05-05 · PR-Lint-Baseline-Cleanup:
+- 2026-05-05 · PR-Lint-Baseline-Cleanup-Followup:
+- 2026-05-05 · PR-PreMarketGap-KrxCalendar:
+- 2026-05-05 · PR-AuditFix-SignalScannerStaticGrep:
+- 2026-05-05 · PR-Yahoo-Krx-Calendar-Wiring:
+- 2026-05-06 · PR-Position-Truth-SSOT-And-Shadow-Mode-Header:
+- 2026-05-06 · PR-Trade-Window-Policy-Update:
+- 2026-05-06 · PR-Block-New-Buy-Symmetric-Coupling:
+- 2026-05-06 · PR-Telegram-Block-Guard-Commands:
+- 2026-05-06 · PR-R3-Sanity-Telegram-Unblock:
+- 2026-05-06 · PR-P0-A-Mode-Observability:
+- 2026-05-06 · PR-P0-B-Trading-Mode-SSOT:
+- 2026-05-06 · PR-P1-Stage-A-Execution-Mode:
+- 2026-05-06 · PR-P2-Persistent-Execution-Mode-Override:
+- 2026-05-06 · PR-P1.5-Execution-Terminology-SSOT:
+- 2026-05-06 · PR-A-Provider-Degraded-Visibility:
+- 2026-05-06 · PR-P0-Activation:
+- 2026-05-06 · PR-Sector-Energy-Hardening-Phase-1:
+- 2026-05-06 · PR-Sector-Energy-DataQuality-Decomposition
+- 2026-05-06 · PR-Sector-Energy-Yahoo-ETF-Fallback-Wiring
+- 2026-05-06 · PR-Sector-Energy-STRONG_BUY-Confidence-Gate
+- 2026-05-06 · PR-Sector-Energy-Source-Restoration
+- 2026-05-06 · PR-Wire-SectorEnergy-StrongBuy-Gate
+- 2026-05-06 · PR-Frozen-Quote-And-Holiday-R3-Streak-Guard
+- 2026-05-06 · PR-R3-Sanity-State-Machine
+- 2026-05-06 · PR-Stock-Master-Evening-Cron
+- 2026-05-06 · PR-Price-Integrity-Correction-Overlay-Readonly
+- 2026-05-06 · PR-Bug-Ledger-CRITICAL-Candidate-Detector:
+- 2026-05-06 · PR-Bug-Ledger-Monthly-Auto-Summary:
+- 2026-05-06 · PR-Bug-Ledger-Telegram-Bugs-Cmd:
+- 2026-05-06 · PR-Bug-Ledger-CI-Action:
+- 2026-05-06 · PR-Bug-Ledger-PR-Template-Fixes-Section:
+- 2026-05-06 · PR-Bug-Ledger-Validation-Guard:
+- 2026-05-06 · PR-Sector-Energy-Stale-Partial-Volume-Gate
+- 2026-05-07 · PR-Evaluator-Status-Phase1-Supply-Earnings
+- 2026-05-07 · PR-Postmortem-Action-Taxonomy-Phase2
+- 2026-05-07 · PR-Evaluator-Data-Availability-Metadata-Automation-Phase3
+- 2026-05-07 · PR-Baseline-Cleanup-After-Phase123
+- 2026-05-07 · PR-R3-Sanity-Streak-Excludes-SellOnly-VolumeClock
+- 2026-05-07 · PR-Fresh-Scan-Blocker-Attribution
+- 2026-05-07 · PR-Investor-Flow-Semantic-Availability
+- 2026-05-07 · PR-Gate2-Leadership-Attribution
+- 2026-05-07 · PR-Sector-Energy-Data-Truth-Repair
+- 2026-05-07 · PR-Sector-IndexCode-Provider-Repair
+- 2026-05-07 · PR-Counterfactual-Universe-Learning-Preflight
+- 2026-05-07 · PR-Shadow-Learning-Promotion-Recommendations
+- 2026-05-07 · PR-Counterfactual-Shadow-Performance-Report
+- 2026-05-07 · PR-Symbol-Resolver-Invalid-KRX-Code-Normalization
+- 2026-05-07 · PR-Provisional-Shadow-Price-Provider-Cache-Lookup-Hardening
+- 2026-05-07 · PR-Symbol-Normalizer-Direct-Import-Migration
+- 2026-05-07 · PR-Kis-Stream-Bulk-Apply-Priority-Wiring
+- 2026-05-07 · PR-Kis-Ws-Subscription-Diagnostics-Exposure
+- 2026-05-07 · PR-Yahoo-Symbol-Resolver-SSOT-Migration
+- 2026-05-08 · PR-Static-Grep-Guards-Hardening
+- 2026-05-08 · PR-Krx-Investor-Flow-Parser-Empty-Rows-Hardening
+- 2026-05-08 · PR-Sector-Energy-Recovery-Phase2-And-Sanity-Decomposition
+- 2026-05-08 · PR-Sector-Energy-Alias-Registry-Expansion-And-Aggregate-Filtering
+- 2026-05-08 · PR-ADR-0448
+- 2026-05-08 · PR-ADR-0449
+- 2026-05-08 · PR-ADR-0450
+- 2026-05-08 · PR-ADR-0451
+- 2026-05-08 · PR-ADR-0452
+- 2026-05-08 · PR-ADR-0456
+- 2026-05-08 · PR-ADR-0455
+- 2026-05-08 · PR-ADR-0454
+- 2026-05-08 · PR-ADR-0453
+- 2026-05-09 · PR-ADR-0478+0479
+- 2026-05-12 · PR-ADR-0504
+- 2026-05-12 · PR-Logger-Noise-Routing-Followup
+- 2026-05-12 · PR-ADR-0505
+- 2026-05-13 · PR-ADR-0507
+- 2026-05-13 · Patch-SHADOW-APPROVAL-DEDUP-001
+- 2026-05-13 · PR-ADR-0508
+- 2026-05-13 · Patch-SHADOW-POSITION-MANAGEMENT-AND-SELL-LIFECYCLE-002
+- 2026-05-13 · PR-ADR-0509
+- 2026-05-13 · Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001
+- 2026-05-13 · Patch-MARKET-PROGRAM-TRADING-FALLBACK-RECOVERY-006
+- 2026-05-13 · Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-004
+- 2026-05-13 · Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003
+- 2026-05-13 · Patch-KIS-REALDATA-500-NOISE-AND-RECOVERY-001
+- 2026-05-14 · PR-ADR-0510
+- 2026-05-14 · Patch-KIS-ROUTER-PARTIAL-ROLLBACK-TO-PR943-001
+- 2026-05-14 · PR-KIS-CHART-COOLDOWN-FOLLOWUP
+- 2026-05-14 · Patch-KIS-ROUTER-PARTIAL-ROLLBACK-TO-PR943-002
+- 2026-05-14 · Patch-PREFLIGHT-BLOCKED-SCAN-SUMMARY-001
+- 2026-05-14 · Patch-INVESTOR-FLOW-ACTUAL-ROW-CARRY-WIRING-001
+- 2026-05-14 · Patch-WATCHLIST-SATURATION-COOLDOWN-001
+- 2026-05-14 · Patch-TEST-BASELINE-FIX-001
+- 2026-05-14 · Patch-WATCHLIST-DETACHMENT-SYNC-001
+- 2026-05-14 · Patch-TELEGRAM-HTML-SANITIZER-001
+- 2026-05-14 · Patch-ALERTS-BASELINE-FIX-001
+- 2026-05-15 · Patch-PORTFOLIO-RISK-ENTRY-MARKET-SEGMENT-001
+- 2026-05-15 · Patch-009-P1
+- 2026-05-15 · Patch-009-P2
+- 2026-05-15 · Patch-009-P4
+- 2026-05-15 · Patch-009-Baseline-TSC-Fix
+- 2026-05-15 · Patch-SHADOW-BULL-EXPOSURE-FLOOR-001
+- 2026-05-15 · Patch-SUPPLY-DIAG-ACCURACY-001
+- 2026-05-15 · Patch-SHADOW-BULL-EXPOSURE-FLOOR-002
+- 2026-05-15 · Patch-SHADOW-BULL-EXPOSURE-FLOOR-003
+- 2026-05-15 · Patch-SUPPLY-HEALTH-DEGENERATE-DISPLAY-001
+- 2026-05-15 · Patch-KRX-INTRADAY-MARKET-PROGRAM-WIRING-001
+- 2026-05-15 · Patch-SUPPLY-HEALTH-EMPTY-ROUTER-DISPATCH-FIX-001
+- 2026-05-15 · Patch-MARKET-CLOSE-SNAPSHOT-001
+- 2026-05-15 · Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002/003
+- 2026-05-15 · Patch-SNAPSHOT-STATUS-CMD-001
+- 2026-05-15 · Patch-SNAPSHOT-LATEST-CMD-001
+- 2026-05-16 · Patch-SECTOR-CLASSIFICATION-CARRY-WIRING-001
+- 2026-05-16 · Patch-PER-STOCK-PROGRAM-FLOW-CARRY-WIRING-001
+- 2026-05-16 · Patch-MARKET-PROGRAM-CARRY-WIRING-001
+- 2026-05-17 · PR-UI-Sidebar-Status-Badges:
+- 2026-05-17 · PR-UI-Sidebar-Status-Badges:
+- 2026-05-19 · Patch-ACMA-BASELINE-DIAGNOSTIC-MODULES-001
+- 2026-05-24 · ADR-527
+- 2026-05-24 · ADR-528
+- 2026-05-24 · ADR-528-B
+- 2026-05-24 · ADR-529
+- 2026-05-24 · ADR-530
+- 2026-05-24 · ADR-531
+- 2026-05-24 · ADR-532
+- 2026-05-24 · ADR-533
+- 2026-05-24 · ADR-534
+- 2026-05-24 · ADR-535
+- 2026-05-24 · ADR-541
+- 2026-05-24 · ADR-542
+- 2026-05-24 · Patch-ACMA-UNBLOCK-4FILES
+- 2026-05-24 · Patch-DECOMP-regimeLearningBackfill-001
+- 2026-05-24 · Patch-UI-SECTION-NAV-VERIFY-AND-SPA-NOCACHE-001
+- 2026-05-24 · Patch-CORP-ACTION-ORGANIC-DAILY-LIMIT-GUARD-001 (addedAt 윈도우 휴리스틱 — ADR-0518 일봉 검증으로 대체/제거됨)
+- 2026-05-25 · Patch-WATCHLIST-ADDED-ALERT-DEDUP-001 (피엠티 churn 반복 편입 알림 → 종목코드+KST일자 dedup 1일 1회)
+- 2026-05-25 · Patch-CI-SRP-BASELINE-AND-GITLEAKS-FP-001 (PR #1193 실패 진단: SRP 전체트리 접속사 위반 54건 → BASELINE 카탈로그 비차단·신규만 차단; gitleaks generic-api-key 오탐 `key: Gate3ThresholdKey` 타입명 → .gitleaks.toml allowlist)
+- 2026-05-25 · Patch-KELLY-REMOVAL-REGIME-BUYWEIGHT-001 (Kelly Criterion 승수 체인 제거 → 레짐별 매수비중 직접 사용; R1=100%/R2=80%/R3=70%/R4=50%/R5=30%; IPS 감쇠·계좌보정·편향패널티·안전게이트 피드백 제거; kellyDampener stub; FOMC/VIX 게이팅 완전 제거)
+- 2026-05-25 · Patch-WATCHLIST-SYNC-BASELINE-002 (클라이언트 마운트 시 워치리스트 전체 재미러링 차단 — churn 근원 제거, diffWatchlistSync baseline)
+- 2026-05-25 · Patch-ADR-INDEX-TOKEN-COMPACT-001 (docs/adr/INDEX.md 316KB→28KB 압축 + 발급 룰 #6 토큰 효율 SSOT)
+- 2026-05-25 · Patch-REGIME-SWITCH-FASTER-UPGRADE-001 (레짐 상향 기준 완화·갱신 주기 단축; R3 earlySignals 3→2/MHS 45→40, R2 VKOSPI 22→24/MHS 65→60/외국인 500→200, R1 turboSignals 6→5/MHS 80→75/VKOSPI 17→18, R3강제승급 5%→3%; scheduler 5분→3분; TTL 300→180s; applyForcedDowngrade 업그레이드 방향 스킵)
+- 2026-05-25 · Patch-SECTOR-ENERGY-WIRING-FIX-001 (LAGGING 섹터 포지션 40% 상한 연결; entryRevalidationGate sector fallback; sectorBoostAllowed 차단; getSectorGate2Adjustment dead code 제거)
+- 2026-05-25 · Patch-GATE2-SUPPLY-SECTOR-RS-WIRING-001 (candidatePoolBuilder wiring 갭 3개: supplyScore deriveSupplyScore 파생 연결, getSectorLeadershipScore 추가+candidatePoolSourceCandidates 주입, RS_SCORE 폴백 return20d-kospi20dReturn 기반 rsScoreFromRelativeReturn 추가, CandidatePoolInputCandidate 타입 2필드 추가)
+- 2026-05-25 · Patch-CANDIDATEPOOL-KIS-PRICE-INJECTION-001 (VOLUME_ENERGY+TECHNICAL_TREND 와이어링: KIS FHKST01010100+FHKST03010100 per-symbol 가격 주입, fetchKisStockFullQuote/fetchKisStockDailyBars 신규, injectPerSymbolPriceContext 모듈 신규, return5d/20d 파생)
+- 2026-05-25 · Patch-GATE1-SELLONLY-SESSION-WIRING-001 (normalizeGate1MarketSession SELL_ONLY→SELL_ONLY 수정(기존 REGULAR 오류), effectiveEngineMode 우선순위 재정렬, liveSellAllowed SELL_ONLY 추가, liveImpactFor liveBuyAllowed=false→LIVE_BUY_BLOCKED_ONLY 직접 전파)
+- 2026-05-25 · Patch-MINSCORE-THRESHOLD-WIRING-001 (minScoreThreshold UI 설정 → minimumSignalScoreTrace requiredScore 폴백에 연결; 기본값 60→70 정합; executionImpact=NONE)
+- 2026-05-25 · Patch-NORMALIZED-GATE-SCORE-UNIFICATION-001 (unifiedGateScoreKernel normalizedGateScore: rawScore*10 근사 → rawScore/availableMaxScore*100 정규화; availableMaxScore ShadowGateAuditRecord 추가 와이어링; executionImpact=NONE)
+- 2026-05-25 · Patch-GATE-LAYER-SUMMARY-WIRING-001 (gateLayerSummary: evaluateServerGate→kisIntradayCorrection→approvalQueue/preBreakoutEntry/preBreakoutFollowthrough→createBuyTask→buyApproval→shadowGateAuditStore.shadow.gateLayerSummary 관통 와이어링; gate1/2/3 세부 결과 shadow audit 보존; executionImpact=NONE)
+- 2026-05-25 · Patch-FOMC-DEAD-CODE-REMOVAL-001 (fomcCalendar.ts Kelly 제거 후 잔류 사코드 제거: PHASE_KELLY 테이블·todayKst·daysDiff 함수; FOMC_DATES/getFomcProximity(stub)/applyFomcRelaxation·generateFomcIcs 보존; executionImpact=NONE)
+- 2026-05-25 · Patch-KIS-SECTOR-INDEX-PRODUCTION-WIRING-001 (kisSectorEnergyProvider.defaultOfficialIndexRows: return[] 하드코딩 → KIS_SECTOR_INDEX_DAILY_ENABLED=true 시 FHKUP03500100 실호출; KIS_SECTOR_ISCD_MAP 12업종 병렬 순회+21봉 필터; KIS_OFFICIAL_DAILY tier로 Gate2 SECTOR_LEADERSHIP+LeaderCycle 해결; executionImpact=NONE)
+- 2026-05-25 · ADR-0519 + Patch-UNIFIED-SOURCE-SNAPSHOT-001 (SymbolDataCollector + UnifiedSourceSnapshot 아키텍처 도입; KIS 4-엔드포인트 종목당 1회 수집; feature flag USE_UNIFIED_SOURCE_SNAPSHOT; Gate 읽기 전용 소비 계약; 불변식 #3 이행 인프라; executionImpact=NONE)
+- 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-002 (Phase 2: injectPerSymbolSupplyContext/PriceContext snapshotData 주입 wiring; 중복 KIS fetch 제거; executionImpact=NONE)
+- 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-003 (KRX 마스터 연결: symbolDataCollector name/market 플레이스홀더 제거; getAllStockEntries 코드→엔트리 맵; OTHER 마켓 KOSPI 폴백; executionImpact=NONE)
+- 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-004 (교차 집합 RS: computeCrossSectionalRS 추가; freeze 전 relativeReturn20d/rsScore 퍼센타일 일괄 계산; UnifiedMacroContext.kospi20dReturn 필드 추가; executionImpact=NONE)
+- 2026-05-25 · Patch-SUPPLY-CONFLUENCE-UNKNOWN-NEUTRALIZE-001 (불변식 #6 정합: minimumSignalScoreTrace SUPPLY_CONFLUENCE supplyUnknown(UNKNOWN/UNAVAILABLE) weightedScore -10→0 — provider 장애·수급 데이터 없음을 점수 페널티로 변환 금지; supplyBearish -10 유지; confidence=UNKNOWN+providerIssue 추적 보존; providerIssuePenaltyTotal 0 정합; KRX investor-flow 깨짐 시 Gate1 score collapse(42.6→21.5·survivor 4→0) 근본 차단; ADR-0466 회귀테스트 4건 갱신+1건 추가; executionImpact=NONE)
+- 2026-05-25 · Patch-KIS-INVESTOR-FLOW-SOURCE-UNIFY-001 (수급 출처 단일 통로 통일: SymbolDataCollector(ADR-0519 재설계)가 잘못된 fetchKisInvestorFlow(trId FHKST01010300/inquire-investor — 시세성 payload, 순매수 필드 없음 → null → 전 종목 수급 MISSING)를 쓰던 회귀를 정본 fetchKisInvestorTradeByStockDaily(FHPTJ04160001/investor-trade-by-stock-daily, output2)로 전환; KIS 공식 open-trading-api 정본 대조; 잘못된 fetchKisInvestorFlow 2갈래(investorFlowStrict.ts 삭제 + query.ts 중복 제거) 제거, index export·KisOverrides·mockKisClient·kisOnlyHealth 정합; 종목당 KIS 호출 1회 유지; symbolDataCollector 회귀테스트 신규; executionImpact=NONE)
+- 2026-05-25 · ADR-0520 (Gate1 Scoring Alignment DRY_RUN Gating: ADR-0472 완화 커브(breakout/momentum 정렬+ADR-0469 dedup+ADR-0470 risk-at-sizing-only)를 실제 후보 traces 에 적용해 "라이브 탈락/완화 통과" 실제 survivor 심볼 산출; gate1ScoringAlignmentDryRunGateAdr0520.ts 신규(후보별 단일원천 relaxedScore=actualScore+align/dedup/riskSplit delta, 균일 delta 근사 제거, 라이브 산식 무변경); ADR-0476 원장 source ADR_0472_SCORING_ALIGNMENT 추가; persistScanResults positiveScoreStarvationTraces 전달; ENV 토글 없는 항상-on 관찰(다른 ADR-0476 source와 동일, 운영단순화 — observation-only라 live 무영향이므로 flag 불요); minimumSignalScoreTrace 0줄 변경(byte-identical); executionImpact=NONE, SHADOW_ONLY; ADR-0471 freeze 무위반 관찰 전용; 회귀테스트 신규)
+- 2026-05-25 · Patch-REGIME-DISPLAY-CANONICAL-001 (debug raw 상단 JSON effectiveRegime 오표기 정정: snapshotBundle.ts fallback 체인이 정본 scanEvaluation.effectiveRegime(buildCanonicalRegimeDiagnostics staleLegacyR6→rawRegime 정정 결과)을 무시하고 폐기된 macroRegimeEffective(R6 transition machine, legacyRegimeNotUsedForDecision)로 직행 → R6_DEFENSE 오표기; 정본/회귀(regime)을 macroRegimeEffective 보다 우선; 의사결정은 이미 R3_EARLY 정상 사용 중 — 표시 전용; executionImpact=NONE; telegramSnapshotBundle 회귀테스트 신규)
+- 2026-05-25 · Patch-SECTOR-INDEX-MARKET-CLOSED-AWARE-001 (섹터 공식지수 verify 휴장/세션 인식: 휴장·주말엔 KIS 업종지수 현재가 세션이 없어 verify 가 0/HTTP_ERROR/INDEX_VALUE_QUALITY_LOW false-alarm + KIS 쿼터 낭비 → buildOfficialSectorIndexMasterCoverage marketClosed 플래그 추가; isTradingDay(marketDayClassifier) 비영업일이면 라이브 verify 스킵하고 SECTOR_INDEX_MARKET_CLOSED/HOLIDAY_NO_SESSION_OBSERVE_ONLY 로 분류; OFFICIAL_INDEX_API_VERIFY_ATTEMPTED/FAILED·PROMOTION_DISABLED_COVERAGE_BELOW_80·INDEX_VALUE_QUALITY_LOW 코드 비영업일 억제; promotionAllowed 결정 동일(false)·providerIssue=false·marketSignal=false·executionImpact=NONE; 거래일 경로 byte-identical; 불변식 #6 준수; SectorIndexVerifier 회귀테스트 신규)
+- 2026-05-25 · Patch-GATEUX-REGIME-CANONICAL-002 (debug raw(/debug_gate) 상단 effectiveRegime R6_DEFENSE 오표기 잔존 정정 — Patch-REGIME-DISPLAY-CANONICAL-001 후속: buildGateUxBundle 이 base(snapshotBundle 정본) effectiveRegime 을 폐기 macroRegimeEffective 기반 normalizeRegime 재계산으로 덮어써 R6_DEFENSE 누출; normalizeRegime 은 FinalDecisionResolver color/R6 taxonomy 라 legacy R6 만 통과하고 macro R3_EARLY 는 버려짐이 근본 원인. 번들 표시 effectiveRegime=base.effectiveRegime(정본 macro 레짐) 사용, FinalDecisionResolver 입력만 normalizeRegime(canonical)→R3_EARLY=UNKNOWN(가짜 R6 제거)·riskOverride NONE 으로 분리; 표시 전용·executionImpact=NONE)
+- 2026-05-25 · Patch-SECTOR-THEME-INDEX-CANDIDATE-DIAG-001 (미매핑 4개 테마 섹터(조선/방산/원자력/이차전지)의 KRX 공식지수 매핑 가능 여부 확정용 진단: KIS open-trading-api 레퍼런스엔 업종코드 목록이 없고(다운로더 sector_code.py+레이아웃 업종코드정보.h 뿐, idxcode.mst 런타임 다운로드) 샌드박스도 dws.co.kr allowlist 차단 → QMP 런타임이 이미 가진 485행 마스터에서 KRX/테마 키워드 매칭 idx_name 을 노출; SectorIndexVerifier.collectThemeIndexCandidates + OfficialSectorIndexMasterCoverageResult.themeIndexCandidates 신규, sectorEnergyMasterSupplyUnknownPolicyAdr0488 디버그에 ThemeIndexCandidates 라인 추가; 거래일 스캔 1회로 KRX 2차전지/방산 등 존재 시 safe alias 추가(1안), 없으면 shadow-only 확정; 표시 전용·executionImpact=NONE; 회귀테스트 신규)
+- 2026-05-25 · Patch-LIVEREADINESS-R6-CANONICAL-003 (Gate3 LiveReadiness livePolicy 및 candidatePool runtimeLabels 의 r6Defense 가 폐기 macroRegimeEffective === 'R6_DEFENSE'(legacy transition machine, notUsedForDecision)를 봐서 정본 regime=R3_EARLY 인데도 R6_DEFENSE 라벨 누출 — persistScanResults buildLiveReadinessScore policy.r6DefenseMode + candidatePoolBuilder runtimeLabels.r6Defense 둘 다 정본 regime/riskOverride 만으로 판정하도록 legacy disjunct 제거; SHADOW_ONLY/live-blocked 상태에선 policySafetyPct=60·reasons 가 이미 다른 정본 플래그로 채워져 liveReadiness 점수 무변; 진짜 R6 시 canonical regime/riskOverride 가 그대로 포착; gateLayerDiagnostics:515 는 이미 canonical macroRegime 사용; 표시 정합·executionImpact=NONE)
+- 2026-05-25 · Patch-PENDING-WIRING-ACTIVE-CLEANUP-001 (_workspace/PENDING_WIRING.md active backlog 에서 DECIDED_NOT_WIRING 완료/영구결정 15행 제거; 진행 통계 68→53, P0 5→1(B15만 유지); 문서 전용·executionImpact=NONE)
+- 2026-05-25 · Patch-ACMA-BASELINE-STALE-CLEANUP-001 (BASELINE_TECHNICAL_DEBT 카탈로그 stale 항목 정리: 이미 1500줄 미만으로 분해 완료된 buyListLoop.ts(810 LoC)·scanDiagnosticsCore.ts(11 LoC, facade) 2건을 check_complexity.js 화이트리스트에서 제거 → ADR-0133 회귀 가드 자동 강화(두 파일 재초과 시 즉시 fail); 카탈로그 8→6건; 검증 스크립트 주석만 수정 — src/server runtime 0줄, byte-equivalent, validate:complexity EXIT=0·check_complexity.test 13/13; executionImpact=NONE)
+- 2026-05-25 · Patch-SECTOR-INDEX-MARKETCLOSED-TYPE-UNION-001 (#1209/#1212 후속 사전 lint 결함 정정: SectorIndexVerifier 휴장 인식 추가 시 promotionCoveragePolicy.reason='SECTOR_INDEX_MARKET_CLOSED'·promotionReadiness.reason='SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY' 리터럴을 런타임은 반환하나 union 타입에 누락 → tsc EXIT=2(TS2322) origin/main red; 두 union에 리터럴 추가 + 신규 테스트 optional 접근 ?. 정합(TS18048); runtime byte-equivalent·표시 전용, executionImpact=NONE; lint EXIT=0·SectorIndexVerifier.test 14/14)
+- 2026-05-25 · Patch-KRX-MDCSTAT02401-SESSION-GUARD-001 (휴장/장외 종목별 수급 MDCSTAT02401 HTTP 400 잔여 와이어링 갭 정리: INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS 에 02401 추가해 02201/02203 과 동일한 SESSION_CLOSED_NOT_APPLICABLE guard 적용; providerIssue=false·marketSignal=false·executionImpact=NONE; 정상 intraday+enabled+params OK 호출 경로 유지; krxClient 회귀테스트 신규)
+- 2026-05-25 · ADR-0521 (sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts 분해: 1568→1336줄, baseline 6→5건. 타입/인터페이스 17종을 sectorEnergyMasterSupplyUnknownPolicyAdr0488/types.ts 단일 책임 모듈로 추출 + 메인 export * 재export; 빌더·정책·포매터 runtime 함수 무이동(공유 pct/round1 헬퍼 결합 — 후속 PR); 외부 import 경로 변경 0건; byte-equivalent·SHADOW_ONLY·executionImpact=NONE; lint EXIT=0·complexity baseline 5건·responsibility 0·test 39/39)
+- 2026-05-25 · ADR-0522 (regimeLearningBank.ts 분해: 1656→1431줄, baseline 5→4건. 타입은 이미 regimeLearningTypes.ts 외부화 상태라 함수 분해 — 라벨 상수 5 + 순수 분석/품질/포맷 leaf 헬퍼 24개(round/avg/pct/qualityStatus/whyNotReliable/patternText 등, collect*·전방 의존 0)를 regimeLearningBank/analytics.ts 단일 책임 모듈로 추출(one-directional import); R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION·REGIME_LEARNING_PHASES·export type * 재export 보존; byte-equivalent·Shadow Learning 동작 무변(불변식 #2 보존)·executionImpact=NONE; lint EXIT=0·complexity baseline 4건·test 23/23)
+- 2026-05-25 · ADR-0523 (gate2ExternalDataProvider.ts 분해: 1714→1435줄, baseline 4→3건. 인라인 타입/인터페이스 21종을 gate2ExternalDataProvider/types.ts 로, 순수 leaf 헬퍼 7개(nowIso/cleanSymbol/isRecord/finiteNumber/toDartAmount/responseStatusCode/compactKorean)를 gate2ExternalDataProvider/helpers.ts 로 추출 + 메인 export * 재export; fetch/DART/KIS I/O 함수는 본체 잔류(one-directional); Gate2InstrumentClass·DartReportCandidate 내부→export 격상(additive, 무손실); 외부 import 경로 변경 0건; byte-equivalent·executionImpact=NONE; lint EXIT=0·complexity baseline 3건·responsibility 0·test 15/15)
+- 2026-05-25 · Patch-LEARNING-WEIGHTS-RESET-CMD-001 (/learning_weights_reset admin command: condition-weights global/regime/all reset to DEFAULT_CONDITION_WEIGHTS with pre-reset .bak backup, dry-run by default, confirm-required mutation, setMyCommands autocomplete/Menu include; executionImpact=NONE, liveExecutionAllowed=false, shadowLearningImpact=NONE)
+- 2026-05-25 · Patch-TELEGRAM-AUTOCOMPLETE-REGISTRY-LOAD-001 (setTelegramBotCommands imports command barrels before buildBotMenuCommandsExtended so registry commands, including /learning_weights_reset, enter Bot API setMyCommands autocomplete payload; executionImpact=NONE)
+- 2026-05-25 · ADR-0524 (minimumSignalScoreTrace.ts 분해: 1736→1411줄, baseline 3→2건. 인라인 타입 12종을 minimumSignalScoreTrace/types.ts 로, 점수 정규화+상대강도(RS) 스코어링 leaf 클러스터(round1/round2/finite/toFiniteNumber/clamp+normalizeSignalScoreTo100+scoreRelativeStrength 등, build* 미호출)를 minimumSignalScoreTrace/scoring.ts 로 추출 + 메인 export */named 재export; build* 진단 함수 본체 잔류(one-directional); 이전 export 20개 byte-identical 보존; advisory-only·executionImpact=NONE; lint EXIT=0·complexity baseline 2건·test 155pass/1fail(WATCHLIST_UPSTREAM_SCORE normalize — git stash 로 원본 동일 재현 확인된 사전 실패·무회귀, ADR-0533 baseline))
+- 2026-05-25 · ADR-0525 (Gate Debug Raw Canonical Summary Rebinding — Phase 0 구현: /gate_debug_raw(=/debug_gate)를 재계산 번들(buildGateUxBundle)이 아니라 /scan_blockers 와 동일 persisted 정본(summary.gateLayerAudit.gate3Consolidated·gate1Survival·canonicalRuntimeResolution.sizing)에서 순수 추출한 CanonicalDebugRawView 로 재바인딩; renderDebugRaw 시그니처 SnapshotBundle→CanonicalDebugRawView; buildGateUxBundle gate3 표시 override 제거→base canonical gate3 생존(/gate·/gate_detail·/gate_full 동일 정본); 모든 count 에 scope 태그({scope,value}) 부착·missingSlices SDS 가드; gate3 축 debug_raw↔scan_blockers byte-equivalence 충돌 구조적 불가·회귀테스트 고정; LIVE 매매 본체·스캐너 런타임 0줄·KIS/KRX quota 0; executionImpact=NONE)
+- 2026-05-25 · ADR-0526 (CandidateGateEvaluationView SSOT 발급 — per-candidate Gate0/1/2/3 판단 정본 + formatter 추론 제거 + legacy read-guard; 타입 계약 candidateGateEvaluationView.ts declare 스텁 pin, permission/count 이름 분리·topBlockReason 정본 계산; 구현 Phase 1 후속; executionImpact=NONE)
+- 2026-05-25 · ADR-0527 (ExecutionPermissionResolution Unification + PositionPolicyDecision SSOT 발급 — 이중 resolver(runtime/executionPermissionResolver vs gates/finalDecisionResolver.resolveFinalExecutionDecision) 통합 + PositionPolicyDecision 정본화; 타입 계약 unifiedExecutionContract.ts declare 스텁 pin(permission boolean vs count 분리·posPct/tier/finalKelly/diagnosticVsLive); 구현 Phase 2 후속; executionImpact=NONE)
+- 2026-05-25 · Patch-SCAN-BLOCKERS-ENTRY-LANE-SPLIT-001 (/scan_blockers full Entry Lane Split display separates liveOrderCreated/liveBlockedByPolicy/shadowDiagnosticCreated/shadowOrderCreated/paperExecutableCreated/paperObservationalCreated/counterfactualCreated/watchOnlyPreserved; SHADOW_ONLY entries render as Shadow diagnostic entry + 실거래 주문 0개, stale BUY_ALLOWED at 22:55 KST rebased to CLOSED_SHADOW_OBSERVE; executionImpact=NONE, KIS order path 0-line change)
