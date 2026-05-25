@@ -559,3 +559,5 @@
 - 2026-05-25 · Patch-FOMC-DEAD-CODE-REMOVAL-001 (fomcCalendar.ts Kelly 제거 후 잔류 사코드 제거: PHASE_KELLY 테이블·todayKst·daysDiff 함수; FOMC_DATES/getFomcProximity(stub)/applyFomcRelaxation·generateFomcIcs 보존; executionImpact=NONE)
 - 2026-05-25 · Patch-KIS-SECTOR-INDEX-PRODUCTION-WIRING-001 (kisSectorEnergyProvider.defaultOfficialIndexRows: return[] 하드코딩 → KIS_SECTOR_INDEX_DAILY_ENABLED=true 시 FHKUP03500100 실호출; KIS_SECTOR_ISCD_MAP 12업종 병렬 순회+21봉 필터; KIS_OFFICIAL_DAILY tier로 Gate2 SECTOR_LEADERSHIP+LeaderCycle 해결; executionImpact=NONE)
 - 2026-05-25 · ADR-0519 + Patch-UNIFIED-SOURCE-SNAPSHOT-001 (SymbolDataCollector + UnifiedSourceSnapshot 아키텍처 도입; KIS 4-엔드포인트 종목당 1회 수집; feature flag USE_UNIFIED_SOURCE_SNAPSHOT; Gate 읽기 전용 소비 계약; 불변식 #3 이행 인프라; executionImpact=NONE)
+- 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-002 (Phase 2: injectPerSymbolSupplyContext/PriceContext snapshotData 주입 wiring; 중복 KIS fetch 제거; executionImpact=NONE)
+- 2026-05-25 · Patch-UNIFIED-SOURCE-SNAPSHOT-003 (KRX 마스터 연결: symbolDataCollector name/market 플레이스홀더 제거; getAllStockEntries 코드→엔트리 맵; OTHER 마켓 KOSPI 폴백; executionImpact=NONE)
