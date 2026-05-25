@@ -134,7 +134,7 @@ export interface SectorIndexPromotionCoveragePolicy {
   requiredVerifiedCoverage: 80;
   selectedCoverageValue: number;
   promotionAllowed: boolean;
-  reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'VERIFIED_INDEX_CODE_COVERAGE_READY';
+  reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'VERIFIED_INDEX_CODE_COVERAGE_READY' | 'SECTOR_INDEX_MARKET_CLOSED';
   alternativeInternalGroupedCoverage?: number;
   executionImpact: 'NONE';
 }
@@ -182,7 +182,7 @@ export interface SectorIndexPromotionReadiness {
   requiredPromotionCoverage: 80;
   qualityGatePassed: boolean;
   promotionAllowed: boolean;
-  reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'INDEX_VALUE_QUALITY_LOW' | 'READY_FOR_PROMOTION';
+  reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'INDEX_VALUE_QUALITY_LOW' | 'READY_FOR_PROMOTION' | 'SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY';
   safeOnlyMetricWouldPass: boolean;
   useAlternativeForLivePromotion: false;
   alternativePolicyReason: 'OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY';

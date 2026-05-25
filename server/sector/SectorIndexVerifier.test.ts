@@ -706,9 +706,9 @@ describe('SectorIndexVerifier', () => {
     // 휴장일엔 라이브 KIS verify 를 호출하지 않는다 (쿼터 절약 + 0/실패 false-alarm 제거).
     expect(verifyCalls).toBe(0);
     expect(result.verifiedIndexCodeCoverage).toBe(0);
-    expect(result.promotionReadiness.promotionAllowed).toBe(false);
-    expect(result.promotionReadiness.reason).toBe('SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY');
-    expect(result.promotionCoveragePolicy.reason).toBe('SECTOR_INDEX_MARKET_CLOSED');
+    expect(result.promotionReadiness?.promotionAllowed).toBe(false);
+    expect(result.promotionReadiness?.reason).toBe('SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY');
+    expect(result.promotionCoveragePolicy?.reason).toBe('SECTOR_INDEX_MARKET_CLOSED');
     expect(result.reasonCodes).toEqual(expect.arrayContaining([
       'SECTOR_INDEX_MARKET_CLOSED',
       'HOLIDAY_NO_SESSION_OBSERVE_ONLY',

@@ -54,18 +54,13 @@ const DEFAULT_TARGETS = ['src/App.tsx'];
  *
  * 분해 진행 상황:
  *   ✅ server/trading/signalScanner/perSymbolEvaluation.ts (1617→30 LoC) — PR-Refactor-2 (ADR-0134) 완료, 본 카탈로그에서 정식 제거.
- *   ⏳ server/trading/signalScanner/perSymbol/buyListLoop.ts (1606 LoC) — Phase B 분해 진행 중. PR-B12-A (2026-05-05, ADR-0184) 시점 등재.
- *      perSymbolEvaluation.ts 분해 (PR-Refactor-2) 후속으로 evaluateBuyList 메인 루프 자체를 작은 단위로 추가 분해 예정. 분해 PR 머지 시 본 카탈로그에서 정식 제거.
+ *   ✅ server/trading/signalScanner/perSymbol/buyListLoop.ts (1606→810 LoC) — Phase B 분해 완료 (ADR-0184). 1500 한계 자연 통과 → 본 카탈로그에서 정식 제거 (2026-05-25).
+ *   ✅ server/trading/signalScanner/scanDiagnosticsCore.ts (1500+→11 LoC) — scanDiagnostics/* 모듈 추출 후 facade 잔존. 1500 한계 자연 통과 → 본 카탈로그에서 정식 제거 (2026-05-25).
  *
  * NOTE: explicit 인자 모드 (예: `node scripts/check_complexity.js path/to.ts`) 는
  * BASELINE 무시 — 명시 호출은 *강제 검증*. PR 마이그레이션 검증 시 사용.
  */
 const BASELINE_TECHNICAL_DEBT = [
-  'server/trading/signalScanner/perSymbol/buyListLoop.ts',
-  // 2026-05-18 refactor — scanDiagnostics.ts is now a facade. The legacy
-  // persistence/formatter core remains transitional debt while pure helpers
-  // move into server/trading/signalScanner/scanDiagnostics/* modules.
-  'server/trading/signalScanner/scanDiagnosticsCore.ts',
   // ✅ ADR-0502c Phase 1 (2026-05-12, PR #915) + Phase 2 (2026-05-12) —
   //   server/clients/krxClient.ts 2105 → 1071 줄 (-49.1%, 9 모듈 분리). ACMA 1500 한계
   //   통과 → BASELINE 카탈로그에서 정식 제거. Phase 3 (parser/queries/facade) 후속 PR
