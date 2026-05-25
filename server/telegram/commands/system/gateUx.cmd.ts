@@ -112,7 +112,11 @@ function buildGateUxBundle(): SnapshotBundle {
   const gate3 = buildGate3RuntimeClosureSummary({ traces, sourceSnapshotId: base.sourceSnapshotId, gate2StatusBySymbol });
   const engineMode = normalizeEngineMode(summaryRecord?.engineMode ?? getByPath(summaryRecord, 'macroGateState.engineMode'));
   const marketSession = normalizeMarketSession(summaryRecord?.marketSession ?? getByPath(summaryRecord, 'macroGateState.canonicalSession'));
-  const effectiveRegime = normalizeRegime(summaryRecord?.effectiveRegime ?? getByPath(summaryRecord, 'macroGateState.macroRegimeEffective') ?? getByPath(summaryRecord, 'macroGateState.regime'));
+  // 정본 macro regime 은 base(snapshotBundle = scanEvaluation.effectiveRegime SSOT)에서 가져온다.
+  // 폐기된 macroRegimeEffective(legacyRegimeNotUsedForDecision)를 재계산하면 R6_DEFENSE 오표기 → 차단.
+  const canonicalEffectiveRegime = base.effectiveRegime;
+  // FinalDecisionResolver 는 color/R6 taxonomy 만 받는다 — R3_EARLY 등 macro 레짐은 UNKNOWN 으로 정규화(가짜 R6 아님).
+  const finalDecisionRegime = normalizeRegime(canonicalEffectiveRegime);
   const inputs = gate3.results.map((result) => {
     const trace = traces.find((item) => text(item.symbol, '') === result.symbol) ?? {};
     return {
@@ -125,8 +129,8 @@ function buildGateUxBundle(): SnapshotBundle {
       entryTimingSignal: result.entryTimingSignal as FinalDecisionEntryTimingSignal,
       engineMode,
       marketSession,
-      effectiveRegime,
-      riskOverride: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' as const : 'NONE' as const,
+      effectiveRegime: finalDecisionRegime,
+      riskOverride: finalDecisionRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' as const : 'NONE' as const,
       providerHealth: {
         quote: normalizeHealth(result.priceFreshness),
         supply: normalizeHealth(getByPath(trace, 'providerHealth.supply') ?? trace.supplyConfidence),
@@ -148,7 +152,7 @@ function buildGateUxBundle(): SnapshotBundle {
     ...base,
     marketSession,
     engineMode,
-    effectiveRegime,
+    effectiveRegime: canonicalEffectiveRegime,
     gate2: gate2SummaryFromConfluence(confluence),
     gate3: gate3SummaryFromRuntimeClosure(gate3),
     execution: executionSummaryFromAudit(executionAudit),
