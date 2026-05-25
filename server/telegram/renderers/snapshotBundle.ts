@@ -212,8 +212,16 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
   const asOf = text(summary?.asOf ?? summary?.time ?? macro?.regimeSnapshotAsOf, new Date(0).toISOString());
   const engineMode = text(summary?.engineMode ?? macro?.engineMode ?? macro?.displayRegime, 'UNKNOWN').toUpperCase();
   const marketSession = text(summary?.marketSession ?? macro?.canonicalSession ?? macro?.displaySession, 'UNKNOWN').toUpperCase();
+  // 정본 effectiveRegime 은 scanEvaluation(buildCanonicalRegimeDiagnostics) 이 SSOT 다.
+  // macroRegimeEffective 는 legacyRegimeNotUsedForDecision(폐기된 R6 transition machine) 이므로
+  // 정본/회귀(regime)보다 뒤로 강등한다 — 상단 JSON 이 R6_DEFENSE 로 오표기되는 것을 막는다.
   const effectiveRegime = text(
-    summary?.effectiveRegime ?? macro?.macroRegimeEffective ?? macro?.riskOverride ?? macro?.displayRegime ?? macro?.regime,
+    summary?.effectiveRegime
+      ?? getByPath(summary, 'scanEvaluation.effectiveRegime')
+      ?? macro?.regime
+      ?? macro?.macroRegimeEffective
+      ?? macro?.riskOverride
+      ?? macro?.displayRegime,
     'UNKNOWN',
   ).toUpperCase();
   const gate1: Gate1Summary | undefined = candidates > 0 || forensic ? {
