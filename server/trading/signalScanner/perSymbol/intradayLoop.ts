@@ -11,6 +11,7 @@ import { recordAiCandidate, buildSignalId } from '../../../persistence/tradeSign
 import { buildEntryConditionScores } from '../../../learning/entryConditionScores.js';
 import { getExecutionCostConfig } from '../../executionCosts.js';
 import { fetchGateData, buildBuyTrade, createBuyTask, type LiveBuyTask } from '../../buyPipeline.js';
+import { readCandidateDartSlot } from '../injectPerSymbolDartContext.js';
 // ADR-0517 (Patch ADR-P0-SUPPLY-WIRE) — KIS investor flow → supplyProviderHealth bridge SSOT.
 import { applySupplyProviderHealthFromKisFlow } from '../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
 import { verifyStockIncremental } from '../../../data/dataVerificationIncremental.js';
@@ -249,7 +250,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             }));
           }
           if (quantity < 1) continue;  // exposure cap 0 차단 시 진입 스킵
-          const { gate: intradayGate, kisFlow: kisFlowIntraday } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
+          const { gate: intradayGate, kisFlow: kisFlowIntraday } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, readCandidateDartSlot(stock));
           // ADR-0517: KIS actual investor flow → stock.supplyProviderHealth (forensic 입력 연결).
           applySupplyProviderHealthFromKisFlow(stock as { supplyProviderHealth?: Record<string, unknown> | undefined }, kisFlowIntraday);
           const intradayGateScore = intradayGate?.gateScore ?? 0;

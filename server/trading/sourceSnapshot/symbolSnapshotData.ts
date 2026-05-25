@@ -21,6 +21,8 @@ import type {
   KisStockDailyBar,
   KisStockProgramTrade,
 } from '../../clients/kisClient/index.js';
+// ADR-0529: DART 재무 정본 슬롯 payload 는 기존 Gate2 평가 타입을 재사용한다 (별도 정본 타입 신설 0).
+import type { Gate2DartEvaluationFinancials } from '../gate2/gate2ExternalDataProvider/types.js';
 
 // ─── 수집 품질 등급 ──────────────────────────────────────────────────────────
 
@@ -104,6 +106,30 @@ export interface SymbolSupplySignal {
   source: 'KIS_API' | 'NONE';
 }
 
+// ─── DART 재무 정본 슬롯 (Gate2 펀더멘털, L2 분기 cadence) ────────────────────
+
+/**
+ * DART 재무 정본 슬롯의 데이터 cadence.
+ * L2(분기 공시) 데이터가 L1(KIS intraday) 신선도로 오인되지 않도록 명시 구분한다 (ADR-0529).
+ * QUARTERLY_CACHED — gate2ExternalCache 의 cache-first last-good-value (분기 cadence refresh).
+ * MISSING          — 정본 DART 미수집 (Gate 는 기존 read 경로로 fallback).
+ */
+export type SymbolDartCadence = 'QUARTERLY_CACHED' | 'MISSING';
+
+/**
+ * SymbolSnapshotData.dartFinancials 슬롯.
+ * payload 는 Gate2DartEvaluationFinancials 재사용 (DART 값·Gate2 판정 byte-equivalent, ADR-0529).
+ * 정본 메타(cadence/source/cacheHit/fetchedAt)로 L2 신선도를 L1 과 분리 표기한다.
+ * 불변 계약: 이 슬롯은 cache-first read 결과만 담으며, collector 가 별도 fetch 로직을 신설하지 않는다.
+ */
+export interface SymbolDartFinancialsSlot {
+  financials: Gate2DartEvaluationFinancials | null;
+  cadence: SymbolDartCadence;
+  source: 'GATE2_EXTERNAL_CACHE' | 'DART' | 'NONE';
+  cacheHit: boolean;
+  fetchedAt: string;   // 슬롯 채움 시각 (ISO 8601) — DART 공시일이 아닌 정본 read 시각
+}
+
 // ─── 종목 단위 수집 결과 컨테이너 (최상위 타입) ──────────────────────────────
 
 /**
@@ -129,6 +155,9 @@ export interface SymbolSnapshotData {
   // 파생 지표 (collector 가 dailyBars 로부터 구성, Gate 는 읽기만)
   technicalIndicators: SymbolTechnicalIndicators | null;
   supplySignal: SymbolSupplySignal | null;
+
+  // DART 재무 정본 슬롯 (L2, 분기 cadence — ADR-0529). null/미지정 = 정본 미수집 → Gate fallback.
+  dartFinancials?: SymbolDartFinancialsSlot | null;
 
   // 수집 메타
   dataQuality: SymbolDataQuality;

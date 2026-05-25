@@ -37,6 +37,7 @@ import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
+import { injectPerSymbolDartContext } from './injectPerSymbolDartContext.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
 import { buildScanEvaluationId } from './state/scanEvaluationState.js';
 
@@ -417,6 +418,26 @@ export async function runAutoSignalScan(
   } catch (error) {
     console.warn(
       '[PER_SYMBOL_PRICE_CONTEXT_INJECTION] failed before evaluation; continuing',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  // 2.6. Per-Symbol DART Context (ADR-0529 — collector 가 채운 정본 DART 슬롯 carry, fetch 0)
+  // snapshotData 부재 시 no-op → read site 가 기존 getGate2DartFinancialsForEvaluation fallback (회귀 0).
+  try {
+    injectPerSymbolDartContext(
+      candidates.buyList as Record<string, unknown>[],
+      { snapshotData: unifiedSnapshot?.perSymbol },
+    );
+    if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
+      injectPerSymbolDartContext(
+        candidates.intradayList as Record<string, unknown>[],
+        { snapshotData: unifiedSnapshot?.perSymbol },
+      );
+    }
+  } catch (error) {
+    console.warn(
+      '[PER_SYMBOL_DART_CONTEXT_INJECTION] failed before evaluation; continuing',
       error instanceof Error ? error.message : String(error),
     );
   }

@@ -20,6 +20,7 @@ import {
   resolveCandidatePositionFloor,
 } from '../../../sizing/shadowBullExposureProfile.js';
 import { calculateRegimePositionSizing } from '../../../sizing/regimePositionPolicy.js';
+import { readCandidateDartSlot } from '../../injectPerSymbolDartContext.js';
 import type { BuyListLoopContext } from '../types.js';
 
 type FetchGateDataResult = Awaited<ReturnType<typeof fetchGateData>>;
@@ -57,7 +58,7 @@ export async function preBreakoutFollowthroughBudget(
     gate: reCheckGateFollow,
     quote: reCheckQuoteFollow,
     kisFlow: kisFlowFollow,
-  } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn);
+  } = await fetchGateData(stock.code, ctx.conditionWeights, ctx.macroState?.kospi20dReturn, readCandidateDartSlot(stock));
   applySupplyProviderHealthFromKisFlow(
     stock as { supplyProviderHealth?: Record<string, unknown> | undefined },
     kisFlowFollow,
