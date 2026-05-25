@@ -31,6 +31,7 @@ export interface UnifiedMacroContext {
   sectorCycleStage: string | null;     // 'EARLY' | 'MID' | 'LATE' | 'TURNING' | null
   fomcPhase: string;                   // FomcPhase 값 (위 주석 참조)
   macroStateUpdatedAt: string | null;  // macroState.updatedAt (ISO) 또는 null(스테일)
+  kospi20dReturn: number | null;       // KOSPI 20일 수익률 (%) — rsScore 교차 집합 계산용
 }
 
 // ─── 파이프라인 경로 ─────────────────────────────────────────────────────────

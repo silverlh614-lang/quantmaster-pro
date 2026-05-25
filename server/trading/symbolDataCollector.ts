@@ -345,7 +345,59 @@ async function buildMacroContext(): Promise<UnifiedMacroContext> {
     sectorCycleStage: macro?.sectorCycleStage ?? null,
     fomcPhase: 'NORMAL',          // fomcPhase는 preflight에서 확정 — 수집기 단계 미필요
     macroStateUpdatedAt: macro?.updatedAt ?? null,
+    kospi20dReturn:
+      typeof macro?.kospi20dReturn === 'number' && Number.isFinite(macro.kospi20dReturn)
+        ? macro.kospi20dReturn
+        : null,
   };
+}
+
+// ─── 교차 집합 RS 계산 ───────────────────────────────────────────────────────
+
+/**
+ * 전 후보 수집 완료 후 cross-sectional relativeReturn20d / rsScore 를 일괄 계산한다.
+ * Object.freeze() 전에 perSymbol 을 직접 변경한다 (freeze 후에는 변경 불가).
+ *
+ * rsScore: relativeReturn20d 의 퍼센타일 순위 (0~100, 100=최상위).
+ * 유효 후보(return20d ≠ null) 가 2개 미만이면 no-op.
+ */
+function computeCrossSectionalRS(
+  perSymbol: Record<string, SymbolSnapshotData>,
+  kospi20dReturn: number | null,
+): void {
+  if (kospi20dReturn === null) return;
+
+  // return20d 가 있는 종목만 대상
+  type Entry = { code: string; relativeReturn: number };
+  const valid: Entry[] = [];
+  for (const [code, snap] of Object.entries(perSymbol)) {
+    const r20 = snap.technicalIndicators?.return20d;
+    if (typeof r20 === 'number' && Number.isFinite(r20)) {
+      valid.push({ code, relativeReturn: r20 - kospi20dReturn });
+    }
+  }
+
+  if (valid.length < 2) return;
+
+  // 오름차순 정렬 후 퍼센타일 부여
+  const sorted = [...valid].sort((a, b) => a.relativeReturn - b.relativeReturn);
+  const n = sorted.length;
+  const rankMap = new Map<string, number>(
+    sorted.map((e, i) => [e.code, Math.round((i / (n - 1)) * 100)]),
+  );
+
+  for (const { code, relativeReturn } of valid) {
+    const ti = perSymbol[code]?.technicalIndicators;
+    if (ti) {
+      ti.relativeReturn20d = parseFloat(relativeReturn.toFixed(2));
+      ti.rsScore = rankMap.get(code) ?? null;
+    }
+  }
+
+  logger.info('[SymbolDataCollector] cross-sectional RS 계산 완료', {
+    validCount: valid.length,
+    kospi20dReturn,
+  });
 }
 
 // ─── 메인 수집 함수 ──────────────────────────────────────────────────────────
@@ -422,6 +474,9 @@ export async function collectUnifiedSnapshot(
       };
     }
   }
+
+  // 교차 집합 RS 계산 — freeze 전에 실행
+  computeCrossSectionalRS(perSymbol, macroContext.kospi20dReturn);
 
   const collectorDurationMs = Math.round(performance.now() - t0);
   const completionRate =
